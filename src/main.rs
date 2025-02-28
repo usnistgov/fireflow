@@ -84,6 +84,8 @@ enum Scale {
     Linear,
 }
 
+use Scale::*;
+
 struct LinDisplay {
     lower: f32,
     upper: f32,
@@ -143,27 +145,27 @@ struct InnerParameter3_2 {
 }
 
 struct Parameter<E, L, N, X> {
-    bits: u32,                 // PnB
-    range: u32,                // PnR
-    scale: E,                  // PnE
-    shortname: N,              // PnN
-    longname: Option<String>,  // PnS
-    filter: Option<String>,    // PnF
-    wavelength: L,             // PnL
-    power: Option<u32>,        // PnO
-    detector: Option<String>,  // PnD
-    perc_emitted: Option<u32>, // PnP (TODO deprecated in 3.2, factor out)
-    voltage: Option<f32>,      // PnV
+    bits: u32,                     // PnB
+    range: u32,                    // PnR
+    scale: E,                      // PnE
+    shortname: N,                  // PnN
+    longname: Option<String>,      // PnS
+    filter: Option<String>,        // PnF
+    wavelength: L,                 // PnL
+    power: Option<u32>,            // PnO
+    detector_type: Option<String>, // PnD
+    percent_emitted: Option<u32>,  // PnP (TODO deprecated in 3.2, factor out)
+    detector_voltage: Option<f32>, // PnV
     specific: X,
 }
 
-type Wavelength2_0 = Option<f32>;
-type Wavelength3_1 = Vec<f32>; // TODO this should be non-empty
+type Wavelength2_0 = Option<u32>;
+type Wavelength3_1 = Vec<u32>; // TODO this should be non-empty
 
 trait ParameterFromKeywords: Sized {
     // fn kw_to_param(kw: &str) -> Self;
 
-    fn from_kws(kws: &mut Keywords) -> (Vec<Self>, &mut Keywords, Keywords) {
+    fn from_kws(kws: &mut Keywords) -> (Vec<Self>, &mut Keywords, KeywordErrors) {
         unimplemented!()
     }
 }
@@ -175,23 +177,48 @@ type Parameter3_2 = Parameter<Scale, Wavelength3_1, String, InnerParameter3_2>;
 
 enum LookupResult<V> {
     Passing(V),
-    Error(String, String, &'static str),
+    Error(String, String, String),
     NotFound,
 }
 
-fn lookup_int(kws: &mut Keywords, param: &'static str, n: u32) -> LookupResult<u32> {
+impl<V> LookupResult<V> {
+    fn to_option(self) -> LookupResult<Option<V>> {
+        match self {
+            Passing(x) => Passing(Some(x)),
+            NotFound => Passing(None),
+            Error(k, v, e) => Error(k, v, e),
+        }
+    }
+    fn to_error(self) -> Option<(String, (String, String))> {
+        match self {
+            Passing(_) => None,
+            NotFound => None,
+            Error(k, v, e) => Some((k, (v, e))),
+        }
+    }
+}
+
+use LookupResult::*;
+
+fn lookup_int<'a>(kws: &mut Keywords, param: &'static str, n: u32) -> LookupResult<u32> {
     let k = format!("P{}{}", n, param);
-    kws.remove(&k)
-        .map_or(LookupResult::NotFound, |s| match s.parse() {
-            Ok(x) => LookupResult::Passing(x),
-            _ => LookupResult::Error(k, s, "not a valid integer"),
-        })
+    kws.remove(&k).map_or(NotFound, |s| match s.parse() {
+        Ok(x) => Passing(x),
+        _ => Error(k, s, String::from("not a valid integer")),
+    })
+}
+
+fn lookup_float<'a>(kws: &mut Keywords, param: &'static str, n: u32) -> LookupResult<f32> {
+    let k = format!("P{}{}", n, param);
+    kws.remove(&k).map_or(NotFound, |s| match s.parse() {
+        Ok(x) => Passing(x),
+        _ => Error(k, s, String::from("not a valid float")),
+    })
 }
 
 fn lookup_str(kws: &mut Keywords, param: &'static str, n: u32) -> LookupResult<String> {
     let k = format!("P{}{}", n, param);
-    kws.remove(&k)
-        .map_or(LookupResult::NotFound, |s| LookupResult::Passing(s))
+    kws.remove(&k).map_or(NotFound, |s| Passing(s))
 }
 
 // TODO check that this is in multiples of 8 for relevant specs
@@ -203,6 +230,39 @@ fn lookup_range(kws: &mut Keywords, n: u32) -> LookupResult<u32> {
     lookup_int(kws, "R", n)
 }
 
+// TODO need a vector version of this for 3.1+
+fn lookup_wavelength(kws: &mut Keywords, n: u32) -> LookupResult<u32> {
+    lookup_int(kws, "L", n)
+}
+
+fn lookup_power(kws: &mut Keywords, n: u32) -> LookupResult<u32> {
+    lookup_int(kws, "O", n)
+}
+
+fn lookup_detector_type(kws: &mut Keywords, n: u32) -> LookupResult<String> {
+    lookup_str(kws, "T", n)
+}
+
+fn lookup_shortname(kws: &mut Keywords, n: u32) -> LookupResult<String> {
+    lookup_str(kws, "N", n)
+}
+
+fn lookup_longname(kws: &mut Keywords, n: u32) -> LookupResult<String> {
+    lookup_str(kws, "S", n)
+}
+
+fn lookup_filter(kws: &mut Keywords, n: u32) -> LookupResult<String> {
+    lookup_str(kws, "F", n)
+}
+
+fn lookup_percent_emitted(kws: &mut Keywords, n: u32) -> LookupResult<u32> {
+    lookup_int(kws, "P", n)
+}
+
+fn lookup_detector_voltage(kws: &mut Keywords, n: u32) -> LookupResult<f32> {
+    lookup_float(kws, "V", n)
+}
+
 fn lookup_scale(kws: &mut Keywords, n: u32) -> LookupResult<Scale> {
     let k = format!("P{}E", n);
     match kws.remove(&k) {
@@ -210,49 +270,89 @@ fn lookup_scale(kws: &mut Keywords, n: u32) -> LookupResult<Scale> {
             let v: Vec<&str> = s.split(",").collect();
             match v[..] {
                 [ds, os] => match (ds.parse(), os.parse()) {
-                    (Ok(decades), Ok(offset)) => {
-                        let scale = if (decades == 0.0) & (offset == 0.0) {
-                            Scale::Linear
-                        } else {
-                            Scale::Log(LogScale { decades, offset })
-                        };
-                        LookupResult::Passing(scale)
-                    }
-                    _ => LookupResult::Error(k, s, "invalid floats"),
+                    (Ok(0.0), Ok(0.0)) => Passing(Linear),
+                    (Ok(decades), Ok(offset)) => Passing(Log(LogScale { decades, offset })),
+                    _ => Error(k, s, String::from("invalid floats")),
                 },
-                _ => LookupResult::Error(k, s, "too many fields"),
+                _ => Error(k, s, String::from("too many fields")),
             }
         }
-        _ => LookupResult::NotFound,
+        _ => NotFound,
     }
 }
 
 impl ParameterFromKeywords for Parameter2_0 {
-    fn from_kws(kws: &mut Keywords) -> (Vec<Parameter2_0>, &mut Keywords, Keywords) {
+    fn from_kws(kws: &mut Keywords) -> (Vec<Parameter2_0>, &mut Keywords, KeywordErrors) {
         let mut ps: Vec<Parameter2_0> = vec![];
-        let mut errors: Keywords = HashMap::new();
+        let mut errors: KeywordErrors = HashMap::new();
         let mut n = 1;
         loop {
-            let pnb = lookup_bits(kws, n);
-            let pnr = lookup_range(kws, n);
-            let pne = lookup_scale(kws, n);
-            let pnn = lookup_str(kws, "N", n);
-            let pns = lookup_str(kws, "S", n);
-            let pnf = lookup_str(kws, "F", n);
-            match (pnb, pnr) {
-                (Some(sbits), Some(srange)) => {
-                    let maybe_bits = sbits.parse();
-                    let maybe_range = srange.parse();
-                    let maybe_shortname = kws.remove("P{}N", n);
-                    match (maybe_bits, maybe_range) {
-                        (Ok(bits), Ok(range)) => ps.push(Parameter {
-                            bits: bits,
-                            range: range,
-                        }),
-                        _ => unimplemented!(),
-                    };
+            // lookup bits since this should be present in all versions, if not
+            // present then consider the previous index to be the last parameter
+            // index
+            match lookup_bits(kws, n) {
+                Passing(bits) => {
+                    let pnr = lookup_range(kws, n);
+                    let pne = lookup_scale(kws, n).to_option();
+                    let pnn = lookup_shortname(kws, n).to_option();
+                    let pns = lookup_longname(kws, n).to_option();
+                    let pnf = lookup_filter(kws, n).to_option();
+                    let pnl = lookup_wavelength(kws, n).to_option();
+                    let pno = lookup_power(kws, n).to_option();
+                    let pnt = lookup_detector_type(kws, n).to_option();
+                    let pnp = lookup_percent_emitted(kws, n).to_option();
+                    let pnv = lookup_detector_voltage(kws, n).to_option();
+                    match (pnr, pne, pnn, pns, pnf, pnl, pno, pnt, pnp, pnv) {
+                        (
+                            Passing(range),
+                            Passing(scale),
+                            Passing(shortname),
+                            Passing(longname),
+                            Passing(filter),
+                            Passing(wavelength),
+                            Passing(power),
+                            Passing(detector_type),
+                            Passing(percent_emitted),
+                            Passing(detector_voltage),
+                        ) => {
+                            let p = Parameter {
+                                bits,
+                                range,
+                                scale,
+                                shortname,
+                                longname,
+                                filter,
+                                wavelength,
+                                power,
+                                detector_type,
+                                percent_emitted,
+                                detector_voltage,
+                                specific: (),
+                            };
+                            ps.push(p);
+                        }
+                        (r, e, n, s, f, l, o, t, p, v) => {
+                            let es = [
+                                r.to_error(),
+                                e.to_error(),
+                                n.to_error(),
+                                s.to_error(),
+                                f.to_error(),
+                                l.to_error(),
+                                o.to_error(),
+                                t.to_error(),
+                                p.to_error(),
+                                v.to_error(),
+                            ];
+                            errors.extend(es.into_iter().flatten());
+                        }
+                    }
                 }
-                _ => return (ps, kws, errors),
+                NotFound => return (ps, kws, errors),
+                Error(k, v, e) => {
+                    errors.insert(k, (v, e));
+                    return (ps, kws, errors);
+                }
             }
             n = n + 1;
         }
@@ -432,6 +532,7 @@ type TEXT3_1 = TEXT<StdText3_1>;
 type TEXT3_2 = TEXT<StdText3_2>;
 
 type Keywords = HashMap<String, String>;
+type KeywordErrors = HashMap<String, (String, String)>;
 
 fn split_nonstandard(kws: Keywords) -> (Keywords, Keywords) {
     unimplemented!()

@@ -1,7 +1,7 @@
 // TODO gating parameters not added (yet)
 
 use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
-use regex::Regex;
+// use regex::Regex;
 use std::collections::{HashMap, HashSet};
 
 struct Bounds {
@@ -719,10 +719,10 @@ struct MiscText3_0 {
     unicode: Unicode,
 }
 
-type StdText2_0 = StdText<RequiredCommon2_0, OptionalCommon2_0, Parameter2_0, ()>;
-type StdText3_0 = StdText<RequiredCommon3_0, OptionalCommon3_0, Parameter3_0, MiscText3_0>;
-type StdText3_1 = StdText<RequiredCommon3_1, OptionalCommon3_1, Parameter3_1, ()>;
-type StdText3_2 = StdText<RequiredCommon3_2, OptionalCommon3_2, Parameter3_2, ()>;
+type StdText2_0 = StdText<OptionalCommon2_0, Parameter2_0, RequiredCommon2_0, ()>;
+type StdText3_0 = StdText<OptionalCommon3_0, Parameter3_0, RequiredCommon3_0, MiscText3_0>;
+type StdText3_1 = StdText<OptionalCommon3_1, Parameter3_1, RequiredCommon3_1, ()>;
+type StdText3_2 = StdText<OptionalCommon3_2, Parameter3_2, RequiredCommon3_2, ()>;
 
 struct StdTextResult<T> {
     text: T,
@@ -730,10 +730,73 @@ struct StdTextResult<T> {
     nonstandard: Keywords,
 }
 
-impl StdText2_0 {
-    fn from_kws(kws: Keywords) -> StdTextResult<StdText2_0> {
-        unimplemented!()
-        // return StdTextResult(text = 0, errors = 1, nonstandard = 2);
+trait OptionalFromKeywords {
+    fn from_kws(st: &mut KwState) -> Self;
+}
+
+impl OptionalFromKeywords for OptionalCommon2_0 {
+    fn from_kws(_: &mut KwState) -> OptionalCommon2_0 {
+        unimplemented!();
+    }
+}
+
+trait RequiredFromKeywords {
+    fn from_kws(st: &mut KwState) -> Self;
+}
+
+impl RequiredFromKeywords for RequiredCommon2_0 {
+    fn from_kws(_: &mut KwState) -> RequiredCommon2_0 {
+        unimplemented!();
+    }
+}
+
+trait MiscFromKeywords {
+    fn from_kws(st: &mut KwState) -> Self;
+}
+
+// TODO this seems lame...
+impl MiscFromKeywords for () {
+    fn from_kws(_: &mut KwState) -> () {
+        ()
+    }
+}
+
+trait StdTextFromKeywords: Sized {
+    type O: OptionalFromKeywords;
+    type P: ParameterFromKeywords;
+    type R: RequiredFromKeywords;
+    type X: MiscFromKeywords;
+
+    fn build(r: Self::R, o: Self::O, p: Vec<Self::P>, x: Self::X) -> Self;
+
+    fn from_kws(st: &mut KwState) -> Self {
+        let required = Self::R::from_kws(st);
+        let optional = Self::O::from_kws(st);
+        let parameters = Self::P::from_kws(st);
+        let misc = Self::X::from_kws(st);
+        Self::build(required, optional, parameters, misc)
+    }
+}
+
+impl<
+        O: OptionalFromKeywords,
+        P: ParameterFromKeywords,
+        R: RequiredFromKeywords,
+        X: MiscFromKeywords,
+    > StdTextFromKeywords for StdText<O, P, R, X>
+{
+    type O = O;
+    type P = P;
+    type R = R;
+    type X = X;
+
+    fn build(required: R, optional: O, parameters: Vec<P>, misc: X) -> StdText<O, P, R, X> {
+        StdText {
+            required,
+            optional,
+            parameters,
+            misc,
+        }
     }
 }
 
@@ -741,7 +804,8 @@ struct TEXT<S> {
     // TODO add the offsets here as well? offsets are needed before parsing
     // everything else
     standard: S,
-    standard_errors: HashMap<String, String>,
+    standard_missing: HashSet<String>,
+    standard_errors: HashMap<String, KwError>,
     nonstandard: HashMap<String, String>,
     deviant: HashMap<String, String>,
 }
@@ -755,9 +819,14 @@ type Keywords = HashMap<String, String>;
 type KeywordErrors = HashMap<String, (String, String)>;
 type MissingKeywords = HashSet<String>;
 
+struct KwError {
+    value: String,
+    msg: &'static str,
+}
+
 enum KwStatus {
     Raw(String),
-    Error(String, String),
+    Error(KwError),
     Missing,
 }
 
@@ -781,8 +850,10 @@ impl KwState {
                 Ok(x) => Some(x),
                 Err(e) => {
                     // TODO string things seems lame
-                    self.keywords
-                        .insert(String::from(k), KwStatus::Error(v, String::from(e)));
+                    self.keywords.insert(
+                        String::from(k),
+                        KwStatus::Error(KwError { value: v, msg: e }),
+                    );
                     None
                 }
             },
@@ -803,8 +874,10 @@ impl KwState {
             Some(KwStatus::Raw(v)) => match f(&v) {
                 Ok(x) => Some(Some(x)),
                 Err(e) => {
-                    self.keywords
-                        .insert(String::from(k), KwStatus::Error(v, String::from(e)));
+                    self.keywords.insert(
+                        String::from(k),
+                        KwStatus::Error(KwError { value: v, msg: e }),
+                    );
                     None
                 }
             },
@@ -813,23 +886,33 @@ impl KwState {
             None => Some(None),
         }
     }
-}
 
-fn split_nonstandard(kws: Keywords) -> (Keywords, Keywords) {
-    unimplemented!()
-}
-
-impl<T> TEXT<T> {
-    fn from_kws(kws: Keywords) -> TEXT<T> {
-        let res = T::from_kws(kws);
-        let (ns, dv) = split_nonstandard(res.nonstandard);
-        return TEXT {
-            standard: res.text,
-            standard_errors: res.errors,
-            nonstandard: ns,
-            deviant: dv,
-        };
+    fn finalize(
+        &self,
+    ) -> (
+        HashMap<String, String>,
+        HashMap<String, String>,
+        HashSet<String>,
+        HashMap<String, KwError>,
+    ) {
+        unimplemented!();
     }
+}
+
+fn from_kws<T: StdTextFromKeywords>(st: &mut KwState) -> TEXT<T> {
+    let standard = T::from_kws(st);
+    let (nonstandard, deviant, standard_missing, standard_errors) = st.finalize();
+    return TEXT {
+        standard,
+        standard_missing,
+        standard_errors,
+        nonstandard,
+        deviant,
+    };
+}
+
+fn test(st: &mut KwState) -> TEXT2_0 {
+    from_kws(st)
 }
 
 // struct Correction {

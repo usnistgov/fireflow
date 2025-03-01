@@ -106,16 +106,6 @@ struct Calibration {
     unit: String,
 }
 
-struct InnerParameter3_0 {
-    gain: Option<f32>,
-}
-
-struct InnerParameter3_1 {
-    calibration: Option<Calibration>,
-    display: Option<Display>,
-    older: InnerParameter3_0,
-}
-
 enum MeasurementType {
     ForwardScatter,
     SideScatter,
@@ -134,24 +124,48 @@ enum Feature {
     Height,
 }
 
+struct InnerParameter2_0 {
+    scale: Option<Scale>,      // PnE
+    wavelength: Option<u32>,   // PnL
+    shortname: Option<String>, // PnN
+}
+
+struct InnerParameter3_0 {
+    scale: Scale,              // PnE
+    wavelength: Option<u32>,   // PnL
+    shortname: Option<String>, // PnN
+    gain: Option<f32>,         // PnG
+}
+
+struct InnerParameter3_1 {
+    scale: Scale,         // PnE
+    wavelength: Vec<u32>, // PnL
+    shortname: String,    // PnN
+    gain: Option<f32>,    // PnG
+    calibration: Option<Calibration>,
+    display: Option<Display>,
+}
+
 struct InnerParameter3_2 {
+    scale: Scale,         // PnE
+    wavelength: Vec<u32>, // PnL
+    shortname: String,    // PnN
+    gain: Option<f32>,    // PnG
+    calibration: Option<Calibration>,
+    display: Option<Display>,
     analyte: Option<String>,
     feature: Option<Feature>,
     measurement_type: Option<MeasurementType>,
     tag: Option<String>,
     detector_name: Option<String>,
     datatype: Option<NumTypes>,
-    older: InnerParameter3_1,
 }
 
-struct Parameter<E, L, N, X> {
+struct Parameter<X> {
     bits: u32,                     // PnB
     range: u32,                    // PnR
-    scale: E,                      // PnE
-    shortname: N,                  // PnN
     longname: Option<String>,      // PnS
     filter: Option<String>,        // PnF
-    wavelength: L,                 // PnL
     power: Option<u32>,            // PnO
     detector_type: Option<String>, // PnD
     percent_emitted: Option<u32>,  // PnP (TODO deprecated in 3.2, factor out)
@@ -159,13 +173,13 @@ struct Parameter<E, L, N, X> {
     specific: X,
 }
 
-type Wavelength2_0 = Option<u32>;
-type Wavelength3_1 = Vec<u32>;
+// type Wavelength2_0 = Option<u32>;
+// type Wavelength3_1 = Vec<u32>;
 
 trait ParameterFromKeywords: Sized {
-    fn build_parameter(st: &mut KwState, n: u32, bits: u32) -> Option<Self>;
+    fn build_parameter(st: &mut KwState, n: u32) -> Option<Self>;
 
-    fn from_kws(st: &mut KwState) -> Vec<Self> {
+    fn from_kws(st: &mut KwState) -> Vec<Parameter<Self>> {
         let mut ps = vec![];
         let mut n = 1;
         loop {
@@ -173,10 +187,42 @@ trait ParameterFromKeywords: Sized {
             // present then consider the previous index to be the last parameter
             // index
             match st.lookup_param_bits(n) {
-                Some(bits) => match Self::build_parameter(st, n, bits) {
-                    Some(p) => ps.push(p),
-                    None => break,
-                },
+                Some(bits) => {
+                    if let (
+                        Some(range),
+                        Some(longname),
+                        Some(filter),
+                        Some(power),
+                        Some(detector_type),
+                        Some(percent_emitted),
+                        Some(detector_voltage),
+                        Some(specific),
+                    ) = (
+                        st.lookup_param_range(n),
+                        st.lookup_param_longname(n),
+                        st.lookup_param_filter(n),
+                        st.lookup_param_power(n),
+                        st.lookup_param_detector_type(n),
+                        st.lookup_param_percent_emitted(n),
+                        st.lookup_param_detector_voltage(n),
+                        Self::build_parameter(st, n),
+                    ) {
+                        let p = Parameter {
+                            bits,
+                            range,
+                            longname,
+                            filter,
+                            power,
+                            detector_type,
+                            percent_emitted,
+                            detector_voltage,
+                            specific,
+                        };
+                        ps.push(p);
+                    } else {
+                        break;
+                    }
+                }
                 None => break,
             };
             n = n + 1
@@ -185,10 +231,10 @@ trait ParameterFromKeywords: Sized {
     }
 }
 
-type Parameter2_0 = Parameter<Option<Scale>, Wavelength2_0, Option<String>, ()>;
-type Parameter3_0 = Parameter<Scale, Wavelength2_0, Option<String>, InnerParameter3_0>;
-type Parameter3_1 = Parameter<Scale, Wavelength3_1, String, InnerParameter3_1>;
-type Parameter3_2 = Parameter<Scale, Wavelength3_1, String, InnerParameter3_2>;
+type Parameter2_0 = Parameter<InnerParameter2_0>;
+type Parameter3_0 = Parameter<InnerParameter3_0>;
+type Parameter3_1 = Parameter<InnerParameter3_1>;
+type Parameter3_2 = Parameter<InnerParameter3_2>;
 
 fn format_kw(kw: &str) -> String {
     format!("${}", kw.to_ascii_uppercase())
@@ -222,44 +268,17 @@ fn parse_scale(s: &str) -> Result<Scale, &'static str> {
     }
 }
 
-impl ParameterFromKeywords for Parameter2_0 {
-    fn build_parameter(st: &mut KwState, n: u32, bits: u32) -> Option<Parameter2_0> {
-        if let (
-            Some(range),
-            Some(scale),
-            Some(shortname),
-            Some(longname),
-            Some(filter),
-            Some(wavelength),
-            Some(power),
-            Some(detector_type),
-            Some(percent_emitted),
-            Some(detector_voltage),
-        ) = (
-            st.lookup_param_range(n),
+impl ParameterFromKeywords for InnerParameter2_0 {
+    fn build_parameter(st: &mut KwState, n: u32) -> Option<InnerParameter2_0> {
+        if let (Some(scale), Some(shortname), Some(wavelength)) = (
             st.lookup_param_scale_opt(n),
             st.lookup_param_shortname_opt(n),
-            st.lookup_param_longname(n),
-            st.lookup_param_filter(n),
             st.lookup_param_wavelength(n),
-            st.lookup_param_power(n),
-            st.lookup_param_detector_type(n),
-            st.lookup_param_percent_emitted(n),
-            st.lookup_param_detector_voltage(n),
         ) {
-            Some(Parameter {
-                bits,
-                range,
+            Some(InnerParameter2_0 {
                 scale,
                 shortname,
-                longname,
-                filter,
                 wavelength,
-                power,
-                detector_type,
-                percent_emitted,
-                detector_voltage,
-                specific: (),
             })
         } else {
             None
@@ -267,46 +286,19 @@ impl ParameterFromKeywords for Parameter2_0 {
     }
 }
 
-impl ParameterFromKeywords for Parameter3_0 {
-    fn build_parameter(st: &mut KwState, n: u32, bits: u32) -> Option<Parameter3_0> {
-        if let (
-            Some(range),
-            Some(scale),
-            Some(shortname),
-            Some(longname),
-            Some(filter),
-            Some(wavelength),
-            Some(power),
-            Some(detector_type),
-            Some(percent_emitted),
-            Some(detector_voltage),
-            Some(gain),
-        ) = (
-            st.lookup_param_range(n),
+impl ParameterFromKeywords for InnerParameter3_0 {
+    fn build_parameter(st: &mut KwState, n: u32) -> Option<InnerParameter3_0> {
+        if let (Some(scale), Some(shortname), Some(wavelength), Some(gain)) = (
             st.lookup_param_scale_req(n),
             st.lookup_param_shortname_opt(n),
-            st.lookup_param_longname(n),
-            st.lookup_param_filter(n),
             st.lookup_param_wavelength(n),
-            st.lookup_param_power(n),
-            st.lookup_param_detector_type(n),
-            st.lookup_param_percent_emitted(n),
-            st.lookup_param_detector_voltage(n),
             st.lookup_param_gain(n),
         ) {
-            Some(Parameter {
-                bits,
-                range,
+            Some(InnerParameter3_0 {
+                gain,
                 scale,
                 shortname,
-                longname,
-                filter,
                 wavelength,
-                power,
-                detector_type,
-                percent_emitted,
-                detector_voltage,
-                specific: InnerParameter3_0 { gain },
             })
         } else {
             None
@@ -314,54 +306,30 @@ impl ParameterFromKeywords for Parameter3_0 {
     }
 }
 
-impl ParameterFromKeywords for Parameter3_1 {
-    fn build_parameter(st: &mut KwState, n: u32, bits: u32) -> Option<Parameter3_1> {
+impl ParameterFromKeywords for InnerParameter3_1 {
+    fn build_parameter(st: &mut KwState, n: u32) -> Option<InnerParameter3_1> {
         if let (
-            Some(range),
             Some(scale),
             Some(shortname),
-            Some(longname),
-            Some(filter),
             Some(wavelength),
-            Some(power),
-            Some(detector_type),
-            Some(percent_emitted),
-            Some(detector_voltage),
             Some(gain),
             Some(calibration),
             Some(display),
         ) = (
-            st.lookup_param_range(n),
             st.lookup_param_scale_req(n),
             st.lookup_param_shortname_req(n),
-            st.lookup_param_longname(n),
-            st.lookup_param_filter(n),
             st.lookup_param_wavelengths(n),
-            st.lookup_param_power(n),
-            st.lookup_param_detector_type(n),
-            st.lookup_param_percent_emitted(n),
-            st.lookup_param_detector_voltage(n),
             st.lookup_param_gain(n),
             st.lookup_param_calibration(n),
             st.lookup_param_display(n),
         ) {
-            Some(Parameter {
-                bits,
-                range,
+            Some(InnerParameter3_1 {
+                calibration,
                 scale,
-                shortname,
-                longname,
-                filter,
+                display,
                 wavelength,
-                power,
-                detector_type,
-                percent_emitted,
-                detector_voltage,
-                specific: InnerParameter3_1 {
-                    calibration,
-                    display,
-                    older: InnerParameter3_0 { gain },
-                },
+                shortname,
+                gain,
             })
         } else {
             None
@@ -369,19 +337,12 @@ impl ParameterFromKeywords for Parameter3_1 {
     }
 }
 
-impl ParameterFromKeywords for Parameter3_2 {
-    fn build_parameter(st: &mut KwState, n: u32, bits: u32) -> Option<Parameter3_2> {
+impl ParameterFromKeywords for InnerParameter3_2 {
+    fn build_parameter(st: &mut KwState, n: u32) -> Option<InnerParameter3_2> {
         if let (
-            Some(range),
             Some(scale),
             Some(shortname),
-            Some(longname),
-            Some(filter),
             Some(wavelength),
-            Some(power),
-            Some(detector_type),
-            Some(percent_emitted),
-            Some(detector_voltage),
             Some(gain),
             Some(calibration),
             Some(display),
@@ -392,16 +353,9 @@ impl ParameterFromKeywords for Parameter3_2 {
             Some(feature),
             Some(analyte),
         ) = (
-            st.lookup_param_range(n),
             st.lookup_param_scale_req(n),
             st.lookup_param_shortname_req(n),
-            st.lookup_param_longname(n),
-            st.lookup_param_filter(n),
             st.lookup_param_wavelengths(n),
-            st.lookup_param_power(n),
-            st.lookup_param_detector_type(n),
-            st.lookup_param_percent_emitted(n),
-            st.lookup_param_detector_voltage(n),
             st.lookup_param_gain(n),
             st.lookup_param_calibration(n),
             st.lookup_param_display(n),
@@ -412,31 +366,19 @@ impl ParameterFromKeywords for Parameter3_2 {
             st.lookup_param_feature(n),
             st.lookup_param_analyte(n),
         ) {
-            Some(Parameter {
-                bits,
-                range,
+            Some(InnerParameter3_2 {
                 scale,
                 shortname,
-                longname,
-                filter,
                 wavelength,
-                power,
-                detector_type,
-                percent_emitted,
-                detector_voltage,
-                specific: InnerParameter3_2 {
-                    datatype,
-                    detector_name,
-                    tag,
-                    measurement_type,
-                    feature,
-                    analyte,
-                    older: InnerParameter3_1 {
-                        calibration,
-                        display,
-                        older: InnerParameter3_0 { gain },
-                    },
-                },
+                datatype,
+                detector_name,
+                tag,
+                measurement_type,
+                feature,
+                analyte,
+                calibration,
+                display,
+                gain,
             })
         } else {
             None
@@ -560,7 +502,7 @@ type RequiredCommon3_2 = RequiredCommon<Endianness, Cyt, NumTypes, (), Parameter
 struct StdText<O, P, R, X> {
     required: R,
     optional: O,
-    parameters: Vec<P>,
+    parameters: Vec<Parameter<P>>,
     // random place for deprecated kws that I don't feel like putting in the
     // main required/optional structs
     misc: X,
@@ -618,7 +560,7 @@ trait StdTextFromKeywords: Sized {
     type R: RequiredFromKeywords;
     type X: MiscFromKeywords;
 
-    fn build(r: Self::R, o: Self::O, p: Vec<Self::P>, x: Self::X) -> Self;
+    fn build(r: Self::R, o: Self::O, p: Vec<Parameter<Self::P>>, x: Self::X) -> Self;
 
     fn from_kws(st: &mut KwState) -> Self {
         let required = Self::R::from_kws(st);
@@ -641,7 +583,12 @@ impl<
     type R = R;
     type X = X;
 
-    fn build(required: R, optional: O, parameters: Vec<P>, misc: X) -> StdText<O, P, R, X> {
+    fn build(
+        required: R,
+        optional: O,
+        parameters: Vec<Parameter<P>>,
+        misc: X,
+    ) -> StdText<O, P, R, X> {
         StdText {
             required,
             optional,
@@ -924,9 +871,9 @@ fn from_kws<T: StdTextFromKeywords>(st: &mut KwState) -> TEXT<T> {
     };
 }
 
-fn test(st: &mut KwState) -> TEXT2_0 {
-    from_kws(st)
-}
+// fn test(st: &mut KwState) -> TEXT2_0 {
+//     from_kws(st)
+// }
 
 // struct Correction {
 //     from: u32,

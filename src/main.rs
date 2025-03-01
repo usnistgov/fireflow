@@ -422,7 +422,59 @@ type CytSN = Option<String>;
 
 type Vol = Option<f32>;
 
-struct OptionalCommon<C, I, M, P, S, T, U, V> {
+struct InnerMetadata2_0 {
+    tot: Option<u32>,
+    mode: Mode,
+    byteord: ByteOrd,
+    datatype: AlphaNumTypes,
+    cyt: Option<String>,
+    timestamps: Timestamps2_0, // BTIM/ETIM/DATE
+}
+
+struct InnerMetadata3_0 {
+    tot: u32,
+    mode: Mode,
+    byteord: ByteOrd,
+    timestamps: Timestamps2_0, // BTIM/ETIM/DATE
+    cyt: Option<String>,
+    cytsn: CytSN,
+    timestep: Timestep,
+}
+
+struct InnerMetadata3_1 {
+    tot: u32,
+    mode: Mode,
+    byteord: Endianness,
+    timestamps: Timestamps2_0, // BTIM/ETIM/DATE
+    cyt: Option<String>,
+    cytsn: CytSN,
+    timestep: Timestep,
+    modification: ModificationData,
+    plate: PlateData,
+    vol: Vol,
+    unicode: Unicode,
+}
+
+struct InnerMetadata3_2 {
+    tot: u32,
+    byteord: Endianness,
+    timestamps: Timestamps3_2, // DATETIMESTART/END
+    cyt: String,
+    cytsn: CytSN,
+    timestep: Timestep,
+    modification: ModificationData,
+    plate: PlateData,
+    vol: Vol,
+    carrier: CarrierData,
+    unstained: UnstainedData,
+}
+
+struct Metadata<X> {
+    par: u32,
+    nextdata: u32,
+    datatype: AlphaNumTypes,
+    // an abstraction for various kinds of spillover/comp matrices
+    spillover: Spillover,
     abrt: Option<u32>,
     com: Option<String>,
     cells: Option<String>,
@@ -436,47 +488,69 @@ struct OptionalCommon<C, I, M, P, S, T, U, V> {
     src: Option<String>,
     sys: Option<String>,
     tr: Option<Trigger>,
-    carrier: C,
-    timestamps: I,
-    modified: M,
-    plate: P,
-    cytsn: S,
-    timestep: T,
-    unstained: U,
-    vol: V,
+    specific: X,
 }
 
-type OptionalCommon2_0 = OptionalCommon<(), Timestamps2_0, (), (), (), (), (), ()>;
+type Metadata2_0 = Metadata<InnerMetadata2_0>;
+type Metadata3_0 = Metadata<InnerMetadata3_0>;
+type Metadata3_1 = Metadata<InnerMetadata3_1>;
+type Metadata3_2 = Metadata<InnerMetadata3_2>;
 
-type OptionalCommon3_0 = OptionalCommon<(), Timestamps2_0, (), (), CytSN, Timestep, (), ()>;
+// struct OptionalCommon<C, I, M, P, S, T, U, V> {
+//     abrt: Option<u32>,
+//     com: Option<String>,
+//     cells: Option<String>,
+//     exp: Option<String>,
+//     fil: Option<String>,
+//     inst: Option<String>,
+//     lost: Option<u32>,
+//     op: Option<String>,
+//     proj: Option<String>,
+//     smno: Option<String>,
+//     src: Option<String>,
+//     sys: Option<String>,
+//     tr: Option<Trigger>,
+//     carrier: C,
+//     timestamps: I,
+//     modified: M,
+//     plate: P,
+//     cytsn: S,
+//     timestep: T,
+//     unstained: U,
+//     vol: V,
+// }
 
-type OptionalCommon3_1 =
-    OptionalCommon<(), Timestamps2_0, ModificationData, PlateData, CytSN, Timestep, (), Vol>;
+// type OptionalCommon2_0 = OptionalCommon<(), Timestamps2_0, (), (), (), (), (), ()>;
 
-type OptionalCommon3_2 = OptionalCommon<
-    CarrierData,
-    Timestamps3_2,
-    ModificationData,
-    PlateData,
-    CytSN,
-    Timestep,
-    UnstainedData,
-    Vol,
->;
+// type OptionalCommon3_0 = OptionalCommon<(), Timestamps2_0, (), (), CytSN, Timestep, (), ()>;
+
+// type OptionalCommon3_1 =
+//     OptionalCommon<(), Timestamps2_0, ModificationData, PlateData, CytSN, Timestep, (), Vol>;
+
+// type OptionalCommon3_2 = OptionalCommon<
+//     CarrierData,
+//     Timestamps3_2,
+//     ModificationData,
+//     PlateData,
+//     CytSN,
+//     Timestep,
+//     UnstainedData,
+//     Vol,
+// >;
 
 struct Spillover {} // TODO, can probably get away with using a matrix for this
 
-struct RequiredCommon<B, C, D, M, P, T> {
-    par: u32,
-    tot: T, // weirdly not required in 2.0
-    mode: M,
-    byteord: B,
-    datatype: D,
-    nextdata: u32,
-    cyt: C,
-    spillover: Spillover,
-    parameters: Vec<P>,
-}
+// struct RequiredCommon<B, C, D, M, P, T> {
+//     par: u32,
+//     tot: T, // weirdly not required in 2.0
+//     mode: M,
+//     byteord: B,
+//     datatype: D,
+//     nextdata: u32,
+//     cyt: C,
+//     spillover: Spillover,
+//     parameters: Vec<P>,
+// }
 
 struct Cyt(String);
 
@@ -488,34 +562,26 @@ enum Mode {
     Correlated,
 }
 
-type RequiredCommon2_0 =
-    RequiredCommon<ByteOrd, Option<Cyt>, AlphaNumTypes, Mode, Parameter2_0, Option<Tot>>;
+// type RequiredCommon2_0 =
+//     RequiredCommon<ByteOrd, Option<Cyt>, AlphaNumTypes, Mode, Parameter2_0, Option<Tot>>;
 
-type RequiredCommon3_0 =
-    RequiredCommon<ByteOrd, Option<Cyt>, AlphaNumTypes, Mode, Parameter3_0, Tot>;
+// type RequiredCommon3_0 =
+//     RequiredCommon<ByteOrd, Option<Cyt>, AlphaNumTypes, Mode, Parameter3_0, Tot>;
 
-type RequiredCommon3_1 =
-    RequiredCommon<Endianness, Option<Cyt>, AlphaNumTypes, Mode, Parameter3_1, Tot>;
+// type RequiredCommon3_1 =
+//     RequiredCommon<Endianness, Option<Cyt>, AlphaNumTypes, Mode, Parameter3_1, Tot>;
 
-type RequiredCommon3_2 = RequiredCommon<Endianness, Cyt, NumTypes, (), Parameter3_2, Tot>;
+// type RequiredCommon3_2 = RequiredCommon<Endianness, Cyt, NumTypes, (), Parameter3_2, Tot>;
 
-struct StdText<O, P, R, X> {
-    required: R,
-    optional: O,
+struct StdText<M, P> {
+    metadata: M,
     parameters: Vec<Parameter<P>>,
-    // random place for deprecated kws that I don't feel like putting in the
-    // main required/optional structs
-    misc: X,
 }
 
-struct MiscText3_0 {
-    unicode: Unicode,
-}
-
-type StdText2_0 = StdText<OptionalCommon2_0, Parameter2_0, RequiredCommon2_0, ()>;
-type StdText3_0 = StdText<OptionalCommon3_0, Parameter3_0, RequiredCommon3_0, MiscText3_0>;
-type StdText3_1 = StdText<OptionalCommon3_1, Parameter3_1, RequiredCommon3_1, ()>;
-type StdText3_2 = StdText<OptionalCommon3_2, Parameter3_2, RequiredCommon3_2, ()>;
+type StdText2_0 = StdText<Metadata2_0, Parameter2_0>;
+type StdText3_0 = StdText<Metadata3_0, Parameter3_0>;
+type StdText3_1 = StdText<Metadata3_1, Parameter3_1>;
+type StdText3_2 = StdText<Metadata3_2, Parameter3_2>;
 
 struct StdTextResult<T> {
     text: T,
@@ -523,80 +589,76 @@ struct StdTextResult<T> {
     nonstandard: Keywords,
 }
 
-trait OptionalFromKeywords {
+trait MetadataFromKeywords {
     fn from_kws(st: &mut KwState) -> Self;
 }
 
-impl OptionalFromKeywords for OptionalCommon2_0 {
-    fn from_kws(_: &mut KwState) -> OptionalCommon2_0 {
-        unimplemented!();
-    }
-}
+// impl OptionalFromKeywords for OptionalCommon2_0 {
+//     fn from_kws(_: &mut KwState) -> OptionalCommon2_0 {
+//         unimplemented!();
+//     }
+// }
 
-trait RequiredFromKeywords {
-    fn from_kws(st: &mut KwState) -> Self;
-}
+// trait RequiredFromKeywords {
+//     fn from_kws(st: &mut KwState) -> Self;
+// }
 
-impl RequiredFromKeywords for RequiredCommon2_0 {
-    fn from_kws(_: &mut KwState) -> RequiredCommon2_0 {
-        unimplemented!();
-    }
-}
+// impl RequiredFromKeywords for RequiredCommon2_0 {
+//     fn from_kws(_: &mut KwState) -> RequiredCommon2_0 {
+//         unimplemented!();
+//     }
+// }
 
 trait MiscFromKeywords {
     fn from_kws(st: &mut KwState) -> Self;
 }
 
-// TODO this seems lame...
-impl MiscFromKeywords for () {
-    fn from_kws(_: &mut KwState) -> () {
-        ()
-    }
-}
+// // TODO this seems lame...
+// impl MiscFromKeywords for () {
+//     fn from_kws(_: &mut KwState) -> () {
+//         ()
+//     }
+// }
 
 trait StdTextFromKeywords: Sized {
-    type O: OptionalFromKeywords;
+    type M: MetadataFromKeywords;
     type P: ParameterFromKeywords;
-    type R: RequiredFromKeywords;
-    type X: MiscFromKeywords;
 
-    fn build(r: Self::R, o: Self::O, p: Vec<Parameter<Self::P>>, x: Self::X) -> Self;
+    fn build(m: Self::M, p: Vec<Parameter<Self::P>>) -> Self;
 
     fn from_kws(st: &mut KwState) -> Self {
-        let required = Self::R::from_kws(st);
-        let optional = Self::O::from_kws(st);
+        let metadata = Self::M::from_kws(st);
         let parameters = Self::P::from_kws(st);
-        let misc = Self::X::from_kws(st);
-        Self::build(required, optional, parameters, misc)
+        Self::build(metadata, parameters)
     }
 }
 
-impl<
-        O: OptionalFromKeywords,
-        P: ParameterFromKeywords,
-        R: RequiredFromKeywords,
-        X: MiscFromKeywords,
-    > StdTextFromKeywords for StdText<O, P, R, X>
-{
-    type O = O;
-    type P = P;
-    type R = R;
-    type X = X;
+// impl<
+//         O: OptionalFromKeywords,
+//         P: ParameterFromKeywords,
+//         R: RequiredFromKeywords,
+//         X: MiscFromKeywords,
+//     > StdTextFromKeywords for StdText<O, P, R, X>
+// {
+//     type O = O;
+//     type P = P;
+//     type R = R;
+//     type X = X;
 
-    fn build(
-        required: R,
-        optional: O,
-        parameters: Vec<Parameter<P>>,
-        misc: X,
-    ) -> StdText<O, P, R, X> {
-        StdText {
-            required,
-            optional,
-            parameters,
-            misc,
-        }
-    }
-}
+//     fn build(
+//         required: R,
+//         optional: O,
+//         parameters: Vec<Parameter<P>>,
+//         misc: X,
+//     ) -> StdText<O, P, R, X> {
+//         StdText {
+//             required,
+//             optional,
+//             parameters,
+//             misc,
+//         }
+//     }
+// }
 
 struct TEXT<S> {
     // TODO add the offsets here as well? offsets are needed before parsing
@@ -639,6 +701,7 @@ struct KwState {
 
 impl KwState {
     // TODO not DRY
+    // TODO format $param here
     fn get_required<V, F>(&mut self, k: &str, f: F) -> Option<V>
     where
         F: FnOnce(&str) -> Result<V, &'static str>,
@@ -685,6 +748,18 @@ impl KwState {
         }
     }
 
+    // metadata
+    fn lookup_datatype(&mut self) -> Option<AlphaNumTypes> {
+        self.get_required("DATATYPE", |s| match s {
+            "I" => Ok(AlphaNumTypes::Integer),
+            "F" => Ok(AlphaNumTypes::Float),
+            "D" => Ok(AlphaNumTypes::Double),
+            "A" => Ok(AlphaNumTypes::Ascii),
+            _ => Err("unknown datatype"),
+        })
+    }
+
+    // parameters
     fn lookup_param_req<V, F>(&mut self, param: &'static str, n: u32, f: F) -> Option<V>
     where
         F: FnOnce(&str) -> Result<V, &'static str>,

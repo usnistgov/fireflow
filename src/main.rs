@@ -172,7 +172,7 @@ trait ParameterFromKeywords: Sized {
             // lookup bits since this should be present in all versions, if not
             // present then consider the previous index to be the last parameter
             // index
-            match lookup_bits(st, n) {
+            match st.lookup_param_bits(n) {
                 Some(bits) => match Self::build_parameter(st, n, bits) {
                     Some(p) => ps.push(p),
                     None => break,
@@ -190,18 +190,12 @@ type Parameter3_0 = Parameter<Scale, Wavelength2_0, Option<String>, InnerParamet
 type Parameter3_1 = Parameter<Scale, Wavelength3_1, String, InnerParameter3_1>;
 type Parameter3_2 = Parameter<Scale, Wavelength3_1, String, InnerParameter3_2>;
 
-fn lookup_param_req<V, F>(st: &mut KwState, param: &'static str, n: u32, f: F) -> Option<V>
-where
-    F: FnOnce(&str) -> Result<V, &'static str>,
-{
-    st.get_required(&format!("P{}{}", n, param), f)
+fn format_kw(kw: &str) -> String {
+    format!("${}", kw.to_ascii_uppercase())
 }
 
-fn lookup_param_opt<V, F>(st: &mut KwState, param: &'static str, n: u32, f: F) -> Option<Option<V>>
-where
-    F: FnOnce(&str) -> Result<V, &'static str>,
-{
-    st.get_optional(&format!("P{}{}", n, param), f)
+fn format_param_kw(n: u32, param: &str) -> String {
+    format_kw(&format!("P{}{}", n, param.to_ascii_uppercase()))
 }
 
 fn parse_int(s: &str) -> Result<u32, &'static str> {
@@ -216,67 +210,6 @@ fn parse_str(s: &str) -> Result<String, &'static str> {
     Ok(String::from(s))
 }
 
-// TODO check that this is in multiples of 8 for relevant specs
-fn lookup_bits(st: &mut KwState, n: u32) -> Option<u32> {
-    lookup_param_req(st, "B", n, parse_int)
-}
-
-fn lookup_range(st: &mut KwState, n: u32) -> Option<u32> {
-    lookup_param_req(st, "R", n, parse_int)
-}
-
-fn lookup_wavelength(st: &mut KwState, n: u32) -> Option<Option<u32>> {
-    lookup_param_opt(st, "L", n, parse_int)
-}
-
-fn lookup_power(st: &mut KwState, n: u32) -> Option<Option<u32>> {
-    lookup_param_opt(st, "O", n, parse_int)
-}
-
-fn lookup_detector_type(st: &mut KwState, n: u32) -> Option<Option<String>> {
-    lookup_param_opt(st, "T", n, parse_str)
-}
-
-fn lookup_shortname_req(st: &mut KwState, n: u32) -> Option<String> {
-    lookup_param_req(st, "N", n, parse_str)
-}
-
-fn lookup_shortname_opt(st: &mut KwState, n: u32) -> Option<Option<String>> {
-    lookup_param_opt(st, "N", n, parse_str)
-}
-
-fn lookup_longname(st: &mut KwState, n: u32) -> Option<Option<String>> {
-    lookup_param_opt(st, "S", n, parse_str)
-}
-
-fn lookup_filter(st: &mut KwState, n: u32) -> Option<Option<String>> {
-    lookup_param_opt(st, "F", n, parse_str)
-}
-
-fn lookup_percent_emitted(st: &mut KwState, n: u32) -> Option<Option<u32>> {
-    lookup_param_opt(st, "P", n, parse_int)
-}
-
-fn lookup_detector_voltage(st: &mut KwState, n: u32) -> Option<Option<f32>> {
-    lookup_param_opt(st, "P", n, parse_float)
-}
-
-fn lookup_detector(st: &mut KwState, n: u32) -> Option<Option<String>> {
-    lookup_param_opt(st, "DET", n, parse_str)
-}
-
-fn lookup_tag(st: &mut KwState, n: u32) -> Option<Option<String>> {
-    lookup_param_opt(st, "TAG", n, parse_str)
-}
-
-fn lookup_analyte(st: &mut KwState, n: u32) -> Option<Option<String>> {
-    lookup_param_opt(st, "ANALYTE", n, parse_str)
-}
-
-fn lookup_gain(st: &mut KwState, n: u32) -> Option<Option<f32>> {
-    lookup_param_opt(st, "G", n, parse_float)
-}
-
 fn parse_scale(s: &str) -> Result<Scale, &'static str> {
     let v: Vec<&str> = s.split(",").collect();
     match v[..] {
@@ -287,91 +220,6 @@ fn parse_scale(s: &str) -> Result<Scale, &'static str> {
         },
         _ => Err("too many fields"),
     }
-}
-
-fn lookup_scale_req(st: &mut KwState, n: u32) -> Option<Scale> {
-    lookup_param_req(st, "E", n, parse_scale)
-}
-
-fn lookup_scale_opt(st: &mut KwState, n: u32) -> Option<Option<Scale>> {
-    lookup_param_opt(st, "E", n, parse_scale)
-}
-
-fn lookup_calibration(st: &mut KwState, n: u32) -> Option<Option<Calibration>> {
-    lookup_param_opt(st, "CALIBRATION", n, |s| {
-        let v: Vec<&str> = s.split(",").collect();
-        match v[..] {
-            [svalue, unit] => match svalue.parse() {
-                Ok(value) if value >= 0.0 => Ok(Calibration {
-                    value,
-                    unit: String::from(unit),
-                }),
-                _ => Err("invalid (positive) float"),
-            },
-            _ => Err("too many fields"),
-        }
-    })
-}
-
-// for 3.1+ PnL parameters, which can have multiple wavelengths
-fn lookup_wavelengths(st: &mut KwState, n: u32) -> Option<Vec<u32>> {
-    lookup_param_opt(st, "L", n, |s| {
-        let mut ws = vec![];
-        for x in s.split(",") {
-            match x.parse() {
-                Ok(y) => ws.push(y),
-                _ => return Err("invalid float encountered"),
-            };
-        }
-        return Ok(ws);
-    })
-    .map(|x| x.unwrap_or(vec![]))
-}
-
-fn lookup_display(st: &mut KwState, n: u32) -> Option<Option<Display>> {
-    lookup_param_opt(st, "D", n, |s| {
-        let v: Vec<&str> = s.split(",").collect();
-        match v[..] {
-            [which, f1, f2] => match (which, f1.parse(), f2.parse()) {
-                ("Linear", Ok(lower), Ok(upper)) => Ok(Display::Lin(LinDisplay { lower, upper })),
-                ("Logarithmic", Ok(decades), Ok(offset)) => {
-                    Ok(Display::Log(LogDisplay { decades, offset }))
-                }
-                _ => Err("invalid floats"),
-            },
-            _ => Err("too many fields"),
-        }
-    })
-}
-
-fn lookup_datatype(st: &mut KwState, n: u32) -> Option<Option<NumTypes>> {
-    lookup_param_opt(st, "DATATYPE", n, |s| match s {
-        "I" => Ok(NumTypes::Integer),
-        "F" => Ok(NumTypes::Float),
-        "D" => Ok(NumTypes::Double),
-        _ => Err("unknown datatype"),
-    })
-}
-
-fn lookup_type(st: &mut KwState, n: u32) -> Option<Option<MeasurementType>> {
-    lookup_param_opt(st, "TYPE", n, |s| match s {
-        "Forward Scatter" => Ok(MeasurementType::ForwardScatter),
-        "Raw Fluorescence" => Ok(MeasurementType::RawFluorescence),
-        "Mass" => Ok(MeasurementType::Mass),
-        "Time" => Ok(MeasurementType::Time),
-        "Index" => Ok(MeasurementType::Index),
-        "Classification" => Ok(MeasurementType::Classification),
-        _ => Err("unknown measurement type"),
-    })
-}
-
-fn lookup_feature(st: &mut KwState, n: u32) -> Option<Option<Feature>> {
-    lookup_param_opt(st, "FEATURE", n, |s| match s {
-        "Area" => Ok(Feature::Area),
-        "Width" => Ok(Feature::Width),
-        "Height" => Ok(Feature::Height),
-        _ => Err("unknown parameter feature"),
-    })
 }
 
 impl ParameterFromKeywords for Parameter2_0 {
@@ -388,16 +236,16 @@ impl ParameterFromKeywords for Parameter2_0 {
             Some(percent_emitted),
             Some(detector_voltage),
         ) = (
-            lookup_range(st, n),
-            lookup_scale_opt(st, n),
-            lookup_shortname_opt(st, n),
-            lookup_longname(st, n),
-            lookup_filter(st, n),
-            lookup_wavelength(st, n),
-            lookup_power(st, n),
-            lookup_detector_type(st, n),
-            lookup_percent_emitted(st, n),
-            lookup_detector_voltage(st, n),
+            st.lookup_param_range(n),
+            st.lookup_param_scale_opt(n),
+            st.lookup_param_shortname_opt(n),
+            st.lookup_param_longname(n),
+            st.lookup_param_filter(n),
+            st.lookup_param_wavelength(n),
+            st.lookup_param_power(n),
+            st.lookup_param_detector_type(n),
+            st.lookup_param_percent_emitted(n),
+            st.lookup_param_detector_voltage(n),
         ) {
             Some(Parameter {
                 bits,
@@ -434,17 +282,17 @@ impl ParameterFromKeywords for Parameter3_0 {
             Some(detector_voltage),
             Some(gain),
         ) = (
-            lookup_range(st, n),
-            lookup_scale_req(st, n),
-            lookup_shortname_opt(st, n),
-            lookup_longname(st, n),
-            lookup_filter(st, n),
-            lookup_wavelength(st, n),
-            lookup_power(st, n),
-            lookup_detector_type(st, n),
-            lookup_percent_emitted(st, n),
-            lookup_detector_voltage(st, n),
-            lookup_gain(st, n),
+            st.lookup_param_range(n),
+            st.lookup_param_scale_req(n),
+            st.lookup_param_shortname_opt(n),
+            st.lookup_param_longname(n),
+            st.lookup_param_filter(n),
+            st.lookup_param_wavelength(n),
+            st.lookup_param_power(n),
+            st.lookup_param_detector_type(n),
+            st.lookup_param_percent_emitted(n),
+            st.lookup_param_detector_voltage(n),
+            st.lookup_param_gain(n),
         ) {
             Some(Parameter {
                 bits,
@@ -483,19 +331,19 @@ impl ParameterFromKeywords for Parameter3_1 {
             Some(calibration),
             Some(display),
         ) = (
-            lookup_range(st, n),
-            lookup_scale_req(st, n),
-            lookup_shortname_req(st, n),
-            lookup_longname(st, n),
-            lookup_filter(st, n),
-            lookup_wavelengths(st, n),
-            lookup_power(st, n),
-            lookup_detector_type(st, n),
-            lookup_percent_emitted(st, n),
-            lookup_detector_voltage(st, n),
-            lookup_gain(st, n),
-            lookup_calibration(st, n),
-            lookup_display(st, n),
+            st.lookup_param_range(n),
+            st.lookup_param_scale_req(n),
+            st.lookup_param_shortname_req(n),
+            st.lookup_param_longname(n),
+            st.lookup_param_filter(n),
+            st.lookup_param_wavelengths(n),
+            st.lookup_param_power(n),
+            st.lookup_param_detector_type(n),
+            st.lookup_param_percent_emitted(n),
+            st.lookup_param_detector_voltage(n),
+            st.lookup_param_gain(n),
+            st.lookup_param_calibration(n),
+            st.lookup_param_display(n),
         ) {
             Some(Parameter {
                 bits,
@@ -544,25 +392,25 @@ impl ParameterFromKeywords for Parameter3_2 {
             Some(feature),
             Some(analyte),
         ) = (
-            lookup_range(st, n),
-            lookup_scale_req(st, n),
-            lookup_shortname_req(st, n),
-            lookup_longname(st, n),
-            lookup_filter(st, n),
-            lookup_wavelengths(st, n),
-            lookup_power(st, n),
-            lookup_detector_type(st, n),
-            lookup_percent_emitted(st, n),
-            lookup_detector_voltage(st, n),
-            lookup_gain(st, n),
-            lookup_calibration(st, n),
-            lookup_display(st, n),
-            lookup_datatype(st, n),
-            lookup_detector(st, n),
-            lookup_tag(st, n),
-            lookup_type(st, n),
-            lookup_feature(st, n),
-            lookup_analyte(st, n),
+            st.lookup_param_range(n),
+            st.lookup_param_scale_req(n),
+            st.lookup_param_shortname_req(n),
+            st.lookup_param_longname(n),
+            st.lookup_param_filter(n),
+            st.lookup_param_wavelengths(n),
+            st.lookup_param_power(n),
+            st.lookup_param_detector_type(n),
+            st.lookup_param_percent_emitted(n),
+            st.lookup_param_detector_voltage(n),
+            st.lookup_param_gain(n),
+            st.lookup_param_calibration(n),
+            st.lookup_param_display(n),
+            st.lookup_param_datatype(n),
+            st.lookup_param_detector(n),
+            st.lookup_param_tag(n),
+            st.lookup_param_type(n),
+            st.lookup_param_feature(n),
+            st.lookup_param_analyte(n),
         ) {
             Some(Parameter {
                 bits,
@@ -888,6 +736,168 @@ impl KwState {
             Some(_) => None,
             None => Some(None),
         }
+    }
+
+    fn lookup_param_req<V, F>(&mut self, param: &'static str, n: u32, f: F) -> Option<V>
+    where
+        F: FnOnce(&str) -> Result<V, &'static str>,
+    {
+        self.get_required(&format_param_kw(n, param), f)
+    }
+
+    fn lookup_param_opt<V, F>(&mut self, param: &'static str, n: u32, f: F) -> Option<Option<V>>
+    where
+        F: FnOnce(&str) -> Result<V, &'static str>,
+    {
+        self.get_optional(&format_param_kw(n, param), f)
+    }
+
+    // TODO check that this is in multiples of 8 for relevant specs
+    fn lookup_param_bits(&mut self, n: u32) -> Option<u32> {
+        self.lookup_param_req("B", n, parse_int)
+    }
+
+    fn lookup_param_range(&mut self, n: u32) -> Option<u32> {
+        self.lookup_param_req("R", n, parse_int)
+    }
+
+    fn lookup_param_wavelength(&mut self, n: u32) -> Option<Option<u32>> {
+        self.lookup_param_opt("L", n, parse_int)
+    }
+
+    fn lookup_param_power(&mut self, n: u32) -> Option<Option<u32>> {
+        self.lookup_param_opt("O", n, parse_int)
+    }
+
+    fn lookup_param_detector_type(&mut self, n: u32) -> Option<Option<String>> {
+        self.lookup_param_opt("T", n, parse_str)
+    }
+
+    fn lookup_param_shortname_req(&mut self, n: u32) -> Option<String> {
+        self.lookup_param_req("N", n, parse_str)
+    }
+
+    fn lookup_param_shortname_opt(&mut self, n: u32) -> Option<Option<String>> {
+        self.lookup_param_opt("N", n, parse_str)
+    }
+
+    fn lookup_param_longname(&mut self, n: u32) -> Option<Option<String>> {
+        self.lookup_param_opt("S", n, parse_str)
+    }
+
+    fn lookup_param_filter(&mut self, n: u32) -> Option<Option<String>> {
+        self.lookup_param_opt("F", n, parse_str)
+    }
+
+    fn lookup_param_percent_emitted(&mut self, n: u32) -> Option<Option<u32>> {
+        self.lookup_param_opt("P", n, parse_int)
+    }
+
+    fn lookup_param_detector_voltage(&mut self, n: u32) -> Option<Option<f32>> {
+        self.lookup_param_opt("P", n, parse_float)
+    }
+
+    fn lookup_param_detector(&mut self, n: u32) -> Option<Option<String>> {
+        self.lookup_param_opt("DET", n, parse_str)
+    }
+
+    fn lookup_param_tag(&mut self, n: u32) -> Option<Option<String>> {
+        self.lookup_param_opt("TAG", n, parse_str)
+    }
+
+    fn lookup_param_analyte(&mut self, n: u32) -> Option<Option<String>> {
+        self.lookup_param_opt("ANALYTE", n, parse_str)
+    }
+
+    fn lookup_param_gain(&mut self, n: u32) -> Option<Option<f32>> {
+        self.lookup_param_opt("G", n, parse_float)
+    }
+
+    fn lookup_param_scale_req(&mut self, n: u32) -> Option<Scale> {
+        self.lookup_param_req("E", n, parse_scale)
+    }
+
+    fn lookup_param_scale_opt(&mut self, n: u32) -> Option<Option<Scale>> {
+        self.lookup_param_opt("E", n, parse_scale)
+    }
+
+    fn lookup_param_calibration(&mut self, n: u32) -> Option<Option<Calibration>> {
+        self.lookup_param_opt("CALIBRATION", n, |s| {
+            let v: Vec<&str> = s.split(",").collect();
+            match v[..] {
+                [svalue, unit] => match svalue.parse() {
+                    Ok(value) if value >= 0.0 => Ok(Calibration {
+                        value,
+                        unit: String::from(unit),
+                    }),
+                    _ => Err("invalid (positive) float"),
+                },
+                _ => Err("too many fields"),
+            }
+        })
+    }
+
+    // for 3.1+ PnL parameters, which can have multiple wavelengths
+    fn lookup_param_wavelengths(&mut self, n: u32) -> Option<Vec<u32>> {
+        self.lookup_param_opt("L", n, |s| {
+            let mut ws = vec![];
+            for x in s.split(",") {
+                match x.parse() {
+                    Ok(y) => ws.push(y),
+                    _ => return Err("invalid float encountered"),
+                };
+            }
+            return Ok(ws);
+        })
+        .map(|x| x.unwrap_or(vec![]))
+    }
+
+    fn lookup_param_display(&mut self, n: u32) -> Option<Option<Display>> {
+        self.lookup_param_opt("D", n, |s| {
+            let v: Vec<&str> = s.split(",").collect();
+            match v[..] {
+                [which, f1, f2] => match (which, f1.parse(), f2.parse()) {
+                    ("Linear", Ok(lower), Ok(upper)) => {
+                        Ok(Display::Lin(LinDisplay { lower, upper }))
+                    }
+                    ("Logarithmic", Ok(decades), Ok(offset)) => {
+                        Ok(Display::Log(LogDisplay { decades, offset }))
+                    }
+                    _ => Err("invalid floats"),
+                },
+                _ => Err("too many fields"),
+            }
+        })
+    }
+
+    fn lookup_param_datatype(&mut self, n: u32) -> Option<Option<NumTypes>> {
+        self.lookup_param_opt("DATATYPE", n, |s| match s {
+            "I" => Ok(NumTypes::Integer),
+            "F" => Ok(NumTypes::Float),
+            "D" => Ok(NumTypes::Double),
+            _ => Err("unknown datatype"),
+        })
+    }
+
+    fn lookup_param_type(&mut self, n: u32) -> Option<Option<MeasurementType>> {
+        self.lookup_param_opt("TYPE", n, |s| match s {
+            "Forward Scatter" => Ok(MeasurementType::ForwardScatter),
+            "Raw Fluorescence" => Ok(MeasurementType::RawFluorescence),
+            "Mass" => Ok(MeasurementType::Mass),
+            "Time" => Ok(MeasurementType::Time),
+            "Index" => Ok(MeasurementType::Index),
+            "Classification" => Ok(MeasurementType::Classification),
+            _ => Err("unknown measurement type"),
+        })
+    }
+
+    fn lookup_param_feature(&mut self, n: u32) -> Option<Option<Feature>> {
+        self.lookup_param_opt("FEATURE", n, |s| match s {
+            "Area" => Ok(Feature::Area),
+            "Width" => Ok(Feature::Width),
+            "Height" => Ok(Feature::Height),
+            _ => Err("unknown parameter feature"),
+        })
     }
 
     fn finalize(

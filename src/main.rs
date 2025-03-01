@@ -172,7 +172,7 @@ trait ParameterFromKeywords: Sized {
             // lookup bits since this should be present in all versions, if not
             // present then consider the previous index to be the last parameter
             // index
-            match lookup_bits(st, n).required(st) {
+            match lookup_bits(st, n) {
                 Some(bits) => match Self::build_parameter(st, n, bits) {
                     Some(p) => ps.push(p),
                     None => break,
@@ -190,155 +190,115 @@ type Parameter3_0 = Parameter<Scale, Wavelength2_0, Option<String>, InnerParamet
 type Parameter3_1 = Parameter<Scale, Wavelength3_1, String, InnerParameter3_1>;
 type Parameter3_2 = Parameter<Scale, Wavelength3_1, String, InnerParameter3_2>;
 
-enum LookupResult<V> {
-    Found(V),
-    NotFound(String),
-}
-
-impl<V> LookupResult<V> {
-    fn required(self, st: &mut KwState) -> Option<V> {
-        match self {
-            Found(x) => Some(x),
-            NotFound(k) => {
-                st.missing.insert(k);
-                None
-            }
-        }
-    }
-
-    fn optional(self) -> Option<Option<V>> {
-        match self {
-            Found(x) => Some(Some(x)),
-            NotFound(_) => None,
-        }
-    }
-}
-
-impl<V> LookupResult<Vec<V>> {
-    fn to_vector(self) -> Option<Vec<V>> {
-        match self {
-            Found(xs) => Some(xs),
-            NotFound(_) => Some(vec![]),
-        }
-    }
-}
-
-use LookupResult::*;
-
-fn lookup_param_value<V, F>(st: &mut KwState, param: &'static str, n: u32, f: F) -> LookupResult<V>
+fn lookup_param_req<V, F>(st: &mut KwState, param: &'static str, n: u32, f: F) -> Option<V>
 where
     F: FnOnce(&str) -> Result<V, &'static str>,
 {
-    let k = format!("P{}{}", n, param);
-    match st.keywords.remove(&k) {
-        Some(v) => match f(&v) {
-            Ok(x) => Found(x),
-            Err(e) => {
-                // TODO string things seems lame
-                st.errors.insert(k.clone(), (v, String::from(e)));
-                NotFound(String::from(k))
-            }
-        },
-        None => NotFound(String::from(k)),
-    }
+    st.get_required(&format!("P{}{}", n, param), f)
 }
 
-// fn lookup_param_value<V, F: FnOnce(String, String) -> LookupResult<V>>(
-//     st: &mut KwState,
-//     param: &'static str,
-//     n: u32,
-//     f: F,
-// ) -> LookupResult<V> {
-//     let k = format!("P{}{}", n, param);
-//     kws.remove(&k).map_or(NotFound, |s| f(k, s))
-// }
-
-fn lookup_int(st: &mut KwState, param: &'static str, n: u32) -> LookupResult<u32> {
-    lookup_param_value(st, param, n, |s| s.parse().or(Err("invalid integer")))
+fn lookup_param_opt<V, F>(st: &mut KwState, param: &'static str, n: u32, f: F) -> Option<Option<V>>
+where
+    F: FnOnce(&str) -> Result<V, &'static str>,
+{
+    st.get_optional(&format!("P{}{}", n, param), f)
 }
 
-fn lookup_float(st: &mut KwState, param: &'static str, n: u32) -> LookupResult<f32> {
-    lookup_param_value(st, param, n, |s| s.parse().or(Err("invalid float")))
+fn parse_int(s: &str) -> Result<u32, &'static str> {
+    s.parse().or(Err("invalid integer"))
 }
 
-fn lookup_str(st: &mut KwState, param: &'static str, n: u32) -> LookupResult<String> {
-    // TODO this seems lame
-    lookup_param_value(st, param, n, |s| Ok(String::from(s)))
+fn parse_float(s: &str) -> Result<f32, &'static str> {
+    s.parse().or(Err("invalid float"))
+}
+
+fn parse_str(s: &str) -> Result<String, &'static str> {
+    Ok(String::from(s))
 }
 
 // TODO check that this is in multiples of 8 for relevant specs
-fn lookup_bits(st: &mut KwState, n: u32) -> LookupResult<u32> {
-    lookup_int(st, "B", n)
+fn lookup_bits(st: &mut KwState, n: u32) -> Option<u32> {
+    lookup_param_req(st, "B", n, parse_int)
 }
 
-fn lookup_range(st: &mut KwState, n: u32) -> LookupResult<u32> {
-    lookup_int(st, "R", n)
+fn lookup_range(st: &mut KwState, n: u32) -> Option<u32> {
+    lookup_param_req(st, "R", n, parse_int)
 }
 
-fn lookup_wavelength(st: &mut KwState, n: u32) -> LookupResult<u32> {
-    lookup_int(st, "L", n)
+fn lookup_wavelength(st: &mut KwState, n: u32) -> Option<Option<u32>> {
+    lookup_param_opt(st, "L", n, parse_int)
 }
 
-fn lookup_power(st: &mut KwState, n: u32) -> LookupResult<u32> {
-    lookup_int(st, "O", n)
+fn lookup_power(st: &mut KwState, n: u32) -> Option<Option<u32>> {
+    lookup_param_opt(st, "O", n, parse_int)
 }
 
-fn lookup_detector_type(st: &mut KwState, n: u32) -> LookupResult<String> {
-    lookup_str(st, "T", n)
+fn lookup_detector_type(st: &mut KwState, n: u32) -> Option<Option<String>> {
+    lookup_param_opt(st, "T", n, parse_str)
 }
 
-fn lookup_shortname(st: &mut KwState, n: u32) -> LookupResult<String> {
-    lookup_str(st, "N", n)
+fn lookup_shortname_req(st: &mut KwState, n: u32) -> Option<String> {
+    lookup_param_req(st, "N", n, parse_str)
 }
 
-fn lookup_longname(st: &mut KwState, n: u32) -> LookupResult<String> {
-    lookup_str(st, "S", n)
+fn lookup_shortname_opt(st: &mut KwState, n: u32) -> Option<Option<String>> {
+    lookup_param_opt(st, "N", n, parse_str)
 }
 
-fn lookup_filter(st: &mut KwState, n: u32) -> LookupResult<String> {
-    lookup_str(st, "F", n)
+fn lookup_longname(st: &mut KwState, n: u32) -> Option<Option<String>> {
+    lookup_param_opt(st, "S", n, parse_str)
 }
 
-fn lookup_percent_emitted(st: &mut KwState, n: u32) -> LookupResult<u32> {
-    lookup_int(st, "P", n)
+fn lookup_filter(st: &mut KwState, n: u32) -> Option<Option<String>> {
+    lookup_param_opt(st, "F", n, parse_str)
 }
 
-fn lookup_detector_voltage(st: &mut KwState, n: u32) -> LookupResult<f32> {
-    lookup_float(st, "V", n)
+fn lookup_percent_emitted(st: &mut KwState, n: u32) -> Option<Option<u32>> {
+    lookup_param_opt(st, "P", n, parse_int)
 }
 
-fn lookup_detector(st: &mut KwState, n: u32) -> LookupResult<String> {
-    lookup_str(st, "DET", n)
+fn lookup_detector_voltage(st: &mut KwState, n: u32) -> Option<Option<f32>> {
+    lookup_param_opt(st, "P", n, parse_float)
 }
 
-fn lookup_tag(st: &mut KwState, n: u32) -> LookupResult<String> {
-    lookup_str(st, "TAG", n)
+fn lookup_detector(st: &mut KwState, n: u32) -> Option<Option<String>> {
+    lookup_param_opt(st, "DET", n, parse_str)
 }
 
-fn lookup_analyte(st: &mut KwState, n: u32) -> LookupResult<String> {
-    lookup_str(st, "ANALYTE", n)
+fn lookup_tag(st: &mut KwState, n: u32) -> Option<Option<String>> {
+    lookup_param_opt(st, "TAG", n, parse_str)
 }
 
-fn lookup_gain(st: &mut KwState, n: u32) -> LookupResult<f32> {
-    lookup_float(st, "G", n)
+fn lookup_analyte(st: &mut KwState, n: u32) -> Option<Option<String>> {
+    lookup_param_opt(st, "ANALYTE", n, parse_str)
 }
 
-fn lookup_scale(st: &mut KwState, n: u32) -> LookupResult<Scale> {
-    lookup_param_value(st, "E", n, |s| {
-        let v: Vec<&str> = s.split(",").collect();
-        match v[..] {
-            [ds, os] => match (ds.parse(), os.parse()) {
-                (Ok(0.0), Ok(0.0)) => Ok(Linear),
-                (Ok(decades), Ok(offset)) => Ok(Log(LogScale { decades, offset })),
-                _ => Err("invalid floats"),
-            },
-            _ => Err("too many fields"),
-        }
-    })
+fn lookup_gain(st: &mut KwState, n: u32) -> Option<Option<f32>> {
+    lookup_param_opt(st, "G", n, parse_float)
 }
 
-fn lookup_calibration(st: &mut KwState, n: u32) -> LookupResult<Calibration> {
-    lookup_param_value(st, "CALIBRATION", n, |s| {
+fn parse_scale(s: &str) -> Result<Scale, &'static str> {
+    let v: Vec<&str> = s.split(",").collect();
+    match v[..] {
+        [ds, os] => match (ds.parse(), os.parse()) {
+            (Ok(0.0), Ok(0.0)) => Ok(Linear),
+            (Ok(decades), Ok(offset)) => Ok(Log(LogScale { decades, offset })),
+            _ => Err("invalid floats"),
+        },
+        _ => Err("too many fields"),
+    }
+}
+
+fn lookup_scale_req(st: &mut KwState, n: u32) -> Option<Scale> {
+    lookup_param_req(st, "E", n, parse_scale)
+}
+
+fn lookup_scale_opt(st: &mut KwState, n: u32) -> Option<Option<Scale>> {
+    lookup_param_opt(st, "E", n, parse_scale)
+}
+
+fn lookup_calibration(st: &mut KwState, n: u32) -> Option<Option<Calibration>> {
+    lookup_param_opt(st, "CALIBRATION", n, |s| {
         let v: Vec<&str> = s.split(",").collect();
         match v[..] {
             [svalue, unit] => match svalue.parse() {
@@ -354,8 +314,8 @@ fn lookup_calibration(st: &mut KwState, n: u32) -> LookupResult<Calibration> {
 }
 
 // for 3.1+ PnL parameters, which can have multiple wavelengths
-fn lookup_wavelengths(st: &mut KwState, n: u32) -> LookupResult<Vec<u32>> {
-    lookup_param_value(st, "L", n, |s| {
+fn lookup_wavelengths(st: &mut KwState, n: u32) -> Option<Vec<u32>> {
+    lookup_param_opt(st, "L", n, |s| {
         let mut ws = vec![];
         for x in s.split(",") {
             match x.parse() {
@@ -365,10 +325,11 @@ fn lookup_wavelengths(st: &mut KwState, n: u32) -> LookupResult<Vec<u32>> {
         }
         return Ok(ws);
     })
+    .map(|x| x.unwrap_or(vec![]))
 }
 
-fn lookup_display(st: &mut KwState, n: u32) -> LookupResult<Display> {
-    lookup_param_value(st, "D", n, |s| {
+fn lookup_display(st: &mut KwState, n: u32) -> Option<Option<Display>> {
+    lookup_param_opt(st, "D", n, |s| {
         let v: Vec<&str> = s.split(",").collect();
         match v[..] {
             [which, f1, f2] => match (which, f1.parse(), f2.parse()) {
@@ -383,8 +344,8 @@ fn lookup_display(st: &mut KwState, n: u32) -> LookupResult<Display> {
     })
 }
 
-fn lookup_datatype(st: &mut KwState, n: u32) -> LookupResult<NumTypes> {
-    lookup_param_value(st, "DATATYPE", n, |s| match s {
+fn lookup_datatype(st: &mut KwState, n: u32) -> Option<Option<NumTypes>> {
+    lookup_param_opt(st, "DATATYPE", n, |s| match s {
         "I" => Ok(NumTypes::Integer),
         "F" => Ok(NumTypes::Float),
         "D" => Ok(NumTypes::Double),
@@ -392,8 +353,8 @@ fn lookup_datatype(st: &mut KwState, n: u32) -> LookupResult<NumTypes> {
     })
 }
 
-fn lookup_type(st: &mut KwState, n: u32) -> LookupResult<MeasurementType> {
-    lookup_param_value(st, "TYPE", n, |s| match s {
+fn lookup_type(st: &mut KwState, n: u32) -> Option<Option<MeasurementType>> {
+    lookup_param_opt(st, "TYPE", n, |s| match s {
         "Forward Scatter" => Ok(MeasurementType::ForwardScatter),
         "Raw Fluorescence" => Ok(MeasurementType::RawFluorescence),
         "Mass" => Ok(MeasurementType::Mass),
@@ -404,8 +365,8 @@ fn lookup_type(st: &mut KwState, n: u32) -> LookupResult<MeasurementType> {
     })
 }
 
-fn lookup_feature(st: &mut KwState, n: u32) -> LookupResult<Feature> {
-    lookup_param_value(st, "FEATURE", n, |s| match s {
+fn lookup_feature(st: &mut KwState, n: u32) -> Option<Option<Feature>> {
+    lookup_param_opt(st, "FEATURE", n, |s| match s {
         "Area" => Ok(Feature::Area),
         "Width" => Ok(Feature::Width),
         "Height" => Ok(Feature::Height),
@@ -413,25 +374,18 @@ fn lookup_feature(st: &mut KwState, n: u32) -> LookupResult<Feature> {
     })
 }
 
-// TODO maybe a better way to write all this with macros, since lots of things
-// are repeated
-// TODO one way to clean this up might be to put the keywords and errors vector
-// into a "state blob" and then let all the lookup functions add to the error
-// part if they encounter an error. Then on failure they return an option (or
-// something similar) which could then be filtered to determine if a value is
-// found
 impl ParameterFromKeywords for Parameter2_0 {
     fn build_parameter(st: &mut KwState, n: u32, bits: u32) -> Option<Parameter2_0> {
-        let pnr = lookup_range(st, n).required(st);
-        let pne = lookup_scale(st, n).optional();
-        let pnn = lookup_shortname(st, n).optional();
-        let pns = lookup_longname(st, n).optional();
-        let pnf = lookup_filter(st, n).optional();
-        let pnl = lookup_wavelength(st, n).optional();
-        let pno = lookup_power(st, n).optional();
-        let pnt = lookup_detector_type(st, n).optional();
-        let pnp = lookup_percent_emitted(st, n).optional();
-        let pnv = lookup_detector_voltage(st, n).optional();
+        let pnr = lookup_range(st, n);
+        let pne = lookup_scale_opt(st, n);
+        let pnn = lookup_shortname_opt(st, n);
+        let pns = lookup_longname(st, n);
+        let pnf = lookup_filter(st, n);
+        let pnl = lookup_wavelength(st, n);
+        let pno = lookup_power(st, n);
+        let pnt = lookup_detector_type(st, n);
+        let pnp = lookup_percent_emitted(st, n);
+        let pnv = lookup_detector_voltage(st, n);
         match (pnr, pne, pnn, pns, pnf, pnl, pno, pnt, pnp, pnv) {
             (
                 Some(range),
@@ -465,17 +419,17 @@ impl ParameterFromKeywords for Parameter2_0 {
 
 impl ParameterFromKeywords for Parameter3_0 {
     fn build_parameter(st: &mut KwState, n: u32, bits: u32) -> Option<Parameter3_0> {
-        let pnr = lookup_range(st, n).required(st);
-        let pne = lookup_scale(st, n).required(st);
-        let pnn = lookup_shortname(st, n).optional();
-        let pns = lookup_longname(st, n).optional();
-        let pnf = lookup_filter(st, n).optional();
-        let pnl = lookup_wavelength(st, n).optional();
-        let pno = lookup_power(st, n).optional();
-        let pnt = lookup_detector_type(st, n).optional();
-        let pnp = lookup_percent_emitted(st, n).optional();
-        let pnv = lookup_detector_voltage(st, n).optional();
-        let png = lookup_gain(st, n).optional();
+        let pnr = lookup_range(st, n);
+        let pne = lookup_scale_req(st, n);
+        let pnn = lookup_shortname_opt(st, n);
+        let pns = lookup_longname(st, n);
+        let pnf = lookup_filter(st, n);
+        let pnl = lookup_wavelength(st, n);
+        let pno = lookup_power(st, n);
+        let pnt = lookup_detector_type(st, n);
+        let pnp = lookup_percent_emitted(st, n);
+        let pnv = lookup_detector_voltage(st, n);
+        let png = lookup_gain(st, n);
         match (pnr, pne, pnn, pns, pnf, pnl, pno, pnt, pnp, pnv, png) {
             (
                 Some(range),
@@ -510,19 +464,19 @@ impl ParameterFromKeywords for Parameter3_0 {
 
 impl ParameterFromKeywords for Parameter3_1 {
     fn build_parameter(st: &mut KwState, n: u32, bits: u32) -> Option<Parameter3_1> {
-        let pnr = lookup_range(st, n).required(st);
-        let pne = lookup_scale(st, n).required(st);
-        let pnn = lookup_shortname(st, n).required(st);
-        let pns = lookup_longname(st, n).optional();
-        let pnf = lookup_filter(st, n).optional();
-        let pnl = lookup_wavelengths(st, n).to_vector();
-        let pno = lookup_power(st, n).optional();
-        let pnt = lookup_detector_type(st, n).optional();
-        let pnp = lookup_percent_emitted(st, n).optional();
-        let pnv = lookup_detector_voltage(st, n).optional();
-        let png = lookup_gain(st, n).optional();
-        let pncal = lookup_calibration(st, n).optional();
-        let pnd = lookup_display(st, n).optional();
+        let pnr = lookup_range(st, n);
+        let pne = lookup_scale_req(st, n);
+        let pnn = lookup_shortname_req(st, n);
+        let pns = lookup_longname(st, n);
+        let pnf = lookup_filter(st, n);
+        let pnl = lookup_wavelengths(st, n);
+        let pno = lookup_power(st, n);
+        let pnt = lookup_detector_type(st, n);
+        let pnp = lookup_percent_emitted(st, n);
+        let pnv = lookup_detector_voltage(st, n);
+        let png = lookup_gain(st, n);
+        let pncal = lookup_calibration(st, n);
+        let pnd = lookup_display(st, n);
         match (
             pnr, pne, pnn, pns, pnf, pnl, pno, pnt, pnp, pnv, png, pncal, pnd,
         ) {
@@ -565,25 +519,25 @@ impl ParameterFromKeywords for Parameter3_1 {
 
 impl ParameterFromKeywords for Parameter3_2 {
     fn build_parameter(st: &mut KwState, n: u32, bits: u32) -> Option<Parameter3_2> {
-        let pnr = lookup_range(st, n).required(st);
-        let pne = lookup_scale(st, n).required(st);
-        let pnn = lookup_shortname(st, n).required(st);
-        let pns = lookup_longname(st, n).optional();
-        let pnf = lookup_filter(st, n).optional();
-        let pnl = lookup_wavelengths(st, n).to_vector();
-        let pno = lookup_power(st, n).optional();
-        let pnt = lookup_detector_type(st, n).optional();
-        let pnp = lookup_percent_emitted(st, n).optional();
-        let pnv = lookup_detector_voltage(st, n).optional();
-        let png = lookup_gain(st, n).optional();
-        let pncal = lookup_calibration(st, n).optional();
-        let pnd = lookup_display(st, n).optional();
-        let pndt = lookup_datatype(st, n).optional();
-        let pndet = lookup_detector(st, n).optional();
-        let pntag = lookup_tag(st, n).optional();
-        let pntype = lookup_type(st, n).optional();
-        let pnfeature = lookup_feature(st, n).optional();
-        let pnanalyte = lookup_analyte(st, n).optional();
+        let pnr = lookup_range(st, n);
+        let pne = lookup_scale_req(st, n);
+        let pnn = lookup_shortname_req(st, n);
+        let pns = lookup_longname(st, n);
+        let pnf = lookup_filter(st, n);
+        let pnl = lookup_wavelengths(st, n);
+        let pno = lookup_power(st, n);
+        let pnt = lookup_detector_type(st, n);
+        let pnp = lookup_percent_emitted(st, n);
+        let pnv = lookup_detector_voltage(st, n);
+        let png = lookup_gain(st, n);
+        let pncal = lookup_calibration(st, n);
+        let pnd = lookup_display(st, n);
+        let pndt = lookup_datatype(st, n);
+        let pndet = lookup_detector(st, n);
+        let pntag = lookup_tag(st, n);
+        let pntype = lookup_type(st, n);
+        let pnfeature = lookup_feature(st, n);
+        let pnanalyte = lookup_analyte(st, n);
         match (
             pnr, pne, pnn, pns, pnf, pnl, pno, pnt, pnp, pnv, png, pncal, pnd, pndt, pndet, pntag,
             pntype, pnfeature, pnanalyte,
@@ -801,11 +755,64 @@ type Keywords = HashMap<String, String>;
 type KeywordErrors = HashMap<String, (String, String)>;
 type MissingKeywords = HashSet<String>;
 
+enum KwStatus {
+    Raw(String),
+    Error(String, String),
+    Missing,
+}
+
 // all hail the almighty state monad :D
+
+// main idea: all kws start as "raw" and will then get moved to either missing
+// or error categories. Those left in "raw" are nonstandard keywords. If everything
+// is perfect this will be totally empty, since all fields in the main struct will be filled
 struct KwState {
-    keywords: Keywords,
-    errors: KeywordErrors,
-    missing: MissingKeywords,
+    keywords: HashMap<String, KwStatus>,
+}
+
+impl KwState {
+    // TODO not DRY
+    fn get_required<V, F>(&mut self, k: &str, f: F) -> Option<V>
+    where
+        F: FnOnce(&str) -> Result<V, &'static str>,
+    {
+        match self.keywords.remove(k) {
+            Some(KwStatus::Raw(v)) => match f(&v) {
+                Ok(x) => Some(x),
+                Err(e) => {
+                    // TODO string things seems lame
+                    self.keywords
+                        .insert(String::from(k), KwStatus::Error(v, String::from(e)));
+                    None
+                }
+            },
+            // silently ignore attempts to process the same keyword twice
+            Some(_) => None,
+            None => {
+                self.keywords.insert(String::from(k), KwStatus::Missing);
+                None
+            }
+        }
+    }
+
+    fn get_optional<V, F>(&mut self, k: &str, f: F) -> Option<Option<V>>
+    where
+        F: FnOnce(&str) -> Result<V, &'static str>,
+    {
+        match self.keywords.remove(k) {
+            Some(KwStatus::Raw(v)) => match f(&v) {
+                Ok(x) => Some(Some(x)),
+                Err(e) => {
+                    self.keywords
+                        .insert(String::from(k), KwStatus::Error(v, String::from(e)));
+                    None
+                }
+            },
+            // silently ignore attempts to process the same keyword twice
+            Some(_) => None,
+            None => Some(None),
+        }
+    }
 }
 
 fn split_nonstandard(kws: Keywords) -> (Keywords, Keywords) {

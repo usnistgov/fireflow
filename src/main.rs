@@ -1,7 +1,7 @@
 // TODO gating parameters not added (yet)
 
 use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
-// use regex::Regex;
+use regex::Regex;
 use std::collections::{HashMap, HashSet};
 
 struct Bounds {
@@ -36,19 +36,19 @@ enum NumTypes {
     Double,
 }
 
-enum Endianness {
-    BigEndian,
-    LittleEndian,
+enum Endian {
+    Big,
+    Little,
 }
 
 enum ByteOrd {
-    BitLittle(Endianness),
-    Mixed(u8, u8, u8, u8),
+    BigLittle(Endian),
+    Mixed([u8; 4]),
 }
 
 struct Trigger {
     parameter: String,
-    threshhold: u32,
+    threshold: u32,
 }
 
 struct TextBounds<A, D, T> {
@@ -177,9 +177,10 @@ struct Parameter<X> {
 // type Wavelength3_1 = Vec<u32>;
 
 trait ParameterFromKeywords: Sized {
-    fn build_parameter(st: &mut KwState, n: u32) -> Option<Self>;
+    fn build_inner(st: &mut KwState, n: u32) -> Option<Self>;
 
-    fn from_kws(st: &mut KwState) -> Vec<Parameter<Self>> {
+    // TODO this should be non-empty
+    fn from_kws(st: &mut KwState) -> Option<Vec<Parameter<Self>>> {
         let mut ps = vec![];
         let mut n = 1;
         loop {
@@ -205,7 +206,7 @@ trait ParameterFromKeywords: Sized {
                         st.lookup_param_detector_type(n),
                         st.lookup_param_percent_emitted(n),
                         st.lookup_param_detector_voltage(n),
-                        Self::build_parameter(st, n),
+                        Self::build_inner(st, n),
                     ) {
                         let p = Parameter {
                             bits,
@@ -227,7 +228,11 @@ trait ParameterFromKeywords: Sized {
             };
             n = n + 1
         }
-        return ps;
+        if ps.is_empty() {
+            None
+        } else {
+            Some(ps)
+        }
     }
 }
 
@@ -242,6 +247,14 @@ fn format_kw(kw: &str) -> String {
 
 fn format_param_kw(n: u32, param: &str) -> String {
     format_kw(&format!("P{}{}", n, param.to_ascii_uppercase()))
+}
+
+fn parse_endian(s: &str) -> Result<Endian, &'static str> {
+    match s {
+        "1,2,3,4" => Ok(Endian::Little),
+        "4,3,2,1" => Ok(Endian::Big),
+        _ => Err("could not determine endianness, must be '1,2,3,4' or '4,3,2,1'"),
+    }
 }
 
 fn parse_int(s: &str) -> Result<u32, &'static str> {
@@ -269,7 +282,7 @@ fn parse_scale(s: &str) -> Result<Scale, &'static str> {
 }
 
 impl ParameterFromKeywords for InnerParameter2_0 {
-    fn build_parameter(st: &mut KwState, n: u32) -> Option<InnerParameter2_0> {
+    fn build_inner(st: &mut KwState, n: u32) -> Option<InnerParameter2_0> {
         if let (Some(scale), Some(shortname), Some(wavelength)) = (
             st.lookup_param_scale_opt(n),
             st.lookup_param_shortname_opt(n),
@@ -287,7 +300,7 @@ impl ParameterFromKeywords for InnerParameter2_0 {
 }
 
 impl ParameterFromKeywords for InnerParameter3_0 {
-    fn build_parameter(st: &mut KwState, n: u32) -> Option<InnerParameter3_0> {
+    fn build_inner(st: &mut KwState, n: u32) -> Option<InnerParameter3_0> {
         if let (Some(scale), Some(shortname), Some(wavelength), Some(gain)) = (
             st.lookup_param_scale_req(n),
             st.lookup_param_shortname_opt(n),
@@ -307,7 +320,7 @@ impl ParameterFromKeywords for InnerParameter3_0 {
 }
 
 impl ParameterFromKeywords for InnerParameter3_1 {
-    fn build_parameter(st: &mut KwState, n: u32) -> Option<InnerParameter3_1> {
+    fn build_inner(st: &mut KwState, n: u32) -> Option<InnerParameter3_1> {
         if let (
             Some(scale),
             Some(shortname),
@@ -338,7 +351,7 @@ impl ParameterFromKeywords for InnerParameter3_1 {
 }
 
 impl ParameterFromKeywords for InnerParameter3_2 {
-    fn build_parameter(st: &mut KwState, n: u32) -> Option<InnerParameter3_2> {
+    fn build_inner(st: &mut KwState, n: u32) -> Option<InnerParameter3_2> {
         if let (
             Some(scale),
             Some(shortname),
@@ -444,7 +457,7 @@ struct InnerMetadata3_0 {
 struct InnerMetadata3_1 {
     tot: u32,
     mode: Mode,
-    byteord: Endianness,
+    byteord: Endian,
     timestamps: Timestamps2_0, // BTIM/ETIM/DATE
     cyt: Option<String>,
     cytsn: CytSN,
@@ -457,7 +470,7 @@ struct InnerMetadata3_1 {
 
 struct InnerMetadata3_2 {
     tot: u32,
-    byteord: Endianness,
+    byteord: Endian,
     timestamps: Timestamps3_2, // DATETIMESTART/END
     cyt: String,
     cytsn: CytSN,
@@ -496,61 +509,7 @@ type Metadata3_0 = Metadata<InnerMetadata3_0>;
 type Metadata3_1 = Metadata<InnerMetadata3_1>;
 type Metadata3_2 = Metadata<InnerMetadata3_2>;
 
-// struct OptionalCommon<C, I, M, P, S, T, U, V> {
-//     abrt: Option<u32>,
-//     com: Option<String>,
-//     cells: Option<String>,
-//     exp: Option<String>,
-//     fil: Option<String>,
-//     inst: Option<String>,
-//     lost: Option<u32>,
-//     op: Option<String>,
-//     proj: Option<String>,
-//     smno: Option<String>,
-//     src: Option<String>,
-//     sys: Option<String>,
-//     tr: Option<Trigger>,
-//     carrier: C,
-//     timestamps: I,
-//     modified: M,
-//     plate: P,
-//     cytsn: S,
-//     timestep: T,
-//     unstained: U,
-//     vol: V,
-// }
-
-// type OptionalCommon2_0 = OptionalCommon<(), Timestamps2_0, (), (), (), (), (), ()>;
-
-// type OptionalCommon3_0 = OptionalCommon<(), Timestamps2_0, (), (), CytSN, Timestep, (), ()>;
-
-// type OptionalCommon3_1 =
-//     OptionalCommon<(), Timestamps2_0, ModificationData, PlateData, CytSN, Timestep, (), Vol>;
-
-// type OptionalCommon3_2 = OptionalCommon<
-//     CarrierData,
-//     Timestamps3_2,
-//     ModificationData,
-//     PlateData,
-//     CytSN,
-//     Timestep,
-//     UnstainedData,
-//     Vol,
-// >;
-
 struct Spillover {} // TODO, can probably get away with using a matrix for this
-
-// struct RequiredCommon<B, C, D, M, P, T> {
-//     par: u32,
-//     tot: T, // weirdly not required in 2.0
-//     mode: M,
-//     byteord: B,
-//     datatype: D,
-//     nextdata: u32,
-//     cyt: C,
-//     spillover: Spillover,
-//     parameters: Vec<P>,
-// }
 
 struct Cyt(String);
 
@@ -562,19 +521,8 @@ enum Mode {
     Correlated,
 }
 
-// type RequiredCommon2_0 =
-//     RequiredCommon<ByteOrd, Option<Cyt>, AlphaNumTypes, Mode, Parameter2_0, Option<Tot>>;
-
-// type RequiredCommon3_0 =
-//     RequiredCommon<ByteOrd, Option<Cyt>, AlphaNumTypes, Mode, Parameter3_0, Tot>;
-
-// type RequiredCommon3_1 =
-//     RequiredCommon<Endianness, Option<Cyt>, AlphaNumTypes, Mode, Parameter3_1, Tot>;
-
-// type RequiredCommon3_2 = RequiredCommon<Endianness, Cyt, NumTypes, (), Parameter3_2, Tot>;
-
 struct StdText<M, P> {
-    metadata: M,
+    metadata: Metadata<M>,
     parameters: Vec<Parameter<P>>,
 }
 
@@ -589,76 +537,46 @@ struct StdTextResult<T> {
     nonstandard: Keywords,
 }
 
-trait MetadataFromKeywords {
-    fn from_kws(st: &mut KwState) -> Self;
+trait MetadataFromKeywords: Sized {
+    fn build_inner(st: &mut KwState) -> Option<Self>;
+
+    fn from_kws(st: &mut KwState) -> Option<Metadata<Self>>;
+    // fn from_kws(st: &mut KwState) -> Option<Self> {
+    //     let mut ps = vec![];
+    //     if let (Some(datatype), Some(specific)) = (st.lookup_datatype(), Self::build_inner(st)) {
+    //         Metadata { datatype, specific };
+    //     } else {
+    //         None
+    //     }
+    // }
 }
-
-// impl OptionalFromKeywords for OptionalCommon2_0 {
-//     fn from_kws(_: &mut KwState) -> OptionalCommon2_0 {
-//         unimplemented!();
-//     }
-// }
-
-// trait RequiredFromKeywords {
-//     fn from_kws(st: &mut KwState) -> Self;
-// }
-
-// impl RequiredFromKeywords for RequiredCommon2_0 {
-//     fn from_kws(_: &mut KwState) -> RequiredCommon2_0 {
-//         unimplemented!();
-//     }
-// }
-
-trait MiscFromKeywords {
-    fn from_kws(st: &mut KwState) -> Self;
-}
-
-// // TODO this seems lame...
-// impl MiscFromKeywords for () {
-//     fn from_kws(_: &mut KwState) -> () {
-//         ()
-//     }
-// }
 
 trait StdTextFromKeywords: Sized {
     type M: MetadataFromKeywords;
     type P: ParameterFromKeywords;
 
-    fn build(m: Self::M, p: Vec<Parameter<Self::P>>) -> Self;
+    fn build(m: Metadata<Self::M>, p: Vec<Parameter<Self::P>>) -> Self;
 
-    fn from_kws(st: &mut KwState) -> Self {
-        let metadata = Self::M::from_kws(st);
-        let parameters = Self::P::from_kws(st);
-        Self::build(metadata, parameters)
+    fn from_kws(st: &mut KwState) -> Option<Self> {
+        if let (Some(metadata), Some(parameters)) = (Self::M::from_kws(st), Self::P::from_kws(st)) {
+            Some(Self::build(metadata, parameters))
+        } else {
+            None
+        }
     }
 }
 
-// impl<
-//         O: OptionalFromKeywords,
-//         P: ParameterFromKeywords,
-//         R: RequiredFromKeywords,
-//         X: MiscFromKeywords,
-//     > StdTextFromKeywords for StdText<O, P, R, X>
-// {
-//     type O = O;
-//     type P = P;
-//     type R = R;
-//     type X = X;
+impl<M: MetadataFromKeywords, P: ParameterFromKeywords> StdTextFromKeywords for StdText<M, P> {
+    type M = M;
+    type P = P;
 
-//     fn build(
-//         required: R,
-//         optional: O,
-//         parameters: Vec<Parameter<P>>,
-//         misc: X,
-//     ) -> StdText<O, P, R, X> {
-//         StdText {
-//             required,
-//             optional,
-//             parameters,
-//             misc,
-//         }
-//     }
-// }
+    fn build(metadata: Metadata<M>, parameters: Vec<Parameter<P>>) -> StdText<M, P> {
+        StdText {
+            metadata,
+            parameters,
+        }
+    }
+}
 
 struct TEXT<S> {
     // TODO add the offsets here as well? offsets are needed before parsing
@@ -749,6 +667,33 @@ impl KwState {
     }
 
     // metadata
+
+    fn lookup_byteord(&mut self) -> Option<ByteOrd> {
+        self.get_required("BYTEORD", |s| match parse_endian(s) {
+            Ok(e) => Ok(ByteOrd::BigLittle(e)),
+            _ => {
+                // ASSUME this will not fail because the regexp will only match
+                // four integers within {1,2,3,4}. If the regexp matches, the
+                // only thing left to test is that each of the digits is unique.
+                let re = Regex::new(r"^([1-4]),([1-4]),([1-4]),([1-4])$").unwrap();
+                if let Some(cap) = re.captures(s) {
+                    let xs: [u8; 4] = cap.extract().1.map(|s| s.parse().unwrap());
+                    let mut flags = [false, false, false, false];
+                    for x in xs {
+                        flags[usize::from(x) - 1] = true;
+                    }
+                    if flags.iter().all(|x| *x) {
+                        Ok(ByteOrd::Mixed(xs))
+                    } else {
+                        Err("mixed byte order not unique")
+                    }
+                } else {
+                    Err("invalid mixed byte order format")
+                }
+            }
+        })
+    }
+
     fn lookup_datatype(&mut self) -> Option<AlphaNumTypes> {
         self.get_required("DATATYPE", |s| match s {
             "I" => Ok(AlphaNumTypes::Integer),
@@ -758,6 +703,115 @@ impl KwState {
             _ => Err("unknown datatype"),
         })
     }
+
+    fn lookup_mode(&mut self) -> Option<Mode> {
+        self.get_required("MODE", |s| match s {
+            "C" => Ok(Mode::Correlated),
+            "L" => Ok(Mode::List),
+            "U" => Ok(Mode::Uncorrelated),
+            _ => Err("unknown mode"),
+        })
+    }
+
+    fn lookup_nextdata(&mut self) -> Option<u32> {
+        self.get_required("NEXTDATA", parse_int)
+    }
+
+    fn lookup_par(&mut self) -> Option<u32> {
+        self.get_required("PAR", parse_int)
+    }
+
+    fn lookup_tot_req(&mut self) -> Option<u32> {
+        self.get_required("TOT", parse_int)
+    }
+
+    fn lookup_tot_opt(&mut self) -> Option<Option<u32>> {
+        self.get_optional("TOT", parse_int)
+    }
+
+    fn lookup_cyt_req(&mut self) -> Option<String> {
+        self.get_required("CYT", parse_str)
+    }
+
+    fn lookup_cyt_opt(&mut self) -> Option<Option<String>> {
+        self.get_optional("CYT", parse_str)
+    }
+
+    fn lookup_abrt(&mut self) -> Option<Option<u32>> {
+        self.get_optional("ABRT", parse_int)
+    }
+
+    fn lookup_cells(&mut self) -> Option<Option<String>> {
+        self.get_optional("CELLS", parse_str)
+    }
+
+    fn lookup_com(&mut self) -> Option<Option<String>> {
+        self.get_optional("COM", parse_str)
+    }
+
+    fn lookup_exp(&mut self) -> Option<Option<String>> {
+        self.get_optional("EXP", parse_str)
+    }
+
+    fn lookup_fil(&mut self) -> Option<Option<String>> {
+        self.get_optional("FIL", parse_str)
+    }
+
+    fn lookup_inst(&mut self) -> Option<Option<String>> {
+        self.get_optional("INST", parse_str)
+    }
+
+    fn lookup_lost(&mut self) -> Option<Option<u32>> {
+        self.get_optional("LOST", parse_int)
+    }
+
+    fn lookup_op(&mut self) -> Option<Option<String>> {
+        self.get_optional("OP", parse_str)
+    }
+
+    fn lookup_proj(&mut self) -> Option<Option<String>> {
+        self.get_optional("PROJ", parse_str)
+    }
+
+    fn lookup_smno(&mut self) -> Option<Option<String>> {
+        self.get_optional("SMNO", parse_str)
+    }
+
+    fn lookup_src(&mut self) -> Option<Option<String>> {
+        self.get_optional("SRC", parse_str)
+    }
+
+    fn lookup_sys(&mut self) -> Option<Option<String>> {
+        self.get_optional("SYS", parse_str)
+    }
+
+    fn lookup_trigger(&mut self) -> Option<Option<Trigger>> {
+        self.get_optional("TR", |s| match s.split(",").collect::<Vec<&str>>()[..] {
+            [p, n1] => parse_int(n1).map(|threshold| Trigger {
+                parameter: String::from(p),
+                threshold,
+            }),
+            _ => Err("wrong number of fields"),
+        })
+    }
+
+    fn lookup_cytsn(&mut self) -> Option<Option<String>> {
+        self.get_optional("CYTSN", parse_str)
+    }
+
+    fn lookup_timestep(&mut self) -> Option<Option<f32>> {
+        self.get_optional("TIMESTEP", parse_float)
+    }
+
+    fn lookup_vol(&mut self) -> Option<Option<f32>> {
+        self.get_optional("VOL", parse_float)
+    }
+
+    // TODO unicode
+
+    // TODO time stuff
+
+    // TODO comp matrices
 
     // parameters
     fn lookup_param_req<V, F>(&mut self, param: &'static str, n: u32, f: F) -> Option<V>
@@ -934,17 +988,17 @@ impl KwState {
     }
 }
 
-fn from_kws<T: StdTextFromKeywords>(st: &mut KwState) -> TEXT<T> {
-    let standard = T::from_kws(st);
-    let (nonstandard, deviant, standard_missing, standard_errors) = st.finalize();
-    return TEXT {
-        standard,
-        standard_missing,
-        standard_errors,
-        nonstandard,
-        deviant,
-    };
-}
+// fn from_kws<T: StdTextFromKeywords>(st: &mut KwState) -> TEXT<T> {
+//     let standard = T::from_kws(st);
+//     let (nonstandard, deviant, standard_missing, standard_errors) = st.finalize();
+//     return TEXT {
+//         standard,
+//         standard_missing,
+//         standard_errors,
+//         nonstandard,
+//         deviant,
+//     };
+// }
 
 // fn test(st: &mut KwState) -> TEXT2_0 {
 //     from_kws(st)

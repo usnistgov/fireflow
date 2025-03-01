@@ -376,29 +376,30 @@ fn lookup_feature(st: &mut KwState, n: u32) -> Option<Option<Feature>> {
 
 impl ParameterFromKeywords for Parameter2_0 {
     fn build_parameter(st: &mut KwState, n: u32, bits: u32) -> Option<Parameter2_0> {
-        let pnr = lookup_range(st, n);
-        let pne = lookup_scale_opt(st, n);
-        let pnn = lookup_shortname_opt(st, n);
-        let pns = lookup_longname(st, n);
-        let pnf = lookup_filter(st, n);
-        let pnl = lookup_wavelength(st, n);
-        let pno = lookup_power(st, n);
-        let pnt = lookup_detector_type(st, n);
-        let pnp = lookup_percent_emitted(st, n);
-        let pnv = lookup_detector_voltage(st, n);
-        match (pnr, pne, pnn, pns, pnf, pnl, pno, pnt, pnp, pnv) {
-            (
-                Some(range),
-                Some(scale),
-                Some(shortname),
-                Some(longname),
-                Some(filter),
-                Some(wavelength),
-                Some(power),
-                Some(detector_type),
-                Some(percent_emitted),
-                Some(detector_voltage),
-            ) => Some(Parameter {
+        if let (
+            Some(range),
+            Some(scale),
+            Some(shortname),
+            Some(longname),
+            Some(filter),
+            Some(wavelength),
+            Some(power),
+            Some(detector_type),
+            Some(percent_emitted),
+            Some(detector_voltage),
+        ) = (
+            lookup_range(st, n),
+            lookup_scale_opt(st, n),
+            lookup_shortname_opt(st, n),
+            lookup_longname(st, n),
+            lookup_filter(st, n),
+            lookup_wavelength(st, n),
+            lookup_power(st, n),
+            lookup_detector_type(st, n),
+            lookup_percent_emitted(st, n),
+            lookup_detector_voltage(st, n),
+        ) {
+            Some(Parameter {
                 bits,
                 range,
                 scale,
@@ -411,39 +412,41 @@ impl ParameterFromKeywords for Parameter2_0 {
                 percent_emitted,
                 detector_voltage,
                 specific: (),
-            }),
-            _ => None,
+            })
+        } else {
+            None
         }
     }
 }
 
 impl ParameterFromKeywords for Parameter3_0 {
     fn build_parameter(st: &mut KwState, n: u32, bits: u32) -> Option<Parameter3_0> {
-        let pnr = lookup_range(st, n);
-        let pne = lookup_scale_req(st, n);
-        let pnn = lookup_shortname_opt(st, n);
-        let pns = lookup_longname(st, n);
-        let pnf = lookup_filter(st, n);
-        let pnl = lookup_wavelength(st, n);
-        let pno = lookup_power(st, n);
-        let pnt = lookup_detector_type(st, n);
-        let pnp = lookup_percent_emitted(st, n);
-        let pnv = lookup_detector_voltage(st, n);
-        let png = lookup_gain(st, n);
-        match (pnr, pne, pnn, pns, pnf, pnl, pno, pnt, pnp, pnv, png) {
-            (
-                Some(range),
-                Some(scale),
-                Some(shortname),
-                Some(longname),
-                Some(filter),
-                Some(wavelength),
-                Some(power),
-                Some(detector_type),
-                Some(percent_emitted),
-                Some(detector_voltage),
-                Some(gain),
-            ) => Some(Parameter {
+        if let (
+            Some(range),
+            Some(scale),
+            Some(shortname),
+            Some(longname),
+            Some(filter),
+            Some(wavelength),
+            Some(power),
+            Some(detector_type),
+            Some(percent_emitted),
+            Some(detector_voltage),
+            Some(gain),
+        ) = (
+            lookup_range(st, n),
+            lookup_scale_req(st, n),
+            lookup_shortname_opt(st, n),
+            lookup_longname(st, n),
+            lookup_filter(st, n),
+            lookup_wavelength(st, n),
+            lookup_power(st, n),
+            lookup_detector_type(st, n),
+            lookup_percent_emitted(st, n),
+            lookup_detector_voltage(st, n),
+            lookup_gain(st, n),
+        ) {
+            Some(Parameter {
                 bits,
                 range,
                 scale,
@@ -456,45 +459,45 @@ impl ParameterFromKeywords for Parameter3_0 {
                 percent_emitted,
                 detector_voltage,
                 specific: InnerParameter3_0 { gain },
-            }),
-            _ => None,
+            })
+        } else {
+            None
         }
     }
 }
 
 impl ParameterFromKeywords for Parameter3_1 {
     fn build_parameter(st: &mut KwState, n: u32, bits: u32) -> Option<Parameter3_1> {
-        let pnr = lookup_range(st, n);
-        let pne = lookup_scale_req(st, n);
-        let pnn = lookup_shortname_req(st, n);
-        let pns = lookup_longname(st, n);
-        let pnf = lookup_filter(st, n);
-        let pnl = lookup_wavelengths(st, n);
-        let pno = lookup_power(st, n);
-        let pnt = lookup_detector_type(st, n);
-        let pnp = lookup_percent_emitted(st, n);
-        let pnv = lookup_detector_voltage(st, n);
-        let png = lookup_gain(st, n);
-        let pncal = lookup_calibration(st, n);
-        let pnd = lookup_display(st, n);
-        match (
-            pnr, pne, pnn, pns, pnf, pnl, pno, pnt, pnp, pnv, png, pncal, pnd,
+        if let (
+            Some(range),
+            Some(scale),
+            Some(shortname),
+            Some(longname),
+            Some(filter),
+            Some(wavelength),
+            Some(power),
+            Some(detector_type),
+            Some(percent_emitted),
+            Some(detector_voltage),
+            Some(gain),
+            Some(calibration),
+            Some(display),
+        ) = (
+            lookup_range(st, n),
+            lookup_scale_req(st, n),
+            lookup_shortname_req(st, n),
+            lookup_longname(st, n),
+            lookup_filter(st, n),
+            lookup_wavelengths(st, n),
+            lookup_power(st, n),
+            lookup_detector_type(st, n),
+            lookup_percent_emitted(st, n),
+            lookup_detector_voltage(st, n),
+            lookup_gain(st, n),
+            lookup_calibration(st, n),
+            lookup_display(st, n),
         ) {
-            (
-                Some(range),
-                Some(scale),
-                Some(shortname),
-                Some(longname),
-                Some(filter),
-                Some(wavelength),
-                Some(power),
-                Some(detector_type),
-                Some(percent_emitted),
-                Some(detector_voltage),
-                Some(gain),
-                Some(calibration),
-                Some(display),
-            ) => Some(Parameter {
+            Some(Parameter {
                 bits,
                 range,
                 scale,
@@ -511,58 +514,57 @@ impl ParameterFromKeywords for Parameter3_1 {
                     display,
                     older: InnerParameter3_0 { gain },
                 },
-            }),
-            _ => None,
+            })
+        } else {
+            None
         }
     }
 }
 
 impl ParameterFromKeywords for Parameter3_2 {
     fn build_parameter(st: &mut KwState, n: u32, bits: u32) -> Option<Parameter3_2> {
-        let pnr = lookup_range(st, n);
-        let pne = lookup_scale_req(st, n);
-        let pnn = lookup_shortname_req(st, n);
-        let pns = lookup_longname(st, n);
-        let pnf = lookup_filter(st, n);
-        let pnl = lookup_wavelengths(st, n);
-        let pno = lookup_power(st, n);
-        let pnt = lookup_detector_type(st, n);
-        let pnp = lookup_percent_emitted(st, n);
-        let pnv = lookup_detector_voltage(st, n);
-        let png = lookup_gain(st, n);
-        let pncal = lookup_calibration(st, n);
-        let pnd = lookup_display(st, n);
-        let pndt = lookup_datatype(st, n);
-        let pndet = lookup_detector(st, n);
-        let pntag = lookup_tag(st, n);
-        let pntype = lookup_type(st, n);
-        let pnfeature = lookup_feature(st, n);
-        let pnanalyte = lookup_analyte(st, n);
-        match (
-            pnr, pne, pnn, pns, pnf, pnl, pno, pnt, pnp, pnv, png, pncal, pnd, pndt, pndet, pntag,
-            pntype, pnfeature, pnanalyte,
+        if let (
+            Some(range),
+            Some(scale),
+            Some(shortname),
+            Some(longname),
+            Some(filter),
+            Some(wavelength),
+            Some(power),
+            Some(detector_type),
+            Some(percent_emitted),
+            Some(detector_voltage),
+            Some(gain),
+            Some(calibration),
+            Some(display),
+            Some(datatype),
+            Some(detector_name),
+            Some(tag),
+            Some(measurement_type),
+            Some(feature),
+            Some(analyte),
+        ) = (
+            lookup_range(st, n),
+            lookup_scale_req(st, n),
+            lookup_shortname_req(st, n),
+            lookup_longname(st, n),
+            lookup_filter(st, n),
+            lookup_wavelengths(st, n),
+            lookup_power(st, n),
+            lookup_detector_type(st, n),
+            lookup_percent_emitted(st, n),
+            lookup_detector_voltage(st, n),
+            lookup_gain(st, n),
+            lookup_calibration(st, n),
+            lookup_display(st, n),
+            lookup_datatype(st, n),
+            lookup_detector(st, n),
+            lookup_tag(st, n),
+            lookup_type(st, n),
+            lookup_feature(st, n),
+            lookup_analyte(st, n),
         ) {
-            (
-                Some(range),
-                Some(scale),
-                Some(shortname),
-                Some(longname),
-                Some(filter),
-                Some(wavelength),
-                Some(power),
-                Some(detector_type),
-                Some(percent_emitted),
-                Some(detector_voltage),
-                Some(gain),
-                Some(calibration),
-                Some(display),
-                Some(datatype),
-                Some(detector_name),
-                Some(tag),
-                Some(measurement_type),
-                Some(feature),
-                Some(analyte),
-            ) => Some(Parameter {
+            Some(Parameter {
                 bits,
                 range,
                 scale,
@@ -587,8 +589,9 @@ impl ParameterFromKeywords for Parameter3_2 {
                         older: InnerParameter3_0 { gain },
                     },
                 },
-            }),
-            _ => None,
+            })
+        } else {
+            None
         }
     }
 }

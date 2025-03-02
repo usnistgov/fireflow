@@ -1,6 +1,7 @@
 // TODO gating parameters not added (yet)
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
+use itertools::Itertools;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::io;
@@ -1446,6 +1447,7 @@ impl KwState {
 }
 
 fn parse_bounds(s0: &str, s1: &str, allow_blank: bool) -> Result<Bounds, &'static str> {
+    // TODO check end >= begin
     let f = if allow_blank {
         parse_int_or_blank
     } else {
@@ -1496,6 +1498,144 @@ fn read_header<R: Read>(h: &mut BufReader<R>) -> io::Result<Header> {
             "header sequence is not valid text",
         ))
     }
+}
+
+// read TEXT segment:
+// 1. bounded by textstart/end
+// 2. first character is delimiter (and so is the last, I think...)
+// 3. two delimiters in a row shall be replaced by one delimiter
+// 4. no value shall be blank, so (3) implies that delimiters can be present in
+//    keys or values
+// 5. there should be an even number of delimited fields (obviously)
+// 6. delimiters should not be at the start or end of word; for instance, if
+//    we encountered XXX (where X is delim) it wouldn't be clear if the first
+//    or third X is the boundary and if the other two belong to the previous or
+//    or next keyword. Implication: keywords can only appear once in a row or
+//    an even number of times in a row.
+
+struct RawTEXT {
+    delimiter: u8,
+    keywords: HashMap<String, String>,
+}
+
+fn read_text<R: Read + Seek>(h: &mut BufReader<R>, header: Header) -> io::Result<RawTEXT> {
+    h.seek(SeekFrom::Start(u64::from(header.text.begin)))?;
+    let x0 = header.text.begin;
+    let x1 = x0 + 1;
+    let xf = header.text.end;
+    let textlen = xf - x0 + 1;
+
+    // Read first character, which should be the delimiter
+    let mut dbuf = [0_u8];
+    h.read(&mut dbuf)?;
+    let delimiter = dbuf[0];
+
+    // Read from the 2nd character to all but the last character and record
+    // delimiter positions.
+    let mut delim_positions = vec![];
+    delim_positions.push(x0);
+    for (i, c) in (x1..).zip(h.take(u64::from(textlen - 2)).bytes()) {
+        if c? == delimiter {
+            delim_positions.push(i);
+        }
+    }
+    delim_positions.push(xf);
+
+    // Read the last character and ensure it is also a delimiter
+    h.read(&mut dbuf)?;
+    if dbuf[0] != delimiter {
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            "final character in TEXT is not the delimiter, file may be corrupt",
+        ));
+    }
+
+    // TODO pretty sure lots of FCS files actually have blank values which means
+    // we will need to deal with double delimiters which are real word
+    // boundaries.
+
+    // Remove "escaped" delimiters from position vector. Because we disallow
+    // blank values and also disallow delimiters at the start/end of words, this
+    // implies that we should only see delimiters by themselves or in a
+    // consecutive sequence whose length is even.
+    let mut boundaries: Vec<(u32, u32)> = vec![]; // (position, length)
+
+    for (key, chunk) in delim_positions
+        // We force-added the first and last delimiter in the TEXT segment, so
+        // this is guaranteed to have at least two elements (one pair)
+        .windows(2)
+        .map(|x| match x {
+            [a, b] => Some((*a, b - a)),
+            _ => None,
+        })
+        .flatten()
+        .chunk_by(|(x, _)| *x)
+        .into_iter()
+    {
+        if key == 1 {
+            if chunk.count() % 2 == 1 {
+                return Err(io::Error::new(
+                    io::ErrorKind::Other,
+                    "delimiter found at start or end of word",
+                ));
+            }
+        } else {
+            for x in chunk {
+                boundaries.push(x);
+            }
+        }
+    }
+
+    // If all went well in the previous step, we should now have the following:
+    // 1. first entry coincides with start of TEXT
+    // 2. last entry coincides with end of TEXT
+    if let Some((x, _)) = boundaries.first() {
+        if *x > x0 {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                "first keyword starts with a delimiter",
+            ));
+        }
+    }
+    if let Some((x, len)) = boundaries.last() {
+        if *x + len < xf {
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                "final value ends with a delimiter",
+            ));
+        }
+    }
+
+    let mut keywords: HashMap<String, String> = HashMap::new();
+    let mut kbuf = String::new();
+    let mut vbuf = String::new();
+    let delimiter2 = [delimiter, delimiter];
+    let delimiter1 = [delimiter];
+    let escape_from = str::from_utf8(&delimiter2).unwrap();
+    let escape_to = str::from_utf8(&delimiter1).unwrap();
+    h.seek(SeekFrom::Start(u64::from(x0)))?;
+    let fix_word = |s: &str| s.replace(escape_from, escape_to);
+    for chunk in boundaries.chunks(2) {
+        if let [(_, klen), (_, vlen)] = chunk {
+            // TODO not DRY
+            h.seek(SeekFrom::Current(1))?;
+            h.take(u64::from(*klen) - 1).read_to_string(&mut kbuf)?;
+            h.seek(SeekFrom::Current(1))?;
+            h.take(u64::from(*vlen) - 1).read_to_string(&mut vbuf)?;
+            keywords.insert(fix_word(&kbuf), fix_word(&vbuf));
+        } else {
+            // TODO could also ignore this since it isn't necessarily fatal
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                "number of words is not even, parsing failed",
+            ));
+        }
+    }
+
+    Ok(RawTEXT {
+        delimiter,
+        keywords,
+    })
 }
 
 // TODO this is basically a matrix, probably a crate I can use

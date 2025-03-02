@@ -1,6 +1,6 @@
 // TODO gating parameters not added (yet)
 
-use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
+use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 
@@ -41,6 +41,7 @@ enum Endian {
     Little,
 }
 
+// TODO this can vary depending on bit width
 enum ByteOrd {
     BigLittle(Endian),
     Mixed([u8; 4]),
@@ -180,53 +181,43 @@ trait ParameterFromKeywords: Sized {
     fn build_inner(st: &mut KwState, n: u32) -> Option<Self>;
 
     // TODO this should be non-empty
-    fn from_kws(st: &mut KwState) -> Option<Vec<Parameter<Self>>> {
+    fn from_kws(st: &mut KwState, par: u32) -> Option<Vec<Parameter<Self>>> {
         let mut ps = vec![];
-        let mut n = 1;
-        loop {
-            // lookup bits since this should be present in all versions, if not
-            // present then consider the previous index to be the last parameter
-            // index
-            match st.lookup_param_bits(n) {
-                Some(bits) => {
-                    if let (
-                        Some(range),
-                        Some(longname),
-                        Some(filter),
-                        Some(power),
-                        Some(detector_type),
-                        Some(percent_emitted),
-                        Some(detector_voltage),
-                        Some(specific),
-                    ) = (
-                        st.lookup_param_range(n),
-                        st.lookup_param_longname(n),
-                        st.lookup_param_filter(n),
-                        st.lookup_param_power(n),
-                        st.lookup_param_detector_type(n),
-                        st.lookup_param_percent_emitted(n),
-                        st.lookup_param_detector_voltage(n),
-                        Self::build_inner(st, n),
-                    ) {
-                        let p = Parameter {
-                            bits,
-                            range,
-                            longname,
-                            filter,
-                            power,
-                            detector_type,
-                            percent_emitted,
-                            detector_voltage,
-                            specific,
-                        };
-                        ps.push(p);
-                    } else {
-                        break;
-                    }
-                }
-                None => break,
-            };
-            n = n + 1
+        for n in 0..par {
+            if let (
+                Some(bits),
+                Some(range),
+                Some(longname),
+                Some(filter),
+                Some(power),
+                Some(detector_type),
+                Some(percent_emitted),
+                Some(detector_voltage),
+                Some(specific),
+            ) = (
+                st.lookup_param_bits(n),
+                st.lookup_param_range(n),
+                st.lookup_param_longname(n),
+                st.lookup_param_filter(n),
+                st.lookup_param_power(n),
+                st.lookup_param_detector_type(n),
+                st.lookup_param_percent_emitted(n),
+                st.lookup_param_detector_voltage(n),
+                Self::build_inner(st, n),
+            ) {
+                let p = Parameter {
+                    bits,
+                    range,
+                    longname,
+                    filter,
+                    power,
+                    detector_type,
+                    percent_emitted,
+                    detector_voltage,
+                    specific,
+                };
+                ps.push(p);
+            }
         }
         if ps.is_empty() {
             None
@@ -267,6 +258,31 @@ fn parse_float(s: &str) -> Result<f32, &'static str> {
 
 fn parse_str(s: &str) -> Result<String, &'static str> {
     Ok(String::from(s))
+}
+
+fn parse_iso_datetime(s: &str) -> Result<DateTime<FixedOffset>, &'static str> {
+    DateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f%:z").or(DateTime::parse_from_str(
+        s,
+        "%Y-%m-%dT%H:%M:%S%.f%:z",
+    )
+    .or(Err("must be formatted like 'yyyy-mm-ddThh:mm:ss[TZD]'")))
+}
+
+fn parse_date(s: &str) -> Result<NaiveDate, &'static str> {
+    NaiveDate::parse_from_str(s, "%d-%b-%Y")
+        .or(NaiveDate::parse_from_str(s, "%d-%b-%Y")
+            .or(Err("must be formatted like 'dd-mmm-yyyy'")))
+}
+
+fn parse_time60(s: &str) -> Result<NaiveTime, &'static str> {
+    // TODO this will have subseconds in terms of 1/100, need to convert to 1/60
+    parse_time100(s)
+}
+
+fn parse_time100(s: &str) -> Result<NaiveTime, &'static str> {
+    NaiveTime::parse_from_str(s, "%H:%M:%S.%.3f")
+        .or(NaiveTime::parse_from_str(s, "%H:%M:%S")
+            .or(Err("must be formatted like 'hh:mm:ss[.cc]'")))
 }
 
 fn parse_scale(s: &str) -> Result<Scale, &'static str> {
@@ -418,8 +434,10 @@ struct PlateData {
     wellid: Option<String>,
 }
 
+type UnstainedCenters = HashMap<String, f32>;
+
 struct UnstainedData {
-    unstainedcenters: HashMap<String, f32>,
+    unstainedcenters: UnstainedCenters,
     unstainedinfo: Option<String>,
 }
 
@@ -487,7 +505,7 @@ struct Metadata<X> {
     nextdata: u32,
     datatype: AlphaNumTypes,
     // an abstraction for various kinds of spillover/comp matrices
-    spillover: Spillover,
+    // spillover: Spillover,
     abrt: Option<u32>,
     com: Option<String>,
     cells: Option<String>,
@@ -540,15 +558,67 @@ struct StdTextResult<T> {
 trait MetadataFromKeywords: Sized {
     fn build_inner(st: &mut KwState) -> Option<Self>;
 
-    fn from_kws(st: &mut KwState) -> Option<Metadata<Self>>;
-    // fn from_kws(st: &mut KwState) -> Option<Self> {
-    //     let mut ps = vec![];
-    //     if let (Some(datatype), Some(specific)) = (st.lookup_datatype(), Self::build_inner(st)) {
-    //         Metadata { datatype, specific };
-    //     } else {
-    //         None
-    //     }
-    // }
+    fn from_kws(st: &mut KwState) -> Option<Metadata<Self>> {
+        if let (
+            Some(par),
+            Some(nextdata),
+            Some(datatype),
+            Some(abrt),
+            Some(com),
+            Some(cells),
+            Some(exp),
+            Some(fil),
+            Some(inst),
+            Some(lost),
+            Some(op),
+            Some(proj),
+            Some(smno),
+            Some(src),
+            Some(sys),
+            Some(tr),
+            Some(specific),
+        ) = (
+            st.lookup_par(),
+            st.lookup_nextdata(),
+            st.lookup_datatype(),
+            st.lookup_abrt(),
+            st.lookup_com(),
+            st.lookup_cells(),
+            st.lookup_exp(),
+            st.lookup_fil(),
+            st.lookup_inst(),
+            st.lookup_lost(),
+            st.lookup_op(),
+            st.lookup_proj(),
+            st.lookup_smno(),
+            st.lookup_src(),
+            st.lookup_sys(),
+            st.lookup_trigger(),
+            Self::build_inner(st),
+        ) {
+            Some(Metadata {
+                par,
+                nextdata,
+                datatype,
+                abrt,
+                com,
+                cells,
+                exp,
+                fil,
+                inst,
+                lost,
+                op,
+                proj,
+                smno,
+                src,
+                sys,
+                tr,
+                specific,
+            })
+        } else {
+            None
+        }
+    }
 }
 
 trait StdTextFromKeywords: Sized {
@@ -558,11 +628,9 @@ trait StdTextFromKeywords: Sized {
     fn build(m: Metadata<Self::M>, p: Vec<Parameter<Self::P>>) -> Self;
 
     fn from_kws(st: &mut KwState) -> Option<Self> {
-        if let (Some(metadata), Some(parameters)) = (Self::M::from_kws(st), Self::P::from_kws(st)) {
-            Some(Self::build(metadata, parameters))
-        } else {
-            None
-        }
+        Self::M::from_kws(st).and_then(|metadata| {
+            Self::P::from_kws(st, metadata.par).map(|parameters| Self::build(metadata, parameters))
+        })
     }
 }
 
@@ -805,6 +873,107 @@ impl KwState {
 
     fn lookup_vol(&mut self) -> Option<Option<f32>> {
         self.get_optional("VOL", parse_float)
+    }
+
+    fn lookup_unicode(&mut self) -> Option<Option<Unicode>> {
+        self.get_optional("UNICODE", |s| {
+            let mut xs = s.split(",");
+            if let Some(page) = xs.next().and_then(|s| s.parse().ok()) {
+                let kws: Vec<String> = xs.map(String::from).collect();
+                if kws.is_empty() {
+                    Err("no keywords specified")
+                } else {
+                    Ok(Unicode { page, kws })
+                }
+            } else {
+                Err("unicode must be like 'page,KW1[,KW2...]'")
+            }
+        })
+    }
+
+    fn lookup_plateid(&mut self) -> Option<Option<String>> {
+        self.get_optional("PLATEID", parse_str)
+    }
+
+    fn lookup_platename(&mut self) -> Option<Option<String>> {
+        self.get_optional("PLATENAME", parse_str)
+    }
+
+    fn lookup_wellid(&mut self) -> Option<Option<String>> {
+        self.get_optional("WELLID", parse_str)
+    }
+
+    fn lookup_unstainedinfo(&mut self) -> Option<Option<String>> {
+        self.get_optional("UNSTAINEDINFO", parse_str)
+    }
+
+    fn lookup_unstainedcenters(&mut self) -> Option<Option<UnstainedCenters>> {
+        self.get_optional("UNSTAINEDICENTERS", |s| {
+            let mut xs = s.split(",");
+            if let Some(n) = xs.next().and_then(|s| s.parse().ok()) {
+                let rest: Vec<&str> = xs.collect();
+                let mut us = HashMap::new();
+                if rest.len() == 2 * n {
+                    for i in 0..n {
+                        if let Some(v) = rest[i + 8].parse().ok() {
+                            us.insert(String::from(rest[i]), v);
+                        } else {
+                            return Err("invalid numeric encountered");
+                        }
+                    }
+                    Ok(us)
+                } else {
+                    Err("data fields do not match given dimensions")
+                }
+            } else {
+                Err("invalid dimension")
+            }
+        })
+    }
+
+    fn lookup_last_modifier(&mut self) -> Option<Option<String>> {
+        self.get_optional("LAST_MODIFIER", parse_str)
+    }
+
+    fn lookup_last_modified(&mut self) -> Option<Option<NaiveDateTime>> {
+        // TODO hopefully case doesn't matter...
+        self.get_optional("LAST_MODIFIED", |s| {
+            NaiveDateTime::parse_from_str(s, "%d-%b-%Y %H:%M:%S.%.3f")
+                .or(NaiveDateTime::parse_from_str(s, "%d-%b-%Y %H:%M:%S")
+                    .or(Err("must be formatted like 'dd-mmm-yyyy hh:mm:ss[.cc]'")))
+        })
+    }
+
+    fn lookup_originality(&mut self) -> Option<Option<String>> {
+        self.get_optional("ORIGINALITY", parse_str)
+    }
+
+    fn lookup_begindatetime(&mut self) -> Option<Option<DateTime<FixedOffset>>> {
+        self.get_optional("BEGINDATETIME", parse_iso_datetime)
+    }
+
+    fn lookup_enddatetime(&mut self) -> Option<Option<DateTime<FixedOffset>>> {
+        self.get_optional("ENDDATETIME", parse_iso_datetime)
+    }
+
+    fn lookup_date(&mut self) -> Option<Option<NaiveDate>> {
+        self.get_optional("DATE", parse_date)
+    }
+
+    fn lookup_btim60(&mut self) -> Option<Option<NaiveTime>> {
+        self.get_optional("BTIM", parse_time60)
+    }
+
+    fn lookup_etim60(&mut self) -> Option<Option<NaiveTime>> {
+        self.get_optional("ETIM", parse_time60)
+    }
+
+    fn lookup_btim100(&mut self) -> Option<Option<NaiveTime>> {
+        self.get_optional("BTIM", parse_time100)
+    }
+
+    fn lookup_etim100(&mut self) -> Option<Option<NaiveTime>> {
+        self.get_optional("ETIM", parse_time100)
     }
 
     // TODO unicode

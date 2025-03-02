@@ -4,6 +4,71 @@ use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 
+fn format_kw(kw: &str) -> String {
+    format!("${}", kw.to_ascii_uppercase())
+}
+
+fn format_param_kw(n: u32, param: &str) -> String {
+    format_kw(&format!("P{}{}", n, param.to_ascii_uppercase()))
+}
+
+fn parse_endian(s: &str) -> Result<Endian, &'static str> {
+    match s {
+        "1,2,3,4" => Ok(Endian::Little),
+        "4,3,2,1" => Ok(Endian::Big),
+        _ => Err("could not determine endianness, must be '1,2,3,4' or '4,3,2,1'"),
+    }
+}
+
+fn parse_int(s: &str) -> Result<u32, &'static str> {
+    s.parse().or(Err("invalid integer"))
+}
+
+fn parse_float(s: &str) -> Result<f32, &'static str> {
+    s.parse().or(Err("invalid float"))
+}
+
+fn parse_str(s: &str) -> Result<String, &'static str> {
+    Ok(String::from(s))
+}
+
+fn parse_iso_datetime(s: &str) -> Result<DateTime<FixedOffset>, &'static str> {
+    DateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f%:z").or(DateTime::parse_from_str(
+        s,
+        "%Y-%m-%dT%H:%M:%S%.f%:z",
+    )
+    .or(Err("must be formatted like 'yyyy-mm-ddThh:mm:ss[TZD]'")))
+}
+
+fn parse_date(s: &str) -> Result<NaiveDate, &'static str> {
+    NaiveDate::parse_from_str(s, "%d-%b-%Y")
+        .or(NaiveDate::parse_from_str(s, "%d-%b-%Y")
+            .or(Err("must be formatted like 'dd-mmm-yyyy'")))
+}
+
+fn parse_time60(s: &str) -> Result<NaiveTime, &'static str> {
+    // TODO this will have subseconds in terms of 1/100, need to convert to 1/60
+    parse_time100(s)
+}
+
+fn parse_time100(s: &str) -> Result<NaiveTime, &'static str> {
+    NaiveTime::parse_from_str(s, "%H:%M:%S.%.3f")
+        .or(NaiveTime::parse_from_str(s, "%H:%M:%S")
+            .or(Err("must be formatted like 'hh:mm:ss[.cc]'")))
+}
+
+fn parse_scale(s: &str) -> Result<Scale, &'static str> {
+    let v: Vec<&str> = s.split(",").collect();
+    match v[..] {
+        [ds, os] => match (ds.parse(), os.parse()) {
+            (Ok(0.0), Ok(0.0)) => Ok(Linear),
+            (Ok(decades), Ok(offset)) => Ok(Log(LogScale { decades, offset })),
+            _ => Err("invalid floats"),
+        },
+        _ => Err("too many fields"),
+    }
+}
+
 struct Bounds {
     begin: u32,
     end: u32,
@@ -231,71 +296,6 @@ type Parameter3_0 = Parameter<InnerParameter3_0>;
 type Parameter3_1 = Parameter<InnerParameter3_1>;
 type Parameter3_2 = Parameter<InnerParameter3_2>;
 
-fn format_kw(kw: &str) -> String {
-    format!("${}", kw.to_ascii_uppercase())
-}
-
-fn format_param_kw(n: u32, param: &str) -> String {
-    format_kw(&format!("P{}{}", n, param.to_ascii_uppercase()))
-}
-
-fn parse_endian(s: &str) -> Result<Endian, &'static str> {
-    match s {
-        "1,2,3,4" => Ok(Endian::Little),
-        "4,3,2,1" => Ok(Endian::Big),
-        _ => Err("could not determine endianness, must be '1,2,3,4' or '4,3,2,1'"),
-    }
-}
-
-fn parse_int(s: &str) -> Result<u32, &'static str> {
-    s.parse().or(Err("invalid integer"))
-}
-
-fn parse_float(s: &str) -> Result<f32, &'static str> {
-    s.parse().or(Err("invalid float"))
-}
-
-fn parse_str(s: &str) -> Result<String, &'static str> {
-    Ok(String::from(s))
-}
-
-fn parse_iso_datetime(s: &str) -> Result<DateTime<FixedOffset>, &'static str> {
-    DateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f%:z").or(DateTime::parse_from_str(
-        s,
-        "%Y-%m-%dT%H:%M:%S%.f%:z",
-    )
-    .or(Err("must be formatted like 'yyyy-mm-ddThh:mm:ss[TZD]'")))
-}
-
-fn parse_date(s: &str) -> Result<NaiveDate, &'static str> {
-    NaiveDate::parse_from_str(s, "%d-%b-%Y")
-        .or(NaiveDate::parse_from_str(s, "%d-%b-%Y")
-            .or(Err("must be formatted like 'dd-mmm-yyyy'")))
-}
-
-fn parse_time60(s: &str) -> Result<NaiveTime, &'static str> {
-    // TODO this will have subseconds in terms of 1/100, need to convert to 1/60
-    parse_time100(s)
-}
-
-fn parse_time100(s: &str) -> Result<NaiveTime, &'static str> {
-    NaiveTime::parse_from_str(s, "%H:%M:%S.%.3f")
-        .or(NaiveTime::parse_from_str(s, "%H:%M:%S")
-            .or(Err("must be formatted like 'hh:mm:ss[.cc]'")))
-}
-
-fn parse_scale(s: &str) -> Result<Scale, &'static str> {
-    let v: Vec<&str> = s.split(",").collect();
-    match v[..] {
-        [ds, os] => match (ds.parse(), os.parse()) {
-            (Ok(0.0), Ok(0.0)) => Ok(Linear),
-            (Ok(decades), Ok(offset)) => Ok(Log(LogScale { decades, offset })),
-            _ => Err("invalid floats"),
-        },
-        _ => Err("too many fields"),
-    }
-}
-
 impl ParameterFromKeywords for InnerParameter2_0 {
     fn build_inner(st: &mut KwState, n: u32) -> Option<InnerParameter2_0> {
         if let (Some(scale), Some(shortname), Some(wavelength)) = (
@@ -446,11 +446,10 @@ struct CarrierData {
     locationid: Option<String>,
 }
 
-type Timestep = Option<f32>;
-
-type CytSN = Option<String>;
-
-type Vol = Option<f32>;
+struct Unicode {
+    page: u32,
+    kws: Vec<String>,
+}
 
 struct InnerMetadata2_0 {
     tot: Option<u32>,
@@ -466,8 +465,8 @@ struct InnerMetadata3_0 {
     byteord: ByteOrd,
     timestamps: Timestamps2_0, // BTIM/ETIM/DATE
     cyt: Option<String>,
-    cytsn: CytSN,
-    timestep: Timestep,
+    cytsn: Option<String>,
+    timestep: Option<f32>,
     unicode: Option<Unicode>,
 }
 
@@ -477,11 +476,11 @@ struct InnerMetadata3_1 {
     byteord: Endian,
     timestamps: Timestamps2_0, // BTIM/ETIM/DATE
     cyt: Option<String>,
-    cytsn: CytSN,
-    timestep: Timestep,
+    cytsn: Option<String>,
+    timestep: Option<f32>,
     modification: ModificationData,
     plate: PlateData,
-    vol: Vol,
+    vol: Option<f32>,
 }
 
 struct InnerMetadata3_2 {
@@ -490,11 +489,11 @@ struct InnerMetadata3_2 {
     timestamps: Timestamps2_0, // BTIM/ETIM/DATE
     datetimes: Timestamps3_2,  // DATETIMESTART/END
     cyt: String,
-    cytsn: CytSN,
-    timestep: Timestep,
+    cytsn: Option<String>,
+    timestep: Option<f32>,
     modification: ModificationData,
     plate: PlateData,
-    vol: Vol,
+    vol: Option<f32>,
     carrier: CarrierData,
     unstained: UnstainedData,
 }
@@ -820,10 +819,12 @@ struct TEXT<S> {
     deviant: HashMap<String, String>,
 }
 
-type TEXT2_0 = TEXT<StdText2_0>;
-type TEXT3_0 = TEXT<StdText3_0>;
-type TEXT3_1 = TEXT<StdText3_1>;
-type TEXT3_2 = TEXT<StdText3_2>;
+enum AnyTEXT {
+    TEXT2_0(TEXT<StdText2_0>),
+    TEXT3_0(TEXT<StdText3_0>),
+    TEXT3_1(TEXT<StdText3_1>),
+    TEXT3_2(TEXT<StdText3_2>),
+}
 
 type Keywords = HashMap<String, String>;
 type KeywordErrors = HashMap<String, (String, String)>;
@@ -1421,57 +1422,8 @@ impl KwState {
     }
 }
 
-// fn from_kws<T: StdTextFromKeywords>(st: &mut KwState) -> TEXT<T> {
-//     let standard = T::from_kws(st);
-//     let (nonstandard, deviant, standard_missing, standard_errors) = st.finalize();
-//     return TEXT {
-//         standard,
-//         standard_missing,
-//         standard_errors,
-//         nonstandard,
-//         deviant,
-//     };
-// }
-
-// fn test(st: &mut KwState) -> TEXT2_0 {
-//     from_kws(st)
-// }
-
-// struct Correction {
-//     from: u32,
-//     to: u32,
-//     frac: u32, // percent
-// }
-
-// struct Text2_0 {
-//     corrections: Vec<Correction>,
-// }
-
-struct Unicode {
-    page: u32,
-    kws: Vec<String>,
-}
-
 // TODO this is basically a matrix, probably a crate I can use
 struct Comp {}
-
-struct Text3_0 {
-    unicode: Option<Unicode>,
-    comp: Comp,
-    // TODO pull out
-    analysis: Bounds,
-    data: Bounds,
-    text: Bounds,
-}
-
-struct Text3_1 {}
-
-struct Text3_2 {}
-
-// struct Text {
-//     little_endian: bool,
-//     datatype: Datatype,
-// }
 
 fn main() {
     println!("Hello, world!");

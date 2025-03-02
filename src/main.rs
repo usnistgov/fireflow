@@ -3,6 +3,9 @@
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
+use std::io;
+use std::io::{BufReader, Read, Seek, SeekFrom};
+use std::str;
 
 fn format_kw(kw: &str) -> String {
     format!("${}", kw.to_ascii_uppercase())
@@ -22,6 +25,14 @@ fn parse_endian(s: &str) -> Result<Endian, &'static str> {
 
 fn parse_int(s: &str) -> Result<u32, &'static str> {
     s.parse().or(Err("invalid integer"))
+}
+
+fn parse_int_or_blank(s: &str) -> Result<u32, &'static str> {
+    if s.trim().is_empty() {
+        Ok(0)
+    } else {
+        s.parse().or(Err("invalid integer and not a blank"))
+    }
 }
 
 fn parse_float(s: &str) -> Result<f32, &'static str> {
@@ -79,6 +90,18 @@ enum Version {
     FCS3_0,
     FCS3_1,
     FCS3_2,
+}
+
+impl Version {
+    fn parse(s: &str) -> Option<Version> {
+        match s {
+            "FCS2.0" => Some(Version::FCS2_0),
+            "FCS3.0" => Some(Version::FCS3_0),
+            "FCS3.1" => Some(Version::FCS3_1),
+            "FCS3.2" => Some(Version::FCS3_2),
+            _ => None,
+        }
+    }
 }
 
 struct Header {
@@ -1419,6 +1442,59 @@ impl KwState {
         HashMap<String, KwError>,
     ) {
         unimplemented!();
+    }
+}
+
+fn parse_bounds(s0: &str, s1: &str, allow_blank: bool) -> Result<Bounds, &'static str> {
+    let f = if allow_blank {
+        parse_int_or_blank
+    } else {
+        parse_int
+    };
+    if let (Ok(begin), Ok(end)) = (f(s0), f(s1)) {
+        Ok(Bounds { begin, end })
+    } else {
+        if allow_blank {
+            Err("could not make bounds from integers/blanks")
+        } else {
+            Err("could not make bounds from integers")
+        }
+    }
+}
+
+const hre: &str = r"FCS(.{3})    (\d{8})(\d{8})(\d{8})(\d{8})(\d{8}| {8})(\d{8}| {8})";
+
+fn parse_header(s: &str) -> Result<Header, &'static str> {
+    let re = Regex::new(hre).unwrap();
+    re.captures(s)
+        .and_then(|c| {
+            let [v, t0, t1, d0, d1, a0, a1] = c.extract().1;
+            if let Some(version) = Version::parse(v) {
+                Some(Header {
+                    version,
+                    // ASSUME these cannot fail because the regex will only
+                    // match numbers (and possibly spaces)
+                    text: parse_bounds(t0, t1, false).unwrap(),
+                    data: parse_bounds(d0, d1, false).unwrap(),
+                    analysis: parse_bounds(a0, a1, true).unwrap(),
+                })
+            } else {
+                None
+            }
+        })
+        .ok_or("malformed header")
+}
+
+fn read_header<R: Read>(h: &mut BufReader<R>) -> io::Result<Header> {
+    let mut verbuf = [0; 58];
+    h.read(&mut verbuf)?;
+    if let Ok(hs) = str::from_utf8(&verbuf) {
+        parse_header(hs).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::Other,
+            "header sequence is not valid text",
+        ))
     }
 }
 

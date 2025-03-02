@@ -1520,9 +1520,9 @@ struct RawTEXT {
 
 fn read_text<R: Read + Seek>(h: &mut BufReader<R>, header: Header) -> io::Result<RawTEXT> {
     h.seek(SeekFrom::Start(u64::from(header.text.begin)))?;
-    let x0 = header.text.begin;
-    let x1 = x0 + 1;
-    let xf = header.text.end;
+    let x0 = u64::from(header.text.begin);
+    let x1 = u64::from(x0 + 1);
+    let xf = u64::from(header.text.end);
     let textlen = xf - x0 + 1;
 
     // Read first character, which should be the delimiter
@@ -1530,11 +1530,19 @@ fn read_text<R: Read + Seek>(h: &mut BufReader<R>, header: Header) -> io::Result
     h.read(&mut dbuf)?;
     let delimiter = dbuf[0];
 
+    // Valid delimiters are in the set of {1..126}
+    if delimiter < 1 || delimiter > 126 {
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            "delimiter must be an ASCII character 1-126",
+        ));
+    }
+
     // Read from the 2nd character to all but the last character and record
     // delimiter positions.
     let mut delim_positions = vec![];
     delim_positions.push(x0);
-    for (i, c) in (x1..).zip(h.take(u64::from(textlen - 2)).bytes()) {
+    for (i, c) in (x1..).zip(h.take(textlen - 2).bytes()) {
         if c? == delimiter {
             delim_positions.push(i);
         }
@@ -1552,13 +1560,16 @@ fn read_text<R: Read + Seek>(h: &mut BufReader<R>, header: Header) -> io::Result
 
     // TODO pretty sure lots of FCS files actually have blank values which means
     // we will need to deal with double delimiters which are real word
-    // boundaries.
+    // boundaries. This can be easily handled by not doing the chunk_by below
+    // and simply copying the position/length tuples over. If we allow blank
+    // values we disallow escaping, since the premise of escaping assumes that
+    // two delimiters in a row are special.
 
     // Remove "escaped" delimiters from position vector. Because we disallow
     // blank values and also disallow delimiters at the start/end of words, this
     // implies that we should only see delimiters by themselves or in a
     // consecutive sequence whose length is even.
-    let mut boundaries: Vec<(u32, u32)> = vec![]; // (position, length)
+    let mut boundaries: Vec<(u64, u64)> = vec![]; // (position, length)
 
     for (key, chunk) in delim_positions
         // We force-added the first and last delimiter in the TEXT segment, so
@@ -1609,19 +1620,23 @@ fn read_text<R: Read + Seek>(h: &mut BufReader<R>, header: Header) -> io::Result
     let mut keywords: HashMap<String, String> = HashMap::new();
     let mut kbuf = String::new();
     let mut vbuf = String::new();
+
+    h.seek(SeekFrom::Start(x0))?;
+
     let delimiter2 = [delimiter, delimiter];
     let delimiter1 = [delimiter];
+    // ASSUME these won't fail as we checked the delimiter is an ASCII character
     let escape_from = str::from_utf8(&delimiter2).unwrap();
     let escape_to = str::from_utf8(&delimiter1).unwrap();
-    h.seek(SeekFrom::Start(u64::from(x0)))?;
     let fix_word = |s: &str| s.replace(escape_from, escape_to);
+
     for chunk in boundaries.chunks(2) {
         if let [(_, klen), (_, vlen)] = chunk {
             // TODO not DRY
             h.seek(SeekFrom::Current(1))?;
-            h.take(u64::from(*klen) - 1).read_to_string(&mut kbuf)?;
+            h.take(*klen - 1).read_to_string(&mut kbuf)?;
             h.seek(SeekFrom::Current(1))?;
-            h.take(u64::from(*vlen) - 1).read_to_string(&mut vbuf)?;
+            h.take(*vlen - 1).read_to_string(&mut vbuf)?;
             keywords.insert(fix_word(&kbuf), fix_word(&vbuf));
         } else {
             // TODO could also ignore this since it isn't necessarily fatal

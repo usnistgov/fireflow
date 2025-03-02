@@ -1,6 +1,6 @@
 // TODO gating parameters not added (yet)
 
-use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Utc};
+use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 
@@ -68,9 +68,8 @@ struct Timestamps2_0 {
 }
 
 struct Timestamps3_2 {
-    // TODO local or urc? FCS allows both
-    start: Option<DateTime<Utc>>,
-    end: Option<DateTime<Utc>>,
+    start: Option<DateTime<FixedOffset>>,
+    end: Option<DateTime<FixedOffset>>,
 }
 
 // TODO this is super messy, see 3.2 spec for restrictions on this we may with
@@ -424,7 +423,7 @@ enum Originality {
 
 struct ModificationData {
     last_modifier: Option<String>,
-    list_modified: Option<DateTime<Utc>>,
+    last_modified: Option<NaiveDateTime>,
     originality: Option<Originality>,
 }
 
@@ -437,7 +436,7 @@ struct PlateData {
 type UnstainedCenters = HashMap<String, f32>;
 
 struct UnstainedData {
-    unstainedcenters: UnstainedCenters,
+    unstainedcenters: Option<UnstainedCenters>,
     unstainedinfo: Option<String>,
 }
 
@@ -457,7 +456,6 @@ struct InnerMetadata2_0 {
     tot: Option<u32>,
     mode: Mode,
     byteord: ByteOrd,
-    datatype: AlphaNumTypes,
     cyt: Option<String>,
     timestamps: Timestamps2_0, // BTIM/ETIM/DATE
 }
@@ -470,6 +468,7 @@ struct InnerMetadata3_0 {
     cyt: Option<String>,
     cytsn: CytSN,
     timestep: Timestep,
+    unicode: Option<Unicode>,
 }
 
 struct InnerMetadata3_1 {
@@ -483,13 +482,13 @@ struct InnerMetadata3_1 {
     modification: ModificationData,
     plate: PlateData,
     vol: Vol,
-    unicode: Unicode,
 }
 
 struct InnerMetadata3_2 {
     tot: u32,
     byteord: Endian,
-    timestamps: Timestamps3_2, // DATETIMESTART/END
+    timestamps: Timestamps2_0, // BTIM/ETIM/DATE
+    datetimes: Timestamps3_2,  // DATETIMESTART/END
     cyt: String,
     cytsn: CytSN,
     timestep: Timestep,
@@ -614,6 +613,171 @@ trait MetadataFromKeywords: Sized {
                 sys,
                 tr,
                 specific,
+            })
+        } else {
+            None
+        }
+    }
+}
+
+impl MetadataFromKeywords for InnerMetadata2_0 {
+    fn build_inner(st: &mut KwState) -> Option<InnerMetadata2_0> {
+        if let (Some(tot), Some(mode), Some(byteord), Some(cyt), Some(timestamps)) = (
+            st.lookup_tot_opt(),
+            st.lookup_mode(),
+            st.lookup_byteord(),
+            st.lookup_cyt_opt(),
+            st.lookup_timestamps2_0(),
+        ) {
+            Some(InnerMetadata2_0 {
+                tot,
+                mode,
+                byteord,
+                cyt,
+                timestamps,
+            })
+        } else {
+            None
+        }
+    }
+}
+
+impl MetadataFromKeywords for InnerMetadata3_0 {
+    fn build_inner(st: &mut KwState) -> Option<InnerMetadata3_0> {
+        if let (
+            Some(tot),
+            Some(mode),
+            Some(byteord),
+            Some(cyt),
+            Some(timestamps),
+            Some(cytsn),
+            Some(timestep),
+            Some(unicode),
+        ) = (
+            st.lookup_tot_req(),
+            st.lookup_mode(),
+            st.lookup_byteord(),
+            st.lookup_cyt_opt(),
+            st.lookup_timestamps2_0(),
+            st.lookup_cytsn(),
+            st.lookup_timestep(),
+            st.lookup_unicode(),
+        ) {
+            Some(InnerMetadata3_0 {
+                tot,
+                mode,
+                byteord,
+                cyt,
+                timestamps,
+                cytsn,
+                timestep,
+                unicode,
+            })
+        } else {
+            None
+        }
+    }
+}
+
+// struct InnerMetadata3_1 {
+//     tot: u32,
+//     mode: Mode,
+//     byteord: Endian,
+//     timestamps: Timestamps2_0, // BTIM/ETIM/DATE
+//     cyt: Option<String>,
+//     cytsn: CytSN,
+//     timestep: Timestep,
+//     modification: ModificationData,
+//     plate: PlateData,
+//     vol: Vol,
+//     unicode: Unicode,
+// }
+
+impl MetadataFromKeywords for InnerMetadata3_1 {
+    fn build_inner(st: &mut KwState) -> Option<InnerMetadata3_1> {
+        if let (
+            Some(tot),
+            Some(mode),
+            Some(byteord),
+            Some(cyt),
+            Some(timestamps),
+            Some(cytsn),
+            Some(timestep),
+            Some(modification),
+            Some(plate),
+            Some(vol),
+        ) = (
+            st.lookup_tot_req(),
+            st.lookup_mode(),
+            st.lookup_endian(),
+            st.lookup_cyt_opt(),
+            st.lookup_timestamps2_0(),
+            st.lookup_cytsn(),
+            st.lookup_timestep(),
+            st.lookup_modification(),
+            st.lookup_plate(),
+            st.lookup_vol(),
+        ) {
+            Some(InnerMetadata3_1 {
+                tot,
+                mode,
+                byteord,
+                cyt,
+                timestamps,
+                cytsn,
+                timestep,
+                modification,
+                plate,
+                vol,
+            })
+        } else {
+            None
+        }
+    }
+}
+
+impl MetadataFromKeywords for InnerMetadata3_2 {
+    fn build_inner(st: &mut KwState) -> Option<InnerMetadata3_2> {
+        if let (
+            Some(tot),
+            Some(byteord),
+            Some(cyt),
+            Some(timestamps),
+            Some(cytsn),
+            Some(timestep),
+            Some(modification),
+            Some(plate),
+            Some(vol),
+            Some(carrier),
+            Some(datetimes),
+            Some(unstained),
+        ) = (
+            st.lookup_tot_req(),
+            st.lookup_endian(),
+            st.lookup_cyt_req(),
+            st.lookup_timestamps2_0(),
+            st.lookup_cytsn(),
+            st.lookup_timestep(),
+            st.lookup_modification(),
+            st.lookup_plate(),
+            st.lookup_vol(),
+            st.lookup_carrier(),
+            st.lookup_timestamps3_2(),
+            st.lookup_unstained(),
+        ) {
+            Some(InnerMetadata3_2 {
+                tot,
+                byteord,
+                cyt,
+                timestamps,
+                cytsn,
+                timestep,
+                modification,
+                plate,
+                vol,
+                carrier,
+                datetimes,
+                unstained,
             })
         } else {
             None
@@ -760,6 +924,10 @@ impl KwState {
                 }
             }
         })
+    }
+
+    fn lookup_endian(&mut self) -> Option<Endian> {
+        self.get_required("BYTEORD", parse_endian)
     }
 
     fn lookup_datatype(&mut self) -> Option<AlphaNumTypes> {
@@ -944,8 +1112,26 @@ impl KwState {
         })
     }
 
-    fn lookup_originality(&mut self) -> Option<Option<String>> {
-        self.get_optional("ORIGINALITY", parse_str)
+    fn lookup_originality(&mut self) -> Option<Option<Originality>> {
+        self.get_optional("ORIGINALITY", |s| match s {
+            "Original" => Ok(Originality::Original),
+            "NonDataModified" => Ok(Originality::NonDataModified),
+            "Appended" => Ok(Originality::Appended),
+            "DataModified" => Ok(Originality::DataModified),
+            _ => Err("invalid originality"),
+        })
+    }
+
+    fn lookup_carrierid(&mut self) -> Option<Option<String>> {
+        self.get_optional("CARRIERID", parse_str)
+    }
+
+    fn lookup_carriertype(&mut self) -> Option<Option<String>> {
+        self.get_optional("CARRIERTYPE", parse_str)
+    }
+
+    fn lookup_locationid(&mut self) -> Option<Option<String>> {
+        self.get_optional("LOCATIONID", parse_str)
     }
 
     fn lookup_begindatetime(&mut self) -> Option<Option<DateTime<FixedOffset>>> {
@@ -976,13 +1162,91 @@ impl KwState {
         self.get_optional("ETIM", parse_time100)
     }
 
-    // TODO unicode
+    fn lookup_timestamps2_0(&mut self) -> Option<Timestamps2_0> {
+        if let (Some(btim), Some(etim), Some(date)) = (
+            self.lookup_btim60(),
+            self.lookup_etim60(),
+            self.lookup_date(),
+        ) {
+            Some(Timestamps2_0 { btim, etim, date })
+        } else {
+            None
+        }
+    }
 
-    // TODO time stuff
+    fn lookup_timestamps3_2(&mut self) -> Option<Timestamps3_2> {
+        if let (Some(start), Some(end)) = (self.lookup_begindatetime(), self.lookup_enddatetime()) {
+            Some(Timestamps3_2 { start, end })
+        } else {
+            None
+        }
+    }
+
+    fn lookup_modification(&mut self) -> Option<ModificationData> {
+        if let (Some(last_modifier), Some(last_modified), Some(originality)) = (
+            self.lookup_last_modifier(),
+            self.lookup_last_modified(),
+            self.lookup_originality(),
+        ) {
+            Some(ModificationData {
+                last_modifier,
+                last_modified,
+                originality,
+            })
+        } else {
+            None
+        }
+    }
+
+    fn lookup_plate(&mut self) -> Option<PlateData> {
+        if let (Some(plateid), Some(platename), Some(wellid)) = (
+            self.lookup_plateid(),
+            self.lookup_platename(),
+            self.lookup_wellid(),
+        ) {
+            Some(PlateData {
+                wellid,
+                platename,
+                plateid,
+            })
+        } else {
+            None
+        }
+    }
+
+    fn lookup_carrier(&mut self) -> Option<CarrierData> {
+        if let (Some(locationid), Some(carrierid), Some(carriertype)) = (
+            self.lookup_locationid(),
+            self.lookup_carrierid(),
+            self.lookup_carriertype(),
+        ) {
+            Some(CarrierData {
+                locationid,
+                carrierid,
+                carriertype,
+            })
+        } else {
+            None
+        }
+    }
+
+    fn lookup_unstained(&mut self) -> Option<UnstainedData> {
+        if let (Some(unstainedcenters), Some(unstainedinfo)) =
+            (self.lookup_unstainedcenters(), self.lookup_unstainedinfo())
+        {
+            Some(UnstainedData {
+                unstainedcenters,
+                unstainedinfo,
+            })
+        } else {
+            None
+        }
+    }
 
     // TODO comp matrices
 
     // parameters
+
     fn lookup_param_req<V, F>(&mut self, param: &'static str, n: u32, f: F) -> Option<V>
     where
         F: FnOnce(&str) -> Result<V, &'static str>,

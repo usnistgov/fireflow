@@ -10,12 +10,12 @@ use std::io;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::str;
 
-fn format_kw(kw: &str) -> String {
+fn format_standard_kw(kw: &str) -> String {
     format!("${}", kw.to_ascii_uppercase())
 }
 
-fn format_param_kw(n: u32, param: &str) -> String {
-    format_kw(&format!("P{}{}", n, param.to_ascii_uppercase()))
+fn format_param(n: u32, param: &str) -> String {
+    format!("P{}{}", n, param.to_ascii_uppercase())
 }
 
 fn parse_endian(s: &str) -> Result<Endian, &'static str> {
@@ -47,11 +47,21 @@ fn parse_str(s: &str) -> Result<String, &'static str> {
 }
 
 fn parse_iso_datetime(s: &str) -> Result<DateTime<FixedOffset>, &'static str> {
-    DateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f%:z").or(DateTime::parse_from_str(
-        s,
+    // TODO missing timezone implies localtime, but this will assume missing
+    // means +00:00/UTC
+    let formats = [
+        "%Y-%m-%dT%H:%M:%S%.f",
+        "%Y-%m-%dT%H:%M:%S%.f%#z",
         "%Y-%m-%dT%H:%M:%S%.f%:z",
-    )
-    .or(Err("must be formatted like 'yyyy-mm-ddThh:mm:ss[TZD]'")))
+        "%Y-%m-%dT%H:%M:%S%.f%::z",
+        "%Y-%m-%dT%H:%M:%S%.f%:::z",
+    ];
+    for f in formats {
+        if let Ok(t) = DateTime::parse_from_str(s, f) {
+            return Ok(t);
+        }
+    }
+    Err("must be formatted like 'yyyy-mm-ddThh:mm:ss[TZD]'")
 }
 
 fn parse_date(s: &str) -> Result<NaiveDate, &'static str> {
@@ -123,6 +133,7 @@ struct Header {
     analysis: Offsets,
 }
 
+#[derive(Debug)]
 enum AlphaNumTypes {
     Ascii,
     Integer,
@@ -130,23 +141,27 @@ enum AlphaNumTypes {
     Double,
 }
 
+#[derive(Debug)]
 enum NumTypes {
     Integer,
     Float,
     Double,
 }
 
+#[derive(Debug)]
 enum Endian {
     Big,
     Little,
 }
 
 // TODO this can vary depending on bit width
+#[derive(Debug)]
 enum ByteOrd {
     BigLittle(Endian),
     Mixed([u8; 4]),
 }
 
+#[derive(Debug)]
 struct Trigger {
     parameter: String,
     threshold: u32,
@@ -161,12 +176,14 @@ struct TextOffsets<A, D, T> {
 type TextOffsets3_0 = TextOffsets<Offsets, Offsets, Offsets>;
 type TextOffsets3_2 = TextOffsets<Option<Offsets>, Offsets, Option<Offsets>>;
 
+#[derive(Debug)]
 struct Timestamps2_0 {
     btim: Option<NaiveTime>,
     etim: Option<NaiveTime>,
     date: Option<NaiveDate>,
 }
 
+#[derive(Debug)]
 struct Timestamps3_2 {
     start: Option<DateTime<FixedOffset>>,
     end: Option<DateTime<FixedOffset>>,
@@ -174,11 +191,13 @@ struct Timestamps3_2 {
 
 // TODO this is super messy, see 3.2 spec for restrictions on this we may with
 // to use further
+#[derive(Debug)]
 struct LogScale {
     decades: f32,
     offset: f32,
 }
 
+#[derive(Debug)]
 enum Scale {
     Log(LogScale),
     Linear,
@@ -186,26 +205,31 @@ enum Scale {
 
 use Scale::*;
 
+#[derive(Debug)]
 struct LinDisplay {
     lower: f32,
     upper: f32,
 }
 
+#[derive(Debug)]
 struct LogDisplay {
     offset: f32,
     decades: f32,
 }
 
+#[derive(Debug)]
 enum Display {
     Lin(LinDisplay),
     Log(LogDisplay),
 }
 
+#[derive(Debug)]
 struct Calibration {
     value: f32,
     unit: String,
 }
 
+#[derive(Debug)]
 enum MeasurementType {
     ForwardScatter,
     SideScatter,
@@ -218,18 +242,21 @@ enum MeasurementType {
     Index,
 }
 
+#[derive(Debug)]
 enum Feature {
     Area,
     Width,
     Height,
 }
 
+#[derive(Debug)]
 struct InnerParameter2_0 {
     scale: Option<Scale>,      // PnE
     wavelength: Option<u32>,   // PnL
     shortname: Option<String>, // PnN
 }
 
+#[derive(Debug)]
 struct InnerParameter3_0 {
     scale: Scale,              // PnE
     wavelength: Option<u32>,   // PnL
@@ -237,6 +264,7 @@ struct InnerParameter3_0 {
     gain: Option<f32>,         // PnG
 }
 
+#[derive(Debug)]
 struct InnerParameter3_1 {
     scale: Scale,         // PnE
     wavelength: Vec<u32>, // PnL
@@ -246,6 +274,7 @@ struct InnerParameter3_1 {
     display: Option<Display>,
 }
 
+#[derive(Debug)]
 struct InnerParameter3_2 {
     scale: Scale,         // PnE
     wavelength: Vec<u32>, // PnL
@@ -261,6 +290,7 @@ struct InnerParameter3_2 {
     datatype: Option<NumTypes>,
 }
 
+#[derive(Debug)]
 struct Parameter<X> {
     bits: u32,                     // PnB
     range: u32,                    // PnR
@@ -279,10 +309,9 @@ struct Parameter<X> {
 trait ParameterFromKeywords: Sized {
     fn build_inner(st: &mut KwState, n: u32) -> Option<Self>;
 
-    // TODO this should be non-empty
-    fn from_kws(st: &mut KwState, par: u32) -> Option<Vec<Parameter<Self>>> {
+    fn from_kws(st: &mut KwState, par: u32) -> Vec<Parameter<Self>> {
         let mut ps = vec![];
-        for n in 0..par {
+        for n in 1..(par + 1) {
             if let (
                 Some(bits),
                 Some(range),
@@ -318,11 +347,7 @@ trait ParameterFromKeywords: Sized {
                 ps.push(p);
             }
         }
-        if ps.is_empty() {
-            None
-        } else {
-            Some(ps)
-        }
+        ps
     }
 }
 
@@ -449,6 +474,7 @@ impl ParameterFromKeywords for InnerParameter3_2 {
     }
 }
 
+#[derive(Debug)]
 enum Originality {
     Original,
     NonDataModified,
@@ -456,12 +482,14 @@ enum Originality {
     DataModified,
 }
 
+#[derive(Debug)]
 struct ModificationData {
     last_modifier: Option<String>,
     last_modified: Option<NaiveDateTime>,
     originality: Option<Originality>,
 }
 
+#[derive(Debug)]
 struct PlateData {
     plateid: Option<String>,
     platename: Option<String>,
@@ -470,22 +498,26 @@ struct PlateData {
 
 type UnstainedCenters = HashMap<String, f32>;
 
+#[derive(Debug)]
 struct UnstainedData {
     unstainedcenters: Option<UnstainedCenters>,
     unstainedinfo: Option<String>,
 }
 
+#[derive(Debug)]
 struct CarrierData {
     carrierid: Option<String>,
     carriertype: Option<String>,
     locationid: Option<String>,
 }
 
+#[derive(Debug)]
 struct Unicode {
     page: u32,
     kws: Vec<String>,
 }
 
+#[derive(Debug)]
 struct InnerMetadata2_0 {
     tot: Option<u32>,
     mode: Mode,
@@ -494,6 +526,7 @@ struct InnerMetadata2_0 {
     timestamps: Timestamps2_0, // BTIM/ETIM/DATE
 }
 
+#[derive(Debug)]
 struct InnerMetadata3_0 {
     tot: u32,
     mode: Mode,
@@ -505,6 +538,7 @@ struct InnerMetadata3_0 {
     unicode: Option<Unicode>,
 }
 
+#[derive(Debug)]
 struct InnerMetadata3_1 {
     tot: u32,
     mode: Mode,
@@ -518,6 +552,7 @@ struct InnerMetadata3_1 {
     vol: Option<f32>,
 }
 
+#[derive(Debug)]
 struct InnerMetadata3_2 {
     tot: u32,
     byteord: Endian,
@@ -533,6 +568,7 @@ struct InnerMetadata3_2 {
     unstained: UnstainedData,
 }
 
+#[derive(Debug)]
 struct Metadata<X> {
     par: u32,
     nextdata: u32,
@@ -566,21 +602,23 @@ struct Cyt(String);
 
 struct Tot(u32);
 
+#[derive(Debug)]
 enum Mode {
     List,
     Uncorrelated,
     Correlated,
 }
 
+#[derive(Debug)]
 struct StdText<M, P> {
     metadata: Metadata<M>,
     parameters: Vec<Parameter<P>>,
 }
 
-type StdText2_0 = StdText<Metadata2_0, Parameter2_0>;
-type StdText3_0 = StdText<Metadata3_0, Parameter3_0>;
-type StdText3_1 = StdText<Metadata3_1, Parameter3_1>;
-type StdText3_2 = StdText<Metadata3_2, Parameter3_2>;
+type StdText2_0 = StdText<InnerMetadata2_0, InnerParameter2_0>;
+type StdText3_0 = StdText<InnerMetadata3_0, InnerParameter3_0>;
+type StdText3_1 = StdText<InnerMetadata3_1, InnerParameter3_1>;
+type StdText3_2 = StdText<InnerMetadata3_2, InnerParameter3_2>;
 
 struct StdTextResult<T> {
     text: T,
@@ -774,6 +812,7 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
     fn build_inner(st: &mut KwState) -> Option<InnerMetadata3_2> {
         if let (
             Some(tot),
+            Some(_),
             Some(byteord),
             Some(cyt),
             Some(timestamps),
@@ -787,6 +826,9 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
             Some(unstained),
         ) = (
             st.lookup_tot_req(),
+            // only L is allowed as of 3.2, pull the value so it is marked as
+            // read and check that its value is valid
+            st.lookup_mode3_2(),
             st.lookup_endian(),
             st.lookup_cyt_req(),
             st.lookup_timestamps2_0(),
@@ -825,18 +867,25 @@ trait StdTextFromKeywords: Sized {
 
     fn build(m: Metadata<Self::M>, p: Vec<Parameter<Self::P>>) -> Self;
 
-    fn from_kws(st: &mut KwState) -> Option<Self> {
-        Self::M::from_kws(st).and_then(|metadata| {
-            Self::P::from_kws(st, metadata.par).map(|parameters| Self::build(metadata, parameters))
-        })
+    fn from_kws(raw: RawTEXT) -> Result<TEXT<Self>, StandardErrors> {
+        let mut st = raw.to_state();
+        if let Some(s) = Self::M::from_kws(&mut st).map(|m| {
+            let ps = Self::P::from_kws(&mut st, m.par);
+            Self::build(m, ps)
+        }) {
+            Ok(st.finalize(s))
+        } else {
+            Err(st.pull_errors())
+        }
     }
 }
 
-impl<M: MetadataFromKeywords, P: ParameterFromKeywords> StdTextFromKeywords for StdText<M, P> {
-    type M = M;
-    type P = P;
+// TODO not DRY, this is repeated 4x (make a macro, this isn't Haskell)
+impl StdTextFromKeywords for StdText2_0 {
+    type M = InnerMetadata2_0;
+    type P = InnerParameter2_0;
 
-    fn build(metadata: Metadata<M>, parameters: Vec<Parameter<P>>) -> StdText<M, P> {
+    fn build(metadata: Metadata<Self::M>, parameters: Vec<Parameter<Self::P>>) -> Self {
         StdText {
             metadata,
             parameters,
@@ -844,16 +893,52 @@ impl<M: MetadataFromKeywords, P: ParameterFromKeywords> StdTextFromKeywords for 
     }
 }
 
+impl StdTextFromKeywords for StdText3_0 {
+    type M = InnerMetadata3_0;
+    type P = InnerParameter3_0;
+
+    fn build(metadata: Metadata<Self::M>, parameters: Vec<Parameter<Self::P>>) -> Self {
+        StdText {
+            metadata,
+            parameters,
+        }
+    }
+}
+
+impl StdTextFromKeywords for StdText3_1 {
+    type M = InnerMetadata3_1;
+    type P = InnerParameter3_1;
+
+    fn build(metadata: Metadata<Self::M>, parameters: Vec<Parameter<Self::P>>) -> Self {
+        StdText {
+            metadata,
+            parameters,
+        }
+    }
+}
+
+impl StdTextFromKeywords for StdText3_2 {
+    type M = InnerMetadata3_2;
+    type P = InnerParameter3_2;
+
+    fn build(metadata: Metadata<Self::M>, parameters: Vec<Parameter<Self::P>>) -> Self {
+        StdText {
+            metadata,
+            parameters,
+        }
+    }
+}
+
+#[derive(Debug)]
 struct TEXT<S> {
     // TODO add the offsets here as well? offsets are needed before parsing
     // everything else
     standard: S,
-    standard_missing: HashSet<String>,
-    standard_errors: HashMap<String, KwError>,
     nonstandard: HashMap<String, String>,
     deviant: HashMap<String, String>,
 }
 
+#[derive(Debug)]
 enum AnyTEXT {
     TEXT2_0(TEXT<StdText2_0>),
     TEXT3_0(TEXT<StdText3_0>),
@@ -861,53 +946,76 @@ enum AnyTEXT {
     TEXT3_2(TEXT<StdText3_2>),
 }
 
+impl AnyTEXT {
+    fn from_kws(v: Version, raw: RawTEXT) -> Result<Self, StandardErrors> {
+        match v {
+            Version::FCS2_0 => StdText2_0::from_kws(raw).map(AnyTEXT::TEXT2_0),
+            Version::FCS3_0 => StdText3_0::from_kws(raw).map(AnyTEXT::TEXT3_0),
+            Version::FCS3_1 => StdText3_1::from_kws(raw).map(AnyTEXT::TEXT3_1),
+            Version::FCS3_2 => StdText3_2::from_kws(raw).map(AnyTEXT::TEXT3_2),
+        }
+    }
+}
+
 type Keywords = HashMap<String, String>;
 type KeywordErrors = HashMap<String, (String, String)>;
 type MissingKeywords = HashSet<String>;
 
+#[derive(Debug)]
 struct KwError {
     value: String,
     msg: &'static str,
 }
 
-enum KwStatus {
-    Raw(String),
-    Error(KwError),
-    Missing,
+enum ValueStatus {
+    Raw,
+    Error(&'static str),
+    Used,
+}
+
+struct KwValue {
+    value: String,
+    status: ValueStatus,
 }
 
 // all hail the almighty state monad :D
 
-// main idea: all kws start as "raw" and will then get moved to either missing
-// or error categories. Those left in "raw" are nonstandard keywords. If everything
-// is perfect this will be totally empty, since all fields in the main struct will be filled
 struct KwState {
-    keywords: HashMap<String, KwStatus>,
+    keywords: HashMap<String, KwValue>,
+    missing: Vec<String>,
+}
+
+// TODO use newtype for "Keyword" type so this is less confusing
+#[derive(Debug)]
+struct StandardErrors {
+    missing_keywords: Vec<String>,
+    value_errors: HashMap<String, KwError>,
+    // TODO, these are errors involving multiple keywords, like PnB not matching DATATYPE
+    // meta_errors: Vec<String>,
 }
 
 impl KwState {
-    // TODO not DRY
     // TODO format $param here
+    // TODO not DRY (although will likely need HKTs)
     fn get_required<V, F>(&mut self, k: &str, f: F) -> Option<V>
     where
         F: FnOnce(&str) -> Result<V, &'static str>,
     {
-        match self.keywords.remove(k) {
-            Some(KwStatus::Raw(v)) => match f(&v) {
-                Ok(x) => Some(x),
-                Err(e) => {
-                    // TODO string things seems lame
-                    self.keywords.insert(
-                        String::from(k),
-                        KwStatus::Error(KwError { value: v, msg: e }),
+        let sk = format_standard_kw(k);
+        match self.keywords.get_mut(&sk) {
+            Some(v) => match v.status {
+                ValueStatus::Raw => {
+                    let (s, r) = f(&v.value).map_or_else(
+                        |e| (ValueStatus::Error(e), None),
+                        |x| (ValueStatus::Used, Some(x)),
                     );
-                    None
+                    v.status = s;
+                    r
                 }
+                _ => None,
             },
-            // silently ignore attempts to process the same keyword twice
-            Some(_) => None,
             None => {
-                self.keywords.insert(String::from(k), KwStatus::Missing);
+                self.missing.push(String::from(k));
                 None
             }
         }
@@ -917,19 +1025,19 @@ impl KwState {
     where
         F: FnOnce(&str) -> Result<V, &'static str>,
     {
-        match self.keywords.remove(k) {
-            Some(KwStatus::Raw(v)) => match f(&v) {
-                Ok(x) => Some(Some(x)),
-                Err(e) => {
-                    self.keywords.insert(
-                        String::from(k),
-                        KwStatus::Error(KwError { value: v, msg: e }),
+        let sk = format_standard_kw(k);
+        match self.keywords.get_mut(&sk) {
+            Some(v) => match v.status {
+                ValueStatus::Raw => {
+                    let (s, r) = f(&v.value).map_or_else(
+                        |e| (ValueStatus::Error(e), None),
+                        |x| (ValueStatus::Used, Some(Some(x))),
                     );
-                    None
+                    v.status = s;
+                    r
                 }
+                _ => None,
             },
-            // silently ignore attempts to process the same keyword twice
-            Some(_) => None,
             None => Some(None),
         }
     }
@@ -982,6 +1090,13 @@ impl KwState {
             "L" => Ok(Mode::List),
             "U" => Ok(Mode::Uncorrelated),
             _ => Err("unknown mode"),
+        })
+    }
+
+    fn lookup_mode3_2(&mut self) -> Option<Mode> {
+        self.get_required("MODE", |s| match s {
+            "L" => Ok(Mode::List),
+            _ => Err("unknown mode (U and C are no longer valid)"),
         })
     }
 
@@ -1287,14 +1402,14 @@ impl KwState {
     where
         F: FnOnce(&str) -> Result<V, &'static str>,
     {
-        self.get_required(&format_param_kw(n, param), f)
+        self.get_required(&format_param(n, param), f)
     }
 
     fn lookup_param_opt<V, F>(&mut self, param: &'static str, n: u32, f: F) -> Option<Option<V>>
     where
         F: FnOnce(&str) -> Result<V, &'static str>,
     {
-        self.get_optional(&format_param_kw(n, param), f)
+        self.get_optional(&format_param(n, param), f)
     }
 
     // TODO check that this is in multiples of 8 for relevant specs
@@ -1339,7 +1454,7 @@ impl KwState {
     }
 
     fn lookup_param_detector_voltage(&mut self, n: u32) -> Option<Option<f32>> {
-        self.lookup_param_opt("P", n, parse_float)
+        self.lookup_param_opt("V", n, parse_float)
     }
 
     fn lookup_param_detector(&mut self, n: u32) -> Option<Option<String>> {
@@ -1445,15 +1560,54 @@ impl KwState {
         })
     }
 
-    fn finalize(
-        &self,
-    ) -> (
-        HashMap<String, String>,
-        HashMap<String, String>,
-        HashSet<String>,
-        HashMap<String, KwError>,
-    ) {
-        unimplemented!();
+    fn pull_errors(self) -> StandardErrors {
+        let mut value_errors: HashMap<String, KwError> = HashMap::new();
+        for (k, v) in self.keywords {
+            // TODO lots of clones here, not sure if this is necessary to fix
+            match v.status {
+                ValueStatus::Error(e) => {
+                    value_errors.insert(
+                        k,
+                        KwError {
+                            value: v.value,
+                            msg: e,
+                        },
+                    );
+                }
+                _ => (),
+            }
+        }
+        StandardErrors {
+            missing_keywords: self.missing,
+            value_errors,
+        }
+    }
+
+    // ASSUME There aren't any errors recorded in the state hashtable since we
+    // don't check them here. This function requires a standardized keyword
+    // struct to run, and presumably this won't exist if there are any errors.
+    fn finalize<S>(self, standard: S) -> TEXT<S> {
+        // TODO this struct shouldn't touch any nonstandard keywords, since it
+        // isn't supposed to do anything useful with them
+        let mut nonstandard = HashMap::new();
+        let mut deviant = HashMap::new();
+        for (k, v) in self.keywords {
+            match v.status {
+                ValueStatus::Raw => {
+                    if k.starts_with("$") {
+                        deviant.insert(k, v.value);
+                    } else {
+                        nonstandard.insert(k, v.value);
+                    }
+                }
+                _ => (),
+            }
+        }
+        TEXT {
+            standard,
+            nonstandard,
+            deviant,
+        }
     }
 }
 
@@ -1545,7 +1699,32 @@ struct RawTEXT {
     keywords: HashMap<String, String>,
 }
 
-// TODO possibly not optimal
+impl RawTEXT {
+    // fn fix<F: FnMut(&Self) -> ()>(&self, f: F) -> ();
+
+    // fn standardize(self) -> AnyTEXT {
+    //     let st = self.to_state();
+    // }
+
+    fn to_state(self) -> KwState {
+        let mut keywords = HashMap::new();
+        for (k, v) in self.keywords {
+            keywords.insert(
+                k,
+                KwValue {
+                    value: v,
+                    status: ValueStatus::Raw,
+                },
+            );
+        }
+        KwState {
+            keywords,
+            missing: vec![],
+        }
+    }
+}
+
+// TODO possibly not optimal, this will read each byte twice
 fn read_text<R: Read + Seek>(h: &mut BufReader<R>, header: &Header) -> io::Result<RawTEXT> {
     h.seek(SeekFrom::Start(u64::from(header.text.begin)))?;
     let x0 = u64::from(header.text.begin);
@@ -1695,10 +1874,12 @@ fn main() {
     let mut reader = BufReader::new(file);
     let header = read_header(&mut reader).unwrap();
     let text = read_text(&mut reader, &header).unwrap();
-    println!("{:#?}", text.delimiter);
-    for (k, v) in text.keywords {
-        if v.len() < 100 {
-            println!("{}: {}", k, v);
-        }
-    }
+    // println!("{:#?}", &text.delimiter);
+    // for (k, v) in &text.keywords {
+    //     if v.len() < 100 {
+    //         println!("{}: {}", k, v);
+    //     }
+    // }
+    let stext = AnyTEXT::from_kws(header.version, text);
+    println!("{:#?}", stext);
 }

@@ -26,8 +26,9 @@ fn parse_endian(s: &str) -> Result<Endian, &'static str> {
     }
 }
 
+// TODO is this always allowed?
 fn parse_int(s: &str) -> Result<u32, &'static str> {
-    s.parse().or(Err("invalid integer"))
+    s.trim().parse().or(Err("invalid integer"))
 }
 
 fn parse_int_or_blank(s: &str) -> Result<u32, &'static str> {
@@ -518,6 +519,22 @@ struct Unicode {
 }
 
 #[derive(Debug)]
+struct SupplementalOffsets3_0 {
+    beginanalysis: u32,
+    endanalysis: u32,
+    beginstext: u32,
+    endstext: u32,
+}
+
+#[derive(Debug)]
+struct SupplementalOffsets3_2 {
+    beginanalysis: Option<u32>,
+    endanalysis: Option<u32>,
+    beginstext: Option<u32>,
+    endstext: Option<u32>,
+}
+
+#[derive(Debug)]
 struct InnerMetadata2_0 {
     tot: Option<u32>,
     mode: Mode,
@@ -528,6 +545,8 @@ struct InnerMetadata2_0 {
 
 #[derive(Debug)]
 struct InnerMetadata3_0 {
+    data: Offsets,
+    supplemental: SupplementalOffsets3_0,
     tot: u32,
     mode: Mode,
     byteord: ByteOrd,
@@ -540,6 +559,8 @@ struct InnerMetadata3_0 {
 
 #[derive(Debug)]
 struct InnerMetadata3_1 {
+    data: Offsets,
+    supplemental: SupplementalOffsets3_0,
     tot: u32,
     mode: Mode,
     byteord: Endian,
@@ -554,6 +575,8 @@ struct InnerMetadata3_1 {
 
 #[derive(Debug)]
 struct InnerMetadata3_2 {
+    data: Offsets,
+    supplemental: SupplementalOffsets3_2,
     tot: u32,
     byteord: Endian,
     timestamps: Timestamps2_0, // BTIM/ETIM/DATE
@@ -699,7 +722,7 @@ impl MetadataFromKeywords for InnerMetadata2_0 {
             st.lookup_mode(),
             st.lookup_byteord(),
             st.lookup_cyt_opt(),
-            st.lookup_timestamps2_0(),
+            st.lookup_timestamps2_0(false),
         ) {
             Some(InnerMetadata2_0 {
                 tot,
@@ -717,6 +740,8 @@ impl MetadataFromKeywords for InnerMetadata2_0 {
 impl MetadataFromKeywords for InnerMetadata3_0 {
     fn build_inner(st: &mut KwState) -> Option<InnerMetadata3_0> {
         if let (
+            Some(data),
+            Some(supplemental),
             Some(tot),
             Some(mode),
             Some(byteord),
@@ -726,16 +751,20 @@ impl MetadataFromKeywords for InnerMetadata3_0 {
             Some(timestep),
             Some(unicode),
         ) = (
+            st.lookup_data_offsets(),
+            st.lookup_supplemental3_0(),
             st.lookup_tot_req(),
             st.lookup_mode(),
             st.lookup_byteord(),
             st.lookup_cyt_opt(),
-            st.lookup_timestamps2_0(),
+            st.lookup_timestamps2_0(false),
             st.lookup_cytsn(),
             st.lookup_timestep(),
             st.lookup_unicode(),
         ) {
             Some(InnerMetadata3_0 {
+                data,
+                supplemental,
                 tot,
                 mode,
                 byteord,
@@ -768,6 +797,8 @@ impl MetadataFromKeywords for InnerMetadata3_0 {
 impl MetadataFromKeywords for InnerMetadata3_1 {
     fn build_inner(st: &mut KwState) -> Option<InnerMetadata3_1> {
         if let (
+            Some(data),
+            Some(supplemental),
             Some(tot),
             Some(mode),
             Some(byteord),
@@ -779,11 +810,13 @@ impl MetadataFromKeywords for InnerMetadata3_1 {
             Some(plate),
             Some(vol),
         ) = (
+            st.lookup_data_offsets(),
+            st.lookup_supplemental3_0(),
             st.lookup_tot_req(),
             st.lookup_mode(),
             st.lookup_endian(),
             st.lookup_cyt_opt(),
-            st.lookup_timestamps2_0(),
+            st.lookup_timestamps2_0(true),
             st.lookup_cytsn(),
             st.lookup_timestep(),
             st.lookup_modification(),
@@ -791,6 +824,8 @@ impl MetadataFromKeywords for InnerMetadata3_1 {
             st.lookup_vol(),
         ) {
             Some(InnerMetadata3_1 {
+                data,
+                supplemental,
                 tot,
                 mode,
                 byteord,
@@ -811,6 +846,8 @@ impl MetadataFromKeywords for InnerMetadata3_1 {
 impl MetadataFromKeywords for InnerMetadata3_2 {
     fn build_inner(st: &mut KwState) -> Option<InnerMetadata3_2> {
         if let (
+            Some(data),
+            Some(supplemental),
             Some(tot),
             Some(_),
             Some(byteord),
@@ -825,13 +862,15 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
             Some(datetimes),
             Some(unstained),
         ) = (
+            st.lookup_data_offsets(),
+            st.lookup_supplemental3_2(),
             st.lookup_tot_req(),
             // only L is allowed as of 3.2, pull the value so it is marked as
             // read and check that its value is valid
             st.lookup_mode3_2(),
             st.lookup_endian(),
             st.lookup_cyt_req(),
-            st.lookup_timestamps2_0(),
+            st.lookup_timestamps2_0(true),
             st.lookup_cytsn(),
             st.lookup_timestep(),
             st.lookup_modification(),
@@ -842,6 +881,8 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
             st.lookup_unstained(),
         ) {
             Some(InnerMetadata3_2 {
+                data,
+                supplemental,
                 tot,
                 byteord,
                 cyt,
@@ -1043,6 +1084,58 @@ impl KwState {
     }
 
     // metadata
+
+    fn lookup_begindata(&mut self) -> Option<u32> {
+        self.get_required("BEGINDATA", parse_int)
+    }
+
+    fn lookup_enddata(&mut self) -> Option<u32> {
+        self.get_required("ENDDATA", parse_int)
+    }
+
+    fn lookup_data_offsets(&mut self) -> Option<Offsets> {
+        if let (Some(begin), Some(end)) = (self.lookup_begindata(), self.lookup_enddata()) {
+            Some(Offsets { begin, end })
+        } else {
+            None
+        }
+    }
+
+    fn lookup_supplemental3_0(&mut self) -> Option<SupplementalOffsets3_0> {
+        if let (Some(beginstext), Some(endstext), Some(beginanalysis), Some(endanalysis)) = (
+            self.get_required("BEGINSTEXT", parse_int),
+            self.get_required("ENDSTEXT", parse_int),
+            self.get_required("BEGINANALYSIS", parse_int),
+            self.get_required("ENDANALYSIS", parse_int),
+        ) {
+            Some(SupplementalOffsets3_0 {
+                beginstext,
+                endstext,
+                beginanalysis,
+                endanalysis,
+            })
+        } else {
+            None
+        }
+    }
+
+    fn lookup_supplemental3_2(&mut self) -> Option<SupplementalOffsets3_2> {
+        if let (Some(beginstext), Some(endstext), Some(beginanalysis), Some(endanalysis)) = (
+            self.get_optional("BEGINSTEXT", parse_int),
+            self.get_optional("ENDSTEXT", parse_int),
+            self.get_optional("BEGINANALYSIS", parse_int),
+            self.get_optional("ENDANALYSIS", parse_int),
+        ) {
+            Some(SupplementalOffsets3_2 {
+                beginstext,
+                endstext,
+                beginanalysis,
+                endanalysis,
+            })
+        } else {
+            None
+        }
+    }
 
     fn lookup_byteord(&mut self) -> Option<ByteOrd> {
         self.get_required("BYTEORD", |s| match parse_endian(s) {
@@ -1313,12 +1406,13 @@ impl KwState {
         self.get_optional("ETIM", parse_time100)
     }
 
-    fn lookup_timestamps2_0(&mut self) -> Option<Timestamps2_0> {
-        if let (Some(btim), Some(etim), Some(date)) = (
-            self.lookup_btim60(),
-            self.lookup_etim60(),
-            self.lookup_date(),
-        ) {
+    fn lookup_timestamps2_0(&mut self, centi: bool) -> Option<Timestamps2_0> {
+        let (t0, t1) = if centi {
+            (self.lookup_btim60(), self.lookup_etim60())
+        } else {
+            (self.lookup_btim100(), self.lookup_etim100())
+        };
+        if let (Some(btim), Some(etim), Some(date)) = (t0, t1, self.lookup_date()) {
             Some(Timestamps2_0 { btim, etim, date })
         } else {
             None

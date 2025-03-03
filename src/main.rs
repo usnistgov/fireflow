@@ -4,6 +4,8 @@ use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 use itertools::Itertools;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
+use std::env;
+use std::fs;
 use std::io;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::str;
@@ -81,11 +83,19 @@ fn parse_scale(s: &str) -> Result<Scale, &'static str> {
     }
 }
 
-struct Bounds {
+#[derive(Debug)]
+struct Offsets {
     begin: u32,
     end: u32,
 }
 
+impl Offsets {
+    fn num_bytes(&self) -> u32 {
+        self.end - self.begin + 1
+    }
+}
+
+#[derive(Debug)]
 enum Version {
     FCS2_0,
     FCS3_0,
@@ -96,20 +106,21 @@ enum Version {
 impl Version {
     fn parse(s: &str) -> Option<Version> {
         match s {
-            "FCS2.0" => Some(Version::FCS2_0),
-            "FCS3.0" => Some(Version::FCS3_0),
-            "FCS3.1" => Some(Version::FCS3_1),
-            "FCS3.2" => Some(Version::FCS3_2),
+            "2.0" => Some(Version::FCS2_0),
+            "3.0" => Some(Version::FCS3_0),
+            "3.1" => Some(Version::FCS3_1),
+            "3.2" => Some(Version::FCS3_2),
             _ => None,
         }
     }
 }
 
+#[derive(Debug)]
 struct Header {
     version: Version,
-    text: Bounds,
-    data: Bounds,
-    analysis: Bounds,
+    text: Offsets,
+    data: Offsets,
+    analysis: Offsets,
 }
 
 enum AlphaNumTypes {
@@ -141,14 +152,14 @@ struct Trigger {
     threshold: u32,
 }
 
-struct TextBounds<A, D, T> {
+struct TextOffsets<A, D, T> {
     analysis: A,
     data: D,
     stext: T,
 }
 
-type TextBounds3_0 = TextBounds<Bounds, Bounds, Bounds>;
-type TextBounds3_2 = TextBounds<Option<Bounds>, Bounds, Option<Bounds>>;
+type TextOffsets3_0 = TextOffsets<Offsets, Offsets, Offsets>;
+type TextOffsets3_2 = TextOffsets<Option<Offsets>, Offsets, Option<Offsets>>;
 
 struct Timestamps2_0 {
     btim: Option<NaiveTime>,
@@ -1446,15 +1457,27 @@ impl KwState {
     }
 }
 
-fn parse_bounds(s0: &str, s1: &str, allow_blank: bool) -> Result<Bounds, &'static str> {
-    // TODO check end >= begin
-    let f = if allow_blank {
-        parse_int_or_blank
-    } else {
-        parse_int
-    };
-    if let (Ok(begin), Ok(end)) = (f(s0), f(s1)) {
-        Ok(Bounds { begin, end })
+fn parse_header_offset(s: &str, allow_blank: bool) -> Option<u32> {
+    if allow_blank && s.trim().is_empty() {
+        return Some(0);
+    }
+    let re = Regex::new(r" *(\d+)").unwrap();
+    re.captures(s).map(|c| {
+        let [i] = c.extract().1;
+        i.parse().unwrap()
+    })
+}
+
+fn parse_bounds(s0: &str, s1: &str, allow_blank: bool) -> Result<Offsets, &'static str> {
+    if let (Some(begin), Some(end)) = (
+        parse_header_offset(s0, allow_blank),
+        parse_header_offset(s1, allow_blank),
+    ) {
+        if begin > end {
+            Err("beginning is greater than end")
+        } else {
+            Ok(Offsets { begin, end })
+        }
     } else {
         if allow_blank {
             Err("could not make bounds from integers/blanks")
@@ -1464,21 +1487,24 @@ fn parse_bounds(s0: &str, s1: &str, allow_blank: bool) -> Result<Bounds, &'stati
     }
 }
 
-const hre: &str = r"FCS(.{3})    (\d{8})(\d{8})(\d{8})(\d{8})(\d{8}| {8})(\d{8}| {8})";
+const hre: &str = r"FCS(.{3})    (.{8})(.{8})(.{8})(.{8})(.{8})(.{8})";
 
 fn parse_header(s: &str) -> Result<Header, &'static str> {
     let re = Regex::new(hre).unwrap();
     re.captures(s)
         .and_then(|c| {
             let [v, t0, t1, d0, d1, a0, a1] = c.extract().1;
-            if let Some(version) = Version::parse(v) {
+            if let (Some(version), Ok(text), Ok(data), Ok(analysis)) = (
+                Version::parse(v),
+                parse_bounds(t0, t1, false),
+                parse_bounds(d0, d1, false),
+                parse_bounds(a0, a1, true),
+            ) {
                 Some(Header {
                     version,
-                    // ASSUME these cannot fail because the regex will only
-                    // match numbers (and possibly spaces)
-                    text: parse_bounds(t0, t1, false).unwrap(),
-                    data: parse_bounds(d0, d1, false).unwrap(),
-                    analysis: parse_bounds(a0, a1, true).unwrap(),
+                    text,
+                    data,
+                    analysis,
                 })
             } else {
                 None
@@ -1513,17 +1539,19 @@ fn read_header<R: Read>(h: &mut BufReader<R>) -> io::Result<Header> {
 //    or next keyword. Implication: keywords can only appear once in a row or
 //    an even number of times in a row.
 
+#[derive(Debug)]
 struct RawTEXT {
     delimiter: u8,
     keywords: HashMap<String, String>,
 }
 
-fn read_text<R: Read + Seek>(h: &mut BufReader<R>, header: Header) -> io::Result<RawTEXT> {
+// TODO possibly not optimal
+fn read_text<R: Read + Seek>(h: &mut BufReader<R>, header: &Header) -> io::Result<RawTEXT> {
     h.seek(SeekFrom::Start(u64::from(header.text.begin)))?;
     let x0 = u64::from(header.text.begin);
-    let x1 = u64::from(x0 + 1);
+    let x1 = x0 + 1;
     let xf = u64::from(header.text.end);
-    let textlen = xf - x0 + 1;
+    let textlen = u64::from(header.text.num_bytes());
 
     // Read first character, which should be the delimiter
     let mut dbuf = [0_u8];
@@ -1632,12 +1660,13 @@ fn read_text<R: Read + Seek>(h: &mut BufReader<R>, header: Header) -> io::Result
 
     for chunk in boundaries.chunks(2) {
         if let [(_, klen), (_, vlen)] = chunk {
-            // TODO not DRY
             h.seek(SeekFrom::Current(1))?;
             h.take(*klen - 1).read_to_string(&mut kbuf)?;
             h.seek(SeekFrom::Current(1))?;
             h.take(*vlen - 1).read_to_string(&mut vbuf)?;
             keywords.insert(fix_word(&kbuf), fix_word(&vbuf));
+            kbuf.clear();
+            vbuf.clear();
         } else {
             // TODO could also ignore this since it isn't necessarily fatal
             return Err(io::Error::new(
@@ -1657,5 +1686,19 @@ fn read_text<R: Read + Seek>(h: &mut BufReader<R>, header: Header) -> io::Result
 struct Comp {}
 
 fn main() {
-    println!("Hello, world!");
+    let args: Vec<String> = env::args().collect();
+
+    // let args = &args[1..];
+
+    // println!("{}", &args[1]);
+    let file = fs::File::open(&args[1]).unwrap();
+    let mut reader = BufReader::new(file);
+    let header = read_header(&mut reader).unwrap();
+    let text = read_text(&mut reader, &header).unwrap();
+    println!("{:#?}", text.delimiter);
+    for (k, v) in text.keywords {
+        if v.len() < 100 {
+            println!("{}: {}", k, v);
+        }
+    }
 }

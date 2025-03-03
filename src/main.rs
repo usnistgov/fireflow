@@ -101,6 +101,14 @@ struct Offsets {
 }
 
 impl Offsets {
+    fn new(begin: u32, end: u32) -> Option<Offsets> {
+        if begin > end {
+            None
+        } else {
+            Some(Self { begin, end })
+        }
+    }
+
     fn num_bytes(&self) -> u32 {
         self.end - self.begin + 1
     }
@@ -179,15 +187,15 @@ type TextOffsets3_2 = TextOffsets<Option<Offsets>, Offsets, Option<Offsets>>;
 
 #[derive(Debug)]
 struct Timestamps2_0 {
-    btim: Option<NaiveTime>,
-    etim: Option<NaiveTime>,
-    date: Option<NaiveDate>,
+    btim: OptionalKw<NaiveTime>,
+    etim: OptionalKw<NaiveTime>,
+    date: OptionalKw<NaiveDate>,
 }
 
 #[derive(Debug)]
 struct Timestamps3_2 {
-    start: Option<DateTime<FixedOffset>>,
-    end: Option<DateTime<FixedOffset>>,
+    start: OptionalKw<DateTime<FixedOffset>>,
+    end: OptionalKw<DateTime<FixedOffset>>,
 }
 
 // TODO this is super messy, see 3.2 spec for restrictions on this we may with
@@ -251,56 +259,75 @@ enum Feature {
 }
 
 #[derive(Debug)]
+enum OptionalKw<V> {
+    Present(V),
+    Absent,
+}
+
+impl<V> OptionalKw<V> {
+    fn to_option(self) -> Option<V> {
+        match self {
+            OptionalKw::Present(x) => Some(x),
+            OptionalKw::Absent => None,
+        }
+    }
+
+    fn from_option(x: Option<V>) -> Self {
+        x.map_or_else(|| OptionalKw::Absent, |y| OptionalKw::Present(y))
+    }
+}
+
+#[derive(Debug)]
 struct InnerParameter2_0 {
-    scale: Option<Scale>,      // PnE
-    wavelength: Option<u32>,   // PnL
-    shortname: Option<String>, // PnN
+    scale: OptionalKw<Scale>,      // PnE
+    wavelength: OptionalKw<u32>,   // PnL
+    shortname: OptionalKw<String>, // PnN
 }
 
 #[derive(Debug)]
 struct InnerParameter3_0 {
-    scale: Scale,              // PnE
-    wavelength: Option<u32>,   // PnL
-    shortname: Option<String>, // PnN
-    gain: Option<f32>,         // PnG
+    scale: Scale,                  // PnE
+    wavelength: OptionalKw<u32>,   // PnL
+    shortname: OptionalKw<String>, // PnN
+    gain: OptionalKw<f32>,         // PnG
 }
 
 #[derive(Debug)]
 struct InnerParameter3_1 {
-    scale: Scale,         // PnE
-    wavelength: Vec<u32>, // PnL
-    shortname: String,    // PnN
-    gain: Option<f32>,    // PnG
-    calibration: Option<Calibration>,
-    display: Option<Display>,
+    scale: Scale,          // PnE
+    wavelength: Vec<u32>,  // PnL
+    shortname: String,     // PnN
+    gain: OptionalKw<f32>, // PnG
+    calibration: OptionalKw<Calibration>,
+    display: OptionalKw<Display>,
 }
 
 #[derive(Debug)]
 struct InnerParameter3_2 {
-    scale: Scale,         // PnE
-    wavelength: Vec<u32>, // PnL
-    shortname: String,    // PnN
-    gain: Option<f32>,    // PnG
-    calibration: Option<Calibration>,
-    display: Option<Display>,
-    analyte: Option<String>,
-    feature: Option<Feature>,
-    measurement_type: Option<MeasurementType>,
-    tag: Option<String>,
-    detector_name: Option<String>,
-    datatype: Option<NumTypes>,
+    scale: Scale,          // PnE
+    wavelength: Vec<u32>,  // PnL
+    shortname: String,     // PnN
+    gain: OptionalKw<f32>, // PnG
+    calibration: OptionalKw<Calibration>,
+    display: OptionalKw<Display>,
+    analyte: OptionalKw<String>,
+    feature: OptionalKw<Feature>,
+    measurement_type: OptionalKw<MeasurementType>,
+    tag: OptionalKw<String>,
+    detector_name: OptionalKw<String>,
+    datatype: OptionalKw<NumTypes>,
 }
 
 #[derive(Debug)]
 struct Parameter<X> {
-    bits: u32,                     // PnB
-    range: u32,                    // PnR
-    longname: Option<String>,      // PnS
-    filter: Option<String>,        // PnF
-    power: Option<u32>,            // PnO
-    detector_type: Option<String>, // PnD
-    percent_emitted: Option<u32>,  // PnP (TODO deprecated in 3.2, factor out)
-    detector_voltage: Option<f32>, // PnV
+    bits: u32,                         // PnB
+    range: u32,                        // PnR
+    longname: OptionalKw<String>,      // PnS
+    filter: OptionalKw<String>,        // PnF
+    power: OptionalKw<u32>,            // PnO
+    detector_type: OptionalKw<String>, // PnD
+    percent_emitted: OptionalKw<u32>,  // PnP (TODO deprecated in 3.2, factor out)
+    detector_voltage: OptionalKw<f32>, // PnV
     specific: X,
 }
 
@@ -313,36 +340,20 @@ trait ParameterFromKeywords: Sized {
     fn from_kws(st: &mut KwState, par: u32) -> Vec<Parameter<Self>> {
         let mut ps = vec![];
         for n in 1..(par + 1) {
-            if let (
-                Some(bits),
-                Some(range),
-                Some(longname),
-                Some(filter),
-                Some(power),
-                Some(detector_type),
-                Some(percent_emitted),
-                Some(detector_voltage),
-                Some(specific),
-            ) = (
+            if let (Some(bits), Some(range), Some(specific)) = (
                 st.lookup_param_bits(n),
                 st.lookup_param_range(n),
-                st.lookup_param_longname(n),
-                st.lookup_param_filter(n),
-                st.lookup_param_power(n),
-                st.lookup_param_detector_type(n),
-                st.lookup_param_percent_emitted(n),
-                st.lookup_param_detector_voltage(n),
                 Self::build_inner(st, n),
             ) {
                 let p = Parameter {
                     bits,
                     range,
-                    longname,
-                    filter,
-                    power,
-                    detector_type,
-                    percent_emitted,
-                    detector_voltage,
+                    longname: st.lookup_param_longname(n),
+                    filter: st.lookup_param_filter(n),
+                    power: st.lookup_param_power(n),
+                    detector_type: st.lookup_param_detector_type(n),
+                    percent_emitted: st.lookup_param_percent_emitted(n),
+                    detector_voltage: st.lookup_param_detector_voltage(n),
                     specific,
                 };
                 ps.push(p);
@@ -359,35 +370,22 @@ type Parameter3_2 = Parameter<InnerParameter3_2>;
 
 impl ParameterFromKeywords for InnerParameter2_0 {
     fn build_inner(st: &mut KwState, n: u32) -> Option<InnerParameter2_0> {
-        if let (Some(scale), Some(shortname), Some(wavelength)) = (
-            st.lookup_param_scale_opt(n),
-            st.lookup_param_shortname_opt(n),
-            st.lookup_param_wavelength(n),
-        ) {
-            Some(InnerParameter2_0 {
-                scale,
-                shortname,
-                wavelength,
-            })
-        } else {
-            None
-        }
+        Some(InnerParameter2_0 {
+            scale: st.lookup_param_scale_opt(n),
+            shortname: st.lookup_param_shortname_opt(n),
+            wavelength: st.lookup_param_wavelength(n),
+        })
     }
 }
 
 impl ParameterFromKeywords for InnerParameter3_0 {
     fn build_inner(st: &mut KwState, n: u32) -> Option<InnerParameter3_0> {
-        if let (Some(scale), Some(shortname), Some(wavelength), Some(gain)) = (
-            st.lookup_param_scale_req(n),
-            st.lookup_param_shortname_opt(n),
-            st.lookup_param_wavelength(n),
-            st.lookup_param_gain(n),
-        ) {
+        if let Some(scale) = st.lookup_param_scale_req(n) {
             Some(InnerParameter3_0 {
-                gain,
                 scale,
-                shortname,
-                wavelength,
+                shortname: st.lookup_param_shortname_opt(n),
+                wavelength: st.lookup_param_wavelength(n),
+                gain: st.lookup_param_gain(n),
             })
         } else {
             None
@@ -397,28 +395,17 @@ impl ParameterFromKeywords for InnerParameter3_0 {
 
 impl ParameterFromKeywords for InnerParameter3_1 {
     fn build_inner(st: &mut KwState, n: u32) -> Option<InnerParameter3_1> {
-        if let (
-            Some(scale),
-            Some(shortname),
-            Some(wavelength),
-            Some(gain),
-            Some(calibration),
-            Some(display),
-        ) = (
+        if let (Some(scale), Some(shortname)) = (
             st.lookup_param_scale_req(n),
             st.lookup_param_shortname_req(n),
-            st.lookup_param_wavelengths(n),
-            st.lookup_param_gain(n),
-            st.lookup_param_calibration(n),
-            st.lookup_param_display(n),
         ) {
             Some(InnerParameter3_1 {
-                calibration,
                 scale,
-                display,
-                wavelength,
                 shortname,
-                gain,
+                wavelength: st.lookup_param_wavelengths(n),
+                gain: st.lookup_param_gain(n),
+                calibration: st.lookup_param_calibration(n),
+                display: st.lookup_param_display(n),
             })
         } else {
             None
@@ -428,46 +415,23 @@ impl ParameterFromKeywords for InnerParameter3_1 {
 
 impl ParameterFromKeywords for InnerParameter3_2 {
     fn build_inner(st: &mut KwState, n: u32) -> Option<InnerParameter3_2> {
-        if let (
-            Some(scale),
-            Some(shortname),
-            Some(wavelength),
-            Some(gain),
-            Some(calibration),
-            Some(display),
-            Some(datatype),
-            Some(detector_name),
-            Some(tag),
-            Some(measurement_type),
-            Some(feature),
-            Some(analyte),
-        ) = (
+        if let (Some(scale), Some(shortname)) = (
             st.lookup_param_scale_req(n),
             st.lookup_param_shortname_req(n),
-            st.lookup_param_wavelengths(n),
-            st.lookup_param_gain(n),
-            st.lookup_param_calibration(n),
-            st.lookup_param_display(n),
-            st.lookup_param_datatype(n),
-            st.lookup_param_detector(n),
-            st.lookup_param_tag(n),
-            st.lookup_param_type(n),
-            st.lookup_param_feature(n),
-            st.lookup_param_analyte(n),
         ) {
             Some(InnerParameter3_2 {
                 scale,
                 shortname,
-                wavelength,
-                datatype,
-                detector_name,
-                tag,
-                measurement_type,
-                feature,
-                analyte,
-                calibration,
-                display,
-                gain,
+                wavelength: st.lookup_param_wavelengths(n),
+                gain: st.lookup_param_gain(n),
+                detector_name: st.lookup_param_detector(n),
+                tag: st.lookup_param_tag(n),
+                measurement_type: st.lookup_param_type(n),
+                feature: st.lookup_param_feature(n),
+                analyte: st.lookup_param_analyte(n),
+                calibration: st.lookup_param_calibration(n),
+                display: st.lookup_param_display(n),
+                datatype: st.lookup_param_datatype(n),
             })
         } else {
             None
@@ -485,31 +449,31 @@ enum Originality {
 
 #[derive(Debug)]
 struct ModificationData {
-    last_modifier: Option<String>,
-    last_modified: Option<NaiveDateTime>,
-    originality: Option<Originality>,
+    last_modifier: OptionalKw<String>,
+    last_modified: OptionalKw<NaiveDateTime>,
+    originality: OptionalKw<Originality>,
 }
 
 #[derive(Debug)]
 struct PlateData {
-    plateid: Option<String>,
-    platename: Option<String>,
-    wellid: Option<String>,
+    plateid: OptionalKw<String>,
+    platename: OptionalKw<String>,
+    wellid: OptionalKw<String>,
 }
 
 type UnstainedCenters = HashMap<String, f32>;
 
 #[derive(Debug)]
 struct UnstainedData {
-    unstainedcenters: Option<UnstainedCenters>,
-    unstainedinfo: Option<String>,
+    unstainedcenters: OptionalKw<UnstainedCenters>,
+    unstainedinfo: OptionalKw<String>,
 }
 
 #[derive(Debug)]
 struct CarrierData {
-    carrierid: Option<String>,
-    carriertype: Option<String>,
-    locationid: Option<String>,
+    carrierid: OptionalKw<String>,
+    carriertype: OptionalKw<String>,
+    locationid: OptionalKw<String>,
 }
 
 #[derive(Debug)]
@@ -520,26 +484,22 @@ struct Unicode {
 
 #[derive(Debug)]
 struct SupplementalOffsets3_0 {
-    beginanalysis: u32,
-    endanalysis: u32,
-    beginstext: u32,
-    endstext: u32,
+    analysis: Offsets,
+    stext: Offsets,
 }
 
 #[derive(Debug)]
 struct SupplementalOffsets3_2 {
-    beginanalysis: Option<u32>,
-    endanalysis: Option<u32>,
-    beginstext: Option<u32>,
-    endstext: Option<u32>,
+    analysis: OptionalKw<Offsets>,
+    stext: OptionalKw<Offsets>,
 }
 
 #[derive(Debug)]
 struct InnerMetadata2_0 {
-    tot: Option<u32>,
+    tot: OptionalKw<u32>,
     mode: Mode,
     byteord: ByteOrd,
-    cyt: Option<String>,
+    cyt: OptionalKw<String>,
     timestamps: Timestamps2_0, // BTIM/ETIM/DATE
 }
 
@@ -551,10 +511,10 @@ struct InnerMetadata3_0 {
     mode: Mode,
     byteord: ByteOrd,
     timestamps: Timestamps2_0, // BTIM/ETIM/DATE
-    cyt: Option<String>,
-    cytsn: Option<String>,
-    timestep: Option<f32>,
-    unicode: Option<Unicode>,
+    cyt: OptionalKw<String>,
+    cytsn: OptionalKw<String>,
+    timestep: OptionalKw<f32>,
+    unicode: OptionalKw<Unicode>,
 }
 
 #[derive(Debug)]
@@ -565,12 +525,12 @@ struct InnerMetadata3_1 {
     mode: Mode,
     byteord: Endian,
     timestamps: Timestamps2_0, // BTIM/ETIM/DATE
-    cyt: Option<String>,
-    cytsn: Option<String>,
-    timestep: Option<f32>,
+    cyt: OptionalKw<String>,
+    cytsn: OptionalKw<String>,
+    timestep: OptionalKw<f32>,
     modification: ModificationData,
     plate: PlateData,
-    vol: Option<f32>,
+    vol: OptionalKw<f32>,
 }
 
 #[derive(Debug)]
@@ -582,11 +542,11 @@ struct InnerMetadata3_2 {
     timestamps: Timestamps2_0, // BTIM/ETIM/DATE
     datetimes: Timestamps3_2,  // DATETIMESTART/END
     cyt: String,
-    cytsn: Option<String>,
-    timestep: Option<f32>,
+    cytsn: OptionalKw<String>,
+    timestep: OptionalKw<f32>,
     modification: ModificationData,
     plate: PlateData,
-    vol: Option<f32>,
+    vol: OptionalKw<f32>,
     carrier: CarrierData,
     unstained: UnstainedData,
 }
@@ -598,19 +558,19 @@ struct Metadata<X> {
     datatype: AlphaNumTypes,
     // an abstraction for various kinds of spillover/comp matrices
     // spillover: Spillover,
-    abrt: Option<u32>,
-    com: Option<String>,
-    cells: Option<String>,
-    exp: Option<String>,
-    fil: Option<String>,
-    inst: Option<String>,
-    lost: Option<u32>,
-    op: Option<String>,
-    proj: Option<String>,
-    smno: Option<String>,
-    src: Option<String>,
-    sys: Option<String>,
-    tr: Option<Trigger>,
+    abrt: OptionalKw<u32>,
+    com: OptionalKw<String>,
+    cells: OptionalKw<String>,
+    exp: OptionalKw<String>,
+    fil: OptionalKw<String>,
+    inst: OptionalKw<String>,
+    lost: OptionalKw<u32>,
+    op: OptionalKw<String>,
+    proj: OptionalKw<String>,
+    smno: OptionalKw<String>,
+    src: OptionalKw<String>,
+    sys: OptionalKw<String>,
+    tr: OptionalKw<Trigger>,
     specific: X,
 }
 
@@ -638,6 +598,38 @@ struct StdText<M, P> {
     parameters: Vec<Parameter<P>>,
 }
 
+impl<M: MetadataFromKeywords, P: ParameterFromKeywords> StdText<M, P> {
+    fn validate(s: &Self) -> Vec<String> {
+        let mut meta_errors = vec![];
+        check_bits(s, &mut meta_errors);
+        meta_errors
+    }
+
+    fn from_kws(raw: RawTEXT) -> Result<TEXT<Self>, StandardErrors> {
+        let mut st = raw.to_state();
+        if let Some(s) = M::from_kws(&mut st).map(|metadata| {
+            let parameters = P::from_kws(&mut st, metadata.par);
+            StdText {
+                metadata,
+                parameters,
+            }
+        }) {
+            let meta_errors = Self::validate(&s);
+            if meta_errors.is_empty() {
+                Ok(st.finalize(s))
+            } else {
+                Err(StandardErrors {
+                    meta_errors,
+                    value_errors: HashMap::new(),
+                    missing_keywords: vec![],
+                })
+            }
+        } else {
+            Err(st.pull_errors())
+        }
+    }
+}
+
 type StdText2_0 = StdText<InnerMetadata2_0, InnerParameter2_0>;
 type StdText3_0 = StdText<InnerMetadata3_0, InnerParameter3_0>;
 type StdText3_1 = StdText<InnerMetadata3_1, InnerParameter3_1>;
@@ -653,60 +645,29 @@ trait MetadataFromKeywords: Sized {
     fn build_inner(st: &mut KwState) -> Option<Self>;
 
     fn from_kws(st: &mut KwState) -> Option<Metadata<Self>> {
-        if let (
-            Some(par),
-            Some(nextdata),
-            Some(datatype),
-            Some(abrt),
-            Some(com),
-            Some(cells),
-            Some(exp),
-            Some(fil),
-            Some(inst),
-            Some(lost),
-            Some(op),
-            Some(proj),
-            Some(smno),
-            Some(src),
-            Some(sys),
-            Some(tr),
-            Some(specific),
-        ) = (
+        if let (Some(par), Some(nextdata), Some(datatype), Some(specific)) = (
             st.lookup_par(),
             st.lookup_nextdata(),
             st.lookup_datatype(),
-            st.lookup_abrt(),
-            st.lookup_com(),
-            st.lookup_cells(),
-            st.lookup_exp(),
-            st.lookup_fil(),
-            st.lookup_inst(),
-            st.lookup_lost(),
-            st.lookup_op(),
-            st.lookup_proj(),
-            st.lookup_smno(),
-            st.lookup_src(),
-            st.lookup_sys(),
-            st.lookup_trigger(),
             Self::build_inner(st),
         ) {
             Some(Metadata {
                 par,
                 nextdata,
                 datatype,
-                abrt,
-                com,
-                cells,
-                exp,
-                fil,
-                inst,
-                lost,
-                op,
-                proj,
-                smno,
-                src,
-                sys,
-                tr,
+                abrt: st.lookup_abrt(),
+                com: st.lookup_com(),
+                cells: st.lookup_cells(),
+                exp: st.lookup_exp(),
+                fil: st.lookup_fil(),
+                inst: st.lookup_inst(),
+                lost: st.lookup_lost(),
+                op: st.lookup_op(),
+                proj: st.lookup_proj(),
+                smno: st.lookup_smno(),
+                src: st.lookup_src(),
+                sys: st.lookup_sys(),
+                tr: st.lookup_trigger(),
                 specific,
             })
         } else {
@@ -717,19 +678,13 @@ trait MetadataFromKeywords: Sized {
 
 impl MetadataFromKeywords for InnerMetadata2_0 {
     fn build_inner(st: &mut KwState) -> Option<InnerMetadata2_0> {
-        if let (Some(tot), Some(mode), Some(byteord), Some(cyt), Some(timestamps)) = (
-            st.lookup_tot_opt(),
-            st.lookup_mode(),
-            st.lookup_byteord(),
-            st.lookup_cyt_opt(),
-            st.lookup_timestamps2_0(false),
-        ) {
+        if let (Some(mode), Some(byteord)) = (st.lookup_mode(), st.lookup_byteord()) {
             Some(InnerMetadata2_0 {
-                tot,
+                tot: st.lookup_tot_opt(),
                 mode,
                 byteord,
-                cyt,
-                timestamps,
+                cyt: st.lookup_cyt_opt(),
+                timestamps: st.lookup_timestamps2_0(false),
             })
         } else {
             None
@@ -739,28 +694,12 @@ impl MetadataFromKeywords for InnerMetadata2_0 {
 
 impl MetadataFromKeywords for InnerMetadata3_0 {
     fn build_inner(st: &mut KwState) -> Option<InnerMetadata3_0> {
-        if let (
-            Some(data),
-            Some(supplemental),
-            Some(tot),
-            Some(mode),
-            Some(byteord),
-            Some(cyt),
-            Some(timestamps),
-            Some(cytsn),
-            Some(timestep),
-            Some(unicode),
-        ) = (
+        if let (Some(data), Some(supplemental), Some(tot), Some(mode), Some(byteord)) = (
             st.lookup_data_offsets(),
             st.lookup_supplemental3_0(),
             st.lookup_tot_req(),
             st.lookup_mode(),
             st.lookup_byteord(),
-            st.lookup_cyt_opt(),
-            st.lookup_timestamps2_0(false),
-            st.lookup_cytsn(),
-            st.lookup_timestep(),
-            st.lookup_unicode(),
         ) {
             Some(InnerMetadata3_0 {
                 data,
@@ -768,11 +707,11 @@ impl MetadataFromKeywords for InnerMetadata3_0 {
                 tot,
                 mode,
                 byteord,
-                cyt,
-                timestamps,
-                cytsn,
-                timestep,
-                unicode,
+                cyt: st.lookup_cyt_opt(),
+                timestamps: st.lookup_timestamps2_0(false),
+                cytsn: st.lookup_cytsn(),
+                timestep: st.lookup_timestep(),
+                unicode: st.lookup_unicode(),
             })
         } else {
             None
@@ -780,48 +719,14 @@ impl MetadataFromKeywords for InnerMetadata3_0 {
     }
 }
 
-// struct InnerMetadata3_1 {
-//     tot: u32,
-//     mode: Mode,
-//     byteord: Endian,
-//     timestamps: Timestamps2_0, // BTIM/ETIM/DATE
-//     cyt: Option<String>,
-//     cytsn: CytSN,
-//     timestep: Timestep,
-//     modification: ModificationData,
-//     plate: PlateData,
-//     vol: Vol,
-//     unicode: Unicode,
-// }
-
 impl MetadataFromKeywords for InnerMetadata3_1 {
     fn build_inner(st: &mut KwState) -> Option<InnerMetadata3_1> {
-        if let (
-            Some(data),
-            Some(supplemental),
-            Some(tot),
-            Some(mode),
-            Some(byteord),
-            Some(cyt),
-            Some(timestamps),
-            Some(cytsn),
-            Some(timestep),
-            Some(modification),
-            Some(plate),
-            Some(vol),
-        ) = (
+        if let (Some(data), Some(supplemental), Some(tot), Some(mode), Some(byteord)) = (
             st.lookup_data_offsets(),
             st.lookup_supplemental3_0(),
             st.lookup_tot_req(),
             st.lookup_mode(),
             st.lookup_endian(),
-            st.lookup_cyt_opt(),
-            st.lookup_timestamps2_0(true),
-            st.lookup_cytsn(),
-            st.lookup_timestep(),
-            st.lookup_modification(),
-            st.lookup_plate(),
-            st.lookup_vol(),
         ) {
             Some(InnerMetadata3_1 {
                 data,
@@ -829,13 +734,13 @@ impl MetadataFromKeywords for InnerMetadata3_1 {
                 tot,
                 mode,
                 byteord,
-                cyt,
-                timestamps,
-                cytsn,
-                timestep,
-                modification,
-                plate,
-                vol,
+                cyt: st.lookup_cyt_opt(),
+                timestamps: st.lookup_timestamps2_0(true),
+                cytsn: st.lookup_cytsn(),
+                timestep: st.lookup_timestep(),
+                modification: st.lookup_modification(),
+                plate: st.lookup_plate(),
+                vol: st.lookup_vol(),
             })
         } else {
             None
@@ -845,56 +750,30 @@ impl MetadataFromKeywords for InnerMetadata3_1 {
 
 impl MetadataFromKeywords for InnerMetadata3_2 {
     fn build_inner(st: &mut KwState) -> Option<InnerMetadata3_2> {
-        if let (
-            Some(data),
-            Some(supplemental),
-            Some(tot),
-            Some(_),
-            Some(byteord),
-            Some(cyt),
-            Some(timestamps),
-            Some(cytsn),
-            Some(timestep),
-            Some(modification),
-            Some(plate),
-            Some(vol),
-            Some(carrier),
-            Some(datetimes),
-            Some(unstained),
-        ) = (
+        if let (Some(data), Some(tot), Some(_), Some(byteord), Some(cyt)) = (
             st.lookup_data_offsets(),
-            st.lookup_supplemental3_2(),
             st.lookup_tot_req(),
             // only L is allowed as of 3.2, pull the value so it is marked as
             // read and check that its value is valid
             st.lookup_mode3_2(),
             st.lookup_endian(),
             st.lookup_cyt_req(),
-            st.lookup_timestamps2_0(true),
-            st.lookup_cytsn(),
-            st.lookup_timestep(),
-            st.lookup_modification(),
-            st.lookup_plate(),
-            st.lookup_vol(),
-            st.lookup_carrier(),
-            st.lookup_timestamps3_2(),
-            st.lookup_unstained(),
         ) {
             Some(InnerMetadata3_2 {
                 data,
-                supplemental,
+                supplemental: st.lookup_supplemental3_2(),
                 tot,
                 byteord,
                 cyt,
-                timestamps,
-                cytsn,
-                timestep,
-                modification,
-                plate,
-                vol,
-                carrier,
-                datetimes,
-                unstained,
+                timestamps: st.lookup_timestamps2_0(true),
+                cytsn: st.lookup_cytsn(),
+                timestep: st.lookup_timestep(),
+                modification: st.lookup_modification(),
+                plate: st.lookup_plate(),
+                vol: st.lookup_vol(),
+                carrier: st.lookup_carrier(),
+                datetimes: st.lookup_timestamps3_2(),
+                unstained: st.lookup_unstained(),
             })
         } else {
             None
@@ -902,73 +781,137 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
     }
 }
 
-trait StdTextFromKeywords: Sized {
-    type M: MetadataFromKeywords;
-    type P: ParameterFromKeywords;
+// trait StdTextFromKeywords: Sized {
+//     type M: MetadataFromKeywords;
+//     type P: ParameterFromKeywords;
 
-    fn build(m: Metadata<Self::M>, p: Vec<Parameter<Self::P>>) -> Self;
+//     fn build(m: Metadata<Self::M>, p: Vec<Parameter<Self::P>>) -> Self;
 
-    fn from_kws(raw: RawTEXT) -> Result<TEXT<Self>, StandardErrors> {
-        let mut st = raw.to_state();
-        if let Some(s) = Self::M::from_kws(&mut st).map(|m| {
-            let ps = Self::P::from_kws(&mut st, m.par);
-            Self::build(m, ps)
-        }) {
-            Ok(st.finalize(s))
-        } else {
-            Err(st.pull_errors())
+//     fn validate(s: &Self) -> Vec<String>;
+
+//     fn from_kws(raw: RawTEXT) -> Result<TEXT<Self>, StandardErrors> {
+//         let mut st = raw.to_state();
+//         if let Some(s) = Self::M::from_kws(&mut st).map(|m| {
+//             let ps = Self::P::from_kws(&mut st, m.par);
+//             Self::build(m, ps)
+//         }) {
+//             let meta_errors = Self::validate(&s);
+//             if meta_errors.is_empty() {
+//                 Ok(st.finalize(s))
+//             } else {
+//                 Err(StandardErrors {
+//                     meta_errors,
+//                     value_errors: HashMap::new(),
+//                     missing_keywords: vec![],
+//                 })
+//             }
+//         } else {
+//             Err(st.pull_errors())
+//         }
+//     }
+// }
+
+fn check_bits<M, P>(s: &StdText<M, P>, meta_errors: &mut Vec<String>) -> () {
+    // Check that all bit fields match DATATYPE
+    match s.metadata.datatype {
+        AlphaNumTypes::Float => {
+            for (i, p) in s.parameters.iter().enumerate() {
+                if p.bits != 32 {
+                    meta_errors.push(format!(
+                        "Parameter {} uses {} bits when DATATYPE=F",
+                        i + 1,
+                        p.bits
+                    ));
+                }
+            }
         }
+        AlphaNumTypes::Double => {
+            for (i, p) in s.parameters.iter().enumerate() {
+                if p.bits != 64 {
+                    meta_errors.push(format!(
+                        "Parameter {} uses {} bits when DATATYPE=D",
+                        i + 1,
+                        p.bits
+                    ));
+                }
+            }
+        }
+        _ => (),
     }
 }
 
 // TODO not DRY, this is repeated 4x (make a macro, this isn't Haskell)
-impl StdTextFromKeywords for StdText2_0 {
-    type M = InnerMetadata2_0;
-    type P = InnerParameter2_0;
+// impl StdTextFromKeywords for StdText2_0 {
+//     type M = InnerMetadata2_0;
+//     type P = InnerParameter2_0;
 
-    fn build(metadata: Metadata<Self::M>, parameters: Vec<Parameter<Self::P>>) -> Self {
-        StdText {
-            metadata,
-            parameters,
-        }
-    }
-}
+//     fn validate(s: &Self) -> Vec<String> {
+//         let mut meta_errors = vec![];
+//         check_bits(s, &mut meta_errors);
+//         meta_errors
+//     }
 
-impl StdTextFromKeywords for StdText3_0 {
-    type M = InnerMetadata3_0;
-    type P = InnerParameter3_0;
+//     fn build(metadata: Metadata<Self::M>, parameters: Vec<Parameter<Self::P>>) -> Self {
+//         StdText {
+//             metadata,
+//             parameters,
+//         }
+//     }
+// }
 
-    fn build(metadata: Metadata<Self::M>, parameters: Vec<Parameter<Self::P>>) -> Self {
-        StdText {
-            metadata,
-            parameters,
-        }
-    }
-}
+// impl StdTextFromKeywords for StdText3_0 {
+//     type M = InnerMetadata3_0;
+//     type P = InnerParameter3_0;
 
-impl StdTextFromKeywords for StdText3_1 {
-    type M = InnerMetadata3_1;
-    type P = InnerParameter3_1;
+//     fn validate(s: &Self) -> Vec<String> {
+//         let mut meta_errors = vec![];
+//         check_bits(s, &mut meta_errors);
+//         meta_errors
+//     }
 
-    fn build(metadata: Metadata<Self::M>, parameters: Vec<Parameter<Self::P>>) -> Self {
-        StdText {
-            metadata,
-            parameters,
-        }
-    }
-}
+//     fn build(metadata: Metadata<Self::M>, parameters: Vec<Parameter<Self::P>>) -> Self {
+//         StdText {
+//             metadata,
+//             parameters,
+//         }
+//     }
+// }
 
-impl StdTextFromKeywords for StdText3_2 {
-    type M = InnerMetadata3_2;
-    type P = InnerParameter3_2;
+// impl StdTextFromKeywords for StdText3_1 {
+//     type M = InnerMetadata3_1;
+//     type P = InnerParameter3_1;
 
-    fn build(metadata: Metadata<Self::M>, parameters: Vec<Parameter<Self::P>>) -> Self {
-        StdText {
-            metadata,
-            parameters,
-        }
-    }
-}
+//     fn validate(s: &Self) -> Vec<String> {
+//         let mut meta_errors = vec![];
+//         check_bits(s, &mut meta_errors);
+//         meta_errors
+//     }
+
+//     fn build(metadata: Metadata<Self::M>, parameters: Vec<Parameter<Self::P>>) -> Self {
+//         StdText {
+//             metadata,
+//             parameters,
+//         }
+//     }
+// }
+
+// impl StdTextFromKeywords for StdText3_2 {
+//     type M = InnerMetadata3_2;
+//     type P = InnerParameter3_2;
+
+//     fn validate(s: &Self) -> Vec<String> {
+//         let mut meta_errors = vec![];
+//         check_bits(s, &mut meta_errors);
+//         meta_errors
+//     }
+
+//     fn build(metadata: Metadata<Self::M>, parameters: Vec<Parameter<Self::P>>) -> Self {
+//         StdText {
+//             metadata,
+//             parameters,
+//         }
+//     }
+// }
 
 #[derive(Debug)]
 struct TEXT<S> {
@@ -990,10 +933,10 @@ enum AnyTEXT {
 impl AnyTEXT {
     fn from_kws(v: Version, raw: RawTEXT) -> Result<Self, StandardErrors> {
         match v {
-            Version::FCS2_0 => StdText2_0::from_kws(raw).map(AnyTEXT::TEXT2_0),
-            Version::FCS3_0 => StdText3_0::from_kws(raw).map(AnyTEXT::TEXT3_0),
-            Version::FCS3_1 => StdText3_1::from_kws(raw).map(AnyTEXT::TEXT3_1),
-            Version::FCS3_2 => StdText3_2::from_kws(raw).map(AnyTEXT::TEXT3_2),
+            Version::FCS2_0 => StdText::from_kws(raw).map(AnyTEXT::TEXT2_0),
+            Version::FCS3_0 => StdText::from_kws(raw).map(AnyTEXT::TEXT3_0),
+            Version::FCS3_1 => StdText::from_kws(raw).map(AnyTEXT::TEXT3_1),
+            Version::FCS3_2 => StdText::from_kws(raw).map(AnyTEXT::TEXT3_2),
         }
     }
 }
@@ -1011,6 +954,7 @@ struct KwError {
 enum ValueStatus {
     Raw,
     Error(&'static str),
+    Warning(&'static str),
     Used,
 }
 
@@ -1024,6 +968,7 @@ struct KwValue {
 struct KwState {
     keywords: HashMap<String, KwValue>,
     missing: Vec<String>,
+    meta_errors: Vec<String>,
 }
 
 // TODO use newtype for "Keyword" type so this is less confusing
@@ -1032,7 +977,7 @@ struct StandardErrors {
     missing_keywords: Vec<String>,
     value_errors: HashMap<String, KwError>,
     // TODO, these are errors involving multiple keywords, like PnB not matching DATATYPE
-    // meta_errors: Vec<String>,
+    meta_errors: Vec<String>,
 }
 
 impl KwState {
@@ -1062,7 +1007,10 @@ impl KwState {
         }
     }
 
-    fn get_optional<V, F>(&mut self, k: &str, f: F) -> Option<Option<V>>
+    // TODO if we encounter an error the use may want to ignore it and drop
+    // the value rather than totally crash. This will require differentiating
+    // b/t fatal and non-fatal errors.
+    fn get_optional<V, F>(&mut self, k: &str, f: F) -> OptionalKw<V>
     where
         F: FnOnce(&str) -> Result<V, &'static str>,
     {
@@ -1071,16 +1019,24 @@ impl KwState {
             Some(v) => match v.status {
                 ValueStatus::Raw => {
                     let (s, r) = f(&v.value).map_or_else(
-                        |e| (ValueStatus::Error(e), None),
-                        |x| (ValueStatus::Used, Some(Some(x))),
+                        |w| (ValueStatus::Warning(w), OptionalKw::Absent),
+                        |x| (ValueStatus::Used, OptionalKw::Present(x)),
                     );
                     v.status = s;
                     r
                 }
-                _ => None,
+                _ => OptionalKw::Absent,
             },
-            None => Some(None),
+            None => OptionalKw::Absent,
         }
+    }
+
+    fn build_offsets(&mut self, begin: u32, end: u32, which: &'static str) -> Option<Offsets> {
+        Offsets::new(begin, end).or_else(|| {
+            let msg = format!("Could not make {} offset: begin > end", which);
+            self.meta_errors.push(msg);
+            None
+        })
     }
 
     // metadata
@@ -1095,7 +1051,7 @@ impl KwState {
 
     fn lookup_data_offsets(&mut self) -> Option<Offsets> {
         if let (Some(begin), Some(end)) = (self.lookup_begindata(), self.lookup_enddata()) {
-            Some(Offsets { begin, end })
+            self.build_offsets(begin, end, "DATA")
         } else {
             None
         }
@@ -1108,32 +1064,35 @@ impl KwState {
             self.get_required("BEGINANALYSIS", parse_int),
             self.get_required("ENDANALYSIS", parse_int),
         ) {
-            Some(SupplementalOffsets3_0 {
-                beginstext,
-                endstext,
-                beginanalysis,
-                endanalysis,
-            })
+            if let (Some(stext), Some(analysis)) = (
+                self.build_offsets(beginstext, endstext, "STEXT"),
+                self.build_offsets(beginanalysis, endanalysis, "ANALYSIS"),
+            ) {
+                Some(SupplementalOffsets3_0 { stext, analysis })
+            } else {
+                None
+            }
         } else {
             None
         }
     }
 
-    fn lookup_supplemental3_2(&mut self) -> Option<SupplementalOffsets3_2> {
+    fn lookup_supplemental3_2(&mut self) -> SupplementalOffsets3_2 {
         if let (Some(beginstext), Some(endstext), Some(beginanalysis), Some(endanalysis)) = (
-            self.get_optional("BEGINSTEXT", parse_int),
-            self.get_optional("ENDSTEXT", parse_int),
-            self.get_optional("BEGINANALYSIS", parse_int),
-            self.get_optional("ENDANALYSIS", parse_int),
+            self.get_required("BEGINSTEXT", parse_int),
+            self.get_required("ENDSTEXT", parse_int),
+            self.get_required("BEGINANALYSIS", parse_int),
+            self.get_required("ENDANALYSIS", parse_int),
         ) {
-            Some(SupplementalOffsets3_2 {
-                beginstext,
-                endstext,
-                beginanalysis,
-                endanalysis,
-            })
+            let stext = OptionalKw::from_option(self.build_offsets(beginstext, endstext, "STEXT"));
+            let analysis =
+                OptionalKw::from_option(self.build_offsets(beginanalysis, endanalysis, "ANALYSIS"));
+            SupplementalOffsets3_2 { stext, analysis }
         } else {
-            None
+            SupplementalOffsets3_2 {
+                stext: OptionalKw::Absent,
+                analysis: OptionalKw::Absent,
+            }
         }
     }
 
@@ -1205,7 +1164,7 @@ impl KwState {
         self.get_required("TOT", parse_int)
     }
 
-    fn lookup_tot_opt(&mut self) -> Option<Option<u32>> {
+    fn lookup_tot_opt(&mut self) -> OptionalKw<u32> {
         self.get_optional("TOT", parse_int)
     }
 
@@ -1213,59 +1172,59 @@ impl KwState {
         self.get_required("CYT", parse_str)
     }
 
-    fn lookup_cyt_opt(&mut self) -> Option<Option<String>> {
+    fn lookup_cyt_opt(&mut self) -> OptionalKw<String> {
         self.get_optional("CYT", parse_str)
     }
 
-    fn lookup_abrt(&mut self) -> Option<Option<u32>> {
+    fn lookup_abrt(&mut self) -> OptionalKw<u32> {
         self.get_optional("ABRT", parse_int)
     }
 
-    fn lookup_cells(&mut self) -> Option<Option<String>> {
+    fn lookup_cells(&mut self) -> OptionalKw<String> {
         self.get_optional("CELLS", parse_str)
     }
 
-    fn lookup_com(&mut self) -> Option<Option<String>> {
+    fn lookup_com(&mut self) -> OptionalKw<String> {
         self.get_optional("COM", parse_str)
     }
 
-    fn lookup_exp(&mut self) -> Option<Option<String>> {
+    fn lookup_exp(&mut self) -> OptionalKw<String> {
         self.get_optional("EXP", parse_str)
     }
 
-    fn lookup_fil(&mut self) -> Option<Option<String>> {
+    fn lookup_fil(&mut self) -> OptionalKw<String> {
         self.get_optional("FIL", parse_str)
     }
 
-    fn lookup_inst(&mut self) -> Option<Option<String>> {
+    fn lookup_inst(&mut self) -> OptionalKw<String> {
         self.get_optional("INST", parse_str)
     }
 
-    fn lookup_lost(&mut self) -> Option<Option<u32>> {
+    fn lookup_lost(&mut self) -> OptionalKw<u32> {
         self.get_optional("LOST", parse_int)
     }
 
-    fn lookup_op(&mut self) -> Option<Option<String>> {
+    fn lookup_op(&mut self) -> OptionalKw<String> {
         self.get_optional("OP", parse_str)
     }
 
-    fn lookup_proj(&mut self) -> Option<Option<String>> {
+    fn lookup_proj(&mut self) -> OptionalKw<String> {
         self.get_optional("PROJ", parse_str)
     }
 
-    fn lookup_smno(&mut self) -> Option<Option<String>> {
+    fn lookup_smno(&mut self) -> OptionalKw<String> {
         self.get_optional("SMNO", parse_str)
     }
 
-    fn lookup_src(&mut self) -> Option<Option<String>> {
+    fn lookup_src(&mut self) -> OptionalKw<String> {
         self.get_optional("SRC", parse_str)
     }
 
-    fn lookup_sys(&mut self) -> Option<Option<String>> {
+    fn lookup_sys(&mut self) -> OptionalKw<String> {
         self.get_optional("SYS", parse_str)
     }
 
-    fn lookup_trigger(&mut self) -> Option<Option<Trigger>> {
+    fn lookup_trigger(&mut self) -> OptionalKw<Trigger> {
         self.get_optional("TR", |s| match s.split(",").collect::<Vec<&str>>()[..] {
             [p, n1] => parse_int(n1).map(|threshold| Trigger {
                 parameter: String::from(p),
@@ -1275,19 +1234,19 @@ impl KwState {
         })
     }
 
-    fn lookup_cytsn(&mut self) -> Option<Option<String>> {
+    fn lookup_cytsn(&mut self) -> OptionalKw<String> {
         self.get_optional("CYTSN", parse_str)
     }
 
-    fn lookup_timestep(&mut self) -> Option<Option<f32>> {
+    fn lookup_timestep(&mut self) -> OptionalKw<f32> {
         self.get_optional("TIMESTEP", parse_float)
     }
 
-    fn lookup_vol(&mut self) -> Option<Option<f32>> {
+    fn lookup_vol(&mut self) -> OptionalKw<f32> {
         self.get_optional("VOL", parse_float)
     }
 
-    fn lookup_unicode(&mut self) -> Option<Option<Unicode>> {
+    fn lookup_unicode(&mut self) -> OptionalKw<Unicode> {
         self.get_optional("UNICODE", |s| {
             let mut xs = s.split(",");
             if let Some(page) = xs.next().and_then(|s| s.parse().ok()) {
@@ -1303,23 +1262,23 @@ impl KwState {
         })
     }
 
-    fn lookup_plateid(&mut self) -> Option<Option<String>> {
+    fn lookup_plateid(&mut self) -> OptionalKw<String> {
         self.get_optional("PLATEID", parse_str)
     }
 
-    fn lookup_platename(&mut self) -> Option<Option<String>> {
+    fn lookup_platename(&mut self) -> OptionalKw<String> {
         self.get_optional("PLATENAME", parse_str)
     }
 
-    fn lookup_wellid(&mut self) -> Option<Option<String>> {
+    fn lookup_wellid(&mut self) -> OptionalKw<String> {
         self.get_optional("WELLID", parse_str)
     }
 
-    fn lookup_unstainedinfo(&mut self) -> Option<Option<String>> {
+    fn lookup_unstainedinfo(&mut self) -> OptionalKw<String> {
         self.get_optional("UNSTAINEDINFO", parse_str)
     }
 
-    fn lookup_unstainedcenters(&mut self) -> Option<Option<UnstainedCenters>> {
+    fn lookup_unstainedcenters(&mut self) -> OptionalKw<UnstainedCenters> {
         self.get_optional("UNSTAINEDICENTERS", |s| {
             let mut xs = s.split(",");
             if let Some(n) = xs.next().and_then(|s| s.parse().ok()) {
@@ -1343,11 +1302,11 @@ impl KwState {
         })
     }
 
-    fn lookup_last_modifier(&mut self) -> Option<Option<String>> {
+    fn lookup_last_modifier(&mut self) -> OptionalKw<String> {
         self.get_optional("LAST_MODIFIER", parse_str)
     }
 
-    fn lookup_last_modified(&mut self) -> Option<Option<NaiveDateTime>> {
+    fn lookup_last_modified(&mut self) -> OptionalKw<NaiveDateTime> {
         // TODO hopefully case doesn't matter...
         self.get_optional("LAST_MODIFIED", |s| {
             NaiveDateTime::parse_from_str(s, "%d-%b-%Y %H:%M:%S.%.3f")
@@ -1356,7 +1315,7 @@ impl KwState {
         })
     }
 
-    fn lookup_originality(&mut self) -> Option<Option<Originality>> {
+    fn lookup_originality(&mut self) -> OptionalKw<Originality> {
         self.get_optional("ORIGINALITY", |s| match s {
             "Original" => Ok(Originality::Original),
             "NonDataModified" => Ok(Originality::NonDataModified),
@@ -1366,125 +1325,94 @@ impl KwState {
         })
     }
 
-    fn lookup_carrierid(&mut self) -> Option<Option<String>> {
+    fn lookup_carrierid(&mut self) -> OptionalKw<String> {
         self.get_optional("CARRIERID", parse_str)
     }
 
-    fn lookup_carriertype(&mut self) -> Option<Option<String>> {
+    fn lookup_carriertype(&mut self) -> OptionalKw<String> {
         self.get_optional("CARRIERTYPE", parse_str)
     }
 
-    fn lookup_locationid(&mut self) -> Option<Option<String>> {
+    fn lookup_locationid(&mut self) -> OptionalKw<String> {
         self.get_optional("LOCATIONID", parse_str)
     }
 
-    fn lookup_begindatetime(&mut self) -> Option<Option<DateTime<FixedOffset>>> {
+    fn lookup_begindatetime(&mut self) -> OptionalKw<DateTime<FixedOffset>> {
         self.get_optional("BEGINDATETIME", parse_iso_datetime)
     }
 
-    fn lookup_enddatetime(&mut self) -> Option<Option<DateTime<FixedOffset>>> {
+    fn lookup_enddatetime(&mut self) -> OptionalKw<DateTime<FixedOffset>> {
         self.get_optional("ENDDATETIME", parse_iso_datetime)
     }
 
-    fn lookup_date(&mut self) -> Option<Option<NaiveDate>> {
+    fn lookup_date(&mut self) -> OptionalKw<NaiveDate> {
         self.get_optional("DATE", parse_date)
     }
 
-    fn lookup_btim60(&mut self) -> Option<Option<NaiveTime>> {
+    fn lookup_btim60(&mut self) -> OptionalKw<NaiveTime> {
         self.get_optional("BTIM", parse_time60)
     }
 
-    fn lookup_etim60(&mut self) -> Option<Option<NaiveTime>> {
+    fn lookup_etim60(&mut self) -> OptionalKw<NaiveTime> {
         self.get_optional("ETIM", parse_time60)
     }
 
-    fn lookup_btim100(&mut self) -> Option<Option<NaiveTime>> {
+    fn lookup_btim100(&mut self) -> OptionalKw<NaiveTime> {
         self.get_optional("BTIM", parse_time100)
     }
 
-    fn lookup_etim100(&mut self) -> Option<Option<NaiveTime>> {
+    fn lookup_etim100(&mut self) -> OptionalKw<NaiveTime> {
         self.get_optional("ETIM", parse_time100)
     }
 
-    fn lookup_timestamps2_0(&mut self, centi: bool) -> Option<Timestamps2_0> {
+    fn lookup_timestamps2_0(&mut self, centi: bool) -> Timestamps2_0 {
         let (t0, t1) = if centi {
             (self.lookup_btim60(), self.lookup_etim60())
         } else {
             (self.lookup_btim100(), self.lookup_etim100())
         };
-        if let (Some(btim), Some(etim), Some(date)) = (t0, t1, self.lookup_date()) {
-            Some(Timestamps2_0 { btim, etim, date })
-        } else {
-            None
+        Timestamps2_0 {
+            btim: t0,
+            etim: t1,
+            date: self.lookup_date(),
         }
     }
 
-    fn lookup_timestamps3_2(&mut self) -> Option<Timestamps3_2> {
-        if let (Some(start), Some(end)) = (self.lookup_begindatetime(), self.lookup_enddatetime()) {
-            Some(Timestamps3_2 { start, end })
-        } else {
-            None
+    fn lookup_timestamps3_2(&mut self) -> Timestamps3_2 {
+        Timestamps3_2 {
+            start: self.lookup_begindatetime(),
+            end: self.lookup_enddatetime(),
         }
     }
 
-    fn lookup_modification(&mut self) -> Option<ModificationData> {
-        if let (Some(last_modifier), Some(last_modified), Some(originality)) = (
-            self.lookup_last_modifier(),
-            self.lookup_last_modified(),
-            self.lookup_originality(),
-        ) {
-            Some(ModificationData {
-                last_modifier,
-                last_modified,
-                originality,
-            })
-        } else {
-            None
+    fn lookup_modification(&mut self) -> ModificationData {
+        ModificationData {
+            last_modifier: self.lookup_last_modifier(),
+            last_modified: self.lookup_last_modified(),
+            originality: self.lookup_originality(),
         }
     }
 
-    fn lookup_plate(&mut self) -> Option<PlateData> {
-        if let (Some(plateid), Some(platename), Some(wellid)) = (
-            self.lookup_plateid(),
-            self.lookup_platename(),
-            self.lookup_wellid(),
-        ) {
-            Some(PlateData {
-                wellid,
-                platename,
-                plateid,
-            })
-        } else {
-            None
+    fn lookup_plate(&mut self) -> PlateData {
+        PlateData {
+            wellid: self.lookup_plateid(),
+            platename: self.lookup_platename(),
+            plateid: self.lookup_wellid(),
         }
     }
 
-    fn lookup_carrier(&mut self) -> Option<CarrierData> {
-        if let (Some(locationid), Some(carrierid), Some(carriertype)) = (
-            self.lookup_locationid(),
-            self.lookup_carrierid(),
-            self.lookup_carriertype(),
-        ) {
-            Some(CarrierData {
-                locationid,
-                carrierid,
-                carriertype,
-            })
-        } else {
-            None
+    fn lookup_carrier(&mut self) -> CarrierData {
+        CarrierData {
+            locationid: self.lookup_locationid(),
+            carrierid: self.lookup_carrierid(),
+            carriertype: self.lookup_carriertype(),
         }
     }
 
-    fn lookup_unstained(&mut self) -> Option<UnstainedData> {
-        if let (Some(unstainedcenters), Some(unstainedinfo)) =
-            (self.lookup_unstainedcenters(), self.lookup_unstainedinfo())
-        {
-            Some(UnstainedData {
-                unstainedcenters,
-                unstainedinfo,
-            })
-        } else {
-            None
+    fn lookup_unstained(&mut self) -> UnstainedData {
+        UnstainedData {
+            unstainedcenters: self.lookup_unstainedcenters(),
+            unstainedinfo: self.lookup_unstainedinfo(),
         }
     }
 
@@ -1499,7 +1427,7 @@ impl KwState {
         self.get_required(&format_param(n, param), f)
     }
 
-    fn lookup_param_opt<V, F>(&mut self, param: &'static str, n: u32, f: F) -> Option<Option<V>>
+    fn lookup_param_opt<V, F>(&mut self, param: &'static str, n: u32, f: F) -> OptionalKw<V>
     where
         F: FnOnce(&str) -> Result<V, &'static str>,
     {
@@ -1515,15 +1443,15 @@ impl KwState {
         self.lookup_param_req("R", n, parse_int)
     }
 
-    fn lookup_param_wavelength(&mut self, n: u32) -> Option<Option<u32>> {
+    fn lookup_param_wavelength(&mut self, n: u32) -> OptionalKw<u32> {
         self.lookup_param_opt("L", n, parse_int)
     }
 
-    fn lookup_param_power(&mut self, n: u32) -> Option<Option<u32>> {
+    fn lookup_param_power(&mut self, n: u32) -> OptionalKw<u32> {
         self.lookup_param_opt("O", n, parse_int)
     }
 
-    fn lookup_param_detector_type(&mut self, n: u32) -> Option<Option<String>> {
+    fn lookup_param_detector_type(&mut self, n: u32) -> OptionalKw<String> {
         self.lookup_param_opt("T", n, parse_str)
     }
 
@@ -1531,39 +1459,39 @@ impl KwState {
         self.lookup_param_req("N", n, parse_str)
     }
 
-    fn lookup_param_shortname_opt(&mut self, n: u32) -> Option<Option<String>> {
+    fn lookup_param_shortname_opt(&mut self, n: u32) -> OptionalKw<String> {
         self.lookup_param_opt("N", n, parse_str)
     }
 
-    fn lookup_param_longname(&mut self, n: u32) -> Option<Option<String>> {
+    fn lookup_param_longname(&mut self, n: u32) -> OptionalKw<String> {
         self.lookup_param_opt("S", n, parse_str)
     }
 
-    fn lookup_param_filter(&mut self, n: u32) -> Option<Option<String>> {
+    fn lookup_param_filter(&mut self, n: u32) -> OptionalKw<String> {
         self.lookup_param_opt("F", n, parse_str)
     }
 
-    fn lookup_param_percent_emitted(&mut self, n: u32) -> Option<Option<u32>> {
+    fn lookup_param_percent_emitted(&mut self, n: u32) -> OptionalKw<u32> {
         self.lookup_param_opt("P", n, parse_int)
     }
 
-    fn lookup_param_detector_voltage(&mut self, n: u32) -> Option<Option<f32>> {
+    fn lookup_param_detector_voltage(&mut self, n: u32) -> OptionalKw<f32> {
         self.lookup_param_opt("V", n, parse_float)
     }
 
-    fn lookup_param_detector(&mut self, n: u32) -> Option<Option<String>> {
+    fn lookup_param_detector(&mut self, n: u32) -> OptionalKw<String> {
         self.lookup_param_opt("DET", n, parse_str)
     }
 
-    fn lookup_param_tag(&mut self, n: u32) -> Option<Option<String>> {
+    fn lookup_param_tag(&mut self, n: u32) -> OptionalKw<String> {
         self.lookup_param_opt("TAG", n, parse_str)
     }
 
-    fn lookup_param_analyte(&mut self, n: u32) -> Option<Option<String>> {
+    fn lookup_param_analyte(&mut self, n: u32) -> OptionalKw<String> {
         self.lookup_param_opt("ANALYTE", n, parse_str)
     }
 
-    fn lookup_param_gain(&mut self, n: u32) -> Option<Option<f32>> {
+    fn lookup_param_gain(&mut self, n: u32) -> OptionalKw<f32> {
         self.lookup_param_opt("G", n, parse_float)
     }
 
@@ -1571,11 +1499,11 @@ impl KwState {
         self.lookup_param_req("E", n, parse_scale)
     }
 
-    fn lookup_param_scale_opt(&mut self, n: u32) -> Option<Option<Scale>> {
+    fn lookup_param_scale_opt(&mut self, n: u32) -> OptionalKw<Scale> {
         self.lookup_param_opt("E", n, parse_scale)
     }
 
-    fn lookup_param_calibration(&mut self, n: u32) -> Option<Option<Calibration>> {
+    fn lookup_param_calibration(&mut self, n: u32) -> OptionalKw<Calibration> {
         self.lookup_param_opt("CALIBRATION", n, |s| {
             let v: Vec<&str> = s.split(",").collect();
             match v[..] {
@@ -1592,7 +1520,7 @@ impl KwState {
     }
 
     // for 3.1+ PnL parameters, which can have multiple wavelengths
-    fn lookup_param_wavelengths(&mut self, n: u32) -> Option<Vec<u32>> {
+    fn lookup_param_wavelengths(&mut self, n: u32) -> Vec<u32> {
         self.lookup_param_opt("L", n, |s| {
             let mut ws = vec![];
             for x in s.split(",") {
@@ -1603,10 +1531,11 @@ impl KwState {
             }
             return Ok(ws);
         })
-        .map(|x| x.unwrap_or(vec![]))
+        .to_option()
+        .unwrap_or(vec![])
     }
 
-    fn lookup_param_display(&mut self, n: u32) -> Option<Option<Display>> {
+    fn lookup_param_display(&mut self, n: u32) -> OptionalKw<Display> {
         self.lookup_param_opt("D", n, |s| {
             let v: Vec<&str> = s.split(",").collect();
             match v[..] {
@@ -1624,7 +1553,7 @@ impl KwState {
         })
     }
 
-    fn lookup_param_datatype(&mut self, n: u32) -> Option<Option<NumTypes>> {
+    fn lookup_param_datatype(&mut self, n: u32) -> OptionalKw<NumTypes> {
         self.lookup_param_opt("DATATYPE", n, |s| match s {
             "I" => Ok(NumTypes::Integer),
             "F" => Ok(NumTypes::Float),
@@ -1633,7 +1562,7 @@ impl KwState {
         })
     }
 
-    fn lookup_param_type(&mut self, n: u32) -> Option<Option<MeasurementType>> {
+    fn lookup_param_type(&mut self, n: u32) -> OptionalKw<MeasurementType> {
         self.lookup_param_opt("TYPE", n, |s| match s {
             "Forward Scatter" => Ok(MeasurementType::ForwardScatter),
             "Raw Fluorescence" => Ok(MeasurementType::RawFluorescence),
@@ -1645,7 +1574,7 @@ impl KwState {
         })
     }
 
-    fn lookup_param_feature(&mut self, n: u32) -> Option<Option<Feature>> {
+    fn lookup_param_feature(&mut self, n: u32) -> OptionalKw<Feature> {
         self.lookup_param_opt("FEATURE", n, |s| match s {
             "Area" => Ok(Feature::Area),
             "Width" => Ok(Feature::Width),
@@ -1674,6 +1603,7 @@ impl KwState {
         StandardErrors {
             missing_keywords: self.missing,
             value_errors,
+            meta_errors: vec![],
         }
     }
 
@@ -1814,6 +1744,7 @@ impl RawTEXT {
         KwState {
             keywords,
             missing: vec![],
+            meta_errors: vec![],
         }
     }
 }

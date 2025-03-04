@@ -20,52 +20,54 @@ fn format_param(n: u32, param: &str) -> String {
     format!("P{}{}", n, param.to_ascii_uppercase())
 }
 
-fn parse_endian(s: &str) -> Result<Endian, &'static str> {
+fn parse_endian(s: &str) -> ParseResult<Endian> {
     match s {
         "1,2,3,4" => Ok(Endian::Little),
         "4,3,2,1" => Ok(Endian::Big),
-        _ => Err("could not determine endianness, must be '1,2,3,4' or '4,3,2,1'"),
+        _ => Err(String::from(
+            "could not determine endianness, must be '1,2,3,4' or '4,3,2,1'",
+        )),
     }
 }
 
-fn parse_bits(s: &str) -> Result<Bits, &'static str> {
+fn parse_bits(s: &str) -> ParseResult<Bits> {
     match s {
         "*" => Ok(Bits::Variable),
-        _ => s
-            .parse()
-            .map_or(Err("must be a positive integer or '*'"), |x| {
-                Ok(Bits::Fixed(x))
-            }),
+        _ => s.parse().map_or(
+            Err(String::from("must be a positive integer or '*'")),
+            |x| Ok(Bits::Fixed(x)),
+        ),
     }
 }
 
-// TODO is this always allowed?
-fn parse_int(s: &str) -> Result<u32, &'static str> {
-    s.parse().or(Err("invalid integer"))
+type ParseResult<T> = Result<T, String>;
+
+fn parse_int(s: &str) -> ParseResult<u32> {
+    s.parse::<u32>().map_err(|e| format!("{}", e))
 }
 
-fn parse_offset(s: &str) -> Result<u32, &'static str> {
-    s.trim_start().parse().or(Err("invalid offset"))
+fn parse_offset(s: &str) -> ParseResult<u32> {
+    s.trim_start().parse().map_err(|e| format!("{}", e))
 }
 
-fn parse_offset_or_blank(s: &str) -> Result<u32, &'static str> {
+fn parse_offset_or_blank(s: &str) -> ParseResult<u32> {
     let q = s.trim_start();
     if q.is_empty() {
         Ok(0)
     } else {
-        q.parse().or(Err("invalid offset or blank"))
+        q.parse().or(Err(String::from("invalid offset or blank")))
     }
 }
 
-fn parse_float(s: &str) -> Result<f32, &'static str> {
-    s.parse().or(Err("invalid float"))
+fn parse_float(s: &str) -> ParseResult<f32> {
+    s.parse().map_err(|e| format!("{}", e))
 }
 
-fn parse_str(s: &str) -> Result<String, &'static str> {
+fn parse_str(s: &str) -> ParseResult<String> {
     Ok(String::from(s))
 }
 
-fn parse_iso_datetime(s: &str) -> Result<DateTime<FixedOffset>, &'static str> {
+fn parse_iso_datetime(s: &str) -> ParseResult<DateTime<FixedOffset>> {
     // TODO missing timezone implies localtime, but this will assume missing
     // means +00:00/UTC
     let formats = [
@@ -80,35 +82,35 @@ fn parse_iso_datetime(s: &str) -> Result<DateTime<FixedOffset>, &'static str> {
             return Ok(t);
         }
     }
-    Err("must be formatted like 'yyyy-mm-ddThh:mm:ss[TZD]'")
+    Err(String::from(
+        "must be formatted like 'yyyy-mm-ddThh:mm:ss[TZD]'",
+    ))
 }
 
-fn parse_date(s: &str) -> Result<NaiveDate, &'static str> {
-    NaiveDate::parse_from_str(s, "%d-%b-%Y")
-        .or(NaiveDate::parse_from_str(s, "%d-%b-%Y")
-            .or(Err("must be formatted like 'dd-mmm-yyyy'")))
+fn parse_date(s: &str) -> ParseResult<NaiveDate> {
+    NaiveDate::parse_from_str(s, "%d-%b-%Y").or(NaiveDate::parse_from_str(s, "%d-%b-%Y")
+        .or(Err(String::from("must be formatted like 'dd-mmm-yyyy'"))))
 }
 
-fn parse_time60(s: &str) -> Result<NaiveTime, &'static str> {
+fn parse_time60(s: &str) -> ParseResult<NaiveTime> {
     // TODO this will have subseconds in terms of 1/100, need to convert to 1/60
     parse_time100(s)
 }
 
-fn parse_time100(s: &str) -> Result<NaiveTime, &'static str> {
-    NaiveTime::parse_from_str(s, "%H:%M:%S.%.3f")
-        .or(NaiveTime::parse_from_str(s, "%H:%M:%S")
-            .or(Err("must be formatted like 'hh:mm:ss[.cc]'")))
+fn parse_time100(s: &str) -> ParseResult<NaiveTime> {
+    NaiveTime::parse_from_str(s, "%H:%M:%S.%.3f").or(NaiveTime::parse_from_str(s, "%H:%M:%S")
+        .or(Err(String::from("must be formatted like 'hh:mm:ss[.cc]'"))))
 }
 
-fn parse_scale(s: &str) -> Result<Scale, &'static str> {
+fn parse_scale(s: &str) -> ParseResult<Scale> {
     let v: Vec<&str> = s.split(",").collect();
     match v[..] {
         [ds, os] => match (ds.parse(), os.parse()) {
             (Ok(0.0), Ok(0.0)) => Ok(Linear),
             (Ok(decades), Ok(offset)) => Ok(Log(LogScale { decades, offset })),
-            _ => Err("invalid floats"),
+            _ => Err(String::from("invalid floats")),
         },
-        _ => Err("too many fields"),
+        _ => Err(String::from("too many fields")),
     }
 }
 
@@ -382,9 +384,16 @@ impl fmt::Display for Bits {
 }
 
 #[derive(Debug)]
+enum Range {
+    BigInteger(u128),
+    Float(f32),
+    MaxRange, // this represents 2^128 exactly, which just barely over u128
+}
+
+#[derive(Debug)]
 struct Parameter<X> {
     bits: Bits,                        // PnB
-    range: u32,                        // PnR (TODO allow up to 64bit?)
+    range: Range,                      // PnR
     longname: OptionalKw<String>,      // PnS
     filter: OptionalKw<String>,        // PnF
     power: OptionalKw<u32>,            // PnO
@@ -1064,13 +1073,13 @@ type MissingKeywords = HashSet<String>;
 #[derive(Debug)]
 struct KwError {
     value: String,
-    msg: &'static str,
+    msg: String,
 }
 
 enum ValueStatus {
     Raw,
-    Error(&'static str),
-    Warning(&'static str),
+    Error(String),
+    Warning(String),
     Used,
 }
 
@@ -1102,7 +1111,7 @@ impl KwState {
     // TODO not DRY (although will likely need HKTs)
     fn get_required<V, F>(&mut self, k: &str, f: F) -> Option<V>
     where
-        F: FnOnce(&str) -> Result<V, &'static str>,
+        F: FnOnce(&str) -> ParseResult<V>,
     {
         let sk = format_standard_kw(k);
         match self.keywords.get_mut(&sk) {
@@ -1129,7 +1138,7 @@ impl KwState {
     // b/t fatal and non-fatal errors.
     fn get_optional<V, F>(&mut self, k: &str, f: F) -> OptionalKw<V>
     where
-        F: FnOnce(&str) -> Result<V, &'static str>,
+        F: FnOnce(&str) -> ParseResult<V>,
     {
         let sk = format_standard_kw(k);
         match self.keywords.get_mut(&sk) {
@@ -1223,10 +1232,10 @@ impl KwState {
                     if flags.iter().all(|x| *x) {
                         Ok(ByteOrd::Mixed(xs))
                     } else {
-                        Err("mixed byte order not unique")
+                        Err(String::from("mixed byte order not unique"))
                     }
                 } else {
-                    Err("invalid mixed byte order format")
+                    Err(String::from("invalid mixed byte order format"))
                 }
             }
         })
@@ -1242,7 +1251,7 @@ impl KwState {
             "F" => Ok(AlphaNumTypes::Float),
             "D" => Ok(AlphaNumTypes::Double),
             "A" => Ok(AlphaNumTypes::Ascii),
-            _ => Err("unknown datatype"),
+            _ => Err(String::from("unknown datatype")),
         })
     }
 
@@ -1251,19 +1260,19 @@ impl KwState {
             "C" => Ok(Mode::Correlated),
             "L" => Ok(Mode::List),
             "U" => Ok(Mode::Uncorrelated),
-            _ => Err("unknown mode"),
+            _ => Err(String::from("unknown mode")),
         })
     }
 
     fn lookup_mode3_2(&mut self) -> Option<Mode> {
         self.get_required("MODE", |s| match s {
             "L" => Ok(Mode::List),
-            _ => Err("unknown mode (U and C are no longer valid)"),
+            _ => Err(String::from("unknown mode (U and C are no longer valid)")),
         })
     }
 
     fn lookup_nextdata(&mut self) -> Option<u32> {
-        self.get_required("NEXTDATA", parse_int)
+        self.get_required("NEXTDATA", parse_offset)
     }
 
     fn lookup_par(&mut self) -> Option<u32> {
@@ -1340,7 +1349,7 @@ impl KwState {
                 parameter: String::from(p),
                 threshold,
             }),
-            _ => Err("wrong number of fields"),
+            _ => Err(String::from("wrong number of fields")),
         })
     }
 
@@ -1366,12 +1375,12 @@ impl KwState {
             if let Some(page) = xs.next().and_then(|s| s.parse().ok()) {
                 let kws: Vec<String> = xs.map(String::from).collect();
                 if kws.is_empty() {
-                    Err("no keywords specified")
+                    Err(String::from("no keywords specified"))
                 } else {
                     Ok(Unicode { page, kws })
                 }
             } else {
-                Err("unicode must be like 'page,KW1[,KW2...]'")
+                Err(String::from("unicode must be like 'page,KW1[,KW2...]'"))
             }
         })
     }
@@ -1403,15 +1412,15 @@ impl KwState {
                         if let Some(v) = rest[i + 8].parse().ok() {
                             us.insert(String::from(rest[i]), v);
                         } else {
-                            return Err("invalid numeric encountered");
+                            return Err(String::from("invalid numeric encountered"));
                         }
                     }
                     Ok(us)
                 } else {
-                    Err("data fields do not match given dimensions")
+                    Err(String::from("data fields do not match given dimensions"))
                 }
             } else {
-                Err("invalid dimension")
+                Err(String::from("invalid dimension"))
             }
         })
     }
@@ -1423,9 +1432,11 @@ impl KwState {
     fn lookup_last_modified(&mut self) -> OptionalKw<NaiveDateTime> {
         // TODO hopefully case doesn't matter...
         self.get_optional("LAST_MODIFIED", |s| {
-            NaiveDateTime::parse_from_str(s, "%d-%b-%Y %H:%M:%S.%.3f")
-                .or(NaiveDateTime::parse_from_str(s, "%d-%b-%Y %H:%M:%S")
-                    .or(Err("must be formatted like 'dd-mmm-yyyy hh:mm:ss[.cc]'")))
+            NaiveDateTime::parse_from_str(s, "%d-%b-%Y %H:%M:%S.%.3f").or(
+                NaiveDateTime::parse_from_str(s, "%d-%b-%Y %H:%M:%S").or(Err(String::from(
+                    "must be formatted like 'dd-mmm-yyyy hh:mm:ss[.cc]'",
+                ))),
+            )
         })
     }
 
@@ -1435,7 +1446,7 @@ impl KwState {
             "NonDataModified" => Ok(Originality::NonDataModified),
             "Appended" => Ok(Originality::Appended),
             "DataModified" => Ok(Originality::DataModified),
-            _ => Err("invalid originality"),
+            _ => Err(String::from("invalid originality")),
         })
     }
 
@@ -1536,14 +1547,14 @@ impl KwState {
 
     fn lookup_param_req<V, F>(&mut self, param: &'static str, n: u32, f: F) -> Option<V>
     where
-        F: FnOnce(&str) -> Result<V, &'static str>,
+        F: FnOnce(&str) -> ParseResult<V>,
     {
         self.get_required(&format_param(n, param), f)
     }
 
     fn lookup_param_opt<V, F>(&mut self, param: &'static str, n: u32, f: F) -> OptionalKw<V>
     where
-        F: FnOnce(&str) -> Result<V, &'static str>,
+        F: FnOnce(&str) -> ParseResult<V>,
     {
         self.get_optional(&format_param(n, param), f)
     }
@@ -1553,8 +1564,15 @@ impl KwState {
         self.lookup_param_req("B", n, parse_bits)
     }
 
-    fn lookup_param_range(&mut self, n: u32) -> Option<u32> {
-        self.lookup_param_req("R", n, parse_int)
+    fn lookup_param_range(&mut self, n: u32) -> Option<Range> {
+        self.lookup_param_req("R", n, |s| match s {
+            // this is 2^128 exactly
+            "340282366920938463463374607431768211456" => Ok(Range::MaxRange),
+            _ => s
+                .parse::<u128>()
+                .map_err(|e| format!("{}", e))
+                .map(|x| Range::BigInteger(x)),
+        })
     }
 
     fn lookup_param_wavelength(&mut self, n: u32) -> OptionalKw<u32> {
@@ -1626,9 +1644,9 @@ impl KwState {
                         value,
                         unit: String::from(unit),
                     }),
-                    _ => Err("invalid (positive) float"),
+                    _ => Err(String::from("invalid (positive) float")),
                 },
-                _ => Err("too many fields"),
+                _ => Err(String::from("too many fields")),
             }
         })
     }
@@ -1640,7 +1658,7 @@ impl KwState {
             for x in s.split(",") {
                 match x.parse() {
                     Ok(y) => ws.push(y),
-                    _ => return Err("invalid float encountered"),
+                    _ => return Err(String::from("invalid float encountered")),
                 };
             }
             return Ok(ws);
@@ -1660,9 +1678,9 @@ impl KwState {
                     ("Logarithmic", Ok(decades), Ok(offset)) => {
                         Ok(Display::Log(LogDisplay { decades, offset }))
                     }
-                    _ => Err("invalid floats"),
+                    _ => Err(String::from("invalid floats")),
                 },
-                _ => Err("too many fields"),
+                _ => Err(String::from("too many fields")),
             }
         })
     }
@@ -1672,7 +1690,7 @@ impl KwState {
             "I" => Ok(NumTypes::Integer),
             "F" => Ok(NumTypes::Float),
             "D" => Ok(NumTypes::Double),
-            _ => Err("unknown datatype"),
+            _ => Err(String::from("unknown datatype")),
         })
     }
 
@@ -1684,16 +1702,17 @@ impl KwState {
             "Time" => Ok(MeasurementType::Time),
             "Index" => Ok(MeasurementType::Index),
             "Classification" => Ok(MeasurementType::Classification),
-            _ => Err("unknown measurement type"),
+            _ => Err(String::from("unknown measurement type")),
         })
     }
 
+    // TODO some imaging cytometers store "Eccentricity" and friends in here
     fn lookup_param_feature(&mut self, n: u32) -> OptionalKw<Feature> {
         self.lookup_param_opt("FEATURE", n, |s| match s {
             "Area" => Ok(Feature::Area),
             "Width" => Ok(Feature::Width),
             "Height" => Ok(Feature::Height),
-            _ => Err("unknown parameter feature"),
+            _ => Err(String::from("unknown parameter feature")),
         })
     }
 

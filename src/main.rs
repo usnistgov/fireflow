@@ -5,9 +5,11 @@ use itertools::Itertools;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::env;
+use std::fmt;
 use std::fs;
 use std::io;
 use std::io::{BufReader, Read, Seek, SeekFrom};
+use std::slice;
 use std::str;
 
 fn format_standard_kw(kw: &str) -> String {
@@ -26,16 +28,32 @@ fn parse_endian(s: &str) -> Result<Endian, &'static str> {
     }
 }
 
-// TODO is this always allowed?
-fn parse_int(s: &str) -> Result<u32, &'static str> {
-    s.trim().parse().or(Err("invalid integer"))
+fn parse_bits(s: &str) -> Result<Bits, &'static str> {
+    match s {
+        "*" => Ok(Bits::Variable),
+        _ => s
+            .parse()
+            .map_or(Err("must be a positive integer or '*'"), |x| {
+                Ok(Bits::Fixed(x))
+            }),
+    }
 }
 
-fn parse_int_or_blank(s: &str) -> Result<u32, &'static str> {
-    if s.trim().is_empty() {
+// TODO is this always allowed?
+fn parse_int(s: &str) -> Result<u32, &'static str> {
+    s.parse().or(Err("invalid integer"))
+}
+
+fn parse_offset(s: &str) -> Result<u32, &'static str> {
+    s.trim_start().parse().or(Err("invalid offset"))
+}
+
+fn parse_offset_or_blank(s: &str) -> Result<u32, &'static str> {
+    let q = s.trim_start();
+    if q.is_empty() {
         Ok(0)
     } else {
-        s.parse().or(Err("invalid integer and not a blank"))
+        q.parse().or(Err("invalid offset or blank"))
     }
 }
 
@@ -150,11 +168,32 @@ enum AlphaNumTypes {
     Double,
 }
 
+impl fmt::Display for AlphaNumTypes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            AlphaNumTypes::Ascii => write!(f, "A"),
+            AlphaNumTypes::Integer => write!(f, "I"),
+            AlphaNumTypes::Float => write!(f, "F"),
+            AlphaNumTypes::Double => write!(f, "D"),
+        }
+    }
+}
+
 #[derive(Debug)]
 enum NumTypes {
     Integer,
     Float,
     Double,
+}
+
+impl fmt::Display for NumTypes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            NumTypes::Integer => write!(f, "I"),
+            NumTypes::Float => write!(f, "F"),
+            NumTypes::Double => write!(f, "D"),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -264,7 +303,16 @@ enum OptionalKw<V> {
     Absent,
 }
 
+use OptionalKw::*;
+
 impl<V> OptionalKw<V> {
+    fn as_ref(&self) -> OptionalKw<&V> {
+        match self {
+            OptionalKw::Present(x) => OptionalKw::Present(x),
+            OptionalKw::Absent => OptionalKw::Absent,
+        }
+    }
+
     fn to_option(self) -> Option<V> {
         match self {
             OptionalKw::Present(x) => Some(x),
@@ -319,9 +367,24 @@ struct InnerParameter3_2 {
 }
 
 #[derive(Debug)]
+enum Bits {
+    Fixed(u32),
+    Variable,
+}
+
+impl fmt::Display for Bits {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Bits::Fixed(x) => write!(f, "{}", x),
+            Bits::Variable => write!(f, "*"),
+        }
+    }
+}
+
+#[derive(Debug)]
 struct Parameter<X> {
-    bits: u32,                         // PnB
-    range: u32,                        // PnR
+    bits: Bits,                        // PnB
+    range: u32,                        // PnR (TODO allow up to 64bit?)
     longname: OptionalKw<String>,      // PnS
     filter: OptionalKw<String>,        // PnF
     power: OptionalKw<u32>,            // PnO
@@ -553,6 +616,7 @@ struct InnerMetadata3_2 {
     vol: OptionalKw<f32>,
     carrier: CarrierData,
     unstained: UnstainedData,
+    flowrate: OptionalKw<String>,
 }
 
 #[derive(Debug)]
@@ -602,27 +666,23 @@ struct StdText<M, P> {
     parameters: Vec<Parameter<P>>,
 }
 
-impl<M: MetadataFromKeywords, P: ParameterFromKeywords> StdText<M, P> {
-    fn validate(s: &Self) -> Vec<String> {
-        let mut meta_errors = vec![];
-        check_bits(s, &mut meta_errors);
-        meta_errors
-    }
-
+impl<M: MetadataFromKeywords> StdText<M, M::P> {
     fn from_kws(raw: RawTEXT) -> Result<TEXT<Self>, StandardErrors> {
         let mut st = raw.to_state();
+        // This will fail if a) not all required keywords pass and b) not all
+        // required parameter keywords pass (according to $PAR)
         if let Some(s) = M::from_kws(&mut st).and_then(|metadata| {
-            P::from_kws(&mut st, metadata.par).map(|parameters| StdText {
+            M::P::from_kws(&mut st, metadata.par).map(|parameters| StdText {
                 metadata,
                 parameters,
             })
         }) {
-            let meta_errors = Self::validate(&s);
-            if meta_errors.is_empty() {
+            M::validate(&mut st, &s);
+            if st.meta_errors.is_empty() {
                 Ok(st.finalize(s))
             } else {
                 Err(StandardErrors {
-                    meta_errors,
+                    meta_errors: st.meta_errors,
                     value_errors: HashMap::new(),
                     missing_keywords: vec![],
                 })
@@ -644,7 +704,81 @@ struct StdTextResult<T> {
     nonstandard: Keywords,
 }
 
+struct NameIterWrapper<'a> {
+    value: &'a str,
+}
+
+struct NameIter<'a> {
+    iter: slice::Iter<'a, NameIterWrapper<'a>>,
+}
+
+impl<'a> Iterator for NameIter<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next().map(|wrapper| wrapper.value)
+    }
+}
+
 trait MetadataFromKeywords: Sized {
+    type P: ParameterFromKeywords;
+
+    fn parameter_name<'a>(p: &'a Parameter<Self::P>) -> Option<&'a str>;
+
+    fn validate_specific<'a>(
+        st: &mut KwState,
+        s: &StdText<Self, Self::P>,
+        names: HashSet<&'a str>,
+    ) -> ();
+
+    // TODO I may want to be less strict with some of these, Time channel for
+    // instance is something some files screw up by either naming the channel
+    // something weird or not including TIMESTEP
+    fn validate(st: &mut KwState, s: &StdText<Self, Self::P>) -> () {
+        let shortnames: HashSet<&str> = s
+            .parameters
+            .iter()
+            .map(|p| Self::parameter_name(p))
+            .flatten()
+            .collect();
+
+        // TODO validate time channel
+
+        // validate $TRIGGER with parameter names
+        if let OptionalKw::Present(tr) = &s.metadata.tr {
+            if !shortnames.contains(&tr.parameter.as_str()) {
+                st.meta_errors.push(format!(
+                    "Trigger parameter '{}' is not in parameter set",
+                    tr.parameter
+                ));
+            }
+        }
+
+        // validate $DATATYPE with $PnB
+        for (i, p) in s.parameters.iter().enumerate() {
+            if let Some((b, t)) = {
+                match (&p.bits, &s.metadata.datatype) {
+                    (Bits::Fixed(32), AlphaNumTypes::Float) => None,
+                    (Bits::Fixed(64), AlphaNumTypes::Double) => None,
+                    // Technically this should be > 0 if that is a concern
+                    (Bits::Fixed(_), AlphaNumTypes::Integer) => None,
+                    (Bits::Fixed(_), AlphaNumTypes::Ascii) => None,
+                    (Bits::Variable, AlphaNumTypes::Ascii) => None,
+                    x => Some(x),
+                }
+            } {
+                st.push_meta_error(format!(
+                    "Parameter {} uses {} bits when DATATYPE={}",
+                    i + 1,
+                    b,
+                    t
+                ));
+            }
+        }
+
+        Self::validate_specific(st, s, shortnames)
+    }
+
     fn build_inner(st: &mut KwState) -> Option<Self>;
 
     fn from_kws(st: &mut KwState) -> Option<Metadata<Self>> {
@@ -680,6 +814,23 @@ trait MetadataFromKeywords: Sized {
 }
 
 impl MetadataFromKeywords for InnerMetadata2_0 {
+    type P = InnerParameter2_0;
+
+    fn parameter_name<'a>(p: &'a Parameter<Self::P>) -> Option<&'a str> {
+        p.specific
+            .shortname
+            .as_ref()
+            .to_option()
+            .map(|s| s.as_str())
+    }
+
+    fn validate_specific<'a>(
+        st: &mut KwState,
+        s: &StdText<Self, Self::P>,
+        names: HashSet<&'a str>,
+    ) -> () {
+    }
+
     fn build_inner(st: &mut KwState) -> Option<InnerMetadata2_0> {
         if let (Some(mode), Some(byteord)) = (st.lookup_mode(), st.lookup_byteord()) {
             Some(InnerMetadata2_0 {
@@ -696,6 +847,23 @@ impl MetadataFromKeywords for InnerMetadata2_0 {
 }
 
 impl MetadataFromKeywords for InnerMetadata3_0 {
+    type P = InnerParameter3_0;
+
+    fn parameter_name<'a>(p: &'a Parameter<Self::P>) -> Option<&'a str> {
+        p.specific
+            .shortname
+            .as_ref()
+            .to_option()
+            .map(|s| s.as_str())
+    }
+
+    fn validate_specific<'a>(
+        st: &mut KwState,
+        s: &StdText<Self, Self::P>,
+        names: HashSet<&'a str>,
+    ) -> () {
+    }
+
     fn build_inner(st: &mut KwState) -> Option<InnerMetadata3_0> {
         if let (Some(data), Some(supplemental), Some(tot), Some(mode), Some(byteord)) = (
             st.lookup_data_offsets(),
@@ -723,6 +891,19 @@ impl MetadataFromKeywords for InnerMetadata3_0 {
 }
 
 impl MetadataFromKeywords for InnerMetadata3_1 {
+    type P = InnerParameter3_1;
+
+    fn parameter_name<'a>(p: &'a Parameter<Self::P>) -> Option<&'a str> {
+        Some(p.specific.shortname.as_str())
+    }
+
+    fn validate_specific<'a>(
+        st: &mut KwState,
+        s: &StdText<Self, Self::P>,
+        names: HashSet<&'a str>,
+    ) -> () {
+    }
+
     fn build_inner(st: &mut KwState) -> Option<InnerMetadata3_1> {
         if let (Some(data), Some(supplemental), Some(tot), Some(mode), Some(byteord)) = (
             st.lookup_data_offsets(),
@@ -752,6 +933,45 @@ impl MetadataFromKeywords for InnerMetadata3_1 {
 }
 
 impl MetadataFromKeywords for InnerMetadata3_2 {
+    type P = InnerParameter3_2;
+
+    fn parameter_name<'a>(p: &'a Parameter<Self::P>) -> Option<&'a str> {
+        Some(p.specific.shortname.as_str())
+    }
+
+    fn validate_specific<'a>(
+        st: &mut KwState,
+        s: &StdText<Self, Self::P>,
+        names: HashSet<&'a str>,
+    ) -> () {
+        // check that all names in $UNSTAINEDCENTERS match one of the channels
+        if let OptionalKw::Present(centers) = &s.metadata.specific.unstained.unstainedcenters {
+            for u in centers.keys() {
+                if !names.contains(u.as_str()) {
+                    st.push_meta_error(format!(
+                        "Unstained center named {} is not in parameter set",
+                        u
+                    ));
+                }
+            }
+        }
+
+        // check that PnB matches with PnDATATYPE when applicable
+        for (i, p) in s.parameters.iter().enumerate() {
+            if let Present(d) = &p.specific.datatype {
+                match (d, &p.bits) {
+                    (NumTypes::Float, Bits::Fixed(32)) => (),
+                    (NumTypes::Double, Bits::Fixed(64)) => (),
+                    (NumTypes::Integer, Bits::Fixed(_)) => (),
+                    _ => st.push_meta_error(format!(
+                        "Parameter {} uses DATATYPE={} but has bits={}",
+                        i, d, p.bits
+                    )),
+                }
+            }
+        }
+    }
+
     fn build_inner(st: &mut KwState) -> Option<InnerMetadata3_2> {
         if let (Some(data), Some(tot), Some(_), Some(byteord), Some(cyt)) = (
             st.lookup_data_offsets(),
@@ -777,6 +997,7 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
                 carrier: st.lookup_carrier(),
                 datetimes: st.lookup_timestamps3_2(),
                 unstained: st.lookup_unstained(),
+                flowrate: st.lookup_flowrate(),
             })
         } else {
             None
@@ -784,137 +1005,29 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
     }
 }
 
-// trait StdTextFromKeywords: Sized {
-//     type M: MetadataFromKeywords;
-//     type P: ParameterFromKeywords;
-
-//     fn build(m: Metadata<Self::M>, p: Vec<Parameter<Self::P>>) -> Self;
-
-//     fn validate(s: &Self) -> Vec<String>;
-
-//     fn from_kws(raw: RawTEXT) -> Result<TEXT<Self>, StandardErrors> {
-//         let mut st = raw.to_state();
-//         if let Some(s) = Self::M::from_kws(&mut st).map(|m| {
-//             let ps = Self::P::from_kws(&mut st, m.par);
-//             Self::build(m, ps)
-//         }) {
-//             let meta_errors = Self::validate(&s);
-//             if meta_errors.is_empty() {
-//                 Ok(st.finalize(s))
-//             } else {
-//                 Err(StandardErrors {
-//                     meta_errors,
-//                     value_errors: HashMap::new(),
-//                     missing_keywords: vec![],
-//                 })
-//             }
-//         } else {
-//             Err(st.pull_errors())
-//         }
-//     }
-// }
-
 fn check_bits<M, P>(s: &StdText<M, P>, meta_errors: &mut Vec<String>) -> () {
     // Check that all bit fields match DATATYPE
-    match s.metadata.datatype {
-        AlphaNumTypes::Float => {
-            for (i, p) in s.parameters.iter().enumerate() {
-                if p.bits != 32 {
-                    meta_errors.push(format!(
-                        "Parameter {} uses {} bits when DATATYPE=F",
-                        i + 1,
-                        p.bits
-                    ));
-                }
+    for (i, p) in s.parameters.iter().enumerate() {
+        if let Some((b, t)) = {
+            match (&p.bits, &s.metadata.datatype) {
+                (Bits::Fixed(32), AlphaNumTypes::Float) => None,
+                (Bits::Fixed(64), AlphaNumTypes::Double) => None,
+                // Technically this should be > 0 if that is a concern
+                (Bits::Fixed(_), AlphaNumTypes::Integer) => None,
+                (Bits::Fixed(_), AlphaNumTypes::Ascii) => None,
+                (Bits::Variable, AlphaNumTypes::Ascii) => None,
+                x => Some(x),
             }
+        } {
+            meta_errors.push(format!(
+                "Parameter {} uses {} bits when DATATYPE={}",
+                i + 1,
+                b,
+                t
+            ));
         }
-        AlphaNumTypes::Double => {
-            for (i, p) in s.parameters.iter().enumerate() {
-                if p.bits != 64 {
-                    meta_errors.push(format!(
-                        "Parameter {} uses {} bits when DATATYPE=D",
-                        i + 1,
-                        p.bits
-                    ));
-                }
-            }
-        }
-        _ => (),
     }
 }
-
-// TODO not DRY, this is repeated 4x (make a macro, this isn't Haskell)
-// impl StdTextFromKeywords for StdText2_0 {
-//     type M = InnerMetadata2_0;
-//     type P = InnerParameter2_0;
-
-//     fn validate(s: &Self) -> Vec<String> {
-//         let mut meta_errors = vec![];
-//         check_bits(s, &mut meta_errors);
-//         meta_errors
-//     }
-
-//     fn build(metadata: Metadata<Self::M>, parameters: Vec<Parameter<Self::P>>) -> Self {
-//         StdText {
-//             metadata,
-//             parameters,
-//         }
-//     }
-// }
-
-// impl StdTextFromKeywords for StdText3_0 {
-//     type M = InnerMetadata3_0;
-//     type P = InnerParameter3_0;
-
-//     fn validate(s: &Self) -> Vec<String> {
-//         let mut meta_errors = vec![];
-//         check_bits(s, &mut meta_errors);
-//         meta_errors
-//     }
-
-//     fn build(metadata: Metadata<Self::M>, parameters: Vec<Parameter<Self::P>>) -> Self {
-//         StdText {
-//             metadata,
-//             parameters,
-//         }
-//     }
-// }
-
-// impl StdTextFromKeywords for StdText3_1 {
-//     type M = InnerMetadata3_1;
-//     type P = InnerParameter3_1;
-
-//     fn validate(s: &Self) -> Vec<String> {
-//         let mut meta_errors = vec![];
-//         check_bits(s, &mut meta_errors);
-//         meta_errors
-//     }
-
-//     fn build(metadata: Metadata<Self::M>, parameters: Vec<Parameter<Self::P>>) -> Self {
-//         StdText {
-//             metadata,
-//             parameters,
-//         }
-//     }
-// }
-
-// impl StdTextFromKeywords for StdText3_2 {
-//     type M = InnerMetadata3_2;
-//     type P = InnerParameter3_2;
-
-//     fn validate(s: &Self) -> Vec<String> {
-//         let mut meta_errors = vec![];
-//         check_bits(s, &mut meta_errors);
-//         meta_errors
-//     }
-
-//     fn build(metadata: Metadata<Self::M>, parameters: Vec<Parameter<Self::P>>) -> Self {
-//         StdText {
-//             metadata,
-//             parameters,
-//         }
-//     }
-// }
 
 #[derive(Debug)]
 struct TEXT<S> {
@@ -983,6 +1096,7 @@ struct StandardErrors {
     meta_errors: Vec<String>,
 }
 
+// TODO add deprecation warnings somewhere in here
 impl KwState {
     // TODO format $param here
     // TODO not DRY (although will likely need HKTs)
@@ -1045,11 +1159,11 @@ impl KwState {
     // metadata
 
     fn lookup_begindata(&mut self) -> Option<u32> {
-        self.get_required("BEGINDATA", parse_int)
+        self.get_required("BEGINDATA", parse_offset)
     }
 
     fn lookup_enddata(&mut self) -> Option<u32> {
-        self.get_required("ENDDATA", parse_int)
+        self.get_required("ENDDATA", parse_offset)
     }
 
     fn lookup_data_offsets(&mut self) -> Option<Offsets> {
@@ -1062,10 +1176,10 @@ impl KwState {
 
     fn lookup_supplemental3_0(&mut self) -> Option<SupplementalOffsets3_0> {
         if let (Some(beginstext), Some(endstext), Some(beginanalysis), Some(endanalysis)) = (
-            self.get_required("BEGINSTEXT", parse_int),
-            self.get_required("ENDSTEXT", parse_int),
-            self.get_required("BEGINANALYSIS", parse_int),
-            self.get_required("ENDANALYSIS", parse_int),
+            self.get_required("BEGINSTEXT", parse_offset),
+            self.get_required("ENDSTEXT", parse_offset),
+            self.get_required("BEGINANALYSIS", parse_offset_or_blank),
+            self.get_required("ENDANALYSIS", parse_offset_or_blank),
         ) {
             if let (Some(stext), Some(analysis)) = (
                 self.build_offsets(beginstext, endstext, "STEXT"),
@@ -1247,6 +1361,10 @@ impl KwState {
 
     fn lookup_vol(&mut self) -> OptionalKw<f32> {
         self.get_optional("VOL", parse_float)
+    }
+
+    fn lookup_flowrate(&mut self) -> OptionalKw<String> {
+        self.get_optional("FLOWRATE", parse_str)
     }
 
     fn lookup_unicode(&mut self) -> OptionalKw<Unicode> {
@@ -1438,8 +1556,8 @@ impl KwState {
     }
 
     // TODO check that this is in multiples of 8 for relevant specs
-    fn lookup_param_bits(&mut self, n: u32) -> Option<u32> {
-        self.lookup_param_req("B", n, parse_int)
+    fn lookup_param_bits(&mut self, n: u32) -> Option<Bits> {
+        self.lookup_param_req("B", n, parse_bits)
     }
 
     fn lookup_param_range(&mut self, n: u32) -> Option<u32> {
@@ -1608,6 +1726,10 @@ impl KwState {
             value_errors,
             meta_errors: vec![],
         }
+    }
+
+    fn push_meta_error(&mut self, msg: String) -> () {
+        self.meta_errors.push(msg);
     }
 
     // ASSUME There aren't any errors recorded in the state hashtable since we

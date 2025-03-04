@@ -337,7 +337,7 @@ struct Parameter<X> {
 trait ParameterFromKeywords: Sized {
     fn build_inner(st: &mut KwState, n: u32) -> Option<Self>;
 
-    fn from_kws(st: &mut KwState, par: u32) -> Vec<Parameter<Self>> {
+    fn from_kws(st: &mut KwState, par: u32) -> Option<Vec<Parameter<Self>>> {
         let mut ps = vec![];
         for n in 1..(par + 1) {
             if let (Some(bits), Some(range), Some(specific)) = (
@@ -359,7 +359,11 @@ trait ParameterFromKeywords: Sized {
                 ps.push(p);
             }
         }
-        ps
+        if usize::try_from(par).map(|p| ps.len() < p).unwrap_or(false) {
+            None
+        } else {
+            Some(ps)
+        }
     }
 }
 
@@ -607,12 +611,11 @@ impl<M: MetadataFromKeywords, P: ParameterFromKeywords> StdText<M, P> {
 
     fn from_kws(raw: RawTEXT) -> Result<TEXT<Self>, StandardErrors> {
         let mut st = raw.to_state();
-        if let Some(s) = M::from_kws(&mut st).map(|metadata| {
-            let parameters = P::from_kws(&mut st, metadata.par);
-            StdText {
+        if let Some(s) = M::from_kws(&mut st).and_then(|metadata| {
+            P::from_kws(&mut st, metadata.par).map(|parameters| StdText {
                 metadata,
                 parameters,
-            }
+            })
         }) {
             let meta_errors = Self::validate(&s);
             if meta_errors.is_empty() {

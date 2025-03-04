@@ -1174,42 +1174,35 @@ impl KwState {
         }
     }
 
-    fn lookup_supplemental3_0(&mut self) -> Option<SupplementalOffsets3_0> {
+    fn lookup_supplemental(&mut self) -> (Option<Offsets>, Option<Offsets>) {
         if let (Some(beginstext), Some(endstext), Some(beginanalysis), Some(endanalysis)) = (
             self.get_required("BEGINSTEXT", parse_offset),
             self.get_required("ENDSTEXT", parse_offset),
             self.get_required("BEGINANALYSIS", parse_offset_or_blank),
             self.get_required("ENDANALYSIS", parse_offset_or_blank),
         ) {
-            if let (Some(stext), Some(analysis)) = (
+            (
                 self.build_offsets(beginstext, endstext, "STEXT"),
                 self.build_offsets(beginanalysis, endanalysis, "ANALYSIS"),
-            ) {
-                Some(SupplementalOffsets3_0 { stext, analysis })
-            } else {
-                None
-            }
+            )
+        } else {
+            (None, None)
+        }
+    }
+
+    fn lookup_supplemental3_0(&mut self) -> Option<SupplementalOffsets3_0> {
+        if let (Some(stext), Some(analysis)) = self.lookup_supplemental() {
+            Some(SupplementalOffsets3_0 { stext, analysis })
         } else {
             None
         }
     }
 
     fn lookup_supplemental3_2(&mut self) -> SupplementalOffsets3_2 {
-        if let (Some(beginstext), Some(endstext), Some(beginanalysis), Some(endanalysis)) = (
-            self.get_required("BEGINSTEXT", parse_int),
-            self.get_required("ENDSTEXT", parse_int),
-            self.get_required("BEGINANALYSIS", parse_int),
-            self.get_required("ENDANALYSIS", parse_int),
-        ) {
-            let stext = OptionalKw::from_option(self.build_offsets(beginstext, endstext, "STEXT"));
-            let analysis =
-                OptionalKw::from_option(self.build_offsets(beginanalysis, endanalysis, "ANALYSIS"));
-            SupplementalOffsets3_2 { stext, analysis }
-        } else {
-            SupplementalOffsets3_2 {
-                stext: OptionalKw::Absent,
-                analysis: OptionalKw::Absent,
-            }
+        let (stext, analysis) = self.lookup_supplemental();
+        SupplementalOffsets3_2 {
+            stext: OptionalKw::from_option(stext),
+            analysis: OptionalKw::from_option(analysis),
         }
     }
 

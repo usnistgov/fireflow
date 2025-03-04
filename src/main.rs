@@ -9,7 +9,6 @@ use std::fmt;
 use std::fs;
 use std::io;
 use std::io::{BufReader, Read, Seek, SeekFrom};
-use std::slice;
 use std::str;
 
 fn format_standard_kw(kw: &str) -> String {
@@ -198,17 +197,35 @@ impl fmt::Display for NumTypes {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Endian {
     Big,
     Little,
 }
 
-// TODO this can vary depending on bit width
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum ByteOrd {
     BigLittle(Endian),
-    Mixed([u8; 4]),
+    Mixed(Vec<u8>),
+}
+
+impl ByteOrd {
+    fn valid_byte_num(&self, n: u8) -> bool {
+        match self {
+            ByteOrd::BigLittle(_) => true,
+            ByteOrd::Mixed(xs) => xs.len() == usize::from(n),
+        }
+    }
+
+    // This only makes sense for integer types
+    fn num_bytes(&self) -> u8 {
+        match self {
+            ByteOrd::BigLittle(_) => 4,
+            // TODO mildly unsafe, hopefully we won't have any BYTEORD fields
+            // over 256 bytes long
+            ByteOrd::Mixed(xs) => xs.len() as u8,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -374,6 +391,19 @@ enum Bits {
     Variable,
 }
 
+impl Bits {
+    // fn bitmask(&self, range: Range) -> Option<u128> {
+    //     self.len().map(|x| )
+    // }
+
+    fn len(&self) -> Option<u32> {
+        match self {
+            Bits::Fixed(x) => Some(*x),
+            Bits::Variable => None,
+        }
+    }
+}
+
 impl fmt::Display for Bits {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
@@ -390,6 +420,23 @@ enum Range {
     MaxRange, // this represents 2^128 exactly, which just barely over u128
 }
 
+impl Range {
+    fn bitmask(&self) -> Option<u128> {
+        match self {
+            Range::BigInteger(x) => {
+                let y = u128::from((*x).ilog2());
+                let z = 2 ^ y;
+                if z == *x {
+                    Some(z)
+                } else {
+                    Some(2 ^ (y + 1))
+                }
+            }
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug)]
 struct Parameter<X> {
     bits: Bits,                        // PnB
@@ -401,6 +448,22 @@ struct Parameter<X> {
     percent_emitted: OptionalKw<u32>,  // PnP (TODO deprecated in 3.2, factor out)
     detector_voltage: OptionalKw<f32>, // PnV
     specific: X,
+}
+
+impl<X> Parameter<X> {
+    fn bits_eq(&self, b: u32) -> bool {
+        match self.bits {
+            Bits::Fixed(x) => x == b,
+            _ => false,
+        }
+    }
+
+    fn bits_are_variable(&self) -> bool {
+        match self.bits {
+            Bits::Variable => true,
+            _ => false,
+        }
+    }
 }
 
 // type Wavelength2_0 = Option<u32>;
@@ -713,26 +776,74 @@ struct StdTextResult<T> {
     nonstandard: Keywords,
 }
 
-struct NameIterWrapper<'a> {
-    value: &'a str,
+struct PureNumericParser {
+    par: u32,
+    byteord: ByteOrd,
+    numtype: NumTypes,
 }
 
-struct NameIter<'a> {
-    iter: slice::Iter<'a, NameIterWrapper<'a>>,
+struct PureIntegerParser {
+    par: u32,
+    width: IntegerColumn,
+    endian: Endian,
 }
 
-impl<'a> Iterator for NameIter<'a> {
-    type Item = &'a str;
+type ColumnWidths = Vec<u32>;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next().map(|wrapper| wrapper.value)
-    }
+// TODO use this in the metadata struct
+// struct NParam(u32);
+
+struct IntegerColumn {
+    bits: u32,
+    mask: u128,
+}
+
+enum ColumnType {
+    Ascii(u32),
+    Integer(IntegerColumn),
+    Float,
+    Double,
+}
+
+struct FixedIntegerParser {
+    par: u32,
+    endian: Endian,
+    widths: Vec<IntegerColumn>,
+}
+
+struct MixedParser {
+    endian: Endian,
+    columns: Vec<ColumnType>,
+}
+
+struct DataParser<T> {
+    parser: T,
+    tot: u32,
+}
+
+enum ColumnParser {
+    // DATATYPE=A where all PnB = *
+    DelimitedAscii(u32),
+    // DATATYPE=A where all PnB = number
+    FixedAscii(ColumnWidths),
+    // DATATYPE=F (with no overrides in 3.2+)
+    // DATATYPE=D (with no overrides in 3.2+)
+    // DATATYPE=I with width implied by BYTEORD (2.0-3.0)
+    PureNumeric(PureNumericParser),
+    // DATATYPE=I with all PnB set to the same width (3.1+)
+    PureInteger(PureIntegerParser),
+    // DATATYPE=I with PnB set to different numbers (3.1+)
+    FixedInteger(FixedIntegerParser),
+    // Mixed column types (3.2+)
+    Mixed(MixedParser),
 }
 
 trait MetadataFromKeywords: Sized {
     type P: ParameterFromKeywords;
 
     fn parameter_name<'a>(p: &'a Parameter<Self::P>) -> Option<&'a str>;
+
+    fn build_data_parser(s: &StdText<Self, Self::P>) -> Result<ColumnParser, Vec<String>>;
 
     fn validate_specific<'a>(
         st: &mut KwState,
@@ -751,6 +862,12 @@ trait MetadataFromKeywords: Sized {
             .flatten()
             .collect();
 
+        // TODO validate ranges. In the case of DATATYPE = I, $PnR should be the
+        // "max" value. In some cases this is set to some absurdly high number
+        // like 2^128 even though PnB is only 32. If I just trust that PnB is
+        // correct, then the integer bitmask is totally filled and all u32 ints
+        // are valid.
+
         // TODO validate time channel
 
         // validate $TRIGGER with parameter names
@@ -764,26 +881,26 @@ trait MetadataFromKeywords: Sized {
         }
 
         // validate $DATATYPE with $PnB
-        for (i, p) in s.parameters.iter().enumerate() {
-            if let Some((b, t)) = {
-                match (&p.bits, &s.metadata.datatype) {
-                    (Bits::Fixed(32), AlphaNumTypes::Float) => None,
-                    (Bits::Fixed(64), AlphaNumTypes::Double) => None,
-                    // Technically this should be > 0 if that is a concern
-                    (Bits::Fixed(_), AlphaNumTypes::Integer) => None,
-                    (Bits::Fixed(_), AlphaNumTypes::Ascii) => None,
-                    (Bits::Variable, AlphaNumTypes::Ascii) => None,
-                    x => Some(x),
-                }
-            } {
-                st.push_meta_error(format!(
-                    "Parameter {} uses {} bits when DATATYPE={}",
-                    i + 1,
-                    b,
-                    t
-                ));
-            }
-        }
+        // for (i, p) in s.parameters.iter().enumerate() {
+        //     if let Some((b, t)) = {
+        //         let (anyfixed, anyvariable) = (false, false);
+        //         match (&p.bits, &s.metadata.datatype, anyfixed, anyvariable) {
+        //             (Bits::Fixed(32), AlphaNumTypes::Float, _, _) => None,
+        //             (Bits::Fixed(64), AlphaNumTypes::Double, _, _) => None,
+        //             (Bits::Fixed(_), AlphaNumTypes::Integer, _, _) => None,
+        //             (Bits::Fixed(_), AlphaNumTypes::Ascii, _, false) => None,
+        //             (Bits::Variable, AlphaNumTypes::Ascii, false, _) => None,
+        //             (x, y, _, _) => Some((x, y)),
+        //         }
+        //     } {
+        //         st.push_meta_error(format!(
+        //             "Parameter {} uses {} bits when DATATYPE={}",
+        //             i + 1,
+        //             b,
+        //             t
+        //         ));
+        //     }
+        // }
 
         Self::validate_specific(st, s, shortnames)
     }
@@ -833,6 +950,89 @@ impl MetadataFromKeywords for InnerMetadata2_0 {
             .map(|s| s.as_str())
     }
 
+    fn build_data_parser(s: &StdText<Self, Self::P>) -> Result<ColumnParser, Vec<String>> {
+        let fp_builder = |bits: u8, dt| {
+            let remainder: Vec<_> = s
+                .parameters
+                .iter()
+                .filter(|p| p.bits_eq(u32::from(bits)))
+                .collect();
+            if remainder.is_empty() {
+                let nbytes = bits / 8;
+                if s.metadata.specific.byteord.valid_byte_num(nbytes) {
+                    Ok(ColumnParser::PureNumeric(PureNumericParser {
+                        par: s.metadata.par,
+                        byteord: s.metadata.specific.byteord.clone(),
+                        numtype: dt,
+                    }))
+                } else {
+                    Err(vec![format!(
+                        "Byte order implies {} but DATATYPE={}",
+                        nbytes, dt
+                    )])
+                }
+            } else {
+                Err(remainder
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| {
+                        format!("Parameter {} uses {} bits when DATATYPE={}", i, p.bits, dt)
+                    })
+                    .collect())
+            }
+        };
+        match s.metadata.datatype {
+            AlphaNumTypes::Float => fp_builder(32, NumTypes::Float),
+            AlphaNumTypes::Double => fp_builder(64, NumTypes::Double),
+            AlphaNumTypes::Integer => {
+                let nbytes = s.metadata.specific.byteord.num_bytes();
+                let nbits = nbytes * 8;
+                let remainder: Vec<_> = s
+                    .parameters
+                    .iter()
+                    .filter(|p| p.bits_eq(u32::from(nbits)))
+                    .collect();
+                if remainder.is_empty() {
+                    Ok(ColumnParser::PureNumeric(PureNumericParser {
+                        par: s.metadata.par,
+                        byteord: s.metadata.specific.byteord.clone(),
+                        numtype: NumTypes::Integer,
+                    }))
+                } else {
+                    Err(remainder
+                        .iter()
+                        .enumerate()
+                        .map(|(i, p)| {
+                            format!(
+                                "Parameter {} uses {} bits when \
+                                     DATATYPE=I and BYTEORD implies \
+                                     {} bits",
+                                i, p.bits, nbits
+                            )
+                        })
+                        .collect())
+                }
+            }
+            AlphaNumTypes::Ascii => {
+                let widths: Vec<u32> = s
+                    .parameters
+                    .iter()
+                    .map(|p| p.bits.len())
+                    .flatten()
+                    .collect();
+                if widths.is_empty() {
+                    Ok(ColumnParser::DelimitedAscii(s.metadata.par))
+                } else if widths.len() == s.parameters.len() {
+                    Ok(ColumnParser::FixedAscii(widths))
+                } else {
+                    Err(vec![String::from(
+                        "DATATYPE=A but PnB keywords are both '*' and numeric",
+                    )])
+                }
+            }
+        }
+    }
+
     fn validate_specific<'a>(
         st: &mut KwState,
         s: &StdText<Self, Self::P>,
@@ -864,6 +1064,90 @@ impl MetadataFromKeywords for InnerMetadata3_0 {
             .as_ref()
             .to_option()
             .map(|s| s.as_str())
+    }
+
+    // TODO this is exactly the same as the 2.0 version, not DRY
+    fn build_data_parser(s: &StdText<Self, Self::P>) -> Result<ColumnParser, Vec<String>> {
+        let fp_builder = |bits: u8, dt| {
+            let remainder: Vec<_> = s
+                .parameters
+                .iter()
+                .filter(|p| p.bits_eq(u32::from(bits)))
+                .collect();
+            if remainder.is_empty() {
+                let nbytes = bits / 8;
+                if s.metadata.specific.byteord.valid_byte_num(nbytes) {
+                    Ok(ColumnParser::PureNumeric(PureNumericParser {
+                        par: s.metadata.par,
+                        byteord: s.metadata.specific.byteord.clone(),
+                        numtype: dt,
+                    }))
+                } else {
+                    Err(vec![format!(
+                        "Byte order implies {} but DATATYPE={}",
+                        nbytes, dt
+                    )])
+                }
+            } else {
+                Err(remainder
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| {
+                        format!("Parameter {} uses {} bits when DATATYPE={}", i, p.bits, dt)
+                    })
+                    .collect())
+            }
+        };
+        match s.metadata.datatype {
+            AlphaNumTypes::Float => fp_builder(32, NumTypes::Float),
+            AlphaNumTypes::Double => fp_builder(64, NumTypes::Double),
+            AlphaNumTypes::Integer => {
+                let nbytes = s.metadata.specific.byteord.num_bytes();
+                let nbits = nbytes * 8;
+                let remainder: Vec<_> = s
+                    .parameters
+                    .iter()
+                    .filter(|p| p.bits_eq(u32::from(nbits)))
+                    .collect();
+                if remainder.is_empty() {
+                    Ok(ColumnParser::PureNumeric(PureNumericParser {
+                        par: s.metadata.par,
+                        byteord: s.metadata.specific.byteord.clone(),
+                        numtype: NumTypes::Integer,
+                    }))
+                } else {
+                    Err(remainder
+                        .iter()
+                        .enumerate()
+                        .map(|(i, p)| {
+                            format!(
+                                "Parameter {} uses {} bits when \
+                                     DATATYPE=I and BYTEORD implies \
+                                     {} bits",
+                                i, p.bits, nbits
+                            )
+                        })
+                        .collect())
+                }
+            }
+            AlphaNumTypes::Ascii => {
+                let widths: Vec<u32> = s
+                    .parameters
+                    .iter()
+                    .map(|p| p.bits.len())
+                    .flatten()
+                    .collect();
+                if widths.is_empty() {
+                    Ok(ColumnParser::DelimitedAscii(s.metadata.par))
+                } else if widths.len() == s.parameters.len() {
+                    Ok(ColumnParser::FixedAscii(widths))
+                } else {
+                    Err(vec![String::from(
+                        "DATATYPE=A but PnB keywords are both '*' and numeric",
+                    )])
+                }
+            }
+        }
     }
 
     fn validate_specific<'a>(
@@ -906,6 +1190,90 @@ impl MetadataFromKeywords for InnerMetadata3_1 {
         Some(p.specific.shortname.as_str())
     }
 
+    fn build_data_parser(s: &StdText<Self, Self::P>) -> Result<ColumnParser, Vec<String>> {
+        // TODO not DRY this is almost the same as 2.0/3.0
+        let fp_builder = |bits: u8, dt| {
+            let remainder: Vec<_> = s
+                .parameters
+                .iter()
+                .filter(|p| p.bits_eq(u32::from(bits)))
+                .collect();
+            if remainder.is_empty() {
+                Ok(ColumnParser::PureNumeric(PureNumericParser {
+                    par: s.metadata.par,
+                    byteord: ByteOrd::BigLittle(s.metadata.specific.byteord.clone()),
+                    numtype: dt,
+                }))
+            } else {
+                Err(remainder
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| {
+                        format!("Parameter {} uses {} bits when DATATYPE={}", i, p.bits, dt)
+                    })
+                    .collect())
+            }
+        };
+        match s.metadata.datatype {
+            AlphaNumTypes::Float => fp_builder(32, NumTypes::Float),
+            AlphaNumTypes::Double => fp_builder(64, NumTypes::Double),
+            AlphaNumTypes::Integer => {
+                let widths: Vec<IntegerColumn> = s
+                    .parameters
+                    .iter()
+                    .map(|p| {
+                        if let (Some(bits), Some(mask)) = (p.bits.len(), p.range.bitmask()) {
+                            Some(IntegerColumn {
+                                bits,
+                                mask: mask.min(u128::from(2 ^ bits)),
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                    .flatten()
+                    .collect();
+                if widths.len() == s.parameters.len() {
+                    let unique_widths: Vec<_> = widths.iter().unique_by(|c| c.bits).collect();
+                    match unique_widths[..] {
+                        [w] => Ok(ColumnParser::PureInteger(PureIntegerParser {
+                            par: s.metadata.par,
+                            endian: s.metadata.specific.byteord.clone(),
+                            width: IntegerColumn {
+                                bits: w.bits,
+                                mask: w.mask,
+                            },
+                        })),
+                        _ => Ok(ColumnParser::FixedInteger(FixedIntegerParser {
+                            par: s.metadata.par,
+                            endian: s.metadata.specific.byteord.clone(),
+                            widths: widths,
+                        })),
+                    }
+                } else {
+                    Err(vec![String::from("")])
+                }
+            }
+            AlphaNumTypes::Ascii => {
+                let widths: Vec<u32> = s
+                    .parameters
+                    .iter()
+                    .map(|p| p.bits.len())
+                    .flatten()
+                    .collect();
+                if widths.is_empty() {
+                    Ok(ColumnParser::DelimitedAscii(s.metadata.par))
+                } else if widths.len() == s.parameters.len() {
+                    Ok(ColumnParser::FixedAscii(widths))
+                } else {
+                    Err(vec![String::from(
+                        "DATATYPE=A but PnB keywords are both '*' and numeric",
+                    )])
+                }
+            }
+        }
+    }
+
     fn validate_specific<'a>(
         st: &mut KwState,
         s: &StdText<Self, Self::P>,
@@ -946,6 +1314,90 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
 
     fn parameter_name<'a>(p: &'a Parameter<Self::P>) -> Option<&'a str> {
         Some(p.specific.shortname.as_str())
+    }
+
+    fn build_data_parser(s: &StdText<Self, Self::P>) -> Result<ColumnParser, Vec<String>> {
+        // TODO not DRY this is almost the same as 2.0/3.0
+        let fp_builder = |bits: u8, dt| {
+            let remainder: Vec<_> = s
+                .parameters
+                .iter()
+                .filter(|p| p.bits_eq(u32::from(bits)))
+                .collect();
+            if remainder.is_empty() {
+                Ok(ColumnParser::PureNumeric(PureNumericParser {
+                    par: s.metadata.par,
+                    byteord: ByteOrd::BigLittle(s.metadata.specific.byteord.clone()),
+                    numtype: dt,
+                }))
+            } else {
+                Err(remainder
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| {
+                        format!("Parameter {} uses {} bits when DATATYPE={}", i, p.bits, dt)
+                    })
+                    .collect())
+            }
+        };
+        match s.metadata.datatype {
+            AlphaNumTypes::Float => fp_builder(32, NumTypes::Float),
+            AlphaNumTypes::Double => fp_builder(64, NumTypes::Double),
+            AlphaNumTypes::Integer => {
+                let widths: Vec<IntegerColumn> = s
+                    .parameters
+                    .iter()
+                    .map(|p| {
+                        if let (Some(bits), Some(mask)) = (p.bits.len(), p.range.bitmask()) {
+                            Some(IntegerColumn {
+                                bits,
+                                mask: mask.min(u128::from(2 ^ bits)),
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                    .flatten()
+                    .collect();
+                if widths.len() == s.parameters.len() {
+                    let unique_widths: Vec<_> = widths.iter().unique_by(|c| c.bits).collect();
+                    match unique_widths[..] {
+                        [w] => Ok(ColumnParser::PureInteger(PureIntegerParser {
+                            par: s.metadata.par,
+                            endian: s.metadata.specific.byteord.clone(),
+                            width: IntegerColumn {
+                                bits: w.bits,
+                                mask: w.mask,
+                            },
+                        })),
+                        _ => Ok(ColumnParser::FixedInteger(FixedIntegerParser {
+                            par: s.metadata.par,
+                            endian: s.metadata.specific.byteord.clone(),
+                            widths: widths,
+                        })),
+                    }
+                } else {
+                    Err(vec![String::from("")])
+                }
+            }
+            AlphaNumTypes::Ascii => {
+                let widths: Vec<u32> = s
+                    .parameters
+                    .iter()
+                    .map(|p| p.bits.len())
+                    .flatten()
+                    .collect();
+                if widths.is_empty() {
+                    Ok(ColumnParser::DelimitedAscii(s.metadata.par))
+                } else if widths.len() == s.parameters.len() {
+                    Ok(ColumnParser::FixedAscii(widths))
+                } else {
+                    Err(vec![String::from(
+                        "DATATYPE=A but PnB keywords are both '*' and numeric",
+                    )])
+                }
+            }
+        }
     }
 
     fn validate_specific<'a>(
@@ -1014,29 +1466,29 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
     }
 }
 
-fn check_bits<M, P>(s: &StdText<M, P>, meta_errors: &mut Vec<String>) -> () {
-    // Check that all bit fields match DATATYPE
-    for (i, p) in s.parameters.iter().enumerate() {
-        if let Some((b, t)) = {
-            match (&p.bits, &s.metadata.datatype) {
-                (Bits::Fixed(32), AlphaNumTypes::Float) => None,
-                (Bits::Fixed(64), AlphaNumTypes::Double) => None,
-                // Technically this should be > 0 if that is a concern
-                (Bits::Fixed(_), AlphaNumTypes::Integer) => None,
-                (Bits::Fixed(_), AlphaNumTypes::Ascii) => None,
-                (Bits::Variable, AlphaNumTypes::Ascii) => None,
-                x => Some(x),
-            }
-        } {
-            meta_errors.push(format!(
-                "Parameter {} uses {} bits when DATATYPE={}",
-                i + 1,
-                b,
-                t
-            ));
-        }
-    }
-}
+// fn check_bits<M, P>(s: &StdText<M, P>, meta_errors: &mut Vec<String>) -> () {
+//     // Check that all bit fields match DATATYPE
+//     for (i, p) in s.parameters.iter().enumerate() {
+//         if let Some((b, t)) = {
+//             match (&p.bits, &s.metadata.datatype) {
+//                 (Bits::Fixed(32), AlphaNumTypes::Float) => None,
+//                 (Bits::Fixed(64), AlphaNumTypes::Double) => None,
+//                 // Technically this should be > 0 if that is a concern
+//                 (Bits::Fixed(_), AlphaNumTypes::Integer) => None,
+//                 (Bits::Fixed(_), AlphaNumTypes::Ascii) => None,
+//                 (Bits::Variable, AlphaNumTypes::Ascii) => None,
+//                 x => Some(x),
+//             }
+//         } {
+//             meta_errors.push(format!(
+//                 "Parameter {} uses {} bits when DATATYPE={}",
+//                 i + 1,
+//                 b,
+//                 t
+//             ));
+//         }
+//     }
+// }
 
 #[derive(Debug)]
 struct TEXT<S> {
@@ -1219,23 +1671,22 @@ impl KwState {
         self.get_required("BYTEORD", |s| match parse_endian(s) {
             Ok(e) => Ok(ByteOrd::BigLittle(e)),
             _ => {
-                // ASSUME this will not fail because the regexp will only match
-                // four integers within {1,2,3,4}. If the regexp matches, the
-                // only thing left to test is that each of the digits is unique.
-                let re = Regex::new(r"^([1-4]),([1-4]),([1-4]),([1-4])$").unwrap();
-                if let Some(cap) = re.captures(s) {
-                    let xs: [u8; 4] = cap.extract().1.map(|s| s.parse().unwrap());
-                    let mut flags = [false, false, false, false];
-                    for x in xs {
-                        flags[usize::from(x) - 1] = true;
-                    }
-                    if flags.iter().all(|x| *x) {
-                        Ok(ByteOrd::Mixed(xs))
+                let xs: Vec<&str> = s.split(",").collect();
+                let nxs = xs.len();
+                let xs_num: Vec<u8> = xs
+                    .iter()
+                    .map(|s| s.parse().ok())
+                    .flatten()
+                    .unique()
+                    .collect();
+                if let (Some(min), Some(max)) = (xs_num.iter().min(), xs_num.iter().max()) {
+                    if *min == 1 && usize::from(*max) == nxs && xs_num.len() == nxs {
+                        Ok(ByteOrd::Mixed(xs_num))
                     } else {
-                        Err(String::from("mixed byte order not unique"))
+                        Err(String::from("invalid byte order"))
                     }
                 } else {
-                    Err(String::from("invalid mixed byte order format"))
+                    Err(String::from("could not parse numbers from byte order"))
                 }
             }
         })
@@ -1568,10 +2019,13 @@ impl KwState {
         self.lookup_param_req("R", n, |s| match s {
             // this is 2^128 exactly
             "340282366920938463463374607431768211456" => Ok(Range::MaxRange),
-            _ => s
-                .parse::<u128>()
-                .map_err(|e| format!("{}", e))
-                .map(|x| Range::BigInteger(x)),
+            _ => match s.parse::<u128>() {
+                Ok(x) => Ok(Range::BigInteger(x)),
+                Err(e) => match s.parse::<f32>() {
+                    Ok(x) => Ok(Range::BigInteger(x.ceil() as u128)),
+                    Err(_) => Err(format!("{}", e)),
+                },
+            },
         })
     }
 

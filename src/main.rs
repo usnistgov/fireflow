@@ -488,6 +488,8 @@ impl<X> Parameter<X> {
 trait ParameterFromKeywords: Sized {
     fn build_inner(st: &mut KwState, n: u32) -> Option<Self>;
 
+    fn parameter_name<'a>(p: &'a Parameter<Self>) -> Option<&'a str>;
+
     fn from_kws(st: &mut KwState, par: u32) -> Option<Vec<Parameter<Self>>> {
         let mut ps = vec![];
         for n in 1..(par + 1) {
@@ -524,6 +526,14 @@ type Parameter3_1 = Parameter<InnerParameter3_1>;
 type Parameter3_2 = Parameter<InnerParameter3_2>;
 
 impl ParameterFromKeywords for InnerParameter2_0 {
+    fn parameter_name<'a>(p: &'a Parameter<Self>) -> Option<&'a str> {
+        p.specific
+            .shortname
+            .as_ref()
+            .to_option()
+            .map(|s| s.as_str())
+    }
+
     fn build_inner(st: &mut KwState, n: u32) -> Option<InnerParameter2_0> {
         Some(InnerParameter2_0 {
             scale: st.lookup_param_scale_opt(n),
@@ -534,6 +544,14 @@ impl ParameterFromKeywords for InnerParameter2_0 {
 }
 
 impl ParameterFromKeywords for InnerParameter3_0 {
+    fn parameter_name<'a>(p: &'a Parameter<Self>) -> Option<&'a str> {
+        p.specific
+            .shortname
+            .as_ref()
+            .to_option()
+            .map(|s| s.as_str())
+    }
+
     fn build_inner(st: &mut KwState, n: u32) -> Option<InnerParameter3_0> {
         if let Some(scale) = st.lookup_param_scale_req(n) {
             Some(InnerParameter3_0 {
@@ -549,6 +567,10 @@ impl ParameterFromKeywords for InnerParameter3_0 {
 }
 
 impl ParameterFromKeywords for InnerParameter3_1 {
+    fn parameter_name<'a>(p: &'a Parameter<Self>) -> Option<&'a str> {
+        Some(p.specific.shortname.as_str())
+    }
+
     fn build_inner(st: &mut KwState, n: u32) -> Option<InnerParameter3_1> {
         if let (Some(scale), Some(shortname)) = (
             st.lookup_param_scale_req(n),
@@ -569,6 +591,10 @@ impl ParameterFromKeywords for InnerParameter3_1 {
 }
 
 impl ParameterFromKeywords for InnerParameter3_2 {
+    fn parameter_name<'a>(p: &'a Parameter<Self>) -> Option<&'a str> {
+        Some(p.specific.shortname.as_str())
+    }
+
     fn build_inner(st: &mut KwState, n: u32) -> Option<InnerParameter3_2> {
         if let (Some(scale), Some(shortname)) = (
             st.lookup_param_scale_req(n),
@@ -883,9 +909,6 @@ enum ColumnParser {
 trait MetadataFromKeywords: Sized {
     type P: ParameterFromKeywords;
 
-    // TODO shouldn't this go on the param trait?
-    fn parameter_name<'a>(p: &'a Parameter<Self::P>) -> Option<&'a str>;
-
     fn get_byteord<'a>(&self) -> ByteOrd;
 
     fn build_int_parser<'a>(
@@ -975,7 +998,7 @@ trait MetadataFromKeywords: Sized {
         let shortnames: HashSet<&str> = s
             .parameters
             .iter()
-            .map(|p| Self::parameter_name(p))
+            .map(|p| Self::P::parameter_name(p))
             .flatten()
             .collect();
 
@@ -1059,14 +1082,6 @@ trait MetadataFromKeywords: Sized {
 impl MetadataFromKeywords for InnerMetadata2_0 {
     type P = InnerParameter2_0;
 
-    fn parameter_name<'a>(p: &'a Parameter<Self::P>) -> Option<&'a str> {
-        p.specific
-            .shortname
-            .as_ref()
-            .to_option()
-            .map(|s| s.as_str())
-    }
-
     fn get_byteord(&self) -> ByteOrd {
         self.byteord.clone()
     }
@@ -1131,14 +1146,6 @@ impl MetadataFromKeywords for InnerMetadata2_0 {
 
 impl MetadataFromKeywords for InnerMetadata3_0 {
     type P = InnerParameter3_0;
-
-    fn parameter_name<'a>(p: &'a Parameter<Self::P>) -> Option<&'a str> {
-        p.specific
-            .shortname
-            .as_ref()
-            .to_option()
-            .map(|s| s.as_str())
-    }
 
     fn get_byteord(&self) -> ByteOrd {
         self.byteord.clone()
@@ -1216,10 +1223,6 @@ impl MetadataFromKeywords for InnerMetadata3_0 {
 
 impl MetadataFromKeywords for InnerMetadata3_1 {
     type P = InnerParameter3_1;
-
-    fn parameter_name<'a>(p: &'a Parameter<Self::P>) -> Option<&'a str> {
-        Some(p.specific.shortname.as_str())
-    }
 
     fn get_byteord(&self) -> ByteOrd {
         ByteOrd::BigLittle(self.byteord.clone())
@@ -1307,10 +1310,6 @@ impl MetadataFromKeywords for InnerMetadata3_1 {
 
 impl MetadataFromKeywords for InnerMetadata3_2 {
     type P = InnerParameter3_2;
-
-    fn parameter_name<'a>(p: &'a Parameter<Self::P>) -> Option<&'a str> {
-        Some(p.specific.shortname.as_str())
-    }
 
     fn get_byteord(&self) -> ByteOrd {
         ByteOrd::BigLittle(self.byteord.clone())

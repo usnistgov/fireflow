@@ -165,7 +165,7 @@ struct Header {
 enum AlphaNumTypes {
     Ascii,
     Integer,
-    Float,
+    Single,
     Double,
 }
 
@@ -174,7 +174,7 @@ impl fmt::Display for AlphaNumTypes {
         match self {
             AlphaNumTypes::Ascii => write!(f, "A"),
             AlphaNumTypes::Integer => write!(f, "I"),
-            AlphaNumTypes::Float => write!(f, "F"),
+            AlphaNumTypes::Single => write!(f, "F"),
             AlphaNumTypes::Double => write!(f, "D"),
         }
     }
@@ -183,7 +183,7 @@ impl fmt::Display for AlphaNumTypes {
 #[derive(Debug)]
 enum NumTypes {
     Integer,
-    Float,
+    Single,
     Double,
 }
 
@@ -191,7 +191,7 @@ impl fmt::Display for NumTypes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
             NumTypes::Integer => write!(f, "I"),
-            NumTypes::Float => write!(f, "F"),
+            NumTypes::Single => write!(f, "F"),
             NumTypes::Double => write!(f, "D"),
         }
     }
@@ -416,7 +416,7 @@ impl fmt::Display for Bits {
 #[derive(Debug)]
 enum Range {
     BigInteger(u128),
-    Float(f32),
+    Single(f32),
     MaxRange, // this represents 2^128 exactly, which just barely over u128
 }
 
@@ -776,10 +776,10 @@ struct StdTextResult<T> {
     nonstandard: Keywords,
 }
 
-struct PureNumericParser {
+struct FloatParser {
     par: u32,
     byteord: ByteOrd,
-    numtype: NumTypes,
+    double: bool,
 }
 
 struct PureIntegerParser {
@@ -793,6 +793,7 @@ type ColumnWidths = Vec<u32>;
 // TODO use this in the metadata struct
 // struct NParam(u32);
 
+#[derive(Clone)]
 struct IntegerColumn {
     bits: u32,
     mask: u128,
@@ -801,7 +802,7 @@ struct IntegerColumn {
 enum ColumnType {
     Ascii(u32),
     Integer(IntegerColumn),
-    Float,
+    Single,
     Double,
 }
 
@@ -821,19 +822,43 @@ struct DataParser<T> {
     tot: u32,
 }
 
+struct ByteordIntParser {
+    byteord: ByteOrd,
+    par: u32,
+}
+
+struct FixedIntParser {
+    endian: Endian,
+    width: IntegerColumn,
+    par: u32,
+}
+
+struct VariableIntParser {
+    endian: Endian,
+    widths: Vec<IntegerColumn>,
+}
+
+enum IntParser {
+    // TODO what about fields whose width aren't a power of 2?
+    // DATATYPE=I with width implied by BYTEORD (2.0-3.0)
+    ByteOrd(ByteordIntParser),
+    // DATATYPE=I with all PnB set to the same width (3.1+)
+    Fixed(FixedIntParser),
+    // DATATYPE=I with PnB set to different widths (3.1+)
+    Variable(VariableIntParser),
+}
+
 enum ColumnParser {
     // DATATYPE=A where all PnB = *
     DelimitedAscii(u32),
     // DATATYPE=A where all PnB = number
-    FixedAscii(ColumnWidths),
+    FixedWidthAscii(ColumnWidths),
     // DATATYPE=F (with no overrides in 3.2+)
     // DATATYPE=D (with no overrides in 3.2+)
     // DATATYPE=I with width implied by BYTEORD (2.0-3.0)
-    PureNumeric(PureNumericParser),
-    // DATATYPE=I with all PnB set to the same width (3.1+)
-    PureInteger(PureIntegerParser),
-    // DATATYPE=I with PnB set to different numbers (3.1+)
-    FixedInteger(FixedIntegerParser),
+    Float(FloatParser),
+    // DATATYPE=I this is complex so see above
+    Int(IntParser),
     // Mixed column types (3.2+)
     Mixed(MixedParser),
 }
@@ -841,9 +866,88 @@ enum ColumnParser {
 trait MetadataFromKeywords: Sized {
     type P: ParameterFromKeywords;
 
+    // TODO shouldn't this go on the param trait?
     fn parameter_name<'a>(p: &'a Parameter<Self::P>) -> Option<&'a str>;
 
-    fn build_data_parser(s: &StdText<Self, Self::P>) -> Result<ColumnParser, Vec<String>>;
+    fn get_byteord<'a>(&self) -> ByteOrd;
+
+    fn build_int_parser<'a>(
+        specific: &Self,
+        ps: &Vec<Parameter<Self::P>>,
+        par: u32,
+    ) -> Result<IntParser, Vec<String>>;
+
+    fn build_mixed_parser<'a>(
+        specific: &Self,
+        ps: &Vec<Parameter<Self::P>>,
+        par: u32,
+    ) -> Option<Result<MixedParser, Vec<String>>>;
+
+    fn build_data_parser(s: &StdText<Self, Self::P>) -> Result<ColumnParser, Vec<String>> {
+        let fp_builder = |is_double| {
+            let (bits, dt) = if is_double { (64, "D") } else { (32, "F") };
+            let byteord = s.metadata.specific.get_byteord();
+            let remainder: Vec<_> = s
+                .parameters
+                .iter()
+                .filter(|p| p.bits_eq(u32::from(bits)))
+                .collect();
+            if remainder.is_empty() {
+                let nbytes = bits / 8;
+                if byteord.valid_byte_num(nbytes) {
+                    Ok(ColumnParser::Float(FloatParser {
+                        par: s.metadata.par,
+                        byteord: byteord.clone(),
+                        double: is_double,
+                    }))
+                } else {
+                    Err(vec![format!(
+                        "BYTEORD implies {} bits but DATATYPE={}",
+                        nbytes, dt
+                    )])
+                }
+            } else {
+                Err(remainder
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| {
+                        format!("Parameter {} uses {} bits but DATATYPE={}", i, p.bits, dt)
+                    })
+                    .collect())
+            }
+        };
+        if let Some(mixed) =
+            Self::build_mixed_parser(&s.metadata.specific, &s.parameters, s.metadata.par)
+        {
+            mixed.map(ColumnParser::Mixed)
+        } else {
+            match s.metadata.datatype {
+                AlphaNumTypes::Single => fp_builder(false),
+                AlphaNumTypes::Double => fp_builder(true),
+                AlphaNumTypes::Integer => {
+                    Self::build_int_parser(&s.metadata.specific, &s.parameters, s.metadata.par)
+                        .map(ColumnParser::Int)
+                }
+                AlphaNumTypes::Ascii => {
+                    let widths: Vec<u32> = s
+                        .parameters
+                        .iter()
+                        .map(|p| p.bits.len())
+                        .flatten()
+                        .collect();
+                    if widths.is_empty() {
+                        Ok(ColumnParser::DelimitedAscii(s.metadata.par))
+                    } else if widths.len() == s.parameters.len() {
+                        Ok(ColumnParser::FixedWidthAscii(widths))
+                    } else {
+                        Err(vec![String::from(
+                            "DATATYPE=A but PnB keywords are both '*' and numeric",
+                        )])
+                    }
+                }
+            }
+        }
+    }
 
     fn validate_specific<'a>(
         st: &mut KwState,
@@ -885,7 +989,7 @@ trait MetadataFromKeywords: Sized {
         //     if let Some((b, t)) = {
         //         let (anyfixed, anyvariable) = (false, false);
         //         match (&p.bits, &s.metadata.datatype, anyfixed, anyvariable) {
-        //             (Bits::Fixed(32), AlphaNumTypes::Float, _, _) => None,
+        //             (Bits::Fixed(32), AlphaNumTypes::Single, _, _) => None,
         //             (Bits::Fixed(64), AlphaNumTypes::Double, _, _) => None,
         //             (Bits::Fixed(_), AlphaNumTypes::Integer, _, _) => None,
         //             (Bits::Fixed(_), AlphaNumTypes::Ascii, _, false) => None,
@@ -950,87 +1054,44 @@ impl MetadataFromKeywords for InnerMetadata2_0 {
             .map(|s| s.as_str())
     }
 
-    fn build_data_parser(s: &StdText<Self, Self::P>) -> Result<ColumnParser, Vec<String>> {
-        let fp_builder = |bits: u8, dt| {
-            let remainder: Vec<_> = s
-                .parameters
+    fn get_byteord(&self) -> ByteOrd {
+        self.byteord.clone()
+    }
+
+    fn build_int_parser(
+        specific: &Self,
+        ps: &Vec<Parameter<Self::P>>,
+        par: u32,
+    ) -> Result<IntParser, Vec<String>> {
+        let nbytes = specific.byteord.num_bytes();
+        let nbits = nbytes * 8;
+        let remainder: Vec<_> = ps.iter().filter(|p| p.bits_eq(u32::from(nbits))).collect();
+        if remainder.is_empty() {
+            Ok(IntParser::ByteOrd(ByteordIntParser {
+                par: par,
+                byteord: specific.byteord.clone(),
+            }))
+        } else {
+            Err(remainder
                 .iter()
-                .filter(|p| p.bits_eq(u32::from(bits)))
-                .collect();
-            if remainder.is_empty() {
-                let nbytes = bits / 8;
-                if s.metadata.specific.byteord.valid_byte_num(nbytes) {
-                    Ok(ColumnParser::PureNumeric(PureNumericParser {
-                        par: s.metadata.par,
-                        byteord: s.metadata.specific.byteord.clone(),
-                        numtype: dt,
-                    }))
-                } else {
-                    Err(vec![format!(
-                        "Byte order implies {} but DATATYPE={}",
-                        nbytes, dt
-                    )])
-                }
-            } else {
-                Err(remainder
-                    .iter()
-                    .enumerate()
-                    .map(|(i, p)| {
-                        format!("Parameter {} uses {} bits when DATATYPE={}", i, p.bits, dt)
-                    })
-                    .collect())
-            }
-        };
-        match s.metadata.datatype {
-            AlphaNumTypes::Float => fp_builder(32, NumTypes::Float),
-            AlphaNumTypes::Double => fp_builder(64, NumTypes::Double),
-            AlphaNumTypes::Integer => {
-                let nbytes = s.metadata.specific.byteord.num_bytes();
-                let nbits = nbytes * 8;
-                let remainder: Vec<_> = s
-                    .parameters
-                    .iter()
-                    .filter(|p| p.bits_eq(u32::from(nbits)))
-                    .collect();
-                if remainder.is_empty() {
-                    Ok(ColumnParser::PureNumeric(PureNumericParser {
-                        par: s.metadata.par,
-                        byteord: s.metadata.specific.byteord.clone(),
-                        numtype: NumTypes::Integer,
-                    }))
-                } else {
-                    Err(remainder
-                        .iter()
-                        .enumerate()
-                        .map(|(i, p)| {
-                            format!(
-                                "Parameter {} uses {} bits when \
-                                     DATATYPE=I and BYTEORD implies \
-                                     {} bits",
-                                i, p.bits, nbits
-                            )
-                        })
-                        .collect())
-                }
-            }
-            AlphaNumTypes::Ascii => {
-                let widths: Vec<u32> = s
-                    .parameters
-                    .iter()
-                    .map(|p| p.bits.len())
-                    .flatten()
-                    .collect();
-                if widths.is_empty() {
-                    Ok(ColumnParser::DelimitedAscii(s.metadata.par))
-                } else if widths.len() == s.parameters.len() {
-                    Ok(ColumnParser::FixedAscii(widths))
-                } else {
-                    Err(vec![String::from(
-                        "DATATYPE=A but PnB keywords are both '*' and numeric",
-                    )])
-                }
-            }
+                .enumerate()
+                .map(|(i, p)| {
+                    format!(
+                        "Parameter {} uses {} bits when DATATYPE=I \
+                         and BYTEORD implies {} bits",
+                        i, p.bits, nbits
+                    )
+                })
+                .collect())
         }
+    }
+
+    fn build_mixed_parser(
+        _: &Self,
+        _: &Vec<Parameter<Self::P>>,
+        _: u32,
+    ) -> Option<Result<MixedParser, Vec<String>>> {
+        None
     }
 
     fn validate_specific<'a>(
@@ -1066,88 +1127,45 @@ impl MetadataFromKeywords for InnerMetadata3_0 {
             .map(|s| s.as_str())
     }
 
-    // TODO this is exactly the same as the 2.0 version, not DRY
-    fn build_data_parser(s: &StdText<Self, Self::P>) -> Result<ColumnParser, Vec<String>> {
-        let fp_builder = |bits: u8, dt| {
-            let remainder: Vec<_> = s
-                .parameters
+    fn get_byteord(&self) -> ByteOrd {
+        self.byteord.clone()
+    }
+
+    // TODO not dry, same as 2.0
+    fn build_int_parser(
+        specific: &Self,
+        ps: &Vec<Parameter<Self::P>>,
+        par: u32,
+    ) -> Result<IntParser, Vec<String>> {
+        let nbytes = specific.byteord.num_bytes();
+        let nbits = nbytes * 8;
+        let remainder: Vec<_> = ps.iter().filter(|p| p.bits_eq(u32::from(nbits))).collect();
+        if remainder.is_empty() {
+            Ok(IntParser::ByteOrd(ByteordIntParser {
+                par: par,
+                byteord: specific.byteord.clone(),
+            }))
+        } else {
+            Err(remainder
                 .iter()
-                .filter(|p| p.bits_eq(u32::from(bits)))
-                .collect();
-            if remainder.is_empty() {
-                let nbytes = bits / 8;
-                if s.metadata.specific.byteord.valid_byte_num(nbytes) {
-                    Ok(ColumnParser::PureNumeric(PureNumericParser {
-                        par: s.metadata.par,
-                        byteord: s.metadata.specific.byteord.clone(),
-                        numtype: dt,
-                    }))
-                } else {
-                    Err(vec![format!(
-                        "Byte order implies {} but DATATYPE={}",
-                        nbytes, dt
-                    )])
-                }
-            } else {
-                Err(remainder
-                    .iter()
-                    .enumerate()
-                    .map(|(i, p)| {
-                        format!("Parameter {} uses {} bits when DATATYPE={}", i, p.bits, dt)
-                    })
-                    .collect())
-            }
-        };
-        match s.metadata.datatype {
-            AlphaNumTypes::Float => fp_builder(32, NumTypes::Float),
-            AlphaNumTypes::Double => fp_builder(64, NumTypes::Double),
-            AlphaNumTypes::Integer => {
-                let nbytes = s.metadata.specific.byteord.num_bytes();
-                let nbits = nbytes * 8;
-                let remainder: Vec<_> = s
-                    .parameters
-                    .iter()
-                    .filter(|p| p.bits_eq(u32::from(nbits)))
-                    .collect();
-                if remainder.is_empty() {
-                    Ok(ColumnParser::PureNumeric(PureNumericParser {
-                        par: s.metadata.par,
-                        byteord: s.metadata.specific.byteord.clone(),
-                        numtype: NumTypes::Integer,
-                    }))
-                } else {
-                    Err(remainder
-                        .iter()
-                        .enumerate()
-                        .map(|(i, p)| {
-                            format!(
-                                "Parameter {} uses {} bits when \
-                                     DATATYPE=I and BYTEORD implies \
-                                     {} bits",
-                                i, p.bits, nbits
-                            )
-                        })
-                        .collect())
-                }
-            }
-            AlphaNumTypes::Ascii => {
-                let widths: Vec<u32> = s
-                    .parameters
-                    .iter()
-                    .map(|p| p.bits.len())
-                    .flatten()
-                    .collect();
-                if widths.is_empty() {
-                    Ok(ColumnParser::DelimitedAscii(s.metadata.par))
-                } else if widths.len() == s.parameters.len() {
-                    Ok(ColumnParser::FixedAscii(widths))
-                } else {
-                    Err(vec![String::from(
-                        "DATATYPE=A but PnB keywords are both '*' and numeric",
-                    )])
-                }
-            }
+                .enumerate()
+                .map(|(i, p)| {
+                    format!(
+                        "Parameter {} uses {} bits when DATATYPE=I \
+                         and BYTEORD implies {} bits",
+                        i, p.bits, nbits
+                    )
+                })
+                .collect())
         }
+    }
+
+    fn build_mixed_parser(
+        _: &Self,
+        _: &Vec<Parameter<Self::P>>,
+        _: u32,
+    ) -> Option<Result<MixedParser, Vec<String>>> {
+        None
     }
 
     fn validate_specific<'a>(
@@ -1190,88 +1208,56 @@ impl MetadataFromKeywords for InnerMetadata3_1 {
         Some(p.specific.shortname.as_str())
     }
 
-    fn build_data_parser(s: &StdText<Self, Self::P>) -> Result<ColumnParser, Vec<String>> {
-        // TODO not DRY this is almost the same as 2.0/3.0
-        let fp_builder = |bits: u8, dt| {
-            let remainder: Vec<_> = s
-                .parameters
-                .iter()
-                .filter(|p| p.bits_eq(u32::from(bits)))
-                .collect();
-            if remainder.is_empty() {
-                Ok(ColumnParser::PureNumeric(PureNumericParser {
-                    par: s.metadata.par,
-                    byteord: ByteOrd::BigLittle(s.metadata.specific.byteord.clone()),
-                    numtype: dt,
-                }))
-            } else {
-                Err(remainder
-                    .iter()
-                    .enumerate()
-                    .map(|(i, p)| {
-                        format!("Parameter {} uses {} bits when DATATYPE={}", i, p.bits, dt)
+    fn get_byteord(&self) -> ByteOrd {
+        ByteOrd::BigLittle(self.byteord.clone())
+    }
+
+    fn build_int_parser(
+        specific: &Self,
+        ps: &Vec<Parameter<Self::P>>,
+        par: u32,
+    ) -> Result<IntParser, Vec<String>> {
+        let widths: Vec<IntegerColumn> = ps
+            .iter()
+            .map(|p| {
+                if let (Some(bits), Some(mask)) = (p.bits.len(), p.range.bitmask()) {
+                    Some(IntegerColumn {
+                        bits,
+                        mask: mask.min(u128::from(2 ^ bits)),
                     })
-                    .collect())
-            }
-        };
-        match s.metadata.datatype {
-            AlphaNumTypes::Float => fp_builder(32, NumTypes::Float),
-            AlphaNumTypes::Double => fp_builder(64, NumTypes::Double),
-            AlphaNumTypes::Integer => {
-                let widths: Vec<IntegerColumn> = s
-                    .parameters
-                    .iter()
-                    .map(|p| {
-                        if let (Some(bits), Some(mask)) = (p.bits.len(), p.range.bitmask()) {
-                            Some(IntegerColumn {
-                                bits,
-                                mask: mask.min(u128::from(2 ^ bits)),
-                            })
-                        } else {
-                            None
-                        }
-                    })
-                    .flatten()
-                    .collect();
-                if widths.len() == s.parameters.len() {
-                    let unique_widths: Vec<_> = widths.iter().unique_by(|c| c.bits).collect();
-                    match unique_widths[..] {
-                        [w] => Ok(ColumnParser::PureInteger(PureIntegerParser {
-                            par: s.metadata.par,
-                            endian: s.metadata.specific.byteord.clone(),
-                            width: IntegerColumn {
-                                bits: w.bits,
-                                mask: w.mask,
-                            },
-                        })),
-                        _ => Ok(ColumnParser::FixedInteger(FixedIntegerParser {
-                            par: s.metadata.par,
-                            endian: s.metadata.specific.byteord.clone(),
-                            widths: widths,
-                        })),
-                    }
                 } else {
-                    Err(vec![String::from("")])
+                    None
                 }
+            })
+            .flatten()
+            .collect();
+        if widths.len() == ps.len() {
+            let unique_widths: Vec<_> = widths.iter().unique_by(|c| c.bits).collect();
+            match unique_widths[..] {
+                [w] => Ok(IntParser::Fixed(FixedIntParser {
+                    par: par,
+                    endian: specific.byteord.clone(),
+                    width: IntegerColumn {
+                        bits: w.bits,
+                        mask: w.mask,
+                    },
+                })),
+                _ => Ok(IntParser::Variable(VariableIntParser {
+                    endian: specific.byteord.clone(),
+                    widths: widths,
+                })),
             }
-            AlphaNumTypes::Ascii => {
-                let widths: Vec<u32> = s
-                    .parameters
-                    .iter()
-                    .map(|p| p.bits.len())
-                    .flatten()
-                    .collect();
-                if widths.is_empty() {
-                    Ok(ColumnParser::DelimitedAscii(s.metadata.par))
-                } else if widths.len() == s.parameters.len() {
-                    Ok(ColumnParser::FixedAscii(widths))
-                } else {
-                    Err(vec![String::from(
-                        "DATATYPE=A but PnB keywords are both '*' and numeric",
-                    )])
-                }
-            }
+        } else {
+            Err(vec![String::from("")])
         }
+    }
+
+    fn build_mixed_parser(
+        _: &Self,
+        _: &Vec<Parameter<Self::P>>,
+        _: u32,
+    ) -> Option<Result<MixedParser, Vec<String>>> {
+        None
     }
 
     fn validate_specific<'a>(
@@ -1316,88 +1302,55 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
         Some(p.specific.shortname.as_str())
     }
 
-    fn build_data_parser(s: &StdText<Self, Self::P>) -> Result<ColumnParser, Vec<String>> {
-        // TODO not DRY this is almost the same as 2.0/3.0
-        let fp_builder = |bits: u8, dt| {
-            let remainder: Vec<_> = s
-                .parameters
-                .iter()
-                .filter(|p| p.bits_eq(u32::from(bits)))
-                .collect();
-            if remainder.is_empty() {
-                Ok(ColumnParser::PureNumeric(PureNumericParser {
-                    par: s.metadata.par,
-                    byteord: ByteOrd::BigLittle(s.metadata.specific.byteord.clone()),
-                    numtype: dt,
-                }))
-            } else {
-                Err(remainder
-                    .iter()
-                    .enumerate()
-                    .map(|(i, p)| {
-                        format!("Parameter {} uses {} bits when DATATYPE={}", i, p.bits, dt)
+    fn get_byteord(&self) -> ByteOrd {
+        ByteOrd::BigLittle(self.byteord.clone())
+    }
+
+    // TODO not DRY, same as 3.1
+    fn build_int_parser(
+        specific: &Self,
+        ps: &Vec<Parameter<Self::P>>,
+        par: u32,
+    ) -> Result<IntParser, Vec<String>> {
+        let widths: Vec<IntegerColumn> = ps
+            .iter()
+            .map(|p| {
+                if let (Some(bits), Some(mask)) = (p.bits.len(), p.range.bitmask()) {
+                    Some(IntegerColumn {
+                        bits,
+                        mask: mask.min(u128::from(2 ^ bits)),
                     })
-                    .collect())
-            }
-        };
-        match s.metadata.datatype {
-            AlphaNumTypes::Float => fp_builder(32, NumTypes::Float),
-            AlphaNumTypes::Double => fp_builder(64, NumTypes::Double),
-            AlphaNumTypes::Integer => {
-                let widths: Vec<IntegerColumn> = s
-                    .parameters
-                    .iter()
-                    .map(|p| {
-                        if let (Some(bits), Some(mask)) = (p.bits.len(), p.range.bitmask()) {
-                            Some(IntegerColumn {
-                                bits,
-                                mask: mask.min(u128::from(2 ^ bits)),
-                            })
-                        } else {
-                            None
-                        }
-                    })
-                    .flatten()
-                    .collect();
-                if widths.len() == s.parameters.len() {
-                    let unique_widths: Vec<_> = widths.iter().unique_by(|c| c.bits).collect();
-                    match unique_widths[..] {
-                        [w] => Ok(ColumnParser::PureInteger(PureIntegerParser {
-                            par: s.metadata.par,
-                            endian: s.metadata.specific.byteord.clone(),
-                            width: IntegerColumn {
-                                bits: w.bits,
-                                mask: w.mask,
-                            },
-                        })),
-                        _ => Ok(ColumnParser::FixedInteger(FixedIntegerParser {
-                            par: s.metadata.par,
-                            endian: s.metadata.specific.byteord.clone(),
-                            widths: widths,
-                        })),
-                    }
                 } else {
-                    Err(vec![String::from("")])
+                    None
                 }
+            })
+            .flatten()
+            .collect();
+        if widths.len() == ps.len() {
+            let unique_widths: Vec<_> = widths.iter().unique_by(|c| c.bits).collect();
+            match unique_widths[..] {
+                [w] => Ok(IntParser::Fixed(FixedIntParser {
+                    par: par,
+                    endian: specific.byteord.clone(),
+                    width: w.clone(),
+                })),
+                _ => Ok(IntParser::Variable(VariableIntParser {
+                    endian: specific.byteord.clone(),
+                    widths: widths,
+                })),
             }
-            AlphaNumTypes::Ascii => {
-                let widths: Vec<u32> = s
-                    .parameters
-                    .iter()
-                    .map(|p| p.bits.len())
-                    .flatten()
-                    .collect();
-                if widths.is_empty() {
-                    Ok(ColumnParser::DelimitedAscii(s.metadata.par))
-                } else if widths.len() == s.parameters.len() {
-                    Ok(ColumnParser::FixedAscii(widths))
-                } else {
-                    Err(vec![String::from(
-                        "DATATYPE=A but PnB keywords are both '*' and numeric",
-                    )])
-                }
-            }
+        } else {
+            Err(vec![String::from("")])
         }
+    }
+
+    fn build_mixed_parser(
+        _: &Self,
+        _: &Vec<Parameter<Self::P>>,
+        _: u32,
+    ) -> Option<Result<MixedParser, Vec<String>>> {
+        // have fun :)
+        unimplemented!();
     }
 
     fn validate_specific<'a>(
@@ -1421,7 +1374,7 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
         for (i, p) in s.parameters.iter().enumerate() {
             if let Present(d) = &p.specific.datatype {
                 match (d, &p.bits) {
-                    (NumTypes::Float, Bits::Fixed(32)) => (),
+                    (NumTypes::Single, Bits::Fixed(32)) => (),
                     (NumTypes::Double, Bits::Fixed(64)) => (),
                     (NumTypes::Integer, Bits::Fixed(_)) => (),
                     _ => st.push_meta_error(format!(
@@ -1471,7 +1424,7 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
 //     for (i, p) in s.parameters.iter().enumerate() {
 //         if let Some((b, t)) = {
 //             match (&p.bits, &s.metadata.datatype) {
-//                 (Bits::Fixed(32), AlphaNumTypes::Float) => None,
+//                 (Bits::Fixed(32), AlphaNumTypes::Single) => None,
 //                 (Bits::Fixed(64), AlphaNumTypes::Double) => None,
 //                 // Technically this should be > 0 if that is a concern
 //                 (Bits::Fixed(_), AlphaNumTypes::Integer) => None,
@@ -1699,7 +1652,7 @@ impl KwState {
     fn lookup_datatype(&mut self) -> Option<AlphaNumTypes> {
         self.get_required("DATATYPE", |s| match s {
             "I" => Ok(AlphaNumTypes::Integer),
-            "F" => Ok(AlphaNumTypes::Float),
+            "F" => Ok(AlphaNumTypes::Single),
             "D" => Ok(AlphaNumTypes::Double),
             "A" => Ok(AlphaNumTypes::Ascii),
             _ => Err(String::from("unknown datatype")),
@@ -2142,7 +2095,7 @@ impl KwState {
     fn lookup_param_datatype(&mut self, n: u32) -> OptionalKw<NumTypes> {
         self.lookup_param_opt("DATATYPE", n, |s| match s {
             "I" => Ok(NumTypes::Integer),
-            "F" => Ok(NumTypes::Float),
+            "F" => Ok(NumTypes::Single),
             "D" => Ok(NumTypes::Double),
             _ => Err(String::from("unknown datatype")),
         })

@@ -900,61 +900,57 @@ trait MetadataFromKeywords: Sized {
         dt: &AlphaNumTypes,
     ) -> Option<Result<MixedParser, Vec<String>>>;
 
-    fn build_data_parser(s: &StdText<Self, Self::P>) -> Result<ColumnParser, Vec<String>> {
-        let fp_builder = |is_double| {
-            let (bits, dt) = if is_double { (64, "D") } else { (32, "F") };
-            let byteord = s.metadata.specific.get_byteord();
-            let remainder: Vec<_> = s
-                .parameters
-                .iter()
-                .filter(|p| p.bits_eq(u32::from(bits)))
-                .collect();
-            if remainder.is_empty() {
-                let nbytes = bits / 8;
-                if byteord.valid_byte_num(nbytes) {
-                    Ok(ColumnParser::Float(FloatParser {
-                        par: s.metadata.par,
-                        byteord: byteord.clone(),
-                        double: is_double,
-                    }))
-                } else {
-                    Err(vec![format!(
-                        "BYTEORD implies {} bits but DATATYPE={}",
-                        nbytes, dt
-                    )])
-                }
+    fn build_float_parser(
+        &self,
+        is_double: bool,
+        par: u32,
+        ps: &Vec<Parameter<Self::P>>,
+    ) -> Result<ColumnParser, Vec<String>> {
+        let (bits, dt) = if is_double { (64, "D") } else { (32, "F") };
+        let byteord = self.get_byteord();
+        let remainder: Vec<_> = ps.iter().filter(|p| p.bits_eq(u32::from(bits))).collect();
+        if remainder.is_empty() {
+            let nbytes = bits / 8;
+            if byteord.valid_byte_num(nbytes) {
+                Ok(ColumnParser::Float(FloatParser {
+                    par: par,
+                    byteord: byteord.clone(),
+                    double: is_double,
+                }))
             } else {
-                Err(remainder
-                    .iter()
-                    .enumerate()
-                    .map(|(i, p)| {
-                        format!("Parameter {} uses {} bits but DATATYPE={}", i, p.bits, dt)
-                    })
-                    .collect())
+                Err(vec![format!(
+                    "BYTEORD implies {} bits but DATATYPE={}",
+                    nbytes, dt
+                )])
             }
-        };
-        if let Some(mixed) =
-            Self::build_mixed_parser(&s.metadata.specific, &s.parameters, &s.metadata.datatype)
-        {
+        } else {
+            Err(remainder
+                .iter()
+                .enumerate()
+                .map(|(i, p)| format!("Parameter {} uses {} bits but DATATYPE={}", i, p.bits, dt))
+                .collect())
+        }
+    }
+
+    fn build_data_parser(s: &StdText<Self, Self::P>) -> Result<ColumnParser, Vec<String>> {
+        let par = s.metadata.par;
+        let ps = &s.parameters;
+        let dt = &s.metadata.datatype;
+        let specific = &s.metadata.specific;
+        if let Some(mixed) = Self::build_mixed_parser(specific, ps, dt) {
             mixed.map(ColumnParser::Mixed)
         } else {
             match s.metadata.datatype {
-                AlphaNumTypes::Single => fp_builder(false),
-                AlphaNumTypes::Double => fp_builder(true),
+                AlphaNumTypes::Single => specific.build_float_parser(false, par, ps),
+                AlphaNumTypes::Double => specific.build_float_parser(true, par, ps),
                 AlphaNumTypes::Integer => {
-                    Self::build_int_parser(&s.metadata.specific, &s.parameters, s.metadata.par)
-                        .map(ColumnParser::Int)
+                    Self::build_int_parser(specific, ps, par).map(ColumnParser::Int)
                 }
                 AlphaNumTypes::Ascii => {
-                    let widths: Vec<u32> = s
-                        .parameters
-                        .iter()
-                        .map(|p| p.bits.len())
-                        .flatten()
-                        .collect();
+                    let widths: Vec<u32> = ps.iter().map(|p| p.bits.len()).flatten().collect();
                     if widths.is_empty() {
-                        Ok(ColumnParser::DelimitedAscii(s.metadata.par))
-                    } else if widths.len() == s.parameters.len() {
+                        Ok(ColumnParser::DelimitedAscii(par))
+                    } else if widths.len() == ps.len() {
                         Ok(ColumnParser::FixedWidthAscii(widths))
                     } else {
                         Err(vec![String::from(

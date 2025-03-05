@@ -824,24 +824,14 @@ struct FloatParser {
     double: bool,
 }
 
-struct PureIntegerParser {
-    par: u32,
-    width: IntegerColumn,
-    endian: Endian,
-}
-
 type ColumnWidths = Vec<u32>;
 
-// TODO use this in the metadata struct
-// struct NParam(u32);
-
-#[derive(Clone, Eq, PartialEq, Hash)]
+#[derive(Clone)]
 struct IntegerColumn {
     bits: u32,
     mask: u128,
 }
 
-#[derive(Eq, PartialEq, Hash)]
 enum ColumnType {
     Ascii(u32),
     Integer(IntegerColumn),
@@ -858,11 +848,6 @@ struct FixedIntegerParser {
 struct MixedParser {
     endian: Endian,
     columns: Vec<ColumnType>,
-}
-
-struct DataParser<T> {
-    parser: T,
-    tot: u32,
 }
 
 struct ByteordIntParser {
@@ -898,7 +883,6 @@ enum ColumnParser {
     FixedWidthAscii(ColumnWidths),
     // DATATYPE=F (with no overrides in 3.2+)
     // DATATYPE=D (with no overrides in 3.2+)
-    // DATATYPE=I with width implied by BYTEORD (2.0-3.0)
     Float(FloatParser),
     // DATATYPE=I this is complex so see above
     Int(IntParser),
@@ -955,7 +939,7 @@ trait MetadataFromKeywords: Sized {
         }
     }
 
-    fn build_data_parser(s: &StdText<Self, Self::P>) -> Result<ColumnParser, Vec<String>> {
+    fn build_column_parser(s: &StdText<Self, Self::P>) -> Result<ColumnParser, Vec<String>> {
         let par = s.metadata.par;
         let ps = &s.parameters;
         let dt = &s.metadata.datatype;

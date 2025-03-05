@@ -161,7 +161,7 @@ struct Header {
     analysis: Offsets,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 enum AlphaNumTypes {
     Ascii,
     Integer,
@@ -180,11 +180,21 @@ impl fmt::Display for AlphaNumTypes {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 enum NumTypes {
     Integer,
     Single,
     Double,
+}
+
+impl NumTypes {
+    fn lift(&self) -> AlphaNumTypes {
+        match self {
+            NumTypes::Integer => AlphaNumTypes::Integer,
+            NumTypes::Single => AlphaNumTypes::Single,
+            NumTypes::Double => AlphaNumTypes::Double,
+        }
+    }
 }
 
 impl fmt::Display for NumTypes {
@@ -197,7 +207,7 @@ impl fmt::Display for NumTypes {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 enum Endian {
     Big,
     Little,
@@ -385,6 +395,17 @@ struct InnerParameter3_2 {
     datatype: OptionalKw<NumTypes>,
 }
 
+// TODO this will likely need to be a trait in 4.0
+impl InnerParameter3_2 {
+    fn get_column_type(&self, default: AlphaNumTypes) -> AlphaNumTypes {
+        self.datatype
+            .as_ref()
+            .to_option()
+            .map(|x| x.lift())
+            .unwrap_or(default)
+    }
+}
+
 #[derive(Debug)]
 enum Bits {
     Fixed(u32),
@@ -420,23 +441,6 @@ enum Range {
     MaxRange, // this represents 2^128 exactly, which just barely over u128
 }
 
-impl Range {
-    fn bitmask(&self) -> Option<u128> {
-        match self {
-            Range::BigInteger(x) => {
-                let y = u128::from((*x).ilog2());
-                let z = 2 ^ y;
-                if z == *x {
-                    Some(z)
-                } else {
-                    Some(2 ^ (y + 1))
-                }
-            }
-            _ => None,
-        }
-    }
-}
-
 #[derive(Debug)]
 struct Parameter<X> {
     bits: Bits,                        // PnB
@@ -462,6 +466,18 @@ impl<X> Parameter<X> {
         match self.bits {
             Bits::Variable => true,
             _ => false,
+        }
+    }
+
+    fn bitmask(&self) -> Option<u128> {
+        match (&self.range, &self.bits) {
+            (Range::BigInteger(rng), Bits::Fixed(bits)) => {
+                let y = u128::from((rng).ilog2());
+                let z = 2 ^ y;
+                let rangemask = if z == *rng { z } else { 2 ^ (y + 1) };
+                Some(rangemask.min(u128::from(2 ^ bits)))
+            }
+            _ => None,
         }
     }
 }
@@ -793,12 +809,13 @@ type ColumnWidths = Vec<u32>;
 // TODO use this in the metadata struct
 // struct NParam(u32);
 
-#[derive(Clone)]
+#[derive(Clone, Eq, PartialEq, Hash)]
 struct IntegerColumn {
     bits: u32,
     mask: u128,
 }
 
+#[derive(Eq, PartialEq, Hash)]
 enum ColumnType {
     Ascii(u32),
     Integer(IntegerColumn),
@@ -872,15 +889,15 @@ trait MetadataFromKeywords: Sized {
     fn get_byteord<'a>(&self) -> ByteOrd;
 
     fn build_int_parser<'a>(
-        specific: &Self,
+        &self,
         ps: &Vec<Parameter<Self::P>>,
         par: u32,
     ) -> Result<IntParser, Vec<String>>;
 
     fn build_mixed_parser<'a>(
-        specific: &Self,
+        &self,
         ps: &Vec<Parameter<Self::P>>,
-        par: u32,
+        dt: &AlphaNumTypes,
     ) -> Option<Result<MixedParser, Vec<String>>>;
 
     fn build_data_parser(s: &StdText<Self, Self::P>) -> Result<ColumnParser, Vec<String>> {
@@ -917,7 +934,7 @@ trait MetadataFromKeywords: Sized {
             }
         };
         if let Some(mixed) =
-            Self::build_mixed_parser(&s.metadata.specific, &s.parameters, s.metadata.par)
+            Self::build_mixed_parser(&s.metadata.specific, &s.parameters, &s.metadata.datatype)
         {
             mixed.map(ColumnParser::Mixed)
         } else {
@@ -1059,17 +1076,17 @@ impl MetadataFromKeywords for InnerMetadata2_0 {
     }
 
     fn build_int_parser(
-        specific: &Self,
+        &self,
         ps: &Vec<Parameter<Self::P>>,
         par: u32,
     ) -> Result<IntParser, Vec<String>> {
-        let nbytes = specific.byteord.num_bytes();
+        let nbytes = self.byteord.num_bytes();
         let nbits = nbytes * 8;
         let remainder: Vec<_> = ps.iter().filter(|p| p.bits_eq(u32::from(nbits))).collect();
         if remainder.is_empty() {
             Ok(IntParser::ByteOrd(ByteordIntParser {
                 par: par,
-                byteord: specific.byteord.clone(),
+                byteord: self.byteord.clone(),
             }))
         } else {
             Err(remainder
@@ -1087,9 +1104,9 @@ impl MetadataFromKeywords for InnerMetadata2_0 {
     }
 
     fn build_mixed_parser(
-        _: &Self,
+        &self,
         _: &Vec<Parameter<Self::P>>,
-        _: u32,
+        _: &AlphaNumTypes,
     ) -> Option<Result<MixedParser, Vec<String>>> {
         None
     }
@@ -1133,17 +1150,17 @@ impl MetadataFromKeywords for InnerMetadata3_0 {
 
     // TODO not dry, same as 2.0
     fn build_int_parser(
-        specific: &Self,
+        &self,
         ps: &Vec<Parameter<Self::P>>,
         par: u32,
     ) -> Result<IntParser, Vec<String>> {
-        let nbytes = specific.byteord.num_bytes();
+        let nbytes = self.byteord.num_bytes();
         let nbits = nbytes * 8;
         let remainder: Vec<_> = ps.iter().filter(|p| p.bits_eq(u32::from(nbits))).collect();
         if remainder.is_empty() {
             Ok(IntParser::ByteOrd(ByteordIntParser {
                 par: par,
-                byteord: specific.byteord.clone(),
+                byteord: self.byteord.clone(),
             }))
         } else {
             Err(remainder
@@ -1161,9 +1178,9 @@ impl MetadataFromKeywords for InnerMetadata3_0 {
     }
 
     fn build_mixed_parser(
-        _: &Self,
+        &self,
         _: &Vec<Parameter<Self::P>>,
-        _: u32,
+        _: &AlphaNumTypes,
     ) -> Option<Result<MixedParser, Vec<String>>> {
         None
     }
@@ -1213,14 +1230,14 @@ impl MetadataFromKeywords for InnerMetadata3_1 {
     }
 
     fn build_int_parser(
-        specific: &Self,
+        &self,
         ps: &Vec<Parameter<Self::P>>,
         par: u32,
     ) -> Result<IntParser, Vec<String>> {
         let widths: Vec<IntegerColumn> = ps
             .iter()
             .map(|p| {
-                if let (Some(bits), Some(mask)) = (p.bits.len(), p.range.bitmask()) {
+                if let (Some(bits), Some(mask)) = (p.bits.len(), p.bitmask()) {
                     Some(IntegerColumn {
                         bits,
                         mask: mask.min(u128::from(2 ^ bits)),
@@ -1236,14 +1253,11 @@ impl MetadataFromKeywords for InnerMetadata3_1 {
             match unique_widths[..] {
                 [w] => Ok(IntParser::Fixed(FixedIntParser {
                     par: par,
-                    endian: specific.byteord.clone(),
-                    width: IntegerColumn {
-                        bits: w.bits,
-                        mask: w.mask,
-                    },
+                    endian: self.byteord.clone(),
+                    width: w.clone(),
                 })),
                 _ => Ok(IntParser::Variable(VariableIntParser {
-                    endian: specific.byteord.clone(),
+                    endian: self.byteord.clone(),
                     widths: widths,
                 })),
             }
@@ -1253,17 +1267,17 @@ impl MetadataFromKeywords for InnerMetadata3_1 {
     }
 
     fn build_mixed_parser(
-        _: &Self,
+        &self,
         _: &Vec<Parameter<Self::P>>,
-        _: u32,
+        _: &AlphaNumTypes,
     ) -> Option<Result<MixedParser, Vec<String>>> {
         None
     }
 
     fn validate_specific<'a>(
-        st: &mut KwState,
-        s: &StdText<Self, Self::P>,
-        names: HashSet<&'a str>,
+        _: &mut KwState,
+        _: &StdText<Self, Self::P>,
+        _: HashSet<&'a str>,
     ) -> () {
     }
 
@@ -1308,14 +1322,14 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
 
     // TODO not DRY, same as 3.1
     fn build_int_parser(
-        specific: &Self,
+        &self,
         ps: &Vec<Parameter<Self::P>>,
         par: u32,
     ) -> Result<IntParser, Vec<String>> {
         let widths: Vec<IntegerColumn> = ps
             .iter()
             .map(|p| {
-                if let (Some(bits), Some(mask)) = (p.bits.len(), p.range.bitmask()) {
+                if let (Some(bits), Some(mask)) = (p.bits.len(), p.bitmask()) {
                     Some(IntegerColumn {
                         bits,
                         mask: mask.min(u128::from(2 ^ bits)),
@@ -1331,11 +1345,11 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
             match unique_widths[..] {
                 [w] => Ok(IntParser::Fixed(FixedIntParser {
                     par: par,
-                    endian: specific.byteord.clone(),
+                    endian: self.byteord.clone(),
                     width: w.clone(),
                 })),
                 _ => Ok(IntParser::Variable(VariableIntParser {
-                    endian: specific.byteord.clone(),
+                    endian: self.byteord.clone(),
                     widths: widths,
                 })),
             }
@@ -1345,12 +1359,57 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
     }
 
     fn build_mixed_parser(
-        _: &Self,
-        _: &Vec<Parameter<Self::P>>,
-        _: u32,
+        &self,
+        ps: &Vec<Parameter<Self::P>>,
+        dt: &AlphaNumTypes,
     ) -> Option<Result<MixedParser, Vec<String>>> {
-        // have fun :)
-        unimplemented!();
+        // first test if we have any PnDATATYPEs defined, if no then skip this
+        // data parser entirely
+        if ps
+            .iter()
+            .filter(|p| p.specific.datatype.as_ref().to_option().is_some())
+            .count()
+            == 0
+        {
+            return None;
+        }
+        let (pass, fail): (Vec<ColumnType>, Vec<String>) = ps
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                match (
+                    p.specific.get_column_type(*dt),
+                    p.specific.datatype.as_ref().to_option().is_some(),
+                    &p.bits,
+                ) {
+                    (AlphaNumTypes::Ascii, _, Bits::Fixed(bits)) => Ok(ColumnType::Ascii(*bits)),
+                    (AlphaNumTypes::Single, _, Bits::Fixed(32)) => Ok(ColumnType::Single),
+                    (AlphaNumTypes::Double, _, Bits::Fixed(64)) => Ok(ColumnType::Double),
+                    (AlphaNumTypes::Integer, _, Bits::Fixed(bits)) => {
+                        if let Some(mask) = p.bitmask() {
+                            Ok(ColumnType::Integer(IntegerColumn { bits: *bits, mask }))
+                        } else {
+                            Err(format!(""))
+                        }
+                    }
+                    (dt, overridden, bits) => {
+                        let sdt = if overridden { "PnDATATYPE" } else { "DATATYPE" };
+                        Err(format!(
+                            "{}={} but PnB={} for parameter {}",
+                            sdt, dt, bits, i
+                        ))
+                    }
+                }
+            })
+            .partition_result();
+        if fail.is_empty() {
+            Some(Ok(MixedParser {
+                endian: self.byteord,
+                columns: pass,
+            }))
+        } else {
+            Some(Err(fail))
+        }
     }
 
     fn validate_specific<'a>(

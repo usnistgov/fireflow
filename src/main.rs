@@ -113,7 +113,7 @@ fn parse_scale(s: &str) -> ParseResult<Scale> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 struct Offsets {
     begin: u32,
     end: u32,
@@ -128,8 +128,16 @@ impl Offsets {
         }
     }
 
+    fn len(&self) -> u32 {
+        self.end - self.begin
+    }
+
     fn num_bytes(&self) -> u32 {
-        self.end - self.begin + 1
+        self.len() + 1
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 
@@ -213,6 +221,12 @@ enum Endian {
     Little,
 }
 
+impl Endian {
+    fn is_big(&self) -> bool {
+        matches!(self, Endian::Big)
+    }
+}
+
 #[derive(Debug, Clone)]
 enum ByteOrd {
     BigLittle(Endian),
@@ -224,6 +238,36 @@ impl ByteOrd {
         match self {
             ByteOrd::BigLittle(_) => true,
             ByteOrd::Mixed(xs) => xs.len() == usize::from(n),
+        }
+    }
+
+    fn to_float_byteord(&self, is_double: bool) -> Option<FloatByteOrd> {
+        match self {
+            ByteOrd::BigLittle(e) => {
+                let f = if is_double {
+                    FloatByteOrd::DoubleBigLittle
+                } else {
+                    FloatByteOrd::SingleBigLittle
+                };
+                Some(f(*e))
+            }
+            ByteOrd::Mixed(xs) => match xs[..] {
+                [a, b, c, d] => {
+                    if is_double {
+                        None
+                    } else {
+                        Some(FloatByteOrd::SingleMixed([a, b, c, d]))
+                    }
+                }
+                [a, b, c, d, e, f, g, h] => {
+                    if is_double {
+                        Some(FloatByteOrd::DoubleMixed([a, b, c, d, e, f, g, h]))
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            },
         }
     }
 
@@ -438,7 +482,7 @@ impl fmt::Display for Bits {
 enum Range {
     BigInteger(u128),
     Single(f32),
-    MaxRange, // this represents 2^128 exactly, which just barely over u128
+    Max, // this represents 2^128 exactly, which just barely over u128
 }
 
 #[derive(Debug)]
@@ -463,10 +507,7 @@ impl<X> Parameter<X> {
     }
 
     fn bits_are_variable(&self) -> bool {
-        match self.bits {
-            Bits::Variable => true,
-            _ => false,
-        }
+        matches!(self.bits, Bits::Variable)
     }
 
     fn bitmask(&self) -> Option<u128> {
@@ -488,7 +529,7 @@ impl<X> Parameter<X> {
 trait ParameterFromKeywords: Sized {
     fn build_inner(st: &mut KwState, n: u32) -> Option<Self>;
 
-    fn parameter_name<'a>(p: &'a Parameter<Self>) -> Option<&'a str>;
+    fn parameter_name(p: &Parameter<Self>) -> Option<&str>;
 
     fn from_kws(st: &mut KwState, par: u32) -> Option<Vec<Parameter<Self>>> {
         let mut ps = vec![];
@@ -526,7 +567,7 @@ type Parameter3_1 = Parameter<InnerParameter3_1>;
 type Parameter3_2 = Parameter<InnerParameter3_2>;
 
 impl ParameterFromKeywords for InnerParameter2_0 {
-    fn parameter_name<'a>(p: &'a Parameter<Self>) -> Option<&'a str> {
+    fn parameter_name(p: &Parameter<Self>) -> Option<&str> {
         p.specific
             .shortname
             .as_ref()
@@ -544,7 +585,7 @@ impl ParameterFromKeywords for InnerParameter2_0 {
 }
 
 impl ParameterFromKeywords for InnerParameter3_0 {
-    fn parameter_name<'a>(p: &'a Parameter<Self>) -> Option<&'a str> {
+    fn parameter_name(p: &Parameter<Self>) -> Option<&str> {
         p.specific
             .shortname
             .as_ref()
@@ -553,21 +594,17 @@ impl ParameterFromKeywords for InnerParameter3_0 {
     }
 
     fn build_inner(st: &mut KwState, n: u32) -> Option<InnerParameter3_0> {
-        if let Some(scale) = st.lookup_param_scale_req(n) {
-            Some(InnerParameter3_0 {
-                scale,
-                shortname: st.lookup_param_shortname_opt(n),
-                wavelength: st.lookup_param_wavelength(n),
-                gain: st.lookup_param_gain(n),
-            })
-        } else {
-            None
-        }
+        st.lookup_param_scale_req(n).map(|scale| InnerParameter3_0 {
+            scale,
+            shortname: st.lookup_param_shortname_opt(n),
+            wavelength: st.lookup_param_wavelength(n),
+            gain: st.lookup_param_gain(n),
+        })
     }
 }
 
 impl ParameterFromKeywords for InnerParameter3_1 {
-    fn parameter_name<'a>(p: &'a Parameter<Self>) -> Option<&'a str> {
+    fn parameter_name(p: &Parameter<Self>) -> Option<&str> {
         Some(p.specific.shortname.as_str())
     }
 
@@ -591,7 +628,7 @@ impl ParameterFromKeywords for InnerParameter3_1 {
 }
 
 impl ParameterFromKeywords for InnerParameter3_2 {
-    fn parameter_name<'a>(p: &'a Parameter<Self>) -> Option<&'a str> {
+    fn parameter_name(p: &Parameter<Self>) -> Option<&str> {
         Some(p.specific.shortname.as_str())
     }
 
@@ -776,17 +813,19 @@ enum Mode {
 
 #[derive(Debug)]
 struct StdText<M, P> {
+    header: Header,
     metadata: Metadata<M>,
     parameters: Vec<Parameter<P>>,
 }
 
 impl<M: MetadataFromKeywords> StdText<M, M::P> {
-    fn from_kws(raw: RawTEXT) -> Result<TEXT<Self>, StandardErrors> {
+    fn from_kws(header: Header, raw: RawTEXT) -> Result<TEXT<Self>, StandardErrors> {
         let mut st = raw.to_state();
         // This will fail if a) not all required keywords pass and b) not all
         // required parameter keywords pass (according to $PAR)
         if let Some(s) = M::from_kws(&mut st).and_then(|metadata| {
             M::P::from_kws(&mut st, metadata.par).map(|parameters| StdText {
+                header,
                 metadata,
                 parameters,
             })
@@ -818,10 +857,41 @@ struct StdTextResult<T> {
     nonstandard: Keywords,
 }
 
+enum FloatByteOrd {
+    SingleBigLittle(Endian),
+    DoubleBigLittle(Endian),
+    SingleMixed([u8; 4]),
+    DoubleMixed([u8; 8]),
+}
+
+impl FloatByteOrd {
+    fn is_double(&self) -> bool {
+        match self {
+            FloatByteOrd::SingleBigLittle(_) => false,
+            FloatByteOrd::DoubleBigLittle(_) => true,
+            FloatByteOrd::SingleMixed(_) => false,
+            FloatByteOrd::DoubleMixed(_) => true,
+        }
+    }
+
+    fn width(&self) -> u8 {
+        if self.is_double() {
+            8
+        } else {
+            4
+        }
+    }
+}
+
 struct FloatParser {
     par: u32,
-    byteord: ByteOrd,
-    double: bool,
+    byteord: FloatByteOrd,
+}
+
+impl FloatParser {
+    fn event_width(&self) -> u32 {
+        self.par * u32::from(self.byteord.width())
+    }
 }
 
 type ColumnWidths = Vec<u32>;
@@ -890,20 +960,84 @@ enum ColumnParser {
     Mixed(MixedParser),
 }
 
+struct DataParser {
+    column_parser: ColumnParser,
+    offsets: Offsets,
+}
+
+enum DataColumn<'a> {
+    F32(&'a mut Vec<f32>),
+    F64(&'a mut Vec<f64>),
+    U16(&'a mut Vec<u16>),
+    U32(&'a mut Vec<u32>),
+    U64(&'a mut Vec<u64>),
+}
+
+struct ParsedData<'a>(&'a mut Vec<DataColumn<'a>>);
+
+// NOTE you will get wrecked without something like this: https://users.rust-lang.org/t/generic-function-for-from-be-bytes/59629/4
+
+// TODO we need to cap the maximum supported width somewhere to make this sane.
+// In the mixed case, the easiest solution is going to be to allocate one
+// buffer array with this maximum width and then shove slices of it into the
+// byte->numeric conversion functions.
+fn read_data<R: Read + Seek>(h: &mut BufReader<R>, parser: DataParser) -> io::Result<ParsedData> {
+    let nbytes = parser.offsets.num_bytes();
+    match parser.column_parser {
+        ColumnParser::DelimitedAscii(par) => unimplemented!(),
+        ColumnParser::FixedWidthAscii(widths) => unimplemented!(),
+        ColumnParser::Float(FloatParser {
+            par: ncols,
+            byteord,
+        }) => {
+            let event_width = u32::from(byteord.width()) * ncols;
+            let nrows = nbytes / event_width;
+            let nevents = nrows * ncols;
+            // TODO fix casts?
+            h.seek(SeekFrom::Start(u64::from(parser.offsets.begin)))?;
+            match byteord {
+                FloatByteOrd::SingleBigLittle(e) => {
+                    let mut data = vec![vec![0.0; nrows as usize]; ncols as usize];
+                    let f = if e.is_big() {
+                        f32::from_be_bytes
+                    } else {
+                        f32::from_le_bytes
+                    };
+                    let mut buf = [0; 4];
+                    for r in 0..nrows {
+                        for c in 0..ncols {
+                            h.read_exact(&mut buf)?;
+                            data[c as usize][r as usize] = f(buf[..].try_into().unwrap());
+                        }
+                    }
+                }
+                FloatByteOrd::DoubleBigLittle(e) => {}
+                FloatByteOrd::SingleMixed(e) => {}
+                FloatByteOrd::DoubleMixed(e) => {}
+            }
+            unimplemented!()
+        }
+        ColumnParser::Int(subparser) => unimplemented!(),
+        ColumnParser::Mixed(subparser) => unimplemented!(),
+    }
+}
+
 trait MetadataFromKeywords: Sized {
     type P: ParameterFromKeywords;
 
-    fn get_byteord<'a>(&self) -> ByteOrd;
+    fn get_data_offsets(s: &StdText<Self, Self::P>) -> Offsets;
 
-    fn build_int_parser<'a>(
+    fn get_byteord(&self) -> ByteOrd;
+
+    fn build_int_parser(
         &self,
-        ps: &Vec<Parameter<Self::P>>,
+        ps: &[Parameter<Self::P>],
         par: u32,
     ) -> Result<IntParser, Vec<String>>;
 
-    fn build_mixed_parser<'a>(
+    fn build_mixed_parser(
         &self,
-        ps: &Vec<Parameter<Self::P>>,
+        ps: &[Parameter<Self::P>],
         dt: &AlphaNumTypes,
     ) -> Option<Result<MixedParser, Vec<String>>>;
 
@@ -911,23 +1045,17 @@ trait MetadataFromKeywords: Sized {
         &self,
         is_double: bool,
         par: u32,
-        ps: &Vec<Parameter<Self::P>>,
+        ps: &[Parameter<Self::P>],
     ) -> Result<ColumnParser, Vec<String>> {
         let (bits, dt) = if is_double { (64, "D") } else { (32, "F") };
-        let byteord = self.get_byteord();
-        let remainder: Vec<_> = ps.iter().filter(|p| p.bits_eq(u32::from(bits))).collect();
+        let remainder: Vec<_> = ps.iter().filter(|p| p.bits_eq(bits)).collect();
         if remainder.is_empty() {
-            let nbytes = bits / 8;
-            if byteord.valid_byte_num(nbytes) {
-                Ok(ColumnParser::Float(FloatParser {
-                    par: par,
-                    byteord: byteord.clone(),
-                    double: is_double,
-                }))
+            if let Some(byteord) = self.get_byteord().to_float_byteord(is_double) {
+                Ok(ColumnParser::Float(FloatParser { par, byteord }))
             } else {
                 Err(vec![format!(
                     "BYTEORD implies {} bits but DATATYPE={}",
-                    nbytes, dt
+                    bits, dt
                 )])
             }
         } else {
@@ -954,7 +1082,7 @@ trait MetadataFromKeywords: Sized {
                     Self::build_int_parser(specific, ps, par).map(ColumnParser::Int)
                 }
                 AlphaNumTypes::Ascii => {
-                    let widths: Vec<u32> = ps.iter().map(|p| p.bits.len()).flatten().collect();
+                    let widths: Vec<u32> = ps.iter().filter_map(|p| p.bits.len()).collect();
                     if widths.is_empty() {
                         Ok(ColumnParser::DelimitedAscii(par))
                     } else if widths.len() == ps.len() {
@@ -969,21 +1097,24 @@ trait MetadataFromKeywords: Sized {
         }
     }
 
-    fn validate_specific<'a>(
-        st: &mut KwState,
-        s: &StdText<Self, Self::P>,
-        names: HashSet<&'a str>,
-    ) -> ();
+    fn build_data_parser(s: &StdText<Self, Self::P>) -> Result<DataParser, Vec<String>> {
+        let offsets = Self::get_data_offsets(s);
+        Self::build_column_parser(s).map(|column_parser| DataParser {
+            column_parser,
+            offsets,
+        })
+    }
+
+    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: HashSet<&str>);
 
     // TODO I may want to be less strict with some of these, Time channel for
     // instance is something some files screw up by either naming the channel
     // something weird or not including TIMESTEP
-    fn validate(st: &mut KwState, s: &StdText<Self, Self::P>) -> () {
+    fn validate(st: &mut KwState, s: &StdText<Self, Self::P>) {
         let shortnames: HashSet<&str> = s
             .parameters
             .iter()
-            .map(|p| Self::P::parameter_name(p))
-            .flatten()
+            .filter_map(|p| Self::P::parameter_name(p))
             .collect();
 
         // TODO validate ranges. In the case of DATATYPE = I, $PnR should be the
@@ -1066,13 +1197,17 @@ trait MetadataFromKeywords: Sized {
 impl MetadataFromKeywords for InnerMetadata2_0 {
     type P = InnerParameter2_0;
 
+    fn get_data_offsets(s: &StdText<Self, Self::P>) -> Offsets {
+        s.header.data
+    }
+
     fn get_byteord(&self) -> ByteOrd {
         self.byteord.clone()
     }
 
     fn build_int_parser(
         &self,
-        ps: &Vec<Parameter<Self::P>>,
+        ps: &[Parameter<Self::P>],
         par: u32,
     ) -> Result<IntParser, Vec<String>> {
         let nbytes = self.byteord.num_bytes();
@@ -1080,7 +1215,7 @@ impl MetadataFromKeywords for InnerMetadata2_0 {
         let remainder: Vec<_> = ps.iter().filter(|p| p.bits_eq(u32::from(nbits))).collect();
         if remainder.is_empty() {
             Ok(IntParser::ByteOrd(ByteordIntParser {
-                par: par,
+                par,
                 byteord: self.byteord.clone(),
             }))
         } else {
@@ -1100,18 +1235,13 @@ impl MetadataFromKeywords for InnerMetadata2_0 {
 
     fn build_mixed_parser(
         &self,
-        _: &Vec<Parameter<Self::P>>,
+        _: &[Parameter<Self::P>],
         _: &AlphaNumTypes,
     ) -> Option<Result<MixedParser, Vec<String>>> {
         None
     }
 
-    fn validate_specific<'a>(
-        st: &mut KwState,
-        s: &StdText<Self, Self::P>,
-        names: HashSet<&'a str>,
-    ) -> () {
-    }
+    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: HashSet<&str>) {}
 
     fn build_inner(st: &mut KwState) -> Option<InnerMetadata2_0> {
         if let (Some(mode), Some(byteord)) = (st.lookup_mode(), st.lookup_byteord()) {
@@ -1131,6 +1261,15 @@ impl MetadataFromKeywords for InnerMetadata2_0 {
 impl MetadataFromKeywords for InnerMetadata3_0 {
     type P = InnerParameter3_0;
 
+    fn get_data_offsets(s: &StdText<Self, Self::P>) -> Offsets {
+        let header_offsets = s.header.data;
+        if header_offsets.is_empty() {
+            s.metadata.specific.data
+        } else {
+            header_offsets
+        }
+    }
+
     fn get_byteord(&self) -> ByteOrd {
         self.byteord.clone()
     }
@@ -1138,7 +1277,7 @@ impl MetadataFromKeywords for InnerMetadata3_0 {
     // TODO not dry, same as 2.0
     fn build_int_parser(
         &self,
-        ps: &Vec<Parameter<Self::P>>,
+        ps: &[Parameter<Self::P>],
         par: u32,
     ) -> Result<IntParser, Vec<String>> {
         let nbytes = self.byteord.num_bytes();
@@ -1146,7 +1285,7 @@ impl MetadataFromKeywords for InnerMetadata3_0 {
         let remainder: Vec<_> = ps.iter().filter(|p| p.bits_eq(u32::from(nbits))).collect();
         if remainder.is_empty() {
             Ok(IntParser::ByteOrd(ByteordIntParser {
-                par: par,
+                par,
                 byteord: self.byteord.clone(),
             }))
         } else {
@@ -1166,18 +1305,13 @@ impl MetadataFromKeywords for InnerMetadata3_0 {
 
     fn build_mixed_parser(
         &self,
-        _: &Vec<Parameter<Self::P>>,
+        _: &[Parameter<Self::P>],
         _: &AlphaNumTypes,
     ) -> Option<Result<MixedParser, Vec<String>>> {
         None
     }
 
-    fn validate_specific<'a>(
-        st: &mut KwState,
-        s: &StdText<Self, Self::P>,
-        names: HashSet<&'a str>,
-    ) -> () {
-    }
+    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: HashSet<&str>) {}
 
     fn build_inner(st: &mut KwState) -> Option<InnerMetadata3_0> {
         if let (Some(data), Some(supplemental), Some(tot), Some(mode), Some(byteord)) = (
@@ -1208,18 +1342,27 @@ impl MetadataFromKeywords for InnerMetadata3_0 {
 impl MetadataFromKeywords for InnerMetadata3_1 {
     type P = InnerParameter3_1;
 
+    fn get_data_offsets(s: &StdText<Self, Self::P>) -> Offsets {
+        let header_offsets = s.header.data;
+        if header_offsets.is_empty() {
+            s.metadata.specific.data
+        } else {
+            header_offsets
+        }
+    }
+
     fn get_byteord(&self) -> ByteOrd {
-        ByteOrd::BigLittle(self.byteord.clone())
+        ByteOrd::BigLittle(self.byteord)
     }
 
     fn build_int_parser(
         &self,
-        ps: &Vec<Parameter<Self::P>>,
+        ps: &[Parameter<Self::P>],
         par: u32,
     ) -> Result<IntParser, Vec<String>> {
         let widths: Vec<IntegerColumn> = ps
             .iter()
-            .map(|p| {
+            .filter_map(|p| {
                 if let (Some(bits), Some(mask)) = (p.bits.len(), p.bitmask()) {
                     Some(IntegerColumn {
                         bits,
@@ -1229,19 +1372,18 @@ impl MetadataFromKeywords for InnerMetadata3_1 {
                     None
                 }
             })
-            .flatten()
             .collect();
         if widths.len() == ps.len() {
             let unique_widths: Vec<_> = widths.iter().unique_by(|c| c.bits).collect();
             match unique_widths[..] {
                 [w] => Ok(IntParser::Fixed(FixedIntParser {
-                    par: par,
-                    endian: self.byteord.clone(),
+                    par,
+                    endian: self.byteord,
                     width: w.clone(),
                 })),
                 _ => Ok(IntParser::Variable(VariableIntParser {
-                    endian: self.byteord.clone(),
-                    widths: widths,
+                    endian: self.byteord,
+                    widths,
                 })),
             }
         } else {
@@ -1251,18 +1393,13 @@ impl MetadataFromKeywords for InnerMetadata3_1 {
 
     fn build_mixed_parser(
         &self,
-        _: &Vec<Parameter<Self::P>>,
+        _: &[Parameter<Self::P>],
         _: &AlphaNumTypes,
     ) -> Option<Result<MixedParser, Vec<String>>> {
         None
     }
 
-    fn validate_specific<'a>(
-        _: &mut KwState,
-        _: &StdText<Self, Self::P>,
-        _: HashSet<&'a str>,
-    ) -> () {
-    }
+    fn validate_specific(_: &mut KwState, _: &StdText<Self, Self::P>, _: HashSet<&str>) {}
 
     fn build_inner(st: &mut KwState) -> Option<InnerMetadata3_1> {
         if let (Some(data), Some(supplemental), Some(tot), Some(mode), Some(byteord)) = (
@@ -1295,19 +1432,29 @@ impl MetadataFromKeywords for InnerMetadata3_1 {
 impl MetadataFromKeywords for InnerMetadata3_2 {
     type P = InnerParameter3_2;
 
+    // TODO not DRY
+    fn get_data_offsets(s: &StdText<Self, Self::P>) -> Offsets {
+        let header_offsets = s.header.data;
+        if header_offsets.is_empty() {
+            s.metadata.specific.data
+        } else {
+            header_offsets
+        }
+    }
+
     fn get_byteord(&self) -> ByteOrd {
-        ByteOrd::BigLittle(self.byteord.clone())
+        ByteOrd::BigLittle(self.byteord)
     }
 
     // TODO not DRY, same as 3.1
     fn build_int_parser(
         &self,
-        ps: &Vec<Parameter<Self::P>>,
+        ps: &[Parameter<Self::P>],
         par: u32,
     ) -> Result<IntParser, Vec<String>> {
         let widths: Vec<IntegerColumn> = ps
             .iter()
-            .map(|p| {
+            .filter_map(|p| {
                 if let (Some(bits), Some(mask)) = (p.bits.len(), p.bitmask()) {
                     Some(IntegerColumn {
                         bits,
@@ -1317,19 +1464,18 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
                     None
                 }
             })
-            .flatten()
             .collect();
         if widths.len() == ps.len() {
             let unique_widths: Vec<_> = widths.iter().unique_by(|c| c.bits).collect();
             match unique_widths[..] {
                 [w] => Ok(IntParser::Fixed(FixedIntParser {
-                    par: par,
-                    endian: self.byteord.clone(),
+                    par,
+                    endian: self.byteord,
                     width: w.clone(),
                 })),
                 _ => Ok(IntParser::Variable(VariableIntParser {
-                    endian: self.byteord.clone(),
-                    widths: widths,
+                    endian: self.byteord,
+                    widths,
                 })),
             }
         } else {
@@ -1339,7 +1485,7 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
 
     fn build_mixed_parser(
         &self,
-        ps: &Vec<Parameter<Self::P>>,
+        ps: &[Parameter<Self::P>],
         dt: &AlphaNumTypes,
     ) -> Option<Result<MixedParser, Vec<String>>> {
         // first test if we have any PnDATATYPEs defined, if no then skip this
@@ -1368,7 +1514,10 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
                         if let Some(mask) = p.bitmask() {
                             Ok(ColumnType::Integer(IntegerColumn { bits: *bits, mask }))
                         } else {
-                            Err(format!(""))
+                            Err(format!(
+                                "Parameter {} is an integer but bitmask is invalid",
+                                i
+                            ))
                         }
                     }
                     (dt, overridden, bits) => {
@@ -1391,11 +1540,7 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
         }
     }
 
-    fn validate_specific<'a>(
-        st: &mut KwState,
-        s: &StdText<Self, Self::P>,
-        names: HashSet<&'a str>,
-    ) -> () {
+    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: HashSet<&str>) {
         // check that all names in $UNSTAINEDCENTERS match one of the channels
         if let OptionalKw::Present(centers) = &s.metadata.specific.unstained.unstainedcenters {
             for u in centers.keys() {
@@ -1499,12 +1644,12 @@ enum AnyTEXT {
 }
 
 impl AnyTEXT {
-    fn from_kws(v: Version, raw: RawTEXT) -> Result<Self, StandardErrors> {
-        match v {
-            Version::FCS2_0 => StdText::from_kws(raw).map(AnyTEXT::TEXT2_0),
-            Version::FCS3_0 => StdText::from_kws(raw).map(AnyTEXT::TEXT3_0),
-            Version::FCS3_1 => StdText::from_kws(raw).map(AnyTEXT::TEXT3_1),
-            Version::FCS3_2 => StdText::from_kws(raw).map(AnyTEXT::TEXT3_2),
+    fn from_kws(header: Header, raw: RawTEXT) -> Result<Self, StandardErrors> {
+        match header.version {
+            Version::FCS2_0 => StdText::from_kws(header, raw).map(AnyTEXT::TEXT2_0),
+            Version::FCS3_0 => StdText::from_kws(header, raw).map(AnyTEXT::TEXT3_0),
+            Version::FCS3_1 => StdText::from_kws(header, raw).map(AnyTEXT::TEXT3_1),
+            Version::FCS3_2 => StdText::from_kws(header, raw).map(AnyTEXT::TEXT3_2),
         }
     }
 }
@@ -1664,12 +1809,7 @@ impl KwState {
             _ => {
                 let xs: Vec<&str> = s.split(",").collect();
                 let nxs = xs.len();
-                let xs_num: Vec<u8> = xs
-                    .iter()
-                    .map(|s| s.parse().ok())
-                    .flatten()
-                    .unique()
-                    .collect();
+                let xs_num: Vec<u8> = xs.iter().filter_map(|s| s.parse().ok()).unique().collect();
                 if let (Some(min), Some(max)) = (xs_num.iter().min(), xs_num.iter().max()) {
                     if *min == 1 && usize::from(*max) == nxs && xs_num.len() == nxs {
                         Ok(ByteOrd::Mixed(xs_num))
@@ -1851,7 +1991,7 @@ impl KwState {
                 let mut us = HashMap::new();
                 if rest.len() == 2 * n {
                     for i in 0..n {
-                        if let Some(v) = rest[i + 8].parse().ok() {
+                        if let Ok(v) = rest[i + 8].parse() {
                             us.insert(String::from(rest[i]), v);
                         } else {
                             return Err(String::from("invalid numeric encountered"));
@@ -2009,7 +2149,7 @@ impl KwState {
     fn lookup_param_range(&mut self, n: u32) -> Option<Range> {
         self.lookup_param_req("R", n, |s| match s {
             // this is 2^128 exactly
-            "340282366920938463463374607431768211456" => Ok(Range::MaxRange),
+            "340282366920938463463374607431768211456" => Ok(Range::Max),
             _ => match s.parse::<u128>() {
                 Ok(x) => Ok(Range::BigInteger(x)),
                 Err(e) => match s.parse::<f32>() {
@@ -2106,10 +2246,10 @@ impl KwState {
                     _ => return Err(String::from("invalid float encountered")),
                 };
             }
-            return Ok(ws);
+            Ok(ws)
         })
         .to_option()
-        .unwrap_or(vec![])
+        .unwrap_or_default()
     }
 
     fn lookup_param_display(&mut self, n: u32) -> OptionalKw<Display> {
@@ -2165,17 +2305,14 @@ impl KwState {
         let mut value_errors: HashMap<String, KwError> = HashMap::new();
         for (k, v) in self.keywords {
             // TODO lots of clones here, not sure if this is necessary to fix
-            match v.status {
-                ValueStatus::Error(e) => {
-                    value_errors.insert(
-                        k,
-                        KwError {
-                            value: v.value,
-                            msg: e,
-                        },
-                    );
-                }
-                _ => (),
+            if let ValueStatus::Error(e) = v.status {
+                value_errors.insert(
+                    k,
+                    KwError {
+                        value: v.value,
+                        msg: e,
+                    },
+                );
             }
         }
         StandardErrors {
@@ -2185,7 +2322,7 @@ impl KwState {
         }
     }
 
-    fn push_meta_error(&mut self, msg: String) -> () {
+    fn push_meta_error(&mut self, msg: String) {
         self.meta_errors.push(msg);
     }
 
@@ -2198,15 +2335,12 @@ impl KwState {
         let mut nonstandard = HashMap::new();
         let mut deviant = HashMap::new();
         for (k, v) in self.keywords {
-            match v.status {
-                ValueStatus::Raw => {
-                    if k.starts_with("$") {
-                        deviant.insert(k, v.value);
-                    } else {
-                        nonstandard.insert(k, v.value);
-                    }
+            if let ValueStatus::Raw = v.status {
+                if k.starts_with("$") {
+                    deviant.insert(k, v.value);
+                } else {
+                    nonstandard.insert(k, v.value);
                 }
-                _ => (),
             }
         }
         TEXT {
@@ -2238,12 +2372,10 @@ fn parse_bounds(s0: &str, s1: &str, allow_blank: bool) -> Result<Offsets, &'stat
         } else {
             Ok(Offsets { begin, end })
         }
+    } else if allow_blank {
+        Err("could not make bounds from integers/blanks")
     } else {
-        if allow_blank {
-            Err("could not make bounds from integers/blanks")
-        } else {
-            Err("could not make bounds from integers")
-        }
+        Err("could not make bounds from integers")
     }
 }
 
@@ -2275,7 +2407,7 @@ fn parse_header(s: &str) -> Result<Header, &'static str> {
 
 fn read_header<R: Read>(h: &mut BufReader<R>) -> io::Result<Header> {
     let mut verbuf = [0; 58];
-    h.read(&mut verbuf)?;
+    h.read_exact(&mut verbuf)?;
     if let Ok(hs) = str::from_utf8(&verbuf) {
         parse_header(hs).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
     } else {
@@ -2341,11 +2473,11 @@ fn read_text<R: Read + Seek>(h: &mut BufReader<R>, header: &Header) -> io::Resul
 
     // Read first character, which should be the delimiter
     let mut dbuf = [0_u8];
-    h.read(&mut dbuf)?;
+    h.read_exact(&mut dbuf)?;
     let delimiter = dbuf[0];
 
     // Valid delimiters are in the set of {1..126}
-    if delimiter < 1 || delimiter > 126 {
+    if (1..=126).contains(&delimiter) {
         return Err(io::Error::new(
             io::ErrorKind::Other,
             "delimiter must be an ASCII character 1-126",
@@ -2364,7 +2496,7 @@ fn read_text<R: Read + Seek>(h: &mut BufReader<R>, header: &Header) -> io::Resul
     delim_positions.push(xf);
 
     // Read the last character and ensure it is also a delimiter
-    h.read(&mut dbuf)?;
+    h.read_exact(&mut dbuf)?;
     if dbuf[0] != delimiter {
         return Err(io::Error::new(
             io::ErrorKind::Other,
@@ -2389,11 +2521,10 @@ fn read_text<R: Read + Seek>(h: &mut BufReader<R>, header: &Header) -> io::Resul
         // We force-added the first and last delimiter in the TEXT segment, so
         // this is guaranteed to have at least two elements (one pair)
         .windows(2)
-        .map(|x| match x {
+        .filter_map(|x| match x {
             [a, b] => Some((*a, b - a)),
             _ => None,
         })
-        .flatten()
         .chunk_by(|(x, _)| *x)
         .into_iter()
     {
@@ -2487,6 +2618,6 @@ fn main() {
     //         println!("{}: {}", k, v);
     //     }
     // }
-    let stext = AnyTEXT::from_kws(header.version, text);
+    let stext = AnyTEXT::from_kws(header, text);
     println!("{:#?}", stext);
 }

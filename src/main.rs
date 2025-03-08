@@ -4,7 +4,6 @@ use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 use itertools::Itertools;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
-use std::env;
 use std::fmt;
 use std::fs;
 use std::io;
@@ -12,6 +11,7 @@ use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::iter;
 use std::num::IntErrorKind;
 use std::str;
+use std::{env, u64};
 
 fn format_standard_kw(kw: &str) -> String {
     format!("${}", kw.to_ascii_uppercase())
@@ -238,21 +238,21 @@ impl Endian {
 
 #[derive(Debug, Clone)]
 enum ByteOrd {
-    BigLittle(Endian),
+    Endian(Endian),
     Mixed(Vec<u8>),
 }
 
 impl ByteOrd {
     fn valid_byte_num(&self, n: u8) -> bool {
         match self {
-            ByteOrd::BigLittle(_) => true,
+            ByteOrd::Endian(_) => true,
             ByteOrd::Mixed(xs) => xs.len() == usize::from(n),
         }
     }
 
     fn to_float_byteord(&self, is_double: bool) -> Option<FloatByteOrd> {
         match self {
-            ByteOrd::BigLittle(e) => {
+            ByteOrd::Endian(e) => {
                 let f = if is_double {
                     FloatByteOrd::DoubleBigLittle
                 } else {
@@ -265,12 +265,12 @@ impl ByteOrd {
                     if is_double {
                         None
                     } else {
-                        Some(FloatByteOrd::SingleMixed([a, b, c, d]))
+                        Some(FloatByteOrd::SingleOrdered([a, b, c, d]))
                     }
                 }
                 [a, b, c, d, e, f, g, h] => {
                     if is_double {
-                        Some(FloatByteOrd::DoubleMixed([a, b, c, d, e, f, g, h]))
+                        Some(FloatByteOrd::DoubleOrdered([a, b, c, d, e, f, g, h]))
                     } else {
                         None
                     }
@@ -283,7 +283,7 @@ impl ByteOrd {
     // This only makes sense for integer types
     fn num_bytes(&self) -> u8 {
         match self {
-            ByteOrd::BigLittle(_) => 4,
+            ByteOrd::Endian(_) => 4,
             // TODO mildly unsafe, hopefully we won't have any BYTEORD fields
             // over 256 bytes long
             ByteOrd::Mixed(xs) => xs.len() as u8,
@@ -517,19 +517,28 @@ impl<X> Parameter<X> {
         matches!(self.bytes, Bytes::Variable)
     }
 
-    fn bitmask(&self) -> Option<u64> {
-        match (&self.range, &self.bytes) {
-            (Range::Int(rng), Bytes::Fixed(bytes)) => {
-                let y = u64::from((rng).ilog2());
-                let z = 2 ^ y;
-                let rangemask = if z == *rng { z } else { 2 ^ (y + 1) };
-                Some(rangemask.min(u64::from(2 ^ bytes)))
-            }
-            _ => None,
-        }
+    fn bitmask(&self, byteord: &ByteOrd) -> Option<AnyUint<AnyIntBitmask>> {
+        make_bitmask(&self.bytes, &self.range, byteord)
     }
 }
 
+fn make_bitmask(b: &Bytes, r: &Range, o: &ByteOrd) -> Option<AnyUint<AnyIntBitmask>> {
+    match b {
+        Bytes::Fixed(b) => match (b, r) {
+            (1, Range::Int(x)) => u8::to_bitmask(*x as u8 - 1, o),
+            (2, Range::Int(x)) => u16::to_bitmask(*x as u16 - 1, o),
+            (3, Range::Int(x)) => ToBitmask::<3>::to_bitmask(*x as u32 - 1, o),
+            (4, Range::Int(x)) => ToBitmask::<4>::to_bitmask(*x as u32 - 1, o),
+            (5, Range::Int(x)) => ToBitmask::<5>::to_bitmask(x - 1, o),
+            (6, Range::Int(x)) => ToBitmask::<6>::to_bitmask(x - 1, o),
+            (7, Range::Int(x)) => ToBitmask::<7>::to_bitmask(x - 1, o),
+            (8, Range::Int(x)) => ToBitmask::<8>::to_bitmask(x - 1, o),
+            (8, Range::Max) => ToBitmask::<8>::to_bitmask(u64::MAX, o),
+            _ => None,
+        },
+        _ => None,
+    }
+}
 // type Wavelength2_0 = Option<u32>;
 // type Wavelength3_1 = Vec<u32>;
 
@@ -867,8 +876,8 @@ struct StdTextResult<T> {
 enum FloatByteOrd {
     SingleBigLittle(Endian),
     DoubleBigLittle(Endian),
-    SingleMixed([u8; 4]),
-    DoubleMixed([u8; 8]),
+    SingleOrdered([u8; 4]),
+    DoubleOrdered([u8; 8]),
 }
 
 impl FloatByteOrd {
@@ -876,8 +885,8 @@ impl FloatByteOrd {
         match self {
             FloatByteOrd::SingleBigLittle(_) => false,
             FloatByteOrd::DoubleBigLittle(_) => true,
-            FloatByteOrd::SingleMixed(_) => false,
-            FloatByteOrd::DoubleMixed(_) => true,
+            FloatByteOrd::SingleOrdered(_) => false,
+            FloatByteOrd::DoubleOrdered(_) => true,
         }
     }
 
@@ -911,7 +920,7 @@ struct IntegerColumn {
 
 enum MixedColumnType {
     Ascii(u8),
-    Integer(IntegerColumn),
+    Uint(AnyUint<AnyIntBitmask>),
     Single,
     Double,
 }
@@ -926,35 +935,297 @@ struct F64ColumnData {
     datatype: F64DataType,
 }
 
-struct IntColumnData<T> {
-    data: Vec<T>,
-    bitmask: T,
-    bytes: u8,
-}
+type IntColumnData<B, S> = IntBitmask<B, S>;
 
 enum MixedColumnData {
     F32(Vec<f32>),
     F64(F64ColumnData),
-    U16(IntColumnData<u16>),
-    U32(IntColumnData<u32>),
-    U64(IntColumnData<u64>),
+    Uint(AnyUint<AnyIntData>),
 }
+
+trait IntMath: Sized {
+    fn next_power_2(x: Self) -> Option<Self>;
+}
+
+trait FromBytes<const DTLEN: usize>: Sized + Copy {
+    fn from_big(buf: [u8; DTLEN]) -> Self;
+
+    fn from_little(buf: [u8; DTLEN]) -> Self;
+
+    fn read_from_big<R: Read + Seek>(h: &mut BufReader<R>) -> io::Result<Self> {
+        let mut buf = [0; DTLEN];
+        h.read_exact(&mut buf)?;
+        Ok(Self::from_big(buf))
+    }
+
+    fn read_from_little<R: Read + Seek>(h: &mut BufReader<R>) -> io::Result<Self> {
+        let mut buf = [0; DTLEN];
+        h.read_exact(&mut buf)?;
+        Ok(Self::from_little(buf))
+    }
+
+    fn read_from_endian<R: Read + Seek>(h: &mut BufReader<R>, endian: Endian) -> io::Result<Self> {
+        if endian.is_big() {
+            Self::read_from_big(h)
+        } else {
+            Self::read_from_little(h)
+        }
+    }
+}
+
+trait OrderedFromBytes<const DTLEN: usize, const OLEN: usize>: FromBytes<DTLEN> {
+    fn read_from_ordered<R: Read + Seek>(
+        h: &mut BufReader<R>,
+        order: &[u8; OLEN],
+    ) -> io::Result<Self> {
+        let mut tmp = [0; OLEN];
+        let mut buf = [0; DTLEN];
+        h.read_exact(&mut tmp)?;
+        for (i, j) in order.iter().enumerate() {
+            buf[usize::from(*j)] = tmp[i];
+        }
+        Ok(Self::from_little(buf))
+    }
+}
+
+trait ToBitmask<const INTLEN: usize>: Sized + IntMath {
+    // NOTE this won't be used for sizes 1 and 2
+    fn byteord_to_bitmask(byteord: &ByteOrd) -> Option<SizedByteOrd<INTLEN>> {
+        match byteord {
+            ByteOrd::Endian(e) => Some(SizedByteOrd::Endian(*e)),
+            ByteOrd::Mixed(v) => v[..]
+                .try_into()
+                .ok()
+                .map(|x: [u8; INTLEN]| SizedByteOrd::Order(x)),
+        }
+    }
+
+    fn build_uint(bitmask: Self, byteord: &ByteOrd) -> Option<AnyUint<AnyIntBitmask>>;
+
+    fn to_bitmask(range: Self, byteord: &ByteOrd) -> Option<AnyUint<AnyIntBitmask>> {
+        Self::next_power_2(range).and_then(|bitmask| Self::build_uint(bitmask, byteord))
+    }
+}
+
+trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
+    FromBytes<DTLEN> + OrderedFromBytes<DTLEN, INTLEN> + Ord
+{
+    fn read_int_masked<R: Read + Seek>(
+        h: &mut BufReader<R>,
+        endian: &SizedByteOrd<INTLEN>,
+        bitmask: Self,
+    ) -> io::Result<Self> {
+        Self::read_int(h, endian).map(|x| x.min(bitmask))
+    }
+
+    fn read_int<R: Read + Seek>(
+        h: &mut BufReader<R>,
+        endian: &SizedByteOrd<INTLEN>,
+    ) -> io::Result<Self> {
+        // This lovely code will read data that is not a power-of-two
+        // bytes long. Start by reading n bytes into a vector, which can
+        // take a varying size. Then copy this into the power of 2 buffer
+        // and reset all the unused cells to 0. This copy has to go to one
+        // or the other end of the buffer depending on endianness.
+        let mut tmp = [0; INTLEN];
+        let mut buf = [0; DTLEN];
+        match endian {
+            SizedByteOrd::Endian(Endian::Big) => {
+                let b = DTLEN - INTLEN;
+                h.read_exact(&mut tmp)?;
+                buf[b..].copy_from_slice(&tmp[b..]);
+                Ok(Self::from_big(buf))
+            }
+            SizedByteOrd::Endian(Endian::Little) => {
+                h.read_exact(&mut tmp)?;
+                buf[..INTLEN].copy_from_slice(&tmp[..INTLEN]);
+                Ok(Self::from_little(buf))
+            }
+            SizedByteOrd::Order(order) => Self::read_from_ordered(h, order),
+        }
+    }
+}
+
+impl FromBytes<1> for u8 {
+    fn from_big(buf: [u8; 1]) -> Self {
+        u8::from_be_bytes(buf)
+    }
+
+    fn from_little(buf: [u8; 1]) -> Self {
+        u8::from_le_bytes(buf)
+    }
+}
+
+impl IntMath for u8 {
+    fn next_power_2(x: Self) -> Option<Self> {
+        Self::checked_next_power_of_two(x)
+    }
+}
+
+impl IntMath for u16 {
+    fn next_power_2(x: Self) -> Option<Self> {
+        Self::checked_next_power_of_two(x)
+    }
+}
+
+impl IntMath for u32 {
+    fn next_power_2(x: Self) -> Option<Self> {
+        Self::checked_next_power_of_two(x)
+    }
+}
+
+impl IntMath for u64 {
+    fn next_power_2(x: Self) -> Option<Self> {
+        Self::checked_next_power_of_two(x)
+    }
+}
+
+impl ToBitmask<1> for u8 {
+    fn build_uint(bitmask: Self, _: &ByteOrd) -> Option<AnyUint<AnyIntBitmask>> {
+        Some(AnyUint::Uint8(IntBitmask { bitmask, size: () }))
+    }
+}
+
+impl FromBytes<2> for u16 {
+    fn from_big(buf: [u8; 2]) -> Self {
+        u16::from_be_bytes(buf)
+    }
+
+    fn from_little(buf: [u8; 2]) -> Self {
+        u16::from_le_bytes(buf)
+    }
+}
+
+impl OrderedFromBytes<2, 2> for u16 {}
+impl IntFromBytes<2, 2> for u16 {}
+
+impl ToBitmask<2> for u16 {
+    fn build_uint(bitmask: Self, byteord: &ByteOrd) -> Option<AnyUint<AnyIntBitmask>> {
+        match byteord {
+            ByteOrd::Endian(e) => Some(AnyUint::Uint16(IntBitmask { bitmask, size: *e })),
+            _ => None,
+        }
+    }
+}
+
+impl FromBytes<4> for u32 {
+    fn from_big(buf: [u8; 4]) -> Self {
+        u32::from_be_bytes(buf)
+    }
+
+    fn from_little(buf: [u8; 4]) -> Self {
+        u32::from_le_bytes(buf)
+    }
+}
+
+impl OrderedFromBytes<4, 3> for u32 {}
+impl IntFromBytes<4, 3> for u32 {}
+impl OrderedFromBytes<4, 4> for u32 {}
+impl IntFromBytes<4, 4> for u32 {}
+
+impl ToBitmask<3> for u32 {
+    fn build_uint(bitmask: Self, byteord: &ByteOrd) -> Option<AnyUint<AnyIntBitmask>> {
+        Self::byteord_to_bitmask(byteord).map(|size| AnyUint::Uint24(IntBitmask { bitmask, size }))
+    }
+}
+
+impl ToBitmask<4> for u32 {
+    fn build_uint(bitmask: Self, byteord: &ByteOrd) -> Option<AnyUint<AnyIntBitmask>> {
+        Self::byteord_to_bitmask(byteord).map(|size| AnyUint::Uint32(IntBitmask { bitmask, size }))
+    }
+}
+
+impl FromBytes<8> for u64 {
+    fn from_big(buf: [u8; 8]) -> Self {
+        u64::from_be_bytes(buf)
+    }
+
+    fn from_little(buf: [u8; 8]) -> Self {
+        u64::from_le_bytes(buf)
+    }
+}
+
+impl OrderedFromBytes<8, 5> for u64 {}
+impl IntFromBytes<8, 5> for u64 {}
+impl OrderedFromBytes<8, 6> for u64 {}
+impl IntFromBytes<8, 6> for u64 {}
+impl OrderedFromBytes<8, 7> for u64 {}
+impl IntFromBytes<8, 7> for u64 {}
+impl OrderedFromBytes<8, 8> for u64 {}
+impl IntFromBytes<8, 8> for u64 {}
+
+impl ToBitmask<5> for u64 {
+    fn build_uint(bitmask: Self, byteord: &ByteOrd) -> Option<AnyUint<AnyIntBitmask>> {
+        Self::byteord_to_bitmask(byteord).map(|size| AnyUint::Uint40(IntBitmask { bitmask, size }))
+    }
+}
+
+impl ToBitmask<6> for u64 {
+    fn build_uint(bitmask: Self, byteord: &ByteOrd) -> Option<AnyUint<AnyIntBitmask>> {
+        Self::byteord_to_bitmask(byteord).map(|size| AnyUint::Uint48(IntBitmask { bitmask, size }))
+    }
+}
+
+impl ToBitmask<7> for u64 {
+    fn build_uint(bitmask: Self, byteord: &ByteOrd) -> Option<AnyUint<AnyIntBitmask>> {
+        Self::byteord_to_bitmask(byteord).map(|size| AnyUint::Uint56(IntBitmask { bitmask, size }))
+    }
+}
+
+impl ToBitmask<8> for u64 {
+    fn build_uint(bitmask: Self, byteord: &ByteOrd) -> Option<AnyUint<AnyIntBitmask>> {
+        Self::byteord_to_bitmask(byteord).map(|size| AnyUint::Uint64(IntBitmask { bitmask, size }))
+    }
+}
+
+impl FromBytes<4> for f32 {
+    fn from_big(buf: [u8; 4]) -> Self {
+        f32::from_be_bytes(buf)
+    }
+
+    fn from_little(buf: [u8; 4]) -> Self {
+        f32::from_le_bytes(buf)
+    }
+}
+
+impl OrderedFromBytes<4, 4> for f32 {}
+
+impl FromBytes<8> for f64 {
+    fn from_big(buf: [u8; 8]) -> Self {
+        f64::from_be_bytes(buf)
+    }
+
+    fn from_little(buf: [u8; 8]) -> Self {
+        f64::from_le_bytes(buf)
+    }
+}
+
+impl OrderedFromBytes<8, 8> for f64 {}
 
 impl MixedColumnData {
     fn to_series(self) -> Series {
         match self {
             MixedColumnData::F32(x) => Series::F32(x),
             MixedColumnData::F64(x) => Series::F64(x.data),
-            MixedColumnData::U16(x) => Series::U16(x.data),
-            MixedColumnData::U32(x) => Series::U32(x.data),
-            MixedColumnData::U64(x) => Series::U64(x.data),
+            MixedColumnData::Uint(x) => match x {
+                AnyUint::Uint8(y) => Series::U8(y.data),
+                AnyUint::Uint16(y) => Series::U16(y.data),
+                AnyUint::Uint24(y) => Series::U32(y.data),
+                AnyUint::Uint32(y) => Series::U32(y.data),
+                AnyUint::Uint40(y) => Series::U64(y.data),
+                AnyUint::Uint48(y) => Series::U64(y.data),
+                AnyUint::Uint56(y) => Series::U64(y.data),
+                AnyUint::Uint64(y) => Series::U64(y.data),
+            },
         }
     }
 }
 
 impl MixedColumnType {
-    fn init_column(&self, n: usize) -> MixedColumnData {
+    fn init_column(self, n: usize) -> MixedColumnData {
         match self {
+            MixedColumnType::Uint(_) => unimplemented!(),
+            MixedColumnType::Single => MixedColumnData::F32(vec![0.0; n]),
             // Ascii and doubles get stored in the same data type. In the former
             // case, I don't feel like making too many assumptions about how big
             // an ascii field will be, so just shove it in a float field. If
@@ -962,41 +1233,19 @@ impl MixedColumnType {
             // chosen ascii.
             MixedColumnType::Ascii(x) => MixedColumnData::F64(F64ColumnData {
                 data: vec![0.0; n],
-                datatype: F64DataType::Ascii(*x),
+                datatype: F64DataType::Ascii(x),
             }),
             MixedColumnType::Double => MixedColumnData::F64(F64ColumnData {
                 data: vec![0.0; n],
                 datatype: F64DataType::Double,
             }),
-            MixedColumnType::Integer(IntegerColumn { bytes, bitmask }) => {
-                if *bytes <= 16 {
-                    MixedColumnData::U16(IntColumnData {
-                        data: vec![0; n],
-                        bytes: *bytes,
-                        bitmask: *bitmask as u16,
-                    })
-                } else if *bytes <= 32 {
-                    MixedColumnData::U32(IntColumnData {
-                        data: vec![0; n],
-                        bytes: *bytes,
-                        bitmask: *bitmask as u32,
-                    })
-                } else {
-                    MixedColumnData::U64(IntColumnData {
-                        data: vec![0; n],
-                        bytes: *bytes,
-                        bitmask: *bitmask,
-                    })
-                }
-            }
-            MixedColumnType::Single => MixedColumnData::F32(vec![0.0; n]),
         }
     }
 
     fn width(&self) -> u8 {
         match self {
             MixedColumnType::Ascii(x) => *x,
-            MixedColumnType::Integer(i) => i.bytes,
+            MixedColumnType::Uint(u) => u.width(),
             MixedColumnType::Single => 4,
             MixedColumnType::Double => 8,
         }
@@ -1026,27 +1275,89 @@ impl HasEventWidth for MixedParser {
 }
 
 struct ByteordIntParser {
-    byteord: ByteOrd,
+    bitmask: AnyUint<AnyIntBitmask>,
     par: u32,
+}
+
+enum SizedByteOrd<const LEN: usize> {
+    Endian(Endian),
+    Order([u8; LEN]),
+}
+
+struct IntBitmask<B, S> {
+    bitmask: B,
+    size: S,
+}
+
+struct IntData<B, S> {
+    bitmask: IntBitmask<B, S>,
+    data: Vec<B>,
+}
+
+trait UintInner {
+    type Inner<X, Y>;
+}
+
+struct AnyIntData;
+
+impl UintInner for AnyIntData {
+    type Inner<X, Y> = IntData<X, Y>;
+}
+
+struct AnyIntBitmask;
+
+impl UintInner for AnyIntBitmask {
+    type Inner<X, Y> = IntBitmask<X, Y>;
+}
+
+enum AnyUint<T: UintInner> {
+    Uint8(<T as UintInner>::Inner<u8, ()>),
+    Uint16(<T as UintInner>::Inner<u16, Endian>),
+    Uint24(<T as UintInner>::Inner<u32, SizedByteOrd<3>>),
+    Uint32(<T as UintInner>::Inner<u32, SizedByteOrd<4>>),
+    Uint40(<T as UintInner>::Inner<u64, SizedByteOrd<5>>),
+    Uint48(<T as UintInner>::Inner<u64, SizedByteOrd<6>>),
+    Uint56(<T as UintInner>::Inner<u64, SizedByteOrd<7>>),
+    Uint64(<T as UintInner>::Inner<u64, SizedByteOrd<8>>),
+}
+
+struct FixedIntParser<B, S> {
+    endian: S,
+    bitmasks: Vec<B>,
+}
+
+struct AnyFixedIntParser;
+
+impl UintInner for AnyFixedIntParser {
+    type Inner<X, Y> = IntBitmask<X, Y>;
+}
+
+impl<T: UintInner> AnyUint<T> {
+    fn width(&self) -> u8 {
+        match self {
+            AnyUint::Uint8(_) => 1,
+            AnyUint::Uint16(_) => 2,
+            AnyUint::Uint24(_) => 3,
+            AnyUint::Uint32(_) => 4,
+            AnyUint::Uint40(_) => 5,
+            AnyUint::Uint48(_) => 6,
+            AnyUint::Uint56(_) => 7,
+            AnyUint::Uint64(_) => 8,
+        }
+    }
 }
 
 impl HasEventWidth for ByteordIntParser {
     fn event_bytes(&self) -> u32 {
-        u32::from(self.byteord.num_bytes()) * 8 * self.par
+        u32::from(self.bitmask.width()) * self.par
     }
 }
 
-struct FixedIntParser {
-    endian: Endian,
-    width: IntegerColumn,
-    par: u32,
-}
-
-impl HasEventWidth for FixedIntParser {
-    fn event_bytes(&self) -> u32 {
-        u32::from(self.width.bytes) * self.par
-    }
-}
+// impl HasEventWidth for FixedIntParser {
+//     fn event_bytes(&self) -> u32 {
+//         u32::from(self.width.bytes) * self.par
+//     }
+// }
 
 struct VariableIntParser {
     endian: Endian,
@@ -1060,11 +1371,10 @@ impl HasEventWidth for VariableIntParser {
 }
 
 enum IntParser {
-    // TODO what about fields whose width aren't a power of 2?
     // DATATYPE=I with width implied by BYTEORD (2.0-3.0)
     ByteOrd(ByteordIntParser),
     // DATATYPE=I with all PnB set to the same width (3.1+)
-    Fixed(FixedIntParser),
+    Fixed(AnyUint<AnyFixedIntParser>),
     // DATATYPE=I with PnB set to different widths (3.1+)
     Variable(VariableIntParser),
 }
@@ -1073,7 +1383,8 @@ impl HasEventWidth for IntParser {
     fn event_bytes(&self) -> u32 {
         match self {
             IntParser::ByteOrd(p) => p.event_bytes(),
-            IntParser::Fixed(p) => p.event_bytes(),
+            // IntParser::Fixed(p) => p.event_bytes(),
+            IntParser::Fixed(_) => unimplemented!(),
             IntParser::Variable(p) => p.event_bytes(),
         }
     }
@@ -1098,49 +1409,14 @@ struct DataParser {
     offsets: Offsets,
 }
 
-// struct DataColumn0<T>(Vec<T>);
-
-// struct IntDataColumn<T> {
-//     data: Vec<T>,
-//     bytes: u8,
-//     mask: T,
-// }
-
 enum Series {
     F32(Vec<f32>),
     F64(Vec<f64>),
+    U8(Vec<u8>),
     U16(Vec<u16>),
     U32(Vec<u32>),
     U64(Vec<u64>),
 }
-
-impl Series {
-    fn set_f32(&mut self, i: usize, x: f32) {
-        if let Series::F32(xs) = self {
-            xs[i] = x;
-        }
-    }
-
-    fn set_f64(&mut self, i: usize, x: f64) {
-        if let Series::F64(xs) = self {
-            xs[i] = x;
-        }
-    }
-}
-
-// fn from_mixed_bytes_f32(xs: [u8; 4], order: [u8; 4], e: Endian) -> f32 {
-//     let mut tmp = [0; 4];
-//     for i in order {
-//         tmp[usize::from(i)] = xs[usize::from(i)];
-//     }
-//     if e.is_big() {
-//         f32::from_be_bytes(tmp)
-//     } else {
-//         f32::from_le_bytes(tmp)
-//     }
-// }
-
-// struct ParsedData<'a>(&'a mut Vec<Series>);
 
 type ParsedData = Vec<Series>;
 
@@ -1158,7 +1434,6 @@ fn read_data<R: Read + Seek>(h: &mut BufReader<R>, parser: DataParser) -> io::Re
     let mut buf2 = [0; 2];
     let mut buf4 = [0; 4];
     let mut buf8 = [0; 8];
-    let mut oddbuf = vec![]; // for byte widths that aren't powers of 2
     let mut strbuf = String::new(); // for parsing Ascii
     match parser.column_parser {
         ColumnParser::DelimitedAscii(par) => unimplemented!(),
@@ -1172,117 +1447,119 @@ fn read_data<R: Read + Seek>(h: &mut BufReader<R>, parser: DataParser) -> io::Re
             // TODO fix casts?
             match byteord {
                 FloatByteOrd::SingleBigLittle(e) => {
-                    let mut data: Vec<_> =
-                        iter::repeat_with(|| Series::F32(vec![0.0; nrows as usize]))
-                            .take(ncols as usize)
-                            .collect();
-                    let f = if e.is_big() {
-                        f32::from_be_bytes
-                    } else {
-                        f32::from_le_bytes
-                    };
-                    for r in 0..nrows {
-                        for c in 0..ncols {
-                            h.read_exact(&mut buf4)?;
-                            data[c as usize].set_f32(r as usize, f(buf4));
+                    let mut columns: Vec<_> = iter::repeat_with(|| vec![0.0; nrows as usize])
+                        .take(ncols as usize)
+                        .collect();
+                    for r in 0..(nrows as usize) {
+                        for c in columns.iter_mut() {
+                            c[r] = f32::read_from_endian(h, e)?;
                         }
                     }
+                    Ok(columns.into_iter().map(Series::F32).collect())
                 }
                 FloatByteOrd::DoubleBigLittle(e) => {
-                    let mut data: Vec<_> =
-                        iter::repeat_with(|| Series::F64(vec![0.0; nrows as usize]))
-                            .take(ncols as usize)
-                            .collect();
-                    let f = if e.is_big() {
-                        f64::from_be_bytes
-                    } else {
-                        f64::from_le_bytes
-                    };
-                    for r in 0..nrows {
-                        for c in 0..ncols {
-                            h.read_exact(&mut buf8)?;
-                            data[c as usize].set_f64(r as usize, f(buf8));
+                    let mut columns: Vec<_> = iter::repeat_with(|| vec![0.0; nrows as usize])
+                        .take(ncols as usize)
+                        .collect();
+                    for r in 0..(nrows as usize) {
+                        for c in columns.iter_mut() {
+                            c[r] = f64::read_from_endian(h, e)?;
                         }
                     }
+                    Ok(columns.into_iter().map(Series::F64).collect())
                 }
-                FloatByteOrd::SingleMixed(e) => {}
-                FloatByteOrd::DoubleMixed(e) => {}
+                FloatByteOrd::SingleOrdered(e) => {
+                    let mut columns: Vec<_> = iter::repeat_with(|| vec![0.0; nrows as usize])
+                        .take(ncols as usize)
+                        .collect();
+                    for r in 0..(nrows as usize) {
+                        for c in columns.iter_mut() {
+                            c[r] = f32::read_from_ordered(h, &e)?;
+                        }
+                    }
+                    Ok(columns.into_iter().map(Series::F32).collect())
+                }
+                FloatByteOrd::DoubleOrdered(e) => {
+                    let mut columns: Vec<_> = iter::repeat_with(|| vec![0.0; nrows as usize])
+                        .take(ncols as usize)
+                        .collect();
+                    for r in 0..(nrows as usize) {
+                        for c in columns.iter_mut() {
+                            c[r] = f64::read_from_ordered(h, &e)?;
+                        }
+                    }
+                    Ok(columns.into_iter().map(Series::F64).collect())
+                }
             }
-            unimplemented!()
         }
-        ColumnParser::Int(subparser) => unimplemented!(),
         ColumnParser::Mixed(p) => {
             // TODO handle remainder case
             let (nrows, _) = p.nrows(nbytes);
-            let mut columns: Vec<_> = p
+            let mut columns: Vec<MixedColumnData> = p
                 .columns
-                .iter()
+                .into_iter()
                 .map(|c| c.init_column(nrows as usize))
                 .collect();
-            for r in 0..nrows {
+            for r in 0..(nrows as usize) {
                 for c in columns.iter_mut() {
                     match c {
                         MixedColumnData::F32(series) => {
-                            h.read_exact(&mut buf4);
-                            series[r as usize] = f32::from_le_bytes(buf4);
+                            series[r] = f32::read_from_endian(h, p.endian)?;
                         }
-                        MixedColumnData::F64(F64ColumnData { datatype, data }) => {
-                            if let F64DataType::Ascii(bytes) = datatype {
+                        MixedColumnData::F64(d) => {
+                            if let F64DataType::Ascii(bytes) = d.datatype {
                                 strbuf.clear();
-                                h.take(u64::from(*bytes)).read_to_string(&mut strbuf);
+                                h.take(u64::from(bytes)).read_to_string(&mut strbuf)?;
                                 // TODO better error handling
-                                data[r as usize] = strbuf.parse::<f64>().unwrap();
+                                d.data[r] = strbuf.parse::<f64>().unwrap();
                             } else {
-                                h.read_exact(&mut buf8);
-                                data[r as usize] = f64::from_le_bytes(buf8);
+                                d.data[r] = f64::read_from_endian(h, p.endian)?;
                             }
                         }
-                        // TODO is there anyone out there using single byte width?
-                        MixedColumnData::U16(IntColumnData {
-                            data,
-                            bytes,
-                            bitmask,
-                        }) => {
-                            h.read_exact(&mut buf2);
-                            data[r as usize] = u16::from_le_bytes(buf2).min(*bitmask);
-                        }
-                        MixedColumnData::U32(IntColumnData {
-                            data,
-                            bytes,
-                            bitmask,
-                        }) => {
-                            if *bytes == 3 {
-                                h.take(3).read_to_end(&mut oddbuf);
-                                for i in 0..3 {
-                                    buf4[i] = oddbuf[i];
-                                }
-                                data[r as usize] = u32::from_le_bytes(buf4).min(*bitmask);
-                            } else {
-                                h.read_exact(&mut buf4);
-                                data[r as usize] = u32::from_le_bytes(buf4).min(*bitmask);
+                        MixedColumnData::Uint(u) => match u {
+                            AnyUint::Uint8(d) => {
+                                d.data[r] =
+                                    u8::read_from_little(h).map(|x| x.min(d.bitmask.bitmask))?;
                             }
-                        }
-                        MixedColumnData::U64(IntColumnData {
-                            data,
-                            bytes,
-                            bitmask,
-                        }) => {
-                            if *bytes == 8 {
-                                h.read_exact(&mut buf8);
-                                data[r as usize] = u64::from_le_bytes(buf8).min(*bitmask);
-                            } else {
-                                h.take(u64::from(*bytes)).read_to_end(&mut oddbuf);
-                                for i in 0..(usize::from(*bytes)) {
-                                    buf8[i] = oddbuf[i];
-                                }
-                                data[r as usize] = u64::from_le_bytes(buf8).min(*bitmask);
+                            AnyUint::Uint16(d) => {
+                                d.data[r] = u16::read_from_endian(h, d.bitmask.size)
+                                    .map(|x| x.min(d.bitmask.bitmask))?;
                             }
-                        }
+                            AnyUint::Uint24(d) => {
+                                d.data[r] =
+                                    u32::read_int_masked(h, &d.bitmask.size, d.bitmask.bitmask)?;
+                            }
+                            AnyUint::Uint32(d) => {
+                                d.data[r] =
+                                    u32::read_int_masked(h, &d.bitmask.size, d.bitmask.bitmask)?;
+                            }
+                            AnyUint::Uint40(d) => {
+                                d.data[r] =
+                                    u64::read_int_masked(h, &d.bitmask.size, d.bitmask.bitmask)?;
+                            }
+                            AnyUint::Uint48(d) => {
+                                d.data[r] =
+                                    u64::read_int_masked(h, &d.bitmask.size, d.bitmask.bitmask)?;
+                            }
+                            AnyUint::Uint56(d) => {
+                                d.data[r] =
+                                    u64::read_int_masked(h, &d.bitmask.size, d.bitmask.bitmask)?;
+                            }
+                            AnyUint::Uint64(d) => {
+                                d.data[r] =
+                                    u64::read_int_masked(h, &d.bitmask.size, d.bitmask.bitmask)?;
+                            }
+                        },
                     }
                 }
             }
-            Ok(columns.iter().map(|c| c.to_series()).collect())
+            Ok(columns.into_iter().map(|c| c.to_series()).collect())
         }
+        ColumnParser::Int(sp) => match sp {
+            IntParser::ByteOrd(_) => unimplemented!(),
+            IntParser::Fixed(_) => unimplemented!(),
+            IntParser::Variable(_) => unimplemented!(),
+        },
     }
 }
 
@@ -1447,6 +1724,8 @@ impl MetadataFromKeywords for InnerMetadata2_0 {
         self.byteord.clone()
     }
 
+    // TODO in this case we will have the same width for each column, but
+    // the bitmask values might be different depending on PnR for each parameter
     fn build_int_parser(
         &self,
         ps: &[Parameter<Self::P>],
@@ -1592,9 +1871,11 @@ impl MetadataFromKeywords for InnerMetadata3_1 {
     }
 
     fn get_byteord(&self) -> ByteOrd {
-        ByteOrd::BigLittle(self.byteord)
+        ByteOrd::Endian(self.byteord)
     }
 
+    // endian direction will be the same for all, but width and bitmask might
+    // differ b/t columns
     fn build_int_parser(
         &self,
         ps: &[Parameter<Self::P>],
@@ -1603,10 +1884,12 @@ impl MetadataFromKeywords for InnerMetadata3_1 {
         let widths: Vec<IntegerColumn> = ps
             .iter()
             .filter_map(|p| {
-                if let (Some(bytes), Some(mask)) = (p.bytes.len(), p.bitmask()) {
+                if let (Some(bytes), Some(mask)) =
+                    (p.bytes.len(), p.bitmask(&ByteOrd::Endian(self.byteord)))
+                {
                     Some(IntegerColumn {
                         bytes,
-                        bitmask: mask.min(u64::from(2 ^ bytes)),
+                        bitmask: mask.bitmask,
                     })
                 } else {
                     None
@@ -1683,7 +1966,7 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
     }
 
     fn get_byteord(&self) -> ByteOrd {
-        ByteOrd::BigLittle(self.byteord)
+        ByteOrd::Endian(self.byteord)
     }
 
     // TODO not DRY, same as 3.1
@@ -1695,7 +1978,9 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
         let widths: Vec<IntegerColumn> = ps
             .iter()
             .filter_map(|p| {
-                if let (Some(bytes), Some(mask)) = (p.bytes.len(), p.bitmask()) {
+                if let (Some(bytes), Some(mask)) =
+                    (p.bytes.len(), p.bitmask(&ByteOrd::Endian(self.byteord)))
+                {
                     Some(IntegerColumn {
                         bytes,
                         bitmask: mask.min(u64::from(2 ^ bytes)),
@@ -1753,11 +2038,8 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
                     (AlphaNumTypes::Single, _, Bytes::Fixed(4)) => Ok(MixedColumnType::Single),
                     (AlphaNumTypes::Double, _, Bytes::Fixed(8)) => Ok(MixedColumnType::Double),
                     (AlphaNumTypes::Integer, _, Bytes::Fixed(bytes)) => {
-                        if let Some(mask) = p.bitmask() {
-                            Ok(MixedColumnType::Integer(IntegerColumn {
-                                bytes: *bytes,
-                                bitmask: mask,
-                            }))
+                        if let Some(mask) = p.bitmask(&ByteOrd::Endian(self.byteord)) {
+                            Ok(MixedColumnType::Uint(mask))
                         } else {
                             Err(format!(
                                 "Parameter {} is an integer but bitmask is invalid",
@@ -2026,7 +2308,7 @@ impl KwState {
 
     fn lookup_byteord(&mut self) -> Option<ByteOrd> {
         self.get_required("BYTEORD", |s| match parse_endian(s) {
-            Ok(e) => Ok(ByteOrd::BigLittle(e)),
+            Ok(e) => Ok(ByteOrd::Endian(e)),
             _ => {
                 let xs: Vec<&str> = s.split(",").collect();
                 let nxs = xs.len();

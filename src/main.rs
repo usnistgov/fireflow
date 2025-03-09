@@ -567,7 +567,7 @@ fn make_int_column_parser(
     b: u8,
     rs: &Vec<Range>,
     o: &ByteOrd,
-    t: u32,
+    t: usize,
 ) -> Result<AnyIntParser, Vec<String>> {
     match b {
         1 => u8::to_fixed_parser(rs, o, t).map(AnyIntParser::Uint8),
@@ -1068,9 +1068,9 @@ trait CanParseInt<const INTLEN: usize>: Sized + IntMath {
     }
 
     fn to_fixed_parser(
-        ranges: &Vec<Range>,
+        ranges: &[Range],
         byteord: &ByteOrd,
-        total_events: u32,
+        total_events: usize,
     ) -> Result<FixedIntParser<Self, Self::Size>, Vec<String>> {
         let (bitmasks, mut fail): (Vec<_>, Vec<_>) = ranges
             .iter()
@@ -1086,7 +1086,7 @@ trait CanParseInt<const INTLEN: usize>: Sized + IntMath {
                 if fail.is_empty() {
                     Ok(FixedIntParser {
                         byteord: size,
-                        nrows: total_events as usize,
+                        nrows: total_events,
                         bitmasks,
                     })
                 } else {
@@ -1467,51 +1467,48 @@ fn read_data<R: Read + Seek>(h: &mut BufReader<R>, parser: DataParser) -> io::Re
             ncols,
             nrows,
             byteord,
-        }) => {
-            // TODO fix casts?
-            match byteord {
-                FloatByteOrd::SingleBigLittle(e) => {
-                    let mut columns: Vec<_> =
-                        iter::repeat_with(|| vec![0.0; nrows]).take(ncols).collect();
-                    for r in 0..nrows {
-                        for c in columns.iter_mut() {
-                            c[r] = f32::read_from_endian(h, e)?;
-                        }
+        }) => match byteord {
+            FloatByteOrd::SingleBigLittle(e) => {
+                let mut columns: Vec<_> =
+                    iter::repeat_with(|| vec![0.0; nrows]).take(ncols).collect();
+                for r in 0..nrows {
+                    for c in columns.iter_mut() {
+                        c[r] = f32::read_from_endian(h, e)?;
                     }
-                    Ok(columns.into_iter().map(Series::F32).collect())
                 }
-                FloatByteOrd::DoubleBigLittle(e) => {
-                    let mut columns: Vec<_> =
-                        iter::repeat_with(|| vec![0.0; nrows]).take(ncols).collect();
-                    for r in 0..nrows {
-                        for c in columns.iter_mut() {
-                            c[r] = f64::read_from_endian(h, e)?;
-                        }
-                    }
-                    Ok(columns.into_iter().map(Series::F64).collect())
-                }
-                FloatByteOrd::SingleOrdered(e) => {
-                    let mut columns: Vec<_> =
-                        iter::repeat_with(|| vec![0.0; nrows]).take(ncols).collect();
-                    for r in 0..nrows {
-                        for c in columns.iter_mut() {
-                            c[r] = f32::read_from_ordered(h, &e)?;
-                        }
-                    }
-                    Ok(columns.into_iter().map(Series::F32).collect())
-                }
-                FloatByteOrd::DoubleOrdered(e) => {
-                    let mut columns: Vec<_> =
-                        iter::repeat_with(|| vec![0.0; nrows]).take(ncols).collect();
-                    for r in 0..nrows {
-                        for c in columns.iter_mut() {
-                            c[r] = f64::read_from_ordered(h, &e)?;
-                        }
-                    }
-                    Ok(columns.into_iter().map(Series::F64).collect())
-                }
+                Ok(columns.into_iter().map(Series::F32).collect())
             }
-        }
+            FloatByteOrd::DoubleBigLittle(e) => {
+                let mut columns: Vec<_> =
+                    iter::repeat_with(|| vec![0.0; nrows]).take(ncols).collect();
+                for r in 0..nrows {
+                    for c in columns.iter_mut() {
+                        c[r] = f64::read_from_endian(h, e)?;
+                    }
+                }
+                Ok(columns.into_iter().map(Series::F64).collect())
+            }
+            FloatByteOrd::SingleOrdered(e) => {
+                let mut columns: Vec<_> =
+                    iter::repeat_with(|| vec![0.0; nrows]).take(ncols).collect();
+                for r in 0..nrows {
+                    for c in columns.iter_mut() {
+                        c[r] = f32::read_from_ordered(h, &e)?;
+                    }
+                }
+                Ok(columns.into_iter().map(Series::F32).collect())
+            }
+            FloatByteOrd::DoubleOrdered(e) => {
+                let mut columns: Vec<_> =
+                    iter::repeat_with(|| vec![0.0; nrows]).take(ncols).collect();
+                for r in 0..nrows {
+                    for c in columns.iter_mut() {
+                        c[r] = f64::read_from_ordered(h, &e)?;
+                    }
+                }
+                Ok(columns.into_iter().map(Series::F64).collect())
+            }
+        },
         ColumnParser::Mixed(mut p) => {
             for r in 0..p.nrows {
                 for c in p.columns.iter_mut() {
@@ -1596,7 +1593,7 @@ trait MetadataFromKeywords: Sized {
     // themselves are sometimes known to be screwed up. To make this more
     // complex, the TOT field is optional in 2.0. It might make sense to offer
     // various fallback/failure mechanisms in case this issue is encountered.
-    fn get_total_events(s: &StdText<Self, Self::P>, event_width: u32) -> Result<u32, String> {
+    fn get_total_events(s: &StdText<Self, Self::P>, event_width: u32) -> Result<usize, String> {
         let nbytes = Self::get_data_offsets(s).num_bytes();
         let remainder = nbytes % event_width;
         if nbytes % event_width > 0 {
@@ -1606,28 +1603,28 @@ trait MetadataFromKeywords: Sized {
                  (remainder of {remainder}) "
             ))
         } else {
-            Ok(nbytes / event_width)
+            usize::try_from(nbytes / event_width).map_err(|e| format!("{}", e))
         }
     }
 
     fn build_int_parser(
         &self,
         ps: &[Parameter<Self::P>],
-        total_events: u32,
+        total_events: usize,
     ) -> Result<IntParser, Vec<String>>;
 
     fn build_mixed_parser(
         &self,
         ps: &[Parameter<Self::P>],
         dt: &AlphaNumType,
-        total_events: u32,
+        total_events: usize,
     ) -> Option<Result<MixedParser, Vec<String>>>;
 
     fn build_float_parser(
         &self,
         is_double: bool,
         par: u32,
-        total_events: u32,
+        total_events: usize,
         ps: &[Parameter<Self::P>],
     ) -> Result<ColumnParser, Vec<String>> {
         let (bytes, dt) = if is_double { (8, "D") } else { (4, "F") };
@@ -1635,7 +1632,7 @@ trait MetadataFromKeywords: Sized {
         if remainder.is_empty() {
             if let Some(byteord) = self.get_byteord().to_float_byteord(is_double) {
                 Ok(ColumnParser::Float(FloatParser {
-                    nrows: total_events as usize,
+                    nrows: total_events,
                     ncols: par as usize,
                     byteord,
                 }))
@@ -1657,7 +1654,7 @@ trait MetadataFromKeywords: Sized {
     fn build_fixed_width_parser(
         s: &StdText<Self, Self::P>,
         event_width: u32,
-        total_events: u32,
+        total_events: usize,
     ) -> Result<ColumnParser, Vec<String>> {
         let par = s.metadata.par;
         let ps = &s.parameters;
@@ -1693,7 +1690,7 @@ trait MetadataFromKeywords: Sized {
     fn build_numeric_parser(
         s: &StdText<Self, Self::P>,
         event_width: u32,
-        total_events: u32,
+        total_events: usize,
     ) -> Result<DataParser, Vec<String>> {
         let offsets = Self::get_data_offsets(s);
         Self::build_fixed_width_parser(s, event_width, total_events).map(|column_parser| {
@@ -1803,7 +1800,7 @@ impl MetadataFromKeywords for InnerMetadata2_0 {
     fn build_int_parser(
         &self,
         ps: &[Parameter<Self::P>],
-        total_events: u32,
+        total_events: usize,
     ) -> Result<IntParser, Vec<String>> {
         let nbytes = self.byteord.num_bytes();
         let remainder: Vec<_> = ps.iter().filter(|p| !p.bytes_eq(nbytes)).collect();
@@ -1829,7 +1826,7 @@ impl MetadataFromKeywords for InnerMetadata2_0 {
         &self,
         _: &[Parameter<Self::P>],
         _: &AlphaNumType,
-        _: u32,
+        _: usize,
     ) -> Option<Result<MixedParser, Vec<String>>> {
         None
     }
@@ -1871,7 +1868,7 @@ impl MetadataFromKeywords for InnerMetadata3_0 {
     fn build_int_parser(
         &self,
         ps: &[Parameter<Self::P>],
-        total_events: u32,
+        total_events: usize,
     ) -> Result<IntParser, Vec<String>> {
         let nbytes = self.byteord.num_bytes();
         let remainder: Vec<_> = ps.iter().filter(|p| !p.bytes_eq(nbytes)).collect();
@@ -1897,8 +1894,7 @@ impl MetadataFromKeywords for InnerMetadata3_0 {
         &self,
         _: &[Parameter<Self::P>],
         _: &AlphaNumType,
-
-        _: u32,
+        _: usize,
     ) -> Option<Result<MixedParser, Vec<String>>> {
         None
     }
@@ -1952,7 +1948,7 @@ impl MetadataFromKeywords for InnerMetadata3_1 {
     fn build_int_parser(
         &self,
         ps: &[Parameter<Self::P>],
-        total_events: u32,
+        total_events: usize,
     ) -> Result<IntParser, Vec<String>> {
         //TODO make errors and stuff go boom
         let (widths, _): (Vec<_>, Vec<_>) = ps
@@ -1966,7 +1962,7 @@ impl MetadataFromKeywords for InnerMetadata3_1 {
                 [w] => make_int_column_parser(w, &rs, &ByteOrd::Endian(self.byteord), total_events)
                     .map(IntParser::Fixed),
                 _ => Ok(IntParser::Variable(VariableIntParser {
-                    nrows: total_events as usize,
+                    nrows: total_events,
                     columns: widths,
                 })),
             }
@@ -1979,7 +1975,7 @@ impl MetadataFromKeywords for InnerMetadata3_1 {
         &self,
         _: &[Parameter<Self::P>],
         _: &AlphaNumType,
-        _: u32,
+        _: usize,
     ) -> Option<Result<MixedParser, Vec<String>>> {
         None
     }
@@ -2035,7 +2031,7 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
     fn build_int_parser(
         &self,
         ps: &[Parameter<Self::P>],
-        total_events: u32,
+        total_events: usize,
     ) -> Result<IntParser, Vec<String>> {
         //TODO make errors and stuff go boom
         let (widths, _): (Vec<_>, Vec<_>) = ps
@@ -2049,7 +2045,7 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
                 [w] => make_int_column_parser(w, &rs, &ByteOrd::Endian(self.byteord), total_events)
                     .map(IntParser::Fixed),
                 _ => Ok(IntParser::Variable(VariableIntParser {
-                    nrows: total_events as usize,
+                    nrows: total_events,
                     columns: widths,
                 })),
             }
@@ -2062,7 +2058,7 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
         &self,
         ps: &[Parameter<Self::P>],
         dt: &AlphaNumType,
-        total_events: u32,
+        total_events: usize,
     ) -> Option<Result<MixedParser, Vec<String>>> {
         let endian = self.byteord;
         // first test if we have any PnDATATYPEs defined, if no then skip this
@@ -2120,7 +2116,7 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
             .partition_result();
         if fail.is_empty() {
             Some(Ok(MixedParser {
-                nrows: total_events as usize,
+                nrows: total_events,
                 columns: pass,
             }))
         } else {

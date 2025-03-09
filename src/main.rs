@@ -988,8 +988,6 @@ struct F64ColumnData {
     datatype: F64DataType,
 }
 
-type IntColumnData<B, S> = IntColumnParser<B, S>;
-
 enum MixedColumnData {
     F32(Vec<f32>),
     F64(F64ColumnData),
@@ -1044,22 +1042,17 @@ trait OrderedFromBytes<const DTLEN: usize, const OLEN: usize>: FromBytes<DTLEN> 
 }
 
 trait CanParseInt<const INTLEN: usize>: Sized + IntMath {
-    type Size;
-
-    // NOTE this won't be used for sizes 1 and 2
     fn byteord_to_sized(byteord: &ByteOrd) -> Result<SizedByteOrd<INTLEN>, String> {
         match byteord {
             ByteOrd::Endian(e) => Ok(SizedByteOrd::Endian(*e)),
             ByteOrd::Mixed(v) => v[..]
                 .try_into()
-                .map(|x: [u8; INTLEN]| SizedByteOrd::Order(x))
+                .map(|order: [u8; INTLEN]| SizedByteOrd::Order(order))
                 .or(Err(String::from(
                     "$BYTEORD is mixed but length is {v.len()} and not {INTLEN}",
                 ))),
         }
     }
-
-    fn to_size(byteord: &ByteOrd) -> Result<Self::Size, String>;
 
     fn range_to_bitmask(range: &Range) -> Option<Self> {
         match range {
@@ -1072,7 +1065,7 @@ trait CanParseInt<const INTLEN: usize>: Sized + IntMath {
         ranges: &[Range],
         byteord: &ByteOrd,
         total_events: usize,
-    ) -> Result<FixedIntParser<Self, Self::Size>, Vec<String>> {
+    ) -> Result<FixedIntParser<Self, INTLEN>, Vec<String>> {
         let (bitmasks, mut fail): (Vec<_>, Vec<_>) = ranges
             .iter()
             .enumerate()
@@ -1082,11 +1075,11 @@ trait CanParseInt<const INTLEN: usize>: Sized + IntMath {
                 ))
             })
             .partition_result();
-        match Self::to_size(byteord) {
-            Ok(size) => {
+        match Self::byteord_to_sized(byteord) {
+            Ok(byteord) => {
                 if fail.is_empty() {
                     Ok(FixedIntParser {
-                        byteord: size,
+                        byteord,
                         nrows: total_events,
                         bitmasks,
                     })
@@ -1104,11 +1097,11 @@ trait CanParseInt<const INTLEN: usize>: Sized + IntMath {
     fn to_col_parser(
         range: &Range,
         byteord: &ByteOrd,
-    ) -> Result<IntColumnParser<Self, Self::Size>, Vec<String>> {
+    ) -> Result<IntColumnParser<Self, INTLEN>, Vec<String>> {
         // TODO be more specific, which means we need the parameter index
         let b =
             Self::range_to_bitmask(range).ok_or(String::from("PnR is float for an integer column"));
-        let s = Self::to_size(byteord);
+        let s = Self::byteord_to_sized(byteord);
         let data = vec![];
         match (b, s) {
             (Ok(bitmask), Ok(size)) => Ok(IntColumnParser {
@@ -1124,28 +1117,32 @@ trait CanParseInt<const INTLEN: usize>: Sized + IntMath {
 }
 
 trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
-    FromBytes<DTLEN> + OrderedFromBytes<DTLEN, INTLEN> + Ord
+    FromBytes<DTLEN> + OrderedFromBytes<DTLEN, INTLEN> + Ord + CanParseInt<INTLEN>
 {
     fn read_int_masked<R: Read + Seek>(
         h: &mut BufReader<R>,
-        endian: &SizedByteOrd<INTLEN>,
+        byteord: &SizedByteOrd<INTLEN>,
         bitmask: Self,
     ) -> io::Result<Self> {
-        Self::read_int(h, endian).map(|x| x.min(bitmask))
+        Self::read_int(h, byteord).map(|x| x.min(bitmask))
     }
 
     fn read_int<R: Read + Seek>(
         h: &mut BufReader<R>,
-        endian: &SizedByteOrd<INTLEN>,
+        byteord: &SizedByteOrd<INTLEN>,
     ) -> io::Result<Self> {
         // This lovely code will read data that is not a power-of-two
         // bytes long. Start by reading n bytes into a vector, which can
         // take a varying size. Then copy this into the power of 2 buffer
         // and reset all the unused cells to 0. This copy has to go to one
         // or the other end of the buffer depending on endianness.
+        //
+        // ASSUME for u8 and u16 that these will get heavily optimized away
+        // since 'order' is totally meaningless for u8 and the only two possible
+        // 'orders' for u16 are big and little.
         let mut tmp = [0; INTLEN];
         let mut buf = [0; DTLEN];
-        match endian {
+        match byteord {
             SizedByteOrd::Endian(Endian::Big) => {
                 let b = DTLEN - INTLEN;
                 h.read_exact(&mut tmp)?;
@@ -1159,6 +1156,15 @@ trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
             }
             SizedByteOrd::Order(order) => Self::read_from_ordered(h, order),
         }
+    }
+
+    fn assign<R: Read + Seek>(
+        h: &mut BufReader<R>,
+        d: &mut IntColumnParser<Self, INTLEN>,
+        row: usize,
+    ) -> io::Result<()> {
+        d.data[row] = Self::read_int_masked(h, &d.size, d.bitmask)?;
+        Ok(())
     }
 }
 
@@ -1212,13 +1218,7 @@ impl IntMath for u64 {
     }
 }
 
-impl CanParseInt<1> for u8 {
-    type Size = ();
-
-    fn to_size(_: &ByteOrd) -> Result<Self::Size, String> {
-        Ok(())
-    }
-}
+impl CanParseInt<1> for u8 {}
 
 impl FromBytes<2> for u16 {
     fn from_big(buf: [u8; 2]) -> Self {
@@ -1233,16 +1233,7 @@ impl FromBytes<2> for u16 {
 impl OrderedFromBytes<2, 2> for u16 {}
 impl IntFromBytes<2, 2> for u16 {}
 
-impl CanParseInt<2> for u16 {
-    type Size = Endian;
-
-    fn to_size(byteord: &ByteOrd) -> Result<Self::Size, String> {
-        match byteord {
-            ByteOrd::Endian(e) => Ok(*e),
-            _ => Err(String::from("Byteord must be one of 1,2,3,4 or 4,3,2,1")),
-        }
-    }
-}
+impl CanParseInt<2> for u16 {}
 
 impl FromBytes<4> for u32 {
     fn from_big(buf: [u8; 4]) -> Self {
@@ -1259,21 +1250,9 @@ impl IntFromBytes<4, 3> for u32 {}
 impl OrderedFromBytes<4, 4> for u32 {}
 impl IntFromBytes<4, 4> for u32 {}
 
-impl CanParseInt<3> for u32 {
-    type Size = SizedByteOrd<3>;
+impl CanParseInt<3> for u32 {}
 
-    fn to_size(byteord: &ByteOrd) -> Result<Self::Size, String> {
-        Self::byteord_to_sized(byteord)
-    }
-}
-
-impl CanParseInt<4> for u32 {
-    type Size = SizedByteOrd<4>;
-
-    fn to_size(byteord: &ByteOrd) -> Result<Self::Size, String> {
-        Self::byteord_to_sized(byteord)
-    }
-}
+impl CanParseInt<4> for u32 {}
 
 impl FromBytes<8> for u64 {
     fn from_big(buf: [u8; 8]) -> Self {
@@ -1294,37 +1273,13 @@ impl IntFromBytes<8, 7> for u64 {}
 impl OrderedFromBytes<8, 8> for u64 {}
 impl IntFromBytes<8, 8> for u64 {}
 
-impl CanParseInt<5> for u64 {
-    type Size = SizedByteOrd<5>;
+impl CanParseInt<5> for u64 {}
 
-    fn to_size(byteord: &ByteOrd) -> Result<Self::Size, String> {
-        Self::byteord_to_sized(byteord)
-    }
-}
+impl CanParseInt<6> for u64 {}
 
-impl CanParseInt<6> for u64 {
-    type Size = SizedByteOrd<6>;
+impl CanParseInt<7> for u64 {}
 
-    fn to_size(byteord: &ByteOrd) -> Result<Self::Size, String> {
-        Self::byteord_to_sized(byteord)
-    }
-}
-
-impl CanParseInt<7> for u64 {
-    type Size = SizedByteOrd<7>;
-
-    fn to_size(byteord: &ByteOrd) -> Result<Self::Size, String> {
-        Self::byteord_to_sized(byteord)
-    }
-}
-
-impl CanParseInt<8> for u64 {
-    type Size = SizedByteOrd<8>;
-
-    fn to_size(byteord: &ByteOrd) -> Result<Self::Size, String> {
-        Self::byteord_to_sized(byteord)
-    }
-}
+impl CanParseInt<8> for u64 {}
 
 impl FromBytes<4> for f32 {
     fn from_big(buf: [u8; 4]) -> Self {
@@ -1380,9 +1335,9 @@ enum SizedByteOrd<const LEN: usize> {
     Order([u8; LEN]),
 }
 
-struct IntColumnParser<B, S> {
+struct IntColumnParser<B, const LEN: usize> {
     bitmask: B,
-    size: S,
+    size: SizedByteOrd<LEN>,
     data: Vec<B>,
 }
 
@@ -1392,31 +1347,31 @@ struct VariableIntParser {
 }
 
 enum AnyIntColumn {
-    Uint8(IntColumnParser<u8, ()>),
-    Uint16(IntColumnParser<u16, Endian>),
-    Uint24(IntColumnParser<u32, SizedByteOrd<3>>),
-    Uint32(IntColumnParser<u32, SizedByteOrd<4>>),
-    Uint40(IntColumnParser<u64, SizedByteOrd<5>>),
-    Uint48(IntColumnParser<u64, SizedByteOrd<6>>),
-    Uint56(IntColumnParser<u64, SizedByteOrd<7>>),
-    Uint64(IntColumnParser<u64, SizedByteOrd<8>>),
+    Uint8(IntColumnParser<u8, 1>),
+    Uint16(IntColumnParser<u16, 2>),
+    Uint24(IntColumnParser<u32, 3>),
+    Uint32(IntColumnParser<u32, 4>),
+    Uint40(IntColumnParser<u64, 5>),
+    Uint48(IntColumnParser<u64, 6>),
+    Uint56(IntColumnParser<u64, 7>),
+    Uint64(IntColumnParser<u64, 8>),
 }
 
-struct FixedIntParser<B, S> {
+struct FixedIntParser<B, const LEN: usize> {
     nrows: usize,
-    byteord: S,
+    byteord: SizedByteOrd<LEN>,
     bitmasks: Vec<B>,
 }
 
 enum AnyIntParser {
-    Uint8(FixedIntParser<u8, ()>),
-    Uint16(FixedIntParser<u16, Endian>),
-    Uint24(FixedIntParser<u32, SizedByteOrd<3>>),
-    Uint32(FixedIntParser<u32, SizedByteOrd<4>>),
-    Uint40(FixedIntParser<u64, SizedByteOrd<5>>),
-    Uint48(FixedIntParser<u64, SizedByteOrd<6>>),
-    Uint56(FixedIntParser<u64, SizedByteOrd<7>>),
-    Uint64(FixedIntParser<u64, SizedByteOrd<8>>),
+    Uint8(FixedIntParser<u8, 1>),
+    Uint16(FixedIntParser<u16, 2>),
+    Uint24(FixedIntParser<u32, 3>),
+    Uint32(FixedIntParser<u32, 4>),
+    Uint40(FixedIntParser<u64, 5>),
+    Uint48(FixedIntParser<u64, 6>),
+    Uint56(FixedIntParser<u64, 7>),
+    Uint64(FixedIntParser<u64, 8>),
 }
 
 enum IntParser {
@@ -1530,28 +1485,17 @@ fn read_data<R: Read + Seek>(h: &mut BufReader<R>, parser: DataParser) -> io::Re
                             AnyIntColumn::Uint8(d) => {
                                 d.data[r] = u8::read_from_little(h).map(|x| x.min(d.bitmask))?;
                             }
-                            AnyIntColumn::Uint16(d) => {
-                                d.data[r] =
-                                    u16::read_from_endian(h, d.size).map(|x| x.min(d.bitmask))?;
-                            }
-                            AnyIntColumn::Uint24(d) => {
-                                d.data[r] = u32::read_int_masked(h, &d.size, d.bitmask)?;
-                            }
-                            AnyIntColumn::Uint32(d) => {
-                                d.data[r] = u32::read_int_masked(h, &d.size, d.bitmask)?;
-                            }
-                            AnyIntColumn::Uint40(d) => {
-                                d.data[r] = u64::read_int_masked(h, &d.size, d.bitmask)?;
-                            }
-                            AnyIntColumn::Uint48(d) => {
-                                d.data[r] = u64::read_int_masked(h, &d.size, d.bitmask)?;
-                            }
-                            AnyIntColumn::Uint56(d) => {
-                                d.data[r] = u64::read_int_masked(h, &d.size, d.bitmask)?;
-                            }
-                            AnyIntColumn::Uint64(d) => {
-                                d.data[r] = u64::read_int_masked(h, &d.size, d.bitmask)?;
-                            }
+                            // AnyIntColumn::Uint16(d) => {
+                            //     d.data[r] =
+                            //         u16::read_from_endian(h, d.size).map(|x| x.min(d.bitmask))?;
+                            // }
+                            AnyIntColumn::Uint16(d) => u16::assign(h, d, r)?,
+                            AnyIntColumn::Uint24(d) => u32::assign(h, d, r)?,
+                            AnyIntColumn::Uint32(d) => u32::assign(h, d, r)?,
+                            AnyIntColumn::Uint40(d) => u64::assign(h, d, r)?,
+                            AnyIntColumn::Uint48(d) => u64::assign(h, d, r)?,
+                            AnyIntColumn::Uint56(d) => u64::assign(h, d, r)?,
+                            AnyIntColumn::Uint64(d) => u64::assign(h, d, r)?,
                         },
                     }
                 }

@@ -179,47 +179,58 @@ struct Header {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum AlphaNumTypes {
+enum AlphaNumType {
     Ascii,
     Integer,
     Single,
     Double,
 }
 
-impl fmt::Display for AlphaNumTypes {
+impl AlphaNumType {
+    fn to_num(&self) -> Option<NumType> {
+        match self {
+            AlphaNumType::Ascii => None,
+            AlphaNumType::Integer => Some(NumType::Integer),
+            AlphaNumType::Single => Some(NumType::Single),
+            AlphaNumType::Double => Some(NumType::Double),
+        }
+    }
+}
+
+impl fmt::Display for AlphaNumType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            AlphaNumTypes::Ascii => write!(f, "A"),
-            AlphaNumTypes::Integer => write!(f, "I"),
-            AlphaNumTypes::Single => write!(f, "F"),
-            AlphaNumTypes::Double => write!(f, "D"),
+            AlphaNumType::Ascii => write!(f, "A"),
+            AlphaNumType::Integer => write!(f, "I"),
+            AlphaNumType::Single => write!(f, "F"),
+            AlphaNumType::Double => write!(f, "D"),
         }
     }
 }
 
 #[derive(Debug, Clone, Copy)]
-enum NumTypes {
+enum NumType {
     Integer,
     Single,
     Double,
 }
 
-impl NumTypes {
-    fn lift(&self) -> AlphaNumTypes {
+impl NumType {
+    fn lift(&self) -> AlphaNumType {
         match self {
-            NumTypes::Integer => AlphaNumTypes::Integer,
-            NumTypes::Single => AlphaNumTypes::Single,
-            NumTypes::Double => AlphaNumTypes::Double,
+            NumType::Integer => AlphaNumType::Integer,
+            NumType::Single => AlphaNumType::Single,
+            NumType::Double => AlphaNumType::Double,
         }
     }
 }
 
-impl fmt::Display for NumTypes {
+impl fmt::Display for NumType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            NumTypes::Integer => write!(f, "I"),
-            NumTypes::Single => write!(f, "F"),
-            NumTypes::Double => write!(f, "D"),
+            NumType::Integer => write!(f, "I"),
+            NumType::Single => write!(f, "F"),
+            NumType::Double => write!(f, "D"),
         }
     }
 }
@@ -284,8 +295,6 @@ impl ByteOrd {
     fn num_bytes(&self) -> u8 {
         match self {
             ByteOrd::Endian(_) => 4,
-            // TODO mildly unsafe, hopefully we won't have any BYTEORD fields
-            // over 256 bytes long
             ByteOrd::Mixed(xs) => xs.len() as u8,
         }
     }
@@ -445,12 +454,12 @@ struct InnerParameter3_2 {
     measurement_type: OptionalKw<MeasurementType>,
     tag: OptionalKw<String>,
     detector_name: OptionalKw<String>,
-    datatype: OptionalKw<NumTypes>,
+    datatype: OptionalKw<NumType>,
 }
 
 // TODO this will likely need to be a trait in 4.0
 impl InnerParameter3_2 {
-    fn get_column_type(&self, default: AlphaNumTypes) -> AlphaNumTypes {
+    fn get_column_type(&self, default: AlphaNumType) -> AlphaNumType {
         self.datatype
             .as_ref()
             .to_option()
@@ -483,14 +492,20 @@ impl fmt::Display for Bytes {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 enum Range {
+    // This will actually store PnR - 1; most cytometers will store this as a
+    // power of 2, so in the case of a 64 bit channel this will be 2^64 which is
+    // one greater than u64::MAX.
     Int(u64),
-    Float(f32),
-    // this represents 2^64 exactly, which is enough to represent the maximum
-    // bitmask for an integer field with 64 bits
-    Max,
+    // This stores the value of PnR as-is. Sometimes PnR is actually a float
+    // for floating point parameters rather than an int.
+    Float(f64),
 }
+
+// impl Range {
+//     fn bitmask(&self) -> u64 {}
+// }
 
 #[derive(Debug)]
 struct Parameter<X> {
@@ -517,30 +532,62 @@ impl<X> Parameter<X> {
         matches!(self.bytes, Bytes::Variable)
     }
 
-    fn bitmask(&self, byteord: &ByteOrd) -> Option<AnyUint<AnyIntBitmask>> {
-        make_bitmask(&self.bytes, &self.range, byteord)
+    // TODO add parameter index to error message
+    fn make_int_parser(&self, o: &ByteOrd) -> Result<AnyIntColumn, Vec<String>> {
+        let b = &self.bytes;
+        let r = &self.range;
+        match b {
+            Bytes::Fixed(b) => match b {
+                1 => u8::to_col_parser(r, o).map(AnyIntColumn::Uint8),
+                2 => u16::to_col_parser(r, o).map(AnyIntColumn::Uint16),
+                3 => CanParseInt::<3>::to_col_parser(r, o).map(AnyIntColumn::Uint24),
+                4 => CanParseInt::<4>::to_col_parser(r, o).map(AnyIntColumn::Uint32),
+                5 => CanParseInt::<5>::to_col_parser(r, o).map(AnyIntColumn::Uint40),
+                6 => CanParseInt::<6>::to_col_parser(r, o).map(AnyIntColumn::Uint48),
+                7 => CanParseInt::<7>::to_col_parser(r, o).map(AnyIntColumn::Uint56),
+                8 => CanParseInt::<8>::to_col_parser(r, o).map(AnyIntColumn::Uint64),
+                _ => Err(vec![String::from("PnB has invalid byte length")]),
+            },
+            _ => Err(vec![String::from("PnB is variable length")]),
+        }
     }
 }
 
-fn make_bitmask(b: &Bytes, r: &Range, o: &ByteOrd) -> Option<AnyUint<AnyIntBitmask>> {
+fn make_int_parser(b: u8, r: &Range, o: &ByteOrd) -> Result<AnyIntColumn, Vec<String>> {
     match b {
-        Bytes::Fixed(b) => match (b, r) {
-            (1, Range::Int(x)) => u8::to_bitmask(*x as u8 - 1, o),
-            (2, Range::Int(x)) => u16::to_bitmask(*x as u16 - 1, o),
-            (3, Range::Int(x)) => ToBitmask::<3>::to_bitmask(*x as u32 - 1, o),
-            (4, Range::Int(x)) => ToBitmask::<4>::to_bitmask(*x as u32 - 1, o),
-            (5, Range::Int(x)) => ToBitmask::<5>::to_bitmask(x - 1, o),
-            (6, Range::Int(x)) => ToBitmask::<6>::to_bitmask(x - 1, o),
-            (7, Range::Int(x)) => ToBitmask::<7>::to_bitmask(x - 1, o),
-            (8, Range::Int(x)) => ToBitmask::<8>::to_bitmask(x - 1, o),
-            (8, Range::Max) => ToBitmask::<8>::to_bitmask(u64::MAX, o),
-            _ => None,
-        },
-        _ => None,
+        1 => u8::to_col_parser(r, o).map(AnyIntColumn::Uint8),
+        2 => u16::to_col_parser(r, o).map(AnyIntColumn::Uint16),
+        3 => CanParseInt::<3>::to_col_parser(r, o).map(AnyIntColumn::Uint24),
+        4 => CanParseInt::<4>::to_col_parser(r, o).map(AnyIntColumn::Uint32),
+        5 => CanParseInt::<5>::to_col_parser(r, o).map(AnyIntColumn::Uint40),
+        6 => CanParseInt::<6>::to_col_parser(r, o).map(AnyIntColumn::Uint48),
+        7 => CanParseInt::<7>::to_col_parser(r, o).map(AnyIntColumn::Uint56),
+        8 => CanParseInt::<8>::to_col_parser(r, o).map(AnyIntColumn::Uint64),
+        _ => Err(vec![String::from("PnB has invalid byte length")]),
     }
 }
-// type Wavelength2_0 = Option<u32>;
-// type Wavelength3_1 = Vec<u32>;
+
+fn make_int_column_parser(
+    b: u8,
+    rs: &Vec<Range>,
+    o: &ByteOrd,
+    t: u32,
+) -> Result<AnyIntParser, Vec<String>> {
+    match b {
+        1 => u8::to_fixed_parser(rs, o, t).map(AnyIntParser::Uint8),
+        2 => u16::to_fixed_parser(rs, o, t).map(AnyIntParser::Uint16),
+        3 => CanParseInt::<3>::to_fixed_parser(rs, o, t).map(AnyIntParser::Uint24),
+        4 => CanParseInt::<4>::to_fixed_parser(rs, o, t).map(AnyIntParser::Uint32),
+        5 => CanParseInt::<5>::to_fixed_parser(rs, o, t).map(AnyIntParser::Uint40),
+        6 => CanParseInt::<6>::to_fixed_parser(rs, o, t).map(AnyIntParser::Uint48),
+        7 => CanParseInt::<7>::to_fixed_parser(rs, o, t).map(AnyIntParser::Uint56),
+        8 => CanParseInt::<8>::to_fixed_parser(rs, o, t).map(AnyIntParser::Uint64),
+        _ => Err(vec![String::from("PnB has invalid byte length")]),
+    }
+}
+
+// // type Wavelength2_0 = Option<u32>;
+// // type Wavelength3_1 = Vec<u32>;
 
 trait ParameterFromKeywords: Sized {
     fn build_inner(st: &mut KwState, n: u32) -> Option<Self>;
@@ -790,7 +837,7 @@ struct InnerMetadata3_2 {
 struct Metadata<X> {
     par: u32,
     nextdata: u32,
-    datatype: AlphaNumTypes,
+    datatype: AlphaNumType,
     // an abstraction for various kinds of spillover/comp matrices
     // spillover: Spillover,
     abrt: OptionalKw<u32>,
@@ -900,15 +947,16 @@ impl FloatByteOrd {
 }
 
 struct FloatParser {
-    par: u32,
+    nrows: usize,
+    ncols: usize,
     byteord: FloatByteOrd,
 }
 
-impl FloatParser {
-    fn event_width(&self) -> u32 {
-        self.par * u32::from(self.byteord.width())
-    }
-}
+// impl FloatParser {
+//     fn event_width(&self) -> u32 {
+//         self.par * u32::from(self.byteord.width())
+//     }
+// }
 
 type ColumnWidths = Vec<u8>;
 
@@ -918,11 +966,26 @@ struct IntegerColumn {
     bitmask: u64,
 }
 
+struct AsciiColumn {
+    data: Vec<f64>,
+    width: u8,
+}
+
+struct SingleColumn {
+    data: Vec<f32>,
+    endian: Endian,
+}
+
+struct DoubleColumn {
+    data: Vec<f64>,
+    endian: Endian,
+}
+
 enum MixedColumnType {
-    Ascii(u8),
-    Uint(AnyUint<AnyIntBitmask>),
-    Single,
-    Double,
+    Ascii(AsciiColumn),
+    Uint(AnyIntColumn),
+    Single(SingleColumn),
+    Double(DoubleColumn),
 }
 
 enum F64DataType {
@@ -935,16 +998,18 @@ struct F64ColumnData {
     datatype: F64DataType,
 }
 
-type IntColumnData<B, S> = IntBitmask<B, S>;
+type IntColumnData<B, S> = IntColumnParser<B, S>;
 
 enum MixedColumnData {
     F32(Vec<f32>),
     F64(F64ColumnData),
-    Uint(AnyUint<AnyIntData>),
+    Uint(AnyIntColumn),
 }
 
 trait IntMath: Sized {
-    fn next_power_2(x: Self) -> Option<Self>;
+    fn next_power_2(x: Self) -> Self;
+
+    fn from_u64(x: u64) -> Self;
 }
 
 trait FromBytes<const DTLEN: usize>: Sized + Copy {
@@ -988,22 +1053,82 @@ trait OrderedFromBytes<const DTLEN: usize, const OLEN: usize>: FromBytes<DTLEN> 
     }
 }
 
-trait ToBitmask<const INTLEN: usize>: Sized + IntMath {
+trait CanParseInt<const INTLEN: usize>: Sized + IntMath {
+    type Size;
+
     // NOTE this won't be used for sizes 1 and 2
-    fn byteord_to_bitmask(byteord: &ByteOrd) -> Option<SizedByteOrd<INTLEN>> {
+    fn byteord_to_sized(byteord: &ByteOrd) -> Result<SizedByteOrd<INTLEN>, String> {
+        // TODO make this error better
         match byteord {
-            ByteOrd::Endian(e) => Some(SizedByteOrd::Endian(*e)),
+            ByteOrd::Endian(e) => Ok(SizedByteOrd::Endian(*e)),
             ByteOrd::Mixed(v) => v[..]
                 .try_into()
-                .ok()
-                .map(|x: [u8; INTLEN]| SizedByteOrd::Order(x)),
+                .map(|x: [u8; INTLEN]| SizedByteOrd::Order(x))
+                .or(Err(String::from("Invalid byteord"))),
         }
     }
 
-    fn build_uint(bitmask: Self, byteord: &ByteOrd) -> Option<AnyUint<AnyIntBitmask>>;
+    fn to_size(byteord: &ByteOrd) -> Result<Self::Size, String>;
 
-    fn to_bitmask(range: Self, byteord: &ByteOrd) -> Option<AnyUint<AnyIntBitmask>> {
-        Self::next_power_2(range).and_then(|bitmask| Self::build_uint(bitmask, byteord))
+    fn range_to_bitmask(range: &Range) -> Option<Self> {
+        match range {
+            Range::Float(_) => None,
+            Range::Int(i) => Some(Self::next_power_2(Self::from_u64(*i))),
+        }
+    }
+
+    fn to_fixed_parser(
+        ranges: &Vec<Range>,
+        byteord: &ByteOrd,
+        total_events: u32,
+    ) -> Result<FixedIntParser<Self, Self::Size>, Vec<String>> {
+        let (bitmasks, mut fail): (Vec<_>, Vec<_>) = ranges
+            .iter()
+            .enumerate()
+            .map(|(i, r)| {
+                Self::range_to_bitmask(r).ok_or(format!(
+                    "PnR for parameter {i} is a float when integer needed"
+                ))
+            })
+            .partition_result();
+        match Self::to_size(byteord) {
+            Ok(size) => {
+                if fail.is_empty() {
+                    Ok(FixedIntParser {
+                        byteord: size,
+                        nrows: total_events as usize,
+                        bitmasks,
+                    })
+                } else {
+                    Err(fail)
+                }
+            }
+            Err(err) => {
+                fail.push(err);
+                Err(fail)
+            }
+        }
+    }
+
+    fn to_col_parser(
+        range: &Range,
+        byteord: &ByteOrd,
+    ) -> Result<IntColumnParser<Self, Self::Size>, Vec<String>> {
+        // TODO be more specific, which means we need the parameter index
+        let b =
+            Self::range_to_bitmask(range).ok_or(String::from("PnR is float for an integer column"));
+        let s = Self::to_size(byteord);
+        let data = vec![];
+        match (b, s) {
+            (Ok(bitmask), Ok(size)) => Ok(IntColumnParser {
+                bitmask,
+                size,
+                data,
+            }),
+            (Err(x), Err(y)) => Err(vec![x, y]),
+            (Err(x), _) => Err(vec![x]),
+            (_, Err(y)) => Err(vec![y]),
+        }
     }
 }
 
@@ -1057,32 +1182,50 @@ impl FromBytes<1> for u8 {
 }
 
 impl IntMath for u8 {
-    fn next_power_2(x: Self) -> Option<Self> {
-        Self::checked_next_power_of_two(x)
+    fn next_power_2(x: Self) -> Self {
+        Self::checked_next_power_of_two(x).unwrap_or(Self::MAX)
+    }
+
+    fn from_u64(x: u64) -> Self {
+        x as Self
     }
 }
 
 impl IntMath for u16 {
-    fn next_power_2(x: Self) -> Option<Self> {
-        Self::checked_next_power_of_two(x)
+    fn next_power_2(x: Self) -> Self {
+        Self::checked_next_power_of_two(x).unwrap_or(Self::MAX)
+    }
+
+    fn from_u64(x: u64) -> Self {
+        x as Self
     }
 }
 
 impl IntMath for u32 {
-    fn next_power_2(x: Self) -> Option<Self> {
-        Self::checked_next_power_of_two(x)
+    fn next_power_2(x: Self) -> Self {
+        Self::checked_next_power_of_two(x).unwrap_or(Self::MAX)
+    }
+
+    fn from_u64(x: u64) -> Self {
+        x as Self
     }
 }
 
 impl IntMath for u64 {
-    fn next_power_2(x: Self) -> Option<Self> {
-        Self::checked_next_power_of_two(x)
+    fn next_power_2(x: Self) -> Self {
+        Self::checked_next_power_of_two(x).unwrap_or(Self::MAX)
+    }
+
+    fn from_u64(x: u64) -> Self {
+        x as Self
     }
 }
 
-impl ToBitmask<1> for u8 {
-    fn build_uint(bitmask: Self, _: &ByteOrd) -> Option<AnyUint<AnyIntBitmask>> {
-        Some(AnyUint::Uint8(IntBitmask { bitmask, size: () }))
+impl CanParseInt<1> for u8 {
+    type Size = ();
+
+    fn to_size(_: &ByteOrd) -> Result<Self::Size, String> {
+        Ok(())
     }
 }
 
@@ -1099,11 +1242,13 @@ impl FromBytes<2> for u16 {
 impl OrderedFromBytes<2, 2> for u16 {}
 impl IntFromBytes<2, 2> for u16 {}
 
-impl ToBitmask<2> for u16 {
-    fn build_uint(bitmask: Self, byteord: &ByteOrd) -> Option<AnyUint<AnyIntBitmask>> {
+impl CanParseInt<2> for u16 {
+    type Size = Endian;
+
+    fn to_size(byteord: &ByteOrd) -> Result<Self::Size, String> {
         match byteord {
-            ByteOrd::Endian(e) => Some(AnyUint::Uint16(IntBitmask { bitmask, size: *e })),
-            _ => None,
+            ByteOrd::Endian(e) => Ok(*e),
+            _ => Err(String::from("Byteord must be one of 1,2,3,4 or 4,3,2,1")),
         }
     }
 }
@@ -1123,15 +1268,19 @@ impl IntFromBytes<4, 3> for u32 {}
 impl OrderedFromBytes<4, 4> for u32 {}
 impl IntFromBytes<4, 4> for u32 {}
 
-impl ToBitmask<3> for u32 {
-    fn build_uint(bitmask: Self, byteord: &ByteOrd) -> Option<AnyUint<AnyIntBitmask>> {
-        Self::byteord_to_bitmask(byteord).map(|size| AnyUint::Uint24(IntBitmask { bitmask, size }))
+impl CanParseInt<3> for u32 {
+    type Size = SizedByteOrd<3>;
+
+    fn to_size(byteord: &ByteOrd) -> Result<Self::Size, String> {
+        Self::byteord_to_sized(byteord)
     }
 }
 
-impl ToBitmask<4> for u32 {
-    fn build_uint(bitmask: Self, byteord: &ByteOrd) -> Option<AnyUint<AnyIntBitmask>> {
-        Self::byteord_to_bitmask(byteord).map(|size| AnyUint::Uint32(IntBitmask { bitmask, size }))
+impl CanParseInt<4> for u32 {
+    type Size = SizedByteOrd<4>;
+
+    fn to_size(byteord: &ByteOrd) -> Result<Self::Size, String> {
+        Self::byteord_to_sized(byteord)
     }
 }
 
@@ -1154,27 +1303,35 @@ impl IntFromBytes<8, 7> for u64 {}
 impl OrderedFromBytes<8, 8> for u64 {}
 impl IntFromBytes<8, 8> for u64 {}
 
-impl ToBitmask<5> for u64 {
-    fn build_uint(bitmask: Self, byteord: &ByteOrd) -> Option<AnyUint<AnyIntBitmask>> {
-        Self::byteord_to_bitmask(byteord).map(|size| AnyUint::Uint40(IntBitmask { bitmask, size }))
+impl CanParseInt<5> for u64 {
+    type Size = SizedByteOrd<5>;
+
+    fn to_size(byteord: &ByteOrd) -> Result<Self::Size, String> {
+        Self::byteord_to_sized(byteord)
     }
 }
 
-impl ToBitmask<6> for u64 {
-    fn build_uint(bitmask: Self, byteord: &ByteOrd) -> Option<AnyUint<AnyIntBitmask>> {
-        Self::byteord_to_bitmask(byteord).map(|size| AnyUint::Uint48(IntBitmask { bitmask, size }))
+impl CanParseInt<6> for u64 {
+    type Size = SizedByteOrd<6>;
+
+    fn to_size(byteord: &ByteOrd) -> Result<Self::Size, String> {
+        Self::byteord_to_sized(byteord)
     }
 }
 
-impl ToBitmask<7> for u64 {
-    fn build_uint(bitmask: Self, byteord: &ByteOrd) -> Option<AnyUint<AnyIntBitmask>> {
-        Self::byteord_to_bitmask(byteord).map(|size| AnyUint::Uint56(IntBitmask { bitmask, size }))
+impl CanParseInt<7> for u64 {
+    type Size = SizedByteOrd<7>;
+
+    fn to_size(byteord: &ByteOrd) -> Result<Self::Size, String> {
+        Self::byteord_to_sized(byteord)
     }
 }
 
-impl ToBitmask<8> for u64 {
-    fn build_uint(bitmask: Self, byteord: &ByteOrd) -> Option<AnyUint<AnyIntBitmask>> {
-        Self::byteord_to_bitmask(byteord).map(|size| AnyUint::Uint64(IntBitmask { bitmask, size }))
+impl CanParseInt<8> for u64 {
+    type Size = SizedByteOrd<8>;
+
+    fn to_size(byteord: &ByteOrd) -> Result<Self::Size, String> {
+        Self::byteord_to_sized(byteord)
     }
 }
 
@@ -1202,156 +1359,175 @@ impl FromBytes<8> for f64 {
 
 impl OrderedFromBytes<8, 8> for f64 {}
 
-impl MixedColumnData {
+impl MixedColumnType {
     fn to_series(self) -> Series {
         match self {
-            MixedColumnData::F32(x) => Series::F32(x),
-            MixedColumnData::F64(x) => Series::F64(x.data),
-            MixedColumnData::Uint(x) => match x {
-                AnyUint::Uint8(y) => Series::U8(y.data),
-                AnyUint::Uint16(y) => Series::U16(y.data),
-                AnyUint::Uint24(y) => Series::U32(y.data),
-                AnyUint::Uint32(y) => Series::U32(y.data),
-                AnyUint::Uint40(y) => Series::U64(y.data),
-                AnyUint::Uint48(y) => Series::U64(y.data),
-                AnyUint::Uint56(y) => Series::U64(y.data),
-                AnyUint::Uint64(y) => Series::U64(y.data),
+            MixedColumnType::Ascii(x) => Series::F64(x.data),
+            MixedColumnType::Single(x) => Series::F32(x.data),
+            MixedColumnType::Double(x) => Series::F64(x.data),
+            MixedColumnType::Uint(x) => match x {
+                AnyIntColumn::Uint8(y) => Series::U8(y.data),
+                AnyIntColumn::Uint16(y) => Series::U16(y.data),
+                AnyIntColumn::Uint24(y) => Series::U32(y.data),
+                AnyIntColumn::Uint32(y) => Series::U32(y.data),
+                AnyIntColumn::Uint40(y) => Series::U64(y.data),
+                AnyIntColumn::Uint48(y) => Series::U64(y.data),
+                AnyIntColumn::Uint56(y) => Series::U64(y.data),
+                AnyIntColumn::Uint64(y) => Series::U64(y.data),
             },
         }
     }
 }
 
-impl MixedColumnType {
-    fn init_column(self, n: usize) -> MixedColumnData {
-        match self {
-            MixedColumnType::Uint(_) => unimplemented!(),
-            MixedColumnType::Single => MixedColumnData::F32(vec![0.0; n]),
-            // Ascii and doubles get stored in the same data type. In the former
-            // case, I don't feel like making too many assumptions about how big
-            // an ascii field will be, so just shove it in a float field. If
-            // the creator of said file wanted efficiency they wouldn't have
-            // chosen ascii.
-            MixedColumnType::Ascii(x) => MixedColumnData::F64(F64ColumnData {
-                data: vec![0.0; n],
-                datatype: F64DataType::Ascii(x),
-            }),
-            MixedColumnType::Double => MixedColumnData::F64(F64ColumnData {
-                data: vec![0.0; n],
-                datatype: F64DataType::Double,
-            }),
-        }
-    }
+// impl MixedColumnType {
+//     fn init_column(self, n: usize) -> MixedColumnData {
+//         match self {
+//             MixedColumnType::Uint(_) => unimplemented!(),
+//             MixedColumnType::Single => MixedColumnData::F32(vec![0.0; n]),
+//             // Ascii and doubles get stored in the same data type. In the former
+//             // case, I don't feel like making too many assumptions about how big
+//             // an ascii field will be, so just shove it in a float field. If
+//             // the creator of said file wanted efficiency they wouldn't have
+//             // chosen ascii.
+//             MixedColumnType::Ascii(x) => MixedColumnData::F64(F64ColumnData {
+//                 data: vec![0.0; n],
+//                 datatype: F64DataType::Ascii(x),
+//             }),
+//             MixedColumnType::Double => MixedColumnData::F64(F64ColumnData {
+//                 data: vec![0.0; n],
+//                 datatype: F64DataType::Double,
+//             }),
+//         }
+//     }
 
-    fn width(&self) -> u8 {
-        match self {
-            MixedColumnType::Ascii(x) => *x,
-            MixedColumnType::Uint(u) => u.width(),
-            MixedColumnType::Single => 4,
-            MixedColumnType::Double => 8,
-        }
-    }
-}
+//     // fn width(&self) -> u8 {
+//     //     match self {
+//     //         MixedColumnType::Ascii(x) => *x,
+//     //         MixedColumnType::Uint(u) => u.width(),
+//     //         MixedColumnType::Single => 4,
+//     //         MixedColumnType::Double => 8,
+//     //     }
+//     // }
+// }
 
-trait HasEventWidth {
-    fn event_bytes(&self) -> u32;
+// trait HasEventWidth {
+//     fn event_bytes(&self) -> u32;
 
-    fn nrows(&self, databytes: u32) -> (u32, u32) {
-        let width = self.event_bytes();
-        let nrows = databytes / width;
-        // TODO isn't there a div/remainder thing somewhere?
-        (nrows, databytes - nrows * width)
-    }
-}
+//     fn nrows(&self, databytes: u32) -> (u32, u32) {
+//         let width = self.event_bytes();
+//         let nrows = databytes / width;
+//         // TODO isn't there a div/remainder thing somewhere?
+//         (nrows, databytes - nrows * width)
+//     }
+// }
 
 struct MixedParser {
-    endian: Endian,
+    nrows: usize,
     columns: Vec<MixedColumnType>,
 }
 
-impl HasEventWidth for MixedParser {
-    fn event_bytes(&self) -> u32 {
-        self.columns.iter().map(|c| u32::from(c.width())).sum()
-    }
-}
+// impl HasEventWidth for MixedParser {
+//     fn event_bytes(&self) -> u32 {
+//         self.columns.iter().map(|c| u32::from(c.width())).sum()
+//     }
+// }
 
-struct ByteordIntParser {
-    bitmask: AnyUint<AnyIntBitmask>,
-    par: u32,
-}
+// struct ByteordIntParser {
+//     bitmask: AnyUint<AnyIntBitmask>,
+//     par: u32,
+// }
 
 enum SizedByteOrd<const LEN: usize> {
     Endian(Endian),
     Order([u8; LEN]),
 }
 
-struct IntBitmask<B, S> {
+struct IntColumnParser<B, S> {
     bitmask: B,
     size: S,
-}
-
-struct IntData<B, S> {
-    bitmask: IntBitmask<B, S>,
     data: Vec<B>,
 }
 
-trait UintInner {
-    type Inner<X, Y>;
+// struct IntData<B, S> {
+//     parser: IntColumnParser<B, S>,
+//     data: Vec<B>,
+// }
+
+struct VariableIntParser {
+    nrows: usize,
+    columns: Vec<AnyIntColumn>,
 }
 
-struct AnyIntData;
+// trait UintInner {
+//     type Inner<X, Y>;
+// }
 
-impl UintInner for AnyIntData {
-    type Inner<X, Y> = IntData<X, Y>;
-}
+// struct AnyIntData;
 
-struct AnyIntBitmask;
+// impl UintInner for AnyIntData {
+//     type Inner<X, Y> = IntData<X, Y>;
+// }
 
-impl UintInner for AnyIntBitmask {
-    type Inner<X, Y> = IntBitmask<X, Y>;
-}
+// struct AnyIntBitmask;
 
-enum AnyUint<T: UintInner> {
-    Uint8(<T as UintInner>::Inner<u8, ()>),
-    Uint16(<T as UintInner>::Inner<u16, Endian>),
-    Uint24(<T as UintInner>::Inner<u32, SizedByteOrd<3>>),
-    Uint32(<T as UintInner>::Inner<u32, SizedByteOrd<4>>),
-    Uint40(<T as UintInner>::Inner<u64, SizedByteOrd<5>>),
-    Uint48(<T as UintInner>::Inner<u64, SizedByteOrd<6>>),
-    Uint56(<T as UintInner>::Inner<u64, SizedByteOrd<7>>),
-    Uint64(<T as UintInner>::Inner<u64, SizedByteOrd<8>>),
+// impl UintInner for AnyIntBitmask {
+//     type Inner<X, Y> = IntColumnParser<X, Y>;
+// }
+
+enum AnyIntColumn {
+    Uint8(IntColumnParser<u8, ()>),
+    Uint16(IntColumnParser<u16, Endian>),
+    Uint24(IntColumnParser<u32, SizedByteOrd<3>>),
+    Uint32(IntColumnParser<u32, SizedByteOrd<4>>),
+    Uint40(IntColumnParser<u64, SizedByteOrd<5>>),
+    Uint48(IntColumnParser<u64, SizedByteOrd<6>>),
+    Uint56(IntColumnParser<u64, SizedByteOrd<7>>),
+    Uint64(IntColumnParser<u64, SizedByteOrd<8>>),
 }
 
 struct FixedIntParser<B, S> {
-    endian: S,
+    nrows: usize,
+    byteord: S,
     bitmasks: Vec<B>,
 }
 
-struct AnyFixedIntParser;
-
-impl UintInner for AnyFixedIntParser {
-    type Inner<X, Y> = IntBitmask<X, Y>;
+enum AnyIntParser {
+    Uint8(FixedIntParser<u8, ()>),
+    Uint16(FixedIntParser<u16, Endian>),
+    Uint24(FixedIntParser<u32, SizedByteOrd<3>>),
+    Uint32(FixedIntParser<u32, SizedByteOrd<4>>),
+    Uint40(FixedIntParser<u64, SizedByteOrd<5>>),
+    Uint48(FixedIntParser<u64, SizedByteOrd<6>>),
+    Uint56(FixedIntParser<u64, SizedByteOrd<7>>),
+    Uint64(FixedIntParser<u64, SizedByteOrd<8>>),
 }
 
-impl<T: UintInner> AnyUint<T> {
-    fn width(&self) -> u8 {
-        match self {
-            AnyUint::Uint8(_) => 1,
-            AnyUint::Uint16(_) => 2,
-            AnyUint::Uint24(_) => 3,
-            AnyUint::Uint32(_) => 4,
-            AnyUint::Uint40(_) => 5,
-            AnyUint::Uint48(_) => 6,
-            AnyUint::Uint56(_) => 7,
-            AnyUint::Uint64(_) => 8,
-        }
-    }
-}
+// struct AnyFixedIntParser;
 
-impl HasEventWidth for ByteordIntParser {
-    fn event_bytes(&self) -> u32 {
-        u32::from(self.bitmask.width()) * self.par
-    }
-}
+// impl UintInner for AnyFixedIntParser {
+//     type Inner<X, Y> = FixedIntParser<X, Y>;
+// }
+
+// impl<T: UintInner> AnyUint<T> {
+//     fn width(&self) -> u8 {
+//         match self {
+//             AnyUint::Uint8(_) => 1,
+//             AnyUint::Uint16(_) => 2,
+//             AnyUint::Uint24(_) => 3,
+//             AnyUint::Uint32(_) => 4,
+//             AnyUint::Uint40(_) => 5,
+//             AnyUint::Uint48(_) => 6,
+//             AnyUint::Uint56(_) => 7,
+//             AnyUint::Uint64(_) => 8,
+//         }
+//     }
+// }
+
+// impl HasEventWidth for ByteordIntParser {
+//     fn event_bytes(&self) -> u32 {
+//         u32::from(self.bitmask.width()) * self.par
+//     }
+// }
 
 // impl HasEventWidth for FixedIntParser {
 //     fn event_bytes(&self) -> u32 {
@@ -1359,36 +1535,36 @@ impl HasEventWidth for ByteordIntParser {
 //     }
 // }
 
-struct VariableIntParser {
-    endian: Endian,
-    widths: Vec<IntegerColumn>,
-}
+// struct VariableIntParser {
+//     endian: Endian,
+//     widths: Vec<IntegerColumn>,
+// }
 
-impl HasEventWidth for VariableIntParser {
-    fn event_bytes(&self) -> u32 {
-        self.widths.iter().map(|w| u32::from(w.bytes)).sum()
-    }
-}
+// impl HasEventWidth for VariableIntParser {
+//     fn event_bytes(&self) -> u32 {
+//         self.widths.iter().map(|w| u32::from(w.bytes)).sum()
+//     }
+// }
 
 enum IntParser {
     // DATATYPE=I with width implied by BYTEORD (2.0-3.0)
-    ByteOrd(ByteordIntParser),
+    // ByteOrd(ByteordIntParser),
     // DATATYPE=I with all PnB set to the same width (3.1+)
-    Fixed(AnyUint<AnyFixedIntParser>),
+    Fixed(AnyIntParser),
     // DATATYPE=I with PnB set to different widths (3.1+)
     Variable(VariableIntParser),
 }
 
-impl HasEventWidth for IntParser {
-    fn event_bytes(&self) -> u32 {
-        match self {
-            IntParser::ByteOrd(p) => p.event_bytes(),
-            // IntParser::Fixed(p) => p.event_bytes(),
-            IntParser::Fixed(_) => unimplemented!(),
-            IntParser::Variable(p) => p.event_bytes(),
-        }
-    }
-}
+// impl HasEventWidth for IntParser {
+//     fn event_bytes(&self) -> u32 {
+//         match self {
+//             IntParser::ByteOrd(p) => p.event_bytes(),
+//             // IntParser::Fixed(p) => p.event_bytes(),
+//             IntParser::Fixed(_) => unimplemented!(),
+//             IntParser::Variable(p) => p.event_bytes(),
+//         }
+//     }
+// }
 
 enum ColumnParser {
     // DATATYPE=A where all PnB = *
@@ -1427,30 +1603,24 @@ type ParsedData = Vec<Series>;
 // buffer array with this maximum width and then shove slices of it into the
 // byte->numeric conversion functions.
 fn read_data<R: Read + Seek>(h: &mut BufReader<R>, parser: DataParser) -> io::Result<ParsedData> {
-    let nbytes = parser.offsets.num_bytes();
     h.seek(SeekFrom::Start(u64::from(parser.offsets.begin)))?;
-    // init all the buffers we might need for various types/sizes up to 64bit
-    let mut buf1 = [0; 1];
-    let mut buf2 = [0; 2];
-    let mut buf4 = [0; 4];
-    let mut buf8 = [0; 8];
     let mut strbuf = String::new(); // for parsing Ascii
     match parser.column_parser {
         ColumnParser::DelimitedAscii(par) => unimplemented!(),
         ColumnParser::FixedWidthAscii(widths) => unimplemented!(),
         ColumnParser::Float(FloatParser {
-            par: ncols,
+            ncols,
+            nrows,
             byteord,
         }) => {
-            let event_width = u32::from(byteord.width()) * ncols;
-            let nrows = nbytes / event_width;
+            // let event_width = u32::from(byteord.width()) * ncols;
+            // let nrows = nbytes / event_width;
             // TODO fix casts?
             match byteord {
                 FloatByteOrd::SingleBigLittle(e) => {
-                    let mut columns: Vec<_> = iter::repeat_with(|| vec![0.0; nrows as usize])
-                        .take(ncols as usize)
-                        .collect();
-                    for r in 0..(nrows as usize) {
+                    let mut columns: Vec<_> =
+                        iter::repeat_with(|| vec![0.0; nrows]).take(ncols).collect();
+                    for r in 0..nrows {
                         for c in columns.iter_mut() {
                             c[r] = f32::read_from_endian(h, e)?;
                         }
@@ -1458,10 +1628,9 @@ fn read_data<R: Read + Seek>(h: &mut BufReader<R>, parser: DataParser) -> io::Re
                     Ok(columns.into_iter().map(Series::F32).collect())
                 }
                 FloatByteOrd::DoubleBigLittle(e) => {
-                    let mut columns: Vec<_> = iter::repeat_with(|| vec![0.0; nrows as usize])
-                        .take(ncols as usize)
-                        .collect();
-                    for r in 0..(nrows as usize) {
+                    let mut columns: Vec<_> =
+                        iter::repeat_with(|| vec![0.0; nrows]).take(ncols).collect();
+                    for r in 0..nrows {
                         for c in columns.iter_mut() {
                             c[r] = f64::read_from_endian(h, e)?;
                         }
@@ -1469,10 +1638,9 @@ fn read_data<R: Read + Seek>(h: &mut BufReader<R>, parser: DataParser) -> io::Re
                     Ok(columns.into_iter().map(Series::F64).collect())
                 }
                 FloatByteOrd::SingleOrdered(e) => {
-                    let mut columns: Vec<_> = iter::repeat_with(|| vec![0.0; nrows as usize])
-                        .take(ncols as usize)
-                        .collect();
-                    for r in 0..(nrows as usize) {
+                    let mut columns: Vec<_> =
+                        iter::repeat_with(|| vec![0.0; nrows]).take(ncols).collect();
+                    for r in 0..nrows {
                         for c in columns.iter_mut() {
                             c[r] = f32::read_from_ordered(h, &e)?;
                         }
@@ -1480,10 +1648,9 @@ fn read_data<R: Read + Seek>(h: &mut BufReader<R>, parser: DataParser) -> io::Re
                     Ok(columns.into_iter().map(Series::F32).collect())
                 }
                 FloatByteOrd::DoubleOrdered(e) => {
-                    let mut columns: Vec<_> = iter::repeat_with(|| vec![0.0; nrows as usize])
-                        .take(ncols as usize)
-                        .collect();
-                    for r in 0..(nrows as usize) {
+                    let mut columns: Vec<_> =
+                        iter::repeat_with(|| vec![0.0; nrows]).take(ncols).collect();
+                    for r in 0..nrows {
                         for c in columns.iter_mut() {
                             c[r] = f64::read_from_ordered(h, &e)?;
                         }
@@ -1492,71 +1659,55 @@ fn read_data<R: Read + Seek>(h: &mut BufReader<R>, parser: DataParser) -> io::Re
                 }
             }
         }
-        ColumnParser::Mixed(p) => {
-            // TODO handle remainder case
-            let (nrows, _) = p.nrows(nbytes);
-            let mut columns: Vec<MixedColumnData> = p
-                .columns
-                .into_iter()
-                .map(|c| c.init_column(nrows as usize))
-                .collect();
-            for r in 0..(nrows as usize) {
-                for c in columns.iter_mut() {
+        ColumnParser::Mixed(mut p) => {
+            for r in 0..p.nrows {
+                for c in p.columns.iter_mut() {
                     match c {
-                        MixedColumnData::F32(series) => {
-                            series[r] = f32::read_from_endian(h, p.endian)?;
+                        MixedColumnType::Single(t) => {
+                            t.data[r] = f32::read_from_endian(h, t.endian)?;
                         }
-                        MixedColumnData::F64(d) => {
-                            if let F64DataType::Ascii(bytes) = d.datatype {
-                                strbuf.clear();
-                                h.take(u64::from(bytes)).read_to_string(&mut strbuf)?;
-                                // TODO better error handling
-                                d.data[r] = strbuf.parse::<f64>().unwrap();
-                            } else {
-                                d.data[r] = f64::read_from_endian(h, p.endian)?;
-                            }
+                        MixedColumnType::Double(t) => {
+                            t.data[r] = f64::read_from_endian(h, t.endian)?;
                         }
-                        MixedColumnData::Uint(u) => match u {
-                            AnyUint::Uint8(d) => {
-                                d.data[r] =
-                                    u8::read_from_little(h).map(|x| x.min(d.bitmask.bitmask))?;
+                        MixedColumnType::Ascii(d) => {
+                            strbuf.clear();
+                            h.take(u64::from(d.width)).read_to_string(&mut strbuf)?;
+                            // TODO better error handling
+                            d.data[r] = strbuf.parse::<f64>().unwrap();
+                        }
+                        MixedColumnType::Uint(u) => match u {
+                            AnyIntColumn::Uint8(d) => {
+                                d.data[r] = u8::read_from_little(h).map(|x| x.min(d.bitmask))?;
                             }
-                            AnyUint::Uint16(d) => {
-                                d.data[r] = u16::read_from_endian(h, d.bitmask.size)
-                                    .map(|x| x.min(d.bitmask.bitmask))?;
-                            }
-                            AnyUint::Uint24(d) => {
+                            AnyIntColumn::Uint16(d) => {
                                 d.data[r] =
-                                    u32::read_int_masked(h, &d.bitmask.size, d.bitmask.bitmask)?;
+                                    u16::read_from_endian(h, d.size).map(|x| x.min(d.bitmask))?;
                             }
-                            AnyUint::Uint32(d) => {
-                                d.data[r] =
-                                    u32::read_int_masked(h, &d.bitmask.size, d.bitmask.bitmask)?;
+                            AnyIntColumn::Uint24(d) => {
+                                d.data[r] = u32::read_int_masked(h, &d.size, d.bitmask)?;
                             }
-                            AnyUint::Uint40(d) => {
-                                d.data[r] =
-                                    u64::read_int_masked(h, &d.bitmask.size, d.bitmask.bitmask)?;
+                            AnyIntColumn::Uint32(d) => {
+                                d.data[r] = u32::read_int_masked(h, &d.size, d.bitmask)?;
                             }
-                            AnyUint::Uint48(d) => {
-                                d.data[r] =
-                                    u64::read_int_masked(h, &d.bitmask.size, d.bitmask.bitmask)?;
+                            AnyIntColumn::Uint40(d) => {
+                                d.data[r] = u64::read_int_masked(h, &d.size, d.bitmask)?;
                             }
-                            AnyUint::Uint56(d) => {
-                                d.data[r] =
-                                    u64::read_int_masked(h, &d.bitmask.size, d.bitmask.bitmask)?;
+                            AnyIntColumn::Uint48(d) => {
+                                d.data[r] = u64::read_int_masked(h, &d.size, d.bitmask)?;
                             }
-                            AnyUint::Uint64(d) => {
-                                d.data[r] =
-                                    u64::read_int_masked(h, &d.bitmask.size, d.bitmask.bitmask)?;
+                            AnyIntColumn::Uint56(d) => {
+                                d.data[r] = u64::read_int_masked(h, &d.size, d.bitmask)?;
+                            }
+                            AnyIntColumn::Uint64(d) => {
+                                d.data[r] = u64::read_int_masked(h, &d.size, d.bitmask)?;
                             }
                         },
                     }
                 }
             }
-            Ok(columns.into_iter().map(|c| c.to_series()).collect())
+            Ok(p.columns.into_iter().map(|c| c.to_series()).collect())
         }
         ColumnParser::Int(sp) => match sp {
-            IntParser::ByteOrd(_) => unimplemented!(),
             IntParser::Fixed(_) => unimplemented!(),
             IntParser::Variable(_) => unimplemented!(),
         },
@@ -1570,29 +1721,70 @@ trait MetadataFromKeywords: Sized {
 
     fn get_byteord(&self) -> ByteOrd;
 
+    fn get_event_width(s: &StdText<Self, Self::P>) -> Result<u32, (Vec<usize>, Vec<usize>)> {
+        let (fixed, variable_indices): (Vec<_>, Vec<_>) = s
+            .parameters
+            .iter()
+            .enumerate()
+            .map(|(i, p)| match p.bytes {
+                Bytes::Fixed(b) => Ok((i, b)),
+                Bytes::Variable => Err(i),
+            })
+            .partition_result();
+        let (fixed_indices, fixed_bytes): (Vec<_>, Vec<_>) = fixed.into_iter().unzip();
+        if variable_indices.is_empty() {
+            Ok(fixed_bytes.into_iter().map(|x| u32::from(x)).sum())
+        } else {
+            Err((fixed_indices, variable_indices))
+        }
+    }
+
+    // TODO this may or may not agree with what is in the TOT field. The offsets
+    // themselves are sometimes known to be screwed up. To make this more
+    // complex, the TOT field is optional in 2.0. It might make sense to offer
+    // various fallback/failure mechanisms in case this issue is encountered.
+    fn get_total_events(s: &StdText<Self, Self::P>, event_width: u32) -> Result<u32, String> {
+        let nbytes = Self::get_data_offsets(s).num_bytes();
+        let remainder = nbytes % event_width;
+        if nbytes % event_width > 0 {
+            Err(format!(
+                "Events are {event_width} bytes wide but does not evenly \
+                 divide DATA segment which is {nbytes} bytes long \
+                 (remainder of {remainder}) "
+            ))
+        } else {
+            Ok(nbytes / event_width)
+        }
+    }
+
     fn build_int_parser(
         &self,
         ps: &[Parameter<Self::P>],
-        par: u32,
+        total_events: u32,
     ) -> Result<IntParser, Vec<String>>;
 
     fn build_mixed_parser(
         &self,
         ps: &[Parameter<Self::P>],
-        dt: &AlphaNumTypes,
+        dt: &AlphaNumType,
     ) -> Option<Result<MixedParser, Vec<String>>>;
 
     fn build_float_parser(
         &self,
         is_double: bool,
         par: u32,
+        total_events: u32,
         ps: &[Parameter<Self::P>],
     ) -> Result<ColumnParser, Vec<String>> {
         let (bytes, dt) = if is_double { (8, "D") } else { (4, "F") };
         let remainder: Vec<_> = ps.iter().filter(|p| p.bytes_eq(bytes)).collect();
         if remainder.is_empty() {
             if let Some(byteord) = self.get_byteord().to_float_byteord(is_double) {
-                Ok(ColumnParser::Float(FloatParser { par, byteord }))
+                Ok(ColumnParser::Float(FloatParser {
+                    nrows: total_events as usize,
+                    ncols: par as usize,
+                    byteord,
+                }))
             } else {
                 Err(vec![format!(
                     "BYTEORD implies {} bytes but DATATYPE={}",
@@ -1608,7 +1800,11 @@ trait MetadataFromKeywords: Sized {
         }
     }
 
-    fn build_column_parser(s: &StdText<Self, Self::P>) -> Result<ColumnParser, Vec<String>> {
+    fn build_fixed_width_parser(
+        s: &StdText<Self, Self::P>,
+        event_width: u32,
+        total_events: u32,
+    ) -> Result<ColumnParser, Vec<String>> {
         let par = s.metadata.par;
         let ps = &s.parameters;
         let dt = &s.metadata.datatype;
@@ -1616,13 +1812,13 @@ trait MetadataFromKeywords: Sized {
         if let Some(mixed) = Self::build_mixed_parser(specific, ps, dt) {
             mixed.map(ColumnParser::Mixed)
         } else {
-            match s.metadata.datatype {
-                AlphaNumTypes::Single => specific.build_float_parser(false, par, ps),
-                AlphaNumTypes::Double => specific.build_float_parser(true, par, ps),
-                AlphaNumTypes::Integer => {
-                    Self::build_int_parser(specific, ps, par).map(ColumnParser::Int)
+            match dt {
+                AlphaNumType::Single => specific.build_float_parser(false, par, total_events, ps),
+                AlphaNumType::Double => specific.build_float_parser(true, par, total_events, ps),
+                AlphaNumType::Integer => {
+                    Self::build_int_parser(specific, ps, total_events).map(ColumnParser::Int)
                 }
-                AlphaNumTypes::Ascii => {
+                AlphaNumType::Ascii => {
                     let widths: Vec<u8> = ps.iter().filter_map(|p| p.bytes.len()).collect();
                     if widths.is_empty() {
                         Ok(ColumnParser::DelimitedAscii(par))
@@ -1638,11 +1834,19 @@ trait MetadataFromKeywords: Sized {
         }
     }
 
-    fn build_data_parser(s: &StdText<Self, Self::P>) -> Result<DataParser, Vec<String>> {
+    // TODO add variable ascii parser, which is a totally separate beast from
+    // these since we can't assume any column widths
+    fn build_numeric_parser(
+        s: &StdText<Self, Self::P>,
+        event_width: u32,
+        total_events: u32,
+    ) -> Result<DataParser, Vec<String>> {
         let offsets = Self::get_data_offsets(s);
-        Self::build_column_parser(s).map(|column_parser| DataParser {
-            column_parser,
-            offsets,
+        Self::build_fixed_width_parser(s, event_width, total_events).map(|column_parser| {
+            DataParser {
+                column_parser,
+                offsets,
+            }
         })
     }
 
@@ -1676,7 +1880,23 @@ trait MetadataFromKeywords: Sized {
             }
         }
 
-        Self::validate_specific(st, s, shortnames)
+        Self::validate_specific(st, s, shortnames);
+
+        // validate that PnB are either all "*" or all numeric, and that this
+        // lines up with $DATATYPE
+        match (Self::get_event_width(s), s.metadata.datatype) {
+            // TODO how to handle errors here?
+            // Numeric/Ascii (fixed width)
+            (Ok(event_width), _) => {
+                let total_events = Self::get_total_events(s, event_width);
+                unimplemented!()
+            }
+            // Ascii (variable width)
+            (Err((fixed, _)), AlphaNumType::Ascii) if fixed.is_empty() => unimplemented!(),
+            // nonsense, this will happen when fixed and variable width
+            // parameters both exist simultaneously
+            (Err((fixed, variable)), _) => unimplemented!(),
+        }
     }
 
     fn build_inner(st: &mut KwState) -> Option<Self>;
@@ -1729,15 +1949,13 @@ impl MetadataFromKeywords for InnerMetadata2_0 {
     fn build_int_parser(
         &self,
         ps: &[Parameter<Self::P>],
-        par: u32,
+        total_events: u32,
     ) -> Result<IntParser, Vec<String>> {
         let nbytes = self.byteord.num_bytes();
-        let remainder: Vec<_> = ps.iter().filter(|p| p.bytes_eq(nbytes)).collect();
+        let remainder: Vec<_> = ps.iter().filter(|p| !p.bytes_eq(nbytes)).collect();
         if remainder.is_empty() {
-            Ok(IntParser::ByteOrd(ByteordIntParser {
-                par,
-                byteord: self.byteord.clone(),
-            }))
+            let rs: Vec<_> = ps.iter().map(|p| p.range).collect();
+            make_int_column_parser(nbytes, &rs, &self.byteord, total_events).map(IntParser::Fixed)
         } else {
             Err(remainder
                 .iter()
@@ -1756,7 +1974,7 @@ impl MetadataFromKeywords for InnerMetadata2_0 {
     fn build_mixed_parser(
         &self,
         _: &[Parameter<Self::P>],
-        _: &AlphaNumTypes,
+        _: &AlphaNumType,
     ) -> Option<Result<MixedParser, Vec<String>>> {
         None
     }
@@ -1798,15 +2016,13 @@ impl MetadataFromKeywords for InnerMetadata3_0 {
     fn build_int_parser(
         &self,
         ps: &[Parameter<Self::P>],
-        par: u32,
+        total_events: u32,
     ) -> Result<IntParser, Vec<String>> {
         let nbytes = self.byteord.num_bytes();
-        let remainder: Vec<_> = ps.iter().filter(|p| p.bytes_eq(nbytes)).collect();
+        let remainder: Vec<_> = ps.iter().filter(|p| !p.bytes_eq(nbytes)).collect();
         if remainder.is_empty() {
-            Ok(IntParser::ByteOrd(ByteordIntParser {
-                par,
-                byteord: self.byteord.clone(),
-            }))
+            let rs: Vec<_> = ps.iter().map(|p| p.range).collect();
+            make_int_column_parser(nbytes, &rs, &self.byteord, total_events).map(IntParser::Fixed)
         } else {
             Err(remainder
                 .iter()
@@ -1825,7 +2041,7 @@ impl MetadataFromKeywords for InnerMetadata3_0 {
     fn build_mixed_parser(
         &self,
         _: &[Parameter<Self::P>],
-        _: &AlphaNumTypes,
+        _: &AlphaNumType,
     ) -> Option<Result<MixedParser, Vec<String>>> {
         None
     }
@@ -1879,34 +2095,22 @@ impl MetadataFromKeywords for InnerMetadata3_1 {
     fn build_int_parser(
         &self,
         ps: &[Parameter<Self::P>],
-        par: u32,
+        total_events: u32,
     ) -> Result<IntParser, Vec<String>> {
-        let widths: Vec<IntegerColumn> = ps
+        //TODO make errors and stuff go boom
+        let (widths, _): (Vec<_>, Vec<_>) = ps
             .iter()
-            .filter_map(|p| {
-                if let (Some(bytes), Some(mask)) =
-                    (p.bytes.len(), p.bitmask(&ByteOrd::Endian(self.byteord)))
-                {
-                    Some(IntegerColumn {
-                        bytes,
-                        bitmask: mask.bitmask,
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect();
+            .map(|p| p.make_int_parser(&ByteOrd::Endian(self.byteord)))
+            .partition_result();
         if widths.len() == ps.len() {
-            let unique_widths: Vec<_> = widths.iter().unique_by(|c| c.bytes).collect();
+            let unique_widths: Vec<_> = ps.iter().filter_map(|c| c.bytes.len()).unique().collect();
+            let rs: Vec<_> = ps.iter().map(|p| p.range).collect();
             match unique_widths[..] {
-                [w] => Ok(IntParser::Fixed(FixedIntParser {
-                    par,
-                    endian: self.byteord,
-                    width: w.clone(),
-                })),
+                [w] => make_int_column_parser(w, &rs, &ByteOrd::Endian(self.byteord), total_events)
+                    .map(IntParser::Fixed),
                 _ => Ok(IntParser::Variable(VariableIntParser {
-                    endian: self.byteord,
-                    widths,
+                    nrows: total_events as usize,
+                    columns: widths,
                 })),
             }
         } else {
@@ -1917,7 +2121,7 @@ impl MetadataFromKeywords for InnerMetadata3_1 {
     fn build_mixed_parser(
         &self,
         _: &[Parameter<Self::P>],
-        _: &AlphaNumTypes,
+        _: &AlphaNumType,
     ) -> Option<Result<MixedParser, Vec<String>>> {
         None
     }
@@ -1973,34 +2177,22 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
     fn build_int_parser(
         &self,
         ps: &[Parameter<Self::P>],
-        par: u32,
+        total_events: u32,
     ) -> Result<IntParser, Vec<String>> {
-        let widths: Vec<IntegerColumn> = ps
+        //TODO make errors and stuff go boom
+        let (widths, _): (Vec<_>, Vec<_>) = ps
             .iter()
-            .filter_map(|p| {
-                if let (Some(bytes), Some(mask)) =
-                    (p.bytes.len(), p.bitmask(&ByteOrd::Endian(self.byteord)))
-                {
-                    Some(IntegerColumn {
-                        bytes,
-                        bitmask: mask.min(u64::from(2 ^ bytes)),
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect();
+            .map(|p| p.make_int_parser(&ByteOrd::Endian(self.byteord)))
+            .partition_result();
         if widths.len() == ps.len() {
-            let unique_widths: Vec<_> = widths.iter().unique_by(|c| c.bytes).collect();
+            let unique_widths: Vec<_> = ps.iter().filter_map(|c| c.bytes.len()).unique().collect();
+            let rs: Vec<_> = ps.iter().map(|p| p.range).collect();
             match unique_widths[..] {
-                [w] => Ok(IntParser::Fixed(FixedIntParser {
-                    par,
-                    endian: self.byteord,
-                    width: w.clone(),
-                })),
+                [w] => make_int_column_parser(w, &rs, &ByteOrd::Endian(self.byteord), total_events)
+                    .map(IntParser::Fixed),
                 _ => Ok(IntParser::Variable(VariableIntParser {
-                    endian: self.byteord,
-                    widths,
+                    nrows: total_events as usize,
+                    columns: widths,
                 })),
             }
         } else {
@@ -2011,7 +2203,8 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
     fn build_mixed_parser(
         &self,
         ps: &[Parameter<Self::P>],
-        dt: &AlphaNumTypes,
+        dt: &AlphaNumType,
+        endian: Endian,
     ) -> Option<Result<MixedParser, Vec<String>>> {
         // first test if we have any PnDATATYPEs defined, if no then skip this
         // data parser entirely
@@ -2030,29 +2223,45 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
                 match (
                     p.specific.get_column_type(*dt),
                     p.specific.datatype.as_ref().to_option().is_some(),
+                    p.range,
                     &p.bytes,
                 ) {
-                    (AlphaNumTypes::Ascii, _, Bytes::Fixed(bytes)) => {
-                        Ok(MixedColumnType::Ascii(*bytes))
+                    (AlphaNumType::Ascii, _, _, Bytes::Fixed(bytes)) => {
+                        Ok(MixedColumnType::Ascii(AsciiColumn {
+                            width: *bytes,
+                            data: vec![],
+                        }))
                     }
-                    (AlphaNumTypes::Single, _, Bytes::Fixed(4)) => Ok(MixedColumnType::Single),
-                    (AlphaNumTypes::Double, _, Bytes::Fixed(8)) => Ok(MixedColumnType::Double),
-                    (AlphaNumTypes::Integer, _, Bytes::Fixed(bytes)) => {
-                        if let Some(mask) = p.bitmask(&ByteOrd::Endian(self.byteord)) {
-                            Ok(MixedColumnType::Uint(mask))
-                        } else {
-                            Err(format!(
-                                "Parameter {} is an integer but bitmask is invalid",
-                                i
-                            ))
-                        }
+                    (AlphaNumType::Single, _, _, Bytes::Fixed(4)) => {
+                        Ok(MixedColumnType::Single(SingleColumn {
+                            data: vec![],
+                            endian,
+                        }))
+                    }
+                    (AlphaNumType::Double, _, _, Bytes::Fixed(8)) => {
+                        Ok(MixedColumnType::Double(DoubleColumn {
+                            data: vec![],
+                            endian,
+                        }))
+                    }
+                    (AlphaNumType::Integer, _, r, Bytes::Fixed(bytes)) => {
+                        make_int_parser(*bytes, &r, &ByteOrd::Endian(self.byteord))
+                            .map(MixedColumnType::Uint)
+                        // if let Some(mask) = p.bitmask(&ByteOrd::Endian(self.byteord)) {
+                        //     Ok(MixedColumnType::Uint(mask))
+                        // } else {
+                        //     Err(format!(
+                        //         "Parameter {} is an integer but bitmask is invalid",
+                        //         i
+                        //     ))
+                        // }
                     }
                     (dt, overridden, bytes) => {
                         let sdt = if overridden { "PnDATATYPE" } else { "DATATYPE" };
-                        Err(format!(
+                        Err(vec![format!(
                             "{}={} but PnB={} for parameter {}",
                             sdt, dt, bytes, i
-                        ))
+                        )])
                     }
                 }
             })
@@ -2084,9 +2293,9 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
         for (i, p) in s.parameters.iter().enumerate() {
             if let Present(d) = &p.specific.datatype {
                 match (d, &p.bytes) {
-                    (NumTypes::Single, Bytes::Fixed(4)) => (),
-                    (NumTypes::Double, Bytes::Fixed(8)) => (),
-                    (NumTypes::Integer, Bytes::Fixed(_)) => (),
+                    (NumType::Single, Bytes::Fixed(4)) => (),
+                    (NumType::Double, Bytes::Fixed(8)) => (),
+                    (NumType::Integer, Bytes::Fixed(_)) => (),
                     _ => st.push_meta_error(format!(
                         "Parameter {} uses DATATYPE={} but has bytes={}",
                         i, d, p.bytes
@@ -2330,12 +2539,12 @@ impl KwState {
         self.get_required("BYTEORD", parse_endian)
     }
 
-    fn lookup_datatype(&mut self) -> Option<AlphaNumTypes> {
+    fn lookup_datatype(&mut self) -> Option<AlphaNumType> {
         self.get_required("DATATYPE", |s| match s {
-            "I" => Ok(AlphaNumTypes::Integer),
-            "F" => Ok(AlphaNumTypes::Single),
-            "D" => Ok(AlphaNumTypes::Double),
-            "A" => Ok(AlphaNumTypes::Ascii),
+            "I" => Ok(AlphaNumType::Integer),
+            "F" => Ok(AlphaNumType::Single),
+            "D" => Ok(AlphaNumType::Double),
+            "A" => Ok(AlphaNumType::Ascii),
             _ => Err(String::from("unknown datatype")),
         })
     }
@@ -2773,11 +2982,11 @@ impl KwState {
         })
     }
 
-    fn lookup_param_datatype(&mut self, n: u32) -> OptionalKw<NumTypes> {
+    fn lookup_param_datatype(&mut self, n: u32) -> OptionalKw<NumType> {
         self.lookup_param_opt("DATATYPE", n, |s| match s {
-            "I" => Ok(NumTypes::Integer),
-            "F" => Ok(NumTypes::Single),
-            "D" => Ok(NumTypes::Double),
+            "I" => Ok(NumType::Integer),
+            "F" => Ok(NumType::Single),
+            "D" => Ok(NumType::Double),
             _ => Err(String::from("unknown datatype")),
         })
     }

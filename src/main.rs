@@ -1767,6 +1767,7 @@ trait MetadataFromKeywords: Sized {
         &self,
         ps: &[Parameter<Self::P>],
         dt: &AlphaNumType,
+        total_events: u32,
     ) -> Option<Result<MixedParser, Vec<String>>>;
 
     fn build_float_parser(
@@ -1809,7 +1810,7 @@ trait MetadataFromKeywords: Sized {
         let ps = &s.parameters;
         let dt = &s.metadata.datatype;
         let specific = &s.metadata.specific;
-        if let Some(mixed) = Self::build_mixed_parser(specific, ps, dt) {
+        if let Some(mixed) = Self::build_mixed_parser(specific, ps, dt, total_events) {
             mixed.map(ColumnParser::Mixed)
         } else {
             match dt {
@@ -1975,6 +1976,7 @@ impl MetadataFromKeywords for InnerMetadata2_0 {
         &self,
         _: &[Parameter<Self::P>],
         _: &AlphaNumType,
+        _: u32,
     ) -> Option<Result<MixedParser, Vec<String>>> {
         None
     }
@@ -2042,6 +2044,8 @@ impl MetadataFromKeywords for InnerMetadata3_0 {
         &self,
         _: &[Parameter<Self::P>],
         _: &AlphaNumType,
+
+        _: u32,
     ) -> Option<Result<MixedParser, Vec<String>>> {
         None
     }
@@ -2122,6 +2126,7 @@ impl MetadataFromKeywords for InnerMetadata3_1 {
         &self,
         _: &[Parameter<Self::P>],
         _: &AlphaNumType,
+        _: u32,
     ) -> Option<Result<MixedParser, Vec<String>>> {
         None
     }
@@ -2204,8 +2209,9 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
         &self,
         ps: &[Parameter<Self::P>],
         dt: &AlphaNumType,
-        endian: Endian,
+        total_events: u32,
     ) -> Option<Result<MixedParser, Vec<String>>> {
+        let endian = self.byteord;
         // first test if we have any PnDATATYPEs defined, if no then skip this
         // data parser entirely
         if ps
@@ -2216,10 +2222,11 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
         {
             return None;
         }
-        let (pass, fail): (Vec<MixedColumnType>, Vec<String>) = ps
+        let (pass, fail): (Vec<_>, Vec<_>) = ps
             .iter()
             .enumerate()
             .map(|(i, p)| {
+                // TODO this range thing seems not necessary
                 match (
                     p.specific.get_column_type(*dt),
                     p.specific.datatype.as_ref().to_option().is_some(),
@@ -2247,16 +2254,8 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
                     (AlphaNumType::Integer, _, r, Bytes::Fixed(bytes)) => {
                         make_int_parser(*bytes, &r, &ByteOrd::Endian(self.byteord))
                             .map(MixedColumnType::Uint)
-                        // if let Some(mask) = p.bitmask(&ByteOrd::Endian(self.byteord)) {
-                        //     Ok(MixedColumnType::Uint(mask))
-                        // } else {
-                        //     Err(format!(
-                        //         "Parameter {} is an integer but bitmask is invalid",
-                        //         i
-                        //     ))
-                        // }
                     }
-                    (dt, overridden, bytes) => {
+                    (dt, overridden, _, bytes) => {
                         let sdt = if overridden { "PnDATATYPE" } else { "DATATYPE" };
                         Err(vec![format!(
                             "{}={} but PnB={} for parameter {}",
@@ -2268,11 +2267,11 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
             .partition_result();
         if fail.is_empty() {
             Some(Ok(MixedParser {
-                endian: self.byteord,
+                nrows: total_events as usize,
                 columns: pass,
             }))
         } else {
-            Some(Err(fail))
+            Some(Err(fail.into_iter().flatten().collect()))
         }
     }
 
@@ -2861,12 +2860,12 @@ impl KwState {
 
     fn lookup_param_range(&mut self, n: u32) -> Option<Range> {
         self.lookup_param_req("R", n, |s| match s.parse::<u64>() {
-            Ok(x) => Ok(Range::Int(x)),
+            Ok(x) => Ok(Range::Int(x - 1)),
             Err(e) => match e.kind() {
                 IntErrorKind::InvalidDigit => s
-                    .parse::<f32>()
+                    .parse::<f64>()
                     .map_or_else(|e| Err(format!("{}", e)), |x| Ok(Range::Float(x))),
-                IntErrorKind::PosOverflow => Ok(Range::Max),
+                IntErrorKind::PosOverflow => Ok(Range::Int(u64::MAX)),
                 _ => Err(format!("{}", e)),
             },
         })

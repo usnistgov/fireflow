@@ -1048,13 +1048,14 @@ trait CanParseInt<const INTLEN: usize>: Sized + IntMath {
 
     // NOTE this won't be used for sizes 1 and 2
     fn byteord_to_sized(byteord: &ByteOrd) -> Result<SizedByteOrd<INTLEN>, String> {
-        // TODO make this error better
         match byteord {
             ByteOrd::Endian(e) => Ok(SizedByteOrd::Endian(*e)),
             ByteOrd::Mixed(v) => v[..]
                 .try_into()
                 .map(|x: [u8; INTLEN]| SizedByteOrd::Order(x))
-                .or(Err(String::from("Invalid byteord"))),
+                .or(Err(String::from(
+                    "$BYTEORD is mixed but length is {v.len()} and not {INTLEN}",
+                ))),
         }
     }
 

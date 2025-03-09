@@ -4,6 +4,7 @@ use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 use itertools::Itertools;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
+use std::env;
 use std::fmt;
 use std::fs;
 use std::io;
@@ -11,7 +12,6 @@ use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::iter;
 use std::num::IntErrorKind;
 use std::str;
-use std::{env, u64};
 
 fn format_standard_kw(kw: &str) -> String {
     format!("${}", kw.to_ascii_uppercase())
@@ -503,10 +503,6 @@ enum Range {
     Float(f64),
 }
 
-// impl Range {
-//     fn bitmask(&self) -> u64 {}
-// }
-
 #[derive(Debug)]
 struct Parameter<X> {
     bytes: Bytes,                      // PnB
@@ -952,12 +948,6 @@ struct FloatParser {
     byteord: FloatByteOrd,
 }
 
-// impl FloatParser {
-//     fn event_width(&self) -> u32 {
-//         self.par * u32::from(self.byteord.width())
-//     }
-// }
-
 type ColumnWidths = Vec<u8>;
 
 #[derive(Clone)]
@@ -1379,63 +1369,10 @@ impl MixedColumnType {
     }
 }
 
-// impl MixedColumnType {
-//     fn init_column(self, n: usize) -> MixedColumnData {
-//         match self {
-//             MixedColumnType::Uint(_) => unimplemented!(),
-//             MixedColumnType::Single => MixedColumnData::F32(vec![0.0; n]),
-//             // Ascii and doubles get stored in the same data type. In the former
-//             // case, I don't feel like making too many assumptions about how big
-//             // an ascii field will be, so just shove it in a float field. If
-//             // the creator of said file wanted efficiency they wouldn't have
-//             // chosen ascii.
-//             MixedColumnType::Ascii(x) => MixedColumnData::F64(F64ColumnData {
-//                 data: vec![0.0; n],
-//                 datatype: F64DataType::Ascii(x),
-//             }),
-//             MixedColumnType::Double => MixedColumnData::F64(F64ColumnData {
-//                 data: vec![0.0; n],
-//                 datatype: F64DataType::Double,
-//             }),
-//         }
-//     }
-
-//     // fn width(&self) -> u8 {
-//     //     match self {
-//     //         MixedColumnType::Ascii(x) => *x,
-//     //         MixedColumnType::Uint(u) => u.width(),
-//     //         MixedColumnType::Single => 4,
-//     //         MixedColumnType::Double => 8,
-//     //     }
-//     // }
-// }
-
-// trait HasEventWidth {
-//     fn event_bytes(&self) -> u32;
-
-//     fn nrows(&self, databytes: u32) -> (u32, u32) {
-//         let width = self.event_bytes();
-//         let nrows = databytes / width;
-//         // TODO isn't there a div/remainder thing somewhere?
-//         (nrows, databytes - nrows * width)
-//     }
-// }
-
 struct MixedParser {
     nrows: usize,
     columns: Vec<MixedColumnType>,
 }
-
-// impl HasEventWidth for MixedParser {
-//     fn event_bytes(&self) -> u32 {
-//         self.columns.iter().map(|c| u32::from(c.width())).sum()
-//     }
-// }
-
-// struct ByteordIntParser {
-//     bitmask: AnyUint<AnyIntBitmask>,
-//     par: u32,
-// }
 
 enum SizedByteOrd<const LEN: usize> {
     Endian(Endian),
@@ -1448,31 +1385,10 @@ struct IntColumnParser<B, S> {
     data: Vec<B>,
 }
 
-// struct IntData<B, S> {
-//     parser: IntColumnParser<B, S>,
-//     data: Vec<B>,
-// }
-
 struct VariableIntParser {
     nrows: usize,
     columns: Vec<AnyIntColumn>,
 }
-
-// trait UintInner {
-//     type Inner<X, Y>;
-// }
-
-// struct AnyIntData;
-
-// impl UintInner for AnyIntData {
-//     type Inner<X, Y> = IntData<X, Y>;
-// }
-
-// struct AnyIntBitmask;
-
-// impl UintInner for AnyIntBitmask {
-//     type Inner<X, Y> = IntColumnParser<X, Y>;
-// }
 
 enum AnyIntColumn {
     Uint8(IntColumnParser<u8, ()>),
@@ -1502,50 +1418,6 @@ enum AnyIntParser {
     Uint64(FixedIntParser<u64, SizedByteOrd<8>>),
 }
 
-// struct AnyFixedIntParser;
-
-// impl UintInner for AnyFixedIntParser {
-//     type Inner<X, Y> = FixedIntParser<X, Y>;
-// }
-
-// impl<T: UintInner> AnyUint<T> {
-//     fn width(&self) -> u8 {
-//         match self {
-//             AnyUint::Uint8(_) => 1,
-//             AnyUint::Uint16(_) => 2,
-//             AnyUint::Uint24(_) => 3,
-//             AnyUint::Uint32(_) => 4,
-//             AnyUint::Uint40(_) => 5,
-//             AnyUint::Uint48(_) => 6,
-//             AnyUint::Uint56(_) => 7,
-//             AnyUint::Uint64(_) => 8,
-//         }
-//     }
-// }
-
-// impl HasEventWidth for ByteordIntParser {
-//     fn event_bytes(&self) -> u32 {
-//         u32::from(self.bitmask.width()) * self.par
-//     }
-// }
-
-// impl HasEventWidth for FixedIntParser {
-//     fn event_bytes(&self) -> u32 {
-//         u32::from(self.width.bytes) * self.par
-//     }
-// }
-
-// struct VariableIntParser {
-//     endian: Endian,
-//     widths: Vec<IntegerColumn>,
-// }
-
-// impl HasEventWidth for VariableIntParser {
-//     fn event_bytes(&self) -> u32 {
-//         self.widths.iter().map(|w| u32::from(w.bytes)).sum()
-//     }
-// }
-
 enum IntParser {
     // DATATYPE=I with width implied by BYTEORD (2.0-3.0)
     // ByteOrd(ByteordIntParser),
@@ -1554,17 +1426,6 @@ enum IntParser {
     // DATATYPE=I with PnB set to different widths (3.1+)
     Variable(VariableIntParser),
 }
-
-// impl HasEventWidth for IntParser {
-//     fn event_bytes(&self) -> u32 {
-//         match self {
-//             IntParser::ByteOrd(p) => p.event_bytes(),
-//             // IntParser::Fixed(p) => p.event_bytes(),
-//             IntParser::Fixed(_) => unimplemented!(),
-//             IntParser::Variable(p) => p.event_bytes(),
-//         }
-//     }
-// }
 
 enum ColumnParser {
     // DATATYPE=A where all PnB = *
@@ -1596,12 +1457,6 @@ enum Series {
 
 type ParsedData = Vec<Series>;
 
-// NOTE you will get wrecked without something like this: https://users.rust-lang.org/t/generic-function-for-from-be-bytes/59629/4
-
-// TODO we need to cap the maximum supported width somewhere to make this sane.
-// In the mixed case, the easiest solution is going to be to allocate one
-// buffer array with this maximum width and then shove slices of it into the
-// byte->numeric conversion functions.
 fn read_data<R: Read + Seek>(h: &mut BufReader<R>, parser: DataParser) -> io::Result<ParsedData> {
     h.seek(SeekFrom::Start(u64::from(parser.offsets.begin)))?;
     let mut strbuf = String::new(); // for parsing Ascii
@@ -1613,8 +1468,6 @@ fn read_data<R: Read + Seek>(h: &mut BufReader<R>, parser: DataParser) -> io::Re
             nrows,
             byteord,
         }) => {
-            // let event_width = u32::from(byteord.width()) * ncols;
-            // let nrows = nbytes / event_width;
             // TODO fix casts?
             match byteord {
                 FloatByteOrd::SingleBigLittle(e) => {
@@ -1733,7 +1586,7 @@ trait MetadataFromKeywords: Sized {
             .partition_result();
         let (fixed_indices, fixed_bytes): (Vec<_>, Vec<_>) = fixed.into_iter().unzip();
         if variable_indices.is_empty() {
-            Ok(fixed_bytes.into_iter().map(|x| u32::from(x)).sum())
+            Ok(fixed_bytes.into_iter().map(u32::from).sum())
         } else {
             Err((fixed_indices, variable_indices))
         }

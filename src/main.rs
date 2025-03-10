@@ -34,11 +34,11 @@ fn parse_endian(s: &str) -> ParseResult<Endian> {
 fn parse_bytes(s: &str) -> ParseResult<Bytes> {
     match s {
         "*" => Ok(Bytes::Variable),
-        _ => s.parse().map_or(
+        _ => s.parse::<u8>().map_or(
             Err(String::from("must be a positive integer or '*'")),
             |x| {
                 if x % 8 == 0 {
-                    Ok(Bytes::Fixed(x))
+                    Ok(Bytes::Fixed(x / 8))
                 } else {
                     Err(String::from("only multiples of 8 are supported"))
                 }
@@ -3288,5 +3288,5 @@ fn main() {
     //     }
     // }
     let stext = AnyTEXT::from_kws(header, text);
-    println!("{:#?}", stext);
+    println!("{:#?}", stext.map(|x| x.text));
 }

@@ -3288,5 +3288,9 @@ fn main() {
     //     }
     // }
     let stext = AnyTEXT::from_kws(header, text);
-    println!("{:#?}", stext.map(|x| x.text));
+    // println!("{:#?}", stext.map(|x| x.text));
+
+    if let Ok(x) = stext {
+        read_data(&mut reader, x.data_parser).unwrap();
+    }
 }

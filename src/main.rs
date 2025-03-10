@@ -551,25 +551,6 @@ fn make_int_parser(b: u8, r: &Range, o: &ByteOrd, t: usize) -> Result<AnyIntColu
     }
 }
 
-// fn make_int_column_parser(
-//     b: u8,
-//     rs: &Vec<Range>,
-//     o: &ByteOrd,
-//     t: usize,
-// ) -> Result<AnyIntParser, Vec<String>> {
-//     match b {
-//         1 => u8::to_fixed_parser(rs, o, t).map(AnyIntParser::Uint8),
-//         2 => u16::to_fixed_parser(rs, o, t).map(AnyIntParser::Uint16),
-//         3 => CanParseInt::<4, 3>::to_fixed_parser(rs, o, t).map(AnyIntParser::Uint24),
-//         4 => CanParseInt::<4, 4>::to_fixed_parser(rs, o, t).map(AnyIntParser::Uint32),
-//         5 => CanParseInt::<8, 5>::to_fixed_parser(rs, o, t).map(AnyIntParser::Uint40),
-//         6 => CanParseInt::<8, 6>::to_fixed_parser(rs, o, t).map(AnyIntParser::Uint48),
-//         7 => CanParseInt::<8, 7>::to_fixed_parser(rs, o, t).map(AnyIntParser::Uint56),
-//         8 => CanParseInt::<8, 8>::to_fixed_parser(rs, o, t).map(AnyIntParser::Uint64),
-//         _ => Err(vec![String::from("PnB has invalid byte length")]),
-//     }
-// }
-
 // // type Wavelength2_0 = Option<u32>;
 // // type Wavelength3_1 = Vec<u32>;
 
@@ -936,7 +917,10 @@ struct FloatParser<const LEN: usize> {
     byteord: SizedByteOrd<LEN>,
 }
 
-type ColumnWidths = Vec<u8>;
+struct FixedAsciiColumn {
+    data: Vec<f64>,
+    width: u8,
+}
 
 #[derive(Clone)]
 struct IntegerColumn {
@@ -1057,39 +1041,6 @@ trait CanParseInt<const DTLEN: usize, const INTLEN: usize>:
         }
     }
 
-    // fn to_fixed_parser(
-    //     ranges: &[Range],
-    //     byteord: &ByteOrd,
-    //     total_events: usize,
-    // ) -> Result<FixedIntParser<Self, INTLEN>, Vec<String>> {
-    //     let (bitmasks, mut fail): (Vec<_>, Vec<_>) = ranges
-    //         .iter()
-    //         .enumerate()
-    //         .map(|(i, r)| {
-    //             Self::range_to_bitmask(r).ok_or(format!(
-    //                 "PnR for parameter {i} is a float when integer needed"
-    //             ))
-    //         })
-    //         .partition_result();
-    //     match Self::byteord_to_sized(byteord) {
-    //         Ok(byteord) => {
-    //             if fail.is_empty() {
-    //                 Ok(FixedIntParser {
-    //                     byteord,
-    //                     nrows: total_events,
-    //                     bitmasks,
-    //                 })
-    //             } else {
-    //                 Err(fail)
-    //             }
-    //         }
-    //         Err(err) => {
-    //             fail.push(err);
-    //             Err(fail)
-    //         }
-    //     }
-    // }
-
     fn to_col_parser(
         range: &Range,
         byteord: &ByteOrd,
@@ -1099,7 +1050,6 @@ trait CanParseInt<const DTLEN: usize, const INTLEN: usize>:
         let b =
             Self::range_to_bitmask(range).ok_or(String::from("PnR is float for an integer column"));
         let s = Self::byteord_to_sized(byteord);
-        // TODO init this vector with zeros
         let data = vec![Self::zero(); total_events];
         match (b, s) {
             (Ok(bitmask), Ok(size)) => Ok(IntColumnParser {
@@ -1189,10 +1139,7 @@ trait FloatFromBytes<const LEN: usize>:
         })
     }
 
-    fn read_float<R: Read + Seek>(
-        h: &mut BufReader<R>,
-        byteord: &SizedByteOrd<LEN>,
-    ) -> io::Result<Self> {
+    fn read_float<R: Read>(h: &mut BufReader<R>, byteord: &SizedByteOrd<LEN>) -> io::Result<Self> {
         let mut buf = [0; LEN];
         match byteord {
             SizedByteOrd::Endian(Endian::Big) => {
@@ -1207,7 +1154,7 @@ trait FloatFromBytes<const LEN: usize>:
         }
     }
 
-    fn assign_column<R: Read + Seek>(
+    fn assign_column<R: Read>(
         h: &mut BufReader<R>,
         column: &mut FloatColumn<Self>,
         row: usize,
@@ -1542,11 +1489,22 @@ struct IntParser {
 //     Variable(VariableIntParser),
 // }
 
+struct FixedAsciiParser {
+    columns: Vec<FixedAsciiColumn>,
+    nrows: usize,
+}
+
+struct DelimAsciiParser {
+    ncols: usize,
+    nrows: usize,
+    nbytes: usize,
+}
+
 enum ColumnParser {
     // DATATYPE=A where all PnB = *
-    DelimitedAscii(usize),
+    DelimitedAscii(DelimAsciiParser),
     // DATATYPE=A where all PnB = number
-    FixedWidthAscii(ColumnWidths),
+    FixedWidthAscii(FixedAsciiParser),
     // DATATYPE=F (with no overrides in 3.2+)
     Single(FloatParser<4>),
     // DATATYPE=D (with no overrides in 3.2+)
@@ -1559,7 +1517,7 @@ enum ColumnParser {
 
 struct DataParser {
     column_parser: ColumnParser,
-    offsets: Offsets,
+    begin: u64,
 }
 
 enum Series {
@@ -1573,40 +1531,119 @@ enum Series {
 
 type ParsedData = Vec<Series>;
 
+fn ascii_to_float_io(buf: Vec<u8>) -> io::Result<f64> {
+    String::from_utf8(buf)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+        .and_then(|s| parse_f64_io(&s))
+}
+
+fn parse_f64_io(s: &String) -> io::Result<f64> {
+    s.parse::<f64>()
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+}
+
+fn read_data_delim_ascii<R: Read>(
+    h: &mut BufReader<R>,
+    p: DelimAsciiParser,
+) -> io::Result<ParsedData> {
+    let mut data: Vec<_> = iter::repeat_with(|| vec![0.0; p.nrows])
+        .take(p.ncols)
+        .collect();
+    let mut buf = Vec::new();
+    let mut row = 0;
+    let mut col = 0;
+    let mut last_was_delim = false;
+    for b in h.bytes().take(p.nbytes) {
+        let byte = b?;
+        // Delimiters are tab, newline, carriage return, space, or
+        // comma. Any consecutive delimiter counts as one, and
+        // delimiters can be mixed.
+        if byte == 9 || byte == 10 || byte == 13 || byte == 32 || byte == 44 {
+            if !last_was_delim {
+                last_was_delim = true;
+                // TODO this will spaz out if we end up reading more
+                // rows than expected
+                data[col][row] = ascii_to_float_io(buf.clone())?;
+                buf.clear();
+                if col == p.ncols - 1 {
+                    col = 0;
+                    row += 1;
+                } else {
+                    col += 1;
+                }
+            }
+        } else {
+            buf.push(byte);
+        }
+    }
+    // The spec isn't clear if the last value should be a delim or
+    // not, so flush the buffer if it has anything in it since we
+    // only try to parse if we hit a delim above.
+    if !buf.is_empty() {
+        data[col][row] = ascii_to_float_io(buf.clone())?;
+    }
+    // TODO check that the number of values read is what we expected
+    Ok(data.into_iter().map(|c| f64::to_series(c)).collect())
+}
+
+fn read_data_ascii_fixed<R: Read>(
+    h: &mut BufReader<R>,
+    parser: FixedAsciiParser,
+) -> io::Result<ParsedData> {
+    let mut p = parser;
+    let mut buf = String::new();
+    for r in 0..p.nrows {
+        for c in p.columns.iter_mut() {
+            buf.clear();
+            h.take(u64::from(c.width)).read_to_string(&mut buf)?;
+            c.data[r] = parse_f64_io(&buf)?;
+        }
+    }
+    Ok(p.columns
+        .into_iter()
+        .map(|c| f64::to_series(c.data))
+        .collect())
+}
+
+fn read_data_mixed<R: Read>(h: &mut BufReader<R>, parser: MixedParser) -> io::Result<ParsedData> {
+    let mut p = parser;
+    let mut strbuf = String::new();
+    for r in 0..p.nrows {
+        for c in p.columns.iter_mut() {
+            match c {
+                MixedColumnType::Single(t) => f32::assign_column(h, t, r)?,
+                MixedColumnType::Double(t) => f64::assign_column(h, t, r)?,
+                MixedColumnType::Uint(u) => u.assign(h, r)?,
+                MixedColumnType::Ascii(d) => {
+                    strbuf.clear();
+                    h.take(u64::from(d.width)).read_to_string(&mut strbuf)?;
+                    d.data[r] = parse_f64_io(&strbuf)?;
+                }
+            }
+        }
+    }
+    Ok(p.columns.into_iter().map(|c| c.to_series()).collect())
+}
+
+fn read_data_int<R: Read>(h: &mut BufReader<R>, parser: IntParser) -> io::Result<ParsedData> {
+    let mut p = parser;
+    for r in 0..p.nrows {
+        for c in p.columns.iter_mut() {
+            c.assign(h, r)?;
+        }
+    }
+    Ok(p.columns.into_iter().map(|c| c.to_series()).collect())
+}
+
 fn read_data<R: Read + Seek>(h: &mut BufReader<R>, parser: DataParser) -> io::Result<ParsedData> {
-    h.seek(SeekFrom::Start(u64::from(parser.offsets.begin)))?;
-    let mut strbuf = String::new(); // for parsing Ascii
+    h.seek(SeekFrom::Start(u64::from(parser.begin)))?;
     match parser.column_parser {
-        ColumnParser::DelimitedAscii(par) => unimplemented!(),
-        ColumnParser::FixedWidthAscii(widths) => unimplemented!(),
+        ColumnParser::DelimitedAscii(p) => read_data_delim_ascii(h, p),
+        ColumnParser::FixedWidthAscii(p) => read_data_ascii_fixed(h, p),
         ColumnParser::Single(p) => f32::parse_matrix(h, p),
         ColumnParser::Double(p) => f64::parse_matrix(h, p),
-        ColumnParser::Mixed(mut p) => {
-            for r in 0..p.nrows {
-                for c in p.columns.iter_mut() {
-                    match c {
-                        MixedColumnType::Single(t) => f32::assign_column(h, t, r)?,
-                        MixedColumnType::Double(t) => f64::assign_column(h, t, r)?,
-                        MixedColumnType::Uint(u) => u.assign(h, r)?,
-                        MixedColumnType::Ascii(d) => {
-                            strbuf.clear();
-                            h.take(u64::from(d.width)).read_to_string(&mut strbuf)?;
-                            // TODO better error handling
-                            d.data[r] = strbuf.parse::<f64>().unwrap();
-                        }
-                    }
-                }
-            }
-            Ok(p.columns.into_iter().map(|c| c.to_series()).collect())
-        }
-        ColumnParser::Int(mut p) => {
-            for r in 0..p.nrows {
-                for c in p.columns.iter_mut() {
-                    c.assign(h, r)?;
-                }
-            }
-            Ok(p.columns.into_iter().map(|c| c.to_series()).collect())
-        }
+        ColumnParser::Mixed(p) => read_data_mixed(h, p),
+        ColumnParser::Int(p) => read_data_int(h, p),
     }
 }
 

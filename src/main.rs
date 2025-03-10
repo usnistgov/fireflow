@@ -1490,7 +1490,7 @@ struct IntParser {
 // }
 
 struct FixedAsciiParser {
-    columns: Vec<FixedAsciiColumn>,
+    columns: Vec<u8>,
     nrows: usize,
 }
 
@@ -1588,21 +1588,21 @@ fn read_data_delim_ascii<R: Read>(
 
 fn read_data_ascii_fixed<R: Read>(
     h: &mut BufReader<R>,
-    parser: FixedAsciiParser,
+    parser: &FixedAsciiParser,
 ) -> io::Result<ParsedData> {
-    let mut p = parser;
+    let ncols = parser.columns.len();
+    let mut data: Vec<_> = iter::repeat_with(|| vec![0.0; parser.nrows])
+        .take(ncols)
+        .collect();
     let mut buf = String::new();
-    for r in 0..p.nrows {
-        for c in p.columns.iter_mut() {
+    for r in 0..parser.nrows {
+        for (c, width) in parser.columns.iter().enumerate() {
             buf.clear();
-            h.take(u64::from(c.width)).read_to_string(&mut buf)?;
-            c.data[r] = parse_f64_io(&buf)?;
+            h.take(u64::from(*width)).read_to_string(&mut buf)?;
+            data[c][r] = parse_f64_io(&buf)?;
         }
     }
-    Ok(p.columns
-        .into_iter()
-        .map(|c| f64::to_series(c.data))
-        .collect())
+    Ok(data.into_iter().map(f64::to_series).collect())
 }
 
 fn read_data_mixed<R: Read>(h: &mut BufReader<R>, parser: MixedParser) -> io::Result<ParsedData> {
@@ -1639,12 +1639,18 @@ fn read_data<R: Read + Seek>(h: &mut BufReader<R>, parser: DataParser) -> io::Re
     h.seek(SeekFrom::Start(u64::from(parser.begin)))?;
     match parser.column_parser {
         ColumnParser::DelimitedAscii(p) => read_data_delim_ascii(h, p),
-        ColumnParser::FixedWidthAscii(p) => read_data_ascii_fixed(h, p),
+        ColumnParser::FixedWidthAscii(p) => read_data_ascii_fixed(h, &p),
         ColumnParser::Single(p) => f32::parse_matrix(h, p),
         ColumnParser::Double(p) => f64::parse_matrix(h, p),
         ColumnParser::Mixed(p) => read_data_mixed(h, p),
         ColumnParser::Int(p) => read_data_int(h, p),
     }
+}
+
+enum EventWidth {
+    Finite(u32),
+    Variable,
+    Error(Vec<usize>, Vec<usize>),
 }
 
 trait MetadataFromKeywords: Sized {
@@ -1654,7 +1660,7 @@ trait MetadataFromKeywords: Sized {
 
     fn get_byteord(&self) -> ByteOrd;
 
-    fn get_event_width(s: &StdText<Self, Self::P>) -> Result<u32, (Vec<usize>, Vec<usize>)> {
+    fn get_event_width(s: &StdText<Self, Self::P>) -> EventWidth {
         let (fixed, variable_indices): (Vec<_>, Vec<_>) = s
             .parameters
             .iter()
@@ -1666,9 +1672,11 @@ trait MetadataFromKeywords: Sized {
             .partition_result();
         let (fixed_indices, fixed_bytes): (Vec<_>, Vec<_>) = fixed.into_iter().unzip();
         if variable_indices.is_empty() {
-            Ok(fixed_bytes.into_iter().map(u32::from).sum())
+            EventWidth::Finite(fixed_bytes.into_iter().map(u32::from).sum())
+        } else if fixed_indices.is_empty() {
+            EventWidth::Variable
         } else {
-            Err((fixed_indices, variable_indices))
+            EventWidth::Error(fixed_indices, variable_indices)
         }
     }
 
@@ -1750,10 +1758,18 @@ trait MetadataFromKeywords: Sized {
                 }
                 AlphaNumType::Ascii => {
                     let widths: Vec<u8> = ps.iter().filter_map(|p| p.bytes.len()).collect();
+                    let nbytes = Self::get_data_offsets(&s).num_bytes();
                     if widths.is_empty() {
-                        Ok(ColumnParser::DelimitedAscii(par))
+                        Ok(ColumnParser::DelimitedAscii(DelimAsciiParser {
+                            ncols: par,
+                            nrows: total_events,
+                            nbytes: nbytes as usize,
+                        }))
                     } else if widths.len() == ps.len() {
-                        Ok(ColumnParser::FixedWidthAscii(widths))
+                        Ok(ColumnParser::FixedWidthAscii(FixedAsciiParser {
+                            columns: widths,
+                            nrows: total_events,
+                        }))
                     } else {
                         Err(vec![String::from(
                             "DATATYPE=A but PnB keywords are both '*' and numeric",
@@ -1771,11 +1787,10 @@ trait MetadataFromKeywords: Sized {
         event_width: u32,
         total_events: usize,
     ) -> Result<DataParser, Vec<String>> {
-        let offsets = Self::get_data_offsets(s);
         Self::build_fixed_width_parser(s, event_width, total_events).map(|column_parser| {
             DataParser {
                 column_parser,
-                offsets,
+                begin: u64::from(Self::get_data_offsets(s).begin),
             }
         })
     }
@@ -1817,15 +1832,15 @@ trait MetadataFromKeywords: Sized {
         match (Self::get_event_width(s), s.metadata.datatype) {
             // TODO how to handle errors here?
             // Numeric/Ascii (fixed width)
-            (Ok(event_width), _) => {
+            (EventWidth::Finite(event_width), _) => {
                 let total_events = Self::get_total_events(s, event_width);
                 unimplemented!()
             }
             // Ascii (variable width)
-            (Err((fixed, _)), AlphaNumType::Ascii) if fixed.is_empty() => unimplemented!(),
-            // nonsense, this will happen when fixed and variable width
-            // parameters both exist simultaneously
-            (Err((fixed, variable)), _) => unimplemented!(),
+            (EventWidth::Variable, AlphaNumType::Ascii) => unimplemented!(),
+            // nonsense...scream at user
+            (EventWidth::Error(fixed, variable), _) => unimplemented!(),
+            (EventWidth::Variable, _) => unimplemented!(),
         }
     }
 

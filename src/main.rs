@@ -1901,13 +1901,13 @@ trait MetadataFromKeywords: Sized {
                     nonstandard,
                     deviant,
                 };
-                Ok(TEXTwithParser { text, data_parser })
+                return Ok(TEXTwithParser { text, data_parser });
             }
             Err(mut errs) => {
                 st.meta_errors.append(&mut errs);
-                Err(st.compile_errors())
             }
         }
+        Err(st.compile_errors())
     }
 
     fn build_inner(st: &mut KwState) -> Option<Self>;

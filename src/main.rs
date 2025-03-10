@@ -399,20 +399,20 @@ use OptionalKw::*;
 impl<V> OptionalKw<V> {
     fn as_ref(&self) -> OptionalKw<&V> {
         match self {
-            OptionalKw::Present(x) => OptionalKw::Present(x),
-            OptionalKw::Absent => OptionalKw::Absent,
+            OptionalKw::Present(x) => Present(x),
+            Absent => Absent,
         }
     }
 
     fn to_option(self) -> Option<V> {
         match self {
             OptionalKw::Present(x) => Some(x),
-            OptionalKw::Absent => None,
+            Absent => None,
         }
     }
 
     fn from_option(x: Option<V>) -> Self {
-        x.map_or_else(|| OptionalKw::Absent, |y| OptionalKw::Present(y))
+        x.map_or_else(|| Absent, |y| OptionalKw::Present(y))
     }
 }
 
@@ -846,8 +846,25 @@ struct StdText<M, P> {
     parameters: Vec<Parameter<P>>,
 }
 
+#[derive(Debug)]
+struct TEXTwithParser<T> {
+    text: T,
+    data_parser: DataParser,
+}
+
+impl<X> TEXTwithParser<X> {
+    fn map<Y, F: Fn(X) -> Y>(self, f: F) -> TEXTwithParser<Y> {
+        TEXTwithParser {
+            text: f(self.text),
+            data_parser: self.data_parser,
+        }
+    }
+}
+
+type TEXTResult<T> = Result<TEXTwithParser<T>, StandardErrors>;
+
 impl<M: MetadataFromKeywords> StdText<M, M::P> {
-    fn from_kws(header: Header, raw: RawTEXT) -> Result<TEXT<Self>, StandardErrors> {
+    fn from_kws(header: Header, raw: RawTEXT) -> TEXTResult<TEXT<Self>> {
         let mut st = raw.to_state();
         // This will fail if a) not all required keywords pass and b) not all
         // required parameter keywords pass (according to $PAR)
@@ -858,18 +875,9 @@ impl<M: MetadataFromKeywords> StdText<M, M::P> {
                 parameters,
             })
         }) {
-            M::validate(&mut st, &s);
-            if st.meta_errors.is_empty() {
-                Ok(st.finalize(s))
-            } else {
-                Err(StandardErrors {
-                    meta_errors: st.meta_errors,
-                    value_errors: HashMap::new(),
-                    missing_keywords: vec![],
-                })
-            }
+            M::validate(st, s)
         } else {
-            Err(st.pull_errors())
+            Err(st.compile_errors())
         }
     }
 }
@@ -911,38 +919,26 @@ impl FloatByteOrd {
     }
 }
 
+#[derive(Debug)]
 struct FloatParser<const LEN: usize> {
     nrows: usize,
     ncols: usize,
     byteord: SizedByteOrd<LEN>,
 }
 
-struct FixedAsciiColumn {
-    data: Vec<f64>,
-    width: u8,
-}
-
-#[derive(Clone)]
-struct IntegerColumn {
-    bytes: u8,
-    bitmask: u64,
-}
-
+#[derive(Debug)]
 struct AsciiColumn {
     data: Vec<f64>,
     width: u8,
 }
 
+#[derive(Debug)]
 struct FloatColumn<T> {
     data: Vec<T>,
     endian: Endian,
 }
 
-// struct DoubleColumn {
-//     data: Vec<f64>,
-//     endian: Endian,
-// }
-
+#[derive(Debug)]
 enum MixedColumnType {
     Ascii(AsciiColumn),
     Uint(AnyIntColumn),
@@ -1389,22 +1385,26 @@ impl MixedColumnType {
     }
 }
 
+#[derive(Debug)]
 struct MixedParser {
     nrows: usize,
     columns: Vec<MixedColumnType>,
 }
 
+#[derive(Debug)]
 enum SizedByteOrd<const LEN: usize> {
     Endian(Endian),
     Order([u8; LEN]),
 }
 
+#[derive(Debug)]
 struct IntColumnParser<B, const LEN: usize> {
     bitmask: B,
     size: SizedByteOrd<LEN>,
     data: Vec<B>,
 }
 
+#[derive(Debug)]
 enum AnyIntColumn {
     Uint8(IntColumnParser<u8, 1>),
     Uint16(IntColumnParser<u16, 2>),
@@ -1459,47 +1459,26 @@ impl AnyIntColumn {
 // where the entire file is u32 with big/little BYTEORD and only a handful
 // of different bitmasks. For now, the increased complexity of dealing with this
 // is likely no worth it.
+#[derive(Debug)]
 struct IntParser {
     nrows: usize,
     columns: Vec<AnyIntColumn>,
 }
 
-// struct FixedIntParser<B, const LEN: usize> {
-//     nrows: usize,
-//     byteord: SizedByteOrd<LEN>,
-//     bitmasks: Vec<B>,
-// }
-
-// enum AnyIntParser {
-//     Uint8(FixedIntParser<u8, 1>),
-//     Uint16(FixedIntParser<u16, 2>),
-//     Uint24(FixedIntParser<u32, 3>),
-//     Uint32(FixedIntParser<u32, 4>),
-//     Uint40(FixedIntParser<u64, 5>),
-//     Uint48(FixedIntParser<u64, 6>),
-//     Uint56(FixedIntParser<u64, 7>),
-//     Uint64(FixedIntParser<u64, 8>),
-// }
-
-// enum IntParser {
-//     // DATATYPE=I with width implied by BYTEORD (2.0-3.0)
-//     // DATATYPE=I with all PnB set to the same width (3.1+)
-//     Fixed(AnyIntParser),
-//     // DATATYPE=I with PnB set to different widths (3.1+)
-//     Variable(VariableIntParser),
-// }
-
+#[derive(Debug)]
 struct FixedAsciiParser {
     columns: Vec<u8>,
     nrows: usize,
 }
 
+#[derive(Debug)]
 struct DelimAsciiParser {
     ncols: usize,
     nrows: Option<usize>,
     nbytes: usize,
 }
 
+#[derive(Debug)]
 enum ColumnParser {
     // DATATYPE=A where all PnB = *
     DelimitedAscii(DelimAsciiParser),
@@ -1515,6 +1494,7 @@ enum ColumnParser {
     Mixed(MixedParser),
 }
 
+#[derive(Debug)]
 struct DataParser {
     column_parser: ColumnParser,
     begin: u64,
@@ -1872,7 +1852,11 @@ trait MetadataFromKeywords: Sized {
     // TODO I may want to be less strict with some of these, Time channel for
     // instance is something some files screw up by either naming the channel
     // something weird or not including TIMESTEP
-    fn validate(st: &mut KwState, s: &StdText<Self, Self::P>) {
+    fn validate(
+        st: KwState,
+        s: StdText<Self, Self::P>,
+    ) -> TEXTResult<TEXT<StdText<Self, Self::P>>> {
+        let mut st = st;
         let shortnames: HashSet<&str> = s
             .parameters
             .iter()
@@ -1890,14 +1874,40 @@ trait MetadataFromKeywords: Sized {
         // validate $TRIGGER with parameter names
         if let OptionalKw::Present(tr) = &s.metadata.tr {
             if !shortnames.contains(&tr.parameter.as_str()) {
-                st.meta_errors.push(format!(
+                st.push_meta_error(format!(
                     "Trigger parameter '{}' is not in parameter set",
                     tr.parameter
                 ));
             }
         }
 
-        Self::validate_specific(st, s, shortnames);
+        Self::validate_specific(&mut st, &s, shortnames);
+
+        match Self::build_data_parser(&s) {
+            Ok(data_parser) => {
+                let mut nonstandard = HashMap::new();
+                let mut deviant = HashMap::new();
+                for (k, v) in st.keywords {
+                    if let ValueStatus::Raw = v.status {
+                        if k.starts_with("$") {
+                            deviant.insert(k, v.value);
+                        } else {
+                            nonstandard.insert(k, v.value);
+                        }
+                    }
+                }
+                let text = TEXT {
+                    standard: s,
+                    nonstandard,
+                    deviant,
+                };
+                Ok(TEXTwithParser { text, data_parser })
+            }
+            Err(mut errs) => {
+                st.meta_errors.append(&mut errs);
+                Err(st.compile_errors())
+            }
+        }
     }
 
     fn build_inner(st: &mut KwState) -> Option<Self>;
@@ -2122,7 +2132,7 @@ impl MetadataFromKeywords for InnerMetadata3_1 {
         None
     }
 
-    fn validate_specific(_: &mut KwState, _: &StdText<Self, Self::P>, _: HashSet<&str>) {}
+    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: HashSet<&str>) {}
 
     fn build_inner(st: &mut KwState) -> Option<InnerMetadata3_1> {
         if let (Some(data), Some(supplemental), Some(tot), Some(mode), Some(byteord)) = (
@@ -2251,24 +2261,8 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
             for u in centers.keys() {
                 if !names.contains(u.as_str()) {
                     st.push_meta_error(format!(
-                        "Unstained center named {} is not in parameter set",
-                        u
+                        "Unstained center named {u} is not in parameter set",
                     ));
-                }
-            }
-        }
-
-        // check that PnB matches with PnDATATYPE when applicable
-        for (i, p) in s.parameters.iter().enumerate() {
-            if let Present(d) = &p.specific.datatype {
-                match (d, &p.bytes) {
-                    (NumType::Single, Bytes::Fixed(4)) => (),
-                    (NumType::Double, Bytes::Fixed(8)) => (),
-                    (NumType::Integer, Bytes::Fixed(_)) => (),
-                    _ => st.push_meta_error(format!(
-                        "Parameter {} uses DATATYPE={} but has bytes={}",
-                        i, d, p.bytes
-                    )),
                 }
             }
         }
@@ -2325,12 +2319,12 @@ enum AnyTEXT {
 }
 
 impl AnyTEXT {
-    fn from_kws(header: Header, raw: RawTEXT) -> Result<Self, StandardErrors> {
+    fn from_kws(header: Header, raw: RawTEXT) -> Result<TEXTwithParser<Self>, StandardErrors> {
         match header.version {
-            Version::FCS2_0 => StdText::from_kws(header, raw).map(AnyTEXT::TEXT2_0),
-            Version::FCS3_0 => StdText::from_kws(header, raw).map(AnyTEXT::TEXT3_0),
-            Version::FCS3_1 => StdText::from_kws(header, raw).map(AnyTEXT::TEXT3_1),
-            Version::FCS3_2 => StdText::from_kws(header, raw).map(AnyTEXT::TEXT3_2),
+            Version::FCS2_0 => StdText::from_kws(header, raw).map(|x| x.map(AnyTEXT::TEXT2_0)),
+            Version::FCS3_0 => StdText::from_kws(header, raw).map(|x| x.map(AnyTEXT::TEXT3_0)),
+            Version::FCS3_1 => StdText::from_kws(header, raw).map(|x| x.map(AnyTEXT::TEXT3_1)),
+            Version::FCS3_2 => StdText::from_kws(header, raw).map(|x| x.map(AnyTEXT::TEXT3_2)),
         }
     }
 }
@@ -2414,15 +2408,15 @@ impl KwState {
             Some(v) => match v.status {
                 ValueStatus::Raw => {
                     let (s, r) = f(&v.value).map_or_else(
-                        |w| (ValueStatus::Warning(w), OptionalKw::Absent),
+                        |w| (ValueStatus::Warning(w), Absent),
                         |x| (ValueStatus::Used, OptionalKw::Present(x)),
                     );
                     v.status = s;
                     r
                 }
-                _ => OptionalKw::Absent,
+                _ => Absent,
             },
-            None => OptionalKw::Absent,
+            None => Absent,
         }
     }
 
@@ -2982,7 +2976,7 @@ impl KwState {
         })
     }
 
-    fn pull_errors(self) -> StandardErrors {
+    fn compile_errors(self) -> StandardErrors {
         let mut value_errors: HashMap<String, KwError> = HashMap::new();
         for (k, v) in self.keywords {
             // TODO lots of clones here, not sure if this is necessary to fix
@@ -2999,7 +2993,7 @@ impl KwState {
         StandardErrors {
             missing_keywords: self.missing,
             value_errors,
-            meta_errors: vec![],
+            meta_errors: self.meta_errors,
         }
     }
 
@@ -3010,26 +3004,26 @@ impl KwState {
     // ASSUME There aren't any errors recorded in the state hashtable since we
     // don't check them here. This function requires a standardized keyword
     // struct to run, and presumably this won't exist if there are any errors.
-    fn finalize<S>(self, standard: S) -> TEXT<S> {
-        // TODO this struct shouldn't touch any nonstandard keywords, since it
-        // isn't supposed to do anything useful with them
-        let mut nonstandard = HashMap::new();
-        let mut deviant = HashMap::new();
-        for (k, v) in self.keywords {
-            if let ValueStatus::Raw = v.status {
-                if k.starts_with("$") {
-                    deviant.insert(k, v.value);
-                } else {
-                    nonstandard.insert(k, v.value);
-                }
-            }
-        }
-        TEXT {
-            standard,
-            nonstandard,
-            deviant,
-        }
-    }
+    // fn finalize<S>(self, standard: S) -> TEXT<S> {
+    //     // TODO this struct shouldn't touch any nonstandard keywords, since it
+    //     // isn't supposed to do anything useful with them
+    //     let mut nonstandard = HashMap::new();
+    //     let mut deviant = HashMap::new();
+    //     for (k, v) in self.keywords {
+    //         if let ValueStatus::Raw = v.status {
+    //             if k.starts_with("$") {
+    //                 deviant.insert(k, v.value);
+    //             } else {
+    //                 nonstandard.insert(k, v.value);
+    //             }
+    //         }
+    //     }
+    //     TEXT {
+    //         standard,
+    //         nonstandard,
+    //         deviant,
+    //     }
+    // }
 }
 
 fn parse_header_offset(s: &str, allow_blank: bool) -> Option<u32> {

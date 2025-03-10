@@ -1806,10 +1806,6 @@ trait MetadataFromKeywords: Sized {
                 AlphaNumType::Integer => {
                     Self::build_int_parser(specific, ps, total_events).map(ColumnParser::Int)
                 }
-                // ASSUME that this will never fail because we checked that all
-                // widths are numeric up until this point
-                //
-                // TODO just pass the widths that we already computed
                 AlphaNumType::Ascii => Ok(ColumnParser::FixedWidthAscii(FixedAsciiParser {
                     columns: parameter_widths,
                     nrows: total_events,
@@ -1818,25 +1814,56 @@ trait MetadataFromKeywords: Sized {
         }
     }
 
-    fn build_numeric_parser(
-        s: &StdText<Self, Self::P>,
-        total_events: usize,
-        parameter_widths: Vec<u8>,
-    ) -> Result<DataParser, Vec<String>> {
-        Self::build_fixed_width_parser(s, total_events, parameter_widths).map(|column_parser| {
-            DataParser {
-                column_parser,
-                begin: u64::from(Self::get_data_offsets(s).begin),
-            }
-        })
-    }
-
     fn build_delim_ascii_parser(s: &StdText<Self, Self::P>, tot: Option<usize>) -> ColumnParser {
         let nbytes = Self::get_data_offsets(s).num_bytes();
         ColumnParser::DelimitedAscii(DelimAsciiParser {
             ncols: s.metadata.par as usize,
             nrows: tot,
             nbytes: nbytes as usize,
+        })
+    }
+
+    fn build_column_parser(s: &StdText<Self, Self::P>) -> Result<ColumnParser, Vec<String>> {
+        // In order to make a data parser, the $DATATYPE, $BYTEORD, $PnB, and
+        // $PnDATATYPE (if present) all need to be a specific relationship to
+        // each other, each of which corresponds to the options below.
+        match (Self::get_event_width(s), s.metadata.datatype) {
+            // Numeric/Ascii (fixed width)
+            (EventWidth::Finite(parameter_widths), _) => {
+                let event_width = parameter_widths.iter().map(|x| u32::from(*x)).sum();
+                Self::get_total_events(s, event_width)
+                    .map_err(|e| vec![e])
+                    .and_then(|total_events| {
+                        Self::build_fixed_width_parser(s, total_events, parameter_widths)
+                    })
+            }
+            // Ascii (variable width)
+            (EventWidth::Variable, AlphaNumType::Ascii) => {
+                let tot = s.metadata.specific.get_tot();
+                Ok(Self::build_delim_ascii_parser(s, tot.map(|x| x as usize)))
+            }
+            // nonsense...scream at user
+            (EventWidth::Error(fixed, variable), _) => {
+                let mut errors = vec![];
+                errors.push(String::from("$PnBs are a mix of numeric and variable"));
+                for f in fixed {
+                    errors.push(format!("$PnB for parameter {f} is numeric"));
+                }
+                for v in variable {
+                    errors.push(format!("$PnB for parameter {v} is variable"));
+                }
+                Err(errors)
+            }
+            (EventWidth::Variable, dt) => {
+                Err(vec![format!("$DATATYPE is {dt} but all $PnB are '*'")])
+            }
+        }
+    }
+
+    fn build_data_parser(s: &StdText<Self, Self::P>) -> Result<DataParser, Vec<String>> {
+        Self::build_column_parser(s).map(|column_parser| DataParser {
+            column_parser,
+            begin: u64::from(Self::get_data_offsets(s).begin),
         })
     }
 
@@ -1871,40 +1898,6 @@ trait MetadataFromKeywords: Sized {
         }
 
         Self::validate_specific(st, s, shortnames);
-
-        // validate that PnB are either all "*" or all numeric, and that this
-        // lines up with $DATATYPE
-        match (Self::get_event_width(s), s.metadata.datatype) {
-            // TODO how to handle errors here?
-            // Numeric/Ascii (fixed width)
-            (EventWidth::Finite(parameter_widths), _) => {
-                let event_width = parameter_widths.iter().map(|x| u32::from(*x)).sum();
-                Self::get_total_events(s, event_width).map(|total_events| {
-                    Self::build_numeric_parser(s, total_events, parameter_widths)
-                });
-            }
-            // Ascii (variable width)
-            (EventWidth::Variable, AlphaNumType::Ascii) => {
-                let tot = s.metadata.specific.get_tot();
-                Self::build_delim_ascii_parser(s, tot.map(|x| x as usize));
-            }
-            // nonsense...scream at user
-            (EventWidth::Error(fixed, variable), _) => {
-                st.meta_errors
-                    .push(String::from("$PnBs are a mix of numeric and variable"));
-                for f in fixed {
-                    st.meta_errors
-                        .push(format!("$PnB for parameter {f} is numeric"));
-                }
-                for v in variable {
-                    st.meta_errors
-                        .push(format!("$PnB for parameter {v} is variable"));
-                }
-            }
-            (EventWidth::Variable, dt) => st
-                .meta_errors
-                .push(format!("$DATATYPE is {dt} but all $PnB are '*'")),
-        }
     }
 
     fn build_inner(st: &mut KwState) -> Option<Self>;

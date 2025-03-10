@@ -1,6 +1,7 @@
 // TODO gating parameters not added (yet)
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
+use clap::Parser;
 use itertools::Itertools;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
@@ -11,6 +12,7 @@ use std::io;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::iter;
 use std::num::IntErrorKind;
+use std::path;
 use std::str;
 
 fn format_standard_kw(kw: &str) -> String {
@@ -150,7 +152,7 @@ impl Offsets {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Version {
     FCS2_0,
     FCS3_0,
@@ -170,7 +172,7 @@ impl Version {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Header {
     version: Version,
     text: Offsets,
@@ -300,7 +302,7 @@ impl ByteOrd {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Trigger {
     parameter: String,
     threshold: u32,
@@ -315,14 +317,14 @@ struct TextOffsets<A, D, T> {
 type TextOffsets3_0 = TextOffsets<Offsets, Offsets, Offsets>;
 type TextOffsets3_2 = TextOffsets<Option<Offsets>, Offsets, Option<Offsets>>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Timestamps2_0 {
     btim: OptionalKw<NaiveTime>,
     etim: OptionalKw<NaiveTime>,
     date: OptionalKw<NaiveDate>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Timestamps3_2 {
     start: OptionalKw<DateTime<FixedOffset>>,
     end: OptionalKw<DateTime<FixedOffset>>,
@@ -330,13 +332,13 @@ struct Timestamps3_2 {
 
 // TODO this is super messy, see 3.2 spec for restrictions on this we may with
 // to use further
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct LogScale {
     decades: f32,
     offset: f32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Scale {
     Log(LogScale),
     Linear,
@@ -344,31 +346,31 @@ enum Scale {
 
 use Scale::*;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct LinDisplay {
     lower: f32,
     upper: f32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct LogDisplay {
     offset: f32,
     decades: f32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Display {
     Lin(LinDisplay),
     Log(LogDisplay),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Calibration {
     value: f32,
     unit: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum MeasurementType {
     ForwardScatter,
     SideScatter,
@@ -381,14 +383,14 @@ enum MeasurementType {
     Index,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Feature {
     Area,
     Width,
     Height,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum OptionalKw<V> {
     Present(V),
     Absent,
@@ -416,14 +418,14 @@ impl<V> OptionalKw<V> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct InnerParameter2_0 {
     scale: OptionalKw<Scale>,      // PnE
     wavelength: OptionalKw<u32>,   // PnL
     shortname: OptionalKw<String>, // PnN
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct InnerParameter3_0 {
     scale: Scale,                  // PnE
     wavelength: OptionalKw<u32>,   // PnL
@@ -431,7 +433,7 @@ struct InnerParameter3_0 {
     gain: OptionalKw<f32>,         // PnG
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct InnerParameter3_1 {
     scale: Scale,          // PnE
     wavelength: Vec<u32>,  // PnL
@@ -441,7 +443,7 @@ struct InnerParameter3_1 {
     display: OptionalKw<Display>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct InnerParameter3_2 {
     scale: Scale,          // PnE
     wavelength: Vec<u32>,  // PnL
@@ -468,7 +470,7 @@ impl InnerParameter3_2 {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Bytes {
     Fixed(u8),
     Variable,
@@ -503,7 +505,7 @@ enum Range {
     Float(f64),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Parameter<X> {
     bytes: Bytes,                      // PnB
     range: Range,                      // PnR
@@ -685,7 +687,7 @@ impl ParameterFromKeywords for InnerParameter3_2 {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Originality {
     Original,
     NonDataModified,
@@ -693,14 +695,14 @@ enum Originality {
     DataModified,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct ModificationData {
     last_modifier: OptionalKw<String>,
     last_modified: OptionalKw<NaiveDateTime>,
     originality: OptionalKw<Originality>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct PlateData {
     plateid: OptionalKw<String>,
     platename: OptionalKw<String>,
@@ -709,38 +711,38 @@ struct PlateData {
 
 type UnstainedCenters = HashMap<String, f32>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct UnstainedData {
     unstainedcenters: OptionalKw<UnstainedCenters>,
     unstainedinfo: OptionalKw<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct CarrierData {
     carrierid: OptionalKw<String>,
     carriertype: OptionalKw<String>,
     locationid: OptionalKw<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Unicode {
     page: u32,
     kws: Vec<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct SupplementalOffsets3_0 {
     analysis: Offsets,
     stext: Offsets,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct SupplementalOffsets3_2 {
     analysis: OptionalKw<Offsets>,
     stext: OptionalKw<Offsets>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct InnerMetadata2_0 {
     tot: OptionalKw<u32>,
     mode: Mode,
@@ -749,7 +751,7 @@ struct InnerMetadata2_0 {
     timestamps: Timestamps2_0, // BTIM/ETIM/DATE
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct InnerMetadata3_0 {
     data: Offsets,
     supplemental: SupplementalOffsets3_0,
@@ -763,7 +765,7 @@ struct InnerMetadata3_0 {
     unicode: OptionalKw<Unicode>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct InnerMetadata3_1 {
     data: Offsets,
     supplemental: SupplementalOffsets3_0,
@@ -779,7 +781,7 @@ struct InnerMetadata3_1 {
     vol: OptionalKw<f32>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct InnerMetadata3_2 {
     data: Offsets,
     supplemental: SupplementalOffsets3_2,
@@ -798,7 +800,7 @@ struct InnerMetadata3_2 {
     flowrate: OptionalKw<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Metadata<X> {
     par: u32,
     nextdata: u32,
@@ -832,14 +834,14 @@ struct Cyt(String);
 
 struct Tot(u32);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Mode {
     List,
     Uncorrelated,
     Correlated,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct StdText<M, P> {
     header: Header,
     metadata: Metadata<M>,
@@ -864,6 +866,13 @@ impl<X> TEXTwithParser<X> {
 type TEXTResult<T> = Result<TEXTwithParser<T>, StandardErrors>;
 
 impl<M: MetadataFromKeywords> StdText<M, M::P> {
+    fn get_shortnames(&self) -> Vec<&str> {
+        self.parameters
+            .iter()
+            .filter_map(|p| M::P::parameter_name(p))
+            .collect()
+    }
+
     fn from_kws(header: Header, raw: RawTEXT) -> TEXTResult<TEXT<Self>> {
         let mut st = raw.to_state();
         // This will fail if a) not all required keywords pass and b) not all
@@ -1509,6 +1518,30 @@ enum Series {
     U64(Vec<u64>),
 }
 
+impl Series {
+    fn len(&self) -> usize {
+        match self {
+            Series::F32(x) => x.len(),
+            Series::F64(x) => x.len(),
+            Series::U8(x) => x.len(),
+            Series::U16(x) => x.len(),
+            Series::U32(x) => x.len(),
+            Series::U64(x) => x.len(),
+        }
+    }
+
+    fn format(&self, r: usize) -> String {
+        match self {
+            Series::F32(x) => format!("{}", x[r]),
+            Series::F64(x) => format!("{}", x[r]),
+            Series::U8(x) => format!("{}", x[r]),
+            Series::U16(x) => format!("{}", x[r]),
+            Series::U32(x) => format!("{}", x[r]),
+            Series::U64(x) => format!("{}", x[r]),
+        }
+    }
+}
+
 type ParsedData = Vec<Series>;
 
 fn ascii_to_float_io(buf: Vec<u8>) -> io::Result<f64> {
@@ -1849,6 +1882,13 @@ trait MetadataFromKeywords: Sized {
 
     fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: HashSet<&str>);
 
+    fn get_shortnames(s: &StdText<Self, Self::P>) -> Vec<&str> {
+        s.parameters
+            .iter()
+            .filter_map(|p| Self::P::parameter_name(p))
+            .collect()
+    }
+
     // TODO I may want to be less strict with some of these, Time channel for
     // instance is something some files screw up by either naming the channel
     // something weird or not including TIMESTEP
@@ -1857,11 +1897,7 @@ trait MetadataFromKeywords: Sized {
         s: StdText<Self, Self::P>,
     ) -> TEXTResult<TEXT<StdText<Self, Self::P>>> {
         let mut st = st;
-        let shortnames: HashSet<&str> = s
-            .parameters
-            .iter()
-            .filter_map(|p| Self::P::parameter_name(p))
-            .collect();
+        let shortnames: HashSet<&str> = s.get_shortnames().into_iter().collect();
 
         // TODO validate time channel
 
@@ -2295,7 +2331,7 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct TEXT<S> {
     // TODO add the offsets here as well? offsets are needed before parsing
     // everything else
@@ -2304,7 +2340,7 @@ struct TEXT<S> {
     deviant: HashMap<String, String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum AnyTEXT {
     TEXT2_0(TEXT<StdText2_0>),
     TEXT3_0(TEXT<StdText3_0>),
@@ -2327,7 +2363,7 @@ type Keywords = HashMap<String, String>;
 type KeywordErrors = HashMap<String, (String, String)>;
 type MissingKeywords = HashSet<String>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct KwError {
     value: String,
     msg: String,
@@ -2354,7 +2390,7 @@ struct KwState {
 }
 
 // TODO use newtype for "Keyword" type so this is less confusing
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct StandardErrors {
     missing_keywords: Vec<String>,
     value_errors: HashMap<String, KwError>,
@@ -3271,26 +3307,61 @@ fn read_text<R: Read + Seek>(h: &mut BufReader<R>, header: &Header) -> io::Resul
 // TODO this is basically a matrix, probably a crate I can use
 struct Comp {}
 
+#[derive(Parser)]
+struct CLIConfig {
+    filepath: path::PathBuf,
+    #[arg(short = 'H', long)]
+    show_header: bool,
+    #[arg(short = 't', long)]
+    show_text: bool,
+    #[arg(short = 'd', long)]
+    show_data: bool,
+}
+
+fn print_data(text: AnyTEXT, data: ParsedData) {
+    let shortnames = match &text {
+        AnyTEXT::TEXT2_0(x) => x.standard.get_shortnames(),
+        AnyTEXT::TEXT3_0(x) => x.standard.get_shortnames(),
+        AnyTEXT::TEXT3_1(x) => x.standard.get_shortnames(),
+        AnyTEXT::TEXT3_2(x) => x.standard.get_shortnames(),
+    };
+    let nrows = data[0].len();
+    let ncols = data.len();
+    for s in shortnames {
+        print!("{}", s);
+        print!("\t");
+    }
+    println!();
+    for r in 0..nrows {
+        for c in 0..ncols {
+            print!("{}", data[c].format(r));
+            print!("\t");
+        }
+        println!();
+    }
+}
+
 fn main() {
-    let args: Vec<String> = env::args().collect();
+    let conf = CLIConfig::parse();
 
     // let args = &args[1..];
 
     // println!("{}", &args[1]);
-    let file = fs::File::open(&args[1]).unwrap();
+    let file = fs::File::open(conf.filepath).unwrap();
     let mut reader = BufReader::new(file);
     let header = read_header(&mut reader).unwrap();
+    if conf.show_header {
+        println!("{:#?}", header.clone());
+    }
     let text = read_text(&mut reader, &header).unwrap();
-    // println!("{:#?}", &text.delimiter);
-    // for (k, v) in &text.keywords {
-    //     if v.len() < 100 {
-    //         println!("{}: {}", k, v);
-    //     }
-    // }
     let stext = AnyTEXT::from_kws(header, text);
-    // println!("{:#?}", stext.map(|x| x.text));
-
     if let Ok(x) = stext {
-        read_data(&mut reader, x.data_parser).unwrap();
+        if conf.show_text {
+            println!("{:#?}", x.text);
+        }
+        if conf.show_data {
+            let df = read_data(&mut reader, x.data_parser).unwrap();
+            print_data(x.text, df);
+        }
     }
 }

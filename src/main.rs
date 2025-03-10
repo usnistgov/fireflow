@@ -1496,7 +1496,7 @@ struct FixedAsciiParser {
 
 struct DelimAsciiParser {
     ncols: usize,
-    nrows: usize,
+    nrows: Option<usize>,
     nbytes: usize,
 }
 
@@ -1546,44 +1546,92 @@ fn read_data_delim_ascii<R: Read>(
     h: &mut BufReader<R>,
     p: DelimAsciiParser,
 ) -> io::Result<ParsedData> {
-    let mut data: Vec<_> = iter::repeat_with(|| vec![0.0; p.nrows])
-        .take(p.ncols)
-        .collect();
     let mut buf = Vec::new();
     let mut row = 0;
     let mut col = 0;
     let mut last_was_delim = false;
-    for b in h.bytes().take(p.nbytes) {
-        let byte = b?;
-        // Delimiters are tab, newline, carriage return, space, or
-        // comma. Any consecutive delimiter counts as one, and
-        // delimiters can be mixed.
-        if byte == 9 || byte == 10 || byte == 13 || byte == 32 || byte == 44 {
-            if !last_was_delim {
-                last_was_delim = true;
-                // TODO this will spaz out if we end up reading more
-                // rows than expected
-                data[col][row] = ascii_to_float_io(buf.clone())?;
-                buf.clear();
-                if col == p.ncols - 1 {
-                    col = 0;
-                    row += 1;
-                } else {
-                    col += 1;
-                }
+    // Delimiters are tab, newline, carriage return, space, or comma. Any
+    // consecutive delimiter counts as one, and delimiters can be mixed.
+    let is_delim = |byte| byte == 9 || byte == 10 || byte == 13 || byte == 32 || byte == 44;
+    // FCS 2.0 files have an optional $TOT field, which complicates this a bit
+    if let Some(nrows) = p.nrows {
+        let mut data: Vec<_> = iter::repeat_with(|| vec![0.0; nrows])
+            .take(p.ncols)
+            .collect();
+        for b in h.bytes().take(p.nbytes) {
+            let byte = b?;
+            // exit if we encounter more rows than expected.
+            if row == nrows {
+                let msg = format!("Exceeded expected number of rows: {nrows}");
+                return Err(io::Error::new(io::ErrorKind::InvalidData, msg));
             }
-        } else {
-            buf.push(byte);
+            if is_delim(byte) {
+                if !last_was_delim {
+                    last_was_delim = true;
+                    // TODO this will spaz out if we end up reading more
+                    // rows than expected
+                    data[col][row] = ascii_to_float_io(buf.clone())?;
+                    buf.clear();
+                    if col == p.ncols - 1 {
+                        col = 0;
+                        row += 1;
+                    } else {
+                        col += 1;
+                    }
+                }
+            } else {
+                buf.push(byte);
+            }
         }
+        // The spec isn't clear if the last value should be a delim or
+        // not, so flush the buffer if it has anything in it since we
+        // only try to parse if we hit a delim above.
+        if !buf.is_empty() {
+            data[col][row] = ascii_to_float_io(buf.clone())?;
+        }
+        if !(col == 0 && row == nrows) {
+            let msg = format!(
+                "Parsing ended in column {col} and row {row}, \
+                               where expected number of rows is {nrows}"
+            );
+            return Err(io::Error::new(io::ErrorKind::InvalidData, msg));
+        }
+        Ok(data.into_iter().map(|c| f64::to_series(c)).collect())
+    } else {
+        let mut data: Vec<_> = iter::repeat_with(|| vec![]).take(p.ncols).collect();
+        for b in h.bytes().take(p.nbytes) {
+            let byte = b?;
+            // Delimiters are tab, newline, carriage return, space, or
+            // comma. Any consecutive delimiter counts as one, and
+            // delimiters can be mixed.
+            if is_delim(byte) {
+                if !last_was_delim {
+                    last_was_delim = true;
+                    data[col].push(ascii_to_float_io(buf.clone())?);
+                    buf.clear();
+                    if col == p.ncols - 1 {
+                        col = 0;
+                    } else {
+                        col += 1;
+                    }
+                }
+            } else {
+                buf.push(byte);
+            }
+        }
+        // The spec isn't clear if the last value should be a delim or
+        // not, so flush the buffer if it has anything in it since we
+        // only try to parse if we hit a delim above.
+        if !buf.is_empty() {
+            data[col][row] = ascii_to_float_io(buf.clone())?;
+        }
+        // Scream if not all columns are equal in length
+        if data.iter().map(|c| c.len()).unique().count() > 1 {
+            let msg = "Not all columns are equal length";
+            return Err(io::Error::new(io::ErrorKind::InvalidData, msg));
+        }
+        Ok(data.into_iter().map(|c| f64::to_series(c)).collect())
     }
-    // The spec isn't clear if the last value should be a delim or
-    // not, so flush the buffer if it has anything in it since we
-    // only try to parse if we hit a delim above.
-    if !buf.is_empty() {
-        data[col][row] = ascii_to_float_io(buf.clone())?;
-    }
-    // TODO check that the number of values read is what we expected
-    Ok(data.into_iter().map(|c| f64::to_series(c)).collect())
 }
 
 fn read_data_ascii_fixed<R: Read>(
@@ -1648,7 +1696,7 @@ fn read_data<R: Read + Seek>(h: &mut BufReader<R>, parser: DataParser) -> io::Re
 }
 
 enum EventWidth {
-    Finite(u32),
+    Finite(Vec<u8>),
     Variable,
     Error(Vec<usize>, Vec<usize>),
 }
@@ -1659,6 +1707,8 @@ trait MetadataFromKeywords: Sized {
     fn get_data_offsets(s: &StdText<Self, Self::P>) -> Offsets;
 
     fn get_byteord(&self) -> ByteOrd;
+
+    fn get_tot(&self) -> Option<u32>;
 
     fn get_event_width(s: &StdText<Self, Self::P>) -> EventWidth {
         let (fixed, variable_indices): (Vec<_>, Vec<_>) = s
@@ -1672,7 +1722,7 @@ trait MetadataFromKeywords: Sized {
             .partition_result();
         let (fixed_indices, fixed_bytes): (Vec<_>, Vec<_>) = fixed.into_iter().unzip();
         if variable_indices.is_empty() {
-            EventWidth::Finite(fixed_bytes.into_iter().map(u32::from).sum())
+            EventWidth::Finite(fixed_bytes)
         } else if fixed_indices.is_empty() {
             EventWidth::Variable
         } else {
@@ -1739,8 +1789,8 @@ trait MetadataFromKeywords: Sized {
 
     fn build_fixed_width_parser(
         s: &StdText<Self, Self::P>,
-        event_width: u32,
         total_events: usize,
+        parameter_widths: Vec<u8>,
     ) -> Result<ColumnParser, Vec<String>> {
         // TODO fix cast?
         let par = s.metadata.par as usize;
@@ -1756,42 +1806,37 @@ trait MetadataFromKeywords: Sized {
                 AlphaNumType::Integer => {
                     Self::build_int_parser(specific, ps, total_events).map(ColumnParser::Int)
                 }
-                AlphaNumType::Ascii => {
-                    let widths: Vec<u8> = ps.iter().filter_map(|p| p.bytes.len()).collect();
-                    let nbytes = Self::get_data_offsets(&s).num_bytes();
-                    if widths.is_empty() {
-                        Ok(ColumnParser::DelimitedAscii(DelimAsciiParser {
-                            ncols: par,
-                            nrows: total_events,
-                            nbytes: nbytes as usize,
-                        }))
-                    } else if widths.len() == ps.len() {
-                        Ok(ColumnParser::FixedWidthAscii(FixedAsciiParser {
-                            columns: widths,
-                            nrows: total_events,
-                        }))
-                    } else {
-                        Err(vec![String::from(
-                            "DATATYPE=A but PnB keywords are both '*' and numeric",
-                        )])
-                    }
-                }
+                // ASSUME that this will never fail because we checked that all
+                // widths are numeric up until this point
+                //
+                // TODO just pass the widths that we already computed
+                AlphaNumType::Ascii => Ok(ColumnParser::FixedWidthAscii(FixedAsciiParser {
+                    columns: parameter_widths,
+                    nrows: total_events,
+                })),
             }
         }
     }
 
-    // TODO add variable ascii parser, which is a totally separate beast from
-    // these since we can't assume any column widths
     fn build_numeric_parser(
         s: &StdText<Self, Self::P>,
-        event_width: u32,
         total_events: usize,
+        parameter_widths: Vec<u8>,
     ) -> Result<DataParser, Vec<String>> {
-        Self::build_fixed_width_parser(s, event_width, total_events).map(|column_parser| {
+        Self::build_fixed_width_parser(s, total_events, parameter_widths).map(|column_parser| {
             DataParser {
                 column_parser,
                 begin: u64::from(Self::get_data_offsets(s).begin),
             }
+        })
+    }
+
+    fn build_delim_ascii_parser(s: &StdText<Self, Self::P>, tot: Option<usize>) -> ColumnParser {
+        let nbytes = Self::get_data_offsets(s).num_bytes();
+        ColumnParser::DelimitedAscii(DelimAsciiParser {
+            ncols: s.metadata.par as usize,
+            nrows: tot,
+            nbytes: nbytes as usize,
         })
     }
 
@@ -1832,15 +1877,33 @@ trait MetadataFromKeywords: Sized {
         match (Self::get_event_width(s), s.metadata.datatype) {
             // TODO how to handle errors here?
             // Numeric/Ascii (fixed width)
-            (EventWidth::Finite(event_width), _) => {
-                let total_events = Self::get_total_events(s, event_width);
-                unimplemented!()
+            (EventWidth::Finite(parameter_widths), _) => {
+                let event_width = parameter_widths.iter().map(|x| u32::from(*x)).sum();
+                Self::get_total_events(s, event_width).map(|total_events| {
+                    Self::build_numeric_parser(s, total_events, parameter_widths)
+                });
             }
             // Ascii (variable width)
-            (EventWidth::Variable, AlphaNumType::Ascii) => unimplemented!(),
+            (EventWidth::Variable, AlphaNumType::Ascii) => {
+                let tot = s.metadata.specific.get_tot();
+                Self::build_delim_ascii_parser(s, tot.map(|x| x as usize));
+            }
             // nonsense...scream at user
-            (EventWidth::Error(fixed, variable), _) => unimplemented!(),
-            (EventWidth::Variable, _) => unimplemented!(),
+            (EventWidth::Error(fixed, variable), _) => {
+                st.meta_errors
+                    .push(String::from("$PnBs are a mix of numeric and variable"));
+                for f in fixed {
+                    st.meta_errors
+                        .push(format!("$PnB for parameter {f} is numeric"));
+                }
+                for v in variable {
+                    st.meta_errors
+                        .push(format!("$PnB for parameter {v} is variable"));
+                }
+            }
+            (EventWidth::Variable, dt) => st
+                .meta_errors
+                .push(format!("$DATATYPE is {dt} but all $PnB are '*'")),
         }
     }
 
@@ -1922,6 +1985,10 @@ impl MetadataFromKeywords for InnerMetadata2_0 {
         s.header.data
     }
 
+    fn get_tot(&self) -> Option<u32> {
+        self.tot.as_ref().to_option().map(|x| *x)
+    }
+
     fn get_byteord(&self) -> ByteOrd {
         self.byteord.clone()
     }
@@ -1970,6 +2037,10 @@ impl MetadataFromKeywords for InnerMetadata3_0 {
         } else {
             header_offsets
         }
+    }
+
+    fn get_tot(&self) -> Option<u32> {
+        Some(self.tot)
     }
 
     fn get_byteord(&self) -> ByteOrd {
@@ -2031,6 +2102,10 @@ impl MetadataFromKeywords for InnerMetadata3_1 {
         } else {
             header_offsets
         }
+    }
+
+    fn get_tot(&self) -> Option<u32> {
+        Some(self.tot)
     }
 
     fn get_byteord(&self) -> ByteOrd {
@@ -2095,6 +2170,10 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
         } else {
             header_offsets
         }
+    }
+
+    fn get_tot(&self) -> Option<u32> {
+        Some(self.tot)
     }
 
     fn get_byteord(&self) -> ByteOrd {

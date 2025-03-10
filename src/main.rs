@@ -1019,10 +1019,7 @@ trait NumProps<const DTLEN: usize>: Sized + Copy {
 }
 
 trait OrderedFromBytes<const DTLEN: usize, const OLEN: usize>: NumProps<DTLEN> {
-    fn read_from_ordered<R: Read + Seek>(
-        h: &mut BufReader<R>,
-        order: &[u8; OLEN],
-    ) -> io::Result<Self> {
+    fn read_from_ordered<R: Read>(h: &mut BufReader<R>, order: &[u8; OLEN]) -> io::Result<Self> {
         let mut tmp = [0; OLEN];
         let mut buf = [0; DTLEN];
         h.read_exact(&mut tmp)?;
@@ -1120,7 +1117,7 @@ trait CanParseInt<const DTLEN: usize, const INTLEN: usize>:
 trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
     NumProps<DTLEN> + OrderedFromBytes<DTLEN, INTLEN> + Ord + CanParseInt<DTLEN, INTLEN>
 {
-    fn read_int_masked<R: Read + Seek>(
+    fn read_int_masked<R: Read>(
         h: &mut BufReader<R>,
         byteord: &SizedByteOrd<INTLEN>,
         bitmask: Self,
@@ -1128,10 +1125,7 @@ trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
         Self::read_int(h, byteord).map(|x| x.min(bitmask))
     }
 
-    fn read_int<R: Read + Seek>(
-        h: &mut BufReader<R>,
-        byteord: &SizedByteOrd<INTLEN>,
-    ) -> io::Result<Self> {
+    fn read_int<R: Read>(h: &mut BufReader<R>, byteord: &SizedByteOrd<INTLEN>) -> io::Result<Self> {
         // This lovely code will read data that is not a power-of-two
         // bytes long. Start by reading n bytes into a vector, which can
         // take a varying size. Then copy this into the power of 2 buffer
@@ -1159,7 +1153,7 @@ trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
         }
     }
 
-    fn assign<R: Read + Seek>(
+    fn assign<R: Read>(
         h: &mut BufReader<R>,
         d: &mut IntColumnParser<Self, INTLEN>,
         row: usize,
@@ -1443,16 +1437,7 @@ impl MixedColumnType {
             MixedColumnType::Ascii(x) => f64::to_series(x.data),
             MixedColumnType::Single(x) => f32::to_series(x.data),
             MixedColumnType::Double(x) => f64::to_series(x.data),
-            MixedColumnType::Uint(x) => match x {
-                AnyIntColumn::Uint8(y) => u8::to_series(y.data),
-                AnyIntColumn::Uint16(y) => u16::to_series(y.data),
-                AnyIntColumn::Uint24(y) => u32::to_series(y.data),
-                AnyIntColumn::Uint32(y) => u32::to_series(y.data),
-                AnyIntColumn::Uint40(y) => u64::to_series(y.data),
-                AnyIntColumn::Uint48(y) => u64::to_series(y.data),
-                AnyIntColumn::Uint56(y) => u64::to_series(y.data),
-                AnyIntColumn::Uint64(y) => u64::to_series(y.data),
-            },
+            MixedColumnType::Uint(x) => x.to_series(),
         }
     }
 }
@@ -1482,6 +1467,35 @@ enum AnyIntColumn {
     Uint48(IntColumnParser<u64, 6>),
     Uint56(IntColumnParser<u64, 7>),
     Uint64(IntColumnParser<u64, 8>),
+}
+
+impl AnyIntColumn {
+    fn to_series(self) -> Series {
+        match self {
+            AnyIntColumn::Uint8(y) => u8::to_series(y.data),
+            AnyIntColumn::Uint16(y) => u16::to_series(y.data),
+            AnyIntColumn::Uint24(y) => u32::to_series(y.data),
+            AnyIntColumn::Uint32(y) => u32::to_series(y.data),
+            AnyIntColumn::Uint40(y) => u64::to_series(y.data),
+            AnyIntColumn::Uint48(y) => u64::to_series(y.data),
+            AnyIntColumn::Uint56(y) => u64::to_series(y.data),
+            AnyIntColumn::Uint64(y) => u64::to_series(y.data),
+        }
+    }
+
+    fn assign<R: Read>(&mut self, h: &mut BufReader<R>, r: usize) -> io::Result<()> {
+        match self {
+            AnyIntColumn::Uint8(d) => u8::assign(h, d, r)?,
+            AnyIntColumn::Uint16(d) => u16::assign(h, d, r)?,
+            AnyIntColumn::Uint24(d) => u32::assign(h, d, r)?,
+            AnyIntColumn::Uint32(d) => u32::assign(h, d, r)?,
+            AnyIntColumn::Uint40(d) => u64::assign(h, d, r)?,
+            AnyIntColumn::Uint48(d) => u64::assign(h, d, r)?,
+            AnyIntColumn::Uint56(d) => u64::assign(h, d, r)?,
+            AnyIntColumn::Uint64(d) => u64::assign(h, d, r)?,
+        }
+        Ok(())
+    }
 }
 
 // Integers are complicated because in each version we need to at least deal
@@ -1573,28 +1587,26 @@ fn read_data<R: Read + Seek>(h: &mut BufReader<R>, parser: DataParser) -> io::Re
                     match c {
                         MixedColumnType::Single(t) => f32::assign_column(h, t, r)?,
                         MixedColumnType::Double(t) => f64::assign_column(h, t, r)?,
+                        MixedColumnType::Uint(u) => u.assign(h, r)?,
                         MixedColumnType::Ascii(d) => {
                             strbuf.clear();
                             h.take(u64::from(d.width)).read_to_string(&mut strbuf)?;
                             // TODO better error handling
                             d.data[r] = strbuf.parse::<f64>().unwrap();
                         }
-                        MixedColumnType::Uint(u) => match u {
-                            AnyIntColumn::Uint8(d) => u8::assign(h, d, r)?,
-                            AnyIntColumn::Uint16(d) => u16::assign(h, d, r)?,
-                            AnyIntColumn::Uint24(d) => u32::assign(h, d, r)?,
-                            AnyIntColumn::Uint32(d) => u32::assign(h, d, r)?,
-                            AnyIntColumn::Uint40(d) => u64::assign(h, d, r)?,
-                            AnyIntColumn::Uint48(d) => u64::assign(h, d, r)?,
-                            AnyIntColumn::Uint56(d) => u64::assign(h, d, r)?,
-                            AnyIntColumn::Uint64(d) => u64::assign(h, d, r)?,
-                        },
                     }
                 }
             }
             Ok(p.columns.into_iter().map(|c| c.to_series()).collect())
         }
-        ColumnParser::Int(sp) => unimplemented!(),
+        ColumnParser::Int(mut p) => {
+            for r in 0..p.nrows {
+                for c in p.columns.iter_mut() {
+                    c.assign(h, r)?;
+                }
+            }
+            Ok(p.columns.into_iter().map(|c| c.to_series()).collect())
+        }
     }
 }
 

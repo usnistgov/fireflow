@@ -541,12 +541,12 @@ fn make_int_parser(b: u8, r: &Range, o: &ByteOrd, t: usize) -> Result<AnyIntColu
     match b {
         1 => u8::to_col_parser(r, o, t).map(AnyIntColumn::Uint8),
         2 => u16::to_col_parser(r, o, t).map(AnyIntColumn::Uint16),
-        3 => CanParseInt::<3>::to_col_parser(r, o, t).map(AnyIntColumn::Uint24),
-        4 => CanParseInt::<4>::to_col_parser(r, o, t).map(AnyIntColumn::Uint32),
-        5 => CanParseInt::<5>::to_col_parser(r, o, t).map(AnyIntColumn::Uint40),
-        6 => CanParseInt::<6>::to_col_parser(r, o, t).map(AnyIntColumn::Uint48),
-        7 => CanParseInt::<7>::to_col_parser(r, o, t).map(AnyIntColumn::Uint56),
-        8 => CanParseInt::<8>::to_col_parser(r, o, t).map(AnyIntColumn::Uint64),
+        3 => CanParseInt::<4, 3>::to_col_parser(r, o, t).map(AnyIntColumn::Uint24),
+        4 => CanParseInt::<4, 4>::to_col_parser(r, o, t).map(AnyIntColumn::Uint32),
+        5 => CanParseInt::<8, 5>::to_col_parser(r, o, t).map(AnyIntColumn::Uint40),
+        6 => CanParseInt::<8, 6>::to_col_parser(r, o, t).map(AnyIntColumn::Uint48),
+        7 => CanParseInt::<8, 7>::to_col_parser(r, o, t).map(AnyIntColumn::Uint56),
+        8 => CanParseInt::<8, 8>::to_col_parser(r, o, t).map(AnyIntColumn::Uint64),
         _ => Err(vec![String::from("PnB has invalid byte length")]),
     }
 }
@@ -560,12 +560,12 @@ fn make_int_column_parser(
     match b {
         1 => u8::to_fixed_parser(rs, o, t).map(AnyIntParser::Uint8),
         2 => u16::to_fixed_parser(rs, o, t).map(AnyIntParser::Uint16),
-        3 => CanParseInt::<3>::to_fixed_parser(rs, o, t).map(AnyIntParser::Uint24),
-        4 => CanParseInt::<4>::to_fixed_parser(rs, o, t).map(AnyIntParser::Uint32),
-        5 => CanParseInt::<5>::to_fixed_parser(rs, o, t).map(AnyIntParser::Uint40),
-        6 => CanParseInt::<6>::to_fixed_parser(rs, o, t).map(AnyIntParser::Uint48),
-        7 => CanParseInt::<7>::to_fixed_parser(rs, o, t).map(AnyIntParser::Uint56),
-        8 => CanParseInt::<8>::to_fixed_parser(rs, o, t).map(AnyIntParser::Uint64),
+        3 => CanParseInt::<4, 3>::to_fixed_parser(rs, o, t).map(AnyIntParser::Uint24),
+        4 => CanParseInt::<4, 4>::to_fixed_parser(rs, o, t).map(AnyIntParser::Uint32),
+        5 => CanParseInt::<8, 5>::to_fixed_parser(rs, o, t).map(AnyIntParser::Uint40),
+        6 => CanParseInt::<8, 6>::to_fixed_parser(rs, o, t).map(AnyIntParser::Uint48),
+        7 => CanParseInt::<8, 7>::to_fixed_parser(rs, o, t).map(AnyIntParser::Uint56),
+        8 => CanParseInt::<8, 8>::to_fixed_parser(rs, o, t).map(AnyIntParser::Uint64),
         _ => Err(vec![String::from("PnB has invalid byte length")]),
     }
 }
@@ -988,11 +988,11 @@ trait IntMath: Sized {
     fn from_u64(x: u64) -> Self;
 }
 
-trait Zero {
-    fn zero() -> Self;
-}
+trait NumProps<const DTLEN: usize>: Sized + Copy {
+    fn to_series(x: Vec<Self>) -> Series;
 
-trait FromBytes<const DTLEN: usize>: Sized + Copy {
+    fn zero() -> Self;
+
     fn from_big(buf: [u8; DTLEN]) -> Self;
 
     fn from_little(buf: [u8; DTLEN]) -> Self;
@@ -1018,7 +1018,7 @@ trait FromBytes<const DTLEN: usize>: Sized + Copy {
     }
 }
 
-trait OrderedFromBytes<const DTLEN: usize, const OLEN: usize>: FromBytes<DTLEN> {
+trait OrderedFromBytes<const DTLEN: usize, const OLEN: usize>: NumProps<DTLEN> {
     fn read_from_ordered<R: Read + Seek>(
         h: &mut BufReader<R>,
         order: &[u8; OLEN],
@@ -1046,7 +1046,9 @@ fn byteord_to_sized<const LEN: usize>(byteord: &ByteOrd) -> Result<SizedByteOrd<
     }
 }
 
-trait CanParseInt<const INTLEN: usize>: Sized + IntMath + Zero + Clone {
+trait CanParseInt<const DTLEN: usize, const INTLEN: usize>:
+    Sized + IntMath + NumProps<DTLEN> + Clone
+{
     fn byteord_to_sized(byteord: &ByteOrd) -> Result<SizedByteOrd<INTLEN>, String> {
         byteord_to_sized(byteord)
     }
@@ -1116,7 +1118,7 @@ trait CanParseInt<const INTLEN: usize>: Sized + IntMath + Zero + Clone {
 }
 
 trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
-    FromBytes<DTLEN> + OrderedFromBytes<DTLEN, INTLEN> + Ord + CanParseInt<INTLEN>
+    NumProps<DTLEN> + OrderedFromBytes<DTLEN, INTLEN> + Ord + CanParseInt<DTLEN, INTLEN>
 {
     fn read_int_masked<R: Read + Seek>(
         h: &mut BufReader<R>,
@@ -1168,7 +1170,7 @@ trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
 }
 
 trait FloatFromBytes<const LEN: usize>:
-    FromBytes<LEN> + OrderedFromBytes<LEN, LEN> + Clone + Zero
+    NumProps<LEN> + OrderedFromBytes<LEN, LEN> + Clone + NumProps<LEN>
 {
     fn to_float_byteord(byteord: &ByteOrd) -> Result<SizedByteOrd<LEN>, String> {
         byteord_to_sized(byteord)
@@ -1217,7 +1219,7 @@ trait FloatFromBytes<const LEN: usize>:
     fn parse_matrix<R: Read + Seek>(
         h: &mut BufReader<R>,
         p: FloatParser<LEN>,
-    ) -> io::Result<Vec<Vec<Self>>> {
+    ) -> io::Result<Vec<Series>> {
         let mut columns: Vec<_> = iter::repeat_with(|| vec![Self::zero(); p.nrows])
             .take(p.ncols)
             .collect();
@@ -1226,54 +1228,119 @@ trait FloatFromBytes<const LEN: usize>:
                 Self::assign_matrix(h, &p, c, r)?;
             }
         }
-        Ok(columns)
-        // Ok(columns.into_iter().map(Series::F32).collect())
+        Ok(columns
+            .into_iter()
+            .into_iter()
+            .map(Self::to_series)
+            .collect())
     }
 }
 
-impl Zero for u8 {
+impl NumProps<1> for u8 {
+    fn to_series(x: Vec<Self>) -> Series {
+        Series::U8(x)
+    }
+
     fn zero() -> Self {
         0
     }
-}
 
-impl Zero for u16 {
-    fn zero() -> Self {
-        0
-    }
-}
-
-impl Zero for u32 {
-    fn zero() -> Self {
-        0
-    }
-}
-
-impl Zero for u64 {
-    fn zero() -> Self {
-        0
-    }
-}
-
-impl Zero for f32 {
-    fn zero() -> Self {
-        0.0
-    }
-}
-
-impl Zero for f64 {
-    fn zero() -> Self {
-        0.0
-    }
-}
-
-impl FromBytes<1> for u8 {
     fn from_big(buf: [u8; 1]) -> Self {
         Self::from_be_bytes(buf)
     }
 
     fn from_little(buf: [u8; 1]) -> Self {
         Self::from_le_bytes(buf)
+    }
+}
+
+impl NumProps<2> for u16 {
+    fn to_series(x: Vec<Self>) -> Series {
+        Series::U16(x)
+    }
+
+    fn zero() -> Self {
+        0
+    }
+
+    fn from_big(buf: [u8; 2]) -> Self {
+        u16::from_be_bytes(buf)
+    }
+
+    fn from_little(buf: [u8; 2]) -> Self {
+        u16::from_le_bytes(buf)
+    }
+}
+
+impl NumProps<4> for u32 {
+    fn to_series(x: Vec<Self>) -> Series {
+        Series::U32(x)
+    }
+
+    fn zero() -> Self {
+        0
+    }
+
+    fn from_big(buf: [u8; 4]) -> Self {
+        u32::from_be_bytes(buf)
+    }
+
+    fn from_little(buf: [u8; 4]) -> Self {
+        u32::from_le_bytes(buf)
+    }
+}
+
+impl NumProps<8> for u64 {
+    fn to_series(x: Vec<Self>) -> Series {
+        Series::U64(x)
+    }
+
+    fn zero() -> Self {
+        0
+    }
+
+    fn from_big(buf: [u8; 8]) -> Self {
+        u64::from_be_bytes(buf)
+    }
+
+    fn from_little(buf: [u8; 8]) -> Self {
+        u64::from_le_bytes(buf)
+    }
+}
+
+impl NumProps<4> for f32 {
+    fn to_series(x: Vec<Self>) -> Series {
+        Series::F32(x)
+    }
+
+    fn zero() -> Self {
+        0.0
+    }
+
+    fn from_big(buf: [u8; 4]) -> Self {
+        f32::from_be_bytes(buf)
+    }
+
+    fn from_little(buf: [u8; 4]) -> Self {
+        f32::from_le_bytes(buf)
+    }
+}
+
+impl NumProps<8> for f64 {
+    fn to_series(x: Vec<Self>) -> Series {
+        Series::F64(x)
+    }
+
+    fn zero() -> Self {
+        0.0
+    }
+
+    fn from_big(buf: [u8; 8]) -> Self {
+        f64::from_be_bytes(buf)
+    }
+
+    fn from_little(buf: [u8; 8]) -> Self {
+        f64::from_le_bytes(buf)
     }
 }
 
@@ -1317,53 +1384,16 @@ impl IntMath for u64 {
     }
 }
 
-impl CanParseInt<1> for u8 {}
 impl OrderedFromBytes<1, 1> for u8 {}
 impl IntFromBytes<1, 1> for u8 {}
 
-impl FromBytes<2> for u16 {
-    fn from_big(buf: [u8; 2]) -> Self {
-        u16::from_be_bytes(buf)
-    }
-
-    fn from_little(buf: [u8; 2]) -> Self {
-        u16::from_le_bytes(buf)
-    }
-}
-
 impl OrderedFromBytes<2, 2> for u16 {}
 impl IntFromBytes<2, 2> for u16 {}
-
-impl CanParseInt<2> for u16 {}
-
-impl FromBytes<4> for u32 {
-    fn from_big(buf: [u8; 4]) -> Self {
-        u32::from_be_bytes(buf)
-    }
-
-    fn from_little(buf: [u8; 4]) -> Self {
-        u32::from_le_bytes(buf)
-    }
-}
 
 impl OrderedFromBytes<4, 3> for u32 {}
 impl IntFromBytes<4, 3> for u32 {}
 impl OrderedFromBytes<4, 4> for u32 {}
 impl IntFromBytes<4, 4> for u32 {}
-
-impl CanParseInt<3> for u32 {}
-
-impl CanParseInt<4> for u32 {}
-
-impl FromBytes<8> for u64 {
-    fn from_big(buf: [u8; 8]) -> Self {
-        u64::from_be_bytes(buf)
-    }
-
-    fn from_little(buf: [u8; 8]) -> Self {
-        u64::from_le_bytes(buf)
-    }
-}
 
 impl OrderedFromBytes<8, 5> for u64 {}
 impl IntFromBytes<8, 5> for u64 {}
@@ -1374,56 +1404,37 @@ impl IntFromBytes<8, 7> for u64 {}
 impl OrderedFromBytes<8, 8> for u64 {}
 impl IntFromBytes<8, 8> for u64 {}
 
-impl CanParseInt<5> for u64 {}
-
-impl CanParseInt<6> for u64 {}
-
-impl CanParseInt<7> for u64 {}
-
-impl CanParseInt<8> for u64 {}
-
-impl FromBytes<4> for f32 {
-    fn from_big(buf: [u8; 4]) -> Self {
-        f32::from_be_bytes(buf)
-    }
-
-    fn from_little(buf: [u8; 4]) -> Self {
-        f32::from_le_bytes(buf)
-    }
-}
+impl CanParseInt<1, 1> for u8 {}
+impl CanParseInt<2, 2> for u16 {}
+impl CanParseInt<4, 3> for u32 {}
+impl CanParseInt<4, 4> for u32 {}
+impl CanParseInt<8, 5> for u64 {}
+impl CanParseInt<8, 6> for u64 {}
+impl CanParseInt<8, 7> for u64 {}
+impl CanParseInt<8, 8> for u64 {}
 
 impl FloatFromBytes<4> for f32 {}
 impl FloatFromBytes<8> for f64 {}
 
 impl OrderedFromBytes<4, 4> for f32 {}
 
-impl FromBytes<8> for f64 {
-    fn from_big(buf: [u8; 8]) -> Self {
-        f64::from_be_bytes(buf)
-    }
-
-    fn from_little(buf: [u8; 8]) -> Self {
-        f64::from_le_bytes(buf)
-    }
-}
-
 impl OrderedFromBytes<8, 8> for f64 {}
 
 impl MixedColumnType {
     fn to_series(self) -> Series {
         match self {
-            MixedColumnType::Ascii(x) => Series::F64(x.data),
-            MixedColumnType::Single(x) => Series::F32(x.data),
-            MixedColumnType::Double(x) => Series::F64(x.data),
+            MixedColumnType::Ascii(x) => f64::to_series(x.data),
+            MixedColumnType::Single(x) => f32::to_series(x.data),
+            MixedColumnType::Double(x) => f64::to_series(x.data),
             MixedColumnType::Uint(x) => match x {
-                AnyIntColumn::Uint8(y) => Series::U8(y.data),
-                AnyIntColumn::Uint16(y) => Series::U16(y.data),
-                AnyIntColumn::Uint24(y) => Series::U32(y.data),
-                AnyIntColumn::Uint32(y) => Series::U32(y.data),
-                AnyIntColumn::Uint40(y) => Series::U64(y.data),
-                AnyIntColumn::Uint48(y) => Series::U64(y.data),
-                AnyIntColumn::Uint56(y) => Series::U64(y.data),
-                AnyIntColumn::Uint64(y) => Series::U64(y.data),
+                AnyIntColumn::Uint8(y) => u8::to_series(y.data),
+                AnyIntColumn::Uint16(y) => u16::to_series(y.data),
+                AnyIntColumn::Uint24(y) => u32::to_series(y.data),
+                AnyIntColumn::Uint32(y) => u32::to_series(y.data),
+                AnyIntColumn::Uint40(y) => u64::to_series(y.data),
+                AnyIntColumn::Uint48(y) => u64::to_series(y.data),
+                AnyIntColumn::Uint56(y) => u64::to_series(y.data),
+                AnyIntColumn::Uint64(y) => u64::to_series(y.data),
             },
         }
     }
@@ -1524,13 +1535,8 @@ fn read_data<R: Read + Seek>(h: &mut BufReader<R>, parser: DataParser) -> io::Re
     match parser.column_parser {
         ColumnParser::DelimitedAscii(par) => unimplemented!(),
         ColumnParser::FixedWidthAscii(widths) => unimplemented!(),
-        // TODO I can do better ;)
-        ColumnParser::Single(p) => {
-            f32::parse_matrix(h, p).map(|xs| xs.into_iter().map(Series::F32).collect())
-        }
-        ColumnParser::Double(p) => {
-            f64::parse_matrix(h, p).map(|xs| xs.into_iter().map(Series::F64).collect())
-        }
+        ColumnParser::Single(p) => f32::parse_matrix(h, p),
+        ColumnParser::Double(p) => f64::parse_matrix(h, p),
         ColumnParser::Mixed(mut p) => {
             for r in 0..p.nrows {
                 for c in p.columns.iter_mut() {

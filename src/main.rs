@@ -1719,7 +1719,7 @@ trait MetadataFromKeywords: Sized {
         let remainder = nbytes % event_width;
         if nbytes % event_width > 0 {
             Err(format!(
-                "Events are {event_width} bytes wide but does not evenly \
+                "Events are {event_width} bytes wide, but this does not evenly \
                  divide DATA segment which is {nbytes} bytes long \
                  (remainder of {remainder}) "
             ))
@@ -1862,12 +1862,6 @@ trait MetadataFromKeywords: Sized {
             .iter()
             .filter_map(|p| Self::P::parameter_name(p))
             .collect();
-
-        // TODO validate ranges. In the case of DATATYPE = I, $PnR should be the
-        // "max" value. In some cases this is set to some absurdly high number
-        // like 2^128 even though PnB is only 32. If I just trust that PnB is
-        // correct, then the integer bitmask is totally filled and all u32 ints
-        // are valid.
 
         // TODO validate time channel
 
@@ -3152,7 +3146,7 @@ fn read_text<R: Read + Seek>(h: &mut BufReader<R>, header: &Header) -> io::Resul
     let delimiter = dbuf[0];
 
     // Valid delimiters are in the set of {1..126}
-    if (1..=126).contains(&delimiter) {
+    if !(1..=126).contains(&delimiter) {
         return Err(io::Error::new(
             io::ErrorKind::Other,
             "delimiter must be an ASCII character 1-126",

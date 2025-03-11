@@ -3047,14 +3047,10 @@ fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
             (filtered_boundaries.first(), filtered_boundaries.last())
         {
             if *x0 > 0 {
-                return Err(String::from(
-                    "first keyword starts with a delimiter '{str_delim}'",
-                ));
+                return Err(format!("first key starts with a delim '{str_delim}'"));
             }
             if *xf + len < textlen - 1 {
-                return Err(String::from(
-                    "final value ends with a delimiter '{str_delim}'",
-                ));
+                return Err(format!("final value ends with a delim '{str_delim}'",));
             }
         } else {
             return Err(String::from("no boundaries found, cannot parse keywords"));
@@ -3066,7 +3062,7 @@ fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
     // ASSUME this will not fail since we have at least one delim by definition
     if !delim_positions.last().unwrap() == xs.len() - 1 {
         if conf.enforce_final_delim {
-            return Err(String::from("last TEXT character was not {str_delim}"));
+            return Err(format!("last TEXT character was not {str_delim}"));
         } else {
             warnings.push(format!(
                 "last TEXT character is not delimiter {str_delim}, \
@@ -3081,12 +3077,14 @@ fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
     let escape_from = str::from_utf8(&delim2).unwrap();
     let escape_to = str::from_utf8(&delim1).unwrap();
 
-    for chunk in boundaries.chunks(2) {
-        if let [(ki, klen), (vi, vlen)] = chunk {
-            if let (Ok(k), Ok(v)) = (
-                str::from_utf8(&xs[(*ki + 1)..(*ki + *klen)]),
-                str::from_utf8(&xs[(*vi + 1)..(*vi + *vlen)]),
-            ) {
+    let final_boundaries: Vec<_> = boundaries
+        .into_iter()
+        .map(|(a, b)| (a + 1, a + b))
+        .collect();
+
+    for chunk in final_boundaries.chunks(2) {
+        if let [(ki, kf), (vi, vf)] = *chunk {
+            if let (Ok(k), Ok(v)) = (str::from_utf8(&xs[ki..kf]), str::from_utf8(&xs[vi..vf])) {
                 let kupper = k.to_uppercase();
                 // if delimiters were escaped, replace them here
                 let res = if conf.no_delim_escape {
@@ -3111,7 +3109,7 @@ fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
                 };
                 // test if the key was inserted already
                 if res.is_some() {
-                    let msg = format!("key {kupper} is specified more than once");
+                    let msg = format!("key {kupper} is found more than once");
                     if conf.enforce_unique {
                         return Err(msg);
                     } else {
@@ -3119,7 +3117,7 @@ fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
                     }
                 }
             } else {
-                let msg = String::from("invalid UTF-8 byte encountered when parsing keywords");
+                let msg = String::from("invalid UTF-8 byte encountered when parsing TEXT");
                 if conf.error_on_invalid_utf8 {
                     warnings.push(msg);
                 } else {
@@ -3130,7 +3128,7 @@ fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
             return Err(String::from("number of words is not even"));
         } else {
             warnings.push(String::from(
-                "number of words is not even, parsing may be invalid",
+                "number of words is not even, parse may have failed",
             ));
         }
     }

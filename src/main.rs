@@ -307,15 +307,6 @@ struct Trigger {
     threshold: u32,
 }
 
-struct TextOffsets<A, D, T> {
-    analysis: A,
-    data: D,
-    stext: T,
-}
-
-type TextOffsets3_0 = TextOffsets<Offsets, Offsets, Offsets>;
-type TextOffsets3_2 = TextOffsets<Option<Offsets>, Offsets, Option<Offsets>>;
-
 #[derive(Debug, Clone)]
 struct Timestamps2_0 {
     btim: OptionalKw<NaiveTime>,
@@ -523,10 +514,6 @@ impl<X> Parameter<X> {
             Bytes::Fixed(x) => x == b,
             _ => false,
         }
-    }
-
-    fn bytes_are_variable(&self) -> bool {
-        matches!(self.bytes, Bytes::Variable)
     }
 
     // TODO add parameter index to error message
@@ -874,7 +861,7 @@ impl<M: MetadataFromKeywords> StdText<M, M::P> {
             .collect()
     }
 
-    fn from_kws(header: Header, raw: RawTEXT) -> TEXTResult<TEXT<Self>> {
+    fn from_kws(header: Header, raw: RawTEXT) -> TEXTResult<TexT<Self>> {
         let mut st = raw.to_state();
         // This will fail if a) not all required keywords pass and b) not all
         // required parameter keywords pass (according to $PAR)
@@ -1140,7 +1127,7 @@ trait FloatFromBytes<const LEN: usize>:
     ) -> Result<FloatParser<LEN>, String> {
         Self::to_float_byteord(byteord).map(|byteord| FloatParser {
             nrows: total_events,
-            ncols: par as usize,
+            ncols: par,
             byteord,
         })
     }
@@ -1192,11 +1179,7 @@ trait FloatFromBytes<const LEN: usize>:
                 Self::assign_matrix(h, &p, c, r)?;
             }
         }
-        Ok(columns
-            .into_iter()
-            .into_iter()
-            .map(Self::to_series)
-            .collect())
+        Ok(columns.into_iter().map(Self::to_series).collect())
     }
 }
 
@@ -1551,7 +1534,7 @@ fn ascii_to_float_io(buf: Vec<u8>) -> io::Result<f64> {
         .and_then(|s| parse_f64_io(&s))
 }
 
-fn parse_f64_io(s: &String) -> io::Result<f64> {
+fn parse_f64_io(s: &str) -> io::Result<f64> {
     s.parse::<f64>()
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }
@@ -1610,9 +1593,9 @@ fn read_data_delim_ascii<R: Read>(
             );
             return Err(io::Error::new(io::ErrorKind::InvalidData, msg));
         }
-        Ok(data.into_iter().map(|c| f64::to_series(c)).collect())
+        Ok(data.into_iter().map(f64::to_series).collect())
     } else {
-        let mut data: Vec<_> = iter::repeat_with(|| vec![]).take(p.ncols).collect();
+        let mut data: Vec<_> = iter::repeat_with(Vec::new).take(p.ncols).collect();
         for b in h.bytes().take(p.nbytes) {
             let byte = b?;
             // Delimiters are tab, newline, carriage return, space, or
@@ -1644,7 +1627,7 @@ fn read_data_delim_ascii<R: Read>(
             let msg = "Not all columns are equal length";
             return Err(io::Error::new(io::ErrorKind::InvalidData, msg));
         }
-        Ok(data.into_iter().map(|c| f64::to_series(c)).collect())
+        Ok(data.into_iter().map(f64::to_series).collect())
     }
 }
 
@@ -1698,7 +1681,7 @@ fn read_data_int<R: Read>(h: &mut BufReader<R>, parser: IntParser) -> io::Result
 }
 
 fn read_data<R: Read + Seek>(h: &mut BufReader<R>, parser: DataParser) -> io::Result<ParsedData> {
-    h.seek(SeekFrom::Start(u64::from(parser.begin)))?;
+    h.seek(SeekFrom::Start(parser.begin))?;
     match parser.column_parser {
         ColumnParser::DelimitedAscii(p) => read_data_delim_ascii(h, p),
         ColumnParser::FixedWidthAscii(p) => read_data_ascii_fixed(h, &p),
@@ -1896,7 +1879,7 @@ trait MetadataFromKeywords: Sized {
     fn validate(
         st: KwState,
         s: StdText<Self, Self::P>,
-    ) -> TEXTResult<TEXT<StdText<Self, Self::P>>> {
+    ) -> TEXTResult<TexT<StdText<Self, Self::P>>> {
         let mut st = st;
         let shortnames: HashSet<&str> = s.get_shortnames().into_iter().collect();
 
@@ -1945,7 +1928,7 @@ trait MetadataFromKeywords: Sized {
                     }
                 }
                 if st.missing.is_empty() && st.meta_errors.is_empty() && value_errors.is_empty() {
-                    let text = TEXT {
+                    let text = TexT {
                         standard: s,
                         nonstandard,
                         deviant,
@@ -2022,8 +2005,8 @@ fn build_int_parser_2_0<X>(
     let remainder: Vec<_> = ps.iter().filter(|p| !p.bytes_eq(nbytes)).collect();
     if remainder.is_empty() {
         let (columns, fail): (Vec<_>, Vec<_>) = ps
-            .into_iter()
-            .map(|p| p.make_int_parser(&byteord, total_events))
+            .iter()
+            .map(|p| p.make_int_parser(byteord, total_events))
             .partition_result();
         let errors: Vec<_> = fail.into_iter().flatten().collect();
         if errors.is_empty() {
@@ -2058,7 +2041,7 @@ impl MetadataFromKeywords for InnerMetadata2_0 {
     }
 
     fn get_tot(&self) -> Option<u32> {
-        self.tot.as_ref().to_option().map(|x| *x)
+        self.tot.as_ref().to_option().copied()
     }
 
     fn get_byteord(&self) -> ByteOrd {
@@ -2371,7 +2354,7 @@ impl MetadataFromKeywords for InnerMetadata3_2 {
 }
 
 #[derive(Debug, Clone)]
-struct TEXT<S> {
+struct TexT<S> {
     // TODO add the offsets here as well? offsets are needed before parsing
     // everything else
     standard: S,
@@ -2381,19 +2364,27 @@ struct TEXT<S> {
 
 #[derive(Debug, Clone)]
 enum AnyTEXT {
-    TEXT2_0(TEXT<StdText2_0>),
-    TEXT3_0(TEXT<StdText3_0>),
-    TEXT3_1(TEXT<StdText3_1>),
-    TEXT3_2(TEXT<StdText3_2>),
+    TEXT2_0(Box<TexT<StdText2_0>>),
+    TEXT3_0(Box<TexT<StdText3_0>>),
+    TEXT3_1(Box<TexT<StdText3_1>>),
+    TEXT3_2(Box<TexT<StdText3_2>>),
 }
 
 impl AnyTEXT {
     fn from_kws(header: Header, raw: RawTEXT) -> Result<TEXTSuccess<Self>, StandardErrors> {
         match header.version {
-            Version::FCS2_0 => StdText::from_kws(header, raw).map(|x| x.map(AnyTEXT::TEXT2_0)),
-            Version::FCS3_0 => StdText::from_kws(header, raw).map(|x| x.map(AnyTEXT::TEXT3_0)),
-            Version::FCS3_1 => StdText::from_kws(header, raw).map(|x| x.map(AnyTEXT::TEXT3_1)),
-            Version::FCS3_2 => StdText::from_kws(header, raw).map(|x| x.map(AnyTEXT::TEXT3_2)),
+            Version::FCS2_0 => {
+                StdText::from_kws(header, raw).map(|x| x.map(|x| AnyTEXT::TEXT2_0(Box::new(x))))
+            }
+            Version::FCS3_0 => {
+                StdText::from_kws(header, raw).map(|x| x.map(|x| AnyTEXT::TEXT3_0(Box::new(x))))
+            }
+            Version::FCS3_1 => {
+                StdText::from_kws(header, raw).map(|x| x.map(|x| AnyTEXT::TEXT3_1(Box::new(x))))
+            }
+            Version::FCS3_2 => {
+                StdText::from_kws(header, raw).map(|x| x.map(|x| AnyTEXT::TEXT3_2(Box::new(x))))
+            }
         }
     }
 }
@@ -3210,12 +3201,6 @@ struct RawTEXT {
 }
 
 impl RawTEXT {
-    // fn fix<F: FnMut(&Self) -> ()>(&self, f: F) -> ();
-
-    // fn standardize(self) -> AnyTEXT {
-    //     let st = self.to_state();
-    // }
-
     fn to_state(self) -> KwState {
         let mut keywords = HashMap::new();
         for (k, v) in self.keywords {
@@ -3425,6 +3410,9 @@ fn main() {
     if let Ok(x) = stext {
         if conf.show_text {
             println!("{:#?}", x.text);
+        }
+        for w in x.warnings {
+            println!("{:#?}", w);
         }
         if conf.show_data {
             let df = read_data(&mut reader, x.data_parser).unwrap();

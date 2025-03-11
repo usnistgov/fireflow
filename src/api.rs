@@ -813,6 +813,7 @@ struct TEXTSuccess<T> {
     text: T,
     data_parser: DataParser,
     warnings: Vec<KwMsg>,
+    deprecated_keywords: Vec<Key>,
 }
 
 impl<X> TEXTSuccess<X> {
@@ -821,6 +822,7 @@ impl<X> TEXTSuccess<X> {
             text: f(self.text),
             data_parser: self.data_parser,
             warnings: self.warnings,
+            deprecated_keywords: self.deprecated_keywords,
         }
     }
 }
@@ -1630,6 +1632,7 @@ trait MetadataLike: Sized {
                         text,
                         data_parser,
                         warnings,
+                        deprecated_keywords: st.deprecated,
                     })
                 } else {
                     Err(StandardErrors {
@@ -2149,7 +2152,6 @@ pub struct StandardErrors {
     meta_errors: Vec<String>,
 }
 
-// TODO add deprecation warnings somewhere in here
 impl KwState {
     // TODO format $param here
     // TODO not DRY (although will likely need HKTs)
@@ -2165,6 +2167,9 @@ impl KwState {
                         |e| (ValueStatus::Error(e), None),
                         |x| (ValueStatus::Used, Some(x)),
                     );
+                    if dep {
+                        self.deprecated.push(sk);
+                    }
                     v.status = s;
                     r
                 }
@@ -2189,6 +2194,9 @@ impl KwState {
                         |w| (ValueStatus::Warning(w), Absent),
                         |x| (ValueStatus::Used, OptionalKw::Present(x)),
                     );
+                    if dep {
+                        self.deprecated.push(sk);
+                    }
                     v.status = s;
                     r
                 }
@@ -2955,7 +2963,6 @@ impl RawTEXT {
 }
 
 pub struct FCSSuccess<T> {
-    pub raw: RawTEXT,
     pub std: T,
     pub data: ParsedData,
 }
@@ -3222,12 +3229,11 @@ pub fn read_fcs_file(p: path::PathBuf, conf: Reader) -> io::Result<FCSResult<Any
     let header = read_header(&mut reader)?;
     let raw = read_raw_text(&mut reader, &header, &conf.text.raw)?;
     // TODO useless clone?
-    match AnyTEXT::from_kws(header, raw.clone()) {
+    match AnyTEXT::from_kws(header, raw) {
         Ok(std) => {
             let data = read_data(&mut reader, std.data_parser).unwrap();
             Ok(Ok(FCSSuccess {
                 std: std.text,
-                raw,
                 data,
             }))
         }
@@ -3263,7 +3269,7 @@ pub fn read_fcs_raw_file(p: path::PathBuf, conf: Reader) -> io::Result<FCSResult
     match AnyTEXT::from_kws(header, raw.clone()) {
         Ok(std) => {
             let data = read_data(&mut reader, std.data_parser).unwrap();
-            Ok(Ok(FCSSuccess { std: (), raw, data }))
+            Ok(Ok(FCSSuccess { std: (), data }))
         }
         Err(e) => Ok(Err(e)),
     }

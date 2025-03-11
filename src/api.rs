@@ -3094,6 +3094,14 @@ fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
     let mut keywords: HashMap<_, _> = HashMap::new();
     let mut warnings = vec![];
     let textlen = xs.len();
+    let mut warn_or_err2 = |is_error, err, warn| {
+        if is_error {
+            Err(err)
+        } else {
+            warnings.push(warn);
+            Ok(())
+        }
+    };
 
     // First character is the delimiter
     let delimiter: u8 = xs[0];
@@ -3105,15 +3113,11 @@ fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
     // TODO don't do this for older version 3.0 and older (need to check version
     // somehow)
     if !(1..=126).contains(&delimiter) {
-        if conf.force_ascii_delim {
-            return Err(String::from(
-                "delimiter must be an ASCII character 1-126, got {str_delim}",
-            ));
-        } else {
-            warnings.push(String::from(
-                "delimiter should be an ASCII character 1-126, got {str_delim}",
-            ));
-        }
+        warn_or_err2(
+            conf.force_ascii_delim,
+            String::from("delimiter must be an ASCII character 1-126, got {str_delim}"),
+            String::from("delimiter should be an ASCII character 1-126, got {str_delim}"),
+        )?
     }
 
     // Read from the 2nd character to all but the last character and record
@@ -3180,14 +3184,11 @@ fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
     // Check that the last char is also a delim, if not file probably sketchy
     // ASSUME this will not fail since we have at least one delim by definition
     if !delim_positions.last().unwrap() == xs.len() - 1 {
-        if conf.enforce_final_delim {
-            return Err(format!("last TEXT character was not {str_delim}"));
-        } else {
-            warnings.push(format!(
-                "last TEXT character is not delimiter {str_delim}, \
-                 parsing may have failed"
-            ));
-        }
+        warn_or_err2(
+            conf.enforce_final_delim,
+            format!("last TEXT char is not {str_delim}"),
+            format!("last TEXT char is not delim {str_delim}, parsing may have failed"),
+        )?
     }
 
     let delim2 = [delimiter, delimiter];
@@ -3205,6 +3206,14 @@ fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
         if let [(ki, kf), (vi, vf)] = *chunk {
             if let (Ok(k), Ok(v)) = (str::from_utf8(&xs[ki..kf]), str::from_utf8(&xs[vi..vf])) {
                 let kupper = k.to_uppercase();
+                // test if keyword is ascii
+                if !kupper.is_ascii() {
+                    warn_or_err2(
+                        conf.enfore_keyword_ascii,
+                        String::from("keywords must be ASCII"),
+                        String::from("keywords should be ASCII"),
+                    )?
+                }
                 // if delimiters were escaped, replace them here
                 let res = if conf.no_delim_escape {
                     // Test for empty values if we don't allow delim escaping;
@@ -3212,12 +3221,12 @@ fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
                     // depending on user settings
                     if v.is_empty() {
                         let msg = format!("key {kupper} has a blank value");
-                        if conf.enforce_nonempty {
-                            return Err(msg);
-                        } else {
-                            warnings.push(format!("{}, dropping", msg));
-                            None
-                        }
+                        warn_or_err2(
+                            conf.enforce_nonempty,
+                            msg.clone(),
+                            format!("{}, dropping", msg),
+                        )?;
+                        None
                     } else {
                         keywords.insert(Key(kupper.clone()), v.to_string())
                     }
@@ -3229,26 +3238,18 @@ fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
                 // test if the key was inserted already
                 if res.is_some() {
                     let msg = format!("key {kupper} is found more than once");
-                    if conf.enforce_unique {
-                        return Err(msg);
-                    } else {
-                        warnings.push(msg);
-                    }
+                    warn_or_err2(conf.enforce_unique, msg.clone(), msg)?
                 }
             } else {
                 let msg = String::from("invalid UTF-8 byte encountered when parsing TEXT");
-                if conf.error_on_invalid_utf8 {
-                    warnings.push(msg);
-                } else {
-                    return Err(msg);
-                }
+                warn_or_err2(conf.error_on_invalid_utf8, msg.clone(), msg)?
             }
-        } else if conf.enforce_even {
-            return Err(String::from("number of words is not even"));
         } else {
-            warnings.push(String::from(
-                "number of words is not even, parse may have failed",
-            ));
+            warn_or_err2(
+                conf.enforce_even,
+                String::from("number of words is not even"),
+                String::from("number of words is not even, parse may have failed"),
+            )?
         }
     }
 
@@ -3298,6 +3299,8 @@ pub struct RawTextReader {
     /// If true, throw an error if the parser encounters a bad UTF-8 byte when
     /// creating the key/value list. If false, merely drop the bad pair.
     error_on_invalid_utf8: bool,
+    /// If true, throw error when encoutering keyword with non-ASCII characters
+    enfore_keyword_ascii: bool,
     // TODO add keyword and value overrides, something like a list of patterns
     // that can be used to alter each keyword
     // TODO allow lambda function to be supplied which will alter the kv list
@@ -3350,6 +3353,7 @@ pub fn std_reader() -> Reader {
                 enforce_even: false,
                 enforce_nonempty: false,
                 error_on_invalid_utf8: false,
+                enfore_keyword_ascii: false,
             },
             ensure_time: true,
             ensure_time_timestep: true,

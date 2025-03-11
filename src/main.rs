@@ -50,7 +50,8 @@ fn main() {
 
     let file = path::PathBuf::from(&args[1]);
     let reader = api::std_reader();
-    api::read_fcs_file(file, reader).unwrap().unwrap();
+    let res = api::read_fcs_file(file, reader).unwrap().unwrap();
+    println!("{:#?}", res.std);
     // let mut reader = BufReader::new(file);
     // let header = read_header(&mut reader).unwrap();
     // if conf.show_header {

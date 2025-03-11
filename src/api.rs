@@ -3080,7 +3080,6 @@ fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
     // ASSUME these won't fail as we checked the delimiter is an ASCII character
     let escape_from = str::from_utf8(&delim2).unwrap();
     let escape_to = str::from_utf8(&delim1).unwrap();
-    let fix_word = |s: &str| s.replace(escape_from, escape_to);
 
     for chunk in boundaries.chunks(2) {
         if let [(ki, klen), (vi, vlen)] = chunk {
@@ -3089,11 +3088,17 @@ fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
                 str::from_utf8(&xs[(*vi + 1)..(*vi + *vlen)]),
             ) {
                 let kupper = k.to_uppercase();
-                if keywords
-                    .insert(Key(fix_word(&kupper)), fix_word(v))
-                    .is_some()
-                {
-                    let msg = format!("key {kupper} is specified more once");
+                // if delimiters were escaped, replace them here
+                let (kfinal, vfinal) = if conf.no_delim_escape {
+                    (kupper, String::from(v))
+                } else {
+                    (
+                        kupper.replace(escape_from, escape_to),
+                        v.replace(escape_from, escape_to),
+                    )
+                };
+                if keywords.insert(Key(kfinal.clone()), vfinal).is_some() {
+                    let msg = format!("key {kfinal} is specified more once");
                     if conf.enforce_unique {
                         return Err(msg);
                     } else {
@@ -3101,7 +3106,7 @@ fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
                     }
                 }
             } else {
-                return Err(String::from("invalid utf-8 character encountered"));
+                return Err(String::from("invalid UTF-8 character encountered"));
             }
         } else if conf.enforce_even {
             return Err(String::from("number of words is not even"));

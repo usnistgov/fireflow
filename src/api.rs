@@ -2968,21 +2968,33 @@ pub struct FCSSuccess<T> {
     pub data: ParsedData,
 }
 
-fn split_raw_text(xs: &[u8]) -> Result<RawTEXT, String> {
+fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
     // this needs the entire TEXT segment to be loaded in memory, which should
     // be fine since the max number of bytes is ~100M given the upper limit
     // imposed by the header
+    let mut keywords: HashMap<_, _> = HashMap::new();
     let mut warnings = vec![];
     let textlen = xs.len();
 
     // First character is the delimiter
     let delimiter: u8 = xs[0];
+    let str_delim = String::from_utf8(vec![delimiter]).or(Err(String::from(
+        "First character of TEXT segment is not a valid UTF-8 byte, parsing failed",
+    )))?;
 
-    // Check that the delim is valid (3.1+ only)
-    // TODO make this configurable
-    // TODO don't do this for older version
+    // Check that the delim is valid
+    // TODO don't do this for older version 3.0 and older (need to check version
+    // somehow)
     if !(1..=126).contains(&delimiter) {
-        return Err(String::from("delimiter must be an ASCII character 1-126"));
+        if conf.force_ascii_delim {
+            return Err(String::from(
+                "delimiter must be an ASCII character 1-126, got {str_delim}",
+            ));
+        } else {
+            warnings.push(String::from(
+                "delimiter should be an ASCII character 1-126, got {str_delim}",
+            ));
+        }
     }
 
     // Read from the 2nd character to all but the last character and record
@@ -2993,58 +3005,75 @@ fn split_raw_text(xs: &[u8]) -> Result<RawTEXT, String> {
         .filter_map(|(i, c)| if *c == delimiter { Some(i) } else { None })
         .collect();
 
-    // Warn user if the last char is not a delimiter
-    // ASSUME this will not fail since we have at least one delim by definition
-    if !delim_positions.last().unwrap() == xs.len() - 1 {
-        warnings.push(format!(
-            "last TEXT character is not delimiter {delimiter}, \
-                 parsing may have failed"
-        ));
-    }
-
-    // Remove "escaped" delimiters from position vector. Because we disallow
-    // blank values and also disallow delimiters at the start/end of words, this
-    // implies that we should only see delimiters by themselves or in a
-    // consecutive sequence whose length is even.
-    let mut boundaries: Vec<(usize, usize)> = vec![]; // (position, length)
-
-    for (key, chunk) in delim_positions
+    let raw_boundaries = delim_positions
         // We force-added the first and last delimiter in the TEXT segment, so
         // this is guaranteed to have at least two elements (one pair)
         .windows(2)
         .filter_map(|x| match x {
             [a, b] => Some((*a, b - a)),
             _ => None,
-        })
-        .chunk_by(|(_, x)| *x)
-        .into_iter()
-    {
-        if key == 1 {
-            if chunk.count() % 2 == 1 {
-                return Err(format!("delimiter found at word boundary"));
+        });
+
+    // Compute word boundaries depending on if we want to "escape" delims or
+    // not. Technically all versions of the standard allow double delimiters to
+    // be used in a word to represented a single delimiter. However, this means
+    // we also can't have blank values. Many FCS files unfortunately use blank
+    // values, so we need to be able to toggle this behavior.
+    let boundaries = if conf.no_delim_escape {
+        raw_boundaries.collect()
+    } else {
+        // Remove "escaped" delimiters from position vector. Because we disallow
+        // blank values and also disallow delimiters at the start/end of words,
+        // this implies that we should only see delimiters by themselves or in a
+        // consecutive sequence whose length is even.
+        let mut filtered_boundaries = vec![];
+        for (key, chunk) in raw_boundaries.chunk_by(|(_, x)| *x).into_iter() {
+            if key == 1 {
+                if chunk.count() % 2 == 1 {
+                    return Err(format!("delimiter '{str_delim}' found at word boundary"));
+                }
+            } else {
+                for x in chunk {
+                    filtered_boundaries.push(x);
+                }
+            }
+        }
+
+        // If all went well in the previous step, we should have the following:
+        // 1. at least one boundary
+        // 2. first entry coincides with start of TEXT
+        // 3. last entry coincides with end of TEXT
+        if let (Some((x0, _)), Some((xf, len))) =
+            (filtered_boundaries.first(), filtered_boundaries.last())
+        {
+            if *x0 > 0 {
+                return Err(String::from(
+                    "first keyword starts with a delimiter '{str_delim}'",
+                ));
+            }
+            if *xf + len < textlen - 1 {
+                return Err(String::from(
+                    "final value ends with a delimiter '{str_delim}'",
+                ));
             }
         } else {
-            for x in chunk {
-                boundaries.push(x);
-            }
+            return Err(String::from("no boundaries found, cannot parse keywords"));
         }
-    }
+        filtered_boundaries
+    };
 
-    // If all went well in the previous step, we should now have the following:
-    // 1. first entry coincides with start of TEXT
-    // 2. last entry coincides with end of TEXT
-    if let Some((x, _)) = boundaries.first() {
-        if *x > 0 {
-            return Err(String::from("first keyword starts with a delimiter"));
+    // Check that the last char is also a delim, if not file probably sketchy
+    // ASSUME this will not fail since we have at least one delim by definition
+    if !delim_positions.last().unwrap() == xs.len() - 1 {
+        if conf.enforce_final_delim {
+            return Err(String::from("last TEXT character was not {str_delim}"));
+        } else {
+            warnings.push(format!(
+                "last TEXT character is not delimiter {str_delim}, \
+                 parsing may have failed"
+            ));
         }
     }
-    if let Some((x, len)) = boundaries.last() {
-        if *x + len < textlen - 1 {
-            return Err(String::from("final value ends with a delimiter"));
-        }
-    }
-
-    let mut keywords: HashMap<_, _> = HashMap::new();
 
     let delim2 = [delimiter, delimiter];
     let delim1 = [delimiter];
@@ -3059,13 +3088,23 @@ fn split_raw_text(xs: &[u8]) -> Result<RawTEXT, String> {
                 str::from_utf8(&xs[(*ki + 1)..(*ki + *klen)]),
                 str::from_utf8(&xs[(*vi + 1)..(*vi + *vlen)]),
             ) {
-                keywords.insert(Key(fix_word(k)), fix_word(v));
+                if keywords.insert(Key(fix_word(k)), fix_word(v)).is_some() {
+                    let msg = String::from("key {} is specified more once");
+                    if conf.enforce_unique {
+                        return Err(msg);
+                    } else {
+                        warnings.push(String::from(msg));
+                    }
+                }
             } else {
                 return Err(String::from("invalid utf-8 character encountered"));
             }
+        } else if conf.enforce_even {
+            return Err(String::from("number of words is not even"));
         } else {
-            // TODO could also ignore this since it isn't necessarily fatal
-            return Err(String::from("number of words is not even, parsing failed"));
+            warnings.push(String::from(
+                "number of words is not even, parsing may be invalid",
+            ));
         }
     }
 
@@ -3087,7 +3126,7 @@ fn read_raw_text<R: Read + Seek>(
 
     h.seek(SeekFrom::Start(begin))?;
     h.take(nbytes).read_to_end(&mut buf)?;
-    split_raw_text(&buf).map_err(io::Error::other)
+    split_raw_text(&buf, conf).map_err(io::Error::other)
 }
 
 /// Instructions for reading the TEXT segment as raw key/value pairs.
@@ -3098,7 +3137,17 @@ pub struct RawTextReader {
     textend_delta: u32,
     /// Will treat every delimiter as a literal delimiter rather than "escaping"
     /// double delimiters
-    no_double_delimiters: bool,
+    no_delim_escape: bool,
+    /// If true, only ASCII characters 1-126 will be allowed for the delimiter
+    force_ascii_delim: bool,
+    /// If true, throw an error if the last byte of the TEXT segment is not
+    /// a delimiter.
+    enforce_final_delim: bool,
+    /// If true, throw an error if any key in the TEXT segment is not unique
+    enforce_unique: bool,
+    /// If true, throw an error if the number or words in the TEXT segment is
+    /// not an even number (ie there is a key with no value)
+    enforce_even: bool,
     // TODO add keyword and value overrides, something like a list of patterns
     // that can be used to alter each keyword
     // TODO allow lambda function to be supplied which will alter the kv list
@@ -3131,7 +3180,11 @@ pub fn std_reader() -> Reader {
             raw: RawTextReader {
                 textstart_delta: 0,
                 textend_delta: 0,
-                no_double_delimiters: false,
+                no_delim_escape: false,
+                force_ascii_delim: false,
+                enforce_final_delim: false,
+                enforce_unique: false,
+                enforce_even: false,
             },
         },
         data: DataReader {

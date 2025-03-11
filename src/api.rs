@@ -3089,20 +3089,29 @@ fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
             ) {
                 let kupper = k.to_uppercase();
                 // if delimiters were escaped, replace them here
-                let (kfinal, vfinal) = if conf.no_delim_escape {
-                    if v.is_empty() && conf.enforce_nonempty {
-                        return Err(String::from("key {kupper} has a blank value"));
+                let res = if conf.no_delim_escape {
+                    // Test for empty values if we don't allow delim escaping;
+                    // anything empty will either drop or produce an error
+                    // depending on user settings
+                    if v.is_empty() {
+                        let msg = format!("key {kupper} has a blank value");
+                        if conf.enforce_nonempty {
+                            return Err(msg);
+                        } else {
+                            warnings.push(format!("{}, dropping", msg));
+                            None
+                        }
                     } else {
-                        (kupper, String::from(v))
+                        keywords.insert(Key(kupper.clone()), v.to_string())
                     }
                 } else {
-                    (
-                        kupper.replace(escape_from, escape_to),
-                        v.replace(escape_from, escape_to),
-                    )
+                    let krep = kupper.replace(escape_from, escape_to);
+                    let rrep = v.replace(escape_from, escape_to);
+                    keywords.insert(Key(krep), rrep)
                 };
-                if keywords.insert(Key(kfinal.clone()), vfinal).is_some() {
-                    let msg = format!("key {kfinal} is specified more once");
+                // test if the key was inserted already
+                if res.is_some() {
+                    let msg = format!("key {kupper} is specified more than once");
                     if conf.enforce_unique {
                         return Err(msg);
                     } else {

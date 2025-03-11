@@ -3119,7 +3119,12 @@ fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
                     }
                 }
             } else {
-                return Err(String::from("invalid UTF-8 character encountered"));
+                let msg = String::from("invalid UTF-8 byte encountered when parsing keywords");
+                if conf.error_on_invalid_utf8 {
+                    warnings.push(msg);
+                } else {
+                    return Err(msg);
+                }
             }
         } else if conf.enforce_even {
             return Err(String::from("number of words is not even"));
@@ -3173,6 +3178,9 @@ pub struct RawTextReader {
     /// If true, throw an error if we encounter a key with a blank value.
     /// Only relevant if [`no_delim_escape`] is also true.
     enforce_nonempty: bool,
+    /// If true, throw an error if the parser encounters a bad UTF-8 byte when
+    /// creating the key/value list. If false, merely drop the bad pair.
+    error_on_invalid_utf8: bool,
     // TODO add keyword and value overrides, something like a list of patterns
     // that can be used to alter each keyword
     // TODO allow lambda function to be supplied which will alter the kv list
@@ -3211,6 +3219,7 @@ pub fn std_reader() -> Reader {
                 enforce_unique: false,
                 enforce_even: false,
                 enforce_nonempty: false,
+                error_on_invalid_utf8: false,
             },
         },
         data: DataReader {

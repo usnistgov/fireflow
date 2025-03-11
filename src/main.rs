@@ -529,12 +529,12 @@ fn make_int_parser(b: u8, r: &Range, o: &ByteOrd, t: usize) -> Result<AnyIntColu
     match b {
         1 => u8::to_col_parser(r, o, t).map(AnyIntColumn::Uint8),
         2 => u16::to_col_parser(r, o, t).map(AnyIntColumn::Uint16),
-        3 => CanParseInt::<4, 3>::to_col_parser(r, o, t).map(AnyIntColumn::Uint24),
-        4 => CanParseInt::<4, 4>::to_col_parser(r, o, t).map(AnyIntColumn::Uint32),
-        5 => CanParseInt::<8, 5>::to_col_parser(r, o, t).map(AnyIntColumn::Uint40),
-        6 => CanParseInt::<8, 6>::to_col_parser(r, o, t).map(AnyIntColumn::Uint48),
-        7 => CanParseInt::<8, 7>::to_col_parser(r, o, t).map(AnyIntColumn::Uint56),
-        8 => CanParseInt::<8, 8>::to_col_parser(r, o, t).map(AnyIntColumn::Uint64),
+        3 => IntFromBytes::<4, 3>::to_col_parser(r, o, t).map(AnyIntColumn::Uint24),
+        4 => IntFromBytes::<4, 4>::to_col_parser(r, o, t).map(AnyIntColumn::Uint32),
+        5 => IntFromBytes::<8, 5>::to_col_parser(r, o, t).map(AnyIntColumn::Uint40),
+        6 => IntFromBytes::<8, 6>::to_col_parser(r, o, t).map(AnyIntColumn::Uint48),
+        7 => IntFromBytes::<8, 7>::to_col_parser(r, o, t).map(AnyIntColumn::Uint56),
+        8 => IntFromBytes::<8, 8>::to_col_parser(r, o, t).map(AnyIntColumn::Uint64),
         _ => Err(vec![String::from("PnB has invalid byte length")]),
     }
 }
@@ -1020,8 +1020,8 @@ fn byteord_to_sized<const LEN: usize>(byteord: &ByteOrd) -> Result<SizedByteOrd<
     }
 }
 
-trait CanParseInt<const DTLEN: usize, const INTLEN: usize>:
-    Sized + IntMath + NumProps<DTLEN> + Clone
+trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
+    NumProps<DTLEN> + OrderedFromBytes<DTLEN, INTLEN> + Ord + IntMath
 {
     fn byteord_to_sized(byteord: &ByteOrd) -> Result<SizedByteOrd<INTLEN>, String> {
         byteord_to_sized(byteord)
@@ -1055,11 +1055,7 @@ trait CanParseInt<const DTLEN: usize, const INTLEN: usize>:
             (_, Err(y)) => Err(vec![y]),
         }
     }
-}
 
-trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
-    NumProps<DTLEN> + OrderedFromBytes<DTLEN, INTLEN> + Ord + CanParseInt<DTLEN, INTLEN>
-{
     fn read_int_masked<R: Read>(
         h: &mut BufReader<R>,
         byteord: &SizedByteOrd<INTLEN>,
@@ -1350,15 +1346,6 @@ impl OrderedFromBytes<8, 7> for u64 {}
 impl IntFromBytes<8, 7> for u64 {}
 impl OrderedFromBytes<8, 8> for u64 {}
 impl IntFromBytes<8, 8> for u64 {}
-
-impl CanParseInt<1, 1> for u8 {}
-impl CanParseInt<2, 2> for u16 {}
-impl CanParseInt<4, 3> for u32 {}
-impl CanParseInt<4, 4> for u32 {}
-impl CanParseInt<8, 5> for u64 {}
-impl CanParseInt<8, 6> for u64 {}
-impl CanParseInt<8, 7> for u64 {}
-impl CanParseInt<8, 8> for u64 {}
 
 impl FloatFromBytes<4> for f32 {}
 impl FloatFromBytes<8> for f64 {}

@@ -274,13 +274,13 @@ struct Timestamps3_2 {
 
 // TODO this is super messy, see 3.2 spec for restrictions on this we may with
 // to use further
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 struct LogScale {
     decades: f32,
     offset: f32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 enum Scale {
     Log(LogScale),
     Linear,
@@ -501,6 +501,10 @@ trait ParameterFromKeywords: Sized + Versioned {
 
     fn parameter_name(p: &Parameter<Self>) -> Option<&str>;
 
+    fn has_linear_scale(&self) -> bool;
+
+    fn has_gain(&self) -> bool;
+
     fn from_kws(st: &mut KwState, par: u32) -> Option<Vec<Parameter<Self>>> {
         let mut ps = vec![];
         let v = Self::fcs_version();
@@ -570,6 +574,18 @@ impl ParameterFromKeywords for InnerParameter2_0 {
             .map(|s| s.as_str())
     }
 
+    fn has_linear_scale(&self) -> bool {
+        self.scale
+            .as_ref()
+            .to_option()
+            .map(|x| *x == Scale::Linear)
+            .unwrap_or(false)
+    }
+
+    fn has_gain(&self) -> bool {
+        false
+    }
+
     fn build_inner(st: &mut KwState, n: u32) -> Option<InnerParameter2_0> {
         Some(InnerParameter2_0 {
             scale: st.lookup_param_scale_opt(n),
@@ -588,6 +604,14 @@ impl ParameterFromKeywords for InnerParameter3_0 {
             .map(|s| s.as_str())
     }
 
+    fn has_linear_scale(&self) -> bool {
+        self.scale == Scale::Linear
+    }
+
+    fn has_gain(&self) -> bool {
+        self.gain.as_ref().to_option().is_some()
+    }
+
     fn build_inner(st: &mut KwState, n: u32) -> Option<InnerParameter3_0> {
         st.lookup_param_scale_req(n).map(|scale| InnerParameter3_0 {
             scale,
@@ -601,6 +625,14 @@ impl ParameterFromKeywords for InnerParameter3_0 {
 impl ParameterFromKeywords for InnerParameter3_1 {
     fn parameter_name(p: &Parameter<Self>) -> Option<&str> {
         Some(p.specific.shortname.as_str())
+    }
+
+    fn has_linear_scale(&self) -> bool {
+        self.scale == Scale::Linear
+    }
+
+    fn has_gain(&self) -> bool {
+        self.gain.as_ref().to_option().is_some()
     }
 
     fn build_inner(st: &mut KwState, n: u32) -> Option<InnerParameter3_1> {
@@ -625,6 +657,14 @@ impl ParameterFromKeywords for InnerParameter3_1 {
 impl ParameterFromKeywords for InnerParameter3_2 {
     fn parameter_name(p: &Parameter<Self>) -> Option<&str> {
         Some(p.specific.shortname.as_str())
+    }
+
+    fn has_linear_scale(&self) -> bool {
+        self.scale == Scale::Linear
+    }
+
+    fn has_gain(&self) -> bool {
+        self.gain.as_ref().to_option().is_some()
     }
 
     fn build_inner(st: &mut KwState, n: u32) -> Option<InnerParameter3_2> {
@@ -837,8 +877,8 @@ impl<M: MetadataLike> StdText<M, M::P> {
             .collect()
     }
 
-    fn from_kws(header: Header, raw: RawTEXT) -> TEXTResult<TexT<Self>> {
-        let mut st = raw.to_state();
+    fn from_kws(header: Header, raw: RawTEXT, conf: &StdTextReader) -> TEXTResult<TexT<Self>> {
+        let mut st = raw.to_state(conf);
         // This will fail if a) not all required keywords pass and b) not all
         // required parameter keywords pass (according to $PAR)
         if let Some(s) = M::from_kws(&mut st).and_then(|metadata| {
@@ -1402,6 +1442,8 @@ trait MetadataLike: Sized {
 
     fn get_tot(&self) -> Option<u32>;
 
+    fn has_timestep(&self) -> bool;
+
     fn get_event_width(s: &StdText<Self, Self::P>) -> EventWidth {
         let (fixed, variable_indices): (Vec<_>, Vec<_>) = s
             .parameters
@@ -1559,8 +1601,6 @@ trait MetadataLike: Sized {
         })
     }
 
-    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: &HashSet<&str>);
-
     fn get_shortnames(s: &StdText<Self, Self::P>) -> Vec<&str> {
         s.parameters
             .iter()
@@ -1568,9 +1608,44 @@ trait MetadataLike: Sized {
             .collect()
     }
 
-    // TODO I may want to be less strict with some of these, Time channel for
-    // instance is something some files screw up by either naming the channel
-    // something weird or not including TIMESTEP
+    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: &HashSet<&str>);
+
+    fn validate_time_channel(st: &mut KwState, s: &StdText<Self, Self::P>) {
+        let time_name = st.conf.time_shortname.as_deref().unwrap_or("Time");
+        if let Some(tc) = s
+            .parameters
+            .iter()
+            .find(|p| match Self::P::parameter_name(p) {
+                Some(n) => n == time_name,
+                _ => false,
+            })
+        {
+            if !tc.specific.has_linear_scale() {
+                st.push_meta_error_or_warning(
+                    st.conf.ensure_time_linear,
+                    String::from("Time channel must have linear $PnE"),
+                );
+            }
+            if tc.specific.has_gain() {
+                st.push_meta_error_or_warning(
+                    st.conf.ensure_time_nogain,
+                    String::from("Time channel must not have $PnG"),
+                );
+            }
+            if !s.metadata.specific.has_timestep() {
+                st.push_meta_error_or_warning(
+                    st.conf.ensure_time_timestep,
+                    String::from("$TIMESTEP must be present if time channel given"),
+                );
+            }
+        } else {
+            st.push_meta_error_or_warning(
+                st.conf.ensure_time,
+                format!("Channel called '{time_name}' not found for time"),
+            );
+        }
+    }
+
     fn validate(
         st: KwState,
         s: StdText<Self, Self::P>,
@@ -1583,7 +1658,7 @@ trait MetadataLike: Sized {
         }
         let hs_shortnames: HashSet<&str> = s.get_shortnames().into_iter().collect();
 
-        // TODO validate time channel
+        Self::validate_time_channel(&mut st, &s);
 
         // validate $TRIGGER with parameter names
         if let OptionalKw::Present(tr) = &s.metadata.tr {
@@ -1749,6 +1824,10 @@ impl MetadataLike for InnerMetadata2_0 {
         self.byteord.clone()
     }
 
+    fn has_timestep(&self) -> bool {
+        false
+    }
+
     fn build_int_parser(
         &self,
         ps: &[Parameter<Self::P>],
@@ -1801,6 +1880,10 @@ impl MetadataLike for InnerMetadata3_0 {
 
     fn get_byteord(&self) -> ByteOrd {
         self.byteord.clone()
+    }
+
+    fn has_timestep(&self) -> bool {
+        self.timestep.as_ref().to_option().is_some()
     }
 
     fn build_int_parser(
@@ -1866,6 +1949,10 @@ impl MetadataLike for InnerMetadata3_1 {
 
     fn get_byteord(&self) -> ByteOrd {
         ByteOrd::Endian(self.byteord)
+    }
+
+    fn has_timestep(&self) -> bool {
+        self.timestep.as_ref().to_option().is_some()
     }
 
     fn build_int_parser(
@@ -1934,6 +2021,10 @@ impl MetadataLike for InnerMetadata3_2 {
 
     fn get_byteord(&self) -> ByteOrd {
         ByteOrd::Endian(self.byteord)
+    }
+
+    fn has_timestep(&self) -> bool {
+        self.timestep.as_ref().to_option().is_some()
     }
 
     fn build_int_parser(
@@ -2077,20 +2168,20 @@ pub enum AnyTEXT {
 }
 
 impl AnyTEXT {
-    fn from_kws(header: Header, raw: RawTEXT) -> Result<TEXTSuccess<Self>, StandardErrors> {
+    fn from_kws(
+        header: Header,
+        raw: RawTEXT,
+        conf: &StdTextReader,
+    ) -> Result<TEXTSuccess<Self>, StandardErrors> {
         match header.version {
-            Version::FCS2_0 => {
-                StdText::from_kws(header, raw).map(|x| x.map(|x| AnyTEXT::TEXT2_0(Box::new(x))))
-            }
-            Version::FCS3_0 => {
-                StdText::from_kws(header, raw).map(|x| x.map(|x| AnyTEXT::TEXT3_0(Box::new(x))))
-            }
-            Version::FCS3_1 => {
-                StdText::from_kws(header, raw).map(|x| x.map(|x| AnyTEXT::TEXT3_1(Box::new(x))))
-            }
-            Version::FCS3_2 => {
-                StdText::from_kws(header, raw).map(|x| x.map(|x| AnyTEXT::TEXT3_2(Box::new(x))))
-            }
+            Version::FCS2_0 => StdText::from_kws(header, raw, conf)
+                .map(|x| x.map(|x| AnyTEXT::TEXT2_0(Box::new(x)))),
+            Version::FCS3_0 => StdText::from_kws(header, raw, conf)
+                .map(|x| x.map(|x| AnyTEXT::TEXT3_0(Box::new(x)))),
+            Version::FCS3_1 => StdText::from_kws(header, raw, conf)
+                .map(|x| x.map(|x| AnyTEXT::TEXT3_1(Box::new(x)))),
+            Version::FCS3_2 => StdText::from_kws(header, raw, conf)
+                .map(|x| x.map(|x| AnyTEXT::TEXT3_2(Box::new(x)))),
         }
     }
 }
@@ -2141,11 +2232,13 @@ impl KwValue {
 
 // all hail the almighty state monad :D
 
-struct KwState {
+struct KwState<'a> {
     keywords: HashMap<Key, KwValue>,
     missing: Vec<Key>,
     deprecated: Vec<Key>,
     meta_errors: Vec<String>,
+    meta_warnings: Vec<String>,
+    conf: &'a StdTextReader,
 }
 
 // TODO use newtype for "Keyword" type so this is less confusing
@@ -2157,7 +2250,7 @@ pub struct StandardErrors {
     meta_errors: Vec<String>,
 }
 
-impl KwState {
+impl<'a> KwState<'a> {
     // TODO format $param here
     // TODO not DRY (although will likely need HKTs)
     fn get_required<V, F>(&mut self, k: &str, f: F, dep: bool) -> Option<V>
@@ -2872,6 +2965,14 @@ impl KwState {
     fn push_meta_error(&mut self, msg: String) {
         self.meta_errors.push(msg);
     }
+
+    fn push_meta_error_or_warning(&mut self, is_error: bool, msg: String) {
+        if is_error {
+            self.meta_errors.push(msg);
+        } else {
+            self.meta_warnings.push(msg);
+        }
+    }
 }
 
 fn parse_header_offset(s: &str, allow_blank: bool) -> Option<u32> {
@@ -2959,7 +3060,7 @@ struct RawTEXT {
 }
 
 impl RawTEXT {
-    fn to_state(&self) -> KwState {
+    fn to_state<'a>(&self, conf: &'a StdTextReader) -> KwState<'a> {
         let mut keywords = HashMap::new();
         for (k, v) in self.keywords.iter() {
             keywords.insert(
@@ -2975,6 +3076,8 @@ impl RawTEXT {
             deprecated: vec![],
             missing: vec![],
             meta_errors: vec![],
+            meta_warnings: vec![],
+            conf,
         }
     }
 }
@@ -3203,6 +3306,19 @@ pub struct RawTextReader {
 /// Instructions for reading the TEXT segment in a standardized structure.
 pub struct StdTextReader {
     raw: RawTextReader,
+    /// If true, will ensure that time channel is present
+    ensure_time: bool,
+    /// If true, will ensure TIMESTEP is present if time channel is also
+    /// present.
+    ensure_time_timestep: bool,
+    /// If true, will ensure PnE is 0,0 for time channel.
+    ensure_time_linear: bool,
+    /// If true, will ensure PnG is absent for time channel.
+    ensure_time_nogain: bool,
+    /// If given, will be the $PnN used to identify the time channel. If not
+    /// given, defaults to "Time". Means nothing for 2.0. Will be used for the
+    /// [`ensure_time*`] options above.
+    time_shortname: Option<String>,
     // TODO add error handing stuff
     // TODO add repair stuff
 }
@@ -3235,6 +3351,11 @@ pub fn std_reader() -> Reader {
                 enforce_nonempty: false,
                 error_on_invalid_utf8: false,
             },
+            ensure_time: true,
+            ensure_time_timestep: true,
+            ensure_time_linear: true,
+            ensure_time_nogain: true,
+            time_shortname: None,
         },
         data: DataReader {
             datastart_delta: 0,
@@ -3290,7 +3411,7 @@ pub fn read_fcs_text(p: &path::PathBuf, conf: &StdTextReader) -> io::Result<TEXT
     let mut reader = BufReader::new(file);
     let header = read_header(&mut reader)?;
     let raw = read_raw_text(&mut reader, &header, &conf.raw)?;
-    Ok(AnyTEXT::from_kws(header, raw))
+    Ok(AnyTEXT::from_kws(header, raw, conf))
 }
 
 // fn read_fcs_text_2_0(p: path::PathBuf, conf: StdTextReader) -> TEXTResult<TEXT2_0>;
@@ -3317,7 +3438,7 @@ pub fn read_fcs_file(p: path::PathBuf, conf: Reader) -> io::Result<FCSResult<Any
     let header = read_header(&mut reader)?;
     let raw = read_raw_text(&mut reader, &header, &conf.text.raw)?;
     // TODO useless clone?
-    match AnyTEXT::from_kws(header, raw) {
+    match AnyTEXT::from_kws(header, raw, &conf.text) {
         Ok(std) => {
             let data = read_data(&mut reader, std.data_parser).unwrap();
             Ok(Ok(FCSSuccess {
@@ -3354,7 +3475,7 @@ pub fn read_fcs_raw_file(p: path::PathBuf, conf: Reader) -> io::Result<FCSResult
     let raw = read_raw_text(&mut reader, &header, &conf.text.raw)?;
     // TODO need to modify this so it doesn't do the crazy version checking
     // stuff we don't actually want in this case
-    match AnyTEXT::from_kws(header, raw.clone()) {
+    match AnyTEXT::from_kws(header, raw.clone(), &conf.text) {
         Ok(std) => {
             let data = read_data(&mut reader, std.data_parser).unwrap();
             Ok(Ok(FCSSuccess { std: (), data }))

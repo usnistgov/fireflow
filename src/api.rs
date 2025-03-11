@@ -1559,7 +1559,7 @@ trait MetadataLike: Sized {
         })
     }
 
-    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: HashSet<&str>);
+    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: &HashSet<&str>);
 
     fn get_shortnames(s: &StdText<Self, Self::P>) -> Vec<&str> {
         s.parameters
@@ -1576,7 +1576,12 @@ trait MetadataLike: Sized {
         s: StdText<Self, Self::P>,
     ) -> TEXTResult<TexT<StdText<Self, Self::P>>> {
         let mut st = st;
-        let shortnames: HashSet<&str> = s.get_shortnames().into_iter().collect();
+        let shortnames = s.get_shortnames();
+
+        if shortnames.iter().unique().count() != shortnames.len() {
+            st.meta_errors.push(String::from("All $PnN must be unique"));
+        }
+        let hs_shortnames: HashSet<&str> = s.get_shortnames().into_iter().collect();
 
         // TODO validate time channel
 
@@ -1590,7 +1595,7 @@ trait MetadataLike: Sized {
             }
         }
 
-        Self::validate_specific(&mut st, &s, shortnames);
+        Self::validate_specific(&mut st, &s, &hs_shortnames);
 
         match Self::build_data_parser(&s) {
             Ok(data_parser) => {
@@ -1761,7 +1766,7 @@ impl MetadataLike for InnerMetadata2_0 {
         None
     }
 
-    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: HashSet<&str>) {}
+    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: &HashSet<&str>) {}
 
     fn build_inner(st: &mut KwState) -> Option<InnerMetadata2_0> {
         if let (Some(mode), Some(byteord)) = (st.lookup_mode(), st.lookup_byteord()) {
@@ -1815,7 +1820,7 @@ impl MetadataLike for InnerMetadata3_0 {
         None
     }
 
-    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: HashSet<&str>) {}
+    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: &HashSet<&str>) {}
 
     fn build_inner(st: &mut KwState) -> Option<InnerMetadata3_0> {
         if let (Some(data), Some(supplemental), Some(tot), Some(mode), Some(byteord)) = (
@@ -1880,7 +1885,7 @@ impl MetadataLike for InnerMetadata3_1 {
         None
     }
 
-    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: HashSet<&str>) {}
+    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: &HashSet<&str>) {}
 
     fn build_inner(st: &mut KwState) -> Option<InnerMetadata3_1> {
         if let (Some(data), Some(supplemental), Some(tot), Some(mode), Some(byteord)) = (
@@ -2003,7 +2008,7 @@ impl MetadataLike for InnerMetadata3_2 {
         }
     }
 
-    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: HashSet<&str>) {
+    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: &HashSet<&str>) {
         // check that all names in $UNSTAINEDCENTERS match one of the channels
         if let OptionalKw::Present(centers) = &s.metadata.specific.unstained.unstainedcenters {
             for u in centers.keys() {

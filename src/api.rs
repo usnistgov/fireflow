@@ -2686,7 +2686,18 @@ impl KwState {
     }
 
     fn lookup_param_shortname_opt(&mut self, n: u32) -> OptionalKw<String> {
-        self.lookup_param_opt("N", n, parse_str, false)
+        self.lookup_param_opt(
+            "N",
+            n,
+            |s| {
+                if s.contains(',') {
+                    Err(String::from("commas are not allowed in PnN"))
+                } else {
+                    Ok(String::from(s))
+                }
+            },
+            false,
+        )
     }
 
     fn lookup_param_longname(&mut self, n: u32) -> OptionalKw<String> {

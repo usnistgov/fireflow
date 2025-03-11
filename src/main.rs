@@ -776,6 +776,7 @@ enum Mode {
 #[derive(Debug, Clone)]
 struct StdText<M, P> {
     header: Header,
+    raw: RawTEXT,
     metadata: Metadata<M>,
     parameters: Vec<Parameter<P>>,
 }
@@ -814,6 +815,7 @@ impl<M: MetadataLike> StdText<M, M::P> {
         if let Some(s) = M::from_kws(&mut st).and_then(|metadata| {
             M::P::from_kws(&mut st, metadata.par).map(|parameters| StdText {
                 header,
+                raw,
                 metadata,
                 parameters,
             })
@@ -2026,12 +2028,17 @@ struct TexT<S> {
     deviant: HashMap<String, String>,
 }
 
+type TEXT2_0 = TexT<StdText2_0>;
+type TEXT3_0 = TexT<StdText3_0>;
+type TEXT3_1 = TexT<StdText3_1>;
+type TEXT3_2 = TexT<StdText3_2>;
+
 #[derive(Debug, Clone)]
 enum AnyTEXT {
-    TEXT2_0(Box<TexT<StdText2_0>>),
-    TEXT3_0(Box<TexT<StdText3_0>>),
-    TEXT3_1(Box<TexT<StdText3_1>>),
-    TEXT3_2(Box<TexT<StdText3_2>>),
+    TEXT2_0(Box<TEXT2_0>),
+    TEXT3_0(Box<TEXT3_0>),
+    TEXT3_1(Box<TEXT3_1>),
+    TEXT3_2(Box<TEXT3_2>),
 }
 
 impl AnyTEXT {
@@ -2808,20 +2815,21 @@ fn read_header<R: Read>(h: &mut BufReader<R>) -> io::Result<Header> {
 //    or next keyword. Implication: keywords can only appear once in a row or
 //    an even number of times in a row.
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct RawTEXT {
     delimiter: u8,
     keywords: HashMap<String, String>,
 }
 
 impl RawTEXT {
-    fn to_state(self) -> KwState {
+    fn to_state(&self) -> KwState {
         let mut keywords = HashMap::new();
-        for (k, v) in self.keywords {
+        // TODO this isn't the most efficient, might matter
+        for (k, v) in self.keywords.iter() {
             keywords.insert(
-                k,
+                k.clone(),
                 KwValue {
-                    value: v,
+                    value: v.clone(),
                     status: ValueStatus::Raw,
                 },
             );
@@ -2832,21 +2840,6 @@ impl RawTEXT {
             meta_errors: vec![],
         }
     }
-}
-
-/// Instructions for parsing the HEADER segment.
-///
-/// The main purpose of this is likely to 'fix' non-conforming FCS files.
-struct HeaderReader {
-    /// If supplied, will override the version in the HEADER.
-    // TODO this provides and interesting implication in that forcing a version
-    // would allow us to return the exact same metadata structure each time
-    // rather than AnyTEXT. This might be a good option for users since they
-    // won't have to do as much annoying type-checking to see which version
-    // they ended up with. Obviously, the implication is that the user knows
-    // perfectly what version they have, and if this is violated this program
-    // has the license to viciously error out.
-    version_override: Option<Version>,
 }
 
 /// Instructions for parsing the TEXT segment as raw key/value pairs.
@@ -2861,12 +2854,11 @@ struct RawTextReader {
 }
 
 /// Instructions for parsing the TEXT segment in a standardized structure.
-// TODO add error handing stuff
-// TODO add repair stuff
-// TODO see version_override above, this might need some generic magic here
-// to make happen. If we do this right we could avoid having to check the
-// version when repairing
-struct StdTextReader;
+struct StdTextReader {
+    raw: RawTextReader,
+    // TODO add error handing stuff
+    // TODO add repair stuff
+}
 
 /// Instructions for parsing the TEXT segment.
 struct DataReader {
@@ -2877,17 +2869,14 @@ struct DataReader {
 }
 
 struct Reader {
-    header: HeaderReader,
-    raw_text: RawTextReader,
-    std_text: StdTextReader,
+    text: StdTextReader,
     data: DataReader,
 }
 
 struct FCSSuccess<T> {
-    header: Header,
-    text: T,
+    raw: RawTEXT,
+    std: T,
     data: ParsedData,
-    warnings: Vec<KwMsg>,
 }
 
 type FCSResult<T> = Result<FCSSuccess<T>, StandardErrors>;
@@ -2901,10 +2890,11 @@ type FCSResult<T> = Result<FCSSuccess<T>, StandardErrors>;
 ///
 /// Depending on the version, all of these except the TEXT offsets might be 0
 /// which indicates they are actually stored in TEXT due to size limitations.
-///
-/// It is a well-known problem that many FCS files have offsets pointing to the
-/// wrong location. These may be fixed using the [`conf`] struct.
-fn read_fcs_header(p: path::PathBuf, conf: HeaderReader) -> io::Result<Header>;
+fn read_fcs_header(p: &path::PathBuf) -> io::Result<Header> {
+    let file = fs::File::options().read(true).open(p)?;
+    let mut reader = BufReader::new(file);
+    read_header(&mut reader)
+}
 
 /// Return header and raw key/value metadata pairs in an FCS file.
 ///
@@ -2914,12 +2904,13 @@ fn read_fcs_header(p: path::PathBuf, conf: HeaderReader) -> io::Result<Header>;
 /// Next will use the offset information in the header to parse the TEXT segment
 /// for key/value pairs. On success will return these pairs as-is using Strings
 /// in a HashMap. No other processing will be performed.
-// TODO add some bits about how to fix the offsets
-fn read_fcs_raw_text(
-    p: path::PathBuf,
-    hconf: HeaderReader,
-    tconf: TextReader,
-) -> io::Result<(Header, RawTEXT)>;
+fn read_fcs_raw_text(p: &path::PathBuf, conf: &RawTextReader) -> io::Result<(Header, RawTEXT)> {
+    let file = fs::File::options().read(true).open(p)?;
+    let mut reader = BufReader::new(file);
+    let header = read_header(&mut reader)?;
+    let raw = read_raw_text(&mut reader, &header, &conf)?;
+    Ok((header, raw))
+}
 
 /// Return header and standardized metadata in an FCS file.
 ///
@@ -2930,7 +2921,18 @@ fn read_fcs_raw_text(
 /// FCS standard indicated in the header and returned in a struct storing each
 /// key/value pair in a standardized manner. This will halt and return any
 /// errors encountered during this process.
-fn read_fcs_text(p: path::PathBuf, hconf: HeaderReader, tconf: TextReader) -> TEXTResult<AnyTEXT>;
+fn read_fcs_text(p: &path::PathBuf, conf: &StdTextReader) -> io::Result<TEXTResult<AnyTEXT>> {
+    let file = fs::File::options().read(true).open(p)?;
+    let mut reader = BufReader::new(file);
+    let header = read_header(&mut reader)?;
+    let raw = read_raw_text(&mut reader, &header, &conf.raw)?;
+    Ok(AnyTEXT::from_kws(header, raw))
+}
+
+// fn read_fcs_text_2_0(p: path::PathBuf, conf: StdTextReader) -> TEXTResult<TEXT2_0>;
+// fn read_fcs_text_3_0(p: path::PathBuf, conf: StdTextReader) -> TEXTResult<TEXT3_0>;
+// fn read_fcs_text_3_1(p: path::PathBuf, conf: StdTextReader) -> TEXTResult<TEXT3_1>;
+// fn read_fcs_text_3_2(p: path::PathBuf, conf: StdTextReader) -> TEXTResult<TEXT3_2>;
 
 /// Return header, structured metadata, and data in an FCS file.
 ///
@@ -2945,7 +2947,29 @@ fn read_fcs_text(p: path::PathBuf, hconf: HeaderReader, tconf: TextReader) -> TE
 ///
 /// The [`conf`] argument can be used to control the behavior of each reading
 /// step, including the repair of non-conforming files.
-fn read_fcs_file(p: path::PathBuf, conf: Reader) -> FCSResult<AnyTEXT>;
+fn read_fcs_file(p: path::PathBuf, conf: Reader) -> io::Result<FCSResult<AnyTEXT>> {
+    let file = fs::File::options().read(true).open(p)?;
+    let mut reader = BufReader::new(file);
+    let header = read_header(&mut reader)?;
+    let raw = read_raw_text(&mut reader, &header, &conf.text.raw)?;
+    // TODO useless clone?
+    match AnyTEXT::from_kws(header, raw.clone()) {
+        Ok(std) => {
+            let data = read_data(&mut reader, std.data_parser).unwrap();
+            Ok(Ok(FCSSuccess {
+                std: std.text,
+                raw,
+                data,
+            }))
+        }
+        Err(e) => Ok(Err(e)),
+    }
+}
+
+// fn read_fcs_file_2_0(p: path::PathBuf, conf: Reader) -> FCSResult<TEXT2_0>;
+// fn read_fcs_file_3_0(p: path::PathBuf, conf: Reader) -> FCSResult<TEXT3_0>;
+// fn read_fcs_file_3_1(p: path::PathBuf, conf: Reader) -> FCSResult<TEXT3_1>;
+// fn read_fcs_file_3_2(p: path::PathBuf, conf: Reader) -> FCSResult<TEXT3_2>;
 
 /// Return header, raw metadata, and data in an FCS file.
 ///
@@ -2960,9 +2984,28 @@ fn read_fcs_file(p: path::PathBuf, conf: Reader) -> FCSResult<AnyTEXT>;
 /// too much about the degree to which the metadata conforms to standard.
 ///
 /// Other than this, behavior is identical to [`read_fcs_file`],
-fn read_fcs_raw_file(p: path::PathBuf, conf: Reader) -> FCSResult<RawTEXT>;
+fn read_fcs_raw_file(p: path::PathBuf, conf: Reader) -> io::Result<FCSResult<()>> {
+    let file = fs::File::options().read(true).open(p)?;
+    let mut reader = BufReader::new(file);
+    let header = read_header(&mut reader)?;
+    let raw = read_raw_text(&mut reader, &header, &conf.text.raw)?;
+    // TODO need to modify this so it doesn't do the crazy version checking
+    // stuff we don't actually want in this case
+    match AnyTEXT::from_kws(header, raw.clone()) {
+        Ok(std) => {
+            let data = read_data(&mut reader, std.data_parser).unwrap();
+            Ok(Ok(FCSSuccess { std: (), raw, data }))
+        }
+        Err(e) => Ok(Err(e)),
+    }
+}
 
-fn read_raw_text<R: Read + Seek>(h: &mut BufReader<R>, header: &Header) -> io::Result<RawTEXT> {
+fn read_raw_text<R: Read + Seek>(
+    h: &mut BufReader<R>,
+    header: &Header,
+    // TODO use this
+    _: &RawTextReader,
+) -> io::Result<RawTEXT> {
     // TODO probably not optimal, this will read each byte twice
     h.seek(SeekFrom::Start(u64::from(header.text.begin)))?;
     let x0 = u64::from(header.text.begin);
@@ -3144,18 +3187,18 @@ fn main() {
     if conf.show_header {
         println!("{:#?}", header.clone());
     }
-    let text = read_raw_text(&mut reader, &header).unwrap();
-    let stext = AnyTEXT::from_kws(header, text);
-    if let Ok(x) = stext {
-        if conf.show_text {
-            println!("{:#?}", x.text);
-        }
-        for w in x.warnings {
-            println!("{:#?}", w);
-        }
-        if conf.show_data {
-            let df = read_data(&mut reader, x.data_parser).unwrap();
-            print_data(x.text, df);
-        }
-    }
+    // let text = read_raw_text(&mut reader, &header).unwrap();
+    // let stext = AnyTEXT::from_kws(header, text);
+    // if let Ok(x) = stext {
+    //     if conf.show_text {
+    //         println!("{:#?}", x.text);
+    //     }
+    //     for w in x.warnings {
+    //         println!("{:#?}", w);
+    //     }
+    //     if conf.show_data {
+    //         let df = read_data(&mut reader, x.data_parser).unwrap();
+    //         print_data(x.text, df);
+    //     }
+    // }
 }

@@ -1,11 +1,10 @@
 // TODO gating parameters not added (yet)
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
-use clap::Parser;
+use clap::{value_parser, Parser};
 use itertools::Itertools;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
-use std::env;
 use std::fmt;
 use std::fs;
 use std::io;
@@ -849,21 +848,23 @@ struct StdText<M, P> {
 }
 
 #[derive(Debug)]
-struct TEXTwithParser<T> {
+struct TEXTSuccess<T> {
     text: T,
     data_parser: DataParser,
+    warnings: Vec<KwMsg>,
 }
 
-impl<X> TEXTwithParser<X> {
-    fn map<Y, F: Fn(X) -> Y>(self, f: F) -> TEXTwithParser<Y> {
-        TEXTwithParser {
+impl<X> TEXTSuccess<X> {
+    fn map<Y, F: Fn(X) -> Y>(self, f: F) -> TEXTSuccess<Y> {
+        TEXTSuccess {
             text: f(self.text),
             data_parser: self.data_parser,
+            warnings: self.warnings,
         }
     }
 }
 
-type TEXTResult<T> = Result<TEXTwithParser<T>, StandardErrors>;
+type TEXTResult<T> = Result<TEXTSuccess<T>, StandardErrors>;
 
 impl<M: MetadataFromKeywords> StdText<M, M::P> {
     fn get_shortnames(&self) -> Vec<&str> {
@@ -1917,27 +1918,65 @@ trait MetadataFromKeywords: Sized {
             Ok(data_parser) => {
                 let mut nonstandard = HashMap::new();
                 let mut deviant = HashMap::new();
-                for (k, v) in st.keywords {
-                    if let ValueStatus::Raw = v.status {
-                        if k.starts_with("$") {
-                            deviant.insert(k, v.value);
-                        } else {
-                            nonstandard.insert(k, v.value);
+                let mut warnings = Vec::new();
+                let mut value_errors = Vec::new();
+                for (key, v) in st.keywords {
+                    match v.status {
+                        ValueStatus::Raw => {
+                            if key.starts_with("$") {
+                                deviant.insert(key, v.value);
+                            } else {
+                                nonstandard.insert(key, v.value);
+                            }
                         }
+                        ValueStatus::Warning(msg) => warnings.push(KwMsg {
+                            msg,
+                            key,
+                            value: v.value,
+                            is_error: false,
+                        }),
+                        ValueStatus::Error(msg) => value_errors.push(KwMsg {
+                            msg,
+                            key,
+                            value: v.value,
+                            is_error: true,
+                        }),
+                        ValueStatus::Used => (),
                     }
                 }
-                let text = TEXT {
-                    standard: s,
-                    nonstandard,
-                    deviant,
-                };
-                return Ok(TEXTwithParser { text, data_parser });
+                if st.missing.is_empty() && st.meta_errors.is_empty() && value_errors.is_empty() {
+                    let text = TEXT {
+                        standard: s,
+                        nonstandard,
+                        deviant,
+                    };
+                    Ok(TEXTSuccess {
+                        text,
+                        data_parser,
+                        warnings,
+                    })
+                } else {
+                    Err(StandardErrors {
+                        meta_errors: st.meta_errors,
+                        value_errors,
+                        missing_keywords: st.missing,
+                    })
+                }
             }
             Err(mut errs) => {
                 st.meta_errors.append(&mut errs);
+                let value_errors: Vec<_> = st
+                    .keywords
+                    .into_iter()
+                    .filter_map(|(k, v)| v.to_error(k))
+                    .collect();
+                Err(StandardErrors {
+                    meta_errors: st.meta_errors,
+                    value_errors,
+                    missing_keywords: st.missing,
+                })
             }
         }
-        Err(st.compile_errors())
     }
 
     fn build_inner(st: &mut KwState) -> Option<Self>;
@@ -2349,7 +2388,7 @@ enum AnyTEXT {
 }
 
 impl AnyTEXT {
-    fn from_kws(header: Header, raw: RawTEXT) -> Result<TEXTwithParser<Self>, StandardErrors> {
+    fn from_kws(header: Header, raw: RawTEXT) -> Result<TEXTSuccess<Self>, StandardErrors> {
         match header.version {
             Version::FCS2_0 => StdText::from_kws(header, raw).map(|x| x.map(AnyTEXT::TEXT2_0)),
             Version::FCS3_0 => StdText::from_kws(header, raw).map(|x| x.map(AnyTEXT::TEXT3_0)),
@@ -2364,9 +2403,11 @@ type KeywordErrors = HashMap<String, (String, String)>;
 type MissingKeywords = HashSet<String>;
 
 #[derive(Debug, Clone)]
-struct KwError {
+struct KwMsg {
+    key: String,
     value: String,
     msg: String,
+    is_error: bool,
 }
 
 enum ValueStatus {
@@ -2381,6 +2422,33 @@ struct KwValue {
     status: ValueStatus,
 }
 
+impl KwValue {
+    fn to_warning(self, key: String) -> Option<KwMsg> {
+        match self.status {
+            ValueStatus::Warning(msg) => Some(KwMsg {
+                key,
+                value: self.value,
+                msg,
+                is_error: false,
+            }),
+            _ => None,
+        }
+    }
+
+    fn to_error(self, key: String) -> Option<KwMsg> {
+        match self.status {
+            ValueStatus::Error(msg) => Some(KwMsg {
+                key,
+                value: self.value,
+                msg,
+                is_error: false,
+            }),
+
+            _ => None,
+        }
+    }
+}
+
 // all hail the almighty state monad :D
 
 struct KwState {
@@ -2393,7 +2461,7 @@ struct KwState {
 #[derive(Debug, Clone)]
 struct StandardErrors {
     missing_keywords: Vec<String>,
-    value_errors: HashMap<String, KwError>,
+    value_errors: Vec<KwMsg>,
     // TODO, these are errors involving multiple keywords, like PnB not matching DATATYPE
     meta_errors: Vec<String>,
 }
@@ -3006,20 +3074,19 @@ impl KwState {
         })
     }
 
+    fn compile_warnings(self) -> Vec<KwMsg> {
+        self.keywords
+            .into_iter()
+            .filter_map(|(k, v)| v.to_warning(k))
+            .collect()
+    }
+
     fn compile_errors(self) -> StandardErrors {
-        let mut value_errors: HashMap<String, KwError> = HashMap::new();
-        for (k, v) in self.keywords {
-            // TODO lots of clones here, not sure if this is necessary to fix
-            if let ValueStatus::Error(e) = v.status {
-                value_errors.insert(
-                    k,
-                    KwError {
-                        value: v.value,
-                        msg: e,
-                    },
-                );
-            }
-        }
+        let value_errors: Vec<_> = self
+            .keywords
+            .into_iter()
+            .filter_map(|(k, v)| v.to_error(k))
+            .collect();
         StandardErrors {
             missing_keywords: self.missing,
             value_errors,

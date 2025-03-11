@@ -3088,12 +3088,16 @@ fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
                 str::from_utf8(&xs[(*ki + 1)..(*ki + *klen)]),
                 str::from_utf8(&xs[(*vi + 1)..(*vi + *vlen)]),
             ) {
-                if keywords.insert(Key(fix_word(k)), fix_word(v)).is_some() {
-                    let msg = String::from("key {} is specified more once");
+                let kupper = k.to_uppercase();
+                if keywords
+                    .insert(Key(fix_word(&kupper)), fix_word(v))
+                    .is_some()
+                {
+                    let msg = format!("key {kupper} is specified more once");
                     if conf.enforce_unique {
                         return Err(msg);
                     } else {
-                        warnings.push(String::from(msg));
+                        warnings.push(msg);
                     }
                 }
             } else {

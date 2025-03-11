@@ -3090,7 +3090,11 @@ fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
                 let kupper = k.to_uppercase();
                 // if delimiters were escaped, replace them here
                 let (kfinal, vfinal) = if conf.no_delim_escape {
-                    (kupper, String::from(v))
+                    if v.is_empty() && conf.enforce_nonempty {
+                        return Err(String::from("key {kupper} has a blank value"));
+                    } else {
+                        (kupper, String::from(v))
+                    }
                 } else {
                     (
                         kupper.replace(escape_from, escape_to),
@@ -3157,6 +3161,9 @@ pub struct RawTextReader {
     /// If true, throw an error if the number or words in the TEXT segment is
     /// not an even number (ie there is a key with no value)
     enforce_even: bool,
+    /// If true, throw an error if we encounter a key with a blank value.
+    /// Only relevant if [`no_delim_escape`] is also true.
+    enforce_nonempty: bool,
     // TODO add keyword and value overrides, something like a list of patterns
     // that can be used to alter each keyword
     // TODO allow lambda function to be supplied which will alter the kv list
@@ -3194,6 +3201,7 @@ pub fn std_reader() -> Reader {
                 enforce_final_delim: false,
                 enforce_unique: false,
                 enforce_even: false,
+                enforce_nonempty: false,
             },
         },
         data: DataReader {

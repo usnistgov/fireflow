@@ -494,9 +494,6 @@ fn make_int_parser(b: u8, r: &Range, o: &ByteOrd, t: usize) -> Result<AnyIntColu
     }
 }
 
-// // type Wavelength2_0 = Option<u32>;
-// // type Wavelength3_1 = Vec<u32>;
-
 trait ParameterFromKeywords: Sized {
     fn build_inner(st: &mut KwState, n: u32) -> Option<Self>;
 
@@ -769,12 +766,6 @@ type Metadata3_0 = Metadata<InnerMetadata3_0>;
 type Metadata3_1 = Metadata<InnerMetadata3_1>;
 type Metadata3_2 = Metadata<InnerMetadata3_2>;
 
-struct Spillover {} // TODO, can probably get away with using a matrix for this
-
-struct Cyt(String);
-
-struct Tot(u32);
-
 #[derive(Debug, Clone)]
 enum Mode {
     List,
@@ -808,7 +799,7 @@ impl<X> TEXTSuccess<X> {
 
 type TEXTResult<T> = Result<TEXTSuccess<T>, StandardErrors>;
 
-impl<M: MetadataFromKeywords> StdText<M, M::P> {
+impl<M: MetadataLike> StdText<M, M::P> {
     fn get_shortnames(&self) -> Vec<&str> {
         self.parameters
             .iter()
@@ -838,81 +829,6 @@ type StdText2_0 = StdText<InnerMetadata2_0, InnerParameter2_0>;
 type StdText3_0 = StdText<InnerMetadata3_0, InnerParameter3_0>;
 type StdText3_1 = StdText<InnerMetadata3_1, InnerParameter3_1>;
 type StdText3_2 = StdText<InnerMetadata3_2, InnerParameter3_2>;
-
-struct StdTextResult<T> {
-    text: T,
-    errors: Keywords,
-    nonstandard: Keywords,
-}
-
-enum FloatByteOrd {
-    SingleBigLittle(Endian),
-    DoubleBigLittle(Endian),
-    SingleOrdered([u8; 4]),
-    DoubleOrdered([u8; 8]),
-}
-
-impl FloatByteOrd {
-    fn is_double(&self) -> bool {
-        match self {
-            FloatByteOrd::SingleBigLittle(_) => false,
-            FloatByteOrd::DoubleBigLittle(_) => true,
-            FloatByteOrd::SingleOrdered(_) => false,
-            FloatByteOrd::DoubleOrdered(_) => true,
-        }
-    }
-
-    fn width(&self) -> u8 {
-        if self.is_double() {
-            8
-        } else {
-            4
-        }
-    }
-}
-
-#[derive(Debug)]
-struct FloatParser<const LEN: usize> {
-    nrows: usize,
-    ncols: usize,
-    byteord: SizedByteOrd<LEN>,
-}
-
-#[derive(Debug)]
-struct AsciiColumn {
-    data: Vec<f64>,
-    width: u8,
-}
-
-#[derive(Debug)]
-struct FloatColumn<T> {
-    data: Vec<T>,
-    endian: Endian,
-}
-
-#[derive(Debug)]
-enum MixedColumnType {
-    Ascii(AsciiColumn),
-    Uint(AnyIntColumn),
-    Single(FloatColumn<f32>),
-    Double(FloatColumn<f64>),
-}
-
-enum F64DataType {
-    Ascii(u8),
-    Double,
-}
-
-struct F64ColumnData {
-    data: Vec<f64>,
-    datatype: F64DataType,
-}
-
-enum MixedColumnData {
-    F32(Vec<f32>),
-    F64(F64ColumnData),
-    Uint(AnyIntColumn),
-}
 
 trait OrderedFromBytes<const DTLEN: usize, const OLEN: usize>: NumProps<DTLEN> {
     fn read_from_ordered<R: Read>(h: &mut BufReader<R>, order: &[u8; OLEN]) -> io::Result<Self> {
@@ -1120,6 +1036,33 @@ impl IntFromBytes<8, 5> for u64 {}
 impl IntFromBytes<8, 6> for u64 {}
 impl IntFromBytes<8, 7> for u64 {}
 impl IntFromBytes<8, 8> for u64 {}
+
+#[derive(Debug)]
+struct FloatParser<const LEN: usize> {
+    nrows: usize,
+    ncols: usize,
+    byteord: SizedByteOrd<LEN>,
+}
+
+#[derive(Debug)]
+struct AsciiColumn {
+    data: Vec<f64>,
+    width: u8,
+}
+
+#[derive(Debug)]
+struct FloatColumn<T> {
+    data: Vec<T>,
+    endian: Endian,
+}
+
+#[derive(Debug)]
+enum MixedColumnType {
+    Ascii(AsciiColumn),
+    Uint(AnyIntColumn),
+    Single(FloatColumn<f32>),
+    Double(FloatColumn<f64>),
+}
 
 impl MixedColumnType {
     fn to_series(self) -> Series {
@@ -1419,7 +1362,7 @@ enum EventWidth {
     Error(Vec<usize>, Vec<usize>),
 }
 
-trait MetadataFromKeywords: Sized {
+trait MetadataLike: Sized {
     type P: ParameterFromKeywords;
 
     fn get_data_offsets(s: &StdText<Self, Self::P>) -> Offsets;
@@ -1754,7 +1697,7 @@ fn build_int_parser_2_0<X>(
     }
 }
 
-impl MetadataFromKeywords for InnerMetadata2_0 {
+impl MetadataLike for InnerMetadata2_0 {
     type P = InnerParameter2_0;
 
     fn get_data_offsets(s: &StdText<Self, Self::P>) -> Offsets {
@@ -1803,7 +1746,7 @@ impl MetadataFromKeywords for InnerMetadata2_0 {
     }
 }
 
-impl MetadataFromKeywords for InnerMetadata3_0 {
+impl MetadataLike for InnerMetadata3_0 {
     type P = InnerParameter3_0;
 
     fn get_data_offsets(s: &StdText<Self, Self::P>) -> Offsets {
@@ -1868,7 +1811,7 @@ impl MetadataFromKeywords for InnerMetadata3_0 {
     }
 }
 
-impl MetadataFromKeywords for InnerMetadata3_1 {
+impl MetadataLike for InnerMetadata3_1 {
     type P = InnerParameter3_1;
 
     fn get_data_offsets(s: &StdText<Self, Self::P>) -> Offsets {
@@ -1935,7 +1878,7 @@ impl MetadataFromKeywords for InnerMetadata3_1 {
     }
 }
 
-impl MetadataFromKeywords for InnerMetadata3_2 {
+impl MetadataLike for InnerMetadata3_2 {
     type P = InnerParameter3_2;
 
     // TODO not DRY
@@ -2110,10 +2053,6 @@ impl AnyTEXT {
     }
 }
 
-type Keywords = HashMap<String, String>;
-type KeywordErrors = HashMap<String, (String, String)>;
-type MissingKeywords = HashSet<String>;
-
 #[derive(Debug, Clone)]
 struct KwMsg {
     key: String,
@@ -2135,25 +2074,13 @@ struct KwValue {
 }
 
 impl KwValue {
-    fn to_warning(self, key: String) -> Option<KwMsg> {
-        match self.status {
-            ValueStatus::Warning(msg) => Some(KwMsg {
-                key,
-                value: self.value,
-                msg,
-                is_error: false,
-            }),
-            _ => None,
-        }
-    }
-
     fn to_error(self, key: String) -> Option<KwMsg> {
         match self.status {
             ValueStatus::Error(msg) => Some(KwMsg {
                 key,
                 value: self.value,
                 msg,
-                is_error: false,
+                is_error: true,
             }),
 
             _ => None,
@@ -2786,13 +2713,6 @@ impl KwState {
         })
     }
 
-    fn compile_warnings(self) -> Vec<KwMsg> {
-        self.keywords
-            .into_iter()
-            .filter_map(|(k, v)| v.to_warning(k))
-            .collect()
-    }
-
     fn compile_errors(self) -> StandardErrors {
         let value_errors: Vec<_> = self
             .keywords
@@ -2809,30 +2729,6 @@ impl KwState {
     fn push_meta_error(&mut self, msg: String) {
         self.meta_errors.push(msg);
     }
-
-    // ASSUME There aren't any errors recorded in the state hashtable since we
-    // don't check them here. This function requires a standardized keyword
-    // struct to run, and presumably this won't exist if there are any errors.
-    // fn finalize<S>(self, standard: S) -> TEXT<S> {
-    //     // TODO this struct shouldn't touch any nonstandard keywords, since it
-    //     // isn't supposed to do anything useful with them
-    //     let mut nonstandard = HashMap::new();
-    //     let mut deviant = HashMap::new();
-    //     for (k, v) in self.keywords {
-    //         if let ValueStatus::Raw = v.status {
-    //             if k.starts_with("$") {
-    //                 deviant.insert(k, v.value);
-    //             } else {
-    //                 nonstandard.insert(k, v.value);
-    //             }
-    //         }
-    //     }
-    //     TEXT {
-    //         standard,
-    //         nonstandard,
-    //         deviant,
-    //     }
-    // }
 }
 
 fn parse_header_offset(s: &str, allow_blank: bool) -> Option<u32> {
@@ -2893,12 +2789,9 @@ fn read_header<R: Read>(h: &mut BufReader<R>) -> io::Result<Header> {
     let mut verbuf = [0; 58];
     h.read_exact(&mut verbuf)?;
     if let Ok(hs) = str::from_utf8(&verbuf) {
-        parse_header(hs).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+        parse_header(hs).map_err(io::Error::other)
     } else {
-        Err(io::Error::new(
-            io::ErrorKind::Other,
-            "header sequence is not valid text",
-        ))
+        Err(io::Error::other("header sequence is not valid text"))
     }
 }
 
@@ -2941,8 +2834,136 @@ impl RawTEXT {
     }
 }
 
-// TODO possibly not optimal, this will read each byte twice
-fn read_text<R: Read + Seek>(h: &mut BufReader<R>, header: &Header) -> io::Result<RawTEXT> {
+/// Instructions for parsing the HEADER segment.
+///
+/// The main purpose of this is likely to 'fix' non-conforming FCS files.
+struct HeaderReader {
+    /// If supplied, will override the version in the HEADER.
+    // TODO this provides and interesting implication in that forcing a version
+    // would allow us to return the exact same metadata structure each time
+    // rather than AnyTEXT. This might be a good option for users since they
+    // won't have to do as much annoying type-checking to see which version
+    // they ended up with. Obviously, the implication is that the user knows
+    // perfectly what version they have, and if this is violated this program
+    // has the license to viciously error out.
+    version_override: Option<Version>,
+}
+
+/// Instructions for parsing the TEXT segment as raw key/value pairs.
+struct RawTextReader {
+    /// Will adjust the offset of the start of the TEXT segment by `offset + n`.
+    textstart_delta: u32,
+    /// Will adjust the offset of the end of the TEXT segment by `offset + n`.
+    textend_delta: u32,
+    // TODO add keyword and value overrides, something like a list of patterns
+    // that can be used to alter each keyword
+    // TODO allow lambda function to be supplied which will alter the kv list
+}
+
+/// Instructions for parsing the TEXT segment in a standardized structure.
+// TODO add error handing stuff
+// TODO add repair stuff
+// TODO see version_override above, this might need some generic magic here
+// to make happen. If we do this right we could avoid having to check the
+// version when repairing
+struct StdTextReader;
+
+/// Instructions for parsing the TEXT segment.
+struct DataReader {
+    /// Will adjust the offset of the start of the TEXT segment by `offset + n`.
+    datastart_delta: u32,
+    /// Will adjust the offset of the end of the TEXT segment by `offset + n`.
+    dataend_delta: u32,
+}
+
+struct Reader {
+    header: HeaderReader,
+    raw_text: RawTextReader,
+    std_text: StdTextReader,
+    data: DataReader,
+}
+
+struct FCSSuccess<T> {
+    header: Header,
+    text: T,
+    data: ParsedData,
+    warnings: Vec<KwMsg>,
+}
+
+type FCSResult<T> = Result<FCSSuccess<T>, StandardErrors>;
+
+/// Return header in an FCS file.
+///
+/// The header contains the version and offsets for the TEXT, DATA, and ANALYSIS
+/// segments, all of which are present in fixed byte offset segments. This
+/// function will fail and return an error if the file does not follow this
+/// structure. Will also check that the begin and end segments are not reversed.
+///
+/// Depending on the version, all of these except the TEXT offsets might be 0
+/// which indicates they are actually stored in TEXT due to size limitations.
+///
+/// It is a well-known problem that many FCS files have offsets pointing to the
+/// wrong location. These may be fixed using the [`conf`] struct.
+fn read_fcs_header(p: path::PathBuf, conf: HeaderReader) -> io::Result<Header>;
+
+/// Return header and raw key/value metadata pairs in an FCS file.
+///
+/// First will parse the header according to [`read_fcs_header`]. If this fails
+/// an error will be returned.
+///
+/// Next will use the offset information in the header to parse the TEXT segment
+/// for key/value pairs. On success will return these pairs as-is using Strings
+/// in a HashMap. No other processing will be performed.
+// TODO add some bits about how to fix the offsets
+fn read_fcs_raw_text(
+    p: path::PathBuf,
+    hconf: HeaderReader,
+    tconf: TextReader,
+) -> io::Result<(Header, RawTEXT)>;
+
+/// Return header and standardized metadata in an FCS file.
+///
+/// Begins by parsing header and raw keywords according to [`read_fcs_raw_text`]
+/// and will return error if this function fails.
+///
+/// Next, all keywords in the TEXT segment will be validated to conform to the
+/// FCS standard indicated in the header and returned in a struct storing each
+/// key/value pair in a standardized manner. This will halt and return any
+/// errors encountered during this process.
+fn read_fcs_text(p: path::PathBuf, hconf: HeaderReader, tconf: TextReader) -> TEXTResult<AnyTEXT>;
+
+/// Return header, structured metadata, and data in an FCS file.
+///
+/// Begins by parsing header and raw keywords according to [`read_fcs_text`]
+/// and will return error if this function fails.
+///
+/// Next, the DATA segment will be parsed according to the metadata present
+/// in TEXT.
+///
+/// On success will return all three of the above segments along with any
+/// non-critical warnings.
+///
+/// The [`conf`] argument can be used to control the behavior of each reading
+/// step, including the repair of non-conforming files.
+fn read_fcs_file(p: path::PathBuf, conf: Reader) -> FCSResult<AnyTEXT>;
+
+/// Return header, raw metadata, and data in an FCS file.
+///
+/// In contrast to [`read_fcs_file`], this will return the keywords as a flat
+/// list of key/value pairs. Only the bare minimum of these will be read in
+/// order to determine how to parse the DATA segment (including $DATATYPE,
+/// $BYTEORD, etc). No other checks will be performed to ensure the metadata
+/// conforms to the FCS standard version indicated in the header.
+///
+/// This might be useful for applications where one does not necessarily need
+/// the strict structure of the standardized metadata, or if one does not care
+/// too much about the degree to which the metadata conforms to standard.
+///
+/// Other than this, behavior is identical to [`read_fcs_file`],
+fn read_fcs_raw_file(p: path::PathBuf, conf: Reader) -> FCSResult<RawTEXT>;
+
+fn read_raw_text<R: Read + Seek>(h: &mut BufReader<R>, header: &Header) -> io::Result<RawTEXT> {
+    // TODO probably not optimal, this will read each byte twice
     h.seek(SeekFrom::Start(u64::from(header.text.begin)))?;
     let x0 = u64::from(header.text.begin);
     let x1 = x0 + 1;
@@ -3077,9 +3098,6 @@ fn read_text<R: Read + Seek>(h: &mut BufReader<R>, header: &Header) -> io::Resul
     })
 }
 
-// TODO this is basically a matrix, probably a crate I can use
-struct Comp {}
-
 #[derive(Parser)]
 struct CLIConfig {
     filepath: path::PathBuf,
@@ -3126,7 +3144,7 @@ fn main() {
     if conf.show_header {
         println!("{:#?}", header.clone());
     }
-    let text = read_text(&mut reader, &header).unwrap();
+    let text = read_raw_text(&mut reader, &header).unwrap();
     let stext = AnyTEXT::from_kws(header, text);
     if let Ok(x) = stext {
         if conf.show_text {

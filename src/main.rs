@@ -247,43 +247,6 @@ enum ByteOrd {
 }
 
 impl ByteOrd {
-    fn valid_byte_num(&self, n: u8) -> bool {
-        match self {
-            ByteOrd::Endian(_) => true,
-            ByteOrd::Mixed(xs) => xs.len() == usize::from(n),
-        }
-    }
-
-    fn to_float_byteord(&self, is_double: bool) -> Option<FloatByteOrd> {
-        match self {
-            ByteOrd::Endian(e) => {
-                let f = if is_double {
-                    FloatByteOrd::DoubleBigLittle
-                } else {
-                    FloatByteOrd::SingleBigLittle
-                };
-                Some(f(*e))
-            }
-            ByteOrd::Mixed(xs) => match xs[..] {
-                [a, b, c, d] => {
-                    if is_double {
-                        None
-                    } else {
-                        Some(FloatByteOrd::SingleOrdered([a, b, c, d]))
-                    }
-                }
-                [a, b, c, d, e, f, g, h] => {
-                    if is_double {
-                        Some(FloatByteOrd::DoubleOrdered([a, b, c, d, e, f, g, h]))
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
-            },
-        }
-    }
-
     // This only makes sense for integer types
     fn num_bytes(&self) -> u8 {
         match self {

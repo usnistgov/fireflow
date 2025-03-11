@@ -1,5 +1,9 @@
 // TODO gating parameters not added (yet)
 
+mod numeric;
+
+use crate::numeric::{Endian, IntMath, NumProps, Series};
+
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 use clap::{value_parser, Parser};
 use itertools::Itertools;
@@ -233,18 +237,6 @@ impl fmt::Display for NumType {
             NumType::Single => write!(f, "F"),
             NumType::Double => write!(f, "D"),
         }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-enum Endian {
-    Big,
-    Little,
-}
-
-impl Endian {
-    fn is_big(&self) -> bool {
-        matches!(self, Endian::Big)
     }
 }
 
@@ -959,42 +951,6 @@ enum MixedColumnData {
     Uint(AnyIntColumn),
 }
 
-trait IntMath: Sized {
-    fn next_power_2(x: Self) -> Self;
-
-    fn from_u64(x: u64) -> Self;
-}
-
-trait NumProps<const DTLEN: usize>: Sized + Copy {
-    fn to_series(x: Vec<Self>) -> Series;
-
-    fn zero() -> Self;
-
-    fn from_big(buf: [u8; DTLEN]) -> Self;
-
-    fn from_little(buf: [u8; DTLEN]) -> Self;
-
-    fn read_from_big<R: Read + Seek>(h: &mut BufReader<R>) -> io::Result<Self> {
-        let mut buf = [0; DTLEN];
-        h.read_exact(&mut buf)?;
-        Ok(Self::from_big(buf))
-    }
-
-    fn read_from_little<R: Read + Seek>(h: &mut BufReader<R>) -> io::Result<Self> {
-        let mut buf = [0; DTLEN];
-        h.read_exact(&mut buf)?;
-        Ok(Self::from_little(buf))
-    }
-
-    fn read_from_endian<R: Read + Seek>(h: &mut BufReader<R>, endian: Endian) -> io::Result<Self> {
-        if endian.is_big() {
-            Self::read_from_big(h)
-        } else {
-            Self::read_from_little(h)
-        }
-    }
-}
-
 trait OrderedFromBytes<const DTLEN: usize, const OLEN: usize>: NumProps<DTLEN> {
     fn read_from_ordered<R: Read>(h: &mut BufReader<R>, order: &[u8; OLEN]) -> io::Result<Self> {
         let mut tmp = [0; OLEN];
@@ -1179,180 +1135,28 @@ trait FloatFromBytes<const LEN: usize>:
     }
 }
 
-impl NumProps<1> for u8 {
-    fn to_series(x: Vec<Self>) -> Series {
-        Series::U8(x)
-    }
-
-    fn zero() -> Self {
-        0
-    }
-
-    fn from_big(buf: [u8; 1]) -> Self {
-        Self::from_be_bytes(buf)
-    }
-
-    fn from_little(buf: [u8; 1]) -> Self {
-        Self::from_le_bytes(buf)
-    }
-}
-
-impl NumProps<2> for u16 {
-    fn to_series(x: Vec<Self>) -> Series {
-        Series::U16(x)
-    }
-
-    fn zero() -> Self {
-        0
-    }
-
-    fn from_big(buf: [u8; 2]) -> Self {
-        u16::from_be_bytes(buf)
-    }
-
-    fn from_little(buf: [u8; 2]) -> Self {
-        u16::from_le_bytes(buf)
-    }
-}
-
-impl NumProps<4> for u32 {
-    fn to_series(x: Vec<Self>) -> Series {
-        Series::U32(x)
-    }
-
-    fn zero() -> Self {
-        0
-    }
-
-    fn from_big(buf: [u8; 4]) -> Self {
-        u32::from_be_bytes(buf)
-    }
-
-    fn from_little(buf: [u8; 4]) -> Self {
-        u32::from_le_bytes(buf)
-    }
-}
-
-impl NumProps<8> for u64 {
-    fn to_series(x: Vec<Self>) -> Series {
-        Series::U64(x)
-    }
-
-    fn zero() -> Self {
-        0
-    }
-
-    fn from_big(buf: [u8; 8]) -> Self {
-        u64::from_be_bytes(buf)
-    }
-
-    fn from_little(buf: [u8; 8]) -> Self {
-        u64::from_le_bytes(buf)
-    }
-}
-
-impl NumProps<4> for f32 {
-    fn to_series(x: Vec<Self>) -> Series {
-        Series::F32(x)
-    }
-
-    fn zero() -> Self {
-        0.0
-    }
-
-    fn from_big(buf: [u8; 4]) -> Self {
-        f32::from_be_bytes(buf)
-    }
-
-    fn from_little(buf: [u8; 4]) -> Self {
-        f32::from_le_bytes(buf)
-    }
-}
-
-impl NumProps<8> for f64 {
-    fn to_series(x: Vec<Self>) -> Series {
-        Series::F64(x)
-    }
-
-    fn zero() -> Self {
-        0.0
-    }
-
-    fn from_big(buf: [u8; 8]) -> Self {
-        f64::from_be_bytes(buf)
-    }
-
-    fn from_little(buf: [u8; 8]) -> Self {
-        f64::from_le_bytes(buf)
-    }
-}
-
-impl IntMath for u8 {
-    fn next_power_2(x: Self) -> Self {
-        Self::checked_next_power_of_two(x).unwrap_or(Self::MAX)
-    }
-
-    fn from_u64(x: u64) -> Self {
-        x as Self
-    }
-}
-
-impl IntMath for u16 {
-    fn next_power_2(x: Self) -> Self {
-        Self::checked_next_power_of_two(x).unwrap_or(Self::MAX)
-    }
-
-    fn from_u64(x: u64) -> Self {
-        x as Self
-    }
-}
-
-impl IntMath for u32 {
-    fn next_power_2(x: Self) -> Self {
-        Self::checked_next_power_of_two(x).unwrap_or(Self::MAX)
-    }
-
-    fn from_u64(x: u64) -> Self {
-        x as Self
-    }
-}
-
-impl IntMath for u64 {
-    fn next_power_2(x: Self) -> Self {
-        Self::checked_next_power_of_two(x).unwrap_or(Self::MAX)
-    }
-
-    fn from_u64(x: u64) -> Self {
-        x as Self
-    }
-}
-
 impl OrderedFromBytes<1, 1> for u8 {}
-impl IntFromBytes<1, 1> for u8 {}
-
 impl OrderedFromBytes<2, 2> for u16 {}
-impl IntFromBytes<2, 2> for u16 {}
-
 impl OrderedFromBytes<4, 3> for u32 {}
-impl IntFromBytes<4, 3> for u32 {}
 impl OrderedFromBytes<4, 4> for u32 {}
-impl IntFromBytes<4, 4> for u32 {}
-
 impl OrderedFromBytes<8, 5> for u64 {}
-impl IntFromBytes<8, 5> for u64 {}
 impl OrderedFromBytes<8, 6> for u64 {}
-impl IntFromBytes<8, 6> for u64 {}
 impl OrderedFromBytes<8, 7> for u64 {}
-impl IntFromBytes<8, 7> for u64 {}
 impl OrderedFromBytes<8, 8> for u64 {}
-impl IntFromBytes<8, 8> for u64 {}
+impl OrderedFromBytes<4, 4> for f32 {}
+impl OrderedFromBytes<8, 8> for f64 {}
 
 impl FloatFromBytes<4> for f32 {}
 impl FloatFromBytes<8> for f64 {}
 
-impl OrderedFromBytes<4, 4> for f32 {}
-
-impl OrderedFromBytes<8, 8> for f64 {}
+impl IntFromBytes<1, 1> for u8 {}
+impl IntFromBytes<2, 2> for u16 {}
+impl IntFromBytes<4, 3> for u32 {}
+impl IntFromBytes<4, 4> for u32 {}
+impl IntFromBytes<8, 5> for u64 {}
+impl IntFromBytes<8, 6> for u64 {}
+impl IntFromBytes<8, 7> for u64 {}
+impl IntFromBytes<8, 8> for u64 {}
 
 impl MixedColumnType {
     fn to_series(self) -> Series {
@@ -1478,39 +1282,6 @@ enum ColumnParser {
 struct DataParser {
     column_parser: ColumnParser,
     begin: u64,
-}
-
-enum Series {
-    F32(Vec<f32>),
-    F64(Vec<f64>),
-    U8(Vec<u8>),
-    U16(Vec<u16>),
-    U32(Vec<u32>),
-    U64(Vec<u64>),
-}
-
-impl Series {
-    fn len(&self) -> usize {
-        match self {
-            Series::F32(x) => x.len(),
-            Series::F64(x) => x.len(),
-            Series::U8(x) => x.len(),
-            Series::U16(x) => x.len(),
-            Series::U32(x) => x.len(),
-            Series::U64(x) => x.len(),
-        }
-    }
-
-    fn format(&self, r: usize) -> String {
-        match self {
-            Series::F32(x) => format!("{}", x[r]),
-            Series::F64(x) => format!("{}", x[r]),
-            Series::U8(x) => format!("{}", x[r]),
-            Series::U16(x) => format!("{}", x[r]),
-            Series::U32(x) => format!("{}", x[r]),
-            Series::U64(x) => format!("{}", x[r]),
-        }
-    }
 }
 
 type ParsedData = Vec<Series>;

@@ -2939,6 +2939,7 @@ fn read_header<R: Read>(h: &mut BufReader<R>) -> io::Result<Header> {
 struct RawTEXT {
     delimiter: u8,
     keywords: HashMap<Key, String>,
+    warnings: Vec<String>,
 }
 
 impl RawTEXT {
@@ -2967,64 +2968,45 @@ pub struct FCSSuccess<T> {
     pub data: ParsedData,
 }
 
-fn read_raw_text<R: Read + Seek>(
-    h: &mut BufReader<R>,
-    header: &Header,
-    // TODO use this
-    _: &RawTextReader,
-) -> io::Result<RawTEXT> {
-    // TODO probably not optimal, this will read each byte twice
-    h.seek(SeekFrom::Start(u64::from(header.text.begin)))?;
-    let x0 = u64::from(header.text.begin);
-    let x1 = x0 + 1;
-    let xf = u64::from(header.text.end);
-    let textlen = u64::from(header.text.num_bytes());
+fn split_raw_text(xs: &[u8]) -> Result<RawTEXT, String> {
+    // this needs the entire TEXT segment to be loaded in memory, which should
+    // be fine since the max number of bytes is ~100M given the upper limit
+    // imposed by the header
+    let mut warnings = vec![];
+    let textlen = xs.len();
 
-    // Read first character, which should be the delimiter
-    let mut dbuf = [0_u8];
-    h.read_exact(&mut dbuf)?;
-    let delimiter = dbuf[0];
+    // First character is the delimiter
+    let delimiter: u8 = xs[0];
 
-    // Valid delimiters are in the set of {1..126}
+    // Check that the delim is valid (3.1+ only)
+    // TODO make this configurable
+    // TODO don't do this for older version
     if !(1..=126).contains(&delimiter) {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            "delimiter must be an ASCII character 1-126",
-        ));
+        return Err(String::from("delimiter must be an ASCII character 1-126"));
     }
 
     // Read from the 2nd character to all but the last character and record
     // delimiter positions.
-    let mut delim_positions = vec![];
-    delim_positions.push(x0);
-    for (i, c) in (x1..).zip(h.take(textlen - 2).bytes()) {
-        if c? == delimiter {
-            delim_positions.push(i);
-        }
-    }
-    delim_positions.push(xf);
+    let delim_positions: Vec<_> = xs
+        .iter()
+        .enumerate()
+        .filter_map(|(i, c)| if *c == delimiter { Some(i) } else { None })
+        .collect();
 
-    // Read the last character and ensure it is also a delimiter
-    h.read_exact(&mut dbuf)?;
-    if dbuf[0] != delimiter {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            "final character in TEXT is not the delimiter, file may be corrupt",
+    // Warn user if the last char is not a delimiter
+    // ASSUME this will not fail since we have at least one delim by definition
+    if !delim_positions.last().unwrap() == xs.len() - 1 {
+        warnings.push(format!(
+            "last TEXT character is not delimiter {delimiter}, \
+                 parsing may have failed"
         ));
     }
-
-    // TODO pretty sure lots of FCS files actually have blank values which means
-    // we will need to deal with double delimiters which are real word
-    // boundaries. This can be easily handled by not doing the chunk_by below
-    // and simply copying the position/length tuples over. If we allow blank
-    // values we disallow escaping, since the premise of escaping assumes that
-    // two delimiters in a row are special.
 
     // Remove "escaped" delimiters from position vector. Because we disallow
     // blank values and also disallow delimiters at the start/end of words, this
     // implies that we should only see delimiters by themselves or in a
     // consecutive sequence whose length is even.
-    let mut boundaries: Vec<(u64, u64)> = vec![]; // (position, length)
+    let mut boundaries: Vec<(usize, usize)> = vec![]; // (position, length)
 
     for (key, chunk) in delim_positions
         // We force-added the first and last delimiter in the TEXT segment, so
@@ -3034,15 +3016,12 @@ fn read_raw_text<R: Read + Seek>(
             [a, b] => Some((*a, b - a)),
             _ => None,
         })
-        .chunk_by(|(x, _)| *x)
+        .chunk_by(|(_, x)| *x)
         .into_iter()
     {
         if key == 1 {
             if chunk.count() % 2 == 1 {
-                return Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    "delimiter found at start or end of word",
-                ));
+                return Err(format!("delimiter found at word boundary"));
             }
         } else {
             for x in chunk {
@@ -3055,57 +3034,60 @@ fn read_raw_text<R: Read + Seek>(
     // 1. first entry coincides with start of TEXT
     // 2. last entry coincides with end of TEXT
     if let Some((x, _)) = boundaries.first() {
-        if *x > x0 {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "first keyword starts with a delimiter",
-            ));
+        if *x > 0 {
+            return Err(String::from("first keyword starts with a delimiter"));
         }
     }
     if let Some((x, len)) = boundaries.last() {
-        if *x + len < xf {
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "final value ends with a delimiter",
-            ));
+        if *x + len < textlen - 1 {
+            return Err(String::from("final value ends with a delimiter"));
         }
     }
 
     let mut keywords: HashMap<_, _> = HashMap::new();
-    let mut kbuf = String::new();
-    let mut vbuf = String::new();
 
-    h.seek(SeekFrom::Start(x0))?;
-
-    let delimiter2 = [delimiter, delimiter];
-    let delimiter1 = [delimiter];
+    let delim2 = [delimiter, delimiter];
+    let delim1 = [delimiter];
     // ASSUME these won't fail as we checked the delimiter is an ASCII character
-    let escape_from = str::from_utf8(&delimiter2).unwrap();
-    let escape_to = str::from_utf8(&delimiter1).unwrap();
+    let escape_from = str::from_utf8(&delim2).unwrap();
+    let escape_to = str::from_utf8(&delim1).unwrap();
     let fix_word = |s: &str| s.replace(escape_from, escape_to);
 
     for chunk in boundaries.chunks(2) {
-        if let [(_, klen), (_, vlen)] = chunk {
-            h.seek(SeekFrom::Current(1))?;
-            h.take(*klen - 1).read_to_string(&mut kbuf)?;
-            h.seek(SeekFrom::Current(1))?;
-            h.take(*vlen - 1).read_to_string(&mut vbuf)?;
-            keywords.insert(Key(fix_word(&kbuf)), fix_word(&vbuf));
-            kbuf.clear();
-            vbuf.clear();
+        if let [(ki, klen), (vi, vlen)] = chunk {
+            if let (Ok(k), Ok(v)) = (
+                str::from_utf8(&xs[(*ki + 1)..(*ki + *klen)]),
+                str::from_utf8(&xs[(*vi + 1)..(*vi + *vlen)]),
+            ) {
+                keywords.insert(Key(fix_word(k)), fix_word(v));
+            } else {
+                return Err(String::from("invalid utf-8 character encountered"));
+            }
         } else {
             // TODO could also ignore this since it isn't necessarily fatal
-            return Err(io::Error::new(
-                io::ErrorKind::Other,
-                "number of words is not even, parsing failed",
-            ));
+            return Err(String::from("number of words is not even, parsing failed"));
         }
     }
 
     Ok(RawTEXT {
         delimiter,
         keywords,
+        warnings,
     })
+}
+
+fn read_raw_text<R: Read + Seek>(
+    h: &mut BufReader<R>,
+    header: &Header,
+    conf: &RawTextReader,
+) -> io::Result<RawTEXT> {
+    let begin = u64::from(header.text.begin);
+    let nbytes = u64::from(header.text.num_bytes());
+    let mut buf = vec![];
+
+    h.seek(SeekFrom::Start(begin))?;
+    h.take(nbytes).read_to_end(&mut buf)?;
+    split_raw_text(&buf).map_err(io::Error::other)
 }
 
 /// Instructions for reading the TEXT segment as raw key/value pairs.
@@ -3114,6 +3096,9 @@ pub struct RawTextReader {
     textstart_delta: u32,
     /// Will adjust the offset of the end of the TEXT segment by `offset + n`.
     textend_delta: u32,
+    /// Will treat every delimiter as a literal delimiter rather than "escaping"
+    /// double delimiters
+    no_double_delimiters: bool,
     // TODO add keyword and value overrides, something like a list of patterns
     // that can be used to alter each keyword
     // TODO allow lambda function to be supplied which will alter the kv list
@@ -3146,6 +3131,7 @@ pub fn std_reader() -> Reader {
             raw: RawTextReader {
                 textstart_delta: 0,
                 textend_delta: 0,
+                no_double_delimiters: false,
             },
         },
         data: DataReader {

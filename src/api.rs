@@ -1,7 +1,6 @@
 use crate::numeric::{Endian, IntMath, NumProps, Series};
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
-use clap::{value_parser, Parser};
 use itertools::Itertools;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
@@ -308,6 +307,7 @@ enum Display {
 #[derive(Debug, Clone)]
 struct Calibration {
     value: f32,
+    // TODO add offset (3.2 added a zero offset, which is different from 3.1)
     unit: String,
 }
 
@@ -451,7 +451,7 @@ struct Parameter<X> {
     bytes: Bytes,                      // PnB
     range: Range,                      // PnR
     longname: OptionalKw<String>,      // PnS
-    filter: OptionalKw<String>,        // PnF
+    filter: OptionalKw<String>,        // PnF there is a loose standard for this
     power: OptionalKw<u32>,            // PnO
     detector_type: OptionalKw<String>, // PnD
     percent_emitted: OptionalKw<u32>,  // PnP (TODO deprecated in 3.2, factor out)

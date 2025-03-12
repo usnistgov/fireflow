@@ -3112,7 +3112,7 @@ fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
     let mut warnings = vec![];
     let textlen = xs.len();
     let mut warn_or_err2 = |is_error, err, warn| {
-        if is_error {
+        if is_error || conf.warnings_are_errors {
             Err(err)
         } else {
             warnings.push(warn);

@@ -825,7 +825,7 @@ type Metadata3_0 = Metadata<InnerMetadata3_0>;
 type Metadata3_1 = Metadata<InnerMetadata3_1>;
 type Metadata3_2 = Metadata<InnerMetadata3_2>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Mode {
     List,
     Uncorrelated,
@@ -1934,11 +1934,15 @@ impl MetadataLike for InnerMetadata3_1 {
     fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: &HashSet<&str>) {}
 
     fn build_inner(st: &mut KwState) -> Option<InnerMetadata3_1> {
+        let mode = st.lookup_mode()?;
+        if mode != Mode::List {
+            st.push_meta_deprecated(String::from("$MODE should only be L"));
+        };
         Some(InnerMetadata3_1 {
             data: st.lookup_data_offsets()?,
             supplemental: st.lookup_supplemental3_0()?,
             tot: st.lookup_tot_req()?,
-            mode: st.lookup_mode()?,
+            mode,
             byteord: st.lookup_endian()?,
             cyt: st.lookup_cyt_opt(),
             timestamps: st.lookup_timestamps2_0(true, false),

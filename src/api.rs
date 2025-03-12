@@ -2231,7 +2231,7 @@ pub struct StandardErrors {
 impl KwState<'_> {
     // TODO format $param here
     // TODO not DRY (although will likely need HKTs)
-    fn get_required<V, F>(&mut self, k: &str, f: F, dep: bool) -> Option<V>
+    fn lookup_required<V, F>(&mut self, k: &str, f: F, dep: bool) -> Option<V>
     where
         F: FnOnce(&str) -> ParseResult<V>,
     {
@@ -2258,7 +2258,7 @@ impl KwState<'_> {
         }
     }
 
-    fn get_optional<V, F>(&mut self, k: &str, f: F, dep: bool) -> OptionalKw<V>
+    fn lookup_optional<V, F>(&mut self, k: &str, f: F, dep: bool) -> OptionalKw<V>
     where
         F: FnOnce(&str) -> ParseResult<V>,
     {
@@ -2293,11 +2293,11 @@ impl KwState<'_> {
     // metadata
 
     fn lookup_begindata(&mut self) -> Option<u32> {
-        self.get_required("BEGINDATA", parse_offset, false)
+        self.lookup_required("BEGINDATA", parse_offset, false)
     }
 
     fn lookup_enddata(&mut self) -> Option<u32> {
-        self.get_required("ENDDATA", parse_offset, false)
+        self.lookup_required("ENDDATA", parse_offset, false)
     }
 
     fn lookup_data_offsets(&mut self) -> Option<Offsets> {
@@ -2310,10 +2310,10 @@ impl KwState<'_> {
 
     fn lookup_supplemental(&mut self) -> (Option<Offsets>, Option<Offsets>) {
         if let (Some(beginstext), Some(endstext), Some(beginanalysis), Some(endanalysis)) = (
-            self.get_required("BEGINSTEXT", parse_offset, false),
-            self.get_required("ENDSTEXT", parse_offset, false),
-            self.get_required("BEGINANALYSIS", parse_offset_or_blank, false),
-            self.get_required("ENDANALYSIS", parse_offset_or_blank, false),
+            self.lookup_required("BEGINSTEXT", parse_offset, false),
+            self.lookup_required("ENDSTEXT", parse_offset, false),
+            self.lookup_required("BEGINANALYSIS", parse_offset_or_blank, false),
+            self.lookup_required("ENDANALYSIS", parse_offset_or_blank, false),
         ) {
             (
                 self.build_offsets(beginstext, endstext, "STEXT"),
@@ -2341,7 +2341,7 @@ impl KwState<'_> {
     }
 
     fn lookup_byteord(&mut self) -> Option<ByteOrd> {
-        self.get_required(
+        self.lookup_required(
             "BYTEORD",
             |s| match parse_endian(s) {
                 Ok(e) => Ok(ByteOrd::Endian(e)),
@@ -2366,11 +2366,11 @@ impl KwState<'_> {
     }
 
     fn lookup_endian(&mut self) -> Option<Endian> {
-        self.get_required("BYTEORD", parse_endian, false)
+        self.lookup_required("BYTEORD", parse_endian, false)
     }
 
     fn lookup_datatype(&mut self) -> Option<AlphaNumType> {
-        self.get_required(
+        self.lookup_required(
             "DATATYPE",
             |s| match s {
                 "I" => Ok(AlphaNumType::Integer),
@@ -2384,7 +2384,7 @@ impl KwState<'_> {
     }
 
     fn lookup_mode(&mut self) -> Option<Mode> {
-        self.get_required(
+        self.lookup_required(
             "MODE",
             |s| match s {
                 "C" => Ok(Mode::Correlated),
@@ -2397,7 +2397,7 @@ impl KwState<'_> {
     }
 
     fn lookup_mode3_2(&mut self) -> OptionalKw<Mode> {
-        self.get_optional(
+        self.lookup_optional(
             "MODE",
             |s| match s {
                 "L" => Ok(Mode::List),
@@ -2408,79 +2408,79 @@ impl KwState<'_> {
     }
 
     fn lookup_nextdata(&mut self) -> Option<u32> {
-        self.get_required("NEXTDATA", parse_offset, false)
+        self.lookup_required("NEXTDATA", parse_offset, false)
     }
 
     fn lookup_par(&mut self) -> Option<u32> {
-        self.get_required("PAR", parse_int, false)
+        self.lookup_required("PAR", parse_int, false)
     }
 
     fn lookup_tot_req(&mut self) -> Option<u32> {
-        self.get_required("TOT", parse_int, false)
+        self.lookup_required("TOT", parse_int, false)
     }
 
     fn lookup_tot_opt(&mut self) -> OptionalKw<u32> {
-        self.get_optional("TOT", parse_int, false)
+        self.lookup_optional("TOT", parse_int, false)
     }
 
     fn lookup_cyt_req(&mut self) -> Option<String> {
-        self.get_required("CYT", parse_str, false)
+        self.lookup_required("CYT", parse_str, false)
     }
 
     fn lookup_cyt_opt(&mut self) -> OptionalKw<String> {
-        self.get_optional("CYT", parse_str, false)
+        self.lookup_optional("CYT", parse_str, false)
     }
 
     fn lookup_abrt(&mut self) -> OptionalKw<u32> {
-        self.get_optional("ABRT", parse_int, false)
+        self.lookup_optional("ABRT", parse_int, false)
     }
 
     fn lookup_cells(&mut self) -> OptionalKw<String> {
-        self.get_optional("CELLS", parse_str, false)
+        self.lookup_optional("CELLS", parse_str, false)
     }
 
     fn lookup_com(&mut self) -> OptionalKw<String> {
-        self.get_optional("COM", parse_str, false)
+        self.lookup_optional("COM", parse_str, false)
     }
 
     fn lookup_exp(&mut self) -> OptionalKw<String> {
-        self.get_optional("EXP", parse_str, false)
+        self.lookup_optional("EXP", parse_str, false)
     }
 
     fn lookup_fil(&mut self) -> OptionalKw<String> {
-        self.get_optional("FIL", parse_str, false)
+        self.lookup_optional("FIL", parse_str, false)
     }
 
     fn lookup_inst(&mut self) -> OptionalKw<String> {
-        self.get_optional("INST", parse_str, false)
+        self.lookup_optional("INST", parse_str, false)
     }
 
     fn lookup_lost(&mut self) -> OptionalKw<u32> {
-        self.get_optional("LOST", parse_int, false)
+        self.lookup_optional("LOST", parse_int, false)
     }
 
     fn lookup_op(&mut self) -> OptionalKw<String> {
-        self.get_optional("OP", parse_str, false)
+        self.lookup_optional("OP", parse_str, false)
     }
 
     fn lookup_proj(&mut self) -> OptionalKw<String> {
-        self.get_optional("PROJ", parse_str, false)
+        self.lookup_optional("PROJ", parse_str, false)
     }
 
     fn lookup_smno(&mut self) -> OptionalKw<String> {
-        self.get_optional("SMNO", parse_str, false)
+        self.lookup_optional("SMNO", parse_str, false)
     }
 
     fn lookup_src(&mut self) -> OptionalKw<String> {
-        self.get_optional("SRC", parse_str, false)
+        self.lookup_optional("SRC", parse_str, false)
     }
 
     fn lookup_sys(&mut self) -> OptionalKw<String> {
-        self.get_optional("SYS", parse_str, false)
+        self.lookup_optional("SYS", parse_str, false)
     }
 
     fn lookup_trigger(&mut self) -> OptionalKw<Trigger> {
-        self.get_optional(
+        self.lookup_optional(
             "TR",
             |s| match s.split(",").collect::<Vec<&str>>()[..] {
                 [p, n1] => parse_int(n1).map(|threshold| Trigger {
@@ -2494,23 +2494,23 @@ impl KwState<'_> {
     }
 
     fn lookup_cytsn(&mut self) -> OptionalKw<String> {
-        self.get_optional("CYTSN", parse_str, false)
+        self.lookup_optional("CYTSN", parse_str, false)
     }
 
     fn lookup_timestep(&mut self) -> OptionalKw<f32> {
-        self.get_optional("TIMESTEP", parse_float, false)
+        self.lookup_optional("TIMESTEP", parse_float, false)
     }
 
     fn lookup_vol(&mut self) -> OptionalKw<f32> {
-        self.get_optional("VOL", parse_float, false)
+        self.lookup_optional("VOL", parse_float, false)
     }
 
     fn lookup_flowrate(&mut self) -> OptionalKw<String> {
-        self.get_optional("FLOWRATE", parse_str, false)
+        self.lookup_optional("FLOWRATE", parse_str, false)
     }
 
     fn lookup_unicode(&mut self) -> OptionalKw<Unicode> {
-        self.get_optional(
+        self.lookup_optional(
             "UNICODE",
             |s| {
                 let mut xs = s.split(",");
@@ -2530,23 +2530,23 @@ impl KwState<'_> {
     }
 
     fn lookup_plateid(&mut self, dep: bool) -> OptionalKw<String> {
-        self.get_optional("PLATEID", parse_str, dep)
+        self.lookup_optional("PLATEID", parse_str, dep)
     }
 
     fn lookup_platename(&mut self, dep: bool) -> OptionalKw<String> {
-        self.get_optional("PLATENAME", parse_str, dep)
+        self.lookup_optional("PLATENAME", parse_str, dep)
     }
 
     fn lookup_wellid(&mut self, dep: bool) -> OptionalKw<String> {
-        self.get_optional("WELLID", parse_str, dep)
+        self.lookup_optional("WELLID", parse_str, dep)
     }
 
     fn lookup_unstainedinfo(&mut self) -> OptionalKw<String> {
-        self.get_optional("UNSTAINEDINFO", parse_str, false)
+        self.lookup_optional("UNSTAINEDINFO", parse_str, false)
     }
 
     fn lookup_unstainedcenters(&mut self) -> OptionalKw<UnstainedCenters> {
-        self.get_optional(
+        self.lookup_optional(
             "UNSTAINEDICENTERS",
             |s| {
                 let mut xs = s.split(",");
@@ -2574,12 +2574,12 @@ impl KwState<'_> {
     }
 
     fn lookup_last_modifier(&mut self) -> OptionalKw<String> {
-        self.get_optional("LAST_MODIFIER", parse_str, false)
+        self.lookup_optional("LAST_MODIFIER", parse_str, false)
     }
 
     fn lookup_last_modified(&mut self) -> OptionalKw<NaiveDateTime> {
         // TODO hopefully case doesn't matter...
-        self.get_optional(
+        self.lookup_optional(
             "LAST_MODIFIED",
             |s| {
                 NaiveDateTime::parse_from_str(s, "%d-%b-%Y %H:%M:%S.%.3f").or(
@@ -2593,7 +2593,7 @@ impl KwState<'_> {
     }
 
     fn lookup_originality(&mut self) -> OptionalKw<Originality> {
-        self.get_optional(
+        self.lookup_optional(
             "ORIGINALITY",
             |s| match s {
                 "Original" => Ok(Originality::Original),
@@ -2607,43 +2607,43 @@ impl KwState<'_> {
     }
 
     fn lookup_carrierid(&mut self) -> OptionalKw<String> {
-        self.get_optional("CARRIERID", parse_str, false)
+        self.lookup_optional("CARRIERID", parse_str, false)
     }
 
     fn lookup_carriertype(&mut self) -> OptionalKw<String> {
-        self.get_optional("CARRIERTYPE", parse_str, false)
+        self.lookup_optional("CARRIERTYPE", parse_str, false)
     }
 
     fn lookup_locationid(&mut self) -> OptionalKw<String> {
-        self.get_optional("LOCATIONID", parse_str, false)
+        self.lookup_optional("LOCATIONID", parse_str, false)
     }
 
     fn lookup_begindatetime(&mut self) -> OptionalKw<DateTime<FixedOffset>> {
-        self.get_optional("BEGINDATETIME", parse_iso_datetime, false)
+        self.lookup_optional("BEGINDATETIME", parse_iso_datetime, false)
     }
 
     fn lookup_enddatetime(&mut self) -> OptionalKw<DateTime<FixedOffset>> {
-        self.get_optional("ENDDATETIME", parse_iso_datetime, false)
+        self.lookup_optional("ENDDATETIME", parse_iso_datetime, false)
     }
 
     fn lookup_date(&mut self, dep: bool) -> OptionalKw<NaiveDate> {
-        self.get_optional("DATE", parse_date, dep)
+        self.lookup_optional("DATE", parse_date, dep)
     }
 
     fn lookup_btim60(&mut self, dep: bool) -> OptionalKw<NaiveTime> {
-        self.get_optional("BTIM", parse_time60, dep)
+        self.lookup_optional("BTIM", parse_time60, dep)
     }
 
     fn lookup_etim60(&mut self, dep: bool) -> OptionalKw<NaiveTime> {
-        self.get_optional("ETIM", parse_time60, dep)
+        self.lookup_optional("ETIM", parse_time60, dep)
     }
 
     fn lookup_btim100(&mut self, dep: bool) -> OptionalKw<NaiveTime> {
-        self.get_optional("BTIM", parse_time100, dep)
+        self.lookup_optional("BTIM", parse_time100, dep)
     }
 
     fn lookup_etim100(&mut self, dep: bool) -> OptionalKw<NaiveTime> {
-        self.get_optional("ETIM", parse_time100, dep)
+        self.lookup_optional("ETIM", parse_time100, dep)
     }
 
     fn lookup_timestamps2_0(&mut self, centi: bool, dep: bool) -> Timestamps2_0 {
@@ -2705,7 +2705,7 @@ impl KwState<'_> {
     where
         F: FnOnce(&str) -> ParseResult<V>,
     {
-        self.get_required(&format_param(n, param), f, dep)
+        self.lookup_required(&format_param(n, param), f, dep)
     }
 
     fn lookup_param_opt<V, F>(
@@ -2718,7 +2718,7 @@ impl KwState<'_> {
     where
         F: FnOnce(&str) -> ParseResult<V>,
     {
-        self.get_optional(&format_param(n, param), f, dep)
+        self.lookup_optional(&format_param(n, param), f, dep)
     }
 
     // this is actually read the PnB field which has "bits" in it, but as
@@ -3212,9 +3212,9 @@ fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
         "First character of TEXT segment is not a valid UTF-8 byte, parsing failed",
     )))?;
 
-    // Check that the delim is valid
-    // TODO don't do this for older version 3.0 and older (need to check version
-    // somehow)
+    // Check that the delim is valid; this is technically only written in the
+    // spec for 3.1+ but for older versions this should still be true since
+    // these were ASCII-everywhere
     if !(1..=126).contains(&delimiter) {
         warn_or_err2(
             conf.force_ascii_delim,

@@ -465,6 +465,7 @@ struct Measurement<X> {
     detector_type: OptionalKw<String>, // PnD
     percent_emitted: OptionalKw<u32>,  // PnP (TODO deprecated in 3.2, factor out)
     detector_voltage: OptionalKw<f32>, // PnV
+    nonstandard: HashMap<Key, String>,
     specific: X,
 }
 
@@ -516,30 +517,21 @@ trait VersionedMeasurement: Sized + Versioned {
         let mut ps = vec![];
         let v = Self::fcs_version();
         for n in 1..(par + 1) {
-            if let (Some(bytes), Some(range), Some(specific)) = (
-                st.lookup_meas_bytes(n),
-                st.lookup_meas_range(n),
-                Self::build_inner(st, n),
-            ) {
-                let p = Measurement {
-                    bytes,
-                    range,
-                    longname: st.lookup_meas_longname(n),
-                    filter: st.lookup_meas_filter(n),
-                    power: st.lookup_meas_power(n),
-                    detector_type: st.lookup_meas_detector_type(n),
-                    percent_emitted: st.lookup_meas_percent_emitted(n, v == Version::FCS3_2),
-                    detector_voltage: st.lookup_meas_detector_voltage(n),
-                    specific,
-                };
-                ps.push(p);
-            }
+            let p = Measurement {
+                bytes: st.lookup_meas_bytes(n)?,
+                range: st.lookup_meas_range(n)?,
+                longname: st.lookup_meas_longname(n),
+                filter: st.lookup_meas_filter(n),
+                power: st.lookup_meas_power(n),
+                detector_type: st.lookup_meas_detector_type(n),
+                percent_emitted: st.lookup_meas_percent_emitted(n, v == Version::FCS3_2),
+                detector_voltage: st.lookup_meas_detector_voltage(n),
+                specific: Self::build_inner(st, n)?,
+                nonstandard: st.lookup_meas_nonstandard(n),
+            };
+            ps.push(p);
         }
-        if usize::try_from(par).map(|p| ps.len() < p).unwrap_or(false) {
-            None
-        } else {
-            Some(ps)
-        }
+        Some(ps)
     }
 }
 
@@ -2176,11 +2168,16 @@ struct KwMsg {
 struct Key(String);
 
 impl Key {
+    fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+
     fn is_standard(&self) -> bool {
         self.0.starts_with("$")
     }
 }
 
+#[derive(Eq, PartialEq)]
 enum ValueStatus {
     Raw,
     Error(String),
@@ -2959,6 +2956,39 @@ impl KwState<'_> {
         )
     }
 
+    /// Find nonstandard keys that a specific for a given measurement
+    fn lookup_meas_nonstandard(&mut self, n: u32) -> HashMap<Key, String> {
+        let mut ns = HashMap::new();
+        // ASSUME the pattern does not start with "$" and has a %n which will be
+        // subbed for the measurement index. The pattern will then be turned
+        // into a legit rust regular expression, which may fail depending on
+        // what %n does, so check it each time.
+        if let Some(p) = &self.conf.nonstandard_measurement_pattern {
+            let rep = p.replace("%n", n.to_string().as_str());
+            if let Ok(pattern) = Regex::new(rep.as_str()) {
+                for (k, v) in self.raw_keywords.iter() {
+                    if let ValueStatus::Raw = v.status {
+                        if pattern.is_match(k.as_str()) {
+                            ns.insert(k.clone(), v.value.clone());
+                        }
+                    }
+                }
+            } else {
+                self.push_meta_warning(format!(
+                    "Could not make regular expression using \
+                     pattern '{rep}' for measurement {n}"
+                ));
+            }
+        }
+        // TODO it seems like there should be a more efficient way to do this,
+        // but the only ways I can think of involve taking ownership of the
+        // keywords and then moving matching key/vals into a new hashlist.
+        for k in ns.keys() {
+            self.raw_keywords.remove(k);
+        }
+        ns
+    }
+
     fn push_meta_error_str(&mut self, msg: &str) {
         self.push_meta_error(String::from(msg));
     }
@@ -3486,8 +3516,10 @@ pub struct StdTextReader {
     warnings_are_errors: bool,
 
     /// If given, will be the $PnN used to identify the time channel. Means
-    /// nothing for 2.0. Will be used for the [`ensure_time*`] options below.
-    /// If not given, skip time channel checking entirely.
+    /// nothing for 2.0.
+    ///
+    /// Will be used for the [`ensure_time*`] options below. If not given, skip
+    /// time channel checking entirely.
     time_shortname: Option<String>,
 
     /// If true, will ensure that time channel is present
@@ -3515,11 +3547,26 @@ pub struct StdTextReader {
     disallow_nonstandard: bool,
 
     /// If supplied, will be used as an alternative pattern when parsing $DATE.
+    ///
     /// It should have specifiers for year, month, and day as outlined in
     /// https://docs.rs/chrono/latest/chrono/format/strftime/index.html. If not
     /// supplied, $DATE will be parsed according to the standard pattern which
     /// is '%d-%b-%Y'.
     date_pattern: Option<String>,
+
+    /// If supplied, this pattern will be used to group "nonstandard" keywords
+    /// with matching measurements.
+    ///
+    /// Usually this will be something like '^P%n.+' where '%n' will be
+    /// substituted with the measurement index before using it as a regular
+    /// expression to match keywords. It should not start with a "$".
+    ///
+    /// This will matching something like 'P7FOO' which would be 'FOO' for
+    /// measurement 7. This might be useful in the future when this code offers
+    /// "upgrade" routines since these are often used to represent future
+    /// keywords in an older version where the newer version cannot be used for
+    /// some reason.
+    nonstandard_measurement_pattern: Option<String>,
     // TODO add repair stuff
 }
 
@@ -3565,6 +3612,7 @@ pub fn std_reader() -> Reader {
             disallow_nonstandard: false,
             disallow_deviant: false,
             date_pattern: None,
+            nonstandard_measurement_pattern: None,
         },
         data: DataReader {
             datastart_delta: 0,

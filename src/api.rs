@@ -885,7 +885,7 @@ impl<M: VersionedMetadata> StdText<M, M::P> {
                         deprecated_keywords,
                     })
                 }
-                None => Err(st.into_errors()),
+                None => Err(st.into_errors_ns(s)),
             }
         } else {
             Err(st.into_errors())
@@ -3069,11 +3069,11 @@ impl KwState<'_> {
         }
     }
 
-    fn into_result<T>(
+    fn into_result<M, P>(
         self,
-        standard: T,
+        standard: StdText<M, P>,
         data_parser: DataParser,
-    ) -> Result<TEXTSuccess<ParsedTEXT<T>>, StandardErrors> {
+    ) -> TEXTResult<ParsedTEXT<StdText<M, P>>> {
         let (nonstandard, deviant, warnings, value_errors) =
             Self::split_keywords(self.raw_keywords);
         let has_critical_error = !value_errors.is_empty()
@@ -3083,7 +3083,12 @@ impl KwState<'_> {
         let has_deprecated_error = (!self.deprecated_keywords.is_empty()
             || !self.meta_deprecated.is_empty())
             && self.conf.disallow_deprecated;
-        let has_nonstandard_error = !nonstandard.is_empty() && self.conf.disallow_nonstandard;
+        let has_meas_nonstandard = standard
+            .measurements
+            .iter()
+            .any(|m| !m.nonstandard.is_empty());
+        let has_nonstandard_error =
+            (!nonstandard.is_empty() || has_meas_nonstandard) && self.conf.disallow_nonstandard;
         let has_deviant_error = !deviant.is_empty() && self.conf.disallow_deviant;
 
         if has_critical_error
@@ -3093,8 +3098,16 @@ impl KwState<'_> {
             || has_deprecated_error
         {
             let deviant_keywords = Self::keys_maybe(self.conf.disallow_deviant, deviant);
-            let nonstandard_keywords =
-                Self::keys_maybe(self.conf.disallow_nonstandard, nonstandard);
+            let nonstandard_keywords = if self.conf.disallow_nonstandard {
+                standard
+                    .measurements
+                    .into_iter()
+                    .flat_map(|m| m.nonstandard.into_keys())
+                    .chain(nonstandard.into_keys())
+                    .collect()
+            } else {
+                vec![]
+            };
             let (deprecated_keywords, meta_deprecated) = if self.conf.disallow_deprecated {
                 (self.deprecated_keywords, self.meta_deprecated)
             } else {
@@ -3126,6 +3139,36 @@ impl KwState<'_> {
     }
 
     // TODO not DRY
+    fn into_errors_ns<M, P>(self, standard: StdText<M, P>) -> StandardErrors {
+        let (nonstandard, deviant, _, value_errors) = Self::split_keywords(self.raw_keywords);
+        let nonstandard_keywords = if self.conf.disallow_nonstandard {
+            standard
+                .measurements
+                .into_iter()
+                .flat_map(|m| m.nonstandard.into_keys())
+                .chain(nonstandard.into_keys())
+                .collect()
+        } else {
+            vec![]
+        };
+        let deviant_keywords = Self::keys_maybe(self.conf.disallow_deviant, deviant);
+        let (deprecated_keywords, meta_deprecated) = if self.conf.disallow_deprecated {
+            (self.deprecated_keywords, self.meta_deprecated)
+        } else {
+            (vec![], vec![])
+        };
+        StandardErrors {
+            missing_keywords: self.missing_keywords,
+            value_errors,
+            meta_errors: self.meta_errors,
+            meta_deprecated,
+            warnings: self.meta_warnings,
+            deviant_keywords,
+            nonstandard_keywords,
+            deprecated_keywords,
+        }
+    }
+
     fn into_errors(self) -> StandardErrors {
         let (nonstandard, deviant, _, value_errors) = Self::split_keywords(self.raw_keywords);
         let nonstandard_keywords = Self::keys_maybe(self.conf.disallow_nonstandard, nonstandard);

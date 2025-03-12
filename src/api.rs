@@ -97,6 +97,8 @@ fn parse_iso_datetime(s: &str) -> ParseResult<DateTime<FixedOffset>> {
 }
 
 fn parse_date(s: &str) -> ParseResult<NaiveDate> {
+    // the "%b" format is case-insensitive so this should work for "Jan", "JAN",
+    // "jan", "jaN", etc
     NaiveDate::parse_from_str(s, "%d-%b-%Y").or(NaiveDate::parse_from_str(s, "%d-%b-%Y")
         .or(Err(String::from("must be formatted like 'dd-mmm-yyyy'"))))
 }
@@ -613,8 +615,8 @@ impl ParameterFromKeywords for InnerParameter3_0 {
     }
 
     fn build_inner(st: &mut KwState, n: u32) -> Option<InnerParameter3_0> {
-        st.lookup_param_scale_req(n).map(|scale| InnerParameter3_0 {
-            scale,
+        Some(InnerParameter3_0 {
+            scale: st.lookup_param_scale_req(n)?,
             shortname: st.lookup_param_shortname_opt(n),
             wavelength: st.lookup_param_wavelength(n),
             gain: st.lookup_param_gain(n),
@@ -636,21 +638,14 @@ impl ParameterFromKeywords for InnerParameter3_1 {
     }
 
     fn build_inner(st: &mut KwState, n: u32) -> Option<InnerParameter3_1> {
-        if let (Some(scale), Some(shortname)) = (
-            st.lookup_param_scale_req(n),
-            st.lookup_param_shortname_req(n),
-        ) {
-            Some(InnerParameter3_1 {
-                scale,
-                shortname,
-                wavelength: st.lookup_param_wavelengths(n),
-                gain: st.lookup_param_gain(n),
-                calibration: st.lookup_param_calibration(n),
-                display: st.lookup_param_display(n),
-            })
-        } else {
-            None
-        }
+        Some(InnerParameter3_1 {
+            scale: st.lookup_param_scale_req(n)?,
+            shortname: st.lookup_param_shortname_req(n)?,
+            wavelength: st.lookup_param_wavelengths(n),
+            gain: st.lookup_param_gain(n),
+            calibration: st.lookup_param_calibration(n),
+            display: st.lookup_param_display(n),
+        })
     }
 }
 
@@ -668,27 +663,20 @@ impl ParameterFromKeywords for InnerParameter3_2 {
     }
 
     fn build_inner(st: &mut KwState, n: u32) -> Option<InnerParameter3_2> {
-        if let (Some(scale), Some(shortname)) = (
-            st.lookup_param_scale_req(n),
-            st.lookup_param_shortname_req(n),
-        ) {
-            Some(InnerParameter3_2 {
-                scale,
-                shortname,
-                wavelength: st.lookup_param_wavelengths(n),
-                gain: st.lookup_param_gain(n),
-                detector_name: st.lookup_param_detector(n),
-                tag: st.lookup_param_tag(n),
-                measurement_type: st.lookup_param_type(n),
-                feature: st.lookup_param_feature(n),
-                analyte: st.lookup_param_analyte(n),
-                calibration: st.lookup_param_calibration(n),
-                display: st.lookup_param_display(n),
-                datatype: st.lookup_param_datatype(n),
-            })
-        } else {
-            None
-        }
+        Some(InnerParameter3_2 {
+            scale: st.lookup_param_scale_req(n)?,
+            shortname: st.lookup_param_shortname_req(n)?,
+            wavelength: st.lookup_param_wavelengths(n),
+            gain: st.lookup_param_gain(n),
+            detector_name: st.lookup_param_detector(n),
+            tag: st.lookup_param_tag(n),
+            measurement_type: st.lookup_param_type(n),
+            feature: st.lookup_param_feature(n),
+            analyte: st.lookup_param_analyte(n),
+            calibration: st.lookup_param_calibration(n),
+            display: st.lookup_param_display(n),
+            datatype: st.lookup_param_datatype(n),
+        })
     }
 }
 
@@ -889,9 +877,13 @@ impl<M: MetadataLike> StdText<M, M::P> {
                 parameters,
             })
         }) {
-            M::validate(st, s)
+            M::validate(&mut st, &s);
+            match M::build_data_parser(&mut st, &s) {
+                Some(data_parser) => st.into_result(s, data_parser),
+                None => Err(st.into_errors()),
+            }
         } else {
-            Err(st.compile_errors())
+            Err(st.into_errors())
         }
     }
 }
@@ -1686,19 +1678,17 @@ trait MetadataLike: Sized {
         }
     }
 
-    fn validate(
-        st: KwState,
-        s: StdText<Self, Self::P>,
-    ) -> TEXTResult<TexT<StdText<Self, Self::P>>> {
-        let mut st = st;
+    fn validate(st: &mut KwState, s: &StdText<Self, Self::P>) {
         let shortnames = s.get_shortnames();
 
+        // ensure all $PnN are unique
         if shortnames.iter().unique().count() != shortnames.len() {
-            st.meta_errors.push(String::from("All $PnN must be unique"));
+            st.push_meta_error(String::from("All $PnN must be unique"));
         }
         let hs_shortnames: HashSet<&str> = s.get_shortnames().into_iter().collect();
 
-        Self::validate_time_channel(&mut st, &s);
+        // ensure time channel is valid if present
+        Self::validate_time_channel(st, s);
 
         // validate $TRIGGER with parameter names
         if let OptionalKw::Present(tr) = &s.metadata.tr {
@@ -1710,104 +1700,32 @@ trait MetadataLike: Sized {
             }
         }
 
-        Self::validate_specific(&mut st, &s, &hs_shortnames);
-
-        match Self::build_data_parser(&mut st, &s) {
-            Some(data_parser) => {
-                let mut nonstandard = HashMap::new();
-                let mut deviant = HashMap::new();
-                let mut warnings = Vec::new();
-                let mut value_errors = Vec::new();
-                for (key, v) in st.keywords {
-                    match v.status {
-                        ValueStatus::Raw => {
-                            if key.is_standard() {
-                                deviant.insert(key, v.value);
-                            } else {
-                                nonstandard.insert(key, v.value);
-                            }
-                        }
-                        ValueStatus::Warning(msg) => warnings.push(KwMsg {
-                            msg,
-                            key,
-                            value: v.value,
-                            is_error: false,
-                        }),
-                        ValueStatus::Error(msg) => value_errors.push(KwMsg {
-                            msg,
-                            key,
-                            value: v.value,
-                            is_error: true,
-                        }),
-                        ValueStatus::Used => (),
-                    }
-                }
-                if st.missing.is_empty() && st.meta_errors.is_empty() && value_errors.is_empty() {
-                    let text = TexT {
-                        standard: s,
-                        nonstandard,
-                        deviant,
-                    };
-                    Ok(TEXTSuccess {
-                        text,
-                        data_parser,
-                        warnings,
-                        deprecated_keywords: st.deprecated,
-                    })
-                } else {
-                    Err(StandardErrors {
-                        meta_errors: st.meta_errors,
-                        value_errors,
-                        missing_keywords: st.missing,
-                    })
-                }
-            }
-            None => {
-                let value_errors: Vec<_> = st
-                    .keywords
-                    .into_iter()
-                    .filter_map(|(k, v)| v.to_error(k))
-                    .collect();
-                Err(StandardErrors {
-                    meta_errors: st.meta_errors,
-                    value_errors,
-                    missing_keywords: st.missing,
-                })
-            }
-        }
+        // do any version-specific validation
+        Self::validate_specific(st, s, &hs_shortnames);
     }
 
     fn build_inner(st: &mut KwState) -> Option<Self>;
 
     fn from_kws(st: &mut KwState) -> Option<Metadata<Self>> {
-        if let (Some(par), Some(nextdata), Some(datatype), Some(specific)) = (
-            st.lookup_par(),
-            st.lookup_nextdata(),
-            st.lookup_datatype(),
-            Self::build_inner(st),
-        ) {
-            Some(Metadata {
-                par,
-                nextdata,
-                datatype,
-                abrt: st.lookup_abrt(),
-                com: st.lookup_com(),
-                cells: st.lookup_cells(),
-                exp: st.lookup_exp(),
-                fil: st.lookup_fil(),
-                inst: st.lookup_inst(),
-                lost: st.lookup_lost(),
-                op: st.lookup_op(),
-                proj: st.lookup_proj(),
-                smno: st.lookup_smno(),
-                src: st.lookup_src(),
-                sys: st.lookup_sys(),
-                tr: st.lookup_trigger(),
-                specific,
-            })
-        } else {
-            None
-        }
+        Some(Metadata {
+            par: st.lookup_par()?,
+            nextdata: st.lookup_nextdata()?,
+            datatype: st.lookup_datatype()?,
+            abrt: st.lookup_abrt(),
+            com: st.lookup_com(),
+            cells: st.lookup_cells(),
+            exp: st.lookup_exp(),
+            fil: st.lookup_fil(),
+            inst: st.lookup_inst(),
+            lost: st.lookup_lost(),
+            op: st.lookup_op(),
+            proj: st.lookup_proj(),
+            smno: st.lookup_smno(),
+            src: st.lookup_src(),
+            sys: st.lookup_sys(),
+            tr: st.lookup_trigger(),
+            specific: Self::build_inner(st)?,
+        })
     }
 }
 
@@ -1891,17 +1809,13 @@ impl MetadataLike for InnerMetadata2_0 {
     fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: &HashSet<&str>) {}
 
     fn build_inner(st: &mut KwState) -> Option<InnerMetadata2_0> {
-        if let (Some(mode), Some(byteord)) = (st.lookup_mode(), st.lookup_byteord()) {
-            Some(InnerMetadata2_0 {
-                tot: st.lookup_tot_opt(),
-                mode,
-                byteord,
-                cyt: st.lookup_cyt_opt(),
-                timestamps: st.lookup_timestamps2_0(false, false),
-            })
-        } else {
-            None
-        }
+        Some(InnerMetadata2_0 {
+            tot: st.lookup_tot_opt(),
+            mode: st.lookup_mode()?,
+            byteord: st.lookup_byteord()?,
+            cyt: st.lookup_cyt_opt(),
+            timestamps: st.lookup_timestamps2_0(false, false),
+        })
     }
 }
 
@@ -1951,28 +1865,18 @@ impl MetadataLike for InnerMetadata3_0 {
     fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: &HashSet<&str>) {}
 
     fn build_inner(st: &mut KwState) -> Option<InnerMetadata3_0> {
-        if let (Some(data), Some(supplemental), Some(tot), Some(mode), Some(byteord)) = (
-            st.lookup_data_offsets(),
-            st.lookup_supplemental3_0(),
-            st.lookup_tot_req(),
-            st.lookup_mode(),
-            st.lookup_byteord(),
-        ) {
-            Some(InnerMetadata3_0 {
-                data,
-                supplemental,
-                tot,
-                mode,
-                byteord,
-                cyt: st.lookup_cyt_opt(),
-                timestamps: st.lookup_timestamps2_0(false, false),
-                cytsn: st.lookup_cytsn(),
-                timestep: st.lookup_timestep(),
-                unicode: st.lookup_unicode(),
-            })
-        } else {
-            None
-        }
+        Some(InnerMetadata3_0 {
+            data: st.lookup_data_offsets()?,
+            supplemental: st.lookup_supplemental3_0()?,
+            tot: st.lookup_tot_req()?,
+            mode: st.lookup_mode()?,
+            byteord: st.lookup_byteord()?,
+            cyt: st.lookup_cyt_opt(),
+            timestamps: st.lookup_timestamps2_0(false, false),
+            cytsn: st.lookup_cytsn(),
+            timestep: st.lookup_timestep(),
+            unicode: st.lookup_unicode(),
+        })
     }
 }
 
@@ -2021,30 +1925,20 @@ impl MetadataLike for InnerMetadata3_1 {
     fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: &HashSet<&str>) {}
 
     fn build_inner(st: &mut KwState) -> Option<InnerMetadata3_1> {
-        if let (Some(data), Some(supplemental), Some(tot), Some(mode), Some(byteord)) = (
-            st.lookup_data_offsets(),
-            st.lookup_supplemental3_0(),
-            st.lookup_tot_req(),
-            st.lookup_mode(),
-            st.lookup_endian(),
-        ) {
-            Some(InnerMetadata3_1 {
-                data,
-                supplemental,
-                tot,
-                mode,
-                byteord,
-                cyt: st.lookup_cyt_opt(),
-                timestamps: st.lookup_timestamps2_0(true, false),
-                cytsn: st.lookup_cytsn(),
-                timestep: st.lookup_timestep(),
-                modification: st.lookup_modification(),
-                plate: st.lookup_plate(false),
-                vol: st.lookup_vol(),
-            })
-        } else {
-            None
-        }
+        Some(InnerMetadata3_1 {
+            data: st.lookup_data_offsets()?,
+            supplemental: st.lookup_supplemental3_0()?,
+            tot: st.lookup_tot_req()?,
+            mode: st.lookup_mode()?,
+            byteord: st.lookup_endian()?,
+            cyt: st.lookup_cyt_opt(),
+            timestamps: st.lookup_timestamps2_0(true, false),
+            cytsn: st.lookup_cytsn(),
+            timestep: st.lookup_timestep(),
+            modification: st.lookup_modification(),
+            plate: st.lookup_plate(false),
+            vol: st.lookup_vol(),
+        })
     }
 }
 
@@ -2164,35 +2058,29 @@ impl MetadataLike for InnerMetadata3_2 {
     }
 
     fn build_inner(st: &mut KwState) -> Option<InnerMetadata3_2> {
-        if let (Some(data), Some(tot), Some(_), Some(byteord), Some(cyt)) = (
-            st.lookup_data_offsets(),
-            st.lookup_tot_req(),
-            // only L is allowed as of 3.2, pull the value so it is marked as
-            // read and check that its value is valid
-            st.lookup_mode3_2(),
-            st.lookup_endian(),
-            st.lookup_cyt_req(),
-        ) {
-            Some(InnerMetadata3_2 {
-                data,
-                supplemental: st.lookup_supplemental3_2(),
-                tot,
-                byteord,
-                cyt,
-                timestamps: st.lookup_timestamps2_0(true, true),
-                cytsn: st.lookup_cytsn(),
-                timestep: st.lookup_timestep(),
-                modification: st.lookup_modification(),
-                plate: st.lookup_plate(true),
-                vol: st.lookup_vol(),
-                carrier: st.lookup_carrier(),
-                datetimes: st.lookup_timestamps3_2(),
-                unstained: st.lookup_unstained(),
-                flowrate: st.lookup_flowrate(),
-            })
-        } else {
-            None
-        }
+        // Only L is allowed as of 3.2, so pull the value and check it if
+        // given. The only thing we care about here is that the value is not
+        // invalid, since we don't need to use it anywhere.
+        // TODO this makes more sense as a warning since it doesn't really
+        // matter.
+        let _ = st.lookup_mode3_2();
+        Some(InnerMetadata3_2 {
+            data: st.lookup_data_offsets()?,
+            supplemental: st.lookup_supplemental3_2(),
+            tot: st.lookup_tot_req()?,
+            byteord: st.lookup_endian()?,
+            cyt: st.lookup_cyt_req()?,
+            timestamps: st.lookup_timestamps2_0(true, true),
+            cytsn: st.lookup_cytsn(),
+            timestep: st.lookup_timestep(),
+            modification: st.lookup_modification(),
+            plate: st.lookup_plate(true),
+            vol: st.lookup_vol(),
+            carrier: st.lookup_carrier(),
+            datetimes: st.lookup_timestamps3_2(),
+            unstained: st.lookup_unstained(),
+            flowrate: st.lookup_flowrate(),
+        })
     }
 }
 
@@ -2295,10 +2183,15 @@ struct KwState<'a> {
 // TODO use newtype for "Keyword" type so this is less confusing
 #[derive(Debug, Clone)]
 pub struct StandardErrors {
+    /// Required keywords that are missing
     missing_keywords: Vec<Key>,
+    /// Errors that pertain to one keyword value
     value_errors: Vec<KwMsg>,
-    // TODO, these are errors involving multiple keywords, like PnB not matching DATATYPE
+    /// Errors involving multiple keywords, like PnB not matching DATATYPE
     meta_errors: Vec<String>,
+    /// Non-fatal warnings, included here for the case where all warnings are
+    /// considered fatal by user wanting total strictness
+    warnings: Vec<String>,
 }
 
 impl<'a> KwState<'a> {
@@ -2469,8 +2362,8 @@ impl<'a> KwState<'a> {
         )
     }
 
-    fn lookup_mode3_2(&mut self) -> Option<Mode> {
-        self.get_required(
+    fn lookup_mode3_2(&mut self) -> OptionalKw<Mode> {
+        self.get_optional(
             "MODE",
             |s| match s {
                 "L" => Ok(Mode::List),
@@ -3000,19 +2893,6 @@ impl<'a> KwState<'a> {
         )
     }
 
-    fn compile_errors(self) -> StandardErrors {
-        let value_errors: Vec<_> = self
-            .keywords
-            .into_iter()
-            .filter_map(|(k, v)| v.to_error(k))
-            .collect();
-        StandardErrors {
-            missing_keywords: self.missing,
-            value_errors,
-            meta_errors: self.meta_errors,
-        }
-    }
-
     fn push_meta_error(&mut self, msg: String) {
         self.meta_errors.push(msg);
     }
@@ -3026,6 +2906,88 @@ impl<'a> KwState<'a> {
             self.meta_errors.push(msg);
         } else {
             self.meta_warnings.push(msg);
+        }
+    }
+
+    fn has_errors(&self) -> bool {
+        let warning_errors = if self.conf.warnings_are_errors {
+            !self.meta_warnings.is_empty()
+        } else {
+            false
+        };
+        !self.missing.is_empty() || !self.meta_errors.is_empty() || warning_errors
+    }
+
+    fn into_result<T>(
+        self,
+        standard: T,
+        data_parser: DataParser,
+    ) -> Result<TEXTSuccess<TexT<T>>, StandardErrors> {
+        if self.has_errors() {
+            Err(self.into_errors())
+        } else {
+            let mut nonstandard = HashMap::new();
+            let mut deviant = HashMap::new();
+            let mut warnings = Vec::new();
+            let mut value_errors = Vec::new();
+            for (key, v) in self.keywords {
+                match v.status {
+                    ValueStatus::Raw => {
+                        if key.is_standard() {
+                            deviant.insert(key, v.value);
+                        } else {
+                            nonstandard.insert(key, v.value);
+                        }
+                    }
+                    ValueStatus::Warning(msg) => warnings.push(KwMsg {
+                        msg,
+                        key,
+                        value: v.value,
+                        is_error: false,
+                    }),
+                    ValueStatus::Error(msg) => value_errors.push(KwMsg {
+                        msg,
+                        key,
+                        value: v.value,
+                        is_error: true,
+                    }),
+                    ValueStatus::Used => (),
+                }
+            }
+            if value_errors.is_empty() {
+                let text = TexT {
+                    standard,
+                    nonstandard,
+                    deviant,
+                };
+                Ok(TEXTSuccess {
+                    text,
+                    data_parser,
+                    warnings,
+                    deprecated_keywords: self.deprecated,
+                })
+            } else {
+                Err(StandardErrors {
+                    missing_keywords: self.missing,
+                    value_errors,
+                    meta_errors: self.meta_errors,
+                    warnings: self.meta_warnings,
+                })
+            }
+        }
+    }
+
+    fn into_errors(self) -> StandardErrors {
+        let value_errors: Vec<_> = self
+            .keywords
+            .into_iter()
+            .filter_map(|(k, v)| v.to_error(k))
+            .collect();
+        StandardErrors {
+            missing_keywords: self.missing,
+            value_errors,
+            meta_errors: self.meta_errors,
+            warnings: self.meta_warnings,
         }
     }
 }
@@ -3333,32 +3295,47 @@ fn read_raw_text<R: Read + Seek>(
 pub struct RawTextReader {
     /// Will adjust the offset of the start of the TEXT segment by `offset + n`.
     textstart_delta: u32,
+
     /// Will adjust the offset of the end of the TEXT segment by `offset + n`.
     textend_delta: u32,
+
+    /// If true, all raw text parsing warnings will be considered fatal errors
+    /// which will halt the parsing routine.
+    warnings_are_errors: bool,
+
     /// Will treat every delimiter as a literal delimiter rather than "escaping"
     /// double delimiters
     no_delim_escape: bool,
+
     /// If true, only ASCII characters 1-126 will be allowed for the delimiter
     force_ascii_delim: bool,
+
     /// If true, throw an error if the last byte of the TEXT segment is not
     /// a delimiter.
     enforce_final_delim: bool,
+
     /// If true, throw an error if any key in the TEXT segment is not unique
     enforce_unique: bool,
+
     /// If true, throw an error if the number or words in the TEXT segment is
     /// not an even number (ie there is a key with no value)
     enforce_even: bool,
+
     /// If true, throw an error if we encounter a key with a blank value.
     /// Only relevant if [`no_delim_escape`] is also true.
     enforce_nonempty: bool,
+
     /// If true, throw an error if the parser encounters a bad UTF-8 byte when
     /// creating the key/value list. If false, merely drop the bad pair.
     error_on_invalid_utf8: bool,
+
     /// If true, throw error when encoutering keyword with non-ASCII characters
     enfore_keyword_ascii: bool,
+
     /// If true, throw error when total event width does not evenly divide
     /// the DATA segment. Meaningless for delimited ASCII data.
     enfore_data_width_divisibility: bool,
+
     /// If true, throw error if the total number of events as computed by
     /// dividing DATA segment length event width doesn't match $TOT. Does
     /// nothing if $TOT not given, which may be the case in version 2.0.
@@ -3371,17 +3348,26 @@ pub struct RawTextReader {
 /// Instructions for reading the TEXT segment in a standardized structure.
 pub struct StdTextReader {
     raw: RawTextReader,
+
+    /// If true, all metadata standardization warnings will be considered fatal
+    /// errors which will halt the parsing routine.
+    warnings_are_errors: bool,
+
     /// If given, will be the $PnN used to identify the time channel. Means
     /// nothing for 2.0. Will be used for the [`ensure_time*`] options below.
     /// If not given, skip time channel checking entirely.
     time_shortname: Option<String>,
+
     /// If true, will ensure that time channel is present
     ensure_time: bool,
+
     /// If true, will ensure TIMESTEP is present if time channel is also
     /// present.
     ensure_time_timestep: bool,
+
     /// If true, will ensure PnE is 0,0 for time channel.
     ensure_time_linear: bool,
+
     /// If true, will ensure PnG is absent for time channel.
     ensure_time_nogain: bool,
     // TODO add error handing stuff
@@ -3408,6 +3394,7 @@ pub fn std_reader() -> Reader {
             raw: RawTextReader {
                 textstart_delta: 0,
                 textend_delta: 0,
+                warnings_are_errors: false,
                 no_delim_escape: false,
                 force_ascii_delim: false,
                 enforce_final_delim: false,
@@ -3419,6 +3406,7 @@ pub fn std_reader() -> Reader {
                 enfore_matching_tot: false,
                 enfore_data_width_divisibility: false,
             },
+            warnings_are_errors: false,
             ensure_time: true,
             ensure_time_timestep: true,
             ensure_time_linear: true,

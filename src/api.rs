@@ -512,7 +512,7 @@ trait VersionedMeasurement: Sized + Versioned {
 
     fn has_gain(&self) -> bool;
 
-    fn from_kws(st: &mut KwState, par: u32) -> Option<Vec<Measurement<Self>>> {
+    fn lookup_measurements(st: &mut KwState, par: u32) -> Option<Vec<Measurement<Self>>> {
         let mut ps = vec![];
         let v = Self::fcs_version();
         for n in 1..(par + 1) {
@@ -849,17 +849,6 @@ struct TEXTSuccess<T> {
     deprecated_keywords: Vec<Key>,
 }
 
-impl<X> TEXTSuccess<X> {
-    fn map<Y, F: Fn(X) -> Y>(self, f: F) -> TEXTSuccess<Y> {
-        TEXTSuccess {
-            text: f(self.text),
-            data_parser: self.data_parser,
-            warnings: self.warnings,
-            deprecated_keywords: self.deprecated_keywords,
-        }
-    }
-}
-
 type TEXTResult<T> = Result<TEXTSuccess<T>, StandardErrors>;
 
 impl<M: VersionedMetadata> StdText<M, M::P> {
@@ -870,12 +859,16 @@ impl<M: VersionedMetadata> StdText<M, M::P> {
             .collect()
     }
 
-    fn from_kws(header: Header, raw: RawTEXT, conf: &StdTextReader) -> TEXTResult<TexT<Self>> {
+    fn raw_to_std_text(
+        header: Header,
+        raw: RawTEXT,
+        conf: &StdTextReader,
+    ) -> TEXTResult<AnyParsedTEXT> {
         let mut st = raw.to_state(conf);
         // This will fail if a) not all required keywords pass and b) not all
         // required measurement keywords pass (according to $PAR)
-        if let Some(s) = M::from_kws(&mut st).and_then(|metadata| {
-            M::P::from_kws(&mut st, metadata.par).map(|measurements| StdText {
+        if let Some(s) = M::lookup_metadata(&mut st).and_then(|metadata| {
+            M::P::lookup_measurements(&mut st, metadata.par).map(|measurements| StdText {
                 header,
                 raw,
                 metadata,
@@ -884,7 +877,22 @@ impl<M: VersionedMetadata> StdText<M, M::P> {
         }) {
             M::validate(&mut st, &s);
             match M::build_data_parser(&mut st, &s) {
-                Some(data_parser) => st.into_result(s, data_parser),
+                Some(data_parser) => {
+                    // TODO https://rust-lang.github.io/rfcs/2528-type-changing-struct-update-syntax.html
+                    // not working yet
+                    let TEXTSuccess {
+                        text,
+                        warnings,
+                        data_parser,
+                        deprecated_keywords,
+                    } = st.into_result(s, data_parser)?;
+                    Ok(TEXTSuccess {
+                        text: M::into_any_text(Box::new(text)),
+                        warnings,
+                        data_parser,
+                        deprecated_keywords,
+                    })
+                }
                 None => Err(st.into_errors()),
             }
         } else {
@@ -1433,6 +1441,8 @@ enum EventWidth {
 trait VersionedMetadata: Sized {
     type P: VersionedMeasurement;
 
+    fn into_any_text(s: Box<ParsedTEXT<StdText<Self, Self::P>>>) -> AnyParsedTEXT;
+
     fn get_data_offsets(s: &StdText<Self, Self::P>) -> Offsets;
 
     fn get_byteord(&self) -> ByteOrd;
@@ -1601,9 +1611,7 @@ trait VersionedMetadata: Sized {
         // $PnDATATYPE (if present) all need to be a specific relationship to
         // each other, each of which corresponds to the options below.
         if s.metadata.datatype == AlphaNumType::Ascii && Self::P::fcs_version() >= Version::FCS3_1 {
-            st.push_meta_deprecated(String::from(
-                "$DATATYPE=A has been deprecated since FCS 3.1",
-            ));
+            st.push_meta_deprecated_str("$DATATYPE=A has been deprecated since FCS 3.1");
         }
         match (Self::get_event_width(s), s.metadata.datatype) {
             // Numeric/Ascii (fixed width)
@@ -1620,7 +1628,7 @@ trait VersionedMetadata: Sized {
             }
             // nonsense...scream at user
             (EventWidth::Error(fixed, variable), _) => {
-                st.push_meta_error(String::from("$PnBs are a mix of numeric and variable"));
+                st.push_meta_error_str("$PnBs are a mix of numeric and variable");
                 for f in fixed {
                     st.push_meta_error(format!("$PnB for measurement {f} is numeric"));
                 }
@@ -1694,7 +1702,7 @@ trait VersionedMetadata: Sized {
 
         // ensure all $PnN are unique
         if shortnames.iter().unique().count() != shortnames.len() {
-            st.push_meta_error(String::from("All $PnN must be unique"));
+            st.push_meta_error_str("All $PnN must be unique");
         }
         let hs_shortnames: HashSet<&str> = s.get_shortnames().into_iter().collect();
 
@@ -1717,7 +1725,7 @@ trait VersionedMetadata: Sized {
 
     fn build_inner(st: &mut KwState) -> Option<Self>;
 
-    fn from_kws(st: &mut KwState) -> Option<Metadata<Self>> {
+    fn lookup_metadata(st: &mut KwState) -> Option<Metadata<Self>> {
         Some(Metadata {
             par: st.lookup_par()?,
             nextdata: st.lookup_nextdata()?,
@@ -1782,6 +1790,10 @@ fn build_int_parser_2_0<X>(
 impl VersionedMetadata for InnerMetadata2_0 {
     type P = InnerMeasurment2_0;
 
+    fn into_any_text(t: Box<ParsedTEXT<StdText2_0>>) -> AnyParsedTEXT {
+        AnyParsedTEXT::FCS2_0(t)
+    }
+
     fn get_data_offsets(s: &StdText<Self, Self::P>) -> Offsets {
         s.header.data
     }
@@ -1832,6 +1844,10 @@ impl VersionedMetadata for InnerMetadata2_0 {
 
 impl VersionedMetadata for InnerMetadata3_0 {
     type P = InnerMeasurement3_0;
+
+    fn into_any_text(t: Box<ParsedTEXT<StdText3_0>>) -> AnyParsedTEXT {
+        AnyParsedTEXT::FCS3_0(t)
+    }
 
     fn get_data_offsets(s: &StdText<Self, Self::P>) -> Offsets {
         let header_offsets = s.header.data;
@@ -1894,6 +1910,10 @@ impl VersionedMetadata for InnerMetadata3_0 {
 impl VersionedMetadata for InnerMetadata3_1 {
     type P = InnerMeasurement3_1;
 
+    fn into_any_text(t: Box<ParsedTEXT<StdText3_1>>) -> AnyParsedTEXT {
+        AnyParsedTEXT::FCS3_1(t)
+    }
+
     fn get_data_offsets(s: &StdText<Self, Self::P>) -> Offsets {
         let header_offsets = s.header.data;
         if header_offsets.is_unset() {
@@ -1938,7 +1958,7 @@ impl VersionedMetadata for InnerMetadata3_1 {
     fn build_inner(st: &mut KwState) -> Option<InnerMetadata3_1> {
         let mode = st.lookup_mode()?;
         if mode != Mode::List {
-            st.push_meta_deprecated(String::from("$MODE should only be L"));
+            st.push_meta_deprecated_str("$MODE should only be L");
         };
         Some(InnerMetadata3_1 {
             data: st.lookup_data_offsets()?,
@@ -1959,6 +1979,10 @@ impl VersionedMetadata for InnerMetadata3_1 {
 
 impl VersionedMetadata for InnerMetadata3_2 {
     type P = InnerMeasurement3_2;
+
+    fn into_any_text(t: Box<ParsedTEXT<StdText3_2>>) -> AnyParsedTEXT {
+        AnyParsedTEXT::FCS3_2(t)
+    }
 
     // TODO not DRY
     fn get_data_offsets(s: &StdText<Self, Self::P>) -> Offsets {
@@ -2066,7 +2090,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
             (&spec.datetimes.begin, &spec.datetimes.end)
         {
             if end > begin {
-                st.push_meta_warning(String::from("$BEGINDATETIME is after $ENDDATETIME"));
+                st.push_meta_warning_str("$BEGINDATETIME is after $ENDDATETIME");
             }
         }
 
@@ -2110,7 +2134,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
 }
 
 #[derive(Debug, Clone)]
-pub struct TexT<S> {
+pub struct ParsedTEXT<S> {
     // TODO add the offsets here as well? offsets are needed before parsing
     // everything else
     standard: S,
@@ -2118,35 +2142,25 @@ pub struct TexT<S> {
     deviant: HashMap<Key, String>,
 }
 
-type TEXT2_0 = TexT<StdText2_0>;
-type TEXT3_0 = TexT<StdText3_0>;
-type TEXT3_1 = TexT<StdText3_1>;
-type TEXT3_2 = TexT<StdText3_2>;
+type ParsedTEXT2_0 = ParsedTEXT<StdText2_0>;
+type ParsedTEXT3_0 = ParsedTEXT<StdText3_0>;
+type ParsedTEXT3_1 = ParsedTEXT<StdText3_1>;
+type ParsedTEXT3_2 = ParsedTEXT<StdText3_2>;
 
 #[derive(Debug, Clone)]
-pub enum AnyTEXT {
-    TEXT2_0(Box<TEXT2_0>),
-    TEXT3_0(Box<TEXT3_0>),
-    TEXT3_1(Box<TEXT3_1>),
-    TEXT3_2(Box<TEXT3_2>),
+pub enum AnyParsedTEXT {
+    FCS2_0(Box<ParsedTEXT2_0>),
+    FCS3_0(Box<ParsedTEXT3_0>),
+    FCS3_1(Box<ParsedTEXT3_1>),
+    FCS3_2(Box<ParsedTEXT3_2>),
 }
 
-impl AnyTEXT {
-    fn from_kws(
-        header: Header,
-        raw: RawTEXT,
-        conf: &StdTextReader,
-    ) -> Result<TEXTSuccess<Self>, StandardErrors> {
-        match header.version {
-            Version::FCS2_0 => StdText::from_kws(header, raw, conf)
-                .map(|x| x.map(|x| AnyTEXT::TEXT2_0(Box::new(x)))),
-            Version::FCS3_0 => StdText::from_kws(header, raw, conf)
-                .map(|x| x.map(|x| AnyTEXT::TEXT3_0(Box::new(x)))),
-            Version::FCS3_1 => StdText::from_kws(header, raw, conf)
-                .map(|x| x.map(|x| AnyTEXT::TEXT3_1(Box::new(x)))),
-            Version::FCS3_2 => StdText::from_kws(header, raw, conf)
-                .map(|x| x.map(|x| AnyTEXT::TEXT3_2(Box::new(x)))),
-        }
+fn parse_raw_text(header: Header, raw: RawTEXT, conf: &StdTextReader) -> TEXTResult<AnyParsedTEXT> {
+    match header.version {
+        Version::FCS2_0 => StdText2_0::raw_to_std_text(header, raw, conf),
+        Version::FCS3_0 => StdText3_0::raw_to_std_text(header, raw, conf),
+        Version::FCS3_1 => StdText3_1::raw_to_std_text(header, raw, conf),
+        Version::FCS3_2 => StdText3_2::raw_to_std_text(header, raw, conf),
     }
 }
 
@@ -2945,16 +2959,24 @@ impl KwState<'_> {
         )
     }
 
+    fn push_meta_error_str(&mut self, msg: &str) {
+        self.push_meta_error(String::from(msg));
+    }
+
     fn push_meta_error(&mut self, msg: String) {
         self.meta_errors.push(msg);
+    }
+
+    fn push_meta_warning_str(&mut self, msg: &str) {
+        self.push_meta_warning(String::from(msg));
     }
 
     fn push_meta_warning(&mut self, msg: String) {
         self.meta_warnings.push(msg);
     }
 
-    fn push_meta_deprecated(&mut self, msg: String) {
-        self.meta_deprecated.push(msg);
+    fn push_meta_deprecated_str(&mut self, msg: &str) {
+        self.meta_deprecated.push(String::from(msg));
     }
 
     fn push_meta_error_or_warning(&mut self, is_error: bool, msg: String) {
@@ -3021,7 +3043,7 @@ impl KwState<'_> {
         self,
         standard: T,
         data_parser: DataParser,
-    ) -> Result<TEXTSuccess<TexT<T>>, StandardErrors> {
+    ) -> Result<TEXTSuccess<ParsedTEXT<T>>, StandardErrors> {
         let (nonstandard, deviant, warnings, value_errors) =
             Self::split_keywords(self.raw_keywords);
         let has_critical_error = !value_errors.is_empty()
@@ -3059,7 +3081,7 @@ impl KwState<'_> {
                 deprecated_keywords,
             })
         } else {
-            let text = TexT {
+            let text = ParsedTEXT {
                 standard,
                 nonstandard,
                 deviant,
@@ -3073,6 +3095,7 @@ impl KwState<'_> {
         }
     }
 
+    // TODO not DRY
     fn into_errors(self) -> StandardErrors {
         let (nonstandard, deviant, _, value_errors) = Self::split_keywords(self.raw_keywords);
         let nonstandard_keywords = Self::keys_maybe(self.conf.disallow_nonstandard, nonstandard);
@@ -3159,19 +3182,6 @@ fn read_header<R: Read>(h: &mut BufReader<R>) -> io::Result<Header> {
     }
 }
 
-// read TEXT segment:
-// 1. bounded by textstart/end
-// 2. first character is delimiter (and so is the last, I think...)
-// 3. two delimiters in a row shall be replaced by one delimiter
-// 4. no value shall be blank, so (3) implies that delimiters can be present in
-//    keys or values
-// 5. there should be an even number of delimited fields (obviously)
-// 6. delimiters should not be at the start or end of word; for instance, if
-//    we encountered XXX (where X is delim) it wouldn't be clear if the first
-//    or third X is the boundary and if the other two belong to the previous or
-//    or next keyword. Implication: keywords can only appear once in a row or
-//    an even number of times in a row.
-
 #[derive(Debug, Clone)]
 struct RawTEXT {
     delimiter: u8,
@@ -3212,6 +3222,18 @@ fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
     // this needs the entire TEXT segment to be loaded in memory, which should
     // be fine since the max number of bytes is ~100M given the upper limit
     // imposed by the header
+    //
+    // 1. bounded by textstart/end
+    // 2. first character is delimiter (and so is the last, I think...)
+    // 3. two delimiters in a row shall be replaced by one delimiter
+    // 4. no value shall be blank, so (3) implies that delimiters can be present in
+    //    keys or values
+    // 5. there should be an even number of delimited fields (obviously)
+    // 6. delimiters should not be at the start or end of word; for instance, if
+    //    we encountered XXX (where X is delim) it wouldn't be clear if the first
+    //    or third X is the boundary and if the other two belong to the previous or
+    //    or next keyword. Implication: keywords can only appear once in a row or
+    //    an even number of times in a row.
     let mut keywords: HashMap<_, _> = HashMap::new();
     let mut warnings = vec![];
     let textlen = xs.len();
@@ -3593,12 +3615,15 @@ pub fn read_fcs_raw_text(p: &path::PathBuf, conf: &RawTextReader) -> io::Result<
 /// FCS standard indicated in the header and returned in a struct storing each
 /// key/value pair in a standardized manner. This will halt and return any
 /// errors encountered during this process.
-pub fn read_fcs_text(p: &path::PathBuf, conf: &StdTextReader) -> io::Result<TEXTResult<AnyTEXT>> {
+pub fn read_fcs_text(
+    p: &path::PathBuf,
+    conf: &StdTextReader,
+) -> io::Result<TEXTResult<AnyParsedTEXT>> {
     let file = fs::File::options().read(true).open(p)?;
     let mut reader = BufReader::new(file);
     let header = read_header(&mut reader)?;
     let raw = read_raw_text(&mut reader, &header, &conf.raw)?;
-    Ok(AnyTEXT::from_kws(header, raw, conf))
+    Ok(parse_raw_text(header, raw, conf))
 }
 
 // fn read_fcs_text_2_0(p: path::PathBuf, conf: StdTextReader) -> TEXTResult<TEXT2_0>;
@@ -3619,13 +3644,13 @@ pub fn read_fcs_text(p: &path::PathBuf, conf: &StdTextReader) -> io::Result<TEXT
 ///
 /// The [`conf`] argument can be used to control the behavior of each reading
 /// step, including the repair of non-conforming files.
-pub fn read_fcs_file(p: path::PathBuf, conf: Reader) -> io::Result<FCSResult<AnyTEXT>> {
+pub fn read_fcs_file(p: path::PathBuf, conf: Reader) -> io::Result<FCSResult<AnyParsedTEXT>> {
     let file = fs::File::options().read(true).open(p)?;
     let mut reader = BufReader::new(file);
     let header = read_header(&mut reader)?;
     let raw = read_raw_text(&mut reader, &header, &conf.text.raw)?;
     // TODO useless clone?
-    match AnyTEXT::from_kws(header, raw, &conf.text) {
+    match parse_raw_text(header, raw, &conf.text) {
         Ok(std) => {
             let data = read_data(&mut reader, std.data_parser).unwrap();
             Ok(Ok(FCSSuccess {
@@ -3662,7 +3687,7 @@ pub fn read_fcs_raw_file(p: path::PathBuf, conf: Reader) -> io::Result<FCSResult
     let raw = read_raw_text(&mut reader, &header, &conf.text.raw)?;
     // TODO need to modify this so it doesn't do the crazy version checking
     // stuff we don't actually want in this case
-    match AnyTEXT::from_kws(header, raw.clone(), &conf.text) {
+    match parse_raw_text(header, raw.clone(), &conf.text) {
         Ok(std) => {
             let data = read_data(&mut reader, std.data_parser).unwrap();
             Ok(Ok(FCSSuccess { std: (), data }))

@@ -2176,9 +2176,9 @@ impl KwValue {
 // all hail the almighty state monad :D
 
 struct KwState<'a> {
-    keywords: HashMap<Key, KwValue>,
-    missing: Vec<Key>,
-    deprecated: Vec<Key>,
+    raw_keywords: HashMap<Key, KwValue>,
+    missing_keywords: Vec<Key>,
+    deprecated_keywords: Vec<Key>,
     meta_errors: Vec<String>,
     meta_warnings: Vec<String>,
     conf: &'a StdTextReader,
@@ -2189,10 +2189,26 @@ struct KwState<'a> {
 pub struct StandardErrors {
     /// Required keywords that are missing
     missing_keywords: Vec<Key>,
+
+    /// Keywords which start with "$" but are not standardized within the
+    /// indicated version. This will be empty unless such keywords are present
+    /// and `disallow_deviant` is true.
+    deviant_keywords: Vec<Key>,
+
+    /// Keywords which do not start with "$". This will be empty unless such
+    /// keywords are present and `disallow_nonstandard` is true.
+    nonstandard_keywords: Vec<Key>,
+
+    /// Keywords which have been deprecated. This will be empty unless such
+    /// keywords are present and `disallow_deprecated` is true.
+    deprecated_keywords: Vec<Key>,
+
     /// Errors that pertain to one keyword value
     value_errors: Vec<KwMsg>,
+
     /// Errors involving multiple keywords, like PnB not matching DATATYPE
     meta_errors: Vec<String>,
+
     /// Non-fatal warnings, included here for the case where all warnings are
     /// considered fatal by user wanting total strictness
     warnings: Vec<String>,
@@ -2206,7 +2222,7 @@ impl KwState<'_> {
         F: FnOnce(&str) -> ParseResult<V>,
     {
         let sk = format_standard_kw(k);
-        match self.keywords.get_mut(&sk) {
+        match self.raw_keywords.get_mut(&sk) {
             Some(v) => match v.status {
                 ValueStatus::Raw => {
                     let (s, r) = f(&v.value).map_or_else(
@@ -2214,7 +2230,7 @@ impl KwState<'_> {
                         |x| (ValueStatus::Used, Some(x)),
                     );
                     if dep {
-                        self.deprecated.push(sk);
+                        self.deprecated_keywords.push(sk);
                     }
                     v.status = s;
                     r
@@ -2222,7 +2238,7 @@ impl KwState<'_> {
                 _ => None,
             },
             None => {
-                self.missing.push(Key(String::from(k)));
+                self.missing_keywords.push(Key(String::from(k)));
                 None
             }
         }
@@ -2233,7 +2249,7 @@ impl KwState<'_> {
         F: FnOnce(&str) -> ParseResult<V>,
     {
         let sk = format_standard_kw(k);
-        match self.keywords.get_mut(&sk) {
+        match self.raw_keywords.get_mut(&sk) {
             Some(v) => match v.status {
                 ValueStatus::Raw => {
                     let (s, r) = f(&v.value).map_or_else(
@@ -2241,7 +2257,7 @@ impl KwState<'_> {
                         |x| (ValueStatus::Used, OptionalKw::Present(x)),
                     );
                     if dep {
-                        self.deprecated.push(sk);
+                        self.deprecated_keywords.push(sk);
                     }
                     v.status = s;
                     r
@@ -2919,7 +2935,51 @@ impl KwState<'_> {
         } else {
             false
         };
-        !self.missing.is_empty() || !self.meta_errors.is_empty() || warning_errors
+        !self.missing_keywords.is_empty() || !self.meta_errors.is_empty() || warning_errors
+    }
+
+    fn split_keywords(
+        kws: HashMap<Key, KwValue>,
+    ) -> (
+        HashMap<Key, String>,
+        HashMap<Key, String>,
+        Vec<KwMsg>,
+        Vec<KwMsg>,
+    ) {
+        let mut nonstandard_keywords = HashMap::new();
+        let mut deviant_keywords = HashMap::new();
+        let mut warnings = Vec::new();
+        let mut value_errors = Vec::new();
+        for (key, v) in kws {
+            match v.status {
+                ValueStatus::Raw => {
+                    if key.is_standard() {
+                        deviant_keywords.insert(key, v.value);
+                    } else {
+                        nonstandard_keywords.insert(key, v.value);
+                    }
+                }
+                ValueStatus::Warning(msg) => warnings.push(KwMsg {
+                    msg,
+                    key,
+                    value: v.value,
+                    is_error: false,
+                }),
+                ValueStatus::Error(msg) => value_errors.push(KwMsg {
+                    msg,
+                    key,
+                    value: v.value,
+                    is_error: true,
+                }),
+                ValueStatus::Used => (),
+            }
+        }
+        (
+            nonstandard_keywords,
+            deviant_keywords,
+            warnings,
+            value_errors,
+        )
     }
 
     fn into_result<T>(
@@ -2930,35 +2990,39 @@ impl KwState<'_> {
         if self.has_errors() {
             Err(self.into_errors())
         } else {
-            let mut nonstandard = HashMap::new();
-            let mut deviant = HashMap::new();
-            let mut warnings = Vec::new();
-            let mut value_errors = Vec::new();
-            for (key, v) in self.keywords {
-                match v.status {
-                    ValueStatus::Raw => {
-                        if key.is_standard() {
-                            deviant.insert(key, v.value);
-                        } else {
-                            nonstandard.insert(key, v.value);
-                        }
-                    }
-                    ValueStatus::Warning(msg) => warnings.push(KwMsg {
-                        msg,
-                        key,
-                        value: v.value,
-                        is_error: false,
-                    }),
-                    ValueStatus::Error(msg) => value_errors.push(KwMsg {
-                        msg,
-                        key,
-                        value: v.value,
-                        is_error: true,
-                    }),
-                    ValueStatus::Used => (),
+            let (nonstandard, deviant, warnings, value_errors) =
+                Self::split_keywords(self.raw_keywords);
+            let has_value_error = value_errors.is_empty();
+            let has_deprecated_error =
+                !self.deprecated_keywords.is_empty() && self.conf.disallow_deprecated;
+            let has_nonstandard_error = !nonstandard.is_empty() && self.conf.disallow_nonstandard;
+            let has_deviant_error = !deviant.is_empty() && self.conf.disallow_deviant;
+            let keys_maybe = |test, map: HashMap<_, _>| {
+                if test {
+                    vec![]
+                } else {
+                    map.into_keys().collect()
                 }
-            }
-            if value_errors.is_empty() {
+            };
+            if has_value_error || has_nonstandard_error || has_deviant_error || has_deprecated_error
+            {
+                let deviant_keywords = keys_maybe(self.conf.disallow_deviant, deviant);
+                let nonstandard_keywords = keys_maybe(self.conf.disallow_nonstandard, nonstandard);
+                let deprecated_keywords = if self.conf.disallow_deprecated {
+                    self.deprecated_keywords
+                } else {
+                    vec![]
+                };
+                Err(StandardErrors {
+                    missing_keywords: self.missing_keywords,
+                    value_errors,
+                    meta_errors: self.meta_errors,
+                    warnings: self.meta_warnings,
+                    deviant_keywords,
+                    nonstandard_keywords,
+                    deprecated_keywords,
+                })
+            } else {
                 let text = TexT {
                     standard,
                     nonstandard,
@@ -2968,30 +3032,31 @@ impl KwState<'_> {
                     text,
                     data_parser,
                     warnings,
-                    deprecated_keywords: self.deprecated,
-                })
-            } else {
-                Err(StandardErrors {
-                    missing_keywords: self.missing,
-                    value_errors,
-                    meta_errors: self.meta_errors,
-                    warnings: self.meta_warnings,
+                    deprecated_keywords: self.deprecated_keywords,
                 })
             }
         }
     }
 
     fn into_errors(self) -> StandardErrors {
-        let value_errors: Vec<_> = self
-            .keywords
-            .into_iter()
-            .filter_map(|(k, v)| v.into_error(k))
-            .collect();
+        let (nonstandard, deviant, _, value_errors) = Self::split_keywords(self.raw_keywords);
+        let nonstandard_keywords = if self.conf.disallow_nonstandard {
+            vec![]
+        } else {
+            nonstandard.into_keys().collect()
+        };
+        let deviant_keywords = if self.conf.disallow_deviant {
+            vec![]
+        } else {
+            deviant.into_keys().collect()
+        };
         StandardErrors {
-            missing_keywords: self.missing,
+            missing_keywords: self.missing_keywords,
             value_errors,
             meta_errors: self.meta_errors,
             warnings: self.meta_warnings,
+            deviant_keywords,
+            nonstandard_keywords,
         }
     }
 }
@@ -3093,9 +3158,9 @@ impl RawTEXT {
             );
         }
         KwState {
-            keywords,
-            deprecated: vec![],
-            missing: vec![],
+            raw_keywords: keywords,
+            deprecated_keywords: vec![],
+            missing_keywords: vec![],
             meta_errors: vec![],
             meta_warnings: vec![],
             conf,
@@ -3380,7 +3445,17 @@ pub struct StdTextReader {
 
     /// If true, will ensure PnG is absent for time channel.
     ensure_time_nogain: bool,
-    // TODO add error handing stuff
+
+    /// If true, throw an error if TEXT includes any keywords that start with
+    /// "$" which are not standard.
+    disallow_deviant: bool,
+
+    /// If true, throw an error if TEXT includes any deprecated features
+    disallow_deprecated: bool,
+
+    /// If true, throw an error if TEXT includes any keywords that do not
+    /// start with "$".
+    disallow_nonstandard: bool,
     // TODO add repair stuff
 }
 
@@ -3417,11 +3492,14 @@ pub fn std_reader() -> Reader {
                 enfore_data_width_divisibility: false,
             },
             warnings_are_errors: false,
-            ensure_time: true,
-            ensure_time_timestep: true,
-            ensure_time_linear: true,
-            ensure_time_nogain: true,
+            ensure_time: false,
+            ensure_time_timestep: false,
+            ensure_time_linear: false,
+            ensure_time_nogain: false,
             time_shortname: None,
+            disallow_deprecated: false,
+            disallow_nonstandard: false,
+            disallow_deviant: false,
         },
         data: DataReader {
             datastart_delta: 0,

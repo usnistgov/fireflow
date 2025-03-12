@@ -274,7 +274,7 @@ struct Timestamps2_0 {
 
 #[derive(Debug, Clone)]
 struct Timestamps3_2 {
-    start: OptionalKw<DateTime<FixedOffset>>,
+    begin: OptionalKw<DateTime<FixedOffset>>,
     end: OptionalKw<DateTime<FixedOffset>>,
 }
 
@@ -2059,8 +2059,18 @@ impl MetadataLike for InnerMetadata3_2 {
     }
 
     fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: &HashSet<&str>) {
+        let spec = &s.metadata.specific;
+        // check that BEGINDATETIME is before ENDDATETIME
+        if let (OptionalKw::Present(begin), OptionalKw::Present(end)) =
+            (&spec.datetimes.begin, &spec.datetimes.end)
+        {
+            if end > begin {
+                st.push_meta_warning(String::from("$BEGINDATETIME is after $ENDDATETIME"));
+            }
+        }
+
         // check that all names in $UNSTAINEDCENTERS match one of the channels
-        if let OptionalKw::Present(centers) = &s.metadata.specific.unstained.unstainedcenters {
+        if let OptionalKw::Present(centers) = &spec.unstained.unstainedcenters {
             for u in centers.keys() {
                 if !names.contains(u.as_str()) {
                     st.push_meta_error(format!(
@@ -2662,7 +2672,7 @@ impl KwState<'_> {
 
     fn lookup_timestamps3_2(&mut self) -> Timestamps3_2 {
         Timestamps3_2 {
-            start: self.lookup_begindatetime(),
+            begin: self.lookup_begindatetime(),
             end: self.lookup_enddatetime(),
         }
     }

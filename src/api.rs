@@ -1464,44 +1464,71 @@ trait MetadataLike: Sized {
         }
     }
 
-    // TODO this may or may not agree with what is in the TOT field. The offsets
-    // themselves are sometimes known to be screwed up. To make this more
-    // complex, the TOT field is optional in 2.0. It might make sense to offer
-    // various fallback/failure mechanisms in case this issue is encountered.
-    fn get_total_events(s: &StdText<Self, Self::P>, event_width: u32) -> Result<usize, String> {
+    fn get_total_events(
+        st: &mut KwState,
+        s: &StdText<Self, Self::P>,
+        event_width: u32,
+    ) -> Option<usize> {
         let nbytes = Self::get_data_offsets(s).num_bytes();
         let remainder = nbytes % event_width;
-        if nbytes % event_width > 0 {
-            Err(format!(
+        let res = nbytes / event_width;
+        let total_events = if nbytes % event_width > 0 {
+            let msg = format!(
                 "Events are {event_width} bytes wide, but this does not evenly \
                  divide DATA segment which is {nbytes} bytes long \
-                 (remainder of {remainder}) "
-            ))
+                 (remainder of {remainder})"
+            );
+            if st.conf.raw.enfore_data_width_divisibility {
+                st.push_meta_error(msg);
+                None
+            } else {
+                st.push_meta_warning(msg);
+                Some(res)
+            }
         } else {
-            usize::try_from(nbytes / event_width).map_err(|e| format!("{}", e))
-        }
+            Some(res)
+        };
+        total_events.and_then(|x| {
+            if let Some(tot) = s.metadata.specific.get_tot() {
+                if x != tot {
+                    let msg = format!(
+                        "$TOT field is {tot} but number of events \
+                         that evenly fit into DATA is {x}"
+                    );
+                    if st.conf.raw.enfore_matching_tot {
+                        st.push_meta_error(msg);
+                    } else {
+                        st.push_meta_warning(msg);
+                    }
+                }
+            }
+            usize::try_from(x).ok()
+        })
     }
 
     fn build_int_parser(
         &self,
+        st: &mut KwState,
         ps: &[Parameter<Self::P>],
         total_events: usize,
-    ) -> Result<IntParser, Vec<String>>;
+    ) -> Option<IntParser>;
 
     fn build_mixed_parser(
         &self,
+        st: &mut KwState,
         ps: &[Parameter<Self::P>],
         dt: &AlphaNumType,
         total_events: usize,
-    ) -> Option<Result<MixedParser, Vec<String>>>;
+    ) -> Option<Option<MixedParser>>;
 
     fn build_float_parser(
         &self,
+        st: &mut KwState,
         is_double: bool,
         par: usize,
         total_events: usize,
         ps: &[Parameter<Self::P>],
-    ) -> Result<ColumnParser, Vec<String>> {
+    ) -> Option<ColumnParser> {
         let (bytes, dt) = if is_double { (8, "D") } else { (4, "F") };
         let remainder: Vec<_> = ps.iter().filter(|p| p.bytes_eq(bytes)).collect();
         if remainder.is_empty() {
@@ -1511,36 +1538,50 @@ trait MetadataLike: Sized {
             } else {
                 f32::make_matrix_parser(byteord, par, total_events).map(ColumnParser::Single)
             };
-            res.map_err(|e| vec![e])
+            match res {
+                Ok(x) => Some(x),
+                Err(e) => {
+                    st.push_meta_error(e);
+                    None
+                }
+            }
         } else {
-            Err(remainder
+            for e in remainder
                 .iter()
                 .enumerate()
                 .map(|(i, p)| format!("Parameter {} uses {} bytes but DATATYPE={}", i, p.bytes, dt))
-                .collect())
+            {
+                st.push_meta_error(e);
+            }
+            None
         }
     }
 
     fn build_fixed_width_parser(
+        st: &mut KwState,
         s: &StdText<Self, Self::P>,
         total_events: usize,
         parameter_widths: Vec<u8>,
-    ) -> Result<ColumnParser, Vec<String>> {
+    ) -> Option<ColumnParser> {
         // TODO fix cast?
         let par = s.metadata.par as usize;
         let ps = &s.parameters;
         let dt = &s.metadata.datatype;
         let specific = &s.metadata.specific;
-        if let Some(mixed) = Self::build_mixed_parser(specific, ps, dt, total_events) {
+        if let Some(mixed) = Self::build_mixed_parser(specific, st, ps, dt, total_events) {
             mixed.map(ColumnParser::Mixed)
         } else {
             match dt {
-                AlphaNumType::Single => specific.build_float_parser(false, par, total_events, ps),
-                AlphaNumType::Double => specific.build_float_parser(true, par, total_events, ps),
-                AlphaNumType::Integer => {
-                    Self::build_int_parser(specific, ps, total_events).map(ColumnParser::Int)
+                AlphaNumType::Single => {
+                    specific.build_float_parser(st, false, par, total_events, ps)
                 }
-                AlphaNumType::Ascii => Ok(ColumnParser::FixedWidthAscii(FixedAsciiParser {
+                AlphaNumType::Double => {
+                    specific.build_float_parser(st, true, par, total_events, ps)
+                }
+                AlphaNumType::Integer => specific
+                    .build_int_parser(st, ps, total_events)
+                    .map(ColumnParser::Int),
+                AlphaNumType::Ascii => Some(ColumnParser::FixedWidthAscii(FixedAsciiParser {
                     columns: parameter_widths,
                     nrows: total_events,
                 })),
@@ -1557,7 +1598,7 @@ trait MetadataLike: Sized {
         })
     }
 
-    fn build_column_parser(s: &StdText<Self, Self::P>) -> Result<ColumnParser, Vec<String>> {
+    fn build_column_parser(st: &mut KwState, s: &StdText<Self, Self::P>) -> Option<ColumnParser> {
         // In order to make a data parser, the $DATATYPE, $BYTEORD, $PnB, and
         // $PnDATATYPE (if present) all need to be a specific relationship to
         // each other, each of which corresponds to the options below.
@@ -1565,37 +1606,35 @@ trait MetadataLike: Sized {
             // Numeric/Ascii (fixed width)
             (EventWidth::Finite(parameter_widths), _) => {
                 let event_width = parameter_widths.iter().map(|x| u32::from(*x)).sum();
-                Self::get_total_events(s, event_width)
-                    .map_err(|e| vec![e])
-                    .and_then(|total_events| {
-                        Self::build_fixed_width_parser(s, total_events, parameter_widths)
-                    })
+                Self::get_total_events(st, s, event_width).and_then(|total_events| {
+                    Self::build_fixed_width_parser(st, s, total_events, parameter_widths)
+                })
             }
             // Ascii (variable width)
             (EventWidth::Variable, AlphaNumType::Ascii) => {
                 let tot = s.metadata.specific.get_tot();
-                Ok(Self::build_delim_ascii_parser(s, tot.map(|x| x as usize)))
+                Some(Self::build_delim_ascii_parser(s, tot.map(|x| x as usize)))
             }
             // nonsense...scream at user
             (EventWidth::Error(fixed, variable), _) => {
-                let mut errors = vec![];
-                errors.push(String::from("$PnBs are a mix of numeric and variable"));
+                st.push_meta_error(String::from("$PnBs are a mix of numeric and variable"));
                 for f in fixed {
-                    errors.push(format!("$PnB for parameter {f} is numeric"));
+                    st.push_meta_error(format!("$PnB for parameter {f} is numeric"));
                 }
                 for v in variable {
-                    errors.push(format!("$PnB for parameter {v} is variable"));
+                    st.push_meta_error(format!("$PnB for parameter {v} is variable"));
                 }
-                Err(errors)
+                None
             }
             (EventWidth::Variable, dt) => {
-                Err(vec![format!("$DATATYPE is {dt} but all $PnB are '*'")])
+                st.push_meta_error(format!("$DATATYPE is {dt} but all $PnB are '*'"));
+                None
             }
         }
     }
 
-    fn build_data_parser(s: &StdText<Self, Self::P>) -> Result<DataParser, Vec<String>> {
-        Self::build_column_parser(s).map(|column_parser| DataParser {
+    fn build_data_parser(st: &mut KwState, s: &StdText<Self, Self::P>) -> Option<DataParser> {
+        Self::build_column_parser(st, s).map(|column_parser| DataParser {
             column_parser,
             begin: u64::from(Self::get_data_offsets(s).begin),
         })
@@ -1672,8 +1711,8 @@ trait MetadataLike: Sized {
 
         Self::validate_specific(&mut st, &s, &hs_shortnames);
 
-        match Self::build_data_parser(&s) {
-            Ok(data_parser) => {
+        match Self::build_data_parser(&mut st, &s) {
+            Some(data_parser) => {
                 let mut nonstandard = HashMap::new();
                 let mut deviant = HashMap::new();
                 let mut warnings = Vec::new();
@@ -1722,8 +1761,7 @@ trait MetadataLike: Sized {
                     })
                 }
             }
-            Err(mut errs) => {
-                st.meta_errors.append(&mut errs);
+            None => {
                 let value_errors: Vec<_> = st
                     .keywords
                     .into_iter()
@@ -1773,10 +1811,11 @@ trait MetadataLike: Sized {
 }
 
 fn build_int_parser_2_0<X>(
+    st: &mut KwState,
     byteord: &ByteOrd,
     ps: &[Parameter<X>],
     total_events: usize,
-) -> Result<IntParser, Vec<String>> {
+) -> Option<IntParser> {
     let nbytes = byteord.num_bytes();
     let remainder: Vec<_> = ps.iter().filter(|p| !p.bytes_eq(nbytes)).collect();
     if remainder.is_empty() {
@@ -1786,26 +1825,27 @@ fn build_int_parser_2_0<X>(
             .partition_result();
         let errors: Vec<_> = fail.into_iter().flatten().collect();
         if errors.is_empty() {
-            Ok(IntParser {
+            Some(IntParser {
                 columns,
                 nrows: total_events,
             })
         } else {
-            Err(errors)
+            for e in errors.into_iter() {
+                st.push_meta_error(e);
+            }
+            None
         }
-        // make_int_column_parser(nbytes, &rs, &self.byteord, total_events).map(IntParser::Fixed)
     } else {
-        Err(remainder
-            .iter()
-            .enumerate()
-            .map(|(i, p)| {
-                format!(
-                    "Parameter {} uses {} bytes when DATATYPE=I \
+        for e in remainder.iter().enumerate().map(|(i, p)| {
+            format!(
+                "Parameter {} uses {} bytes when DATATYPE=I \
                          and BYTEORD implies {} bytes",
-                    i, p.bytes, nbytes
-                )
-            })
-            .collect())
+                i, p.bytes, nbytes
+            )
+        }) {
+            st.push_meta_error(e);
+        }
+        None
     }
 }
 
@@ -1830,18 +1870,20 @@ impl MetadataLike for InnerMetadata2_0 {
 
     fn build_int_parser(
         &self,
+        st: &mut KwState,
         ps: &[Parameter<Self::P>],
         total_events: usize,
-    ) -> Result<IntParser, Vec<String>> {
-        build_int_parser_2_0(&self.byteord, ps, total_events)
+    ) -> Option<IntParser> {
+        build_int_parser_2_0(st, &self.byteord, ps, total_events)
     }
 
     fn build_mixed_parser(
         &self,
+        _: &mut KwState,
         _: &[Parameter<Self::P>],
         _: &AlphaNumType,
         _: usize,
-    ) -> Option<Result<MixedParser, Vec<String>>> {
+    ) -> Option<Option<MixedParser>> {
         None
     }
 
@@ -1888,18 +1930,20 @@ impl MetadataLike for InnerMetadata3_0 {
 
     fn build_int_parser(
         &self,
+        st: &mut KwState,
         ps: &[Parameter<Self::P>],
         total_events: usize,
-    ) -> Result<IntParser, Vec<String>> {
-        build_int_parser_2_0(&self.byteord, ps, total_events)
+    ) -> Option<IntParser> {
+        build_int_parser_2_0(st, &self.byteord, ps, total_events)
     }
 
     fn build_mixed_parser(
         &self,
+        _: &mut KwState,
         _: &[Parameter<Self::P>],
         _: &AlphaNumType,
         _: usize,
-    ) -> Option<Result<MixedParser, Vec<String>>> {
+    ) -> Option<Option<MixedParser>> {
         None
     }
 
@@ -1957,21 +2001,22 @@ impl MetadataLike for InnerMetadata3_1 {
 
     fn build_int_parser(
         &self,
+        st: &mut KwState,
         ps: &[Parameter<Self::P>],
         total_events: usize,
-    ) -> Result<IntParser, Vec<String>> {
-        build_int_parser_2_0(&ByteOrd::Endian(self.byteord), ps, total_events)
+    ) -> Option<IntParser> {
+        build_int_parser_2_0(st, &ByteOrd::Endian(self.byteord), ps, total_events)
     }
 
     fn build_mixed_parser(
         &self,
+        _: &mut KwState,
         _: &[Parameter<Self::P>],
         _: &AlphaNumType,
         _: usize,
-    ) -> Option<Result<MixedParser, Vec<String>>> {
+    ) -> Option<Option<MixedParser>> {
         None
     }
-
     fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: &HashSet<&str>) {}
 
     fn build_inner(st: &mut KwState) -> Option<InnerMetadata3_1> {
@@ -2029,18 +2074,20 @@ impl MetadataLike for InnerMetadata3_2 {
 
     fn build_int_parser(
         &self,
+        st: &mut KwState,
         ps: &[Parameter<Self::P>],
         total_events: usize,
-    ) -> Result<IntParser, Vec<String>> {
-        build_int_parser_2_0(&ByteOrd::Endian(self.byteord), ps, total_events)
+    ) -> Option<IntParser> {
+        build_int_parser_2_0(st, &ByteOrd::Endian(self.byteord), ps, total_events)
     }
 
     fn build_mixed_parser(
         &self,
+        st: &mut KwState,
         ps: &[Parameter<Self::P>],
         dt: &AlphaNumType,
         total_events: usize,
-    ) -> Option<Result<MixedParser, Vec<String>>> {
+    ) -> Option<Option<MixedParser>> {
         let endian = self.byteord;
         // first test if we have any PnDATATYPEs defined, if no then skip this
         // data parser entirely
@@ -2090,12 +2137,15 @@ impl MetadataLike for InnerMetadata3_2 {
             })
             .partition_result();
         if fail.is_empty() {
-            Some(Ok(MixedParser {
+            Some(Some(MixedParser {
                 nrows: total_events,
                 columns: pass,
             }))
         } else {
-            Some(Err(fail.into_iter().flatten().collect()))
+            for e in fail.into_iter().flatten() {
+                st.push_meta_error(e);
+            }
+            None
         }
     }
 
@@ -2966,6 +3016,10 @@ impl<'a> KwState<'a> {
         self.meta_errors.push(msg);
     }
 
+    fn push_meta_warning(&mut self, msg: String) {
+        self.meta_warnings.push(msg);
+    }
+
     fn push_meta_error_or_warning(&mut self, is_error: bool, msg: String) {
         if is_error {
             self.meta_errors.push(msg);
@@ -3301,6 +3355,13 @@ pub struct RawTextReader {
     error_on_invalid_utf8: bool,
     /// If true, throw error when encoutering keyword with non-ASCII characters
     enfore_keyword_ascii: bool,
+    /// If true, throw error when total event width does not evenly divide
+    /// the DATA segment. Meaningless for delimited ASCII data.
+    enfore_data_width_divisibility: bool,
+    /// If true, throw error if the total number of events as computed by
+    /// dividing DATA segment length event width doesn't match $TOT. Does
+    /// nothing if $TOT not given, which may be the case in version 2.0.
+    enfore_matching_tot: bool,
     // TODO add keyword and value overrides, something like a list of patterns
     // that can be used to alter each keyword
     // TODO allow lambda function to be supplied which will alter the kv list
@@ -3354,6 +3415,8 @@ pub fn std_reader() -> Reader {
                 enforce_nonempty: false,
                 error_on_invalid_utf8: false,
                 enfore_keyword_ascii: false,
+                enfore_matching_tot: false,
+                enfore_data_width_divisibility: false,
             },
             ensure_time: true,
             ensure_time_timestep: true,

@@ -351,7 +351,7 @@ impl<V> OptionalKw<V> {
         }
     }
 
-    fn to_option(self) -> Option<V> {
+    fn into_option(self) -> Option<V> {
         match self {
             OptionalKw::Present(x) => Some(x),
             Absent => None,
@@ -409,7 +409,7 @@ impl InnerParameter3_2 {
     fn get_column_type(&self, default: AlphaNumType) -> AlphaNumType {
         self.datatype
             .as_ref()
-            .to_option()
+            .into_option()
             .map(|x| x.lift())
             .unwrap_or(default)
     }
@@ -572,14 +572,14 @@ impl ParameterFromKeywords for InnerParameter2_0 {
         p.specific
             .shortname
             .as_ref()
-            .to_option()
+            .into_option()
             .map(|s| s.as_str())
     }
 
     fn has_linear_scale(&self) -> bool {
         self.scale
             .as_ref()
-            .to_option()
+            .into_option()
             .map(|x| *x == Scale::Linear)
             .unwrap_or(false)
     }
@@ -602,7 +602,7 @@ impl ParameterFromKeywords for InnerParameter3_0 {
         p.specific
             .shortname
             .as_ref()
-            .to_option()
+            .into_option()
             .map(|s| s.as_str())
     }
 
@@ -611,7 +611,7 @@ impl ParameterFromKeywords for InnerParameter3_0 {
     }
 
     fn has_gain(&self) -> bool {
-        self.gain.as_ref().to_option().is_some()
+        self.gain.as_ref().into_option().is_some()
     }
 
     fn build_inner(st: &mut KwState, n: u32) -> Option<InnerParameter3_0> {
@@ -634,7 +634,7 @@ impl ParameterFromKeywords for InnerParameter3_1 {
     }
 
     fn has_gain(&self) -> bool {
-        self.gain.as_ref().to_option().is_some()
+        self.gain.as_ref().into_option().is_some()
     }
 
     fn build_inner(st: &mut KwState, n: u32) -> Option<InnerParameter3_1> {
@@ -659,7 +659,7 @@ impl ParameterFromKeywords for InnerParameter3_2 {
     }
 
     fn has_gain(&self) -> bool {
-        self.gain.as_ref().to_option().is_some()
+        self.gain.as_ref().into_option().is_some()
     }
 
     fn build_inner(st: &mut KwState, n: u32) -> Option<InnerParameter3_2> {
@@ -1073,7 +1073,7 @@ trait FloatFromBytes<const LEN: usize>:
                 Self::assign_matrix(h, &p, c, r)?;
             }
         }
-        Ok(columns.into_iter().map(Self::to_series).collect())
+        Ok(columns.into_iter().map(Self::into_series).collect())
     }
 }
 
@@ -1128,12 +1128,12 @@ enum MixedColumnType {
 }
 
 impl MixedColumnType {
-    fn to_series(self) -> Series {
+    fn into_series(self) -> Series {
         match self {
-            MixedColumnType::Ascii(x) => f64::to_series(x.data),
-            MixedColumnType::Single(x) => f32::to_series(x.data),
-            MixedColumnType::Double(x) => f64::to_series(x.data),
-            MixedColumnType::Uint(x) => x.to_series(),
+            MixedColumnType::Ascii(x) => f64::into_series(x.data),
+            MixedColumnType::Single(x) => f32::into_series(x.data),
+            MixedColumnType::Double(x) => f64::into_series(x.data),
+            MixedColumnType::Uint(x) => x.into_series(),
         }
     }
 }
@@ -1170,16 +1170,16 @@ enum AnyIntColumn {
 }
 
 impl AnyIntColumn {
-    fn to_series(self) -> Series {
+    fn into_series(self) -> Series {
         match self {
-            AnyIntColumn::Uint8(y) => u8::to_series(y.data),
-            AnyIntColumn::Uint16(y) => u16::to_series(y.data),
-            AnyIntColumn::Uint24(y) => u32::to_series(y.data),
-            AnyIntColumn::Uint32(y) => u32::to_series(y.data),
-            AnyIntColumn::Uint40(y) => u64::to_series(y.data),
-            AnyIntColumn::Uint48(y) => u64::to_series(y.data),
-            AnyIntColumn::Uint56(y) => u64::to_series(y.data),
-            AnyIntColumn::Uint64(y) => u64::to_series(y.data),
+            AnyIntColumn::Uint8(y) => u8::into_series(y.data),
+            AnyIntColumn::Uint16(y) => u16::into_series(y.data),
+            AnyIntColumn::Uint24(y) => u32::into_series(y.data),
+            AnyIntColumn::Uint32(y) => u32::into_series(y.data),
+            AnyIntColumn::Uint40(y) => u64::into_series(y.data),
+            AnyIntColumn::Uint48(y) => u64::into_series(y.data),
+            AnyIntColumn::Uint56(y) => u64::into_series(y.data),
+            AnyIntColumn::Uint64(y) => u64::into_series(y.data),
         }
     }
 
@@ -1320,7 +1320,7 @@ fn read_data_delim_ascii<R: Read>(
             );
             return Err(io::Error::new(io::ErrorKind::InvalidData, msg));
         }
-        Ok(data.into_iter().map(f64::to_series).collect())
+        Ok(data.into_iter().map(f64::into_series).collect())
     } else {
         let mut data: Vec<_> = iter::repeat_with(Vec::new).take(p.ncols).collect();
         for b in h.bytes().take(p.nbytes) {
@@ -1354,7 +1354,7 @@ fn read_data_delim_ascii<R: Read>(
             let msg = "Not all columns are equal length";
             return Err(io::Error::new(io::ErrorKind::InvalidData, msg));
         }
-        Ok(data.into_iter().map(f64::to_series).collect())
+        Ok(data.into_iter().map(f64::into_series).collect())
     }
 }
 
@@ -1374,7 +1374,7 @@ fn read_data_ascii_fixed<R: Read>(
             data[c][r] = parse_f64_io(&buf)?;
         }
     }
-    Ok(data.into_iter().map(f64::to_series).collect())
+    Ok(data.into_iter().map(f64::into_series).collect())
 }
 
 fn read_data_mixed<R: Read>(h: &mut BufReader<R>, parser: MixedParser) -> io::Result<ParsedData> {
@@ -1394,7 +1394,7 @@ fn read_data_mixed<R: Read>(h: &mut BufReader<R>, parser: MixedParser) -> io::Re
             }
         }
     }
-    Ok(p.columns.into_iter().map(|c| c.to_series()).collect())
+    Ok(p.columns.into_iter().map(|c| c.into_series()).collect())
 }
 
 fn read_data_int<R: Read>(h: &mut BufReader<R>, parser: IntParser) -> io::Result<ParsedData> {
@@ -1404,7 +1404,7 @@ fn read_data_int<R: Read>(h: &mut BufReader<R>, parser: IntParser) -> io::Result
             c.assign(h, r)?;
         }
     }
-    Ok(p.columns.into_iter().map(|c| c.to_series()).collect())
+    Ok(p.columns.into_iter().map(|c| c.into_series()).collect())
 }
 
 fn read_data<R: Read + Seek>(h: &mut BufReader<R>, parser: DataParser) -> io::Result<ParsedData> {
@@ -1776,7 +1776,7 @@ impl MetadataLike for InnerMetadata2_0 {
     }
 
     fn get_tot(&self) -> Option<u32> {
-        self.tot.as_ref().to_option().copied()
+        self.tot.as_ref().into_option().copied()
     }
 
     fn get_byteord(&self) -> ByteOrd {
@@ -1840,7 +1840,7 @@ impl MetadataLike for InnerMetadata3_0 {
     }
 
     fn has_timestep(&self) -> bool {
-        self.timestep.as_ref().to_option().is_some()
+        self.timestep.as_ref().into_option().is_some()
     }
 
     fn build_int_parser(
@@ -1901,7 +1901,7 @@ impl MetadataLike for InnerMetadata3_1 {
     }
 
     fn has_timestep(&self) -> bool {
-        self.timestep.as_ref().to_option().is_some()
+        self.timestep.as_ref().into_option().is_some()
     }
 
     fn build_int_parser(
@@ -1964,7 +1964,7 @@ impl MetadataLike for InnerMetadata3_2 {
     }
 
     fn has_timestep(&self) -> bool {
-        self.timestep.as_ref().to_option().is_some()
+        self.timestep.as_ref().into_option().is_some()
     }
 
     fn build_int_parser(
@@ -1988,7 +1988,7 @@ impl MetadataLike for InnerMetadata3_2 {
         // data parser entirely
         if ps
             .iter()
-            .filter(|p| p.specific.datatype.as_ref().to_option().is_some())
+            .filter(|p| p.specific.datatype.as_ref().into_option().is_some())
             .count()
             == 0
         {
@@ -2001,7 +2001,7 @@ impl MetadataLike for InnerMetadata3_2 {
                 // TODO this range thing seems not necessary
                 match (
                     p.specific.get_column_type(*dt),
-                    p.specific.datatype.as_ref().to_option().is_some(),
+                    p.specific.datatype.as_ref().into_option().is_some(),
                     p.range,
                     &p.bytes,
                 ) {
@@ -2155,7 +2155,7 @@ struct KwValue {
 }
 
 impl KwValue {
-    fn to_error(self, key: Key) -> Option<KwMsg> {
+    fn into_error(self, key: Key) -> Option<KwMsg> {
         match self.status {
             ValueStatus::Error(msg) => Some(KwMsg {
                 key,
@@ -2194,7 +2194,7 @@ pub struct StandardErrors {
     warnings: Vec<String>,
 }
 
-impl<'a> KwState<'a> {
+impl KwState<'_> {
     // TODO format $param here
     // TODO not DRY (although will likely need HKTs)
     fn get_required<V, F>(&mut self, k: &str, f: F, dep: bool) -> Option<V>
@@ -2820,7 +2820,7 @@ impl<'a> KwState<'a> {
             },
             false,
         )
-        .to_option()
+        .into_option()
         .unwrap_or_default()
     }
 
@@ -2981,7 +2981,7 @@ impl<'a> KwState<'a> {
         let value_errors: Vec<_> = self
             .keywords
             .into_iter()
-            .filter_map(|(k, v)| v.to_error(k))
+            .filter_map(|(k, v)| v.into_error(k))
             .collect();
         StandardErrors {
             missing_keywords: self.missing,
@@ -3449,7 +3449,7 @@ pub fn read_fcs_raw_text(p: &path::PathBuf, conf: &RawTextReader) -> io::Result<
     let file = fs::File::options().read(true).open(p)?;
     let mut reader = BufReader::new(file);
     let header = read_header(&mut reader)?;
-    let raw = read_raw_text(&mut reader, &header, &conf)?;
+    let raw = read_raw_text(&mut reader, &header, conf)?;
     Ok((header, raw))
 }
 

@@ -53,7 +53,7 @@ pub trait IntMath: Sized {
 }
 
 pub trait NumProps<const DTLEN: usize>: Sized + Copy {
-    fn to_series(x: Vec<Self>) -> Series;
+    fn into_series(x: Vec<Self>) -> Series;
 
     fn zero() -> Self;
 
@@ -123,7 +123,7 @@ impl IntMath for u64 {
 }
 
 impl NumProps<1> for u8 {
-    fn to_series(x: Vec<Self>) -> Series {
+    fn into_series(x: Vec<Self>) -> Series {
         Series::U8(x)
     }
 
@@ -141,7 +141,7 @@ impl NumProps<1> for u8 {
 }
 
 impl NumProps<2> for u16 {
-    fn to_series(x: Vec<Self>) -> Series {
+    fn into_series(x: Vec<Self>) -> Series {
         Series::U16(x)
     }
 
@@ -159,7 +159,7 @@ impl NumProps<2> for u16 {
 }
 
 impl NumProps<4> for u32 {
-    fn to_series(x: Vec<Self>) -> Series {
+    fn into_series(x: Vec<Self>) -> Series {
         Series::U32(x)
     }
 
@@ -177,7 +177,7 @@ impl NumProps<4> for u32 {
 }
 
 impl NumProps<8> for u64 {
-    fn to_series(x: Vec<Self>) -> Series {
+    fn into_series(x: Vec<Self>) -> Series {
         Series::U64(x)
     }
 
@@ -195,7 +195,7 @@ impl NumProps<8> for u64 {
 }
 
 impl NumProps<4> for f32 {
-    fn to_series(x: Vec<Self>) -> Series {
+    fn into_series(x: Vec<Self>) -> Series {
         Series::F32(x)
     }
 
@@ -213,7 +213,7 @@ impl NumProps<4> for f32 {
 }
 
 impl NumProps<8> for f64 {
-    fn to_series(x: Vec<Self>) -> Series {
+    fn into_series(x: Vec<Self>) -> Series {
         Series::F64(x)
     }
 

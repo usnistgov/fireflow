@@ -140,6 +140,10 @@ impl Offsets {
         }
     }
 
+    fn adjust(&self, begin_delta: u32, end_delta: u32) -> Option<Offsets> {
+        Self::new(self.begin + begin_delta, self.end + end_delta)
+    }
+
     fn len(&self) -> u32 {
         self.end - self.begin
     }
@@ -3282,13 +3286,19 @@ fn read_raw_text<R: Read + Seek>(
     header: &Header,
     conf: &RawTextReader,
 ) -> io::Result<RawTEXT> {
-    let begin = u64::from(header.text.begin);
-    let nbytes = u64::from(header.text.num_bytes());
-    let mut buf = vec![];
+    if let Some(adjusted) = header.text.adjust(conf.textstart_delta, conf.textend_delta) {
+        let begin = u64::from(adjusted.begin);
+        let nbytes = u64::from(adjusted.num_bytes());
+        let mut buf = vec![];
 
-    h.seek(SeekFrom::Start(begin))?;
-    h.take(nbytes).read_to_end(&mut buf)?;
-    split_raw_text(&buf, conf).map_err(io::Error::other)
+        h.seek(SeekFrom::Start(begin))?;
+        h.take(nbytes).read_to_end(&mut buf)?;
+        split_raw_text(&buf, conf).map_err(io::Error::other)
+    } else {
+        Err(io::Error::other(
+            "Adjusted begin is after adjusted end for TEXT",
+        ))
+    }
 }
 
 /// Instructions for reading the TEXT segment as raw key/value pairs.

@@ -17,8 +17,8 @@ fn format_standard_kw(kw: &str) -> Key {
     Key(format!("${}", kw.to_ascii_uppercase()))
 }
 
-fn format_param(n: u32, param: &str) -> String {
-    format!("P{}{}", n, param.to_ascii_uppercase())
+fn format_measurement(n: u32, m: &str) -> String {
+    format!("P{}{}", n, m.to_ascii_uppercase())
 }
 
 fn parse_endian(s: &str) -> ParseResult<Endian> {
@@ -261,7 +261,7 @@ impl ByteOrd {
 
 #[derive(Debug, Clone)]
 struct Trigger {
-    parameter: String,
+    measurement: String,
     threshold: u32,
 }
 
@@ -369,14 +369,14 @@ impl<V> OptionalKw<V> {
 }
 
 #[derive(Debug, Clone)]
-struct InnerParameter2_0 {
+struct InnerMeasurment2_0 {
     scale: OptionalKw<Scale>,      // PnE
     wavelength: OptionalKw<u32>,   // PnL
     shortname: OptionalKw<String>, // PnN
 }
 
 #[derive(Debug, Clone)]
-struct InnerParameter3_0 {
+struct InnerMeasurement3_0 {
     scale: Scale,                  // PnE
     wavelength: OptionalKw<u32>,   // PnL
     shortname: OptionalKw<String>, // PnN
@@ -384,7 +384,7 @@ struct InnerParameter3_0 {
 }
 
 #[derive(Debug, Clone)]
-struct InnerParameter3_1 {
+struct InnerMeasurement3_1 {
     scale: Scale,          // PnE
     wavelength: Vec<u32>,  // PnL
     shortname: String,     // PnN
@@ -394,7 +394,7 @@ struct InnerParameter3_1 {
 }
 
 #[derive(Debug, Clone)]
-struct InnerParameter3_2 {
+struct InnerMeasurement3_2 {
     scale: Scale,          // PnE
     wavelength: Vec<u32>,  // PnL
     shortname: String,     // PnN
@@ -410,7 +410,7 @@ struct InnerParameter3_2 {
 }
 
 // TODO this will likely need to be a trait in 4.0
-impl InnerParameter3_2 {
+impl InnerMeasurement3_2 {
     fn get_column_type(&self, default: AlphaNumType) -> AlphaNumType {
         self.datatype
             .as_ref()
@@ -451,12 +451,12 @@ enum Range {
     // one greater than u64::MAX.
     Int(u64),
     // This stores the value of PnR as-is. Sometimes PnR is actually a float
-    // for floating point parameters rather than an int.
+    // for floating point measurements rather than an int.
     Float(f64),
 }
 
 #[derive(Debug, Clone)]
-struct Parameter<X> {
+struct Measurement<X> {
     bytes: Bytes,                      // PnB
     range: Range,                      // PnR
     longname: OptionalKw<String>,      // PnS
@@ -468,7 +468,7 @@ struct Parameter<X> {
     specific: X,
 }
 
-impl<X> Parameter<X> {
+impl<X> Measurement<X> {
     fn bytes_eq(&self, b: u8) -> bool {
         match self.bytes {
             Bytes::Fixed(x) => x == b,
@@ -476,7 +476,7 @@ impl<X> Parameter<X> {
         }
     }
 
-    // TODO add parameter index to error message
+    // TODO add measurement index to error message
     fn make_int_parser(&self, o: &ByteOrd, t: usize) -> Result<AnyIntColumn, Vec<String>> {
         match self.bytes {
             Bytes::Fixed(b) => make_int_parser(b, &self.range, o, t),
@@ -503,33 +503,33 @@ trait Versioned {
     fn fcs_version() -> Version;
 }
 
-trait ParameterFromKeywords: Sized + Versioned {
+trait VersionedMeasurement: Sized + Versioned {
     fn build_inner(st: &mut KwState, n: u32) -> Option<Self>;
 
-    fn parameter_name(p: &Parameter<Self>) -> Option<&str>;
+    fn measurement_name(p: &Measurement<Self>) -> Option<&str>;
 
     fn has_linear_scale(&self) -> bool;
 
     fn has_gain(&self) -> bool;
 
-    fn from_kws(st: &mut KwState, par: u32) -> Option<Vec<Parameter<Self>>> {
+    fn from_kws(st: &mut KwState, par: u32) -> Option<Vec<Measurement<Self>>> {
         let mut ps = vec![];
         let v = Self::fcs_version();
         for n in 1..(par + 1) {
             if let (Some(bytes), Some(range), Some(specific)) = (
-                st.lookup_param_bytes(n),
-                st.lookup_param_range(n),
+                st.lookup_meas_bytes(n),
+                st.lookup_meas_range(n),
                 Self::build_inner(st, n),
             ) {
-                let p = Parameter {
+                let p = Measurement {
                     bytes,
                     range,
-                    longname: st.lookup_param_longname(n),
-                    filter: st.lookup_param_filter(n),
-                    power: st.lookup_param_power(n),
-                    detector_type: st.lookup_param_detector_type(n),
-                    percent_emitted: st.lookup_param_percent_emitted(n, v == Version::FCS3_2),
-                    detector_voltage: st.lookup_param_detector_voltage(n),
+                    longname: st.lookup_meas_longname(n),
+                    filter: st.lookup_meas_filter(n),
+                    power: st.lookup_meas_power(n),
+                    detector_type: st.lookup_meas_detector_type(n),
+                    percent_emitted: st.lookup_meas_percent_emitted(n, v == Version::FCS3_2),
+                    detector_voltage: st.lookup_meas_detector_voltage(n),
                     specific,
                 };
                 ps.push(p);
@@ -543,37 +543,37 @@ trait ParameterFromKeywords: Sized + Versioned {
     }
 }
 
-type Parameter2_0 = Parameter<InnerParameter2_0>;
-type Parameter3_0 = Parameter<InnerParameter3_0>;
-type Parameter3_1 = Parameter<InnerParameter3_1>;
-type Parameter3_2 = Parameter<InnerParameter3_2>;
+type Measurement2_0 = Measurement<InnerMeasurment2_0>;
+type Measurement3_0 = Measurement<InnerMeasurement3_0>;
+type Measurement3_1 = Measurement<InnerMeasurement3_1>;
+type Measurement3_2 = Measurement<InnerMeasurement3_2>;
 
-impl Versioned for InnerParameter2_0 {
+impl Versioned for InnerMeasurment2_0 {
     fn fcs_version() -> Version {
         Version::FCS2_0
     }
 }
 
-impl Versioned for InnerParameter3_0 {
+impl Versioned for InnerMeasurement3_0 {
     fn fcs_version() -> Version {
         Version::FCS3_0
     }
 }
 
-impl Versioned for InnerParameter3_1 {
+impl Versioned for InnerMeasurement3_1 {
     fn fcs_version() -> Version {
         Version::FCS3_1
     }
 }
 
-impl Versioned for InnerParameter3_2 {
+impl Versioned for InnerMeasurement3_2 {
     fn fcs_version() -> Version {
         Version::FCS3_2
     }
 }
 
-impl ParameterFromKeywords for InnerParameter2_0 {
-    fn parameter_name(p: &Parameter<Self>) -> Option<&str> {
+impl VersionedMeasurement for InnerMeasurment2_0 {
+    fn measurement_name(p: &Measurement<Self>) -> Option<&str> {
         p.specific
             .shortname
             .as_ref()
@@ -593,17 +593,17 @@ impl ParameterFromKeywords for InnerParameter2_0 {
         false
     }
 
-    fn build_inner(st: &mut KwState, n: u32) -> Option<InnerParameter2_0> {
-        Some(InnerParameter2_0 {
-            scale: st.lookup_param_scale_opt(n),
-            shortname: st.lookup_param_shortname_opt(n),
-            wavelength: st.lookup_param_wavelength(n),
+    fn build_inner(st: &mut KwState, n: u32) -> Option<InnerMeasurment2_0> {
+        Some(InnerMeasurment2_0 {
+            scale: st.lookup_meas_scale_opt(n),
+            shortname: st.lookup_meas_shortname_opt(n),
+            wavelength: st.lookup_meas_wavelength(n),
         })
     }
 }
 
-impl ParameterFromKeywords for InnerParameter3_0 {
-    fn parameter_name(p: &Parameter<Self>) -> Option<&str> {
+impl VersionedMeasurement for InnerMeasurement3_0 {
+    fn measurement_name(p: &Measurement<Self>) -> Option<&str> {
         p.specific
             .shortname
             .as_ref()
@@ -619,18 +619,18 @@ impl ParameterFromKeywords for InnerParameter3_0 {
         self.gain.as_ref().into_option().is_some()
     }
 
-    fn build_inner(st: &mut KwState, n: u32) -> Option<InnerParameter3_0> {
-        Some(InnerParameter3_0 {
-            scale: st.lookup_param_scale_req(n)?,
-            shortname: st.lookup_param_shortname_opt(n),
-            wavelength: st.lookup_param_wavelength(n),
-            gain: st.lookup_param_gain(n),
+    fn build_inner(st: &mut KwState, n: u32) -> Option<InnerMeasurement3_0> {
+        Some(InnerMeasurement3_0 {
+            scale: st.lookup_meas_scale_req(n)?,
+            shortname: st.lookup_meas_shortname_opt(n),
+            wavelength: st.lookup_meas_wavelength(n),
+            gain: st.lookup_meas_gain(n),
         })
     }
 }
 
-impl ParameterFromKeywords for InnerParameter3_1 {
-    fn parameter_name(p: &Parameter<Self>) -> Option<&str> {
+impl VersionedMeasurement for InnerMeasurement3_1 {
+    fn measurement_name(p: &Measurement<Self>) -> Option<&str> {
         Some(p.specific.shortname.as_str())
     }
 
@@ -642,20 +642,20 @@ impl ParameterFromKeywords for InnerParameter3_1 {
         self.gain.as_ref().into_option().is_some()
     }
 
-    fn build_inner(st: &mut KwState, n: u32) -> Option<InnerParameter3_1> {
-        Some(InnerParameter3_1 {
-            scale: st.lookup_param_scale_req(n)?,
-            shortname: st.lookup_param_shortname_req(n)?,
-            wavelength: st.lookup_param_wavelengths(n),
-            gain: st.lookup_param_gain(n),
-            calibration: st.lookup_param_calibration(n),
-            display: st.lookup_param_display(n),
+    fn build_inner(st: &mut KwState, n: u32) -> Option<InnerMeasurement3_1> {
+        Some(InnerMeasurement3_1 {
+            scale: st.lookup_meas_scale_req(n)?,
+            shortname: st.lookup_meas_shortname_req(n)?,
+            wavelength: st.lookup_meas_wavelengths(n),
+            gain: st.lookup_meas_gain(n),
+            calibration: st.lookup_meas_calibration(n),
+            display: st.lookup_meas_display(n),
         })
     }
 }
 
-impl ParameterFromKeywords for InnerParameter3_2 {
-    fn parameter_name(p: &Parameter<Self>) -> Option<&str> {
+impl VersionedMeasurement for InnerMeasurement3_2 {
+    fn measurement_name(p: &Measurement<Self>) -> Option<&str> {
         Some(p.specific.shortname.as_str())
     }
 
@@ -667,20 +667,20 @@ impl ParameterFromKeywords for InnerParameter3_2 {
         self.gain.as_ref().into_option().is_some()
     }
 
-    fn build_inner(st: &mut KwState, n: u32) -> Option<InnerParameter3_2> {
-        Some(InnerParameter3_2 {
-            scale: st.lookup_param_scale_req(n)?,
-            shortname: st.lookup_param_shortname_req(n)?,
-            wavelength: st.lookup_param_wavelengths(n),
-            gain: st.lookup_param_gain(n),
-            detector_name: st.lookup_param_detector(n),
-            tag: st.lookup_param_tag(n),
-            measurement_type: st.lookup_param_type(n),
-            feature: st.lookup_param_feature(n),
-            analyte: st.lookup_param_analyte(n),
-            calibration: st.lookup_param_calibration(n),
-            display: st.lookup_param_display(n),
-            datatype: st.lookup_param_datatype(n),
+    fn build_inner(st: &mut KwState, n: u32) -> Option<InnerMeasurement3_2> {
+        Some(InnerMeasurement3_2 {
+            scale: st.lookup_meas_scale_req(n)?,
+            shortname: st.lookup_meas_shortname_req(n)?,
+            wavelength: st.lookup_meas_wavelengths(n),
+            gain: st.lookup_meas_gain(n),
+            detector_name: st.lookup_meas_detector(n),
+            tag: st.lookup_meas_tag(n),
+            measurement_type: st.lookup_meas_type(n),
+            feature: st.lookup_meas_feature(n),
+            analyte: st.lookup_meas_analyte(n),
+            calibration: st.lookup_meas_calibration(n),
+            display: st.lookup_meas_display(n),
+            datatype: st.lookup_meas_datatype(n),
         })
     }
 }
@@ -838,7 +838,7 @@ struct StdText<M, P> {
     header: Header,
     raw: RawTEXT,
     metadata: Metadata<M>,
-    parameters: Vec<Parameter<P>>,
+    measurements: Vec<Measurement<P>>,
 }
 
 #[derive(Debug)]
@@ -862,24 +862,24 @@ impl<X> TEXTSuccess<X> {
 
 type TEXTResult<T> = Result<TEXTSuccess<T>, StandardErrors>;
 
-impl<M: MetadataLike> StdText<M, M::P> {
+impl<M: VersionedMetadata> StdText<M, M::P> {
     fn get_shortnames(&self) -> Vec<&str> {
-        self.parameters
+        self.measurements
             .iter()
-            .filter_map(|p| M::P::parameter_name(p))
+            .filter_map(|p| M::P::measurement_name(p))
             .collect()
     }
 
     fn from_kws(header: Header, raw: RawTEXT, conf: &StdTextReader) -> TEXTResult<TexT<Self>> {
         let mut st = raw.to_state(conf);
         // This will fail if a) not all required keywords pass and b) not all
-        // required parameter keywords pass (according to $PAR)
+        // required measurement keywords pass (according to $PAR)
         if let Some(s) = M::from_kws(&mut st).and_then(|metadata| {
-            M::P::from_kws(&mut st, metadata.par).map(|parameters| StdText {
+            M::P::from_kws(&mut st, metadata.par).map(|measurements| StdText {
                 header,
                 raw,
                 metadata,
-                parameters,
+                measurements,
             })
         }) {
             M::validate(&mut st, &s);
@@ -893,10 +893,10 @@ impl<M: MetadataLike> StdText<M, M::P> {
     }
 }
 
-type StdText2_0 = StdText<InnerMetadata2_0, InnerParameter2_0>;
-type StdText3_0 = StdText<InnerMetadata3_0, InnerParameter3_0>;
-type StdText3_1 = StdText<InnerMetadata3_1, InnerParameter3_1>;
-type StdText3_2 = StdText<InnerMetadata3_2, InnerParameter3_2>;
+type StdText2_0 = StdText<InnerMetadata2_0, InnerMeasurment2_0>;
+type StdText3_0 = StdText<InnerMetadata3_0, InnerMeasurement3_0>;
+type StdText3_1 = StdText<InnerMetadata3_1, InnerMeasurement3_1>;
+type StdText3_2 = StdText<InnerMetadata3_2, InnerMeasurement3_2>;
 
 trait OrderedFromBytes<const DTLEN: usize, const OLEN: usize>: NumProps<DTLEN> {
     fn read_from_ordered<R: Read>(h: &mut BufReader<R>, order: &[u8; OLEN]) -> io::Result<Self> {
@@ -942,7 +942,7 @@ trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
         byteord: &ByteOrd,
         total_events: usize,
     ) -> Result<IntColumnParser<Self, INTLEN>, Vec<String>> {
-        // TODO be more specific, which means we need the parameter index
+        // TODO be more specific, which means we need the measurement index
         let b =
             Self::range_to_bitmask(range).ok_or(String::from("PnR is float for an integer column"));
         let s = Self::byteord_to_sized(byteord);
@@ -1430,8 +1430,8 @@ enum EventWidth {
     Error(Vec<usize>, Vec<usize>),
 }
 
-trait MetadataLike: Sized {
-    type P: ParameterFromKeywords;
+trait VersionedMetadata: Sized {
+    type P: VersionedMeasurement;
 
     fn get_data_offsets(s: &StdText<Self, Self::P>) -> Offsets;
 
@@ -1443,7 +1443,7 @@ trait MetadataLike: Sized {
 
     fn get_event_width(s: &StdText<Self, Self::P>) -> EventWidth {
         let (fixed, variable_indices): (Vec<_>, Vec<_>) = s
-            .parameters
+            .measurements
             .iter()
             .enumerate()
             .map(|(i, p)| match p.bytes {
@@ -1506,14 +1506,14 @@ trait MetadataLike: Sized {
     fn build_int_parser(
         &self,
         st: &mut KwState,
-        ps: &[Parameter<Self::P>],
+        ps: &[Measurement<Self::P>],
         total_events: usize,
     ) -> Option<IntParser>;
 
     fn build_mixed_parser(
         &self,
         st: &mut KwState,
-        ps: &[Parameter<Self::P>],
+        ps: &[Measurement<Self::P>],
         dt: &AlphaNumType,
         total_events: usize,
     ) -> Option<Option<MixedParser>>;
@@ -1524,7 +1524,7 @@ trait MetadataLike: Sized {
         is_double: bool,
         par: usize,
         total_events: usize,
-        ps: &[Parameter<Self::P>],
+        ps: &[Measurement<Self::P>],
     ) -> Option<ColumnParser> {
         let (bytes, dt) = if is_double { (8, "D") } else { (4, "F") };
         let remainder: Vec<_> = ps.iter().filter(|p| p.bytes_eq(bytes)).collect();
@@ -1543,11 +1543,12 @@ trait MetadataLike: Sized {
                 }
             }
         } else {
-            for e in remainder
-                .iter()
-                .enumerate()
-                .map(|(i, p)| format!("Parameter {} uses {} bytes but DATATYPE={}", i, p.bytes, dt))
-            {
+            for e in remainder.iter().enumerate().map(|(i, p)| {
+                format!(
+                    "Measurment {} uses {} bytes but DATATYPE={}",
+                    i, p.bytes, dt
+                )
+            }) {
                 st.push_meta_error(e);
             }
             None
@@ -1558,11 +1559,11 @@ trait MetadataLike: Sized {
         st: &mut KwState,
         s: &StdText<Self, Self::P>,
         total_events: usize,
-        parameter_widths: Vec<u8>,
+        measurement_widths: Vec<u8>,
     ) -> Option<ColumnParser> {
         // TODO fix cast?
         let par = s.metadata.par as usize;
-        let ps = &s.parameters;
+        let ps = &s.measurements;
         let dt = &s.metadata.datatype;
         let specific = &s.metadata.specific;
         if let Some(mixed) = Self::build_mixed_parser(specific, st, ps, dt, total_events) {
@@ -1579,7 +1580,7 @@ trait MetadataLike: Sized {
                     .build_int_parser(st, ps, total_events)
                     .map(ColumnParser::Int),
                 AlphaNumType::Ascii => Some(ColumnParser::FixedWidthAscii(FixedAsciiParser {
-                    columns: parameter_widths,
+                    columns: measurement_widths,
                     nrows: total_events,
                 })),
             }
@@ -1606,10 +1607,10 @@ trait MetadataLike: Sized {
         }
         match (Self::get_event_width(s), s.metadata.datatype) {
             // Numeric/Ascii (fixed width)
-            (EventWidth::Finite(parameter_widths), _) => {
-                let event_width = parameter_widths.iter().map(|x| u32::from(*x)).sum();
+            (EventWidth::Finite(measurement_widths), _) => {
+                let event_width = measurement_widths.iter().map(|x| u32::from(*x)).sum();
                 Self::get_total_events(st, s, event_width).and_then(|total_events| {
-                    Self::build_fixed_width_parser(st, s, total_events, parameter_widths)
+                    Self::build_fixed_width_parser(st, s, total_events, measurement_widths)
                 })
             }
             // Ascii (variable width)
@@ -1621,10 +1622,10 @@ trait MetadataLike: Sized {
             (EventWidth::Error(fixed, variable), _) => {
                 st.push_meta_error(String::from("$PnBs are a mix of numeric and variable"));
                 for f in fixed {
-                    st.push_meta_error(format!("$PnB for parameter {f} is numeric"));
+                    st.push_meta_error(format!("$PnB for measurement {f} is numeric"));
                 }
                 for v in variable {
-                    st.push_meta_error(format!("$PnB for parameter {v} is variable"));
+                    st.push_meta_error(format!("$PnB for measurement {v} is variable"));
                 }
                 None
             }
@@ -1643,9 +1644,9 @@ trait MetadataLike: Sized {
     }
 
     fn get_shortnames(s: &StdText<Self, Self::P>) -> Vec<&str> {
-        s.parameters
+        s.measurements
             .iter()
-            .filter_map(|p| Self::P::parameter_name(p))
+            .filter_map(|p| Self::P::measurement_name(p))
             .collect()
     }
 
@@ -1654,9 +1655,9 @@ trait MetadataLike: Sized {
     fn validate_time_channel(st: &mut KwState, s: &StdText<Self, Self::P>) {
         if let Some(time_name) = st.conf.time_shortname.as_ref() {
             if let Some(tc) = s
-                .parameters
+                .measurements
                 .iter()
-                .find(|p| match Self::P::parameter_name(p) {
+                .find(|p| match Self::P::measurement_name(p) {
                     Some(n) => n == time_name,
                     _ => false,
                 })
@@ -1700,12 +1701,12 @@ trait MetadataLike: Sized {
         // ensure time channel is valid if present
         Self::validate_time_channel(st, s);
 
-        // validate $TRIGGER with parameter names
+        // validate $TRIGGER with measurement names
         if let OptionalKw::Present(tr) = &s.metadata.tr {
-            if !shortnames.contains(&tr.parameter.as_str()) {
+            if !shortnames.contains(&tr.measurement.as_str()) {
                 st.push_meta_error(format!(
-                    "Trigger parameter '{}' is not in parameter set",
-                    tr.parameter
+                    "Trigger measurement '{}' is not in measurement set",
+                    tr.measurement
                 ));
             }
         }
@@ -1742,7 +1743,7 @@ trait MetadataLike: Sized {
 fn build_int_parser_2_0<X>(
     st: &mut KwState,
     byteord: &ByteOrd,
-    ps: &[Parameter<X>],
+    ps: &[Measurement<X>],
     total_events: usize,
 ) -> Option<IntParser> {
     let nbytes = byteord.num_bytes();
@@ -1767,7 +1768,7 @@ fn build_int_parser_2_0<X>(
     } else {
         for e in remainder.iter().enumerate().map(|(i, p)| {
             format!(
-                "Parameter {} uses {} bytes when DATATYPE=I \
+                "Measurement {} uses {} bytes when DATATYPE=I \
                          and BYTEORD implies {} bytes",
                 i, p.bytes, nbytes
             )
@@ -1778,8 +1779,8 @@ fn build_int_parser_2_0<X>(
     }
 }
 
-impl MetadataLike for InnerMetadata2_0 {
-    type P = InnerParameter2_0;
+impl VersionedMetadata for InnerMetadata2_0 {
+    type P = InnerMeasurment2_0;
 
     fn get_data_offsets(s: &StdText<Self, Self::P>) -> Offsets {
         s.header.data
@@ -1800,7 +1801,7 @@ impl MetadataLike for InnerMetadata2_0 {
     fn build_int_parser(
         &self,
         st: &mut KwState,
-        ps: &[Parameter<Self::P>],
+        ps: &[Measurement<Self::P>],
         total_events: usize,
     ) -> Option<IntParser> {
         build_int_parser_2_0(st, &self.byteord, ps, total_events)
@@ -1809,7 +1810,7 @@ impl MetadataLike for InnerMetadata2_0 {
     fn build_mixed_parser(
         &self,
         _: &mut KwState,
-        _: &[Parameter<Self::P>],
+        _: &[Measurement<Self::P>],
         _: &AlphaNumType,
         _: usize,
     ) -> Option<Option<MixedParser>> {
@@ -1829,8 +1830,8 @@ impl MetadataLike for InnerMetadata2_0 {
     }
 }
 
-impl MetadataLike for InnerMetadata3_0 {
-    type P = InnerParameter3_0;
+impl VersionedMetadata for InnerMetadata3_0 {
+    type P = InnerMeasurement3_0;
 
     fn get_data_offsets(s: &StdText<Self, Self::P>) -> Offsets {
         let header_offsets = s.header.data;
@@ -1856,7 +1857,7 @@ impl MetadataLike for InnerMetadata3_0 {
     fn build_int_parser(
         &self,
         st: &mut KwState,
-        ps: &[Parameter<Self::P>],
+        ps: &[Measurement<Self::P>],
         total_events: usize,
     ) -> Option<IntParser> {
         build_int_parser_2_0(st, &self.byteord, ps, total_events)
@@ -1865,7 +1866,7 @@ impl MetadataLike for InnerMetadata3_0 {
     fn build_mixed_parser(
         &self,
         _: &mut KwState,
-        _: &[Parameter<Self::P>],
+        _: &[Measurement<Self::P>],
         _: &AlphaNumType,
         _: usize,
     ) -> Option<Option<MixedParser>> {
@@ -1890,8 +1891,8 @@ impl MetadataLike for InnerMetadata3_0 {
     }
 }
 
-impl MetadataLike for InnerMetadata3_1 {
-    type P = InnerParameter3_1;
+impl VersionedMetadata for InnerMetadata3_1 {
+    type P = InnerMeasurement3_1;
 
     fn get_data_offsets(s: &StdText<Self, Self::P>) -> Offsets {
         let header_offsets = s.header.data;
@@ -1917,7 +1918,7 @@ impl MetadataLike for InnerMetadata3_1 {
     fn build_int_parser(
         &self,
         st: &mut KwState,
-        ps: &[Parameter<Self::P>],
+        ps: &[Measurement<Self::P>],
         total_events: usize,
     ) -> Option<IntParser> {
         build_int_parser_2_0(st, &ByteOrd::Endian(self.byteord), ps, total_events)
@@ -1926,7 +1927,7 @@ impl MetadataLike for InnerMetadata3_1 {
     fn build_mixed_parser(
         &self,
         _: &mut KwState,
-        _: &[Parameter<Self::P>],
+        _: &[Measurement<Self::P>],
         _: &AlphaNumType,
         _: usize,
     ) -> Option<Option<MixedParser>> {
@@ -1956,8 +1957,8 @@ impl MetadataLike for InnerMetadata3_1 {
     }
 }
 
-impl MetadataLike for InnerMetadata3_2 {
-    type P = InnerParameter3_2;
+impl VersionedMetadata for InnerMetadata3_2 {
+    type P = InnerMeasurement3_2;
 
     // TODO not DRY
     fn get_data_offsets(s: &StdText<Self, Self::P>) -> Offsets {
@@ -1984,7 +1985,7 @@ impl MetadataLike for InnerMetadata3_2 {
     fn build_int_parser(
         &self,
         st: &mut KwState,
-        ps: &[Parameter<Self::P>],
+        ps: &[Measurement<Self::P>],
         total_events: usize,
     ) -> Option<IntParser> {
         build_int_parser_2_0(st, &ByteOrd::Endian(self.byteord), ps, total_events)
@@ -1993,7 +1994,7 @@ impl MetadataLike for InnerMetadata3_2 {
     fn build_mixed_parser(
         &self,
         st: &mut KwState,
-        ps: &[Parameter<Self::P>],
+        ps: &[Measurement<Self::P>],
         dt: &AlphaNumType,
         total_events: usize,
     ) -> Option<Option<MixedParser>> {
@@ -2038,7 +2039,7 @@ impl MetadataLike for InnerMetadata3_2 {
                     (dt, overridden, _, bytes) => {
                         let sdt = if overridden { "PnDATATYPE" } else { "DATATYPE" };
                         Err(vec![format!(
-                            "{}={} but PnB={} for parameter {}",
+                            "{}={} but PnB={} for measurement {}",
                             sdt, dt, bytes, i
                         )])
                     }
@@ -2074,7 +2075,7 @@ impl MetadataLike for InnerMetadata3_2 {
             for u in centers.keys() {
                 if !names.contains(u.as_str()) {
                     st.push_meta_error(format!(
-                        "Unstained center named {u} is not in parameter set",
+                        "Unstained center named {u} is not in measurement set",
                     ));
                 }
             }
@@ -2240,7 +2241,6 @@ pub struct StandardErrors {
 }
 
 impl KwState<'_> {
-    // TODO format $param here
     // TODO not DRY (although will likely need HKTs)
     fn lookup_required<V, F>(&mut self, k: &str, f: F, dep: bool) -> Option<V>
     where
@@ -2495,7 +2495,7 @@ impl KwState<'_> {
             "TR",
             |s| match s.split(",").collect::<Vec<&str>>()[..] {
                 [p, n1] => parse_int(n1).map(|threshold| Trigger {
-                    parameter: String::from(p),
+                    measurement: String::from(p),
                     threshold,
                 }),
                 _ => Err(String::from("wrong number of fields")),
@@ -2724,36 +2724,30 @@ impl KwState<'_> {
 
     // TODO comp matrices
 
-    // parameters
+    // measurements
 
-    fn lookup_param_req<V, F>(&mut self, param: &'static str, n: u32, f: F, dep: bool) -> Option<V>
+    fn lookup_meas_req<V, F>(&mut self, m: &'static str, n: u32, f: F, dep: bool) -> Option<V>
     where
         F: FnOnce(&str) -> ParseResult<V>,
     {
-        self.lookup_required(&format_param(n, param), f, dep)
+        self.lookup_required(&format_measurement(n, m), f, dep)
     }
 
-    fn lookup_param_opt<V, F>(
-        &mut self,
-        param: &'static str,
-        n: u32,
-        f: F,
-        dep: bool,
-    ) -> OptionalKw<V>
+    fn lookup_meas_opt<V, F>(&mut self, m: &'static str, n: u32, f: F, dep: bool) -> OptionalKw<V>
     where
         F: FnOnce(&str) -> ParseResult<V>,
     {
-        self.lookup_optional(&format_param(n, param), f, dep)
+        self.lookup_optional(&format_measurement(n, m), f, dep)
     }
 
     // this is actually read the PnB field which has "bits" in it, but as
     // far as I know nobody is using anything other than evenly-spaced bytes
-    fn lookup_param_bytes(&mut self, n: u32) -> Option<Bytes> {
-        self.lookup_param_req("B", n, parse_bytes, false)
+    fn lookup_meas_bytes(&mut self, n: u32) -> Option<Bytes> {
+        self.lookup_meas_req("B", n, parse_bytes, false)
     }
 
-    fn lookup_param_range(&mut self, n: u32) -> Option<Range> {
-        self.lookup_param_req(
+    fn lookup_meas_range(&mut self, n: u32) -> Option<Range> {
+        self.lookup_meas_req(
             "R",
             n,
             |s| match s.parse::<u64>() {
@@ -2770,24 +2764,24 @@ impl KwState<'_> {
         )
     }
 
-    fn lookup_param_wavelength(&mut self, n: u32) -> OptionalKw<u32> {
-        self.lookup_param_opt("L", n, parse_int, false)
+    fn lookup_meas_wavelength(&mut self, n: u32) -> OptionalKw<u32> {
+        self.lookup_meas_opt("L", n, parse_int, false)
     }
 
-    fn lookup_param_power(&mut self, n: u32) -> OptionalKw<u32> {
-        self.lookup_param_opt("O", n, parse_int, false)
+    fn lookup_meas_power(&mut self, n: u32) -> OptionalKw<u32> {
+        self.lookup_meas_opt("O", n, parse_int, false)
     }
 
-    fn lookup_param_detector_type(&mut self, n: u32) -> OptionalKw<String> {
-        self.lookup_param_opt("T", n, parse_str, false)
+    fn lookup_meas_detector_type(&mut self, n: u32) -> OptionalKw<String> {
+        self.lookup_meas_opt("T", n, parse_str, false)
     }
 
-    fn lookup_param_shortname_req(&mut self, n: u32) -> Option<String> {
-        self.lookup_param_req("N", n, parse_str, false)
+    fn lookup_meas_shortname_req(&mut self, n: u32) -> Option<String> {
+        self.lookup_meas_req("N", n, parse_str, false)
     }
 
-    fn lookup_param_shortname_opt(&mut self, n: u32) -> OptionalKw<String> {
-        self.lookup_param_opt(
+    fn lookup_meas_shortname_opt(&mut self, n: u32) -> OptionalKw<String> {
+        self.lookup_meas_opt(
             "N",
             n,
             |s| {
@@ -2801,48 +2795,48 @@ impl KwState<'_> {
         )
     }
 
-    fn lookup_param_longname(&mut self, n: u32) -> OptionalKw<String> {
-        self.lookup_param_opt("S", n, parse_str, false)
+    fn lookup_meas_longname(&mut self, n: u32) -> OptionalKw<String> {
+        self.lookup_meas_opt("S", n, parse_str, false)
     }
 
-    fn lookup_param_filter(&mut self, n: u32) -> OptionalKw<String> {
-        self.lookup_param_opt("F", n, parse_str, false)
+    fn lookup_meas_filter(&mut self, n: u32) -> OptionalKw<String> {
+        self.lookup_meas_opt("F", n, parse_str, false)
     }
 
-    fn lookup_param_percent_emitted(&mut self, n: u32, dep: bool) -> OptionalKw<u32> {
-        self.lookup_param_opt("P", n, parse_int, dep)
+    fn lookup_meas_percent_emitted(&mut self, n: u32, dep: bool) -> OptionalKw<u32> {
+        self.lookup_meas_opt("P", n, parse_int, dep)
     }
 
-    fn lookup_param_detector_voltage(&mut self, n: u32) -> OptionalKw<f32> {
-        self.lookup_param_opt("V", n, parse_float, false)
+    fn lookup_meas_detector_voltage(&mut self, n: u32) -> OptionalKw<f32> {
+        self.lookup_meas_opt("V", n, parse_float, false)
     }
 
-    fn lookup_param_detector(&mut self, n: u32) -> OptionalKw<String> {
-        self.lookup_param_opt("DET", n, parse_str, false)
+    fn lookup_meas_detector(&mut self, n: u32) -> OptionalKw<String> {
+        self.lookup_meas_opt("DET", n, parse_str, false)
     }
 
-    fn lookup_param_tag(&mut self, n: u32) -> OptionalKw<String> {
-        self.lookup_param_opt("TAG", n, parse_str, false)
+    fn lookup_meas_tag(&mut self, n: u32) -> OptionalKw<String> {
+        self.lookup_meas_opt("TAG", n, parse_str, false)
     }
 
-    fn lookup_param_analyte(&mut self, n: u32) -> OptionalKw<String> {
-        self.lookup_param_opt("ANALYTE", n, parse_str, false)
+    fn lookup_meas_analyte(&mut self, n: u32) -> OptionalKw<String> {
+        self.lookup_meas_opt("ANALYTE", n, parse_str, false)
     }
 
-    fn lookup_param_gain(&mut self, n: u32) -> OptionalKw<f32> {
-        self.lookup_param_opt("G", n, parse_float, false)
+    fn lookup_meas_gain(&mut self, n: u32) -> OptionalKw<f32> {
+        self.lookup_meas_opt("G", n, parse_float, false)
     }
 
-    fn lookup_param_scale_req(&mut self, n: u32) -> Option<Scale> {
-        self.lookup_param_req("E", n, parse_scale, false)
+    fn lookup_meas_scale_req(&mut self, n: u32) -> Option<Scale> {
+        self.lookup_meas_req("E", n, parse_scale, false)
     }
 
-    fn lookup_param_scale_opt(&mut self, n: u32) -> OptionalKw<Scale> {
-        self.lookup_param_opt("E", n, parse_scale, false)
+    fn lookup_meas_scale_opt(&mut self, n: u32) -> OptionalKw<Scale> {
+        self.lookup_meas_opt("E", n, parse_scale, false)
     }
 
-    fn lookup_param_calibration(&mut self, n: u32) -> OptionalKw<Calibration> {
-        self.lookup_param_opt(
+    fn lookup_meas_calibration(&mut self, n: u32) -> OptionalKw<Calibration> {
+        self.lookup_meas_opt(
             "CALIBRATION",
             n,
             |s| {
@@ -2862,9 +2856,9 @@ impl KwState<'_> {
         )
     }
 
-    // for 3.1+ PnL parameters, which can have multiple wavelengths
-    fn lookup_param_wavelengths(&mut self, n: u32) -> Vec<u32> {
-        self.lookup_param_opt(
+    // for 3.1+ PnL measurements, which can have multiple wavelengths
+    fn lookup_meas_wavelengths(&mut self, n: u32) -> Vec<u32> {
+        self.lookup_meas_opt(
             "L",
             n,
             |s| {
@@ -2883,8 +2877,8 @@ impl KwState<'_> {
         .unwrap_or_default()
     }
 
-    fn lookup_param_display(&mut self, n: u32) -> OptionalKw<Display> {
-        self.lookup_param_opt(
+    fn lookup_meas_display(&mut self, n: u32) -> OptionalKw<Display> {
+        self.lookup_meas_opt(
             "D",
             n,
             |s| {
@@ -2906,8 +2900,8 @@ impl KwState<'_> {
         )
     }
 
-    fn lookup_param_datatype(&mut self, n: u32) -> OptionalKw<NumType> {
-        self.lookup_param_opt(
+    fn lookup_meas_datatype(&mut self, n: u32) -> OptionalKw<NumType> {
+        self.lookup_meas_opt(
             "DATATYPE",
             n,
             |s| match s {
@@ -2920,8 +2914,8 @@ impl KwState<'_> {
         )
     }
 
-    fn lookup_param_type(&mut self, n: u32) -> OptionalKw<MeasurementType> {
-        self.lookup_param_opt(
+    fn lookup_meas_type(&mut self, n: u32) -> OptionalKw<MeasurementType> {
+        self.lookup_meas_opt(
             "TYPE",
             n,
             |s| match s {
@@ -2937,16 +2931,15 @@ impl KwState<'_> {
         )
     }
 
-    // TODO some imaging cytometers store "Eccentricity" and friends in here
-    fn lookup_param_feature(&mut self, n: u32) -> OptionalKw<Feature> {
-        self.lookup_param_opt(
+    fn lookup_meas_feature(&mut self, n: u32) -> OptionalKw<Feature> {
+        self.lookup_meas_opt(
             "FEATURE",
             n,
             |s| match s {
                 "Area" => Ok(Feature::Area),
                 "Width" => Ok(Feature::Width),
                 "Height" => Ok(Feature::Height),
-                _ => Err(String::from("unknown parameter feature")),
+                _ => Err(String::from("unknown measurement feature")),
             },
             false,
         )

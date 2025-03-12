@@ -1650,38 +1650,39 @@ trait MetadataLike: Sized {
     fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: &HashSet<&str>);
 
     fn validate_time_channel(st: &mut KwState, s: &StdText<Self, Self::P>) {
-        let time_name = st.conf.time_shortname.as_deref().unwrap_or("Time");
-        if let Some(tc) = s
-            .parameters
-            .iter()
-            .find(|p| match Self::P::parameter_name(p) {
-                Some(n) => n == time_name,
-                _ => false,
-            })
-        {
-            if !tc.specific.has_linear_scale() {
+        if let Some(time_name) = st.conf.time_shortname.as_ref() {
+            if let Some(tc) = s
+                .parameters
+                .iter()
+                .find(|p| match Self::P::parameter_name(p) {
+                    Some(n) => n == time_name,
+                    _ => false,
+                })
+            {
+                if !tc.specific.has_linear_scale() {
+                    st.push_meta_error_or_warning(
+                        st.conf.ensure_time_linear,
+                        String::from("Time channel must have linear $PnE"),
+                    );
+                }
+                if tc.specific.has_gain() {
+                    st.push_meta_error_or_warning(
+                        st.conf.ensure_time_nogain,
+                        String::from("Time channel must not have $PnG"),
+                    );
+                }
+                if !s.metadata.specific.has_timestep() {
+                    st.push_meta_error_or_warning(
+                        st.conf.ensure_time_timestep,
+                        String::from("$TIMESTEP must be present if time channel given"),
+                    );
+                }
+            } else {
                 st.push_meta_error_or_warning(
-                    st.conf.ensure_time_linear,
-                    String::from("Time channel must have linear $PnE"),
+                    st.conf.ensure_time,
+                    format!("Channel called '{time_name}' not found for time"),
                 );
             }
-            if tc.specific.has_gain() {
-                st.push_meta_error_or_warning(
-                    st.conf.ensure_time_nogain,
-                    String::from("Time channel must not have $PnG"),
-                );
-            }
-            if !s.metadata.specific.has_timestep() {
-                st.push_meta_error_or_warning(
-                    st.conf.ensure_time_timestep,
-                    String::from("$TIMESTEP must be present if time channel given"),
-                );
-            }
-        } else {
-            st.push_meta_error_or_warning(
-                st.conf.ensure_time,
-                format!("Channel called '{time_name}' not found for time"),
-            );
         }
     }
 
@@ -3370,6 +3371,10 @@ pub struct RawTextReader {
 /// Instructions for reading the TEXT segment in a standardized structure.
 pub struct StdTextReader {
     raw: RawTextReader,
+    /// If given, will be the $PnN used to identify the time channel. Means
+    /// nothing for 2.0. Will be used for the [`ensure_time*`] options below.
+    /// If not given, skip time channel checking entirely.
+    time_shortname: Option<String>,
     /// If true, will ensure that time channel is present
     ensure_time: bool,
     /// If true, will ensure TIMESTEP is present if time channel is also
@@ -3379,10 +3384,6 @@ pub struct StdTextReader {
     ensure_time_linear: bool,
     /// If true, will ensure PnG is absent for time channel.
     ensure_time_nogain: bool,
-    /// If given, will be the $PnN used to identify the time channel. If not
-    /// given, defaults to "Time". Means nothing for 2.0. Will be used for the
-    /// [`ensure_time*`] options above.
-    time_shortname: Option<String>,
     // TODO add error handing stuff
     // TODO add repair stuff
 }

@@ -838,7 +838,7 @@ struct TEXTSuccess<T> {
     text: T,
     data_parser: DataParser,
     warnings: Vec<KwMsg>,
-    deprecated_keywords: Vec<Key>,
+    deprecated: Vec<String>,
 }
 
 type TEXTResult<T> = Result<TEXTSuccess<T>, StandardErrors>;
@@ -876,13 +876,13 @@ impl<M: VersionedMetadata> StdText<M, M::P> {
                         text,
                         warnings,
                         data_parser,
-                        deprecated_keywords,
+                        deprecated,
                     } = st.into_result(s, data_parser)?;
                     Ok(TEXTSuccess {
                         text: M::into_any_text(Box::new(text)),
                         warnings,
                         data_parser,
-                        deprecated_keywords,
+                        deprecated,
                     })
                 }
                 None => Err(st.into_errors_ns(s)),
@@ -2210,10 +2210,9 @@ impl KwValue {
 struct KwState<'a> {
     raw_keywords: HashMap<Key, KwValue>,
     missing_keywords: Vec<Key>,
-    deprecated_keywords: Vec<Key>,
+    deprecated: Vec<String>,
     meta_errors: Vec<String>,
     meta_warnings: Vec<String>,
-    meta_deprecated: Vec<String>,
     conf: &'a StdTextReader,
 }
 
@@ -2232,19 +2231,14 @@ pub struct StandardErrors {
     /// keywords are present and `disallow_nonstandard` is true.
     nonstandard_keywords: Vec<Key>,
 
-    /// Keywords which have been deprecated. This will be empty unless such
-    /// keywords are present and `disallow_deprecated` is true.
-    deprecated_keywords: Vec<Key>,
-
     /// Errors that pertain to one keyword value
     value_errors: Vec<KwMsg>,
 
     /// Errors involving multiple keywords, like PnB not matching DATATYPE
     meta_errors: Vec<String>,
 
-    /// Deprecated features that do not pertain to presence/absence of a
-    /// keyword. Always empty unless `disallow_deprecated` is true.
-    meta_deprecated: Vec<String>,
+    /// Deprecated features. Always empty unless `disallow_deprecated` is true.
+    deprecated: Vec<String>,
 
     /// Non-fatal warnings, included here for the case where all warnings are
     /// considered fatal by user wanting total strictness
@@ -2266,7 +2260,8 @@ impl KwState<'_> {
                         |x| (ValueStatus::Used, Some(x)),
                     );
                     if dep {
-                        self.deprecated_keywords.push(sk);
+                        self.deprecated
+                            .push(format!("Keyword '{}' has been deprecated", sk.0))
                     }
                     v.status = s;
                     r
@@ -2293,7 +2288,8 @@ impl KwState<'_> {
                         |x| (ValueStatus::Used, OptionalKw::Present(x)),
                     );
                     if dep {
-                        self.deprecated_keywords.push(sk);
+                        self.deprecated
+                            .push(format!("Keyword '{}' has been deprecated", sk.0))
                     }
                     v.status = s;
                     r
@@ -3006,7 +3002,7 @@ impl KwState<'_> {
     }
 
     fn push_meta_deprecated_str(&mut self, msg: &str) {
-        self.meta_deprecated.push(String::from(msg));
+        self.deprecated.push(String::from(msg));
     }
 
     fn push_meta_error_or_warning(&mut self, is_error: bool, msg: String) {
@@ -3080,9 +3076,7 @@ impl KwState<'_> {
             || !self.missing_keywords.is_empty()
             || !self.meta_errors.is_empty();
         let has_warning_error = self.conf.warnings_are_errors && !self.meta_warnings.is_empty();
-        let has_deprecated_error = (!self.deprecated_keywords.is_empty()
-            || !self.meta_deprecated.is_empty())
-            && self.conf.disallow_deprecated;
+        let has_deprecated_error = !self.deprecated.is_empty() && self.conf.disallow_deprecated;
         let has_meas_nonstandard = standard
             .measurements
             .iter()
@@ -3108,20 +3102,19 @@ impl KwState<'_> {
             } else {
                 vec![]
             };
-            let (deprecated_keywords, meta_deprecated) = if self.conf.disallow_deprecated {
-                (self.deprecated_keywords, self.meta_deprecated)
+            let deprecated = if self.conf.disallow_deprecated {
+                self.deprecated
             } else {
-                (vec![], vec![])
+                vec![]
             };
             Err(StandardErrors {
                 missing_keywords: self.missing_keywords,
                 value_errors,
                 meta_errors: self.meta_errors,
-                meta_deprecated,
+                deprecated,
                 warnings: self.meta_warnings,
                 deviant_keywords,
                 nonstandard_keywords,
-                deprecated_keywords,
             })
         } else {
             let text = ParsedTEXT {
@@ -3133,7 +3126,7 @@ impl KwState<'_> {
                 text,
                 data_parser,
                 warnings,
-                deprecated_keywords: self.deprecated_keywords,
+                deprecated: self.deprecated,
             })
         }
     }
@@ -3152,20 +3145,19 @@ impl KwState<'_> {
             vec![]
         };
         let deviant_keywords = Self::keys_maybe(self.conf.disallow_deviant, deviant);
-        let (deprecated_keywords, meta_deprecated) = if self.conf.disallow_deprecated {
-            (self.deprecated_keywords, self.meta_deprecated)
+        let deprecated = if self.conf.disallow_deprecated {
+            self.deprecated
         } else {
-            (vec![], vec![])
+            vec![]
         };
         StandardErrors {
             missing_keywords: self.missing_keywords,
             value_errors,
             meta_errors: self.meta_errors,
-            meta_deprecated,
             warnings: self.meta_warnings,
             deviant_keywords,
             nonstandard_keywords,
-            deprecated_keywords,
+            deprecated,
         }
     }
 
@@ -3173,20 +3165,19 @@ impl KwState<'_> {
         let (nonstandard, deviant, _, value_errors) = Self::split_keywords(self.raw_keywords);
         let nonstandard_keywords = Self::keys_maybe(self.conf.disallow_nonstandard, nonstandard);
         let deviant_keywords = Self::keys_maybe(self.conf.disallow_deviant, deviant);
-        let (deprecated_keywords, meta_deprecated) = if self.conf.disallow_deprecated {
-            (self.deprecated_keywords, self.meta_deprecated)
+        let deprecated = if self.conf.disallow_deprecated {
+            self.deprecated
         } else {
-            (vec![], vec![])
+            vec![]
         };
         StandardErrors {
             missing_keywords: self.missing_keywords,
             value_errors,
             meta_errors: self.meta_errors,
-            meta_deprecated,
             warnings: self.meta_warnings,
             deviant_keywords,
             nonstandard_keywords,
-            deprecated_keywords,
+            deprecated,
         }
     }
 }
@@ -3276,11 +3267,10 @@ impl RawTEXT {
         }
         KwState {
             raw_keywords: keywords,
-            deprecated_keywords: vec![],
+            deprecated: vec![],
             missing_keywords: vec![],
             meta_errors: vec![],
             meta_warnings: vec![],
-            meta_deprecated: vec![],
             conf,
         }
     }

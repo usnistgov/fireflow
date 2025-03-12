@@ -330,6 +330,7 @@ enum MeasurementType {
     ElectronicVolume,
     Classification,
     Index,
+    Other(String),
 }
 
 #[derive(Debug, Clone)]
@@ -2906,7 +2907,7 @@ impl KwState<'_> {
                 "Time" => Ok(MeasurementType::Time),
                 "Index" => Ok(MeasurementType::Index),
                 "Classification" => Ok(MeasurementType::Classification),
-                _ => Err(String::from("unknown measurement type")),
+                s => Ok(MeasurementType::Other(String::from(s))),
             },
             false,
         )

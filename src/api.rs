@@ -158,7 +158,7 @@ impl Offsets {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord)]
 enum Version {
     FCS2_0,
     FCS3_0,
@@ -186,7 +186,7 @@ struct Header {
     analysis: Offsets,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 enum AlphaNumType {
     Ascii,
     Integer,
@@ -1598,6 +1598,11 @@ trait MetadataLike: Sized {
         // In order to make a data parser, the $DATATYPE, $BYTEORD, $PnB, and
         // $PnDATATYPE (if present) all need to be a specific relationship to
         // each other, each of which corresponds to the options below.
+        if s.metadata.datatype == AlphaNumType::Ascii && Self::P::fcs_version() >= Version::FCS3_1 {
+            st.push_meta_deprecated(String::from(
+                "$DATATYPE=A has been deprecated since FCS 3.1",
+            ));
+        }
         match (Self::get_event_width(s), s.metadata.datatype) {
             // Numeric/Ascii (fixed width)
             (EventWidth::Finite(parameter_widths), _) => {
@@ -2181,6 +2186,7 @@ struct KwState<'a> {
     deprecated_keywords: Vec<Key>,
     meta_errors: Vec<String>,
     meta_warnings: Vec<String>,
+    meta_deprecated: Vec<String>,
     conf: &'a StdTextReader,
 }
 
@@ -2208,6 +2214,10 @@ pub struct StandardErrors {
 
     /// Errors involving multiple keywords, like PnB not matching DATATYPE
     meta_errors: Vec<String>,
+
+    /// Deprecated features that do not pertain to presence/absence of a
+    /// keyword. Always empty unless `disallow_deprecated` is true.
+    meta_deprecated: Vec<String>,
 
     /// Non-fatal warnings, included here for the case where all warnings are
     /// considered fatal by user wanting total strictness
@@ -2921,21 +2931,16 @@ impl KwState<'_> {
         self.meta_warnings.push(msg);
     }
 
+    fn push_meta_deprecated(&mut self, msg: String) {
+        self.meta_deprecated.push(msg);
+    }
+
     fn push_meta_error_or_warning(&mut self, is_error: bool, msg: String) {
         if is_error {
             self.meta_errors.push(msg);
         } else {
             self.meta_warnings.push(msg);
         }
-    }
-
-    fn has_errors(&self) -> bool {
-        let warning_errors = if self.conf.warnings_are_errors {
-            !self.meta_warnings.is_empty()
-        } else {
-            false
-        };
-        !self.missing_keywords.is_empty() || !self.meta_errors.is_empty() || warning_errors
     }
 
     fn split_keywords(
@@ -2982,81 +2987,88 @@ impl KwState<'_> {
         )
     }
 
+    fn keys_maybe<K, V>(test: bool, map: HashMap<K, V>) -> Vec<K> {
+        if test {
+            vec![]
+        } else {
+            map.into_keys().collect()
+        }
+    }
+
     fn into_result<T>(
         self,
         standard: T,
         data_parser: DataParser,
     ) -> Result<TEXTSuccess<TexT<T>>, StandardErrors> {
-        if self.has_errors() {
-            Err(self.into_errors())
-        } else {
-            let (nonstandard, deviant, warnings, value_errors) =
-                Self::split_keywords(self.raw_keywords);
-            let has_value_error = value_errors.is_empty();
-            let has_deprecated_error =
-                !self.deprecated_keywords.is_empty() && self.conf.disallow_deprecated;
-            let has_nonstandard_error = !nonstandard.is_empty() && self.conf.disallow_nonstandard;
-            let has_deviant_error = !deviant.is_empty() && self.conf.disallow_deviant;
-            let keys_maybe = |test, map: HashMap<_, _>| {
-                if test {
-                    vec![]
-                } else {
-                    map.into_keys().collect()
-                }
-            };
-            if has_value_error || has_nonstandard_error || has_deviant_error || has_deprecated_error
-            {
-                let deviant_keywords = keys_maybe(self.conf.disallow_deviant, deviant);
-                let nonstandard_keywords = keys_maybe(self.conf.disallow_nonstandard, nonstandard);
-                let deprecated_keywords = if self.conf.disallow_deprecated {
-                    self.deprecated_keywords
-                } else {
-                    vec![]
-                };
-                Err(StandardErrors {
-                    missing_keywords: self.missing_keywords,
-                    value_errors,
-                    meta_errors: self.meta_errors,
-                    warnings: self.meta_warnings,
-                    deviant_keywords,
-                    nonstandard_keywords,
-                    deprecated_keywords,
-                })
+        let (nonstandard, deviant, warnings, value_errors) =
+            Self::split_keywords(self.raw_keywords);
+        let has_critical_error = !value_errors.is_empty()
+            || !self.missing_keywords.is_empty()
+            || !self.meta_errors.is_empty();
+        let has_warning_error = self.conf.warnings_are_errors && !self.meta_warnings.is_empty();
+        let has_deprecated_error = (!self.deprecated_keywords.is_empty()
+            || !self.meta_deprecated.is_empty())
+            && self.conf.disallow_deprecated;
+        let has_nonstandard_error = !nonstandard.is_empty() && self.conf.disallow_nonstandard;
+        let has_deviant_error = !deviant.is_empty() && self.conf.disallow_deviant;
+
+        if has_critical_error
+            || has_warning_error
+            || has_nonstandard_error
+            || has_deviant_error
+            || has_deprecated_error
+        {
+            let deviant_keywords = Self::keys_maybe(self.conf.disallow_deviant, deviant);
+            let nonstandard_keywords =
+                Self::keys_maybe(self.conf.disallow_nonstandard, nonstandard);
+            let (deprecated_keywords, meta_deprecated) = if self.conf.disallow_deprecated {
+                (self.deprecated_keywords, self.meta_deprecated)
             } else {
-                let text = TexT {
-                    standard,
-                    nonstandard,
-                    deviant,
-                };
-                Ok(TEXTSuccess {
-                    text,
-                    data_parser,
-                    warnings,
-                    deprecated_keywords: self.deprecated_keywords,
-                })
-            }
+                (vec![], vec![])
+            };
+            Err(StandardErrors {
+                missing_keywords: self.missing_keywords,
+                value_errors,
+                meta_errors: self.meta_errors,
+                meta_deprecated,
+                warnings: self.meta_warnings,
+                deviant_keywords,
+                nonstandard_keywords,
+                deprecated_keywords,
+            })
+        } else {
+            let text = TexT {
+                standard,
+                nonstandard,
+                deviant,
+            };
+            Ok(TEXTSuccess {
+                text,
+                data_parser,
+                warnings,
+                deprecated_keywords: self.deprecated_keywords,
+            })
         }
     }
 
     fn into_errors(self) -> StandardErrors {
         let (nonstandard, deviant, _, value_errors) = Self::split_keywords(self.raw_keywords);
-        let nonstandard_keywords = if self.conf.disallow_nonstandard {
-            vec![]
+        let nonstandard_keywords = Self::keys_maybe(self.conf.disallow_nonstandard, nonstandard);
+        let deviant_keywords = Self::keys_maybe(self.conf.disallow_deviant, deviant);
+        let (deprecated_keywords, meta_deprecated) = if self.conf.disallow_deprecated {
+            (self.deprecated_keywords, self.meta_deprecated)
         } else {
-            nonstandard.into_keys().collect()
-        };
-        let deviant_keywords = if self.conf.disallow_deviant {
-            vec![]
-        } else {
-            deviant.into_keys().collect()
+            (vec![], vec![])
         };
         StandardErrors {
             missing_keywords: self.missing_keywords,
             value_errors,
             meta_errors: self.meta_errors,
+            meta_deprecated,
             warnings: self.meta_warnings,
             deviant_keywords,
             nonstandard_keywords,
+            deprecated_keywords,
         }
     }
 }
@@ -3163,6 +3175,7 @@ impl RawTEXT {
             missing_keywords: vec![],
             meta_errors: vec![],
             meta_warnings: vec![],
+            meta_deprecated: vec![],
             conf,
         }
     }

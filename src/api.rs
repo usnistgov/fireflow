@@ -2638,7 +2638,21 @@ impl KwState<'_> {
     }
 
     fn lookup_date(&mut self, dep: bool) -> OptionalKw<NaiveDate> {
-        self.lookup_optional("DATE", parse_date, dep)
+        // the "%b" format is case-insensitive so this should work for "Jan", "JAN",
+        // "jan", "jaN", etc
+        self.lookup_optional(
+            "DATE",
+            |s| {
+                if let Some(pattern) = &self.conf.date_pattern {
+                    NaiveDate::parse_from_str(s, pattern.as_str())
+                        .or(Err(format!("does not match pattern '{pattern}'")))
+                } else {
+                    NaiveDate::parse_from_str(s, "%d-%b-%Y")
+                        .or(Err(String::from("must be formatted like 'dd-mmm-yyyy'")))
+                }
+            },
+            dep,
+        )
     }
 
     fn lookup_btim60(&mut self, dep: bool) -> OptionalKw<NaiveTime> {
@@ -3484,6 +3498,13 @@ pub struct StdTextReader {
     /// If true, throw an error if TEXT includes any keywords that do not
     /// start with "$".
     disallow_nonstandard: bool,
+
+    /// If supplied, will be used as an alternative pattern when parsing $DATE.
+    /// It should have specifiers for year, month, and day as outlined in
+    /// https://docs.rs/chrono/latest/chrono/format/strftime/index.html. If not
+    /// supplied, $DATE will be parsed according to the standard pattern which
+    /// is '%d-%b-%Y'.
+    date_pattern: Option<String>,
     // TODO add repair stuff
 }
 
@@ -3528,6 +3549,7 @@ pub fn std_reader() -> Reader {
             disallow_deprecated: false,
             disallow_nonstandard: false,
             disallow_deviant: false,
+            date_pattern: None,
         },
         data: DataReader {
             datastart_delta: 0,

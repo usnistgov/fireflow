@@ -508,7 +508,7 @@ trait VersionedMeasurement: Sized + Versioned {
 
     fn has_gain(&self) -> bool;
 
-    fn lookup_measurements(st: &mut KwState, par: u32) -> Option<Vec<Measurement<Self>>> {
+    fn lookup_measurements<'a>(st: &mut KwState, par: u32) -> Option<Vec<Measurement<Self>>> {
         let mut ps = vec![];
         let v = Self::fcs_version();
         for n in 1..(par + 1) {
@@ -526,7 +526,16 @@ trait VersionedMeasurement: Sized + Versioned {
             };
             ps.push(p);
         }
-        Some(ps)
+        let names: Vec<_> = ps
+            .iter()
+            .filter_map(|m| Self::measurement_name(m))
+            .collect();
+        if names.iter().unique().count() < names.len() {
+            st.push_meta_error_str("$PnN are not all unique");
+            None
+        } else {
+            Some(ps)
+        }
     }
 }
 
@@ -1631,14 +1640,7 @@ trait VersionedMetadata: Sized {
         })
     }
 
-    fn get_shortnames(s: &StdText<Self, Self::P>) -> Vec<&str> {
-        s.measurements
-            .iter()
-            .filter_map(|p| Self::P::measurement_name(p))
-            .collect()
-    }
-
-    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: &HashSet<&str>);
+    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>);
 
     fn validate_time_channel(st: &mut KwState, s: &StdText<Self, Self::P>) {
         if let Some(time_name) = st.conf.time_shortname.as_ref() {
@@ -1678,32 +1680,14 @@ trait VersionedMetadata: Sized {
     }
 
     fn validate(st: &mut KwState, s: &StdText<Self, Self::P>) {
-        let shortnames = s.get_shortnames();
-
-        // ensure all $PnN are unique
-        if shortnames.iter().unique().count() != shortnames.len() {
-            st.push_meta_error_str("All $PnN must be unique");
-        }
-        let hs_shortnames: HashSet<&str> = s.get_shortnames().into_iter().collect();
-
         // ensure time channel is valid if present
         Self::validate_time_channel(st, s);
 
-        // validate $TRIGGER with measurement names
-        if let OptionalKw::Present(tr) = &s.metadata.tr {
-            if !shortnames.contains(&tr.measurement.as_str()) {
-                st.push_meta_error(format!(
-                    "Trigger measurement '{}' is not in measurement set",
-                    tr.measurement
-                ));
-            }
-        }
-
         // do any version-specific validation
-        Self::validate_specific(st, s, &hs_shortnames);
+        Self::validate_specific(st, s);
     }
 
-    fn build_inner(st: &mut KwState, names: &HashSet<&str>) -> Option<Self>;
+    fn build_inner(st: &mut KwState, par: u32, names: &HashSet<&str>) -> Option<Self>;
 
     fn lookup_metadata(
         st: &mut KwState,
@@ -1731,7 +1715,7 @@ trait VersionedMetadata: Sized {
             src: st.lookup_src(),
             sys: st.lookup_sys(),
             tr: st.lookup_trigger(&names),
-            specific: Self::build_inner(st, &names)?,
+            specific: Self::build_inner(st, par, &names)?,
         })
     }
 }
@@ -1817,16 +1801,15 @@ impl VersionedMetadata for InnerMetadata2_0 {
         None
     }
 
-    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: &HashSet<&str>) {}
+    fn validate_specific(_: &mut KwState, _: &StdText<Self, Self::P>) {}
 
-    fn build_inner(st: &mut KwState, names: &HashSet<&str>) -> Option<InnerMetadata2_0> {
-        let par = names.len();
+    fn build_inner(st: &mut KwState, par: u32, _: &HashSet<&str>) -> Option<InnerMetadata2_0> {
         Some(InnerMetadata2_0 {
             tot: st.lookup_tot_opt(),
             mode: st.lookup_mode()?,
             byteord: st.lookup_byteord()?,
             cyt: st.lookup_cyt_opt(),
-            comp: st.lookup_compensation_2_0(par),
+            comp: st.lookup_compensation_2_0(par as usize),
             timestamps: st.lookup_timestamps2_0(false, false),
         })
     }
@@ -1879,9 +1862,9 @@ impl VersionedMetadata for InnerMetadata3_0 {
         None
     }
 
-    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: &HashSet<&str>) {}
+    fn validate_specific(_: &mut KwState, _: &StdText<Self, Self::P>) {}
 
-    fn build_inner(st: &mut KwState, _: &HashSet<&str>) -> Option<InnerMetadata3_0> {
+    fn build_inner(st: &mut KwState, _: u32, _: &HashSet<&str>) -> Option<InnerMetadata3_0> {
         Some(InnerMetadata3_0 {
             data: st.lookup_data_offsets()?,
             supplemental: st.lookup_supplemental3_0()?,
@@ -1955,9 +1938,9 @@ impl VersionedMetadata for InnerMetadata3_1 {
         None
     }
 
-    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: &HashSet<&str>) {}
+    fn validate_specific(_: &mut KwState, _: &StdText<Self, Self::P>) {}
 
-    fn build_inner(st: &mut KwState, names: &HashSet<&str>) -> Option<InnerMetadata3_1> {
+    fn build_inner(st: &mut KwState, _: u32, names: &HashSet<&str>) -> Option<InnerMetadata3_1> {
         let mode = st.lookup_mode()?;
         if mode != Mode::List {
             st.push_meta_deprecated_str("$MODE should only be L");
@@ -2086,7 +2069,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
         }
     }
 
-    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, _: &HashSet<&str>) {
+    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>) {
         let spec = &s.metadata.specific;
         // check that BEGINDATETIME is before ENDDATETIME
         if let (OptionalKw::Present(begin), OptionalKw::Present(end)) =
@@ -2098,7 +2081,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
         }
     }
 
-    fn build_inner(st: &mut KwState, names: &HashSet<&str>) -> Option<InnerMetadata3_2> {
+    fn build_inner(st: &mut KwState, _: u32, names: &HashSet<&str>) -> Option<InnerMetadata3_2> {
         // Only L is allowed as of 3.2, so pull the value and check it if
         // given. The only thing we care about here is that the value is not
         // invalid, since we don't need to use it anywhere.

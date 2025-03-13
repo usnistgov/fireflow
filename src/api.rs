@@ -226,6 +226,13 @@ enum NumType {
 #[derive(Debug, Clone)]
 struct Spillover {
     measurements: Vec<String>,
+    /// Values in the spillover matrix in row-major order.
+    matrix: Vec<Vec<f32>>,
+}
+
+#[derive(Debug, Clone)]
+struct Compensation {
+    /// Values in the comp matrix in row-major order.
     matrix: Vec<Vec<f32>>,
 }
 
@@ -744,6 +751,7 @@ struct InnerMetadata2_0 {
     mode: Mode,
     byteord: ByteOrd,
     cyt: OptionalKw<String>,
+    comp: OptionalKw<Compensation>,
     timestamps: Timestamps2_0, // BTIM/ETIM/DATE
 }
 
@@ -756,6 +764,7 @@ struct InnerMetadata3_0 {
     byteord: ByteOrd,
     timestamps: Timestamps2_0, // BTIM/ETIM/DATE
     cyt: OptionalKw<String>,
+    comp: OptionalKw<Compensation>,
     cytsn: OptionalKw<String>,
     timestep: OptionalKw<f32>,
     unicode: OptionalKw<Unicode>,
@@ -1721,11 +1730,12 @@ trait VersionedMetadata: Sized {
         Self::validate_specific(st, s, &hs_shortnames);
     }
 
-    fn build_inner(st: &mut KwState) -> Option<Self>;
+    fn build_inner(st: &mut KwState, par: usize) -> Option<Self>;
 
     fn lookup_metadata(st: &mut KwState) -> Option<Metadata<Self>> {
+        let par = st.lookup_par()?;
         Some(Metadata {
-            par: st.lookup_par()?,
+            par,
             nextdata: st.lookup_nextdata()?,
             datatype: st.lookup_datatype()?,
             abrt: st.lookup_abrt(),
@@ -1741,7 +1751,7 @@ trait VersionedMetadata: Sized {
             src: st.lookup_src(),
             sys: st.lookup_sys(),
             tr: st.lookup_trigger(),
-            specific: Self::build_inner(st)?,
+            specific: Self::build_inner(st, par as usize)?,
         })
     }
 }
@@ -1829,12 +1839,13 @@ impl VersionedMetadata for InnerMetadata2_0 {
 
     fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: &HashSet<&str>) {}
 
-    fn build_inner(st: &mut KwState) -> Option<InnerMetadata2_0> {
+    fn build_inner(st: &mut KwState, par: usize) -> Option<InnerMetadata2_0> {
         Some(InnerMetadata2_0 {
             tot: st.lookup_tot_opt(),
             mode: st.lookup_mode()?,
             byteord: st.lookup_byteord()?,
             cyt: st.lookup_cyt_opt(),
+            comp: st.lookup_compensation_2_0(par as usize),
             timestamps: st.lookup_timestamps2_0(false, false),
         })
     }
@@ -1889,7 +1900,7 @@ impl VersionedMetadata for InnerMetadata3_0 {
 
     fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: &HashSet<&str>) {}
 
-    fn build_inner(st: &mut KwState) -> Option<InnerMetadata3_0> {
+    fn build_inner(st: &mut KwState, _: usize) -> Option<InnerMetadata3_0> {
         Some(InnerMetadata3_0 {
             data: st.lookup_data_offsets()?,
             supplemental: st.lookup_supplemental3_0()?,
@@ -1897,6 +1908,7 @@ impl VersionedMetadata for InnerMetadata3_0 {
             mode: st.lookup_mode()?,
             byteord: st.lookup_byteord()?,
             cyt: st.lookup_cyt_opt(),
+            comp: st.lookup_compensation_3_0(),
             timestamps: st.lookup_timestamps2_0(false, false),
             cytsn: st.lookup_cytsn(),
             timestep: st.lookup_timestep(),
@@ -1969,7 +1981,7 @@ impl VersionedMetadata for InnerMetadata3_1 {
         }
     }
 
-    fn build_inner(st: &mut KwState) -> Option<InnerMetadata3_1> {
+    fn build_inner(st: &mut KwState, _: usize) -> Option<InnerMetadata3_1> {
         let mode = st.lookup_mode()?;
         if mode != Mode::List {
             st.push_meta_deprecated_str("$MODE should only be L");
@@ -2126,7 +2138,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
         }
     }
 
-    fn build_inner(st: &mut KwState) -> Option<InnerMetadata3_2> {
+    fn build_inner(st: &mut KwState, _: usize) -> Option<InnerMetadata3_2> {
         // Only L is allowed as of 3.2, so pull the value and check it if
         // given. The only thing we care about here is that the value is not
         // invalid, since we don't need to use it anywhere.
@@ -2764,6 +2776,71 @@ impl KwState<'_> {
         }
     }
 
+    fn lookup_compensation_2_0(&mut self, par: usize) -> OptionalKw<Compensation> {
+        let mut matrix: Vec<_> = iter::repeat_with(|| vec![0.0; par]).take(par).collect();
+        // column = src channel
+        // row = target channel
+        // These are "flipped" in 2.0, where "column" goes TO the "row"
+        let mut any_error = false;
+        for r in 0..par {
+            for c in 0..par {
+                let m = format!("DFC{c}TO{r}");
+                if let Present(x) = self.lookup_optional(m.as_str(), parse_float, false) {
+                    matrix[r][c] = x;
+                } else {
+                    any_error = true;
+                }
+            }
+        }
+        if any_error {
+            Absent
+        } else {
+            Present(Compensation { matrix })
+        }
+    }
+
+    fn lookup_compensation_3_0(&mut self) -> OptionalKw<Compensation> {
+        self.lookup_optional(
+            "COMP",
+            |s| {
+                let mut xs = s.split(",");
+                if let Some(first) = &xs.next().and_then(|x| x.parse::<usize>().ok()) {
+                    let n = *first;
+                    let nn = n * n;
+                    let values: Vec<_> = xs.by_ref().take(nn).collect();
+                    let remainder = xs.by_ref().count();
+                    let total = values.len() + remainder;
+                    if total != nn {
+                        Err(format!(
+                            "Expected length of $COMP is {nn} but found {total}"
+                        ))
+                    } else {
+                        let fvalues: Vec<_> = values
+                            .into_iter()
+                            .filter_map(|x| x.parse::<f32>().ok())
+                            .collect();
+                        if fvalues.len() != nn {
+                            Err(String::from(
+                                "Not all values in $COMP could be parsed as floats",
+                            ))
+                        } else {
+                            let matrix = fvalues
+                                .into_iter()
+                                .chunks(n)
+                                .into_iter()
+                                .map(|c| c.collect())
+                                .collect();
+                            Ok(Compensation { matrix })
+                        }
+                    }
+                } else {
+                    Err(String::from("Could not get number of parameters"))
+                }
+            },
+            false,
+        )
+    }
+
     fn lookup_spillover(&mut self) -> OptionalKw<Spillover> {
         self.lookup_optional(
             "SPILLOVER",
@@ -2772,13 +2849,14 @@ impl KwState<'_> {
                 if let Some(first) = &xs.next().and_then(|x| x.parse::<usize>().ok()) {
                     let n = *first;
                     let nn = n * n;
+                    let expected = n + nn;
                     let measurements: Vec<_> = xs.by_ref().take(n).map(String::from).collect();
                     let values: Vec<_> = xs.by_ref().take(nn).collect();
                     let remainder = xs.by_ref().count();
                     let total = measurements.len() + values.len() + remainder;
-                    if total != n + nn {
+                    if total != expected {
                         Err(format!(
-                            "Expected length of $SPILLOVER is {n} but found {total}"
+                            "Expected length of $SPILLOVER is {expected} but found {total}"
                         ))
                     } else if measurements.iter().unique().count() != n {
                         Err(String::from(

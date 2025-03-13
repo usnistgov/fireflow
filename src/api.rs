@@ -2219,24 +2219,8 @@ struct KeyWarning {
     msg: String,
 }
 
-// #[derive(Debug, Clone, Default)]
-// struct NonFatalKeyErrors {
-//     deviant_keywords: HashMap<Key, String>,
-//     nonstandard_keywords: HashMap<Key, String>,
-//     keyword_warnings: Vec<KeyWarning>,
-// }
-
-// #[derive(Debug, Clone, Default)]
-// struct NonFatalMetaErrors {
-//     deprecated_keys: Vec<Key>,
-//     deprecated_features: Vec<String>,
-//     meta_warnings: Vec<String>,
-// }
-
 #[derive(Debug, Clone, Default)]
 struct NonFatalErrors {
-    // key: NonFatalKeyErrors,
-    // meta: NonFatalMetaErrors,
     deprecated_keys: Vec<Key>,
     deprecated_features: Vec<String>,
     meta_warnings: Vec<String>,
@@ -2268,21 +2252,6 @@ pub struct StandardErrors {
     meta_errors: Vec<String>,
 
     nonfatal: NonFatalErrors,
-    // /// Keywords which start with "$" but are not standardized within the
-    // /// indicated version. This will be empty unless such keywords are present
-    // /// and `disallow_deviant` is true.
-    // deviant_keywords: Vec<Key>,
-
-    // /// Keywords which do not start with "$". This will be empty unless such
-    // /// keywords are present and `disallow_nonstandard` is true.
-    // nonstandard_keywords: Vec<Key>,
-
-    // /// Deprecated features. Always empty unless `disallow_deprecated` is true.
-    // deprecated: Vec<String>,
-
-    // /// Non-fatal warnings, included here for the case where all warnings are
-    // /// considered fatal by user wanting total strictness
-    // warnings: Vec<String>,
 }
 
 impl KwState<'_> {

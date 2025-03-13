@@ -1,6 +1,7 @@
 use crate::numeric::{Endian, IntMath, NumProps, Series};
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
+use clap::value_parser;
 use itertools::Itertools;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
@@ -833,15 +834,34 @@ struct StdText<M, P> {
     measurements: Vec<Measurement<P>>,
 }
 
+// #[derive(Debug)]
+// struct TEXTSuccess<T> {
+//     text: T,
+//     data_parser: DataParser,
+//     // warnings: Vec<KwMsg>,
+//     // deprecated: Vec<String>,
+// }
+
 #[derive(Debug)]
-struct TEXTSuccess<T> {
-    text: T,
-    data_parser: DataParser,
-    warnings: Vec<KwMsg>,
-    deprecated: Vec<String>,
+pub enum AnyStdTEXT {
+    FCS2_0(Box<StdText2_0>),
+    FCS3_0(Box<StdText3_0>),
+    FCS3_1(Box<StdText3_1>),
+    FCS3_2(Box<StdText3_2>),
 }
 
-type TEXTResult<T> = Result<TEXTSuccess<T>, StandardErrors>;
+#[derive(Debug)]
+pub struct ParsedTEXT {
+    // TODO add the offsets here as well? offsets are needed before parsing
+    // everything else
+    standard: AnyStdTEXT,
+    data_parser: DataParser,
+    nonfatal: NonFatalErrors,
+    // nonstandard: HashMap<Key, String>,
+    // deviant: HashMap<Key, String>,
+}
+
+type TEXTResult = Result<ParsedTEXT, StandardErrors>;
 
 impl<M: VersionedMetadata> StdText<M, M::P> {
     fn get_shortnames(&self) -> Vec<&str> {
@@ -851,11 +871,7 @@ impl<M: VersionedMetadata> StdText<M, M::P> {
             .collect()
     }
 
-    fn raw_to_std_text(
-        header: Header,
-        raw: RawTEXT,
-        conf: &StdTextReader,
-    ) -> TEXTResult<AnyParsedTEXT> {
+    fn raw_to_std_text(header: Header, raw: RawTEXT, conf: &StdTextReader) -> TEXTResult {
         let mut st = raw.to_state(conf);
         // This will fail if a) not all required keywords pass and b) not all
         // required measurement keywords pass (according to $PAR)
@@ -869,23 +885,8 @@ impl<M: VersionedMetadata> StdText<M, M::P> {
         }) {
             M::validate(&mut st, &s);
             match M::build_data_parser(&mut st, &s) {
-                Some(data_parser) => {
-                    // TODO https://rust-lang.github.io/rfcs/2528-type-changing-struct-update-syntax.html
-                    // not working yet
-                    let TEXTSuccess {
-                        text,
-                        warnings,
-                        data_parser,
-                        deprecated,
-                    } = st.into_result(s, data_parser)?;
-                    Ok(TEXTSuccess {
-                        text: M::into_any_text(Box::new(text)),
-                        warnings,
-                        data_parser,
-                        deprecated,
-                    })
-                }
-                None => Err(st.into_errors_ns(s)),
+                Some(data_parser) => st.into_result(s, data_parser),
+                None => Err(st.into_errors()),
             }
         } else {
             Err(st.into_errors())
@@ -1433,7 +1434,7 @@ enum EventWidth {
 trait VersionedMetadata: Sized {
     type P: VersionedMeasurement;
 
-    fn into_any_text(s: Box<ParsedTEXT<StdText<Self, Self::P>>>) -> AnyParsedTEXT;
+    fn into_any_text(s: Box<StdText<Self, Self::P>>) -> AnyStdTEXT;
 
     fn get_data_offsets(s: &StdText<Self, Self::P>) -> Offsets;
 
@@ -1782,8 +1783,8 @@ fn build_int_parser_2_0<X>(
 impl VersionedMetadata for InnerMetadata2_0 {
     type P = InnerMeasurment2_0;
 
-    fn into_any_text(t: Box<ParsedTEXT<StdText2_0>>) -> AnyParsedTEXT {
-        AnyParsedTEXT::FCS2_0(t)
+    fn into_any_text(t: Box<StdText2_0>) -> AnyStdTEXT {
+        AnyStdTEXT::FCS2_0(t)
     }
 
     fn get_data_offsets(s: &StdText<Self, Self::P>) -> Offsets {
@@ -1837,8 +1838,8 @@ impl VersionedMetadata for InnerMetadata2_0 {
 impl VersionedMetadata for InnerMetadata3_0 {
     type P = InnerMeasurement3_0;
 
-    fn into_any_text(t: Box<ParsedTEXT<StdText3_0>>) -> AnyParsedTEXT {
-        AnyParsedTEXT::FCS3_0(t)
+    fn into_any_text(t: Box<StdText3_0>) -> AnyStdTEXT {
+        AnyStdTEXT::FCS3_0(t)
     }
 
     fn get_data_offsets(s: &StdText<Self, Self::P>) -> Offsets {
@@ -1902,8 +1903,8 @@ impl VersionedMetadata for InnerMetadata3_0 {
 impl VersionedMetadata for InnerMetadata3_1 {
     type P = InnerMeasurement3_1;
 
-    fn into_any_text(t: Box<ParsedTEXT<StdText3_1>>) -> AnyParsedTEXT {
-        AnyParsedTEXT::FCS3_1(t)
+    fn into_any_text(t: Box<StdText3_1>) -> AnyStdTEXT {
+        AnyStdTEXT::FCS3_1(t)
     }
 
     fn get_data_offsets(s: &StdText<Self, Self::P>) -> Offsets {
@@ -1972,8 +1973,8 @@ impl VersionedMetadata for InnerMetadata3_1 {
 impl VersionedMetadata for InnerMetadata3_2 {
     type P = InnerMeasurement3_2;
 
-    fn into_any_text(t: Box<ParsedTEXT<StdText3_2>>) -> AnyParsedTEXT {
-        AnyParsedTEXT::FCS3_2(t)
+    fn into_any_text(t: Box<StdText3_2>) -> AnyStdTEXT {
+        AnyStdTEXT::FCS3_2(t)
     }
 
     // TODO not DRY
@@ -2125,29 +2126,12 @@ impl VersionedMetadata for InnerMetadata3_2 {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct ParsedTEXT<S> {
-    // TODO add the offsets here as well? offsets are needed before parsing
-    // everything else
-    standard: S,
-    nonstandard: HashMap<Key, String>,
-    deviant: HashMap<Key, String>,
-}
+// type ParsedTEXT2_0 = ParsedTEXT<StdText2_0>;
+// type ParsedTEXT3_0 = ParsedTEXT<StdText3_0>;
+// type ParsedTEXT3_1 = ParsedTEXT<StdText3_1>;
+// type ParsedTEXT3_2 = ParsedTEXT<StdText3_2>;
 
-type ParsedTEXT2_0 = ParsedTEXT<StdText2_0>;
-type ParsedTEXT3_0 = ParsedTEXT<StdText3_0>;
-type ParsedTEXT3_1 = ParsedTEXT<StdText3_1>;
-type ParsedTEXT3_2 = ParsedTEXT<StdText3_2>;
-
-#[derive(Debug, Clone)]
-pub enum AnyParsedTEXT {
-    FCS2_0(Box<ParsedTEXT2_0>),
-    FCS3_0(Box<ParsedTEXT3_0>),
-    FCS3_1(Box<ParsedTEXT3_1>),
-    FCS3_2(Box<ParsedTEXT3_2>),
-}
-
-fn parse_raw_text(header: Header, raw: RawTEXT, conf: &StdTextReader) -> TEXTResult<AnyParsedTEXT> {
+fn parse_raw_text(header: Header, raw: RawTEXT, conf: &StdTextReader) -> TEXTResult {
     match header.version {
         Version::FCS2_0 => StdText2_0::raw_to_std_text(header, raw, conf),
         Version::FCS3_0 => StdText3_0::raw_to_std_text(header, raw, conf),
@@ -2207,29 +2191,75 @@ impl KwValue {
 
 // all hail the almighty state monad :D
 
+// #[derive(Debug, Clone)]
+// struct NonFatalError {
+//     DeprecatedMeta(String),
+//     DeprecatedKey(Key),
+//     // TODO this isn't optimal
+//     KeyWarning(KwMsg),
+//     MetaWarning(String),
+//     DeviantKey(Key),
+//     NonStandardKey(Key),
+// }
+
 struct KwState<'a> {
     raw_keywords: HashMap<Key, KwValue>,
     missing_keywords: Vec<Key>,
-    deprecated: Vec<String>,
+    deprecated_keys: Vec<Key>,
+    deprecated_features: Vec<String>,
     meta_errors: Vec<String>,
     meta_warnings: Vec<String>,
     conf: &'a StdTextReader,
 }
 
-// TODO use newtype for "Keyword" type so this is less confusing
+#[derive(Debug, Clone)]
+struct KeyWarning {
+    key: Key,
+    value: String,
+    msg: String,
+}
+
+// #[derive(Debug, Clone, Default)]
+// struct NonFatalKeyErrors {
+//     deviant_keywords: HashMap<Key, String>,
+//     nonstandard_keywords: HashMap<Key, String>,
+//     keyword_warnings: Vec<KeyWarning>,
+// }
+
+// #[derive(Debug, Clone, Default)]
+// struct NonFatalMetaErrors {
+//     deprecated_keys: Vec<Key>,
+//     deprecated_features: Vec<String>,
+//     meta_warnings: Vec<String>,
+// }
+
+#[derive(Debug, Clone, Default)]
+struct NonFatalErrors {
+    // key: NonFatalKeyErrors,
+    // meta: NonFatalMetaErrors,
+    deprecated_keys: Vec<Key>,
+    deprecated_features: Vec<String>,
+    meta_warnings: Vec<String>,
+    deviant_keywords: HashMap<Key, String>,
+    nonstandard_keywords: HashMap<Key, String>,
+    keyword_warnings: Vec<KeyWarning>,
+}
+
+impl NonFatalErrors {
+    fn has_error(&self, conf: &StdTextReader) -> bool {
+        (!self.deviant_keywords.is_empty() && conf.disallow_deviant)
+            || (!self.deprecated_features.is_empty() && conf.disallow_deprecated)
+            || (!self.deprecated_keys.is_empty() && conf.disallow_deprecated)
+            || (!self.meta_warnings.is_empty() && conf.warnings_are_errors)
+            || (!self.keyword_warnings.is_empty() && conf.warnings_are_errors)
+            || (!self.nonstandard_keywords.is_empty() && conf.disallow_nonstandard)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct StandardErrors {
     /// Required keywords that are missing
     missing_keywords: Vec<Key>,
-
-    /// Keywords which start with "$" but are not standardized within the
-    /// indicated version. This will be empty unless such keywords are present
-    /// and `disallow_deviant` is true.
-    deviant_keywords: Vec<Key>,
-
-    /// Keywords which do not start with "$". This will be empty unless such
-    /// keywords are present and `disallow_nonstandard` is true.
-    nonstandard_keywords: Vec<Key>,
 
     /// Errors that pertain to one keyword value
     value_errors: Vec<KwMsg>,
@@ -2237,12 +2267,22 @@ pub struct StandardErrors {
     /// Errors involving multiple keywords, like PnB not matching DATATYPE
     meta_errors: Vec<String>,
 
-    /// Deprecated features. Always empty unless `disallow_deprecated` is true.
-    deprecated: Vec<String>,
+    nonfatal: NonFatalErrors,
+    // /// Keywords which start with "$" but are not standardized within the
+    // /// indicated version. This will be empty unless such keywords are present
+    // /// and `disallow_deviant` is true.
+    // deviant_keywords: Vec<Key>,
 
-    /// Non-fatal warnings, included here for the case where all warnings are
-    /// considered fatal by user wanting total strictness
-    warnings: Vec<String>,
+    // /// Keywords which do not start with "$". This will be empty unless such
+    // /// keywords are present and `disallow_nonstandard` is true.
+    // nonstandard_keywords: Vec<Key>,
+
+    // /// Deprecated features. Always empty unless `disallow_deprecated` is true.
+    // deprecated: Vec<String>,
+
+    // /// Non-fatal warnings, included here for the case where all warnings are
+    // /// considered fatal by user wanting total strictness
+    // warnings: Vec<String>,
 }
 
 impl KwState<'_> {
@@ -2260,8 +2300,7 @@ impl KwState<'_> {
                         |x| (ValueStatus::Used, Some(x)),
                     );
                     if dep {
-                        self.deprecated
-                            .push(format!("Keyword '{}' has been deprecated", sk.0))
+                        self.deprecated_keys.push(sk);
                     }
                     v.status = s;
                     r
@@ -2288,8 +2327,7 @@ impl KwState<'_> {
                         |x| (ValueStatus::Used, OptionalKw::Present(x)),
                     );
                     if dep {
-                        self.deprecated
-                            .push(format!("Keyword '{}' has been deprecated", sk.0))
+                        self.deprecated_keys.push(sk);
                     }
                     v.status = s;
                     r
@@ -3002,7 +3040,7 @@ impl KwState<'_> {
     }
 
     fn push_meta_deprecated_str(&mut self, msg: &str) {
-        self.deprecated.push(String::from(msg));
+        self.deprecated_features.push(String::from(msg));
     }
 
     fn push_meta_error_or_warning(&mut self, is_error: bool, msg: String) {
@@ -3015,15 +3053,13 @@ impl KwState<'_> {
 
     fn split_keywords(
         kws: HashMap<Key, KwValue>,
-    ) -> (
-        HashMap<Key, String>,
-        HashMap<Key, String>,
-        Vec<KwMsg>,
-        Vec<KwMsg>,
-    ) {
+        deprecated_keys: Vec<Key>,
+        deprecated_features: Vec<String>,
+        meta_warnings: Vec<String>,
+    ) -> (Vec<KwMsg>, NonFatalErrors) {
         let mut nonstandard_keywords = HashMap::new();
         let mut deviant_keywords = HashMap::new();
-        let mut warnings = Vec::new();
+        let mut keyword_warnings = Vec::new();
         let mut value_errors = Vec::new();
         for (key, v) in kws {
             match v.status {
@@ -3034,11 +3070,10 @@ impl KwState<'_> {
                         nonstandard_keywords.insert(key, v.value);
                     }
                 }
-                ValueStatus::Warning(msg) => warnings.push(KwMsg {
+                ValueStatus::Warning(msg) => keyword_warnings.push(KeyWarning {
                     msg,
                     key,
                     value: v.value,
-                    is_error: false,
                 }),
                 ValueStatus::Error(msg) => value_errors.push(KwMsg {
                     msg,
@@ -3049,12 +3084,20 @@ impl KwState<'_> {
                 ValueStatus::Used => (),
             }
         }
-        (
-            nonstandard_keywords,
+        // let nfk = NonFatalKeyErrors {
+        // };
+
+        // let nfm = NonFatalMetaErrors {
+        // };
+        let nfe = NonFatalErrors {
             deviant_keywords,
-            warnings,
-            value_errors,
-        )
+            keyword_warnings,
+            nonstandard_keywords,
+            deprecated_keys,
+            deprecated_features,
+            meta_warnings,
+        };
+        (value_errors, nfe)
     }
 
     fn keys_maybe<K, V>(test: bool, map: HashMap<K, V>) -> Vec<K> {
@@ -3065,119 +3108,50 @@ impl KwState<'_> {
         }
     }
 
-    fn into_result<M, P>(
+    fn into_result<M: VersionedMetadata>(
         self,
-        standard: StdText<M, P>,
+        standard: StdText<M, <M as VersionedMetadata>::P>,
         data_parser: DataParser,
-    ) -> TEXTResult<ParsedTEXT<StdText<M, P>>> {
-        let (nonstandard, deviant, warnings, value_errors) =
-            Self::split_keywords(self.raw_keywords);
-        let has_critical_error = !value_errors.is_empty()
-            || !self.missing_keywords.is_empty()
-            || !self.meta_errors.is_empty();
-        let has_warning_error = self.conf.warnings_are_errors && !self.meta_warnings.is_empty();
-        let has_deprecated_error = !self.deprecated.is_empty() && self.conf.disallow_deprecated;
-        let has_meas_nonstandard = standard
-            .measurements
-            .iter()
-            .any(|m| !m.nonstandard.is_empty());
-        let has_nonstandard_error =
-            (!nonstandard.is_empty() || has_meas_nonstandard) && self.conf.disallow_nonstandard;
-        let has_deviant_error = !deviant.is_empty() && self.conf.disallow_deviant;
-
-        if has_critical_error
-            || has_warning_error
-            || has_nonstandard_error
-            || has_deviant_error
-            || has_deprecated_error
-        {
-            let deviant_keywords = Self::keys_maybe(self.conf.disallow_deviant, deviant);
-            let nonstandard_keywords = if self.conf.disallow_nonstandard {
-                standard
-                    .measurements
-                    .into_iter()
-                    .flat_map(|m| m.nonstandard.into_keys())
-                    .chain(nonstandard.into_keys())
-                    .collect()
-            } else {
-                vec![]
-            };
-            let deprecated = if self.conf.disallow_deprecated {
-                self.deprecated
-            } else {
-                vec![]
-            };
+    ) -> TEXTResult {
+        let (value_errors, nonfatal) = Self::split_keywords(
+            self.raw_keywords,
+            self.deprecated_keys,
+            self.deprecated_features,
+            self.meta_warnings,
+        );
+        if !value_errors.is_empty() || nonfatal.has_error(self.conf) {
+            // TODO this doesn't include nonstandard measurements, which is
+            // probably fine, because if the user didn't want to include them
+            // in the ns measurement field they wouldn't have used that param
+            // anyways, in which case we probably need to call them something
+            // different (like "upgradable")
             Err(StandardErrors {
                 missing_keywords: self.missing_keywords,
                 value_errors,
                 meta_errors: self.meta_errors,
-                deprecated,
-                warnings: self.meta_warnings,
-                deviant_keywords,
-                nonstandard_keywords,
+                nonfatal,
             })
         } else {
-            let text = ParsedTEXT {
-                standard,
-                nonstandard,
-                deviant,
-            };
-            Ok(TEXTSuccess {
-                text,
+            Ok(ParsedTEXT {
+                standard: M::into_any_text(Box::new(standard)),
+                nonfatal,
                 data_parser,
-                warnings,
-                deprecated: self.deprecated,
             })
-        }
-    }
-
-    // TODO not DRY
-    fn into_errors_ns<M, P>(self, standard: StdText<M, P>) -> StandardErrors {
-        let (nonstandard, deviant, _, value_errors) = Self::split_keywords(self.raw_keywords);
-        let nonstandard_keywords = if self.conf.disallow_nonstandard {
-            standard
-                .measurements
-                .into_iter()
-                .flat_map(|m| m.nonstandard.into_keys())
-                .chain(nonstandard.into_keys())
-                .collect()
-        } else {
-            vec![]
-        };
-        let deviant_keywords = Self::keys_maybe(self.conf.disallow_deviant, deviant);
-        let deprecated = if self.conf.disallow_deprecated {
-            self.deprecated
-        } else {
-            vec![]
-        };
-        StandardErrors {
-            missing_keywords: self.missing_keywords,
-            value_errors,
-            meta_errors: self.meta_errors,
-            warnings: self.meta_warnings,
-            deviant_keywords,
-            nonstandard_keywords,
-            deprecated,
         }
     }
 
     fn into_errors(self) -> StandardErrors {
-        let (nonstandard, deviant, _, value_errors) = Self::split_keywords(self.raw_keywords);
-        let nonstandard_keywords = Self::keys_maybe(self.conf.disallow_nonstandard, nonstandard);
-        let deviant_keywords = Self::keys_maybe(self.conf.disallow_deviant, deviant);
-        let deprecated = if self.conf.disallow_deprecated {
-            self.deprecated
-        } else {
-            vec![]
-        };
+        let (value_errors, nonfatal) = Self::split_keywords(
+            self.raw_keywords,
+            self.deprecated_keys,
+            self.deprecated_features,
+            self.meta_warnings,
+        );
         StandardErrors {
             missing_keywords: self.missing_keywords,
             value_errors,
             meta_errors: self.meta_errors,
-            warnings: self.meta_warnings,
-            deviant_keywords,
-            nonstandard_keywords,
-            deprecated,
+            nonfatal,
         }
     }
 }
@@ -3267,7 +3241,8 @@ impl RawTEXT {
         }
         KwState {
             raw_keywords: keywords,
-            deprecated: vec![],
+            deprecated_keys: vec![],
+            deprecated_features: vec![],
             missing_keywords: vec![],
             meta_errors: vec![],
             meta_warnings: vec![],
@@ -3696,10 +3671,7 @@ pub fn read_fcs_raw_text(p: &path::PathBuf, conf: &RawTextReader) -> io::Result<
 /// FCS standard indicated in the header and returned in a struct storing each
 /// key/value pair in a standardized manner. This will halt and return any
 /// errors encountered during this process.
-pub fn read_fcs_text(
-    p: &path::PathBuf,
-    conf: &StdTextReader,
-) -> io::Result<TEXTResult<AnyParsedTEXT>> {
+pub fn read_fcs_text(p: &path::PathBuf, conf: &StdTextReader) -> io::Result<TEXTResult> {
     let file = fs::File::options().read(true).open(p)?;
     let mut reader = BufReader::new(file);
     let header = read_header(&mut reader)?;
@@ -3725,7 +3697,7 @@ pub fn read_fcs_text(
 ///
 /// The [`conf`] argument can be used to control the behavior of each reading
 /// step, including the repair of non-conforming files.
-pub fn read_fcs_file(p: path::PathBuf, conf: Reader) -> io::Result<FCSResult<AnyParsedTEXT>> {
+pub fn read_fcs_file(p: path::PathBuf, conf: Reader) -> io::Result<FCSResult<AnyStdTEXT>> {
     let file = fs::File::options().read(true).open(p)?;
     let mut reader = BufReader::new(file);
     let header = read_header(&mut reader)?;
@@ -3735,7 +3707,7 @@ pub fn read_fcs_file(p: path::PathBuf, conf: Reader) -> io::Result<FCSResult<Any
         Ok(std) => {
             let data = read_data(&mut reader, std.data_parser).unwrap();
             Ok(Ok(FCSSuccess {
-                std: std.text,
+                std: std.standard,
                 data,
             }))
         }

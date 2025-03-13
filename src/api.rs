@@ -160,12 +160,35 @@ impl Version {
     }
 }
 
+impl fmt::Display for Version {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Version::FCS2_0 => write!(f, "2.0"),
+            Version::FCS3_0 => write!(f, "3.0"),
+            Version::FCS3_1 => write!(f, "3.1"),
+            Version::FCS3_2 => write!(f, "3.2"),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
-struct Header {
+pub struct Header {
     version: Version,
     text: Offsets,
     data: Offsets,
     analysis: Offsets,
+}
+
+impl Header {
+    pub fn print(&self) {
+        println!("Version: {}", self.version);
+        println!("TEXT offsets: {}-{}", self.text.begin, self.text.end);
+        println!("DATA offsets: {}-{}", self.data.begin, self.data.end);
+        println!(
+            "ANALYSIS offsets: {}-{}",
+            self.analysis.begin, self.analysis.end
+        );
+    }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -833,10 +856,28 @@ enum Mode {
 
 #[derive(Debug, Clone)]
 struct StdText<M, P> {
-    header: Header,
-    raw: RawTEXT,
+    data_offsets: Offsets,
     metadata: Metadata<M>,
     measurements: Vec<Measurement<P>>,
+}
+
+impl<M, P> StdText<M, P> {
+    fn as_metadata_pairs(&self) -> Vec<(&'static str, String)> {
+        let m = &self.metadata;
+        let pairs = [
+            ("$PAR", m.par.to_string()),
+            ("$NEXTDATA", m.nextdata.to_string()),
+            ("DATATYPE", m.datatype.to_string()),
+        ];
+        pairs.into_iter().collect()
+    }
+
+    fn print(&self) {
+        let mps = self.as_metadata_pairs();
+        for (key, value) in mps.iter() {
+            println!("{key}: {value}");
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -847,8 +888,21 @@ pub enum AnyStdTEXT {
     FCS3_2(Box<StdText3_2>),
 }
 
+impl AnyStdTEXT {
+    pub fn print(&self) {
+        match self {
+            AnyStdTEXT::FCS2_0(x) => x.print(),
+            AnyStdTEXT::FCS3_0(x) => x.print(),
+            AnyStdTEXT::FCS3_1(x) => x.print(),
+            AnyStdTEXT::FCS3_2(x) => x.print(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct ParsedTEXT {
+    header: Header,
+    raw: RawTEXT,
     standard: AnyStdTEXT,
     data_parser: DataParser,
     nonfatal: NonFatalErrors,
@@ -873,15 +927,14 @@ impl<M: VersionedMetadata> StdText<M, M::P> {
             .and_then(|par| M::P::lookup_measurements(&mut st, par).map(|m| (par, m)))
             .and_then(|(par, ms)| M::lookup_metadata(&mut st, par, &ms).map(|md| (ms, md)))
             .map(|(measurements, metadata)| StdText {
-                header,
-                raw,
+                data_offsets: header.data.clone(),
                 metadata,
                 measurements,
             })
         {
             M::validate(&mut st, &s);
             match M::build_data_parser(&mut st, &s) {
-                Some(data_parser) => st.into_result(s, data_parser),
+                Some(data_parser) => st.into_result(s, data_parser, header, raw),
                 None => Err(st.into_errors()),
             }
         } else {
@@ -1767,7 +1820,7 @@ impl VersionedMetadata for InnerMetadata2_0 {
     }
 
     fn get_data_offsets(s: &StdText<Self, Self::P>) -> Offsets {
-        s.header.data
+        s.data_offsets
     }
 
     fn get_tot(&self) -> Option<u32> {
@@ -1823,7 +1876,7 @@ impl VersionedMetadata for InnerMetadata3_0 {
     }
 
     fn get_data_offsets(s: &StdText<Self, Self::P>) -> Offsets {
-        let header_offsets = s.header.data;
+        let header_offsets = s.data_offsets;
         if header_offsets.is_unset() {
             s.metadata.specific.data
         } else {
@@ -1899,7 +1952,7 @@ impl VersionedMetadata for InnerMetadata3_1 {
     }
 
     fn get_data_offsets(s: &StdText<Self, Self::P>) -> Offsets {
-        let header_offsets = s.header.data;
+        let header_offsets = s.data_offsets;
         if header_offsets.is_unset() {
             s.metadata.specific.data
         } else {
@@ -1972,7 +2025,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
 
     // TODO not DRY
     fn get_data_offsets(s: &StdText<Self, Self::P>) -> Offsets {
-        let header_offsets = s.header.data;
+        let header_offsets = s.data_offsets;
         if header_offsets.is_unset() {
             s.metadata.specific.data
         } else {
@@ -3179,6 +3232,8 @@ impl KwState<'_> {
         self,
         standard: StdText<M, <M as VersionedMetadata>::P>,
         data_parser: DataParser,
+        header: Header,
+        raw: RawTEXT,
     ) -> TEXTResult {
         let (value_errors, nonfatal) = Self::split_keywords(
             self.raw_keywords,
@@ -3201,6 +3256,8 @@ impl KwState<'_> {
         } else {
             Ok(ParsedTEXT {
                 standard: M::into_any_text(Box::new(standard)),
+                header,
+                raw,
                 nonfatal,
                 data_parser,
             })
@@ -3288,7 +3345,7 @@ fn read_header<R: Read>(h: &mut BufReader<R>) -> io::Result<Header> {
 }
 
 #[derive(Debug, Clone)]
-struct RawTEXT {
+pub struct RawTEXT {
     delimiter: u8,
     keywords: HashMap<Key, String>,
     warnings: Vec<String>,
@@ -3316,10 +3373,26 @@ impl RawTEXT {
             conf,
         }
     }
+
+    pub fn print(&self) {
+        println!("Delimiter: {}", self.delimiter);
+        println!("Keywords");
+        for (k, v) in self.keywords.iter() {
+            println!("{}: {}", k.0, v);
+        }
+    }
+
+    fn print_warnings(&self) {
+        for w in self.warnings.iter() {
+            println!("WARNING: {w}");
+        }
+    }
 }
 
-pub struct FCSSuccess<T> {
-    pub std: T,
+pub struct FCSSuccess {
+    pub header: Header,
+    pub raw: RawTEXT,
+    pub std: AnyStdTEXT,
     pub data: ParsedData,
 }
 
@@ -3529,6 +3602,7 @@ fn read_raw_text<R: Read + Seek>(
 }
 
 /// Instructions for reading the TEXT segment as raw key/value pairs.
+#[derive(Default)]
 pub struct RawTextReader {
     /// Will adjust the offset of the start of the TEXT segment by `offset + n`.
     textstart_delta: u32,
@@ -3583,6 +3657,7 @@ pub struct RawTextReader {
 }
 
 /// Instructions for reading the TEXT segment in a standardized structure.
+#[derive(Default)]
 pub struct StdTextReader {
     raw: RawTextReader,
 
@@ -3646,6 +3721,7 @@ pub struct StdTextReader {
 }
 
 /// Instructions for reading the DATA segment.
+#[derive(Default)]
 pub struct DataReader {
     /// Will adjust the offset of the start of the TEXT segment by `offset + n`.
     datastart_delta: u32,
@@ -3654,9 +3730,10 @@ pub struct DataReader {
 }
 
 /// Instructions for reading an FCS file.
+#[derive(Default)]
 pub struct Reader {
-    text: StdTextReader,
-    data: DataReader,
+    pub text: StdTextReader,
+    pub data: DataReader,
 }
 
 pub fn std_reader() -> Reader {
@@ -3696,7 +3773,7 @@ pub fn std_reader() -> Reader {
     }
 }
 
-type FCSResult<T> = Result<FCSSuccess<T>, StandardErrors>;
+type FCSResult = Result<FCSSuccess, StandardErrors>;
 
 /// Return header in an FCS file.
 ///
@@ -3721,11 +3798,11 @@ pub fn read_fcs_header(p: &path::PathBuf) -> io::Result<Header> {
 /// Next will use the offset information in the header to parse the TEXT segment
 /// for key/value pairs. On success will return these pairs as-is using Strings
 /// in a HashMap. No other processing will be performed.
-pub fn read_fcs_raw_text(p: &path::PathBuf, conf: &RawTextReader) -> io::Result<(Header, RawTEXT)> {
+pub fn read_fcs_raw_text(p: &path::PathBuf, conf: &Reader) -> io::Result<(Header, RawTEXT)> {
     let file = fs::File::options().read(true).open(p)?;
     let mut reader = BufReader::new(file);
     let header = read_header(&mut reader)?;
-    let raw = read_raw_text(&mut reader, &header, conf)?;
+    let raw = read_raw_text(&mut reader, &header, &conf.text.raw)?;
     Ok((header, raw))
 }
 
@@ -3738,12 +3815,9 @@ pub fn read_fcs_raw_text(p: &path::PathBuf, conf: &RawTextReader) -> io::Result<
 /// FCS standard indicated in the header and returned in a struct storing each
 /// key/value pair in a standardized manner. This will halt and return any
 /// errors encountered during this process.
-pub fn read_fcs_text(p: &path::PathBuf, conf: &StdTextReader) -> io::Result<TEXTResult> {
-    let file = fs::File::options().read(true).open(p)?;
-    let mut reader = BufReader::new(file);
-    let header = read_header(&mut reader)?;
-    let raw = read_raw_text(&mut reader, &header, &conf.raw)?;
-    Ok(parse_raw_text(header, raw, conf))
+pub fn read_fcs_text(p: &path::PathBuf, conf: &Reader) -> io::Result<TEXTResult> {
+    let (header, raw) = read_fcs_raw_text(p, conf)?;
+    Ok(parse_raw_text(header, raw, &conf.text))
 }
 
 // fn read_fcs_text_2_0(p: path::PathBuf, conf: StdTextReader) -> TEXTResult<TEXT2_0>;
@@ -3764,7 +3838,7 @@ pub fn read_fcs_text(p: &path::PathBuf, conf: &StdTextReader) -> io::Result<TEXT
 ///
 /// The [`conf`] argument can be used to control the behavior of each reading
 /// step, including the repair of non-conforming files.
-pub fn read_fcs_file(p: path::PathBuf, conf: Reader) -> io::Result<FCSResult<AnyStdTEXT>> {
+pub fn read_fcs_file(p: path::PathBuf, conf: Reader) -> io::Result<FCSResult> {
     let file = fs::File::options().read(true).open(p)?;
     let mut reader = BufReader::new(file);
     let header = read_header(&mut reader)?;
@@ -3774,6 +3848,8 @@ pub fn read_fcs_file(p: path::PathBuf, conf: Reader) -> io::Result<FCSResult<Any
         Ok(std) => {
             let data = read_data(&mut reader, std.data_parser).unwrap();
             Ok(Ok(FCSSuccess {
+                header: std.header,
+                raw: std.raw,
                 std: std.standard,
                 data,
             }))
@@ -3787,31 +3863,36 @@ pub fn read_fcs_file(p: path::PathBuf, conf: Reader) -> io::Result<FCSResult<Any
 // fn read_fcs_file_3_1(p: path::PathBuf, conf: Reader) -> FCSResult<TEXT3_1>;
 // fn read_fcs_file_3_2(p: path::PathBuf, conf: Reader) -> FCSResult<TEXT3_2>;
 
-/// Return header, raw metadata, and data in an FCS file.
-///
-/// In contrast to [`read_fcs_file`], this will return the keywords as a flat
-/// list of key/value pairs. Only the bare minimum of these will be read in
-/// order to determine how to parse the DATA segment (including $DATATYPE,
-/// $BYTEORD, etc). No other checks will be performed to ensure the metadata
-/// conforms to the FCS standard version indicated in the header.
-///
-/// This might be useful for applications where one does not necessarily need
-/// the strict structure of the standardized metadata, or if one does not care
-/// too much about the degree to which the metadata conforms to standard.
-///
-/// Other than this, behavior is identical to [`read_fcs_file`],
-pub fn read_fcs_raw_file(p: path::PathBuf, conf: Reader) -> io::Result<FCSResult<()>> {
-    let file = fs::File::options().read(true).open(p)?;
-    let mut reader = BufReader::new(file);
-    let header = read_header(&mut reader)?;
-    let raw = read_raw_text(&mut reader, &header, &conf.text.raw)?;
-    // TODO need to modify this so it doesn't do the crazy version checking
-    // stuff we don't actually want in this case
-    match parse_raw_text(header, raw.clone(), &conf.text) {
-        Ok(std) => {
-            let data = read_data(&mut reader, std.data_parser).unwrap();
-            Ok(Ok(FCSSuccess { std: (), data }))
-        }
-        Err(e) => Ok(Err(e)),
-    }
-}
+// /// Return header, raw metadata, and data in an FCS file.
+// ///
+// /// In contrast to [`read_fcs_file`], this will return the keywords as a flat
+// /// list of key/value pairs. Only the bare minimum of these will be read in
+// /// order to determine how to parse the DATA segment (including $DATATYPE,
+// /// $BYTEORD, etc). No other checks will be performed to ensure the metadata
+// /// conforms to the FCS standard version indicated in the header.
+// ///
+// /// This might be useful for applications where one does not necessarily need
+// /// the strict structure of the standardized metadata, or if one does not care
+// /// too much about the degree to which the metadata conforms to standard.
+// ///
+// /// Other than this, behavior is identical to [`read_fcs_file`],
+// pub fn read_fcs_raw_file(p: path::PathBuf, conf: Reader) -> io::Result<FCSResult<()>> {
+//     let file = fs::File::options().read(true).open(p)?;
+//     let mut reader = BufReader::new(file);
+//     let header = read_header(&mut reader)?;
+//     let raw = read_raw_text(&mut reader, &header, &conf.text.raw)?;
+//     // TODO need to modify this so it doesn't do the crazy version checking
+//     // stuff we don't actually want in this case
+//     match parse_raw_text(header.clone(), raw.clone(), &conf.text) {
+//         Ok(std) => {
+//             let data = read_data(&mut reader, std.data_parser).unwrap();
+//             Ok(Ok(FCSSuccess {
+//                 header,
+//                 raw,
+//                 std: (),
+//                 data,
+//             }))
+//         }
+//         Err(e) => Ok(Err(e)),
+//     }
+// }

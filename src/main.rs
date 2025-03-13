@@ -3,21 +3,8 @@
 mod api;
 mod numeric;
 
-// use clap::{value_parser, Parser};
-// use std::fs;
-use std::env;
+use clap::{Args, Parser, Subcommand};
 use std::path;
-
-// #[derive(Parser)]
-// struct CLIConfig {
-//     filepath: path::PathBuf,
-//     #[arg(short = 'H', long)]
-//     show_header: bool,
-//     #[arg(short = 't', long)]
-//     show_text: bool,
-//     #[arg(short = 'd', long)]
-//     show_data: bool,
-// }
 
 // fn print_data(text: AnyTEXT, data: ParsedData) {
 //     let shortnames = match &text {
@@ -42,16 +29,66 @@ use std::path;
 //     }
 // }
 
+#[derive(Parser)]
+struct CLIConfig {
+    #[command(subcommand)]
+    command: Command,
+    filepath: path::PathBuf,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    // Show(CLIShow),
+    JSON(CLIShow),
+    DumpData,
+    DumpSpill,
+    DumpMeasurements,
+}
+
+#[derive(Args)]
+struct CLIShow {
+    #[arg(short = 'H', long)]
+    header: bool,
+    #[arg(short = 'r', long)]
+    raw: bool,
+    #[arg(short = 'M', long)]
+    metadata: bool,
+    #[arg(short = 'm', long)]
+    measurements: bool,
+    #[arg(short = 'd', long)]
+    data: bool,
+}
+
 fn main() {
-    // let conf = CLIConfig::parse();
-    let args: Vec<String> = env::args().collect();
+    let args = CLIConfig::parse();
 
-    let args = &args[1..];
+    let conf = api::Reader::default();
+    match args.command {
+        Command::Show(s) => {
+            if s.metadata || s.measurements {
+                let res = api::read_fcs_file(args.filepath, conf).unwrap().unwrap();
+                if s.header {
+                    res.header.print();
+                }
+                if s.raw {
+                    res.raw.print();
+                }
+                res.std.print();
+            } else if s.raw {
+                let (header, raw) = api::read_fcs_raw_text(&args.filepath, &conf).unwrap();
+                if s.header {
+                    header.print();
+                }
+                raw.print();
+            } else if s.header {
+                api::read_fcs_header(&args.filepath).unwrap().print();
+            }
+        }
+    }
 
-    let file = path::PathBuf::from(&args[1]);
-    let reader = api::std_reader();
-    let res = api::read_fcs_file(file, reader).unwrap().unwrap();
-    println!("{:#?}", res.std);
+    // let reader = api::std_reader();
+    // let res = api::read_fcs_file(file, reader).unwrap().unwrap();
+    // println!("{:#?}", res.std);
     // let mut reader = BufReader::new(file);
     // let header = read_header(&mut reader).unwrap();
     // if conf.show_header {

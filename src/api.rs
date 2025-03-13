@@ -1,7 +1,6 @@
 use crate::numeric::{Endian, IntMath, NumProps, Series};
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
-use clap::value_parser;
 use itertools::Itertools;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
@@ -222,6 +221,12 @@ enum NumType {
     Integer,
     Single,
     Double,
+}
+
+#[derive(Debug, Clone)]
+struct Spillover {
+    measurements: Vec<String>,
+    matrix: Vec<Vec<f32>>,
 }
 
 impl NumType {
@@ -765,6 +770,7 @@ struct InnerMetadata3_1 {
     byteord: Endian,
     timestamps: Timestamps2_0, // BTIM/ETIM/DATE
     cyt: OptionalKw<String>,
+    spillover: OptionalKw<Spillover>,
     cytsn: OptionalKw<String>,
     timestep: OptionalKw<f32>,
     modification: ModificationData,
@@ -781,6 +787,7 @@ struct InnerMetadata3_2 {
     timestamps: Timestamps2_0, // BTIM/ETIM/DATE
     datetimes: Timestamps3_2,  // DATETIMESTART/END
     cyt: String,
+    spillover: OptionalKw<Spillover>,
     cytsn: OptionalKw<String>,
     timestep: OptionalKw<f32>,
     modification: ModificationData,
@@ -796,8 +803,6 @@ struct Metadata<X> {
     par: u32,
     nextdata: u32,
     datatype: AlphaNumType,
-    // an abstraction for various kinds of spillover/comp matrices
-    // spillover: Spillover,
     abrt: OptionalKw<u32>,
     com: OptionalKw<String>,
     cells: OptionalKw<String>,
@@ -1900,6 +1905,16 @@ impl VersionedMetadata for InnerMetadata3_0 {
     }
 }
 
+fn validate_spillover(st: &mut KwState, spillover: &Spillover, names: &HashSet<&str>) {
+    for m in spillover.measurements.iter() {
+        if !names.contains(m.as_str()) {
+            st.push_meta_error(format!(
+                "$SPILLOVER refers to non-existent measurement: {m}"
+            ));
+        }
+    }
+}
+
 impl VersionedMetadata for InnerMetadata3_1 {
     type P = InnerMeasurement3_1;
 
@@ -1946,7 +1961,13 @@ impl VersionedMetadata for InnerMetadata3_1 {
     ) -> Option<Option<MixedParser>> {
         None
     }
-    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: &HashSet<&str>) {}
+
+    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: &HashSet<&str>) {
+        // validate that all names in $SPILLOVER match real channels
+        if let Present(spillover) = &s.metadata.specific.spillover {
+            validate_spillover(st, spillover, names)
+        }
+    }
 
     fn build_inner(st: &mut KwState) -> Option<InnerMetadata3_1> {
         let mode = st.lookup_mode()?;
@@ -1960,6 +1981,7 @@ impl VersionedMetadata for InnerMetadata3_1 {
             mode,
             byteord: st.lookup_endian()?,
             cyt: st.lookup_cyt_opt(),
+            spillover: st.lookup_spillover(),
             timestamps: st.lookup_timestamps2_0(true, false),
             cytsn: st.lookup_cytsn(),
             timestep: st.lookup_timestep(),
@@ -2087,6 +2109,11 @@ impl VersionedMetadata for InnerMetadata3_2 {
             }
         }
 
+        // validate that all names in $SPILLOVER match real channels
+        if let Present(spillover) = &s.metadata.specific.spillover {
+            validate_spillover(st, spillover, names)
+        }
+
         // check that all names in $UNSTAINEDCENTERS match one of the channels
         if let OptionalKw::Present(centers) = &spec.unstained.unstainedcenters {
             for u in centers.keys() {
@@ -2112,6 +2139,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
             tot: st.lookup_tot_req()?,
             byteord: st.lookup_endian()?,
             cyt: st.lookup_cyt_req()?,
+            spillover: st.lookup_spillover(),
             timestamps: st.lookup_timestamps2_0(true, true),
             cytsn: st.lookup_cytsn(),
             timestep: st.lookup_timestep(),
@@ -2734,6 +2762,56 @@ impl KwState<'_> {
             unstainedcenters: self.lookup_unstainedcenters(),
             unstainedinfo: self.lookup_unstainedinfo(),
         }
+    }
+
+    fn lookup_spillover(&mut self) -> OptionalKw<Spillover> {
+        self.lookup_optional(
+            "SPILLOVER",
+            |s| {
+                let mut xs = s.split(",");
+                if let Some(first) = &xs.next().and_then(|x| x.parse::<usize>().ok()) {
+                    let n = *first;
+                    let nn = n * n;
+                    let measurements: Vec<_> = xs.by_ref().take(n).map(String::from).collect();
+                    let values: Vec<_> = xs.by_ref().take(nn).collect();
+                    let remainder = xs.by_ref().count();
+                    let total = measurements.len() + values.len() + remainder;
+                    if total != n + nn {
+                        Err(format!(
+                            "Expected length of $SPILLOVER is {n} but found {total}"
+                        ))
+                    } else if measurements.iter().unique().count() != n {
+                        Err(String::from(
+                            "$SPILLOVER contains non-unique measurement names",
+                        ))
+                    } else {
+                        let fvalues: Vec<_> = values
+                            .into_iter()
+                            .filter_map(|x| x.parse::<f32>().ok())
+                            .collect();
+                        if fvalues.len() != nn {
+                            Err(String::from(
+                                "Not all values in $SPILLOVER could be parsed as floats",
+                            ))
+                        } else {
+                            let matrix = fvalues
+                                .into_iter()
+                                .chunks(n)
+                                .into_iter()
+                                .map(|c| c.collect())
+                                .collect();
+                            Ok(Spillover {
+                                measurements,
+                                matrix,
+                            })
+                        }
+                    }
+                } else {
+                    Err(String::from("Could not get number of parameters"))
+                }
+            },
+            false,
+        )
     }
 
     // TODO comp matrices

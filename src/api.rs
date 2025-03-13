@@ -21,6 +21,8 @@ fn format_measurement(n: u32, m: &str) -> String {
     format!("P{}{}", n, m.to_ascii_uppercase())
 }
 
+type ParseResult<T> = Result<T, String>;
+
 fn parse_endian(s: &str) -> ParseResult<Endian> {
     match s {
         "1,2,3,4" => Ok(Endian::Little),
@@ -30,26 +32,6 @@ fn parse_endian(s: &str) -> ParseResult<Endian> {
         )),
     }
 }
-
-fn parse_bytes(s: &str) -> ParseResult<Bytes> {
-    match s {
-        "*" => Ok(Bytes::Variable),
-        _ => s.parse::<u8>().map_or(
-            Err(String::from("must be a positive integer or '*'")),
-            |x| {
-                if x > 64 {
-                    Err(String::from("PnB over 64-bit are not supported"))
-                } else if x % 8 > 1 {
-                    Err(String::from("only multiples of 8 are supported"))
-                } else {
-                    Ok(Bytes::Fixed(x / 8))
-                }
-            },
-        ),
-    }
-}
-
-type ParseResult<T> = Result<T, String>;
 
 fn parse_int(s: &str) -> ParseResult<u32> {
     s.parse::<u32>().map_err(|e| format!("{}", e))
@@ -167,7 +149,7 @@ enum Version {
 }
 
 impl Version {
-    fn parse(s: &str) -> Option<Version> {
+    fn new(s: &str) -> Option<Version> {
         match s {
             "2.0" => Some(Version::FCS2_0),
             "3.0" => Some(Version::FCS3_0),
@@ -195,7 +177,7 @@ enum AlphaNumType {
 }
 
 impl AlphaNumType {
-    fn to_num(&self) -> Option<NumType> {
+    fn remove_alpha(&self) -> Option<NumType> {
         match self {
             AlphaNumType::Ascii => None,
             AlphaNumType::Integer => Some(NumType::Integer),
@@ -237,7 +219,7 @@ struct Compensation {
 }
 
 impl NumType {
-    fn lift(&self) -> AlphaNumType {
+    fn add_alpha(&self) -> AlphaNumType {
         match self {
             NumType::Integer => AlphaNumType::Integer,
             NumType::Single => AlphaNumType::Single,
@@ -263,7 +245,7 @@ enum ByteOrd {
 }
 
 impl ByteOrd {
-    // This only makes sense for integer types
+    // This only makes sense for pre 3.1 integer types
     fn num_bytes(&self) -> u8 {
         match self {
             ByteOrd::Endian(_) => 4,
@@ -382,7 +364,7 @@ impl<V> OptionalKw<V> {
 }
 
 #[derive(Debug, Clone)]
-struct InnerMeasurment2_0 {
+struct InnerMeasurement2_0 {
     scale: OptionalKw<Scale>,      // PnE
     wavelength: OptionalKw<u32>,   // PnL
     shortname: OptionalKw<String>, // PnN
@@ -428,7 +410,7 @@ impl InnerMeasurement3_2 {
         self.datatype
             .as_ref()
             .into_option()
-            .map(|x| x.lift())
+            .map(|x| x.add_alpha())
             .unwrap_or(default)
     }
 }
@@ -548,12 +530,12 @@ trait VersionedMeasurement: Sized + Versioned {
     }
 }
 
-type Measurement2_0 = Measurement<InnerMeasurment2_0>;
+type Measurement2_0 = Measurement<InnerMeasurement2_0>;
 type Measurement3_0 = Measurement<InnerMeasurement3_0>;
 type Measurement3_1 = Measurement<InnerMeasurement3_1>;
 type Measurement3_2 = Measurement<InnerMeasurement3_2>;
 
-impl Versioned for InnerMeasurment2_0 {
+impl Versioned for InnerMeasurement2_0 {
     fn fcs_version() -> Version {
         Version::FCS2_0
     }
@@ -577,7 +559,7 @@ impl Versioned for InnerMeasurement3_2 {
     }
 }
 
-impl VersionedMeasurement for InnerMeasurment2_0 {
+impl VersionedMeasurement for InnerMeasurement2_0 {
     fn measurement_name(p: &Measurement<Self>) -> Option<&str> {
         p.specific
             .shortname
@@ -598,8 +580,8 @@ impl VersionedMeasurement for InnerMeasurment2_0 {
         false
     }
 
-    fn build_inner(st: &mut KwState, n: u32) -> Option<InnerMeasurment2_0> {
-        Some(InnerMeasurment2_0 {
+    fn build_inner(st: &mut KwState, n: u32) -> Option<InnerMeasurement2_0> {
+        Some(InnerMeasurement2_0 {
             scale: st.lookup_meas_scale_opt(n),
             shortname: st.lookup_meas_shortname_opt(n),
             wavelength: st.lookup_meas_wavelength(n),
@@ -848,14 +830,6 @@ struct StdText<M, P> {
     measurements: Vec<Measurement<P>>,
 }
 
-// #[derive(Debug)]
-// struct TEXTSuccess<T> {
-//     text: T,
-//     data_parser: DataParser,
-//     // warnings: Vec<KwMsg>,
-//     // deprecated: Vec<String>,
-// }
-
 #[derive(Debug)]
 pub enum AnyStdTEXT {
     FCS2_0(Box<StdText2_0>),
@@ -866,13 +840,9 @@ pub enum AnyStdTEXT {
 
 #[derive(Debug)]
 pub struct ParsedTEXT {
-    // TODO add the offsets here as well? offsets are needed before parsing
-    // everything else
     standard: AnyStdTEXT,
     data_parser: DataParser,
     nonfatal: NonFatalErrors,
-    // nonstandard: HashMap<Key, String>,
-    // deviant: HashMap<Key, String>,
 }
 
 type TEXTResult = Result<ParsedTEXT, StandardErrors>;
@@ -889,14 +859,17 @@ impl<M: VersionedMetadata> StdText<M, M::P> {
         let mut st = raw.to_state(conf);
         // This will fail if a) not all required keywords pass and b) not all
         // required measurement keywords pass (according to $PAR)
-        if let Some(s) = M::lookup_metadata(&mut st).and_then(|metadata| {
-            M::P::lookup_measurements(&mut st, metadata.par).map(|measurements| StdText {
+        if let Some(s) = st
+            .lookup_par()
+            .and_then(|par| M::P::lookup_measurements(&mut st, par).map(|m| (par, m)))
+            .and_then(|(par, ms)| M::lookup_metadata(&mut st, par, &ms).map(|md| (ms, md)))
+            .map(|(measurements, metadata)| StdText {
                 header,
                 raw,
                 metadata,
                 measurements,
             })
-        }) {
+        {
             M::validate(&mut st, &s);
             match M::build_data_parser(&mut st, &s) {
                 Some(data_parser) => st.into_result(s, data_parser),
@@ -908,7 +881,7 @@ impl<M: VersionedMetadata> StdText<M, M::P> {
     }
 }
 
-type StdText2_0 = StdText<InnerMetadata2_0, InnerMeasurment2_0>;
+type StdText2_0 = StdText<InnerMetadata2_0, InnerMeasurement2_0>;
 type StdText3_0 = StdText<InnerMetadata3_0, InnerMeasurement3_0>;
 type StdText3_1 = StdText<InnerMetadata3_1, InnerMeasurement3_1>;
 type StdText3_2 = StdText<InnerMetadata3_2, InnerMeasurement3_2>;
@@ -1730,10 +1703,17 @@ trait VersionedMetadata: Sized {
         Self::validate_specific(st, s, &hs_shortnames);
     }
 
-    fn build_inner(st: &mut KwState, par: usize) -> Option<Self>;
+    fn build_inner(st: &mut KwState, names: &HashSet<&str>) -> Option<Self>;
 
-    fn lookup_metadata(st: &mut KwState) -> Option<Metadata<Self>> {
-        let par = st.lookup_par()?;
+    fn lookup_metadata(
+        st: &mut KwState,
+        par: u32,
+        ms: &[Measurement<Self::P>],
+    ) -> Option<Metadata<Self>> {
+        let names: HashSet<_> = ms
+            .iter()
+            .filter_map(|m| Self::P::measurement_name(m))
+            .collect();
         Some(Metadata {
             par,
             nextdata: st.lookup_nextdata()?,
@@ -1750,8 +1730,8 @@ trait VersionedMetadata: Sized {
             smno: st.lookup_smno(),
             src: st.lookup_src(),
             sys: st.lookup_sys(),
-            tr: st.lookup_trigger(),
-            specific: Self::build_inner(st, par as usize)?,
+            tr: st.lookup_trigger(&names),
+            specific: Self::build_inner(st, &names)?,
         })
     }
 }
@@ -1796,7 +1776,7 @@ fn build_int_parser_2_0<X>(
 }
 
 impl VersionedMetadata for InnerMetadata2_0 {
-    type P = InnerMeasurment2_0;
+    type P = InnerMeasurement2_0;
 
     fn into_any_text(t: Box<StdText2_0>) -> AnyStdTEXT {
         AnyStdTEXT::FCS2_0(t)
@@ -1839,13 +1819,14 @@ impl VersionedMetadata for InnerMetadata2_0 {
 
     fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: &HashSet<&str>) {}
 
-    fn build_inner(st: &mut KwState, par: usize) -> Option<InnerMetadata2_0> {
+    fn build_inner(st: &mut KwState, names: &HashSet<&str>) -> Option<InnerMetadata2_0> {
+        let par = names.len();
         Some(InnerMetadata2_0 {
             tot: st.lookup_tot_opt(),
             mode: st.lookup_mode()?,
             byteord: st.lookup_byteord()?,
             cyt: st.lookup_cyt_opt(),
-            comp: st.lookup_compensation_2_0(par as usize),
+            comp: st.lookup_compensation_2_0(par),
             timestamps: st.lookup_timestamps2_0(false, false),
         })
     }
@@ -1900,7 +1881,7 @@ impl VersionedMetadata for InnerMetadata3_0 {
 
     fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: &HashSet<&str>) {}
 
-    fn build_inner(st: &mut KwState, _: usize) -> Option<InnerMetadata3_0> {
+    fn build_inner(st: &mut KwState, _: &HashSet<&str>) -> Option<InnerMetadata3_0> {
         Some(InnerMetadata3_0 {
             data: st.lookup_data_offsets()?,
             supplemental: st.lookup_supplemental3_0()?,
@@ -1974,14 +1955,9 @@ impl VersionedMetadata for InnerMetadata3_1 {
         None
     }
 
-    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: &HashSet<&str>) {
-        // validate that all names in $SPILLOVER match real channels
-        if let Present(spillover) = &s.metadata.specific.spillover {
-            validate_spillover(st, spillover, names)
-        }
-    }
+    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: &HashSet<&str>) {}
 
-    fn build_inner(st: &mut KwState, _: usize) -> Option<InnerMetadata3_1> {
+    fn build_inner(st: &mut KwState, names: &HashSet<&str>) -> Option<InnerMetadata3_1> {
         let mode = st.lookup_mode()?;
         if mode != Mode::List {
             st.push_meta_deprecated_str("$MODE should only be L");
@@ -1993,7 +1969,7 @@ impl VersionedMetadata for InnerMetadata3_1 {
             mode,
             byteord: st.lookup_endian()?,
             cyt: st.lookup_cyt_opt(),
-            spillover: st.lookup_spillover(),
+            spillover: st.lookup_spillover(names),
             timestamps: st.lookup_timestamps2_0(true, false),
             cytsn: st.lookup_cytsn(),
             timestep: st.lookup_timestep(),
@@ -2110,7 +2086,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
         }
     }
 
-    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, names: &HashSet<&str>) {
+    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>, _: &HashSet<&str>) {
         let spec = &s.metadata.specific;
         // check that BEGINDATETIME is before ENDDATETIME
         if let (OptionalKw::Present(begin), OptionalKw::Present(end)) =
@@ -2120,30 +2096,12 @@ impl VersionedMetadata for InnerMetadata3_2 {
                 st.push_meta_warning_str("$BEGINDATETIME is after $ENDDATETIME");
             }
         }
-
-        // validate that all names in $SPILLOVER match real channels
-        if let Present(spillover) = &s.metadata.specific.spillover {
-            validate_spillover(st, spillover, names)
-        }
-
-        // check that all names in $UNSTAINEDCENTERS match one of the channels
-        if let OptionalKw::Present(centers) = &spec.unstained.unstainedcenters {
-            for u in centers.keys() {
-                if !names.contains(u.as_str()) {
-                    st.push_meta_error(format!(
-                        "Unstained center named {u} is not in measurement set",
-                    ));
-                }
-            }
-        }
     }
 
-    fn build_inner(st: &mut KwState, _: usize) -> Option<InnerMetadata3_2> {
+    fn build_inner(st: &mut KwState, names: &HashSet<&str>) -> Option<InnerMetadata3_2> {
         // Only L is allowed as of 3.2, so pull the value and check it if
         // given. The only thing we care about here is that the value is not
         // invalid, since we don't need to use it anywhere.
-        // TODO this makes more sense as a warning since it doesn't really
-        // matter.
         let _ = st.lookup_mode3_2();
         Some(InnerMetadata3_2 {
             data: st.lookup_data_offsets()?,
@@ -2151,7 +2109,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
             tot: st.lookup_tot_req()?,
             byteord: st.lookup_endian()?,
             cyt: st.lookup_cyt_req()?,
-            spillover: st.lookup_spillover(),
+            spillover: st.lookup_spillover(names),
             timestamps: st.lookup_timestamps2_0(true, true),
             cytsn: st.lookup_cytsn(),
             timestep: st.lookup_timestep(),
@@ -2160,7 +2118,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
             vol: st.lookup_vol(),
             carrier: st.lookup_carrier(),
             datetimes: st.lookup_timestamps3_2(),
-            unstained: st.lookup_unstained(),
+            unstained: st.lookup_unstained(names),
             flowrate: st.lookup_flowrate(),
         })
     }
@@ -2544,13 +2502,21 @@ impl KwState<'_> {
         self.lookup_optional("SYS", parse_str, false)
     }
 
-    fn lookup_trigger(&mut self) -> OptionalKw<Trigger> {
+    fn lookup_trigger(&mut self, names: &HashSet<&str>) -> OptionalKw<Trigger> {
         self.lookup_optional(
             "TR",
             |s| match s.split(",").collect::<Vec<&str>>()[..] {
-                [p, n1] => parse_int(n1).map(|threshold| Trigger {
-                    measurement: String::from(p),
-                    threshold,
+                [p, n1] => parse_int(n1).and_then(|threshold| {
+                    if names.contains(p) {
+                        Ok(Trigger {
+                            measurement: String::from(p),
+                            threshold,
+                        })
+                    } else {
+                        Err(format!(
+                            "$TRIGGER refers to non-existent measurements '{p}'"
+                        ))
+                    }
                 }),
                 _ => Err(String::from("wrong number of fields")),
             },
@@ -2610,23 +2576,36 @@ impl KwState<'_> {
         self.lookup_optional("UNSTAINEDINFO", parse_str, false)
     }
 
-    fn lookup_unstainedcenters(&mut self) -> OptionalKw<UnstainedCenters> {
+    fn lookup_unstainedcenters(&mut self, names: &HashSet<&str>) -> OptionalKw<UnstainedCenters> {
         self.lookup_optional(
             "UNSTAINEDICENTERS",
             |s| {
                 let mut xs = s.split(",");
                 if let Some(n) = xs.next().and_then(|s| s.parse().ok()) {
-                    let rest: Vec<&str> = xs.collect();
-                    let mut us = HashMap::new();
-                    if rest.len() == 2 * n {
-                        for i in 0..n {
-                            if let Ok(v) = rest[i + 8].parse() {
-                                us.insert(String::from(rest[i]), v);
-                            } else {
-                                return Err(String::from("invalid numeric encountered"));
-                            }
+                    let measurements: Vec<_> = xs.by_ref().take(n).map(String::from).collect();
+                    let values: Vec<_> = xs.by_ref().take(n).collect();
+                    let remainder = xs.by_ref().count();
+                    if measurements.len() == n && values.len() == n && remainder == 0 {
+                        let noexist: Vec<_> = measurements
+                            .iter()
+                            .filter(|m| !names.contains(m.as_str()))
+                            .collect();
+                        let fvalues: Vec<_> = values
+                            .into_iter()
+                            .filter_map(|s| s.parse::<f32>().ok())
+                            .collect();
+                        if fvalues.len() == n {
+                            Err(String::from(
+                                "Some values in $UNSTAINEDCENTERS are not floats",
+                            ))
+                        } else if !noexist.is_empty() {
+                            Err(format!(
+                                "$UNSTAINEDCENTERS refers to non-existent measurements: {}",
+                                noexist.iter().join(","),
+                            ))
+                        } else {
+                            Ok(measurements.into_iter().zip(fvalues).collect())
                         }
-                        Ok(us)
                     } else {
                         Err(String::from("data fields do not match given dimensions"))
                     }
@@ -2769,9 +2748,9 @@ impl KwState<'_> {
         }
     }
 
-    fn lookup_unstained(&mut self) -> UnstainedData {
+    fn lookup_unstained(&mut self, names: &HashSet<&str>) -> UnstainedData {
         UnstainedData {
-            unstainedcenters: self.lookup_unstainedcenters(),
+            unstainedcenters: self.lookup_unstainedcenters(names),
             unstainedinfo: self.lookup_unstainedinfo(),
         }
     }
@@ -2841,7 +2820,7 @@ impl KwState<'_> {
         )
     }
 
-    fn lookup_spillover(&mut self) -> OptionalKw<Spillover> {
+    fn lookup_spillover(&mut self, names: &HashSet<&str>) -> OptionalKw<Spillover> {
         self.lookup_optional(
             "SPILLOVER",
             |s| {
@@ -2863,11 +2842,20 @@ impl KwState<'_> {
                             "$SPILLOVER contains non-unique measurement names",
                         ))
                     } else {
+                        let noexist: Vec<_> = measurements
+                            .iter()
+                            .filter(|m| !names.contains(m.as_str()))
+                            .collect();
                         let fvalues: Vec<_> = values
                             .into_iter()
                             .filter_map(|x| x.parse::<f32>().ok())
                             .collect();
-                        if fvalues.len() != nn {
+                        if !noexist.is_empty() {
+                            Err(format!(
+                                "$SPILLOVER refers to non-existent measurements: {}",
+                                noexist.iter().join(", ")
+                            ))
+                        } else if fvalues.len() != nn {
                             Err(String::from(
                                 "Not all values in $SPILLOVER could be parsed as floats",
                             ))
@@ -2892,8 +2880,6 @@ impl KwState<'_> {
         )
     }
 
-    // TODO comp matrices
-
     // measurements
 
     fn lookup_meas_req<V, F>(&mut self, m: &'static str, n: u32, f: F, dep: bool) -> Option<V>
@@ -2910,10 +2896,29 @@ impl KwState<'_> {
         self.lookup_optional(&format_measurement(n, m), f, dep)
     }
 
-    // this is actually read the PnB field which has "bits" in it, but as
-    // far as I know nobody is using anything other than evenly-spaced bytes
+    // this reads the PnB field which has "bits" in it, but as far as I know
+    // nobody is using anything other than evenly-spaced bytes
     fn lookup_meas_bytes(&mut self, n: u32) -> Option<Bytes> {
-        self.lookup_meas_req("B", n, parse_bytes, false)
+        self.lookup_meas_req(
+            "B",
+            n,
+            |s| match s {
+                "*" => Ok(Bytes::Variable),
+                _ => s.parse::<u8>().map_or(
+                    Err(String::from("must be a positive integer or '*'")),
+                    |x| {
+                        if x > 64 {
+                            Err(String::from("PnB over 64-bit are not supported"))
+                        } else if x % 8 > 1 {
+                            Err(String::from("only multiples of 8 are supported"))
+                        } else {
+                            Ok(Bytes::Fixed(x / 8))
+                        }
+                    },
+                ),
+            },
+            false,
+        )
     }
 
     fn lookup_meas_range(&mut self, n: u32) -> Option<Range> {
@@ -3317,7 +3322,7 @@ fn parse_header(s: &str) -> Result<Header, &'static str> {
         .and_then(|c| {
             let [v, t0, t1, d0, d1, a0, a1] = c.extract().1;
             if let (Some(version), Ok(text), Ok(data), Ok(analysis)) = (
-                Version::parse(v),
+                Version::new(v),
                 parse_bounds(t0, t1, false),
                 parse_bounds(d0, d1, false),
                 parse_bounds(a0, a1, true),

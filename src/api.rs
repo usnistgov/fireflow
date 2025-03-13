@@ -2124,11 +2124,6 @@ impl VersionedMetadata for InnerMetadata3_2 {
     }
 }
 
-// type ParsedTEXT2_0 = ParsedTEXT<StdText2_0>;
-// type ParsedTEXT3_0 = ParsedTEXT<StdText3_0>;
-// type ParsedTEXT3_1 = ParsedTEXT<StdText3_1>;
-// type ParsedTEXT3_2 = ParsedTEXT<StdText3_2>;
-
 fn parse_raw_text(header: Header, raw: RawTEXT, conf: &StdTextReader) -> TEXTResult {
     match header.version {
         Version::FCS2_0 => StdText2_0::raw_to_std_text(header, raw, conf),
@@ -2136,14 +2131,6 @@ fn parse_raw_text(header: Header, raw: RawTEXT, conf: &StdTextReader) -> TEXTRes
         Version::FCS3_1 => StdText3_1::raw_to_std_text(header, raw, conf),
         Version::FCS3_2 => StdText3_2::raw_to_std_text(header, raw, conf),
     }
-}
-
-#[derive(Debug, Clone)]
-struct KwMsg {
-    key: Key,
-    value: String,
-    msg: String,
-    is_error: bool,
 }
 
 #[derive(Hash, Eq, PartialEq, Clone, Debug)]
@@ -2172,33 +2159,7 @@ struct KwValue {
     status: ValueStatus,
 }
 
-impl KwValue {
-    fn into_error(self, key: Key) -> Option<KwMsg> {
-        match self.status {
-            ValueStatus::Error(msg) => Some(KwMsg {
-                key,
-                value: self.value,
-                msg,
-                is_error: true,
-            }),
-
-            _ => None,
-        }
-    }
-}
-
 // all hail the almighty state monad :D
-
-// #[derive(Debug, Clone)]
-// struct NonFatalError {
-//     DeprecatedMeta(String),
-//     DeprecatedKey(Key),
-//     // TODO this isn't optimal
-//     KeyWarning(KwMsg),
-//     MetaWarning(String),
-//     DeviantKey(Key),
-//     NonStandardKey(Key),
-// }
 
 struct KwState<'a> {
     raw_keywords: HashMap<Key, KwValue>,
@@ -2208,6 +2169,13 @@ struct KwState<'a> {
     meta_errors: Vec<String>,
     meta_warnings: Vec<String>,
     conf: &'a StdTextReader,
+}
+
+#[derive(Debug, Clone)]
+struct KeyError {
+    key: Key,
+    value: String,
+    msg: String,
 }
 
 #[derive(Debug, Clone)]
@@ -2244,7 +2212,7 @@ pub struct StandardErrors {
     missing_keywords: Vec<Key>,
 
     /// Errors that pertain to one keyword value
-    value_errors: Vec<KwMsg>,
+    value_errors: Vec<KeyError>,
 
     /// Errors involving multiple keywords, like PnB not matching DATATYPE
     meta_errors: Vec<String>,
@@ -3186,7 +3154,7 @@ impl KwState<'_> {
         deprecated_keys: Vec<Key>,
         deprecated_features: Vec<String>,
         meta_warnings: Vec<String>,
-    ) -> (Vec<KwMsg>, NonFatalErrors) {
+    ) -> (Vec<KeyError>, NonFatalErrors) {
         let mut nonstandard_keywords = HashMap::new();
         let mut deviant_keywords = HashMap::new();
         let mut keyword_warnings = Vec::new();
@@ -3205,20 +3173,14 @@ impl KwState<'_> {
                     key,
                     value: v.value,
                 }),
-                ValueStatus::Error(msg) => value_errors.push(KwMsg {
+                ValueStatus::Error(msg) => value_errors.push(KeyError {
                     msg,
                     key,
                     value: v.value,
-                    is_error: true,
                 }),
                 ValueStatus::Used => (),
             }
         }
-        // let nfk = NonFatalKeyErrors {
-        // };
-
-        // let nfm = NonFatalMetaErrors {
-        // };
         let nfe = NonFatalErrors {
             deviant_keywords,
             keyword_warnings,
@@ -3228,14 +3190,6 @@ impl KwState<'_> {
             meta_warnings,
         };
         (value_errors, nfe)
-    }
-
-    fn keys_maybe<K, V>(test: bool, map: HashMap<K, V>) -> Vec<K> {
-        if test {
-            vec![]
-        } else {
-            map.into_keys().collect()
-        }
     }
 
     fn into_result<M: VersionedMetadata>(

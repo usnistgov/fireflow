@@ -533,7 +533,7 @@ trait VersionedMeasurement: Sized + Versioned {
 
     fn has_gain(&self) -> bool;
 
-    fn lookup_measurements<'a>(st: &mut KwState, par: u32) -> Option<Vec<Measurement<Self>>> {
+    fn lookup_measurements(st: &mut KwState, par: u32) -> Option<Vec<Measurement<Self>>> {
         let mut ps = vec![];
         let v = Self::fcs_version();
         for n in 1..(par + 1) {
@@ -880,19 +880,19 @@ impl Serialize for AnyStdTEXT {
         match self {
             AnyStdTEXT::FCS2_0(x) => {
                 state.serialize_field("version", &Version::FCS2_0)?;
-                state.serialize_field("data", &*x)?;
+                state.serialize_field("data", &x)?;
             }
             AnyStdTEXT::FCS3_0(x) => {
                 state.serialize_field("version", &Version::FCS3_0)?;
-                state.serialize_field("data", &*x)?;
+                state.serialize_field("data", &x)?;
             }
             AnyStdTEXT::FCS3_1(x) => {
                 state.serialize_field("version", &Version::FCS3_1)?;
-                state.serialize_field("data", &*x)?;
+                state.serialize_field("data", &x)?;
             }
             AnyStdTEXT::FCS3_2(x) => {
                 state.serialize_field("version", &Version::FCS3_2)?;
-                state.serialize_field("data", &*x)?;
+                state.serialize_field("data", &x)?;
             }
         }
         state.end()
@@ -908,7 +908,7 @@ pub struct ParsedTEXT {
     nonfatal: NonFatalErrors,
 }
 
-type TEXTResult = Result<ParsedTEXT, StandardErrors>;
+type TEXTResult = Result<ParsedTEXT, Box<StandardErrors>>;
 
 impl<M: VersionedMetadata> StdText<M, M::P> {
     fn get_shortnames(&self) -> Vec<&str> {
@@ -927,7 +927,7 @@ impl<M: VersionedMetadata> StdText<M, M::P> {
             .and_then(|par| M::P::lookup_measurements(&mut st, par).map(|m| (par, m)))
             .and_then(|(par, ms)| M::lookup_metadata(&mut st, par, &ms).map(|md| (ms, md)))
             .map(|(measurements, metadata)| StdText {
-                data_offsets: header.data.clone(),
+                data_offsets: header.data,
                 metadata,
                 measurements,
             })
@@ -935,10 +935,10 @@ impl<M: VersionedMetadata> StdText<M, M::P> {
             M::validate(&mut st, &s);
             match M::build_data_parser(&mut st, &s) {
                 Some(data_parser) => st.into_result(s, data_parser, header, raw),
-                None => Err(st.into_errors()),
+                None => Err(Box::new(st.into_errors())),
             }
         } else {
-            Err(st.into_errors())
+            Err(Box::new(st.into_errors()))
         }
     }
 }
@@ -3315,12 +3315,12 @@ impl KwState<'_> {
             // in the ns measurement field they wouldn't have used that param
             // anyways, in which case we probably need to call them something
             // different (like "upgradable")
-            Err(StandardErrors {
+            Err(Box::new(StandardErrors {
                 missing_keywords: self.missing_keywords,
                 value_errors,
                 meta_errors: self.meta_errors,
                 nonfatal,
-            })
+            }))
         } else {
             Ok(ParsedTEXT {
                 standard: M::into_any_text(Box::new(standard)),
@@ -3837,7 +3837,7 @@ pub fn std_reader() -> Reader {
     }
 }
 
-type FCSResult = Result<FCSSuccess, StandardErrors>;
+type FCSResult = Result<FCSSuccess, Box<StandardErrors>>;
 
 /// Return header in an FCS file.
 ///

@@ -80,13 +80,6 @@ fn parse_iso_datetime(s: &str) -> ParseResult<DateTime<FixedOffset>> {
     ))
 }
 
-// fn parse_date(s: &str) -> ParseResult<NaiveDate> {
-//     // the "%b" format is case-insensitive so this should work for "Jan", "JAN",
-//     // "jan", "jaN", etc
-//     NaiveDate::parse_from_str(s, "%d-%b-%Y").or(NaiveDate::parse_from_str(s, "%d-%b-%Y")
-//         .or(Err(String::from("must be formatted like 'dd-mmm-yyyy'"))))
-// }
-
 fn parse_time60(s: &str) -> ParseResult<NaiveTime> {
     // TODO this will have subseconds in terms of 1/100, need to convert to 1/60
     parse_time100(s)
@@ -358,15 +351,28 @@ impl fmt::Display for Display {
 }
 
 #[derive(Debug, Clone, Serialize)]
-struct Calibration {
+struct Calibration3_1 {
     value: f32,
     // TODO add offset (3.2 added a zero offset, which is different from 3.1)
     unit: String,
 }
 
-impl fmt::Display for Calibration {
+impl fmt::Display for Calibration3_1 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "{},{}", self.value, self.unit)
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct Calibration3_2 {
+    value: f32,
+    offset: f32,
+    unit: String,
+}
+
+impl fmt::Display for Calibration3_2 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{},{},{}", self.value, self.offset, self.unit)
     }
 }
 
@@ -488,7 +494,7 @@ struct InnerMeasurement3_1 {
     wavelengths: Vec<u32>, // PnL
     shortname: String,     // PnN
     gain: OptionalKw<f32>, // PnG
-    calibration: OptionalKw<Calibration>,
+    calibration: OptionalKw<Calibration3_1>,
     display: OptionalKw<Display>,
 }
 
@@ -498,7 +504,7 @@ struct InnerMeasurement3_2 {
     wavelengths: Vec<u32>, // PnL
     shortname: String,     // PnN
     gain: OptionalKw<f32>, // PnG
-    calibration: OptionalKw<Calibration>,
+    calibration: OptionalKw<Calibration3_2>,
     display: OptionalKw<Display>,
     analyte: OptionalKw<String>,
     feature: OptionalKw<Feature>,
@@ -824,7 +830,7 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
             shortname: st.lookup_meas_shortname_req(n)?,
             wavelengths: st.lookup_meas_wavelengths(n),
             gain: st.lookup_meas_gain(n),
-            calibration: st.lookup_meas_calibration(n),
+            calibration: st.lookup_meas_calibration3_1(n),
             display: st.lookup_meas_display(n),
         })
     }
@@ -880,7 +886,7 @@ impl VersionedMeasurement for InnerMeasurement3_2 {
             measurement_type: st.lookup_meas_type(n),
             feature: st.lookup_meas_feature(n),
             analyte: st.lookup_meas_analyte(n),
-            calibration: st.lookup_meas_calibration(n),
+            calibration: st.lookup_meas_calibration3_2(n),
             display: st.lookup_meas_display(n),
             datatype: st.lookup_meas_datatype(n),
         })
@@ -3394,7 +3400,7 @@ impl KwState<'_> {
         self.lookup_meas_opt("E", n, parse_scale, false)
     }
 
-    fn lookup_meas_calibration(&mut self, n: u32) -> OptionalKw<Calibration> {
+    fn lookup_meas_calibration3_1(&mut self, n: u32) -> OptionalKw<Calibration3_1> {
         self.lookup_meas_opt(
             "CALIBRATION",
             n,
@@ -3402,8 +3408,38 @@ impl KwState<'_> {
                 let v: Vec<&str> = s.split(",").collect();
                 match v[..] {
                     [svalue, unit] => match svalue.parse() {
-                        Ok(value) if value >= 0.0 => Ok(Calibration {
+                        Ok(value) if value >= 0.0 => Ok(Calibration3_1 {
                             value,
+                            unit: String::from(unit),
+                        }),
+                        _ => Err(String::from("invalid (positive) float")),
+                    },
+                    _ => Err(String::from("too many fields")),
+                }
+            },
+            false,
+        )
+    }
+
+    fn lookup_meas_calibration3_2(&mut self, n: u32) -> OptionalKw<Calibration3_2> {
+        self.lookup_meas_opt(
+            "CALIBRATION",
+            n,
+            |s| {
+                let v: Vec<&str> = s.split(",").collect();
+                match v[..] {
+                    [svalue, unit] => match svalue.parse() {
+                        Ok(value) if value >= 0.0 => Ok(Calibration3_2 {
+                            value,
+                            offset: 0.0,
+                            unit: String::from(unit),
+                        }),
+                        _ => Err(String::from("invalid (positive) float")),
+                    },
+                    [svalue, soffset, unit] => match (svalue.parse(), soffset.parse()) {
+                        (Ok(value), Ok(offset)) if value >= 0.0 => Ok(Calibration3_2 {
+                            value,
+                            offset,
                             unit: String::from(unit),
                         }),
                         _ => Err(String::from("invalid (positive) float")),

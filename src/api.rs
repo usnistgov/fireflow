@@ -2540,22 +2540,6 @@ struct KeyWarning {
     msg: String,
 }
 
-// enum ErrorKind {
-//     Critical(CriticalKind),
-//     Warning(WarningKind),
-// }
-
-// enum CriticialKind {
-//     KeyValue {
-//         key: Key,
-//         value: String,
-//         msg: String,
-//     },
-//     InterKey(String),
-// }
-
-// enum WarningKind {}
-
 #[derive(Debug, Clone, Default)]
 struct NonFatalErrors {
     deprecated_keys: Vec<StdKey>,
@@ -2574,6 +2558,41 @@ impl NonFatalErrors {
             || (!self.meta_warnings.is_empty() && conf.warnings_are_errors)
             || (!self.keyword_warnings.is_empty() && conf.warnings_are_errors)
             || (!self.nonstandard_keywords.is_empty() && conf.disallow_nonstandard)
+    }
+
+    fn into_critical(self, conf: &StdTextReader) -> NonFatalErrors {
+        NonFatalErrors {
+            deviant_keywords: if conf.disallow_deviant {
+                self.deviant_keywords
+            } else {
+                HashMap::new()
+            },
+            deprecated_features: if conf.disallow_deprecated {
+                self.deprecated_features
+            } else {
+                vec![]
+            },
+            deprecated_keys: if conf.disallow_deprecated {
+                self.deprecated_keys
+            } else {
+                vec![]
+            },
+            meta_warnings: if conf.warnings_are_errors {
+                self.meta_warnings
+            } else {
+                vec![]
+            },
+            keyword_warnings: if conf.warnings_are_errors {
+                self.keyword_warnings
+            } else {
+                vec![]
+            },
+            nonstandard_keywords: if conf.disallow_nonstandard {
+                self.nonstandard_keywords
+            } else {
+                HashMap::new()
+            },
+        }
     }
 
     fn into_lines(self) -> Vec<String> {
@@ -3657,7 +3676,7 @@ impl KwState<'_> {
                 missing_keywords: self.missing_keywords,
                 value_errors,
                 meta_errors: self.meta_errors,
-                nonfatal,
+                nonfatal: nonfatal.into_critical(self.conf),
             }))
         } else {
             Ok(ParsedTEXT {

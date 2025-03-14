@@ -18,8 +18,8 @@ struct CLIConfig {
 enum Command {
     Json(CLIJson),
     DumpData(CLIDumpData),
-    // DumpSpill,
     DumpMeas(CLIDumpData),
+    DumpSpill(CLIDumpData),
 }
 
 #[derive(Args)]
@@ -58,6 +58,10 @@ fn main() {
         Command::DumpMeas(s) => match api::read_fcs_text(&args.filepath, &conf).unwrap() {
             Err(err) => err.print(),
             Ok(res) => res.standard.print_meas_table(s.delim.as_str()),
+        },
+        Command::DumpSpill(s) => match api::read_fcs_text(&args.filepath, &conf).unwrap() {
+            Err(err) => err.print(),
+            Ok(res) => res.standard.print_spillover_table(s.delim.as_str()),
         },
         Command::Json(s) => {
             if s.metadata || s.measurements {

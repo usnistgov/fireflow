@@ -225,6 +225,25 @@ struct Spillover {
     matrix: Vec<Vec<f32>>,
 }
 
+impl Spillover {
+    fn table(&self, delim: &str) -> Vec<String> {
+        let header0 = vec![String::from("[-]")];
+        let header = header0
+            .into_iter()
+            .chain(self.measurements.iter().map(String::from))
+            .join(delim);
+        let lines = vec![header];
+        let rows = self.matrix.iter().map(|xs| xs.iter().join(delim));
+        lines.into_iter().chain(rows).collect()
+    }
+
+    fn print_table(&self, delim: &str) {
+        for e in self.table(delim) {
+            println!("{}", e);
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct Compensation {
     /// Values in the comp matrix in row-major order.
@@ -617,7 +636,7 @@ fn make_int_parser(b: u8, r: &Range, o: &ByteOrd, t: usize) -> Result<AnyIntColu
         6 => IntFromBytes::<8, 6>::to_col_parser(r, o, t).map(AnyIntColumn::Uint48),
         7 => IntFromBytes::<8, 7>::to_col_parser(r, o, t).map(AnyIntColumn::Uint56),
         8 => IntFromBytes::<8, 8>::to_col_parser(r, o, t).map(AnyIntColumn::Uint64),
-        _ => Err(vec![String::from("PnB has invalid byte length")]),
+        _ => Err(vec![String::from("$PnB has invalid byte length")]),
     }
 }
 
@@ -1078,6 +1097,30 @@ impl AnyStdTEXT {
             AnyStdTEXT::FCS3_0(x) => x.print_meas_table(delim),
             AnyStdTEXT::FCS3_1(x) => x.print_meas_table(delim),
             AnyStdTEXT::FCS3_2(x) => x.print_meas_table(delim),
+        }
+    }
+
+    pub fn print_spillover_table(&self, delim: &str) {
+        let res = match self {
+            AnyStdTEXT::FCS2_0(_) => None,
+            AnyStdTEXT::FCS3_0(_) => None,
+            AnyStdTEXT::FCS3_1(x) => x
+                .metadata
+                .specific
+                .spillover
+                .as_ref()
+                .into_option()
+                .map(|s| s.print_table(delim)),
+            AnyStdTEXT::FCS3_2(x) => x
+                .metadata
+                .specific
+                .spillover
+                .as_ref()
+                .into_option()
+                .map(|s| s.print_table(delim)),
+        };
+        if res.is_none() {
+            println!("None")
         }
     }
 }

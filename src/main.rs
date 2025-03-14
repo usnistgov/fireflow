@@ -26,14 +26,27 @@ enum Command {
 struct CLIJson {
     #[arg(short = 'H', long)]
     header: bool,
+
     #[arg(short = 'r', long)]
     raw: bool,
+
     #[arg(short = 'M', long)]
     metadata: bool,
+
     #[arg(short = 'm', long)]
     measurements: bool,
+
     #[arg(short = 'd', long)]
     data: bool,
+
+    #[arg(short = 't', long)]
+    time_shortname: Option<String>,
+
+    #[arg(short = 'T', long)]
+    ensure_time: bool,
+
+    #[arg(short = 's', long)]
+    ensure_time_timestep: bool,
 }
 
 #[derive(Args)]
@@ -64,6 +77,15 @@ fn main() {
             Ok(res) => res.standard.print_spillover_table(s.delim.as_str()),
         },
         Command::Json(s) => {
+            let conf = api::Reader {
+                text: api::StdTextReader {
+                    time_shortname: s.time_shortname,
+                    ensure_time: s.ensure_time,
+                    ensure_time_timestep: s.ensure_time_timestep,
+                    ..conf.text
+                },
+                ..conf
+            };
             if s.metadata || s.measurements {
                 match api::read_fcs_text(&args.filepath, &conf).unwrap() {
                     Err(err) => err.print(),

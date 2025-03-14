@@ -3644,7 +3644,10 @@ impl KwState<'_> {
             self.meta_warnings,
             self.raw_nonstandard_keywords,
         );
-        if !value_errors.is_empty() || nonfatal.has_error(self.conf) {
+        let any_crit = !self.missing_keywords.is_empty()
+            || !self.meta_errors.is_empty()
+            || !value_errors.is_empty();
+        if any_crit || nonfatal.has_error(self.conf) {
             // TODO this doesn't include nonstandard measurements, which is
             // probably fine, because if the user didn't want to include them
             // in the ns measurement field they wouldn't have used that param
@@ -4058,42 +4061,42 @@ pub struct RawTextReader {
 /// Instructions for reading the TEXT segment in a standardized structure.
 #[derive(Default)]
 pub struct StdTextReader {
-    raw: RawTextReader,
+    pub raw: RawTextReader,
 
     /// If true, all metadata standardization warnings will be considered fatal
     /// errors which will halt the parsing routine.
-    warnings_are_errors: bool,
+    pub warnings_are_errors: bool,
 
     /// If given, will be the $PnN used to identify the time channel. Means
     /// nothing for 2.0.
     ///
     /// Will be used for the [`ensure_time*`] options below. If not given, skip
     /// time channel checking entirely.
-    time_shortname: Option<String>,
+    pub time_shortname: Option<String>,
 
     /// If true, will ensure that time channel is present
-    ensure_time: bool,
+    pub ensure_time: bool,
 
     /// If true, will ensure TIMESTEP is present if time channel is also
     /// present.
-    ensure_time_timestep: bool,
+    pub ensure_time_timestep: bool,
 
     /// If true, will ensure PnE is 0,0 for time channel.
-    ensure_time_linear: bool,
+    pub ensure_time_linear: bool,
 
     /// If true, will ensure PnG is absent for time channel.
-    ensure_time_nogain: bool,
+    pub ensure_time_nogain: bool,
 
     /// If true, throw an error if TEXT includes any keywords that start with
     /// "$" which are not standard.
-    disallow_deviant: bool,
+    pub disallow_deviant: bool,
 
     /// If true, throw an error if TEXT includes any deprecated features
-    disallow_deprecated: bool,
+    pub disallow_deprecated: bool,
 
     /// If true, throw an error if TEXT includes any keywords that do not
     /// start with "$".
-    disallow_nonstandard: bool,
+    pub disallow_nonstandard: bool,
 
     /// If supplied, will be used as an alternative pattern when parsing $DATE.
     ///
@@ -4101,7 +4104,7 @@ pub struct StdTextReader {
     /// https://docs.rs/chrono/latest/chrono/format/strftime/index.html. If not
     /// supplied, $DATE will be parsed according to the standard pattern which
     /// is '%d-%b-%Y'.
-    date_pattern: Option<String>,
+    pub date_pattern: Option<String>,
 
     /// If supplied, this pattern will be used to group "nonstandard" keywords
     /// with matching measurements.
@@ -4115,7 +4118,7 @@ pub struct StdTextReader {
     /// "upgrade" routines since these are often used to represent future
     /// keywords in an older version where the newer version cannot be used for
     /// some reason.
-    nonstandard_measurement_pattern: Option<String>,
+    pub nonstandard_measurement_pattern: Option<String>,
     // TODO add repair stuff
 }
 

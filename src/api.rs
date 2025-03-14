@@ -15,8 +15,8 @@ use std::num::IntErrorKind;
 use std::path;
 use std::str;
 
-fn format_standard_kw(kw: &str) -> Key {
-    Key(format!("${}", kw.to_ascii_uppercase()))
+fn format_standard_kw(kw: &str) -> StdKey {
+    StdKey(format!("${}", kw.to_ascii_uppercase()))
 }
 
 fn format_measurement(n: u32, m: &str) -> String {
@@ -485,7 +485,7 @@ struct Measurement<X> {
     detector_type: OptionalKw<String>, // PnD
     percent_emitted: OptionalKw<u32>,  // PnP (TODO deprecated in 3.2, factor out)
     detector_voltage: OptionalKw<f32>, // PnV
-    nonstandard: HashMap<Key, String>,
+    nonstandard: HashMap<NonStdKey, String>,
     specific: X,
 }
 
@@ -2170,15 +2170,20 @@ fn parse_raw_text(header: Header, raw: RawTEXT, conf: &StdTextReader) -> TEXTRes
 }
 
 #[derive(Hash, Eq, PartialEq, Clone, Debug, Serialize)]
-struct Key(String);
+struct StdKey(String);
 
-impl Key {
+impl StdKey {
     fn as_str(&self) -> &str {
         self.0.as_str()
     }
+}
 
-    fn is_standard(&self) -> bool {
-        self.0.starts_with("$")
+#[derive(Hash, Eq, PartialEq, Clone, Debug, Serialize)]
+struct NonStdKey(String);
+
+impl NonStdKey {
+    fn as_str(&self) -> &str {
+        self.0.as_str()
     }
 }
 
@@ -2198,9 +2203,10 @@ struct KwValue {
 // all hail the almighty state monad :D
 
 struct KwState<'a> {
-    raw_keywords: HashMap<Key, KwValue>,
-    missing_keywords: Vec<Key>,
-    deprecated_keys: Vec<Key>,
+    raw_standard_keywords: HashMap<StdKey, KwValue>,
+    raw_nonstandard_keywords: HashMap<NonStdKey, String>,
+    missing_keywords: Vec<StdKey>,
+    deprecated_keys: Vec<StdKey>,
     deprecated_features: Vec<String>,
     meta_errors: Vec<String>,
     meta_warnings: Vec<String>,
@@ -2209,14 +2215,14 @@ struct KwState<'a> {
 
 #[derive(Debug, Clone)]
 struct KeyError {
-    key: Key,
+    key: StdKey,
     value: String,
     msg: String,
 }
 
 #[derive(Debug, Clone)]
 struct KeyWarning {
-    key: Key,
+    key: StdKey,
     value: String,
     msg: String,
 }
@@ -2239,11 +2245,11 @@ struct KeyWarning {
 
 #[derive(Debug, Clone, Default)]
 struct NonFatalErrors {
-    deprecated_keys: Vec<Key>,
+    deprecated_keys: Vec<StdKey>,
     deprecated_features: Vec<String>,
     meta_warnings: Vec<String>,
-    deviant_keywords: HashMap<Key, String>,
-    nonstandard_keywords: HashMap<Key, String>,
+    deviant_keywords: HashMap<StdKey, String>,
+    nonstandard_keywords: HashMap<NonStdKey, String>,
     keyword_warnings: Vec<KeyWarning>,
 }
 
@@ -2289,7 +2295,7 @@ impl NonFatalErrors {
 #[derive(Debug, Clone)]
 pub struct StandardErrors {
     /// Required keywords that are missing
-    missing_keywords: Vec<Key>,
+    missing_keywords: Vec<StdKey>,
 
     /// Errors that pertain to one keyword value
     value_errors: Vec<KeyError>,
@@ -2330,7 +2336,7 @@ impl KwState<'_> {
         F: FnOnce(&str) -> ParseResult<V>,
     {
         let sk = format_standard_kw(k);
-        match self.raw_keywords.get_mut(&sk) {
+        match self.raw_standard_keywords.get_mut(&sk) {
             Some(v) => match v.status {
                 ValueStatus::Raw => {
                     let (s, r) = f(&v.value).map_or_else(
@@ -2346,7 +2352,7 @@ impl KwState<'_> {
                 _ => None,
             },
             None => {
-                self.missing_keywords.push(Key(String::from(k)));
+                self.missing_keywords.push(StdKey(String::from(k)));
                 None
             }
         }
@@ -2357,7 +2363,7 @@ impl KwState<'_> {
         F: FnOnce(&str) -> ParseResult<V>,
     {
         let sk = format_standard_kw(k);
-        match self.raw_keywords.get_mut(&sk) {
+        match self.raw_standard_keywords.get_mut(&sk) {
             Some(v) => match v.status {
                 ValueStatus::Raw => {
                     let (s, r) = f(&v.value).map_or_else(
@@ -3192,7 +3198,7 @@ impl KwState<'_> {
     }
 
     /// Find nonstandard keys that a specific for a given measurement
-    fn lookup_meas_nonstandard(&mut self, n: u32) -> HashMap<Key, String> {
+    fn lookup_meas_nonstandard(&mut self, n: u32) -> HashMap<NonStdKey, String> {
         let mut ns = HashMap::new();
         // ASSUME the pattern does not start with "$" and has a %n which will be
         // subbed for the measurement index. The pattern will then be turned
@@ -3201,11 +3207,9 @@ impl KwState<'_> {
         if let Some(p) = &self.conf.nonstandard_measurement_pattern {
             let rep = p.replace("%n", n.to_string().as_str());
             if let Ok(pattern) = Regex::new(rep.as_str()) {
-                for (k, v) in self.raw_keywords.iter() {
-                    if let ValueStatus::Raw = v.status {
-                        if pattern.is_match(k.as_str()) {
-                            ns.insert(k.clone(), v.value.clone());
-                        }
+                for (k, v) in self.raw_nonstandard_keywords.iter() {
+                    if pattern.is_match(k.as_str()) {
+                        ns.insert(k.clone(), v.clone());
                     }
                 }
             } else {
@@ -3219,7 +3223,7 @@ impl KwState<'_> {
         // but the only ways I can think of involve taking ownership of the
         // keywords and then moving matching key/vals into a new hashlist.
         for k in ns.keys() {
-            self.raw_keywords.remove(k);
+            self.raw_nonstandard_keywords.remove(k);
         }
         ns
     }
@@ -3253,23 +3257,19 @@ impl KwState<'_> {
     }
 
     fn split_keywords(
-        kws: HashMap<Key, KwValue>,
-        deprecated_keys: Vec<Key>,
+        kws: HashMap<StdKey, KwValue>,
+        deprecated_keys: Vec<StdKey>,
         deprecated_features: Vec<String>,
         meta_warnings: Vec<String>,
+        nonstandard_keywords: HashMap<NonStdKey, String>,
     ) -> (Vec<KeyError>, NonFatalErrors) {
-        let mut nonstandard_keywords = HashMap::new();
         let mut deviant_keywords = HashMap::new();
         let mut keyword_warnings = Vec::new();
         let mut value_errors = Vec::new();
         for (key, v) in kws {
             match v.status {
                 ValueStatus::Raw => {
-                    if key.is_standard() {
-                        deviant_keywords.insert(key, v.value);
-                    } else {
-                        nonstandard_keywords.insert(key, v.value);
-                    }
+                    deviant_keywords.insert(key, v.value);
                 }
                 ValueStatus::Warning(msg) => keyword_warnings.push(KeyWarning {
                     msg,
@@ -3303,10 +3303,11 @@ impl KwState<'_> {
         raw: RawTEXT,
     ) -> TEXTResult {
         let (value_errors, nonfatal) = Self::split_keywords(
-            self.raw_keywords,
+            self.raw_standard_keywords,
             self.deprecated_keys,
             self.deprecated_features,
             self.meta_warnings,
+            self.raw_nonstandard_keywords,
         );
         if !value_errors.is_empty() || nonfatal.has_error(self.conf) {
             // TODO this doesn't include nonstandard measurements, which is
@@ -3333,10 +3334,11 @@ impl KwState<'_> {
 
     fn into_errors(self) -> StandardErrors {
         let (value_errors, nonfatal) = Self::split_keywords(
-            self.raw_keywords,
+            self.raw_standard_keywords,
             self.deprecated_keys,
             self.deprecated_features,
             self.meta_warnings,
+            self.raw_nonstandard_keywords,
         );
         StandardErrors {
             missing_keywords: self.missing_keywords,
@@ -3414,15 +3416,16 @@ fn read_header<R: Read>(h: &mut BufReader<R>) -> io::Result<Header> {
 #[derive(Debug, Clone, Serialize)]
 pub struct RawTEXT {
     delimiter: u8,
-    keywords: HashMap<Key, String>,
+    standard_keywords: HashMap<StdKey, String>,
+    nonstandard_keywords: HashMap<NonStdKey, String>,
     warnings: Vec<String>,
 }
 
 impl RawTEXT {
     fn to_state<'a>(&self, conf: &'a StdTextReader) -> KwState<'a> {
-        let mut keywords = HashMap::new();
-        for (k, v) in self.keywords.iter() {
-            keywords.insert(
+        let mut raw_standard_keywords = HashMap::new();
+        for (k, v) in self.standard_keywords.iter() {
+            raw_standard_keywords.insert(
                 k.clone(),
                 KwValue {
                     value: v.clone(),
@@ -3431,7 +3434,8 @@ impl RawTEXT {
             );
         }
         KwState {
-            raw_keywords: keywords,
+            raw_standard_keywords,
+            raw_nonstandard_keywords: self.nonstandard_keywords.clone(),
             deprecated_keys: vec![],
             deprecated_features: vec![],
             missing_keywords: vec![],
@@ -3602,12 +3606,12 @@ fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
                         )?;
                         None
                     } else {
-                        keywords.insert(Key(kupper.clone()), v.to_string())
+                        keywords.insert(kupper.clone(), v.to_string())
                     }
                 } else {
                     let krep = kupper.replace(escape_from, escape_to);
                     let rrep = v.replace(escape_from, escape_to);
-                    keywords.insert(Key(krep), rrep)
+                    keywords.insert(krep, rrep)
                 };
                 // test if the key was inserted already
                 if res.is_some() {
@@ -3627,9 +3631,16 @@ fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
         }
     }
 
+    let (std, nstd): (Vec<_>, Vec<_>) = keywords
+        .into_iter()
+        .collect::<Vec<_>>()
+        .into_iter()
+        .partition(|(k, _)| k.starts_with("$"));
+
     Ok(RawTEXT {
         delimiter,
-        keywords,
+        standard_keywords: std.into_iter().map(|(k, v)| (StdKey(k), v)).collect(),
+        nonstandard_keywords: nstd.into_iter().map(|(k, v)| (NonStdKey(k), v)).collect(),
         warnings,
     })
 }

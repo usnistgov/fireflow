@@ -181,18 +181,6 @@ pub struct Header {
     analysis: Offsets,
 }
 
-impl Header {
-    pub fn print(&self) {
-        println!("Version: {}", self.version);
-        println!("TEXT offsets: {}-{}", self.text.begin, self.text.end);
-        println!("DATA offsets: {}-{}", self.data.begin, self.data.end);
-        println!(
-            "ANALYSIS offsets: {}-{}",
-            self.analysis.begin, self.analysis.end
-        );
-    }
-}
-
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
 enum AlphaNumType {
     Ascii,
@@ -875,25 +863,6 @@ struct StdText<M, P> {
     measurements: Vec<Measurement<P>>,
 }
 
-impl<M, P> StdText<M, P> {
-    fn as_metadata_pairs(&self) -> Vec<(&'static str, String)> {
-        let m = &self.metadata;
-        let pairs = [
-            ("$PAR", m.par.to_string()),
-            ("$NEXTDATA", m.nextdata.to_string()),
-            ("DATATYPE", m.datatype.to_string()),
-        ];
-        pairs.into_iter().collect()
-    }
-
-    fn print(&self) {
-        let mps = self.as_metadata_pairs();
-        for (key, value) in mps.iter() {
-            println!("{key}: {value}");
-        }
-    }
-}
-
 #[derive(Debug)]
 pub enum AnyStdTEXT {
     FCS2_0(Box<StdText2_0>),
@@ -930,22 +899,11 @@ impl Serialize for AnyStdTEXT {
     }
 }
 
-impl AnyStdTEXT {
-    pub fn print(&self) {
-        match self {
-            AnyStdTEXT::FCS2_0(x) => x.print(),
-            AnyStdTEXT::FCS3_0(x) => x.print(),
-            AnyStdTEXT::FCS3_1(x) => x.print(),
-            AnyStdTEXT::FCS3_2(x) => x.print(),
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct ParsedTEXT {
-    header: Header,
-    raw: RawTEXT,
-    standard: AnyStdTEXT,
+    pub header: Header,
+    pub raw: RawTEXT,
+    pub standard: AnyStdTEXT,
     data_parser: DataParser,
     nonfatal: NonFatalErrors,
 }
@@ -2263,6 +2221,22 @@ struct KeyWarning {
     msg: String,
 }
 
+// enum ErrorKind {
+//     Critical(CriticalKind),
+//     Warning(WarningKind),
+// }
+
+// enum CriticialKind {
+//     KeyValue {
+//         key: Key,
+//         value: String,
+//         msg: String,
+//     },
+//     InterKey(String),
+// }
+
+// enum WarningKind {}
+
 #[derive(Debug, Clone, Default)]
 struct NonFatalErrors {
     deprecated_keys: Vec<Key>,
@@ -2282,6 +2256,34 @@ impl NonFatalErrors {
             || (!self.keyword_warnings.is_empty() && conf.warnings_are_errors)
             || (!self.nonstandard_keywords.is_empty() && conf.disallow_nonstandard)
     }
+
+    fn into_lines(self) -> Vec<String> {
+        let depkeys = self
+            .deprecated_keys
+            .into_iter()
+            .map(|k| format!("{} has been deprecated", k.0));
+        let devkeys = self
+            .deviant_keywords
+            .into_keys()
+            .map(|k| format!("{} starts with a '$' but is not a standard keyword", k.0));
+        let nskeys = self
+            .nonstandard_keywords
+            .into_keys()
+            .map(|k| format!("{} is a nonstandard keyword", k.0));
+        let kwarnings = self.keyword_warnings.into_iter().map(|e| {
+            format!(
+                "Potential issue for {}. Warning was '{}'. Value was '{}'.",
+                e.key.0, e.msg, e.value
+            )
+        });
+        depkeys
+            .chain(devkeys)
+            .chain(nskeys)
+            .chain(kwarnings)
+            .chain(self.meta_warnings)
+            .chain(self.deprecated_features)
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -2296,6 +2298,29 @@ pub struct StandardErrors {
     meta_errors: Vec<String>,
 
     nonfatal: NonFatalErrors,
+}
+
+impl StandardErrors {
+    fn into_lines(self) -> Vec<String> {
+        let ks = self
+            .missing_keywords
+            .into_iter()
+            .map(|s| format!("Required keyword is missing: {}", s.0));
+        let vs = self.value_errors.into_iter().map(|e| {
+            format!(
+                "Could not get value for {}. Error was '{}'. Value was '{}'.",
+                e.key.0, e.msg, e.value
+            )
+        });
+        let nfs = self.nonfatal.into_lines();
+        ks.chain(vs).chain(nfs).chain(self.meta_errors).collect()
+    }
+
+    pub fn print(self) {
+        for e in self.into_lines() {
+            eprintln!("ERROR: {e}");
+        }
+    }
 }
 
 impl KwState<'_> {
@@ -3415,20 +3440,6 @@ impl RawTEXT {
             conf,
         }
     }
-
-    pub fn print(&self) {
-        println!("Delimiter: {}", self.delimiter);
-        println!("Keywords");
-        for (k, v) in self.keywords.iter() {
-            println!("{}: {}", k.0, v);
-        }
-    }
-
-    fn print_warnings(&self) {
-        for w in self.warnings.iter() {
-            println!("WARNING: {w}");
-        }
-    }
 }
 
 pub struct FCSSuccess {
@@ -3880,7 +3891,7 @@ pub fn read_fcs_text(p: &path::PathBuf, conf: &Reader) -> io::Result<TEXTResult>
 ///
 /// The [`conf`] argument can be used to control the behavior of each reading
 /// step, including the repair of non-conforming files.
-pub fn read_fcs_file(p: path::PathBuf, conf: Reader) -> io::Result<FCSResult> {
+pub fn read_fcs_file(p: &path::PathBuf, conf: &Reader) -> io::Result<FCSResult> {
     let file = fs::File::options().read(true).open(p)?;
     let mut reader = BufReader::new(file);
     let header = read_header(&mut reader)?;

@@ -4,6 +4,7 @@ mod api;
 mod numeric;
 
 use clap::{Args, Parser, Subcommand};
+use serde::ser::Serialize;
 use std::path;
 
 // fn print_data(text: AnyTEXT, data: ParsedData) {
@@ -58,6 +59,10 @@ struct CLIShow {
     data: bool,
 }
 
+fn print_json<T: Serialize>(j: &T) {
+    println!("{}", serde_json::to_string(j).unwrap());
+}
+
 fn main() {
     let args = CLIConfig::parse();
 
@@ -65,22 +70,27 @@ fn main() {
     match args.command {
         Command::JSON(s) => {
             if s.metadata || s.measurements {
-                let res = api::read_fcs_file(args.filepath, conf).unwrap().unwrap();
-                if s.header {
-                    println!("{}", serde_json::to_string(&res.header).unwrap());
+                match api::read_fcs_text(&args.filepath, &conf).unwrap() {
+                    Err(err) => err.print(),
+                    Ok(res) => {
+                        if s.header {
+                            print_json(&res.header);
+                        }
+                        if s.raw {
+                            print_json(&res.raw);
+                        }
+                        print_json(&res.standard);
+                    }
                 }
-                if s.raw {
-                    println!("{}", serde_json::to_string(&res.raw).unwrap());
-                }
-                println!("{}", serde_json::to_string(&res.std).unwrap());
             } else if s.raw {
                 let (header, raw) = api::read_fcs_raw_text(&args.filepath, &conf).unwrap();
                 if s.header {
-                    header.print();
+                    print_json(&header);
                 }
-                raw.print();
+                print_json(&raw);
             } else if s.header {
-                api::read_fcs_header(&args.filepath).unwrap().print();
+                let header = api::read_fcs_header(&args.filepath).unwrap();
+                print_json(&header);
             }
         }
     }

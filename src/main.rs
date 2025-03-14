@@ -7,29 +7,6 @@ use clap::{Args, Parser, Subcommand};
 use serde::ser::Serialize;
 use std::path;
 
-// fn print_data(text: AnyTEXT, data: ParsedData) {
-//     let shortnames = match &text {
-//         AnyTEXT::TEXT2_0(x) => x.standard.get_shortnames(),
-//         AnyTEXT::TEXT3_0(x) => x.standard.get_shortnames(),
-//         AnyTEXT::TEXT3_1(x) => x.standard.get_shortnames(),
-//         AnyTEXT::TEXT3_2(x) => x.standard.get_shortnames(),
-//     };
-//     let nrows = data[0].len();
-//     let ncols = data.len();
-//     for s in shortnames {
-//         print!("{}", s);
-//         print!("\t");
-//     }
-//     println!();
-//     for r in 0..nrows {
-//         for c in 0..ncols {
-//             print!("{}", data[c].format(r));
-//             print!("\t");
-//         }
-//         println!();
-//     }
-// }
-
 #[derive(Parser)]
 struct CLIConfig {
     #[command(subcommand)]
@@ -39,14 +16,14 @@ struct CLIConfig {
 
 #[derive(Subcommand)]
 enum Command {
-    JSON(CLIShow),
-    // DumpData,
+    Json(CLIJson),
+    DumpData(CLIDumpData),
     // DumpSpill,
     // DumpMeasurements,
 }
 
 #[derive(Args)]
-struct CLIShow {
+struct CLIJson {
     #[arg(short = 'H', long)]
     header: bool,
     #[arg(short = 'r', long)]
@@ -59,6 +36,12 @@ struct CLIShow {
     data: bool,
 }
 
+#[derive(Args)]
+struct CLIDumpData {
+    #[arg(short = 'd', long, default_value_t = String::from("\t"))]
+    delim: String,
+}
+
 fn print_json<T: Serialize>(j: &T) {
     println!("{}", serde_json::to_string(j).unwrap());
 }
@@ -68,7 +51,11 @@ fn main() {
 
     let conf = api::Reader::default();
     match args.command {
-        Command::JSON(s) => {
+        Command::DumpData(s) => match api::read_fcs_file(&args.filepath, &conf).unwrap() {
+            Err(err) => err.print(),
+            Ok(res) => api::print_parsed_data(&res, s.delim.as_str()),
+        },
+        Command::Json(s) => {
             if s.metadata || s.measurements {
                 match api::read_fcs_text(&args.filepath, &conf).unwrap() {
                     Err(err) => err.print(),

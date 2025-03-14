@@ -1310,6 +1310,38 @@ struct DataParser {
 
 type ParsedData = Vec<Series>;
 
+fn format_parsed_data(res: &FCSSuccess, delim: &str) -> Vec<String> {
+    let shortnames = match &res.std {
+        AnyStdTEXT::FCS2_0(x) => x.get_shortnames(),
+        AnyStdTEXT::FCS3_0(x) => x.get_shortnames(),
+        AnyStdTEXT::FCS3_1(x) => x.get_shortnames(),
+        AnyStdTEXT::FCS3_2(x) => x.get_shortnames(),
+    };
+    if res.data.is_empty() {
+        return vec![];
+    }
+    let mut buf = vec![];
+    let mut lines = vec![];
+    let nrows = res.data[0].len();
+    let ncols = res.data.len();
+    // ASSUME names is the same length as columns
+    lines.push(shortnames.join(delim));
+    for r in 0..nrows {
+        buf.clear();
+        for c in 0..ncols {
+            buf.push(res.data[c].format(r));
+        }
+        lines.push(buf.join(delim));
+    }
+    lines
+}
+
+pub fn print_parsed_data(res: &FCSSuccess, delim: &str) {
+    for x in format_parsed_data(res, delim) {
+        println!("{}", x);
+    }
+}
+
 fn ascii_to_float_io(buf: Vec<u8>) -> io::Result<f64> {
     String::from_utf8(buf)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))

@@ -2714,43 +2714,33 @@ impl KwState<'_> {
     }
 
     fn lookup_data_offsets(&mut self) -> Option<Offsets> {
-        if let (Some(begin), Some(end)) = (self.lookup_begindata(), self.lookup_enddata()) {
-            self.build_offsets(begin, end, "DATA")
-        } else {
-            None
-        }
+        let begin = self.lookup_begindata()?;
+        let end = self.lookup_enddata()?;
+        self.build_offsets(begin, end, "DATA")
     }
 
-    fn lookup_supplemental(&mut self) -> (Option<Offsets>, Option<Offsets>) {
-        if let (Some(beginstext), Some(endstext), Some(beginanalysis), Some(endanalysis)) = (
-            self.lookup_required("BEGINSTEXT", parse_offset, false),
-            self.lookup_required("ENDSTEXT", parse_offset, false),
-            self.lookup_required("BEGINANALYSIS", parse_offset_or_blank, false),
-            self.lookup_required("ENDANALYSIS", parse_offset_or_blank, false),
-        ) {
-            (
-                self.build_offsets(beginstext, endstext, "STEXT"),
-                self.build_offsets(beginanalysis, endanalysis, "ANALYSIS"),
-            )
-        } else {
-            (None, None)
-        }
+    fn lookup_stext_offsets(&mut self) -> Option<Offsets> {
+        let beginstext = self.lookup_required("BEGINSTEXT", parse_offset, false)?;
+        let endstext = self.lookup_required("ENDSTEXT", parse_offset, false)?;
+        self.build_offsets(beginstext, endstext, "STEXT")
+    }
+
+    fn lookup_analysis_offsets(&mut self) -> Option<Offsets> {
+        let beginstext = self.lookup_required("BEGINANALYSIS", parse_offset, false)?;
+        let endstext = self.lookup_required("ENDANALYSIS", parse_offset, false)?;
+        self.build_offsets(beginstext, endstext, "ANALYSIS")
     }
 
     fn lookup_supplemental3_0(&mut self) -> Option<SupplementalOffsets3_0> {
-        if let (Some(stext), Some(analysis)) = self.lookup_supplemental() {
-            Some(SupplementalOffsets3_0 { stext, analysis })
-        } else {
-            None
-        }
+        let stext = self.lookup_stext_offsets()?;
+        let analysis = self.lookup_analysis_offsets()?;
+        Some(SupplementalOffsets3_0 { stext, analysis })
     }
 
     fn lookup_supplemental3_2(&mut self) -> SupplementalOffsets3_2 {
-        let (stext, analysis) = self.lookup_supplemental();
-        SupplementalOffsets3_2 {
-            stext: OptionalKw::from_option(stext),
-            analysis: OptionalKw::from_option(analysis),
-        }
+        let stext = OptionalKw::from_option(self.lookup_stext_offsets());
+        let analysis = OptionalKw::from_option(self.lookup_analysis_offsets());
+        SupplementalOffsets3_2 { stext, analysis }
     }
 
     fn lookup_byteord(&mut self) -> Option<ByteOrd> {
@@ -2931,6 +2921,9 @@ impl KwState<'_> {
     }
 
     fn lookup_unicode(&mut self) -> OptionalKw<Unicode> {
+        // TODO actually verify that these are real keywords, although this
+        // doesn't matter too much since we are going to parse TEXT as utf8
+        // anyways since we can, so this keywords isn't that useful.
         self.lookup_optional(
             "UNICODE",
             |s| {
@@ -3012,7 +3005,6 @@ impl KwState<'_> {
     }
 
     fn lookup_last_modified(&mut self) -> OptionalKw<NaiveDateTime> {
-        // TODO hopefully case doesn't matter...
         self.lookup_optional(
             "LAST_MODIFIED",
             |s| {

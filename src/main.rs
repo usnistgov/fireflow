@@ -47,6 +47,21 @@ struct CLIJson {
 
     #[arg(short = 's', long)]
     ensure_time_timestep: bool,
+
+    #[arg(short = 'l', long)]
+    ensure_time_linear: bool,
+
+    #[arg(short = 'g', long)]
+    ensure_time_nogain: bool,
+
+    #[arg(short = 'v', long)]
+    disallow_deviant: bool,
+
+    #[arg(short = 'D', long)]
+    disallow_deprecated: bool,
+
+    #[arg(short = 'n', long)]
+    disallow_nonstandard: bool,
 }
 
 #[derive(Args)]
@@ -82,6 +97,11 @@ fn main() {
                     time_shortname: s.time_shortname,
                     ensure_time: s.ensure_time,
                     ensure_time_timestep: s.ensure_time_timestep,
+                    ensure_time_nogain: s.ensure_time_nogain,
+                    ensure_time_linear: s.ensure_time_linear,
+                    disallow_deviant: s.disallow_deviant,
+                    disallow_deprecated: s.disallow_deprecated,
+                    disallow_nonstandard: s.disallow_nonstandard,
                     ..conf.text
                 },
                 ..conf

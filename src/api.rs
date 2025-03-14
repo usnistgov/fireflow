@@ -302,6 +302,15 @@ enum Scale {
 
 use Scale::*;
 
+impl fmt::Display for Scale {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Scale::Log(x) => write!(f, "{},{}", x.decades, x.offset),
+            Scale::Linear => write!(f, "Lin"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct LinDisplay {
     lower: f32,
@@ -320,11 +329,26 @@ enum Display {
     Log(LogDisplay),
 }
 
+impl fmt::Display for Display {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Display::Lin(x) => write!(f, "Linear,{},{}", x.lower, x.upper),
+            Display::Log(x) => write!(f, "Log,{},{}", x.offset, x.decades),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct Calibration {
     value: f32,
     // TODO add offset (3.2 added a zero offset, which is different from 3.1)
     unit: String,
+}
+
+impl fmt::Display for Calibration {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{},{}", self.value, self.unit)
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -341,11 +365,38 @@ enum MeasurementType {
     Other(String),
 }
 
+impl fmt::Display for MeasurementType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            MeasurementType::ForwardScatter => write!(f, "Foward Scatter"),
+            MeasurementType::SideScatter => write!(f, "Side Scatter"),
+            MeasurementType::RawFluorescence => write!(f, "Raw Fluorescence"),
+            MeasurementType::UnmixedFluorescence => write!(f, "Unmixed Fluorescence"),
+            MeasurementType::Mass => write!(f, "Mass"),
+            MeasurementType::Time => write!(f, "Time"),
+            MeasurementType::ElectronicVolume => write!(f, "Electronic Volume"),
+            MeasurementType::Classification => write!(f, "Classification"),
+            MeasurementType::Index => write!(f, "Index"),
+            MeasurementType::Other(s) => write!(f, "{}", s),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 enum Feature {
     Area,
     Width,
     Height,
+}
+
+impl fmt::Display for Feature {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Feature::Area => write!(f, "Area"),
+            Feature::Width => write!(f, "Width"),
+            Feature::Height => write!(f, "Height"),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -355,6 +406,15 @@ enum OptionalKw<V> {
 }
 
 use OptionalKw::*;
+
+impl<T: fmt::Display> fmt::Display for OptionalKw<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Present(x) => write!(f, "{}", x),
+            Absent => write!(f, "NA"),
+        }
+    }
+}
 
 impl<V> OptionalKw<V> {
     fn as_ref(&self) -> OptionalKw<&V> {
@@ -475,6 +535,15 @@ enum Range {
     Float(f64),
 }
 
+impl fmt::Display for Range {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Range::Int(x) => write!(f, "{x}"),
+            Range::Float(x) => write!(f, "{x}"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct Measurement<X> {
     bytes: Bytes,                      // PnB
@@ -489,7 +558,7 @@ struct Measurement<X> {
     specific: X,
 }
 
-impl<X> Measurement<X> {
+impl<P: VersionedMeasurement> Measurement<P> {
     fn bytes_eq(&self, b: u8) -> bool {
         match self.bytes {
             Bytes::Fixed(x) => x == b,
@@ -503,6 +572,38 @@ impl<X> Measurement<X> {
             Bytes::Fixed(b) => make_int_parser(b, &self.range, o, t),
             _ => Err(vec![String::from("PnB is variable length")]),
         }
+    }
+
+    fn table_header() -> Vec<&'static str> {
+        let fixed = [
+            "index",
+            "bytes",
+            "range",
+            "longname",
+            "filter",
+            "power",
+            "detector_type",
+            "percent_emitted",
+            "detector_voltage",
+        ];
+        let specific = P::table_header();
+        fixed.into_iter().chain(specific).collect()
+    }
+
+    fn table_row(&self, n: usize) -> Vec<String> {
+        let fixed = [
+            n.to_string(),
+            format!("{}", self.bytes),
+            format!("{}", self.range),
+            format!("{}", self.longname),
+            format!("{}", self.filter),
+            format!("{}", self.power),
+            format!("{}", self.detector_type),
+            format!("{}", self.percent_emitted),
+            format!("{}", self.detector_voltage),
+        ];
+        let specific = self.specific.table_row();
+        fixed.into_iter().chain(specific).collect()
     }
 }
 
@@ -526,6 +627,10 @@ trait Versioned {
 
 trait VersionedMeasurement: Sized + Versioned {
     fn build_inner(st: &mut KwState, n: u32) -> Option<Self>;
+
+    fn table_header() -> Vec<&'static str>;
+
+    fn table_row(&self) -> Vec<String>;
 
     fn measurement_name(p: &Measurement<Self>) -> Option<&str>;
 
@@ -621,6 +726,20 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
             wavelength: st.lookup_meas_wavelength(n),
         })
     }
+
+    fn table_header() -> Vec<&'static str> {
+        ["scale", "shortname", "wavelength"].into_iter().collect()
+    }
+
+    fn table_row(&self) -> Vec<String> {
+        [
+            format!("{}", self.scale),
+            format!("{}", self.shortname),
+            format!("{}", self.wavelength),
+        ]
+        .into_iter()
+        .collect()
+    }
 }
 
 impl VersionedMeasurement for InnerMeasurement3_0 {
@@ -648,6 +767,23 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
             gain: st.lookup_meas_gain(n),
         })
     }
+
+    fn table_header() -> Vec<&'static str> {
+        ["scale", "shortname", "wavelength", "gain"]
+            .into_iter()
+            .collect()
+    }
+
+    fn table_row(&self) -> Vec<String> {
+        [
+            format!("{}", self.scale),
+            format!("{}", self.shortname),
+            format!("{}", self.wavelength),
+            format!("{}", self.gain),
+        ]
+        .into_iter()
+        .collect()
+    }
 }
 
 impl VersionedMeasurement for InnerMeasurement3_1 {
@@ -672,6 +808,32 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
             calibration: st.lookup_meas_calibration(n),
             display: st.lookup_meas_display(n),
         })
+    }
+
+    fn table_header() -> Vec<&'static str> {
+        [
+            "scale",
+            "shortname",
+            "wavelengths",
+            "gain",
+            "calibration",
+            "display",
+        ]
+        .into_iter()
+        .collect()
+    }
+
+    fn table_row(&self) -> Vec<String> {
+        [
+            format!("{}", self.scale),
+            self.shortname.clone(),
+            self.wavelengths.iter().join(","),
+            format!("{}", self.gain),
+            format!("{}", self.calibration),
+            format!("{}", self.display),
+        ]
+        .into_iter()
+        .collect()
     }
 }
 
@@ -703,6 +865,44 @@ impl VersionedMeasurement for InnerMeasurement3_2 {
             display: st.lookup_meas_display(n),
             datatype: st.lookup_meas_datatype(n),
         })
+    }
+
+    fn table_header() -> Vec<&'static str> {
+        [
+            "scale",
+            "shortname",
+            "wavelengths",
+            "gain",
+            "calibration",
+            "display",
+            "datatype",
+            "detector_name",
+            "tag",
+            "measurement_type",
+            "feature",
+            "analyte",
+        ]
+        .into_iter()
+        .collect()
+    }
+
+    fn table_row(&self) -> Vec<String> {
+        [
+            format!("{}", self.scale),
+            self.shortname.clone(),
+            self.wavelengths.iter().join(","),
+            format!("{}", self.gain),
+            format!("{}", self.calibration),
+            format!("{}", self.display),
+            format!("{}", self.datatype),
+            format!("{}", self.detector_name),
+            format!("{}", self.tag),
+            format!("{}", self.measurement_type),
+            format!("{}", self.feature),
+            format!("{}", self.analyte),
+        ]
+        .into_iter()
+        .collect()
     }
 }
 
@@ -871,6 +1071,17 @@ pub enum AnyStdTEXT {
     FCS3_2(Box<StdText3_2>),
 }
 
+impl AnyStdTEXT {
+    pub fn print_meas_table(&self, delim: &str) {
+        match self {
+            AnyStdTEXT::FCS2_0(x) => x.print_meas_table(delim),
+            AnyStdTEXT::FCS3_0(x) => x.print_meas_table(delim),
+            AnyStdTEXT::FCS3_1(x) => x.print_meas_table(delim),
+            AnyStdTEXT::FCS3_2(x) => x.print_meas_table(delim),
+        }
+    }
+}
+
 impl Serialize for AnyStdTEXT {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -916,6 +1127,26 @@ impl<M: VersionedMetadata> StdText<M, M::P> {
             .iter()
             .filter_map(|p| M::P::measurement_name(p))
             .collect()
+    }
+
+    fn meas_table(&self, delim: &str) -> Vec<String> {
+        let header = <Measurement<M::P>>::table_header()
+            .into_iter()
+            .map(String::from)
+            .join(delim);
+        let lines = vec![header];
+        let rows = self
+            .measurements
+            .iter()
+            .enumerate()
+            .map(|(i, m)| m.table_row(i).into_iter().join(delim));
+        lines.into_iter().chain(rows).collect()
+    }
+
+    fn print_meas_table(&self, delim: &str) {
+        for e in self.meas_table(delim) {
+            println!("{}", e);
+        }
     }
 
     fn raw_to_std_text(header: Header, raw: RawTEXT, conf: &StdTextReader) -> TEXTResult {
@@ -1727,6 +1958,7 @@ trait VersionedMetadata: Sized {
 
     fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>);
 
+    // TODO make sure measurement type is correct
     fn validate_time_channel(st: &mut KwState, s: &StdText<Self, Self::P>) {
         if let Some(time_name) = st.conf.time_shortname.as_ref() {
             if let Some(tc) = s
@@ -1805,10 +2037,10 @@ trait VersionedMetadata: Sized {
     }
 }
 
-fn build_int_parser_2_0<X>(
+fn build_int_parser_2_0<P: VersionedMeasurement>(
     st: &mut KwState,
     byteord: &ByteOrd,
-    ps: &[Measurement<X>],
+    ps: &[Measurement<P>],
     total_events: usize,
 ) -> Option<IntParser> {
     let nbytes = byteord.num_bytes();

@@ -4023,7 +4023,7 @@ fn read_raw_text<R: Read + Seek>(
 }
 
 /// Instructions for reading the TEXT segment as raw key/value pairs.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct RawTextReader {
     /// Will adjust the offset of the start of the TEXT segment by `offset + n`.
     textstart_delta: u32,
@@ -4078,7 +4078,7 @@ pub struct RawTextReader {
 }
 
 /// Instructions for reading the TEXT segment in a standardized structure.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct StdTextReader {
     pub raw: RawTextReader,
 

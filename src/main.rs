@@ -62,6 +62,9 @@ struct CLIJson {
 
     #[arg(short = 'n', long)]
     disallow_nonstandard: bool,
+
+    #[arg(short = 'P', long)]
+    nonstandard_measurement_pattern: Option<String>,
 }
 
 #[derive(Args)]
@@ -102,6 +105,7 @@ fn main() {
                     disallow_deviant: s.disallow_deviant,
                     disallow_deprecated: s.disallow_deprecated,
                     disallow_nonstandard: s.disallow_nonstandard,
+                    nonstandard_measurement_pattern: s.nonstandard_measurement_pattern,
                     ..conf.text
                 },
                 ..conf

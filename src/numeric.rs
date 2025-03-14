@@ -1,7 +1,9 @@
 use std::io;
 use std::io::{BufReader, Read, Seek};
 
-#[derive(Debug, Clone, Copy)]
+use serde::Serialize;
+
+#[derive(Debug, Clone, Copy, Serialize)]
 pub enum Endian {
     Big,
     Little,

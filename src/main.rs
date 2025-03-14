@@ -38,11 +38,10 @@ struct CLIConfig {
 
 #[derive(Subcommand)]
 enum Command {
-    // Show(CLIShow),
     JSON(CLIShow),
-    DumpData,
-    DumpSpill,
-    DumpMeasurements,
+    // DumpData,
+    // DumpSpill,
+    // DumpMeasurements,
 }
 
 #[derive(Args)]
@@ -64,16 +63,16 @@ fn main() {
 
     let conf = api::Reader::default();
     match args.command {
-        Command::Show(s) => {
+        Command::JSON(s) => {
             if s.metadata || s.measurements {
                 let res = api::read_fcs_file(args.filepath, conf).unwrap().unwrap();
                 if s.header {
-                    res.header.print();
+                    println!("{}", serde_json::to_string(&res.header).unwrap());
                 }
                 if s.raw {
-                    res.raw.print();
+                    println!("{}", serde_json::to_string(&res.raw).unwrap());
                 }
-                res.std.print();
+                println!("{}", serde_json::to_string(&res.std).unwrap());
             } else if s.raw {
                 let (header, raw) = api::read_fcs_raw_text(&args.filepath, &conf).unwrap();
                 if s.header {

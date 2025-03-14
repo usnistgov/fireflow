@@ -3,6 +3,8 @@ use crate::numeric::{Endian, IntMath, NumProps, Series};
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 use itertools::Itertools;
 use regex::Regex;
+use serde::ser::{SerializeStruct, Serializer};
+use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs;
@@ -78,12 +80,12 @@ fn parse_iso_datetime(s: &str) -> ParseResult<DateTime<FixedOffset>> {
     ))
 }
 
-fn parse_date(s: &str) -> ParseResult<NaiveDate> {
-    // the "%b" format is case-insensitive so this should work for "Jan", "JAN",
-    // "jan", "jaN", etc
-    NaiveDate::parse_from_str(s, "%d-%b-%Y").or(NaiveDate::parse_from_str(s, "%d-%b-%Y")
-        .or(Err(String::from("must be formatted like 'dd-mmm-yyyy'"))))
-}
+// fn parse_date(s: &str) -> ParseResult<NaiveDate> {
+//     // the "%b" format is case-insensitive so this should work for "Jan", "JAN",
+//     // "jan", "jaN", etc
+//     NaiveDate::parse_from_str(s, "%d-%b-%Y").or(NaiveDate::parse_from_str(s, "%d-%b-%Y")
+//         .or(Err(String::from("must be formatted like 'dd-mmm-yyyy'"))))
+// }
 
 fn parse_time60(s: &str) -> ParseResult<NaiveTime> {
     // TODO this will have subseconds in terms of 1/100, need to convert to 1/60
@@ -107,7 +109,7 @@ fn parse_scale(s: &str) -> ParseResult<Scale> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize)]
 struct Offsets {
     begin: u32,
     end: u32,
@@ -140,7 +142,7 @@ impl Offsets {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Serialize)]
 enum Version {
     FCS2_0,
     FCS3_0,
@@ -171,7 +173,7 @@ impl fmt::Display for Version {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Header {
     version: Version,
     text: Offsets,
@@ -191,7 +193,7 @@ impl Header {
     }
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
 enum AlphaNumType {
     Ascii,
     Integer,
@@ -221,21 +223,21 @@ impl fmt::Display for AlphaNumType {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize)]
 enum NumType {
     Integer,
     Single,
     Double,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct Spillover {
     measurements: Vec<String>,
     /// Values in the spillover matrix in row-major order.
     matrix: Vec<Vec<f32>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct Compensation {
     /// Values in the comp matrix in row-major order.
     matrix: Vec<Vec<f32>>,
@@ -261,7 +263,7 @@ impl fmt::Display for NumType {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 enum ByteOrd {
     Endian(Endian),
     Mixed(Vec<u8>),
@@ -277,20 +279,20 @@ impl ByteOrd {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct Trigger {
     measurement: String,
     threshold: u32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct Timestamps2_0 {
     btim: OptionalKw<NaiveTime>,
     etim: OptionalKw<NaiveTime>,
     date: OptionalKw<NaiveDate>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct Timestamps3_2 {
     begin: OptionalKw<DateTime<FixedOffset>>,
     end: OptionalKw<DateTime<FixedOffset>>,
@@ -298,13 +300,13 @@ struct Timestamps3_2 {
 
 // TODO this is super messy, see 3.2 spec for restrictions on this we may with
 // to use further
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 struct LogScale {
     decades: f32,
     offset: f32,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 enum Scale {
     Log(LogScale),
     Linear,
@@ -312,32 +314,32 @@ enum Scale {
 
 use Scale::*;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct LinDisplay {
     lower: f32,
     upper: f32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct LogDisplay {
     offset: f32,
     decades: f32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 enum Display {
     Lin(LinDisplay),
     Log(LogDisplay),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct Calibration {
     value: f32,
     // TODO add offset (3.2 added a zero offset, which is different from 3.1)
     unit: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 enum MeasurementType {
     ForwardScatter,
     SideScatter,
@@ -351,7 +353,7 @@ enum MeasurementType {
     Other(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 enum Feature {
     Area,
     Width,
@@ -386,14 +388,26 @@ impl<V> OptionalKw<V> {
     }
 }
 
-#[derive(Debug, Clone)]
+impl<T: Serialize> Serialize for OptionalKw<T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self.as_ref() {
+            Present(x) => serializer.serialize_some(x),
+            Absent => serializer.serialize_none(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
 struct InnerMeasurement2_0 {
     scale: OptionalKw<Scale>,      // PnE
     wavelength: OptionalKw<u32>,   // PnL
     shortname: OptionalKw<String>, // PnN
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct InnerMeasurement3_0 {
     scale: Scale,                  // PnE
     wavelength: OptionalKw<u32>,   // PnL
@@ -401,20 +415,20 @@ struct InnerMeasurement3_0 {
     gain: OptionalKw<f32>,         // PnG
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct InnerMeasurement3_1 {
     scale: Scale,          // PnE
-    wavelength: Vec<u32>,  // PnL
+    wavelengths: Vec<u32>, // PnL
     shortname: String,     // PnN
     gain: OptionalKw<f32>, // PnG
     calibration: OptionalKw<Calibration>,
     display: OptionalKw<Display>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct InnerMeasurement3_2 {
     scale: Scale,          // PnE
-    wavelength: Vec<u32>,  // PnL
+    wavelengths: Vec<u32>, // PnL
     shortname: String,     // PnN
     gain: OptionalKw<f32>, // PnG
     calibration: OptionalKw<Calibration>,
@@ -438,7 +452,7 @@ impl InnerMeasurement3_2 {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 enum Bytes {
     Fixed(u8),
     Variable,
@@ -462,7 +476,7 @@ impl fmt::Display for Bytes {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize)]
 enum Range {
     // This will actually store PnR - 1; most cytometers will store this as a
     // power of 2, so in the case of a 64 bit channel this will be 2^64 which is
@@ -473,7 +487,7 @@ enum Range {
     Float(f64),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct Measurement<X> {
     bytes: Bytes,                      // PnB
     range: Range,                      // PnR
@@ -665,7 +679,7 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
         Some(InnerMeasurement3_1 {
             scale: st.lookup_meas_scale_req(n)?,
             shortname: st.lookup_meas_shortname_req(n)?,
-            wavelength: st.lookup_meas_wavelengths(n),
+            wavelengths: st.lookup_meas_wavelengths(n),
             gain: st.lookup_meas_gain(n),
             calibration: st.lookup_meas_calibration(n),
             display: st.lookup_meas_display(n),
@@ -690,7 +704,7 @@ impl VersionedMeasurement for InnerMeasurement3_2 {
         Some(InnerMeasurement3_2 {
             scale: st.lookup_meas_scale_req(n)?,
             shortname: st.lookup_meas_shortname_req(n)?,
-            wavelength: st.lookup_meas_wavelengths(n),
+            wavelengths: st.lookup_meas_wavelengths(n),
             gain: st.lookup_meas_gain(n),
             detector_name: st.lookup_meas_detector(n),
             tag: st.lookup_meas_tag(n),
@@ -704,7 +718,7 @@ impl VersionedMeasurement for InnerMeasurement3_2 {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 enum Originality {
     Original,
     NonDataModified,
@@ -712,14 +726,14 @@ enum Originality {
     DataModified,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct ModificationData {
     last_modifier: OptionalKw<String>,
     last_modified: OptionalKw<NaiveDateTime>,
     originality: OptionalKw<Originality>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct PlateData {
     plateid: OptionalKw<String>,
     platename: OptionalKw<String>,
@@ -728,38 +742,38 @@ struct PlateData {
 
 type UnstainedCenters = HashMap<String, f32>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct UnstainedData {
     unstainedcenters: OptionalKw<UnstainedCenters>,
     unstainedinfo: OptionalKw<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct CarrierData {
     carrierid: OptionalKw<String>,
     carriertype: OptionalKw<String>,
     locationid: OptionalKw<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct Unicode {
     page: u32,
     kws: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct SupplementalOffsets3_0 {
     analysis: Offsets,
     stext: Offsets,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct SupplementalOffsets3_2 {
     analysis: OptionalKw<Offsets>,
     stext: OptionalKw<Offsets>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct InnerMetadata2_0 {
     tot: OptionalKw<u32>,
     mode: Mode,
@@ -769,7 +783,7 @@ struct InnerMetadata2_0 {
     timestamps: Timestamps2_0, // BTIM/ETIM/DATE
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct InnerMetadata3_0 {
     data: Offsets,
     supplemental: SupplementalOffsets3_0,
@@ -784,7 +798,7 @@ struct InnerMetadata3_0 {
     unicode: OptionalKw<Unicode>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct InnerMetadata3_1 {
     data: Offsets,
     supplemental: SupplementalOffsets3_0,
@@ -801,7 +815,7 @@ struct InnerMetadata3_1 {
     vol: OptionalKw<f32>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct InnerMetadata3_2 {
     data: Offsets,
     supplemental: SupplementalOffsets3_2,
@@ -821,7 +835,7 @@ struct InnerMetadata3_2 {
     flowrate: OptionalKw<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct Metadata<X> {
     par: u32,
     nextdata: u32,
@@ -847,14 +861,14 @@ type Metadata3_0 = Metadata<InnerMetadata3_0>;
 type Metadata3_1 = Metadata<InnerMetadata3_1>;
 type Metadata3_2 = Metadata<InnerMetadata3_2>;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 enum Mode {
     List,
     Uncorrelated,
     Correlated,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct StdText<M, P> {
     data_offsets: Offsets,
     metadata: Metadata<M>,
@@ -886,6 +900,34 @@ pub enum AnyStdTEXT {
     FCS3_0(Box<StdText3_0>),
     FCS3_1(Box<StdText3_1>),
     FCS3_2(Box<StdText3_2>),
+}
+
+impl Serialize for AnyStdTEXT {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut state = serializer.serialize_struct("AnyStdTEXT", 2)?;
+        match self {
+            AnyStdTEXT::FCS2_0(x) => {
+                state.serialize_field("version", &Version::FCS2_0)?;
+                state.serialize_field("data", &*x)?;
+            }
+            AnyStdTEXT::FCS3_0(x) => {
+                state.serialize_field("version", &Version::FCS3_0)?;
+                state.serialize_field("data", &*x)?;
+            }
+            AnyStdTEXT::FCS3_1(x) => {
+                state.serialize_field("version", &Version::FCS3_1)?;
+                state.serialize_field("data", &*x)?;
+            }
+            AnyStdTEXT::FCS3_2(x) => {
+                state.serialize_field("version", &Version::FCS3_2)?;
+                state.serialize_field("data", &*x)?;
+            }
+        }
+        state.end()
+    }
 }
 
 impl AnyStdTEXT {
@@ -2169,7 +2211,7 @@ fn parse_raw_text(header: Header, raw: RawTEXT, conf: &StdTextReader) -> TEXTRes
     }
 }
 
-#[derive(Hash, Eq, PartialEq, Clone, Debug)]
+#[derive(Hash, Eq, PartialEq, Clone, Debug, Serialize)]
 struct Key(String);
 
 impl Key {
@@ -3344,7 +3386,7 @@ fn read_header<R: Read>(h: &mut BufReader<R>) -> io::Result<Header> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct RawTEXT {
     delimiter: u8,
     keywords: HashMap<Key, String>,

@@ -4135,43 +4135,6 @@ pub struct Reader {
     pub data: DataReader,
 }
 
-pub fn std_reader() -> Reader {
-    Reader {
-        text: StdTextReader {
-            raw: RawTextReader {
-                textstart_delta: 0,
-                textend_delta: 0,
-                warnings_are_errors: false,
-                no_delim_escape: false,
-                force_ascii_delim: false,
-                enforce_final_delim: false,
-                enforce_unique: false,
-                enforce_even: false,
-                enforce_nonempty: false,
-                error_on_invalid_utf8: false,
-                enfore_keyword_ascii: false,
-                enfore_matching_tot: false,
-                enfore_data_width_divisibility: false,
-            },
-            warnings_are_errors: false,
-            ensure_time: false,
-            ensure_time_timestep: false,
-            ensure_time_linear: false,
-            ensure_time_nogain: false,
-            time_shortname: None,
-            disallow_deprecated: false,
-            disallow_nonstandard: false,
-            disallow_deviant: false,
-            date_pattern: None,
-            nonstandard_measurement_pattern: None,
-        },
-        data: DataReader {
-            datastart_delta: 0,
-            dataend_delta: 0,
-        },
-    }
-}
-
 type FCSResult = Result<FCSSuccess, Box<StandardErrors>>;
 
 /// Return header in an FCS file.

@@ -3002,7 +3002,7 @@ impl VersionedMetadata for InnerMetadata3_1 {
             mode,
             byteord: st.lookup_endian()?,
             cyt: st.lookup_cyt_opt(),
-            spillover: st.lookup_spillover(),
+            spillover: st.lookup_spillover(names),
             timestamps: st.lookup_timestamps2_0(true, false),
             cytsn: st.lookup_cytsn(),
             timestep: st.lookup_timestep(),
@@ -3142,7 +3142,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
             tot: st.lookup_tot_req()?,
             byteord: st.lookup_endian()?,
             cyt: st.lookup_cyt_req()?,
-            spillover: st.lookup_spillover(),
+            spillover: st.lookup_spillover(names),
             timestamps: st.lookup_timestamps2_0(true, true),
             cytsn: st.lookup_cytsn(),
             timestep: st.lookup_timestep(),
@@ -3698,17 +3698,7 @@ impl KwState<'_> {
     }
 
     fn lookup_originality(&mut self) -> OptionalKw<Originality> {
-        self.lookup_optional(
-            "ORIGINALITY",
-            // |s| match s {
-            //     "Original" => Ok(Originality::Original),
-            //     "NonDataModified" => Ok(Originality::NonDataModified),
-            //     "Appended" => Ok(Originality::Appended),
-            //     "DataModified" => Ok(Originality::DataModified),
-            //     _ => Err(String::from("invalid originality")),
-            // },
-            false,
-        )
+        self.lookup_optional("ORIGINALITY", false)
     }
 
     fn lookup_carrierid(&mut self) -> OptionalKw<String> {
@@ -3841,105 +3831,29 @@ impl KwState<'_> {
     }
 
     fn lookup_compensation_3_0(&mut self) -> OptionalKw<Compensation> {
-        self.lookup_optional(
-            "COMP",
-            // |s| {
-            //     let mut xs = s.split(",");
-            //     if let Some(first) = &xs.next().and_then(|x| x.parse::<usize>().ok()) {
-            //         let n = *first;
-            //         let nn = n * n;
-            //         let values: Vec<_> = xs.by_ref().take(nn).collect();
-            //         let remainder = xs.by_ref().count();
-            //         let total = values.len() + remainder;
-            //         if total != nn {
-            //             Err(format!(
-            //                 "Expected length of $COMP is {nn} but found {total}"
-            //             ))
-            //         } else {
-            //             let fvalues: Vec<_> = values
-            //                 .into_iter()
-            //                 .filter_map(|x| x.parse::<f32>().ok())
-            //                 .collect();
-            //             if fvalues.len() != nn {
-            //                 Err(String::from(
-            //                     "Not all values in $COMP could be parsed as floats",
-            //                 ))
-            //             } else {
-            //                 let matrix = fvalues
-            //                     .into_iter()
-            //                     .chunks(n)
-            //                     .into_iter()
-            //                     .map(|c| c.collect())
-            //                     .collect();
-            //                 Ok(Compensation { matrix })
-            //             }
-            //         }
-            //     } else {
-            //         Err(String::from("Could not get number of parameters"))
-            //     }
-            // },
-            false,
-        )
+        self.lookup_optional("COMP", false)
     }
 
-    fn lookup_spillover(&mut self) -> OptionalKw<Spillover> {
-        self.lookup_optional(
-            "SPILLOVER",
-            // |s| {
-            //     let mut xs = s.split(",");
-            //     if let Some(first) = &xs.next().and_then(|x| x.parse::<usize>().ok()) {
-            //         let n = *first;
-            //         let nn = n * n;
-            //         let expected = n + nn;
-            //         let measurements: Vec<_> = xs.by_ref().take(n).map(String::from).collect();
-            //         let values: Vec<_> = xs.by_ref().take(nn).collect();
-            //         let remainder = xs.by_ref().count();
-            //         let total = measurements.len() + values.len() + remainder;
-            //         if total != expected {
-            //             Err(format!(
-            //                 "Expected length of $SPILLOVER is {expected} but found {total}"
-            //             ))
-            //         } else if measurements.iter().unique().count() != n {
-            //             Err(String::from(
-            //                 "$SPILLOVER contains non-unique measurement names",
-            //             ))
-            //         } else {
-            //             let noexist: Vec<_> = measurements
-            //                 .iter()
-            //                 .filter(|m| !names.contains(m.as_str()))
-            //                 .collect();
-            //             let fvalues: Vec<_> = values
-            //                 .into_iter()
-            //                 .filter_map(|x| x.parse::<f32>().ok())
-            //                 .collect();
-            //             if !noexist.is_empty() {
-            //                 Err(format!(
-            //                     "$SPILLOVER refers to non-existent measurements: {}",
-            //                     noexist.iter().join(", ")
-            //                 ))
-            //             } else if fvalues.len() != nn {
-            //                 Err(String::from(
-            //                     "Not all values in $SPILLOVER could be parsed as floats",
-            //                 ))
-            //             } else {
-            //                 let matrix = fvalues
-            //                     .into_iter()
-            //                     .chunks(n)
-            //                     .into_iter()
-            //                     .map(|c| c.collect())
-            //                     .collect();
-            //                 Ok(Spillover {
-            //                     measurements,
-            //                     matrix,
-            //                 })
-            //             }
-            //         }
-            //     } else {
-            //         Err(String::from("Could not get number of parameters"))
-            //     }
-            // },
-            false,
-        )
+    fn lookup_spillover(&mut self, names: &HashSet<&str>) -> OptionalKw<Spillover> {
+        let res: OptionalKw<Spillover> = self.lookup_optional("SPILLOVER", false);
+        if let Present(s) = res {
+            let noexist: Vec<_> = s
+                .measurements
+                .iter()
+                .filter(|m| !names.contains(m.as_str()))
+                .collect();
+            if !noexist.is_empty() {
+                let msg = format!(
+                    "$SPILLOVER refers to non-existent measurements: {}",
+                    noexist.iter().join(", ")
+                );
+                self.push_meta_error(msg);
+            }
+
+            Present(s)
+        } else {
+            Absent
+        }
     }
 
     // measurements

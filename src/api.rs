@@ -616,6 +616,36 @@ impl fmt::Display for TriggerError {
 }
 
 #[derive(Debug, Clone, Serialize)]
+struct ModifiedDateTime(NaiveDateTime);
+
+impl FromStr for ModifiedDateTime {
+    type Err = ModifiedDateTimeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (dt, cc) = NaiveDateTime::parse_and_remainder(s, "%d-%b-%Y %H:%M:%S")
+            .or(Err(ModifiedDateTimeError))?;
+        if cc.is_empty() {
+            Ok(ModifiedDateTime(dt))
+        } else if cc.len() == 3 && cc.starts_with(".") {
+            let tt: u32 = cc[1..3].parse().or(Err(ModifiedDateTimeError))?;
+            dt.with_nanosecond(tt * 10000000)
+                .map(ModifiedDateTime)
+                .ok_or(ModifiedDateTimeError)
+        } else {
+            Err(ModifiedDateTimeError)
+        }
+    }
+}
+
+struct ModifiedDateTimeError;
+
+impl fmt::Display for ModifiedDateTimeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "must be like 'dd-mmm-yyyy hh:mm:ss[.cc]'")
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
 struct FCSDate(NaiveDate);
 
 // the "%b" format is case-insensitive so this should work for "Jan", "JAN",
@@ -665,12 +695,6 @@ struct Datetimes {
 
 // TODO this is super messy, see 3.2 spec for restrictions on this we may with
 // to use further
-// #[derive(Debug, Clone, PartialEq, Serialize)]
-// struct LogScale {
-//     decades: f32,
-//     offset: f32,
-// }
-
 #[derive(Debug, Clone, PartialEq, Serialize)]
 enum Scale {
     Log { decades: f32, offset: f32 },
@@ -779,26 +803,25 @@ impl fmt::Display for Display {
 #[derive(Debug, Clone, Serialize)]
 struct Calibration3_1 {
     value: f32,
-    // TODO add offset (3.2 added a zero offset, which is different from 3.1)
     unit: String,
 }
 
 enum CalibrationError<C> {
-    FloatError(ParseFloatError),
-    RangeError,
-    FormatError(C),
+    Float(ParseFloatError),
+    Range,
+    Format(C),
 }
 
-struct CalibrationFormatError3_1;
-struct CalibrationFormatError3_2;
+struct CalibrationFormat3_1;
+struct CalibrationFormat3_2;
 
-impl fmt::Display for CalibrationFormatError3_1 {
+impl fmt::Display for CalibrationFormat3_1 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "must be like 'f,string'")
     }
 }
 
-impl fmt::Display for CalibrationFormatError3_2 {
+impl fmt::Display for CalibrationFormat3_2 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "must be like 'f1,[f2],string'")
     }
@@ -807,30 +830,30 @@ impl fmt::Display for CalibrationFormatError3_2 {
 impl<C: fmt::Display> fmt::Display for CalibrationError<C> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            CalibrationError::FloatError(x) => write!(f, "{}", x),
-            CalibrationError::RangeError => write!(f, "must be a positive float"),
-            CalibrationError::FormatError(x) => write!(f, "{}", x),
+            CalibrationError::Float(x) => write!(f, "{}", x),
+            CalibrationError::Range => write!(f, "must be a positive float"),
+            CalibrationError::Format(x) => write!(f, "{}", x),
         }
     }
 }
 
 impl str::FromStr for Calibration3_1 {
-    type Err = CalibrationError<CalibrationFormatError3_1>;
+    type Err = CalibrationError<CalibrationFormat3_1>;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.split(",").collect::<Vec<_>>()[..] {
             [svalue, unit] => {
-                let value = svalue.parse().map_err(CalibrationError::FloatError)?;
+                let value = svalue.parse().map_err(CalibrationError::Float)?;
                 if value >= 0.0 {
                     Ok(Calibration3_1 {
                         value,
                         unit: String::from(unit),
                     })
                 } else {
-                    Err(CalibrationError::RangeError)
+                    Err(CalibrationError::Range)
                 }
             }
-            _ => Err(CalibrationError::FormatError(CalibrationFormatError3_1)),
+            _ => Err(CalibrationError::Format(CalibrationFormat3_1)),
         }
     }
 }
@@ -849,21 +872,21 @@ struct Calibration3_2 {
 }
 
 impl str::FromStr for Calibration3_2 {
-    type Err = CalibrationError<CalibrationFormatError3_2>;
+    type Err = CalibrationError<CalibrationFormat3_2>;
 
     // TODO not dry
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let (value, offset, unit) = match s.split(",").collect::<Vec<_>>()[..] {
             [svalue, unit] => {
-                let f1 = svalue.parse().map_err(CalibrationError::FloatError)?;
+                let f1 = svalue.parse().map_err(CalibrationError::Float)?;
                 Ok((f1, 0.0, String::from(unit)))
             }
             [svalue, soffset, unit] => {
-                let f1 = svalue.parse().map_err(CalibrationError::FloatError)?;
-                let f2 = soffset.parse().map_err(CalibrationError::FloatError)?;
+                let f1 = svalue.parse().map_err(CalibrationError::Float)?;
+                let f2 = soffset.parse().map_err(CalibrationError::Float)?;
                 Ok((f1, f2, String::from(unit)))
             }
-            _ => Err(CalibrationError::FormatError(CalibrationFormatError3_2)),
+            _ => Err(CalibrationError::Format(CalibrationFormat3_2)),
         }?;
         if value >= 0.0 {
             Ok(Calibration3_2 {
@@ -872,7 +895,7 @@ impl str::FromStr for Calibration3_2 {
                 unit,
             })
         } else {
-            Err(CalibrationError::RangeError)
+            Err(CalibrationError::Range)
         }
     }
 }
@@ -960,27 +983,6 @@ impl str::FromStr for Feature {
         }
     }
 }
-
-// impl str::FromStr for Calibration3_1 {
-//     type Err = CalibrationError<CalibrationFormatError3_1>;
-
-//     fn from_str(s: &str) -> Result<Self, Self::Err> {
-//         match s.split(",").collect::<Vec<_>>()[..] {
-//             [svalue, unit] => {
-//                 let value = svalue.parse().map_err(CalibrationError::FloatError)?;
-//                 if value >= 0.0 {
-//                     Ok(Calibration3_1 {
-//                         value,
-//                         unit: String::from(unit),
-//                     })
-//                 } else {
-//                     Err(CalibrationError::RangeError)
-//                 }
-//             }
-//             _ => Err(CalibrationError::FormatError(CalibrationFormatError3_1)),
-//         }
-//     }
-// }
 
 impl fmt::Display for Feature {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -1150,16 +1152,16 @@ enum Bytes {
 }
 
 enum BytesError {
-    IntError(ParseIntError),
-    OverRange,
+    Int(ParseIntError),
+    Range,
     NotOctet,
 }
 
 impl fmt::Display for BytesError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            BytesError::IntError(i) => write!(f, "{}", i),
-            BytesError::OverRange => write!(f, "bit widths over 64 are not supported"),
+            BytesError::Int(i) => write!(f, "{}", i),
+            BytesError::Range => write!(f, "bit widths over 64 are not supported"),
             BytesError::NotOctet => write!(f, "bit widths must be octets"),
         }
     }
@@ -1171,24 +1173,15 @@ impl FromStr for Bytes {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "*" => Ok(Bytes::Variable),
-            _ => s.parse::<u8>().map_err(BytesError::IntError).and_then(|x| {
+            _ => s.parse::<u8>().map_err(BytesError::Int).and_then(|x| {
                 if x > 64 {
-                    Err(BytesError::OverRange)
+                    Err(BytesError::Range)
                 } else if x % 8 > 1 {
                     Err(BytesError::NotOctet)
                 } else {
                     Ok(Bytes::Fixed(x / 8))
                 }
             }),
-        }
-    }
-}
-
-impl Bytes {
-    fn len(&self) -> Option<u8> {
-        match self {
-            Bytes::Fixed(x) => Some(*x),
-            Bytes::Variable => None,
         }
     }
 }
@@ -1652,7 +1645,7 @@ impl str::FromStr for Originality {
 #[derive(Debug, Clone, Serialize)]
 struct ModificationData {
     last_modifier: OptionalKw<String>,
-    last_modified: OptionalKw<NaiveDateTime>,
+    last_modified: OptionalKw<ModifiedDateTime>,
     originality: OptionalKw<Originality>,
 }
 
@@ -3773,18 +3766,8 @@ impl KwState<'_> {
     }
 
     // TODO wrap this in a newtype
-    fn lookup_last_modified(&mut self) -> OptionalKw<NaiveDateTime> {
-        self.lookup_optional(
-            "LAST_MODIFIED",
-            // |s| {
-            //     NaiveDateTime::parse_from_str(s, "%d-%b-%Y %H:%M:%S.%.3f").or(
-            //         NaiveDateTime::parse_from_str(s, "%d-%b-%Y %H:%M:%S").or(Err(String::from(
-            //             "must be formatted like 'dd-mmm-yyyy hh:mm:ss[.cc]'",
-            //         ))),
-            //     )
-            // },
-            false,
-        )
+    fn lookup_last_modified(&mut self) -> OptionalKw<ModifiedDateTime> {
+        self.lookup_optional("LAST_MODIFIED", false)
     }
 
     fn lookup_originality(&mut self) -> OptionalKw<Originality> {

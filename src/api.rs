@@ -26,59 +26,58 @@ fn format_measurement(n: u32, m: &str) -> String {
 
 type ParseResult<T> = Result<T, String>;
 
-fn parse_endian(s: &str) -> ParseResult<Endian> {
-    match s {
-        "1,2,3,4" => Ok(Endian::Little),
-        "4,3,2,1" => Ok(Endian::Big),
-        _ => Err(String::from(
-            "could not determine endianness, must be '1,2,3,4' or '4,3,2,1'",
-        )),
-    }
-}
-
-fn parse_int(s: &str) -> ParseResult<u32> {
-    s.parse::<u32>().map_err(|e| format!("{}", e))
-}
-
 fn parse_offset(s: &str) -> ParseResult<u32> {
     s.trim_start().parse().map_err(|e| format!("{}", e))
 }
 
-fn parse_offset_or_blank(s: &str) -> ParseResult<u32> {
-    let q = s.trim_start();
-    if q.is_empty() {
-        Ok(0)
-    } else {
-        q.parse().or(Err(String::from("invalid offset or blank")))
+// fn parse_iso_datetime(s: &str) -> ParseResult<DateTime<FixedOffset>> {
+//     // TODO missing timezone implies localtime, but this will assume missing
+//     // means +00:00/UTC
+//     let formats = [
+//         "%Y-%m-%dT%H:%M:%S%.f",
+//         "%Y-%m-%dT%H:%M:%S%.f%#z",
+//         "%Y-%m-%dT%H:%M:%S%.f%:z",
+//         "%Y-%m-%dT%H:%M:%S%.f%::z",
+//         "%Y-%m-%dT%H:%M:%S%.f%:::z",
+//     ];
+//     for f in formats {
+//         if let Ok(t) = DateTime::parse_from_str(s, f) {
+//             return Ok(t);
+//         }
+//     }
+//     Err(String::from(
+//         "must be formatted like 'yyyy-mm-ddThh:mm:ss[TZD]'",
+//     ))
+// }
+
+struct FCSDateTime(DateTime<FixedOffset>);
+
+struct FCSDateTimeError;
+
+impl fmt::Display for FCSDateTimeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "must be formatted like 'yyyy-mm-ddThh:mm:ss[TZD]'")
     }
 }
 
-fn parse_float(s: &str) -> ParseResult<f32> {
-    s.parse().map_err(|e| format!("{}", e))
-}
+impl str::FromStr for FCSDateTime {
+    type Err = FCSDateTimeError;
 
-fn parse_str(s: &str) -> ParseResult<String> {
-    Ok(String::from(s))
-}
-
-fn parse_iso_datetime(s: &str) -> ParseResult<DateTime<FixedOffset>> {
-    // TODO missing timezone implies localtime, but this will assume missing
-    // means +00:00/UTC
-    let formats = [
-        "%Y-%m-%dT%H:%M:%S%.f",
-        "%Y-%m-%dT%H:%M:%S%.f%#z",
-        "%Y-%m-%dT%H:%M:%S%.f%:z",
-        "%Y-%m-%dT%H:%M:%S%.f%::z",
-        "%Y-%m-%dT%H:%M:%S%.f%:::z",
-    ];
-    for f in formats {
-        if let Ok(t) = DateTime::parse_from_str(s, f) {
-            return Ok(t);
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let formats = [
+            "%Y-%m-%dT%H:%M:%S%.f",
+            "%Y-%m-%dT%H:%M:%S%.f%#z",
+            "%Y-%m-%dT%H:%M:%S%.f%:z",
+            "%Y-%m-%dT%H:%M:%S%.f%::z",
+            "%Y-%m-%dT%H:%M:%S%.f%:::z",
+        ];
+        for f in formats {
+            if let Ok(t) = DateTime::parse_from_str(s, f) {
+                return Ok(FCSDateTime(t));
+            }
         }
+        Err(FCSDateTimeError)
     }
-    Err(String::from(
-        "must be formatted like 'yyyy-mm-ddThh:mm:ss[TZD]'",
-    ))
 }
 
 fn parse_time60(s: &str) -> ParseResult<NaiveTime> {
@@ -90,18 +89,6 @@ fn parse_time100(s: &str) -> ParseResult<NaiveTime> {
     NaiveTime::parse_from_str(s, "%H:%M:%S.%.3f").or(NaiveTime::parse_from_str(s, "%H:%M:%S")
         .or(Err(String::from("must be formatted like 'hh:mm:ss[.cc]'"))))
 }
-
-// fn parse_scale(s: &str) -> ParseResult<Scale> {
-//     let v: Vec<&str> = s.split(",").collect();
-//     match v[..] {
-//         [ds, os] => match (ds.parse(), os.parse()) {
-//             (Ok(0.0), Ok(0.0)) => Ok(Linear),
-//             (Ok(decades), Ok(offset)) => Ok(Log(LogScale { decades, offset })),
-//             _ => Err(String::from("invalid floats")),
-//         },
-//         _ => Err(String::from("too many fields")),
-//     }
-// }
 
 #[derive(Debug, Clone, Copy, Serialize)]
 struct Offsets {
@@ -3767,11 +3754,11 @@ impl KwState<'_> {
     }
 
     fn lookup_begindatetime(&mut self) -> OptionalKw<DateTime<FixedOffset>> {
-        self.lookup_optional_fun("BEGINDATETIME", parse_iso_datetime, false)
+        self.lookup_optional("BEGINDATETIME", false)
     }
 
     fn lookup_enddatetime(&mut self) -> OptionalKw<DateTime<FixedOffset>> {
-        self.lookup_optional_fun("ENDDATETIME", parse_iso_datetime, false)
+        self.lookup_optional("ENDDATETIME", false)
     }
 
     fn lookup_date(&mut self, dep: bool) -> OptionalKw<NaiveDate> {

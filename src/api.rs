@@ -2764,7 +2764,7 @@ trait VersionedMetadata: Sized {
             smno: st.lookup_smno(),
             src: st.lookup_src(),
             sys: st.lookup_sys(),
-            tr: st.lookup_trigger(),
+            tr: st.lookup_trigger(&names),
             specific: Self::build_inner(st, par, &names)?,
         })
     }
@@ -3604,26 +3604,21 @@ impl KwState<'_> {
         self.lookup_optional("SYS", false)
     }
 
-    fn lookup_trigger(&mut self) -> OptionalKw<Trigger> {
-        self.lookup_optional(
-            "TR",
-            // |s| match s.split(",").collect::<Vec<&str>>()[..] {
-            //     [p, n1] => parse_int(n1).and_then(|threshold| {
-            //         if names.contains(p) {
-            //             Ok(Trigger {
-            //                 measurement: String::from(p),
-            //                 threshold,
-            //             })
-            //         } else {
-            //             Err(format!(
-            //                 "$TRIGGER refers to non-existent measurements '{p}'"
-            //             ))
-            //         }
-            //     }),
-            //     _ => Err(String::from("wrong number of fields")),
-            // },
-            false,
-        )
+    fn lookup_trigger(&mut self, names: &HashSet<&str>) -> OptionalKw<Trigger> {
+        let res: OptionalKw<Trigger> = self.lookup_optional("TR", false);
+        if let Present(tr) = res {
+            let p = tr.measurement.as_str();
+            if names.contains(p) {
+                self.push_meta_warning(format!(
+                    "$TRIGGER refers to non-existent measurements '{p}'",
+                ));
+                Absent
+            } else {
+                Present(tr)
+            }
+        } else {
+            Absent
+        }
     }
 
     fn lookup_cytsn(&mut self) -> OptionalKw<String> {
@@ -3646,23 +3641,7 @@ impl KwState<'_> {
         // TODO actually verify that these are real keywords, although this
         // doesn't matter too much since we are going to parse TEXT as utf8
         // anyways since we can, so this keywords isn't that useful.
-        self.lookup_optional(
-            "UNICODE",
-            // |s| {
-            //     let mut xs = s.split(",");
-            //     if let Some(page) = xs.next().and_then(|s| s.parse().ok()) {
-            //         let kws: Vec<String> = xs.map(String::from).collect();
-            //         if kws.is_empty() {
-            //             Err(String::from("no keywords specified"))
-            //         } else {
-            //             Ok(Unicode { page, kws })
-            //         }
-            //     } else {
-            //         Err(String::from("unicode must be like 'page,KW1[,KW2...]'"))
-            //     }
-            // },
-            false,
-        )
+        self.lookup_optional("UNICODE", false)
     }
 
     fn lookup_plateid(&mut self, dep: bool) -> OptionalKw<String> {
@@ -3681,47 +3660,23 @@ impl KwState<'_> {
         self.lookup_optional("UNSTAINEDINFO", false)
     }
 
-    fn lookup_unstainedcenters(&mut self) -> OptionalKw<UnstainedCenters> {
-        self.lookup_optional(
-            "UNSTAINEDICENTERS",
-            // |s| {
-            //     let mut xs = s.split(",");
-            //     if let Some(n) = xs.next().and_then(|s| s.parse().ok()) {
-            //         let measurements: Vec<_> = xs.by_ref().take(n).map(String::from).collect();
-            //         let values: Vec<_> = xs.by_ref().take(n).collect();
-            //         let remainder = xs.by_ref().count();
-            //         if measurements.len() == n && values.len() == n && remainder == 0 {
-            //             let noexist: Vec<_> = measurements
-            //                 .iter()
-            //                 .filter(|m| !names.contains(m.as_str()))
-            //                 .collect();
-            //             let fvalues: Vec<_> = values
-            //                 .into_iter()
-            //                 .filter_map(|s| s.parse::<f32>().ok())
-            //                 .collect();
-            //             if fvalues.len() == n {
-            //                 Err(String::from(
-            //                     "Some values in $UNSTAINEDCENTERS are not floats",
-            //                 ))
-            //             } else if !noexist.is_empty() {
-            //                 Err(format!(
-            //                     "$UNSTAINEDCENTERS refers to non-existent measurements: {}",
-            //                     noexist.iter().join(","),
-            //                 ))
-            //             } else {
-            //                 Ok(UnstainedCenters(
-            //                     measurements.into_iter().zip(fvalues).collect(),
-            //                 ))
-            //             }
-            //         } else {
-            //             Err(String::from("data fields do not match given dimensions"))
-            //         }
-            //     } else {
-            //         Err(String::from("invalid dimension"))
-            //     }
-            // },
-            false,
-        )
+    fn lookup_unstainedcenters(&mut self, names: &HashSet<&str>) -> OptionalKw<UnstainedCenters> {
+        let res: OptionalKw<UnstainedCenters> = self.lookup_optional("UNSTAINEDICENTERS", false);
+        if let Present(u) = res {
+            let noexist: Vec<_> = u.0.keys().filter(|m| !names.contains(m.as_str())).collect();
+            if !noexist.is_empty() {
+                let msg = format!(
+                    "$UNSTAINEDCENTERS refers to non-existent measurements: {}",
+                    noexist.iter().join(","),
+                );
+                self.push_meta_error(msg);
+                Absent
+            } else {
+                Present(u)
+            }
+        } else {
+            Absent
+        }
     }
 
     fn lookup_last_modifier(&mut self) -> OptionalKw<String> {
@@ -3857,7 +3812,7 @@ impl KwState<'_> {
 
     fn lookup_unstained(&mut self, names: &HashSet<&str>) -> UnstainedData {
         UnstainedData {
-            unstainedcenters: self.lookup_unstainedcenters(),
+            unstainedcenters: self.lookup_unstainedcenters(names),
             unstainedinfo: self.lookup_unstainedinfo(),
         }
     }

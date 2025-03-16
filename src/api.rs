@@ -1722,23 +1722,6 @@ struct Metadata<X> {
     specific: X,
 }
 
-const PAR: &str = "$PAR";
-const NEXTDATA: &str = "$NEXTDATA";
-const DATATYPE: &str = "$DATATYPE";
-const ABRT: &str = "$ABRT";
-const COM: &str = "$COM";
-const CELLS: &str = "$CELLS";
-const EXP: &str = "$EXP";
-const FIL: &str = "$FIL";
-const INST: &str = "$INST";
-const LOST: &str = "$LOST";
-const OP: &str = "$OP";
-const PROJ: &str = "$PROJ";
-const SMNO: &str = "$SMNO";
-const SRC: &str = "$SRC";
-const SYS: &str = "$SYS";
-const TR: &str = "$TR";
-
 // impl<M: VersionedMetadata> Metadata<M> {
 //     fn to_keywords(self) -> Vec<(String, String)> {
 //         let mut kws = HashMap::new();
@@ -4401,6 +4384,10 @@ fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
         }
     }
 
+    // TODO filter keywords based on pattern somewhere here
+
+    repair_keywords(&mut keywords, conf);
+
     let (std, nstd): (Vec<_>, Vec<_>) = keywords
         .into_iter()
         .collect::<Vec<_>>()
@@ -4413,6 +4400,25 @@ fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
         nonstandard_keywords: nstd.into_iter().map(|(k, v)| (NonStdKey(k), v)).collect(),
         warnings,
     })
+}
+
+fn repair_keywords(kws: &mut HashMap<String, String>, conf: &RawTextReader) {
+    for (key, v) in kws.iter_mut() {
+        let k = key.as_str();
+        if (k == "$BEGINDATA"
+            || k == "$ENDDATA"
+            || k == "$BEGINSTEXT"
+            || k == "$ENDSTEXT"
+            || k == "$BEGINANALYSIS"
+            || k == "$ENDANALYSIS")
+            && conf.repair_offset_spaces
+        {
+            let len = v.len();
+            let trimmed = v.trim_start();
+            let newlen = trimmed.len();
+            *v = ("0").repeat(len - newlen) + trimmed
+        }
+    }
 }
 
 fn read_raw_text<R: Read + Seek>(
@@ -4485,6 +4491,14 @@ pub struct RawTextReader {
     /// dividing DATA segment length event width doesn't match $TOT. Does
     /// nothing if $TOT not given, which may be the case in version 2.0.
     enfore_matching_tot: bool,
+
+    /// If true, replace leading spaces in offset keywords with 0.
+    ///
+    ///These often need to be padded to make the DATA segment appear at a
+    /// predictable offset. Many machines/programs will pad with spaces despite
+    /// the spec requiring that all numeric fields be entirely numeric
+    /// character.
+    repair_offset_spaces: bool,
     // TODO add keyword and value overrides, something like a list of patterns
     // that can be used to alter each keyword
     // TODO allow lambda function to be supplied which will alter the kv list

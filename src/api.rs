@@ -132,10 +132,10 @@ impl str::FromStr for Version {
 impl fmt::Display for Version {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            Version::FCS2_0 => write!(f, "2.0"),
-            Version::FCS3_0 => write!(f, "3.0"),
-            Version::FCS3_1 => write!(f, "3.1"),
-            Version::FCS3_2 => write!(f, "3.2"),
+            Version::FCS2_0 => write!(f, "FCS2.0"),
+            Version::FCS3_0 => write!(f, "FCS3.0"),
+            Version::FCS3_1 => write!(f, "FCS3.1"),
+            Version::FCS3_2 => write!(f, "FCS3.2"),
         }
     }
 }

@@ -2760,7 +2760,7 @@ trait VersionedMetadata: Sized {
             smno: st.lookup_smno(),
             src: st.lookup_src(),
             sys: st.lookup_sys(),
-            tr: st.lookup_trigger(&names),
+            tr: st.lookup_trigger_checked(&names),
             specific: Self::build_inner(st, par, &names)?,
         })
     }
@@ -2998,7 +2998,7 @@ impl VersionedMetadata for InnerMetadata3_1 {
             mode,
             byteord: st.lookup_endian()?,
             cyt: st.lookup_cyt_opt(),
-            spillover: st.lookup_spillover(names),
+            spillover: st.lookup_spillover_checked(names),
             timestamps: st.lookup_timestamps2_0(true, false),
             cytsn: st.lookup_cytsn(),
             timestep: st.lookup_timestep(),
@@ -3138,7 +3138,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
             tot: st.lookup_tot_req()?,
             byteord: st.lookup_endian()?,
             cyt: st.lookup_cyt_req()?,
-            spillover: st.lookup_spillover(names),
+            spillover: st.lookup_spillover_checked(names),
             timestamps: st.lookup_timestamps2_0(true, true),
             cytsn: st.lookup_cytsn(),
             timestep: st.lookup_timestep(),
@@ -3419,16 +3419,12 @@ impl KwState<'_> {
 
     // metadata
 
-    // TODO the standard technically forbids spaces in front of numbers, but
-    // many people use them here anyways
     fn lookup_begindata(&mut self) -> Option<u32> {
         self.lookup_required("BEGINDATA", false)
-        // self.lookup_required_fun("BEGINDATA", parse_offset, false)
     }
 
     fn lookup_enddata(&mut self) -> Option<u32> {
         self.lookup_required("ENDDATA", false)
-        // self.lookup_required_fun("ENDDATA", parse_offset, false)
     }
 
     fn lookup_data_offsets(&mut self) -> Option<Offsets> {
@@ -3561,9 +3557,12 @@ impl KwState<'_> {
         self.lookup_optional("SYS", false)
     }
 
-    fn lookup_trigger(&mut self, names: &HashSet<&str>) -> OptionalKw<Trigger> {
-        let res: OptionalKw<Trigger> = self.lookup_optional("TR", false);
-        if let Present(tr) = res {
+    fn lookup_trigger(&mut self) -> OptionalKw<Trigger> {
+        self.lookup_optional("TR", false)
+    }
+
+    fn lookup_trigger_checked(&mut self, names: &HashSet<&str>) -> OptionalKw<Trigger> {
+        if let Present(tr) = self.lookup_trigger() {
             let p = tr.measurement.as_str();
             if names.contains(p) {
                 self.push_meta_warning(format!(
@@ -3617,9 +3616,15 @@ impl KwState<'_> {
         self.lookup_optional("UNSTAINEDINFO", false)
     }
 
-    fn lookup_unstainedcenters(&mut self, names: &HashSet<&str>) -> OptionalKw<UnstainedCenters> {
-        let res: OptionalKw<UnstainedCenters> = self.lookup_optional("UNSTAINEDICENTERS", false);
-        if let Present(u) = res {
+    fn lookup_unstainedcenters(&mut self) -> OptionalKw<UnstainedCenters> {
+        self.lookup_optional("UNSTAINEDICENTERS", false)
+    }
+
+    fn lookup_unstainedcenters_checked(
+        &mut self,
+        names: &HashSet<&str>,
+    ) -> OptionalKw<UnstainedCenters> {
+        if let Present(u) = self.lookup_unstainedcenters() {
             let noexist: Vec<_> = u.0.keys().filter(|m| !names.contains(m.as_str())).collect();
             if !noexist.is_empty() {
                 let msg = format!(
@@ -3760,7 +3765,7 @@ impl KwState<'_> {
 
     fn lookup_unstained(&mut self, names: &HashSet<&str>) -> UnstainedData {
         UnstainedData {
-            unstainedcenters: self.lookup_unstainedcenters(names),
+            unstainedcenters: self.lookup_unstainedcenters_checked(names),
             unstainedinfo: self.lookup_unstainedinfo(),
         }
     }
@@ -3792,10 +3797,13 @@ impl KwState<'_> {
         self.lookup_optional("COMP", false)
     }
 
+    fn lookup_spillover(&mut self) -> OptionalKw<Spillover> {
+        self.lookup_optional("SPILLOVER", false)
+    }
+
     // TODO this is basically the same as unstained centers
-    fn lookup_spillover(&mut self, names: &HashSet<&str>) -> OptionalKw<Spillover> {
-        let res: OptionalKw<Spillover> = self.lookup_optional("SPILLOVER", false);
-        if let Present(s) = res {
+    fn lookup_spillover_checked(&mut self, names: &HashSet<&str>) -> OptionalKw<Spillover> {
+        if let Present(s) = self.lookup_spillover() {
             let noexist: Vec<_> = s
                 .measurements
                 .iter()
@@ -3817,30 +3825,16 @@ impl KwState<'_> {
 
     // measurements
 
-    fn lookup_meas_req<V: FromStr>(
-        &mut self,
-        m: &'static str,
-        n: u32,
-        // f: F,
-        dep: bool,
-    ) -> Option<V>
+    fn lookup_meas_req<V: FromStr>(&mut self, m: &'static str, n: u32, dep: bool) -> Option<V>
     where
         <V as FromStr>::Err: fmt::Display,
-        // F: FnOnce(&str) -> ParseResult<V>,
     {
         self.lookup_required(&format_measurement(n, m), dep)
     }
 
-    fn lookup_meas_opt<V: FromStr>(
-        &mut self,
-        m: &'static str,
-        n: u32,
-        // f: F,
-        dep: bool,
-    ) -> OptionalKw<V>
+    fn lookup_meas_opt<V: FromStr>(&mut self, m: &'static str, n: u32, dep: bool) -> OptionalKw<V>
     where
         <V as FromStr>::Err: fmt::Display,
-        // F: FnOnce(&str) -> ParseResult<V>,
     {
         self.lookup_optional(&format_measurement(n, m), dep)
     }
@@ -3926,8 +3920,6 @@ impl KwState<'_> {
     // for 3.1+ PnL measurements, which can have multiple wavelengths
     fn lookup_meas_wavelengths(&mut self, n: u32) -> OptionalKw<Wavelengths> {
         self.lookup_meas_opt("L", n, false)
-        // .into_option()
-        // .unwrap_or_default()
     }
 
     fn lookup_meas_display(&mut self, n: u32) -> OptionalKw<Display> {

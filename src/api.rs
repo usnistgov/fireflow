@@ -3466,28 +3466,7 @@ impl KwState<'_> {
     }
 
     fn lookup_byteord(&mut self) -> Option<ByteOrd> {
-        self.lookup_required(
-            "BYTEORD",
-            // |s| match parse_endian(s) {
-            //     Ok(e) => Ok(ByteOrd::Endian(e)),
-            //     _ => {
-            //         let xs: Vec<&str> = s.split(",").collect();
-            //         let nxs = xs.len();
-            //         let xs_num: Vec<u8> =
-            //             xs.iter().filter_map(|s| s.parse().ok()).unique().collect();
-            //         if let (Some(min), Some(max)) = (xs_num.iter().min(), xs_num.iter().max()) {
-            //             if *min == 1 && usize::from(*max) == nxs && xs_num.len() == nxs {
-            //                 Ok(ByteOrd::Mixed(xs_num.iter().map(|x| x - 1).collect()))
-            //             } else {
-            //                 Err(String::from("invalid byte order"))
-            //             }
-            //         } else {
-            //             Err(String::from("could not parse numbers from byte order"))
-            //         }
-            //     }
-            // },
-            false,
-        )
+        self.lookup_required("BYTEORD", false)
     }
 
     fn lookup_endian(&mut self) -> Option<Endian> {
@@ -3495,32 +3474,14 @@ impl KwState<'_> {
     }
 
     fn lookup_datatype(&mut self) -> Option<AlphaNumType> {
-        self.lookup_required(
-            "DATATYPE",
-            // |s| match s {
-            //     "I" => Ok(AlphaNumType::Integer),
-            //     "F" => Ok(AlphaNumType::Single),
-            //     "D" => Ok(AlphaNumType::Double),
-            //     "A" => Ok(AlphaNumType::Ascii),
-            //     _ => Err(String::from("unknown datatype")),
-            // },
-            false,
-        )
+        self.lookup_required("DATATYPE", false)
     }
 
     fn lookup_mode(&mut self) -> Option<Mode> {
-        self.lookup_required(
-            "MODE",
-            // |s| match s {
-            //     "C" => Ok(Mode::Correlated),
-            //     "L" => Ok(Mode::List),
-            //     "U" => Ok(Mode::Uncorrelated),
-            //     _ => Err(String::from("unknown mode")),
-            // },
-            false,
-        )
+        self.lookup_required("MODE", false)
     }
 
+    // TODO this needs to be a new type to enforce the 3.2 value
     fn lookup_mode3_2(&mut self) -> OptionalKw<Mode> {
         self.lookup_optional(
             "MODE",
@@ -3683,6 +3644,7 @@ impl KwState<'_> {
         self.lookup_optional("LAST_MODIFIER", false)
     }
 
+    // TODO wrap this in a newtype
     fn lookup_last_modified(&mut self) -> OptionalKw<NaiveDateTime> {
         self.lookup_optional(
             "LAST_MODIFIED",
@@ -3834,6 +3796,7 @@ impl KwState<'_> {
         self.lookup_optional("COMP", false)
     }
 
+    // TODO this is basically the same as unstained centers
     fn lookup_spillover(&mut self, names: &HashSet<&str>) -> OptionalKw<Spillover> {
         let res: OptionalKw<Spillover> = self.lookup_optional("SPILLOVER", false);
         if let Present(s) = res {
@@ -3889,42 +3852,11 @@ impl KwState<'_> {
     // this reads the PnB field which has "bits" in it, but as far as I know
     // nobody is using anything other than evenly-spaced bytes
     fn lookup_meas_bytes(&mut self, n: u32) -> Option<Bytes> {
-        self.lookup_meas_req(
-            "B", n,
-            // |s| match s {
-            //     "*" => Ok(Bytes::Variable),
-            //     _ => s.parse::<u8>().map_or(
-            //         Err(String::from("must be a positive integer or '*'")),
-            //         |x| {
-            //             if x > 64 {
-            //                 Err(String::from("PnB over 64-bit are not supported"))
-            //             } else if x % 8 > 1 {
-            //                 Err(String::from("only multiples of 8 are supported"))
-            //             } else {
-            //                 Ok(Bytes::Fixed(x / 8))
-            //             }
-            //         },
-            //     ),
-            // },
-            false,
-        )
+        self.lookup_meas_req("B", n, false)
     }
 
     fn lookup_meas_range(&mut self, n: u32) -> Option<Range> {
-        self.lookup_meas_req(
-            "R", n,
-            // |s| match s.parse::<u64>() {
-            //     Ok(x) => Ok(Range::Int(x - 1)),
-            //     Err(e) => match e.kind() {
-            //         IntErrorKind::InvalidDigit => s
-            //             .parse::<f64>()
-            //             .map_or_else(|e| Err(format!("{}", e)), |x| Ok(Range::Float(x))),
-            //         IntErrorKind::PosOverflow => Ok(Range::Int(u64::MAX)),
-            //         _ => Err(format!("{}", e)),
-            //     },
-            // },
-            false,
-        )
+        self.lookup_meas_req("R", n, false)
     }
 
     fn lookup_meas_wavelength(&mut self, n: u32) -> OptionalKw<u32> {
@@ -3944,17 +3876,7 @@ impl KwState<'_> {
     }
 
     fn lookup_meas_shortname_opt(&mut self, n: u32) -> OptionalKw<Shortname> {
-        self.lookup_meas_opt(
-            "N", n,
-            // |s| {
-            //     if s.contains(',') {
-            //         Err(String::from("commas are not allowed in PnN"))
-            //     } else {
-            //         Ok(String::from(s))
-            //     }
-            // },
-            false,
-        )
+        self.lookup_meas_opt("N", n, false)
     }
 
     fn lookup_meas_longname(&mut self, n: u32) -> OptionalKw<String> {
@@ -3998,138 +3920,34 @@ impl KwState<'_> {
     }
 
     fn lookup_meas_calibration3_1(&mut self, n: u32) -> OptionalKw<Calibration3_1> {
-        self.lookup_meas_opt(
-            "CALIBRATION",
-            n,
-            // |s| {
-            //     let v: Vec<&str> = s.split(",").collect();
-            //     match v[..] {
-            //         [svalue, unit] => match svalue.parse() {
-            //             Ok(value) if value >= 0.0 => Ok(Calibration3_1 {
-            //                 value,
-            //                 unit: String::from(unit),
-            //             }),
-            //             _ => Err(String::from("invalid (positive) float")),
-            //         },
-            //         _ => Err(String::from("too many fields")),
-            //     }
-            // },
-            false,
-        )
+        self.lookup_meas_opt("CALIBRATION", n, false)
     }
 
     fn lookup_meas_calibration3_2(&mut self, n: u32) -> OptionalKw<Calibration3_2> {
-        self.lookup_meas_opt(
-            "CALIBRATION",
-            n,
-            // |s| {
-            //     let v: Vec<&str> = s.split(",").collect();
-            //     match v[..] {
-            //         [svalue, unit] => match svalue.parse() {
-            //             Ok(value) if value >= 0.0 => Ok(Calibration3_2 {
-            //                 value,
-            //                 offset: 0.0,
-            //                 unit: String::from(unit),
-            //             }),
-            //             _ => Err(String::from("invalid (positive) float")),
-            //         },
-            //         [svalue, soffset, unit] => match (svalue.parse(), soffset.parse()) {
-            //             (Ok(value), Ok(offset)) if value >= 0.0 => Ok(Calibration3_2 {
-            //                 value,
-            //                 offset,
-            //                 unit: String::from(unit),
-            //             }),
-            //             _ => Err(String::from("invalid (positive) float")),
-            //         },
-            //         _ => Err(String::from("too many fields")),
-            //     }
-            // },
-            false,
-        )
+        self.lookup_meas_opt("CALIBRATION", n, false)
     }
 
     // for 3.1+ PnL measurements, which can have multiple wavelengths
     fn lookup_meas_wavelengths(&mut self, n: u32) -> OptionalKw<Wavelengths> {
-        self.lookup_meas_opt(
-            "L", n,
-            // |s| {
-            //     let mut ws = vec![];
-            //     for x in s.split(",") {
-            //         match x.parse() {
-            //             Ok(y) => ws.push(y),
-            //             _ => return Err(String::from("invalid float encountered")),
-            //         };
-            //     }
-            //     Ok(ws)
-            // },
-            false,
-        )
+        self.lookup_meas_opt("L", n, false)
         // .into_option()
         // .unwrap_or_default()
     }
 
     fn lookup_meas_display(&mut self, n: u32) -> OptionalKw<Display> {
-        self.lookup_meas_opt(
-            "D", n,
-            // |s| {
-            //     let v: Vec<&str> = s.split(",").collect();
-            //     match v[..] {
-            //         [which, f1, f2] => match (which, f1.parse(), f2.parse()) {
-            //             ("Linear", Ok(lower), Ok(upper)) => {
-            //                 Ok(Display::Lin(LinDisplay { lower, upper }))
-            //             }
-            //             ("Logarithmic", Ok(decades), Ok(offset)) => {
-            //                 Ok(Display::Log(LogDisplay { decades, offset }))
-            //             }
-            //             _ => Err(String::from("invalid floats")),
-            //         },
-            //         _ => Err(String::from("too many fields")),
-            //     }
-            // },
-            false,
-        )
+        self.lookup_meas_opt("D", n, false)
     }
 
     fn lookup_meas_datatype(&mut self, n: u32) -> OptionalKw<NumType> {
-        self.lookup_meas_opt(
-            "DATATYPE", n,
-            // |s| match s {
-            //     "I" => Ok(NumType::Integer),
-            //     "F" => Ok(NumType::Single),
-            //     "D" => Ok(NumType::Double),
-            //     _ => Err(String::from("unknown datatype")),
-            // },
-            false,
-        )
+        self.lookup_meas_opt("DATATYPE", n, false)
     }
 
     fn lookup_meas_type(&mut self, n: u32) -> OptionalKw<MeasurementType> {
-        self.lookup_meas_opt(
-            "TYPE", n,
-            // |s| match s {
-            //     "Forward Scatter" => Ok(MeasurementType::ForwardScatter),
-            //     "Raw Fluorescence" => Ok(MeasurementType::RawFluorescence),
-            //     "Mass" => Ok(MeasurementType::Mass),
-            //     "Time" => Ok(MeasurementType::Time),
-            //     "Index" => Ok(MeasurementType::Index),
-            //     "Classification" => Ok(MeasurementType::Classification),
-            //     s => Ok(MeasurementType::Other(String::from(s))),
-            // },
-            false,
-        )
+        self.lookup_meas_opt("TYPE", n, false)
     }
 
     fn lookup_meas_feature(&mut self, n: u32) -> OptionalKw<Feature> {
-        self.lookup_meas_opt(
-            "FEATURE", n,
-            // |s| match s {
-            //     "Area" => Ok(Feature::Area),
-            //     "Width" => Ok(Feature::Width),
-            //     "Height" => Ok(Feature::Height),
-            //     _ => Err(String::from("unknown measurement feature")),
-            // },
-            false,
-        )
+        self.lookup_meas_opt("FEATURE", n, false)
     }
 
     /// Find nonstandard keys that a specific for a given measurement

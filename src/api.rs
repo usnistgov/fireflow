@@ -105,6 +105,9 @@ impl Offsets {
     }
 }
 
+/// FCS version.
+///
+/// This appears as the first 6 bytes of any valid FCS file.
 #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Serialize)]
 enum Version {
     FCS2_0,
@@ -112,8 +115,6 @@ enum Version {
     FCS3_1,
     FCS3_2,
 }
-
-struct VersionError;
 
 impl str::FromStr for Version {
     type Err = VersionError;
@@ -140,6 +141,9 @@ impl fmt::Display for Version {
     }
 }
 
+struct VersionError;
+
+/// Data contained in the FCS header.
 #[derive(Debug, Clone, Serialize)]
 pub struct Header {
     version: Version,
@@ -148,20 +152,15 @@ pub struct Header {
     analysis: Offsets,
 }
 
+/// The four allowed datatypes for FCS data.
+///
+/// This is shown in the $DATATYPE keyword.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
 enum AlphaNumType {
     Ascii,
     Integer,
     Single,
     Double,
-}
-
-struct AlphaNumTypeError;
-
-impl fmt::Display for AlphaNumTypeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "must be one of 'I', 'F', 'D', or 'A'")
-    }
 }
 
 impl FromStr for AlphaNumType {
@@ -178,38 +177,6 @@ impl FromStr for AlphaNumType {
     }
 }
 
-struct ModeError;
-
-impl fmt::Display for ModeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "must be one of 'C', 'L', or 'U'")
-    }
-}
-
-impl FromStr for Mode {
-    type Err = ModeError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "C" => Ok(Mode::Correlated),
-            "L" => Ok(Mode::List),
-            "U" => Ok(Mode::Uncorrelated),
-            _ => Err(ModeError),
-        }
-    }
-}
-
-impl AlphaNumType {
-    fn remove_alpha(&self) -> Option<NumType> {
-        match self {
-            AlphaNumType::Ascii => None,
-            AlphaNumType::Integer => Some(NumType::Integer),
-            AlphaNumType::Single => Some(NumType::Single),
-            AlphaNumType::Double => Some(NumType::Double),
-        }
-    }
-}
-
 impl fmt::Display for AlphaNumType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
@@ -221,19 +188,20 @@ impl fmt::Display for AlphaNumType {
     }
 }
 
+struct AlphaNumTypeError;
+
+impl fmt::Display for AlphaNumTypeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "must be one of 'I', 'F', 'D', or 'A'")
+    }
+}
+
+/// The three numeric data types for the $PnDATATYPE keyword in 3.2+
 #[derive(Debug, Clone, Copy, Serialize)]
 enum NumType {
     Integer,
     Single,
     Double,
-}
-
-struct NumTypeError;
-
-impl fmt::Display for NumTypeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "must be one of 'F', 'D', or 'A'")
-    }
 }
 
 impl FromStr for NumType {
@@ -249,6 +217,102 @@ impl FromStr for NumType {
     }
 }
 
+impl fmt::Display for NumType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            NumType::Integer => write!(f, "I"),
+            NumType::Single => write!(f, "F"),
+            NumType::Double => write!(f, "D"),
+        }
+    }
+}
+
+struct NumTypeError;
+
+impl fmt::Display for NumTypeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "must be one of 'F', 'D', or 'A'")
+    }
+}
+
+impl NumType {
+    fn add_alpha(&self) -> AlphaNumType {
+        match self {
+            NumType::Integer => AlphaNumType::Integer,
+            NumType::Single => AlphaNumType::Single,
+            NumType::Double => AlphaNumType::Double,
+        }
+    }
+}
+
+/// A compensation matrix.
+///
+/// This is held in the $DFCmTOn keywords in 2.0 and $COMP in 3.0.
+#[derive(Debug, Clone, Serialize)]
+struct Compensation {
+    /// Values in the comp matrix in row-major order. Assumed to be the
+    /// same width and height as $PAR
+    matrix: Vec<Vec<f32>>,
+}
+
+impl FromStr for Compensation {
+    type Err = FixedSeqError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut xs = s.split(",");
+        if let Some(first) = &xs.next().and_then(|x| x.parse::<usize>().ok()) {
+            let n = *first;
+            let nn = n * n;
+            let values: Vec<_> = xs.by_ref().take(nn).collect();
+            let remainder = xs.by_ref().count();
+            let total = values.len() + remainder;
+            if total != nn {
+                Err(FixedSeqError::WrongLength {
+                    expected: nn,
+                    total,
+                })
+            } else {
+                let fvalues: Vec<_> = values
+                    .into_iter()
+                    .filter_map(|x| x.parse::<f32>().ok())
+                    .collect();
+                if fvalues.len() != nn {
+                    Err(FixedSeqError::BadFloat)
+                } else {
+                    let matrix = fvalues
+                        .into_iter()
+                        .chunks(n)
+                        .into_iter()
+                        .map(|c| c.collect())
+                        .collect();
+                    Ok(Compensation { matrix })
+                }
+            }
+        } else {
+            Err(FixedSeqError::BadLength)
+        }
+    }
+}
+
+enum FixedSeqError {
+    WrongLength { total: usize, expected: usize },
+    BadLength,
+    BadFloat,
+}
+
+impl fmt::Display for FixedSeqError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            FixedSeqError::BadFloat => write!(f, "Float could not be parsed"),
+            FixedSeqError::WrongLength { total, expected } => {
+                write!(f, "Expected {expected} entries, found {total}")
+            }
+            FixedSeqError::BadLength => write!(f, "Could not determine length"),
+        }
+    }
+}
+
+/// The spillover matrix in the $SPILLOVER keyword in (3.1+)
 #[derive(Debug, Clone, Serialize)]
 struct Spillover {
     measurements: Vec<String>,
@@ -304,6 +368,22 @@ impl FromStr for Spillover {
     }
 }
 
+enum NamedFixedSeqError {
+    Seq(FixedSeqError),
+    NonUnique,
+}
+
+impl fmt::Display for NamedFixedSeqError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            NamedFixedSeqError::Seq(s) => write!(f, "{}", s),
+            NamedFixedSeqError::NonUnique => write!(f, "Names in sequence is not unique"),
+        }
+    }
+}
+
+// TODO add Display trait so this can be written
+
 impl Spillover {
     fn table(&self, delim: &str) -> Vec<String> {
         let header0 = vec![String::from("[-]")];
@@ -323,103 +403,12 @@ impl Spillover {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
-struct Compensation {
-    /// Values in the comp matrix in row-major order.
-    matrix: Vec<Vec<f32>>,
-}
-
-enum FixedSeqError {
-    WrongLength { total: usize, expected: usize },
-    BadLength,
-    BadFloat,
-}
-
-enum NamedFixedSeqError {
-    Seq(FixedSeqError),
-    NonUnique,
-}
-
-impl fmt::Display for FixedSeqError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            FixedSeqError::BadFloat => write!(f, "Float could not be parsed"),
-            FixedSeqError::WrongLength { total, expected } => {
-                write!(f, "Expected {expected} entries, found {total}")
-            }
-            FixedSeqError::BadLength => write!(f, "Could not determine length"),
-        }
-    }
-}
-
-impl fmt::Display for NamedFixedSeqError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            NamedFixedSeqError::Seq(s) => write!(f, "{}", s),
-            NamedFixedSeqError::NonUnique => write!(f, "Names in sequence is not unique"),
-        }
-    }
-}
-
-impl FromStr for Compensation {
-    type Err = FixedSeqError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut xs = s.split(",");
-        if let Some(first) = &xs.next().and_then(|x| x.parse::<usize>().ok()) {
-            let n = *first;
-            let nn = n * n;
-            let values: Vec<_> = xs.by_ref().take(nn).collect();
-            let remainder = xs.by_ref().count();
-            let total = values.len() + remainder;
-            if total != nn {
-                Err(FixedSeqError::WrongLength {
-                    expected: nn,
-                    total,
-                })
-            } else {
-                let fvalues: Vec<_> = values
-                    .into_iter()
-                    .filter_map(|x| x.parse::<f32>().ok())
-                    .collect();
-                if fvalues.len() != nn {
-                    Err(FixedSeqError::BadFloat)
-                } else {
-                    let matrix = fvalues
-                        .into_iter()
-                        .chunks(n)
-                        .into_iter()
-                        .map(|c| c.collect())
-                        .collect();
-                    Ok(Compensation { matrix })
-                }
-            }
-        } else {
-            Err(FixedSeqError::BadLength)
-        }
-    }
-}
-
-impl NumType {
-    fn add_alpha(&self) -> AlphaNumType {
-        match self {
-            NumType::Integer => AlphaNumType::Integer,
-            NumType::Single => AlphaNumType::Single,
-            NumType::Double => AlphaNumType::Double,
-        }
-    }
-}
-
-impl fmt::Display for NumType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            NumType::Integer => write!(f, "I"),
-            NumType::Single => write!(f, "F"),
-            NumType::Double => write!(f, "D"),
-        }
-    }
-}
-
+/// The byte order as shown in the $BYTEORD field in 2.0 and 3.0
+///
+/// This can be either 1,2,3,4 (little endian), 4,3,2,1 (big endian), or some
+/// sequence representing byte order. For 2.0 and 3.0, this sequence is
+/// technically allowed to vary in length in the case of $DATATYPE=I since
+/// integers do not necessarily need to be 32 or 64-bit.
 #[derive(Debug, Clone, Serialize)]
 enum ByteOrd {
     Endian(Endian),
@@ -494,24 +483,13 @@ impl ByteOrd {
     }
 }
 
+/// The $TR field in all FCS versions.
+///
+/// This is formatted as 'string,f' where 'string' is a measurement name.
 #[derive(Debug, Clone, Serialize)]
 struct Trigger {
     measurement: String,
     threshold: u32,
-}
-
-enum TriggerError {
-    WrongFieldNumber,
-    IntFormat(std::num::ParseIntError),
-}
-
-impl fmt::Display for TriggerError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            TriggerError::WrongFieldNumber => write!(f, "must be like 'string,f'"),
-            TriggerError::IntFormat(i) => write!(f, "{}", i),
-        }
-    }
 }
 
 impl FromStr for Trigger {
@@ -527,6 +505,20 @@ impl FromStr for Trigger {
                     threshold,
                 }),
             _ => Err(TriggerError::WrongFieldNumber),
+        }
+    }
+}
+
+enum TriggerError {
+    WrongFieldNumber,
+    IntFormat(std::num::ParseIntError),
+}
+
+impl fmt::Display for TriggerError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            TriggerError::WrongFieldNumber => write!(f, "must be like 'string,f'"),
+            TriggerError::IntFormat(i) => write!(f, "{}", i),
         }
     }
 }
@@ -1763,6 +1755,27 @@ enum Mode {
     List,
     Uncorrelated,
     Correlated,
+}
+
+impl FromStr for Mode {
+    type Err = ModeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "C" => Ok(Mode::Correlated),
+            "L" => Ok(Mode::List),
+            "U" => Ok(Mode::Uncorrelated),
+            _ => Err(ModeError),
+        }
+    }
+}
+
+struct ModeError;
+
+impl fmt::Display for ModeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "must be one of 'C', 'L', or 'U'")
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]

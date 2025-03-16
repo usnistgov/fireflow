@@ -125,6 +125,7 @@ fn main() {
                             print_json(&res.raw);
                         }
                         print_json(&res.standard);
+                        print_json(&res.nonfatal);
                     }
                 }
             } else if s.raw {

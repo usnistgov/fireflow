@@ -1847,7 +1847,7 @@ pub struct ParsedTEXT {
     pub raw: RawTEXT,
     pub standard: AnyStdTEXT,
     data_parser: DataParser,
-    nonfatal: NonFatalErrors,
+    pub nonfatal: NonFatalErrors,
 }
 
 type TEXTResult = Result<ParsedTEXT, Box<StandardErrors>>;
@@ -3123,7 +3123,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
         if let (OptionalKw::Present(begin), OptionalKw::Present(end)) =
             (&spec.datetimes.begin, &spec.datetimes.end)
         {
-            if end > begin {
+            if end < begin {
                 st.push_meta_warning_str("$BEGINDATETIME is after $ENDDATETIME");
             }
         }
@@ -3215,15 +3215,15 @@ struct KeyError {
     msg: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct KeyWarning {
     key: StdKey,
     value: String,
     msg: String,
 }
 
-#[derive(Debug, Clone, Default)]
-struct NonFatalErrors {
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct NonFatalErrors {
     deprecated_keys: Vec<StdKey>,
     deprecated_features: Vec<String>,
     meta_warnings: Vec<String>,

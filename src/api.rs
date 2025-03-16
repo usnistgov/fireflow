@@ -11,9 +11,10 @@ use std::fs;
 use std::io;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::iter;
-use std::num::IntErrorKind;
+use std::num::{IntErrorKind, ParseFloatError, ParseIntError};
 use std::path;
 use std::str;
+use std::str::FromStr;
 
 fn format_standard_kw(kw: &str) -> StdKey {
     StdKey(format!("${}", kw.to_ascii_uppercase()))
@@ -90,17 +91,17 @@ fn parse_time100(s: &str) -> ParseResult<NaiveTime> {
         .or(Err(String::from("must be formatted like 'hh:mm:ss[.cc]'"))))
 }
 
-fn parse_scale(s: &str) -> ParseResult<Scale> {
-    let v: Vec<&str> = s.split(",").collect();
-    match v[..] {
-        [ds, os] => match (ds.parse(), os.parse()) {
-            (Ok(0.0), Ok(0.0)) => Ok(Linear),
-            (Ok(decades), Ok(offset)) => Ok(Log(LogScale { decades, offset })),
-            _ => Err(String::from("invalid floats")),
-        },
-        _ => Err(String::from("too many fields")),
-    }
-}
+// fn parse_scale(s: &str) -> ParseResult<Scale> {
+//     let v: Vec<&str> = s.split(",").collect();
+//     match v[..] {
+//         [ds, os] => match (ds.parse(), os.parse()) {
+//             (Ok(0.0), Ok(0.0)) => Ok(Linear),
+//             (Ok(decades), Ok(offset)) => Ok(Log(LogScale { decades, offset })),
+//             _ => Err(String::from("invalid floats")),
+//         },
+//         _ => Err(String::from("too many fields")),
+//     }
+// }
 
 #[derive(Debug, Clone, Copy, Serialize)]
 struct Offsets {
@@ -182,6 +183,49 @@ enum AlphaNumType {
     Double,
 }
 
+struct AlphaNumTypeError;
+
+impl fmt::Display for AlphaNumTypeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "must be one of 'I', 'F', 'D', or 'A'")
+    }
+}
+
+impl FromStr for AlphaNumType {
+    type Err = AlphaNumTypeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "I" => Ok(AlphaNumType::Integer),
+            "F" => Ok(AlphaNumType::Single),
+            "D" => Ok(AlphaNumType::Double),
+            "A" => Ok(AlphaNumType::Ascii),
+            _ => Err(AlphaNumTypeError),
+        }
+    }
+}
+
+struct ModeError;
+
+impl fmt::Display for ModeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "must be one of 'C', 'L', or 'U'")
+    }
+}
+
+impl FromStr for Mode {
+    type Err = ModeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "C" => Ok(Mode::Correlated),
+            "L" => Ok(Mode::List),
+            "U" => Ok(Mode::Uncorrelated),
+            _ => Err(ModeError),
+        }
+    }
+}
+
 impl AlphaNumType {
     fn remove_alpha(&self) -> Option<NumType> {
         match self {
@@ -211,11 +255,80 @@ enum NumType {
     Double,
 }
 
+struct NumTypeError;
+
+impl fmt::Display for NumTypeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "must be one of 'F', 'D', or 'A'")
+    }
+}
+
+impl FromStr for NumType {
+    type Err = NumTypeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "I" => Ok(NumType::Integer),
+            "F" => Ok(NumType::Single),
+            "D" => Ok(NumType::Double),
+            _ => Err(NumTypeError),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct Spillover {
     measurements: Vec<String>,
     /// Values in the spillover matrix in row-major order.
     matrix: Vec<Vec<f32>>,
+}
+
+impl FromStr for Spillover {
+    type Err = NamedFixedSeqError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        {
+            let mut xs = s.split(",");
+            if let Some(first) = &xs.next().and_then(|x| x.parse::<usize>().ok()) {
+                let n = *first;
+                let nn = n * n;
+                let expected = n + nn;
+                let measurements: Vec<_> = xs.by_ref().take(n).map(String::from).collect();
+                let values: Vec<_> = xs.by_ref().take(nn).collect();
+                let remainder = xs.by_ref().count();
+                let total = measurements.len() + values.len() + remainder;
+                if total != expected {
+                    Err(NamedFixedSeqError::Seq(FixedSeqError::WrongLength {
+                        total,
+                        expected,
+                    }))
+                } else if measurements.iter().unique().count() != n {
+                    Err(NamedFixedSeqError::NonUnique)
+                } else {
+                    let fvalues: Vec<_> = values
+                        .into_iter()
+                        .filter_map(|x| x.parse::<f32>().ok())
+                        .collect();
+                    if fvalues.len() != nn {
+                        Err(NamedFixedSeqError::Seq(FixedSeqError::BadFloat))
+                    } else {
+                        let matrix = fvalues
+                            .into_iter()
+                            .chunks(n)
+                            .into_iter()
+                            .map(|c| c.collect())
+                            .collect();
+                        Ok(Spillover {
+                            measurements,
+                            matrix,
+                        })
+                    }
+                }
+            } else {
+                Err(NamedFixedSeqError::Seq(FixedSeqError::BadLength))
+            }
+        }
+    }
 }
 
 impl Spillover {
@@ -241,6 +354,77 @@ impl Spillover {
 struct Compensation {
     /// Values in the comp matrix in row-major order.
     matrix: Vec<Vec<f32>>,
+}
+
+enum FixedSeqError {
+    WrongLength { total: usize, expected: usize },
+    BadLength,
+    BadFloat,
+}
+
+enum NamedFixedSeqError {
+    Seq(FixedSeqError),
+    NonUnique,
+}
+
+impl fmt::Display for FixedSeqError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            FixedSeqError::BadFloat => write!(f, "Float could not be parsed"),
+            FixedSeqError::WrongLength { total, expected } => {
+                write!(f, "Expected {expected} entries, found {total}")
+            }
+            FixedSeqError::BadLength => write!(f, "Could not determine length"),
+        }
+    }
+}
+
+impl fmt::Display for NamedFixedSeqError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            NamedFixedSeqError::Seq(s) => write!(f, "{}", s),
+            NamedFixedSeqError::NonUnique => write!(f, "Names in sequence is not unique"),
+        }
+    }
+}
+
+impl FromStr for Compensation {
+    type Err = FixedSeqError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut xs = s.split(",");
+        if let Some(first) = &xs.next().and_then(|x| x.parse::<usize>().ok()) {
+            let n = *first;
+            let nn = n * n;
+            let values: Vec<_> = xs.by_ref().take(nn).collect();
+            let remainder = xs.by_ref().count();
+            let total = values.len() + remainder;
+            if total != nn {
+                Err(FixedSeqError::WrongLength {
+                    expected: nn,
+                    total,
+                })
+            } else {
+                let fvalues: Vec<_> = values
+                    .into_iter()
+                    .filter_map(|x| x.parse::<f32>().ok())
+                    .collect();
+                if fvalues.len() != nn {
+                    Err(FixedSeqError::BadFloat)
+                } else {
+                    let matrix = fvalues
+                        .into_iter()
+                        .chunks(n)
+                        .into_iter()
+                        .map(|c| c.collect())
+                        .collect();
+                    Ok(Compensation { matrix })
+                }
+            }
+        } else {
+            Err(FixedSeqError::BadLength)
+        }
+    }
 }
 
 impl NumType {
@@ -269,6 +453,64 @@ enum ByteOrd {
     Mixed(Vec<u8>),
 }
 
+pub struct EndianError;
+
+impl fmt::Display for EndianError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "Endian must be either 1,2,3,4 or 4,3,2,1")
+    }
+}
+
+impl FromStr for Endian {
+    type Err = EndianError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "1,2,3,4" => Ok(Endian::Little),
+            "4,3,2,1" => Ok(Endian::Big),
+            _ => Err(EndianError),
+        }
+    }
+}
+
+enum ParseByteOrdError {
+    InvalidOrder,
+    InvalidNumbers,
+}
+
+impl fmt::Display for ParseByteOrdError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            ParseByteOrdError::InvalidNumbers => write!(f, "Could not parse numbers in byte order"),
+            ParseByteOrdError::InvalidOrder => write!(f, "Byte order must include 1-n uniquely"),
+        }
+    }
+}
+
+impl FromStr for ByteOrd {
+    type Err = ParseByteOrdError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.parse() {
+            Ok(e) => Ok(ByteOrd::Endian(e)),
+            _ => {
+                let xs: Vec<_> = s.split(",").collect();
+                let nxs = xs.len();
+                let xs_num: Vec<u8> = xs.iter().filter_map(|s| s.parse().ok()).unique().collect();
+                if let (Some(min), Some(max)) = (xs_num.iter().min(), xs_num.iter().max()) {
+                    if *min == 1 && usize::from(*max) == nxs && xs_num.len() == nxs {
+                        Ok(ByteOrd::Mixed(xs_num.iter().map(|x| x - 1).collect()))
+                    } else {
+                        Err(ParseByteOrdError::InvalidOrder)
+                    }
+                } else {
+                    Err(ParseByteOrdError::InvalidNumbers)
+                }
+            }
+        }
+    }
+}
+
 impl ByteOrd {
     // This only makes sense for pre 3.1 integer types
     fn num_bytes(&self) -> u8 {
@@ -283,6 +525,37 @@ impl ByteOrd {
 struct Trigger {
     measurement: String,
     threshold: u32,
+}
+
+enum TriggerError {
+    WrongFieldNumber,
+    IntFormat(std::num::ParseIntError),
+}
+
+impl fmt::Display for TriggerError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            TriggerError::WrongFieldNumber => write!(f, "must be like 'string,f'"),
+            TriggerError::IntFormat(i) => write!(f, "{}", i),
+        }
+    }
+}
+
+impl FromStr for Trigger {
+    type Err = TriggerError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.split(",").collect::<Vec<_>>()[..] {
+            [p, n1] => n1
+                .parse()
+                .map_err(TriggerError::IntFormat)
+                .map(|threshold| Trigger {
+                    measurement: String::from(p),
+                    threshold,
+                }),
+            _ => Err(TriggerError::WrongFieldNumber),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -300,15 +573,15 @@ struct Timestamps3_2 {
 
 // TODO this is super messy, see 3.2 spec for restrictions on this we may with
 // to use further
-#[derive(Debug, Clone, PartialEq, Serialize)]
-struct LogScale {
-    decades: f32,
-    offset: f32,
-}
+// #[derive(Debug, Clone, PartialEq, Serialize)]
+// struct LogScale {
+//     decades: f32,
+//     offset: f32,
+// }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 enum Scale {
-    Log(LogScale),
+    Log { decades: f32, offset: f32 },
     Linear,
 }
 
@@ -317,35 +590,96 @@ use Scale::*;
 impl fmt::Display for Scale {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            Scale::Log(x) => write!(f, "{},{}", x.decades, x.offset),
+            Scale::Log { decades, offset } => write!(f, "{decades},{offset}"),
             Scale::Linear => write!(f, "Lin"),
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
-struct LinDisplay {
-    lower: f32,
-    upper: f32,
+enum ScaleError {
+    FloatError(ParseFloatError),
+    WrongFormat,
 }
 
-#[derive(Debug, Clone, Serialize)]
-struct LogDisplay {
-    offset: f32,
-    decades: f32,
+impl fmt::Display for ScaleError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            ScaleError::FloatError(x) => write!(f, "{}", x),
+            ScaleError::WrongFormat => write!(f, "must be like 'f1,f2'"),
+        }
+    }
+}
+
+impl str::FromStr for Scale {
+    type Err = ScaleError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.split(",").collect::<Vec<_>>()[..] {
+            [ds, os] => {
+                let f1 = ds.parse().map_err(ScaleError::FloatError)?;
+                let f2 = os.parse().map_err(ScaleError::FloatError)?;
+                match (f1, f2) {
+                    (0.0, 0.0) => Ok(Linear),
+                    (decades, offset) => Ok(Log { decades, offset }),
+                }
+            }
+            _ => Err(ScaleError::WrongFormat),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
 enum Display {
-    Lin(LinDisplay),
-    Log(LogDisplay),
+    Lin { lower: f32, upper: f32 },
+    Log { offset: f32, decades: f32 },
+}
+
+enum DisplayError {
+    FloatError(ParseFloatError),
+    InvalidType,
+    FormatError,
+}
+
+impl fmt::Display for DisplayError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            DisplayError::FloatError(x) => write!(f, "{}", x),
+            DisplayError::InvalidType => write!(f, "Type must be either 'Logarithmic' or 'Linear'"),
+            DisplayError::FormatError => write!(f, "must be like 'string,f1,f2'"),
+        }
+    }
+}
+
+impl str::FromStr for Display {
+    type Err = DisplayError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.split(",").collect::<Vec<_>>()[..] {
+            [which, s1, s2] => {
+                let f1 = s1.parse().map_err(DisplayError::FloatError)?;
+                let f2 = s2.parse().map_err(DisplayError::FloatError)?;
+                match which {
+                    "Linear" => Ok(Display::Lin {
+                        lower: f1,
+                        upper: f2,
+                    }),
+                    "Logarithmic" => Ok(Display::Log {
+                        decades: f1,
+                        offset: f2,
+                    }),
+                    _ => Err(DisplayError::InvalidType),
+                }
+            }
+            _ => Err(DisplayError::FormatError),
+        }
+    }
 }
 
 impl fmt::Display for Display {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            Display::Lin(x) => write!(f, "Linear,{},{}", x.lower, x.upper),
-            Display::Log(x) => write!(f, "Log,{},{}", x.offset, x.decades),
+            Display::Lin { lower, upper } => write!(f, "Linear,{lower},{upper}"),
+            Display::Log { offset, decades } => write!(f, "Log,{offset},{decades}"),
         }
     }
 }
@@ -355,6 +689,58 @@ struct Calibration3_1 {
     value: f32,
     // TODO add offset (3.2 added a zero offset, which is different from 3.1)
     unit: String,
+}
+
+enum CalibrationError<C> {
+    FloatError(ParseFloatError),
+    RangeError,
+    FormatError(C),
+}
+
+struct CalibrationFormatError3_1;
+struct CalibrationFormatError3_2;
+
+impl fmt::Display for CalibrationFormatError3_1 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "must be like 'f,string'")
+    }
+}
+
+impl fmt::Display for CalibrationFormatError3_2 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "must be like 'f1,[f2],string'")
+    }
+}
+
+impl<C: fmt::Display> fmt::Display for CalibrationError<C> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            CalibrationError::FloatError(x) => write!(f, "{}", x),
+            CalibrationError::RangeError => write!(f, "must be a positive float"),
+            CalibrationError::FormatError(x) => write!(f, "{}", x),
+        }
+    }
+}
+
+impl str::FromStr for Calibration3_1 {
+    type Err = CalibrationError<CalibrationFormatError3_1>;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.split(",").collect::<Vec<_>>()[..] {
+            [svalue, unit] => {
+                let value = svalue.parse().map_err(CalibrationError::FloatError)?;
+                if value >= 0.0 {
+                    Ok(Calibration3_1 {
+                        value,
+                        unit: String::from(unit),
+                    })
+                } else {
+                    Err(CalibrationError::RangeError)
+                }
+            }
+            _ => Err(CalibrationError::FormatError(CalibrationFormatError3_1)),
+        }
+    }
 }
 
 impl fmt::Display for Calibration3_1 {
@@ -368,6 +754,35 @@ struct Calibration3_2 {
     value: f32,
     offset: f32,
     unit: String,
+}
+
+impl str::FromStr for Calibration3_2 {
+    type Err = CalibrationError<CalibrationFormatError3_2>;
+
+    // TODO not dry
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (value, offset, unit) = match s.split(",").collect::<Vec<_>>()[..] {
+            [svalue, unit] => {
+                let f1 = svalue.parse().map_err(CalibrationError::FloatError)?;
+                Ok((f1, 0.0, String::from(unit)))
+            }
+            [svalue, soffset, unit] => {
+                let f1 = svalue.parse().map_err(CalibrationError::FloatError)?;
+                let f2 = soffset.parse().map_err(CalibrationError::FloatError)?;
+                Ok((f1, f2, String::from(unit)))
+            }
+            _ => Err(CalibrationError::FormatError(CalibrationFormatError3_2)),
+        }?;
+        if value >= 0.0 {
+            Ok(Calibration3_2 {
+                value,
+                offset,
+                unit,
+            })
+        } else {
+            Err(CalibrationError::RangeError)
+        }
+    }
 }
 
 impl fmt::Display for Calibration3_2 {
@@ -388,6 +803,25 @@ enum MeasurementType {
     Classification,
     Index,
     Other(String),
+}
+
+impl str::FromStr for MeasurementType {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Forward Scatter" => Ok(MeasurementType::ForwardScatter),
+            "Side Scatter" => Ok(MeasurementType::SideScatter),
+            "Raw Fluorescence" => Ok(MeasurementType::RawFluorescence),
+            "Unmixed Fluorescence" => Ok(MeasurementType::UnmixedFluorescence),
+            "Mass" => Ok(MeasurementType::Mass),
+            "Time" => Ok(MeasurementType::Time),
+            "Electronic Volume" => Ok(MeasurementType::ElectronicVolume),
+            "Index" => Ok(MeasurementType::Index),
+            "Classification" => Ok(MeasurementType::Classification),
+            s => Ok(MeasurementType::Other(String::from(s))),
+        }
+    }
 }
 
 impl fmt::Display for MeasurementType {
@@ -413,6 +847,48 @@ enum Feature {
     Width,
     Height,
 }
+
+struct FeatureError;
+
+impl fmt::Display for FeatureError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "must be one of 'Area', 'Width', or 'Height'")
+    }
+}
+
+impl str::FromStr for Feature {
+    type Err = FeatureError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Area" => Ok(Feature::Area),
+            "Width" => Ok(Feature::Width),
+            "Height" => Ok(Feature::Height),
+            _ => Err(FeatureError),
+        }
+    }
+}
+
+// impl str::FromStr for Calibration3_1 {
+//     type Err = CalibrationError<CalibrationFormatError3_1>;
+
+//     fn from_str(s: &str) -> Result<Self, Self::Err> {
+//         match s.split(",").collect::<Vec<_>>()[..] {
+//             [svalue, unit] => {
+//                 let value = svalue.parse().map_err(CalibrationError::FloatError)?;
+//                 if value >= 0.0 {
+//                     Ok(Calibration3_1 {
+//                         value,
+//                         unit: String::from(unit),
+//                     })
+//                 } else {
+//                     Err(CalibrationError::RangeError)
+//                 }
+//             }
+//             _ => Err(CalibrationError::FormatError(CalibrationFormatError3_1)),
+//         }
+//     }
+// }
 
 impl fmt::Display for Feature {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -474,6 +950,27 @@ impl<T: Serialize> Serialize for OptionalKw<T> {
 }
 
 #[derive(Debug, Clone, Serialize)]
+struct Wavelengths(Vec<u32>);
+
+impl fmt::Display for Wavelengths {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{}", self.0.iter().join(","))
+    }
+}
+
+impl str::FromStr for Wavelengths {
+    type Err = ParseIntError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut ws = vec![];
+        for x in s.split(",") {
+            ws.push(x.parse()?);
+        }
+        Ok(Wavelengths(ws))
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
 struct InnerMeasurement2_0 {
     scale: OptionalKw<Scale>,      // PnE
     wavelength: OptionalKw<u32>,   // PnL
@@ -490,20 +987,20 @@ struct InnerMeasurement3_0 {
 
 #[derive(Debug, Clone, Serialize)]
 struct InnerMeasurement3_1 {
-    scale: Scale,          // PnE
-    wavelengths: Vec<u32>, // PnL
-    shortname: String,     // PnN
-    gain: OptionalKw<f32>, // PnG
+    scale: Scale,                         // PnE
+    wavelengths: OptionalKw<Wavelengths>, // PnL
+    shortname: String,                    // PnN
+    gain: OptionalKw<f32>,                // PnG
     calibration: OptionalKw<Calibration3_1>,
     display: OptionalKw<Display>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 struct InnerMeasurement3_2 {
-    scale: Scale,          // PnE
-    wavelengths: Vec<u32>, // PnL
-    shortname: String,     // PnN
-    gain: OptionalKw<f32>, // PnG
+    scale: Scale,                         // PnE
+    wavelengths: OptionalKw<Wavelengths>, // PnL
+    shortname: String,                    // PnN
+    gain: OptionalKw<f32>,                // PnG
     calibration: OptionalKw<Calibration3_2>,
     display: OptionalKw<Display>,
     analyte: OptionalKw<String>,
@@ -529,6 +1026,41 @@ impl InnerMeasurement3_2 {
 enum Bytes {
     Fixed(u8),
     Variable,
+}
+
+enum BytesError {
+    IntError(ParseIntError),
+    OverRange,
+    NotOctet,
+}
+
+impl fmt::Display for BytesError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            BytesError::IntError(i) => write!(f, "{}", i),
+            BytesError::OverRange => write!(f, "bit widths over 64 are not supported"),
+            BytesError::NotOctet => write!(f, "bit widths must be octets"),
+        }
+    }
+}
+
+impl FromStr for Bytes {
+    type Err = BytesError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "*" => Ok(Bytes::Variable),
+            _ => s.parse::<u8>().map_err(BytesError::IntError).and_then(|x| {
+                if x > 64 {
+                    Err(BytesError::OverRange)
+                } else if x % 8 > 1 {
+                    Err(BytesError::NotOctet)
+                } else {
+                    Ok(Bytes::Fixed(x / 8))
+                }
+            }),
+        }
+    }
 }
 
 impl Bytes {
@@ -558,6 +1090,37 @@ enum Range {
     // This stores the value of PnR as-is. Sometimes PnR is actually a float
     // for floating point measurements rather than an int.
     Float(f64),
+}
+
+enum RangeError {
+    Int(ParseIntError),
+    Float(ParseFloatError),
+}
+
+impl fmt::Display for RangeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            RangeError::Int(x) => write!(f, "{}", x),
+            RangeError::Float(x) => write!(f, "{}", x),
+        }
+    }
+}
+
+impl str::FromStr for Range {
+    type Err = RangeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.parse::<u64>() {
+            Ok(x) => Ok(Range::Int(x - 1)),
+            Err(e) => match e.kind() {
+                IntErrorKind::InvalidDigit => s
+                    .parse::<f64>()
+                    .map_or_else(|e| Err(RangeError::Float(e)), |x| Ok(Range::Float(x))),
+                IntErrorKind::PosOverflow => Ok(Range::Int(u64::MAX)),
+                _ => Err(RangeError::Int(e)),
+            },
+        }
+    }
 }
 
 impl fmt::Display for Range {
@@ -852,7 +1415,7 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
         [
             format!("{}", self.scale),
             self.shortname.clone(),
-            self.wavelengths.iter().join(","),
+            format!("{}", self.wavelengths),
             format!("{}", self.gain),
             format!("{}", self.calibration),
             format!("{}", self.display),
@@ -915,7 +1478,7 @@ impl VersionedMeasurement for InnerMeasurement3_2 {
         [
             format!("{}", self.scale),
             self.shortname.clone(),
-            self.wavelengths.iter().join(","),
+            format!("{}", self.wavelengths),
             format!("{}", self.gain),
             format!("{}", self.calibration),
             format!("{}", self.display),
@@ -939,6 +1502,32 @@ enum Originality {
     DataModified,
 }
 
+struct OriginalityError;
+
+impl fmt::Display for OriginalityError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "Originality must be one of 'Original', 'NonDataModified', \
+                   'Appended', or 'DataModified'"
+        )
+    }
+}
+
+impl str::FromStr for Originality {
+    type Err = OriginalityError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Original" => Ok(Originality::Original),
+            "NonDataModified" => Ok(Originality::NonDataModified),
+            "Appended" => Ok(Originality::Appended),
+            "DataModified" => Ok(Originality::DataModified),
+            _ => Err(OriginalityError),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct ModificationData {
     last_modifier: OptionalKw<String>,
@@ -953,7 +1542,45 @@ struct PlateData {
     wellid: OptionalKw<String>,
 }
 
-type UnstainedCenters = HashMap<String, f32>;
+#[derive(Debug, Clone, Serialize)]
+struct UnstainedCenters(HashMap<String, f32>);
+
+impl FromStr for UnstainedCenters {
+    type Err = NamedFixedSeqError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut xs = s.split(",");
+        if let Some(n) = xs.next().and_then(|s| s.parse().ok()) {
+            let measurements: Vec<_> = xs.by_ref().take(n).map(String::from).collect();
+            let values: Vec<_> = xs.by_ref().take(n).collect();
+            let remainder = xs.by_ref().count();
+            let total = values.len() + measurements.len() + remainder;
+            let expected = 2 * n;
+            if total != expected {
+                let fvalues: Vec<_> = values
+                    .into_iter()
+                    .filter_map(|s| s.parse::<f32>().ok())
+                    .collect();
+                if fvalues.len() != n {
+                    Err(NamedFixedSeqError::Seq(FixedSeqError::BadFloat))
+                } else if measurements.iter().unique().count() != n {
+                    Err(NamedFixedSeqError::NonUnique)
+                } else {
+                    Ok(UnstainedCenters(
+                        measurements.into_iter().zip(fvalues).collect(),
+                    ))
+                }
+            } else {
+                Err(NamedFixedSeqError::Seq(FixedSeqError::WrongLength {
+                    total,
+                    expected,
+                }))
+            }
+        } else {
+            Err(NamedFixedSeqError::Seq(FixedSeqError::BadLength))
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 struct UnstainedData {
@@ -972,6 +1599,38 @@ struct CarrierData {
 struct Unicode {
     page: u32,
     kws: Vec<String>,
+}
+
+enum UnicodeError {
+    Empty,
+    BadFormat,
+}
+
+impl fmt::Display for UnicodeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            UnicodeError::Empty => write!(f, "No keywords given"),
+            UnicodeError::BadFormat => write!(f, "Must be like 'n,string,[[string],...]'"),
+        }
+    }
+}
+
+impl FromStr for Unicode {
+    type Err = UnicodeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut xs = s.split(",");
+        if let Some(page) = xs.next().and_then(|s| s.parse().ok()) {
+            let kws: Vec<String> = xs.map(String::from).collect();
+            if kws.is_empty() {
+                Err(UnicodeError::Empty)
+            } else {
+                Ok(Unicode { page, kws })
+            }
+        } else {
+            Err(UnicodeError::BadFormat)
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1068,6 +1727,29 @@ struct Metadata<X> {
     tr: OptionalKw<Trigger>,
     specific: X,
 }
+
+const PAR: &str = "$PAR";
+const NEXTDATA: &str = "$NEXTDATA";
+const DATATYPE: &str = "$DATATYPE";
+const ABRT: &str = "$ABRT";
+const COM: &str = "$COM";
+const CELLS: &str = "$CELLS";
+const EXP: &str = "$EXP";
+const FIL: &str = "$FIL";
+const INST: &str = "$INST";
+const LOST: &str = "$LOST";
+const OP: &str = "$OP";
+const PROJ: &str = "$PROJ";
+const SMNO: &str = "$SMNO";
+const SRC: &str = "$SRC";
+const SYS: &str = "$SYS";
+const TR: &str = "$TR";
+
+// impl<M: VersionedMetadata> Metadata<M> {
+//     fn to_keywords(self) -> Vec<(String, String)> {
+//         let mut kws = HashMap::new();
+//     }
+// }
 
 type Metadata2_0 = Metadata<InnerMetadata2_0>;
 type Metadata3_0 = Metadata<InnerMetadata3_0>;
@@ -2080,7 +2762,7 @@ trait VersionedMetadata: Sized {
             smno: st.lookup_smno(),
             src: st.lookup_src(),
             sys: st.lookup_sys(),
-            tr: st.lookup_trigger(&names),
+            tr: st.lookup_trigger(),
             specific: Self::build_inner(st, par, &names)?,
         })
     }
@@ -2318,7 +3000,7 @@ impl VersionedMetadata for InnerMetadata3_1 {
             mode,
             byteord: st.lookup_endian()?,
             cyt: st.lookup_cyt_opt(),
-            spillover: st.lookup_spillover(names),
+            spillover: st.lookup_spillover(),
             timestamps: st.lookup_timestamps2_0(true, false),
             cytsn: st.lookup_cytsn(),
             timestep: st.lookup_timestep(),
@@ -2458,7 +3140,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
             tot: st.lookup_tot_req()?,
             byteord: st.lookup_endian()?,
             cyt: st.lookup_cyt_req()?,
-            spillover: st.lookup_spillover(names),
+            spillover: st.lookup_spillover(),
             timestamps: st.lookup_timestamps2_0(true, true),
             cytsn: st.lookup_cytsn(),
             timestep: st.lookup_timestep(),
@@ -2663,7 +3345,7 @@ impl StandardErrors {
 
 impl KwState<'_> {
     // TODO not DRY (although will likely need HKTs)
-    fn lookup_required<V, F>(&mut self, k: &str, f: F, dep: bool) -> Option<V>
+    fn lookup_required_fun<V, F>(&mut self, k: &str, f: F, dep: bool) -> Option<V>
     where
         F: FnOnce(&str) -> ParseResult<V>,
     {
@@ -2690,7 +3372,7 @@ impl KwState<'_> {
         }
     }
 
-    fn lookup_optional<V, F>(&mut self, k: &str, f: F, dep: bool) -> OptionalKw<V>
+    fn lookup_optional_fun<V, F>(&mut self, k: &str, f: F, dep: bool) -> OptionalKw<V>
     where
         F: FnOnce(&str) -> ParseResult<V>,
     {
@@ -2714,6 +3396,21 @@ impl KwState<'_> {
         }
     }
 
+    fn lookup_required<V: FromStr>(&mut self, k: &str, dep: bool) -> Option<V>
+    where
+        <V as FromStr>::Err: fmt::Display,
+    {
+        self.lookup_required_fun(k, |s| s.parse().map_err(|e| format!("{}", e)), dep)
+    }
+
+    fn lookup_optional<V: FromStr>(&mut self, k: &str, dep: bool) -> OptionalKw<V>
+    where
+        <V as FromStr>::Err: fmt::Display,
+    {
+        self.lookup_optional_fun(k, |s| s.parse().map_err(|e| format!("{}", e)), dep)
+    }
+
+    // TODO these need to be checked with the delta taken into account
     fn build_offsets(&mut self, begin: u32, end: u32, which: &'static str) -> Option<Offsets> {
         Offsets::new(begin, end).or_else(|| {
             let msg = format!("Could not make {} offset: begin > end", which);
@@ -2724,12 +3421,16 @@ impl KwState<'_> {
 
     // metadata
 
+    // TODO the standard technically forbids spaces in front of numbers, but
+    // many people use them here anyways
     fn lookup_begindata(&mut self) -> Option<u32> {
-        self.lookup_required("BEGINDATA", parse_offset, false)
+        // self.lookup_required("BEGINDATA", false)
+        self.lookup_required_fun("BEGINDATA", parse_offset, false)
     }
 
     fn lookup_enddata(&mut self) -> Option<u32> {
-        self.lookup_required("ENDDATA", parse_offset, false)
+        // self.lookup_required("ENDDATA", false)
+        self.lookup_required_fun("ENDDATA", parse_offset, false)
     }
 
     fn lookup_data_offsets(&mut self) -> Option<Offsets> {
@@ -2739,14 +3440,14 @@ impl KwState<'_> {
     }
 
     fn lookup_stext_offsets(&mut self) -> Option<Offsets> {
-        let beginstext = self.lookup_required("BEGINSTEXT", parse_offset, false)?;
-        let endstext = self.lookup_required("ENDSTEXT", parse_offset, false)?;
+        let beginstext = self.lookup_required("BEGINSTEXT", false)?;
+        let endstext = self.lookup_required("ENDSTEXT", false)?;
         self.build_offsets(beginstext, endstext, "STEXT")
     }
 
     fn lookup_analysis_offsets(&mut self) -> Option<Offsets> {
-        let beginstext = self.lookup_required("BEGINANALYSIS", parse_offset, false)?;
-        let endstext = self.lookup_required("ENDANALYSIS", parse_offset, false)?;
+        let beginstext = self.lookup_required("BEGINANALYSIS", false)?;
+        let endstext = self.lookup_required("ENDANALYSIS", false)?;
         self.build_offsets(beginstext, endstext, "ANALYSIS")
     }
 
@@ -2765,42 +3466,42 @@ impl KwState<'_> {
     fn lookup_byteord(&mut self) -> Option<ByteOrd> {
         self.lookup_required(
             "BYTEORD",
-            |s| match parse_endian(s) {
-                Ok(e) => Ok(ByteOrd::Endian(e)),
-                _ => {
-                    let xs: Vec<&str> = s.split(",").collect();
-                    let nxs = xs.len();
-                    let xs_num: Vec<u8> =
-                        xs.iter().filter_map(|s| s.parse().ok()).unique().collect();
-                    if let (Some(min), Some(max)) = (xs_num.iter().min(), xs_num.iter().max()) {
-                        if *min == 1 && usize::from(*max) == nxs && xs_num.len() == nxs {
-                            Ok(ByteOrd::Mixed(xs_num.iter().map(|x| x - 1).collect()))
-                        } else {
-                            Err(String::from("invalid byte order"))
-                        }
-                    } else {
-                        Err(String::from("could not parse numbers from byte order"))
-                    }
-                }
-            },
+            // |s| match parse_endian(s) {
+            //     Ok(e) => Ok(ByteOrd::Endian(e)),
+            //     _ => {
+            //         let xs: Vec<&str> = s.split(",").collect();
+            //         let nxs = xs.len();
+            //         let xs_num: Vec<u8> =
+            //             xs.iter().filter_map(|s| s.parse().ok()).unique().collect();
+            //         if let (Some(min), Some(max)) = (xs_num.iter().min(), xs_num.iter().max()) {
+            //             if *min == 1 && usize::from(*max) == nxs && xs_num.len() == nxs {
+            //                 Ok(ByteOrd::Mixed(xs_num.iter().map(|x| x - 1).collect()))
+            //             } else {
+            //                 Err(String::from("invalid byte order"))
+            //             }
+            //         } else {
+            //             Err(String::from("could not parse numbers from byte order"))
+            //         }
+            //     }
+            // },
             false,
         )
     }
 
     fn lookup_endian(&mut self) -> Option<Endian> {
-        self.lookup_required("BYTEORD", parse_endian, false)
+        self.lookup_required("BYTEORD", false)
     }
 
     fn lookup_datatype(&mut self) -> Option<AlphaNumType> {
         self.lookup_required(
             "DATATYPE",
-            |s| match s {
-                "I" => Ok(AlphaNumType::Integer),
-                "F" => Ok(AlphaNumType::Single),
-                "D" => Ok(AlphaNumType::Double),
-                "A" => Ok(AlphaNumType::Ascii),
-                _ => Err(String::from("unknown datatype")),
-            },
+            // |s| match s {
+            //     "I" => Ok(AlphaNumType::Integer),
+            //     "F" => Ok(AlphaNumType::Single),
+            //     "D" => Ok(AlphaNumType::Double),
+            //     "A" => Ok(AlphaNumType::Ascii),
+            //     _ => Err(String::from("unknown datatype")),
+            // },
             false,
         )
     }
@@ -2808,12 +3509,12 @@ impl KwState<'_> {
     fn lookup_mode(&mut self) -> Option<Mode> {
         self.lookup_required(
             "MODE",
-            |s| match s {
-                "C" => Ok(Mode::Correlated),
-                "L" => Ok(Mode::List),
-                "U" => Ok(Mode::Uncorrelated),
-                _ => Err(String::from("unknown mode")),
-            },
+            // |s| match s {
+            //     "C" => Ok(Mode::Correlated),
+            //     "L" => Ok(Mode::List),
+            //     "U" => Ok(Mode::Uncorrelated),
+            //     _ => Err(String::from("unknown mode")),
+            // },
             false,
         )
     }
@@ -2821,122 +3522,122 @@ impl KwState<'_> {
     fn lookup_mode3_2(&mut self) -> OptionalKw<Mode> {
         self.lookup_optional(
             "MODE",
-            |s| match s {
-                "L" => Ok(Mode::List),
-                _ => Err(String::from("unknown mode (U and C are no longer valid)")),
-            },
+            // |s| match s {
+            //     "L" => Ok(Mode::List),
+            //     _ => Err(String::from("unknown mode (U and C are no longer valid)")),
+            // },
             true,
         )
     }
 
     fn lookup_nextdata(&mut self) -> Option<u32> {
-        self.lookup_required("NEXTDATA", parse_offset, false)
+        self.lookup_required("NEXTDATA", false)
     }
 
     fn lookup_par(&mut self) -> Option<u32> {
-        self.lookup_required("PAR", parse_int, false)
+        self.lookup_required("PAR", false)
     }
 
     fn lookup_tot_req(&mut self) -> Option<u32> {
-        self.lookup_required("TOT", parse_int, false)
+        self.lookup_required("TOT", false)
     }
 
     fn lookup_tot_opt(&mut self) -> OptionalKw<u32> {
-        self.lookup_optional("TOT", parse_int, false)
+        self.lookup_optional("TOT", false)
     }
 
     fn lookup_cyt_req(&mut self) -> Option<String> {
-        self.lookup_required("CYT", parse_str, false)
+        self.lookup_required("CYT", false)
     }
 
     fn lookup_cyt_opt(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("CYT", parse_str, false)
+        self.lookup_optional("CYT", false)
     }
 
     fn lookup_abrt(&mut self) -> OptionalKw<u32> {
-        self.lookup_optional("ABRT", parse_int, false)
+        self.lookup_optional("ABRT", false)
     }
 
     fn lookup_cells(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("CELLS", parse_str, false)
+        self.lookup_optional("CELLS", false)
     }
 
     fn lookup_com(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("COM", parse_str, false)
+        self.lookup_optional("COM", false)
     }
 
     fn lookup_exp(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("EXP", parse_str, false)
+        self.lookup_optional("EXP", false)
     }
 
     fn lookup_fil(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("FIL", parse_str, false)
+        self.lookup_optional("FIL", false)
     }
 
     fn lookup_inst(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("INST", parse_str, false)
+        self.lookup_optional("INST", false)
     }
 
     fn lookup_lost(&mut self) -> OptionalKw<u32> {
-        self.lookup_optional("LOST", parse_int, false)
+        self.lookup_optional("LOST", false)
     }
 
     fn lookup_op(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("OP", parse_str, false)
+        self.lookup_optional("OP", false)
     }
 
     fn lookup_proj(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("PROJ", parse_str, false)
+        self.lookup_optional("PROJ", false)
     }
 
     fn lookup_smno(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("SMNO", parse_str, false)
+        self.lookup_optional("SMNO", false)
     }
 
     fn lookup_src(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("SRC", parse_str, false)
+        self.lookup_optional("SRC", false)
     }
 
     fn lookup_sys(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("SYS", parse_str, false)
+        self.lookup_optional("SYS", false)
     }
 
-    fn lookup_trigger(&mut self, names: &HashSet<&str>) -> OptionalKw<Trigger> {
+    fn lookup_trigger(&mut self) -> OptionalKw<Trigger> {
         self.lookup_optional(
             "TR",
-            |s| match s.split(",").collect::<Vec<&str>>()[..] {
-                [p, n1] => parse_int(n1).and_then(|threshold| {
-                    if names.contains(p) {
-                        Ok(Trigger {
-                            measurement: String::from(p),
-                            threshold,
-                        })
-                    } else {
-                        Err(format!(
-                            "$TRIGGER refers to non-existent measurements '{p}'"
-                        ))
-                    }
-                }),
-                _ => Err(String::from("wrong number of fields")),
-            },
+            // |s| match s.split(",").collect::<Vec<&str>>()[..] {
+            //     [p, n1] => parse_int(n1).and_then(|threshold| {
+            //         if names.contains(p) {
+            //             Ok(Trigger {
+            //                 measurement: String::from(p),
+            //                 threshold,
+            //             })
+            //         } else {
+            //             Err(format!(
+            //                 "$TRIGGER refers to non-existent measurements '{p}'"
+            //             ))
+            //         }
+            //     }),
+            //     _ => Err(String::from("wrong number of fields")),
+            // },
             false,
         )
     }
 
     fn lookup_cytsn(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("CYTSN", parse_str, false)
+        self.lookup_optional("CYTSN", false)
     }
 
     fn lookup_timestep(&mut self) -> OptionalKw<f32> {
-        self.lookup_optional("TIMESTEP", parse_float, false)
+        self.lookup_optional("TIMESTEP", false)
     }
 
     fn lookup_vol(&mut self) -> OptionalKw<f32> {
-        self.lookup_optional("VOL", parse_float, false)
+        self.lookup_optional("VOL", false)
     }
 
     fn lookup_flowrate(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("FLOWRATE", parse_str, false)
+        self.lookup_optional("FLOWRATE", false)
     }
 
     fn lookup_unicode(&mut self) -> OptionalKw<Unicode> {
@@ -2945,94 +3646,96 @@ impl KwState<'_> {
         // anyways since we can, so this keywords isn't that useful.
         self.lookup_optional(
             "UNICODE",
-            |s| {
-                let mut xs = s.split(",");
-                if let Some(page) = xs.next().and_then(|s| s.parse().ok()) {
-                    let kws: Vec<String> = xs.map(String::from).collect();
-                    if kws.is_empty() {
-                        Err(String::from("no keywords specified"))
-                    } else {
-                        Ok(Unicode { page, kws })
-                    }
-                } else {
-                    Err(String::from("unicode must be like 'page,KW1[,KW2...]'"))
-                }
-            },
+            // |s| {
+            //     let mut xs = s.split(",");
+            //     if let Some(page) = xs.next().and_then(|s| s.parse().ok()) {
+            //         let kws: Vec<String> = xs.map(String::from).collect();
+            //         if kws.is_empty() {
+            //             Err(String::from("no keywords specified"))
+            //         } else {
+            //             Ok(Unicode { page, kws })
+            //         }
+            //     } else {
+            //         Err(String::from("unicode must be like 'page,KW1[,KW2...]'"))
+            //     }
+            // },
             false,
         )
     }
 
     fn lookup_plateid(&mut self, dep: bool) -> OptionalKw<String> {
-        self.lookup_optional("PLATEID", parse_str, dep)
+        self.lookup_optional("PLATEID", dep)
     }
 
     fn lookup_platename(&mut self, dep: bool) -> OptionalKw<String> {
-        self.lookup_optional("PLATENAME", parse_str, dep)
+        self.lookup_optional("PLATENAME", dep)
     }
 
     fn lookup_wellid(&mut self, dep: bool) -> OptionalKw<String> {
-        self.lookup_optional("WELLID", parse_str, dep)
+        self.lookup_optional("WELLID", dep)
     }
 
     fn lookup_unstainedinfo(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("UNSTAINEDINFO", parse_str, false)
+        self.lookup_optional("UNSTAINEDINFO", false)
     }
 
-    fn lookup_unstainedcenters(&mut self, names: &HashSet<&str>) -> OptionalKw<UnstainedCenters> {
+    fn lookup_unstainedcenters(&mut self) -> OptionalKw<UnstainedCenters> {
         self.lookup_optional(
             "UNSTAINEDICENTERS",
-            |s| {
-                let mut xs = s.split(",");
-                if let Some(n) = xs.next().and_then(|s| s.parse().ok()) {
-                    let measurements: Vec<_> = xs.by_ref().take(n).map(String::from).collect();
-                    let values: Vec<_> = xs.by_ref().take(n).collect();
-                    let remainder = xs.by_ref().count();
-                    if measurements.len() == n && values.len() == n && remainder == 0 {
-                        let noexist: Vec<_> = measurements
-                            .iter()
-                            .filter(|m| !names.contains(m.as_str()))
-                            .collect();
-                        let fvalues: Vec<_> = values
-                            .into_iter()
-                            .filter_map(|s| s.parse::<f32>().ok())
-                            .collect();
-                        if fvalues.len() == n {
-                            Err(String::from(
-                                "Some values in $UNSTAINEDCENTERS are not floats",
-                            ))
-                        } else if !noexist.is_empty() {
-                            Err(format!(
-                                "$UNSTAINEDCENTERS refers to non-existent measurements: {}",
-                                noexist.iter().join(","),
-                            ))
-                        } else {
-                            Ok(measurements.into_iter().zip(fvalues).collect())
-                        }
-                    } else {
-                        Err(String::from("data fields do not match given dimensions"))
-                    }
-                } else {
-                    Err(String::from("invalid dimension"))
-                }
-            },
+            // |s| {
+            //     let mut xs = s.split(",");
+            //     if let Some(n) = xs.next().and_then(|s| s.parse().ok()) {
+            //         let measurements: Vec<_> = xs.by_ref().take(n).map(String::from).collect();
+            //         let values: Vec<_> = xs.by_ref().take(n).collect();
+            //         let remainder = xs.by_ref().count();
+            //         if measurements.len() == n && values.len() == n && remainder == 0 {
+            //             let noexist: Vec<_> = measurements
+            //                 .iter()
+            //                 .filter(|m| !names.contains(m.as_str()))
+            //                 .collect();
+            //             let fvalues: Vec<_> = values
+            //                 .into_iter()
+            //                 .filter_map(|s| s.parse::<f32>().ok())
+            //                 .collect();
+            //             if fvalues.len() == n {
+            //                 Err(String::from(
+            //                     "Some values in $UNSTAINEDCENTERS are not floats",
+            //                 ))
+            //             } else if !noexist.is_empty() {
+            //                 Err(format!(
+            //                     "$UNSTAINEDCENTERS refers to non-existent measurements: {}",
+            //                     noexist.iter().join(","),
+            //                 ))
+            //             } else {
+            //                 Ok(UnstainedCenters(
+            //                     measurements.into_iter().zip(fvalues).collect(),
+            //                 ))
+            //             }
+            //         } else {
+            //             Err(String::from("data fields do not match given dimensions"))
+            //         }
+            //     } else {
+            //         Err(String::from("invalid dimension"))
+            //     }
+            // },
             false,
         )
     }
 
     fn lookup_last_modifier(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("LAST_MODIFIER", parse_str, false)
+        self.lookup_optional("LAST_MODIFIER", false)
     }
 
     fn lookup_last_modified(&mut self) -> OptionalKw<NaiveDateTime> {
         self.lookup_optional(
             "LAST_MODIFIED",
-            |s| {
-                NaiveDateTime::parse_from_str(s, "%d-%b-%Y %H:%M:%S.%.3f").or(
-                    NaiveDateTime::parse_from_str(s, "%d-%b-%Y %H:%M:%S").or(Err(String::from(
-                        "must be formatted like 'dd-mmm-yyyy hh:mm:ss[.cc]'",
-                    ))),
-                )
-            },
+            // |s| {
+            //     NaiveDateTime::parse_from_str(s, "%d-%b-%Y %H:%M:%S.%.3f").or(
+            //         NaiveDateTime::parse_from_str(s, "%d-%b-%Y %H:%M:%S").or(Err(String::from(
+            //             "must be formatted like 'dd-mmm-yyyy hh:mm:ss[.cc]'",
+            //         ))),
+            //     )
+            // },
             false,
         )
     }
@@ -3040,41 +3743,41 @@ impl KwState<'_> {
     fn lookup_originality(&mut self) -> OptionalKw<Originality> {
         self.lookup_optional(
             "ORIGINALITY",
-            |s| match s {
-                "Original" => Ok(Originality::Original),
-                "NonDataModified" => Ok(Originality::NonDataModified),
-                "Appended" => Ok(Originality::Appended),
-                "DataModified" => Ok(Originality::DataModified),
-                _ => Err(String::from("invalid originality")),
-            },
+            // |s| match s {
+            //     "Original" => Ok(Originality::Original),
+            //     "NonDataModified" => Ok(Originality::NonDataModified),
+            //     "Appended" => Ok(Originality::Appended),
+            //     "DataModified" => Ok(Originality::DataModified),
+            //     _ => Err(String::from("invalid originality")),
+            // },
             false,
         )
     }
 
     fn lookup_carrierid(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("CARRIERID", parse_str, false)
+        self.lookup_optional("CARRIERID", false)
     }
 
     fn lookup_carriertype(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("CARRIERTYPE", parse_str, false)
+        self.lookup_optional("CARRIERTYPE", false)
     }
 
     fn lookup_locationid(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("LOCATIONID", parse_str, false)
+        self.lookup_optional("LOCATIONID", false)
     }
 
     fn lookup_begindatetime(&mut self) -> OptionalKw<DateTime<FixedOffset>> {
-        self.lookup_optional("BEGINDATETIME", parse_iso_datetime, false)
+        self.lookup_optional_fun("BEGINDATETIME", parse_iso_datetime, false)
     }
 
     fn lookup_enddatetime(&mut self) -> OptionalKw<DateTime<FixedOffset>> {
-        self.lookup_optional("ENDDATETIME", parse_iso_datetime, false)
+        self.lookup_optional_fun("ENDDATETIME", parse_iso_datetime, false)
     }
 
     fn lookup_date(&mut self, dep: bool) -> OptionalKw<NaiveDate> {
         // the "%b" format is case-insensitive so this should work for "Jan", "JAN",
         // "jan", "jaN", etc
-        self.lookup_optional(
+        self.lookup_optional_fun(
             "DATE",
             |s| {
                 if let Some(pattern) = &self.conf.date_pattern {
@@ -3089,20 +3792,21 @@ impl KwState<'_> {
         )
     }
 
+    // TODO these could probably be better done with real FromStr traits
     fn lookup_btim60(&mut self, dep: bool) -> OptionalKw<NaiveTime> {
-        self.lookup_optional("BTIM", parse_time60, dep)
+        self.lookup_optional_fun("BTIM", parse_time60, dep)
     }
 
     fn lookup_etim60(&mut self, dep: bool) -> OptionalKw<NaiveTime> {
-        self.lookup_optional("ETIM", parse_time60, dep)
+        self.lookup_optional_fun("ETIM", parse_time60, dep)
     }
 
     fn lookup_btim100(&mut self, dep: bool) -> OptionalKw<NaiveTime> {
-        self.lookup_optional("BTIM", parse_time100, dep)
+        self.lookup_optional_fun("BTIM", parse_time100, dep)
     }
 
     fn lookup_etim100(&mut self, dep: bool) -> OptionalKw<NaiveTime> {
-        self.lookup_optional("ETIM", parse_time100, dep)
+        self.lookup_optional_fun("ETIM", parse_time100, dep)
     }
 
     fn lookup_timestamps2_0(&mut self, centi: bool, dep: bool) -> Timestamps2_0 {
@@ -3151,7 +3855,7 @@ impl KwState<'_> {
 
     fn lookup_unstained(&mut self, names: &HashSet<&str>) -> UnstainedData {
         UnstainedData {
-            unstainedcenters: self.lookup_unstainedcenters(names),
+            unstainedcenters: self.lookup_unstainedcenters(),
             unstainedinfo: self.lookup_unstainedinfo(),
         }
     }
@@ -3165,7 +3869,7 @@ impl KwState<'_> {
         for r in 0..par {
             for c in 0..par {
                 let m = format!("DFC{c}TO{r}");
-                if let Present(x) = self.lookup_optional(m.as_str(), parse_float, false) {
+                if let Present(x) = self.lookup_optional(m.as_str(), false) {
                     matrix[r][c] = x;
                 } else {
                     any_error = true;
@@ -3182,252 +3886,263 @@ impl KwState<'_> {
     fn lookup_compensation_3_0(&mut self) -> OptionalKw<Compensation> {
         self.lookup_optional(
             "COMP",
-            |s| {
-                let mut xs = s.split(",");
-                if let Some(first) = &xs.next().and_then(|x| x.parse::<usize>().ok()) {
-                    let n = *first;
-                    let nn = n * n;
-                    let values: Vec<_> = xs.by_ref().take(nn).collect();
-                    let remainder = xs.by_ref().count();
-                    let total = values.len() + remainder;
-                    if total != nn {
-                        Err(format!(
-                            "Expected length of $COMP is {nn} but found {total}"
-                        ))
-                    } else {
-                        let fvalues: Vec<_> = values
-                            .into_iter()
-                            .filter_map(|x| x.parse::<f32>().ok())
-                            .collect();
-                        if fvalues.len() != nn {
-                            Err(String::from(
-                                "Not all values in $COMP could be parsed as floats",
-                            ))
-                        } else {
-                            let matrix = fvalues
-                                .into_iter()
-                                .chunks(n)
-                                .into_iter()
-                                .map(|c| c.collect())
-                                .collect();
-                            Ok(Compensation { matrix })
-                        }
-                    }
-                } else {
-                    Err(String::from("Could not get number of parameters"))
-                }
-            },
+            // |s| {
+            //     let mut xs = s.split(",");
+            //     if let Some(first) = &xs.next().and_then(|x| x.parse::<usize>().ok()) {
+            //         let n = *first;
+            //         let nn = n * n;
+            //         let values: Vec<_> = xs.by_ref().take(nn).collect();
+            //         let remainder = xs.by_ref().count();
+            //         let total = values.len() + remainder;
+            //         if total != nn {
+            //             Err(format!(
+            //                 "Expected length of $COMP is {nn} but found {total}"
+            //             ))
+            //         } else {
+            //             let fvalues: Vec<_> = values
+            //                 .into_iter()
+            //                 .filter_map(|x| x.parse::<f32>().ok())
+            //                 .collect();
+            //             if fvalues.len() != nn {
+            //                 Err(String::from(
+            //                     "Not all values in $COMP could be parsed as floats",
+            //                 ))
+            //             } else {
+            //                 let matrix = fvalues
+            //                     .into_iter()
+            //                     .chunks(n)
+            //                     .into_iter()
+            //                     .map(|c| c.collect())
+            //                     .collect();
+            //                 Ok(Compensation { matrix })
+            //             }
+            //         }
+            //     } else {
+            //         Err(String::from("Could not get number of parameters"))
+            //     }
+            // },
             false,
         )
     }
 
-    fn lookup_spillover(&mut self, names: &HashSet<&str>) -> OptionalKw<Spillover> {
+    fn lookup_spillover(&mut self) -> OptionalKw<Spillover> {
         self.lookup_optional(
             "SPILLOVER",
-            |s| {
-                let mut xs = s.split(",");
-                if let Some(first) = &xs.next().and_then(|x| x.parse::<usize>().ok()) {
-                    let n = *first;
-                    let nn = n * n;
-                    let expected = n + nn;
-                    let measurements: Vec<_> = xs.by_ref().take(n).map(String::from).collect();
-                    let values: Vec<_> = xs.by_ref().take(nn).collect();
-                    let remainder = xs.by_ref().count();
-                    let total = measurements.len() + values.len() + remainder;
-                    if total != expected {
-                        Err(format!(
-                            "Expected length of $SPILLOVER is {expected} but found {total}"
-                        ))
-                    } else if measurements.iter().unique().count() != n {
-                        Err(String::from(
-                            "$SPILLOVER contains non-unique measurement names",
-                        ))
-                    } else {
-                        let noexist: Vec<_> = measurements
-                            .iter()
-                            .filter(|m| !names.contains(m.as_str()))
-                            .collect();
-                        let fvalues: Vec<_> = values
-                            .into_iter()
-                            .filter_map(|x| x.parse::<f32>().ok())
-                            .collect();
-                        if !noexist.is_empty() {
-                            Err(format!(
-                                "$SPILLOVER refers to non-existent measurements: {}",
-                                noexist.iter().join(", ")
-                            ))
-                        } else if fvalues.len() != nn {
-                            Err(String::from(
-                                "Not all values in $SPILLOVER could be parsed as floats",
-                            ))
-                        } else {
-                            let matrix = fvalues
-                                .into_iter()
-                                .chunks(n)
-                                .into_iter()
-                                .map(|c| c.collect())
-                                .collect();
-                            Ok(Spillover {
-                                measurements,
-                                matrix,
-                            })
-                        }
-                    }
-                } else {
-                    Err(String::from("Could not get number of parameters"))
-                }
-            },
+            // |s| {
+            //     let mut xs = s.split(",");
+            //     if let Some(first) = &xs.next().and_then(|x| x.parse::<usize>().ok()) {
+            //         let n = *first;
+            //         let nn = n * n;
+            //         let expected = n + nn;
+            //         let measurements: Vec<_> = xs.by_ref().take(n).map(String::from).collect();
+            //         let values: Vec<_> = xs.by_ref().take(nn).collect();
+            //         let remainder = xs.by_ref().count();
+            //         let total = measurements.len() + values.len() + remainder;
+            //         if total != expected {
+            //             Err(format!(
+            //                 "Expected length of $SPILLOVER is {expected} but found {total}"
+            //             ))
+            //         } else if measurements.iter().unique().count() != n {
+            //             Err(String::from(
+            //                 "$SPILLOVER contains non-unique measurement names",
+            //             ))
+            //         } else {
+            //             let noexist: Vec<_> = measurements
+            //                 .iter()
+            //                 .filter(|m| !names.contains(m.as_str()))
+            //                 .collect();
+            //             let fvalues: Vec<_> = values
+            //                 .into_iter()
+            //                 .filter_map(|x| x.parse::<f32>().ok())
+            //                 .collect();
+            //             if !noexist.is_empty() {
+            //                 Err(format!(
+            //                     "$SPILLOVER refers to non-existent measurements: {}",
+            //                     noexist.iter().join(", ")
+            //                 ))
+            //             } else if fvalues.len() != nn {
+            //                 Err(String::from(
+            //                     "Not all values in $SPILLOVER could be parsed as floats",
+            //                 ))
+            //             } else {
+            //                 let matrix = fvalues
+            //                     .into_iter()
+            //                     .chunks(n)
+            //                     .into_iter()
+            //                     .map(|c| c.collect())
+            //                     .collect();
+            //                 Ok(Spillover {
+            //                     measurements,
+            //                     matrix,
+            //                 })
+            //             }
+            //         }
+            //     } else {
+            //         Err(String::from("Could not get number of parameters"))
+            //     }
+            // },
             false,
         )
     }
 
     // measurements
 
-    fn lookup_meas_req<V, F>(&mut self, m: &'static str, n: u32, f: F, dep: bool) -> Option<V>
+    fn lookup_meas_req<V: FromStr>(
+        &mut self,
+        m: &'static str,
+        n: u32,
+        // f: F,
+        dep: bool,
+    ) -> Option<V>
     where
-        F: FnOnce(&str) -> ParseResult<V>,
+        <V as FromStr>::Err: fmt::Display,
+        // F: FnOnce(&str) -> ParseResult<V>,
     {
-        self.lookup_required(&format_measurement(n, m), f, dep)
+        self.lookup_required(&format_measurement(n, m), dep)
     }
 
-    fn lookup_meas_opt<V, F>(&mut self, m: &'static str, n: u32, f: F, dep: bool) -> OptionalKw<V>
+    fn lookup_meas_opt<V: FromStr>(
+        &mut self,
+        m: &'static str,
+        n: u32,
+        // f: F,
+        dep: bool,
+    ) -> OptionalKw<V>
     where
-        F: FnOnce(&str) -> ParseResult<V>,
+        <V as FromStr>::Err: fmt::Display,
+        // F: FnOnce(&str) -> ParseResult<V>,
     {
-        self.lookup_optional(&format_measurement(n, m), f, dep)
+        self.lookup_optional(&format_measurement(n, m), dep)
     }
 
     // this reads the PnB field which has "bits" in it, but as far as I know
     // nobody is using anything other than evenly-spaced bytes
     fn lookup_meas_bytes(&mut self, n: u32) -> Option<Bytes> {
         self.lookup_meas_req(
-            "B",
-            n,
-            |s| match s {
-                "*" => Ok(Bytes::Variable),
-                _ => s.parse::<u8>().map_or(
-                    Err(String::from("must be a positive integer or '*'")),
-                    |x| {
-                        if x > 64 {
-                            Err(String::from("PnB over 64-bit are not supported"))
-                        } else if x % 8 > 1 {
-                            Err(String::from("only multiples of 8 are supported"))
-                        } else {
-                            Ok(Bytes::Fixed(x / 8))
-                        }
-                    },
-                ),
-            },
+            "B", n,
+            // |s| match s {
+            //     "*" => Ok(Bytes::Variable),
+            //     _ => s.parse::<u8>().map_or(
+            //         Err(String::from("must be a positive integer or '*'")),
+            //         |x| {
+            //             if x > 64 {
+            //                 Err(String::from("PnB over 64-bit are not supported"))
+            //             } else if x % 8 > 1 {
+            //                 Err(String::from("only multiples of 8 are supported"))
+            //             } else {
+            //                 Ok(Bytes::Fixed(x / 8))
+            //             }
+            //         },
+            //     ),
+            // },
             false,
         )
     }
 
     fn lookup_meas_range(&mut self, n: u32) -> Option<Range> {
         self.lookup_meas_req(
-            "R",
-            n,
-            |s| match s.parse::<u64>() {
-                Ok(x) => Ok(Range::Int(x - 1)),
-                Err(e) => match e.kind() {
-                    IntErrorKind::InvalidDigit => s
-                        .parse::<f64>()
-                        .map_or_else(|e| Err(format!("{}", e)), |x| Ok(Range::Float(x))),
-                    IntErrorKind::PosOverflow => Ok(Range::Int(u64::MAX)),
-                    _ => Err(format!("{}", e)),
-                },
-            },
+            "R", n,
+            // |s| match s.parse::<u64>() {
+            //     Ok(x) => Ok(Range::Int(x - 1)),
+            //     Err(e) => match e.kind() {
+            //         IntErrorKind::InvalidDigit => s
+            //             .parse::<f64>()
+            //             .map_or_else(|e| Err(format!("{}", e)), |x| Ok(Range::Float(x))),
+            //         IntErrorKind::PosOverflow => Ok(Range::Int(u64::MAX)),
+            //         _ => Err(format!("{}", e)),
+            //     },
+            // },
             false,
         )
     }
 
     fn lookup_meas_wavelength(&mut self, n: u32) -> OptionalKw<u32> {
-        self.lookup_meas_opt("L", n, parse_int, false)
+        self.lookup_meas_opt("L", n, false)
     }
 
     fn lookup_meas_power(&mut self, n: u32) -> OptionalKw<u32> {
-        self.lookup_meas_opt("O", n, parse_int, false)
+        self.lookup_meas_opt("O", n, false)
     }
 
     fn lookup_meas_detector_type(&mut self, n: u32) -> OptionalKw<String> {
-        self.lookup_meas_opt("T", n, parse_str, false)
+        self.lookup_meas_opt("T", n, false)
     }
 
     fn lookup_meas_shortname_req(&mut self, n: u32) -> Option<String> {
-        self.lookup_meas_req("N", n, parse_str, false)
+        self.lookup_meas_req("N", n, false)
     }
 
     fn lookup_meas_shortname_opt(&mut self, n: u32) -> OptionalKw<String> {
         self.lookup_meas_opt(
-            "N",
-            n,
-            |s| {
-                if s.contains(',') {
-                    Err(String::from("commas are not allowed in PnN"))
-                } else {
-                    Ok(String::from(s))
-                }
-            },
+            "N", n,
+            // |s| {
+            //     if s.contains(',') {
+            //         Err(String::from("commas are not allowed in PnN"))
+            //     } else {
+            //         Ok(String::from(s))
+            //     }
+            // },
             false,
         )
     }
 
     fn lookup_meas_longname(&mut self, n: u32) -> OptionalKw<String> {
-        self.lookup_meas_opt("S", n, parse_str, false)
+        self.lookup_meas_opt("S", n, false)
     }
 
     fn lookup_meas_filter(&mut self, n: u32) -> OptionalKw<String> {
-        self.lookup_meas_opt("F", n, parse_str, false)
+        self.lookup_meas_opt("F", n, false)
     }
 
     fn lookup_meas_percent_emitted(&mut self, n: u32, dep: bool) -> OptionalKw<u32> {
-        self.lookup_meas_opt("P", n, parse_int, dep)
+        self.lookup_meas_opt("P", n, dep)
     }
 
     fn lookup_meas_detector_voltage(&mut self, n: u32) -> OptionalKw<f32> {
-        self.lookup_meas_opt("V", n, parse_float, false)
+        self.lookup_meas_opt("V", n, false)
     }
 
     fn lookup_meas_detector(&mut self, n: u32) -> OptionalKw<String> {
-        self.lookup_meas_opt("DET", n, parse_str, false)
+        self.lookup_meas_opt("DET", n, false)
     }
 
     fn lookup_meas_tag(&mut self, n: u32) -> OptionalKw<String> {
-        self.lookup_meas_opt("TAG", n, parse_str, false)
+        self.lookup_meas_opt("TAG", n, false)
     }
 
     fn lookup_meas_analyte(&mut self, n: u32) -> OptionalKw<String> {
-        self.lookup_meas_opt("ANALYTE", n, parse_str, false)
+        self.lookup_meas_opt("ANALYTE", n, false)
     }
 
     fn lookup_meas_gain(&mut self, n: u32) -> OptionalKw<f32> {
-        self.lookup_meas_opt("G", n, parse_float, false)
+        self.lookup_meas_opt("G", n, false)
     }
 
     fn lookup_meas_scale_req(&mut self, n: u32) -> Option<Scale> {
-        self.lookup_meas_req("E", n, parse_scale, false)
+        self.lookup_meas_req("E", n, false)
     }
 
     fn lookup_meas_scale_opt(&mut self, n: u32) -> OptionalKw<Scale> {
-        self.lookup_meas_opt("E", n, parse_scale, false)
+        self.lookup_meas_opt("E", n, false)
     }
 
     fn lookup_meas_calibration3_1(&mut self, n: u32) -> OptionalKw<Calibration3_1> {
         self.lookup_meas_opt(
             "CALIBRATION",
             n,
-            |s| {
-                let v: Vec<&str> = s.split(",").collect();
-                match v[..] {
-                    [svalue, unit] => match svalue.parse() {
-                        Ok(value) if value >= 0.0 => Ok(Calibration3_1 {
-                            value,
-                            unit: String::from(unit),
-                        }),
-                        _ => Err(String::from("invalid (positive) float")),
-                    },
-                    _ => Err(String::from("too many fields")),
-                }
-            },
+            // |s| {
+            //     let v: Vec<&str> = s.split(",").collect();
+            //     match v[..] {
+            //         [svalue, unit] => match svalue.parse() {
+            //             Ok(value) if value >= 0.0 => Ok(Calibration3_1 {
+            //                 value,
+            //                 unit: String::from(unit),
+            //             }),
+            //             _ => Err(String::from("invalid (positive) float")),
+            //         },
+            //         _ => Err(String::from("too many fields")),
+            //     }
+            // },
             false,
         )
     }
@@ -3436,117 +4151,112 @@ impl KwState<'_> {
         self.lookup_meas_opt(
             "CALIBRATION",
             n,
-            |s| {
-                let v: Vec<&str> = s.split(",").collect();
-                match v[..] {
-                    [svalue, unit] => match svalue.parse() {
-                        Ok(value) if value >= 0.0 => Ok(Calibration3_2 {
-                            value,
-                            offset: 0.0,
-                            unit: String::from(unit),
-                        }),
-                        _ => Err(String::from("invalid (positive) float")),
-                    },
-                    [svalue, soffset, unit] => match (svalue.parse(), soffset.parse()) {
-                        (Ok(value), Ok(offset)) if value >= 0.0 => Ok(Calibration3_2 {
-                            value,
-                            offset,
-                            unit: String::from(unit),
-                        }),
-                        _ => Err(String::from("invalid (positive) float")),
-                    },
-                    _ => Err(String::from("too many fields")),
-                }
-            },
+            // |s| {
+            //     let v: Vec<&str> = s.split(",").collect();
+            //     match v[..] {
+            //         [svalue, unit] => match svalue.parse() {
+            //             Ok(value) if value >= 0.0 => Ok(Calibration3_2 {
+            //                 value,
+            //                 offset: 0.0,
+            //                 unit: String::from(unit),
+            //             }),
+            //             _ => Err(String::from("invalid (positive) float")),
+            //         },
+            //         [svalue, soffset, unit] => match (svalue.parse(), soffset.parse()) {
+            //             (Ok(value), Ok(offset)) if value >= 0.0 => Ok(Calibration3_2 {
+            //                 value,
+            //                 offset,
+            //                 unit: String::from(unit),
+            //             }),
+            //             _ => Err(String::from("invalid (positive) float")),
+            //         },
+            //         _ => Err(String::from("too many fields")),
+            //     }
+            // },
             false,
         )
     }
 
     // for 3.1+ PnL measurements, which can have multiple wavelengths
-    fn lookup_meas_wavelengths(&mut self, n: u32) -> Vec<u32> {
+    fn lookup_meas_wavelengths(&mut self, n: u32) -> OptionalKw<Wavelengths> {
         self.lookup_meas_opt(
-            "L",
-            n,
-            |s| {
-                let mut ws = vec![];
-                for x in s.split(",") {
-                    match x.parse() {
-                        Ok(y) => ws.push(y),
-                        _ => return Err(String::from("invalid float encountered")),
-                    };
-                }
-                Ok(ws)
-            },
+            "L", n,
+            // |s| {
+            //     let mut ws = vec![];
+            //     for x in s.split(",") {
+            //         match x.parse() {
+            //             Ok(y) => ws.push(y),
+            //             _ => return Err(String::from("invalid float encountered")),
+            //         };
+            //     }
+            //     Ok(ws)
+            // },
             false,
         )
-        .into_option()
-        .unwrap_or_default()
+        // .into_option()
+        // .unwrap_or_default()
     }
 
     fn lookup_meas_display(&mut self, n: u32) -> OptionalKw<Display> {
         self.lookup_meas_opt(
-            "D",
-            n,
-            |s| {
-                let v: Vec<&str> = s.split(",").collect();
-                match v[..] {
-                    [which, f1, f2] => match (which, f1.parse(), f2.parse()) {
-                        ("Linear", Ok(lower), Ok(upper)) => {
-                            Ok(Display::Lin(LinDisplay { lower, upper }))
-                        }
-                        ("Logarithmic", Ok(decades), Ok(offset)) => {
-                            Ok(Display::Log(LogDisplay { decades, offset }))
-                        }
-                        _ => Err(String::from("invalid floats")),
-                    },
-                    _ => Err(String::from("too many fields")),
-                }
-            },
+            "D", n,
+            // |s| {
+            //     let v: Vec<&str> = s.split(",").collect();
+            //     match v[..] {
+            //         [which, f1, f2] => match (which, f1.parse(), f2.parse()) {
+            //             ("Linear", Ok(lower), Ok(upper)) => {
+            //                 Ok(Display::Lin(LinDisplay { lower, upper }))
+            //             }
+            //             ("Logarithmic", Ok(decades), Ok(offset)) => {
+            //                 Ok(Display::Log(LogDisplay { decades, offset }))
+            //             }
+            //             _ => Err(String::from("invalid floats")),
+            //         },
+            //         _ => Err(String::from("too many fields")),
+            //     }
+            // },
             false,
         )
     }
 
     fn lookup_meas_datatype(&mut self, n: u32) -> OptionalKw<NumType> {
         self.lookup_meas_opt(
-            "DATATYPE",
-            n,
-            |s| match s {
-                "I" => Ok(NumType::Integer),
-                "F" => Ok(NumType::Single),
-                "D" => Ok(NumType::Double),
-                _ => Err(String::from("unknown datatype")),
-            },
+            "DATATYPE", n,
+            // |s| match s {
+            //     "I" => Ok(NumType::Integer),
+            //     "F" => Ok(NumType::Single),
+            //     "D" => Ok(NumType::Double),
+            //     _ => Err(String::from("unknown datatype")),
+            // },
             false,
         )
     }
 
     fn lookup_meas_type(&mut self, n: u32) -> OptionalKw<MeasurementType> {
         self.lookup_meas_opt(
-            "TYPE",
-            n,
-            |s| match s {
-                "Forward Scatter" => Ok(MeasurementType::ForwardScatter),
-                "Raw Fluorescence" => Ok(MeasurementType::RawFluorescence),
-                "Mass" => Ok(MeasurementType::Mass),
-                "Time" => Ok(MeasurementType::Time),
-                "Index" => Ok(MeasurementType::Index),
-                "Classification" => Ok(MeasurementType::Classification),
-                s => Ok(MeasurementType::Other(String::from(s))),
-            },
+            "TYPE", n,
+            // |s| match s {
+            //     "Forward Scatter" => Ok(MeasurementType::ForwardScatter),
+            //     "Raw Fluorescence" => Ok(MeasurementType::RawFluorescence),
+            //     "Mass" => Ok(MeasurementType::Mass),
+            //     "Time" => Ok(MeasurementType::Time),
+            //     "Index" => Ok(MeasurementType::Index),
+            //     "Classification" => Ok(MeasurementType::Classification),
+            //     s => Ok(MeasurementType::Other(String::from(s))),
+            // },
             false,
         )
     }
 
     fn lookup_meas_feature(&mut self, n: u32) -> OptionalKw<Feature> {
         self.lookup_meas_opt(
-            "FEATURE",
-            n,
-            |s| match s {
-                "Area" => Ok(Feature::Area),
-                "Width" => Ok(Feature::Width),
-                "Height" => Ok(Feature::Height),
-                _ => Err(String::from("unknown measurement feature")),
-            },
+            "FEATURE", n,
+            // |s| match s {
+            //     "Area" => Ok(Feature::Area),
+            //     "Width" => Ok(Feature::Width),
+            //     "Height" => Ok(Feature::Height),
+            //     _ => Err(String::from("unknown measurement feature")),
+            // },
             false,
         )
     }

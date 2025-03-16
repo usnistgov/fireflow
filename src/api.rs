@@ -959,25 +959,54 @@ impl str::FromStr for Wavelengths {
 }
 
 #[derive(Debug, Clone, Serialize)]
+struct Shortname(String);
+
+struct ShortnameError;
+
+impl fmt::Display for ShortnameError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "commas are not allowed")
+    }
+}
+
+impl fmt::Display for Shortname {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl str::FromStr for Shortname {
+    type Err = ShortnameError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.contains(',') {
+            Err(ShortnameError)
+        } else {
+            Ok(Shortname(String::from(s)))
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
 struct InnerMeasurement2_0 {
-    scale: OptionalKw<Scale>,      // PnE
-    wavelength: OptionalKw<u32>,   // PnL
-    shortname: OptionalKw<String>, // PnN
+    scale: OptionalKw<Scale>,         // PnE
+    wavelength: OptionalKw<u32>,      // PnL
+    shortname: OptionalKw<Shortname>, // PnN
 }
 
 #[derive(Debug, Clone, Serialize)]
 struct InnerMeasurement3_0 {
-    scale: Scale,                  // PnE
-    wavelength: OptionalKw<u32>,   // PnL
-    shortname: OptionalKw<String>, // PnN
-    gain: OptionalKw<f32>,         // PnG
+    scale: Scale,                     // PnE
+    wavelength: OptionalKw<u32>,      // PnL
+    shortname: OptionalKw<Shortname>, // PnN
+    gain: OptionalKw<f32>,            // PnG
 }
 
 #[derive(Debug, Clone, Serialize)]
 struct InnerMeasurement3_1 {
     scale: Scale,                         // PnE
     wavelengths: OptionalKw<Wavelengths>, // PnL
-    shortname: String,                    // PnN
+    shortname: Shortname,                 // PnN
     gain: OptionalKw<f32>,                // PnG
     calibration: OptionalKw<Calibration3_1>,
     display: OptionalKw<Display>,
@@ -987,7 +1016,7 @@ struct InnerMeasurement3_1 {
 struct InnerMeasurement3_2 {
     scale: Scale,                         // PnE
     wavelengths: OptionalKw<Wavelengths>, // PnL
-    shortname: String,                    // PnN
+    shortname: Shortname,                 // PnN
     gain: OptionalKw<f32>,                // PnG
     calibration: OptionalKw<Calibration3_2>,
     display: OptionalKw<Display>,
@@ -1280,7 +1309,7 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
             .shortname
             .as_ref()
             .into_option()
-            .map(|s| s.as_str())
+            .map(|s| s.0.as_str())
     }
 
     fn has_linear_scale(&self) -> bool {
@@ -1324,7 +1353,7 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
             .shortname
             .as_ref()
             .into_option()
-            .map(|s| s.as_str())
+            .map(|s| s.0.as_str())
     }
 
     fn has_linear_scale(&self) -> bool {
@@ -1364,7 +1393,7 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
 
 impl VersionedMeasurement for InnerMeasurement3_1 {
     fn measurement_name(p: &Measurement<Self>) -> Option<&str> {
-        Some(p.specific.shortname.as_str())
+        Some(p.specific.shortname.0.as_str())
     }
 
     fn has_linear_scale(&self) -> bool {
@@ -1402,7 +1431,7 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
     fn table_row(&self) -> Vec<String> {
         [
             format!("{}", self.scale),
-            self.shortname.clone(),
+            format!("{}", self.shortname),
             format!("{}", self.wavelengths),
             format!("{}", self.gain),
             format!("{}", self.calibration),
@@ -1415,7 +1444,7 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
 
 impl VersionedMeasurement for InnerMeasurement3_2 {
     fn measurement_name(p: &Measurement<Self>) -> Option<&str> {
-        Some(p.specific.shortname.as_str())
+        Some(p.specific.shortname.0.as_str())
     }
 
     fn has_linear_scale(&self) -> bool {
@@ -1465,7 +1494,7 @@ impl VersionedMeasurement for InnerMeasurement3_2 {
     fn table_row(&self) -> Vec<String> {
         [
             format!("{}", self.scale),
-            self.shortname.clone(),
+            format!("{}", self.shortname),
             format!("{}", self.wavelengths),
             format!("{}", self.gain),
             format!("{}", self.calibration),
@@ -4056,11 +4085,11 @@ impl KwState<'_> {
         self.lookup_meas_opt("T", n, false)
     }
 
-    fn lookup_meas_shortname_req(&mut self, n: u32) -> Option<String> {
+    fn lookup_meas_shortname_req(&mut self, n: u32) -> Option<Shortname> {
         self.lookup_meas_req("N", n, false)
     }
 
-    fn lookup_meas_shortname_opt(&mut self, n: u32) -> OptionalKw<String> {
+    fn lookup_meas_shortname_opt(&mut self, n: u32) -> OptionalKw<Shortname> {
         self.lookup_meas_opt(
             "N", n,
             // |s| {

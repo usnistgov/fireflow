@@ -50,6 +50,7 @@ fn parse_offset(s: &str) -> ParseResult<u32> {
 //     ))
 // }
 
+#[derive(Debug, Clone, Serialize)]
 struct FCSDateTime(DateTime<FixedOffset>);
 
 struct FCSDateTimeError;
@@ -554,8 +555,8 @@ struct Timestamps2_0 {
 
 #[derive(Debug, Clone, Serialize)]
 struct Timestamps3_2 {
-    begin: OptionalKw<DateTime<FixedOffset>>,
-    end: OptionalKw<DateTime<FixedOffset>>,
+    begin: OptionalKw<FCSDateTime>,
+    end: OptionalKw<FCSDateTime>,
 }
 
 // TODO this is super messy, see 3.2 spec for restrictions on this we may with
@@ -3110,7 +3111,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
         if let (OptionalKw::Present(begin), OptionalKw::Present(end)) =
             (&spec.datetimes.begin, &spec.datetimes.end)
         {
-            if end < begin {
+            if end.0 < begin.0 {
                 st.push_meta_warning_str("$BEGINDATETIME is after $ENDDATETIME");
             }
         }
@@ -3753,11 +3754,11 @@ impl KwState<'_> {
         self.lookup_optional("LOCATIONID", false)
     }
 
-    fn lookup_begindatetime(&mut self) -> OptionalKw<DateTime<FixedOffset>> {
+    fn lookup_begindatetime(&mut self) -> OptionalKw<FCSDateTime> {
         self.lookup_optional("BEGINDATETIME", false)
     }
 
-    fn lookup_enddatetime(&mut self) -> OptionalKw<DateTime<FixedOffset>> {
+    fn lookup_enddatetime(&mut self) -> OptionalKw<FCSDateTime> {
         self.lookup_optional("ENDDATETIME", false)
     }
 

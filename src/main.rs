@@ -68,6 +68,9 @@ struct CLIJson {
 
     #[arg(short = 'P', long)]
     nonstandard_measurement_pattern: Option<String>,
+
+    #[arg(short = 'o', long)]
+    repair_offset_spaces: bool,
 }
 
 #[derive(Args)]
@@ -110,6 +113,11 @@ fn main() {
                     disallow_nonstandard: s.disallow_nonstandard,
                     date_pattern: s.date_pattern,
                     nonstandard_measurement_pattern: s.nonstandard_measurement_pattern,
+                    raw: api::RawTextReader {
+                        repair_offset_spaces: s.repair_offset_spaces,
+                        ..conf.text.raw
+                    },
+
                     ..conf.text
                 },
                 ..conf

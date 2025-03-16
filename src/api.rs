@@ -3422,13 +3422,13 @@ impl KwState<'_> {
     // TODO the standard technically forbids spaces in front of numbers, but
     // many people use them here anyways
     fn lookup_begindata(&mut self) -> Option<u32> {
-        // self.lookup_required("BEGINDATA", false)
-        self.lookup_required_fun("BEGINDATA", parse_offset, false)
+        self.lookup_required("BEGINDATA", false)
+        // self.lookup_required_fun("BEGINDATA", parse_offset, false)
     }
 
     fn lookup_enddata(&mut self) -> Option<u32> {
-        // self.lookup_required("ENDDATA", false)
-        self.lookup_required_fun("ENDDATA", parse_offset, false)
+        self.lookup_required("ENDDATA", false)
+        // self.lookup_required_fun("ENDDATA", parse_offset, false)
     }
 
     fn lookup_data_offsets(&mut self) -> Option<Offsets> {
@@ -4096,7 +4096,7 @@ impl KwState<'_> {
             missing_keywords: self.missing_keywords,
             value_errors,
             meta_errors: self.meta_errors,
-            nonfatal,
+            nonfatal: nonfatal.into_critical(self.conf),
         }
     }
 }
@@ -4445,52 +4445,52 @@ fn read_raw_text<R: Read + Seek>(
 #[derive(Default, Clone)]
 pub struct RawTextReader {
     /// Will adjust the offset of the start of the TEXT segment by `offset + n`.
-    textstart_delta: u32,
+    pub textstart_delta: u32,
 
     /// Will adjust the offset of the end of the TEXT segment by `offset + n`.
-    textend_delta: u32,
+    pub textend_delta: u32,
 
     /// If true, all raw text parsing warnings will be considered fatal errors
     /// which will halt the parsing routine.
-    warnings_are_errors: bool,
+    pub warnings_are_errors: bool,
 
     /// Will treat every delimiter as a literal delimiter rather than "escaping"
     /// double delimiters
-    no_delim_escape: bool,
+    pub no_delim_escape: bool,
 
     /// If true, only ASCII characters 1-126 will be allowed for the delimiter
-    force_ascii_delim: bool,
+    pub force_ascii_delim: bool,
 
     /// If true, throw an error if the last byte of the TEXT segment is not
     /// a delimiter.
-    enforce_final_delim: bool,
+    pub enforce_final_delim: bool,
 
     /// If true, throw an error if any key in the TEXT segment is not unique
-    enforce_unique: bool,
+    pub enforce_unique: bool,
 
     /// If true, throw an error if the number or words in the TEXT segment is
     /// not an even number (ie there is a key with no value)
-    enforce_even: bool,
+    pub enforce_even: bool,
 
     /// If true, throw an error if we encounter a key with a blank value.
     /// Only relevant if [`no_delim_escape`] is also true.
-    enforce_nonempty: bool,
+    pub enforce_nonempty: bool,
 
     /// If true, throw an error if the parser encounters a bad UTF-8 byte when
     /// creating the key/value list. If false, merely drop the bad pair.
-    error_on_invalid_utf8: bool,
+    pub error_on_invalid_utf8: bool,
 
     /// If true, throw error when encoutering keyword with non-ASCII characters
-    enfore_keyword_ascii: bool,
+    pub enfore_keyword_ascii: bool,
 
     /// If true, throw error when total event width does not evenly divide
     /// the DATA segment. Meaningless for delimited ASCII data.
-    enfore_data_width_divisibility: bool,
+    pub enfore_data_width_divisibility: bool,
 
     /// If true, throw error if the total number of events as computed by
     /// dividing DATA segment length event width doesn't match $TOT. Does
     /// nothing if $TOT not given, which may be the case in version 2.0.
-    enfore_matching_tot: bool,
+    pub enfore_matching_tot: bool,
 
     /// If true, replace leading spaces in offset keywords with 0.
     ///
@@ -4498,7 +4498,7 @@ pub struct RawTextReader {
     /// predictable offset. Many machines/programs will pad with spaces despite
     /// the spec requiring that all numeric fields be entirely numeric
     /// character.
-    repair_offset_spaces: bool,
+    pub repair_offset_spaces: bool,
     // TODO add keyword and value overrides, something like a list of patterns
     // that can be used to alter each keyword
     // TODO allow lambda function to be supplied which will alter the kv list

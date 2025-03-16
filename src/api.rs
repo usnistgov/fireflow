@@ -26,10 +26,6 @@ fn format_measurement(n: u32, m: &str) -> String {
 
 type ParseResult<T> = Result<T, String>;
 
-fn parse_offset(s: &str) -> ParseResult<u32> {
-    s.trim_start().parse().map_err(|e| format!("{}", e))
-}
-
 #[derive(Debug, Clone, Serialize)]
 struct FCSDateTime(DateTime<FixedOffset>);
 
@@ -524,10 +520,39 @@ impl fmt::Display for TriggerError {
 }
 
 #[derive(Debug, Clone, Serialize)]
+struct FCSDate(NaiveDate);
+
+const FCS_DATE_FORMAT: &str = "%d-%b-%Y";
+
+impl FromStr for FCSDate {
+    type Err = FCSDateError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        NaiveDate::parse_from_str(s, FCS_DATE_FORMAT)
+            .or(Err(FCSDateError))
+            .map(FCSDate)
+    }
+}
+
+impl fmt::Display for FCSDate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{}", self.0.format(FCS_DATE_FORMAT))
+    }
+}
+
+struct FCSDateError;
+
+impl fmt::Display for FCSDateError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "must be like 'dd-mmm-yyyy'")
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
 struct Timestamps2_0 {
     btim: OptionalKw<NaiveTime>,
     etim: OptionalKw<NaiveTime>,
-    date: OptionalKw<NaiveDate>,
+    date: OptionalKw<FCSDate>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -3684,20 +3709,20 @@ impl KwState<'_> {
         self.lookup_optional("ENDDATETIME", false)
     }
 
-    fn lookup_date(&mut self, dep: bool) -> OptionalKw<NaiveDate> {
+    fn lookup_date(&mut self, dep: bool) -> OptionalKw<FCSDate> {
         // the "%b" format is case-insensitive so this should work for "Jan", "JAN",
         // "jan", "jaN", etc
-        self.lookup_optional_fun(
+        self.lookup_optional(
             "DATE",
-            |s| {
-                if let Some(pattern) = &self.conf.date_pattern {
-                    NaiveDate::parse_from_str(s, pattern.as_str())
-                        .or(Err(format!("does not match pattern '{pattern}'")))
-                } else {
-                    NaiveDate::parse_from_str(s, "%d-%b-%Y")
-                        .or(Err(String::from("must be formatted like 'dd-mmm-yyyy'")))
-                }
-            },
+            // |s| {
+            //     if let Some(pattern) = &self.conf.date_pattern {
+            //         NaiveDate::parse_from_str(s, pattern.as_str())
+            //             .or(Err(format!("does not match pattern '{pattern}'")))
+            //     } else {
+            //         NaiveDate::parse_from_str(s, "%d-%b-%Y")
+            //             .or(Err(String::from("must be formatted like 'dd-mmm-yyyy'")))
+            //     }
+            // },
             dep,
         )
     }
@@ -4409,6 +4434,12 @@ fn repair_keywords(kws: &mut HashMap<String, String>, conf: &RawTextReader) {
             let trimmed = v.trim_start();
             let newlen = trimmed.len();
             *v = ("0").repeat(len - newlen) + trimmed
+        } else if k == "$DATE" {
+            if let Some(pattern) = &conf.date_pattern {
+                if let Ok(d) = NaiveDate::parse_from_str(v, pattern.as_str()) {
+                    *v = format!("{}", FCSDate(d))
+                }
+            }
         }
     }
 }
@@ -4491,6 +4522,14 @@ pub struct RawTextReader {
     /// the spec requiring that all numeric fields be entirely numeric
     /// character.
     pub repair_offset_spaces: bool,
+
+    /// If supplied, will be used as an alternative pattern when parsing $DATE.
+    ///
+    /// It should have specifiers for year, month, and day as outlined in
+    /// https://docs.rs/chrono/latest/chrono/format/strftime/index.html. If not
+    /// supplied, $DATE will be parsed according to the standard pattern which
+    /// is '%d-%b-%Y'.
+    pub date_pattern: Option<String>,
     // TODO add keyword and value overrides, something like a list of patterns
     // that can be used to alter each keyword
     // TODO allow lambda function to be supplied which will alter the kv list
@@ -4535,14 +4574,6 @@ pub struct StdTextReader {
     /// If true, throw an error if TEXT includes any keywords that do not
     /// start with "$".
     pub disallow_nonstandard: bool,
-
-    /// If supplied, will be used as an alternative pattern when parsing $DATE.
-    ///
-    /// It should have specifiers for year, month, and day as outlined in
-    /// https://docs.rs/chrono/latest/chrono/format/strftime/index.html. If not
-    /// supplied, $DATE will be parsed according to the standard pattern which
-    /// is '%d-%b-%Y'.
-    pub date_pattern: Option<String>,
 
     /// If supplied, this pattern will be used to group "nonstandard" keywords
     /// with matching measurements.

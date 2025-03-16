@@ -111,10 +111,10 @@ fn main() {
                     disallow_deviant: s.disallow_deviant,
                     disallow_deprecated: s.disallow_deprecated,
                     disallow_nonstandard: s.disallow_nonstandard,
-                    date_pattern: s.date_pattern,
                     nonstandard_measurement_pattern: s.nonstandard_measurement_pattern,
                     raw: api::RawTextReader {
                         repair_offset_spaces: s.repair_offset_spaces,
+                        date_pattern: s.date_pattern,
                         ..conf.text.raw
                     },
 

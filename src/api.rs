@@ -30,26 +30,6 @@ fn parse_offset(s: &str) -> ParseResult<u32> {
     s.trim_start().parse().map_err(|e| format!("{}", e))
 }
 
-// fn parse_iso_datetime(s: &str) -> ParseResult<DateTime<FixedOffset>> {
-//     // TODO missing timezone implies localtime, but this will assume missing
-//     // means +00:00/UTC
-//     let formats = [
-//         "%Y-%m-%dT%H:%M:%S%.f",
-//         "%Y-%m-%dT%H:%M:%S%.f%#z",
-//         "%Y-%m-%dT%H:%M:%S%.f%:z",
-//         "%Y-%m-%dT%H:%M:%S%.f%::z",
-//         "%Y-%m-%dT%H:%M:%S%.f%:::z",
-//     ];
-//     for f in formats {
-//         if let Ok(t) = DateTime::parse_from_str(s, f) {
-//             return Ok(t);
-//         }
-//     }
-//     Err(String::from(
-//         "must be formatted like 'yyyy-mm-ddThh:mm:ss[TZD]'",
-//     ))
-// }
-
 #[derive(Debug, Clone, Serialize)]
 struct FCSDateTime(DateTime<FixedOffset>);
 
@@ -81,6 +61,7 @@ impl str::FromStr for FCSDateTime {
     }
 }
 
+// TODO wrap these in newtypes to control which parser to use
 fn parse_time60(s: &str) -> ParseResult<NaiveTime> {
     // TODO this will have subseconds in terms of 1/100, need to convert to 1/60
     parse_time100(s)
@@ -132,14 +113,18 @@ enum Version {
     FCS3_2,
 }
 
-impl Version {
-    fn new(s: &str) -> Option<Version> {
+struct VersionError;
+
+impl str::FromStr for Version {
+    type Err = VersionError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "2.0" => Some(Version::FCS2_0),
-            "3.0" => Some(Version::FCS3_0),
-            "3.1" => Some(Version::FCS3_1),
-            "3.2" => Some(Version::FCS3_2),
-            _ => None,
+            "FCS2.0" => Ok(Version::FCS2_0),
+            "FCS3.0" => Ok(Version::FCS3_0),
+            "FCS3.1" => Ok(Version::FCS3_1),
+            "FCS3.2" => Ok(Version::FCS3_2),
+            _ => Err(VersionError),
         }
     }
 }
@@ -4461,15 +4446,16 @@ fn parse_bounds(s0: &str, s1: &str, allow_blank: bool) -> Result<Offsets, &'stat
     }
 }
 
-const hre: &str = r"FCS(.{3})    (.{8})(.{8})(.{8})(.{8})(.{8})(.{8})";
+const hre: &str = r"(.{6})    (.{8})(.{8})(.{8})(.{8})(.{8})(.{8})";
 
+// TODO this error could be better
 fn parse_header(s: &str) -> Result<Header, &'static str> {
     let re = Regex::new(hre).unwrap();
     re.captures(s)
         .and_then(|c| {
             let [v, t0, t1, d0, d1, a0, a1] = c.extract().1;
-            if let (Some(version), Ok(text), Ok(data), Ok(analysis)) = (
-                Version::new(v),
+            if let (Ok(version), Ok(text), Ok(data), Ok(analysis)) = (
+                v.parse(),
                 parse_bounds(t0, t1, false),
                 parse_bounds(d0, d1, false),
                 parse_bounds(a0, a1, true),

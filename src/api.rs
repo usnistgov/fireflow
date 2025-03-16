@@ -1,6 +1,6 @@
 use crate::numeric::{Endian, IntMath, NumProps, Series};
 
-use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
+use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use itertools::Itertools;
 use regex::Regex;
 use serde::ser::{SerializeStruct, Serializer};
@@ -57,15 +57,111 @@ impl str::FromStr for FCSDateTime {
     }
 }
 
-// TODO wrap these in newtypes to control which parser to use
-fn parse_time60(s: &str) -> ParseResult<NaiveTime> {
-    // TODO this will have subseconds in terms of 1/100, need to convert to 1/60
-    parse_time100(s)
+#[derive(Debug, Clone, Serialize)]
+struct FCSTime(NaiveTime);
+
+impl str::FromStr for FCSTime {
+    type Err = FCSTimeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        NaiveTime::parse_from_str(s, "%H:%M:%S")
+            .map(FCSTime)
+            .or(Err(FCSTimeError))
+    }
 }
 
-fn parse_time100(s: &str) -> ParseResult<NaiveTime> {
-    NaiveTime::parse_from_str(s, "%H:%M:%S.%.3f").or(NaiveTime::parse_from_str(s, "%H:%M:%S")
-        .or(Err(String::from("must be formatted like 'hh:mm:ss[.cc]'"))))
+impl fmt::Display for FCSTime {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{}", self.0.format("%H:%M:%S"))
+    }
+}
+
+struct FCSTimeError;
+
+impl fmt::Display for FCSTimeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "must be like 'hh:mm:ss'")
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct FCSTime60(NaiveTime);
+
+impl str::FromStr for FCSTime60 {
+    type Err = FCSTime60Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        NaiveTime::parse_from_str(s, "%H:%M:%S")
+            .or_else(|_| match s.split(":").collect::<Vec<_>>()[..] {
+                [s1, s2, s3, s4] => {
+                    let hh: u32 = s1.parse().or(Err(FCSTime60Error))?;
+                    let mm: u32 = s2.parse().or(Err(FCSTime60Error))?;
+                    let ss: u32 = s3.parse().or(Err(FCSTime60Error))?;
+                    let tt: u32 = s4.parse().or(Err(FCSTime60Error))?;
+                    let nn = tt * 1000000 / 60;
+                    NaiveTime::from_hms_micro_opt(hh, mm, ss, nn).ok_or(FCSTime60Error)
+                }
+                _ => Err(FCSTime60Error),
+            })
+            .map(FCSTime60)
+    }
+}
+
+impl fmt::Display for FCSTime60 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let base = self.0.format("%H:%M:%S");
+        let cc = self.0.nanosecond() / 10000000 * 60;
+        write!(f, "{}.{}", base, cc)
+    }
+}
+
+struct FCSTime60Error;
+
+impl fmt::Display for FCSTime60Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "must be like 'hh:mm:ss[:tt]' where 'tt' is in 1/60th seconds"
+        )
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct FCSTime100(NaiveTime);
+
+impl str::FromStr for FCSTime100 {
+    type Err = FCSTime100Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        NaiveTime::parse_from_str(s, "%H:%M:%S")
+            .or_else(|_| {
+                let re = Regex::new(r"(\d){2}:(\d){2}:(\d){2}.(\d){2}").unwrap();
+                let cap = re.captures(s).ok_or(FCSTime100Error)?;
+                let [s1, s2, s3, s4] = cap.extract().1;
+                let hh: u32 = s1.parse().or(Err(FCSTime100Error))?;
+                let mm: u32 = s2.parse().or(Err(FCSTime100Error))?;
+                let ss: u32 = s3.parse().or(Err(FCSTime100Error))?;
+                let tt: u32 = s4.parse().or(Err(FCSTime100Error))?;
+                NaiveTime::from_hms_milli_opt(hh, mm, ss, tt * 10).ok_or(FCSTime100Error)
+            })
+            .map(FCSTime100)
+    }
+}
+
+impl fmt::Display for FCSTime100 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let base = self.0.format("%H:%M:%S");
+        let cc = self.0.nanosecond() / 10000000;
+        write!(f, "{}.{}", base, cc)
+    }
+}
+
+struct FCSTime100Error;
+
+impl fmt::Display for FCSTime100Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "must be like 'hh:mm:ss[.cc]'")
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -522,6 +618,8 @@ impl fmt::Display for TriggerError {
 #[derive(Debug, Clone, Serialize)]
 struct FCSDate(NaiveDate);
 
+// the "%b" format is case-insensitive so this should work for "Jan", "JAN",
+// "jan", "jaN", etc
 const FCS_DATE_FORMAT: &str = "%d-%b-%Y";
 
 impl FromStr for FCSDate {
@@ -549,14 +647,18 @@ impl fmt::Display for FCSDateError {
 }
 
 #[derive(Debug, Clone, Serialize)]
-struct Timestamps2_0 {
-    btim: OptionalKw<NaiveTime>,
-    etim: OptionalKw<NaiveTime>,
+struct Timestamps<T> {
+    btim: OptionalKw<T>,
+    etim: OptionalKw<T>,
     date: OptionalKw<FCSDate>,
 }
 
+type Timestamps2_0 = Timestamps<FCSTime>;
+type Timestamps3_0 = Timestamps<FCSTime60>;
+type Timestamps3_1 = Timestamps<FCSTime100>;
+
 #[derive(Debug, Clone, Serialize)]
-struct Timestamps3_2 {
+struct Datetimes {
     begin: OptionalKw<FCSDateTime>,
     end: OptionalKw<FCSDateTime>,
 }
@@ -1681,7 +1783,7 @@ struct InnerMetadata3_0 {
     tot: u32,
     mode: Mode,
     byteord: ByteOrd,
-    timestamps: Timestamps2_0, // BTIM/ETIM/DATE
+    timestamps: Timestamps3_0, // BTIM/ETIM/DATE
     cyt: OptionalKw<String>,
     comp: OptionalKw<Compensation>,
     cytsn: OptionalKw<String>,
@@ -1696,7 +1798,7 @@ struct InnerMetadata3_1 {
     tot: u32,
     mode: Mode,
     byteord: Endian,
-    timestamps: Timestamps2_0, // BTIM/ETIM/DATE
+    timestamps: Timestamps3_1, // BTIM/ETIM/DATE
     cyt: OptionalKw<String>,
     spillover: OptionalKw<Spillover>,
     cytsn: OptionalKw<String>,
@@ -1712,8 +1814,8 @@ struct InnerMetadata3_2 {
     supplemental: SupplementalOffsets3_2,
     tot: u32,
     byteord: Endian,
-    timestamps: Timestamps2_0, // BTIM/ETIM/DATE
-    datetimes: Timestamps3_2,  // DATETIMESTART/END
+    timestamps: Timestamps3_1, // BTIM/ETIM/DATE
+    datetimes: Datetimes,      // DATETIMESTART/END
     cyt: String,
     spillover: OptionalKw<Spillover>,
     cytsn: OptionalKw<String>,
@@ -2881,7 +2983,7 @@ impl VersionedMetadata for InnerMetadata2_0 {
             byteord: st.lookup_byteord()?,
             cyt: st.lookup_cyt_opt(),
             comp: st.lookup_compensation_2_0(par as usize),
-            timestamps: st.lookup_timestamps2_0(false, false),
+            timestamps: st.lookup_timestamps2_0(),
         })
     }
 }
@@ -2944,7 +3046,7 @@ impl VersionedMetadata for InnerMetadata3_0 {
             byteord: st.lookup_byteord()?,
             cyt: st.lookup_cyt_opt(),
             comp: st.lookup_compensation_3_0(),
-            timestamps: st.lookup_timestamps2_0(false, false),
+            timestamps: st.lookup_timestamps3_0(),
             cytsn: st.lookup_cytsn(),
             timestep: st.lookup_timestep(),
             unicode: st.lookup_unicode(),
@@ -3024,7 +3126,7 @@ impl VersionedMetadata for InnerMetadata3_1 {
             byteord: st.lookup_endian()?,
             cyt: st.lookup_cyt_opt(),
             spillover: st.lookup_spillover_checked(names),
-            timestamps: st.lookup_timestamps2_0(true, false),
+            timestamps: st.lookup_timestamps3_1(false),
             cytsn: st.lookup_cytsn(),
             timestep: st.lookup_timestep(),
             modification: st.lookup_modification(),
@@ -3164,14 +3266,14 @@ impl VersionedMetadata for InnerMetadata3_2 {
             byteord: st.lookup_endian()?,
             cyt: st.lookup_cyt_req()?,
             spillover: st.lookup_spillover_checked(names),
-            timestamps: st.lookup_timestamps2_0(true, true),
+            timestamps: st.lookup_timestamps3_1(true),
             cytsn: st.lookup_cytsn(),
             timestep: st.lookup_timestep(),
             modification: st.lookup_modification(),
             plate: st.lookup_plate(true),
             vol: st.lookup_vol(),
             carrier: st.lookup_carrier(),
-            datetimes: st.lookup_timestamps3_2(),
+            datetimes: st.lookup_datetimes(),
             unstained: st.lookup_unstained(names),
             flowrate: st.lookup_flowrate(),
         })
@@ -3710,55 +3812,59 @@ impl KwState<'_> {
     }
 
     fn lookup_date(&mut self, dep: bool) -> OptionalKw<FCSDate> {
-        // the "%b" format is case-insensitive so this should work for "Jan", "JAN",
-        // "jan", "jaN", etc
-        self.lookup_optional(
-            "DATE",
-            // |s| {
-            //     if let Some(pattern) = &self.conf.date_pattern {
-            //         NaiveDate::parse_from_str(s, pattern.as_str())
-            //             .or(Err(format!("does not match pattern '{pattern}'")))
-            //     } else {
-            //         NaiveDate::parse_from_str(s, "%d-%b-%Y")
-            //             .or(Err(String::from("must be formatted like 'dd-mmm-yyyy'")))
-            //     }
-            // },
-            dep,
-        )
+        self.lookup_optional("DATE", dep)
     }
 
-    // TODO these could probably be better done with real FromStr traits
-    fn lookup_btim60(&mut self, dep: bool) -> OptionalKw<NaiveTime> {
-        self.lookup_optional_fun("BTIM", parse_time60, dep)
+    fn lookup_btim(&mut self) -> OptionalKw<FCSTime> {
+        self.lookup_optional("BTIM", false)
     }
 
-    fn lookup_etim60(&mut self, dep: bool) -> OptionalKw<NaiveTime> {
-        self.lookup_optional_fun("ETIM", parse_time60, dep)
+    fn lookup_etim(&mut self) -> OptionalKw<FCSTime> {
+        self.lookup_optional("ETIM", false)
     }
 
-    fn lookup_btim100(&mut self, dep: bool) -> OptionalKw<NaiveTime> {
-        self.lookup_optional_fun("BTIM", parse_time100, dep)
+    fn lookup_btim60(&mut self) -> OptionalKw<FCSTime60> {
+        self.lookup_optional("BTIM", false)
     }
 
-    fn lookup_etim100(&mut self, dep: bool) -> OptionalKw<NaiveTime> {
-        self.lookup_optional_fun("ETIM", parse_time100, dep)
+    fn lookup_etim60(&mut self) -> OptionalKw<FCSTime60> {
+        self.lookup_optional("ETIM", false)
     }
 
-    fn lookup_timestamps2_0(&mut self, centi: bool, dep: bool) -> Timestamps2_0 {
-        let (t0, t1) = if centi {
-            (self.lookup_btim60(dep), self.lookup_etim60(dep))
-        } else {
-            (self.lookup_btim100(dep), self.lookup_etim100(dep))
-        };
+    fn lookup_btim100(&mut self, dep: bool) -> OptionalKw<FCSTime100> {
+        self.lookup_optional("BTIM", dep)
+    }
+
+    fn lookup_etim100(&mut self, dep: bool) -> OptionalKw<FCSTime100> {
+        self.lookup_optional("ETIM", dep)
+    }
+
+    fn lookup_timestamps2_0(&mut self) -> Timestamps2_0 {
         Timestamps2_0 {
-            btim: t0,
-            etim: t1,
+            btim: self.lookup_btim(),
+            etim: self.lookup_etim(),
+            date: self.lookup_date(false),
+        }
+    }
+
+    fn lookup_timestamps3_0(&mut self) -> Timestamps3_0 {
+        Timestamps3_0 {
+            btim: self.lookup_btim60(),
+            etim: self.lookup_etim60(),
+            date: self.lookup_date(false),
+        }
+    }
+
+    fn lookup_timestamps3_1(&mut self, dep: bool) -> Timestamps3_1 {
+        Timestamps3_1 {
+            btim: self.lookup_btim100(dep),
+            etim: self.lookup_etim100(dep),
             date: self.lookup_date(dep),
         }
     }
 
-    fn lookup_timestamps3_2(&mut self) -> Timestamps3_2 {
-        Timestamps3_2 {
+    fn lookup_datetimes(&mut self) -> Datetimes {
+        Datetimes {
             begin: self.lookup_begindatetime(),
             end: self.lookup_enddatetime(),
         }

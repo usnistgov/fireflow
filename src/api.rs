@@ -186,8 +186,10 @@ impl Offsets {
         }
     }
 
-    fn adjust(&self, begin_delta: u32, end_delta: u32) -> Option<Offsets> {
-        Self::new(self.begin + begin_delta, self.end + end_delta)
+    fn adjust(&self, begin_delta: i32, end_delta: i32) -> Option<Offsets> {
+        let x = i64::from(self.begin) + i64::from(begin_delta);
+        let y = i64::from(self.end) + i64::from(end_delta);
+        Self::new(u32::try_from(x).ok()?, u32::try_from(y).ok()?)
     }
 
     fn len(&self) -> u32 {
@@ -1332,6 +1334,21 @@ impl<P: VersionedMeasurement> Measurement<P> {
     fn keywords(&self, n: &str) -> Vec<(String, Option<String>)> {
         P::keywords(self, n)
     }
+
+    fn table_header(&self) -> Vec<String> {
+        vec![String::from("index")]
+            .into_iter()
+            .chain(P::keywords(self, "n").into_iter().map(|(k, _)| k))
+            .collect()
+    }
+
+    fn table_row(&self, n: usize) -> Vec<Option<String>> {
+        vec![Some(n.to_string())]
+            .into_iter()
+            // NOTE; the "n" is a dummy and never used
+            .chain(P::keywords(self, "n").into_iter().map(|(_, v)| v))
+            .collect()
+    }
 }
 
 fn make_int_parser(b: u8, r: &Range, o: &ByteOrd, t: usize) -> Result<AnyIntColumn, Vec<String>> {
@@ -2019,14 +2036,11 @@ impl<M: VersionedMetadata> StdText<M, M::P> {
         if ms.is_empty() {
             return vec![];
         }
-        let header = <M as VersionedMetadata>::P::keywords(&ms[0], "n")
-            .into_iter()
-            .map(|x| x.0)
-            .join(delim);
+        let header = ms[0].table_header().join(delim);
         let rows = self.measurements.iter().enumerate().map(|(i, m)| {
-            m.keywords(&i.to_string())
+            m.table_row(i)
                 .into_iter()
-                .map(|x| x.1.unwrap_or(String::from("NA")))
+                .map(|v| v.unwrap_or(String::from("NA")))
                 .join(delim)
         });
         vec![header].into_iter().chain(rows).collect()
@@ -4730,7 +4744,7 @@ fn read_raw_text<R: Read + Seek>(
     header: &Header,
     conf: &RawTextReader,
 ) -> io::Result<RawTEXT> {
-    if let Some(adjusted) = header.text.adjust(conf.textstart_delta, conf.textend_delta) {
+    if let Some(adjusted) = header.text.adjust(conf.starttext_delta, conf.endtext_delta) {
         let begin = u64::from(adjusted.begin);
         let nbytes = u64::from(adjusted.num_bytes());
         let mut buf = vec![];
@@ -4749,10 +4763,10 @@ fn read_raw_text<R: Read + Seek>(
 #[derive(Default, Clone)]
 pub struct RawTextReader {
     /// Will adjust the offset of the start of the TEXT segment by `offset + n`.
-    pub textstart_delta: u32,
+    pub starttext_delta: i32,
 
     /// Will adjust the offset of the end of the TEXT segment by `offset + n`.
-    pub textend_delta: u32,
+    pub endtext_delta: i32,
 
     /// If true, all raw text parsing warnings will be considered fatal errors
     /// which will halt the parsing routine.

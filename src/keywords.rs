@@ -65,14 +65,14 @@ pub const DET_VOLT_SFX: &str = "V";
 pub const SCALE_SFX: &str = "E";
 pub const WAVELEN_SFX: &str = "L";
 
-pub const GAIN_SFX: &str = "L"; // since 3.0
+pub const GAIN_SFX: &str = "G"; // since 3.0
 
-pub const CALIBRATION_SFX: &str = "L"; // since 3.1
-pub const DISPLAY_SFX: &str = "L"; // since 3.1
+pub const CALIBRATION_SFX: &str = "CALIBRATION"; // since 3.1
+pub const DISPLAY_SFX: &str = "D"; // since 3.1
 
-pub const ANALYTE_SFX: &str = "L"; // since 3.2
-pub const FEATURE_SFX: &str = "L"; // since 3.2
-pub const MEAS_TYPE_SFX: &str = "L"; // since 3.2
-pub const TAG_SFX: &str = "L"; // since 3.2
-pub const DET_NAME_SFX: &str = "L"; // since 3.2
-pub const DATATYPE_SFX: &str = "L"; // since 3.2
+pub const ANALYTE_SFX: &str = "ANALYTE"; // since 3.2
+pub const FEATURE_SFX: &str = "FEATURE"; // since 3.2
+pub const MEAS_TYPE_SFX: &str = "TYPE"; // since 3.2
+pub const TAG_SFX: &str = "TAG"; // since 3.2
+pub const DET_NAME_SFX: &str = "DET"; // since 3.2
+pub const DATATYPE_SFX: &str = "DATATYPE"; // since 3.2

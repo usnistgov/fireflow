@@ -4,172 +4,196 @@ mod api;
 mod keywords;
 mod numeric;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{arg, value_parser, ArgMatches, Command};
 use serde::ser::Serialize;
-use std::path;
-
-#[derive(Parser)]
-struct CLIConfig {
-    #[command(subcommand)]
-    command: Command,
-    filepath: path::PathBuf,
-}
-
-#[derive(Subcommand)]
-enum Command {
-    Json(CLIJson),
-    DumpData(CLIDumpData),
-    DumpMeas(CLIDumpData),
-    DumpSpill(CLIDumpData),
-}
-
-#[derive(Args)]
-struct CLIJson {
-    #[arg(short = 'H', long)]
-    header: bool,
-
-    #[arg(short = 'r', long)]
-    raw: bool,
-
-    #[arg(short = 'M', long)]
-    metadata: bool,
-
-    #[arg(short = 'm', long)]
-    measurements: bool,
-
-    #[arg(short = 'd', long)]
-    data: bool,
-
-    #[arg(short = 't', long)]
-    time_shortname: Option<String>,
-
-    #[arg(short = 'T', long)]
-    ensure_time: bool,
-
-    #[arg(short = 's', long)]
-    ensure_time_timestep: bool,
-
-    #[arg(short = 'l', long)]
-    ensure_time_linear: bool,
-
-    #[arg(short = 'g', long)]
-    ensure_time_nogain: bool,
-
-    #[arg(short = 'v', long)]
-    disallow_deviant: bool,
-
-    #[arg(short = 'D', long)]
-    disallow_deprecated: bool,
-
-    #[arg(short = 'n', long)]
-    disallow_nonstandard: bool,
-
-    #[arg(short = 'p', long)]
-    date_pattern: Option<String>,
-
-    #[arg(short = 'P', long)]
-    nonstandard_measurement_pattern: Option<String>,
-
-    #[arg(short = 'o', long)]
-    repair_offset_spaces: bool,
-}
-
-#[derive(Args)]
-struct CLIDumpData {
-    #[arg(short = 'd', long, default_value_t = String::from("\t"))]
-    delim: String,
-}
+use std::path::PathBuf;
 
 fn print_json<T: Serialize>(j: &T) {
     println!("{}", serde_json::to_string(j).unwrap());
 }
 
 fn main() {
-    let args = CLIConfig::parse();
+    let begintext_arg = arg!(--"begintext-delta" [OFFSET] "adjustment for begin TEXT offset")
+        .value_parser(value_parser!(i32));
+    let endtext_arg = arg!(--"endtext-delta" [OFFSET] "adjustment for end TEXT offset")
+        .value_parser(value_parser!(i32));
 
-    let conf = api::Reader::default();
-    match args.command {
-        Command::DumpData(s) => match api::read_fcs_file(&args.filepath, &conf).unwrap() {
-            Err(err) => err.print(),
-            Ok(res) => api::print_parsed_data(&res, s.delim.as_str()),
-        },
-        Command::DumpMeas(s) => match api::read_fcs_text(&args.filepath, &conf).unwrap() {
-            Err(err) => err.print(),
-            Ok(res) => res.standard.print_meas_table(s.delim.as_str()),
-        },
-        Command::DumpSpill(s) => match api::read_fcs_text(&args.filepath, &conf).unwrap() {
-            Err(err) => err.print(),
-            Ok(res) => res.standard.print_spillover_table(s.delim.as_str()),
-        },
-        Command::Json(s) => {
-            let conf = api::Reader {
-                text: api::StdTextReader {
-                    time_shortname: s.time_shortname,
-                    ensure_time: s.ensure_time,
-                    ensure_time_timestep: s.ensure_time_timestep,
-                    ensure_time_nogain: s.ensure_time_nogain,
-                    ensure_time_linear: s.ensure_time_linear,
-                    disallow_deviant: s.disallow_deviant,
-                    disallow_deprecated: s.disallow_deprecated,
-                    disallow_nonstandard: s.disallow_nonstandard,
-                    nonstandard_measurement_pattern: s.nonstandard_measurement_pattern,
-                    raw: api::RawTextReader {
-                        repair_offset_spaces: s.repair_offset_spaces,
-                        date_pattern: s.date_pattern,
-                        ..conf.text.raw
-                    },
+    let begindata_arg = arg!(--"begindata-delta" [OFFSET] "adjustment for begin DATA offset")
+        .value_parser(value_parser!(i32));
+    let enddata_arg = arg!(--"enddata-delta" [OFFSET] "adjustment for end DATA offset")
+        .value_parser(value_parser!(i32));
 
-                    ..conf.text
-                },
-                ..conf
-            };
-            if s.metadata || s.measurements {
-                match api::read_fcs_text(&args.filepath, &conf).unwrap() {
-                    Err(err) => err.print(),
-                    Ok(res) => {
-                        if s.header {
-                            print_json(&res.header);
-                        }
-                        if s.raw {
-                            print_json(&res.raw);
-                        }
-                        print_json(&res.standard);
-                        print_json(&res.nonfatal);
-                    }
-                }
-            } else if s.raw {
-                let (header, raw) = api::read_fcs_raw_text(&args.filepath, &conf).unwrap();
-                if s.header {
-                    print_json(&header);
-                }
-                print_json(&raw);
-            } else if s.header {
-                let header = api::read_fcs_header(&args.filepath).unwrap();
+    let delim_arg =
+        arg!(-d --delimiter [DELIM] "delimiter to use for the table").default_value("\t");
+
+    let repair_offset_spaces_arg =
+        arg!(-o --"repair-offset-spaces" "remove spaces from offset keywords");
+
+    let cmd = Command::new("fireflow")
+        .about("read and write FCS files")
+        .arg(
+            arg!([INPUT_PATH] "input file path")
+                .value_parser(value_parser!(PathBuf))
+                .required(true)
+        )
+
+        .subcommand(
+            Command::new("header")
+                .about("show header as JSON")
+        )
+
+        .subcommand(
+            Command::new("raw")
+                .about("show raw keywords as JSON")
+                .arg(arg!(-H --header "also show header"))
+                .arg(&begintext_arg)
+                .arg(&endtext_arg)
+        )
+
+        .subcommand(
+            Command::new("std")
+                .about("dump standardized keywords as JSON")
+                .arg(arg!(-H --header "also show header"))
+                .arg(arg!(-r --raw "also show raw"))
+                .arg(&begintext_arg)
+                .arg(&endtext_arg)
+                .arg(arg!(-t --"time-name" [NAME] "name of time channel"))
+                .arg(arg!(-T --"ensure-time" "make sure time channel exists"))
+                .arg(arg!(-l --"ensure-time-linear" "ensure time channel is linear"))
+                .arg(arg!(-g --"ensure-time-nogain" "ensure time channel does not have gain"))
+                .arg(arg!(-d --"disallow-deviant" "disallow deviant keywords"))
+                .arg(arg!(-n --"disallow-nonstandard" "disallow nonstandard keywords"))
+                .arg(arg!(-D --"disallow-deprecated" "disallow deprecated keywords"))
+                .arg(arg!(-p --"date-pattern" [PATTERN] "pattern to use when matching $DATE"))
+                .arg(arg!(-P --"ns-meas-pattern" [PATTERN] "pattern used to for nonstandard measurement keywords"))
+                .arg(&repair_offset_spaces_arg)
+        )
+
+        .subcommand(
+            Command::new("measurements")
+                .about("show a table of standardized measurement values")
+                .arg(&begintext_arg)
+                .arg(&endtext_arg)
+                .arg(&delim_arg)
+                // TODO this shouldn't be necessary since we aren't reading DATA
+                .arg(&repair_offset_spaces_arg)
+        )
+
+        .subcommand(
+            Command::new("spillover")
+                .about("dump the spillover matrix if present")
+                .arg(&begintext_arg)
+                .arg(&endtext_arg)
+                .arg(&delim_arg)
+                // TODO this shouldn't be necessary since we aren't reading DATA
+                .arg(&repair_offset_spaces_arg)
+        )
+
+        .subcommand(
+            Command::new("data")
+                .about("show a table of the DATA segment")
+                .arg(&begintext_arg)
+                .arg(&endtext_arg)
+                .arg(&begindata_arg)
+                .arg(&enddata_arg)
+                .arg(&repair_offset_spaces_arg)
+                .arg(&delim_arg)
+        );
+
+    let args = cmd.get_matches();
+
+    let filepath = args.get_one::<PathBuf>("INPUT_PATH").unwrap();
+    let mut conf = api::Reader::default();
+
+    let mut get_text_delta = |args: &ArgMatches| {
+        if let Some(x) = args.get_one("begintext-delta") {
+            conf.text.raw.starttext_delta = *x
+        }
+        if let Some(x) = args.get_one("endtext-delta") {
+            conf.text.raw.endtext_delta = *x
+        }
+    };
+
+    match args.subcommand() {
+        Some(("header", _)) => {
+            let header = api::read_fcs_header(filepath).unwrap();
+            print_json(&header);
+        }
+
+        Some(("raw", sargs)) => {
+            get_text_delta(sargs);
+            let (header, raw) = api::read_fcs_raw_text(filepath, &conf).unwrap();
+            if sargs.get_flag("header") {
                 print_json(&header);
             }
+            print_json(&raw);
         }
-    }
 
-    // let reader = api::std_reader();
-    // let res = api::read_fcs_file(file, reader).unwrap().unwrap();
-    // println!("{:#?}", res.std);
-    // let mut reader = BufReader::new(file);
-    // let header = read_header(&mut reader).unwrap();
-    // if conf.show_header {
-    //     println!("{:#?}", header.clone());
-    // }
-    // let text = read_raw_text(&mut reader, &header).unwrap();
-    // let stext = AnyTEXT::from_kws(header, text);
-    // if let Ok(x) = stext {
-    //     if conf.show_text {
-    //         println!("{:#?}", x.text);
-    //     }
-    //     for w in x.warnings {
-    //         println!("{:#?}", w);
-    //     }
-    //     if conf.show_data {
-    //         let df = read_data(&mut reader, x.data_parser).unwrap();
-    //         print_data(x.text, df);
-    //     }
-    // }
+        Some(("spillover", sargs)) => {
+            get_text_delta(sargs);
+            conf.text.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
+            let delim = sargs.get_one::<String>("delimiter").unwrap();
+
+            match api::read_fcs_text(filepath, &conf).unwrap() {
+                Err(err) => err.print(),
+                Ok(res) => res.standard.print_spillover_table(delim),
+            }
+        }
+
+        Some(("measurements", sargs)) => {
+            get_text_delta(sargs);
+            conf.text.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
+            let delim = sargs.get_one::<String>("delimiter").unwrap();
+
+            match api::read_fcs_text(filepath, &conf).unwrap() {
+                Err(err) => err.print(),
+                Ok(res) => res.standard.print_meas_table(delim),
+            }
+        }
+
+        Some(("std", sargs)) => {
+            get_text_delta(sargs);
+
+            conf.text.time_shortname = sargs.get_one::<String>("time-name").cloned();
+            conf.text.raw.date_pattern = sargs.get_one::<String>("date-pattern").cloned();
+            conf.text.nonstandard_measurement_pattern =
+                sargs.get_one::<String>("ns-meas-pattern").cloned();
+
+            conf.text.ensure_time = sargs.get_flag("ensure-time");
+            conf.text.ensure_time_linear = sargs.get_flag("ensure-time-linear");
+            conf.text.ensure_time_nogain = sargs.get_flag("ensure-time-nogain");
+            conf.text.disallow_deviant = sargs.get_flag("disallow-deviant");
+            conf.text.disallow_nonstandard = sargs.get_flag("disallow-nonstandard");
+            conf.text.disallow_deprecated = sargs.get_flag("disallow-deprecated");
+            conf.text.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
+
+            match api::read_fcs_text(filepath, &conf).unwrap() {
+                Err(err) => err.print(),
+                Ok(res) => {
+                    if sargs.get_flag("header") {
+                        print_json(&res.header);
+                    }
+                    if sargs.get_flag("raw") {
+                        print_json(&res.raw);
+                    }
+                    print_json(&res.standard);
+                    print_json(&res.nonfatal);
+                }
+            }
+        }
+
+        Some(("data", sargs)) => {
+            get_text_delta(sargs);
+            // TODO add DATA delta adjust
+            conf.text.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
+            let delim = sargs.get_one::<String>("delimiter").unwrap();
+
+            match api::read_fcs_file(filepath, &conf).unwrap() {
+                Err(err) => err.print(),
+                Ok(res) => api::print_parsed_data(&res, delim),
+            }
+        }
+
+        _ => (),
+    }
 }

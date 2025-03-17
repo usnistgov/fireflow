@@ -1,4 +1,4 @@
-use crate::keywords::*;
+use crate::keywords::{self, *};
 use crate::numeric::{Endian, IntMath, NumProps, Series};
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
@@ -16,6 +16,7 @@ use std::num::{IntErrorKind, ParseFloatError, ParseIntError};
 use std::path;
 use std::str;
 use std::str::FromStr;
+use std::sync::atomic::compiler_fence;
 
 fn format_standard_kw(kw: &str) -> StdKey {
     StdKey(format!("${}", kw.to_ascii_uppercase()))
@@ -55,6 +56,12 @@ impl str::FromStr for FCSDateTime {
             }
         }
         Err(FCSDateTimeError)
+    }
+}
+
+impl fmt::Display for FCSDateTime {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{}", self.0.format("%Y-%m-%dT%H:%M:%S%.f%:z"))
     }
 }
 
@@ -387,6 +394,14 @@ impl FromStr for Compensation {
     }
 }
 
+impl fmt::Display for Compensation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let n = self.matrix.len();
+        let xs = self.matrix.iter().map(|xs| xs.iter().join(",")).join(",");
+        write!(f, "{n},{xs}")
+    }
+}
+
 enum FixedSeqError {
     WrongLength { total: usize, expected: usize },
     BadLength,
@@ -461,6 +476,14 @@ impl FromStr for Spillover {
     }
 }
 
+impl fmt::Display for Spillover {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let n = self.measurements.len();
+        let xs = self.matrix.iter().map(|ys| ys.iter().join(",")).join(",");
+        write!(f, "{n},{xs}")
+    }
+}
+
 enum NamedFixedSeqError {
     Seq(FixedSeqError),
     NonUnique,
@@ -528,6 +551,16 @@ impl FromStr for Endian {
     }
 }
 
+impl fmt::Display for Endian {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let x = match self {
+            Endian::Big => "4,3,2,1",
+            Endian::Little => "1,2,3,4",
+        };
+        write!(f, "{x}")
+    }
+}
+
 enum ParseByteOrdError {
     InvalidOrder,
     InvalidNumbers,
@@ -562,6 +595,15 @@ impl FromStr for ByteOrd {
                     Err(ParseByteOrdError::InvalidNumbers)
                 }
             }
+        }
+    }
+}
+
+impl fmt::Display for ByteOrd {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            ByteOrd::Endian(e) => write!(f, "{}", e),
+            ByteOrd::Mixed(xs) => write!(f, "{}", xs.into_iter().join(",")),
         }
     }
 }
@@ -602,6 +644,12 @@ impl FromStr for Trigger {
     }
 }
 
+impl fmt::Display for Trigger {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{},{}", self.measurement, self.threshold)
+    }
+}
+
 enum TriggerError {
     WrongFieldNumber,
     IntFormat(std::num::ParseIntError),
@@ -635,6 +683,14 @@ impl FromStr for ModifiedDateTime {
         } else {
             Err(ModifiedDateTimeError)
         }
+    }
+}
+
+impl fmt::Display for ModifiedDateTime {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let dt = self.0.format("%d-%b-%Y %H:%M:%S");
+        let cc = self.0.nanosecond() / 10000000;
+        write!(f, "{dt}.{cc}")
     }
 }
 
@@ -1003,14 +1059,14 @@ enum OptionalKw<V> {
 
 use OptionalKw::*;
 
-impl<T: fmt::Display> fmt::Display for OptionalKw<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Present(x) => write!(f, "{}", x),
-            Absent => write!(f, "NA"),
-        }
-    }
-}
+// impl<T: fmt::Display> fmt::Display for OptionalKw<T> {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+//         match self {
+//             Present(x) => write!(f, "{}", x),
+//             Absent => write!(f, "NA"),
+//         }
+//     }
+// }
 
 impl<V> OptionalKw<V> {
     fn as_ref(&self) -> OptionalKw<&V> {
@@ -1029,6 +1085,16 @@ impl<V> OptionalKw<V> {
 
     fn from_option(x: Option<V>) -> Self {
         x.map_or_else(|| Absent, |y| OptionalKw::Present(y))
+    }
+}
+
+impl<V: fmt::Display> OptionalKw<V> {
+    fn as_opt_string(&self) -> Option<String> {
+        self.as_ref().into_option().map(|x| x.to_string())
+    }
+
+    fn as_na_string(&self) -> String {
+        self.as_opt_string().unwrap_or(String::from("NA"))
     }
 }
 
@@ -1215,8 +1281,8 @@ enum RangeError {
 impl fmt::Display for RangeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            RangeError::Int(x) => write!(f, "{}", x),
-            RangeError::Float(x) => write!(f, "{}", x),
+            RangeError::Int(x) => write!(f, "{x}"),
+            RangeError::Float(x) => write!(f, "{x}"),
         }
     }
 }
@@ -1277,43 +1343,47 @@ impl<P: VersionedMeasurement> Measurement<P> {
         }
     }
 
-    fn table_header() -> Vec<&'static str> {
-        let fixed = [
-            "index",
-            "bytes",
-            "range",
-            "longname",
-            "filter",
-            "power",
-            "detector_type",
-            "percent_emitted",
-            "detector_voltage",
-        ];
-        let specific = P::table_header();
-        fixed.into_iter().chain(specific).collect()
+    // fn table_header() -> Vec<&'static str> {
+    //     let fixed = [
+    //         "index",
+    //         "bytes",
+    //         "range",
+    //         "longname",
+    //         "filter",
+    //         "power",
+    //         "detector_type",
+    //         "percent_emitted",
+    //         "detector_voltage",
+    //     ];
+    //     let specific = P::table_header();
+    //     fixed.into_iter().chain(specific).collect()
+    // }
+
+    fn keywords(&self, n: &str) -> Vec<(String, Option<String>)> {
+        P::keywords(self, n)
     }
 
-    fn as_strs(&self) -> Vec<String> {
-        let fixed = [
-            self.bytes.to_string(),
-            self.range.to_string(),
-            self.longname.to_string(),
-            self.filter.to_string(),
-            self.power.to_string(),
-            self.detector_type.to_string(),
-            self.percent_emitted.to_string(),
-            self.detector_voltage.to_string(),
-        ];
-        let specific = self.specific.as_strs();
-        fixed.into_iter().chain(specific).collect()
-    }
+    // fn as_strs(&self) -> Vec<String> {
+    //     let fixed = [
+    //         self.bytes.to_string(),
+    //         self.range.to_string(),
+    //         self.longname.to_string(),
+    //         self.filter.to_string(),
+    //         self.power.to_string(),
+    //         self.detector_type.to_string(),
+    //         self.percent_emitted.to_string(),
+    //         self.detector_voltage.to_string(),
+    //     ];
+    //     let specific = self.specific.as_strs();
+    //     fixed.into_iter().chain(specific).collect()
+    // }
 
-    fn table_row(&self, n: usize) -> Vec<String> {
-        vec![n.to_string()]
-            .into_iter()
-            .chain(self.as_strs())
-            .collect()
-    }
+    // fn table_row(&self, n: usize) -> Vec<String> {
+    //     vec![n.to_string()]
+    //         .into_iter()
+    //         .chain(self.as_strs())
+    //         .collect()
+    // }
 }
 
 fn make_int_parser(b: u8, r: &Range, o: &ByteOrd, t: usize) -> Result<AnyIntColumn, Vec<String>> {
@@ -1336,10 +1406,6 @@ trait Versioned {
 
 trait VersionedMeasurement: Sized + Versioned {
     fn build_inner(st: &mut KwState, n: u32) -> Option<Self>;
-
-    fn table_header() -> Vec<&'static str>;
-
-    fn as_strs(&self) -> Vec<String>;
 
     fn measurement_name(p: &Measurement<Self>) -> Option<&str>;
 
@@ -1377,23 +1443,23 @@ trait VersionedMeasurement: Sized + Versioned {
         }
     }
 
-    fn suffixes_inner(&self) -> Vec<(&'static str, String)>;
+    fn suffixes_inner(&self) -> Vec<(&'static str, Option<String>)>;
 
-    fn keywords(m: &Measurement<Self>, n: &str) -> Vec<(String, String)> {
+    fn keywords(m: &Measurement<Self>, n: &str) -> Vec<(String, Option<String>)> {
         let fixed = [
-            (BYTES_SFX, m.bytes.to_string()),
-            (RANGE_SFX, m.range.to_string()),
-            (LONGNAME_SFX, m.longname.to_string()),
-            (FILTER_SFX, m.filter.to_string()),
-            (POWER_SFX, m.power.to_string()),
-            (DET_TYPE_SFX, m.detector_type.to_string()),
-            (PCNT_EMT_SFX, m.percent_emitted.to_string()),
-            (DET_VOLT_SFX, m.detector_voltage.to_string()),
+            (BYTES_SFX, Some(m.bytes.to_string())),
+            (RANGE_SFX, Some(m.range.to_string())),
+            (LONGNAME_SFX, m.longname.as_opt_string()),
+            (FILTER_SFX, m.filter.as_opt_string()),
+            (POWER_SFX, m.power.as_opt_string()),
+            (DET_TYPE_SFX, m.detector_type.as_opt_string()),
+            (PCNT_EMT_SFX, m.percent_emitted.as_opt_string()),
+            (DET_VOLT_SFX, m.detector_voltage.as_opt_string()),
         ];
         fixed
             .into_iter()
             .chain(m.specific.suffixes_inner())
-            .map(|(s, v)| (format!("P{}{}", n, s), v))
+            .map(|(s, v)| (format!("$P{}{}", n, s), v))
             .collect()
     }
 }
@@ -1456,29 +1522,29 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
         })
     }
 
-    fn suffixes_inner(&self) -> Vec<(&'static str, String)> {
+    fn suffixes_inner(&self) -> Vec<(&'static str, Option<String>)> {
         [
-            (SCALE_SFX, self.scale.to_string()),
-            (SHORTNAME_SFX, self.shortname.to_string()),
-            (WAVELEN_SFX, self.wavelength.to_string()),
+            (SCALE_SFX, self.scale.as_opt_string()),
+            (SHORTNAME_SFX, self.shortname.as_opt_string()),
+            (WAVELEN_SFX, self.wavelength.as_opt_string()),
         ]
         .into_iter()
         .collect()
     }
 
-    fn table_header() -> Vec<&'static str> {
-        ["scale", "shortname", "wavelength"].into_iter().collect()
-    }
+    // fn table_header() -> Vec<&'static str> {
+    //     ["scale", "shortname", "wavelength"].into_iter().collect()
+    // }
 
-    fn as_strs(&self) -> Vec<String> {
-        [
-            self.scale.to_string(),
-            self.shortname.to_string(),
-            self.wavelength.to_string(),
-        ]
-        .into_iter()
-        .collect()
-    }
+    // fn as_strs(&self) -> Vec<String> {
+    //     [
+    //         self.scale.to_string(),
+    //         self.shortname.to_string(),
+    //         self.wavelength.to_string(),
+    //     ]
+    //     .into_iter()
+    //     .collect()
+    // }
 }
 
 impl VersionedMeasurement for InnerMeasurement3_0 {
@@ -1507,33 +1573,33 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
         })
     }
 
-    fn suffixes_inner(&self) -> Vec<(&'static str, String)> {
+    fn suffixes_inner(&self) -> Vec<(&'static str, Option<String>)> {
         [
-            (SCALE_SFX, self.scale.to_string()),
-            (SHORTNAME_SFX, self.shortname.to_string()),
-            (WAVELEN_SFX, self.wavelength.to_string()),
-            (GAIN_SFX, self.gain.to_string()),
+            (SCALE_SFX, Some(self.scale.to_string())),
+            (SHORTNAME_SFX, self.shortname.as_opt_string()),
+            (WAVELEN_SFX, self.wavelength.as_opt_string()),
+            (GAIN_SFX, self.gain.as_opt_string()),
         ]
         .into_iter()
         .collect()
     }
 
-    fn table_header() -> Vec<&'static str> {
-        ["scale", "shortname", "wavelength", "gain"]
-            .into_iter()
-            .collect()
-    }
+    // fn table_header() -> Vec<&'static str> {
+    //     ["scale", "shortname", "wavelength", "gain"]
+    //         .into_iter()
+    //         .collect()
+    // }
 
-    fn as_strs(&self) -> Vec<String> {
-        [
-            self.scale.to_string(),
-            self.shortname.to_string(),
-            self.wavelength.to_string(),
-            self.gain.to_string(),
-        ]
-        .into_iter()
-        .collect()
-    }
+    // fn as_strs(&self) -> Vec<String> {
+    //     [
+    //         self.scale.to_string(),
+    //         self.shortname.to_string(),
+    //         self.wavelength.to_string(),
+    //         self.gain.to_string(),
+    //     ]
+    //     .into_iter()
+    //     .collect()
+    // }
 }
 
 impl VersionedMeasurement for InnerMeasurement3_1 {
@@ -1560,44 +1626,44 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
         })
     }
 
-    fn suffixes_inner(&self) -> Vec<(&'static str, String)> {
+    fn suffixes_inner(&self) -> Vec<(&'static str, Option<String>)> {
         [
-            (SCALE_SFX, self.scale.to_string()),
-            (SHORTNAME_SFX, self.shortname.to_string()),
-            (WAVELEN_SFX, self.wavelengths.to_string()),
-            (GAIN_SFX, self.gain.to_string()),
-            (CALIBRATION_SFX, self.calibration.to_string()),
-            (DISPLAY_SFX, self.display.to_string()),
+            (SCALE_SFX, Some(self.scale.to_string())),
+            (SHORTNAME_SFX, Some(self.shortname.to_string())),
+            (WAVELEN_SFX, self.wavelengths.as_opt_string()),
+            (GAIN_SFX, self.gain.as_opt_string()),
+            (CALIBRATION_SFX, self.calibration.as_opt_string()),
+            (DISPLAY_SFX, self.display.as_opt_string()),
         ]
         .into_iter()
         .collect()
     }
 
-    fn table_header() -> Vec<&'static str> {
-        [
-            "scale",
-            "shortname",
-            "wavelengths",
-            "gain",
-            "calibration",
-            "display",
-        ]
-        .into_iter()
-        .collect()
-    }
+    // fn table_header() -> Vec<&'static str> {
+    //     [
+    //         "scale",
+    //         "shortname",
+    //         "wavelengths",
+    //         "gain",
+    //         "calibration",
+    //         "display",
+    //     ]
+    //     .into_iter()
+    //     .collect()
+    // }
 
-    fn as_strs(&self) -> Vec<String> {
-        [
-            self.scale.to_string(),
-            self.shortname.to_string(),
-            self.wavelengths.to_string(),
-            self.gain.to_string(),
-            self.calibration.to_string(),
-            self.display.to_string(),
-        ]
-        .into_iter()
-        .collect()
-    }
+    // fn as_strs(&self) -> Vec<String> {
+    //     [
+    //         self.scale.to_string(),
+    //         self.shortname.to_string(),
+    //         self.wavelengths.to_string(),
+    //         self.gain.to_string(),
+    //         self.calibration.to_string(),
+    //         self.display.to_string(),
+    //     ]
+    //     .into_iter()
+    //     .collect()
+    // }
 }
 
 impl VersionedMeasurement for InnerMeasurement3_2 {
@@ -1630,62 +1696,62 @@ impl VersionedMeasurement for InnerMeasurement3_2 {
         })
     }
 
-    fn suffixes_inner(&self) -> Vec<(&'static str, String)> {
+    fn suffixes_inner(&self) -> Vec<(&'static str, Option<String>)> {
         [
-            (SCALE_SFX, self.scale.to_string()),
-            (SHORTNAME_SFX, self.shortname.to_string()),
-            (WAVELEN_SFX, self.wavelengths.to_string()),
-            (GAIN_SFX, self.gain.to_string()),
-            (CALIBRATION_SFX, self.calibration.to_string()),
-            (DISPLAY_SFX, self.display.to_string()),
-            (DET_NAME_SFX, self.detector_name.to_string()),
-            (TAG_SFX, self.tag.to_string()),
-            (MEAS_TYPE_SFX, self.measurement_type.to_string()),
-            (FEATURE_SFX, self.feature.to_string()),
-            (ANALYTE_SFX, self.analyte.to_string()),
-            (DATATYPE_SFX, self.datatype.to_string()),
+            (SCALE_SFX, Some(self.scale.to_string())),
+            (SHORTNAME_SFX, Some(self.shortname.to_string())),
+            (WAVELEN_SFX, self.wavelengths.as_opt_string()),
+            (GAIN_SFX, self.gain.as_opt_string()),
+            (CALIBRATION_SFX, self.calibration.as_opt_string()),
+            (DISPLAY_SFX, self.display.as_opt_string()),
+            (DET_NAME_SFX, self.detector_name.as_opt_string()),
+            (TAG_SFX, self.tag.as_opt_string()),
+            (MEAS_TYPE_SFX, self.measurement_type.as_opt_string()),
+            (FEATURE_SFX, self.feature.as_opt_string()),
+            (ANALYTE_SFX, self.analyte.as_opt_string()),
+            (DATATYPE_SFX, self.datatype.as_opt_string()),
         ]
         .into_iter()
         .collect()
     }
 
-    fn table_header() -> Vec<&'static str> {
-        [
-            "scale",
-            "shortname",
-            "wavelengths",
-            "gain",
-            "calibration",
-            "display",
-            "datatype",
-            "detector_name",
-            "tag",
-            "measurement_type",
-            "feature",
-            "analyte",
-        ]
-        .into_iter()
-        .collect()
-    }
+    // fn table_header() -> Vec<&'static str> {
+    //     [
+    //         "scale",
+    //         "shortname",
+    //         "wavelengths",
+    //         "gain",
+    //         "calibration",
+    //         "display",
+    //         "datatype",
+    //         "detector_name",
+    //         "tag",
+    //         "measurement_type",
+    //         "feature",
+    //         "analyte",
+    //     ]
+    //     .into_iter()
+    //     .collect()
+    // }
 
-    fn as_strs(&self) -> Vec<String> {
-        [
-            self.scale.to_string(),
-            self.shortname.to_string(),
-            self.wavelengths.to_string(),
-            self.gain.to_string(),
-            self.calibration.to_string(),
-            self.display.to_string(),
-            self.datatype.to_string(),
-            self.detector_name.to_string(),
-            self.tag.to_string(),
-            self.measurement_type.to_string(),
-            self.feature.to_string(),
-            self.analyte.to_string(),
-        ]
-        .into_iter()
-        .collect()
-    }
+    // fn as_strs(&self) -> Vec<String> {
+    //     [
+    //         self.scale.to_string(),
+    //         self.shortname.to_string(),
+    //         self.wavelengths.to_string(),
+    //         self.gain.to_string(),
+    //         self.calibration.to_string(),
+    //         self.display.to_string(),
+    //         self.datatype.to_string(),
+    //         self.detector_name.to_string(),
+    //         self.tag.to_string(),
+    //         self.measurement_type.to_string(),
+    //         self.feature.to_string(),
+    //         self.analyte.to_string(),
+    //     ]
+    //     .into_iter()
+    //     .collect()
+    // }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1719,6 +1785,18 @@ impl str::FromStr for Originality {
             "DataModified" => Ok(Originality::DataModified),
             _ => Err(OriginalityError),
         }
+    }
+}
+
+impl fmt::Display for Originality {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let x = match self {
+            Originality::Appended => "Appended",
+            Originality::Original => "Original",
+            Originality::NonDataModified => "NonDataModified",
+            Originality::DataModified => "DataModified",
+        };
+        write!(f, "{x}")
     }
 }
 
@@ -1776,6 +1854,20 @@ impl FromStr for UnstainedCenters {
     }
 }
 
+impl fmt::Display for UnstainedCenters {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let n = self.0.len();
+        let (measurements, values): (Vec<_>, Vec<_>) =
+            self.0.iter().map(|(k, v)| (k.clone(), *v)).unzip();
+        write!(
+            f,
+            "{n},{},{}",
+            measurements.join(","),
+            values.iter().join(",")
+        )
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct UnstainedData {
     unstainedcenters: OptionalKw<UnstainedCenters>,
@@ -1824,6 +1916,12 @@ impl FromStr for Unicode {
         } else {
             Err(UnicodeError::BadFormat)
         }
+    }
+}
+
+impl fmt::Display for Unicode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{},{}", self.page, self.kws.iter().join(","))
     }
 }
 
@@ -1947,6 +2045,17 @@ impl FromStr for Mode {
     }
 }
 
+impl fmt::Display for Mode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let x = match self {
+            Mode::Correlated => "C",
+            Mode::List => "L",
+            Mode::Uncorrelated => "U",
+        };
+        write!(f, "{}", x)
+    }
+}
+
 struct ModeError;
 
 impl fmt::Display for ModeError {
@@ -2053,17 +2162,21 @@ impl<M: VersionedMetadata> StdText<M, M::P> {
     }
 
     fn meas_table(&self, delim: &str) -> Vec<String> {
-        let header = <Measurement<M::P>>::table_header()
+        let ms = &self.measurements;
+        if ms.is_empty() {
+            return vec![];
+        }
+        let header = <M as VersionedMetadata>::P::keywords(&ms[0], "n")
             .into_iter()
-            .map(String::from)
+            .map(|x| x.0)
             .join(delim);
-        let lines = vec![header];
-        let rows = self
-            .measurements
-            .iter()
-            .enumerate()
-            .map(|(i, m)| m.table_row(i).into_iter().join(delim));
-        lines.into_iter().chain(rows).collect()
+        let rows = self.measurements.iter().enumerate().map(|(i, m)| {
+            m.keywords(&i.to_string())
+                .into_iter()
+                .map(|x| x.1.unwrap_or(String::from("NA")))
+                .join(delim)
+        });
+        vec![header].into_iter().chain(rows).collect()
     }
 
     fn print_meas_table(&self, delim: &str) {
@@ -2666,6 +2779,8 @@ enum EventWidth {
     Error(Vec<usize>, Vec<usize>),
 }
 
+type MaybeKeywords = Vec<(&'static str, Option<String>)>;
+
 trait VersionedMetadata: Sized {
     type P: VersionedMeasurement;
 
@@ -2961,26 +3076,26 @@ trait VersionedMetadata: Sized {
 
     // TODO make these return option since we will want to remove all the
     // NULL keywords (FCS has no concept of NULL)
-    fn keywords_inner(&self) -> Vec<(&'static str, String)>;
+    fn keywords_inner(&self) -> MaybeKeywords;
 
-    fn keywords(m: &Metadata<Self>) -> Vec<(&'static str, String)> {
+    fn keywords(m: &Metadata<Self>) -> MaybeKeywords {
         let fixed = [
-            (PAR, m.par.to_string()),
-            (NEXTDATA, m.nextdata.to_string()),
-            (DATATYPE, m.datatype.to_string()),
-            (ABRT, m.abrt.to_string()),
-            (COM, m.com.to_string()),
-            (CELLS, m.cells.to_string()),
-            (EXP, m.exp.to_string()),
-            (FIL, m.fil.to_string()),
-            (INST, m.inst.to_string()),
-            (LOST, m.lost.to_string()),
-            (OP, m.op.to_string()),
-            (PROJ, m.proj.to_string()),
-            (SMNO, m.smno.to_string()),
-            (SRC, m.src.to_string()),
-            (SYS, m.sys.to_string()),
-            (TR, m.tr.to_string()),
+            (PAR, Some(m.par.to_string())),
+            (NEXTDATA, Some(m.nextdata.to_string())),
+            (DATATYPE, Some(m.datatype.to_string())),
+            (ABRT, m.abrt.as_opt_string()),
+            (COM, m.com.as_opt_string()),
+            (CELLS, m.cells.as_opt_string()),
+            (EXP, m.exp.as_opt_string()),
+            (FIL, m.fil.as_opt_string()),
+            (INST, m.inst.as_opt_string()),
+            (LOST, m.lost.as_opt_string()),
+            (OP, m.op.as_opt_string()),
+            (PROJ, m.proj.as_opt_string()),
+            (SMNO, m.smno.as_opt_string()),
+            (SRC, m.src.as_opt_string()),
+            (SYS, m.sys.as_opt_string()),
+            (TR, m.tr.as_opt_string()),
         ];
         fixed
             .into_iter()
@@ -3083,16 +3198,16 @@ impl VersionedMetadata for InnerMetadata2_0 {
         })
     }
 
-    fn keywords_inner(&self) -> Vec<(&'static str, String)> {
+    fn keywords_inner(&self) -> MaybeKeywords {
         [
-            (TOT, self.tot.to_string()),
-            (MODE, self.mode.to_string()),
-            (BYTEORD, self.byteord.to_string()),
-            (CYT, self.cyt.to_string()),
-            (COMP, self.comp.to_string()),
-            (BTIM, self.timestamps.btim.to_string()),
-            (ETIM, self.timestamps.etim.to_string()),
-            (DATE, self.timestamps.date.to_string()),
+            (TOT, self.tot.as_opt_string()),
+            (MODE, Some(self.mode.to_string())),
+            (BYTEORD, Some(self.byteord.to_string())),
+            (CYT, self.cyt.as_opt_string()),
+            (COMP, self.comp.as_opt_string()),
+            (BTIM, self.timestamps.btim.as_opt_string()),
+            (ETIM, self.timestamps.etim.as_opt_string()),
+            (DATE, self.timestamps.date.as_opt_string()),
         ]
         .into_iter()
         .collect()
@@ -3164,25 +3279,27 @@ impl VersionedMetadata for InnerMetadata3_0 {
         })
     }
 
-    fn keywords_inner(&self) -> Vec<(&'static str, String)> {
+    fn keywords_inner(&self) -> MaybeKeywords {
+        let anal = self.supplemental.analysis;
+        let stext = self.supplemental.stext;
         [
-            (BEGINDATA, self.data.begin.to_string()),
-            (ENDDATA, self.data.end.to_string()),
-            (BEGINANALYSIS, self.supplemental.analysis.begin.to_string()),
-            (ENDANALYSIS, self.supplemental.analysis.end.to_string()),
-            (BEGINSTEXT, self.supplemental.stext.begin.to_string()),
-            (ENDSTEXT, self.supplemental.stext.end.to_string()),
-            (TOT, self.tot.to_string()),
-            (MODE, self.mode.to_string()),
-            (BYTEORD, self.byteord.to_string()),
-            (CYT, self.cyt.to_string()),
-            (COMP, self.comp.to_string()),
-            (BTIM, self.timestamps.btim.to_string()),
-            (ETIM, self.timestamps.etim.to_string()),
-            (DATE, self.timestamps.date.to_string()),
-            (CYTSN, self.cytsn.to_string()),
-            (TIMESTEP, self.timestep.to_string()),
-            (UNICODE, self.unicode.to_string()),
+            (BEGINDATA, Some(self.data.begin.to_string())),
+            (ENDDATA, Some(self.data.end.to_string())),
+            (BEGINANALYSIS, Some(anal.begin.to_string())),
+            (ENDANALYSIS, Some(anal.end.to_string())),
+            (BEGINSTEXT, Some(stext.begin.to_string())),
+            (ENDSTEXT, Some(stext.end.to_string())),
+            (TOT, Some(self.tot.to_string())),
+            (MODE, Some(self.mode.to_string())),
+            (BYTEORD, Some(self.byteord.to_string())),
+            (CYT, self.cyt.as_opt_string()),
+            (COMP, self.comp.as_opt_string()),
+            (BTIM, self.timestamps.btim.as_opt_string()),
+            (ETIM, self.timestamps.etim.as_opt_string()),
+            (DATE, self.timestamps.date.as_opt_string()),
+            (CYTSN, self.cytsn.as_opt_string()),
+            (TIMESTEP, self.timestep.as_opt_string()),
+            (UNICODE, self.unicode.as_opt_string()),
         ]
         .into_iter()
         .collect()
@@ -3270,31 +3387,36 @@ impl VersionedMetadata for InnerMetadata3_1 {
         })
     }
 
-    fn keywords_inner(&self) -> Vec<(&'static str, String)> {
+    fn keywords_inner(&self) -> MaybeKeywords {
+        let anal = self.supplemental.analysis;
+        let stext = self.supplemental.stext;
+        let mdn = &self.modification;
+        let ts = &self.timestamps;
+        let pl = &self.plate;
         [
-            BEGINDATA,
-            ENDDATA,
-            BEGINANALYSIS,
-            ENDANALYSIS,
-            BEGINSTEXT,
-            ENDSTEXT,
-            TOT,
-            MODE,
-            BYTEORD,
-            CYT,
-            SPILLOVER,
-            BTIM,
-            ETIM,
-            DATE,
-            CYTSN,
-            TIMESTEP,
-            LAST_MODIFIER,
-            LAST_MODIFIED,
-            ORIGINALITY,
-            PLATEID,
-            PLATENAME,
-            WELLID,
-            VOL,
+            (BEGINDATA, Some(self.data.begin.to_string())),
+            (ENDDATA, Some(self.data.end.to_string())),
+            (BEGINANALYSIS, Some(anal.begin.to_string())),
+            (ENDANALYSIS, Some(anal.end.to_string())),
+            (BEGINSTEXT, Some(stext.begin.to_string())),
+            (ENDSTEXT, Some(stext.end.to_string())),
+            (TOT, Some(self.tot.to_string())),
+            (MODE, Some(self.mode.to_string())),
+            (BYTEORD, Some(self.byteord.to_string())),
+            (CYT, self.cyt.as_opt_string()),
+            (SPILLOVER, self.spillover.as_opt_string()),
+            (BTIM, ts.btim.as_opt_string()),
+            (ETIM, ts.etim.as_opt_string()),
+            (DATE, ts.date.as_opt_string()),
+            (CYTSN, self.cytsn.as_opt_string()),
+            (TIMESTEP, self.timestep.as_opt_string()),
+            (LAST_MODIFIER, mdn.last_modifier.as_opt_string()),
+            (LAST_MODIFIED, mdn.last_modified.as_opt_string()),
+            (ORIGINALITY, mdn.originality.as_opt_string()),
+            (PLATEID, pl.plateid.as_opt_string()),
+            (PLATENAME, pl.platename.as_opt_string()),
+            (WELLID, pl.wellid.as_opt_string()),
+            (VOL, self.vol.as_opt_string()),
         ]
         .into_iter()
         .collect()
@@ -3444,38 +3566,46 @@ impl VersionedMetadata for InnerMetadata3_2 {
         })
     }
 
-    fn keywords_inner() -> Vec<&'static str> {
+    fn keywords_inner(&self) -> MaybeKeywords {
+        let anal = self.supplemental.analysis.as_ref().into_option();
+        let stext = self.supplemental.stext.as_ref().into_option();
+        let mdn = &self.modification;
+        let ts = &self.timestamps;
+        let pl = &self.plate;
+        let car = &self.carrier;
+        let dt = &self.datetimes;
+        let us = &self.unstained;
         [
-            BEGINDATA,
-            ENDDATA,
-            BEGINANALYSIS,
-            ENDANALYSIS,
-            BEGINSTEXT,
-            ENDSTEXT,
-            TOT,
-            BYTEORD,
-            CYT,
-            SPILLOVER,
-            BTIM,
-            ETIM,
-            DATE,
-            CYTSN,
-            TIMESTEP,
-            LAST_MODIFIER,
-            LAST_MODIFIED,
-            ORIGINALITY,
-            PLATEID,
-            PLATENAME,
-            WELLID,
-            VOL,
-            CARRIERID,
-            CARRIERTYPE,
-            LOCATIONID,
-            BEGINDATETIME,
-            ENDDATETIME,
-            UNSTAINEDCENTERS,
-            UNSTAINEDINFO,
-            FLOWRATE,
+            (BEGINDATA, Some(self.data.begin.to_string())),
+            (ENDDATA, Some(self.data.end.to_string())),
+            (BEGINANALYSIS, anal.map(|x| x.begin.to_string())),
+            (ENDANALYSIS, anal.map(|x| x.begin.to_string())),
+            (BEGINSTEXT, stext.map(|x| x.begin.to_string())),
+            (ENDSTEXT, stext.map(|x| x.end.to_string())),
+            (TOT, Some(self.tot.to_string())),
+            (BYTEORD, Some(self.byteord.to_string())),
+            (CYT, Some(self.cyt.to_string())),
+            (SPILLOVER, self.spillover.as_opt_string()),
+            (BTIM, ts.btim.as_opt_string()),
+            (ETIM, ts.etim.as_opt_string()),
+            (DATE, ts.date.as_opt_string()),
+            (CYTSN, self.cytsn.as_opt_string()),
+            (TIMESTEP, self.timestep.as_opt_string()),
+            (LAST_MODIFIER, mdn.last_modifier.as_opt_string()),
+            (LAST_MODIFIED, mdn.last_modified.as_opt_string()),
+            (ORIGINALITY, mdn.originality.as_opt_string()),
+            (PLATEID, pl.plateid.as_opt_string()),
+            (PLATENAME, pl.platename.as_opt_string()),
+            (WELLID, pl.wellid.as_opt_string()),
+            (VOL, self.vol.as_opt_string()),
+            (CARRIERID, car.carrierid.as_opt_string()),
+            (CARRIERTYPE, car.carriertype.as_opt_string()),
+            (LOCATIONID, car.locationid.as_opt_string()),
+            (BEGINDATETIME, dt.begin.as_opt_string()),
+            (ENDDATETIME, dt.end.as_opt_string()),
+            (UNSTAINEDCENTERS, us.unstainedcenters.as_opt_string()),
+            (UNSTAINEDINFO, us.unstainedinfo.as_opt_string()),
+            (FLOWRATE, self.flowrate.as_opt_string()),
         ]
         .into_iter()
         .collect()

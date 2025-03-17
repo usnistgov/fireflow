@@ -1,10 +1,10 @@
-use crate::keywords::{self, *};
+use crate::keywords::*;
 use crate::numeric::{Endian, IntMath, NumProps, Series};
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use itertools::Itertools;
 use regex::Regex;
-use serde::ser::{SerializeStruct, Serializer};
+use serde::ser::SerializeStruct;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -16,7 +16,6 @@ use std::num::{IntErrorKind, ParseFloatError, ParseIntError};
 use std::path;
 use std::str;
 use std::str::FromStr;
-use std::sync::atomic::compiler_fence;
 
 fn format_standard_kw(kw: &str) -> StdKey {
     StdKey(format!("${}", kw.to_ascii_uppercase()))
@@ -1059,15 +1058,6 @@ enum OptionalKw<V> {
 
 use OptionalKw::*;
 
-// impl<T: fmt::Display> fmt::Display for OptionalKw<T> {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-//         match self {
-//             Present(x) => write!(f, "{}", x),
-//             Absent => write!(f, "NA"),
-//         }
-//     }
-// }
-
 impl<V> OptionalKw<V> {
     fn as_ref(&self) -> OptionalKw<&V> {
         match self {
@@ -1091,10 +1081,6 @@ impl<V> OptionalKw<V> {
 impl<V: fmt::Display> OptionalKw<V> {
     fn as_opt_string(&self) -> Option<String> {
         self.as_ref().into_option().map(|x| x.to_string())
-    }
-
-    fn as_na_string(&self) -> String {
-        self.as_opt_string().unwrap_or(String::from("NA"))
     }
 }
 
@@ -1343,47 +1329,9 @@ impl<P: VersionedMeasurement> Measurement<P> {
         }
     }
 
-    // fn table_header() -> Vec<&'static str> {
-    //     let fixed = [
-    //         "index",
-    //         "bytes",
-    //         "range",
-    //         "longname",
-    //         "filter",
-    //         "power",
-    //         "detector_type",
-    //         "percent_emitted",
-    //         "detector_voltage",
-    //     ];
-    //     let specific = P::table_header();
-    //     fixed.into_iter().chain(specific).collect()
-    // }
-
     fn keywords(&self, n: &str) -> Vec<(String, Option<String>)> {
         P::keywords(self, n)
     }
-
-    // fn as_strs(&self) -> Vec<String> {
-    //     let fixed = [
-    //         self.bytes.to_string(),
-    //         self.range.to_string(),
-    //         self.longname.to_string(),
-    //         self.filter.to_string(),
-    //         self.power.to_string(),
-    //         self.detector_type.to_string(),
-    //         self.percent_emitted.to_string(),
-    //         self.detector_voltage.to_string(),
-    //     ];
-    //     let specific = self.specific.as_strs();
-    //     fixed.into_iter().chain(specific).collect()
-    // }
-
-    // fn table_row(&self, n: usize) -> Vec<String> {
-    //     vec![n.to_string()]
-    //         .into_iter()
-    //         .chain(self.as_strs())
-    //         .collect()
-    // }
 }
 
 fn make_int_parser(b: u8, r: &Range, o: &ByteOrd, t: usize) -> Result<AnyIntColumn, Vec<String>> {
@@ -1531,20 +1479,6 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
         .into_iter()
         .collect()
     }
-
-    // fn table_header() -> Vec<&'static str> {
-    //     ["scale", "shortname", "wavelength"].into_iter().collect()
-    // }
-
-    // fn as_strs(&self) -> Vec<String> {
-    //     [
-    //         self.scale.to_string(),
-    //         self.shortname.to_string(),
-    //         self.wavelength.to_string(),
-    //     ]
-    //     .into_iter()
-    //     .collect()
-    // }
 }
 
 impl VersionedMeasurement for InnerMeasurement3_0 {
@@ -1583,23 +1517,6 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
         .into_iter()
         .collect()
     }
-
-    // fn table_header() -> Vec<&'static str> {
-    //     ["scale", "shortname", "wavelength", "gain"]
-    //         .into_iter()
-    //         .collect()
-    // }
-
-    // fn as_strs(&self) -> Vec<String> {
-    //     [
-    //         self.scale.to_string(),
-    //         self.shortname.to_string(),
-    //         self.wavelength.to_string(),
-    //         self.gain.to_string(),
-    //     ]
-    //     .into_iter()
-    //     .collect()
-    // }
 }
 
 impl VersionedMeasurement for InnerMeasurement3_1 {
@@ -1638,32 +1555,6 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
         .into_iter()
         .collect()
     }
-
-    // fn table_header() -> Vec<&'static str> {
-    //     [
-    //         "scale",
-    //         "shortname",
-    //         "wavelengths",
-    //         "gain",
-    //         "calibration",
-    //         "display",
-    //     ]
-    //     .into_iter()
-    //     .collect()
-    // }
-
-    // fn as_strs(&self) -> Vec<String> {
-    //     [
-    //         self.scale.to_string(),
-    //         self.shortname.to_string(),
-    //         self.wavelengths.to_string(),
-    //         self.gain.to_string(),
-    //         self.calibration.to_string(),
-    //         self.display.to_string(),
-    //     ]
-    //     .into_iter()
-    //     .collect()
-    // }
 }
 
 impl VersionedMeasurement for InnerMeasurement3_2 {
@@ -1714,44 +1605,6 @@ impl VersionedMeasurement for InnerMeasurement3_2 {
         .into_iter()
         .collect()
     }
-
-    // fn table_header() -> Vec<&'static str> {
-    //     [
-    //         "scale",
-    //         "shortname",
-    //         "wavelengths",
-    //         "gain",
-    //         "calibration",
-    //         "display",
-    //         "datatype",
-    //         "detector_name",
-    //         "tag",
-    //         "measurement_type",
-    //         "feature",
-    //         "analyte",
-    //     ]
-    //     .into_iter()
-    //     .collect()
-    // }
-
-    // fn as_strs(&self) -> Vec<String> {
-    //     [
-    //         self.scale.to_string(),
-    //         self.shortname.to_string(),
-    //         self.wavelengths.to_string(),
-    //         self.gain.to_string(),
-    //         self.calibration.to_string(),
-    //         self.display.to_string(),
-    //         self.datatype.to_string(),
-    //         self.detector_name.to_string(),
-    //         self.tag.to_string(),
-    //         self.measurement_type.to_string(),
-    //         self.feature.to_string(),
-    //         self.analyte.to_string(),
-    //     ]
-    //     .into_iter()
-    //     .collect()
-    // }
 }
 
 #[derive(Debug, Clone, Serialize)]

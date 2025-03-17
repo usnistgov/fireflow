@@ -17,12 +17,8 @@ use std::path;
 use std::str;
 use std::str::FromStr;
 
-fn format_standard_kw(kw: &str) -> StdKey {
-    StdKey(format!("${}", kw.to_ascii_uppercase()))
-}
-
-fn format_measurement(n: u32, m: &str) -> String {
-    format!("P{}{}", n, m.to_ascii_uppercase())
+fn format_measurement(n: &str, m: &str) -> String {
+    format!("$P{}{}", n, m)
 }
 
 type ParseResult<T> = Result<T, String>;
@@ -1424,7 +1420,7 @@ trait VersionedMeasurement: Sized + Versioned {
         fixed
             .into_iter()
             .chain(m.specific.suffixes_inner())
-            .map(|(s, v)| (format!("$P{}{}", n, s), v))
+            .map(|(s, v)| (format_measurement(n, s), v))
             .collect()
     }
 }
@@ -3673,7 +3669,7 @@ impl KwState<'_> {
     where
         F: FnOnce(&str) -> ParseResult<V>,
     {
-        let sk = format_standard_kw(k);
+        let sk = StdKey(String::from(k));
         match self.raw_standard_keywords.get_mut(&sk) {
             Some(v) => match v.status {
                 ValueStatus::Raw => {
@@ -3700,7 +3696,7 @@ impl KwState<'_> {
     where
         F: FnOnce(&str) -> ParseResult<V>,
     {
-        let sk = format_standard_kw(k);
+        let sk = StdKey(String::from(k));
         match self.raw_standard_keywords.get_mut(&sk) {
             Some(v) => match v.status {
                 ValueStatus::Raw => {
@@ -3746,11 +3742,11 @@ impl KwState<'_> {
     // metadata
 
     fn lookup_begindata(&mut self) -> Option<u32> {
-        self.lookup_required("BEGINDATA", false)
+        self.lookup_required(BEGINDATA, false)
     }
 
     fn lookup_enddata(&mut self) -> Option<u32> {
-        self.lookup_required("ENDDATA", false)
+        self.lookup_required(ENDDATA, false)
     }
 
     fn lookup_data_offsets(&mut self) -> Option<Offsets> {
@@ -3760,14 +3756,14 @@ impl KwState<'_> {
     }
 
     fn lookup_stext_offsets(&mut self) -> Option<Offsets> {
-        let beginstext = self.lookup_required("BEGINSTEXT", false)?;
-        let endstext = self.lookup_required("ENDSTEXT", false)?;
+        let beginstext = self.lookup_required(BEGINSTEXT, false)?;
+        let endstext = self.lookup_required(ENDSTEXT, false)?;
         self.build_offsets(beginstext, endstext, "STEXT")
     }
 
     fn lookup_analysis_offsets(&mut self) -> Option<Offsets> {
-        let beginstext = self.lookup_required("BEGINANALYSIS", false)?;
-        let endstext = self.lookup_required("ENDANALYSIS", false)?;
+        let beginstext = self.lookup_required(BEGINANALYSIS, false)?;
+        let endstext = self.lookup_required(ENDANALYSIS, false)?;
         self.build_offsets(beginstext, endstext, "ANALYSIS")
     }
 
@@ -3784,107 +3780,100 @@ impl KwState<'_> {
     }
 
     fn lookup_byteord(&mut self) -> Option<ByteOrd> {
-        self.lookup_required("BYTEORD", false)
+        self.lookup_required(BYTEORD, false)
     }
 
     fn lookup_endian(&mut self) -> Option<Endian> {
-        self.lookup_required("BYTEORD", false)
+        self.lookup_required(BYTEORD, false)
     }
 
     fn lookup_datatype(&mut self) -> Option<AlphaNumType> {
-        self.lookup_required("DATATYPE", false)
+        self.lookup_required(DATATYPE, false)
     }
 
     fn lookup_mode(&mut self) -> Option<Mode> {
-        self.lookup_required("MODE", false)
+        self.lookup_required(MODE, false)
     }
 
     // TODO this needs to be a new type to enforce the 3.2 value
     fn lookup_mode3_2(&mut self) -> OptionalKw<Mode> {
-        self.lookup_optional(
-            "MODE",
-            // |s| match s {
-            //     "L" => Ok(Mode::List),
-            //     _ => Err(String::from("unknown mode (U and C are no longer valid)")),
-            // },
-            true,
-        )
+        self.lookup_optional(MODE, true)
     }
 
     fn lookup_nextdata(&mut self) -> Option<u32> {
-        self.lookup_required("NEXTDATA", false)
+        self.lookup_required(NEXTDATA, false)
     }
 
     fn lookup_par(&mut self) -> Option<u32> {
-        self.lookup_required("PAR", false)
+        self.lookup_required(PAR, false)
     }
 
     fn lookup_tot_req(&mut self) -> Option<u32> {
-        self.lookup_required("TOT", false)
+        self.lookup_required(TOT, false)
     }
 
     fn lookup_tot_opt(&mut self) -> OptionalKw<u32> {
-        self.lookup_optional("TOT", false)
+        self.lookup_optional(TOT, false)
     }
 
     fn lookup_cyt_req(&mut self) -> Option<String> {
-        self.lookup_required("CYT", false)
+        self.lookup_required(CYT, false)
     }
 
     fn lookup_cyt_opt(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("CYT", false)
+        self.lookup_optional(CYT, false)
     }
 
     fn lookup_abrt(&mut self) -> OptionalKw<u32> {
-        self.lookup_optional("ABRT", false)
+        self.lookup_optional(ABRT, false)
     }
 
     fn lookup_cells(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("CELLS", false)
+        self.lookup_optional(CELLS, false)
     }
 
     fn lookup_com(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("COM", false)
+        self.lookup_optional(COM, false)
     }
 
     fn lookup_exp(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("EXP", false)
+        self.lookup_optional(EXP, false)
     }
 
     fn lookup_fil(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("FIL", false)
+        self.lookup_optional(FIL, false)
     }
 
     fn lookup_inst(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("INST", false)
+        self.lookup_optional(INST, false)
     }
 
     fn lookup_lost(&mut self) -> OptionalKw<u32> {
-        self.lookup_optional("LOST", false)
+        self.lookup_optional(LOST, false)
     }
 
     fn lookup_op(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("OP", false)
+        self.lookup_optional(OP, false)
     }
 
     fn lookup_proj(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("PROJ", false)
+        self.lookup_optional(PROJ, false)
     }
 
     fn lookup_smno(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("SMNO", false)
+        self.lookup_optional(SMNO, false)
     }
 
     fn lookup_src(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("SRC", false)
+        self.lookup_optional(SRC, false)
     }
 
     fn lookup_sys(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("SYS", false)
+        self.lookup_optional(SYS, false)
     }
 
     fn lookup_trigger(&mut self) -> OptionalKw<Trigger> {
-        self.lookup_optional("TR", false)
+        self.lookup_optional(TR, false)
     }
 
     fn lookup_trigger_checked(&mut self, names: &HashSet<&str>) -> OptionalKw<Trigger> {
@@ -3904,46 +3893,46 @@ impl KwState<'_> {
     }
 
     fn lookup_cytsn(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("CYTSN", false)
+        self.lookup_optional(CYTSN, false)
     }
 
     fn lookup_timestep(&mut self) -> OptionalKw<f32> {
-        self.lookup_optional("TIMESTEP", false)
+        self.lookup_optional(TIMESTEP, false)
     }
 
     fn lookup_vol(&mut self) -> OptionalKw<f32> {
-        self.lookup_optional("VOL", false)
+        self.lookup_optional(VOL, false)
     }
 
     fn lookup_flowrate(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("FLOWRATE", false)
+        self.lookup_optional(FLOWRATE, false)
     }
 
     fn lookup_unicode(&mut self) -> OptionalKw<Unicode> {
         // TODO actually verify that these are real keywords, although this
         // doesn't matter too much since we are going to parse TEXT as utf8
         // anyways since we can, so this keywords isn't that useful.
-        self.lookup_optional("UNICODE", false)
+        self.lookup_optional(UNICODE, false)
     }
 
     fn lookup_plateid(&mut self, dep: bool) -> OptionalKw<String> {
-        self.lookup_optional("PLATEID", dep)
+        self.lookup_optional(PLATEID, dep)
     }
 
     fn lookup_platename(&mut self, dep: bool) -> OptionalKw<String> {
-        self.lookup_optional("PLATENAME", dep)
+        self.lookup_optional(PLATENAME, dep)
     }
 
     fn lookup_wellid(&mut self, dep: bool) -> OptionalKw<String> {
-        self.lookup_optional("WELLID", dep)
+        self.lookup_optional(WELLID, dep)
     }
 
     fn lookup_unstainedinfo(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("UNSTAINEDINFO", false)
+        self.lookup_optional(UNSTAINEDINFO, false)
     }
 
     fn lookup_unstainedcenters(&mut self) -> OptionalKw<UnstainedCenters> {
-        self.lookup_optional("UNSTAINEDICENTERS", false)
+        self.lookup_optional(UNSTAINEDCENTERS, false)
     }
 
     fn lookup_unstainedcenters_checked(
@@ -3968,64 +3957,64 @@ impl KwState<'_> {
     }
 
     fn lookup_last_modifier(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("LAST_MODIFIER", false)
+        self.lookup_optional(LAST_MODIFIER, false)
     }
 
     // TODO wrap this in a newtype
     fn lookup_last_modified(&mut self) -> OptionalKw<ModifiedDateTime> {
-        self.lookup_optional("LAST_MODIFIED", false)
+        self.lookup_optional(LAST_MODIFIED, false)
     }
 
     fn lookup_originality(&mut self) -> OptionalKw<Originality> {
-        self.lookup_optional("ORIGINALITY", false)
+        self.lookup_optional(ORIGINALITY, false)
     }
 
     fn lookup_carrierid(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("CARRIERID", false)
+        self.lookup_optional(CARRIERID, false)
     }
 
     fn lookup_carriertype(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("CARRIERTYPE", false)
+        self.lookup_optional(CARRIERTYPE, false)
     }
 
     fn lookup_locationid(&mut self) -> OptionalKw<String> {
-        self.lookup_optional("LOCATIONID", false)
+        self.lookup_optional(LOCATIONID, false)
     }
 
     fn lookup_begindatetime(&mut self) -> OptionalKw<FCSDateTime> {
-        self.lookup_optional("BEGINDATETIME", false)
+        self.lookup_optional(BEGINDATETIME, false)
     }
 
     fn lookup_enddatetime(&mut self) -> OptionalKw<FCSDateTime> {
-        self.lookup_optional("ENDDATETIME", false)
+        self.lookup_optional(ENDDATETIME, false)
     }
 
     fn lookup_date(&mut self, dep: bool) -> OptionalKw<FCSDate> {
-        self.lookup_optional("DATE", dep)
+        self.lookup_optional(DATE, dep)
     }
 
     fn lookup_btim(&mut self) -> OptionalKw<FCSTime> {
-        self.lookup_optional("BTIM", false)
+        self.lookup_optional(BTIM, false)
     }
 
     fn lookup_etim(&mut self) -> OptionalKw<FCSTime> {
-        self.lookup_optional("ETIM", false)
+        self.lookup_optional(ETIM, false)
     }
 
     fn lookup_btim60(&mut self) -> OptionalKw<FCSTime60> {
-        self.lookup_optional("BTIM", false)
+        self.lookup_optional(BTIM, false)
     }
 
     fn lookup_etim60(&mut self) -> OptionalKw<FCSTime60> {
-        self.lookup_optional("ETIM", false)
+        self.lookup_optional(ETIM, false)
     }
 
     fn lookup_btim100(&mut self, dep: bool) -> OptionalKw<FCSTime100> {
-        self.lookup_optional("BTIM", dep)
+        self.lookup_optional(BTIM, dep)
     }
 
     fn lookup_etim100(&mut self, dep: bool) -> OptionalKw<FCSTime100> {
-        self.lookup_optional("ETIM", dep)
+        self.lookup_optional(ETIM, dep)
     }
 
     fn lookup_timestamps2_0(&mut self) -> Timestamps2_0 {
@@ -4114,11 +4103,11 @@ impl KwState<'_> {
     }
 
     fn lookup_compensation_3_0(&mut self) -> OptionalKw<Compensation> {
-        self.lookup_optional("COMP", false)
+        self.lookup_optional(COMP, false)
     }
 
     fn lookup_spillover(&mut self) -> OptionalKw<Spillover> {
-        self.lookup_optional("SPILLOVER", false)
+        self.lookup_optional(SPILLOVER, false)
     }
 
     // TODO this is basically the same as unstained centers
@@ -4149,113 +4138,113 @@ impl KwState<'_> {
     where
         <V as FromStr>::Err: fmt::Display,
     {
-        self.lookup_required(&format_measurement(n, m), dep)
+        self.lookup_required(&format_measurement(&n.to_string(), m), dep)
     }
 
     fn lookup_meas_opt<V: FromStr>(&mut self, m: &'static str, n: u32, dep: bool) -> OptionalKw<V>
     where
         <V as FromStr>::Err: fmt::Display,
     {
-        self.lookup_optional(&format_measurement(n, m), dep)
+        self.lookup_optional(&format_measurement(&n.to_string(), m), dep)
     }
 
     // this reads the PnB field which has "bits" in it, but as far as I know
     // nobody is using anything other than evenly-spaced bytes
     fn lookup_meas_bytes(&mut self, n: u32) -> Option<Bytes> {
-        self.lookup_meas_req("B", n, false)
+        self.lookup_meas_req(BYTES_SFX, n, false)
     }
 
     fn lookup_meas_range(&mut self, n: u32) -> Option<Range> {
-        self.lookup_meas_req("R", n, false)
+        self.lookup_meas_req(RANGE_SFX, n, false)
     }
 
     fn lookup_meas_wavelength(&mut self, n: u32) -> OptionalKw<u32> {
-        self.lookup_meas_opt("L", n, false)
+        self.lookup_meas_opt(WAVELEN_SFX, n, false)
     }
 
     fn lookup_meas_power(&mut self, n: u32) -> OptionalKw<u32> {
-        self.lookup_meas_opt("O", n, false)
+        self.lookup_meas_opt(POWER_SFX, n, false)
     }
 
     fn lookup_meas_detector_type(&mut self, n: u32) -> OptionalKw<String> {
-        self.lookup_meas_opt("T", n, false)
+        self.lookup_meas_opt(DET_TYPE_SFX, n, false)
     }
 
     fn lookup_meas_shortname_req(&mut self, n: u32) -> Option<Shortname> {
-        self.lookup_meas_req("N", n, false)
+        self.lookup_meas_req(SHORTNAME_SFX, n, false)
     }
 
     fn lookup_meas_shortname_opt(&mut self, n: u32) -> OptionalKw<Shortname> {
-        self.lookup_meas_opt("N", n, false)
+        self.lookup_meas_opt(SHORTNAME_SFX, n, false)
     }
 
     fn lookup_meas_longname(&mut self, n: u32) -> OptionalKw<String> {
-        self.lookup_meas_opt("S", n, false)
+        self.lookup_meas_opt(LONGNAME_SFX, n, false)
     }
 
     fn lookup_meas_filter(&mut self, n: u32) -> OptionalKw<String> {
-        self.lookup_meas_opt("F", n, false)
+        self.lookup_meas_opt(FILTER_SFX, n, false)
     }
 
     fn lookup_meas_percent_emitted(&mut self, n: u32, dep: bool) -> OptionalKw<u32> {
-        self.lookup_meas_opt("P", n, dep)
+        self.lookup_meas_opt(PCNT_EMT_SFX, n, dep)
     }
 
     fn lookup_meas_detector_voltage(&mut self, n: u32) -> OptionalKw<f32> {
-        self.lookup_meas_opt("V", n, false)
+        self.lookup_meas_opt(DET_VOLT_SFX, n, false)
     }
 
     fn lookup_meas_detector(&mut self, n: u32) -> OptionalKw<String> {
-        self.lookup_meas_opt("DET", n, false)
+        self.lookup_meas_opt(DET_NAME_SFX, n, false)
     }
 
     fn lookup_meas_tag(&mut self, n: u32) -> OptionalKw<String> {
-        self.lookup_meas_opt("TAG", n, false)
+        self.lookup_meas_opt(TAG_SFX, n, false)
     }
 
     fn lookup_meas_analyte(&mut self, n: u32) -> OptionalKw<String> {
-        self.lookup_meas_opt("ANALYTE", n, false)
+        self.lookup_meas_opt(ANALYTE_SFX, n, false)
     }
 
     fn lookup_meas_gain(&mut self, n: u32) -> OptionalKw<f32> {
-        self.lookup_meas_opt("G", n, false)
+        self.lookup_meas_opt(GAIN_SFX, n, false)
     }
 
     fn lookup_meas_scale_req(&mut self, n: u32) -> Option<Scale> {
-        self.lookup_meas_req("E", n, false)
+        self.lookup_meas_req(SCALE_SFX, n, false)
     }
 
     fn lookup_meas_scale_opt(&mut self, n: u32) -> OptionalKw<Scale> {
-        self.lookup_meas_opt("E", n, false)
+        self.lookup_meas_opt(SCALE_SFX, n, false)
     }
 
     fn lookup_meas_calibration3_1(&mut self, n: u32) -> OptionalKw<Calibration3_1> {
-        self.lookup_meas_opt("CALIBRATION", n, false)
+        self.lookup_meas_opt(CALIBRATION_SFX, n, false)
     }
 
     fn lookup_meas_calibration3_2(&mut self, n: u32) -> OptionalKw<Calibration3_2> {
-        self.lookup_meas_opt("CALIBRATION", n, false)
+        self.lookup_meas_opt(CALIBRATION_SFX, n, false)
     }
 
     // for 3.1+ PnL measurements, which can have multiple wavelengths
     fn lookup_meas_wavelengths(&mut self, n: u32) -> OptionalKw<Wavelengths> {
-        self.lookup_meas_opt("L", n, false)
+        self.lookup_meas_opt(WAVELEN_SFX, n, false)
     }
 
     fn lookup_meas_display(&mut self, n: u32) -> OptionalKw<Display> {
-        self.lookup_meas_opt("D", n, false)
+        self.lookup_meas_opt(DISPLAY_SFX, n, false)
     }
 
     fn lookup_meas_datatype(&mut self, n: u32) -> OptionalKw<NumType> {
-        self.lookup_meas_opt("DATATYPE", n, false)
+        self.lookup_meas_opt(DATATYPE_SFX, n, false)
     }
 
     fn lookup_meas_type(&mut self, n: u32) -> OptionalKw<MeasurementType> {
-        self.lookup_meas_opt("TYPE", n, false)
+        self.lookup_meas_opt(DET_TYPE_SFX, n, false)
     }
 
     fn lookup_meas_feature(&mut self, n: u32) -> OptionalKw<Feature> {
-        self.lookup_meas_opt("FEATURE", n, false)
+        self.lookup_meas_opt(FEATURE_SFX, n, false)
     }
 
     /// Find nonstandard keys that a specific for a given measurement

@@ -1,60 +1,78 @@
-const ABRT: &str = "$ABRT";
-const BYTEORD: &str = "$BYTEORD";
-const BEGINANALYSIS: &str = "$BEGINANALYSIS";
-const BEGINDATA: &str = "$BEGINDATA";
-const BEGINSTEXT: &str = "$BEGINSTEXT";
-const CELLS: &str = "$CELLS";
-const COM: &str = "$COM";
-const CYT: &str = "$CYT";
-const DATATYPE: &str = "$DATATYPE";
-const ENDANALYSIS: &str = "$ENDANALYSIS";
-const ENDDATA: &str = "$ENDDATA";
-const ENDSTEXT: &str = "$ENDSTEXT";
-const EXP: &str = "$EXP";
-const FIL: &str = "$FIL";
-const INST: &str = "$INST";
-const LOST: &str = "$LOST";
-const MODE: &str = "$MODE";
-const NEXTDATA: &str = "$NEXTDATA";
-const OP: &str = "$OP";
-const PAR: &str = "$PAR";
-const PROJ: &str = "$PROJ";
-const SMNO: &str = "$SMNO";
-const SRC: &str = "$SRC";
-const SYS: &str = "$SYS";
-const TOT: &str = "$TOT";
-const TR: &str = "$TR";
+pub const ABRT: &str = "$ABRT";
+pub const BYTEORD: &str = "$BYTEORD";
+pub const BEGINANALYSIS: &str = "$BEGINANALYSIS";
+pub const BEGINDATA: &str = "$BEGINDATA";
+pub const BEGINSTEXT: &str = "$BEGINSTEXT";
+pub const CELLS: &str = "$CELLS";
+pub const COM: &str = "$COM";
+pub const CYT: &str = "$CYT";
+pub const DATATYPE: &str = "$DATATYPE";
+pub const ENDANALYSIS: &str = "$ENDANALYSIS";
+pub const ENDDATA: &str = "$ENDDATA";
+pub const ENDSTEXT: &str = "$ENDSTEXT";
+pub const EXP: &str = "$EXP";
+pub const FIL: &str = "$FIL";
+pub const INST: &str = "$INST";
+pub const LOST: &str = "$LOST";
+pub const MODE: &str = "$MODE";
+pub const NEXTDATA: &str = "$NEXTDATA";
+pub const OP: &str = "$OP";
+pub const PAR: &str = "$PAR";
+pub const PROJ: &str = "$PROJ";
+pub const SMNO: &str = "$SMNO";
+pub const SRC: &str = "$SRC";
+pub const SYS: &str = "$SYS";
+pub const TOT: &str = "$TOT";
+pub const TR: &str = "$TR";
 
-const BTIM: &str = "$BTIM"; // deprecated since 3.2
-const ETIM: &str = "$ETIM"; // deprecated since 3.2
-const DATE: &str = "$ETIM"; // deprecated since 3.2
+pub const BTIM: &str = "$BTIM"; // deprecated since 3.2
+pub const ETIM: &str = "$ETIM"; // deprecated since 3.2
+pub const DATE: &str = "$ETIM"; // deprecated since 3.2
 
-const CYTSN: &str = "$CYTSN"; // since 3.0
-const TIMESTEP: &str = "$TIMESTEP"; // since 3.0
-const UNICODE: &str = "$UNICODE"; // 3.0 only
+pub const CYTSN: &str = "$CYTSN"; // since 3.0
+pub const TIMESTEP: &str = "$TIMESTEP"; // since 3.0
+pub const UNICODE: &str = "$UNICODE"; // 3.0 only
 
-const VOL: &str = "$VOL"; // since 3.1
-const FLOWRATE: &str = "$FLOWRATE"; // since 3.1
+pub const VOL: &str = "$VOL"; // since 3.1
+pub const FLOWRATE: &str = "$FLOWRATE"; // since 3.1
 
-const COMP: &str = "$COMP"; // 3.0 only
-const SPILLOVER: &str = "$SPILLOVER"; // since 3.1
-const PLATEID: &str = "$PLATEID"; // since 3.1
-const PLATENAME: &str = "$PLATENAME"; // since 3.1
-const WELLID: &str = "$WELLID"; // since 3.1
-const LAST_MODIFIER: &str = "$LAST_MODIFIER"; // since 3.1
-const LAST_MODIFIED: &str = "$LAST_MODIFIED"; // since 3.1
-const ORIGINALITY: &str = "$ORIGINALITY"; // since 3.1
+pub const COMP: &str = "$COMP"; // 3.0 only
+pub const SPILLOVER: &str = "$SPILLOVER"; // since 3.1
+pub const PLATEID: &str = "$PLATEID"; // since 3.1
+pub const PLATENAME: &str = "$PLATENAME"; // since 3.1
+pub const WELLID: &str = "$WELLID"; // since 3.1
+pub const LAST_MODIFIER: &str = "$LAST_MODIFIER"; // since 3.1
+pub const LAST_MODIFIED: &str = "$LAST_MODIFIED"; // since 3.1
+pub const ORIGINALITY: &str = "$ORIGINALITY"; // since 3.1
 
-const BEGINDATETIME: &str = "$BEGINDATETIME"; // since 3.2
-const CARRIERID: &str = "$CARRIERID"; // since 3.2
-const CARRIERTYPE: &str = "$CARRIERTYPE"; // since 3.2
-const ENDDATETIME: &str = "$ENDDATETIME"; // since 3.2
-const LOCATIONID: &str = "$LOCATIONID"; // since 3.2
-const UNSTAINEDCENTERS: &str = "$UNSTAINEDCENTERS"; // since 3.2
-const UNSTAINEDINFO: &str = "$UNSTAINEDINFO"; // since 3.2
+pub const BEGINDATETIME: &str = "$BEGINDATETIME"; // since 3.2
+pub const CARRIERID: &str = "$CARRIERID"; // since 3.2
+pub const CARRIERTYPE: &str = "$CARRIERTYPE"; // since 3.2
+pub const ENDDATETIME: &str = "$ENDDATETIME"; // since 3.2
+pub const LOCATIONID: &str = "$LOCATIONID"; // since 3.2
+pub const UNSTAINEDCENTERS: &str = "$UNSTAINEDCENTERS"; // since 3.2
+pub const UNSTAINEDINFO: &str = "$UNSTAINEDINFO"; // since 3.2
 
-// const fn sub_pn(suffix: &str) -> &str {
-//     (String::from("Pn") + suffix).as_str()
-// }
+pub const BYTES_SFX: &str = "B";
+pub const RANGE_SFX: &str = "R";
+pub const SHORTNAME_SFX: &str = "N";
+pub const LONGNAME_SFX: &str = "S";
+pub const FILTER_SFX: &str = "F";
+pub const POWER_SFX: &str = "O";
+pub const DET_TYPE_SFX: &str = "D";
+pub const PCNT_EMT_SFX: &str = "P";
+pub const DET_VOLT_SFX: &str = "V";
+pub const SCALE_SFX: &str = "E";
+pub const WAVELEN_SFX: &str = "L";
 
-// const PnN: &str = sub_pn("N");
+pub const GAIN_SFX: &str = "L"; // since 3.0
+
+pub const CALIBRATION_SFX: &str = "L"; // since 3.1
+pub const DISPLAY_SFX: &str = "L"; // since 3.1
+
+pub const ANALYTE_SFX: &str = "L"; // since 3.2
+pub const FEATURE_SFX: &str = "L"; // since 3.2
+pub const MEAS_TYPE_SFX: &str = "L"; // since 3.2
+pub const TAG_SFX: &str = "L"; // since 3.2
+pub const DET_NAME_SFX: &str = "L"; // since 3.2
+pub const DATATYPE_SFX: &str = "L"; // since 3.2

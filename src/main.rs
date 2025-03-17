@@ -1,6 +1,7 @@
 // TODO gating parameters not added (yet)
 
 mod api;
+mod keywords;
 mod numeric;
 
 use clap::{Args, Parser, Subcommand};

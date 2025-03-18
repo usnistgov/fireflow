@@ -1327,6 +1327,7 @@ impl<P: VersionedMeasurement> Measurement<P> {
         }
     }
 
+    // TODO include nonstandard?
     fn keywords(&self, n: &str) -> Vec<(String, Option<String>)> {
         P::keywords(self, n)
     }
@@ -1805,7 +1806,7 @@ struct SupplementalOffsets3_2 {
 
 #[derive(Debug, Clone, Serialize)]
 struct InnerMetadata2_0 {
-    tot: OptionalKw<u32>,
+    // tot: OptionalKw<u32>,
     mode: Mode,
     byteord: ByteOrd,
     cyt: OptionalKw<String>,
@@ -1815,9 +1816,9 @@ struct InnerMetadata2_0 {
 
 #[derive(Debug, Clone, Serialize)]
 struct InnerMetadata3_0 {
-    data: Offsets,
-    supplemental: SupplementalOffsets3_0,
-    tot: u32,
+    // data: Offsets,
+    // supplemental: SupplementalOffsets3_0,
+    // tot: u32,
     mode: Mode,
     byteord: ByteOrd,
     timestamps: Timestamps3_0, // BTIM/ETIM/DATE
@@ -1830,9 +1831,9 @@ struct InnerMetadata3_0 {
 
 #[derive(Debug, Clone, Serialize)]
 struct InnerMetadata3_1 {
-    data: Offsets,
-    supplemental: SupplementalOffsets3_0,
-    tot: u32,
+    // data: Offsets,
+    // supplemental: SupplementalOffsets3_0,
+    // tot: u32,
     mode: Mode,
     byteord: Endian,
     timestamps: Timestamps3_1, // BTIM/ETIM/DATE
@@ -1847,9 +1848,11 @@ struct InnerMetadata3_1 {
 
 #[derive(Debug, Clone, Serialize)]
 struct InnerMetadata3_2 {
-    data: Offsets,
-    supplemental: SupplementalOffsets3_2,
-    tot: u32,
+    // TODO offsets are not necessary for writing
+    // data: Offsets,
+    // supplemental: SupplementalOffsets3_2,
+    // TODO this can be assumed from full dataframe when we have it
+    // tot: u32,
     byteord: Endian,
     timestamps: Timestamps3_1, // BTIM/ETIM/DATE
     datetimes: Datetimes,      // DATETIMESTART/END
@@ -1866,9 +1869,105 @@ struct InnerMetadata3_2 {
 }
 
 #[derive(Debug, Clone, Serialize)]
-struct Metadata<X> {
-    par: u32,
+struct InnerReadData2_0 {
+    tot: OptionalKw<u32>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct InnerReadData3_0 {
+    data: Offsets,
+    supplemental: SupplementalOffsets3_0,
+    tot: u32,
+}
+
+// struct InnerReadData3_1 {
+//     data: Offsets,
+//     supplemental: SupplementalOffsets3_0,
+//     tot: u32,
+// }
+
+#[derive(Debug, Clone, Serialize)]
+struct InnerReadData3_2 {
+    data: Offsets,
+    supplemental: SupplementalOffsets3_2,
+    tot: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ReadData<X> {
+    par: usize,
     nextdata: u32,
+    specific: X,
+}
+
+trait VersionedReadData: Sized {
+    fn lookup_inner(st: &mut KwState) -> Option<Self>;
+
+    fn get_tot(&self) -> Option<u32>;
+
+    // fn measurement_name(p: &Measurement<Self>) -> Option<&str>;
+
+    // fn has_linear_scale(&self) -> bool;
+
+    // fn has_gain(&self) -> bool;
+
+    fn lookup(st: &mut KwState, par: usize) -> Option<ReadData<Self>> {
+        let r = ReadData {
+            par,
+            nextdata: st.lookup_nextdata()?,
+            specific: Self::lookup_inner(st)?,
+        };
+        Some(r)
+    }
+}
+
+impl VersionedReadData for InnerReadData2_0 {
+    fn lookup_inner(st: &mut KwState) -> Option<Self> {
+        Some(InnerReadData2_0 {
+            tot: st.lookup_tot_opt(),
+        })
+    }
+
+    fn get_tot(&self) -> Option<u32> {
+        self.tot.as_ref().into_option().copied()
+    }
+}
+
+impl VersionedReadData for InnerReadData3_0 {
+    fn lookup_inner(st: &mut KwState) -> Option<Self> {
+        Some(InnerReadData3_0 {
+            data: st.lookup_data_offsets()?,
+            supplemental: st.lookup_supplemental3_0()?,
+            tot: st.lookup_tot_req()?,
+        })
+    }
+
+    fn get_tot(&self) -> Option<u32> {
+        Some(self.tot)
+    }
+}
+
+impl VersionedReadData for InnerReadData3_2 {
+    fn lookup_inner(st: &mut KwState) -> Option<Self> {
+        let r = InnerReadData3_2 {
+            data: st.lookup_data_offsets()?,
+            supplemental: st.lookup_supplemental3_2(),
+            tot: st.lookup_tot_req()?,
+        };
+        Some(r)
+    }
+
+    fn get_tot(&self) -> Option<u32> {
+        Some(self.tot)
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct Metadata<X> {
+    // TODO par is redundant when we have a full dataframe
+    // TODO nextdata is not relevant for writing
+    // par: u32,
+    // nextdata: u32,
     datatype: AlphaNumType,
     abrt: OptionalKw<u32>,
     com: OptionalKw<String>,
@@ -1887,8 +1986,8 @@ struct Metadata<X> {
 }
 
 impl<M: VersionedMetadata> Metadata<M> {
-    fn keywords(&self, len: KwLengths) -> MaybeKeywords {
-        M::keywords(self, len)
+    fn keywords(&self, par: usize, tot: usize, len: KwLengths) -> MaybeKeywords {
+        M::keywords(self, par, tot, len)
     }
 }
 
@@ -1937,10 +2036,17 @@ impl fmt::Display for ModeError {
 }
 
 #[derive(Debug, Clone, Serialize)]
-struct StdText<M, P> {
-    data_offsets: Offsets,
+struct CoreText<M, P> {
     metadata: Metadata<M>,
     measurements: Vec<Measurement<P>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct StdText<M, P, R> {
+    // TODO this isn't necessary for writing and is redundant here
+    data_offsets: Offsets,
+    read_data: ReadData<R>,
+    core: CoreText<M, P>,
 }
 
 #[derive(Debug)]
@@ -1966,6 +2072,7 @@ impl AnyStdTEXT {
             AnyStdTEXT::FCS2_0(_) => None,
             AnyStdTEXT::FCS3_0(_) => None,
             AnyStdTEXT::FCS3_1(x) => x
+                .core
                 .metadata
                 .specific
                 .spillover
@@ -1973,6 +2080,7 @@ impl AnyStdTEXT {
                 .into_option()
                 .map(|s| s.print_table(delim)),
             AnyStdTEXT::FCS3_2(x) => x
+                .core
                 .metadata
                 .specific
                 .spillover
@@ -2025,9 +2133,10 @@ pub struct ParsedTEXT {
 
 type TEXTResult = Result<ParsedTEXT, Box<StandardErrors>>;
 
-impl<M: VersionedMetadata> StdText<M, M::P> {
+impl<M: VersionedMetadata> StdText<M, M::P, M::R> {
     fn get_shortnames(&self) -> Vec<&str> {
-        self.measurements
+        self.core
+            .measurements
             .iter()
             .filter_map(|p| M::P::measurement_name(p))
             .collect()
@@ -2036,6 +2145,7 @@ impl<M: VersionedMetadata> StdText<M, M::P> {
     // TODO char should be validated somehow
     fn text_segment(&self, delim: char, data_len: usize) -> String {
         let ms: Vec<_> = self
+            .core
             .measurements
             .iter()
             .enumerate()
@@ -2047,9 +2157,11 @@ impl<M: VersionedMetadata> StdText<M, M::P> {
             data: data_len,
             measurements: meas_len,
         };
+        // TODO properly populate tot/par here
         let mut meta: Vec<(String, String)> = self
+            .core
             .metadata
-            .keywords(len)
+            .keywords(0, 0, len)
             .into_iter()
             .flat_map(|(k, v)| v.map(|x| (String::from(k), x)))
             .chain(ms)
@@ -2065,12 +2177,12 @@ impl<M: VersionedMetadata> StdText<M, M::P> {
     }
 
     fn meas_table(&self, delim: &str) -> Vec<String> {
-        let ms = &self.measurements;
+        let ms = &self.core.measurements;
         if ms.is_empty() {
             return vec![];
         }
         let header = ms[0].table_header().join(delim);
-        let rows = self.measurements.iter().enumerate().map(|(i, m)| {
+        let rows = self.core.measurements.iter().enumerate().map(|(i, m)| {
             m.table_row(i)
                 .into_iter()
                 .map(|v| v.unwrap_or(String::from("NA")))
@@ -2091,12 +2203,16 @@ impl<M: VersionedMetadata> StdText<M, M::P> {
         // required measurement keywords pass (according to $PAR)
         if let Some(s) = st
             .lookup_par()
-            .and_then(|par| M::P::lookup_measurements(&mut st, par).map(|m| (par, m)))
-            .and_then(|(par, ms)| M::lookup_metadata(&mut st, par, &ms).map(|md| (ms, md)))
-            .map(|(measurements, metadata)| StdText {
+            .and_then(|par| M::P::lookup_measurements(&mut st, par))
+            .and_then(|ms| M::lookup_metadata(&mut st, &ms).map(|md| (ms, md)))
+            .and_then(|(ms, md)| M::R::lookup(&mut st, ms.len()).map(|rd| (ms, md, rd)))
+            .map(|(measurements, metadata, read_data)| StdText {
                 data_offsets: header.data,
-                metadata,
-                measurements,
+                read_data,
+                core: CoreText {
+                    metadata,
+                    measurements,
+                },
             })
         {
             M::validate(&mut st, &s);
@@ -2110,10 +2226,10 @@ impl<M: VersionedMetadata> StdText<M, M::P> {
     }
 }
 
-type StdText2_0 = StdText<InnerMetadata2_0, InnerMeasurement2_0>;
-type StdText3_0 = StdText<InnerMetadata3_0, InnerMeasurement3_0>;
-type StdText3_1 = StdText<InnerMetadata3_1, InnerMeasurement3_1>;
-type StdText3_2 = StdText<InnerMetadata3_2, InnerMeasurement3_2>;
+type StdText2_0 = StdText<InnerMetadata2_0, InnerMeasurement2_0, InnerReadData2_0>;
+type StdText3_0 = StdText<InnerMetadata3_0, InnerMeasurement3_0, InnerReadData3_0>;
+type StdText3_1 = StdText<InnerMetadata3_1, InnerMeasurement3_1, InnerReadData3_0>;
+type StdText3_2 = StdText<InnerMetadata3_2, InnerMeasurement3_2, InnerReadData3_2>;
 
 trait OrderedFromBytes<const DTLEN: usize, const OLEN: usize>: NumProps<DTLEN> {
     fn read_from_ordered<R: Read>(h: &mut BufReader<R>, order: &[u8; OLEN]) -> io::Result<Self> {
@@ -2702,12 +2818,6 @@ fn sum_keywords(kws: &[MaybeKeyword]) -> usize {
         .sum()
 }
 
-// d0 = T + log10(d0) + log10(d1) + 2
-// d1 = D + d0
-
-// d0 = T + log10(d0) + log10(d0 + D) + 2
-// d0 = T + log10(d0(d0 + D)) + 2
-
 fn n_digits(x: f64) -> f64 {
     // ASSUME this is effectively only going to be used on the u32 range
     // starting at 1; keep in f64 space to minimize casts
@@ -2757,19 +2867,21 @@ fn make_data_offset_keywords(other_textlen: usize, datalen: usize) -> [MaybeKeyw
 
 trait VersionedMetadata: Sized {
     type P: VersionedMeasurement;
+    type R: VersionedReadData;
 
-    fn into_any_text(s: Box<StdText<Self, Self::P>>) -> AnyStdTEXT;
+    fn into_any_text(s: Box<StdText<Self, Self::P, Self::R>>) -> AnyStdTEXT;
 
-    fn get_data_offsets(s: &StdText<Self, Self::P>) -> Offsets;
+    fn get_data_offsets(s: &StdText<Self, Self::P, Self::R>) -> Offsets;
 
     fn get_byteord(&self) -> ByteOrd;
 
-    fn get_tot(&self) -> Option<u32>;
+    // fn get_tot(r: Self::R) -> Option<u32>;
 
     fn has_timestep(&self) -> bool;
 
-    fn event_width(s: &StdText<Self, Self::P>) -> EventWidth {
+    fn event_width(s: &StdText<Self, Self::P, Self::R>) -> EventWidth {
         let (fixed, variable_indices): (Vec<_>, Vec<_>) = s
+            .core
             .measurements
             .iter()
             .enumerate()
@@ -2790,7 +2902,7 @@ trait VersionedMetadata: Sized {
 
     fn total_events(
         st: &mut KwState,
-        s: &StdText<Self, Self::P>,
+        s: &StdText<Self, Self::P, Self::R>,
         event_width: u32,
     ) -> Option<usize> {
         let nbytes = Self::get_data_offsets(s).num_bytes();
@@ -2813,7 +2925,7 @@ trait VersionedMetadata: Sized {
             Some(res)
         };
         total_events.and_then(|x| {
-            if let Some(tot) = s.metadata.specific.get_tot() {
+            if let Some(tot) = s.read_data.specific.get_tot() {
                 if x != tot {
                     let msg = format!(
                         "$TOT field is {tot} but number of events \
@@ -2884,15 +2996,15 @@ trait VersionedMetadata: Sized {
 
     fn build_fixed_width_parser(
         st: &mut KwState,
-        s: &StdText<Self, Self::P>,
+        s: &StdText<Self, Self::P, Self::R>,
         total_events: usize,
         measurement_widths: Vec<u8>,
     ) -> Option<ColumnParser> {
         // TODO fix cast?
-        let par = s.metadata.par as usize;
-        let ps = &s.measurements;
-        let dt = &s.metadata.datatype;
-        let specific = &s.metadata.specific;
+        let par = s.read_data.par as usize;
+        let ps = &s.core.measurements;
+        let dt = &s.core.metadata.datatype;
+        let specific = &s.core.metadata.specific;
         if let Some(mixed) = Self::build_mixed_parser(specific, st, ps, dt, total_events) {
             mixed.map(ColumnParser::Mixed)
         } else {
@@ -2914,23 +3026,31 @@ trait VersionedMetadata: Sized {
         }
     }
 
-    fn build_delim_ascii_parser(s: &StdText<Self, Self::P>, tot: Option<usize>) -> ColumnParser {
+    fn build_delim_ascii_parser(
+        s: &StdText<Self, Self::P, Self::R>,
+        tot: Option<usize>,
+    ) -> ColumnParser {
         let nbytes = Self::get_data_offsets(s).num_bytes();
         ColumnParser::DelimitedAscii(DelimAsciiParser {
-            ncols: s.metadata.par as usize,
+            ncols: s.read_data.par as usize,
             nrows: tot,
             nbytes: nbytes as usize,
         })
     }
 
-    fn build_column_parser(st: &mut KwState, s: &StdText<Self, Self::P>) -> Option<ColumnParser> {
+    fn build_column_parser(
+        st: &mut KwState,
+        s: &StdText<Self, Self::P, Self::R>,
+    ) -> Option<ColumnParser> {
         // In order to make a data parser, the $DATATYPE, $BYTEORD, $PnB, and
         // $PnDATATYPE (if present) all need to be a specific relationship to
         // each other, each of which corresponds to the options below.
-        if s.metadata.datatype == AlphaNumType::Ascii && Self::P::fcs_version() >= Version::FCS3_1 {
+        if s.core.metadata.datatype == AlphaNumType::Ascii
+            && Self::P::fcs_version() >= Version::FCS3_1
+        {
             st.push_meta_deprecated_str("$DATATYPE=A has been deprecated since FCS 3.1");
         }
-        match (Self::event_width(s), s.metadata.datatype) {
+        match (Self::event_width(s), s.core.metadata.datatype) {
             // Numeric/Ascii (fixed width)
             (EventWidth::Finite(measurement_widths), _) => {
                 let event_width = measurement_widths.iter().map(|x| u32::from(*x)).sum();
@@ -2940,7 +3060,7 @@ trait VersionedMetadata: Sized {
             }
             // Ascii (variable width)
             (EventWidth::Variable, AlphaNumType::Ascii) => {
-                let tot = s.metadata.specific.get_tot();
+                let tot = s.read_data.specific.get_tot();
                 Some(Self::build_delim_ascii_parser(s, tot.map(|x| x as usize)))
             }
             // nonsense...scream at user
@@ -2961,25 +3081,29 @@ trait VersionedMetadata: Sized {
         }
     }
 
-    fn build_data_parser(st: &mut KwState, s: &StdText<Self, Self::P>) -> Option<DataParser> {
+    fn build_data_parser(
+        st: &mut KwState,
+        s: &StdText<Self, Self::P, Self::R>,
+    ) -> Option<DataParser> {
         Self::build_column_parser(st, s).map(|column_parser| DataParser {
             column_parser,
             begin: u64::from(Self::get_data_offsets(s).begin),
         })
     }
 
-    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>);
+    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P, Self::R>);
 
     // TODO make sure measurement type is correct
-    fn validate_time_channel(st: &mut KwState, s: &StdText<Self, Self::P>) {
+    fn validate_time_channel(st: &mut KwState, s: &StdText<Self, Self::P, Self::R>) {
         if let Some(time_name) = st.conf.time_shortname.as_ref() {
-            if let Some(tc) = s
-                .measurements
-                .iter()
-                .find(|p| match Self::P::measurement_name(p) {
-                    Some(n) => n == time_name,
-                    _ => false,
-                })
+            if let Some(tc) =
+                s.core
+                    .measurements
+                    .iter()
+                    .find(|p| match Self::P::measurement_name(p) {
+                        Some(n) => n == time_name,
+                        _ => false,
+                    })
             {
                 if !tc.specific.has_linear_scale() {
                     st.push_meta_error_or_warning(
@@ -2993,7 +3117,7 @@ trait VersionedMetadata: Sized {
                         String::from("Time channel must not have $PnG"),
                     );
                 }
-                if !s.metadata.specific.has_timestep() {
+                if !s.core.metadata.specific.has_timestep() {
                     st.push_meta_error_or_warning(
                         st.conf.ensure_time_timestep,
                         String::from("$TIMESTEP must be present if time channel given"),
@@ -3008,7 +3132,7 @@ trait VersionedMetadata: Sized {
         }
     }
 
-    fn validate(st: &mut KwState, s: &StdText<Self, Self::P>) {
+    fn validate(st: &mut KwState, s: &StdText<Self, Self::P, Self::R>) {
         // ensure time channel is valid if present
         Self::validate_time_channel(st, s);
 
@@ -3016,20 +3140,17 @@ trait VersionedMetadata: Sized {
         Self::validate_specific(st, s);
     }
 
-    fn build_inner(st: &mut KwState, par: u32, names: &HashSet<&str>) -> Option<Self>;
+    fn build_inner(st: &mut KwState, par: usize, names: &HashSet<&str>) -> Option<Self>;
 
-    fn lookup_metadata(
-        st: &mut KwState,
-        par: u32,
-        ms: &[Measurement<Self::P>],
-    ) -> Option<Metadata<Self>> {
+    fn lookup_metadata(st: &mut KwState, ms: &[Measurement<Self::P>]) -> Option<Metadata<Self>> {
         let names: HashSet<_> = ms
             .iter()
             .filter_map(|m| Self::P::measurement_name(m))
             .collect();
+        let par = ms.len();
         Some(Metadata {
-            par,
-            nextdata: st.lookup_nextdata()?,
+            // par,
+            // nextdata: st.lookup_nextdata()?,
             datatype: st.lookup_datatype()?,
             abrt: st.lookup_abrt(),
             com: st.lookup_com(),
@@ -3050,10 +3171,12 @@ trait VersionedMetadata: Sized {
 
     fn keywords_inner(&self, other_textlen: usize, data_len: usize) -> MaybeKeywords;
 
-    fn keywords(m: &Metadata<Self>, len: KwLengths) -> MaybeKeywords {
+    fn keywords(m: &Metadata<Self>, par: usize, tot: usize, len: KwLengths) -> MaybeKeywords {
         let fixed = [
-            (PAR, Some(m.par.to_string())),
-            (NEXTDATA, Some(m.nextdata.to_string())),
+            (PAR, Some(par.to_string())),
+            (TOT, Some(tot.to_string())),
+            // (NEXTDATA, Some(m.nextdata.to_string())),
+            (NEXTDATA, Some("0".to_string())),
             (DATATYPE, Some(m.datatype.to_string())),
             (ABRT, m.abrt.as_opt_string()),
             (COM, m.com.as_opt_string()),
@@ -3118,17 +3241,14 @@ fn build_int_parser_2_0<P: VersionedMeasurement>(
 
 impl VersionedMetadata for InnerMetadata2_0 {
     type P = InnerMeasurement2_0;
+    type R = InnerReadData2_0;
 
     fn into_any_text(t: Box<StdText2_0>) -> AnyStdTEXT {
         AnyStdTEXT::FCS2_0(t)
     }
 
-    fn get_data_offsets(s: &StdText<Self, Self::P>) -> Offsets {
+    fn get_data_offsets(s: &StdText<Self, Self::P, Self::R>) -> Offsets {
         s.data_offsets
-    }
-
-    fn get_tot(&self) -> Option<u32> {
-        self.tot.as_ref().into_option().copied()
     }
 
     fn get_byteord(&self) -> ByteOrd {
@@ -3158,11 +3278,11 @@ impl VersionedMetadata for InnerMetadata2_0 {
         None
     }
 
-    fn validate_specific(_: &mut KwState, _: &StdText<Self, Self::P>) {}
+    fn validate_specific(_: &mut KwState, _: &StdText<Self, Self::P, Self::R>) {}
 
-    fn build_inner(st: &mut KwState, par: u32, _: &HashSet<&str>) -> Option<InnerMetadata2_0> {
+    fn build_inner(st: &mut KwState, par: usize, _: &HashSet<&str>) -> Option<InnerMetadata2_0> {
         Some(InnerMetadata2_0 {
-            tot: st.lookup_tot_opt(),
+            // tot: st.lookup_tot_opt(),
             mode: st.lookup_mode()?,
             byteord: st.lookup_byteord()?,
             cyt: st.lookup_cyt_opt(),
@@ -3173,7 +3293,7 @@ impl VersionedMetadata for InnerMetadata2_0 {
 
     fn keywords_inner(&self, _: usize, _: usize) -> MaybeKeywords {
         [
-            (TOT, self.tot.as_opt_string()),
+            // (TOT, self.tot.as_opt_string()),
             (MODE, Some(self.mode.to_string())),
             (BYTEORD, Some(self.byteord.to_string())),
             (CYT, self.cyt.as_opt_string()),
@@ -3189,22 +3309,19 @@ impl VersionedMetadata for InnerMetadata2_0 {
 
 impl VersionedMetadata for InnerMetadata3_0 {
     type P = InnerMeasurement3_0;
+    type R = InnerReadData3_0;
 
     fn into_any_text(t: Box<StdText3_0>) -> AnyStdTEXT {
         AnyStdTEXT::FCS3_0(t)
     }
 
-    fn get_data_offsets(s: &StdText<Self, Self::P>) -> Offsets {
+    fn get_data_offsets(s: &StdText<Self, Self::P, Self::R>) -> Offsets {
         let header_offsets = s.data_offsets;
         if header_offsets.is_unset() {
-            s.metadata.specific.data
+            s.read_data.specific.data
         } else {
             header_offsets
         }
-    }
-
-    fn get_tot(&self) -> Option<u32> {
-        Some(self.tot)
     }
 
     fn get_byteord(&self) -> ByteOrd {
@@ -3234,13 +3351,13 @@ impl VersionedMetadata for InnerMetadata3_0 {
         None
     }
 
-    fn validate_specific(_: &mut KwState, _: &StdText<Self, Self::P>) {}
+    fn validate_specific(_: &mut KwState, _: &StdText<Self, Self::P, Self::R>) {}
 
-    fn build_inner(st: &mut KwState, _: u32, _: &HashSet<&str>) -> Option<InnerMetadata3_0> {
+    fn build_inner(st: &mut KwState, _: usize, _: &HashSet<&str>) -> Option<InnerMetadata3_0> {
         Some(InnerMetadata3_0 {
-            data: st.lookup_data_offsets()?,
-            supplemental: st.lookup_supplemental3_0()?,
-            tot: st.lookup_tot_req()?,
+            // data: st.lookup_data_offsets()?,
+            // supplemental: st.lookup_supplemental3_0()?,
+            // tot: st.lookup_tot_req()?,
             mode: st.lookup_mode()?,
             byteord: st.lookup_byteord()?,
             cyt: st.lookup_cyt_opt(),
@@ -3253,15 +3370,15 @@ impl VersionedMetadata for InnerMetadata3_0 {
     }
 
     fn keywords_inner(&self, other_textlen: usize, data_len: usize) -> MaybeKeywords {
-        let anal = self.supplemental.analysis;
-        let stext = self.supplemental.stext;
+        // let anal = self.supplemental.analysis;
+        // let stext = self.supplemental.stext;
         let ts = &self.timestamps;
         let kws = [
-            (BEGINANALYSIS, Some(anal.begin.to_string())),
-            (ENDANALYSIS, Some(anal.end.to_string())),
-            (BEGINSTEXT, Some(stext.begin.to_string())),
-            (ENDSTEXT, Some(stext.end.to_string())),
-            (TOT, Some(self.tot.to_string())),
+            // (BEGINANALYSIS, Some(anal.begin.to_string())),
+            // (ENDANALYSIS, Some(anal.end.to_string())),
+            // (BEGINSTEXT, Some(stext.begin.to_string())),
+            // (ENDSTEXT, Some(stext.end.to_string())),
+            // (TOT, Some(tot.to_string())),
             (MODE, Some(self.mode.to_string())),
             (BYTEORD, Some(self.byteord.to_string())),
             (CYT, self.cyt.as_opt_string()),
@@ -3293,22 +3410,19 @@ fn validate_spillover(st: &mut KwState, spillover: &Spillover, names: &HashSet<&
 
 impl VersionedMetadata for InnerMetadata3_1 {
     type P = InnerMeasurement3_1;
+    type R = InnerReadData3_0;
 
     fn into_any_text(t: Box<StdText3_1>) -> AnyStdTEXT {
         AnyStdTEXT::FCS3_1(t)
     }
 
-    fn get_data_offsets(s: &StdText<Self, Self::P>) -> Offsets {
+    fn get_data_offsets(s: &StdText<Self, Self::P, Self::R>) -> Offsets {
         let header_offsets = s.data_offsets;
         if header_offsets.is_unset() {
-            s.metadata.specific.data
+            s.read_data.specific.data
         } else {
             header_offsets
         }
-    }
-
-    fn get_tot(&self) -> Option<u32> {
-        Some(self.tot)
     }
 
     fn get_byteord(&self) -> ByteOrd {
@@ -3338,17 +3452,14 @@ impl VersionedMetadata for InnerMetadata3_1 {
         None
     }
 
-    fn validate_specific(_: &mut KwState, _: &StdText<Self, Self::P>) {}
+    fn validate_specific(_: &mut KwState, _: &StdText<Self, Self::P, Self::R>) {}
 
-    fn build_inner(st: &mut KwState, _: u32, names: &HashSet<&str>) -> Option<InnerMetadata3_1> {
+    fn build_inner(st: &mut KwState, _: usize, names: &HashSet<&str>) -> Option<InnerMetadata3_1> {
         let mode = st.lookup_mode()?;
         if mode != Mode::List {
             st.push_meta_deprecated_str("$MODE should only be L");
         };
         Some(InnerMetadata3_1 {
-            data: st.lookup_data_offsets()?,
-            supplemental: st.lookup_supplemental3_0()?,
-            tot: st.lookup_tot_req()?,
             mode,
             byteord: st.lookup_endian()?,
             cyt: st.lookup_cyt_opt(),
@@ -3363,17 +3474,17 @@ impl VersionedMetadata for InnerMetadata3_1 {
     }
 
     fn keywords_inner(&self, other_textlen: usize, data_len: usize) -> MaybeKeywords {
-        let anal = self.supplemental.analysis;
-        let stext = self.supplemental.stext;
+        // let anal = self.supplemental.analysis;
+        // let stext = self.supplemental.stext;
         let mdn = &self.modification;
         let ts = &self.timestamps;
         let pl = &self.plate;
         let fixed = [
-            (BEGINANALYSIS, Some(anal.begin.to_string())),
-            (ENDANALYSIS, Some(anal.end.to_string())),
-            (BEGINSTEXT, Some(stext.begin.to_string())),
-            (ENDSTEXT, Some(stext.end.to_string())),
-            (TOT, Some(self.tot.to_string())),
+            // (BEGINANALYSIS, Some(anal.begin.to_string())),
+            // (ENDANALYSIS, Some(anal.end.to_string())),
+            // (BEGINSTEXT, Some(stext.begin.to_string())),
+            // (ENDSTEXT, Some(stext.end.to_string())),
+            // (TOT, Some(self.tot.to_string())),
             (MODE, Some(self.mode.to_string())),
             (BYTEORD, Some(self.byteord.to_string())),
             (CYT, self.cyt.as_opt_string()),
@@ -3401,23 +3512,20 @@ impl VersionedMetadata for InnerMetadata3_1 {
 
 impl VersionedMetadata for InnerMetadata3_2 {
     type P = InnerMeasurement3_2;
+    type R = InnerReadData3_2;
 
     fn into_any_text(t: Box<StdText3_2>) -> AnyStdTEXT {
         AnyStdTEXT::FCS3_2(t)
     }
 
     // TODO not DRY
-    fn get_data_offsets(s: &StdText<Self, Self::P>) -> Offsets {
+    fn get_data_offsets(s: &StdText<Self, Self::P, Self::R>) -> Offsets {
         let header_offsets = s.data_offsets;
         if header_offsets.is_unset() {
-            s.metadata.specific.data
+            s.read_data.specific.data
         } else {
             header_offsets
         }
-    }
-
-    fn get_tot(&self) -> Option<u32> {
-        Some(self.tot)
     }
 
     fn get_byteord(&self) -> ByteOrd {
@@ -3505,8 +3613,8 @@ impl VersionedMetadata for InnerMetadata3_2 {
         }
     }
 
-    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P>) {
-        let spec = &s.metadata.specific;
+    fn validate_specific(st: &mut KwState, s: &StdText<Self, Self::P, Self::R>) {
+        let spec = &s.core.metadata.specific;
         // check that BEGINDATETIME is before ENDDATETIME
         if let (OptionalKw::Present(begin), OptionalKw::Present(end)) =
             (&spec.datetimes.begin, &spec.datetimes.end)
@@ -3517,15 +3625,15 @@ impl VersionedMetadata for InnerMetadata3_2 {
         }
     }
 
-    fn build_inner(st: &mut KwState, _: u32, names: &HashSet<&str>) -> Option<InnerMetadata3_2> {
+    fn build_inner(st: &mut KwState, _: usize, names: &HashSet<&str>) -> Option<InnerMetadata3_2> {
         // Only L is allowed as of 3.2, so pull the value and check it if
         // given. The only thing we care about here is that the value is not
         // invalid, since we don't need to use it anywhere.
         let _ = st.lookup_mode3_2();
         Some(InnerMetadata3_2 {
-            data: st.lookup_data_offsets()?,
-            supplemental: st.lookup_supplemental3_2(),
-            tot: st.lookup_tot_req()?,
+            // data: st.lookup_data_offsets()?,
+            // supplemental: st.lookup_supplemental3_2(),
+            // tot: st.lookup_tot_req()?,
             byteord: st.lookup_endian()?,
             cyt: st.lookup_cyt_req()?,
             spillover: st.lookup_spillover_checked(names),
@@ -3543,8 +3651,8 @@ impl VersionedMetadata for InnerMetadata3_2 {
     }
 
     fn keywords_inner(&self, other_textlen: usize, data_len: usize) -> MaybeKeywords {
-        let anal = self.supplemental.analysis.as_ref().into_option();
-        let stext = self.supplemental.stext.as_ref().into_option();
+        // let anal = self.supplemental.analysis.as_ref().into_option();
+        // let stext = self.supplemental.stext.as_ref().into_option();
         let mdn = &self.modification;
         let ts = &self.timestamps;
         let pl = &self.plate;
@@ -3552,13 +3660,13 @@ impl VersionedMetadata for InnerMetadata3_2 {
         let dt = &self.datetimes;
         let us = &self.unstained;
         let fixed = [
-            (BEGINDATA, Some(self.data.begin.to_string())),
-            (ENDDATA, Some(self.data.end.to_string())),
-            (BEGINANALYSIS, anal.map(|x| x.begin.to_string())),
-            (ENDANALYSIS, anal.map(|x| x.begin.to_string())),
-            (BEGINSTEXT, stext.map(|x| x.begin.to_string())),
-            (ENDSTEXT, stext.map(|x| x.end.to_string())),
-            (TOT, Some(self.tot.to_string())),
+            // (BEGINDATA, Some(self.data.begin.to_string())),
+            // (ENDDATA, Some(self.data.end.to_string())),
+            // (BEGINANALYSIS, anal.map(|x| x.begin.to_string())),
+            // (ENDANALYSIS, anal.map(|x| x.begin.to_string())),
+            // (BEGINSTEXT, stext.map(|x| x.begin.to_string())),
+            // (ENDSTEXT, stext.map(|x| x.end.to_string())),
+            // (TOT, Some(self.tot.to_string())),
             (BYTEORD, Some(self.byteord.to_string())),
             (CYT, Some(self.cyt.to_string())),
             (SPILLOVER, self.spillover.as_opt_string()),
@@ -4463,7 +4571,7 @@ impl KwState<'_> {
 
     fn into_result<M: VersionedMetadata>(
         self,
-        standard: StdText<M, <M as VersionedMetadata>::P>,
+        standard: StdText<M, <M as VersionedMetadata>::P, <M as VersionedMetadata>::R>,
         data_parser: DataParser,
         header: Header,
         raw: RawTEXT,
@@ -4615,6 +4723,16 @@ impl RawTEXT {
         }
     }
 }
+
+struct FCSFile<M, P> {
+    keywords: CoreText<M, P>,
+    data: ParsedData,
+}
+
+type FCSFile2_0 = FCSFile<InnerMeasurement2_0, InnerMeasurement2_0>;
+type FCSFile3_0 = FCSFile<InnerMeasurement3_0, InnerMeasurement3_0>;
+type FCSFile3_1 = FCSFile<InnerMeasurement3_1, InnerMeasurement3_1>;
+type FCSFile3_2 = FCSFile<InnerMeasurement3_2, InnerMeasurement3_2>;
 
 pub struct FCSSuccess {
     pub header: Header,

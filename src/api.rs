@@ -1887,7 +1887,7 @@ struct Metadata<X> {
 }
 
 impl<M: VersionedMetadata> Metadata<M> {
-    fn keywords(&self, len: Option<KwLengths>) -> MaybeKeywords {
+    fn keywords(&self, len: KwLengths) -> MaybeKeywords {
         M::keywords(self, len)
     }
 }
@@ -2034,7 +2034,7 @@ impl<M: VersionedMetadata> StdText<M, M::P> {
     }
 
     // TODO char should be validated somehow
-    fn text_segment(&self, delim: char, data_len: u32) -> String {
+    fn text_segment(&self, delim: char, data_len: usize) -> String {
         let ms: Vec<_> = self
             .measurements
             .iter()
@@ -2042,20 +2042,14 @@ impl<M: VersionedMetadata> StdText<M, M::P> {
             .flat_map(|(i, m)| m.keywords(&(i + 1).to_string()))
             .flat_map(|(k, v)| v.map(|x| (k, x)))
             .collect();
-        let meas_len = ms
-            .iter()
-            .map(|(k, v)| {
-                // TODO clean this up
-                u32::try_from(k.len()).unwrap_or(0) + u32::try_from(v.len()).unwrap_or(0) + 2
-            })
-            .sum();
+        let meas_len = ms.iter().map(|(k, v)| k.len() + v.len() + 2).sum();
         let len = KwLengths {
             data: data_len,
             measurements: meas_len,
         };
         let mut meta: Vec<(String, String)> = self
             .metadata
-            .keywords(Some(len))
+            .keywords(len)
             .into_iter()
             .flat_map(|(k, v)| v.map(|x| (String::from(k), x)))
             .chain(ms)
@@ -2685,19 +2679,80 @@ enum EventWidth {
     Error(Vec<usize>, Vec<usize>),
 }
 
-type MaybeKeywords = Vec<(&'static str, Option<String>)>;
+type MaybeKeyword = (&'static str, Option<String>);
+
+type MaybeKeywords = Vec<MaybeKeyword>;
 
 /// Used to hold critical lengths when calculating the pad for $BEGIN/ENDDATA.
 struct KwLengths {
     /// Length of the entire DATA segment when written.
-    data: u32,
+    data: usize,
     /// Length of all the measurement keywords in the TEXT segment.
     ///
     /// This is computed as the sum of all string lengths of each key and
     /// value plus 2*P (number of measurements) which captures the length
     /// of the two delimiters b/t the key and value and the key and previous
     /// value.
-    measurements: u32,
+    measurements: usize,
+}
+
+fn sum_keywords(kws: &[MaybeKeyword]) -> usize {
+    kws.iter()
+        .map(|(k, v)| v.as_ref().map(|y| y.len() + k.len() + 2).unwrap_or(0))
+        .sum()
+}
+
+// d0 = T + log10(d0) + log10(d1) + 2
+// d1 = D + d0
+
+// d0 = T + log10(d0) + log10(d0 + D) + 2
+// d0 = T + log10(d0(d0 + D)) + 2
+
+fn n_digits(x: f64) -> f64 {
+    // ASSUME this is effectively only going to be used on the u32 range
+    // starting at 1; keep in f64 space to minimize casts
+    f64::log10(x).floor() + 1.0
+}
+
+fn compute_data_offsets(textlen: u32, datalen: u32) -> (u32, u32) {
+    let d = f64::from(datalen);
+    let t = f64::from(textlen);
+    let mut datastart = t;
+    let mut dataend = datastart + d;
+    let mut ndigits_start = n_digits(datastart);
+    let mut ndigits_end = n_digits(dataend);
+    let mut tmp_start;
+    let mut tmp_end;
+    loop {
+        datastart = ndigits_start + ndigits_end + t;
+        dataend = datastart + d;
+        tmp_start = n_digits(datastart);
+        tmp_end = n_digits(dataend);
+        if tmp_start == ndigits_start && tmp_end == ndigits_end {
+            return (datastart as u32, dataend as u32);
+        } else {
+            ndigits_start = tmp_start;
+            ndigits_end = tmp_end;
+        }
+    }
+}
+
+// ASSUME header is always this length
+const HEADER_LEN: usize = 58;
+
+// length of BEGIN/ENDDATA keywords (without values), + 4 to account for
+// delimiters
+const DATALEN_NO_VAL: usize = BEGINDATA.len() + ENDDATA.len() + 4;
+
+fn make_data_offset_keywords(other_textlen: usize, datalen: usize) -> [MaybeKeyword; 2] {
+    // add everything up, + 1 at the end to account for the delimiter at
+    // the end of TEXT
+    let textlen = HEADER_LEN + DATALEN_NO_VAL + other_textlen + 1;
+    let (datastart, dataend) = compute_data_offsets(textlen as u32, datalen as u32);
+    [
+        (BEGINDATA, Some(datastart.to_string())),
+        (ENDDATA, Some(dataend.to_string())),
+    ]
 }
 
 trait VersionedMetadata: Sized {
@@ -2993,11 +3048,9 @@ trait VersionedMetadata: Sized {
         })
     }
 
-    // TODO make these return option since we will want to remove all the
-    // NULL keywords (FCS has no concept of NULL)
-    fn keywords_inner(&self, len: Option<KwLengths>) -> MaybeKeywords;
+    fn keywords_inner(&self, other_textlen: usize, data_len: usize) -> MaybeKeywords;
 
-    fn keywords(m: &Metadata<Self>, len: Option<KwLengths>) -> MaybeKeywords {
+    fn keywords(m: &Metadata<Self>, len: KwLengths) -> MaybeKeywords {
         let fixed = [
             (PAR, Some(m.par.to_string())),
             (NEXTDATA, Some(m.nextdata.to_string())),
@@ -3016,9 +3069,10 @@ trait VersionedMetadata: Sized {
             (SYS, m.sys.as_opt_string()),
             (TR, m.tr.as_opt_string()),
         ];
+        let fixed_len = sum_keywords(&fixed) + len.measurements;
         fixed
             .into_iter()
-            .chain(m.specific.keywords_inner(len))
+            .chain(m.specific.keywords_inner(fixed_len, len.data))
             .collect()
     }
 }
@@ -3117,7 +3171,7 @@ impl VersionedMetadata for InnerMetadata2_0 {
         })
     }
 
-    fn keywords_inner(&self, _: Option<KwLengths>) -> MaybeKeywords {
+    fn keywords_inner(&self, _: usize, _: usize) -> MaybeKeywords {
         [
             (TOT, self.tot.as_opt_string()),
             (MODE, Some(self.mode.to_string())),
@@ -3198,13 +3252,11 @@ impl VersionedMetadata for InnerMetadata3_0 {
         })
     }
 
-    fn keywords_inner(&self, len: Option<KwLengths>) -> MaybeKeywords {
+    fn keywords_inner(&self, other_textlen: usize, data_len: usize) -> MaybeKeywords {
         let anal = self.supplemental.analysis;
         let stext = self.supplemental.stext;
         let ts = &self.timestamps;
-        [
-            (BEGINDATA, Some(self.data.begin.to_string())),
-            (ENDDATA, Some(self.data.end.to_string())),
+        let kws = [
             (BEGINANALYSIS, Some(anal.begin.to_string())),
             (ENDANALYSIS, Some(anal.end.to_string())),
             (BEGINSTEXT, Some(stext.begin.to_string())),
@@ -3220,9 +3272,12 @@ impl VersionedMetadata for InnerMetadata3_0 {
             (CYTSN, self.cytsn.as_opt_string()),
             (TIMESTEP, self.timestep.as_opt_string()),
             (UNICODE, self.unicode.as_opt_string()),
-        ]
-        .into_iter()
-        .collect()
+        ];
+        let text_len = other_textlen + sum_keywords(&kws);
+        make_data_offset_keywords(text_len, data_len)
+            .into_iter()
+            .chain(kws)
+            .collect()
     }
 }
 
@@ -3307,15 +3362,13 @@ impl VersionedMetadata for InnerMetadata3_1 {
         })
     }
 
-    fn keywords_inner(&self, len: Option<KwLengths>) -> MaybeKeywords {
+    fn keywords_inner(&self, other_textlen: usize, data_len: usize) -> MaybeKeywords {
         let anal = self.supplemental.analysis;
         let stext = self.supplemental.stext;
         let mdn = &self.modification;
         let ts = &self.timestamps;
         let pl = &self.plate;
-        [
-            (BEGINDATA, Some(self.data.begin.to_string())),
-            (ENDDATA, Some(self.data.end.to_string())),
+        let fixed = [
             (BEGINANALYSIS, Some(anal.begin.to_string())),
             (ENDANALYSIS, Some(anal.end.to_string())),
             (BEGINSTEXT, Some(stext.begin.to_string())),
@@ -3337,9 +3390,12 @@ impl VersionedMetadata for InnerMetadata3_1 {
             (PLATENAME, pl.platename.as_opt_string()),
             (WELLID, pl.wellid.as_opt_string()),
             (VOL, self.vol.as_opt_string()),
-        ]
-        .into_iter()
-        .collect()
+        ];
+        let text_len = sum_keywords(&fixed) + other_textlen;
+        make_data_offset_keywords(text_len, data_len)
+            .into_iter()
+            .chain(fixed)
+            .collect()
     }
 }
 
@@ -3486,7 +3542,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
         })
     }
 
-    fn keywords_inner(&self, len: Option<KwLengths>) -> MaybeKeywords {
+    fn keywords_inner(&self, other_textlen: usize, data_len: usize) -> MaybeKeywords {
         let anal = self.supplemental.analysis.as_ref().into_option();
         let stext = self.supplemental.stext.as_ref().into_option();
         let mdn = &self.modification;
@@ -3495,7 +3551,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
         let car = &self.carrier;
         let dt = &self.datetimes;
         let us = &self.unstained;
-        [
+        let fixed = [
             (BEGINDATA, Some(self.data.begin.to_string())),
             (ENDDATA, Some(self.data.end.to_string())),
             (BEGINANALYSIS, anal.map(|x| x.begin.to_string())),
@@ -3526,9 +3582,12 @@ impl VersionedMetadata for InnerMetadata3_2 {
             (UNSTAINEDCENTERS, us.unstainedcenters.as_opt_string()),
             (UNSTAINEDINFO, us.unstainedinfo.as_opt_string()),
             (FLOWRATE, self.flowrate.as_opt_string()),
-        ]
-        .into_iter()
-        .collect()
+        ];
+        let text_len = sum_keywords(&fixed) + other_textlen;
+        make_data_offset_keywords(text_len, data_len)
+            .into_iter()
+            .chain(fixed)
+            .collect()
     }
 }
 

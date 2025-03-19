@@ -332,9 +332,9 @@ impl fmt::Display for NumTypeError {
     }
 }
 
-impl NumType {
-    fn add_alpha(&self) -> AlphaNumType {
-        match self {
+impl From<NumType> for AlphaNumType {
+    fn from(value: NumType) -> Self {
+        match value {
             NumType::Integer => AlphaNumType::Integer,
             NumType::Single => AlphaNumType::Single,
             NumType::Double => AlphaNumType::Double,
@@ -1189,7 +1189,8 @@ impl InnerMeasurement3_2 {
         self.datatype
             .as_ref()
             .into_option()
-            .map(|x| x.add_alpha())
+            .copied()
+            .map(AlphaNumType::from)
             .unwrap_or(default)
     }
 }

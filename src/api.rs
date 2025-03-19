@@ -3666,27 +3666,8 @@ struct KwState<'a> {
 
 struct DataParserState<'a> {
     std_errors: StdTEXTErrors,
-    // keyword_errors: Vec<KeyError>,
-    // deviant_keywords: HashMap<StdKey, String>,
-    // nonstandard_keywords: HashMap<NonStdKey, String>,
-    // missing_keywords: Vec<StdKey>,
-    // deprecated_keys: Vec<StdKey>,
-    // deprecated_features: Vec<String>,
-    // meta_errors: Vec<String>,
-    // meta_warnings: Vec<String>,
-    // keyword_warnings: Vec<KeyWarning>,
     conf: &'a StdTextReader,
 }
-
-// #[derive(Debug, Clone, Default, Serialize)]
-// pub struct NonFatalErrors {
-//     deprecated_keys: Vec<StdKey>,
-//     deprecated_features: Vec<String>,
-//     meta_warnings: Vec<String>,
-//     deviant_keywords: HashMap<StdKey, String>,
-//     nonstandard_keywords: HashMap<NonStdKey, String>,
-//     keyword_warnings: Vec<KeyWarning>,
-// }
 
 #[derive(Debug, Clone)]
 pub struct StdTEXTErrors {
@@ -3734,6 +3715,27 @@ impl StdTEXTErrors {
             self.meta_warnings.clear();
             self.keyword_warnings.clear();
         };
+    }
+
+    fn into_lines(self) -> Vec<String> {
+        let ks = self
+            .missing_keywords
+            .into_iter()
+            .map(|s| format!("Required keyword is missing: {}", s.0));
+        let vs = self.keyword_errors.into_iter().map(|e| {
+            format!(
+                "Could not get value for {}. Error was '{}'. Value was '{}'.",
+                e.key.0, e.msg, e.value
+            )
+        });
+        // TODO add lots of other printing stuff here
+        ks.chain(vs).chain(self.meta_errors).collect()
+    }
+
+    pub fn print(self) {
+        for e in self.into_lines() {
+            eprintln!("ERROR: {e}");
+        }
     }
 }
 
@@ -3835,117 +3837,6 @@ struct KeyWarning {
     key: StdKey,
     value: String,
     msg: String,
-}
-
-// impl NonFatalErrors {
-//     fn has_error(&self, conf: &StdTextReader) -> bool {
-//         (!self.deviant_keywords.is_empty() && conf.disallow_deviant)
-//             || (!self.deprecated_features.is_empty() && conf.disallow_deprecated)
-//             || (!self.deprecated_keys.is_empty() && conf.disallow_deprecated)
-//             || (!self.meta_warnings.is_empty() && conf.warnings_are_errors)
-//             || (!self.keyword_warnings.is_empty() && conf.warnings_are_errors)
-//             || (!self.nonstandard_keywords.is_empty() && conf.disallow_nonstandard)
-//     }
-
-//     fn into_critical(self, conf: &StdTextReader) -> NonFatalErrors {
-//         NonFatalErrors {
-//             deviant_keywords: if conf.disallow_deviant {
-//                 self.deviant_keywords
-//             } else {
-//                 HashMap::new()
-//             },
-//             deprecated_features: if conf.disallow_deprecated {
-//                 self.deprecated_features
-//             } else {
-//                 vec![]
-//             },
-//             deprecated_keys: if conf.disallow_deprecated {
-//                 self.deprecated_keys
-//             } else {
-//                 vec![]
-//             },
-//             meta_warnings: if conf.warnings_are_errors {
-//                 self.meta_warnings
-//             } else {
-//                 vec![]
-//             },
-//             keyword_warnings: if conf.warnings_are_errors {
-//                 self.keyword_warnings
-//             } else {
-//                 vec![]
-//             },
-//             nonstandard_keywords: if conf.disallow_nonstandard {
-//                 self.nonstandard_keywords
-//             } else {
-//                 HashMap::new()
-//             },
-//         }
-//     }
-
-//     fn into_lines(self) -> Vec<String> {
-//         let depkeys = self
-//             .deprecated_keys
-//             .into_iter()
-//             .map(|k| format!("{} has been deprecated", k.0));
-//         let devkeys = self
-//             .deviant_keywords
-//             .into_keys()
-//             .map(|k| format!("{} starts with a '$' but is not a standard keyword", k.0));
-//         let nskeys = self
-//             .nonstandard_keywords
-//             .into_keys()
-//             .map(|k| format!("{} is a nonstandard keyword", k.0));
-//         let kwarnings = self.keyword_warnings.into_iter().map(|e| {
-//             format!(
-//                 "Potential issue for {}. Warning was '{}'. Value was '{}'.",
-//                 e.key.0, e.msg, e.value
-//             )
-//         });
-//         depkeys
-//             .chain(devkeys)
-//             .chain(nskeys)
-//             .chain(kwarnings)
-//             .chain(self.meta_warnings)
-//             .chain(self.deprecated_features)
-//             .collect()
-//     }
-// }
-
-// #[derive(Debug, Clone)]
-// pub struct StandardErrors {
-//     /// Required keywords that are missing
-//     missing_keywords: Vec<StdKey>,
-
-//     /// Errors that pertain to one keyword value
-//     keyword_errors: Vec<KeyError>,
-
-//     /// Errors involving multiple keywords, like PnB not matching DATATYPE
-//     meta_errors: Vec<String>,
-//     // nonfatal: NonFatalErrors,
-// }
-
-impl StdTEXTErrors {
-    fn into_lines(self) -> Vec<String> {
-        let ks = self
-            .missing_keywords
-            .into_iter()
-            .map(|s| format!("Required keyword is missing: {}", s.0));
-        let vs = self.keyword_errors.into_iter().map(|e| {
-            format!(
-                "Could not get value for {}. Error was '{}'. Value was '{}'.",
-                e.key.0, e.msg, e.value
-            )
-        });
-        // let nfs = self.nonfatal.into_lines();
-        // ks.chain(vs).chain(nfs).chain(self.meta_errors).collect()
-        ks.chain(vs).chain(self.meta_errors).collect()
-    }
-
-    pub fn print(self) {
-        for e in self.into_lines() {
-            eprintln!("ERROR: {e}");
-        }
-    }
 }
 
 impl<'a> KwState<'a> {
@@ -4258,7 +4149,6 @@ impl<'a> KwState<'a> {
         self.lookup_optional(LAST_MODIFIER, false)
     }
 
-    // TODO wrap this in a newtype
     fn lookup_last_modified(&mut self) -> OptionalKw<ModifiedDateTime> {
         self.lookup_optional(LAST_MODIFIED, false)
     }

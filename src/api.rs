@@ -495,8 +495,6 @@ impl fmt::Display for NamedFixedSeqError {
     }
 }
 
-// TODO add Display trait so this can be written
-
 impl Spillover {
     fn table(&self, delim: &str) -> Vec<String> {
         let header0 = vec![String::from("[-]")];
@@ -1367,33 +1365,34 @@ trait Versioned {
 }
 
 trait VersionedMeasurement: Sized + Versioned {
-    fn build_inner(st: &mut KwState, n: usize) -> Option<Self>;
+    fn lookup_specific(st: &mut KwState, n: usize) -> Option<Self>;
 
     fn measurement_name(p: &Measurement<Self>) -> Option<&str>;
-
-    // fn has_linear_scale(&self) -> bool;
-
-    // fn has_gain(&self) -> bool;
 
     fn lookup_measurements(st: &mut KwState, par: usize) -> Option<Vec<Measurement<Self>>> {
         let mut ps = vec![];
         let v = Self::fcs_version();
         for n in 1..(par + 1) {
-            // TODO don't use try here since we want to collect as many errors
-            // as possible
-            let p = Measurement {
-                bytes: st.lookup_meas_bytes(n)?,
-                range: st.lookup_meas_range(n)?,
-                longname: st.lookup_meas_longname(n),
-                filter: st.lookup_meas_filter(n),
-                power: st.lookup_meas_power(n),
-                detector_type: st.lookup_meas_detector_type(n),
-                percent_emitted: st.lookup_meas_percent_emitted(n, v == Version::FCS3_2),
-                detector_voltage: st.lookup_meas_detector_voltage(n),
-                specific: Self::build_inner(st, n)?,
-                nonstandard: st.lookup_meas_nonstandard(n),
-            };
-            ps.push(p);
+            let maybe_bytes = st.lookup_meas_bytes(n);
+            let maybe_range = st.lookup_meas_range(n);
+            let maybe_specific = Self::lookup_specific(st, n);
+            if let (Some(bytes), Some(range), Some(specific)) =
+                (maybe_bytes, maybe_range, maybe_specific)
+            {
+                let p = Measurement {
+                    bytes,
+                    range,
+                    longname: st.lookup_meas_longname(n),
+                    filter: st.lookup_meas_filter(n),
+                    power: st.lookup_meas_power(n),
+                    detector_type: st.lookup_meas_detector_type(n),
+                    percent_emitted: st.lookup_meas_percent_emitted(n, v == Version::FCS3_2),
+                    detector_voltage: st.lookup_meas_detector_voltage(n),
+                    specific,
+                    nonstandard: st.lookup_meas_nonstandard(n),
+                };
+                ps.push(p);
+            }
         }
         let names: Vec<&str> = ps
             .iter()
@@ -1474,7 +1473,7 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
             .map(|s| s.0.as_str())
     }
 
-    fn build_inner(st: &mut KwState, n: usize) -> Option<InnerMeasurement2_0> {
+    fn lookup_specific(st: &mut KwState, n: usize) -> Option<InnerMeasurement2_0> {
         Some(InnerMeasurement2_0 {
             scale: st.lookup_meas_scale_opt(n),
             shortname: st.lookup_meas_shortname_opt(n),
@@ -1502,10 +1501,8 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
             .map(|s| s.0.as_str())
     }
 
-    fn build_inner(st: &mut KwState, n: usize) -> Option<InnerMeasurement3_0> {
+    fn lookup_specific(st: &mut KwState, n: usize) -> Option<InnerMeasurement3_0> {
         let shortname = st.lookup_meas_shortname_opt(n);
-        // TODO don't use try here since we want to collect as many errors
-        // as possible
         Some(InnerMeasurement3_0 {
             scale: st.lookup_meas_scale_timecheck_opt(n, &shortname)?,
             gain: st.lookup_meas_gain_timecheck_opt(n, &shortname),
@@ -1531,10 +1528,8 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
         Some(p.specific.shortname.0.as_str())
     }
 
-    fn build_inner(st: &mut KwState, n: usize) -> Option<InnerMeasurement3_1> {
+    fn lookup_specific(st: &mut KwState, n: usize) -> Option<InnerMeasurement3_1> {
         let shortname = st.lookup_meas_shortname_req(n)?;
-        // TODO don't use try here since we want to collect as many errors
-        // as possible
         Some(InnerMeasurement3_1 {
             scale: st.lookup_meas_scale_timecheck(n, &shortname)?,
             gain: st.lookup_meas_gain_timecheck(n, &shortname),
@@ -1564,10 +1559,8 @@ impl VersionedMeasurement for InnerMeasurement3_2 {
         Some(p.specific.shortname.0.as_str())
     }
 
-    fn build_inner(st: &mut KwState, n: usize) -> Option<InnerMeasurement3_2> {
+    fn lookup_specific(st: &mut KwState, n: usize) -> Option<InnerMeasurement3_2> {
         let shortname = st.lookup_meas_shortname_req(n)?;
-        // TODO don't use try here since we want to collect as many errors
-        // as possible
         Some(InnerMeasurement3_2 {
             gain: st.lookup_meas_gain_timecheck(n, &shortname),
             scale: st.lookup_meas_scale_timecheck(n, &shortname)?,
@@ -2038,6 +2031,33 @@ struct ModeError;
 impl fmt::Display for ModeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "must be one of 'C', 'L', or 'U'")
+    }
+}
+
+struct Mode3_2;
+
+impl FromStr for Mode3_2 {
+    type Err = Mode3_2Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "L" => Ok(Mode3_2),
+            _ => Err(Mode3_2Error),
+        }
+    }
+}
+
+impl fmt::Display for Mode3_2 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "L")
+    }
+}
+
+struct Mode3_2Error;
+
+impl fmt::Display for Mode3_2Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "can only be 'L'")
     }
 }
 
@@ -3142,7 +3162,7 @@ trait VersionedMetadata: Sized {
         })
     }
 
-    fn build_inner(st: &mut KwState, par: usize, names: &HashSet<&str>) -> Option<Self>;
+    fn lookup_specific(st: &mut KwState, par: usize, names: &HashSet<&str>) -> Option<Self>;
 
     fn lookup_metadata(st: &mut KwState, ms: &[Measurement<Self::P>]) -> Option<Metadata<Self>> {
         let names: HashSet<_> = ms
@@ -3150,23 +3170,29 @@ trait VersionedMetadata: Sized {
             .filter_map(|m| Self::P::measurement_name(m))
             .collect();
         let par = ms.len();
-        Some(Metadata {
-            datatype: st.lookup_datatype()?,
-            abrt: st.lookup_abrt(),
-            com: st.lookup_com(),
-            cells: st.lookup_cells(),
-            exp: st.lookup_exp(),
-            fil: st.lookup_fil(),
-            inst: st.lookup_inst(),
-            lost: st.lookup_lost(),
-            op: st.lookup_op(),
-            proj: st.lookup_proj(),
-            smno: st.lookup_smno(),
-            src: st.lookup_src(),
-            sys: st.lookup_sys(),
-            tr: st.lookup_trigger_checked(&names),
-            specific: Self::build_inner(st, par, &names)?,
-        })
+        let maybe_datatype = st.lookup_datatype();
+        let maybe_specific = Self::lookup_specific(st, par, &names);
+        if let (Some(datatype), Some(specific)) = (maybe_datatype, maybe_specific) {
+            Some(Metadata {
+                datatype,
+                abrt: st.lookup_abrt(),
+                com: st.lookup_com(),
+                cells: st.lookup_cells(),
+                exp: st.lookup_exp(),
+                fil: st.lookup_fil(),
+                inst: st.lookup_inst(),
+                lost: st.lookup_lost(),
+                op: st.lookup_op(),
+                proj: st.lookup_proj(),
+                smno: st.lookup_smno(),
+                src: st.lookup_src(),
+                sys: st.lookup_sys(),
+                tr: st.lookup_trigger_checked(&names),
+                specific,
+            })
+        } else {
+            None
+        }
     }
 
     fn keywords_inner(&self, other_textlen: usize, data_len: usize) -> MaybeKeywords;
@@ -3273,15 +3299,24 @@ impl VersionedMetadata for InnerMetadata2_0 {
         None
     }
 
-    fn build_inner(st: &mut KwState, par: usize, _: &HashSet<&str>) -> Option<InnerMetadata2_0> {
-        Some(InnerMetadata2_0 {
-            // tot: st.lookup_tot_opt(),
-            mode: st.lookup_mode()?,
-            byteord: st.lookup_byteord()?,
-            cyt: st.lookup_cyt_opt(),
-            comp: st.lookup_compensation_2_0(par),
-            timestamps: st.lookup_timestamps2_0(),
-        })
+    fn lookup_specific(
+        st: &mut KwState,
+        par: usize,
+        _: &HashSet<&str>,
+    ) -> Option<InnerMetadata2_0> {
+        let maybe_mode = st.lookup_mode();
+        let maybe_byteord = st.lookup_byteord();
+        if let (Some(mode), Some(byteord)) = (maybe_mode, maybe_byteord) {
+            Some(InnerMetadata2_0 {
+                mode,
+                byteord,
+                cyt: st.lookup_cyt_opt(),
+                comp: st.lookup_compensation_2_0(par),
+                timestamps: st.lookup_timestamps2_0(),
+            })
+        } else {
+            None
+        }
     }
 
     fn keywords_inner(&self, _: usize, _: usize) -> MaybeKeywords {
@@ -3330,17 +3365,23 @@ impl VersionedMetadata for InnerMetadata3_0 {
         None
     }
 
-    fn build_inner(st: &mut KwState, _: usize, _: &HashSet<&str>) -> Option<InnerMetadata3_0> {
-        Some(InnerMetadata3_0 {
-            mode: st.lookup_mode()?,
-            byteord: st.lookup_byteord()?,
-            cyt: st.lookup_cyt_opt(),
-            comp: st.lookup_compensation_3_0(),
-            timestamps: st.lookup_timestamps3_0(),
-            cytsn: st.lookup_cytsn(),
-            timestep: st.lookup_timestep(),
-            unicode: st.lookup_unicode(),
-        })
+    fn lookup_specific(st: &mut KwState, _: usize, _: &HashSet<&str>) -> Option<InnerMetadata3_0> {
+        let maybe_mode = st.lookup_mode();
+        let maybe_byteord = st.lookup_byteord();
+        if let (Some(mode), Some(byteord)) = (maybe_mode, maybe_byteord) {
+            Some(InnerMetadata3_0 {
+                mode,
+                byteord,
+                cyt: st.lookup_cyt_opt(),
+                comp: st.lookup_compensation_3_0(),
+                timestamps: st.lookup_timestamps3_0(),
+                cytsn: st.lookup_cytsn(),
+                timestep: st.lookup_timestep(),
+                unicode: st.lookup_unicode(),
+            })
+        } else {
+            None
+        }
     }
 
     fn keywords_inner(&self, other_textlen: usize, data_len: usize) -> MaybeKeywords {
@@ -3402,23 +3443,32 @@ impl VersionedMetadata for InnerMetadata3_1 {
         None
     }
 
-    fn build_inner(st: &mut KwState, _: usize, names: &HashSet<&str>) -> Option<InnerMetadata3_1> {
-        let mode = st.lookup_mode()?;
-        if mode != Mode::List {
-            st.push_meta_deprecated_str("$MODE should only be L");
-        };
-        Some(InnerMetadata3_1 {
-            mode,
-            byteord: st.lookup_endian()?,
-            cyt: st.lookup_cyt_opt(),
-            spillover: st.lookup_spillover_checked(names),
-            timestamps: st.lookup_timestamps3_1(false),
-            cytsn: st.lookup_cytsn(),
-            timestep: st.lookup_timestep(),
-            modification: st.lookup_modification(),
-            plate: st.lookup_plate(false),
-            vol: st.lookup_vol(),
-        })
+    fn lookup_specific(
+        st: &mut KwState,
+        _: usize,
+        names: &HashSet<&str>,
+    ) -> Option<InnerMetadata3_1> {
+        let maybe_mode = st.lookup_mode();
+        let maybe_byteord = st.lookup_endian();
+        if let (Some(mode), Some(byteord)) = (maybe_mode, maybe_byteord) {
+            if mode != Mode::List {
+                st.push_meta_deprecated_str("$MODE should only be L");
+            };
+            Some(InnerMetadata3_1 {
+                mode,
+                byteord,
+                cyt: st.lookup_cyt_opt(),
+                spillover: st.lookup_spillover_checked(names),
+                timestamps: st.lookup_timestamps3_1(false),
+                cytsn: st.lookup_cytsn(),
+                timestep: st.lookup_timestep(),
+                modification: st.lookup_modification(),
+                plate: st.lookup_plate(false),
+                vol: st.lookup_vol(),
+            })
+        } else {
+            None
+        }
     }
 
     fn keywords_inner(&self, other_textlen: usize, data_len: usize) -> MaybeKeywords {
@@ -3546,29 +3596,36 @@ impl VersionedMetadata for InnerMetadata3_2 {
         }
     }
 
-    fn build_inner(st: &mut KwState, _: usize, names: &HashSet<&str>) -> Option<InnerMetadata3_2> {
-        // Only L is allowed as of 3.2, so pull the value and check it if
-        // given. The only thing we care about here is that the value is not
-        // invalid, since we don't need to use it anywhere.
+    fn lookup_specific(
+        st: &mut KwState,
+        _: usize,
+        names: &HashSet<&str>,
+    ) -> Option<InnerMetadata3_2> {
+        // Only L is allowed as of 3.2, so pull the value and check it if given.
+        // The only thing we care about is that the value is valid, since we
+        // don't need to use it anywhere.
         let _ = st.lookup_mode3_2();
-        Some(InnerMetadata3_2 {
-            // data: st.lookup_data_offsets()?,
-            // supplemental: st.lookup_supplemental3_2(),
-            // tot: st.lookup_tot_req()?,
-            byteord: st.lookup_endian()?,
-            cyt: st.lookup_cyt_req()?,
-            spillover: st.lookup_spillover_checked(names),
-            timestamps: st.lookup_timestamps3_1(true),
-            cytsn: st.lookup_cytsn(),
-            timestep: st.lookup_timestep(),
-            modification: st.lookup_modification(),
-            plate: st.lookup_plate(true),
-            vol: st.lookup_vol(),
-            carrier: st.lookup_carrier(),
-            datetimes: st.lookup_datetimes(),
-            unstained: st.lookup_unstained(names),
-            flowrate: st.lookup_flowrate(),
-        })
+        let maybe_byteord = st.lookup_endian();
+        let maybe_cyt = st.lookup_cyt_req();
+        if let (Some(byteord), Some(cyt)) = (maybe_byteord, maybe_cyt) {
+            Some(InnerMetadata3_2 {
+                byteord,
+                cyt,
+                spillover: st.lookup_spillover_checked(names),
+                timestamps: st.lookup_timestamps3_1(true),
+                cytsn: st.lookup_cytsn(),
+                timestep: st.lookup_timestep(),
+                modification: st.lookup_modification(),
+                plate: st.lookup_plate(true),
+                vol: st.lookup_vol(),
+                carrier: st.lookup_carrier(),
+                datetimes: st.lookup_datetimes(),
+                unstained: st.lookup_unstained(names),
+                flowrate: st.lookup_flowrate(),
+            })
+        } else {
+            None
+        }
     }
 
     fn keywords_inner(&self, other_textlen: usize, data_len: usize) -> MaybeKeywords {
@@ -3971,8 +4028,7 @@ impl<'a> KwState<'a> {
         self.lookup_required(MODE, false)
     }
 
-    // TODO this needs to be a new type to enforce the 3.2 value
-    fn lookup_mode3_2(&mut self) -> OptionalKw<Mode> {
+    fn lookup_mode3_2(&mut self) -> OptionalKw<Mode3_2> {
         self.lookup_optional(MODE, true)
     }
 

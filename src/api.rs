@@ -3458,7 +3458,11 @@ impl VersionedMetadata for InnerMetadata3_0 {
         None
     }
 
-    fn lookup_specific(st: &mut KwState, _: usize, _: &HashSet<&str>) -> Option<InnerMetadata3_0> {
+    fn lookup_specific(
+        st: &mut KwState,
+        _: usize,
+        names: &HashSet<&str>,
+    ) -> Option<InnerMetadata3_0> {
         let maybe_mode = st.lookup_mode();
         let maybe_byteord = st.lookup_byteord();
         if let (Some(mode), Some(byteord)) = (maybe_mode, maybe_byteord) {
@@ -3469,7 +3473,7 @@ impl VersionedMetadata for InnerMetadata3_0 {
                 comp: st.lookup_compensation_3_0(),
                 timestamps: st.lookup_timestamps3_0(),
                 cytsn: st.lookup_cytsn(),
-                timestep: st.lookup_timestep(),
+                timestep: st.lookup_timestep_checked(names),
                 unicode: st.lookup_unicode(),
             })
         } else {
@@ -3554,7 +3558,7 @@ impl VersionedMetadata for InnerMetadata3_1 {
                 spillover: st.lookup_spillover_checked(names),
                 timestamps: st.lookup_timestamps3_1(false),
                 cytsn: st.lookup_cytsn(),
-                timestep: st.lookup_timestep(),
+                timestep: st.lookup_timestep_checked(names),
                 modification: st.lookup_modification(),
                 plate: st.lookup_plate(false),
                 vol: st.lookup_vol(),
@@ -3707,7 +3711,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
                 spillover: st.lookup_spillover_checked(names),
                 timestamps: st.lookup_timestamps3_1(true),
                 cytsn: st.lookup_cytsn(),
-                timestep: st.lookup_timestep(),
+                timestep: st.lookup_timestep_checked(names),
                 modification: st.lookup_modification(),
                 plate: st.lookup_plate(true),
                 vol: st.lookup_vol(),

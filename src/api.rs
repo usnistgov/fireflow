@@ -7,6 +7,7 @@ use regex::Regex;
 use serde::ser::SerializeStruct;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
+use std::error::Error;
 use std::fmt;
 use std::fs;
 use std::io;
@@ -168,24 +169,115 @@ impl fmt::Display for FCSTime100Error {
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
-struct Offsets {
+struct Segment {
     begin: u32,
     end: u32,
 }
 
-impl Offsets {
-    fn new(begin: u32, end: u32) -> Option<Offsets> {
-        if begin > end {
-            None
-        } else {
-            Some(Self { begin, end })
+#[derive(Debug)]
+enum SegmentId {
+    PrimaryText,
+    SupplementalText,
+    Analysis,
+    Data,
+    // TODO add Other (which will be indexed I think)
+}
+
+#[derive(Debug)]
+enum SegmentErrorKind {
+    Range,
+    Inverted,
+}
+
+impl fmt::Display for SegmentId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let x = match self {
+            SegmentId::PrimaryText => "TEXT",
+            SegmentId::SupplementalText => "STEXT",
+            SegmentId::Analysis => "ANALYSIS",
+            SegmentId::Data => "DATA",
+        };
+        write!(f, "{x}")
+    }
+}
+
+#[derive(Debug)]
+struct SegmentError {
+    offsets: Segment,
+    begin_delta: i32,
+    end_delta: i32,
+    kind: SegmentErrorKind,
+    id: SegmentId,
+}
+
+impl fmt::Display for SegmentError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let offset_text = |x, delta| {
+            if delta == 0 {
+                format!("{}", x)
+            } else {
+                format!("{} ({}))", x, delta)
+            }
+        };
+        let begin_text = offset_text(self.offsets.begin, self.begin_delta);
+        let end_text = offset_text(self.offsets.end, self.end_delta);
+        let kind_text = match &self.kind {
+            SegmentErrorKind::Range => "Offset out of range",
+            SegmentErrorKind::Inverted => "Begin after end",
+        };
+        write!(
+            f,
+            "{kind_text} for {} segment; begin={begin_text}, end={end_text}",
+            self.id,
+        )
+    }
+}
+
+impl Segment {
+    fn try_new(begin: u32, end: u32, id: SegmentId) -> Result<Segment, SegmentError> {
+        Self::try_new_adjusted(begin, end, 0, 0, id)
+    }
+
+    fn try_new_adjusted(
+        begin: u32,
+        end: u32,
+        begin_delta: i32,
+        end_delta: i32,
+        id: SegmentId,
+    ) -> Result<Segment, SegmentError> {
+        let x = i64::from(begin) + i64::from(begin_delta);
+        let y = i64::from(end) + i64::from(end_delta);
+        let err = |kind| {
+            Err(SegmentError {
+                offsets: Segment { begin, end },
+                begin_delta,
+                end_delta,
+                kind,
+                id,
+            })
+        };
+        match (u32::try_from(x), u32::try_from(y)) {
+            (Ok(new_begin), Ok(new_end)) => {
+                if new_begin > new_end {
+                    err(SegmentErrorKind::Inverted)
+                } else {
+                    Ok(Segment {
+                        begin: new_begin,
+                        end: new_end,
+                    })
+                }
+            }
+            (_, _) => err(SegmentErrorKind::Range),
         }
     }
 
-    fn adjust(&self, begin_delta: i32, end_delta: i32) -> Option<Offsets> {
-        let x = i64::from(self.begin) + i64::from(begin_delta);
-        let y = i64::from(self.end) + i64::from(end_delta);
-        Self::new(u32::try_from(x).ok()?, u32::try_from(y).ok()?)
+    fn try_adjust(
+        self,
+        begin_delta: i32,
+        end_delta: i32,
+        id: SegmentId,
+    ) -> Result<Segment, SegmentError> {
+        Self::try_new_adjusted(self.begin, self.end, begin_delta, end_delta, id)
     }
 
     fn len(&self) -> u32 {
@@ -244,9 +336,9 @@ struct VersionError;
 #[derive(Debug, Clone, Serialize)]
 pub struct Header {
     version: Version,
-    text: Offsets,
-    data: Offsets,
-    analysis: Offsets,
+    text: Segment,
+    data: Segment,
+    analysis: Segment,
 }
 
 /// The four allowed datatypes for FCS data.
@@ -1772,14 +1864,14 @@ impl fmt::Display for Unicode {
 
 #[derive(Debug, Clone, Serialize)]
 struct SupplementalOffsets3_0 {
-    analysis: Offsets,
-    stext: Offsets,
+    analysis: Segment,
+    stext: Segment,
 }
 
 #[derive(Debug, Clone, Serialize)]
 struct SupplementalOffsets3_2 {
-    analysis: OptionalKw<Offsets>,
-    stext: OptionalKw<Offsets>,
+    analysis: OptionalKw<Segment>,
+    stext: OptionalKw<Segment>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1853,7 +1945,7 @@ struct InnerReadData2_0 {
 
 #[derive(Debug, Clone, Serialize)]
 struct InnerReadData3_0 {
-    data: Offsets,
+    data: Segment,
     supplemental: SupplementalOffsets3_0,
     tot: u32,
 }
@@ -1866,7 +1958,7 @@ struct InnerReadData3_0 {
 
 #[derive(Debug, Clone, Serialize)]
 struct InnerReadData3_2 {
-    data: Offsets,
+    data: Segment,
     supplemental: SupplementalOffsets3_2,
     tot: u32,
 }
@@ -1883,7 +1975,7 @@ trait VersionedReadData: Sized {
 
     fn get_tot(&self) -> Option<u32>;
 
-    fn data_offsets(&self, o: &Offsets) -> Offsets;
+    fn data_offsets(&self, o: &Segment) -> Segment;
 
     // fn measurement_name(p: &Measurement<Self>) -> Option<&str>;
 
@@ -1908,7 +2000,7 @@ impl VersionedReadData for InnerReadData2_0 {
         })
     }
 
-    fn data_offsets(&self, o: &Offsets) -> Offsets {
+    fn data_offsets(&self, o: &Segment) -> Segment {
         *o
     }
 
@@ -1926,7 +2018,7 @@ impl VersionedReadData for InnerReadData3_0 {
         })
     }
 
-    fn data_offsets(&self, o: &Offsets) -> Offsets {
+    fn data_offsets(&self, o: &Segment) -> Segment {
         if o.is_unset() {
             self.data
         } else {
@@ -1949,7 +2041,7 @@ impl VersionedReadData for InnerReadData3_2 {
         Some(r)
     }
 
-    fn data_offsets(&self, o: &Offsets) -> Offsets {
+    fn data_offsets(&self, o: &Segment) -> Segment {
         if o.is_unset() {
             self.data
         } else {
@@ -2078,7 +2170,7 @@ struct CoreText<M, P> {
 #[derive(Debug, Clone, Serialize)]
 struct StdText<M, P, R> {
     // TODO this isn't necessary for writing and is redundant here
-    data_offsets: Offsets,
+    data_offsets: Segment,
     read_data: ReadData<R>,
     core: CoreText<M, P>,
 }
@@ -2293,7 +2385,7 @@ impl<M: VersionedMetadata> StdText<M, M::P, M::R> {
 // }
 
 struct IntermediateTEXT<M, P, R> {
-    data_offsets: Offsets,
+    data_offsets: Segment,
     read_data: ReadData<R>,
     metadata: Metadata<M>,
     measurements: Vec<Measurement<P>>,
@@ -3964,13 +4056,14 @@ impl<'a> KwState<'a> {
         self.lookup_optional_fun(k, |s| s.parse().map_err(|e| format!("{}", e)), dep)
     }
 
-    // TODO these need to be checked with the delta taken into account
-    fn build_offsets(&mut self, begin: u32, end: u32, which: &'static str) -> Option<Offsets> {
-        Offsets::new(begin, end).or_else(|| {
-            let msg = format!("Could not make {} offset: begin > end", which);
-            self.meta_errors.push(msg);
-            None
-        })
+    fn build_offsets(&mut self, begin: u32, end: u32, id: SegmentId) -> Option<Segment> {
+        match Segment::try_new(begin, end, id) {
+            Ok(seg) => Some(seg),
+            Err(err) => {
+                self.meta_errors.push(err.to_string());
+                None
+            }
+        }
     }
 
     // metadata
@@ -3983,22 +4076,23 @@ impl<'a> KwState<'a> {
         self.lookup_required(ENDDATA, false)
     }
 
-    fn lookup_data_offsets(&mut self) -> Option<Offsets> {
+    // TODO don't short circuit here
+    fn lookup_data_offsets(&mut self) -> Option<Segment> {
         let begin = self.lookup_begindata()?;
         let end = self.lookup_enddata()?;
-        self.build_offsets(begin, end, "DATA")
+        self.build_offsets(begin, end, SegmentId::Data)
     }
 
-    fn lookup_stext_offsets(&mut self) -> Option<Offsets> {
+    fn lookup_stext_offsets(&mut self) -> Option<Segment> {
         let beginstext = self.lookup_required(BEGINSTEXT, false)?;
         let endstext = self.lookup_required(ENDSTEXT, false)?;
-        self.build_offsets(beginstext, endstext, "STEXT")
+        self.build_offsets(beginstext, endstext, SegmentId::SupplementalText)
     }
 
-    fn lookup_analysis_offsets(&mut self) -> Option<Offsets> {
+    fn lookup_analysis_offsets(&mut self) -> Option<Segment> {
         let beginstext = self.lookup_required(BEGINANALYSIS, false)?;
         let endstext = self.lookup_required(ENDANALYSIS, false)?;
-        self.build_offsets(beginstext, endstext, "ANALYSIS")
+        self.build_offsets(beginstext, endstext, SegmentId::Analysis)
     }
 
     fn lookup_supplemental3_0(&mut self) -> Option<SupplementalOffsets3_0> {
@@ -4682,7 +4776,7 @@ fn parse_header_offset(s: &str, allow_blank: bool) -> Option<u32> {
     })
 }
 
-fn parse_bounds(s0: &str, s1: &str, allow_blank: bool) -> Result<Offsets, &'static str> {
+fn parse_bounds(s0: &str, s1: &str, allow_blank: bool) -> Result<Segment, &'static str> {
     if let (Some(begin), Some(end)) = (
         parse_header_offset(s0, allow_blank),
         parse_header_offset(s1, allow_blank),
@@ -4690,7 +4784,7 @@ fn parse_bounds(s0: &str, s1: &str, allow_blank: bool) -> Result<Offsets, &'stat
         if begin > end {
             Err("beginning is greater than end")
         } else {
-            Ok(Offsets { begin, end })
+            Ok(Segment { begin, end })
         }
     } else if allow_blank {
         Err("could not make bounds from integers/blanks")
@@ -4786,6 +4880,55 @@ pub struct FCSSuccess {
     pub data: ParsedData,
 }
 
+/// Represents result which may fail but still have immediately usable data.
+///
+/// Useful for situations where the program should try to compute as much as
+/// possible before failing, which entails gather errors and carrying them
+/// forward rather than exiting immediately as would be the case if the error
+/// were wrapped in a Result<_, _>.
+struct TentativeSuccess<X> {
+    errors: Vec<FCSError>,
+    data: X,
+}
+
+type TentativeResult<X> = Result<TentativeSuccess<X>, Vec<FCSError>>;
+
+impl<X> TentativeSuccess<X> {
+    fn try_collect(self) -> TentativeResult<X> {
+        let (pass, fail): (Vec<_>, Vec<_>) = self
+            .errors
+            .into_iter()
+            .map(|e| {
+                if e.level == FCSErrorLevel::Error {
+                    Err(e)
+                } else {
+                    Ok(e)
+                }
+            })
+            .partition_result();
+        if fail.is_empty() {
+            Ok(TentativeSuccess {
+                errors: pass,
+                data: self.data,
+            })
+        } else {
+            Err(fail)
+        }
+    }
+}
+
+struct FCSError {
+    level: FCSErrorLevel,
+    error: Box<dyn Error>,
+}
+
+#[derive(PartialEq, Eq)]
+enum FCSErrorLevel {
+    Error,
+    Warning,
+    // TODO debug, info, etc?
+}
+
 fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
     // this needs the entire TEXT segment to be loaded in memory, which should
     // be fine since the max number of bytes is ~100M given the upper limit
@@ -4839,14 +4982,11 @@ fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
         .filter_map(|(i, c)| if *c == delimiter { Some(i) } else { None })
         .collect();
 
-    let raw_boundaries = delim_positions
-        // We force-added the first and last delimiter in the TEXT segment, so
-        // this is guaranteed to have at least two elements (one pair)
-        .windows(2)
-        .filter_map(|x| match x {
-            [a, b] => Some((*a, b - a)),
-            _ => None,
-        });
+    // TODO check that first and last positions are delimiters
+    let raw_boundaries = delim_positions.windows(2).filter_map(|x| match x {
+        [a, b] => Some((*a, b - a)),
+        _ => None,
+    });
 
     // Compute word boundaries depending on if we want to "escape" delims or
     // not. Technically all versions of the standard allow double delimiters to
@@ -5007,24 +5147,32 @@ fn repair_keywords(kws: &mut HashMap<String, String>, conf: &RawTextReader) {
     }
 }
 
+impl Error for SegmentError {}
+
+impl From<SegmentError> for io::Error {
+    fn from(value: SegmentError) -> Self {
+        io::Error::other(value)
+    }
+}
+
 fn read_raw_text<R: Read + Seek>(
     h: &mut BufReader<R>,
     header: &Header,
     conf: &RawTextReader,
 ) -> io::Result<RawTEXT> {
-    if let Some(adjusted) = header.text.adjust(conf.starttext_delta, conf.endtext_delta) {
-        let begin = u64::from(adjusted.begin);
-        let nbytes = u64::from(adjusted.num_bytes());
-        let mut buf = vec![];
+    let adjusted_text = header.text.try_adjust(
+        conf.starttext_delta,
+        conf.endtext_delta,
+        SegmentId::PrimaryText,
+    )?;
 
-        h.seek(SeekFrom::Start(begin))?;
-        h.take(nbytes).read_to_end(&mut buf)?;
-        split_raw_text(&buf, conf).map_err(io::Error::other)
-    } else {
-        Err(io::Error::other(
-            "Adjusted begin is after adjusted end for TEXT",
-        ))
-    }
+    let begin = u64::from(adjusted_text.begin);
+    let nbytes = u64::from(adjusted_text.num_bytes());
+    let mut buf = vec![];
+
+    h.seek(SeekFrom::Start(begin))?;
+    h.take(nbytes).read_to_end(&mut buf)?;
+    split_raw_text(&buf, conf).map_err(io::Error::other)
 }
 
 /// Instructions for reading the TEXT segment as raw key/value pairs.

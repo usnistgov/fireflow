@@ -168,7 +168,7 @@ impl fmt::Display for FCSTime100Error {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, PartialEq)]
 struct Segment {
     begin: u32,
     end: u32,
@@ -234,7 +234,7 @@ impl fmt::Display for SegmentError {
 }
 
 impl Segment {
-    fn try_new(begin: u32, end: u32, id: SegmentId) -> Result<Segment, SegmentError> {
+    fn try_new(begin: u32, end: u32, id: SegmentId) -> Result<Segment, String> {
         Self::try_new_adjusted(begin, end, 0, 0, id)
     }
 
@@ -244,7 +244,7 @@ impl Segment {
         begin_delta: i32,
         end_delta: i32,
         id: SegmentId,
-    ) -> Result<Segment, SegmentError> {
+    ) -> Result<Segment, String> {
         let x = i64::from(begin) + i64::from(begin_delta);
         let y = i64::from(end) + i64::from(end_delta);
         let err = |kind| {
@@ -254,7 +254,8 @@ impl Segment {
                 end_delta,
                 kind,
                 id,
-            })
+            }
+            .to_string())
         };
         match (u32::try_from(x), u32::try_from(y)) {
             (Ok(new_begin), Ok(new_end)) => {
@@ -276,7 +277,7 @@ impl Segment {
         begin_delta: i32,
         end_delta: i32,
         id: SegmentId,
-    ) -> Result<Segment, SegmentError> {
+    ) -> Result<Segment, String> {
         Self::try_new_adjusted(self.begin, self.end, begin_delta, end_delta, id)
     }
 
@@ -2415,8 +2416,9 @@ fn byteord_to_sized<const LEN: usize>(byteord: &ByteOrd) -> Result<SizedByteOrd<
         ByteOrd::Mixed(v) => v[..]
             .try_into()
             .map(|order: [u8; LEN]| SizedByteOrd::Order(order))
-            .or(Err(String::from(
-                "$BYTEORD is mixed but length is {v.len()} and not {INTLEN}",
+            .or(Err(format!(
+                "$BYTEORD is mixed but length is {} and not {LEN}",
+                v.len()
             ))),
     }
 }
@@ -3995,16 +3997,16 @@ struct KeyWarning {
 
 impl<'a> KwState<'a> {
     // TODO not DRY (although will likely need HKTs)
-    fn lookup_required_fun<V, F>(&mut self, k: &str, f: F, dep: bool) -> Option<V>
+    fn lookup_required<V: FromStr>(&mut self, k: &str, dep: bool) -> Option<V>
     where
-        F: FnOnce(&str) -> ParseResult<V>,
+        <V as FromStr>::Err: fmt::Display,
     {
         let sk = StdKey(String::from(k));
         match self.raw_standard_keywords.get_mut(&sk) {
             Some(v) => match v.status {
                 ValueStatus::Raw => {
-                    let (s, r) = f(&v.value).map_or_else(
-                        |e| (ValueStatus::Error(e), None),
+                    let (s, r) = v.value.parse().map_or_else(
+                        |e| (ValueStatus::Error(format!("{}", e)), None),
                         |x| (ValueStatus::Used, Some(x)),
                     );
                     if dep {
@@ -4022,16 +4024,16 @@ impl<'a> KwState<'a> {
         }
     }
 
-    fn lookup_optional_fun<V, F>(&mut self, k: &str, f: F, dep: bool) -> OptionalKw<V>
+    fn lookup_optional<V: FromStr>(&mut self, k: &str, dep: bool) -> OptionalKw<V>
     where
-        F: FnOnce(&str) -> ParseResult<V>,
+        <V as FromStr>::Err: fmt::Display,
     {
         let sk = StdKey(String::from(k));
         match self.raw_standard_keywords.get_mut(&sk) {
             Some(v) => match v.status {
                 ValueStatus::Raw => {
-                    let (s, r) = f(&v.value).map_or_else(
-                        |w| (ValueStatus::Warning(w), Absent),
+                    let (s, r) = v.value.parse().map_or_else(
+                        |w| (ValueStatus::Warning(format!("{}", w)), Absent),
                         |x| (ValueStatus::Used, OptionalKw::Present(x)),
                     );
                     if dep {
@@ -4044,20 +4046,6 @@ impl<'a> KwState<'a> {
             },
             None => Absent,
         }
-    }
-
-    fn lookup_required<V: FromStr>(&mut self, k: &str, dep: bool) -> Option<V>
-    where
-        <V as FromStr>::Err: fmt::Display,
-    {
-        self.lookup_required_fun(k, |s| s.parse().map_err(|e| format!("{}", e)), dep)
-    }
-
-    fn lookup_optional<V: FromStr>(&mut self, k: &str, dep: bool) -> OptionalKw<V>
-    where
-        <V as FromStr>::Err: fmt::Display,
-    {
-        self.lookup_optional_fun(k, |s| s.parse().map_err(|e| format!("{}", e)), dep)
     }
 
     fn build_offsets(&mut self, begin: u32, end: u32, id: SegmentId) -> Option<Segment> {
@@ -4884,109 +4872,399 @@ pub struct FCSSuccess {
     pub data: ParsedData,
 }
 
-/// Represents result which may fail but still have immediately usable data.
+// /// Represents result which may fail but still have immediately usable data.
+// ///
+// /// Useful for situations where the program should try to compute as much as
+// /// possible before failing, which entails gather errors and carrying them
+// /// forward rather than exiting immediately as would be the case if the error
+// /// were wrapped in a Result<_, _>.
+// struct Tentative<X> {
+//     // ignorable: DeferredErrors,
+//     // unignorable: DeferredErrors,
+//     errors: AllDeferredErrors,
+//     data: X,
+// }
+
+// struct AllDeferredErrors {
+//     ignorable: DeferredErrors,
+//     unignorable: DeferredErrors,
+// }
+
+// impl AllDeferredErrors {
+//     fn new() -> AllDeferredErrors {
+//         AllDeferredErrors {
+//             ignorable: DeferredErrors::new(),
+//             unignorable: DeferredErrors::new(),
+//         }
+//     }
+
+//     fn from<E: Error + 'static>(e: E) -> AllDeferredErrors {
+//         let mut x = AllDeferredErrors::new();
+//         x.push_unignorable(e);
+//         x
+//     }
+
+//     fn push_ignorable<E: Error + 'static>(&mut self, e: E) {
+//         self.ignorable.0.push(Box::new(e))
+//     }
+
+//     fn push_unignorable<E: Error + 'static>(&mut self, e: E) {
+//         self.unignorable.0.push(Box::new(e))
+//     }
+
+//     fn extend_ignorable(&mut self, es: DeferredErrors) {
+//         self.ignorable.0.extend(es.0);
+//     }
+
+//     fn extend_unignorable(&mut self, es: DeferredErrors) {
+//         self.unignorable.0.extend(es.0);
+//     }
+
+//     fn extend(&mut self, es: AllDeferredErrors) {
+//         self.extend_unignorable(es.unignorable);
+//         self.extend_ignorable(es.ignorable);
+//     }
+// }
+
+#[derive(Copy, Clone)]
+enum PureErrorLevel {
+    Error,
+    Warning,
+    // TODO debug, info, etc
+}
+
+/// A pure error thrown during FCS file parsing.
 ///
-/// Useful for situations where the program should try to compute as much as
-/// possible before failing, which entails gather errors and carrying them
-/// forward rather than exiting immediately as would be the case if the error
-/// were wrapped in a Result<_, _>.
-struct TentativeSuccess<X> {
-    errors: Vec<FCSError>,
+/// This is very basic, since the only functionality we need is capturing a
+/// message to show the user and an error level. The latter will dictate how the
+/// error(s) is/are handled when we finish parsing.
+struct PureError {
+    msg: String,
+    level: PureErrorLevel,
+}
+
+/// A collection of pure FCS errors.
+///
+/// Rather than exiting when we encounter the first error, we wish to capture
+/// all possible errors and show the user all at once so they know what issues
+/// in their files to fix. Therefore make an "error" type which is actually many
+/// errors.
+struct PureErrorBuf {
+    errors: Vec<PureError>,
+}
+
+/// The result of a successful pure FCS computation which may have errors.
+///
+/// Since we are collecting errors and displaying them at the end of the parse
+/// process, "success" needs to include any errors that have been previously
+/// thrown (aka they are "deferred"). Decide later if these are a real issue and
+/// parsed data needs to be withheld from the user.
+struct PureSuccess<X> {
+    deferred: PureErrorBuf,
     data: X,
 }
 
-type TentativeResult<X> = Result<TentativeSuccess<X>, Vec<FCSError>>;
+/// The result of a failed computation.
+///
+/// This includes the immediate reason for failure as well as any errors
+/// encountered previously which were deferred until now.
+struct Failure<E> {
+    reason: E,
+    deferred: PureErrorBuf,
+}
 
-impl<X> TentativeSuccess<X> {
-    fn try_collect(self) -> TentativeResult<X> {
-        let (pass, fail): (Vec<_>, Vec<_>) = self
-            .errors
-            .into_iter()
-            .map(|e| {
-                if e.level == FCSErrorLevel::Error {
-                    Err(e)
-                } else {
-                    Ok(e)
-                }
-            })
-            .partition_result();
-        if fail.is_empty() {
-            Ok(TentativeSuccess {
-                errors: pass,
-                data: self.data,
-            })
-        } else {
-            Err(fail)
+/// The result of a failed pure FCS computation.
+type PureFailure = Failure<String>;
+
+/// Success or failure of a pure FCS computation.
+type PureResult<T> = Result<PureSuccess<T>, PureFailure>;
+
+/// Error which may either be pure or impure (within IO context).
+///
+/// In the pure case this only has a single error rather than the collection
+/// of errors. The pure case is meant to be used as the single reason for
+/// a critical error; deferred errors will be captured elsewhere. Given that
+/// this is only meant to be used in the failure case, pure errors do not have
+/// an error level (they are always "critical").
+///
+/// The impure case is always "critical" as usually this indicates something
+/// went wrong with file IO, which is usually an OS issue.
+enum ImpureError {
+    IO(io::Error),
+    Pure(String),
+}
+
+/// The result of either a failed pure or impure computation.
+type ImpureFailure = Failure<ImpureError>;
+
+/// Success or failure of a pure or impure computation.
+type ImpureResult<T> = Result<PureSuccess<T>, ImpureFailure>;
+
+impl<E> Failure<E> {
+    fn new(reason: E) -> Failure<E> {
+        Failure {
+            reason,
+            deferred: PureErrorBuf::new(),
+        }
+    }
+
+    fn map<X, F: Fn(E) -> X>(self, f: F) -> Failure<X> {
+        Failure {
+            reason: f(self.reason),
+            deferred: self.deferred,
+        }
+    }
+
+    fn from_result<X>(res: Result<X, E>) -> Result<X, Failure<E>> {
+        res.map_err(Failure::new)
+    }
+
+    fn extend(&mut self, other: PureErrorBuf) {
+        self.deferred.errors.extend(other.errors);
+    }
+}
+
+impl PureErrorBuf {
+    fn new() -> PureErrorBuf {
+        PureErrorBuf { errors: vec![] }
+    }
+
+    fn from(msg: String, level: PureErrorLevel) -> PureErrorBuf {
+        PureErrorBuf {
+            errors: vec![PureError { msg, level }],
+        }
+    }
+
+    fn concat(mut self, other: PureErrorBuf) -> PureErrorBuf {
+        self.errors.extend(other.errors);
+        PureErrorBuf {
+            errors: self.errors,
+        }
+    }
+
+    fn from_many(msgs: Vec<String>, level: PureErrorLevel) -> PureErrorBuf {
+        PureErrorBuf {
+            errors: msgs
+                .into_iter()
+                .map(|msg| PureError { msg, level })
+                .collect(),
         }
     }
 }
 
-struct FCSError {
-    level: FCSErrorLevel,
-    error: Box<dyn Error>,
-}
-
-#[derive(PartialEq, Eq)]
-enum FCSErrorLevel {
-    Error,
-    Warning,
-    // TODO debug, info, etc?
-}
-
-fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
-    // this needs the entire TEXT segment to be loaded in memory, which should
-    // be fine since the max number of bytes is ~100M given the upper limit
-    // imposed by the header
-    //
-    // 1. bounded by textstart/end
-    // 2. first character is delimiter (and so is the last, I think...)
-    // 3. two delimiters in a row shall be replaced by one delimiter
-    // 4. no value shall be blank, so (3) implies that delimiters can be present in
-    //    keys or values
-    // 5. there should be an even number of delimited fields (obviously)
-    // 6. delimiters should not be at the start or end of word; for instance, if
-    //    we encountered XXX (where X is delim) it wouldn't be clear if the first
-    //    or third X is the boundary and if the other two belong to the previous or
-    //    or next keyword. Implication: keywords can only appear once in a row or
-    //    an even number of times in a row.
-    let mut keywords: HashMap<_, _> = HashMap::new();
-    let mut warnings = vec![];
-    let textlen = xs.len();
-    let mut warn_or_err2 = |is_error, err, warn| {
-        if is_error || conf.warnings_are_errors {
-            Err(err)
-        } else {
-            warnings.push(warn);
-            Ok(())
+impl<X> PureSuccess<X> {
+    fn from(data: X) -> PureSuccess<X> {
+        PureSuccess {
+            data,
+            deferred: PureErrorBuf::new(),
         }
-    };
+    }
 
+    fn push(&mut self, e: PureError) {
+        self.deferred.errors.push(e)
+    }
+
+    fn push_msg(&mut self, msg: String, level: PureErrorLevel) {
+        self.push(PureError { msg, level })
+    }
+
+    fn push_msg_leveled(&mut self, msg: String, is_error: bool) {
+        if is_error {
+            self.push_error(msg);
+        } else {
+            self.push_warning(msg);
+        }
+    }
+
+    fn push_error(&mut self, msg: String) {
+        self.push_msg(msg, PureErrorLevel::Error)
+    }
+
+    fn push_warning(&mut self, msg: String) {
+        self.push_msg(msg, PureErrorLevel::Warning)
+    }
+
+    fn extend(&mut self, es: PureErrorBuf) {
+        self.deferred.errors.extend(es.errors)
+    }
+
+    fn map<Y, F: FnOnce(X) -> Y>(self, f: F) -> PureSuccess<Y> {
+        let data = f(self.data);
+        PureSuccess {
+            data,
+            deferred: self.deferred,
+        }
+    }
+
+    fn into_result(self) -> PureResult<X> {
+        Ok(self)
+    }
+
+    fn and_then<Y, F: FnOnce(X) -> PureSuccess<Y>>(self, f: F) -> PureSuccess<Y> {
+        let mut new = f(self.data);
+        // TODO order?
+        new.extend(self.deferred);
+        new
+    }
+
+    fn try_map<E, Y, F>(self, f: F) -> Result<PureSuccess<Y>, Failure<E>>
+    where
+        F: FnOnce(X) -> Result<PureSuccess<Y>, Failure<E>>,
+    {
+        match f(self.data) {
+            Ok(mut new) => {
+                new.deferred.errors.extend(self.deferred.errors);
+                Ok(new)
+            }
+            Err(mut err) => {
+                // TODO order?
+                err.deferred.errors.extend(self.deferred.errors);
+                Err(err)
+            }
+        }
+    }
+
+    fn combine<Y, Z, F: FnOnce(X, Y) -> Z>(self, other: PureSuccess<Y>, f: F) -> PureSuccess<Z> {
+        PureSuccess {
+            data: f(self.data, other.data),
+            deferred: self.deferred.concat(other.deferred),
+        }
+    }
+
+    fn combine_result<E, F, Y, Z>(
+        self,
+        other: Result<PureSuccess<Y>, Failure<E>>,
+        f: F,
+    ) -> Result<PureSuccess<Z>, Failure<E>>
+    where
+        F: FnOnce(X, Y) -> Z,
+    {
+        match other {
+            Ok(pass) => Ok(self.combine(pass, f)),
+            Err(mut fail) => {
+                fail.extend(self.deferred);
+                Err(fail)
+            }
+        }
+    }
+
+    fn combine_some_result<E, F, Y, Z>(
+        self,
+        other: Result<Y, Failure<E>>,
+        f: F,
+    ) -> Result<PureSuccess<Z>, Failure<E>>
+    where
+        F: FnOnce(X, Y) -> Z,
+    {
+        match other {
+            Ok(pass) => Ok(PureSuccess {
+                data: f(self.data, pass),
+                deferred: self.deferred,
+            }),
+            Err(mut fail) => {
+                fail.extend(self.deferred);
+                Err(fail)
+            }
+        }
+    }
+
+    fn from_result(res: Result<X, PureErrorBuf>) -> PureSuccess<Option<X>> {
+        match res {
+            Ok(data) => PureSuccess::from(Some(data)),
+            Err(deferred) => PureSuccess {
+                data: None,
+                deferred,
+            },
+        }
+    }
+}
+
+#[derive(Debug)]
+struct DelimError {
+    delimiter: u8,
+    kind: DelimErrorKind,
+}
+
+impl fmt::Display for DelimError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let x = match self.kind {
+            DelimErrorKind::NotAscii => "an ASCII character 1-126",
+            DelimErrorKind::NotUTF8 => "a utf8 character",
+        };
+        write!(f, "Delimiter {} is not {}", self.delimiter, x)
+    }
+}
+
+impl Error for DelimError {}
+
+#[derive(Debug)]
+enum DelimErrorKind {
+    NotUTF8,
+    NotAscii,
+}
+
+fn verify_delim(xs: &[u8], conf: &RawTextReader) -> PureSuccess<u8> {
     // First character is the delimiter
     let delimiter: u8 = xs[0];
-    let str_delim = String::from_utf8(vec![delimiter]).or(Err(String::from(
-        "First character of TEXT segment is not a valid UTF-8 byte, parsing failed",
-    )))?;
+
+    // Check that it is a valid UTF8 character
+    //
+    // TODO we technically don't need this to be true in the case of double
+    // delimiters, but this is non-standard anyways and probably rare
+    let mut res = PureSuccess::from(delimiter);
+    if String::from_utf8(vec![delimiter]).is_err() {
+        res.push_error(format!(
+            "Delimiter {delimiter} is not a valid utf8 character"
+        ));
+    }
 
     // Check that the delim is valid; this is technically only written in the
     // spec for 3.1+ but for older versions this should still be true since
     // these were ASCII-everywhere
     if !(1..=126).contains(&delimiter) {
-        warn_or_err2(
-            conf.force_ascii_delim,
-            String::from("delimiter must be an ASCII character 1-126, got {str_delim}"),
-            String::from("delimiter should be an ASCII character 1-126, got {str_delim}"),
-        )?
+        let msg = format!("Delimiter {delimiter} is not an ASCII character b/t 1-126");
+        res.push_msg_leveled(msg, conf.force_ascii_delim);
     }
+    res
+}
 
-    // Read from the 2nd character to all but the last character and record
-    // delimiter positions.
+enum RawTextError {
+    DelimAtBoundary,
+}
+
+#[derive(Debug)]
+struct MsgError(String);
+
+impl Error for MsgError {}
+
+impl fmt::Display for MsgError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{}", self.0)
+    }
+}
+
+type RawPairs = Vec<(String, String)>;
+
+fn split_raw_text(xs: &[u8], delim: u8, conf: &RawTextReader) -> PureSuccess<RawPairs> {
+    let mut keywords: vec![];
+    let mut res = PureSuccess::from(keywords);
+    let mut warnings = vec![];
+    let textlen = xs.len();
+
+    // Record delim positions
     let delim_positions: Vec<_> = xs
         .iter()
         .enumerate()
-        .filter_map(|(i, c)| if *c == delimiter { Some(i) } else { None })
+        .filter_map(|(i, c)| if *c == delim { Some(i) } else { None })
         .collect();
 
-    // TODO check that first and last positions are delimiters
+    // bail if we only have two positions
+    if delim_positions.len() <= 2 {
+        return res;
+    }
+
+    // Reduce position list to 'boundary list' which will be tuples of position
+    // of a given delim and length until next delim.
     let raw_boundaries = delim_positions.windows(2).filter_map(|x| match x {
         [a, b] => Some((*a, b - a)),
         _ => None,
@@ -5003,12 +5281,13 @@ fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
         // Remove "escaped" delimiters from position vector. Because we disallow
         // blank values and also disallow delimiters at the start/end of words,
         // this implies that we should only see delimiters by themselves or in a
-        // consecutive sequence whose length is even.
+        // consecutive sequence whose length is even. Any odd-length'ed runs will
+        // be treated as one delimiter if config permits
         let mut filtered_boundaries = vec![];
         for (key, chunk) in raw_boundaries.chunk_by(|(_, x)| *x).into_iter() {
             if key == 1 {
                 if chunk.count() % 2 == 1 {
-                    return Err(format!("delimiter '{str_delim}' found at word boundary"));
+                    res.push_unignorable(RawTextError::DelimAtBoundary);
                 }
             } else {
                 for x in chunk {
@@ -5025,13 +5304,15 @@ fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
             (filtered_boundaries.first(), filtered_boundaries.last())
         {
             if *x0 > 0 {
-                return Err(format!("first key starts with a delim '{str_delim}'"));
+                let msg = format!("first key starts with a delim '{delim}'");
+                res.push_error(msg);
             }
             if *xf + len < textlen - 1 {
-                return Err(format!("final value ends with a delim '{str_delim}'",));
+                let msg = format!("final value ends with a delim '{delim}'");
+                res.push_error(msg);
             }
         } else {
-            return Err(String::from("no boundaries found, cannot parse keywords"));
+            return res;
         }
         filtered_boundaries
     };
@@ -5039,15 +5320,14 @@ fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
     // Check that the last char is also a delim, if not file probably sketchy
     // ASSUME this will not fail since we have at least one delim by definition
     if !delim_positions.last().unwrap() == xs.len() - 1 {
-        warn_or_err2(
+        res.push_msg_leveled(
+            "Last char is not a delimiter".to_string(),
             conf.enforce_final_delim,
-            format!("last TEXT char is not {str_delim}"),
-            format!("last TEXT char is not delim {str_delim}, parsing may have failed"),
-        )?
+        );
     }
 
-    let delim2 = [delimiter, delimiter];
-    let delim1 = [delimiter];
+    let delim2 = [delim, delim];
+    let delim1 = [delim];
     // ASSUME these won't fail as we checked the delimiter is an ASCII character
     let escape_from = str::from_utf8(&delim2).unwrap();
     let escape_to = str::from_utf8(&delim1).unwrap();
@@ -5063,85 +5343,53 @@ fn split_raw_text(xs: &[u8], conf: &RawTextReader) -> Result<RawTEXT, String> {
                 let kupper = k.to_uppercase();
                 // test if keyword is ascii
                 if !kupper.is_ascii() {
-                    warn_or_err2(
+                    // TODO actually include keyword here
+                    res.push_msg_leveled(
+                        "keywords must be ASCII".to_string(),
                         conf.enfore_keyword_ascii,
-                        String::from("keywords must be ASCII"),
-                        String::from("keywords should be ASCII"),
-                    )?
+                    )
                 }
                 // if delimiters were escaped, replace them here
-                let res = if conf.no_delim_escape {
+                if conf.no_delim_escape {
                     // Test for empty values if we don't allow delim escaping;
                     // anything empty will either drop or produce an error
                     // depending on user settings
                     if v.is_empty() {
+                        // TODO tell the user that this key will be dropped
                         let msg = format!("key {kupper} has a blank value");
-                        warn_or_err2(
-                            conf.enforce_nonempty,
-                            msg.clone(),
-                            format!("{}, dropping", msg),
-                        )?;
+                        res.push_msg_leveled(msg, conf.enforce_nonempty);
                         None
                     } else {
-                        keywords.insert(kupper.clone(), v.to_string())
+                        keywords.push((kupper.clone(), v.to_string()))
                     }
                 } else {
                     let krep = kupper.replace(escape_from, escape_to);
                     let rrep = v.replace(escape_from, escape_to);
-                    keywords.insert(krep, rrep)
+                    keywords.push((krep, rrep))
                 };
                 // test if the key was inserted already
-                if res.is_some() {
-                    let msg = format!("key {kupper} is found more than once");
-                    warn_or_err2(conf.enforce_unique, msg.clone(), msg)?
-                }
+                //
+                // TODO this will be better assessed when we have both hashmaps
+                // from primary and supp text
+                // if res.is_some() {
+                //     let msg = format!("key {kupper} is found more than once");
+                //     res.push_msg_leveled(msg, conf.enforce_unique)
+                // }
             } else {
-                let msg = String::from("invalid UTF-8 byte encountered when parsing TEXT");
-                warn_or_err2(conf.error_on_invalid_utf8, msg.clone(), msg)?
+                let msg = "invalid UTF-8 byte encountered when parsing TEXT".to_string();
+                res.push_msg_leveled(msg, conf.error_on_invalid_utf8)
             }
         } else {
-            warn_or_err2(
-                conf.enforce_even,
-                String::from("number of words is not even"),
-                String::from("number of words is not even, parse may have failed"),
-            )?
+            res.push_msg_leveled("number of words is not even".to_string(), conf.enforce_even)
         }
     }
-
-    // TODO filter keywords based on pattern somewhere here
-
-    repair_keywords(&mut keywords, conf);
-
-    let (std, nstd): (Vec<_>, Vec<_>) = keywords
-        .into_iter()
-        .collect::<Vec<_>>()
-        .into_iter()
-        .partition(|(k, _)| k.starts_with("$"));
-
-    Ok(RawTEXT {
-        delimiter,
-        standard_keywords: std.into_iter().map(|(k, v)| (StdKey(k), v)).collect(),
-        nonstandard_keywords: nstd.into_iter().map(|(k, v)| (NonStdKey(k), v)).collect(),
-        warnings,
-    })
+    res
 }
 
-fn repair_keywords(kws: &mut HashMap<String, String>, conf: &RawTextReader) {
-    for (key, v) in kws.iter_mut() {
+fn repair_keywords(pairs: &mut RawPairs, conf: &RawTextReader) {
+    for (key, v) in pairs.iter_mut() {
         let k = key.as_str();
-        if (k == "$BEGINDATA"
-            || k == "$ENDDATA"
-            || k == "$BEGINSTEXT"
-            || k == "$ENDSTEXT"
-            || k == "$BEGINANALYSIS"
-            || k == "$ENDANALYSIS")
-            && conf.repair_offset_spaces
-        {
-            let len = v.len();
-            let trimmed = v.trim_start();
-            let newlen = trimmed.len();
-            *v = ("0").repeat(len - newlen) + trimmed
-        } else if k == "$DATE" {
+        if k == DATE {
             if let Some(pattern) = &conf.date_pattern {
                 if let Ok(d) = NaiveDate::parse_from_str(v, pattern.as_str()) {
                     *v = format!("{}", FCSDate(d))
@@ -5151,32 +5399,277 @@ fn repair_keywords(kws: &mut HashMap<String, String>, conf: &RawTextReader) {
     }
 }
 
+fn split_raw_pairs(
+    pairs: Vec<(String, String)>,
+    conf: &RawTextReader,
+) -> PureSuccess<(HashMap<StdKey, String>, HashMap<NonStdKey, String>)> {
+    let standard: HashMap<_, _> = HashMap::new();
+    let nonstandard: HashMap<_, _> = HashMap::new();
+    let mut res = PureSuccess::from((standard, nonstandard));
+    // TODO filter keywords based on pattern somewhere here
+    for (key, value) in pairs.into_iter() {
+        let oldkey = key.clone(); // TODO this seems lame
+        let ires = if key.starts_with("$") {
+            res.data.0.insert(StdKey(key), value)
+        } else {
+            res.data.1.insert(NonStdKey(key), value)
+        };
+        if ires.is_some() {
+            let msg = format!("Skipping already-inserted key: {oldkey}");
+            res.push_msg_leveled(msg, conf.enforce_unique);
+        }
+    }
+    res
+}
+
 impl Error for SegmentError {}
 
-impl From<SegmentError> for io::Error {
-    fn from(value: SegmentError) -> Self {
-        io::Error::other(value)
+// macro_rules! wrap_enum {
+//     ($enum_name:ident, $wrapper_name:ident) => {
+//         impl From<$enum_name> for $wrapper_name {
+//             fn from(enm: $enum_name) -> Self {
+//                 Self(enm)
+//             }
+//         }
+//     };
+// }
+
+impl From<PureFailure> for ImpureFailure {
+    fn from(value: PureFailure) -> Self {
+        value.map(ImpureError::Pure)
     }
+}
+
+impl From<io::Error> for ImpureFailure {
+    fn from(value: io::Error) -> Self {
+        Failure::new(ImpureError::IO(value))
+    }
+}
+
+fn pad_zeros(s: &str) -> String {
+    let len = s.len();
+    let trimmed = s.trim_start();
+    let newlen = trimmed.len();
+    ("0").repeat(len - newlen) + trimmed
+}
+
+fn parse_segment(
+    begin: Option<String>,
+    end: Option<String>,
+    begin_delta: i32,
+    end_delta: i32,
+    id: SegmentId,
+    level: PureErrorLevel,
+) -> Result<Segment, PureErrorBuf> {
+    let parse_one = |s: Option<String>, which| {
+        s.ok_or(format!("{which} not present for {id}"))
+            .and_then(|pass| pass.parse::<u32>().map_err(|e| e.to_string()))
+    };
+    let b = parse_one(begin, "begin");
+    let e = parse_one(end, "end");
+    let res = match (b, e) {
+        (Ok(bn), Ok(en)) => {
+            Segment::try_new_adjusted(bn, en, begin_delta, end_delta, id).map_err(|e| vec![e])
+        }
+        (Err(be), Err(en)) => Err(vec![be, en]),
+        (Err(be), _) => Err(vec![be]),
+        (_, Err(en)) => Err(vec![en]),
+    };
+    res.map_err(|msgs| PureErrorBuf::from_many(msgs, level))
+}
+
+fn find_raw_segments(
+    pairs: RawPairs,
+    conf: &RawTextReader,
+    header_data_seg: &Segment,
+    header_analysis_seg: &Segment,
+) -> (
+    RawPairs,
+    PureResult<Segment>,
+    PureSuccess<Option<Segment>>,
+    PureSuccess<Option<Segment>>,
+) {
+    // iterate through all pairs and strip out the ones that denote an offset
+    let mut data0 = None;
+    let mut data1 = None;
+    let mut stext0 = None;
+    let mut stext1 = None;
+    let mut analysis0 = None;
+    let mut analysis1 = None;
+    let mut newpairs = vec![];
+    let pad_maybe = |s: String| {
+        if conf.repair_offset_spaces {
+            pad_zeros(s.as_str())
+        } else {
+            s
+        }
+    };
+    for (key, v) in pairs.into_iter() {
+        match key.as_str() {
+            BEGINDATA => data0 = Some(pad_maybe(v)),
+            ENDDATA => data1 = Some(pad_maybe(v)),
+            BEGINSTEXT => stext0 = Some(pad_maybe(v)),
+            ENDSTEXT => stext1 = Some(pad_maybe(v)),
+            BEGINANALYSIS => analysis0 = Some(pad_maybe(v)),
+            ENDANALYSIS => analysis1 = Some(pad_maybe(v)),
+            _ => newpairs.push((key, v)),
+        }
+    }
+    // The DATA segment can be specified in either the header or TEXT. If within
+    // offset 99,999,999, then the two should match. if they don't match then
+    // trust the header and throw warning/error. If outside this range then the
+    // header will be 0,0 and TEXT will have the real offsets.
+    let data = parse_segment(
+        data0,
+        data1,
+        conf.startdata_delta,
+        conf.enddata_delta,
+        SegmentId::Data,
+        PureErrorLevel::Error,
+    )
+    .map(|data_seg| {
+        let mut res = PureSuccess::from(data_seg);
+        if !header_data_seg.is_unset() && data_seg != *header_data_seg {
+            res.data = *header_data_seg;
+            // TODO toggle level since this could indicate a sketchy file
+            res.push_msg_leveled(
+                "DATA offsets differ in HEADER and TEXT, using HEADER".to_string(),
+                false,
+            );
+        }
+        res
+    })
+    // TODO this seems like something I'll be doing alot
+    .map_err(|deferred| Failure {
+        reason: "DATA segment could not be found".to_string(),
+        deferred,
+    });
+
+    // Supplemental TEXT offsets are only in TEXT, so just parse and return
+    // if found.
+    let stext = PureSuccess::from_result(parse_segment(
+        stext0,
+        stext1,
+        conf.start_stext_delta,
+        conf.end_stext_delta,
+        SegmentId::SupplementalText,
+        PureErrorLevel::Warning,
+    ));
+
+    // ANALYSIS offsets are analogous to DATA offsets except they are optional.
+    let analysis = PureSuccess::from_result(parse_segment(
+        analysis0,
+        analysis1,
+        conf.start_analysis_delta,
+        conf.end_analysis_delta,
+        SegmentId::Analysis,
+        PureErrorLevel::Warning,
+    ))
+    .and_then(|anal_seg| {
+        // TODO this doesn't seem the most efficient since I make a new
+        // PureSuccess object in some branches
+        match anal_seg {
+            None => {
+                let seg = if header_analysis_seg.is_unset() {
+                    None
+                } else {
+                    Some(*header_analysis_seg)
+                };
+                PureSuccess::from(seg)
+            }
+            Some(seg) => {
+                let mut res = PureSuccess::from(Some(seg));
+                if !header_analysis_seg.is_unset() && seg != *header_analysis_seg {
+                    res.data = Some(*header_analysis_seg);
+                    // TODO toggle level since this could indicate a sketchy file
+                    res.push_msg_leveled(
+                        "ANALYSIS offsets differ in HEADER and TEXT, using HEADER".to_string(),
+                        false,
+                    );
+                }
+                res
+            }
+        }
+    });
+
+    (newpairs, data, stext, analysis)
+}
+
+struct RawTEXTBetter {
+    standard: HashMap<StdKey, String>,
+    nonstandard: HashMap<NonStdKey, String>,
+    data_seg: Segment,
+    analysis_seg: Option<Segment>,
+    // not totally necessary
+    delim: u8,
+}
+
+fn read_segment<R: Read + Seek>(
+    h: &mut BufReader<R>,
+    seg: &Segment,
+    buf: &mut Vec<u8>,
+) -> io::Result<()> {
+    let begin = u64::from(seg.begin);
+    let nbytes = u64::from(seg.num_bytes());
+
+    h.seek(SeekFrom::Start(begin))?;
+    h.take(nbytes).read_to_end(buf)?;
+    Ok(())
 }
 
 fn read_raw_text<R: Read + Seek>(
     h: &mut BufReader<R>,
     header: &Header,
     conf: &RawTextReader,
-) -> io::Result<RawTEXT> {
-    let adjusted_text = header.text.try_adjust(
+) -> ImpureResult<RawTEXTBetter> {
+    let adjusted_text = Failure::from_result(header.text.try_adjust(
         conf.starttext_delta,
         conf.endtext_delta,
         SegmentId::PrimaryText,
-    )?;
+    ))?;
 
-    let begin = u64::from(adjusted_text.begin);
-    let nbytes = u64::from(adjusted_text.num_bytes());
     let mut buf = vec![];
+    read_segment(h, &adjusted_text, &mut buf)?;
 
-    h.seek(SeekFrom::Start(begin))?;
-    h.take(nbytes).read_to_end(&mut buf)?;
-    split_raw_text(&buf, conf).map_err(io::Error::other)
+    verify_delim(&buf, conf).try_map(|delim| {
+        let mut res = split_raw_text(&buf, delim, conf);
+        let pairs_res = if header.version == Version::FCS2_0 {
+            repair_keywords(&mut res.data, conf);
+            // TODO check that analysis is not blank (and DATA)
+            Ok(res.map(|pairs| (pairs, header.data, Some(header.analysis.clone()))))
+        } else {
+            let (mut new_pairs, data_res, stext_res, anal_res) =
+                find_raw_segments(res.data, conf, &header.data, &header.analysis);
+            let stext_pairs_res = stext_res.try_map(|maybe_stext| {
+                maybe_stext.map_or(Ok(PureSuccess::from(vec![])), |stext| {
+                    buf.clear();
+                    read_segment(h, &stext, &mut buf)?;
+                    Ok(split_raw_text(&buf, delim, conf))
+                })
+            })?;
+            stext_pairs_res
+                .map(|stext_pairs| {
+                    new_pairs.extend(stext_pairs);
+                    new_pairs
+                })
+                .combine_result(data_res, |pairs, data_res| (pairs, data_res))
+                .map(|pass| {
+                    pass.combine(anal_res, |(pairs, data_seg), anal_seg| {
+                        (pairs, data_seg, anal_seg)
+                    })
+                })
+                .map_err(|err| err.map(ImpureError::Pure))
+        }?;
+        Ok(pairs_res.and_then(|(pairs, data_seg, analysis_seg)| {
+            split_raw_pairs(pairs, conf).map(|(standard, nonstandard)| RawTEXTBetter {
+                standard,
+                nonstandard,
+                data_seg,
+                analysis_seg,
+                delim,
+            })
+        }))
+    })
 }
 
 /// Instructions for reading the TEXT segment as raw key/value pairs.
@@ -5187,6 +5680,15 @@ pub struct RawTextReader {
 
     /// Will adjust the offset of the end of the TEXT segment by `offset + n`.
     pub endtext_delta: i32,
+
+    pub startdata_delta: i32,
+    pub enddata_delta: i32,
+
+    pub start_stext_delta: i32,
+    pub end_stext_delta: i32,
+
+    pub start_analysis_delta: i32,
+    pub end_analysis_delta: i32,
 
     /// If true, all raw text parsing warnings will be considered fatal errors
     /// which will halt the parsing routine.
@@ -5331,7 +5833,7 @@ pub struct Reader {
     pub data: DataReader,
 }
 
-type FCSResult = Result<FCSSuccess, Box<StdTEXTErrors>>;
+// type FCSResult = Result<FCSSuccess, Box<StdTEXTErrors>>;
 
 /// Return header in an FCS file.
 ///
@@ -5396,7 +5898,7 @@ pub fn read_fcs_text(p: &path::PathBuf, conf: &Reader) -> io::Result<TEXTResult>
 ///
 /// The [`conf`] argument can be used to control the behavior of each reading
 /// step, including the repair of non-conforming files.
-pub fn read_fcs_file(p: &path::PathBuf, conf: &Reader) -> io::Result<FCSResult> {
+pub fn read_fcs_file(p: &path::PathBuf, conf: &Reader) -> io::Result<PureResult> {
     let file = fs::File::options().read(true).open(p)?;
     let mut reader = BufReader::new(file);
     let header = read_header(&mut reader)?;
@@ -5405,7 +5907,7 @@ pub fn read_fcs_file(p: &path::PathBuf, conf: &Reader) -> io::Result<FCSResult> 
     match parse_raw_text(header, raw, &conf.text) {
         Ok(std) => {
             let data = read_data(&mut reader, std.data_parser).unwrap();
-            Ok(Ok(FCSSuccess {
+            Ok(Ok(PureSuccess {
                 header: std.header,
                 raw: std.raw,
                 std: std.standard,

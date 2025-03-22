@@ -5131,6 +5131,35 @@ impl<X> PureSuccess<X> {
         }
     }
 
+    fn combine3<A, B, Y, F: FnOnce(X, A, B) -> Y>(
+        self,
+        a: PureSuccess<A>,
+        b: PureSuccess<B>,
+        f: F,
+    ) -> PureSuccess<Y> {
+        PureSuccess {
+            data: f(self.data, a.data, b.data),
+            deferred: self.deferred.concat(a.deferred).concat(b.deferred),
+        }
+    }
+
+    fn combine4<A, B, C, Y, F: FnOnce(X, A, B, C) -> Y>(
+        self,
+        a: PureSuccess<A>,
+        b: PureSuccess<B>,
+        c: PureSuccess<C>,
+        f: F,
+    ) -> PureSuccess<Y> {
+        PureSuccess {
+            data: f(self.data, a.data, b.data, c.data),
+            deferred: self
+                .deferred
+                .concat(a.deferred)
+                .concat(b.deferred)
+                .concat(c.deferred),
+        }
+    }
+
     fn combine_result<E, F, Y, Z>(
         self,
         other: Result<PureSuccess<Y>, Failure<E>>,
@@ -5483,12 +5512,7 @@ fn find_raw_segments(
     conf: &RawTextReader,
     header_data_seg: &Segment,
     header_analysis_seg: &Segment,
-) -> (
-    RawPairs,
-    PureResult<Segment>,
-    PureSuccess<Option<Segment>>,
-    PureSuccess<Option<Segment>>,
-) {
+) -> PureSuccess<(RawPairs, Option<Segment>, Option<Segment>, Option<Segment>)> {
     // iterate through all pairs and strip out the ones that denote an offset
     let mut data0 = None;
     let mut data1 = None;
@@ -5515,35 +5539,52 @@ fn find_raw_segments(
             _ => newpairs.push((key, v)),
         }
     }
+
+    let check_seg_with_header = |res, header_seg: &Segment, what| {
+        PureSuccess::from_result(res).and_then(|seg| {
+            // TODO this doesn't seem the most efficient since I make a new
+            // PureSuccess object in some branches
+            match seg {
+                None => {
+                    let seg = if header_seg.is_unset() {
+                        None
+                    } else {
+                        Some(*header_seg)
+                    };
+                    PureSuccess::from(seg)
+                }
+                Some(seg) => {
+                    let mut res = PureSuccess::from(Some(seg));
+                    if !header_seg.is_unset() && seg != *header_seg {
+                        res.data = Some(*header_seg);
+                        // TODO toggle level since this could indicate a sketchy file
+                        res.push_msg_leveled(
+                            format!("{what} offsets differ in HEADER and TEXT, using HEADER"),
+                            false,
+                        );
+                    }
+                    res
+                }
+            }
+        })
+    };
+
     // The DATA segment can be specified in either the header or TEXT. If within
     // offset 99,999,999, then the two should match. if they don't match then
     // trust the header and throw warning/error. If outside this range then the
     // header will be 0,0 and TEXT will have the real offsets.
-    let data = parse_segment(
-        data0,
-        data1,
-        conf.startdata_delta,
-        conf.enddata_delta,
-        SegmentId::Data,
-        PureErrorLevel::Error,
-    )
-    .map(|data_seg| {
-        let mut res = PureSuccess::from(data_seg);
-        if !header_data_seg.is_unset() && data_seg != *header_data_seg {
-            res.data = *header_data_seg;
-            // TODO toggle level since this could indicate a sketchy file
-            res.push_msg_leveled(
-                "DATA offsets differ in HEADER and TEXT, using HEADER".to_string(),
-                false,
-            );
-        }
-        res
-    })
-    // TODO this seems like something I'll be doing alot
-    .map_err(|deferred| Failure {
-        reason: "DATA segment could not be found".to_string(),
-        deferred,
-    });
+    let data = check_seg_with_header(
+        parse_segment(
+            data0,
+            data1,
+            conf.startdata_delta,
+            conf.enddata_delta,
+            SegmentId::Data,
+            PureErrorLevel::Error,
+        ),
+        header_data_seg,
+        "DATA",
+    );
 
     // Supplemental TEXT offsets are only in TEXT, so just parse and return
     // if found.
@@ -5557,48 +5598,40 @@ fn find_raw_segments(
     ));
 
     // ANALYSIS offsets are analogous to DATA offsets except they are optional.
-    let analysis = PureSuccess::from_result(parse_segment(
-        analysis0,
-        analysis1,
-        conf.start_analysis_delta,
-        conf.end_analysis_delta,
-        SegmentId::Analysis,
-        PureErrorLevel::Warning,
-    ))
-    .and_then(|anal_seg| {
-        // TODO this doesn't seem the most efficient since I make a new
-        // PureSuccess object in some branches
-        match anal_seg {
-            None => {
-                let seg = if header_analysis_seg.is_unset() {
-                    None
-                } else {
-                    Some(*header_analysis_seg)
-                };
-                PureSuccess::from(seg)
-            }
-            Some(seg) => {
-                let mut res = PureSuccess::from(Some(seg));
-                if !header_analysis_seg.is_unset() && seg != *header_analysis_seg {
-                    res.data = Some(*header_analysis_seg);
-                    // TODO toggle level since this could indicate a sketchy file
-                    res.push_msg_leveled(
-                        "ANALYSIS offsets differ in HEADER and TEXT, using HEADER".to_string(),
-                        false,
-                    );
-                }
-                res
-            }
-        }
-    });
+    let analysis = check_seg_with_header(
+        parse_segment(
+            analysis0,
+            analysis1,
+            conf.start_analysis_delta,
+            conf.end_analysis_delta,
+            SegmentId::Analysis,
+            PureErrorLevel::Warning,
+        ),
+        header_analysis_seg,
+        "ANALYSIS",
+    );
 
-    (newpairs, data, stext, analysis)
+    data.combine3(stext, analysis, |a, b, c| (newpairs, a, b, c))
 }
 
 struct RawTEXTBetter {
     standard: HashMap<StdKey, String>,
     nonstandard: HashMap<NonStdKey, String>,
-    data_seg: Segment,
+    // this will be needed later if DATA is to be parsed, if none then
+    // a previous computation failed
+    //
+    // TODO this is a limitation of the current error handler where it would be
+    // nice to evaluate which are warnings and which are errors at the very end
+    // when we return a result. In this case, I would need to set the level flag
+    // when making the error when parsing the offsets directly; it would be a
+    // warning by default if we don't wish to parse DATA, and an error no matter
+    // what if we did need to parse DATA. The only way to do this is to "catch"
+    // the errors later which means we would need a system of propagating the
+    // error identities forward aside from their string message.
+    data_seg: Option<Segment>,
+    // for debug purposes
+    stext_seg: Option<Segment>,
+    // for parsing ANALYSIS later as needed
     analysis_seg: Option<Segment>,
     // not totally necessary
     delim: u8,
@@ -5635,40 +5668,52 @@ fn read_raw_text<R: Read + Seek>(
         let mut res = split_raw_text(&buf, delim, conf);
         let pairs_res = if header.version == Version::FCS2_0 {
             repair_keywords(&mut res.data, conf);
-            // TODO check that analysis is not blank (and DATA)
-            Ok(res.map(|pairs| (pairs, header.data, Some(header.analysis.clone()))))
+            Ok(res.map(|pairs| {
+                (
+                    pairs,
+                    if header.data.is_unset() {
+                        None
+                    } else {
+                        Some(header.data)
+                    },
+                    None,
+                    if header.analysis.is_unset() {
+                        None
+                    } else {
+                        Some(header.analysis)
+                    },
+                )
+            }))
         } else {
-            let (mut new_pairs, data_res, stext_res, anal_res) =
-                find_raw_segments(res.data, conf, &header.data, &header.analysis);
-            let stext_pairs_res = stext_res.try_map(|maybe_stext| {
-                maybe_stext.map_or(Ok(PureSuccess::from(vec![])), |stext| {
-                    buf.clear();
-                    read_segment(h, &stext, &mut buf)?;
-                    Ok(split_raw_text(&buf, delim, conf))
-                })
-            })?;
-            stext_pairs_res
-                .map(|stext_pairs| {
-                    new_pairs.extend(stext_pairs);
-                    new_pairs
-                })
-                .combine_result(data_res, |pairs, data_res| (pairs, data_res))
-                .map(|pass| {
-                    pass.combine(anal_res, |(pairs, data_seg), anal_seg| {
-                        (pairs, data_seg, anal_seg)
-                    })
-                })
-                .map_err(|err| err.map(ImpureError::Pure))
+            find_raw_segments(res.data, conf, &header.data, &header.analysis).try_map(
+                |(mut newpairs, maybe_data, maybe_stext, maybe_anal)| {
+                    let io_res: ImpureResult<_> =
+                        maybe_stext.map_or(Ok(PureSuccess::from(vec![])), |stext| {
+                            buf.clear();
+                            read_segment(h, &stext, &mut buf)?;
+                            Ok(split_raw_text(&buf, delim, conf))
+                        });
+                    let stext_res = io_res?;
+                    Ok(stext_res.map(|stext_pairs| {
+                        newpairs.extend(stext_pairs);
+                        (newpairs, maybe_data, maybe_stext, maybe_anal)
+                    }))
+                },
+            )
         }?;
-        Ok(pairs_res.and_then(|(pairs, data_seg, analysis_seg)| {
-            split_raw_pairs(pairs, conf).map(|(standard, nonstandard)| RawTEXTBetter {
-                standard,
-                nonstandard,
-                data_seg,
-                analysis_seg,
-                delim,
-            })
-        }))
+
+        Ok(
+            pairs_res.and_then(|(pairs, data_seg, stext_seg, analysis_seg)| {
+                split_raw_pairs(pairs, conf).map(|(standard, nonstandard)| RawTEXTBetter {
+                    standard,
+                    nonstandard,
+                    data_seg,
+                    stext_seg,
+                    analysis_seg,
+                    delim,
+                })
+            }),
+        )
     })
 }
 

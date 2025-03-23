@@ -1289,6 +1289,29 @@ impl InnerMeasurement3_2 {
 }
 
 #[derive(Debug, Clone, Serialize)]
+struct Measurement<X> {
+    bytes: Bytes,                      // PnB
+    range: Range,                      // PnR
+    longname: OptionalKw<String>,      // PnS
+    filter: OptionalKw<String>,        // PnF there is a loose standard for this
+    power: OptionalKw<u32>,            // PnO
+    detector_type: OptionalKw<String>, // PnD
+    percent_emitted: OptionalKw<u32>,  // PnP (TODO deprecated in 3.2, factor out)
+    detector_voltage: OptionalKw<f32>, // PnV
+    nonstandard: HashMap<NonStdKey, String>,
+    specific: X,
+}
+
+struct MinMeasurement<X> {
+    bytes: Bytes,
+    range: Range,
+    specific: X,
+}
+
+type MinMeasurement2_0 = MinMeasurement<()>;
+type MinMeasurement3_2 = MinMeasurement<NumType>;
+
+#[derive(Debug, Clone, Serialize)]
 enum Bytes {
     Fixed(u8),
     Variable,
@@ -1387,20 +1410,6 @@ impl fmt::Display for Range {
             Range::Float(x) => write!(f, "{x}"),
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct Measurement<X> {
-    bytes: Bytes,                      // PnB
-    range: Range,                      // PnR
-    longname: OptionalKw<String>,      // PnS
-    filter: OptionalKw<String>,        // PnF there is a loose standard for this
-    power: OptionalKw<u32>,            // PnO
-    detector_type: OptionalKw<String>, // PnD
-    percent_emitted: OptionalKw<u32>,  // PnP (TODO deprecated in 3.2, factor out)
-    detector_voltage: OptionalKw<f32>, // PnV
-    nonstandard: HashMap<NonStdKey, String>,
-    specific: X,
 }
 
 impl<P: VersionedMeasurement> Measurement<P> {
@@ -1877,7 +1886,6 @@ struct SupplementalOffsets3_2 {
 
 #[derive(Debug, Clone, Serialize)]
 struct InnerMetadata2_0 {
-    // tot: OptionalKw<u32>,
     mode: Mode,
     byteord: ByteOrd,
     cyt: OptionalKw<String>,
@@ -1887,9 +1895,6 @@ struct InnerMetadata2_0 {
 
 #[derive(Debug, Clone, Serialize)]
 struct InnerMetadata3_0 {
-    // data: Offsets,
-    // supplemental: SupplementalOffsets3_0,
-    // tot: u32,
     mode: Mode,
     byteord: ByteOrd,
     timestamps: Timestamps3_0, // BTIM/ETIM/DATE
@@ -1902,9 +1907,6 @@ struct InnerMetadata3_0 {
 
 #[derive(Debug, Clone, Serialize)]
 struct InnerMetadata3_1 {
-    // data: Offsets,
-    // supplemental: SupplementalOffsets3_0,
-    // tot: u32,
     mode: Mode,
     byteord: Endian,
     timestamps: Timestamps3_1, // BTIM/ETIM/DATE
@@ -1919,11 +1921,6 @@ struct InnerMetadata3_1 {
 
 #[derive(Debug, Clone, Serialize)]
 struct InnerMetadata3_2 {
-    // TODO offsets are not necessary for writing
-    // data: Offsets,
-    // supplemental: SupplementalOffsets3_2,
-    // TODO this can be assumed from full dataframe when we have it
-    // tot: u32,
     byteord: Endian,
     timestamps: Timestamps3_1, // BTIM/ETIM/DATE
     datetimes: Datetimes,      // DATETIMESTART/END
@@ -1940,127 +1937,7 @@ struct InnerMetadata3_2 {
 }
 
 #[derive(Debug, Clone, Serialize)]
-struct InnerReadData2_0 {
-    tot: OptionalKw<u32>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct InnerReadData3_0 {
-    data: Segment,
-    supplemental: SupplementalOffsets3_0,
-    tot: u32,
-}
-
-// struct InnerReadData3_1 {
-//     data: Offsets,
-//     supplemental: SupplementalOffsets3_0,
-//     tot: u32,
-// }
-
-#[derive(Debug, Clone, Serialize)]
-struct InnerReadData3_2 {
-    data: Segment,
-    supplemental: SupplementalOffsets3_2,
-    tot: u32,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct ReadData<X> {
-    par: usize,
-    nextdata: u32,
-    specific: X,
-}
-
-trait VersionedReadData: Sized {
-    fn lookup_inner(st: &mut KwState) -> Option<Self>;
-
-    fn get_tot(&self) -> Option<u32>;
-
-    fn data_offsets(&self, o: &Segment) -> Segment;
-
-    // fn measurement_name(p: &Measurement<Self>) -> Option<&str>;
-
-    // fn has_linear_scale(&self) -> bool;
-
-    // fn has_gain(&self) -> bool;
-
-    fn lookup(st: &mut KwState, par: usize) -> Option<ReadData<Self>> {
-        let r = ReadData {
-            par,
-            nextdata: st.lookup_nextdata()?,
-            specific: Self::lookup_inner(st)?,
-        };
-        Some(r)
-    }
-}
-
-impl VersionedReadData for InnerReadData2_0 {
-    fn lookup_inner(st: &mut KwState) -> Option<Self> {
-        Some(InnerReadData2_0 {
-            tot: st.lookup_tot_opt(),
-        })
-    }
-
-    fn data_offsets(&self, o: &Segment) -> Segment {
-        *o
-    }
-
-    fn get_tot(&self) -> Option<u32> {
-        self.tot.as_ref().into_option().copied()
-    }
-}
-
-impl VersionedReadData for InnerReadData3_0 {
-    fn lookup_inner(st: &mut KwState) -> Option<Self> {
-        Some(InnerReadData3_0 {
-            data: st.lookup_data_offsets()?,
-            supplemental: st.lookup_supplemental3_0()?,
-            tot: st.lookup_tot_req()?,
-        })
-    }
-
-    fn data_offsets(&self, o: &Segment) -> Segment {
-        if o.is_unset() {
-            self.data
-        } else {
-            *o
-        }
-    }
-
-    fn get_tot(&self) -> Option<u32> {
-        Some(self.tot)
-    }
-}
-
-impl VersionedReadData for InnerReadData3_2 {
-    fn lookup_inner(st: &mut KwState) -> Option<Self> {
-        let r = InnerReadData3_2 {
-            data: st.lookup_data_offsets()?,
-            supplemental: st.lookup_supplemental3_2(),
-            tot: st.lookup_tot_req()?,
-        };
-        Some(r)
-    }
-
-    fn data_offsets(&self, o: &Segment) -> Segment {
-        if o.is_unset() {
-            self.data
-        } else {
-            *o
-        }
-    }
-
-    fn get_tot(&self) -> Option<u32> {
-        Some(self.tot)
-    }
-}
-
-#[derive(Debug, Clone, Serialize)]
 struct Metadata<X> {
-    // TODO par is redundant when we have a full dataframe
-    // TODO nextdata is not relevant for writing
-    // par: u32,
-    // nextdata: u32,
     datatype: AlphaNumType,
     abrt: OptionalKw<u32>,
     com: OptionalKw<String>,
@@ -2077,6 +1954,30 @@ struct Metadata<X> {
     tr: OptionalKw<Trigger>,
     specific: X,
 }
+
+struct InnerMinMetadata2_0 {
+    tot: OptionalKw<u32>,
+    byteord: ByteOrd,
+}
+
+struct InnerMinMetadata3_0 {
+    tot: u32,
+    byteord: ByteOrd,
+}
+
+struct InnerMinMetadata3_1 {
+    tot: u32,
+    byteord: Endian,
+}
+
+struct MinMetadata<X> {
+    datatype: AlphaNumType,
+    specific: X,
+}
+
+type MinMetadata2_0 = MinMetadata<InnerMinMetadata2_0>;
+type MinMetadata3_0 = MinMetadata<InnerMinMetadata3_0>;
+type MinMetadata3_1 = MinMetadata<InnerMinMetadata3_1>;
 
 impl<M: VersionedMetadata> Metadata<M> {
     fn keywords(&self, par: usize, tot: usize, len: KwLengths) -> MaybeKeywords {
@@ -2254,7 +2155,7 @@ pub struct ParsedTEXT {
     // keyword_warnings: Vec<KeyWarning>,
 }
 
-type TEXTResult = Result<ParsedTEXT, Box<StdTEXTErrors>>;
+// type TEXTResult = Result<ParsedTEXT, Box<StdTEXTErrors>>;
 
 impl<M: VersionedMetadata> StdText<M, M::P> {
     fn get_shortnames(&self) -> Vec<&str> {
@@ -2345,35 +2246,12 @@ impl<M: VersionedMetadata> StdText<M, M::P> {
     }
 }
 
-//     fn raw_to_std_text(header: Header, raw: RawTEXT, conf: &StdTextReader) -> TEXTResult {
-//         let mut st = raw.to_state(conf);
-//         if let Some((it, data_parser)) = st
-//             .lookup_par()
-//             .and_then(|par| M::P::lookup_measurements(&mut st, par))
-//             .and_then(|ms| M::lookup_metadata(&mut st, &ms).map(|md| (ms, md)))
-//             .and_then(|(ms, md)| {
-//                 M::R::lookup(&mut st, ms.len()).map(|rd| IntermediateTEXT {
-//                     data_offsets: header.data,
-//                     read_data: rd,
-//                     metadata: md,
-//                     measurements: ms,
-//                 })
-//             })
-//             .and_then(|it| M::build_data_parser(&mut st, &it).map(|dp| (it, dp)))
-//         {
-//             st.into_result(it, data_parser, header, raw)
-//         } else {
-//             Err(Box::new(st.into_errors()))
-//         }
-//     }
-// }
-
 struct IntermediateTEXT<'a, M, P> {
     par: usize,
     data_seg: Segment,
     // read_data: ReadData<R>,
-    metadata: Metadata<M>,
-    measurements: Vec<Measurement<P>>,
+    metadata: MinMetadata<M>,
+    measurements: Vec<MinMeasurement<P>>,
     conf: &'a StdTextReader,
 }
 
@@ -3019,13 +2897,12 @@ fn make_data_offset_keywords(other_textlen: usize, datalen: usize) -> [MaybeKeyw
 
 trait VersionedMetadata: Sized {
     type P: VersionedMeasurement;
-    type R: VersionedReadData;
 
     fn into_any_text(s: Box<StdText<Self, Self::P>>) -> AnyStdTEXT;
 
     fn get_byteord(&self) -> ByteOrd;
 
-    fn event_width(ms: &[Measurement<Self::P>]) -> EventWidth {
+    fn event_width(ms: &[MinMeasurement<Self::P>]) -> EventWidth {
         let (fixed, variable_indices): (Vec<_>, Vec<_>) = ms
             .iter()
             .enumerate()
@@ -3057,13 +2934,13 @@ trait VersionedMetadata: Sized {
             );
             def.push_msg_leveled(msg, it.conf.raw.enfore_data_width_divisibility)
         }
-        if let Some(tot) = it.read_data.specific.get_tot() {
+        if let Some(tot) = it.metadata.specific.get_tot() {
             if total_events != tot {
                 let msg = format!(
                     "$TOT field is {tot} but number of events \
                          that evenly fit into DATA is {total_events}"
                 );
-                def.push_msg_leveled(msg, conf.raw.enfore_matching_tot);
+                def.push_msg_leveled(msg, it.conf.raw.enfore_matching_tot);
             }
         }
         // TODO fix cast
@@ -3075,13 +2952,13 @@ trait VersionedMetadata: Sized {
 
     fn build_int_parser(
         &self,
-        ps: &[Measurement<Self::P>],
+        ps: &[MinMeasurement<Self::P>],
         total_events: usize,
     ) -> PureMaybe<IntParser>;
 
     fn build_mixed_parser(
         &self,
-        ps: &[Measurement<Self::P>],
+        ps: &[MinMeasurement<Self::P>],
         dt: &AlphaNumType,
         total_events: usize,
     ) -> Option<PureMaybe<MixedParser>>;
@@ -3091,7 +2968,7 @@ trait VersionedMetadata: Sized {
         is_double: bool,
         par: usize,
         total_events: usize,
-        ps: &[Measurement<Self::P>],
+        ps: &[MinMeasurement<Self::P>],
     ) -> PureMaybe<ColumnParser> {
         let (bytes, dt) = if is_double { (8, "D") } else { (4, "F") };
         let remainder: Vec<_> = ps.iter().filter(|p| p.bytes_eq(bytes)).collect();
@@ -3171,7 +3048,7 @@ trait VersionedMetadata: Sized {
             }
             // Ascii (variable width)
             (EventWidth::Variable, AlphaNumType::Ascii) => {
-                let tot = it.read_data.specific.get_tot();
+                let tot = it.metadata.specific.get_tot();
                 PureSuccess::from(Some(Self::build_delim_ascii_parser(
                     it,
                     tot.map(|x| x as usize),
@@ -3276,7 +3153,7 @@ trait VersionedMetadata: Sized {
 
 fn build_int_parser_2_0<P: VersionedMeasurement>(
     byteord: &ByteOrd,
-    ps: &[Measurement<P>],
+    ps: &[MinMeasurement<P>],
     total_events: usize,
 ) -> PureMaybe<IntParser> {
     let nbytes = byteord.num_bytes();
@@ -3316,7 +3193,6 @@ fn build_int_parser_2_0<P: VersionedMeasurement>(
 
 impl VersionedMetadata for InnerMetadata2_0 {
     type P = InnerMeasurement2_0;
-    type R = InnerReadData2_0;
 
     fn into_any_text(t: Box<StdText2_0>) -> AnyStdTEXT {
         AnyStdTEXT::FCS2_0(t)
@@ -3332,19 +3208,18 @@ impl VersionedMetadata for InnerMetadata2_0 {
 
     fn build_int_parser(
         &self,
-        ps: &[Measurement<Self::P>],
+        ps: &[MinMeasurement<Self::P>],
         total_events: usize,
-    ) -> Option<IntParser> {
-        build_int_parser_2_0(st, &self.byteord, ps, total_events)
+    ) -> PureMaybe<IntParser> {
+        build_int_parser_2_0(&self.byteord, ps, total_events)
     }
 
     fn build_mixed_parser(
         &self,
-        _: &mut DataParserState,
-        _: &[Measurement<Self::P>],
+        _: &[MinMeasurement<Self::P>],
         _: &AlphaNumType,
         _: usize,
-    ) -> Option<Option<MixedParser>> {
+    ) -> Option<PureMaybe<MixedParser>> {
         None
     }
 
@@ -3385,7 +3260,6 @@ impl VersionedMetadata for InnerMetadata2_0 {
 
 impl VersionedMetadata for InnerMetadata3_0 {
     type P = InnerMeasurement3_0;
-    type R = InnerReadData3_0;
 
     fn into_any_text(t: Box<StdText3_0>) -> AnyStdTEXT {
         AnyStdTEXT::FCS3_0(t)
@@ -3397,7 +3271,7 @@ impl VersionedMetadata for InnerMetadata3_0 {
 
     fn build_int_parser(
         &self,
-        ps: &[Measurement<Self::P>],
+        ps: &[MinMeasurement<Self::P>],
         total_events: usize,
     ) -> PureMaybe<IntParser> {
         build_int_parser_2_0(&self.byteord, ps, total_events)
@@ -3405,7 +3279,7 @@ impl VersionedMetadata for InnerMetadata3_0 {
 
     fn build_mixed_parser(
         &self,
-        _: &[Measurement<Self::P>],
+        _: &[MinMeasurement<Self::P>],
         _: &AlphaNumType,
         _: usize,
     ) -> Option<PureMaybe<MixedParser>> {
@@ -3465,7 +3339,6 @@ impl VersionedMetadata for InnerMetadata3_0 {
 
 impl VersionedMetadata for InnerMetadata3_1 {
     type P = InnerMeasurement3_1;
-    type R = InnerReadData3_0;
 
     fn into_any_text(t: Box<StdText3_1>) -> AnyStdTEXT {
         AnyStdTEXT::FCS3_1(t)
@@ -3477,15 +3350,15 @@ impl VersionedMetadata for InnerMetadata3_1 {
 
     fn build_int_parser(
         &self,
-        ps: &[Measurement<Self::P>],
+        ps: &[MinMeasurement<Self::P>],
         total_events: usize,
     ) -> PureMaybe<IntParser> {
-        build_int_parser_2_0(st, &ByteOrd::Endian(self.byteord), ps, total_events)
+        build_int_parser_2_0(&ByteOrd::Endian(self.byteord), ps, total_events)
     }
 
     fn build_mixed_parser(
         &self,
-        _: &[Measurement<Self::P>],
+        _: &[MinMeasurement<Self::P>],
         _: &AlphaNumType,
         _: usize,
     ) -> Option<PureMaybe<MixedParser>> {
@@ -3500,9 +3373,10 @@ impl VersionedMetadata for InnerMetadata3_1 {
         let maybe_mode = st.lookup_mode();
         let maybe_byteord = st.lookup_endian();
         if let (Some(mode), Some(byteord)) = (maybe_mode, maybe_byteord) {
-            if mode != Mode::List {
-                st.push_meta_deprecated_str("$MODE should only be L");
-            };
+            // TODO make deprecated error
+            // if mode != Mode::List {
+            //     st.push_meta_deprecated_str("$MODE should only be L");
+            // };
             Some(InnerMetadata3_1 {
                 mode,
                 byteord,
@@ -3558,7 +3432,6 @@ impl VersionedMetadata for InnerMetadata3_1 {
 
 impl VersionedMetadata for InnerMetadata3_2 {
     type P = InnerMeasurement3_2;
-    type R = InnerReadData3_2;
 
     fn into_any_text(t: Box<StdText3_2>) -> AnyStdTEXT {
         AnyStdTEXT::FCS3_2(t)
@@ -3570,7 +3443,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
 
     fn build_int_parser(
         &self,
-        ps: &[Measurement<Self::P>],
+        ps: &[MinMeasurement<Self::P>],
         total_events: usize,
     ) -> PureMaybe<IntParser> {
         build_int_parser_2_0(&ByteOrd::Endian(self.byteord), ps, total_events)
@@ -3578,7 +3451,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
 
     fn build_mixed_parser(
         &self,
-        ps: &[Measurement<Self::P>],
+        ps: &[MinMeasurement<Self::P>],
         dt: &AlphaNumType,
         total_events: usize,
     ) -> Option<PureMaybe<MixedParser>> {
@@ -3776,161 +3649,73 @@ struct KwState<'a> {
 //     conf: &'a StdTextReader,
 // }
 
-#[derive(Debug, Clone)]
-pub struct StdTEXTErrors {
-    /// Required keywords that are missing
-    missing_keywords: Vec<StdKey>,
+// #[derive(Debug, Clone)]
+// pub struct StdTEXTErrors {
+//     /// Required keywords that are missing
+//     missing_keywords: Vec<StdKey>,
 
-    /// Errors that pertain to one keyword value
-    keyword_errors: Vec<KeyError>,
+//     /// Errors that pertain to one keyword value
+//     keyword_errors: Vec<KeyError>,
 
-    /// Errors involving multiple keywords, like PnB not matching DATATYPE
-    meta_errors: Vec<String>,
+//     /// Errors involving multiple keywords, like PnB not matching DATATYPE
+//     meta_errors: Vec<String>,
 
-    /// Nonstandard keys starting with "$". Error status depends on configuration.
-    deviant_keywords: HashMap<StdKey, String>,
+//     /// Nonstandard keys starting with "$". Error status depends on configuration.
+//     deviant_keywords: HashMap<StdKey, String>,
 
-    /// Nonstandard keys. Error status depends on configuration.
-    nonstandard_keywords: HashMap<NonStdKey, String>,
+//     /// Nonstandard keys. Error status depends on configuration.
+//     nonstandard_keywords: HashMap<NonStdKey, String>,
 
-    /// Keywords that are deprecated. Error status depends on configuration.
-    deprecated_keys: Vec<StdKey>,
+//     /// Keywords that are deprecated. Error status depends on configuration.
+//     deprecated_keys: Vec<StdKey>,
 
-    /// Features that are deprecated. Error status depends on configuration.
-    deprecated_features: Vec<String>,
+//     /// Features that are deprecated. Error status depends on configuration.
+//     deprecated_features: Vec<String>,
 
-    /// Non-keyword warnings. Error status depends on configuration.
-    meta_warnings: Vec<String>,
+//     /// Non-keyword warnings. Error status depends on configuration.
+//     meta_warnings: Vec<String>,
 
-    /// Keyword warnings. Error status depends on configuration.
-    keyword_warnings: Vec<KeyWarning>,
-}
+//     /// Keyword warnings. Error status depends on configuration.
+//     keyword_warnings: Vec<KeyWarning>,
+// }
 
-impl StdTEXTErrors {
-    fn prune_errors(&mut self, conf: &StdTextReader) {
-        if !conf.disallow_deviant {
-            self.deviant_keywords.clear();
-        };
-        if !conf.disallow_nonstandard {
-            self.nonstandard_keywords.clear();
-        }
-        if !conf.disallow_deprecated {
-            self.deprecated_keys.clear();
-            self.deprecated_features.clear();
-        };
-        if !conf.warnings_are_errors {
-            self.meta_warnings.clear();
-            self.keyword_warnings.clear();
-        };
-    }
-
-    fn into_lines(self) -> Vec<String> {
-        let ks = self
-            .missing_keywords
-            .into_iter()
-            .map(|s| format!("Required keyword is missing: {}", s.0));
-        let vs = self.keyword_errors.into_iter().map(|e| {
-            format!(
-                "Could not get value for {}. Error was '{}'. Value was '{}'.",
-                e.key.0, e.msg, e.value
-            )
-        });
-        // TODO add lots of other printing stuff here
-        ks.chain(vs).chain(self.meta_errors).collect()
-    }
-
-    pub fn print(self) {
-        for e in self.into_lines() {
-            eprintln!("ERROR: {e}");
-        }
-    }
-}
-
-// impl DataParserState<'_> {
-//     fn push_meta_error_str(&mut self, msg: &str) {
-//         self.push_meta_error(String::from(msg));
+// impl StdTEXTErrors {
+//     fn prune_errors(&mut self, conf: &StdTextReader) {
+//         if !conf.disallow_deviant {
+//             self.deviant_keywords.clear();
+//         };
+//         if !conf.disallow_nonstandard {
+//             self.nonstandard_keywords.clear();
+//         }
+//         if !conf.disallow_deprecated {
+//             self.deprecated_keys.clear();
+//             self.deprecated_features.clear();
+//         };
+//         if !conf.warnings_are_errors {
+//             self.meta_warnings.clear();
+//             self.keyword_warnings.clear();
+//         };
 //     }
 
-//     // fn push_meta_error(&mut self, msg: String) {
-//     //     self.std_errors.meta_errors.push(msg);
-//     // }
-
-//     // fn push_meta_warning_str(&mut self, msg: &str) {
-//     //     self.push_meta_warning(String::from(msg));
-//     // }
-
-//     // fn push_meta_warning(&mut self, msg: String) {
-//     //     self.std_errors.meta_warnings.push(msg);
-//     // }
-
-//     // fn push_meta_deprecated_str(&mut self, msg: &str) {
-//     //     self.std_errors.deprecated_features.push(String::from(msg));
-//     // }
-
-//     // fn push_meta_error_or_warning(&mut self, is_error: bool, msg: String) {
-//     //     if is_error {
-//     //         self.std_errors.meta_errors.push(msg);
-//     //     } else {
-//     //         self.std_errors.meta_warnings.push(msg);
-//     //     }
-//     // }
-
-//     fn into_errors(self, reason: String) -> PureFailure {
-//         Failure {
-//             reason,
-//             deferred: self.deferred,
-//         }
-//         // self.std_errors.prune_errors(self.conf);
-//         // self.std_errors
+//     fn into_lines(self) -> Vec<String> {
+//         let ks = self
+//             .missing_keywords
+//             .into_iter()
+//             .map(|s| format!("Required keyword is missing: {}", s.0));
+//         let vs = self.keyword_errors.into_iter().map(|e| {
+//             format!(
+//                 "Could not get value for {}. Error was '{}'. Value was '{}'.",
+//                 e.key.0, e.msg, e.value
+//             )
+//         });
+//         // TODO add lots of other printing stuff here
+//         ks.chain(vs).chain(self.meta_errors).collect()
 //     }
 
-//     fn into_result<M: VersionedMetadata>(
-//         self,
-//         it: IntermediateTEXT<M, <M as VersionedMetadata>::P, <M as VersionedMetadata>::R>,
-//         data_parser: DataParser,
-//         raw: RawTEXT,
-//     ) -> PureSuccess<ParsedTEXT> {
-//         // let mut s = self.std_errors;
-//         let c = &self.conf;
-//         // let any_crit = !s.missing_keywords.is_empty()
-//         //     || !s.meta_errors.is_empty()
-//         //     || !s.keyword_errors.is_empty();
-//         // let any_noncrit = (!s.deviant_keywords.is_empty() && c.disallow_deviant)
-//         //     || (!s.nonstandard_keywords.is_empty() && c.disallow_nonstandard)
-//         //     || (!(s.deprecated_features.is_empty() && s.deprecated_keys.is_empty())
-//         //         && c.disallow_deprecated)
-//         //     || (!(s.meta_warnings.is_empty() && s.keyword_warnings.is_empty())
-//         //         && c.warnings_are_errors);
-//         // if any_crit || any_noncrit {
-//         //     s.prune_errors(c);
-//         //     // TODO this doesn't include nonstandard measurements, which is
-//         //     // probably fine, because if the user didn't want to include them
-//         //     // in the ns measurement field they wouldn't have used that param
-//         //     // anyways, in which case we probably need to call them something
-//         //     // different (like "upgradable")
-//         //     Err(Box::new(s))
-//         // } else {
-//         let core = CoreText {
-//             metadata: it.metadata,
-//             measurements: it.measurements,
-//             nonstandard_keywords: s.nonstandard_keywords,
-//             deviant_keywords: s.deviant_keywords,
-//         };
-//         let std = StdText {
-//             core,
-//             data_offsets: it.data_seg,
-//             read_data: it.read_data,
-//         };
-//         PureSuccess {
-//             data: ParsedTEXT {
-//                 standard: M::into_any_text(Box::new(std)),
-//                 raw,
-//                 data_parser,
-//             },
-//             //TODO
-//             deferred: vec![],
+//     pub fn print(self) {
+//         for e in self.into_lines() {
+//             eprintln!("ERROR: {e}");
 //         }
-//         // }
 //     }
 // }
 
@@ -3941,12 +3726,12 @@ struct KeyError {
     msg: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
-struct KeyWarning {
-    key: StdKey,
-    value: String,
-    msg: String,
-}
+// #[derive(Debug, Clone, Serialize)]
+// struct KeyWarning {
+//     key: StdKey,
+//     value: String,
+//     msg: String,
+// }
 
 impl<'a> KwState<'a> {
     // TODO not DRY (although will likely need HKTs)
@@ -4658,7 +4443,7 @@ impl<'a> KwState<'a> {
     }
 
     fn push_meta_error(&mut self, msg: String) {
-        self.meta_errors.push(msg);
+        self.deferred.push_error(msg);
     }
 
     fn push_meta_warning_str(&mut self, msg: &str) {
@@ -4666,19 +4451,15 @@ impl<'a> KwState<'a> {
     }
 
     fn push_meta_warning(&mut self, msg: String) {
-        self.meta_warnings.push(msg);
+        self.deferred.push_warning(msg);
     }
 
-    fn push_meta_deprecated_str(&mut self, msg: &str) {
-        self.deprecated_features.push(String::from(msg));
-    }
+    // fn push_meta_deprecated_str(&mut self, msg: &str) {
+    //     self.deferred.push_deprecated_features(String::from(msg));
+    // }
 
     fn push_meta_error_or_warning(&mut self, is_error: bool, msg: String) {
-        if is_error {
-            self.meta_errors.push(msg);
-        } else {
-            self.meta_warnings.push(msg);
-        }
+        self.deferred.push_msg_leveled(msg, is_error);
     }
 
     fn collect(

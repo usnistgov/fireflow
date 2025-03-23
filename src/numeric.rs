@@ -9,12 +9,6 @@ pub enum Endian {
     Little,
 }
 
-impl Endian {
-    fn is_big(&self) -> bool {
-        matches!(self, Endian::Big)
-    }
-}
-
 pub enum Series {
     F32(Vec<f32>),
     F64(Vec<f64>),
@@ -22,6 +16,12 @@ pub enum Series {
     U16(Vec<u16>),
     U32(Vec<u32>),
     U64(Vec<u64>),
+}
+
+impl Endian {
+    fn is_big(&self) -> bool {
+        matches!(self, Endian::Big)
+    }
 }
 
 impl Series {
@@ -50,12 +50,11 @@ impl Series {
 
 pub trait IntMath: Sized {
     fn next_power_2(x: Self) -> Self;
-
-    fn from_u64(x: u64) -> Self;
 }
 
 pub trait NumProps<const DTLEN: usize>: Sized + Copy {
-    fn into_series(x: Vec<Self>) -> Series;
+    // TODO use From trait
+    // fn into_series(x: Vec<Self>) -> Series;
 
     fn zero() -> Self;
 
@@ -84,150 +83,52 @@ pub trait NumProps<const DTLEN: usize>: Sized + Copy {
     }
 }
 
-impl IntMath for u8 {
-    fn next_power_2(x: Self) -> Self {
-        Self::checked_next_power_of_two(x).unwrap_or(Self::MAX)
-    }
+macro_rules! impl_num_props {
+    ($size:expr, $zero:expr, $t:ty, $p:ident) => {
+        impl From<Vec<$t>> for Series {
+            fn from(value: Vec<$t>) -> Self {
+                Series::$p(value)
+            }
+        }
 
-    fn from_u64(x: u64) -> Self {
-        x as Self
-    }
+        impl NumProps<$size> for $t {
+            // fn into_series(x: Vec<Self>) -> Series {
+            //     Series::$p(x)
+            // }
+
+            fn zero() -> Self {
+                $zero
+            }
+
+            fn from_big(buf: [u8; $size]) -> Self {
+                <$t>::from_be_bytes(buf)
+            }
+
+            fn from_little(buf: [u8; $size]) -> Self {
+                <$t>::from_le_bytes(buf)
+            }
+        }
+    };
 }
 
-impl IntMath for u16 {
-    fn next_power_2(x: Self) -> Self {
-        Self::checked_next_power_of_two(x).unwrap_or(Self::MAX)
-    }
+impl_num_props!(1, 0, u8, U8);
+impl_num_props!(2, 0, u16, U16);
+impl_num_props!(4, 0, u32, U32);
+impl_num_props!(8, 0, u64, U64);
+impl_num_props!(4, 0.0, f32, F32);
+impl_num_props!(8, 0.0, f64, F64);
 
-    fn from_u64(x: u64) -> Self {
-        x as Self
-    }
+macro_rules! impl_int_math {
+    ($t:ty) => {
+        impl IntMath for $t {
+            fn next_power_2(x: Self) -> Self {
+                Self::checked_next_power_of_two(x).unwrap_or(Self::MAX)
+            }
+        }
+    };
 }
 
-impl IntMath for u32 {
-    fn next_power_2(x: Self) -> Self {
-        Self::checked_next_power_of_two(x).unwrap_or(Self::MAX)
-    }
-
-    fn from_u64(x: u64) -> Self {
-        x as Self
-    }
-}
-
-impl IntMath for u64 {
-    fn next_power_2(x: Self) -> Self {
-        Self::checked_next_power_of_two(x).unwrap_or(Self::MAX)
-    }
-
-    fn from_u64(x: u64) -> Self {
-        x as Self
-    }
-}
-
-impl NumProps<1> for u8 {
-    fn into_series(x: Vec<Self>) -> Series {
-        Series::U8(x)
-    }
-
-    fn zero() -> Self {
-        0
-    }
-
-    fn from_big(buf: [u8; 1]) -> Self {
-        Self::from_be_bytes(buf)
-    }
-
-    fn from_little(buf: [u8; 1]) -> Self {
-        Self::from_le_bytes(buf)
-    }
-}
-
-impl NumProps<2> for u16 {
-    fn into_series(x: Vec<Self>) -> Series {
-        Series::U16(x)
-    }
-
-    fn zero() -> Self {
-        0
-    }
-
-    fn from_big(buf: [u8; 2]) -> Self {
-        u16::from_be_bytes(buf)
-    }
-
-    fn from_little(buf: [u8; 2]) -> Self {
-        u16::from_le_bytes(buf)
-    }
-}
-
-impl NumProps<4> for u32 {
-    fn into_series(x: Vec<Self>) -> Series {
-        Series::U32(x)
-    }
-
-    fn zero() -> Self {
-        0
-    }
-
-    fn from_big(buf: [u8; 4]) -> Self {
-        u32::from_be_bytes(buf)
-    }
-
-    fn from_little(buf: [u8; 4]) -> Self {
-        u32::from_le_bytes(buf)
-    }
-}
-
-impl NumProps<8> for u64 {
-    fn into_series(x: Vec<Self>) -> Series {
-        Series::U64(x)
-    }
-
-    fn zero() -> Self {
-        0
-    }
-
-    fn from_big(buf: [u8; 8]) -> Self {
-        u64::from_be_bytes(buf)
-    }
-
-    fn from_little(buf: [u8; 8]) -> Self {
-        u64::from_le_bytes(buf)
-    }
-}
-
-impl NumProps<4> for f32 {
-    fn into_series(x: Vec<Self>) -> Series {
-        Series::F32(x)
-    }
-
-    fn zero() -> Self {
-        0.0
-    }
-
-    fn from_big(buf: [u8; 4]) -> Self {
-        f32::from_be_bytes(buf)
-    }
-
-    fn from_little(buf: [u8; 4]) -> Self {
-        f32::from_le_bytes(buf)
-    }
-}
-
-impl NumProps<8> for f64 {
-    fn into_series(x: Vec<Self>) -> Series {
-        Series::F64(x)
-    }
-
-    fn zero() -> Self {
-        0.0
-    }
-
-    fn from_big(buf: [u8; 8]) -> Self {
-        f64::from_be_bytes(buf)
-    }
-
-    fn from_little(buf: [u8; 8]) -> Self {
-        f64::from_le_bytes(buf)
-    }
-}
+impl_int_math!(u8);
+impl_int_math!(u16);
+impl_int_math!(u32);
+impl_int_math!(u64);

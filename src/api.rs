@@ -2288,16 +2288,19 @@ fn byteord_to_sized<const LEN: usize>(byteord: &ByteOrd) -> Result<SizedByteOrd<
 }
 
 trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
-    NumProps<DTLEN> + OrderedFromBytes<DTLEN, INTLEN> + Ord + IntMath
+    NumProps<DTLEN> + OrderedFromBytes<DTLEN, INTLEN> + Ord + IntMath + TryFrom<u64>
 {
     fn byteord_to_sized(byteord: &ByteOrd) -> Result<SizedByteOrd<INTLEN>, String> {
         byteord_to_sized(byteord)
     }
 
-    fn range_to_bitmask(range: &Range) -> Option<Self> {
+    fn range_to_bitmask(range: &Range) -> Result<Self, String> {
         match range {
-            Range::Float(_) => None,
-            Range::Int(i) => Some(Self::next_power_2(Self::from_u64(*i))),
+            Range::Float(_) => Err("$PnR is float for an integer column".to_string()),
+            // TODO will this error ever happen?
+            Range::Int(i) => Self::try_from(*i)
+                .map(Self::next_power_2)
+                .map_err(|_| "$PnR could not be converted to {INTLEN} bytes".to_string()),
         }
     }
 
@@ -2307,8 +2310,7 @@ trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
         total_events: usize,
     ) -> Result<IntColumnParser<Self, INTLEN>, Vec<String>> {
         // TODO be more specific, which means we need the measurement index
-        let b =
-            Self::range_to_bitmask(range).ok_or(String::from("PnR is float for an integer column"));
+        let b = Self::range_to_bitmask(range);
         let s = Self::byteord_to_sized(byteord);
         let data = vec![Self::zero(); total_events];
         match (b, s) {
@@ -2369,8 +2371,9 @@ trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
     }
 }
 
-trait FloatFromBytes<const LEN: usize>:
-    NumProps<LEN> + OrderedFromBytes<LEN, LEN> + Clone + NumProps<LEN>
+trait FloatFromBytes<const LEN: usize>: NumProps<LEN> + OrderedFromBytes<LEN, LEN> + Clone
+where
+    Vec<Self>: Into<Series>,
 {
     fn to_float_byteord(byteord: &ByteOrd) -> Result<SizedByteOrd<LEN>, String> {
         byteord_to_sized(byteord)
@@ -2442,7 +2445,7 @@ trait FloatFromBytes<const LEN: usize>:
                 Self::assign_matrix(h, &p, c, r)?;
             }
         }
-        Ok(columns.into_iter().map(Self::into_series).collect())
+        Ok(columns.into_iter().map(Vec::<Self>::into).collect())
     }
 }
 
@@ -2499,9 +2502,9 @@ enum MixedColumnType {
 impl MixedColumnType {
     fn into_series(self) -> Series {
         match self {
-            MixedColumnType::Ascii(x) => f64::into_series(x.data),
-            MixedColumnType::Single(x) => f32::into_series(x.data),
-            MixedColumnType::Double(x) => f64::into_series(x.data),
+            MixedColumnType::Ascii(x) => Vec::<f64>::into(x.data),
+            MixedColumnType::Single(x) => Vec::<f32>::into(x.data),
+            MixedColumnType::Double(x) => Vec::<f64>::into(x.data),
             MixedColumnType::Uint(x) => x.into_series(),
         }
     }
@@ -2541,14 +2544,14 @@ enum AnyIntColumn {
 impl AnyIntColumn {
     fn into_series(self) -> Series {
         match self {
-            AnyIntColumn::Uint8(y) => u8::into_series(y.data),
-            AnyIntColumn::Uint16(y) => u16::into_series(y.data),
-            AnyIntColumn::Uint24(y) => u32::into_series(y.data),
-            AnyIntColumn::Uint32(y) => u32::into_series(y.data),
-            AnyIntColumn::Uint40(y) => u64::into_series(y.data),
-            AnyIntColumn::Uint48(y) => u64::into_series(y.data),
-            AnyIntColumn::Uint56(y) => u64::into_series(y.data),
-            AnyIntColumn::Uint64(y) => u64::into_series(y.data),
+            AnyIntColumn::Uint8(y) => Vec::<u8>::into(y.data),
+            AnyIntColumn::Uint16(y) => Vec::<u16>::into(y.data),
+            AnyIntColumn::Uint24(y) => Vec::<u32>::into(y.data),
+            AnyIntColumn::Uint32(y) => Vec::<u32>::into(y.data),
+            AnyIntColumn::Uint40(y) => Vec::<u64>::into(y.data),
+            AnyIntColumn::Uint48(y) => Vec::<u64>::into(y.data),
+            AnyIntColumn::Uint56(y) => Vec::<u64>::into(y.data),
+            AnyIntColumn::Uint64(y) => Vec::<u64>::into(y.data),
         }
     }
 
@@ -2721,7 +2724,7 @@ fn read_data_delim_ascii<R: Read>(
             );
             return Err(io::Error::new(io::ErrorKind::InvalidData, msg));
         }
-        Ok(data.into_iter().map(f64::into_series).collect())
+        Ok(data.into_iter().map(Vec::<f64>::into).collect())
     } else {
         let mut data: Vec<_> = iter::repeat_with(Vec::new).take(p.ncols).collect();
         for b in h.bytes().take(p.nbytes) {
@@ -2755,7 +2758,7 @@ fn read_data_delim_ascii<R: Read>(
             let msg = "Not all columns are equal length";
             return Err(io::Error::new(io::ErrorKind::InvalidData, msg));
         }
-        Ok(data.into_iter().map(f64::into_series).collect())
+        Ok(data.into_iter().map(Vec::<f64>::into).collect())
     }
 }
 
@@ -2775,7 +2778,7 @@ fn read_data_ascii_fixed<R: Read>(
             data[c][r] = parse_f64_io(&buf)?;
         }
     }
-    Ok(data.into_iter().map(f64::into_series).collect())
+    Ok(data.into_iter().map(Vec::<f64>::into).collect())
 }
 
 fn read_data_mixed<R: Read>(h: &mut BufReader<R>, parser: MixedParser) -> io::Result<ParsedData> {

@@ -298,7 +298,7 @@ impl Segment {
 /// FCS version.
 ///
 /// This appears as the first 6 bytes of any valid FCS file.
-#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Serialize)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Serialize)]
 enum Version {
     FCS2_0,
     FCS3_0,
@@ -2168,14 +2168,6 @@ struct CoreText<M, P> {
     nonstandard_keywords: HashMap<NonStdKey, String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-struct StdText<M, P, R> {
-    // TODO this isn't necessary for writing and is redundant here
-    data_offsets: Segment,
-    read_data: ReadData<R>,
-    core: CoreText<M, P>,
-}
-
 #[derive(Debug)]
 pub enum AnyStdTEXT {
     FCS2_0(Box<StdText2_0>),
@@ -2252,19 +2244,19 @@ impl Serialize for AnyStdTEXT {
 #[derive(Debug)]
 // TODO add warnings and such
 pub struct ParsedTEXT {
-    pub header: Header,
+    // pub header: Header,
     pub raw: RawTEXT,
     pub standard: AnyStdTEXT,
     data_parser: DataParser,
-    deprecated_keys: Vec<StdKey>,
-    deprecated_features: Vec<String>,
-    meta_warnings: Vec<String>,
-    keyword_warnings: Vec<KeyWarning>,
+    // deprecated_keys: Vec<StdKey>,
+    // deprecated_features: Vec<String>,
+    // meta_warnings: Vec<String>,
+    // keyword_warnings: Vec<KeyWarning>,
 }
 
 type TEXTResult = Result<ParsedTEXT, Box<StdTEXTErrors>>;
 
-impl<M: VersionedMetadata> StdText<M, M::P, M::R> {
+impl<M: VersionedMetadata> StdText<M, M::P> {
     fn get_shortnames(&self) -> Vec<&str> {
         self.core
             .measurements
@@ -2328,36 +2320,26 @@ impl<M: VersionedMetadata> StdText<M, M::P, M::R> {
         }
     }
 
-    fn raw_to_std_text(header: Header, raw: RawTEXT, conf: &StdTextReader) -> TEXTResult {
+    fn raw_to_std_text(raw: &RawTEXT, conf: &StdTextReader) -> PureResult<CoreText<M, M::P>> {
         let mut st = raw.to_state(conf);
         if let Some(par) = st.lookup_par() {
-            // TODO in the case of the measurement dump table command this is
-            // the only thing we really need to read, which will make it much
-            // easier to bypass other "bad" keywords if all we wish to do is
-            // look at the measurement table
             let ms = M::P::lookup_measurements(&mut st, par);
-            let rd = M::R::lookup(&mut st, par);
             let md = ms.as_ref().and_then(|xs| M::lookup_metadata(&mut st, xs));
-            if let (Some(measurements), Some(read_data), Some(metadata)) = (ms, rd, md) {
-                let it = IntermediateTEXT {
-                    data_offsets: header.data,
-                    read_data,
-                    metadata,
-                    measurements,
-                };
-                let mut dp_st = st.into_data_parser_state();
-                if let Some(data_parser) = M::build_data_parser(&mut dp_st, &it) {
-                    dp_st.into_result(it, data_parser, header, raw)
-                } else {
-                    Err(Box::new(dp_st.into_errors()))
-                }
+            if let (Some(measurements), Some(metadata)) = (ms, md) {
+                Ok(PureSuccess {
+                    data: CoreText {
+                        metadata,
+                        measurements,
+                        deviant,
+                        nonstandard,
+                    },
+                    deferred,
+                })
             } else {
-                // ...and chain new state thing down here, so that way the
-                // errors have a natural "flow"
-                Err(Box::new(st.into_errors()))
+                Err(st.into_errors("could not standardize TEXT".to_string()))
             }
         } else {
-            Err(Box::new(st.into_errors()))
+            Err(st.into_errors("could not find $PAR".to_string()))
         }
     }
 }
@@ -2385,17 +2367,18 @@ impl<M: VersionedMetadata> StdText<M, M::P, M::R> {
 //     }
 // }
 
-struct IntermediateTEXT<M, P, R> {
-    data_offsets: Segment,
-    read_data: ReadData<R>,
+struct IntermediateTEXT<M, P> {
+    par: usize,
+    data_seg: Segment,
+    // read_data: ReadData<R>,
     metadata: Metadata<M>,
     measurements: Vec<Measurement<P>>,
 }
 
-type StdText2_0 = StdText<InnerMetadata2_0, InnerMeasurement2_0, InnerReadData2_0>;
-type StdText3_0 = StdText<InnerMetadata3_0, InnerMeasurement3_0, InnerReadData3_0>;
-type StdText3_1 = StdText<InnerMetadata3_1, InnerMeasurement3_1, InnerReadData3_0>;
-type StdText3_2 = StdText<InnerMetadata3_2, InnerMeasurement3_2, InnerReadData3_2>;
+type StdText2_0 = StdText<InnerMetadata2_0, InnerMeasurement2_0>;
+type StdText3_0 = StdText<InnerMetadata3_0, InnerMeasurement3_0>;
+type StdText3_1 = StdText<InnerMetadata3_1, InnerMeasurement3_1>;
+type StdText3_2 = StdText<InnerMetadata3_2, InnerMeasurement3_2>;
 
 trait OrderedFromBytes<const DTLEN: usize, const OLEN: usize>: NumProps<DTLEN> {
     fn read_from_ordered<R: Read>(h: &mut BufReader<R>, order: &[u8; OLEN]) -> io::Result<Self> {
@@ -3036,7 +3019,7 @@ trait VersionedMetadata: Sized {
     type P: VersionedMeasurement;
     type R: VersionedReadData;
 
-    fn into_any_text(s: Box<StdText<Self, Self::P, Self::R>>) -> AnyStdTEXT;
+    fn into_any_text(s: Box<StdText<Self, Self::P>>) -> AnyStdTEXT;
 
     fn get_byteord(&self) -> ByteOrd;
 
@@ -3059,75 +3042,55 @@ trait VersionedMetadata: Sized {
         }
     }
 
-    fn total_events(
-        st: &mut DataParserState,
-        it: &IntermediateTEXT<Self, Self::P, Self::R>,
-        event_width: u32,
-    ) -> Option<usize> {
-        let nbytes = it
-            .read_data
-            .specific
-            .data_offsets(&it.data_offsets)
-            .num_bytes();
+    fn total_events(it: &IntermediateTEXT<Self, Self::P>, event_width: u32) -> PureSuccess<usize> {
+        let def = PureErrorBuf::new();
+        let nbytes = it.data_seg.num_bytes();
         let remainder = nbytes % event_width;
-        let res = nbytes / event_width;
-        let total_events = if nbytes % event_width > 0 {
+        let total_events = nbytes / event_width;
+        if nbytes % event_width > 0 {
             let msg = format!(
                 "Events are {event_width} bytes wide, but this does not evenly \
                  divide DATA segment which is {nbytes} bytes long \
                  (remainder of {remainder})"
             );
-            if st.conf.raw.enfore_data_width_divisibility {
-                st.push_meta_error(msg);
-                None
-            } else {
-                st.push_meta_warning(msg);
-                Some(res)
+            def.push_msg_leveled(msg, conf.raw.enfore_data_width_divisibility)
+        }
+        if let Some(tot) = it.read_data.specific.get_tot() {
+            if total_events != tot {
+                let msg = format!(
+                    "$TOT field is {tot} but number of events \
+                         that evenly fit into DATA is {total_events}"
+                );
+                def.push_msg_leveled(msg, conf.raw.enfore_matching_tot);
             }
-        } else {
-            Some(res)
-        };
-        total_events.and_then(|x| {
-            if let Some(tot) = it.read_data.specific.get_tot() {
-                if x != tot {
-                    let msg = format!(
-                        "$TOT field is {tot} but number of events \
-                         that evenly fit into DATA is {x}"
-                    );
-                    if st.conf.raw.enfore_matching_tot {
-                        st.push_meta_error(msg);
-                    } else {
-                        st.push_meta_warning(msg);
-                    }
-                }
-            }
-            usize::try_from(x).ok()
-        })
+        }
+        // TODO fix cast
+        PureSuccess {
+            data: total_events as usize,
+            deferred: def,
+        }
     }
 
     fn build_int_parser(
         &self,
-        st: &mut DataParserState,
         ps: &[Measurement<Self::P>],
         total_events: usize,
-    ) -> Option<IntParser>;
+    ) -> PureMaybe<IntParser>;
 
     fn build_mixed_parser(
         &self,
-        st: &mut DataParserState,
         ps: &[Measurement<Self::P>],
         dt: &AlphaNumType,
         total_events: usize,
-    ) -> Option<Option<MixedParser>>;
+    ) -> Option<PureMaybe<MixedParser>>;
 
     fn build_float_parser(
         &self,
-        st: &mut DataParserState,
         is_double: bool,
         par: usize,
         total_events: usize,
         ps: &[Measurement<Self::P>],
-    ) -> Option<ColumnParser> {
+    ) -> PureMaybe<ColumnParser> {
         let (bytes, dt) = if is_double { (8, "D") } else { (4, "F") };
         let remainder: Vec<_> = ps.iter().filter(|p| p.bytes_eq(bytes)).collect();
         if remainder.is_empty() {
@@ -3137,123 +3100,112 @@ trait VersionedMetadata: Sized {
             } else {
                 f32::make_matrix_parser(byteord, par, total_events).map(ColumnParser::Single)
             };
-            match res {
-                Ok(x) => Some(x),
-                Err(e) => {
-                    st.push_meta_error(e);
-                    None
-                }
-            }
+            PureSuccess::from_result(res.map_err(|e| PureErrorBuf::from(e, PureErrorLevel::Error)))
         } else {
+            let mut res = PureSuccess::from(None);
             for e in remainder.iter().enumerate().map(|(i, p)| {
                 format!(
                     "Measurment {} uses {} bytes but DATATYPE={}",
                     i, p.bytes, dt
                 )
             }) {
-                st.push_meta_error(e);
+                res.push_error(e);
             }
-            None
+            res
         }
     }
 
     fn build_fixed_width_parser(
-        st: &mut DataParserState,
-        it: &IntermediateTEXT<Self, Self::P, Self::R>,
+        it: &IntermediateTEXT<Self, Self::P>,
         total_events: usize,
         measurement_widths: Vec<u8>,
-    ) -> Option<ColumnParser> {
-        // TODO fix cast?
-        let par = it.read_data.par;
+    ) -> PureMaybe<ColumnParser> {
+        let par = it.par;
         let ps = &it.measurements;
         let dt = &it.metadata.datatype;
         let specific = &it.metadata.specific;
-        if let Some(mixed) = Self::build_mixed_parser(specific, st, ps, dt, total_events) {
-            mixed.map(ColumnParser::Mixed)
+        if let Some(mixed) = Self::build_mixed_parser(specific, ps, dt, total_events) {
+            mixed.map(|c| c.map(ColumnParser::Mixed))
         } else {
             match dt {
-                AlphaNumType::Single => {
-                    specific.build_float_parser(st, false, par, total_events, ps)
-                }
-                AlphaNumType::Double => {
-                    specific.build_float_parser(st, true, par, total_events, ps)
-                }
+                AlphaNumType::Single => specific.build_float_parser(false, par, total_events, ps),
+                AlphaNumType::Double => specific.build_float_parser(true, par, total_events, ps),
                 AlphaNumType::Integer => specific
-                    .build_int_parser(st, ps, total_events)
-                    .map(ColumnParser::Int),
-                AlphaNumType::Ascii => Some(ColumnParser::FixedWidthAscii(FixedAsciiParser {
-                    columns: measurement_widths,
-                    nrows: total_events,
-                })),
+                    .build_int_parser(ps, total_events)
+                    .map(|c| c.map(ColumnParser::Int)),
+                AlphaNumType::Ascii => {
+                    PureSuccess::from(Some(ColumnParser::FixedWidthAscii(FixedAsciiParser {
+                        columns: measurement_widths,
+                        nrows: total_events,
+                    })))
+                }
             }
         }
     }
 
     fn build_delim_ascii_parser(
-        it: &IntermediateTEXT<Self, Self::P, Self::R>,
+        it: &IntermediateTEXT<Self, Self::P>,
         tot: Option<usize>,
     ) -> ColumnParser {
-        let nbytes = it
-            .read_data
-            .specific
-            .data_offsets(&it.data_offsets)
-            .num_bytes();
+        let nbytes = it.data_seg.num_bytes();
         ColumnParser::DelimitedAscii(DelimAsciiParser {
-            ncols: it.read_data.par,
+            ncols: it.par,
             nrows: tot,
             nbytes: nbytes as usize,
         })
     }
 
-    fn build_column_parser(
-        st: &mut DataParserState,
-        it: &IntermediateTEXT<Self, Self::P, Self::R>,
-    ) -> Option<ColumnParser> {
+    fn build_column_parser(it: &IntermediateTEXT<Self, Self::P>) -> PureMaybe<ColumnParser> {
         // In order to make a data parser, the $DATATYPE, $BYTEORD, $PnB, and
         // $PnDATATYPE (if present) all need to be a specific relationship to
         // each other, each of which corresponds to the options below.
-        if it.metadata.datatype == AlphaNumType::Ascii && Self::P::fcs_version() >= Version::FCS3_1
-        {
-            st.push_meta_deprecated_str("$DATATYPE=A has been deprecated since FCS 3.1");
-        }
-        match (Self::event_width(&it.measurements), it.metadata.datatype) {
+        let mut res = match (Self::event_width(&it.measurements), it.metadata.datatype) {
             // Numeric/Ascii (fixed width)
             (EventWidth::Finite(measurement_widths), _) => {
                 let event_width = measurement_widths.iter().map(|x| u32::from(*x)).sum();
-                Self::total_events(st, it, event_width).and_then(|total_events| {
-                    Self::build_fixed_width_parser(st, it, total_events, measurement_widths)
+                Self::total_events(it, event_width).and_then(|total_events| {
+                    Self::build_fixed_width_parser(it, total_events, measurement_widths)
                 })
             }
             // Ascii (variable width)
             (EventWidth::Variable, AlphaNumType::Ascii) => {
                 let tot = it.read_data.specific.get_tot();
-                Some(Self::build_delim_ascii_parser(it, tot.map(|x| x as usize)))
+                PureSuccess::from(Some(Self::build_delim_ascii_parser(
+                    it,
+                    tot.map(|x| x as usize),
+                )))
             }
             // nonsense...scream at user
             (EventWidth::Error(fixed, variable), _) => {
-                st.push_meta_error_str("$PnBs are a mix of numeric and variable");
+                let mut r = PureSuccess::from(None);
+                r.push_error("$PnBs are a mix of numeric and variable".to_string());
                 for f in fixed {
-                    st.push_meta_error(format!("$PnB for measurement {f} is numeric"));
+                    r.push_error(format!("$PnB for measurement {f} is numeric"));
                 }
                 for v in variable {
-                    st.push_meta_error(format!("$PnB for measurement {v} is variable"));
+                    r.push_error(format!("$PnB for measurement {v} is variable"));
                 }
-                None
+                r
             }
             (EventWidth::Variable, dt) => {
-                st.push_meta_error(format!("$DATATYPE is {dt} but all $PnB are '*'"));
-                None
+                let mut r = PureSuccess::from(None);
+                r.push_error(format!("$DATATYPE is {dt} but all $PnB are '*'"));
+                r
             }
+        };
+        if it.metadata.datatype == AlphaNumType::Ascii && Self::P::fcs_version() >= Version::FCS3_1
+        {
+            res.push_error("$DATATYPE=A has been deprecated since FCS 3.1".to_string());
         }
+        res
     }
 
-    fn build_data_parser(
-        st: &mut DataParserState,
-        it: &IntermediateTEXT<Self, Self::P, Self::R>,
-    ) -> Option<DataParser> {
-        Self::build_column_parser(st, it).map(|column_parser| DataParser {
-            column_parser,
-            begin: u64::from(it.read_data.specific.data_offsets(&it.data_offsets).begin),
+    fn build_data_parser(it: &IntermediateTEXT<Self, Self::P>) -> PureMaybe<DataParser> {
+        Self::build_column_parser(it).map(|c| {
+            c.map(|column_parser| DataParser {
+                column_parser,
+                begin: u64::from(it.data_seg.begin),
+            })
         })
     }
 
@@ -3321,11 +3273,10 @@ trait VersionedMetadata: Sized {
 }
 
 fn build_int_parser_2_0<P: VersionedMeasurement>(
-    st: &mut DataParserState,
     byteord: &ByteOrd,
     ps: &[Measurement<P>],
     total_events: usize,
-) -> Option<IntParser> {
+) -> PureMaybe<IntParser> {
     let nbytes = byteord.num_bytes();
     let remainder: Vec<_> = ps.iter().filter(|p| !p.bytes_eq(nbytes)).collect();
     if remainder.is_empty() {
@@ -3335,17 +3286,19 @@ fn build_int_parser_2_0<P: VersionedMeasurement>(
             .partition_result();
         let errors: Vec<_> = fail.into_iter().flatten().collect();
         if errors.is_empty() {
-            Some(IntParser {
+            PureSuccess::from(Some(IntParser {
                 columns,
                 nrows: total_events,
-            })
+            }))
         } else {
+            let mut res = PureSuccess::from(None);
             for e in errors.into_iter() {
-                st.push_meta_error(e);
+                res.push_error(e);
             }
-            None
+            res
         }
     } else {
+        let mut res = PureSuccess::from(None);
         for e in remainder.iter().enumerate().map(|(i, p)| {
             format!(
                 "Measurement {} uses {} bytes when DATATYPE=I \
@@ -3353,9 +3306,9 @@ fn build_int_parser_2_0<P: VersionedMeasurement>(
                 i, p.bytes, nbytes
             )
         }) {
-            st.push_meta_error(e);
+            res.push_error(e);
         }
-        None
+        res
     }
 }
 
@@ -3377,7 +3330,6 @@ impl VersionedMetadata for InnerMetadata2_0 {
 
     fn build_int_parser(
         &self,
-        st: &mut DataParserState,
         ps: &[Measurement<Self::P>],
         total_events: usize,
     ) -> Option<IntParser> {
@@ -3443,20 +3395,18 @@ impl VersionedMetadata for InnerMetadata3_0 {
 
     fn build_int_parser(
         &self,
-        st: &mut DataParserState,
         ps: &[Measurement<Self::P>],
         total_events: usize,
-    ) -> Option<IntParser> {
-        build_int_parser_2_0(st, &self.byteord, ps, total_events)
+    ) -> PureMaybe<IntParser> {
+        build_int_parser_2_0(&self.byteord, ps, total_events)
     }
 
     fn build_mixed_parser(
         &self,
-        _: &mut DataParserState,
         _: &[Measurement<Self::P>],
         _: &AlphaNumType,
         _: usize,
-    ) -> Option<Option<MixedParser>> {
+    ) -> Option<PureMaybe<MixedParser>> {
         None
     }
 
@@ -3525,20 +3475,18 @@ impl VersionedMetadata for InnerMetadata3_1 {
 
     fn build_int_parser(
         &self,
-        st: &mut DataParserState,
         ps: &[Measurement<Self::P>],
         total_events: usize,
-    ) -> Option<IntParser> {
+    ) -> PureMaybe<IntParser> {
         build_int_parser_2_0(st, &ByteOrd::Endian(self.byteord), ps, total_events)
     }
 
     fn build_mixed_parser(
         &self,
-        _: &mut DataParserState,
         _: &[Measurement<Self::P>],
         _: &AlphaNumType,
         _: usize,
-    ) -> Option<Option<MixedParser>> {
+    ) -> Option<PureMaybe<MixedParser>> {
         None
     }
 
@@ -3620,20 +3568,18 @@ impl VersionedMetadata for InnerMetadata3_2 {
 
     fn build_int_parser(
         &self,
-        st: &mut DataParserState,
         ps: &[Measurement<Self::P>],
         total_events: usize,
-    ) -> Option<IntParser> {
-        build_int_parser_2_0(st, &ByteOrd::Endian(self.byteord), ps, total_events)
+    ) -> PureMaybe<IntParser> {
+        build_int_parser_2_0(&ByteOrd::Endian(self.byteord), ps, total_events)
     }
 
     fn build_mixed_parser(
         &self,
-        st: &mut DataParserState,
         ps: &[Measurement<Self::P>],
         dt: &AlphaNumType,
         total_events: usize,
-    ) -> Option<Option<MixedParser>> {
+    ) -> Option<PureMaybe<MixedParser>> {
         let endian = self.byteord;
         // first test if we have any PnDATATYPEs defined, if no then skip this
         // data parser entirely
@@ -3683,15 +3629,17 @@ impl VersionedMetadata for InnerMetadata3_2 {
             })
             .partition_result();
         if fail.is_empty() {
-            Some(Some(MixedParser {
+            Some(PureSuccess::from(Some(MixedParser {
                 nrows: total_events,
                 columns: pass,
-            }))
+            })))
         } else {
+            // TODO uncanny strange deja vu
+            let mut res = PureSuccess::from(None);
             for e in fail.into_iter().flatten() {
-                st.push_meta_error(e);
+                res.push_error(e);
             }
-            None
+            Some(res)
         }
     }
 
@@ -3773,12 +3721,12 @@ impl VersionedMetadata for InnerMetadata3_2 {
     }
 }
 
-fn parse_raw_text(header: Header, raw: RawTEXT, conf: &StdTextReader) -> TEXTResult {
-    match header.version {
-        Version::FCS2_0 => StdText2_0::raw_to_std_text(header, raw, conf),
-        Version::FCS3_0 => StdText3_0::raw_to_std_text(header, raw, conf),
-        Version::FCS3_1 => StdText3_1::raw_to_std_text(header, raw, conf),
-        Version::FCS3_2 => StdText3_2::raw_to_std_text(header, raw, conf),
+fn parse_raw_text(raw: RawTEXT, conf: &StdTextReader) -> PureResult<ParsedTEXT> {
+    match raw.version {
+        Version::FCS2_0 => StdText2_0::raw_to_std_text(raw, conf),
+        Version::FCS3_0 => StdText3_0::raw_to_std_text(raw, conf),
+        Version::FCS3_1 => StdText3_1::raw_to_std_text(raw, conf),
+        Version::FCS3_2 => StdText3_2::raw_to_std_text(raw, conf),
     }
 }
 
@@ -3812,18 +3760,20 @@ struct KwValue {
 struct KwState<'a> {
     raw_standard_keywords: HashMap<StdKey, KwValue>,
     raw_nonstandard_keywords: HashMap<NonStdKey, String>,
-    missing_keywords: Vec<StdKey>,
-    deprecated_keys: Vec<StdKey>,
-    deprecated_features: Vec<String>,
-    meta_errors: Vec<String>,
-    meta_warnings: Vec<String>,
+    deferred: PureErrorBuf,
+    // missing_keywords: Vec<StdKey>,
+    // deprecated_keys: Vec<StdKey>,
+    // deprecated_features: Vec<String>,
+    // meta_errors: Vec<String>,
+    // meta_warnings: Vec<String>,
     conf: &'a StdTextReader,
 }
 
-struct DataParserState<'a> {
-    std_errors: StdTEXTErrors,
-    conf: &'a StdTextReader,
-}
+// struct DataParserState<'a> {
+//     deferred: PureErrorBuf,
+//     // std_errors: StdTEXTErrors,
+//     conf: &'a StdTextReader,
+// }
 
 #[derive(Debug, Clone)]
 pub struct StdTEXTErrors {
@@ -3895,91 +3845,93 @@ impl StdTEXTErrors {
     }
 }
 
-impl DataParserState<'_> {
-    fn push_meta_error_str(&mut self, msg: &str) {
-        self.push_meta_error(String::from(msg));
-    }
+// impl DataParserState<'_> {
+//     fn push_meta_error_str(&mut self, msg: &str) {
+//         self.push_meta_error(String::from(msg));
+//     }
 
-    fn push_meta_error(&mut self, msg: String) {
-        self.std_errors.meta_errors.push(msg);
-    }
+//     // fn push_meta_error(&mut self, msg: String) {
+//     //     self.std_errors.meta_errors.push(msg);
+//     // }
 
-    fn push_meta_warning_str(&mut self, msg: &str) {
-        self.push_meta_warning(String::from(msg));
-    }
+//     // fn push_meta_warning_str(&mut self, msg: &str) {
+//     //     self.push_meta_warning(String::from(msg));
+//     // }
 
-    fn push_meta_warning(&mut self, msg: String) {
-        self.std_errors.meta_warnings.push(msg);
-    }
+//     // fn push_meta_warning(&mut self, msg: String) {
+//     //     self.std_errors.meta_warnings.push(msg);
+//     // }
 
-    fn push_meta_deprecated_str(&mut self, msg: &str) {
-        self.std_errors.deprecated_features.push(String::from(msg));
-    }
+//     // fn push_meta_deprecated_str(&mut self, msg: &str) {
+//     //     self.std_errors.deprecated_features.push(String::from(msg));
+//     // }
 
-    fn push_meta_error_or_warning(&mut self, is_error: bool, msg: String) {
-        if is_error {
-            self.std_errors.meta_errors.push(msg);
-        } else {
-            self.std_errors.meta_warnings.push(msg);
-        }
-    }
+//     // fn push_meta_error_or_warning(&mut self, is_error: bool, msg: String) {
+//     //     if is_error {
+//     //         self.std_errors.meta_errors.push(msg);
+//     //     } else {
+//     //         self.std_errors.meta_warnings.push(msg);
+//     //     }
+//     // }
 
-    fn into_errors(mut self) -> StdTEXTErrors {
-        self.std_errors.prune_errors(self.conf);
-        self.std_errors
-    }
+//     fn into_errors(self, reason: String) -> PureFailure {
+//         Failure {
+//             reason,
+//             deferred: self.deferred,
+//         }
+//         // self.std_errors.prune_errors(self.conf);
+//         // self.std_errors
+//     }
 
-    fn into_result<M: VersionedMetadata>(
-        self,
-        it: IntermediateTEXT<M, <M as VersionedMetadata>::P, <M as VersionedMetadata>::R>,
-        data_parser: DataParser,
-        header: Header,
-        raw: RawTEXT,
-    ) -> TEXTResult {
-        let mut s = self.std_errors;
-        let c = &self.conf;
-        let any_crit = !s.missing_keywords.is_empty()
-            || !s.meta_errors.is_empty()
-            || !s.keyword_errors.is_empty();
-        let any_noncrit = (!s.deviant_keywords.is_empty() && c.disallow_deviant)
-            || (!s.nonstandard_keywords.is_empty() && c.disallow_nonstandard)
-            || (!(s.deprecated_features.is_empty() && s.deprecated_keys.is_empty())
-                && c.disallow_deprecated)
-            || (!(s.meta_warnings.is_empty() && s.keyword_warnings.is_empty())
-                && c.warnings_are_errors);
-        if any_crit || any_noncrit {
-            s.prune_errors(c);
-            // TODO this doesn't include nonstandard measurements, which is
-            // probably fine, because if the user didn't want to include them
-            // in the ns measurement field they wouldn't have used that param
-            // anyways, in which case we probably need to call them something
-            // different (like "upgradable")
-            Err(Box::new(s))
-        } else {
-            let core = CoreText {
-                metadata: it.metadata,
-                measurements: it.measurements,
-                nonstandard_keywords: s.nonstandard_keywords,
-                deviant_keywords: s.deviant_keywords,
-            };
-            let std = StdText {
-                core,
-                data_offsets: it.data_offsets,
-                read_data: it.read_data,
-            };
-            Ok(ParsedTEXT {
-                standard: M::into_any_text(Box::new(std)),
-                header,
-                raw,
-                data_parser,
-                deprecated_keys: s.deprecated_keys,
-                deprecated_features: s.deprecated_features,
-                meta_warnings: s.meta_warnings,
-                keyword_warnings: s.keyword_warnings,
-            })
-        }
-    }
-}
+//     fn into_result<M: VersionedMetadata>(
+//         self,
+//         it: IntermediateTEXT<M, <M as VersionedMetadata>::P, <M as VersionedMetadata>::R>,
+//         data_parser: DataParser,
+//         raw: RawTEXT,
+//     ) -> PureSuccess<ParsedTEXT> {
+//         // let mut s = self.std_errors;
+//         let c = &self.conf;
+//         // let any_crit = !s.missing_keywords.is_empty()
+//         //     || !s.meta_errors.is_empty()
+//         //     || !s.keyword_errors.is_empty();
+//         // let any_noncrit = (!s.deviant_keywords.is_empty() && c.disallow_deviant)
+//         //     || (!s.nonstandard_keywords.is_empty() && c.disallow_nonstandard)
+//         //     || (!(s.deprecated_features.is_empty() && s.deprecated_keys.is_empty())
+//         //         && c.disallow_deprecated)
+//         //     || (!(s.meta_warnings.is_empty() && s.keyword_warnings.is_empty())
+//         //         && c.warnings_are_errors);
+//         // if any_crit || any_noncrit {
+//         //     s.prune_errors(c);
+//         //     // TODO this doesn't include nonstandard measurements, which is
+//         //     // probably fine, because if the user didn't want to include them
+//         //     // in the ns measurement field they wouldn't have used that param
+//         //     // anyways, in which case we probably need to call them something
+//         //     // different (like "upgradable")
+//         //     Err(Box::new(s))
+//         // } else {
+//         let core = CoreText {
+//             metadata: it.metadata,
+//             measurements: it.measurements,
+//             nonstandard_keywords: s.nonstandard_keywords,
+//             deviant_keywords: s.deviant_keywords,
+//         };
+//         let std = StdText {
+//             core,
+//             data_offsets: it.data_seg,
+//             read_data: it.read_data,
+//         };
+//         PureSuccess {
+//             data: ParsedTEXT {
+//                 standard: M::into_any_text(Box::new(std)),
+//                 raw,
+//                 data_parser,
+//             },
+//             //TODO
+//             deferred: vec![],
+//         }
+//         // }
+//     }
+// }
 
 #[derive(Debug, Clone)]
 struct KeyError {
@@ -4010,7 +3962,7 @@ impl<'a> KwState<'a> {
                         |x| (ValueStatus::Used, Some(x)),
                     );
                     if dep {
-                        self.deprecated_keys.push(sk);
+                        self.deferred.errors.push(format!("deprecated key: {k}"));
                     }
                     v.status = s;
                     r
@@ -4018,7 +3970,9 @@ impl<'a> KwState<'a> {
                 _ => None,
             },
             None => {
-                self.missing_keywords.push(StdKey(String::from(k)));
+                self.deferred
+                    .errors
+                    .push(format!("missing required key: {k}"));
                 None
             }
         }
@@ -4037,7 +3991,7 @@ impl<'a> KwState<'a> {
                         |x| (ValueStatus::Used, OptionalKw::Present(x)),
                     );
                     if dep {
-                        self.deprecated_keys.push(sk);
+                        self.deferred.push(format!("deprecated key: {k}"));
                     }
                     v.status = s;
                     r
@@ -4052,7 +4006,7 @@ impl<'a> KwState<'a> {
         match Segment::try_new(begin, end, id) {
             Ok(seg) => Some(seg),
             Err(err) => {
-                self.meta_errors.push(err.to_string());
+                self.deferred.errors.push(err.to_string());
                 None
             }
         }
@@ -4730,30 +4684,15 @@ impl<'a> KwState<'a> {
         (value_errors, deviant_keywords, keyword_warnings)
     }
 
-    fn into_data_parser_state(self) -> DataParserState<'a> {
-        let (keyword_errors, deviant_keywords, keyword_warnings) =
-            Self::split_keywords(self.raw_standard_keywords);
-        let std_errors = StdTEXTErrors {
-            keyword_errors,
-            keyword_warnings,
-            deviant_keywords,
-            nonstandard_keywords: self.raw_nonstandard_keywords,
-            missing_keywords: self.missing_keywords,
-            meta_errors: self.meta_errors,
-            meta_warnings: self.meta_warnings,
-            deprecated_keys: self.deprecated_keys,
-            deprecated_features: self.deprecated_features,
-        };
-        DataParserState {
-            std_errors,
-            conf: self.conf,
-        }
-    }
+    // fn into_success(self, data) -> () {
+    //     let (vs, ds, ws) = split_keywords(self.raw_standard_keywords);
+    // }
 
-    fn into_errors(self) -> StdTEXTErrors {
-        let mut st = self.into_data_parser_state();
-        st.std_errors.prune_errors(st.conf);
-        st.std_errors
+    fn into_errors(self, reason: String) -> PureFailure {
+        Failure {
+            reason,
+            deferred: self.deferred,
+        }
     }
 }
 
@@ -4823,17 +4762,76 @@ fn read_header<R: Read>(h: &mut BufReader<R>) -> io::Result<Header> {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct RawTEXT {
+struct RawTEXT {
+    /// FCS version from header
+    version: Version,
+
+    /// Primary TEXT offsets
+    ///
+    /// The offsets that were used to parse the TEXT segment and aquire the
+    /// data elsewhere in this struct. Included here for debug purposes.
+    prim_text_seg: Segment,
+
+    /// DATA offsets
+    ///
+    /// If None then either this is missing or the computation failed.
+    // TODO this is a limitation of the current error handler where it would be
+    // nice to evaluate which are warnings and which are errors at the very end
+    // when we return a result. In this case, I would need to set the level flag
+    // when making the error when parsing the offsets directly; it would be a
+    // warning by default if we don't wish to parse DATA, and an error no matter
+    // what if we did need to parse DATA. The only way to do this is to "catch"
+    // the errors later which means we would need a system of propagating the
+    // error identities forward aside from their string message.
+    data_seg: Option<Segment>,
+
+    /// ANALYSIS offsets.
+    ///
+    /// If none then either this isn't present or the computation failed.
+    analysis_seg: Option<Segment>,
+
+    /// Supplemental TEXT offsets
+    ///
+    /// This is not needed downstream and included here for debug purposes. It
+    /// will always be None for 2.0 which does not include this.
+    supp_text_seg: Option<Segment>,
+
+    /// Standard keyword pairs (ie they start with "$").
+    ///
+    /// This does not include offset keywords (DATA, STEXT, ANALYSIS) and will
+    /// include supplemental TEXT keywords if included.
+    standard_kws: HashMap<StdKey, String>,
+
+    /// Nonstandard keyword pairs
+    ///
+    /// This include supplemental TEXT keywords if included.
+    nonstandard_kws: HashMap<NonStdKey, String>,
+
+    /// Delimiter used to parse TEXT.
+    ///
+    /// This is not needed downstream and included here for debug purposes.
     delimiter: u8,
-    standard_keywords: HashMap<StdKey, String>,
-    nonstandard_keywords: HashMap<NonStdKey, String>,
-    warnings: Vec<String>,
 }
+
+#[derive(Debug, Clone, Serialize)]
+struct StdText<M, P> {
+    version: Version,
+
+    core: CoreText<M, P>,
+}
+
+// #[derive(Debug, Clone, Serialize)]
+// pub struct RawTEXT {
+//     delimiter: u8,
+//     standard_keywords: HashMap<StdKey, String>,
+//     nonstandard_keywords: HashMap<NonStdKey, String>,
+//     warnings: Vec<String>,
+// }
 
 impl RawTEXT {
     fn to_state<'a>(&self, conf: &'a StdTextReader) -> KwState<'a> {
         let mut raw_standard_keywords = HashMap::new();
-        for (k, v) in self.standard_keywords.iter() {
+        for (k, v) in self.standard_kws.iter() {
             raw_standard_keywords.insert(
                 k.clone(),
                 KwValue {
@@ -4844,12 +4842,13 @@ impl RawTEXT {
         }
         KwState {
             raw_standard_keywords,
-            raw_nonstandard_keywords: self.nonstandard_keywords.clone(),
-            deprecated_keys: vec![],
-            deprecated_features: vec![],
-            missing_keywords: vec![],
-            meta_errors: vec![],
-            meta_warnings: vec![],
+            raw_nonstandard_keywords: self.nonstandard_kws.clone(),
+            deferred: PureErrorBuf::new(),
+            // deprecated_keys: vec![],
+            // deprecated_features: vec![],
+            // missing_keywords: vec![],
+            // meta_errors: vec![],
+            // meta_warnings: vec![],
             conf,
         }
     }
@@ -4979,6 +4978,10 @@ type PureFailure = Failure<String>;
 /// Success or failure of a pure FCS computation.
 type PureResult<T> = Result<PureSuccess<T>, PureFailure>;
 
+/// Result of a computation which may have failed but does not require
+/// executation to be immediately terminated.
+type PureMaybe<T> = PureSuccess<Option<T>>;
+
 /// Error which may either be pure or impure (within IO context).
 ///
 /// In the pure case this only has a single error rather than the collection
@@ -5049,6 +5052,31 @@ impl PureErrorBuf {
                 .map(|msg| PureError { msg, level })
                 .collect(),
         }
+    }
+
+    fn push(&mut self, e: PureError) {
+        self.errors.push(e)
+    }
+
+    // TODO not DRY
+    fn push_msg(&mut self, msg: String, level: PureErrorLevel) {
+        self.push(PureError { msg, level })
+    }
+
+    fn push_msg_leveled(&mut self, msg: String, is_error: bool) {
+        if is_error {
+            self.push_error(msg);
+        } else {
+            self.push_warning(msg);
+        }
+    }
+
+    fn push_error(&mut self, msg: String) {
+        self.push_msg(msg, PureErrorLevel::Error)
+    }
+
+    fn push_warning(&mut self, msg: String) {
+        self.push_msg(msg, PureErrorLevel::Warning)
     }
 }
 
@@ -5614,29 +5642,6 @@ fn find_raw_segments(
     data.combine3(stext, analysis, |a, b, c| (newpairs, a, b, c))
 }
 
-struct RawTEXTBetter {
-    standard: HashMap<StdKey, String>,
-    nonstandard: HashMap<NonStdKey, String>,
-    // this will be needed later if DATA is to be parsed, if none then
-    // a previous computation failed
-    //
-    // TODO this is a limitation of the current error handler where it would be
-    // nice to evaluate which are warnings and which are errors at the very end
-    // when we return a result. In this case, I would need to set the level flag
-    // when making the error when parsing the offsets directly; it would be a
-    // warning by default if we don't wish to parse DATA, and an error no matter
-    // what if we did need to parse DATA. The only way to do this is to "catch"
-    // the errors later which means we would need a system of propagating the
-    // error identities forward aside from their string message.
-    data_seg: Option<Segment>,
-    // for debug purposes
-    stext_seg: Option<Segment>,
-    // for parsing ANALYSIS later as needed
-    analysis_seg: Option<Segment>,
-    // not totally necessary
-    delim: u8,
-}
-
 fn read_segment<R: Read + Seek>(
     h: &mut BufReader<R>,
     seg: &Segment,
@@ -5654,7 +5659,7 @@ fn read_raw_text<R: Read + Seek>(
     h: &mut BufReader<R>,
     header: &Header,
     conf: &RawTextReader,
-) -> ImpureResult<RawTEXTBetter> {
+) -> ImpureResult<RawTEXT> {
     let adjusted_text = Failure::from_result(header.text.try_adjust(
         conf.starttext_delta,
         conf.endtext_delta,
@@ -5664,8 +5669,8 @@ fn read_raw_text<R: Read + Seek>(
     let mut buf = vec![];
     read_segment(h, &adjusted_text, &mut buf)?;
 
-    verify_delim(&buf, conf).try_map(|delim| {
-        let mut res = split_raw_text(&buf, delim, conf);
+    verify_delim(&buf, conf).try_map(|delimiter| {
+        let mut res = split_raw_text(&buf, delimiter, conf);
         let pairs_res = if header.version == Version::FCS2_0 {
             repair_keywords(&mut res.data, conf);
             Ok(res.map(|pairs| {
@@ -5691,7 +5696,7 @@ fn read_raw_text<R: Read + Seek>(
                         maybe_stext.map_or(Ok(PureSuccess::from(vec![])), |stext| {
                             buf.clear();
                             read_segment(h, &stext, &mut buf)?;
-                            Ok(split_raw_text(&buf, delim, conf))
+                            Ok(split_raw_text(&buf, delimiter, conf))
                         });
                     let stext_res = io_res?;
                     Ok(stext_res.map(|stext_pairs| {
@@ -5704,13 +5709,15 @@ fn read_raw_text<R: Read + Seek>(
 
         Ok(
             pairs_res.and_then(|(pairs, data_seg, stext_seg, analysis_seg)| {
-                split_raw_pairs(pairs, conf).map(|(standard, nonstandard)| RawTEXTBetter {
-                    standard,
-                    nonstandard,
+                split_raw_pairs(pairs, conf).map(|(standard_kws, nonstandard_kws)| RawTEXT {
+                    version: header.version,
+                    standard_kws,
+                    nonstandard_kws,
                     data_seg,
-                    stext_seg,
+                    supp_text_seg: stext_seg,
+                    prim_text_seg: adjusted_text,
                     analysis_seg,
-                    delim,
+                    delimiter,
                 })
             }),
         )
@@ -5903,12 +5910,11 @@ pub fn read_fcs_header(p: &path::PathBuf) -> io::Result<Header> {
 /// Next will use the offset information in the header to parse the TEXT segment
 /// for key/value pairs. On success will return these pairs as-is using Strings
 /// in a HashMap. No other processing will be performed.
-pub fn read_fcs_raw_text(p: &path::PathBuf, conf: &Reader) -> io::Result<(Header, RawTEXT)> {
+pub fn read_fcs_raw_text(p: &path::PathBuf, conf: &Reader) -> ImpureResult<RawTEXT> {
     let file = fs::File::options().read(true).open(p)?;
     let mut reader = BufReader::new(file);
     let header = read_header(&mut reader)?;
-    let raw = read_raw_text(&mut reader, &header, &conf.text.raw)?;
-    Ok((header, raw))
+    read_raw_text(&mut reader, &header, &conf.text.raw)
 }
 
 /// Return header and standardized metadata in an FCS file.
@@ -5920,9 +5926,9 @@ pub fn read_fcs_raw_text(p: &path::PathBuf, conf: &Reader) -> io::Result<(Header
 /// FCS standard indicated in the header and returned in a struct storing each
 /// key/value pair in a standardized manner. This will halt and return any
 /// errors encountered during this process.
-pub fn read_fcs_text(p: &path::PathBuf, conf: &Reader) -> io::Result<TEXTResult> {
-    let (header, raw) = read_fcs_raw_text(p, conf)?;
-    Ok(parse_raw_text(header, raw, &conf.text))
+pub fn read_fcs_text(p: &path::PathBuf, conf: &Reader) -> ImpureResult<TEXTResult> {
+    let raw = read_fcs_raw_text(p, conf)?;
+    Ok(parse_raw_text(raw, &conf.text))
 }
 
 // fn read_fcs_text_2_0(p: path::PathBuf, conf: StdTextReader) -> TEXTResult<TEXT2_0>;

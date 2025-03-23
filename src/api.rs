@@ -2326,12 +2326,13 @@ impl<M: VersionedMetadata> StdText<M, M::P> {
             let ms = M::P::lookup_measurements(&mut st, par);
             let md = ms.as_ref().and_then(|xs| M::lookup_metadata(&mut st, xs));
             if let (Some(measurements), Some(metadata)) = (ms, md) {
+                let (deferred, deviant_keywords, nonstandard_keywords) = st.collect();
                 Ok(PureSuccess {
                     data: CoreText {
                         metadata,
                         measurements,
-                        deviant,
-                        nonstandard,
+                        deviant_keywords,
+                        nonstandard_keywords,
                     },
                     deferred,
                 })
@@ -2367,12 +2368,13 @@ impl<M: VersionedMetadata> StdText<M, M::P> {
 //     }
 // }
 
-struct IntermediateTEXT<M, P> {
+struct IntermediateTEXT<'a, M, P> {
     par: usize,
     data_seg: Segment,
     // read_data: ReadData<R>,
     metadata: Metadata<M>,
     measurements: Vec<Measurement<P>>,
+    conf: &'a StdTextReader,
 }
 
 type StdText2_0 = StdText<InnerMetadata2_0, InnerMeasurement2_0>;
@@ -3053,7 +3055,7 @@ trait VersionedMetadata: Sized {
                  divide DATA segment which is {nbytes} bytes long \
                  (remainder of {remainder})"
             );
-            def.push_msg_leveled(msg, conf.raw.enfore_data_width_divisibility)
+            def.push_msg_leveled(msg, it.conf.raw.enfore_data_width_divisibility)
         }
         if let Some(tot) = it.read_data.specific.get_tot() {
             if total_events != tot {
@@ -3745,8 +3747,7 @@ impl NonStdKey {
 #[derive(Eq, PartialEq)]
 enum ValueStatus {
     Raw,
-    Error(String),
-    Warning(String),
+    Error(PureError),
     Used,
 }
 
@@ -3958,11 +3959,24 @@ impl<'a> KwState<'a> {
             Some(v) => match v.status {
                 ValueStatus::Raw => {
                     let (s, r) = v.value.parse().map_or_else(
-                        |e| (ValueStatus::Error(format!("{}", e)), None),
+                        |e| {
+                            (
+                                // TODO this will be awkward for keys with very
+                                // large values
+                                ValueStatus::Error(PureError {
+                                    msg: format!("{e} for key '{k}' with value '{}'", v.value),
+                                    level: PureErrorLevel::Error,
+                                }),
+                                None,
+                            )
+                        },
                         |x| (ValueStatus::Used, Some(x)),
                     );
                     if dep {
-                        self.deferred.errors.push(format!("deprecated key: {k}"));
+                        self.deferred.push_msg_leveled(
+                            format!("deprecated key: {k}"),
+                            self.conf.disallow_deprecated,
+                        );
                     }
                     v.status = s;
                     r
@@ -3971,8 +3985,7 @@ impl<'a> KwState<'a> {
             },
             None => {
                 self.deferred
-                    .errors
-                    .push(format!("missing required key: {k}"));
+                    .push_error(format!("missing required key: {k}"));
                 None
             }
         }
@@ -3987,11 +4000,22 @@ impl<'a> KwState<'a> {
             Some(v) => match v.status {
                 ValueStatus::Raw => {
                     let (s, r) = v.value.parse().map_or_else(
-                        |w| (ValueStatus::Warning(format!("{}", w)), Absent),
+                        |w| {
+                            (
+                                ValueStatus::Error(PureError {
+                                    msg: format!("{}", w),
+                                    level: PureErrorLevel::Warning,
+                                }),
+                                Absent,
+                            )
+                        },
                         |x| (ValueStatus::Used, OptionalKw::Present(x)),
                     );
                     if dep {
-                        self.deferred.push(format!("deprecated key: {k}"));
+                        self.deferred.push_msg_leveled(
+                            format!("deprecated key: {k}"),
+                            self.conf.disallow_deprecated,
+                        );
                     }
                     v.status = s;
                     r
@@ -4006,7 +4030,7 @@ impl<'a> KwState<'a> {
         match Segment::try_new(begin, end, id) {
             Ok(seg) => Some(seg),
             Err(err) => {
-                self.deferred.errors.push(err.to_string());
+                self.deferred.push_error(err.to_string());
                 None
             }
         }
@@ -4657,42 +4681,43 @@ impl<'a> KwState<'a> {
         }
     }
 
-    fn split_keywords(
-        kws: HashMap<StdKey, KwValue>,
-    ) -> (Vec<KeyError>, HashMap<StdKey, String>, Vec<KeyWarning>) {
+    fn collect(
+        self,
+    ) -> (
+        PureErrorBuf,
+        HashMap<StdKey, String>,
+        HashMap<NonStdKey, String>,
+    ) {
         let mut deviant_keywords = HashMap::new();
-        let mut keyword_warnings = Vec::new();
-        let mut value_errors = Vec::new();
-        for (key, v) in kws {
+        let mut deferred = PureErrorBuf::new();
+        for (key, v) in self.raw_standard_keywords {
             match v.status {
                 ValueStatus::Raw => {
                     deviant_keywords.insert(key, v.value);
                 }
-                ValueStatus::Warning(msg) => keyword_warnings.push(KeyWarning {
-                    msg,
-                    key,
-                    value: v.value,
-                }),
-                ValueStatus::Error(msg) => value_errors.push(KeyError {
-                    msg,
-                    key,
-                    value: v.value,
-                }),
+                ValueStatus::Error(err) => deferred.push(err),
                 ValueStatus::Used => (),
             }
         }
-        (value_errors, deviant_keywords, keyword_warnings)
+        (deferred, deviant_keywords, self.raw_nonstandard_keywords)
     }
 
-    // fn into_success(self, data) -> () {
-    //     let (vs, ds, ws) = split_keywords(self.raw_standard_keywords);
-    // }
-
     fn into_errors(self, reason: String) -> PureFailure {
-        Failure {
-            reason,
-            deferred: self.deferred,
+        let c = self.conf;
+        let (mut deferred, dev, ns) = self.collect();
+        for k in dev.into_keys() {
+            deferred.push_msg_leveled(
+                format!("{} starts with '$' but is not standard", k.0),
+                c.disallow_deviant,
+            );
         }
+        for k in ns.into_keys() {
+            deferred.push_msg_leveled(
+                format!("{} is not a standard key", k.0),
+                c.disallow_nonstandard,
+            );
+        }
+        Failure { reason, deferred }
     }
 }
 
@@ -4925,7 +4950,7 @@ pub struct FCSSuccess {
 //     }
 // }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Eq, PartialEq)]
 enum PureErrorLevel {
     Error,
     Warning,
@@ -4937,6 +4962,7 @@ enum PureErrorLevel {
 /// This is very basic, since the only functionality we need is capturing a
 /// message to show the user and an error level. The latter will dictate how the
 /// error(s) is/are handled when we finish parsing.
+#[derive(Eq, PartialEq)]
 struct PureError {
     msg: String,
     level: PureErrorLevel,

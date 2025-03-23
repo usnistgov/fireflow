@@ -3,7 +3,7 @@ use std::io::{BufReader, Read, Seek};
 
 use serde::Serialize;
 
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize, PartialEq)]
 pub enum Endian {
     Big,
     Little,
@@ -16,12 +16,6 @@ pub enum Series {
     U16(Vec<u16>),
     U32(Vec<u32>),
     U64(Vec<u64>),
-}
-
-impl Endian {
-    fn is_big(&self) -> bool {
-        matches!(self, Endian::Big)
-    }
 }
 
 impl Series {
@@ -53,9 +47,6 @@ pub trait IntMath: Sized {
 }
 
 pub trait NumProps<const DTLEN: usize>: Sized + Copy {
-    // TODO use From trait
-    // fn into_series(x: Vec<Self>) -> Series;
-
     fn zero() -> Self;
 
     fn from_big(buf: [u8; DTLEN]) -> Self;
@@ -75,7 +66,7 @@ pub trait NumProps<const DTLEN: usize>: Sized + Copy {
     }
 
     fn read_from_endian<R: Read + Seek>(h: &mut BufReader<R>, endian: Endian) -> io::Result<Self> {
-        if endian.is_big() {
+        if endian == Endian::Big {
             Self::read_from_big(h)
         } else {
             Self::read_from_little(h)
@@ -92,10 +83,6 @@ macro_rules! impl_num_props {
         }
 
         impl NumProps<$size> for $t {
-            // fn into_series(x: Vec<Self>) -> Series {
-            //     Series::$p(x)
-            // }
-
             fn zero() -> Self {
                 $zero
             }

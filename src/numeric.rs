@@ -18,27 +18,27 @@ pub enum Series {
     U64(Vec<u64>),
 }
 
+macro_rules! match_many_to_one {
+    ($value:expr, $root:ident, [$($variant:ident),*], $inner:ident, $action:block) => {
+        match $value {
+            $(
+                $root::$variant($inner) => {
+                    $action
+                },
+            )*
+        }
+    };
+}
+
 impl Series {
     pub fn len(&self) -> usize {
-        match self {
-            Series::F32(x) => x.len(),
-            Series::F64(x) => x.len(),
-            Series::U8(x) => x.len(),
-            Series::U16(x) => x.len(),
-            Series::U32(x) => x.len(),
-            Series::U64(x) => x.len(),
-        }
+        match_many_to_one!(self, Series, [F32, F64, U8, U16, U32, U64], x, { x.len() })
     }
 
     pub fn format(&self, r: usize) -> String {
-        match self {
-            Series::F32(x) => format!("{}", x[r]),
-            Series::F64(x) => format!("{}", x[r]),
-            Series::U8(x) => format!("{}", x[r]),
-            Series::U16(x) => format!("{}", x[r]),
-            Series::U32(x) => format!("{}", x[r]),
-            Series::U64(x) => format!("{}", x[r]),
-        }
+        match_many_to_one!(self, Series, [F32, F64, U8, U16, U32, U64], x, {
+            format!("{}", x[r])
+        })
     }
 }
 

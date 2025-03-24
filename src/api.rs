@@ -1,7 +1,6 @@
 use crate::config::*;
 use crate::error::*;
 use crate::keywords::*;
-use crate::numeric::{Endian, IntMath, NumProps, Series};
 use crate::segment::*;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
@@ -231,7 +230,20 @@ struct CoreDataset {
 ///
 /// Each slot in the outer vector is a column, and each column has a type which
 /// reflects the underlying data. In Python/R, this is analogous to a dataframe.
+/// Each column is assumed to have the same length.
 type ParsedData = Vec<Series>;
+
+/// A data column.
+///
+/// Each column can only be one type, but this can be any one of several.
+pub enum Series {
+    F32(Vec<f32>),
+    F64(Vec<f64>),
+    U8(Vec<u8>),
+    U16(Vec<u16>),
+    U32(Vec<u32>),
+    U64(Vec<u64>),
+}
 
 /// Critical FCS TEXT data for any supported FCS version
 #[derive(Debug)]
@@ -400,6 +412,15 @@ enum Display {
 
     /// Logarithmic display (value like 'Logarithmic,<offset>,<decades>')
     Log { offset: f32, decades: f32 },
+}
+
+/// Endianness
+///
+/// This is also stored in the $BYTEORD key in 3.1+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq)]
+pub enum Endian {
+    Big,
+    Little,
 }
 
 /// The byte order as shown in the $BYTEORD field in 2.0 and 3.0
@@ -1104,6 +1125,113 @@ enum RangeError {
 }
 
 struct Mode3_2Error;
+
+#[derive(Debug)]
+struct FloatParser<const LEN: usize> {
+    nrows: usize,
+    ncols: usize,
+    byteord: SizedByteOrd<LEN>,
+}
+
+#[derive(Debug)]
+struct AsciiColumn {
+    data: Vec<f64>,
+    width: u8,
+}
+
+#[derive(Debug)]
+struct FloatColumn<T> {
+    data: Vec<T>,
+    endian: Endian,
+}
+
+#[derive(Debug)]
+enum MixedColumnType {
+    Ascii(AsciiColumn),
+    Uint(AnyIntColumn),
+    Single(FloatColumn<f32>),
+    Double(FloatColumn<f64>),
+}
+
+#[derive(Debug)]
+struct MixedParser {
+    nrows: usize,
+    columns: Vec<MixedColumnType>,
+}
+
+#[derive(Debug)]
+enum SizedByteOrd<const LEN: usize> {
+    Endian(Endian),
+    Order([u8; LEN]),
+}
+
+#[derive(Debug)]
+struct IntColumnParser<B, const LEN: usize> {
+    bitmask: B,
+    size: SizedByteOrd<LEN>,
+    data: Vec<B>,
+}
+
+#[derive(Debug)]
+enum AnyIntColumn {
+    Uint8(IntColumnParser<u8, 1>),
+    Uint16(IntColumnParser<u16, 2>),
+    Uint24(IntColumnParser<u32, 3>),
+    Uint32(IntColumnParser<u32, 4>),
+    Uint40(IntColumnParser<u64, 5>),
+    Uint48(IntColumnParser<u64, 6>),
+    Uint56(IntColumnParser<u64, 7>),
+    Uint64(IntColumnParser<u64, 8>),
+}
+
+// Integers are complicated because in each version we need to at least deal
+// with the possibility that each column has a different bitmask. In addition,
+// 3.1+ allows for different widths (even though this likely is used seldom
+// if ever) so each series can potentially be a different type. Finally,
+// BYTEORD further complicates this because unlike floats which can only have
+// widths of 4 or 8 bytes, integers can have any number of bytes up to their
+// next power of 2 data type. For example, some cytometers store their values
+// in 3-byte segments, which would need to be stored in u32 but are read as
+// triples, which in theory could be any byte order.
+//
+// There may be some small optimizations we can make for the "typical" cases
+// where the entire file is u32 with big/little BYTEORD and only a handful
+// of different bitmasks. For now, the increased complexity of dealing with this
+// is likely no worth it.
+#[derive(Debug)]
+struct IntParser {
+    nrows: usize,
+    columns: Vec<AnyIntColumn>,
+}
+
+#[derive(Debug)]
+struct FixedAsciiParser {
+    columns: Vec<u8>,
+    nrows: usize,
+}
+
+#[derive(Debug)]
+struct DelimAsciiParser {
+    ncols: usize,
+    nrows: Option<usize>,
+    nbytes: usize,
+}
+
+#[derive(Debug)]
+enum ColumnParser {
+    // DATATYPE=A where all PnB = *
+    DelimitedAscii(DelimAsciiParser),
+    // DATATYPE=A where all PnB = number
+    FixedWidthAscii(FixedAsciiParser),
+    // DATATYPE=F (with no overrides in 3.2+)
+    Single(FloatParser<4>),
+    // DATATYPE=D (with no overrides in 3.2+)
+    Double(FloatParser<8>),
+    // DATATYPE=I this is complicated so see struct definition
+    Int(IntParser),
+    // Mixed column types (3.2+)
+    Mixed(MixedParser),
+}
 
 fn format_measurement(n: &str, m: &str) -> String {
     format!("$P{}{}", n, m)
@@ -2582,21 +2710,6 @@ impl Serialize for AnyStdTEXT {
     }
 }
 
-#[derive(Debug)]
-// TODO add warnings and such
-pub struct ParsedTEXT {
-    // pub header: Header,
-    pub raw: RawTEXT,
-    pub standard: AnyStdTEXT,
-    data_parser: DataParser,
-    // deprecated_keys: Vec<StdKey>,
-    // deprecated_features: Vec<String>,
-    // meta_warnings: Vec<String>,
-    // keyword_warnings: Vec<KeyWarning>,
-}
-
-// type TEXTResult = Result<ParsedTEXT, Box<StdTEXTErrors>>;
-
 impl<M: VersionedMetadata> StdText<M, M::P> {
     fn get_shortnames(&self) -> Vec<&str> {
         self.core
@@ -2689,7 +2802,6 @@ impl<M: VersionedMetadata> StdText<M, M::P> {
 struct IntermediateTEXT<'a, M, P> {
     par: usize,
     data_seg: Segment,
-    // read_data: ReadData<R>,
     metadata: MinMetadata<M>,
     measurements: Vec<MinimalMeasurement<P>>,
     conf: &'a StdTextReader,
@@ -2699,6 +2811,108 @@ type StdText2_0 = StdText<InnerMetadata2_0, InnerMeasurement2_0>;
 type StdText3_0 = StdText<InnerMetadata3_0, InnerMeasurement3_0>;
 type StdText3_1 = StdText<InnerMetadata3_1, InnerMeasurement3_1>;
 type StdText3_2 = StdText<InnerMetadata3_2, InnerMeasurement3_2>;
+
+macro_rules! match_many_to_one {
+    ($value:expr, $root:ident, [$($variant:ident),*], $inner:ident, $action:block) => {
+        match $value {
+            $(
+                $root::$variant($inner) => {
+                    $action
+                },
+            )*
+        }
+    };
+}
+
+impl Series {
+    pub fn len(&self) -> usize {
+        match_many_to_one!(self, Series, [F32, F64, U8, U16, U32, U64], x, { x.len() })
+    }
+
+    pub fn format(&self, r: usize) -> String {
+        match_many_to_one!(self, Series, [F32, F64, U8, U16, U32, U64], x, {
+            format!("{}", x[r])
+        })
+    }
+}
+
+pub trait IntMath: Sized {
+    fn next_power_2(x: Self) -> Self;
+}
+
+pub trait NumProps<const DTLEN: usize>: Sized + Copy {
+    fn zero() -> Self;
+
+    fn from_big(buf: [u8; DTLEN]) -> Self;
+
+    fn from_little(buf: [u8; DTLEN]) -> Self;
+
+    fn read_from_big<R: Read + Seek>(h: &mut BufReader<R>) -> io::Result<Self> {
+        let mut buf = [0; DTLEN];
+        h.read_exact(&mut buf)?;
+        Ok(Self::from_big(buf))
+    }
+
+    fn read_from_little<R: Read + Seek>(h: &mut BufReader<R>) -> io::Result<Self> {
+        let mut buf = [0; DTLEN];
+        h.read_exact(&mut buf)?;
+        Ok(Self::from_little(buf))
+    }
+
+    fn read_from_endian<R: Read + Seek>(h: &mut BufReader<R>, endian: Endian) -> io::Result<Self> {
+        if endian == Endian::Big {
+            Self::read_from_big(h)
+        } else {
+            Self::read_from_little(h)
+        }
+    }
+}
+
+macro_rules! impl_num_props {
+    ($size:expr, $zero:expr, $t:ty, $p:ident) => {
+        impl From<Vec<$t>> for Series {
+            fn from(value: Vec<$t>) -> Self {
+                Series::$p(value)
+            }
+        }
+
+        impl NumProps<$size> for $t {
+            fn zero() -> Self {
+                $zero
+            }
+
+            fn from_big(buf: [u8; $size]) -> Self {
+                <$t>::from_be_bytes(buf)
+            }
+
+            fn from_little(buf: [u8; $size]) -> Self {
+                <$t>::from_le_bytes(buf)
+            }
+        }
+    };
+}
+
+impl_num_props!(1, 0, u8, U8);
+impl_num_props!(2, 0, u16, U16);
+impl_num_props!(4, 0, u32, U32);
+impl_num_props!(8, 0, u64, U64);
+impl_num_props!(4, 0.0, f32, F32);
+impl_num_props!(8, 0.0, f64, F64);
+
+macro_rules! impl_int_math {
+    ($t:ty) => {
+        impl IntMath for $t {
+            fn next_power_2(x: Self) -> Self {
+                Self::checked_next_power_of_two(x).unwrap_or(Self::MAX)
+            }
+        }
+    };
+}
+
+impl_int_math!(u8);
+impl_int_math!(u16);
+impl_int_math!(u32);
+impl_int_math!(u64);
 
 trait OrderedFromBytes<const DTLEN: usize, const OLEN: usize>: NumProps<DTLEN> {
     fn read_from_ordered<R: Read>(h: &mut BufReader<R>, order: &[u8; OLEN]) -> io::Result<Self> {
@@ -2911,33 +3125,6 @@ impl IntFromBytes<8, 6> for u64 {}
 impl IntFromBytes<8, 7> for u64 {}
 impl IntFromBytes<8, 8> for u64 {}
 
-#[derive(Debug)]
-struct FloatParser<const LEN: usize> {
-    nrows: usize,
-    ncols: usize,
-    byteord: SizedByteOrd<LEN>,
-}
-
-#[derive(Debug)]
-struct AsciiColumn {
-    data: Vec<f64>,
-    width: u8,
-}
-
-#[derive(Debug)]
-struct FloatColumn<T> {
-    data: Vec<T>,
-    endian: Endian,
-}
-
-#[derive(Debug)]
-enum MixedColumnType {
-    Ascii(AsciiColumn),
-    Uint(AnyIntColumn),
-    Single(FloatColumn<f32>),
-    Double(FloatColumn<f64>),
-}
-
 impl MixedColumnType {
     fn into_series(self) -> Series {
         match self {
@@ -2947,37 +3134,6 @@ impl MixedColumnType {
             MixedColumnType::Uint(x) => x.into_series(),
         }
     }
-}
-
-#[derive(Debug)]
-struct MixedParser {
-    nrows: usize,
-    columns: Vec<MixedColumnType>,
-}
-
-#[derive(Debug)]
-enum SizedByteOrd<const LEN: usize> {
-    Endian(Endian),
-    Order([u8; LEN]),
-}
-
-#[derive(Debug)]
-struct IntColumnParser<B, const LEN: usize> {
-    bitmask: B,
-    size: SizedByteOrd<LEN>,
-    data: Vec<B>,
-}
-
-#[derive(Debug)]
-enum AnyIntColumn {
-    Uint8(IntColumnParser<u8, 1>),
-    Uint16(IntColumnParser<u16, 2>),
-    Uint24(IntColumnParser<u32, 3>),
-    Uint32(IntColumnParser<u32, 4>),
-    Uint40(IntColumnParser<u64, 5>),
-    Uint48(IntColumnParser<u64, 6>),
-    Uint56(IntColumnParser<u64, 7>),
-    Uint64(IntColumnParser<u64, 8>),
 }
 
 impl AnyIntColumn {
@@ -3007,55 +3163,6 @@ impl AnyIntColumn {
         }
         Ok(())
     }
-}
-
-// Integers are complicated because in each version we need to at least deal
-// with the possibility that each column has a different bitmask. In addition,
-// 3.1+ allows for different widths (even though this likely is used seldom
-// if ever) so each series can potentially be a different type. Finally,
-// BYTEORD further complicates this because unlike floats which can only have
-// widths of 4 or 8 bytes, integers can have any number of bytes up to their
-// next power of 2 data type. For example, some cytometers store their values
-// in 3-byte segments, which would need to be stored in u32 but are read as
-// triples, which in theory could be any byte order.
-//
-// There may be some small optimizations we can make for the "typical" cases
-// where the entire file is u32 with big/little BYTEORD and only a handful
-// of different bitmasks. For now, the increased complexity of dealing with this
-// is likely no worth it.
-#[derive(Debug)]
-struct IntParser {
-    nrows: usize,
-    columns: Vec<AnyIntColumn>,
-}
-
-#[derive(Debug)]
-struct FixedAsciiParser {
-    columns: Vec<u8>,
-    nrows: usize,
-}
-
-#[derive(Debug)]
-struct DelimAsciiParser {
-    ncols: usize,
-    nrows: Option<usize>,
-    nbytes: usize,
-}
-
-#[derive(Debug)]
-enum ColumnParser {
-    // DATATYPE=A where all PnB = *
-    DelimitedAscii(DelimAsciiParser),
-    // DATATYPE=A where all PnB = number
-    FixedWidthAscii(FixedAsciiParser),
-    // DATATYPE=F (with no overrides in 3.2+)
-    Single(FloatParser<4>),
-    // DATATYPE=D (with no overrides in 3.2+)
-    Double(FloatParser<8>),
-    // DATATYPE=I this is complicated so see struct definition
-    Int(IntParser),
-    // Mixed column types (3.2+)
-    Mixed(MixedParser),
 }
 
 #[derive(Debug)]

@@ -4,7 +4,6 @@ mod api;
 mod config;
 mod error;
 mod keywords;
-mod numeric;
 mod segment;
 
 use clap::{arg, value_parser, ArgMatches, Command};

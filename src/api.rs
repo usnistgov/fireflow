@@ -2710,10 +2710,9 @@ impl Serialize for AnyStdTEXT {
     }
 }
 
-impl<M: VersionedMetadata> StdText<M, M::P> {
+impl<M: VersionedMetadata> CoreTEXT<M, M::P> {
     fn get_shortnames(&self) -> Vec<&str> {
-        self.core
-            .measurements
+        self.measurements
             .iter()
             .filter_map(|p| M::P::measurement_name(p))
             .collect()
@@ -2722,7 +2721,6 @@ impl<M: VersionedMetadata> StdText<M, M::P> {
     // TODO char should be validated somehow
     fn text_segment(&self, delim: char, data_len: usize) -> String {
         let ms: Vec<_> = self
-            .core
             .measurements
             .iter()
             .enumerate()
@@ -2736,7 +2734,6 @@ impl<M: VersionedMetadata> StdText<M, M::P> {
         };
         // TODO properly populate tot/par here
         let mut meta: Vec<(String, String)> = self
-            .core
             .metadata
             .keywords(0, 0, len)
             .into_iter()
@@ -2754,12 +2751,12 @@ impl<M: VersionedMetadata> StdText<M, M::P> {
     }
 
     fn meas_table(&self, delim: &str) -> Vec<String> {
-        let ms = &self.core.measurements;
+        let ms = &self.measurements;
         if ms.is_empty() {
             return vec![];
         }
         let header = ms[0].table_header().join(delim);
-        let rows = self.core.measurements.iter().enumerate().map(|(i, m)| {
+        let rows = self.measurements.iter().enumerate().map(|(i, m)| {
             m.table_row(i)
                 .into_iter()
                 .map(|v| v.unwrap_or(String::from("NA")))
@@ -2774,7 +2771,7 @@ impl<M: VersionedMetadata> StdText<M, M::P> {
         }
     }
 
-    fn raw_to_std_text(raw: &RawTEXT, conf: &StdTextReader) -> PureResult<CoreTEXT<M, M::P>> {
+    fn from_raw(raw: RawTEXT, conf: &StdTextReader) -> PureResult<(Self, RawKeywords)> {
         let mut st = raw.to_state(conf);
         if let Some(par) = st.lookup_par() {
             let ms = M::P::lookup_measurements(&mut st, par);
@@ -2783,11 +2780,13 @@ impl<M: VersionedMetadata> StdText<M, M::P> {
                 // TODO put this somewhere
                 let (deferred, deviant_keywords) = st.collect();
                 Ok(PureSuccess {
-                    data: CoreTEXT {
-                        metadata,
-                        measurements,
-                        // deviant_keywords,
-                    },
+                    data: (
+                        CoreTEXT {
+                            metadata,
+                            measurements,
+                        },
+                        deviant_keywords,
+                    ),
                     deferred,
                 })
             } else {
@@ -4957,7 +4956,7 @@ impl<'a> KwState<'a> {
         self.deferred.push_msg_leveled(msg, is_error);
     }
 
-    fn collect(self) -> (PureErrorBuf, StdKeywords) {
+    fn collect(self) -> (PureErrorBuf, RawKeywords) {
         let mut deviant_keywords = HashMap::new();
         let mut deferred = PureErrorBuf::new();
         for (key, v) in self.raw_keywords {
@@ -4966,7 +4965,7 @@ impl<'a> KwState<'a> {
                 // will start with "$" since we pulled out the nonstandard
                 // keywords when making the metadata.
                 ValueStatus::Raw => {
-                    deviant_keywords.insert(StdKey(key), v.value);
+                    deviant_keywords.insert(key, v.value);
                 }
                 ValueStatus::Error(err) => deferred.push(err),
                 ValueStatus::Used => (),
@@ -4980,7 +4979,7 @@ impl<'a> KwState<'a> {
         let (mut deferred, dev) = self.collect();
         for k in dev.into_keys() {
             deferred.push_msg_leveled(
-                format!("{} starts with '$' but is not standard", k.0),
+                format!("{} starts with '$' but is not standard", k),
                 c.disallow_deviant,
             );
         }
@@ -5049,11 +5048,11 @@ fn read_header<R: Read>(h: &mut BufReader<R>) -> io::Result<Header> {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
-struct StdText<M, P> {
-    version: Version,
-    core: CoreTEXT<M, P>,
-}
+// #[derive(Debug, Clone, Serialize)]
+// struct StdText<M, P> {
+//     version: Version,
+//     core: CoreTEXT<M, P>,
+// }
 
 // #[derive(Debug, Clone, Serialize)]
 // pub struct RawTEXT {

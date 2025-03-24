@@ -1,3 +1,4 @@
+use crate::config::*;
 use crate::error::*;
 use crate::keywords::*;
 use crate::numeric::{Endian, IntMath, NumProps, Series};
@@ -19,168 +20,13 @@ use std::path;
 use std::str;
 use std::str::FromStr;
 
-/// Instructions for reading the TEXT segment as raw key/value pairs.
-#[derive(Default, Clone)]
-pub struct RawTextReader {
-    /// Will adjust the offset of the start of the TEXT segment by `offset + n`.
-    pub starttext_delta: i32,
-
-    /// Will adjust the offset of the end of the TEXT segment by `offset + n`.
-    pub endtext_delta: i32,
-
-    pub startdata_delta: i32,
-    pub enddata_delta: i32,
-
-    pub start_stext_delta: i32,
-    pub end_stext_delta: i32,
-
-    pub start_analysis_delta: i32,
-    pub end_analysis_delta: i32,
-
-    /// If true, all raw text parsing warnings will be considered fatal errors
-    /// which will halt the parsing routine.
-    pub warnings_are_errors: bool,
-
-    /// Will treat every delimiter as a literal delimiter rather than "escaping"
-    /// double delimiters
-    pub no_delim_escape: bool,
-
-    /// If true, only ASCII characters 1-126 will be allowed for the delimiter
-    pub force_ascii_delim: bool,
-
-    /// If true, throw an error if the last byte of the TEXT segment is not
-    /// a delimiter.
-    pub enforce_final_delim: bool,
-
-    /// If true, throw an error if any key in the TEXT segment is not unique
-    pub enforce_unique: bool,
-
-    /// If true, throw an error if the number or words in the TEXT segment is
-    /// not an even number (ie there is a key with no value)
-    pub enforce_even: bool,
-
-    /// If true, throw an error if we encounter a key with a blank value.
-    /// Only relevant if [`no_delim_escape`] is also true.
-    pub enforce_nonempty: bool,
-
-    /// If true, throw an error if the parser encounters a bad UTF-8 byte when
-    /// creating the key/value list. If false, merely drop the bad pair.
-    pub error_on_invalid_utf8: bool,
-
-    /// If true, throw error when encoutering keyword with non-ASCII characters
-    pub enfore_keyword_ascii: bool,
-
-    /// If true, throw error when total event width does not evenly divide
-    /// the DATA segment. Meaningless for delimited ASCII data.
-    pub enfore_data_width_divisibility: bool,
-
-    /// If true, throw error if the total number of events as computed by
-    /// dividing DATA segment length event width doesn't match $TOT. Does
-    /// nothing if $TOT not given, which may be the case in version 2.0.
-    pub enfore_matching_tot: bool,
-
-    /// If true, replace leading spaces in offset keywords with 0.
-    ///
-    ///These often need to be padded to make the DATA segment appear at a
-    /// predictable offset. Many machines/programs will pad with spaces despite
-    /// the spec requiring that all numeric fields be entirely numeric
-    /// character.
-    pub repair_offset_spaces: bool,
-
-    /// If supplied, will be used as an alternative pattern when parsing $DATE.
-    ///
-    /// It should have specifiers for year, month, and day as outlined in
-    /// https://docs.rs/chrono/latest/chrono/format/strftime/index.html. If not
-    /// supplied, $DATE will be parsed according to the standard pattern which
-    /// is '%d-%b-%Y'.
-    pub date_pattern: Option<String>,
-    // TODO add keyword and value overrides, something like a list of patterns
-    // that can be used to alter each keyword
-    // TODO allow lambda function to be supplied which will alter the kv list
-}
-
-/// Instructions for reading the TEXT segment in a standardized structure.
-#[derive(Default, Clone)]
-pub struct StdTextReader {
-    pub raw: RawTextReader,
-
-    /// If true, all metadata standardization warnings will be considered fatal
-    /// errors which will halt the parsing routine.
-    pub warnings_are_errors: bool,
-
-    /// If given, will be the $PnN used to identify the time channel. Means
-    /// nothing for 2.0.
-    ///
-    /// Will be used for the [`ensure_time*`] options below. If not given, skip
-    /// time channel checking entirely.
-    pub time_shortname: Option<String>,
-
-    /// If true, will ensure that time channel is present
-    pub ensure_time: bool,
-
-    /// If true, will ensure TIMESTEP is present if time channel is also
-    /// present.
-    pub ensure_time_timestep: bool,
-
-    /// If true, will ensure PnE is 0,0 for time channel.
-    pub ensure_time_linear: bool,
-
-    /// If true, will ensure PnG is absent for time channel.
-    pub ensure_time_nogain: bool,
-
-    /// If true, throw an error if TEXT includes any keywords that start with
-    /// "$" which are not standard.
-    pub disallow_deviant: bool,
-
-    /// If true, throw an error if TEXT includes any deprecated features
-    pub disallow_deprecated: bool,
-
-    /// If true, throw an error if TEXT includes any keywords that do not
-    /// start with "$".
-    pub disallow_nonstandard: bool,
-
-    /// If supplied, this pattern will be used to group "nonstandard" keywords
-    /// with matching measurements.
-    ///
-    /// Usually this will be something like '^P%n.+' where '%n' will be
-    /// substituted with the measurement index before using it as a regular
-    /// expression to match keywords. It should not start with a "$".
-    ///
-    /// This will matching something like 'P7FOO' which would be 'FOO' for
-    /// measurement 7. This might be useful in the future when this code offers
-    /// "upgrade" routines since these are often used to represent future
-    /// keywords in an older version where the newer version cannot be used for
-    /// some reason.
-    pub nonstandard_measurement_pattern: Option<String>,
-    // TODO add repair stuff
-}
-
-impl StdTextReader {
-    fn time_name_matches(&self, name: &Shortname) -> bool {
-        self.time_shortname
-            .as_ref()
-            .map(|n| n == name.0.as_str())
-            .unwrap_or(false)
-    }
-}
-
-/// Instructions for reading the DATA segment.
-#[derive(Default)]
-pub struct DataReader {
-    /// Will adjust the offset of the start of the TEXT segment by `offset + n`.
-    datastart_delta: u32,
-    /// Will adjust the offset of the end of the TEXT segment by `offset + n`.
-    dataend_delta: u32,
-}
-
-/// Instructions for reading an FCS file.
-#[derive(Default)]
-pub struct Reader {
-    pub text: StdTextReader,
-    pub data: DataReader,
-}
-
-/// Data contained in the FCS header.
+/// Output from parsing the FCS header.
+///
+/// Includes version and the three main segments (TEXT, DATA, ANALYSIS). For
+/// now, OTHER segments are ignored. This may change in the future. Segments may
+/// or may not be adjusted using configuration parameters to correct for errors.
+///
+/// Only valid segments are to be put in this struct (ie begin <= end).
 #[derive(Debug, Clone, Serialize)]
 pub struct Header {
     version: Version,
@@ -189,20 +35,18 @@ pub struct Header {
     analysis: Segment,
 }
 
+/// Output from parsing the TEXT segment.
+///
+/// This is derived from the HEADER which should be parsed in order to obtain
+/// this.
+///
+/// Segment offsets derived from HEADER may be updated depending on keywords
+/// present. See fields below for more information on this.
 #[derive(Debug, Clone, Serialize)]
 struct RawTEXT {
     /// FCS version from header
     version: Version,
 
-    /// Primary TEXT offsets
-    ///
-    /// The offsets that were used to parse the TEXT segment and aquire the
-    /// data elsewhere in this struct. Included here for debug purposes.
-    prim_text_seg: Segment,
-
-    /// DATA offsets
-    ///
-    /// If None then either this is missing or the computation failed.
     // TODO this is a limitation of the current error handler where it would be
     // nice to evaluate which are warnings and which are errors at the very end
     // when we return a result. In this case, I would need to set the level flag
@@ -211,50 +55,275 @@ struct RawTEXT {
     // what if we did need to parse DATA. The only way to do this is to "catch"
     // the errors later which means we would need a system of propagating the
     // error identities forward aside from their string message.
+    /// All offsets as parsed from raw TEXT and HEADER.
+    offsets: Offsets,
+
+    /// Standard keyword pairs.
+    ///
+    /// These are keywords that start with a '$'. These should all be part of
+    /// the FCS standard for the indicated version, although this is not
+    /// enforced during the creation of this structure (it is elsewhere in this
+    /// library). This does not include offset keywords (DATA, STEXT, ANALYSIS)
+    /// and will include supplemental TEXT keywords if present and the offsets
+    /// for supplemental TEXT are successfully found.
+    standard_kws: StdKeywords,
+
+    /// Nonstandard keyword pairs
+    ///
+    /// These are keywords that do not start with a '$'. This include
+    /// supplemental TEXT keywords if applicable.
+    // TODO why are these separate?
+    nonstandard_kws: NonStdKeywords,
+
+    /// Delimiter used to parse TEXT.
+    ///
+    /// Included here for informational purposes.
+    delimiter: u8,
+}
+
+/// All segment offsets.
+///
+/// These are derived after parsing TEXT so they include both the HEADER offsets
+/// and anything present in TEXT.
+///
+/// Functionally, this is mostly useful downstream to either parse DATA,
+/// ANALYSIS, or the next dataset via NEXTDATA. The other offsets are only
+/// valuable for informing the user since by the time this struct will exist the
+/// primary (and possibly supplemental) TEXT will have already been parsed.
+#[derive(Debug, Clone, Serialize)]
+struct Offsets {
+    /// Primary TEXT offsets
+    ///
+    /// The offsets that were used to parse the TEXT segment. Included here for
+    /// informational purposes.
+    prim_text_seg: Segment,
+
+    /// Supplemental TEXT offsets
+    ///
+    /// This is not needed downstream and included here for informational
+    /// purposes. It will always be None for 2.0 which does not include this.
+    supp_text_seg: Option<Segment>,
+
+    /// DATA offsets
+    ///
+    /// The offsets pointing to the DATA segment if present. This may be
+    /// used later to actually acquire the data matrix if desired.
+    // TODO None has two meanings here (failed or no data)
     data_seg: Option<Segment>,
 
     /// ANALYSIS offsets.
     ///
-    /// If none then either this isn't present or the computation failed.
+    /// The offsets pointing to the ANALYSIS segment if present. This may be
+    /// used later to actually acquire the ANALYSIS segment if desired.
     analysis_seg: Option<Segment>,
 
-    /// Supplemental TEXT offsets
+    /// NEXTDATA offset
     ///
-    /// This is not needed downstream and included here for debug purposes. It
-    /// will always be None for 2.0 which does not include this.
-    supp_text_seg: Option<Segment>,
+    /// This will be copied as represented in TEXT. If it is 0, there is no next
+    /// dataset, otherwise it points to the next dataset in the file.
+    nextdata: u32,
+}
 
-    /// Standard keyword pairs (ie they start with "$").
-    ///
-    /// This does not include offset keywords (DATA, STEXT, ANALYSIS) and will
-    /// include supplemental TEXT keywords if included.
-    standard_kws: HashMap<StdKey, String>,
+/// Output of parsing the TEXT segment and standardizing keywords.
+///
+/// This is derived from ['RawTEXT'].
+///
+/// The process of "standardization" involves gathering version specific
+/// keywords in the TEXT segment and parsing their values such that they
+/// conform to the types specified in the standard.
+///
+/// Version is not included since this is implied by the standardized structs
+/// used.
+struct StandardizedTEXT {
+    /// Offsets as parsed from raw TEXT and HEADER
+    offsets: Offsets,
 
-    /// Nonstandard keyword pairs
+    /// Structured data derived from TEXT specific to the indicated FCS version.
     ///
-    /// This include supplemental TEXT keywords if included.
-    nonstandard_kws: HashMap<NonStdKey, String>,
+    /// All keywords that were included in the ['RawTEXT'] used to create this
+    /// will be included here. Anything standardized will be put into a field
+    /// that can be readily accessed directly and returned with the proper type.
+    /// Anything nonstandard will be kept in a hash table whose values will
+    /// be strings.
+    standardized: AnyCoreTEXT,
 
     /// Delimiter used to parse TEXT.
     ///
-    /// This is not needed downstream and included here for debug purposes.
+    /// Included here for informational purposes.
     delimiter: u8,
 }
 
-/// Represents write-critical keywords in the TEXT segment.
+/// Output of parsing one raw dataset (TEXT+DATA) from an FCS file.
 ///
-/// This includes everything except offsets, $NEXTDATA, $PAR, and $TOT, since
-/// these are not necessary for writing a new FCS file and will be calculated on
-/// the fly.
-#[derive(Debug, Clone, Serialize)]
-struct CoreText<M, P> {
-    metadata: Metadata<M>,
-    measurements: Vec<Measurement<P>>,
-    deviant_keywords: HashMap<StdKey, String>,
-    nonstandard_keywords: HashMap<NonStdKey, String>,
+/// Computationally this will be created by skipping (most of) the
+/// standardization step and instead parsing the minimal-required keywords
+/// to parse DATA (BYTEORD, DATATYPE, etc).
+///
+// TODO why is this important? this will likely be used by flowcore (at least
+// initially) because this replicates what it would need to do to get a
+// dataframe. Furthermore, it could be useful for someone who wishes to parse
+// all their data and then repair it, although there should be easier ways to do
+// this using the standardized interface.
+struct RawDataset {
+    /// Offsets as parsed from raw TEXT and HEADER
+    // TODO the data segment in this should be non-Option since we know it
+    // exists if this struct exists.
+    offsets: Offsets,
+
+    // TODO add keywords
+    // TODO add dataset
+    /// Delimiter used to parse TEXT.
+    ///
+    /// Included here for informational purposes.
+    delimiter: u8,
 }
 
-/// FCS version.
+/// Output of parsing one standardized dataset (TEXT+DATA) from an FCS file.
+struct StandardizedDataset {
+    /// Offsets as parsed from raw TEXT and HEADER
+    // TODO the data segment in this should be non-Option since we know it
+    // exists if this struct exists.
+    offsets: Offsets,
+
+    /// Structured data derived from TEXT specific to the indicated FCS version.
+    dataset: CoreDataset,
+
+    /// Delimiter used to parse TEXT.
+    ///
+    /// Included here for informational purposes.
+    delimiter: u8,
+}
+
+/// Represents the minimal data to fully describe one dataset in an FCS file.
+///
+/// This will include the standardized TEXT keywords as well as its
+/// corresponding DATA segment parsed into a dataframe-like structure.
+struct CoreDataset {
+    keywords: AnyCoreTEXT,
+
+    /// DATA segment
+    ///
+    /// This encodes the bytes from the DATA segment in a dataframe-like
+    /// structure whose type will perfectly reflect the underlying data.
+    // TODO it isn't clear to what degree this type needs to match the structure
+    // imposed by the standardized TEXT type. For early versions, this can only
+    // be a matrix (ie same type for every cell) but for later versions which
+    // relax byteord and allow column-specific typing, this will be a dataframe.
+    // Regardless, it will likely make sense to check/cast user data anyways,
+    // since this likely will get very annoying to enforce at the application
+    // level. Furthermore, even python has a suboptimal typing interface for
+    // pandas dataframes (R is worse), so it's not like this can be checked
+    // statically anyways.
+    data: ParsedData,
+
+    /// ANALYSIS segment
+    ///
+    /// This will be empty if ANALYSIS either doesn't exist or the computation
+    /// fails. This has not standard structure, so the best we can capture is a
+    /// byte sequence.
+    analysis: Vec<u8>,
+}
+
+/// Represents the values in the DATA segment.
+///
+/// Each slot in the outer vector is a column, and each column has a type which
+/// reflects the underlying data. In Python/R, this is analogous to a dataframe.
+type ParsedData = Vec<Series>;
+
+/// Critical FCS TEXT data for any supported FCS version
+#[derive(Debug)]
+pub enum AnyCoreTEXT {
+    FCS2_0(Box<CoreText2_0>),
+    FCS3_0(Box<CoreText3_0>),
+    FCS3_1(Box<CoreText3_1>),
+    FCS3_2(Box<CoreText3_2>),
+}
+
+/// Minimally-required FCS TEXT data for each version
+type CoreText2_0 = CoreTEXT<InnerMetadata2_0, InnerMeasurement2_0>;
+type CoreText3_0 = CoreTEXT<InnerMetadata3_0, InnerMeasurement3_0>;
+type CoreText3_1 = CoreTEXT<InnerMetadata3_1, InnerMeasurement3_1>;
+type CoreText3_2 = CoreTEXT<InnerMetadata3_2, InnerMeasurement3_2>;
+
+/// Represents the minimal data required to fully represent the TEXT keywords.
+///
+/// This is created by further processing ['RawTEXT'] and arranging keywords
+/// in a static structure that conforms to each version's FCS standard.
+///
+/// This includes "measurement data" (bit width, voltage, filter, name, etc) for
+/// each measurement (aka "parameter" aka "channel") and "metadata" which is all
+/// non-measurement data. Both of these are "standardized" which means they are
+/// structured in a manner that reflects the indicated FCS standard in the
+/// HEADER. If these structures cannot be created, then an error should be
+/// thrown informing the user that their keywords are not standards-compliant.
+///
+/// Additionally this includes keywords that do not fit into the standard
+/// (deviant and nonstandard, which means keys that start with '$' or not
+/// respectively).
+///
+/// Importantly this does NOT include the following:
+/// - $TOT (inferred from summed bit width and length of DATA)
+/// - $PAR (inferred from length of measurement vector)
+/// - $NEXTDATA (handled elsewhere)
+/// - $(BEGIN|END)(DATA|ANALYSIS|STEXT) (already parsed when for raw TEXT)
+///
+/// These are not included because this struct will also be used to encode the
+/// TEXT data when writing a new FCS file, and the keywords that are not
+/// included can be computed on the fly when writing.
+#[derive(Debug, Clone, Serialize)]
+struct CoreTEXT<M, P> {
+    /// All "non-measurement" TEXT keywords.
+    ///
+    /// This is specific to each FCS version, which is encoded in the generic
+    /// type variable.
+    metadata: Metadata<M>,
+
+    /// All measurement TEXT keywords.
+    ///
+    /// Specifically these are denoted by "$Pn*" keywords where "n" is the index
+    /// of the measurement which also corresponds to its column in the DATA
+    /// segment. The order of each measurement in this vector is n - 1.
+    ///
+    /// This is specific to each FCS version, which is encoded in the generic
+    /// type variable.
+    measurements: Vec<Measurement<P>>,
+
+    /// Non-standard keywords that start with '$'.
+    ///
+    /// When constructing the fields above, any '$'-prefixed key that is necessary
+    /// for populating these standardized structures will be removed from the
+    /// raw list of key/value pairs. Anything left over that starts with a '$'
+    /// will be put here.
+    deviant_keywords: StdKeywords,
+
+    /// Non-standard keywords that do not start with '$'.
+    ///
+    /// This is analogous to 'deviant_keywords' in that they are leftover from
+    /// the standardization process, except they do not start with '$'. Often
+    /// these are vendor-specific keywords that might be useful downstream but
+    /// don't have a standard meaning.
+    ///
+    /// This will not include any keywords that are "measurement-specific" which
+    /// generally means they start with "Pn*", as these will be included above
+    /// in their measurement structs.
+    nonstandard_keywords: NonStdKeywords,
+}
+
+/// Keyword pairs whose key starts with '$'
+type StdKeywords = HashMap<StdKey, String>;
+
+/// Keyword pairs whose key does not start with with '$'
+type NonStdKeywords = HashMap<NonStdKey, String>;
+
+/// Key that starts with '$'
+#[derive(Hash, Eq, PartialEq, Clone, Debug, Serialize)]
+struct StdKey(String);
+
+/// Key that does not start with '$'
+#[derive(Hash, Eq, PartialEq, Clone, Debug, Serialize)]
+struct NonStdKey(String);
+
+/// All FCS versions this library supports.
 ///
 /// This appears as the first 6 bytes of any valid FCS file.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Serialize)]
@@ -265,12 +334,16 @@ enum Version {
     FCS3_2,
 }
 
+/// A segment in an FCS file which is denoted by a pair of offsets
 #[derive(Debug, Clone, Copy, Serialize, PartialEq)]
 struct Segment {
     begin: u32,
+    // TODO make this length, since that way there is no way to "flip" the
+    // offsets later by accident.
     end: u32,
 }
 
+/// The kind of segment in an FCS file.
 #[derive(Debug)]
 enum SegmentId {
     PrimaryText,
@@ -280,49 +353,85 @@ enum SegmentId {
     // TODO add Other (which will be indexed I think)
 }
 
-#[derive(Debug)]
-enum SegmentErrorKind {
-    Range,
-    Inverted,
-}
-
-#[derive(Debug)]
-struct SegmentError {
-    offsets: Segment,
-    begin_delta: i32,
-    end_delta: i32,
-    kind: SegmentErrorKind,
-    id: SegmentId,
-}
-
+/// A datetime as used in the $(BEGIN|END)DATETIME keys (3.2+ only)
 #[derive(Debug, Clone, Serialize)]
 struct FCSDateTime(DateTime<FixedOffset>);
 
+/// A time as used in the $BTIM/ETIM keys without seconds (2.0 only)
 #[derive(Debug, Clone, Serialize)]
 struct FCSTime(NaiveTime);
 
+/// A time as used in the $BTIM/ETIM keys with 1/60 seconds (3.0 only)
 #[derive(Debug, Clone, Serialize)]
 struct FCSTime60(NaiveTime);
 
+/// A time as used in the $BTIM/ETIM keys with centiseconds (3.1+ only)
 #[derive(Debug, Clone, Serialize)]
 struct FCSTime100(NaiveTime);
 
+/// A datetime as used in the $LAST_MODIFIED key (3.1+ only)
 #[derive(Debug, Clone, Serialize)]
 struct ModifiedDateTime(NaiveDateTime);
 
+/// A date as used in the $DATE key (all versions)
 #[derive(Debug, Clone, Serialize)]
 struct FCSDate(NaiveDate);
 
+/// A convenient bundle holding data/time keyword values.
+///
+/// The generic type parameter is meant to account for the fact that the time
+/// types for different versions are all slightly different in their treatment
+/// of sub-second time.
+#[derive(Debug, Clone, Serialize)]
+struct Timestamps<T> {
+    /// The value of the $BTIM key
+    btim: OptionalKw<T>,
+
+    /// The value of the $ETIM key
+    etim: OptionalKw<T>,
+
+    /// The value of the $DATE key
+    date: OptionalKw<FCSDate>,
+}
+
+/// $BTIM/ETIM/DATE for FCS 2.0
+type Timestamps2_0 = Timestamps<FCSTime>;
+
+/// $BTIM/ETIM/DATE for FCS 3.0
+type Timestamps3_0 = Timestamps<FCSTime60>;
+
+/// $BTIM/ETIM/DATE for FCS 3.1+
+type Timestamps3_1 = Timestamps<FCSTime100>;
+
+/// A convenient bundle for the $BEGINDATETIME and $ENDDATETIME keys (3.2+)
+#[derive(Debug, Clone, Serialize)]
+struct Datetimes {
+    /// Value for the $BEGINDATETIME key.
+    begin: OptionalKw<FCSDateTime>,
+
+    /// Value for the $ENDDATETIME key.
+    end: OptionalKw<FCSDateTime>,
+}
+
+/// The values used for the $MODE key (up to 3.1)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 enum Mode {
     List,
+    // TODO I have no idea what these even mean and IDK how to support them
     Uncorrelated,
     Correlated,
 }
 
+/// The value for the $MODE key, which can only contain 'L' (3.2)
+struct Mode3_2;
+
+/// The value for the $PnDISPLAY key (3.1+)
 #[derive(Debug, Clone, Serialize)]
 enum Display {
+    /// Linear display (value like 'Linear,<lower>,<upper>')
     Lin { lower: f32, upper: f32 },
+
+    /// Logarithmic display (value like 'Logarithmic,<offset>,<decades>')
     Log { offset: f32, decades: f32 },
 }
 
@@ -334,13 +443,13 @@ enum Display {
 /// integers do not necessarily need to be 32 or 64-bit.
 #[derive(Debug, Clone, Serialize)]
 enum ByteOrd {
+    // TODO this should also be applied to things like 1,2,3 or 5,4,3,2,1, which
+    // are big/little endian but not "traditional" byte widths.
     Endian(Endian),
     Mixed(Vec<u8>),
 }
 
-/// The four allowed datatypes for FCS data.
-///
-/// This is shown in the $DATATYPE keyword.
+/// The four allowed values for the $DATATYPE keyword.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
 enum AlphaNumType {
     Ascii,
@@ -349,7 +458,7 @@ enum AlphaNumType {
     Double,
 }
 
-/// The three numeric data types for the $PnDATATYPE keyword in 3.2+
+/// The three values for the $PnDATATYPE keyword (3.2+)
 #[derive(Debug, Clone, Copy, Serialize)]
 enum NumType {
     Integer,
@@ -359,7 +468,7 @@ enum NumType {
 
 /// A compensation matrix.
 ///
-/// This is held in the $DFCmTOn keywords in 2.0 and $COMP in 3.0.
+/// This is encoded in the $DFCmTOn keywords in 2.0 and $COMP in 3.0.
 #[derive(Debug, Clone, Serialize)]
 struct Compensation {
     /// Values in the comp matrix in row-major order. Assumed to be the
@@ -367,54 +476,57 @@ struct Compensation {
     matrix: Vec<Vec<f32>>,
 }
 
-/// The spillover matrix in the $SPILLOVER keyword in (3.1+)
+/// The spillover matrix from the $SPILLOVER keyword (3.1+)
 #[derive(Debug, Clone, Serialize)]
 struct Spillover {
-    measurements: Vec<String>,
-    /// Values in the spillover matrix in row-major order.
+    /// The measurements in the spillover matrix. Assumed to be a subset of the
+    /// values in the $PnN keys.
+    measurements: Vec<Shortname>,
+
+    /// Numeric values in the spillover matrix in row-major order.
     matrix: Vec<Vec<f32>>,
 }
 
-/// The $TR field in all FCS versions.
+/// The value of the $TR field (all versions)
 ///
 /// This is formatted as 'string,f' where 'string' is a measurement name.
 #[derive(Debug, Clone, Serialize)]
 struct Trigger {
-    measurement: String,
+    /// The measurement name (assumed to match a '$PnN' value).
+    measurement: Shortname,
+
+    /// The threshold of the trigger.
     threshold: u32,
 }
 
-#[derive(Debug, Clone, Serialize)]
-struct Timestamps<T> {
-    btim: OptionalKw<T>,
-    etim: OptionalKw<T>,
-    date: OptionalKw<FCSDate>,
-}
-
-type Timestamps2_0 = Timestamps<FCSTime>;
-type Timestamps3_0 = Timestamps<FCSTime60>;
-type Timestamps3_1 = Timestamps<FCSTime100>;
-
-#[derive(Debug, Clone, Serialize)]
-struct Datetimes {
-    begin: OptionalKw<FCSDateTime>,
-    end: OptionalKw<FCSDateTime>,
-}
-
+/// The value for the $PnE key (all versions).
+///
+/// Format is assumed to be 'f1,f2'
 // TODO this is super messy, see 3.2 spec for restrictions on this we may with
 // to use further
 #[derive(Debug, Clone, PartialEq, Serialize)]
 enum Scale {
-    Log { decades: f32, offset: f32 },
+    /// Linear scale, which maps to the value '0,0'
     Linear,
+
+    /// Log scale, which maps to anything not '0,0' (although decades should be
+    /// a positive number presumably)
+    Log { decades: f32, offset: f32 },
 }
 
+/// The value for the $PnCALIBRATION key (3.1 only)
+///
+/// This should be formatted like '<value>,<unit>'
 #[derive(Debug, Clone, Serialize)]
 struct Calibration3_1 {
     value: f32,
     unit: String,
 }
 
+/// The value for the $PnCALIBRATION key (3.2+)
+///
+/// This should be formatted like '<value>,[<offset>,]<unit>' and differs from
+/// 3.1 with the optional inclusion of "offset" (assumed 0 if not included).
 #[derive(Debug, Clone, Serialize)]
 struct Calibration3_2 {
     value: f32,
@@ -422,18 +534,35 @@ struct Calibration3_2 {
     unit: String,
 }
 
+/// The value for the $PnN key (all versions).
+///
+/// This cannot contain commas.
 #[derive(Debug, Clone, Serialize, Eq, PartialEq)]
 struct Shortname(String);
 
+/// The value for the $PnL key (3.1).
+///
+/// This is a list of wavelengths used for the measurement. Starting in 3.1
+/// this could be a list, where it needed to be a single number in previous
+/// versions.
 #[derive(Debug, Clone, Serialize)]
 struct Wavelengths(Vec<u32>);
 
+/// The value for the $PnB key (all versions)
+///
+/// The $PnB key actually stores bits. However, this library only supports
+/// widths that are multiples of 8 (ie bytes) for now. Therefore, this key
+/// actually stores the number of bytes indicated by $PnB.
+///
+/// This may also be '*' which means "delimited ASCII" which is only valid when
+/// $DATATYPE=A.
 #[derive(Debug, Clone, Serialize)]
 enum Bytes {
     Fixed(u8),
     Variable,
 }
 
+/// The value for the $ORIGINALITY key (3.1+)
 #[derive(Debug, Clone, Serialize)]
 enum Originality {
     Original,
@@ -442,6 +571,7 @@ enum Originality {
     DataModified,
 }
 
+/// A bundle for $ORIGINALITY, $LAST_MODIFIER, and $LAST_MODIFIED (3.1+)
 #[derive(Debug, Clone, Serialize)]
 struct ModificationData {
     last_modifier: OptionalKw<String>,
@@ -449,6 +579,7 @@ struct ModificationData {
     originality: OptionalKw<Originality>,
 }
 
+/// A bundle for $PLATEID, $PLATENAME, and $WELLID (3.1+)
 #[derive(Debug, Clone, Serialize)]
 struct PlateData {
     plateid: OptionalKw<String>,
@@ -456,15 +587,21 @@ struct PlateData {
     wellid: OptionalKw<String>,
 }
 
+/// The value for the $UNSTAINEDCENTERS key (3.2+)
+///
+/// This is actually encoded as a string like 'n,[measuremnts,],[values]' but
+/// here is more conveniently encoded as a hash table.
 #[derive(Debug, Clone, Serialize)]
-struct UnstainedCenters(HashMap<String, f32>);
+struct UnstainedCenters(HashMap<Shortname, f32>);
 
+/// A bundle for $UNSTAINEDCENTERS and $UNSTAINEDINFO (3.2+)
 #[derive(Debug, Clone, Serialize)]
 struct UnstainedData {
     unstainedcenters: OptionalKw<UnstainedCenters>,
     unstainedinfo: OptionalKw<String>,
 }
 
+/// A bundle for $CARRIERID, $CARRIERTYPE, $LOCATIONID (3.2+)
 #[derive(Debug, Clone, Serialize)]
 struct CarrierData {
     carrierid: OptionalKw<String>,
@@ -472,12 +609,19 @@ struct CarrierData {
     locationid: OptionalKw<String>,
 }
 
+/// The value of the $UNICODE key (3.0 only)
+///
+/// Formatted like 'codepage,[keys]'. This key is not actually used for anything
+/// in this library and is present to be complete. The original purpose was to
+/// indicate keywords which supported UTF-8, but these days it is hard to
+/// write a library that does NOT support UTF-8 ;)
 #[derive(Debug, Clone, Serialize)]
 struct Unicode {
     page: u32,
     kws: Vec<String>,
 }
 
+/// The value of the $PnTYPE key (3.2+)
 #[derive(Debug, Clone, Serialize)]
 enum MeasurementType {
     ForwardScatter,
@@ -489,9 +633,11 @@ enum MeasurementType {
     ElectronicVolume,
     Classification,
     Index,
+    // TODO is isn't clear if this is allowed according to the standard
     Other(String),
 }
 
+/// The value of the $PnFEATURE key (3.2+)
 #[derive(Debug, Clone, Serialize)]
 enum Feature {
     Area,
@@ -499,169 +645,391 @@ enum Feature {
     Height,
 }
 
+/// The value of the $PnR key (all versions)
+///
+/// Technically this should only be an integer, but many versions also store
+/// floats which makes sense for cases where $DATATYPE/$PnDATATYPE indicates
+/// float or double.
+#[derive(Debug, Clone, Copy, Serialize)]
+enum Range {
+    /// The value when stored as an integer.
+    ///
+    /// This will actually store PnR - 1; most cytometers will store this as a
+    /// power of 2, so in the case of a 64 bit channel this will be 2^64 which
+    /// is one greater than u64::MAX.
+    // TODO what if they store an integer for a float value? Then the range will
+    // be off by one.
+    Int(u64),
+
+    /// The value when stored as a float.
+    ///
+    /// Unlike above, this will be parsed and used as-is.
+    Float(f64),
+}
+
+/// Denotes that the value for a key is optional.
+///
+/// This is basically an Option but more obvious in what it indicates.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum OptionalKw<V> {
     Present(V),
     Absent,
 }
 
-#[derive(Debug, Clone, Copy, Serialize)]
-enum Range {
-    // This will actually store PnR - 1; most cytometers will store this as a
-    // power of 2, so in the case of a 64 bit channel this will be 2^64 which is
-    // one greater than u64::MAX.
-    Int(u64),
-    // This stores the value of PnR as-is. Sometimes PnR is actually a float
-    // for floating point measurements rather than an int.
-    Float(f64),
-}
-
-type Measurement2_0 = Measurement<InnerMeasurement2_0>;
-type Measurement3_0 = Measurement<InnerMeasurement3_0>;
-type Measurement3_1 = Measurement<InnerMeasurement3_1>;
-type Measurement3_2 = Measurement<InnerMeasurement3_2>;
-
-struct Mode3_2;
-
+/// Measurement fields specific to version 2.0
 #[derive(Debug, Clone, Serialize)]
 struct InnerMeasurement2_0 {
-    scale: OptionalKw<Scale>,         // PnE
-    wavelength: OptionalKw<u32>,      // PnL
-    shortname: OptionalKw<Shortname>, // PnN
+    /// Value for $PnE
+    scale: OptionalKw<Scale>,
+
+    /// Value for $PnL
+    wavelength: OptionalKw<u32>,
+
+    /// Value for $PnN
+    shortname: OptionalKw<Shortname>,
 }
 
+/// Measurement fields specific to version 3.0
 #[derive(Debug, Clone, Serialize)]
 struct InnerMeasurement3_0 {
-    scale: Scale,                     // PnE
-    wavelength: OptionalKw<u32>,      // PnL
-    shortname: OptionalKw<Shortname>, // PnN
-    gain: OptionalKw<f32>,            // PnG
+    /// Value for $PnE
+    scale: Scale,
+
+    /// Value for $PnL
+    wavelength: OptionalKw<u32>,
+
+    /// Value for $PnN
+    shortname: OptionalKw<Shortname>,
+
+    /// Value for $PnG
+    gain: OptionalKw<f32>,
 }
 
+/// Measurement fields specific to version 3.1
 #[derive(Debug, Clone, Serialize)]
 struct InnerMeasurement3_1 {
-    scale: Scale,                         // PnE
-    wavelengths: OptionalKw<Wavelengths>, // PnL
-    shortname: Shortname,                 // PnN
-    gain: OptionalKw<f32>,                // PnG
+    /// Value for $PnE
+    scale: Scale,
+
+    /// Value for $PnL
+    wavelengths: OptionalKw<Wavelengths>,
+
+    /// Value for $PnN
+    shortname: Shortname,
+
+    /// Value for $PnG
+    gain: OptionalKw<f32>,
+
+    /// Value for $PnCALIBRATION
     calibration: OptionalKw<Calibration3_1>,
+
+    /// Value for $PnDISPLAY
     display: OptionalKw<Display>,
 }
 
+/// Measurement fields specific to version 3.2
 #[derive(Debug, Clone, Serialize)]
 struct InnerMeasurement3_2 {
-    scale: Scale,                         // PnE
-    wavelengths: OptionalKw<Wavelengths>, // PnL
-    shortname: Shortname,                 // PnN
-    gain: OptionalKw<f32>,                // PnG
+    /// Value for $PnE
+    scale: Scale,
+
+    /// Value for $PnL
+    wavelengths: OptionalKw<Wavelengths>,
+
+    /// Value for $PnN
+    shortname: Shortname,
+
+    /// Value for $PnG
+    gain: OptionalKw<f32>,
+
+    /// Value for $PnCALIBRATION
     calibration: OptionalKw<Calibration3_2>,
+
+    /// Value for $PnDISPLAY
     display: OptionalKw<Display>,
+
+    /// Value for $PnANALYTE
     analyte: OptionalKw<String>,
+
+    /// Value for $PnFEATURE
     feature: OptionalKw<Feature>,
+
+    /// Value for $PnTYPE
     measurement_type: OptionalKw<MeasurementType>,
+
+    /// Value for $PnTAG
     tag: OptionalKw<String>,
+
+    /// Value for $PnDET
     detector_name: OptionalKw<String>,
+
+    /// Value for $PnDATATYPE
     datatype: OptionalKw<NumType>,
 }
 
+/// Structured data for measurement keywords.
+///
+/// Explicit fields are common to all versions. The generic type parameter
+/// allows for version-specific information to be encoded.
+///
+/// To make this struct, all required keys need to be present for the specific
+/// version. This is often more than required to parse the DATA segment. (see
+/// ['MinimalMeasurement']
 #[derive(Debug, Clone, Serialize)]
 struct Measurement<X> {
-    bytes: Bytes,                      // PnB
-    range: Range,                      // PnR
-    longname: OptionalKw<String>,      // PnS
-    filter: OptionalKw<String>,        // PnF there is a loose standard for this
-    power: OptionalKw<u32>,            // PnO
-    detector_type: OptionalKw<String>, // PnD
-    percent_emitted: OptionalKw<u32>,  // PnP (TODO deprecated in 3.2, factor out)
-    detector_voltage: OptionalKw<f32>, // PnV
-    nonstandard: HashMap<NonStdKey, String>,
-    specific: X,
-}
-
-struct MinMeasurement<X> {
+    /// Value for $PnB
     bytes: Bytes,
+
+    /// Value for $PnR
     range: Range,
+
+    /// Value for $PnS
+    longname: OptionalKw<String>,
+
+    /// Value for $PnF
+    filter: OptionalKw<String>,
+
+    /// Value for $PnO
+    power: OptionalKw<u32>,
+
+    /// Value for $PnD
+    detector_type: OptionalKw<String>,
+
+    /// Value for $PnP
+    percent_emitted: OptionalKw<u32>,
+
+    /// Value for $PnV
+    detector_voltage: OptionalKw<f32>,
+
+    /// Non standard keywords that belong to this measurement.
+    ///
+    /// These are found using a configurable pattern to filter matching keys.
+    nonstandard: NonStdKeywords,
+
+    /// Version specific data
     specific: X,
 }
 
-type MinMeasurement2_0 = MinMeasurement<()>;
-type MinMeasurement3_2 = MinMeasurement<NumType>;
+/// FCS 2.0-specific data for one measurement
+type Measurement2_0 = Measurement<InnerMeasurement2_0>;
 
+/// FCS 3.0-specific data for one measurement
+type Measurement3_0 = Measurement<InnerMeasurement3_0>;
+
+/// FCS 3.1-specific data for one measurement
+type Measurement3_1 = Measurement<InnerMeasurement3_1>;
+
+/// FCS 3.2-specific data for one measurement
+type Measurement3_2 = Measurement<InnerMeasurement3_2>;
+
+/// Metadata fields specific to version 2.0
 #[derive(Debug, Clone, Serialize)]
 struct InnerMetadata2_0 {
+    /// Value of $MODE
     mode: Mode,
+
+    /// Value of $BYTEORD
     byteord: ByteOrd,
+
+    /// Value of $CYT
     cyt: OptionalKw<String>,
+
+    /// Compensation matrix derived from 'DFCnTOm' key/value pairs
     comp: OptionalKw<Compensation>,
-    timestamps: Timestamps2_0, // BTIM/ETIM/DATE
+
+    /// Values of $BTIM/ETIM/$DATE
+    timestamps: Timestamps2_0,
 }
 
+/// Metadata fields specific to version 3.0
 #[derive(Debug, Clone, Serialize)]
 struct InnerMetadata3_0 {
+    /// Value of $MODE
     mode: Mode,
+
+    /// Value of $BYTEORD
     byteord: ByteOrd,
-    timestamps: Timestamps3_0, // BTIM/ETIM/DATE
+
+    /// Value of $CYT
     cyt: OptionalKw<String>,
+
+    /// Value of $COMP
     comp: OptionalKw<Compensation>,
+
+    /// Values of $BTIM/ETIM/$DATE
+    timestamps: Timestamps3_0,
+
+    /// Value of $CYTSN
     cytsn: OptionalKw<String>,
+
+    /// Value of $TIMESTEP
     timestep: OptionalKw<f32>,
+
+    /// Value of $UNICODE
     unicode: OptionalKw<Unicode>,
 }
 
+/// Metadata fields specific to version 3.1
 #[derive(Debug, Clone, Serialize)]
 struct InnerMetadata3_1 {
+    /// Value of $MODE
     mode: Mode,
+
+    /// Value of $BYTEORD
     byteord: Endian,
-    timestamps: Timestamps3_1, // BTIM/ETIM/DATE
+
+    /// Value of $CYT
     cyt: OptionalKw<String>,
-    spillover: OptionalKw<Spillover>,
+
+    /// Values of $BTIM/ETIM/$DATE
+    timestamps: Timestamps3_1,
+
+    /// Value of $CYTSN
     cytsn: OptionalKw<String>,
+
+    /// Value of $TIMESTEP
     timestep: OptionalKw<f32>,
+
+    /// Value of $SPILLOVER
+    spillover: OptionalKw<Spillover>,
+
+    /// Values of $LAST_MODIFIED/$LAST_MODIFIER/$ORIGINALITY
     modification: ModificationData,
+
+    /// Values of $PLATEID/$PLATENAME/$WELLID
     plate: PlateData,
+
+    /// Value of $VOL
     vol: OptionalKw<f32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 struct InnerMetadata3_2 {
+    /// Value of $BYTEORD
     byteord: Endian,
-    timestamps: Timestamps3_1, // BTIM/ETIM/DATE
-    datetimes: Datetimes,      // DATETIMESTART/END
+
+    /// Values of $BTIM/ETIM/$DATE
+    timestamps: Timestamps3_1,
+
+    /// Values of $BEGINDATETIME/$ENDDATETIME
+    datetimes: Datetimes,
+
+    /// Value of $CYT
     cyt: String,
+
+    /// Value of $SPILLOVER
     spillover: OptionalKw<Spillover>,
+
+    /// Value of $CYTSN
     cytsn: OptionalKw<String>,
+
+    /// Value of $TIMESTEP
     timestep: OptionalKw<f32>,
+
+    /// Values of $LAST_MODIFIED/$LAST_MODIFIER/$ORIGINALITY
     modification: ModificationData,
+
+    /// Values of $PLATEID/$PLATENAME/$WELLID
     plate: PlateData,
+
+    /// Value of $VOL
     vol: OptionalKw<f32>,
+
+    /// Values of $CARRIERID/$CARRIERTYPE/$LOCATIONID
     carrier: CarrierData,
+
+    /// Values of $UNSTAINEDINFO/$UNSTAINEDCENTERS
     unstained: UnstainedData,
+
+    /// Value of $FLOWRATE
     flowrate: OptionalKw<String>,
 }
 
+/// Structured non-measurement metadata.
+///
+/// Explicit below are common to all FCS versions.
+///
+/// The generic type parameter allows version-specific data to be encoded.
 #[derive(Debug, Clone, Serialize)]
 struct Metadata<X> {
+    /// Value of $DATATYPE
     datatype: AlphaNumType,
+
+    /// Value of $ABRT
     abrt: OptionalKw<u32>,
+
+    /// Value of $COM
     com: OptionalKw<String>,
+
+    /// Value of $CELLS
     cells: OptionalKw<String>,
+
+    /// Value of $EXP
     exp: OptionalKw<String>,
+
+    /// Value of $FIL
     fil: OptionalKw<String>,
+
+    /// Value of $INST
     inst: OptionalKw<String>,
+
+    /// Value of $LOST
     lost: OptionalKw<u32>,
+
+    /// Value of $OP
     op: OptionalKw<String>,
+
+    /// Value of $PROJ
     proj: OptionalKw<String>,
+
+    /// Value of $SMNO
     smno: OptionalKw<String>,
+
+    /// Value of $SRC
     src: OptionalKw<String>,
+
+    /// Value of $SYS
     sys: OptionalKw<String>,
+
+    /// Value of $TR
     tr: OptionalKw<Trigger>,
+
+    /// Version-specific data
+    specific: X,
+    // TODO given the pattern I started with measurements, it makes sense
+    // to include nonstandard keywords in this as well, and also break them
+    // into deviant/nonstandard
+}
+
+/// FCS 2.0-specific structured metadata derived from TEXT
+type Metadata2_0 = Metadata<InnerMetadata2_0>;
+
+/// FCS 3.0-specific structured metadata derived from TEXT
+type Metadata3_0 = Metadata<InnerMetadata3_0>;
+
+/// FCS 3.1-specific structured metadata derived from TEXT
+type Metadata3_1 = Metadata<InnerMetadata3_1>;
+
+/// FCS 3.2-specific structured metadata derived from TEXT
+type Metadata3_2 = Metadata<InnerMetadata3_2>;
+
+/// The bare minimum of measurement data required to parse the DATA segment.
+struct MinimalMeasurement<X> {
+    /// The value of $PnB
+    bytes: Bytes,
+
+    /// The value of $PnR
+    range: Range,
+
+    /// Version-specific data
     specific: X,
 }
 
-type Metadata2_0 = Metadata<InnerMetadata2_0>;
-type Metadata3_0 = Metadata<InnerMetadata3_0>;
-type Metadata3_1 = Metadata<InnerMetadata3_1>;
-type Metadata3_2 = Metadata<InnerMetadata3_2>;
+/// Minimal data to parse one measurement column in FCS 2.0 (up to 3.1)
+type MinimalMeasurement2_0 = MinimalMeasurement<()>;
+
+/// Minimal data to parse one measurement column in FCS 3.2+
+type MinimalMeasurement3_2 = MinimalMeasurement<NumType>;
 
 struct InnerMinMetadata2_0 {
     tot: OptionalKw<u32>,
@@ -686,6 +1054,21 @@ struct MinMetadata<X> {
 type MinMetadata2_0 = MinMetadata<InnerMinMetadata2_0>;
 type MinMetadata3_0 = MinMetadata<InnerMinMetadata3_0>;
 type MinMetadata3_1 = MinMetadata<InnerMinMetadata3_1>;
+
+#[derive(Debug)]
+enum SegmentErrorKind {
+    Range,
+    Inverted,
+}
+
+#[derive(Debug)]
+struct SegmentError {
+    offsets: Segment,
+    begin_delta: i32,
+    end_delta: i32,
+    kind: SegmentErrorKind,
+    id: SegmentId,
+}
 
 struct FCSDateTimeError;
 struct FCSTimeError;
@@ -2420,7 +2803,7 @@ impl<M: VersionedMetadata> StdText<M, M::P> {
         }
     }
 
-    fn raw_to_std_text(raw: &RawTEXT, conf: &StdTextReader) -> PureResult<CoreText<M, M::P>> {
+    fn raw_to_std_text(raw: &RawTEXT, conf: &StdTextReader) -> PureResult<CoreTEXT<M, M::P>> {
         let mut st = raw.to_state(conf);
         if let Some(par) = st.lookup_par() {
             let ms = M::P::lookup_measurements(&mut st, par);
@@ -2428,7 +2811,7 @@ impl<M: VersionedMetadata> StdText<M, M::P> {
             if let (Some(measurements), Some(metadata)) = (ms, md) {
                 let (deferred, deviant_keywords, nonstandard_keywords) = st.collect();
                 Ok(PureSuccess {
-                    data: CoreText {
+                    data: CoreTEXT {
                         metadata,
                         measurements,
                         deviant_keywords,
@@ -2450,7 +2833,7 @@ struct IntermediateTEXT<'a, M, P> {
     data_seg: Segment,
     // read_data: ReadData<R>,
     metadata: MinMetadata<M>,
-    measurements: Vec<MinMeasurement<P>>,
+    measurements: Vec<MinimalMeasurement<P>>,
     conf: &'a StdTextReader,
 }
 
@@ -2823,8 +3206,6 @@ struct DataParser {
     begin: u64,
 }
 
-type ParsedData = Vec<Series>;
-
 fn format_parsed_data(res: &FCSSuccess, delim: &str) -> Vec<String> {
     let shortnames = match &res.std {
         AnyStdTEXT::FCS2_0(x) => x.get_shortnames(),
@@ -3104,7 +3485,7 @@ trait VersionedMetadata: Sized {
 
     fn get_byteord(&self) -> ByteOrd;
 
-    fn event_width(ms: &[MinMeasurement<Self::P>]) -> EventWidth {
+    fn event_width(ms: &[MinimalMeasurement<Self::P>]) -> EventWidth {
         let (fixed, variable_indices): (Vec<_>, Vec<_>) = ms
             .iter()
             .enumerate()
@@ -3154,13 +3535,13 @@ trait VersionedMetadata: Sized {
 
     fn build_int_parser(
         &self,
-        ps: &[MinMeasurement<Self::P>],
+        ps: &[MinimalMeasurement<Self::P>],
         total_events: usize,
     ) -> PureMaybe<IntParser>;
 
     fn build_mixed_parser(
         &self,
-        ps: &[MinMeasurement<Self::P>],
+        ps: &[MinimalMeasurement<Self::P>],
         dt: &AlphaNumType,
         total_events: usize,
     ) -> Option<PureMaybe<MixedParser>>;
@@ -3170,7 +3551,7 @@ trait VersionedMetadata: Sized {
         is_double: bool,
         par: usize,
         total_events: usize,
-        ps: &[MinMeasurement<Self::P>],
+        ps: &[MinimalMeasurement<Self::P>],
     ) -> PureMaybe<ColumnParser> {
         let (bytes, dt) = if is_double { (8, "D") } else { (4, "F") };
         let remainder: Vec<_> = ps.iter().filter(|p| p.bytes_eq(bytes)).collect();
@@ -3355,7 +3736,7 @@ trait VersionedMetadata: Sized {
 
 fn build_int_parser_2_0<P: VersionedMeasurement>(
     byteord: &ByteOrd,
-    ps: &[MinMeasurement<P>],
+    ps: &[MinimalMeasurement<P>],
     total_events: usize,
 ) -> PureMaybe<IntParser> {
     let nbytes = byteord.num_bytes();
@@ -3410,7 +3791,7 @@ impl VersionedMetadata for InnerMetadata2_0 {
 
     fn build_int_parser(
         &self,
-        ps: &[MinMeasurement<Self::P>],
+        ps: &[MinimalMeasurement<Self::P>],
         total_events: usize,
     ) -> PureMaybe<IntParser> {
         build_int_parser_2_0(&self.byteord, ps, total_events)
@@ -3418,7 +3799,7 @@ impl VersionedMetadata for InnerMetadata2_0 {
 
     fn build_mixed_parser(
         &self,
-        _: &[MinMeasurement<Self::P>],
+        _: &[MinimalMeasurement<Self::P>],
         _: &AlphaNumType,
         _: usize,
     ) -> Option<PureMaybe<MixedParser>> {
@@ -3473,7 +3854,7 @@ impl VersionedMetadata for InnerMetadata3_0 {
 
     fn build_int_parser(
         &self,
-        ps: &[MinMeasurement<Self::P>],
+        ps: &[MinimalMeasurement<Self::P>],
         total_events: usize,
     ) -> PureMaybe<IntParser> {
         build_int_parser_2_0(&self.byteord, ps, total_events)
@@ -3481,7 +3862,7 @@ impl VersionedMetadata for InnerMetadata3_0 {
 
     fn build_mixed_parser(
         &self,
-        _: &[MinMeasurement<Self::P>],
+        _: &[MinimalMeasurement<Self::P>],
         _: &AlphaNumType,
         _: usize,
     ) -> Option<PureMaybe<MixedParser>> {
@@ -3552,7 +3933,7 @@ impl VersionedMetadata for InnerMetadata3_1 {
 
     fn build_int_parser(
         &self,
-        ps: &[MinMeasurement<Self::P>],
+        ps: &[MinimalMeasurement<Self::P>],
         total_events: usize,
     ) -> PureMaybe<IntParser> {
         build_int_parser_2_0(&ByteOrd::Endian(self.byteord), ps, total_events)
@@ -3560,7 +3941,7 @@ impl VersionedMetadata for InnerMetadata3_1 {
 
     fn build_mixed_parser(
         &self,
-        _: &[MinMeasurement<Self::P>],
+        _: &[MinimalMeasurement<Self::P>],
         _: &AlphaNumType,
         _: usize,
     ) -> Option<PureMaybe<MixedParser>> {
@@ -3645,7 +4026,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
 
     fn build_int_parser(
         &self,
-        ps: &[MinMeasurement<Self::P>],
+        ps: &[MinimalMeasurement<Self::P>],
         total_events: usize,
     ) -> PureMaybe<IntParser> {
         build_int_parser_2_0(&ByteOrd::Endian(self.byteord), ps, total_events)
@@ -3653,7 +4034,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
 
     fn build_mixed_parser(
         &self,
-        ps: &[MinMeasurement<Self::P>],
+        ps: &[MinimalMeasurement<Self::P>],
         dt: &AlphaNumType,
         total_events: usize,
     ) -> Option<PureMaybe<MixedParser>> {
@@ -3807,12 +4188,6 @@ fn parse_raw_text(raw: RawTEXT, conf: &StdTextReader) -> PureResult<ParsedTEXT> 
     }
 }
 
-#[derive(Hash, Eq, PartialEq, Clone, Debug, Serialize)]
-struct StdKey(String);
-
-#[derive(Hash, Eq, PartialEq, Clone, Debug, Serialize)]
-struct NonStdKey(String);
-
 impl NonStdKey {
     fn as_str(&self) -> &str {
         self.0.as_str()
@@ -3835,7 +4210,7 @@ struct KwValue {
 
 struct KwState<'a> {
     raw_standard_keywords: HashMap<StdKey, KwValue>,
-    raw_nonstandard_keywords: HashMap<NonStdKey, String>,
+    raw_nonstandard_keywords: NonStdKeywords,
     deferred: PureErrorBuf,
     // missing_keywords: Vec<StdKey>,
     // deprecated_keys: Vec<StdKey>,
@@ -3863,10 +4238,10 @@ struct KwState<'a> {
 //     meta_errors: Vec<String>,
 
 //     /// Nonstandard keys starting with "$". Error status depends on configuration.
-//     deviant_keywords: HashMap<StdKey, String>,
+//     deviant_keywords: StdKeywords,
 
 //     /// Nonstandard keys. Error status depends on configuration.
-//     nonstandard_keywords: HashMap<NonStdKey, String>,
+//     nonstandard_keywords: NonStdKeywords,
 
 //     /// Keywords that are deprecated. Error status depends on configuration.
 //     deprecated_keys: Vec<StdKey>,
@@ -4610,7 +4985,7 @@ impl<'a> KwState<'a> {
     }
 
     /// Find nonstandard keys that a specific for a given measurement
-    fn lookup_meas_nonstandard(&mut self, n: usize) -> HashMap<NonStdKey, String> {
+    fn lookup_meas_nonstandard(&mut self, n: usize) -> NonStdKeywords {
         let mut ns = HashMap::new();
         // ASSUME the pattern does not start with "$" and has a %n which will be
         // subbed for the measurement index. The pattern will then be turned
@@ -4664,13 +5039,7 @@ impl<'a> KwState<'a> {
         self.deferred.push_msg_leveled(msg, is_error);
     }
 
-    fn collect(
-        self,
-    ) -> (
-        PureErrorBuf,
-        HashMap<StdKey, String>,
-        HashMap<NonStdKey, String>,
-    ) {
+    fn collect(self) -> (PureErrorBuf, StdKeywords, NonStdKeywords) {
         let mut deviant_keywords = HashMap::new();
         let mut deferred = PureErrorBuf::new();
         for (key, v) in self.raw_standard_keywords {
@@ -4772,14 +5141,14 @@ fn read_header<R: Read>(h: &mut BufReader<R>) -> io::Result<Header> {
 #[derive(Debug, Clone, Serialize)]
 struct StdText<M, P> {
     version: Version,
-    core: CoreText<M, P>,
+    core: CoreTEXT<M, P>,
 }
 
 // #[derive(Debug, Clone, Serialize)]
 // pub struct RawTEXT {
 //     delimiter: u8,
-//     standard_keywords: HashMap<StdKey, String>,
-//     nonstandard_keywords: HashMap<NonStdKey, String>,
+//     standard_keywords: StdKeywords,
+//     nonstandard_keywords: NonStdKeywords,
 //     warnings: Vec<String>,
 // }
 
@@ -4808,16 +5177,6 @@ impl RawTEXT {
         }
     }
 }
-
-struct FCSFile<M, P> {
-    keywords: CoreText<M, P>,
-    data: ParsedData,
-}
-
-type FCSFile2_0 = FCSFile<InnerMeasurement2_0, InnerMeasurement2_0>;
-type FCSFile3_0 = FCSFile<InnerMeasurement3_0, InnerMeasurement3_0>;
-type FCSFile3_1 = FCSFile<InnerMeasurement3_1, InnerMeasurement3_1>;
-type FCSFile3_2 = FCSFile<InnerMeasurement3_2, InnerMeasurement3_2>;
 
 pub struct FCSSuccess {
     pub header: Header,
@@ -5103,7 +5462,7 @@ fn repair_keywords(pairs: &mut RawPairs, conf: &RawTextReader) {
 fn split_raw_pairs(
     pairs: Vec<(String, String)>,
     conf: &RawTextReader,
-) -> PureSuccess<(HashMap<StdKey, String>, HashMap<NonStdKey, String>)> {
+) -> PureSuccess<(StdKeywords, NonStdKeywords)> {
     let standard: HashMap<_, _> = HashMap::new();
     let nonstandard: HashMap<_, _> = HashMap::new();
     let mut res = PureSuccess::from((standard, nonstandard));
@@ -5134,6 +5493,15 @@ impl Error for SegmentError {}
 //         }
 //     };
 // }
+
+impl StdTextReader {
+    fn time_name_matches(&self, name: &Shortname) -> bool {
+        self.time_shortname
+            .as_ref()
+            .map(|n| n == name.0.as_str())
+            .unwrap_or(false)
+    }
+}
 
 impl From<PureFailure> for ImpureFailure {
     fn from(value: PureFailure) -> Self {

@@ -1,6 +1,7 @@
 // TODO gating parameters not added (yet)
 
 mod api;
+mod config;
 mod error;
 mod keywords;
 mod numeric;

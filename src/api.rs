@@ -96,15 +96,19 @@ struct Offsets {
 
     /// DATA offsets
     ///
-    /// The offsets pointing to the DATA segment if present. This may be
-    /// used later to actually acquire the data matrix if desired.
-    // TODO None has two meanings here (failed or no data)
+    /// The offsets pointing to the DATA segment. If None then an error occured
+    /// when acquiring the offset. If DATA does not exist this will be 0,0.
+    ///
+    /// This may be used later to acquire the DATA segment.
     data_seg: Option<Segment>,
 
     /// ANALYSIS offsets.
     ///
-    /// The offsets pointing to the ANALYSIS segment if present. This may be
-    /// used later to actually acquire the ANALYSIS segment if desired.
+    /// The offsets pointing to the ANALYSIS segment. If None then an error
+    /// occured when acquiring the offset. If ANALYSIS does not exist this will
+    /// be 0,0.
+    ///
+    /// This may be used later to acquire the ANALYSIS segment.
     analysis_seg: Option<Segment>,
 
     /// NEXTDATA offset
@@ -321,7 +325,7 @@ struct Segment {
     begin: u32,
     // TODO make this length, since that way there is no way to "flip" the
     // offsets later by accident.
-    end: u32,
+    nbytes: u32,
 }
 
 enum SegmentResult {
@@ -1057,7 +1061,8 @@ enum SegmentErrorKind {
 
 #[derive(Debug)]
 struct SegmentError {
-    offsets: Segment,
+    begin: u32,
+    end: u32,
     begin_delta: i32,
     end_delta: i32,
     kind: SegmentErrorKind,
@@ -1289,8 +1294,8 @@ impl fmt::Display for SegmentError {
                 format!("{} ({}))", x, delta)
             }
         };
-        let begin_text = offset_text(self.offsets.begin, self.begin_delta);
-        let end_text = offset_text(self.offsets.end, self.end_delta);
+        let begin_text = offset_text(self.begin, self.begin_delta);
+        let end_text = offset_text(self.end, self.end_delta);
         let kind_text = match &self.kind {
             SegmentErrorKind::Range => "Offset out of range",
             SegmentErrorKind::Inverted => "Begin after end",
@@ -1319,7 +1324,8 @@ impl Segment {
         let y = i64::from(end) + i64::from(end_delta);
         let err = |kind| {
             Err(SegmentError {
-                offsets: Segment { begin, end },
+                begin,
+                end,
                 begin_delta,
                 end_delta,
                 kind,
@@ -1334,7 +1340,7 @@ impl Segment {
                 } else {
                     Ok(Segment {
                         begin: new_begin,
-                        end: new_end,
+                        nbytes: new_begin - new_end + 1,
                     })
                 }
             }
@@ -1348,20 +1354,25 @@ impl Segment {
         end_delta: i32,
         id: SegmentId,
     ) -> Result<Segment, String> {
-        Self::try_new_adjusted(self.begin, self.end, begin_delta, end_delta, id)
+        Self::try_new_adjusted(self.begin, self.end(), begin_delta, end_delta, id)
     }
 
-    fn len(&self) -> u32 {
-        self.end - self.begin
+    fn end(&self) -> u32 {
+        self.begin + self.nbytes - 1
     }
 
-    fn num_bytes(&self) -> u32 {
-        self.len() + 1
-    }
-
-    // unset = both offsets are 0
+    // unset = starts at 0 and length is 0
     fn is_unset(&self) -> bool {
-        self.begin == 0 && self.end == 0
+        self.begin == 0 && self.nbytes == 0
+    }
+
+    fn read<R: Read + Seek>(&self, h: &mut BufReader<R>, buf: &mut Vec<u8>) -> io::Result<()> {
+        let begin = u64::from(self.begin);
+        let nbytes = u64::from(self.nbytes);
+
+        h.seek(SeekFrom::Start(begin))?;
+        h.take(nbytes).read_to_end(buf)?;
+        Ok(())
     }
 }
 
@@ -5046,36 +5057,32 @@ fn parse_header_offset(s: &str, allow_blank: bool) -> Option<u32> {
     })
 }
 
-fn parse_bounds(s0: &str, s1: &str, allow_blank: bool) -> Result<Segment, &'static str> {
+fn parse_bounds(s0: &str, s1: &str, allow_blank: bool, id: SegmentId) -> Result<Segment, String> {
     if let (Some(begin), Some(end)) = (
         parse_header_offset(s0, allow_blank),
         parse_header_offset(s1, allow_blank),
     ) {
-        if begin > end {
-            Err("beginning is greater than end")
-        } else {
-            Ok(Segment { begin, end })
-        }
+        Segment::try_new(begin, end, id)
     } else if allow_blank {
-        Err("could not make bounds from integers/blanks")
+        Err("could not make bounds from integers/blanks".to_string())
     } else {
-        Err("could not make bounds from integers")
+        Err("could not make bounds from integers".to_string())
     }
 }
 
 const hre: &str = r"(.{6})    (.{8})(.{8})(.{8})(.{8})(.{8})(.{8})";
 
-// TODO this error could be better
 fn parse_header(s: &str) -> Result<Header, &'static str> {
     let re = Regex::new(hre).unwrap();
     re.captures(s)
         .and_then(|c| {
             let [v, t0, t1, d0, d1, a0, a1] = c.extract().1;
+            // TODO actually gather errors here
             if let (Ok(version), Ok(text), Ok(data), Ok(analysis)) = (
                 v.parse(),
-                parse_bounds(t0, t1, false),
-                parse_bounds(d0, d1, false),
-                parse_bounds(a0, a1, true),
+                parse_bounds(t0, t1, false, SegmentId::PrimaryText),
+                parse_bounds(d0, d1, false, SegmentId::Data),
+                parse_bounds(a0, a1, true, SegmentId::Analysis),
             ) {
                 Some(Header {
                     version,
@@ -5478,7 +5485,7 @@ fn parse_segment(
     end_delta: i32,
     id: SegmentId,
     level: PureErrorLevel,
-) -> Result<Segment, PureErrorBuf> {
+) -> PureMaybe<Segment> {
     let parse_one = |s: Option<String>, which| {
         s.ok_or(format!("{which} not present for {id}"))
             .and_then(|pass| pass.parse::<u32>().map_err(|e| e.to_string()))
@@ -5493,7 +5500,7 @@ fn parse_segment(
         (Err(be), _) => Err(vec![be]),
         (_, Err(en)) => Err(vec![en]),
     };
-    res.map_err(|msgs| PureErrorBuf::from_many(msgs, level))
+    PureSuccess::from_result(res.map_err(|es| PureErrorBuf::from_many(es, level)))
 }
 
 fn find_raw_segments(
@@ -5529,8 +5536,8 @@ fn find_raw_segments(
         }
     }
 
-    let check_seg_with_header = |res, header_seg: &Segment, what| {
-        PureSuccess::from_result(res).and_then(|seg| {
+    let check_seg_with_header = |res: PureMaybe<Segment>, header_seg: &Segment, what| {
+        res.and_then(|seg| {
             // TODO this doesn't seem the most efficient since I make a new
             // PureSuccess object in some branches
             match seg {
@@ -5577,14 +5584,14 @@ fn find_raw_segments(
 
     // Supplemental TEXT offsets are only in TEXT, so just parse and return
     // if found.
-    let stext = PureSuccess::from_result(parse_segment(
+    let stext = parse_segment(
         stext0,
         stext1,
         conf.start_stext_delta,
         conf.end_stext_delta,
         SegmentId::SupplementalText,
         PureErrorLevel::Warning,
-    ));
+    );
 
     // ANALYSIS offsets are analogous to DATA offsets except they are optional.
     let analysis = check_seg_with_header(
@@ -5603,19 +5610,6 @@ fn find_raw_segments(
     data.combine3(stext, analysis, |a, b, c| (newpairs, a, b, c))
 }
 
-fn read_segment<R: Read + Seek>(
-    h: &mut BufReader<R>,
-    seg: &Segment,
-    buf: &mut Vec<u8>,
-) -> io::Result<()> {
-    let begin = u64::from(seg.begin);
-    let nbytes = u64::from(seg.num_bytes());
-
-    h.seek(SeekFrom::Start(begin))?;
-    h.take(nbytes).read_to_end(buf)?;
-    Ok(())
-}
-
 fn read_raw_text<R: Read + Seek>(
     h: &mut BufReader<R>,
     header: &Header,
@@ -5628,7 +5622,7 @@ fn read_raw_text<R: Read + Seek>(
     ))?;
 
     let mut buf = vec![];
-    read_segment(h, &adjusted_text, &mut buf)?;
+    adjusted_text.read(h, &mut buf)?;
 
     verify_delim(&buf, conf).try_map(|delimiter| {
         let mut res = split_raw_text(&buf, delimiter, conf);
@@ -5656,7 +5650,7 @@ fn read_raw_text<R: Read + Seek>(
                     let io_res: ImpureResult<_> =
                         maybe_stext.map_or(Ok(PureSuccess::from(vec![])), |stext| {
                             buf.clear();
-                            read_segment(h, &stext, &mut buf)?;
+                            stext.read(h, &mut buf)?;
                             Ok(split_raw_text(&buf, delimiter, conf))
                         });
                     let stext_res = io_res?;

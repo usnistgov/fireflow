@@ -325,7 +325,7 @@ struct Segment {
     begin: u32,
     // TODO make this length, since that way there is no way to "flip" the
     // offsets later by accident.
-    nbytes: u32,
+    length: u32,
 }
 
 enum SegmentResult {
@@ -1340,7 +1340,7 @@ impl Segment {
                 } else {
                     Ok(Segment {
                         begin: new_begin,
-                        nbytes: new_begin - new_end + 1,
+                        length: new_begin - new_end,
                     })
                 }
             }
@@ -1358,17 +1358,21 @@ impl Segment {
     }
 
     fn end(&self) -> u32 {
-        self.begin + self.nbytes - 1
+        self.begin + self.length
+    }
+
+    fn nbytes(&self) -> u32 {
+        self.length + 1
     }
 
     // unset = starts at 0 and length is 0
     fn is_unset(&self) -> bool {
-        self.begin == 0 && self.nbytes == 0
+        self.begin == 0 && self.length == 0
     }
 
     fn read<R: Read + Seek>(&self, h: &mut BufReader<R>, buf: &mut Vec<u8>) -> io::Result<()> {
         let begin = u64::from(self.begin);
-        let nbytes = u64::from(self.nbytes);
+        let nbytes = u64::from(self.nbytes());
 
         h.seek(SeekFrom::Start(begin))?;
         h.take(nbytes).read_to_end(buf)?;

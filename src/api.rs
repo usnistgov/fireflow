@@ -141,6 +141,13 @@ struct StandardizedTEXT {
     /// be strings.
     standardized: AnyCoreTEXT,
 
+    /// Non-standard keywords that start with '$'.
+    ///
+    /// These are keywords whose values start with '$' but are not part of the
+    /// standard. Such keywords are technically not allowed, but they are
+    /// included here in case they happen to be useful later.
+    deviant_keywords: RawKeywords,
+
     /// Delimiter used to parse TEXT.
     ///
     /// Included here for informational purposes.
@@ -2637,38 +2644,28 @@ impl fmt::Display for Mode3_2Error {
     }
 }
 
-#[derive(Debug)]
-pub enum AnyStdTEXT {
-    FCS2_0(Box<StdText2_0>),
-    FCS3_0(Box<StdText3_0>),
-    FCS3_1(Box<StdText3_1>),
-    FCS3_2(Box<StdText3_2>),
-}
-
-impl AnyStdTEXT {
+impl AnyCoreTEXT {
     pub fn print_meas_table(&self, delim: &str) {
         match self {
-            AnyStdTEXT::FCS2_0(x) => x.print_meas_table(delim),
-            AnyStdTEXT::FCS3_0(x) => x.print_meas_table(delim),
-            AnyStdTEXT::FCS3_1(x) => x.print_meas_table(delim),
-            AnyStdTEXT::FCS3_2(x) => x.print_meas_table(delim),
+            AnyCoreTEXT::FCS2_0(x) => x.print_meas_table(delim),
+            AnyCoreTEXT::FCS3_0(x) => x.print_meas_table(delim),
+            AnyCoreTEXT::FCS3_1(x) => x.print_meas_table(delim),
+            AnyCoreTEXT::FCS3_2(x) => x.print_meas_table(delim),
         }
     }
 
     pub fn print_spillover_table(&self, delim: &str) {
         let res = match self {
-            AnyStdTEXT::FCS2_0(_) => None,
-            AnyStdTEXT::FCS3_0(_) => None,
-            AnyStdTEXT::FCS3_1(x) => x
-                .core
+            AnyCoreTEXT::FCS2_0(_) => None,
+            AnyCoreTEXT::FCS3_0(_) => None,
+            AnyCoreTEXT::FCS3_1(x) => x
                 .metadata
                 .specific
                 .spillover
                 .as_ref()
                 .into_option()
                 .map(|s| s.print_table(delim)),
-            AnyStdTEXT::FCS3_2(x) => x
-                .core
+            AnyCoreTEXT::FCS3_2(x) => x
                 .metadata
                 .specific
                 .spillover
@@ -2682,26 +2679,26 @@ impl AnyStdTEXT {
     }
 }
 
-impl Serialize for AnyStdTEXT {
+impl Serialize for AnyCoreTEXT {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
         let mut state = serializer.serialize_struct("AnyStdTEXT", 2)?;
         match self {
-            AnyStdTEXT::FCS2_0(x) => {
+            AnyCoreTEXT::FCS2_0(x) => {
                 state.serialize_field("version", &Version::FCS2_0)?;
                 state.serialize_field("data", &x)?;
             }
-            AnyStdTEXT::FCS3_0(x) => {
+            AnyCoreTEXT::FCS3_0(x) => {
                 state.serialize_field("version", &Version::FCS3_0)?;
                 state.serialize_field("data", &x)?;
             }
-            AnyStdTEXT::FCS3_1(x) => {
+            AnyCoreTEXT::FCS3_1(x) => {
                 state.serialize_field("version", &Version::FCS3_1)?;
                 state.serialize_field("data", &x)?;
             }
-            AnyStdTEXT::FCS3_2(x) => {
+            AnyCoreTEXT::FCS3_2(x) => {
                 state.serialize_field("version", &Version::FCS3_2)?;
                 state.serialize_field("data", &x)?;
             }
@@ -2771,13 +2768,14 @@ impl<M: VersionedMetadata> CoreTEXT<M, M::P> {
         }
     }
 
-    fn from_raw(raw: RawTEXT, conf: &StdTextReader) -> PureResult<(Self, RawKeywords)> {
-        let mut st = raw.to_state(conf);
+    fn from_raw(kws: RawKeywords, conf: &StdTextReader) -> PureResult<(Self, RawKeywords)> {
+        let mut st = KwState::from(kws, conf);
         if let Some(par) = st.lookup_par() {
             let ms = M::P::lookup_measurements(&mut st, par);
             let md = ms.as_ref().and_then(|xs| M::lookup_metadata(&mut st, xs));
             if let (Some(measurements), Some(metadata)) = (ms, md) {
-                // TODO put this somewhere
+                // TODO add errors if desired informing user that these were
+                // found
                 let (deferred, deviant_keywords) = st.collect();
                 Ok(PureSuccess {
                     data: (
@@ -2796,6 +2794,14 @@ impl<M: VersionedMetadata> CoreTEXT<M, M::P> {
             Err(st.into_errors("could not find $PAR".to_string()))
         }
     }
+
+    fn any_from_raw(
+        kws: RawKeywords,
+        conf: &StdTextReader,
+    ) -> PureResult<(AnyCoreTEXT, RawKeywords)> {
+        Self::from_raw(kws, conf)
+            .map(|succ| succ.map(|(core, deviant)| (M::into_any(core), deviant)))
+    }
 }
 
 struct IntermediateTEXT<'a, M, P> {
@@ -2805,11 +2811,6 @@ struct IntermediateTEXT<'a, M, P> {
     measurements: Vec<MinimalMeasurement<P>>,
     conf: &'a StdTextReader,
 }
-
-type StdText2_0 = StdText<InnerMetadata2_0, InnerMeasurement2_0>;
-type StdText3_0 = StdText<InnerMetadata3_0, InnerMeasurement3_0>;
-type StdText3_1 = StdText<InnerMetadata3_1, InnerMeasurement3_1>;
-type StdText3_2 = StdText<InnerMetadata3_2, InnerMeasurement3_2>;
 
 macro_rules! match_many_to_one {
     ($value:expr, $root:ident, [$($variant:ident),*], $inner:ident, $action:block) => {
@@ -3172,10 +3173,10 @@ struct DataParser {
 
 fn format_parsed_data(res: &FCSSuccess, delim: &str) -> Vec<String> {
     let shortnames = match &res.std {
-        AnyStdTEXT::FCS2_0(x) => x.get_shortnames(),
-        AnyStdTEXT::FCS3_0(x) => x.get_shortnames(),
-        AnyStdTEXT::FCS3_1(x) => x.get_shortnames(),
-        AnyStdTEXT::FCS3_2(x) => x.get_shortnames(),
+        AnyCoreTEXT::FCS2_0(x) => x.get_shortnames(),
+        AnyCoreTEXT::FCS3_0(x) => x.get_shortnames(),
+        AnyCoreTEXT::FCS3_1(x) => x.get_shortnames(),
+        AnyCoreTEXT::FCS3_2(x) => x.get_shortnames(),
     };
     if res.data.is_empty() {
         return vec![];
@@ -3445,7 +3446,7 @@ fn make_data_offset_keywords(other_textlen: usize, datalen: usize) -> [MaybeKeyw
 trait VersionedMetadata: Sized {
     type P: VersionedMeasurement;
 
-    fn into_any_text(s: Box<StdText<Self, Self::P>>) -> AnyStdTEXT;
+    fn into_any(s: CoreTEXT<Self, Self::P>) -> AnyCoreTEXT;
 
     fn get_byteord(&self) -> ByteOrd;
 
@@ -3470,7 +3471,7 @@ trait VersionedMetadata: Sized {
 
     fn total_events(it: &IntermediateTEXT<Self, Self::P>, event_width: u32) -> PureSuccess<usize> {
         let def = PureErrorBuf::new();
-        let nbytes = it.data_seg.num_bytes();
+        let nbytes = it.data_seg.nbytes();
         let remainder = nbytes % event_width;
         let total_events = nbytes / event_width;
         if nbytes % event_width > 0 {
@@ -3742,8 +3743,8 @@ fn build_int_parser_2_0<P: VersionedMeasurement>(
 impl VersionedMetadata for InnerMetadata2_0 {
     type P = InnerMeasurement2_0;
 
-    fn into_any_text(t: Box<StdText2_0>) -> AnyStdTEXT {
-        AnyStdTEXT::FCS2_0(t)
+    fn into_any(t: CoreText2_0) -> AnyCoreTEXT {
+        AnyCoreTEXT::FCS2_0(Box::new(t))
     }
 
     // fn get_data_offsets(s: &StdText<Self, Self::P, Self::R>) -> Offsets {
@@ -3809,8 +3810,8 @@ impl VersionedMetadata for InnerMetadata2_0 {
 impl VersionedMetadata for InnerMetadata3_0 {
     type P = InnerMeasurement3_0;
 
-    fn into_any_text(t: Box<StdText3_0>) -> AnyStdTEXT {
-        AnyStdTEXT::FCS3_0(t)
+    fn into_any(t: CoreText3_0) -> AnyCoreTEXT {
+        AnyCoreTEXT::FCS3_0(Box::new(t))
     }
 
     fn get_byteord(&self) -> ByteOrd {
@@ -3888,8 +3889,8 @@ impl VersionedMetadata for InnerMetadata3_0 {
 impl VersionedMetadata for InnerMetadata3_1 {
     type P = InnerMeasurement3_1;
 
-    fn into_any_text(t: Box<StdText3_1>) -> AnyStdTEXT {
-        AnyStdTEXT::FCS3_1(t)
+    fn into_any(t: CoreText3_1) -> AnyCoreTEXT {
+        AnyCoreTEXT::FCS3_1(Box::new(t))
     }
 
     fn get_byteord(&self) -> ByteOrd {
@@ -3981,8 +3982,8 @@ impl VersionedMetadata for InnerMetadata3_1 {
 impl VersionedMetadata for InnerMetadata3_2 {
     type P = InnerMeasurement3_2;
 
-    fn into_any_text(t: Box<StdText3_2>) -> AnyStdTEXT {
-        AnyStdTEXT::FCS3_2(t)
+    fn into_any(t: CoreText3_2) -> AnyCoreTEXT {
+        AnyCoreTEXT::FCS3_2(Box::new(t))
     }
 
     fn get_byteord(&self) -> ByteOrd {
@@ -4144,12 +4145,16 @@ impl VersionedMetadata for InnerMetadata3_2 {
     }
 }
 
-fn parse_raw_text(raw: RawTEXT, conf: &StdTextReader) -> PureResult<ParsedTEXT> {
-    match raw.version {
-        Version::FCS2_0 => StdText2_0::raw_to_std_text(raw, conf),
-        Version::FCS3_0 => StdText3_0::raw_to_std_text(raw, conf),
-        Version::FCS3_1 => StdText3_1::raw_to_std_text(raw, conf),
-        Version::FCS3_2 => StdText3_2::raw_to_std_text(raw, conf),
+fn parse_raw_text(
+    version: Version,
+    kws: RawKeywords,
+    conf: &StdTextReader,
+) -> PureResult<(AnyCoreTEXT, RawKeywords)> {
+    match version {
+        Version::FCS2_0 => CoreText2_0::any_from_raw(kws, conf),
+        Version::FCS3_0 => CoreText3_0::any_from_raw(kws, conf),
+        Version::FCS3_1 => CoreText3_1::any_from_raw(kws, conf),
+        Version::FCS3_2 => CoreText3_2::any_from_raw(kws, conf),
     }
 }
 
@@ -4270,6 +4275,25 @@ struct KeyError {
 // }
 
 impl<'a> KwState<'a> {
+    fn from(kws: RawKeywords, conf: &'a StdTextReader) -> Self {
+        KwState {
+            raw_keywords: kws
+                .into_iter()
+                .map(|(key, value)| {
+                    (
+                        key,
+                        KwValue {
+                            value,
+                            status: ValueStatus::Raw,
+                        },
+                    )
+                })
+                .collect(),
+            deferred: PureErrorBuf::new(),
+            conf,
+        }
+    }
+
     // TODO not DRY (although will likely need HKTs)
     fn lookup_required<V: FromStr>(&mut self, k: &str, dep: bool) -> Option<V>
     where
@@ -5062,32 +5086,32 @@ fn read_header<R: Read>(h: &mut BufReader<R>) -> io::Result<Header> {
 //     warnings: Vec<String>,
 // }
 
-impl RawTEXT {
-    fn to_state<'a>(&self, conf: &'a StdTextReader) -> KwState<'a> {
-        let mut raw_standard_keywords = HashMap::new();
-        for (k, v) in self.keywords.iter() {
-            raw_standard_keywords.insert(
-                k.clone(),
-                KwValue {
-                    value: v.clone(),
-                    status: ValueStatus::Raw,
-                },
-            );
-        }
-        KwState {
-            raw_keywords: raw_standard_keywords,
-            deferred: PureErrorBuf::new(),
-            conf,
-        }
-    }
-}
+// impl RawTEXT {
+//     fn to_state<'a>(&self, conf: &'a StdTextReader) -> KwState<'a> {
+//         let mut raw_standard_keywords = HashMap::new();
+//         for (k, v) in self.keywords.iter() {
+//             raw_standard_keywords.insert(
+//                 k.clone(),
+//                 KwValue {
+//                     value: v.clone(),
+//                     status: ValueStatus::Raw,
+//                 },
+//             );
+//         }
+//         KwState {
+//             raw_keywords: raw_standard_keywords,
+//             deferred: PureErrorBuf::new(),
+//             conf,
+//         }
+//     }
+// }
 
-pub struct FCSSuccess {
-    pub header: Header,
-    pub raw: RawTEXT,
-    pub std: AnyStdTEXT,
-    pub data: ParsedData,
-}
+// pub struct FCSSuccess {
+//     pub header: Header,
+//     pub raw: RawTEXT,
+//     pub std: AnyStdTEXT,
+//     pub data: ParsedData,
+// }
 
 // /// Represents result which may fail but still have immediately usable data.
 // ///
@@ -5663,9 +5687,21 @@ pub fn read_fcs_raw_text(p: &path::PathBuf, conf: &Reader) -> ImpureResult<RawTE
 /// FCS standard indicated in the header and returned in a struct storing each
 /// key/value pair in a standardized manner. This will halt and return any
 /// errors encountered during this process.
-pub fn read_fcs_text(p: &path::PathBuf, conf: &Reader) -> ImpureResult<TEXTResult> {
-    let raw = read_fcs_raw_text(p, conf)?;
-    Ok(parse_raw_text(raw, &conf.text))
+pub fn read_fcs_text(p: &path::PathBuf, conf: &Reader) -> ImpureResult<StandardizedTEXT> {
+    let raw_succ = read_fcs_raw_text(p, conf)?;
+    let out = raw_succ.try_map(|raw| {
+        parse_raw_text(raw.version, raw.keywords, &conf.text).map(|std_succ| {
+            std_succ.map({
+                |(standardized, deviant_keywords)| StandardizedTEXT {
+                    offsets: raw.offsets,
+                    standardized,
+                    delimiter: raw.delimiter,
+                    deviant_keywords,
+                }
+            })
+        })
+    })?;
+    Ok(out)
 }
 
 // fn read_fcs_text_2_0(p: path::PathBuf, conf: StdTextReader) -> TEXTResult<TEXT2_0>;

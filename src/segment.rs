@@ -133,11 +133,11 @@ impl Segment {
         Self::try_new_adjusted(self.begin, self.end(), begin_delta, end_delta, id)
     }
 
-    fn end(&self) -> u32 {
-        self.begin + self.length
+    pub fn nbytes(&self) -> u32 {
+        self.length + 1
     }
 
-    fn nbytes(&self) -> u32 {
-        self.length + 1
+    fn end(&self) -> u32 {
+        self.begin + self.length
     }
 }

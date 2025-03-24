@@ -58,22 +58,12 @@ struct RawTEXT {
     /// All offsets as parsed from raw TEXT and HEADER.
     offsets: Offsets,
 
-    /// Standard keyword pairs.
+    /// Keyword pairs
     ///
-    /// These are keywords that start with a '$'. These should all be part of
-    /// the FCS standard for the indicated version, although this is not
-    /// enforced during the creation of this structure (it is elsewhere in this
-    /// library). This does not include offset keywords (DATA, STEXT, ANALYSIS)
-    /// and will include supplemental TEXT keywords if present and the offsets
-    /// for supplemental TEXT are successfully found.
-    standard_kws: StdKeywords,
-
-    /// Nonstandard keyword pairs
-    ///
-    /// These are keywords that do not start with a '$'. This include
-    /// supplemental TEXT keywords if applicable.
-    // TODO why are these separate?
-    nonstandard_kws: NonStdKeywords,
+    /// This does not include offset keywords (DATA, STEXT, ANALYSIS) and will
+    /// include supplemental TEXT keywords if present and the offsets for
+    /// supplemental TEXT are successfully found.
+    keywords: RawKeywords,
 
     /// Delimiter used to parse TEXT.
     ///
@@ -188,6 +178,14 @@ struct StandardizedDataset {
     /// Structured data derived from TEXT specific to the indicated FCS version.
     dataset: CoreDataset,
 
+    /// Non-standard keywords that start with '$'.
+    ///
+    /// When constructing the fields above, any '$'-prefixed key that is necessary
+    /// for populating these standardized structures will be removed from the
+    /// raw list of key/value pairs. Anything left over that starts with a '$'
+    /// will be put here.
+    deviant_keywords: StdKeywords,
+
     /// Delimiter used to parse TEXT.
     ///
     /// Included here for informational purposes.
@@ -287,32 +285,15 @@ struct CoreTEXT<M, P> {
     /// This is specific to each FCS version, which is encoded in the generic
     /// type variable.
     measurements: Vec<Measurement<P>>,
-
-    /// Non-standard keywords that start with '$'.
-    ///
-    /// When constructing the fields above, any '$'-prefixed key that is necessary
-    /// for populating these standardized structures will be removed from the
-    /// raw list of key/value pairs. Anything left over that starts with a '$'
-    /// will be put here.
-    deviant_keywords: StdKeywords,
-
-    /// Non-standard keywords that do not start with '$'.
-    ///
-    /// This is analogous to 'deviant_keywords' in that they are leftover from
-    /// the standardization process, except they do not start with '$'. Often
-    /// these are vendor-specific keywords that might be useful downstream but
-    /// don't have a standard meaning.
-    ///
-    /// This will not include any keywords that are "measurement-specific" which
-    /// generally means they start with "Pn*", as these will be included above
-    /// in their measurement structs.
-    nonstandard_keywords: NonStdKeywords,
 }
 
-/// Keyword pairs whose key starts with '$'
+/// Raw TEXT key/value pairs
+type RawKeywords = HashMap<String, String>;
+
+/// TEXT keyword pairs whose key starts with '$'
 type StdKeywords = HashMap<StdKey, String>;
 
-/// Keyword pairs whose key does not start with with '$'
+/// TEXT keyword pairs whose key does not start with with '$'
 type NonStdKeywords = HashMap<NonStdKey, String>;
 
 /// Key that starts with '$'
@@ -341,6 +322,12 @@ struct Segment {
     // TODO make this length, since that way there is no way to "flip" the
     // offsets later by accident.
     end: u32,
+}
+
+enum SegmentResult {
+    Valid(Segment),
+    Invalid,
+    Empty,
 }
 
 /// The kind of segment in an FCS file.
@@ -537,7 +524,7 @@ struct Calibration3_2 {
 /// The value for the $PnN key (all versions).
 ///
 /// This cannot contain commas.
-#[derive(Debug, Clone, Serialize, Eq, PartialEq)]
+#[derive(Debug, Clone, Serialize, Eq, PartialEq, Hash)]
 struct Shortname(String);
 
 /// The value for the $PnL key (3.1).
@@ -996,9 +983,16 @@ struct Metadata<X> {
 
     /// Version-specific data
     specific: X,
-    // TODO given the pattern I started with measurements, it makes sense
-    // to include nonstandard keywords in this as well, and also break them
-    // into deviant/nonstandard
+
+    /// Non-standard keywords.
+    ///
+    /// This will include all the keywords that do not start with '$'.
+    ///
+    /// Keywords which do start with '$' but are not part of the standard are
+    /// considered 'deviant' and stored elsewhere since this structure will also
+    /// be used to write FCS-compliant files (which do not allow nonstandard
+    /// keywords starting with '$')
+    nonstandard_keywords: NonStdKeywords,
 }
 
 /// FCS 2.0-specific structured metadata derived from TEXT
@@ -1535,7 +1529,11 @@ impl FromStr for Spillover {
                 let n = *first;
                 let nn = n * n;
                 let expected = n + nn;
-                let measurements: Vec<_> = xs.by_ref().take(n).map(String::from).collect();
+                let measurements: Vec<_> = xs
+                    .by_ref()
+                    .take(n)
+                    .map(|m| Shortname(String::from(m)))
+                    .collect();
                 let values: Vec<_> = xs.by_ref().take(nn).collect();
                 let remainder = xs.by_ref().count();
                 let total = measurements.len() + values.len() + remainder;
@@ -1592,10 +1590,10 @@ impl fmt::Display for NamedFixedSeqError {
 
 impl Spillover {
     fn table(&self, delim: &str) -> Vec<String> {
-        let header0 = vec![String::from("[-]")];
+        let header0 = vec!["[-]".to_string()];
         let header = header0
             .into_iter()
-            .chain(self.measurements.iter().map(String::from))
+            .chain(self.measurements.iter().map(|m| m.0.clone()))
             .join(delim);
         let lines = vec![header];
         let rows = self.matrix.iter().map(|xs| xs.iter().join(delim));
@@ -1698,7 +1696,7 @@ impl FromStr for Trigger {
                 .parse()
                 .map_err(TriggerError::IntFormat)
                 .map(|threshold| Trigger {
-                    measurement: String::from(p),
+                    measurement: Shortname(String::from(p)),
                     threshold,
                 }),
             _ => Err(TriggerError::WrongFieldNumber),
@@ -2504,7 +2502,11 @@ impl FromStr for UnstainedCenters {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut xs = s.split(",");
         if let Some(n) = xs.next().and_then(|s| s.parse().ok()) {
-            let measurements: Vec<_> = xs.by_ref().take(n).map(String::from).collect();
+            let measurements: Vec<_> = xs
+                .by_ref()
+                .take(n)
+                .map(|m| Shortname(String::from(m)))
+                .collect();
             let values: Vec<_> = xs.by_ref().take(n).collect();
             let remainder = xs.by_ref().count();
             let total = values.len() + measurements.len() + remainder;
@@ -2539,7 +2541,7 @@ impl fmt::Display for UnstainedCenters {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let n = self.0.len();
         let (measurements, values): (Vec<_>, Vec<_>) =
-            self.0.iter().map(|(k, v)| (k.clone(), *v)).unzip();
+            self.0.iter().map(|(k, v)| (k.0.clone(), *v)).unzip();
         write!(
             f,
             "{n},{},{}",
@@ -2809,13 +2811,13 @@ impl<M: VersionedMetadata> StdText<M, M::P> {
             let ms = M::P::lookup_measurements(&mut st, par);
             let md = ms.as_ref().and_then(|xs| M::lookup_metadata(&mut st, xs));
             if let (Some(measurements), Some(metadata)) = (ms, md) {
-                let (deferred, deviant_keywords, nonstandard_keywords) = st.collect();
+                // TODO put this somewhere
+                let (deferred, deviant_keywords) = st.collect();
                 Ok(PureSuccess {
                     data: CoreTEXT {
                         metadata,
                         measurements,
-                        deviant_keywords,
-                        nonstandard_keywords,
+                        // deviant_keywords,
                     },
                     deferred,
                 })
@@ -3697,6 +3699,7 @@ trait VersionedMetadata: Sized {
                 src: st.lookup_src(),
                 sys: st.lookup_sys(),
                 tr: st.lookup_trigger_checked(&names),
+                nonstandard_keywords: st.lookup_nonstandard(),
                 specific,
             })
         } else {
@@ -4209,14 +4212,8 @@ struct KwValue {
 // all hail the almighty state monad :D
 
 struct KwState<'a> {
-    raw_standard_keywords: HashMap<StdKey, KwValue>,
-    raw_nonstandard_keywords: NonStdKeywords,
+    raw_keywords: HashMap<String, KwValue>,
     deferred: PureErrorBuf,
-    // missing_keywords: Vec<StdKey>,
-    // deprecated_keys: Vec<StdKey>,
-    // deprecated_features: Vec<String>,
-    // meta_errors: Vec<String>,
-    // meta_warnings: Vec<String>,
     conf: &'a StdTextReader,
 }
 
@@ -4316,8 +4313,7 @@ impl<'a> KwState<'a> {
     where
         <V as FromStr>::Err: fmt::Display,
     {
-        let sk = StdKey(String::from(k));
-        match self.raw_standard_keywords.get_mut(&sk) {
+        match self.raw_keywords.get_mut(k) {
             Some(v) => match v.status {
                 ValueStatus::Raw => {
                     let (s, r) = v.value.parse().map_or_else(
@@ -4357,8 +4353,7 @@ impl<'a> KwState<'a> {
     where
         <V as FromStr>::Err: fmt::Display,
     {
-        let sk = StdKey(String::from(k));
-        match self.raw_standard_keywords.get_mut(&sk) {
+        match self.raw_keywords.get_mut(k) {
             Some(v) => match v.status {
                 ValueStatus::Raw => {
                     let (s, r) = v.value.parse().map_or_else(
@@ -4399,45 +4394,6 @@ impl<'a> KwState<'a> {
     }
 
     // metadata
-
-    // fn lookup_begindata(&mut self) -> Option<u32> {
-    //     self.lookup_required(BEGINDATA, false)
-    // }
-
-    // fn lookup_enddata(&mut self) -> Option<u32> {
-    //     self.lookup_required(ENDDATA, false)
-    // }
-
-    // // TODO don't short circuit here
-    // fn lookup_data_offsets(&mut self) -> Option<Segment> {
-    //     let begin = self.lookup_begindata()?;
-    //     let end = self.lookup_enddata()?;
-    //     self.build_offsets(begin, end, SegmentId::Data)
-    // }
-
-    // fn lookup_stext_offsets(&mut self) -> Option<Segment> {
-    //     let beginstext = self.lookup_required(BEGINSTEXT, false)?;
-    //     let endstext = self.lookup_required(ENDSTEXT, false)?;
-    //     self.build_offsets(beginstext, endstext, SegmentId::SupplementalText)
-    // }
-
-    // fn lookup_analysis_offsets(&mut self) -> Option<Segment> {
-    //     let beginstext = self.lookup_required(BEGINANALYSIS, false)?;
-    //     let endstext = self.lookup_required(ENDANALYSIS, false)?;
-    //     self.build_offsets(beginstext, endstext, SegmentId::Analysis)
-    // }
-
-    // fn lookup_supplemental3_0(&mut self) -> Option<SupplementalOffsets3_0> {
-    //     let stext = self.lookup_stext_offsets()?;
-    //     let analysis = self.lookup_analysis_offsets()?;
-    //     Some(SupplementalOffsets3_0 { stext, analysis })
-    // }
-
-    // fn lookup_supplemental3_2(&mut self) -> SupplementalOffsets3_2 {
-    //     let stext = OptionalKw::from_option(self.lookup_stext_offsets());
-    //     let analysis = OptionalKw::from_option(self.lookup_analysis_offsets());
-    //     SupplementalOffsets3_2 { stext, analysis }
-    // }
 
     fn lookup_byteord(&mut self) -> Option<ByteOrd> {
         self.lookup_required(BYTEORD, false)
@@ -4537,7 +4493,7 @@ impl<'a> KwState<'a> {
 
     fn lookup_trigger_checked(&mut self, names: &HashSet<&str>) -> OptionalKw<Trigger> {
         if let Present(tr) = self.lookup_trigger() {
-            let p = tr.measurement.as_str();
+            let p = tr.measurement.0.as_str();
             if names.contains(p) {
                 self.push_meta_error(format!(
                     "$TRIGGER refers to non-existent measurements '{p}'",
@@ -4612,7 +4568,10 @@ impl<'a> KwState<'a> {
         names: &HashSet<&str>,
     ) -> OptionalKw<UnstainedCenters> {
         if let Present(u) = self.lookup_unstainedcenters() {
-            let noexist: Vec<_> = u.0.keys().filter(|m| !names.contains(m.as_str())).collect();
+            let noexist: Vec<_> =
+                u.0.keys()
+                    .filter(|m| !names.contains(m.0.as_str()))
+                    .collect();
             if !noexist.is_empty() {
                 let msg = format!(
                     "$UNSTAINEDCENTERS refers to non-existent measurements: {}",
@@ -4792,7 +4751,7 @@ impl<'a> KwState<'a> {
             let noexist: Vec<_> = s
                 .measurements
                 .iter()
-                .filter(|m| !names.contains(m.as_str()))
+                .filter(|m| !names.contains(m.0.as_str()))
                 .collect();
             if !noexist.is_empty() {
                 let msg = format!(
@@ -4806,6 +4765,19 @@ impl<'a> KwState<'a> {
         } else {
             Absent
         }
+    }
+
+    fn lookup_nonstandard(&mut self) -> NonStdKeywords {
+        let mut ns = HashMap::new();
+        self.raw_keywords.retain(|k, v| {
+            if v.value.starts_with("$") && v.status == ValueStatus::Raw {
+                true
+            } else {
+                ns.insert(NonStdKey(k.clone()), v.value.clone());
+                false
+            }
+        });
+        ns
     }
 
     // measurements
@@ -4984,7 +4956,7 @@ impl<'a> KwState<'a> {
         self.lookup_meas_opt(FEATURE_SFX, n, false)
     }
 
-    /// Find nonstandard keys that a specific for a given measurement
+    /// Find nonstandard keys that are specific for a given measurement
     fn lookup_meas_nonstandard(&mut self, n: usize) -> NonStdKeywords {
         let mut ns = HashMap::new();
         // ASSUME the pattern does not start with "$" and has a %n which will be
@@ -4994,23 +4966,20 @@ impl<'a> KwState<'a> {
         if let Some(p) = &self.conf.nonstandard_measurement_pattern {
             let rep = p.replace("%n", n.to_string().as_str());
             if let Ok(pattern) = Regex::new(rep.as_str()) {
-                for (k, v) in self.raw_nonstandard_keywords.iter() {
+                self.raw_keywords.retain(|k, v| {
                     if pattern.is_match(k.as_str()) {
-                        ns.insert(k.clone(), v.clone());
+                        ns.insert(NonStdKey(k.clone()), v.value.clone());
+                        false
+                    } else {
+                        true
                     }
-                }
+                });
             } else {
                 self.push_meta_warning(format!(
                     "Could not make regular expression using \
                      pattern '{rep}' for measurement {n}"
                 ));
             }
-        }
-        // TODO it seems like there should be a more efficient way to do this,
-        // but the only ways I can think of involve taking ownership of the
-        // keywords and then moving matching key/vals into a new hashlist.
-        for k in ns.keys() {
-            self.raw_nonstandard_keywords.remove(k);
         }
         ns
     }
@@ -5031,42 +5000,35 @@ impl<'a> KwState<'a> {
         self.deferred.push_warning(msg);
     }
 
-    // fn push_meta_deprecated_str(&mut self, msg: &str) {
-    //     self.deferred.push_deprecated_features(String::from(msg));
-    // }
-
     fn push_meta_error_or_warning(&mut self, is_error: bool, msg: String) {
         self.deferred.push_msg_leveled(msg, is_error);
     }
 
-    fn collect(self) -> (PureErrorBuf, StdKeywords, NonStdKeywords) {
+    fn collect(self) -> (PureErrorBuf, StdKeywords) {
         let mut deviant_keywords = HashMap::new();
         let mut deferred = PureErrorBuf::new();
-        for (key, v) in self.raw_standard_keywords {
+        for (key, v) in self.raw_keywords {
             match v.status {
+                // ASSUME anything that is in this position at this point
+                // will start with "$" since we pulled out the nonstandard
+                // keywords when making the metadata.
                 ValueStatus::Raw => {
-                    deviant_keywords.insert(key, v.value);
+                    deviant_keywords.insert(StdKey(key), v.value);
                 }
                 ValueStatus::Error(err) => deferred.push(err),
                 ValueStatus::Used => (),
             }
         }
-        (deferred, deviant_keywords, self.raw_nonstandard_keywords)
+        (deferred, deviant_keywords)
     }
 
     fn into_errors(self, reason: String) -> PureFailure {
         let c = self.conf;
-        let (mut deferred, dev, ns) = self.collect();
+        let (mut deferred, dev) = self.collect();
         for k in dev.into_keys() {
             deferred.push_msg_leveled(
                 format!("{} starts with '$' but is not standard", k.0),
                 c.disallow_deviant,
-            );
-        }
-        for k in ns.into_keys() {
-            deferred.push_msg_leveled(
-                format!("{} is not a standard key", k.0),
-                c.disallow_nonstandard,
             );
         }
         Failure { reason, deferred }
@@ -5155,7 +5117,7 @@ struct StdText<M, P> {
 impl RawTEXT {
     fn to_state<'a>(&self, conf: &'a StdTextReader) -> KwState<'a> {
         let mut raw_standard_keywords = HashMap::new();
-        for (k, v) in self.standard_kws.iter() {
+        for (k, v) in self.keywords.iter() {
             raw_standard_keywords.insert(
                 k.clone(),
                 KwValue {
@@ -5165,14 +5127,8 @@ impl RawTEXT {
             );
         }
         KwState {
-            raw_standard_keywords,
-            raw_nonstandard_keywords: self.nonstandard_kws.clone(),
+            raw_keywords: raw_standard_keywords,
             deferred: PureErrorBuf::new(),
-            // deprecated_keys: vec![],
-            // deprecated_features: vec![],
-            // missing_keywords: vec![],
-            // meta_errors: vec![],
-            // meta_warnings: vec![],
             conf,
         }
     }
@@ -5459,21 +5415,14 @@ fn repair_keywords(pairs: &mut RawPairs, conf: &RawTextReader) {
     }
 }
 
-fn split_raw_pairs(
-    pairs: Vec<(String, String)>,
-    conf: &RawTextReader,
-) -> PureSuccess<(StdKeywords, NonStdKeywords)> {
+fn hash_raw_pairs(pairs: Vec<(String, String)>, conf: &RawTextReader) -> PureSuccess<RawKeywords> {
     let standard: HashMap<_, _> = HashMap::new();
-    let nonstandard: HashMap<_, _> = HashMap::new();
-    let mut res = PureSuccess::from((standard, nonstandard));
+    // let nonstandard: HashMap<_, _> = HashMap::new();
+    let mut res = PureSuccess::from(standard);
     // TODO filter keywords based on pattern somewhere here
     for (key, value) in pairs.into_iter() {
         let oldkey = key.clone(); // TODO this seems lame
-        let ires = if key.starts_with("$") {
-            res.data.0.insert(StdKey(key), value)
-        } else {
-            res.data.1.insert(NonStdKey(key), value)
-        };
+        let ires = res.data.insert(key, value);
         if ires.is_some() {
             let msg = format!("Skipping already-inserted key: {oldkey}");
             res.push_msg_leveled(msg, conf.enforce_unique);
@@ -5721,14 +5670,16 @@ fn read_raw_text<R: Read + Seek>(
 
         Ok(
             pairs_res.and_then(|(pairs, data_seg, stext_seg, analysis_seg)| {
-                split_raw_pairs(pairs, conf).map(|(standard_kws, nonstandard_kws)| RawTEXT {
+                hash_raw_pairs(pairs, conf).map(|standard_kws| RawTEXT {
                     version: header.version,
-                    standard_kws,
-                    nonstandard_kws,
-                    data_seg,
-                    supp_text_seg: stext_seg,
-                    prim_text_seg: adjusted_text,
-                    analysis_seg,
+                    keywords: standard_kws,
+                    offsets: Offsets {
+                        data_seg,
+                        supp_text_seg: stext_seg,
+                        prim_text_seg: adjusted_text,
+                        analysis_seg,
+                        nextdata: 0, // TODO fix
+                    },
                     delimiter,
                 })
             }),

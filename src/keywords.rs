@@ -32,11 +32,10 @@ pub const DATE: &str = "$ETIM"; // deprecated since 3.2
 pub const CYTSN: &str = "$CYTSN"; // since 3.0
 pub const TIMESTEP: &str = "$TIMESTEP"; // since 3.0
 pub const UNICODE: &str = "$UNICODE"; // 3.0 only
+pub const COMP: &str = "$COMP"; // 3.0 only
 
 pub const VOL: &str = "$VOL"; // since 3.1
 pub const FLOWRATE: &str = "$FLOWRATE"; // since 3.1
-
-pub const COMP: &str = "$COMP"; // 3.0 only
 pub const SPILLOVER: &str = "$SPILLOVER"; // since 3.1
 pub const PLATEID: &str = "$PLATEID"; // since 3.1
 pub const PLATENAME: &str = "$PLATENAME"; // since 3.1

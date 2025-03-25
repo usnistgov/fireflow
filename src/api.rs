@@ -9,7 +9,6 @@ use regex::Regex;
 use serde::ser::SerializeStruct;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
-use std::error::Error;
 use std::fmt;
 use std::fs;
 use std::io;
@@ -141,12 +140,11 @@ struct StandardizedTEXT {
     /// be strings.
     standardized: AnyCoreTEXT,
 
-    /// Non-standard keywords that start with '$'.
+    /// Keywords remaining after standardization
     ///
-    /// These are keywords whose values start with '$' but are not part of the
-    /// standard. Such keywords are technically not allowed, but they are
-    /// included here in case they happen to be useful later.
-    deviant_keywords: RawKeywords,
+    /// Assuming the code works, this should only have keywords that start with
+    /// a '$', some of which will be standardized.
+    remainder: RawKeywords,
 
     /// Delimiter used to parse TEXT.
     ///
@@ -190,16 +188,9 @@ struct StandardizedDataset {
     dataset: CoreDataset,
 
     /// Non-standard keywords that start with '$'.
-    ///
-    /// When constructing the fields above, any '$'-prefixed key that is necessary
-    /// for populating these standardized structures will be removed from the
-    /// raw list of key/value pairs. Anything left over that starts with a '$'
-    /// will be put here.
-    deviant_keywords: StdKeywords,
+    remainder: RawKeywords,
 
     /// Delimiter used to parse TEXT.
-    ///
-    /// Included here for informational purposes.
     delimiter: u8,
 }
 
@@ -315,7 +306,7 @@ struct CoreTEXT<M, P> {
 type RawKeywords = HashMap<String, String>;
 
 /// TEXT keyword pairs whose key starts with '$'
-type StdKeywords = HashMap<StdKey, String>;
+type RawKeywords = HashMap<StdKey, String>;
 
 /// TEXT keyword pairs whose key does not start with with '$'
 type NonStdKeywords = HashMap<NonStdKey, String>;
@@ -551,7 +542,7 @@ struct Wavelengths(Vec<u32>);
 ///
 /// This may also be '*' which means "delimited ASCII" which is only valid when
 /// $DATATYPE=A.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize)]
 enum Bytes {
     Fixed(u8),
     Variable,
@@ -1003,20 +994,21 @@ struct Metadata<X> {
     nonstandard_keywords: NonStdKeywords,
 }
 
-/// FCS 2.0-specific structured metadata derived from TEXT
+/// Version-specific structured metadata derived from TEXT
 type Metadata2_0 = Metadata<InnerMetadata2_0>;
-
-/// FCS 3.0-specific structured metadata derived from TEXT
 type Metadata3_0 = Metadata<InnerMetadata3_0>;
-
-/// FCS 3.1-specific structured metadata derived from TEXT
 type Metadata3_1 = Metadata<InnerMetadata3_1>;
-
-/// FCS 3.2-specific structured metadata derived from TEXT
 type Metadata3_2 = Metadata<InnerMetadata3_2>;
 
+struct ParserTEXT<'a, M, P> {
+    data_seg: Segment,
+    metadata: ParserMetadata<M>,
+    measurements: Vec<ParserMeasurement<P>>,
+    conf: &'a StdTextReader,
+}
+
 /// The bare minimum of measurement data required to parse the DATA segment.
-struct MinimalMeasurement<X> {
+struct ParserMeasurement<X> {
     /// The value of $PnB
     bytes: Bytes,
 
@@ -1027,35 +1019,39 @@ struct MinimalMeasurement<X> {
     specific: X,
 }
 
+struct InnerParserMeasurement3_2 {
+    datatype: OptionalKw<NumType>,
+}
+
 /// Minimal data to parse one measurement column in FCS 2.0 (up to 3.1)
-type MinimalMeasurement2_0 = MinimalMeasurement<()>;
+type DataParserMeasurement2_0 = ParserMeasurement<()>;
 
 /// Minimal data to parse one measurement column in FCS 3.2+
-type MinimalMeasurement3_2 = MinimalMeasurement<NumType>;
+type DataParserMeasurement3_2 = ParserMeasurement<NumType>;
 
-struct InnerMinMetadata2_0 {
+struct InnerParserMetadata2_0 {
     tot: OptionalKw<u32>,
     byteord: ByteOrd,
 }
 
-struct InnerMinMetadata3_0 {
+struct InnerParserMetadata3_0 {
     tot: u32,
     byteord: ByteOrd,
 }
 
-struct InnerMinMetadata3_1 {
+struct InnerParserMetadata3_1 {
     tot: u32,
     byteord: Endian,
 }
 
-struct MinMetadata<X> {
+struct ParserMetadata<M> {
     datatype: AlphaNumType,
-    specific: X,
+    specific: M,
 }
 
-type MinMetadata2_0 = MinMetadata<InnerMinMetadata2_0>;
-type MinMetadata3_0 = MinMetadata<InnerMinMetadata3_0>;
-type MinMetadata3_1 = MinMetadata<InnerMinMetadata3_1>;
+type DataParserMetadata2_0 = ParserMetadata<InnerParserMetadata2_0>;
+type DataParserMetadata3_0 = ParserMetadata<InnerParserMetadata3_0>;
+type DataParserMetadata3_1 = ParserMetadata<InnerParserMetadata3_1>;
 
 struct FCSDateTimeError;
 struct FCSTimeError;
@@ -1238,6 +1234,562 @@ enum ColumnParser {
     Int(IntParser),
     // Mixed column types (3.2+)
     Mixed(MixedParser),
+}
+
+trait Versioned {
+    fn fcs_version() -> Version;
+}
+
+trait VersionedMetadata: Sized + VersionedParserMetadata {
+    type P: VersionedMeasurement + VersionedParserMeasurement;
+
+    fn into_any(s: CoreTEXT<Self, Self::P>) -> AnyCoreTEXT;
+
+    fn build_int_parser(
+        it: &Self::Target,
+        ps: &[ParserMeasurement<<Self::P as VersionedParserMeasurement>::Target>],
+        total_events: usize,
+    ) -> PureMaybe<IntParser>;
+
+    fn build_mixed_parser(
+        it: &Self::Target,
+        ps: &[ParserMeasurement<<Self::P as VersionedParserMeasurement>::Target>],
+        dt: &AlphaNumType,
+        total_events: usize,
+    ) -> Option<PureMaybe<MixedParser>>;
+
+    fn build_float_parser(
+        it: &Self::Target,
+        is_double: bool,
+        par: usize,
+        total_events: usize,
+        ps: &[ParserMeasurement<<Self::P as VersionedParserMeasurement>::Target>],
+    ) -> PureMaybe<ColumnParser> {
+        let (bytes, dt) = if is_double { (8, "D") } else { (4, "F") };
+        let remainder: Vec<_> = ps.iter().filter(|p| p.bytes.eq(bytes)).collect();
+        if remainder.is_empty() {
+            let byteord = Self::get_byteord(it);
+            let res = if is_double {
+                f64::make_matrix_parser(&byteord, par, total_events).map(ColumnParser::Double)
+            } else {
+                f32::make_matrix_parser(&byteord, par, total_events).map(ColumnParser::Single)
+            };
+            PureSuccess::from_result(res.map_err(|e| PureErrorBuf::from(e, PureErrorLevel::Error)))
+        } else {
+            let mut res = PureSuccess::from(None);
+            for e in remainder.iter().enumerate().map(|(i, p)| {
+                format!(
+                    "Measurment {} uses {} bytes but DATATYPE={}",
+                    i, p.bytes, dt
+                )
+            }) {
+                res.push_error(e);
+            }
+            res
+        }
+    }
+
+    fn build_fixed_width_parser(
+        it: &ParserTEXT<Self::Target, <Self::P as VersionedParserMeasurement>::Target>,
+        total_events: usize,
+        measurement_widths: Vec<u8>,
+    ) -> PureMaybe<ColumnParser> {
+        let ps = &it.measurements;
+        let par = ps.len();
+        let dt = &it.metadata.datatype;
+        let specific = &it.metadata.specific;
+        if let Some(mixed) = Self::build_mixed_parser(specific, ps, dt, total_events) {
+            mixed.map(|c| c.map(ColumnParser::Mixed))
+        } else {
+            match dt {
+                AlphaNumType::Single => {
+                    Self::build_float_parser(specific, false, par, total_events, ps)
+                }
+                AlphaNumType::Double => {
+                    Self::build_float_parser(specific, true, par, total_events, ps)
+                }
+                AlphaNumType::Integer => Self::build_int_parser(specific, ps, total_events)
+                    .map(|c| c.map(ColumnParser::Int)),
+                AlphaNumType::Ascii => {
+                    PureSuccess::from(Some(ColumnParser::FixedWidthAscii(FixedAsciiParser {
+                        columns: measurement_widths,
+                        nrows: total_events,
+                    })))
+                }
+            }
+        }
+    }
+
+    fn build_delim_ascii_parser(
+        it: &ParserTEXT<Self::Target, <Self::P as VersionedParserMeasurement>::Target>,
+        tot: Option<usize>,
+    ) -> ColumnParser {
+        let nbytes = it.data_seg.nbytes();
+        ColumnParser::DelimitedAscii(DelimAsciiParser {
+            ncols: it.measurements.len(),
+            nrows: tot,
+            nbytes: nbytes as usize,
+        })
+    }
+
+    fn build_column_parser(
+        it: &ParserTEXT<Self::Target, <Self::P as VersionedParserMeasurement>::Target>,
+    ) -> PureMaybe<ColumnParser> {
+        // In order to make a data parser, the $DATATYPE, $BYTEORD, $PnB, and
+        // $PnDATATYPE (if present) all need to be a specific relationship to
+        // each other, each of which corresponds to the options below.
+        let mut res = match (event_width(&it.measurements), it.metadata.datatype) {
+            // Numeric/Ascii (fixed width)
+            (EventWidth::Finite(measurement_widths), _) => {
+                let event_width = measurement_widths.iter().map(|x| u32::from(*x)).sum();
+                Self::total_events(it, event_width).and_then(|total_events| {
+                    Self::build_fixed_width_parser(it, total_events, measurement_widths)
+                })
+            }
+            // Ascii (variable width)
+            (EventWidth::Variable, AlphaNumType::Ascii) => {
+                let tot = Self::get_tot(&it.metadata.specific);
+                PureSuccess::from(Some(Self::build_delim_ascii_parser(
+                    it,
+                    tot.map(|x| x as usize),
+                )))
+            }
+            // nonsense...scream at user
+            (EventWidth::Error(fixed, variable), _) => {
+                let mut r = PureSuccess::from(None);
+                r.push_error("$PnBs are a mix of numeric and variable".to_string());
+                for f in fixed {
+                    r.push_error(format!("$PnB for measurement {f} is numeric"));
+                }
+                for v in variable {
+                    r.push_error(format!("$PnB for measurement {v} is variable"));
+                }
+                r
+            }
+            (EventWidth::Variable, dt) => {
+                let mut r = PureSuccess::from(None);
+                r.push_error(format!("$DATATYPE is {dt} but all $PnB are '*'"));
+                r
+            }
+        };
+        if it.metadata.datatype == AlphaNumType::Ascii && Self::P::fcs_version() >= Version::FCS3_1
+        {
+            res.push_error("$DATATYPE=A has been deprecated since FCS 3.1".to_string());
+        }
+        res
+    }
+
+    fn build_data_parser(
+        it: &ParserTEXT<Self::Target, <Self::P as VersionedParserMeasurement>::Target>,
+    ) -> PureMaybe<DataParser> {
+        Self::build_column_parser(it).map(|c| {
+            c.map(|column_parser| DataParser {
+                column_parser,
+                begin: u64::from(it.data_seg.begin),
+            })
+        })
+    }
+
+    fn lookup_specific(st: &mut KwState, par: usize, names: &HashSet<&str>) -> Option<Self>;
+
+    fn lookup_metadata(st: &mut KwState, ms: &[Measurement<Self::P>]) -> Option<Metadata<Self>> {
+        let names: HashSet<_> = ms
+            .iter()
+            .filter_map(|m| Self::P::measurement_name(m))
+            .collect();
+        let par = ms.len();
+        let maybe_datatype = st.lookup_datatype();
+        let maybe_specific = Self::lookup_specific(st, par, &names);
+        if let (Some(datatype), Some(specific)) = (maybe_datatype, maybe_specific) {
+            Some(Metadata {
+                datatype,
+                abrt: st.lookup_abrt(),
+                com: st.lookup_com(),
+                cells: st.lookup_cells(),
+                exp: st.lookup_exp(),
+                fil: st.lookup_fil(),
+                inst: st.lookup_inst(),
+                lost: st.lookup_lost(),
+                op: st.lookup_op(),
+                proj: st.lookup_proj(),
+                smno: st.lookup_smno(),
+                src: st.lookup_src(),
+                sys: st.lookup_sys(),
+                tr: st.lookup_trigger_checked(&names),
+                nonstandard_keywords: st.lookup_nonstandard(),
+                specific,
+            })
+        } else {
+            None
+        }
+    }
+
+    fn keywords_inner(&self, other_textlen: usize, data_len: usize) -> MaybeKeywords;
+
+    fn keywords(m: &Metadata<Self>, par: usize, tot: usize, len: KwLengths) -> MaybeKeywords {
+        let fixed = [
+            (PAR, Some(par.to_string())),
+            (TOT, Some(tot.to_string())),
+            (NEXTDATA, Some("0".to_string())),
+            (DATATYPE, Some(m.datatype.to_string())),
+            (ABRT, m.abrt.as_opt_string()),
+            (COM, m.com.as_opt_string()),
+            (CELLS, m.cells.as_opt_string()),
+            (EXP, m.exp.as_opt_string()),
+            (FIL, m.fil.as_opt_string()),
+            (INST, m.inst.as_opt_string()),
+            (LOST, m.lost.as_opt_string()),
+            (OP, m.op.as_opt_string()),
+            (PROJ, m.proj.as_opt_string()),
+            (SMNO, m.smno.as_opt_string()),
+            (SRC, m.src.as_opt_string()),
+            (SYS, m.sys.as_opt_string()),
+            (TR, m.tr.as_opt_string()),
+        ];
+        let fixed_len = sum_keywords(&fixed) + len.measurements;
+        fixed
+            .into_iter()
+            .chain(m.specific.keywords_inner(fixed_len, len.data))
+            .collect()
+    }
+}
+
+trait VersionedMeasurement: Sized + Versioned {
+    type D;
+
+    fn lookup_specific(st: &mut KwState, n: usize) -> Option<Self>;
+
+    fn measurement_name(p: &Measurement<Self>) -> Option<&str>;
+
+    fn lookup_measurements(st: &mut KwState, par: usize) -> Option<Vec<Measurement<Self>>> {
+        let mut ps = vec![];
+        let v = Self::fcs_version();
+        for n in 1..(par + 1) {
+            let maybe_bytes = st.lookup_meas_bytes(n);
+            let maybe_range = st.lookup_meas_range(n);
+            let maybe_specific = Self::lookup_specific(st, n);
+            if let (Some(bytes), Some(range), Some(specific)) =
+                (maybe_bytes, maybe_range, maybe_specific)
+            {
+                let p = Measurement {
+                    bytes,
+                    range,
+                    longname: st.lookup_meas_longname(n),
+                    filter: st.lookup_meas_filter(n),
+                    power: st.lookup_meas_power(n),
+                    detector_type: st.lookup_meas_detector_type(n),
+                    percent_emitted: st.lookup_meas_percent_emitted(n, v == Version::FCS3_2),
+                    detector_voltage: st.lookup_meas_detector_voltage(n),
+                    specific,
+                    nonstandard: st.lookup_meas_nonstandard(n),
+                };
+                ps.push(p);
+            }
+        }
+        let names: Vec<&str> = ps
+            .iter()
+            .filter_map(|m| Self::measurement_name(m))
+            .collect();
+        if let Some(time_name) = &st.conf.time_shortname {
+            if !names.iter().copied().contains(time_name.as_str()) {
+                st.push_meta_error_or_warning(
+                    st.conf.ensure_time,
+                    format!("Channel called '{time_name}' not found for time"),
+                );
+            }
+        }
+        if names.iter().unique().count() < names.len() {
+            st.push_meta_error_str("$PnN are not all unique");
+            None
+        } else {
+            Some(ps)
+        }
+    }
+
+    fn suffixes_inner(&self) -> Vec<(&'static str, Option<String>)>;
+
+    fn keywords(m: &Measurement<Self>, n: &str) -> Vec<(String, Option<String>)> {
+        let fixed = [
+            (BYTES_SFX, Some(m.bytes.to_string())),
+            (RANGE_SFX, Some(m.range.to_string())),
+            (LONGNAME_SFX, m.longname.as_opt_string()),
+            (FILTER_SFX, m.filter.as_opt_string()),
+            (POWER_SFX, m.power.as_opt_string()),
+            (DET_TYPE_SFX, m.detector_type.as_opt_string()),
+            (PCNT_EMT_SFX, m.percent_emitted.as_opt_string()),
+            (DET_VOLT_SFX, m.detector_voltage.as_opt_string()),
+        ];
+        fixed
+            .into_iter()
+            .chain(m.specific.suffixes_inner())
+            .map(|(s, v)| (format_measurement(n, s), v))
+            .collect()
+    }
+}
+
+trait VersionedParserMeasurement: Sized {
+    type Target;
+
+    fn as_minimal_inner(m: &Measurement<Self>) -> Self::Target;
+
+    fn as_minimal(m: &Measurement<Self>) -> ParserMeasurement<Self::Target> {
+        ParserMeasurement {
+            bytes: m.bytes,
+            range: m.range,
+            specific: Self::as_minimal_inner(m),
+        }
+    }
+}
+
+trait VersionedParserMetadata: Sized {
+    type Target;
+
+    fn as_minimal_inner(&self, st: &mut KwState) -> Option<Self::Target>;
+
+    fn as_minimal(md: &Metadata<Self>, st: &mut KwState) -> Option<ParserMetadata<Self::Target>> {
+        let datatype = md.datatype;
+        let specific = Self::as_minimal_inner(&md.specific, st)?;
+        Some(ParserMetadata { datatype, specific })
+    }
+
+    fn get_byteord(t: &Self::Target) -> ByteOrd;
+
+    fn get_tot(t: &Self::Target) -> Option<u32>;
+
+    fn total_events<X>(it: &ParserTEXT<Self::Target, X>, event_width: u32) -> PureSuccess<usize> {
+        let mut def = PureErrorBuf::new();
+        let nbytes = it.data_seg.nbytes();
+        let remainder = nbytes % event_width;
+        let total_events = nbytes / event_width;
+        if nbytes % event_width > 0 {
+            let msg = format!(
+                "Events are {event_width} bytes wide, but this does not evenly \
+                 divide DATA segment which is {nbytes} bytes long \
+                 (remainder of {remainder})"
+            );
+            def.push_msg_leveled(msg, it.conf.raw.enfore_data_width_divisibility)
+        }
+        if let Some(tot) = Self::get_tot(&it.metadata.specific) {
+            if total_events != tot {
+                let msg = format!(
+                    "$TOT field is {tot} but number of events \
+                         that evenly fit into DATA is {total_events}"
+                );
+                def.push_msg_leveled(msg, it.conf.raw.enfore_matching_tot);
+            }
+        }
+        // TODO fix cast
+        PureSuccess {
+            data: total_events as usize,
+            deferred: def,
+        }
+    }
+}
+
+trait IntMath: Sized {
+    fn next_power_2(x: Self) -> Self;
+}
+
+trait NumProps<const DTLEN: usize>: Sized + Copy {
+    fn zero() -> Self;
+
+    fn from_big(buf: [u8; DTLEN]) -> Self;
+
+    fn from_little(buf: [u8; DTLEN]) -> Self;
+
+    fn read_from_big<R: Read + Seek>(h: &mut BufReader<R>) -> io::Result<Self> {
+        let mut buf = [0; DTLEN];
+        h.read_exact(&mut buf)?;
+        Ok(Self::from_big(buf))
+    }
+
+    fn read_from_little<R: Read + Seek>(h: &mut BufReader<R>) -> io::Result<Self> {
+        let mut buf = [0; DTLEN];
+        h.read_exact(&mut buf)?;
+        Ok(Self::from_little(buf))
+    }
+
+    fn read_from_endian<R: Read + Seek>(h: &mut BufReader<R>, endian: Endian) -> io::Result<Self> {
+        if endian == Endian::Big {
+            Self::read_from_big(h)
+        } else {
+            Self::read_from_little(h)
+        }
+    }
+}
+
+trait OrderedFromBytes<const DTLEN: usize, const OLEN: usize>: NumProps<DTLEN> {
+    fn read_from_ordered<R: Read>(h: &mut BufReader<R>, order: &[u8; OLEN]) -> io::Result<Self> {
+        let mut tmp = [0; OLEN];
+        let mut buf = [0; DTLEN];
+        h.read_exact(&mut tmp)?;
+        for (i, j) in order.iter().enumerate() {
+            buf[usize::from(*j)] = tmp[i];
+        }
+        Ok(Self::from_little(buf))
+    }
+}
+
+trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
+    NumProps<DTLEN> + OrderedFromBytes<DTLEN, INTLEN> + Ord + IntMath + TryFrom<u64>
+{
+    fn byteord_to_sized(byteord: &ByteOrd) -> Result<SizedByteOrd<INTLEN>, String> {
+        byteord_to_sized(byteord)
+    }
+
+    fn range_to_bitmask(range: &Range) -> Result<Self, String> {
+        match range {
+            Range::Float(_) => Err("$PnR is float for an integer column".to_string()),
+            // TODO will this error ever happen?
+            Range::Int(i) => Self::try_from(*i)
+                .map(Self::next_power_2)
+                .map_err(|_| "$PnR could not be converted to {INTLEN} bytes".to_string()),
+        }
+    }
+
+    fn to_col_parser(
+        range: &Range,
+        byteord: &ByteOrd,
+        total_events: usize,
+    ) -> Result<IntColumnParser<Self, INTLEN>, Vec<String>> {
+        // TODO be more specific, which means we need the measurement index
+        let b = Self::range_to_bitmask(range);
+        let s = Self::byteord_to_sized(byteord);
+        let data = vec![Self::zero(); total_events];
+        match (b, s) {
+            (Ok(bitmask), Ok(size)) => Ok(IntColumnParser {
+                bitmask,
+                size,
+                data,
+            }),
+            (Err(x), Err(y)) => Err(vec![x, y]),
+            (Err(x), _) => Err(vec![x]),
+            (_, Err(y)) => Err(vec![y]),
+        }
+    }
+
+    fn read_int_masked<R: Read>(
+        h: &mut BufReader<R>,
+        byteord: &SizedByteOrd<INTLEN>,
+        bitmask: Self,
+    ) -> io::Result<Self> {
+        Self::read_int(h, byteord).map(|x| x.min(bitmask))
+    }
+
+    fn read_int<R: Read>(h: &mut BufReader<R>, byteord: &SizedByteOrd<INTLEN>) -> io::Result<Self> {
+        // This lovely code will read data that is not a power-of-two
+        // bytes long. Start by reading n bytes into a vector, which can
+        // take a varying size. Then copy this into the power of 2 buffer
+        // and reset all the unused cells to 0. This copy has to go to one
+        // or the other end of the buffer depending on endianness.
+        //
+        // ASSUME for u8 and u16 that these will get heavily optimized away
+        // since 'order' is totally meaningless for u8 and the only two possible
+        // 'orders' for u16 are big and little.
+        let mut tmp = [0; INTLEN];
+        let mut buf = [0; DTLEN];
+        match byteord {
+            SizedByteOrd::Endian(Endian::Big) => {
+                let b = DTLEN - INTLEN;
+                h.read_exact(&mut tmp)?;
+                buf[b..].copy_from_slice(&tmp[b..]);
+                Ok(Self::from_big(buf))
+            }
+            SizedByteOrd::Endian(Endian::Little) => {
+                h.read_exact(&mut tmp)?;
+                buf[..INTLEN].copy_from_slice(&tmp[..INTLEN]);
+                Ok(Self::from_little(buf))
+            }
+            SizedByteOrd::Order(order) => Self::read_from_ordered(h, order),
+        }
+    }
+
+    fn assign<R: Read>(
+        h: &mut BufReader<R>,
+        d: &mut IntColumnParser<Self, INTLEN>,
+        row: usize,
+    ) -> io::Result<()> {
+        d.data[row] = Self::read_int_masked(h, &d.size, d.bitmask)?;
+        Ok(())
+    }
+}
+
+trait FloatFromBytes<const LEN: usize>: NumProps<LEN> + OrderedFromBytes<LEN, LEN> + Clone
+where
+    Vec<Self>: Into<Series>,
+{
+    fn to_float_byteord(byteord: &ByteOrd) -> Result<SizedByteOrd<LEN>, String> {
+        byteord_to_sized(byteord)
+    }
+
+    fn make_column_parser(endian: Endian, total_events: usize) -> FloatColumn<Self> {
+        FloatColumn {
+            data: vec![Self::zero(); total_events],
+            endian,
+        }
+    }
+
+    fn make_matrix_parser(
+        byteord: &ByteOrd,
+        par: usize,
+        total_events: usize,
+    ) -> Result<FloatParser<LEN>, String> {
+        Self::to_float_byteord(byteord).map(|byteord| FloatParser {
+            nrows: total_events,
+            ncols: par,
+            byteord,
+        })
+    }
+
+    fn read_float<R: Read>(h: &mut BufReader<R>, byteord: &SizedByteOrd<LEN>) -> io::Result<Self> {
+        let mut buf = [0; LEN];
+        match byteord {
+            SizedByteOrd::Endian(Endian::Big) => {
+                h.read_exact(&mut buf)?;
+                Ok(Self::from_big(buf))
+            }
+            SizedByteOrd::Endian(Endian::Little) => {
+                h.read_exact(&mut buf)?;
+                Ok(Self::from_little(buf))
+            }
+            SizedByteOrd::Order(order) => Self::read_from_ordered(h, order),
+        }
+    }
+
+    fn assign_column<R: Read>(
+        h: &mut BufReader<R>,
+        column: &mut FloatColumn<Self>,
+        row: usize,
+    ) -> io::Result<()> {
+        // TODO endian wrap thing seems unnecessary
+        column.data[row] = Self::read_float(h, &SizedByteOrd::Endian(column.endian))?;
+        Ok(())
+    }
+
+    fn assign_matrix<R: Read + Seek>(
+        h: &mut BufReader<R>,
+        d: &FloatParser<LEN>,
+        column: &mut [Self],
+        row: usize,
+    ) -> io::Result<()> {
+        column[row] = Self::read_float(h, &d.byteord)?;
+        Ok(())
+    }
+
+    fn parse_matrix<R: Read + Seek>(
+        h: &mut BufReader<R>,
+        p: FloatParser<LEN>,
+    ) -> io::Result<Vec<Series>> {
+        let mut columns: Vec<_> = iter::repeat_with(|| vec![Self::zero(); p.nrows])
+            .take(p.ncols)
+            .collect();
+        for r in 0..p.nrows {
+            for c in columns.iter_mut() {
+                Self::assign_matrix(h, &p, c, r)?;
+            }
+        }
+        Ok(columns.into_iter().map(Vec::<Self>::into).collect())
+    }
 }
 
 fn format_measurement(n: &str, m: &str) -> String {
@@ -2179,21 +2731,35 @@ impl fmt::Display for Range {
     }
 }
 
-impl<P: VersionedMeasurement> Measurement<P> {
-    fn bytes_eq(&self, b: u8) -> bool {
-        match self.bytes {
-            Bytes::Fixed(x) => x == b,
+impl Bytes {
+    fn eq(&self, b: u8) -> bool {
+        match self {
+            Bytes::Fixed(x) => *x == b,
             _ => false,
         }
     }
 
-    // TODO add measurement index to error message
-    fn make_int_parser(&self, o: &ByteOrd, t: usize) -> Result<AnyIntColumn, Vec<String>> {
-        match self.bytes {
-            Bytes::Fixed(b) => make_int_parser(b, &self.range, o, t),
+    fn make_int_parser(
+        &self,
+        r: &Range,
+        o: &ByteOrd,
+        t: usize,
+    ) -> Result<AnyIntColumn, Vec<String>> {
+        match self {
+            Bytes::Fixed(b) => make_int_parser(*b, r, o, t),
             _ => Err(vec![String::from("PnB is variable length")]),
         }
     }
+}
+
+impl<P: VersionedMeasurement> Measurement<P> {
+    // TODO add measurement index to error message
+    // fn make_int_parser(&self, o: &ByteOrd, t: usize) -> Result<AnyIntColumn, Vec<String>> {
+    //     match self.bytes {
+    //         Bytes::Fixed(b) => make_int_parser(b, &self.range, o, t),
+    //         _ => Err(vec![String::from("PnB is variable length")]),
+    //     }
+    // }
 
     // TODO include nonstandard?
     fn keywords(&self, n: &str) -> Vec<(String, Option<String>)> {
@@ -2230,81 +2796,6 @@ fn make_int_parser(b: u8, r: &Range, o: &ByteOrd, t: usize) -> Result<AnyIntColu
     }
 }
 
-trait Versioned {
-    fn fcs_version() -> Version;
-}
-
-trait VersionedMeasurement: Sized + Versioned {
-    fn lookup_specific(st: &mut KwState, n: usize) -> Option<Self>;
-
-    fn measurement_name(p: &Measurement<Self>) -> Option<&str>;
-
-    fn lookup_measurements(st: &mut KwState, par: usize) -> Option<Vec<Measurement<Self>>> {
-        let mut ps = vec![];
-        let v = Self::fcs_version();
-        for n in 1..(par + 1) {
-            let maybe_bytes = st.lookup_meas_bytes(n);
-            let maybe_range = st.lookup_meas_range(n);
-            let maybe_specific = Self::lookup_specific(st, n);
-            if let (Some(bytes), Some(range), Some(specific)) =
-                (maybe_bytes, maybe_range, maybe_specific)
-            {
-                let p = Measurement {
-                    bytes,
-                    range,
-                    longname: st.lookup_meas_longname(n),
-                    filter: st.lookup_meas_filter(n),
-                    power: st.lookup_meas_power(n),
-                    detector_type: st.lookup_meas_detector_type(n),
-                    percent_emitted: st.lookup_meas_percent_emitted(n, v == Version::FCS3_2),
-                    detector_voltage: st.lookup_meas_detector_voltage(n),
-                    specific,
-                    nonstandard: st.lookup_meas_nonstandard(n),
-                };
-                ps.push(p);
-            }
-        }
-        let names: Vec<&str> = ps
-            .iter()
-            .filter_map(|m| Self::measurement_name(m))
-            .collect();
-        if let Some(time_name) = &st.conf.time_shortname {
-            if !names.iter().copied().contains(time_name.as_str()) {
-                st.push_meta_error_or_warning(
-                    st.conf.ensure_time,
-                    format!("Channel called '{time_name}' not found for time"),
-                );
-            }
-        }
-        if names.iter().unique().count() < names.len() {
-            st.push_meta_error_str("$PnN are not all unique");
-            None
-        } else {
-            Some(ps)
-        }
-    }
-
-    fn suffixes_inner(&self) -> Vec<(&'static str, Option<String>)>;
-
-    fn keywords(m: &Measurement<Self>, n: &str) -> Vec<(String, Option<String>)> {
-        let fixed = [
-            (BYTES_SFX, Some(m.bytes.to_string())),
-            (RANGE_SFX, Some(m.range.to_string())),
-            (LONGNAME_SFX, m.longname.as_opt_string()),
-            (FILTER_SFX, m.filter.as_opt_string()),
-            (POWER_SFX, m.power.as_opt_string()),
-            (DET_TYPE_SFX, m.detector_type.as_opt_string()),
-            (PCNT_EMT_SFX, m.percent_emitted.as_opt_string()),
-            (DET_VOLT_SFX, m.detector_voltage.as_opt_string()),
-        ];
-        fixed
-            .into_iter()
-            .chain(m.specific.suffixes_inner())
-            .map(|(s, v)| (format_measurement(n, s), v))
-            .collect()
-    }
-}
-
 impl Versioned for InnerMeasurement2_0 {
     fn fcs_version() -> Version {
         Version::FCS2_0
@@ -2330,6 +2821,8 @@ impl Versioned for InnerMeasurement3_2 {
 }
 
 impl VersionedMeasurement for InnerMeasurement2_0 {
+    type D = ();
+
     fn measurement_name(p: &Measurement<Self>) -> Option<&str> {
         p.specific
             .shortname
@@ -2358,6 +2851,8 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
 }
 
 impl VersionedMeasurement for InnerMeasurement3_0 {
+    type D = ();
+
     fn measurement_name(p: &Measurement<Self>) -> Option<&str> {
         p.specific
             .shortname
@@ -2389,6 +2884,8 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
 }
 
 impl VersionedMeasurement for InnerMeasurement3_1 {
+    type D = ();
+
     fn measurement_name(p: &Measurement<Self>) -> Option<&str> {
         Some(p.specific.shortname.0.as_str())
     }
@@ -2420,6 +2917,8 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
 }
 
 impl VersionedMeasurement for InnerMeasurement3_2 {
+    type D = OptionalKw<NumType>;
+
     fn measurement_name(p: &Measurement<Self>) -> Option<&str> {
         Some(p.specific.shortname.0.as_str())
     }
@@ -2645,6 +3144,20 @@ impl fmt::Display for Mode3_2Error {
 }
 
 impl AnyCoreTEXT {
+    pub fn as_data_parser<'a>(
+        &self,
+        kws: &mut RawKeywords,
+        conf: &'a StdTextReader,
+        data_seg: &Segment,
+    ) -> PureResult<DataParser> {
+        match self {
+            AnyCoreTEXT::FCS2_0(x) => x.as_data_parser(kws, conf, data_seg),
+            AnyCoreTEXT::FCS3_0(x) => x.as_data_parser(kws, conf, data_seg),
+            AnyCoreTEXT::FCS3_1(x) => x.as_data_parser(kws, conf, data_seg),
+            AnyCoreTEXT::FCS3_2(x) => x.as_data_parser(kws, conf, data_seg),
+        }
+    }
+
     pub fn print_meas_table(&self, delim: &str) {
         match self {
             AnyCoreTEXT::FCS2_0(x) => x.print_meas_table(delim),
@@ -2707,7 +3220,7 @@ impl Serialize for AnyCoreTEXT {
     }
 }
 
-impl<M: VersionedMetadata> CoreTEXT<M, M::P> {
+impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
     fn get_shortnames(&self) -> Vec<&str> {
         self.measurements
             .iter()
@@ -2768,7 +3281,35 @@ impl<M: VersionedMetadata> CoreTEXT<M, M::P> {
         }
     }
 
-    fn from_raw(kws: RawKeywords, conf: &StdTextReader) -> PureResult<(Self, RawKeywords)> {
+    fn as_data_parser<'a>(
+        &self,
+        kws: &mut RawKeywords,
+        conf: &'a StdTextReader,
+        data_seg: &Segment,
+    ) -> PureResult<DataParser> {
+        let mut st = KwState::from(kws, conf);
+        let maybe_md = <M as VersionedParserMetadata>::as_minimal(&self.metadata, &mut st);
+        if let Some(metadata) = maybe_md {
+            let measurements: Vec<_> = self
+                .measurements
+                .iter()
+                .map(<M::P as VersionedParserMeasurement>::as_minimal)
+                .collect();
+            let deferred = st.collect();
+            let it = ParserTEXT {
+                measurements,
+                metadata,
+                conf,
+                data_seg: *data_seg,
+            };
+            M::build_data_parser(&it).into_result("could not build data parser".to_string())
+        } else {
+            // TODO whatever this means... :/
+            Err(st.into_failure("could not convert to minimal metadata".to_string()))
+        }
+    }
+
+    fn from_raw(kws: &mut RawKeywords, conf: &StdTextReader) -> PureResult<Self> {
         let mut st = KwState::from(kws, conf);
         if let Some(par) = st.lookup_par() {
             let ms = M::P::lookup_measurements(&mut st, par);
@@ -2776,40 +3317,25 @@ impl<M: VersionedMetadata> CoreTEXT<M, M::P> {
             if let (Some(measurements), Some(metadata)) = (ms, md) {
                 // TODO add errors if desired informing user that these were
                 // found
-                let (deferred, deviant_keywords) = st.collect();
+                let deferred = st.collect();
                 Ok(PureSuccess {
-                    data: (
-                        CoreTEXT {
-                            metadata,
-                            measurements,
-                        },
-                        deviant_keywords,
-                    ),
+                    data: (CoreTEXT {
+                        metadata,
+                        measurements,
+                    }),
                     deferred,
                 })
             } else {
-                Err(st.into_errors("could not standardize TEXT".to_string()))
+                Err(st.into_failure("could not standardize TEXT".to_string()))
             }
         } else {
-            Err(st.into_errors("could not find $PAR".to_string()))
+            Err(st.into_failure("could not find $PAR".to_string()))
         }
     }
 
-    fn any_from_raw(
-        kws: RawKeywords,
-        conf: &StdTextReader,
-    ) -> PureResult<(AnyCoreTEXT, RawKeywords)> {
-        Self::from_raw(kws, conf)
-            .map(|succ| succ.map(|(core, deviant)| (M::into_any(core), deviant)))
+    fn any_from_raw(kws: &mut RawKeywords, conf: &StdTextReader) -> PureResult<AnyCoreTEXT> {
+        Self::from_raw(kws, conf).map(|succ| succ.map(M::into_any))
     }
-}
-
-struct IntermediateTEXT<'a, M, P> {
-    par: usize,
-    data_seg: Segment,
-    metadata: MinMetadata<M>,
-    measurements: Vec<MinimalMeasurement<P>>,
-    conf: &'a StdTextReader,
 }
 
 macro_rules! match_many_to_one {
@@ -2833,38 +3359,6 @@ impl Series {
         match_many_to_one!(self, Series, [F32, F64, U8, U16, U32, U64], x, {
             format!("{}", x[r])
         })
-    }
-}
-
-pub trait IntMath: Sized {
-    fn next_power_2(x: Self) -> Self;
-}
-
-pub trait NumProps<const DTLEN: usize>: Sized + Copy {
-    fn zero() -> Self;
-
-    fn from_big(buf: [u8; DTLEN]) -> Self;
-
-    fn from_little(buf: [u8; DTLEN]) -> Self;
-
-    fn read_from_big<R: Read + Seek>(h: &mut BufReader<R>) -> io::Result<Self> {
-        let mut buf = [0; DTLEN];
-        h.read_exact(&mut buf)?;
-        Ok(Self::from_big(buf))
-    }
-
-    fn read_from_little<R: Read + Seek>(h: &mut BufReader<R>) -> io::Result<Self> {
-        let mut buf = [0; DTLEN];
-        h.read_exact(&mut buf)?;
-        Ok(Self::from_little(buf))
-    }
-
-    fn read_from_endian<R: Read + Seek>(h: &mut BufReader<R>, endian: Endian) -> io::Result<Self> {
-        if endian == Endian::Big {
-            Self::read_from_big(h)
-        } else {
-            Self::read_from_little(h)
-        }
     }
 }
 
@@ -2914,18 +3408,6 @@ impl_int_math!(u16);
 impl_int_math!(u32);
 impl_int_math!(u64);
 
-trait OrderedFromBytes<const DTLEN: usize, const OLEN: usize>: NumProps<DTLEN> {
-    fn read_from_ordered<R: Read>(h: &mut BufReader<R>, order: &[u8; OLEN]) -> io::Result<Self> {
-        let mut tmp = [0; OLEN];
-        let mut buf = [0; DTLEN];
-        h.read_exact(&mut tmp)?;
-        for (i, j) in order.iter().enumerate() {
-            buf[usize::from(*j)] = tmp[i];
-        }
-        Ok(Self::from_little(buf))
-    }
-}
-
 // TODO where to put this?
 fn byteord_to_sized<const LEN: usize>(byteord: &ByteOrd) -> Result<SizedByteOrd<LEN>, String> {
     match byteord {
@@ -2937,168 +3419,6 @@ fn byteord_to_sized<const LEN: usize>(byteord: &ByteOrd) -> Result<SizedByteOrd<
                 "$BYTEORD is mixed but length is {} and not {LEN}",
                 v.len()
             ))),
-    }
-}
-
-trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
-    NumProps<DTLEN> + OrderedFromBytes<DTLEN, INTLEN> + Ord + IntMath + TryFrom<u64>
-{
-    fn byteord_to_sized(byteord: &ByteOrd) -> Result<SizedByteOrd<INTLEN>, String> {
-        byteord_to_sized(byteord)
-    }
-
-    fn range_to_bitmask(range: &Range) -> Result<Self, String> {
-        match range {
-            Range::Float(_) => Err("$PnR is float for an integer column".to_string()),
-            // TODO will this error ever happen?
-            Range::Int(i) => Self::try_from(*i)
-                .map(Self::next_power_2)
-                .map_err(|_| "$PnR could not be converted to {INTLEN} bytes".to_string()),
-        }
-    }
-
-    fn to_col_parser(
-        range: &Range,
-        byteord: &ByteOrd,
-        total_events: usize,
-    ) -> Result<IntColumnParser<Self, INTLEN>, Vec<String>> {
-        // TODO be more specific, which means we need the measurement index
-        let b = Self::range_to_bitmask(range);
-        let s = Self::byteord_to_sized(byteord);
-        let data = vec![Self::zero(); total_events];
-        match (b, s) {
-            (Ok(bitmask), Ok(size)) => Ok(IntColumnParser {
-                bitmask,
-                size,
-                data,
-            }),
-            (Err(x), Err(y)) => Err(vec![x, y]),
-            (Err(x), _) => Err(vec![x]),
-            (_, Err(y)) => Err(vec![y]),
-        }
-    }
-
-    fn read_int_masked<R: Read>(
-        h: &mut BufReader<R>,
-        byteord: &SizedByteOrd<INTLEN>,
-        bitmask: Self,
-    ) -> io::Result<Self> {
-        Self::read_int(h, byteord).map(|x| x.min(bitmask))
-    }
-
-    fn read_int<R: Read>(h: &mut BufReader<R>, byteord: &SizedByteOrd<INTLEN>) -> io::Result<Self> {
-        // This lovely code will read data that is not a power-of-two
-        // bytes long. Start by reading n bytes into a vector, which can
-        // take a varying size. Then copy this into the power of 2 buffer
-        // and reset all the unused cells to 0. This copy has to go to one
-        // or the other end of the buffer depending on endianness.
-        //
-        // ASSUME for u8 and u16 that these will get heavily optimized away
-        // since 'order' is totally meaningless for u8 and the only two possible
-        // 'orders' for u16 are big and little.
-        let mut tmp = [0; INTLEN];
-        let mut buf = [0; DTLEN];
-        match byteord {
-            SizedByteOrd::Endian(Endian::Big) => {
-                let b = DTLEN - INTLEN;
-                h.read_exact(&mut tmp)?;
-                buf[b..].copy_from_slice(&tmp[b..]);
-                Ok(Self::from_big(buf))
-            }
-            SizedByteOrd::Endian(Endian::Little) => {
-                h.read_exact(&mut tmp)?;
-                buf[..INTLEN].copy_from_slice(&tmp[..INTLEN]);
-                Ok(Self::from_little(buf))
-            }
-            SizedByteOrd::Order(order) => Self::read_from_ordered(h, order),
-        }
-    }
-
-    fn assign<R: Read>(
-        h: &mut BufReader<R>,
-        d: &mut IntColumnParser<Self, INTLEN>,
-        row: usize,
-    ) -> io::Result<()> {
-        d.data[row] = Self::read_int_masked(h, &d.size, d.bitmask)?;
-        Ok(())
-    }
-}
-
-trait FloatFromBytes<const LEN: usize>: NumProps<LEN> + OrderedFromBytes<LEN, LEN> + Clone
-where
-    Vec<Self>: Into<Series>,
-{
-    fn to_float_byteord(byteord: &ByteOrd) -> Result<SizedByteOrd<LEN>, String> {
-        byteord_to_sized(byteord)
-    }
-
-    fn make_column_parser(endian: Endian, total_events: usize) -> FloatColumn<Self> {
-        FloatColumn {
-            data: vec![Self::zero(); total_events],
-            endian,
-        }
-    }
-
-    fn make_matrix_parser(
-        byteord: &ByteOrd,
-        par: usize,
-        total_events: usize,
-    ) -> Result<FloatParser<LEN>, String> {
-        Self::to_float_byteord(byteord).map(|byteord| FloatParser {
-            nrows: total_events,
-            ncols: par,
-            byteord,
-        })
-    }
-
-    fn read_float<R: Read>(h: &mut BufReader<R>, byteord: &SizedByteOrd<LEN>) -> io::Result<Self> {
-        let mut buf = [0; LEN];
-        match byteord {
-            SizedByteOrd::Endian(Endian::Big) => {
-                h.read_exact(&mut buf)?;
-                Ok(Self::from_big(buf))
-            }
-            SizedByteOrd::Endian(Endian::Little) => {
-                h.read_exact(&mut buf)?;
-                Ok(Self::from_little(buf))
-            }
-            SizedByteOrd::Order(order) => Self::read_from_ordered(h, order),
-        }
-    }
-
-    fn assign_column<R: Read>(
-        h: &mut BufReader<R>,
-        column: &mut FloatColumn<Self>,
-        row: usize,
-    ) -> io::Result<()> {
-        // TODO endian wrap thing seems unnecessary
-        column.data[row] = Self::read_float(h, &SizedByteOrd::Endian(column.endian))?;
-        Ok(())
-    }
-
-    fn assign_matrix<R: Read + Seek>(
-        h: &mut BufReader<R>,
-        d: &FloatParser<LEN>,
-        column: &mut [Self],
-        row: usize,
-    ) -> io::Result<()> {
-        column[row] = Self::read_float(h, &d.byteord)?;
-        Ok(())
-    }
-
-    fn parse_matrix<R: Read + Seek>(
-        h: &mut BufReader<R>,
-        p: FloatParser<LEN>,
-    ) -> io::Result<Vec<Series>> {
-        let mut columns: Vec<_> = iter::repeat_with(|| vec![Self::zero(); p.nrows])
-            .take(p.ncols)
-            .collect();
-        for r in 0..p.nrows {
-            for c in columns.iter_mut() {
-                Self::assign_matrix(h, &p, c, r)?;
-            }
-        }
-        Ok(columns.into_iter().map(Vec::<Self>::into).collect())
     }
 }
 
@@ -3171,37 +3491,37 @@ struct DataParser {
     begin: u64,
 }
 
-fn format_parsed_data(res: &FCSSuccess, delim: &str) -> Vec<String> {
-    let shortnames = match &res.std {
-        AnyCoreTEXT::FCS2_0(x) => x.get_shortnames(),
-        AnyCoreTEXT::FCS3_0(x) => x.get_shortnames(),
-        AnyCoreTEXT::FCS3_1(x) => x.get_shortnames(),
-        AnyCoreTEXT::FCS3_2(x) => x.get_shortnames(),
-    };
-    if res.data.is_empty() {
-        return vec![];
-    }
-    let mut buf = vec![];
-    let mut lines = vec![];
-    let nrows = res.data[0].len();
-    let ncols = res.data.len();
-    // ASSUME names is the same length as columns
-    lines.push(shortnames.join(delim));
-    for r in 0..nrows {
-        buf.clear();
-        for c in 0..ncols {
-            buf.push(res.data[c].format(r));
-        }
-        lines.push(buf.join(delim));
-    }
-    lines
-}
+// fn format_parsed_data(res: &FCSSuccess, delim: &str) -> Vec<String> {
+//     let shortnames = match &res.std {
+//         AnyCoreTEXT::FCS2_0(x) => x.get_shortnames(),
+//         AnyCoreTEXT::FCS3_0(x) => x.get_shortnames(),
+//         AnyCoreTEXT::FCS3_1(x) => x.get_shortnames(),
+//         AnyCoreTEXT::FCS3_2(x) => x.get_shortnames(),
+//     };
+//     if res.data.is_empty() {
+//         return vec![];
+//     }
+//     let mut buf = vec![];
+//     let mut lines = vec![];
+//     let nrows = res.data[0].len();
+//     let ncols = res.data.len();
+//     // ASSUME names is the same length as columns
+//     lines.push(shortnames.join(delim));
+//     for r in 0..nrows {
+//         buf.clear();
+//         for c in 0..ncols {
+//             buf.push(res.data[c].format(r));
+//         }
+//         lines.push(buf.join(delim));
+//     }
+//     lines
+// }
 
-pub fn print_parsed_data(res: &FCSSuccess, delim: &str) {
-    for x in format_parsed_data(res, delim) {
-        println!("{}", x);
-    }
-}
+// pub fn print_parsed_data(res: &FCSSuccess, delim: &str) {
+//     for x in format_parsed_data(res, delim) {
+//         println!("{}", x);
+//     }
+// }
 
 fn ascii_to_float_io(buf: Vec<u8>) -> io::Result<f64> {
     String::from_utf8(buf)
@@ -3443,274 +3763,36 @@ fn make_data_offset_keywords(other_textlen: usize, datalen: usize) -> [MaybeKeyw
     ]
 }
 
-trait VersionedMetadata: Sized {
-    type P: VersionedMeasurement;
-
-    fn into_any(s: CoreTEXT<Self, Self::P>) -> AnyCoreTEXT;
-
-    fn get_byteord(&self) -> ByteOrd;
-
-    fn event_width(ms: &[MinimalMeasurement<Self::P>]) -> EventWidth {
-        let (fixed, variable_indices): (Vec<_>, Vec<_>) = ms
-            .iter()
-            .enumerate()
-            .map(|(i, p)| match p.bytes {
-                Bytes::Fixed(b) => Ok((i, b)),
-                Bytes::Variable => Err(i),
-            })
-            .partition_result();
-        let (fixed_indices, fixed_bytes): (Vec<_>, Vec<_>) = fixed.into_iter().unzip();
-        if variable_indices.is_empty() {
-            EventWidth::Finite(fixed_bytes)
-        } else if fixed_indices.is_empty() {
-            EventWidth::Variable
-        } else {
-            EventWidth::Error(fixed_indices, variable_indices)
-        }
-    }
-
-    fn total_events(it: &IntermediateTEXT<Self, Self::P>, event_width: u32) -> PureSuccess<usize> {
-        let def = PureErrorBuf::new();
-        let nbytes = it.data_seg.nbytes();
-        let remainder = nbytes % event_width;
-        let total_events = nbytes / event_width;
-        if nbytes % event_width > 0 {
-            let msg = format!(
-                "Events are {event_width} bytes wide, but this does not evenly \
-                 divide DATA segment which is {nbytes} bytes long \
-                 (remainder of {remainder})"
-            );
-            def.push_msg_leveled(msg, it.conf.raw.enfore_data_width_divisibility)
-        }
-        if let Some(tot) = it.metadata.specific.get_tot() {
-            if total_events != tot {
-                let msg = format!(
-                    "$TOT field is {tot} but number of events \
-                         that evenly fit into DATA is {total_events}"
-                );
-                def.push_msg_leveled(msg, it.conf.raw.enfore_matching_tot);
-            }
-        }
-        // TODO fix cast
-        PureSuccess {
-            data: total_events as usize,
-            deferred: def,
-        }
-    }
-
-    fn build_int_parser(
-        &self,
-        ps: &[MinimalMeasurement<Self::P>],
-        total_events: usize,
-    ) -> PureMaybe<IntParser>;
-
-    fn build_mixed_parser(
-        &self,
-        ps: &[MinimalMeasurement<Self::P>],
-        dt: &AlphaNumType,
-        total_events: usize,
-    ) -> Option<PureMaybe<MixedParser>>;
-
-    fn build_float_parser(
-        &self,
-        is_double: bool,
-        par: usize,
-        total_events: usize,
-        ps: &[MinimalMeasurement<Self::P>],
-    ) -> PureMaybe<ColumnParser> {
-        let (bytes, dt) = if is_double { (8, "D") } else { (4, "F") };
-        let remainder: Vec<_> = ps.iter().filter(|p| p.bytes_eq(bytes)).collect();
-        if remainder.is_empty() {
-            let byteord = &self.get_byteord();
-            let res = if is_double {
-                f64::make_matrix_parser(byteord, par, total_events).map(ColumnParser::Double)
-            } else {
-                f32::make_matrix_parser(byteord, par, total_events).map(ColumnParser::Single)
-            };
-            PureSuccess::from_result(res.map_err(|e| PureErrorBuf::from(e, PureErrorLevel::Error)))
-        } else {
-            let mut res = PureSuccess::from(None);
-            for e in remainder.iter().enumerate().map(|(i, p)| {
-                format!(
-                    "Measurment {} uses {} bytes but DATATYPE={}",
-                    i, p.bytes, dt
-                )
-            }) {
-                res.push_error(e);
-            }
-            res
-        }
-    }
-
-    fn build_fixed_width_parser(
-        it: &IntermediateTEXT<Self, Self::P>,
-        total_events: usize,
-        measurement_widths: Vec<u8>,
-    ) -> PureMaybe<ColumnParser> {
-        let par = it.par;
-        let ps = &it.measurements;
-        let dt = &it.metadata.datatype;
-        let specific = &it.metadata.specific;
-        if let Some(mixed) = Self::build_mixed_parser(specific, ps, dt, total_events) {
-            mixed.map(|c| c.map(ColumnParser::Mixed))
-        } else {
-            match dt {
-                AlphaNumType::Single => specific.build_float_parser(false, par, total_events, ps),
-                AlphaNumType::Double => specific.build_float_parser(true, par, total_events, ps),
-                AlphaNumType::Integer => specific
-                    .build_int_parser(ps, total_events)
-                    .map(|c| c.map(ColumnParser::Int)),
-                AlphaNumType::Ascii => {
-                    PureSuccess::from(Some(ColumnParser::FixedWidthAscii(FixedAsciiParser {
-                        columns: measurement_widths,
-                        nrows: total_events,
-                    })))
-                }
-            }
-        }
-    }
-
-    fn build_delim_ascii_parser(
-        it: &IntermediateTEXT<Self, Self::P>,
-        tot: Option<usize>,
-    ) -> ColumnParser {
-        let nbytes = it.data_seg.num_bytes();
-        ColumnParser::DelimitedAscii(DelimAsciiParser {
-            ncols: it.par,
-            nrows: tot,
-            nbytes: nbytes as usize,
+fn event_width<X>(ms: &[ParserMeasurement<X>]) -> EventWidth {
+    let (fixed, variable_indices): (Vec<_>, Vec<_>) = ms
+        .iter()
+        .enumerate()
+        .map(|(i, p)| match p.bytes {
+            Bytes::Fixed(b) => Ok((i, b)),
+            Bytes::Variable => Err(i),
         })
-    }
-
-    fn build_column_parser(it: &IntermediateTEXT<Self, Self::P>) -> PureMaybe<ColumnParser> {
-        // In order to make a data parser, the $DATATYPE, $BYTEORD, $PnB, and
-        // $PnDATATYPE (if present) all need to be a specific relationship to
-        // each other, each of which corresponds to the options below.
-        let mut res = match (Self::event_width(&it.measurements), it.metadata.datatype) {
-            // Numeric/Ascii (fixed width)
-            (EventWidth::Finite(measurement_widths), _) => {
-                let event_width = measurement_widths.iter().map(|x| u32::from(*x)).sum();
-                Self::total_events(it, event_width).and_then(|total_events| {
-                    Self::build_fixed_width_parser(it, total_events, measurement_widths)
-                })
-            }
-            // Ascii (variable width)
-            (EventWidth::Variable, AlphaNumType::Ascii) => {
-                let tot = it.metadata.specific.get_tot();
-                PureSuccess::from(Some(Self::build_delim_ascii_parser(
-                    it,
-                    tot.map(|x| x as usize),
-                )))
-            }
-            // nonsense...scream at user
-            (EventWidth::Error(fixed, variable), _) => {
-                let mut r = PureSuccess::from(None);
-                r.push_error("$PnBs are a mix of numeric and variable".to_string());
-                for f in fixed {
-                    r.push_error(format!("$PnB for measurement {f} is numeric"));
-                }
-                for v in variable {
-                    r.push_error(format!("$PnB for measurement {v} is variable"));
-                }
-                r
-            }
-            (EventWidth::Variable, dt) => {
-                let mut r = PureSuccess::from(None);
-                r.push_error(format!("$DATATYPE is {dt} but all $PnB are '*'"));
-                r
-            }
-        };
-        if it.metadata.datatype == AlphaNumType::Ascii && Self::P::fcs_version() >= Version::FCS3_1
-        {
-            res.push_error("$DATATYPE=A has been deprecated since FCS 3.1".to_string());
-        }
-        res
-    }
-
-    fn build_data_parser(it: &IntermediateTEXT<Self, Self::P>) -> PureMaybe<DataParser> {
-        Self::build_column_parser(it).map(|c| {
-            c.map(|column_parser| DataParser {
-                column_parser,
-                begin: u64::from(it.data_seg.begin),
-            })
-        })
-    }
-
-    fn lookup_specific(st: &mut KwState, par: usize, names: &HashSet<&str>) -> Option<Self>;
-
-    fn lookup_metadata(st: &mut KwState, ms: &[Measurement<Self::P>]) -> Option<Metadata<Self>> {
-        let names: HashSet<_> = ms
-            .iter()
-            .filter_map(|m| Self::P::measurement_name(m))
-            .collect();
-        let par = ms.len();
-        let maybe_datatype = st.lookup_datatype();
-        let maybe_specific = Self::lookup_specific(st, par, &names);
-        if let (Some(datatype), Some(specific)) = (maybe_datatype, maybe_specific) {
-            Some(Metadata {
-                datatype,
-                abrt: st.lookup_abrt(),
-                com: st.lookup_com(),
-                cells: st.lookup_cells(),
-                exp: st.lookup_exp(),
-                fil: st.lookup_fil(),
-                inst: st.lookup_inst(),
-                lost: st.lookup_lost(),
-                op: st.lookup_op(),
-                proj: st.lookup_proj(),
-                smno: st.lookup_smno(),
-                src: st.lookup_src(),
-                sys: st.lookup_sys(),
-                tr: st.lookup_trigger_checked(&names),
-                nonstandard_keywords: st.lookup_nonstandard(),
-                specific,
-            })
-        } else {
-            None
-        }
-    }
-
-    fn keywords_inner(&self, other_textlen: usize, data_len: usize) -> MaybeKeywords;
-
-    fn keywords(m: &Metadata<Self>, par: usize, tot: usize, len: KwLengths) -> MaybeKeywords {
-        let fixed = [
-            (PAR, Some(par.to_string())),
-            (TOT, Some(tot.to_string())),
-            (NEXTDATA, Some("0".to_string())),
-            (DATATYPE, Some(m.datatype.to_string())),
-            (ABRT, m.abrt.as_opt_string()),
-            (COM, m.com.as_opt_string()),
-            (CELLS, m.cells.as_opt_string()),
-            (EXP, m.exp.as_opt_string()),
-            (FIL, m.fil.as_opt_string()),
-            (INST, m.inst.as_opt_string()),
-            (LOST, m.lost.as_opt_string()),
-            (OP, m.op.as_opt_string()),
-            (PROJ, m.proj.as_opt_string()),
-            (SMNO, m.smno.as_opt_string()),
-            (SRC, m.src.as_opt_string()),
-            (SYS, m.sys.as_opt_string()),
-            (TR, m.tr.as_opt_string()),
-        ];
-        let fixed_len = sum_keywords(&fixed) + len.measurements;
-        fixed
-            .into_iter()
-            .chain(m.specific.keywords_inner(fixed_len, len.data))
-            .collect()
+        .partition_result();
+    let (fixed_indices, fixed_bytes): (Vec<_>, Vec<_>) = fixed.into_iter().unzip();
+    if variable_indices.is_empty() {
+        EventWidth::Finite(fixed_bytes)
+    } else if fixed_indices.is_empty() {
+        EventWidth::Variable
+    } else {
+        EventWidth::Error(fixed_indices, variable_indices)
     }
 }
 
-fn build_int_parser_2_0<P: VersionedMeasurement>(
+fn build_int_parser_2_0<P>(
     byteord: &ByteOrd,
-    ps: &[MinimalMeasurement<P>],
+    ps: &[ParserMeasurement<P>],
     total_events: usize,
 ) -> PureMaybe<IntParser> {
     let nbytes = byteord.num_bytes();
-    let remainder: Vec<_> = ps.iter().filter(|p| !p.bytes_eq(nbytes)).collect();
+    let remainder: Vec<_> = ps.iter().filter(|p| !p.bytes.eq(nbytes)).collect();
     if remainder.is_empty() {
         let (columns, fail): (Vec<_>, Vec<_>) = ps
             .iter()
-            .map(|p| p.make_int_parser(byteord, total_events))
+            .map(|p| p.bytes.make_int_parser(&p.range, byteord, total_events))
             .partition_result();
         let errors: Vec<_> = fail.into_iter().flatten().collect();
         if errors.is_empty() {
@@ -3740,6 +3822,111 @@ fn build_int_parser_2_0<P: VersionedMeasurement>(
     }
 }
 
+impl VersionedParserMeasurement for InnerMeasurement2_0 {
+    type Target = ();
+
+    fn as_minimal_inner(_: &Measurement<Self>) {}
+}
+
+impl VersionedParserMeasurement for InnerMeasurement3_0 {
+    type Target = ();
+
+    fn as_minimal_inner(_: &Measurement<Self>) {}
+}
+
+impl VersionedParserMeasurement for InnerMeasurement3_1 {
+    type Target = ();
+
+    fn as_minimal_inner(_: &Measurement<Self>) {}
+}
+
+impl VersionedParserMeasurement for InnerMeasurement3_2 {
+    type Target = InnerParserMeasurement3_2;
+
+    fn as_minimal_inner(m: &Measurement<Self>) -> InnerParserMeasurement3_2 {
+        InnerParserMeasurement3_2 {
+            // TODO lame
+            datatype: OptionalKw::from_option(m.specific.datatype.as_ref().into_option().copied()),
+        }
+    }
+}
+
+impl VersionedParserMetadata for InnerMetadata2_0 {
+    type Target = InnerParserMetadata2_0;
+
+    fn get_byteord(t: &Self::Target) -> ByteOrd {
+        t.byteord.clone()
+    }
+
+    fn get_tot(t: &Self::Target) -> Option<u32> {
+        t.tot.as_ref().into_option().copied()
+    }
+
+    fn as_minimal_inner(&self, st: &mut KwState) -> Option<InnerParserMetadata2_0> {
+        Some(InnerParserMetadata2_0 {
+            byteord: self.byteord.clone(),
+            tot: st.lookup_tot_opt(),
+        })
+    }
+}
+
+impl VersionedParserMetadata for InnerMetadata3_0 {
+    type Target = InnerParserMetadata3_0;
+
+    fn get_byteord(t: &Self::Target) -> ByteOrd {
+        t.byteord.clone()
+    }
+
+    fn get_tot(t: &Self::Target) -> Option<u32> {
+        Some(t.tot)
+    }
+
+    fn as_minimal_inner(&self, st: &mut KwState) -> Option<InnerParserMetadata3_0> {
+        st.lookup_tot_req().map(|tot| InnerParserMetadata3_0 {
+            byteord: self.byteord.clone(),
+            tot,
+        })
+    }
+}
+
+impl VersionedParserMetadata for InnerMetadata3_1 {
+    type Target = InnerParserMetadata3_1;
+
+    fn get_byteord(t: &Self::Target) -> ByteOrd {
+        ByteOrd::Endian(t.byteord)
+    }
+
+    fn get_tot(t: &Self::Target) -> Option<u32> {
+        Some(t.tot)
+    }
+
+    fn as_minimal_inner(&self, st: &mut KwState) -> Option<InnerParserMetadata3_1> {
+        st.lookup_tot_req().map(|tot| InnerParserMetadata3_1 {
+            byteord: self.byteord.clone(),
+            tot,
+        })
+    }
+}
+
+impl VersionedParserMetadata for InnerMetadata3_2 {
+    type Target = InnerParserMetadata3_1;
+
+    fn get_byteord(t: &Self::Target) -> ByteOrd {
+        ByteOrd::Endian(t.byteord)
+    }
+
+    fn get_tot(t: &Self::Target) -> Option<u32> {
+        Some(t.tot)
+    }
+
+    fn as_minimal_inner(&self, st: &mut KwState) -> Option<InnerParserMetadata3_1> {
+        st.lookup_tot_req().map(|tot| InnerParserMetadata3_1 {
+            byteord: self.byteord.clone(),
+            tot,
+        })
+    }
+}
+
 impl VersionedMetadata for InnerMetadata2_0 {
     type P = InnerMeasurement2_0;
 
@@ -3747,25 +3934,17 @@ impl VersionedMetadata for InnerMetadata2_0 {
         AnyCoreTEXT::FCS2_0(Box::new(t))
     }
 
-    // fn get_data_offsets(s: &StdText<Self, Self::P, Self::R>) -> Offsets {
-    //     s.data_offsets
-    // }
-
-    fn get_byteord(&self) -> ByteOrd {
-        self.byteord.clone()
-    }
-
     fn build_int_parser(
-        &self,
-        ps: &[MinimalMeasurement<Self::P>],
+        md: &InnerParserMetadata2_0,
+        ps: &[ParserMeasurement<()>],
         total_events: usize,
     ) -> PureMaybe<IntParser> {
-        build_int_parser_2_0(&self.byteord, ps, total_events)
+        build_int_parser_2_0(&md.byteord, ps, total_events)
     }
 
     fn build_mixed_parser(
-        &self,
-        _: &[MinimalMeasurement<Self::P>],
+        _: &InnerParserMetadata2_0,
+        _: &[ParserMeasurement<()>],
         _: &AlphaNumType,
         _: usize,
     ) -> Option<PureMaybe<MixedParser>> {
@@ -3814,21 +3993,17 @@ impl VersionedMetadata for InnerMetadata3_0 {
         AnyCoreTEXT::FCS3_0(Box::new(t))
     }
 
-    fn get_byteord(&self) -> ByteOrd {
-        self.byteord.clone()
-    }
-
     fn build_int_parser(
-        &self,
-        ps: &[MinimalMeasurement<Self::P>],
+        md: &InnerParserMetadata3_0,
+        ps: &[ParserMeasurement<()>],
         total_events: usize,
     ) -> PureMaybe<IntParser> {
-        build_int_parser_2_0(&self.byteord, ps, total_events)
+        build_int_parser_2_0(&md.byteord, ps, total_events)
     }
 
     fn build_mixed_parser(
-        &self,
-        _: &[MinimalMeasurement<Self::P>],
+        _: &InnerParserMetadata3_0,
+        _: &[ParserMeasurement<()>],
         _: &AlphaNumType,
         _: usize,
     ) -> Option<PureMaybe<MixedParser>> {
@@ -3893,21 +4068,17 @@ impl VersionedMetadata for InnerMetadata3_1 {
         AnyCoreTEXT::FCS3_1(Box::new(t))
     }
 
-    fn get_byteord(&self) -> ByteOrd {
-        ByteOrd::Endian(self.byteord)
-    }
-
     fn build_int_parser(
-        &self,
-        ps: &[MinimalMeasurement<Self::P>],
+        it: &InnerParserMetadata3_1,
+        ps: &[ParserMeasurement<()>],
         total_events: usize,
     ) -> PureMaybe<IntParser> {
-        build_int_parser_2_0(&ByteOrd::Endian(self.byteord), ps, total_events)
+        build_int_parser_2_0(&ByteOrd::Endian(it.byteord), ps, total_events)
     }
 
     fn build_mixed_parser(
-        &self,
-        _: &[MinimalMeasurement<Self::P>],
+        _: &InnerParserMetadata3_1,
+        _: &[ParserMeasurement<()>],
         _: &AlphaNumType,
         _: usize,
     ) -> Option<PureMaybe<MixedParser>> {
@@ -3986,25 +4157,22 @@ impl VersionedMetadata for InnerMetadata3_2 {
         AnyCoreTEXT::FCS3_2(Box::new(t))
     }
 
-    fn get_byteord(&self) -> ByteOrd {
-        ByteOrd::Endian(self.byteord)
-    }
-
+    // TODO how did this happen? all are 2.0
     fn build_int_parser(
-        &self,
-        ps: &[MinimalMeasurement<Self::P>],
+        it: &InnerParserMetadata3_1,
+        ps: &[ParserMeasurement<InnerParserMeasurement3_2>],
         total_events: usize,
     ) -> PureMaybe<IntParser> {
-        build_int_parser_2_0(&ByteOrd::Endian(self.byteord), ps, total_events)
+        build_int_parser_2_0(&ByteOrd::Endian(it.byteord), ps, total_events)
     }
 
     fn build_mixed_parser(
-        &self,
-        ps: &[MinimalMeasurement<Self::P>],
+        it: &InnerParserMetadata3_1,
+        ps: &[ParserMeasurement<InnerParserMeasurement3_2>],
         dt: &AlphaNumType,
         total_events: usize,
     ) -> Option<PureMaybe<MixedParser>> {
-        let endian = self.byteord;
+        let endian = it.byteord;
         // first test if we have any PnDATATYPEs defined, if no then skip this
         // data parser entirely
         if ps
@@ -4021,7 +4189,14 @@ impl VersionedMetadata for InnerMetadata3_2 {
             .map(|(i, p)| {
                 // TODO this range thing seems not necessary
                 match (
-                    p.specific.get_column_type(*dt),
+                    // TODO lame...
+                    p.specific
+                        .datatype
+                        .as_ref()
+                        .into_option()
+                        .copied()
+                        .map(|x| x.into())
+                        .unwrap_or(*dt),
                     p.specific.datatype.as_ref().into_option().is_some(),
                     p.range,
                     &p.bytes,
@@ -4039,7 +4214,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
                         f64::make_column_parser(endian, total_events),
                     )),
                     (AlphaNumType::Integer, _, r, Bytes::Fixed(bytes)) => {
-                        make_int_parser(*bytes, &r, &ByteOrd::Endian(self.byteord), total_events)
+                        make_int_parser(*bytes, &r, &ByteOrd::Endian(it.byteord), total_events)
                             .map(MixedColumnType::Uint)
                     }
                     (dt, overridden, _, bytes) => {
@@ -4147,9 +4322,9 @@ impl VersionedMetadata for InnerMetadata3_2 {
 
 fn parse_raw_text(
     version: Version,
-    kws: RawKeywords,
+    kws: &mut RawKeywords,
     conf: &StdTextReader,
-) -> PureResult<(AnyCoreTEXT, RawKeywords)> {
+) -> PureResult<AnyCoreTEXT> {
     match version {
         Version::FCS2_0 => CoreText2_0::any_from_raw(kws, conf),
         Version::FCS3_0 => CoreText3_0::any_from_raw(kws, conf),
@@ -4178,87 +4353,11 @@ struct KwValue {
 
 // all hail the almighty state monad :D
 
-struct KwState<'a> {
-    raw_keywords: HashMap<String, KwValue>,
+struct KwState<'a, 'b> {
+    raw_keywords: &'b mut RawKeywords,
     deferred: PureErrorBuf,
     conf: &'a StdTextReader,
 }
-
-// struct DataParserState<'a> {
-//     deferred: PureErrorBuf,
-//     // std_errors: StdTEXTErrors,
-//     conf: &'a StdTextReader,
-// }
-
-// #[derive(Debug, Clone)]
-// pub struct StdTEXTErrors {
-//     /// Required keywords that are missing
-//     missing_keywords: Vec<StdKey>,
-
-//     /// Errors that pertain to one keyword value
-//     keyword_errors: Vec<KeyError>,
-
-//     /// Errors involving multiple keywords, like PnB not matching DATATYPE
-//     meta_errors: Vec<String>,
-
-//     /// Nonstandard keys starting with "$". Error status depends on configuration.
-//     deviant_keywords: StdKeywords,
-
-//     /// Nonstandard keys. Error status depends on configuration.
-//     nonstandard_keywords: NonStdKeywords,
-
-//     /// Keywords that are deprecated. Error status depends on configuration.
-//     deprecated_keys: Vec<StdKey>,
-
-//     /// Features that are deprecated. Error status depends on configuration.
-//     deprecated_features: Vec<String>,
-
-//     /// Non-keyword warnings. Error status depends on configuration.
-//     meta_warnings: Vec<String>,
-
-//     /// Keyword warnings. Error status depends on configuration.
-//     keyword_warnings: Vec<KeyWarning>,
-// }
-
-// impl StdTEXTErrors {
-//     fn prune_errors(&mut self, conf: &StdTextReader) {
-//         if !conf.disallow_deviant {
-//             self.deviant_keywords.clear();
-//         };
-//         if !conf.disallow_nonstandard {
-//             self.nonstandard_keywords.clear();
-//         }
-//         if !conf.disallow_deprecated {
-//             self.deprecated_keys.clear();
-//             self.deprecated_features.clear();
-//         };
-//         if !conf.warnings_are_errors {
-//             self.meta_warnings.clear();
-//             self.keyword_warnings.clear();
-//         };
-//     }
-
-//     fn into_lines(self) -> Vec<String> {
-//         let ks = self
-//             .missing_keywords
-//             .into_iter()
-//             .map(|s| format!("Required keyword is missing: {}", s.0));
-//         let vs = self.keyword_errors.into_iter().map(|e| {
-//             format!(
-//                 "Could not get value for {}. Error was '{}'. Value was '{}'.",
-//                 e.key.0, e.msg, e.value
-//             )
-//         });
-//         // TODO add lots of other printing stuff here
-//         ks.chain(vs).chain(self.meta_errors).collect()
-//     }
-
-//     pub fn print(self) {
-//         for e in self.into_lines() {
-//             eprintln!("ERROR: {e}");
-//         }
-//     }
-// }
 
 #[derive(Debug, Clone)]
 struct KeyError {
@@ -4267,28 +4366,14 @@ struct KeyError {
     msg: String,
 }
 
-// #[derive(Debug, Clone, Serialize)]
-// struct KeyWarning {
-//     key: StdKey,
-//     value: String,
-//     msg: String,
-// }
+fn split_raw_keywords(kws: RawKeywords) -> (RawKeywords, RawKeywords) {
+    kws.into_iter().partition(|(k, _)| k.starts_with("$"))
+}
 
-impl<'a> KwState<'a> {
-    fn from(kws: RawKeywords, conf: &'a StdTextReader) -> Self {
+impl<'a, 'b> KwState<'a, 'b> {
+    fn from(kws: &'b mut RawKeywords, conf: &'a StdTextReader) -> Self {
         KwState {
-            raw_keywords: kws
-                .into_iter()
-                .map(|(key, value)| {
-                    (
-                        key,
-                        KwValue {
-                            value,
-                            status: ValueStatus::Raw,
-                        },
-                    )
-                })
-                .collect(),
+            raw_keywords: kws,
             deferred: PureErrorBuf::new(),
             conf,
         }
@@ -4299,37 +4384,27 @@ impl<'a> KwState<'a> {
     where
         <V as FromStr>::Err: fmt::Display,
     {
-        match self.raw_keywords.get_mut(k) {
-            Some(v) => match v.status {
-                ValueStatus::Raw => {
-                    let (s, r) = v.value.parse().map_or_else(
-                        |e| {
-                            (
-                                // TODO this will be awkward for keys with very
-                                // large values
-                                ValueStatus::Error(PureError {
-                                    msg: format!("{e} for key '{k}' with value '{}'", v.value),
-                                    level: PureErrorLevel::Error,
-                                }),
-                                None,
-                            )
-                        },
-                        |x| (ValueStatus::Used, Some(x)),
-                    );
-                    if dep {
-                        self.deferred.push_msg_leveled(
-                            format!("deprecated key: {k}"),
-                            self.conf.disallow_deprecated,
-                        );
+        match self.raw_keywords.remove(k) {
+            Some(v) => {
+                let res = match v.parse() {
+                    Err(e) => {
+                        let msg = format!("{e} for key '{k}' with value '{v}'");
+                        self.deferred.push_error(msg);
+                        None
                     }
-                    v.status = s;
-                    r
+                    Ok(x) => Some(x),
+                };
+                if dep {
+                    self.deferred.push_msg_leveled(
+                        format!("deprecated key: {k}"),
+                        self.conf.disallow_deprecated,
+                    );
                 }
-                _ => None,
-            },
+                res
+            }
             None => {
-                self.deferred
-                    .push_error(format!("missing required key: {k}"));
+                let msg = format!("missing required key: {k}");
+                self.deferred.push_error(msg);
                 None
             }
         }
@@ -4339,32 +4414,24 @@ impl<'a> KwState<'a> {
     where
         <V as FromStr>::Err: fmt::Display,
     {
-        match self.raw_keywords.get_mut(k) {
-            Some(v) => match v.status {
-                ValueStatus::Raw => {
-                    let (s, r) = v.value.parse().map_or_else(
-                        |w| {
-                            (
-                                ValueStatus::Error(PureError {
-                                    msg: format!("{}", w),
-                                    level: PureErrorLevel::Warning,
-                                }),
-                                Absent,
-                            )
-                        },
-                        |x| (ValueStatus::Used, OptionalKw::Present(x)),
-                    );
-                    if dep {
-                        self.deferred.push_msg_leveled(
-                            format!("deprecated key: {k}"),
-                            self.conf.disallow_deprecated,
-                        );
+        match self.raw_keywords.remove(k) {
+            Some(v) => {
+                let res = match v.parse() {
+                    Err(w) => {
+                        let msg = format!("{w} for key '{k}' with value '{v}'");
+                        self.deferred.push_warning(msg);
+                        Absent
                     }
-                    v.status = s;
-                    r
+                    Ok(x) => Present(x),
+                };
+                if dep {
+                    self.deferred.push_msg_leveled(
+                        format!("deprecated key: {k}"),
+                        self.conf.disallow_deprecated,
+                    );
                 }
-                _ => Absent,
-            },
+                res
+            }
             None => Absent,
         }
     }
@@ -4746,10 +4813,10 @@ impl<'a> KwState<'a> {
     fn lookup_nonstandard(&mut self) -> NonStdKeywords {
         let mut ns = HashMap::new();
         self.raw_keywords.retain(|k, v| {
-            if v.value.starts_with("$") && v.status == ValueStatus::Raw {
+            if v.starts_with("$") {
                 true
             } else {
-                ns.insert(NonStdKey(k.clone()), v.value.clone());
+                ns.insert(NonStdKey(k.clone()), v.clone());
                 false
             }
         });
@@ -4932,7 +4999,6 @@ impl<'a> KwState<'a> {
         self.lookup_meas_opt(FEATURE_SFX, n, false)
     }
 
-    /// Find nonstandard keys that are specific for a given measurement
     fn lookup_meas_nonstandard(&mut self, n: usize) -> NonStdKeywords {
         let mut ns = HashMap::new();
         // ASSUME the pattern does not start with "$" and has a %n which will be
@@ -4944,7 +5010,7 @@ impl<'a> KwState<'a> {
             if let Ok(pattern) = Regex::new(rep.as_str()) {
                 self.raw_keywords.retain(|k, v| {
                     if pattern.is_match(k.as_str()) {
-                        ns.insert(NonStdKey(k.clone()), v.value.clone());
+                        ns.insert(NonStdKey(k.clone()), v.clone());
                         false
                     } else {
                         true
@@ -4980,34 +5046,30 @@ impl<'a> KwState<'a> {
         self.deferred.push_msg_leveled(msg, is_error);
     }
 
-    fn collect(self) -> (PureErrorBuf, RawKeywords) {
-        let mut deviant_keywords = HashMap::new();
-        let mut deferred = PureErrorBuf::new();
-        for (key, v) in self.raw_keywords {
-            match v.status {
-                // ASSUME anything that is in this position at this point
-                // will start with "$" since we pulled out the nonstandard
-                // keywords when making the metadata.
-                ValueStatus::Raw => {
-                    deviant_keywords.insert(key, v.value);
-                }
-                ValueStatus::Error(err) => deferred.push(err),
-                ValueStatus::Used => (),
-            }
-        }
-        (deferred, deviant_keywords)
+    fn collect(self) -> PureErrorBuf {
+        self.deferred
     }
 
-    fn into_errors(self, reason: String) -> PureFailure {
-        let c = self.conf;
-        let (mut deferred, dev) = self.collect();
-        for k in dev.into_keys() {
-            deferred.push_msg_leveled(
-                format!("{} starts with '$' but is not standard", k),
-                c.disallow_deviant,
-            );
+    // fn collect(self) -> (PureErrorBuf, RawKeywords) {
+    //     let mut remainder = HashMap::new();
+    //     let mut deferred = PureErrorBuf::new();
+    //     for (key, v) in self.raw_keywords {
+    //         match v.status {
+    //             ValueStatus::Raw => {
+    //                 remainder.insert(key, v.value);
+    //             }
+    //             ValueStatus::Error(err) => deferred.push(err),
+    //             ValueStatus::Used => (),
+    //         }
+    //     }
+    //     (deferred, remainder)
+    // }
+
+    fn into_failure(self, reason: String) -> PureFailure {
+        Failure {
+            reason,
+            deferred: self.collect(),
         }
-        Failure { reason, deferred }
     }
 }
 
@@ -5072,125 +5134,6 @@ fn read_header<R: Read>(h: &mut BufReader<R>) -> io::Result<Header> {
     }
 }
 
-// #[derive(Debug, Clone, Serialize)]
-// struct StdText<M, P> {
-//     version: Version,
-//     core: CoreTEXT<M, P>,
-// }
-
-// #[derive(Debug, Clone, Serialize)]
-// pub struct RawTEXT {
-//     delimiter: u8,
-//     standard_keywords: StdKeywords,
-//     nonstandard_keywords: NonStdKeywords,
-//     warnings: Vec<String>,
-// }
-
-// impl RawTEXT {
-//     fn to_state<'a>(&self, conf: &'a StdTextReader) -> KwState<'a> {
-//         let mut raw_standard_keywords = HashMap::new();
-//         for (k, v) in self.keywords.iter() {
-//             raw_standard_keywords.insert(
-//                 k.clone(),
-//                 KwValue {
-//                     value: v.clone(),
-//                     status: ValueStatus::Raw,
-//                 },
-//             );
-//         }
-//         KwState {
-//             raw_keywords: raw_standard_keywords,
-//             deferred: PureErrorBuf::new(),
-//             conf,
-//         }
-//     }
-// }
-
-// pub struct FCSSuccess {
-//     pub header: Header,
-//     pub raw: RawTEXT,
-//     pub std: AnyStdTEXT,
-//     pub data: ParsedData,
-// }
-
-// /// Represents result which may fail but still have immediately usable data.
-// ///
-// /// Useful for situations where the program should try to compute as much as
-// /// possible before failing, which entails gather errors and carrying them
-// /// forward rather than exiting immediately as would be the case if the error
-// /// were wrapped in a Result<_, _>.
-// struct Tentative<X> {
-//     // ignorable: DeferredErrors,
-//     // unignorable: DeferredErrors,
-//     errors: AllDeferredErrors,
-//     data: X,
-// }
-
-// struct AllDeferredErrors {
-//     ignorable: DeferredErrors,
-//     unignorable: DeferredErrors,
-// }
-
-// impl AllDeferredErrors {
-//     fn new() -> AllDeferredErrors {
-//         AllDeferredErrors {
-//             ignorable: DeferredErrors::new(),
-//             unignorable: DeferredErrors::new(),
-//         }
-//     }
-
-//     fn from<E: Error + 'static>(e: E) -> AllDeferredErrors {
-//         let mut x = AllDeferredErrors::new();
-//         x.push_unignorable(e);
-//         x
-//     }
-
-//     fn push_ignorable<E: Error + 'static>(&mut self, e: E) {
-//         self.ignorable.0.push(Box::new(e))
-//     }
-
-//     fn push_unignorable<E: Error + 'static>(&mut self, e: E) {
-//         self.unignorable.0.push(Box::new(e))
-//     }
-
-//     fn extend_ignorable(&mut self, es: DeferredErrors) {
-//         self.ignorable.0.extend(es.0);
-//     }
-
-//     fn extend_unignorable(&mut self, es: DeferredErrors) {
-//         self.unignorable.0.extend(es.0);
-//     }
-
-//     fn extend(&mut self, es: AllDeferredErrors) {
-//         self.extend_unignorable(es.unignorable);
-//         self.extend_ignorable(es.ignorable);
-//     }
-// }
-
-// #[derive(Debug)]
-// struct DelimError {
-//     delimiter: u8,
-//     kind: DelimErrorKind,
-// }
-
-// impl fmt::Display for DelimError {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-//         let x = match self.kind {
-//             DelimErrorKind::NotAscii => "an ASCII character 1-126",
-//             DelimErrorKind::NotUTF8 => "a utf8 character",
-//         };
-//         write!(f, "Delimiter {} is not {}", self.delimiter, x)
-//     }
-// }
-
-// impl Error for DelimError {}
-
-// #[derive(Debug)]
-// enum DelimErrorKind {
-//     NotUTF8,
-//     NotAscii,
-// }
-
 fn verify_delim(xs: &[u8], conf: &RawTextReader) -> PureSuccess<u8> {
     // First character is the delimiter
     let delimiter: u8 = xs[0];
@@ -5215,21 +5158,6 @@ fn verify_delim(xs: &[u8], conf: &RawTextReader) -> PureSuccess<u8> {
     }
     res
 }
-
-// enum RawTextError {
-//     DelimAtBoundary,
-// }
-
-// #[derive(Debug)]
-// struct MsgError(String);
-
-// impl Error for MsgError {}
-
-// impl fmt::Display for MsgError {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-//         write!(f, "{}", self.0)
-//     }
-// }
 
 type RawPairs = Vec<(String, String)>;
 
@@ -5275,7 +5203,7 @@ fn split_raw_text(xs: &[u8], delim: u8, conf: &RawTextReader) -> PureSuccess<Raw
         for (key, chunk) in raw_boundaries.chunk_by(|(_, x)| *x).into_iter() {
             if key == 1 {
                 if chunk.count() % 2 == 1 {
-                    res.push_unignorable(RawTextError::DelimAtBoundary);
+                    res.push_msg_warning("delim at word boundary".to_string());
                 }
             } else {
                 for x in chunk {
@@ -5402,8 +5330,6 @@ fn hash_raw_pairs(pairs: Vec<(String, String)>, conf: &RawTextReader) -> PureSuc
     }
     res
 }
-
-impl Error for SegmentError {}
 
 // macro_rules! wrap_enum {
 //     ($enum_name:ident, $wrapper_name:ident) => {
@@ -5590,25 +5516,9 @@ fn read_raw_text<R: Read + Seek>(
     adjusted_text.read(h, &mut buf)?;
 
     verify_delim(&buf, conf).try_map(|delimiter| {
-        let mut res = split_raw_text(&buf, delimiter, conf);
+        let res = split_raw_text(&buf, delimiter, conf);
         let pairs_res = if header.version == Version::FCS2_0 {
-            repair_keywords(&mut res.data, conf);
-            Ok(res.map(|pairs| {
-                (
-                    pairs,
-                    if header.data.is_unset() {
-                        None
-                    } else {
-                        Some(header.data)
-                    },
-                    None,
-                    if header.analysis.is_unset() {
-                        None
-                    } else {
-                        Some(header.analysis)
-                    },
-                )
-            }))
+            Ok(res.map(|pairs| (pairs, Some(header.data), None, Some(header.analysis))))
         } else {
             find_raw_segments(res.data, conf, &header.data, &header.analysis).try_map(
                 |(mut newpairs, maybe_data, maybe_stext, maybe_anal)| {
@@ -5628,7 +5538,8 @@ fn read_raw_text<R: Read + Seek>(
         }?;
 
         Ok(
-            pairs_res.and_then(|(pairs, data_seg, stext_seg, analysis_seg)| {
+            pairs_res.and_then(|(mut pairs, data_seg, stext_seg, analysis_seg)| {
+                repair_keywords(&mut pairs, conf);
                 hash_raw_pairs(pairs, conf).map(|standard_kws| RawTEXT {
                     version: header.version,
                     keywords: standard_kws,
@@ -5645,8 +5556,6 @@ fn read_raw_text<R: Read + Seek>(
         )
     })
 }
-
-// type FCSResult = Result<FCSSuccess, Box<StdTEXTErrors>>;
 
 /// Return header in an FCS file.
 ///
@@ -5689,14 +5598,15 @@ pub fn read_fcs_raw_text(p: &path::PathBuf, conf: &Reader) -> ImpureResult<RawTE
 /// errors encountered during this process.
 pub fn read_fcs_text(p: &path::PathBuf, conf: &Reader) -> ImpureResult<StandardizedTEXT> {
     let raw_succ = read_fcs_raw_text(p, conf)?;
-    let out = raw_succ.try_map(|raw| {
-        parse_raw_text(raw.version, raw.keywords, &conf.text).map(|std_succ| {
+    let out = raw_succ.try_map(|mut raw| {
+        parse_raw_text(raw.version, &mut raw.keywords, &conf.text).map(|std_succ| {
             std_succ.map({
-                |(standardized, deviant_keywords)| StandardizedTEXT {
+                |standardized| StandardizedTEXT {
                     offsets: raw.offsets,
                     standardized,
                     delimiter: raw.delimiter,
-                    deviant_keywords,
+                    // TODO this will contain extra stuff (like $TOT)
+                    remainder: raw.keywords,
                 }
             })
         })
@@ -5722,24 +5632,32 @@ pub fn read_fcs_text(p: &path::PathBuf, conf: &Reader) -> ImpureResult<Standardi
 ///
 /// The [`conf`] argument can be used to control the behavior of each reading
 /// step, including the repair of non-conforming files.
-pub fn read_fcs_file(p: &path::PathBuf, conf: &Reader) -> ImpureResult<()> {
-    let file = fs::File::options().read(true).open(p)?;
-    let mut reader = BufReader::new(file);
-    let header = read_header(&mut reader)?;
-    let raw = read_raw_text(&mut reader, &header, &conf.text.raw)?;
-    // TODO useless clone?
-    match parse_raw_text(header, raw, &conf.text) {
-        Ok(std) => {
-            let data = read_data(&mut reader, std.data_parser).unwrap();
-            Ok(Ok(PureSuccess {
-                header: std.header,
-                raw: std.raw,
-                std: std.standard,
-                data,
-            }))
+pub fn read_fcs_file(p: &path::PathBuf, conf: &Reader) -> ImpureResult<StandardizedDataset> {
+    let std_text_succ = read_fcs_text(p, conf)?;
+    std_text_succ.try_map(|mut std| {
+        if let Some(data_seg) = std.offsets.data_seg {
+            let succ =
+                std.standardized
+                    .as_data_parser(&mut std.remainder, &conf.text, &data_seg)?;
+            succ.try_map(|data_parser| {
+                let file = fs::File::options().read(true).open(p)?;
+                let mut reader = BufReader::new(file);
+                let data = read_data(&mut reader, data_parser)?;
+                Ok(PureSuccess::from(StandardizedDataset {
+                    offsets: std.offsets,
+                    delimiter: std.delimiter,
+                    remainder: std.remainder,
+                    dataset: CoreDataset {
+                        data,
+                        keywords: std.standardized,
+                        analysis: vec![], // TODO eventually I will parse this :)
+                    },
+                }))
+            })
+        } else {
+            Err(Failure::new("could not find DATA segment".to_string()))?
         }
-        Err(e) => Ok(Err(e)),
-    }
+    })
 }
 
 // fn read_fcs_file_2_0(p: path::PathBuf, conf: Reader) -> FCSResult<TEXT2_0>;

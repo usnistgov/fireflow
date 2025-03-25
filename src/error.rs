@@ -200,10 +200,6 @@ impl<X> PureSuccess<X> {
         }
     }
 
-    pub fn into_result(self) -> PureResult<X> {
-        Ok(self)
-    }
-
     pub fn and_then<Y, F: FnOnce(X) -> PureSuccess<Y>>(self, f: F) -> PureSuccess<Y> {
         let mut new = f(self.data);
         // TODO order?
@@ -304,8 +300,24 @@ impl<X> PureSuccess<X> {
             }
         }
     }
+}
 
-    pub fn from_result(res: Result<X, PureErrorBuf>) -> PureSuccess<Option<X>> {
+impl<X> PureMaybe<X> {
+    pub fn into_result(self, reason: String) -> PureResult<X> {
+        if let Some(d) = self.data {
+            Ok(PureSuccess {
+                data: d,
+                deferred: self.deferred,
+            })
+        } else {
+            Err(PureFailure {
+                reason,
+                deferred: self.deferred,
+            })
+        }
+    }
+
+    pub fn from_result(res: Result<X, PureErrorBuf>) -> Self {
         match res {
             Ok(data) => PureSuccess::from(Some(data)),
             Err(deferred) => PureSuccess {

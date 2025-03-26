@@ -2894,7 +2894,7 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
             gain: st.lookup_meas_gain_timecheck(n, &shortname),
             shortname,
             wavelengths: st.lookup_meas_wavelengths(n),
-            calibration: st.lookup_meas_calibration3_1(n),
+            calibration: st.lookup_meas_cal3_1(n),
             display: st.lookup_meas_display(n),
         })
     }
@@ -2927,7 +2927,7 @@ impl VersionedMeasurement for InnerMeasurement3_2 {
             scale: st.lookup_meas_scale_timecheck(n, &shortname)?,
             shortname,
             wavelengths: st.lookup_meas_wavelengths(n),
-            calibration: st.lookup_meas_calibration3_2(n),
+            calibration: st.lookup_meas_cal3_2(n),
             display: st.lookup_meas_display(n),
             detector_name: st.lookup_meas_detector(n),
             tag: st.lookup_meas_tag(n),
@@ -4374,6 +4374,38 @@ fn split_raw_keywords(kws: RawKeywords) -> (RawKeywords, RawKeywords) {
     kws.into_iter().partition(|(k, _)| k.starts_with("$"))
 }
 
+macro_rules! kws_req {
+    ($name:ident, $ret:ty, $key:expr, $dep:expr ) => {
+        fn $name(&mut self) -> Option<$ret> {
+            self.lookup_required($key, $dep)
+        }
+    };
+}
+
+macro_rules! kws_opt {
+    ($name:ident, $ret:ty, $key:expr, $dep:expr ) => {
+        fn $name(&mut self) -> OptionalKw<$ret> {
+            self.lookup_optional($key, $dep)
+        }
+    };
+}
+
+macro_rules! kws_meas_req {
+    ($name:ident, $ret:ty, $key:expr, $dep:expr ) => {
+        fn $name(&mut self, n: usize) -> Option<$ret> {
+            self.lookup_meas_req($key, n, $dep)
+        }
+    };
+}
+
+macro_rules! kws_meas_opt {
+    ($name:ident, $ret:ty, $key:expr, $dep:expr ) => {
+        fn $name(&mut self, n: usize) -> OptionalKw<$ret> {
+            self.lookup_meas_opt($key, n, $dep)
+        }
+    };
+}
+
 impl<'a, 'b> KwState<'a, 'b> {
     fn run<X, F>(kws: &'b mut RawKeywords, conf: &'a StdTextReader, f: F) -> PureSuccess<X>
     where
@@ -4407,168 +4439,58 @@ impl<'a, 'b> KwState<'a, 'b> {
         }
     }
 
-    fn from(kws: &'b mut RawKeywords, conf: &'a StdTextReader) -> Self {
-        KwState {
-            raw_keywords: kws,
-            deferred: PureErrorBuf::new(),
-            conf,
-        }
-    }
-
-    // TODO not DRY (although will likely need HKTs)
-    fn lookup_required<V: FromStr>(&mut self, k: &str, dep: bool) -> Option<V>
-    where
-        <V as FromStr>::Err: fmt::Display,
-    {
-        match self.raw_keywords.remove(k) {
-            Some(v) => {
-                let res = match v.parse() {
-                    Err(e) => {
-                        let msg = format!("{e} for key '{k}' with value '{v}'");
-                        self.deferred.push_error(msg);
-                        None
-                    }
-                    Ok(x) => Some(x),
-                };
-                if dep {
-                    self.deferred.push_msg_leveled(
-                        format!("deprecated key: {k}"),
-                        self.conf.disallow_deprecated,
-                    );
-                }
-                res
-            }
-            None => {
-                let msg = format!("missing required key: {k}");
-                self.deferred.push_error(msg);
-                None
-            }
-        }
-    }
-
-    fn lookup_optional<V: FromStr>(&mut self, k: &str, dep: bool) -> OptionalKw<V>
-    where
-        <V as FromStr>::Err: fmt::Display,
-    {
-        match self.raw_keywords.remove(k) {
-            Some(v) => {
-                let res = match v.parse() {
-                    Err(w) => {
-                        let msg = format!("{w} for key '{k}' with value '{v}'");
-                        self.deferred.push_warning(msg);
-                        Absent
-                    }
-                    Ok(x) => Present(x),
-                };
-                if dep {
-                    self.deferred.push_msg_leveled(
-                        format!("deprecated key: {k}"),
-                        self.conf.disallow_deprecated,
-                    );
-                }
-                res
-            }
-            None => Absent,
-        }
-    }
-
     // metadata
 
-    fn lookup_byteord(&mut self) -> Option<ByteOrd> {
-        self.lookup_required(BYTEORD, false)
-    }
-
-    fn lookup_endian(&mut self) -> Option<Endian> {
-        self.lookup_required(BYTEORD, false)
-    }
-
-    fn lookup_datatype(&mut self) -> Option<AlphaNumType> {
-        self.lookup_required(DATATYPE, false)
-    }
-
-    fn lookup_mode(&mut self) -> Option<Mode> {
-        self.lookup_required(MODE, false)
-    }
-
-    fn lookup_mode3_2(&mut self) -> OptionalKw<Mode3_2> {
-        self.lookup_optional(MODE, true)
-    }
-
-    fn lookup_nextdata(&mut self) -> Option<u32> {
-        self.lookup_required(NEXTDATA, false)
-    }
-
-    fn lookup_par(&mut self) -> Option<usize> {
-        self.lookup_required(PAR, false)
-    }
-
-    fn lookup_tot_req(&mut self) -> Option<u32> {
-        self.lookup_required(TOT, false)
-    }
-
-    fn lookup_tot_opt(&mut self) -> OptionalKw<u32> {
-        self.lookup_optional(TOT, false)
-    }
-
-    fn lookup_cyt_req(&mut self) -> Option<String> {
-        self.lookup_required(CYT, false)
-    }
-
-    fn lookup_cyt_opt(&mut self) -> OptionalKw<String> {
-        self.lookup_optional(CYT, false)
-    }
-
-    fn lookup_abrt(&mut self) -> OptionalKw<u32> {
-        self.lookup_optional(ABRT, false)
-    }
-
-    fn lookup_cells(&mut self) -> OptionalKw<String> {
-        self.lookup_optional(CELLS, false)
-    }
-
-    fn lookup_com(&mut self) -> OptionalKw<String> {
-        self.lookup_optional(COM, false)
-    }
-
-    fn lookup_exp(&mut self) -> OptionalKw<String> {
-        self.lookup_optional(EXP, false)
-    }
-
-    fn lookup_fil(&mut self) -> OptionalKw<String> {
-        self.lookup_optional(FIL, false)
-    }
-
-    fn lookup_inst(&mut self) -> OptionalKw<String> {
-        self.lookup_optional(INST, false)
-    }
-
-    fn lookup_lost(&mut self) -> OptionalKw<u32> {
-        self.lookup_optional(LOST, false)
-    }
-
-    fn lookup_op(&mut self) -> OptionalKw<String> {
-        self.lookup_optional(OP, false)
-    }
-
-    fn lookup_proj(&mut self) -> OptionalKw<String> {
-        self.lookup_optional(PROJ, false)
-    }
-
-    fn lookup_smno(&mut self) -> OptionalKw<String> {
-        self.lookup_optional(SMNO, false)
-    }
-
-    fn lookup_src(&mut self) -> OptionalKw<String> {
-        self.lookup_optional(SRC, false)
-    }
-
-    fn lookup_sys(&mut self) -> OptionalKw<String> {
-        self.lookup_optional(SYS, false)
-    }
-
-    fn lookup_trigger(&mut self) -> OptionalKw<Trigger> {
-        self.lookup_optional(TR, false)
-    }
+    kws_req!(lookup_byteord, ByteOrd, BYTEORD, false);
+    kws_req!(lookup_endian, Endian, BYTEORD, false);
+    kws_req!(lookup_datatype, AlphaNumType, DATATYPE, false);
+    kws_req!(lookup_mode, Mode, MODE, false);
+    kws_opt!(lookup_mode3_2, Mode3_2, MODE, true);
+    kws_req!(lookup_nextdata, u32, NEXTDATA, false);
+    kws_req!(lookup_par, usize, PAR, false);
+    kws_req!(lookup_tot_req, u32, TOT, false);
+    kws_opt!(lookup_tot_opt, u32, TOT, false);
+    kws_req!(lookup_cyt_req, String, CYT, false);
+    kws_opt!(lookup_cyt_opt, String, CYT, false);
+    kws_opt!(lookup_cytsn, String, CYTSN, false);
+    kws_opt!(lookup_abrt, u32, ABRT, false);
+    kws_opt!(lookup_cells, String, CELLS, false);
+    kws_opt!(lookup_com, String, COM, false);
+    kws_opt!(lookup_exp, String, EXP, false);
+    kws_opt!(lookup_fil, String, FIL, false);
+    kws_opt!(lookup_inst, String, INST, false);
+    kws_opt!(lookup_lost, u32, LOST, false);
+    kws_opt!(lookup_op, String, OP, false);
+    kws_opt!(lookup_proj, String, PROJ, false);
+    kws_opt!(lookup_smno, String, SMNO, false);
+    kws_opt!(lookup_src, String, SRC, false);
+    kws_opt!(lookup_sys, String, SYS, false);
+    kws_opt!(lookup_trigger, Trigger, TR, false);
+    kws_opt!(lookup_timestep, f32, TIMESTEP, false);
+    kws_opt!(lookup_vol, f32, VOL, false);
+    kws_opt!(lookup_flowrate, String, FLOWRATE, false);
+    kws_opt!(lookup_unicode, Unicode, UNICODE, false);
+    kws_opt!(lookup_unstainedinfo, String, UNSTAINEDINFO, false);
+    kws_opt!(
+        lookup_unstainedcenters,
+        UnstainedCenters,
+        UNSTAINEDCENTERS,
+        false
+    );
+    kws_opt!(lookup_last_modifier, String, LAST_MODIFIER, false);
+    kws_opt!(lookup_last_modified, ModifiedDateTime, LAST_MODIFIED, false);
+    kws_opt!(lookup_originality, Originality, ORIGINALITY, false);
+    kws_opt!(lookup_carrierid, String, CARRIERID, false);
+    kws_opt!(lookup_carriertype, String, CARRIERTYPE, false);
+    kws_opt!(lookup_locationid, String, LOCATIONID, false);
+    kws_opt!(lookup_begindatetime, FCSDateTime, BEGINDATETIME, false);
+    kws_opt!(lookup_enddatetime, FCSDateTime, ENDDATETIME, false);
+    kws_opt!(lookup_btim, FCSTime, BTIM, false);
+    kws_opt!(lookup_etim, FCSTime, ETIM, false);
+    kws_opt!(lookup_btim60, FCSTime60, BTIM, false);
+    kws_opt!(lookup_etim60, FCSTime60, ETIM, false);
+    kws_opt!(lookup_compensation_3_0, Compensation, COMP, false);
+    kws_opt!(lookup_spillover, Spillover, SPILLOVER, false);
 
     fn lookup_trigger_checked(&mut self, names: &HashSet<&str>) -> OptionalKw<Trigger> {
         if let Present(tr) = self.lookup_trigger() {
@@ -4586,14 +4508,6 @@ impl<'a, 'b> KwState<'a, 'b> {
         }
     }
 
-    fn lookup_cytsn(&mut self) -> OptionalKw<String> {
-        self.lookup_optional(CYTSN, false)
-    }
-
-    fn lookup_timestep(&mut self) -> OptionalKw<f32> {
-        self.lookup_optional(TIMESTEP, false)
-    }
-
     fn lookup_timestep_checked(&mut self, names: &HashSet<&str>) -> OptionalKw<f32> {
         let ts = self.lookup_timestep();
         if let Some(time_name) = &self.conf.time_shortname {
@@ -4607,20 +4521,8 @@ impl<'a, 'b> KwState<'a, 'b> {
         ts
     }
 
-    fn lookup_vol(&mut self) -> OptionalKw<f32> {
-        self.lookup_optional(VOL, false)
-    }
-
-    fn lookup_flowrate(&mut self) -> OptionalKw<String> {
-        self.lookup_optional(FLOWRATE, false)
-    }
-
-    fn lookup_unicode(&mut self) -> OptionalKw<Unicode> {
-        // TODO actually verify that these are real keywords, although this
-        // doesn't matter too much since we are going to parse TEXT as utf8
-        // anyways since we can, so this keywords isn't that useful.
-        self.lookup_optional(UNICODE, false)
-    }
+    // TODO add checked version of unicode that verifies that the keywords
+    // match (probably not worth it)
 
     fn lookup_plateid(&mut self, dep: bool) -> OptionalKw<String> {
         self.lookup_optional(PLATEID, dep)
@@ -4632,14 +4534,6 @@ impl<'a, 'b> KwState<'a, 'b> {
 
     fn lookup_wellid(&mut self, dep: bool) -> OptionalKw<String> {
         self.lookup_optional(WELLID, dep)
-    }
-
-    fn lookup_unstainedinfo(&mut self) -> OptionalKw<String> {
-        self.lookup_optional(UNSTAINEDINFO, false)
-    }
-
-    fn lookup_unstainedcenters(&mut self) -> OptionalKw<UnstainedCenters> {
-        self.lookup_optional(UNSTAINEDCENTERS, false)
     }
 
     fn lookup_unstainedcenters_checked(
@@ -4666,56 +4560,8 @@ impl<'a, 'b> KwState<'a, 'b> {
         }
     }
 
-    fn lookup_last_modifier(&mut self) -> OptionalKw<String> {
-        self.lookup_optional(LAST_MODIFIER, false)
-    }
-
-    fn lookup_last_modified(&mut self) -> OptionalKw<ModifiedDateTime> {
-        self.lookup_optional(LAST_MODIFIED, false)
-    }
-
-    fn lookup_originality(&mut self) -> OptionalKw<Originality> {
-        self.lookup_optional(ORIGINALITY, false)
-    }
-
-    fn lookup_carrierid(&mut self) -> OptionalKw<String> {
-        self.lookup_optional(CARRIERID, false)
-    }
-
-    fn lookup_carriertype(&mut self) -> OptionalKw<String> {
-        self.lookup_optional(CARRIERTYPE, false)
-    }
-
-    fn lookup_locationid(&mut self) -> OptionalKw<String> {
-        self.lookup_optional(LOCATIONID, false)
-    }
-
-    fn lookup_begindatetime(&mut self) -> OptionalKw<FCSDateTime> {
-        self.lookup_optional(BEGINDATETIME, false)
-    }
-
-    fn lookup_enddatetime(&mut self) -> OptionalKw<FCSDateTime> {
-        self.lookup_optional(ENDDATETIME, false)
-    }
-
     fn lookup_date(&mut self, dep: bool) -> OptionalKw<FCSDate> {
         self.lookup_optional(DATE, dep)
-    }
-
-    fn lookup_btim(&mut self) -> OptionalKw<FCSTime> {
-        self.lookup_optional(BTIM, false)
-    }
-
-    fn lookup_etim(&mut self) -> OptionalKw<FCSTime> {
-        self.lookup_optional(ETIM, false)
-    }
-
-    fn lookup_btim60(&mut self) -> OptionalKw<FCSTime60> {
-        self.lookup_optional(BTIM, false)
-    }
-
-    fn lookup_etim60(&mut self) -> OptionalKw<FCSTime60> {
-        self.lookup_optional(ETIM, false)
     }
 
     fn lookup_btim100(&mut self, dep: bool) -> OptionalKw<FCSTime100> {
@@ -4816,14 +4662,6 @@ impl<'a, 'b> KwState<'a, 'b> {
         }
     }
 
-    fn lookup_compensation_3_0(&mut self) -> OptionalKw<Compensation> {
-        self.lookup_optional(COMP, false)
-    }
-
-    fn lookup_spillover(&mut self) -> OptionalKw<Spillover> {
-        self.lookup_optional(SPILLOVER, false)
-    }
-
     // TODO this is basically the same as unstained centers
     fn lookup_spillover_checked(&mut self, names: &HashSet<&str>) -> OptionalKw<Spillover> {
         if let Present(s) = self.lookup_spillover() {
@@ -4861,80 +4699,32 @@ impl<'a, 'b> KwState<'a, 'b> {
 
     // measurements
 
-    fn lookup_meas_req<V: FromStr>(&mut self, m: &'static str, n: usize, dep: bool) -> Option<V>
-    where
-        <V as FromStr>::Err: fmt::Display,
-    {
-        self.lookup_required(&format_measurement(&n.to_string(), m), dep)
-    }
-
-    fn lookup_meas_opt<V: FromStr>(&mut self, m: &'static str, n: usize, dep: bool) -> OptionalKw<V>
-    where
-        <V as FromStr>::Err: fmt::Display,
-    {
-        self.lookup_optional(&format_measurement(&n.to_string(), m), dep)
-    }
-
-    // this reads the PnB field which has "bits" in it, but as far as I know
-    // nobody is using anything other than evenly-spaced bytes
-    fn lookup_meas_bytes(&mut self, n: usize) -> Option<Bytes> {
-        self.lookup_meas_req(BYTES_SFX, n, false)
-    }
-
-    fn lookup_meas_range(&mut self, n: usize) -> Option<Range> {
-        self.lookup_meas_req(RANGE_SFX, n, false)
-    }
-
-    fn lookup_meas_wavelength(&mut self, n: usize) -> OptionalKw<u32> {
-        self.lookup_meas_opt(WAVELEN_SFX, n, false)
-    }
-
-    fn lookup_meas_power(&mut self, n: usize) -> OptionalKw<u32> {
-        self.lookup_meas_opt(POWER_SFX, n, false)
-    }
-
-    fn lookup_meas_detector_type(&mut self, n: usize) -> OptionalKw<String> {
-        self.lookup_meas_opt(DET_TYPE_SFX, n, false)
-    }
-
-    fn lookup_meas_shortname_req(&mut self, n: usize) -> Option<Shortname> {
-        self.lookup_meas_req(SHORTNAME_SFX, n, false)
-    }
-
-    fn lookup_meas_shortname_opt(&mut self, n: usize) -> OptionalKw<Shortname> {
-        self.lookup_meas_opt(SHORTNAME_SFX, n, false)
-    }
-
-    fn lookup_meas_longname(&mut self, n: usize) -> OptionalKw<String> {
-        self.lookup_meas_opt(LONGNAME_SFX, n, false)
-    }
-
-    fn lookup_meas_filter(&mut self, n: usize) -> OptionalKw<String> {
-        self.lookup_meas_opt(FILTER_SFX, n, false)
-    }
+    kws_meas_req!(lookup_meas_bytes, Bytes, BYTES_SFX, false);
+    kws_meas_req!(lookup_meas_range, Range, RANGE_SFX, false);
+    kws_meas_opt!(lookup_meas_wavelength, u32, WAVELEN_SFX, false);
+    kws_meas_opt!(lookup_meas_wavelengths, Wavelengths, WAVELEN_SFX, false);
+    kws_meas_opt!(lookup_meas_power, u32, POWER_SFX, false);
+    kws_meas_opt!(lookup_meas_detector_type, String, DET_TYPE_SFX, false);
+    kws_meas_req!(lookup_meas_shortname_req, Shortname, SHORTNAME_SFX, false);
+    kws_meas_opt!(lookup_meas_shortname_opt, Shortname, SHORTNAME_SFX, false);
+    kws_meas_opt!(lookup_meas_longname, String, LONGNAME_SFX, false);
+    kws_meas_opt!(lookup_meas_filter, String, FILTER_SFX, false);
+    kws_meas_opt!(lookup_meas_detector_voltage, f32, DET_VOLT_SFX, false);
+    kws_meas_opt!(lookup_meas_detector, String, DET_NAME_SFX, false);
+    kws_meas_opt!(lookup_meas_tag, String, TAG_SFX, false);
+    kws_meas_opt!(lookup_meas_analyte, String, ANALYTE_SFX, false);
+    kws_meas_opt!(lookup_meas_gain, f32, GAIN_SFX, false);
+    kws_meas_req!(lookup_meas_scale_req, Scale, SCALE_SFX, false);
+    kws_meas_opt!(lookup_meas_scale_opt, Scale, SCALE_SFX, false);
+    kws_meas_opt!(lookup_meas_cal3_1, Calibration3_1, CALIBRATION_SFX, false);
+    kws_meas_opt!(lookup_meas_cal3_2, Calibration3_2, CALIBRATION_SFX, false);
+    kws_meas_opt!(lookup_meas_display, Display, DISPLAY_SFX, false);
+    kws_meas_opt!(lookup_meas_datatype, NumType, DATATYPE_SFX, false);
+    kws_meas_opt!(lookup_meas_type, MeasurementType, DET_TYPE_SFX, false);
+    kws_meas_opt!(lookup_meas_feature, Feature, FEATURE_SFX, false);
 
     fn lookup_meas_percent_emitted(&mut self, n: usize, dep: bool) -> OptionalKw<u32> {
         self.lookup_meas_opt(PCNT_EMT_SFX, n, dep)
-    }
-
-    fn lookup_meas_detector_voltage(&mut self, n: usize) -> OptionalKw<f32> {
-        self.lookup_meas_opt(DET_VOLT_SFX, n, false)
-    }
-
-    fn lookup_meas_detector(&mut self, n: usize) -> OptionalKw<String> {
-        self.lookup_meas_opt(DET_NAME_SFX, n, false)
-    }
-
-    fn lookup_meas_tag(&mut self, n: usize) -> OptionalKw<String> {
-        self.lookup_meas_opt(TAG_SFX, n, false)
-    }
-
-    fn lookup_meas_analyte(&mut self, n: usize) -> OptionalKw<String> {
-        self.lookup_meas_opt(ANALYTE_SFX, n, false)
-    }
-
-    fn lookup_meas_gain(&mut self, n: usize) -> OptionalKw<f32> {
-        self.lookup_meas_opt(GAIN_SFX, n, false)
     }
 
     fn lookup_meas_gain_timecheck(&mut self, n: usize, name: &Shortname) -> OptionalKw<f32> {
@@ -4969,10 +4759,6 @@ impl<'a, 'b> KwState<'a, 'b> {
         }
     }
 
-    fn lookup_meas_scale_req(&mut self, n: usize) -> Option<Scale> {
-        self.lookup_meas_req(SCALE_SFX, n, false)
-    }
-
     fn lookup_meas_scale_timecheck(&mut self, n: usize, name: &Shortname) -> Option<Scale> {
         let scale = self.lookup_meas_scale_req(n);
         if let Some(s) = &scale {
@@ -5000,39 +4786,6 @@ impl<'a, 'b> KwState<'a, 'b> {
         } else {
             self.lookup_meas_scale_req(n)
         }
-    }
-
-    fn lookup_meas_scale_opt(&mut self, n: usize) -> OptionalKw<Scale> {
-        self.lookup_meas_opt(SCALE_SFX, n, false)
-    }
-
-    fn lookup_meas_calibration3_1(&mut self, n: usize) -> OptionalKw<Calibration3_1> {
-        self.lookup_meas_opt(CALIBRATION_SFX, n, false)
-    }
-
-    fn lookup_meas_calibration3_2(&mut self, n: usize) -> OptionalKw<Calibration3_2> {
-        self.lookup_meas_opt(CALIBRATION_SFX, n, false)
-    }
-
-    // for 3.1+ PnL measurements, which can have multiple wavelengths
-    fn lookup_meas_wavelengths(&mut self, n: usize) -> OptionalKw<Wavelengths> {
-        self.lookup_meas_opt(WAVELEN_SFX, n, false)
-    }
-
-    fn lookup_meas_display(&mut self, n: usize) -> OptionalKw<Display> {
-        self.lookup_meas_opt(DISPLAY_SFX, n, false)
-    }
-
-    fn lookup_meas_datatype(&mut self, n: usize) -> OptionalKw<NumType> {
-        self.lookup_meas_opt(DATATYPE_SFX, n, false)
-    }
-
-    fn lookup_meas_type(&mut self, n: usize) -> OptionalKw<MeasurementType> {
-        self.lookup_meas_opt(DET_TYPE_SFX, n, false)
-    }
-
-    fn lookup_meas_feature(&mut self, n: usize) -> OptionalKw<Feature> {
-        self.lookup_meas_opt(FEATURE_SFX, n, false)
     }
 
     fn lookup_meas_nonstandard(&mut self, n: usize) -> NonStdKeywords {
@@ -5082,6 +4835,8 @@ impl<'a, 'b> KwState<'a, 'b> {
         self.deferred.push_msg_leveled(msg, is_error);
     }
 
+    // auxiliary functions
+
     fn collect(self) -> PureErrorBuf {
         self.deferred
     }
@@ -5091,6 +4846,85 @@ impl<'a, 'b> KwState<'a, 'b> {
             reason,
             deferred: self.collect(),
         }
+    }
+
+    fn from(kws: &'b mut RawKeywords, conf: &'a StdTextReader) -> Self {
+        KwState {
+            raw_keywords: kws,
+            deferred: PureErrorBuf::new(),
+            conf,
+        }
+    }
+
+    // TODO not DRY (although will likely need HKTs)
+    fn lookup_required<V: FromStr>(&mut self, k: &str, dep: bool) -> Option<V>
+    where
+        <V as FromStr>::Err: fmt::Display,
+    {
+        match self.raw_keywords.remove(k) {
+            Some(v) => {
+                let res = match v.parse() {
+                    Err(e) => {
+                        let msg = format!("{e} for key '{k}' with value '{v}'");
+                        self.deferred.push_error(msg);
+                        None
+                    }
+                    Ok(x) => Some(x),
+                };
+                if dep {
+                    self.deferred.push_msg_leveled(
+                        format!("deprecated key: {k}"),
+                        self.conf.disallow_deprecated,
+                    );
+                }
+                res
+            }
+            None => {
+                let msg = format!("missing required key: {k}");
+                self.deferred.push_error(msg);
+                None
+            }
+        }
+    }
+
+    fn lookup_optional<V: FromStr>(&mut self, k: &str, dep: bool) -> OptionalKw<V>
+    where
+        <V as FromStr>::Err: fmt::Display,
+    {
+        match self.raw_keywords.remove(k) {
+            Some(v) => {
+                let res = match v.parse() {
+                    Err(w) => {
+                        let msg = format!("{w} for key '{k}' with value '{v}'");
+                        self.deferred.push_warning(msg);
+                        Absent
+                    }
+                    Ok(x) => Present(x),
+                };
+                if dep {
+                    self.deferred.push_msg_leveled(
+                        format!("deprecated key: {k}"),
+                        self.conf.disallow_deprecated,
+                    );
+                }
+                res
+            }
+            None => Absent,
+        }
+    }
+
+    fn lookup_meas_req<V: FromStr>(&mut self, m: &'static str, n: usize, dep: bool) -> Option<V>
+    where
+        <V as FromStr>::Err: fmt::Display,
+    {
+        self.lookup_required(&format_measurement(&n.to_string(), m), dep)
+    }
+
+    fn lookup_meas_opt<V: FromStr>(&mut self, m: &'static str, n: usize, dep: bool) -> OptionalKw<V>
+    where
+        <V as FromStr>::Err: fmt::Display,
+    {
+        self.lookup_optional(&format_measurement(&n.to_string(), m), dep)
     }
 }
 

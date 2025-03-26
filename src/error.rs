@@ -101,6 +101,10 @@ impl<E> Failure<E> {
     pub fn extend(&mut self, other: PureErrorBuf) {
         self.deferred.errors.extend(other.errors);
     }
+
+    // pub fn from_option(self, reason: E) -> Self {
+
+    // }
 }
 
 impl PureErrorBuf {
@@ -345,6 +349,21 @@ impl<X> PureMaybe<X> {
             Err(deferred) => PureSuccess {
                 data: None,
                 deferred,
+            },
+        }
+    }
+
+    pub fn and_then_opt<Y, F: FnOnce(X) -> PureMaybe<Y>>(self, f: F) -> PureMaybe<Y> {
+        match self.data {
+            Some(d) => {
+                let mut new = f(d);
+                // TODO order?
+                new.extend(self.deferred);
+                new
+            }
+            None => PureSuccess {
+                data: None,
+                deferred: self.deferred,
             },
         }
     }

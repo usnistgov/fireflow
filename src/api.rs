@@ -45,19 +45,15 @@ pub struct Header {
 /// present. See fields below for more information on this.
 #[derive(Debug, Clone, Serialize)]
 pub struct RawTEXT {
-    /// FCS version from header
+    /// FCS Version from HEADER
     pub version: Version,
 
-    // TODO this is a limitation of the current error handler where it would be
-    // nice to evaluate which are warnings and which are errors at the very end
-    // when we return a result. In this case, I would need to set the level flag
-    // when making the error when parsing the offsets directly; it would be a
-    // warning by default if we don't wish to parse DATA, and an error no matter
-    // what if we did need to parse DATA. The only way to do this is to "catch"
-    // the errors later which means we would need a system of propagating the
-    // error identities forward aside from their string message.
-    /// All offsets as parsed from raw TEXT and HEADER.
     pub offsets: Offsets,
+
+    /// Delimiter used to parse TEXT.
+    ///
+    /// Included here for informational purposes.
+    pub delimiter: u8,
 
     /// Keyword pairs
     ///
@@ -65,11 +61,6 @@ pub struct RawTEXT {
     /// include supplemental TEXT keywords if present and the offsets for
     /// supplemental TEXT are successfully found.
     pub keywords: RawKeywords,
-
-    /// Delimiter used to parse TEXT.
-    ///
-    /// Included here for informational purposes.
-    pub delimiter: u8,
 }
 
 /// All segment offsets.
@@ -101,7 +92,7 @@ pub struct Offsets {
     /// when acquiring the offset. If DATA does not exist this will be 0,0.
     ///
     /// This may be used later to acquire the DATA segment.
-    pub data_seg: Option<Segment>,
+    pub data_seg: Segment,
 
     /// ANALYSIS offsets.
     ///
@@ -110,13 +101,13 @@ pub struct Offsets {
     /// be 0,0.
     ///
     /// This may be used later to acquire the ANALYSIS segment.
-    pub analysis_seg: Option<Segment>,
+    pub analysis_seg: Segment,
 
     /// NEXTDATA offset
     ///
     /// This will be copied as represented in TEXT. If it is 0, there is no next
     /// dataset, otherwise it points to the next dataset in the file.
-    pub nextdata: u32,
+    pub nextdata: Option<u32>,
 }
 
 /// Output of parsing the TEXT segment and standardizing keywords.
@@ -130,8 +121,12 @@ pub struct Offsets {
 /// Version is not included since this is implied by the standardized structs
 /// used.
 pub struct StandardizedTEXT {
-    /// Offsets as parsed from raw TEXT and HEADER
     pub offsets: Offsets,
+
+    /// Delimiter used to parse TEXT.
+    ///
+    /// Included here for informational purposes.
+    pub delimiter: u8,
 
     /// Structured data derived from TEXT specific to the indicated FCS version.
     ///
@@ -147,11 +142,6 @@ pub struct StandardizedTEXT {
     /// Assuming the code works, this should only have keywords that start with
     /// a '$', some of which will be standardized.
     pub remainder: RawKeywords,
-
-    /// Delimiter used to parse TEXT.
-    ///
-    /// Included here for informational purposes.
-    pub delimiter: u8,
 }
 
 /// Output of parsing one raw dataset (TEXT+DATA) from an FCS file.
@@ -181,19 +171,16 @@ pub struct RawDataset {
 
 /// Output of parsing one standardized dataset (TEXT+DATA) from an FCS file.
 pub struct StandardizedDataset {
-    /// Offsets as parsed from raw TEXT and HEADER
-    // TODO the data segment in this should be non-Option since we know it
-    // exists if this struct exists.
     pub offsets: Offsets,
+
+    /// Delimiter used to parse TEXT.
+    pub delimiter: u8,
 
     /// Structured data derived from TEXT specific to the indicated FCS version.
     pub dataset: CoreDataset,
 
     /// Non-standard keywords that start with '$'.
     pub remainder: RawKeywords,
-
-    /// Delimiter used to parse TEXT.
-    pub delimiter: u8,
 }
 
 /// Represents the minimal data to fully describe one dataset in an FCS file.
@@ -3149,12 +3136,21 @@ impl fmt::Display for Mode3_2Error {
 }
 
 impl AnyCoreTEXT {
+    pub fn version(&self) -> Version {
+        match self {
+            AnyCoreTEXT::FCS2_0(_) => Version::FCS2_0,
+            AnyCoreTEXT::FCS3_0(_) => Version::FCS3_0,
+            AnyCoreTEXT::FCS3_1(_) => Version::FCS3_1,
+            AnyCoreTEXT::FCS3_2(_) => Version::FCS3_2,
+        }
+    }
+
     pub fn as_data_parser<'a>(
         &self,
         kws: &mut RawKeywords,
         conf: &'a Config,
         data_seg: &Segment,
-    ) -> PureResult<DataParser> {
+    ) -> PureMaybe<DataParser> {
         match self {
             AnyCoreTEXT::FCS2_0(x) => x.as_data_parser(kws, conf, data_seg),
             AnyCoreTEXT::FCS3_0(x) => x.as_data_parser(kws, conf, data_seg),
@@ -3291,10 +3287,10 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
         kws: &mut RawKeywords,
         conf: &'a Config,
         data_seg: &Segment,
-    ) -> PureResult<DataParser> {
+    ) -> PureMaybe<DataParser> {
         // TODO these error messages are...interesting
-        let msg = "could not convert to minimal metadata".to_string();
-        let succ = KwParser::try_run(kws, &conf.standard, msg, |mut st| {
+        // let msg = "could not convert to minimal metadata".to_string();
+        let succ = KwParser::run(kws, &conf.standard, |mut st| {
             let maybe_md = <M as VersionedParserMetadata>::as_minimal(&self.metadata, &mut st);
             let measurements: Vec<_> = self
                 .measurements
@@ -3307,9 +3303,8 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
                 conf: &conf.data,
                 data_seg: *data_seg,
             })
-        })?;
-        succ.and_then(|it| M::build_data_parser(&it))
-            .into_result("could not build data parser".to_string())
+        });
+        succ.and_then_opt(|it| M::build_data_parser(&it))
     }
 
     fn from_raw(kws: &mut RawKeywords, conf: &StdTextConfig) -> PureResult<Self> {
@@ -3687,7 +3682,10 @@ fn read_data_int<R: Read>(h: &mut BufReader<R>, parser: IntParser) -> io::Result
     Ok(p.columns.into_iter().map(|c| c.into_series()).collect())
 }
 
-fn h_read_data<R: Read + Seek>(h: &mut BufReader<R>, parser: DataParser) -> io::Result<ParsedData> {
+fn h_read_data_segment<R: Read + Seek>(
+    h: &mut BufReader<R>,
+    parser: DataParser,
+) -> io::Result<ParsedData> {
     h.seek(SeekFrom::Start(parser.begin))?;
     match parser.column_parser {
         ColumnParser::DelimitedAscii(p) => read_data_delim_ascii(h, p),
@@ -3697,6 +3695,143 @@ fn h_read_data<R: Read + Seek>(h: &mut BufReader<R>, parser: DataParser) -> io::
         ColumnParser::Mixed(p) => read_data_mixed(h, p),
         ColumnParser::Int(p) => read_data_int(h, p),
     }
+}
+
+fn lookup_data_offsets(
+    kws: &mut RawKeywords,
+    conf: &Config,
+    version: Version,
+    default: &Segment,
+) -> PureSuccess<Segment> {
+    KwParser::run(kws, &conf.standard, |st| match version {
+        Version::FCS2_0 => *default,
+        _ => {
+            let b = st.lookup_begindata();
+            let e = st.lookup_enddata();
+            if let (Some(begin), Some(end)) = (b, e) {
+                let res = Segment::try_new_adjusted(
+                    begin,
+                    end,
+                    conf.corrections.start_data,
+                    conf.corrections.end_data,
+                    SegmentId::Data,
+                );
+                match res {
+                    Ok(seg) => seg,
+                    Err(err) => {
+                        st.push_meta_warning(format!(
+                            "defaulting to header DATA offsets due to error: {}",
+                            err
+                        ));
+                        *default
+                    }
+                }
+            } else {
+                st.push_meta_warning(
+                    "could not find DATA offsets in TEXT, defaulting to HEADER offsets".to_string(),
+                );
+                *default
+            }
+        }
+    })
+}
+
+fn lookup_analysis_offsets(
+    kws: &mut RawKeywords,
+    conf: &Config,
+    version: Version,
+    default: &Segment,
+) -> PureSuccess<Segment> {
+    let bd = conf.corrections.start_analysis;
+    let ed = conf.corrections.end_analysis;
+    KwParser::run(kws, &conf.standard, |st| {
+        let res = match version {
+            Version::FCS2_0 => Ok(*default),
+            Version::FCS3_0 | Version::FCS3_1 => {
+                let b = st.lookup_beginanalysis_req();
+                let e = st.lookup_endanalysis_req();
+                if let (Some(begin), Some(end)) = (b, e) {
+                    Segment::try_new_adjusted(begin, end, bd, ed, SegmentId::Analysis)
+                } else {
+                    st.push_meta_warning(
+                        "could not find DATA offsets in TEXT, defaulting to HEADER offsets"
+                            .to_string(),
+                    );
+                    Ok(*default)
+                }
+            }
+            Version::FCS3_2 => {
+                let b = st.lookup_beginanalysis_opt();
+                let e = st.lookup_endanalysis_opt();
+                if let (Present(begin), Present(end)) = (b, e) {
+                    Segment::try_new_adjusted(begin, end, bd, ed, SegmentId::Analysis)
+                } else {
+                    st.push_meta_warning(
+                        "could not find DATA offsets in TEXT, defaulting to HEADER offsets"
+                            .to_string(),
+                    );
+                    Ok(*default)
+                }
+            }
+        };
+        match res {
+            Ok(seg) => seg,
+            Err(err) => {
+                st.push_meta_warning(format!(
+                    "defaulting to header DATA offsets due to error: {}",
+                    err
+                ));
+                *default
+            }
+        }
+    })
+}
+
+fn h_read_analysis<R: Read + Seek>(h: &mut BufReader<R>, seg: &Segment) -> io::Result<Vec<u8>> {
+    let mut buf = vec![];
+    h.seek(SeekFrom::Start(u64::from(seg.begin())))?;
+    h.take(u64::from(seg.nbytes())).read_to_end(&mut buf)?;
+    Ok(buf)
+}
+
+fn h_read_std_dataset<R: Read + Seek>(
+    h: &mut BufReader<R>,
+    std: StandardizedTEXT,
+    conf: &Config,
+) -> ImpureResult<StandardizedDataset> {
+    let mut kws = std.remainder;
+    let version = std.standardized.version();
+    let anal_succ = lookup_analysis_offsets(&mut kws, conf, version, &std.offsets.analysis_seg);
+    lookup_data_offsets(&mut kws, conf, version, &std.offsets.data_seg)
+        .and_then(|data_seg| {
+            std.standardized
+                .as_data_parser(&mut kws, conf, &data_seg)
+                .combine(anal_succ, |data_parser, analysis_seg| {
+                    (data_parser, data_seg, analysis_seg)
+                })
+        })
+        .try_map(|(data_maybe, data_seg, analysis_seg)| {
+            let dmsg = "could not create data parser".to_string();
+            let data_parser = data_maybe.ok_or(Failure::new(dmsg))?;
+            let data = h_read_data_segment(h, data_parser)?;
+            let analysis = h_read_analysis(h, &analysis_seg)?;
+            Ok(PureSuccess::from(StandardizedDataset {
+                offsets: Offsets {
+                    prim_text_seg: std.offsets.prim_text_seg,
+                    supp_text_seg: std.offsets.supp_text_seg,
+                    nextdata: std.offsets.nextdata,
+                    data_seg,
+                    analysis_seg,
+                },
+                delimiter: std.delimiter,
+                remainder: kws,
+                dataset: CoreDataset {
+                    data,
+                    keywords: std.standardized,
+                    analysis,
+                },
+            }))
+        })
 }
 
 enum EventWidth {
@@ -4458,7 +4593,18 @@ impl<'a, 'b> KwParser<'a, 'b> {
 
     // offsets
 
+    kws_req!(lookup_begindata, u32, BEGINDATA, false);
+    kws_req!(lookup_enddata, u32, ENDDATA, false);
+    kws_req!(lookup_beginstext_req, u32, BEGINSTEXT, false);
+    kws_req!(lookup_endstext_req, u32, ENDSTEXT, false);
+    kws_req!(lookup_beginanalysis_req, u32, BEGINANALYSIS, false);
+    kws_req!(lookup_endanalysis_req, u32, ENDANALYSIS, false);
+    kws_opt!(lookup_beginstext_opt, u32, BEGINSTEXT, false);
+    kws_opt!(lookup_endstext_opt, u32, ENDSTEXT, false);
+    kws_opt!(lookup_beginanalysis_opt, u32, BEGINANALYSIS, false);
+    kws_opt!(lookup_endanalysis_opt, u32, ENDANALYSIS, false);
     kws_req!(lookup_nextdata, u32, NEXTDATA, false);
+
     // TODO add more
 
     // metadata
@@ -4985,6 +5131,7 @@ fn parse_bounds(s0: &str, s1: &str, allow_blank: bool, id: SegmentId) -> PureMay
         .and_then(|(b, e)| {
             if let (Some(begin), Some(end)) = (b, e) {
                 PureMaybe::from_result_1(
+                    // TODO adjust these
                     Segment::try_new_adjusted(begin, end, 0, 0, id),
                     PureErrorLevel::Error,
                 )
@@ -5197,8 +5344,8 @@ fn split_raw_text(xs: &[u8], delim: u8, conf: &RawTextConfig) -> PureSuccess<Raw
     res
 }
 
-fn repair_keywords(pairs: &mut RawPairs, conf: &RawTextConfig) {
-    for (key, v) in pairs.iter_mut() {
+fn repair_keywords(kws: &mut RawKeywords, conf: &RawTextConfig) {
+    for (key, v) in kws.iter_mut() {
         let k = key.as_str();
         if k == DATE {
             if let Some(pattern) = &conf.date_pattern {
@@ -5212,29 +5359,17 @@ fn repair_keywords(pairs: &mut RawPairs, conf: &RawTextConfig) {
 
 fn hash_raw_pairs(pairs: Vec<(String, String)>, conf: &RawTextConfig) -> PureSuccess<RawKeywords> {
     let standard: HashMap<_, _> = HashMap::new();
-    // let nonstandard: HashMap<_, _> = HashMap::new();
     let mut res = PureSuccess::from(standard);
     // TODO filter keywords based on pattern somewhere here
     for (key, value) in pairs.into_iter() {
-        let oldkey = key.clone(); // TODO this seems lame
+        let msg = format!("Skipping already-inserted key: {}", key.as_str());
         let ires = res.data.insert(key, value);
         if ires.is_some() {
-            let msg = format!("Skipping already-inserted key: {oldkey}");
             res.push_msg_leveled(msg, conf.enforce_unique);
         }
     }
     res
 }
-
-// macro_rules! wrap_enum {
-//     ($enum_name:ident, $wrapper_name:ident) => {
-//         impl From<$enum_name> for $wrapper_name {
-//             fn from(enm: $enum_name) -> Self {
-//                 Self(enm)
-//             }
-//         }
-//     };
-// }
 
 impl StdTextConfig {
     fn time_name_matches(&self, name: &Shortname) -> bool {
@@ -5289,114 +5424,189 @@ fn parse_segment(
     PureSuccess::from_result(res.map_err(|es| PureErrorBuf::from_many(es, level)))
 }
 
-fn find_raw_segments(
-    pairs: RawPairs,
-    conf: &Config,
-    header_data_seg: &Segment,
-    header_analysis_seg: &Segment,
-) -> PureSuccess<(RawPairs, Option<Segment>, Option<Segment>, Option<Segment>)> {
-    // iterate through all pairs and strip out the ones that denote an offset
-    let mut data0 = None;
-    let mut data1 = None;
-    let mut stext0 = None;
-    let mut stext1 = None;
-    let mut analysis0 = None;
-    let mut analysis1 = None;
-    let mut newpairs = vec![];
-    let pad_maybe = |s: String| {
-        if conf.raw.repair_offset_spaces {
-            pad_zeros(s.as_str())
-        } else {
-            s
-        }
-    };
-    for (key, v) in pairs.into_iter() {
-        match key.as_str() {
-            BEGINDATA => data0 = Some(pad_maybe(v)),
-            ENDDATA => data1 = Some(pad_maybe(v)),
-            BEGINSTEXT => stext0 = Some(pad_maybe(v)),
-            ENDSTEXT => stext1 = Some(pad_maybe(v)),
-            BEGINANALYSIS => analysis0 = Some(pad_maybe(v)),
-            ENDANALYSIS => analysis1 = Some(pad_maybe(v)),
-            _ => newpairs.push((key, v)),
+fn repair_offsets(pairs: &mut RawPairs, conf: &Config) {
+    if conf.raw.repair_offset_spaces {
+        for (key, v) in pairs.iter_mut() {
+            if key == BEGINDATA
+                || key == ENDDATA
+                || key == BEGINSTEXT
+                || key == ENDSTEXT
+                || key == BEGINANALYSIS
+                || key == ENDANALYSIS
+                || key == NEXTDATA
+            {
+                *v = pad_zeros(v.as_str())
+            }
         }
     }
-
-    let check_seg_with_header = |res: PureMaybe<Segment>, header_seg: &Segment, what| {
-        res.and_then(|seg| {
-            // TODO this doesn't seem the most efficient since I make a new
-            // PureSuccess object in some branches
-            match seg {
-                None => {
-                    let seg = if header_seg.is_unset() {
-                        None
-                    } else {
-                        Some(*header_seg)
-                    };
-                    PureSuccess::from(seg)
-                }
-                Some(seg) => {
-                    let mut res = PureSuccess::from(Some(seg));
-                    if !header_seg.is_unset() && seg != *header_seg {
-                        res.data = Some(*header_seg);
-                        // TODO toggle level since this could indicate a sketchy file
-                        res.push_msg_leveled(
-                            format!("{what} offsets differ in HEADER and TEXT, using HEADER"),
-                            false,
-                        );
-                    }
-                    res
-                }
-            }
-        })
-    };
-
-    // The DATA segment can be specified in either the header or TEXT. If within
-    // offset 99,999,999, then the two should match. if they don't match then
-    // trust the header and throw warning/error. If outside this range then the
-    // header will be 0,0 and TEXT will have the real offsets.
-    let data = check_seg_with_header(
-        parse_segment(
-            data0,
-            data1,
-            conf.corrections.start_data,
-            conf.corrections.end_data,
-            SegmentId::Data,
-            PureErrorLevel::Error,
-        ),
-        header_data_seg,
-        "DATA",
-    );
-
-    // Supplemental TEXT offsets are only in TEXT, so just parse and return
-    // if found.
-    let stext = parse_segment(
-        stext0,
-        stext1,
-        conf.corrections.start_supp_text,
-        conf.corrections.end_supp_text,
-        SegmentId::SupplementalText,
-        PureErrorLevel::Warning,
-    );
-
-    // ANALYSIS offsets are analogous to DATA offsets except they are optional.
-    let analysis = check_seg_with_header(
-        parse_segment(
-            analysis0,
-            analysis1,
-            conf.corrections.start_analysis,
-            conf.corrections.end_analysis,
-            SegmentId::Analysis,
-            PureErrorLevel::Warning,
-        ),
-        header_analysis_seg,
-        "ANALYSIS",
-    );
-
-    data.combine3(stext, analysis, |a, b, c| (newpairs, a, b, c))
 }
 
-fn h_read_raw_text<R: Read + Seek>(
+// fn find_raw_segments(
+//     pairs: RawPairs,
+//     conf: &Config,
+//     header_data_seg: &Segment,
+//     header_analysis_seg: &Segment,
+// ) -> PureSuccess<(RawPairs, Option<Segment>, Option<Segment>, Option<Segment>)> {
+//     // iterate through all pairs and strip out the ones that denote an offset
+//     let mut data0 = None;
+//     let mut data1 = None;
+//     let mut stext0 = None;
+//     let mut stext1 = None;
+//     let mut analysis0 = None;
+//     let mut analysis1 = None;
+//     let mut newpairs = vec![];
+//     let pad_maybe = |s: String| {
+//         if conf.raw.repair_offset_spaces {
+//             pad_zeros(s.as_str())
+//         } else {
+//             s
+//         }
+//     };
+//     for (key, v) in pairs.into_iter() {
+//         match key.as_str() {
+//             BEGINDATA => data0 = Some(pad_maybe(v)),
+//             ENDDATA => data1 = Some(pad_maybe(v)),
+//             BEGINSTEXT => stext0 = Some(pad_maybe(v)),
+//             ENDSTEXT => stext1 = Some(pad_maybe(v)),
+//             BEGINANALYSIS => analysis0 = Some(pad_maybe(v)),
+//             ENDANALYSIS => analysis1 = Some(pad_maybe(v)),
+//             _ => newpairs.push((key, v)),
+//         }
+//     }
+
+//     let check_seg_with_header = |res: PureMaybe<Segment>, header_seg: &Segment, what| {
+//         res.and_then(|seg| {
+//             // TODO this doesn't seem the most efficient since I make a new
+//             // PureSuccess object in some branches
+//             match seg {
+//                 None => {
+//                     let seg = if header_seg.is_unset() {
+//                         None
+//                     } else {
+//                         Some(*header_seg)
+//                     };
+//                     PureSuccess::from(seg)
+//                 }
+//                 Some(seg) => {
+//                     let mut res = PureSuccess::from(Some(seg));
+//                     if !header_seg.is_unset() && seg != *header_seg {
+//                         res.data = Some(*header_seg);
+//                         // TODO toggle level since this could indicate a sketchy file
+//                         res.push_msg_leveled(
+//                             format!("{what} offsets differ in HEADER and TEXT, using HEADER"),
+//                             false,
+//                         );
+//                     }
+//                     res
+//                 }
+//             }
+//         })
+//     };
+
+//     // The DATA segment can be specified in either the header or TEXT. If within
+//     // offset 99,999,999, then the two should match. if they don't match then
+//     // trust the header and throw warning/error. If outside this range then the
+//     // header will be 0,0 and TEXT will have the real offsets.
+//     let data = check_seg_with_header(
+//         parse_segment(
+//             data0,
+//             data1,
+//             conf.corrections.start_data,
+//             conf.corrections.end_data,
+//             SegmentId::Data,
+//             PureErrorLevel::Error,
+//         ),
+//         header_data_seg,
+//         "DATA",
+//     );
+
+//     // Supplemental TEXT offsets are only in TEXT, so just parse and return
+//     // if found.
+//     let stext = parse_segment(
+//         stext0,
+//         stext1,
+//         conf.corrections.start_supp_text,
+//         conf.corrections.end_supp_text,
+//         SegmentId::SupplementalText,
+//         PureErrorLevel::Warning,
+//     );
+
+//     // ANALYSIS offsets are analogous to DATA offsets except they are optional.
+//     let analysis = check_seg_with_header(
+//         parse_segment(
+//             analysis0,
+//             analysis1,
+//             conf.corrections.start_analysis,
+//             conf.corrections.end_analysis,
+//             SegmentId::Analysis,
+//             PureErrorLevel::Warning,
+//         ),
+//         header_analysis_seg,
+//         "ANALYSIS",
+//     );
+
+//     data.combine3(stext, analysis, |a, b, c| (newpairs, a, b, c))
+// }
+
+fn lookup_stext_offsets(
+    kws: &mut RawKeywords,
+    version: Version,
+    conf: &Config,
+) -> PureSuccess<Option<Segment>> {
+    let c = &conf.corrections;
+    let offset_succ = KwParser::run(kws, &conf.standard, |st| match version {
+        Version::FCS2_0 => None,
+        Version::FCS3_0 | Version::FCS3_1 => {
+            let b = st.lookup_beginstext_req();
+            let e = st.lookup_endstext_req();
+            if let (Some(begin), Some(end)) = (b, e) {
+                Some((begin, end))
+            } else {
+                None
+            }
+        }
+        Version::FCS3_2 => {
+            let b = st.lookup_beginstext_opt();
+            let e = st.lookup_endstext_opt();
+            if let (Present(begin), Present(end)) = (b, e) {
+                Some((begin, end))
+            } else {
+                None
+            }
+        }
+    });
+    offset_succ.and_then(|offsets| match offsets {
+        None => PureMaybe::empty(),
+        Some((begin, end)) => {
+            let seg_res = Segment::try_new_adjusted(
+                begin,
+                end,
+                c.start_supp_text,
+                c.end_supp_text,
+                SegmentId::SupplementalText,
+            );
+            // TODO toggle error level this since supplemental TEXT may not be
+            // needed
+            PureMaybe::from_result_1(seg_res, PureErrorLevel::Error)
+        }
+    })
+}
+
+fn add_keywords(kws: &mut RawKeywords, pairs: RawPairs, conf: &RawTextConfig) -> PureSuccess<()> {
+    let mut succ = PureSuccess::from(());
+    for (k, v) in pairs.into_iter() {
+        let msg = format!(
+            "Skipping already-inserted key from supplemental TEXT: {}",
+            k.as_str()
+        );
+        if kws.insert(k, v).is_some() {
+            succ.push_msg_leveled(msg, conf.enforce_unique);
+        }
+    }
+    succ
+}
+
+fn h_read_raw_text_from_header<R: Read + Seek>(
     h: &mut BufReader<R>,
     header: &Header,
     conf: &Config,
@@ -5405,44 +5615,61 @@ fn h_read_raw_text<R: Read + Seek>(
     header.text.read(h, &mut buf)?;
 
     verify_delim(&buf, &conf.raw).try_map(|delimiter| {
-        let res = split_raw_text(&buf, delimiter, &conf.raw);
-        let pairs_res = if header.version == Version::FCS2_0 {
-            Ok(res.map(|pairs| (pairs, Some(header.data), None, Some(header.analysis))))
-        } else {
-            find_raw_segments(res.data, conf, &header.data, &header.analysis).try_map(
-                |(mut newpairs, maybe_data, maybe_stext, maybe_anal)| {
-                    let io_res: ImpureResult<_> =
-                        maybe_stext.map_or(Ok(PureSuccess::from(vec![])), |stext| {
-                            buf.clear();
-                            stext.read(h, &mut buf)?;
-                            Ok(split_raw_text(&buf, delimiter, &conf.raw))
-                        });
-                    let stext_res = io_res?;
-                    Ok(stext_res.map(|stext_pairs| {
-                        newpairs.extend(stext_pairs);
-                        (newpairs, maybe_data, maybe_stext, maybe_anal)
-                    }))
-                },
-            )
-        }?;
-
-        Ok(
-            pairs_res.and_then(|(mut pairs, data_seg, stext_seg, analysis_seg)| {
-                repair_keywords(&mut pairs, &conf.raw);
-                hash_raw_pairs(pairs, &conf.raw).map(|standard_kws| RawTEXT {
+        let split_succ = split_raw_text(&buf, delimiter, &conf.raw).and_then(|mut pairs| {
+            repair_offsets(&mut pairs, conf);
+            hash_raw_pairs(pairs, &conf.raw)
+        });
+        let stext_succ = split_succ.try_map(|mut kws| {
+            lookup_stext_offsets(&mut kws, header.version, conf).try_map(|s| {
+                let succ = if let Some(seg) = s {
+                    buf.clear();
+                    seg.read(h, &mut buf)?;
+                    split_raw_text(&buf, delimiter, &conf.raw)
+                        .and_then(|pairs| add_keywords(&mut kws, pairs, &conf.raw))
+                } else {
+                    PureSuccess::from(())
+                };
+                Ok(succ.map(|_| (kws, s)))
+            })
+        })?;
+        Ok(stext_succ.and_then(|(mut kws, supp_text_seg)| {
+            repair_keywords(&mut kws, &conf.raw);
+            // TODO this will throw an error if not present, but we may not care
+            // so toggle b/t error and warning
+            KwParser::run(&mut kws, &conf.standard, |st| st.lookup_nextdata()).map(|nextdata| {
+                RawTEXT {
                     version: header.version,
-                    keywords: standard_kws,
                     offsets: Offsets {
-                        data_seg,
-                        supp_text_seg: stext_seg,
                         prim_text_seg: header.text,
-                        analysis_seg,
-                        nextdata: 0, // TODO fix
+                        supp_text_seg,
+                        data_seg: header.data,
+                        analysis_seg: header.analysis,
+                        nextdata,
                     },
                     delimiter,
-                })
-            }),
-        )
+                    keywords: kws,
+                }
+            })
+        }))
+    })
+}
+
+fn h_read_raw_text<R: Read + Seek>(h: &mut BufReader<R>, conf: &Config) -> ImpureResult<RawTEXT> {
+    h_read_header(h)?.try_map(|header| h_read_raw_text_from_header(h, &header, conf))
+}
+
+fn raw_to_std(raw: RawTEXT, conf: &Config) -> PureResult<StandardizedTEXT> {
+    let mut kws = raw.keywords;
+    parse_raw_text(raw.version, &mut kws, &conf.standard).map(|std_succ| {
+        std_succ.map({
+            |standardized| StandardizedTEXT {
+                offsets: raw.offsets,
+                standardized,
+                delimiter: raw.delimiter,
+                // TODO this will contain extra stuff (like $TOT)
+                remainder: kws,
+            }
+        })
     })
 }
 
@@ -5471,8 +5698,8 @@ pub fn read_fcs_header(p: &path::PathBuf) -> ImpureResult<Header> {
 /// in a HashMap. No other processing will be performed.
 pub fn read_fcs_raw_text(p: &path::PathBuf, conf: &Config) -> ImpureResult<RawTEXT> {
     let file = fs::File::options().read(true).open(p)?;
-    let mut reader = BufReader::new(file);
-    h_read_header(&mut reader)?.try_map(|header| h_read_raw_text(&mut reader, &header, &conf))
+    let mut h = BufReader::new(file);
+    h_read_raw_text(&mut h, conf)
 }
 
 /// Return header and standardized metadata in an FCS file.
@@ -5486,19 +5713,7 @@ pub fn read_fcs_raw_text(p: &path::PathBuf, conf: &Config) -> ImpureResult<RawTE
 /// errors encountered during this process.
 pub fn read_fcs_text(p: &path::PathBuf, conf: &Config) -> ImpureResult<StandardizedTEXT> {
     let raw_succ = read_fcs_raw_text(p, conf)?;
-    let out = raw_succ.try_map(|mut raw| {
-        parse_raw_text(raw.version, &mut raw.keywords, &conf.standard).map(|std_succ| {
-            std_succ.map({
-                |standardized| StandardizedTEXT {
-                    offsets: raw.offsets,
-                    standardized,
-                    delimiter: raw.delimiter,
-                    // TODO this will contain extra stuff (like $TOT)
-                    remainder: raw.keywords,
-                }
-            })
-        })
-    })?;
+    let out = raw_succ.try_map(|raw| raw_to_std(raw, conf))?;
     Ok(out)
 }
 
@@ -5521,32 +5736,11 @@ pub fn read_fcs_text(p: &path::PathBuf, conf: &Config) -> ImpureResult<Standardi
 /// The [`conf`] argument can be used to control the behavior of each reading
 /// step, including the repair of non-conforming files.
 pub fn read_fcs_file(p: &path::PathBuf, conf: &Config) -> ImpureResult<StandardizedDataset> {
-    let std_text_succ = read_fcs_text(p, conf)?;
-    std_text_succ.try_map(|mut std| {
-        if let Some(data_seg) = std.offsets.data_seg {
-            let succ = std
-                .standardized
-                .as_data_parser(&mut std.remainder, &conf, &data_seg)?;
-            succ.try_map(|data_parser| {
-                // TODO don't read file again
-                let file = fs::File::options().read(true).open(p)?;
-                let mut reader = BufReader::new(file);
-                let data = h_read_data(&mut reader, data_parser)?;
-                Ok(PureSuccess::from(StandardizedDataset {
-                    offsets: std.offsets,
-                    delimiter: std.delimiter,
-                    remainder: std.remainder,
-                    dataset: CoreDataset {
-                        data,
-                        keywords: std.standardized,
-                        analysis: vec![], // TODO eventually I will parse this :)
-                    },
-                }))
-            })
-        } else {
-            Err(Failure::new("could not find DATA segment".to_string()))?
-        }
-    })
+    let file = fs::File::options().read(true).open(p)?;
+    let mut h = BufReader::new(file);
+    h_read_raw_text(&mut h, conf)?
+        .try_map(|raw| raw_to_std(raw, conf))?
+        .try_map(|std| h_read_std_dataset(&mut h, std, conf))
 }
 
 // fn read_fcs_file_2_0(p: path::PathBuf, conf: Reader) -> FCSResult<TEXT2_0>;

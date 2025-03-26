@@ -6,6 +6,7 @@ use std::io::{BufReader, Read, Seek, SeekFrom};
 /// A segment in an FCS file which is denoted by a pair of offsets
 #[derive(Debug, Clone, Copy, Serialize, PartialEq)]
 pub struct Segment {
+    // TODO usize?
     begin: u32,
     length: u32,
 }

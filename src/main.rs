@@ -156,7 +156,7 @@ fn main() -> io::Result<()> {
 
     match args.subcommand() {
         Some(("header", _)) => {
-            let header = api::read_fcs_header(filepath)?;
+            let header = handle_errors(api::read_fcs_header(filepath))?;
             print_json(&header);
         }
 

@@ -1944,6 +1944,12 @@ impl fmt::Display for Version {
     }
 }
 
+impl fmt::Display for VersionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "could not parse FCS Version")
+    }
+}
+
 impl FromStr for AlphaNumType {
     type Err = AlphaNumTypeError;
 
@@ -4956,38 +4962,55 @@ fn parse_header_offset(s: &str, allow_blank: bool) -> Option<u32> {
     }
     let re = Regex::new(r" *(\d+)").unwrap();
     re.captures(s).map(|c| {
+        // ASSUME this won't fail since the regexp has one field
         let [i] = c.extract().1;
+        // ASSUME this won't fail since the regexp capture only matches digits
         i.parse().unwrap()
     })
 }
 
-fn parse_bounds(s0: &str, s1: &str, allow_blank: bool, id: SegmentId) -> Result<Segment, String> {
-    if let (Some(begin), Some(end)) = (
-        parse_header_offset(s0, allow_blank),
-        parse_header_offset(s1, allow_blank),
-    ) {
-        Segment::try_new(begin, end, id)
-    } else if allow_blank {
-        Err("could not make bounds from integers/blanks".to_string())
-    } else {
-        Err("could not make bounds from integers".to_string())
-    }
+fn parse_bounds(s0: &str, s1: &str, allow_blank: bool, id: SegmentId) -> PureMaybe<Segment> {
+    let parse_one = |s, which| {
+        PureMaybe::from_result_1(
+            parse_header_offset(s, allow_blank).ok_or(format!(
+                "could not parse {which} offset for {id} segment; value was '{s}'"
+            )),
+            PureErrorLevel::Error,
+        )
+    };
+    let begin_res = parse_one(s0, "begin");
+    let end_res = parse_one(s1, "end");
+    begin_res
+        .combine(end_res, |b, e| (b, e))
+        .and_then(|(b, e)| {
+            if let (Some(begin), Some(end)) = (b, e) {
+                PureMaybe::from_result_1(
+                    Segment::try_new_adjusted(begin, end, 0, 0, id),
+                    PureErrorLevel::Error,
+                )
+            } else {
+                PureMaybe::empty()
+            }
+        })
 }
 
-const hre: &str = r"(.{6})    (.{8})(.{8})(.{8})(.{8})(.{8})(.{8})";
+const HEADER_PAT: &str = r"(.{6})    (.{8})(.{8})(.{8})(.{8})(.{8})(.{8})";
 
-fn parse_header(s: &str) -> Result<Header, &'static str> {
-    let re = Regex::new(hre).unwrap();
-    re.captures(s)
-        .and_then(|c| {
-            let [v, t0, t1, d0, d1, a0, a1] = c.extract().1;
-            // TODO actually gather errors here
-            if let (Ok(version), Ok(text), Ok(data), Ok(analysis)) = (
-                v.parse(),
-                parse_bounds(t0, t1, false, SegmentId::PrimaryText),
-                parse_bounds(d0, d1, false, SegmentId::Data),
-                parse_bounds(a0, a1, true, SegmentId::Analysis),
-            ) {
+fn parse_header(s: &str) -> PureResult<Header> {
+    // ASSUME this will always work, if not the regexp is invalid
+    let re = Regex::new(HEADER_PAT).unwrap();
+    if let Some(cap) = re.captures(s) {
+        // ASSUME this will always work since the regexp has 7 fields
+        let [v, t0, t1, d0, d1, a0, a1] = cap.extract().1;
+        let vers_succ = PureMaybe::from_result_1(
+            v.parse::<Version>().map_err(|e| e.to_string()),
+            PureErrorLevel::Error,
+        );
+        let text_succ = parse_bounds(t0, t1, false, SegmentId::PrimaryText);
+        let data_succ = parse_bounds(d0, d1, false, SegmentId::Data);
+        let anal_succ = parse_bounds(a0, a1, true, SegmentId::Analysis);
+        let succ = vers_succ.combine4(text_succ, data_succ, anal_succ, |v, t, d, a| {
+            if let (Some(version), Some(text), Some(data), Some(analysis)) = (v, t, d, a) {
                 Some(Header {
                     version,
                     text,
@@ -4997,17 +5020,25 @@ fn parse_header(s: &str) -> Result<Header, &'static str> {
             } else {
                 None
             }
-        })
-        .ok_or("malformed header")
+        });
+        PureMaybe::into_result(succ, "could not parse HEADER fields".to_string())
+    } else {
+        Err(Failure::new("could not parse HEADER".to_string()))
+    }
 }
 
-fn read_header<R: Read>(h: &mut BufReader<R>) -> io::Result<Header> {
-    let mut verbuf = [0; 58];
+const HEADERLEN: usize = 58;
+
+fn h_read_header<R: Read>(h: &mut BufReader<R>) -> ImpureResult<Header> {
+    let mut verbuf = [0; HEADERLEN];
     h.read_exact(&mut verbuf)?;
     if let Ok(hs) = str::from_utf8(&verbuf) {
-        parse_header(hs).map_err(io::Error::other)
+        let succ = parse_header(hs)?;
+        Ok(succ)
     } else {
-        Err(io::Error::other("header sequence is not valid text"))
+        Err(Failure::new(ImpureError::Pure(
+            "HEADER is not valid text".to_string(),
+        )))
     }
 }
 
@@ -5432,10 +5463,10 @@ fn read_raw_text<R: Read + Seek>(
 ///
 /// Depending on the version, all of these except the TEXT offsets might be 0
 /// which indicates they are actually stored in TEXT due to size limitations.
-pub fn read_fcs_header(p: &path::PathBuf) -> io::Result<Header> {
+pub fn read_fcs_header(p: &path::PathBuf) -> ImpureResult<Header> {
     let file = fs::File::options().read(true).open(p)?;
     let mut reader = BufReader::new(file);
-    read_header(&mut reader)
+    h_read_header(&mut reader)
 }
 
 /// Return header and raw key/value metadata pairs in an FCS file.
@@ -5449,8 +5480,8 @@ pub fn read_fcs_header(p: &path::PathBuf) -> io::Result<Header> {
 pub fn read_fcs_raw_text(p: &path::PathBuf, conf: &Reader) -> ImpureResult<RawTEXT> {
     let file = fs::File::options().read(true).open(p)?;
     let mut reader = BufReader::new(file);
-    let header = read_header(&mut reader)?;
-    read_raw_text(&mut reader, &header, &conf.text.raw)
+    h_read_header(&mut reader)?
+        .try_map(|header| read_raw_text(&mut reader, &header, &conf.text.raw))
 }
 
 /// Return header and standardized metadata in an FCS file.

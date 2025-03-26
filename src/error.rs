@@ -311,6 +311,10 @@ impl<X> PureSuccess<X> {
 }
 
 impl<X> PureMaybe<X> {
+    pub fn empty() -> PureMaybe<X> {
+        PureSuccess::from(None)
+    }
+
     pub fn into_result(self, reason: String) -> PureResult<X> {
         if let Some(d) = self.data {
             Ok(PureSuccess {
@@ -322,6 +326,16 @@ impl<X> PureMaybe<X> {
                 reason,
                 deferred: self.deferred,
             })
+        }
+    }
+
+    pub fn from_result_1(res: Result<X, String>, level: PureErrorLevel) -> Self {
+        match res {
+            Ok(data) => PureSuccess::from(Some(data)),
+            Err(msg) => PureSuccess {
+                data: None,
+                deferred: PureErrorBuf::from(msg, level),
+            },
         }
     }
 

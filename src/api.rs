@@ -305,9 +305,6 @@ struct CoreTEXT<M, P> {
 /// Raw TEXT key/value pairs
 type RawKeywords = HashMap<String, String>;
 
-/// TEXT keyword pairs whose key starts with '$'
-type RawKeywords = HashMap<StdKey, String>;
-
 /// TEXT keyword pairs whose key does not start with with '$'
 type NonStdKeywords = HashMap<NonStdKey, String>;
 
@@ -3287,50 +3284,57 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
         conf: &'a StdTextReader,
         data_seg: &Segment,
     ) -> PureResult<DataParser> {
-        let mut st = KwState::from(kws, conf);
-        let maybe_md = <M as VersionedParserMetadata>::as_minimal(&self.metadata, &mut st);
-        if let Some(metadata) = maybe_md {
+        // TODO these error messages are...interesting
+        let msg = "could not convert to minimal metadata".to_string();
+        let succ = KwState::try_run(kws, conf, msg, |mut st| {
+            let maybe_md = <M as VersionedParserMetadata>::as_minimal(&self.metadata, &mut st);
             let measurements: Vec<_> = self
                 .measurements
                 .iter()
                 .map(<M::P as VersionedParserMeasurement>::as_minimal)
                 .collect();
-            let deferred = st.collect();
-            let it = ParserTEXT {
+            maybe_md.map(|metadata| ParserTEXT {
                 measurements,
                 metadata,
                 conf,
                 data_seg: *data_seg,
-            };
-            M::build_data_parser(&it).into_result("could not build data parser".to_string())
-        } else {
-            // TODO whatever this means... :/
-            Err(st.into_failure("could not convert to minimal metadata".to_string()))
-        }
+            })
+        })?;
+        succ.and_then(|it| M::build_data_parser(&it))
+            .into_result("could not build data parser".to_string())
     }
 
     fn from_raw(kws: &mut RawKeywords, conf: &StdTextReader) -> PureResult<Self> {
-        let mut st = KwState::from(kws, conf);
-        if let Some(par) = st.lookup_par() {
-            let ms = M::P::lookup_measurements(&mut st, par);
-            let md = ms.as_ref().and_then(|xs| M::lookup_metadata(&mut st, xs));
-            if let (Some(measurements), Some(metadata)) = (ms, md) {
-                // TODO add errors if desired informing user that these were
-                // found
-                let deferred = st.collect();
-                Ok(PureSuccess {
-                    data: (CoreTEXT {
-                        metadata,
-                        measurements,
-                    }),
-                    deferred,
-                })
-            } else {
-                Err(st.into_failure("could not standardize TEXT".to_string()))
-            }
-        } else {
-            Err(st.into_failure("could not find $PAR".to_string()))
-        }
+        // Lookup $PAR first; everything depends on this since we need to know
+        // the number of measurements to find which are used in turn for
+        // validating lots of keywords in metadata. If we fail we need to bail.
+        //
+        // TODO this isn't entirely true; there are some things that can be
+        // tested without $PAR, so if we really wanted to be aggressive we could
+        // pass $PAR as an Option and only test if not None when we need it and
+        // possibly bail. Might be worth it.
+        let par_fail = "could not find $PAR".to_string();
+        let par_succ = KwState::try_run(kws, conf, par_fail, |st| st.lookup_par())?;
+        // Lookup measurements+metadata based on $PAR, which also might fail in
+        // a zillion ways. If this fails we need to bail since we cannot create
+        // a struct with missing fields.
+        let md_fail = "could not standardize TEXT".to_string();
+        let md_succ = par_succ.try_map(|par| {
+            KwState::try_run(kws, conf, md_fail, |mut st| {
+                let ms = M::P::lookup_measurements(&mut st, par);
+                let md = ms.as_ref().and_then(|xs| M::lookup_metadata(&mut st, xs));
+                if let (Some(measurements), Some(metadata)) = (ms, md) {
+                    Some((measurements, metadata))
+                } else {
+                    None
+                }
+            })
+        })?;
+        // hooray, we win and can now make the core struct
+        Ok(md_succ.map(|(measurements, metadata)| CoreTEXT {
+            metadata,
+            measurements,
+        }))
     }
 
     fn any_from_raw(kws: &mut RawKeywords, conf: &StdTextReader) -> PureResult<AnyCoreTEXT> {
@@ -4371,6 +4375,38 @@ fn split_raw_keywords(kws: RawKeywords) -> (RawKeywords, RawKeywords) {
 }
 
 impl<'a, 'b> KwState<'a, 'b> {
+    fn run<X, F>(kws: &'b mut RawKeywords, conf: &'a StdTextReader, f: F) -> PureSuccess<X>
+    where
+        F: FnOnce(&mut Self) -> X,
+    {
+        let mut st = Self::from(kws, conf);
+        let data = f(&mut st);
+        PureSuccess {
+            data,
+            deferred: st.collect(),
+        }
+    }
+
+    fn try_run<X, F>(
+        kws: &'b mut RawKeywords,
+        conf: &'a StdTextReader,
+        reason: String,
+        f: F,
+    ) -> PureResult<X>
+    where
+        F: FnOnce(&mut Self) -> Option<X>,
+    {
+        let mut st = Self::from(kws, conf);
+        if let Some(data) = f(&mut st) {
+            Ok(PureSuccess {
+                data,
+                deferred: st.collect(),
+            })
+        } else {
+            Err(st.into_failure(reason))
+        }
+    }
+
     fn from(kws: &'b mut RawKeywords, conf: &'a StdTextReader) -> Self {
         KwState {
             raw_keywords: kws,
@@ -5049,21 +5085,6 @@ impl<'a, 'b> KwState<'a, 'b> {
     fn collect(self) -> PureErrorBuf {
         self.deferred
     }
-
-    // fn collect(self) -> (PureErrorBuf, RawKeywords) {
-    //     let mut remainder = HashMap::new();
-    //     let mut deferred = PureErrorBuf::new();
-    //     for (key, v) in self.raw_keywords {
-    //         match v.status {
-    //             ValueStatus::Raw => {
-    //                 remainder.insert(key, v.value);
-    //             }
-    //             ValueStatus::Error(err) => deferred.push(err),
-    //             ValueStatus::Used => (),
-    //         }
-    //     }
-    //     (deferred, remainder)
-    // }
 
     fn into_failure(self, reason: String) -> PureFailure {
         Failure {

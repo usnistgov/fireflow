@@ -27,7 +27,7 @@ pub const TR: &str = "$TR";
 
 pub const BTIM: &str = "$BTIM"; // deprecated since 3.2
 pub const ETIM: &str = "$ETIM"; // deprecated since 3.2
-pub const DATE: &str = "$ETIM"; // deprecated since 3.2
+pub const DATE: &str = "$DATE"; // deprecated since 3.2
 
 pub const CYTSN: &str = "$CYTSN"; // since 3.0
 pub const TIMESTEP: &str = "$TIMESTEP"; // since 3.0

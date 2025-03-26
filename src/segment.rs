@@ -103,7 +103,7 @@ impl Segment {
                 } else {
                     Ok(Segment {
                         begin: new_begin,
-                        length: new_begin - new_end,
+                        length: new_end - new_begin,
                     })
                 }
             }
@@ -137,13 +137,9 @@ impl Segment {
         self.length + 1
     }
 
-    // pub fn into_option(self) -> Option<Self> {
-    //     if self.is_unset() {
-    //         None
-    //     } else {
-    //         Some(self)
-    //     }
-    // }
+    pub fn begin(&self) -> u32 {
+        self.begin
+    }
 
     fn end(&self) -> u32 {
         self.begin + self.length

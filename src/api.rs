@@ -19,6 +19,8 @@ use std::path;
 use std::str;
 use std::str::FromStr;
 
+// TODO gating parameters not added (yet)
+
 /// Output from parsing the FCS header.
 ///
 /// Includes version and the three main segments (TEXT, DATA, ANALYSIS). For
@@ -42,9 +44,9 @@ pub struct Header {
 /// Segment offsets derived from HEADER may be updated depending on keywords
 /// present. See fields below for more information on this.
 #[derive(Debug, Clone, Serialize)]
-struct RawTEXT {
+pub struct RawTEXT {
     /// FCS version from header
-    version: Version,
+    pub version: Version,
 
     // TODO this is a limitation of the current error handler where it would be
     // nice to evaluate which are warnings and which are errors at the very end
@@ -55,19 +57,19 @@ struct RawTEXT {
     // the errors later which means we would need a system of propagating the
     // error identities forward aside from their string message.
     /// All offsets as parsed from raw TEXT and HEADER.
-    offsets: Offsets,
+    pub offsets: Offsets,
 
     /// Keyword pairs
     ///
     /// This does not include offset keywords (DATA, STEXT, ANALYSIS) and will
     /// include supplemental TEXT keywords if present and the offsets for
     /// supplemental TEXT are successfully found.
-    keywords: RawKeywords,
+    pub keywords: RawKeywords,
 
     /// Delimiter used to parse TEXT.
     ///
     /// Included here for informational purposes.
-    delimiter: u8,
+    pub delimiter: u8,
 }
 
 /// All segment offsets.
@@ -80,18 +82,18 @@ struct RawTEXT {
 /// valuable for informing the user since by the time this struct will exist the
 /// primary (and possibly supplemental) TEXT will have already been parsed.
 #[derive(Debug, Clone, Serialize)]
-struct Offsets {
+pub struct Offsets {
     /// Primary TEXT offsets
     ///
     /// The offsets that were used to parse the TEXT segment. Included here for
     /// informational purposes.
-    prim_text_seg: Segment,
+    pub prim_text_seg: Segment,
 
     /// Supplemental TEXT offsets
     ///
     /// This is not needed downstream and included here for informational
     /// purposes. It will always be None for 2.0 which does not include this.
-    supp_text_seg: Option<Segment>,
+    pub supp_text_seg: Option<Segment>,
 
     /// DATA offsets
     ///
@@ -99,7 +101,7 @@ struct Offsets {
     /// when acquiring the offset. If DATA does not exist this will be 0,0.
     ///
     /// This may be used later to acquire the DATA segment.
-    data_seg: Option<Segment>,
+    pub data_seg: Option<Segment>,
 
     /// ANALYSIS offsets.
     ///
@@ -108,13 +110,13 @@ struct Offsets {
     /// be 0,0.
     ///
     /// This may be used later to acquire the ANALYSIS segment.
-    analysis_seg: Option<Segment>,
+    pub analysis_seg: Option<Segment>,
 
     /// NEXTDATA offset
     ///
     /// This will be copied as represented in TEXT. If it is 0, there is no next
     /// dataset, otherwise it points to the next dataset in the file.
-    nextdata: u32,
+    pub nextdata: u32,
 }
 
 /// Output of parsing the TEXT segment and standardizing keywords.
@@ -127,9 +129,9 @@ struct Offsets {
 ///
 /// Version is not included since this is implied by the standardized structs
 /// used.
-struct StandardizedTEXT {
+pub struct StandardizedTEXT {
     /// Offsets as parsed from raw TEXT and HEADER
-    offsets: Offsets,
+    pub offsets: Offsets,
 
     /// Structured data derived from TEXT specific to the indicated FCS version.
     ///
@@ -138,18 +140,18 @@ struct StandardizedTEXT {
     /// that can be readily accessed directly and returned with the proper type.
     /// Anything nonstandard will be kept in a hash table whose values will
     /// be strings.
-    standardized: AnyCoreTEXT,
+    pub standardized: AnyCoreTEXT,
 
     /// Keywords remaining after standardization
     ///
     /// Assuming the code works, this should only have keywords that start with
     /// a '$', some of which will be standardized.
-    remainder: RawKeywords,
+    pub remainder: RawKeywords,
 
     /// Delimiter used to parse TEXT.
     ///
     /// Included here for informational purposes.
-    delimiter: u8,
+    pub delimiter: u8,
 }
 
 /// Output of parsing one raw dataset (TEXT+DATA) from an FCS file.
@@ -163,43 +165,43 @@ struct StandardizedTEXT {
 // dataframe. Furthermore, it could be useful for someone who wishes to parse
 // all their data and then repair it, although there should be easier ways to do
 // this using the standardized interface.
-struct RawDataset {
+pub struct RawDataset {
     /// Offsets as parsed from raw TEXT and HEADER
     // TODO the data segment in this should be non-Option since we know it
     // exists if this struct exists.
-    offsets: Offsets,
+    pub offsets: Offsets,
 
     // TODO add keywords
     // TODO add dataset
     /// Delimiter used to parse TEXT.
     ///
     /// Included here for informational purposes.
-    delimiter: u8,
+    pub delimiter: u8,
 }
 
 /// Output of parsing one standardized dataset (TEXT+DATA) from an FCS file.
-struct StandardizedDataset {
+pub struct StandardizedDataset {
     /// Offsets as parsed from raw TEXT and HEADER
     // TODO the data segment in this should be non-Option since we know it
     // exists if this struct exists.
-    offsets: Offsets,
+    pub offsets: Offsets,
 
     /// Structured data derived from TEXT specific to the indicated FCS version.
-    dataset: CoreDataset,
+    pub dataset: CoreDataset,
 
     /// Non-standard keywords that start with '$'.
-    remainder: RawKeywords,
+    pub remainder: RawKeywords,
 
     /// Delimiter used to parse TEXT.
-    delimiter: u8,
+    pub delimiter: u8,
 }
 
 /// Represents the minimal data to fully describe one dataset in an FCS file.
 ///
 /// This will include the standardized TEXT keywords as well as its
 /// corresponding DATA segment parsed into a dataframe-like structure.
-struct CoreDataset {
-    keywords: AnyCoreTEXT,
+pub struct CoreDataset {
+    pub keywords: AnyCoreTEXT,
 
     /// DATA segment
     ///
@@ -214,14 +216,14 @@ struct CoreDataset {
     // level. Furthermore, even python has a suboptimal typing interface for
     // pandas dataframes (R is worse), so it's not like this can be checked
     // statically anyways.
-    data: ParsedData,
+    pub data: ParsedData,
 
     /// ANALYSIS segment
     ///
     /// This will be empty if ANALYSIS either doesn't exist or the computation
     /// fails. This has not standard structure, so the best we can capture is a
     /// byte sequence.
-    analysis: Vec<u8>,
+    pub analysis: Vec<u8>,
 }
 
 /// Represents the values in the DATA segment.
@@ -1382,14 +1384,14 @@ trait VersionedMetadata: Sized + VersionedParserMetadata {
         Self::build_column_parser(it).map(|c| {
             c.map(|column_parser| DataParser {
                 column_parser,
-                begin: u64::from(it.data_seg.begin),
+                begin: u64::from(it.data_seg.begin()),
             })
         })
     }
 
-    fn lookup_specific(st: &mut KwState, par: usize, names: &HashSet<&str>) -> Option<Self>;
+    fn lookup_specific(st: &mut KwParser, par: usize, names: &HashSet<&str>) -> Option<Self>;
 
-    fn lookup_metadata(st: &mut KwState, ms: &[Measurement<Self::P>]) -> Option<Metadata<Self>> {
+    fn lookup_metadata(st: &mut KwParser, ms: &[Measurement<Self::P>]) -> Option<Metadata<Self>> {
         let names: HashSet<_> = ms
             .iter()
             .filter_map(|m| Self::P::measurement_name(m))
@@ -1454,11 +1456,11 @@ trait VersionedMetadata: Sized + VersionedParserMetadata {
 trait VersionedMeasurement: Sized + Versioned {
     type D;
 
-    fn lookup_specific(st: &mut KwState, n: usize) -> Option<Self>;
+    fn lookup_specific(st: &mut KwParser, n: usize) -> Option<Self>;
 
     fn measurement_name(p: &Measurement<Self>) -> Option<&str>;
 
-    fn lookup_measurements(st: &mut KwState, par: usize) -> Option<Vec<Measurement<Self>>> {
+    fn lookup_measurements(st: &mut KwParser, par: usize) -> Option<Vec<Measurement<Self>>> {
         let mut ps = vec![];
         let v = Self::fcs_version();
         for n in 1..(par + 1) {
@@ -1541,9 +1543,9 @@ trait VersionedParserMeasurement: Sized {
 trait VersionedParserMetadata: Sized {
     type Target;
 
-    fn as_minimal_inner(&self, st: &mut KwState) -> Option<Self::Target>;
+    fn as_minimal_inner(&self, st: &mut KwParser) -> Option<Self::Target>;
 
-    fn as_minimal(md: &Metadata<Self>, st: &mut KwState) -> Option<ParserMetadata<Self::Target>> {
+    fn as_minimal(md: &Metadata<Self>, st: &mut KwParser) -> Option<ParserMetadata<Self::Target>> {
         let datatype = md.datatype;
         let specific = Self::as_minimal_inner(&md.specific, st)?;
         Some(ParserMetadata { datatype, specific })
@@ -2828,7 +2830,7 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
             .map(|s| s.0.as_str())
     }
 
-    fn lookup_specific(st: &mut KwState, n: usize) -> Option<InnerMeasurement2_0> {
+    fn lookup_specific(st: &mut KwParser, n: usize) -> Option<InnerMeasurement2_0> {
         Some(InnerMeasurement2_0 {
             scale: st.lookup_meas_scale_opt(n),
             shortname: st.lookup_meas_shortname_opt(n),
@@ -2858,7 +2860,7 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
             .map(|s| s.0.as_str())
     }
 
-    fn lookup_specific(st: &mut KwState, n: usize) -> Option<InnerMeasurement3_0> {
+    fn lookup_specific(st: &mut KwParser, n: usize) -> Option<InnerMeasurement3_0> {
         let shortname = st.lookup_meas_shortname_opt(n);
         Some(InnerMeasurement3_0 {
             scale: st.lookup_meas_scale_timecheck_opt(n, &shortname)?,
@@ -2887,7 +2889,7 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
         Some(p.specific.shortname.0.as_str())
     }
 
-    fn lookup_specific(st: &mut KwState, n: usize) -> Option<InnerMeasurement3_1> {
+    fn lookup_specific(st: &mut KwParser, n: usize) -> Option<InnerMeasurement3_1> {
         let shortname = st.lookup_meas_shortname_req(n)?;
         Some(InnerMeasurement3_1 {
             scale: st.lookup_meas_scale_timecheck(n, &shortname)?,
@@ -2920,7 +2922,7 @@ impl VersionedMeasurement for InnerMeasurement3_2 {
         Some(p.specific.shortname.0.as_str())
     }
 
-    fn lookup_specific(st: &mut KwState, n: usize) -> Option<InnerMeasurement3_2> {
+    fn lookup_specific(st: &mut KwParser, n: usize) -> Option<InnerMeasurement3_2> {
         let shortname = st.lookup_meas_shortname_req(n)?;
         Some(InnerMeasurement3_2 {
             gain: st.lookup_meas_gain_timecheck(n, &shortname),
@@ -3286,7 +3288,7 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
     ) -> PureResult<DataParser> {
         // TODO these error messages are...interesting
         let msg = "could not convert to minimal metadata".to_string();
-        let succ = KwState::try_run(kws, conf, msg, |mut st| {
+        let succ = KwParser::try_run(kws, conf, msg, |mut st| {
             let maybe_md = <M as VersionedParserMetadata>::as_minimal(&self.metadata, &mut st);
             let measurements: Vec<_> = self
                 .measurements
@@ -3314,13 +3316,13 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
         // pass $PAR as an Option and only test if not None when we need it and
         // possibly bail. Might be worth it.
         let par_fail = "could not find $PAR".to_string();
-        let par_succ = KwState::try_run(kws, conf, par_fail, |st| st.lookup_par())?;
+        let par_succ = KwParser::try_run(kws, conf, par_fail, |st| st.lookup_par())?;
         // Lookup measurements+metadata based on $PAR, which also might fail in
         // a zillion ways. If this fails we need to bail since we cannot create
         // a struct with missing fields.
         let md_fail = "could not standardize TEXT".to_string();
         let md_succ = par_succ.try_map(|par| {
-            KwState::try_run(kws, conf, md_fail, |mut st| {
+            KwParser::try_run(kws, conf, md_fail, |mut st| {
                 let ms = M::P::lookup_measurements(&mut st, par);
                 let md = ms.as_ref().and_then(|xs| M::lookup_metadata(&mut st, xs));
                 if let (Some(measurements), Some(metadata)) = (ms, md) {
@@ -3495,37 +3497,37 @@ struct DataParser {
     begin: u64,
 }
 
-// fn format_parsed_data(res: &FCSSuccess, delim: &str) -> Vec<String> {
-//     let shortnames = match &res.std {
-//         AnyCoreTEXT::FCS2_0(x) => x.get_shortnames(),
-//         AnyCoreTEXT::FCS3_0(x) => x.get_shortnames(),
-//         AnyCoreTEXT::FCS3_1(x) => x.get_shortnames(),
-//         AnyCoreTEXT::FCS3_2(x) => x.get_shortnames(),
-//     };
-//     if res.data.is_empty() {
-//         return vec![];
-//     }
-//     let mut buf = vec![];
-//     let mut lines = vec![];
-//     let nrows = res.data[0].len();
-//     let ncols = res.data.len();
-//     // ASSUME names is the same length as columns
-//     lines.push(shortnames.join(delim));
-//     for r in 0..nrows {
-//         buf.clear();
-//         for c in 0..ncols {
-//             buf.push(res.data[c].format(r));
-//         }
-//         lines.push(buf.join(delim));
-//     }
-//     lines
-// }
+fn format_parsed_data(res: &StandardizedDataset, delim: &str) -> Vec<String> {
+    let shortnames = match &res.dataset.keywords {
+        AnyCoreTEXT::FCS2_0(x) => x.get_shortnames(),
+        AnyCoreTEXT::FCS3_0(x) => x.get_shortnames(),
+        AnyCoreTEXT::FCS3_1(x) => x.get_shortnames(),
+        AnyCoreTEXT::FCS3_2(x) => x.get_shortnames(),
+    };
+    if res.dataset.data.is_empty() {
+        return vec![];
+    }
+    let mut buf = vec![];
+    let mut lines = vec![];
+    let nrows = res.dataset.data[0].len();
+    let ncols = res.dataset.data.len();
+    // ASSUME names is the same length as columns
+    lines.push(shortnames.join(delim));
+    for r in 0..nrows {
+        buf.clear();
+        for c in 0..ncols {
+            buf.push(res.dataset.data[c].format(r));
+        }
+        lines.push(buf.join(delim));
+    }
+    lines
+}
 
-// pub fn print_parsed_data(res: &FCSSuccess, delim: &str) {
-//     for x in format_parsed_data(res, delim) {
-//         println!("{}", x);
-//     }
-// }
+pub fn print_parsed_data(s: &StandardizedDataset, delim: &str) {
+    for x in format_parsed_data(s, delim) {
+        println!("{}", x);
+    }
+}
 
 fn ascii_to_float_io(buf: Vec<u8>) -> io::Result<f64> {
     String::from_utf8(buf)
@@ -3866,7 +3868,7 @@ impl VersionedParserMetadata for InnerMetadata2_0 {
         t.tot.as_ref().into_option().copied()
     }
 
-    fn as_minimal_inner(&self, st: &mut KwState) -> Option<InnerParserMetadata2_0> {
+    fn as_minimal_inner(&self, st: &mut KwParser) -> Option<InnerParserMetadata2_0> {
         Some(InnerParserMetadata2_0 {
             byteord: self.byteord.clone(),
             tot: st.lookup_tot_opt(),
@@ -3885,7 +3887,7 @@ impl VersionedParserMetadata for InnerMetadata3_0 {
         Some(t.tot)
     }
 
-    fn as_minimal_inner(&self, st: &mut KwState) -> Option<InnerParserMetadata3_0> {
+    fn as_minimal_inner(&self, st: &mut KwParser) -> Option<InnerParserMetadata3_0> {
         st.lookup_tot_req().map(|tot| InnerParserMetadata3_0 {
             byteord: self.byteord.clone(),
             tot,
@@ -3904,7 +3906,7 @@ impl VersionedParserMetadata for InnerMetadata3_1 {
         Some(t.tot)
     }
 
-    fn as_minimal_inner(&self, st: &mut KwState) -> Option<InnerParserMetadata3_1> {
+    fn as_minimal_inner(&self, st: &mut KwParser) -> Option<InnerParserMetadata3_1> {
         st.lookup_tot_req().map(|tot| InnerParserMetadata3_1 {
             byteord: self.byteord.clone(),
             tot,
@@ -3923,7 +3925,7 @@ impl VersionedParserMetadata for InnerMetadata3_2 {
         Some(t.tot)
     }
 
-    fn as_minimal_inner(&self, st: &mut KwState) -> Option<InnerParserMetadata3_1> {
+    fn as_minimal_inner(&self, st: &mut KwParser) -> Option<InnerParserMetadata3_1> {
         st.lookup_tot_req().map(|tot| InnerParserMetadata3_1 {
             byteord: self.byteord.clone(),
             tot,
@@ -3956,7 +3958,7 @@ impl VersionedMetadata for InnerMetadata2_0 {
     }
 
     fn lookup_specific(
-        st: &mut KwState,
+        st: &mut KwParser,
         par: usize,
         _: &HashSet<&str>,
     ) -> Option<InnerMetadata2_0> {
@@ -4015,7 +4017,7 @@ impl VersionedMetadata for InnerMetadata3_0 {
     }
 
     fn lookup_specific(
-        st: &mut KwState,
+        st: &mut KwParser,
         _: usize,
         names: &HashSet<&str>,
     ) -> Option<InnerMetadata3_0> {
@@ -4090,7 +4092,7 @@ impl VersionedMetadata for InnerMetadata3_1 {
     }
 
     fn lookup_specific(
-        st: &mut KwState,
+        st: &mut KwParser,
         _: usize,
         names: &HashSet<&str>,
     ) -> Option<InnerMetadata3_1> {
@@ -4247,7 +4249,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
     }
 
     fn lookup_specific(
-        st: &mut KwState,
+        st: &mut KwParser,
         _: usize,
         names: &HashSet<&str>,
     ) -> Option<InnerMetadata3_2> {
@@ -4343,37 +4345,6 @@ impl NonStdKey {
     }
 }
 
-#[derive(Eq, PartialEq)]
-enum ValueStatus {
-    Raw,
-    Error(PureError),
-    Used,
-}
-
-struct KwValue {
-    value: String,
-    status: ValueStatus,
-}
-
-// all hail the almighty state monad :D
-
-struct KwState<'a, 'b> {
-    raw_keywords: &'b mut RawKeywords,
-    deferred: PureErrorBuf,
-    conf: &'a StdTextReader,
-}
-
-#[derive(Debug, Clone)]
-struct KeyError {
-    key: StdKey,
-    value: String,
-    msg: String,
-}
-
-fn split_raw_keywords(kws: RawKeywords) -> (RawKeywords, RawKeywords) {
-    kws.into_iter().partition(|(k, _)| k.starts_with("$"))
-}
-
 macro_rules! kws_req {
     ($name:ident, $ret:ty, $key:expr, $dep:expr ) => {
         fn $name(&mut self) -> Option<$ret> {
@@ -4406,7 +4377,38 @@ macro_rules! kws_meas_opt {
     };
 }
 
-impl<'a, 'b> KwState<'a, 'b> {
+/// A structure to look up and parse keywords in the TEXT segment
+///
+/// Given a hash table of keywords (as String pairs) and a configuration, this
+/// provides an interface to extract keywords. If found, the keyword will be
+/// removed from the table and parsed to its native type (number, list, matrix,
+/// etc). If lookup or parsing fails, an error/warning will be logged within the
+/// state depending on if the key is required or optional (among other things
+/// depending on the keyword).
+///
+/// Errors in all cases are deferred until the end of the state's lifetime, at
+/// which point the errors are returned along with the result of the computation
+/// or failure (if applicable).
+///
+/// For Haskell zealots, this is somewhat like a pure state monad in that it has
+/// a 'run' interface which takes an input and a function to act within the
+/// state. The main difference is that it modifies the keywords in-place
+/// and returns the error result (rather than purely returning both).
+struct KwParser<'a, 'b> {
+    raw_keywords: &'b mut RawKeywords,
+    deferred: PureErrorBuf,
+    conf: &'a StdTextReader,
+}
+
+impl<'a, 'b> KwParser<'a, 'b> {
+    /// Run a computation within a keyword lookup context.
+    ///
+    /// The computation must return a result, although it may record deferred
+    /// errors along the way which will be returned.
+    ///
+    /// Any errors which are logged must be pushed into the state's error buffer
+    /// directly, as errors are not allowed to be returned by the inner
+    /// computation.
     fn run<X, F>(kws: &'b mut RawKeywords, conf: &'a StdTextReader, f: F) -> PureSuccess<X>
     where
         F: FnOnce(&mut Self) -> X,
@@ -4419,6 +4421,15 @@ impl<'a, 'b> KwState<'a, 'b> {
         }
     }
 
+    /// Run a computation within a keyword lookup context which may fail.
+    ///
+    /// This is like 'run' except the computation may not return anything (None)
+    /// in which case Err(Failure(...)) will be returned along with the reason
+    /// for failure which must be given a priori.
+    ///
+    /// Any errors which are logged must be pushed into the state's error buffer
+    /// directly, as errors are not allowed to be returned by the inner
+    /// computation.
     fn try_run<X, F>(
         kws: &'b mut RawKeywords,
         conf: &'a StdTextReader,
@@ -4439,6 +4450,11 @@ impl<'a, 'b> KwState<'a, 'b> {
         }
     }
 
+    // offsets
+
+    kws_req!(lookup_nextdata, u32, NEXTDATA, false);
+    // TODO add more
+
     // metadata
 
     kws_req!(lookup_byteord, ByteOrd, BYTEORD, false);
@@ -4446,7 +4462,6 @@ impl<'a, 'b> KwState<'a, 'b> {
     kws_req!(lookup_datatype, AlphaNumType, DATATYPE, false);
     kws_req!(lookup_mode, Mode, MODE, false);
     kws_opt!(lookup_mode3_2, Mode3_2, MODE, true);
-    kws_req!(lookup_nextdata, u32, NEXTDATA, false);
     kws_req!(lookup_par, usize, PAR, false);
     kws_req!(lookup_tot_req, u32, TOT, false);
     kws_opt!(lookup_tot_opt, u32, TOT, false);
@@ -4492,6 +4507,7 @@ impl<'a, 'b> KwState<'a, 'b> {
     kws_opt!(lookup_compensation_3_0, Compensation, COMP, false);
     kws_opt!(lookup_spillover, Spillover, SPILLOVER, false);
 
+    /// Lookup $TR but check that its name is valid
     fn lookup_trigger_checked(&mut self, names: &HashSet<&str>) -> OptionalKw<Trigger> {
         if let Present(tr) = self.lookup_trigger() {
             let p = tr.measurement.0.as_str();
@@ -4508,6 +4524,7 @@ impl<'a, 'b> KwState<'a, 'b> {
         }
     }
 
+    /// Lookup $TIMESTEP and log error if missing along with a time channel
     fn lookup_timestep_checked(&mut self, names: &HashSet<&str>) -> OptionalKw<f32> {
         let ts = self.lookup_timestep();
         if let Some(time_name) = &self.conf.time_shortname {
@@ -4536,6 +4553,7 @@ impl<'a, 'b> KwState<'a, 'b> {
         self.lookup_optional(WELLID, dep)
     }
 
+    /// Lookup $UNSTAINEDCENTERS and check that its names are valid
     fn lookup_unstainedcenters_checked(
         &mut self,
         names: &HashSet<&str>,
@@ -4727,6 +4745,7 @@ impl<'a, 'b> KwState<'a, 'b> {
         self.lookup_meas_opt(PCNT_EMT_SFX, n, dep)
     }
 
+    /// Lookup $PnG and ensure it is not present if measurement is time
     fn lookup_meas_gain_timecheck(&mut self, n: usize, name: &Shortname) -> OptionalKw<f32> {
         let gain = self.lookup_meas_gain(n);
         if let Present(g) = &gain {
@@ -4759,7 +4778,10 @@ impl<'a, 'b> KwState<'a, 'b> {
         }
     }
 
+    /// Lookup $PnE and ensure it is linear if measurement is time
     fn lookup_meas_scale_timecheck(&mut self, n: usize, name: &Shortname) -> Option<Scale> {
+        // TODO easier way to check this will be to get the index of the time
+        // channel and match on n
         let scale = self.lookup_meas_scale_req(n);
         if let Some(s) = &scale {
             if self.conf.time_name_matches(name)
@@ -4849,7 +4871,7 @@ impl<'a, 'b> KwState<'a, 'b> {
     }
 
     fn from(kws: &'b mut RawKeywords, conf: &'a StdTextReader) -> Self {
-        KwState {
+        KwParser {
             raw_keywords: kws,
             deferred: PureErrorBuf::new(),
             conf,
@@ -5017,9 +5039,7 @@ fn verify_delim(xs: &[u8], conf: &RawTextReader) -> PureSuccess<u8> {
 type RawPairs = Vec<(String, String)>;
 
 fn split_raw_text(xs: &[u8], delim: u8, conf: &RawTextReader) -> PureSuccess<RawPairs> {
-    let mut keywords: vec![];
-    let mut res = PureSuccess::from(keywords);
-    let mut warnings = vec![];
+    let mut res = PureSuccess::from(vec![]);
     let textlen = xs.len();
 
     // Record delim positions
@@ -5058,7 +5078,7 @@ fn split_raw_text(xs: &[u8], delim: u8, conf: &RawTextReader) -> PureSuccess<Raw
         for (key, chunk) in raw_boundaries.chunk_by(|(_, x)| *x).into_iter() {
             if key == 1 {
                 if chunk.count() % 2 == 1 {
-                    res.push_msg_warning("delim at word boundary".to_string());
+                    res.push_warning("delim at word boundary".to_string());
                 }
             } else {
                 for x in chunk {
@@ -5129,23 +5149,14 @@ fn split_raw_text(xs: &[u8], delim: u8, conf: &RawTextReader) -> PureSuccess<Raw
                         // TODO tell the user that this key will be dropped
                         let msg = format!("key {kupper} has a blank value");
                         res.push_msg_leveled(msg, conf.enforce_nonempty);
-                        None
                     } else {
-                        keywords.push((kupper.clone(), v.to_string()))
+                        res.data.push((kupper.clone(), v.to_string()));
                     }
                 } else {
                     let krep = kupper.replace(escape_from, escape_to);
                     let rrep = v.replace(escape_from, escape_to);
-                    keywords.push((krep, rrep))
+                    res.data.push((krep, rrep))
                 };
-                // test if the key was inserted already
-                //
-                // TODO this will be better assessed when we have both hashmaps
-                // from primary and supp text
-                // if res.is_some() {
-                //     let msg = format!("key {kupper} is found more than once");
-                //     res.push_msg_leveled(msg, conf.enforce_unique)
-                // }
             } else {
                 let msg = "invalid UTF-8 byte encountered when parsing TEXT".to_string();
                 res.push_msg_leveled(msg, conf.error_on_invalid_utf8)
@@ -5495,6 +5506,7 @@ pub fn read_fcs_file(p: &path::PathBuf, conf: &Reader) -> ImpureResult<Standardi
                 std.standardized
                     .as_data_parser(&mut std.remainder, &conf.text, &data_seg)?;
             succ.try_map(|data_parser| {
+                // TODO don't read file again
                 let file = fs::File::options().read(true).open(p)?;
                 let mut reader = BufReader::new(file);
                 let data = read_data(&mut reader, data_parser)?;

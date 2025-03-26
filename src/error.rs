@@ -14,8 +14,8 @@ pub enum PureErrorLevel {
 /// error(s) is/are handled when we finish parsing.
 #[derive(Eq, PartialEq)]
 pub struct PureError {
-    msg: String,
-    level: PureErrorLevel,
+    pub msg: String,
+    pub level: PureErrorLevel,
 }
 
 /// A collection of pure FCS errors.
@@ -25,7 +25,7 @@ pub struct PureError {
 /// in their files to fix. Therefore make an "error" type which is actually many
 /// errors.
 pub struct PureErrorBuf {
-    errors: Vec<PureError>,
+    pub errors: Vec<PureError>,
 }
 
 /// The result of a successful pure FCS computation which may have errors.
@@ -44,8 +44,8 @@ pub struct PureSuccess<X> {
 /// This includes the immediate reason for failure as well as any errors
 /// encountered previously which were deferred until now.
 pub struct Failure<E> {
-    reason: E,
-    deferred: PureErrorBuf,
+    pub reason: E,
+    pub deferred: PureErrorBuf,
 }
 
 /// The result of a failed pure FCS computation.
@@ -153,6 +153,14 @@ impl PureErrorBuf {
 
     pub fn push_warning(&mut self, msg: String) {
         self.push_msg(msg, PureErrorLevel::Warning)
+    }
+
+    pub fn has_errors(&self) -> bool {
+        self.errors
+            .iter()
+            .filter(|e| e.level == PureErrorLevel::Error)
+            .count()
+            > 0
     }
 }
 

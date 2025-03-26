@@ -1,5 +1,3 @@
-// TODO gating parameters not added (yet)
-
 mod api;
 mod config;
 mod error;
@@ -8,13 +6,52 @@ mod segment;
 
 use clap::{arg, value_parser, ArgMatches, Command};
 use serde::ser::Serialize;
+use std::io;
 use std::path::PathBuf;
 
 fn print_json<T: Serialize>(j: &T) {
     println!("{}", serde_json::to_string(j).unwrap());
 }
 
-fn main() {
+fn handle_errors<X>(res: error::ImpureResult<X>) -> io::Result<X> {
+    match res {
+        Ok(error::PureSuccess { data, deferred }) => {
+            if deferred.has_errors() {
+                for e in deferred.errors {
+                    match e.level {
+                        error::PureErrorLevel::Error => eprintln!("ERROR: {}", e.msg),
+                        error::PureErrorLevel::Warning => eprintln!("WARNING: {}", e.msg),
+                    };
+                }
+                Err(io::Error::other(
+                    "encountered at least one error".to_string(),
+                ))
+            } else {
+                // these are all warnings by definition since we checked above
+                for e in deferred.errors {
+                    eprintln!("WARNING: {}", e.msg);
+                }
+                Ok(data)
+            }
+        }
+        Err(error::Failure { reason, deferred }) => {
+            for e in deferred.errors {
+                match e.level {
+                    error::PureErrorLevel::Error => eprintln!("ERROR: {}", e.msg),
+                    error::PureErrorLevel::Warning => eprintln!("WARNING: {}", e.msg),
+                };
+            }
+            match reason {
+                error::ImpureError::Pure(e) => {
+                    Err(io::Error::other(format!("CRITICAL FCS ERROR: {}", e)))
+                }
+                error::ImpureError::IO(e) => Err(io::Error::other(format!("IO ERROR: {}", e))),
+            }
+        }
+    }
+}
+
+fn main() -> io::Result<()> {
     let begintext_arg = arg!(--"begintext-delta" [OFFSET] "adjustment for begin TEXT offset")
         .value_parser(value_parser!(i32));
     let endtext_arg = arg!(--"endtext-delta" [OFFSET] "adjustment for end TEXT offset")
@@ -50,6 +87,7 @@ fn main() {
                 .arg(arg!(-H --header "also show header"))
                 .arg(&begintext_arg)
                 .arg(&endtext_arg)
+                .arg(&repair_offset_spaces_arg)
         )
 
         .subcommand(
@@ -105,7 +143,7 @@ fn main() {
     let args = cmd.get_matches();
 
     let filepath = args.get_one::<PathBuf>("INPUT_PATH").unwrap();
-    let mut conf = api::Reader::default();
+    let mut conf = config::Reader::default();
 
     let mut get_text_delta = |args: &ArgMatches| {
         if let Some(x) = args.get_one("begintext-delta") {
@@ -118,16 +156,17 @@ fn main() {
 
     match args.subcommand() {
         Some(("header", _)) => {
-            let header = api::read_fcs_header(filepath).unwrap();
+            let header = api::read_fcs_header(filepath)?;
             print_json(&header);
         }
 
         Some(("raw", sargs)) => {
             get_text_delta(sargs);
-            let (header, raw) = api::read_fcs_raw_text(filepath, &conf).unwrap();
-            if sargs.get_flag("header") {
-                print_json(&header);
-            }
+            conf.text.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
+            let raw = handle_errors(api::read_fcs_raw_text(filepath, &conf))?;
+            // if sargs.get_flag("header") {
+            //     print_json(&header);
+            // }
             print_json(&raw);
         }
 
@@ -136,10 +175,8 @@ fn main() {
             conf.text.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
             let delim = sargs.get_one::<String>("delimiter").unwrap();
 
-            match api::read_fcs_text(filepath, &conf).unwrap() {
-                Err(err) => err.print(),
-                Ok(res) => res.standard.print_spillover_table(delim),
-            }
+            let res = handle_errors(api::read_fcs_text(filepath, &conf))?;
+            res.standardized.print_spillover_table(delim)
         }
 
         Some(("measurements", sargs)) => {
@@ -147,10 +184,8 @@ fn main() {
             conf.text.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
             let delim = sargs.get_one::<String>("delimiter").unwrap();
 
-            match api::read_fcs_text(filepath, &conf).unwrap() {
-                Err(err) => err.print(),
-                Ok(res) => res.standard.print_meas_table(delim),
-            }
+            let res = handle_errors(api::read_fcs_text(filepath, &conf))?;
+            res.standardized.print_meas_table(delim)
         }
 
         Some(("std", sargs)) => {
@@ -169,19 +204,15 @@ fn main() {
             conf.text.disallow_deprecated = sargs.get_flag("disallow-deprecated");
             conf.text.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
 
-            match api::read_fcs_text(filepath, &conf).unwrap() {
-                Err(err) => err.print(),
-                Ok(res) => {
-                    if sargs.get_flag("header") {
-                        print_json(&res.header);
-                    }
-                    if sargs.get_flag("raw") {
-                        print_json(&res.raw);
-                    }
-                    print_json(&res.standard);
-                    // print_json(&res.nonfatal);
-                }
+            let res = handle_errors(api::read_fcs_text(filepath, &conf))?;
+            if sargs.get_flag("header") {
+                print_json(&res.offsets);
             }
+            // if sargs.get_flag("raw") {
+            //     print_json(&res.raw);
+            // }
+            print_json(&res.standardized);
+            // print_json(&res.nonfatal);
         }
 
         Some(("data", sargs)) => {
@@ -190,12 +221,11 @@ fn main() {
             conf.text.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
             let delim = sargs.get_one::<String>("delimiter").unwrap();
 
-            match api::read_fcs_file(filepath, &conf).unwrap() {
-                Err(err) => err.print(),
-                Ok(res) => api::print_parsed_data(&res, delim),
-            }
+            let res = handle_errors(api::read_fcs_file(filepath, &conf))?;
+            api::print_parsed_data(&res, delim)
         }
 
         _ => (),
     }
+    Ok(())
 }

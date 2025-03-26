@@ -1,25 +1,48 @@
+/// Instructions for reading an FCS file.
+#[derive(Default)]
+pub struct Config {
+    pub corrections: OffsetCorrections,
+    pub raw: RawTextConfig,
+    pub standard: StdTextConfig,
+    pub data: DataConfig,
+    pub misc: MiscConfig,
+}
+
+/// Corrections for file offsets
+///
+/// Use these to fix errors caused by offsets pointing to the wrong location.
+///
+/// Each of these will be added to the offset values as parsed from the file.
+/// Obviously the result must be greater than zero, and the resulting offset
+/// pairs must not be flipped (begin > end).
+///
+/// These do nothing if the segment does not exist.
+// TODO this will need to be repeated for each dataset once we include this
+#[derive(Default)]
+pub struct OffsetCorrections {
+    /// Corrections for primary TEXT segment
+    pub start_prim_text: i32,
+    pub end_prim_text: i32,
+
+    /// Corrections for supplemental TEXT segment
+    pub start_supp_text: i32,
+    pub end_supp_text: i32,
+
+    /// Corrections for DATA segment
+    pub start_data: i32,
+    pub end_data: i32,
+
+    /// Corrections for ANALYSIS segment
+    pub start_analysis: i32,
+    pub end_analysis: i32,
+
+    /// Correction for $NEXTDATA
+    pub nextdata: i32,
+}
+
 /// Instructions for reading the TEXT segment as raw key/value pairs.
 #[derive(Default, Clone)]
-pub struct RawTextReader {
-    /// Will adjust the offset of the start of the TEXT segment by `offset + n`.
-    pub starttext_delta: i32,
-
-    /// Will adjust the offset of the end of the TEXT segment by `offset + n`.
-    pub endtext_delta: i32,
-
-    pub startdata_delta: i32,
-    pub enddata_delta: i32,
-
-    pub start_stext_delta: i32,
-    pub end_stext_delta: i32,
-
-    pub start_analysis_delta: i32,
-    pub end_analysis_delta: i32,
-
-    /// If true, all raw text parsing warnings will be considered fatal errors
-    /// which will halt the parsing routine.
-    pub warnings_are_errors: bool,
-
+pub struct RawTextConfig {
     /// Will treat every delimiter as a literal delimiter rather than "escaping"
     /// double delimiters
     pub no_delim_escape: bool,
@@ -49,15 +72,6 @@ pub struct RawTextReader {
     /// If true, throw error when encoutering keyword with non-ASCII characters
     pub enfore_keyword_ascii: bool,
 
-    /// If true, throw error when total event width does not evenly divide
-    /// the DATA segment. Meaningless for delimited ASCII data.
-    pub enfore_data_width_divisibility: bool,
-
-    /// If true, throw error if the total number of events as computed by
-    /// dividing DATA segment length event width doesn't match $TOT. Does
-    /// nothing if $TOT not given, which may be the case in version 2.0.
-    pub enfore_matching_tot: bool,
-
     /// If true, replace leading spaces in offset keywords with 0.
     ///
     ///These often need to be padded to make the DATA segment appear at a
@@ -80,13 +94,7 @@ pub struct RawTextReader {
 
 /// Instructions for reading the TEXT segment in a standardized structure.
 #[derive(Default, Clone)]
-pub struct StdTextReader {
-    pub raw: RawTextReader,
-
-    /// If true, all metadata standardization warnings will be considered fatal
-    /// errors which will halt the parsing routine.
-    pub warnings_are_errors: bool,
-
+pub struct StdTextConfig {
     /// If given, will be the $PnN used to identify the time channel. Means
     /// nothing for 2.0.
     ///
@@ -136,16 +144,20 @@ pub struct StdTextReader {
 
 /// Instructions for reading the DATA segment.
 #[derive(Default)]
-pub struct DataReader {
-    /// Will adjust the offset of the start of the TEXT segment by `offset + n`.
-    datastart_delta: u32,
-    /// Will adjust the offset of the end of the TEXT segment by `offset + n`.
-    dataend_delta: u32,
+pub struct DataConfig {
+    /// If true, throw error when total event width does not evenly divide
+    /// the DATA segment. Meaningless for delimited ASCII data.
+    pub enfore_data_width_divisibility: bool,
+
+    /// If true, throw error if the total number of events as computed by
+    /// dividing DATA segment length event width doesn't match $TOT. Does
+    /// nothing if $TOT not given, which may be the case in version 2.0.
+    pub enfore_matching_tot: bool,
 }
 
-/// Instructions for reading an FCS file.
+/// Configuration options that do not fit anywhere else
 #[derive(Default)]
-pub struct Reader {
-    pub text: StdTextReader,
-    pub data: DataReader,
+pub struct MiscConfig {
+    /// If true, all warnings are considered to be fatal errors.
+    warnings_are_errors: bool,
 }

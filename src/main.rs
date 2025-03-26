@@ -143,14 +143,14 @@ fn main() -> io::Result<()> {
     let args = cmd.get_matches();
 
     let filepath = args.get_one::<PathBuf>("INPUT_PATH").unwrap();
-    let mut conf = config::Reader::default();
+    let mut conf = config::Config::default();
 
     let mut get_text_delta = |args: &ArgMatches| {
         if let Some(x) = args.get_one("begintext-delta") {
-            conf.text.raw.starttext_delta = *x
+            conf.corrections.start_prim_text = *x
         }
         if let Some(x) = args.get_one("endtext-delta") {
-            conf.text.raw.endtext_delta = *x
+            conf.corrections.end_prim_text = *x
         }
     };
 
@@ -162,7 +162,7 @@ fn main() -> io::Result<()> {
 
         Some(("raw", sargs)) => {
             get_text_delta(sargs);
-            conf.text.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
+            conf.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
             let raw = handle_errors(api::read_fcs_raw_text(filepath, &conf))?;
             // if sargs.get_flag("header") {
             //     print_json(&header);
@@ -172,7 +172,7 @@ fn main() -> io::Result<()> {
 
         Some(("spillover", sargs)) => {
             get_text_delta(sargs);
-            conf.text.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
+            conf.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
             let delim = sargs.get_one::<String>("delimiter").unwrap();
 
             let res = handle_errors(api::read_fcs_text(filepath, &conf))?;
@@ -181,7 +181,7 @@ fn main() -> io::Result<()> {
 
         Some(("measurements", sargs)) => {
             get_text_delta(sargs);
-            conf.text.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
+            conf.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
             let delim = sargs.get_one::<String>("delimiter").unwrap();
 
             let res = handle_errors(api::read_fcs_text(filepath, &conf))?;
@@ -191,18 +191,18 @@ fn main() -> io::Result<()> {
         Some(("std", sargs)) => {
             get_text_delta(sargs);
 
-            conf.text.time_shortname = sargs.get_one::<String>("time-name").cloned();
-            conf.text.raw.date_pattern = sargs.get_one::<String>("date-pattern").cloned();
-            conf.text.nonstandard_measurement_pattern =
+            conf.standard.time_shortname = sargs.get_one::<String>("time-name").cloned();
+            conf.raw.date_pattern = sargs.get_one::<String>("date-pattern").cloned();
+            conf.standard.nonstandard_measurement_pattern =
                 sargs.get_one::<String>("ns-meas-pattern").cloned();
 
-            conf.text.ensure_time = sargs.get_flag("ensure-time");
-            conf.text.ensure_time_linear = sargs.get_flag("ensure-time-linear");
-            conf.text.ensure_time_nogain = sargs.get_flag("ensure-time-nogain");
-            conf.text.disallow_deviant = sargs.get_flag("disallow-deviant");
-            conf.text.disallow_nonstandard = sargs.get_flag("disallow-nonstandard");
-            conf.text.disallow_deprecated = sargs.get_flag("disallow-deprecated");
-            conf.text.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
+            conf.standard.ensure_time = sargs.get_flag("ensure-time");
+            conf.standard.ensure_time_linear = sargs.get_flag("ensure-time-linear");
+            conf.standard.ensure_time_nogain = sargs.get_flag("ensure-time-nogain");
+            conf.standard.disallow_deviant = sargs.get_flag("disallow-deviant");
+            conf.standard.disallow_nonstandard = sargs.get_flag("disallow-nonstandard");
+            conf.standard.disallow_deprecated = sargs.get_flag("disallow-deprecated");
+            conf.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
 
             let res = handle_errors(api::read_fcs_text(filepath, &conf))?;
             if sargs.get_flag("header") {
@@ -218,7 +218,7 @@ fn main() -> io::Result<()> {
         Some(("data", sargs)) => {
             get_text_delta(sargs);
             // TODO add DATA delta adjust
-            conf.text.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
+            conf.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
             let delim = sargs.get_one::<String>("delimiter").unwrap();
 
             let res = handle_errors(api::read_fcs_file(filepath, &conf))?;

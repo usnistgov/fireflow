@@ -294,13 +294,6 @@ struct CoreTEXT<M, P> {
 /// Raw TEXT key/value pairs
 type RawKeywords = HashMap<String, String>;
 
-/// TEXT keyword pairs whose key does not start with with '$'
-type NonStdKeywords = HashMap<NonStdKey, String>;
-
-/// Key that does not start with '$'
-#[derive(Hash, Eq, PartialEq, Clone, Debug, Serialize)]
-struct NonStdKey(String);
-
 /// All FCS versions this library supports.
 ///
 /// This appears as the first 6 bytes of any valid FCS file.
@@ -772,7 +765,7 @@ struct Measurement<X> {
     /// Non standard keywords that belong to this measurement.
     ///
     /// These are found using a configurable pattern to filter matching keys.
-    nonstandard: NonStdKeywords,
+    nonstandard: RawKeywords,
 
     /// Version specific data
     specific: X,
@@ -967,7 +960,7 @@ pub struct Metadata<X> {
     /// considered 'deviant' and stored elsewhere since this structure will also
     /// be used to write FCS-compliant files (which do not allow nonstandard
     /// keywords starting with '$')
-    nonstandard_keywords: NonStdKeywords,
+    nonstandard_keywords: RawKeywords,
 }
 
 /// Version-specific structured metadata derived from TEXT
@@ -1400,14 +1393,25 @@ trait VersionedMetadata: Sized + VersionedParserMetadata {
         }
     }
 
-    fn keywords_inner(&self, other_textlen: usize, data_len: usize) -> MaybeKeywords;
+    fn keywords_req_inner(&self) -> Vec<(&'static str, String)>;
 
-    fn keywords(m: &Metadata<Self>, par: usize, tot: usize, len: KwLengths) -> MaybeKeywords {
+    fn keywords_opt_inner(&self) -> Vec<(&'static str, String)>;
+
+    fn all_req_keywords(m: &Metadata<Self>, par: usize, tot: usize) -> Vec<(String, String)> {
         let fixed = [
-            (PAR, Some(par.to_string())),
-            (TOT, Some(tot.to_string())),
-            (NEXTDATA, Some("0".to_string())),
-            (DATATYPE, Some(m.datatype.to_string())),
+            (PAR, par.to_string()),
+            (TOT, tot.to_string()),
+            (DATATYPE, m.datatype.to_string()),
+        ];
+        fixed
+            .into_iter()
+            .chain(m.specific.keywords_req_inner())
+            .map(|(k, v)| (k.to_string(), v))
+            .collect()
+    }
+
+    fn all_opt_keywords(m: &Metadata<Self>) -> Vec<(String, String)> {
+        [
             (ABRT, m.abrt.as_opt_string()),
             (COM, m.com.as_opt_string()),
             (CELLS, m.cells.as_opt_string()),
@@ -1421,13 +1425,52 @@ trait VersionedMetadata: Sized + VersionedParserMetadata {
             (SRC, m.src.as_opt_string()),
             (SYS, m.sys.as_opt_string()),
             (TR, m.tr.as_opt_string()),
-        ];
-        let fixed_len = sum_keywords(&fixed) + len.measurements;
-        fixed
-            .into_iter()
-            .chain(m.specific.keywords_inner(fixed_len, len.data))
-            .collect()
+        ]
+        .into_iter()
+        .flat_map(|(k, v)| v.map(|x| (k, x)))
+        .chain(m.specific.keywords_opt_inner())
+        .map(|(k, v)| (k.to_string(), v))
+        // TODO useless clone
+        .chain(
+            m.nonstandard_keywords
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone())),
+        )
+        .collect()
     }
+
+    // fn all_keywords(
+    //     m: &Metadata<Self>,
+    //     par: usize,
+    //     tot: usize,
+    //     len: KwLengths,
+    // ) -> Vec<(&'static str, String)> {
+    //     let fixed = [
+    //         (PAR, Some(par.to_string())),
+    //         (TOT, Some(tot.to_string())),
+    //         (DATATYPE, Some(m.datatype.to_string())),
+    //         (ABRT, m.abrt.as_opt_string()),
+    //         (COM, m.com.as_opt_string()),
+    //         (CELLS, m.cells.as_opt_string()),
+    //         (EXP, m.exp.as_opt_string()),
+    //         (FIL, m.fil.as_opt_string()),
+    //         (INST, m.inst.as_opt_string()),
+    //         (LOST, m.lost.as_opt_string()),
+    //         (OP, m.op.as_opt_string()),
+    //         (PROJ, m.proj.as_opt_string()),
+    //         (SMNO, m.smno.as_opt_string()),
+    //         (SRC, m.src.as_opt_string()),
+    //         (SYS, m.sys.as_opt_string()),
+    //         (TR, m.tr.as_opt_string()),
+    //     ];
+    //     let fixed_len = sum_keywords(&fixed) + len.measurements;
+    //     // TODO add nonstandard to this
+    //     fixed
+    //         .into_iter()
+    //         .flat_map(|(k, v)| v.map(|x| (k, x)))
+    //         .chain(m.specific.keywords_req_inner())
+    //         .collect()
+    // }
 }
 
 trait VersionedMeasurement: Sized + Versioned {
@@ -1482,23 +1525,62 @@ trait VersionedMeasurement: Sized + Versioned {
         }
     }
 
-    fn suffixes_inner(&self) -> Vec<(&'static str, Option<String>)>;
+    // fn suffixes_inner(&self) -> Vec<(&'static str, Option<String>)>;
 
-    fn keywords(m: &Measurement<Self>, n: &str) -> Vec<(String, Option<String>)> {
-        let fixed = [
-            (BYTES_SFX, Some(m.bytes.to_string())),
-            (RANGE_SFX, Some(m.range.to_string())),
+    fn req_suffixes_inner(&self) -> Vec<(&'static str, String)>;
+
+    fn opt_suffixes_inner(&self) -> Vec<(&'static str, Option<String>)>;
+
+    fn req_suffixes(m: &Measurement<Self>) -> Vec<(&'static str, String)> {
+        [
+            (BYTES_SFX, m.bytes.to_string()),
+            (RANGE_SFX, m.range.to_string()),
+        ]
+        .into_iter()
+        .chain(m.specific.req_suffixes_inner())
+        .collect()
+    }
+
+    fn opt_suffixes(m: &Measurement<Self>) -> Vec<(&'static str, Option<String>)> {
+        [
             (LONGNAME_SFX, m.longname.as_opt_string()),
             (FILTER_SFX, m.filter.as_opt_string()),
             (POWER_SFX, m.power.as_opt_string()),
             (DET_TYPE_SFX, m.detector_type.as_opt_string()),
             (PCNT_EMT_SFX, m.percent_emitted.as_opt_string()),
             (DET_VOLT_SFX, m.detector_voltage.as_opt_string()),
-        ];
-        fixed
+        ]
+        .into_iter()
+        .chain(m.specific.opt_suffixes_inner())
+        .collect()
+    }
+
+    // for table
+    fn keywords(m: &Measurement<Self>, n: &str) -> Vec<(String, Option<String>)> {
+        Self::req_suffixes(m)
             .into_iter()
-            .chain(m.specific.suffixes_inner())
+            .map(|(k, v)| (k, Some(v)))
+            .chain(Self::opt_suffixes(m))
             .map(|(s, v)| (format_measurement(n, s), v))
+            .collect()
+    }
+
+    // TODO this name is weird, this is standard+nonstandard keywords
+    // after filtering out None values
+    fn req_keywords(m: &Measurement<Self>, n: &str) -> Vec<(String, String)> {
+        Self::req_suffixes(m)
+            .into_iter()
+            .map(|(s, v)| (format_measurement(n, s), v))
+            .collect()
+    }
+
+    fn opt_keywords(m: &Measurement<Self>, n: &str) -> Vec<(String, String)> {
+        Self::opt_suffixes(m)
+            .into_iter()
+            .filter_map(|(k, v)| v.map(|x| (k, x)))
+            .map(|(s, v)| (format_measurement(n, s), v))
+            // TODO useless clone?
+            .chain(m.nonstandard.iter().map(|(k, v)| (k.clone(), v.clone())))
             .collect()
     }
 }
@@ -2674,7 +2756,7 @@ impl FromStr for Bytes {
 impl fmt::Display for Bytes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            Bytes::Fixed(x) => write!(f, "{}", x),
+            Bytes::Fixed(x) => write!(f, "{}", x * 8),
             Bytes::Variable => write!(f, "*"),
         }
     }
@@ -2737,9 +2819,9 @@ impl Bytes {
 }
 
 impl<P: VersionedMeasurement> Measurement<P> {
-    fn keywords(&self, n: &str) -> Vec<(String, Option<String>)> {
-        P::keywords(self, n)
-    }
+    // fn all_keywords(&self, n: &str) -> Vec<(String, String)> {
+    //     P::all_keywords(self, n)
+    // }
 
     fn table_header(&self) -> Vec<String> {
         vec![String::from("index")]
@@ -2814,7 +2896,11 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
         })
     }
 
-    fn suffixes_inner(&self) -> Vec<(&'static str, Option<String>)> {
+    fn req_suffixes_inner(&self) -> Vec<(&'static str, String)> {
+        vec![]
+    }
+
+    fn opt_suffixes_inner(&self) -> Vec<(&'static str, Option<String>)> {
         [
             (SCALE_SFX, self.scale.as_opt_string()),
             (SHORTNAME_SFX, self.shortname.as_opt_string()),
@@ -2823,6 +2909,16 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
         .into_iter()
         .collect()
     }
+
+    // fn suffixes_inner(&self) -> Vec<(&'static str, Option<String>)> {
+    //     [
+    //         (SCALE_SFX, self.scale.as_opt_string()),
+    //         (SHORTNAME_SFX, self.shortname.as_opt_string()),
+    //         (WAVELEN_SFX, self.wavelength.as_opt_string()),
+    //     ]
+    //     .into_iter()
+    //     .collect()
+    // }
 }
 
 impl VersionedMeasurement for InnerMeasurement3_0 {
@@ -2846,9 +2942,12 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
         })
     }
 
-    fn suffixes_inner(&self) -> Vec<(&'static str, Option<String>)> {
+    fn req_suffixes_inner(&self) -> Vec<(&'static str, String)> {
+        [(SCALE_SFX, self.scale.to_string())].into_iter().collect()
+    }
+
+    fn opt_suffixes_inner(&self) -> Vec<(&'static str, Option<String>)> {
         [
-            (SCALE_SFX, Some(self.scale.to_string())),
             (SHORTNAME_SFX, self.shortname.as_opt_string()),
             (WAVELEN_SFX, self.wavelength.as_opt_string()),
             (GAIN_SFX, self.gain.as_opt_string()),
@@ -2856,6 +2955,17 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
         .into_iter()
         .collect()
     }
+
+    // fn suffixes_inner(&self) -> Vec<(&'static str, Option<String>)> {
+    //     [
+    //         (SCALE_SFX, Some(self.scale.to_string())),
+    //         (SHORTNAME_SFX, self.shortname.as_opt_string()),
+    //         (WAVELEN_SFX, self.wavelength.as_opt_string()),
+    //         (GAIN_SFX, self.gain.as_opt_string()),
+    //     ]
+    //     .into_iter()
+    //     .collect()
+    // }
 }
 
 impl VersionedMeasurement for InnerMeasurement3_1 {
@@ -2877,10 +2987,17 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
         })
     }
 
-    fn suffixes_inner(&self) -> Vec<(&'static str, Option<String>)> {
+    fn req_suffixes_inner(&self) -> Vec<(&'static str, String)> {
         [
-            (SCALE_SFX, Some(self.scale.to_string())),
-            (SHORTNAME_SFX, Some(self.shortname.to_string())),
+            (SCALE_SFX, self.scale.to_string()),
+            (SHORTNAME_SFX, self.shortname.to_string()),
+        ]
+        .into_iter()
+        .collect()
+    }
+
+    fn opt_suffixes_inner(&self) -> Vec<(&'static str, Option<String>)> {
+        [
             (WAVELEN_SFX, self.wavelengths.as_opt_string()),
             (GAIN_SFX, self.gain.as_opt_string()),
             (CALIBRATION_SFX, self.calibration.as_opt_string()),
@@ -2889,6 +3006,19 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
         .into_iter()
         .collect()
     }
+
+    // fn suffixes_inner(&self) -> Vec<(&'static str, Option<String>)> {
+    //     [
+    //         (SCALE_SFX, Some(self.scale.to_string())),
+    //         (SHORTNAME_SFX, Some(self.shortname.to_string())),
+    //         (WAVELEN_SFX, self.wavelengths.as_opt_string()),
+    //         (GAIN_SFX, self.gain.as_opt_string()),
+    //         (CALIBRATION_SFX, self.calibration.as_opt_string()),
+    //         (DISPLAY_SFX, self.display.as_opt_string()),
+    //     ]
+    //     .into_iter()
+    //     .collect()
+    // }
 }
 
 impl VersionedMeasurement for InnerMeasurement3_2 {
@@ -2917,10 +3047,17 @@ impl VersionedMeasurement for InnerMeasurement3_2 {
         })
     }
 
-    fn suffixes_inner(&self) -> Vec<(&'static str, Option<String>)> {
+    fn req_suffixes_inner(&self) -> Vec<(&'static str, String)> {
         [
-            (SCALE_SFX, Some(self.scale.to_string())),
-            (SHORTNAME_SFX, Some(self.shortname.to_string())),
+            (SCALE_SFX, self.scale.to_string()),
+            (SHORTNAME_SFX, self.shortname.to_string()),
+        ]
+        .into_iter()
+        .collect()
+    }
+
+    fn opt_suffixes_inner(&self) -> Vec<(&'static str, Option<String>)> {
+        [
             (WAVELEN_SFX, self.wavelengths.as_opt_string()),
             (GAIN_SFX, self.gain.as_opt_string()),
             (CALIBRATION_SFX, self.calibration.as_opt_string()),
@@ -2935,6 +3072,25 @@ impl VersionedMeasurement for InnerMeasurement3_2 {
         .into_iter()
         .collect()
     }
+
+    // fn suffixes_inner(&self) -> Vec<(&'static str, Option<String>)> {
+    //     [
+    //         (SCALE_SFX, Some(self.scale.to_string())),
+    //         (SHORTNAME_SFX, Some(self.shortname.to_string())),
+    //         (WAVELEN_SFX, self.wavelengths.as_opt_string()),
+    //         (GAIN_SFX, self.gain.as_opt_string()),
+    //         (CALIBRATION_SFX, self.calibration.as_opt_string()),
+    //         (DISPLAY_SFX, self.display.as_opt_string()),
+    //         (DET_NAME_SFX, self.detector_name.as_opt_string()),
+    //         (TAG_SFX, self.tag.as_opt_string()),
+    //         (MEAS_TYPE_SFX, self.measurement_type.as_opt_string()),
+    //         (FEATURE_SFX, self.feature.as_opt_string()),
+    //         (ANALYTE_SFX, self.analyte.as_opt_string()),
+    //         (DATATYPE_SFX, self.datatype.as_opt_string()),
+    //     ]
+    //     .into_iter()
+    //     .collect()
+    // }
 }
 
 impl fmt::Display for OriginalityError {
@@ -3062,8 +3218,12 @@ impl fmt::Display for Unicode {
 }
 
 impl<M: VersionedMetadata> Metadata<M> {
-    fn keywords(&self, par: usize, tot: usize, len: KwLengths) -> MaybeKeywords {
-        M::keywords(self, par, tot, len)
+    fn all_req_keywords(&self, par: usize, tot: usize) -> Vec<(String, String)> {
+        M::all_req_keywords(self, par, tot)
+    }
+
+    fn all_opt_keywords(&self) -> Vec<(String, String)> {
+        M::all_opt_keywords(self)
     }
 }
 
@@ -3213,31 +3373,43 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
     }
 
     // TODO char should be validated somehow
-    fn text_segment(&self, delim: char, data_len: usize) -> String {
-        let ms: Vec<_> = self
+    fn text_segment(
+        &self,
+        delim: char,
+        total_events: usize,
+        data_len: usize,
+        analysis_len: usize,
+        nextdata: usize,
+    ) -> PureResult<String> {
+        let par = self.measurements.len();
+        let meas_req: Vec<_> = self
             .measurements
             .iter()
             .enumerate()
-            .flat_map(|(i, m)| m.keywords(&(i + 1).to_string()))
-            .flat_map(|(k, v)| v.map(|x| (k, x)))
+            .flat_map(|(i, m)| M::P::req_keywords(m, &(i + 1).to_string()))
             .collect();
-        let meas_len = ms.iter().map(|(k, v)| k.len() + v.len() + 2).sum();
-        let len = KwLengths {
-            data: data_len,
-            measurements: meas_len,
-        };
-        // TODO properly populate tot/par here
-        let mut meta: Vec<(String, String)> = self
-            .metadata
-            .keywords(0, 0, len)
+        let meas_opt: Vec<_> = self
+            .measurements
+            .iter()
+            .enumerate()
+            .flat_map(|(i, m)| M::P::opt_keywords(m, &(i + 1).to_string()))
+            .collect();
+        // TODO measure these seperately and compute offsets
+        // let meas_len = ms.iter().map(|(k, v)| k.len() + v.len() + 2).sum();
+        let mut req: Vec<(String, String)> = M::all_req_keywords(&self.metadata, par, total_events)
             .into_iter()
-            .flat_map(|(k, v)| v.map(|x| (String::from(k), x)))
-            .chain(ms)
+            .map(|(k, v)| (String::from(k), v))
+            .chain(meas_req)
             .collect();
 
-        meta.sort_by(|a, b| a.0.cmp(&b.0));
+        let mut opt: Vec<(String, String)> = M::all_opt_keywords(&self.metadata)
+            .into_iter()
+            .chain(meas_opt)
+            .collect();
 
-        let fin = meta
+        req.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let fin = req
             .into_iter()
             .map(|(k, v)| format!("{}{}{}", k, delim, v))
             .join(&delim.to_string());
@@ -3850,51 +4022,298 @@ fn sum_keywords(kws: &[MaybeKeyword]) -> usize {
         .sum()
 }
 
-fn n_digits(x: f64) -> f64 {
-    // ASSUME this is effectively only going to be used on the u32 range
-    // starting at 1; keep in f64 space to minimize casts
-    f64::log10(x).floor() + 1.0
-}
+// fn n_digits(x: f64) -> f64 {
+//     // ASSUME this is effectively only going to be used on the u32 range
+//     // starting at 1; keep in f64 space to minimize casts
+//     f64::log10(x).floor() + 1.0
+// }
 
-fn compute_data_offsets(textlen: u32, datalen: u32) -> (u32, u32) {
-    let d = f64::from(datalen);
-    let t = f64::from(textlen);
-    let mut datastart = t;
-    let mut dataend = datastart + d;
-    let mut ndigits_start = n_digits(datastart);
-    let mut ndigits_end = n_digits(dataend);
-    let mut tmp_start;
-    let mut tmp_end;
-    loop {
-        datastart = ndigits_start + ndigits_end + t;
-        dataend = datastart + d;
-        tmp_start = n_digits(datastart);
-        tmp_end = n_digits(dataend);
-        if tmp_start == ndigits_start && tmp_end == ndigits_end {
-            return (datastart as u32, dataend as u32);
-        } else {
-            ndigits_start = tmp_start;
-            ndigits_end = tmp_end;
-        }
+/// Compute the number of digits for a number.
+///
+/// Assume number is greater than 0 and in decimal radix.
+fn n_digits(x: usize) -> usize {
+    // TODO cast?
+    let n = usize::ilog10(x) as usize;
+    if 10 ^ n == x {
+        n
+    } else {
+        n + 1
     }
 }
 
-// ASSUME header is always this length
+// fn compute_data_offsets(textlen: u32, datalen: u32) -> (u32, u32) {
+//     let d = f64::from(datalen);
+//     let t = f64::from(textlen);
+//     let mut datastart = t;
+//     let mut dataend = datastart + d;
+//     let mut ndigits_start = n_digits(datastart);
+//     let mut ndigits_end = n_digits(dataend);
+//     let mut tmp_start;
+//     let mut tmp_end;
+//     loop {
+//         datastart = ndigits_start + ndigits_end + t;
+//         dataend = datastart + d;
+//         tmp_start = n_digits(datastart);
+//         tmp_end = n_digits(dataend);
+//         if tmp_start == ndigits_start && tmp_end == ndigits_end {
+//             return (datastart as u32, dataend as u32);
+//         } else {
+//             ndigits_start = tmp_start;
+//             ndigits_end = tmp_end;
+//         }
+//     }
+// }
+
+/// The length of the HEADER.
+///
+/// This should always be the same. This also assumes that there are no OTHER
+/// segments (which for now are not supported).
 const HEADER_LEN: usize = 58;
 
-// length of BEGIN/ENDDATA keywords (without values), + 4 to account for
-// delimiters
-const DATALEN_NO_VAL: usize = BEGINDATA.len() + ENDDATA.len() + 4;
+/// The number of bytes each offset is expected to take (sans values).
+///
+/// These are the length of each keyword + 2 since there should be two
+/// delimiters counting toward its byte real estate.
+const DATA_LEN_NO_VAL: usize = BEGINDATA.len() + ENDDATA.len() + 4;
+const ANALYSIS_LEN_NO_VAL: usize = BEGINANALYSIS.len() + ENDANALYSIS.len() + 4;
+const SUPP_TEXT_LEN_NO_VAL: usize = BEGINSTEXT.len() + ENDSTEXT.len() + 4;
+const NEXTDATA_LEN_NO_VAL: usize = NEXTDATA.len() + 2;
 
-fn make_data_offset_keywords(other_textlen: usize, datalen: usize) -> [MaybeKeyword; 2] {
-    // add everything up, + 1 at the end to account for the delimiter at
-    // the end of TEXT
-    let textlen = HEADER_LEN + DATALEN_NO_VAL + other_textlen + 1;
-    let (datastart, dataend) = compute_data_offsets(textlen as u32, datalen as u32);
-    [
-        (BEGINDATA, Some(datastart.to_string())),
-        (ENDDATA, Some(dataend.to_string())),
-    ]
+/// The total number of bytes offset keywords are expected to take (sans values).
+///
+/// This only applies to 3.0+ since 2.0 only has NEXTDATA.
+const OFFSETS_LEN_NO_VAL: usize =
+    DATA_LEN_NO_VAL + ANALYSIS_LEN_NO_VAL + SUPP_TEXT_LEN_NO_VAL + NEXTDATA_LEN_NO_VAL;
+
+/// Compute the number of bytes with which to store offsets in the TEXT segment.
+///
+/// This is tricky to do because the number of digits affects the length of the
+/// TEXT segment, which in turn affects the magnitude of the offsets, and round
+/// and round.
+///
+/// How to do this in 9.75 easy steps:
+///
+/// Define the following operator:
+///
+///   D := number of digits (f(x) = ceil(log10(x)))
+///
+/// Define the following constants:
+///
+///   T = Primary TEXT length (without offset numbers) + HEADER length
+///   S = Supplemental TEXT length
+///   N = DATA length
+///   A = ANALYSIS length
+///
+/// Define the following variable:
+///
+///   s = offset for supplemental TEXT segment
+///   d = offset for DATA segment
+///   a = offset for ANALYSIS segment
+///   n = offset for NEXTDATA
+///
+/// The following relationship must hold:
+///
+///   s0 = T +             D(s0) + D(s1) + D(d0) + D(d1) + D(a0) + D(a1) + D(n)
+///   d0 = T + S +         D(s0) + D(s1) + D(d0) + D(d1) + D(a0) + D(a1) + D(n)
+///   a0 = T + S + N +     D(s0) + D(s1) + D(d0) + D(d1) + D(a0) + D(a1) + D(n)
+///   n  = T + S + N + A + D(s0) + D(s1) + D(d0) + D(d1) + D(a0) + D(a1) + D(n)
+///   s1 = d0 - 1
+///   d1 = a0 - 1
+///   a1 = n - 1
+///
+/// What a cruel summation. I don't feel like solving this. :/ Luckily, we don't
+/// have to be exact.
+///
+/// Replace all the D(*) stuff with a new variable "w" (number of digits) which
+/// will be a single variable. This mess then becomes the following optimization:
+///
+/// Minimize w
+///
+/// Subject to:
+///
+/// s0 = T +             7w
+/// d0 = T + S +         7w
+/// a0 = T + S + N +     7w
+/// n  = T + S + N + A + 7w
+/// s1 = d0 - 1
+/// d1 = a0 - 1
+/// a1 = n - 1
+/// D(x) <= w for all x in {s0, s1, d0, d1, a0, a1, n}
+///
+/// This assumes the following:
+/// - all offsets that require less digits than w will be left-padded with 0,
+///   this wastes a few bits but is cheap in the grand scheme of things
+/// - all offsets will be included (also quite cheap)
+/// - if any segment's length is zero, it will effectively noop that set of
+///   equations (they will still be run but they will collapse to be identical
+///   to others, so the same comparison will get run multiple times when
+///   checking the constraints)
+///
+/// Computing this is easy, just initialize w at 1 and increase 1 until the
+/// constraints are met.
+///
+/// This is only necessary for FCS 3.0 and up.
+fn find_offset_width(
+    primary_text_len: usize,
+    supp_text_len: usize,
+    data_len: usize,
+    analysis_len: usize,
+) -> Option<usize> {
+    let mut w = 1;
+    loop {
+        let s0 = primary_text_len + 7 * w;
+        let d0 = s0 + supp_text_len;
+        let a0 = d0 + data_len;
+        let n = a0 + analysis_len;
+        let s1 = d0 - 1;
+        let d1 = a0 - 1;
+        let a1 = n - 1;
+        if n_digits(s0) <= w
+            && n_digits(s1) <= w
+            && n_digits(d0) <= w
+            && n_digits(d1) <= w
+            && n_digits(a0) <= w
+            && n_digits(a1) <= w
+            && n_digits(n) <= w
+        {
+            if primary_text_len + 7 * w > 99_999_999 {
+                return None;
+            } else {
+                return Some(w);
+            }
+        }
+        w = w + 1;
+    }
+}
+
+fn format_zero_padded(x: usize, width: usize) -> String {
+    format!("{}{}", ("0").repeat(width - n_digits(x)), x)
+}
+
+pub fn offset_header_string(begin: usize, end: usize) -> String {
+    let nbytes = end - begin + 1;
+    let (b, e) = if end <= 99_999_999 && nbytes > 0 {
+        (begin, end)
+    } else {
+        (0, 0)
+    };
+    format!("{:0>8}{:0>8}", b, e)
+}
+
+pub fn offset_text_string<'a>(
+    begin: usize,
+    end: usize,
+    begin_key: &'static str,
+    end_key: &'static str,
+    width: usize,
+) -> [String; 4] {
+    let nbytes = end - begin + 1;
+    let (b, e) = if nbytes > 0 { (begin, end) } else { (0, 0) };
+    let fb = format_zero_padded(b, width);
+    let fe = format_zero_padded(e, width);
+    [begin_key.to_string(), fb, end_key.to_string(), fe]
+}
+
+pub fn offset_nextdata_string<'a>(nextdata: usize, width: usize) -> [String; 2] {
+    let n = format_zero_padded(nextdata, width);
+    [NEXTDATA.to_string(), n]
+}
+
+fn make_data_offset_keywords_2_0(
+    nooffset_text_len: usize,
+    data_len: usize,
+    analysis_len: usize,
+) -> Option<(String, Vec<String>)> {
+    // +1 at end accounts for first delimiter
+    let all_text_len = HEADER_LEN + NEXTDATA_LEN_NO_VAL + nooffset_text_len + 1;
+
+    let width = find_offset_width(all_text_len, 0, data_len, analysis_len)?;
+
+    // compute rest of offsets
+    let begin_prim_text = HEADER_LEN; // always starts after HEADER
+    let begin_data = all_text_len + 7 * width;
+    let begin_analysis = begin_data + data_len;
+    let nextdata = begin_data + analysis_len;
+    let end_prim_text = begin_data - 1;
+    let end_data = begin_analysis - 1;
+    let end_analysis = nextdata - 1;
+
+    // format header and text offset strings
+    let header_prim_text = offset_header_string(begin_prim_text, end_prim_text);
+    let header_data = offset_header_string(begin_data, end_data);
+    let header_analysis = offset_header_string(begin_analysis, end_analysis);
+    let text_nextdata = offset_nextdata_string(nextdata, width);
+
+    // put everything together, rejoice (alot)
+    let header = [header_prim_text, header_data, header_analysis].join("");
+    Some((header, Vec::from(text_nextdata)))
+}
+
+fn make_data_offset_keywords_3_0(
+    nooffset_req_text_len: usize,
+    opt_text_len: usize,
+    data_len: usize,
+    analysis_len: usize,
+) -> Option<(String, Vec<String>)> {
+    // +1 at end accounts for first delimiter
+    let header_req_text_len = HEADER_LEN + OFFSETS_LEN_NO_VAL + nooffset_req_text_len + 1;
+    let all_text_len = opt_text_len + header_req_text_len;
+
+    // Find width of formatted offsets, which will depend on if TEXT+HEADER can
+    // fit in the first 99,999,999 bytes. If yes, then there is no supplemental
+    // text. If not, put all optional keywords in supplemental TEXT.
+    let (width, begin_supp_text, begin_data) =
+        if let Some(width) = find_offset_width(all_text_len, 0, data_len, analysis_len) {
+            // Here we fool the downstream code by setting the Supplemental
+            // offsets to be the same as DATA, which will make Supplemental TEXT
+            // have zero length which will cause the formatters to do the right
+            // thing (ie format as 0,0).
+            let begin_data = all_text_len + 7 * width;
+            (width, begin_data, begin_data)
+        } else if let Some(width) =
+            find_offset_width(header_req_text_len, opt_text_len, data_len, analysis_len)
+        {
+            let begin_supp_text = header_req_text_len + 7 * width;
+            let begin_data = begin_supp_text + opt_text_len;
+            (width, begin_supp_text, begin_data)
+        } else {
+            return None;
+        };
+
+    // compute rest of offsets
+    let begin_prim_text = HEADER_LEN; // always starts after HEADER
+    let begin_analysis = begin_data + data_len;
+    let nextdata = begin_data + analysis_len;
+    let end_prim_text = begin_supp_text - 1;
+    let end_supp_text = begin_data - 1;
+    let end_data = begin_analysis - 1;
+    let end_analysis = nextdata - 1;
+
+    // format header and text offset strings
+    let header_prim_text = offset_header_string(begin_prim_text, end_prim_text);
+    let header_data = offset_header_string(begin_data, end_data);
+    let header_analysis = offset_header_string(begin_analysis, end_analysis);
+    let text_supp_text =
+        offset_text_string(begin_supp_text, end_supp_text, BEGINSTEXT, ENDSTEXT, width);
+    let text_data = offset_text_string(begin_data, end_data, BEGINDATA, ENDDATA, width);
+    let text_analysis = offset_text_string(
+        begin_analysis,
+        end_analysis,
+        BEGINANALYSIS,
+        ENDANALYSIS,
+        width,
+    );
+    let text_nextdata = offset_nextdata_string(nextdata, width);
+
+    // put everything together, rejoice (alot)
+    let header = [header_prim_text, header_data, header_analysis].join("");
+    let text = text_supp_text
+        .into_iter()
+        .chain(text_data)
+        .chain(text_analysis)
+        .chain(text_nextdata)
+        .collect();
+    Some((header, text))
 }
 
 fn event_width<X>(ms: &[ParserMeasurement<X>]) -> EventWidth {
@@ -4105,10 +4524,17 @@ impl VersionedMetadata for InnerMetadata2_0 {
         }
     }
 
-    fn keywords_inner(&self, _: usize, _: usize) -> MaybeKeywords {
+    fn keywords_req_inner(&self) -> Vec<(&'static str, String)> {
         [
-            (MODE, Some(self.mode.to_string())),
-            (BYTEORD, Some(self.byteord.to_string())),
+            (MODE, self.mode.to_string()),
+            (BYTEORD, self.byteord.to_string()),
+        ]
+        .into_iter()
+        .collect()
+    }
+
+    fn keywords_opt_inner(&self) -> Vec<(&'static str, String)> {
+        [
             (CYT, self.cyt.as_opt_string()),
             (COMP, self.comp.as_opt_string()),
             (BTIM, self.timestamps.btim.as_opt_string()),
@@ -4116,6 +4542,7 @@ impl VersionedMetadata for InnerMetadata2_0 {
             (DATE, self.timestamps.date.as_opt_string()),
         ]
         .into_iter()
+        .flat_map(|(k, v)| v.map(|x| (k, x)))
         .collect()
     }
 }
@@ -4167,17 +4594,18 @@ impl VersionedMetadata for InnerMetadata3_0 {
         }
     }
 
-    fn keywords_inner(&self, other_textlen: usize, data_len: usize) -> MaybeKeywords {
+    fn keywords_req_inner(&self) -> Vec<(&'static str, String)> {
+        [
+            (MODE, self.mode.to_string()),
+            (BYTEORD, self.byteord.to_string()),
+        ]
+        .into_iter()
+        .collect()
+    }
+
+    fn keywords_opt_inner(&self) -> Vec<(&'static str, String)> {
         let ts = &self.timestamps;
-        // TODO set analysis and stext if we have anything
-        let zero = Some("0".to_string());
-        let kws = [
-            (BEGINANALYSIS, zero.clone()),
-            (ENDANALYSIS, zero.clone()),
-            (BEGINSTEXT, zero.clone()),
-            (ENDSTEXT, zero.clone()),
-            (MODE, Some(self.mode.to_string())),
-            (BYTEORD, Some(self.byteord.to_string())),
+        [
             (CYT, self.cyt.as_opt_string()),
             (COMP, self.comp.as_opt_string()),
             (BTIM, ts.btim.as_opt_string()),
@@ -4186,12 +4614,10 @@ impl VersionedMetadata for InnerMetadata3_0 {
             (CYTSN, self.cytsn.as_opt_string()),
             (TIMESTEP, self.timestep.as_opt_string()),
             (UNICODE, self.unicode.as_opt_string()),
-        ];
-        let text_len = other_textlen + sum_keywords(&kws);
-        make_data_offset_keywords(text_len, data_len)
-            .into_iter()
-            .chain(kws)
-            .collect()
+        ]
+        .into_iter()
+        .flat_map(|(k, v)| v.map(|x| (k, x)))
+        .collect()
     }
 }
 
@@ -4248,19 +4674,20 @@ impl VersionedMetadata for InnerMetadata3_1 {
         }
     }
 
-    fn keywords_inner(&self, other_textlen: usize, data_len: usize) -> MaybeKeywords {
+    fn keywords_req_inner(&self) -> Vec<(&'static str, String)> {
+        [
+            (MODE, self.mode.to_string()),
+            (BYTEORD, self.byteord.to_string()),
+        ]
+        .into_iter()
+        .collect()
+    }
+
+    fn keywords_opt_inner(&self) -> Vec<(&'static str, String)> {
         let mdn = &self.modification;
         let ts = &self.timestamps;
         let pl = &self.plate;
-        // TODO set analysis and stext if we have anything
-        let zero = Some("0".to_string());
-        let fixed = [
-            (BEGINANALYSIS, zero.clone()),
-            (ENDANALYSIS, zero.clone()),
-            (BEGINSTEXT, zero.clone()),
-            (ENDSTEXT, zero.clone()),
-            (MODE, Some(self.mode.to_string())),
-            (BYTEORD, Some(self.byteord.to_string())),
+        [
             (CYT, self.cyt.as_opt_string()),
             (SPILLOVER, self.spillover.as_opt_string()),
             (BTIM, ts.btim.as_opt_string()),
@@ -4275,12 +4702,10 @@ impl VersionedMetadata for InnerMetadata3_1 {
             (PLATENAME, pl.platename.as_opt_string()),
             (WELLID, pl.wellid.as_opt_string()),
             (VOL, self.vol.as_opt_string()),
-        ];
-        let text_len = sum_keywords(&fixed) + other_textlen;
-        make_data_offset_keywords(text_len, data_len)
-            .into_iter()
-            .chain(fixed)
-            .collect()
+        ]
+        .into_iter()
+        .flat_map(|(k, v)| v.map(|x| (k, x)))
+        .collect()
     }
 }
 
@@ -4408,22 +4833,23 @@ impl VersionedMetadata for InnerMetadata3_2 {
         }
     }
 
-    fn keywords_inner(&self, other_textlen: usize, data_len: usize) -> MaybeKeywords {
+    fn keywords_req_inner(&self) -> Vec<(&'static str, String)> {
+        [
+            (BYTEORD, self.byteord.to_string()),
+            (CYT, self.cyt.to_string()),
+        ]
+        .into_iter()
+        .collect()
+    }
+
+    fn keywords_opt_inner(&self) -> Vec<(&'static str, String)> {
         let mdn = &self.modification;
         let ts = &self.timestamps;
         let pl = &self.plate;
         let car = &self.carrier;
         let dt = &self.datetimes;
         let us = &self.unstained;
-        // TODO set analysis and stext if we have anything
-        // let zero = Some("0".to_string());
-        let fixed = [
-            // (BEGINANALYSIS, zero.clone()),
-            // (ENDANALYSIS, zero.clone()),
-            // (BEGINSTEXT, zero.clone()),
-            // (ENDSTEXT, zero.clone()),
-            (BYTEORD, Some(self.byteord.to_string())),
-            (CYT, Some(self.cyt.to_string())),
+        [
             (SPILLOVER, self.spillover.as_opt_string()),
             (BTIM, ts.btim.as_opt_string()),
             (ETIM, ts.etim.as_opt_string()),
@@ -4445,12 +4871,10 @@ impl VersionedMetadata for InnerMetadata3_2 {
             (UNSTAINEDCENTERS, us.unstainedcenters.as_opt_string()),
             (UNSTAINEDINFO, us.unstainedinfo.as_opt_string()),
             (FLOWRATE, self.flowrate.as_opt_string()),
-        ];
-        let text_len = sum_keywords(&fixed) + other_textlen;
-        make_data_offset_keywords(text_len, data_len)
-            .into_iter()
-            .chain(fixed)
-            .collect()
+        ]
+        .into_iter()
+        .flat_map(|(k, v)| v.map(|x| (k, x)))
+        .collect()
     }
 }
 
@@ -4464,12 +4888,6 @@ fn parse_raw_text(
         Version::FCS3_0 => CoreText3_0::any_from_raw(kws, conf),
         Version::FCS3_1 => CoreText3_1::any_from_raw(kws, conf),
         Version::FCS3_2 => CoreText3_2::any_from_raw(kws, conf),
-    }
-}
-
-impl NonStdKey {
-    fn as_str(&self) -> &str {
-        self.0.as_str()
     }
 }
 
@@ -4841,13 +5259,13 @@ impl<'a, 'b> KwParser<'a, 'b> {
         }
     }
 
-    fn lookup_nonstandard(&mut self) -> NonStdKeywords {
+    fn lookup_nonstandard(&mut self) -> RawKeywords {
         let mut ns = HashMap::new();
         self.raw_keywords.retain(|k, v| {
             if k.starts_with("$") {
                 true
             } else {
-                ns.insert(NonStdKey(k.clone()), v.clone());
+                ns.insert(k.clone(), v.clone());
                 false
             }
         });
@@ -4949,7 +5367,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
         }
     }
 
-    fn lookup_meas_nonstandard(&mut self, n: usize) -> NonStdKeywords {
+    fn lookup_meas_nonstandard(&mut self, n: usize) -> RawKeywords {
         let mut ns = HashMap::new();
         // ASSUME the pattern does not start with "$" and has a %n which will be
         // subbed for the measurement index. The pattern will then be turned
@@ -4960,7 +5378,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
             if let Ok(pattern) = Regex::new(rep.as_str()) {
                 self.raw_keywords.retain(|k, v| {
                     if pattern.is_match(k.as_str()) {
-                        ns.insert(NonStdKey(k.clone()), v.clone());
+                        ns.insert(k.clone(), v.clone());
                         false
                     } else {
                         true

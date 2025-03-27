@@ -77,6 +77,16 @@ impl Segment {
         Self::try_new_adjusted(begin, end, 0, 0, id)
     }
 
+    /// Make new segment without checking bounds.
+    ///
+    /// Will panic if begin > end.
+    pub fn new_unchecked(begin: u32, end: u32) -> Segment {
+        Segment {
+            begin,
+            length: end - begin,
+        }
+    }
+
     pub fn try_new_adjusted(
         begin: u32,
         end: u32,
@@ -102,10 +112,7 @@ impl Segment {
                 if new_begin > new_end {
                     err(SegmentErrorKind::Inverted)
                 } else {
-                    Ok(Segment {
-                        begin: new_begin,
-                        length: new_end - new_begin,
-                    })
+                    Ok(Segment::new_unchecked(new_begin, new_end))
                 }
             }
             (_, _) => err(SegmentErrorKind::Range),

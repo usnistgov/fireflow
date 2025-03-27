@@ -1564,6 +1564,8 @@ trait VersionedParserMetadata: Sized {
 
 trait IntMath: Sized {
     fn next_power_2(x: Self) -> Self;
+
+    fn maxval() -> Self;
 }
 
 trait NumProps<const DTLEN: usize>: Sized + Copy {
@@ -1616,10 +1618,10 @@ trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
     fn range_to_bitmask(range: &Range) -> Result<Self, String> {
         match range {
             Range::Float(_) => Err("$PnR is float for an integer column".to_string()),
-            // TODO will this error ever happen?
-            Range::Int(i) => Self::try_from(*i)
+            // TODO this seems sloppy
+            Range::Int(i) => Ok(Self::try_from(*i)
                 .map(Self::next_power_2)
-                .map_err(|_| "$PnR could not be converted to {INTLEN} bytes".to_string()),
+                .unwrap_or(Self::maxval())),
         }
     }
 
@@ -2735,15 +2737,6 @@ impl Bytes {
 }
 
 impl<P: VersionedMeasurement> Measurement<P> {
-    // TODO add measurement index to error message
-    // fn make_int_parser(&self, o: &ByteOrd, t: usize) -> Result<AnyIntColumn, Vec<String>> {
-    //     match self.bytes {
-    //         Bytes::Fixed(b) => make_int_parser(b, &self.range, o, t),
-    //         _ => Err(vec![String::from("PnB is variable length")]),
-    //     }
-    // }
-
-    // TODO include nonstandard?
     fn keywords(&self, n: &str) -> Vec<(String, Option<String>)> {
         P::keywords(self, n)
     }
@@ -3395,6 +3388,10 @@ macro_rules! impl_int_math {
         impl IntMath for $t {
             fn next_power_2(x: Self) -> Self {
                 Self::checked_next_power_of_two(x).unwrap_or(Self::MAX)
+            }
+
+            fn maxval() -> Self {
+                Self::MAX
             }
         }
     };
@@ -4847,7 +4844,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
     fn lookup_nonstandard(&mut self) -> NonStdKeywords {
         let mut ns = HashMap::new();
         self.raw_keywords.retain(|k, v| {
-            if v.starts_with("$") {
+            if k.starts_with("$") {
                 true
             } else {
                 ns.insert(NonStdKey(k.clone()), v.clone());

@@ -297,10 +297,6 @@ type RawKeywords = HashMap<String, String>;
 /// TEXT keyword pairs whose key does not start with with '$'
 type NonStdKeywords = HashMap<NonStdKey, String>;
 
-/// Key that starts with '$'
-#[derive(Hash, Eq, PartialEq, Clone, Debug, Serialize)]
-struct StdKey(String);
-
 /// Key that does not start with '$'
 #[derive(Hash, Eq, PartialEq, Clone, Debug, Serialize)]
 struct NonStdKey(String);
@@ -782,21 +778,15 @@ struct Measurement<X> {
     specific: X,
 }
 
-/// FCS 2.0-specific data for one measurement
+/// Version-specific data for one measurement
 type Measurement2_0 = Measurement<InnerMeasurement2_0>;
-
-/// FCS 3.0-specific data for one measurement
 type Measurement3_0 = Measurement<InnerMeasurement3_0>;
-
-/// FCS 3.1-specific data for one measurement
 type Measurement3_1 = Measurement<InnerMeasurement3_1>;
-
-/// FCS 3.2-specific data for one measurement
 type Measurement3_2 = Measurement<InnerMeasurement3_2>;
 
 /// Metadata fields specific to version 2.0
 #[derive(Debug, Clone, Serialize)]
-struct InnerMetadata2_0 {
+pub struct InnerMetadata2_0 {
     /// Value of $MODE
     mode: Mode,
 
@@ -815,7 +805,7 @@ struct InnerMetadata2_0 {
 
 /// Metadata fields specific to version 3.0
 #[derive(Debug, Clone, Serialize)]
-struct InnerMetadata3_0 {
+pub struct InnerMetadata3_0 {
     /// Value of $MODE
     mode: Mode,
 
@@ -843,7 +833,7 @@ struct InnerMetadata3_0 {
 
 /// Metadata fields specific to version 3.1
 #[derive(Debug, Clone, Serialize)]
-struct InnerMetadata3_1 {
+pub struct InnerMetadata3_1 {
     /// Value of $MODE
     mode: Mode,
 
@@ -876,7 +866,7 @@ struct InnerMetadata3_1 {
 }
 
 #[derive(Debug, Clone, Serialize)]
-struct InnerMetadata3_2 {
+pub struct InnerMetadata3_2 {
     /// Value of $BYTEORD
     byteord: Endian,
 
@@ -923,7 +913,7 @@ struct InnerMetadata3_2 {
 ///
 /// The generic type parameter allows version-specific data to be encoded.
 #[derive(Debug, Clone, Serialize)]
-struct Metadata<X> {
+pub struct Metadata<X> {
     /// Value of $DATATYPE
     datatype: AlphaNumType,
 
@@ -3145,10 +3135,10 @@ impl AnyCoreTEXT {
         }
     }
 
-    pub fn as_data_parser<'a>(
+    pub fn as_data_parser(
         &self,
         kws: &mut RawKeywords,
-        conf: &'a Config,
+        conf: &Config,
         data_seg: &Segment,
     ) -> PureMaybe<DataParser> {
         match self {
@@ -3282,16 +3272,16 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
         }
     }
 
-    fn as_data_parser<'a>(
+    fn as_data_parser(
         &self,
         kws: &mut RawKeywords,
-        conf: &'a Config,
+        conf: &Config,
         data_seg: &Segment,
     ) -> PureMaybe<DataParser> {
         // TODO these error messages are...interesting
         // let msg = "could not convert to minimal metadata".to_string();
-        let succ = KwParser::run(kws, &conf.standard, |mut st| {
-            let maybe_md = <M as VersionedParserMetadata>::as_minimal(&self.metadata, &mut st);
+        let succ = KwParser::run(kws, &conf.standard, |st| {
+            let maybe_md = <M as VersionedParserMetadata>::as_minimal(&self.metadata, st);
             let measurements: Vec<_> = self
                 .measurements
                 .iter()
@@ -3323,9 +3313,9 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
         // a struct with missing fields.
         let md_fail = "could not standardize TEXT".to_string();
         let md_succ = par_succ.try_map(|par| {
-            KwParser::try_run(kws, conf, md_fail, |mut st| {
-                let ms = M::P::lookup_measurements(&mut st, par);
-                let md = ms.as_ref().and_then(|xs| M::lookup_metadata(&mut st, xs));
+            KwParser::try_run(kws, conf, md_fail, |st| {
+                let ms = M::P::lookup_measurements(st, par);
+                let md = ms.as_ref().and_then(|xs| M::lookup_metadata(st, xs));
                 if let (Some(measurements), Some(metadata)) = (ms, md) {
                     Some((measurements, metadata))
                 } else {
@@ -4049,7 +4039,7 @@ impl VersionedParserMetadata for InnerMetadata3_1 {
 
     fn as_minimal_inner(&self, st: &mut KwParser) -> Option<InnerParserMetadata3_1> {
         st.lookup_tot_req().map(|tot| InnerParserMetadata3_1 {
-            byteord: self.byteord.clone(),
+            byteord: self.byteord,
             tot,
         })
     }
@@ -4068,7 +4058,7 @@ impl VersionedParserMetadata for InnerMetadata3_2 {
 
     fn as_minimal_inner(&self, st: &mut KwParser) -> Option<InnerParserMetadata3_1> {
         st.lookup_tot_req().map(|tot| InnerParserMetadata3_1 {
-            byteord: self.byteord.clone(),
+            byteord: self.byteord,
             tot,
         })
     }

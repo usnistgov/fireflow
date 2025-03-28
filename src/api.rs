@@ -3372,48 +3372,75 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
             .collect()
     }
 
-    // TODO char should be validated somehow
+    /// Return HEADER+TEXT as a list of strings
+    ///
+    /// The first member will be a string exactly 58 bytes long which will be
+    /// the HEADER. The next members will be alternating keys and values of the
+    /// primary TEXT segment and supplemental if included. Each member should be
+    /// separated by a delimiter when writing to a file, and a trailing
+    /// delimiter should be added.
+    ///
+    /// Keywords will be sorted with offsets first, non-measurement keywords
+    /// second in alphabetical order, then measurement keywords in alphabetical
+    /// order.
     fn text_segment(
         &self,
-        delim: char,
-        total_events: usize,
+        tot: usize,
         data_len: usize,
         analysis_len: usize,
-        nextdata: usize,
-    ) -> PureResult<String> {
+    ) -> Option<Vec<String>> {
+        let version = M::P::fcs_version();
+
+        let (req_meas, req_meta, req_text_len) =
+            self.some_keywords(M::P::req_keywords, M::all_req_keywords, tot);
+        let (opt_meas, opt_meta, opt_text_len) =
+            self.some_keywords(M::P::opt_keywords, |m, _, _| M::all_opt_keywords(m), tot);
+
+        let (header, offset_kws) = if version == Version::FCS2_0 {
+            make_data_offset_keywords_2_0(req_text_len + opt_text_len, data_len, analysis_len)
+        } else {
+            make_data_offset_keywords_3_0(req_text_len, opt_text_len, data_len, analysis_len)
+        }?;
+
+        let mut meta: Vec<_> = req_meta.into_iter().chain(opt_meta).collect();
+        let mut meas: Vec<_> = req_meas.into_iter().chain(opt_meas).collect();
+        meta.sort_by(|a, b| a.0.cmp(&b.0));
+        meas.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let req_opt_kws: Vec<_> = meta
+            .into_iter()
+            .chain(meas)
+            .flat_map(|(k, v)| [k, v])
+            .collect();
+        Some(
+            [format!("{version}{header}")]
+                .into_iter()
+                .chain(offset_kws)
+                .chain(req_opt_kws)
+                .collect(),
+        )
+    }
+
+    fn some_keywords<F, G>(
+        &self,
+        f: F,
+        g: G,
+        tot: usize,
+    ) -> (Vec<(String, String)>, Vec<(String, String)>, usize)
+    where
+        F: Fn(&Measurement<M::P>, &str) -> Vec<(String, String)>,
+        G: Fn(&Metadata<M>, usize, usize) -> Vec<(String, String)>,
+    {
         let par = self.measurements.len();
-        let meas_req: Vec<_> = self
+        let meas: Vec<_> = self
             .measurements
             .iter()
             .enumerate()
-            .flat_map(|(i, m)| M::P::req_keywords(m, &(i + 1).to_string()))
+            .flat_map(|(i, m)| f(m, &(i + 1).to_string()))
             .collect();
-        let meas_opt: Vec<_> = self
-            .measurements
-            .iter()
-            .enumerate()
-            .flat_map(|(i, m)| M::P::opt_keywords(m, &(i + 1).to_string()))
-            .collect();
-        // TODO measure these seperately and compute offsets
-        // let meas_len = ms.iter().map(|(k, v)| k.len() + v.len() + 2).sum();
-        let mut req: Vec<(String, String)> = M::all_req_keywords(&self.metadata, par, total_events)
-            .into_iter()
-            .map(|(k, v)| (String::from(k), v))
-            .chain(meas_req)
-            .collect();
-
-        let mut opt: Vec<(String, String)> = M::all_opt_keywords(&self.metadata)
-            .into_iter()
-            .chain(meas_opt)
-            .collect();
-
-        req.sort_by(|a, b| a.0.cmp(&b.0));
-
-        let fin = req
-            .into_iter()
-            .map(|(k, v)| format!("{}{}{}", k, delim, v))
-            .join(&delim.to_string());
-        format!("{fin}{delim}")
+        let meta: Vec<_> = g(&self.metadata, par, tot).into_iter().collect();
+        let l = &meas.len() + &meta.len();
+        (meas, meta, l)
     }
 
     fn meas_table(&self, delim: &str) -> Vec<String> {

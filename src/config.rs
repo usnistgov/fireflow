@@ -2,10 +2,10 @@
 #[derive(Default)]
 pub struct Config {
     pub corrections: OffsetCorrections,
-    pub raw: RawTextConfig,
-    pub standard: StdTextConfig,
-    pub data: DataConfig,
-    pub misc: MiscConfig,
+    pub raw: RawTextReadConfig,
+    pub standard: StdTextReadConfig,
+    pub data: DataReadConfig,
+    pub misc: MiscReadConfig,
 }
 
 /// Corrections for file offsets
@@ -42,7 +42,7 @@ pub struct OffsetCorrections {
 
 /// Instructions for reading the TEXT segment as raw key/value pairs.
 #[derive(Default, Clone)]
-pub struct RawTextConfig {
+pub struct RawTextReadConfig {
     /// Will treat every delimiter as a literal delimiter rather than "escaping"
     /// double delimiters
     pub no_delim_escape: bool,
@@ -94,7 +94,7 @@ pub struct RawTextConfig {
 
 /// Instructions for reading the TEXT segment in a standardized structure.
 #[derive(Default, Clone)]
-pub struct StdTextConfig {
+pub struct StdTextReadConfig {
     /// If given, will be the $PnN used to identify the time channel. Means
     /// nothing for 2.0.
     ///
@@ -144,7 +144,7 @@ pub struct StdTextConfig {
 
 /// Instructions for reading the DATA segment.
 #[derive(Default)]
-pub struct DataConfig {
+pub struct DataReadConfig {
     /// If true, throw error when total event width does not evenly divide
     /// the DATA segment. Meaningless for delimited ASCII data.
     pub enfore_data_width_divisibility: bool,
@@ -157,7 +157,23 @@ pub struct DataConfig {
 
 /// Configuration options that do not fit anywhere else
 #[derive(Default)]
-pub struct MiscConfig {
+pub struct MiscReadConfig {
     /// If true, all warnings are considered to be fatal errors.
     warnings_are_errors: bool,
+}
+
+/// Configuration for writing an FCS file
+pub struct WriteConfig {
+    /// Delimiter for TEXT segment
+    ///
+    /// This should be an ASCII character in [1, 126]. Unlike the standard
+    /// (which calls for newline), this will default to the record separator
+    /// (character 30).
+    delim: u8,
+}
+
+impl Default for WriteConfig {
+    fn default() -> Self {
+        WriteConfig { delim: 30 }
+    }
 }

@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs;
 use std::io;
-use std::io::{BufReader, Read, Seek, SeekFrom};
+use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::iter;
 use std::num::{IntErrorKind, ParseFloatError, ParseIntError};
 use std::path;
@@ -226,7 +226,7 @@ type ParsedData = Vec<Series>;
 pub enum Series {
     F32(Vec<f32>),
     F64(Vec<f64>),
-    U8(Vec<u8>),
+    U08(Vec<u8>),
     U16(Vec<u16>),
     U32(Vec<u32>),
     U64(Vec<u64>),
@@ -971,13 +971,13 @@ type Metadata3_2 = Metadata<InnerMetadata3_2>;
 
 struct ParserTEXT<'a, M, P> {
     data_seg: Segment,
-    metadata: ParserMetadata<M>,
-    measurements: Vec<ParserMeasurement<P>>,
-    conf: &'a DataConfig,
+    metadata: DataReadMetadata<M>,
+    measurements: Vec<DataReadMeasurement<P>>,
+    conf: &'a DataReadConfig,
 }
 
 /// The bare minimum of measurement data required to parse the DATA segment.
-struct ParserMeasurement<X> {
+struct DataReadMeasurement<X> {
     /// The value of $PnB
     bytes: Bytes,
 
@@ -988,39 +988,82 @@ struct ParserMeasurement<X> {
     specific: X,
 }
 
-struct InnerParserMeasurement3_2 {
+struct InnerDataReadMeasurement3_2 {
     datatype: OptionalKw<NumType>,
 }
 
 /// Minimal data to parse one measurement column in FCS 2.0 (up to 3.1)
-type DataParserMeasurement2_0 = ParserMeasurement<()>;
+type DataReadMeasurement2_0 = DataReadMeasurement<()>;
 
 /// Minimal data to parse one measurement column in FCS 3.2+
-type DataParserMeasurement3_2 = ParserMeasurement<NumType>;
+type DataReadMeasurement3_2 = DataReadMeasurement<NumType>;
 
-struct InnerParserMetadata2_0 {
+struct InnerDataReadMetadata2_0 {
     tot: OptionalKw<u32>,
     byteord: ByteOrd,
 }
 
-struct InnerParserMetadata3_0 {
+struct InnerDataReadMetadata3_0 {
     tot: u32,
     byteord: ByteOrd,
 }
 
-struct InnerParserMetadata3_1 {
+struct InnerDataReadMetadata3_1 {
     tot: u32,
     byteord: Endian,
 }
 
-struct ParserMetadata<M> {
+struct DataReadMetadata<M> {
     datatype: AlphaNumType,
     specific: M,
 }
 
-type DataParserMetadata2_0 = ParserMetadata<InnerParserMetadata2_0>;
-type DataParserMetadata3_0 = ParserMetadata<InnerParserMetadata3_0>;
-type DataParserMetadata3_1 = ParserMetadata<InnerParserMetadata3_1>;
+type DataReadMetadata2_0 = DataReadMetadata<InnerDataReadMetadata2_0>;
+type DataReadMetadata3_0 = DataReadMetadata<InnerDataReadMetadata3_0>;
+type DataReadMetadata3_1 = DataReadMetadata<InnerDataReadMetadata3_1>;
+
+enum WriteType {
+    Ascii { bytes: u8 },
+    Integer { size: AnyIntSize },
+    Float { size: SizedByteOrd<4> },
+    Double { size: SizedByteOrd<8> },
+}
+
+enum DataWrite {
+    AsciiDelimited,
+    AlphaNum(Vec<WriteType>),
+}
+
+struct NumColumnWriter<T, const LEN: usize> {
+    data: Vec<T>,
+    size: SizedByteOrd<LEN>,
+}
+
+struct AsciiColumnWriter<T> {
+    data: Vec<T>,
+    bytes: u8,
+}
+
+enum AnyColumnWriter {
+    NumU8 { data: Vec<u8> },
+    NumU16 { data: Vec<u16>, endian: Endian },
+    NumU24(NumColumnWriter<u32, 3>),
+    NumU32(NumColumnWriter<u32, 4>),
+    NumU40(NumColumnWriter<u64, 5>),
+    NumU48(NumColumnWriter<u64, 6>),
+    NumU56(NumColumnWriter<u64, 7>),
+    NumU64(NumColumnWriter<u64, 8>),
+    NumF32(NumColumnWriter<f32, 4>),
+    NumF64(NumColumnWriter<f64, 8>),
+    AsciiU8(AsciiColumnWriter<u8>),
+    AsciiU16(AsciiColumnWriter<u16>),
+    AsciiU32(AsciiColumnWriter<u32>),
+    AsciiU64(AsciiColumnWriter<u64>),
+    AsciiF32(AsciiColumnWriter<f32>),
+    AsciiF64(AsciiColumnWriter<f64>),
+}
+
+use AnyColumnWriter::*;
 
 struct FCSDateTimeError;
 struct FCSTimeError;
@@ -1156,6 +1199,116 @@ enum AnyIntColumn {
     Uint64(IntColumnParser<u64, 8>),
 }
 
+#[derive(Debug)]
+struct IntSize<const LEN: usize> {
+    size: SizedByteOrd<LEN>,
+}
+
+#[derive(Debug)]
+enum AnyIntSize {
+    Uint8,
+    Uint16 { endian: Endian },
+    Uint24 { size: SizedByteOrd<3> },
+    Uint32 { size: SizedByteOrd<4> },
+    Uint40 { size: SizedByteOrd<5> },
+    Uint48 { size: SizedByteOrd<6> },
+    Uint56 { size: SizedByteOrd<7> },
+    Uint64 { size: SizedByteOrd<8> },
+}
+
+impl AnyIntSize {
+    fn native_nbytes(&self) -> u8 {
+        match self {
+            AnyIntSize::Uint8 => 1,
+            AnyIntSize::Uint16 { endian: _ } => 2,
+            AnyIntSize::Uint24 { size: _ } => 4,
+            AnyIntSize::Uint32 { size: _ } => 4,
+            AnyIntSize::Uint40 { size: _ } => 8,
+            AnyIntSize::Uint48 { size: _ } => 8,
+            AnyIntSize::Uint56 { size: _ } => 8,
+            AnyIntSize::Uint64 { size: _ } => 8,
+        }
+    }
+
+    fn nbytes(&self) -> u8 {
+        match self {
+            AnyIntSize::Uint8 => 1,
+            AnyIntSize::Uint16 { endian: _ } => 2,
+            AnyIntSize::Uint24 { size: _ } => 3,
+            AnyIntSize::Uint32 { size: _ } => 4,
+            AnyIntSize::Uint40 { size: _ } => 5,
+            AnyIntSize::Uint48 { size: _ } => 6,
+            AnyIntSize::Uint56 { size: _ } => 7,
+            AnyIntSize::Uint64 { size: _ } => 8,
+        }
+    }
+}
+
+macro_rules! vec_convert {
+    ($xs:expr, $t:ty) => {
+        $xs.into_iter().map(|x| x as $t).collect()
+    };
+}
+
+macro_rules! convert_to_uint {
+    ($size:expr, $data:expr) => {
+        match $size {
+            AnyIntSize::Uint8 => NumU8 {
+                data: vec_convert!($data, u8),
+            },
+            AnyIntSize::Uint16 { endian } => NumU16 {
+                data: vec_convert!($data, u16),
+                endian,
+            },
+            AnyIntSize::Uint24 { size } => NumU24(NumColumnWriter {
+                data: vec_convert!($data, u32),
+                size,
+            }),
+            AnyIntSize::Uint32 { size } => NumU32(NumColumnWriter {
+                data: vec_convert!($data, u32),
+                size,
+            }),
+            AnyIntSize::Uint40 { size } => NumU40(NumColumnWriter {
+                data: vec_convert!($data, u64),
+                size,
+            }),
+            AnyIntSize::Uint48 { size } => NumU48(NumColumnWriter {
+                data: vec_convert!($data, u64),
+                size,
+            }),
+            AnyIntSize::Uint56 { size } => NumU56(NumColumnWriter {
+                data: vec_convert!($data, u64),
+                size,
+            }),
+            AnyIntSize::Uint64 { size } => NumU64(NumColumnWriter {
+                data: vec_convert!($data, u64),
+                size,
+            }),
+        }
+    };
+}
+
+macro_rules! convert_to_float {
+    ($size:expr, $data:expr, $wrap:ident, $t:ty) => {
+        $wrap(NumColumnWriter {
+            data: vec_convert!($data, $t),
+            size: $size,
+        })
+    };
+}
+
+macro_rules! convert_to_f32 {
+    ($size:expr, $data:expr) => {
+        convert_to_float!($size, $data, NumF32, f32)
+    };
+}
+
+macro_rules! convert_to_f64 {
+    ($size:expr, $data:expr) => {
+        convert_to_float!($size, $data, NumF64, f64)
+    };
+}
+
 // Integers are complicated because in each version we need to at least deal
 // with the possibility that each column has a different bitmask. In addition,
 // 3.1+ allows for different widths (even though this likely is used seldom
@@ -1216,13 +1369,13 @@ trait VersionedMetadata: Sized + VersionedParserMetadata {
 
     fn build_int_parser(
         it: &Self::Target,
-        ps: &[ParserMeasurement<<Self::P as VersionedParserMeasurement>::Target>],
+        ps: &[DataReadMeasurement<<Self::P as VersionedParserMeasurement>::Target>],
         total_events: usize,
     ) -> PureMaybe<IntParser>;
 
     fn build_mixed_parser(
         it: &Self::Target,
-        ps: &[ParserMeasurement<<Self::P as VersionedParserMeasurement>::Target>],
+        ps: &[DataReadMeasurement<<Self::P as VersionedParserMeasurement>::Target>],
         dt: &AlphaNumType,
         total_events: usize,
     ) -> Option<PureMaybe<MixedParser>>;
@@ -1232,7 +1385,7 @@ trait VersionedMetadata: Sized + VersionedParserMetadata {
         is_double: bool,
         par: usize,
         total_events: usize,
-        ps: &[ParserMeasurement<<Self::P as VersionedParserMeasurement>::Target>],
+        ps: &[DataReadMeasurement<<Self::P as VersionedParserMeasurement>::Target>],
     ) -> PureMaybe<ColumnParser> {
         let (bytes, dt) = if is_double { (8, "D") } else { (4, "F") };
         let remainder: Vec<_> = ps.iter().filter(|p| p.bytes.eq(bytes)).collect();
@@ -1590,8 +1743,8 @@ trait VersionedParserMeasurement: Sized {
 
     fn as_minimal_inner(m: &Measurement<Self>) -> Self::Target;
 
-    fn as_minimal(m: &Measurement<Self>) -> ParserMeasurement<Self::Target> {
-        ParserMeasurement {
+    fn as_minimal(m: &Measurement<Self>) -> DataReadMeasurement<Self::Target> {
+        DataReadMeasurement {
             bytes: m.bytes,
             range: m.range,
             specific: Self::as_minimal_inner(m),
@@ -1604,10 +1757,13 @@ trait VersionedParserMetadata: Sized {
 
     fn as_minimal_inner(&self, st: &mut KwParser) -> Option<Self::Target>;
 
-    fn as_minimal(md: &Metadata<Self>, st: &mut KwParser) -> Option<ParserMetadata<Self::Target>> {
+    fn as_minimal(
+        md: &Metadata<Self>,
+        st: &mut KwParser,
+    ) -> Option<DataReadMetadata<Self::Target>> {
         let datatype = md.datatype;
         let specific = Self::as_minimal_inner(&md.specific, st)?;
-        Some(ParserMetadata { datatype, specific })
+        Some(DataReadMetadata { datatype, specific })
     }
 
     fn get_byteord(t: &Self::Target) -> ByteOrd;
@@ -1657,6 +1813,10 @@ trait NumProps<const DTLEN: usize>: Sized + Copy {
 
     fn from_little(buf: [u8; DTLEN]) -> Self;
 
+    fn to_big(self) -> [u8; DTLEN];
+
+    fn to_little(self) -> [u8; DTLEN];
+
     fn read_from_big<R: Read + Seek>(h: &mut BufReader<R>) -> io::Result<Self> {
         let mut buf = [0; DTLEN];
         h.read_exact(&mut buf)?;
@@ -1687,6 +1847,19 @@ trait OrderedFromBytes<const DTLEN: usize, const OLEN: usize>: NumProps<DTLEN> {
             buf[usize::from(*j)] = tmp[i];
         }
         Ok(Self::from_little(buf))
+    }
+
+    fn write_from_ordered<W: Write>(
+        h: &mut BufWriter<W>,
+        order: &[u8; OLEN],
+        x: Self,
+    ) -> io::Result<()> {
+        let tmp = Self::to_little(x);
+        let mut buf = [0; OLEN];
+        for (i, j) in order.iter().enumerate() {
+            buf[usize::from(*j)] = tmp[i];
+        }
+        h.write_all(&tmp)
     }
 }
 
@@ -1746,25 +1919,25 @@ trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
         // ASSUME for u8 and u16 that these will get heavily optimized away
         // since 'order' is totally meaningless for u8 and the only two possible
         // 'orders' for u16 are big and little.
-        let mut tmp = [0; INTLEN];
-        let mut buf = [0; DTLEN];
         match byteord {
-            SizedByteOrd::Endian(Endian::Big) => {
-                let b = DTLEN - INTLEN;
+            SizedByteOrd::Endian(e) => {
+                let mut tmp = [0; INTLEN];
+                let mut buf = [0; DTLEN];
                 h.read_exact(&mut tmp)?;
-                buf[b..].copy_from_slice(&tmp[b..]);
-                Ok(Self::from_big(buf))
-            }
-            SizedByteOrd::Endian(Endian::Little) => {
-                h.read_exact(&mut tmp)?;
-                buf[..INTLEN].copy_from_slice(&tmp[..INTLEN]);
-                Ok(Self::from_little(buf))
+                Ok(if *e == Endian::Big {
+                    let b = DTLEN - INTLEN;
+                    buf[b..].copy_from_slice(&tmp[b..]);
+                    Self::from_big(buf)
+                } else {
+                    buf[..INTLEN].copy_from_slice(&tmp[..INTLEN]);
+                    Self::from_little(buf)
+                })
             }
             SizedByteOrd::Order(order) => Self::read_from_ordered(h, order),
         }
     }
 
-    fn assign<R: Read>(
+    fn read_to_column<R: Read>(
         h: &mut BufReader<R>,
         d: &mut IntColumnParser<Self, INTLEN>,
         row: usize,
@@ -1772,21 +1945,104 @@ trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
         d.data[row] = Self::read_int_masked(h, &d.size, d.bitmask)?;
         Ok(())
     }
+
+    // TODO in the case of odd byte widths, it is not known a priori if the
+    // upper bits will be filled. For instance, a measurement may only be 24
+    // bits but must be stored in a 32bit uint, and it is not known if the upper
+    // byte is non-zero at runtime. This function will truncate these values off
+    // as they are being written. If these "unused bits" are non-zero, warn the
+    // user.
+    fn write_int<W: Write>(
+        h: &mut BufWriter<W>,
+        byteord: &SizedByteOrd<INTLEN>,
+        x: Self,
+    ) -> io::Result<()> {
+        match byteord {
+            SizedByteOrd::Endian(e) => {
+                let mut buf = [0; INTLEN];
+                let (start, end, tmp) = if *e == Endian::Big {
+                    ((DTLEN - INTLEN), DTLEN, Self::to_big(x))
+                } else {
+                    (0, INTLEN, Self::to_little(x))
+                };
+                buf[..].copy_from_slice(&tmp[start..end]);
+                h.write_all(&buf)
+            }
+            SizedByteOrd::Order(order) => Self::write_from_ordered(h, order, x),
+        }
+    }
 }
 
 trait FloatFromBytes<const LEN: usize>: NumProps<LEN> + OrderedFromBytes<LEN, LEN> + Clone
 where
     Vec<Self>: Into<Series>,
+    Vec<Self>: TryFrom<Series>,
+    <Vec<Self> as TryFrom<Series>>::Error: fmt::Display,
 {
-    fn to_float_byteord(byteord: &ByteOrd) -> Result<SizedByteOrd<LEN>, String> {
-        byteord_to_sized(byteord)
+    /// Read one sequence of bytes as a float and assign to a column.
+    fn read_to_column<R: Read>(
+        h: &mut BufReader<R>,
+        column: &mut FloatColumn<Self>,
+        row: usize,
+    ) -> io::Result<()> {
+        // TODO endian wrap thing seems unnecessary
+        column.data[row] = Self::read_float(h, &SizedByteOrd::Endian(column.endian))?;
+        Ok(())
     }
 
-    fn make_column_parser(endian: Endian, total_events: usize) -> FloatColumn<Self> {
+    /// Read byte sequence into a matrix of floats
+    fn read_matrix<R: Read>(h: &mut BufReader<R>, p: FloatParser<LEN>) -> io::Result<Vec<Series>> {
+        let mut columns: Vec<_> = iter::repeat_with(|| vec![Self::zero(); p.nrows])
+            .take(p.ncols)
+            .collect();
+        for row in 0..p.nrows {
+            for column in columns.iter_mut() {
+                column[row] = Self::read_float(h, &p.byteord)?;
+            }
+        }
+        Ok(columns.into_iter().map(Vec::<Self>::into).collect())
+    }
+
+    /// Write matrix as a sequence of bytes
+    fn write_matrix<W: Write>(
+        h: &mut BufWriter<W>,
+        matrix: Vec<Series>,
+        size: SizedByteOrd<LEN>,
+    ) -> ImpureResult<()> {
+        let (pass, fail): (Vec<_>, Vec<_>) = matrix
+            .into_iter()
+            .enumerate()
+            .map(|(i, c)| {
+                Vec::<Self>::try_from(c)
+                    .map_err(|e| format!("conversion failed for measurement {i}: {e}"))
+            })
+            .partition_result();
+
+        if !fail.is_empty() {
+            return Err(Failure {
+                reason: "could not coerce matrix".to_string(),
+                deferred: PureErrorBuf::from_many(fail, PureErrorLevel::Error),
+            })?;
+        }
+
+        for column in pass {
+            for x in column {
+                Self::write_float(h, &size, x);
+            }
+        }
+        Ok(PureSuccess::from(()))
+    }
+
+    /// Make configuration to read one column of floats in a dataset.
+    fn make_column_reader(endian: Endian, total_events: usize) -> FloatColumn<Self> {
         FloatColumn {
             data: vec![Self::zero(); total_events],
             endian,
         }
+    }
+
+    fn to_float_byteord(byteord: &ByteOrd) -> Result<SizedByteOrd<LEN>, String> {
+        byteord_to_sized(byteord)
     }
 
     fn make_matrix_parser(
@@ -1802,53 +2058,36 @@ where
     }
 
     fn read_float<R: Read>(h: &mut BufReader<R>, byteord: &SizedByteOrd<LEN>) -> io::Result<Self> {
-        let mut buf = [0; LEN];
         match byteord {
-            SizedByteOrd::Endian(Endian::Big) => {
+            SizedByteOrd::Endian(e) => {
+                let mut buf = [0; LEN];
                 h.read_exact(&mut buf)?;
-                Ok(Self::from_big(buf))
-            }
-            SizedByteOrd::Endian(Endian::Little) => {
-                h.read_exact(&mut buf)?;
-                Ok(Self::from_little(buf))
+                Ok(if *e == Endian::Big {
+                    Self::from_big(buf)
+                } else {
+                    Self::from_little(buf)
+                })
             }
             SizedByteOrd::Order(order) => Self::read_from_ordered(h, order),
         }
     }
 
-    fn assign_column<R: Read>(
-        h: &mut BufReader<R>,
-        column: &mut FloatColumn<Self>,
-        row: usize,
+    fn write_float<W: Write>(
+        h: &mut BufWriter<W>,
+        byteord: &SizedByteOrd<LEN>,
+        x: Self,
     ) -> io::Result<()> {
-        // TODO endian wrap thing seems unnecessary
-        column.data[row] = Self::read_float(h, &SizedByteOrd::Endian(column.endian))?;
-        Ok(())
-    }
-
-    fn assign_matrix<R: Read + Seek>(
-        h: &mut BufReader<R>,
-        d: &FloatParser<LEN>,
-        column: &mut [Self],
-        row: usize,
-    ) -> io::Result<()> {
-        column[row] = Self::read_float(h, &d.byteord)?;
-        Ok(())
-    }
-
-    fn parse_matrix<R: Read + Seek>(
-        h: &mut BufReader<R>,
-        p: FloatParser<LEN>,
-    ) -> io::Result<Vec<Series>> {
-        let mut columns: Vec<_> = iter::repeat_with(|| vec![Self::zero(); p.nrows])
-            .take(p.ncols)
-            .collect();
-        for r in 0..p.nrows {
-            for c in columns.iter_mut() {
-                Self::assign_matrix(h, &p, c, r)?;
+        match byteord {
+            SizedByteOrd::Endian(e) => {
+                let buf: [u8; LEN] = if *e == Endian::Big {
+                    Self::to_big(x)
+                } else {
+                    Self::to_little(x)
+                };
+                h.write_all(&buf)
             }
+            SizedByteOrd::Order(order) => Self::write_from_ordered(h, order, x),
         }
-        Ok(columns.into_iter().map(Vec::<Self>::into).collect())
     }
 }
 
@@ -3383,6 +3622,8 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
     /// Keywords will be sorted with offsets first, non-measurement keywords
     /// second in alphabetical order, then measurement keywords in alphabetical
     /// order.
+    ///
+    /// Return None if primary TEXT does not fit into first 99,999,999 bytes.
     fn text_segment(
         &self,
         tot: usize,
@@ -3470,8 +3711,6 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
         conf: &Config,
         data_seg: &Segment,
     ) -> PureMaybe<DataParser> {
-        // TODO these error messages are...interesting
-        // let msg = "could not convert to minimal metadata".to_string();
         let succ = KwParser::run(kws, &conf.standard, |st| {
             let maybe_md = <M as VersionedParserMetadata>::as_minimal(&self.metadata, st);
             let measurements: Vec<_> = self
@@ -3489,7 +3728,7 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
         succ.and_then_opt(|it| M::build_data_parser(&it))
     }
 
-    fn from_raw(kws: &mut RawKeywords, conf: &StdTextConfig) -> PureResult<Self> {
+    fn from_raw(kws: &mut RawKeywords, conf: &StdTextReadConfig) -> PureResult<Self> {
         // Lookup $PAR first; everything depends on this since we need to know
         // the number of measurements to find which are used in turn for
         // validating lots of keywords in metadata. If we fail we need to bail.
@@ -3522,7 +3761,7 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
         }))
     }
 
-    fn any_from_raw(kws: &mut RawKeywords, conf: &StdTextConfig) -> PureResult<AnyCoreTEXT> {
+    fn any_from_raw(kws: &mut RawKeywords, conf: &StdTextReadConfig) -> PureResult<AnyCoreTEXT> {
         Self::from_raw(kws, conf).map(|succ| succ.map(M::into_any))
     }
 }
@@ -3540,12 +3779,145 @@ macro_rules! match_many_to_one {
 }
 
 impl Series {
-    pub fn len(&self) -> usize {
-        match_many_to_one!(self, Series, [F32, F64, U8, U16, U32, U64], x, { x.len() })
+    /// Convert a series into a writable vector
+    ///
+    /// Data that is to be written in a different type will be converted.
+    /// Depending on the start and end types, data loss may occur, in which
+    /// case the user will be warned.
+    ///
+    /// For some cases like float->ASCII (bad idea), it is not clear how much
+    /// space will be needed to represent every possible float in the file, so
+    /// user will be warned always.
+    ///
+    /// If the start type will fit into the end type, all is well and nothing
+    /// bad will happen to user's precious data.
+    // TODO for the case of odd uints, check bitmask and warn user if bitmask
+    // is violated.
+    fn coerce(self, w: WriteType) -> PureSuccess<AnyColumnWriter> {
+        let mut deferred = PureErrorBuf::new();
+
+        let ascii_uint_warn = |d: &mut PureErrorBuf, bits, bytes| {
+            let msg = format!(
+                "writing ASCII as {bits}-bit uint in {bytes} \
+                         may result in truncation"
+            );
+            d.push_warning(msg);
+        };
+        let ascii_float_warn = |d: &mut PureErrorBuf, which| {
+            let msg = format!("writing ASCII as {which} is risky, data may be truncated");
+            d.push_warning(msg);
+        };
+        let num_warn = |d: &mut PureErrorBuf, from, to| {
+            let msg = format!("converting {from} to {to} may truncate data");
+            d.push_warning(msg);
+        };
+
+        let res = match w {
+            // For Uint* -> ASCII, warn user if there are not enough bytes to
+            // hold the max range of the type being formatted. For float/double,
+            // warn user no matter what since it isn't clear how much space will
+            // be needed to store something like "1.000000000000000000000000001"
+            // (other than "alot")
+            WriteType::Ascii { bytes } => match self {
+                Series::U08(data) => {
+                    if bytes < 3 {
+                        ascii_uint_warn(&mut deferred, 8, 3);
+                    }
+                    AsciiU8(AsciiColumnWriter { data, bytes })
+                }
+                Series::U16(data) => {
+                    if bytes < 5 {
+                        ascii_uint_warn(&mut deferred, 16, 5);
+                    }
+                    AsciiU16(AsciiColumnWriter { data, bytes })
+                }
+                Series::U32(data) => {
+                    if bytes < 10 {
+                        ascii_uint_warn(&mut deferred, 32, 10);
+                    }
+                    AsciiU32(AsciiColumnWriter { data, bytes })
+                }
+                Series::U64(data) => {
+                    if bytes < 20 {
+                        ascii_uint_warn(&mut deferred, 64, 20);
+                    }
+                    AsciiU64(AsciiColumnWriter { data, bytes })
+                }
+                Series::F32(data) => {
+                    ascii_float_warn(&mut deferred, "float");
+                    AsciiF32(AsciiColumnWriter { data, bytes })
+                }
+                Series::F64(data) => {
+                    ascii_float_warn(&mut deferred, "double");
+                    AsciiF64(AsciiColumnWriter { data, bytes })
+                }
+            },
+
+            // Uint* -> Uint* is quite easy, just compare sizes and warn if
+            // the target type is too small.
+            WriteType::Integer { size } => {
+                let from_size = self.nbytes();
+                let to_size = size.native_nbytes();
+                if to_size < from_size {
+                    let msg = format!(
+                        "converted uint from {from_size} to \
+                         {to_size} bytes may truncate data"
+                    );
+                    deferred.push_warning(msg);
+                }
+                match_many_to_one!(self, Series, [F32, F64, U08, U16, U32, U64], data, {
+                    convert_to_uint!(size, data)
+                })
+            }
+
+            // Floats can hold small uints and themselves, anything else might
+            // truncate.
+            WriteType::Float { size } => {
+                match self {
+                    Series::U32(_) => num_warn(&mut deferred, "float", "uint32"),
+                    Series::U64(_) => num_warn(&mut deferred, "float", "uint64"),
+                    Series::F64(_) => num_warn(&mut deferred, "float", "double"),
+                    _ => (),
+                }
+                match_many_to_one!(self, Series, [F32, F64, U08, U16, U32, U64], data, {
+                    convert_to_f32!(size, data)
+                })
+            }
+
+            // Doubles can hold all but uint64
+            WriteType::Double { size } => {
+                match self {
+                    Series::U64(_) => num_warn(&mut deferred, "double", "uint64"),
+                    _ => (),
+                }
+                match_many_to_one!(self, Series, [F32, F64, U08, U16, U32, U64], data, {
+                    convert_to_f64!(size, data)
+                })
+            }
+        };
+        PureSuccess {
+            data: res,
+            deferred,
+        }
     }
 
-    pub fn format(&self, r: usize) -> String {
-        match_many_to_one!(self, Series, [F32, F64, U8, U16, U32, U64], x, {
+    fn nbytes(&self) -> u8 {
+        match self {
+            Series::U08(_) => 1,
+            Series::U16(_) => 2,
+            Series::U32(_) => 4,
+            Series::U64(_) => 8,
+            Series::F32(_) => 4,
+            Series::F64(_) => 8,
+        }
+    }
+
+    fn len(&self) -> usize {
+        match_many_to_one!(self, Series, [F32, F64, U08, U16, U32, U64], x, { x.len() })
+    }
+
+    fn format(&self, r: usize) -> String {
+        match_many_to_one!(self, Series, [F32, F64, U08, U16, U32, U64], x, {
             format!("{}", x[r])
         })
     }
@@ -3564,6 +3936,14 @@ macro_rules! impl_num_props {
                 $zero
             }
 
+            fn to_big(self) -> [u8; $size] {
+                <$t>::to_be_bytes(self)
+            }
+
+            fn to_little(self) -> [u8; $size] {
+                <$t>::to_le_bytes(self)
+            }
+
             fn from_big(buf: [u8; $size]) -> Self {
                 <$t>::from_be_bytes(buf)
             }
@@ -3575,7 +3955,7 @@ macro_rules! impl_num_props {
     };
 }
 
-impl_num_props!(1, 0, u8, U8);
+impl_num_props!(1, 0, u8, U08);
 impl_num_props!(2, 0, u16, U16);
 impl_num_props!(4, 0, u32, U32);
 impl_num_props!(8, 0, u64, U64);
@@ -3665,14 +4045,14 @@ impl AnyIntColumn {
 
     fn assign<R: Read>(&mut self, h: &mut BufReader<R>, r: usize) -> io::Result<()> {
         match self {
-            AnyIntColumn::Uint8(d) => u8::assign(h, d, r)?,
-            AnyIntColumn::Uint16(d) => u16::assign(h, d, r)?,
-            AnyIntColumn::Uint24(d) => u32::assign(h, d, r)?,
-            AnyIntColumn::Uint32(d) => u32::assign(h, d, r)?,
-            AnyIntColumn::Uint40(d) => u64::assign(h, d, r)?,
-            AnyIntColumn::Uint48(d) => u64::assign(h, d, r)?,
-            AnyIntColumn::Uint56(d) => u64::assign(h, d, r)?,
-            AnyIntColumn::Uint64(d) => u64::assign(h, d, r)?,
+            AnyIntColumn::Uint8(d) => u8::read_to_column(h, d, r)?,
+            AnyIntColumn::Uint16(d) => u16::read_to_column(h, d, r)?,
+            AnyIntColumn::Uint24(d) => u32::read_to_column(h, d, r)?,
+            AnyIntColumn::Uint32(d) => u32::read_to_column(h, d, r)?,
+            AnyIntColumn::Uint40(d) => u64::read_to_column(h, d, r)?,
+            AnyIntColumn::Uint48(d) => u64::read_to_column(h, d, r)?,
+            AnyIntColumn::Uint56(d) => u64::read_to_column(h, d, r)?,
+            AnyIntColumn::Uint64(d) => u64::read_to_column(h, d, r)?,
         }
         Ok(())
     }
@@ -3844,8 +4224,8 @@ fn read_data_mixed<R: Read>(h: &mut BufReader<R>, parser: MixedParser) -> io::Re
     for r in 0..p.nrows {
         for c in p.columns.iter_mut() {
             match c {
-                MixedColumnType::Single(t) => f32::assign_column(h, t, r)?,
-                MixedColumnType::Double(t) => f64::assign_column(h, t, r)?,
+                MixedColumnType::Single(t) => f32::read_to_column(h, t, r)?,
+                MixedColumnType::Double(t) => f64::read_to_column(h, t, r)?,
                 MixedColumnType::Uint(u) => u.assign(h, r)?,
                 MixedColumnType::Ascii(d) => {
                     strbuf.clear();
@@ -3876,10 +4256,24 @@ fn h_read_data_segment<R: Read + Seek>(
     match parser.column_parser {
         ColumnParser::DelimitedAscii(p) => read_data_delim_ascii(h, p),
         ColumnParser::FixedWidthAscii(p) => read_data_ascii_fixed(h, &p),
-        ColumnParser::Single(p) => f32::parse_matrix(h, p),
-        ColumnParser::Double(p) => f64::parse_matrix(h, p),
+        ColumnParser::Single(p) => f32::read_matrix(h, p),
+        ColumnParser::Double(p) => f64::read_matrix(h, p),
         ColumnParser::Mixed(p) => read_data_mixed(h, p),
         ColumnParser::Int(p) => read_data_int(h, p),
+    }
+}
+
+fn h_write_ascii_delim<W: Write>(h: &mut BufWriter<W>, data: Vec<Series>) -> io::Result<()> {
+    for column in data {
+        for row in column {}
+    }
+    Ok(())
+}
+
+fn h_write_data_segment<W: Write>(h: &mut BufWriter<W>, w: DataWrite) -> io::Result<()> {
+    match w {
+        DataWrite::AsciiDelimited => (),
+        DataWrite::AlphaNum(a) => (),
     }
 }
 
@@ -4343,7 +4737,7 @@ fn make_data_offset_keywords_3_0(
     Some((header, text))
 }
 
-fn event_width<X>(ms: &[ParserMeasurement<X>]) -> EventWidth {
+fn event_width<X>(ms: &[DataReadMeasurement<X>]) -> EventWidth {
     let (fixed, variable_indices): (Vec<_>, Vec<_>) = ms
         .iter()
         .enumerate()
@@ -4364,7 +4758,7 @@ fn event_width<X>(ms: &[ParserMeasurement<X>]) -> EventWidth {
 
 fn build_int_parser_2_0<P>(
     byteord: &ByteOrd,
-    ps: &[ParserMeasurement<P>],
+    ps: &[DataReadMeasurement<P>],
     total_events: usize,
 ) -> PureMaybe<IntParser> {
     let nbytes = byteord.num_bytes();
@@ -4421,10 +4815,10 @@ impl VersionedParserMeasurement for InnerMeasurement3_1 {
 }
 
 impl VersionedParserMeasurement for InnerMeasurement3_2 {
-    type Target = InnerParserMeasurement3_2;
+    type Target = InnerDataReadMeasurement3_2;
 
-    fn as_minimal_inner(m: &Measurement<Self>) -> InnerParserMeasurement3_2 {
-        InnerParserMeasurement3_2 {
+    fn as_minimal_inner(m: &Measurement<Self>) -> InnerDataReadMeasurement3_2 {
+        InnerDataReadMeasurement3_2 {
             // TODO lame
             datatype: OptionalKw::from_option(m.specific.datatype.as_ref().into_option().copied()),
         }
@@ -4432,7 +4826,7 @@ impl VersionedParserMeasurement for InnerMeasurement3_2 {
 }
 
 impl VersionedParserMetadata for InnerMetadata2_0 {
-    type Target = InnerParserMetadata2_0;
+    type Target = InnerDataReadMetadata2_0;
 
     fn get_byteord(t: &Self::Target) -> ByteOrd {
         t.byteord.clone()
@@ -4442,8 +4836,8 @@ impl VersionedParserMetadata for InnerMetadata2_0 {
         t.tot.as_ref().into_option().copied()
     }
 
-    fn as_minimal_inner(&self, st: &mut KwParser) -> Option<InnerParserMetadata2_0> {
-        Some(InnerParserMetadata2_0 {
+    fn as_minimal_inner(&self, st: &mut KwParser) -> Option<InnerDataReadMetadata2_0> {
+        Some(InnerDataReadMetadata2_0 {
             byteord: self.byteord.clone(),
             tot: st.lookup_tot_opt(),
         })
@@ -4451,7 +4845,7 @@ impl VersionedParserMetadata for InnerMetadata2_0 {
 }
 
 impl VersionedParserMetadata for InnerMetadata3_0 {
-    type Target = InnerParserMetadata3_0;
+    type Target = InnerDataReadMetadata3_0;
 
     fn get_byteord(t: &Self::Target) -> ByteOrd {
         t.byteord.clone()
@@ -4461,8 +4855,8 @@ impl VersionedParserMetadata for InnerMetadata3_0 {
         Some(t.tot)
     }
 
-    fn as_minimal_inner(&self, st: &mut KwParser) -> Option<InnerParserMetadata3_0> {
-        st.lookup_tot_req().map(|tot| InnerParserMetadata3_0 {
+    fn as_minimal_inner(&self, st: &mut KwParser) -> Option<InnerDataReadMetadata3_0> {
+        st.lookup_tot_req().map(|tot| InnerDataReadMetadata3_0 {
             byteord: self.byteord.clone(),
             tot,
         })
@@ -4470,7 +4864,7 @@ impl VersionedParserMetadata for InnerMetadata3_0 {
 }
 
 impl VersionedParserMetadata for InnerMetadata3_1 {
-    type Target = InnerParserMetadata3_1;
+    type Target = InnerDataReadMetadata3_1;
 
     fn get_byteord(t: &Self::Target) -> ByteOrd {
         ByteOrd::Endian(t.byteord)
@@ -4480,8 +4874,8 @@ impl VersionedParserMetadata for InnerMetadata3_1 {
         Some(t.tot)
     }
 
-    fn as_minimal_inner(&self, st: &mut KwParser) -> Option<InnerParserMetadata3_1> {
-        st.lookup_tot_req().map(|tot| InnerParserMetadata3_1 {
+    fn as_minimal_inner(&self, st: &mut KwParser) -> Option<InnerDataReadMetadata3_1> {
+        st.lookup_tot_req().map(|tot| InnerDataReadMetadata3_1 {
             byteord: self.byteord,
             tot,
         })
@@ -4489,7 +4883,7 @@ impl VersionedParserMetadata for InnerMetadata3_1 {
 }
 
 impl VersionedParserMetadata for InnerMetadata3_2 {
-    type Target = InnerParserMetadata3_1;
+    type Target = InnerDataReadMetadata3_1;
 
     fn get_byteord(t: &Self::Target) -> ByteOrd {
         ByteOrd::Endian(t.byteord)
@@ -4499,8 +4893,8 @@ impl VersionedParserMetadata for InnerMetadata3_2 {
         Some(t.tot)
     }
 
-    fn as_minimal_inner(&self, st: &mut KwParser) -> Option<InnerParserMetadata3_1> {
-        st.lookup_tot_req().map(|tot| InnerParserMetadata3_1 {
+    fn as_minimal_inner(&self, st: &mut KwParser) -> Option<InnerDataReadMetadata3_1> {
+        st.lookup_tot_req().map(|tot| InnerDataReadMetadata3_1 {
             byteord: self.byteord,
             tot,
         })
@@ -4515,16 +4909,16 @@ impl VersionedMetadata for InnerMetadata2_0 {
     }
 
     fn build_int_parser(
-        md: &InnerParserMetadata2_0,
-        ps: &[ParserMeasurement<()>],
+        md: &InnerDataReadMetadata2_0,
+        ps: &[DataReadMeasurement<()>],
         total_events: usize,
     ) -> PureMaybe<IntParser> {
         build_int_parser_2_0(&md.byteord, ps, total_events)
     }
 
     fn build_mixed_parser(
-        _: &InnerParserMetadata2_0,
-        _: &[ParserMeasurement<()>],
+        _: &InnerDataReadMetadata2_0,
+        _: &[DataReadMeasurement<()>],
         _: &AlphaNumType,
         _: usize,
     ) -> Option<PureMaybe<MixedParser>> {
@@ -4582,16 +4976,16 @@ impl VersionedMetadata for InnerMetadata3_0 {
     }
 
     fn build_int_parser(
-        md: &InnerParserMetadata3_0,
-        ps: &[ParserMeasurement<()>],
+        md: &InnerDataReadMetadata3_0,
+        ps: &[DataReadMeasurement<()>],
         total_events: usize,
     ) -> PureMaybe<IntParser> {
         build_int_parser_2_0(&md.byteord, ps, total_events)
     }
 
     fn build_mixed_parser(
-        _: &InnerParserMetadata3_0,
-        _: &[ParserMeasurement<()>],
+        _: &InnerDataReadMetadata3_0,
+        _: &[DataReadMeasurement<()>],
         _: &AlphaNumType,
         _: usize,
     ) -> Option<PureMaybe<MixedParser>> {
@@ -4656,16 +5050,16 @@ impl VersionedMetadata for InnerMetadata3_1 {
     }
 
     fn build_int_parser(
-        it: &InnerParserMetadata3_1,
-        ps: &[ParserMeasurement<()>],
+        it: &InnerDataReadMetadata3_1,
+        ps: &[DataReadMeasurement<()>],
         total_events: usize,
     ) -> PureMaybe<IntParser> {
         build_int_parser_2_0(&ByteOrd::Endian(it.byteord), ps, total_events)
     }
 
     fn build_mixed_parser(
-        _: &InnerParserMetadata3_1,
-        _: &[ParserMeasurement<()>],
+        _: &InnerDataReadMetadata3_1,
+        _: &[DataReadMeasurement<()>],
         _: &AlphaNumType,
         _: usize,
     ) -> Option<PureMaybe<MixedParser>> {
@@ -4745,16 +5139,16 @@ impl VersionedMetadata for InnerMetadata3_2 {
 
     // TODO how did this happen? all are 2.0
     fn build_int_parser(
-        it: &InnerParserMetadata3_1,
-        ps: &[ParserMeasurement<InnerParserMeasurement3_2>],
+        it: &InnerDataReadMetadata3_1,
+        ps: &[DataReadMeasurement<InnerDataReadMeasurement3_2>],
         total_events: usize,
     ) -> PureMaybe<IntParser> {
         build_int_parser_2_0(&ByteOrd::Endian(it.byteord), ps, total_events)
     }
 
     fn build_mixed_parser(
-        it: &InnerParserMetadata3_1,
-        ps: &[ParserMeasurement<InnerParserMeasurement3_2>],
+        it: &InnerDataReadMetadata3_1,
+        ps: &[DataReadMeasurement<InnerDataReadMeasurement3_2>],
         dt: &AlphaNumType,
         total_events: usize,
     ) -> Option<PureMaybe<MixedParser>> {
@@ -4794,10 +5188,10 @@ impl VersionedMetadata for InnerMetadata3_2 {
                         }))
                     }
                     (AlphaNumType::Single, _, _, Bytes::Fixed(4)) => Ok(MixedColumnType::Single(
-                        f32::make_column_parser(endian, total_events),
+                        f32::make_column_reader(endian, total_events),
                     )),
                     (AlphaNumType::Double, _, _, Bytes::Fixed(8)) => Ok(MixedColumnType::Double(
-                        f64::make_column_parser(endian, total_events),
+                        f64::make_column_reader(endian, total_events),
                     )),
                     (AlphaNumType::Integer, _, r, Bytes::Fixed(bytes)) => {
                         make_int_parser(*bytes, &r, &ByteOrd::Endian(it.byteord), total_events)
@@ -4908,7 +5302,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
 fn parse_raw_text(
     version: Version,
     kws: &mut RawKeywords,
-    conf: &StdTextConfig,
+    conf: &StdTextReadConfig,
 ) -> PureResult<AnyCoreTEXT> {
     match version {
         Version::FCS2_0 => CoreText2_0::any_from_raw(kws, conf),
@@ -4970,7 +5364,7 @@ macro_rules! kws_meas_opt {
 struct KwParser<'a, 'b> {
     raw_keywords: &'b mut RawKeywords,
     deferred: PureErrorBuf,
-    conf: &'a StdTextConfig,
+    conf: &'a StdTextReadConfig,
 }
 
 impl<'a, 'b> KwParser<'a, 'b> {
@@ -4982,7 +5376,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
     /// Any errors which are logged must be pushed into the state's error buffer
     /// directly, as errors are not allowed to be returned by the inner
     /// computation.
-    fn run<X, F>(kws: &'b mut RawKeywords, conf: &'a StdTextConfig, f: F) -> PureSuccess<X>
+    fn run<X, F>(kws: &'b mut RawKeywords, conf: &'a StdTextReadConfig, f: F) -> PureSuccess<X>
     where
         F: FnOnce(&mut Self) -> X,
     {
@@ -5005,7 +5399,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
     /// computation.
     fn try_run<X, F>(
         kws: &'b mut RawKeywords,
-        conf: &'a StdTextConfig,
+        conf: &'a StdTextReadConfig,
         reason: String,
         f: F,
     ) -> PureResult<X>
@@ -5454,7 +5848,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
         }
     }
 
-    fn from(kws: &'b mut RawKeywords, conf: &'a StdTextConfig) -> Self {
+    fn from(kws: &'b mut RawKeywords, conf: &'a StdTextReadConfig) -> Self {
         KwParser {
             raw_keywords: kws,
             deferred: PureErrorBuf::new(),
@@ -5619,7 +6013,7 @@ fn h_read_header<R: Read>(h: &mut BufReader<R>) -> ImpureResult<Header> {
     }
 }
 
-fn verify_delim(xs: &[u8], conf: &RawTextConfig) -> PureSuccess<u8> {
+fn verify_delim(xs: &[u8], conf: &RawTextReadConfig) -> PureSuccess<u8> {
     // First character is the delimiter
     let delimiter: u8 = xs[0];
 
@@ -5646,7 +6040,7 @@ fn verify_delim(xs: &[u8], conf: &RawTextConfig) -> PureSuccess<u8> {
 
 type RawPairs = Vec<(String, String)>;
 
-fn split_raw_text(xs: &[u8], delim: u8, conf: &RawTextConfig) -> PureSuccess<RawPairs> {
+fn split_raw_text(xs: &[u8], delim: u8, conf: &RawTextReadConfig) -> PureSuccess<RawPairs> {
     let mut res = PureSuccess::from(vec![]);
     let textlen = xs.len();
 
@@ -5776,7 +6170,7 @@ fn split_raw_text(xs: &[u8], delim: u8, conf: &RawTextConfig) -> PureSuccess<Raw
     res
 }
 
-fn repair_keywords(kws: &mut RawKeywords, conf: &RawTextConfig) {
+fn repair_keywords(kws: &mut RawKeywords, conf: &RawTextReadConfig) {
     for (key, v) in kws.iter_mut() {
         let k = key.as_str();
         if k == DATE {
@@ -5789,7 +6183,10 @@ fn repair_keywords(kws: &mut RawKeywords, conf: &RawTextConfig) {
     }
 }
 
-fn hash_raw_pairs(pairs: Vec<(String, String)>, conf: &RawTextConfig) -> PureSuccess<RawKeywords> {
+fn hash_raw_pairs(
+    pairs: Vec<(String, String)>,
+    conf: &RawTextReadConfig,
+) -> PureSuccess<RawKeywords> {
     let standard: HashMap<_, _> = HashMap::new();
     let mut res = PureSuccess::from(standard);
     // TODO filter keywords based on pattern somewhere here
@@ -5803,7 +6200,7 @@ fn hash_raw_pairs(pairs: Vec<(String, String)>, conf: &RawTextConfig) -> PureSuc
     res
 }
 
-impl StdTextConfig {
+impl StdTextReadConfig {
     fn time_name_matches(&self, name: &Shortname) -> bool {
         self.time_shortname
             .as_ref()
@@ -6024,7 +6421,11 @@ fn lookup_stext_offsets(
     })
 }
 
-fn add_keywords(kws: &mut RawKeywords, pairs: RawPairs, conf: &RawTextConfig) -> PureSuccess<()> {
+fn add_keywords(
+    kws: &mut RawKeywords,
+    pairs: RawPairs,
+    conf: &RawTextReadConfig,
+) -> PureSuccess<()> {
     let mut succ = PureSuccess::from(());
     for (k, v) in pairs.into_iter() {
         let msg = format!(

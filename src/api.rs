@@ -203,7 +203,7 @@ pub struct CoreDataset {
     // level. Furthermore, even python has a suboptimal typing interface for
     // pandas dataframes (R is worse), so it's not like this can be checked
     // statically anyways.
-    pub data: ParsedData,
+    pub data: Dataframe,
 
     /// ANALYSIS segment
     ///
@@ -218,7 +218,9 @@ pub struct CoreDataset {
 /// Each slot in the outer vector is a column, and each column has a type which
 /// reflects the underlying data. In Python/R, this is analogous to a dataframe.
 /// Each column is assumed to have the same length.
-type ParsedData = Vec<Series>;
+struct Dataframe {
+    columns: Vec<Series>,
+}
 
 /// A data column.
 ///
@@ -1035,18 +1037,18 @@ enum DataWrite {
 }
 
 struct NumColumnWriter<T, const LEN: usize> {
-    data: Vec<T>,
+    column: Vec<T>,
     size: SizedByteOrd<LEN>,
 }
 
 struct AsciiColumnWriter<T> {
-    data: Vec<T>,
+    column: Vec<T>,
     bytes: u8,
 }
 
 enum AnyColumnWriter {
-    NumU8 { data: Vec<u8> },
-    NumU16 { data: Vec<u16>, endian: Endian },
+    NumU8 { column: Vec<u8> },
+    NumU16 { column: Vec<u16>, endian: Endian },
     NumU24(NumColumnWriter<u32, 3>),
     NumU32(NumColumnWriter<u32, 4>),
     NumU40(NumColumnWriter<u64, 5>),
@@ -1059,8 +1061,6 @@ enum AnyColumnWriter {
     AsciiU16(AsciiColumnWriter<u16>),
     AsciiU32(AsciiColumnWriter<u32>),
     AsciiU64(AsciiColumnWriter<u64>),
-    AsciiF32(AsciiColumnWriter<f32>),
-    AsciiF64(AsciiColumnWriter<f64>),
 }
 
 use AnyColumnWriter::*;
@@ -1150,13 +1150,13 @@ struct FloatParser<const LEN: usize> {
 
 #[derive(Debug)]
 struct AsciiColumn {
-    data: Vec<f64>,
+    column: Vec<u64>,
     width: u8,
 }
 
 #[derive(Debug)]
 struct FloatColumn<T> {
-    data: Vec<T>,
+    column: Vec<T>,
     endian: Endian,
 }
 
@@ -1254,34 +1254,34 @@ macro_rules! convert_to_uint {
     ($size:expr, $data:expr) => {
         match $size {
             AnyIntSize::Uint8 => NumU8 {
-                data: vec_convert!($data, u8),
+                column: vec_convert!($data, u8),
             },
             AnyIntSize::Uint16 { endian } => NumU16 {
-                data: vec_convert!($data, u16),
+                column: vec_convert!($data, u16),
                 endian,
             },
             AnyIntSize::Uint24 { size } => NumU24(NumColumnWriter {
-                data: vec_convert!($data, u32),
+                column: vec_convert!($data, u32),
                 size,
             }),
             AnyIntSize::Uint32 { size } => NumU32(NumColumnWriter {
-                data: vec_convert!($data, u32),
+                column: vec_convert!($data, u32),
                 size,
             }),
             AnyIntSize::Uint40 { size } => NumU40(NumColumnWriter {
-                data: vec_convert!($data, u64),
+                column: vec_convert!($data, u64),
                 size,
             }),
             AnyIntSize::Uint48 { size } => NumU48(NumColumnWriter {
-                data: vec_convert!($data, u64),
+                column: vec_convert!($data, u64),
                 size,
             }),
             AnyIntSize::Uint56 { size } => NumU56(NumColumnWriter {
-                data: vec_convert!($data, u64),
+                column: vec_convert!($data, u64),
                 size,
             }),
             AnyIntSize::Uint64 { size } => NumU64(NumColumnWriter {
-                data: vec_convert!($data, u64),
+                column: vec_convert!($data, u64),
                 size,
             }),
         }
@@ -1289,23 +1289,23 @@ macro_rules! convert_to_uint {
 }
 
 macro_rules! convert_to_float {
-    ($size:expr, $data:expr, $wrap:ident, $t:ty) => {
+    ($size:expr, $column:expr, $wrap:ident, $t:ty) => {
         $wrap(NumColumnWriter {
-            data: vec_convert!($data, $t),
+            column: vec_convert!($column, $t),
             size: $size,
         })
     };
 }
 
 macro_rules! convert_to_f32 {
-    ($size:expr, $data:expr) => {
-        convert_to_float!($size, $data, NumF32, f32)
+    ($size:expr, $column:expr) => {
+        convert_to_float!($size, $column, NumF32, f32)
     };
 }
 
 macro_rules! convert_to_f64 {
-    ($size:expr, $data:expr) => {
-        convert_to_float!($size, $data, NumF64, f64)
+    ($size:expr, $column:expr) => {
+        convert_to_float!($size, $column, NumF64, f64)
     };
 }
 
@@ -1800,10 +1800,22 @@ trait VersionedParserMetadata: Sized {
     }
 }
 
-trait IntMath: Sized {
+trait IntMath: Sized + fmt::Display {
     fn next_power_2(x: Self) -> Self;
 
     fn maxval() -> Self;
+
+    fn write_ascii_int<W: Write>(h: &mut BufWriter<W>, bytes: u8, x: Self) -> io::Result<()> {
+        let s = x.to_string();
+        // ASSUME bytes has been ensured to be able to hold the largest digit
+        // expressible with this type, which means this will never be negative
+        let offset = usize::from(bytes) - s.len();
+        let mut buf: Vec<u8> = vec![0, bytes];
+        for (i, c) in s.bytes().enumerate() {
+            buf[offset + i] = c;
+        }
+        h.write_all(&buf)
+    }
 }
 
 trait NumProps<const DTLEN: usize>: Sized + Copy {
@@ -1946,12 +1958,7 @@ trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
         Ok(())
     }
 
-    // TODO in the case of odd byte widths, it is not known a priori if the
-    // upper bits will be filled. For instance, a measurement may only be 24
-    // bits but must be stored in a 32bit uint, and it is not known if the upper
-    // byte is non-zero at runtime. This function will truncate these values off
-    // as they are being written. If these "unused bits" are non-zero, warn the
-    // user.
+    // TODO what happens if bitmask is violated?
     fn write_int<W: Write>(
         h: &mut BufWriter<W>,
         byteord: &SizedByteOrd<INTLEN>,
@@ -1976,8 +1983,6 @@ trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
 trait FloatFromBytes<const LEN: usize>: NumProps<LEN> + OrderedFromBytes<LEN, LEN> + Clone
 where
     Vec<Self>: Into<Series>,
-    Vec<Self>: TryFrom<Series>,
-    <Vec<Self> as TryFrom<Series>>::Error: fmt::Display,
 {
     /// Read one sequence of bytes as a float and assign to a column.
     fn read_to_column<R: Read>(
@@ -1986,12 +1991,12 @@ where
         row: usize,
     ) -> io::Result<()> {
         // TODO endian wrap thing seems unnecessary
-        column.data[row] = Self::read_float(h, &SizedByteOrd::Endian(column.endian))?;
+        column.column[row] = Self::read_float(h, &SizedByteOrd::Endian(column.endian))?;
         Ok(())
     }
 
     /// Read byte sequence into a matrix of floats
-    fn read_matrix<R: Read>(h: &mut BufReader<R>, p: FloatParser<LEN>) -> io::Result<Vec<Series>> {
+    fn read_matrix<R: Read>(h: &mut BufReader<R>, p: FloatParser<LEN>) -> io::Result<Dataframe> {
         let mut columns: Vec<_> = iter::repeat_with(|| vec![Self::zero(); p.nrows])
             .take(p.ncols)
             .collect();
@@ -2000,43 +2005,45 @@ where
                 column[row] = Self::read_float(h, &p.byteord)?;
             }
         }
-        Ok(columns.into_iter().map(Vec::<Self>::into).collect())
+        Ok(Dataframe::from(
+            columns.into_iter().map(Vec::<Self>::into).collect(),
+        ))
     }
 
-    /// Write matrix as a sequence of bytes
-    fn write_matrix<W: Write>(
-        h: &mut BufWriter<W>,
-        matrix: Vec<Series>,
-        size: SizedByteOrd<LEN>,
-    ) -> ImpureResult<()> {
-        let (pass, fail): (Vec<_>, Vec<_>) = matrix
-            .into_iter()
-            .enumerate()
-            .map(|(i, c)| {
-                Vec::<Self>::try_from(c)
-                    .map_err(|e| format!("conversion failed for measurement {i}: {e}"))
-            })
-            .partition_result();
+    // /// Write matrix as a sequence of bytes
+    // fn write_matrix<W: Write>(
+    //     h: &mut BufWriter<W>,
+    //     matrix: Vec<Series>,
+    //     size: SizedByteOrd<LEN>,
+    // ) -> ImpureResult<()> {
+    //     let (pass, fail): (Vec<_>, Vec<_>) = matrix
+    //         .into_iter()
+    //         .enumerate()
+    //         .map(|(i, c)| {
+    //             Vec::<Self>::try_from(c)
+    //                 .map_err(|e| format!("conversion failed for measurement {i}: {e}"))
+    //         })
+    //         .partition_result();
 
-        if !fail.is_empty() {
-            return Err(Failure {
-                reason: "could not coerce matrix".to_string(),
-                deferred: PureErrorBuf::from_many(fail, PureErrorLevel::Error),
-            })?;
-        }
+    //     if !fail.is_empty() {
+    //         return Err(Failure {
+    //             reason: "could not coerce matrix".to_string(),
+    //             deferred: PureErrorBuf::from_many(fail, PureErrorLevel::Error),
+    //         })?;
+    //     }
 
-        for column in pass {
-            for x in column {
-                Self::write_float(h, &size, x);
-            }
-        }
-        Ok(PureSuccess::from(()))
-    }
+    //     for column in pass {
+    //         for x in column {
+    //             Self::write_float(h, &size, x);
+    //         }
+    //     }
+    //     Ok(PureSuccess::from(()))
+    // }
 
     /// Make configuration to read one column of floats in a dataset.
     fn make_column_reader(endian: Endian, total_events: usize) -> FloatColumn<Self> {
         FloatColumn {
-            data: vec![Self::zero(); total_events],
+            column: vec![Self::zero(); total_events],
             endian,
         }
     }
@@ -2310,9 +2317,9 @@ impl fmt::Display for NumTypeError {
     }
 }
 
-impl From<NumType> for AlphaNumType {
-    fn from(value: NumType) -> Self {
-        match value {
+impl Into<AlphaNumType> for NumType {
+    fn into(self) -> AlphaNumType {
+        match self {
             NumType::Integer => AlphaNumType::Integer,
             NumType::Single => AlphaNumType::Single,
             NumType::Double => AlphaNumType::Double,
@@ -2958,7 +2965,7 @@ impl InnerMeasurement3_2 {
             .as_ref()
             .into_option()
             .copied()
-            .map(AlphaNumType::from)
+            .map(NumType::into)
             .unwrap_or(default)
     }
 }
@@ -3803,10 +3810,6 @@ impl Series {
             );
             d.push_warning(msg);
         };
-        let ascii_float_warn = |d: &mut PureErrorBuf, which| {
-            let msg = format!("writing ASCII as {which} is risky, data may be truncated");
-            d.push_warning(msg);
-        };
         let num_warn = |d: &mut PureErrorBuf, from, to| {
             let msg = format!("converting {from} to {to} may truncate data");
             d.push_warning(msg);
@@ -3814,42 +3817,59 @@ impl Series {
 
         let res = match w {
             // For Uint* -> ASCII, warn user if there are not enough bytes to
-            // hold the max range of the type being formatted. For float/double,
-            // warn user no matter what since it isn't clear how much space will
-            // be needed to store something like "1.000000000000000000000000001"
-            // (other than "alot")
+            // hold the max range of the type being formatted. ASCII shouldn't
+            // store floats at all, so warn user if input data is float or
+            // double.
             WriteType::Ascii { bytes } => match self {
                 Series::U08(data) => {
                     if bytes < 3 {
                         ascii_uint_warn(&mut deferred, 8, 3);
                     }
-                    AsciiU8(AsciiColumnWriter { data, bytes })
+                    AsciiU8(AsciiColumnWriter {
+                        column: data,
+                        bytes,
+                    })
                 }
                 Series::U16(data) => {
                     if bytes < 5 {
                         ascii_uint_warn(&mut deferred, 16, 5);
                     }
-                    AsciiU16(AsciiColumnWriter { data, bytes })
+                    AsciiU16(AsciiColumnWriter {
+                        column: data,
+                        bytes,
+                    })
                 }
                 Series::U32(data) => {
                     if bytes < 10 {
                         ascii_uint_warn(&mut deferred, 32, 10);
                     }
-                    AsciiU32(AsciiColumnWriter { data, bytes })
+                    AsciiU32(AsciiColumnWriter {
+                        column: data,
+                        bytes,
+                    })
                 }
                 Series::U64(data) => {
                     if bytes < 20 {
                         ascii_uint_warn(&mut deferred, 64, 20);
                     }
-                    AsciiU64(AsciiColumnWriter { data, bytes })
+                    AsciiU64(AsciiColumnWriter {
+                        column: data,
+                        bytes,
+                    })
                 }
                 Series::F32(data) => {
-                    ascii_float_warn(&mut deferred, "float");
-                    AsciiF32(AsciiColumnWriter { data, bytes })
+                    num_warn(&mut deferred, "float", "uint64");
+                    AsciiU64(AsciiColumnWriter {
+                        column: vec_convert!(data, u64),
+                        bytes,
+                    })
                 }
                 Series::F64(data) => {
-                    ascii_float_warn(&mut deferred, "double");
-                    AsciiF64(AsciiColumnWriter { data, bytes })
+                    num_warn(&mut deferred, "double", "uint64");
+                    AsciiU64(AsciiColumnWriter {
+                        column: vec_convert!(data, u64),
+                        bytes,
+                    })
                 }
             },
 
@@ -3886,15 +3906,47 @@ impl Series {
 
             // Doubles can hold all but uint64
             WriteType::Double { size } => {
-                match self {
-                    Series::U64(_) => num_warn(&mut deferred, "double", "uint64"),
-                    _ => (),
+                if let Series::U64(_) = self {
+                    num_warn(&mut deferred, "double", "uint64")
                 }
                 match_many_to_one!(self, Series, [F32, F64, U08, U16, U32, U64], data, {
                     convert_to_f64!(size, data)
                 })
             }
         };
+        PureSuccess {
+            data: res,
+            deferred,
+        }
+    }
+
+    /// Convert into a u64 vector.
+    ///
+    /// Used when writing delimited ASCII. This is faster and more convenient
+    /// than the general coercion function.
+    fn coerce64(self) -> PureSuccess<Vec<u64>> {
+        let mut deferred = PureErrorBuf::new();
+
+        let num_warn = |d: &mut PureErrorBuf, from, to| {
+            let msg = format!("converting {from} to {to} may truncate data");
+            d.push_warning(msg);
+        };
+
+        let res = match self {
+            Series::U08(column) => vec_convert!(column, u64),
+            Series::U16(column) => vec_convert!(column, u64),
+            Series::U32(column) => vec_convert!(column, u64),
+            Series::U64(column) => column,
+            Series::F32(column) => {
+                num_warn(&mut deferred, "float", "uint64");
+                vec_convert!(column, u64)
+            }
+            Series::F64(column) => {
+                num_warn(&mut deferred, "double", "uint64");
+                vec_convert!(column, u64)
+            }
+        };
+
         PureSuccess {
             data: res,
             deferred,
@@ -3910,6 +3962,10 @@ impl Series {
             Series::F32(_) => 4,
             Series::F64(_) => 8,
         }
+    }
+
+    fn total_bytes(&self) -> usize {
+        usize::from(self.nbytes()) * self.len()
     }
 
     fn len(&self) -> usize {
@@ -4021,9 +4077,9 @@ impl IntFromBytes<8, 8> for u64 {}
 impl MixedColumnType {
     fn into_series(self) -> Series {
         match self {
-            MixedColumnType::Ascii(x) => Vec::<f64>::into(x.data),
-            MixedColumnType::Single(x) => Vec::<f32>::into(x.data),
-            MixedColumnType::Double(x) => Vec::<f64>::into(x.data),
+            MixedColumnType::Ascii(x) => Vec::<u64>::into(x.column),
+            MixedColumnType::Single(x) => Vec::<f32>::into(x.column),
+            MixedColumnType::Double(x) => Vec::<f64>::into(x.column),
             MixedColumnType::Uint(x) => x.into_series(),
         }
     }
@@ -4064,6 +4120,48 @@ struct DataParser {
     begin: u64,
 }
 
+impl Dataframe {
+    fn from(columns: Vec<Series>) -> Self {
+        Dataframe { columns }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.columns.is_empty()
+    }
+
+    fn ncols(&self) -> usize {
+        self.columns.len()
+    }
+
+    fn nrows(&self) -> usize {
+        self.min_rows()
+    }
+
+    fn max_rows(&self) -> usize {
+        self.columns.iter().map(|c| c.len()).max().unwrap_or(0)
+    }
+
+    fn min_rows(&self) -> usize {
+        self.columns.iter().map(|c| c.len()).min().unwrap_or(0)
+    }
+
+    fn ragged(&self) -> bool {
+        self.min_rows() != self.max_rows()
+    }
+
+    fn total_bytes(&self) -> usize {
+        self.columns.iter().map(|c| c.total_bytes()).sum()
+    }
+
+    fn size(&self) -> usize {
+        self.columns.iter().map(|c| c.len()).sum()
+    }
+
+    fn square_size(&self) -> usize {
+        self.min_rows() * self.ncols()
+    }
+}
+
 fn format_parsed_data(res: &StandardizedDataset, delim: &str) -> Vec<String> {
     let shortnames = match &res.dataset.keywords {
         AnyCoreTEXT::FCS2_0(x) => x.get_shortnames(),
@@ -4076,14 +4174,14 @@ fn format_parsed_data(res: &StandardizedDataset, delim: &str) -> Vec<String> {
     }
     let mut buf = vec![];
     let mut lines = vec![];
-    let nrows = res.dataset.data[0].len();
-    let ncols = res.dataset.data.len();
+    let nrows = res.dataset.data.nrows();
+    let ncols = res.dataset.data.ncols();
     // ASSUME names is the same length as columns
     lines.push(shortnames.join(delim));
     for r in 0..nrows {
         buf.clear();
         for c in 0..ncols {
-            buf.push(res.dataset.data[c].format(r));
+            buf.push(res.dataset.data.columns[c].format(r));
         }
         lines.push(buf.join(delim));
     }
@@ -4096,21 +4194,21 @@ pub fn print_parsed_data(s: &StandardizedDataset, delim: &str) {
     }
 }
 
-fn ascii_to_float_io(buf: Vec<u8>) -> io::Result<f64> {
+fn ascii_to_uint_io(buf: Vec<u8>) -> io::Result<u64> {
     String::from_utf8(buf)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
-        .and_then(|s| parse_f64_io(&s))
+        .and_then(|s| parse_u64_io(&s))
 }
 
-fn parse_f64_io(s: &str) -> io::Result<f64> {
-    s.parse::<f64>()
+fn parse_u64_io(s: &str) -> io::Result<u64> {
+    s.parse::<u64>()
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }
 
 fn read_data_delim_ascii<R: Read>(
     h: &mut BufReader<R>,
     p: DelimAsciiParser,
-) -> io::Result<ParsedData> {
+) -> io::Result<Dataframe> {
     let mut buf = Vec::new();
     let mut row = 0;
     let mut col = 0;
@@ -4120,9 +4218,7 @@ fn read_data_delim_ascii<R: Read>(
     let is_delim = |byte| byte == 9 || byte == 10 || byte == 13 || byte == 32 || byte == 44;
     // FCS 2.0 files have an optional $TOT field, which complicates this a bit
     if let Some(nrows) = p.nrows {
-        let mut data: Vec<_> = iter::repeat_with(|| vec![0.0; nrows])
-            .take(p.ncols)
-            .collect();
+        let mut data: Vec<_> = iter::repeat_with(|| vec![0; nrows]).take(p.ncols).collect();
         for b in h.bytes().take(p.nbytes) {
             let byte = b?;
             // exit if we encounter more rows than expected.
@@ -4135,7 +4231,7 @@ fn read_data_delim_ascii<R: Read>(
                     last_was_delim = true;
                     // TODO this will spaz out if we end up reading more
                     // rows than expected
-                    data[col][row] = ascii_to_float_io(buf.clone())?;
+                    data[col][row] = ascii_to_uint_io(buf.clone())?;
                     buf.clear();
                     if col == p.ncols - 1 {
                         col = 0;
@@ -4152,7 +4248,7 @@ fn read_data_delim_ascii<R: Read>(
         // not, so flush the buffer if it has anything in it since we
         // only try to parse if we hit a delim above.
         if !buf.is_empty() {
-            data[col][row] = ascii_to_float_io(buf.clone())?;
+            data[col][row] = ascii_to_uint_io(buf.clone())?;
         }
         if !(col == 0 && row == nrows) {
             let msg = format!(
@@ -4161,7 +4257,9 @@ fn read_data_delim_ascii<R: Read>(
             );
             return Err(io::Error::new(io::ErrorKind::InvalidData, msg));
         }
-        Ok(data.into_iter().map(Vec::<f64>::into).collect())
+        Ok(Dataframe::from(
+            data.into_iter().map(Vec::<u64>::into).collect(),
+        ))
     } else {
         let mut data: Vec<_> = iter::repeat_with(Vec::new).take(p.ncols).collect();
         for b in h.bytes().take(p.nbytes) {
@@ -4172,7 +4270,7 @@ fn read_data_delim_ascii<R: Read>(
             if is_delim(byte) {
                 if !last_was_delim {
                     last_was_delim = true;
-                    data[col].push(ascii_to_float_io(buf.clone())?);
+                    data[col].push(ascii_to_uint_io(buf.clone())?);
                     buf.clear();
                     if col == p.ncols - 1 {
                         col = 0;
@@ -4188,23 +4286,25 @@ fn read_data_delim_ascii<R: Read>(
         // not, so flush the buffer if it has anything in it since we
         // only try to parse if we hit a delim above.
         if !buf.is_empty() {
-            data[col][row] = ascii_to_float_io(buf.clone())?;
+            data[col][row] = ascii_to_uint_io(buf.clone())?;
         }
         // Scream if not all columns are equal in length
         if data.iter().map(|c| c.len()).unique().count() > 1 {
             let msg = "Not all columns are equal length";
             return Err(io::Error::new(io::ErrorKind::InvalidData, msg));
         }
-        Ok(data.into_iter().map(Vec::<f64>::into).collect())
+        Ok(Dataframe::from(
+            data.into_iter().map(Vec::<u64>::into).collect(),
+        ))
     }
 }
 
 fn read_data_ascii_fixed<R: Read>(
     h: &mut BufReader<R>,
     parser: &FixedAsciiParser,
-) -> io::Result<ParsedData> {
+) -> io::Result<Dataframe> {
     let ncols = parser.columns.len();
-    let mut data: Vec<_> = iter::repeat_with(|| vec![0.0; parser.nrows])
+    let mut data: Vec<_> = iter::repeat_with(|| vec![0; parser.nrows])
         .take(ncols)
         .collect();
     let mut buf = String::new();
@@ -4212,13 +4312,15 @@ fn read_data_ascii_fixed<R: Read>(
         for (c, width) in parser.columns.iter().enumerate() {
             buf.clear();
             h.take(u64::from(*width)).read_to_string(&mut buf)?;
-            data[c][r] = parse_f64_io(&buf)?;
+            data[c][r] = parse_u64_io(&buf)?;
         }
     }
-    Ok(data.into_iter().map(Vec::<f64>::into).collect())
+    Ok(Dataframe::from(
+        data.into_iter().map(Vec::<u64>::into).collect(),
+    ))
 }
 
-fn read_data_mixed<R: Read>(h: &mut BufReader<R>, parser: MixedParser) -> io::Result<ParsedData> {
+fn read_data_mixed<R: Read>(h: &mut BufReader<R>, parser: MixedParser) -> io::Result<Dataframe> {
     let mut p = parser;
     let mut strbuf = String::new();
     for r in 0..p.nrows {
@@ -4230,28 +4332,32 @@ fn read_data_mixed<R: Read>(h: &mut BufReader<R>, parser: MixedParser) -> io::Re
                 MixedColumnType::Ascii(d) => {
                     strbuf.clear();
                     h.take(u64::from(d.width)).read_to_string(&mut strbuf)?;
-                    d.data[r] = parse_f64_io(&strbuf)?;
+                    d.column[r] = parse_u64_io(&strbuf)?;
                 }
             }
         }
     }
-    Ok(p.columns.into_iter().map(|c| c.into_series()).collect())
+    Ok(Dataframe::from(
+        p.columns.into_iter().map(|c| c.into_series()).collect(),
+    ))
 }
 
-fn read_data_int<R: Read>(h: &mut BufReader<R>, parser: IntParser) -> io::Result<ParsedData> {
+fn read_data_int<R: Read>(h: &mut BufReader<R>, parser: IntParser) -> io::Result<Dataframe> {
     let mut p = parser;
     for r in 0..p.nrows {
         for c in p.columns.iter_mut() {
             c.assign(h, r)?;
         }
     }
-    Ok(p.columns.into_iter().map(|c| c.into_series()).collect())
+    Ok(Dataframe::from(
+        p.columns.into_iter().map(|c| c.into_series()).collect(),
+    ))
 }
 
 fn h_read_data_segment<R: Read + Seek>(
     h: &mut BufReader<R>,
     parser: DataParser,
-) -> io::Result<ParsedData> {
+) -> io::Result<Dataframe> {
     h.seek(SeekFrom::Start(parser.begin))?;
     match parser.column_parser {
         ColumnParser::DelimitedAscii(p) => read_data_delim_ascii(h, p),
@@ -4263,17 +4369,84 @@ fn h_read_data_segment<R: Read + Seek>(
     }
 }
 
-fn h_write_ascii_delim<W: Write>(h: &mut BufWriter<W>, data: Vec<Series>) -> io::Result<()> {
-    for column in data {
-        for row in column {}
+fn h_write_ascii_delim_data<W: Write>(h: &mut BufWriter<W>, df: Dataframe) -> io::Result<()> {
+    let nrows = df.nrows();
+    // TODO handle warnings
+    let (columns, warnings): (Vec<_>, Vec<_>) = df
+        .columns
+        .into_iter()
+        .map(|s| {
+            let res = s.coerce64();
+            (res.data, res.deferred)
+        })
+        .unzip();
+    for r in 0..nrows {
+        for c in columns.iter() {
+            let x = c[r];
+            if x == 0 {
+                let buf = [48];
+                h.write_all(&buf)?;
+            } else {
+                let s = x.to_string();
+                let t = s.trim_start_matches("0");
+                let buf = t.as_bytes();
+                h.write_all(buf)?;
+            }
+        }
     }
     Ok(())
 }
 
-fn h_write_data_segment<W: Write>(h: &mut BufWriter<W>, w: DataWrite) -> io::Result<()> {
+fn h_write_numeric_data<W: Write>(
+    h: &mut BufWriter<W>,
+    wts: Vec<WriteType>,
+    df: Dataframe,
+) -> io::Result<()> {
+    // TODO make sure lengths match
+    let nrows = df.nrows();
+    // TODO deal with warnings
+    let (writable_columns, warnings): (Vec<_>, Vec<_>) = wts
+        .into_iter()
+        .zip(df.columns)
+        .map(|(w, s)| {
+            let res = s.coerce(w);
+            (res.data, res.deferred)
+        })
+        .unzip();
+    for r in 0..nrows {
+        for c in writable_columns.iter() {
+            match c {
+                NumU8 { column } => u8::write_int(h, &SizedByteOrd::Endian(Endian::Big), column[r]),
+                NumU16 { column, endian } => {
+                    u16::write_int(h, &SizedByteOrd::Endian(*endian), column[r])
+                }
+                NumU24(w) => u32::write_int(h, &w.size, w.column[r]),
+                NumU32(w) => u32::write_int(h, &w.size, w.column[r]),
+                NumU40(w) => u64::write_int(h, &w.size, w.column[r]),
+                NumU48(w) => u64::write_int(h, &w.size, w.column[r]),
+                NumU56(w) => u64::write_int(h, &w.size, w.column[r]),
+                NumU64(w) => u64::write_int(h, &w.size, w.column[r]),
+                NumF32(w) => f32::write_float(h, &w.size, w.column[r]),
+                NumF64(w) => f64::write_float(h, &w.size, w.column[r]),
+                AsciiU8(w) => u8::write_ascii_int(h, w.bytes, w.column[r]),
+                AsciiU16(w) => u16::write_ascii_int(h, w.bytes, w.column[r]),
+                AsciiU32(w) => u32::write_ascii_int(h, w.bytes, w.column[r]),
+                AsciiU64(w) => u64::write_ascii_int(h, w.bytes, w.column[r]),
+            }?
+        }
+    }
+    Ok(())
+}
+
+fn h_write_data_segment<W: Write>(
+    h: &mut BufWriter<W>,
+    w: DataWrite,
+    df: Dataframe,
+) -> io::Result<()> {
+    // TODO check that dataframe is valid
     match w {
-        DataWrite::AsciiDelimited => (),
-        DataWrite::AlphaNum(a) => (),
+        DataWrite::AsciiDelimited => h_write_ascii_delim_data(h, df),
+        DataWrite::AlphaNum(wts) => h_write_numeric_data(h, wts, df),
     }
 }
 
@@ -5184,7 +5357,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
                     (AlphaNumType::Ascii, _, _, Bytes::Fixed(bytes)) => {
                         Ok(MixedColumnType::Ascii(AsciiColumn {
                             width: *bytes,
-                            data: vec![],
+                            column: vec![],
                         }))
                     }
                     (AlphaNumType::Single, _, _, Bytes::Fixed(4)) => Ok(MixedColumnType::Single(

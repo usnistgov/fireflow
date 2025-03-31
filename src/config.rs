@@ -6,6 +6,7 @@ pub struct Config {
     pub standard: StdTextReadConfig,
     pub data: DataReadConfig,
     pub misc: MiscReadConfig,
+    pub write: WriteConfig,
 }
 
 /// Corrections for file offsets
@@ -159,7 +160,7 @@ pub struct DataReadConfig {
 #[derive(Default)]
 pub struct MiscReadConfig {
     /// If true, all warnings are considered to be fatal errors.
-    warnings_are_errors: bool,
+    pub warnings_are_errors: bool,
 }
 
 /// Configuration for writing an FCS file
@@ -169,11 +170,19 @@ pub struct WriteConfig {
     /// This should be an ASCII character in [1, 126]. Unlike the standard
     /// (which calls for newline), this will default to the record separator
     /// (character 30).
-    delim: u8,
+    pub delim: u8,
+
+    /// If true, disallow lossy data conversions
+    ///
+    /// Example, f32 -> u32
+    pub disallow_lossy_conversions: bool,
 }
 
 impl Default for WriteConfig {
     fn default() -> Self {
-        WriteConfig { delim: 30 }
+        WriteConfig {
+            delim: 30,
+            disallow_lossy_conversions: false,
+        }
     }
 }

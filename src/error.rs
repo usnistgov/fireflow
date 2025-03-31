@@ -166,6 +166,14 @@ impl PureErrorBuf {
             .count()
             > 0
     }
+
+    pub fn mconcat(xs: Vec<Self>) -> Self {
+        let errors = xs.into_iter().fold(vec![], |mut acc, mut next| {
+            acc.append(&mut next.errors);
+            acc
+        });
+        Self { errors }
+    }
 }
 
 impl<X> PureSuccess<X> {
@@ -317,6 +325,10 @@ impl<X> PureSuccess<X> {
 impl<X> PureMaybe<X> {
     pub fn empty() -> PureMaybe<X> {
         PureSuccess::from(None)
+    }
+
+    pub fn map_maybe<Y, F: FnOnce(X) -> Y>(self, f: F) -> PureMaybe<Y> {
+        self.map(|x| x.map(|y| f(y)))
     }
 
     pub fn into_result(self, reason: String) -> PureResult<X> {

@@ -1065,7 +1065,7 @@ impl ColumnType {
     fn width(&self) -> usize {
         match self {
             ColumnType::Ascii { bytes } => usize::from(*bytes),
-            ColumnType::Integer(col) => usize::from(UintSize::from_column(col).nbytes()),
+            ColumnType::Integer(ut) => usize::from(ut.nbytes()),
             ColumnType::Float(_) => 4,
             ColumnType::Double(_) => 8,
         }
@@ -1168,16 +1168,16 @@ enum AnyUintColumnReader {
     Uint64(UintColumnReader<u64, 8>),
 }
 
-enum UintSize {
-    Uint8(SizedByteOrd<1>),
-    Uint16(SizedByteOrd<2>),
-    Uint24(SizedByteOrd<3>),
-    Uint32(SizedByteOrd<4>),
-    Uint40(SizedByteOrd<5>),
-    Uint48(SizedByteOrd<6>),
-    Uint56(SizedByteOrd<7>),
-    Uint64(SizedByteOrd<8>),
-}
+// enum UintSize {
+//     Uint8(SizedByteOrd<1>),
+//     Uint16(SizedByteOrd<2>),
+//     Uint24(SizedByteOrd<3>),
+//     Uint32(SizedByteOrd<4>),
+//     Uint40(SizedByteOrd<5>),
+//     Uint48(SizedByteOrd<6>),
+//     Uint56(SizedByteOrd<7>),
+//     Uint64(SizedByteOrd<8>),
+// }
 
 // Integers are complicated because in each version we need to at least deal
 // with the possibility that each column has a different bitmask. In addition,
@@ -1308,43 +1308,30 @@ struct FloatReader<const LEN: usize> {
     byteord: SizedByteOrd<LEN>,
 }
 
-impl UintSize {
-    fn from_column(col: &AnyUintType) -> Self {
-        match col {
-            AnyUintType::Uint8(s) => UintSize::Uint8(s.size.clone()),
-            AnyUintType::Uint16(s) => UintSize::Uint16(s.size.clone()),
-            AnyUintType::Uint24(s) => UintSize::Uint24(s.size.clone()),
-            AnyUintType::Uint32(s) => UintSize::Uint32(s.size.clone()),
-            AnyUintType::Uint40(s) => UintSize::Uint40(s.size.clone()),
-            AnyUintType::Uint48(s) => UintSize::Uint48(s.size.clone()),
-            AnyUintType::Uint56(s) => UintSize::Uint56(s.size.clone()),
-            AnyUintType::Uint64(s) => UintSize::Uint64(s.size.clone()),
-        }
-    }
-
+impl AnyUintType {
     fn native_nbytes(&self) -> u8 {
         match self {
-            UintSize::Uint8(_) => 1,
-            UintSize::Uint16(_) => 2,
-            UintSize::Uint24(_) => 4,
-            UintSize::Uint32(_) => 4,
-            UintSize::Uint40(_) => 8,
-            UintSize::Uint48(_) => 8,
-            UintSize::Uint56(_) => 8,
-            UintSize::Uint64(_) => 8,
+            AnyUintType::Uint8(_) => 1,
+            AnyUintType::Uint16(_) => 2,
+            AnyUintType::Uint24(_) => 4,
+            AnyUintType::Uint32(_) => 4,
+            AnyUintType::Uint40(_) => 8,
+            AnyUintType::Uint48(_) => 8,
+            AnyUintType::Uint56(_) => 8,
+            AnyUintType::Uint64(_) => 8,
         }
     }
 
     fn nbytes(&self) -> u8 {
         match self {
-            UintSize::Uint8(_) => 1,
-            UintSize::Uint16(_) => 2,
-            UintSize::Uint24(_) => 3,
-            UintSize::Uint32(_) => 4,
-            UintSize::Uint40(_) => 5,
-            UintSize::Uint48(_) => 6,
-            UintSize::Uint56(_) => 7,
-            UintSize::Uint64(_) => 8,
+            AnyUintType::Uint8(_) => 1,
+            AnyUintType::Uint16(_) => 2,
+            AnyUintType::Uint24(_) => 3,
+            AnyUintType::Uint32(_) => 4,
+            AnyUintType::Uint40(_) => 5,
+            AnyUintType::Uint48(_) => 6,
+            AnyUintType::Uint56(_) => 7,
+            AnyUintType::Uint64(_) => 8,
         }
     }
 }
@@ -4070,10 +4057,9 @@ impl Series {
             // target type is too small. Float/double -> Uint always could
             // potentially truncate a fractional value. Also check to see if
             // bitmask is exceeded, and if so truncate and warn user.
-            ColumnType::Integer(column) => {
-                let size = UintSize::from_column(&column);
-                let from_size = self.nbytes();
-                let to_size = size.native_nbytes();
+            ColumnType::Integer(ut) => {
+                let from_size = ut.nbytes();
+                let to_size = ut.native_nbytes();
                 // TODO also warn if converting from a float
                 if to_size < from_size {
                     let msg = format!(
@@ -4083,7 +4069,7 @@ impl Series {
                     deferred.push_warning(msg);
                 }
                 match_many_to_one!(self, Series, [F32, F64, U08, U16, U32, U64], data, {
-                    convert_to_uint!(column, data, deferred)
+                    convert_to_uint!(ut, data, deferred)
                 })
             }
 

@@ -1061,38 +1061,9 @@ enum ColumnType {
     Double(SizedByteOrd<8>),
 }
 
-impl ColumnType {
-    fn width(&self) -> usize {
-        match self {
-            ColumnType::Ascii { bytes } => usize::from(*bytes),
-            ColumnType::Integer(ut) => usize::from(ut.nbytes()),
-            ColumnType::Float(_) => 4,
-            ColumnType::Double(_) => 8,
-        }
-    }
-
-    fn datatype(&self) -> AlphaNumType {
-        match self {
-            ColumnType::Ascii { bytes: _ } => AlphaNumType::Ascii,
-            ColumnType::Integer(_) => AlphaNumType::Integer,
-            ColumnType::Float(_) => AlphaNumType::Single,
-            ColumnType::Double(_) => AlphaNumType::Double,
-        }
-    }
-}
-
 enum DataLayout<T> {
     AsciiDelimited { nrows: Option<T>, ncols: usize },
     AlphaNum { nrows: T, columns: Vec<ColumnType> },
-}
-
-impl<T> DataLayout<T> {
-    fn ncols(&self) -> usize {
-        match self {
-            DataLayout::AsciiDelimited { nrows: _, ncols } => *ncols,
-            DataLayout::AlphaNum { nrows: _, columns } => columns.len(),
-        }
-    }
 }
 
 struct NumColumnWriter<T, const LEN: usize> {
@@ -1167,17 +1138,6 @@ enum AnyUintColumnReader {
     Uint56(UintColumnReader<u64, 7>),
     Uint64(UintColumnReader<u64, 8>),
 }
-
-// enum UintSize {
-//     Uint8(SizedByteOrd<1>),
-//     Uint16(SizedByteOrd<2>),
-//     Uint24(SizedByteOrd<3>),
-//     Uint32(SizedByteOrd<4>),
-//     Uint40(SizedByteOrd<5>),
-//     Uint48(SizedByteOrd<6>),
-//     Uint56(SizedByteOrd<7>),
-//     Uint64(SizedByteOrd<8>),
-// }
 
 // Integers are complicated because in each version we need to at least deal
 // with the possibility that each column has a different bitmask. In addition,
@@ -1306,34 +1266,6 @@ struct FloatReader<const LEN: usize> {
     nrows: usize,
     ncols: usize,
     byteord: SizedByteOrd<LEN>,
-}
-
-impl AnyUintType {
-    fn native_nbytes(&self) -> u8 {
-        match self {
-            AnyUintType::Uint8(_) => 1,
-            AnyUintType::Uint16(_) => 2,
-            AnyUintType::Uint24(_) => 4,
-            AnyUintType::Uint32(_) => 4,
-            AnyUintType::Uint40(_) => 8,
-            AnyUintType::Uint48(_) => 8,
-            AnyUintType::Uint56(_) => 8,
-            AnyUintType::Uint64(_) => 8,
-        }
-    }
-
-    fn nbytes(&self) -> u8 {
-        match self {
-            AnyUintType::Uint8(_) => 1,
-            AnyUintType::Uint16(_) => 2,
-            AnyUintType::Uint24(_) => 3,
-            AnyUintType::Uint32(_) => 4,
-            AnyUintType::Uint40(_) => 5,
-            AnyUintType::Uint48(_) => 6,
-            AnyUintType::Uint56(_) => 7,
-            AnyUintType::Uint64(_) => 8,
-        }
-    }
 }
 
 macro_rules! vec_convert {
@@ -2073,7 +2005,6 @@ trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
         Ok(())
     }
 
-    // TODO what happens if bitmask is violated?
     fn write_int<W: Write>(
         h: &mut BufWriter<W>,
         byteord: &SizedByteOrd<INTLEN>,
@@ -2139,19 +2070,6 @@ where
         byteord_to_sized(byteord)
     }
 
-    // fn make_matrix_parser(
-    //     byteord: &ByteOrd,
-    //     par: usize,
-    //     total_events: usize,
-    // ) -> PureMaybe<FloatParser<LEN>> {
-    //     let res = Self::to_float_byteord(byteord).map(|byteord| FloatParser {
-    //         nrows: total_events,
-    //         ncols: par,
-    //         byteord,
-    //     });
-    //     PureMaybe::from_result_1(res, PureErrorLevel::Error)
-    // }
-
     fn make_matrix_parser(
         byteord: &ByteOrd,
         par: usize,
@@ -2195,6 +2113,63 @@ where
                 h.write_all(&buf)
             }
             SizedByteOrd::Order(order) => Self::write_from_ordered(h, order, x),
+        }
+    }
+}
+
+impl ColumnType {
+    fn width(&self) -> usize {
+        match self {
+            ColumnType::Ascii { bytes } => usize::from(*bytes),
+            ColumnType::Integer(ut) => usize::from(ut.nbytes()),
+            ColumnType::Float(_) => 4,
+            ColumnType::Double(_) => 8,
+        }
+    }
+
+    fn datatype(&self) -> AlphaNumType {
+        match self {
+            ColumnType::Ascii { bytes: _ } => AlphaNumType::Ascii,
+            ColumnType::Integer(_) => AlphaNumType::Integer,
+            ColumnType::Float(_) => AlphaNumType::Single,
+            ColumnType::Double(_) => AlphaNumType::Double,
+        }
+    }
+}
+
+impl<T> DataLayout<T> {
+    fn ncols(&self) -> usize {
+        match self {
+            DataLayout::AsciiDelimited { nrows: _, ncols } => *ncols,
+            DataLayout::AlphaNum { nrows: _, columns } => columns.len(),
+        }
+    }
+}
+
+impl AnyUintType {
+    fn native_nbytes(&self) -> u8 {
+        match self {
+            AnyUintType::Uint8(_) => 1,
+            AnyUintType::Uint16(_) => 2,
+            AnyUintType::Uint24(_) => 4,
+            AnyUintType::Uint32(_) => 4,
+            AnyUintType::Uint40(_) => 8,
+            AnyUintType::Uint48(_) => 8,
+            AnyUintType::Uint56(_) => 8,
+            AnyUintType::Uint64(_) => 8,
+        }
+    }
+
+    fn nbytes(&self) -> u8 {
+        match self {
+            AnyUintType::Uint8(_) => 1,
+            AnyUintType::Uint16(_) => 2,
+            AnyUintType::Uint24(_) => 3,
+            AnyUintType::Uint32(_) => 4,
+            AnyUintType::Uint40(_) => 5,
+            AnyUintType::Uint48(_) => 6,
+            AnyUintType::Uint56(_) => 7,
+            AnyUintType::Uint64(_) => 8,
         }
     }
 }
@@ -3146,27 +3121,6 @@ impl fmt::Display for Range {
         match self {
             Range::Int(x) => write!(f, "{x}"),
             Range::Float(x) => write!(f, "{x}"),
-        }
-    }
-}
-
-impl Bytes {
-    fn eq(&self, b: u8) -> bool {
-        match self {
-            Bytes::Fixed(x) => *x == b,
-            _ => false,
-        }
-    }
-
-    fn make_int_parser(
-        &self,
-        r: &Range,
-        o: &ByteOrd,
-        t: usize,
-    ) -> Result<AnyUintColumnReader, Vec<String>> {
-        match self {
-            Bytes::Fixed(b) => make_int_parser(*b, *r, o, t),
-            _ => Err(vec!["PnB is variable length".to_string()]),
         }
     }
 }
@@ -4262,20 +4216,20 @@ impl IntFromBytes<8, 6> for u64 {}
 impl IntFromBytes<8, 7> for u64 {}
 impl IntFromBytes<8, 8> for u64 {}
 
-impl MixedColumnType {
-    fn into_series(self) -> Series {
-        match self {
+impl From<MixedColumnType> for Series {
+    fn from(value: MixedColumnType) -> Series {
+        match value {
             MixedColumnType::Ascii(x) => Vec::<u64>::into(x.column),
             MixedColumnType::Single(x) => Vec::<f32>::into(x.column),
             MixedColumnType::Double(x) => Vec::<f64>::into(x.column),
-            MixedColumnType::Uint(x) => x.into_series(),
+            MixedColumnType::Uint(x) => x.into(),
         }
     }
 }
 
-impl AnyUintColumnReader {
-    fn into_series(self) -> Series {
-        match self {
+impl From<AnyUintColumnReader> for Series {
+    fn from(value: AnyUintColumnReader) -> Self {
+        match value {
             AnyUintColumnReader::Uint8(y) => Vec::<u8>::into(y.column),
             AnyUintColumnReader::Uint16(y) => Vec::<u16>::into(y.column),
             AnyUintColumnReader::Uint24(y) => Vec::<u32>::into(y.column),
@@ -4286,7 +4240,9 @@ impl AnyUintColumnReader {
             AnyUintColumnReader::Uint64(y) => Vec::<u64>::into(y.column),
         }
     }
+}
 
+impl AnyUintColumnReader {
     // TODO clean this up
     fn from_column(col: AnyUintType, total_events: usize) -> Self {
         match col {
@@ -4563,7 +4519,7 @@ fn read_data_mixed<R: Read>(h: &mut BufReader<R>, parser: MixedParser) -> io::Re
         }
     }
     Ok(Dataframe::from(
-        p.columns.into_iter().map(|c| c.into_series()).collect(),
+        p.columns.into_iter().map(|c| c.into()).collect(),
     ))
 }
 
@@ -4575,7 +4531,7 @@ fn read_data_int<R: Read>(h: &mut BufReader<R>, parser: UintReader) -> io::Resul
         }
     }
     Ok(Dataframe::from(
-        p.columns.into_iter().map(|c| c.into_series()).collect(),
+        p.columns.into_iter().map(|c| c.into()).collect(),
     ))
 }
 

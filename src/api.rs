@@ -1365,7 +1365,7 @@ trait VersionedMetadata: Sized + VersionedParserMetadata {
         ms: &[Measurement<Self::P>],
     ) -> Result<WriterDataLayout, Vec<String>> {
         let dt = m.datatype;
-        let byteord = Self::get_byteord(&m.specific);
+        let byteord = Self::byteord(&m.specific);
         let ncols = ms.len();
         let (pass, fail): (Vec<_>, Vec<_>) = ms
             .iter()
@@ -1399,11 +1399,11 @@ trait VersionedMetadata: Sized + VersionedParserMetadata {
         conf: &DataReadConfig,
     ) -> PureMaybe<ReaderDataLayout> {
         let dt = m.datatype;
-        let byteord = Self::get_target_byteord(&m.specific);
+        let byteord = Self::target_byteord(&m.specific);
         let ncols = ms.len();
         let (pass, fail): (Vec<_>, Vec<_>) = ms
             .iter()
-            .map(|m| Self::P::as_column_type_minimal(m, dt, &byteord))
+            .map(|m| Self::P::as_column_type_from_bare(m, dt, &byteord))
             .partition_result();
         let mut deferred =
             PureErrorBuf::from_many(fail.into_iter().flatten().collect(), PureErrorLevel::Error);
@@ -1421,7 +1421,7 @@ trait VersionedMetadata: Sized + VersionedParserMetadata {
                     },
                 );
             } else if nfixed == 0 {
-                let nrows = Self::get_tot(&m.specific);
+                let nrows = Self::tot(&m.specific);
                 return PureSuccess::from(Some(DataLayout::AsciiDelimited { nrows, ncols }));
             } else {
                 deferred.push_error(format!(
@@ -1473,7 +1473,7 @@ trait VersionedMetadata: Sized + VersionedParserMetadata {
 
     fn keywords_opt_inner(&self) -> Vec<(&'static str, String)>;
 
-    fn all_req_keywords(m: &Metadata<Self>, par: usize, tot: usize) -> Vec<(String, String)> {
+    fn all_req_keywords(m: &Metadata<Self>, par: usize, tot: usize) -> RawPairs {
         let fixed = [
             (PAR, par.to_string()),
             (TOT, tot.to_string()),
@@ -1486,7 +1486,7 @@ trait VersionedMetadata: Sized + VersionedParserMetadata {
             .collect()
     }
 
-    fn all_opt_keywords(m: &Metadata<Self>) -> Vec<(String, String)> {
+    fn all_opt_keywords(m: &Metadata<Self>) -> RawPairs {
         [
             (ABRT, m.abrt.as_opt_string()),
             (COM, m.com.as_opt_string()),
@@ -1513,51 +1513,6 @@ trait VersionedMetadata: Sized + VersionedParserMetadata {
                 .map(|(k, v)| (k.clone(), v.clone())),
         )
         .collect()
-    }
-}
-
-fn build_mixed_parser(cs: Vec<ColumnType>, total_events: usize) -> MixedParser {
-    let columns = cs
-        .into_iter()
-        .map(|p| match p {
-            ColumnType::Ascii { bytes } => MixedColumnType::Ascii(AsciiColumnReader {
-                width: bytes,
-                column: vec![],
-            }),
-            ColumnType::Float(order) => {
-                MixedColumnType::Single(f32::make_column_reader(order, total_events))
-            }
-            ColumnType::Double(order) => {
-                MixedColumnType::Double(f64::make_column_reader(order, total_events))
-            }
-            ColumnType::Integer(col) => {
-                MixedColumnType::Uint(AnyUintColumnReader::from_column(col, total_events))
-            }
-        })
-        .collect();
-    MixedParser {
-        columns,
-        nrows: total_events,
-    }
-}
-
-fn build_data_parser(layout: ReaderDataLayout, data_seg: &Segment) -> DataReader {
-    let column_parser = match layout {
-        DataLayout::AlphaNum { nrows, columns } => {
-            ColumnReader::Mixed(build_mixed_parser(columns, nrows))
-        }
-        DataLayout::AsciiDelimited { nrows, ncols } => {
-            let nbytes = data_seg.nbytes() as usize;
-            ColumnReader::DelimitedAscii(DelimAsciiReader {
-                ncols,
-                nrows,
-                nbytes,
-            })
-        }
-    };
-    DataReader {
-        column_reader: column_parser,
-        begin: u64::from(data_seg.begin()),
     }
 }
 
@@ -1653,14 +1608,14 @@ trait VersionedMeasurement: Sized + Versioned {
 
     // TODO this name is weird, this is standard+nonstandard keywords
     // after filtering out None values
-    fn req_keywords(m: &Measurement<Self>, n: &str) -> Vec<(String, String)> {
+    fn req_keywords(m: &Measurement<Self>, n: &str) -> RawPairs {
         Self::req_suffixes(m)
             .into_iter()
             .map(|(s, v)| (format_measurement(n, s), v))
             .collect()
     }
 
-    fn opt_keywords(m: &Measurement<Self>, n: &str) -> Vec<(String, String)> {
+    fn opt_keywords(m: &Measurement<Self>, n: &str) -> RawPairs {
         Self::opt_suffixes(m)
             .into_iter()
             .filter_map(|(k, v)| v.map(|x| (k, x)))
@@ -1699,7 +1654,7 @@ trait VersionedParserMeasurement: Sized {
     }
 
     // TODO make errors index-specific
-    fn as_column_type_minimal(
+    fn as_column_type_from_bare(
         m: &DataReadMeasurement<Self::Target>,
         dt: AlphaNumType,
         byteord: &ByteOrd,
@@ -1770,11 +1725,11 @@ trait VersionedParserMetadata: Sized {
         Some(BareMetadata { datatype, specific })
     }
 
-    fn get_byteord(&self) -> ByteOrd;
+    fn byteord(&self) -> ByteOrd;
 
-    fn get_target_byteord(t: &Self::Target) -> ByteOrd;
+    fn target_byteord(t: &Self::Target) -> ByteOrd;
 
-    fn get_tot(t: &Self::Target) -> Option<usize>;
+    fn tot(t: &Self::Target) -> Option<usize>;
 
     fn total_events(
         t: &Self::Target,
@@ -1793,7 +1748,7 @@ trait VersionedParserMetadata: Sized {
             );
             def.push_msg_leveled(msg, conf.enfore_data_width_divisibility)
         }
-        if let Some(tot) = Self::get_tot(t) {
+        if let Some(tot) = Self::tot(t) {
             if total_events != tot {
                 let msg = format!(
                     "$TOT field is {tot} but number of events \
@@ -1912,17 +1867,6 @@ trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
             (_, Err(y)) => Err(vec![y]),
         }
     }
-
-    // fn to_col_parser(
-    //     range: Range,
-    //     byteord: &ByteOrd,
-    //     total_events: usize,
-    // ) -> Result<UintColumnReader<Self, INTLEN>, Vec<String>> {
-    //     Self::to_col(range, byteord).map(|layout| {
-    //         let column = vec![Self::zero(); total_events];
-    //         UintColumnReader { layout, column }
-    //     })
-    // }
 
     fn read_int_masked<R: Read>(
         h: &mut BufReader<R>,
@@ -3598,6 +3542,51 @@ impl Serialize for AnyCoreTEXT {
     }
 }
 
+fn build_mixed_reader(cs: Vec<ColumnType>, total_events: usize) -> MixedParser {
+    let columns = cs
+        .into_iter()
+        .map(|p| match p {
+            ColumnType::Ascii { bytes } => MixedColumnType::Ascii(AsciiColumnReader {
+                width: bytes,
+                column: vec![],
+            }),
+            ColumnType::Float(order) => {
+                MixedColumnType::Single(f32::make_column_reader(order, total_events))
+            }
+            ColumnType::Double(order) => {
+                MixedColumnType::Double(f64::make_column_reader(order, total_events))
+            }
+            ColumnType::Integer(col) => {
+                MixedColumnType::Uint(AnyUintColumnReader::from_column(col, total_events))
+            }
+        })
+        .collect();
+    MixedParser {
+        columns,
+        nrows: total_events,
+    }
+}
+
+fn build_data_reader(layout: ReaderDataLayout, data_seg: &Segment) -> DataReader {
+    let column_parser = match layout {
+        DataLayout::AlphaNum { nrows, columns } => {
+            ColumnReader::Mixed(build_mixed_reader(columns, nrows))
+        }
+        DataLayout::AsciiDelimited { nrows, ncols } => {
+            let nbytes = data_seg.nbytes() as usize;
+            ColumnReader::DelimitedAscii(DelimAsciiReader {
+                ncols,
+                nrows,
+                nbytes,
+            })
+        }
+    };
+    DataReader {
+        column_reader: column_parser,
+        begin: u64::from(data_seg.begin()),
+    }
+}
+
 impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
     /// Return HEADER+TEXT as a list of strings
     ///
@@ -3729,7 +3718,7 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
         data_seg: &Segment,
     ) -> PureMaybe<DataReader> {
         self.as_data_layout_from_raw(kws, conf, data_seg)
-            .map(|maybe_layout| maybe_layout.map(|layout| build_data_parser(layout, data_seg)))
+            .map(|maybe_layout| maybe_layout.map(|layout| build_data_reader(layout, data_seg)))
     }
 
     fn from_raw(kws: &mut RawKeywords, conf: &StdTextReadConfig) -> PureResult<Self> {
@@ -4613,7 +4602,7 @@ fn lookup_data_offsets(
             let b = st.lookup_begindata();
             let e = st.lookup_enddata();
             if let (Some(begin), Some(end)) = (b, e) {
-                let res = Segment::try_new_adjusted(
+                let res = Segment::try_new(
                     begin,
                     end,
                     conf.corrections.start_data,
@@ -4655,7 +4644,7 @@ fn lookup_analysis_offsets(
                 let b = st.lookup_beginanalysis_req();
                 let e = st.lookup_endanalysis_req();
                 if let (Some(begin), Some(end)) = (b, e) {
-                    Segment::try_new_adjusted(begin, end, bd, ed, SegmentId::Analysis)
+                    Segment::try_new(begin, end, bd, ed, SegmentId::Analysis)
                 } else {
                     st.push_meta_warning(
                         "could not find DATA offsets in TEXT, defaulting to HEADER offsets"
@@ -4668,7 +4657,7 @@ fn lookup_analysis_offsets(
                 let b = st.lookup_beginanalysis_opt();
                 let e = st.lookup_endanalysis_opt();
                 if let (Present(begin), Present(end)) = (b, e) {
-                    Segment::try_new_adjusted(begin, end, bd, ed, SegmentId::Analysis)
+                    Segment::try_new(begin, end, bd, ed, SegmentId::Analysis)
                 } else {
                     st.push_meta_warning(
                         "could not find DATA offsets in TEXT, defaulting to HEADER offsets"
@@ -4803,15 +4792,15 @@ impl VersionedParserMeasurement for InnerMeasurement3_2 {
 impl VersionedParserMetadata for InnerMetadata2_0 {
     type Target = InnerBareMetadata2_0;
 
-    fn get_byteord(&self) -> ByteOrd {
+    fn byteord(&self) -> ByteOrd {
         self.byteord.clone()
     }
 
-    fn get_target_byteord(t: &Self::Target) -> ByteOrd {
+    fn target_byteord(t: &Self::Target) -> ByteOrd {
         t.byteord.clone()
     }
 
-    fn get_tot(t: &Self::Target) -> Option<usize> {
+    fn tot(t: &Self::Target) -> Option<usize> {
         t.tot.as_ref().into_option().copied()
     }
 
@@ -4826,15 +4815,15 @@ impl VersionedParserMetadata for InnerMetadata2_0 {
 impl VersionedParserMetadata for InnerMetadata3_0 {
     type Target = InnerBareMetadata3_0;
 
-    fn get_byteord(&self) -> ByteOrd {
+    fn byteord(&self) -> ByteOrd {
         self.byteord.clone()
     }
 
-    fn get_target_byteord(t: &Self::Target) -> ByteOrd {
+    fn target_byteord(t: &Self::Target) -> ByteOrd {
         t.byteord.clone()
     }
 
-    fn get_tot(t: &Self::Target) -> Option<usize> {
+    fn tot(t: &Self::Target) -> Option<usize> {
         Some(t.tot)
     }
 
@@ -4849,15 +4838,15 @@ impl VersionedParserMetadata for InnerMetadata3_0 {
 impl VersionedParserMetadata for InnerMetadata3_1 {
     type Target = InnerBareMetadata3_1;
 
-    fn get_byteord(&self) -> ByteOrd {
+    fn byteord(&self) -> ByteOrd {
         ByteOrd::Endian(self.byteord)
     }
 
-    fn get_target_byteord(t: &Self::Target) -> ByteOrd {
+    fn target_byteord(t: &Self::Target) -> ByteOrd {
         ByteOrd::Endian(t.byteord)
     }
 
-    fn get_tot(t: &Self::Target) -> Option<usize> {
+    fn tot(t: &Self::Target) -> Option<usize> {
         Some(t.tot)
     }
 
@@ -4872,15 +4861,15 @@ impl VersionedParserMetadata for InnerMetadata3_1 {
 impl VersionedParserMetadata for InnerMetadata3_2 {
     type Target = InnerBareMetadata3_1;
 
-    fn get_byteord(&self) -> ByteOrd {
+    fn byteord(&self) -> ByteOrd {
         ByteOrd::Endian(self.byteord)
     }
 
-    fn get_target_byteord(t: &Self::Target) -> ByteOrd {
+    fn target_byteord(t: &Self::Target) -> ByteOrd {
         ByteOrd::Endian(t.byteord)
     }
 
-    fn get_tot(t: &Self::Target) -> Option<usize> {
+    fn tot(t: &Self::Target) -> Option<usize> {
         Some(t.tot)
     }
 
@@ -5813,7 +5802,7 @@ fn parse_bounds(s0: &str, s1: &str, allow_blank: bool, id: SegmentId) -> PureMay
             if let (Some(begin), Some(end)) = (b, e) {
                 PureMaybe::from_result_1(
                     // TODO adjust these
-                    Segment::try_new_adjusted(begin, end, 0, 0, id),
+                    Segment::try_new(begin, end, 0, 0, id),
                     PureErrorLevel::Error,
                 )
             } else {
@@ -6071,31 +6060,6 @@ fn pad_zeros(s: &str) -> String {
     ("0").repeat(len - newlen) + trimmed
 }
 
-fn parse_segment(
-    begin: Option<String>,
-    end: Option<String>,
-    begin_delta: i32,
-    end_delta: i32,
-    id: SegmentId,
-    level: PureErrorLevel,
-) -> PureMaybe<Segment> {
-    let parse_one = |s: Option<String>, which| {
-        s.ok_or(format!("{which} not present for {id}"))
-            .and_then(|pass| pass.parse::<u32>().map_err(|e| e.to_string()))
-    };
-    let b = parse_one(begin, "begin");
-    let e = parse_one(end, "end");
-    let res = match (b, e) {
-        (Ok(bn), Ok(en)) => {
-            Segment::try_new_adjusted(bn, en, begin_delta, end_delta, id).map_err(|e| vec![e])
-        }
-        (Err(be), Err(en)) => Err(vec![be, en]),
-        (Err(be), _) => Err(vec![be]),
-        (_, Err(en)) => Err(vec![en]),
-    };
-    PureSuccess::from_result(res.map_err(|es| PureErrorBuf::from_many(es, level)))
-}
-
 fn repair_offsets(pairs: &mut RawPairs, conf: &Config) {
     if conf.raw.repair_offset_spaces {
         for (key, v) in pairs.iter_mut() {
@@ -6143,7 +6107,7 @@ fn lookup_stext_offsets(
     offset_succ.and_then(|offsets| match offsets {
         None => PureMaybe::empty(),
         Some((begin, end)) => {
-            let seg_res = Segment::try_new_adjusted(
+            let seg_res = Segment::try_new(
                 begin,
                 end,
                 c.start_supp_text,

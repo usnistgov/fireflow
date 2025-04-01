@@ -73,10 +73,6 @@ impl fmt::Display for SegmentError {
 }
 
 impl Segment {
-    pub fn try_new(begin: u32, end: u32, id: SegmentId) -> Result<Segment, String> {
-        Self::try_new_adjusted(begin, end, 0, 0, id)
-    }
-
     /// Make new segment without checking bounds.
     ///
     /// Will panic if begin > end.
@@ -87,7 +83,10 @@ impl Segment {
         }
     }
 
-    pub fn try_new_adjusted(
+    /// Make new segment and check bounds to ensure validity
+    ///
+    /// Will return error explaining why bounds were invalid if failed.
+    pub fn try_new(
         begin: u32,
         end: u32,
         begin_delta: i32,
@@ -138,7 +137,7 @@ impl Segment {
         end_delta: i32,
         id: SegmentId,
     ) -> Result<Segment, String> {
-        Self::try_new_adjusted(self.begin, self.end(), begin_delta, end_delta, id)
+        Self::try_new(self.begin, self.end(), begin_delta, end_delta, id)
     }
 
     pub fn nbytes(&self) -> u32 {

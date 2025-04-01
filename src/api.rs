@@ -3012,10 +3012,6 @@ impl fmt::Display for Range {
 }
 
 impl<P: VersionedMeasurement> Measurement<P> {
-    // fn all_keywords(&self, n: &str) -> Vec<(String, String)> {
-    //     P::all_keywords(self, n)
-    // }
-
     fn table_header(&self) -> Vec<String> {
         vec![String::from("index")]
             .into_iter()
@@ -3045,26 +3041,6 @@ fn make_uint_type(b: u8, r: Range, o: &ByteOrd) -> Result<AnyUintType, Vec<Strin
         _ => Err(vec!["$PnB has invalid byte length".to_string()]),
     }
 }
-
-// // TODO silly given that I can just wrap this in a method for anyintcolumn
-// fn make_int_parser(
-//     b: u8,
-//     r: Range,
-//     o: &ByteOrd,
-//     t: usize,
-// ) -> Result<AnyUintColumnReader, Vec<String>> {
-//     match b {
-//         1 => u8::to_col_parser(r, o, t).map(AnyUintColumnReader::Uint8),
-//         2 => u16::to_col_parser(r, o, t).map(AnyUintColumnReader::Uint16),
-//         3 => IntFromBytes::<4, 3>::to_col_parser(r, o, t).map(AnyUintColumnReader::Uint24),
-//         4 => IntFromBytes::<4, 4>::to_col_parser(r, o, t).map(AnyUintColumnReader::Uint32),
-//         5 => IntFromBytes::<8, 5>::to_col_parser(r, o, t).map(AnyUintColumnReader::Uint40),
-//         6 => IntFromBytes::<8, 6>::to_col_parser(r, o, t).map(AnyUintColumnReader::Uint48),
-//         7 => IntFromBytes::<8, 7>::to_col_parser(r, o, t).map(AnyUintColumnReader::Uint56),
-//         8 => IntFromBytes::<8, 8>::to_col_parser(r, o, t).map(AnyUintColumnReader::Uint64),
-//         _ => Err(vec!["$PnB has invalid byte length".to_string()]),
-//     }
-// }
 
 impl Versioned for InnerMeasurement2_0 {
     fn fcs_version() -> Version {
@@ -3460,17 +3436,6 @@ impl AnyCoreTEXT {
             x.as_writer_data_layout()
         })
     }
-
-    // pub fn as_data_layout_from_bare(
-    //     &self,
-    //     kws: &mut RawKeywords,
-    //     conf: &Config,
-    //     data_seg: &Segment,
-    // ) -> PureMaybe<DataLayout<usize>> {
-    //     match_many_to_one!(self, AnyCoreTEXT, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
-    //         x.as_data_layout_from_raw(kws, conf, data_seg)
-    //     })
-    // }
 
     pub fn as_data_reader(
         &self,
@@ -4217,6 +4182,7 @@ impl Dataframe {
     }
 }
 
+// TODO make this a method
 fn format_parsed_data(res: &StandardizedDataset, delim: &str) -> Vec<String> {
     let shortnames = match &res.dataset.keywords {
         AnyCoreTEXT::FCS2_0(x) => x.get_shortnames(),
@@ -4243,6 +4209,7 @@ fn format_parsed_data(res: &StandardizedDataset, delim: &str) -> Vec<String> {
     lines
 }
 
+// TODO and this
 pub fn print_parsed_data(s: &StandardizedDataset, delim: &str) {
     for x in format_parsed_data(s, delim) {
         println!("{}", x);
@@ -4485,7 +4452,6 @@ fn h_write_delimited_matrix<W: Write>(
     Ok(PureSuccess::from(()))
 }
 
-// TODO this can be clean up...alot
 fn h_write_dataset<W: Write>(
     h: &mut BufWriter<W>,
     d: CoreDataset,
@@ -4637,46 +4603,36 @@ fn lookup_analysis_offsets(
 ) -> PureSuccess<Segment> {
     let bd = conf.corrections.start_analysis;
     let ed = conf.corrections.end_analysis;
+    let go = |st: &mut KwParser, b, e| {
+        if let (Some(begin), Some(end)) = (b, e) {
+            Segment::try_new(begin, end, bd, ed, SegmentId::Analysis)
+        } else {
+            let msg = "could not find DATA offsets in TEXT, \
+                 defaulting to HEADER offsets"
+                .to_string();
+            st.push_meta_warning(msg);
+            Ok(*default)
+        }
+    };
     KwParser::run(kws, &conf.standard, |st| {
-        let res = match version {
+        match version {
             Version::FCS2_0 => Ok(*default),
             Version::FCS3_0 | Version::FCS3_1 => {
                 let b = st.lookup_beginanalysis_req();
                 let e = st.lookup_endanalysis_req();
-                if let (Some(begin), Some(end)) = (b, e) {
-                    Segment::try_new(begin, end, bd, ed, SegmentId::Analysis)
-                } else {
-                    st.push_meta_warning(
-                        "could not find DATA offsets in TEXT, defaulting to HEADER offsets"
-                            .to_string(),
-                    );
-                    Ok(*default)
-                }
+                go(st, b, e)
             }
             Version::FCS3_2 => {
-                let b = st.lookup_beginanalysis_opt();
-                let e = st.lookup_endanalysis_opt();
-                if let (Present(begin), Present(end)) = (b, e) {
-                    Segment::try_new(begin, end, bd, ed, SegmentId::Analysis)
-                } else {
-                    st.push_meta_warning(
-                        "could not find DATA offsets in TEXT, defaulting to HEADER offsets"
-                            .to_string(),
-                    );
-                    Ok(*default)
-                }
-            }
-        };
-        match res {
-            Ok(seg) => seg,
-            Err(err) => {
-                st.push_meta_warning(format!(
-                    "defaulting to header DATA offsets due to error: {}",
-                    err
-                ));
-                *default
+                let b = st.lookup_beginanalysis_opt().into_option();
+                let e = st.lookup_endanalysis_opt().into_option();
+                go(st, b, e)
             }
         }
+        .map_err(|err| {
+            let msg = format!("defaulting to header DATA offsets due to error: {err}",);
+            st.push_meta_warning(msg);
+        })
+        .unwrap_or(*default)
     })
 }
 

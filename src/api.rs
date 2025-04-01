@@ -4058,15 +4058,20 @@ impl Series {
             // potentially truncate a fractional value. Also check to see if
             // bitmask is exceeded, and if so truncate and warn user.
             ColumnType::Integer(ut) => {
-                let from_size = ut.nbytes();
-                let to_size = ut.native_nbytes();
-                // TODO also warn if converting from a float
-                if to_size < from_size {
-                    let msg = format!(
-                        "converted uint from {from_size} to \
-                         {to_size} bytes may truncate data"
-                    );
-                    deferred.push_warning(msg);
+                match self {
+                    Series::F32(_) => num_warn(&mut deferred, "float", "uint"),
+                    Series::F64(_) => num_warn(&mut deferred, "float", "uint"),
+                    _ => {
+                        let from_size = ut.nbytes();
+                        let to_size = ut.native_nbytes();
+                        if to_size < from_size {
+                            let msg = format!(
+                                "converted uint from {from_size} to \
+                                 {to_size} bytes may truncate data"
+                            );
+                            deferred.push_warning(msg);
+                        }
+                    }
                 }
                 match_many_to_one!(self, Series, [F32, F64, U08, U16, U32, U64], data, {
                     convert_to_uint!(ut, data, deferred)

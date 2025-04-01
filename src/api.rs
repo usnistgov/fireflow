@@ -983,12 +983,6 @@ type Metadata3_0 = Metadata<InnerMetadata3_0>;
 type Metadata3_1 = Metadata<InnerMetadata3_1>;
 type Metadata3_2 = Metadata<InnerMetadata3_2>;
 
-struct ParserTEXT<'a> {
-    data_seg: Segment,
-    layout: DataLayout<usize>,
-    conf: &'a DataReadConfig,
-}
-
 /// The bare minimum of measurement data required to parse the DATA segment.
 struct DataReadMeasurement<X> {
     /// The value of $PnB
@@ -1065,6 +1059,9 @@ enum DataLayout<T> {
     AsciiDelimited { nrows: Option<T>, ncols: usize },
     AlphaNum { nrows: T, columns: Vec<ColumnType> },
 }
+
+type WriterDataLayout = DataLayout<()>;
+type ReaderDataLayout = DataLayout<usize>;
 
 struct NumColumnWriter<T, const LEN: usize> {
     column: Vec<T>,
@@ -1357,10 +1354,10 @@ trait VersionedMetadata: Sized + VersionedParserMetadata {
 
     fn into_any(s: CoreTEXT<Self, Self::P>) -> AnyCoreTEXT;
 
-    fn as_data_layout(
+    fn as_writer_data_layout(
         m: &Metadata<Self>,
         ms: &[Measurement<Self::P>],
-    ) -> Result<DataLayout<()>, Vec<String>> {
+    ) -> Result<WriterDataLayout, Vec<String>> {
         let dt = m.datatype;
         let byteord = Self::get_byteord(&m.specific);
         let ncols = ms.len();
@@ -1389,12 +1386,12 @@ trait VersionedMetadata: Sized + VersionedParserMetadata {
     }
 
     // TODO not DRY
-    fn as_data_layout_minimal(
+    fn as_reader_data_layout_bare(
         m: &BareMetadata<Self::Target>,
         ms: &[DataReadMeasurement<<Self::P as VersionedParserMeasurement>::Target>],
         data_nbytes: usize,
         conf: &DataReadConfig,
-    ) -> PureMaybe<DataLayout<usize>> {
+    ) -> PureMaybe<ReaderDataLayout> {
         let dt = m.datatype;
         let byteord = Self::get_target_byteord(&m.specific);
         let ncols = ms.len();
@@ -1538,13 +1535,13 @@ fn build_mixed_parser(cs: Vec<ColumnType>, total_events: usize) -> MixedParser {
     }
 }
 
-fn build_data_parser(pt: ParserTEXT) -> DataParser {
-    let column_parser = match pt.layout {
+fn build_data_parser(layout: ReaderDataLayout, data_seg: &Segment) -> DataParser {
+    let column_parser = match layout {
         DataLayout::AlphaNum { nrows, columns } => {
             ColumnReader::Mixed(build_mixed_parser(columns, nrows))
         }
         DataLayout::AsciiDelimited { nrows, ncols } => {
-            let nbytes = pt.data_seg.nbytes() as usize;
+            let nbytes = data_seg.nbytes() as usize;
             ColumnReader::DelimitedAscii(DelimAsciiReader {
                 ncols,
                 nrows,
@@ -1554,7 +1551,7 @@ fn build_data_parser(pt: ParserTEXT) -> DataParser {
     };
     DataParser {
         column_parser,
-        begin: u64::from(pt.data_seg.begin()),
+        begin: u64::from(data_seg.begin()),
     }
 }
 
@@ -3540,9 +3537,9 @@ impl AnyCoreTEXT {
         })
     }
 
-    pub fn as_data_layout(&self) -> Result<DataLayout<()>, Vec<String>> {
+    pub fn as_writer_data_layout(&self) -> Result<WriterDataLayout, Vec<String>> {
         match_many_to_one!(self, AnyCoreTEXT, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
-            x.as_data_layout()
+            x.as_writer_data_layout()
         })
     }
 
@@ -3725,8 +3722,8 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
         }
     }
 
-    fn as_data_layout(&self) -> Result<DataLayout<()>, Vec<String>> {
-        M::as_data_layout(&self.metadata, &self.measurements)
+    fn as_writer_data_layout(&self) -> Result<WriterDataLayout, Vec<String>> {
+        M::as_writer_data_layout(&self.metadata, &self.measurements)
     }
 
     fn as_data_layout_from_raw(
@@ -3734,7 +3731,7 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
         kws: &mut RawKeywords,
         conf: &Config,
         data_seg: &Segment,
-    ) -> PureMaybe<DataLayout<usize>> {
+    ) -> PureMaybe<ReaderDataLayout> {
         let succ = KwParser::run(kws, &conf.standard, |st| {
             let maybe_md = <M as VersionedParserMetadata>::as_minimal(&self.metadata, st);
             let measurements: Vec<_> = self
@@ -3746,7 +3743,7 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
         });
         let data_nbytes = data_seg.nbytes() as usize;
         succ.and_then_opt(|(measurements, metadata)| {
-            M::as_data_layout_minimal(&metadata, &measurements, data_nbytes, &conf.data)
+            M::as_reader_data_layout_bare(&metadata, &measurements, data_nbytes, &conf.data)
         })
     }
 
@@ -3758,17 +3755,7 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
         data_seg: &Segment,
     ) -> PureMaybe<DataParser> {
         self.as_data_layout_from_raw(kws, conf, data_seg)
-            .map(|maybe_layout| {
-                maybe_layout.map(|layout| {
-                    // TODO whats the point of this parser thingy?
-                    let pt = ParserTEXT {
-                        layout,
-                        conf: &conf.data,
-                        data_seg: *data_seg,
-                    };
-                    build_data_parser(pt)
-                })
-            })
+            .map(|maybe_layout| maybe_layout.map(|layout| build_data_parser(layout, data_seg)))
     }
 
     fn from_raw(kws: &mut RawKeywords, conf: &StdTextReadConfig) -> PureResult<Self> {
@@ -4563,7 +4550,7 @@ fn h_write_dataset<W: Write>(
     let nrows = df.nrows();
 
     // Get the layout, or bail if we can't
-    let layout = d.keywords.as_data_layout().map_err(|es| Failure {
+    let layout = d.keywords.as_writer_data_layout().map_err(|es| Failure {
         reason: "could not create data layout".to_string(),
         deferred: PureErrorBuf::from_many(es, PureErrorLevel::Error),
     })?;

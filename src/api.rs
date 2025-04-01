@@ -1360,7 +1360,7 @@ trait VersionedMetadata: Sized + VersionedParserMetadata {
     fn as_data_layout(
         m: &Metadata<Self>,
         ms: &[Measurement<Self::P>],
-    ) -> PureMaybe<DataLayout<()>> {
+    ) -> Result<DataLayout<()>, Vec<String>> {
         let dt = m.datatype;
         let byteord = Self::get_byteord(&m.specific);
         let ncols = ms.len();
@@ -1368,28 +1368,24 @@ trait VersionedMetadata: Sized + VersionedParserMetadata {
             .iter()
             .map(|m| Self::P::as_column_type(m, dt, &byteord))
             .partition_result();
-        let mut deferred =
-            PureErrorBuf::from_many(fail.into_iter().flatten().collect(), PureErrorLevel::Error);
+        let mut deferred: Vec<_> = fail.into_iter().flatten().collect();
         if pass.len() == ncols {
             let fixed: Vec<_> = pass.into_iter().flatten().collect();
             let nfixed = fixed.len();
             if nfixed == ncols {
-                return PureSuccess::from(Some(DataLayout::AlphaNum {
+                return Ok(DataLayout::AlphaNum {
                     nrows: (),
                     columns: fixed,
-                }));
+                });
             } else if nfixed == 0 {
-                return PureSuccess::from(Some(DataLayout::AsciiDelimited { nrows: None, ncols }));
+                return Ok(DataLayout::AsciiDelimited { nrows: None, ncols });
             } else {
-                deferred.push_error(format!(
+                deferred.push(format!(
                     "{nfixed} out of {ncols} measurements are fixed width"
                 ));
             }
         }
-        PureSuccess {
-            data: None,
-            deferred,
-        }
+        Err(deferred)
     }
 
     // TODO not DRY
@@ -3544,7 +3540,7 @@ impl AnyCoreTEXT {
         })
     }
 
-    pub fn as_data_layout(&self) -> PureMaybe<DataLayout<()>> {
+    pub fn as_data_layout(&self) -> Result<DataLayout<()>, Vec<String>> {
         match_many_to_one!(self, AnyCoreTEXT, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
             x.as_data_layout()
         })
@@ -3729,7 +3725,7 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
         }
     }
 
-    fn as_data_layout(&self) -> PureMaybe<DataLayout<()>> {
+    fn as_data_layout(&self) -> Result<DataLayout<()>, Vec<String>> {
         M::as_data_layout(&self.metadata, &self.measurements)
     }
 
@@ -4240,6 +4236,40 @@ impl Dataframe {
     fn square_size(&self) -> usize {
         self.min_rows() * self.ncols()
     }
+
+    fn into_writable_columns(
+        self,
+        cs: Vec<ColumnType>,
+        conf: &WriteConfig,
+    ) -> PureSuccess<Vec<ColumnWriter>> {
+        let (writable_columns, msgs): (Vec<_>, Vec<_>) = cs
+            .into_iter()
+            .zip(self.columns)
+            .map(|(w, s)| {
+                let res = s.coerce(w, conf);
+                (res.data, res.deferred)
+            })
+            .unzip();
+        PureSuccess {
+            data: writable_columns,
+            deferred: PureErrorBuf::mconcat(msgs),
+        }
+    }
+
+    fn into_writable_matrix64(self, conf: &WriteConfig) -> PureSuccess<Vec<Vec<u64>>> {
+        let (columns, msgs): (Vec<_>, Vec<_>) = self
+            .columns
+            .into_iter()
+            .map(|s| {
+                let res = s.coerce64(conf);
+                (res.data, res.deferred)
+            })
+            .unzip();
+        PureSuccess {
+            data: columns,
+            deferred: PureErrorBuf::mconcat(msgs),
+        }
+    }
 }
 
 fn format_parsed_data(res: &StandardizedDataset, delim: &str) -> Vec<String> {
@@ -4449,79 +4479,65 @@ fn h_read_data_segment<R: Read + Seek>(
     }
 }
 
-// fn h_write_ascii_delim_data<W: Write>(
-//     h: &mut BufWriter<W>,
-//     df: Dataframe,
-//     conf: &Config,
-// ) -> ImpureResult<()> {
-//     let df_nrows = df.nrows();
-//     let (columns, msgs): (Vec<_>, Vec<_>) = df
-//         .columns
-//         .into_iter()
-//         .map(|s| {
-//             let res = s.coerce64(&conf.write);
-//             (res.data, res.deferred)
-//         })
-//         .unzip();
-//     for r in 0..df_nrows {
-//         for c in columns.iter() {
-//             let x = c[r];
-//             if x == 0 {
-//                 let buf = [48]; // 48 = "0" in ASCII
-//                 h.write_all(&buf)?;
-//             } else {
-//                 let s = x.to_string();
-//                 let t = s.trim_start_matches("0");
-//                 let buf = t.as_bytes();
-//                 h.write_all(buf)?;
-//             }
-//         }
-//     }
-//     Ok(PureSuccess {
-//         data: (),
-//         deferred: PureErrorBuf::mconcat(msgs),
-//     })
-// }
-
-fn h_write_numeric_data<W: Write>(
+fn h_write_numeric_dataframe<W: Write>(
     h: &mut BufWriter<W>,
-    columns: Vec<ColumnType>,
+    cs: Vec<ColumnType>,
     df: Dataframe,
     conf: &Config,
 ) -> ImpureResult<()> {
     let df_nrows = df.nrows();
-    let (writable_columns, msgs): (Vec<_>, Vec<_>) = columns
-        .into_iter()
-        .zip(df.columns)
-        .map(|(w, s)| {
-            let res = s.coerce(w, &conf.write);
-            (res.data, res.deferred)
+    df.into_writable_columns(cs, &conf.write)
+        .try_map(|writable_columns| {
+            for r in 0..df_nrows {
+                for c in writable_columns.iter() {
+                    match c {
+                        NumU8(w) => u8::write_int(h, &w.size, w.column[r]),
+                        NumU16(w) => u16::write_int(h, &w.size, w.column[r]),
+                        NumU24(w) => u32::write_int(h, &w.size, w.column[r]),
+                        NumU32(w) => u32::write_int(h, &w.size, w.column[r]),
+                        NumU40(w) => u64::write_int(h, &w.size, w.column[r]),
+                        NumU48(w) => u64::write_int(h, &w.size, w.column[r]),
+                        NumU56(w) => u64::write_int(h, &w.size, w.column[r]),
+                        NumU64(w) => u64::write_int(h, &w.size, w.column[r]),
+                        NumF32(w) => f32::write_float(h, &w.size, w.column[r]),
+                        NumF64(w) => f64::write_float(h, &w.size, w.column[r]),
+                        AsciiU8(w) => u8::write_ascii_int(h, w.bytes, w.column[r]),
+                        AsciiU16(w) => u16::write_ascii_int(h, w.bytes, w.column[r]),
+                        AsciiU32(w) => u32::write_ascii_int(h, w.bytes, w.column[r]),
+                        AsciiU64(w) => u64::write_ascii_int(h, w.bytes, w.column[r]),
+                    }?
+                }
+            }
+            Ok(PureSuccess::from(()))
         })
-        .unzip();
-    for r in 0..df_nrows {
-        for c in writable_columns.iter() {
-            match c {
-                NumU8(w) => u8::write_int(h, &w.size, w.column[r]),
-                NumU16(w) => u16::write_int(h, &w.size, w.column[r]),
-                NumU24(w) => u32::write_int(h, &w.size, w.column[r]),
-                NumU32(w) => u32::write_int(h, &w.size, w.column[r]),
-                NumU40(w) => u64::write_int(h, &w.size, w.column[r]),
-                NumU48(w) => u64::write_int(h, &w.size, w.column[r]),
-                NumU56(w) => u64::write_int(h, &w.size, w.column[r]),
-                NumU64(w) => u64::write_int(h, &w.size, w.column[r]),
-                NumF32(w) => f32::write_float(h, &w.size, w.column[r]),
-                NumF64(w) => f64::write_float(h, &w.size, w.column[r]),
-                AsciiU8(w) => u8::write_ascii_int(h, w.bytes, w.column[r]),
-                AsciiU16(w) => u16::write_ascii_int(h, w.bytes, w.column[r]),
-                AsciiU32(w) => u32::write_ascii_int(h, w.bytes, w.column[r]),
-                AsciiU64(w) => u64::write_ascii_int(h, w.bytes, w.column[r]),
-            }?
+}
+
+fn h_write_delimited_matrix<W: Write>(
+    h: &mut BufWriter<W>,
+    nrows: usize,
+    columns: Vec<Vec<u64>>,
+) -> ImpureResult<()> {
+    let ncols = columns.len();
+    for ri in 0..nrows {
+        for (ci, c) in columns.iter().enumerate() {
+            let x = c[ri];
+            // if zero, just write "0", if anything else convert
+            // to a string and write that
+            if x == 0 {
+                h.write_all(&[48])?; // 48 = "0" in ASCII
+            } else {
+                let s = x.to_string();
+                let t = s.trim_start_matches("0");
+                let buf = t.as_bytes();
+                h.write_all(buf)?;
+            }
+            // write delimiter after all but last value
+            if !(ci == ncols - 1 && ri == nrows - 1) {
+                h.write_all(&[32])?; // 32 = space in ASCII
+            }
         }
     }
-    Ok(PureSuccess {
-        data: (),
-        deferred: PureErrorBuf::mconcat(msgs),
-    })
+    Ok(PureSuccess::from(()))
 }
 
 // TODO this can be clean up...alot
@@ -4531,22 +4547,41 @@ fn h_write_dataset<W: Write>(
     conf: &Config,
 ) -> ImpureResult<()> {
     let analysis_len = d.analysis.len();
-    let df_ncols = d.data.ncols();
+    let df = d.data;
+    let df_ncols = df.ncols();
 
     // Check that the dataframe isn't "ragged" (columns are different lengths).
     // If this is false, something terrible happened and we need to stop
     // immediately.
-    if d.data.is_ragged() {
+    if df.is_ragged() {
         Err(Failure::new(
             "dataframe has unequal column lengths".to_string(),
         ))?;
     }
 
     // We can now confidently count the number of events (rows)
-    let df_nrows = d.data.nrows();
+    let nrows = df.nrows();
 
+    // Get the layout, or bail if we can't
+    let layout = d.keywords.as_data_layout().map_err(|es| Failure {
+        reason: "could not create data layout".to_string(),
+        deferred: PureErrorBuf::from_many(es, PureErrorLevel::Error),
+    })?;
+
+    // Count number of measurements from layout. If the dataframe doesn't match
+    // then something terrible happened and we need to escape through the
+    // wormhole.
+    let par = layout.ncols();
+    if df_ncols != par {
+        Err(Failure::new(format!(
+            "datafame columns ({df_ncols}) unequal to number of measurements ({par})"
+        )))?;
+    }
+
+    // Make common HEADER+TEXT writing function, for which the only unknown
+    // now is the length of DATA.
     let write_text = |h: &mut BufWriter<W>, data_len| -> ImpureResult<()> {
-        if let Some(text) = d.keywords.text_segment(df_nrows, data_len, analysis_len) {
+        if let Some(text) = d.keywords.text_segment(nrows, data_len, analysis_len) {
             for t in text {
                 h.write_all(t.as_bytes())?;
                 h.write_all(&[conf.write.delim])?;
@@ -4559,88 +4594,55 @@ fn h_write_dataset<W: Write>(
         Ok(PureSuccess::from(()))
     };
 
-    if df_nrows == 0 {
+    let res = if nrows == 0 {
+        // Write HEADER+TEXT with no DATA if dataframe is empty. This assumes
+        // the dataframe has the proper number of columns, but each column is
+        // empty.
         write_text(h, 0)?;
-        h.write_all(&d.analysis)?;
-        return Ok(PureSuccess::from(()));
-    }
-
-    let succ = PureMaybe::into_result(
-        d.keywords.as_data_layout(),
-        "could not create data layout".to_string(),
-    )?;
-
-    // TODO this error stuff seems silly here
-    succ.try_map(|layout| {
-        let par = layout.ncols();
-        if df_ncols != par {
-            Err(Failure::new(format!(
-                "datafame columns ({df_ncols}) unequal to number of measurements ({par})"
-            )))?;
-        }
-
+        Ok(PureSuccess::from(()))
+    } else {
         match layout {
-            DataLayout::AlphaNum { nrows: _, columns } => {
+            // For alphanumeric, only need to coerce the dataframe to the proper
+            // types in each column and write these out bit-for-bit. User will
+            // be warned if truncation happens.
+            DataLayout::AlphaNum {
+                nrows: _,
+                columns: col_types,
+            } => {
                 // ASSUME the dataframe will be coerced such that this
                 // relationship will hold true
-                let event_width: usize = columns.iter().map(|c| c.width()).sum();
-                let data_len = event_width * df_nrows;
+                let event_width: usize = col_types.iter().map(|c| c.width()).sum();
+                let data_len = event_width * nrows;
                 write_text(h, data_len)?;
-                let res = h_write_numeric_data(h, columns, d.data, conf);
-                h.write_all(&d.analysis)?;
-                res
+                h_write_numeric_dataframe(h, col_types, df, conf)
             }
+
+            // For delimited ASCII, need to first convert dataframe to u64 and
+            // then figure out how much space this will take up based on a)
+            // number of values in dataframe, and b) number of digits in each
+            // value. Then convert values to strings and write byte
+            // representation of strings. Fun...
             DataLayout::AsciiDelimited { nrows: _, ncols: _ } => {
-                // convert dataframe entirely to u64
-                let (columns, msgs): (Vec<_>, Vec<_>) = d
-                    .data
-                    .columns
-                    .into_iter()
-                    .map(|s| {
-                        let res = s.coerce64(&conf.write);
-                        (res.data, res.deferred)
-                    })
-                    .unzip();
-                // get number of delimiters
-                let ndelim = df_ncols * df_nrows - 1;
-                // get number of bytes the values will consume (equal to number
-                // of their digits in decimal radix)
-                let value_nbytes: u32 = columns
-                    .iter()
-                    .flat_map(|rows| rows.iter().map(|x| x.checked_ilog10().unwrap_or(1)))
-                    .sum();
-                // compute data length (delimiters + number of digits)
-                let data_len = value_nbytes as usize + ndelim;
-                // write HEADER+TEXT
-                write_text(h, data_len)?;
-                // write DATA
-                for ri in 0..df_nrows {
-                    for (ci, c) in columns.iter().enumerate() {
-                        let x = c[ri];
-                        // if zero, just write "0", if anything else convert
-                        // to a string and write that
-                        if x == 0 {
-                            h.write_all(&[48])?; // 48 = "0" in ASCII
-                        } else {
-                            let s = x.to_string();
-                            let t = s.trim_start_matches("0");
-                            let buf = t.as_bytes();
-                            h.write_all(buf)?;
-                        }
-                        // write delimiter after all but last value
-                        if !(ci == df_ncols - 1 && ri == df_nrows - 1) {
-                            h.write_all(&[32])?; // 32 = space in ASCII
-                        }
-                    }
-                }
-                h.write_all(&d.analysis);
-                Ok(PureSuccess {
-                    data: (),
-                    deferred: PureErrorBuf::mconcat(msgs),
+                df.into_writable_matrix64(&conf.write).try_map(|columns| {
+                    let ndelim = df_ncols * nrows - 1;
+                    // TODO cast?
+                    let value_nbytes: u32 = columns
+                        .iter()
+                        .flat_map(|rows| rows.iter().map(|x| x.checked_ilog10().unwrap_or(1)))
+                        .sum();
+                    // compute data length (delimiters + number of digits)
+                    let data_len = value_nbytes as usize + ndelim;
+                    // write HEADER+TEXT
+                    write_text(h, data_len)?;
+                    // write DATA
+                    h_write_delimited_matrix(h, nrows, columns)
                 })
             }
         }
-    })
+    };
+
+    h.write_all(&d.analysis)?;
+    res
 }
 
 fn lookup_data_offsets(

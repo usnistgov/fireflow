@@ -1515,39 +1515,6 @@ trait VersionedMetadata: Sized + VersionedParserMetadata {
         )
         .collect()
     }
-
-    // fn all_keywords(
-    //     m: &Metadata<Self>,
-    //     par: usize,
-    //     tot: usize,
-    //     len: KwLengths,
-    // ) -> Vec<(&'static str, String)> {
-    //     let fixed = [
-    //         (PAR, Some(par.to_string())),
-    //         (TOT, Some(tot.to_string())),
-    //         (DATATYPE, Some(m.datatype.to_string())),
-    //         (ABRT, m.abrt.as_opt_string()),
-    //         (COM, m.com.as_opt_string()),
-    //         (CELLS, m.cells.as_opt_string()),
-    //         (EXP, m.exp.as_opt_string()),
-    //         (FIL, m.fil.as_opt_string()),
-    //         (INST, m.inst.as_opt_string()),
-    //         (LOST, m.lost.as_opt_string()),
-    //         (OP, m.op.as_opt_string()),
-    //         (PROJ, m.proj.as_opt_string()),
-    //         (SMNO, m.smno.as_opt_string()),
-    //         (SRC, m.src.as_opt_string()),
-    //         (SYS, m.sys.as_opt_string()),
-    //         (TR, m.tr.as_opt_string()),
-    //     ];
-    //     let fixed_len = sum_keywords(&fixed) + len.measurements;
-    //     // TODO add nonstandard to this
-    //     fixed
-    //         .into_iter()
-    //         .flat_map(|(k, v)| v.map(|x| (k, x)))
-    //         .chain(m.specific.keywords_req_inner())
-    //         .collect()
-    // }
 }
 
 fn build_mixed_parser(cs: Vec<ColumnType>, total_events: usize) -> MixedParser {
@@ -1646,8 +1613,6 @@ trait VersionedMeasurement: Sized + Versioned {
             Some(ps)
         }
     }
-
-    // fn suffixes_inner(&self) -> Vec<(&'static str, Option<String>)>;
 
     fn req_suffixes_inner(&self) -> Vec<(&'static str, String)>;
 
@@ -1763,7 +1728,7 @@ trait VersionedParserMeasurement: Sized {
                     }
                 }
                 AlphaNumType::Integer => {
-                    make_int_column(bytes, rng, byteord).map(ColumnType::Integer)
+                    make_uint_type(bytes, rng, byteord).map(ColumnType::Integer)
                 }
                 AlphaNumType::Single => {
                     if bytes == 4 {
@@ -1830,7 +1795,7 @@ trait VersionedParserMetadata: Sized {
             def.push_msg_leveled(msg, conf.enfore_data_width_divisibility)
         }
         if let Some(tot) = Self::get_tot(t) {
-            if total_events != (tot as usize) {
+            if total_events != tot {
                 let msg = format!(
                     "$TOT field is {tot} but number of events \
                          that evenly fit into DATA is {total_events}"
@@ -1949,16 +1914,16 @@ trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
         }
     }
 
-    fn to_col_parser(
-        range: Range,
-        byteord: &ByteOrd,
-        total_events: usize,
-    ) -> Result<UintColumnReader<Self, INTLEN>, Vec<String>> {
-        Self::to_col(range, byteord).map(|layout| {
-            let column = vec![Self::zero(); total_events];
-            UintColumnReader { layout, column }
-        })
-    }
+    // fn to_col_parser(
+    //     range: Range,
+    //     byteord: &ByteOrd,
+    //     total_events: usize,
+    // ) -> Result<UintColumnReader<Self, INTLEN>, Vec<String>> {
+    //     Self::to_col(range, byteord).map(|layout| {
+    //         let column = vec![Self::zero(); total_events];
+    //         UintColumnReader { layout, column }
+    //     })
+    // }
 
     fn read_int_masked<R: Read>(
         h: &mut BufReader<R>,
@@ -3146,7 +3111,7 @@ impl<P: VersionedMeasurement> Measurement<P> {
     }
 }
 
-fn make_int_column(b: u8, r: Range, o: &ByteOrd) -> Result<AnyUintType, Vec<String>> {
+fn make_uint_type(b: u8, r: Range, o: &ByteOrd) -> Result<AnyUintType, Vec<String>> {
     match b {
         1 => u8::to_col(r, o).map(AnyUintType::Uint8),
         2 => u16::to_col(r, o).map(AnyUintType::Uint16),
@@ -3160,25 +3125,25 @@ fn make_int_column(b: u8, r: Range, o: &ByteOrd) -> Result<AnyUintType, Vec<Stri
     }
 }
 
-// TODO silly given that I can just wrap this in a method for anyintcolumn
-fn make_int_parser(
-    b: u8,
-    r: Range,
-    o: &ByteOrd,
-    t: usize,
-) -> Result<AnyUintColumnReader, Vec<String>> {
-    match b {
-        1 => u8::to_col_parser(r, o, t).map(AnyUintColumnReader::Uint8),
-        2 => u16::to_col_parser(r, o, t).map(AnyUintColumnReader::Uint16),
-        3 => IntFromBytes::<4, 3>::to_col_parser(r, o, t).map(AnyUintColumnReader::Uint24),
-        4 => IntFromBytes::<4, 4>::to_col_parser(r, o, t).map(AnyUintColumnReader::Uint32),
-        5 => IntFromBytes::<8, 5>::to_col_parser(r, o, t).map(AnyUintColumnReader::Uint40),
-        6 => IntFromBytes::<8, 6>::to_col_parser(r, o, t).map(AnyUintColumnReader::Uint48),
-        7 => IntFromBytes::<8, 7>::to_col_parser(r, o, t).map(AnyUintColumnReader::Uint56),
-        8 => IntFromBytes::<8, 8>::to_col_parser(r, o, t).map(AnyUintColumnReader::Uint64),
-        _ => Err(vec!["$PnB has invalid byte length".to_string()]),
-    }
-}
+// // TODO silly given that I can just wrap this in a method for anyintcolumn
+// fn make_int_parser(
+//     b: u8,
+//     r: Range,
+//     o: &ByteOrd,
+//     t: usize,
+// ) -> Result<AnyUintColumnReader, Vec<String>> {
+//     match b {
+//         1 => u8::to_col_parser(r, o, t).map(AnyUintColumnReader::Uint8),
+//         2 => u16::to_col_parser(r, o, t).map(AnyUintColumnReader::Uint16),
+//         3 => IntFromBytes::<4, 3>::to_col_parser(r, o, t).map(AnyUintColumnReader::Uint24),
+//         4 => IntFromBytes::<4, 4>::to_col_parser(r, o, t).map(AnyUintColumnReader::Uint32),
+//         5 => IntFromBytes::<8, 5>::to_col_parser(r, o, t).map(AnyUintColumnReader::Uint40),
+//         6 => IntFromBytes::<8, 6>::to_col_parser(r, o, t).map(AnyUintColumnReader::Uint48),
+//         7 => IntFromBytes::<8, 7>::to_col_parser(r, o, t).map(AnyUintColumnReader::Uint56),
+//         8 => IntFromBytes::<8, 8>::to_col_parser(r, o, t).map(AnyUintColumnReader::Uint64),
+//         _ => Err(vec!["$PnB has invalid byte length".to_string()]),
+//     }
+// }
 
 impl Versioned for InnerMeasurement2_0 {
     fn fcs_version() -> Version {
@@ -3282,17 +3247,6 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
         .into_iter()
         .collect()
     }
-
-    // fn suffixes_inner(&self) -> Vec<(&'static str, Option<String>)> {
-    //     [
-    //         (SCALE_SFX, Some(self.scale.to_string())),
-    //         (SHORTNAME_SFX, self.shortname.as_opt_string()),
-    //         (WAVELEN_SFX, self.wavelength.as_opt_string()),
-    //         (GAIN_SFX, self.gain.as_opt_string()),
-    //     ]
-    //     .into_iter()
-    //     .collect()
-    // }
 }
 
 impl VersionedMeasurement for InnerMeasurement3_1 {
@@ -3333,19 +3287,6 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
         .into_iter()
         .collect()
     }
-
-    // fn suffixes_inner(&self) -> Vec<(&'static str, Option<String>)> {
-    //     [
-    //         (SCALE_SFX, Some(self.scale.to_string())),
-    //         (SHORTNAME_SFX, Some(self.shortname.to_string())),
-    //         (WAVELEN_SFX, self.wavelengths.as_opt_string()),
-    //         (GAIN_SFX, self.gain.as_opt_string()),
-    //         (CALIBRATION_SFX, self.calibration.as_opt_string()),
-    //         (DISPLAY_SFX, self.display.as_opt_string()),
-    //     ]
-    //     .into_iter()
-    //     .collect()
-    // }
 }
 
 impl VersionedMeasurement for InnerMeasurement3_2 {
@@ -3399,25 +3340,6 @@ impl VersionedMeasurement for InnerMeasurement3_2 {
         .into_iter()
         .collect()
     }
-
-    // fn suffixes_inner(&self) -> Vec<(&'static str, Option<String>)> {
-    //     [
-    //         (SCALE_SFX, Some(self.scale.to_string())),
-    //         (SHORTNAME_SFX, Some(self.shortname.to_string())),
-    //         (WAVELEN_SFX, self.wavelengths.as_opt_string()),
-    //         (GAIN_SFX, self.gain.as_opt_string()),
-    //         (CALIBRATION_SFX, self.calibration.as_opt_string()),
-    //         (DISPLAY_SFX, self.display.as_opt_string()),
-    //         (DET_NAME_SFX, self.detector_name.as_opt_string()),
-    //         (TAG_SFX, self.tag.as_opt_string()),
-    //         (MEAS_TYPE_SFX, self.measurement_type.as_opt_string()),
-    //         (FEATURE_SFX, self.feature.as_opt_string()),
-    //         (ANALYTE_SFX, self.analyte.as_opt_string()),
-    //         (DATATYPE_SFX, self.datatype.as_opt_string()),
-    //     ]
-    //     .into_iter()
-    //     .collect()
-    // }
 }
 
 impl fmt::Display for OriginalityError {
@@ -3544,16 +3466,6 @@ impl fmt::Display for Unicode {
     }
 }
 
-impl<M: VersionedMetadata> Metadata<M> {
-    fn all_req_keywords(&self, par: usize, tot: usize) -> Vec<(String, String)> {
-        M::all_req_keywords(self, par, tot)
-    }
-
-    fn all_opt_keywords(&self) -> Vec<(String, String)> {
-        M::all_opt_keywords(self)
-    }
-}
-
 impl FromStr for Mode {
     type Err = ModeError;
 
@@ -3638,18 +3550,18 @@ impl AnyCoreTEXT {
         })
     }
 
-    pub fn as_data_layout_minimal(
-        &self,
-        kws: &mut RawKeywords,
-        conf: &Config,
-        data_seg: &Segment,
-    ) -> PureMaybe<DataLayout<usize>> {
-        match_many_to_one!(self, AnyCoreTEXT, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
-            x.as_data_layout_minimal(kws, conf, data_seg)
-        })
-    }
+    // pub fn as_data_layout_from_bare(
+    //     &self,
+    //     kws: &mut RawKeywords,
+    //     conf: &Config,
+    //     data_seg: &Segment,
+    // ) -> PureMaybe<DataLayout<usize>> {
+    //     match_many_to_one!(self, AnyCoreTEXT, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
+    //         x.as_data_layout_from_raw(kws, conf, data_seg)
+    //     })
+    // }
 
-    pub fn as_data_parser(
+    pub fn as_data_reader(
         &self,
         kws: &mut RawKeywords,
         conf: &Config,
@@ -3771,19 +3683,6 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
         )
     }
 
-    // fn as_data_writer(&self, df: &Dataframe) -> DataLayout {
-    //     let par = self.par();
-    //     let ncols = df.ncols();
-    //     let byteord = self.metadata.specific.get_byteord();
-    //     let datatype = self.metadata.datatype;
-    //     // TODO this feels familiar...
-    //     let (pass, fail): (Vec<_>, Vec<_>) = self
-    //         .measurements
-    //         .iter()
-    //         .map(|m| M::P::as_column_type(m, datatype, &byteord))
-    //         .partition_result();
-    // }
-
     fn par(&self) -> usize {
         self.measurements.len()
     }
@@ -3834,7 +3733,7 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
         M::as_data_layout(&self.metadata, &self.measurements)
     }
 
-    fn as_data_layout_minimal(
+    fn as_data_layout_from_raw(
         &self,
         kws: &mut RawKeywords,
         conf: &Config,
@@ -3862,7 +3761,7 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
         conf: &Config,
         data_seg: &Segment,
     ) -> PureMaybe<DataParser> {
-        self.as_data_layout_minimal(kws, conf, data_seg)
+        self.as_data_layout_from_raw(kws, conf, data_seg)
             .map(|maybe_layout| {
                 maybe_layout.map(|layout| {
                     // TODO whats the point of this parser thingy?
@@ -4852,7 +4751,7 @@ fn h_read_std_dataset<R: Read + Seek>(
     lookup_data_offsets(&mut kws, conf, version, &std.offsets.data_seg)
         .and_then(|data_seg| {
             std.standardized
-                .as_data_parser(&mut kws, conf, &data_seg)
+                .as_data_reader(&mut kws, conf, &data_seg)
                 .combine(anal_succ, |data_parser, analysis_seg| {
                     (data_parser, data_seg, analysis_seg)
                 })

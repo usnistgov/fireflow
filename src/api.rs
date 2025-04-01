@@ -1355,41 +1355,55 @@ macro_rules! vec_convert {
     };
 }
 
+fn warn_bitmask<T: Ord + Copy>(xs: Vec<T>, deferred: &mut PureErrorBuf, bitmask: T) -> Vec<T> {
+    let mut has_seen = false;
+    xs.into_iter()
+        .map(|x| {
+            if x > bitmask && !has_seen {
+                deferred.push_warning("bitmask exceed, value truncated".to_string());
+                has_seen = true
+            }
+            x.min(bitmask)
+        })
+        .collect()
+}
+
+macro_rules! convert_to_uint1 {
+    ($data:expr, $deferred:expr, $wrap:ident, $t:ty, $ut:expr) => {
+        $wrap(NumColumnWriter {
+            column: warn_bitmask(vec_convert!($data, $t), &mut $deferred, $ut.bitmask),
+            size: $ut.size,
+        })
+    };
+}
+
 macro_rules! convert_to_uint {
-    ($size:expr, $data:expr) => {
+    ($size:expr, $data:expr, $deferred:expr) => {
         match $size {
-            UintSize::Uint8(size) => NumU8(NumColumnWriter {
-                column: vec_convert!($data, u8),
-                size,
-            }),
-            UintSize::Uint16(size) => NumU16(NumColumnWriter {
-                column: vec_convert!($data, u16),
-                size,
-            }),
-            UintSize::Uint24(size) => NumU24(NumColumnWriter {
-                column: vec_convert!($data, u32),
-                size,
-            }),
-            UintSize::Uint32(size) => NumU32(NumColumnWriter {
-                column: vec_convert!($data, u32),
-                size,
-            }),
-            UintSize::Uint40(size) => NumU40(NumColumnWriter {
-                column: vec_convert!($data, u64),
-                size,
-            }),
-            UintSize::Uint48(size) => NumU48(NumColumnWriter {
-                column: vec_convert!($data, u64),
-                size,
-            }),
-            UintSize::Uint56(size) => NumU56(NumColumnWriter {
-                column: vec_convert!($data, u64),
-                size,
-            }),
-            UintSize::Uint64(size) => NumU64(NumColumnWriter {
-                column: vec_convert!($data, u64),
-                size,
-            }),
+            AnyUintType::Uint8(ut) => {
+                convert_to_uint1!($data, $deferred, NumU8, u8, ut)
+            }
+            AnyUintType::Uint16(ut) => {
+                convert_to_uint1!($data, $deferred, NumU16, u16, ut)
+            }
+            AnyUintType::Uint24(ut) => {
+                convert_to_uint1!($data, $deferred, NumU24, u32, ut)
+            }
+            AnyUintType::Uint32(ut) => {
+                convert_to_uint1!($data, $deferred, NumU32, u32, ut)
+            }
+            AnyUintType::Uint40(ut) => {
+                convert_to_uint1!($data, $deferred, NumU40, u64, ut)
+            }
+            AnyUintType::Uint48(ut) => {
+                convert_to_uint1!($data, $deferred, NumU48, u64, ut)
+            }
+            AnyUintType::Uint56(ut) => {
+                convert_to_uint1!($data, $deferred, NumU56, u64, ut)
+            }
+            AnyUintType::Uint64(ut) => {
+                convert_to_uint1!($data, $deferred, NumU64, u64, ut)
+            }
         }
     };
 }
@@ -3979,8 +3993,6 @@ impl Series {
     ///
     /// If the start type will fit into the end type, all is well and nothing
     /// bad will happen to user's precious data.
-    // TODO for the case of odd uints, check bitmask and warn user if bitmask
-    // is violated.
     fn coerce(self, w: ColumnType, conf: &WriteConfig) -> PureSuccess<ColumnWriter> {
         let mut deferred = PureErrorBuf::new();
 
@@ -4054,12 +4066,15 @@ impl Series {
                 }
             },
 
-            // Uint* -> Uint* is quite easy, just compare sizes and warn if
-            // the target type is too small.
+            // Uint* -> Uint* is quite easy, just compare sizes and warn if the
+            // target type is too small. Float/double -> Uint always could
+            // potentially truncate a fractional value. Also check to see if
+            // bitmask is exceeded, and if so truncate and warn user.
             ColumnType::Integer(column) => {
                 let size = UintSize::from_column(&column);
                 let from_size = self.nbytes();
                 let to_size = size.native_nbytes();
+                // TODO also warn if converting from a float
                 if to_size < from_size {
                     let msg = format!(
                         "converted uint from {from_size} to \
@@ -4068,7 +4083,7 @@ impl Series {
                     deferred.push_warning(msg);
                 }
                 match_many_to_one!(self, Series, [F32, F64, U08, U16, U32, U64], data, {
-                    convert_to_uint!(size, data)
+                    convert_to_uint!(column, data, deferred)
                 })
             }
 

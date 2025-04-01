@@ -1136,7 +1136,7 @@ struct FloatColumnReader<T, const LEN: usize> {
 
 enum MixedColumnType {
     Ascii(AsciiColumnReader),
-    Uint(AnyIntColumnReader),
+    Uint(AnyUintColumnReader),
     Single(FloatColumnReader<f32, 4>),
     Double(FloatColumnReader<f64, 8>),
 }
@@ -1152,20 +1152,20 @@ enum SizedByteOrd<const LEN: usize> {
     Order([u8; LEN]),
 }
 
-struct IntColumnReader<B, const LEN: usize> {
+struct UintColumnReader<B, const LEN: usize> {
     layout: UintType<B, LEN>,
     column: Vec<B>,
 }
 
-enum AnyIntColumnReader {
-    Uint8(IntColumnReader<u8, 1>),
-    Uint16(IntColumnReader<u16, 2>),
-    Uint24(IntColumnReader<u32, 3>),
-    Uint32(IntColumnReader<u32, 4>),
-    Uint40(IntColumnReader<u64, 5>),
-    Uint48(IntColumnReader<u64, 6>),
-    Uint56(IntColumnReader<u64, 7>),
-    Uint64(IntColumnReader<u64, 8>),
+enum AnyUintColumnReader {
+    Uint8(UintColumnReader<u8, 1>),
+    Uint16(UintColumnReader<u16, 2>),
+    Uint24(UintColumnReader<u32, 3>),
+    Uint32(UintColumnReader<u32, 4>),
+    Uint40(UintColumnReader<u64, 5>),
+    Uint48(UintColumnReader<u64, 6>),
+    Uint56(UintColumnReader<u64, 7>),
+    Uint64(UintColumnReader<u64, 8>),
 }
 
 enum UintSize {
@@ -1192,10 +1192,10 @@ enum UintSize {
 // There may be some small optimizations we can make for the "typical" cases
 // where the entire file is u32 with big/little BYTEORD and only a handful
 // of different bitmasks. For now, the increased complexity of dealing with this
-// is likely no worth it.
+// is likely not worth it.
 struct UintReader {
     nrows: usize,
-    columns: Vec<AnyIntColumnReader>,
+    columns: Vec<AnyUintColumnReader>,
 }
 
 #[derive(Debug)]
@@ -1205,7 +1205,7 @@ struct FixedAsciiReader {
 }
 
 #[derive(Debug)]
-struct DelimAsciiParser {
+struct DelimAsciiReader {
     ncols: usize,
     nrows: Option<usize>,
     nbytes: usize,
@@ -1213,15 +1213,15 @@ struct DelimAsciiParser {
 
 enum ColumnReader {
     // DATATYPE=A where all PnB = *
-    DelimitedAscii(DelimAsciiParser),
+    DelimitedAscii(DelimAsciiReader),
     // DATATYPE=A where all PnB = number
     FixedWidthAscii(FixedAsciiReader),
     // DATATYPE=F (with no overrides in 3.2+)
-    Single(FloatParser<4>),
+    Single(FloatReader<4>),
     // DATATYPE=D (with no overrides in 3.2+)
-    Double(FloatParser<8>),
+    Double(FloatReader<8>),
     // DATATYPE=I this is complicated so see struct definition
-    Int(UintReader),
+    Uint(UintReader),
     // Mixed column types (3.2+)
     Mixed(MixedParser),
 }
@@ -1302,7 +1302,7 @@ enum RangeError {
 
 struct Mode3_2Error;
 
-struct FloatParser<const LEN: usize> {
+struct FloatReader<const LEN: usize> {
     nrows: usize,
     ncols: usize,
     byteord: SizedByteOrd<LEN>,
@@ -1632,7 +1632,7 @@ fn build_mixed_parser(cs: Vec<ColumnType>, total_events: usize) -> MixedParser {
                 MixedColumnType::Double(f64::make_column_reader(order, total_events))
             }
             ColumnType::Integer(col) => {
-                MixedColumnType::Uint(AnyIntColumnReader::from_column(col, total_events))
+                MixedColumnType::Uint(AnyUintColumnReader::from_column(col, total_events))
             }
         })
         .collect();
@@ -1649,7 +1649,7 @@ fn build_data_parser(pt: ParserTEXT) -> DataParser {
         }
         DataLayout::AsciiDelimited { nrows, ncols } => {
             let nbytes = pt.data_seg.nbytes() as usize;
-            ColumnReader::DelimitedAscii(DelimAsciiParser {
+            ColumnReader::DelimitedAscii(DelimAsciiReader {
                 ncols,
                 nrows,
                 nbytes,
@@ -2020,10 +2020,10 @@ trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
         range: Range,
         byteord: &ByteOrd,
         total_events: usize,
-    ) -> Result<IntColumnReader<Self, INTLEN>, Vec<String>> {
+    ) -> Result<UintColumnReader<Self, INTLEN>, Vec<String>> {
         Self::to_col(range, byteord).map(|layout| {
             let column = vec![Self::zero(); total_events];
-            IntColumnReader { layout, column }
+            UintColumnReader { layout, column }
         })
     }
 
@@ -2065,7 +2065,7 @@ trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
 
     fn read_to_column<R: Read>(
         h: &mut BufReader<R>,
-        d: &mut IntColumnReader<Self, INTLEN>,
+        d: &mut UintColumnReader<Self, INTLEN>,
         row: usize,
     ) -> io::Result<()> {
         d.column[row] = Self::read_int_masked(h, &d.layout.size, d.layout.bitmask)?;
@@ -2109,7 +2109,7 @@ where
     }
 
     /// Read byte sequence into a matrix of floats
-    fn read_matrix<R: Read>(h: &mut BufReader<R>, p: FloatParser<LEN>) -> io::Result<Dataframe> {
+    fn read_matrix<R: Read>(h: &mut BufReader<R>, p: FloatReader<LEN>) -> io::Result<Dataframe> {
         let mut columns: Vec<_> = iter::repeat_with(|| vec![Self::zero(); p.nrows])
             .take(p.ncols)
             .collect();
@@ -2155,8 +2155,8 @@ where
         byteord: &ByteOrd,
         par: usize,
         total_events: usize,
-    ) -> PureMaybe<FloatParser<LEN>> {
-        let res = Self::to_float_byteord(byteord).map(|byteord| FloatParser {
+    ) -> PureMaybe<FloatReader<LEN>> {
+        let res = Self::to_float_byteord(byteord).map(|byteord| FloatReader {
             nrows: total_events,
             ncols: par,
             byteord,
@@ -3162,7 +3162,7 @@ impl Bytes {
         r: &Range,
         o: &ByteOrd,
         t: usize,
-    ) -> Result<AnyIntColumnReader, Vec<String>> {
+    ) -> Result<AnyUintColumnReader, Vec<String>> {
         match self {
             Bytes::Fixed(b) => make_int_parser(*b, *r, o, t),
             _ => Err(vec!["PnB is variable length".to_string()]),
@@ -3211,16 +3211,16 @@ fn make_int_parser(
     r: Range,
     o: &ByteOrd,
     t: usize,
-) -> Result<AnyIntColumnReader, Vec<String>> {
+) -> Result<AnyUintColumnReader, Vec<String>> {
     match b {
-        1 => u8::to_col_parser(r, o, t).map(AnyIntColumnReader::Uint8),
-        2 => u16::to_col_parser(r, o, t).map(AnyIntColumnReader::Uint16),
-        3 => IntFromBytes::<4, 3>::to_col_parser(r, o, t).map(AnyIntColumnReader::Uint24),
-        4 => IntFromBytes::<4, 4>::to_col_parser(r, o, t).map(AnyIntColumnReader::Uint32),
-        5 => IntFromBytes::<8, 5>::to_col_parser(r, o, t).map(AnyIntColumnReader::Uint40),
-        6 => IntFromBytes::<8, 6>::to_col_parser(r, o, t).map(AnyIntColumnReader::Uint48),
-        7 => IntFromBytes::<8, 7>::to_col_parser(r, o, t).map(AnyIntColumnReader::Uint56),
-        8 => IntFromBytes::<8, 8>::to_col_parser(r, o, t).map(AnyIntColumnReader::Uint64),
+        1 => u8::to_col_parser(r, o, t).map(AnyUintColumnReader::Uint8),
+        2 => u16::to_col_parser(r, o, t).map(AnyUintColumnReader::Uint16),
+        3 => IntFromBytes::<4, 3>::to_col_parser(r, o, t).map(AnyUintColumnReader::Uint24),
+        4 => IntFromBytes::<4, 4>::to_col_parser(r, o, t).map(AnyUintColumnReader::Uint32),
+        5 => IntFromBytes::<8, 5>::to_col_parser(r, o, t).map(AnyUintColumnReader::Uint40),
+        6 => IntFromBytes::<8, 6>::to_col_parser(r, o, t).map(AnyUintColumnReader::Uint48),
+        7 => IntFromBytes::<8, 7>::to_col_parser(r, o, t).map(AnyUintColumnReader::Uint56),
+        8 => IntFromBytes::<8, 8>::to_col_parser(r, o, t).map(AnyUintColumnReader::Uint64),
         _ => Err(vec!["$PnB has invalid byte length".to_string()]),
     }
 }
@@ -4267,52 +4267,52 @@ impl MixedColumnType {
     }
 }
 
-impl AnyIntColumnReader {
+impl AnyUintColumnReader {
     fn into_series(self) -> Series {
         match self {
-            AnyIntColumnReader::Uint8(y) => Vec::<u8>::into(y.column),
-            AnyIntColumnReader::Uint16(y) => Vec::<u16>::into(y.column),
-            AnyIntColumnReader::Uint24(y) => Vec::<u32>::into(y.column),
-            AnyIntColumnReader::Uint32(y) => Vec::<u32>::into(y.column),
-            AnyIntColumnReader::Uint40(y) => Vec::<u64>::into(y.column),
-            AnyIntColumnReader::Uint48(y) => Vec::<u64>::into(y.column),
-            AnyIntColumnReader::Uint56(y) => Vec::<u64>::into(y.column),
-            AnyIntColumnReader::Uint64(y) => Vec::<u64>::into(y.column),
+            AnyUintColumnReader::Uint8(y) => Vec::<u8>::into(y.column),
+            AnyUintColumnReader::Uint16(y) => Vec::<u16>::into(y.column),
+            AnyUintColumnReader::Uint24(y) => Vec::<u32>::into(y.column),
+            AnyUintColumnReader::Uint32(y) => Vec::<u32>::into(y.column),
+            AnyUintColumnReader::Uint40(y) => Vec::<u64>::into(y.column),
+            AnyUintColumnReader::Uint48(y) => Vec::<u64>::into(y.column),
+            AnyUintColumnReader::Uint56(y) => Vec::<u64>::into(y.column),
+            AnyUintColumnReader::Uint64(y) => Vec::<u64>::into(y.column),
         }
     }
 
     // TODO clean this up
     fn from_column(col: AnyUintType, total_events: usize) -> Self {
         match col {
-            AnyUintType::Uint8(layout) => AnyIntColumnReader::Uint8(IntColumnReader {
+            AnyUintType::Uint8(layout) => AnyUintColumnReader::Uint8(UintColumnReader {
                 layout,
                 column: vec![0; total_events],
             }),
-            AnyUintType::Uint16(layout) => AnyIntColumnReader::Uint16(IntColumnReader {
+            AnyUintType::Uint16(layout) => AnyUintColumnReader::Uint16(UintColumnReader {
                 layout,
                 column: vec![0; total_events],
             }),
-            AnyUintType::Uint24(layout) => AnyIntColumnReader::Uint24(IntColumnReader {
+            AnyUintType::Uint24(layout) => AnyUintColumnReader::Uint24(UintColumnReader {
                 layout,
                 column: vec![0; total_events],
             }),
-            AnyUintType::Uint32(layout) => AnyIntColumnReader::Uint32(IntColumnReader {
+            AnyUintType::Uint32(layout) => AnyUintColumnReader::Uint32(UintColumnReader {
                 layout,
                 column: vec![0; total_events],
             }),
-            AnyUintType::Uint40(layout) => AnyIntColumnReader::Uint40(IntColumnReader {
+            AnyUintType::Uint40(layout) => AnyUintColumnReader::Uint40(UintColumnReader {
                 layout,
                 column: vec![0; total_events],
             }),
-            AnyUintType::Uint48(layout) => AnyIntColumnReader::Uint48(IntColumnReader {
+            AnyUintType::Uint48(layout) => AnyUintColumnReader::Uint48(UintColumnReader {
                 layout,
                 column: vec![0; total_events],
             }),
-            AnyUintType::Uint56(layout) => AnyIntColumnReader::Uint56(IntColumnReader {
+            AnyUintType::Uint56(layout) => AnyUintColumnReader::Uint56(UintColumnReader {
                 layout,
                 column: vec![0; total_events],
             }),
-            AnyUintType::Uint64(layout) => AnyIntColumnReader::Uint64(IntColumnReader {
+            AnyUintType::Uint64(layout) => AnyUintColumnReader::Uint64(UintColumnReader {
                 layout,
                 column: vec![0; total_events],
             }),
@@ -4321,14 +4321,14 @@ impl AnyIntColumnReader {
 
     fn read_to_column<R: Read>(&mut self, h: &mut BufReader<R>, r: usize) -> io::Result<()> {
         match self {
-            AnyIntColumnReader::Uint8(d) => u8::read_to_column(h, d, r)?,
-            AnyIntColumnReader::Uint16(d) => u16::read_to_column(h, d, r)?,
-            AnyIntColumnReader::Uint24(d) => u32::read_to_column(h, d, r)?,
-            AnyIntColumnReader::Uint32(d) => u32::read_to_column(h, d, r)?,
-            AnyIntColumnReader::Uint40(d) => u64::read_to_column(h, d, r)?,
-            AnyIntColumnReader::Uint48(d) => u64::read_to_column(h, d, r)?,
-            AnyIntColumnReader::Uint56(d) => u64::read_to_column(h, d, r)?,
-            AnyIntColumnReader::Uint64(d) => u64::read_to_column(h, d, r)?,
+            AnyUintColumnReader::Uint8(d) => u8::read_to_column(h, d, r)?,
+            AnyUintColumnReader::Uint16(d) => u16::read_to_column(h, d, r)?,
+            AnyUintColumnReader::Uint24(d) => u32::read_to_column(h, d, r)?,
+            AnyUintColumnReader::Uint32(d) => u32::read_to_column(h, d, r)?,
+            AnyUintColumnReader::Uint40(d) => u64::read_to_column(h, d, r)?,
+            AnyUintColumnReader::Uint48(d) => u64::read_to_column(h, d, r)?,
+            AnyUintColumnReader::Uint56(d) => u64::read_to_column(h, d, r)?,
+            AnyUintColumnReader::Uint64(d) => u64::read_to_column(h, d, r)?,
         }
         Ok(())
     }
@@ -4426,7 +4426,7 @@ fn parse_u64_io(s: &str) -> io::Result<u64> {
 
 fn read_data_delim_ascii<R: Read>(
     h: &mut BufReader<R>,
-    p: DelimAsciiParser,
+    p: DelimAsciiReader,
 ) -> io::Result<Dataframe> {
     let mut buf = Vec::new();
     let mut row = 0;
@@ -4584,7 +4584,7 @@ fn h_read_data_segment<R: Read + Seek>(
         ColumnReader::Single(p) => f32::read_matrix(h, p),
         ColumnReader::Double(p) => f64::read_matrix(h, p),
         ColumnReader::Mixed(p) => read_data_mixed(h, p),
-        ColumnReader::Int(p) => read_data_int(h, p),
+        ColumnReader::Uint(p) => read_data_int(h, p),
     }
 }
 

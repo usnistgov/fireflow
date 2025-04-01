@@ -1193,13 +1193,13 @@ enum UintSize {
 // where the entire file is u32 with big/little BYTEORD and only a handful
 // of different bitmasks. For now, the increased complexity of dealing with this
 // is likely no worth it.
-struct IntParser {
+struct UintReader {
     nrows: usize,
     columns: Vec<AnyIntColumnReader>,
 }
 
 #[derive(Debug)]
-struct FixedAsciiParser {
+struct FixedAsciiReader {
     widths: Vec<u8>,
     nrows: usize,
 }
@@ -1211,17 +1211,17 @@ struct DelimAsciiParser {
     nbytes: usize,
 }
 
-enum ColumnParser {
+enum ColumnReader {
     // DATATYPE=A where all PnB = *
     DelimitedAscii(DelimAsciiParser),
     // DATATYPE=A where all PnB = number
-    FixedWidthAscii(FixedAsciiParser),
+    FixedWidthAscii(FixedAsciiReader),
     // DATATYPE=F (with no overrides in 3.2+)
     Single(FloatParser<4>),
     // DATATYPE=D (with no overrides in 3.2+)
     Double(FloatParser<8>),
     // DATATYPE=I this is complicated so see struct definition
-    Int(IntParser),
+    Int(UintReader),
     // Mixed column types (3.2+)
     Mixed(MixedParser),
 }
@@ -1645,11 +1645,11 @@ fn build_mixed_parser(cs: Vec<ColumnType>, total_events: usize) -> MixedParser {
 fn build_data_parser(pt: ParserTEXT) -> DataParser {
     let column_parser = match pt.layout {
         DataLayout::AlphaNum { nrows, columns } => {
-            ColumnParser::Mixed(build_mixed_parser(columns, nrows))
+            ColumnReader::Mixed(build_mixed_parser(columns, nrows))
         }
         DataLayout::AsciiDelimited { nrows, ncols } => {
             let nbytes = pt.data_seg.nbytes() as usize;
-            ColumnParser::DelimitedAscii(DelimAsciiParser {
+            ColumnReader::DelimitedAscii(DelimAsciiParser {
                 ncols,
                 nrows,
                 nbytes,
@@ -4335,7 +4335,7 @@ impl AnyIntColumnReader {
 }
 
 struct DataParser {
-    column_parser: ColumnParser,
+    column_parser: ColumnReader,
     begin: u64,
 }
 
@@ -4520,7 +4520,7 @@ fn read_data_delim_ascii<R: Read>(
 
 fn read_data_ascii_fixed<R: Read>(
     h: &mut BufReader<R>,
-    parser: &FixedAsciiParser,
+    parser: &FixedAsciiReader,
 ) -> io::Result<Dataframe> {
     let ncols = parser.widths.len();
     let mut data: Vec<_> = iter::repeat_with(|| vec![0; parser.nrows])
@@ -4561,7 +4561,7 @@ fn read_data_mixed<R: Read>(h: &mut BufReader<R>, parser: MixedParser) -> io::Re
     ))
 }
 
-fn read_data_int<R: Read>(h: &mut BufReader<R>, parser: IntParser) -> io::Result<Dataframe> {
+fn read_data_int<R: Read>(h: &mut BufReader<R>, parser: UintReader) -> io::Result<Dataframe> {
     let mut p = parser;
     for r in 0..p.nrows {
         for c in p.columns.iter_mut() {
@@ -4579,12 +4579,12 @@ fn h_read_data_segment<R: Read + Seek>(
 ) -> io::Result<Dataframe> {
     h.seek(SeekFrom::Start(parser.begin))?;
     match parser.column_parser {
-        ColumnParser::DelimitedAscii(p) => read_data_delim_ascii(h, p),
-        ColumnParser::FixedWidthAscii(p) => read_data_ascii_fixed(h, &p),
-        ColumnParser::Single(p) => f32::read_matrix(h, p),
-        ColumnParser::Double(p) => f64::read_matrix(h, p),
-        ColumnParser::Mixed(p) => read_data_mixed(h, p),
-        ColumnParser::Int(p) => read_data_int(h, p),
+        ColumnReader::DelimitedAscii(p) => read_data_delim_ascii(h, p),
+        ColumnReader::FixedWidthAscii(p) => read_data_ascii_fixed(h, &p),
+        ColumnReader::Single(p) => f32::read_matrix(h, p),
+        ColumnReader::Double(p) => f64::read_matrix(h, p),
+        ColumnReader::Mixed(p) => read_data_mixed(h, p),
+        ColumnReader::Int(p) => read_data_int(h, p),
     }
 }
 

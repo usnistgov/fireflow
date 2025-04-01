@@ -1508,197 +1508,6 @@ trait VersionedMetadata: Sized + VersionedParserMetadata {
         }
     }
 
-    // fn build_int_parser(
-    //     it: &Self::Target,
-    //     ps: &[DataReadMeasurement<<Self::P as VersionedParserMeasurement>::Target>],
-    //     total_events: usize,
-    // ) -> PureMaybe<IntParser>;
-
-    // fn build_mixed_parser(
-    //     ps: &[DataReadMeasurement<<Self::P as VersionedParserMeasurement>::Target>],
-    //     dt: &AlphaNumType,
-    //     total_events: usize,
-    // ) -> Option<PureMaybe<MixedParser>>;
-
-    // fn build_float_parser(
-    //     is_double: bool,
-    //     par: usize,
-    //     total_events: usize,
-    //     ps: &[DataReadMeasurement<<Self::P as VersionedParserMeasurement>::Target>],
-    // ) -> PureMaybe<ColumnParser> {
-    //     let (bytes, dt) = if is_double { (8, "D") } else { (4, "F") };
-    //     let remainder: Vec<_> = ps.iter().filter(|p| p.bytes.eq(bytes)).collect();
-    //     if remainder.is_empty() {
-    //         let byteord = Self::get_target_byteord(it);
-    //         if is_double {
-    //             f64::make_matrix_parser(&byteord, par, total_events).map_maybe(ColumnParser::Double)
-    //         } else {
-    //             f32::make_matrix_parser(&byteord, par, total_events).map_maybe(ColumnParser::Single)
-    //         }
-    //     } else {
-    //         let mut res = PureSuccess::from(None);
-    //         for e in remainder.iter().enumerate().map(|(i, p)| {
-    //             format!(
-    //                 "Measurment {} uses {} bytes but DATATYPE={}",
-    //                 i, p.bytes, dt
-    //             )
-    //         }) {
-    //             res.push_error(e);
-    //         }
-    //         res
-    //     }
-    // }
-
-    fn build_mixed_parser(cs: Vec<ColumnType>, total_events: usize) -> MixedParser {
-        let columns = cs
-            .into_iter()
-            .map(|p| match p {
-                ColumnType::Ascii { bytes } => MixedColumnType::Ascii(AsciiColumn {
-                    width: bytes,
-                    column: vec![],
-                }),
-                ColumnType::Float(order) => {
-                    MixedColumnType::Single(f32::make_column_reader(order, total_events))
-                }
-                ColumnType::Double(order) => {
-                    MixedColumnType::Double(f64::make_column_reader(order, total_events))
-                }
-                ColumnType::Integer(col) => {
-                    MixedColumnType::Uint(AnyIntColumnParser::from_column(col, total_events))
-                }
-            })
-            .collect();
-        MixedParser {
-            columns,
-            nrows: total_events,
-        }
-    }
-
-    // fn build_fixed_width_parser(
-    //     cs: &[ColumnType],
-    //     total_events: usize,
-    //     measurement_widths: Vec<u8>,
-    // ) -> ColumnParser {
-    //     let par = cs.len();
-    //     match cs.iter().unique().collect::<Vec<_>>()[..] {
-    //         [ColumnType::Ascii { bytes }] => ColumnParser::FixedWidthAscii(FixedAsciiParser {
-    //             nrows: total_events,
-    //             widths: iter::repeat_n(*bytes, par).collect(),
-    //         }),
-    //         // TODO int matrix thing
-    //         // [ColumnType::Integer(col)] => (),
-    //         [ColumnType::Float(byteord)] => ColumnParser::Single(FloatParser {
-    //             byteord: *byteord,
-    //             ncols: par,
-    //             nrows: total_events,
-    //         }),
-    //         [ColumnType::Double(byteord)] => ColumnParser::Double(FloatParser {
-    //             byteord: *byteord,
-    //             ncols: par,
-    //             nrows: total_events,
-    //         }),
-    //     }
-    //     // if cs.iter().map(|c| c.datatype()).unique().count() > 1 {
-    //     //     ColumnParser::Mixed(Self::build_mixed_parser(cs, total_events))
-    //     // } else {
-    //     //     match dt {
-    //     //         AlphaNumType::Single => {
-    //     //             Self::build_float_parser(specific, false, par, total_events, ps)
-    //     //         }
-    //     //         AlphaNumType::Double => {
-    //     //             Self::build_float_parser(specific, true, par, total_events, ps)
-    //     //         }
-    //     //         AlphaNumType::Integer => Self::build_int_parser(specific, ps, total_events)
-    //     //             .map(|c| c.map(ColumnParser::Int)),
-    //     //         AlphaNumType::Ascii => {
-    //     //             PureSuccess::from(Some(ColumnParser::FixedWidthAscii(FixedAsciiParser {
-    //     //                 columns: measurement_widths,
-    //     //                 nrows: total_events,
-    //     //             })))
-    //     //         }
-    //     //     }
-    //     // }
-    // }
-
-    // fn build_delim_ascii_parser(
-    //     ncols: usize,
-    //     nrows: Option<usize>,
-    // ) -> DelimAsciiParser {
-    //     let nbytes = it.data_seg.nbytes();
-    //     DelimAsciiParser {
-    //         ncols,
-    //         nrows,
-    //         nbytes: nbytes as usize,
-    //     }
-    // }
-
-    // fn build_column_parser(
-    //     it: &ParserTEXT<Self::Target, <Self::P as VersionedParserMeasurement>::Target>,
-    // ) -> PureMaybe<ColumnParser> {
-    //     // In order to make a data parser, the $DATATYPE, $BYTEORD, $PnB, and
-    //     // $PnDATATYPE (if present) all need to be a specific relationship to
-    //     // each other, each of which corresponds to the options below.
-    //     let mut res = match (event_width(&it.measurements), it.metadata.datatype) {
-    //         // Numeric/Ascii (fixed width)
-    //         (EventWidth::Finite(measurement_widths), _) => {
-    //             let event_width = measurement_widths.iter().map(|x| u32::from(*x)).sum();
-    //             Self::total_events(it, event_width).and_then(|total_events| {
-    //                 Self::build_fixed_width_parser(it, total_events, measurement_widths)
-    //             })
-    //         }
-    //         // Ascii (variable width)
-    //         (EventWidth::Variable, AlphaNumType::Ascii) => {
-    //             let tot = Self::get_tot(&it.metadata.specific);
-    //             PureSuccess::from(Some(Self::build_delim_ascii_parser(
-    //                 it,
-    //                 tot.map(|x| x as usize),
-    //             )))
-    //         }
-    //         // nonsense...scream at user
-    //         (EventWidth::Error(fixed, variable), _) => {
-    //             let mut r = PureSuccess::from(None);
-    //             r.push_error("$PnBs are a mix of numeric and variable".to_string());
-    //             for f in fixed {
-    //                 r.push_error(format!("$PnB for measurement {f} is numeric"));
-    //             }
-    //             for v in variable {
-    //                 r.push_error(format!("$PnB for measurement {v} is variable"));
-    //             }
-    //             r
-    //         }
-    //         (EventWidth::Variable, dt) => {
-    //             let mut r = PureSuccess::from(None);
-    //             r.push_error(format!("$DATATYPE is {dt} but all $PnB are '*'"));
-    //             r
-    //         }
-    //     };
-    //     if it.metadata.datatype == AlphaNumType::Ascii && Self::P::fcs_version() >= Version::FCS3_1
-    //     {
-    //         res.push_error("$DATATYPE=A has been deprecated since FCS 3.1".to_string());
-    //     }
-    //     res
-    // }
-
-    fn build_data_parser(pt: ParserTEXT) -> DataParser {
-        let column_parser = match pt.layout {
-            DataLayout::AlphaNum { nrows, columns } => {
-                ColumnParser::Mixed(Self::build_mixed_parser(columns, nrows))
-            }
-            DataLayout::AsciiDelimited { nrows, ncols } => {
-                let nbytes = pt.data_seg.nbytes() as usize;
-                ColumnParser::DelimitedAscii(DelimAsciiParser {
-                    ncols,
-                    nrows,
-                    nbytes,
-                })
-            }
-        };
-        DataParser {
-            column_parser,
-            begin: u64::from(pt.data_seg.begin()),
-        }
-    }
-
     fn lookup_specific(st: &mut KwParser, par: usize, names: &HashSet<&str>) -> Option<Self>;
 
     fn lookup_metadata(st: &mut KwParser, ms: &[Measurement<Self::P>]) -> Option<Metadata<Self>> {
@@ -1811,6 +1620,51 @@ trait VersionedMetadata: Sized + VersionedParserMetadata {
     //         .chain(m.specific.keywords_req_inner())
     //         .collect()
     // }
+}
+
+fn build_mixed_parser(cs: Vec<ColumnType>, total_events: usize) -> MixedParser {
+    let columns = cs
+        .into_iter()
+        .map(|p| match p {
+            ColumnType::Ascii { bytes } => MixedColumnType::Ascii(AsciiColumn {
+                width: bytes,
+                column: vec![],
+            }),
+            ColumnType::Float(order) => {
+                MixedColumnType::Single(f32::make_column_reader(order, total_events))
+            }
+            ColumnType::Double(order) => {
+                MixedColumnType::Double(f64::make_column_reader(order, total_events))
+            }
+            ColumnType::Integer(col) => {
+                MixedColumnType::Uint(AnyIntColumnParser::from_column(col, total_events))
+            }
+        })
+        .collect();
+    MixedParser {
+        columns,
+        nrows: total_events,
+    }
+}
+
+fn build_data_parser(pt: ParserTEXT) -> DataParser {
+    let column_parser = match pt.layout {
+        DataLayout::AlphaNum { nrows, columns } => {
+            ColumnParser::Mixed(build_mixed_parser(columns, nrows))
+        }
+        DataLayout::AsciiDelimited { nrows, ncols } => {
+            let nbytes = pt.data_seg.nbytes() as usize;
+            ColumnParser::DelimitedAscii(DelimAsciiParser {
+                ncols,
+                nrows,
+                nbytes,
+            })
+        }
+    };
+    DataParser {
+        column_parser,
+        begin: u64::from(pt.data_seg.begin()),
+    }
 }
 
 trait VersionedMeasurement: Sized + Versioned {
@@ -3342,42 +3196,6 @@ impl<P: VersionedMeasurement> Measurement<P> {
     }
 }
 
-// // TODO this seems silly
-// fn make_int_writer(b: u8, o: &ByteOrd) -> Result<AnyIntSize, String> {
-//     match b {
-//         1 => Ok(AnyIntSize::Uint8),
-//         2 => u16::byteord_to_sized(o).map(|s| match s {
-//             SizedByteOrd::Endian(endian) => AnyIntSize::Uint16 { endian },
-//             SizedByteOrd::Order([0, 1]) => AnyIntSize::Uint16 {
-//                 endian: Endian::Little,
-//             },
-//             SizedByteOrd::Order([1, 0]) => AnyIntSize::Uint16 {
-//                 endian: Endian::Little,
-//             },
-//             _ => unreachable!(),
-//         }),
-//         3 => {
-//             <u32 as IntFromBytes<4, 3>>::byteord_to_sized(o).map(|size| AnyIntSize::Uint24 { size })
-//         }
-//         4 => {
-//             <u32 as IntFromBytes<4, 4>>::byteord_to_sized(o).map(|size| AnyIntSize::Uint32 { size })
-//         }
-//         5 => {
-//             <u64 as IntFromBytes<8, 5>>::byteord_to_sized(o).map(|size| AnyIntSize::Uint40 { size })
-//         }
-//         6 => {
-//             <u64 as IntFromBytes<8, 6>>::byteord_to_sized(o).map(|size| AnyIntSize::Uint48 { size })
-//         }
-//         7 => {
-//             <u64 as IntFromBytes<8, 7>>::byteord_to_sized(o).map(|size| AnyIntSize::Uint56 { size })
-//         }
-//         8 => {
-//             <u64 as IntFromBytes<8, 8>>::byteord_to_sized(o).map(|size| AnyIntSize::Uint64 { size })
-//         }
-//         _ => Err("$PnB has invalid byte length".to_string()),
-//     }
-// }
-
 fn make_int_column(b: u8, r: Range, o: &ByteOrd) -> Result<AnyIntColumn, Vec<String>> {
     match b {
         1 => u8::to_col(r, o).map(AnyIntColumn::Uint8),
@@ -4101,9 +3919,9 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
                     let pt = ParserTEXT {
                         layout,
                         conf: &conf.data,
-                        data_seg: data_seg.clone(),
+                        data_seg: *data_seg,
                     };
-                    M::build_data_parser(pt)
+                    build_data_parser(pt)
                 })
             })
     }
@@ -4775,39 +4593,39 @@ fn h_read_data_segment<R: Read + Seek>(
     }
 }
 
-fn h_write_ascii_delim_data<W: Write>(
-    h: &mut BufWriter<W>,
-    df: Dataframe,
-    conf: &Config,
-) -> ImpureResult<()> {
-    let df_nrows = df.nrows();
-    let (columns, msgs): (Vec<_>, Vec<_>) = df
-        .columns
-        .into_iter()
-        .map(|s| {
-            let res = s.coerce64(&conf.write);
-            (res.data, res.deferred)
-        })
-        .unzip();
-    for r in 0..df_nrows {
-        for c in columns.iter() {
-            let x = c[r];
-            if x == 0 {
-                let buf = [48]; // 48 = "0" in ASCII
-                h.write_all(&buf)?;
-            } else {
-                let s = x.to_string();
-                let t = s.trim_start_matches("0");
-                let buf = t.as_bytes();
-                h.write_all(buf)?;
-            }
-        }
-    }
-    Ok(PureSuccess {
-        data: (),
-        deferred: PureErrorBuf::mconcat(msgs),
-    })
-}
+// fn h_write_ascii_delim_data<W: Write>(
+//     h: &mut BufWriter<W>,
+//     df: Dataframe,
+//     conf: &Config,
+// ) -> ImpureResult<()> {
+//     let df_nrows = df.nrows();
+//     let (columns, msgs): (Vec<_>, Vec<_>) = df
+//         .columns
+//         .into_iter()
+//         .map(|s| {
+//             let res = s.coerce64(&conf.write);
+//             (res.data, res.deferred)
+//         })
+//         .unzip();
+//     for r in 0..df_nrows {
+//         for c in columns.iter() {
+//             let x = c[r];
+//             if x == 0 {
+//                 let buf = [48]; // 48 = "0" in ASCII
+//                 h.write_all(&buf)?;
+//             } else {
+//                 let s = x.to_string();
+//                 let t = s.trim_start_matches("0");
+//                 let buf = t.as_bytes();
+//                 h.write_all(buf)?;
+//             }
+//         }
+//     }
+//     Ok(PureSuccess {
+//         data: (),
+//         deferred: PureErrorBuf::mconcat(msgs),
+//     })
+// }
 
 fn h_write_numeric_data<W: Write>(
     h: &mut BufWriter<W>,
@@ -4863,7 +4681,7 @@ fn h_write_dataset<W: Write>(
     // If this is false, something terrible happened and we need to stop
     // immediately.
     if d.data.is_ragged() {
-        return Err(Failure::new(
+        Err(Failure::new(
             "dataframe has unequal column lengths".to_string(),
         ))?;
     }
@@ -4871,23 +4689,23 @@ fn h_write_dataset<W: Write>(
     // We can now confidently count the number of events (rows)
     let df_nrows = d.data.nrows();
 
-    let write_text = |h: &mut BufWriter<W>, data_len| {
+    let write_text = |h: &mut BufWriter<W>, data_len| -> ImpureResult<()> {
         if let Some(text) = d.keywords.text_segment(df_nrows, data_len, analysis_len) {
             for t in text {
-                h.write_all(t.as_bytes());
-                h.write_all(&[conf.write.delim]);
+                h.write_all(t.as_bytes())?;
+                h.write_all(&[conf.write.delim])?;
             }
         } else {
-            return Err(Failure::new(
+            Err(Failure::new(
                 "primary TEXT does not fit into first 99,999,999 bytes".to_string(),
-            ));
+            ))?;
         }
         Ok(PureSuccess::from(()))
     };
 
     if df_nrows == 0 {
         write_text(h, 0)?;
-        h.write_all(&d.analysis);
+        h.write_all(&d.analysis)?;
         return Ok(PureSuccess::from(()));
     }
 
@@ -4900,7 +4718,7 @@ fn h_write_dataset<W: Write>(
     succ.try_map(|layout| {
         let par = layout.ncols();
         if df_ncols != par {
-            return Err(Failure::new(format!(
+            Err(Failure::new(format!(
                 "datafame columns ({df_ncols}) unequal to number of measurements ({par})"
             )))?;
         }
@@ -4913,7 +4731,7 @@ fn h_write_dataset<W: Write>(
                 let data_len = event_width * df_nrows;
                 write_text(h, data_len)?;
                 let res = h_write_numeric_data(h, columns, d.data, conf);
-                h.write_all(&d.analysis);
+                h.write_all(&d.analysis)?;
                 res
             }
             DataLayout::AsciiDelimited { nrows: _, ncols: _ } => {
@@ -4933,8 +4751,7 @@ fn h_write_dataset<W: Write>(
                 // of their digits in decimal radix)
                 let value_nbytes: u32 = columns
                     .iter()
-                    .map(|rows| rows.iter().map(|x| x.checked_ilog10().unwrap_or(1)))
-                    .flatten()
+                    .flat_map(|rows| rows.iter().map(|x| x.checked_ilog10().unwrap_or(1)))
                     .sum();
                 // compute data length (delimiters + number of digits)
                 let data_len = value_nbytes as usize + ndelim;
@@ -5460,64 +5277,64 @@ fn make_data_offset_keywords_3_0(
     })
 }
 
-fn event_width<X>(ms: &[DataReadMeasurement<X>]) -> EventWidth {
-    let (fixed, variable_indices): (Vec<_>, Vec<_>) = ms
-        .iter()
-        .enumerate()
-        .map(|(i, p)| match p.bytes {
-            Bytes::Fixed(b) => Ok((i, b)),
-            Bytes::Variable => Err(i),
-        })
-        .partition_result();
-    let (fixed_indices, fixed_bytes): (Vec<_>, Vec<_>) = fixed.into_iter().unzip();
-    if variable_indices.is_empty() {
-        EventWidth::Finite(fixed_bytes)
-    } else if fixed_indices.is_empty() {
-        EventWidth::Variable
-    } else {
-        EventWidth::Error(fixed_indices, variable_indices)
-    }
-}
+// fn event_width<X>(ms: &[DataReadMeasurement<X>]) -> EventWidth {
+//     let (fixed, variable_indices): (Vec<_>, Vec<_>) = ms
+//         .iter()
+//         .enumerate()
+//         .map(|(i, p)| match p.bytes {
+//             Bytes::Fixed(b) => Ok((i, b)),
+//             Bytes::Variable => Err(i),
+//         })
+//         .partition_result();
+//     let (fixed_indices, fixed_bytes): (Vec<_>, Vec<_>) = fixed.into_iter().unzip();
+//     if variable_indices.is_empty() {
+//         EventWidth::Finite(fixed_bytes)
+//     } else if fixed_indices.is_empty() {
+//         EventWidth::Variable
+//     } else {
+//         EventWidth::Error(fixed_indices, variable_indices)
+//     }
+// }
 
-fn build_int_parser_2_0<P>(
-    byteord: &ByteOrd,
-    ps: &[DataReadMeasurement<P>],
-    total_events: usize,
-) -> PureMaybe<IntParser> {
-    let nbytes = byteord.num_bytes();
-    let remainder: Vec<_> = ps.iter().filter(|p| !p.bytes.eq(nbytes)).collect();
-    if remainder.is_empty() {
-        let (columns, fail): (Vec<_>, Vec<_>) = ps
-            .iter()
-            .map(|p| p.bytes.make_int_parser(&p.range, byteord, total_events))
-            .partition_result();
-        let errors: Vec<_> = fail.into_iter().flatten().collect();
-        if errors.is_empty() {
-            PureSuccess::from(Some(IntParser {
-                columns,
-                nrows: total_events,
-            }))
-        } else {
-            let mut res = PureSuccess::from(None);
-            for e in errors.into_iter() {
-                res.push_error(e);
-            }
-            res
-        }
-    } else {
-        let mut res = PureSuccess::from(None);
-        for e in remainder.iter().enumerate().map(|(i, p)| {
-            format!(
-                "Measurement {} uses {} bytes when DATATYPE=I \
-                         and BYTEORD implies {} bytes",
-                i, p.bytes, nbytes
-            )
-        }) {
-            res.push_error(e);
-        }
-        res
-    }
-}
+// fn build_int_parser_2_0<P>(
+//     byteord: &ByteOrd,
+//     ps: &[DataReadMeasurement<P>],
+//     total_events: usize,
+// ) -> PureMaybe<IntParser> {
+//     let nbytes = byteord.num_bytes();
+//     let remainder: Vec<_> = ps.iter().filter(|p| !p.bytes.eq(nbytes)).collect();
+//     if remainder.is_empty() {
+//         let (columns, fail): (Vec<_>, Vec<_>) = ps
+//             .iter()
+//             .map(|p| p.bytes.make_int_parser(&p.range, byteord, total_events))
+//             .partition_result();
+//         let errors: Vec<_> = fail.into_iter().flatten().collect();
+//         if errors.is_empty() {
+//             PureSuccess::from(Some(IntParser {
+//                 columns,
+//                 nrows: total_events,
+//             }))
+//         } else {
+//             let mut res = PureSuccess::from(None);
+//             for e in errors.into_iter() {
+//                 res.push_error(e);
+//             }
+//             res
+//         }
+//     } else {
+//         let mut res = PureSuccess::from(None);
+//         for e in remainder.iter().enumerate().map(|(i, p)| {
+//             format!(
+//                 "Measurement {} uses {} bytes when DATATYPE=I \
+//                          and BYTEORD implies {} bytes",
+//                 i, p.bytes, nbytes
+//             )
+//         }) {
+//             res.push_error(e);
+//         }
+//         res
+//     }
+// }
 
 impl VersionedParserMeasurement for InnerMeasurement2_0 {
     type Target = ();
@@ -5631,7 +5448,7 @@ impl VersionedParserMetadata for InnerMetadata3_1 {
     type Target = InnerDataReadMetadata3_1;
 
     fn get_byteord(&self) -> ByteOrd {
-        ByteOrd::Endian(self.byteord.clone())
+        ByteOrd::Endian(self.byteord)
     }
 
     fn get_target_byteord(t: &Self::Target) -> ByteOrd {
@@ -5654,7 +5471,7 @@ impl VersionedParserMetadata for InnerMetadata3_2 {
     type Target = InnerDataReadMetadata3_1;
 
     fn get_byteord(&self) -> ByteOrd {
-        ByteOrd::Endian(self.byteord.clone())
+        ByteOrd::Endian(self.byteord)
     }
 
     fn get_target_byteord(t: &Self::Target) -> ByteOrd {
@@ -5679,23 +5496,6 @@ impl VersionedMetadata for InnerMetadata2_0 {
     fn into_any(t: CoreText2_0) -> AnyCoreTEXT {
         AnyCoreTEXT::FCS2_0(Box::new(t))
     }
-
-    // fn build_int_parser(
-    //     md: &InnerDataReadMetadata2_0,
-    //     ps: &[DataReadMeasurement<()>],
-    //     total_events: usize,
-    // ) -> PureMaybe<IntParser> {
-    //     build_int_parser_2_0(&md.byteord, ps, total_events)
-    // }
-
-    // fn build_mixed_parser(
-    //     _: &InnerDataReadMetadata2_0,
-    //     _: &[DataReadMeasurement<()>],
-    //     _: &AlphaNumType,
-    //     _: usize,
-    // ) -> Option<PureMaybe<MixedParser>> {
-    //     None
-    // }
 
     fn lookup_specific(
         st: &mut KwParser,
@@ -5746,23 +5546,6 @@ impl VersionedMetadata for InnerMetadata3_0 {
     fn into_any(t: CoreText3_0) -> AnyCoreTEXT {
         AnyCoreTEXT::FCS3_0(Box::new(t))
     }
-
-    // fn build_int_parser(
-    //     md: &InnerDataReadMetadata3_0,
-    //     ps: &[DataReadMeasurement<()>],
-    //     total_events: usize,
-    // ) -> PureMaybe<IntParser> {
-    //     build_int_parser_2_0(&md.byteord, ps, total_events)
-    // }
-
-    // fn build_mixed_parser(
-    //     _: &InnerDataReadMetadata3_0,
-    //     _: &[DataReadMeasurement<()>],
-    //     _: &AlphaNumType,
-    //     _: usize,
-    // ) -> Option<PureMaybe<MixedParser>> {
-    //     None
-    // }
 
     fn lookup_specific(
         st: &mut KwParser,
@@ -5820,23 +5603,6 @@ impl VersionedMetadata for InnerMetadata3_1 {
     fn into_any(t: CoreText3_1) -> AnyCoreTEXT {
         AnyCoreTEXT::FCS3_1(Box::new(t))
     }
-
-    // fn build_int_parser(
-    //     it: &InnerDataReadMetadata3_1,
-    //     ps: &[DataReadMeasurement<()>],
-    //     total_events: usize,
-    // ) -> PureMaybe<IntParser> {
-    //     build_int_parser_2_0(&ByteOrd::Endian(it.byteord), ps, total_events)
-    // }
-
-    // fn build_mixed_parser(
-    //     _: &InnerDataReadMetadata3_1,
-    //     _: &[DataReadMeasurement<()>],
-    //     _: &AlphaNumType,
-    //     _: usize,
-    // ) -> Option<PureMaybe<MixedParser>> {
-    //     None
-    // }
 
     fn lookup_specific(
         st: &mut KwParser,
@@ -5908,91 +5674,6 @@ impl VersionedMetadata for InnerMetadata3_2 {
     fn into_any(t: CoreText3_2) -> AnyCoreTEXT {
         AnyCoreTEXT::FCS3_2(Box::new(t))
     }
-
-    // // TODO how did this happen? all are 2.0
-    // fn build_int_parser(
-    //     it: &InnerDataReadMetadata3_1,
-    //     ps: &[DataReadMeasurement<InnerDataReadMeasurement3_2>],
-    //     total_events: usize,
-    // ) -> PureMaybe<IntParser> {
-    //     build_int_parser_2_0(&ByteOrd::Endian(it.byteord), ps, total_events)
-    // }
-
-    // fn build_mixed_parser(
-    //     it: &InnerDataReadMetadata3_1,
-    //     ps: &[DataReadMeasurement<InnerDataReadMeasurement3_2>],
-    //     dt: &AlphaNumType,
-    //     total_events: usize,
-    // ) -> Option<PureMaybe<MixedParser>> {
-    //     let endian = it.byteord;
-    //     // first test if we have any PnDATATYPEs defined, if no then skip this
-    //     // data parser entirely
-    //     if ps
-    //         .iter()
-    //         .filter(|p| p.specific.datatype.as_ref().into_option().is_some())
-    //         .count()
-    //         == 0
-    //     {
-    //         return None;
-    //     }
-    //     let (pass, fail): (Vec<_>, Vec<_>) = ps
-    //         .iter()
-    //         .enumerate()
-    //         .map(|(i, p)| {
-    //             // TODO this range thing seems not necessary
-    //             match (
-    //                 // TODO lame...
-    //                 p.specific
-    //                     .datatype
-    //                     .as_ref()
-    //                     .into_option()
-    //                     .copied()
-    //                     .map(|x| x.into())
-    //                     .unwrap_or(*dt),
-    //                 p.specific.datatype.as_ref().into_option().is_some(),
-    //                 p.range,
-    //                 &p.bytes,
-    //             ) {
-    //                 (AlphaNumType::Ascii, _, _, Bytes::Fixed(bytes)) => {
-    //                     Ok(MixedColumnType::Ascii(AsciiColumn {
-    //                         width: *bytes,
-    //                         column: vec![],
-    //                     }))
-    //                 }
-    //                 (AlphaNumType::Single, _, _, Bytes::Fixed(4)) => Ok(MixedColumnType::Single(
-    //                     f32::make_column_reader(endian, total_events),
-    //                 )),
-    //                 (AlphaNumType::Double, _, _, Bytes::Fixed(8)) => Ok(MixedColumnType::Double(
-    //                     f64::make_column_reader(endian, total_events),
-    //                 )),
-    //                 (AlphaNumType::Integer, _, r, Bytes::Fixed(bytes)) => {
-    //                     make_int_parser(*bytes, r, &ByteOrd::Endian(it.byteord), total_events)
-    //                         .map(MixedColumnType::Uint)
-    //                 }
-    //                 (dt, overridden, _, bytes) => {
-    //                     let sdt = if overridden { "PnDATATYPE" } else { "DATATYPE" };
-    //                     Err(vec![format!(
-    //                         "{}={} but PnB={} for measurement {}",
-    //                         sdt, dt, bytes, i
-    //                     )])
-    //                 }
-    //             }
-    //         })
-    //         .partition_result();
-    //     if fail.is_empty() {
-    //         Some(PureSuccess::from(Some(MixedParser {
-    //             nrows: total_events,
-    //             columns: pass,
-    //         })))
-    //     } else {
-    //         // TODO uncanny strange deja vu
-    //         let mut res = PureSuccess::from(None);
-    //         for e in fail.into_iter().flatten() {
-    //             res.push_error(e);
-    //         }
-    //         Some(res)
-    //     }
-    // }
 
     fn lookup_specific(
         st: &mut KwParser,

@@ -985,8 +985,7 @@ type Metadata3_2 = Metadata<InnerMetadata3_2>;
 
 struct ParserTEXT<'a> {
     data_seg: Segment,
-    layout: DataLayout,
-    nrows: usize,
+    layout: DataLayout<usize>,
     conf: &'a DataReadConfig,
 }
 
@@ -1018,12 +1017,12 @@ struct InnerDataReadMetadata2_0 {
 }
 
 struct InnerDataReadMetadata3_0 {
-    tot: u32,
+    tot: usize,
     byteord: ByteOrd,
 }
 
 struct InnerDataReadMetadata3_1 {
-    tot: u32,
+    tot: usize,
     byteord: Endian,
 }
 
@@ -1082,16 +1081,16 @@ impl ColumnType {
     }
 }
 
-enum DataLayout {
-    AsciiDelimited { ncols: usize },
-    AlphaNum { columns: Vec<ColumnType> },
+enum DataLayout<T> {
+    AsciiDelimited { nrows: Option<T>, ncols: usize },
+    AlphaNum { nrows: T, columns: Vec<ColumnType> },
 }
 
-impl DataLayout {
+impl<T> DataLayout<T> {
     fn ncols(&self) -> usize {
         match self {
-            DataLayout::AsciiDelimited { ncols } => *ncols,
-            DataLayout::AlphaNum { columns } => columns.len(),
+            DataLayout::AsciiDelimited { nrows: _, ncols } => *ncols,
+            DataLayout::AlphaNum { nrows: _, columns } => columns.len(),
         }
     }
 }
@@ -1430,7 +1429,10 @@ trait VersionedMetadata: Sized + VersionedParserMetadata {
 
     fn into_any(s: CoreTEXT<Self, Self::P>) -> AnyCoreTEXT;
 
-    fn as_data_layout(m: &Metadata<Self>, ms: &[Measurement<Self::P>]) -> PureMaybe<DataLayout> {
+    fn as_data_layout(
+        m: &Metadata<Self>,
+        ms: &[Measurement<Self::P>],
+    ) -> PureMaybe<DataLayout<()>> {
         let dt = m.datatype;
         let byteord = Self::get_byteord(&m.specific);
         let ncols = ms.len();
@@ -1444,9 +1446,12 @@ trait VersionedMetadata: Sized + VersionedParserMetadata {
             let fixed: Vec<_> = pass.into_iter().flatten().collect();
             let nfixed = fixed.len();
             if nfixed == ncols {
-                return PureSuccess::from(Some(DataLayout::AlphaNum { columns: fixed }));
+                return PureSuccess::from(Some(DataLayout::AlphaNum {
+                    nrows: (),
+                    columns: fixed,
+                }));
             } else if nfixed == 0 {
-                return PureSuccess::from(Some(DataLayout::AsciiDelimited { ncols }));
+                return PureSuccess::from(Some(DataLayout::AsciiDelimited { nrows: None, ncols }));
             } else {
                 deferred.push_error(format!(
                     "{nfixed} out of {ncols} measurements are fixed width"
@@ -1463,7 +1468,9 @@ trait VersionedMetadata: Sized + VersionedParserMetadata {
     fn as_data_layout_minimal(
         m: &DataReadMetadata<Self::Target>,
         ms: &[DataReadMeasurement<<Self::P as VersionedParserMeasurement>::Target>],
-    ) -> PureMaybe<DataLayout> {
+        data_nbytes: usize,
+        conf: &DataReadConfig,
+    ) -> PureMaybe<DataLayout<usize>> {
         let dt = m.datatype;
         let byteord = Self::get_target_byteord(&m.specific);
         let ncols = ms.len();
@@ -1477,9 +1484,18 @@ trait VersionedMetadata: Sized + VersionedParserMetadata {
             let fixed: Vec<_> = pass.into_iter().flatten().collect();
             let nfixed = fixed.len();
             if nfixed == ncols {
-                return PureSuccess::from(Some(DataLayout::AlphaNum { columns: fixed }));
+                let event_width = fixed.iter().map(|c| c.width()).sum();
+                return Self::total_events(&m.specific, data_nbytes, event_width, conf).and_then(
+                    |nrows| {
+                        PureSuccess::from(Some(DataLayout::AlphaNum {
+                            nrows,
+                            columns: fixed,
+                        }))
+                    },
+                );
             } else if nfixed == 0 {
-                return PureSuccess::from(Some(DataLayout::AsciiDelimited { ncols }));
+                let nrows = Self::get_tot(&m.specific);
+                return PureSuccess::from(Some(DataLayout::AsciiDelimited { nrows, ncols }));
             } else {
                 deferred.push_error(format!(
                     "{nfixed} out of {ncols} measurements are fixed width"
@@ -1665,14 +1681,14 @@ trait VersionedMetadata: Sized + VersionedParserMetadata {
 
     fn build_data_parser(pt: ParserTEXT) -> DataParser {
         let column_parser = match pt.layout {
-            DataLayout::AlphaNum { columns } => {
-                ColumnParser::Mixed(Self::build_mixed_parser(columns, pt.nrows))
+            DataLayout::AlphaNum { nrows, columns } => {
+                ColumnParser::Mixed(Self::build_mixed_parser(columns, nrows))
             }
-            DataLayout::AsciiDelimited { ncols } => {
+            DataLayout::AsciiDelimited { nrows, ncols } => {
                 let nbytes = pt.data_seg.nbytes() as usize;
                 ColumnParser::DelimitedAscii(DelimAsciiParser {
                     ncols,
-                    nrows: pt.nrows,
+                    nrows,
                     nbytes,
                 })
             }
@@ -3848,7 +3864,7 @@ impl AnyCoreTEXT {
         })
     }
 
-    pub fn as_data_layout(&self) -> PureMaybe<DataLayout> {
+    pub fn as_data_layout(&self) -> PureMaybe<DataLayout<()>> {
         match_many_to_one!(self, AnyCoreTEXT, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
             x.as_data_layout()
         })
@@ -3859,7 +3875,7 @@ impl AnyCoreTEXT {
         kws: &mut RawKeywords,
         conf: &Config,
         data_seg: &Segment,
-    ) -> PureMaybe<DataLayout> {
+    ) -> PureMaybe<DataLayout<usize>> {
         match_many_to_one!(self, AnyCoreTEXT, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
             x.as_data_layout_minimal(kws, conf, data_seg)
         })
@@ -4046,7 +4062,7 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
         }
     }
 
-    fn as_data_layout(&self) -> PureMaybe<DataLayout> {
+    fn as_data_layout(&self) -> PureMaybe<DataLayout<()>> {
         M::as_data_layout(&self.metadata, &self.measurements)
     }
 
@@ -4054,7 +4070,8 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
         &self,
         kws: &mut RawKeywords,
         conf: &Config,
-    ) -> PureMaybe<DataLayout> {
+        data_seg: &Segment,
+    ) -> PureMaybe<DataLayout<usize>> {
         let succ = KwParser::run(kws, &conf.standard, |st| {
             let maybe_md = <M as VersionedParserMetadata>::as_minimal(&self.metadata, st);
             let measurements: Vec<_> = self
@@ -4064,8 +4081,9 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
                 .collect();
             maybe_md.map(|metadata| (measurements, metadata))
         });
+        let data_nbytes = data_seg.nbytes() as usize;
         succ.and_then_opt(|(measurements, metadata)| {
-            M::as_data_layout_minimal(&metadata, &measurements)
+            M::as_data_layout_minimal(&metadata, &measurements, data_nbytes, &conf.data)
         })
     }
 
@@ -4076,17 +4094,18 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
         conf: &Config,
         data_seg: &Segment,
     ) -> PureMaybe<DataParser> {
-        self.as_data_layout_minimal(kws, conf).map(|maybe_layout| {
-            maybe_layout.map(|layout| {
-                // TODO whats the point of this parser thingy?
-                let pt = ParserTEXT {
-                    layout,
-                    conf: &conf.data,
-                    data_seg: data_seg.clone(),
-                };
-                M::build_data_parser(pt)
+        self.as_data_layout_minimal(kws, conf, data_seg)
+            .map(|maybe_layout| {
+                maybe_layout.map(|layout| {
+                    // TODO whats the point of this parser thingy?
+                    let pt = ParserTEXT {
+                        layout,
+                        conf: &conf.data,
+                        data_seg: data_seg.clone(),
+                    };
+                    M::build_data_parser(pt)
+                })
             })
-        })
     }
 
     fn from_raw(kws: &mut RawKeywords, conf: &StdTextReadConfig) -> PureResult<Self> {
@@ -4887,7 +4906,7 @@ fn h_write_dataset<W: Write>(
         }
 
         match layout {
-            DataLayout::AlphaNum { columns } => {
+            DataLayout::AlphaNum { nrows: _, columns } => {
                 // ASSUME the dataframe will be coerced such that this
                 // relationship will hold true
                 let event_width: usize = columns.iter().map(|c| c.width()).sum();
@@ -4897,7 +4916,7 @@ fn h_write_dataset<W: Write>(
                 h.write_all(&d.analysis);
                 res
             }
-            DataLayout::AsciiDelimited { ncols: _ } => {
+            DataLayout::AsciiDelimited { nrows: _, ncols: _ } => {
                 // convert dataframe entirely to u64
                 let (columns, msgs): (Vec<_>, Vec<_>) = d
                     .data
@@ -5508,6 +5527,10 @@ impl VersionedParserMeasurement for InnerMeasurement2_0 {
     fn datatype_minimal(_: &DataReadMeasurement<Self::Target>) -> Option<NumType> {
         None
     }
+
+    fn datatype(_: &Measurement<Self>) -> Option<NumType> {
+        None
+    }
 }
 
 impl VersionedParserMeasurement for InnerMeasurement3_0 {
@@ -5518,6 +5541,10 @@ impl VersionedParserMeasurement for InnerMeasurement3_0 {
     fn datatype_minimal(_: &DataReadMeasurement<Self::Target>) -> Option<NumType> {
         None
     }
+
+    fn datatype(_: &Measurement<Self>) -> Option<NumType> {
+        None
+    }
 }
 
 impl VersionedParserMeasurement for InnerMeasurement3_1 {
@@ -5526,6 +5553,10 @@ impl VersionedParserMeasurement for InnerMeasurement3_1 {
     fn as_minimal_inner(_: &Measurement<Self>) {}
 
     fn datatype_minimal(_: &DataReadMeasurement<Self::Target>) -> Option<NumType> {
+        None
+    }
+
+    fn datatype(_: &Measurement<Self>) -> Option<NumType> {
         None
     }
 }
@@ -5541,6 +5572,11 @@ impl VersionedParserMeasurement for InnerMeasurement3_2 {
     }
 
     fn datatype_minimal(m: &DataReadMeasurement<Self::Target>) -> Option<NumType> {
+        m.specific.datatype.as_ref().into_option().copied()
+    }
+
+    // TODO lame?
+    fn datatype(m: &Measurement<Self>) -> Option<NumType> {
         m.specific.datatype.as_ref().into_option().copied()
     }
 }
@@ -5644,22 +5680,22 @@ impl VersionedMetadata for InnerMetadata2_0 {
         AnyCoreTEXT::FCS2_0(Box::new(t))
     }
 
-    fn build_int_parser(
-        md: &InnerDataReadMetadata2_0,
-        ps: &[DataReadMeasurement<()>],
-        total_events: usize,
-    ) -> PureMaybe<IntParser> {
-        build_int_parser_2_0(&md.byteord, ps, total_events)
-    }
+    // fn build_int_parser(
+    //     md: &InnerDataReadMetadata2_0,
+    //     ps: &[DataReadMeasurement<()>],
+    //     total_events: usize,
+    // ) -> PureMaybe<IntParser> {
+    //     build_int_parser_2_0(&md.byteord, ps, total_events)
+    // }
 
-    fn build_mixed_parser(
-        _: &InnerDataReadMetadata2_0,
-        _: &[DataReadMeasurement<()>],
-        _: &AlphaNumType,
-        _: usize,
-    ) -> Option<PureMaybe<MixedParser>> {
-        None
-    }
+    // fn build_mixed_parser(
+    //     _: &InnerDataReadMetadata2_0,
+    //     _: &[DataReadMeasurement<()>],
+    //     _: &AlphaNumType,
+    //     _: usize,
+    // ) -> Option<PureMaybe<MixedParser>> {
+    //     None
+    // }
 
     fn lookup_specific(
         st: &mut KwParser,
@@ -5711,22 +5747,22 @@ impl VersionedMetadata for InnerMetadata3_0 {
         AnyCoreTEXT::FCS3_0(Box::new(t))
     }
 
-    fn build_int_parser(
-        md: &InnerDataReadMetadata3_0,
-        ps: &[DataReadMeasurement<()>],
-        total_events: usize,
-    ) -> PureMaybe<IntParser> {
-        build_int_parser_2_0(&md.byteord, ps, total_events)
-    }
+    // fn build_int_parser(
+    //     md: &InnerDataReadMetadata3_0,
+    //     ps: &[DataReadMeasurement<()>],
+    //     total_events: usize,
+    // ) -> PureMaybe<IntParser> {
+    //     build_int_parser_2_0(&md.byteord, ps, total_events)
+    // }
 
-    fn build_mixed_parser(
-        _: &InnerDataReadMetadata3_0,
-        _: &[DataReadMeasurement<()>],
-        _: &AlphaNumType,
-        _: usize,
-    ) -> Option<PureMaybe<MixedParser>> {
-        None
-    }
+    // fn build_mixed_parser(
+    //     _: &InnerDataReadMetadata3_0,
+    //     _: &[DataReadMeasurement<()>],
+    //     _: &AlphaNumType,
+    //     _: usize,
+    // ) -> Option<PureMaybe<MixedParser>> {
+    //     None
+    // }
 
     fn lookup_specific(
         st: &mut KwParser,
@@ -5785,22 +5821,22 @@ impl VersionedMetadata for InnerMetadata3_1 {
         AnyCoreTEXT::FCS3_1(Box::new(t))
     }
 
-    fn build_int_parser(
-        it: &InnerDataReadMetadata3_1,
-        ps: &[DataReadMeasurement<()>],
-        total_events: usize,
-    ) -> PureMaybe<IntParser> {
-        build_int_parser_2_0(&ByteOrd::Endian(it.byteord), ps, total_events)
-    }
+    // fn build_int_parser(
+    //     it: &InnerDataReadMetadata3_1,
+    //     ps: &[DataReadMeasurement<()>],
+    //     total_events: usize,
+    // ) -> PureMaybe<IntParser> {
+    //     build_int_parser_2_0(&ByteOrd::Endian(it.byteord), ps, total_events)
+    // }
 
-    fn build_mixed_parser(
-        _: &InnerDataReadMetadata3_1,
-        _: &[DataReadMeasurement<()>],
-        _: &AlphaNumType,
-        _: usize,
-    ) -> Option<PureMaybe<MixedParser>> {
-        None
-    }
+    // fn build_mixed_parser(
+    //     _: &InnerDataReadMetadata3_1,
+    //     _: &[DataReadMeasurement<()>],
+    //     _: &AlphaNumType,
+    //     _: usize,
+    // ) -> Option<PureMaybe<MixedParser>> {
+    //     None
+    // }
 
     fn lookup_specific(
         st: &mut KwParser,
@@ -5873,90 +5909,90 @@ impl VersionedMetadata for InnerMetadata3_2 {
         AnyCoreTEXT::FCS3_2(Box::new(t))
     }
 
-    // TODO how did this happen? all are 2.0
-    fn build_int_parser(
-        it: &InnerDataReadMetadata3_1,
-        ps: &[DataReadMeasurement<InnerDataReadMeasurement3_2>],
-        total_events: usize,
-    ) -> PureMaybe<IntParser> {
-        build_int_parser_2_0(&ByteOrd::Endian(it.byteord), ps, total_events)
-    }
+    // // TODO how did this happen? all are 2.0
+    // fn build_int_parser(
+    //     it: &InnerDataReadMetadata3_1,
+    //     ps: &[DataReadMeasurement<InnerDataReadMeasurement3_2>],
+    //     total_events: usize,
+    // ) -> PureMaybe<IntParser> {
+    //     build_int_parser_2_0(&ByteOrd::Endian(it.byteord), ps, total_events)
+    // }
 
-    fn build_mixed_parser(
-        it: &InnerDataReadMetadata3_1,
-        ps: &[DataReadMeasurement<InnerDataReadMeasurement3_2>],
-        dt: &AlphaNumType,
-        total_events: usize,
-    ) -> Option<PureMaybe<MixedParser>> {
-        let endian = it.byteord;
-        // first test if we have any PnDATATYPEs defined, if no then skip this
-        // data parser entirely
-        if ps
-            .iter()
-            .filter(|p| p.specific.datatype.as_ref().into_option().is_some())
-            .count()
-            == 0
-        {
-            return None;
-        }
-        let (pass, fail): (Vec<_>, Vec<_>) = ps
-            .iter()
-            .enumerate()
-            .map(|(i, p)| {
-                // TODO this range thing seems not necessary
-                match (
-                    // TODO lame...
-                    p.specific
-                        .datatype
-                        .as_ref()
-                        .into_option()
-                        .copied()
-                        .map(|x| x.into())
-                        .unwrap_or(*dt),
-                    p.specific.datatype.as_ref().into_option().is_some(),
-                    p.range,
-                    &p.bytes,
-                ) {
-                    (AlphaNumType::Ascii, _, _, Bytes::Fixed(bytes)) => {
-                        Ok(MixedColumnType::Ascii(AsciiColumn {
-                            width: *bytes,
-                            column: vec![],
-                        }))
-                    }
-                    (AlphaNumType::Single, _, _, Bytes::Fixed(4)) => Ok(MixedColumnType::Single(
-                        f32::make_column_reader(endian, total_events),
-                    )),
-                    (AlphaNumType::Double, _, _, Bytes::Fixed(8)) => Ok(MixedColumnType::Double(
-                        f64::make_column_reader(endian, total_events),
-                    )),
-                    (AlphaNumType::Integer, _, r, Bytes::Fixed(bytes)) => {
-                        make_int_parser(*bytes, r, &ByteOrd::Endian(it.byteord), total_events)
-                            .map(MixedColumnType::Uint)
-                    }
-                    (dt, overridden, _, bytes) => {
-                        let sdt = if overridden { "PnDATATYPE" } else { "DATATYPE" };
-                        Err(vec![format!(
-                            "{}={} but PnB={} for measurement {}",
-                            sdt, dt, bytes, i
-                        )])
-                    }
-                }
-            })
-            .partition_result();
-        if fail.is_empty() {
-            Some(PureSuccess::from(Some(MixedParser {
-                nrows: total_events,
-                columns: pass,
-            })))
-        } else {
-            // TODO uncanny strange deja vu
-            let mut res = PureSuccess::from(None);
-            for e in fail.into_iter().flatten() {
-                res.push_error(e);
-            }
-            Some(res)
-        }
-    }
+    // fn build_mixed_parser(
+    //     it: &InnerDataReadMetadata3_1,
+    //     ps: &[DataReadMeasurement<InnerDataReadMeasurement3_2>],
+    //     dt: &AlphaNumType,
+    //     total_events: usize,
+    // ) -> Option<PureMaybe<MixedParser>> {
+    //     let endian = it.byteord;
+    //     // first test if we have any PnDATATYPEs defined, if no then skip this
+    //     // data parser entirely
+    //     if ps
+    //         .iter()
+    //         .filter(|p| p.specific.datatype.as_ref().into_option().is_some())
+    //         .count()
+    //         == 0
+    //     {
+    //         return None;
+    //     }
+    //     let (pass, fail): (Vec<_>, Vec<_>) = ps
+    //         .iter()
+    //         .enumerate()
+    //         .map(|(i, p)| {
+    //             // TODO this range thing seems not necessary
+    //             match (
+    //                 // TODO lame...
+    //                 p.specific
+    //                     .datatype
+    //                     .as_ref()
+    //                     .into_option()
+    //                     .copied()
+    //                     .map(|x| x.into())
+    //                     .unwrap_or(*dt),
+    //                 p.specific.datatype.as_ref().into_option().is_some(),
+    //                 p.range,
+    //                 &p.bytes,
+    //             ) {
+    //                 (AlphaNumType::Ascii, _, _, Bytes::Fixed(bytes)) => {
+    //                     Ok(MixedColumnType::Ascii(AsciiColumn {
+    //                         width: *bytes,
+    //                         column: vec![],
+    //                     }))
+    //                 }
+    //                 (AlphaNumType::Single, _, _, Bytes::Fixed(4)) => Ok(MixedColumnType::Single(
+    //                     f32::make_column_reader(endian, total_events),
+    //                 )),
+    //                 (AlphaNumType::Double, _, _, Bytes::Fixed(8)) => Ok(MixedColumnType::Double(
+    //                     f64::make_column_reader(endian, total_events),
+    //                 )),
+    //                 (AlphaNumType::Integer, _, r, Bytes::Fixed(bytes)) => {
+    //                     make_int_parser(*bytes, r, &ByteOrd::Endian(it.byteord), total_events)
+    //                         .map(MixedColumnType::Uint)
+    //                 }
+    //                 (dt, overridden, _, bytes) => {
+    //                     let sdt = if overridden { "PnDATATYPE" } else { "DATATYPE" };
+    //                     Err(vec![format!(
+    //                         "{}={} but PnB={} for measurement {}",
+    //                         sdt, dt, bytes, i
+    //                     )])
+    //                 }
+    //             }
+    //         })
+    //         .partition_result();
+    //     if fail.is_empty() {
+    //         Some(PureSuccess::from(Some(MixedParser {
+    //             nrows: total_events,
+    //             columns: pass,
+    //         })))
+    //     } else {
+    //         // TODO uncanny strange deja vu
+    //         let mut res = PureSuccess::from(None);
+    //         for e in fail.into_iter().flatten() {
+    //             res.push_error(e);
+    //         }
+    //         Some(res)
+    //     }
+    // }
 
     fn lookup_specific(
         st: &mut KwParser,
@@ -6177,8 +6213,8 @@ impl<'a, 'b> KwParser<'a, 'b> {
     kws_req!(lookup_mode, Mode, MODE, false);
     kws_opt!(lookup_mode3_2, Mode3_2, MODE, true);
     kws_req!(lookup_par, usize, PAR, false);
-    kws_req!(lookup_tot_req, u32, TOT, false);
-    kws_opt!(lookup_tot_opt, u32, TOT, false);
+    kws_req!(lookup_tot_req, usize, TOT, false);
+    kws_opt!(lookup_tot_opt, usize, TOT, false);
     kws_req!(lookup_cyt_req, String, CYT, false);
     kws_opt!(lookup_cyt_opt, String, CYT, false);
     kws_opt!(lookup_cytsn, String, CYTSN, false);

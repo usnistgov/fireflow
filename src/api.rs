@@ -6064,18 +6064,6 @@ impl StdTextReadConfig {
     }
 }
 
-impl From<PureFailure> for ImpureFailure {
-    fn from(value: PureFailure) -> Self {
-        value.map(ImpureError::Pure)
-    }
-}
-
-impl From<io::Error> for ImpureFailure {
-    fn from(value: io::Error) -> Self {
-        Failure::new(ImpureError::IO(value))
-    }
-}
-
 fn pad_zeros(s: &str) -> String {
     let len = s.len();
     let trimmed = s.trim_start();
@@ -6124,113 +6112,6 @@ fn repair_offsets(pairs: &mut RawPairs, conf: &Config) {
         }
     }
 }
-
-// fn find_raw_segments(
-//     pairs: RawPairs,
-//     conf: &Config,
-//     header_data_seg: &Segment,
-//     header_analysis_seg: &Segment,
-// ) -> PureSuccess<(RawPairs, Option<Segment>, Option<Segment>, Option<Segment>)> {
-//     // iterate through all pairs and strip out the ones that denote an offset
-//     let mut data0 = None;
-//     let mut data1 = None;
-//     let mut stext0 = None;
-//     let mut stext1 = None;
-//     let mut analysis0 = None;
-//     let mut analysis1 = None;
-//     let mut newpairs = vec![];
-//     let pad_maybe = |s: String| {
-//         if conf.raw.repair_offset_spaces {
-//             pad_zeros(s.as_str())
-//         } else {
-//             s
-//         }
-//     };
-//     for (key, v) in pairs.into_iter() {
-//         match key.as_str() {
-//             BEGINDATA => data0 = Some(pad_maybe(v)),
-//             ENDDATA => data1 = Some(pad_maybe(v)),
-//             BEGINSTEXT => stext0 = Some(pad_maybe(v)),
-//             ENDSTEXT => stext1 = Some(pad_maybe(v)),
-//             BEGINANALYSIS => analysis0 = Some(pad_maybe(v)),
-//             ENDANALYSIS => analysis1 = Some(pad_maybe(v)),
-//             _ => newpairs.push((key, v)),
-//         }
-//     }
-
-//     let check_seg_with_header = |res: PureMaybe<Segment>, header_seg: &Segment, what| {
-//         res.and_then(|seg| {
-//             // TODO this doesn't seem the most efficient since I make a new
-//             // PureSuccess object in some branches
-//             match seg {
-//                 None => {
-//                     let seg = if header_seg.is_unset() {
-//                         None
-//                     } else {
-//                         Some(*header_seg)
-//                     };
-//                     PureSuccess::from(seg)
-//                 }
-//                 Some(seg) => {
-//                     let mut res = PureSuccess::from(Some(seg));
-//                     if !header_seg.is_unset() && seg != *header_seg {
-//                         res.data = Some(*header_seg);
-//                         // TODO toggle level since this could indicate a sketchy file
-//                         res.push_msg_leveled(
-//                             format!("{what} offsets differ in HEADER and TEXT, using HEADER"),
-//                             false,
-//                         );
-//                     }
-//                     res
-//                 }
-//             }
-//         })
-//     };
-
-//     // The DATA segment can be specified in either the header or TEXT. If within
-//     // offset 99,999,999, then the two should match. if they don't match then
-//     // trust the header and throw warning/error. If outside this range then the
-//     // header will be 0,0 and TEXT will have the real offsets.
-//     let data = check_seg_with_header(
-//         parse_segment(
-//             data0,
-//             data1,
-//             conf.corrections.start_data,
-//             conf.corrections.end_data,
-//             SegmentId::Data,
-//             PureErrorLevel::Error,
-//         ),
-//         header_data_seg,
-//         "DATA",
-//     );
-
-//     // Supplemental TEXT offsets are only in TEXT, so just parse and return
-//     // if found.
-//     let stext = parse_segment(
-//         stext0,
-//         stext1,
-//         conf.corrections.start_supp_text,
-//         conf.corrections.end_supp_text,
-//         SegmentId::SupplementalText,
-//         PureErrorLevel::Warning,
-//     );
-
-//     // ANALYSIS offsets are analogous to DATA offsets except they are optional.
-//     let analysis = check_seg_with_header(
-//         parse_segment(
-//             analysis0,
-//             analysis1,
-//             conf.corrections.start_analysis,
-//             conf.corrections.end_analysis,
-//             SegmentId::Analysis,
-//             PureErrorLevel::Warning,
-//         ),
-//         header_analysis_seg,
-//         "ANALYSIS",
-//     );
-
-//     data.combine3(stext, analysis, |a, b, c| (newpairs, a, b, c))
-// }
 
 fn lookup_stext_offsets(
     kws: &mut RawKeywords,

@@ -380,3 +380,15 @@ impl<X> PureMaybe<X> {
         }
     }
 }
+
+impl From<PureFailure> for ImpureFailure {
+    fn from(value: PureFailure) -> Self {
+        value.map(ImpureError::Pure)
+    }
+}
+
+impl From<io::Error> for ImpureFailure {
+    fn from(value: io::Error) -> Self {
+        Failure::new(ImpureError::IO(value))
+    }
+}

@@ -1,5 +1,6 @@
 use crate::config::*;
 use crate::error::*;
+use crate::header_text::*;
 use crate::keywords::*;
 use crate::segment::*;
 
@@ -1168,6 +1169,12 @@ struct DelimAsciiReader {
     nbytes: usize,
 }
 
+struct FloatReader<const LEN: usize> {
+    nrows: usize,
+    ncols: usize,
+    byteord: SizedByteOrd<LEN>,
+}
+
 enum ColumnReader {
     // DATATYPE=A where all PnB = *
     DelimitedAscii(DelimAsciiReader),
@@ -1181,6 +1188,11 @@ enum ColumnReader {
     Uint(UintReader),
     // Mixed column types (3.2+)
     Mixed(MixedParser),
+}
+
+struct DataReader {
+    column_reader: ColumnReader,
+    begin: u64,
 }
 
 struct FCSDateTimeError;
@@ -1258,12 +1270,6 @@ enum RangeError {
 }
 
 struct Mode3_2Error;
-
-struct FloatReader<const LEN: usize> {
-    nrows: usize,
-    ncols: usize,
-    byteord: SizedByteOrd<LEN>,
-}
 
 macro_rules! vec_convert {
     ($xs:expr, $t:ty) => {
@@ -1535,7 +1541,7 @@ fn build_mixed_parser(cs: Vec<ColumnType>, total_events: usize) -> MixedParser {
     }
 }
 
-fn build_data_parser(layout: ReaderDataLayout, data_seg: &Segment) -> DataParser {
+fn build_data_parser(layout: ReaderDataLayout, data_seg: &Segment) -> DataReader {
     let column_parser = match layout {
         DataLayout::AlphaNum { nrows, columns } => {
             ColumnReader::Mixed(build_mixed_parser(columns, nrows))
@@ -1549,8 +1555,8 @@ fn build_data_parser(layout: ReaderDataLayout, data_seg: &Segment) -> DataParser
             })
         }
     };
-    DataParser {
-        column_parser,
+    DataReader {
+        column_reader: column_parser,
         begin: u64::from(data_seg.begin()),
     }
 }
@@ -2584,16 +2590,6 @@ impl fmt::Display for ByteOrd {
     }
 }
 
-impl ByteOrd {
-    // This only makes sense for pre 3.1 integer types
-    fn num_bytes(&self) -> u8 {
-        match self {
-            ByteOrd::Endian(_) => 4,
-            ByteOrd::Mixed(xs) => xs.len() as u8,
-        }
-    }
-}
-
 impl FromStr for Trigger {
     type Err = TriggerError;
 
@@ -2998,18 +2994,6 @@ impl str::FromStr for Shortname {
     }
 }
 
-// TODO this will likely need to be a trait in 4.0
-impl InnerMeasurement3_2 {
-    fn get_column_type(&self, default: AlphaNumType) -> AlphaNumType {
-        self.datatype
-            .as_ref()
-            .into_option()
-            .copied()
-            .map(NumType::into)
-            .unwrap_or(default)
-    }
-}
-
 impl fmt::Display for BytesError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
@@ -3194,16 +3178,6 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
         .into_iter()
         .collect()
     }
-
-    // fn suffixes_inner(&self) -> Vec<(&'static str, Option<String>)> {
-    //     [
-    //         (SCALE_SFX, self.scale.as_opt_string()),
-    //         (SHORTNAME_SFX, self.shortname.as_opt_string()),
-    //         (WAVELEN_SFX, self.wavelength.as_opt_string()),
-    //     ]
-    //     .into_iter()
-    //     .collect()
-    // }
 }
 
 impl VersionedMeasurement for InnerMeasurement3_0 {
@@ -3559,7 +3533,7 @@ impl AnyCoreTEXT {
         kws: &mut RawKeywords,
         conf: &Config,
         data_seg: &Segment,
-    ) -> PureMaybe<DataParser> {
+    ) -> PureMaybe<DataReader> {
         match_many_to_one!(self, AnyCoreTEXT, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
             x.as_data_parser(kws, conf, data_seg)
         })
@@ -3697,7 +3671,7 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
             .flat_map(|(i, m)| f(m, &(i + 1).to_string()))
             .collect();
         let meta: Vec<_> = g(&self.metadata, self.par(), tot).into_iter().collect();
-        let l = &meas.len() + &meta.len();
+        let l = meas.len() + meta.len();
         (meas, meta, l)
     }
 
@@ -3753,7 +3727,7 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
         kws: &mut RawKeywords,
         conf: &Config,
         data_seg: &Segment,
-    ) -> PureMaybe<DataParser> {
+    ) -> PureMaybe<DataReader> {
         self.as_data_layout_from_raw(kws, conf, data_seg)
             .map(|maybe_layout| maybe_layout.map(|layout| build_data_parser(layout, data_seg)))
     }
@@ -4126,8 +4100,8 @@ impl From<AnyUintColumnReader> for Series {
 
 impl AnyUintColumnReader {
     // TODO clean this up
-    fn from_column(col: AnyUintType, total_events: usize) -> Self {
-        match col {
+    fn from_column(ut: AnyUintType, total_events: usize) -> Self {
+        match ut {
             AnyUintType::Uint8(layout) => AnyUintColumnReader::Uint8(UintColumnReader {
                 layout,
                 column: vec![0; total_events],
@@ -4176,11 +4150,6 @@ impl AnyUintColumnReader {
         }
         Ok(())
     }
-}
-
-struct DataParser {
-    column_parser: ColumnReader,
-    begin: u64,
 }
 
 impl Dataframe {
@@ -4453,10 +4422,10 @@ fn read_data_int<R: Read>(h: &mut BufReader<R>, parser: UintReader) -> io::Resul
 
 fn h_read_data_segment<R: Read + Seek>(
     h: &mut BufReader<R>,
-    parser: DataParser,
+    parser: DataReader,
 ) -> io::Result<Dataframe> {
     h.seek(SeekFrom::Start(parser.begin))?;
-    match parser.column_parser {
+    match parser.column_reader {
         ColumnReader::DelimitedAscii(p) => read_data_delim_ascii(h, p),
         ColumnReader::FixedWidthAscii(p) => read_data_ascii_fixed(h, &p),
         ColumnReader::Single(p) => f32::read_matrix(h, p),
@@ -4768,418 +4737,6 @@ fn h_read_std_dataset<R: Read + Seek>(
             }))
         })
 }
-
-enum EventWidth {
-    Finite(Vec<u8>),
-    Variable,
-    Error(Vec<usize>, Vec<usize>),
-}
-
-type MaybeKeyword = (&'static str, Option<String>);
-
-type MaybeKeywords = Vec<MaybeKeyword>;
-
-/// Used to hold critical lengths when calculating the pad for $BEGIN/ENDDATA.
-struct KwLengths {
-    /// Length of the entire DATA segment when written.
-    data: usize,
-    /// Length of all the measurement keywords in the TEXT segment.
-    ///
-    /// This is computed as the sum of all string lengths of each key and
-    /// value plus 2*P (number of measurements) which captures the length
-    /// of the two delimiters b/t the key and value and the key and previous
-    /// value.
-    measurements: usize,
-}
-
-fn sum_keywords(kws: &[MaybeKeyword]) -> usize {
-    kws.iter()
-        .map(|(k, v)| v.as_ref().map(|y| y.len() + k.len() + 2).unwrap_or(0))
-        .sum()
-}
-
-// fn n_digits(x: f64) -> f64 {
-//     // ASSUME this is effectively only going to be used on the u32 range
-//     // starting at 1; keep in f64 space to minimize casts
-//     f64::log10(x).floor() + 1.0
-// }
-
-/// Compute the number of digits for a number.
-///
-/// Assume number is greater than 0 and in decimal radix.
-fn n_digits(x: usize) -> usize {
-    // TODO cast?
-    let n = usize::ilog10(x) as usize;
-    if 10 ^ n == x {
-        n
-    } else {
-        n + 1
-    }
-}
-
-// fn compute_data_offsets(textlen: u32, datalen: u32) -> (u32, u32) {
-//     let d = f64::from(datalen);
-//     let t = f64::from(textlen);
-//     let mut datastart = t;
-//     let mut dataend = datastart + d;
-//     let mut ndigits_start = n_digits(datastart);
-//     let mut ndigits_end = n_digits(dataend);
-//     let mut tmp_start;
-//     let mut tmp_end;
-//     loop {
-//         datastart = ndigits_start + ndigits_end + t;
-//         dataend = datastart + d;
-//         tmp_start = n_digits(datastart);
-//         tmp_end = n_digits(dataend);
-//         if tmp_start == ndigits_start && tmp_end == ndigits_end {
-//             return (datastart as u32, dataend as u32);
-//         } else {
-//             ndigits_start = tmp_start;
-//             ndigits_end = tmp_end;
-//         }
-//     }
-// }
-
-/// The length of the HEADER.
-///
-/// This should always be the same. This also assumes that there are no OTHER
-/// segments (which for now are not supported).
-const HEADER_LEN: usize = 58;
-
-/// Length of the $NEXTDATA offset length.
-///
-/// This value has a maximum of 99,999,999, and as such the length of this
-/// number is always 8 bytes.
-const NEXTDATA_VAL_LEN: usize = 8;
-
-/// Number of bytes consumed by $NEXTDATA keyword + value + delimiters
-const NEXTDATA_LEN: usize = NEXTDATA.len() + NEXTDATA_VAL_LEN + 2;
-
-/// The number of bytes each offset is expected to take (sans values).
-///
-/// These are the length of each keyword + 2 since there should be two
-/// delimiters counting toward its byte real estate.
-const DATA_LEN_NO_VAL: usize = BEGINDATA.len() + ENDDATA.len() + 4;
-const ANALYSIS_LEN_NO_VAL: usize = BEGINANALYSIS.len() + ENDANALYSIS.len() + 4;
-const SUPP_TEXT_LEN_NO_VAL: usize = BEGINSTEXT.len() + ENDSTEXT.len() + 4;
-
-/// The total number of bytes offset keywords are expected to take (sans values).
-///
-/// This only applies to 3.0+ since 2.0 only has NEXTDATA.
-const OFFSETS_LEN_NO_VAL: usize =
-    DATA_LEN_NO_VAL + ANALYSIS_LEN_NO_VAL + SUPP_TEXT_LEN_NO_VAL + NEXTDATA_LEN;
-
-/// Compute the number of bytes with which to store offsets in the TEXT segment.
-///
-/// This is tricky to do because the number of digits affects the length of the
-/// TEXT segment, which in turn affects the magnitude of the offsets, and round
-/// and round.
-///
-/// How to do this in 9.75 easy steps:
-///
-/// Define the following operator:
-///
-///   D := number of digits (f(x) = ceil(log10(x)))
-///
-/// Define the following constants:
-///
-///   T = Primary TEXT length (without offset numbers) + HEADER length
-///   S = Supplemental TEXT length
-///   N = DATA length
-///   A = ANALYSIS length
-///
-/// Define the following variable:
-///
-///   s = offset for supplemental TEXT segment
-///   d = offset for DATA segment
-///   a = offset for ANALYSIS segment
-///   n = offset for NEXTDATA
-///
-/// The following relationship must hold:
-///
-///   s0 = T +             D(s0) + D(s1) + D(d0) + D(d1) + D(a0) + D(a1) + D(n)
-///   d0 = T + S +         D(s0) + D(s1) + D(d0) + D(d1) + D(a0) + D(a1) + D(n)
-///   a0 = T + S + N +     D(s0) + D(s1) + D(d0) + D(d1) + D(a0) + D(a1) + D(n)
-///   n  = T + S + N + A + D(s0) + D(s1) + D(d0) + D(d1) + D(a0) + D(a1) + D(n)
-///   s1 = d0 - 1
-///   d1 = a0 - 1
-///   a1 = n - 1
-///
-/// What a cruel summation. I don't feel like solving this. :/ Luckily, we don't
-/// have to be exact.
-///
-/// Replace all the D(*) stuff with a new variable "w" (number of digits) which
-/// will be a single variable. This mess then becomes the following optimization:
-/// $NEXTDATA is an exception since its maximum is capped at 99,999,999 and thus
-/// can be assumed to be 8 bytes, which will be sneakily absorbed into T.
-///
-/// Minimize w
-///
-/// Subject to:
-///
-/// s0 = T +             6w
-/// d0 = T + S +         6w
-/// a0 = T + S + N +     6w
-/// n  = T + S + N + A + 6w
-/// s1 = d0 - 1
-/// d1 = a0 - 1
-/// a1 = n - 1
-/// D(x) <= w for all x in {s0, s1, d0, d1, a0, a1}
-///
-/// This assumes the following:
-/// - all offsets that require less digits than w will be left-padded with 0,
-///   this wastes a few bits but is cheap in the grand scheme of things
-/// - all offsets will be included (also quite cheap)
-/// - if any segment's length is zero, it will effectively noop that set of
-///   equations (they will still be run but they will collapse to be identical
-///   to others, so the same comparison will get run multiple times when
-///   checking the constraints)
-///
-/// Computing this is easy, just initialize w at 1 and increase 1 until the
-/// constraints are met.
-///
-/// This is only necessary for FCS 3.0 and up.
-fn find_offset_width(
-    primary_text_len: usize,
-    supp_text_len: usize,
-    data_len: usize,
-    analysis_len: usize,
-) -> Option<usize> {
-    let mut w = 1;
-    loop {
-        let s0 = primary_text_len + 7 * w;
-        let d0 = s0 + supp_text_len;
-        let a0 = d0 + data_len;
-        let n = a0 + analysis_len;
-        let s1 = d0 - 1;
-        let d1 = a0 - 1;
-        let a1 = n - 1;
-        if n_digits(s0) <= w
-            && n_digits(s1) <= w
-            && n_digits(d0) <= w
-            && n_digits(d1) <= w
-            && n_digits(a0) <= w
-            && n_digits(a1) <= w
-            && n_digits(n) <= w
-        {
-            if primary_text_len + 7 * w > 99_999_999 {
-                return None;
-            } else {
-                return Some(w);
-            }
-        }
-        w = w + 1;
-    }
-}
-
-fn format_zero_padded(x: usize, width: usize) -> String {
-    format!("{}{}", ("0").repeat(width - n_digits(x)), x)
-}
-
-pub fn offset_header_string(begin: usize, end: usize) -> String {
-    let nbytes = end - begin + 1;
-    let (b, e) = if end <= 99_999_999 && nbytes > 0 {
-        (begin, end)
-    } else {
-        (0, 0)
-    };
-    format!("{:0>8}{:0>8}", b, e)
-}
-
-pub fn offset_text_string<'a>(
-    begin: usize,
-    end: usize,
-    begin_key: &'static str,
-    end_key: &'static str,
-    width: usize,
-) -> [String; 4] {
-    let nbytes = end - begin + 1;
-    let (b, e) = if nbytes > 0 { (begin, end) } else { (0, 0) };
-    let fb = format_zero_padded(b, width);
-    let fe = format_zero_padded(e, width);
-    [begin_key.to_string(), fb, end_key.to_string(), fe]
-}
-
-pub fn offset_nextdata_string<'a>(nextdata: usize) -> (usize, [String; 2]) {
-    let n = if nextdata > 99999999 { 0 } else { nextdata };
-    let s = format_zero_padded(n, NEXTDATA_VAL_LEN);
-    (n, [NEXTDATA.to_string(), s])
-}
-
-struct OffsetFormatResult {
-    /// The HEADER segment. Always 58 bytes long.
-    header: String,
-
-    /// The offset TEXT keywords and their values.
-    ///
-    /// For 2.0 this will only contain $NEXTDATA. For 3.0+, this will contain,
-    /// (BEGIN|END)(STEXT|ANALYSIS|DATA).
-    offsets: Vec<String>,
-
-    /// The offset where the next data segment can start.
-    ///
-    /// If beyond 99,999,999 bytes, this will be zero.
-    real_nextdata: usize,
-}
-
-fn make_data_offset_keywords_2_0(
-    nooffset_text_len: usize,
-    data_len: usize,
-    analysis_len: usize,
-) -> Option<OffsetFormatResult> {
-    // compute rest of offsets
-    let begin_prim_text = HEADER_LEN; // always starts after HEADER
-    let begin_data = begin_prim_text + NEXTDATA_LEN + nooffset_text_len + 1;
-    let begin_analysis = begin_data + data_len;
-    let nextdata = begin_data + analysis_len;
-    let end_prim_text = begin_data - 1;
-    let end_data = begin_analysis - 1;
-    let end_analysis = nextdata - 1;
-
-    // format header and text offset strings
-    let header_prim_text = offset_header_string(begin_prim_text, end_prim_text);
-    let header_data = offset_header_string(begin_data, end_data);
-    let header_analysis = offset_header_string(begin_analysis, end_analysis);
-    let (real_nextdata, text_nextdata) = offset_nextdata_string(nextdata);
-
-    // put everything together, rejoice (alot)
-    let header = [header_prim_text, header_data, header_analysis].join("");
-    Some(OffsetFormatResult {
-        header,
-        offsets: Vec::from(text_nextdata),
-        real_nextdata,
-    })
-}
-
-fn make_data_offset_keywords_3_0(
-    nooffset_req_text_len: usize,
-    opt_text_len: usize,
-    data_len: usize,
-    analysis_len: usize,
-) -> Option<OffsetFormatResult> {
-    // +1 at end accounts for first delimiter
-    let header_req_text_len = HEADER_LEN + OFFSETS_LEN_NO_VAL + nooffset_req_text_len + 1;
-    let all_text_len = opt_text_len + header_req_text_len;
-
-    // Find width of formatted offsets, which will depend on if TEXT+HEADER can
-    // fit in the first 99,999,999 bytes. If yes, then there is no supplemental
-    // text. If not, put all optional keywords in supplemental TEXT.
-    let (width, begin_supp_text, begin_data) =
-        if let Some(width) = find_offset_width(all_text_len, 0, data_len, analysis_len) {
-            // Here we fool the downstream code by setting the Supplemental
-            // offsets to be the same as DATA, which will make Supplemental TEXT
-            // have zero length which will cause the formatters to do the right
-            // thing (ie format as 0,0).
-            let begin_data = all_text_len + 6 * width;
-            (width, begin_data, begin_data)
-        } else if let Some(width) =
-            find_offset_width(header_req_text_len, opt_text_len, data_len, analysis_len)
-        {
-            let begin_supp_text = header_req_text_len + 6 * width;
-            let begin_data = begin_supp_text + opt_text_len;
-            (width, begin_supp_text, begin_data)
-        } else {
-            return None;
-        };
-
-    // compute rest of offsets
-    let begin_prim_text = HEADER_LEN; // always starts after HEADER
-    let begin_analysis = begin_data + data_len;
-    let nextdata = begin_data + analysis_len;
-    let end_prim_text = begin_supp_text - 1;
-    let end_supp_text = begin_data - 1;
-    let end_data = begin_analysis - 1;
-    let end_analysis = nextdata - 1;
-
-    // format header and text offset strings
-    let header_prim_text = offset_header_string(begin_prim_text, end_prim_text);
-    let header_data = offset_header_string(begin_data, end_data);
-    let header_analysis = offset_header_string(begin_analysis, end_analysis);
-    let text_supp_text =
-        offset_text_string(begin_supp_text, end_supp_text, BEGINSTEXT, ENDSTEXT, width);
-    let text_data = offset_text_string(begin_data, end_data, BEGINDATA, ENDDATA, width);
-    let text_analysis = offset_text_string(
-        begin_analysis,
-        end_analysis,
-        BEGINANALYSIS,
-        ENDANALYSIS,
-        width,
-    );
-    let (real_nextdata, text_nextdata) = offset_nextdata_string(nextdata);
-
-    // put everything together, rejoice (alot)
-    let header = [header_prim_text, header_data, header_analysis].join("");
-    let text = text_supp_text
-        .into_iter()
-        .chain(text_data)
-        .chain(text_analysis)
-        .chain(text_nextdata)
-        .collect();
-    Some(OffsetFormatResult {
-        header,
-        offsets: text,
-        real_nextdata,
-    })
-}
-
-// fn event_width<X>(ms: &[DataReadMeasurement<X>]) -> EventWidth {
-//     let (fixed, variable_indices): (Vec<_>, Vec<_>) = ms
-//         .iter()
-//         .enumerate()
-//         .map(|(i, p)| match p.bytes {
-//             Bytes::Fixed(b) => Ok((i, b)),
-//             Bytes::Variable => Err(i),
-//         })
-//         .partition_result();
-//     let (fixed_indices, fixed_bytes): (Vec<_>, Vec<_>) = fixed.into_iter().unzip();
-//     if variable_indices.is_empty() {
-//         EventWidth::Finite(fixed_bytes)
-//     } else if fixed_indices.is_empty() {
-//         EventWidth::Variable
-//     } else {
-//         EventWidth::Error(fixed_indices, variable_indices)
-//     }
-// }
-
-// fn build_int_parser_2_0<P>(
-//     byteord: &ByteOrd,
-//     ps: &[DataReadMeasurement<P>],
-//     total_events: usize,
-// ) -> PureMaybe<IntParser> {
-//     let nbytes = byteord.num_bytes();
-//     let remainder: Vec<_> = ps.iter().filter(|p| !p.bytes.eq(nbytes)).collect();
-//     if remainder.is_empty() {
-//         let (columns, fail): (Vec<_>, Vec<_>) = ps
-//             .iter()
-//             .map(|p| p.bytes.make_int_parser(&p.range, byteord, total_events))
-//             .partition_result();
-//         let errors: Vec<_> = fail.into_iter().flatten().collect();
-//         if errors.is_empty() {
-//             PureSuccess::from(Some(IntParser {
-//                 columns,
-//                 nrows: total_events,
-//             }))
-//         } else {
-//             let mut res = PureSuccess::from(None);
-//             for e in errors.into_iter() {
-//                 res.push_error(e);
-//             }
-//             res
-//         }
-//     } else {
-//         let mut res = PureSuccess::from(None);
-//         for e in remainder.iter().enumerate().map(|(i, p)| {
-//             format!(
-//                 "Measurement {} uses {} bytes when DATATYPE=I \
-//                          and BYTEORD implies {} bytes",
-//                 i, p.bytes, nbytes
-//             )
-//         }) {
-//             res.push_error(e);
-//         }
-//         res
-//     }
-// }
 
 impl VersionedParserMeasurement for InnerMeasurement2_0 {
     type Target = ();

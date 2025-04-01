@@ -986,6 +986,7 @@ type Metadata3_2 = Metadata<InnerMetadata3_2>;
 struct ParserTEXT<'a> {
     data_seg: Segment,
     layout: DataLayout,
+    nrows: usize,
     conf: &'a DataReadConfig,
 }
 
@@ -1082,16 +1083,17 @@ impl ColumnType {
 }
 
 enum DataLayout {
-    // Option because 2.0 doesn't always have $TOT, in which case this layout
-    // is quite vague and probably should not be used
-    AsciiDelimited {
-        nrows: Option<usize>,
-        ncols: usize,
-    },
-    AlphaNum {
-        nrows: usize,
-        columns: Vec<ColumnType>,
-    },
+    AsciiDelimited { ncols: usize },
+    AlphaNum { columns: Vec<ColumnType> },
+}
+
+impl DataLayout {
+    fn ncols(&self) -> usize {
+        match self {
+            DataLayout::AsciiDelimited { ncols } => *ncols,
+            DataLayout::AlphaNum { columns } => columns.len(),
+        }
+    }
 }
 
 struct NumColumnWriter<T, const LEN: usize> {
@@ -1428,14 +1430,9 @@ trait VersionedMetadata: Sized + VersionedParserMetadata {
 
     fn into_any(s: CoreTEXT<Self, Self::P>) -> AnyCoreTEXT;
 
-    fn as_data_layout(
-        m: &DataReadMetadata<Self::Target>,
-        ms: &[DataReadMeasurement<<Self::P as VersionedParserMeasurement>::Target>],
-        data_nbytes: usize,
-        conf: &DataReadConfig,
-    ) -> PureMaybe<DataLayout> {
+    fn as_data_layout(m: &Metadata<Self>, ms: &[Measurement<Self::P>]) -> PureMaybe<DataLayout> {
         let dt = m.datatype;
-        let byteord = Self::get_target_byteord(&m.specific);
+        let byteord = Self::get_byteord(&m.specific);
         let ncols = ms.len();
         let (pass, fail): (Vec<_>, Vec<_>) = ms
             .iter()
@@ -1447,17 +1444,42 @@ trait VersionedMetadata: Sized + VersionedParserMetadata {
             let fixed: Vec<_> = pass.into_iter().flatten().collect();
             let nfixed = fixed.len();
             if nfixed == ncols {
-                let event_width = fixed.iter().map(|c| c.width()).sum();
-                let succ = Self::total_events(&m.specific, data_nbytes, event_width, conf);
-                return succ.map(|nrows| {
-                    Some(DataLayout::AlphaNum {
-                        nrows,
-                        columns: fixed,
-                    })
-                });
+                return PureSuccess::from(Some(DataLayout::AlphaNum { columns: fixed }));
             } else if nfixed == 0 {
-                let nrows = Self::get_tot(&m.specific);
-                return PureSuccess::from(Some(DataLayout::AsciiDelimited { nrows, ncols }));
+                return PureSuccess::from(Some(DataLayout::AsciiDelimited { ncols }));
+            } else {
+                deferred.push_error(format!(
+                    "{nfixed} out of {ncols} measurements are fixed width"
+                ));
+            }
+        }
+        PureSuccess {
+            data: None,
+            deferred,
+        }
+    }
+
+    // TODO not DRY
+    fn as_data_layout_minimal(
+        m: &DataReadMetadata<Self::Target>,
+        ms: &[DataReadMeasurement<<Self::P as VersionedParserMeasurement>::Target>],
+    ) -> PureMaybe<DataLayout> {
+        let dt = m.datatype;
+        let byteord = Self::get_target_byteord(&m.specific);
+        let ncols = ms.len();
+        let (pass, fail): (Vec<_>, Vec<_>) = ms
+            .iter()
+            .map(|m| Self::P::as_column_type_minimal(m, dt, &byteord))
+            .partition_result();
+        let mut deferred =
+            PureErrorBuf::from_many(fail.into_iter().flatten().collect(), PureErrorLevel::Error);
+        if pass.len() == ncols {
+            let fixed: Vec<_> = pass.into_iter().flatten().collect();
+            let nfixed = fixed.len();
+            if nfixed == ncols {
+                return PureSuccess::from(Some(DataLayout::AlphaNum { columns: fixed }));
+            } else if nfixed == 0 {
+                return PureSuccess::from(Some(DataLayout::AsciiDelimited { ncols }));
             } else {
                 deferred.push_error(format!(
                     "{nfixed} out of {ncols} measurements are fixed width"
@@ -1643,14 +1665,14 @@ trait VersionedMetadata: Sized + VersionedParserMetadata {
 
     fn build_data_parser(pt: ParserTEXT) -> DataParser {
         let column_parser = match pt.layout {
-            DataLayout::AlphaNum { nrows, columns } => {
-                ColumnParser::Mixed(Self::build_mixed_parser(columns, nrows))
+            DataLayout::AlphaNum { columns } => {
+                ColumnParser::Mixed(Self::build_mixed_parser(columns, pt.nrows))
             }
-            DataLayout::AsciiDelimited { nrows, ncols } => {
+            DataLayout::AsciiDelimited { ncols } => {
                 let nbytes = pt.data_seg.nbytes() as usize;
                 ColumnParser::DelimitedAscii(DelimAsciiParser {
                     ncols,
-                    nrows,
+                    nrows: pt.nrows,
                     nbytes,
                 })
             }
@@ -1890,7 +1912,9 @@ trait VersionedMeasurement: Sized + Versioned {
 trait VersionedParserMeasurement: Sized {
     type Target;
 
-    fn datatype(m: &DataReadMeasurement<Self::Target>) -> Option<NumType>;
+    fn datatype(m: &Measurement<Self>) -> Option<NumType>;
+
+    fn datatype_minimal(m: &DataReadMeasurement<Self::Target>) -> Option<NumType>;
 
     fn as_minimal_inner(m: &Measurement<Self>) -> Self::Target;
 
@@ -1902,16 +1926,35 @@ trait VersionedParserMeasurement: Sized {
         }
     }
 
-    // TODO make errors index-specific
     fn as_column_type(
-        m: &DataReadMeasurement<Self::Target>,
+        m: &Measurement<Self>,
         dt: AlphaNumType,
         byteord: &ByteOrd,
     ) -> Result<Option<ColumnType>, Vec<String>> {
         let mdt = Self::datatype(m).map(|d| d.into()).unwrap_or(dt);
         let rng = m.range;
-        match m.bytes {
-            Bytes::Fixed(bytes) => match mdt {
+        Self::to_col_type(m.bytes, mdt, byteord, rng)
+    }
+
+    // TODO make errors index-specific
+    fn as_column_type_minimal(
+        m: &DataReadMeasurement<Self::Target>,
+        dt: AlphaNumType,
+        byteord: &ByteOrd,
+    ) -> Result<Option<ColumnType>, Vec<String>> {
+        let mdt = Self::datatype_minimal(m).map(|d| d.into()).unwrap_or(dt);
+        let rng = m.range;
+        Self::to_col_type(m.bytes, mdt, byteord, rng)
+    }
+
+    fn to_col_type(
+        b: Bytes,
+        dt: AlphaNumType,
+        byteord: &ByteOrd,
+        rng: Range,
+    ) -> Result<Option<ColumnType>, Vec<String>> {
+        match b {
+            Bytes::Fixed(bytes) => match dt {
                 AlphaNumType::Ascii => {
                     if bytes > 20 {
                         Ok(ColumnType::Ascii { bytes })
@@ -1944,11 +1987,11 @@ trait VersionedParserMeasurement: Sized {
                 }
             }
             .map(Some),
-            Bytes::Variable => match mdt {
+            Bytes::Variable => match dt {
                 // ASSUME the only way this can happen is if $DATATYPE=A since
                 // Ascii is not allowed in $PnDATATYPE.
                 AlphaNumType::Ascii => Ok(None),
-                _ => Err(vec![format!("variable $PnB not allowed for {mdt}")]),
+                _ => Err(vec![format!("variable $PnB not allowed for {dt}")]),
             },
         }
     }
@@ -2217,36 +2260,6 @@ where
             columns.into_iter().map(Vec::<Self>::into).collect(),
         ))
     }
-
-    // /// Write matrix as a sequence of bytes
-    // fn write_matrix<W: Write>(
-    //     h: &mut BufWriter<W>,
-    //     matrix: Vec<Series>,
-    //     size: SizedByteOrd<LEN>,
-    // ) -> ImpureResult<()> {
-    //     let (pass, fail): (Vec<_>, Vec<_>) = matrix
-    //         .into_iter()
-    //         .enumerate()
-    //         .map(|(i, c)| {
-    //             Vec::<Self>::try_from(c)
-    //                 .map_err(|e| format!("conversion failed for measurement {i}: {e}"))
-    //         })
-    //         .partition_result();
-
-    //     if !fail.is_empty() {
-    //         return Err(Failure {
-    //             reason: "could not coerce matrix".to_string(),
-    //             deferred: PureErrorBuf::from_many(fail, PureErrorLevel::Error),
-    //         })?;
-    //     }
-
-    //     for column in pass {
-    //         for x in column {
-    //             Self::write_float(h, &size, x);
-    //         }
-    //     }
-    //     Ok(PureSuccess::from(()))
-    // }
 
     /// Make configuration to read one column of floats in a dataset.
     fn make_column_reader(order: SizedByteOrd<LEN>, total_events: usize) -> FloatColumn<Self, LEN> {
@@ -3835,14 +3848,20 @@ impl AnyCoreTEXT {
         })
     }
 
-    pub fn as_data_layout(
+    pub fn as_data_layout(&self) -> PureMaybe<DataLayout> {
+        match_many_to_one!(self, AnyCoreTEXT, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
+            x.as_data_layout()
+        })
+    }
+
+    pub fn as_data_layout_minimal(
         &self,
         kws: &mut RawKeywords,
         conf: &Config,
         data_seg: &Segment,
     ) -> PureMaybe<DataLayout> {
         match_many_to_one!(self, AnyCoreTEXT, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
-            x.as_data_layout(kws, conf, data_seg)
+            x.as_data_layout_minimal(kws, conf, data_seg)
         })
     }
 
@@ -4027,11 +4046,14 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
         }
     }
 
-    fn as_data_layout(
+    fn as_data_layout(&self) -> PureMaybe<DataLayout> {
+        M::as_data_layout(&self.metadata, &self.measurements)
+    }
+
+    fn as_data_layout_minimal(
         &self,
         kws: &mut RawKeywords,
         conf: &Config,
-        data_seg: &Segment,
     ) -> PureMaybe<DataLayout> {
         let succ = KwParser::run(kws, &conf.standard, |st| {
             let maybe_md = <M as VersionedParserMetadata>::as_minimal(&self.metadata, st);
@@ -4042,10 +4064,8 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
                 .collect();
             maybe_md.map(|metadata| (measurements, metadata))
         });
-        // TODO fix cast
-        let data_nbytes = data_seg.nbytes() as usize;
         succ.and_then_opt(|(measurements, metadata)| {
-            M::as_data_layout(&metadata, &measurements, data_nbytes, &conf.data)
+            M::as_data_layout_minimal(&metadata, &measurements)
         })
     }
 
@@ -4056,18 +4076,17 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
         conf: &Config,
         data_seg: &Segment,
     ) -> PureMaybe<DataParser> {
-        self.as_data_layout(kws, conf, data_seg)
-            .map(|maybe_layout| {
-                maybe_layout.map(|layout| {
-                    // TODO whats the point of this parser thingy?
-                    let pt = ParserTEXT {
-                        layout,
-                        conf: &conf.data,
-                        data_seg: data_seg.clone(),
-                    };
-                    M::build_data_parser(pt)
-                })
+        self.as_data_layout_minimal(kws, conf).map(|maybe_layout| {
+            maybe_layout.map(|layout| {
+                // TODO whats the point of this parser thingy?
+                let pt = ParserTEXT {
+                    layout,
+                    conf: &conf.data,
+                    data_seg: data_seg.clone(),
+                };
+                M::build_data_parser(pt)
             })
+        })
     }
 
     fn from_raw(kws: &mut RawKeywords, conf: &StdTextReadConfig) -> PureResult<Self> {
@@ -4513,7 +4532,7 @@ impl Dataframe {
         self.columns.iter().map(|c| c.len()).min().unwrap_or(0)
     }
 
-    fn ragged(&self) -> bool {
+    fn is_ragged(&self) -> bool {
         self.min_rows() != self.max_rows()
     }
 
@@ -4722,10 +4741,6 @@ fn read_data_int<R: Read>(h: &mut BufReader<R>, parser: IntParser) -> io::Result
     ))
 }
 
-fn maybe_truncate_df_rows(df: &mut Dataframe, nrows: usize, conf: &WriteConfig) {
-    let df_nrows = df.nrows();
-}
-
 fn h_read_data_segment<R: Read + Seek>(
     h: &mut BufReader<R>,
     parser: DataParser,
@@ -4743,8 +4758,6 @@ fn h_read_data_segment<R: Read + Seek>(
 
 fn h_write_ascii_delim_data<W: Write>(
     h: &mut BufWriter<W>,
-    nrows: Option<usize>,
-    ncols: usize,
     df: Dataframe,
     conf: &Config,
 ) -> ImpureResult<()> {
@@ -4779,15 +4792,11 @@ fn h_write_ascii_delim_data<W: Write>(
 
 fn h_write_numeric_data<W: Write>(
     h: &mut BufWriter<W>,
-    nrows: usize,
     columns: Vec<ColumnType>,
     df: Dataframe,
     conf: &Config,
 ) -> ImpureResult<()> {
     let df_nrows = df.nrows();
-    if nrows < df_nrows {
-        // TODO either clip or warn user that DATA is out of sync
-    }
     let (writable_columns, msgs): (Vec<_>, Vec<_>) = columns
         .into_iter()
         .zip(df.columns)
@@ -4822,76 +4831,124 @@ fn h_write_numeric_data<W: Write>(
     })
 }
 
-fn h_write_data_segment<W: Write>(
-    h: &mut BufWriter<W>,
-    w: DataLayout,
-    df: Dataframe,
-    conf: &Config,
-) -> ImpureResult<()> {
-    match w {
-        DataLayout::AsciiDelimited { nrows, ncols } => {
-            h_write_ascii_delim_data(h, nrows, ncols, df, conf)
-        }
-        DataLayout::AlphaNum { nrows, columns } => {
-            h_write_numeric_data(h, nrows, columns, df, conf)
-        }
-    }
-}
-
-// fn fix_dataframe<W: Write>(
-//     text: &mut AnyCoreTEXT,
-//     df: &mut Dataframe,
-//     conf: &WriteConfig,
-// ) -> PureSuccess<()> {
-//     let mut deferred = PureErrorBuf::new();
-//     match w {
-//         DataLayout::AsciiDelimited => (),
-//         DataLayout::AlphaNum(wts) => {
-//             let text_ncols = wts.len();
-//             let data_ncols = df.ncols();
-//             if text_ncols < data_ncols {
-//                 let msg = "TEXT contains fewer measurements than columns in \
-//                            dataframe, dataframe will be truncated to match"
-//                     .to_string();
-//                 deferred.push_error(msg);
-//             } else if text_ncols > data_ncols {
-//                 let msg = "dataframe contains fewer columns than measurements \
-//                            in TEXT, measurements will be truncated to match"
-//                     .to_string();
-//                 deferred.push_error(msg);
-//             }
-//         }
-//     }
-//     PureSuccess { data: (), deferred }
-// }
-
+// TODO this can be clean up...alot
 fn h_write_dataset<W: Write>(
     h: &mut BufWriter<W>,
     d: CoreDataset,
     conf: &Config,
 ) -> ImpureResult<()> {
     let analysis_len = d.analysis.len();
-    // TODO fix ragged dataframe here
+    let df_ncols = d.data.ncols();
 
-    // TODO ensure columns in df and keywords match
+    // Check that the dataframe isn't "ragged" (columns are different lengths).
+    // If this is false, something terrible happened and we need to stop
+    // immediately.
+    if d.data.is_ragged() {
+        return Err(Failure::new(
+            "dataframe has unequal column lengths".to_string(),
+        ))?;
+    }
 
-    // TODO get "$TOT" from dataframe (nrows); there is no $TOT in the keywords
-    // so this must be what is used when writing
+    // We can now confidently count the number of events (rows)
+    let df_nrows = d.data.nrows();
 
-    // TODO make data layout using $TOT from above
+    let write_text = |h: &mut BufWriter<W>, data_len| {
+        if let Some(text) = d.keywords.text_segment(df_nrows, data_len, analysis_len) {
+            for t in text {
+                h.write_all(t.as_bytes());
+                h.write_all(&[conf.write.delim]);
+            }
+        } else {
+            return Err(Failure::new(
+                "primary TEXT does not fit into first 99,999,999 bytes".to_string(),
+            ));
+        }
+        Ok(PureSuccess::from(()))
+    };
 
-    // TODO compute data length. We need to know if the layout is fixed or
-    // variable since the variable layout will have delimiters, which will make
-    // change the length relative to fixed width. In the case of variable, will
-    // also need to query the dataframe directly to see how big each digit it,
-    // and compute from there. Fixed width we can just query the event width
-    // directly from the layout
+    if df_nrows == 0 {
+        write_text(h, 0)?;
+        h.write_all(&d.analysis);
+        return Ok(PureSuccess::from(()));
+    }
 
-    // TODO will need to write TEXT and DATA in tandem since the DATA length
-    // calculation will depend on layout
+    let succ = PureMaybe::into_result(
+        d.keywords.as_data_layout(),
+        "could not create data layout".to_string(),
+    )?;
 
-    // let layout = d.keywords.as_data_layout(d.remainder, conf, data_seg);
-    let text = d.keywords.text_segment(tot, data_len, analysis_len);
+    // TODO this error stuff seems silly here
+    succ.try_map(|layout| {
+        let par = layout.ncols();
+        if df_ncols != par {
+            return Err(Failure::new(format!(
+                "datafame columns ({df_ncols}) unequal to number of measurements ({par})"
+            )))?;
+        }
+
+        match layout {
+            DataLayout::AlphaNum { columns } => {
+                // ASSUME the dataframe will be coerced such that this
+                // relationship will hold true
+                let event_width: usize = columns.iter().map(|c| c.width()).sum();
+                let data_len = event_width * df_nrows;
+                write_text(h, data_len)?;
+                let res = h_write_numeric_data(h, columns, d.data, conf);
+                h.write_all(&d.analysis);
+                res
+            }
+            DataLayout::AsciiDelimited { ncols: _ } => {
+                // convert dataframe entirely to u64
+                let (columns, msgs): (Vec<_>, Vec<_>) = d
+                    .data
+                    .columns
+                    .into_iter()
+                    .map(|s| {
+                        let res = s.coerce64(&conf.write);
+                        (res.data, res.deferred)
+                    })
+                    .unzip();
+                // get number of delimiters
+                let ndelim = df_ncols * df_nrows - 1;
+                // get number of bytes the values will consume (equal to number
+                // of their digits in decimal radix)
+                let value_nbytes: u32 = columns
+                    .iter()
+                    .map(|rows| rows.iter().map(|x| x.checked_ilog10().unwrap_or(1)))
+                    .flatten()
+                    .sum();
+                // compute data length (delimiters + number of digits)
+                let data_len = value_nbytes as usize + ndelim;
+                // write HEADER+TEXT
+                write_text(h, data_len)?;
+                // write DATA
+                for ri in 0..df_nrows {
+                    for (ci, c) in columns.iter().enumerate() {
+                        let x = c[ri];
+                        // if zero, just write "0", if anything else convert
+                        // to a string and write that
+                        if x == 0 {
+                            h.write_all(&[48])?; // 48 = "0" in ASCII
+                        } else {
+                            let s = x.to_string();
+                            let t = s.trim_start_matches("0");
+                            let buf = t.as_bytes();
+                            h.write_all(buf)?;
+                        }
+                        // write delimiter after all but last value
+                        if !(ci == df_ncols - 1 && ri == df_nrows - 1) {
+                            h.write_all(&[32])?; // 32 = space in ASCII
+                        }
+                    }
+                }
+                h.write_all(&d.analysis);
+                Ok(PureSuccess {
+                    data: (),
+                    deferred: PureErrorBuf::mconcat(msgs),
+                })
+            }
+        }
+    })
 }
 
 fn lookup_data_offsets(
@@ -5448,7 +5505,7 @@ impl VersionedParserMeasurement for InnerMeasurement2_0 {
 
     fn as_minimal_inner(_: &Measurement<Self>) {}
 
-    fn datatype(_: &DataReadMeasurement<Self::Target>) -> Option<NumType> {
+    fn datatype_minimal(_: &DataReadMeasurement<Self::Target>) -> Option<NumType> {
         None
     }
 }
@@ -5458,7 +5515,7 @@ impl VersionedParserMeasurement for InnerMeasurement3_0 {
 
     fn as_minimal_inner(_: &Measurement<Self>) {}
 
-    fn datatype(_: &DataReadMeasurement<Self::Target>) -> Option<NumType> {
+    fn datatype_minimal(_: &DataReadMeasurement<Self::Target>) -> Option<NumType> {
         None
     }
 }
@@ -5468,7 +5525,7 @@ impl VersionedParserMeasurement for InnerMeasurement3_1 {
 
     fn as_minimal_inner(_: &Measurement<Self>) {}
 
-    fn datatype(_: &DataReadMeasurement<Self::Target>) -> Option<NumType> {
+    fn datatype_minimal(_: &DataReadMeasurement<Self::Target>) -> Option<NumType> {
         None
     }
 }
@@ -5483,7 +5540,7 @@ impl VersionedParserMeasurement for InnerMeasurement3_2 {
         }
     }
 
-    fn datatype(m: &DataReadMeasurement<Self::Target>) -> Option<NumType> {
+    fn datatype_minimal(m: &DataReadMeasurement<Self::Target>) -> Option<NumType> {
         m.specific.datatype.as_ref().into_option().copied()
     }
 }

@@ -2866,6 +2866,30 @@ impl<V> OptionalKw<V> {
         }
     }
 
+    fn map<F, W>(self, f: F) -> OptionalKw<W>
+    where
+        F: FnOnce(V) -> W,
+    {
+        match self {
+            OptionalKw::Present(x) => Present(f(x)),
+            Absent => Absent,
+        }
+    }
+
+    fn with_option<F, W>(self, f: F) -> OptionalKw<W>
+    where
+        F: FnOnce(Option<V>) -> Option<W>,
+    {
+        OptionalKw::<W>::from_option(f(self.into_option()))
+    }
+
+    fn with_ref_option<F, W>(self, f: F) -> OptionalKw<W>
+    where
+        F: FnOnce(Option<&V>) -> Option<W>,
+    {
+        OptionalKw::<&V>::with_option::<F, W>(self.as_ref(), f)
+    }
+
     fn into_option(self) -> Option<V> {
         match self {
             OptionalKw::Present(x) => Some(x),
@@ -6270,3 +6294,225 @@ pub fn read_fcs_file(p: &path::PathBuf, conf: &Config) -> ImpureResult<Standardi
 //         Err(e) => Ok(Err(e)),
 //     }
 // }
+
+impl From<u32> for Wavelengths {
+    fn from(value: u32) -> Self {
+        Wavelengths(vec![value])
+    }
+}
+
+impl From<OptionalKw<Wavelengths>> for OptionalKw<u32> {
+    fn from(value: OptionalKw<Wavelengths>) -> Self {
+        value.with_option(|w| w.map(|x| x.0).unwrap_or_default().first().copied())
+    }
+}
+
+impl From<Calibration3_1> for Calibration3_2 {
+    fn from(value: Calibration3_1) -> Self {
+        Calibration3_2 {
+            unit: value.unit,
+            offset: 0.0,
+            value: value.value,
+        }
+    }
+}
+
+impl From<Calibration3_2> for Calibration3_1 {
+    fn from(value: Calibration3_2) -> Self {
+        Calibration3_1 {
+            unit: value.unit,
+            value: value.value,
+        }
+    }
+}
+
+struct VersionConvertError;
+
+impl TryFrom<InnerMeasurement2_0> for InnerMeasurement3_0 {
+    type Error = VersionConvertError;
+
+    fn try_from(value: InnerMeasurement2_0) -> Result<Self, VersionConvertError> {
+        if let Present(scale) = value.scale {
+            Ok(InnerMeasurement3_0 {
+                scale,
+                shortname: value.shortname,
+                wavelength: value.wavelength,
+                gain: Absent,
+            })
+        } else {
+            Err(VersionConvertError)
+        }
+    }
+}
+
+impl TryFrom<InnerMeasurement2_0> for InnerMeasurement3_1 {
+    type Error = VersionConvertError;
+
+    fn try_from(value: InnerMeasurement2_0) -> Result<Self, VersionConvertError> {
+        if let (Present(scale), Present(shortname)) = (value.scale, value.shortname) {
+            Ok(InnerMeasurement3_1 {
+                scale,
+                shortname,
+                wavelengths: value.wavelength.map(|x| x.into()),
+                gain: Absent,
+                calibration: Absent,
+                display: Absent,
+            })
+        } else {
+            Err(VersionConvertError)
+        }
+    }
+}
+
+impl TryFrom<InnerMeasurement2_0> for InnerMeasurement3_2 {
+    type Error = VersionConvertError;
+
+    fn try_from(value: InnerMeasurement2_0) -> Result<Self, VersionConvertError> {
+        if let (Present(scale), Present(shortname)) = (value.scale, value.shortname) {
+            Ok(InnerMeasurement3_2 {
+                scale,
+                shortname,
+                wavelengths: value.wavelength.map(|x| x.into()),
+                gain: Absent,
+                calibration: Absent,
+                display: Absent,
+                analyte: Absent,
+                measurement_type: Absent,
+                detector_name: Absent,
+                feature: Absent,
+                tag: Absent,
+                datatype: Absent,
+            })
+        } else {
+            Err(VersionConvertError)
+        }
+    }
+}
+
+impl From<InnerMeasurement3_0> for InnerMeasurement2_0 {
+    fn from(value: InnerMeasurement3_0) -> Self {
+        InnerMeasurement2_0 {
+            scale: Present(value.scale),
+            shortname: value.shortname,
+            wavelength: value.wavelength,
+        }
+    }
+}
+
+impl TryFrom<InnerMeasurement3_0> for InnerMeasurement3_1 {
+    type Error = VersionConvertError;
+
+    fn try_from(value: InnerMeasurement3_0) -> Result<Self, VersionConvertError> {
+        if let Present(shortname) = value.shortname {
+            Ok(InnerMeasurement3_1 {
+                scale: value.scale,
+                shortname,
+                wavelengths: value.wavelength.map(|x| x.into()),
+                gain: value.gain,
+                calibration: Absent,
+                display: Absent,
+            })
+        } else {
+            Err(VersionConvertError)
+        }
+    }
+}
+
+impl TryFrom<InnerMeasurement3_0> for InnerMeasurement3_2 {
+    type Error = VersionConvertError;
+
+    fn try_from(value: InnerMeasurement3_0) -> Result<Self, VersionConvertError> {
+        if let Present(shortname) = value.shortname {
+            Ok(InnerMeasurement3_2 {
+                scale: value.scale,
+                shortname,
+                wavelengths: value.wavelength.map(|x| x.into()),
+                gain: value.gain,
+                calibration: Absent,
+                display: Absent,
+                analyte: Absent,
+                measurement_type: Absent,
+                detector_name: Absent,
+                feature: Absent,
+                tag: Absent,
+                datatype: Absent,
+            })
+        } else {
+            Err(VersionConvertError)
+        }
+    }
+}
+
+impl From<InnerMeasurement3_1> for InnerMeasurement2_0 {
+    fn from(value: InnerMeasurement3_1) -> Self {
+        InnerMeasurement2_0 {
+            scale: Present(value.scale),
+            shortname: Present(value.shortname),
+            wavelength: value.wavelengths.into(),
+        }
+    }
+}
+
+impl From<InnerMeasurement3_1> for InnerMeasurement3_0 {
+    fn from(value: InnerMeasurement3_1) -> Self {
+        InnerMeasurement3_0 {
+            scale: value.scale,
+            shortname: Present(value.shortname),
+            wavelength: value.wavelengths.into(),
+            gain: value.gain,
+        }
+    }
+}
+
+impl From<InnerMeasurement3_1> for InnerMeasurement3_2 {
+    fn from(value: InnerMeasurement3_1) -> Self {
+        InnerMeasurement3_2 {
+            scale: value.scale,
+            shortname: value.shortname,
+            wavelengths: value.wavelengths,
+            gain: value.gain,
+            calibration: value.calibration.map(|x| x.into()),
+            display: value.display,
+            analyte: Absent,
+            measurement_type: Absent,
+            detector_name: Absent,
+            feature: Absent,
+            tag: Absent,
+            datatype: Absent,
+        }
+    }
+}
+
+impl From<InnerMeasurement3_2> for InnerMeasurement2_0 {
+    fn from(value: InnerMeasurement3_2) -> Self {
+        InnerMeasurement2_0 {
+            scale: Present(value.scale),
+            shortname: Present(value.shortname),
+            wavelength: value.wavelengths.into(),
+        }
+    }
+}
+
+impl From<InnerMeasurement3_2> for InnerMeasurement3_0 {
+    fn from(value: InnerMeasurement3_2) -> Self {
+        InnerMeasurement3_0 {
+            scale: value.scale,
+            shortname: Present(value.shortname),
+            wavelength: value.wavelengths.into(),
+            gain: value.gain,
+        }
+    }
+}
+
+impl From<InnerMeasurement3_2> for InnerMeasurement3_1 {
+    fn from(value: InnerMeasurement3_2) -> Self {
+        InnerMeasurement3_1 {
+            scale: value.scale,
+            shortname: value.shortname,
+            wavelengths: value.wavelengths,
+            gain: value.gain,
+            display: value.display,
+            calibration: value.calibration.map(|x| x.into()),
+        }
+    }
+}

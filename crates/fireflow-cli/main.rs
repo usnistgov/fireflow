@@ -1,11 +1,7 @@
-mod api;
-mod config;
-mod error;
-mod header_text;
-mod keywords;
-mod segment;
-
 use clap::{arg, value_parser, ArgMatches, Command};
+use fireflow_core::api;
+use fireflow_core::config;
+use fireflow_core::error;
 use serde::ser::Serialize;
 use std::io;
 use std::path::PathBuf;

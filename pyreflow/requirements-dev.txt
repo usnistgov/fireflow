@@ -1,0 +1,10 @@
+# build deps
+
+maturin
+# extra dependency for maturin (linux-only)
+patchelf; platform_system == 'Linux'
+pip
+
+# runtime deps (TODO)
+
+# testing deps (TODO)

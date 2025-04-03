@@ -361,6 +361,19 @@ struct Timestamps<T> {
     date: OptionalKw<FCSDate>,
 }
 
+impl<X> Timestamps<X> {
+    fn map<F, Y>(self, f: F) -> Timestamps<Y>
+    where
+        F: Fn(X) -> Y,
+    {
+        Timestamps {
+            btim: self.btim.map(&f),
+            etim: self.etim.map(&f),
+            date: self.date,
+        }
+    }
+}
+
 /// $BTIM/ETIM/DATE for FCS 2.0
 type Timestamps2_0 = Timestamps<FCSTime>;
 
@@ -371,7 +384,7 @@ type Timestamps3_0 = Timestamps<FCSTime60>;
 type Timestamps3_1 = Timestamps<FCSTime100>;
 
 /// A convenient bundle for the $BEGINDATETIME and $ENDDATETIME keys (3.2+)
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Default)]
 struct Datetimes {
     /// Value for the $BEGINDATETIME key.
     begin: OptionalKw<FCSDateTime>,
@@ -548,7 +561,7 @@ enum Originality {
 }
 
 /// A bundle for $ORIGINALITY, $LAST_MODIFIER, and $LAST_MODIFIED (3.1+)
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Default)]
 struct ModificationData {
     last_modifier: OptionalKw<String>,
     last_modified: OptionalKw<ModifiedDateTime>,
@@ -556,7 +569,7 @@ struct ModificationData {
 }
 
 /// A bundle for $PLATEID, $PLATENAME, and $WELLID (3.1+)
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Default)]
 struct PlateData {
     plateid: OptionalKw<String>,
     platename: OptionalKw<String>,
@@ -571,14 +584,14 @@ struct PlateData {
 struct UnstainedCenters(HashMap<Shortname, f32>);
 
 /// A bundle for $UNSTAINEDCENTERS and $UNSTAINEDINFO (3.2+)
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Default)]
 struct UnstainedData {
     unstainedcenters: OptionalKw<UnstainedCenters>,
     unstainedinfo: OptionalKw<String>,
 }
 
 /// A bundle for $CARRIERID, $CARRIERTYPE, $LOCATIONID (3.2+)
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Default)]
 struct CarrierData {
     carrierid: OptionalKw<String>,
     carriertype: OptionalKw<String>,
@@ -650,6 +663,12 @@ enum Range {
 enum OptionalKw<V> {
     Present(V),
     Absent,
+}
+
+impl<T> Default for OptionalKw<T> {
+    fn default() -> OptionalKw<T> {
+        Absent
+    }
 }
 
 /// Measurement fields specific to version 2.0
@@ -2151,7 +2170,7 @@ impl str::FromStr for FCSTime60 {
                     let mm: u32 = s2.parse().or(Err(FCSTime60Error))?;
                     let ss: u32 = s3.parse().or(Err(FCSTime60Error))?;
                     let tt: u32 = s4.parse().or(Err(FCSTime60Error))?;
-                    let nn = tt * 1000000 / 60;
+                    let nn = tt * 1_000_000 / 60;
                     NaiveTime::from_hms_micro_opt(hh, mm, ss, nn).ok_or(FCSTime60Error)
                 }
                 _ => Err(FCSTime60Error),
@@ -2163,7 +2182,7 @@ impl str::FromStr for FCSTime60 {
 impl fmt::Display for FCSTime60 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let base = self.0.format("%H:%M:%S");
-        let cc = self.0.nanosecond() / 10000000 * 60;
+        let cc = u64::from(self.0.nanosecond()) * 60 / 1_000_000_000;
         write!(f, "{}.{}", base, cc)
     }
 }
@@ -2199,7 +2218,7 @@ impl str::FromStr for FCSTime100 {
 impl fmt::Display for FCSTime100 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let base = self.0.format("%H:%M:%S");
-        let cc = self.0.nanosecond() / 10000000;
+        let cc = self.0.nanosecond() / 10_000_000;
         write!(f, "{}.{}", base, cc)
     }
 }
@@ -2868,7 +2887,7 @@ impl<V> OptionalKw<V> {
 
     fn map<F, W>(self, f: F) -> OptionalKw<W>
     where
-        F: FnOnce(V) -> W,
+        F: Fn(V) -> W,
     {
         match self {
             OptionalKw::Present(x) => Present(f(x)),
@@ -6295,6 +6314,57 @@ pub fn read_fcs_file(p: &path::PathBuf, conf: &Config) -> ImpureResult<Standardi
 //     }
 // }
 
+impl From<FCSTime> for FCSTime60 {
+    fn from(value: FCSTime) -> Self {
+        FCSTime60(value.0)
+    }
+}
+
+impl From<FCSTime> for FCSTime100 {
+    fn from(value: FCSTime) -> Self {
+        FCSTime100(value.0)
+    }
+}
+
+impl From<FCSTime60> for FCSTime {
+    fn from(value: FCSTime60) -> Self {
+        // ASSUME this will never fail, we are just removing nanoseconds
+        FCSTime(value.0.with_nanosecond(0).unwrap())
+    }
+}
+
+impl From<FCSTime100> for FCSTime {
+    fn from(value: FCSTime100) -> Self {
+        // ASSUME this will never fail, we are just removing nanoseconds
+        FCSTime(value.0.with_nanosecond(0).unwrap())
+    }
+}
+
+impl From<FCSTime60> for FCSTime100 {
+    fn from(value: FCSTime60) -> Self {
+        FCSTime100(value.0)
+    }
+}
+
+impl From<FCSTime100> for FCSTime60 {
+    fn from(value: FCSTime100) -> Self {
+        FCSTime60(value.0)
+    }
+}
+
+struct FromByteOrdError;
+
+impl TryFrom<ByteOrd> for Endian {
+    type Error = FromByteOrdError;
+
+    fn try_from(value: ByteOrd) -> Result<Self, Self::Error> {
+        match value {
+            ByteOrd::Endian(e) => Ok(e),
+            _ => Err(FromByteOrdError),
+        }
+    }
+}
+
 impl From<u32> for Wavelengths {
     fn from(value: u32) -> Self {
         Wavelengths(vec![value])
@@ -6326,7 +6396,7 @@ impl From<Calibration3_2> for Calibration3_1 {
     }
 }
 
-struct VersionConvertError;
+pub struct VersionConvertError;
 
 impl TryFrom<InnerMeasurement2_0> for InnerMeasurement3_0 {
     type Error = VersionConvertError;
@@ -6513,6 +6583,236 @@ impl From<InnerMeasurement3_2> for InnerMeasurement3_1 {
             gain: value.gain,
             display: value.display,
             calibration: value.calibration.map(|x| x.into()),
+        }
+    }
+}
+
+impl From<InnerMetadata2_0> for InnerMetadata3_0 {
+    fn from(value: InnerMetadata2_0) -> Self {
+        InnerMetadata3_0 {
+            mode: value.mode,
+            byteord: value.byteord,
+            comp: value.comp,
+            cyt: value.cyt,
+            cytsn: Absent,
+            timestamps: value.timestamps.map(|d| d.into()),
+            timestep: Absent,
+            unicode: Absent,
+        }
+    }
+}
+
+impl TryFrom<InnerMetadata2_0> for InnerMetadata3_1 {
+    type Error = VersionConvertError;
+
+    fn try_from(value: InnerMetadata2_0) -> Result<Self, Self::Error> {
+        let byteord = value.byteord.try_into().map_err(|_| VersionConvertError)?;
+        Ok(InnerMetadata3_1 {
+            mode: value.mode,
+            byteord,
+            // This requires measurement names which are not present in this
+            // struct. In theory can be done later with all keywords at once.
+            spillover: Absent,
+            cyt: value.cyt,
+            cytsn: Absent,
+            timestamps: value.timestamps.map(|d| d.into()),
+            timestep: Absent,
+            modification: ModificationData::default(),
+            plate: PlateData::default(),
+            vol: Absent,
+        })
+    }
+}
+
+impl TryFrom<InnerMetadata2_0> for InnerMetadata3_2 {
+    type Error = VersionConvertError;
+
+    fn try_from(value: InnerMetadata2_0) -> Result<Self, Self::Error> {
+        // TODO give all errors at once in list
+        let byteord = value.byteord.try_into().map_err(|_| VersionConvertError)?;
+        if let Some(cyt) = value.cyt.into_option() {
+            Ok(InnerMetadata3_2 {
+                byteord,
+                // This requires measurement names which are not present in this
+                // struct. In theory can be done later with all keywords at once.
+                spillover: Absent,
+                cyt,
+                cytsn: Absent,
+                timestamps: value.timestamps.map(|d| d.into()),
+                timestep: Absent,
+                modification: ModificationData::default(),
+                plate: PlateData::default(),
+                vol: Absent,
+                carrier: CarrierData::default(),
+                datetimes: Datetimes::default(),
+                unstained: UnstainedData::default(),
+                flowrate: Absent,
+            })
+        } else {
+            Err(VersionConvertError)
+        }
+    }
+}
+
+impl From<InnerMetadata3_0> for InnerMetadata2_0 {
+    fn from(value: InnerMetadata3_0) -> Self {
+        InnerMetadata2_0 {
+            mode: value.mode,
+            byteord: value.byteord,
+            comp: value.comp,
+            cyt: value.cyt,
+            timestamps: value.timestamps.map(|d| d.into()),
+        }
+    }
+}
+
+impl TryFrom<InnerMetadata3_0> for InnerMetadata3_1 {
+    type Error = VersionConvertError;
+    fn try_from(value: InnerMetadata3_0) -> Result<Self, Self::Error> {
+        let byteord = value.byteord.try_into().map_err(|_| VersionConvertError)?;
+        Ok(InnerMetadata3_1 {
+            mode: value.mode,
+            byteord,
+            spillover: Absent,
+            cyt: value.cyt,
+            timestamps: value.timestamps.map(|d| d.into()),
+            cytsn: value.cytsn,
+            modification: ModificationData::default(),
+            timestep: value.timestep,
+            vol: Absent,
+            plate: PlateData::default(),
+        })
+    }
+}
+
+impl TryFrom<InnerMetadata3_0> for InnerMetadata3_2 {
+    type Error = VersionConvertError;
+    fn try_from(value: InnerMetadata3_0) -> Result<Self, Self::Error> {
+        let byteord = value.byteord.try_into().map_err(|_| VersionConvertError)?;
+        if let Present(cyt) = value.cyt {
+            Ok(InnerMetadata3_2 {
+                byteord,
+                spillover: Absent,
+                cyt,
+                timestamps: value.timestamps.map(|d| d.into()),
+                cytsn: value.cytsn,
+                modification: ModificationData::default(),
+                timestep: value.timestep,
+                vol: Absent,
+                plate: PlateData::default(),
+                carrier: CarrierData::default(),
+                datetimes: Datetimes::default(),
+                unstained: UnstainedData::default(),
+                flowrate: Absent,
+            })
+        } else {
+            Err(VersionConvertError)
+        }
+    }
+}
+
+impl From<Endian> for ByteOrd {
+    fn from(value: Endian) -> ByteOrd {
+        ByteOrd::Endian(value)
+    }
+}
+
+impl From<InnerMetadata3_1> for InnerMetadata2_0 {
+    fn from(value: InnerMetadata3_1) -> Self {
+        InnerMetadata2_0 {
+            mode: value.mode,
+            byteord: value.byteord.into(),
+            // TODO this is tricky because we will first need to add all
+            // "missing" measurements from the spillover matrix and then invert
+            // using some fancy linalgebra library
+            comp: Absent,
+            cyt: value.cyt,
+            timestamps: value.timestamps.map(|d| d.into()),
+        }
+    }
+}
+
+impl From<InnerMetadata3_1> for InnerMetadata3_0 {
+    fn from(value: InnerMetadata3_1) -> Self {
+        InnerMetadata3_0 {
+            mode: value.mode,
+            byteord: value.byteord.into(),
+            comp: Absent,
+            cyt: value.cyt,
+            timestamps: value.timestamps.map(|d| d.into()),
+            timestep: value.timestep,
+            cytsn: value.cytsn,
+            unicode: Absent,
+        }
+    }
+}
+
+impl TryFrom<InnerMetadata3_1> for InnerMetadata3_2 {
+    type Error = VersionConvertError;
+
+    fn try_from(value: InnerMetadata3_1) -> Result<Self, Self::Error> {
+        if let Present(cyt) = value.cyt {
+            Ok(InnerMetadata3_2 {
+                byteord: value.byteord,
+                spillover: value.spillover,
+                cyt,
+                timestamps: value.timestamps,
+                timestep: value.timestep,
+                cytsn: value.cytsn,
+                modification: value.modification,
+                vol: value.vol,
+                plate: value.plate,
+                carrier: CarrierData::default(),
+                datetimes: Datetimes::default(),
+                unstained: UnstainedData::default(),
+                flowrate: Absent,
+            })
+        } else {
+            Err(VersionConvertError)
+        }
+    }
+}
+
+impl From<InnerMetadata3_2> for InnerMetadata2_0 {
+    fn from(value: InnerMetadata3_2) -> Self {
+        InnerMetadata2_0 {
+            mode: Mode::List,
+            byteord: value.byteord.into(),
+            comp: Absent,
+            cyt: Present(value.cyt),
+            timestamps: value.timestamps.map(|d| d.into()),
+        }
+    }
+}
+
+impl From<InnerMetadata3_2> for InnerMetadata3_0 {
+    fn from(value: InnerMetadata3_2) -> Self {
+        InnerMetadata3_0 {
+            mode: Mode::List,
+            byteord: value.byteord.into(),
+            comp: Absent,
+            cyt: Present(value.cyt),
+            timestamps: value.timestamps.map(|d| d.into()),
+            cytsn: value.cytsn,
+            timestep: value.timestep,
+            unicode: Absent,
+        }
+    }
+}
+
+impl From<InnerMetadata3_2> for InnerMetadata3_1 {
+    fn from(value: InnerMetadata3_2) -> Self {
+        InnerMetadata3_1 {
+            mode: Mode::List,
+            byteord: value.byteord,
+            spillover: value.spillover,
+            cyt: Present(value.cyt),
+            timestamps: value.timestamps,
+            cytsn: value.cytsn,
+            timestep: value.timestep,
+            modification: value.modification,
+            plate: value.plate,
+            vol: value.vol,
         }
     }
 }

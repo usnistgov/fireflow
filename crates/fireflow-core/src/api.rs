@@ -5820,6 +5820,56 @@ impl<'a> NSKwParser<'a> {
         }
     }
 
+    fn try_convert_lookup_comp(
+        &mut self,
+        key: &Option<String>,
+        try_convert: bool,
+        spillover: OptionalKw<Spillover>,
+        ns: &[Shortname],
+    ) -> OptionalKw<Compensation> {
+        let fallback = self.lookup_nonstandard_maybe(key);
+        if try_convert {
+            if let Present(s) = spillover {
+                match spillover_to_comp(s, ns) {
+                    Some(c) => Present(c),
+                    None => {
+                        self.push_meta_warning("$SPILLOVER not full rank".to_string());
+                        fallback
+                    }
+                }
+            } else {
+                fallback
+            }
+        } else {
+            fallback
+        }
+    }
+
+    fn try_convert_lookup_spillover(
+        &mut self,
+        key: &Option<String>,
+        try_convert: bool,
+        comp: OptionalKw<Compensation>,
+        ns: &[Shortname],
+    ) -> OptionalKw<Spillover> {
+        let fallback = self.lookup_nonstandard_maybe(key);
+        if try_convert {
+            if let Present(c) = comp {
+                match comp_to_spillover(c, ns) {
+                    Some(s) => Present(s),
+                    None => {
+                        self.push_meta_warning("$COMP not full rank".to_string());
+                        fallback
+                    }
+                }
+            } else {
+                fallback
+            }
+        } else {
+            fallback
+        }
+    }
+
     fn lookup_modification(&mut self, look: &ModificationDefaults) -> ModificationData {
         ModificationData {
             last_modified: self.lookup_nonstandard_maybe(&look.last_modified),

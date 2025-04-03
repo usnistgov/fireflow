@@ -6,6 +6,7 @@ use crate::segment::*;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use itertools::Itertools;
+use nalgebra::DMatrix;
 use regex::Regex;
 use serde::ser::SerializeStruct;
 use serde::Serialize;
@@ -462,7 +463,8 @@ enum NumType {
 struct Compensation {
     /// Values in the comp matrix in row-major order. Assumed to be the
     /// same width and height as $PAR
-    matrix: Vec<Vec<f32>>,
+    // TODO just use a DMatrix here?
+    matrix: DMatrix<f32>,
 }
 
 /// The spillover matrix from the $SPILLOVER keyword (3.1+)
@@ -473,7 +475,7 @@ struct Spillover {
     measurements: Vec<Shortname>,
 
     /// Numeric values in the spillover matrix in row-major order.
-    matrix: Vec<Vec<f32>>,
+    matrix: DMatrix<f32>,
 }
 
 /// The value of the $TR field (all versions)
@@ -2358,12 +2360,7 @@ impl FromStr for Compensation {
                 if fvalues.len() != nn {
                     Err(FixedSeqError::BadFloat)
                 } else {
-                    let matrix = fvalues
-                        .into_iter()
-                        .chunks(n)
-                        .into_iter()
-                        .map(|c| c.collect())
-                        .collect();
+                    let matrix = DMatrix::from_row_iterator(n, n, fvalues.into_iter());
                     Ok(Compensation { matrix })
                 }
             }
@@ -2376,7 +2373,9 @@ impl FromStr for Compensation {
 impl fmt::Display for Compensation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let n = self.matrix.len();
-        let xs = self.matrix.iter().map(|xs| xs.iter().join(",")).join(",");
+        // DMatrix slices are column major, so transpose first to output
+        // row-major
+        let xs = self.matrix.transpose().as_slice().iter().join(",");
         write!(f, "{n},{xs}")
     }
 }
@@ -2426,12 +2425,7 @@ impl FromStr for Spillover {
                     if fvalues.len() != nn {
                         Err(NamedFixedSeqError::Seq(FixedSeqError::BadFloat))
                     } else {
-                        let matrix = fvalues
-                            .into_iter()
-                            .chunks(n)
-                            .into_iter()
-                            .map(|c| c.collect())
-                            .collect();
+                        let matrix = DMatrix::from_row_iterator(n, n, fvalues.into_iter());
                         Ok(Spillover {
                             measurements,
                             matrix,
@@ -2448,7 +2442,9 @@ impl FromStr for Spillover {
 impl fmt::Display for Spillover {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let n = self.measurements.len();
-        let xs = self.matrix.iter().map(|ys| ys.iter().join(",")).join(",");
+        // DMatrix slices are column major, so transpose first to output
+        // row-major
+        let xs = self.matrix.transpose().as_slice().iter().join(",");
         write!(f, "{n},{xs}")
     }
 }
@@ -2470,7 +2466,7 @@ impl Spillover {
             .chain(self.measurements.iter().map(|m| m.0.clone()))
             .join(delim);
         let lines = vec![header];
-        let rows = self.matrix.iter().map(|xs| xs.iter().join(delim));
+        let rows = self.matrix.row_iter().map(|xs| xs.iter().join(delim));
         lines.into_iter().chain(rows).collect()
     }
 
@@ -5483,16 +5479,16 @@ impl<'a, 'b> KwParser<'a, 'b> {
     }
 
     fn lookup_compensation_2_0(&mut self, par: usize) -> OptionalKw<Compensation> {
-        let mut matrix: Vec<_> = iter::repeat_with(|| vec![0.0; par]).take(par).collect();
         // column = src channel
         // row = target channel
         // These are "flipped" in 2.0, where "column" goes TO the "row"
         let mut any_error = false;
+        let mut matrix = DMatrix::<f32>::identity(par, par);
         for r in 0..par {
             for c in 0..par {
                 let m = format!("DFC{c}TO{r}");
                 if let Present(x) = self.lookup_optional(m.as_str(), false) {
-                    matrix[r][c] = x;
+                    matrix[(r, c)] = x;
                 } else {
                     any_error = true;
                 }
@@ -7319,4 +7315,42 @@ impl IntoMetadata<InnerMetadata3_2> for InnerMetadata3_1 {
             datetimes: st.lookup_datetimes(&def.datetimes),
         })
     }
+}
+
+fn comp_to_spillover(comp: Compensation, ns: &[Shortname]) -> Option<Spillover> {
+    // Matrix should be square, so if inverse fails that means that somehow it
+    // isn't full rank
+    comp.matrix.try_inverse().map(|matrix| Spillover {
+        measurements: ns.to_vec(),
+        matrix,
+    })
+}
+
+fn spillover_to_comp(spillover: Spillover, ns: &[Shortname]) -> Option<Compensation> {
+    // Start by making a new square matrix for all measurements, since the older
+    // $COMP keyword couldn't specify measurements and thus covered all of them.
+    // Then assign the spillover matrix to the bigger full matrix, using the
+    // index of the measurement names. This will be a spillover matrix defined
+    // for all measurements. Anything absent from the original will have 0 in
+    // it's row/column except for the diagonal. Finally, invert this result to
+    // get the compensation matrix.
+    let n = ns.len();
+    let mut full_matrix = DMatrix::<f32>::identity(n, n);
+    // ASSUME spillover measurements are a subset of names supplied to function
+    let positions: Vec<_> = spillover
+        .measurements
+        .into_iter()
+        .enumerate()
+        .flat_map(|(i, m)| ns.iter().position(|x| *x == m).map(|x| (i, x)))
+        .collect();
+    for r in positions.iter() {
+        for c in positions.iter() {
+            full_matrix[(r.1, c.1)] = spillover.matrix[(r.0, c.0)]
+        }
+    }
+    // Matrix should be square, so if inverse fails that means that somehow it
+    // isn't full rank
+    full_matrix
+        .try_inverse()
+        .map(|matrix| Compensation { matrix })
 }

@@ -6651,11 +6651,31 @@ struct DatetimesDefaults {
     end: Option<String>,
 }
 
+struct MetadataDefaults3_0To2_0;
+
+struct MetadataDefaults3_1To2_0 {
+    comp: Option<String>,
+}
+
+struct MetadataDefaults3_2To2_0 {
+    comp: Option<String>,
+}
+
 struct MetadataDefaults2_0To3_0 {
     byteord: Option<String>,
     cytsn: Option<String>,
     timestep: Option<String>,
     vol: Option<String>,
+    unicode: Option<String>,
+}
+
+struct MetadataDefaults3_1To3_0 {
+    comp: Option<String>,
+    unicode: Option<String>,
+}
+
+struct MetadataDefaults3_2To3_0 {
+    comp: Option<String>,
     unicode: Option<String>,
 }
 
@@ -6668,6 +6688,16 @@ struct MetadataDefaults2_0To3_1 {
     modification: ModificationDefaults,
     plate: PlateDefaults,
 }
+
+struct MetadataDefaults3_0To3_1 {
+    endian: Endian,
+    vol: Option<String>,
+    spillover: Option<String>,
+    modification: ModificationDefaults,
+    plate: PlateDefaults,
+}
+
+struct MetadataDefaults3_2To3_1;
 
 struct MetadataDefaults2_0To3_2 {
     endian: Endian,
@@ -6684,16 +6714,6 @@ struct MetadataDefaults2_0To3_2 {
     datetimes: DatetimesDefaults,
 }
 
-struct MetadataDefaults3_0To2_0;
-
-struct MetadataDefaults3_0To3_1 {
-    endian: Endian,
-    vol: Option<String>,
-    spillover: Option<String>,
-    modification: ModificationDefaults,
-    plate: PlateDefaults,
-}
-
 struct MetadataDefaults3_0To3_2 {
     endian: Endian,
     cyt: String,
@@ -6707,32 +6727,12 @@ struct MetadataDefaults3_0To3_2 {
     datetimes: DatetimesDefaults,
 }
 
-struct MetadataDefaults3_1To2_0 {
-    comp: Option<String>,
-}
-
-struct MetadataDefaults3_1To3_0 {
-    comp: Option<String>,
-    unicode: Option<String>,
-}
-
-struct MetadataDefaults3_2To3_0 {
-    comp: Option<String>,
-    unicode: Option<String>,
-}
-
 struct MetadataDefaults3_1To3_2 {
     cyt: String,
     flowrate: Option<String>,
     unstained: UnstainedDefaults,
     carrier: CarrierDefaults,
     datetimes: DatetimesDefaults,
-}
-
-struct MetadataDefaults3_2To3_1;
-
-struct MetadataDefaults3_2To2_0 {
-    comp: Option<String>,
 }
 
 struct MeasurementDefaults3_0To2_0;

@@ -799,7 +799,7 @@ struct Measurement<X> {
     /// Non standard keywords that belong to this measurement.
     ///
     /// These are found using a configurable pattern to filter matching keys.
-    nonstandard: RawKeywords,
+    nonstandard_keywords: RawKeywords,
 
     /// Version specific data
     specific: X,
@@ -1480,7 +1480,7 @@ trait VersionedMetadata: Sized + VersionedParserMetadata {
                 src: st.lookup_src(),
                 sys: st.lookup_sys(),
                 tr: st.lookup_trigger_checked(&names),
-                nonstandard_keywords: st.lookup_nonstandard(),
+                nonstandard_keywords: st.lookup_all_nonstandard(),
                 specific,
             })
         } else {
@@ -1562,7 +1562,7 @@ trait VersionedMeasurement: Sized + Versioned {
                     percent_emitted: st.lookup_meas_percent_emitted(n, v == Version::FCS3_2),
                     detector_voltage: st.lookup_meas_detector_voltage(n),
                     specific,
-                    nonstandard: st.lookup_meas_nonstandard(n),
+                    nonstandard_keywords: st.lookup_all_meas_nonstandard(n),
                 };
                 ps.push(p);
             }
@@ -1640,7 +1640,11 @@ trait VersionedMeasurement: Sized + Versioned {
             .filter_map(|(k, v)| v.map(|x| (k, x)))
             .map(|(s, v)| (format_measurement(n, s), v))
             // TODO useless clone?
-            .chain(m.nonstandard.iter().map(|(k, v)| (k.clone(), v.clone())))
+            .chain(
+                m.nonstandard_keywords
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone())),
+            )
             .collect()
     }
 }
@@ -5523,7 +5527,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
         }
     }
 
-    fn lookup_nonstandard(&mut self) -> RawKeywords {
+    fn lookup_all_nonstandard(&mut self) -> RawKeywords {
         let mut ns = HashMap::new();
         self.raw_keywords.retain(|k, v| {
             if k.starts_with("$") {
@@ -5631,7 +5635,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
         }
     }
 
-    fn lookup_meas_nonstandard(&mut self, n: usize) -> RawKeywords {
+    fn lookup_all_meas_nonstandard(&mut self, n: usize) -> RawKeywords {
         let mut ns = HashMap::new();
         // ASSUME the pattern does not start with "$" and has a %n which will be
         // subbed for the measurement index. The pattern will then be turned
@@ -5730,6 +5734,37 @@ impl<'a, 'b> KwParser<'a, 'b> {
         }
     }
 
+    fn lookup_nonstandard_maybe<V: FromStr>(&mut self, k: Option<String>) -> OptionalKw<V>
+    where
+        <V as FromStr>::Err: fmt::Display,
+    {
+        OptionalKw::from_option(k.as_ref().and_then(|kk| self.lookup_nonstandard_opt(kk)))
+    }
+
+    fn lookup_nonstandard_opt<V: FromStr>(&mut self, k: &str) -> Option<V>
+    where
+        <V as FromStr>::Err: fmt::Display,
+    {
+        self.lookup_nonstandard(k).into_option()
+    }
+
+    fn lookup_nonstandard<V: FromStr>(&mut self, k: &str) -> OptionalKw<V>
+    where
+        <V as FromStr>::Err: fmt::Display,
+    {
+        match self.raw_keywords.remove(k) {
+            Some(v) => match v.parse() {
+                Err(w) => {
+                    let msg = format!("{w} for key '{k}' with value '{v}'");
+                    self.deferred.push_warning(msg);
+                    Absent
+                }
+                Ok(x) => Present(x),
+            },
+            None => Absent,
+        }
+    }
+
     fn lookup_optional<V: FromStr>(&mut self, k: &str, dep: bool) -> OptionalKw<V>
     where
         <V as FromStr>::Err: fmt::Display,
@@ -5768,6 +5803,137 @@ impl<'a, 'b> KwParser<'a, 'b> {
         <V as FromStr>::Err: fmt::Display,
     {
         self.lookup_optional(&format_measurement(&n.to_string(), m), dep)
+    }
+}
+
+struct NSKwParser<'a> {
+    raw_keywords: &'a mut RawKeywords,
+    deferred: PureErrorBuf,
+}
+
+impl<'a> NSKwParser<'a> {
+    fn run<X, F>(kws: &'a mut RawKeywords, f: F) -> PureSuccess<X>
+    where
+        F: FnOnce(&mut Self) -> X,
+    {
+        let mut st = Self::from(kws);
+        let data = f(&mut st);
+        PureSuccess {
+            data,
+            deferred: st.collect(),
+        }
+    }
+
+    fn lookup_modification(&mut self, look: &ModificationDefaults) -> ModificationData {
+        ModificationData {
+            last_modified: self.lookup_nonstandard_maybe(&look.last_modified),
+            last_modifier: self.lookup_nonstandard_maybe(&look.last_modifier),
+            originality: self.lookup_nonstandard_maybe(&look.originality),
+        }
+    }
+
+    fn lookup_plate(&mut self, look: &PlateDefaults) -> PlateData {
+        PlateData {
+            plateid: self.lookup_nonstandard_maybe(&look.plateid),
+            platename: self.lookup_nonstandard_maybe(&look.platename),
+            wellid: self.lookup_nonstandard_maybe(&look.wellid),
+        }
+    }
+
+    fn lookup_unstained(&mut self, look: &UnstainedDefaults) -> UnstainedData {
+        UnstainedData {
+            unstainedcenters: self.lookup_nonstandard_maybe(&look.unstainedcenters),
+            unstainedinfo: self.lookup_nonstandard_maybe(&look.unstainedinfo),
+        }
+    }
+
+    fn lookup_carrier(&mut self, look: &CarrierDefaults) -> CarrierData {
+        CarrierData {
+            carrierid: self.lookup_nonstandard_maybe(&look.carrierid),
+            carriertype: self.lookup_nonstandard_maybe(&look.carriertype),
+            locationid: self.lookup_nonstandard_maybe(&look.locationid),
+        }
+    }
+
+    fn lookup_datetimes(&mut self, look: &DatetimesDefaults) -> Datetimes {
+        Datetimes {
+            begin: self.lookup_nonstandard_maybe(&look.begin),
+            end: self.lookup_nonstandard_maybe(&look.end),
+        }
+    }
+
+    fn push_meta_error_str(&mut self, msg: &str) {
+        self.push_meta_error(String::from(msg));
+    }
+
+    fn push_meta_error(&mut self, msg: String) {
+        self.deferred.push_error(msg);
+    }
+
+    fn push_meta_warning_str(&mut self, msg: &str) {
+        self.push_meta_warning(String::from(msg));
+    }
+
+    fn push_meta_warning(&mut self, msg: String) {
+        self.deferred.push_warning(msg);
+    }
+
+    fn push_meta_error_or_warning(&mut self, is_error: bool, msg: String) {
+        self.deferred.push_msg_leveled(msg, is_error);
+    }
+
+    // auxiliary functions
+
+    fn collect(self) -> PureErrorBuf {
+        self.deferred
+    }
+
+    fn into_failure(self, reason: String) -> PureFailure {
+        Failure {
+            reason,
+            deferred: self.collect(),
+        }
+    }
+
+    fn from(kws: &'a mut RawKeywords) -> Self {
+        NSKwParser {
+            raw_keywords: kws,
+            deferred: PureErrorBuf::new(),
+        }
+    }
+
+    fn lookup_nonstandard_maybe<V: FromStr>(&mut self, k: &Option<String>) -> OptionalKw<V>
+    where
+        <V as FromStr>::Err: fmt::Display,
+    {
+        OptionalKw::from_option(k.as_ref().and_then(|kk| self.lookup_nonstandard_opt(kk)))
+    }
+
+    fn lookup_nonstandard_opt<V: FromStr>(&mut self, k: &str) -> Option<V>
+    where
+        <V as FromStr>::Err: fmt::Display,
+    {
+        self.lookup_nonstandard(k).into_option()
+    }
+
+    fn lookup_nonstandard<V: FromStr>(&mut self, k: &str) -> OptionalKw<V>
+    where
+        <V as FromStr>::Err: fmt::Display,
+    {
+        match self.raw_keywords.get(k) {
+            Some(v) => match v.parse() {
+                Err(w) => {
+                    let msg = format!("{w} for key '{k}' with value '{v}'");
+                    self.deferred.push_warning(msg);
+                    Absent
+                }
+                Ok(x) => {
+                    self.raw_keywords.remove(k);
+                    Present(x)
+                }
+            },
+            None => Absent,
+        }
     }
 }
 
@@ -6396,423 +6562,761 @@ impl From<Calibration3_2> for Calibration3_1 {
     }
 }
 
-pub struct VersionConvertError;
-
-impl TryFrom<InnerMeasurement2_0> for InnerMeasurement3_0 {
-    type Error = VersionConvertError;
-
-    fn try_from(value: InnerMeasurement2_0) -> Result<Self, VersionConvertError> {
-        if let Present(scale) = value.scale {
-            Ok(InnerMeasurement3_0 {
-                scale,
-                shortname: value.shortname,
-                wavelength: value.wavelength,
-                gain: Absent,
-            })
-        } else {
-            Err(VersionConvertError)
-        }
-    }
-}
-
-impl TryFrom<InnerMeasurement2_0> for InnerMeasurement3_1 {
-    type Error = VersionConvertError;
-
-    fn try_from(value: InnerMeasurement2_0) -> Result<Self, VersionConvertError> {
-        if let (Present(scale), Present(shortname)) = (value.scale, value.shortname) {
-            Ok(InnerMeasurement3_1 {
-                scale,
-                shortname,
-                wavelengths: value.wavelength.map(|x| x.into()),
-                gain: Absent,
-                calibration: Absent,
-                display: Absent,
-            })
-        } else {
-            Err(VersionConvertError)
-        }
-    }
-}
-
-impl TryFrom<InnerMeasurement2_0> for InnerMeasurement3_2 {
-    type Error = VersionConvertError;
-
-    fn try_from(value: InnerMeasurement2_0) -> Result<Self, VersionConvertError> {
-        if let (Present(scale), Present(shortname)) = (value.scale, value.shortname) {
-            Ok(InnerMeasurement3_2 {
-                scale,
-                shortname,
-                wavelengths: value.wavelength.map(|x| x.into()),
-                gain: Absent,
-                calibration: Absent,
-                display: Absent,
-                analyte: Absent,
-                measurement_type: Absent,
-                detector_name: Absent,
-                feature: Absent,
-                tag: Absent,
-                datatype: Absent,
-            })
-        } else {
-            Err(VersionConvertError)
-        }
-    }
-}
-
-impl From<InnerMeasurement3_0> for InnerMeasurement2_0 {
-    fn from(value: InnerMeasurement3_0) -> Self {
-        InnerMeasurement2_0 {
-            scale: Present(value.scale),
-            shortname: value.shortname,
-            wavelength: value.wavelength,
-        }
-    }
-}
-
-impl TryFrom<InnerMeasurement3_0> for InnerMeasurement3_1 {
-    type Error = VersionConvertError;
-
-    fn try_from(value: InnerMeasurement3_0) -> Result<Self, VersionConvertError> {
-        if let Present(shortname) = value.shortname {
-            Ok(InnerMeasurement3_1 {
-                scale: value.scale,
-                shortname,
-                wavelengths: value.wavelength.map(|x| x.into()),
-                gain: value.gain,
-                calibration: Absent,
-                display: Absent,
-            })
-        } else {
-            Err(VersionConvertError)
-        }
-    }
-}
-
-impl TryFrom<InnerMeasurement3_0> for InnerMeasurement3_2 {
-    type Error = VersionConvertError;
-
-    fn try_from(value: InnerMeasurement3_0) -> Result<Self, VersionConvertError> {
-        if let Present(shortname) = value.shortname {
-            Ok(InnerMeasurement3_2 {
-                scale: value.scale,
-                shortname,
-                wavelengths: value.wavelength.map(|x| x.into()),
-                gain: value.gain,
-                calibration: Absent,
-                display: Absent,
-                analyte: Absent,
-                measurement_type: Absent,
-                detector_name: Absent,
-                feature: Absent,
-                tag: Absent,
-                datatype: Absent,
-            })
-        } else {
-            Err(VersionConvertError)
-        }
-    }
-}
-
-impl From<InnerMeasurement3_1> for InnerMeasurement2_0 {
-    fn from(value: InnerMeasurement3_1) -> Self {
-        InnerMeasurement2_0 {
-            scale: Present(value.scale),
-            shortname: Present(value.shortname),
-            wavelength: value.wavelengths.into(),
-        }
-    }
-}
-
-impl From<InnerMeasurement3_1> for InnerMeasurement3_0 {
-    fn from(value: InnerMeasurement3_1) -> Self {
-        InnerMeasurement3_0 {
-            scale: value.scale,
-            shortname: Present(value.shortname),
-            wavelength: value.wavelengths.into(),
-            gain: value.gain,
-        }
-    }
-}
-
-impl From<InnerMeasurement3_1> for InnerMeasurement3_2 {
-    fn from(value: InnerMeasurement3_1) -> Self {
-        InnerMeasurement3_2 {
-            scale: value.scale,
-            shortname: value.shortname,
-            wavelengths: value.wavelengths,
-            gain: value.gain,
-            calibration: value.calibration.map(|x| x.into()),
-            display: value.display,
-            analyte: Absent,
-            measurement_type: Absent,
-            detector_name: Absent,
-            feature: Absent,
-            tag: Absent,
-            datatype: Absent,
-        }
-    }
-}
-
-impl From<InnerMeasurement3_2> for InnerMeasurement2_0 {
-    fn from(value: InnerMeasurement3_2) -> Self {
-        InnerMeasurement2_0 {
-            scale: Present(value.scale),
-            shortname: Present(value.shortname),
-            wavelength: value.wavelengths.into(),
-        }
-    }
-}
-
-impl From<InnerMeasurement3_2> for InnerMeasurement3_0 {
-    fn from(value: InnerMeasurement3_2) -> Self {
-        InnerMeasurement3_0 {
-            scale: value.scale,
-            shortname: Present(value.shortname),
-            wavelength: value.wavelengths.into(),
-            gain: value.gain,
-        }
-    }
-}
-
-impl From<InnerMeasurement3_2> for InnerMeasurement3_1 {
-    fn from(value: InnerMeasurement3_2) -> Self {
-        InnerMeasurement3_1 {
-            scale: value.scale,
-            shortname: value.shortname,
-            wavelengths: value.wavelengths,
-            gain: value.gain,
-            display: value.display,
-            calibration: value.calibration.map(|x| x.into()),
-        }
-    }
-}
-
-impl From<InnerMetadata2_0> for InnerMetadata3_0 {
-    fn from(value: InnerMetadata2_0) -> Self {
-        InnerMetadata3_0 {
-            mode: value.mode,
-            byteord: value.byteord,
-            comp: value.comp,
-            cyt: value.cyt,
-            cytsn: Absent,
-            timestamps: value.timestamps.map(|d| d.into()),
-            timestep: Absent,
-            unicode: Absent,
-        }
-    }
-}
-
-impl TryFrom<InnerMetadata2_0> for InnerMetadata3_1 {
-    type Error = VersionConvertError;
-
-    fn try_from(value: InnerMetadata2_0) -> Result<Self, Self::Error> {
-        let byteord = value.byteord.try_into().map_err(|_| VersionConvertError)?;
-        Ok(InnerMetadata3_1 {
-            mode: value.mode,
-            byteord,
-            // This requires measurement names which are not present in this
-            // struct. In theory can be done later with all keywords at once.
-            spillover: Absent,
-            cyt: value.cyt,
-            cytsn: Absent,
-            timestamps: value.timestamps.map(|d| d.into()),
-            timestep: Absent,
-            modification: ModificationData::default(),
-            plate: PlateData::default(),
-            vol: Absent,
-        })
-    }
-}
-
-impl TryFrom<InnerMetadata2_0> for InnerMetadata3_2 {
-    type Error = VersionConvertError;
-
-    fn try_from(value: InnerMetadata2_0) -> Result<Self, Self::Error> {
-        // TODO give all errors at once in list
-        let byteord = value.byteord.try_into().map_err(|_| VersionConvertError)?;
-        if let Some(cyt) = value.cyt.into_option() {
-            Ok(InnerMetadata3_2 {
-                byteord,
-                // This requires measurement names which are not present in this
-                // struct. In theory can be done later with all keywords at once.
-                spillover: Absent,
-                cyt,
-                cytsn: Absent,
-                timestamps: value.timestamps.map(|d| d.into()),
-                timestep: Absent,
-                modification: ModificationData::default(),
-                plate: PlateData::default(),
-                vol: Absent,
-                carrier: CarrierData::default(),
-                datetimes: Datetimes::default(),
-                unstained: UnstainedData::default(),
-                flowrate: Absent,
-            })
-        } else {
-            Err(VersionConvertError)
-        }
-    }
-}
-
-impl From<InnerMetadata3_0> for InnerMetadata2_0 {
-    fn from(value: InnerMetadata3_0) -> Self {
-        InnerMetadata2_0 {
-            mode: value.mode,
-            byteord: value.byteord,
-            comp: value.comp,
-            cyt: value.cyt,
-            timestamps: value.timestamps.map(|d| d.into()),
-        }
-    }
-}
-
-impl TryFrom<InnerMetadata3_0> for InnerMetadata3_1 {
-    type Error = VersionConvertError;
-    fn try_from(value: InnerMetadata3_0) -> Result<Self, Self::Error> {
-        let byteord = value.byteord.try_into().map_err(|_| VersionConvertError)?;
-        Ok(InnerMetadata3_1 {
-            mode: value.mode,
-            byteord,
-            spillover: Absent,
-            cyt: value.cyt,
-            timestamps: value.timestamps.map(|d| d.into()),
-            cytsn: value.cytsn,
-            modification: ModificationData::default(),
-            timestep: value.timestep,
-            vol: Absent,
-            plate: PlateData::default(),
-        })
-    }
-}
-
-impl TryFrom<InnerMetadata3_0> for InnerMetadata3_2 {
-    type Error = VersionConvertError;
-    fn try_from(value: InnerMetadata3_0) -> Result<Self, Self::Error> {
-        let byteord = value.byteord.try_into().map_err(|_| VersionConvertError)?;
-        if let Present(cyt) = value.cyt {
-            Ok(InnerMetadata3_2 {
-                byteord,
-                spillover: Absent,
-                cyt,
-                timestamps: value.timestamps.map(|d| d.into()),
-                cytsn: value.cytsn,
-                modification: ModificationData::default(),
-                timestep: value.timestep,
-                vol: Absent,
-                plate: PlateData::default(),
-                carrier: CarrierData::default(),
-                datetimes: Datetimes::default(),
-                unstained: UnstainedData::default(),
-                flowrate: Absent,
-            })
-        } else {
-            Err(VersionConvertError)
-        }
-    }
-}
-
 impl From<Endian> for ByteOrd {
     fn from(value: Endian) -> ByteOrd {
         ByteOrd::Endian(value)
     }
 }
 
-impl From<InnerMetadata3_1> for InnerMetadata2_0 {
-    fn from(value: InnerMetadata3_1) -> Self {
-        InnerMetadata2_0 {
-            mode: value.mode,
-            byteord: value.byteord.into(),
-            // TODO this is tricky because we will first need to add all
-            // "missing" measurements from the spillover matrix and then invert
-            // using some fancy linalgebra library
-            comp: Absent,
-            cyt: value.cyt,
-            timestamps: value.timestamps.map(|d| d.into()),
-        }
+trait IntoMeasurement<T>: Sized {
+    type Defaults;
+
+    fn into(m: Measurement<Self>, def: Self::Defaults) -> PureSuccess<Measurement<T>> {
+        let mut m = m;
+        Self::convert_inner(m.specific, def, &mut m.nonstandard_keywords).map(|specific| {
+            Measurement {
+                bytes: m.bytes,
+                range: m.range,
+                longname: m.longname,
+                detector_type: m.detector_type,
+                detector_voltage: m.detector_voltage,
+                filter: m.filter,
+                power: m.power,
+                percent_emitted: m.percent_emitted,
+                nonstandard_keywords: m.nonstandard_keywords,
+                specific,
+            }
+        })
+    }
+
+    fn convert_inner(self, def: Self::Defaults, ns: &mut RawKeywords) -> PureSuccess<T>;
+}
+
+trait IntoMetadata<T>: Sized {
+    type Defaults;
+
+    fn into(m: Metadata<Self>, def: Self::Defaults) -> PureSuccess<Metadata<T>> {
+        let mut m = m;
+        Self::convert_inner(m.specific, def, &mut m.nonstandard_keywords).map(|specific| {
+            // TODO this seems silly, break struct up into common bits
+            Metadata {
+                abrt: m.abrt,
+                cells: m.cells,
+                com: m.com,
+                datatype: m.datatype,
+                exp: m.exp,
+                fil: m.fil,
+                inst: m.inst,
+                lost: m.lost,
+                nonstandard_keywords: m.nonstandard_keywords,
+                op: m.op,
+                proj: m.proj,
+                smno: m.smno,
+                sys: m.sys,
+                src: m.src,
+                tr: m.tr,
+                specific,
+            }
+        })
+    }
+
+    fn convert_inner(self, def: Self::Defaults, ns: &mut RawKeywords) -> PureSuccess<T>;
+}
+
+struct ModificationDefaults {
+    last_modifier: Option<String>,
+    last_modified: Option<String>,
+    originality: Option<String>,
+}
+
+struct PlateDefaults {
+    plateid: Option<String>,
+    platename: Option<String>,
+    wellid: Option<String>,
+}
+
+struct CarrierDefaults {
+    carrierid: Option<String>,
+    carriertype: Option<String>,
+    locationid: Option<String>,
+}
+
+struct UnstainedDefaults {
+    unstainedcenters: Option<String>,
+    unstainedinfo: Option<String>,
+}
+
+struct DatetimesDefaults {
+    begin: Option<String>,
+    end: Option<String>,
+}
+
+struct MetadataDefaults2_0To3_0 {
+    byteord: Option<String>,
+    cytsn: Option<String>,
+    timestep: Option<String>,
+    vol: Option<String>,
+    unicode: Option<String>,
+}
+
+struct MetadataDefaults2_0To3_1 {
+    endian: Endian,
+    cytsn: Option<String>,
+    timestep: Option<String>,
+    vol: Option<String>,
+    spillover: Option<String>,
+    modification: ModificationDefaults,
+    plate: PlateDefaults,
+}
+
+struct MetadataDefaults2_0To3_2 {
+    endian: Endian,
+    cyt: String,
+    cytsn: Option<String>,
+    timestep: Option<String>,
+    vol: Option<String>,
+    spillover: Option<String>,
+    flowrate: Option<String>,
+    modification: ModificationDefaults,
+    plate: PlateDefaults,
+    unstained: UnstainedDefaults,
+    carrier: CarrierDefaults,
+    datetimes: DatetimesDefaults,
+}
+
+struct MetadataDefaults3_0To2_0;
+
+struct MetadataDefaults3_0To3_1 {
+    endian: Endian,
+    vol: Option<String>,
+    spillover: Option<String>,
+    modification: ModificationDefaults,
+    plate: PlateDefaults,
+}
+
+struct MetadataDefaults3_0To3_2 {
+    endian: Endian,
+    cyt: String,
+    vol: Option<String>,
+    spillover: Option<String>,
+    flowrate: Option<String>,
+    modification: ModificationDefaults,
+    plate: PlateDefaults,
+    unstained: UnstainedDefaults,
+    carrier: CarrierDefaults,
+    datetimes: DatetimesDefaults,
+}
+
+struct MetadataDefaults3_1To2_0 {
+    comp: Option<String>,
+}
+
+struct MetadataDefaults3_1To3_0 {
+    comp: Option<String>,
+    unicode: Option<String>,
+}
+
+struct MetadataDefaults3_2To3_0 {
+    comp: Option<String>,
+    unicode: Option<String>,
+}
+
+struct MetadataDefaults3_1To3_2 {
+    cyt: String,
+    flowrate: Option<String>,
+    unstained: UnstainedDefaults,
+    carrier: CarrierDefaults,
+    datetimes: DatetimesDefaults,
+}
+
+struct MetadataDefaults3_2To3_1;
+
+struct MetadataDefaults3_2To2_0 {
+    comp: Option<String>,
+}
+
+struct MeasurementDefaults3_0To2_0;
+
+struct MeasurementDefaults3_1To2_0;
+
+struct MeasurementDefaults3_2To2_0;
+
+struct MeasurementDefaults2_0To3_0 {
+    scale: Scale,
+    gain: Option<String>,
+}
+
+struct MeasurementDefaults3_1To3_0;
+
+struct MeasurementDefaults3_2To3_0;
+
+struct MeasurementDefaults2_0To3_1 {
+    scale: Scale,
+    shortname: Shortname,
+    gain: Option<String>,
+    calibration: Option<String>,
+    display: Option<String>,
+}
+
+struct MeasurementDefaults3_0To3_1 {
+    shortname: Shortname,
+    calibration: Option<String>,
+    display: Option<String>,
+}
+
+struct MeasurementDefaults3_2To3_1;
+
+struct MeasurementDefaults2_0To3_2 {
+    scale: Scale,
+    shortname: Shortname,
+    gain: Option<String>,
+    calibration: Option<String>,
+    display: Option<String>,
+    analyte: Option<String>,
+    tag: Option<String>,
+    detector_name: Option<String>,
+    feature: Option<String>,
+    datatype: Option<String>,
+    measurement_type: Option<String>,
+}
+
+struct MeasurementDefaults3_0To3_2 {
+    shortname: Shortname,
+    calibration: Option<String>,
+    display: Option<String>,
+    analyte: Option<String>,
+    tag: Option<String>,
+    detector_name: Option<String>,
+    feature: Option<String>,
+    datatype: Option<String>,
+    measurement_type: Option<String>,
+}
+
+struct MeasurementDefaults3_1To3_2 {
+    analyte: Option<String>,
+    tag: Option<String>,
+    detector_name: Option<String>,
+    feature: Option<String>,
+    datatype: Option<String>,
+    measurement_type: Option<String>,
+}
+
+impl IntoMeasurement<InnerMeasurement2_0> for InnerMeasurement3_0 {
+    type Defaults = MeasurementDefaults3_0To2_0;
+
+    fn convert_inner(
+        self,
+        _: Self::Defaults,
+        _: &mut RawKeywords,
+    ) -> PureSuccess<InnerMeasurement2_0> {
+        PureSuccess::from(InnerMeasurement2_0 {
+            scale: Present(self.scale),
+            shortname: self.shortname,
+            wavelength: self.wavelength,
+        })
     }
 }
 
-impl From<InnerMetadata3_1> for InnerMetadata3_0 {
-    fn from(value: InnerMetadata3_1) -> Self {
-        InnerMetadata3_0 {
-            mode: value.mode,
-            byteord: value.byteord.into(),
-            comp: Absent,
-            cyt: value.cyt,
-            timestamps: value.timestamps.map(|d| d.into()),
-            timestep: value.timestep,
-            cytsn: value.cytsn,
-            unicode: Absent,
-        }
+impl IntoMeasurement<InnerMeasurement2_0> for InnerMeasurement3_1 {
+    type Defaults = MeasurementDefaults3_1To2_0;
+
+    fn convert_inner(
+        self,
+        _: Self::Defaults,
+        _: &mut RawKeywords,
+    ) -> PureSuccess<InnerMeasurement2_0> {
+        PureSuccess::from(InnerMeasurement2_0 {
+            shortname: Present(self.shortname),
+            scale: Present(self.scale),
+            wavelength: self.wavelengths.into(),
+        })
     }
 }
 
-impl TryFrom<InnerMetadata3_1> for InnerMetadata3_2 {
-    type Error = VersionConvertError;
+impl IntoMeasurement<InnerMeasurement2_0> for InnerMeasurement3_2 {
+    type Defaults = MeasurementDefaults3_2To2_0;
 
-    fn try_from(value: InnerMetadata3_1) -> Result<Self, Self::Error> {
-        if let Present(cyt) = value.cyt {
-            Ok(InnerMetadata3_2 {
-                byteord: value.byteord,
-                spillover: value.spillover,
+    fn convert_inner(
+        self,
+        _: Self::Defaults,
+        _: &mut RawKeywords,
+    ) -> PureSuccess<InnerMeasurement2_0> {
+        PureSuccess::from(InnerMeasurement2_0 {
+            shortname: Present(self.shortname),
+            scale: Present(self.scale),
+            wavelength: self.wavelengths.into(),
+        })
+    }
+}
+
+impl IntoMeasurement<InnerMeasurement3_0> for InnerMeasurement2_0 {
+    type Defaults = MeasurementDefaults2_0To3_0;
+
+    fn convert_inner(
+        self,
+        def: Self::Defaults,
+        ns: &mut RawKeywords,
+    ) -> PureSuccess<InnerMeasurement3_0> {
+        let scale = self.scale.into_option().unwrap_or(def.scale);
+        NSKwParser::run(ns, |st| InnerMeasurement3_0 {
+            scale,
+            wavelength: self.wavelength,
+            shortname: self.shortname,
+            gain: st.lookup_nonstandard_maybe(&def.gain),
+        })
+    }
+}
+
+impl IntoMeasurement<InnerMeasurement3_0> for InnerMeasurement3_1 {
+    type Defaults = MeasurementDefaults3_1To3_0;
+
+    fn convert_inner(
+        self,
+        _: Self::Defaults,
+        _: &mut RawKeywords,
+    ) -> PureSuccess<InnerMeasurement3_0> {
+        PureSuccess::from(InnerMeasurement3_0 {
+            shortname: Present(self.shortname),
+            scale: self.scale,
+            gain: self.gain,
+            wavelength: self.wavelengths.into(),
+        })
+    }
+}
+
+impl IntoMeasurement<InnerMeasurement3_0> for InnerMeasurement3_2 {
+    type Defaults = MeasurementDefaults3_2To3_0;
+
+    fn convert_inner(
+        self,
+        _: Self::Defaults,
+        _: &mut RawKeywords,
+    ) -> PureSuccess<InnerMeasurement3_0> {
+        PureSuccess::from(InnerMeasurement3_0 {
+            shortname: Present(self.shortname),
+            scale: self.scale,
+            gain: self.gain,
+            wavelength: self.wavelengths.into(),
+        })
+    }
+}
+
+impl IntoMeasurement<InnerMeasurement3_1> for InnerMeasurement2_0 {
+    type Defaults = MeasurementDefaults2_0To3_1;
+
+    fn convert_inner(
+        self,
+        def: Self::Defaults,
+        ns: &mut RawKeywords,
+    ) -> PureSuccess<InnerMeasurement3_1> {
+        let scale = self.scale.into_option().unwrap_or(def.scale);
+        let shortname = self.shortname.into_option().unwrap_or(def.shortname);
+        NSKwParser::run(ns, |st| InnerMeasurement3_1 {
+            scale,
+            shortname,
+            wavelengths: self.wavelength.map(|x| x.into()),
+            gain: st.lookup_nonstandard_maybe(&def.gain),
+            calibration: st.lookup_nonstandard_maybe(&def.calibration),
+            display: st.lookup_nonstandard_maybe(&def.display),
+        })
+    }
+}
+
+impl IntoMeasurement<InnerMeasurement3_1> for InnerMeasurement3_0 {
+    type Defaults = MeasurementDefaults3_0To3_1;
+
+    fn convert_inner(
+        self,
+        def: Self::Defaults,
+        ns: &mut RawKeywords,
+    ) -> PureSuccess<InnerMeasurement3_1> {
+        let shortname = self.shortname.into_option().unwrap_or(def.shortname);
+        NSKwParser::run(ns, |st| InnerMeasurement3_1 {
+            shortname,
+            scale: self.scale,
+            gain: self.gain,
+            wavelengths: self.wavelength.map(|x| x.into()),
+            calibration: st.lookup_nonstandard_maybe(&def.calibration),
+            display: st.lookup_nonstandard_maybe(&def.display),
+        })
+    }
+}
+
+impl IntoMeasurement<InnerMeasurement3_1> for InnerMeasurement3_2 {
+    type Defaults = MeasurementDefaults3_2To3_1;
+
+    fn convert_inner(
+        self,
+        _: Self::Defaults,
+        _: &mut RawKeywords,
+    ) -> PureSuccess<InnerMeasurement3_1> {
+        PureSuccess::from(InnerMeasurement3_1 {
+            shortname: self.shortname,
+            scale: self.scale,
+            gain: self.gain,
+            wavelengths: self.wavelengths,
+            calibration: self.calibration.map(|x| x.into()),
+            display: self.display,
+        })
+    }
+}
+
+impl IntoMeasurement<InnerMeasurement3_2> for InnerMeasurement2_0 {
+    type Defaults = MeasurementDefaults2_0To3_2;
+
+    fn convert_inner(
+        self,
+        def: Self::Defaults,
+        ns: &mut RawKeywords,
+    ) -> PureSuccess<InnerMeasurement3_2> {
+        let scale = self.scale.into_option().unwrap_or(def.scale);
+        let shortname = self.shortname.into_option().unwrap_or(def.shortname);
+        NSKwParser::run(ns, |st| InnerMeasurement3_2 {
+            scale,
+            shortname,
+            wavelengths: self.wavelength.map(|x| x.into()),
+            gain: st.lookup_nonstandard_maybe(&def.gain),
+            calibration: st.lookup_nonstandard_maybe(&def.calibration),
+            display: st.lookup_nonstandard_maybe(&def.display),
+            analyte: st.lookup_nonstandard_maybe(&def.analyte),
+            feature: st.lookup_nonstandard_maybe(&def.feature),
+            tag: st.lookup_nonstandard_maybe(&def.tag),
+            detector_name: st.lookup_nonstandard_maybe(&def.detector_name),
+            datatype: st.lookup_nonstandard_maybe(&def.datatype),
+            measurement_type: st.lookup_nonstandard_maybe(&def.measurement_type),
+        })
+    }
+}
+
+impl IntoMeasurement<InnerMeasurement3_2> for InnerMeasurement3_0 {
+    type Defaults = MeasurementDefaults3_0To3_2;
+
+    fn convert_inner(
+        self,
+        def: Self::Defaults,
+        ns: &mut RawKeywords,
+    ) -> PureSuccess<InnerMeasurement3_2> {
+        let shortname = self.shortname.into_option().unwrap_or(def.shortname);
+        NSKwParser::run(ns, |st| InnerMeasurement3_2 {
+            shortname,
+            scale: self.scale,
+            wavelengths: self.wavelength.map(|x| x.into()),
+            gain: self.gain,
+            calibration: st.lookup_nonstandard_maybe(&def.calibration),
+            display: st.lookup_nonstandard_maybe(&def.display),
+            analyte: st.lookup_nonstandard_maybe(&def.analyte),
+            feature: st.lookup_nonstandard_maybe(&def.feature),
+            tag: st.lookup_nonstandard_maybe(&def.tag),
+            detector_name: st.lookup_nonstandard_maybe(&def.detector_name),
+            datatype: st.lookup_nonstandard_maybe(&def.datatype),
+            measurement_type: st.lookup_nonstandard_maybe(&def.measurement_type),
+        })
+    }
+}
+
+impl IntoMeasurement<InnerMeasurement3_2> for InnerMeasurement3_1 {
+    type Defaults = MeasurementDefaults3_1To3_2;
+
+    fn convert_inner(
+        self,
+        def: Self::Defaults,
+        ns: &mut RawKeywords,
+    ) -> PureSuccess<InnerMeasurement3_2> {
+        NSKwParser::run(ns, |st| InnerMeasurement3_2 {
+            shortname: self.shortname,
+            scale: self.scale,
+            wavelengths: self.wavelengths,
+            gain: self.gain,
+            calibration: self.calibration.map(|x| x.into()),
+            display: self.display,
+            analyte: st.lookup_nonstandard_maybe(&def.analyte),
+            feature: st.lookup_nonstandard_maybe(&def.feature),
+            tag: st.lookup_nonstandard_maybe(&def.tag),
+            detector_name: st.lookup_nonstandard_maybe(&def.detector_name),
+            datatype: st.lookup_nonstandard_maybe(&def.datatype),
+            measurement_type: st.lookup_nonstandard_maybe(&def.measurement_type),
+        })
+    }
+}
+
+impl IntoMetadata<InnerMetadata2_0> for InnerMetadata3_0 {
+    type Defaults = MetadataDefaults3_0To2_0;
+
+    fn convert_inner(
+        self,
+        _: Self::Defaults,
+        _: &mut RawKeywords,
+    ) -> PureSuccess<InnerMetadata2_0> {
+        PureSuccess::from(InnerMetadata2_0 {
+            mode: self.mode,
+            byteord: self.byteord,
+            cyt: self.cyt,
+            comp: self.comp,
+            timestamps: self.timestamps.map(|d| d.into()),
+        })
+    }
+}
+
+impl IntoMetadata<InnerMetadata2_0> for InnerMetadata3_1 {
+    type Defaults = MetadataDefaults3_1To2_0;
+
+    fn convert_inner(
+        self,
+        def: Self::Defaults,
+        ns: &mut RawKeywords,
+    ) -> PureSuccess<InnerMetadata2_0> {
+        NSKwParser::run(ns, |st| InnerMetadata2_0 {
+            mode: self.mode,
+            byteord: self.byteord.into(),
+            cyt: self.cyt,
+            comp: st.lookup_nonstandard_maybe(&def.comp),
+            timestamps: self.timestamps.map(|d| d.into()),
+        })
+    }
+}
+
+impl IntoMetadata<InnerMetadata2_0> for InnerMetadata3_2 {
+    type Defaults = MetadataDefaults3_2To2_0;
+
+    fn convert_inner(
+        self,
+        def: Self::Defaults,
+        ns: &mut RawKeywords,
+    ) -> PureSuccess<InnerMetadata2_0> {
+        NSKwParser::run(ns, |st| InnerMetadata2_0 {
+            mode: Mode::List,
+            byteord: self.byteord.into(),
+            cyt: Present(self.cyt),
+            comp: st.lookup_nonstandard_maybe(&def.comp),
+            timestamps: self.timestamps.map(|d| d.into()),
+        })
+    }
+}
+
+impl IntoMetadata<InnerMetadata3_0> for InnerMetadata2_0 {
+    type Defaults = MetadataDefaults2_0To3_0;
+
+    fn convert_inner(
+        self,
+        def: Self::Defaults,
+        ns: &mut RawKeywords,
+    ) -> PureSuccess<InnerMetadata3_0> {
+        NSKwParser::run(ns, |st| InnerMetadata3_0 {
+            mode: self.mode,
+            byteord: self.byteord,
+            cyt: self.cyt,
+            comp: self.comp,
+            timestamps: self.timestamps.map(|d| d.into()),
+            cytsn: st.lookup_nonstandard_maybe(&def.cytsn),
+            timestep: st.lookup_nonstandard_maybe(&def.timestep),
+            unicode: st.lookup_nonstandard_maybe(&def.unicode),
+        })
+    }
+}
+
+impl IntoMetadata<InnerMetadata3_0> for InnerMetadata3_1 {
+    type Defaults = MetadataDefaults3_1To3_0;
+
+    fn convert_inner(
+        self,
+        def: Self::Defaults,
+        ns: &mut RawKeywords,
+    ) -> PureSuccess<InnerMetadata3_0> {
+        NSKwParser::run(ns, |st| InnerMetadata3_0 {
+            mode: self.mode,
+            byteord: self.byteord.into(),
+            cyt: self.cyt,
+            cytsn: self.cytsn,
+            timestep: self.timestep,
+            timestamps: self.timestamps.map(|d| d.into()),
+            comp: st.lookup_nonstandard_maybe(&def.comp),
+            unicode: st.lookup_nonstandard_maybe(&def.unicode),
+        })
+    }
+}
+
+impl IntoMetadata<InnerMetadata3_0> for InnerMetadata3_2 {
+    type Defaults = MetadataDefaults3_2To3_0;
+
+    fn convert_inner(
+        self,
+        def: Self::Defaults,
+        ns: &mut RawKeywords,
+    ) -> PureSuccess<InnerMetadata3_0> {
+        NSKwParser::run(ns, |st| InnerMetadata3_0 {
+            mode: Mode::List,
+            byteord: self.byteord.into(),
+            cyt: Present(self.cyt),
+            cytsn: self.cytsn,
+            timestep: self.timestep,
+            timestamps: self.timestamps.map(|d| d.into()),
+            comp: st.lookup_nonstandard_maybe(&def.comp),
+            unicode: st.lookup_nonstandard_maybe(&def.unicode),
+        })
+    }
+}
+
+impl IntoMetadata<InnerMetadata3_1> for InnerMetadata2_0 {
+    type Defaults = MetadataDefaults2_0To3_1;
+
+    fn convert_inner(
+        self,
+        def: Self::Defaults,
+        ns: &mut RawKeywords,
+    ) -> PureSuccess<InnerMetadata3_1> {
+        NSKwParser::run(ns, |st| {
+            let byteord = self.byteord.try_into().ok().unwrap_or(def.endian);
+            InnerMetadata3_1 {
+                mode: self.mode,
+                byteord,
+                cyt: self.cyt,
+                timestamps: self.timestamps.map(|d| d.into()),
+                // This requires measurement names which are not present in this
+                // struct. In theory can be done later with all keywords at once.
+                spillover: st.lookup_nonstandard_maybe(&def.spillover),
+                cytsn: st.lookup_nonstandard_maybe(&def.cytsn),
+                timestep: st.lookup_nonstandard_maybe(&def.timestep),
+                modification: st.lookup_modification(&def.modification),
+                plate: st.lookup_plate(&def.plate),
+                vol: st.lookup_nonstandard_maybe(&def.vol),
+            }
+        })
+    }
+}
+
+impl IntoMetadata<InnerMetadata3_1> for InnerMetadata3_0 {
+    type Defaults = MetadataDefaults3_0To3_1;
+
+    fn convert_inner(
+        self,
+        def: Self::Defaults,
+        ns: &mut RawKeywords,
+    ) -> PureSuccess<InnerMetadata3_1> {
+        NSKwParser::run(ns, |st| {
+            let byteord = self.byteord.try_into().ok().unwrap_or(def.endian);
+            InnerMetadata3_1 {
+                byteord,
+                mode: self.mode,
+                cyt: self.cyt,
+                timestep: self.timestep,
+                cytsn: self.cytsn,
+                timestamps: self.timestamps.map(|d| d.into()),
+                spillover: st.lookup_nonstandard_maybe(&def.spillover),
+                modification: st.lookup_modification(&def.modification),
+                plate: st.lookup_plate(&def.plate),
+                vol: st.lookup_nonstandard_maybe(&def.vol),
+            }
+        })
+    }
+}
+
+impl IntoMetadata<InnerMetadata3_1> for InnerMetadata3_2 {
+    type Defaults = MetadataDefaults3_2To3_1;
+
+    fn convert_inner(
+        self,
+        _: Self::Defaults,
+        _: &mut RawKeywords,
+    ) -> PureSuccess<InnerMetadata3_1> {
+        PureSuccess::from(InnerMetadata3_1 {
+            mode: Mode::List,
+            byteord: self.byteord,
+            cyt: Present(self.cyt),
+            cytsn: self.cytsn,
+            timestep: self.timestep,
+            timestamps: self.timestamps,
+            spillover: self.spillover,
+            plate: self.plate,
+            modification: self.modification,
+            vol: self.vol,
+        })
+    }
+}
+
+impl IntoMetadata<InnerMetadata3_2> for InnerMetadata2_0 {
+    type Defaults = MetadataDefaults2_0To3_2;
+
+    fn convert_inner(
+        self,
+        def: Self::Defaults,
+        ns: &mut RawKeywords,
+    ) -> PureSuccess<InnerMetadata3_2> {
+        NSKwParser::run(ns, |st| {
+            let byteord = self.byteord.try_into().ok().unwrap_or(def.endian);
+            let cyt = self.cyt.into_option().unwrap_or(def.cyt);
+            // TODO what happens if $MODE is not list?
+            InnerMetadata3_2 {
+                byteord,
                 cyt,
-                timestamps: value.timestamps,
-                timestep: value.timestep,
-                cytsn: value.cytsn,
-                modification: value.modification,
-                vol: value.vol,
-                plate: value.plate,
-                carrier: CarrierData::default(),
-                datetimes: Datetimes::default(),
-                unstained: UnstainedData::default(),
-                flowrate: Absent,
-            })
-        } else {
-            Err(VersionConvertError)
-        }
+                spillover: st.lookup_nonstandard_maybe(&def.spillover),
+                timestamps: self.timestamps.map(|d| d.into()),
+                cytsn: st.lookup_nonstandard_maybe(&def.cytsn),
+                timestep: st.lookup_nonstandard_maybe(&def.timestep),
+                modification: st.lookup_modification(&def.modification),
+                plate: st.lookup_plate(&def.plate),
+                vol: st.lookup_nonstandard_maybe(&def.vol),
+                flowrate: st.lookup_nonstandard_maybe(&def.flowrate),
+                carrier: st.lookup_carrier(&def.carrier),
+                unstained: st.lookup_unstained(&def.unstained),
+                datetimes: st.lookup_datetimes(&def.datetimes),
+            }
+        })
     }
 }
 
-impl From<InnerMetadata3_2> for InnerMetadata2_0 {
-    fn from(value: InnerMetadata3_2) -> Self {
-        InnerMetadata2_0 {
-            mode: Mode::List,
-            byteord: value.byteord.into(),
-            comp: Absent,
-            cyt: Present(value.cyt),
-            timestamps: value.timestamps.map(|d| d.into()),
-        }
+impl IntoMetadata<InnerMetadata3_2> for InnerMetadata3_0 {
+    type Defaults = MetadataDefaults3_0To3_2;
+
+    fn convert_inner(
+        self,
+        def: Self::Defaults,
+        ns: &mut RawKeywords,
+    ) -> PureSuccess<InnerMetadata3_2> {
+        NSKwParser::run(ns, |st| {
+            let byteord = self.byteord.try_into().ok().unwrap_or(def.endian);
+            let cyt = self.cyt.into_option().unwrap_or(def.cyt);
+            InnerMetadata3_2 {
+                byteord,
+                cyt,
+                timestep: self.timestep,
+                cytsn: self.cytsn,
+                timestamps: self.timestamps.map(|d| d.into()),
+                spillover: st.lookup_nonstandard_maybe(&def.spillover),
+                modification: st.lookup_modification(&def.modification),
+                plate: st.lookup_plate(&def.plate),
+                vol: st.lookup_nonstandard_maybe(&def.vol),
+                flowrate: st.lookup_nonstandard_maybe(&def.flowrate),
+                carrier: st.lookup_carrier(&def.carrier),
+                unstained: st.lookup_unstained(&def.unstained),
+                datetimes: st.lookup_datetimes(&def.datetimes),
+            }
+        })
     }
 }
 
-impl From<InnerMetadata3_2> for InnerMetadata3_0 {
-    fn from(value: InnerMetadata3_2) -> Self {
-        InnerMetadata3_0 {
-            mode: Mode::List,
-            byteord: value.byteord.into(),
-            comp: Absent,
-            cyt: Present(value.cyt),
-            timestamps: value.timestamps.map(|d| d.into()),
-            cytsn: value.cytsn,
-            timestep: value.timestep,
-            unicode: Absent,
-        }
-    }
-}
+impl IntoMetadata<InnerMetadata3_2> for InnerMetadata3_1 {
+    type Defaults = MetadataDefaults3_1To3_2;
 
-impl From<InnerMetadata3_2> for InnerMetadata3_1 {
-    fn from(value: InnerMetadata3_2) -> Self {
-        InnerMetadata3_1 {
-            mode: Mode::List,
-            byteord: value.byteord,
-            spillover: value.spillover,
-            cyt: Present(value.cyt),
-            timestamps: value.timestamps,
-            cytsn: value.cytsn,
-            timestep: value.timestep,
-            modification: value.modification,
-            plate: value.plate,
-            vol: value.vol,
-        }
+    fn convert_inner(
+        self,
+        def: Self::Defaults,
+        ns: &mut RawKeywords,
+    ) -> PureSuccess<InnerMetadata3_2> {
+        let cyt = self.cyt.into_option().unwrap_or(def.cyt);
+        NSKwParser::run(ns, |st| InnerMetadata3_2 {
+            byteord: self.byteord,
+            cyt,
+            cytsn: self.cytsn,
+            timestep: self.timestep,
+            timestamps: self.timestamps,
+            spillover: self.spillover,
+            modification: self.modification,
+            plate: self.plate,
+            vol: self.vol,
+            flowrate: st.lookup_nonstandard_maybe(&def.flowrate),
+            carrier: st.lookup_carrier(&def.carrier),
+            unstained: st.lookup_unstained(&def.unstained),
+            datetimes: st.lookup_datetimes(&def.datetimes),
+        })
     }
 }

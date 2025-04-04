@@ -1381,8 +1381,8 @@ where
     Self::P: VersionedMeasurement,
     Self::P: VersionedParserMeasurement,
     Self::P: IntoMeasurement<InnerMeasurement2_0, MeasurementDefaultsTo2_0>,
-    // Self::P: IntoMeasurement<InnerMeasurement3_0, MeasurementDefaultsTo3_0>,
-    // Self::P: IntoMeasurement<InnerMeasurement3_1, MeasurementDefaultsTo3_1>,
+    Self::P: IntoMeasurement<InnerMeasurement3_0, MeasurementDefaultsTo3_0>,
+    Self::P: IntoMeasurement<InnerMeasurement3_1, MeasurementDefaultsTo3_1>,
     Self::P: IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2>,
 {
     type P;
@@ -1469,7 +1469,7 @@ where
     fn lookup_metadata(st: &mut KwParser, ms: &[Measurement<Self::P>]) -> Option<Metadata<Self>> {
         let names: HashSet<_> = ms
             .iter()
-            .filter_map(|m| Self::P::measurement_name(m))
+            .filter_map(|m| Self::P::measurement_name_opt(m))
             .collect();
         let par = ms.len();
         let maybe_datatype = st.lookup_datatype();
@@ -1550,7 +1550,9 @@ trait VersionedMeasurement: Sized + Versioned {
 
     fn lookup_specific(st: &mut KwParser, n: usize) -> Option<Self>;
 
-    fn measurement_name(p: &Measurement<Self>) -> Option<&str>;
+    fn measurement_name_opt(p: &Measurement<Self>) -> Option<&str>;
+
+    fn measurement_name(p: &Measurement<Self>, n: usize) -> Shortname;
 
     fn lookup_measurements(st: &mut KwParser, par: usize) -> Option<Vec<Measurement<Self>>> {
         let mut ps = vec![];
@@ -1579,7 +1581,7 @@ trait VersionedMeasurement: Sized + Versioned {
         }
         let names: Vec<&str> = ps
             .iter()
-            .filter_map(|m| Self::measurement_name(m))
+            .filter_map(|m| Self::measurement_name_opt(m))
             .collect();
         if let Some(time_name) = &st.conf.time_shortname {
             if !names.iter().copied().contains(time_name.as_str()) {
@@ -3120,12 +3122,21 @@ impl Versioned for InnerMeasurement3_2 {
 impl VersionedMeasurement for InnerMeasurement2_0 {
     type D = ();
 
-    fn measurement_name(p: &Measurement<Self>) -> Option<&str> {
+    fn measurement_name_opt(p: &Measurement<Self>) -> Option<&str> {
         p.specific
             .shortname
             .as_ref()
             .into_option()
             .map(|s| s.0.as_str())
+    }
+
+    fn measurement_name(p: &Measurement<Self>, n: usize) -> Shortname {
+        p.specific
+            .shortname
+            .as_ref()
+            .into_option()
+            .map(|x| x.clone())
+            .unwrap_or(Shortname(format!("M{n}")))
     }
 
     fn lookup_specific(st: &mut KwParser, n: usize) -> Option<InnerMeasurement2_0> {
@@ -3154,12 +3165,21 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
 impl VersionedMeasurement for InnerMeasurement3_0 {
     type D = ();
 
-    fn measurement_name(p: &Measurement<Self>) -> Option<&str> {
+    fn measurement_name_opt(p: &Measurement<Self>) -> Option<&str> {
         p.specific
             .shortname
             .as_ref()
             .into_option()
             .map(|s| s.0.as_str())
+    }
+
+    fn measurement_name(p: &Measurement<Self>, n: usize) -> Shortname {
+        p.specific
+            .shortname
+            .as_ref()
+            .into_option()
+            .map(|x| x.clone())
+            .unwrap_or(Shortname(format!("M{n}")))
     }
 
     fn lookup_specific(st: &mut KwParser, n: usize) -> Option<InnerMeasurement3_0> {
@@ -3190,8 +3210,12 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
 impl VersionedMeasurement for InnerMeasurement3_1 {
     type D = ();
 
-    fn measurement_name(p: &Measurement<Self>) -> Option<&str> {
+    fn measurement_name_opt(p: &Measurement<Self>) -> Option<&str> {
         Some(p.specific.shortname.0.as_str())
+    }
+
+    fn measurement_name(p: &Measurement<Self>, _: usize) -> Shortname {
+        p.specific.shortname.clone()
     }
 
     fn lookup_specific(st: &mut KwParser, n: usize) -> Option<InnerMeasurement3_1> {
@@ -3230,8 +3254,12 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
 impl VersionedMeasurement for InnerMeasurement3_2 {
     type D = OptionalKw<NumType>;
 
-    fn measurement_name(p: &Measurement<Self>) -> Option<&str> {
+    fn measurement_name_opt(p: &Measurement<Self>) -> Option<&str> {
         Some(p.specific.shortname.0.as_str())
+    }
+
+    fn measurement_name(p: &Measurement<Self>, _: usize) -> Shortname {
+        p.specific.shortname.clone()
     }
 
     fn lookup_specific(st: &mut KwParser, n: usize) -> Option<InnerMeasurement3_2> {
@@ -3971,6 +3999,7 @@ where
 
     fn into_2_0(self, def: CoreDefaultsTo2_0) -> PureSuccess<CoreText2_0> {
         let metadata = self.metadata;
+        // ASSUME measurement defaults is same length as measurements
         let ms = self
             .measurements
             .into_iter()
@@ -4113,19 +4142,14 @@ where
     fn get_shortnames(&self) -> Vec<&str> {
         self.measurements
             .iter()
-            .filter_map(|p| M::P::measurement_name(p))
+            .filter_map(|p| M::P::measurement_name_opt(p))
             .collect()
     }
 
     fn get_all_shortnames(ms: &[Measurement2_0]) -> Vec<Shortname> {
         ms.iter()
             .enumerate()
-            .map(|(i, p)| {
-                InnerMeasurement2_0::measurement_name(p)
-                    .map(String::from)
-                    .unwrap_or(format!("M{i}"))
-            })
-            .map(Shortname)
+            .map(|(i, p)| InnerMeasurement2_0::measurement_name(p, i))
             .collect()
     }
 }
@@ -7029,12 +7053,69 @@ trait IntoMetadata<T, D>: Sized {
         })
     }
 
+    // fn convert_core(m: CoreTEXT<Self, P>, def: D) -> PureSuccess<CoreTEXT<T, P>> {
+    //     let metadata = m.metadata;
+    //     // ASSUME measurement defaults is same length as measurements
+    //     let ms = self
+    //         .measurements
+    //         .into_iter()
+    //         .zip(def.measurements)
+    //         .map(|(m, d)| Self::convert(m, d.into()))
+    //         .collect();
+    //     PureSuccess::sequence(ms).and_then(|measurements| {
+    //         let ms = Self::get_all_shortnames(&measurements[..]);
+    //         M::convert(metadata, def.metadata.into(), &ms).map(|metadata| CoreTEXT {
+    //             measurements,
+    //             metadata,
+    //         })
+    //     })
+    // }
+
     fn convert_inner(
         self,
         def: Self::DefaultsXToY,
         ns: &mut RawKeywords,
         ms: &[Shortname],
     ) -> PureSuccess<T>;
+}
+
+trait IntoCore<ToM, ToP, DM, DP>: Sized
+where
+    ToM: VersionedMetadata,
+    ToP: VersionedMeasurement,
+    DM: From<<Self::FromM as IntoMetadata<ToM, DM>>::DefaultsXToY>,
+    DP: From<<Self::FromP as IntoMeasurement<ToP, DP>>::DefaultsXToY>,
+{
+    type FromM: IntoMetadata<ToM, DM>;
+    type FromP: IntoMeasurement<ToP, DP>;
+
+    fn convert_core(
+        c: CoreTEXT<Self::FromM, Self::FromP>,
+        def: CoreDefaults<DM, DP>,
+    ) -> PureSuccess<CoreTEXT<ToM, ToP>> {
+        let metadata = c.metadata;
+        // ASSUME measurement defaults is same length as measurements
+        let ms = c
+            .measurements
+            .into_iter()
+            .zip(def.measurements)
+            .map(|(m, d)| Self::FromP::convert(m, d.into()))
+            .collect();
+        PureSuccess::sequence(ms).and_then(|measurements| {
+            let ms = Self::get_all_shortnames(&measurements[..]);
+            Self::FromM::convert(metadata, def.metadata.into(), &ms).map(|metadata| CoreTEXT {
+                measurements,
+                metadata,
+            })
+        })
+    }
+
+    fn get_all_shortnames(ms: &[Measurement<ToP>]) -> Vec<Shortname> {
+        ms.iter()
+            .enumerate()
+            .map(|(i, p)| ToP::measurement_name(p, i))
+            .collect()
+    }
 }
 
 /// Values that may be be used for an optional keyword when converting versions

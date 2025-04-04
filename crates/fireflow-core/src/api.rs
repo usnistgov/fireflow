@@ -1542,8 +1542,6 @@ where
 }
 
 trait VersionedMeasurement: Sized + Versioned {
-    type D;
-
     fn lookup_specific(st: &mut KwParser, n: usize) -> Option<Self>;
 
     fn measurement_name_opt(p: &Measurement<Self>) -> Option<&str>;
@@ -1655,6 +1653,12 @@ trait VersionedMeasurement: Sized + Versioned {
             )
             .collect()
     }
+}
+
+trait VersionedCore
+where
+    Self: Sized,
+{
 }
 
 trait VersionedParserMeasurement: Sized {
@@ -3116,8 +3120,6 @@ impl Versioned for InnerMeasurement3_2 {
 }
 
 impl VersionedMeasurement for InnerMeasurement2_0 {
-    type D = ();
-
     fn measurement_name_opt(p: &Measurement<Self>) -> Option<&str> {
         p.specific
             .shortname
@@ -3159,8 +3161,6 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
 }
 
 impl VersionedMeasurement for InnerMeasurement3_0 {
-    type D = ();
-
     fn measurement_name_opt(p: &Measurement<Self>) -> Option<&str> {
         p.specific
             .shortname
@@ -3204,8 +3204,6 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
 }
 
 impl VersionedMeasurement for InnerMeasurement3_1 {
-    type D = ();
-
     fn measurement_name_opt(p: &Measurement<Self>) -> Option<&str> {
         Some(p.specific.shortname.0.as_str())
     }
@@ -3248,8 +3246,6 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
 }
 
 impl VersionedMeasurement for InnerMeasurement3_2 {
-    type D = OptionalKw<NumType>;
-
     fn measurement_name_opt(p: &Measurement<Self>) -> Option<&str> {
         Some(p.specific.shortname.0.as_str())
     }

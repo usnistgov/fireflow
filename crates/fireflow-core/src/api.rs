@@ -1376,8 +1376,16 @@ trait Versioned {
     fn fcs_version() -> Version;
 }
 
-trait VersionedMetadata: Sized + VersionedParserMetadata {
-    type P: VersionedMeasurement + VersionedParserMeasurement;
+trait VersionedMetadata: Sized + VersionedParserMetadata
+where
+    Self::P: VersionedMeasurement,
+    Self::P: VersionedParserMeasurement,
+    Self::P: IntoMeasurement<InnerMeasurement2_0, MeasurementDefaultsTo2_0>,
+    // Self::P: IntoMeasurement<InnerMeasurement3_0, MeasurementDefaultsTo3_0>,
+    // Self::P: IntoMeasurement<InnerMeasurement3_1, MeasurementDefaultsTo3_1>,
+    Self::P: IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2>,
+{
+    type P;
 
     fn into_any(s: CoreTEXT<Self, Self::P>) -> AnyCoreTEXT;
 
@@ -3457,6 +3465,312 @@ impl AnyCoreTEXT {
         }
     }
 
+    // pub fn into_2_0(self, def: CoreDefaultsTo2_0) -> PureSuccess<CoreText2_0> {
+    //     match self {
+    //         AnyCoreTEXT::FCS2_0(c) => PureSuccess::from(*c),
+    //         AnyCoreTEXT::FCS3_0(c) => {
+    //             let metadata = c.metadata;
+    //             let ms = c
+    //                 .measurements
+    //                 .into_iter()
+    //                 .zip(def.measurements)
+    //                 .map(|(m, d)| IntoMeasurement::<InnerMeasurement2_0>::convert(m, d.into()))
+    //                 .collect();
+    //             PureSuccess::sequence(ms).and_then(|measurements| {
+    //                 let ms: Vec<_> = measurements
+    //                     .iter()
+    //                     .enumerate()
+    //                     .map(|(i, m)| {
+    //                         m.specific
+    //                             .shortname
+    //                             .clone()
+    //                             .into_option()
+    //                             .unwrap_or(Shortname(format!("M{i}")))
+    //                     })
+    //                     .collect();
+    //                 IntoMetadata::<InnerMetadata2_0>::convert(metadata, def.metadata.into(), &ms)
+    //                     .map(|metadata| CoreTEXT {
+    //                         measurements,
+    //                         metadata,
+    //                     })
+    //             })
+    //         }
+    //         AnyCoreTEXT::FCS3_1(c) => {
+    //             let metadata = c.metadata;
+    //             let ms = c
+    //                 .measurements
+    //                 .into_iter()
+    //                 .zip(def.measurements)
+    //                 .map(|(m, d)| IntoMeasurement::<InnerMeasurement2_0>::convert(m, d.into()))
+    //                 .collect();
+    //             PureSuccess::sequence(ms).and_then(|measurements| {
+    //                 let ms: Vec<_> = measurements
+    //                     .iter()
+    //                     .enumerate()
+    //                     .map(|(i, m)| {
+    //                         m.specific
+    //                             .shortname
+    //                             .clone()
+    //                             .into_option()
+    //                             .unwrap_or(Shortname(format!("M{i}")))
+    //                     })
+    //                     .collect();
+    //                 IntoMetadata::<InnerMetadata2_0>::convert(metadata, def.metadata.into(), &ms)
+    //                     .map(|metadata| CoreTEXT {
+    //                         measurements,
+    //                         metadata,
+    //                     })
+    //             })
+    //         }
+    //         AnyCoreTEXT::FCS3_2(c) => {
+    //             let metadata = c.metadata;
+    //             let ms = c
+    //                 .measurements
+    //                 .into_iter()
+    //                 .zip(def.measurements)
+    //                 .map(|(m, d)| IntoMeasurement::<InnerMeasurement2_0>::convert(m, d.into()))
+    //                 .collect();
+    //             PureSuccess::sequence(ms).and_then(|measurements| {
+    //                 let ms: Vec<_> = measurements
+    //                     .iter()
+    //                     .enumerate()
+    //                     .map(|(i, m)| {
+    //                         m.specific
+    //                             .shortname
+    //                             .clone()
+    //                             .into_option()
+    //                             .unwrap_or(Shortname(format!("M{i}")))
+    //                     })
+    //                     .collect();
+    //                 IntoMetadata::<InnerMetadata2_0>::convert(metadata, def.metadata.into(), &ms)
+    //                     .map(|metadata| CoreTEXT {
+    //                         measurements,
+    //                         metadata,
+    //                     })
+    //             })
+    //         }
+    //     }
+    // }
+
+    // pub fn into_3_0(self, def: CoreDefaultsTo3_0) -> PureSuccess<CoreText3_0> {
+    //     match self {
+    //         AnyCoreTEXT::FCS2_0(c) => {
+    //             let metadata = c.metadata;
+    //             let ms = c
+    //                 .measurements
+    //                 .into_iter()
+    //                 .zip(def.measurements)
+    //                 .map(|(m, d)| IntoMeasurement::<InnerMeasurement3_0>::convert(m, d.into()))
+    //                 .collect();
+    //             PureSuccess::sequence(ms).and_then(|measurements| {
+    //                 let ms: Vec<_> = measurements
+    //                     .iter()
+    //                     .enumerate()
+    //                     .map(|(i, m)| {
+    //                         m.specific
+    //                             .shortname
+    //                             .clone()
+    //                             .into_option()
+    //                             .unwrap_or(Shortname(format!("M{i}")))
+    //                     })
+    //                     .collect();
+    //                 IntoMetadata::<InnerMetadata3_0>::convert(metadata, def.metadata.into(), &ms)
+    //                     .map(|metadata| CoreTEXT {
+    //                         measurements,
+    //                         metadata,
+    //                     })
+    //             })
+    //         }
+    //         AnyCoreTEXT::FCS3_0(c) => PureSuccess::from(*c),
+    //         AnyCoreTEXT::FCS3_1(c) => {
+    //             let metadata = c.metadata;
+    //             let ms = c
+    //                 .measurements
+    //                 .into_iter()
+    //                 .zip(def.measurements)
+    //                 .map(|(m, d)| IntoMeasurement::<InnerMeasurement3_0>::convert(m, d.into()))
+    //                 .collect();
+    //             PureSuccess::sequence(ms).and_then(|measurements| {
+    //                 let ms: Vec<_> = measurements
+    //                     .iter()
+    //                     .enumerate()
+    //                     .map(|(i, m)| {
+    //                         m.specific
+    //                             .shortname
+    //                             .clone()
+    //                             .into_option()
+    //                             .unwrap_or(Shortname(format!("M{i}")))
+    //                     })
+    //                     .collect();
+    //                 IntoMetadata::<InnerMetadata3_0>::convert(metadata, def.metadata.into(), &ms)
+    //                     .map(|metadata| CoreTEXT {
+    //                         measurements,
+    //                         metadata,
+    //                     })
+    //             })
+    //         }
+    //         AnyCoreTEXT::FCS3_2(c) => {
+    //             let metadata = c.metadata;
+    //             let ms = c
+    //                 .measurements
+    //                 .into_iter()
+    //                 .zip(def.measurements)
+    //                 .map(|(m, d)| IntoMeasurement::<InnerMeasurement3_0>::convert(m, d.into()))
+    //                 .collect();
+    //             PureSuccess::sequence(ms).and_then(|measurements| {
+    //                 let ms: Vec<_> = measurements
+    //                     .iter()
+    //                     .enumerate()
+    //                     .map(|(i, m)| {
+    //                         m.specific
+    //                             .shortname
+    //                             .clone()
+    //                             .into_option()
+    //                             .unwrap_or(Shortname(format!("M{i}")))
+    //                     })
+    //                     .collect();
+    //                 IntoMetadata::<InnerMetadata3_0>::convert(metadata, def.metadata.into(), &ms)
+    //                     .map(|metadata| CoreTEXT {
+    //                         measurements,
+    //                         metadata,
+    //                     })
+    //             })
+    //         }
+    //     }
+    // }
+
+    // pub fn into_3_1(self, def: CoreDefaultsTo3_1) -> PureSuccess<CoreText3_1> {
+    //     match self {
+    //         AnyCoreTEXT::FCS2_0(c) => {
+    //             let metadata = c.metadata;
+    //             let ms = c
+    //                 .measurements
+    //                 .into_iter()
+    //                 .zip(def.measurements)
+    //                 .map(|(m, d)| IntoMeasurement::<InnerMeasurement3_1>::convert(m, d.into()))
+    //                 .collect();
+    //             PureSuccess::sequence(ms).and_then(|measurements| {
+    //                 let ms: Vec<_> = measurements
+    //                     .iter()
+    //                     .map(|m| m.specific.shortname.clone())
+    //                     .collect();
+    //                 IntoMetadata::<InnerMetadata3_1>::convert(metadata, def.metadata.into(), &ms)
+    //                     .map(|metadata| CoreTEXT {
+    //                         measurements,
+    //                         metadata,
+    //                     })
+    //             })
+    //         }
+    //         AnyCoreTEXT::FCS3_0(c) => {
+    //             let metadata = c.metadata;
+    //             let ms = c
+    //                 .measurements
+    //                 .into_iter()
+    //                 .zip(def.measurements)
+    //                 .map(|(m, d)| IntoMeasurement::<InnerMeasurement3_1>::convert(m, d.into()))
+    //                 .collect();
+    //             PureSuccess::sequence(ms).and_then(|measurements| {
+    //                 let ms: Vec<_> = measurements
+    //                     .iter()
+    //                     .map(|m| m.specific.shortname.clone())
+    //                     .collect();
+    //                 IntoMetadata::<InnerMetadata3_1>::convert(metadata, def.metadata.into(), &ms)
+    //                     .map(|metadata| CoreTEXT {
+    //                         measurements,
+    //                         metadata,
+    //                     })
+    //             })
+    //         }
+    //         AnyCoreTEXT::FCS3_1(c) => PureSuccess::from(*c),
+    //         AnyCoreTEXT::FCS3_2(c) => {
+    //             let metadata = c.metadata;
+    //             let ms = c
+    //                 .measurements
+    //                 .into_iter()
+    //                 .zip(def.measurements)
+    //                 .map(|(m, d)| IntoMeasurement::<InnerMeasurement3_1>::convert(m, d.into()))
+    //                 .collect();
+    //             PureSuccess::sequence(ms).and_then(|measurements| {
+    //                 let ms: Vec<_> = measurements
+    //                     .iter()
+    //                     .map(|m| m.specific.shortname.clone())
+    //                     .collect();
+    //                 IntoMetadata::<InnerMetadata3_1>::convert(metadata, def.metadata.into(), &ms)
+    //                     .map(|metadata| CoreTEXT {
+    //                         measurements,
+    //                         metadata,
+    //                     })
+    //             })
+    //         }
+    //     }
+    // }
+
+    // pub fn into_3_2(self, def: CoreDefaultsTo3_2) -> PureSuccess<CoreText3_2> {
+    //     match self {
+    //         AnyCoreTEXT::FCS2_0(c) => {
+    //             let metadata = c.metadata;
+    //             let ms = c
+    //                 .measurements
+    //                 .into_iter()
+    //                 .zip(def.measurements)
+    //                 .map(|(m, d)| IntoMeasurement::<InnerMeasurement3_2>::convert(m, d.into()))
+    //                 .collect();
+    //             PureSuccess::sequence(ms).and_then(|measurements| {
+    //                 let ms: Vec<_> = measurements
+    //                     .iter()
+    //                     .map(|m| m.specific.shortname.clone())
+    //                     .collect();
+    //                 IntoMetadata::<InnerMetadata3_2>::convert(metadata, def.metadata.into(), &ms)
+    //                     .map(|metadata| CoreTEXT {
+    //                         measurements,
+    //                         metadata,
+    //                     })
+    //             })
+    //         }
+    //         AnyCoreTEXT::FCS3_0(c) => {
+    //             let metadata = c.metadata;
+    //             let ms = c
+    //                 .measurements
+    //                 .into_iter()
+    //                 .zip(def.measurements)
+    //                 .map(|(m, d)| IntoMeasurement::<InnerMeasurement3_2>::convert(m, d.into()))
+    //                 .collect();
+    //             PureSuccess::sequence(ms).and_then(|measurements| {
+    //                 let ms: Vec<_> = measurements
+    //                     .iter()
+    //                     .map(|m| m.specific.shortname.clone())
+    //                     .collect();
+    //                 IntoMetadata::<InnerMetadata3_2>::convert(metadata, def.metadata.into(), &ms)
+    //                     .map(|metadata| CoreTEXT {
+    //                         measurements,
+    //                         metadata,
+    //                     })
+    //             })
+    //         }
+    //         AnyCoreTEXT::FCS3_1(c) => {
+    //             let metadata = c.metadata;
+    //             let ms = c
+    //                 .measurements
+    //                 .into_iter()
+    //                 .zip(def.measurements)
+    //                 .map(|(m, d)| IntoMeasurement::<InnerMeasurement3_2>::convert(m, d.into()))
+    //                 .collect();
+    //             PureSuccess::sequence(ms).and_then(|measurements| {
+    //                 let ms: Vec<_> = measurements
+    //                     .iter()
+    //                     .map(|m| m.specific.shortname.clone())
+    //                     .collect();
+    //                 IntoMetadata::<InnerMetadata3_2>::convert(metadata, def.metadata.into(), &ms)
+    //                     .map(|metadata| CoreTEXT {
+    //                         measurements,
+    //                         metadata,
+    //                     })
+    //             })
+    //         }
+    //         AnyCoreTEXT::FCS3_2(c) => PureSuccess::from(*c),
+    //     }
+    // }
+
     pub fn text_segment(
         &self,
         tot: usize,
@@ -3595,7 +3909,15 @@ fn build_data_reader(layout: ReaderDataLayout, data_seg: &Segment) -> DataReader
     }
 }
 
-impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
+impl<M> CoreTEXT<M, M::P>
+where
+    M: VersionedMetadata,
+    M: VersionedParserMetadata,
+    M: IntoMetadata<InnerMetadata2_0, MetadataDefaultsTo2_0>,
+    M: IntoMetadata<InnerMetadata3_0, MetadataDefaultsTo3_0>,
+    M: IntoMetadata<InnerMetadata3_1, MetadataDefaultsTo3_1>,
+    M: IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2>,
+{
     /// Return HEADER+TEXT as a list of strings
     ///
     /// The first member will be a string exactly 58 bytes long which will be
@@ -3645,6 +3967,28 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
                 .chain(req_opt_kws)
                 .collect(),
         )
+    }
+
+    fn into_2_0(self, def: CoreDefaultsTo2_0) -> PureSuccess<CoreText2_0> {
+        let metadata = self.metadata;
+        let ms = self
+            .measurements
+            .into_iter()
+            .zip(def.measurements)
+            .map(|(m, d)| {
+                <M::P as IntoMeasurement<InnerMeasurement2_0, MeasurementDefaultsTo2_0>>::convert(
+                    m,
+                    d.into(),
+                )
+            })
+            .collect();
+        PureSuccess::sequence(ms).and_then(|measurements| {
+            let ms = Self::get_all_shortnames(&measurements[..]);
+            M::convert(metadata, def.metadata.into(), &ms).map(|metadata| CoreTEXT {
+                measurements,
+                metadata,
+            })
+        })
     }
 
     fn par(&self) -> usize {
@@ -3770,6 +4114,18 @@ impl<M: VersionedMetadata + VersionedParserMetadata> CoreTEXT<M, M::P> {
         self.measurements
             .iter()
             .filter_map(|p| M::P::measurement_name(p))
+            .collect()
+    }
+
+    fn get_all_shortnames(ms: &[Measurement2_0]) -> Vec<Shortname> {
+        ms.iter()
+            .enumerate()
+            .map(|(i, p)| {
+                InnerMeasurement2_0::measurement_name(p)
+                    .map(String::from)
+                    .unwrap_or(format!("M{i}"))
+            })
+            .map(Shortname)
             .collect()
     }
 }
@@ -6617,10 +6973,10 @@ impl From<Endian> for ByteOrd {
     }
 }
 
-trait IntoMeasurement<T>: Sized {
-    type Defaults;
+trait IntoMeasurement<T, Y>: Sized {
+    type DefaultsXToY: From<Y>;
 
-    fn into(m: Measurement<Self>, def: Self::Defaults) -> PureSuccess<Measurement<T>> {
+    fn convert(m: Measurement<Self>, def: Self::DefaultsXToY) -> PureSuccess<Measurement<T>> {
         let mut m = m;
         Self::convert_inner(m.specific, def, &mut m.nonstandard_keywords).map(|specific| {
             Measurement {
@@ -6638,13 +6994,17 @@ trait IntoMeasurement<T>: Sized {
         })
     }
 
-    fn convert_inner(self, def: Self::Defaults, ns: &mut RawKeywords) -> PureSuccess<T>;
+    fn convert_inner(self, def: Self::DefaultsXToY, ns: &mut RawKeywords) -> PureSuccess<T>;
 }
 
-trait IntoMetadata<T>: Sized {
-    type Defaults;
+trait IntoMetadata<T, D>: Sized {
+    type DefaultsXToY: From<D>;
 
-    fn into(m: Metadata<Self>, def: Self::Defaults, ms: &[Shortname]) -> PureSuccess<Metadata<T>> {
+    fn convert(
+        m: Metadata<Self>,
+        def: Self::DefaultsXToY,
+        ms: &[Shortname],
+    ) -> PureSuccess<Metadata<T>> {
         let mut m = m;
         Self::convert_inner(m.specific, def, &mut m.nonstandard_keywords, ms).map(|specific| {
             // TODO this seems silly, break struct up into common bits
@@ -6657,13 +7017,13 @@ trait IntoMetadata<T>: Sized {
                 fil: m.fil,
                 inst: m.inst,
                 lost: m.lost,
-                nonstandard_keywords: m.nonstandard_keywords,
                 op: m.op,
                 proj: m.proj,
                 smno: m.smno,
                 sys: m.sys,
                 src: m.src,
                 tr: m.tr,
+                nonstandard_keywords: m.nonstandard_keywords,
                 specific,
             }
         })
@@ -6671,7 +7031,7 @@ trait IntoMetadata<T>: Sized {
 
     fn convert_inner(
         self,
-        def: Self::Defaults,
+        def: Self::DefaultsXToY,
         ns: &mut RawKeywords,
         ms: &[Shortname],
     ) -> PureSuccess<T>;
@@ -6735,6 +7095,8 @@ struct DatetimesDefaults {
     end: DefaultOptional<FCSDateTime>,
 }
 
+struct MetadataDefaults2_0To2_0;
+
 struct MetadataDefaults3_0To2_0;
 
 struct MetadataDefaults3_1To2_0 {
@@ -6744,6 +7106,8 @@ struct MetadataDefaults3_1To2_0 {
 struct MetadataDefaults3_2To2_0 {
     comp: DefaultMatrix<Compensation>,
 }
+
+struct MetadataDefaults3_0To3_0;
 
 struct MetadataDefaults2_0To3_0 {
     byteord: DefaultOptional<String>,
@@ -6762,6 +7126,8 @@ struct MetadataDefaults3_2To3_0 {
     comp: DefaultMatrix<Compensation>,
     unicode: DefaultOptional<Unicode>,
 }
+
+struct MetadataDefaults3_1To3_1;
 
 struct MetadataDefaults2_0To3_1 {
     endian: Endian,
@@ -6782,6 +7148,8 @@ struct MetadataDefaults3_0To3_1 {
 }
 
 struct MetadataDefaults3_2To3_1;
+
+struct MetadataDefaults3_2To3_2;
 
 struct MetadataDefaults2_0To3_2 {
     endian: Endian,
@@ -6819,11 +7187,157 @@ struct MetadataDefaults3_1To3_2 {
     datetimes: DatetimesDefaults,
 }
 
+struct MetadataDefaultsTo2_0 {
+    comp: DefaultMatrix<Compensation>,
+}
+
+struct MetadataDefaultsTo3_0 {
+    byteord: DefaultOptional<String>,
+    cytsn: DefaultOptional<String>,
+    timestep: DefaultOptional<f32>,
+    vol: DefaultOptional<String>,
+    unicode: DefaultOptional<Unicode>,
+    comp: DefaultMatrix<Compensation>,
+}
+
+struct MetadataDefaultsTo3_1 {
+    endian: Endian,
+    cytsn: DefaultOptional<String>,
+    timestep: DefaultOptional<f32>,
+    vol: DefaultOptional<f32>,
+    spillover: DefaultMatrix<Spillover>,
+    modification: ModificationDefaults,
+    plate: PlateDefaults,
+}
+
+struct MetadataDefaultsTo3_2 {
+    endian: Endian,
+    cyt: String,
+    cytsn: DefaultOptional<String>,
+    timestep: DefaultOptional<f32>,
+    vol: DefaultOptional<f32>,
+    spillover: DefaultMatrix<Spillover>,
+    flowrate: DefaultOptional<String>,
+    modification: ModificationDefaults,
+    plate: PlateDefaults,
+    unstained: UnstainedDefaults,
+    carrier: CarrierDefaults,
+    datetimes: DatetimesDefaults,
+}
+
+macro_rules! txfr_keys {
+    ($from:ident, $to:ident, [$($key:ident),*]) => {
+        impl From<$from> for $to {
+            fn from(_value: $from) -> Self {
+                $to {
+                    $(
+                        $key: _value.$key,
+                    )*
+                }
+            }
+        }
+    };
+}
+
+txfr_keys!(MetadataDefaultsTo2_0, MetadataDefaults2_0To2_0, []);
+
+txfr_keys!(MetadataDefaultsTo2_0, MetadataDefaults3_0To2_0, []);
+
+txfr_keys!(MetadataDefaultsTo2_0, MetadataDefaults3_1To2_0, [comp]);
+
+txfr_keys!(MetadataDefaultsTo2_0, MetadataDefaults3_2To2_0, [comp]);
+
+txfr_keys!(MetadataDefaultsTo3_0, MetadataDefaults3_0To3_0, []);
+
+txfr_keys!(
+    MetadataDefaultsTo3_0,
+    MetadataDefaults2_0To3_0,
+    [byteord, cytsn, timestep, vol, unicode]
+);
+
+txfr_keys!(
+    MetadataDefaultsTo3_0,
+    MetadataDefaults3_1To3_0,
+    [comp, unicode]
+);
+
+txfr_keys!(
+    MetadataDefaultsTo3_0,
+    MetadataDefaults3_2To3_0,
+    [comp, unicode]
+);
+
+txfr_keys!(MetadataDefaultsTo3_1, MetadataDefaults3_1To3_1, []);
+
+txfr_keys!(
+    MetadataDefaultsTo3_1,
+    MetadataDefaults2_0To3_1,
+    [endian, cytsn, timestep, vol, spillover, modification, plate]
+);
+
+txfr_keys!(
+    MetadataDefaultsTo3_1,
+    MetadataDefaults3_0To3_1,
+    [endian, vol, spillover, modification, plate]
+);
+
+txfr_keys!(MetadataDefaultsTo3_1, MetadataDefaults3_2To3_1, []);
+
+txfr_keys!(MetadataDefaultsTo3_2, MetadataDefaults3_2To3_2, []);
+
+txfr_keys!(
+    MetadataDefaultsTo3_2,
+    MetadataDefaults2_0To3_2,
+    [
+        endian,
+        cyt,
+        flowrate,
+        cytsn,
+        timestep,
+        vol,
+        spillover,
+        modification,
+        plate,
+        unstained,
+        carrier,
+        datetimes
+    ]
+);
+
+txfr_keys!(
+    MetadataDefaultsTo3_2,
+    MetadataDefaults3_0To3_2,
+    [
+        endian,
+        cyt,
+        flowrate,
+        vol,
+        spillover,
+        modification,
+        plate,
+        unstained,
+        carrier,
+        datetimes
+    ]
+);
+
+txfr_keys!(
+    MetadataDefaultsTo3_2,
+    MetadataDefaults3_1To3_2,
+    [cyt, flowrate, unstained, carrier, datetimes]
+);
+
+struct MeasurementDefaults2_0To2_0;
+
 struct MeasurementDefaults3_0To2_0;
 
 struct MeasurementDefaults3_1To2_0;
 
 struct MeasurementDefaults3_2To2_0;
+
+struct MeasurementDefaultsTo2_0;
+
+struct MeasurementDefaults3_0To3_0;
 
 struct MeasurementDefaults2_0To3_0 {
     scale: Scale,
@@ -6833,6 +7347,13 @@ struct MeasurementDefaults2_0To3_0 {
 struct MeasurementDefaults3_1To3_0;
 
 struct MeasurementDefaults3_2To3_0;
+
+struct MeasurementDefaultsTo3_0 {
+    scale: Scale,
+    gain: DefaultOptional<f32>,
+}
+
+struct MeasurementDefaults3_1To3_1;
 
 struct MeasurementDefaults2_0To3_1 {
     scale: Scale,
@@ -6849,6 +7370,16 @@ struct MeasurementDefaults3_0To3_1 {
 }
 
 struct MeasurementDefaults3_2To3_1;
+
+struct MeasurementDefaultsTo3_1 {
+    scale: Scale,
+    shortname: Shortname,
+    gain: DefaultOptional<f32>,
+    calibration: DefaultOptional<Calibration3_1>,
+    display: DefaultOptional<Display>,
+}
+
+struct MeasurementDefaults3_2To3_2;
 
 struct MeasurementDefaults2_0To3_2 {
     scale: Scale,
@@ -6885,12 +7416,160 @@ struct MeasurementDefaults3_1To3_2 {
     measurement_type: DefaultOptional<MeasurementType>,
 }
 
-impl IntoMeasurement<InnerMeasurement2_0> for InnerMeasurement3_0 {
-    type Defaults = MeasurementDefaults3_0To2_0;
+struct MeasurementDefaultsTo3_2 {
+    scale: Scale,
+    shortname: Shortname,
+    gain: DefaultOptional<f32>,
+    calibration: DefaultOptional<Calibration3_2>,
+    display: DefaultOptional<Display>,
+    analyte: DefaultOptional<String>,
+    tag: DefaultOptional<String>,
+    detector_name: DefaultOptional<String>,
+    feature: DefaultOptional<Feature>,
+    datatype: DefaultOptional<NumType>,
+    measurement_type: DefaultOptional<MeasurementType>,
+}
+
+txfr_keys!(MeasurementDefaultsTo2_0, MeasurementDefaults2_0To2_0, []);
+
+txfr_keys!(MeasurementDefaultsTo2_0, MeasurementDefaults3_0To2_0, []);
+
+txfr_keys!(MeasurementDefaultsTo2_0, MeasurementDefaults3_1To2_0, []);
+
+txfr_keys!(MeasurementDefaultsTo2_0, MeasurementDefaults3_2To2_0, []);
+
+txfr_keys!(
+    MeasurementDefaultsTo3_0,
+    MeasurementDefaults2_0To3_0,
+    [gain, scale]
+);
+
+txfr_keys!(MeasurementDefaultsTo3_0, MeasurementDefaults3_0To3_0, []);
+
+txfr_keys!(MeasurementDefaultsTo3_0, MeasurementDefaults3_1To3_0, []);
+
+txfr_keys!(MeasurementDefaultsTo3_0, MeasurementDefaults3_2To3_0, []);
+
+txfr_keys!(
+    MeasurementDefaultsTo3_1,
+    MeasurementDefaults2_0To3_1,
+    [scale, shortname, gain, calibration, display]
+);
+
+txfr_keys!(
+    MeasurementDefaultsTo3_1,
+    MeasurementDefaults3_0To3_1,
+    [shortname, calibration, display]
+);
+
+txfr_keys!(MeasurementDefaultsTo3_1, MeasurementDefaults3_1To3_1, []);
+
+txfr_keys!(MeasurementDefaultsTo3_1, MeasurementDefaults3_2To3_1, []);
+
+txfr_keys!(
+    MeasurementDefaultsTo3_2,
+    MeasurementDefaults2_0To3_2,
+    [
+        scale,
+        shortname,
+        gain,
+        calibration,
+        display,
+        analyte,
+        tag,
+        detector_name,
+        feature,
+        datatype,
+        measurement_type
+    ]
+);
+
+txfr_keys!(
+    MeasurementDefaultsTo3_2,
+    MeasurementDefaults3_0To3_2,
+    [
+        shortname,
+        calibration,
+        display,
+        analyte,
+        tag,
+        detector_name,
+        feature,
+        datatype,
+        measurement_type
+    ]
+);
+
+txfr_keys!(
+    MeasurementDefaultsTo3_2,
+    MeasurementDefaults3_1To3_2,
+    [
+        analyte,
+        tag,
+        detector_name,
+        feature,
+        datatype,
+        measurement_type
+    ]
+);
+
+txfr_keys!(MeasurementDefaultsTo3_2, MeasurementDefaults3_2To3_2, []);
+
+struct CoreDefaults<X, Y> {
+    metadata: X,
+    measurements: Vec<Y>,
+}
+
+type CoreDefaults3_0To2_0 = CoreDefaults<MetadataDefaults3_0To2_0, MeasurementDefaults3_0To2_0>;
+type CoreDefaults3_1To2_0 = CoreDefaults<MetadataDefaults3_1To2_0, MeasurementDefaults3_1To2_0>;
+type CoreDefaults3_2To2_0 = CoreDefaults<MetadataDefaults3_2To2_0, MeasurementDefaults3_2To2_0>;
+
+type CoreDefaults2_0To3_0 = CoreDefaults<MetadataDefaults2_0To3_0, MeasurementDefaults2_0To3_0>;
+type CoreDefaults3_1To3_0 = CoreDefaults<MetadataDefaults3_1To3_0, MeasurementDefaults3_1To3_0>;
+type CoreDefaults3_2To3_0 = CoreDefaults<MetadataDefaults3_2To3_0, MeasurementDefaults3_2To3_0>;
+
+type CoreDefaults2_0To3_1 = CoreDefaults<MetadataDefaults2_0To3_1, MeasurementDefaults2_0To3_1>;
+type CoreDefaults3_0To3_1 = CoreDefaults<MetadataDefaults3_0To3_1, MeasurementDefaults3_0To3_1>;
+type CoreDefaults3_2To3_1 = CoreDefaults<MetadataDefaults3_2To3_1, MeasurementDefaults3_2To3_1>;
+
+type CoreDefaults2_0To3_2 = CoreDefaults<MetadataDefaults2_0To3_2, MeasurementDefaults2_0To3_2>;
+type CoreDefaults3_0To3_2 = CoreDefaults<MetadataDefaults3_0To3_2, MeasurementDefaults3_0To3_2>;
+type CoreDefaults3_1To3_2 = CoreDefaults<MetadataDefaults3_1To3_2, MeasurementDefaults3_1To3_2>;
+
+type CoreDefaultsTo2_0 = CoreDefaults<MetadataDefaultsTo2_0, MeasurementDefaultsTo2_0>;
+type CoreDefaultsTo3_0 = CoreDefaults<MetadataDefaultsTo3_0, MeasurementDefaultsTo3_0>;
+type CoreDefaultsTo3_1 = CoreDefaults<MetadataDefaultsTo3_1, MeasurementDefaultsTo3_1>;
+type CoreDefaultsTo3_2 = CoreDefaults<MetadataDefaultsTo3_2, MeasurementDefaultsTo3_2>;
+
+fn project_defaults<A, B, X, Y>(value: CoreDefaults<A, B>) -> CoreDefaults<X, Y>
+where
+    A: Into<X>,
+    B: Into<Y>,
+{
+    CoreDefaults {
+        metadata: value.metadata.into(),
+        measurements: value.measurements.into_iter().map(|m| m.into()).collect(),
+    }
+}
+
+impl IntoMeasurement<InnerMeasurement2_0, MeasurementDefaultsTo2_0> for InnerMeasurement2_0 {
+    type DefaultsXToY = MeasurementDefaults2_0To2_0;
 
     fn convert_inner(
         self,
-        _: Self::Defaults,
+        _: Self::DefaultsXToY,
+        _: &mut RawKeywords,
+    ) -> PureSuccess<InnerMeasurement2_0> {
+        PureSuccess::from(self)
+    }
+}
+
+impl IntoMeasurement<InnerMeasurement2_0, MeasurementDefaultsTo2_0> for InnerMeasurement3_0 {
+    type DefaultsXToY = MeasurementDefaults3_0To2_0;
+
+    fn convert_inner(
+        self,
+        _: Self::DefaultsXToY,
         _: &mut RawKeywords,
     ) -> PureSuccess<InnerMeasurement2_0> {
         PureSuccess::from(InnerMeasurement2_0 {
@@ -6901,12 +7580,12 @@ impl IntoMeasurement<InnerMeasurement2_0> for InnerMeasurement3_0 {
     }
 }
 
-impl IntoMeasurement<InnerMeasurement2_0> for InnerMeasurement3_1 {
-    type Defaults = MeasurementDefaults3_1To2_0;
+impl IntoMeasurement<InnerMeasurement2_0, MeasurementDefaultsTo2_0> for InnerMeasurement3_1 {
+    type DefaultsXToY = MeasurementDefaults3_1To2_0;
 
     fn convert_inner(
         self,
-        _: Self::Defaults,
+        _: Self::DefaultsXToY,
         _: &mut RawKeywords,
     ) -> PureSuccess<InnerMeasurement2_0> {
         PureSuccess::from(InnerMeasurement2_0 {
@@ -6917,12 +7596,12 @@ impl IntoMeasurement<InnerMeasurement2_0> for InnerMeasurement3_1 {
     }
 }
 
-impl IntoMeasurement<InnerMeasurement2_0> for InnerMeasurement3_2 {
-    type Defaults = MeasurementDefaults3_2To2_0;
+impl IntoMeasurement<InnerMeasurement2_0, MeasurementDefaultsTo2_0> for InnerMeasurement3_2 {
+    type DefaultsXToY = MeasurementDefaults3_2To2_0;
 
     fn convert_inner(
         self,
-        _: Self::Defaults,
+        _: Self::DefaultsXToY,
         _: &mut RawKeywords,
     ) -> PureSuccess<InnerMeasurement2_0> {
         PureSuccess::from(InnerMeasurement2_0 {
@@ -6933,12 +7612,12 @@ impl IntoMeasurement<InnerMeasurement2_0> for InnerMeasurement3_2 {
     }
 }
 
-impl IntoMeasurement<InnerMeasurement3_0> for InnerMeasurement2_0 {
-    type Defaults = MeasurementDefaults2_0To3_0;
+impl IntoMeasurement<InnerMeasurement3_0, MeasurementDefaultsTo3_0> for InnerMeasurement2_0 {
+    type DefaultsXToY = MeasurementDefaults2_0To3_0;
 
     fn convert_inner(
         self,
-        def: Self::Defaults,
+        def: Self::DefaultsXToY,
         ns: &mut RawKeywords,
     ) -> PureSuccess<InnerMeasurement3_0> {
         let scale = self.scale.into_option().unwrap_or(def.scale);
@@ -6951,12 +7630,24 @@ impl IntoMeasurement<InnerMeasurement3_0> for InnerMeasurement2_0 {
     }
 }
 
-impl IntoMeasurement<InnerMeasurement3_0> for InnerMeasurement3_1 {
-    type Defaults = MeasurementDefaults3_1To3_0;
+impl IntoMeasurement<InnerMeasurement3_0, MeasurementDefaultsTo3_0> for InnerMeasurement3_0 {
+    type DefaultsXToY = MeasurementDefaults3_0To3_0;
 
     fn convert_inner(
         self,
-        _: Self::Defaults,
+        _: Self::DefaultsXToY,
+        _: &mut RawKeywords,
+    ) -> PureSuccess<InnerMeasurement3_0> {
+        PureSuccess::from(self)
+    }
+}
+
+impl IntoMeasurement<InnerMeasurement3_0, MeasurementDefaultsTo3_0> for InnerMeasurement3_1 {
+    type DefaultsXToY = MeasurementDefaults3_1To3_0;
+
+    fn convert_inner(
+        self,
+        _: Self::DefaultsXToY,
         _: &mut RawKeywords,
     ) -> PureSuccess<InnerMeasurement3_0> {
         PureSuccess::from(InnerMeasurement3_0 {
@@ -6968,12 +7659,12 @@ impl IntoMeasurement<InnerMeasurement3_0> for InnerMeasurement3_1 {
     }
 }
 
-impl IntoMeasurement<InnerMeasurement3_0> for InnerMeasurement3_2 {
-    type Defaults = MeasurementDefaults3_2To3_0;
+impl IntoMeasurement<InnerMeasurement3_0, MeasurementDefaultsTo3_0> for InnerMeasurement3_2 {
+    type DefaultsXToY = MeasurementDefaults3_2To3_0;
 
     fn convert_inner(
         self,
-        _: Self::Defaults,
+        _: Self::DefaultsXToY,
         _: &mut RawKeywords,
     ) -> PureSuccess<InnerMeasurement3_0> {
         PureSuccess::from(InnerMeasurement3_0 {
@@ -6985,12 +7676,12 @@ impl IntoMeasurement<InnerMeasurement3_0> for InnerMeasurement3_2 {
     }
 }
 
-impl IntoMeasurement<InnerMeasurement3_1> for InnerMeasurement2_0 {
-    type Defaults = MeasurementDefaults2_0To3_1;
+impl IntoMeasurement<InnerMeasurement3_1, MeasurementDefaultsTo3_1> for InnerMeasurement2_0 {
+    type DefaultsXToY = MeasurementDefaults2_0To3_1;
 
     fn convert_inner(
         self,
-        def: Self::Defaults,
+        def: Self::DefaultsXToY,
         ns: &mut RawKeywords,
     ) -> PureSuccess<InnerMeasurement3_1> {
         let scale = self.scale.into_option().unwrap_or(def.scale);
@@ -7006,12 +7697,12 @@ impl IntoMeasurement<InnerMeasurement3_1> for InnerMeasurement2_0 {
     }
 }
 
-impl IntoMeasurement<InnerMeasurement3_1> for InnerMeasurement3_0 {
-    type Defaults = MeasurementDefaults3_0To3_1;
+impl IntoMeasurement<InnerMeasurement3_1, MeasurementDefaultsTo3_1> for InnerMeasurement3_0 {
+    type DefaultsXToY = MeasurementDefaults3_0To3_1;
 
     fn convert_inner(
         self,
-        def: Self::Defaults,
+        def: Self::DefaultsXToY,
         ns: &mut RawKeywords,
     ) -> PureSuccess<InnerMeasurement3_1> {
         let shortname = self.shortname.into_option().unwrap_or(def.shortname);
@@ -7026,12 +7717,24 @@ impl IntoMeasurement<InnerMeasurement3_1> for InnerMeasurement3_0 {
     }
 }
 
-impl IntoMeasurement<InnerMeasurement3_1> for InnerMeasurement3_2 {
-    type Defaults = MeasurementDefaults3_2To3_1;
+impl IntoMeasurement<InnerMeasurement3_1, MeasurementDefaultsTo3_1> for InnerMeasurement3_1 {
+    type DefaultsXToY = MeasurementDefaults3_1To3_1;
 
     fn convert_inner(
         self,
-        _: Self::Defaults,
+        _: Self::DefaultsXToY,
+        _: &mut RawKeywords,
+    ) -> PureSuccess<InnerMeasurement3_1> {
+        PureSuccess::from(self)
+    }
+}
+
+impl IntoMeasurement<InnerMeasurement3_1, MeasurementDefaultsTo3_1> for InnerMeasurement3_2 {
+    type DefaultsXToY = MeasurementDefaults3_2To3_1;
+
+    fn convert_inner(
+        self,
+        _: Self::DefaultsXToY,
         _: &mut RawKeywords,
     ) -> PureSuccess<InnerMeasurement3_1> {
         PureSuccess::from(InnerMeasurement3_1 {
@@ -7045,12 +7748,12 @@ impl IntoMeasurement<InnerMeasurement3_1> for InnerMeasurement3_2 {
     }
 }
 
-impl IntoMeasurement<InnerMeasurement3_2> for InnerMeasurement2_0 {
-    type Defaults = MeasurementDefaults2_0To3_2;
+impl IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2> for InnerMeasurement2_0 {
+    type DefaultsXToY = MeasurementDefaults2_0To3_2;
 
     fn convert_inner(
         self,
-        def: Self::Defaults,
+        def: Self::DefaultsXToY,
         ns: &mut RawKeywords,
     ) -> PureSuccess<InnerMeasurement3_2> {
         let scale = self.scale.into_option().unwrap_or(def.scale);
@@ -7072,12 +7775,12 @@ impl IntoMeasurement<InnerMeasurement3_2> for InnerMeasurement2_0 {
     }
 }
 
-impl IntoMeasurement<InnerMeasurement3_2> for InnerMeasurement3_0 {
-    type Defaults = MeasurementDefaults3_0To3_2;
+impl IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2> for InnerMeasurement3_0 {
+    type DefaultsXToY = MeasurementDefaults3_0To3_2;
 
     fn convert_inner(
         self,
-        def: Self::Defaults,
+        def: Self::DefaultsXToY,
         ns: &mut RawKeywords,
     ) -> PureSuccess<InnerMeasurement3_2> {
         let shortname = self.shortname.into_option().unwrap_or(def.shortname);
@@ -7098,12 +7801,12 @@ impl IntoMeasurement<InnerMeasurement3_2> for InnerMeasurement3_0 {
     }
 }
 
-impl IntoMeasurement<InnerMeasurement3_2> for InnerMeasurement3_1 {
-    type Defaults = MeasurementDefaults3_1To3_2;
+impl IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2> for InnerMeasurement3_1 {
+    type DefaultsXToY = MeasurementDefaults3_1To3_2;
 
     fn convert_inner(
         self,
-        def: Self::Defaults,
+        def: Self::DefaultsXToY,
         ns: &mut RawKeywords,
     ) -> PureSuccess<InnerMeasurement3_2> {
         NSKwParser::run(ns, |st| InnerMeasurement3_2 {
@@ -7123,12 +7826,37 @@ impl IntoMeasurement<InnerMeasurement3_2> for InnerMeasurement3_1 {
     }
 }
 
-impl IntoMetadata<InnerMetadata2_0> for InnerMetadata3_0 {
-    type Defaults = MetadataDefaults3_0To2_0;
+impl IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2> for InnerMeasurement3_2 {
+    type DefaultsXToY = MeasurementDefaults3_2To3_2;
 
     fn convert_inner(
         self,
-        _: Self::Defaults,
+        _: Self::DefaultsXToY,
+        _: &mut RawKeywords,
+    ) -> PureSuccess<InnerMeasurement3_2> {
+        PureSuccess::from(self)
+    }
+}
+
+impl IntoMetadata<InnerMetadata2_0, MetadataDefaultsTo2_0> for InnerMetadata2_0 {
+    type DefaultsXToY = MetadataDefaults2_0To2_0;
+
+    fn convert_inner(
+        self,
+        _: Self::DefaultsXToY,
+        _: &mut RawKeywords,
+        _: &[Shortname],
+    ) -> PureSuccess<InnerMetadata2_0> {
+        PureSuccess::from(self)
+    }
+}
+
+impl IntoMetadata<InnerMetadata2_0, MetadataDefaultsTo2_0> for InnerMetadata3_0 {
+    type DefaultsXToY = MetadataDefaults3_0To2_0;
+
+    fn convert_inner(
+        self,
+        _: Self::DefaultsXToY,
         _: &mut RawKeywords,
         _: &[Shortname],
     ) -> PureSuccess<InnerMetadata2_0> {
@@ -7142,12 +7870,12 @@ impl IntoMetadata<InnerMetadata2_0> for InnerMetadata3_0 {
     }
 }
 
-impl IntoMetadata<InnerMetadata2_0> for InnerMetadata3_1 {
-    type Defaults = MetadataDefaults3_1To2_0;
+impl IntoMetadata<InnerMetadata2_0, MetadataDefaultsTo2_0> for InnerMetadata3_1 {
+    type DefaultsXToY = MetadataDefaults3_1To2_0;
 
     fn convert_inner(
         self,
-        def: Self::Defaults,
+        def: Self::DefaultsXToY,
         ns: &mut RawKeywords,
         ms: &[Shortname],
     ) -> PureSuccess<InnerMetadata2_0> {
@@ -7161,12 +7889,12 @@ impl IntoMetadata<InnerMetadata2_0> for InnerMetadata3_1 {
     }
 }
 
-impl IntoMetadata<InnerMetadata2_0> for InnerMetadata3_2 {
-    type Defaults = MetadataDefaults3_2To2_0;
+impl IntoMetadata<InnerMetadata2_0, MetadataDefaultsTo2_0> for InnerMetadata3_2 {
+    type DefaultsXToY = MetadataDefaults3_2To2_0;
 
     fn convert_inner(
         self,
-        def: Self::Defaults,
+        def: Self::DefaultsXToY,
         ns: &mut RawKeywords,
         ms: &[Shortname],
     ) -> PureSuccess<InnerMetadata2_0> {
@@ -7180,12 +7908,25 @@ impl IntoMetadata<InnerMetadata2_0> for InnerMetadata3_2 {
     }
 }
 
-impl IntoMetadata<InnerMetadata3_0> for InnerMetadata2_0 {
-    type Defaults = MetadataDefaults2_0To3_0;
+impl IntoMetadata<InnerMetadata3_0, MetadataDefaultsTo3_0> for InnerMetadata3_0 {
+    type DefaultsXToY = MetadataDefaults3_0To3_0;
 
     fn convert_inner(
         self,
-        def: Self::Defaults,
+        _: Self::DefaultsXToY,
+        _: &mut RawKeywords,
+        _: &[Shortname],
+    ) -> PureSuccess<InnerMetadata3_0> {
+        PureSuccess::from(self)
+    }
+}
+
+impl IntoMetadata<InnerMetadata3_0, MetadataDefaultsTo3_0> for InnerMetadata2_0 {
+    type DefaultsXToY = MetadataDefaults2_0To3_0;
+
+    fn convert_inner(
+        self,
+        def: Self::DefaultsXToY,
         ns: &mut RawKeywords,
 
         _: &[Shortname],
@@ -7203,12 +7944,12 @@ impl IntoMetadata<InnerMetadata3_0> for InnerMetadata2_0 {
     }
 }
 
-impl IntoMetadata<InnerMetadata3_0> for InnerMetadata3_1 {
-    type Defaults = MetadataDefaults3_1To3_0;
+impl IntoMetadata<InnerMetadata3_0, MetadataDefaultsTo3_0> for InnerMetadata3_1 {
+    type DefaultsXToY = MetadataDefaults3_1To3_0;
 
     fn convert_inner(
         self,
-        def: Self::Defaults,
+        def: Self::DefaultsXToY,
         ns: &mut RawKeywords,
         ms: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_0> {
@@ -7225,12 +7966,12 @@ impl IntoMetadata<InnerMetadata3_0> for InnerMetadata3_1 {
     }
 }
 
-impl IntoMetadata<InnerMetadata3_0> for InnerMetadata3_2 {
-    type Defaults = MetadataDefaults3_2To3_0;
+impl IntoMetadata<InnerMetadata3_0, MetadataDefaultsTo3_0> for InnerMetadata3_2 {
+    type DefaultsXToY = MetadataDefaults3_2To3_0;
 
     fn convert_inner(
         self,
-        def: Self::Defaults,
+        def: Self::DefaultsXToY,
         ns: &mut RawKeywords,
         ms: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_0> {
@@ -7247,12 +7988,25 @@ impl IntoMetadata<InnerMetadata3_0> for InnerMetadata3_2 {
     }
 }
 
-impl IntoMetadata<InnerMetadata3_1> for InnerMetadata2_0 {
-    type Defaults = MetadataDefaults2_0To3_1;
+impl IntoMetadata<InnerMetadata3_1, MetadataDefaultsTo3_1> for InnerMetadata3_1 {
+    type DefaultsXToY = MetadataDefaults3_1To3_1;
 
     fn convert_inner(
         self,
-        def: Self::Defaults,
+        _: Self::DefaultsXToY,
+        _: &mut RawKeywords,
+        _: &[Shortname],
+    ) -> PureSuccess<InnerMetadata3_1> {
+        PureSuccess::from(self)
+    }
+}
+
+impl IntoMetadata<InnerMetadata3_1, MetadataDefaultsTo3_1> for InnerMetadata2_0 {
+    type DefaultsXToY = MetadataDefaults2_0To3_1;
+
+    fn convert_inner(
+        self,
+        def: Self::DefaultsXToY,
         ns: &mut RawKeywords,
         ms: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_1> {
@@ -7274,12 +8028,12 @@ impl IntoMetadata<InnerMetadata3_1> for InnerMetadata2_0 {
     }
 }
 
-impl IntoMetadata<InnerMetadata3_1> for InnerMetadata3_0 {
-    type Defaults = MetadataDefaults3_0To3_1;
+impl IntoMetadata<InnerMetadata3_1, MetadataDefaultsTo3_1> for InnerMetadata3_0 {
+    type DefaultsXToY = MetadataDefaults3_0To3_1;
 
     fn convert_inner(
         self,
-        def: Self::Defaults,
+        def: Self::DefaultsXToY,
         ns: &mut RawKeywords,
         ms: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_1> {
@@ -7301,12 +8055,12 @@ impl IntoMetadata<InnerMetadata3_1> for InnerMetadata3_0 {
     }
 }
 
-impl IntoMetadata<InnerMetadata3_1> for InnerMetadata3_2 {
-    type Defaults = MetadataDefaults3_2To3_1;
+impl IntoMetadata<InnerMetadata3_1, MetadataDefaultsTo3_1> for InnerMetadata3_2 {
+    type DefaultsXToY = MetadataDefaults3_2To3_1;
 
     fn convert_inner(
         self,
-        _: Self::Defaults,
+        _: Self::DefaultsXToY,
         _: &mut RawKeywords,
         _: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_1> {
@@ -7325,12 +8079,25 @@ impl IntoMetadata<InnerMetadata3_1> for InnerMetadata3_2 {
     }
 }
 
-impl IntoMetadata<InnerMetadata3_2> for InnerMetadata2_0 {
-    type Defaults = MetadataDefaults2_0To3_2;
+impl IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2> for InnerMetadata3_2 {
+    type DefaultsXToY = MetadataDefaults3_2To3_2;
 
     fn convert_inner(
         self,
-        def: Self::Defaults,
+        _: Self::DefaultsXToY,
+        _: &mut RawKeywords,
+        _: &[Shortname],
+    ) -> PureSuccess<InnerMetadata3_2> {
+        PureSuccess::from(self)
+    }
+}
+
+impl IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2> for InnerMetadata2_0 {
+    type DefaultsXToY = MetadataDefaults2_0To3_2;
+
+    fn convert_inner(
+        self,
+        def: Self::DefaultsXToY,
         ns: &mut RawKeywords,
         ms: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_2> {
@@ -7357,12 +8124,12 @@ impl IntoMetadata<InnerMetadata3_2> for InnerMetadata2_0 {
     }
 }
 
-impl IntoMetadata<InnerMetadata3_2> for InnerMetadata3_0 {
-    type Defaults = MetadataDefaults3_0To3_2;
+impl IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2> for InnerMetadata3_0 {
+    type DefaultsXToY = MetadataDefaults3_0To3_2;
 
     fn convert_inner(
         self,
-        def: Self::Defaults,
+        def: Self::DefaultsXToY,
         ns: &mut RawKeywords,
         ms: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_2> {
@@ -7388,12 +8155,12 @@ impl IntoMetadata<InnerMetadata3_2> for InnerMetadata3_0 {
     }
 }
 
-impl IntoMetadata<InnerMetadata3_2> for InnerMetadata3_1 {
-    type Defaults = MetadataDefaults3_1To3_2;
+impl IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2> for InnerMetadata3_1 {
+    type DefaultsXToY = MetadataDefaults3_1To3_2;
 
     fn convert_inner(
         self,
-        def: Self::Defaults,
+        def: Self::DefaultsXToY,
         ns: &mut RawKeywords,
         _: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_2> {

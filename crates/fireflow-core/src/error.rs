@@ -255,6 +255,14 @@ impl<X> PureSuccess<X> {
         }
     }
 
+    pub fn sequence(xs: Vec<PureSuccess<X>>) -> PureSuccess<Vec<X>> {
+        let (data, es): (Vec<_>, Vec<_>) = xs.into_iter().map(|x| (x.data, x.deferred)).unzip();
+        PureSuccess {
+            data,
+            deferred: PureErrorBuf::mconcat(es),
+        }
+    }
+
     pub fn combine3<A, B, Y, F: FnOnce(X, A, B) -> Y>(
         self,
         a: PureSuccess<A>,

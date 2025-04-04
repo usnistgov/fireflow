@@ -5820,91 +5820,86 @@ impl<'a> NSKwParser<'a> {
         }
     }
 
+    fn try_convert_lookup_matrix<F, X, Y: FromStr>(
+        &mut self,
+        dopt: DefaultMatrix<Y>,
+        spillover: OptionalKw<X>,
+        ns: &[Shortname],
+        which: &'static str,
+        f: F,
+    ) -> OptionalKw<Y>
+    where
+        F: FnOnce(X, &[Shortname]) -> Option<Y>,
+        <Y as FromStr>::Err: fmt::Display,
+    {
+        let fallback = self.lookup_nonstandard_maybe(dopt.default);
+        if dopt.try_convert {
+            if let Present(s) = spillover {
+                return match f(s, ns) {
+                    Some(c) => Present(c),
+                    None => {
+                        self.push_meta_warning(format!("{which} not full rank"));
+                        fallback
+                    }
+                };
+            }
+        }
+        fallback
+    }
+
     fn try_convert_lookup_comp(
         &mut self,
-        key: &Option<String>,
-        try_convert: bool,
+        dopt: DefaultMatrix<Compensation>,
         spillover: OptionalKw<Spillover>,
         ns: &[Shortname],
     ) -> OptionalKw<Compensation> {
-        let fallback = self.lookup_nonstandard_maybe(key);
-        if try_convert {
-            if let Present(s) = spillover {
-                match spillover_to_comp(s, ns) {
-                    Some(c) => Present(c),
-                    None => {
-                        self.push_meta_warning("$SPILLOVER not full rank".to_string());
-                        fallback
-                    }
-                }
-            } else {
-                fallback
-            }
-        } else {
-            fallback
-        }
+        self.try_convert_lookup_matrix(dopt, spillover, ns, SPILLOVER, spillover_to_comp)
     }
 
     fn try_convert_lookup_spillover(
         &mut self,
-        key: &Option<String>,
-        try_convert: bool,
+        dopt: DefaultMatrix<Spillover>,
         comp: OptionalKw<Compensation>,
         ns: &[Shortname],
     ) -> OptionalKw<Spillover> {
-        let fallback = self.lookup_nonstandard_maybe(key);
-        if try_convert {
-            if let Present(c) = comp {
-                match comp_to_spillover(c, ns) {
-                    Some(s) => Present(s),
-                    None => {
-                        self.push_meta_warning("$COMP not full rank".to_string());
-                        fallback
-                    }
-                }
-            } else {
-                fallback
-            }
-        } else {
-            fallback
-        }
+        self.try_convert_lookup_matrix(dopt, comp, ns, SPILLOVER, comp_to_spillover)
     }
 
-    fn lookup_modification(&mut self, look: &ModificationDefaults) -> ModificationData {
+    fn lookup_modification(&mut self, look: ModificationDefaults) -> ModificationData {
         ModificationData {
-            last_modified: self.lookup_nonstandard_maybe(&look.last_modified),
-            last_modifier: self.lookup_nonstandard_maybe(&look.last_modifier),
-            originality: self.lookup_nonstandard_maybe(&look.originality),
+            last_modified: self.lookup_nonstandard_maybe(look.last_modified),
+            last_modifier: self.lookup_nonstandard_maybe(look.last_modifier),
+            originality: self.lookup_nonstandard_maybe(look.originality),
         }
     }
 
-    fn lookup_plate(&mut self, look: &PlateDefaults) -> PlateData {
+    fn lookup_plate(&mut self, look: PlateDefaults) -> PlateData {
         PlateData {
-            plateid: self.lookup_nonstandard_maybe(&look.plateid),
-            platename: self.lookup_nonstandard_maybe(&look.platename),
-            wellid: self.lookup_nonstandard_maybe(&look.wellid),
+            plateid: self.lookup_nonstandard_maybe(look.plateid),
+            platename: self.lookup_nonstandard_maybe(look.platename),
+            wellid: self.lookup_nonstandard_maybe(look.wellid),
         }
     }
 
-    fn lookup_unstained(&mut self, look: &UnstainedDefaults) -> UnstainedData {
+    fn lookup_unstained(&mut self, look: UnstainedDefaults) -> UnstainedData {
         UnstainedData {
-            unstainedcenters: self.lookup_nonstandard_maybe(&look.unstainedcenters),
-            unstainedinfo: self.lookup_nonstandard_maybe(&look.unstainedinfo),
+            unstainedcenters: self.lookup_nonstandard_maybe(look.unstainedcenters),
+            unstainedinfo: self.lookup_nonstandard_maybe(look.unstainedinfo),
         }
     }
 
-    fn lookup_carrier(&mut self, look: &CarrierDefaults) -> CarrierData {
+    fn lookup_carrier(&mut self, look: CarrierDefaults) -> CarrierData {
         CarrierData {
-            carrierid: self.lookup_nonstandard_maybe(&look.carrierid),
-            carriertype: self.lookup_nonstandard_maybe(&look.carriertype),
-            locationid: self.lookup_nonstandard_maybe(&look.locationid),
+            carrierid: self.lookup_nonstandard_maybe(look.carrierid),
+            carriertype: self.lookup_nonstandard_maybe(look.carriertype),
+            locationid: self.lookup_nonstandard_maybe(look.locationid),
         }
     }
 
-    fn lookup_datetimes(&mut self, look: &DatetimesDefaults) -> Datetimes {
+    fn lookup_datetimes(&mut self, look: DatetimesDefaults) -> Datetimes {
         Datetimes {
-            begin: self.lookup_nonstandard_maybe(&look.begin),
-            end: self.lookup_nonstandard_maybe(&look.end),
+            begin: self.lookup_nonstandard_maybe(look.begin),
+            end: self.lookup_nonstandard_maybe(look.end),
         }
     }
 
@@ -5948,11 +5943,19 @@ impl<'a> NSKwParser<'a> {
         }
     }
 
-    fn lookup_nonstandard_maybe<V: FromStr>(&mut self, k: &Option<String>) -> OptionalKw<V>
+    fn lookup_nonstandard_maybe<V: FromStr>(&mut self, dopt: DefaultOptional<V>) -> OptionalKw<V>
     where
         <V as FromStr>::Err: fmt::Display,
     {
-        OptionalKw::from_option(k.as_ref().and_then(|kk| self.lookup_nonstandard_opt(kk)))
+        if let Some(d) = dopt.default {
+            Present(d)
+        } else {
+            OptionalKw::from_option(
+                dopt.key
+                    .as_ref()
+                    .and_then(|kk| self.lookup_nonstandard_opt(kk)),
+            )
+        }
     }
 
     fn lookup_nonstandard_opt<V: FromStr>(&mut self, k: &str) -> Option<V>
@@ -6641,9 +6644,9 @@ trait IntoMeasurement<T>: Sized {
 trait IntoMetadata<T>: Sized {
     type Defaults;
 
-    fn into(m: Metadata<Self>, def: Self::Defaults) -> PureSuccess<Metadata<T>> {
+    fn into(m: Metadata<Self>, def: Self::Defaults, ms: &[Shortname]) -> PureSuccess<Metadata<T>> {
         let mut m = m;
-        Self::convert_inner(m.specific, def, &mut m.nonstandard_keywords).map(|specific| {
+        Self::convert_inner(m.specific, def, &mut m.nonstandard_keywords, ms).map(|specific| {
             // TODO this seems silly, break struct up into common bits
             Metadata {
                 abrt: m.abrt,
@@ -6666,79 +6669,114 @@ trait IntoMetadata<T>: Sized {
         })
     }
 
-    fn convert_inner(self, def: Self::Defaults, ns: &mut RawKeywords) -> PureSuccess<T>;
+    fn convert_inner(
+        self,
+        def: Self::Defaults,
+        ns: &mut RawKeywords,
+        ms: &[Shortname],
+    ) -> PureSuccess<T>;
+}
+
+/// Values that may be be used for an optional keyword when converting versions
+///
+/// For example, when converting 2.0 -> 3.1, the "$VOL" keyword needs to be
+/// filled with something. This will allow the user to specify a default for
+/// $VOL. Alternatively, the user can supply a keyword that will be used to
+/// lookup the value from the nonstandard keyword list (presumably in this case
+/// the key would be something like "VOL"). Both of these are optional. If
+/// neither is supplied, this keyword will be left unfilled. Obviously this only
+/// applies if the keyword is optional.
+struct DefaultOptional<T> {
+    /// Value to be used as a default
+    default: Option<T>,
+
+    /// Key to use when looking in the nonstandard keyword hash table
+    key: Option<String>,
+}
+
+/// Comp/spillover matrix that may be converted or for which a default may exist
+///
+/// This is similar to `DefaultOptional` in that it has a default and a key for
+/// which the default may be found. However, a conversion from a different key
+/// may be attempted before these.
+struct DefaultMatrix<T> {
+    /// If true, try to convert from a different key.
+    ///
+    /// For now this applies to $COMP<->$SPILLOVER conversions.
+    try_convert: bool,
+    default: DefaultOptional<T>,
 }
 
 struct ModificationDefaults {
-    last_modifier: Option<String>,
-    last_modified: Option<String>,
-    originality: Option<String>,
+    last_modified: DefaultOptional<ModifiedDateTime>,
+    last_modifier: DefaultOptional<String>,
+    originality: DefaultOptional<Originality>,
 }
 
 struct PlateDefaults {
-    plateid: Option<String>,
-    platename: Option<String>,
-    wellid: Option<String>,
+    plateid: DefaultOptional<String>,
+    platename: DefaultOptional<String>,
+    wellid: DefaultOptional<String>,
 }
 
 struct CarrierDefaults {
-    carrierid: Option<String>,
-    carriertype: Option<String>,
-    locationid: Option<String>,
+    carrierid: DefaultOptional<String>,
+    carriertype: DefaultOptional<String>,
+    locationid: DefaultOptional<String>,
 }
 
 struct UnstainedDefaults {
-    unstainedcenters: Option<String>,
-    unstainedinfo: Option<String>,
+    unstainedcenters: DefaultOptional<UnstainedCenters>,
+    unstainedinfo: DefaultOptional<String>,
 }
 
 struct DatetimesDefaults {
-    begin: Option<String>,
-    end: Option<String>,
+    begin: DefaultOptional<FCSDateTime>,
+    end: DefaultOptional<FCSDateTime>,
 }
 
 struct MetadataDefaults3_0To2_0;
 
 struct MetadataDefaults3_1To2_0 {
-    comp: Option<String>,
+    comp: DefaultMatrix<Compensation>,
 }
 
 struct MetadataDefaults3_2To2_0 {
-    comp: Option<String>,
+    comp: DefaultMatrix<Compensation>,
 }
 
 struct MetadataDefaults2_0To3_0 {
-    byteord: Option<String>,
-    cytsn: Option<String>,
-    timestep: Option<String>,
-    vol: Option<String>,
-    unicode: Option<String>,
+    byteord: DefaultOptional<String>,
+    cytsn: DefaultOptional<String>,
+    timestep: DefaultOptional<f32>,
+    vol: DefaultOptional<String>,
+    unicode: DefaultOptional<Unicode>,
 }
 
 struct MetadataDefaults3_1To3_0 {
-    comp: Option<String>,
-    unicode: Option<String>,
+    comp: DefaultMatrix<Compensation>,
+    unicode: DefaultOptional<Unicode>,
 }
 
 struct MetadataDefaults3_2To3_0 {
-    comp: Option<String>,
-    unicode: Option<String>,
+    comp: DefaultMatrix<Compensation>,
+    unicode: DefaultOptional<Unicode>,
 }
 
 struct MetadataDefaults2_0To3_1 {
     endian: Endian,
-    cytsn: Option<String>,
-    timestep: Option<String>,
-    vol: Option<String>,
-    spillover: Option<String>,
+    cytsn: DefaultOptional<String>,
+    timestep: DefaultOptional<f32>,
+    vol: DefaultOptional<f32>,
+    spillover: DefaultMatrix<Spillover>,
     modification: ModificationDefaults,
     plate: PlateDefaults,
 }
 
 struct MetadataDefaults3_0To3_1 {
     endian: Endian,
-    vol: Option<String>,
-    spillover: Option<String>,
+    vol: DefaultOptional<f32>,
+    spillover: DefaultMatrix<Spillover>,
     modification: ModificationDefaults,
     plate: PlateDefaults,
 }
@@ -6748,11 +6786,11 @@ struct MetadataDefaults3_2To3_1;
 struct MetadataDefaults2_0To3_2 {
     endian: Endian,
     cyt: String,
-    cytsn: Option<String>,
-    timestep: Option<String>,
-    vol: Option<String>,
-    spillover: Option<String>,
-    flowrate: Option<String>,
+    cytsn: DefaultOptional<String>,
+    timestep: DefaultOptional<f32>,
+    vol: DefaultOptional<f32>,
+    spillover: DefaultMatrix<Spillover>,
+    flowrate: DefaultOptional<String>,
     modification: ModificationDefaults,
     plate: PlateDefaults,
     unstained: UnstainedDefaults,
@@ -6763,9 +6801,9 @@ struct MetadataDefaults2_0To3_2 {
 struct MetadataDefaults3_0To3_2 {
     endian: Endian,
     cyt: String,
-    vol: Option<String>,
-    spillover: Option<String>,
-    flowrate: Option<String>,
+    vol: DefaultOptional<f32>,
+    spillover: DefaultMatrix<Spillover>,
+    flowrate: DefaultOptional<String>,
     modification: ModificationDefaults,
     plate: PlateDefaults,
     unstained: UnstainedDefaults,
@@ -6775,7 +6813,7 @@ struct MetadataDefaults3_0To3_2 {
 
 struct MetadataDefaults3_1To3_2 {
     cyt: String,
-    flowrate: Option<String>,
+    flowrate: DefaultOptional<String>,
     unstained: UnstainedDefaults,
     carrier: CarrierDefaults,
     datetimes: DatetimesDefaults,
@@ -6789,7 +6827,7 @@ struct MeasurementDefaults3_2To2_0;
 
 struct MeasurementDefaults2_0To3_0 {
     scale: Scale,
-    gain: Option<String>,
+    gain: DefaultOptional<f32>,
 }
 
 struct MeasurementDefaults3_1To3_0;
@@ -6799,15 +6837,15 @@ struct MeasurementDefaults3_2To3_0;
 struct MeasurementDefaults2_0To3_1 {
     scale: Scale,
     shortname: Shortname,
-    gain: Option<String>,
-    calibration: Option<String>,
-    display: Option<String>,
+    gain: DefaultOptional<f32>,
+    calibration: DefaultOptional<Calibration3_1>,
+    display: DefaultOptional<Display>,
 }
 
 struct MeasurementDefaults3_0To3_1 {
     shortname: Shortname,
-    calibration: Option<String>,
-    display: Option<String>,
+    calibration: DefaultOptional<Calibration3_1>,
+    display: DefaultOptional<Display>,
 }
 
 struct MeasurementDefaults3_2To3_1;
@@ -6815,36 +6853,36 @@ struct MeasurementDefaults3_2To3_1;
 struct MeasurementDefaults2_0To3_2 {
     scale: Scale,
     shortname: Shortname,
-    gain: Option<String>,
-    calibration: Option<String>,
-    display: Option<String>,
-    analyte: Option<String>,
-    tag: Option<String>,
-    detector_name: Option<String>,
-    feature: Option<String>,
-    datatype: Option<String>,
-    measurement_type: Option<String>,
+    gain: DefaultOptional<f32>,
+    calibration: DefaultOptional<Calibration3_2>,
+    display: DefaultOptional<Display>,
+    analyte: DefaultOptional<String>,
+    tag: DefaultOptional<String>,
+    detector_name: DefaultOptional<String>,
+    feature: DefaultOptional<Feature>,
+    datatype: DefaultOptional<NumType>,
+    measurement_type: DefaultOptional<MeasurementType>,
 }
 
 struct MeasurementDefaults3_0To3_2 {
     shortname: Shortname,
-    calibration: Option<String>,
-    display: Option<String>,
-    analyte: Option<String>,
-    tag: Option<String>,
-    detector_name: Option<String>,
-    feature: Option<String>,
-    datatype: Option<String>,
-    measurement_type: Option<String>,
+    calibration: DefaultOptional<Calibration3_2>,
+    display: DefaultOptional<Display>,
+    analyte: DefaultOptional<String>,
+    tag: DefaultOptional<String>,
+    detector_name: DefaultOptional<String>,
+    feature: DefaultOptional<Feature>,
+    datatype: DefaultOptional<NumType>,
+    measurement_type: DefaultOptional<MeasurementType>,
 }
 
 struct MeasurementDefaults3_1To3_2 {
-    analyte: Option<String>,
-    tag: Option<String>,
-    detector_name: Option<String>,
-    feature: Option<String>,
-    datatype: Option<String>,
-    measurement_type: Option<String>,
+    analyte: DefaultOptional<String>,
+    tag: DefaultOptional<String>,
+    detector_name: DefaultOptional<String>,
+    feature: DefaultOptional<Feature>,
+    datatype: DefaultOptional<NumType>,
+    measurement_type: DefaultOptional<MeasurementType>,
 }
 
 impl IntoMeasurement<InnerMeasurement2_0> for InnerMeasurement3_0 {
@@ -6908,7 +6946,7 @@ impl IntoMeasurement<InnerMeasurement3_0> for InnerMeasurement2_0 {
             scale,
             wavelength: self.wavelength,
             shortname: self.shortname,
-            gain: st.lookup_nonstandard_maybe(&def.gain),
+            gain: st.lookup_nonstandard_maybe(def.gain),
         })
     }
 }
@@ -6961,9 +6999,9 @@ impl IntoMeasurement<InnerMeasurement3_1> for InnerMeasurement2_0 {
             scale,
             shortname,
             wavelengths: self.wavelength.map(|x| x.into()),
-            gain: st.lookup_nonstandard_maybe(&def.gain),
-            calibration: st.lookup_nonstandard_maybe(&def.calibration),
-            display: st.lookup_nonstandard_maybe(&def.display),
+            gain: st.lookup_nonstandard_maybe(def.gain),
+            calibration: st.lookup_nonstandard_maybe(def.calibration),
+            display: st.lookup_nonstandard_maybe(def.display),
         })
     }
 }
@@ -6982,8 +7020,8 @@ impl IntoMeasurement<InnerMeasurement3_1> for InnerMeasurement3_0 {
             scale: self.scale,
             gain: self.gain,
             wavelengths: self.wavelength.map(|x| x.into()),
-            calibration: st.lookup_nonstandard_maybe(&def.calibration),
-            display: st.lookup_nonstandard_maybe(&def.display),
+            calibration: st.lookup_nonstandard_maybe(def.calibration),
+            display: st.lookup_nonstandard_maybe(def.display),
         })
     }
 }
@@ -7021,15 +7059,15 @@ impl IntoMeasurement<InnerMeasurement3_2> for InnerMeasurement2_0 {
             scale,
             shortname,
             wavelengths: self.wavelength.map(|x| x.into()),
-            gain: st.lookup_nonstandard_maybe(&def.gain),
-            calibration: st.lookup_nonstandard_maybe(&def.calibration),
-            display: st.lookup_nonstandard_maybe(&def.display),
-            analyte: st.lookup_nonstandard_maybe(&def.analyte),
-            feature: st.lookup_nonstandard_maybe(&def.feature),
-            tag: st.lookup_nonstandard_maybe(&def.tag),
-            detector_name: st.lookup_nonstandard_maybe(&def.detector_name),
-            datatype: st.lookup_nonstandard_maybe(&def.datatype),
-            measurement_type: st.lookup_nonstandard_maybe(&def.measurement_type),
+            gain: st.lookup_nonstandard_maybe(def.gain),
+            calibration: st.lookup_nonstandard_maybe(def.calibration),
+            display: st.lookup_nonstandard_maybe(def.display),
+            analyte: st.lookup_nonstandard_maybe(def.analyte),
+            feature: st.lookup_nonstandard_maybe(def.feature),
+            tag: st.lookup_nonstandard_maybe(def.tag),
+            detector_name: st.lookup_nonstandard_maybe(def.detector_name),
+            datatype: st.lookup_nonstandard_maybe(def.datatype),
+            measurement_type: st.lookup_nonstandard_maybe(def.measurement_type),
         })
     }
 }
@@ -7048,14 +7086,14 @@ impl IntoMeasurement<InnerMeasurement3_2> for InnerMeasurement3_0 {
             scale: self.scale,
             wavelengths: self.wavelength.map(|x| x.into()),
             gain: self.gain,
-            calibration: st.lookup_nonstandard_maybe(&def.calibration),
-            display: st.lookup_nonstandard_maybe(&def.display),
-            analyte: st.lookup_nonstandard_maybe(&def.analyte),
-            feature: st.lookup_nonstandard_maybe(&def.feature),
-            tag: st.lookup_nonstandard_maybe(&def.tag),
-            detector_name: st.lookup_nonstandard_maybe(&def.detector_name),
-            datatype: st.lookup_nonstandard_maybe(&def.datatype),
-            measurement_type: st.lookup_nonstandard_maybe(&def.measurement_type),
+            calibration: st.lookup_nonstandard_maybe(def.calibration),
+            display: st.lookup_nonstandard_maybe(def.display),
+            analyte: st.lookup_nonstandard_maybe(def.analyte),
+            feature: st.lookup_nonstandard_maybe(def.feature),
+            tag: st.lookup_nonstandard_maybe(def.tag),
+            detector_name: st.lookup_nonstandard_maybe(def.detector_name),
+            datatype: st.lookup_nonstandard_maybe(def.datatype),
+            measurement_type: st.lookup_nonstandard_maybe(def.measurement_type),
         })
     }
 }
@@ -7075,12 +7113,12 @@ impl IntoMeasurement<InnerMeasurement3_2> for InnerMeasurement3_1 {
             gain: self.gain,
             calibration: self.calibration.map(|x| x.into()),
             display: self.display,
-            analyte: st.lookup_nonstandard_maybe(&def.analyte),
-            feature: st.lookup_nonstandard_maybe(&def.feature),
-            tag: st.lookup_nonstandard_maybe(&def.tag),
-            detector_name: st.lookup_nonstandard_maybe(&def.detector_name),
-            datatype: st.lookup_nonstandard_maybe(&def.datatype),
-            measurement_type: st.lookup_nonstandard_maybe(&def.measurement_type),
+            analyte: st.lookup_nonstandard_maybe(def.analyte),
+            feature: st.lookup_nonstandard_maybe(def.feature),
+            tag: st.lookup_nonstandard_maybe(def.tag),
+            detector_name: st.lookup_nonstandard_maybe(def.detector_name),
+            datatype: st.lookup_nonstandard_maybe(def.datatype),
+            measurement_type: st.lookup_nonstandard_maybe(def.measurement_type),
         })
     }
 }
@@ -7092,6 +7130,7 @@ impl IntoMetadata<InnerMetadata2_0> for InnerMetadata3_0 {
         self,
         _: Self::Defaults,
         _: &mut RawKeywords,
+        _: &[Shortname],
     ) -> PureSuccess<InnerMetadata2_0> {
         PureSuccess::from(InnerMetadata2_0 {
             mode: self.mode,
@@ -7110,12 +7149,13 @@ impl IntoMetadata<InnerMetadata2_0> for InnerMetadata3_1 {
         self,
         def: Self::Defaults,
         ns: &mut RawKeywords,
+        ms: &[Shortname],
     ) -> PureSuccess<InnerMetadata2_0> {
         NSKwParser::run(ns, |st| InnerMetadata2_0 {
             mode: self.mode,
             byteord: self.byteord.into(),
             cyt: self.cyt,
-            comp: st.lookup_nonstandard_maybe(&def.comp),
+            comp: st.try_convert_lookup_comp(def.comp, self.spillover, ms),
             timestamps: self.timestamps.map(|d| d.into()),
         })
     }
@@ -7128,12 +7168,13 @@ impl IntoMetadata<InnerMetadata2_0> for InnerMetadata3_2 {
         self,
         def: Self::Defaults,
         ns: &mut RawKeywords,
+        ms: &[Shortname],
     ) -> PureSuccess<InnerMetadata2_0> {
         NSKwParser::run(ns, |st| InnerMetadata2_0 {
             mode: Mode::List,
             byteord: self.byteord.into(),
             cyt: Present(self.cyt),
-            comp: st.lookup_nonstandard_maybe(&def.comp),
+            comp: st.try_convert_lookup_comp(def.comp, self.spillover, ms),
             timestamps: self.timestamps.map(|d| d.into()),
         })
     }
@@ -7146,6 +7187,8 @@ impl IntoMetadata<InnerMetadata3_0> for InnerMetadata2_0 {
         self,
         def: Self::Defaults,
         ns: &mut RawKeywords,
+
+        _: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_0> {
         NSKwParser::run(ns, |st| InnerMetadata3_0 {
             mode: self.mode,
@@ -7153,9 +7196,9 @@ impl IntoMetadata<InnerMetadata3_0> for InnerMetadata2_0 {
             cyt: self.cyt,
             comp: self.comp,
             timestamps: self.timestamps.map(|d| d.into()),
-            cytsn: st.lookup_nonstandard_maybe(&def.cytsn),
-            timestep: st.lookup_nonstandard_maybe(&def.timestep),
-            unicode: st.lookup_nonstandard_maybe(&def.unicode),
+            cytsn: st.lookup_nonstandard_maybe(def.cytsn),
+            timestep: st.lookup_nonstandard_maybe(def.timestep),
+            unicode: st.lookup_nonstandard_maybe(def.unicode),
         })
     }
 }
@@ -7167,6 +7210,7 @@ impl IntoMetadata<InnerMetadata3_0> for InnerMetadata3_1 {
         self,
         def: Self::Defaults,
         ns: &mut RawKeywords,
+        ms: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_0> {
         NSKwParser::run(ns, |st| InnerMetadata3_0 {
             mode: self.mode,
@@ -7175,8 +7219,8 @@ impl IntoMetadata<InnerMetadata3_0> for InnerMetadata3_1 {
             cytsn: self.cytsn,
             timestep: self.timestep,
             timestamps: self.timestamps.map(|d| d.into()),
-            comp: st.lookup_nonstandard_maybe(&def.comp),
-            unicode: st.lookup_nonstandard_maybe(&def.unicode),
+            comp: st.try_convert_lookup_comp(def.comp, self.spillover, ms),
+            unicode: st.lookup_nonstandard_maybe(def.unicode),
         })
     }
 }
@@ -7188,6 +7232,7 @@ impl IntoMetadata<InnerMetadata3_0> for InnerMetadata3_2 {
         self,
         def: Self::Defaults,
         ns: &mut RawKeywords,
+        ms: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_0> {
         NSKwParser::run(ns, |st| InnerMetadata3_0 {
             mode: Mode::List,
@@ -7196,8 +7241,8 @@ impl IntoMetadata<InnerMetadata3_0> for InnerMetadata3_2 {
             cytsn: self.cytsn,
             timestep: self.timestep,
             timestamps: self.timestamps.map(|d| d.into()),
-            comp: st.lookup_nonstandard_maybe(&def.comp),
-            unicode: st.lookup_nonstandard_maybe(&def.unicode),
+            comp: st.try_convert_lookup_comp(def.comp, self.spillover, ms),
+            unicode: st.lookup_nonstandard_maybe(def.unicode),
         })
     }
 }
@@ -7209,6 +7254,7 @@ impl IntoMetadata<InnerMetadata3_1> for InnerMetadata2_0 {
         self,
         def: Self::Defaults,
         ns: &mut RawKeywords,
+        ms: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_1> {
         NSKwParser::run(ns, |st| {
             let byteord = self.byteord.try_into().ok().unwrap_or(def.endian);
@@ -7217,14 +7263,12 @@ impl IntoMetadata<InnerMetadata3_1> for InnerMetadata2_0 {
                 byteord,
                 cyt: self.cyt,
                 timestamps: self.timestamps.map(|d| d.into()),
-                // This requires measurement names which are not present in this
-                // struct. In theory can be done later with all keywords at once.
-                spillover: st.lookup_nonstandard_maybe(&def.spillover),
-                cytsn: st.lookup_nonstandard_maybe(&def.cytsn),
-                timestep: st.lookup_nonstandard_maybe(&def.timestep),
-                modification: st.lookup_modification(&def.modification),
-                plate: st.lookup_plate(&def.plate),
-                vol: st.lookup_nonstandard_maybe(&def.vol),
+                spillover: st.try_convert_lookup_spillover(def.spillover, self.comp, ms),
+                cytsn: st.lookup_nonstandard_maybe(def.cytsn),
+                timestep: st.lookup_nonstandard_maybe(def.timestep),
+                modification: st.lookup_modification(def.modification),
+                plate: st.lookup_plate(def.plate),
+                vol: st.lookup_nonstandard_maybe(def.vol),
             }
         })
     }
@@ -7237,6 +7281,7 @@ impl IntoMetadata<InnerMetadata3_1> for InnerMetadata3_0 {
         self,
         def: Self::Defaults,
         ns: &mut RawKeywords,
+        ms: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_1> {
         NSKwParser::run(ns, |st| {
             let byteord = self.byteord.try_into().ok().unwrap_or(def.endian);
@@ -7247,10 +7292,10 @@ impl IntoMetadata<InnerMetadata3_1> for InnerMetadata3_0 {
                 timestep: self.timestep,
                 cytsn: self.cytsn,
                 timestamps: self.timestamps.map(|d| d.into()),
-                spillover: st.lookup_nonstandard_maybe(&def.spillover),
-                modification: st.lookup_modification(&def.modification),
-                plate: st.lookup_plate(&def.plate),
-                vol: st.lookup_nonstandard_maybe(&def.vol),
+                spillover: st.try_convert_lookup_spillover(def.spillover, self.comp, ms),
+                modification: st.lookup_modification(def.modification),
+                plate: st.lookup_plate(def.plate),
+                vol: st.lookup_nonstandard_maybe(def.vol),
             }
         })
     }
@@ -7263,6 +7308,7 @@ impl IntoMetadata<InnerMetadata3_1> for InnerMetadata3_2 {
         self,
         _: Self::Defaults,
         _: &mut RawKeywords,
+        _: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_1> {
         PureSuccess::from(InnerMetadata3_1 {
             mode: Mode::List,
@@ -7286,6 +7332,7 @@ impl IntoMetadata<InnerMetadata3_2> for InnerMetadata2_0 {
         self,
         def: Self::Defaults,
         ns: &mut RawKeywords,
+        ms: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_2> {
         NSKwParser::run(ns, |st| {
             let byteord = self.byteord.try_into().ok().unwrap_or(def.endian);
@@ -7294,17 +7341,17 @@ impl IntoMetadata<InnerMetadata3_2> for InnerMetadata2_0 {
             InnerMetadata3_2 {
                 byteord,
                 cyt,
-                spillover: st.lookup_nonstandard_maybe(&def.spillover),
+                spillover: st.try_convert_lookup_spillover(def.spillover, self.comp, ms),
                 timestamps: self.timestamps.map(|d| d.into()),
-                cytsn: st.lookup_nonstandard_maybe(&def.cytsn),
-                timestep: st.lookup_nonstandard_maybe(&def.timestep),
-                modification: st.lookup_modification(&def.modification),
-                plate: st.lookup_plate(&def.plate),
-                vol: st.lookup_nonstandard_maybe(&def.vol),
-                flowrate: st.lookup_nonstandard_maybe(&def.flowrate),
-                carrier: st.lookup_carrier(&def.carrier),
-                unstained: st.lookup_unstained(&def.unstained),
-                datetimes: st.lookup_datetimes(&def.datetimes),
+                cytsn: st.lookup_nonstandard_maybe(def.cytsn),
+                timestep: st.lookup_nonstandard_maybe(def.timestep),
+                modification: st.lookup_modification(def.modification),
+                plate: st.lookup_plate(def.plate),
+                vol: st.lookup_nonstandard_maybe(def.vol),
+                flowrate: st.lookup_nonstandard_maybe(def.flowrate),
+                carrier: st.lookup_carrier(def.carrier),
+                unstained: st.lookup_unstained(def.unstained),
+                datetimes: st.lookup_datetimes(def.datetimes),
             }
         })
     }
@@ -7317,6 +7364,7 @@ impl IntoMetadata<InnerMetadata3_2> for InnerMetadata3_0 {
         self,
         def: Self::Defaults,
         ns: &mut RawKeywords,
+        ms: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_2> {
         NSKwParser::run(ns, |st| {
             let byteord = self.byteord.try_into().ok().unwrap_or(def.endian);
@@ -7327,14 +7375,14 @@ impl IntoMetadata<InnerMetadata3_2> for InnerMetadata3_0 {
                 timestep: self.timestep,
                 cytsn: self.cytsn,
                 timestamps: self.timestamps.map(|d| d.into()),
-                spillover: st.lookup_nonstandard_maybe(&def.spillover),
-                modification: st.lookup_modification(&def.modification),
-                plate: st.lookup_plate(&def.plate),
-                vol: st.lookup_nonstandard_maybe(&def.vol),
-                flowrate: st.lookup_nonstandard_maybe(&def.flowrate),
-                carrier: st.lookup_carrier(&def.carrier),
-                unstained: st.lookup_unstained(&def.unstained),
-                datetimes: st.lookup_datetimes(&def.datetimes),
+                modification: st.lookup_modification(def.modification),
+                spillover: st.try_convert_lookup_spillover(def.spillover, self.comp, ms),
+                plate: st.lookup_plate(def.plate),
+                vol: st.lookup_nonstandard_maybe(def.vol),
+                flowrate: st.lookup_nonstandard_maybe(def.flowrate),
+                carrier: st.lookup_carrier(def.carrier),
+                unstained: st.lookup_unstained(def.unstained),
+                datetimes: st.lookup_datetimes(def.datetimes),
             }
         })
     }
@@ -7347,6 +7395,7 @@ impl IntoMetadata<InnerMetadata3_2> for InnerMetadata3_1 {
         self,
         def: Self::Defaults,
         ns: &mut RawKeywords,
+        _: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_2> {
         let cyt = self.cyt.into_option().unwrap_or(def.cyt);
         NSKwParser::run(ns, |st| InnerMetadata3_2 {
@@ -7359,10 +7408,10 @@ impl IntoMetadata<InnerMetadata3_2> for InnerMetadata3_1 {
             modification: self.modification,
             plate: self.plate,
             vol: self.vol,
-            flowrate: st.lookup_nonstandard_maybe(&def.flowrate),
-            carrier: st.lookup_carrier(&def.carrier),
-            unstained: st.lookup_unstained(&def.unstained),
-            datetimes: st.lookup_datetimes(&def.datetimes),
+            flowrate: st.lookup_nonstandard_maybe(def.flowrate),
+            carrier: st.lookup_carrier(def.carrier),
+            unstained: st.lookup_unstained(def.unstained),
+            datetimes: st.lookup_datetimes(def.datetimes),
         })
     }
 }

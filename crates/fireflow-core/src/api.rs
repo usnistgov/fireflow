@@ -6646,6 +6646,8 @@ trait IntoCore<ToM, ToP, DM, DP>: Sized
 where
     ToM: VersionedMetadata,
     ToP: VersionedMeasurement,
+    Self::FromM: VersionedMetadata,
+    Self::FromP: VersionedMeasurement,
     <Self::FromM as IntoMetadata<ToM, DM>>::DefaultsXToY: From<DM>,
     <Self::FromP as IntoMeasurement<ToP, DP>>::DefaultsXToY: From<DP>,
 {

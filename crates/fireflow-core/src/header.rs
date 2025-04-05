@@ -7,6 +7,15 @@ use std::fmt;
 use std::io::{BufReader, Read};
 use std::str;
 
+/// The length of the HEADER.
+///
+/// This should always be the same. This also assumes that there are no OTHER
+/// segments (which for now are not supported).
+pub const HEADER_LEN: usize = 58;
+
+/// The pattern of the header.
+const HEADER_PAT: &str = r"(.{6})    (.{8})(.{8})(.{8})(.{8})(.{8})(.{8})";
+
 /// All FCS versions this library supports.
 ///
 /// This appears as the first 6 bytes of any valid FCS file.
@@ -36,7 +45,7 @@ pub struct Header {
 }
 
 pub fn h_read_header<R: Read>(h: &mut BufReader<R>) -> ImpureResult<Header> {
-    let mut verbuf = [0; HEADERLEN];
+    let mut verbuf = [0; HEADER_LEN];
     h.read_exact(&mut verbuf)?;
     if let Ok(hs) = str::from_utf8(&verbuf) {
         let succ = parse_header(hs)?;
@@ -85,8 +94,6 @@ fn parse_bounds(s0: &str, s1: &str, allow_blank: bool, id: SegmentId) -> PureMay
         })
 }
 
-const HEADER_PAT: &str = r"(.{6})    (.{8})(.{8})(.{8})(.{8})(.{8})(.{8})";
-
 fn parse_header(s: &str) -> PureResult<Header> {
     // ASSUME this will always work, if not the regexp is invalid
     let re = Regex::new(HEADER_PAT).unwrap();
@@ -117,8 +124,6 @@ fn parse_header(s: &str) -> PureResult<Header> {
         Err(Failure::new("could not parse HEADER".to_string()))
     }
 }
-
-const HEADERLEN: usize = 58;
 
 impl str::FromStr for Version {
     type Err = VersionError;

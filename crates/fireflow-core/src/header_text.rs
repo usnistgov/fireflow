@@ -7,6 +7,7 @@
 //! how big they are (mostly due to the fact that the HEADER only allows digits
 //! up to 99,999,999). This process also differs b/t FCS versions.
 
+use crate::header::HEADER_LEN;
 use crate::keywords::*;
 
 /// HEADER and TEXT offsets
@@ -288,12 +289,6 @@ fn n_digits(x: usize) -> usize {
 fn format_zero_padded(x: usize, width: usize) -> String {
     format!("{}{}", ("0").repeat(width - n_digits(x)), x)
 }
-
-/// The length of the HEADER.
-///
-/// This should always be the same. This also assumes that there are no OTHER
-/// segments (which for now are not supported).
-const HEADER_LEN: usize = 58;
 
 /// Length of the $NEXTDATA offset length.
 ///

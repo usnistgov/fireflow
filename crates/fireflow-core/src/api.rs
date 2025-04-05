@@ -3620,14 +3620,6 @@ impl<M> CoreTEXT<M, M::P>
 where
     M: VersionedMetadata,
     M: VersionedParserMetadata,
-    M: IntoMetadata<InnerMetadata2_0, MetadataDefaultsTo2_0>,
-    M: IntoMetadata<InnerMetadata3_0, MetadataDefaultsTo3_0>,
-    M: IntoMetadata<InnerMetadata3_1, MetadataDefaultsTo3_1>,
-    M: IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2>,
-    M::P: IntoMeasurement<InnerMeasurement2_0, MeasurementDefaultsTo2_0>,
-    M::P: IntoMeasurement<InnerMeasurement3_0, MeasurementDefaultsTo3_0>,
-    M::P: IntoMeasurement<InnerMeasurement3_1, MeasurementDefaultsTo3_1>,
-    M::P: IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2>,
 {
     /// Return HEADER+TEXT as a list of strings
     ///

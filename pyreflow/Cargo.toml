@@ -1,11 +1,12 @@
 [package]
 name = "pyreflow"
-version = "0.1.0"
-edition = "2024"
+version = { workspace = true }
+edition = { workspace = true }
 
 [lib]
 name = "pyreflow"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.24.0", features = ["extension-module"] }
+pyo3 = { workspace = true }
+fireflow-core = { version = "0.1.0", path = "../crates/fireflow-core" }

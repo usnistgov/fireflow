@@ -1,5 +1,5 @@
 /// Instructions for reading an FCS file.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Config {
     pub corrections: OffsetCorrections,
     pub raw: RawTextReadConfig,
@@ -19,7 +19,7 @@ pub struct Config {
 ///
 /// These do nothing if the segment does not exist.
 // TODO this will need to be repeated for each dataset once we include this
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct OffsetCorrections {
     /// Corrections for primary TEXT segment
     pub start_prim_text: i32,
@@ -144,7 +144,7 @@ pub struct StdTextReadConfig {
 }
 
 /// Instructions for reading the DATA segment.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct DataReadConfig {
     /// If true, throw error when total event width does not evenly divide
     /// the DATA segment. Meaningless for delimited ASCII data.
@@ -157,13 +157,14 @@ pub struct DataReadConfig {
 }
 
 /// Configuration options that do not fit anywhere else
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct MiscReadConfig {
     /// If true, all warnings are considered to be fatal errors.
     pub warnings_are_errors: bool,
 }
 
 /// Configuration for writing an FCS file
+#[derive(Clone)]
 pub struct WriteConfig {
     /// Delimiter for TEXT segment
     ///

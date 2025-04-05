@@ -1,3 +1,4 @@
+use std::fmt;
 use std::io;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -165,6 +166,22 @@ impl PureErrorBuf {
             .filter(|e| e.level == PureErrorLevel::Error)
             .count()
             > 0
+    }
+
+    pub fn into_errors(self) -> Vec<String> {
+        self.into_level(PureErrorLevel::Error)
+    }
+
+    pub fn into_warnings(self) -> Vec<String> {
+        self.into_level(PureErrorLevel::Warning)
+    }
+
+    fn into_level(self, level: PureErrorLevel) -> Vec<String> {
+        self.errors
+            .into_iter()
+            .filter(|e| e.level == level)
+            .map(|e| e.msg)
+            .collect()
     }
 
     pub fn mconcat(xs: Vec<Self>) -> Self {

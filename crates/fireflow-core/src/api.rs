@@ -3848,13 +3848,6 @@ where
             .filter_map(|p| M::P::measurement_name_opt(p))
             .collect()
     }
-
-    fn get_all_shortnames(ms: &[Measurement2_0]) -> Vec<Shortname> {
-        ms.iter()
-            .enumerate()
-            .map(|(i, p)| InnerMeasurement2_0::measurement_name(p, i))
-            .collect()
-    }
 }
 
 impl Series {

@@ -4317,7 +4317,7 @@ fn format_parsed_data(res: &StandardizedDataset, delim: &str) -> Vec<String> {
     let nrows = res.dataset.data.nrows();
     let ncols = res.dataset.data.ncols();
     // ASSUME names is the same length as columns
-    lines.push(shortnames.join(delim));
+    lines.push(shortnames.into_iter().map(|m| m.0).join(delim));
     for r in 0..nrows {
         buf.clear();
         for c in 0..ncols {

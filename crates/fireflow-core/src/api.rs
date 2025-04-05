@@ -1,6 +1,6 @@
 use crate::config::*;
 use crate::error::*;
-use crate::header::*;
+pub use crate::header::*;
 use crate::header_text::*;
 use crate::keywords::*;
 use crate::segment::*;

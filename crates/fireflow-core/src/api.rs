@@ -1432,10 +1432,7 @@ where
     fn lookup_specific(st: &mut KwParser, par: usize, names: &HashSet<&str>) -> Option<Self>;
 
     fn lookup_metadata(st: &mut KwParser, ms: &[Measurement<Self::P>]) -> Option<Metadata<Self>> {
-        let names: HashSet<_> = ms
-            .iter()
-            .filter_map(|m| Self::P::measurement_name_opt(m))
-            .collect();
+        let names: HashSet<_> = ms.iter().filter_map(|m| Self::P::maybe_name(m)).collect();
         let par = ms.len();
         let maybe_datatype = st.lookup_datatype();
         let maybe_specific = Self::lookup_specific(st, par, &names);
@@ -1513,9 +1510,24 @@ where
 trait VersionedMeasurement: Sized + Versioned {
     fn lookup_specific(st: &mut KwParser, n: usize) -> Option<Self>;
 
-    fn measurement_name_opt(p: &Measurement<Self>) -> Option<&str>;
+    fn maybe_name(p: &Measurement<Self>) -> Option<&str>;
 
-    fn measurement_name(p: &Measurement<Self>, n: usize) -> Shortname;
+    fn shortname(p: &Measurement<Self>, n: usize) -> Shortname;
+
+    fn set_shortname(m: &mut Measurement<Self>, n: String);
+
+    fn longname(p: &Measurement<Self>, n: usize) -> String {
+        // TODO not DRY
+        p.longname
+            .as_ref()
+            .into_option()
+            .cloned()
+            .unwrap_or(format!("M{n}"))
+    }
+
+    fn set_longname(m: &mut Measurement<Self>, n: Option<String>) {
+        m.longname = OptionalKw::from_option(n);
+    }
 
     fn lookup_measurements(st: &mut KwParser, par: usize) -> Option<Vec<Measurement<Self>>> {
         let mut ps = vec![];
@@ -1542,10 +1554,7 @@ trait VersionedMeasurement: Sized + Versioned {
                 ps.push(p);
             }
         }
-        let names: Vec<&str> = ps
-            .iter()
-            .filter_map(|m| Self::measurement_name_opt(m))
-            .collect();
+        let names: Vec<&str> = ps.iter().filter_map(|m| Self::maybe_name(m)).collect();
         if let Some(time_name) = &st.conf.time_shortname {
             if !names.iter().copied().contains(time_name.as_str()) {
                 st.push_meta_error_or_warning(
@@ -3052,7 +3061,7 @@ impl Versioned for InnerMeasurement3_2 {
 }
 
 impl VersionedMeasurement for InnerMeasurement2_0 {
-    fn measurement_name_opt(p: &Measurement<Self>) -> Option<&str> {
+    fn maybe_name(p: &Measurement<Self>) -> Option<&str> {
         p.specific
             .shortname
             .as_ref()
@@ -3060,13 +3069,17 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
             .map(|s| s.0.as_str())
     }
 
-    fn measurement_name(p: &Measurement<Self>, n: usize) -> Shortname {
+    fn shortname(p: &Measurement<Self>, n: usize) -> Shortname {
         p.specific
             .shortname
             .as_ref()
             .into_option()
-            .map(|x| x.clone())
+            .cloned()
             .unwrap_or(Shortname(format!("M{n}")))
+    }
+
+    fn set_shortname(m: &mut Measurement<Self>, n: String) {
+        m.specific.shortname = Present(Shortname(n))
     }
 
     fn lookup_specific(st: &mut KwParser, n: usize) -> Option<InnerMeasurement2_0> {
@@ -3093,7 +3106,7 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
 }
 
 impl VersionedMeasurement for InnerMeasurement3_0 {
-    fn measurement_name_opt(p: &Measurement<Self>) -> Option<&str> {
+    fn maybe_name(p: &Measurement<Self>) -> Option<&str> {
         p.specific
             .shortname
             .as_ref()
@@ -3101,13 +3114,17 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
             .map(|s| s.0.as_str())
     }
 
-    fn measurement_name(p: &Measurement<Self>, n: usize) -> Shortname {
+    fn shortname(p: &Measurement<Self>, n: usize) -> Shortname {
         p.specific
             .shortname
             .as_ref()
             .into_option()
-            .map(|x| x.clone())
+            .cloned()
             .unwrap_or(Shortname(format!("M{n}")))
+    }
+
+    fn set_shortname(m: &mut Measurement<Self>, n: String) {
+        m.specific.shortname = Present(Shortname(n))
     }
 
     fn lookup_specific(st: &mut KwParser, n: usize) -> Option<InnerMeasurement3_0> {
@@ -3136,12 +3153,16 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
 }
 
 impl VersionedMeasurement for InnerMeasurement3_1 {
-    fn measurement_name_opt(p: &Measurement<Self>) -> Option<&str> {
+    fn maybe_name(p: &Measurement<Self>) -> Option<&str> {
         Some(p.specific.shortname.0.as_str())
     }
 
-    fn measurement_name(p: &Measurement<Self>, _: usize) -> Shortname {
+    fn shortname(p: &Measurement<Self>, _: usize) -> Shortname {
         p.specific.shortname.clone()
+    }
+
+    fn set_shortname(m: &mut Measurement<Self>, n: String) {
+        m.specific.shortname = Shortname(n)
     }
 
     fn lookup_specific(st: &mut KwParser, n: usize) -> Option<InnerMeasurement3_1> {
@@ -3178,12 +3199,16 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
 }
 
 impl VersionedMeasurement for InnerMeasurement3_2 {
-    fn measurement_name_opt(p: &Measurement<Self>) -> Option<&str> {
+    fn maybe_name(p: &Measurement<Self>) -> Option<&str> {
         Some(p.specific.shortname.0.as_str())
     }
 
-    fn measurement_name(p: &Measurement<Self>, _: usize) -> Shortname {
+    fn shortname(p: &Measurement<Self>, _: usize) -> Shortname {
         p.specific.shortname.clone()
+    }
+
+    fn set_shortname(m: &mut Measurement<Self>, n: String) {
+        m.specific.shortname = Shortname(n)
     }
 
     fn lookup_specific(st: &mut KwParser, n: usize) -> Option<InnerMeasurement3_2> {
@@ -3655,6 +3680,64 @@ where
         )
     }
 
+    /// Return a list of measurement names as stored in $PnN
+    ///
+    /// For cases where $PnN is optional and its value is not given, this will
+    /// return "Mn" where "n" is the parameter index starting at 0.
+    // TODO start at 1?
+    pub fn shortnames(&self) -> Vec<Shortname> {
+        self.measurements
+            .iter()
+            .enumerate()
+            .map(|(i, p)| M::P::shortname(p, i))
+            .collect()
+    }
+
+    /// Set all $PnN keywords to list of names.
+    ///
+    /// Will return false if length of supplied list does not match length of
+    /// measurements; true otherwise. Versions which have this key as optional
+    /// will wrap the value in [Present].
+    pub fn set_shortnames(&mut self, ns: Vec<String>) -> bool {
+        if self.measurements.len() != ns.len() {
+            false
+        } else {
+            for (m, n) in self.measurements.iter_mut().zip(ns) {
+                M::P::set_shortname(m, n)
+            }
+            true
+        }
+    }
+
+    /// Return a list of measurement names as stored in $PnS
+    ///
+    /// If not given, will be replaced by "Mn" where "n" is the measurement
+    /// index starting at 1.
+    pub fn longnames(&self) -> Vec<String> {
+        self.measurements
+            .iter()
+            .enumerate()
+            .map(|(i, m)| M::P::longname(m, i))
+            .collect()
+    }
+
+    /// Set all $PnS keywords to list of names.
+    ///
+    /// Will return false if length of supplied list does not match length
+    /// of measurements; true otherwise. Since $PnS is an optional keyword for
+    /// all versions, any name in the list may be None which will blank the
+    /// keyword.
+    pub fn set_longnames(&mut self, ns: Vec<Option<String>>) -> bool {
+        if self.measurements.len() != ns.len() {
+            false
+        } else {
+            for (m, n) in self.measurements.iter_mut().zip(ns) {
+                M::P::set_longname(m, n)
+            }
+            true
+        }
+    }
+
     fn par(&self) -> usize {
         self.measurements.len()
     }
@@ -3772,13 +3855,6 @@ where
 
     fn any_from_raw(kws: &mut RawKeywords, conf: &StdTextReadConfig) -> PureResult<AnyCoreTEXT> {
         Self::from_raw(kws, conf).map(|succ| succ.map(M::into_any))
-    }
-
-    fn get_shortnames(&self) -> Vec<&str> {
-        self.measurements
-            .iter()
-            .filter_map(|p| M::P::measurement_name_opt(p))
-            .collect()
     }
 }
 
@@ -4236,10 +4312,10 @@ impl Dataframe {
 // TODO make this a method
 fn format_parsed_data(res: &StandardizedDataset, delim: &str) -> Vec<String> {
     let shortnames = match &res.dataset.keywords {
-        AnyCoreTEXT::FCS2_0(x) => x.get_shortnames(),
-        AnyCoreTEXT::FCS3_0(x) => x.get_shortnames(),
-        AnyCoreTEXT::FCS3_1(x) => x.get_shortnames(),
-        AnyCoreTEXT::FCS3_2(x) => x.get_shortnames(),
+        AnyCoreTEXT::FCS2_0(x) => x.shortnames(),
+        AnyCoreTEXT::FCS3_0(x) => x.shortnames(),
+        AnyCoreTEXT::FCS3_1(x) => x.shortnames(),
+        AnyCoreTEXT::FCS3_2(x) => x.shortnames(),
     };
     if res.dataset.data.is_empty() {
         return vec![];
@@ -6597,10 +6673,11 @@ where
             .map(|(m, d)| Self::FromP::convert(m, d.into()))
             .collect();
         PureSuccess::sequence(ms).and_then(|measurements| {
+            // TODO not DRY
             let ms: Vec<_> = measurements
                 .iter()
                 .enumerate()
-                .map(|(i, p)| ToP::measurement_name(p, i))
+                .map(|(i, p)| ToP::shortname(p, i))
                 .collect();
             Self::FromM::convert(metadata, def.metadata.into(), &ms).map(|metadata| CoreTEXT {
                 measurements,

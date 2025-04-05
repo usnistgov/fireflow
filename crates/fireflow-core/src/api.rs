@@ -1655,12 +1655,6 @@ trait VersionedMeasurement: Sized + Versioned {
     }
 }
 
-trait VersionedCore
-where
-    Self: Sized,
-{
-}
-
 trait VersionedParserMeasurement: Sized {
     type Target;
 

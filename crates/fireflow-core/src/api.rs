@@ -636,16 +636,11 @@ enum Range {
 /// Denotes that the value for a key is optional.
 ///
 /// This is basically an Option but more obvious in what it indicates.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 enum OptionalKw<V> {
     Present(V),
+    #[default]
     Absent,
-}
-
-impl<T> Default for OptionalKw<T> {
-    fn default() -> OptionalKw<T> {
-        Absent
-    }
 }
 
 /// Measurement fields specific to version 2.0

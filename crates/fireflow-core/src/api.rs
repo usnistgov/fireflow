@@ -5806,37 +5806,6 @@ impl<'a, 'b> KwParser<'a, 'b> {
         }
     }
 
-    fn lookup_nonstandard_maybe<V: FromStr>(&mut self, k: Option<String>) -> OptionalKw<V>
-    where
-        <V as FromStr>::Err: fmt::Display,
-    {
-        OptionalKw::from_option(k.as_ref().and_then(|kk| self.lookup_nonstandard_opt(kk)))
-    }
-
-    fn lookup_nonstandard_opt<V: FromStr>(&mut self, k: &str) -> Option<V>
-    where
-        <V as FromStr>::Err: fmt::Display,
-    {
-        self.lookup_nonstandard(k).into_option()
-    }
-
-    fn lookup_nonstandard<V: FromStr>(&mut self, k: &str) -> OptionalKw<V>
-    where
-        <V as FromStr>::Err: fmt::Display,
-    {
-        match self.raw_keywords.remove(k) {
-            Some(v) => match v.parse() {
-                Err(w) => {
-                    let msg = format!("{w} for key '{k}' with value '{v}'");
-                    self.deferred.push_warning(msg);
-                    Absent
-                }
-                Ok(x) => Present(x),
-            },
-            None => Absent,
-        }
-    }
-
     fn lookup_optional<V: FromStr>(&mut self, k: &str, dep: bool) -> OptionalKw<V>
     where
         <V as FromStr>::Err: fmt::Display,
@@ -6019,6 +5988,7 @@ impl<'a> NSKwParser<'a> {
         }
     }
 
+    // TODO make a meas version of this that uses the index
     fn lookup_nonstandard_maybe<V: FromStr>(&mut self, dopt: DefaultOptional<V>) -> OptionalKw<V>
     where
         <V as FromStr>::Err: fmt::Display,

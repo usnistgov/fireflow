@@ -2311,7 +2311,7 @@ impl FromStr for Compensation {
                 if fvalues.len() != nn {
                     Err(FixedSeqError::BadFloat)
                 } else {
-                    let matrix = DMatrix::from_row_iterator(n, n, fvalues.into_iter());
+                    let matrix = DMatrix::from_row_iterator(n, n, fvalues);
                     Ok(Compensation { matrix })
                 }
             }
@@ -2376,7 +2376,7 @@ impl FromStr for Spillover {
                     if fvalues.len() != nn {
                         Err(NamedFixedSeqError::Seq(FixedSeqError::BadFloat))
                     } else {
-                        let matrix = DMatrix::from_row_iterator(n, n, fvalues.into_iter());
+                        let matrix = DMatrix::from_row_iterator(n, n, fvalues);
                         Ok(Spillover {
                             measurements,
                             matrix,

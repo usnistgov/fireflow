@@ -3485,311 +3485,41 @@ impl AnyCoreTEXT {
         }
     }
 
-    // pub fn into_2_0(self, def: CoreDefaultsTo2_0) -> PureSuccess<CoreText2_0> {
-    //     match self {
-    //         AnyCoreTEXT::FCS2_0(c) => PureSuccess::from(*c),
-    //         AnyCoreTEXT::FCS3_0(c) => {
-    //             let metadata = c.metadata;
-    //             let ms = c
-    //                 .measurements
-    //                 .into_iter()
-    //                 .zip(def.measurements)
-    //                 .map(|(m, d)| IntoMeasurement::<InnerMeasurement2_0>::convert(m, d.into()))
-    //                 .collect();
-    //             PureSuccess::sequence(ms).and_then(|measurements| {
-    //                 let ms: Vec<_> = measurements
-    //                     .iter()
-    //                     .enumerate()
-    //                     .map(|(i, m)| {
-    //                         m.specific
-    //                             .shortname
-    //                             .clone()
-    //                             .into_option()
-    //                             .unwrap_or(Shortname(format!("M{i}")))
-    //                     })
-    //                     .collect();
-    //                 IntoMetadata::<InnerMetadata2_0>::convert(metadata, def.metadata.into(), &ms)
-    //                     .map(|metadata| CoreTEXT {
-    //                         measurements,
-    //                         metadata,
-    //                     })
-    //             })
-    //         }
-    //         AnyCoreTEXT::FCS3_1(c) => {
-    //             let metadata = c.metadata;
-    //             let ms = c
-    //                 .measurements
-    //                 .into_iter()
-    //                 .zip(def.measurements)
-    //                 .map(|(m, d)| IntoMeasurement::<InnerMeasurement2_0>::convert(m, d.into()))
-    //                 .collect();
-    //             PureSuccess::sequence(ms).and_then(|measurements| {
-    //                 let ms: Vec<_> = measurements
-    //                     .iter()
-    //                     .enumerate()
-    //                     .map(|(i, m)| {
-    //                         m.specific
-    //                             .shortname
-    //                             .clone()
-    //                             .into_option()
-    //                             .unwrap_or(Shortname(format!("M{i}")))
-    //                     })
-    //                     .collect();
-    //                 IntoMetadata::<InnerMetadata2_0>::convert(metadata, def.metadata.into(), &ms)
-    //                     .map(|metadata| CoreTEXT {
-    //                         measurements,
-    //                         metadata,
-    //                     })
-    //             })
-    //         }
-    //         AnyCoreTEXT::FCS3_2(c) => {
-    //             let metadata = c.metadata;
-    //             let ms = c
-    //                 .measurements
-    //                 .into_iter()
-    //                 .zip(def.measurements)
-    //                 .map(|(m, d)| IntoMeasurement::<InnerMeasurement2_0>::convert(m, d.into()))
-    //                 .collect();
-    //             PureSuccess::sequence(ms).and_then(|measurements| {
-    //                 let ms: Vec<_> = measurements
-    //                     .iter()
-    //                     .enumerate()
-    //                     .map(|(i, m)| {
-    //                         m.specific
-    //                             .shortname
-    //                             .clone()
-    //                             .into_option()
-    //                             .unwrap_or(Shortname(format!("M{i}")))
-    //                     })
-    //                     .collect();
-    //                 IntoMetadata::<InnerMetadata2_0>::convert(metadata, def.metadata.into(), &ms)
-    //                     .map(|metadata| CoreTEXT {
-    //                         measurements,
-    //                         metadata,
-    //                     })
-    //             })
-    //         }
-    //     }
-    // }
+    pub fn into_2_0(self, def: CoreDefaultsTo2_0) -> PureSuccess<CoreText2_0> {
+        match self {
+            AnyCoreTEXT::FCS2_0(c) => CoreText2_0::convert_core(*c, def),
+            AnyCoreTEXT::FCS3_0(c) => CoreText3_0::convert_core(*c, def),
+            AnyCoreTEXT::FCS3_1(c) => CoreText3_1::convert_core(*c, def),
+            AnyCoreTEXT::FCS3_2(c) => CoreText3_2::convert_core(*c, def),
+        }
+    }
 
-    // pub fn into_3_0(self, def: CoreDefaultsTo3_0) -> PureSuccess<CoreText3_0> {
-    //     match self {
-    //         AnyCoreTEXT::FCS2_0(c) => {
-    //             let metadata = c.metadata;
-    //             let ms = c
-    //                 .measurements
-    //                 .into_iter()
-    //                 .zip(def.measurements)
-    //                 .map(|(m, d)| IntoMeasurement::<InnerMeasurement3_0>::convert(m, d.into()))
-    //                 .collect();
-    //             PureSuccess::sequence(ms).and_then(|measurements| {
-    //                 let ms: Vec<_> = measurements
-    //                     .iter()
-    //                     .enumerate()
-    //                     .map(|(i, m)| {
-    //                         m.specific
-    //                             .shortname
-    //                             .clone()
-    //                             .into_option()
-    //                             .unwrap_or(Shortname(format!("M{i}")))
-    //                     })
-    //                     .collect();
-    //                 IntoMetadata::<InnerMetadata3_0>::convert(metadata, def.metadata.into(), &ms)
-    //                     .map(|metadata| CoreTEXT {
-    //                         measurements,
-    //                         metadata,
-    //                     })
-    //             })
-    //         }
-    //         AnyCoreTEXT::FCS3_0(c) => PureSuccess::from(*c),
-    //         AnyCoreTEXT::FCS3_1(c) => {
-    //             let metadata = c.metadata;
-    //             let ms = c
-    //                 .measurements
-    //                 .into_iter()
-    //                 .zip(def.measurements)
-    //                 .map(|(m, d)| IntoMeasurement::<InnerMeasurement3_0>::convert(m, d.into()))
-    //                 .collect();
-    //             PureSuccess::sequence(ms).and_then(|measurements| {
-    //                 let ms: Vec<_> = measurements
-    //                     .iter()
-    //                     .enumerate()
-    //                     .map(|(i, m)| {
-    //                         m.specific
-    //                             .shortname
-    //                             .clone()
-    //                             .into_option()
-    //                             .unwrap_or(Shortname(format!("M{i}")))
-    //                     })
-    //                     .collect();
-    //                 IntoMetadata::<InnerMetadata3_0>::convert(metadata, def.metadata.into(), &ms)
-    //                     .map(|metadata| CoreTEXT {
-    //                         measurements,
-    //                         metadata,
-    //                     })
-    //             })
-    //         }
-    //         AnyCoreTEXT::FCS3_2(c) => {
-    //             let metadata = c.metadata;
-    //             let ms = c
-    //                 .measurements
-    //                 .into_iter()
-    //                 .zip(def.measurements)
-    //                 .map(|(m, d)| IntoMeasurement::<InnerMeasurement3_0>::convert(m, d.into()))
-    //                 .collect();
-    //             PureSuccess::sequence(ms).and_then(|measurements| {
-    //                 let ms: Vec<_> = measurements
-    //                     .iter()
-    //                     .enumerate()
-    //                     .map(|(i, m)| {
-    //                         m.specific
-    //                             .shortname
-    //                             .clone()
-    //                             .into_option()
-    //                             .unwrap_or(Shortname(format!("M{i}")))
-    //                     })
-    //                     .collect();
-    //                 IntoMetadata::<InnerMetadata3_0>::convert(metadata, def.metadata.into(), &ms)
-    //                     .map(|metadata| CoreTEXT {
-    //                         measurements,
-    //                         metadata,
-    //                     })
-    //             })
-    //         }
-    //     }
-    // }
+    pub fn into_3_0(self, def: CoreDefaultsTo3_0) -> PureSuccess<CoreText3_0> {
+        match self {
+            AnyCoreTEXT::FCS2_0(c) => CoreText2_0::convert_core(*c, def),
+            AnyCoreTEXT::FCS3_0(c) => CoreText3_0::convert_core(*c, def),
+            AnyCoreTEXT::FCS3_1(c) => CoreText3_1::convert_core(*c, def),
+            AnyCoreTEXT::FCS3_2(c) => CoreText3_2::convert_core(*c, def),
+        }
+    }
 
-    // pub fn into_3_1(self, def: CoreDefaultsTo3_1) -> PureSuccess<CoreText3_1> {
-    //     match self {
-    //         AnyCoreTEXT::FCS2_0(c) => {
-    //             let metadata = c.metadata;
-    //             let ms = c
-    //                 .measurements
-    //                 .into_iter()
-    //                 .zip(def.measurements)
-    //                 .map(|(m, d)| IntoMeasurement::<InnerMeasurement3_1>::convert(m, d.into()))
-    //                 .collect();
-    //             PureSuccess::sequence(ms).and_then(|measurements| {
-    //                 let ms: Vec<_> = measurements
-    //                     .iter()
-    //                     .map(|m| m.specific.shortname.clone())
-    //                     .collect();
-    //                 IntoMetadata::<InnerMetadata3_1>::convert(metadata, def.metadata.into(), &ms)
-    //                     .map(|metadata| CoreTEXT {
-    //                         measurements,
-    //                         metadata,
-    //                     })
-    //             })
-    //         }
-    //         AnyCoreTEXT::FCS3_0(c) => {
-    //             let metadata = c.metadata;
-    //             let ms = c
-    //                 .measurements
-    //                 .into_iter()
-    //                 .zip(def.measurements)
-    //                 .map(|(m, d)| IntoMeasurement::<InnerMeasurement3_1>::convert(m, d.into()))
-    //                 .collect();
-    //             PureSuccess::sequence(ms).and_then(|measurements| {
-    //                 let ms: Vec<_> = measurements
-    //                     .iter()
-    //                     .map(|m| m.specific.shortname.clone())
-    //                     .collect();
-    //                 IntoMetadata::<InnerMetadata3_1>::convert(metadata, def.metadata.into(), &ms)
-    //                     .map(|metadata| CoreTEXT {
-    //                         measurements,
-    //                         metadata,
-    //                     })
-    //             })
-    //         }
-    //         AnyCoreTEXT::FCS3_1(c) => PureSuccess::from(*c),
-    //         AnyCoreTEXT::FCS3_2(c) => {
-    //             let metadata = c.metadata;
-    //             let ms = c
-    //                 .measurements
-    //                 .into_iter()
-    //                 .zip(def.measurements)
-    //                 .map(|(m, d)| IntoMeasurement::<InnerMeasurement3_1>::convert(m, d.into()))
-    //                 .collect();
-    //             PureSuccess::sequence(ms).and_then(|measurements| {
-    //                 let ms: Vec<_> = measurements
-    //                     .iter()
-    //                     .map(|m| m.specific.shortname.clone())
-    //                     .collect();
-    //                 IntoMetadata::<InnerMetadata3_1>::convert(metadata, def.metadata.into(), &ms)
-    //                     .map(|metadata| CoreTEXT {
-    //                         measurements,
-    //                         metadata,
-    //                     })
-    //             })
-    //         }
-    //     }
-    // }
+    pub fn into_3_1(self, def: CoreDefaultsTo3_1) -> PureSuccess<CoreText3_1> {
+        match self {
+            AnyCoreTEXT::FCS2_0(c) => CoreText2_0::convert_core(*c, def),
+            AnyCoreTEXT::FCS3_0(c) => CoreText3_0::convert_core(*c, def),
+            AnyCoreTEXT::FCS3_1(c) => CoreText3_1::convert_core(*c, def),
+            AnyCoreTEXT::FCS3_2(c) => CoreText3_2::convert_core(*c, def),
+        }
+    }
 
-    // pub fn into_3_2(self, def: CoreDefaultsTo3_2) -> PureSuccess<CoreText3_2> {
-    //     match self {
-    //         AnyCoreTEXT::FCS2_0(c) => {
-    //             let metadata = c.metadata;
-    //             let ms = c
-    //                 .measurements
-    //                 .into_iter()
-    //                 .zip(def.measurements)
-    //                 .map(|(m, d)| IntoMeasurement::<InnerMeasurement3_2>::convert(m, d.into()))
-    //                 .collect();
-    //             PureSuccess::sequence(ms).and_then(|measurements| {
-    //                 let ms: Vec<_> = measurements
-    //                     .iter()
-    //                     .map(|m| m.specific.shortname.clone())
-    //                     .collect();
-    //                 IntoMetadata::<InnerMetadata3_2>::convert(metadata, def.metadata.into(), &ms)
-    //                     .map(|metadata| CoreTEXT {
-    //                         measurements,
-    //                         metadata,
-    //                     })
-    //             })
-    //         }
-    //         AnyCoreTEXT::FCS3_0(c) => {
-    //             let metadata = c.metadata;
-    //             let ms = c
-    //                 .measurements
-    //                 .into_iter()
-    //                 .zip(def.measurements)
-    //                 .map(|(m, d)| IntoMeasurement::<InnerMeasurement3_2>::convert(m, d.into()))
-    //                 .collect();
-    //             PureSuccess::sequence(ms).and_then(|measurements| {
-    //                 let ms: Vec<_> = measurements
-    //                     .iter()
-    //                     .map(|m| m.specific.shortname.clone())
-    //                     .collect();
-    //                 IntoMetadata::<InnerMetadata3_2>::convert(metadata, def.metadata.into(), &ms)
-    //                     .map(|metadata| CoreTEXT {
-    //                         measurements,
-    //                         metadata,
-    //                     })
-    //             })
-    //         }
-    //         AnyCoreTEXT::FCS3_1(c) => {
-    //             let metadata = c.metadata;
-    //             let ms = c
-    //                 .measurements
-    //                 .into_iter()
-    //                 .zip(def.measurements)
-    //                 .map(|(m, d)| IntoMeasurement::<InnerMeasurement3_2>::convert(m, d.into()))
-    //                 .collect();
-    //             PureSuccess::sequence(ms).and_then(|measurements| {
-    //                 let ms: Vec<_> = measurements
-    //                     .iter()
-    //                     .map(|m| m.specific.shortname.clone())
-    //                     .collect();
-    //                 IntoMetadata::<InnerMetadata3_2>::convert(metadata, def.metadata.into(), &ms)
-    //                     .map(|metadata| CoreTEXT {
-    //                         measurements,
-    //                         metadata,
-    //                     })
-    //             })
-    //         }
-    //         AnyCoreTEXT::FCS3_2(c) => PureSuccess::from(*c),
-    //     }
-    // }
+    pub fn into_3_2(self, def: CoreDefaultsTo3_2) -> PureSuccess<CoreText3_2> {
+        match self {
+            AnyCoreTEXT::FCS2_0(c) => CoreText2_0::convert_core(*c, def),
+            AnyCoreTEXT::FCS3_0(c) => CoreText3_0::convert_core(*c, def),
+            AnyCoreTEXT::FCS3_1(c) => CoreText3_1::convert_core(*c, def),
+            AnyCoreTEXT::FCS3_2(c) => CoreText3_2::convert_core(*c, def),
+        }
+    }
 
     pub fn text_segment(
         &self,
@@ -3991,29 +3721,6 @@ where
                 .chain(req_opt_kws)
                 .collect(),
         )
-    }
-
-    fn into_2_0(self, def: CoreDefaultsTo2_0) -> PureSuccess<CoreText2_0> {
-        let metadata = self.metadata;
-        // ASSUME measurement defaults is same length as measurements
-        let ms = self
-            .measurements
-            .into_iter()
-            .zip(def.measurements)
-            .map(|(m, d)| {
-                <M::P as IntoMeasurement<InnerMeasurement2_0, MeasurementDefaultsTo2_0>>::convert(
-                    m,
-                    d.into(),
-                )
-            })
-            .collect();
-        PureSuccess::sequence(ms).and_then(|measurements| {
-            let ms = Self::get_all_shortnames(&measurements[..]);
-            M::convert(metadata, def.metadata.into(), &ms).map(|metadata| CoreTEXT {
-                measurements,
-                metadata,
-            })
-        })
     }
 
     fn par(&self) -> usize {
@@ -7049,24 +6756,6 @@ trait IntoMetadata<T, D>: Sized {
         })
     }
 
-    // fn convert_core(m: CoreTEXT<Self, P>, def: D) -> PureSuccess<CoreTEXT<T, P>> {
-    //     let metadata = m.metadata;
-    //     // ASSUME measurement defaults is same length as measurements
-    //     let ms = self
-    //         .measurements
-    //         .into_iter()
-    //         .zip(def.measurements)
-    //         .map(|(m, d)| Self::convert(m, d.into()))
-    //         .collect();
-    //     PureSuccess::sequence(ms).and_then(|measurements| {
-    //         let ms = Self::get_all_shortnames(&measurements[..]);
-    //         M::convert(metadata, def.metadata.into(), &ms).map(|metadata| CoreTEXT {
-    //             measurements,
-    //             metadata,
-    //         })
-    //     })
-    // }
-
     fn convert_inner(
         self,
         def: Self::DefaultsXToY,
@@ -7079,8 +6768,8 @@ trait IntoCore<ToM, ToP, DM, DP>: Sized
 where
     ToM: VersionedMetadata,
     ToP: VersionedMeasurement,
-    DM: From<<Self::FromM as IntoMetadata<ToM, DM>>::DefaultsXToY>,
-    DP: From<<Self::FromP as IntoMeasurement<ToP, DP>>::DefaultsXToY>,
+    <Self::FromM as IntoMetadata<ToM, DM>>::DefaultsXToY: From<DM>,
+    <Self::FromP as IntoMeasurement<ToP, DP>>::DefaultsXToY: From<DP>,
 {
     type FromM: IntoMetadata<ToM, DM>;
     type FromP: IntoMeasurement<ToP, DP>;
@@ -7098,20 +6787,69 @@ where
             .map(|(m, d)| Self::FromP::convert(m, d.into()))
             .collect();
         PureSuccess::sequence(ms).and_then(|measurements| {
-            let ms = Self::get_all_shortnames(&measurements[..]);
+            let ms: Vec<_> = measurements
+                .iter()
+                .enumerate()
+                .map(|(i, p)| ToP::measurement_name(p, i))
+                .collect();
             Self::FromM::convert(metadata, def.metadata.into(), &ms).map(|metadata| CoreTEXT {
                 measurements,
                 metadata,
             })
         })
     }
+}
 
-    fn get_all_shortnames(ms: &[Measurement<ToP>]) -> Vec<Shortname> {
-        ms.iter()
-            .enumerate()
-            .map(|(i, p)| ToP::measurement_name(p, i))
-            .collect()
-    }
+impl<M, P>
+    IntoCore<InnerMetadata2_0, InnerMeasurement2_0, MetadataDefaultsTo2_0, MeasurementDefaultsTo2_0>
+    for CoreTEXT<M, P>
+where
+    M: VersionedMetadata,
+    P: VersionedMeasurement,
+    M: IntoMetadata<InnerMetadata2_0, MetadataDefaultsTo2_0>,
+    P: IntoMeasurement<InnerMeasurement2_0, MeasurementDefaultsTo2_0>,
+{
+    type FromM = M;
+    type FromP = P;
+}
+
+impl<M, P>
+    IntoCore<InnerMetadata3_0, InnerMeasurement3_0, MetadataDefaultsTo3_0, MeasurementDefaultsTo3_0>
+    for CoreTEXT<M, P>
+where
+    M: VersionedMetadata,
+    P: VersionedMeasurement,
+    M: IntoMetadata<InnerMetadata3_0, MetadataDefaultsTo3_0>,
+    P: IntoMeasurement<InnerMeasurement3_0, MeasurementDefaultsTo3_0>,
+{
+    type FromM = M;
+    type FromP = P;
+}
+
+impl<M, P>
+    IntoCore<InnerMetadata3_1, InnerMeasurement3_1, MetadataDefaultsTo3_1, MeasurementDefaultsTo3_1>
+    for CoreTEXT<M, P>
+where
+    M: VersionedMetadata,
+    P: VersionedMeasurement,
+    M: IntoMetadata<InnerMetadata3_1, MetadataDefaultsTo3_1>,
+    P: IntoMeasurement<InnerMeasurement3_1, MeasurementDefaultsTo3_1>,
+{
+    type FromM = M;
+    type FromP = P;
+}
+
+impl<M, P>
+    IntoCore<InnerMetadata3_2, InnerMeasurement3_2, MetadataDefaultsTo3_2, MeasurementDefaultsTo3_2>
+    for CoreTEXT<M, P>
+where
+    M: VersionedMetadata,
+    P: VersionedMeasurement,
+    M: IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2>,
+    P: IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2>,
+{
+    type FromM = M;
+    type FromP = P;
 }
 
 /// Values that may be be used for an optional keyword when converting versions

@@ -78,13 +78,13 @@ pub struct Offsets {
     ///
     /// The offsets that were used to parse the TEXT segment. Included here for
     /// informational purposes.
-    pub prim_text_seg: Segment,
+    pub prim_text: Segment,
 
     /// Supplemental TEXT offsets
     ///
     /// This is not needed downstream and included here for informational
     /// purposes. It will always be None for 2.0 which does not include this.
-    pub supp_text_seg: Option<Segment>,
+    pub supp_text: Option<Segment>,
 
     /// DATA offsets
     ///
@@ -92,7 +92,7 @@ pub struct Offsets {
     /// when acquiring the offset. If DATA does not exist this will be 0,0.
     ///
     /// This may be used later to acquire the DATA segment.
-    pub data_seg: Segment,
+    pub data: Segment,
 
     /// ANALYSIS offsets.
     ///
@@ -101,7 +101,7 @@ pub struct Offsets {
     /// be 0,0.
     ///
     /// This may be used later to acquire the ANALYSIS segment.
-    pub analysis_seg: Segment,
+    pub analysis: Segment,
 
     /// NEXTDATA offset
     ///
@@ -136,7 +136,7 @@ pub struct StandardizedTEXT {
     /// that can be readily accessed directly and returned with the proper type.
     /// Anything nonstandard will be kept in a hash table whose values will
     /// be strings.
-    pub standardized: AnyCoreTEXT,
+    pub keywords: AnyCoreTEXT,
 
     /// Keywords remaining after standardization
     ///
@@ -1465,18 +1465,22 @@ where
 
     fn keywords_opt_inner(&self) -> Vec<(&'static str, String)>;
 
-    fn all_req_keywords(m: &Metadata<Self>, par: usize, tot: usize) -> RawPairs {
-        let fixed = [
-            (PAR, par.to_string()),
-            (TOT, tot.to_string()),
-            (DATATYPE, m.datatype.to_string()),
-        ];
+    fn all_req_keywords(m: &Metadata<Self>, par: usize) -> RawPairs {
+        let fixed = [(PAR, par.to_string()), (DATATYPE, m.datatype.to_string())];
         fixed
             .into_iter()
             .chain(m.specific.keywords_req_inner())
             .map(|(k, v)| (k.to_string(), v))
             .collect()
     }
+
+    // // TODO this seems a bit lame
+    // fn all_req_keywords_with_tot(m: &Metadata<Self>, par: usize, tot: usize) -> RawPairs {
+    //     Self::all_req_keywords(m, par)
+    //         .into_iter()
+    //         .chain([(TOT.to_string(), tot.to_string())])
+    //         .collect()
+    // }
 
     fn all_opt_keywords(m: &Metadata<Self>) -> RawPairs {
         [
@@ -3443,6 +3447,12 @@ impl AnyCoreTEXT {
         }
     }
 
+    pub fn raw_keywords(&self) -> RawKeywords {
+        match_many_to_one!(self, AnyCoreTEXT, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
+            x.raw_keywords()
+        })
+    }
+
     pub fn into_2_0(self, def: CoreDefaultsTo2_0) -> PureSuccess<CoreText2_0> {
         match self {
             AnyCoreTEXT::FCS2_0(c) => CoreText2_0::convert_core(*c, def),
@@ -3641,12 +3651,48 @@ where
         data_len: usize,
         analysis_len: usize,
     ) -> Option<Vec<String>> {
+        self.header_and_raw_keywords(tot, data_len, analysis_len)
+            .map(|(header, kws)| {
+                let version = M::P::fcs_version();
+                let flat: Vec<_> = kws.into_iter().flat_map(|(k, v)| [k, v]).collect();
+                [format!("{version}{header}")]
+                    .into_iter()
+                    .chain(flat)
+                    .collect()
+            })
+    }
+
+    /// Return all keywords as an ordered list of pairs
+    ///
+    /// Thiw will only include keywords that can be directly derived from
+    /// [CoreTEXT]. This means it will not include $TOT, since this depends on
+    /// the DATA segment.
+    pub fn raw_keywords(&self) -> RawKeywords {
+        let (req_meas, req_meta, _) = self.some_keywords(M::P::req_keywords, M::all_req_keywords);
+        let (opt_meas, opt_meta, _) =
+            self.some_keywords(M::P::opt_keywords, |m, _| M::all_opt_keywords(m));
+
+        let mut meta: Vec<_> = req_meta.into_iter().chain(opt_meta).collect();
+        let mut meas: Vec<_> = req_meas.into_iter().chain(opt_meas).collect();
+        meta.sort_by(|a, b| a.0.cmp(&b.0));
+        meas.sort_by(|a, b| a.0.cmp(&b.0));
+
+        meta.into_iter().chain(meas).collect()
+    }
+
+    fn header_and_raw_keywords(
+        &self,
+        tot: usize,
+        data_len: usize,
+        analysis_len: usize,
+    ) -> Option<(String, RawKeywords)> {
         let version = M::P::fcs_version();
+        let tot_pair = (TOT.to_string(), tot.to_string());
 
         let (req_meas, req_meta, req_text_len) =
-            self.some_keywords(M::P::req_keywords, M::all_req_keywords, tot);
+            self.some_keywords(M::P::req_keywords, M::all_req_keywords);
         let (opt_meas, opt_meta, opt_text_len) =
-            self.some_keywords(M::P::opt_keywords, |m, _, _| M::all_opt_keywords(m), tot);
+            self.some_keywords(M::P::opt_keywords, |m, _| M::all_opt_keywords(m));
 
         let offset_result = if version == Version::FCS2_0 {
             make_data_offset_keywords_2_0(req_text_len + opt_text_len, data_len, analysis_len)
@@ -3654,23 +3700,24 @@ where
             make_data_offset_keywords_3_0(req_text_len, opt_text_len, data_len, analysis_len)
         }?;
 
-        let mut meta: Vec<_> = req_meta.into_iter().chain(opt_meta).collect();
+        let mut meta: Vec<_> = req_meta
+            .into_iter()
+            .chain(opt_meta)
+            .chain([tot_pair])
+            .collect();
         let mut meas: Vec<_> = req_meas.into_iter().chain(opt_meas).collect();
         meta.sort_by(|a, b| a.0.cmp(&b.0));
         meas.sort_by(|a, b| a.0.cmp(&b.0));
 
-        let req_opt_kws: Vec<_> = meta
-            .into_iter()
-            .chain(meas)
-            .flat_map(|(k, v)| [k, v])
-            .collect();
-        Some(
-            [format!("{version}{}", offset_result.header)]
+        let req_opt_kws: Vec<_> = meta.into_iter().chain(meas).collect();
+        Some((
+            offset_result.header,
+            offset_result
+                .offsets
                 .into_iter()
-                .chain(offset_result.offsets)
                 .chain(req_opt_kws)
                 .collect(),
-        )
+        ))
     }
 
     /// Return a list of measurement names as stored in $PnN
@@ -3739,11 +3786,10 @@ where
         &self,
         f: F,
         g: G,
-        tot: usize,
     ) -> (Vec<(String, String)>, Vec<(String, String)>, usize)
     where
         F: Fn(&Measurement<M::P>, &str) -> Vec<(String, String)>,
-        G: Fn(&Metadata<M>, usize, usize) -> Vec<(String, String)>,
+        G: Fn(&Metadata<M>, usize) -> Vec<(String, String)>,
     {
         let meas: Vec<_> = self
             .measurements
@@ -3751,7 +3797,7 @@ where
             .enumerate()
             .flat_map(|(i, m)| f(m, &(i + 1).to_string()))
             .collect();
-        let meta: Vec<_> = g(&self.metadata, self.par(), tot).into_iter().collect();
+        let meta: Vec<_> = g(&self.metadata, self.par()).into_iter().collect();
         let l = meas.len() + meta.len();
         (meas, meta, l)
     }
@@ -4769,11 +4815,11 @@ fn h_read_std_dataset<R: Read + Seek>(
     conf: &Config,
 ) -> ImpureResult<StandardizedDataset> {
     let mut kws = std.remainder;
-    let version = std.standardized.version();
-    let anal_succ = lookup_analysis_offsets(&mut kws, conf, version, &std.offsets.analysis_seg);
-    lookup_data_offsets(&mut kws, conf, version, &std.offsets.data_seg)
+    let version = std.keywords.version();
+    let anal_succ = lookup_analysis_offsets(&mut kws, conf, version, &std.offsets.analysis);
+    lookup_data_offsets(&mut kws, conf, version, &std.offsets.data)
         .and_then(|data_seg| {
-            std.standardized
+            std.keywords
                 .as_data_reader(&mut kws, conf, &data_seg)
                 .combine(anal_succ, |data_parser, analysis_seg| {
                     (data_parser, data_seg, analysis_seg)
@@ -4786,17 +4832,17 @@ fn h_read_std_dataset<R: Read + Seek>(
             let analysis = h_read_analysis(h, &analysis_seg)?;
             Ok(PureSuccess::from(StandardizedDataset {
                 offsets: Offsets {
-                    prim_text_seg: std.offsets.prim_text_seg,
-                    supp_text_seg: std.offsets.supp_text_seg,
+                    prim_text: std.offsets.prim_text,
+                    supp_text: std.offsets.supp_text,
                     nextdata: std.offsets.nextdata,
-                    data_seg,
-                    analysis_seg,
+                    data: data_seg,
+                    analysis: analysis_seg,
                 },
                 delimiter: std.delimiter,
                 remainder: kws,
                 dataset: CoreDataset {
                     data,
-                    keywords: std.standardized,
+                    keywords: std.keywords,
                     analysis,
                 },
             }))
@@ -6341,10 +6387,10 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
                 RawTEXT {
                     version: header.version,
                     offsets: Offsets {
-                        prim_text_seg: header.text,
-                        supp_text_seg,
-                        data_seg: header.data,
-                        analysis_seg: header.analysis,
+                        prim_text: header.text,
+                        supp_text: supp_text_seg,
+                        data: header.data,
+                        analysis: header.analysis,
                         nextdata,
                     },
                     delimiter,
@@ -6365,7 +6411,7 @@ fn raw_to_std(raw: RawTEXT, conf: &Config) -> PureResult<StandardizedTEXT> {
         std_succ.map({
             |standardized| StandardizedTEXT {
                 offsets: raw.offsets,
-                standardized,
+                keywords: standardized,
                 delimiter: raw.delimiter,
                 // TODO this will contain extra stuff (like $TOT)
                 remainder: kws,

@@ -172,8 +172,8 @@ fn main() -> io::Result<()> {
             conf.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
             let delim = sargs.get_one::<String>("delimiter").unwrap();
 
-            let res = handle_errors(api::read_fcs_text(filepath, &conf))?;
-            res.standardized.print_spillover_table(delim)
+            let res = handle_errors(api::read_fcs_std_text(filepath, &conf))?;
+            res.keywords.print_spillover_table(delim)
         }
 
         Some(("measurements", sargs)) => {
@@ -181,8 +181,8 @@ fn main() -> io::Result<()> {
             conf.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
             let delim = sargs.get_one::<String>("delimiter").unwrap();
 
-            let res = handle_errors(api::read_fcs_text(filepath, &conf))?;
-            res.standardized.print_meas_table(delim)
+            let res = handle_errors(api::read_fcs_std_text(filepath, &conf))?;
+            res.keywords.print_meas_table(delim)
         }
 
         Some(("std", sargs)) => {
@@ -201,14 +201,14 @@ fn main() -> io::Result<()> {
             conf.standard.disallow_deprecated = sargs.get_flag("disallow-deprecated");
             conf.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
 
-            let res = handle_errors(api::read_fcs_text(filepath, &conf))?;
+            let res = handle_errors(api::read_fcs_std_text(filepath, &conf))?;
             if sargs.get_flag("header") {
                 print_json(&res.offsets);
             }
             // if sargs.get_flag("raw") {
             //     print_json(&res.raw);
             // }
-            print_json(&res.standardized);
+            print_json(&res.keywords);
             // print_json(&res.nonfatal);
         }
 

@@ -19,7 +19,7 @@ pub struct OffsetFormatResult {
     ///
     /// For 2.0 this will only contain $NEXTDATA. For 3.0+, this will contain,
     /// (BEGIN|END)(STEXT|ANALYSIS|DATA).
-    pub offsets: Vec<String>,
+    pub offsets: Vec<(String, String)>,
 
     /// The offset where the next data segment can start.
     ///
@@ -52,7 +52,7 @@ pub fn make_data_offset_keywords_2_0(
     let header = [header_prim_text, header_data, header_analysis].join("");
     Some(OffsetFormatResult {
         header,
-        offsets: Vec::from(text_nextdata),
+        offsets: vec![text_nextdata],
         real_nextdata,
     })
 }
@@ -120,7 +120,7 @@ pub fn make_data_offset_keywords_3_0(
         .into_iter()
         .chain(text_data)
         .chain(text_analysis)
-        .chain(text_nextdata)
+        .chain([text_nextdata])
         .collect();
     Some(OffsetFormatResult {
         header,
@@ -255,21 +255,21 @@ pub fn offset_text_string(
     begin_key: &'static str,
     end_key: &'static str,
     width: usize,
-) -> [String; 4] {
+) -> [(String, String); 2] {
     let nbytes = end - begin + 1;
     let (b, e) = if nbytes > 0 { (begin, end) } else { (0, 0) };
     let fb = format_zero_padded(b, width);
     let fe = format_zero_padded(e, width);
-    [begin_key.to_string(), fb, end_key.to_string(), fe]
+    [(begin_key.to_string(), fb), (end_key.to_string(), fe)]
 }
 
 /// Compute $NEXTDATA offset and format the keyword pair.
 ///
 /// Returns something like (12345678, ["$NEXTDATA", "12345678"])
-pub fn offset_nextdata_string(nextdata: usize) -> (usize, [String; 2]) {
+pub fn offset_nextdata_string(nextdata: usize) -> (usize, (String, String)) {
     let n = if nextdata > 99999999 { 0 } else { nextdata };
     let s = format_zero_padded(n, NEXTDATA_VAL_LEN);
-    (n, [NEXTDATA.to_string(), s])
+    (n, (NEXTDATA.to_string(), s))
 }
 
 /// Compute the number of digits for a number.

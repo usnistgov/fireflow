@@ -3,7 +3,7 @@ use crate::error::*;
 pub use crate::header::*;
 use crate::header_text::*;
 use crate::keywords::*;
-use crate::segment::*;
+pub use crate::segment::*;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use itertools::Itertools;

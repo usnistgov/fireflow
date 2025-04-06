@@ -148,7 +148,7 @@ impl Segment {
         self.begin
     }
 
-    fn end(&self) -> u32 {
+    pub fn end(&self) -> u32 {
         self.begin + self.length
     }
 }

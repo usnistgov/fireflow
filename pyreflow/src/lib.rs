@@ -5,6 +5,8 @@ use fireflow_core::error;
 use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyWarning};
 use pyo3::prelude::*;
+use pyo3::types::IntoPyDict;
+use pyo3::types::PyDict;
 use std::ffi::CString;
 use std::path;
 
@@ -27,13 +29,71 @@ fn read_fcs_raw_text(p: path::PathBuf, conf: PyConfig) -> PyResult<PyRawTEXT> {
 }
 
 #[pyclass]
-#[repr(transparent)]
 #[derive(Clone)]
 struct PyConfig(config::Config);
 
 #[pyclass]
+struct PySegment(api::Segment);
+
+#[pymethods]
+impl PySegment {
+    fn begin(&self) -> u32 {
+        self.0.begin()
+    }
+
+    fn end(&self) -> u32 {
+        self.0.end()
+    }
+
+    fn nbytes(&self) -> u32 {
+        self.0.nbytes()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("({},{})", self.begin(), self.end())
+    }
+}
+
+#[pyclass]
+struct PyVersion(api::Version);
+
+#[pymethods]
+impl PyVersion {
+    fn __repr__(&self) -> String {
+        self.0.to_string()
+    }
+
+    fn __eq__(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+#[pyclass]
 #[repr(transparent)]
 struct PyHeader(api::Header);
+
+#[pymethods]
+impl PyHeader {
+    #[getter]
+    fn version(&self) -> PyVersion {
+        PyVersion(self.0.version)
+    }
+
+    #[getter]
+    fn text(&self) -> PySegment {
+        PySegment(self.0.text)
+    }
+
+    #[getter]
+    fn data(&self) -> PySegment {
+        PySegment(self.0.data)
+    }
+
+    #[getter]
+    fn analysis(&self) -> PySegment {
+        PySegment(self.0.analysis)
+    }
+}
 
 impl From<api::Header> for PyHeader {
     fn from(value: api::Header) -> Self {
@@ -46,13 +106,31 @@ impl From<api::Header> for PyHeader {
 #[derive(Clone)]
 struct PyRawTEXT(api::RawTEXT);
 
+#[pymethods]
+impl PyRawTEXT {
+    #[getter]
+    fn version(&self) -> PyVersion {
+        PyVersion(self.0.version)
+    }
+
+    #[getter]
+    fn delimiter(&self) -> u8 {
+        self.0.delimiter
+    }
+
+    #[getter]
+    fn keywords<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        // TODO clone?
+        self.0.keywords.clone().into_py_dict(py)
+    }
+}
+
 impl From<api::RawTEXT> for PyRawTEXT {
     fn from(value: api::RawTEXT) -> Self {
         Self(value)
     }
 }
 
-// cheatcode to get around orphan rule
 struct FailWrapper(error::ImpureFailure);
 
 fn handle_errors<X, Y>(res: error::ImpureResult<X>) -> PyResult<Y>

@@ -120,6 +120,7 @@ pub struct Offsets {
 ///
 /// Version is not included since this is implied by the standardized structs
 /// used.
+#[derive(Clone)]
 pub struct StandardizedTEXT {
     pub offsets: Offsets,
 
@@ -235,7 +236,7 @@ pub enum Series {
 }
 
 /// Critical FCS TEXT data for any supported FCS version
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum AnyCoreTEXT {
     FCS2_0(Box<CoreText2_0>),
     FCS3_0(Box<CoreText3_0>),

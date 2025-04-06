@@ -6260,29 +6260,20 @@ fn lookup_stext_offsets(
 ) -> PureSuccess<Option<Segment>> {
     let c = &conf.corrections;
     let offset_succ = KwParser::run(kws, &conf.standard, |st| match version {
-        Version::FCS2_0 => None,
+        Version::FCS2_0 => (None, None),
         Version::FCS3_0 | Version::FCS3_1 => {
             let b = st.lookup_beginstext_req();
             let e = st.lookup_endstext_req();
-            if let (Some(begin), Some(end)) = (b, e) {
-                Some((begin, end))
-            } else {
-                None
-            }
+            (b, e)
         }
         Version::FCS3_2 => {
-            let b = st.lookup_beginstext_opt();
-            let e = st.lookup_endstext_opt();
-            if let (Present(begin), Present(end)) = (b, e) {
-                Some((begin, end))
-            } else {
-                None
-            }
+            let b = st.lookup_beginstext_opt().into_option();
+            let e = st.lookup_endstext_opt().into_option();
+            (b, e)
         }
     });
     offset_succ.and_then(|offsets| match offsets {
-        None => PureMaybe::empty(),
-        Some((begin, end)) => {
+        (Some(begin), Some(end)) => {
             let seg_res = Segment::try_new(
                 begin,
                 end,
@@ -6294,6 +6285,7 @@ fn lookup_stext_offsets(
             // needed
             PureMaybe::from_result_1(seg_res, PureErrorLevel::Error)
         }
+        _ => PureMaybe::empty(),
     })
 }
 
@@ -6420,7 +6412,7 @@ pub fn read_fcs_raw_text(p: &path::PathBuf, conf: &Config) -> ImpureResult<RawTE
 /// FCS standard indicated in the header and returned in a struct storing each
 /// key/value pair in a standardized manner. This will halt and return any
 /// errors encountered during this process.
-pub fn read_fcs_text(p: &path::PathBuf, conf: &Config) -> ImpureResult<StandardizedTEXT> {
+pub fn read_fcs_std_text(p: &path::PathBuf, conf: &Config) -> ImpureResult<StandardizedTEXT> {
     let raw_succ = read_fcs_raw_text(p, conf)?;
     let out = raw_succ.try_map(|raw| raw_to_std(raw, conf))?;
     Ok(out)

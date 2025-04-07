@@ -2,12 +2,14 @@ use fireflow_core::api;
 use fireflow_core::config;
 use fireflow_core::error;
 
+use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use pyo3::class::basic::CompareOp;
 use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyWarning};
 use pyo3::prelude::*;
 use pyo3::types::IntoPyDict;
 use pyo3::types::PyDict;
+use pyo3::IntoPyObjectExt;
 use std::cmp::Ordering;
 use std::ffi::CString;
 use std::fmt;
@@ -139,6 +141,16 @@ pywrap!(
 );
 pywrap!(PyAnyCoreTEXT, api::AnyCoreTEXT, "AnyCoreTEXT");
 
+pywrap!(PyCoreTEXT2_0, api::CoreTEXT2_0, "CoreTEXT2_0");
+pywrap!(PyCoreTEXT3_0, api::CoreTEXT3_0, "CoreTEXT3_0");
+pywrap!(PyCoreTEXT3_1, api::CoreTEXT3_1, "CoreTEXT3_1");
+pywrap!(PyCoreTEXT3_2, api::CoreTEXT3_2, "CoreTEXT3_2");
+
+pywrap!(PyMeasurement2_0, api::Measurement2_0, "Measurement2_0");
+pywrap!(PyMeasurement3_0, api::Measurement3_0, "Measurement3_0");
+pywrap!(PyMeasurement3_1, api::Measurement3_1, "Measurement3_1");
+pywrap!(PyMeasurement3_2, api::Measurement3_2, "Measurement3_2");
+
 py_ord!(PyVersion);
 py_disp!(PyVersion);
 
@@ -210,6 +222,9 @@ impl PyRawTEXT {
         self.0.delimiter
     }
 
+    // TODO this is a gotcha because if someone tries to modify a keyword like
+    // 'std.keywords.cells = "2112"' then it the modification will actually be
+    // done to a copy of 'keywords' rather than 'std'.
     #[getter]
     fn keywords<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         self.0.keywords.clone().into_py_dict(py)
@@ -257,27 +272,40 @@ impl PyStandardizedTEXT {
     }
 
     #[getter]
-    fn keywords(&self) -> PyAnyCoreTEXT {
-        self.0.keywords.clone().into()
-    }
-
-    #[getter]
     fn deviant<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         self.0.deviant.clone().into_py_dict(py)
     }
-}
 
-#[pymethods]
-impl PyAnyCoreTEXT {
     #[getter]
-    fn version(&self) -> PyVersion {
-        self.0.version().into()
+    fn begin_date(&self) -> Option<NaiveDate> {
+        self.0.keywords.begin_date()
+    }
+
+    #[getter]
+    fn end_date(&self) -> Option<NaiveDate> {
+        self.0.keywords.end_date()
+    }
+
+    #[getter]
+    fn begin_time(&self) -> Option<NaiveTime> {
+        self.0.keywords.begin_time()
+    }
+
+    #[getter]
+    fn end_time(&self) -> Option<NaiveTime> {
+        self.0.keywords.end_time()
+    }
+
+    fn set_datetimes(&mut self, begin: DateTime<FixedOffset>, end: DateTime<FixedOffset>) -> bool {
+        self.0.keywords.set_datetimes(begin, end)
+    }
+
+    fn clear_datetimes(&mut self) {
+        self.0.keywords.clear_datetimes()
     }
 
     // TODO this will be in arbitrary order, might make sense to sort it
-    //
-    // TODO also might make sense to add flags which can filter the results
-    // (required, optional, measurements, non-measurements, etc)
+    // TODO add flag to remove nonstandard
     #[pyo3(signature = (want_req=None, want_meta=None))]
     fn raw_keywords<'py>(
         &self,
@@ -286,11 +314,79 @@ impl PyAnyCoreTEXT {
         want_meta: Option<bool>,
     ) -> PyResult<Bound<'py, PyDict>> {
         self.0
+            .keywords
             .raw_keywords(want_req, want_meta)
             .clone()
             .into_py_dict(py)
     }
+
+    #[getter]
+    fn shortnames(&self) -> Vec<String> {
+        self.0
+            .keywords
+            .shortnames()
+            .iter()
+            .map(|x| x.to_string())
+            .collect()
+    }
+
+    // TODO add other converters here
+
+    #[getter]
+    fn inner(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        match &self.0.keywords {
+            // TODO this copies all data from the "union type" into a new
+            // version-specific type. This might not be a big deal, but these
+            // types might be rather large with lots of strings.
+            api::AnyCoreTEXT::FCS2_0(x) => PyCoreTEXT2_0::from((**x).clone()).into_py_any(py),
+            api::AnyCoreTEXT::FCS3_0(x) => PyCoreTEXT3_0::from((**x).clone()).into_py_any(py),
+            api::AnyCoreTEXT::FCS3_1(x) => PyCoreTEXT3_1::from((**x).clone()).into_py_any(py),
+            api::AnyCoreTEXT::FCS3_2(x) => PyCoreTEXT3_2::from((**x).clone()).into_py_any(py),
+        }
+    }
 }
+
+macro_rules! get_set_str {
+    ($pytype:ident, $get:ident, $set:ident) => {
+        #[pymethods]
+        impl $pytype {
+            #[getter]
+            fn $get(&self) -> Option<String> {
+                self.0.keywords.$get().map(String::from)
+            }
+
+            #[setter]
+            fn $set(&mut self, s: Option<String>) {
+                self.0.keywords.$set(s)
+            }
+        }
+    };
+}
+
+get_set_str!(PyStandardizedTEXT, cells, set_cells);
+get_set_str!(PyStandardizedTEXT, com, set_com);
+get_set_str!(PyStandardizedTEXT, exp, set_exp);
+get_set_str!(PyStandardizedTEXT, fil, set_fil);
+get_set_str!(PyStandardizedTEXT, inst, set_inst);
+get_set_str!(PyStandardizedTEXT, op, set_op);
+get_set_str!(PyStandardizedTEXT, proj, set_proj);
+get_set_str!(PyStandardizedTEXT, smno, set_smno);
+get_set_str!(PyStandardizedTEXT, src, set_src);
+get_set_str!(PyStandardizedTEXT, sys, set_sys);
+
+// get_set_str!(PyAnyCoreTEXT, cells, set_cells);
+// get_set_str!(PyAnyCoreTEXT, com, set_com);
+// get_set_str!(PyAnyCoreTEXT, exp, set_exp);
+// get_set_str!(PyAnyCoreTEXT, fil, set_fil);
+// get_set_str!(PyAnyCoreTEXT, inst, set_inst);
+// get_set_str!(PyAnyCoreTEXT, op, set_op);
+// get_set_str!(PyAnyCoreTEXT, proj, set_proj);
+// get_set_str!(PyAnyCoreTEXT, smno, set_smno);
+// get_set_str!(PyAnyCoreTEXT, src, set_src);
+// get_set_str!(PyAnyCoreTEXT, sys, set_sys);
+
+#[pymethods]
+impl PyCoreTEXT3_2 {}
 
 struct FailWrapper(error::ImpureFailure);
 

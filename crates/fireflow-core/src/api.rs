@@ -247,17 +247,17 @@ pub enum Series {
 /// Critical FCS TEXT data for any supported FCS version
 #[derive(Debug, Clone)]
 pub enum AnyCoreTEXT {
-    FCS2_0(Box<CoreText2_0>),
-    FCS3_0(Box<CoreText3_0>),
-    FCS3_1(Box<CoreText3_1>),
-    FCS3_2(Box<CoreText3_2>),
+    FCS2_0(Box<CoreTEXT2_0>),
+    FCS3_0(Box<CoreTEXT3_0>),
+    FCS3_1(Box<CoreTEXT3_1>),
+    FCS3_2(Box<CoreTEXT3_2>),
 }
 
 /// Minimally-required FCS TEXT data for each version
-type CoreText2_0 = CoreTEXT<InnerMetadata2_0, InnerMeasurement2_0>;
-type CoreText3_0 = CoreTEXT<InnerMetadata3_0, InnerMeasurement3_0>;
-type CoreText3_1 = CoreTEXT<InnerMetadata3_1, InnerMeasurement3_1>;
-type CoreText3_2 = CoreTEXT<InnerMetadata3_2, InnerMeasurement3_2>;
+pub type CoreTEXT2_0 = CoreTEXT<InnerMetadata2_0, InnerMeasurement2_0>;
+pub type CoreTEXT3_0 = CoreTEXT<InnerMetadata3_0, InnerMeasurement3_0>;
+pub type CoreTEXT3_1 = CoreTEXT<InnerMetadata3_1, InnerMeasurement3_1>;
+pub type CoreTEXT3_2 = CoreTEXT<InnerMetadata3_2, InnerMeasurement3_2>;
 
 /// Represents the minimal data required to fully represent the TEXT keywords.
 ///
@@ -285,7 +285,7 @@ type CoreText3_2 = CoreTEXT<InnerMetadata3_2, InnerMeasurement3_2>;
 /// TEXT data when writing a new FCS file, and the keywords that are not
 /// included can be computed on the fly when writing.
 #[derive(Debug, Clone, Serialize)]
-struct CoreTEXT<M, P> {
+pub struct CoreTEXT<M, P> {
     /// All "non-measurement" TEXT keywords.
     ///
     /// This is specific to each FCS version, which is encoded in the generic
@@ -514,7 +514,7 @@ struct Calibration3_2 {
 ///
 /// This cannot contain commas.
 #[derive(Debug, Clone, Serialize, Eq, PartialEq, Hash)]
-struct Shortname(String);
+pub struct Shortname(String);
 
 /// The value for the $PnL key (3.1).
 ///
@@ -655,7 +655,7 @@ enum OptionalKw<V> {
 
 /// Measurement fields specific to version 2.0
 #[derive(Debug, Clone, Serialize)]
-struct InnerMeasurement2_0 {
+pub struct InnerMeasurement2_0 {
     /// Value for $PnE
     scale: OptionalKw<Scale>,
 
@@ -668,7 +668,7 @@ struct InnerMeasurement2_0 {
 
 /// Measurement fields specific to version 3.0
 #[derive(Debug, Clone, Serialize)]
-struct InnerMeasurement3_0 {
+pub struct InnerMeasurement3_0 {
     /// Value for $PnE
     scale: Scale,
 
@@ -684,7 +684,7 @@ struct InnerMeasurement3_0 {
 
 /// Measurement fields specific to version 3.1
 #[derive(Debug, Clone, Serialize)]
-struct InnerMeasurement3_1 {
+pub struct InnerMeasurement3_1 {
     /// Value for $PnE
     scale: Scale,
 
@@ -706,7 +706,7 @@ struct InnerMeasurement3_1 {
 
 /// Measurement fields specific to version 3.2
 #[derive(Debug, Clone, Serialize)]
-struct InnerMeasurement3_2 {
+pub struct InnerMeasurement3_2 {
     /// Value for $PnE
     scale: Scale,
 
@@ -753,7 +753,7 @@ struct InnerMeasurement3_2 {
 /// version. This is often more than required to parse the DATA segment. (see
 /// ['MinimalMeasurement']
 #[derive(Debug, Clone, Serialize)]
-struct Measurement<X> {
+pub struct Measurement<X> {
     /// Value for $PnB
     bytes: Bytes,
 
@@ -788,10 +788,10 @@ struct Measurement<X> {
 }
 
 /// Version-specific data for one measurement
-type Measurement2_0 = Measurement<InnerMeasurement2_0>;
-type Measurement3_0 = Measurement<InnerMeasurement3_0>;
-type Measurement3_1 = Measurement<InnerMeasurement3_1>;
-type Measurement3_2 = Measurement<InnerMeasurement3_2>;
+pub type Measurement2_0 = Measurement<InnerMeasurement2_0>;
+pub type Measurement3_0 = Measurement<InnerMeasurement3_0>;
+pub type Measurement3_1 = Measurement<InnerMeasurement3_1>;
+pub type Measurement3_2 = Measurement<InnerMeasurement3_2>;
 
 /// Metadata fields specific to version 2.0
 #[derive(Debug, Clone, Serialize)]
@@ -1206,7 +1206,7 @@ struct AlphaNumTypeError;
 struct NumTypeError;
 pub struct EndianError;
 struct ModifiedDateTimeError;
-struct ShortnameError;
+pub struct ShortnameError;
 struct FeatureError;
 struct OriginalityError;
 
@@ -1361,6 +1361,27 @@ where
     Self::P: VersionedParserMeasurement,
 {
     type P;
+
+    fn begin_date(&self) -> Option<NaiveDate>;
+
+    fn end_date(&self) -> Option<NaiveDate>;
+
+    fn begin_time(&self) -> Option<NaiveTime>;
+
+    fn end_time(&self) -> Option<NaiveTime>;
+
+    fn set_datetimes(&mut self, begin: DateTime<FixedOffset>, end: DateTime<FixedOffset>) -> bool {
+        if begin > end {
+            false
+        } else {
+            self.set_datetimes_inner(begin, end);
+            true
+        }
+    }
+
+    fn set_datetimes_inner(&mut self, begin: DateTime<FixedOffset>, end: DateTime<FixedOffset>);
+
+    fn clear_datetimes(&mut self);
 
     fn into_any(s: CoreTEXT<Self, Self::P>) -> AnyCoreTEXT;
 
@@ -2849,6 +2870,16 @@ impl<V> OptionalKw<V> {
             Absent => Absent,
         }
     }
+    fn into_option(self) -> Option<V> {
+        match self {
+            OptionalKw::Present(x) => Some(x),
+            Absent => None,
+        }
+    }
+
+    fn as_option(&self) -> Option<&V> {
+        self.as_ref().into_option()
+    }
 
     fn map<F, W>(self, f: F) -> OptionalKw<W>
     where
@@ -2872,13 +2903,6 @@ impl<V> OptionalKw<V> {
         F: FnOnce(Option<&V>) -> Option<W>,
     {
         OptionalKw::<&V>::with_option::<F, W>(self.as_ref(), f)
-    }
-
-    fn into_option(self) -> Option<V> {
-        match self {
-            OptionalKw::Present(x) => Some(x),
-            Absent => None,
-        }
     }
 
     fn from_option(x: Option<V>) -> Self {
@@ -3446,6 +3470,42 @@ impl fmt::Display for Mode3_2Error {
     }
 }
 
+macro_rules! match_anycoretext {
+    ($self:expr, $bind:ident, $stuff:block) => {
+        match_many_to_one!(
+            $self,
+            AnyCoreTEXT,
+            [FCS2_0, FCS3_0, FCS3_1, FCS3_2],
+            $bind,
+            $stuff
+        )
+    };
+}
+
+macro_rules! any_core_get_set_copied {
+    ($get:ident, $set:ident, $t:ty) => {
+        pub fn $get(&self) -> Option<$t> {
+            match_anycoretext!(self, x, { x.$get() })
+        }
+
+        pub fn $set(&mut self, s: Option<$t>) {
+            match_anycoretext!(self, x, { x.$set(s) })
+        }
+    };
+}
+
+macro_rules! any_core_get_set_str {
+    ($get:ident, $set:ident) => {
+        pub fn $get(&self) -> Option<&str> {
+            match_anycoretext!(self, x, { x.$get() })
+        }
+
+        pub fn $set(&mut self, s: Option<String>) {
+            match_anycoretext!(self, x, { x.$set(s) })
+        }
+    };
+}
+
 impl AnyCoreTEXT {
     pub fn version(&self) -> Version {
         match self {
@@ -3456,45 +3516,89 @@ impl AnyCoreTEXT {
         }
     }
 
+    any_core_get_set_copied!(abrt, set_abrt, u32);
+    any_core_get_set_copied!(lost, set_lost, u32);
+
+    any_core_get_set_str!(cells, set_cells);
+    any_core_get_set_str!(com, set_com);
+    any_core_get_set_str!(exp, set_exp);
+    any_core_get_set_str!(fil, set_fil);
+    any_core_get_set_str!(inst, set_inst);
+    any_core_get_set_str!(op, set_op);
+    any_core_get_set_str!(proj, set_proj);
+    any_core_get_set_str!(smno, set_smno);
+    any_core_get_set_str!(src, set_src);
+    any_core_get_set_str!(sys, set_sys);
+
+    pub fn begin_date(&self) -> Option<NaiveDate> {
+        match_anycoretext!(self, x, { x.begin_date() })
+    }
+
+    pub fn begin_time(&self) -> Option<NaiveTime> {
+        match_anycoretext!(self, x, { x.begin_time() })
+    }
+
+    pub fn end_date(&self) -> Option<NaiveDate> {
+        match_anycoretext!(self, x, { x.end_date() })
+    }
+
+    pub fn end_time(&self) -> Option<NaiveTime> {
+        match_anycoretext!(self, x, { x.end_time() })
+    }
+
+    pub fn set_datetimes(
+        &mut self,
+        begin: DateTime<FixedOffset>,
+        end: DateTime<FixedOffset>,
+    ) -> bool {
+        match_anycoretext!(self, x, { x.set_datetimes(begin, end) })
+    }
+
+    pub fn clear_datetimes(&mut self) {
+        match_anycoretext!(self, x, { x.clear_datetimes() })
+    }
+
     pub fn raw_keywords(&self, want_req: Option<bool>, want_meta: Option<bool>) -> RawKeywords {
-        match_many_to_one!(self, AnyCoreTEXT, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
-            x.raw_keywords(want_req, want_meta)
-        })
+        match_anycoretext!(self, x, { x.raw_keywords(want_req, want_meta) })
     }
 
-    pub fn into_2_0(self, def: CoreDefaultsTo2_0) -> PureSuccess<CoreText2_0> {
+    pub fn shortnames(&self) -> Vec<Shortname> {
+        match_anycoretext!(self, x, { x.shortnames() })
+    }
+
+    pub fn into_2_0(self, def: CoreDefaultsTo2_0) -> PureSuccess<CoreTEXT2_0> {
         match self {
-            AnyCoreTEXT::FCS2_0(c) => CoreText2_0::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_0(c) => CoreText3_0::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_1(c) => CoreText3_1::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_2(c) => CoreText3_2::convert_core(*c, def),
+            AnyCoreTEXT::FCS2_0(c) => CoreTEXT2_0::convert_core(*c, def),
+            AnyCoreTEXT::FCS3_0(c) => CoreTEXT3_0::convert_core(*c, def),
+            AnyCoreTEXT::FCS3_1(c) => CoreTEXT3_1::convert_core(*c, def),
+            AnyCoreTEXT::FCS3_2(c) => CoreTEXT3_2::convert_core(*c, def),
         }
     }
 
-    pub fn into_3_0(self, def: CoreDefaultsTo3_0) -> PureSuccess<CoreText3_0> {
+    pub fn into_3_0(self, def: CoreDefaultsTo3_0) -> PureSuccess<CoreTEXT3_0> {
         match self {
-            AnyCoreTEXT::FCS2_0(c) => CoreText2_0::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_0(c) => CoreText3_0::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_1(c) => CoreText3_1::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_2(c) => CoreText3_2::convert_core(*c, def),
+            AnyCoreTEXT::FCS2_0(c) => CoreTEXT2_0::convert_core(*c, def),
+            AnyCoreTEXT::FCS3_0(c) => CoreTEXT3_0::convert_core(*c, def),
+            AnyCoreTEXT::FCS3_1(c) => CoreTEXT3_1::convert_core(*c, def),
+            AnyCoreTEXT::FCS3_2(c) => CoreTEXT3_2::convert_core(*c, def),
         }
     }
 
-    pub fn into_3_1(self, def: CoreDefaultsTo3_1) -> PureSuccess<CoreText3_1> {
+    pub fn into_3_1(self, def: CoreDefaultsTo3_1) -> PureSuccess<CoreTEXT3_1> {
         match self {
-            AnyCoreTEXT::FCS2_0(c) => CoreText2_0::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_0(c) => CoreText3_0::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_1(c) => CoreText3_1::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_2(c) => CoreText3_2::convert_core(*c, def),
+            AnyCoreTEXT::FCS2_0(c) => CoreTEXT2_0::convert_core(*c, def),
+            AnyCoreTEXT::FCS3_0(c) => CoreTEXT3_0::convert_core(*c, def),
+            AnyCoreTEXT::FCS3_1(c) => CoreTEXT3_1::convert_core(*c, def),
+            AnyCoreTEXT::FCS3_2(c) => CoreTEXT3_2::convert_core(*c, def),
         }
     }
 
-    pub fn into_3_2(self, def: CoreDefaultsTo3_2) -> PureSuccess<CoreText3_2> {
+    pub fn into_3_2(self, def: CoreDefaultsTo3_2) -> PureSuccess<CoreTEXT3_2> {
         match self {
-            AnyCoreTEXT::FCS2_0(c) => CoreText2_0::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_0(c) => CoreText3_0::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_1(c) => CoreText3_1::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_2(c) => CoreText3_2::convert_core(*c, def),
+            AnyCoreTEXT::FCS2_0(c) => CoreTEXT2_0::convert_core(*c, def),
+            AnyCoreTEXT::FCS3_0(c) => CoreTEXT3_0::convert_core(*c, def),
+            AnyCoreTEXT::FCS3_1(c) => CoreTEXT3_1::convert_core(*c, def),
+            AnyCoreTEXT::FCS3_2(c) => CoreTEXT3_2::convert_core(*c, def),
         }
     }
 
@@ -3504,38 +3608,15 @@ impl AnyCoreTEXT {
         data_len: usize,
         analysis_len: usize,
     ) -> Option<Vec<String>> {
-        match_many_to_one!(self, AnyCoreTEXT, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
-            x.text_segment(tot, data_len, analysis_len)
-        })
+        match_anycoretext!(self, x, { x.text_segment(tot, data_len, analysis_len) })
     }
 
     pub fn par(&self) -> usize {
-        match_many_to_one!(self, AnyCoreTEXT, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
-            x.par()
-        })
-    }
-
-    pub fn as_writer_data_layout(&self) -> Result<WriterDataLayout, Vec<String>> {
-        match_many_to_one!(self, AnyCoreTEXT, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
-            x.as_writer_data_layout()
-        })
-    }
-
-    pub fn as_data_reader(
-        &self,
-        kws: &mut RawKeywords,
-        conf: &Config,
-        data_seg: &Segment,
-    ) -> PureMaybe<DataReader> {
-        match_many_to_one!(self, AnyCoreTEXT, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
-            x.as_data_reader(kws, conf, data_seg)
-        })
+        match_anycoretext!(self, x, { x.par() })
     }
 
     pub fn print_meas_table(&self, delim: &str) {
-        match_many_to_one!(self, AnyCoreTEXT, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
-            x.print_meas_table(delim)
-        })
+        match_anycoretext!(self, x, { x.print_meas_table(delim) })
     }
 
     pub fn print_spillover_table(&self, delim: &str) {
@@ -3560,6 +3641,19 @@ impl AnyCoreTEXT {
         if res.is_none() {
             println!("None")
         }
+    }
+
+    fn as_writer_data_layout(&self) -> Result<WriterDataLayout, Vec<String>> {
+        match_anycoretext!(self, x, { x.as_writer_data_layout() })
+    }
+
+    fn as_data_reader(
+        &self,
+        kws: &mut RawKeywords,
+        conf: &Config,
+        data_seg: &Segment,
+    ) -> PureMaybe<DataReader> {
+        match_anycoretext!(self, x, { x.as_data_reader(kws, conf, data_seg) })
     }
 }
 
@@ -3636,6 +3730,34 @@ fn build_data_reader(layout: ReaderDataLayout, data_seg: &Segment) -> DataReader
     }
 }
 
+macro_rules! get_set_copied {
+    ($get:ident, $set:ident, $t:ty) => {
+        pub fn $get(&self) -> Option<$t> {
+            self.metadata.$get.as_ref().into_option().copied()
+        }
+
+        pub fn $set(&mut self, x: Option<$t>) {
+            self.metadata.$get = OptionalKw::from_option(x);
+        }
+    };
+}
+
+macro_rules! get_set_str {
+    ($get:ident, $set:ident) => {
+        pub fn $get(&self) -> Option<&str> {
+            self.metadata
+                .$get
+                .as_ref()
+                .into_option()
+                .map(|x| x.as_str())
+        }
+
+        pub fn $set(&mut self, x: Option<String>) {
+            self.metadata.$get = OptionalKw::from_option(x);
+        }
+    };
+}
+
 impl<M> CoreTEXT<M, M::P>
 where
     M: VersionedMetadata,
@@ -3705,6 +3827,46 @@ where
             .chain(keep(opt_meas, keep_opt, keep_meas))
             .collect()
     }
+
+    fn begin_date(&self) -> Option<NaiveDate> {
+        M::begin_date(&self.metadata.specific)
+    }
+
+    fn end_date(&self) -> Option<NaiveDate> {
+        M::end_date(&self.metadata.specific)
+    }
+
+    fn begin_time(&self) -> Option<NaiveTime> {
+        M::begin_time(&self.metadata.specific)
+    }
+
+    fn end_time(&self) -> Option<NaiveTime> {
+        M::end_time(&self.metadata.specific)
+    }
+
+    fn set_datetimes(&mut self, begin: DateTime<FixedOffset>, end: DateTime<FixedOffset>) -> bool {
+        M::set_datetimes(&mut self.metadata.specific, begin, end)
+    }
+
+    fn clear_datetimes(&mut self) {
+        M::clear_datetimes(&mut self.metadata.specific)
+    }
+
+    get_set_copied!(abrt, set_abrt, u32);
+    get_set_copied!(lost, set_lost, u32);
+
+    get_set_str!(cells, set_cells);
+    get_set_str!(com, set_com);
+    get_set_str!(exp, set_exp);
+    get_set_str!(fil, set_fil);
+    get_set_str!(inst, set_inst);
+    get_set_str!(op, set_op);
+    get_set_str!(proj, set_proj);
+    get_set_str!(smno, set_smno);
+    get_set_str!(src, set_src);
+    get_set_str!(sys, set_sys);
+
+    // fn btim(&self) -> NaiveDate {}
 
     fn header_and_raw_keywords(
         &self,
@@ -5030,12 +5192,59 @@ impl VersionedParserMetadata for InnerMetadata3_2 {
     }
 }
 
+macro_rules! get_set_pre_3_2_datetime {
+    ($fcstime:ident) => {
+        fn begin_date(&self) -> Option<NaiveDate> {
+            self.timestamps.date.as_option().map(|x| x.0)
+        }
+
+        fn end_date(&self) -> Option<NaiveDate> {
+            self.begin_date()
+        }
+
+        fn begin_time(&self) -> Option<NaiveTime> {
+            self.timestamps.btim.as_option().map(|x| x.0)
+        }
+
+        fn end_time(&self) -> Option<NaiveTime> {
+            self.timestamps.etim.as_option().map(|x| x.0)
+        }
+
+        fn set_datetimes_inner(
+            &mut self,
+            begin: DateTime<FixedOffset>,
+            end: DateTime<FixedOffset>,
+        ) {
+            let d1 = begin.date_naive();
+            let d2 = end.date_naive();
+            self.timestamps.btim = Present($fcstime(begin.time()));
+            self.timestamps.etim = Present($fcstime(end.time()));
+            // If two dates are the same, set $DATE, if not, then keep date
+            // unset since pre-3.2 versions do not have a way to store two
+            // dates. This is an inherent limitation in these early versions.
+            self.timestamps.date = if d1 != d2 {
+                Absent
+            } else {
+                Present(FCSDate(d1))
+            };
+        }
+
+        fn clear_datetimes(&mut self) {
+            self.timestamps.btim = Absent;
+            self.timestamps.etim = Absent;
+            self.timestamps.date = Absent;
+        }
+    };
+}
+
 impl VersionedMetadata for InnerMetadata2_0 {
     type P = InnerMeasurement2_0;
 
-    fn into_any(t: CoreText2_0) -> AnyCoreTEXT {
+    fn into_any(t: CoreTEXT2_0) -> AnyCoreTEXT {
         AnyCoreTEXT::FCS2_0(Box::new(t))
     }
+
+    get_set_pre_3_2_datetime!(FCSTime);
 
     fn lookup_specific(
         st: &mut KwParser,
@@ -5083,9 +5292,11 @@ impl VersionedMetadata for InnerMetadata2_0 {
 impl VersionedMetadata for InnerMetadata3_0 {
     type P = InnerMeasurement3_0;
 
-    fn into_any(t: CoreText3_0) -> AnyCoreTEXT {
+    fn into_any(t: CoreTEXT3_0) -> AnyCoreTEXT {
         AnyCoreTEXT::FCS3_0(Box::new(t))
     }
+
+    get_set_pre_3_2_datetime!(FCSTime60);
 
     fn lookup_specific(
         st: &mut KwParser,
@@ -5140,9 +5351,11 @@ impl VersionedMetadata for InnerMetadata3_0 {
 impl VersionedMetadata for InnerMetadata3_1 {
     type P = InnerMeasurement3_1;
 
-    fn into_any(t: CoreText3_1) -> AnyCoreTEXT {
+    fn into_any(t: CoreTEXT3_1) -> AnyCoreTEXT {
         AnyCoreTEXT::FCS3_1(Box::new(t))
     }
+
+    get_set_pre_3_2_datetime!(FCSTime100);
 
     fn lookup_specific(
         st: &mut KwParser,
@@ -5211,8 +5424,57 @@ impl VersionedMetadata for InnerMetadata3_1 {
 impl VersionedMetadata for InnerMetadata3_2 {
     type P = InnerMeasurement3_2;
 
-    fn into_any(t: CoreText3_2) -> AnyCoreTEXT {
+    fn into_any(t: CoreTEXT3_2) -> AnyCoreTEXT {
         AnyCoreTEXT::FCS3_2(Box::new(t))
+    }
+
+    // TODO not DRY
+    fn begin_date(&self) -> Option<NaiveDate> {
+        self.datetimes
+            .begin
+            .as_option()
+            .map(|x| x.0.date_naive())
+            .or(self.timestamps.date.as_option().map(|x| x.0))
+    }
+
+    fn end_date(&self) -> Option<NaiveDate> {
+        self.datetimes
+            .end
+            .as_option()
+            .map(|x| x.0.date_naive())
+            .or(self.timestamps.date.as_option().map(|x| x.0))
+    }
+
+    fn begin_time(&self) -> Option<NaiveTime> {
+        self.datetimes.begin.as_option().map(|x| x.0.time()).or(self
+            .timestamps
+            .btim
+            .as_option()
+            .map(|x| x.0))
+    }
+
+    fn end_time(&self) -> Option<NaiveTime> {
+        self.datetimes.end.as_option().map(|x| x.0.time()).or(self
+            .timestamps
+            .etim
+            .as_option()
+            .map(|x| x.0))
+    }
+
+    fn set_datetimes_inner(&mut self, begin: DateTime<FixedOffset>, end: DateTime<FixedOffset>) {
+        self.datetimes.begin = Present(FCSDateTime(begin));
+        self.datetimes.end = Present(FCSDateTime(end));
+        self.timestamps.btim = Absent;
+        self.timestamps.etim = Absent;
+        self.timestamps.date = Absent;
+    }
+
+    fn clear_datetimes(&mut self) {
+        self.datetimes.begin = Absent;
+        self.datetimes.end = Absent;
+        self.timestamps.btim = Absent;
+        self.timestamps.etim = Absent;
+        self.timestamps.date = Absent;
     }
 
     fn lookup_specific(
@@ -5298,10 +5560,10 @@ fn parse_raw_text(
     conf: &StdTextReadConfig,
 ) -> PureResult<AnyCoreTEXT> {
     match version {
-        Version::FCS2_0 => CoreText2_0::any_from_raw(kws, conf),
-        Version::FCS3_0 => CoreText3_0::any_from_raw(kws, conf),
-        Version::FCS3_1 => CoreText3_1::any_from_raw(kws, conf),
-        Version::FCS3_2 => CoreText3_2::any_from_raw(kws, conf),
+        Version::FCS2_0 => CoreTEXT2_0::any_from_raw(kws, conf),
+        Version::FCS3_0 => CoreTEXT3_0::any_from_raw(kws, conf),
+        Version::FCS3_1 => CoreTEXT3_1::any_from_raw(kws, conf),
+        Version::FCS3_2 => CoreTEXT3_2::any_from_raw(kws, conf),
     }
 }
 

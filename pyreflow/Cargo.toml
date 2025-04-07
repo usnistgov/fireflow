@@ -8,5 +8,6 @@ name = "pyreflow"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { workspace = true }
 fireflow-core = { version = "0.1.0", path = "../crates/fireflow-core" }
+pyo3 = { version = "0.23.5", features = ["extension-module", "multiple-pymethods", "chrono"] }
+chrono = { workspace = true }

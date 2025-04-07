@@ -99,10 +99,13 @@ impl PySegment {
 
 #[pymethods]
 impl PyVersion {
+    // TODO make a macro that impl's display for the pytype, which then can be
+    // used when declaring the class to create this method
     fn __repr__(&self) -> String {
         self.0.to_string()
     }
 
+    // TODO ditto
     fn __eq__(&self, other: &Self) -> bool {
         self.0 == other.0
     }

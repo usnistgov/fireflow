@@ -138,11 +138,15 @@ pub struct StandardizedTEXT {
     /// be strings.
     pub keywords: AnyCoreTEXT,
 
-    /// Keywords remaining after standardization
+    /// Raw standard keywords remaining after the standardization process
     ///
-    /// Assuming the code works, this should only have keywords that start with
-    /// a '$', some of which will be standardized.
+    /// This only should include $TOT, $BEGINDATA, $ENDDATA, $BEGINANALISYS, and
+    /// $ENDANALYSIS. These are only needed to process the data segment and are
+    /// not necessary to create the CoreTEXT, and thus are not included.
     pub remainder: RawKeywords,
+
+    /// Raw keywords that are not standard but start with '$'
+    pub deviant: RawKeywords,
 }
 
 /// Output of parsing one raw dataset (TEXT+DATA) from an FCS file.
@@ -180,8 +184,13 @@ pub struct StandardizedDataset {
     /// Structured data derived from TEXT specific to the indicated FCS version.
     pub dataset: CoreDataset,
 
-    /// Non-standard keywords that start with '$'.
+    /// Raw standard keyword remaining after processing.
+    ///
+    /// This should be empty if everything worked. Here for debugging.
     pub remainder: RawKeywords,
+
+    /// Non-standard keywords that start with '$'.
+    pub deviant: RawKeywords,
 }
 
 /// Represents the minimal data to fully describe one dataset in an FCS file.
@@ -3519,7 +3528,7 @@ impl AnyCoreTEXT {
         data_seg: &Segment,
     ) -> PureMaybe<DataReader> {
         match_many_to_one!(self, AnyCoreTEXT, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
-            x.as_data_parser(kws, conf, data_seg)
+            x.as_data_reader(kws, conf, data_seg)
         })
     }
 
@@ -3849,7 +3858,7 @@ where
     }
 
     // TODO this doesn't need to be here
-    fn as_data_parser(
+    fn as_data_reader(
         &self,
         kws: &mut RawKeywords,
         conf: &Config,
@@ -4845,6 +4854,7 @@ fn h_read_std_dataset<R: Read + Seek>(
                     keywords: std.keywords,
                     analysis,
                 },
+                deviant: std.deviant,
             }))
         })
 }
@@ -5831,7 +5841,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
             Some(v) => {
                 let res = match v.parse() {
                     Err(e) => {
-                        let msg = format!("{e} for key '{k}' with value '{v}'");
+                        let msg = format!("{e} (key='{k}', value='{v}')");
                         self.deferred.push_error(msg);
                         None
                     }
@@ -5861,7 +5871,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
             Some(v) => {
                 let res = match v.parse() {
                     Err(w) => {
-                        let msg = format!("{w} for key '{k}' with value '{v}'");
+                        let msg = format!("{w} (key={k}, value='{v}')");
                         self.deferred.push_warning(msg);
                         Absent
                     }
@@ -6405,16 +6415,32 @@ fn h_read_raw_text<R: Read + Seek>(h: &mut BufReader<R>, conf: &Config) -> Impur
     h_read_header(h)?.try_map(|header| h_read_raw_text_from_header(h, &header, conf))
 }
 
+fn split_remainder(xs: RawKeywords) -> (RawKeywords, RawKeywords) {
+    xs.into_iter()
+        .map(|(k, v)| {
+            if k == TOT || k == BEGINDATA || k == ENDDATA || k == BEGINANALYSIS || k == ENDANALYSIS
+            {
+                Ok((k, v))
+            } else {
+                Err((k, v))
+            }
+        })
+        .partition_result()
+}
+
 fn raw_to_std(raw: RawTEXT, conf: &Config) -> PureResult<StandardizedTEXT> {
     let mut kws = raw.keywords;
     parse_raw_text(raw.version, &mut kws, &conf.standard).map(|std_succ| {
         std_succ.map({
-            |standardized| StandardizedTEXT {
-                offsets: raw.offsets,
-                keywords: standardized,
-                delimiter: raw.delimiter,
-                // TODO this will contain extra stuff (like $TOT)
-                remainder: kws,
+            |standardized| {
+                let (remainder, deviant) = split_remainder(kws);
+                StandardizedTEXT {
+                    offsets: raw.offsets,
+                    keywords: standardized,
+                    delimiter: raw.delimiter,
+                    remainder,
+                    deviant,
+                }
             }
         })
     })

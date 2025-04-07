@@ -1,2 +1,10 @@
 *target
 *Cargo.lock
+
+# python stuff
+
+*__pycache__/
+*.py[cod]
+*.so
+*.venv
+*.mypy_cache/

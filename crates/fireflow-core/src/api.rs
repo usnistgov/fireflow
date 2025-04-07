@@ -3456,9 +3456,9 @@ impl AnyCoreTEXT {
         }
     }
 
-    pub fn raw_keywords(&self) -> RawKeywords {
+    pub fn raw_keywords(&self, want_req: Option<bool>, want_meta: Option<bool>) -> RawKeywords {
         match_many_to_one!(self, AnyCoreTEXT, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
-            x.raw_keywords()
+            x.raw_keywords(want_req, want_meta)
         })
     }
 
@@ -3676,17 +3676,34 @@ where
     /// Thiw will only include keywords that can be directly derived from
     /// [CoreTEXT]. This means it will not include $TOT, since this depends on
     /// the DATA segment.
-    pub fn raw_keywords(&self) -> RawKeywords {
+    pub fn raw_keywords(&self, want_req: Option<bool>, want_meta: Option<bool>) -> RawKeywords {
         let (req_meas, req_meta, _) = self.some_keywords(M::P::req_keywords, M::all_req_keywords);
         let (opt_meas, opt_meta, _) =
             self.some_keywords(M::P::opt_keywords, |m, _| M::all_opt_keywords(m));
 
-        let mut meta: Vec<_> = req_meta.into_iter().chain(opt_meta).collect();
-        let mut meas: Vec<_> = req_meas.into_iter().chain(opt_meas).collect();
-        meta.sort_by(|a, b| a.0.cmp(&b.0));
-        meas.sort_by(|a, b| a.0.cmp(&b.0));
+        let triop = |op| match op {
+            None => (true, true),
+            Some(true) => (true, false),
+            Some(false) => (false, true),
+        };
 
-        meta.into_iter().chain(meas).collect()
+        let keep = |xs, t1, t2| {
+            if t1 && t2 {
+                xs
+            } else {
+                vec![]
+            }
+        };
+
+        let (keep_req, keep_opt) = triop(want_req);
+        let (keep_meta, keep_meas) = triop(want_meta);
+
+        keep(req_meta, keep_req, keep_meta)
+            .into_iter()
+            .chain(keep(req_meas, keep_req, keep_meas))
+            .chain(keep(opt_meta, keep_opt, keep_meta))
+            .chain(keep(opt_meas, keep_opt, keep_meas))
+            .collect()
     }
 
     fn header_and_raw_keywords(

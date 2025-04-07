@@ -2,12 +2,15 @@ use fireflow_core::api;
 use fireflow_core::config;
 use fireflow_core::error;
 
+use pyo3::class::basic::CompareOp;
 use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyWarning};
 use pyo3::prelude::*;
 use pyo3::types::IntoPyDict;
 use pyo3::types::PyDict;
+use std::cmp::Ordering;
 use std::ffi::CString;
+use std::fmt;
 use std::path;
 
 #[pymodule]
@@ -37,7 +40,7 @@ fn read_fcs_std_text(p: path::PathBuf, conf: PyConfig) -> PyResult<PyStandardize
 
 macro_rules! pywrap {
     ($pytype:ident, $rstype:path, $name:expr) => {
-        #[pyclass]
+        #[pyclass()]
         #[derive(Clone)]
         #[repr(transparent)]
         struct $pytype($rstype);
@@ -56,6 +59,73 @@ macro_rules! pywrap {
     };
 }
 
+macro_rules! py_eq {
+    ($pytype:ident) => {
+        impl PartialEq for $pytype {
+            fn eq(&self, other: &Self) -> bool {
+                self.0 == other.0
+            }
+        }
+
+        impl Eq for $pytype {}
+
+        #[pymethods]
+        impl $pytype {
+            fn __eq__(&self, other: &Self) -> bool {
+                self.0 == other.0
+            }
+        }
+    };
+}
+
+macro_rules! py_ord {
+    ($pytype:ident) => {
+        impl PartialEq for $pytype {
+            fn eq(&self, other: &Self) -> bool {
+                self.0 == other.0
+            }
+        }
+
+        impl Eq for $pytype {}
+
+        impl Ord for $pytype {
+            fn cmp(&self, other: &Self) -> Ordering {
+                self.0.cmp(&other.0)
+            }
+        }
+
+        impl PartialOrd for $pytype {
+            fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+                Some(self.0.cmp(&other.0))
+            }
+        }
+
+        #[pymethods]
+        impl $pytype {
+            fn __richcmp__(&self, other: &Self, op: CompareOp) -> bool {
+                op.matches(self.0.cmp(&other.0))
+            }
+        }
+    };
+}
+
+macro_rules! py_disp {
+    ($pytype:ident) => {
+        impl fmt::Display for $pytype {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+                self.0.fmt(f)
+            }
+        }
+
+        #[pymethods]
+        impl $pytype {
+            fn __repr__(&self) -> String {
+                self.0.to_string()
+            }
+        }
+    };
+}
+
 pywrap!(PyConfig, config::Config, "Config");
 pywrap!(PySegment, api::Segment, "Segment");
 pywrap!(PyVersion, api::Version, "Version");
@@ -68,6 +138,9 @@ pywrap!(
     "StandardizedTEXT"
 );
 pywrap!(PyAnyCoreTEXT, api::AnyCoreTEXT, "AnyCoreTEXT");
+
+py_ord!(PyVersion);
+py_disp!(PyVersion);
 
 #[pymethods]
 impl PyConfig {
@@ -94,20 +167,6 @@ impl PySegment {
 
     fn __repr__(&self) -> String {
         format!("({},{})", self.begin(), self.end())
-    }
-}
-
-#[pymethods]
-impl PyVersion {
-    // TODO make a macro that impl's display for the pytype, which then can be
-    // used when declaring the class to create this method
-    fn __repr__(&self) -> String {
-        self.0.to_string()
-    }
-
-    // TODO ditto
-    fn __eq__(&self, other: &Self) -> bool {
-        self.0 == other.0
     }
 }
 
@@ -202,10 +261,9 @@ impl PyStandardizedTEXT {
         self.0.keywords.clone().into()
     }
 
-    // TODO do I really need to expose this?
     #[getter]
-    fn remainder<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
-        self.0.remainder.clone().into_py_dict(py)
+    fn deviant<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        self.0.deviant.clone().into_py_dict(py)
     }
 }
 
@@ -216,13 +274,21 @@ impl PyAnyCoreTEXT {
         self.0.version().into()
     }
 
-    #[getter]
     // TODO this will be in arbitrary order, might make sense to sort it
     //
     // TODO also might make sense to add flags which can filter the results
     // (required, optional, measurements, non-measurements, etc)
-    fn raw_keywords<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
-        self.0.raw_keywords().clone().into_py_dict(py)
+    #[pyo3(signature = (want_req=None, want_meta=None))]
+    fn raw_keywords<'py>(
+        &self,
+        py: Python<'py>,
+        want_req: Option<bool>,
+        want_meta: Option<bool>,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        self.0
+            .raw_keywords(want_req, want_meta)
+            .clone()
+            .into_py_dict(py)
     }
 }
 

@@ -214,7 +214,7 @@ pub struct CoreDataset {
     // level. Furthermore, even python has a suboptimal typing interface for
     // pandas dataframes (R is worse), so it's not like this can be checked
     // statically anyways.
-    pub data: Dataframe,
+    pub data: DataFrame,
 
     /// ANALYSIS segment
     ///
@@ -230,13 +230,13 @@ pub struct CoreDataset {
 /// reflects the underlying data. In Python/R, this is analogous to a dataframe.
 /// Each column is assumed to have the same length.
 struct Dataframe {
-    columns: Vec<Series>,
+    columns: Vec<RawSeries>,
 }
 
 /// A data column.
 ///
 /// Each column can only be one type, but this can be any one of several.
-pub enum Series {
+pub enum RawSeries {
     F32(Vec<f32>),
     F64(Vec<f64>),
     U08(Vec<u8>),
@@ -1729,7 +1729,7 @@ trait VersionedParserMeasurement: Sized {
                 }
                 AlphaNumType::Single => {
                     if bytes == 4 {
-                        f32::to_float_byteord(byteord)
+                        Float32Type::to_float_byteord(byteord)
                             .map(ColumnType::Float)
                             .map_err(|e| vec![e])
                     } else {
@@ -1738,7 +1738,7 @@ trait VersionedParserMeasurement: Sized {
                 }
                 AlphaNumType::Double => {
                     if bytes == 8 {
-                        f64::to_float_byteord(byteord)
+                        Float64Type::to_float_byteord(byteord)
                             .map(ColumnType::Double)
                             .map_err(|e| vec![e])
                     } else {
@@ -1882,24 +1882,34 @@ trait OrderedFromBytes<const DTLEN: usize, const OLEN: usize>: NumProps<DTLEN> {
     }
 }
 
-trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
-    NumProps<DTLEN> + OrderedFromBytes<DTLEN, INTLEN> + Ord + IntMath + TryFrom<u64>
+trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>
+where
+    Self::Native: NumProps<DTLEN>,
+    Self::Native: OrderedFromBytes<DTLEN, INTLEN>,
+    Self::Native: TryFrom<u64>,
+    Self::Native: IntMath,
+    Self::Native: Ord,
+    Self: PolarsNumericType,
+    ChunkedArray<Self>: IntoSeries,
 {
     fn byteord_to_sized(byteord: &ByteOrd) -> Result<SizedByteOrd<INTLEN>, String> {
         byteord_to_sized(byteord)
     }
 
-    fn range_to_bitmask(range: Range) -> Result<Self, String> {
+    fn range_to_bitmask(range: Range) -> Result<Self::Native, String> {
         match range {
             Range::Float(_) => Err("$PnR is float for an integer column".to_string()),
             // TODO this seems sloppy
-            Range::Int(i) => Ok(Self::try_from(i)
-                .map(Self::next_power_2)
-                .unwrap_or(Self::maxval())),
+            Range::Int(i) => Ok(Self::Native::try_from(i)
+                .map(Self::Native::next_power_2)
+                .unwrap_or(Self::Native::maxval())),
         }
     }
 
-    fn to_col(range: Range, byteord: &ByteOrd) -> Result<UintType<Self, INTLEN>, Vec<String>> {
+    fn to_col(
+        range: Range,
+        byteord: &ByteOrd,
+    ) -> Result<UintType<Self::Native, INTLEN>, Vec<String>> {
         // TODO be more specific, which means we need the measurement index
         let b = Self::range_to_bitmask(range);
         let s = Self::byteord_to_sized(byteord);
@@ -1914,12 +1924,15 @@ trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
     fn read_int_masked<R: Read>(
         h: &mut BufReader<R>,
         byteord: &SizedByteOrd<INTLEN>,
-        bitmask: Self,
-    ) -> io::Result<Self> {
+        bitmask: Self::Native,
+    ) -> io::Result<Self::Native> {
         Self::read_int(h, byteord).map(|x| x.min(bitmask))
     }
 
-    fn read_int<R: Read>(h: &mut BufReader<R>, byteord: &SizedByteOrd<INTLEN>) -> io::Result<Self> {
+    fn read_int<R: Read>(
+        h: &mut BufReader<R>,
+        byteord: &SizedByteOrd<INTLEN>,
+    ) -> io::Result<Self::Native> {
         // This lovely code will read data that is not a power-of-two
         // bytes long. Start by reading n bytes into a vector, which can
         // take a varying size. Then copy this into the power of 2 buffer
@@ -1937,19 +1950,19 @@ trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
                 Ok(if *e == Endian::Big {
                     let b = DTLEN - INTLEN;
                     buf[b..].copy_from_slice(&tmp[b..]);
-                    Self::from_big(buf)
+                    Self::Native::from_big(buf)
                 } else {
                     buf[..INTLEN].copy_from_slice(&tmp[..INTLEN]);
-                    Self::from_little(buf)
+                    Self::Native::from_little(buf)
                 })
             }
-            SizedByteOrd::Order(order) => Self::read_from_ordered(h, order),
+            SizedByteOrd::Order(order) => Self::Native::read_from_ordered(h, order),
         }
     }
 
     fn read_to_column<R: Read>(
         h: &mut BufReader<R>,
-        d: &mut UintColumnReader<Self, INTLEN>,
+        d: &mut UintColumnReader<Self::Native, INTLEN>,
         row: usize,
     ) -> io::Result<()> {
         d.column[row] = Self::read_int_masked(h, &d.layout.size, d.layout.bitmask)?;
@@ -1959,32 +1972,36 @@ trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
     fn write_int<W: Write>(
         h: &mut BufWriter<W>,
         byteord: &SizedByteOrd<INTLEN>,
-        x: Self,
+        x: Self::Native,
     ) -> io::Result<()> {
         match byteord {
             SizedByteOrd::Endian(e) => {
                 let mut buf = [0; INTLEN];
                 let (start, end, tmp) = if *e == Endian::Big {
-                    ((DTLEN - INTLEN), DTLEN, Self::to_big(x))
+                    ((DTLEN - INTLEN), DTLEN, Self::Native::to_big(x))
                 } else {
-                    (0, INTLEN, Self::to_little(x))
+                    (0, INTLEN, Self::Native::to_little(x))
                 };
                 buf[..].copy_from_slice(&tmp[start..end]);
                 h.write_all(&buf)
             }
-            SizedByteOrd::Order(order) => Self::write_from_ordered(h, order, x),
+            SizedByteOrd::Order(order) => Self::Native::write_from_ordered(h, order, x),
         }
     }
 }
 
-trait FloatFromBytes<const LEN: usize>: NumProps<LEN> + OrderedFromBytes<LEN, LEN> + Clone
+trait FloatFromBytes<const LEN: usize>
 where
-    Vec<Self>: Into<Series>,
+    Self::Native: NumProps<LEN>,
+    Self::Native: OrderedFromBytes<LEN, LEN>,
+    Self: Clone,
+    Self: PolarsNumericType,
+    ChunkedArray<Self>: IntoSeries,
 {
     /// Read one sequence of bytes as a float and assign to a column.
     fn read_to_column<R: Read>(
         h: &mut BufReader<R>,
-        column: &mut FloatColumnReader<Self, LEN>,
+        column: &mut FloatColumnReader<Self::Native, LEN>,
         row: usize,
     ) -> io::Result<()> {
         column.column[row] = Self::read_float(h, &column.order)?;
@@ -1992,8 +2009,8 @@ where
     }
 
     /// Read byte sequence into a matrix of floats
-    fn read_matrix<R: Read>(h: &mut BufReader<R>, p: FloatReader<LEN>) -> io::Result<Dataframe> {
-        let mut columns: Vec<_> = iter::repeat_with(|| vec![Self::zero(); p.nrows])
+    fn read_matrix<R: Read>(h: &mut BufReader<R>, p: FloatReader<LEN>) -> io::Result<DataFrame> {
+        let mut columns: Vec<_> = iter::repeat_with(|| vec![Self::Native::zero(); p.nrows])
             .take(p.ncols)
             .collect();
         for row in 0..p.nrows {
@@ -2001,18 +2018,28 @@ where
                 column[row] = Self::read_float(h, &p.byteord)?;
             }
         }
-        Ok(Dataframe::from(
-            columns.into_iter().map(Vec::<Self>::into).collect(),
-        ))
+        let ss: Vec<_> = columns
+            .into_iter()
+            .enumerate()
+            .map(|(i, s)| {
+                ChunkedArray::<Self>::from_vec(format!("M{i}").into(), s)
+                    .into_series()
+                    .into()
+            })
+            .collect();
+        DataFrame::new(ss).map_err(|e| io::Error::other(e.to_string()))
+        // Ok(Dataframe::from(
+        //     columns.into_iter().map(Vec::<Self>::into).collect(),
+        // ))
     }
 
     /// Make configuration to read one column of floats in a dataset.
     fn make_column_reader(
         order: SizedByteOrd<LEN>,
         total_events: usize,
-    ) -> FloatColumnReader<Self, LEN> {
+    ) -> FloatColumnReader<Self::Native, LEN> {
         FloatColumnReader {
-            column: vec![Self::zero(); total_events],
+            column: vec![Self::Native::zero(); total_events],
             order,
         }
     }
@@ -2034,36 +2061,39 @@ where
         PureMaybe::from_result_1(res, PureErrorLevel::Error)
     }
 
-    fn read_float<R: Read>(h: &mut BufReader<R>, byteord: &SizedByteOrd<LEN>) -> io::Result<Self> {
+    fn read_float<R: Read>(
+        h: &mut BufReader<R>,
+        byteord: &SizedByteOrd<LEN>,
+    ) -> io::Result<Self::Native> {
         match byteord {
             SizedByteOrd::Endian(e) => {
                 let mut buf = [0; LEN];
                 h.read_exact(&mut buf)?;
                 Ok(if *e == Endian::Big {
-                    Self::from_big(buf)
+                    Self::Native::from_big(buf)
                 } else {
-                    Self::from_little(buf)
+                    Self::Native::from_little(buf)
                 })
             }
-            SizedByteOrd::Order(order) => Self::read_from_ordered(h, order),
+            SizedByteOrd::Order(order) => Self::Native::read_from_ordered(h, order),
         }
     }
 
     fn write_float<W: Write>(
         h: &mut BufWriter<W>,
         byteord: &SizedByteOrd<LEN>,
-        x: Self,
+        x: Self::Native,
     ) -> io::Result<()> {
         match byteord {
             SizedByteOrd::Endian(e) => {
                 let buf: [u8; LEN] = if *e == Endian::Big {
-                    Self::to_big(x)
+                    Self::Native::to_big(x)
                 } else {
-                    Self::to_little(x)
+                    Self::Native::to_little(x)
                 };
                 h.write_all(&buf)
             }
-            SizedByteOrd::Order(order) => Self::write_from_ordered(h, order, x),
+            SizedByteOrd::Order(order) => Self::Native::write_from_ordered(h, order, x),
         }
     }
 }
@@ -3063,14 +3093,14 @@ impl<P: VersionedMeasurement> Measurement<P> {
 
 fn make_uint_type(b: u8, r: Range, o: &ByteOrd) -> Result<AnyUintType, Vec<String>> {
     match b {
-        1 => u8::to_col(r, o).map(AnyUintType::Uint8),
-        2 => u16::to_col(r, o).map(AnyUintType::Uint16),
-        3 => IntFromBytes::<4, 3>::to_col(r, o).map(AnyUintType::Uint24),
-        4 => IntFromBytes::<4, 4>::to_col(r, o).map(AnyUintType::Uint32),
-        5 => IntFromBytes::<8, 5>::to_col(r, o).map(AnyUintType::Uint40),
-        6 => IntFromBytes::<8, 6>::to_col(r, o).map(AnyUintType::Uint48),
-        7 => IntFromBytes::<8, 7>::to_col(r, o).map(AnyUintType::Uint56),
-        8 => IntFromBytes::<8, 8>::to_col(r, o).map(AnyUintType::Uint64),
+        1 => UInt8Type::to_col(r, o).map(AnyUintType::Uint8),
+        2 => UInt16Type::to_col(r, o).map(AnyUintType::Uint16),
+        3 => <UInt32Type as IntFromBytes<4, 3>>::to_col(r, o).map(AnyUintType::Uint24),
+        4 => <UInt32Type as IntFromBytes<4, 4>>::to_col(r, o).map(AnyUintType::Uint32),
+        5 => <UInt64Type as IntFromBytes<8, 5>>::to_col(r, o).map(AnyUintType::Uint40),
+        6 => <UInt64Type as IntFromBytes<8, 6>>::to_col(r, o).map(AnyUintType::Uint48),
+        7 => <UInt64Type as IntFromBytes<8, 7>>::to_col(r, o).map(AnyUintType::Uint56),
+        8 => <UInt64Type as IntFromBytes<8, 8>>::to_col(r, o).map(AnyUintType::Uint64),
         _ => Err(vec!["$PnB has invalid byte length".to_string()]),
     }
 }
@@ -3695,10 +3725,10 @@ fn build_mixed_reader(cs: Vec<ColumnType>, total_events: usize) -> MixedParser {
                 column: vec![],
             }),
             ColumnType::Float(order) => {
-                MixedColumnType::Single(f32::make_column_reader(order, total_events))
+                MixedColumnType::Single(Float32Type::make_column_reader(order, total_events))
             }
             ColumnType::Double(order) => {
-                MixedColumnType::Double(f64::make_column_reader(order, total_events))
+                MixedColumnType::Double(Float64Type::make_column_reader(order, total_events))
             }
             ColumnType::Integer(col) => {
                 MixedColumnType::Uint(AnyUintColumnReader::from_column(col, total_events))
@@ -4090,7 +4120,7 @@ where
     }
 }
 
-impl Series {
+impl RawSeries {
     /// Convert a series into a writable vector
     ///
     /// Data that is to be written in a different type will be converted.
@@ -4124,7 +4154,7 @@ impl Series {
             // store floats at all, so warn user if input data is float or
             // double.
             ColumnType::Ascii { bytes } => match self {
-                Series::U08(data) => {
+                RawSeries::U08(data) => {
                     if bytes < 3 {
                         ascii_uint_warn(&mut deferred, 8, 3);
                     }
@@ -4133,7 +4163,7 @@ impl Series {
                         bytes,
                     })
                 }
-                Series::U16(data) => {
+                RawSeries::U16(data) => {
                     if bytes < 5 {
                         ascii_uint_warn(&mut deferred, 16, 5);
                     }
@@ -4142,7 +4172,7 @@ impl Series {
                         bytes,
                     })
                 }
-                Series::U32(data) => {
+                RawSeries::U32(data) => {
                     if bytes < 10 {
                         ascii_uint_warn(&mut deferred, 32, 10);
                     }
@@ -4151,7 +4181,7 @@ impl Series {
                         bytes,
                     })
                 }
-                Series::U64(data) => {
+                RawSeries::U64(data) => {
                     if bytes < 20 {
                         ascii_uint_warn(&mut deferred, 64, 20);
                     }
@@ -4160,14 +4190,14 @@ impl Series {
                         bytes,
                     })
                 }
-                Series::F32(data) => {
+                RawSeries::F32(data) => {
                     num_warn(&mut deferred, "float", "uint64");
                     AsciiU64(AsciiColumnWriter {
                         column: vec_convert!(data, u64),
                         bytes,
                     })
                 }
-                Series::F64(data) => {
+                RawSeries::F64(data) => {
                     num_warn(&mut deferred, "double", "uint64");
                     AsciiU64(AsciiColumnWriter {
                         column: vec_convert!(data, u64),
@@ -4182,8 +4212,8 @@ impl Series {
             // bitmask is exceeded, and if so truncate and warn user.
             ColumnType::Integer(ut) => {
                 match self {
-                    Series::F32(_) => num_warn(&mut deferred, "float", "uint"),
-                    Series::F64(_) => num_warn(&mut deferred, "float", "uint"),
+                    RawSeries::F32(_) => num_warn(&mut deferred, "float", "uint"),
+                    RawSeries::F64(_) => num_warn(&mut deferred, "float", "uint"),
                     _ => {
                         let from_size = ut.nbytes();
                         let to_size = ut.native_nbytes();
@@ -4196,7 +4226,7 @@ impl Series {
                         }
                     }
                 }
-                match_many_to_one!(self, Series, [F32, F64, U08, U16, U32, U64], data, {
+                match_many_to_one!(self, RawSeries, [F32, F64, U08, U16, U32, U64], data, {
                     convert_to_uint!(ut, data, deferred)
                 })
             }
@@ -4205,22 +4235,22 @@ impl Series {
             // truncate.
             ColumnType::Float(size) => {
                 match self {
-                    Series::U32(_) => num_warn(&mut deferred, "float", "uint32"),
-                    Series::U64(_) => num_warn(&mut deferred, "float", "uint64"),
-                    Series::F64(_) => num_warn(&mut deferred, "float", "double"),
+                    RawSeries::U32(_) => num_warn(&mut deferred, "float", "uint32"),
+                    RawSeries::U64(_) => num_warn(&mut deferred, "float", "uint64"),
+                    RawSeries::F64(_) => num_warn(&mut deferred, "float", "double"),
                     _ => (),
                 }
-                match_many_to_one!(self, Series, [F32, F64, U08, U16, U32, U64], data, {
+                match_many_to_one!(self, RawSeries, [F32, F64, U08, U16, U32, U64], data, {
                     convert_to_f32!(size, data)
                 })
             }
 
             // Doubles can hold all but uint64
             ColumnType::Double(size) => {
-                if let Series::U64(_) = self {
+                if let RawSeries::U64(_) = self {
                     num_warn(&mut deferred, "double", "uint64")
                 }
-                match_many_to_one!(self, Series, [F32, F64, U08, U16, U32, U64], data, {
+                match_many_to_one!(self, RawSeries, [F32, F64, U08, U16, U32, U64], data, {
                     convert_to_f64!(size, data)
                 })
             }
@@ -4244,15 +4274,15 @@ impl Series {
         };
 
         let res = match self {
-            Series::U08(column) => vec_convert!(column, u64),
-            Series::U16(column) => vec_convert!(column, u64),
-            Series::U32(column) => vec_convert!(column, u64),
-            Series::U64(column) => column,
-            Series::F32(column) => {
+            RawSeries::U08(column) => vec_convert!(column, u64),
+            RawSeries::U16(column) => vec_convert!(column, u64),
+            RawSeries::U32(column) => vec_convert!(column, u64),
+            RawSeries::U64(column) => column,
+            RawSeries::F32(column) => {
                 num_warn(&mut deferred, "float", "uint64");
                 vec_convert!(column, u64)
             }
-            Series::F64(column) => {
+            RawSeries::F64(column) => {
                 num_warn(&mut deferred, "double", "uint64");
                 vec_convert!(column, u64)
             }
@@ -4266,12 +4296,12 @@ impl Series {
 
     fn nbytes(&self) -> u8 {
         match self {
-            Series::U08(_) => 1,
-            Series::U16(_) => 2,
-            Series::U32(_) => 4,
-            Series::U64(_) => 8,
-            Series::F32(_) => 4,
-            Series::F64(_) => 8,
+            RawSeries::U08(_) => 1,
+            RawSeries::U16(_) => 2,
+            RawSeries::U32(_) => 4,
+            RawSeries::U64(_) => 8,
+            RawSeries::F32(_) => 4,
+            RawSeries::F64(_) => 8,
         }
     }
 
@@ -4280,11 +4310,13 @@ impl Series {
     }
 
     fn len(&self) -> usize {
-        match_many_to_one!(self, Series, [F32, F64, U08, U16, U32, U64], x, { x.len() })
+        match_many_to_one!(self, RawSeries, [F32, F64, U08, U16, U32, U64], x, {
+            x.len()
+        })
     }
 
     fn format(&self, r: usize) -> String {
-        match_many_to_one!(self, Series, [F32, F64, U08, U16, U32, U64], x, {
+        match_many_to_one!(self, RawSeries, [F32, F64, U08, U16, U32, U64], x, {
             format!("{}", x[r])
         })
     }
@@ -4292,11 +4324,11 @@ impl Series {
 
 macro_rules! impl_num_props {
     ($size:expr, $zero:expr, $t:ty, $p:ident) => {
-        impl From<Vec<$t>> for Series {
-            fn from(value: Vec<$t>) -> Self {
-                Series::$p(value)
-            }
-        }
+        // impl From<Vec<$t>> for Series {
+        //     fn from(value: Vec<$t>) -> Self {
+        //         Series::$p(value)
+        //     }
+        // }
 
         impl NumProps<$size> for $t {
             fn zero() -> Self {
@@ -4373,40 +4405,40 @@ impl OrderedFromBytes<8, 8> for u64 {}
 impl OrderedFromBytes<4, 4> for f32 {}
 impl OrderedFromBytes<8, 8> for f64 {}
 
-impl FloatFromBytes<4> for f32 {}
-impl FloatFromBytes<8> for f64 {}
+impl FloatFromBytes<4> for Float32Type {}
+impl FloatFromBytes<8> for Float64Type {}
 
-impl IntFromBytes<1, 1> for u8 {}
-impl IntFromBytes<2, 2> for u16 {}
-impl IntFromBytes<4, 3> for u32 {}
-impl IntFromBytes<4, 4> for u32 {}
-impl IntFromBytes<8, 5> for u64 {}
-impl IntFromBytes<8, 6> for u64 {}
-impl IntFromBytes<8, 7> for u64 {}
-impl IntFromBytes<8, 8> for u64 {}
+impl IntFromBytes<1, 1> for UInt8Type {}
+impl IntFromBytes<2, 2> for UInt16Type {}
+impl IntFromBytes<4, 3> for UInt32Type {}
+impl IntFromBytes<4, 4> for UInt32Type {}
+impl IntFromBytes<8, 5> for UInt64Type {}
+impl IntFromBytes<8, 6> for UInt64Type {}
+impl IntFromBytes<8, 7> for UInt64Type {}
+impl IntFromBytes<8, 8> for UInt64Type {}
 
-impl From<MixedColumnType> for Series {
-    fn from(value: MixedColumnType) -> Series {
-        match value {
-            MixedColumnType::Ascii(x) => Vec::<u64>::into(x.column),
-            MixedColumnType::Single(x) => Vec::<f32>::into(x.column),
-            MixedColumnType::Double(x) => Vec::<f64>::into(x.column),
-            MixedColumnType::Uint(x) => x.into(),
+impl MixedColumnType {
+    fn into_pl_series(self, name: PlSmallStr) -> Series {
+        match self {
+            MixedColumnType::Ascii(x) => UInt64Chunked::from_vec(name, x.column).into_series(),
+            MixedColumnType::Single(x) => Float32Chunked::from_vec(name, x.column).into_series(),
+            MixedColumnType::Double(x) => Float64Chunked::from_vec(name, x.column).into_series(),
+            MixedColumnType::Uint(x) => x.into_pl_series(name),
         }
     }
 }
 
-impl From<AnyUintColumnReader> for Series {
-    fn from(value: AnyUintColumnReader) -> Self {
-        match value {
-            AnyUintColumnReader::Uint8(y) => Vec::<u8>::into(y.column),
-            AnyUintColumnReader::Uint16(y) => Vec::<u16>::into(y.column),
-            AnyUintColumnReader::Uint24(y) => Vec::<u32>::into(y.column),
-            AnyUintColumnReader::Uint32(y) => Vec::<u32>::into(y.column),
-            AnyUintColumnReader::Uint40(y) => Vec::<u64>::into(y.column),
-            AnyUintColumnReader::Uint48(y) => Vec::<u64>::into(y.column),
-            AnyUintColumnReader::Uint56(y) => Vec::<u64>::into(y.column),
-            AnyUintColumnReader::Uint64(y) => Vec::<u64>::into(y.column),
+impl AnyUintColumnReader {
+    fn into_pl_series(self, name: PlSmallStr) -> Series {
+        match self {
+            AnyUintColumnReader::Uint8(x) => UInt8Chunked::from_vec(name, x.column).into_series(),
+            AnyUintColumnReader::Uint16(x) => UInt16Chunked::from_vec(name, x.column).into_series(),
+            AnyUintColumnReader::Uint24(x) => UInt32Chunked::from_vec(name, x.column).into_series(),
+            AnyUintColumnReader::Uint32(x) => UInt32Chunked::from_vec(name, x.column).into_series(),
+            AnyUintColumnReader::Uint40(x) => UInt64Chunked::from_vec(name, x.column).into_series(),
+            AnyUintColumnReader::Uint48(x) => UInt64Chunked::from_vec(name, x.column).into_series(),
+            AnyUintColumnReader::Uint56(x) => UInt64Chunked::from_vec(name, x.column).into_series(),
+            AnyUintColumnReader::Uint64(x) => UInt64Chunked::from_vec(name, x.column).into_series(),
         }
     }
 }
@@ -4452,21 +4484,21 @@ impl AnyUintColumnReader {
 
     fn read_to_column<R: Read>(&mut self, h: &mut BufReader<R>, r: usize) -> io::Result<()> {
         match self {
-            AnyUintColumnReader::Uint8(d) => u8::read_to_column(h, d, r)?,
-            AnyUintColumnReader::Uint16(d) => u16::read_to_column(h, d, r)?,
-            AnyUintColumnReader::Uint24(d) => u32::read_to_column(h, d, r)?,
-            AnyUintColumnReader::Uint32(d) => u32::read_to_column(h, d, r)?,
-            AnyUintColumnReader::Uint40(d) => u64::read_to_column(h, d, r)?,
-            AnyUintColumnReader::Uint48(d) => u64::read_to_column(h, d, r)?,
-            AnyUintColumnReader::Uint56(d) => u64::read_to_column(h, d, r)?,
-            AnyUintColumnReader::Uint64(d) => u64::read_to_column(h, d, r)?,
+            AnyUintColumnReader::Uint8(d) => UInt8Type::read_to_column(h, d, r)?,
+            AnyUintColumnReader::Uint16(d) => UInt16Type::read_to_column(h, d, r)?,
+            AnyUintColumnReader::Uint24(d) => UInt32Type::read_to_column(h, d, r)?,
+            AnyUintColumnReader::Uint32(d) => UInt32Type::read_to_column(h, d, r)?,
+            AnyUintColumnReader::Uint40(d) => UInt64Type::read_to_column(h, d, r)?,
+            AnyUintColumnReader::Uint48(d) => UInt64Type::read_to_column(h, d, r)?,
+            AnyUintColumnReader::Uint56(d) => UInt64Type::read_to_column(h, d, r)?,
+            AnyUintColumnReader::Uint64(d) => UInt64Type::read_to_column(h, d, r)?,
         }
         Ok(())
     }
 }
 
 impl Dataframe {
-    fn from(columns: Vec<Series>) -> Self {
+    fn from(columns: Vec<RawSeries>) -> Self {
         Dataframe { columns }
     }
 
@@ -4542,37 +4574,38 @@ impl Dataframe {
 }
 
 // TODO make this a method
-fn format_parsed_data(res: &StandardizedDataset, delim: &str) -> Vec<String> {
-    let shortnames = match &res.dataset.keywords {
-        AnyCoreTEXT::FCS2_0(x) => x.shortnames(),
-        AnyCoreTEXT::FCS3_0(x) => x.shortnames(),
-        AnyCoreTEXT::FCS3_1(x) => x.shortnames(),
-        AnyCoreTEXT::FCS3_2(x) => x.shortnames(),
-    };
-    if res.dataset.data.is_empty() {
-        return vec![];
-    }
-    let mut buf = vec![];
-    let mut lines = vec![];
-    let nrows = res.dataset.data.nrows();
-    let ncols = res.dataset.data.ncols();
-    // ASSUME names is the same length as columns
-    lines.push(shortnames.into_iter().map(|m| m.0).join(delim));
-    for r in 0..nrows {
-        buf.clear();
-        for c in 0..ncols {
-            buf.push(res.dataset.data.columns[c].format(r));
-        }
-        lines.push(buf.join(delim));
-    }
-    lines
-}
+// fn format_parsed_data(res: &StandardizedDataset, delim: &str) -> Vec<String> {
+//     let shortnames = match &res.dataset.keywords {
+//         AnyCoreTEXT::FCS2_0(x) => x.shortnames(),
+//         AnyCoreTEXT::FCS3_0(x) => x.shortnames(),
+//         AnyCoreTEXT::FCS3_1(x) => x.shortnames(),
+//         AnyCoreTEXT::FCS3_2(x) => x.shortnames(),
+//     };
+//     if res.dataset.data.is_empty() {
+//         return vec![];
+//     }
+//     let mut buf = vec![];
+//     let mut lines = vec![];
+//     let nrows = res.dataset.data.height();
+//     let ncols = res.dataset.data.width();
+//     // ASSUME names is the same length as columns
+//     lines.push(shortnames.into_iter().map(|m| m.0).join(delim));
+//     for r in 0..nrows {
+//         buf.clear();
+//         for c in 0..ncols {
+//             buf.push(res.dataset.data.columns[c].format(r));
+//         }
+//         lines.push(buf.join(delim));
+//     }
+//     lines
+// }
 
 // TODO and this
-pub fn print_parsed_data(s: &StandardizedDataset, delim: &str) {
-    for x in format_parsed_data(s, delim) {
-        println!("{}", x);
-    }
+pub fn print_parsed_data(s: &StandardizedDataset, _delim: &str) {
+    println!("{}", s.dataset.data)
+    // for x in format_parsed_data(s, delim) {
+    //     println!("{}", x);
+    // }
 }
 
 fn ascii_to_uint_io(buf: Vec<u8>) -> io::Result<u64> {
@@ -4703,6 +4736,7 @@ fn read_data_ascii_fixed<R: Read>(
             data[c][r] = parse_u64_io(&buf)?;
         }
     }
+    // TODO not DRY
     let ss: Vec<_> = data
         .into_iter()
         .enumerate()
@@ -4721,8 +4755,8 @@ fn read_data_mixed<R: Read>(h: &mut BufReader<R>, parser: MixedParser) -> io::Re
     for r in 0..p.nrows {
         for c in p.columns.iter_mut() {
             match c {
-                MixedColumnType::Single(t) => f32::read_to_column(h, t, r)?,
-                MixedColumnType::Double(t) => f64::read_to_column(h, t, r)?,
+                MixedColumnType::Single(t) => Float32Type::read_to_column(h, t, r)?,
+                MixedColumnType::Double(t) => Float64Type::read_to_column(h, t, r)?,
                 MixedColumnType::Uint(u) => u.read_to_column(h, r)?,
                 MixedColumnType::Ascii(d) => {
                     strbuf.clear();
@@ -4732,9 +4766,13 @@ fn read_data_mixed<R: Read>(h: &mut BufReader<R>, parser: MixedParser) -> io::Re
             }
         }
     }
-    Ok(Dataframe::from(
-        p.columns.into_iter().map(|c| c.into()).collect(),
-    ))
+    let ss: Vec<_> = p
+        .columns
+        .into_iter()
+        .enumerate()
+        .map(|(i, c)| c.into_pl_series(format!("X{i}").into()).into())
+        .collect();
+    DataFrame::new(ss).map_err(|e| io::Error::other(e.to_string()))
 }
 
 fn read_data_int<R: Read>(h: &mut BufReader<R>, parser: UintReader) -> io::Result<DataFrame> {
@@ -4744,9 +4782,17 @@ fn read_data_int<R: Read>(h: &mut BufReader<R>, parser: UintReader) -> io::Resul
             c.read_to_column(h, r)?;
         }
     }
-    Ok(Dataframe::from(
-        p.columns.into_iter().map(|c| c.into()).collect(),
-    ))
+    // Ok(Dataframe::from(
+    //     p.columns.into_iter().map(|c| c.into()).collect(),
+    // ))
+
+    let ss: Vec<_> = p
+        .columns
+        .into_iter()
+        .enumerate()
+        .map(|(i, c)| c.into_pl_series(format!("X{i}").into()).into())
+        .collect();
+    DataFrame::new(ss).map_err(|e| io::Error::other(e.to_string()))
 }
 
 fn h_read_data_segment<R: Read + Seek>(
@@ -4757,8 +4803,8 @@ fn h_read_data_segment<R: Read + Seek>(
     match parser.column_reader {
         ColumnReader::DelimitedAscii(p) => read_data_delim_ascii(h, p),
         ColumnReader::FixedWidthAscii(p) => read_data_ascii_fixed(h, &p),
-        ColumnReader::Single(p) => f32::read_matrix(h, p),
-        ColumnReader::Double(p) => f64::read_matrix(h, p),
+        ColumnReader::Single(p) => Float32Type::read_matrix(h, p),
+        ColumnReader::Double(p) => Float64Type::read_matrix(h, p),
         ColumnReader::Mixed(p) => read_data_mixed(h, p),
         ColumnReader::Uint(p) => read_data_int(h, p),
     }
@@ -4767,25 +4813,25 @@ fn h_read_data_segment<R: Read + Seek>(
 fn h_write_numeric_dataframe<W: Write>(
     h: &mut BufWriter<W>,
     cs: Vec<ColumnType>,
-    df: Dataframe,
+    df: DataFrame,
     conf: &Config,
 ) -> ImpureResult<()> {
-    let df_nrows = df.nrows();
+    let df_nrows = df.height();
     df.into_writable_columns(cs, &conf.write)
         .try_map(|writable_columns| {
             for r in 0..df_nrows {
                 for c in writable_columns.iter() {
                     match c {
-                        NumU8(w) => u8::write_int(h, &w.size, w.column[r]),
-                        NumU16(w) => u16::write_int(h, &w.size, w.column[r]),
-                        NumU24(w) => u32::write_int(h, &w.size, w.column[r]),
-                        NumU32(w) => u32::write_int(h, &w.size, w.column[r]),
-                        NumU40(w) => u64::write_int(h, &w.size, w.column[r]),
-                        NumU48(w) => u64::write_int(h, &w.size, w.column[r]),
-                        NumU56(w) => u64::write_int(h, &w.size, w.column[r]),
-                        NumU64(w) => u64::write_int(h, &w.size, w.column[r]),
-                        NumF32(w) => f32::write_float(h, &w.size, w.column[r]),
-                        NumF64(w) => f64::write_float(h, &w.size, w.column[r]),
+                        NumU8(w) => UInt8Type::write_int(h, &w.size, w.column[r]),
+                        NumU16(w) => UInt16Type::write_int(h, &w.size, w.column[r]),
+                        NumU24(w) => UInt32Type::write_int(h, &w.size, w.column[r]),
+                        NumU32(w) => UInt32Type::write_int(h, &w.size, w.column[r]),
+                        NumU40(w) => UInt64Type::write_int(h, &w.size, w.column[r]),
+                        NumU48(w) => UInt64Type::write_int(h, &w.size, w.column[r]),
+                        NumU56(w) => UInt64Type::write_int(h, &w.size, w.column[r]),
+                        NumU64(w) => UInt64Type::write_int(h, &w.size, w.column[r]),
+                        NumF32(w) => Float32Type::write_float(h, &w.size, w.column[r]),
+                        NumF64(w) => Float64Type::write_float(h, &w.size, w.column[r]),
                         AsciiU8(w) => u8::write_ascii_int(h, w.bytes, w.column[r]),
                         AsciiU16(w) => u16::write_ascii_int(h, w.bytes, w.column[r]),
                         AsciiU32(w) => u32::write_ascii_int(h, w.bytes, w.column[r]),
@@ -4832,19 +4878,19 @@ fn h_write_dataset<W: Write>(
 ) -> ImpureResult<()> {
     let analysis_len = d.analysis.len();
     let df = d.data;
-    let df_ncols = df.ncols();
+    let df_ncols = df.width();
 
     // Check that the dataframe isn't "ragged" (columns are different lengths).
     // If this is false, something terrible happened and we need to stop
     // immediately.
-    if df.is_ragged() {
-        Err(Failure::new(
-            "dataframe has unequal column lengths".to_string(),
-        ))?;
-    }
+    // if df.is_ragged() {
+    //     Err(Failure::new(
+    //         "dataframe has unequal column lengths".to_string(),
+    //     ))?;
+    // }
 
     // We can now confidently count the number of events (rows)
-    let nrows = df.nrows();
+    let nrows = df.height();
 
     // Get the layout, or bail if we can't
     let layout = d.keywords.as_writer_data_layout().map_err(|es| Failure {

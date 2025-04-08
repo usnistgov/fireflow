@@ -1351,11 +1351,11 @@ macro_rules! convert_to_f64 {
     };
 }
 
-trait Versioned {
+pub trait Versioned {
     fn fcs_version() -> Version;
 }
 
-trait VersionedMetadata: Sized + VersionedParserMetadata
+pub trait VersionedMetadata: Sized + VersionedParserMetadata
 where
     Self::P: VersionedMeasurement,
     Self::P: VersionedParserMeasurement,
@@ -3828,27 +3828,31 @@ where
             .collect()
     }
 
-    fn begin_date(&self) -> Option<NaiveDate> {
+    pub fn begin_date(&self) -> Option<NaiveDate> {
         M::begin_date(&self.metadata.specific)
     }
 
-    fn end_date(&self) -> Option<NaiveDate> {
+    pub fn end_date(&self) -> Option<NaiveDate> {
         M::end_date(&self.metadata.specific)
     }
 
-    fn begin_time(&self) -> Option<NaiveTime> {
+    pub fn begin_time(&self) -> Option<NaiveTime> {
         M::begin_time(&self.metadata.specific)
     }
 
-    fn end_time(&self) -> Option<NaiveTime> {
+    pub fn end_time(&self) -> Option<NaiveTime> {
         M::end_time(&self.metadata.specific)
     }
 
-    fn set_datetimes(&mut self, begin: DateTime<FixedOffset>, end: DateTime<FixedOffset>) -> bool {
+    pub fn set_datetimes(
+        &mut self,
+        begin: DateTime<FixedOffset>,
+        end: DateTime<FixedOffset>,
+    ) -> bool {
         M::set_datetimes(&mut self.metadata.specific, begin, end)
     }
 
-    fn clear_datetimes(&mut self) {
+    pub fn clear_datetimes(&mut self) {
         M::clear_datetimes(&mut self.metadata.specific)
     }
 
@@ -3966,7 +3970,7 @@ where
         }
     }
 
-    fn par(&self) -> usize {
+    pub fn par(&self) -> usize {
         self.measurements.len()
     }
 
@@ -6922,7 +6926,7 @@ impl From<Endian> for ByteOrd {
     }
 }
 
-trait IntoMeasurement<T, Y>: Sized {
+pub trait IntoMeasurement<T, Y>: Sized {
     type DefaultsXToY: From<Y>;
 
     fn convert(m: Measurement<Self>, def: Self::DefaultsXToY) -> PureSuccess<Measurement<T>> {
@@ -6946,7 +6950,7 @@ trait IntoMeasurement<T, Y>: Sized {
     fn convert_inner(self, def: Self::DefaultsXToY, ns: &mut RawKeywords) -> PureSuccess<T>;
 }
 
-trait IntoMetadata<T, D>: Sized {
+pub trait IntoMetadata<T, D>: Sized {
     type DefaultsXToY: From<D>;
 
     fn convert(
@@ -6986,7 +6990,7 @@ trait IntoMetadata<T, D>: Sized {
     ) -> PureSuccess<T>;
 }
 
-trait IntoCore<ToM, ToP, DM, DP>: Sized
+pub trait IntoCore<ToM, ToP, DM, DP>: Sized
 where
     ToM: VersionedMetadata,
     ToP: VersionedMeasurement,
@@ -6997,6 +7001,35 @@ where
 {
     type FromM: IntoMetadata<ToM, DM>;
     type FromP: IntoMeasurement<ToP, DP>;
+
+    fn convert_core_def(
+        c: CoreTEXT<Self::FromM, Self::FromP>,
+        def: CoreDefaults<
+            <Self::FromM as IntoMetadata<ToM, DM>>::DefaultsXToY,
+            <Self::FromP as IntoMeasurement<ToP, DP>>::DefaultsXToY,
+        >,
+    ) -> PureSuccess<CoreTEXT<ToM, ToP>> {
+        let metadata = c.metadata;
+        // ASSUME measurement defaults is same length as measurements
+        let ms = c
+            .measurements
+            .into_iter()
+            .zip(def.measurements)
+            .map(|(m, d)| Self::FromP::convert(m, d))
+            .collect();
+        PureSuccess::sequence(ms).and_then(|measurements| {
+            // TODO not DRY
+            let ms: Vec<_> = measurements
+                .iter()
+                .enumerate()
+                .map(|(i, p)| ToP::shortname(p, i))
+                .collect();
+            Self::FromM::convert(metadata, def.metadata, &ms).map(|metadata| CoreTEXT {
+                measurements,
+                metadata,
+            })
+        })
+    }
 
     fn convert_core(
         c: CoreTEXT<Self::FromM, Self::FromP>,
@@ -7086,6 +7119,7 @@ where
 /// the key would be something like "VOL"). Both of these are optional. If
 /// neither is supplied, this keyword will be left unfilled. Obviously this only
 /// applies if the keyword is optional.
+#[derive(Clone)]
 struct DefaultOptional<T> {
     /// Value to be used as a default
     default: Option<T>,
@@ -7094,12 +7128,22 @@ struct DefaultOptional<T> {
     key: Option<String>,
 }
 
+impl<T> Default for DefaultOptional<T> {
+    fn default() -> DefaultOptional<T> {
+        DefaultOptional {
+            default: None,
+            key: None,
+        }
+    }
+}
+
 /// Comp/spillover matrix that may be converted or for which a default may exist
 ///
 /// This is similar to `DefaultOptional` in that it has a default and a key for
 /// which the default may be found. However, a conversion from a different key
 /// may be attempted before these.
-struct DefaultMatrix<T> {
+#[derive(Clone)]
+pub struct DefaultMatrix<T> {
     /// If true, try to convert from a different key.
     ///
     /// For now this applies to $COMP<->$SPILLOVER conversions.
@@ -7107,49 +7151,66 @@ struct DefaultMatrix<T> {
     default: DefaultOptional<T>,
 }
 
-struct ModificationDefaults {
+impl<T> Default for DefaultMatrix<T> {
+    fn default() -> DefaultMatrix<T> {
+        DefaultMatrix {
+            try_convert: false,
+            default: DefaultOptional::default(),
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct ModificationDefaults {
     last_modified: DefaultOptional<ModifiedDateTime>,
     last_modifier: DefaultOptional<String>,
     originality: DefaultOptional<Originality>,
 }
 
-struct PlateDefaults {
+#[derive(Default)]
+pub struct PlateDefaults {
     plateid: DefaultOptional<String>,
     platename: DefaultOptional<String>,
     wellid: DefaultOptional<String>,
 }
 
-struct CarrierDefaults {
+#[derive(Default)]
+pub struct CarrierDefaults {
     carrierid: DefaultOptional<String>,
     carriertype: DefaultOptional<String>,
     locationid: DefaultOptional<String>,
 }
 
-struct UnstainedDefaults {
+#[derive(Default)]
+pub struct UnstainedDefaults {
     unstainedcenters: DefaultOptional<UnstainedCenters>,
     unstainedinfo: DefaultOptional<String>,
 }
 
-struct DatetimesDefaults {
+#[derive(Default)]
+pub struct DatetimesDefaults {
     begin: DefaultOptional<FCSDateTime>,
     end: DefaultOptional<FCSDateTime>,
 }
 
-struct MetadataDefaults2_0To2_0;
+pub struct MetadataDefaults2_0To2_0;
 
-struct MetadataDefaults3_0To2_0;
+pub struct MetadataDefaults3_0To2_0;
 
-struct MetadataDefaults3_1To2_0 {
+#[derive(Default)]
+pub struct MetadataDefaults3_1To2_0 {
     comp: DefaultMatrix<Compensation>,
 }
 
-struct MetadataDefaults3_2To2_0 {
+#[derive(Default)]
+pub struct MetadataDefaults3_2To2_0 {
     comp: DefaultMatrix<Compensation>,
 }
 
-struct MetadataDefaults3_0To3_0;
+pub struct MetadataDefaults3_0To3_0;
 
-struct MetadataDefaults2_0To3_0 {
+#[derive(Default)]
+pub struct MetadataDefaults2_0To3_0 {
     byteord: DefaultOptional<String>,
     cytsn: DefaultOptional<String>,
     timestep: DefaultOptional<f32>,
@@ -7157,19 +7218,21 @@ struct MetadataDefaults2_0To3_0 {
     unicode: DefaultOptional<Unicode>,
 }
 
-struct MetadataDefaults3_1To3_0 {
+#[derive(Default)]
+pub struct MetadataDefaults3_1To3_0 {
     comp: DefaultMatrix<Compensation>,
     unicode: DefaultOptional<Unicode>,
 }
 
-struct MetadataDefaults3_2To3_0 {
+#[derive(Default)]
+pub struct MetadataDefaults3_2To3_0 {
     comp: DefaultMatrix<Compensation>,
     unicode: DefaultOptional<Unicode>,
 }
 
-struct MetadataDefaults3_1To3_1;
+pub struct MetadataDefaults3_1To3_1;
 
-struct MetadataDefaults2_0To3_1 {
+pub struct MetadataDefaults2_0To3_1 {
     endian: Endian,
     cytsn: DefaultOptional<String>,
     timestep: DefaultOptional<f32>,
@@ -7179,7 +7242,7 @@ struct MetadataDefaults2_0To3_1 {
     plate: PlateDefaults,
 }
 
-struct MetadataDefaults3_0To3_1 {
+pub struct MetadataDefaults3_0To3_1 {
     endian: Endian,
     vol: DefaultOptional<f32>,
     spillover: DefaultMatrix<Spillover>,
@@ -7187,11 +7250,11 @@ struct MetadataDefaults3_0To3_1 {
     plate: PlateDefaults,
 }
 
-struct MetadataDefaults3_2To3_1;
+pub struct MetadataDefaults3_2To3_1;
 
-struct MetadataDefaults3_2To3_2;
+pub struct MetadataDefaults3_2To3_2;
 
-struct MetadataDefaults2_0To3_2 {
+pub struct MetadataDefaults2_0To3_2 {
     endian: Endian,
     cyt: String,
     cytsn: DefaultOptional<String>,
@@ -7206,7 +7269,7 @@ struct MetadataDefaults2_0To3_2 {
     datetimes: DatetimesDefaults,
 }
 
-struct MetadataDefaults3_0To3_2 {
+pub struct MetadataDefaults3_0To3_2 {
     endian: Endian,
     cyt: String,
     vol: DefaultOptional<f32>,
@@ -7219,7 +7282,7 @@ struct MetadataDefaults3_0To3_2 {
     datetimes: DatetimesDefaults,
 }
 
-struct MetadataDefaults3_1To3_2 {
+pub struct MetadataDefaults3_1To3_2 {
     cyt: String,
     flowrate: DefaultOptional<String>,
     unstained: UnstainedDefaults,
@@ -7227,11 +7290,13 @@ struct MetadataDefaults3_1To3_2 {
     datetimes: DatetimesDefaults,
 }
 
-struct MetadataDefaultsTo2_0 {
+#[derive(Default)]
+pub struct MetadataDefaultsTo2_0 {
     comp: DefaultMatrix<Compensation>,
 }
 
-struct MetadataDefaultsTo3_0 {
+#[derive(Default)]
+pub struct MetadataDefaultsTo3_0 {
     byteord: DefaultOptional<String>,
     cytsn: DefaultOptional<String>,
     timestep: DefaultOptional<f32>,
@@ -7240,7 +7305,7 @@ struct MetadataDefaultsTo3_0 {
     comp: DefaultMatrix<Compensation>,
 }
 
-struct MetadataDefaultsTo3_1 {
+pub struct MetadataDefaultsTo3_1 {
     endian: Endian,
     cytsn: DefaultOptional<String>,
     timestep: DefaultOptional<f32>,
@@ -7250,7 +7315,7 @@ struct MetadataDefaultsTo3_1 {
     plate: PlateDefaults,
 }
 
-struct MetadataDefaultsTo3_2 {
+pub struct MetadataDefaultsTo3_2 {
     endian: Endian,
     cyt: String,
     cytsn: DefaultOptional<String>,
@@ -7367,51 +7432,47 @@ txfr_keys!(
     [cyt, flowrate, unstained, carrier, datetimes]
 );
 
-struct MeasurementDefaults2_0To2_0;
+#[derive(Clone)]
+pub struct MeasurementDefaults2_0To2_0;
 
-struct MeasurementDefaults3_0To2_0;
+#[derive(Clone)]
+pub struct MeasurementDefaults3_0To2_0;
 
-struct MeasurementDefaults3_1To2_0;
+#[derive(Clone)]
+pub struct MeasurementDefaults3_1To2_0;
 
-struct MeasurementDefaults3_2To2_0;
+#[derive(Clone)]
+pub struct MeasurementDefaults3_2To2_0;
 
-struct MeasurementDefaultsTo2_0;
+#[derive(Clone)]
+pub struct MeasurementDefaultsTo2_0;
 
-struct MeasurementDefaults3_0To3_0;
+#[derive(Clone)]
+pub struct MeasurementDefaults3_0To3_0;
 
-struct MeasurementDefaults2_0To3_0 {
+#[derive(Clone)]
+pub struct MeasurementDefaults2_0To3_0 {
     scale: Scale,
     gain: DefaultOptional<f32>,
 }
 
-struct MeasurementDefaults3_1To3_0;
+#[derive(Clone)]
+pub struct MeasurementDefaults3_1To3_0;
 
-struct MeasurementDefaults3_2To3_0;
+#[derive(Clone)]
+pub struct MeasurementDefaults3_2To3_0;
 
-struct MeasurementDefaultsTo3_0 {
+#[derive(Clone)]
+pub struct MeasurementDefaultsTo3_0 {
     scale: Scale,
     gain: DefaultOptional<f32>,
 }
 
-struct MeasurementDefaults3_1To3_1;
+#[derive(Clone)]
+pub struct MeasurementDefaults3_1To3_1;
 
-struct MeasurementDefaults2_0To3_1 {
-    scale: Scale,
-    shortname: Shortname,
-    gain: DefaultOptional<f32>,
-    calibration: DefaultOptional<Calibration3_1>,
-    display: DefaultOptional<Display>,
-}
-
-struct MeasurementDefaults3_0To3_1 {
-    shortname: Shortname,
-    calibration: DefaultOptional<Calibration3_1>,
-    display: DefaultOptional<Display>,
-}
-
-struct MeasurementDefaults3_2To3_1;
-
-struct MeasurementDefaultsTo3_1 {
+#[derive(Clone)]
+pub struct MeasurementDefaults2_0To3_1 {
     scale: Scale,
     shortname: Shortname,
     gain: DefaultOptional<f32>,
@@ -7419,9 +7480,30 @@ struct MeasurementDefaultsTo3_1 {
     display: DefaultOptional<Display>,
 }
 
-struct MeasurementDefaults3_2To3_2;
+#[derive(Clone)]
+pub struct MeasurementDefaults3_0To3_1 {
+    shortname: Shortname,
+    calibration: DefaultOptional<Calibration3_1>,
+    display: DefaultOptional<Display>,
+}
 
-struct MeasurementDefaults2_0To3_2 {
+#[derive(Clone)]
+pub struct MeasurementDefaults3_2To3_1;
+
+#[derive(Clone)]
+pub struct MeasurementDefaultsTo3_1 {
+    scale: Scale,
+    shortname: Shortname,
+    gain: DefaultOptional<f32>,
+    calibration: DefaultOptional<Calibration3_1>,
+    display: DefaultOptional<Display>,
+}
+
+#[derive(Clone)]
+pub struct MeasurementDefaults3_2To3_2;
+
+#[derive(Clone)]
+pub struct MeasurementDefaults2_0To3_2 {
     scale: Scale,
     shortname: Shortname,
     gain: DefaultOptional<f32>,
@@ -7435,7 +7517,8 @@ struct MeasurementDefaults2_0To3_2 {
     measurement_type: DefaultOptional<MeasurementType>,
 }
 
-struct MeasurementDefaults3_0To3_2 {
+#[derive(Clone)]
+pub struct MeasurementDefaults3_0To3_2 {
     shortname: Shortname,
     calibration: DefaultOptional<Calibration3_2>,
     display: DefaultOptional<Display>,
@@ -7447,7 +7530,8 @@ struct MeasurementDefaults3_0To3_2 {
     measurement_type: DefaultOptional<MeasurementType>,
 }
 
-struct MeasurementDefaults3_1To3_2 {
+#[derive(Clone, Default)]
+pub struct MeasurementDefaults3_1To3_2 {
     analyte: DefaultOptional<String>,
     tag: DefaultOptional<String>,
     detector_name: DefaultOptional<String>,
@@ -7456,7 +7540,8 @@ struct MeasurementDefaults3_1To3_2 {
     measurement_type: DefaultOptional<MeasurementType>,
 }
 
-struct MeasurementDefaultsTo3_2 {
+#[derive(Clone)]
+pub struct MeasurementDefaultsTo3_2 {
     scale: Scale,
     shortname: Shortname,
     gain: DefaultOptional<f32>,
@@ -7555,31 +7640,40 @@ txfr_keys!(
 
 txfr_keys!(MeasurementDefaultsTo3_2, MeasurementDefaults3_2To3_2, []);
 
-struct CoreDefaults<X, Y> {
+pub struct CoreDefaults<X, Y> {
     metadata: X,
     measurements: Vec<Y>,
 }
 
-type CoreDefaults3_0To2_0 = CoreDefaults<MetadataDefaults3_0To2_0, MeasurementDefaults3_0To2_0>;
-type CoreDefaults3_1To2_0 = CoreDefaults<MetadataDefaults3_1To2_0, MeasurementDefaults3_1To2_0>;
-type CoreDefaults3_2To2_0 = CoreDefaults<MetadataDefaults3_2To2_0, MeasurementDefaults3_2To2_0>;
+impl<X, Y: Clone> CoreDefaults<X, Y> {
+    pub fn new(metadata: X, measurement: Y, par: usize) -> Self {
+        CoreDefaults {
+            metadata,
+            measurements: iter::repeat_n(measurement, par).collect(),
+        }
+    }
+}
 
-type CoreDefaults2_0To3_0 = CoreDefaults<MetadataDefaults2_0To3_0, MeasurementDefaults2_0To3_0>;
-type CoreDefaults3_1To3_0 = CoreDefaults<MetadataDefaults3_1To3_0, MeasurementDefaults3_1To3_0>;
-type CoreDefaults3_2To3_0 = CoreDefaults<MetadataDefaults3_2To3_0, MeasurementDefaults3_2To3_0>;
+pub type CoreDefaults3_0To2_0 = CoreDefaults<MetadataDefaults3_0To2_0, MeasurementDefaults3_0To2_0>;
+pub type CoreDefaults3_1To2_0 = CoreDefaults<MetadataDefaults3_1To2_0, MeasurementDefaults3_1To2_0>;
+pub type CoreDefaults3_2To2_0 = CoreDefaults<MetadataDefaults3_2To2_0, MeasurementDefaults3_2To2_0>;
 
-type CoreDefaults2_0To3_1 = CoreDefaults<MetadataDefaults2_0To3_1, MeasurementDefaults2_0To3_1>;
-type CoreDefaults3_0To3_1 = CoreDefaults<MetadataDefaults3_0To3_1, MeasurementDefaults3_0To3_1>;
-type CoreDefaults3_2To3_1 = CoreDefaults<MetadataDefaults3_2To3_1, MeasurementDefaults3_2To3_1>;
+pub type CoreDefaults2_0To3_0 = CoreDefaults<MetadataDefaults2_0To3_0, MeasurementDefaults2_0To3_0>;
+pub type CoreDefaults3_1To3_0 = CoreDefaults<MetadataDefaults3_1To3_0, MeasurementDefaults3_1To3_0>;
+pub type CoreDefaults3_2To3_0 = CoreDefaults<MetadataDefaults3_2To3_0, MeasurementDefaults3_2To3_0>;
 
-type CoreDefaults2_0To3_2 = CoreDefaults<MetadataDefaults2_0To3_2, MeasurementDefaults2_0To3_2>;
-type CoreDefaults3_0To3_2 = CoreDefaults<MetadataDefaults3_0To3_2, MeasurementDefaults3_0To3_2>;
-type CoreDefaults3_1To3_2 = CoreDefaults<MetadataDefaults3_1To3_2, MeasurementDefaults3_1To3_2>;
+pub type CoreDefaults2_0To3_1 = CoreDefaults<MetadataDefaults2_0To3_1, MeasurementDefaults2_0To3_1>;
+pub type CoreDefaults3_0To3_1 = CoreDefaults<MetadataDefaults3_0To3_1, MeasurementDefaults3_0To3_1>;
+pub type CoreDefaults3_2To3_1 = CoreDefaults<MetadataDefaults3_2To3_1, MeasurementDefaults3_2To3_1>;
 
-type CoreDefaultsTo2_0 = CoreDefaults<MetadataDefaultsTo2_0, MeasurementDefaultsTo2_0>;
-type CoreDefaultsTo3_0 = CoreDefaults<MetadataDefaultsTo3_0, MeasurementDefaultsTo3_0>;
-type CoreDefaultsTo3_1 = CoreDefaults<MetadataDefaultsTo3_1, MeasurementDefaultsTo3_1>;
-type CoreDefaultsTo3_2 = CoreDefaults<MetadataDefaultsTo3_2, MeasurementDefaultsTo3_2>;
+pub type CoreDefaults2_0To3_2 = CoreDefaults<MetadataDefaults2_0To3_2, MeasurementDefaults2_0To3_2>;
+pub type CoreDefaults3_0To3_2 = CoreDefaults<MetadataDefaults3_0To3_2, MeasurementDefaults3_0To3_2>;
+pub type CoreDefaults3_1To3_2 = CoreDefaults<MetadataDefaults3_1To3_2, MeasurementDefaults3_1To3_2>;
+
+pub type CoreDefaultsTo2_0 = CoreDefaults<MetadataDefaultsTo2_0, MeasurementDefaultsTo2_0>;
+pub type CoreDefaultsTo3_0 = CoreDefaults<MetadataDefaultsTo3_0, MeasurementDefaultsTo3_0>;
+pub type CoreDefaultsTo3_1 = CoreDefaults<MetadataDefaultsTo3_1, MeasurementDefaultsTo3_1>;
+pub type CoreDefaultsTo3_2 = CoreDefaults<MetadataDefaultsTo3_2, MeasurementDefaultsTo3_2>;
 
 fn project_defaults<A, B, X, Y>(value: CoreDefaults<A, B>) -> CoreDefaults<X, Y>
 where

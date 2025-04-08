@@ -1,8 +1,9 @@
 use fireflow_core::api;
+use fireflow_core::api::IntoCore;
 use fireflow_core::config;
 use fireflow_core::error;
 
-use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
+use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
 use pyo3::class::basic::CompareOp;
 use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyWarning};
@@ -276,34 +277,6 @@ impl PyStandardizedTEXT {
         self.0.deviant.clone().into_py_dict(py)
     }
 
-    #[getter]
-    fn begin_date(&self) -> Option<NaiveDate> {
-        self.0.keywords.begin_date()
-    }
-
-    #[getter]
-    fn end_date(&self) -> Option<NaiveDate> {
-        self.0.keywords.end_date()
-    }
-
-    #[getter]
-    fn begin_time(&self) -> Option<NaiveTime> {
-        self.0.keywords.begin_time()
-    }
-
-    #[getter]
-    fn end_time(&self) -> Option<NaiveTime> {
-        self.0.keywords.end_time()
-    }
-
-    fn set_datetimes(&mut self, begin: DateTime<FixedOffset>, end: DateTime<FixedOffset>) -> bool {
-        self.0.keywords.set_datetimes(begin, end)
-    }
-
-    fn clear_datetimes(&mut self) {
-        self.0.keywords.clear_datetimes()
-    }
-
     // TODO this will be in arbitrary order, might make sense to sort it
     // TODO add flag to remove nonstandard
     #[pyo3(signature = (want_req=None, want_meta=None))]
@@ -347,46 +320,142 @@ impl PyStandardizedTEXT {
 }
 
 macro_rules! get_set_str {
-    ($pytype:ident, $get:ident, $set:ident) => {
+    ($pytype:ident, [$($root:ident,)*], $get:ident, $set:ident) => {
         #[pymethods]
         impl $pytype {
             #[getter]
             fn $get(&self) -> Option<String> {
-                self.0.keywords.$get().map(String::from)
+                self.0.$($root.)*$get().map(String::from)
             }
 
             #[setter]
             fn $set(&mut self, s: Option<String>) {
-                self.0.keywords.$set(s)
+                self.0.$($root.)*$set(s)
             }
         }
     };
 }
 
-get_set_str!(PyStandardizedTEXT, cells, set_cells);
-get_set_str!(PyStandardizedTEXT, com, set_com);
-get_set_str!(PyStandardizedTEXT, exp, set_exp);
-get_set_str!(PyStandardizedTEXT, fil, set_fil);
-get_set_str!(PyStandardizedTEXT, inst, set_inst);
-get_set_str!(PyStandardizedTEXT, op, set_op);
-get_set_str!(PyStandardizedTEXT, proj, set_proj);
-get_set_str!(PyStandardizedTEXT, smno, set_smno);
-get_set_str!(PyStandardizedTEXT, src, set_src);
-get_set_str!(PyStandardizedTEXT, sys, set_sys);
+macro_rules! get_set_copied {
+    ($pytype:ident, [$($root:ident,)*], $get:ident, $set:ident, $t:ty) => {
+        #[pymethods]
+        impl $pytype {
+            #[getter]
+            fn $get(&self) -> Option<$t> {
+                self.0.$($root.)*$get()
+            }
 
-// get_set_str!(PyAnyCoreTEXT, cells, set_cells);
-// get_set_str!(PyAnyCoreTEXT, com, set_com);
-// get_set_str!(PyAnyCoreTEXT, exp, set_exp);
-// get_set_str!(PyAnyCoreTEXT, fil, set_fil);
-// get_set_str!(PyAnyCoreTEXT, inst, set_inst);
-// get_set_str!(PyAnyCoreTEXT, op, set_op);
-// get_set_str!(PyAnyCoreTEXT, proj, set_proj);
-// get_set_str!(PyAnyCoreTEXT, smno, set_smno);
-// get_set_str!(PyAnyCoreTEXT, src, set_src);
-// get_set_str!(PyAnyCoreTEXT, sys, set_sys);
+            #[setter]
+            fn $set(&mut self, s: Option<$t>) {
+                self.0.$($root.)*$set(s)
+            }
+        }
+    };
+}
+
+macro_rules! get_set_datetime {
+    ($pytype:ident, [$($root:ident,)*]) => {
+        #[pymethods]
+        impl $pytype {
+            #[getter]
+            fn begin_date(&self) -> Option<NaiveDate> {
+                self.0.$($root.)*begin_date()
+            }
+
+            #[getter]
+            fn end_date(&self) -> Option<NaiveDate> {
+                self.0.$($root.)*end_date()
+            }
+
+            #[getter]
+            fn begin_time(&self) -> Option<NaiveTime> {
+                self.0.$($root.)*begin_time()
+            }
+
+            #[getter]
+            fn end_time(&self) -> Option<NaiveTime> {
+                self.0.$($root.)*end_time()
+            }
+
+            fn set_datetimes(
+                &mut self,
+                begin: DateTime<FixedOffset>,
+                end: DateTime<FixedOffset>,
+            ) -> bool {
+                self.0.$($root.)*set_datetimes(begin, end)
+            }
+
+            fn clear_datetimes(&mut self) {
+                self.0.$($root.)*clear_datetimes()
+            }
+        }
+    };
+}
+
+macro_rules! core_text_methods {
+    ($pytype:ident, [$($root:ident)*]) => {
+        get_set_datetime!($pytype, [$($root,)*]);
+        get_set_copied!(  $pytype, [$($root,)*], abrt, set_abrt, u32);
+        get_set_copied!(  $pytype, [$($root,)*], lost, set_lost, u32);
+        get_set_str!(     $pytype, [$($root,)*], cells, set_cells);
+        get_set_str!(     $pytype, [$($root,)*], com, set_com);
+        get_set_str!(     $pytype, [$($root,)*], exp, set_exp);
+        get_set_str!(     $pytype, [$($root,)*], fil, set_fil);
+        get_set_str!(     $pytype, [$($root,)*], inst, set_inst);
+        get_set_str!(     $pytype, [$($root,)*], op, set_op);
+        get_set_str!(     $pytype, [$($root,)*], proj, set_proj);
+        get_set_str!(     $pytype, [$($root,)*], smno, set_smno);
+        get_set_str!(     $pytype, [$($root,)*], src, set_src);
+        get_set_str!(     $pytype, [$($root,)*], sys, set_sys);
+    };
+}
+
+core_text_methods!(PyStandardizedTEXT, [keywords]);
+core_text_methods!(PyCoreTEXT2_0, []);
+core_text_methods!(PyCoreTEXT3_0, []);
+core_text_methods!(PyCoreTEXT3_1, []);
+core_text_methods!(PyCoreTEXT3_2, []);
 
 #[pymethods]
-impl PyCoreTEXT3_2 {}
+impl PyCoreTEXT3_2 {
+    // TODO allow user to set $COMP if they really want
+    fn version_2_0(&self) -> PyResult<PyCoreTEXT2_0> {
+        let new = api::CoreTEXT3_2::convert_core_def(
+            self.0.clone(),
+            api::CoreDefaults::new(
+                api::MetadataDefaults3_2To2_0::default(),
+                api::MeasurementDefaults3_2To2_0,
+                self.0.par(),
+            ),
+        );
+        handle_pure(new)
+    }
+
+    // TODO allow user to set $COMP/$UNICODE if they really want
+    fn version_3_0(&self) -> PyResult<PyCoreTEXT3_0> {
+        let new = api::CoreTEXT3_2::convert_core_def(
+            self.0.clone(),
+            api::CoreDefaults::new(
+                api::MetadataDefaults3_2To3_0::default(),
+                api::MeasurementDefaults3_2To3_0,
+                self.0.par(),
+            ),
+        );
+        handle_pure(new)
+    }
+
+    fn version_3_1(&self) -> PyResult<PyCoreTEXT3_1> {
+        let new = api::CoreTEXT3_2::convert_core_def(
+            self.0.clone(),
+            api::CoreDefaults::new(
+                api::MetadataDefaults3_2To3_1,
+                api::MeasurementDefaults3_2To3_1,
+                self.0.par(),
+            ),
+        );
+        handle_pure(new)
+    }
+}
 
 struct FailWrapper(error::ImpureFailure);
 
@@ -394,7 +463,13 @@ fn handle_errors<X, Y>(res: error::ImpureResult<X>) -> PyResult<Y>
 where
     Y: From<X>,
 {
-    let succ = res.map_err(FailWrapper)?;
+    handle_pure(res.map_err(FailWrapper)?)
+}
+
+fn handle_pure<X, Y>(succ: error::PureSuccess<X>) -> PyResult<Y>
+where
+    Y: From<X>,
+{
     let warn = succ.deferred.into_warnings();
     Python::with_gil(|py| -> PyResult<()> {
         let wt = py.get_type::<PyreflowWarning>();

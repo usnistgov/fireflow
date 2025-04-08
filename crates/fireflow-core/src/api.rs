@@ -1272,9 +1272,20 @@ enum RangeError {
 
 struct Mode3_2Error;
 
-macro_rules! vec_convert {
-    ($xs:expr, $t:ty) => {
-        $xs.into_iter().map(|x| x as $t).collect()
+// macro_rules! vec_convert {
+//     ($xs:expr, $t:ty) => {
+//         $xs.into_iter().map(|x| x as $t).collect()
+//     };
+// }
+
+macro_rules! series_cast {
+    ($series:expr, $from:ident, $to:ty) => {
+        $series
+            .$from()
+            .unwrap()
+            .into_no_null_iter()
+            .map(|x| x as $to)
+            .collect()
     };
 }
 
@@ -1292,63 +1303,67 @@ fn warn_bitmask<T: Ord + Copy>(xs: Vec<T>, deferred: &mut PureErrorBuf, bitmask:
 }
 
 macro_rules! convert_to_uint1 {
-    ($data:expr, $deferred:expr, $wrap:ident, $t:ty, $ut:expr) => {
+    ($series:expr, $deferred:expr, $wrap:ident, $from:ident, $to:ty, $ut:expr) => {
         $wrap(NumColumnWriter {
-            column: warn_bitmask(vec_convert!($data, $t), &mut $deferred, $ut.bitmask),
+            column: warn_bitmask(
+                series_cast!($series, $from, $to),
+                &mut $deferred,
+                $ut.bitmask,
+            ),
             size: $ut.size,
         })
     };
 }
 
 macro_rules! convert_to_uint {
-    ($size:expr, $data:expr, $deferred:expr) => {
+    ($size:expr, $series:expr, $from:ident, $deferred:expr) => {
         match $size {
             AnyUintType::Uint8(ut) => {
-                convert_to_uint1!($data, $deferred, NumU8, u8, ut)
+                convert_to_uint1!($series, $deferred, NumU8, $from, u8, ut)
             }
             AnyUintType::Uint16(ut) => {
-                convert_to_uint1!($data, $deferred, NumU16, u16, ut)
+                convert_to_uint1!($series, $deferred, NumU16, $from, u16, ut)
             }
             AnyUintType::Uint24(ut) => {
-                convert_to_uint1!($data, $deferred, NumU24, u32, ut)
+                convert_to_uint1!($series, $deferred, NumU24, $from, u32, ut)
             }
             AnyUintType::Uint32(ut) => {
-                convert_to_uint1!($data, $deferred, NumU32, u32, ut)
+                convert_to_uint1!($series, $deferred, NumU32, $from, u32, ut)
             }
             AnyUintType::Uint40(ut) => {
-                convert_to_uint1!($data, $deferred, NumU40, u64, ut)
+                convert_to_uint1!($series, $deferred, NumU40, $from, u64, ut)
             }
             AnyUintType::Uint48(ut) => {
-                convert_to_uint1!($data, $deferred, NumU48, u64, ut)
+                convert_to_uint1!($series, $deferred, NumU48, $from, u64, ut)
             }
             AnyUintType::Uint56(ut) => {
-                convert_to_uint1!($data, $deferred, NumU56, u64, ut)
+                convert_to_uint1!($series, $deferred, NumU56, $from, u64, ut)
             }
             AnyUintType::Uint64(ut) => {
-                convert_to_uint1!($data, $deferred, NumU64, u64, ut)
+                convert_to_uint1!($series, $deferred, NumU64, $from, u64, ut)
             }
         }
     };
 }
 
 macro_rules! convert_to_float {
-    ($size:expr, $column:expr, $wrap:ident, $t:ty) => {
+    ($size:expr, $series:expr, $wrap:ident, $from:ident, $to:ty) => {
         $wrap(NumColumnWriter {
-            column: vec_convert!($column, $t),
+            column: series_cast!($series, $from, $to),
             size: $size,
         })
     };
 }
 
 macro_rules! convert_to_f32 {
-    ($size:expr, $column:expr) => {
-        convert_to_float!($size, $column, NumF32, f32)
+    ($size:expr, $series:expr, $from:ident) => {
+        convert_to_float!($size, $series, NumF32, $from, f32)
     };
 }
 
 macro_rules! convert_to_f64 {
-    ($size:expr, $column:expr) => {
-        convert_to_float!($size, $column, NumF64, f64)
+    ($size:expr, $series:expr, $from:ident) => {
+        convert_to_float!($size, $series, NumF64, $from, f64)
     };
 }
 
@@ -4120,206 +4135,220 @@ where
     }
 }
 
-impl RawSeries {
-    /// Convert a series into a writable vector
-    ///
-    /// Data that is to be written in a different type will be converted.
-    /// Depending on the start and end types, data loss may occur, in which
-    /// case the user will be warned.
-    ///
-    /// For some cases like float->ASCII (bad idea), it is not clear how much
-    /// space will be needed to represent every possible float in the file, so
-    /// user will be warned always.
-    ///
-    /// If the start type will fit into the end type, all is well and nothing
-    /// bad will happen to user's precious data.
-    fn coerce(self, w: ColumnType, conf: &WriteConfig) -> PureSuccess<ColumnWriter> {
-        let mut deferred = PureErrorBuf::new();
+enum ValidType {
+    U08,
+    U16,
+    U32,
+    U64,
+    F32,
+    F64,
+}
 
-        let ascii_uint_warn = |d: &mut PureErrorBuf, bits, bytes| {
-            let msg = format!(
-                "writing ASCII as {bits}-bit uint in {bytes} \
-                         may result in truncation"
-            );
-            d.push_msg_leveled(msg, conf.disallow_lossy_conversions);
-        };
-        let num_warn = |d: &mut PureErrorBuf, from, to| {
-            let msg = format!("converting {from} to {to} may truncate data");
-            d.push_msg_leveled(msg, conf.disallow_lossy_conversions);
-        };
-
-        let res = match w {
-            // For Uint* -> ASCII, warn user if there are not enough bytes to
-            // hold the max range of the type being formatted. ASCII shouldn't
-            // store floats at all, so warn user if input data is float or
-            // double.
-            ColumnType::Ascii { bytes } => match self {
-                RawSeries::U08(data) => {
-                    if bytes < 3 {
-                        ascii_uint_warn(&mut deferred, 8, 3);
-                    }
-                    AsciiU8(AsciiColumnWriter {
-                        column: data,
-                        bytes,
-                    })
-                }
-                RawSeries::U16(data) => {
-                    if bytes < 5 {
-                        ascii_uint_warn(&mut deferred, 16, 5);
-                    }
-                    AsciiU16(AsciiColumnWriter {
-                        column: data,
-                        bytes,
-                    })
-                }
-                RawSeries::U32(data) => {
-                    if bytes < 10 {
-                        ascii_uint_warn(&mut deferred, 32, 10);
-                    }
-                    AsciiU32(AsciiColumnWriter {
-                        column: data,
-                        bytes,
-                    })
-                }
-                RawSeries::U64(data) => {
-                    if bytes < 20 {
-                        ascii_uint_warn(&mut deferred, 64, 20);
-                    }
-                    AsciiU64(AsciiColumnWriter {
-                        column: data,
-                        bytes,
-                    })
-                }
-                RawSeries::F32(data) => {
-                    num_warn(&mut deferred, "float", "uint64");
-                    AsciiU64(AsciiColumnWriter {
-                        column: vec_convert!(data, u64),
-                        bytes,
-                    })
-                }
-                RawSeries::F64(data) => {
-                    num_warn(&mut deferred, "double", "uint64");
-                    AsciiU64(AsciiColumnWriter {
-                        column: vec_convert!(data, u64),
-                        bytes,
-                    })
-                }
-            },
-
-            // Uint* -> Uint* is quite easy, just compare sizes and warn if the
-            // target type is too small. Float/double -> Uint always could
-            // potentially truncate a fractional value. Also check to see if
-            // bitmask is exceeded, and if so truncate and warn user.
-            ColumnType::Integer(ut) => {
-                match self {
-                    RawSeries::F32(_) => num_warn(&mut deferred, "float", "uint"),
-                    RawSeries::F64(_) => num_warn(&mut deferred, "float", "uint"),
-                    _ => {
-                        let from_size = ut.nbytes();
-                        let to_size = ut.native_nbytes();
-                        if to_size < from_size {
-                            let msg = format!(
-                                "converted uint from {from_size} to \
-                                 {to_size} bytes may truncate data"
-                            );
-                            deferred.push_warning(msg);
-                        }
-                    }
-                }
-                match_many_to_one!(self, RawSeries, [F32, F64, U08, U16, U32, U64], data, {
-                    convert_to_uint!(ut, data, deferred)
-                })
-            }
-
-            // Floats can hold small uints and themselves, anything else might
-            // truncate.
-            ColumnType::Float(size) => {
-                match self {
-                    RawSeries::U32(_) => num_warn(&mut deferred, "float", "uint32"),
-                    RawSeries::U64(_) => num_warn(&mut deferred, "float", "uint64"),
-                    RawSeries::F64(_) => num_warn(&mut deferred, "float", "double"),
-                    _ => (),
-                }
-                match_many_to_one!(self, RawSeries, [F32, F64, U08, U16, U32, U64], data, {
-                    convert_to_f32!(size, data)
-                })
-            }
-
-            // Doubles can hold all but uint64
-            ColumnType::Double(size) => {
-                if let RawSeries::U64(_) = self {
-                    num_warn(&mut deferred, "double", "uint64")
-                }
-                match_many_to_one!(self, RawSeries, [F32, F64, U08, U16, U32, U64], data, {
-                    convert_to_f64!(size, data)
-                })
-            }
-        };
-        PureSuccess {
-            data: res,
-            deferred,
+impl ValidType {
+    fn from(dt: &DataType) -> Option<Self> {
+        match dt {
+            DataType::UInt8 => Some(ValidType::U08),
+            DataType::UInt16 => Some(ValidType::U16),
+            DataType::UInt32 => Some(ValidType::U32),
+            DataType::UInt64 => Some(ValidType::U64),
+            DataType::Float32 => Some(ValidType::F32),
+            DataType::Float64 => Some(ValidType::F64),
+            _ => None,
         }
     }
+}
 
-    /// Convert into a u64 vector.
-    ///
-    /// Used when writing delimited ASCII. This is faster and more convenient
-    /// than the general coercion function.
-    fn coerce64(self, conf: &WriteConfig) -> PureSuccess<Vec<u64>> {
-        let mut deferred = PureErrorBuf::new();
+/// Convert a series into a writable vector
+///
+/// Data that is to be written in a different type will be converted. Depending
+/// on the start and end types, data loss may occur, in which case the user will
+/// be warned.
+///
+/// For some cases like float->ASCII (bad idea), it is not clear how much space
+/// will be needed to represent every possible float in the file, so user will
+/// be warned always.
+///
+/// If the start type will fit into the end type, all is well and nothing bad
+/// will happen to user's precious data.
+fn series_coerce(
+    c: &Column,
+    w: ColumnType,
+    conf: &WriteConfig,
+) -> Option<PureSuccess<ColumnWriter>> {
+    let dt = ValidType::from(&c.dtype())?;
+    let mut deferred = PureErrorBuf::new();
 
-        let num_warn = |d: &mut PureErrorBuf, from, to| {
-            let msg = format!("converting {from} to {to} may truncate data");
-            d.push_msg_leveled(msg, conf.disallow_lossy_conversions);
-        };
+    let ascii_uint_warn = |d: &mut PureErrorBuf, bits, bytes| {
+        let msg = format!(
+            "writing ASCII as {bits}-bit uint in {bytes} \
+                             may result in truncation"
+        );
+        d.push_msg_leveled(msg, conf.disallow_lossy_conversions);
+    };
+    let num_warn = |d: &mut PureErrorBuf, from, to| {
+        let msg = format!("converting {from} to {to} may truncate data");
+        d.push_msg_leveled(msg, conf.disallow_lossy_conversions);
+    };
 
-        let res = match self {
-            RawSeries::U08(column) => vec_convert!(column, u64),
-            RawSeries::U16(column) => vec_convert!(column, u64),
-            RawSeries::U32(column) => vec_convert!(column, u64),
-            RawSeries::U64(column) => column,
-            RawSeries::F32(column) => {
+    let res = match w {
+        // For Uint* -> ASCII, warn user if there are not enough bytes to
+        // hold the max range of the type being formatted. ASCII shouldn't
+        // store floats at all, so warn user if input data is float or
+        // double.
+        ColumnType::Ascii { bytes } => match dt {
+            ValidType::U08 => {
+                if bytes < 3 {
+                    ascii_uint_warn(&mut deferred, 8, 3);
+                }
+                AsciiU8(AsciiColumnWriter {
+                    column: c.u8().unwrap().into_no_null_iter().collect(),
+                    bytes,
+                })
+            }
+            ValidType::U16 => {
+                if bytes < 5 {
+                    ascii_uint_warn(&mut deferred, 16, 5);
+                }
+                AsciiU16(AsciiColumnWriter {
+                    column: c.u16().unwrap().into_no_null_iter().collect(),
+                    bytes,
+                })
+            }
+            ValidType::U32 => {
+                if bytes < 10 {
+                    ascii_uint_warn(&mut deferred, 32, 10);
+                }
+                AsciiU32(AsciiColumnWriter {
+                    column: c.u32().unwrap().into_no_null_iter().collect(),
+                    bytes,
+                })
+            }
+            ValidType::U64 => {
+                if bytes < 20 {
+                    ascii_uint_warn(&mut deferred, 64, 20);
+                }
+                AsciiU64(AsciiColumnWriter {
+                    column: c.u64().unwrap().into_no_null_iter().collect(),
+                    bytes,
+                })
+            }
+            ValidType::F32 => {
                 num_warn(&mut deferred, "float", "uint64");
-                vec_convert!(column, u64)
+                AsciiU64(AsciiColumnWriter {
+                    column: series_cast!(c, f32, u64),
+                    bytes,
+                })
             }
-            RawSeries::F64(column) => {
+            ValidType::F64 => {
                 num_warn(&mut deferred, "double", "uint64");
-                vec_convert!(column, u64)
+                AsciiU64(AsciiColumnWriter {
+                    column: series_cast!(c, f32, u64),
+                    bytes,
+                })
             }
-        };
+        },
 
-        PureSuccess {
-            data: res,
-            deferred,
+        // Uint* -> Uint* is quite easy, just compare sizes and warn if the
+        // target type is too small. Float/double -> Uint always could
+        // potentially truncate a fractional value. Also check to see if
+        // bitmask is exceeded, and if so truncate and warn user.
+        ColumnType::Integer(ut) => {
+            match dt {
+                ValidType::F32 => num_warn(&mut deferred, "float", "uint"),
+                ValidType::F64 => num_warn(&mut deferred, "float", "uint"),
+                _ => {
+                    let from_size = ut.nbytes();
+                    let to_size = ut.native_nbytes();
+                    if to_size < from_size {
+                        let msg = format!(
+                            "converted uint from {from_size} to \
+                             {to_size} bytes may truncate data"
+                        );
+                        deferred.push_warning(msg);
+                    }
+                }
+            }
+            match dt {
+                ValidType::U08 => convert_to_uint!(ut, c, u8, deferred),
+                ValidType::U16 => convert_to_uint!(ut, c, u16, deferred),
+                ValidType::U32 => convert_to_uint!(ut, c, u32, deferred),
+                ValidType::U64 => convert_to_uint!(ut, c, u64, deferred),
+                ValidType::F32 => convert_to_uint!(ut, c, f32, deferred),
+                ValidType::F64 => convert_to_uint!(ut, c, f64, deferred),
+            }
         }
-    }
 
-    fn nbytes(&self) -> u8 {
-        match self {
-            RawSeries::U08(_) => 1,
-            RawSeries::U16(_) => 2,
-            RawSeries::U32(_) => 4,
-            RawSeries::U64(_) => 8,
-            RawSeries::F32(_) => 4,
-            RawSeries::F64(_) => 8,
+        // Floats can hold small uints and themselves, anything else might
+        // truncate.
+        ColumnType::Float(size) => {
+            match dt {
+                ValidType::U32 => num_warn(&mut deferred, "float", "uint32"),
+                ValidType::U64 => num_warn(&mut deferred, "float", "uint64"),
+                ValidType::F64 => num_warn(&mut deferred, "float", "double"),
+                _ => (),
+            }
+            match dt {
+                ValidType::U08 => convert_to_f32!(size, c, u8),
+                ValidType::U16 => convert_to_f32!(size, c, u16),
+                ValidType::U32 => convert_to_f32!(size, c, u32),
+                ValidType::U64 => convert_to_f32!(size, c, u64),
+                ValidType::F32 => convert_to_f32!(size, c, f32),
+                ValidType::F64 => convert_to_f32!(size, c, f64),
+            }
         }
-    }
 
-    fn total_bytes(&self) -> usize {
-        usize::from(self.nbytes()) * self.len()
-    }
+        // Doubles can hold all but uint64
+        ColumnType::Double(size) => {
+            if let ValidType::U64 = dt {
+                num_warn(&mut deferred, "double", "uint64")
+            }
+            match dt {
+                ValidType::U08 => convert_to_f64!(size, c, u8),
+                ValidType::U16 => convert_to_f64!(size, c, u16),
+                ValidType::U32 => convert_to_f64!(size, c, u32),
+                ValidType::U64 => convert_to_f64!(size, c, u64),
+                ValidType::F32 => convert_to_f64!(size, c, f32),
+                ValidType::F64 => convert_to_f64!(size, c, f64),
+            }
+        }
+    };
+    Some(PureSuccess {
+        data: res,
+        deferred,
+    })
+}
 
-    fn len(&self) -> usize {
-        match_many_to_one!(self, RawSeries, [F32, F64, U08, U16, U32, U64], x, {
-            x.len()
-        })
-    }
+/// Convert Series into a u64 vector.
+///
+/// Used when writing delimited ASCII. This is faster and more convenient
+/// than the general coercion function.
+fn series_coerce64(s: &Column, conf: &WriteConfig) -> Option<PureSuccess<Vec<u64>>> {
+    let dt = ValidType::from(&s.dtype())?;
+    let mut deferred = PureErrorBuf::new();
 
-    fn format(&self, r: usize) -> String {
-        match_many_to_one!(self, RawSeries, [F32, F64, U08, U16, U32, U64], x, {
-            format!("{}", x[r])
-        })
-    }
+    let num_warn = |d: &mut PureErrorBuf, from, to| {
+        let msg = format!("converting {from} to {to} may truncate data");
+        d.push_msg_leveled(msg, conf.disallow_lossy_conversions);
+    };
+
+    let res = match dt {
+        ValidType::U08 => series_cast!(s, u8, u64),
+        ValidType::U16 => series_cast!(s, u16, u64),
+        ValidType::U32 => series_cast!(s, u32, u64),
+        ValidType::U64 => series_cast!(s, u64, u64),
+        ValidType::F32 => {
+            num_warn(&mut deferred, "float", "uint64");
+            series_cast!(s, f32, u64)
+        }
+        ValidType::F64 => {
+            num_warn(&mut deferred, "double", "uint64");
+            series_cast!(s, f64, u64)
+        }
+    };
+    Some(PureSuccess {
+        data: res,
+        deferred,
+    })
 }
 
 macro_rules! impl_num_props {
@@ -4497,80 +4526,122 @@ impl AnyUintColumnReader {
     }
 }
 
-impl Dataframe {
-    fn from(columns: Vec<RawSeries>) -> Self {
-        Dataframe { columns }
-    }
+// impl Dataframe {
+//     fn from(columns: Vec<RawSeries>) -> Self {
+//         Dataframe { columns }
+//     }
 
-    fn is_empty(&self) -> bool {
-        self.columns.is_empty()
-    }
+//     fn is_empty(&self) -> bool {
+//         self.columns.is_empty()
+//     }
 
-    fn ncols(&self) -> usize {
-        self.columns.len()
-    }
+//     fn ncols(&self) -> usize {
+//         self.columns.len()
+//     }
 
-    fn nrows(&self) -> usize {
-        self.min_rows()
-    }
+//     fn nrows(&self) -> usize {
+//         self.min_rows()
+//     }
 
-    fn max_rows(&self) -> usize {
-        self.columns.iter().map(|c| c.len()).max().unwrap_or(0)
-    }
+//     fn max_rows(&self) -> usize {
+//         self.columns.iter().map(|c| c.len()).max().unwrap_or(0)
+//     }
 
-    fn min_rows(&self) -> usize {
-        self.columns.iter().map(|c| c.len()).min().unwrap_or(0)
-    }
+//     fn min_rows(&self) -> usize {
+//         self.columns.iter().map(|c| c.len()).min().unwrap_or(0)
+//     }
 
-    fn is_ragged(&self) -> bool {
-        self.min_rows() != self.max_rows()
-    }
+//     fn is_ragged(&self) -> bool {
+//         self.min_rows() != self.max_rows()
+//     }
 
-    fn total_bytes(&self) -> usize {
-        self.columns.iter().map(|c| c.total_bytes()).sum()
-    }
+//     fn total_bytes(&self) -> usize {
+//         self.columns.iter().map(|c| c.total_bytes()).sum()
+//     }
 
-    fn size(&self) -> usize {
-        self.columns.iter().map(|c| c.len()).sum()
-    }
+//     fn size(&self) -> usize {
+//         self.columns.iter().map(|c| c.len()).sum()
+//     }
 
-    fn square_size(&self) -> usize {
-        self.min_rows() * self.ncols()
-    }
+//     fn square_size(&self) -> usize {
+//         self.min_rows() * self.ncols()
+//     }
 
-    fn into_writable_columns(
-        self,
-        cs: Vec<ColumnType>,
-        conf: &WriteConfig,
-    ) -> PureSuccess<Vec<ColumnWriter>> {
-        let (writable_columns, msgs): (Vec<_>, Vec<_>) = cs
-            .into_iter()
-            .zip(self.columns)
-            .map(|(w, s)| {
-                let res = s.coerce(w, conf);
-                (res.data, res.deferred)
-            })
-            .unzip();
-        PureSuccess {
-            data: writable_columns,
-            deferred: PureErrorBuf::mconcat(msgs),
-        }
-    }
+//     fn into_writable_columns(
+//         self,
+//         cs: Vec<ColumnType>,
+//         conf: &WriteConfig,
+//     ) -> PureSuccess<Vec<ColumnWriter>> {
+//         let (writable_columns, msgs): (Vec<_>, Vec<_>) = cs
+//             .into_iter()
+//             .zip(self.columns)
+//             .map(|(w, s)| {
+//                 let res = s.coerce(w, conf);
+//                 (res.data, res.deferred)
+//             })
+//             .unzip();
+//         PureSuccess {
+//             data: writable_columns,
+//             deferred: PureErrorBuf::mconcat(msgs),
+//         }
+//     }
 
-    fn into_writable_matrix64(self, conf: &WriteConfig) -> PureSuccess<Vec<Vec<u64>>> {
-        let (columns, msgs): (Vec<_>, Vec<_>) = self
-            .columns
-            .into_iter()
-            .map(|s| {
-                let res = s.coerce64(conf);
-                (res.data, res.deferred)
-            })
-            .unzip();
-        PureSuccess {
-            data: columns,
-            deferred: PureErrorBuf::mconcat(msgs),
-        }
+//     fn into_writable_matrix64(self, conf: &WriteConfig) -> PureSuccess<Vec<Vec<u64>>> {
+//         let (columns, msgs): (Vec<_>, Vec<_>) = self
+//             .columns
+//             .into_iter()
+//             .map(|s| {
+//                 let res = s.coerce64(conf);
+//                 (res.data, res.deferred)
+//             })
+//             .unzip();
+//         PureSuccess {
+//             data: columns,
+//             deferred: PureErrorBuf::mconcat(msgs),
+//         }
+//     }
+// }
+
+fn into_writable_columns(
+    df: DataFrame,
+    cs: Vec<ColumnType>,
+    conf: &WriteConfig,
+) -> Option<PureSuccess<Vec<ColumnWriter>>> {
+    let cols = df.get_columns();
+    let (writable_columns, msgs): (Vec<_>, Vec<_>) = cs
+        .into_iter()
+        // TODO do this without cloning?
+        .zip(cols)
+        .flat_map(|(w, c)| series_coerce(c, w, conf).map(|succ| (succ.data, succ.deferred)))
+        .unzip();
+    if df.width() != writable_columns.len() {
+        return None;
     }
+    Some(PureSuccess {
+        data: writable_columns,
+        deferred: PureErrorBuf::mconcat(msgs),
+    })
+}
+
+fn into_writable_matrix64(df: DataFrame, conf: &WriteConfig) -> Option<PureSuccess<Vec<Vec<u64>>>> {
+    let (columns, msgs): (Vec<_>, Vec<_>) = df
+        .get_columns()
+        .iter()
+        .flat_map(|c| {
+            if let Some(res) = series_coerce64(c, conf) {
+                Some((res.data, res.deferred))
+            } else {
+                None
+            }
+        })
+        .unzip();
+    if df.width() != columns.len() {
+        return None;
+    }
+    Some(PureSuccess {
+        data: columns,
+        deferred: PureErrorBuf::mconcat(msgs),
+    })
 }
 
 // TODO make this a method
@@ -4817,8 +4888,9 @@ fn h_write_numeric_dataframe<W: Write>(
     conf: &Config,
 ) -> ImpureResult<()> {
     let df_nrows = df.height();
-    df.into_writable_columns(cs, &conf.write)
-        .try_map(|writable_columns| {
+    let res = into_writable_columns(df, cs, &conf.write);
+    if let Some(succ) = res {
+        succ.try_map(|writable_columns| {
             for r in 0..df_nrows {
                 for c in writable_columns.iter() {
                     match c {
@@ -4841,6 +4913,12 @@ fn h_write_numeric_dataframe<W: Write>(
             }
             Ok(PureSuccess::from(()))
         })
+    } else {
+        // TODO lame error message
+        Err(io::Error::other(
+            "could not get data from dataframe".to_string(),
+        ))?
+    }
 }
 
 fn h_write_delimited_matrix<W: Write>(
@@ -4953,20 +5031,27 @@ fn h_write_dataset<W: Write>(
             // value. Then convert values to strings and write byte
             // representation of strings. Fun...
             DataLayout::AsciiDelimited { nrows: _, ncols: _ } => {
-                df.into_writable_matrix64(&conf.write).try_map(|columns| {
-                    let ndelim = df_ncols * nrows - 1;
-                    // TODO cast?
-                    let value_nbytes: u32 = columns
-                        .iter()
-                        .flat_map(|rows| rows.iter().map(|x| x.checked_ilog10().unwrap_or(1)))
-                        .sum();
-                    // compute data length (delimiters + number of digits)
-                    let data_len = value_nbytes as usize + ndelim;
-                    // write HEADER+TEXT
-                    write_text(h, data_len)?;
-                    // write DATA
-                    h_write_delimited_matrix(h, nrows, columns)
-                })
+                if let Some(succ) = into_writable_matrix64(df, &conf.write) {
+                    succ.try_map(|columns| {
+                        let ndelim = df_ncols * nrows - 1;
+                        // TODO cast?
+                        let value_nbytes: u32 = columns
+                            .iter()
+                            .flat_map(|rows| rows.iter().map(|x| x.checked_ilog10().unwrap_or(1)))
+                            .sum();
+                        // compute data length (delimiters + number of digits)
+                        let data_len = value_nbytes as usize + ndelim;
+                        // write HEADER+TEXT
+                        write_text(h, data_len)?;
+                        // write DATA
+                        h_write_delimited_matrix(h, nrows, columns)
+                    })
+                } else {
+                    // TODO lame...
+                    Err(io::Error::other(
+                        "could not get data from dataframe".to_string(),
+                    ))?
+                }
             }
         }
     };

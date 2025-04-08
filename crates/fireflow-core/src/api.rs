@@ -1520,14 +1520,6 @@ where
             .collect()
     }
 
-    // // TODO this seems a bit lame
-    // fn all_req_keywords_with_tot(m: &Metadata<Self>, par: usize, tot: usize) -> RawPairs {
-    //     Self::all_req_keywords(m, par)
-    //         .into_iter()
-    //         .chain([(TOT.to_string(), tot.to_string())])
-    //         .collect()
-    // }
-
     fn all_opt_keywords(m: &Metadata<Self>) -> RawPairs {
         [
             (ABRT, m.abrt.as_opt_string()),
@@ -4175,7 +4167,7 @@ fn series_coerce(
     w: ColumnType,
     conf: &WriteConfig,
 ) -> Option<PureSuccess<ColumnWriter>> {
-    let dt = ValidType::from(&c.dtype())?;
+    let dt = ValidType::from(c.dtype())?;
     let mut deferred = PureErrorBuf::new();
 
     let ascii_uint_warn = |d: &mut PureErrorBuf, bits, bytes| {
@@ -4190,6 +4182,9 @@ fn series_coerce(
         d.push_msg_leveled(msg, conf.disallow_lossy_conversions);
     };
 
+    // TODO this will make a copy of the data within a new vector, which is
+    // simply going to be shoved onto disk a few nanoseconds later. Would make
+    // more sense to return a lazy iterator which would skip this intermediate.
     let res = match w {
         // For Uint* -> ASCII, warn user if there are not enough bytes to
         // hold the max range of the type being formatted. ASCII shouldn't
@@ -4526,82 +4521,6 @@ impl AnyUintColumnReader {
     }
 }
 
-// impl Dataframe {
-//     fn from(columns: Vec<RawSeries>) -> Self {
-//         Dataframe { columns }
-//     }
-
-//     fn is_empty(&self) -> bool {
-//         self.columns.is_empty()
-//     }
-
-//     fn ncols(&self) -> usize {
-//         self.columns.len()
-//     }
-
-//     fn nrows(&self) -> usize {
-//         self.min_rows()
-//     }
-
-//     fn max_rows(&self) -> usize {
-//         self.columns.iter().map(|c| c.len()).max().unwrap_or(0)
-//     }
-
-//     fn min_rows(&self) -> usize {
-//         self.columns.iter().map(|c| c.len()).min().unwrap_or(0)
-//     }
-
-//     fn is_ragged(&self) -> bool {
-//         self.min_rows() != self.max_rows()
-//     }
-
-//     fn total_bytes(&self) -> usize {
-//         self.columns.iter().map(|c| c.total_bytes()).sum()
-//     }
-
-//     fn size(&self) -> usize {
-//         self.columns.iter().map(|c| c.len()).sum()
-//     }
-
-//     fn square_size(&self) -> usize {
-//         self.min_rows() * self.ncols()
-//     }
-
-//     fn into_writable_columns(
-//         self,
-//         cs: Vec<ColumnType>,
-//         conf: &WriteConfig,
-//     ) -> PureSuccess<Vec<ColumnWriter>> {
-//         let (writable_columns, msgs): (Vec<_>, Vec<_>) = cs
-//             .into_iter()
-//             .zip(self.columns)
-//             .map(|(w, s)| {
-//                 let res = s.coerce(w, conf);
-//                 (res.data, res.deferred)
-//             })
-//             .unzip();
-//         PureSuccess {
-//             data: writable_columns,
-//             deferred: PureErrorBuf::mconcat(msgs),
-//         }
-//     }
-
-//     fn into_writable_matrix64(self, conf: &WriteConfig) -> PureSuccess<Vec<Vec<u64>>> {
-//         let (columns, msgs): (Vec<_>, Vec<_>) = self
-//             .columns
-//             .into_iter()
-//             .map(|s| {
-//                 let res = s.coerce64(conf);
-//                 (res.data, res.deferred)
-//             })
-//             .unzip();
-//         PureSuccess {
-//             data: columns,
-//             deferred: PureErrorBuf::mconcat(msgs),
-//         }
-//     }
-// }
-
 fn into_writable_columns(
     df: DataFrame,
     cs: Vec<ColumnType>,
@@ -4671,12 +4590,13 @@ fn into_writable_matrix64(df: DataFrame, conf: &WriteConfig) -> Option<PureSucce
 //     lines
 // }
 
-// TODO and this
-pub fn print_parsed_data(s: &StandardizedDataset, _delim: &str) {
-    println!("{}", s.dataset.data)
-    // for x in format_parsed_data(s, delim) {
-    //     println!("{}", x);
-    // }
+pub fn print_parsed_data(s: &mut StandardizedDataset, _delim: &str) -> PolarsResult<()> {
+    let mut fd = std::io::stdout();
+    CsvWriter::new(&mut fd)
+        .include_header(true)
+        .with_separator(b'\t')
+        // TODO why does this need to be mutable?
+        .finish(&mut s.dataset.data)
 }
 
 fn ascii_to_uint_io(buf: Vec<u8>) -> io::Result<u64> {
@@ -4853,10 +4773,6 @@ fn read_data_int<R: Read>(h: &mut BufReader<R>, parser: UintReader) -> io::Resul
             c.read_to_column(h, r)?;
         }
     }
-    // Ok(Dataframe::from(
-    //     p.columns.into_iter().map(|c| c.into()).collect(),
-    // ))
-
     let ss: Vec<_> = p
         .columns
         .into_iter()

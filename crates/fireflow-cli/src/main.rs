@@ -218,8 +218,8 @@ fn main() -> io::Result<()> {
             conf.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
             let delim = sargs.get_one::<String>("delimiter").unwrap();
 
-            let res = handle_errors(api::read_fcs_file(filepath, &conf))?;
-            api::print_parsed_data(&res, delim)
+            let mut res = handle_errors(api::read_fcs_file(filepath, &conf))?;
+            api::print_parsed_data(&mut res, delim).map_err(|e| io::Error::other(e.to_string()))?;
         }
 
         _ => (),

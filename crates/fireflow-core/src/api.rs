@@ -4690,7 +4690,7 @@ fn read_data_delim_ascii<R: Read>(
 fn read_data_ascii_fixed<R: Read>(
     h: &mut BufReader<R>,
     parser: &FixedAsciiReader,
-) -> io::Result<Dataframe> {
+) -> io::Result<DataFrame> {
     let ncols = parser.widths.len();
     let mut data: Vec<_> = iter::repeat_with(|| vec![0; parser.nrows])
         .take(ncols)
@@ -4703,12 +4703,19 @@ fn read_data_ascii_fixed<R: Read>(
             data[c][r] = parse_u64_io(&buf)?;
         }
     }
-    Ok(Dataframe::from(
-        data.into_iter().map(Vec::<u64>::into).collect(),
-    ))
+    let ss: Vec<_> = data
+        .into_iter()
+        .enumerate()
+        .map(|(i, s)| {
+            ChunkedArray::<UInt64Type>::from_vec(format!("M{i}").into(), s)
+                .into_series()
+                .into()
+        })
+        .collect();
+    DataFrame::new(ss).map_err(|e| io::Error::other(e.to_string()))
 }
 
-fn read_data_mixed<R: Read>(h: &mut BufReader<R>, parser: MixedParser) -> io::Result<Dataframe> {
+fn read_data_mixed<R: Read>(h: &mut BufReader<R>, parser: MixedParser) -> io::Result<DataFrame> {
     let mut p = parser;
     let mut strbuf = String::new();
     for r in 0..p.nrows {
@@ -4730,7 +4737,7 @@ fn read_data_mixed<R: Read>(h: &mut BufReader<R>, parser: MixedParser) -> io::Re
     ))
 }
 
-fn read_data_int<R: Read>(h: &mut BufReader<R>, parser: UintReader) -> io::Result<Dataframe> {
+fn read_data_int<R: Read>(h: &mut BufReader<R>, parser: UintReader) -> io::Result<DataFrame> {
     let mut p = parser;
     for r in 0..p.nrows {
         for c in p.columns.iter_mut() {
@@ -4745,7 +4752,7 @@ fn read_data_int<R: Read>(h: &mut BufReader<R>, parser: UintReader) -> io::Resul
 fn h_read_data_segment<R: Read + Seek>(
     h: &mut BufReader<R>,
     parser: DataReader,
-) -> io::Result<Dataframe> {
+) -> io::Result<DataFrame> {
     h.seek(SeekFrom::Start(parser.begin))?;
     match parser.column_reader {
         ColumnReader::DelimitedAscii(p) => read_data_delim_ascii(h, p),

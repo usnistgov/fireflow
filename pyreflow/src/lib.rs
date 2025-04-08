@@ -455,6 +455,8 @@ impl PyCoreTEXT3_2 {
         );
         handle_pure(new)
     }
+
+    // TODO make function to add DATA/ANALYSIS, which will convert this to a CoreDataset
 }
 
 struct FailWrapper(error::ImpureFailure);

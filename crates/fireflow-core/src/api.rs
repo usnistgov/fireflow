@@ -8,6 +8,7 @@ pub use crate::segment::*;
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use itertools::Itertools;
 use nalgebra::DMatrix;
+use polars::prelude::*;
 use regex::Regex;
 use serde::ser::SerializeStruct;
 use serde::Serialize;
@@ -4588,7 +4589,7 @@ fn parse_u64_io(s: &str) -> io::Result<u64> {
 fn read_data_delim_ascii<R: Read>(
     h: &mut BufReader<R>,
     p: DelimAsciiReader,
-) -> io::Result<Dataframe> {
+) -> io::Result<DataFrame> {
     let mut buf = Vec::new();
     let mut row = 0;
     let mut col = 0;
@@ -4596,8 +4597,10 @@ fn read_data_delim_ascii<R: Read>(
     // Delimiters are tab, newline, carriage return, space, or comma. Any
     // consecutive delimiter counts as one, and delimiters can be mixed.
     let is_delim = |byte| byte == 9 || byte == 10 || byte == 13 || byte == 32 || byte == 44;
-    // FCS 2.0 files have an optional $TOT field, which complicates this a bit
-    if let Some(nrows) = p.nrows {
+    let mut data = if let Some(nrows) = p.nrows {
+        // FCS 2.0 files have an optional $TOT field, which complicates this a
+        // bit. If we know the number of rows, initialize a bunch of zero-ed
+        // vectors and fill them sequentially.
         let mut data: Vec<_> = iter::repeat_with(|| vec![0; nrows]).take(p.ncols).collect();
         for b in h.bytes().take(p.nbytes) {
             let byte = b?;
@@ -4622,13 +4625,8 @@ fn read_data_delim_ascii<R: Read>(
                 }
             } else {
                 buf.push(byte);
+                last_was_delim = false;
             }
-        }
-        // The spec isn't clear if the last value should be a delim or
-        // not, so flush the buffer if it has anything in it since we
-        // only try to parse if we hit a delim above.
-        if !buf.is_empty() {
-            data[col][row] = ascii_to_uint_io(buf.clone())?;
         }
         if !(col == 0 && row == nrows) {
             let msg = format!(
@@ -4637,10 +4635,12 @@ fn read_data_delim_ascii<R: Read>(
             );
             return Err(io::Error::new(io::ErrorKind::InvalidData, msg));
         }
-        Ok(Dataframe::from(
-            data.into_iter().map(Vec::<u64>::into).collect(),
-        ))
+        data
     } else {
+        // If we don't know the number of rows, the only choice is to push onto
+        // the column vectors one at a time. This leads to the possibility that
+        // the vectors may not be the same length in the end, in which case,
+        // scream loudly and bail.
         let mut data: Vec<_> = iter::repeat_with(Vec::new).take(p.ncols).collect();
         for b in h.bytes().take(p.nbytes) {
             let byte = b?;
@@ -4660,23 +4660,31 @@ fn read_data_delim_ascii<R: Read>(
                 }
             } else {
                 buf.push(byte);
+                last_was_delim = false;
             }
         }
-        // The spec isn't clear if the last value should be a delim or
-        // not, so flush the buffer if it has anything in it since we
-        // only try to parse if we hit a delim above.
-        if !buf.is_empty() {
-            data[col][row] = ascii_to_uint_io(buf.clone())?;
-        }
-        // Scream if not all columns are equal in length
         if data.iter().map(|c| c.len()).unique().count() > 1 {
             let msg = "Not all columns are equal length";
             return Err(io::Error::new(io::ErrorKind::InvalidData, msg));
         }
-        Ok(Dataframe::from(
-            data.into_iter().map(Vec::<u64>::into).collect(),
-        ))
+        data
+    };
+    // The spec isn't clear if the last value should be a delim or
+    // not, so flush the buffer if it has anything in it since we
+    // only try to parse if we hit a delim above.
+    if !buf.is_empty() {
+        data[col][row] = ascii_to_uint_io(buf.clone())?;
     }
+    let ss: Vec<_> = data
+        .into_iter()
+        .enumerate()
+        .map(|(i, s)| {
+            ChunkedArray::<UInt64Type>::from_vec(format!("M{i}").into(), s)
+                .into_series()
+                .into()
+        })
+        .collect();
+    DataFrame::new(ss).map_err(|e| io::Error::other(e.to_string()))
 }
 
 fn read_data_ascii_fixed<R: Read>(

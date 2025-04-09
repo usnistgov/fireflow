@@ -7264,7 +7264,7 @@ pub struct MetadataDefaults2_0To3_0 {
     byteord: DefaultOptional<String>,
     cytsn: DefaultOptional<String>,
     timestep: DefaultOptional<f32>,
-    vol: DefaultOptional<String>,
+    vol: DefaultOptional<f32>,
     unicode: DefaultOptional<Unicode>,
 }
 
@@ -7350,7 +7350,7 @@ pub struct MetadataDefaultsTo3_0 {
     byteord: DefaultOptional<String>,
     cytsn: DefaultOptional<String>,
     timestep: DefaultOptional<f32>,
-    vol: DefaultOptional<String>,
+    vol: DefaultOptional<f32>,
     unicode: DefaultOptional<Unicode>,
     comp: DefaultMatrix<Compensation>,
 }

@@ -1272,12 +1272,6 @@ enum RangeError {
 
 struct Mode3_2Error;
 
-// macro_rules! vec_convert {
-//     ($xs:expr, $t:ty) => {
-//         $xs.into_iter().map(|x| x as $t).collect()
-//     };
-// }
-
 macro_rules! series_cast {
     ($series:expr, $from:ident, $to:ty) => {
         $series
@@ -1371,8 +1365,9 @@ pub trait Versioned {
     fn fcs_version() -> Version;
 }
 
-pub trait VersionedMetadata: Sized + VersionedParserMetadata
+pub trait VersionedMetadata: Sized
 where
+    Self: VersionedParserMetadata,
     Self::P: VersionedMeasurement,
     Self::P: VersionedParserMeasurement,
 {
@@ -3681,6 +3676,10 @@ impl AnyCoreTEXT {
         }
     }
 
+    fn set_df_column_names(&self, df: &mut DataFrame) -> PolarsResult<()> {
+        match_anycoretext!(self, x, { x.set_df_column_names(df) })
+    }
+
     fn as_writer_data_layout(&self) -> Result<WriterDataLayout, Vec<String>> {
         match_anycoretext!(self, x, { x.as_writer_data_layout() })
     }
@@ -3961,6 +3960,11 @@ where
             .enumerate()
             .map(|(i, p)| M::P::shortname(p, i))
             .collect()
+    }
+
+    fn set_df_column_names(&self, df: &mut DataFrame) -> PolarsResult<()> {
+        let ns: Vec<_> = self.shortnames().into_iter().map(|s| s.0).collect();
+        df.set_column_names(ns)
     }
 
     /// Set all $PnN keywords to list of names.
@@ -4563,33 +4567,7 @@ fn into_writable_matrix64(df: DataFrame, conf: &WriteConfig) -> Option<PureSucce
     })
 }
 
-// TODO make this a method
-// fn format_parsed_data(res: &StandardizedDataset, delim: &str) -> Vec<String> {
-//     let shortnames = match &res.dataset.keywords {
-//         AnyCoreTEXT::FCS2_0(x) => x.shortnames(),
-//         AnyCoreTEXT::FCS3_0(x) => x.shortnames(),
-//         AnyCoreTEXT::FCS3_1(x) => x.shortnames(),
-//         AnyCoreTEXT::FCS3_2(x) => x.shortnames(),
-//     };
-//     if res.dataset.data.is_empty() {
-//         return vec![];
-//     }
-//     let mut buf = vec![];
-//     let mut lines = vec![];
-//     let nrows = res.dataset.data.height();
-//     let ncols = res.dataset.data.width();
-//     // ASSUME names is the same length as columns
-//     lines.push(shortnames.into_iter().map(|m| m.0).join(delim));
-//     for r in 0..nrows {
-//         buf.clear();
-//         for c in 0..ncols {
-//             buf.push(res.dataset.data.columns[c].format(r));
-//         }
-//         lines.push(buf.join(delim));
-//     }
-//     lines
-// }
-
+// TODO fix delim
 pub fn print_parsed_data(s: &mut StandardizedDataset, _delim: &str) -> PolarsResult<()> {
     let mut fd = std::io::stdout();
     CsvWriter::new(&mut fd)
@@ -5082,8 +5060,9 @@ fn h_read_std_dataset<R: Read + Seek>(
         .try_map(|(data_maybe, data_seg, analysis_seg)| {
             let dmsg = "could not create data parser".to_string();
             let data_parser = data_maybe.ok_or(Failure::new(dmsg))?;
-            let data = h_read_data_segment(h, data_parser)?;
+            let mut data = h_read_data_segment(h, data_parser)?;
             let analysis = h_read_analysis(h, &analysis_seg)?;
+            std.keywords.set_df_column_names(&mut data);
             Ok(PureSuccess::from(StandardizedDataset {
                 offsets: Offsets {
                     prim_text: std.offsets.prim_text,

@@ -6,6 +6,7 @@ use crate::keywords::*;
 use crate::optionalkw::OptionalKw;
 use crate::optionalkw::OptionalKw::*;
 pub use crate::segment::*;
+use crate::shortname::Shortname;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use itertools::Itertools;
@@ -522,12 +523,6 @@ struct Calibration3_2 {
     offset: f32,
     unit: String,
 }
-
-/// The value for the $PnN key (all versions).
-///
-/// This cannot contain commas.
-#[derive(Debug, Clone, Serialize, Eq, PartialEq, Hash)]
-pub struct Shortname(String);
 
 /// The value for the $PnL key (3.1).
 ///
@@ -1209,7 +1204,6 @@ struct AlphaNumTypeError;
 struct NumTypeError;
 pub struct EndianError;
 struct ModifiedDateTimeError;
-pub struct ShortnameError;
 struct FeatureError;
 struct OriginalityError;
 
@@ -1554,7 +1548,7 @@ trait VersionedMeasurement: Sized + Versioned {
 
     fn shortname(p: &Measurement<Self>, n: usize) -> Shortname;
 
-    fn set_shortname(m: &mut Measurement<Self>, n: String);
+    fn set_shortname(m: &mut Measurement<Self>, n: Shortname);
 
     fn longname(p: &Measurement<Self>, n: usize) -> String {
         // TODO not DRY
@@ -1595,15 +1589,17 @@ trait VersionedMeasurement: Sized + Versioned {
             }
         }
         let names: Vec<&str> = ps.iter().filter_map(|m| Self::maybe_name(m)).collect();
-        if let Some(time_name) = &st.conf.time_shortname() {
-            if !names.iter().copied().contains(time_name) {
+        let n_names = names.len();
+        let n_unique = names.iter().unique().count();
+        if let Some(time_name) = &st.conf.time_shortname {
+            if !names.into_iter().contains(time_name.as_ref()) {
                 st.push_meta_error_or_warning(
                     st.conf.ensure_time,
                     format!("Channel called '{time_name}' not found for time"),
                 );
             }
         }
-        if names.iter().unique().count() < names.len() {
+        if n_unique < n_names {
             st.push_meta_error_str("$PnN are not all unique");
             None
         } else {
@@ -2423,11 +2419,9 @@ impl FromStr for Spillover {
                 let n = *first;
                 let nn = n * n;
                 let expected = n + nn;
-                let measurements: Vec<_> = xs
-                    .by_ref()
-                    .take(n)
-                    .map(|m| Shortname(String::from(m)))
-                    .collect();
+                // This should be safe since we split on commas
+                let measurements: Vec<_> =
+                    xs.by_ref().take(n).map(Shortname::new_unchecked).collect();
                 let values: Vec<_> = xs.by_ref().take(nn).collect();
                 let remainder = xs.by_ref().count();
                 let total = measurements.len() + values.len() + remainder;
@@ -2481,10 +2475,10 @@ impl fmt::Display for NamedFixedSeqError {
 
 impl Spillover {
     fn table(&self, delim: &str) -> Vec<String> {
-        let header0 = vec!["[-]".to_string()];
+        let header0 = vec!["[-]"];
         let header = header0
             .into_iter()
-            .chain(self.measurements.iter().map(|m| m.0.clone()))
+            .chain(self.measurements.iter().map(|m| m.as_ref()))
             .join(delim);
         let lines = vec![header];
         let rows = self.matrix.row_iter().map(|xs| xs.iter().join(delim));
@@ -2583,7 +2577,7 @@ impl FromStr for Trigger {
                 .parse()
                 .map_err(TriggerError::IntFormat)
                 .map(|threshold| Trigger {
-                    measurement: Shortname(String::from(p)),
+                    measurement: Shortname::new_unchecked(p),
                     threshold,
                 }),
             _ => Err(TriggerError::WrongFieldNumber),
@@ -2914,30 +2908,6 @@ impl str::FromStr for Wavelengths {
     }
 }
 
-impl fmt::Display for ShortnameError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "commas are not allowed")
-    }
-}
-
-impl fmt::Display for Shortname {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl str::FromStr for Shortname {
-    type Err = ShortnameError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.contains(',') {
-            Err(ShortnameError)
-        } else {
-            Ok(Shortname(String::from(s)))
-        }
-    }
-}
-
 impl fmt::Display for BytesError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
@@ -3068,11 +3038,7 @@ impl Versioned for InnerMeasurement3_2 {
 
 impl VersionedMeasurement for InnerMeasurement2_0 {
     fn maybe_name(p: &Measurement<Self>) -> Option<&str> {
-        p.specific
-            .shortname
-            .as_ref()
-            .into_option()
-            .map(|s| s.0.as_str())
+        p.specific.shortname.as_option().map(|s| s.as_ref())
     }
 
     fn shortname(p: &Measurement<Self>, n: usize) -> Shortname {
@@ -3081,11 +3047,11 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
             .as_ref()
             .into_option()
             .cloned()
-            .unwrap_or(Shortname(format!("M{n}")))
+            .unwrap_or(Shortname::from_index(n))
     }
 
-    fn set_shortname(m: &mut Measurement<Self>, n: String) {
-        m.specific.shortname = Present(Shortname(n))
+    fn set_shortname(m: &mut Measurement<Self>, n: Shortname) {
+        m.specific.shortname = Present(n)
     }
 
     fn lookup_specific(st: &mut KwParser, n: usize) -> Option<InnerMeasurement2_0> {
@@ -3113,11 +3079,7 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
 
 impl VersionedMeasurement for InnerMeasurement3_0 {
     fn maybe_name(p: &Measurement<Self>) -> Option<&str> {
-        p.specific
-            .shortname
-            .as_ref()
-            .into_option()
-            .map(|s| s.0.as_str())
+        p.specific.shortname.as_option().map(|s| s.as_ref())
     }
 
     fn shortname(p: &Measurement<Self>, n: usize) -> Shortname {
@@ -3126,11 +3088,11 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
             .as_ref()
             .into_option()
             .cloned()
-            .unwrap_or(Shortname(format!("M{n}")))
+            .unwrap_or(Shortname::from_index(n))
     }
 
-    fn set_shortname(m: &mut Measurement<Self>, n: String) {
-        m.specific.shortname = Present(Shortname(n))
+    fn set_shortname(m: &mut Measurement<Self>, n: Shortname) {
+        m.specific.shortname = Present(n)
     }
 
     fn lookup_specific(st: &mut KwParser, n: usize) -> Option<InnerMeasurement3_0> {
@@ -3160,15 +3122,15 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
 
 impl VersionedMeasurement for InnerMeasurement3_1 {
     fn maybe_name(p: &Measurement<Self>) -> Option<&str> {
-        Some(p.specific.shortname.0.as_str())
+        Some(p.specific.shortname.as_ref())
     }
 
     fn shortname(p: &Measurement<Self>, _: usize) -> Shortname {
         p.specific.shortname.clone()
     }
 
-    fn set_shortname(m: &mut Measurement<Self>, n: String) {
-        m.specific.shortname = Shortname(n)
+    fn set_shortname(m: &mut Measurement<Self>, n: Shortname) {
+        m.specific.shortname = n
     }
 
     fn lookup_specific(st: &mut KwParser, n: usize) -> Option<InnerMeasurement3_1> {
@@ -3206,15 +3168,15 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
 
 impl VersionedMeasurement for InnerMeasurement3_2 {
     fn maybe_name(p: &Measurement<Self>) -> Option<&str> {
-        Some(p.specific.shortname.0.as_str())
+        Some(p.specific.shortname.as_ref())
     }
 
     fn shortname(p: &Measurement<Self>, _: usize) -> Shortname {
         p.specific.shortname.clone()
     }
 
-    fn set_shortname(m: &mut Measurement<Self>, n: String) {
-        m.specific.shortname = Shortname(n)
+    fn set_shortname(m: &mut Measurement<Self>, n: Shortname) {
+        m.specific.shortname = n
     }
 
     fn lookup_specific(st: &mut KwParser, n: usize) -> Option<InnerMeasurement3_2> {
@@ -3305,11 +3267,8 @@ impl FromStr for UnstainedCenters {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut xs = s.split(",");
         if let Some(n) = xs.next().and_then(|s| s.parse().ok()) {
-            let measurements: Vec<_> = xs
-                .by_ref()
-                .take(n)
-                .map(|m| Shortname(String::from(m)))
-                .collect();
+            // This should be safe since we are splitting by commas
+            let measurements: Vec<_> = xs.by_ref().take(n).map(Shortname::new_unchecked).collect();
             let values: Vec<_> = xs.by_ref().take(n).collect();
             let remainder = xs.by_ref().count();
             let total = values.len() + measurements.len() + remainder;
@@ -3343,14 +3302,8 @@ impl FromStr for UnstainedCenters {
 impl fmt::Display for UnstainedCenters {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let n = self.0.len();
-        let (measurements, values): (Vec<_>, Vec<_>) =
-            self.0.iter().map(|(k, v)| (k.0.clone(), *v)).unzip();
-        write!(
-            f,
-            "{n},{},{}",
-            measurements.join(","),
-            values.iter().join(",")
-        )
+        let (ms, vs): (Vec<&Shortname>, Vec<f32>) = self.0.iter().unzip();
+        write!(f, "{n},{},{}", ms.iter().join(","), vs.iter().join(","))
     }
 }
 
@@ -3898,16 +3851,16 @@ where
     }
 
     fn set_df_column_names(&self, df: &mut DataFrame) -> PolarsResult<()> {
-        let ns: Vec<_> = self.shortnames().into_iter().map(|s| s.0).collect();
+        let ns: Vec<PlSmallStr> = self
+            .shortnames()
+            .into_iter()
+            .map(|s| s.as_ref().into())
+            .collect();
         df.set_column_names(ns)
     }
 
     /// Set all $PnN keywords to list of names.
-    ///
-    /// Will return false if length of supplied list does not match length of
-    /// measurements; true otherwise. Versions which have this key as optional
-    /// will wrap the value in [Present].
-    pub fn set_shortnames(&mut self, ns: Vec<String>) -> bool {
+    pub fn set_shortnames(&mut self, ns: Vec<Shortname>) -> bool {
         if self.measurements.len() != ns.len() {
             false
         } else {
@@ -4821,7 +4774,7 @@ fn h_write_dataset<W: Write>(
         if let Some(text) = d.text.text_segment(nrows, data_len, analysis_len) {
             for t in text {
                 h.write_all(t.as_bytes())?;
-                h.write_all(&[conf.write.delim()])?;
+                h.write_all(&[conf.write.delim.inner()])?;
             }
         } else {
             Err(Failure::new(
@@ -5723,7 +5676,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
     /// Lookup $TR but check that its name is valid
     fn lookup_trigger_checked(&mut self, names: &HashSet<&str>) -> OptionalKw<Trigger> {
         if let Present(tr) = self.lookup_trigger() {
-            let p = tr.measurement.0.as_str();
+            let p = tr.measurement.as_ref();
             if names.contains(p) {
                 self.push_meta_error(format!(
                     "$TRIGGER refers to non-existent measurements '{p}'",
@@ -5740,8 +5693,8 @@ impl<'a, 'b> KwParser<'a, 'b> {
     /// Lookup $TIMESTEP and log error if missing along with a time channel
     fn lookup_timestep_checked(&mut self, names: &HashSet<&str>) -> OptionalKw<f32> {
         let ts = self.lookup_timestep();
-        if let Some(time_name) = &self.conf.time_shortname() {
-            if names.contains(time_name) && ts == Absent {
+        if let Some(time_name) = &self.conf.time_shortname {
+            if names.contains(time_name.as_ref()) && ts == Absent {
                 self.push_meta_error_or_warning(
                     self.conf.ensure_time_timestep,
                     String::from("$TIMESTEP must be present if time channel given"),
@@ -5772,10 +5725,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
         names: &HashSet<&str>,
     ) -> OptionalKw<UnstainedCenters> {
         if let Present(u) = self.lookup_unstainedcenters() {
-            let noexist: Vec<_> =
-                u.0.keys()
-                    .filter(|m| !names.contains(m.0.as_str()))
-                    .collect();
+            let noexist: Vec<_> = u.0.keys().filter(|m| !names.contains(m.as_ref())).collect();
             if !noexist.is_empty() {
                 let msg = format!(
                     "$UNSTAINEDCENTERS refers to non-existent measurements: {}",
@@ -5899,7 +5849,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
             let noexist: Vec<_> = s
                 .measurements
                 .iter()
-                .filter(|m| !names.contains(m.0.as_str()))
+                .filter(|m| !names.contains(m.as_ref()))
                 .collect();
             if !noexist.is_empty() {
                 let msg = format!(
@@ -6029,8 +5979,8 @@ impl<'a, 'b> KwParser<'a, 'b> {
         // subbed for the measurement index. The pattern will then be turned
         // into a legit rust regular expression, which may fail depending on
         // what %n does, so check it each time.
-        if let Some(p) = &self.conf.nonstandard_measurement_pattern() {
-            let rep = p.replace("%n", n.to_string().as_str());
+        if let Some(p) = &self.conf.nonstandard_measurement_pattern {
+            let rep = p.as_ref().replace("%n", n.to_string().as_str());
             if let Ok(pattern) = Regex::new(rep.as_str()) {
                 self.raw_keywords.retain(|k, v| {
                     if pattern.is_match(k.as_str()) {
@@ -6193,13 +6143,13 @@ impl<'a> NSKwParser<'a> {
         F: FnOnce(X, &[Shortname]) -> Option<Y>,
         <Y as FromStr>::Err: fmt::Display,
     {
-        let fallback = self.lookup_nonstandard_maybe(dopt.default);
+        let fallback = self.lookup_maybe(dopt.default);
         if dopt.try_convert {
             if let Present(s) = spillover {
                 return match f(s, ns) {
                     Some(c) => Present(c),
                     None => {
-                        self.push_meta_warning(format!("{which} not full rank"));
+                        self.deferred.push_warning(format!("{which} not full rank"));
                         fallback
                     }
                 };
@@ -6228,47 +6178,43 @@ impl<'a> NSKwParser<'a> {
 
     fn lookup_modification(&mut self, look: ModificationDefaults) -> ModificationData {
         ModificationData {
-            last_modified: self.lookup_nonstandard_maybe(look.last_modified),
-            last_modifier: self.lookup_nonstandard_maybe(look.last_modifier),
-            originality: self.lookup_nonstandard_maybe(look.originality),
+            last_modified: self.lookup_maybe(look.last_modified),
+            last_modifier: self.lookup_maybe(look.last_modifier),
+            originality: self.lookup_maybe(look.originality),
         }
     }
 
     fn lookup_plate(&mut self, look: PlateDefaults) -> PlateData {
         PlateData {
-            plateid: self.lookup_nonstandard_maybe(look.plateid),
-            platename: self.lookup_nonstandard_maybe(look.platename),
-            wellid: self.lookup_nonstandard_maybe(look.wellid),
+            plateid: self.lookup_maybe(look.plateid),
+            platename: self.lookup_maybe(look.platename),
+            wellid: self.lookup_maybe(look.wellid),
         }
     }
 
     fn lookup_unstained(&mut self, look: UnstainedDefaults) -> UnstainedData {
         UnstainedData {
-            unstainedcenters: self.lookup_nonstandard_maybe(look.unstainedcenters),
-            unstainedinfo: self.lookup_nonstandard_maybe(look.unstainedinfo),
+            unstainedcenters: self.lookup_maybe(look.unstainedcenters),
+            unstainedinfo: self.lookup_maybe(look.unstainedinfo),
         }
     }
 
     fn lookup_carrier(&mut self, look: CarrierDefaults) -> CarrierData {
         CarrierData {
-            carrierid: self.lookup_nonstandard_maybe(look.carrierid),
-            carriertype: self.lookup_nonstandard_maybe(look.carriertype),
-            locationid: self.lookup_nonstandard_maybe(look.locationid),
+            carrierid: self.lookup_maybe(look.carrierid),
+            carriertype: self.lookup_maybe(look.carriertype),
+            locationid: self.lookup_maybe(look.locationid),
         }
     }
 
     fn lookup_datetimes(&mut self, look: DatetimesDefaults) -> Datetimes {
         Datetimes {
-            begin: self.lookup_nonstandard_maybe(look.begin),
-            end: self.lookup_nonstandard_maybe(look.end),
+            begin: self.lookup_maybe(look.begin),
+            end: self.lookup_maybe(look.end),
         }
     }
 
     // auxiliary functions
-
-    fn push_meta_warning(&mut self, msg: String) {
-        self.deferred.push_warning(msg);
-    }
 
     fn collect(self) -> PureErrorBuf {
         self.deferred
@@ -6281,30 +6227,37 @@ impl<'a> NSKwParser<'a> {
         }
     }
 
-    // TODO make a meas version of this that uses the index
-    fn lookup_nonstandard_maybe<V: FromStr>(&mut self, dopt: DefaultOptional<V>) -> OptionalKw<V>
+    fn lookup_meas_maybe<V: FromStr>(&mut self, dopt: DefaultOptional<V>) -> OptionalKw<V>
     where
         <V as FromStr>::Err: fmt::Display,
     {
         if let Some(d) = dopt.default {
             Present(d)
         } else {
-            OptionalKw::from_option(
-                dopt.key
-                    .as_ref()
-                    .and_then(|kk| self.lookup_nonstandard_opt(kk)),
-            )
+            OptionalKw::from_option(dopt.key.as_ref().and_then(|kk| self.lookup_opt(kk)))
         }
     }
 
-    fn lookup_nonstandard_opt<V: FromStr>(&mut self, k: &str) -> Option<V>
+    // TODO make a meas version of this that uses the index
+    fn lookup_maybe<V: FromStr>(&mut self, dopt: DefaultOptional<V>) -> OptionalKw<V>
     where
         <V as FromStr>::Err: fmt::Display,
     {
-        self.lookup_nonstandard(k).into_option()
+        if let Some(d) = dopt.default {
+            Present(d)
+        } else {
+            OptionalKw::from_option(dopt.key.as_ref().and_then(|kk| self.lookup_opt(kk)))
+        }
     }
 
-    fn lookup_nonstandard<V: FromStr>(&mut self, k: &str) -> OptionalKw<V>
+    fn lookup_opt<V: FromStr>(&mut self, k: &str) -> Option<V>
+    where
+        <V as FromStr>::Err: fmt::Display,
+    {
+        self.lookup(k).into_option()
+    }
+
+    fn lookup<V: FromStr>(&mut self, k: &str) -> OptionalKw<V>
     where
         <V as FromStr>::Err: fmt::Display,
     {
@@ -6486,8 +6439,8 @@ fn repair_keywords(kws: &mut RawKeywords, conf: &RawTextReadConfig) {
     for (key, v) in kws.iter_mut() {
         let k = key.as_str();
         if k == DATE {
-            if let Some(pattern) = &conf.date_pattern() {
-                if let Ok(d) = NaiveDate::parse_from_str(v, pattern) {
+            if let Some(pattern) = &conf.date_pattern {
+                if let Ok(d) = NaiveDate::parse_from_str(v, pattern.as_ref()) {
                     *v = format!("{}", FCSDate(d))
                 }
             }
@@ -6514,8 +6467,9 @@ fn hash_raw_pairs(
 
 impl StdTextReadConfig {
     fn time_name_matches(&self, name: &Shortname) -> bool {
-        self.time_shortname()
-            .map(|n| n == name.0.as_str())
+        self.time_shortname
+            .as_ref()
+            .map(|n| n == name)
             .unwrap_or(false)
     }
 }
@@ -7077,6 +7031,8 @@ struct DefaultOptional<T> {
     default: Option<T>,
 
     /// Key to use when looking in the nonstandard keyword hash table.
+    ///
+    /// This is assumed not to start with "$".
     key: Option<String>,
 }
 
@@ -7711,7 +7667,7 @@ impl IntoMeasurement<InnerMeasurement3_0, MeasurementDefaultsTo3_0> for InnerMea
             scale,
             wavelength: self.wavelength,
             shortname: self.shortname,
-            gain: st.lookup_nonstandard_maybe(def.gain),
+            gain: st.lookup_maybe(def.gain),
         })
     }
 }
@@ -7776,9 +7732,9 @@ impl IntoMeasurement<InnerMeasurement3_1, MeasurementDefaultsTo3_1> for InnerMea
             scale,
             shortname,
             wavelengths: self.wavelength.map(|x| x.into()),
-            gain: st.lookup_nonstandard_maybe(def.gain),
-            calibration: st.lookup_nonstandard_maybe(def.calibration),
-            display: st.lookup_nonstandard_maybe(def.display),
+            gain: st.lookup_maybe(def.gain),
+            calibration: st.lookup_maybe(def.calibration),
+            display: st.lookup_maybe(def.display),
         })
     }
 }
@@ -7797,8 +7753,8 @@ impl IntoMeasurement<InnerMeasurement3_1, MeasurementDefaultsTo3_1> for InnerMea
             scale: self.scale,
             gain: self.gain,
             wavelengths: self.wavelength.map(|x| x.into()),
-            calibration: st.lookup_nonstandard_maybe(def.calibration),
-            display: st.lookup_nonstandard_maybe(def.display),
+            calibration: st.lookup_maybe(def.calibration),
+            display: st.lookup_maybe(def.display),
         })
     }
 }
@@ -7848,15 +7804,15 @@ impl IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2> for InnerMea
             scale,
             shortname,
             wavelengths: self.wavelength.map(|x| x.into()),
-            gain: st.lookup_nonstandard_maybe(def.gain),
-            calibration: st.lookup_nonstandard_maybe(def.calibration),
-            display: st.lookup_nonstandard_maybe(def.display),
-            analyte: st.lookup_nonstandard_maybe(def.analyte),
-            feature: st.lookup_nonstandard_maybe(def.feature),
-            tag: st.lookup_nonstandard_maybe(def.tag),
-            detector_name: st.lookup_nonstandard_maybe(def.detector_name),
-            datatype: st.lookup_nonstandard_maybe(def.datatype),
-            measurement_type: st.lookup_nonstandard_maybe(def.measurement_type),
+            gain: st.lookup_maybe(def.gain),
+            calibration: st.lookup_maybe(def.calibration),
+            display: st.lookup_maybe(def.display),
+            analyte: st.lookup_maybe(def.analyte),
+            feature: st.lookup_maybe(def.feature),
+            tag: st.lookup_maybe(def.tag),
+            detector_name: st.lookup_maybe(def.detector_name),
+            datatype: st.lookup_maybe(def.datatype),
+            measurement_type: st.lookup_maybe(def.measurement_type),
         })
     }
 }
@@ -7875,14 +7831,14 @@ impl IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2> for InnerMea
             scale: self.scale,
             wavelengths: self.wavelength.map(|x| x.into()),
             gain: self.gain,
-            calibration: st.lookup_nonstandard_maybe(def.calibration),
-            display: st.lookup_nonstandard_maybe(def.display),
-            analyte: st.lookup_nonstandard_maybe(def.analyte),
-            feature: st.lookup_nonstandard_maybe(def.feature),
-            tag: st.lookup_nonstandard_maybe(def.tag),
-            detector_name: st.lookup_nonstandard_maybe(def.detector_name),
-            datatype: st.lookup_nonstandard_maybe(def.datatype),
-            measurement_type: st.lookup_nonstandard_maybe(def.measurement_type),
+            calibration: st.lookup_maybe(def.calibration),
+            display: st.lookup_maybe(def.display),
+            analyte: st.lookup_maybe(def.analyte),
+            feature: st.lookup_maybe(def.feature),
+            tag: st.lookup_maybe(def.tag),
+            detector_name: st.lookup_maybe(def.detector_name),
+            datatype: st.lookup_maybe(def.datatype),
+            measurement_type: st.lookup_maybe(def.measurement_type),
         })
     }
 }
@@ -7902,12 +7858,12 @@ impl IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2> for InnerMea
             gain: self.gain,
             calibration: self.calibration.map(|x| x.into()),
             display: self.display,
-            analyte: st.lookup_nonstandard_maybe(def.analyte),
-            feature: st.lookup_nonstandard_maybe(def.feature),
-            tag: st.lookup_nonstandard_maybe(def.tag),
-            detector_name: st.lookup_nonstandard_maybe(def.detector_name),
-            datatype: st.lookup_nonstandard_maybe(def.datatype),
-            measurement_type: st.lookup_nonstandard_maybe(def.measurement_type),
+            analyte: st.lookup_maybe(def.analyte),
+            feature: st.lookup_maybe(def.feature),
+            tag: st.lookup_maybe(def.tag),
+            detector_name: st.lookup_maybe(def.detector_name),
+            datatype: st.lookup_maybe(def.datatype),
+            measurement_type: st.lookup_maybe(def.measurement_type),
         })
     }
 }
@@ -8023,9 +7979,9 @@ impl IntoMetadata<InnerMetadata3_0, MetadataDefaultsTo3_0> for InnerMetadata2_0 
             cyt: self.cyt,
             comp: self.comp,
             timestamps: self.timestamps.map(|d| d.into()),
-            cytsn: st.lookup_nonstandard_maybe(def.cytsn),
-            timestep: st.lookup_nonstandard_maybe(def.timestep),
-            unicode: st.lookup_nonstandard_maybe(def.unicode),
+            cytsn: st.lookup_maybe(def.cytsn),
+            timestep: st.lookup_maybe(def.timestep),
+            unicode: st.lookup_maybe(def.unicode),
         })
     }
 }
@@ -8047,7 +8003,7 @@ impl IntoMetadata<InnerMetadata3_0, MetadataDefaultsTo3_0> for InnerMetadata3_1 
             timestep: self.timestep,
             timestamps: self.timestamps.map(|d| d.into()),
             comp: st.try_convert_lookup_comp(def.comp, self.spillover, ms),
-            unicode: st.lookup_nonstandard_maybe(def.unicode),
+            unicode: st.lookup_maybe(def.unicode),
         })
     }
 }
@@ -8069,7 +8025,7 @@ impl IntoMetadata<InnerMetadata3_0, MetadataDefaultsTo3_0> for InnerMetadata3_2 
             timestep: self.timestep,
             timestamps: self.timestamps.map(|d| d.into()),
             comp: st.try_convert_lookup_comp(def.comp, self.spillover, ms),
-            unicode: st.lookup_nonstandard_maybe(def.unicode),
+            unicode: st.lookup_maybe(def.unicode),
         })
     }
 }
@@ -8104,11 +8060,11 @@ impl IntoMetadata<InnerMetadata3_1, MetadataDefaultsTo3_1> for InnerMetadata2_0 
                 cyt: self.cyt,
                 timestamps: self.timestamps.map(|d| d.into()),
                 spillover: st.try_convert_lookup_spillover(def.spillover, self.comp, ms),
-                cytsn: st.lookup_nonstandard_maybe(def.cytsn),
-                timestep: st.lookup_nonstandard_maybe(def.timestep),
+                cytsn: st.lookup_maybe(def.cytsn),
+                timestep: st.lookup_maybe(def.timestep),
                 modification: st.lookup_modification(def.modification),
                 plate: st.lookup_plate(def.plate),
-                vol: st.lookup_nonstandard_maybe(def.vol),
+                vol: st.lookup_maybe(def.vol),
             }
         })
     }
@@ -8135,7 +8091,7 @@ impl IntoMetadata<InnerMetadata3_1, MetadataDefaultsTo3_1> for InnerMetadata3_0 
                 spillover: st.try_convert_lookup_spillover(def.spillover, self.comp, ms),
                 modification: st.lookup_modification(def.modification),
                 plate: st.lookup_plate(def.plate),
-                vol: st.lookup_nonstandard_maybe(def.vol),
+                vol: st.lookup_maybe(def.vol),
             }
         })
     }
@@ -8196,12 +8152,12 @@ impl IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2> for InnerMetadata2_0 
                 cyt,
                 spillover: st.try_convert_lookup_spillover(def.spillover, self.comp, ms),
                 timestamps: self.timestamps.map(|d| d.into()),
-                cytsn: st.lookup_nonstandard_maybe(def.cytsn),
-                timestep: st.lookup_nonstandard_maybe(def.timestep),
+                cytsn: st.lookup_maybe(def.cytsn),
+                timestep: st.lookup_maybe(def.timestep),
                 modification: st.lookup_modification(def.modification),
                 plate: st.lookup_plate(def.plate),
-                vol: st.lookup_nonstandard_maybe(def.vol),
-                flowrate: st.lookup_nonstandard_maybe(def.flowrate),
+                vol: st.lookup_maybe(def.vol),
+                flowrate: st.lookup_maybe(def.flowrate),
                 carrier: st.lookup_carrier(def.carrier),
                 unstained: st.lookup_unstained(def.unstained),
                 datetimes: st.lookup_datetimes(def.datetimes),
@@ -8231,8 +8187,8 @@ impl IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2> for InnerMetadata3_0 
                 modification: st.lookup_modification(def.modification),
                 spillover: st.try_convert_lookup_spillover(def.spillover, self.comp, ms),
                 plate: st.lookup_plate(def.plate),
-                vol: st.lookup_nonstandard_maybe(def.vol),
-                flowrate: st.lookup_nonstandard_maybe(def.flowrate),
+                vol: st.lookup_maybe(def.vol),
+                flowrate: st.lookup_maybe(def.flowrate),
                 carrier: st.lookup_carrier(def.carrier),
                 unstained: st.lookup_unstained(def.unstained),
                 datetimes: st.lookup_datetimes(def.datetimes),
@@ -8261,7 +8217,7 @@ impl IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2> for InnerMetadata3_1 
             modification: self.modification,
             plate: self.plate,
             vol: self.vol,
-            flowrate: st.lookup_nonstandard_maybe(def.flowrate),
+            flowrate: st.lookup_maybe(def.flowrate),
             carrier: st.lookup_carrier(def.carrier),
             unstained: st.lookup_unstained(def.unstained),
             datetimes: st.lookup_datetimes(def.datetimes),

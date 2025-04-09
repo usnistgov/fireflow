@@ -1,7 +1,10 @@
 use clap::{arg, value_parser, ArgMatches, Command};
 use fireflow_core::api;
 use fireflow_core::config;
+use fireflow_core::datepattern::DatePattern;
 use fireflow_core::error::*;
+use fireflow_core::ns_meas_pattern::NonStdMeasPattern;
+use fireflow_core::shortname::Shortname;
 use serde::ser::Serialize;
 use std::io;
 use std::path::PathBuf;
@@ -187,27 +190,37 @@ fn main() -> io::Result<()> {
         Some(("std", sargs)) => {
             get_text_delta(sargs);
 
-            let ns_meas = sargs.get_one::<String>("ns-meas-pattern").cloned();
-            let time_name = sargs.get_one::<String>("time-name").cloned();
-            let date_pat = sargs.get_one::<String>("date-pattern").cloned();
+            // TODO refactor
+            if let Some(d) = sargs.get_one::<String>("date-pattern").cloned() {
+                conf.raw.date_pattern =
+                    Some(handle_failure(d.parse::<DatePattern>().map_err(|e| {
+                        Failure::from_many_errors(
+                            "bad date pattern".to_string(),
+                            vec![e.to_string()],
+                        )
+                        .into()
+                    }))?);
+            }
 
-            // TODO refactor this..
-            conf.standard = handle_failure(
-                conf.standard
-                    .with_nonstandard_measurement_pattern(ns_meas)
-                    .map_err(|es| {
-                        Failure::from_many_errors("bad ns-meas_pattern".to_string(), es).into()
+            if let Some(m) = sargs.get_one::<String>("ns-meas-pattern").cloned() {
+                conf.standard.nonstandard_measurement_pattern = Some(handle_failure(
+                    m.parse::<NonStdMeasPattern>().map_err(|e| {
+                        Failure::from_many_errors(
+                            "bad ns-meas_pattern".to_string(),
+                            vec![e.to_string()],
+                        )
+                        .into()
                     }),
-            )?;
+                )?);
+            }
 
-            conf.standard =
-                handle_failure(conf.standard.with_time_shortname(time_name).map_err(|e| {
-                    Failure::from_many_errors("bad time name".to_string(), vec![e]).into()
-                }))?;
-
-            conf.raw = handle_failure(conf.raw.with_date_pattern(date_pat).map_err(|e| {
-                Failure::from_many_errors("bad date pattern".to_string(), vec![e]).into()
-            }))?;
+            if let Some(m) = sargs.get_one::<String>("time-name").cloned() {
+                conf.standard.time_shortname =
+                    Some(handle_failure(m.parse::<Shortname>().map_err(|e| {
+                        Failure::from_many_errors("bad time-name".to_string(), vec![e.to_string()])
+                            .into()
+                    }))?);
+            }
 
             conf.standard.ensure_time = sargs.get_flag("ensure-time");
             conf.standard.ensure_time_linear = sargs.get_flag("ensure-time-linear");

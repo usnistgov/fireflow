@@ -1603,8 +1603,8 @@ trait VersionedMeasurement: Sized + Versioned {
             }
         }
         let names: Vec<&str> = ps.iter().filter_map(|m| Self::maybe_name(m)).collect();
-        if let Some(time_name) = &st.conf.time_shortname {
-            if !names.iter().copied().contains(time_name.as_str()) {
+        if let Some(time_name) = &st.conf.time_shortname() {
+            if !names.iter().copied().contains(time_name) {
                 st.push_meta_error_or_warning(
                     st.conf.ensure_time,
                     format!("Channel called '{time_name}' not found for time"),
@@ -1792,7 +1792,7 @@ trait VersionedParserMetadata: Sized {
         event_width: usize,
         conf: &DataReadConfig,
     ) -> PureSuccess<usize> {
-        let mut def = PureErrorBuf::new();
+        let mut def = PureErrorBuf::default();
         let remainder = data_nbytes % event_width;
         let total_events = data_nbytes / event_width;
         if data_nbytes % event_width > 0 {
@@ -4182,7 +4182,7 @@ fn series_coerce(
     conf: &WriteConfig,
 ) -> Option<PureSuccess<ColumnWriter>> {
     let dt = ValidType::from(c.dtype())?;
-    let mut deferred = PureErrorBuf::new();
+    let mut deferred = PureErrorBuf::default();
 
     let ascii_uint_warn = |d: &mut PureErrorBuf, bits, bytes| {
         let msg = format!(
@@ -4333,7 +4333,7 @@ fn series_coerce(
 /// than the general coercion function.
 fn series_coerce64(s: &Column, conf: &WriteConfig) -> Option<PureSuccess<Vec<u64>>> {
     let dt = ValidType::from(&s.dtype())?;
-    let mut deferred = PureErrorBuf::new();
+    let mut deferred = PureErrorBuf::default();
 
     let num_warn = |d: &mut PureErrorBuf, from, to| {
         let msg = format!("converting {from} to {to} may truncate data");
@@ -5815,8 +5815,8 @@ impl<'a, 'b> KwParser<'a, 'b> {
     /// Lookup $TIMESTEP and log error if missing along with a time channel
     fn lookup_timestep_checked(&mut self, names: &HashSet<&str>) -> OptionalKw<f32> {
         let ts = self.lookup_timestep();
-        if let Some(time_name) = &self.conf.time_shortname {
-            if names.contains(time_name.as_str()) && ts == Absent {
+        if let Some(time_name) = &self.conf.time_shortname() {
+            if names.contains(time_name) && ts == Absent {
                 self.push_meta_error_or_warning(
                     self.conf.ensure_time_timestep,
                     String::from("$TIMESTEP must be present if time channel given"),
@@ -6104,7 +6104,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
         // subbed for the measurement index. The pattern will then be turned
         // into a legit rust regular expression, which may fail depending on
         // what %n does, so check it each time.
-        if let Some(p) = &self.conf.nonstandard_measurement_pattern {
+        if let Some(p) = &self.conf.nonstandard_measurement_pattern() {
             let rep = p.replace("%n", n.to_string().as_str());
             if let Ok(pattern) = Regex::new(rep.as_str()) {
                 self.raw_keywords.retain(|k, v| {
@@ -6161,7 +6161,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
     fn from(kws: &'b mut RawKeywords, conf: &'a StdTextReadConfig) -> Self {
         KwParser {
             raw_keywords: kws,
-            deferred: PureErrorBuf::new(),
+            deferred: PureErrorBuf::default(),
             conf,
         }
     }
@@ -6375,7 +6375,7 @@ impl<'a> NSKwParser<'a> {
     fn from(kws: &'a mut RawKeywords) -> Self {
         NSKwParser {
             raw_keywords: kws,
-            deferred: PureErrorBuf::new(),
+            deferred: PureErrorBuf::default(),
         }
     }
 
@@ -6584,8 +6584,8 @@ fn repair_keywords(kws: &mut RawKeywords, conf: &RawTextReadConfig) {
     for (key, v) in kws.iter_mut() {
         let k = key.as_str();
         if k == DATE {
-            if let Some(pattern) = &conf.date_pattern {
-                if let Ok(d) = NaiveDate::parse_from_str(v, pattern.as_str()) {
+            if let Some(pattern) = &conf.date_pattern() {
+                if let Ok(d) = NaiveDate::parse_from_str(v, pattern) {
                     *v = format!("{}", FCSDate(d))
                 }
             }
@@ -6612,8 +6612,7 @@ fn hash_raw_pairs(
 
 impl StdTextReadConfig {
     fn time_name_matches(&self, name: &Shortname) -> bool {
-        self.time_shortname
-            .as_ref()
+        self.time_shortname()
             .map(|n| n == name.0.as_str())
             .unwrap_or(false)
     }

@@ -3,6 +3,8 @@ use crate::error::*;
 pub use crate::header::*;
 use crate::header_text::*;
 use crate::keywords::*;
+use crate::optionalkw::OptionalKw;
+use crate::optionalkw::OptionalKw::*;
 pub use crate::segment::*;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
@@ -652,16 +654,6 @@ enum Range {
     ///
     /// Unlike above, this will be parsed and used as-is.
     Float(f64),
-}
-
-/// Denotes that the value for a key is optional.
-///
-/// This is basically an Option but more obvious in what it indicates.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-enum OptionalKw<V> {
-    Present(V),
-    #[default]
-    Absent,
 }
 
 /// Measurement fields specific to version 2.0
@@ -2900,73 +2892,6 @@ impl fmt::Display for Feature {
             Feature::Area => write!(f, "Area"),
             Feature::Width => write!(f, "Width"),
             Feature::Height => write!(f, "Height"),
-        }
-    }
-}
-
-use OptionalKw::*;
-
-impl<V> OptionalKw<V> {
-    fn as_ref(&self) -> OptionalKw<&V> {
-        match self {
-            OptionalKw::Present(x) => Present(x),
-            Absent => Absent,
-        }
-    }
-    fn into_option(self) -> Option<V> {
-        match self {
-            OptionalKw::Present(x) => Some(x),
-            Absent => None,
-        }
-    }
-
-    fn as_option(&self) -> Option<&V> {
-        self.as_ref().into_option()
-    }
-
-    fn map<F, W>(self, f: F) -> OptionalKw<W>
-    where
-        F: Fn(V) -> W,
-    {
-        match self {
-            OptionalKw::Present(x) => Present(f(x)),
-            Absent => Absent,
-        }
-    }
-
-    fn with_option<F, W>(self, f: F) -> OptionalKw<W>
-    where
-        F: FnOnce(Option<V>) -> Option<W>,
-    {
-        OptionalKw::<W>::from_option(f(self.into_option()))
-    }
-
-    fn with_ref_option<F, W>(self, f: F) -> OptionalKw<W>
-    where
-        F: FnOnce(Option<&V>) -> Option<W>,
-    {
-        OptionalKw::<&V>::with_option::<F, W>(self.as_ref(), f)
-    }
-
-    fn from_option(x: Option<V>) -> Self {
-        x.map_or_else(|| Absent, |y| OptionalKw::Present(y))
-    }
-}
-
-impl<V: fmt::Display> OptionalKw<V> {
-    fn as_opt_string(&self) -> Option<String> {
-        self.as_ref().into_option().map(|x| x.to_string())
-    }
-}
-
-impl<T: Serialize> Serialize for OptionalKw<T> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self.as_ref() {
-            Present(x) => serializer.serialize_some(x),
-            Absent => serializer.serialize_none(),
         }
     }
 }
@@ -6339,37 +6264,14 @@ impl<'a> NSKwParser<'a> {
         }
     }
 
-    fn push_meta_error_str(&mut self, msg: &str) {
-        self.push_meta_error(String::from(msg));
-    }
-
-    fn push_meta_error(&mut self, msg: String) {
-        self.deferred.push_error(msg);
-    }
-
-    fn push_meta_warning_str(&mut self, msg: &str) {
-        self.push_meta_warning(String::from(msg));
-    }
+    // auxiliary functions
 
     fn push_meta_warning(&mut self, msg: String) {
         self.deferred.push_warning(msg);
     }
 
-    fn push_meta_error_or_warning(&mut self, is_error: bool, msg: String) {
-        self.deferred.push_msg_leveled(msg, is_error);
-    }
-
-    // auxiliary functions
-
     fn collect(self) -> PureErrorBuf {
         self.deferred
-    }
-
-    fn into_failure(self, reason: String) -> PureFailure {
-        Failure {
-            reason,
-            deferred: self.collect(),
-        }
     }
 
     fn from(kws: &'a mut RawKeywords) -> Self {
@@ -7174,7 +7076,7 @@ struct DefaultOptional<T> {
     /// Value to be used as a default
     default: Option<T>,
 
-    /// Key to use when looking in the nonstandard keyword hash table
+    /// Key to use when looking in the nonstandard keyword hash table.
     key: Option<String>,
 }
 

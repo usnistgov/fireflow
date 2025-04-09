@@ -176,6 +176,7 @@ pub struct RawDataset {
 }
 
 /// Output of parsing one standardized dataset (TEXT+DATA) from an FCS file.
+#[derive(Clone)]
 pub struct StandardizedDataset {
     pub offsets: Offsets,
 
@@ -198,6 +199,7 @@ pub struct StandardizedDataset {
 ///
 /// This will include the standardized TEXT keywords as well as its
 /// corresponding DATA segment parsed into a dataframe-like structure.
+#[derive(Clone)]
 pub struct CoreDataset {
     pub keywords: AnyCoreTEXT,
 

@@ -555,7 +555,7 @@ fn handle_pure<X, Y>(succ: error::PureSuccess<X>) -> PyResult<Y>
 where
     Y: From<X>,
 {
-    let warn = succ.deferred.into_warnings();
+    let (err, warn) = succ.deferred.split();
     Python::with_gil(|py| -> PyResult<()> {
         let wt = py.get_type::<PyreflowWarning>();
         for w in warn {
@@ -564,7 +564,13 @@ where
         }
         Ok(())
     })?;
-    Ok(succ.data.into())
+    if err.is_empty() {
+        Ok(succ.data.into())
+    } else {
+        let deferred = err.join("\n");
+        let msg = format!("Errors encountered:\n{deferred}");
+        Err(PyreflowException::new_err(msg))
+    }
 }
 
 impl From<error::ImpureFailure> for FailWrapper {

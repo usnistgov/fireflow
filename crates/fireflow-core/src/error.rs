@@ -168,6 +168,17 @@ impl PureErrorBuf {
             > 0
     }
 
+    pub fn split(self) -> (Vec<String>, Vec<String>) {
+        let (err, warn): (Vec<_>, Vec<_>) = self
+            .errors
+            .into_iter()
+            .partition(|e| e.level == PureErrorLevel::Error);
+        (
+            err.into_iter().map(|e| e.msg).collect(),
+            warn.into_iter().map(|e| e.msg).collect(),
+        )
+    }
+
     pub fn into_errors(self) -> Vec<String> {
         self.into_level(PureErrorLevel::Error)
     }

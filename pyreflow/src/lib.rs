@@ -300,7 +300,7 @@ impl PyStandardizedTEXT {
         want_meta: Option<bool>,
     ) -> PyResult<Bound<'py, PyDict>> {
         self.0
-            .keywords
+            .standardized
             .raw_keywords(want_req, want_meta)
             .clone()
             .into_py_dict(py)
@@ -309,7 +309,7 @@ impl PyStandardizedTEXT {
     #[getter]
     fn shortnames(&self) -> Vec<String> {
         self.0
-            .keywords
+            .standardized
             .shortnames()
             .iter()
             .map(|x| x.to_string())
@@ -320,7 +320,7 @@ impl PyStandardizedTEXT {
 
     #[getter]
     fn inner(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        match &self.0.keywords {
+        match &self.0.standardized {
             // TODO this copies all data from the "union type" into a new
             // version-specific type. This might not be a big deal, but these
             // types might be rather large with lots of strings.
@@ -361,7 +361,7 @@ impl PyStandardizedDataset {
     ) -> PyResult<Bound<'py, PyDict>> {
         self.0
             .dataset
-            .keywords
+            .text
             .raw_keywords(want_req, want_meta)
             .clone()
             .into_py_dict(py)
@@ -371,7 +371,7 @@ impl PyStandardizedDataset {
     fn shortnames(&self) -> Vec<String> {
         self.0
             .dataset
-            .keywords
+            .text
             .shortnames()
             .iter()
             .map(|x| x.to_string())
@@ -382,7 +382,7 @@ impl PyStandardizedDataset {
 
     #[getter]
     fn inner(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        match &self.0.dataset.keywords {
+        match &self.0.dataset.text {
             // TODO this copies all data from the "union type" into a new
             // version-specific type. This might not be a big deal, but these
             // types might be rather large with lots of strings.
@@ -493,7 +493,7 @@ macro_rules! core_text_methods {
     };
 }
 
-core_text_methods!(PyStandardizedTEXT, [keywords]);
+core_text_methods!(PyStandardizedTEXT, [standardized]);
 core_text_methods!(PyCoreTEXT2_0, []);
 core_text_methods!(PyCoreTEXT3_0, []);
 core_text_methods!(PyCoreTEXT3_1, []);

@@ -42,13 +42,28 @@ macro_rules! match_many_to_one {
 /// This is derived from the HEADER which should be parsed in order to obtain
 /// this.
 ///
-/// Segment offsets derived from HEADER may be updated depending on keywords
-/// present. See fields below for more information on this.
+/// The purpose of this is to obtain the TEXT keywords (primary and
+/// supplemental) using the least amount of processing, which should increase
+/// performance and minimize potential errors thrown if this is what the user
+/// desires.
+///
+/// This will also be used as input downstream to 'standardize' the TEXT segment
+/// according to version, and also to parse DATA if either is desired.
 #[derive(Debug, Clone, Serialize)]
 pub struct RawTEXT {
     /// FCS Version from HEADER
     pub version: Version,
 
+    /// Offsets from the HEADER and partially from TEXT.
+    ///
+    /// This will include primary TEXT, DATA, and ANALYSIS offsets as seen in
+    /// HEADER. It will also include $BEGIN/ENDSTEXT as found in TEXT (if found)
+    /// which will be used to parse the supplemental TEXT segment if it exists.
+    /// $NEXTDATA will also be included if found.
+    ///
+    /// This will not include $BEGIN/ENDDATA or $BEGIN/ENDANALYSIS since the
+    /// intention of parsing RawTEXT is to minimally process the TEXT segment
+    /// such that the fewest possible errors are thrown.
     pub offsets: Offsets,
 
     /// Delimiter used to parse TEXT.
@@ -58,9 +73,9 @@ pub struct RawTEXT {
 
     /// Keyword pairs
     ///
-    /// This does not include offset keywords (DATA, STEXT, ANALYSIS) and will
-    /// include supplemental TEXT keywords if present and the offsets for
-    /// supplemental TEXT are successfully found.
+    /// This does not include $BEGIN/ENDSTEXT and will include supplemental TEXT
+    /// keywords if present and the offsets for supplemental TEXT are
+    /// successfully found.
     pub keywords: RawKeywords,
 }
 
@@ -89,19 +104,19 @@ pub struct Offsets {
 
     /// DATA offsets
     ///
-    /// The offsets pointing to the DATA segment. If None then an error occured
-    /// when acquiring the offset. If DATA does not exist this will be 0,0.
+    /// The offsets pointing to the DATA segment. When this struct is present
+    /// in [RawTEXT] or [StandardizedTEXT], this will reflect what is in the
+    /// HEADER. In [StandardizedDataset], this will reflect the values from
+    /// $BEGIN/ENDDATA if applicable.
     ///
-    /// This may be used later to acquire the DATA segment.
+    /// This will be 0,0 if DATA has no data or if there was an error acquiring
+    /// the offsets (which will be emitted separately depending on
+    /// configuration)
     pub data: Segment,
 
     /// ANALYSIS offsets.
     ///
-    /// The offsets pointing to the ANALYSIS segment. If None then an error
-    /// occured when acquiring the offset. If ANALYSIS does not exist this will
-    /// be 0,0.
-    ///
-    /// This may be used later to acquire the ANALYSIS segment.
+    /// The meaning of this is analogous to [data] above.
     pub analysis: Segment,
 
     /// NEXTDATA offset
@@ -137,7 +152,7 @@ pub struct StandardizedTEXT {
     /// that can be readily accessed directly and returned with the proper type.
     /// Anything nonstandard will be kept in a hash table whose values will
     /// be strings.
-    pub keywords: AnyCoreTEXT,
+    pub standardized: AnyCoreTEXT,
 
     /// Raw standard keywords remaining after the standardization process
     ///
@@ -201,21 +216,14 @@ pub struct StandardizedDataset {
 /// corresponding DATA segment parsed into a dataframe-like structure.
 #[derive(Clone)]
 pub struct CoreDataset {
-    pub keywords: AnyCoreTEXT,
+    /// Standardized TEXT segment in version specific format
+    pub text: AnyCoreTEXT,
 
-    /// DATA segment
+    /// DATA segment as a polars DataFrame
     ///
-    /// This encodes the bytes from the DATA segment in a dataframe-like
-    /// structure whose type will perfectly reflect the underlying data.
-    // TODO it isn't clear to what degree this type needs to match the structure
-    // imposed by the standardized TEXT type. For early versions, this can only
-    // be a matrix (ie same type for every cell) but for later versions which
-    // relax byteord and allow column-specific typing, this will be a dataframe.
-    // Regardless, it will likely make sense to check/cast user data anyways,
-    // since this likely will get very annoying to enforce at the application
-    // level. Furthermore, even python has a suboptimal typing interface for
-    // pandas dataframes (R is worse), so it's not like this can be checked
-    // statically anyways.
+    /// The type of each column is such that each measurement is encoded with
+    /// zero loss. This will/should never contain NULL values despite the
+    /// underlying arrow framework allowing NULLs to exist.
     pub data: DataFrame,
 
     /// ANALYSIS segment
@@ -4867,7 +4875,7 @@ fn h_write_dataset<W: Write>(
     let nrows = df.height();
 
     // Get the layout, or bail if we can't
-    let layout = d.keywords.as_writer_data_layout().map_err(|es| Failure {
+    let layout = d.text.as_writer_data_layout().map_err(|es| Failure {
         reason: "could not create data layout".to_string(),
         deferred: PureErrorBuf::from_many(es, PureErrorLevel::Error),
     })?;
@@ -4885,7 +4893,7 @@ fn h_write_dataset<W: Write>(
     // Make common HEADER+TEXT writing function, for which the only unknown
     // now is the length of DATA.
     let write_text = |h: &mut BufWriter<W>, data_len| -> ImpureResult<()> {
-        if let Some(text) = d.keywords.text_segment(nrows, data_len, analysis_len) {
+        if let Some(text) = d.text.text_segment(nrows, data_len, analysis_len) {
             for t in text {
                 h.write_all(t.as_bytes())?;
                 h.write_all(&[conf.write.delim])?;
@@ -5049,11 +5057,11 @@ fn h_read_std_dataset<R: Read + Seek>(
     conf: &Config,
 ) -> ImpureResult<StandardizedDataset> {
     let mut kws = std.remainder;
-    let version = std.keywords.version();
+    let version = std.standardized.version();
     let anal_succ = lookup_analysis_offsets(&mut kws, conf, version, &std.offsets.analysis);
     lookup_data_offsets(&mut kws, conf, version, &std.offsets.data)
         .and_then(|data_seg| {
-            std.keywords
+            std.standardized
                 .as_data_reader(&mut kws, conf, &data_seg)
                 .combine(anal_succ, |data_parser, analysis_seg| {
                     (data_parser, data_seg, analysis_seg)
@@ -5064,7 +5072,7 @@ fn h_read_std_dataset<R: Read + Seek>(
             let data_parser = data_maybe.ok_or(Failure::new(dmsg))?;
             let mut data = h_read_data_segment(h, data_parser)?;
             let analysis = h_read_analysis(h, &analysis_seg)?;
-            std.keywords.set_df_column_names(&mut data);
+            std.standardized.set_df_column_names(&mut data);
             Ok(PureSuccess::from(StandardizedDataset {
                 offsets: Offsets {
                     prim_text: std.offsets.prim_text,
@@ -5077,7 +5085,7 @@ fn h_read_std_dataset<R: Read + Seek>(
                 remainder: kws,
                 dataset: CoreDataset {
                     data,
-                    keywords: std.keywords,
+                    text: std.standardized,
                     analysis,
                 },
                 deviant: std.deviant,
@@ -6762,7 +6770,7 @@ fn raw_to_std(raw: RawTEXT, conf: &Config) -> PureResult<StandardizedTEXT> {
                 let (remainder, deviant) = split_remainder(kws);
                 StandardizedTEXT {
                     offsets: raw.offsets,
-                    keywords: standardized,
+                    standardized,
                     delimiter: raw.delimiter,
                     remainder,
                     deviant,

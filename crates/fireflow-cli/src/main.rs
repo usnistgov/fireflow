@@ -173,7 +173,7 @@ fn main() -> io::Result<()> {
             let delim = sargs.get_one::<String>("delimiter").unwrap();
 
             let res = handle_errors(api::read_fcs_std_text(filepath, &conf))?;
-            res.keywords.print_spillover_table(delim)
+            res.standardized.print_spillover_table(delim)
         }
 
         Some(("measurements", sargs)) => {
@@ -182,7 +182,7 @@ fn main() -> io::Result<()> {
             let delim = sargs.get_one::<String>("delimiter").unwrap();
 
             let res = handle_errors(api::read_fcs_std_text(filepath, &conf))?;
-            res.keywords.print_meas_table(delim)
+            res.standardized.print_meas_table(delim)
         }
 
         Some(("std", sargs)) => {
@@ -208,7 +208,7 @@ fn main() -> io::Result<()> {
             // if sargs.get_flag("raw") {
             //     print_json(&res.raw);
             // }
-            print_json(&res.keywords);
+            print_json(&res.standardized);
             // print_json(&res.nonfatal);
         }
 

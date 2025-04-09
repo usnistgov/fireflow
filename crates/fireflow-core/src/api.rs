@@ -4896,7 +4896,7 @@ fn h_write_dataset<W: Write>(
         if let Some(text) = d.text.text_segment(nrows, data_len, analysis_len) {
             for t in text {
                 h.write_all(t.as_bytes())?;
-                h.write_all(&[conf.write.delim])?;
+                h.write_all(&[conf.write.delim()])?;
             }
         } else {
             Err(Failure::new(

@@ -171,12 +171,36 @@ pub struct WriteConfig {
     /// This should be an ASCII character in [1, 126]. Unlike the standard
     /// (which calls for newline), this will default to the record separator
     /// (character 30).
-    pub delim: u8,
+    delim: u8,
 
     /// If true, disallow lossy data conversions
     ///
     /// Example, f32 -> u32
     pub disallow_lossy_conversions: bool,
+}
+
+impl WriteConfig {
+    pub fn new(delim: u8, disallow_lossy_conversions: bool) -> Option<Self> {
+        Self::default().with_delim(delim).map(|s| Self {
+            disallow_lossy_conversions,
+            ..s
+        })
+    }
+
+    pub fn with_delim(&self, delim: u8) -> Option<Self> {
+        if (1..=126).contains(&delim) {
+            None
+        } else {
+            Some(WriteConfig {
+                delim,
+                ..self.clone()
+            })
+        }
+    }
+
+    pub fn delim(&self) -> u8 {
+        self.delim
+    }
 }
 
 impl Default for WriteConfig {

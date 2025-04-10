@@ -2,13 +2,17 @@ use fireflow_core::api;
 use fireflow_core::api::IntoCore;
 use fireflow_core::config;
 use fireflow_core::error;
+use fireflow_core::validated::datepattern::DatePattern;
+use fireflow_core::validated::nonstandard::NonStdMeasPattern;
+use fireflow_core::validated::shortname::Shortname;
+use fireflow_core::validated::textdelim::TEXTDelim;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
-use polars::prelude::*;
 use pyo3::class::basic::CompareOp;
 use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyWarning};
 use pyo3::prelude::*;
+use pyo3::type_object::PyTypeInfo;
 use pyo3::types::IntoPyDict;
 use pyo3::types::PyDict;
 use pyo3::IntoPyObjectExt;
@@ -23,6 +27,10 @@ fn pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("PyreflowException", py.get_type::<PyreflowException>())?;
     m.add("PyreflowWarning", py.get_type::<PyreflowWarning>())?;
     m.add_class::<PyConfig>()?;
+    m.add_class::<PyTEXTDelim>()?;
+    m.add_class::<PyNonStdMeasPattern>()?;
+    m.add_class::<PyDatePattern>()?;
+    m.add_class::<PyShortname>()?;
     m.add_function(wrap_pyfunction!(read_fcs_header, m)?)?;
     m.add_function(wrap_pyfunction!(read_fcs_raw_text, m)?)?;
     m.add_function(wrap_pyfunction!(read_fcs_std_text, m)?)?;
@@ -51,7 +59,7 @@ fn read_fcs_file(p: path::PathBuf, conf: PyConfig) -> PyResult<PyStandardizedDat
 
 macro_rules! pywrap {
     ($pytype:ident, $rstype:path, $name:expr) => {
-        #[pyclass()]
+        #[pyclass(name = $name)]
         #[derive(Clone)]
         #[repr(transparent)]
         struct $pytype($rstype);
@@ -131,7 +139,22 @@ macro_rules! py_disp {
         #[pymethods]
         impl $pytype {
             fn __repr__(&self) -> String {
-                self.0.to_string()
+                let name = <$pytype as PyTypeInfo>::NAME;
+                format!("{}({})", name, self.0.to_string())
+            }
+        }
+    };
+}
+
+macro_rules! py_parse {
+    ($pytype:ident, $from:ident) => {
+        #[pymethods]
+        impl $pytype {
+            #[new]
+            fn new(s: String) -> PyResult<$pytype> {
+                s.parse::<$from>()
+                    .map($pytype::from)
+                    .map_err(|e| PyreflowException::new_err(e.to_string()))
             }
         }
     };
@@ -164,6 +187,29 @@ pywrap!(PyMeasurement2_0, api::Measurement2_0, "Measurement2_0");
 pywrap!(PyMeasurement3_0, api::Measurement3_0, "Measurement3_0");
 pywrap!(PyMeasurement3_1, api::Measurement3_1, "Measurement3_1");
 pywrap!(PyMeasurement3_2, api::Measurement3_2, "Measurement3_2");
+pywrap!(PyDatePattern, DatePattern, "DatePattern");
+pywrap!(PyShortname, Shortname, "Shortname");
+pywrap!(PyNonStdMeasPattern, NonStdMeasPattern, "NonStdMeasPattern");
+pywrap!(PyTEXTDelim, TEXTDelim, "TEXTDelim");
+
+py_parse!(PyDatePattern, DatePattern);
+py_disp!(PyDatePattern);
+
+py_parse!(PyShortname, Shortname);
+py_disp!(PyShortname);
+
+py_parse!(PyNonStdMeasPattern, NonStdMeasPattern);
+py_disp!(PyNonStdMeasPattern);
+
+#[pymethods]
+impl PyTEXTDelim {
+    #[new]
+    fn new(x: u8) -> PyResult<PyTEXTDelim> {
+        TEXTDelim::new(x)
+            .map(PyTEXTDelim::from)
+            .map_err(|e| PyreflowException::new_err(e.to_string()))
+    }
+}
 
 py_ord!(PyVersion);
 py_disp!(PyVersion);

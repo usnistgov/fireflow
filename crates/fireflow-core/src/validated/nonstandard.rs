@@ -48,15 +48,9 @@ impl FromStr for NonStdKey {
     }
 }
 
-pub struct NonStdKeyError(String);
-
-impl fmt::Display for NonStdKeyError {
+impl fmt::Display for NonStdKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "Non standard pattern must not start with '$', found '{}'",
-            self.0
-        )
+        write!(f, "{}", self.0)
     }
 }
 
@@ -78,22 +72,15 @@ impl FromStr for NonStdMeasKey {
     }
 }
 
-impl NonStdMeasKey {
-    pub fn from_index(&self, n: usize) -> NonStdKey {
-        NonStdKey(self.0.replace("%n", n.to_string().as_str()))
+impl fmt::Display for NonStdMeasKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{}", self.0)
     }
 }
 
-pub struct NonStdMeasKeyError(String);
-
-impl fmt::Display for NonStdMeasKeyError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "Non standard measurement pattern must not \
-             start with '$' and should have one '%n', found '{}'",
-            self.0
-        )
+impl NonStdMeasKey {
+    pub fn from_index(&self, n: usize) -> NonStdKey {
+        NonStdKey(self.0.replace("%n", n.to_string().as_str()))
     }
 }
 
@@ -127,12 +114,43 @@ impl FromStr for NonStdMeasPattern {
     }
 }
 
+impl fmt::Display for NonStdMeasPattern {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{}", self.0)
+    }
+}
+
 impl NonStdMeasPattern {
     pub fn from_index(&self, n: usize) -> Result<NonStdMeasRegex, NonStdMeasRegexError> {
         let pattern = self.0.replace("%n", n.to_string().as_str());
         Regex::new(pattern.as_str())
             .map_err(|_| NonStdMeasRegexError { pattern, index: n })
             .map(NonStdMeasRegex)
+    }
+}
+
+pub struct NonStdKeyError(String);
+
+impl fmt::Display for NonStdKeyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "Non standard pattern must not start with '$', found '{}'",
+            self.0
+        )
+    }
+}
+
+pub struct NonStdMeasKeyError(String);
+
+impl fmt::Display for NonStdMeasKeyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "Non standard measurement pattern must not \
+             start with '$' and should have one '%n', found '{}'",
+            self.0
+        )
     }
 }
 

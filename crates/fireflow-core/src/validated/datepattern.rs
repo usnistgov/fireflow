@@ -36,6 +36,12 @@ impl FromStr for DatePattern {
     }
 }
 
+impl fmt::Display for DatePattern {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{}", self.0)
+    }
+}
+
 pub struct DatePatternError(String);
 
 impl fmt::Display for DatePatternError {

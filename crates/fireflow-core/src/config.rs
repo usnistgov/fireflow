@@ -1,7 +1,7 @@
-use crate::datepattern::DatePattern;
-use crate::ns_meas_pattern::NonStdMeasPattern;
-use crate::shortname::Shortname;
-use crate::textdelim::TEXTDelim;
+use crate::validated::datepattern::DatePattern;
+use crate::validated::nonstandard::NonStdMeasPattern;
+use crate::validated::shortname::Shortname;
+use crate::validated::textdelim::TEXTDelim;
 
 /// Instructions for reading an FCS file.
 #[derive(Default, Clone)]

@@ -3,12 +3,12 @@ use crate::error::*;
 pub use crate::header::*;
 use crate::header_text::*;
 use crate::keywords::*;
-use crate::ns_meas_pattern::NonStdKeyError;
-use crate::ns_meas_pattern::{NonStdKey, NonStdKeywords, NonStdMeasKey, NonStdMeasKeyError};
 use crate::optionalkw::OptionalKw;
 use crate::optionalkw::OptionalKw::*;
 pub use crate::segment::*;
-use crate::shortname::Shortname;
+use crate::validated::nonstandard::NonStdKeyError;
+use crate::validated::nonstandard::{NonStdKey, NonStdKeywords, NonStdMeasKey, NonStdMeasKeyError};
+use crate::validated::shortname::Shortname;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use itertools::Itertools;

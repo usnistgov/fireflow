@@ -12,6 +12,24 @@ pub struct NonStdKey(String);
 
 pub type NonStdKeywords = HashMap<NonStdKey, String>;
 
+/// A String that matches a non-standard measurement keyword.
+///
+/// This will have exactly one '%n' and not start with a '$'. The
+/// '%n' will be replaced by the measurement index which will be used
+/// to match keywords.
+///
+/// For example 'P%nFOO' for index 420 would be 'P420FOO'.
+#[derive(Clone)]
+pub struct NonStdMeasKey(String);
+
+/// A String that matches part of a non-standard measurement key.
+///
+/// This will have exactly one '%n' and not start with a '$'. The
+/// '%n' will be replaced by the measurement index which will be used
+/// to match keywords.
+#[derive(Clone)]
+pub struct NonStdMeasPattern(String);
+
 impl AsRef<str> for NonStdKey {
     fn as_ref(&self) -> &str {
         self.0.as_str()
@@ -41,16 +59,6 @@ impl fmt::Display for NonStdKeyError {
         )
     }
 }
-
-/// A String that matches a non-standard measurement keyword.
-///
-/// This will have exactly one '%n' and not start with a '$'. The
-/// '%n' will be replaced by the measurement index which will be used
-/// to match keywords.
-///
-/// For example 'P%nFOO' for index 420 would be 'P420FOO'.
-#[derive(Clone)]
-pub struct NonStdMeasKey(String);
 
 impl AsRef<str> for NonStdMeasKey {
     fn as_ref(&self) -> &str {
@@ -88,14 +96,6 @@ impl fmt::Display for NonStdMeasKeyError {
         )
     }
 }
-
-/// A String that matches part of a non-standard measurement key.
-///
-/// This will have exactly one '%n' and not start with a '$'. The
-/// '%n' will be replaced by the measurement index which will be used
-/// to match keywords.
-#[derive(Clone)]
-pub struct NonStdMeasPattern(String);
 
 impl AsRef<str> for NonStdMeasPattern {
     fn as_ref(&self) -> &str {

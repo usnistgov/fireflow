@@ -3,7 +3,8 @@ use crate::error::*;
 pub use crate::header::*;
 use crate::header_text::*;
 use crate::keywords::*;
-use crate::ns_meas_pattern::{NonStdKey, NonStdKeywords, NonStdMeasKey};
+use crate::ns_meas_pattern::NonStdKeyError;
+use crate::ns_meas_pattern::{NonStdKey, NonStdKeywords, NonStdMeasKey, NonStdMeasKeyError};
 use crate::optionalkw::OptionalKw;
 use crate::optionalkw::OptionalKw::*;
 pub use crate::segment::*;
@@ -475,7 +476,7 @@ struct Trigger {
 // TODO this is super messy, see 3.2 spec for restrictions on this we may with
 // to use further
 #[derive(Debug, Clone, PartialEq, Serialize)]
-enum Scale {
+pub enum Scale {
     /// Linear scale, which maps to the value '0,0'
     Linear,
 
@@ -1228,7 +1229,7 @@ enum TriggerError {
     IntFormat(std::num::ParseIntError),
 }
 
-enum ScaleError {
+pub enum ScaleError {
     FloatError(ParseFloatError),
     WrongFormat,
 }
@@ -6816,6 +6817,9 @@ impl From<Endian> for ByteOrd {
 
 pub trait IntoMeasurement<T, Y>: Sized {
     type DefaultsXToY: From<Y>;
+    type Req;
+
+    fn defaults(r: Self::Req) -> Self::DefaultsXToY;
 
     fn convert(
         m: Measurement<Self>,
@@ -6849,6 +6853,9 @@ pub trait IntoMeasurement<T, Y>: Sized {
 
 pub trait IntoMetadata<T, D>: Sized {
     type DefaultsXToY: From<D>;
+    type Req;
+
+    fn defaults(r: Self::Req) -> Self::DefaultsXToY;
 
     fn convert(
         m: Metadata<Self>,
@@ -6899,6 +6906,27 @@ where
     type FromM: IntoMetadata<ToM, DM>;
     type FromP: IntoMeasurement<ToP, DP>;
 
+    fn defaults(
+        req: CoreDefaults<
+            <Self::FromM as IntoMetadata<ToM, DM>>::Req,
+            <Self::FromP as IntoMeasurement<ToP, DP>>::Req,
+        >,
+    ) -> CoreDefaults<
+        <Self::FromM as IntoMetadata<ToM, DM>>::DefaultsXToY,
+        <Self::FromP as IntoMeasurement<ToP, DP>>::DefaultsXToY,
+    > {
+        let metadata = <Self::FromM as IntoMetadata<ToM, DM>>::defaults(req.metadata);
+        let measurements = req
+            .measurements
+            .into_iter()
+            .map(<Self::FromP as IntoMeasurement<ToP, DP>>::defaults)
+            .collect();
+        CoreDefaults {
+            metadata,
+            measurements,
+        }
+    }
+
     fn convert_core_def(
         c: CoreTEXT<Self::FromM, Self::FromP>,
         def: CoreDefaults<
@@ -6916,12 +6944,7 @@ where
             .map(|(i, (m, d))| Self::FromP::convert(m, i, d))
             .collect();
         PureSuccess::sequence(ms).and_then(|measurements| {
-            // TODO not DRY
-            let ms: Vec<_> = measurements
-                .iter()
-                .enumerate()
-                .map(|(i, p)| ToP::shortname(p, i))
-                .collect();
+            let ms = measurement_shortnames(&measurements);
             Self::FromM::convert(metadata, def.metadata, &ms).map(|metadata| CoreTEXT {
                 measurements,
                 metadata,
@@ -6929,7 +6952,8 @@ where
         })
     }
 
-    // TODO not DRY
+    // TODO not DRY, trying to put this in terms of the above function results
+    // in a compile-time recursion loop, for reasons that elude me
     fn convert_core(
         c: CoreTEXT<Self::FromM, Self::FromP>,
         def: CoreDefaults<DM, DP>,
@@ -6944,18 +6968,20 @@ where
             .map(|(i, (m, d))| Self::FromP::convert(m, i, d.into()))
             .collect();
         PureSuccess::sequence(ms).and_then(|measurements| {
-            // TODO not DRY
-            let ms: Vec<_> = measurements
-                .iter()
-                .enumerate()
-                .map(|(i, p)| ToP::shortname(p, i))
-                .collect();
+            let ms = measurement_shortnames(&measurements);
             Self::FromM::convert(metadata, def.metadata.into(), &ms).map(|metadata| CoreTEXT {
                 measurements,
                 metadata,
             })
         })
     }
+}
+
+fn measurement_shortnames<P: VersionedMeasurement>(ms: &[Measurement<P>]) -> Vec<Shortname> {
+    ms.iter()
+        .enumerate()
+        .map(|(i, p)| P::shortname(p, i))
+        .collect()
 }
 
 impl<M, P>
@@ -7020,7 +7046,7 @@ where
 /// neither is supplied, this keyword will be left unfilled. Obviously this only
 /// applies if the keyword is optional.
 #[derive(Clone)]
-struct DefaultOptional<T, K> {
+pub struct DefaultOptional<T, K> {
     /// Value to be used as a default
     default: Option<T>,
 
@@ -7042,6 +7068,24 @@ impl<T, K> Default for DefaultOptional<T, K> {
     }
 }
 
+impl<T> DefaultMetaOptional<T> {
+    pub fn new(default: Option<T>, key: Option<String>) -> Result<Self, NonStdKeyError> {
+        Ok(DefaultOptional {
+            default,
+            key: key.map_or(Ok(None), |s| s.parse().map(Some))?,
+        })
+    }
+}
+
+impl<T> DefaultMeasOptional<T> {
+    pub fn new(default: Option<T>, key: Option<String>) -> Result<Self, NonStdMeasKeyError> {
+        Ok(DefaultOptional {
+            default,
+            key: key.map_or(Ok(None), |s| s.parse().map(Some))?,
+        })
+    }
+}
+
 /// Comp/spillover matrix that may be converted or for which a default may exist
 ///
 /// This is similar to `DefaultOptional` in that it has a default and a key for
@@ -7054,6 +7098,19 @@ pub struct DefaultMatrix<T> {
     /// For now this applies to $COMP<->$SPILLOVER conversions.
     try_convert: bool,
     default: DefaultMetaOptional<T>,
+}
+
+impl<T> DefaultMatrix<T> {
+    pub fn new(
+        default: Option<T>,
+        key: Option<String>,
+        try_convert: bool,
+    ) -> Result<Self, NonStdKeyError> {
+        Ok(DefaultMatrix {
+            try_convert,
+            default: DefaultMetaOptional::new(default, key)?,
+        })
+    }
 }
 
 impl<T> Default for DefaultMatrix<T> {
@@ -7147,12 +7204,38 @@ pub struct MetadataDefaults2_0To3_1 {
     plate: PlateDefaults,
 }
 
+impl MetadataDefaults2_0To3_1 {
+    pub fn new(endian: Endian) -> Self {
+        MetadataDefaults2_0To3_1 {
+            endian,
+            cytsn: DefaultMetaOptional::default(),
+            timestep: DefaultMetaOptional::default(),
+            vol: DefaultMetaOptional::default(),
+            spillover: DefaultMatrix::default(),
+            modification: ModificationDefaults::default(),
+            plate: PlateDefaults::default(),
+        }
+    }
+}
+
 pub struct MetadataDefaults3_0To3_1 {
     endian: Endian,
     vol: DefaultMetaOptional<f32>,
     spillover: DefaultMatrix<Spillover>,
     modification: ModificationDefaults,
     plate: PlateDefaults,
+}
+
+impl MetadataDefaults3_0To3_1 {
+    pub fn new(endian: Endian) -> Self {
+        MetadataDefaults3_0To3_1 {
+            endian,
+            vol: DefaultMetaOptional::default(),
+            spillover: DefaultMatrix::default(),
+            modification: ModificationDefaults::default(),
+            plate: PlateDefaults::default(),
+        }
+    }
 }
 
 pub struct MetadataDefaults3_2To3_1;
@@ -7174,6 +7257,25 @@ pub struct MetadataDefaults2_0To3_2 {
     datetimes: DatetimesDefaults,
 }
 
+impl MetadataDefaults2_0To3_2 {
+    pub fn new(endian: Endian, cyt: String) -> Self {
+        MetadataDefaults2_0To3_2 {
+            endian,
+            cyt,
+            cytsn: DefaultMetaOptional::default(),
+            timestep: DefaultMetaOptional::default(),
+            vol: DefaultMetaOptional::default(),
+            spillover: DefaultMatrix::default(),
+            flowrate: DefaultMetaOptional::default(),
+            modification: ModificationDefaults::default(),
+            plate: PlateDefaults::default(),
+            unstained: UnstainedDefaults::default(),
+            carrier: CarrierDefaults::default(),
+            datetimes: DatetimesDefaults::default(),
+        }
+    }
+}
+
 pub struct MetadataDefaults3_0To3_2 {
     endian: Endian,
     cyt: String,
@@ -7187,12 +7289,41 @@ pub struct MetadataDefaults3_0To3_2 {
     datetimes: DatetimesDefaults,
 }
 
+impl MetadataDefaults3_0To3_2 {
+    pub fn new(endian: Endian, cyt: String) -> Self {
+        MetadataDefaults3_0To3_2 {
+            endian,
+            cyt,
+            vol: DefaultMetaOptional::default(),
+            spillover: DefaultMatrix::default(),
+            flowrate: DefaultMetaOptional::default(),
+            modification: ModificationDefaults::default(),
+            plate: PlateDefaults::default(),
+            unstained: UnstainedDefaults::default(),
+            carrier: CarrierDefaults::default(),
+            datetimes: DatetimesDefaults::default(),
+        }
+    }
+}
+
 pub struct MetadataDefaults3_1To3_2 {
     cyt: String,
     flowrate: DefaultMetaOptional<String>,
     unstained: UnstainedDefaults,
     carrier: CarrierDefaults,
     datetimes: DatetimesDefaults,
+}
+
+impl MetadataDefaults3_1To3_2 {
+    pub fn new(cyt: String) -> Self {
+        MetadataDefaults3_1To3_2 {
+            cyt,
+            flowrate: DefaultMetaOptional::default(),
+            unstained: UnstainedDefaults::default(),
+            carrier: CarrierDefaults::default(),
+            datetimes: DatetimesDefaults::default(),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -7233,6 +7364,11 @@ pub struct MetadataDefaultsTo3_2 {
     unstained: UnstainedDefaults,
     carrier: CarrierDefaults,
     datetimes: DatetimesDefaults,
+}
+
+pub struct RequiredEndianCyt {
+    pub endian: Endian,
+    pub cyt: String,
 }
 
 macro_rules! txfr_keys {
@@ -7361,6 +7497,15 @@ pub struct MeasurementDefaults2_0To3_0 {
     gain: DefaultMeasOptional<f32>,
 }
 
+impl MeasurementDefaults2_0To3_0 {
+    fn new(scale: Scale) -> Self {
+        Self {
+            scale,
+            gain: DefaultMeasOptional::default(),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct MeasurementDefaults3_1To3_0;
 
@@ -7385,11 +7530,38 @@ pub struct MeasurementDefaults2_0To3_1 {
     display: DefaultMeasOptional<Display>,
 }
 
+pub struct RequireScaleShortname {
+    scale: Scale,
+    shortname: Shortname,
+}
+
+impl MeasurementDefaults2_0To3_1 {
+    fn new(scale: Scale, shortname: Shortname) -> Self {
+        Self {
+            scale,
+            shortname,
+            gain: DefaultMeasOptional::default(),
+            calibration: DefaultMeasOptional::default(),
+            display: DefaultMeasOptional::default(),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct MeasurementDefaults3_0To3_1 {
     shortname: Shortname,
     calibration: DefaultMeasOptional<Calibration3_1>,
     display: DefaultMeasOptional<Display>,
+}
+
+impl MeasurementDefaults3_0To3_1 {
+    fn new(shortname: Shortname) -> Self {
+        Self {
+            shortname,
+            calibration: DefaultMeasOptional::default(),
+            display: DefaultMeasOptional::default(),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -7422,6 +7594,24 @@ pub struct MeasurementDefaults2_0To3_2 {
     measurement_type: DefaultMeasOptional<MeasurementType>,
 }
 
+impl MeasurementDefaults2_0To3_2 {
+    fn new(scale: Scale, shortname: Shortname) -> Self {
+        Self {
+            scale,
+            shortname,
+            gain: DefaultMeasOptional::default(),
+            calibration: DefaultMeasOptional::default(),
+            display: DefaultMeasOptional::default(),
+            analyte: DefaultMeasOptional::default(),
+            tag: DefaultMeasOptional::default(),
+            detector_name: DefaultMeasOptional::default(),
+            feature: DefaultMeasOptional::default(),
+            datatype: DefaultMeasOptional::default(),
+            measurement_type: DefaultMeasOptional::default(),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct MeasurementDefaults3_0To3_2 {
     shortname: Shortname,
@@ -7433,6 +7623,22 @@ pub struct MeasurementDefaults3_0To3_2 {
     feature: DefaultMeasOptional<Feature>,
     datatype: DefaultMeasOptional<NumType>,
     measurement_type: DefaultMeasOptional<MeasurementType>,
+}
+
+impl MeasurementDefaults3_0To3_2 {
+    fn new(shortname: Shortname) -> Self {
+        Self {
+            shortname,
+            calibration: DefaultMeasOptional::default(),
+            display: DefaultMeasOptional::default(),
+            analyte: DefaultMeasOptional::default(),
+            tag: DefaultMeasOptional::default(),
+            detector_name: DefaultMeasOptional::default(),
+            feature: DefaultMeasOptional::default(),
+            datatype: DefaultMeasOptional::default(),
+            measurement_type: DefaultMeasOptional::default(),
+        }
+    }
 }
 
 #[derive(Clone, Default)]
@@ -7593,6 +7799,11 @@ where
 
 impl IntoMeasurement<InnerMeasurement2_0, MeasurementDefaultsTo2_0> for InnerMeasurement2_0 {
     type DefaultsXToY = MeasurementDefaults2_0To2_0;
+    type Req = ();
+
+    fn defaults(_: Self::Req) -> Self::DefaultsXToY {
+        MeasurementDefaults2_0To2_0
+    }
 
     fn convert_inner(
         self,
@@ -7606,6 +7817,11 @@ impl IntoMeasurement<InnerMeasurement2_0, MeasurementDefaultsTo2_0> for InnerMea
 
 impl IntoMeasurement<InnerMeasurement2_0, MeasurementDefaultsTo2_0> for InnerMeasurement3_0 {
     type DefaultsXToY = MeasurementDefaults3_0To2_0;
+    type Req = ();
+
+    fn defaults(_: Self::Req) -> Self::DefaultsXToY {
+        MeasurementDefaults3_0To2_0
+    }
 
     fn convert_inner(
         self,
@@ -7623,6 +7839,11 @@ impl IntoMeasurement<InnerMeasurement2_0, MeasurementDefaultsTo2_0> for InnerMea
 
 impl IntoMeasurement<InnerMeasurement2_0, MeasurementDefaultsTo2_0> for InnerMeasurement3_1 {
     type DefaultsXToY = MeasurementDefaults3_1To2_0;
+    type Req = ();
+
+    fn defaults(_: Self::Req) -> Self::DefaultsXToY {
+        MeasurementDefaults3_1To2_0
+    }
 
     fn convert_inner(
         self,
@@ -7640,6 +7861,11 @@ impl IntoMeasurement<InnerMeasurement2_0, MeasurementDefaultsTo2_0> for InnerMea
 
 impl IntoMeasurement<InnerMeasurement2_0, MeasurementDefaultsTo2_0> for InnerMeasurement3_2 {
     type DefaultsXToY = MeasurementDefaults3_2To2_0;
+    type Req = ();
+
+    fn defaults(_: Self::Req) -> Self::DefaultsXToY {
+        MeasurementDefaults3_2To2_0
+    }
 
     fn convert_inner(
         self,
@@ -7657,6 +7883,11 @@ impl IntoMeasurement<InnerMeasurement2_0, MeasurementDefaultsTo2_0> for InnerMea
 
 impl IntoMeasurement<InnerMeasurement3_0, MeasurementDefaultsTo3_0> for InnerMeasurement2_0 {
     type DefaultsXToY = MeasurementDefaults2_0To3_0;
+    type Req = Scale;
+
+    fn defaults(scale: Self::Req) -> Self::DefaultsXToY {
+        MeasurementDefaults2_0To3_0::new(scale)
+    }
 
     fn convert_inner(
         self,
@@ -7676,6 +7907,11 @@ impl IntoMeasurement<InnerMeasurement3_0, MeasurementDefaultsTo3_0> for InnerMea
 
 impl IntoMeasurement<InnerMeasurement3_0, MeasurementDefaultsTo3_0> for InnerMeasurement3_0 {
     type DefaultsXToY = MeasurementDefaults3_0To3_0;
+    type Req = ();
+
+    fn defaults(_: Self::Req) -> Self::DefaultsXToY {
+        MeasurementDefaults3_0To3_0
+    }
 
     fn convert_inner(
         self,
@@ -7689,6 +7925,11 @@ impl IntoMeasurement<InnerMeasurement3_0, MeasurementDefaultsTo3_0> for InnerMea
 
 impl IntoMeasurement<InnerMeasurement3_0, MeasurementDefaultsTo3_0> for InnerMeasurement3_1 {
     type DefaultsXToY = MeasurementDefaults3_1To3_0;
+    type Req = ();
+
+    fn defaults(_: Self::Req) -> Self::DefaultsXToY {
+        MeasurementDefaults3_1To3_0
+    }
 
     fn convert_inner(
         self,
@@ -7707,6 +7948,11 @@ impl IntoMeasurement<InnerMeasurement3_0, MeasurementDefaultsTo3_0> for InnerMea
 
 impl IntoMeasurement<InnerMeasurement3_0, MeasurementDefaultsTo3_0> for InnerMeasurement3_2 {
     type DefaultsXToY = MeasurementDefaults3_2To3_0;
+    type Req = ();
+
+    fn defaults(_: Self::Req) -> Self::DefaultsXToY {
+        MeasurementDefaults3_2To3_0
+    }
 
     fn convert_inner(
         self,
@@ -7725,6 +7971,11 @@ impl IntoMeasurement<InnerMeasurement3_0, MeasurementDefaultsTo3_0> for InnerMea
 
 impl IntoMeasurement<InnerMeasurement3_1, MeasurementDefaultsTo3_1> for InnerMeasurement2_0 {
     type DefaultsXToY = MeasurementDefaults2_0To3_1;
+    type Req = RequireScaleShortname;
+
+    fn defaults(r: Self::Req) -> Self::DefaultsXToY {
+        MeasurementDefaults2_0To3_1::new(r.scale, r.shortname)
+    }
 
     fn convert_inner(
         self,
@@ -7747,6 +7998,11 @@ impl IntoMeasurement<InnerMeasurement3_1, MeasurementDefaultsTo3_1> for InnerMea
 
 impl IntoMeasurement<InnerMeasurement3_1, MeasurementDefaultsTo3_1> for InnerMeasurement3_0 {
     type DefaultsXToY = MeasurementDefaults3_0To3_1;
+    type Req = Shortname;
+
+    fn defaults(shortname: Self::Req) -> Self::DefaultsXToY {
+        MeasurementDefaults3_0To3_1::new(shortname)
+    }
 
     fn convert_inner(
         self,
@@ -7768,6 +8024,11 @@ impl IntoMeasurement<InnerMeasurement3_1, MeasurementDefaultsTo3_1> for InnerMea
 
 impl IntoMeasurement<InnerMeasurement3_1, MeasurementDefaultsTo3_1> for InnerMeasurement3_1 {
     type DefaultsXToY = MeasurementDefaults3_1To3_1;
+    type Req = ();
+
+    fn defaults(_: Self::Req) -> Self::DefaultsXToY {
+        MeasurementDefaults3_1To3_1
+    }
 
     fn convert_inner(
         self,
@@ -7781,6 +8042,11 @@ impl IntoMeasurement<InnerMeasurement3_1, MeasurementDefaultsTo3_1> for InnerMea
 
 impl IntoMeasurement<InnerMeasurement3_1, MeasurementDefaultsTo3_1> for InnerMeasurement3_2 {
     type DefaultsXToY = MeasurementDefaults3_2To3_1;
+    type Req = ();
+
+    fn defaults(_: Self::Req) -> Self::DefaultsXToY {
+        MeasurementDefaults3_2To3_1
+    }
 
     fn convert_inner(
         self,
@@ -7801,6 +8067,11 @@ impl IntoMeasurement<InnerMeasurement3_1, MeasurementDefaultsTo3_1> for InnerMea
 
 impl IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2> for InnerMeasurement2_0 {
     type DefaultsXToY = MeasurementDefaults2_0To3_2;
+    type Req = RequireScaleShortname;
+
+    fn defaults(r: Self::Req) -> Self::DefaultsXToY {
+        MeasurementDefaults2_0To3_2::new(r.scale, r.shortname)
+    }
 
     fn convert_inner(
         self,
@@ -7829,6 +8100,11 @@ impl IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2> for InnerMea
 
 impl IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2> for InnerMeasurement3_0 {
     type DefaultsXToY = MeasurementDefaults3_0To3_2;
+    type Req = Shortname;
+
+    fn defaults(shortname: Self::Req) -> Self::DefaultsXToY {
+        MeasurementDefaults3_0To3_2::new(shortname)
+    }
 
     fn convert_inner(
         self,
@@ -7856,6 +8132,11 @@ impl IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2> for InnerMea
 
 impl IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2> for InnerMeasurement3_1 {
     type DefaultsXToY = MeasurementDefaults3_1To3_2;
+    type Req = ();
+
+    fn defaults(_: Self::Req) -> Self::DefaultsXToY {
+        MeasurementDefaults3_1To3_2::default()
+    }
 
     fn convert_inner(
         self,
@@ -7882,6 +8163,11 @@ impl IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2> for InnerMea
 
 impl IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2> for InnerMeasurement3_2 {
     type DefaultsXToY = MeasurementDefaults3_2To3_2;
+    type Req = ();
+
+    fn defaults(_: Self::Req) -> Self::DefaultsXToY {
+        MeasurementDefaults3_2To3_2
+    }
 
     fn convert_inner(
         self,
@@ -7895,6 +8181,11 @@ impl IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2> for InnerMea
 
 impl IntoMetadata<InnerMetadata2_0, MetadataDefaultsTo2_0> for InnerMetadata2_0 {
     type DefaultsXToY = MetadataDefaults2_0To2_0;
+    type Req = ();
+
+    fn defaults(_: Self::Req) -> Self::DefaultsXToY {
+        MetadataDefaults2_0To2_0
+    }
 
     fn convert_inner(
         self,
@@ -7908,6 +8199,11 @@ impl IntoMetadata<InnerMetadata2_0, MetadataDefaultsTo2_0> for InnerMetadata2_0 
 
 impl IntoMetadata<InnerMetadata2_0, MetadataDefaultsTo2_0> for InnerMetadata3_0 {
     type DefaultsXToY = MetadataDefaults3_0To2_0;
+    type Req = ();
+
+    fn defaults(_: Self::Req) -> Self::DefaultsXToY {
+        MetadataDefaults3_0To2_0
+    }
 
     fn convert_inner(
         self,
@@ -7927,6 +8223,11 @@ impl IntoMetadata<InnerMetadata2_0, MetadataDefaultsTo2_0> for InnerMetadata3_0 
 
 impl IntoMetadata<InnerMetadata2_0, MetadataDefaultsTo2_0> for InnerMetadata3_1 {
     type DefaultsXToY = MetadataDefaults3_1To2_0;
+    type Req = ();
+
+    fn defaults(_: Self::Req) -> Self::DefaultsXToY {
+        MetadataDefaults3_1To2_0::default()
+    }
 
     fn convert_inner(
         self,
@@ -7946,6 +8247,11 @@ impl IntoMetadata<InnerMetadata2_0, MetadataDefaultsTo2_0> for InnerMetadata3_1 
 
 impl IntoMetadata<InnerMetadata2_0, MetadataDefaultsTo2_0> for InnerMetadata3_2 {
     type DefaultsXToY = MetadataDefaults3_2To2_0;
+    type Req = ();
+
+    fn defaults(_: Self::Req) -> Self::DefaultsXToY {
+        MetadataDefaults3_2To2_0::default()
+    }
 
     fn convert_inner(
         self,
@@ -7963,21 +8269,13 @@ impl IntoMetadata<InnerMetadata2_0, MetadataDefaultsTo2_0> for InnerMetadata3_2 
     }
 }
 
-impl IntoMetadata<InnerMetadata3_0, MetadataDefaultsTo3_0> for InnerMetadata3_0 {
-    type DefaultsXToY = MetadataDefaults3_0To3_0;
-
-    fn convert_inner(
-        self,
-        _: Self::DefaultsXToY,
-        _: &mut NonStdKeywords,
-        _: &[Shortname],
-    ) -> PureSuccess<InnerMetadata3_0> {
-        PureSuccess::from(self)
-    }
-}
-
 impl IntoMetadata<InnerMetadata3_0, MetadataDefaultsTo3_0> for InnerMetadata2_0 {
     type DefaultsXToY = MetadataDefaults2_0To3_0;
+    type Req = ();
+
+    fn defaults(_: Self::Req) -> Self::DefaultsXToY {
+        MetadataDefaults2_0To3_0::default()
+    }
 
     fn convert_inner(
         self,
@@ -7998,8 +8296,31 @@ impl IntoMetadata<InnerMetadata3_0, MetadataDefaultsTo3_0> for InnerMetadata2_0 
     }
 }
 
+impl IntoMetadata<InnerMetadata3_0, MetadataDefaultsTo3_0> for InnerMetadata3_0 {
+    type DefaultsXToY = MetadataDefaults3_0To3_0;
+    type Req = ();
+
+    fn defaults(_: Self::Req) -> Self::DefaultsXToY {
+        MetadataDefaults3_0To3_0
+    }
+
+    fn convert_inner(
+        self,
+        _: Self::DefaultsXToY,
+        _: &mut NonStdKeywords,
+        _: &[Shortname],
+    ) -> PureSuccess<InnerMetadata3_0> {
+        PureSuccess::from(self)
+    }
+}
+
 impl IntoMetadata<InnerMetadata3_0, MetadataDefaultsTo3_0> for InnerMetadata3_1 {
     type DefaultsXToY = MetadataDefaults3_1To3_0;
+    type Req = ();
+
+    fn defaults(_: Self::Req) -> Self::DefaultsXToY {
+        MetadataDefaults3_1To3_0::default()
+    }
 
     fn convert_inner(
         self,
@@ -8022,6 +8343,11 @@ impl IntoMetadata<InnerMetadata3_0, MetadataDefaultsTo3_0> for InnerMetadata3_1 
 
 impl IntoMetadata<InnerMetadata3_0, MetadataDefaultsTo3_0> for InnerMetadata3_2 {
     type DefaultsXToY = MetadataDefaults3_2To3_0;
+    type Req = ();
+
+    fn defaults(_: Self::Req) -> Self::DefaultsXToY {
+        MetadataDefaults3_2To3_0::default()
+    }
 
     fn convert_inner(
         self,
@@ -8042,21 +8368,13 @@ impl IntoMetadata<InnerMetadata3_0, MetadataDefaultsTo3_0> for InnerMetadata3_2 
     }
 }
 
-impl IntoMetadata<InnerMetadata3_1, MetadataDefaultsTo3_1> for InnerMetadata3_1 {
-    type DefaultsXToY = MetadataDefaults3_1To3_1;
-
-    fn convert_inner(
-        self,
-        _: Self::DefaultsXToY,
-        _: &mut NonStdKeywords,
-        _: &[Shortname],
-    ) -> PureSuccess<InnerMetadata3_1> {
-        PureSuccess::from(self)
-    }
-}
-
 impl IntoMetadata<InnerMetadata3_1, MetadataDefaultsTo3_1> for InnerMetadata2_0 {
     type DefaultsXToY = MetadataDefaults2_0To3_1;
+    type Req = Endian;
+
+    fn defaults(endian: Self::Req) -> Self::DefaultsXToY {
+        MetadataDefaults2_0To3_1::new(endian)
+    }
 
     fn convert_inner(
         self,
@@ -8084,6 +8402,11 @@ impl IntoMetadata<InnerMetadata3_1, MetadataDefaultsTo3_1> for InnerMetadata2_0 
 
 impl IntoMetadata<InnerMetadata3_1, MetadataDefaultsTo3_1> for InnerMetadata3_0 {
     type DefaultsXToY = MetadataDefaults3_0To3_1;
+    type Req = Endian;
+
+    fn defaults(endian: Self::Req) -> Self::DefaultsXToY {
+        MetadataDefaults3_0To3_1::new(endian)
+    }
 
     fn convert_inner(
         self,
@@ -8109,8 +8432,31 @@ impl IntoMetadata<InnerMetadata3_1, MetadataDefaultsTo3_1> for InnerMetadata3_0 
     }
 }
 
+impl IntoMetadata<InnerMetadata3_1, MetadataDefaultsTo3_1> for InnerMetadata3_1 {
+    type DefaultsXToY = MetadataDefaults3_1To3_1;
+    type Req = ();
+
+    fn defaults(_: Self::Req) -> Self::DefaultsXToY {
+        MetadataDefaults3_1To3_1
+    }
+
+    fn convert_inner(
+        self,
+        _: Self::DefaultsXToY,
+        _: &mut NonStdKeywords,
+        _: &[Shortname],
+    ) -> PureSuccess<InnerMetadata3_1> {
+        PureSuccess::from(self)
+    }
+}
+
 impl IntoMetadata<InnerMetadata3_1, MetadataDefaultsTo3_1> for InnerMetadata3_2 {
     type DefaultsXToY = MetadataDefaults3_2To3_1;
+    type Req = ();
+
+    fn defaults(_: Self::Req) -> Self::DefaultsXToY {
+        MetadataDefaults3_2To3_1
+    }
 
     fn convert_inner(
         self,
@@ -8133,21 +8479,13 @@ impl IntoMetadata<InnerMetadata3_1, MetadataDefaultsTo3_1> for InnerMetadata3_2 
     }
 }
 
-impl IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2> for InnerMetadata3_2 {
-    type DefaultsXToY = MetadataDefaults3_2To3_2;
-
-    fn convert_inner(
-        self,
-        _: Self::DefaultsXToY,
-        _: &mut NonStdKeywords,
-        _: &[Shortname],
-    ) -> PureSuccess<InnerMetadata3_2> {
-        PureSuccess::from(self)
-    }
-}
-
 impl IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2> for InnerMetadata2_0 {
     type DefaultsXToY = MetadataDefaults2_0To3_2;
+    type Req = RequiredEndianCyt;
+
+    fn defaults(r: Self::Req) -> Self::DefaultsXToY {
+        MetadataDefaults2_0To3_2::new(r.endian, r.cyt)
+    }
 
     fn convert_inner(
         self,
@@ -8180,6 +8518,11 @@ impl IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2> for InnerMetadata2_0 
 
 impl IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2> for InnerMetadata3_0 {
     type DefaultsXToY = MetadataDefaults3_0To3_2;
+    type Req = RequiredEndianCyt;
+
+    fn defaults(r: Self::Req) -> Self::DefaultsXToY {
+        MetadataDefaults3_0To3_2::new(r.endian, r.cyt)
+    }
 
     fn convert_inner(
         self,
@@ -8211,6 +8554,11 @@ impl IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2> for InnerMetadata3_0 
 
 impl IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2> for InnerMetadata3_1 {
     type DefaultsXToY = MetadataDefaults3_1To3_2;
+    type Req = String;
+
+    fn defaults(cyt: Self::Req) -> Self::DefaultsXToY {
+        MetadataDefaults3_1To3_2::new(cyt)
+    }
 
     fn convert_inner(
         self,
@@ -8234,6 +8582,24 @@ impl IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2> for InnerMetadata3_1 
             unstained: st.lookup_unstained(def.unstained),
             datetimes: st.lookup_datetimes(def.datetimes),
         })
+    }
+}
+
+impl IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2> for InnerMetadata3_2 {
+    type DefaultsXToY = MetadataDefaults3_2To3_2;
+    type Req = ();
+
+    fn defaults(_: Self::Req) -> Self::DefaultsXToY {
+        MetadataDefaults3_2To3_2
+    }
+
+    fn convert_inner(
+        self,
+        _: Self::DefaultsXToY,
+        _: &mut NonStdKeywords,
+        _: &[Shortname],
+    ) -> PureSuccess<InnerMetadata3_2> {
+        PureSuccess::from(self)
     }
 }
 

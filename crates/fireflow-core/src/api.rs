@@ -238,27 +238,6 @@ pub struct CoreDataset {
     pub analysis: Vec<u8>,
 }
 
-/// Represents the values in the DATA segment.
-///
-/// Each slot in the outer vector is a column, and each column has a type which
-/// reflects the underlying data. In Python/R, this is analogous to a dataframe.
-/// Each column is assumed to have the same length.
-struct Dataframe {
-    columns: Vec<RawSeries>,
-}
-
-/// A data column.
-///
-/// Each column can only be one type, but this can be any one of several.
-pub enum RawSeries {
-    F32(Vec<f32>),
-    F64(Vec<f64>),
-    U08(Vec<u8>),
-    U16(Vec<u16>),
-    U32(Vec<u32>),
-    U64(Vec<u64>),
-}
-
 /// Critical FCS TEXT data for any supported FCS version
 #[derive(Clone)]
 pub enum AnyCoreTEXT {
@@ -6242,7 +6221,6 @@ impl<'a> NSKwParser<'a> {
         }
     }
 
-    // TODO make a meas version of this that uses the index
     fn lookup_maybe<V: FromStr>(&mut self, dopt: DefaultMetaOptional<V>) -> OptionalKw<V>
     where
         <V as FromStr>::Err: fmt::Display,

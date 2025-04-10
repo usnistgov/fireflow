@@ -3,6 +3,7 @@ use crate::error::*;
 pub use crate::header::*;
 use crate::header_text::*;
 use crate::keywords::*;
+use crate::ns_meas_pattern::{NonStdKey, NonStdKeywords, NonStdMeasKey};
 use crate::optionalkw::OptionalKw;
 use crate::optionalkw::OptionalKw::*;
 pub use crate::segment::*;
@@ -259,7 +260,7 @@ pub enum RawSeries {
 }
 
 /// Critical FCS TEXT data for any supported FCS version
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum AnyCoreTEXT {
     FCS2_0(Box<CoreTEXT2_0>),
     FCS3_0(Box<CoreTEXT3_0>),
@@ -298,7 +299,7 @@ pub type CoreTEXT3_2 = CoreTEXT<InnerMetadata3_2, InnerMeasurement3_2>;
 /// These are not included because this struct will also be used to encode the
 /// TEXT data when writing a new FCS file, and the keywords that are not
 /// included can be computed on the fly when writing.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct CoreTEXT<M, P> {
     /// All "non-measurement" TEXT keywords.
     ///
@@ -750,7 +751,7 @@ pub struct InnerMeasurement3_2 {
 /// To make this struct, all required keys need to be present for the specific
 /// version. This is often more than required to parse the DATA segment. (see
 /// ['MinimalMeasurement']
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct Measurement<X> {
     /// Value for $PnB
     bytes: Bytes,
@@ -779,7 +780,7 @@ pub struct Measurement<X> {
     /// Non standard keywords that belong to this measurement.
     ///
     /// These are found using a configurable pattern to filter matching keys.
-    nonstandard_keywords: RawKeywords,
+    nonstandard_keywords: NonStdKeywords,
 
     /// Version specific data
     specific: X,
@@ -919,7 +920,7 @@ pub struct InnerMetadata3_2 {
 /// Explicit below are common to all FCS versions.
 ///
 /// The generic type parameter allows version-specific data to be encoded.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct Metadata<X> {
     /// Value of $DATATYPE
     datatype: AlphaNumType,
@@ -974,7 +975,7 @@ pub struct Metadata<X> {
     /// considered 'deviant' and stored elsewhere since this structure will also
     /// be used to write FCS-compliant files (which do not allow nonstandard
     /// keywords starting with '$')
-    nonstandard_keywords: RawKeywords,
+    nonstandard_keywords: NonStdKeywords,
 }
 
 /// Version-specific structured metadata derived from TEXT
@@ -1535,7 +1536,7 @@ where
         .chain(
             m.nonstandard_keywords
                 .iter()
-                .map(|(k, v)| (k.clone(), v.clone())),
+                .map(|(k, v)| (k.as_ref().to_string(), v.clone())),
         )
         .collect()
     }
@@ -1663,7 +1664,7 @@ trait VersionedMeasurement: Sized + Versioned {
             .chain(
                 m.nonstandard_keywords
                     .iter()
-                    .map(|(k, v)| (k.clone(), v.clone())),
+                    .map(|(k, v)| (k.as_ref().to_string(), v.clone())),
             )
             .collect()
     }
@@ -5865,14 +5866,14 @@ impl<'a, 'b> KwParser<'a, 'b> {
         }
     }
 
-    fn lookup_all_nonstandard(&mut self) -> RawKeywords {
+    fn lookup_all_nonstandard(&mut self) -> NonStdKeywords {
         let mut ns = HashMap::new();
         self.raw_keywords.retain(|k, v| {
-            if k.starts_with("$") {
-                true
-            } else {
-                ns.insert(k.clone(), v.clone());
+            if let Some(nk) = k.parse::<NonStdKey>().ok() {
+                ns.insert(nk, v.clone());
                 false
+            } else {
+                true
             }
         });
         ns
@@ -5973,28 +5974,23 @@ impl<'a, 'b> KwParser<'a, 'b> {
         }
     }
 
-    fn lookup_all_meas_nonstandard(&mut self, n: usize) -> RawKeywords {
+    fn lookup_all_meas_nonstandard(&mut self, n: usize) -> NonStdKeywords {
         let mut ns = HashMap::new();
         // ASSUME the pattern does not start with "$" and has a %n which will be
         // subbed for the measurement index. The pattern will then be turned
         // into a legit rust regular expression, which may fail depending on
         // what %n does, so check it each time.
         if let Some(p) = &self.conf.nonstandard_measurement_pattern {
-            let rep = p.as_ref().replace("%n", n.to_string().as_str());
-            if let Ok(pattern) = Regex::new(rep.as_str()) {
-                self.raw_keywords.retain(|k, v| {
-                    if pattern.is_match(k.as_str()) {
-                        ns.insert(k.clone(), v.clone());
+            match p.from_index(n) {
+                Ok(pattern) => self.raw_keywords.retain(|k, v| {
+                    if let Some(nk) = pattern.try_match(k.as_str()) {
+                        ns.insert(nk, v.clone());
                         false
                     } else {
                         true
                     }
-                });
-            } else {
-                self.push_meta_warning(format!(
-                    "Could not make regular expression using \
-                     pattern '{rep}' for measurement {n}"
-                ));
+                }),
+                Err(err) => self.push_meta_warning(err.to_string()),
             }
         }
         ns
@@ -6114,12 +6110,12 @@ impl<'a, 'b> KwParser<'a, 'b> {
 }
 
 struct NSKwParser<'a> {
-    raw_keywords: &'a mut RawKeywords,
+    raw_keywords: &'a mut NonStdKeywords,
     deferred: PureErrorBuf,
 }
 
 impl<'a> NSKwParser<'a> {
-    fn run<X, F>(kws: &'a mut RawKeywords, f: F) -> PureSuccess<X>
+    fn run<X, F>(kws: &'a mut NonStdKeywords, f: F) -> PureSuccess<X>
     where
         F: FnOnce(&mut Self) -> X,
     {
@@ -6220,26 +6216,34 @@ impl<'a> NSKwParser<'a> {
         self.deferred
     }
 
-    fn from(kws: &'a mut RawKeywords) -> Self {
+    fn from(kws: &'a mut NonStdKeywords) -> Self {
         NSKwParser {
             raw_keywords: kws,
             deferred: PureErrorBuf::default(),
         }
     }
 
-    fn lookup_meas_maybe<V: FromStr>(&mut self, dopt: DefaultOptional<V>) -> OptionalKw<V>
+    fn lookup_meas_maybe<V: FromStr>(
+        &mut self,
+        n: usize,
+        dopt: DefaultMeasOptional<V>,
+    ) -> OptionalKw<V>
     where
         <V as FromStr>::Err: fmt::Display,
     {
         if let Some(d) = dopt.default {
             Present(d)
         } else {
-            OptionalKw::from_option(dopt.key.as_ref().and_then(|kk| self.lookup_opt(kk)))
+            OptionalKw::from_option(
+                dopt.key
+                    .as_ref()
+                    .and_then(|kk| self.lookup_opt(&kk.from_index(n))),
+            )
         }
     }
 
     // TODO make a meas version of this that uses the index
-    fn lookup_maybe<V: FromStr>(&mut self, dopt: DefaultOptional<V>) -> OptionalKw<V>
+    fn lookup_maybe<V: FromStr>(&mut self, dopt: DefaultMetaOptional<V>) -> OptionalKw<V>
     where
         <V as FromStr>::Err: fmt::Display,
     {
@@ -6250,21 +6254,21 @@ impl<'a> NSKwParser<'a> {
         }
     }
 
-    fn lookup_opt<V: FromStr>(&mut self, k: &str) -> Option<V>
+    fn lookup_opt<V: FromStr>(&mut self, k: &NonStdKey) -> Option<V>
     where
         <V as FromStr>::Err: fmt::Display,
     {
         self.lookup(k).into_option()
     }
 
-    fn lookup<V: FromStr>(&mut self, k: &str) -> OptionalKw<V>
+    fn lookup<V: FromStr>(&mut self, k: &NonStdKey) -> OptionalKw<V>
     where
         <V as FromStr>::Err: fmt::Display,
     {
         match self.raw_keywords.get(k) {
             Some(v) => match v.parse() {
                 Err(w) => {
-                    let msg = format!("{w} for key '{k}' with value '{v}'");
+                    let msg = format!("{w} for key '{}' with value '{v}'", k.as_ref());
                     self.deferred.push_warning(msg);
                     Absent
                 }
@@ -6835,9 +6839,13 @@ impl From<Endian> for ByteOrd {
 pub trait IntoMeasurement<T, Y>: Sized {
     type DefaultsXToY: From<Y>;
 
-    fn convert(m: Measurement<Self>, def: Self::DefaultsXToY) -> PureSuccess<Measurement<T>> {
+    fn convert(
+        m: Measurement<Self>,
+        n: usize,
+        def: Self::DefaultsXToY,
+    ) -> PureSuccess<Measurement<T>> {
         let mut m = m;
-        Self::convert_inner(m.specific, def, &mut m.nonstandard_keywords).map(|specific| {
+        Self::convert_inner(m.specific, n, def, &mut m.nonstandard_keywords).map(|specific| {
             Measurement {
                 bytes: m.bytes,
                 range: m.range,
@@ -6853,7 +6861,12 @@ pub trait IntoMeasurement<T, Y>: Sized {
         })
     }
 
-    fn convert_inner(self, def: Self::DefaultsXToY, ns: &mut RawKeywords) -> PureSuccess<T>;
+    fn convert_inner(
+        self,
+        n: usize,
+        def: Self::DefaultsXToY,
+        ns: &mut NonStdKeywords,
+    ) -> PureSuccess<T>;
 }
 
 pub trait IntoMetadata<T, D>: Sized {
@@ -6891,7 +6904,7 @@ pub trait IntoMetadata<T, D>: Sized {
     fn convert_inner(
         self,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
+        ns: &mut NonStdKeywords,
         ms: &[Shortname],
     ) -> PureSuccess<T>;
 }
@@ -6921,7 +6934,8 @@ where
             .measurements
             .into_iter()
             .zip(def.measurements)
-            .map(|(m, d)| Self::FromP::convert(m, d))
+            .enumerate()
+            .map(|(i, (m, d))| Self::FromP::convert(m, i, d))
             .collect();
         PureSuccess::sequence(ms).and_then(|measurements| {
             // TODO not DRY
@@ -6937,6 +6951,7 @@ where
         })
     }
 
+    // TODO not DRY
     fn convert_core(
         c: CoreTEXT<Self::FromM, Self::FromP>,
         def: CoreDefaults<DM, DP>,
@@ -6947,7 +6962,8 @@ where
             .measurements
             .into_iter()
             .zip(def.measurements)
-            .map(|(m, d)| Self::FromP::convert(m, d.into()))
+            .enumerate()
+            .map(|(i, (m, d))| Self::FromP::convert(m, i, d.into()))
             .collect();
         PureSuccess::sequence(ms).and_then(|measurements| {
             // TODO not DRY
@@ -7026,18 +7042,21 @@ where
 /// neither is supplied, this keyword will be left unfilled. Obviously this only
 /// applies if the keyword is optional.
 #[derive(Clone)]
-struct DefaultOptional<T> {
+struct DefaultOptional<T, K> {
     /// Value to be used as a default
     default: Option<T>,
 
     /// Key to use when looking in the nonstandard keyword hash table.
     ///
     /// This is assumed not to start with "$".
-    key: Option<String>,
+    key: Option<K>,
 }
 
-impl<T> Default for DefaultOptional<T> {
-    fn default() -> DefaultOptional<T> {
+type DefaultMetaOptional<T> = DefaultOptional<T, NonStdKey>;
+type DefaultMeasOptional<T> = DefaultOptional<T, NonStdMeasKey>;
+
+impl<T, K> Default for DefaultOptional<T, K> {
+    fn default() -> DefaultOptional<T, K> {
         DefaultOptional {
             default: None,
             key: None,
@@ -7056,49 +7075,49 @@ pub struct DefaultMatrix<T> {
     ///
     /// For now this applies to $COMP<->$SPILLOVER conversions.
     try_convert: bool,
-    default: DefaultOptional<T>,
+    default: DefaultMetaOptional<T>,
 }
 
 impl<T> Default for DefaultMatrix<T> {
     fn default() -> DefaultMatrix<T> {
         DefaultMatrix {
             try_convert: false,
-            default: DefaultOptional::default(),
+            default: DefaultMetaOptional::default(),
         }
     }
 }
 
 #[derive(Default)]
 pub struct ModificationDefaults {
-    last_modified: DefaultOptional<ModifiedDateTime>,
-    last_modifier: DefaultOptional<String>,
-    originality: DefaultOptional<Originality>,
+    last_modified: DefaultMetaOptional<ModifiedDateTime>,
+    last_modifier: DefaultMetaOptional<String>,
+    originality: DefaultMetaOptional<Originality>,
 }
 
 #[derive(Default)]
 pub struct PlateDefaults {
-    plateid: DefaultOptional<String>,
-    platename: DefaultOptional<String>,
-    wellid: DefaultOptional<String>,
+    plateid: DefaultMetaOptional<String>,
+    platename: DefaultMetaOptional<String>,
+    wellid: DefaultMetaOptional<String>,
 }
 
 #[derive(Default)]
 pub struct CarrierDefaults {
-    carrierid: DefaultOptional<String>,
-    carriertype: DefaultOptional<String>,
-    locationid: DefaultOptional<String>,
+    carrierid: DefaultMetaOptional<String>,
+    carriertype: DefaultMetaOptional<String>,
+    locationid: DefaultMetaOptional<String>,
 }
 
 #[derive(Default)]
 pub struct UnstainedDefaults {
-    unstainedcenters: DefaultOptional<UnstainedCenters>,
-    unstainedinfo: DefaultOptional<String>,
+    unstainedcenters: DefaultMetaOptional<UnstainedCenters>,
+    unstainedinfo: DefaultMetaOptional<String>,
 }
 
 #[derive(Default)]
 pub struct DatetimesDefaults {
-    begin: DefaultOptional<FCSDateTime>,
-    end: DefaultOptional<FCSDateTime>,
+    begin: DefaultMetaOptional<FCSDateTime>,
+    end: DefaultMetaOptional<FCSDateTime>,
 }
 
 pub struct MetadataDefaults2_0To2_0;
@@ -7119,32 +7138,32 @@ pub struct MetadataDefaults3_0To3_0;
 
 #[derive(Default)]
 pub struct MetadataDefaults2_0To3_0 {
-    byteord: DefaultOptional<String>,
-    cytsn: DefaultOptional<String>,
-    timestep: DefaultOptional<f32>,
-    vol: DefaultOptional<f32>,
-    unicode: DefaultOptional<Unicode>,
+    byteord: DefaultMetaOptional<String>,
+    cytsn: DefaultMetaOptional<String>,
+    timestep: DefaultMetaOptional<f32>,
+    vol: DefaultMetaOptional<f32>,
+    unicode: DefaultMetaOptional<Unicode>,
 }
 
 #[derive(Default)]
 pub struct MetadataDefaults3_1To3_0 {
     comp: DefaultMatrix<Compensation>,
-    unicode: DefaultOptional<Unicode>,
+    unicode: DefaultMetaOptional<Unicode>,
 }
 
 #[derive(Default)]
 pub struct MetadataDefaults3_2To3_0 {
     comp: DefaultMatrix<Compensation>,
-    unicode: DefaultOptional<Unicode>,
+    unicode: DefaultMetaOptional<Unicode>,
 }
 
 pub struct MetadataDefaults3_1To3_1;
 
 pub struct MetadataDefaults2_0To3_1 {
     endian: Endian,
-    cytsn: DefaultOptional<String>,
-    timestep: DefaultOptional<f32>,
-    vol: DefaultOptional<f32>,
+    cytsn: DefaultMetaOptional<String>,
+    timestep: DefaultMetaOptional<f32>,
+    vol: DefaultMetaOptional<f32>,
     spillover: DefaultMatrix<Spillover>,
     modification: ModificationDefaults,
     plate: PlateDefaults,
@@ -7152,7 +7171,7 @@ pub struct MetadataDefaults2_0To3_1 {
 
 pub struct MetadataDefaults3_0To3_1 {
     endian: Endian,
-    vol: DefaultOptional<f32>,
+    vol: DefaultMetaOptional<f32>,
     spillover: DefaultMatrix<Spillover>,
     modification: ModificationDefaults,
     plate: PlateDefaults,
@@ -7165,11 +7184,11 @@ pub struct MetadataDefaults3_2To3_2;
 pub struct MetadataDefaults2_0To3_2 {
     endian: Endian,
     cyt: String,
-    cytsn: DefaultOptional<String>,
-    timestep: DefaultOptional<f32>,
-    vol: DefaultOptional<f32>,
+    cytsn: DefaultMetaOptional<String>,
+    timestep: DefaultMetaOptional<f32>,
+    vol: DefaultMetaOptional<f32>,
     spillover: DefaultMatrix<Spillover>,
-    flowrate: DefaultOptional<String>,
+    flowrate: DefaultMetaOptional<String>,
     modification: ModificationDefaults,
     plate: PlateDefaults,
     unstained: UnstainedDefaults,
@@ -7180,9 +7199,9 @@ pub struct MetadataDefaults2_0To3_2 {
 pub struct MetadataDefaults3_0To3_2 {
     endian: Endian,
     cyt: String,
-    vol: DefaultOptional<f32>,
+    vol: DefaultMetaOptional<f32>,
     spillover: DefaultMatrix<Spillover>,
-    flowrate: DefaultOptional<String>,
+    flowrate: DefaultMetaOptional<String>,
     modification: ModificationDefaults,
     plate: PlateDefaults,
     unstained: UnstainedDefaults,
@@ -7192,7 +7211,7 @@ pub struct MetadataDefaults3_0To3_2 {
 
 pub struct MetadataDefaults3_1To3_2 {
     cyt: String,
-    flowrate: DefaultOptional<String>,
+    flowrate: DefaultMetaOptional<String>,
     unstained: UnstainedDefaults,
     carrier: CarrierDefaults,
     datetimes: DatetimesDefaults,
@@ -7205,19 +7224,19 @@ pub struct MetadataDefaultsTo2_0 {
 
 #[derive(Default)]
 pub struct MetadataDefaultsTo3_0 {
-    byteord: DefaultOptional<String>,
-    cytsn: DefaultOptional<String>,
-    timestep: DefaultOptional<f32>,
-    vol: DefaultOptional<f32>,
-    unicode: DefaultOptional<Unicode>,
+    byteord: DefaultMetaOptional<String>,
+    cytsn: DefaultMetaOptional<String>,
+    timestep: DefaultMetaOptional<f32>,
+    vol: DefaultMetaOptional<f32>,
+    unicode: DefaultMetaOptional<Unicode>,
     comp: DefaultMatrix<Compensation>,
 }
 
 pub struct MetadataDefaultsTo3_1 {
     endian: Endian,
-    cytsn: DefaultOptional<String>,
-    timestep: DefaultOptional<f32>,
-    vol: DefaultOptional<f32>,
+    cytsn: DefaultMetaOptional<String>,
+    timestep: DefaultMetaOptional<f32>,
+    vol: DefaultMetaOptional<f32>,
     spillover: DefaultMatrix<Spillover>,
     modification: ModificationDefaults,
     plate: PlateDefaults,
@@ -7226,11 +7245,11 @@ pub struct MetadataDefaultsTo3_1 {
 pub struct MetadataDefaultsTo3_2 {
     endian: Endian,
     cyt: String,
-    cytsn: DefaultOptional<String>,
-    timestep: DefaultOptional<f32>,
-    vol: DefaultOptional<f32>,
+    cytsn: DefaultMetaOptional<String>,
+    timestep: DefaultMetaOptional<f32>,
+    vol: DefaultMetaOptional<f32>,
     spillover: DefaultMatrix<Spillover>,
-    flowrate: DefaultOptional<String>,
+    flowrate: DefaultMetaOptional<String>,
     modification: ModificationDefaults,
     plate: PlateDefaults,
     unstained: UnstainedDefaults,
@@ -7361,7 +7380,7 @@ pub struct MeasurementDefaults3_0To3_0;
 #[derive(Clone)]
 pub struct MeasurementDefaults2_0To3_0 {
     scale: Scale,
-    gain: DefaultOptional<f32>,
+    gain: DefaultMeasOptional<f32>,
 }
 
 #[derive(Clone)]
@@ -7373,7 +7392,7 @@ pub struct MeasurementDefaults3_2To3_0;
 #[derive(Clone)]
 pub struct MeasurementDefaultsTo3_0 {
     scale: Scale,
-    gain: DefaultOptional<f32>,
+    gain: DefaultMeasOptional<f32>,
 }
 
 #[derive(Clone)]
@@ -7383,16 +7402,16 @@ pub struct MeasurementDefaults3_1To3_1;
 pub struct MeasurementDefaults2_0To3_1 {
     scale: Scale,
     shortname: Shortname,
-    gain: DefaultOptional<f32>,
-    calibration: DefaultOptional<Calibration3_1>,
-    display: DefaultOptional<Display>,
+    gain: DefaultMeasOptional<f32>,
+    calibration: DefaultMeasOptional<Calibration3_1>,
+    display: DefaultMeasOptional<Display>,
 }
 
 #[derive(Clone)]
 pub struct MeasurementDefaults3_0To3_1 {
     shortname: Shortname,
-    calibration: DefaultOptional<Calibration3_1>,
-    display: DefaultOptional<Display>,
+    calibration: DefaultMeasOptional<Calibration3_1>,
+    display: DefaultMeasOptional<Display>,
 }
 
 #[derive(Clone)]
@@ -7402,9 +7421,9 @@ pub struct MeasurementDefaults3_2To3_1;
 pub struct MeasurementDefaultsTo3_1 {
     scale: Scale,
     shortname: Shortname,
-    gain: DefaultOptional<f32>,
-    calibration: DefaultOptional<Calibration3_1>,
-    display: DefaultOptional<Display>,
+    gain: DefaultMeasOptional<f32>,
+    calibration: DefaultMeasOptional<Calibration3_1>,
+    display: DefaultMeasOptional<Display>,
 }
 
 #[derive(Clone)]
@@ -7414,53 +7433,53 @@ pub struct MeasurementDefaults3_2To3_2;
 pub struct MeasurementDefaults2_0To3_2 {
     scale: Scale,
     shortname: Shortname,
-    gain: DefaultOptional<f32>,
-    calibration: DefaultOptional<Calibration3_2>,
-    display: DefaultOptional<Display>,
-    analyte: DefaultOptional<String>,
-    tag: DefaultOptional<String>,
-    detector_name: DefaultOptional<String>,
-    feature: DefaultOptional<Feature>,
-    datatype: DefaultOptional<NumType>,
-    measurement_type: DefaultOptional<MeasurementType>,
+    gain: DefaultMeasOptional<f32>,
+    calibration: DefaultMeasOptional<Calibration3_2>,
+    display: DefaultMeasOptional<Display>,
+    analyte: DefaultMeasOptional<String>,
+    tag: DefaultMeasOptional<String>,
+    detector_name: DefaultMeasOptional<String>,
+    feature: DefaultMeasOptional<Feature>,
+    datatype: DefaultMeasOptional<NumType>,
+    measurement_type: DefaultMeasOptional<MeasurementType>,
 }
 
 #[derive(Clone)]
 pub struct MeasurementDefaults3_0To3_2 {
     shortname: Shortname,
-    calibration: DefaultOptional<Calibration3_2>,
-    display: DefaultOptional<Display>,
-    analyte: DefaultOptional<String>,
-    tag: DefaultOptional<String>,
-    detector_name: DefaultOptional<String>,
-    feature: DefaultOptional<Feature>,
-    datatype: DefaultOptional<NumType>,
-    measurement_type: DefaultOptional<MeasurementType>,
+    calibration: DefaultMeasOptional<Calibration3_2>,
+    display: DefaultMeasOptional<Display>,
+    analyte: DefaultMeasOptional<String>,
+    tag: DefaultMeasOptional<String>,
+    detector_name: DefaultMeasOptional<String>,
+    feature: DefaultMeasOptional<Feature>,
+    datatype: DefaultMeasOptional<NumType>,
+    measurement_type: DefaultMeasOptional<MeasurementType>,
 }
 
 #[derive(Clone, Default)]
 pub struct MeasurementDefaults3_1To3_2 {
-    analyte: DefaultOptional<String>,
-    tag: DefaultOptional<String>,
-    detector_name: DefaultOptional<String>,
-    feature: DefaultOptional<Feature>,
-    datatype: DefaultOptional<NumType>,
-    measurement_type: DefaultOptional<MeasurementType>,
+    analyte: DefaultMeasOptional<String>,
+    tag: DefaultMeasOptional<String>,
+    detector_name: DefaultMeasOptional<String>,
+    feature: DefaultMeasOptional<Feature>,
+    datatype: DefaultMeasOptional<NumType>,
+    measurement_type: DefaultMeasOptional<MeasurementType>,
 }
 
 #[derive(Clone)]
 pub struct MeasurementDefaultsTo3_2 {
     scale: Scale,
     shortname: Shortname,
-    gain: DefaultOptional<f32>,
-    calibration: DefaultOptional<Calibration3_2>,
-    display: DefaultOptional<Display>,
-    analyte: DefaultOptional<String>,
-    tag: DefaultOptional<String>,
-    detector_name: DefaultOptional<String>,
-    feature: DefaultOptional<Feature>,
-    datatype: DefaultOptional<NumType>,
-    measurement_type: DefaultOptional<MeasurementType>,
+    gain: DefaultMeasOptional<f32>,
+    calibration: DefaultMeasOptional<Calibration3_2>,
+    display: DefaultMeasOptional<Display>,
+    analyte: DefaultMeasOptional<String>,
+    tag: DefaultMeasOptional<String>,
+    detector_name: DefaultMeasOptional<String>,
+    feature: DefaultMeasOptional<Feature>,
+    datatype: DefaultMeasOptional<NumType>,
+    measurement_type: DefaultMeasOptional<MeasurementType>,
 }
 
 txfr_keys!(MeasurementDefaultsTo2_0, MeasurementDefaults2_0To2_0, []);
@@ -7599,8 +7618,9 @@ impl IntoMeasurement<InnerMeasurement2_0, MeasurementDefaultsTo2_0> for InnerMea
 
     fn convert_inner(
         self,
+        _: usize,
         _: Self::DefaultsXToY,
-        _: &mut RawKeywords,
+        _: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement2_0> {
         PureSuccess::from(self)
     }
@@ -7611,8 +7631,9 @@ impl IntoMeasurement<InnerMeasurement2_0, MeasurementDefaultsTo2_0> for InnerMea
 
     fn convert_inner(
         self,
+        _: usize,
         _: Self::DefaultsXToY,
-        _: &mut RawKeywords,
+        _: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement2_0> {
         PureSuccess::from(InnerMeasurement2_0 {
             scale: Present(self.scale),
@@ -7627,8 +7648,9 @@ impl IntoMeasurement<InnerMeasurement2_0, MeasurementDefaultsTo2_0> for InnerMea
 
     fn convert_inner(
         self,
+        _: usize,
         _: Self::DefaultsXToY,
-        _: &mut RawKeywords,
+        _: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement2_0> {
         PureSuccess::from(InnerMeasurement2_0 {
             shortname: Present(self.shortname),
@@ -7643,8 +7665,9 @@ impl IntoMeasurement<InnerMeasurement2_0, MeasurementDefaultsTo2_0> for InnerMea
 
     fn convert_inner(
         self,
+        _: usize,
         _: Self::DefaultsXToY,
-        _: &mut RawKeywords,
+        _: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement2_0> {
         PureSuccess::from(InnerMeasurement2_0 {
             shortname: Present(self.shortname),
@@ -7659,15 +7682,16 @@ impl IntoMeasurement<InnerMeasurement3_0, MeasurementDefaultsTo3_0> for InnerMea
 
     fn convert_inner(
         self,
+        n: usize,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
+        ns: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement3_0> {
         let scale = self.scale.into_option().unwrap_or(def.scale);
         NSKwParser::run(ns, |st| InnerMeasurement3_0 {
             scale,
             wavelength: self.wavelength,
             shortname: self.shortname,
-            gain: st.lookup_maybe(def.gain),
+            gain: st.lookup_meas_maybe(n, def.gain),
         })
     }
 }
@@ -7677,8 +7701,9 @@ impl IntoMeasurement<InnerMeasurement3_0, MeasurementDefaultsTo3_0> for InnerMea
 
     fn convert_inner(
         self,
+        _: usize,
         _: Self::DefaultsXToY,
-        _: &mut RawKeywords,
+        _: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement3_0> {
         PureSuccess::from(self)
     }
@@ -7689,8 +7714,9 @@ impl IntoMeasurement<InnerMeasurement3_0, MeasurementDefaultsTo3_0> for InnerMea
 
     fn convert_inner(
         self,
+        _: usize,
         _: Self::DefaultsXToY,
-        _: &mut RawKeywords,
+        _: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement3_0> {
         PureSuccess::from(InnerMeasurement3_0 {
             shortname: Present(self.shortname),
@@ -7706,8 +7732,9 @@ impl IntoMeasurement<InnerMeasurement3_0, MeasurementDefaultsTo3_0> for InnerMea
 
     fn convert_inner(
         self,
+        _: usize,
         _: Self::DefaultsXToY,
-        _: &mut RawKeywords,
+        _: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement3_0> {
         PureSuccess::from(InnerMeasurement3_0 {
             shortname: Present(self.shortname),
@@ -7723,8 +7750,9 @@ impl IntoMeasurement<InnerMeasurement3_1, MeasurementDefaultsTo3_1> for InnerMea
 
     fn convert_inner(
         self,
+        n: usize,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
+        ns: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement3_1> {
         let scale = self.scale.into_option().unwrap_or(def.scale);
         let shortname = self.shortname.into_option().unwrap_or(def.shortname);
@@ -7732,9 +7760,9 @@ impl IntoMeasurement<InnerMeasurement3_1, MeasurementDefaultsTo3_1> for InnerMea
             scale,
             shortname,
             wavelengths: self.wavelength.map(|x| x.into()),
-            gain: st.lookup_maybe(def.gain),
-            calibration: st.lookup_maybe(def.calibration),
-            display: st.lookup_maybe(def.display),
+            gain: st.lookup_meas_maybe(n, def.gain),
+            calibration: st.lookup_meas_maybe(n, def.calibration),
+            display: st.lookup_meas_maybe(n, def.display),
         })
     }
 }
@@ -7744,8 +7772,9 @@ impl IntoMeasurement<InnerMeasurement3_1, MeasurementDefaultsTo3_1> for InnerMea
 
     fn convert_inner(
         self,
+        n: usize,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
+        ns: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement3_1> {
         let shortname = self.shortname.into_option().unwrap_or(def.shortname);
         NSKwParser::run(ns, |st| InnerMeasurement3_1 {
@@ -7753,8 +7782,8 @@ impl IntoMeasurement<InnerMeasurement3_1, MeasurementDefaultsTo3_1> for InnerMea
             scale: self.scale,
             gain: self.gain,
             wavelengths: self.wavelength.map(|x| x.into()),
-            calibration: st.lookup_maybe(def.calibration),
-            display: st.lookup_maybe(def.display),
+            calibration: st.lookup_meas_maybe(n, def.calibration),
+            display: st.lookup_meas_maybe(n, def.display),
         })
     }
 }
@@ -7764,8 +7793,9 @@ impl IntoMeasurement<InnerMeasurement3_1, MeasurementDefaultsTo3_1> for InnerMea
 
     fn convert_inner(
         self,
+        _: usize,
         _: Self::DefaultsXToY,
-        _: &mut RawKeywords,
+        _: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement3_1> {
         PureSuccess::from(self)
     }
@@ -7776,8 +7806,9 @@ impl IntoMeasurement<InnerMeasurement3_1, MeasurementDefaultsTo3_1> for InnerMea
 
     fn convert_inner(
         self,
+        _: usize,
         _: Self::DefaultsXToY,
-        _: &mut RawKeywords,
+        _: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement3_1> {
         PureSuccess::from(InnerMeasurement3_1 {
             shortname: self.shortname,
@@ -7795,8 +7826,9 @@ impl IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2> for InnerMea
 
     fn convert_inner(
         self,
+        n: usize,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
+        ns: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement3_2> {
         let scale = self.scale.into_option().unwrap_or(def.scale);
         let shortname = self.shortname.into_option().unwrap_or(def.shortname);
@@ -7804,15 +7836,15 @@ impl IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2> for InnerMea
             scale,
             shortname,
             wavelengths: self.wavelength.map(|x| x.into()),
-            gain: st.lookup_maybe(def.gain),
-            calibration: st.lookup_maybe(def.calibration),
-            display: st.lookup_maybe(def.display),
-            analyte: st.lookup_maybe(def.analyte),
-            feature: st.lookup_maybe(def.feature),
-            tag: st.lookup_maybe(def.tag),
-            detector_name: st.lookup_maybe(def.detector_name),
-            datatype: st.lookup_maybe(def.datatype),
-            measurement_type: st.lookup_maybe(def.measurement_type),
+            gain: st.lookup_meas_maybe(n, def.gain),
+            calibration: st.lookup_meas_maybe(n, def.calibration),
+            display: st.lookup_meas_maybe(n, def.display),
+            analyte: st.lookup_meas_maybe(n, def.analyte),
+            feature: st.lookup_meas_maybe(n, def.feature),
+            tag: st.lookup_meas_maybe(n, def.tag),
+            detector_name: st.lookup_meas_maybe(n, def.detector_name),
+            datatype: st.lookup_meas_maybe(n, def.datatype),
+            measurement_type: st.lookup_meas_maybe(n, def.measurement_type),
         })
     }
 }
@@ -7822,8 +7854,9 @@ impl IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2> for InnerMea
 
     fn convert_inner(
         self,
+        n: usize,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
+        ns: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement3_2> {
         let shortname = self.shortname.into_option().unwrap_or(def.shortname);
         NSKwParser::run(ns, |st| InnerMeasurement3_2 {
@@ -7831,14 +7864,14 @@ impl IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2> for InnerMea
             scale: self.scale,
             wavelengths: self.wavelength.map(|x| x.into()),
             gain: self.gain,
-            calibration: st.lookup_maybe(def.calibration),
-            display: st.lookup_maybe(def.display),
-            analyte: st.lookup_maybe(def.analyte),
-            feature: st.lookup_maybe(def.feature),
-            tag: st.lookup_maybe(def.tag),
-            detector_name: st.lookup_maybe(def.detector_name),
-            datatype: st.lookup_maybe(def.datatype),
-            measurement_type: st.lookup_maybe(def.measurement_type),
+            calibration: st.lookup_meas_maybe(n, def.calibration),
+            display: st.lookup_meas_maybe(n, def.display),
+            analyte: st.lookup_meas_maybe(n, def.analyte),
+            feature: st.lookup_meas_maybe(n, def.feature),
+            tag: st.lookup_meas_maybe(n, def.tag),
+            detector_name: st.lookup_meas_maybe(n, def.detector_name),
+            datatype: st.lookup_meas_maybe(n, def.datatype),
+            measurement_type: st.lookup_meas_maybe(n, def.measurement_type),
         })
     }
 }
@@ -7848,8 +7881,9 @@ impl IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2> for InnerMea
 
     fn convert_inner(
         self,
+        n: usize,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
+        ns: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement3_2> {
         NSKwParser::run(ns, |st| InnerMeasurement3_2 {
             shortname: self.shortname,
@@ -7858,12 +7892,12 @@ impl IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2> for InnerMea
             gain: self.gain,
             calibration: self.calibration.map(|x| x.into()),
             display: self.display,
-            analyte: st.lookup_maybe(def.analyte),
-            feature: st.lookup_maybe(def.feature),
-            tag: st.lookup_maybe(def.tag),
-            detector_name: st.lookup_maybe(def.detector_name),
-            datatype: st.lookup_maybe(def.datatype),
-            measurement_type: st.lookup_maybe(def.measurement_type),
+            analyte: st.lookup_meas_maybe(n, def.analyte),
+            feature: st.lookup_meas_maybe(n, def.feature),
+            tag: st.lookup_meas_maybe(n, def.tag),
+            detector_name: st.lookup_meas_maybe(n, def.detector_name),
+            datatype: st.lookup_meas_maybe(n, def.datatype),
+            measurement_type: st.lookup_meas_maybe(n, def.measurement_type),
         })
     }
 }
@@ -7873,8 +7907,9 @@ impl IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2> for InnerMea
 
     fn convert_inner(
         self,
+        _: usize,
         _: Self::DefaultsXToY,
-        _: &mut RawKeywords,
+        _: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement3_2> {
         PureSuccess::from(self)
     }
@@ -7886,7 +7921,7 @@ impl IntoMetadata<InnerMetadata2_0, MetadataDefaultsTo2_0> for InnerMetadata2_0 
     fn convert_inner(
         self,
         _: Self::DefaultsXToY,
-        _: &mut RawKeywords,
+        _: &mut NonStdKeywords,
         _: &[Shortname],
     ) -> PureSuccess<InnerMetadata2_0> {
         PureSuccess::from(self)
@@ -7899,7 +7934,7 @@ impl IntoMetadata<InnerMetadata2_0, MetadataDefaultsTo2_0> for InnerMetadata3_0 
     fn convert_inner(
         self,
         _: Self::DefaultsXToY,
-        _: &mut RawKeywords,
+        _: &mut NonStdKeywords,
         _: &[Shortname],
     ) -> PureSuccess<InnerMetadata2_0> {
         PureSuccess::from(InnerMetadata2_0 {
@@ -7918,7 +7953,7 @@ impl IntoMetadata<InnerMetadata2_0, MetadataDefaultsTo2_0> for InnerMetadata3_1 
     fn convert_inner(
         self,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
+        ns: &mut NonStdKeywords,
         ms: &[Shortname],
     ) -> PureSuccess<InnerMetadata2_0> {
         NSKwParser::run(ns, |st| InnerMetadata2_0 {
@@ -7937,7 +7972,7 @@ impl IntoMetadata<InnerMetadata2_0, MetadataDefaultsTo2_0> for InnerMetadata3_2 
     fn convert_inner(
         self,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
+        ns: &mut NonStdKeywords,
         ms: &[Shortname],
     ) -> PureSuccess<InnerMetadata2_0> {
         NSKwParser::run(ns, |st| InnerMetadata2_0 {
@@ -7956,7 +7991,7 @@ impl IntoMetadata<InnerMetadata3_0, MetadataDefaultsTo3_0> for InnerMetadata3_0 
     fn convert_inner(
         self,
         _: Self::DefaultsXToY,
-        _: &mut RawKeywords,
+        _: &mut NonStdKeywords,
         _: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_0> {
         PureSuccess::from(self)
@@ -7969,8 +8004,7 @@ impl IntoMetadata<InnerMetadata3_0, MetadataDefaultsTo3_0> for InnerMetadata2_0 
     fn convert_inner(
         self,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
-
+        ns: &mut NonStdKeywords,
         _: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_0> {
         NSKwParser::run(ns, |st| InnerMetadata3_0 {
@@ -7992,7 +8026,7 @@ impl IntoMetadata<InnerMetadata3_0, MetadataDefaultsTo3_0> for InnerMetadata3_1 
     fn convert_inner(
         self,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
+        ns: &mut NonStdKeywords,
         ms: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_0> {
         NSKwParser::run(ns, |st| InnerMetadata3_0 {
@@ -8014,7 +8048,7 @@ impl IntoMetadata<InnerMetadata3_0, MetadataDefaultsTo3_0> for InnerMetadata3_2 
     fn convert_inner(
         self,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
+        ns: &mut NonStdKeywords,
         ms: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_0> {
         NSKwParser::run(ns, |st| InnerMetadata3_0 {
@@ -8036,7 +8070,7 @@ impl IntoMetadata<InnerMetadata3_1, MetadataDefaultsTo3_1> for InnerMetadata3_1 
     fn convert_inner(
         self,
         _: Self::DefaultsXToY,
-        _: &mut RawKeywords,
+        _: &mut NonStdKeywords,
         _: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_1> {
         PureSuccess::from(self)
@@ -8049,7 +8083,7 @@ impl IntoMetadata<InnerMetadata3_1, MetadataDefaultsTo3_1> for InnerMetadata2_0 
     fn convert_inner(
         self,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
+        ns: &mut NonStdKeywords,
         ms: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_1> {
         NSKwParser::run(ns, |st| {
@@ -8076,7 +8110,7 @@ impl IntoMetadata<InnerMetadata3_1, MetadataDefaultsTo3_1> for InnerMetadata3_0 
     fn convert_inner(
         self,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
+        ns: &mut NonStdKeywords,
         ms: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_1> {
         NSKwParser::run(ns, |st| {
@@ -8103,7 +8137,7 @@ impl IntoMetadata<InnerMetadata3_1, MetadataDefaultsTo3_1> for InnerMetadata3_2 
     fn convert_inner(
         self,
         _: Self::DefaultsXToY,
-        _: &mut RawKeywords,
+        _: &mut NonStdKeywords,
         _: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_1> {
         PureSuccess::from(InnerMetadata3_1 {
@@ -8127,7 +8161,7 @@ impl IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2> for InnerMetadata3_2 
     fn convert_inner(
         self,
         _: Self::DefaultsXToY,
-        _: &mut RawKeywords,
+        _: &mut NonStdKeywords,
         _: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_2> {
         PureSuccess::from(self)
@@ -8140,7 +8174,7 @@ impl IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2> for InnerMetadata2_0 
     fn convert_inner(
         self,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
+        ns: &mut NonStdKeywords,
         ms: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_2> {
         NSKwParser::run(ns, |st| {
@@ -8172,7 +8206,7 @@ impl IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2> for InnerMetadata3_0 
     fn convert_inner(
         self,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
+        ns: &mut NonStdKeywords,
         ms: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_2> {
         NSKwParser::run(ns, |st| {
@@ -8203,7 +8237,7 @@ impl IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2> for InnerMetadata3_1 
     fn convert_inner(
         self,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
+        ns: &mut NonStdKeywords,
         _: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_2> {
         let cyt = self.cyt.into_option().unwrap_or(def.cyt);

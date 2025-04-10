@@ -4,6 +4,7 @@ use fireflow_core::config;
 use fireflow_core::error;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
+use polars::prelude::*;
 use pyo3::class::basic::CompareOp;
 use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyWarning};
@@ -11,6 +12,7 @@ use pyo3::prelude::*;
 use pyo3::types::IntoPyDict;
 use pyo3::types::PyDict;
 use pyo3::IntoPyObjectExt;
+use pyo3_polars::PyDataFrame;
 use std::cmp::Ordering;
 use std::ffi::CString;
 use std::fmt;
@@ -23,7 +25,8 @@ fn pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyConfig>()?;
     m.add_function(wrap_pyfunction!(read_fcs_header, m)?)?;
     m.add_function(wrap_pyfunction!(read_fcs_raw_text, m)?)?;
-    m.add_function(wrap_pyfunction!(read_fcs_std_text, m)?)
+    m.add_function(wrap_pyfunction!(read_fcs_std_text, m)?)?;
+    m.add_function(wrap_pyfunction!(read_fcs_file, m)?)
 }
 
 #[pyfunction]
@@ -39,6 +42,11 @@ fn read_fcs_raw_text(p: path::PathBuf, conf: PyConfig) -> PyResult<PyRawTEXT> {
 #[pyfunction]
 fn read_fcs_std_text(p: path::PathBuf, conf: PyConfig) -> PyResult<PyStandardizedTEXT> {
     handle_errors(api::read_fcs_std_text(&p, &conf.0))
+}
+
+#[pyfunction]
+fn read_fcs_file(p: path::PathBuf, conf: PyConfig) -> PyResult<PyStandardizedDataset> {
+    handle_errors(api::read_fcs_file(&p, &conf.0))
 }
 
 macro_rules! pywrap {
@@ -139,6 +147,11 @@ pywrap!(
     PyStandardizedTEXT,
     api::StandardizedTEXT,
     "StandardizedTEXT"
+);
+pywrap!(
+    PyStandardizedDataset,
+    api::StandardizedDataset,
+    "StandardizedDataset"
 );
 pywrap!(PyAnyCoreTEXT, api::AnyCoreTEXT, "AnyCoreTEXT");
 
@@ -287,7 +300,7 @@ impl PyStandardizedTEXT {
         want_meta: Option<bool>,
     ) -> PyResult<Bound<'py, PyDict>> {
         self.0
-            .keywords
+            .standardized
             .raw_keywords(want_req, want_meta)
             .clone()
             .into_py_dict(py)
@@ -296,7 +309,7 @@ impl PyStandardizedTEXT {
     #[getter]
     fn shortnames(&self) -> Vec<String> {
         self.0
-            .keywords
+            .standardized
             .shortnames()
             .iter()
             .map(|x| x.to_string())
@@ -307,7 +320,7 @@ impl PyStandardizedTEXT {
 
     #[getter]
     fn inner(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        match &self.0.keywords {
+        match &self.0.standardized {
             // TODO this copies all data from the "union type" into a new
             // version-specific type. This might not be a big deal, but these
             // types might be rather large with lots of strings.
@@ -316,6 +329,76 @@ impl PyStandardizedTEXT {
             api::AnyCoreTEXT::FCS3_1(x) => PyCoreTEXT3_1::from((**x).clone()).into_py_any(py),
             api::AnyCoreTEXT::FCS3_2(x) => PyCoreTEXT3_2::from((**x).clone()).into_py_any(py),
         }
+    }
+}
+
+// TODO not DRY
+#[pymethods]
+impl PyStandardizedDataset {
+    #[getter]
+    fn offsets(&self) -> PyOffsets {
+        self.0.offsets.clone().into()
+    }
+
+    #[getter]
+    fn delimiter(&self) -> u8 {
+        self.0.delimiter
+    }
+
+    #[getter]
+    fn deviant<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        self.0.deviant.clone().into_py_dict(py)
+    }
+
+    // TODO this will be in arbitrary order, might make sense to sort it
+    // TODO add flag to remove nonstandard
+    #[pyo3(signature = (want_req=None, want_meta=None))]
+    fn raw_keywords<'py>(
+        &self,
+        py: Python<'py>,
+        want_req: Option<bool>,
+        want_meta: Option<bool>,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        self.0
+            .dataset
+            .text
+            .raw_keywords(want_req, want_meta)
+            .clone()
+            .into_py_dict(py)
+    }
+
+    #[getter]
+    fn shortnames(&self) -> Vec<String> {
+        self.0
+            .dataset
+            .text
+            .shortnames()
+            .iter()
+            .map(|x| x.to_string())
+            .collect()
+    }
+
+    // TODO add other converters here
+
+    #[getter]
+    fn inner(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        match &self.0.dataset.text {
+            // TODO this copies all data from the "union type" into a new
+            // version-specific type. This might not be a big deal, but these
+            // types might be rather large with lots of strings.
+            api::AnyCoreTEXT::FCS2_0(x) => PyCoreTEXT2_0::from((**x).clone()).into_py_any(py),
+            api::AnyCoreTEXT::FCS3_0(x) => PyCoreTEXT3_0::from((**x).clone()).into_py_any(py),
+            api::AnyCoreTEXT::FCS3_1(x) => PyCoreTEXT3_1::from((**x).clone()).into_py_any(py),
+            api::AnyCoreTEXT::FCS3_2(x) => PyCoreTEXT3_2::from((**x).clone()).into_py_any(py),
+        }
+    }
+
+    #[getter]
+    fn data(&self) -> PyDataFrame {
+        // NOTE polars Series is a wrapper around an Arc so clone just
+        // increments the ref count for each column rather than "deepcopy" the
+        // whole dataset.
+        PyDataFrame(self.0.dataset.data.clone())
     }
 }
 
@@ -410,7 +493,7 @@ macro_rules! core_text_methods {
     };
 }
 
-core_text_methods!(PyStandardizedTEXT, [keywords]);
+core_text_methods!(PyStandardizedTEXT, [standardized]);
 core_text_methods!(PyCoreTEXT2_0, []);
 core_text_methods!(PyCoreTEXT3_0, []);
 core_text_methods!(PyCoreTEXT3_1, []);
@@ -472,7 +555,7 @@ fn handle_pure<X, Y>(succ: error::PureSuccess<X>) -> PyResult<Y>
 where
     Y: From<X>,
 {
-    let warn = succ.deferred.into_warnings();
+    let (err, warn) = succ.deferred.split();
     Python::with_gil(|py| -> PyResult<()> {
         let wt = py.get_type::<PyreflowWarning>();
         for w in warn {
@@ -481,7 +564,13 @@ where
         }
         Ok(())
     })?;
-    Ok(succ.data.into())
+    if err.is_empty() {
+        Ok(succ.data.into())
+    } else {
+        let deferred = err.join("\n");
+        let msg = format!("Errors encountered:\n{deferred}");
+        Err(PyreflowException::new_err(msg))
+    }
 }
 
 impl From<error::ImpureFailure> for FailWrapper {

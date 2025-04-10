@@ -7,4 +7,6 @@ pip
 
 # runtime deps (TODO)
 
+polars==1.26.0
+
 # testing deps (TODO)

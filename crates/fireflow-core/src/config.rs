@@ -1,3 +1,8 @@
+use crate::datepattern::DatePattern;
+use crate::ns_meas_pattern::NonStdMeasPattern;
+use crate::shortname::Shortname;
+use crate::textdelim::TEXTDelim;
+
 /// Instructions for reading an FCS file.
 #[derive(Default, Clone)]
 pub struct Config {
@@ -87,7 +92,7 @@ pub struct RawTextReadConfig {
     /// https://docs.rs/chrono/latest/chrono/format/strftime/index.html. If not
     /// supplied, $DATE will be parsed according to the standard pattern which
     /// is '%d-%b-%Y'.
-    pub date_pattern: Option<String>,
+    pub date_pattern: Option<DatePattern>,
     // TODO add keyword and value overrides, something like a list of patterns
     // that can be used to alter each keyword
     // TODO allow lambda function to be supplied which will alter the kv list
@@ -96,12 +101,15 @@ pub struct RawTextReadConfig {
 /// Instructions for reading the TEXT segment in a standardized structure.
 #[derive(Default, Clone)]
 pub struct StdTextReadConfig {
-    /// If given, will be the $PnN used to identify the time channel. Means
-    /// nothing for 2.0.
+    /// If given, will be the $PnN used to identify the time channel.
+    ///
+    /// This is meaningless for FCS 2.0 and will be ignored in that case.
+    ///
+    /// Like all $PnN values, this must not contain commas.
     ///
     /// Will be used for the [`ensure_time*`] options below. If not given, skip
     /// time channel checking entirely.
-    pub time_shortname: Option<String>,
+    pub time_shortname: Option<Shortname>,
 
     /// If true, will ensure that time channel is present
     pub ensure_time: bool,
@@ -132,14 +140,15 @@ pub struct StdTextReadConfig {
     ///
     /// Usually this will be something like '^P%n.+' where '%n' will be
     /// substituted with the measurement index before using it as a regular
-    /// expression to match keywords. It should not start with a "$".
+    /// expression to match keywords. It should not start with a "$" and must
+    /// contain a literal '%n'.
     ///
     /// This will matching something like 'P7FOO' which would be 'FOO' for
     /// measurement 7. This might be useful in the future when this code offers
     /// "upgrade" routines since these are often used to represent future
     /// keywords in an older version where the newer version cannot be used for
     /// some reason.
-    pub nonstandard_measurement_pattern: Option<String>,
+    pub nonstandard_measurement_pattern: Option<NonStdMeasPattern>,
     // TODO add repair stuff
 }
 
@@ -164,26 +173,17 @@ pub struct MiscReadConfig {
 }
 
 /// Configuration for writing an FCS file
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct WriteConfig {
     /// Delimiter for TEXT segment
     ///
     /// This should be an ASCII character in [1, 126]. Unlike the standard
     /// (which calls for newline), this will default to the record separator
     /// (character 30).
-    pub delim: u8,
+    pub delim: TEXTDelim,
 
     /// If true, disallow lossy data conversions
     ///
     /// Example, f32 -> u32
     pub disallow_lossy_conversions: bool,
-}
-
-impl Default for WriteConfig {
-    fn default() -> Self {
-        WriteConfig {
-            delim: 30,
-            disallow_lossy_conversions: false,
-        }
-    }
 }

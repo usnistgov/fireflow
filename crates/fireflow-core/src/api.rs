@@ -3,11 +3,16 @@ use crate::error::*;
 pub use crate::header::*;
 use crate::header_text::*;
 use crate::keywords::*;
+use crate::ns_meas_pattern::{NonStdKey, NonStdKeywords, NonStdMeasKey};
+use crate::optionalkw::OptionalKw;
+use crate::optionalkw::OptionalKw::*;
 pub use crate::segment::*;
+use crate::shortname::Shortname;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use itertools::Itertools;
 use nalgebra::DMatrix;
+use polars::prelude::*;
 use regex::Regex;
 use serde::ser::SerializeStruct;
 use serde::Serialize;
@@ -41,13 +46,28 @@ macro_rules! match_many_to_one {
 /// This is derived from the HEADER which should be parsed in order to obtain
 /// this.
 ///
-/// Segment offsets derived from HEADER may be updated depending on keywords
-/// present. See fields below for more information on this.
+/// The purpose of this is to obtain the TEXT keywords (primary and
+/// supplemental) using the least amount of processing, which should increase
+/// performance and minimize potential errors thrown if this is what the user
+/// desires.
+///
+/// This will also be used as input downstream to 'standardize' the TEXT segment
+/// according to version, and also to parse DATA if either is desired.
 #[derive(Debug, Clone, Serialize)]
 pub struct RawTEXT {
     /// FCS Version from HEADER
     pub version: Version,
 
+    /// Offsets from the HEADER and partially from TEXT.
+    ///
+    /// This will include primary TEXT, DATA, and ANALYSIS offsets as seen in
+    /// HEADER. It will also include $BEGIN/ENDSTEXT as found in TEXT (if found)
+    /// which will be used to parse the supplemental TEXT segment if it exists.
+    /// $NEXTDATA will also be included if found.
+    ///
+    /// This will not include $BEGIN/ENDDATA or $BEGIN/ENDANALYSIS since the
+    /// intention of parsing RawTEXT is to minimally process the TEXT segment
+    /// such that the fewest possible errors are thrown.
     pub offsets: Offsets,
 
     /// Delimiter used to parse TEXT.
@@ -57,9 +77,9 @@ pub struct RawTEXT {
 
     /// Keyword pairs
     ///
-    /// This does not include offset keywords (DATA, STEXT, ANALYSIS) and will
-    /// include supplemental TEXT keywords if present and the offsets for
-    /// supplemental TEXT are successfully found.
+    /// This does not include $BEGIN/ENDSTEXT and will include supplemental TEXT
+    /// keywords if present and the offsets for supplemental TEXT are
+    /// successfully found.
     pub keywords: RawKeywords,
 }
 
@@ -88,19 +108,19 @@ pub struct Offsets {
 
     /// DATA offsets
     ///
-    /// The offsets pointing to the DATA segment. If None then an error occured
-    /// when acquiring the offset. If DATA does not exist this will be 0,0.
+    /// The offsets pointing to the DATA segment. When this struct is present
+    /// in [RawTEXT] or [StandardizedTEXT], this will reflect what is in the
+    /// HEADER. In [StandardizedDataset], this will reflect the values from
+    /// $BEGIN/ENDDATA if applicable.
     ///
-    /// This may be used later to acquire the DATA segment.
+    /// This will be 0,0 if DATA has no data or if there was an error acquiring
+    /// the offsets (which will be emitted separately depending on
+    /// configuration)
     pub data: Segment,
 
     /// ANALYSIS offsets.
     ///
-    /// The offsets pointing to the ANALYSIS segment. If None then an error
-    /// occured when acquiring the offset. If ANALYSIS does not exist this will
-    /// be 0,0.
-    ///
-    /// This may be used later to acquire the ANALYSIS segment.
+    /// The meaning of this is analogous to [data] above.
     pub analysis: Segment,
 
     /// NEXTDATA offset
@@ -136,7 +156,7 @@ pub struct StandardizedTEXT {
     /// that can be readily accessed directly and returned with the proper type.
     /// Anything nonstandard will be kept in a hash table whose values will
     /// be strings.
-    pub keywords: AnyCoreTEXT,
+    pub standardized: AnyCoreTEXT,
 
     /// Raw standard keywords remaining after the standardization process
     ///
@@ -175,6 +195,7 @@ pub struct RawDataset {
 }
 
 /// Output of parsing one standardized dataset (TEXT+DATA) from an FCS file.
+#[derive(Clone)]
 pub struct StandardizedDataset {
     pub offsets: Offsets,
 
@@ -197,23 +218,17 @@ pub struct StandardizedDataset {
 ///
 /// This will include the standardized TEXT keywords as well as its
 /// corresponding DATA segment parsed into a dataframe-like structure.
+#[derive(Clone)]
 pub struct CoreDataset {
-    pub keywords: AnyCoreTEXT,
+    /// Standardized TEXT segment in version specific format
+    pub text: AnyCoreTEXT,
 
-    /// DATA segment
+    /// DATA segment as a polars DataFrame
     ///
-    /// This encodes the bytes from the DATA segment in a dataframe-like
-    /// structure whose type will perfectly reflect the underlying data.
-    // TODO it isn't clear to what degree this type needs to match the structure
-    // imposed by the standardized TEXT type. For early versions, this can only
-    // be a matrix (ie same type for every cell) but for later versions which
-    // relax byteord and allow column-specific typing, this will be a dataframe.
-    // Regardless, it will likely make sense to check/cast user data anyways,
-    // since this likely will get very annoying to enforce at the application
-    // level. Furthermore, even python has a suboptimal typing interface for
-    // pandas dataframes (R is worse), so it's not like this can be checked
-    // statically anyways.
-    pub data: Dataframe,
+    /// The type of each column is such that each measurement is encoded with
+    /// zero loss. This will/should never contain NULL values despite the
+    /// underlying arrow framework allowing NULLs to exist.
+    pub data: DataFrame,
 
     /// ANALYSIS segment
     ///
@@ -223,29 +238,8 @@ pub struct CoreDataset {
     pub analysis: Vec<u8>,
 }
 
-/// Represents the values in the DATA segment.
-///
-/// Each slot in the outer vector is a column, and each column has a type which
-/// reflects the underlying data. In Python/R, this is analogous to a dataframe.
-/// Each column is assumed to have the same length.
-struct Dataframe {
-    columns: Vec<Series>,
-}
-
-/// A data column.
-///
-/// Each column can only be one type, but this can be any one of several.
-pub enum Series {
-    F32(Vec<f32>),
-    F64(Vec<f64>),
-    U08(Vec<u8>),
-    U16(Vec<u16>),
-    U32(Vec<u32>),
-    U64(Vec<u64>),
-}
-
 /// Critical FCS TEXT data for any supported FCS version
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum AnyCoreTEXT {
     FCS2_0(Box<CoreTEXT2_0>),
     FCS3_0(Box<CoreTEXT3_0>),
@@ -284,7 +278,7 @@ pub type CoreTEXT3_2 = CoreTEXT<InnerMetadata3_2, InnerMeasurement3_2>;
 /// These are not included because this struct will also be used to encode the
 /// TEXT data when writing a new FCS file, and the keywords that are not
 /// included can be computed on the fly when writing.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct CoreTEXT<M, P> {
     /// All "non-measurement" TEXT keywords.
     ///
@@ -510,12 +504,6 @@ struct Calibration3_2 {
     unit: String,
 }
 
-/// The value for the $PnN key (all versions).
-///
-/// This cannot contain commas.
-#[derive(Debug, Clone, Serialize, Eq, PartialEq, Hash)]
-pub struct Shortname(String);
-
 /// The value for the $PnL key (3.1).
 ///
 /// This is a list of wavelengths used for the measurement. Starting in 3.1
@@ -643,16 +631,6 @@ enum Range {
     Float(f64),
 }
 
-/// Denotes that the value for a key is optional.
-///
-/// This is basically an Option but more obvious in what it indicates.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-enum OptionalKw<V> {
-    Present(V),
-    #[default]
-    Absent,
-}
-
 /// Measurement fields specific to version 2.0
 #[derive(Debug, Clone, Serialize)]
 pub struct InnerMeasurement2_0 {
@@ -752,7 +730,7 @@ pub struct InnerMeasurement3_2 {
 /// To make this struct, all required keys need to be present for the specific
 /// version. This is often more than required to parse the DATA segment. (see
 /// ['MinimalMeasurement']
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct Measurement<X> {
     /// Value for $PnB
     bytes: Bytes,
@@ -781,7 +759,7 @@ pub struct Measurement<X> {
     /// Non standard keywords that belong to this measurement.
     ///
     /// These are found using a configurable pattern to filter matching keys.
-    nonstandard_keywords: RawKeywords,
+    nonstandard_keywords: NonStdKeywords,
 
     /// Version specific data
     specific: X,
@@ -921,7 +899,7 @@ pub struct InnerMetadata3_2 {
 /// Explicit below are common to all FCS versions.
 ///
 /// The generic type parameter allows version-specific data to be encoded.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct Metadata<X> {
     /// Value of $DATATYPE
     datatype: AlphaNumType,
@@ -976,7 +954,7 @@ pub struct Metadata<X> {
     /// considered 'deviant' and stored elsewhere since this structure will also
     /// be used to write FCS-compliant files (which do not allow nonstandard
     /// keywords starting with '$')
-    nonstandard_keywords: RawKeywords,
+    nonstandard_keywords: NonStdKeywords,
 }
 
 /// Version-specific structured metadata derived from TEXT
@@ -1206,7 +1184,6 @@ struct AlphaNumTypeError;
 struct NumTypeError;
 pub struct EndianError;
 struct ModifiedDateTimeError;
-pub struct ShortnameError;
 struct FeatureError;
 struct OriginalityError;
 
@@ -1271,9 +1248,14 @@ enum RangeError {
 
 struct Mode3_2Error;
 
-macro_rules! vec_convert {
-    ($xs:expr, $t:ty) => {
-        $xs.into_iter().map(|x| x as $t).collect()
+macro_rules! series_cast {
+    ($series:expr, $from:ident, $to:ty) => {
+        $series
+            .$from()
+            .unwrap()
+            .into_no_null_iter()
+            .map(|x| x as $to)
+            .collect()
     };
 }
 
@@ -1291,63 +1273,67 @@ fn warn_bitmask<T: Ord + Copy>(xs: Vec<T>, deferred: &mut PureErrorBuf, bitmask:
 }
 
 macro_rules! convert_to_uint1 {
-    ($data:expr, $deferred:expr, $wrap:ident, $t:ty, $ut:expr) => {
+    ($series:expr, $deferred:expr, $wrap:ident, $from:ident, $to:ty, $ut:expr) => {
         $wrap(NumColumnWriter {
-            column: warn_bitmask(vec_convert!($data, $t), &mut $deferred, $ut.bitmask),
+            column: warn_bitmask(
+                series_cast!($series, $from, $to),
+                &mut $deferred,
+                $ut.bitmask,
+            ),
             size: $ut.size,
         })
     };
 }
 
 macro_rules! convert_to_uint {
-    ($size:expr, $data:expr, $deferred:expr) => {
+    ($size:expr, $series:expr, $from:ident, $deferred:expr) => {
         match $size {
             AnyUintType::Uint8(ut) => {
-                convert_to_uint1!($data, $deferred, NumU8, u8, ut)
+                convert_to_uint1!($series, $deferred, NumU8, $from, u8, ut)
             }
             AnyUintType::Uint16(ut) => {
-                convert_to_uint1!($data, $deferred, NumU16, u16, ut)
+                convert_to_uint1!($series, $deferred, NumU16, $from, u16, ut)
             }
             AnyUintType::Uint24(ut) => {
-                convert_to_uint1!($data, $deferred, NumU24, u32, ut)
+                convert_to_uint1!($series, $deferred, NumU24, $from, u32, ut)
             }
             AnyUintType::Uint32(ut) => {
-                convert_to_uint1!($data, $deferred, NumU32, u32, ut)
+                convert_to_uint1!($series, $deferred, NumU32, $from, u32, ut)
             }
             AnyUintType::Uint40(ut) => {
-                convert_to_uint1!($data, $deferred, NumU40, u64, ut)
+                convert_to_uint1!($series, $deferred, NumU40, $from, u64, ut)
             }
             AnyUintType::Uint48(ut) => {
-                convert_to_uint1!($data, $deferred, NumU48, u64, ut)
+                convert_to_uint1!($series, $deferred, NumU48, $from, u64, ut)
             }
             AnyUintType::Uint56(ut) => {
-                convert_to_uint1!($data, $deferred, NumU56, u64, ut)
+                convert_to_uint1!($series, $deferred, NumU56, $from, u64, ut)
             }
             AnyUintType::Uint64(ut) => {
-                convert_to_uint1!($data, $deferred, NumU64, u64, ut)
+                convert_to_uint1!($series, $deferred, NumU64, $from, u64, ut)
             }
         }
     };
 }
 
 macro_rules! convert_to_float {
-    ($size:expr, $column:expr, $wrap:ident, $t:ty) => {
+    ($size:expr, $series:expr, $wrap:ident, $from:ident, $to:ty) => {
         $wrap(NumColumnWriter {
-            column: vec_convert!($column, $t),
+            column: series_cast!($series, $from, $to),
             size: $size,
         })
     };
 }
 
 macro_rules! convert_to_f32 {
-    ($size:expr, $column:expr) => {
-        convert_to_float!($size, $column, NumF32, f32)
+    ($size:expr, $series:expr, $from:ident) => {
+        convert_to_float!($size, $series, NumF32, $from, f32)
     };
 }
 
 macro_rules! convert_to_f64 {
-    ($size:expr, $column:expr) => {
-        convert_to_float!($size, $column, NumF64, f64)
+    ($size:expr, $series:expr, $from:ident) => {
+        convert_to_float!($size, $series, NumF64, $from, f64)
     };
 }
 
@@ -1355,8 +1341,9 @@ pub trait Versioned {
     fn fcs_version() -> Version;
 }
 
-pub trait VersionedMetadata: Sized + VersionedParserMetadata
+pub trait VersionedMetadata: Sized
 where
+    Self: VersionedParserMetadata,
     Self::P: VersionedMeasurement,
     Self::P: VersionedParserMeasurement,
 {
@@ -1504,14 +1491,6 @@ where
             .collect()
     }
 
-    // // TODO this seems a bit lame
-    // fn all_req_keywords_with_tot(m: &Metadata<Self>, par: usize, tot: usize) -> RawPairs {
-    //     Self::all_req_keywords(m, par)
-    //         .into_iter()
-    //         .chain([(TOT.to_string(), tot.to_string())])
-    //         .collect()
-    // }
-
     fn all_opt_keywords(m: &Metadata<Self>) -> RawPairs {
         [
             (ABRT, m.abrt.as_opt_string()),
@@ -1536,7 +1515,7 @@ where
         .chain(
             m.nonstandard_keywords
                 .iter()
-                .map(|(k, v)| (k.clone(), v.clone())),
+                .map(|(k, v)| (k.as_ref().to_string(), v.clone())),
         )
         .collect()
     }
@@ -1549,7 +1528,7 @@ trait VersionedMeasurement: Sized + Versioned {
 
     fn shortname(p: &Measurement<Self>, n: usize) -> Shortname;
 
-    fn set_shortname(m: &mut Measurement<Self>, n: String);
+    fn set_shortname(m: &mut Measurement<Self>, n: Shortname);
 
     fn longname(p: &Measurement<Self>, n: usize) -> String {
         // TODO not DRY
@@ -1590,15 +1569,17 @@ trait VersionedMeasurement: Sized + Versioned {
             }
         }
         let names: Vec<&str> = ps.iter().filter_map(|m| Self::maybe_name(m)).collect();
+        let n_names = names.len();
+        let n_unique = names.iter().unique().count();
         if let Some(time_name) = &st.conf.time_shortname {
-            if !names.iter().copied().contains(time_name.as_str()) {
+            if !names.into_iter().contains(time_name.as_ref()) {
                 st.push_meta_error_or_warning(
                     st.conf.ensure_time,
                     format!("Channel called '{time_name}' not found for time"),
                 );
             }
         }
-        if names.iter().unique().count() < names.len() {
+        if n_unique < n_names {
             st.push_meta_error_str("$PnN are not all unique");
             None
         } else {
@@ -1662,7 +1643,7 @@ trait VersionedMeasurement: Sized + Versioned {
             .chain(
                 m.nonstandard_keywords
                     .iter()
-                    .map(|(k, v)| (k.clone(), v.clone())),
+                    .map(|(k, v)| (k.as_ref().to_string(), v.clone())),
             )
             .collect()
     }
@@ -1728,7 +1709,7 @@ trait VersionedParserMeasurement: Sized {
                 }
                 AlphaNumType::Single => {
                     if bytes == 4 {
-                        f32::to_float_byteord(byteord)
+                        Float32Type::to_float_byteord(byteord)
                             .map(ColumnType::Float)
                             .map_err(|e| vec![e])
                     } else {
@@ -1737,7 +1718,7 @@ trait VersionedParserMeasurement: Sized {
                 }
                 AlphaNumType::Double => {
                     if bytes == 8 {
-                        f64::to_float_byteord(byteord)
+                        Float64Type::to_float_byteord(byteord)
                             .map(ColumnType::Double)
                             .map_err(|e| vec![e])
                     } else {
@@ -1779,7 +1760,7 @@ trait VersionedParserMetadata: Sized {
         event_width: usize,
         conf: &DataReadConfig,
     ) -> PureSuccess<usize> {
-        let mut def = PureErrorBuf::new();
+        let mut def = PureErrorBuf::default();
         let remainder = data_nbytes % event_width;
         let total_events = data_nbytes / event_width;
         if data_nbytes % event_width > 0 {
@@ -1881,24 +1862,34 @@ trait OrderedFromBytes<const DTLEN: usize, const OLEN: usize>: NumProps<DTLEN> {
     }
 }
 
-trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
-    NumProps<DTLEN> + OrderedFromBytes<DTLEN, INTLEN> + Ord + IntMath + TryFrom<u64>
+trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>
+where
+    Self::Native: NumProps<DTLEN>,
+    Self::Native: OrderedFromBytes<DTLEN, INTLEN>,
+    Self::Native: TryFrom<u64>,
+    Self::Native: IntMath,
+    Self::Native: Ord,
+    Self: PolarsNumericType,
+    ChunkedArray<Self>: IntoSeries,
 {
     fn byteord_to_sized(byteord: &ByteOrd) -> Result<SizedByteOrd<INTLEN>, String> {
         byteord_to_sized(byteord)
     }
 
-    fn range_to_bitmask(range: Range) -> Result<Self, String> {
+    fn range_to_bitmask(range: Range) -> Result<Self::Native, String> {
         match range {
             Range::Float(_) => Err("$PnR is float for an integer column".to_string()),
             // TODO this seems sloppy
-            Range::Int(i) => Ok(Self::try_from(i)
-                .map(Self::next_power_2)
-                .unwrap_or(Self::maxval())),
+            Range::Int(i) => Ok(Self::Native::try_from(i)
+                .map(Self::Native::next_power_2)
+                .unwrap_or(Self::Native::maxval())),
         }
     }
 
-    fn to_col(range: Range, byteord: &ByteOrd) -> Result<UintType<Self, INTLEN>, Vec<String>> {
+    fn to_col(
+        range: Range,
+        byteord: &ByteOrd,
+    ) -> Result<UintType<Self::Native, INTLEN>, Vec<String>> {
         // TODO be more specific, which means we need the measurement index
         let b = Self::range_to_bitmask(range);
         let s = Self::byteord_to_sized(byteord);
@@ -1913,12 +1904,15 @@ trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
     fn read_int_masked<R: Read>(
         h: &mut BufReader<R>,
         byteord: &SizedByteOrd<INTLEN>,
-        bitmask: Self,
-    ) -> io::Result<Self> {
+        bitmask: Self::Native,
+    ) -> io::Result<Self::Native> {
         Self::read_int(h, byteord).map(|x| x.min(bitmask))
     }
 
-    fn read_int<R: Read>(h: &mut BufReader<R>, byteord: &SizedByteOrd<INTLEN>) -> io::Result<Self> {
+    fn read_int<R: Read>(
+        h: &mut BufReader<R>,
+        byteord: &SizedByteOrd<INTLEN>,
+    ) -> io::Result<Self::Native> {
         // This lovely code will read data that is not a power-of-two
         // bytes long. Start by reading n bytes into a vector, which can
         // take a varying size. Then copy this into the power of 2 buffer
@@ -1936,19 +1930,19 @@ trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
                 Ok(if *e == Endian::Big {
                     let b = DTLEN - INTLEN;
                     buf[b..].copy_from_slice(&tmp[b..]);
-                    Self::from_big(buf)
+                    Self::Native::from_big(buf)
                 } else {
                     buf[..INTLEN].copy_from_slice(&tmp[..INTLEN]);
-                    Self::from_little(buf)
+                    Self::Native::from_little(buf)
                 })
             }
-            SizedByteOrd::Order(order) => Self::read_from_ordered(h, order),
+            SizedByteOrd::Order(order) => Self::Native::read_from_ordered(h, order),
         }
     }
 
     fn read_to_column<R: Read>(
         h: &mut BufReader<R>,
-        d: &mut UintColumnReader<Self, INTLEN>,
+        d: &mut UintColumnReader<Self::Native, INTLEN>,
         row: usize,
     ) -> io::Result<()> {
         d.column[row] = Self::read_int_masked(h, &d.layout.size, d.layout.bitmask)?;
@@ -1958,32 +1952,36 @@ trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>:
     fn write_int<W: Write>(
         h: &mut BufWriter<W>,
         byteord: &SizedByteOrd<INTLEN>,
-        x: Self,
+        x: Self::Native,
     ) -> io::Result<()> {
         match byteord {
             SizedByteOrd::Endian(e) => {
                 let mut buf = [0; INTLEN];
                 let (start, end, tmp) = if *e == Endian::Big {
-                    ((DTLEN - INTLEN), DTLEN, Self::to_big(x))
+                    ((DTLEN - INTLEN), DTLEN, Self::Native::to_big(x))
                 } else {
-                    (0, INTLEN, Self::to_little(x))
+                    (0, INTLEN, Self::Native::to_little(x))
                 };
                 buf[..].copy_from_slice(&tmp[start..end]);
                 h.write_all(&buf)
             }
-            SizedByteOrd::Order(order) => Self::write_from_ordered(h, order, x),
+            SizedByteOrd::Order(order) => Self::Native::write_from_ordered(h, order, x),
         }
     }
 }
 
-trait FloatFromBytes<const LEN: usize>: NumProps<LEN> + OrderedFromBytes<LEN, LEN> + Clone
+trait FloatFromBytes<const LEN: usize>
 where
-    Vec<Self>: Into<Series>,
+    Self::Native: NumProps<LEN>,
+    Self::Native: OrderedFromBytes<LEN, LEN>,
+    Self: Clone,
+    Self: PolarsNumericType,
+    ChunkedArray<Self>: IntoSeries,
 {
     /// Read one sequence of bytes as a float and assign to a column.
     fn read_to_column<R: Read>(
         h: &mut BufReader<R>,
-        column: &mut FloatColumnReader<Self, LEN>,
+        column: &mut FloatColumnReader<Self::Native, LEN>,
         row: usize,
     ) -> io::Result<()> {
         column.column[row] = Self::read_float(h, &column.order)?;
@@ -1991,8 +1989,8 @@ where
     }
 
     /// Read byte sequence into a matrix of floats
-    fn read_matrix<R: Read>(h: &mut BufReader<R>, p: FloatReader<LEN>) -> io::Result<Dataframe> {
-        let mut columns: Vec<_> = iter::repeat_with(|| vec![Self::zero(); p.nrows])
+    fn read_matrix<R: Read>(h: &mut BufReader<R>, p: FloatReader<LEN>) -> io::Result<DataFrame> {
+        let mut columns: Vec<_> = iter::repeat_with(|| vec![Self::Native::zero(); p.nrows])
             .take(p.ncols)
             .collect();
         for row in 0..p.nrows {
@@ -2000,18 +1998,28 @@ where
                 column[row] = Self::read_float(h, &p.byteord)?;
             }
         }
-        Ok(Dataframe::from(
-            columns.into_iter().map(Vec::<Self>::into).collect(),
-        ))
+        let ss: Vec<_> = columns
+            .into_iter()
+            .enumerate()
+            .map(|(i, s)| {
+                ChunkedArray::<Self>::from_vec(format!("M{i}").into(), s)
+                    .into_series()
+                    .into()
+            })
+            .collect();
+        DataFrame::new(ss).map_err(|e| io::Error::other(e.to_string()))
+        // Ok(Dataframe::from(
+        //     columns.into_iter().map(Vec::<Self>::into).collect(),
+        // ))
     }
 
     /// Make configuration to read one column of floats in a dataset.
     fn make_column_reader(
         order: SizedByteOrd<LEN>,
         total_events: usize,
-    ) -> FloatColumnReader<Self, LEN> {
+    ) -> FloatColumnReader<Self::Native, LEN> {
         FloatColumnReader {
-            column: vec![Self::zero(); total_events],
+            column: vec![Self::Native::zero(); total_events],
             order,
         }
     }
@@ -2033,36 +2041,39 @@ where
         PureMaybe::from_result_1(res, PureErrorLevel::Error)
     }
 
-    fn read_float<R: Read>(h: &mut BufReader<R>, byteord: &SizedByteOrd<LEN>) -> io::Result<Self> {
+    fn read_float<R: Read>(
+        h: &mut BufReader<R>,
+        byteord: &SizedByteOrd<LEN>,
+    ) -> io::Result<Self::Native> {
         match byteord {
             SizedByteOrd::Endian(e) => {
                 let mut buf = [0; LEN];
                 h.read_exact(&mut buf)?;
                 Ok(if *e == Endian::Big {
-                    Self::from_big(buf)
+                    Self::Native::from_big(buf)
                 } else {
-                    Self::from_little(buf)
+                    Self::Native::from_little(buf)
                 })
             }
-            SizedByteOrd::Order(order) => Self::read_from_ordered(h, order),
+            SizedByteOrd::Order(order) => Self::Native::read_from_ordered(h, order),
         }
     }
 
     fn write_float<W: Write>(
         h: &mut BufWriter<W>,
         byteord: &SizedByteOrd<LEN>,
-        x: Self,
+        x: Self::Native,
     ) -> io::Result<()> {
         match byteord {
             SizedByteOrd::Endian(e) => {
                 let buf: [u8; LEN] = if *e == Endian::Big {
-                    Self::to_big(x)
+                    Self::Native::to_big(x)
                 } else {
-                    Self::to_little(x)
+                    Self::Native::to_little(x)
                 };
                 h.write_all(&buf)
             }
-            SizedByteOrd::Order(order) => Self::write_from_ordered(h, order, x),
+            SizedByteOrd::Order(order) => Self::Native::write_from_ordered(h, order, x),
         }
     }
 }
@@ -2388,11 +2399,9 @@ impl FromStr for Spillover {
                 let n = *first;
                 let nn = n * n;
                 let expected = n + nn;
-                let measurements: Vec<_> = xs
-                    .by_ref()
-                    .take(n)
-                    .map(|m| Shortname(String::from(m)))
-                    .collect();
+                // This should be safe since we split on commas
+                let measurements: Vec<_> =
+                    xs.by_ref().take(n).map(Shortname::new_unchecked).collect();
                 let values: Vec<_> = xs.by_ref().take(nn).collect();
                 let remainder = xs.by_ref().count();
                 let total = measurements.len() + values.len() + remainder;
@@ -2446,10 +2455,10 @@ impl fmt::Display for NamedFixedSeqError {
 
 impl Spillover {
     fn table(&self, delim: &str) -> Vec<String> {
-        let header0 = vec!["[-]".to_string()];
+        let header0 = vec!["[-]"];
         let header = header0
             .into_iter()
-            .chain(self.measurements.iter().map(|m| m.0.clone()))
+            .chain(self.measurements.iter().map(|m| m.as_ref()))
             .join(delim);
         let lines = vec![header];
         let rows = self.matrix.row_iter().map(|xs| xs.iter().join(delim));
@@ -2548,7 +2557,7 @@ impl FromStr for Trigger {
                 .parse()
                 .map_err(TriggerError::IntFormat)
                 .map(|threshold| Trigger {
-                    measurement: Shortname(String::from(p)),
+                    measurement: Shortname::new_unchecked(p),
                     threshold,
                 }),
             _ => Err(TriggerError::WrongFieldNumber),
@@ -2861,73 +2870,6 @@ impl fmt::Display for Feature {
     }
 }
 
-use OptionalKw::*;
-
-impl<V> OptionalKw<V> {
-    fn as_ref(&self) -> OptionalKw<&V> {
-        match self {
-            OptionalKw::Present(x) => Present(x),
-            Absent => Absent,
-        }
-    }
-    fn into_option(self) -> Option<V> {
-        match self {
-            OptionalKw::Present(x) => Some(x),
-            Absent => None,
-        }
-    }
-
-    fn as_option(&self) -> Option<&V> {
-        self.as_ref().into_option()
-    }
-
-    fn map<F, W>(self, f: F) -> OptionalKw<W>
-    where
-        F: Fn(V) -> W,
-    {
-        match self {
-            OptionalKw::Present(x) => Present(f(x)),
-            Absent => Absent,
-        }
-    }
-
-    fn with_option<F, W>(self, f: F) -> OptionalKw<W>
-    where
-        F: FnOnce(Option<V>) -> Option<W>,
-    {
-        OptionalKw::<W>::from_option(f(self.into_option()))
-    }
-
-    fn with_ref_option<F, W>(self, f: F) -> OptionalKw<W>
-    where
-        F: FnOnce(Option<&V>) -> Option<W>,
-    {
-        OptionalKw::<&V>::with_option::<F, W>(self.as_ref(), f)
-    }
-
-    fn from_option(x: Option<V>) -> Self {
-        x.map_or_else(|| Absent, |y| OptionalKw::Present(y))
-    }
-}
-
-impl<V: fmt::Display> OptionalKw<V> {
-    fn as_opt_string(&self) -> Option<String> {
-        self.as_ref().into_option().map(|x| x.to_string())
-    }
-}
-
-impl<T: Serialize> Serialize for OptionalKw<T> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self.as_ref() {
-            Present(x) => serializer.serialize_some(x),
-            Absent => serializer.serialize_none(),
-        }
-    }
-}
-
 impl fmt::Display for Wavelengths {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "{}", self.0.iter().join(","))
@@ -2943,30 +2885,6 @@ impl str::FromStr for Wavelengths {
             ws.push(x.parse()?);
         }
         Ok(Wavelengths(ws))
-    }
-}
-
-impl fmt::Display for ShortnameError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "commas are not allowed")
-    }
-}
-
-impl fmt::Display for Shortname {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl str::FromStr for Shortname {
-    type Err = ShortnameError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.contains(',') {
-            Err(ShortnameError)
-        } else {
-            Ok(Shortname(String::from(s)))
-        }
     }
 }
 
@@ -3062,14 +2980,14 @@ impl<P: VersionedMeasurement> Measurement<P> {
 
 fn make_uint_type(b: u8, r: Range, o: &ByteOrd) -> Result<AnyUintType, Vec<String>> {
     match b {
-        1 => u8::to_col(r, o).map(AnyUintType::Uint8),
-        2 => u16::to_col(r, o).map(AnyUintType::Uint16),
-        3 => IntFromBytes::<4, 3>::to_col(r, o).map(AnyUintType::Uint24),
-        4 => IntFromBytes::<4, 4>::to_col(r, o).map(AnyUintType::Uint32),
-        5 => IntFromBytes::<8, 5>::to_col(r, o).map(AnyUintType::Uint40),
-        6 => IntFromBytes::<8, 6>::to_col(r, o).map(AnyUintType::Uint48),
-        7 => IntFromBytes::<8, 7>::to_col(r, o).map(AnyUintType::Uint56),
-        8 => IntFromBytes::<8, 8>::to_col(r, o).map(AnyUintType::Uint64),
+        1 => UInt8Type::to_col(r, o).map(AnyUintType::Uint8),
+        2 => UInt16Type::to_col(r, o).map(AnyUintType::Uint16),
+        3 => <UInt32Type as IntFromBytes<4, 3>>::to_col(r, o).map(AnyUintType::Uint24),
+        4 => <UInt32Type as IntFromBytes<4, 4>>::to_col(r, o).map(AnyUintType::Uint32),
+        5 => <UInt64Type as IntFromBytes<8, 5>>::to_col(r, o).map(AnyUintType::Uint40),
+        6 => <UInt64Type as IntFromBytes<8, 6>>::to_col(r, o).map(AnyUintType::Uint48),
+        7 => <UInt64Type as IntFromBytes<8, 7>>::to_col(r, o).map(AnyUintType::Uint56),
+        8 => <UInt64Type as IntFromBytes<8, 8>>::to_col(r, o).map(AnyUintType::Uint64),
         _ => Err(vec!["$PnB has invalid byte length".to_string()]),
     }
 }
@@ -3100,11 +3018,7 @@ impl Versioned for InnerMeasurement3_2 {
 
 impl VersionedMeasurement for InnerMeasurement2_0 {
     fn maybe_name(p: &Measurement<Self>) -> Option<&str> {
-        p.specific
-            .shortname
-            .as_ref()
-            .into_option()
-            .map(|s| s.0.as_str())
+        p.specific.shortname.as_option().map(|s| s.as_ref())
     }
 
     fn shortname(p: &Measurement<Self>, n: usize) -> Shortname {
@@ -3113,11 +3027,11 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
             .as_ref()
             .into_option()
             .cloned()
-            .unwrap_or(Shortname(format!("M{n}")))
+            .unwrap_or(Shortname::from_index(n))
     }
 
-    fn set_shortname(m: &mut Measurement<Self>, n: String) {
-        m.specific.shortname = Present(Shortname(n))
+    fn set_shortname(m: &mut Measurement<Self>, n: Shortname) {
+        m.specific.shortname = Present(n)
     }
 
     fn lookup_specific(st: &mut KwParser, n: usize) -> Option<InnerMeasurement2_0> {
@@ -3145,11 +3059,7 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
 
 impl VersionedMeasurement for InnerMeasurement3_0 {
     fn maybe_name(p: &Measurement<Self>) -> Option<&str> {
-        p.specific
-            .shortname
-            .as_ref()
-            .into_option()
-            .map(|s| s.0.as_str())
+        p.specific.shortname.as_option().map(|s| s.as_ref())
     }
 
     fn shortname(p: &Measurement<Self>, n: usize) -> Shortname {
@@ -3158,11 +3068,11 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
             .as_ref()
             .into_option()
             .cloned()
-            .unwrap_or(Shortname(format!("M{n}")))
+            .unwrap_or(Shortname::from_index(n))
     }
 
-    fn set_shortname(m: &mut Measurement<Self>, n: String) {
-        m.specific.shortname = Present(Shortname(n))
+    fn set_shortname(m: &mut Measurement<Self>, n: Shortname) {
+        m.specific.shortname = Present(n)
     }
 
     fn lookup_specific(st: &mut KwParser, n: usize) -> Option<InnerMeasurement3_0> {
@@ -3192,15 +3102,15 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
 
 impl VersionedMeasurement for InnerMeasurement3_1 {
     fn maybe_name(p: &Measurement<Self>) -> Option<&str> {
-        Some(p.specific.shortname.0.as_str())
+        Some(p.specific.shortname.as_ref())
     }
 
     fn shortname(p: &Measurement<Self>, _: usize) -> Shortname {
         p.specific.shortname.clone()
     }
 
-    fn set_shortname(m: &mut Measurement<Self>, n: String) {
-        m.specific.shortname = Shortname(n)
+    fn set_shortname(m: &mut Measurement<Self>, n: Shortname) {
+        m.specific.shortname = n
     }
 
     fn lookup_specific(st: &mut KwParser, n: usize) -> Option<InnerMeasurement3_1> {
@@ -3238,15 +3148,15 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
 
 impl VersionedMeasurement for InnerMeasurement3_2 {
     fn maybe_name(p: &Measurement<Self>) -> Option<&str> {
-        Some(p.specific.shortname.0.as_str())
+        Some(p.specific.shortname.as_ref())
     }
 
     fn shortname(p: &Measurement<Self>, _: usize) -> Shortname {
         p.specific.shortname.clone()
     }
 
-    fn set_shortname(m: &mut Measurement<Self>, n: String) {
-        m.specific.shortname = Shortname(n)
+    fn set_shortname(m: &mut Measurement<Self>, n: Shortname) {
+        m.specific.shortname = n
     }
 
     fn lookup_specific(st: &mut KwParser, n: usize) -> Option<InnerMeasurement3_2> {
@@ -3337,11 +3247,8 @@ impl FromStr for UnstainedCenters {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut xs = s.split(",");
         if let Some(n) = xs.next().and_then(|s| s.parse().ok()) {
-            let measurements: Vec<_> = xs
-                .by_ref()
-                .take(n)
-                .map(|m| Shortname(String::from(m)))
-                .collect();
+            // This should be safe since we are splitting by commas
+            let measurements: Vec<_> = xs.by_ref().take(n).map(Shortname::new_unchecked).collect();
             let values: Vec<_> = xs.by_ref().take(n).collect();
             let remainder = xs.by_ref().count();
             let total = values.len() + measurements.len() + remainder;
@@ -3375,14 +3282,8 @@ impl FromStr for UnstainedCenters {
 impl fmt::Display for UnstainedCenters {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let n = self.0.len();
-        let (measurements, values): (Vec<_>, Vec<_>) =
-            self.0.iter().map(|(k, v)| (k.0.clone(), *v)).unzip();
-        write!(
-            f,
-            "{n},{},{}",
-            measurements.join(","),
-            values.iter().join(",")
-        )
+        let (ms, vs): (Vec<&Shortname>, Vec<f32>) = self.0.iter().unzip();
+        write!(f, "{n},{},{}", ms.iter().join(","), vs.iter().join(","))
     }
 }
 
@@ -3643,6 +3544,10 @@ impl AnyCoreTEXT {
         }
     }
 
+    fn set_df_column_names(&self, df: &mut DataFrame) -> PolarsResult<()> {
+        match_anycoretext!(self, x, { x.set_df_column_names(df) })
+    }
+
     fn as_writer_data_layout(&self) -> Result<WriterDataLayout, Vec<String>> {
         match_anycoretext!(self, x, { x.as_writer_data_layout() })
     }
@@ -3694,10 +3599,10 @@ fn build_mixed_reader(cs: Vec<ColumnType>, total_events: usize) -> MixedParser {
                 column: vec![],
             }),
             ColumnType::Float(order) => {
-                MixedColumnType::Single(f32::make_column_reader(order, total_events))
+                MixedColumnType::Single(Float32Type::make_column_reader(order, total_events))
             }
             ColumnType::Double(order) => {
-                MixedColumnType::Double(f64::make_column_reader(order, total_events))
+                MixedColumnType::Double(Float64Type::make_column_reader(order, total_events))
             }
             ColumnType::Integer(col) => {
                 MixedColumnType::Uint(AnyUintColumnReader::from_column(col, total_events))
@@ -3925,12 +3830,17 @@ where
             .collect()
     }
 
+    fn set_df_column_names(&self, df: &mut DataFrame) -> PolarsResult<()> {
+        let ns: Vec<PlSmallStr> = self
+            .shortnames()
+            .into_iter()
+            .map(|s| s.as_ref().into())
+            .collect();
+        df.set_column_names(ns)
+    }
+
     /// Set all $PnN keywords to list of names.
-    ///
-    /// Will return false if length of supplied list does not match length of
-    /// measurements; true otherwise. Versions which have this key as optional
-    /// will wrap the value in [Present].
-    pub fn set_shortnames(&mut self, ns: Vec<String>) -> bool {
+    pub fn set_shortnames(&mut self, ns: Vec<Shortname>) -> bool {
         if self.measurements.len() != ns.len() {
             false
         } else {
@@ -4089,213 +3999,232 @@ where
     }
 }
 
-impl Series {
-    /// Convert a series into a writable vector
-    ///
-    /// Data that is to be written in a different type will be converted.
-    /// Depending on the start and end types, data loss may occur, in which
-    /// case the user will be warned.
-    ///
-    /// For some cases like float->ASCII (bad idea), it is not clear how much
-    /// space will be needed to represent every possible float in the file, so
-    /// user will be warned always.
-    ///
-    /// If the start type will fit into the end type, all is well and nothing
-    /// bad will happen to user's precious data.
-    fn coerce(self, w: ColumnType, conf: &WriteConfig) -> PureSuccess<ColumnWriter> {
-        let mut deferred = PureErrorBuf::new();
+enum ValidType {
+    U08,
+    U16,
+    U32,
+    U64,
+    F32,
+    F64,
+}
 
-        let ascii_uint_warn = |d: &mut PureErrorBuf, bits, bytes| {
-            let msg = format!(
-                "writing ASCII as {bits}-bit uint in {bytes} \
-                         may result in truncation"
-            );
-            d.push_msg_leveled(msg, conf.disallow_lossy_conversions);
-        };
-        let num_warn = |d: &mut PureErrorBuf, from, to| {
-            let msg = format!("converting {from} to {to} may truncate data");
-            d.push_msg_leveled(msg, conf.disallow_lossy_conversions);
-        };
-
-        let res = match w {
-            // For Uint* -> ASCII, warn user if there are not enough bytes to
-            // hold the max range of the type being formatted. ASCII shouldn't
-            // store floats at all, so warn user if input data is float or
-            // double.
-            ColumnType::Ascii { bytes } => match self {
-                Series::U08(data) => {
-                    if bytes < 3 {
-                        ascii_uint_warn(&mut deferred, 8, 3);
-                    }
-                    AsciiU8(AsciiColumnWriter {
-                        column: data,
-                        bytes,
-                    })
-                }
-                Series::U16(data) => {
-                    if bytes < 5 {
-                        ascii_uint_warn(&mut deferred, 16, 5);
-                    }
-                    AsciiU16(AsciiColumnWriter {
-                        column: data,
-                        bytes,
-                    })
-                }
-                Series::U32(data) => {
-                    if bytes < 10 {
-                        ascii_uint_warn(&mut deferred, 32, 10);
-                    }
-                    AsciiU32(AsciiColumnWriter {
-                        column: data,
-                        bytes,
-                    })
-                }
-                Series::U64(data) => {
-                    if bytes < 20 {
-                        ascii_uint_warn(&mut deferred, 64, 20);
-                    }
-                    AsciiU64(AsciiColumnWriter {
-                        column: data,
-                        bytes,
-                    })
-                }
-                Series::F32(data) => {
-                    num_warn(&mut deferred, "float", "uint64");
-                    AsciiU64(AsciiColumnWriter {
-                        column: vec_convert!(data, u64),
-                        bytes,
-                    })
-                }
-                Series::F64(data) => {
-                    num_warn(&mut deferred, "double", "uint64");
-                    AsciiU64(AsciiColumnWriter {
-                        column: vec_convert!(data, u64),
-                        bytes,
-                    })
-                }
-            },
-
-            // Uint* -> Uint* is quite easy, just compare sizes and warn if the
-            // target type is too small. Float/double -> Uint always could
-            // potentially truncate a fractional value. Also check to see if
-            // bitmask is exceeded, and if so truncate and warn user.
-            ColumnType::Integer(ut) => {
-                match self {
-                    Series::F32(_) => num_warn(&mut deferred, "float", "uint"),
-                    Series::F64(_) => num_warn(&mut deferred, "float", "uint"),
-                    _ => {
-                        let from_size = ut.nbytes();
-                        let to_size = ut.native_nbytes();
-                        if to_size < from_size {
-                            let msg = format!(
-                                "converted uint from {from_size} to \
-                                 {to_size} bytes may truncate data"
-                            );
-                            deferred.push_warning(msg);
-                        }
-                    }
-                }
-                match_many_to_one!(self, Series, [F32, F64, U08, U16, U32, U64], data, {
-                    convert_to_uint!(ut, data, deferred)
-                })
-            }
-
-            // Floats can hold small uints and themselves, anything else might
-            // truncate.
-            ColumnType::Float(size) => {
-                match self {
-                    Series::U32(_) => num_warn(&mut deferred, "float", "uint32"),
-                    Series::U64(_) => num_warn(&mut deferred, "float", "uint64"),
-                    Series::F64(_) => num_warn(&mut deferred, "float", "double"),
-                    _ => (),
-                }
-                match_many_to_one!(self, Series, [F32, F64, U08, U16, U32, U64], data, {
-                    convert_to_f32!(size, data)
-                })
-            }
-
-            // Doubles can hold all but uint64
-            ColumnType::Double(size) => {
-                if let Series::U64(_) = self {
-                    num_warn(&mut deferred, "double", "uint64")
-                }
-                match_many_to_one!(self, Series, [F32, F64, U08, U16, U32, U64], data, {
-                    convert_to_f64!(size, data)
-                })
-            }
-        };
-        PureSuccess {
-            data: res,
-            deferred,
+impl ValidType {
+    fn from(dt: &DataType) -> Option<Self> {
+        match dt {
+            DataType::UInt8 => Some(ValidType::U08),
+            DataType::UInt16 => Some(ValidType::U16),
+            DataType::UInt32 => Some(ValidType::U32),
+            DataType::UInt64 => Some(ValidType::U64),
+            DataType::Float32 => Some(ValidType::F32),
+            DataType::Float64 => Some(ValidType::F64),
+            _ => None,
         }
     }
+}
 
-    /// Convert into a u64 vector.
-    ///
-    /// Used when writing delimited ASCII. This is faster and more convenient
-    /// than the general coercion function.
-    fn coerce64(self, conf: &WriteConfig) -> PureSuccess<Vec<u64>> {
-        let mut deferred = PureErrorBuf::new();
+/// Convert a series into a writable vector
+///
+/// Data that is to be written in a different type will be converted. Depending
+/// on the start and end types, data loss may occur, in which case the user will
+/// be warned.
+///
+/// For some cases like float->ASCII (bad idea), it is not clear how much space
+/// will be needed to represent every possible float in the file, so user will
+/// be warned always.
+///
+/// If the start type will fit into the end type, all is well and nothing bad
+/// will happen to user's precious data.
+fn series_coerce(
+    c: &Column,
+    w: ColumnType,
+    conf: &WriteConfig,
+) -> Option<PureSuccess<ColumnWriter>> {
+    let dt = ValidType::from(c.dtype())?;
+    let mut deferred = PureErrorBuf::default();
 
-        let num_warn = |d: &mut PureErrorBuf, from, to| {
-            let msg = format!("converting {from} to {to} may truncate data");
-            d.push_msg_leveled(msg, conf.disallow_lossy_conversions);
-        };
+    let ascii_uint_warn = |d: &mut PureErrorBuf, bits, bytes| {
+        let msg = format!(
+            "writing ASCII as {bits}-bit uint in {bytes} \
+                             may result in truncation"
+        );
+        d.push_msg_leveled(msg, conf.disallow_lossy_conversions);
+    };
+    let num_warn = |d: &mut PureErrorBuf, from, to| {
+        let msg = format!("converting {from} to {to} may truncate data");
+        d.push_msg_leveled(msg, conf.disallow_lossy_conversions);
+    };
 
-        let res = match self {
-            Series::U08(column) => vec_convert!(column, u64),
-            Series::U16(column) => vec_convert!(column, u64),
-            Series::U32(column) => vec_convert!(column, u64),
-            Series::U64(column) => column,
-            Series::F32(column) => {
+    // TODO this will make a copy of the data within a new vector, which is
+    // simply going to be shoved onto disk a few nanoseconds later. Would make
+    // more sense to return a lazy iterator which would skip this intermediate.
+    let res = match w {
+        // For Uint* -> ASCII, warn user if there are not enough bytes to
+        // hold the max range of the type being formatted. ASCII shouldn't
+        // store floats at all, so warn user if input data is float or
+        // double.
+        ColumnType::Ascii { bytes } => match dt {
+            ValidType::U08 => {
+                if bytes < 3 {
+                    ascii_uint_warn(&mut deferred, 8, 3);
+                }
+                AsciiU8(AsciiColumnWriter {
+                    column: c.u8().unwrap().into_no_null_iter().collect(),
+                    bytes,
+                })
+            }
+            ValidType::U16 => {
+                if bytes < 5 {
+                    ascii_uint_warn(&mut deferred, 16, 5);
+                }
+                AsciiU16(AsciiColumnWriter {
+                    column: c.u16().unwrap().into_no_null_iter().collect(),
+                    bytes,
+                })
+            }
+            ValidType::U32 => {
+                if bytes < 10 {
+                    ascii_uint_warn(&mut deferred, 32, 10);
+                }
+                AsciiU32(AsciiColumnWriter {
+                    column: c.u32().unwrap().into_no_null_iter().collect(),
+                    bytes,
+                })
+            }
+            ValidType::U64 => {
+                if bytes < 20 {
+                    ascii_uint_warn(&mut deferred, 64, 20);
+                }
+                AsciiU64(AsciiColumnWriter {
+                    column: c.u64().unwrap().into_no_null_iter().collect(),
+                    bytes,
+                })
+            }
+            ValidType::F32 => {
                 num_warn(&mut deferred, "float", "uint64");
-                vec_convert!(column, u64)
+                AsciiU64(AsciiColumnWriter {
+                    column: series_cast!(c, f32, u64),
+                    bytes,
+                })
             }
-            Series::F64(column) => {
+            ValidType::F64 => {
                 num_warn(&mut deferred, "double", "uint64");
-                vec_convert!(column, u64)
+                AsciiU64(AsciiColumnWriter {
+                    column: series_cast!(c, f32, u64),
+                    bytes,
+                })
             }
-        };
+        },
 
-        PureSuccess {
-            data: res,
-            deferred,
+        // Uint* -> Uint* is quite easy, just compare sizes and warn if the
+        // target type is too small. Float/double -> Uint always could
+        // potentially truncate a fractional value. Also check to see if
+        // bitmask is exceeded, and if so truncate and warn user.
+        ColumnType::Integer(ut) => {
+            match dt {
+                ValidType::F32 => num_warn(&mut deferred, "float", "uint"),
+                ValidType::F64 => num_warn(&mut deferred, "float", "uint"),
+                _ => {
+                    let from_size = ut.nbytes();
+                    let to_size = ut.native_nbytes();
+                    if to_size < from_size {
+                        let msg = format!(
+                            "converted uint from {from_size} to \
+                             {to_size} bytes may truncate data"
+                        );
+                        deferred.push_warning(msg);
+                    }
+                }
+            }
+            match dt {
+                ValidType::U08 => convert_to_uint!(ut, c, u8, deferred),
+                ValidType::U16 => convert_to_uint!(ut, c, u16, deferred),
+                ValidType::U32 => convert_to_uint!(ut, c, u32, deferred),
+                ValidType::U64 => convert_to_uint!(ut, c, u64, deferred),
+                ValidType::F32 => convert_to_uint!(ut, c, f32, deferred),
+                ValidType::F64 => convert_to_uint!(ut, c, f64, deferred),
+            }
         }
-    }
 
-    fn nbytes(&self) -> u8 {
-        match self {
-            Series::U08(_) => 1,
-            Series::U16(_) => 2,
-            Series::U32(_) => 4,
-            Series::U64(_) => 8,
-            Series::F32(_) => 4,
-            Series::F64(_) => 8,
+        // Floats can hold small uints and themselves, anything else might
+        // truncate.
+        ColumnType::Float(size) => {
+            match dt {
+                ValidType::U32 => num_warn(&mut deferred, "float", "uint32"),
+                ValidType::U64 => num_warn(&mut deferred, "float", "uint64"),
+                ValidType::F64 => num_warn(&mut deferred, "float", "double"),
+                _ => (),
+            }
+            match dt {
+                ValidType::U08 => convert_to_f32!(size, c, u8),
+                ValidType::U16 => convert_to_f32!(size, c, u16),
+                ValidType::U32 => convert_to_f32!(size, c, u32),
+                ValidType::U64 => convert_to_f32!(size, c, u64),
+                ValidType::F32 => convert_to_f32!(size, c, f32),
+                ValidType::F64 => convert_to_f32!(size, c, f64),
+            }
         }
-    }
 
-    fn total_bytes(&self) -> usize {
-        usize::from(self.nbytes()) * self.len()
-    }
+        // Doubles can hold all but uint64
+        ColumnType::Double(size) => {
+            if let ValidType::U64 = dt {
+                num_warn(&mut deferred, "double", "uint64")
+            }
+            match dt {
+                ValidType::U08 => convert_to_f64!(size, c, u8),
+                ValidType::U16 => convert_to_f64!(size, c, u16),
+                ValidType::U32 => convert_to_f64!(size, c, u32),
+                ValidType::U64 => convert_to_f64!(size, c, u64),
+                ValidType::F32 => convert_to_f64!(size, c, f32),
+                ValidType::F64 => convert_to_f64!(size, c, f64),
+            }
+        }
+    };
+    Some(PureSuccess {
+        data: res,
+        deferred,
+    })
+}
 
-    fn len(&self) -> usize {
-        match_many_to_one!(self, Series, [F32, F64, U08, U16, U32, U64], x, { x.len() })
-    }
+/// Convert Series into a u64 vector.
+///
+/// Used when writing delimited ASCII. This is faster and more convenient
+/// than the general coercion function.
+fn series_coerce64(s: &Column, conf: &WriteConfig) -> Option<PureSuccess<Vec<u64>>> {
+    let dt = ValidType::from(&s.dtype())?;
+    let mut deferred = PureErrorBuf::default();
 
-    fn format(&self, r: usize) -> String {
-        match_many_to_one!(self, Series, [F32, F64, U08, U16, U32, U64], x, {
-            format!("{}", x[r])
-        })
-    }
+    let num_warn = |d: &mut PureErrorBuf, from, to| {
+        let msg = format!("converting {from} to {to} may truncate data");
+        d.push_msg_leveled(msg, conf.disallow_lossy_conversions);
+    };
+
+    let res = match dt {
+        ValidType::U08 => series_cast!(s, u8, u64),
+        ValidType::U16 => series_cast!(s, u16, u64),
+        ValidType::U32 => series_cast!(s, u32, u64),
+        ValidType::U64 => series_cast!(s, u64, u64),
+        ValidType::F32 => {
+            num_warn(&mut deferred, "float", "uint64");
+            series_cast!(s, f32, u64)
+        }
+        ValidType::F64 => {
+            num_warn(&mut deferred, "double", "uint64");
+            series_cast!(s, f64, u64)
+        }
+    };
+    Some(PureSuccess {
+        data: res,
+        deferred,
+    })
 }
 
 macro_rules! impl_num_props {
     ($size:expr, $zero:expr, $t:ty, $p:ident) => {
-        impl From<Vec<$t>> for Series {
-            fn from(value: Vec<$t>) -> Self {
-                Series::$p(value)
-            }
-        }
+        // impl From<Vec<$t>> for Series {
+        //     fn from(value: Vec<$t>) -> Self {
+        //         Series::$p(value)
+        //     }
+        // }
 
         impl NumProps<$size> for $t {
             fn zero() -> Self {
@@ -4372,40 +4301,40 @@ impl OrderedFromBytes<8, 8> for u64 {}
 impl OrderedFromBytes<4, 4> for f32 {}
 impl OrderedFromBytes<8, 8> for f64 {}
 
-impl FloatFromBytes<4> for f32 {}
-impl FloatFromBytes<8> for f64 {}
+impl FloatFromBytes<4> for Float32Type {}
+impl FloatFromBytes<8> for Float64Type {}
 
-impl IntFromBytes<1, 1> for u8 {}
-impl IntFromBytes<2, 2> for u16 {}
-impl IntFromBytes<4, 3> for u32 {}
-impl IntFromBytes<4, 4> for u32 {}
-impl IntFromBytes<8, 5> for u64 {}
-impl IntFromBytes<8, 6> for u64 {}
-impl IntFromBytes<8, 7> for u64 {}
-impl IntFromBytes<8, 8> for u64 {}
+impl IntFromBytes<1, 1> for UInt8Type {}
+impl IntFromBytes<2, 2> for UInt16Type {}
+impl IntFromBytes<4, 3> for UInt32Type {}
+impl IntFromBytes<4, 4> for UInt32Type {}
+impl IntFromBytes<8, 5> for UInt64Type {}
+impl IntFromBytes<8, 6> for UInt64Type {}
+impl IntFromBytes<8, 7> for UInt64Type {}
+impl IntFromBytes<8, 8> for UInt64Type {}
 
-impl From<MixedColumnType> for Series {
-    fn from(value: MixedColumnType) -> Series {
-        match value {
-            MixedColumnType::Ascii(x) => Vec::<u64>::into(x.column),
-            MixedColumnType::Single(x) => Vec::<f32>::into(x.column),
-            MixedColumnType::Double(x) => Vec::<f64>::into(x.column),
-            MixedColumnType::Uint(x) => x.into(),
+impl MixedColumnType {
+    fn into_pl_series(self, name: PlSmallStr) -> Series {
+        match self {
+            MixedColumnType::Ascii(x) => UInt64Chunked::from_vec(name, x.column).into_series(),
+            MixedColumnType::Single(x) => Float32Chunked::from_vec(name, x.column).into_series(),
+            MixedColumnType::Double(x) => Float64Chunked::from_vec(name, x.column).into_series(),
+            MixedColumnType::Uint(x) => x.into_pl_series(name),
         }
     }
 }
 
-impl From<AnyUintColumnReader> for Series {
-    fn from(value: AnyUintColumnReader) -> Self {
-        match value {
-            AnyUintColumnReader::Uint8(y) => Vec::<u8>::into(y.column),
-            AnyUintColumnReader::Uint16(y) => Vec::<u16>::into(y.column),
-            AnyUintColumnReader::Uint24(y) => Vec::<u32>::into(y.column),
-            AnyUintColumnReader::Uint32(y) => Vec::<u32>::into(y.column),
-            AnyUintColumnReader::Uint40(y) => Vec::<u64>::into(y.column),
-            AnyUintColumnReader::Uint48(y) => Vec::<u64>::into(y.column),
-            AnyUintColumnReader::Uint56(y) => Vec::<u64>::into(y.column),
-            AnyUintColumnReader::Uint64(y) => Vec::<u64>::into(y.column),
+impl AnyUintColumnReader {
+    fn into_pl_series(self, name: PlSmallStr) -> Series {
+        match self {
+            AnyUintColumnReader::Uint8(x) => UInt8Chunked::from_vec(name, x.column).into_series(),
+            AnyUintColumnReader::Uint16(x) => UInt16Chunked::from_vec(name, x.column).into_series(),
+            AnyUintColumnReader::Uint24(x) => UInt32Chunked::from_vec(name, x.column).into_series(),
+            AnyUintColumnReader::Uint32(x) => UInt32Chunked::from_vec(name, x.column).into_series(),
+            AnyUintColumnReader::Uint40(x) => UInt64Chunked::from_vec(name, x.column).into_series(),
+            AnyUintColumnReader::Uint48(x) => UInt64Chunked::from_vec(name, x.column).into_series(),
+            AnyUintColumnReader::Uint56(x) => UInt64Chunked::from_vec(name, x.column).into_series(),
+            AnyUintColumnReader::Uint64(x) => UInt64Chunked::from_vec(name, x.column).into_series(),
         }
     }
 }
@@ -4451,127 +4380,69 @@ impl AnyUintColumnReader {
 
     fn read_to_column<R: Read>(&mut self, h: &mut BufReader<R>, r: usize) -> io::Result<()> {
         match self {
-            AnyUintColumnReader::Uint8(d) => u8::read_to_column(h, d, r)?,
-            AnyUintColumnReader::Uint16(d) => u16::read_to_column(h, d, r)?,
-            AnyUintColumnReader::Uint24(d) => u32::read_to_column(h, d, r)?,
-            AnyUintColumnReader::Uint32(d) => u32::read_to_column(h, d, r)?,
-            AnyUintColumnReader::Uint40(d) => u64::read_to_column(h, d, r)?,
-            AnyUintColumnReader::Uint48(d) => u64::read_to_column(h, d, r)?,
-            AnyUintColumnReader::Uint56(d) => u64::read_to_column(h, d, r)?,
-            AnyUintColumnReader::Uint64(d) => u64::read_to_column(h, d, r)?,
+            AnyUintColumnReader::Uint8(d) => UInt8Type::read_to_column(h, d, r)?,
+            AnyUintColumnReader::Uint16(d) => UInt16Type::read_to_column(h, d, r)?,
+            AnyUintColumnReader::Uint24(d) => UInt32Type::read_to_column(h, d, r)?,
+            AnyUintColumnReader::Uint32(d) => UInt32Type::read_to_column(h, d, r)?,
+            AnyUintColumnReader::Uint40(d) => UInt64Type::read_to_column(h, d, r)?,
+            AnyUintColumnReader::Uint48(d) => UInt64Type::read_to_column(h, d, r)?,
+            AnyUintColumnReader::Uint56(d) => UInt64Type::read_to_column(h, d, r)?,
+            AnyUintColumnReader::Uint64(d) => UInt64Type::read_to_column(h, d, r)?,
         }
         Ok(())
     }
 }
 
-impl Dataframe {
-    fn from(columns: Vec<Series>) -> Self {
-        Dataframe { columns }
+fn into_writable_columns(
+    df: DataFrame,
+    cs: Vec<ColumnType>,
+    conf: &WriteConfig,
+) -> Option<PureSuccess<Vec<ColumnWriter>>> {
+    let cols = df.get_columns();
+    let (writable_columns, msgs): (Vec<_>, Vec<_>) = cs
+        .into_iter()
+        // TODO do this without cloning?
+        .zip(cols)
+        .flat_map(|(w, c)| series_coerce(c, w, conf).map(|succ| (succ.data, succ.deferred)))
+        .unzip();
+    if df.width() != writable_columns.len() {
+        return None;
     }
-
-    fn is_empty(&self) -> bool {
-        self.columns.is_empty()
-    }
-
-    fn ncols(&self) -> usize {
-        self.columns.len()
-    }
-
-    fn nrows(&self) -> usize {
-        self.min_rows()
-    }
-
-    fn max_rows(&self) -> usize {
-        self.columns.iter().map(|c| c.len()).max().unwrap_or(0)
-    }
-
-    fn min_rows(&self) -> usize {
-        self.columns.iter().map(|c| c.len()).min().unwrap_or(0)
-    }
-
-    fn is_ragged(&self) -> bool {
-        self.min_rows() != self.max_rows()
-    }
-
-    fn total_bytes(&self) -> usize {
-        self.columns.iter().map(|c| c.total_bytes()).sum()
-    }
-
-    fn size(&self) -> usize {
-        self.columns.iter().map(|c| c.len()).sum()
-    }
-
-    fn square_size(&self) -> usize {
-        self.min_rows() * self.ncols()
-    }
-
-    fn into_writable_columns(
-        self,
-        cs: Vec<ColumnType>,
-        conf: &WriteConfig,
-    ) -> PureSuccess<Vec<ColumnWriter>> {
-        let (writable_columns, msgs): (Vec<_>, Vec<_>) = cs
-            .into_iter()
-            .zip(self.columns)
-            .map(|(w, s)| {
-                let res = s.coerce(w, conf);
-                (res.data, res.deferred)
-            })
-            .unzip();
-        PureSuccess {
-            data: writable_columns,
-            deferred: PureErrorBuf::mconcat(msgs),
-        }
-    }
-
-    fn into_writable_matrix64(self, conf: &WriteConfig) -> PureSuccess<Vec<Vec<u64>>> {
-        let (columns, msgs): (Vec<_>, Vec<_>) = self
-            .columns
-            .into_iter()
-            .map(|s| {
-                let res = s.coerce64(conf);
-                (res.data, res.deferred)
-            })
-            .unzip();
-        PureSuccess {
-            data: columns,
-            deferred: PureErrorBuf::mconcat(msgs),
-        }
-    }
+    Some(PureSuccess {
+        data: writable_columns,
+        deferred: PureErrorBuf::mconcat(msgs),
+    })
 }
 
-// TODO make this a method
-fn format_parsed_data(res: &StandardizedDataset, delim: &str) -> Vec<String> {
-    let shortnames = match &res.dataset.keywords {
-        AnyCoreTEXT::FCS2_0(x) => x.shortnames(),
-        AnyCoreTEXT::FCS3_0(x) => x.shortnames(),
-        AnyCoreTEXT::FCS3_1(x) => x.shortnames(),
-        AnyCoreTEXT::FCS3_2(x) => x.shortnames(),
-    };
-    if res.dataset.data.is_empty() {
-        return vec![];
+fn into_writable_matrix64(df: DataFrame, conf: &WriteConfig) -> Option<PureSuccess<Vec<Vec<u64>>>> {
+    let (columns, msgs): (Vec<_>, Vec<_>) = df
+        .get_columns()
+        .iter()
+        .flat_map(|c| {
+            if let Some(res) = series_coerce64(c, conf) {
+                Some((res.data, res.deferred))
+            } else {
+                None
+            }
+        })
+        .unzip();
+    if df.width() != columns.len() {
+        return None;
     }
-    let mut buf = vec![];
-    let mut lines = vec![];
-    let nrows = res.dataset.data.nrows();
-    let ncols = res.dataset.data.ncols();
-    // ASSUME names is the same length as columns
-    lines.push(shortnames.into_iter().map(|m| m.0).join(delim));
-    for r in 0..nrows {
-        buf.clear();
-        for c in 0..ncols {
-            buf.push(res.dataset.data.columns[c].format(r));
-        }
-        lines.push(buf.join(delim));
-    }
-    lines
+    Some(PureSuccess {
+        data: columns,
+        deferred: PureErrorBuf::mconcat(msgs),
+    })
 }
 
-// TODO and this
-pub fn print_parsed_data(s: &StandardizedDataset, delim: &str) {
-    for x in format_parsed_data(s, delim) {
-        println!("{}", x);
-    }
+// TODO fix delim
+pub fn print_parsed_data(s: &mut StandardizedDataset, _delim: &str) -> PolarsResult<()> {
+    let mut fd = std::io::stdout();
+    CsvWriter::new(&mut fd)
+        .include_header(true)
+        .with_separator(b'\t')
+        // TODO why does this need to be mutable?
+        .finish(&mut s.dataset.data)
 }
 
 fn ascii_to_uint_io(buf: Vec<u8>) -> io::Result<u64> {
@@ -4588,7 +4459,7 @@ fn parse_u64_io(s: &str) -> io::Result<u64> {
 fn read_data_delim_ascii<R: Read>(
     h: &mut BufReader<R>,
     p: DelimAsciiReader,
-) -> io::Result<Dataframe> {
+) -> io::Result<DataFrame> {
     let mut buf = Vec::new();
     let mut row = 0;
     let mut col = 0;
@@ -4596,8 +4467,10 @@ fn read_data_delim_ascii<R: Read>(
     // Delimiters are tab, newline, carriage return, space, or comma. Any
     // consecutive delimiter counts as one, and delimiters can be mixed.
     let is_delim = |byte| byte == 9 || byte == 10 || byte == 13 || byte == 32 || byte == 44;
-    // FCS 2.0 files have an optional $TOT field, which complicates this a bit
-    if let Some(nrows) = p.nrows {
+    let mut data = if let Some(nrows) = p.nrows {
+        // FCS 2.0 files have an optional $TOT field, which complicates this a
+        // bit. If we know the number of rows, initialize a bunch of zero-ed
+        // vectors and fill them sequentially.
         let mut data: Vec<_> = iter::repeat_with(|| vec![0; nrows]).take(p.ncols).collect();
         for b in h.bytes().take(p.nbytes) {
             let byte = b?;
@@ -4622,13 +4495,8 @@ fn read_data_delim_ascii<R: Read>(
                 }
             } else {
                 buf.push(byte);
+                last_was_delim = false;
             }
-        }
-        // The spec isn't clear if the last value should be a delim or
-        // not, so flush the buffer if it has anything in it since we
-        // only try to parse if we hit a delim above.
-        if !buf.is_empty() {
-            data[col][row] = ascii_to_uint_io(buf.clone())?;
         }
         if !(col == 0 && row == nrows) {
             let msg = format!(
@@ -4637,10 +4505,12 @@ fn read_data_delim_ascii<R: Read>(
             );
             return Err(io::Error::new(io::ErrorKind::InvalidData, msg));
         }
-        Ok(Dataframe::from(
-            data.into_iter().map(Vec::<u64>::into).collect(),
-        ))
+        data
     } else {
+        // If we don't know the number of rows, the only choice is to push onto
+        // the column vectors one at a time. This leads to the possibility that
+        // the vectors may not be the same length in the end, in which case,
+        // scream loudly and bail.
         let mut data: Vec<_> = iter::repeat_with(Vec::new).take(p.ncols).collect();
         for b in h.bytes().take(p.nbytes) {
             let byte = b?;
@@ -4660,29 +4530,37 @@ fn read_data_delim_ascii<R: Read>(
                 }
             } else {
                 buf.push(byte);
+                last_was_delim = false;
             }
         }
-        // The spec isn't clear if the last value should be a delim or
-        // not, so flush the buffer if it has anything in it since we
-        // only try to parse if we hit a delim above.
-        if !buf.is_empty() {
-            data[col][row] = ascii_to_uint_io(buf.clone())?;
-        }
-        // Scream if not all columns are equal in length
         if data.iter().map(|c| c.len()).unique().count() > 1 {
             let msg = "Not all columns are equal length";
             return Err(io::Error::new(io::ErrorKind::InvalidData, msg));
         }
-        Ok(Dataframe::from(
-            data.into_iter().map(Vec::<u64>::into).collect(),
-        ))
+        data
+    };
+    // The spec isn't clear if the last value should be a delim or
+    // not, so flush the buffer if it has anything in it since we
+    // only try to parse if we hit a delim above.
+    if !buf.is_empty() {
+        data[col][row] = ascii_to_uint_io(buf.clone())?;
     }
+    let ss: Vec<_> = data
+        .into_iter()
+        .enumerate()
+        .map(|(i, s)| {
+            ChunkedArray::<UInt64Type>::from_vec(format!("M{i}").into(), s)
+                .into_series()
+                .into()
+        })
+        .collect();
+    DataFrame::new(ss).map_err(|e| io::Error::other(e.to_string()))
 }
 
 fn read_data_ascii_fixed<R: Read>(
     h: &mut BufReader<R>,
     parser: &FixedAsciiReader,
-) -> io::Result<Dataframe> {
+) -> io::Result<DataFrame> {
     let ncols = parser.widths.len();
     let mut data: Vec<_> = iter::repeat_with(|| vec![0; parser.nrows])
         .take(ncols)
@@ -4695,19 +4573,27 @@ fn read_data_ascii_fixed<R: Read>(
             data[c][r] = parse_u64_io(&buf)?;
         }
     }
-    Ok(Dataframe::from(
-        data.into_iter().map(Vec::<u64>::into).collect(),
-    ))
+    // TODO not DRY
+    let ss: Vec<_> = data
+        .into_iter()
+        .enumerate()
+        .map(|(i, s)| {
+            ChunkedArray::<UInt64Type>::from_vec(format!("M{i}").into(), s)
+                .into_series()
+                .into()
+        })
+        .collect();
+    DataFrame::new(ss).map_err(|e| io::Error::other(e.to_string()))
 }
 
-fn read_data_mixed<R: Read>(h: &mut BufReader<R>, parser: MixedParser) -> io::Result<Dataframe> {
+fn read_data_mixed<R: Read>(h: &mut BufReader<R>, parser: MixedParser) -> io::Result<DataFrame> {
     let mut p = parser;
     let mut strbuf = String::new();
     for r in 0..p.nrows {
         for c in p.columns.iter_mut() {
             match c {
-                MixedColumnType::Single(t) => f32::read_to_column(h, t, r)?,
-                MixedColumnType::Double(t) => f64::read_to_column(h, t, r)?,
+                MixedColumnType::Single(t) => Float32Type::read_to_column(h, t, r)?,
+                MixedColumnType::Double(t) => Float64Type::read_to_column(h, t, r)?,
                 MixedColumnType::Uint(u) => u.read_to_column(h, r)?,
                 MixedColumnType::Ascii(d) => {
                     strbuf.clear();
@@ -4717,33 +4603,41 @@ fn read_data_mixed<R: Read>(h: &mut BufReader<R>, parser: MixedParser) -> io::Re
             }
         }
     }
-    Ok(Dataframe::from(
-        p.columns.into_iter().map(|c| c.into()).collect(),
-    ))
+    let ss: Vec<_> = p
+        .columns
+        .into_iter()
+        .enumerate()
+        .map(|(i, c)| c.into_pl_series(format!("X{i}").into()).into())
+        .collect();
+    DataFrame::new(ss).map_err(|e| io::Error::other(e.to_string()))
 }
 
-fn read_data_int<R: Read>(h: &mut BufReader<R>, parser: UintReader) -> io::Result<Dataframe> {
+fn read_data_int<R: Read>(h: &mut BufReader<R>, parser: UintReader) -> io::Result<DataFrame> {
     let mut p = parser;
     for r in 0..p.nrows {
         for c in p.columns.iter_mut() {
             c.read_to_column(h, r)?;
         }
     }
-    Ok(Dataframe::from(
-        p.columns.into_iter().map(|c| c.into()).collect(),
-    ))
+    let ss: Vec<_> = p
+        .columns
+        .into_iter()
+        .enumerate()
+        .map(|(i, c)| c.into_pl_series(format!("X{i}").into()).into())
+        .collect();
+    DataFrame::new(ss).map_err(|e| io::Error::other(e.to_string()))
 }
 
 fn h_read_data_segment<R: Read + Seek>(
     h: &mut BufReader<R>,
     parser: DataReader,
-) -> io::Result<Dataframe> {
+) -> io::Result<DataFrame> {
     h.seek(SeekFrom::Start(parser.begin))?;
     match parser.column_reader {
         ColumnReader::DelimitedAscii(p) => read_data_delim_ascii(h, p),
         ColumnReader::FixedWidthAscii(p) => read_data_ascii_fixed(h, &p),
-        ColumnReader::Single(p) => f32::read_matrix(h, p),
-        ColumnReader::Double(p) => f64::read_matrix(h, p),
+        ColumnReader::Single(p) => Float32Type::read_matrix(h, p),
+        ColumnReader::Double(p) => Float64Type::read_matrix(h, p),
         ColumnReader::Mixed(p) => read_data_mixed(h, p),
         ColumnReader::Uint(p) => read_data_int(h, p),
     }
@@ -4752,25 +4646,26 @@ fn h_read_data_segment<R: Read + Seek>(
 fn h_write_numeric_dataframe<W: Write>(
     h: &mut BufWriter<W>,
     cs: Vec<ColumnType>,
-    df: Dataframe,
+    df: DataFrame,
     conf: &Config,
 ) -> ImpureResult<()> {
-    let df_nrows = df.nrows();
-    df.into_writable_columns(cs, &conf.write)
-        .try_map(|writable_columns| {
+    let df_nrows = df.height();
+    let res = into_writable_columns(df, cs, &conf.write);
+    if let Some(succ) = res {
+        succ.try_map(|writable_columns| {
             for r in 0..df_nrows {
                 for c in writable_columns.iter() {
                     match c {
-                        NumU8(w) => u8::write_int(h, &w.size, w.column[r]),
-                        NumU16(w) => u16::write_int(h, &w.size, w.column[r]),
-                        NumU24(w) => u32::write_int(h, &w.size, w.column[r]),
-                        NumU32(w) => u32::write_int(h, &w.size, w.column[r]),
-                        NumU40(w) => u64::write_int(h, &w.size, w.column[r]),
-                        NumU48(w) => u64::write_int(h, &w.size, w.column[r]),
-                        NumU56(w) => u64::write_int(h, &w.size, w.column[r]),
-                        NumU64(w) => u64::write_int(h, &w.size, w.column[r]),
-                        NumF32(w) => f32::write_float(h, &w.size, w.column[r]),
-                        NumF64(w) => f64::write_float(h, &w.size, w.column[r]),
+                        NumU8(w) => UInt8Type::write_int(h, &w.size, w.column[r]),
+                        NumU16(w) => UInt16Type::write_int(h, &w.size, w.column[r]),
+                        NumU24(w) => UInt32Type::write_int(h, &w.size, w.column[r]),
+                        NumU32(w) => UInt32Type::write_int(h, &w.size, w.column[r]),
+                        NumU40(w) => UInt64Type::write_int(h, &w.size, w.column[r]),
+                        NumU48(w) => UInt64Type::write_int(h, &w.size, w.column[r]),
+                        NumU56(w) => UInt64Type::write_int(h, &w.size, w.column[r]),
+                        NumU64(w) => UInt64Type::write_int(h, &w.size, w.column[r]),
+                        NumF32(w) => Float32Type::write_float(h, &w.size, w.column[r]),
+                        NumF64(w) => Float64Type::write_float(h, &w.size, w.column[r]),
                         AsciiU8(w) => u8::write_ascii_int(h, w.bytes, w.column[r]),
                         AsciiU16(w) => u16::write_ascii_int(h, w.bytes, w.column[r]),
                         AsciiU32(w) => u32::write_ascii_int(h, w.bytes, w.column[r]),
@@ -4780,6 +4675,12 @@ fn h_write_numeric_dataframe<W: Write>(
             }
             Ok(PureSuccess::from(()))
         })
+    } else {
+        // TODO lame error message
+        Err(io::Error::other(
+            "could not get data from dataframe".to_string(),
+        ))?
+    }
 }
 
 fn h_write_delimited_matrix<W: Write>(
@@ -4817,22 +4718,22 @@ fn h_write_dataset<W: Write>(
 ) -> ImpureResult<()> {
     let analysis_len = d.analysis.len();
     let df = d.data;
-    let df_ncols = df.ncols();
+    let df_ncols = df.width();
 
     // Check that the dataframe isn't "ragged" (columns are different lengths).
     // If this is false, something terrible happened and we need to stop
     // immediately.
-    if df.is_ragged() {
-        Err(Failure::new(
-            "dataframe has unequal column lengths".to_string(),
-        ))?;
-    }
+    // if df.is_ragged() {
+    //     Err(Failure::new(
+    //         "dataframe has unequal column lengths".to_string(),
+    //     ))?;
+    // }
 
     // We can now confidently count the number of events (rows)
-    let nrows = df.nrows();
+    let nrows = df.height();
 
     // Get the layout, or bail if we can't
-    let layout = d.keywords.as_writer_data_layout().map_err(|es| Failure {
+    let layout = d.text.as_writer_data_layout().map_err(|es| Failure {
         reason: "could not create data layout".to_string(),
         deferred: PureErrorBuf::from_many(es, PureErrorLevel::Error),
     })?;
@@ -4850,10 +4751,10 @@ fn h_write_dataset<W: Write>(
     // Make common HEADER+TEXT writing function, for which the only unknown
     // now is the length of DATA.
     let write_text = |h: &mut BufWriter<W>, data_len| -> ImpureResult<()> {
-        if let Some(text) = d.keywords.text_segment(nrows, data_len, analysis_len) {
+        if let Some(text) = d.text.text_segment(nrows, data_len, analysis_len) {
             for t in text {
                 h.write_all(t.as_bytes())?;
-                h.write_all(&[conf.write.delim])?;
+                h.write_all(&[conf.write.delim.inner()])?;
             }
         } else {
             Err(Failure::new(
@@ -4892,20 +4793,27 @@ fn h_write_dataset<W: Write>(
             // value. Then convert values to strings and write byte
             // representation of strings. Fun...
             DataLayout::AsciiDelimited { nrows: _, ncols: _ } => {
-                df.into_writable_matrix64(&conf.write).try_map(|columns| {
-                    let ndelim = df_ncols * nrows - 1;
-                    // TODO cast?
-                    let value_nbytes: u32 = columns
-                        .iter()
-                        .flat_map(|rows| rows.iter().map(|x| x.checked_ilog10().unwrap_or(1)))
-                        .sum();
-                    // compute data length (delimiters + number of digits)
-                    let data_len = value_nbytes as usize + ndelim;
-                    // write HEADER+TEXT
-                    write_text(h, data_len)?;
-                    // write DATA
-                    h_write_delimited_matrix(h, nrows, columns)
-                })
+                if let Some(succ) = into_writable_matrix64(df, &conf.write) {
+                    succ.try_map(|columns| {
+                        let ndelim = df_ncols * nrows - 1;
+                        // TODO cast?
+                        let value_nbytes: u32 = columns
+                            .iter()
+                            .flat_map(|rows| rows.iter().map(|x| x.checked_ilog10().unwrap_or(1)))
+                            .sum();
+                        // compute data length (delimiters + number of digits)
+                        let data_len = value_nbytes as usize + ndelim;
+                        // write HEADER+TEXT
+                        write_text(h, data_len)?;
+                        // write DATA
+                        h_write_delimited_matrix(h, nrows, columns)
+                    })
+                } else {
+                    // TODO lame...
+                    Err(io::Error::other(
+                        "could not get data from dataframe".to_string(),
+                    ))?
+                }
             }
         }
     };
@@ -5007,11 +4915,11 @@ fn h_read_std_dataset<R: Read + Seek>(
     conf: &Config,
 ) -> ImpureResult<StandardizedDataset> {
     let mut kws = std.remainder;
-    let version = std.keywords.version();
+    let version = std.standardized.version();
     let anal_succ = lookup_analysis_offsets(&mut kws, conf, version, &std.offsets.analysis);
     lookup_data_offsets(&mut kws, conf, version, &std.offsets.data)
         .and_then(|data_seg| {
-            std.keywords
+            std.standardized
                 .as_data_reader(&mut kws, conf, &data_seg)
                 .combine(anal_succ, |data_parser, analysis_seg| {
                     (data_parser, data_seg, analysis_seg)
@@ -5020,8 +4928,9 @@ fn h_read_std_dataset<R: Read + Seek>(
         .try_map(|(data_maybe, data_seg, analysis_seg)| {
             let dmsg = "could not create data parser".to_string();
             let data_parser = data_maybe.ok_or(Failure::new(dmsg))?;
-            let data = h_read_data_segment(h, data_parser)?;
+            let mut data = h_read_data_segment(h, data_parser)?;
             let analysis = h_read_analysis(h, &analysis_seg)?;
+            std.standardized.set_df_column_names(&mut data);
             Ok(PureSuccess::from(StandardizedDataset {
                 offsets: Offsets {
                     prim_text: std.offsets.prim_text,
@@ -5034,7 +4943,7 @@ fn h_read_std_dataset<R: Read + Seek>(
                 remainder: kws,
                 dataset: CoreDataset {
                     data,
-                    keywords: std.keywords,
+                    text: std.standardized,
                     analysis,
                 },
                 deviant: std.deviant,
@@ -5747,7 +5656,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
     /// Lookup $TR but check that its name is valid
     fn lookup_trigger_checked(&mut self, names: &HashSet<&str>) -> OptionalKw<Trigger> {
         if let Present(tr) = self.lookup_trigger() {
-            let p = tr.measurement.0.as_str();
+            let p = tr.measurement.as_ref();
             if names.contains(p) {
                 self.push_meta_error(format!(
                     "$TRIGGER refers to non-existent measurements '{p}'",
@@ -5765,7 +5674,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
     fn lookup_timestep_checked(&mut self, names: &HashSet<&str>) -> OptionalKw<f32> {
         let ts = self.lookup_timestep();
         if let Some(time_name) = &self.conf.time_shortname {
-            if names.contains(time_name.as_str()) && ts == Absent {
+            if names.contains(time_name.as_ref()) && ts == Absent {
                 self.push_meta_error_or_warning(
                     self.conf.ensure_time_timestep,
                     String::from("$TIMESTEP must be present if time channel given"),
@@ -5796,10 +5705,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
         names: &HashSet<&str>,
     ) -> OptionalKw<UnstainedCenters> {
         if let Present(u) = self.lookup_unstainedcenters() {
-            let noexist: Vec<_> =
-                u.0.keys()
-                    .filter(|m| !names.contains(m.0.as_str()))
-                    .collect();
+            let noexist: Vec<_> = u.0.keys().filter(|m| !names.contains(m.as_ref())).collect();
             if !noexist.is_empty() {
                 let msg = format!(
                     "$UNSTAINEDCENTERS refers to non-existent measurements: {}",
@@ -5923,7 +5829,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
             let noexist: Vec<_> = s
                 .measurements
                 .iter()
-                .filter(|m| !names.contains(m.0.as_str()))
+                .filter(|m| !names.contains(m.as_ref()))
                 .collect();
             if !noexist.is_empty() {
                 let msg = format!(
@@ -5939,14 +5845,14 @@ impl<'a, 'b> KwParser<'a, 'b> {
         }
     }
 
-    fn lookup_all_nonstandard(&mut self) -> RawKeywords {
+    fn lookup_all_nonstandard(&mut self) -> NonStdKeywords {
         let mut ns = HashMap::new();
         self.raw_keywords.retain(|k, v| {
-            if k.starts_with("$") {
-                true
-            } else {
-                ns.insert(k.clone(), v.clone());
+            if let Some(nk) = k.parse::<NonStdKey>().ok() {
+                ns.insert(nk, v.clone());
                 false
+            } else {
+                true
             }
         });
         ns
@@ -6047,28 +5953,23 @@ impl<'a, 'b> KwParser<'a, 'b> {
         }
     }
 
-    fn lookup_all_meas_nonstandard(&mut self, n: usize) -> RawKeywords {
+    fn lookup_all_meas_nonstandard(&mut self, n: usize) -> NonStdKeywords {
         let mut ns = HashMap::new();
         // ASSUME the pattern does not start with "$" and has a %n which will be
         // subbed for the measurement index. The pattern will then be turned
         // into a legit rust regular expression, which may fail depending on
         // what %n does, so check it each time.
         if let Some(p) = &self.conf.nonstandard_measurement_pattern {
-            let rep = p.replace("%n", n.to_string().as_str());
-            if let Ok(pattern) = Regex::new(rep.as_str()) {
-                self.raw_keywords.retain(|k, v| {
-                    if pattern.is_match(k.as_str()) {
-                        ns.insert(k.clone(), v.clone());
+            match p.from_index(n) {
+                Ok(pattern) => self.raw_keywords.retain(|k, v| {
+                    if let Some(nk) = pattern.try_match(k.as_str()) {
+                        ns.insert(nk, v.clone());
                         false
                     } else {
                         true
                     }
-                });
-            } else {
-                self.push_meta_warning(format!(
-                    "Could not make regular expression using \
-                     pattern '{rep}' for measurement {n}"
-                ));
+                }),
+                Err(err) => self.push_meta_warning(err.to_string()),
             }
         }
         ns
@@ -6110,7 +6011,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
     fn from(kws: &'b mut RawKeywords, conf: &'a StdTextReadConfig) -> Self {
         KwParser {
             raw_keywords: kws,
-            deferred: PureErrorBuf::new(),
+            deferred: PureErrorBuf::default(),
             conf,
         }
     }
@@ -6188,12 +6089,12 @@ impl<'a, 'b> KwParser<'a, 'b> {
 }
 
 struct NSKwParser<'a> {
-    raw_keywords: &'a mut RawKeywords,
+    raw_keywords: &'a mut NonStdKeywords,
     deferred: PureErrorBuf,
 }
 
 impl<'a> NSKwParser<'a> {
-    fn run<X, F>(kws: &'a mut RawKeywords, f: F) -> PureSuccess<X>
+    fn run<X, F>(kws: &'a mut NonStdKeywords, f: F) -> PureSuccess<X>
     where
         F: FnOnce(&mut Self) -> X,
     {
@@ -6217,13 +6118,13 @@ impl<'a> NSKwParser<'a> {
         F: FnOnce(X, &[Shortname]) -> Option<Y>,
         <Y as FromStr>::Err: fmt::Display,
     {
-        let fallback = self.lookup_nonstandard_maybe(dopt.default);
+        let fallback = self.lookup_maybe(dopt.default);
         if dopt.try_convert {
             if let Present(s) = spillover {
                 return match f(s, ns) {
                     Some(c) => Present(c),
                     None => {
-                        self.push_meta_warning(format!("{which} not full rank"));
+                        self.deferred.push_warning(format!("{which} not full rank"));
                         fallback
                     }
                 };
@@ -6252,60 +6153,40 @@ impl<'a> NSKwParser<'a> {
 
     fn lookup_modification(&mut self, look: ModificationDefaults) -> ModificationData {
         ModificationData {
-            last_modified: self.lookup_nonstandard_maybe(look.last_modified),
-            last_modifier: self.lookup_nonstandard_maybe(look.last_modifier),
-            originality: self.lookup_nonstandard_maybe(look.originality),
+            last_modified: self.lookup_maybe(look.last_modified),
+            last_modifier: self.lookup_maybe(look.last_modifier),
+            originality: self.lookup_maybe(look.originality),
         }
     }
 
     fn lookup_plate(&mut self, look: PlateDefaults) -> PlateData {
         PlateData {
-            plateid: self.lookup_nonstandard_maybe(look.plateid),
-            platename: self.lookup_nonstandard_maybe(look.platename),
-            wellid: self.lookup_nonstandard_maybe(look.wellid),
+            plateid: self.lookup_maybe(look.plateid),
+            platename: self.lookup_maybe(look.platename),
+            wellid: self.lookup_maybe(look.wellid),
         }
     }
 
     fn lookup_unstained(&mut self, look: UnstainedDefaults) -> UnstainedData {
         UnstainedData {
-            unstainedcenters: self.lookup_nonstandard_maybe(look.unstainedcenters),
-            unstainedinfo: self.lookup_nonstandard_maybe(look.unstainedinfo),
+            unstainedcenters: self.lookup_maybe(look.unstainedcenters),
+            unstainedinfo: self.lookup_maybe(look.unstainedinfo),
         }
     }
 
     fn lookup_carrier(&mut self, look: CarrierDefaults) -> CarrierData {
         CarrierData {
-            carrierid: self.lookup_nonstandard_maybe(look.carrierid),
-            carriertype: self.lookup_nonstandard_maybe(look.carriertype),
-            locationid: self.lookup_nonstandard_maybe(look.locationid),
+            carrierid: self.lookup_maybe(look.carrierid),
+            carriertype: self.lookup_maybe(look.carriertype),
+            locationid: self.lookup_maybe(look.locationid),
         }
     }
 
     fn lookup_datetimes(&mut self, look: DatetimesDefaults) -> Datetimes {
         Datetimes {
-            begin: self.lookup_nonstandard_maybe(look.begin),
-            end: self.lookup_nonstandard_maybe(look.end),
+            begin: self.lookup_maybe(look.begin),
+            end: self.lookup_maybe(look.end),
         }
-    }
-
-    fn push_meta_error_str(&mut self, msg: &str) {
-        self.push_meta_error(String::from(msg));
-    }
-
-    fn push_meta_error(&mut self, msg: String) {
-        self.deferred.push_error(msg);
-    }
-
-    fn push_meta_warning_str(&mut self, msg: &str) {
-        self.push_meta_warning(String::from(msg));
-    }
-
-    fn push_meta_warning(&mut self, msg: String) {
-        self.deferred.push_warning(msg);
-    }
-
-    fn push_meta_error_or_warning(&mut self, is_error: bool, msg: String) {
-        self.deferred.push_msg_leveled(msg, is_error);
     }
 
     // auxiliary functions
@@ -6314,22 +6195,18 @@ impl<'a> NSKwParser<'a> {
         self.deferred
     }
 
-    fn into_failure(self, reason: String) -> PureFailure {
-        Failure {
-            reason,
-            deferred: self.collect(),
-        }
-    }
-
-    fn from(kws: &'a mut RawKeywords) -> Self {
+    fn from(kws: &'a mut NonStdKeywords) -> Self {
         NSKwParser {
             raw_keywords: kws,
-            deferred: PureErrorBuf::new(),
+            deferred: PureErrorBuf::default(),
         }
     }
 
-    // TODO make a meas version of this that uses the index
-    fn lookup_nonstandard_maybe<V: FromStr>(&mut self, dopt: DefaultOptional<V>) -> OptionalKw<V>
+    fn lookup_meas_maybe<V: FromStr>(
+        &mut self,
+        n: usize,
+        dopt: DefaultMeasOptional<V>,
+    ) -> OptionalKw<V>
     where
         <V as FromStr>::Err: fmt::Display,
     {
@@ -6339,26 +6216,37 @@ impl<'a> NSKwParser<'a> {
             OptionalKw::from_option(
                 dopt.key
                     .as_ref()
-                    .and_then(|kk| self.lookup_nonstandard_opt(kk)),
+                    .and_then(|kk| self.lookup_opt(&kk.from_index(n))),
             )
         }
     }
 
-    fn lookup_nonstandard_opt<V: FromStr>(&mut self, k: &str) -> Option<V>
+    fn lookup_maybe<V: FromStr>(&mut self, dopt: DefaultMetaOptional<V>) -> OptionalKw<V>
     where
         <V as FromStr>::Err: fmt::Display,
     {
-        self.lookup_nonstandard(k).into_option()
+        if let Some(d) = dopt.default {
+            Present(d)
+        } else {
+            OptionalKw::from_option(dopt.key.as_ref().and_then(|kk| self.lookup_opt(kk)))
+        }
     }
 
-    fn lookup_nonstandard<V: FromStr>(&mut self, k: &str) -> OptionalKw<V>
+    fn lookup_opt<V: FromStr>(&mut self, k: &NonStdKey) -> Option<V>
+    where
+        <V as FromStr>::Err: fmt::Display,
+    {
+        self.lookup(k).into_option()
+    }
+
+    fn lookup<V: FromStr>(&mut self, k: &NonStdKey) -> OptionalKw<V>
     where
         <V as FromStr>::Err: fmt::Display,
     {
         match self.raw_keywords.get(k) {
             Some(v) => match v.parse() {
                 Err(w) => {
-                    let msg = format!("{w} for key '{k}' with value '{v}'");
+                    let msg = format!("{w} for key '{}' with value '{v}'", k.as_ref());
                     self.deferred.push_warning(msg);
                     Absent
                 }
@@ -6534,7 +6422,7 @@ fn repair_keywords(kws: &mut RawKeywords, conf: &RawTextReadConfig) {
         let k = key.as_str();
         if k == DATE {
             if let Some(pattern) = &conf.date_pattern {
-                if let Ok(d) = NaiveDate::parse_from_str(v, pattern.as_str()) {
+                if let Ok(d) = NaiveDate::parse_from_str(v, pattern.as_ref()) {
                     *v = format!("{}", FCSDate(d))
                 }
             }
@@ -6563,7 +6451,7 @@ impl StdTextReadConfig {
     fn time_name_matches(&self, name: &Shortname) -> bool {
         self.time_shortname
             .as_ref()
-            .map(|n| n == name.0.as_str())
+            .map(|n| n == name)
             .unwrap_or(false)
     }
 }
@@ -6719,7 +6607,7 @@ fn raw_to_std(raw: RawTEXT, conf: &Config) -> PureResult<StandardizedTEXT> {
                 let (remainder, deviant) = split_remainder(kws);
                 StandardizedTEXT {
                     offsets: raw.offsets,
-                    keywords: standardized,
+                    standardized,
                     delimiter: raw.delimiter,
                     remainder,
                     deviant,
@@ -6929,9 +6817,13 @@ impl From<Endian> for ByteOrd {
 pub trait IntoMeasurement<T, Y>: Sized {
     type DefaultsXToY: From<Y>;
 
-    fn convert(m: Measurement<Self>, def: Self::DefaultsXToY) -> PureSuccess<Measurement<T>> {
+    fn convert(
+        m: Measurement<Self>,
+        n: usize,
+        def: Self::DefaultsXToY,
+    ) -> PureSuccess<Measurement<T>> {
         let mut m = m;
-        Self::convert_inner(m.specific, def, &mut m.nonstandard_keywords).map(|specific| {
+        Self::convert_inner(m.specific, n, def, &mut m.nonstandard_keywords).map(|specific| {
             Measurement {
                 bytes: m.bytes,
                 range: m.range,
@@ -6947,7 +6839,12 @@ pub trait IntoMeasurement<T, Y>: Sized {
         })
     }
 
-    fn convert_inner(self, def: Self::DefaultsXToY, ns: &mut RawKeywords) -> PureSuccess<T>;
+    fn convert_inner(
+        self,
+        n: usize,
+        def: Self::DefaultsXToY,
+        ns: &mut NonStdKeywords,
+    ) -> PureSuccess<T>;
 }
 
 pub trait IntoMetadata<T, D>: Sized {
@@ -6985,7 +6882,7 @@ pub trait IntoMetadata<T, D>: Sized {
     fn convert_inner(
         self,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
+        ns: &mut NonStdKeywords,
         ms: &[Shortname],
     ) -> PureSuccess<T>;
 }
@@ -7015,7 +6912,8 @@ where
             .measurements
             .into_iter()
             .zip(def.measurements)
-            .map(|(m, d)| Self::FromP::convert(m, d))
+            .enumerate()
+            .map(|(i, (m, d))| Self::FromP::convert(m, i, d))
             .collect();
         PureSuccess::sequence(ms).and_then(|measurements| {
             // TODO not DRY
@@ -7031,6 +6929,7 @@ where
         })
     }
 
+    // TODO not DRY
     fn convert_core(
         c: CoreTEXT<Self::FromM, Self::FromP>,
         def: CoreDefaults<DM, DP>,
@@ -7041,7 +6940,8 @@ where
             .measurements
             .into_iter()
             .zip(def.measurements)
-            .map(|(m, d)| Self::FromP::convert(m, d.into()))
+            .enumerate()
+            .map(|(i, (m, d))| Self::FromP::convert(m, i, d.into()))
             .collect();
         PureSuccess::sequence(ms).and_then(|measurements| {
             // TODO not DRY
@@ -7120,16 +7020,21 @@ where
 /// neither is supplied, this keyword will be left unfilled. Obviously this only
 /// applies if the keyword is optional.
 #[derive(Clone)]
-struct DefaultOptional<T> {
+struct DefaultOptional<T, K> {
     /// Value to be used as a default
     default: Option<T>,
 
-    /// Key to use when looking in the nonstandard keyword hash table
-    key: Option<String>,
+    /// Key to use when looking in the nonstandard keyword hash table.
+    ///
+    /// This is assumed not to start with "$".
+    key: Option<K>,
 }
 
-impl<T> Default for DefaultOptional<T> {
-    fn default() -> DefaultOptional<T> {
+type DefaultMetaOptional<T> = DefaultOptional<T, NonStdKey>;
+type DefaultMeasOptional<T> = DefaultOptional<T, NonStdMeasKey>;
+
+impl<T, K> Default for DefaultOptional<T, K> {
+    fn default() -> DefaultOptional<T, K> {
         DefaultOptional {
             default: None,
             key: None,
@@ -7148,49 +7053,49 @@ pub struct DefaultMatrix<T> {
     ///
     /// For now this applies to $COMP<->$SPILLOVER conversions.
     try_convert: bool,
-    default: DefaultOptional<T>,
+    default: DefaultMetaOptional<T>,
 }
 
 impl<T> Default for DefaultMatrix<T> {
     fn default() -> DefaultMatrix<T> {
         DefaultMatrix {
             try_convert: false,
-            default: DefaultOptional::default(),
+            default: DefaultMetaOptional::default(),
         }
     }
 }
 
 #[derive(Default)]
 pub struct ModificationDefaults {
-    last_modified: DefaultOptional<ModifiedDateTime>,
-    last_modifier: DefaultOptional<String>,
-    originality: DefaultOptional<Originality>,
+    last_modified: DefaultMetaOptional<ModifiedDateTime>,
+    last_modifier: DefaultMetaOptional<String>,
+    originality: DefaultMetaOptional<Originality>,
 }
 
 #[derive(Default)]
 pub struct PlateDefaults {
-    plateid: DefaultOptional<String>,
-    platename: DefaultOptional<String>,
-    wellid: DefaultOptional<String>,
+    plateid: DefaultMetaOptional<String>,
+    platename: DefaultMetaOptional<String>,
+    wellid: DefaultMetaOptional<String>,
 }
 
 #[derive(Default)]
 pub struct CarrierDefaults {
-    carrierid: DefaultOptional<String>,
-    carriertype: DefaultOptional<String>,
-    locationid: DefaultOptional<String>,
+    carrierid: DefaultMetaOptional<String>,
+    carriertype: DefaultMetaOptional<String>,
+    locationid: DefaultMetaOptional<String>,
 }
 
 #[derive(Default)]
 pub struct UnstainedDefaults {
-    unstainedcenters: DefaultOptional<UnstainedCenters>,
-    unstainedinfo: DefaultOptional<String>,
+    unstainedcenters: DefaultMetaOptional<UnstainedCenters>,
+    unstainedinfo: DefaultMetaOptional<String>,
 }
 
 #[derive(Default)]
 pub struct DatetimesDefaults {
-    begin: DefaultOptional<FCSDateTime>,
-    end: DefaultOptional<FCSDateTime>,
+    begin: DefaultMetaOptional<FCSDateTime>,
+    end: DefaultMetaOptional<FCSDateTime>,
 }
 
 pub struct MetadataDefaults2_0To2_0;
@@ -7211,32 +7116,32 @@ pub struct MetadataDefaults3_0To3_0;
 
 #[derive(Default)]
 pub struct MetadataDefaults2_0To3_0 {
-    byteord: DefaultOptional<String>,
-    cytsn: DefaultOptional<String>,
-    timestep: DefaultOptional<f32>,
-    vol: DefaultOptional<String>,
-    unicode: DefaultOptional<Unicode>,
+    byteord: DefaultMetaOptional<String>,
+    cytsn: DefaultMetaOptional<String>,
+    timestep: DefaultMetaOptional<f32>,
+    vol: DefaultMetaOptional<f32>,
+    unicode: DefaultMetaOptional<Unicode>,
 }
 
 #[derive(Default)]
 pub struct MetadataDefaults3_1To3_0 {
     comp: DefaultMatrix<Compensation>,
-    unicode: DefaultOptional<Unicode>,
+    unicode: DefaultMetaOptional<Unicode>,
 }
 
 #[derive(Default)]
 pub struct MetadataDefaults3_2To3_0 {
     comp: DefaultMatrix<Compensation>,
-    unicode: DefaultOptional<Unicode>,
+    unicode: DefaultMetaOptional<Unicode>,
 }
 
 pub struct MetadataDefaults3_1To3_1;
 
 pub struct MetadataDefaults2_0To3_1 {
     endian: Endian,
-    cytsn: DefaultOptional<String>,
-    timestep: DefaultOptional<f32>,
-    vol: DefaultOptional<f32>,
+    cytsn: DefaultMetaOptional<String>,
+    timestep: DefaultMetaOptional<f32>,
+    vol: DefaultMetaOptional<f32>,
     spillover: DefaultMatrix<Spillover>,
     modification: ModificationDefaults,
     plate: PlateDefaults,
@@ -7244,7 +7149,7 @@ pub struct MetadataDefaults2_0To3_1 {
 
 pub struct MetadataDefaults3_0To3_1 {
     endian: Endian,
-    vol: DefaultOptional<f32>,
+    vol: DefaultMetaOptional<f32>,
     spillover: DefaultMatrix<Spillover>,
     modification: ModificationDefaults,
     plate: PlateDefaults,
@@ -7257,11 +7162,11 @@ pub struct MetadataDefaults3_2To3_2;
 pub struct MetadataDefaults2_0To3_2 {
     endian: Endian,
     cyt: String,
-    cytsn: DefaultOptional<String>,
-    timestep: DefaultOptional<f32>,
-    vol: DefaultOptional<f32>,
+    cytsn: DefaultMetaOptional<String>,
+    timestep: DefaultMetaOptional<f32>,
+    vol: DefaultMetaOptional<f32>,
     spillover: DefaultMatrix<Spillover>,
-    flowrate: DefaultOptional<String>,
+    flowrate: DefaultMetaOptional<String>,
     modification: ModificationDefaults,
     plate: PlateDefaults,
     unstained: UnstainedDefaults,
@@ -7272,9 +7177,9 @@ pub struct MetadataDefaults2_0To3_2 {
 pub struct MetadataDefaults3_0To3_2 {
     endian: Endian,
     cyt: String,
-    vol: DefaultOptional<f32>,
+    vol: DefaultMetaOptional<f32>,
     spillover: DefaultMatrix<Spillover>,
-    flowrate: DefaultOptional<String>,
+    flowrate: DefaultMetaOptional<String>,
     modification: ModificationDefaults,
     plate: PlateDefaults,
     unstained: UnstainedDefaults,
@@ -7284,7 +7189,7 @@ pub struct MetadataDefaults3_0To3_2 {
 
 pub struct MetadataDefaults3_1To3_2 {
     cyt: String,
-    flowrate: DefaultOptional<String>,
+    flowrate: DefaultMetaOptional<String>,
     unstained: UnstainedDefaults,
     carrier: CarrierDefaults,
     datetimes: DatetimesDefaults,
@@ -7297,19 +7202,19 @@ pub struct MetadataDefaultsTo2_0 {
 
 #[derive(Default)]
 pub struct MetadataDefaultsTo3_0 {
-    byteord: DefaultOptional<String>,
-    cytsn: DefaultOptional<String>,
-    timestep: DefaultOptional<f32>,
-    vol: DefaultOptional<String>,
-    unicode: DefaultOptional<Unicode>,
+    byteord: DefaultMetaOptional<String>,
+    cytsn: DefaultMetaOptional<String>,
+    timestep: DefaultMetaOptional<f32>,
+    vol: DefaultMetaOptional<f32>,
+    unicode: DefaultMetaOptional<Unicode>,
     comp: DefaultMatrix<Compensation>,
 }
 
 pub struct MetadataDefaultsTo3_1 {
     endian: Endian,
-    cytsn: DefaultOptional<String>,
-    timestep: DefaultOptional<f32>,
-    vol: DefaultOptional<f32>,
+    cytsn: DefaultMetaOptional<String>,
+    timestep: DefaultMetaOptional<f32>,
+    vol: DefaultMetaOptional<f32>,
     spillover: DefaultMatrix<Spillover>,
     modification: ModificationDefaults,
     plate: PlateDefaults,
@@ -7318,11 +7223,11 @@ pub struct MetadataDefaultsTo3_1 {
 pub struct MetadataDefaultsTo3_2 {
     endian: Endian,
     cyt: String,
-    cytsn: DefaultOptional<String>,
-    timestep: DefaultOptional<f32>,
-    vol: DefaultOptional<f32>,
+    cytsn: DefaultMetaOptional<String>,
+    timestep: DefaultMetaOptional<f32>,
+    vol: DefaultMetaOptional<f32>,
     spillover: DefaultMatrix<Spillover>,
-    flowrate: DefaultOptional<String>,
+    flowrate: DefaultMetaOptional<String>,
     modification: ModificationDefaults,
     plate: PlateDefaults,
     unstained: UnstainedDefaults,
@@ -7453,7 +7358,7 @@ pub struct MeasurementDefaults3_0To3_0;
 #[derive(Clone)]
 pub struct MeasurementDefaults2_0To3_0 {
     scale: Scale,
-    gain: DefaultOptional<f32>,
+    gain: DefaultMeasOptional<f32>,
 }
 
 #[derive(Clone)]
@@ -7465,7 +7370,7 @@ pub struct MeasurementDefaults3_2To3_0;
 #[derive(Clone)]
 pub struct MeasurementDefaultsTo3_0 {
     scale: Scale,
-    gain: DefaultOptional<f32>,
+    gain: DefaultMeasOptional<f32>,
 }
 
 #[derive(Clone)]
@@ -7475,16 +7380,16 @@ pub struct MeasurementDefaults3_1To3_1;
 pub struct MeasurementDefaults2_0To3_1 {
     scale: Scale,
     shortname: Shortname,
-    gain: DefaultOptional<f32>,
-    calibration: DefaultOptional<Calibration3_1>,
-    display: DefaultOptional<Display>,
+    gain: DefaultMeasOptional<f32>,
+    calibration: DefaultMeasOptional<Calibration3_1>,
+    display: DefaultMeasOptional<Display>,
 }
 
 #[derive(Clone)]
 pub struct MeasurementDefaults3_0To3_1 {
     shortname: Shortname,
-    calibration: DefaultOptional<Calibration3_1>,
-    display: DefaultOptional<Display>,
+    calibration: DefaultMeasOptional<Calibration3_1>,
+    display: DefaultMeasOptional<Display>,
 }
 
 #[derive(Clone)]
@@ -7494,9 +7399,9 @@ pub struct MeasurementDefaults3_2To3_1;
 pub struct MeasurementDefaultsTo3_1 {
     scale: Scale,
     shortname: Shortname,
-    gain: DefaultOptional<f32>,
-    calibration: DefaultOptional<Calibration3_1>,
-    display: DefaultOptional<Display>,
+    gain: DefaultMeasOptional<f32>,
+    calibration: DefaultMeasOptional<Calibration3_1>,
+    display: DefaultMeasOptional<Display>,
 }
 
 #[derive(Clone)]
@@ -7506,53 +7411,53 @@ pub struct MeasurementDefaults3_2To3_2;
 pub struct MeasurementDefaults2_0To3_2 {
     scale: Scale,
     shortname: Shortname,
-    gain: DefaultOptional<f32>,
-    calibration: DefaultOptional<Calibration3_2>,
-    display: DefaultOptional<Display>,
-    analyte: DefaultOptional<String>,
-    tag: DefaultOptional<String>,
-    detector_name: DefaultOptional<String>,
-    feature: DefaultOptional<Feature>,
-    datatype: DefaultOptional<NumType>,
-    measurement_type: DefaultOptional<MeasurementType>,
+    gain: DefaultMeasOptional<f32>,
+    calibration: DefaultMeasOptional<Calibration3_2>,
+    display: DefaultMeasOptional<Display>,
+    analyte: DefaultMeasOptional<String>,
+    tag: DefaultMeasOptional<String>,
+    detector_name: DefaultMeasOptional<String>,
+    feature: DefaultMeasOptional<Feature>,
+    datatype: DefaultMeasOptional<NumType>,
+    measurement_type: DefaultMeasOptional<MeasurementType>,
 }
 
 #[derive(Clone)]
 pub struct MeasurementDefaults3_0To3_2 {
     shortname: Shortname,
-    calibration: DefaultOptional<Calibration3_2>,
-    display: DefaultOptional<Display>,
-    analyte: DefaultOptional<String>,
-    tag: DefaultOptional<String>,
-    detector_name: DefaultOptional<String>,
-    feature: DefaultOptional<Feature>,
-    datatype: DefaultOptional<NumType>,
-    measurement_type: DefaultOptional<MeasurementType>,
+    calibration: DefaultMeasOptional<Calibration3_2>,
+    display: DefaultMeasOptional<Display>,
+    analyte: DefaultMeasOptional<String>,
+    tag: DefaultMeasOptional<String>,
+    detector_name: DefaultMeasOptional<String>,
+    feature: DefaultMeasOptional<Feature>,
+    datatype: DefaultMeasOptional<NumType>,
+    measurement_type: DefaultMeasOptional<MeasurementType>,
 }
 
 #[derive(Clone, Default)]
 pub struct MeasurementDefaults3_1To3_2 {
-    analyte: DefaultOptional<String>,
-    tag: DefaultOptional<String>,
-    detector_name: DefaultOptional<String>,
-    feature: DefaultOptional<Feature>,
-    datatype: DefaultOptional<NumType>,
-    measurement_type: DefaultOptional<MeasurementType>,
+    analyte: DefaultMeasOptional<String>,
+    tag: DefaultMeasOptional<String>,
+    detector_name: DefaultMeasOptional<String>,
+    feature: DefaultMeasOptional<Feature>,
+    datatype: DefaultMeasOptional<NumType>,
+    measurement_type: DefaultMeasOptional<MeasurementType>,
 }
 
 #[derive(Clone)]
 pub struct MeasurementDefaultsTo3_2 {
     scale: Scale,
     shortname: Shortname,
-    gain: DefaultOptional<f32>,
-    calibration: DefaultOptional<Calibration3_2>,
-    display: DefaultOptional<Display>,
-    analyte: DefaultOptional<String>,
-    tag: DefaultOptional<String>,
-    detector_name: DefaultOptional<String>,
-    feature: DefaultOptional<Feature>,
-    datatype: DefaultOptional<NumType>,
-    measurement_type: DefaultOptional<MeasurementType>,
+    gain: DefaultMeasOptional<f32>,
+    calibration: DefaultMeasOptional<Calibration3_2>,
+    display: DefaultMeasOptional<Display>,
+    analyte: DefaultMeasOptional<String>,
+    tag: DefaultMeasOptional<String>,
+    detector_name: DefaultMeasOptional<String>,
+    feature: DefaultMeasOptional<Feature>,
+    datatype: DefaultMeasOptional<NumType>,
+    measurement_type: DefaultMeasOptional<MeasurementType>,
 }
 
 txfr_keys!(MeasurementDefaultsTo2_0, MeasurementDefaults2_0To2_0, []);
@@ -7691,8 +7596,9 @@ impl IntoMeasurement<InnerMeasurement2_0, MeasurementDefaultsTo2_0> for InnerMea
 
     fn convert_inner(
         self,
+        _: usize,
         _: Self::DefaultsXToY,
-        _: &mut RawKeywords,
+        _: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement2_0> {
         PureSuccess::from(self)
     }
@@ -7703,8 +7609,9 @@ impl IntoMeasurement<InnerMeasurement2_0, MeasurementDefaultsTo2_0> for InnerMea
 
     fn convert_inner(
         self,
+        _: usize,
         _: Self::DefaultsXToY,
-        _: &mut RawKeywords,
+        _: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement2_0> {
         PureSuccess::from(InnerMeasurement2_0 {
             scale: Present(self.scale),
@@ -7719,8 +7626,9 @@ impl IntoMeasurement<InnerMeasurement2_0, MeasurementDefaultsTo2_0> for InnerMea
 
     fn convert_inner(
         self,
+        _: usize,
         _: Self::DefaultsXToY,
-        _: &mut RawKeywords,
+        _: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement2_0> {
         PureSuccess::from(InnerMeasurement2_0 {
             shortname: Present(self.shortname),
@@ -7735,8 +7643,9 @@ impl IntoMeasurement<InnerMeasurement2_0, MeasurementDefaultsTo2_0> for InnerMea
 
     fn convert_inner(
         self,
+        _: usize,
         _: Self::DefaultsXToY,
-        _: &mut RawKeywords,
+        _: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement2_0> {
         PureSuccess::from(InnerMeasurement2_0 {
             shortname: Present(self.shortname),
@@ -7751,15 +7660,16 @@ impl IntoMeasurement<InnerMeasurement3_0, MeasurementDefaultsTo3_0> for InnerMea
 
     fn convert_inner(
         self,
+        n: usize,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
+        ns: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement3_0> {
         let scale = self.scale.into_option().unwrap_or(def.scale);
         NSKwParser::run(ns, |st| InnerMeasurement3_0 {
             scale,
             wavelength: self.wavelength,
             shortname: self.shortname,
-            gain: st.lookup_nonstandard_maybe(def.gain),
+            gain: st.lookup_meas_maybe(n, def.gain),
         })
     }
 }
@@ -7769,8 +7679,9 @@ impl IntoMeasurement<InnerMeasurement3_0, MeasurementDefaultsTo3_0> for InnerMea
 
     fn convert_inner(
         self,
+        _: usize,
         _: Self::DefaultsXToY,
-        _: &mut RawKeywords,
+        _: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement3_0> {
         PureSuccess::from(self)
     }
@@ -7781,8 +7692,9 @@ impl IntoMeasurement<InnerMeasurement3_0, MeasurementDefaultsTo3_0> for InnerMea
 
     fn convert_inner(
         self,
+        _: usize,
         _: Self::DefaultsXToY,
-        _: &mut RawKeywords,
+        _: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement3_0> {
         PureSuccess::from(InnerMeasurement3_0 {
             shortname: Present(self.shortname),
@@ -7798,8 +7710,9 @@ impl IntoMeasurement<InnerMeasurement3_0, MeasurementDefaultsTo3_0> for InnerMea
 
     fn convert_inner(
         self,
+        _: usize,
         _: Self::DefaultsXToY,
-        _: &mut RawKeywords,
+        _: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement3_0> {
         PureSuccess::from(InnerMeasurement3_0 {
             shortname: Present(self.shortname),
@@ -7815,8 +7728,9 @@ impl IntoMeasurement<InnerMeasurement3_1, MeasurementDefaultsTo3_1> for InnerMea
 
     fn convert_inner(
         self,
+        n: usize,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
+        ns: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement3_1> {
         let scale = self.scale.into_option().unwrap_or(def.scale);
         let shortname = self.shortname.into_option().unwrap_or(def.shortname);
@@ -7824,9 +7738,9 @@ impl IntoMeasurement<InnerMeasurement3_1, MeasurementDefaultsTo3_1> for InnerMea
             scale,
             shortname,
             wavelengths: self.wavelength.map(|x| x.into()),
-            gain: st.lookup_nonstandard_maybe(def.gain),
-            calibration: st.lookup_nonstandard_maybe(def.calibration),
-            display: st.lookup_nonstandard_maybe(def.display),
+            gain: st.lookup_meas_maybe(n, def.gain),
+            calibration: st.lookup_meas_maybe(n, def.calibration),
+            display: st.lookup_meas_maybe(n, def.display),
         })
     }
 }
@@ -7836,8 +7750,9 @@ impl IntoMeasurement<InnerMeasurement3_1, MeasurementDefaultsTo3_1> for InnerMea
 
     fn convert_inner(
         self,
+        n: usize,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
+        ns: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement3_1> {
         let shortname = self.shortname.into_option().unwrap_or(def.shortname);
         NSKwParser::run(ns, |st| InnerMeasurement3_1 {
@@ -7845,8 +7760,8 @@ impl IntoMeasurement<InnerMeasurement3_1, MeasurementDefaultsTo3_1> for InnerMea
             scale: self.scale,
             gain: self.gain,
             wavelengths: self.wavelength.map(|x| x.into()),
-            calibration: st.lookup_nonstandard_maybe(def.calibration),
-            display: st.lookup_nonstandard_maybe(def.display),
+            calibration: st.lookup_meas_maybe(n, def.calibration),
+            display: st.lookup_meas_maybe(n, def.display),
         })
     }
 }
@@ -7856,8 +7771,9 @@ impl IntoMeasurement<InnerMeasurement3_1, MeasurementDefaultsTo3_1> for InnerMea
 
     fn convert_inner(
         self,
+        _: usize,
         _: Self::DefaultsXToY,
-        _: &mut RawKeywords,
+        _: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement3_1> {
         PureSuccess::from(self)
     }
@@ -7868,8 +7784,9 @@ impl IntoMeasurement<InnerMeasurement3_1, MeasurementDefaultsTo3_1> for InnerMea
 
     fn convert_inner(
         self,
+        _: usize,
         _: Self::DefaultsXToY,
-        _: &mut RawKeywords,
+        _: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement3_1> {
         PureSuccess::from(InnerMeasurement3_1 {
             shortname: self.shortname,
@@ -7887,8 +7804,9 @@ impl IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2> for InnerMea
 
     fn convert_inner(
         self,
+        n: usize,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
+        ns: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement3_2> {
         let scale = self.scale.into_option().unwrap_or(def.scale);
         let shortname = self.shortname.into_option().unwrap_or(def.shortname);
@@ -7896,15 +7814,15 @@ impl IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2> for InnerMea
             scale,
             shortname,
             wavelengths: self.wavelength.map(|x| x.into()),
-            gain: st.lookup_nonstandard_maybe(def.gain),
-            calibration: st.lookup_nonstandard_maybe(def.calibration),
-            display: st.lookup_nonstandard_maybe(def.display),
-            analyte: st.lookup_nonstandard_maybe(def.analyte),
-            feature: st.lookup_nonstandard_maybe(def.feature),
-            tag: st.lookup_nonstandard_maybe(def.tag),
-            detector_name: st.lookup_nonstandard_maybe(def.detector_name),
-            datatype: st.lookup_nonstandard_maybe(def.datatype),
-            measurement_type: st.lookup_nonstandard_maybe(def.measurement_type),
+            gain: st.lookup_meas_maybe(n, def.gain),
+            calibration: st.lookup_meas_maybe(n, def.calibration),
+            display: st.lookup_meas_maybe(n, def.display),
+            analyte: st.lookup_meas_maybe(n, def.analyte),
+            feature: st.lookup_meas_maybe(n, def.feature),
+            tag: st.lookup_meas_maybe(n, def.tag),
+            detector_name: st.lookup_meas_maybe(n, def.detector_name),
+            datatype: st.lookup_meas_maybe(n, def.datatype),
+            measurement_type: st.lookup_meas_maybe(n, def.measurement_type),
         })
     }
 }
@@ -7914,8 +7832,9 @@ impl IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2> for InnerMea
 
     fn convert_inner(
         self,
+        n: usize,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
+        ns: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement3_2> {
         let shortname = self.shortname.into_option().unwrap_or(def.shortname);
         NSKwParser::run(ns, |st| InnerMeasurement3_2 {
@@ -7923,14 +7842,14 @@ impl IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2> for InnerMea
             scale: self.scale,
             wavelengths: self.wavelength.map(|x| x.into()),
             gain: self.gain,
-            calibration: st.lookup_nonstandard_maybe(def.calibration),
-            display: st.lookup_nonstandard_maybe(def.display),
-            analyte: st.lookup_nonstandard_maybe(def.analyte),
-            feature: st.lookup_nonstandard_maybe(def.feature),
-            tag: st.lookup_nonstandard_maybe(def.tag),
-            detector_name: st.lookup_nonstandard_maybe(def.detector_name),
-            datatype: st.lookup_nonstandard_maybe(def.datatype),
-            measurement_type: st.lookup_nonstandard_maybe(def.measurement_type),
+            calibration: st.lookup_meas_maybe(n, def.calibration),
+            display: st.lookup_meas_maybe(n, def.display),
+            analyte: st.lookup_meas_maybe(n, def.analyte),
+            feature: st.lookup_meas_maybe(n, def.feature),
+            tag: st.lookup_meas_maybe(n, def.tag),
+            detector_name: st.lookup_meas_maybe(n, def.detector_name),
+            datatype: st.lookup_meas_maybe(n, def.datatype),
+            measurement_type: st.lookup_meas_maybe(n, def.measurement_type),
         })
     }
 }
@@ -7940,8 +7859,9 @@ impl IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2> for InnerMea
 
     fn convert_inner(
         self,
+        n: usize,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
+        ns: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement3_2> {
         NSKwParser::run(ns, |st| InnerMeasurement3_2 {
             shortname: self.shortname,
@@ -7950,12 +7870,12 @@ impl IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2> for InnerMea
             gain: self.gain,
             calibration: self.calibration.map(|x| x.into()),
             display: self.display,
-            analyte: st.lookup_nonstandard_maybe(def.analyte),
-            feature: st.lookup_nonstandard_maybe(def.feature),
-            tag: st.lookup_nonstandard_maybe(def.tag),
-            detector_name: st.lookup_nonstandard_maybe(def.detector_name),
-            datatype: st.lookup_nonstandard_maybe(def.datatype),
-            measurement_type: st.lookup_nonstandard_maybe(def.measurement_type),
+            analyte: st.lookup_meas_maybe(n, def.analyte),
+            feature: st.lookup_meas_maybe(n, def.feature),
+            tag: st.lookup_meas_maybe(n, def.tag),
+            detector_name: st.lookup_meas_maybe(n, def.detector_name),
+            datatype: st.lookup_meas_maybe(n, def.datatype),
+            measurement_type: st.lookup_meas_maybe(n, def.measurement_type),
         })
     }
 }
@@ -7965,8 +7885,9 @@ impl IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2> for InnerMea
 
     fn convert_inner(
         self,
+        _: usize,
         _: Self::DefaultsXToY,
-        _: &mut RawKeywords,
+        _: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement3_2> {
         PureSuccess::from(self)
     }
@@ -7978,7 +7899,7 @@ impl IntoMetadata<InnerMetadata2_0, MetadataDefaultsTo2_0> for InnerMetadata2_0 
     fn convert_inner(
         self,
         _: Self::DefaultsXToY,
-        _: &mut RawKeywords,
+        _: &mut NonStdKeywords,
         _: &[Shortname],
     ) -> PureSuccess<InnerMetadata2_0> {
         PureSuccess::from(self)
@@ -7991,7 +7912,7 @@ impl IntoMetadata<InnerMetadata2_0, MetadataDefaultsTo2_0> for InnerMetadata3_0 
     fn convert_inner(
         self,
         _: Self::DefaultsXToY,
-        _: &mut RawKeywords,
+        _: &mut NonStdKeywords,
         _: &[Shortname],
     ) -> PureSuccess<InnerMetadata2_0> {
         PureSuccess::from(InnerMetadata2_0 {
@@ -8010,7 +7931,7 @@ impl IntoMetadata<InnerMetadata2_0, MetadataDefaultsTo2_0> for InnerMetadata3_1 
     fn convert_inner(
         self,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
+        ns: &mut NonStdKeywords,
         ms: &[Shortname],
     ) -> PureSuccess<InnerMetadata2_0> {
         NSKwParser::run(ns, |st| InnerMetadata2_0 {
@@ -8029,7 +7950,7 @@ impl IntoMetadata<InnerMetadata2_0, MetadataDefaultsTo2_0> for InnerMetadata3_2 
     fn convert_inner(
         self,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
+        ns: &mut NonStdKeywords,
         ms: &[Shortname],
     ) -> PureSuccess<InnerMetadata2_0> {
         NSKwParser::run(ns, |st| InnerMetadata2_0 {
@@ -8048,7 +7969,7 @@ impl IntoMetadata<InnerMetadata3_0, MetadataDefaultsTo3_0> for InnerMetadata3_0 
     fn convert_inner(
         self,
         _: Self::DefaultsXToY,
-        _: &mut RawKeywords,
+        _: &mut NonStdKeywords,
         _: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_0> {
         PureSuccess::from(self)
@@ -8061,8 +7982,7 @@ impl IntoMetadata<InnerMetadata3_0, MetadataDefaultsTo3_0> for InnerMetadata2_0 
     fn convert_inner(
         self,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
-
+        ns: &mut NonStdKeywords,
         _: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_0> {
         NSKwParser::run(ns, |st| InnerMetadata3_0 {
@@ -8071,9 +7991,9 @@ impl IntoMetadata<InnerMetadata3_0, MetadataDefaultsTo3_0> for InnerMetadata2_0 
             cyt: self.cyt,
             comp: self.comp,
             timestamps: self.timestamps.map(|d| d.into()),
-            cytsn: st.lookup_nonstandard_maybe(def.cytsn),
-            timestep: st.lookup_nonstandard_maybe(def.timestep),
-            unicode: st.lookup_nonstandard_maybe(def.unicode),
+            cytsn: st.lookup_maybe(def.cytsn),
+            timestep: st.lookup_maybe(def.timestep),
+            unicode: st.lookup_maybe(def.unicode),
         })
     }
 }
@@ -8084,7 +8004,7 @@ impl IntoMetadata<InnerMetadata3_0, MetadataDefaultsTo3_0> for InnerMetadata3_1 
     fn convert_inner(
         self,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
+        ns: &mut NonStdKeywords,
         ms: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_0> {
         NSKwParser::run(ns, |st| InnerMetadata3_0 {
@@ -8095,7 +8015,7 @@ impl IntoMetadata<InnerMetadata3_0, MetadataDefaultsTo3_0> for InnerMetadata3_1 
             timestep: self.timestep,
             timestamps: self.timestamps.map(|d| d.into()),
             comp: st.try_convert_lookup_comp(def.comp, self.spillover, ms),
-            unicode: st.lookup_nonstandard_maybe(def.unicode),
+            unicode: st.lookup_maybe(def.unicode),
         })
     }
 }
@@ -8106,7 +8026,7 @@ impl IntoMetadata<InnerMetadata3_0, MetadataDefaultsTo3_0> for InnerMetadata3_2 
     fn convert_inner(
         self,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
+        ns: &mut NonStdKeywords,
         ms: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_0> {
         NSKwParser::run(ns, |st| InnerMetadata3_0 {
@@ -8117,7 +8037,7 @@ impl IntoMetadata<InnerMetadata3_0, MetadataDefaultsTo3_0> for InnerMetadata3_2 
             timestep: self.timestep,
             timestamps: self.timestamps.map(|d| d.into()),
             comp: st.try_convert_lookup_comp(def.comp, self.spillover, ms),
-            unicode: st.lookup_nonstandard_maybe(def.unicode),
+            unicode: st.lookup_maybe(def.unicode),
         })
     }
 }
@@ -8128,7 +8048,7 @@ impl IntoMetadata<InnerMetadata3_1, MetadataDefaultsTo3_1> for InnerMetadata3_1 
     fn convert_inner(
         self,
         _: Self::DefaultsXToY,
-        _: &mut RawKeywords,
+        _: &mut NonStdKeywords,
         _: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_1> {
         PureSuccess::from(self)
@@ -8141,7 +8061,7 @@ impl IntoMetadata<InnerMetadata3_1, MetadataDefaultsTo3_1> for InnerMetadata2_0 
     fn convert_inner(
         self,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
+        ns: &mut NonStdKeywords,
         ms: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_1> {
         NSKwParser::run(ns, |st| {
@@ -8152,11 +8072,11 @@ impl IntoMetadata<InnerMetadata3_1, MetadataDefaultsTo3_1> for InnerMetadata2_0 
                 cyt: self.cyt,
                 timestamps: self.timestamps.map(|d| d.into()),
                 spillover: st.try_convert_lookup_spillover(def.spillover, self.comp, ms),
-                cytsn: st.lookup_nonstandard_maybe(def.cytsn),
-                timestep: st.lookup_nonstandard_maybe(def.timestep),
+                cytsn: st.lookup_maybe(def.cytsn),
+                timestep: st.lookup_maybe(def.timestep),
                 modification: st.lookup_modification(def.modification),
                 plate: st.lookup_plate(def.plate),
-                vol: st.lookup_nonstandard_maybe(def.vol),
+                vol: st.lookup_maybe(def.vol),
             }
         })
     }
@@ -8168,7 +8088,7 @@ impl IntoMetadata<InnerMetadata3_1, MetadataDefaultsTo3_1> for InnerMetadata3_0 
     fn convert_inner(
         self,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
+        ns: &mut NonStdKeywords,
         ms: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_1> {
         NSKwParser::run(ns, |st| {
@@ -8183,7 +8103,7 @@ impl IntoMetadata<InnerMetadata3_1, MetadataDefaultsTo3_1> for InnerMetadata3_0 
                 spillover: st.try_convert_lookup_spillover(def.spillover, self.comp, ms),
                 modification: st.lookup_modification(def.modification),
                 plate: st.lookup_plate(def.plate),
-                vol: st.lookup_nonstandard_maybe(def.vol),
+                vol: st.lookup_maybe(def.vol),
             }
         })
     }
@@ -8195,7 +8115,7 @@ impl IntoMetadata<InnerMetadata3_1, MetadataDefaultsTo3_1> for InnerMetadata3_2 
     fn convert_inner(
         self,
         _: Self::DefaultsXToY,
-        _: &mut RawKeywords,
+        _: &mut NonStdKeywords,
         _: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_1> {
         PureSuccess::from(InnerMetadata3_1 {
@@ -8219,7 +8139,7 @@ impl IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2> for InnerMetadata3_2 
     fn convert_inner(
         self,
         _: Self::DefaultsXToY,
-        _: &mut RawKeywords,
+        _: &mut NonStdKeywords,
         _: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_2> {
         PureSuccess::from(self)
@@ -8232,7 +8152,7 @@ impl IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2> for InnerMetadata2_0 
     fn convert_inner(
         self,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
+        ns: &mut NonStdKeywords,
         ms: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_2> {
         NSKwParser::run(ns, |st| {
@@ -8244,12 +8164,12 @@ impl IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2> for InnerMetadata2_0 
                 cyt,
                 spillover: st.try_convert_lookup_spillover(def.spillover, self.comp, ms),
                 timestamps: self.timestamps.map(|d| d.into()),
-                cytsn: st.lookup_nonstandard_maybe(def.cytsn),
-                timestep: st.lookup_nonstandard_maybe(def.timestep),
+                cytsn: st.lookup_maybe(def.cytsn),
+                timestep: st.lookup_maybe(def.timestep),
                 modification: st.lookup_modification(def.modification),
                 plate: st.lookup_plate(def.plate),
-                vol: st.lookup_nonstandard_maybe(def.vol),
-                flowrate: st.lookup_nonstandard_maybe(def.flowrate),
+                vol: st.lookup_maybe(def.vol),
+                flowrate: st.lookup_maybe(def.flowrate),
                 carrier: st.lookup_carrier(def.carrier),
                 unstained: st.lookup_unstained(def.unstained),
                 datetimes: st.lookup_datetimes(def.datetimes),
@@ -8264,7 +8184,7 @@ impl IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2> for InnerMetadata3_0 
     fn convert_inner(
         self,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
+        ns: &mut NonStdKeywords,
         ms: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_2> {
         NSKwParser::run(ns, |st| {
@@ -8279,8 +8199,8 @@ impl IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2> for InnerMetadata3_0 
                 modification: st.lookup_modification(def.modification),
                 spillover: st.try_convert_lookup_spillover(def.spillover, self.comp, ms),
                 plate: st.lookup_plate(def.plate),
-                vol: st.lookup_nonstandard_maybe(def.vol),
-                flowrate: st.lookup_nonstandard_maybe(def.flowrate),
+                vol: st.lookup_maybe(def.vol),
+                flowrate: st.lookup_maybe(def.flowrate),
                 carrier: st.lookup_carrier(def.carrier),
                 unstained: st.lookup_unstained(def.unstained),
                 datetimes: st.lookup_datetimes(def.datetimes),
@@ -8295,7 +8215,7 @@ impl IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2> for InnerMetadata3_1 
     fn convert_inner(
         self,
         def: Self::DefaultsXToY,
-        ns: &mut RawKeywords,
+        ns: &mut NonStdKeywords,
         _: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_2> {
         let cyt = self.cyt.into_option().unwrap_or(def.cyt);
@@ -8309,7 +8229,7 @@ impl IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2> for InnerMetadata3_1 
             modification: self.modification,
             plate: self.plate,
             vol: self.vol,
-            flowrate: st.lookup_nonstandard_maybe(def.flowrate),
+            flowrate: st.lookup_maybe(def.flowrate),
             carrier: st.lookup_carrier(def.carrier),
             unstained: st.lookup_unstained(def.unstained),
             datetimes: st.lookup_datetimes(def.datetimes),

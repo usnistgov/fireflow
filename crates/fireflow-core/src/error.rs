@@ -25,6 +25,7 @@ pub struct PureError {
 /// all possible errors and show the user all at once so they know what issues
 /// in their files to fix. Therefore make an "error" type which is actually many
 /// errors.
+#[derive(Default)]
 pub struct PureErrorBuf {
     pub errors: Vec<PureError>,
 }
@@ -84,8 +85,20 @@ impl<E> Failure<E> {
     pub fn new(reason: E) -> Failure<E> {
         Failure {
             reason,
-            deferred: PureErrorBuf::new(),
+            deferred: PureErrorBuf::default(),
         }
+    }
+
+    pub fn from_many(reason: E, deferred: PureErrorBuf) -> Self {
+        Failure { reason, deferred }
+    }
+
+    pub fn from_many_msgs(reason: E, msgs: Vec<String>, level: PureErrorLevel) -> Self {
+        Self::from_many(reason, PureErrorBuf::from_many(msgs, level))
+    }
+
+    pub fn from_many_errors(reason: E, msgs: Vec<String>) -> Self {
+        Self::from_many_msgs(reason, msgs, PureErrorLevel::Error)
     }
 
     pub fn map<X, F: Fn(E) -> X>(self, f: F) -> Failure<X> {
@@ -102,17 +115,9 @@ impl<E> Failure<E> {
     pub fn extend(&mut self, other: PureErrorBuf) {
         self.deferred.errors.extend(other.errors);
     }
-
-    // pub fn from_option(self, reason: E) -> Self {
-
-    // }
 }
 
 impl PureErrorBuf {
-    pub fn new() -> PureErrorBuf {
-        PureErrorBuf { errors: vec![] }
-    }
-
     pub fn from(msg: String, level: PureErrorLevel) -> PureErrorBuf {
         PureErrorBuf {
             errors: vec![PureError { msg, level }],
@@ -168,6 +173,17 @@ impl PureErrorBuf {
             > 0
     }
 
+    pub fn split(self) -> (Vec<String>, Vec<String>) {
+        let (err, warn): (Vec<_>, Vec<_>) = self
+            .errors
+            .into_iter()
+            .partition(|e| e.level == PureErrorLevel::Error);
+        (
+            err.into_iter().map(|e| e.msg).collect(),
+            warn.into_iter().map(|e| e.msg).collect(),
+        )
+    }
+
     pub fn into_errors(self) -> Vec<String> {
         self.into_level(PureErrorLevel::Error)
     }
@@ -197,7 +213,7 @@ impl<X> PureSuccess<X> {
     pub fn from(data: X) -> PureSuccess<X> {
         PureSuccess {
             data,
-            deferred: PureErrorBuf::new(),
+            deferred: PureErrorBuf::default(),
         }
     }
 
@@ -353,7 +369,7 @@ impl<X> PureMaybe<X> {
     }
 
     pub fn map_maybe<Y, F: FnOnce(X) -> Y>(self, f: F) -> PureMaybe<Y> {
-        self.map(|x| x.map(|y| f(y)))
+        self.map(|x| x.map(f))
     }
 
     pub fn into_result(self, reason: String) -> PureResult<X> {
@@ -388,6 +404,20 @@ impl<X> PureMaybe<X> {
                 deferred,
             },
         }
+    }
+
+    pub fn from_result_strs(res: Result<X, Vec<String>>, level: PureErrorLevel) -> Self {
+        match res {
+            Ok(data) => PureSuccess::from(Some(data)),
+            Err(msgs) => PureSuccess {
+                data: None,
+                deferred: PureErrorBuf::from_many(msgs, level),
+            },
+        }
+    }
+
+    pub fn from_result_errors(res: Result<X, Vec<String>>) -> Self {
+        Self::from_result_strs(res, PureErrorLevel::Error)
     }
 
     pub fn and_then_opt<Y, F: FnOnce(X) -> PureMaybe<Y>>(self, f: F) -> PureMaybe<Y> {

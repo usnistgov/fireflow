@@ -6,8 +6,9 @@ use crate::keywords::*;
 use crate::optionalkw::OptionalKw;
 use crate::optionalkw::OptionalKw::*;
 pub use crate::segment::*;
-use crate::validated::nonstandard::NonStdKeyError;
-use crate::validated::nonstandard::{NonStdKey, NonStdKeywords, NonStdMeasKey, NonStdMeasKeyError};
+use crate::validated::nonstandard::{
+    DefaultMatrix, DefaultMeasOptional, DefaultMetaOptional, NonStdKey, NonStdKeywords,
+};
 use crate::validated::shortname::Shortname;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
@@ -7034,92 +7035,6 @@ where
 {
     type FromM = M;
     type FromP = P;
-}
-
-/// Values that may be be used for an optional keyword when converting versions
-///
-/// For example, when converting 2.0 -> 3.1, the "$VOL" keyword needs to be
-/// filled with something. This will allow the user to specify a default for
-/// $VOL. Alternatively, the user can supply a keyword that will be used to
-/// lookup the value from the nonstandard keyword list (presumably in this case
-/// the key would be something like "VOL"). Both of these are optional. If
-/// neither is supplied, this keyword will be left unfilled. Obviously this only
-/// applies if the keyword is optional.
-#[derive(Clone)]
-pub struct DefaultOptional<T, K> {
-    /// Value to be used as a default
-    default: Option<T>,
-
-    /// Key to use when looking in the nonstandard keyword hash table.
-    ///
-    /// This is assumed not to start with "$".
-    key: Option<K>,
-}
-
-type DefaultMetaOptional<T> = DefaultOptional<T, NonStdKey>;
-type DefaultMeasOptional<T> = DefaultOptional<T, NonStdMeasKey>;
-
-impl<T, K> Default for DefaultOptional<T, K> {
-    fn default() -> DefaultOptional<T, K> {
-        DefaultOptional {
-            default: None,
-            key: None,
-        }
-    }
-}
-
-impl<T> DefaultMetaOptional<T> {
-    pub fn new(default: Option<T>, key: Option<String>) -> Result<Self, NonStdKeyError> {
-        Ok(DefaultOptional {
-            default,
-            key: key.map_or(Ok(None), |s| s.parse().map(Some))?,
-        })
-    }
-}
-
-impl<T> DefaultMeasOptional<T> {
-    pub fn new(default: Option<T>, key: Option<String>) -> Result<Self, NonStdMeasKeyError> {
-        Ok(DefaultOptional {
-            default,
-            key: key.map_or(Ok(None), |s| s.parse().map(Some))?,
-        })
-    }
-}
-
-/// Comp/spillover matrix that may be converted or for which a default may exist
-///
-/// This is similar to `DefaultOptional` in that it has a default and a key for
-/// which the default may be found. However, a conversion from a different key
-/// may be attempted before these.
-#[derive(Clone)]
-pub struct DefaultMatrix<T> {
-    /// If true, try to convert from a different key.
-    ///
-    /// For now this applies to $COMP<->$SPILLOVER conversions.
-    try_convert: bool,
-    default: DefaultMetaOptional<T>,
-}
-
-impl<T> DefaultMatrix<T> {
-    pub fn new(
-        default: Option<T>,
-        key: Option<String>,
-        try_convert: bool,
-    ) -> Result<Self, NonStdKeyError> {
-        Ok(DefaultMatrix {
-            try_convert,
-            default: DefaultMetaOptional::new(default, key)?,
-        })
-    }
-}
-
-impl<T> Default for DefaultMatrix<T> {
-    fn default() -> DefaultMatrix<T> {
-        DefaultMatrix {
-            try_convert: false,
-            default: DefaultMetaOptional::default(),
-        }
-    }
 }
 
 #[derive(Default)]

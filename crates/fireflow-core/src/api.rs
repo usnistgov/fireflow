@@ -7,6 +7,7 @@ use crate::optionalkw::OptionalKw;
 pub use crate::segment::*;
 use crate::validated::nonstandard::{
     DefaultMatrix, DefaultMeasOptional, DefaultMetaOptional, NonStdKey, NonStdKeywords,
+    NonStdMeasPattern,
 };
 use crate::validated::shortname::Shortname;
 
@@ -318,6 +319,7 @@ struct FCSTime60(NaiveTime);
 struct FCSTime100(NaiveTime);
 
 /// A datetime as used in the $LAST_MODIFIED key (3.1+ only)
+// TODO this should almost certainly be after $ENDDATETIME if given
 #[derive(Debug, Clone, Serialize)]
 struct ModifiedDateTime(NaiveDateTime);
 
@@ -4011,7 +4013,7 @@ where
         conf: &Config,
         data_seg: &Segment,
     ) -> PureMaybe<ReaderDataLayout> {
-        let succ = KwParser::run(kws, &conf.standard, |st| {
+        let succ = KwParser::run(kws, (&conf.standard).into(), |st| {
             let maybe_md = <M as VersionedParserMetadata>::as_minimal(&self.metadata, st);
             let measurements: Vec<_> = self
                 .measurements
@@ -4047,13 +4049,14 @@ where
         // pass $PAR as an Option and only test if not None when we need it and
         // possibly bail. Might be worth it.
         let par_fail = "could not find $PAR".to_string();
-        let par_succ = KwParser::try_run(kws, conf, par_fail, |st| st.lookup_par())?;
+        let c: KwParserConfig = conf.into();
+        let par_succ = KwParser::try_run(kws, c.clone(), par_fail, |st| st.lookup_par())?;
         // Lookup measurements+metadata based on $PAR, which also might fail in
         // a zillion ways. If this fails we need to bail since we cannot create
         // a struct with missing fields.
         let md_fail = "could not standardize TEXT".to_string();
         let md_succ = par_succ.try_map(|par| {
-            KwParser::try_run(kws, conf, md_fail, |st| {
+            KwParser::try_run(kws, c, md_fail, |st| {
                 let ms = M::P::lookup_measurements(st, par);
                 let md = ms.as_ref().and_then(|xs| M::lookup_metadata(st, xs));
                 if let (Some(measurements), Some(metadata)) = (ms, md) {
@@ -4995,7 +4998,7 @@ fn lookup_data_offsets(
     version: Version,
     default: &Segment,
 ) -> PureSuccess<Segment> {
-    KwParser::run(kws, &conf.standard, |st| match version {
+    KwParser::run(kws, (&conf.standard).into(), |st| match version {
         Version::FCS2_0 => *default,
         _ => {
             let b = st.lookup_begindata();
@@ -5047,7 +5050,7 @@ fn lookup_analysis_offsets(
             Ok(*default)
         }
     };
-    KwParser::run(kws, &conf.standard, |st| {
+    KwParser::run(kws, (&conf.standard).into(), |st| {
         match version {
             Version::FCS2_0 => Ok(*default),
             Version::FCS3_0 | Version::FCS3_1 => {
@@ -5789,7 +5792,22 @@ macro_rules! kws_meas_opt {
 struct KwParser<'a, 'b> {
     raw_keywords: &'b mut RawKeywords,
     deferred: PureErrorBuf,
-    conf: &'a StdTextReadConfig,
+    conf: KwParserConfig<'a>,
+}
+
+#[derive(Default, Clone)]
+struct KwParserConfig<'a> {
+    disallow_deprecated: bool,
+    nonstandard_measurement_pattern: Option<&'a NonStdMeasPattern>,
+}
+
+impl<'a> From<&'a StdTextReadConfig> for KwParserConfig<'a> {
+    fn from(value: &'a StdTextReadConfig) -> Self {
+        KwParserConfig {
+            disallow_deprecated: value.disallow_deprecated,
+            nonstandard_measurement_pattern: value.nonstandard_measurement_pattern.as_ref(),
+        }
+    }
 }
 
 impl<'a, 'b> KwParser<'a, 'b> {
@@ -5801,7 +5819,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
     /// Any errors which are logged must be pushed into the state's error buffer
     /// directly, as errors are not allowed to be returned by the inner
     /// computation.
-    fn run<X, F>(kws: &'b mut RawKeywords, conf: &'a StdTextReadConfig, f: F) -> PureSuccess<X>
+    fn run<X, F>(kws: &'b mut RawKeywords, conf: KwParserConfig<'a>, f: F) -> PureSuccess<X>
     where
         F: FnOnce(&mut Self) -> X,
     {
@@ -5824,7 +5842,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
     /// computation.
     fn try_run<X, F>(
         kws: &'b mut RawKeywords,
-        conf: &'a StdTextReadConfig,
+        conf: KwParserConfig<'a>,
         reason: String,
         f: F,
     ) -> PureResult<X>
@@ -5910,18 +5928,6 @@ impl<'a, 'b> KwParser<'a, 'b> {
     kws_opt!(lookup_compensation_3_0, Compensation, COMP, false);
     kws_opt!(lookup_spillover, Spillover, SPILLOVER, false);
 
-    fn lookup_plateid(&mut self, dep: bool) -> OptionalKw<String> {
-        self.lookup_optional(PLATEID, dep)
-    }
-
-    fn lookup_platename(&mut self, dep: bool) -> OptionalKw<String> {
-        self.lookup_optional(PLATENAME, dep)
-    }
-
-    fn lookup_wellid(&mut self, dep: bool) -> OptionalKw<String> {
-        self.lookup_optional(WELLID, dep)
-    }
-
     fn lookup_date(&mut self, dep: bool) -> OptionalKw<FCSDate> {
         self.lookup_optional(DATE, dep)
     }
@@ -5974,9 +5980,9 @@ impl<'a, 'b> KwParser<'a, 'b> {
 
     fn lookup_plate(&mut self, dep: bool) -> PlateData {
         PlateData {
-            wellid: self.lookup_plateid(dep),
-            platename: self.lookup_platename(dep),
-            plateid: self.lookup_wellid(dep),
+            wellid: self.lookup_optional(PLATEID, dep),
+            platename: self.lookup_optional(PLATENAME, dep),
+            plateid: self.lookup_optional(WELLID, dep),
         }
     }
 
@@ -6084,24 +6090,8 @@ impl<'a, 'b> KwParser<'a, 'b> {
         ns
     }
 
-    fn push_meta_error_str(&mut self, msg: &str) {
-        self.push_meta_error(String::from(msg));
-    }
-
-    fn push_meta_error(&mut self, msg: String) {
-        self.deferred.push_error(msg);
-    }
-
-    fn push_meta_warning_str(&mut self, msg: &str) {
-        self.push_meta_warning(String::from(msg));
-    }
-
     fn push_meta_warning(&mut self, msg: String) {
         self.deferred.push_warning(msg);
-    }
-
-    fn push_meta_error_or_warning(&mut self, is_error: bool, msg: String) {
-        self.deferred.push_msg_leveled(msg, is_error);
     }
 
     // auxiliary functions
@@ -6117,7 +6107,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
         }
     }
 
-    fn from(kws: &'b mut RawKeywords, conf: &'a StdTextReadConfig) -> Self {
+    fn from(kws: &'b mut RawKeywords, conf: KwParserConfig<'a>) -> Self {
         KwParser {
             raw_keywords: kws,
             deferred: PureErrorBuf::default(),
@@ -6141,10 +6131,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
                     Ok(x) => Some(x),
                 };
                 if dep {
-                    self.deferred.push_msg_leveled(
-                        format!("deprecated key: {k}"),
-                        self.conf.disallow_deprecated,
-                    );
+                    self.push_deprecated(k);
                 }
                 res
             }
@@ -6171,16 +6158,19 @@ impl<'a, 'b> KwParser<'a, 'b> {
                     Ok(x) => Some(x),
                 };
                 if dep {
-                    self.deferred.push_msg_leveled(
-                        format!("deprecated key: {k}"),
-                        self.conf.disallow_deprecated,
-                    );
+                    self.push_deprecated(k);
                 }
                 res
             }
             None => None,
         }
         .into()
+    }
+
+    fn push_deprecated(&mut self, k: &str) {
+        let msg = format!("deprecated key: {k}");
+        self.deferred
+            .push_msg_leveled(msg, self.conf.disallow_deprecated);
     }
 
     fn lookup_meas_req<V: FromStr>(&mut self, m: &'static str, n: usize, dep: bool) -> Option<V>
@@ -6588,7 +6578,7 @@ fn lookup_stext_offsets(
     conf: &Config,
 ) -> PureSuccess<Option<Segment>> {
     let c = &conf.corrections;
-    let offset_succ = KwParser::run(kws, &conf.standard, |st| match version {
+    let offset_succ = KwParser::run(kws, (&conf.standard).into(), |st| match version {
         Version::FCS2_0 => (None, None),
         Version::FCS3_0 | Version::FCS3_1 => {
             let b = st.lookup_beginstext_req();
@@ -6666,8 +6656,8 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
             repair_keywords(&mut kws, &conf.raw);
             // TODO this will throw an error if not present, but we may not care
             // so toggle b/t error and warning
-            KwParser::run(&mut kws, &conf.standard, |st| st.lookup_nextdata()).map(|nextdata| {
-                RawTEXT {
+            KwParser::run(&mut kws, (&conf.standard).into(), |st| st.lookup_nextdata()).map(
+                |nextdata| RawTEXT {
                     version: header.version,
                     offsets: Offsets {
                         prim_text: header.text,
@@ -6678,8 +6668,8 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
                     },
                     delimiter,
                     keywords: kws,
-                }
-            })
+                },
+            )
         }))
     })
 }

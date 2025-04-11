@@ -215,16 +215,16 @@ fn main() -> io::Result<()> {
             }
 
             if let Some(m) = sargs.get_one::<String>("time-name").cloned() {
-                conf.standard.time_shortname =
+                conf.standard.time.shortname =
                     Some(handle_failure(m.parse::<Shortname>().map_err(|e| {
                         Failure::from_many_errors("bad time-name".to_string(), vec![e.to_string()])
                             .into()
                     }))?);
             }
 
-            conf.standard.ensure_time = sargs.get_flag("ensure-time");
-            conf.standard.ensure_time_linear = sargs.get_flag("ensure-time-linear");
-            conf.standard.ensure_time_nogain = sargs.get_flag("ensure-time-nogain");
+            conf.standard.time.ensure = sargs.get_flag("ensure-time");
+            conf.standard.time.ensure_linear = sargs.get_flag("ensure-time-linear");
+            conf.standard.time.ensure_nogain = sargs.get_flag("ensure-time-nogain");
             conf.standard.disallow_deviant = sargs.get_flag("disallow-deviant");
             conf.standard.disallow_nonstandard = sargs.get_flag("disallow-nonstandard");
             conf.standard.disallow_deprecated = sargs.get_flag("disallow-deprecated");

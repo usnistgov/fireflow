@@ -98,31 +98,36 @@ pub struct RawTextReadConfig {
     // TODO allow lambda function to be supplied which will alter the kv list
 }
 
-/// Instructions for reading the TEXT segment in a standardized structure.
+/// Instructions for validating time-related properties.
 #[derive(Default, Clone)]
-pub struct StdTextReadConfig {
+pub struct TimeConfig {
     /// If given, will be the $PnN used to identify the time channel.
     ///
     /// This is meaningless for FCS 2.0 and will be ignored in that case.
     ///
-    /// Like all $PnN values, this must not contain commas.
-    ///
     /// Will be used for the [`ensure_time*`] options below. If not given, skip
     /// time channel checking entirely.
-    pub time_shortname: Option<Shortname>,
+    pub shortname: Option<Shortname>,
 
     /// If true, will ensure that time channel is present
-    pub ensure_time: bool,
+    pub ensure: bool,
 
     /// If true, will ensure TIMESTEP is present if time channel is also
     /// present.
-    pub ensure_time_timestep: bool,
+    pub ensure_timestep: bool,
 
     /// If true, will ensure PnE is 0,0 for time channel.
-    pub ensure_time_linear: bool,
+    pub ensure_linear: bool,
 
     /// If true, will ensure PnG is absent for time channel.
-    pub ensure_time_nogain: bool,
+    pub ensure_nogain: bool,
+}
+
+/// Instructions for reading the TEXT segment in a standardized structure.
+#[derive(Default, Clone)]
+pub struct StdTextReadConfig {
+    /// Time-related options.
+    pub time: TimeConfig,
 
     /// If true, throw an error if TEXT includes any keywords that start with
     /// "$" which are not standard.
@@ -144,10 +149,8 @@ pub struct StdTextReadConfig {
     /// contain a literal '%n'.
     ///
     /// This will matching something like 'P7FOO' which would be 'FOO' for
-    /// measurement 7. This might be useful in the future when this code offers
-    /// "upgrade" routines since these are often used to represent future
-    /// keywords in an older version where the newer version cannot be used for
-    /// some reason.
+    /// measurement 7. These may be used when converting between different
+    /// FCS versions.
     pub nonstandard_measurement_pattern: Option<NonStdMeasPattern>,
     // TODO add repair stuff
 }

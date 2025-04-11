@@ -17,6 +17,7 @@ use polars::prelude::*;
 use regex::Regex;
 use serde::ser::SerializeStruct;
 use serde::Serialize;
+use std::char::DecodeUtf16Error;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs;
@@ -583,6 +584,7 @@ struct CarrierData {
 #[derive(Debug, Clone, Serialize)]
 struct Unicode {
     page: u32,
+    // TODO check that these are valid keywords (probably not worth it)
     kws: Vec<String>,
 }
 
@@ -1350,6 +1352,12 @@ where
 {
     type P;
 
+    fn check_unstainedcenters(&self, names: &HashSet<&Shortname>) -> Option<String>;
+
+    fn check_spillover(&self, names: &HashSet<&Shortname>) -> Option<String>;
+
+    fn has_timestep(&self) -> bool;
+
     fn begin_date(&self) -> Option<NaiveDate>;
 
     fn end_date(&self) -> Option<NaiveDate>;
@@ -1448,13 +1456,12 @@ where
         }
     }
 
-    fn lookup_specific(st: &mut KwParser, par: usize, names: &HashSet<&str>) -> Option<Self>;
+    fn lookup_specific(st: &mut KwParser, par: usize) -> Option<Self>;
 
     fn lookup_metadata(st: &mut KwParser, ms: &[Measurement<Self::P>]) -> Option<Metadata<Self>> {
-        let names: HashSet<_> = ms.iter().filter_map(|m| Self::P::maybe_name(m)).collect();
         let par = ms.len();
         let maybe_datatype = st.lookup_datatype();
-        let maybe_specific = Self::lookup_specific(st, par, &names);
+        let maybe_specific = Self::lookup_specific(st, par);
         if let (Some(datatype), Some(specific)) = (maybe_datatype, maybe_specific) {
             Some(Metadata {
                 datatype,
@@ -1470,7 +1477,7 @@ where
                 smno: st.lookup_smno(),
                 src: st.lookup_src(),
                 sys: st.lookup_sys(),
-                tr: st.lookup_trigger_checked(&names),
+                tr: st.lookup_trigger(),
                 nonstandard_keywords: st.lookup_all_nonstandard(),
                 specific,
             })
@@ -1525,7 +1532,11 @@ where
 trait VersionedMeasurement: Sized + Versioned {
     fn lookup_specific(st: &mut KwParser, n: usize) -> Option<Self>;
 
-    fn maybe_name(p: &Measurement<Self>) -> Option<&str>;
+    fn has_linear_scale(&self) -> bool;
+
+    fn has_gain(&self) -> bool;
+
+    fn maybe_name(p: &Measurement<Self>) -> Option<&Shortname>;
 
     fn shortname(p: &Measurement<Self>, n: usize) -> Shortname;
 
@@ -1541,46 +1552,36 @@ trait VersionedMeasurement: Sized + Versioned {
     }
 
     fn lookup_measurements(st: &mut KwParser, par: usize) -> Option<Vec<Measurement<Self>>> {
-        let mut ps = vec![];
         let v = Self::fcs_version();
-        for n in 1..(par + 1) {
-            let maybe_bytes = st.lookup_meas_bytes(n);
-            let maybe_range = st.lookup_meas_range(n);
-            let maybe_specific = Self::lookup_specific(st, n);
-            if let (Some(bytes), Some(range), Some(specific)) =
-                (maybe_bytes, maybe_range, maybe_specific)
-            {
-                let p = Measurement {
-                    bytes,
-                    range,
-                    longname: st.lookup_meas_longname(n),
-                    filter: st.lookup_meas_filter(n),
-                    power: st.lookup_meas_power(n),
-                    detector_type: st.lookup_meas_detector_type(n),
-                    percent_emitted: st.lookup_meas_percent_emitted(n, v == Version::FCS3_2),
-                    detector_voltage: st.lookup_meas_detector_voltage(n),
-                    specific,
-                    nonstandard_keywords: st.lookup_all_meas_nonstandard(n),
-                };
-                ps.push(p);
-            }
-        }
-        let names: Vec<&str> = ps.iter().filter_map(|m| Self::maybe_name(m)).collect();
-        let n_names = names.len();
-        let n_unique = names.iter().unique().count();
-        if let Some(time_name) = &st.conf.time_shortname {
-            if !names.into_iter().contains(time_name.as_ref()) {
-                st.push_meta_error_or_warning(
-                    st.conf.ensure_time,
-                    format!("Channel called '{time_name}' not found for time"),
-                );
-            }
-        }
-        if n_unique < n_names {
-            st.push_meta_error_str("$PnN are not all unique");
-            None
-        } else {
+        let ps: Vec<_> = (1..(par + 1))
+            .flat_map(|n| {
+                let maybe_bytes = st.lookup_meas_bytes(n);
+                let maybe_range = st.lookup_meas_range(n);
+                let maybe_specific = Self::lookup_specific(st, n);
+                if let (Some(bytes), Some(range), Some(specific)) =
+                    (maybe_bytes, maybe_range, maybe_specific)
+                {
+                    Some(Measurement {
+                        bytes,
+                        range,
+                        longname: st.lookup_meas_longname(n),
+                        filter: st.lookup_meas_filter(n),
+                        power: st.lookup_meas_power(n),
+                        detector_type: st.lookup_meas_detector_type(n),
+                        percent_emitted: st.lookup_meas_percent_emitted(n, v == Version::FCS3_2),
+                        detector_voltage: st.lookup_meas_detector_voltage(n),
+                        specific,
+                        nonstandard_keywords: st.lookup_all_meas_nonstandard(n),
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if ps.len() == par {
             Some(ps)
+        } else {
+            None
         }
     }
 
@@ -3014,8 +3015,16 @@ impl Versioned for InnerMeasurement3_2 {
 }
 
 impl VersionedMeasurement for InnerMeasurement2_0 {
-    fn maybe_name(p: &Measurement<Self>) -> Option<&str> {
-        p.specific.shortname.0.as_ref().map(|s| s.as_ref())
+    fn maybe_name(p: &Measurement<Self>) -> Option<&Shortname> {
+        p.specific.shortname.0.as_ref()
+    }
+
+    fn has_linear_scale(&self) -> bool {
+        self.scale.0.as_ref().map_or(false, |x| *x == Scale::Linear)
+    }
+
+    fn has_gain(&self) -> bool {
+        false
     }
 
     fn shortname(p: &Measurement<Self>, n: usize) -> Shortname {
@@ -3055,8 +3064,16 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
 }
 
 impl VersionedMeasurement for InnerMeasurement3_0 {
-    fn maybe_name(p: &Measurement<Self>) -> Option<&str> {
-        p.specific.shortname.0.as_ref().map(|s| s.as_ref())
+    fn maybe_name(p: &Measurement<Self>) -> Option<&Shortname> {
+        p.specific.shortname.0.as_ref()
+    }
+
+    fn has_linear_scale(&self) -> bool {
+        self.scale == Scale::Linear
+    }
+
+    fn has_gain(&self) -> bool {
+        self.gain.0.is_some()
     }
 
     fn shortname(p: &Measurement<Self>, n: usize) -> Shortname {
@@ -3075,8 +3092,8 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
     fn lookup_specific(st: &mut KwParser, n: usize) -> Option<InnerMeasurement3_0> {
         let shortname = st.lookup_meas_shortname_opt(n);
         Some(InnerMeasurement3_0 {
-            scale: st.lookup_meas_scale_timecheck_opt(n, &shortname)?,
-            gain: st.lookup_meas_gain_timecheck_opt(n, &shortname),
+            scale: st.lookup_meas_scale_req(n)?,
+            gain: st.lookup_meas_gain(n),
             shortname,
             wavelength: st.lookup_meas_wavelength(n),
         })
@@ -3098,8 +3115,16 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
 }
 
 impl VersionedMeasurement for InnerMeasurement3_1 {
-    fn maybe_name(p: &Measurement<Self>) -> Option<&str> {
-        Some(p.specific.shortname.as_ref())
+    fn maybe_name(p: &Measurement<Self>) -> Option<&Shortname> {
+        Some(&p.specific.shortname)
+    }
+
+    fn has_linear_scale(&self) -> bool {
+        self.scale == Scale::Linear
+    }
+
+    fn has_gain(&self) -> bool {
+        self.gain.0.is_some()
     }
 
     fn shortname(p: &Measurement<Self>, _: usize) -> Shortname {
@@ -3113,8 +3138,8 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
     fn lookup_specific(st: &mut KwParser, n: usize) -> Option<InnerMeasurement3_1> {
         let shortname = st.lookup_meas_shortname_req(n)?;
         Some(InnerMeasurement3_1 {
-            scale: st.lookup_meas_scale_timecheck(n, &shortname)?,
-            gain: st.lookup_meas_gain_timecheck(n, &shortname),
+            scale: st.lookup_meas_scale_req(n)?,
+            gain: st.lookup_meas_gain(n),
             shortname,
             wavelengths: st.lookup_meas_wavelengths(n),
             calibration: st.lookup_meas_cal3_1(n),
@@ -3144,8 +3169,16 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
 }
 
 impl VersionedMeasurement for InnerMeasurement3_2 {
-    fn maybe_name(p: &Measurement<Self>) -> Option<&str> {
-        Some(p.specific.shortname.as_ref())
+    fn maybe_name(p: &Measurement<Self>) -> Option<&Shortname> {
+        Some(&p.specific.shortname)
+    }
+
+    fn has_linear_scale(&self) -> bool {
+        self.scale == Scale::Linear
+    }
+
+    fn has_gain(&self) -> bool {
+        self.gain.0.is_some()
     }
 
     fn shortname(p: &Measurement<Self>, _: usize) -> Shortname {
@@ -3159,8 +3192,8 @@ impl VersionedMeasurement for InnerMeasurement3_2 {
     fn lookup_specific(st: &mut KwParser, n: usize) -> Option<InnerMeasurement3_2> {
         let shortname = st.lookup_meas_shortname_req(n)?;
         Some(InnerMeasurement3_2 {
-            gain: st.lookup_meas_gain_timecheck(n, &shortname),
-            scale: st.lookup_meas_scale_timecheck(n, &shortname)?,
+            gain: st.lookup_meas_gain(n),
+            scale: st.lookup_meas_scale_req(n)?,
             shortname,
             wavelengths: st.lookup_meas_wavelengths(n),
             calibration: st.lookup_meas_cal3_2(n),
@@ -3988,7 +4021,83 @@ where
     }
 
     fn any_from_raw(kws: &mut RawKeywords, conf: &StdTextReadConfig) -> PureResult<AnyCoreTEXT> {
-        Self::from_raw(kws, conf).map(|succ| succ.map(M::into_any))
+        Self::from_raw(kws, conf).map(|succ| {
+            succ.and_then(|c| c.validate(&conf.time).map(|_| c))
+                .map(M::into_any)
+        })
+    }
+
+    fn validate(&self, conf: &TimeConfig) -> PureSuccess<()> {
+        let mut deferred = PureErrorBuf::default();
+
+        // Ensure $PnN are unique; if this fails we can't make a dataframe, so
+        // failure will always be an error and not a warning.
+        let names: Vec<_> = self
+            .measurements
+            .iter()
+            .filter_map(|m| M::P::maybe_name(m))
+            .collect();
+        let n_names = names.len();
+        let unique_names: HashSet<_> = names.into_iter().collect();
+        if unique_names.len() < n_names {
+            deferred.push_error("$PnN are not all unique".into());
+        }
+
+        // Ensure $TR refers to a valid measurement
+        if let Some(tr) = &self.metadata.tr.0 {
+            let p = &tr.measurement;
+            if !unique_names.contains(p) {
+                let msg = format!("$TR refers to non-existent measurement '{p}'",);
+                // TODO toggle this
+                deferred.push_error(msg);
+            }
+        }
+
+        // Ensure $UNSTAINEDCENTERS refers to valid measurements (if applicable)
+        if let Some(msg) = self.metadata.specific.check_unstainedcenters(&unique_names) {
+            // TODO toggle this
+            deferred.push_error(msg);
+        }
+
+        // Ensure $SPILLOVER refers to valid measurements (if applicable)
+        if let Some(msg) = self.metadata.specific.check_spillover(&unique_names) {
+            // TODO toggle this
+            deferred.push_error(msg);
+        }
+
+        // Ensure time measurement is valid
+        if let Some(time_name) = &conf.shortname {
+            // Find the time measurement, check lots of stuff if it exists
+            if let Some(time_meas) = self
+                .measurements
+                .iter()
+                .find(|m| M::P::maybe_name(m) == Some(time_name))
+            {
+                // check if $TIMESTEP exists
+                if !self.metadata.specific.has_timestep() {
+                    let msg = "$TIMESTEP must be present if time measurement present".into();
+                    deferred.push_msg_leveled(msg, conf.ensure_timestep)
+                }
+                // check that $PnE is linear
+                if !time_meas.specific.has_linear_scale() {
+                    deferred.push_msg_leveled(
+                        "Time measurement must have linear $PnE".into(),
+                        conf.ensure_linear,
+                    );
+                }
+                // check that $PnG doesn't exist
+                if time_meas.specific.has_gain() {
+                    deferred.push_msg_leveled(
+                        "Time measurement should not have $PnG".into(),
+                        conf.ensure_nogain,
+                    );
+                }
+            } else {
+                let msg = format!("Measurement '{time_name}' not found for time");
+                deferred.push_msg_leveled(msg, conf.ensure);
+            }
+        }
+        PureSuccess { data: (), deferred }
     }
 }
 
@@ -5145,13 +5254,21 @@ impl VersionedMetadata for InnerMetadata2_0 {
         AnyCoreTEXT::FCS2_0(Box::new(t))
     }
 
+    fn has_timestep(&self) -> bool {
+        false
+    }
+
+    fn check_unstainedcenters(&self, _: &HashSet<&Shortname>) -> Option<String> {
+        None
+    }
+
+    fn check_spillover(&self, _: &HashSet<&Shortname>) -> Option<String> {
+        None
+    }
+
     get_set_pre_3_2_datetime!(FCSTime);
 
-    fn lookup_specific(
-        st: &mut KwParser,
-        par: usize,
-        _: &HashSet<&str>,
-    ) -> Option<InnerMetadata2_0> {
+    fn lookup_specific(st: &mut KwParser, par: usize) -> Option<InnerMetadata2_0> {
         let maybe_mode = st.lookup_mode();
         let maybe_byteord = st.lookup_byteord();
         if let (Some(mode), Some(byteord)) = (maybe_mode, maybe_byteord) {
@@ -5197,13 +5314,21 @@ impl VersionedMetadata for InnerMetadata3_0 {
         AnyCoreTEXT::FCS3_0(Box::new(t))
     }
 
+    fn has_timestep(&self) -> bool {
+        self.timestep.0.is_some()
+    }
+
+    fn check_unstainedcenters(&self, _: &HashSet<&Shortname>) -> Option<String> {
+        None
+    }
+
+    fn check_spillover(&self, _: &HashSet<&Shortname>) -> Option<String> {
+        None
+    }
+
     get_set_pre_3_2_datetime!(FCSTime60);
 
-    fn lookup_specific(
-        st: &mut KwParser,
-        _: usize,
-        names: &HashSet<&str>,
-    ) -> Option<InnerMetadata3_0> {
+    fn lookup_specific(st: &mut KwParser, _: usize) -> Option<InnerMetadata3_0> {
         let maybe_mode = st.lookup_mode();
         let maybe_byteord = st.lookup_byteord();
         if let (Some(mode), Some(byteord)) = (maybe_mode, maybe_byteord) {
@@ -5214,7 +5339,7 @@ impl VersionedMetadata for InnerMetadata3_0 {
                 comp: st.lookup_compensation_3_0(),
                 timestamps: st.lookup_timestamps3_0(),
                 cytsn: st.lookup_cytsn(),
-                timestep: st.lookup_timestep_checked(names),
+                timestep: st.lookup_timestep(),
                 unicode: st.lookup_unicode(),
             })
         } else {
@@ -5256,13 +5381,24 @@ impl VersionedMetadata for InnerMetadata3_1 {
         AnyCoreTEXT::FCS3_1(Box::new(t))
     }
 
+    fn has_timestep(&self) -> bool {
+        self.timestep.0.is_some()
+    }
+
+    fn check_unstainedcenters(&self, _: &HashSet<&Shortname>) -> Option<String> {
+        None
+    }
+
+    fn check_spillover(&self, names: &HashSet<&Shortname>) -> Option<String> {
+        self.spillover.0.as_ref().and_then(|s| {
+            let xs: Vec<_> = s.measurements.iter().collect();
+            check_noexist(xs.as_slice(), names, SPILLOVER)
+        })
+    }
+
     get_set_pre_3_2_datetime!(FCSTime100);
 
-    fn lookup_specific(
-        st: &mut KwParser,
-        _: usize,
-        names: &HashSet<&str>,
-    ) -> Option<InnerMetadata3_1> {
+    fn lookup_specific(st: &mut KwParser, _: usize) -> Option<InnerMetadata3_1> {
         let maybe_mode = st.lookup_mode();
         let maybe_byteord = st.lookup_endian();
         if let (Some(mode), Some(byteord)) = (maybe_mode, maybe_byteord) {
@@ -5274,10 +5410,10 @@ impl VersionedMetadata for InnerMetadata3_1 {
                 mode,
                 byteord,
                 cyt: st.lookup_cyt_opt(),
-                spillover: st.lookup_spillover_checked(names),
+                spillover: st.lookup_spillover(),
                 timestamps: st.lookup_timestamps3_1(false),
                 cytsn: st.lookup_cytsn(),
-                timestep: st.lookup_timestep_checked(names),
+                timestep: st.lookup_timestep(),
                 modification: st.lookup_modification(),
                 plate: st.lookup_plate(false),
                 vol: st.lookup_vol(),
@@ -5322,11 +5458,47 @@ impl VersionedMetadata for InnerMetadata3_1 {
     }
 }
 
+// TODO moveme
+fn check_noexist(
+    xs: &[&Shortname],
+    names: &HashSet<&Shortname>,
+    which: &'static str,
+) -> Option<String> {
+    let noexist: Vec<_> = xs.iter().filter(|x| !names.contains(*x)).collect();
+    if !noexist.is_empty() {
+        let msg = format!(
+            "{} refers to non-existent measurements: {}",
+            which,
+            noexist.iter().join(","),
+        );
+        return Some(msg);
+    }
+    None
+}
+
 impl VersionedMetadata for InnerMetadata3_2 {
     type P = InnerMeasurement3_2;
 
     fn into_any(t: CoreTEXT3_2) -> AnyCoreTEXT {
         AnyCoreTEXT::FCS3_2(Box::new(t))
+    }
+
+    fn has_timestep(&self) -> bool {
+        self.timestep.0.is_some()
+    }
+
+    fn check_unstainedcenters(&self, names: &HashSet<&Shortname>) -> Option<String> {
+        self.unstained.unstainedcenters.0.as_ref().and_then(|u| {
+            let xs: Vec<_> = u.0.keys().collect();
+            check_noexist(xs.as_slice(), names, UNSTAINEDCENTERS)
+        })
+    }
+
+    fn check_spillover(&self, names: &HashSet<&Shortname>) -> Option<String> {
+        self.spillover.0.as_ref().and_then(|s| {
+            let xs: Vec<_> = s.measurements.iter().collect();
+            check_noexist(xs.as_slice(), names, SPILLOVER)
+        })
     }
 
     // TODO not DRY
@@ -5382,11 +5554,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
         self.timestamps.date = None.into();
     }
 
-    fn lookup_specific(
-        st: &mut KwParser,
-        _: usize,
-        names: &HashSet<&str>,
-    ) -> Option<InnerMetadata3_2> {
+    fn lookup_specific(st: &mut KwParser, _: usize) -> Option<InnerMetadata3_2> {
         // Only L is allowed as of 3.2, so pull the value and check it if given.
         // The only thing we care about is that the value is valid, since we
         // don't need to use it anywhere.
@@ -5397,16 +5565,16 @@ impl VersionedMetadata for InnerMetadata3_2 {
             Some(InnerMetadata3_2 {
                 byteord,
                 cyt,
-                spillover: st.lookup_spillover_checked(names),
+                spillover: st.lookup_spillover(),
                 timestamps: st.lookup_timestamps3_1(true),
                 cytsn: st.lookup_cytsn(),
-                timestep: st.lookup_timestep_checked(names),
+                timestep: st.lookup_timestep(),
                 modification: st.lookup_modification(),
                 plate: st.lookup_plate(true),
                 vol: st.lookup_vol(),
                 carrier: st.lookup_carrier(),
                 datetimes: st.lookup_datetimes(),
-                unstained: st.lookup_unstained(names),
+                unstained: st.lookup_unstained(),
                 flowrate: st.lookup_flowrate(),
             })
         } else {
@@ -5645,41 +5813,6 @@ impl<'a, 'b> KwParser<'a, 'b> {
     kws_opt!(lookup_compensation_3_0, Compensation, COMP, false);
     kws_opt!(lookup_spillover, Spillover, SPILLOVER, false);
 
-    /// Lookup $TR but check that its name is valid
-    fn lookup_trigger_checked(&mut self, names: &HashSet<&str>) -> OptionalKw<Trigger> {
-        if let Some(tr) = self.lookup_trigger().0 {
-            let p = tr.measurement.as_ref();
-            if names.contains(p) {
-                self.push_meta_error(format!(
-                    "$TRIGGER refers to non-existent measurements '{p}'",
-                ));
-                None
-            } else {
-                Some(tr)
-            }
-        } else {
-            None
-        }
-        .into()
-    }
-
-    /// Lookup $TIMESTEP and log error if missing along with a time channel
-    fn lookup_timestep_checked(&mut self, names: &HashSet<&str>) -> OptionalKw<f32> {
-        let ts = self.lookup_timestep();
-        if let Some(time_name) = &self.conf.time_shortname {
-            if names.contains(time_name.as_ref()) && ts.0.is_none() {
-                self.push_meta_error_or_warning(
-                    self.conf.ensure_time_timestep,
-                    String::from("$TIMESTEP must be present if time channel given"),
-                )
-            }
-        }
-        ts
-    }
-
-    // TODO add checked version of unicode that verifies that the keywords
-    // match (probably not worth it)
-
     fn lookup_plateid(&mut self, dep: bool) -> OptionalKw<String> {
         self.lookup_optional(PLATEID, dep)
     }
@@ -5690,29 +5823,6 @@ impl<'a, 'b> KwParser<'a, 'b> {
 
     fn lookup_wellid(&mut self, dep: bool) -> OptionalKw<String> {
         self.lookup_optional(WELLID, dep)
-    }
-
-    /// Lookup $UNSTAINEDCENTERS and check that its names are valid
-    fn lookup_unstainedcenters_checked(
-        &mut self,
-        names: &HashSet<&str>,
-    ) -> OptionalKw<UnstainedCenters> {
-        if let Some(u) = self.lookup_unstainedcenters().0 {
-            let noexist: Vec<_> = u.0.keys().filter(|m| !names.contains(m.as_ref())).collect();
-            if !noexist.is_empty() {
-                let msg = format!(
-                    "$UNSTAINEDCENTERS refers to non-existent measurements: {}",
-                    noexist.iter().join(","),
-                );
-                self.push_meta_error(msg);
-                None
-            } else {
-                Some(u)
-            }
-        } else {
-            None
-        }
-        .into()
     }
 
     fn lookup_date(&mut self, dep: bool) -> OptionalKw<FCSDate> {
@@ -5787,9 +5897,9 @@ impl<'a, 'b> KwParser<'a, 'b> {
         }
     }
 
-    fn lookup_unstained(&mut self, names: &HashSet<&str>) -> UnstainedData {
+    fn lookup_unstained(&mut self) -> UnstainedData {
         UnstainedData {
-            unstainedcenters: self.lookup_unstainedcenters_checked(names),
+            unstainedcenters: self.lookup_unstainedcenters(),
             unstainedinfo: self.lookup_unstainedinfo(),
         }
     }
@@ -5814,28 +5924,6 @@ impl<'a, 'b> KwParser<'a, 'b> {
             None
         } else {
             Some(Compensation { matrix })
-        }
-        .into()
-    }
-
-    // TODO this is basically the same as unstained centers
-    fn lookup_spillover_checked(&mut self, names: &HashSet<&str>) -> OptionalKw<Spillover> {
-        if let Some(s) = self.lookup_spillover().0 {
-            let noexist: Vec<_> = s
-                .measurements
-                .iter()
-                .filter(|m| !names.contains(m.as_ref()))
-                .collect();
-            if !noexist.is_empty() {
-                let msg = format!(
-                    "$SPILLOVER refers to non-existent measurements: {}",
-                    noexist.iter().join(", ")
-                );
-                self.push_meta_error(msg);
-            }
-            Some(s)
-        } else {
-            None
         }
         .into()
     }
@@ -5881,71 +5969,6 @@ impl<'a, 'b> KwParser<'a, 'b> {
 
     fn lookup_meas_percent_emitted(&mut self, n: usize, dep: bool) -> OptionalKw<u32> {
         self.lookup_meas_opt(PCNT_EMT_SFX, n, dep)
-    }
-
-    /// Lookup $PnG and ensure it is not present if measurement is time
-    fn lookup_meas_gain_timecheck(&mut self, n: usize, name: &Shortname) -> OptionalKw<f32> {
-        let gain = self.lookup_meas_gain(n);
-        if let Some(g) = &gain.0 {
-            if self.conf.time_name_matches(name) && *g != 1.0 {
-                if self.conf.ensure_time_nogain {
-                    self.push_meta_error(String::from("Time channel must not have $PnG"));
-                } else {
-                    self.push_meta_warning(String::from(
-                        "Time channel should not have $PnG, dropping $PnG",
-                    ));
-                }
-                None.into()
-            } else {
-                gain
-            }
-        } else {
-            gain
-        }
-    }
-
-    fn lookup_meas_gain_timecheck_opt(
-        &mut self,
-        n: usize,
-        name: &OptionalKw<Shortname>,
-    ) -> OptionalKw<f32> {
-        if let Some(x) = name.0.as_ref() {
-            self.lookup_meas_gain_timecheck(n, x)
-        } else {
-            self.lookup_meas_gain(n)
-        }
-    }
-
-    /// Lookup $PnE and ensure it is linear if measurement is time
-    fn lookup_meas_scale_timecheck(&mut self, n: usize, name: &Shortname) -> Option<Scale> {
-        // TODO easier way to check this will be to get the index of the time
-        // channel and match on n
-        let scale = self.lookup_meas_scale_req(n);
-        if let Some(s) = &scale {
-            if self.conf.time_name_matches(name)
-                && *s != Scale::Linear
-                && self.conf.ensure_time_linear
-            {
-                self.push_meta_error(String::from("Time channel must have linear $PnE"));
-                None
-            } else {
-                scale
-            }
-        } else {
-            scale
-        }
-    }
-
-    fn lookup_meas_scale_timecheck_opt(
-        &mut self,
-        n: usize,
-        name: &OptionalKw<Shortname>,
-    ) -> Option<Scale> {
-        if let Some(x) = name.0.as_ref() {
-            self.lookup_meas_scale_timecheck(n, x)
-        } else {
-            self.lookup_meas_scale_req(n)
-        }
     }
 
     fn lookup_all_meas_nonstandard(&mut self, n: usize) -> NonStdKeywords {
@@ -6442,15 +6465,6 @@ fn hash_raw_pairs(
         }
     }
     res
-}
-
-impl StdTextReadConfig {
-    fn time_name_matches(&self, name: &Shortname) -> bool {
-        self.time_shortname
-            .as_ref()
-            .map(|n| n == name)
-            .unwrap_or(false)
-    }
 }
 
 fn pad_zeros(s: &str) -> String {

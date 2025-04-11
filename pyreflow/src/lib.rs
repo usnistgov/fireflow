@@ -26,7 +26,6 @@ use std::path;
 fn pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("PyreflowException", py.get_type::<PyreflowException>())?;
     m.add("PyreflowWarning", py.get_type::<PyreflowWarning>())?;
-    m.add_class::<PyConfig>()?;
     m.add_class::<PyTEXTDelim>()?;
     m.add_class::<PyNonStdMeasPattern>()?;
     m.add_class::<PyDatePattern>()?;
@@ -39,22 +38,28 @@ fn pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
 #[pyfunction]
 fn read_fcs_header(p: path::PathBuf) -> PyResult<PyHeader> {
-    handle_errors(api::read_fcs_header(&p))
+    handle_errors(api::read_fcs_header(&p, &config::HeaderConfig::default()))
 }
 
 #[pyfunction]
-fn read_fcs_raw_text(p: path::PathBuf, conf: PyConfig) -> PyResult<PyRawTEXT> {
-    handle_errors(api::read_fcs_raw_text(&p, &conf.0))
+fn read_fcs_raw_text(p: path::PathBuf) -> PyResult<PyRawTEXT> {
+    handle_errors(api::read_fcs_raw_text(
+        &p,
+        &config::RawTextReadConfig::default(),
+    ))
 }
 
 #[pyfunction]
-fn read_fcs_std_text(p: path::PathBuf, conf: PyConfig) -> PyResult<PyStandardizedTEXT> {
-    handle_errors(api::read_fcs_std_text(&p, &conf.0))
+fn read_fcs_std_text(p: path::PathBuf) -> PyResult<PyStandardizedTEXT> {
+    handle_errors(api::read_fcs_std_text(
+        &p,
+        &config::StdTextReadConfig::default(),
+    ))
 }
 
 #[pyfunction]
-fn read_fcs_file(p: path::PathBuf, conf: PyConfig) -> PyResult<PyStandardizedDataset> {
-    handle_errors(api::read_fcs_file(&p, &conf.0))
+fn read_fcs_file(p: path::PathBuf) -> PyResult<PyStandardizedDataset> {
+    handle_errors(api::read_fcs_file(&p, &config::DataReadConfig::default()))
 }
 
 macro_rules! pywrap {
@@ -160,7 +165,6 @@ macro_rules! py_parse {
     };
 }
 
-pywrap!(PyConfig, config::Config, "Config");
 pywrap!(PySegment, api::Segment, "Segment");
 pywrap!(PyVersion, api::Version, "Version");
 pywrap!(PyHeader, api::Header, "Header");
@@ -213,15 +217,6 @@ impl PyTEXTDelim {
 
 py_ord!(PyVersion);
 py_disp!(PyVersion);
-
-#[pymethods]
-impl PyConfig {
-    #[new]
-    fn new() -> Self {
-        // TODO make this more interesting...
-        config::Config::default().into()
-    }
-}
 
 #[pymethods]
 impl PySegment {

@@ -5,15 +5,15 @@ use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::TEXTDelim;
 
 /// Instructions for reading an FCS file.
-#[derive(Default, Clone)]
-pub struct Config {
-    // pub corrections: OffsetCorrections,
-    pub raw: RawTextReadConfig,
-    pub standard: StdTextReadConfig,
-    pub data: DataReadConfig,
-    pub misc: MiscReadConfig,
-    pub write: WriteConfig,
-}
+// #[derive(Default, Clone)]
+// pub struct Config {
+//     // pub corrections: OffsetCorrections,
+//     pub raw: RawTextReadConfig,
+//     pub standard: StdTextReadConfig,
+//     pub data: DataReadConfig,
+//     pub misc: MiscReadConfig,
+//     pub write: WriteConfig,
+// }
 
 #[derive(Default, Clone)]
 pub struct HeaderConfig {

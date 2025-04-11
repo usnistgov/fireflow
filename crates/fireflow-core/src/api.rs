@@ -4817,10 +4817,10 @@ fn h_write_numeric_dataframe<W: Write>(
     h: &mut BufWriter<W>,
     cs: Vec<ColumnType>,
     df: DataFrame,
-    conf: &Config,
+    conf: &WriteConfig,
 ) -> ImpureResult<()> {
     let df_nrows = df.height();
-    let res = into_writable_columns(df, cs, &conf.write);
+    let res = into_writable_columns(df, cs, &conf);
     if let Some(succ) = res {
         succ.try_map(|writable_columns| {
             for r in 0..df_nrows {
@@ -4884,7 +4884,7 @@ fn h_write_delimited_matrix<W: Write>(
 fn h_write_dataset<W: Write>(
     h: &mut BufWriter<W>,
     d: CoreDataset,
-    conf: &Config,
+    conf: &WriteConfig,
 ) -> ImpureResult<()> {
     let analysis_len = d.analysis.len();
     let df = d.data;
@@ -4924,7 +4924,7 @@ fn h_write_dataset<W: Write>(
         if let Some(text) = d.text.text_segment(nrows, data_len, analysis_len) {
             for t in text {
                 h.write_all(t.as_bytes())?;
-                h.write_all(&[conf.write.delim.inner()])?;
+                h.write_all(&[conf.delim.inner()])?;
             }
         } else {
             Err(Failure::new(
@@ -4963,7 +4963,7 @@ fn h_write_dataset<W: Write>(
             // value. Then convert values to strings and write byte
             // representation of strings. Fun...
             DataLayout::AsciiDelimited { nrows: _, ncols: _ } => {
-                if let Some(succ) = into_writable_matrix64(df, &conf.write) {
+                if let Some(succ) = into_writable_matrix64(df, &conf) {
                     succ.try_map(|columns| {
                         let ndelim = df_ncols * nrows - 1;
                         // TODO cast?

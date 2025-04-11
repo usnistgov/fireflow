@@ -234,7 +234,7 @@ fn main() -> io::Result<()> {
             conf.time.ensure_nogain = sargs.get_flag("ensure-time-nogain");
             conf.disallow_deviant = sargs.get_flag("disallow-deviant");
             conf.disallow_nonstandard = sargs.get_flag("disallow-nonstandard");
-            conf.disallow_deprecated = sargs.get_flag("disallow-deprecated");
+            conf.raw.disallow_deprecated = sargs.get_flag("disallow-deprecated");
             conf.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
 
             let res = handle_result(api::read_fcs_std_text(filepath, &conf))?;

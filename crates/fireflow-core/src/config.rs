@@ -37,7 +37,7 @@ pub struct RawTextReadConfig {
 
     /// Will treat every delimiter as a literal delimiter rather than "escaping"
     /// double delimiters
-    pub no_delim_escape: bool,
+    pub allow_double_delim: bool,
 
     /// If true, only ASCII characters 1-126 will be allowed for the delimiter
     pub force_ascii_delim: bool,
@@ -54,7 +54,7 @@ pub struct RawTextReadConfig {
     pub enforce_even: bool,
 
     /// If true, throw an error if we encounter a key with a blank value.
-    /// Only relevant if [`no_delim_escape`] is also true.
+    /// Only relevant if [`allow_double_delim`] is also true.
     pub enforce_nonempty: bool,
 
     /// If true, throw an error if the parser encounters a bad UTF-8 byte when
@@ -130,9 +130,6 @@ pub struct StdTextReadConfig {
     /// "$" which are not standard.
     pub disallow_deviant: bool,
 
-    /// If true, throw an error if TEXT includes any deprecated features
-    pub disallow_deprecated: bool,
-
     /// If true, throw an error if TEXT includes any keywords that do not
     /// start with "$".
     pub disallow_nonstandard: bool,
@@ -195,4 +192,59 @@ pub struct WriteConfig {
     ///
     /// Example, f32 -> u32
     pub disallow_lossy_conversions: bool,
+}
+
+impl RawTextReadConfig {
+    fn default_strict() -> Self {
+        let c = Self::default();
+        Self {
+            force_ascii_delim: true,
+            enforce_final_delim: true,
+            enforce_unique: true,
+            enforce_even: true,
+            error_on_invalid_utf8: true,
+            enforce_keyword_ascii: true,
+            enforce_stext: true,
+            ..c
+        }
+    }
+}
+
+impl StdTextReadConfig {
+    fn default_strict() -> Self {
+        let c = Self::default();
+        Self {
+            raw: RawTextReadConfig::default_strict(),
+            time: TimeConfig::default_strict(),
+            disallow_deviant: true,
+            disallow_nonstandard: true,
+            ..c
+        }
+    }
+}
+
+impl TimeConfig {
+    fn default_strict() -> Self {
+        let c = Self::default();
+        Self {
+            shortname: Some(Shortname::new_unchecked("Time".to_string())),
+            ensure: true,
+            ensure_timestep: true,
+            ensure_linear: true,
+            ensure_nogain: true,
+            ..c
+        }
+    }
+}
+
+impl DataReadConfig {
+    fn default_strict() -> Self {
+        let c = Self::default();
+        Self {
+            standard: StdTextReadConfig::default_strict(),
+            enfore_data_width_divisibility: true,
+            enfore_matching_tot: true,
+            ..c
+        }
+    }
 }

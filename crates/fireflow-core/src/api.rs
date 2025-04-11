@@ -5805,7 +5805,7 @@ impl<'a> From<&'a RawTextReadConfig> for KwParserConfig<'a> {
 impl<'a> From<&'a StdTextReadConfig> for KwParserConfig<'a> {
     fn from(value: &'a StdTextReadConfig) -> Self {
         KwParserConfig {
-            disallow_deprecated: value.disallow_deprecated,
+            disallow_deprecated: value.raw.disallow_deprecated,
             nonstandard_measurement_pattern: value.nonstandard_measurement_pattern.as_ref(),
         }
     }
@@ -6417,7 +6417,7 @@ fn split_raw_text(xs: &[u8], delim: u8, conf: &RawTextReadConfig) -> PureSuccess
     // be used in a word to represented a single delimiter. However, this means
     // we also can't have blank values. Many FCS files unfortunately use blank
     // values, so we need to be able to toggle this behavior.
-    let boundaries = if conf.no_delim_escape {
+    let boundaries = if conf.allow_double_delim {
         raw_boundaries.collect()
     } else {
         // Remove "escaped" delimiters from position vector. Because we disallow
@@ -6492,7 +6492,7 @@ fn split_raw_text(xs: &[u8], delim: u8, conf: &RawTextReadConfig) -> PureSuccess
                     )
                 }
                 // if delimiters were escaped, replace them here
-                if conf.no_delim_escape {
+                if conf.allow_double_delim {
                     // Test for empty values if we don't allow delim escaping;
                     // anything empty will either drop or produce an error
                     // depending on user settings

@@ -4,17 +4,6 @@ use crate::validated::nonstandard::NonStdMeasPattern;
 use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::TEXTDelim;
 
-/// Instructions for reading an FCS file.
-// #[derive(Default, Clone)]
-// pub struct Config {
-//     // pub corrections: OffsetCorrections,
-//     pub raw: RawTextReadConfig,
-//     pub standard: StdTextReadConfig,
-//     pub data: DataReadConfig,
-//     pub misc: MiscReadConfig,
-//     pub write: WriteConfig,
-// }
-
 #[derive(Default, Clone)]
 pub struct HeaderConfig {
     /// Override the version
@@ -35,34 +24,6 @@ pub struct OffsetCorrection {
     pub begin: i32,
     pub end: i32,
 }
-
-// /// Corrections for file offsets
-// ///
-// /// Use these to fix errors caused by offsets pointing to the wrong location.
-// ///
-// /// Each of these will be added to the offset values as parsed from the file.
-// /// Obviously the result must be greater than zero, and the resulting offset
-// /// pairs must not be flipped (begin > end).
-// ///
-// /// These do nothing if the segment does not exist.
-// // TODO this will need to be repeated for each dataset once we include this
-// #[derive(Default, Clone)]
-// pub struct OffsetCorrections {
-//     /// Corrections for primary TEXT segment
-//     pub start_prim_text: i32,
-//     pub end_prim_text: i32,
-
-//     /// Corrections for DATA segment
-//     pub start_data: i32,
-//     pub end_data: i32,
-
-//     /// Corrections for ANALYSIS segment
-//     pub start_analysis: i32,
-//     pub end_analysis: i32,
-
-//     /// Correction for $NEXTDATA
-//     pub nextdata: i32,
-// }
 
 /// Instructions for reading the TEXT segment as raw key/value pairs.
 // TODO add correction for $NEXTDATA

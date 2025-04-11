@@ -13,6 +13,7 @@ fn print_json<T: Serialize>(j: &T) {
     println!("{}", serde_json::to_string(j).unwrap());
 }
 
+// TODO use warnings_are_errors flag
 fn handle_failure<X>(res: Result<X, ImpureFailure>) -> io::Result<X> {
     res.map_err(|Failure { reason, deferred }| {
         for e in deferred.errors {

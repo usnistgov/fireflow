@@ -592,6 +592,7 @@ where
     handle_pure(res.map_err(FailWrapper)?)
 }
 
+// TODO use warnings_are_errors flag
 fn handle_pure<X, Y>(succ: error::PureSuccess<X>) -> PyResult<Y>
 where
     Y: From<X>,

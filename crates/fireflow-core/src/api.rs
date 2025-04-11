@@ -4,7 +4,6 @@ pub use crate::header::*;
 use crate::header_text::*;
 use crate::keywords::*;
 use crate::optionalkw::OptionalKw;
-use crate::optionalkw::OptionalKw::*;
 pub use crate::segment::*;
 use crate::validated::nonstandard::{
     DefaultMatrix, DefaultMeasOptional, DefaultMetaOptional, NonStdKey, NonStdKeywords,
@@ -1534,15 +1533,11 @@ trait VersionedMeasurement: Sized + Versioned {
 
     fn longname(p: &Measurement<Self>, n: usize) -> String {
         // TODO not DRY
-        p.longname
-            .as_ref()
-            .into_option()
-            .cloned()
-            .unwrap_or(format!("M{n}"))
+        p.longname.0.as_ref().cloned().unwrap_or(format!("M{n}"))
     }
 
     fn set_longname(m: &mut Measurement<Self>, n: Option<String>) {
-        m.longname = OptionalKw::from_option(n);
+        m.longname = n.into();
     }
 
     fn lookup_measurements(st: &mut KwParser, par: usize) -> Option<Vec<Measurement<Self>>> {
@@ -3020,20 +3015,20 @@ impl Versioned for InnerMeasurement3_2 {
 
 impl VersionedMeasurement for InnerMeasurement2_0 {
     fn maybe_name(p: &Measurement<Self>) -> Option<&str> {
-        p.specific.shortname.as_option().map(|s| s.as_ref())
+        p.specific.shortname.0.as_ref().map(|s| s.as_ref())
     }
 
     fn shortname(p: &Measurement<Self>, n: usize) -> Shortname {
         p.specific
             .shortname
+            .0
             .as_ref()
-            .into_option()
             .cloned()
             .unwrap_or(Shortname::from_index(n))
     }
 
     fn set_shortname(m: &mut Measurement<Self>, n: Shortname) {
-        m.specific.shortname = Present(n)
+        m.specific.shortname = Some(n).into();
     }
 
     fn lookup_specific(st: &mut KwParser, n: usize) -> Option<InnerMeasurement2_0> {
@@ -3061,20 +3056,20 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
 
 impl VersionedMeasurement for InnerMeasurement3_0 {
     fn maybe_name(p: &Measurement<Self>) -> Option<&str> {
-        p.specific.shortname.as_option().map(|s| s.as_ref())
+        p.specific.shortname.0.as_ref().map(|s| s.as_ref())
     }
 
     fn shortname(p: &Measurement<Self>, n: usize) -> Shortname {
         p.specific
             .shortname
+            .0
             .as_ref()
-            .into_option()
             .cloned()
             .unwrap_or(Shortname::from_index(n))
     }
 
     fn set_shortname(m: &mut Measurement<Self>, n: Shortname) {
-        m.specific.shortname = Present(n)
+        m.specific.shortname = Some(n).into()
     }
 
     fn lookup_specific(st: &mut KwParser, n: usize) -> Option<InnerMeasurement3_0> {
@@ -3530,15 +3525,15 @@ impl AnyCoreTEXT {
                 .metadata
                 .specific
                 .spillover
+                .0
                 .as_ref()
-                .into_option()
                 .map(|s| s.print_table(delim)),
             AnyCoreTEXT::FCS3_2(x) => x
                 .metadata
                 .specific
                 .spillover
+                .0
                 .as_ref()
-                .into_option()
                 .map(|s| s.print_table(delim)),
         };
         if res.is_none() {
@@ -3640,11 +3635,11 @@ fn build_data_reader(layout: ReaderDataLayout, data_seg: &Segment) -> DataReader
 macro_rules! get_set_copied {
     ($get:ident, $set:ident, $t:ty) => {
         pub fn $get(&self) -> Option<$t> {
-            self.metadata.$get.as_ref().into_option().copied()
+            self.metadata.$get.0.as_ref().copied()
         }
 
         pub fn $set(&mut self, x: Option<$t>) {
-            self.metadata.$get = OptionalKw::from_option(x);
+            self.metadata.$get = x.into();
         }
     };
 }
@@ -3652,15 +3647,11 @@ macro_rules! get_set_copied {
 macro_rules! get_set_str {
     ($get:ident, $set:ident) => {
         pub fn $get(&self) -> Option<&str> {
-            self.metadata
-                .$get
-                .as_ref()
-                .into_option()
-                .map(|x| x.as_str())
+            self.metadata.$get.0.as_ref().map(|x| x.as_str())
         }
 
         pub fn $set(&mut self, x: Option<String>) {
-            self.metadata.$get = OptionalKw::from_option(x);
+            self.metadata.$get = x.into();
         }
     };
 }
@@ -4891,9 +4882,9 @@ fn lookup_analysis_offsets(
                 go(st, b, e)
             }
             Version::FCS3_2 => {
-                let b = st.lookup_beginanalysis_opt().into_option();
-                let e = st.lookup_endanalysis_opt().into_option();
-                go(st, b, e)
+                let b = st.lookup_beginanalysis_opt();
+                let e = st.lookup_endanalysis_opt();
+                go(st, b.0, e.0)
             }
         }
         .map_err(|err| {
@@ -5000,18 +4991,17 @@ impl VersionedParserMeasurement for InnerMeasurement3_2 {
 
     fn as_minimal_inner(m: &Measurement<Self>) -> InnerDataReadMeasurement3_2 {
         InnerDataReadMeasurement3_2 {
-            // TODO lame
-            datatype: OptionalKw::from_option(m.specific.datatype.as_ref().into_option().copied()),
+            datatype: m.specific.datatype.0.as_ref().copied().into(),
         }
     }
 
     fn datatype_minimal(m: &DataReadMeasurement<Self::Target>) -> Option<NumType> {
-        m.specific.datatype.as_ref().into_option().copied()
+        m.specific.datatype.0.as_ref().copied()
     }
 
     // TODO lame?
     fn datatype(m: &Measurement<Self>) -> Option<NumType> {
-        m.specific.datatype.as_ref().into_option().copied()
+        m.specific.datatype.0.as_ref().copied()
     }
 }
 
@@ -5027,7 +5017,7 @@ impl VersionedParserMetadata for InnerMetadata2_0 {
     }
 
     fn tot(t: &Self::Target) -> Option<usize> {
-        t.tot.as_ref().into_option().copied()
+        t.tot.0.as_ref().copied()
     }
 
     fn as_minimal_inner(&self, st: &mut KwParser) -> Option<InnerBareMetadata2_0> {
@@ -5110,7 +5100,7 @@ impl VersionedParserMetadata for InnerMetadata3_2 {
 macro_rules! get_set_pre_3_2_datetime {
     ($fcstime:ident) => {
         fn begin_date(&self) -> Option<NaiveDate> {
-            self.timestamps.date.as_option().map(|x| x.0)
+            self.timestamps.date.0.as_ref().map(|x| x.0)
         }
 
         fn end_date(&self) -> Option<NaiveDate> {
@@ -5118,11 +5108,11 @@ macro_rules! get_set_pre_3_2_datetime {
         }
 
         fn begin_time(&self) -> Option<NaiveTime> {
-            self.timestamps.btim.as_option().map(|x| x.0)
+            self.timestamps.btim.0.as_ref().map(|x| x.0)
         }
 
         fn end_time(&self) -> Option<NaiveTime> {
-            self.timestamps.etim.as_option().map(|x| x.0)
+            self.timestamps.etim.0.as_ref().map(|x| x.0)
         }
 
         fn set_datetimes_inner(
@@ -5132,22 +5122,18 @@ macro_rules! get_set_pre_3_2_datetime {
         ) {
             let d1 = begin.date_naive();
             let d2 = end.date_naive();
-            self.timestamps.btim = Present($fcstime(begin.time()));
-            self.timestamps.etim = Present($fcstime(end.time()));
+            self.timestamps.btim = Some($fcstime(begin.time())).into();
+            self.timestamps.etim = Some($fcstime(end.time())).into();
             // If two dates are the same, set $DATE, if not, then keep date
             // unset since pre-3.2 versions do not have a way to store two
             // dates. This is an inherent limitation in these early versions.
-            self.timestamps.date = if d1 != d2 {
-                Absent
-            } else {
-                Present(FCSDate(d1))
-            };
+            self.timestamps.date = if d1 != d2 { None } else { Some(FCSDate(d1)) }.into();
         }
 
         fn clear_datetimes(&mut self) {
-            self.timestamps.btim = Absent;
-            self.timestamps.etim = Absent;
-            self.timestamps.date = Absent;
+            self.timestamps.btim = None.into();
+            self.timestamps.etim = None.into();
+            self.timestamps.date = None.into();
         }
     };
 }
@@ -5347,49 +5333,53 @@ impl VersionedMetadata for InnerMetadata3_2 {
     fn begin_date(&self) -> Option<NaiveDate> {
         self.datetimes
             .begin
-            .as_option()
+            .0
+            .as_ref()
             .map(|x| x.0.date_naive())
-            .or(self.timestamps.date.as_option().map(|x| x.0))
+            .or(self.timestamps.date.0.as_ref().map(|x| x.0))
     }
 
     fn end_date(&self) -> Option<NaiveDate> {
         self.datetimes
             .end
-            .as_option()
+            .0
+            .as_ref()
             .map(|x| x.0.date_naive())
-            .or(self.timestamps.date.as_option().map(|x| x.0))
+            .or(self.timestamps.date.0.as_ref().map(|x| x.0))
     }
 
     fn begin_time(&self) -> Option<NaiveTime> {
-        self.datetimes.begin.as_option().map(|x| x.0.time()).or(self
+        self.datetimes.begin.0.as_ref().map(|x| x.0.time()).or(self
             .timestamps
             .btim
-            .as_option()
+            .0
+            .as_ref()
             .map(|x| x.0))
     }
 
     fn end_time(&self) -> Option<NaiveTime> {
-        self.datetimes.end.as_option().map(|x| x.0.time()).or(self
+        self.datetimes.end.0.as_ref().map(|x| x.0.time()).or(self
             .timestamps
             .etim
-            .as_option()
+            .0
+            .as_ref()
             .map(|x| x.0))
     }
 
     fn set_datetimes_inner(&mut self, begin: DateTime<FixedOffset>, end: DateTime<FixedOffset>) {
-        self.datetimes.begin = Present(FCSDateTime(begin));
-        self.datetimes.end = Present(FCSDateTime(end));
-        self.timestamps.btim = Absent;
-        self.timestamps.etim = Absent;
-        self.timestamps.date = Absent;
+        self.datetimes.begin = Some(FCSDateTime(begin)).into();
+        self.datetimes.end = Some(FCSDateTime(end)).into();
+        self.timestamps.btim = None.into();
+        self.timestamps.etim = None.into();
+        self.timestamps.date = None.into();
     }
 
     fn clear_datetimes(&mut self) {
-        self.datetimes.begin = Absent;
-        self.datetimes.end = Absent;
-        self.timestamps.btim = Absent;
-        self.timestamps.etim = Absent;
-        self.timestamps.date = Absent;
+        self.datetimes.begin = None.into();
+        self.datetimes.end = None.into();
+        self.timestamps.btim = None.into();
+        self.timestamps.etim = None.into();
+        self.timestamps.date = None.into();
     }
 
     fn lookup_specific(
@@ -5657,26 +5647,27 @@ impl<'a, 'b> KwParser<'a, 'b> {
 
     /// Lookup $TR but check that its name is valid
     fn lookup_trigger_checked(&mut self, names: &HashSet<&str>) -> OptionalKw<Trigger> {
-        if let Present(tr) = self.lookup_trigger() {
+        if let Some(tr) = self.lookup_trigger().0 {
             let p = tr.measurement.as_ref();
             if names.contains(p) {
                 self.push_meta_error(format!(
                     "$TRIGGER refers to non-existent measurements '{p}'",
                 ));
-                Absent
+                None
             } else {
-                Present(tr)
+                Some(tr)
             }
         } else {
-            Absent
+            None
         }
+        .into()
     }
 
     /// Lookup $TIMESTEP and log error if missing along with a time channel
     fn lookup_timestep_checked(&mut self, names: &HashSet<&str>) -> OptionalKw<f32> {
         let ts = self.lookup_timestep();
         if let Some(time_name) = &self.conf.time_shortname {
-            if names.contains(time_name.as_ref()) && ts == Absent {
+            if names.contains(time_name.as_ref()) && ts.0.is_none() {
                 self.push_meta_error_or_warning(
                     self.conf.ensure_time_timestep,
                     String::from("$TIMESTEP must be present if time channel given"),
@@ -5706,7 +5697,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
         &mut self,
         names: &HashSet<&str>,
     ) -> OptionalKw<UnstainedCenters> {
-        if let Present(u) = self.lookup_unstainedcenters() {
+        if let Some(u) = self.lookup_unstainedcenters().0 {
             let noexist: Vec<_> = u.0.keys().filter(|m| !names.contains(m.as_ref())).collect();
             if !noexist.is_empty() {
                 let msg = format!(
@@ -5714,13 +5705,14 @@ impl<'a, 'b> KwParser<'a, 'b> {
                     noexist.iter().join(","),
                 );
                 self.push_meta_error(msg);
-                Absent
+                None
             } else {
-                Present(u)
+                Some(u)
             }
         } else {
-            Absent
+            None
         }
+        .into()
     }
 
     fn lookup_date(&mut self, dep: bool) -> OptionalKw<FCSDate> {
@@ -5763,7 +5755,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
         let begin = self.lookup_begindatetime();
         let end = self.lookup_enddatetime();
         // TODO make flag to enforce this as an error or warning
-        if let (Present(b), Present(e)) = (&begin, &end) {
+        if let (Some(b), Some(e)) = (&begin.0, &end.0) {
             if e.0 < b.0 {
                 self.push_meta_warning_str("$BEGINDATETIME is after $ENDDATETIME");
             }
@@ -5811,7 +5803,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
         for r in 0..par {
             for c in 0..par {
                 let m = format!("DFC{c}TO{r}");
-                if let Present(x) = self.lookup_optional(m.as_str(), false) {
+                if let Some(x) = self.lookup_optional(m.as_str(), false).0 {
                     matrix[(r, c)] = x;
                 } else {
                     any_error = true;
@@ -5819,15 +5811,16 @@ impl<'a, 'b> KwParser<'a, 'b> {
             }
         }
         if any_error {
-            Absent
+            None
         } else {
-            Present(Compensation { matrix })
+            Some(Compensation { matrix })
         }
+        .into()
     }
 
     // TODO this is basically the same as unstained centers
     fn lookup_spillover_checked(&mut self, names: &HashSet<&str>) -> OptionalKw<Spillover> {
-        if let Present(s) = self.lookup_spillover() {
+        if let Some(s) = self.lookup_spillover().0 {
             let noexist: Vec<_> = s
                 .measurements
                 .iter()
@@ -5840,17 +5833,17 @@ impl<'a, 'b> KwParser<'a, 'b> {
                 );
                 self.push_meta_error(msg);
             }
-
-            Present(s)
+            Some(s)
         } else {
-            Absent
+            None
         }
+        .into()
     }
 
     fn lookup_all_nonstandard(&mut self) -> NonStdKeywords {
         let mut ns = HashMap::new();
         self.raw_keywords.retain(|k, v| {
-            if let Some(nk) = k.parse::<NonStdKey>().ok() {
+            if let Ok(nk) = k.parse::<NonStdKey>() {
                 ns.insert(nk, v.clone());
                 false
             } else {
@@ -5893,7 +5886,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
     /// Lookup $PnG and ensure it is not present if measurement is time
     fn lookup_meas_gain_timecheck(&mut self, n: usize, name: &Shortname) -> OptionalKw<f32> {
         let gain = self.lookup_meas_gain(n);
-        if let Present(g) = &gain {
+        if let Some(g) = &gain.0 {
             if self.conf.time_name_matches(name) && *g != 1.0 {
                 if self.conf.ensure_time_nogain {
                     self.push_meta_error(String::from("Time channel must not have $PnG"));
@@ -5902,7 +5895,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
                         "Time channel should not have $PnG, dropping $PnG",
                     ));
                 }
-                Absent
+                None.into()
             } else {
                 gain
             }
@@ -5916,7 +5909,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
         n: usize,
         name: &OptionalKw<Shortname>,
     ) -> OptionalKw<f32> {
-        if let Present(x) = name {
+        if let Some(x) = name.0.as_ref() {
             self.lookup_meas_gain_timecheck(n, x)
         } else {
             self.lookup_meas_gain(n)
@@ -5948,7 +5941,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
         n: usize,
         name: &OptionalKw<Shortname>,
     ) -> Option<Scale> {
-        if let Present(x) = name {
+        if let Some(x) = name.0.as_ref() {
             self.lookup_meas_scale_timecheck(n, x)
         } else {
             self.lookup_meas_scale_req(n)
@@ -6059,9 +6052,9 @@ impl<'a, 'b> KwParser<'a, 'b> {
                     Err(w) => {
                         let msg = format!("{w} (key={k}, value='{v}')");
                         self.deferred.push_warning(msg);
-                        Absent
+                        None
                     }
-                    Ok(x) => Present(x),
+                    Ok(x) => Some(x),
                 };
                 if dep {
                     self.deferred.push_msg_leveled(
@@ -6071,8 +6064,9 @@ impl<'a, 'b> KwParser<'a, 'b> {
                 }
                 res
             }
-            None => Absent,
+            None => None,
         }
+        .into()
     }
 
     fn lookup_meas_req<V: FromStr>(&mut self, m: &'static str, n: usize, dep: bool) -> Option<V>
@@ -6122,9 +6116,9 @@ impl<'a> NSKwParser<'a> {
     {
         let fallback = self.lookup_maybe(dopt.default);
         if dopt.try_convert {
-            if let Present(s) = spillover {
+            if let Some(s) = spillover.0 {
                 return match f(s, ns) {
-                    Some(c) => Present(c),
+                    Some(c) => Some(c).into(),
                     None => {
                         self.deferred.push_warning(format!("{which} not full rank"));
                         fallback
@@ -6213,14 +6207,13 @@ impl<'a> NSKwParser<'a> {
         <V as FromStr>::Err: fmt::Display,
     {
         if let Some(d) = dopt.default {
-            Present(d)
+            Some(d)
         } else {
-            OptionalKw::from_option(
-                dopt.key
-                    .as_ref()
-                    .and_then(|kk| self.lookup_opt(&kk.from_index(n))),
-            )
+            dopt.key
+                .as_ref()
+                .and_then(|kk| self.lookup_opt(&kk.from_index(n)))
         }
+        .into()
     }
 
     fn lookup_maybe<V: FromStr>(&mut self, dopt: DefaultMetaOptional<V>) -> OptionalKw<V>
@@ -6228,17 +6221,18 @@ impl<'a> NSKwParser<'a> {
         <V as FromStr>::Err: fmt::Display,
     {
         if let Some(d) = dopt.default {
-            Present(d)
+            Some(d)
         } else {
-            OptionalKw::from_option(dopt.key.as_ref().and_then(|kk| self.lookup_opt(kk)))
+            dopt.key.as_ref().and_then(|kk| self.lookup_opt(kk))
         }
+        .into()
     }
 
     fn lookup_opt<V: FromStr>(&mut self, k: &NonStdKey) -> Option<V>
     where
         <V as FromStr>::Err: fmt::Display,
     {
-        self.lookup(k).into_option()
+        self.lookup(k).into()
     }
 
     fn lookup<V: FromStr>(&mut self, k: &NonStdKey) -> OptionalKw<V>
@@ -6250,15 +6244,16 @@ impl<'a> NSKwParser<'a> {
                 Err(w) => {
                     let msg = format!("{w} for key '{}' with value '{v}'", k.as_ref());
                     self.deferred.push_warning(msg);
-                    Absent
+                    None
                 }
                 Ok(x) => {
                     self.raw_keywords.remove(k);
-                    Present(x)
+                    Some(x)
                 }
             },
-            None => Absent,
+            None => None,
         }
+        .into()
     }
 }
 
@@ -6496,8 +6491,8 @@ fn lookup_stext_offsets(
             (b, e)
         }
         Version::FCS3_2 => {
-            let b = st.lookup_beginstext_opt().into_option();
-            let e = st.lookup_endstext_opt().into_option();
+            let b = st.lookup_beginstext_opt().into();
+            let e = st.lookup_endstext_opt().into();
             (b, e)
         }
     });
@@ -6787,7 +6782,13 @@ impl From<u32> for Wavelengths {
 
 impl From<OptionalKw<Wavelengths>> for OptionalKw<u32> {
     fn from(value: OptionalKw<Wavelengths>) -> Self {
-        value.with_option(|w| w.map(|x| x.0).unwrap_or_default().first().copied())
+        value
+            .0
+            .map(|x| x.0)
+            .unwrap_or_default()
+            .first()
+            .copied()
+            .into()
     }
 }
 
@@ -7745,7 +7746,7 @@ impl IntoMeasurement<InnerMeasurement2_0, MeasurementDefaultsTo2_0> for InnerMea
         _: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement2_0> {
         PureSuccess::from(InnerMeasurement2_0 {
-            scale: Present(self.scale),
+            scale: Some(self.scale).into(),
             shortname: self.shortname,
             wavelength: self.wavelength,
         })
@@ -7767,8 +7768,8 @@ impl IntoMeasurement<InnerMeasurement2_0, MeasurementDefaultsTo2_0> for InnerMea
         _: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement2_0> {
         PureSuccess::from(InnerMeasurement2_0 {
-            shortname: Present(self.shortname),
-            scale: Present(self.scale),
+            shortname: Some(self.shortname).into(),
+            scale: Some(self.scale).into(),
             wavelength: self.wavelengths.into(),
         })
     }
@@ -7789,8 +7790,8 @@ impl IntoMeasurement<InnerMeasurement2_0, MeasurementDefaultsTo2_0> for InnerMea
         _: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement2_0> {
         PureSuccess::from(InnerMeasurement2_0 {
-            shortname: Present(self.shortname),
-            scale: Present(self.scale),
+            shortname: Some(self.shortname).into(),
+            scale: Some(self.scale).into(),
             wavelength: self.wavelengths.into(),
         })
     }
@@ -7810,7 +7811,7 @@ impl IntoMeasurement<InnerMeasurement3_0, MeasurementDefaultsTo3_0> for InnerMea
         def: Self::DefaultsXToY,
         ns: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement3_0> {
-        let scale = self.scale.into_option().unwrap_or(def.scale);
+        let scale = self.scale.0.unwrap_or(def.scale);
         NSKwParser::run(ns, |st| InnerMeasurement3_0 {
             scale,
             wavelength: self.wavelength,
@@ -7853,7 +7854,7 @@ impl IntoMeasurement<InnerMeasurement3_0, MeasurementDefaultsTo3_0> for InnerMea
         _: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement3_0> {
         PureSuccess::from(InnerMeasurement3_0 {
-            shortname: Present(self.shortname),
+            shortname: Some(self.shortname).into(),
             scale: self.scale,
             gain: self.gain,
             wavelength: self.wavelengths.into(),
@@ -7876,7 +7877,7 @@ impl IntoMeasurement<InnerMeasurement3_0, MeasurementDefaultsTo3_0> for InnerMea
         _: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement3_0> {
         PureSuccess::from(InnerMeasurement3_0 {
-            shortname: Present(self.shortname),
+            shortname: Some(self.shortname).into(),
             scale: self.scale,
             gain: self.gain,
             wavelength: self.wavelengths.into(),
@@ -7898,8 +7899,8 @@ impl IntoMeasurement<InnerMeasurement3_1, MeasurementDefaultsTo3_1> for InnerMea
         def: Self::DefaultsXToY,
         ns: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement3_1> {
-        let scale = self.scale.into_option().unwrap_or(def.scale);
-        let shortname = self.shortname.into_option().unwrap_or(def.shortname);
+        let scale = self.scale.0.unwrap_or(def.scale);
+        let shortname = self.shortname.0.unwrap_or(def.shortname);
         NSKwParser::run(ns, |st| InnerMeasurement3_1 {
             scale,
             shortname,
@@ -7925,7 +7926,7 @@ impl IntoMeasurement<InnerMeasurement3_1, MeasurementDefaultsTo3_1> for InnerMea
         def: Self::DefaultsXToY,
         ns: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement3_1> {
-        let shortname = self.shortname.into_option().unwrap_or(def.shortname);
+        let shortname = self.shortname.0.unwrap_or(def.shortname);
         NSKwParser::run(ns, |st| InnerMeasurement3_1 {
             shortname,
             scale: self.scale,
@@ -7994,8 +7995,8 @@ impl IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2> for InnerMea
         def: Self::DefaultsXToY,
         ns: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement3_2> {
-        let scale = self.scale.into_option().unwrap_or(def.scale);
-        let shortname = self.shortname.into_option().unwrap_or(def.shortname);
+        let scale = self.scale.0.unwrap_or(def.scale);
+        let shortname = self.shortname.0.unwrap_or(def.shortname);
         NSKwParser::run(ns, |st| InnerMeasurement3_2 {
             scale,
             shortname,
@@ -8027,7 +8028,7 @@ impl IntoMeasurement<InnerMeasurement3_2, MeasurementDefaultsTo3_2> for InnerMea
         def: Self::DefaultsXToY,
         ns: &mut NonStdKeywords,
     ) -> PureSuccess<InnerMeasurement3_2> {
-        let shortname = self.shortname.into_option().unwrap_or(def.shortname);
+        let shortname = self.shortname.0.unwrap_or(def.shortname);
         NSKwParser::run(ns, |st| InnerMeasurement3_2 {
             shortname,
             scale: self.scale,
@@ -8177,7 +8178,7 @@ impl IntoMetadata<InnerMetadata2_0, MetadataDefaultsTo2_0> for InnerMetadata3_2 
         NSKwParser::run(ns, |st| InnerMetadata2_0 {
             mode: Mode::List,
             byteord: self.byteord.into(),
-            cyt: Present(self.cyt),
+            cyt: Some(self.cyt).into(),
             comp: st.try_convert_lookup_comp(def.comp, self.spillover, ms),
             timestamps: self.timestamps.map(|d| d.into()),
         })
@@ -8273,7 +8274,7 @@ impl IntoMetadata<InnerMetadata3_0, MetadataDefaultsTo3_0> for InnerMetadata3_2 
         NSKwParser::run(ns, |st| InnerMetadata3_0 {
             mode: Mode::List,
             byteord: self.byteord.into(),
-            cyt: Present(self.cyt),
+            cyt: Some(self.cyt).into(),
             cytsn: self.cytsn,
             timestep: self.timestep,
             timestamps: self.timestamps.map(|d| d.into()),
@@ -8382,7 +8383,7 @@ impl IntoMetadata<InnerMetadata3_1, MetadataDefaultsTo3_1> for InnerMetadata3_2 
         PureSuccess::from(InnerMetadata3_1 {
             mode: Mode::List,
             byteord: self.byteord,
-            cyt: Present(self.cyt),
+            cyt: Some(self.cyt).into(),
             cytsn: self.cytsn,
             timestep: self.timestep,
             timestamps: self.timestamps,
@@ -8410,7 +8411,7 @@ impl IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2> for InnerMetadata2_0 
     ) -> PureSuccess<InnerMetadata3_2> {
         NSKwParser::run(ns, |st| {
             let byteord = self.byteord.try_into().ok().unwrap_or(def.endian);
-            let cyt = self.cyt.into_option().unwrap_or(def.cyt);
+            let cyt = self.cyt.0.unwrap_or(def.cyt);
             // TODO what happens if $MODE is not list?
             InnerMetadata3_2 {
                 byteord,
@@ -8447,7 +8448,7 @@ impl IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2> for InnerMetadata3_0 
     ) -> PureSuccess<InnerMetadata3_2> {
         NSKwParser::run(ns, |st| {
             let byteord = self.byteord.try_into().ok().unwrap_or(def.endian);
-            let cyt = self.cyt.into_option().unwrap_or(def.cyt);
+            let cyt = self.cyt.0.unwrap_or(def.cyt);
             InnerMetadata3_2 {
                 byteord,
                 cyt,
@@ -8481,7 +8482,7 @@ impl IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2> for InnerMetadata3_1 
         ns: &mut NonStdKeywords,
         _: &[Shortname],
     ) -> PureSuccess<InnerMetadata3_2> {
-        let cyt = self.cyt.into_option().unwrap_or(def.cyt);
+        let cyt = self.cyt.0.unwrap_or(def.cyt);
         NSKwParser::run(ns, |st| InnerMetadata3_2 {
             byteord: self.byteord,
             cyt,

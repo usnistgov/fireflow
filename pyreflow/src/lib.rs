@@ -36,17 +36,128 @@ fn pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(read_fcs_file, m)?)
 }
 
+#[allow(clippy::too_many_arguments)]
 #[pyfunction]
-fn read_fcs_header(p: path::PathBuf) -> PyResult<PyHeader> {
-    handle_errors(api::read_fcs_header(&p, &config::HeaderConfig::default()))
+#[pyo3(signature = (p, begin_text=0, end_text=0, begin_data=0, end_data=0,
+                    begin_analysis=0, end_analysis=0, version_override=None))]
+fn read_fcs_header(
+    p: path::PathBuf,
+    begin_text: i32,
+    end_text: i32,
+    begin_data: i32,
+    end_data: i32,
+    begin_analysis: i32,
+    end_analysis: i32,
+    version_override: Option<PyVersion>,
+) -> PyResult<PyHeader> {
+    let conf = config::HeaderConfig {
+        version_override: version_override.map(|x| x.0),
+        text: config::OffsetCorrection {
+            begin: begin_text,
+            end: end_text,
+        },
+        data: config::OffsetCorrection {
+            begin: begin_data,
+            end: end_data,
+        },
+        analysis: config::OffsetCorrection {
+            begin: begin_analysis,
+            end: end_analysis,
+        },
+    };
+    handle_errors(api::read_fcs_header(&p, &conf))
 }
 
+#[allow(clippy::too_many_arguments)]
 #[pyfunction]
-fn read_fcs_raw_text(p: path::PathBuf) -> PyResult<PyRawTEXT> {
-    handle_errors(api::read_fcs_raw_text(
-        &p,
-        &config::RawTextReadConfig::default(),
-    ))
+#[pyo3(signature = (
+    p,
+
+    begin_text=0,
+    end_text=0,
+    begin_data=0,
+    end_data=0,
+    begin_analysis=0,
+    end_analysis=0,
+
+    begin_stext=0,
+    end_stext=0,
+    allow_double_delim=false,
+    force_ascii_delim=false,
+    enforce_final_delim=false,
+    enforce_unique=false,
+    enforce_even=false,
+    enforce_nonempty=false,
+    error_on_invalid_utf8=false,
+    enforce_keyword_ascii=false,
+    enforce_stext=false,
+    repair_offset_spaces=false,
+    disallow_deprecated=false,
+    date_pattern=None,
+    version_override=None)
+)]
+fn read_fcs_raw_text(
+    p: path::PathBuf,
+
+    begin_text: i32,
+    end_text: i32,
+    begin_data: i32,
+    end_data: i32,
+    begin_analysis: i32,
+    end_analysis: i32,
+
+    begin_stext: i32,
+    end_stext: i32,
+    allow_double_delim: bool,
+    force_ascii_delim: bool,
+    enforce_final_delim: bool,
+    enforce_unique: bool,
+    enforce_even: bool,
+    enforce_nonempty: bool,
+    error_on_invalid_utf8: bool,
+    enforce_keyword_ascii: bool,
+    enforce_stext: bool,
+    repair_offset_spaces: bool,
+    disallow_deprecated: bool,
+    date_pattern: Option<PyDatePattern>,
+    version_override: Option<PyVersion>,
+) -> PyResult<PyRawTEXT> {
+    let header = config::HeaderConfig {
+        version_override: version_override.map(|x| x.0),
+        text: config::OffsetCorrection {
+            begin: begin_text,
+            end: end_text,
+        },
+        data: config::OffsetCorrection {
+            begin: begin_data,
+            end: end_data,
+        },
+        analysis: config::OffsetCorrection {
+            begin: begin_analysis,
+            end: end_analysis,
+        },
+    };
+
+    let conf = config::RawTextReadConfig {
+        header,
+        stext: config::OffsetCorrection {
+            begin: begin_stext,
+            end: end_stext,
+        },
+        allow_double_delim,
+        force_ascii_delim,
+        enforce_final_delim,
+        enforce_unique,
+        enforce_even,
+        enforce_nonempty,
+        error_on_invalid_utf8,
+        enforce_keyword_ascii,
+        enforce_stext,
+        repair_offset_spaces,
+        date_pattern: date_pattern.map(|x| x.0),
+        disallow_deprecated,
+    };
+    handle_errors(api::read_fcs_raw_text(&p, &conf))
 }
 
 #[pyfunction]

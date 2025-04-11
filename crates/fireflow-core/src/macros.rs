@@ -12,6 +12,18 @@ macro_rules! newtype_from {
 
 pub(crate) use newtype_from;
 
+macro_rules! newtype_from_outer {
+    ($outer:ident, $inner:ident) => {
+        impl From<$outer> for $inner {
+            fn from(value: $outer) -> Self {
+                value.0
+            }
+        }
+    };
+}
+
+pub(crate) use newtype_from_outer;
+
 macro_rules! newtype_disp {
     ($outer:ident) => {
         impl fmt::Display for $outer {

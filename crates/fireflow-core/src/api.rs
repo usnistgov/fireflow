@@ -17,7 +17,6 @@ use polars::prelude::*;
 use regex::Regex;
 use serde::ser::SerializeStruct;
 use serde::Serialize;
-use std::char::DecodeUtf16Error;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs;
@@ -307,15 +306,15 @@ type RawKeywords = HashMap<String, String>;
 struct FCSDateTime(DateTime<FixedOffset>);
 
 /// A time as used in the $BTIM/ETIM keys without seconds (2.0 only)
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, PartialOrd)]
 struct FCSTime(NaiveTime);
 
 /// A time as used in the $BTIM/ETIM keys with 1/60 seconds (3.0 only)
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, PartialOrd)]
 struct FCSTime60(NaiveTime);
 
 /// A time as used in the $BTIM/ETIM keys with centiseconds (3.1+ only)
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, PartialOrd)]
 struct FCSTime100(NaiveTime);
 
 /// A datetime as used in the $LAST_MODIFIED key (3.1+ only)
@@ -356,6 +355,43 @@ impl<X> Timestamps<X> {
     }
 }
 
+impl<X: PartialOrd> Timestamps<X> {
+    fn valid(&self) -> bool {
+        if self.date.0.is_some() {
+            if let (Some(b), Some(e)) = (&self.btim.0, &self.etim.0) {
+                b < e
+            } else {
+                true
+            }
+        } else {
+            true
+        }
+    }
+}
+
+// TODO this might be useful but there shouldn't be an equivilencey b/t these
+// two since the former does not include time zone
+fn timestamps_eq_datetimes<T>(ts: &Timestamps<T>, dt: &Datetimes) -> bool
+where
+    T: Copy,
+    NaiveTime: From<T>,
+{
+    if let (Some(td), Some(tb), Some(te), Some(db), Some(de)) =
+        (&ts.date.0, &ts.btim.0, &ts.etim.0, &dt.begin.0, &dt.end.0)
+    {
+        let dt_d1 = db.0.date_naive();
+        let dt_d2 = de.0.date_naive();
+        let dt_t1 = db.0.time();
+        let dt_t2 = de.0.time();
+        let ts_d = td.0;
+        let ts_t1: NaiveTime = (*tb).into();
+        let ts_t2: NaiveTime = (*te).into();
+        dt_d1 == dt_d2 && dt_d2 == ts_d && dt_t1 == ts_t1 && dt_t2 == ts_t2
+    } else {
+        true
+    }
+}
+
 /// $BTIM/ETIM/DATE for FCS 2.0
 type Timestamps2_0 = Timestamps<FCSTime>;
 
@@ -373,6 +409,16 @@ struct Datetimes {
 
     /// Value for the $ENDDATETIME key.
     end: OptionalKw<FCSDateTime>,
+}
+
+impl Datetimes {
+    fn valid(&self) -> bool {
+        if let (Some(b), Some(e)) = (&self.begin.0, &self.end.0) {
+            b.0 < e.0
+        } else {
+            true
+        }
+    }
 }
 
 /// The values used for the $MODE key (up to 3.1)
@@ -1351,6 +1397,10 @@ where
     Self::P: VersionedParserMeasurement,
 {
     type P;
+
+    fn timestamps_valid(&self) -> bool;
+
+    fn datetimes_valid(&self) -> bool;
 
     fn check_unstainedcenters(&self, names: &HashSet<&Shortname>) -> Option<String>;
 
@@ -4097,6 +4147,21 @@ where
                 deferred.push_msg_leveled(msg, conf.ensure);
             }
         }
+
+        // Ensure $BTIM/$ETIM/$DATE are valid
+        if !self.metadata.specific.timestamps_valid() {
+            let msg = "$ETIM is before $BTIM and $DATE is given".into();
+            // TODO toggle this
+            deferred.push_error(msg);
+        }
+
+        // Ensure $BEGIN/ENDDATETIME are valid (if applicable)
+        if !self.metadata.specific.datetimes_valid() {
+            let msg = "$BEGINDATETIME is after $ENDDATETIME".into();
+            // TODO toggle this
+            deferred.push_error(msg);
+        }
+
         PureSuccess { data: (), deferred }
     }
 }
@@ -5254,6 +5319,14 @@ impl VersionedMetadata for InnerMetadata2_0 {
         AnyCoreTEXT::FCS2_0(Box::new(t))
     }
 
+    fn timestamps_valid(&self) -> bool {
+        self.timestamps.valid()
+    }
+
+    fn datetimes_valid(&self) -> bool {
+        true
+    }
+
     fn has_timestep(&self) -> bool {
         false
     }
@@ -5312,6 +5385,14 @@ impl VersionedMetadata for InnerMetadata3_0 {
 
     fn into_any(t: CoreTEXT3_0) -> AnyCoreTEXT {
         AnyCoreTEXT::FCS3_0(Box::new(t))
+    }
+
+    fn timestamps_valid(&self) -> bool {
+        self.timestamps.valid()
+    }
+
+    fn datetimes_valid(&self) -> bool {
+        true
     }
 
     fn has_timestep(&self) -> bool {
@@ -5379,6 +5460,14 @@ impl VersionedMetadata for InnerMetadata3_1 {
 
     fn into_any(t: CoreTEXT3_1) -> AnyCoreTEXT {
         AnyCoreTEXT::FCS3_1(Box::new(t))
+    }
+
+    fn timestamps_valid(&self) -> bool {
+        self.timestamps.valid()
+    }
+
+    fn datetimes_valid(&self) -> bool {
+        true
     }
 
     fn has_timestep(&self) -> bool {
@@ -5481,6 +5570,14 @@ impl VersionedMetadata for InnerMetadata3_2 {
 
     fn into_any(t: CoreTEXT3_2) -> AnyCoreTEXT {
         AnyCoreTEXT::FCS3_2(Box::new(t))
+    }
+
+    fn timestamps_valid(&self) -> bool {
+        self.timestamps.valid()
+    }
+
+    fn datetimes_valid(&self) -> bool {
+        self.datetimes.valid()
     }
 
     fn has_timestep(&self) -> bool {
@@ -5864,12 +5961,6 @@ impl<'a, 'b> KwParser<'a, 'b> {
     fn lookup_datetimes(&mut self) -> Datetimes {
         let begin = self.lookup_begindatetime();
         let end = self.lookup_enddatetime();
-        // TODO make flag to enforce this as an error or warning
-        if let (Some(b), Some(e)) = (&begin.0, &end.0) {
-            if e.0 < b.0 {
-                self.push_meta_warning_str("$BEGINDATETIME is after $ENDDATETIME");
-            }
-        }
         Datetimes { begin, end }
     }
 

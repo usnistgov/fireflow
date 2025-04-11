@@ -1,3 +1,5 @@
+use crate::config::OffsetCorrection;
+
 use serde::Serialize;
 use std::fmt;
 use std::io;
@@ -9,67 +11,6 @@ pub struct Segment {
     // TODO usize?
     begin: u32,
     length: u32,
-}
-
-/// The kind of segment in an FCS file.
-#[derive(Debug)]
-pub enum SegmentId {
-    PrimaryText,
-    SupplementalText,
-    Analysis,
-    Data,
-    // TODO add Other (which will be indexed I think)
-}
-
-#[derive(Debug)]
-enum SegmentErrorKind {
-    Range,
-    Inverted,
-}
-
-#[derive(Debug)]
-struct SegmentError {
-    begin: u32,
-    end: u32,
-    begin_delta: i32,
-    end_delta: i32,
-    kind: SegmentErrorKind,
-    id: SegmentId,
-}
-
-impl fmt::Display for SegmentId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let x = match self {
-            SegmentId::PrimaryText => "TEXT",
-            SegmentId::SupplementalText => "STEXT",
-            SegmentId::Analysis => "ANALYSIS",
-            SegmentId::Data => "DATA",
-        };
-        write!(f, "{x}")
-    }
-}
-
-impl fmt::Display for SegmentError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let offset_text = |x, delta| {
-            if delta == 0 {
-                format!("{}", x)
-            } else {
-                format!("{} ({}))", x, delta)
-            }
-        };
-        let begin_text = offset_text(self.begin, self.begin_delta);
-        let end_text = offset_text(self.end, self.end_delta);
-        let kind_text = match &self.kind {
-            SegmentErrorKind::Range => "Offset out of range",
-            SegmentErrorKind::Inverted => "Begin after end",
-        };
-        write!(
-            f,
-            "{kind_text} for {} segment; begin={begin_text}, end={end_text}",
-            self.id,
-        )
-    }
 }
 
 impl Segment {
@@ -89,18 +30,16 @@ impl Segment {
     pub fn try_new(
         begin: u32,
         end: u32,
-        begin_delta: i32,
-        end_delta: i32,
+        corr: OffsetCorrection,
         id: SegmentId,
     ) -> Result<Segment, String> {
-        let x = i64::from(begin) + i64::from(begin_delta);
-        let y = i64::from(end) + i64::from(end_delta);
+        let x = i64::from(begin) + i64::from(corr.begin);
+        let y = i64::from(end) + i64::from(corr.end);
         let err = |kind| {
             Err(SegmentError {
                 begin,
                 end,
-                begin_delta,
-                end_delta,
+                corr,
                 kind,
                 id,
             }
@@ -131,13 +70,8 @@ impl Segment {
         Ok(())
     }
 
-    pub fn try_adjust(
-        self,
-        begin_delta: i32,
-        end_delta: i32,
-        id: SegmentId,
-    ) -> Result<Segment, String> {
-        Self::try_new(self.begin, self.end(), begin_delta, end_delta, id)
+    pub fn try_adjust(self, corr: OffsetCorrection, id: SegmentId) -> Result<Segment, String> {
+        Self::try_new(self.begin, self.end(), corr, id)
     }
 
     pub fn nbytes(&self) -> u32 {
@@ -150,5 +84,64 @@ impl Segment {
 
     pub fn end(&self) -> u32 {
         self.begin + self.length
+    }
+}
+
+/// The kind of segment in an FCS file.
+#[derive(Debug)]
+pub enum SegmentId {
+    PrimaryText,
+    SupplementalText,
+    Analysis,
+    Data,
+    // TODO add Other (which will be indexed I think)
+}
+
+#[derive(Debug)]
+enum SegmentErrorKind {
+    Range,
+    Inverted,
+}
+
+struct SegmentError {
+    begin: u32,
+    end: u32,
+    corr: OffsetCorrection,
+    kind: SegmentErrorKind,
+    id: SegmentId,
+}
+
+impl fmt::Display for SegmentId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let x = match self {
+            SegmentId::PrimaryText => "TEXT",
+            SegmentId::SupplementalText => "STEXT",
+            SegmentId::Analysis => "ANALYSIS",
+            SegmentId::Data => "DATA",
+        };
+        write!(f, "{x}")
+    }
+}
+
+impl fmt::Display for SegmentError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let offset_text = |x, delta| {
+            if delta == 0 {
+                format!("{}", x)
+            } else {
+                format!("{} ({}))", x, delta)
+            }
+        };
+        let begin_text = offset_text(self.begin, self.corr.begin);
+        let end_text = offset_text(self.end, self.corr.end);
+        let kind_text = match &self.kind {
+            SegmentErrorKind::Range => "Offset out of range",
+            SegmentErrorKind::Inverted => "Begin after end",
+        };
+        write!(
+            f,
+            "{kind_text} for {} segment; begin={begin_text}, end={end_text}",
+            self.id,
+        )
     }
 }

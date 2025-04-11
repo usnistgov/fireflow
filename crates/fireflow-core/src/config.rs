@@ -1,3 +1,4 @@
+use crate::header::Version;
 use crate::validated::datepattern::DatePattern;
 use crate::validated::nonstandard::NonStdMeasPattern;
 use crate::validated::shortname::Shortname;
@@ -6,7 +7,7 @@ use crate::validated::textdelim::TEXTDelim;
 /// Instructions for reading an FCS file.
 #[derive(Default, Clone)]
 pub struct Config {
-    pub corrections: OffsetCorrections,
+    // pub corrections: OffsetCorrections,
     pub raw: RawTextReadConfig,
     pub standard: StdTextReadConfig,
     pub data: DataReadConfig,
@@ -14,41 +15,65 @@ pub struct Config {
     pub write: WriteConfig,
 }
 
-/// Corrections for file offsets
-///
-/// Use these to fix errors caused by offsets pointing to the wrong location.
-///
-/// Each of these will be added to the offset values as parsed from the file.
-/// Obviously the result must be greater than zero, and the resulting offset
-/// pairs must not be flipped (begin > end).
-///
-/// These do nothing if the segment does not exist.
-// TODO this will need to be repeated for each dataset once we include this
 #[derive(Default, Clone)]
-pub struct OffsetCorrections {
-    /// Corrections for primary TEXT segment
-    pub start_prim_text: i32,
-    pub end_prim_text: i32,
+pub struct HeaderConfig {
+    /// Override the version
+    pub version_override: Option<Version>,
 
-    /// Corrections for supplemental TEXT segment
-    pub start_supp_text: i32,
-    pub end_supp_text: i32,
+    /// Corrections for primary TEXT segment
+    pub text: OffsetCorrection,
 
     /// Corrections for DATA segment
-    pub start_data: i32,
-    pub end_data: i32,
+    pub data: OffsetCorrection,
 
     /// Corrections for ANALYSIS segment
-    pub start_analysis: i32,
-    pub end_analysis: i32,
-
-    /// Correction for $NEXTDATA
-    pub nextdata: i32,
+    pub analysis: OffsetCorrection,
 }
 
+#[derive(Default, Clone, Copy)]
+pub struct OffsetCorrection {
+    pub begin: i32,
+    pub end: i32,
+}
+
+// /// Corrections for file offsets
+// ///
+// /// Use these to fix errors caused by offsets pointing to the wrong location.
+// ///
+// /// Each of these will be added to the offset values as parsed from the file.
+// /// Obviously the result must be greater than zero, and the resulting offset
+// /// pairs must not be flipped (begin > end).
+// ///
+// /// These do nothing if the segment does not exist.
+// // TODO this will need to be repeated for each dataset once we include this
+// #[derive(Default, Clone)]
+// pub struct OffsetCorrections {
+//     /// Corrections for primary TEXT segment
+//     pub start_prim_text: i32,
+//     pub end_prim_text: i32,
+
+//     /// Corrections for DATA segment
+//     pub start_data: i32,
+//     pub end_data: i32,
+
+//     /// Corrections for ANALYSIS segment
+//     pub start_analysis: i32,
+//     pub end_analysis: i32,
+
+//     /// Correction for $NEXTDATA
+//     pub nextdata: i32,
+// }
+
 /// Instructions for reading the TEXT segment as raw key/value pairs.
+// TODO add correction for $NEXTDATA
 #[derive(Default, Clone)]
 pub struct RawTextReadConfig {
+    /// Config for reading HEADER
+    pub header: HeaderConfig,
+
+    /// Corrections for supplemental TEXT segment
+    pub stext: OffsetCorrection,
+
     /// Will treat every delimiter as a literal delimiter rather than "escaping"
     /// double delimiters
     pub no_delim_escape: bool,
@@ -75,8 +100,13 @@ pub struct RawTextReadConfig {
     /// creating the key/value list. If false, merely drop the bad pair.
     pub error_on_invalid_utf8: bool,
 
-    /// If true, throw error when encoutering keyword with non-ASCII characters
-    pub enfore_keyword_ascii: bool,
+    /// If true, throw error when encountering keyword with non-ASCII characters
+    pub enforce_keyword_ascii: bool,
+
+    /// If true, throw error if supplemental TEXT offsets are missing.
+    ///
+    /// Does not affect 3.2 since these are optional there.
+    pub enforce_stext: bool,
 
     /// If true, replace leading spaces in offset keywords with 0.
     ///
@@ -93,6 +123,9 @@ pub struct RawTextReadConfig {
     /// supplied, $DATE will be parsed according to the standard pattern which
     /// is '%d-%b-%Y'.
     pub date_pattern: Option<DatePattern>,
+
+    /// If true, throw an error if TEXT includes any deprecated features
+    pub disallow_deprecated: bool,
     // TODO add keyword and value overrides, something like a list of patterns
     // that can be used to alter each keyword
     // TODO allow lambda function to be supplied which will alter the kv list
@@ -126,6 +159,9 @@ pub struct TimeConfig {
 /// Instructions for reading the TEXT segment in a standardized structure.
 #[derive(Default, Clone)]
 pub struct StdTextReadConfig {
+    /// Instructions to read HEADER and TEXT.
+    pub raw: RawTextReadConfig,
+
     /// Time-related options.
     pub time: TimeConfig,
 
@@ -158,6 +194,15 @@ pub struct StdTextReadConfig {
 /// Instructions for reading the DATA segment.
 #[derive(Default, Clone)]
 pub struct DataReadConfig {
+    /// Instructions to read and standardize TEXT.
+    pub standard: StdTextReadConfig,
+
+    /// Corrections for DATA offsets in TEXT segment
+    pub data: OffsetCorrection,
+
+    /// Corrections for ANALYSIS offsets in TEXT segment
+    pub analysis: OffsetCorrection,
+
     /// If true, throw error when total event width does not evenly divide
     /// the DATA segment. Meaningless for delimited ASCII data.
     pub enfore_data_width_divisibility: bool,

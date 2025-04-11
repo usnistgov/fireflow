@@ -3637,7 +3637,7 @@ impl AnyCoreTEXT {
     fn as_data_reader(
         &self,
         kws: &mut RawKeywords,
-        conf: &Config,
+        conf: &DataReadConfig,
         data_seg: &Segment,
     ) -> PureMaybe<DataReader> {
         match_anycoretext!(self, x, { x.as_data_reader(kws, conf, data_seg) })
@@ -4010,7 +4010,7 @@ where
     fn as_data_layout_from_raw(
         &self,
         kws: &mut RawKeywords,
-        conf: &Config,
+        conf: &DataReadConfig,
         data_seg: &Segment,
     ) -> PureMaybe<ReaderDataLayout> {
         let succ = KwParser::run(kws, (&conf.standard).into(), |st| {
@@ -4024,7 +4024,7 @@ where
         });
         let data_nbytes = data_seg.nbytes() as usize;
         succ.and_then_opt(|(measurements, metadata)| {
-            M::as_reader_data_layout_bare(&metadata, &measurements, data_nbytes, &conf.data)
+            M::as_reader_data_layout_bare(&metadata, &measurements, data_nbytes, &conf)
         })
     }
 
@@ -4032,7 +4032,7 @@ where
     fn as_data_reader(
         &self,
         kws: &mut RawKeywords,
-        conf: &Config,
+        conf: &DataReadConfig,
         data_seg: &Segment,
     ) -> PureMaybe<DataReader> {
         self.as_data_layout_from_raw(kws, conf, data_seg)
@@ -4994,7 +4994,7 @@ fn h_write_dataset<W: Write>(
 
 fn lookup_data_offsets(
     kws: &mut RawKeywords,
-    conf: &Config,
+    conf: &DataReadConfig,
     version: Version,
     default: &Segment,
 ) -> PureSuccess<Segment> {
@@ -5004,13 +5004,7 @@ fn lookup_data_offsets(
             let b = st.lookup_begindata();
             let e = st.lookup_enddata();
             if let (Some(begin), Some(end)) = (b, e) {
-                let res = Segment::try_new(
-                    begin,
-                    end,
-                    conf.corrections.start_data,
-                    conf.corrections.end_data,
-                    SegmentId::Data,
-                );
+                let res = Segment::try_new(begin, end, conf.data, SegmentId::Data);
                 match res {
                     Ok(seg) => seg,
                     Err(err) => {
@@ -5033,15 +5027,13 @@ fn lookup_data_offsets(
 
 fn lookup_analysis_offsets(
     kws: &mut RawKeywords,
-    conf: &Config,
+    conf: &DataReadConfig,
     version: Version,
     default: &Segment,
 ) -> PureSuccess<Segment> {
-    let bd = conf.corrections.start_analysis;
-    let ed = conf.corrections.end_analysis;
     let go = |st: &mut KwParser, b, e| {
         if let (Some(begin), Some(end)) = (b, e) {
-            Segment::try_new(begin, end, bd, ed, SegmentId::Analysis)
+            Segment::try_new(begin, end, conf.analysis, SegmentId::Analysis)
         } else {
             let msg = "could not find DATA offsets in TEXT, \
                  defaulting to HEADER offsets"
@@ -5065,7 +5057,7 @@ fn lookup_analysis_offsets(
             }
         }
         .map_err(|err| {
-            let msg = format!("defaulting to header DATA offsets due to error: {err}",);
+            let msg = format!("defaulting to header ANALYSIS offsets due to error: {err}",);
             st.push_meta_warning(msg);
         })
         .unwrap_or(*default)
@@ -5082,7 +5074,7 @@ fn h_read_analysis<R: Read + Seek>(h: &mut BufReader<R>, seg: &Segment) -> io::R
 fn h_read_std_dataset<R: Read + Seek>(
     h: &mut BufReader<R>,
     std: StandardizedTEXT,
-    conf: &Config,
+    conf: &DataReadConfig,
 ) -> ImpureResult<StandardizedDataset> {
     let mut kws = std.remainder;
     let version = std.standardized.version();
@@ -5801,6 +5793,15 @@ struct KwParserConfig<'a> {
     nonstandard_measurement_pattern: Option<&'a NonStdMeasPattern>,
 }
 
+impl<'a> From<&'a RawTextReadConfig> for KwParserConfig<'a> {
+    fn from(value: &'a RawTextReadConfig) -> Self {
+        KwParserConfig {
+            disallow_deprecated: value.disallow_deprecated,
+            nonstandard_measurement_pattern: None,
+        }
+    }
+}
+
 impl<'a> From<&'a StdTextReadConfig> for KwParserConfig<'a> {
     fn from(value: &'a StdTextReadConfig) -> Self {
         KwParserConfig {
@@ -6487,7 +6488,7 @@ fn split_raw_text(xs: &[u8], delim: u8, conf: &RawTextReadConfig) -> PureSuccess
                     // TODO actually include keyword here
                     res.push_msg_leveled(
                         "keywords must be ASCII".to_string(),
-                        conf.enfore_keyword_ascii,
+                        conf.enforce_keyword_ascii,
                     )
                 }
                 // if delimiters were escaped, replace them here
@@ -6555,8 +6556,8 @@ fn pad_zeros(s: &str) -> String {
     ("0").repeat(len - newlen) + trimmed
 }
 
-fn repair_offsets(pairs: &mut RawPairs, conf: &Config) {
-    if conf.raw.repair_offset_spaces {
+fn repair_offsets(pairs: &mut RawPairs, conf: &RawTextReadConfig) {
+    if conf.repair_offset_spaces {
         for (key, v) in pairs.iter_mut() {
             if key == BEGINDATA
                 || key == ENDDATA
@@ -6575,34 +6576,30 @@ fn repair_offsets(pairs: &mut RawPairs, conf: &Config) {
 fn lookup_stext_offsets(
     kws: &mut RawKeywords,
     version: Version,
-    conf: &Config,
+    conf: &RawTextReadConfig,
 ) -> PureSuccess<Option<Segment>> {
-    let c = &conf.corrections;
-    let offset_succ = KwParser::run(kws, (&conf.standard).into(), |st| match version {
-        Version::FCS2_0 => (None, None),
+    let offset_succ = KwParser::run(kws, conf.into(), |st| match version {
+        Version::FCS2_0 => (None, None, false),
         Version::FCS3_0 | Version::FCS3_1 => {
             let b = st.lookup_beginstext_req();
             let e = st.lookup_endstext_req();
-            (b, e)
+            (b, e, conf.enforce_stext)
         }
         Version::FCS3_2 => {
             let b = st.lookup_beginstext_opt().into();
             let e = st.lookup_endstext_opt().into();
-            (b, e)
+            (b, e, false)
         }
     });
     offset_succ.and_then(|offsets| match offsets {
-        (Some(begin), Some(end)) => {
-            let seg_res = Segment::try_new(
-                begin,
-                end,
-                c.start_supp_text,
-                c.end_supp_text,
-                SegmentId::SupplementalText,
-            );
-            // TODO toggle error level this since supplemental TEXT may not be
-            // needed
-            PureMaybe::from_result_1(seg_res, PureErrorLevel::Error)
+        (Some(begin), Some(end), enforce) => {
+            let seg_res = Segment::try_new(begin, end, conf.stext, SegmentId::SupplementalText);
+            let level = if enforce {
+                PureErrorLevel::Error
+            } else {
+                PureErrorLevel::Warning
+            };
+            PureMaybe::from_result_1(seg_res, level)
         }
         _ => PureMaybe::empty(),
     })
@@ -6629,23 +6626,25 @@ fn add_keywords(
 fn h_read_raw_text_from_header<R: Read + Seek>(
     h: &mut BufReader<R>,
     header: &Header,
-    conf: &Config,
+    conf: &RawTextReadConfig,
 ) -> ImpureResult<RawTEXT> {
     let mut buf = vec![];
     header.text.read(h, &mut buf)?;
+    let mut kwconf = KwParserConfig::default();
+    kwconf.disallow_deprecated = conf.disallow_deprecated;
 
-    verify_delim(&buf, &conf.raw).try_map(|delimiter| {
-        let split_succ = split_raw_text(&buf, delimiter, &conf.raw).and_then(|mut pairs| {
+    verify_delim(&buf, &conf).try_map(|delimiter| {
+        let split_succ = split_raw_text(&buf, delimiter, &conf).and_then(|mut pairs| {
             repair_offsets(&mut pairs, conf);
-            hash_raw_pairs(pairs, &conf.raw)
+            hash_raw_pairs(pairs, &conf)
         });
         let stext_succ = split_succ.try_map(|mut kws| {
-            lookup_stext_offsets(&mut kws, header.version, conf).try_map(|s| {
+            lookup_stext_offsets(&mut kws, header.version, &conf).try_map(|s| {
                 let succ = if let Some(seg) = s {
                     buf.clear();
                     seg.read(h, &mut buf)?;
-                    split_raw_text(&buf, delimiter, &conf.raw)
-                        .and_then(|pairs| add_keywords(&mut kws, pairs, &conf.raw))
+                    split_raw_text(&buf, delimiter, &conf)
+                        .and_then(|pairs| add_keywords(&mut kws, pairs, &conf))
                 } else {
                     PureSuccess::from(())
                 };
@@ -6653,29 +6652,30 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
             })
         })?;
         Ok(stext_succ.and_then(|(mut kws, supp_text_seg)| {
-            repair_keywords(&mut kws, &conf.raw);
+            repair_keywords(&mut kws, &conf);
             // TODO this will throw an error if not present, but we may not care
             // so toggle b/t error and warning
-            KwParser::run(&mut kws, (&conf.standard).into(), |st| st.lookup_nextdata()).map(
-                |nextdata| RawTEXT {
-                    version: header.version,
-                    offsets: Offsets {
-                        prim_text: header.text,
-                        supp_text: supp_text_seg,
-                        data: header.data,
-                        analysis: header.analysis,
-                        nextdata,
-                    },
-                    delimiter,
-                    keywords: kws,
+            KwParser::run(&mut kws, kwconf, |st| st.lookup_nextdata()).map(|nextdata| RawTEXT {
+                version: header.version,
+                offsets: Offsets {
+                    prim_text: header.text,
+                    supp_text: supp_text_seg,
+                    data: header.data,
+                    analysis: header.analysis,
+                    nextdata,
                 },
-            )
+                delimiter,
+                keywords: kws,
+            })
         }))
     })
 }
 
-fn h_read_raw_text<R: Read + Seek>(h: &mut BufReader<R>, conf: &Config) -> ImpureResult<RawTEXT> {
-    h_read_header(h)?.try_map(|header| h_read_raw_text_from_header(h, &header, conf))
+fn h_read_raw_text<R: Read + Seek>(
+    h: &mut BufReader<R>,
+    conf: &RawTextReadConfig,
+) -> ImpureResult<RawTEXT> {
+    h_read_header(h, &conf.header)?.try_map(|header| h_read_raw_text_from_header(h, &header, conf))
 }
 
 fn split_remainder(xs: RawKeywords) -> (RawKeywords, RawKeywords) {
@@ -6691,9 +6691,9 @@ fn split_remainder(xs: RawKeywords) -> (RawKeywords, RawKeywords) {
         .partition_result()
 }
 
-fn raw_to_std(raw: RawTEXT, conf: &Config) -> PureResult<StandardizedTEXT> {
+fn raw_to_std(raw: RawTEXT, conf: &StdTextReadConfig) -> PureResult<StandardizedTEXT> {
     let mut kws = raw.keywords;
-    parse_raw_text(raw.version, &mut kws, &conf.standard).map(|std_succ| {
+    parse_raw_text(raw.version, &mut kws, &conf).map(|std_succ| {
         std_succ.map({
             |standardized| {
                 let (remainder, deviant) = split_remainder(kws);
@@ -6718,10 +6718,10 @@ fn raw_to_std(raw: RawTEXT, conf: &Config) -> PureResult<StandardizedTEXT> {
 ///
 /// Depending on the version, all of these except the TEXT offsets might be 0
 /// which indicates they are actually stored in TEXT due to size limitations.
-pub fn read_fcs_header(p: &path::PathBuf) -> ImpureResult<Header> {
+pub fn read_fcs_header(p: &path::PathBuf, conf: &HeaderConfig) -> ImpureResult<Header> {
     let file = fs::File::options().read(true).open(p)?;
     let mut reader = BufReader::new(file);
-    h_read_header(&mut reader)
+    h_read_header(&mut reader, conf)
 }
 
 /// Return header and raw key/value metadata pairs in an FCS file.
@@ -6732,7 +6732,7 @@ pub fn read_fcs_header(p: &path::PathBuf) -> ImpureResult<Header> {
 /// Next will use the offset information in the header to parse the TEXT segment
 /// for key/value pairs. On success will return these pairs as-is using Strings
 /// in a HashMap. No other processing will be performed.
-pub fn read_fcs_raw_text(p: &path::PathBuf, conf: &Config) -> ImpureResult<RawTEXT> {
+pub fn read_fcs_raw_text(p: &path::PathBuf, conf: &RawTextReadConfig) -> ImpureResult<RawTEXT> {
     let file = fs::File::options().read(true).open(p)?;
     let mut h = BufReader::new(file);
     h_read_raw_text(&mut h, conf)
@@ -6747,8 +6747,11 @@ pub fn read_fcs_raw_text(p: &path::PathBuf, conf: &Config) -> ImpureResult<RawTE
 /// FCS standard indicated in the header and returned in a struct storing each
 /// key/value pair in a standardized manner. This will halt and return any
 /// errors encountered during this process.
-pub fn read_fcs_std_text(p: &path::PathBuf, conf: &Config) -> ImpureResult<StandardizedTEXT> {
-    let raw_succ = read_fcs_raw_text(p, conf)?;
+pub fn read_fcs_std_text(
+    p: &path::PathBuf,
+    conf: &StdTextReadConfig,
+) -> ImpureResult<StandardizedTEXT> {
+    let raw_succ = read_fcs_raw_text(p, &conf.raw)?;
     let out = raw_succ.try_map(|raw| raw_to_std(raw, conf))?;
     Ok(out)
 }
@@ -6771,11 +6774,14 @@ pub fn read_fcs_std_text(p: &path::PathBuf, conf: &Config) -> ImpureResult<Stand
 ///
 /// The [`conf`] argument can be used to control the behavior of each reading
 /// step, including the repair of non-conforming files.
-pub fn read_fcs_file(p: &path::PathBuf, conf: &Config) -> ImpureResult<StandardizedDataset> {
+pub fn read_fcs_file(
+    p: &path::PathBuf,
+    conf: &DataReadConfig,
+) -> ImpureResult<StandardizedDataset> {
     let file = fs::File::options().read(true).open(p)?;
     let mut h = BufReader::new(file);
-    h_read_raw_text(&mut h, conf)?
-        .try_map(|raw| raw_to_std(raw, conf))?
+    h_read_raw_text(&mut h, &conf.standard.raw)?
+        .try_map(|raw| raw_to_std(raw, &conf.standard))?
         .try_map(|std| h_read_std_dataset(&mut h, std, conf))
 }
 

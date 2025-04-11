@@ -1,3 +1,4 @@
+use crate::config::{HeaderConfig, OffsetCorrection};
 use crate::error::*;
 use crate::segment::*;
 
@@ -44,11 +45,11 @@ pub struct Header {
     pub analysis: Segment,
 }
 
-pub fn h_read_header<R: Read>(h: &mut BufReader<R>) -> ImpureResult<Header> {
+pub fn h_read_header<R: Read>(h: &mut BufReader<R>, conf: &HeaderConfig) -> ImpureResult<Header> {
     let mut verbuf = [0; HEADER_LEN];
     h.read_exact(&mut verbuf)?;
     if let Ok(hs) = str::from_utf8(&verbuf) {
-        let succ = parse_header(hs)?;
+        let succ = parse_header(hs, conf)?;
         Ok(succ)
     } else {
         Err(Failure::new("HEADER is not valid text".to_string()))?
@@ -68,7 +69,13 @@ fn parse_header_offset(s: &str, allow_blank: bool) -> Option<u32> {
     })
 }
 
-fn parse_bounds(s0: &str, s1: &str, allow_blank: bool, id: SegmentId) -> PureMaybe<Segment> {
+fn parse_bounds(
+    s0: &str,
+    s1: &str,
+    allow_blank: bool,
+    id: SegmentId,
+    corr: OffsetCorrection,
+) -> PureMaybe<Segment> {
     let parse_one = |s, which| {
         PureMaybe::from_result_1(
             parse_header_offset(s, allow_blank).ok_or(format!(
@@ -84,8 +91,7 @@ fn parse_bounds(s0: &str, s1: &str, allow_blank: bool, id: SegmentId) -> PureMay
         .and_then(|(b, e)| {
             if let (Some(begin), Some(end)) = (b, e) {
                 PureMaybe::from_result_1(
-                    // TODO adjust these
-                    Segment::try_new(begin, end, 0, 0, id),
+                    Segment::try_new(begin, end, corr, id),
                     PureErrorLevel::Error,
                 )
             } else {
@@ -94,7 +100,7 @@ fn parse_bounds(s0: &str, s1: &str, allow_blank: bool, id: SegmentId) -> PureMay
         })
 }
 
-fn parse_header(s: &str) -> PureResult<Header> {
+fn parse_header(s: &str, conf: &HeaderConfig) -> PureResult<Header> {
     // ASSUME this will always work, if not the regexp is invalid
     let re = Regex::new(HEADER_PAT).unwrap();
     if let Some(cap) = re.captures(s) {
@@ -104,13 +110,13 @@ fn parse_header(s: &str) -> PureResult<Header> {
             v.parse::<Version>().map_err(|e| e.to_string()),
             PureErrorLevel::Error,
         );
-        let text_succ = parse_bounds(t0, t1, false, SegmentId::PrimaryText);
-        let data_succ = parse_bounds(d0, d1, false, SegmentId::Data);
-        let anal_succ = parse_bounds(a0, a1, true, SegmentId::Analysis);
+        let text_succ = parse_bounds(t0, t1, false, SegmentId::PrimaryText, conf.text);
+        let data_succ = parse_bounds(d0, d1, false, SegmentId::Data, conf.data);
+        let anal_succ = parse_bounds(a0, a1, true, SegmentId::Analysis, conf.analysis);
         let succ = vers_succ.combine4(text_succ, data_succ, anal_succ, |v, t, d, a| {
             if let (Some(version), Some(text), Some(data), Some(analysis)) = (v, t, d, a) {
                 Some(Header {
-                    version,
+                    version: conf.version_override.unwrap_or(version),
                     text,
                     data,
                     analysis,

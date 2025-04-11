@@ -1,3 +1,5 @@
+use crate::macros::{newtype_asref, newtype_disp};
+
 use regex::Regex;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -67,12 +69,6 @@ pub struct DefaultMatrix<T> {
     pub default: DefaultMetaOptional<T>,
 }
 
-impl AsRef<str> for NonStdKey {
-    fn as_ref(&self) -> &str {
-        self.0.as_str()
-    }
-}
-
 impl FromStr for NonStdKey {
     type Err = NonStdKeyError;
 
@@ -82,18 +78,6 @@ impl FromStr for NonStdKey {
         } else {
             Ok(NonStdKey(s.to_string()))
         }
-    }
-}
-
-impl fmt::Display for NonStdKey {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl AsRef<str> for NonStdMeasKey {
-    fn as_ref(&self) -> &str {
-        self.0.as_str()
     }
 }
 
@@ -109,21 +93,9 @@ impl FromStr for NonStdMeasKey {
     }
 }
 
-impl fmt::Display for NonStdMeasKey {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}", self.0)
-    }
-}
-
 impl NonStdMeasKey {
     pub fn from_index(&self, n: usize) -> NonStdKey {
         NonStdKey(self.0.replace("%n", n.to_string().as_str()))
-    }
-}
-
-impl AsRef<str> for NonStdMeasPattern {
-    fn as_ref(&self) -> &str {
-        self.0.as_str()
     }
 }
 
@@ -148,12 +120,6 @@ impl FromStr for NonStdMeasPattern {
         } else {
             Ok(NonStdMeasPattern(s.to_string()))
         }
-    }
-}
-
-impl fmt::Display for NonStdMeasPattern {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}", self.0)
     }
 }
 
@@ -267,3 +233,11 @@ impl<T> Default for DefaultMatrix<T> {
         }
     }
 }
+
+newtype_disp!(NonStdKey);
+newtype_disp!(NonStdMeasKey);
+newtype_disp!(NonStdMeasPattern);
+
+newtype_asref!(NonStdKey, str);
+newtype_asref!(NonStdMeasKey, str);
+newtype_asref!(NonStdMeasPattern, str);

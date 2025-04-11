@@ -1,3 +1,5 @@
+use crate::macros::{newtype_asref, newtype_disp};
+
 use serde::Serialize;
 use std::fmt;
 use std::str::FromStr;
@@ -8,17 +10,8 @@ use std::str::FromStr;
 #[derive(Debug, Clone, Serialize, Eq, PartialEq, Hash)]
 pub struct Shortname(String);
 
-impl fmt::Display for Shortname {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl AsRef<str> for Shortname {
-    fn as_ref(&self) -> &str {
-        self.0.as_str()
-    }
-}
+newtype_asref!(Shortname, str);
+newtype_disp!(Shortname);
 
 impl Shortname {
     pub fn new_unchecked<T: AsRef<str>>(s: T) -> Self {

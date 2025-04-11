@@ -1,3 +1,5 @@
+use crate::macros::{newtype_asref, newtype_disp};
+
 use std::fmt;
 use std::str::FromStr;
 
@@ -5,11 +7,8 @@ use std::str::FromStr;
 #[derive(Clone)]
 pub struct DatePattern(String);
 
-impl AsRef<str> for DatePattern {
-    fn as_ref(&self) -> &str {
-        self.0.as_str()
-    }
-}
+newtype_asref!(DatePattern, str);
+newtype_disp!(DatePattern);
 
 impl FromStr for DatePattern {
     type Err = DatePatternError;
@@ -33,12 +32,6 @@ impl FromStr for DatePattern {
         } else {
             Err(DatePatternError(s.to_string()))
         }
-    }
-}
-
-impl fmt::Display for DatePattern {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}", self.0)
     }
 }
 

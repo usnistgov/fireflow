@@ -194,9 +194,20 @@ pub struct WriteConfig {
     pub disallow_lossy_conversions: bool,
 }
 
-impl RawTextReadConfig {
-    fn default_strict() -> Self {
-        let c = Self::default();
+pub trait Strict: Default {
+    fn set_strict(self, strict: bool) -> Self {
+        if strict {
+            Self::set_strict_inner(self)
+        } else {
+            self
+        }
+    }
+
+    fn set_strict_inner(self) -> Self;
+}
+
+impl Strict for RawTextReadConfig {
+    fn set_strict_inner(self) -> Self {
         Self {
             force_ascii_delim: true,
             enforce_final_delim: true,
@@ -205,46 +216,42 @@ impl RawTextReadConfig {
             error_on_invalid_utf8: true,
             enforce_keyword_ascii: true,
             enforce_stext: true,
-            ..c
+            ..self
         }
     }
 }
 
-impl StdTextReadConfig {
-    fn default_strict() -> Self {
-        let c = Self::default();
+impl Strict for StdTextReadConfig {
+    fn set_strict_inner(self) -> Self {
         Self {
-            raw: RawTextReadConfig::default_strict(),
-            time: TimeConfig::default_strict(),
+            raw: RawTextReadConfig::set_strict_inner(self.raw),
+            time: TimeConfig::set_strict_inner(self.time),
             disallow_deviant: true,
             disallow_nonstandard: true,
-            ..c
+            ..self
         }
     }
 }
 
-impl TimeConfig {
-    fn default_strict() -> Self {
-        let c = Self::default();
+impl Strict for TimeConfig {
+    fn set_strict_inner(self) -> Self {
         Self {
-            shortname: Some(Shortname::new_unchecked("Time".to_string())),
+            shortname: Some(Shortname::new_unchecked("Time")),
             ensure: true,
             ensure_timestep: true,
             ensure_linear: true,
             ensure_nogain: true,
-            ..c
         }
     }
 }
 
-impl DataReadConfig {
-    fn default_strict() -> Self {
-        let c = Self::default();
+impl Strict for DataReadConfig {
+    fn set_strict_inner(self) -> Self {
         Self {
-            standard: StdTextReadConfig::default_strict(),
+            standard: StdTextReadConfig::set_strict_inner(self.standard),
             enfore_data_width_divisibility: true,
             enfore_matching_tot: true,
-            ..c
+            ..self
         }
     }
 }

@@ -1,6 +1,7 @@
 use fireflow_core::api;
 use fireflow_core::api::IntoCore;
 use fireflow_core::config;
+use fireflow_core::config::Strict;
 use fireflow_core::error;
 use fireflow_core::validated::datepattern::DatePattern;
 use fireflow_core::validated::nonstandard::NonStdMeasPattern;
@@ -73,6 +74,8 @@ fn read_fcs_header(
 #[pyo3(signature = (
     p,
 
+    strict=false,
+
     begin_text=0,
     end_text=0,
     begin_data=0,
@@ -98,6 +101,8 @@ fn read_fcs_header(
 )]
 fn read_fcs_raw_text(
     p: path::PathBuf,
+
+    strict: bool,
 
     begin_text: i32,
     end_text: i32,
@@ -157,7 +162,7 @@ fn read_fcs_raw_text(
         date_pattern: date_pattern.map(|x| x.0),
         disallow_deprecated,
     };
-    handle_errors(api::read_fcs_raw_text(&p, &conf))
+    handle_errors(api::read_fcs_raw_text(&p, &conf.set_strict(strict)))
 }
 
 #[pyfunction]

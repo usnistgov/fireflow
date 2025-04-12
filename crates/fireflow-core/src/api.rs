@@ -5,6 +5,7 @@ use crate::header_text::*;
 use crate::keywords::*;
 use crate::optionalkw::OptionalKw;
 pub use crate::segment::*;
+use crate::validated::nonstandard::DefaultOptional;
 use crate::validated::nonstandard::{
     DefaultMatrix, DefaultMeasOptional, DefaultMetaOptional, NonStdKey, NonStdKeywords,
     NonStdMeasPattern,
@@ -7139,11 +7140,27 @@ where
     type FromP = P;
 }
 
+trait ConvertConfig {
+    type Req;
+
+    fn lookup(r: Self::Req) -> Self;
+}
+
 #[derive(Default)]
 pub struct ModificationDefaults {
     last_modified: DefaultMetaOptional<ModifiedDateTime>,
     last_modifier: DefaultMetaOptional<String>,
     originality: DefaultMetaOptional<Originality>,
+}
+
+impl ModificationDefaults {
+    fn keyed() -> Self {
+        Self {
+            last_modified: DefaultMetaOptional::init_unchecked(NS_LAST_MODIFIED),
+            last_modifier: DefaultMetaOptional::init_unchecked(NS_LAST_MODIFIER),
+            originality: DefaultMetaOptional::init_unchecked(NS_ORIGINALITY),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -7153,11 +7170,31 @@ pub struct PlateDefaults {
     wellid: DefaultMetaOptional<String>,
 }
 
+impl PlateDefaults {
+    fn keyed() -> Self {
+        Self {
+            plateid: DefaultMetaOptional::init_unchecked(NS_PLATEID),
+            platename: DefaultMetaOptional::init_unchecked(NS_PLATENAME),
+            wellid: DefaultMetaOptional::init_unchecked(NS_WELLID),
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct CarrierDefaults {
     carrierid: DefaultMetaOptional<String>,
     carriertype: DefaultMetaOptional<String>,
     locationid: DefaultMetaOptional<String>,
+}
+
+impl CarrierDefaults {
+    fn keyed() -> Self {
+        Self {
+            carrierid: DefaultMetaOptional::init_unchecked(NS_CARRIERID),
+            carriertype: DefaultMetaOptional::init_unchecked(NS_CARRIERTYPE),
+            locationid: DefaultMetaOptional::init_unchecked(NS_LOCATIONID),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -7166,10 +7203,28 @@ pub struct UnstainedDefaults {
     unstainedinfo: DefaultMetaOptional<String>,
 }
 
+impl UnstainedDefaults {
+    fn keyed() -> Self {
+        Self {
+            unstainedcenters: DefaultMetaOptional::init_unchecked(NS_UNSTAINEDCENTERS),
+            unstainedinfo: DefaultMetaOptional::init_unchecked(NS_UNSTAINEDINFO),
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct DatetimesDefaults {
     begin: DefaultMetaOptional<FCSDateTime>,
     end: DefaultMetaOptional<FCSDateTime>,
+}
+
+impl DatetimesDefaults {
+    fn keyed() -> Self {
+        Self {
+            begin: DefaultMetaOptional::init_unchecked(NS_BEGINDATETIME),
+            end: DefaultMetaOptional::init_unchecked(NS_ENDDATETIME),
+        }
+    }
 }
 
 pub struct MetadataDefaults2_0To2_0;
@@ -7178,11 +7233,13 @@ pub struct MetadataDefaults3_0To2_0;
 
 #[derive(Default)]
 pub struct MetadataDefaults3_1To2_0 {
+    // TODO there is no sensible keyword in 2.0 that would correspond to this
     comp: DefaultMatrix<Compensation>,
 }
 
 #[derive(Default)]
 pub struct MetadataDefaults3_2To2_0 {
+    // TODO ditto
     comp: DefaultMatrix<Compensation>,
 }
 
@@ -7190,11 +7247,19 @@ pub struct MetadataDefaults3_0To3_0;
 
 #[derive(Default)]
 pub struct MetadataDefaults2_0To3_0 {
-    byteord: DefaultMetaOptional<String>,
     cytsn: DefaultMetaOptional<String>,
     timestep: DefaultMetaOptional<f32>,
-    vol: DefaultMetaOptional<f32>,
     unicode: DefaultMetaOptional<Unicode>,
+}
+
+impl MetadataDefaults2_0To3_0 {
+    fn keyed() -> Self {
+        Self {
+            cytsn: DefaultMetaOptional::init_unchecked(NS_CYTSN),
+            timestep: DefaultMetaOptional::init_unchecked(NS_TIMESTEP),
+            unicode: DefaultMetaOptional::init_unchecked(NS_UNICODE),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -7203,10 +7268,28 @@ pub struct MetadataDefaults3_1To3_0 {
     unicode: DefaultMetaOptional<Unicode>,
 }
 
+impl MetadataDefaults3_1To3_0 {
+    fn keyed() -> Self {
+        Self {
+            comp: DefaultMatrix::init_unchecked(NS_COMP),
+            unicode: DefaultMetaOptional::init_unchecked(NS_UNICODE),
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct MetadataDefaults3_2To3_0 {
     comp: DefaultMatrix<Compensation>,
     unicode: DefaultMetaOptional<Unicode>,
+}
+
+impl MetadataDefaults3_2To3_0 {
+    fn keyed() -> Self {
+        Self {
+            comp: DefaultMatrix::init_unchecked(NS_COMP),
+            unicode: DefaultMetaOptional::init_unchecked(NS_UNICODE),
+        }
+    }
 }
 
 pub struct MetadataDefaults3_1To3_1;
@@ -7233,6 +7316,18 @@ impl MetadataDefaults2_0To3_1 {
             plate: PlateDefaults::default(),
         }
     }
+
+    fn keyed(endian: Endian) -> Self {
+        Self {
+            endian,
+            cytsn: DefaultMetaOptional::init_unchecked(NS_CYTSN),
+            timestep: DefaultMetaOptional::init_unchecked(NS_TIMESTEP),
+            vol: DefaultMetaOptional::init_unchecked(NS_VOL),
+            spillover: DefaultMatrix::init_unchecked(NS_SPILLOVER),
+            modification: ModificationDefaults::keyed(),
+            plate: PlateDefaults::keyed(),
+        }
+    }
 }
 
 pub struct MetadataDefaults3_0To3_1 {
@@ -7251,6 +7346,16 @@ impl MetadataDefaults3_0To3_1 {
             spillover: DefaultMatrix::default(),
             modification: ModificationDefaults::default(),
             plate: PlateDefaults::default(),
+        }
+    }
+
+    fn keyed(endian: Endian) -> Self {
+        Self {
+            endian,
+            vol: DefaultMetaOptional::init_unchecked(NS_VOL),
+            spillover: DefaultMatrix::init_unchecked(NS_SPILLOVER),
+            modification: ModificationDefaults::keyed(),
+            plate: PlateDefaults::keyed(),
         }
     }
 }
@@ -7291,6 +7396,23 @@ impl MetadataDefaults2_0To3_2 {
             datetimes: DatetimesDefaults::default(),
         }
     }
+
+    fn keyed(endian: Endian, cyt: String) -> Self {
+        Self {
+            endian,
+            cyt,
+            cytsn: DefaultMetaOptional::init_unchecked(NS_CYTSN),
+            timestep: DefaultMetaOptional::init_unchecked(NS_TIMESTEP),
+            flowrate: DefaultMetaOptional::init_unchecked(NS_FLOWRATE),
+            vol: DefaultMetaOptional::init_unchecked(NS_VOL),
+            spillover: DefaultMatrix::init_unchecked(NS_SPILLOVER),
+            modification: ModificationDefaults::keyed(),
+            plate: PlateDefaults::keyed(),
+            unstained: UnstainedDefaults::keyed(),
+            carrier: CarrierDefaults::keyed(),
+            datetimes: DatetimesDefaults::keyed(),
+        }
+    }
 }
 
 pub struct MetadataDefaults3_0To3_2 {
@@ -7321,6 +7443,21 @@ impl MetadataDefaults3_0To3_2 {
             datetimes: DatetimesDefaults::default(),
         }
     }
+
+    fn keyed(endian: Endian, cyt: String) -> Self {
+        Self {
+            endian,
+            cyt,
+            flowrate: DefaultMetaOptional::init_unchecked(NS_FLOWRATE),
+            vol: DefaultMetaOptional::init_unchecked(NS_VOL),
+            spillover: DefaultMatrix::init_unchecked(NS_SPILLOVER),
+            modification: ModificationDefaults::keyed(),
+            plate: PlateDefaults::keyed(),
+            unstained: UnstainedDefaults::keyed(),
+            carrier: CarrierDefaults::keyed(),
+            datetimes: DatetimesDefaults::keyed(),
+        }
+    }
 }
 
 pub struct MetadataDefaults3_1To3_2 {
@@ -7341,21 +7478,50 @@ impl MetadataDefaults3_1To3_2 {
             datetimes: DatetimesDefaults::default(),
         }
     }
+
+    fn keyed(cyt: String) -> Self {
+        Self {
+            cyt,
+            flowrate: DefaultMetaOptional::init_unchecked(NS_FLOWRATE),
+            unstained: UnstainedDefaults::keyed(),
+            carrier: CarrierDefaults::keyed(),
+            datetimes: DatetimesDefaults::keyed(),
+        }
+    }
 }
 
 #[derive(Default)]
 pub struct MetadataDefaultsTo2_0 {
+    // TODO no sensible kw
     comp: DefaultMatrix<Compensation>,
 }
 
 #[derive(Default)]
 pub struct MetadataDefaultsTo3_0 {
-    byteord: DefaultMetaOptional<String>,
     cytsn: DefaultMetaOptional<String>,
     timestep: DefaultMetaOptional<f32>,
-    vol: DefaultMetaOptional<f32>,
     unicode: DefaultMetaOptional<Unicode>,
     comp: DefaultMatrix<Compensation>,
+}
+
+impl MetadataDefaultsTo3_0 {
+    fn new() -> Self {
+        Self {
+            cytsn: DefaultMetaOptional::default(),
+            timestep: DefaultMetaOptional::default(),
+            unicode: DefaultMetaOptional::default(),
+            comp: DefaultMatrix::default(),
+        }
+    }
+
+    fn keyed() -> Self {
+        Self {
+            cytsn: DefaultMetaOptional::init_unchecked(NS_CYTSN),
+            timestep: DefaultMetaOptional::init_unchecked(NS_TIMESTEP),
+            unicode: DefaultMetaOptional::init_unchecked(NS_UNICODE),
+            comp: DefaultMatrix::init_unchecked(NS_COMP),
+        }
+    }
 }
 
 pub struct MetadataDefaultsTo3_1 {
@@ -7366,6 +7532,32 @@ pub struct MetadataDefaultsTo3_1 {
     spillover: DefaultMatrix<Spillover>,
     modification: ModificationDefaults,
     plate: PlateDefaults,
+}
+
+impl MetadataDefaultsTo3_1 {
+    pub fn new(endian: Endian) -> Self {
+        Self {
+            endian,
+            cytsn: DefaultMetaOptional::default(),
+            timestep: DefaultMetaOptional::default(),
+            vol: DefaultMetaOptional::default(),
+            spillover: DefaultMatrix::default(),
+            modification: ModificationDefaults::default(),
+            plate: PlateDefaults::default(),
+        }
+    }
+
+    fn keyed(endian: Endian) -> Self {
+        Self {
+            endian,
+            cytsn: DefaultMetaOptional::init_unchecked(NS_CYTSN),
+            timestep: DefaultMetaOptional::init_unchecked(NS_TIMESTEP),
+            vol: DefaultMetaOptional::init_unchecked(NS_VOL),
+            spillover: DefaultMatrix::init_unchecked(NS_SPILLOVER),
+            modification: ModificationDefaults::keyed(),
+            plate: PlateDefaults::keyed(),
+        }
+    }
 }
 
 pub struct MetadataDefaultsTo3_2 {
@@ -7381,6 +7573,42 @@ pub struct MetadataDefaultsTo3_2 {
     unstained: UnstainedDefaults,
     carrier: CarrierDefaults,
     datetimes: DatetimesDefaults,
+}
+
+impl MetadataDefaultsTo3_2 {
+    pub fn new(endian: Endian, cyt: String) -> Self {
+        Self {
+            endian,
+            cyt,
+            cytsn: DefaultMetaOptional::default(),
+            timestep: DefaultMetaOptional::default(),
+            vol: DefaultMetaOptional::default(),
+            spillover: DefaultMatrix::default(),
+            flowrate: DefaultMetaOptional::default(),
+            modification: ModificationDefaults::default(),
+            plate: PlateDefaults::default(),
+            unstained: UnstainedDefaults::default(),
+            carrier: CarrierDefaults::default(),
+            datetimes: DatetimesDefaults::default(),
+        }
+    }
+
+    fn keyed(endian: Endian, cyt: String) -> Self {
+        Self {
+            endian,
+            cyt,
+            cytsn: DefaultMetaOptional::init_unchecked(NS_CYTSN),
+            timestep: DefaultMetaOptional::init_unchecked(NS_TIMESTEP),
+            flowrate: DefaultMetaOptional::init_unchecked(NS_FLOWRATE),
+            vol: DefaultMetaOptional::init_unchecked(NS_VOL),
+            spillover: DefaultMatrix::init_unchecked(NS_SPILLOVER),
+            modification: ModificationDefaults::keyed(),
+            plate: PlateDefaults::keyed(),
+            unstained: UnstainedDefaults::keyed(),
+            carrier: CarrierDefaults::keyed(),
+            datetimes: DatetimesDefaults::keyed(),
+        }
+    }
 }
 
 pub struct RequiredEndianCyt {
@@ -7415,7 +7643,7 @@ txfr_keys!(MetadataDefaultsTo3_0, MetadataDefaults3_0To3_0, []);
 txfr_keys!(
     MetadataDefaultsTo3_0,
     MetadataDefaults2_0To3_0,
-    [byteord, cytsn, timestep, vol, unicode]
+    [cytsn, timestep, unicode]
 );
 
 txfr_keys!(
@@ -7521,6 +7749,13 @@ impl MeasurementDefaults2_0To3_0 {
             gain: DefaultMeasOptional::default(),
         }
     }
+
+    fn keyed(scale: Scale, n: usize) -> Self {
+        Self {
+            scale,
+            gain: DefaultMeasOptional::init_unchecked(GAIN_SFX, n),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -7533,6 +7768,22 @@ pub struct MeasurementDefaults3_2To3_0;
 pub struct MeasurementDefaultsTo3_0 {
     scale: Scale,
     gain: DefaultMeasOptional<f32>,
+}
+
+impl MeasurementDefaultsTo3_0 {
+    fn new(scale: Scale) -> Self {
+        Self {
+            scale,
+            gain: DefaultMeasOptional::default(),
+        }
+    }
+
+    fn keyed(scale: Scale, n: usize) -> Self {
+        Self {
+            scale,
+            gain: DefaultMeasOptional::init_unchecked(GAIN_SFX, n),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -7562,6 +7813,16 @@ impl MeasurementDefaults2_0To3_1 {
             display: DefaultMeasOptional::default(),
         }
     }
+
+    fn keyed(scale: Scale, shortname: Shortname, n: usize) -> Self {
+        Self {
+            scale,
+            shortname,
+            gain: DefaultMeasOptional::init_unchecked(GAIN_SFX, n),
+            calibration: DefaultMeasOptional::init_unchecked(CALIBRATION_SFX, n),
+            display: DefaultMeasOptional::init_unchecked(DISPLAY_SFX, n),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -7579,6 +7840,14 @@ impl MeasurementDefaults3_0To3_1 {
             display: DefaultMeasOptional::default(),
         }
     }
+
+    fn keyed(shortname: Shortname, n: usize) -> Self {
+        Self {
+            shortname,
+            calibration: DefaultMeasOptional::init_unchecked(CALIBRATION_SFX, n),
+            display: DefaultMeasOptional::init_unchecked(DISPLAY_SFX, n),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -7591,6 +7860,28 @@ pub struct MeasurementDefaultsTo3_1 {
     gain: DefaultMeasOptional<f32>,
     calibration: DefaultMeasOptional<Calibration3_1>,
     display: DefaultMeasOptional<Display>,
+}
+
+impl MeasurementDefaultsTo3_1 {
+    fn new(scale: Scale, shortname: Shortname) -> Self {
+        Self {
+            scale,
+            shortname,
+            gain: DefaultMeasOptional::default(),
+            calibration: DefaultMeasOptional::default(),
+            display: DefaultMeasOptional::default(),
+        }
+    }
+
+    fn keyed(scale: Scale, shortname: Shortname, n: usize) -> Self {
+        Self {
+            scale,
+            shortname,
+            gain: DefaultMeasOptional::init_unchecked(GAIN_SFX, n),
+            calibration: DefaultMeasOptional::init_unchecked(CALIBRATION_SFX, n),
+            display: DefaultMeasOptional::init_unchecked(DISPLAY_SFX, n),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -7627,6 +7918,22 @@ impl MeasurementDefaults2_0To3_2 {
             measurement_type: DefaultMeasOptional::default(),
         }
     }
+
+    fn fixed(scale: Scale, shortname: Shortname, n: usize) -> Self {
+        Self {
+            scale,
+            shortname,
+            gain: DefaultMeasOptional::init_unchecked(GAIN_SFX, n),
+            calibration: DefaultMeasOptional::init_unchecked(CALIBRATION_SFX, n),
+            display: DefaultMeasOptional::init_unchecked(DISPLAY_SFX, n),
+            analyte: DefaultMeasOptional::init_unchecked(ANALYTE_SFX, n),
+            tag: DefaultMeasOptional::init_unchecked(TAG_SFX, n),
+            detector_name: DefaultMeasOptional::init_unchecked(DET_NAME_SFX, n),
+            feature: DefaultMeasOptional::init_unchecked(FEATURE_SFX, n),
+            datatype: DefaultMeasOptional::init_unchecked(DATATYPE_SFX, n),
+            measurement_type: DefaultMeasOptional::init_unchecked(MEAS_TYPE_SFX, n),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -7656,6 +7963,20 @@ impl MeasurementDefaults3_0To3_2 {
             measurement_type: DefaultMeasOptional::default(),
         }
     }
+
+    fn fixed(shortname: Shortname, n: usize) -> Self {
+        Self {
+            shortname,
+            calibration: DefaultMeasOptional::init_unchecked(CALIBRATION_SFX, n),
+            display: DefaultMeasOptional::init_unchecked(DISPLAY_SFX, n),
+            analyte: DefaultMeasOptional::init_unchecked(ANALYTE_SFX, n),
+            tag: DefaultMeasOptional::init_unchecked(TAG_SFX, n),
+            detector_name: DefaultMeasOptional::init_unchecked(DET_NAME_SFX, n),
+            feature: DefaultMeasOptional::init_unchecked(FEATURE_SFX, n),
+            datatype: DefaultMeasOptional::init_unchecked(DATATYPE_SFX, n),
+            measurement_type: DefaultMeasOptional::init_unchecked(MEAS_TYPE_SFX, n),
+        }
+    }
 }
 
 #[derive(Clone, Default)]
@@ -7666,6 +7987,19 @@ pub struct MeasurementDefaults3_1To3_2 {
     feature: DefaultMeasOptional<Feature>,
     datatype: DefaultMeasOptional<NumType>,
     measurement_type: DefaultMeasOptional<MeasurementType>,
+}
+
+impl MeasurementDefaults3_1To3_2 {
+    fn fixed(n: usize) -> Self {
+        Self {
+            analyte: DefaultMeasOptional::init_unchecked(ANALYTE_SFX, n),
+            tag: DefaultMeasOptional::init_unchecked(TAG_SFX, n),
+            detector_name: DefaultMeasOptional::init_unchecked(DET_NAME_SFX, n),
+            feature: DefaultMeasOptional::init_unchecked(FEATURE_SFX, n),
+            datatype: DefaultMeasOptional::init_unchecked(DATATYPE_SFX, n),
+            measurement_type: DefaultMeasOptional::init_unchecked(MEAS_TYPE_SFX, n),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -7681,6 +8015,40 @@ pub struct MeasurementDefaultsTo3_2 {
     feature: DefaultMeasOptional<Feature>,
     datatype: DefaultMeasOptional<NumType>,
     measurement_type: DefaultMeasOptional<MeasurementType>,
+}
+
+impl MeasurementDefaultsTo3_2 {
+    fn new(scale: Scale, shortname: Shortname) -> Self {
+        Self {
+            scale,
+            shortname,
+            gain: DefaultMeasOptional::default(),
+            calibration: DefaultMeasOptional::default(),
+            display: DefaultMeasOptional::default(),
+            analyte: DefaultMeasOptional::default(),
+            tag: DefaultMeasOptional::default(),
+            detector_name: DefaultMeasOptional::default(),
+            feature: DefaultMeasOptional::default(),
+            datatype: DefaultMeasOptional::default(),
+            measurement_type: DefaultMeasOptional::default(),
+        }
+    }
+
+    fn fixed(scale: Scale, shortname: Shortname, n: usize) -> Self {
+        Self {
+            scale,
+            shortname,
+            gain: DefaultMeasOptional::init_unchecked(GAIN_SFX, n),
+            calibration: DefaultMeasOptional::init_unchecked(CALIBRATION_SFX, n),
+            display: DefaultMeasOptional::init_unchecked(DISPLAY_SFX, n),
+            analyte: DefaultMeasOptional::init_unchecked(ANALYTE_SFX, n),
+            tag: DefaultMeasOptional::init_unchecked(TAG_SFX, n),
+            detector_name: DefaultMeasOptional::init_unchecked(DET_NAME_SFX, n),
+            feature: DefaultMeasOptional::init_unchecked(FEATURE_SFX, n),
+            datatype: DefaultMeasOptional::init_unchecked(DATATYPE_SFX, n),
+            measurement_type: DefaultMeasOptional::init_unchecked(MEAS_TYPE_SFX, n),
+        }
+    }
 }
 
 txfr_keys!(MeasurementDefaultsTo2_0, MeasurementDefaults2_0To2_0, []);

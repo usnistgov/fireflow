@@ -201,6 +201,13 @@ impl<T> DefaultMetaOptional<T> {
             key: key.map_or(Ok(None), |s| s.parse().map(Some))?,
         })
     }
+
+    pub fn init_unchecked(key: &'static str) -> Self {
+        DefaultOptional {
+            default: None,
+            key: Some(NonStdKey(key.into())),
+        }
+    }
 }
 
 impl<T> DefaultMeasOptional<T> {
@@ -209,6 +216,13 @@ impl<T> DefaultMeasOptional<T> {
             default,
             key: key.map_or(Ok(None), |s| s.parse().map(Some))?,
         })
+    }
+
+    pub fn init_unchecked(suffix: &'static str, n: usize) -> Self {
+        DefaultOptional {
+            default: None,
+            key: Some(NonStdMeasKey(format!("P{n}{suffix}"))),
+        }
     }
 }
 
@@ -222,6 +236,13 @@ impl<T> DefaultMatrix<T> {
             try_convert,
             default: DefaultMetaOptional::new(default, key)?,
         })
+    }
+
+    pub fn init_unchecked(key: &'static str) -> Self {
+        DefaultMatrix {
+            try_convert: false,
+            default: DefaultMetaOptional::init_unchecked(key),
+        }
     }
 }
 

@@ -81,6 +81,30 @@ pub type ImpureFailure = Failure<ImpureError>;
 /// Success or failure of a pure or impure computation.
 pub type ImpureResult<T> = Result<PureSuccess<T>, ImpureFailure>;
 
+impl PureError {
+    pub fn new_error(msg: String) -> Self {
+        Self {
+            msg,
+            level: PureErrorLevel::Error,
+        }
+    }
+
+    pub fn new_warning(msg: String) -> Self {
+        Self {
+            msg,
+            level: PureErrorLevel::Warning,
+        }
+    }
+
+    pub fn new(msg: String, is_error: bool) -> Self {
+        if is_error {
+            Self::new_error(msg)
+        } else {
+            Self::new_warning(msg)
+        }
+    }
+}
+
 impl<E> Failure<E> {
     pub fn new(reason: E) -> Failure<E> {
         Failure {

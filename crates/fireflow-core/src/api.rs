@@ -848,39 +848,287 @@ macro_rules! newtype_u32 {
     };
 }
 
-newtype_string!(Cyt);
-newtype_string!(Cytsn);
-newtype_string!(Com);
-newtype_string!(Flowrate);
-newtype_string!(Cells);
-newtype_string!(Exp);
-newtype_string!(Fil);
-newtype_string!(Inst);
-newtype_string!(Op);
-newtype_string!(Proj);
-newtype_string!(Smno);
-newtype_string!(Src);
-newtype_string!(Sys);
-newtype_string!(LastModifier);
-newtype_string!(Plateid);
-newtype_string!(Platename);
-newtype_string!(Wellid);
-newtype_string!(UnstainedInfo);
-newtype_string!(Carrierid);
-newtype_string!(Carriertype);
-newtype_string!(Locationid);
-newtype_string!(Analyte);
-newtype_string!(Tag);
-newtype_string!(DetectorName);
-newtype_string!(DetectorType);
-newtype_string!(PercentEmitted);
-newtype_string!(Longname);
-newtype_string!(Filter);
+trait Key {
+    const C: &'static str;
+
+    fn std() -> String {
+        format!("${}", Self::C)
+    }
+
+    fn nonstd() -> NonStdKey {
+        NonStdKey::from_unchecked(Self::C)
+    }
+}
+
+trait IndexedKey {
+    const PREFIX: &'static str;
+    const SUFFIX: &'static str;
+
+    fn fmt(i: usize) -> String {
+        format!("{}{i}{}", Self::PREFIX, Self::SUFFIX)
+    }
+
+    fn std(i: usize) -> String {
+        format!("${}", Self::fmt(i))
+    }
+
+    fn nonstd(i: usize) -> NonStdKey {
+        NonStdKey::from_unchecked(Self::fmt(i).as_str())
+    }
+}
+
+fn lookup_optional<V: FromStr>(kws: &mut RawKeywords, k: &str) -> Result<OptionalKw<V>, String>
+where
+    <V as FromStr>::Err: fmt::Display,
+{
+    match kws.remove(k) {
+        Some(v) => v
+            .parse()
+            .map(|x| Some(x).into())
+            .map_err(|w| format!("{w} (key={k}, value='{v}')")),
+        None => Ok(None.into()),
+    }
+}
+
+type ReqResult<T> = Result<T, String>;
+type OptResult<T> = Result<OptionalKw<T>, String>;
+
+trait Required {
+    fn lookup_req<V: FromStr>(kws: &mut RawKeywords, k: &str) -> Result<V, String>
+    where
+        <V as FromStr>::Err: fmt::Display,
+    {
+        match kws.remove(k) {
+            Some(v) => v
+                .parse()
+                .map_err(|e| format!("{e} (key='{k}', value='{v}')")),
+            None => Err(format!("missing required key: {k}")),
+        }
+    }
+}
+
+trait Optional {
+    fn lookup_opt<V: FromStr>(kws: &mut RawKeywords, k: &str) -> Result<OptionalKw<V>, String>
+    where
+        <V as FromStr>::Err: fmt::Display,
+    {
+        match kws.remove(k) {
+            Some(v) => v
+                .parse()
+                .map(|x| Some(x).into())
+                .map_err(|w| format!("{w} (key={k}, value='{v}')")),
+            None => Ok(None.into()),
+        }
+    }
+}
+
+trait ReqMetaKey
+where
+    Self: Required,
+    Self: Key,
+    Self: FromStr,
+    <Self as FromStr>::Err: fmt::Display,
+{
+    fn lookup_meta_req(kws: &mut RawKeywords) -> ReqResult<Self> {
+        Self::lookup_req(kws, Self::std().as_str())
+    }
+}
+
+trait ReqMeasKey
+where
+    Self: Required,
+    Self: IndexedKey,
+    Self: FromStr,
+    <Self as FromStr>::Err: fmt::Display,
+{
+    fn lookup_meas_req(kws: &mut RawKeywords, n: usize) -> ReqResult<Self> {
+        Self::lookup_req(kws, Self::std(n).as_str())
+    }
+}
+
+trait OptMetaKey
+where
+    Self: Optional,
+    Self: Key,
+    Self: FromStr,
+    <Self as FromStr>::Err: fmt::Display,
+{
+    fn lookup_meta_opt(kws: &mut RawKeywords) -> OptResult<Self> {
+        Self::lookup_opt(kws, Self::std().as_str())
+    }
+}
+
+trait OptMeasKey
+where
+    Self: Optional,
+    Self: IndexedKey,
+    Self: FromStr,
+    <Self as FromStr>::Err: fmt::Display,
+{
+    fn lookup_meas_opt(kws: &mut RawKeywords, n: usize) -> OptResult<Self> {
+        Self::lookup_opt(kws, Self::std(n).as_str())
+    }
+}
+
+macro_rules! kw_meta {
+    ($t:ident, $k:expr) => {
+        impl Key for $t {
+            const C: &'static str = $k;
+        }
+    };
+}
+
+macro_rules! kw_meas {
+    ($t:ident, $sfx:expr) => {
+        impl IndexedKey for $t {
+            const PREFIX: &'static str = "P";
+            const SUFFIX: &'static str = $sfx;
+        }
+    };
+}
+
+macro_rules! kw_meta_string {
+    ($t:ident, $kw:expr) => {
+        newtype_string!($t);
+
+        impl Key for $t {
+            const C: &'static str = $kw;
+        }
+    };
+}
+
+macro_rules! kw_meas_string {
+    ($t:ident, $sfx:expr) => {
+        newtype_string!($t);
+        kw_meas!($t, $sfx);
+    };
+}
+
+macro_rules! req_meta {
+    ($t:ident) => {
+        impl Required for $t {}
+        impl ReqMetaKey for $t {}
+    };
+}
+
+macro_rules! opt_meta {
+    ($t:ident) => {
+        impl Optional for $t {}
+        impl OptMetaKey for $t {}
+    };
+}
+
+macro_rules! req_meas {
+    ($t:ident) => {
+        impl Required for $t {}
+        impl ReqMeasKey for $t {}
+    };
+}
+
+macro_rules! opt_meas {
+    ($t:ident) => {
+        impl Optional for $t {}
+        impl OptMeasKey for $t {}
+    };
+}
+
+macro_rules! kw_req_meta {
+    ($t:ident, $sfx:expr) => {
+        kw_meta!($t, $sfx);
+        req_meta!($t);
+    };
+}
+
+macro_rules! kw_opt_meta {
+    ($t:ident, $sfx:expr) => {
+        kw_meta!($t, $sfx);
+        opt_meta!($t);
+    };
+}
+
+macro_rules! kw_req_meas {
+    ($t:ident, $sfx:expr) => {
+        kw_meas!($t, $sfx);
+        req_meas!($t);
+    };
+}
+
+macro_rules! kw_opt_meas {
+    ($t:ident, $sfx:expr) => {
+        kw_meas!($t, $sfx);
+        opt_meas!($t);
+    };
+}
+
+macro_rules! kw_req_meta_string {
+    ($t:ident, $sfx:expr) => {
+        kw_meta_string!($t, $sfx);
+        req_meta!($t);
+    };
+}
+
+macro_rules! kw_opt_meta_string {
+    ($t:ident, $sfx:expr) => {
+        kw_meta_string!($t, $sfx);
+        opt_meta!($t);
+    };
+}
+
+macro_rules! kw_req_meas_string {
+    ($t:ident, $sfx:expr) => {
+        kw_meas_string!($t, $sfx);
+        req_meas!($t);
+    };
+}
+
+macro_rules! kw_opt_meas_string {
+    ($t:ident, $sfx:expr) => {
+        kw_meas_string!($t, $sfx);
+        opt_meas!($t);
+    };
+}
+
+kw_opt_meta_string!(Cyt, "CYT");
+req_meta!(Cyt);
+
+kw_opt_meta_string!(Cytsn, "CYTSN");
+kw_opt_meta_string!(Com, "COM");
+kw_opt_meta_string!(Flowrate, "FLOWRATE");
+kw_opt_meta_string!(Cells, "CELLS");
+kw_opt_meta_string!(Exp, "EXP");
+kw_opt_meta_string!(Fil, "FIL");
+kw_opt_meta_string!(Inst, "INST");
+kw_opt_meta_string!(Op, "OP");
+kw_opt_meta_string!(Proj, "PROJ");
+kw_opt_meta_string!(Smno, "SMNO");
+kw_opt_meta_string!(Src, "SRC");
+kw_opt_meta_string!(Sys, "SYS");
+kw_opt_meta_string!(LastModifier, "LAST_MODIFIER");
+kw_opt_meta_string!(Plateid, "PLATEID");
+kw_opt_meta_string!(Platename, "PLATENAME");
+kw_opt_meta_string!(Wellid, "WELLID");
+kw_opt_meta_string!(UnstainedInfo, "UNSTAINEDINFO");
+kw_opt_meta_string!(Carrierid, "CARRIERID");
+kw_opt_meta_string!(Carriertype, "CARRIERTYPE");
+kw_opt_meta_string!(Locationid, "LOCATIONID");
+
+kw_opt_meas_string!(Analyte, "ANALYTE");
+kw_opt_meas_string!(Tag, "TAG");
+kw_opt_meas_string!(DetectorName, "DET");
+kw_opt_meas_string!(DetectorType, "D");
+kw_opt_meas_string!(PercentEmitted, "P");
+kw_opt_meas_string!(Longname, "S");
+kw_opt_meas_string!(Filter, "F");
 
 newtype_u32!(Abrt);
 newtype_u32!(Lost);
 newtype_u32!(Wavelength);
 newtype_u32!(Power);
+
+kw_opt_meta!(Abrt, "ABRT");
+kw_opt_meta!(Lost, "LOST");
+kw_opt_meas!(Wavelength, "L");
+kw_opt_meas!(Power, "O");
 
 // TODO technically this should be validated to be > 0
 #[derive(Clone, Serialize)]
@@ -889,12 +1137,16 @@ pub struct Timestep(pub f32);
 newtype_disp!(Timestep);
 newtype_fromstr!(Timestep, ParseFloatError);
 
+kw_opt_meta!(Timestep, "TIMESTEP");
+
 // TODO ditto
 #[derive(Clone, Serialize)]
 pub struct Vol(pub f32);
 
 newtype_disp!(Vol);
 newtype_fromstr!(Vol, ParseFloatError);
+
+kw_opt_meta!(Vol, "VOL");
 
 // TODO ditto
 #[derive(Clone, Serialize)]
@@ -903,12 +1155,46 @@ pub struct Gain(pub f32);
 newtype_disp!(Gain);
 newtype_fromstr!(Gain, ParseFloatError);
 
+kw_opt_meas!(Gain, "G");
+
 // TODO ditto
 #[derive(Clone, Serialize)]
 pub struct DetectorVoltage(pub f32);
 
 newtype_disp!(DetectorVoltage);
 newtype_fromstr!(DetectorVoltage, ParseFloatError);
+
+kw_opt_meas!(DetectorVoltage, "V");
+
+kw_req_meta!(Mode, "MODE");
+kw_opt_meta!(Mode3_2, "MODE");
+kw_req_meta!(AlphaNumType, "DATATYPE");
+kw_req_meta!(Endian, "BYTEORD");
+kw_req_meta!(ByteOrd, "BYTEORD");
+
+kw_opt_meta!(Spillover, "SPILLOVER");
+kw_opt_meta!(Compensation, "COMP");
+kw_opt_meta!(Originality, "ORIGINALITY");
+kw_opt_meta!(ModifiedDateTime, "LAST_MODIFIED");
+kw_opt_meta!(UnstainedCenters, "UNSTAINEDCENTERS");
+kw_opt_meta!(Unicode, "UNICODE");
+kw_opt_meta!(Trigger, "TR");
+
+kw_opt_meas!(Scale, "E");
+req_meas!(Scale);
+
+kw_req_meas!(Range, "R");
+kw_req_meas!(Bytes, "B");
+kw_opt_meas!(Wavelengths, "W");
+kw_opt_meas!(Feature, "FEATURE");
+kw_opt_meas!(MeasurementType, "TYPE");
+kw_opt_meas!(NumType, "DATATYPE");
+kw_opt_meas!(Display, "DISPLAY");
+kw_opt_meas!(Shortname, "N");
+req_meas!(Shortname);
+
+kw_opt_meas!(Calibration3_1, "CALIBRATION");
+kw_opt_meas!(Calibration3_2, "CALIBRATION");
 
 /// Metadata fields specific to version 2.0
 #[derive(Clone, Serialize)]
@@ -1600,24 +1886,24 @@ where
 
     fn lookup_metadata(st: &mut KwParser, ms: &[Measurement<Self::P>]) -> Option<Metadata<Self>> {
         let par = ms.len();
-        let maybe_datatype = st.lookup_datatype();
+        let maybe_datatype = st.lookup_meta_req();
         let maybe_specific = Self::lookup_specific(st, par);
         if let (Some(datatype), Some(specific)) = (maybe_datatype, maybe_specific) {
             Some(Metadata {
                 datatype,
-                abrt: st.lookup_abrt(),
-                com: st.lookup_com(),
-                cells: st.lookup_cells(),
-                exp: st.lookup_exp(),
-                fil: st.lookup_fil(),
-                inst: st.lookup_inst(),
-                lost: st.lookup_lost(),
-                op: st.lookup_op(),
-                proj: st.lookup_proj(),
-                smno: st.lookup_smno(),
-                src: st.lookup_src(),
-                sys: st.lookup_sys(),
-                tr: st.lookup_trigger(),
+                abrt: st.lookup_meta_opt(false),
+                com: st.lookup_meta_opt(false),
+                cells: st.lookup_meta_opt(false),
+                exp: st.lookup_meta_opt(false),
+                fil: st.lookup_meta_opt(false),
+                inst: st.lookup_meta_opt(false),
+                lost: st.lookup_meta_opt(false),
+                op: st.lookup_meta_opt(false),
+                proj: st.lookup_meta_opt(false),
+                smno: st.lookup_meta_opt(false),
+                src: st.lookup_meta_opt(false),
+                sys: st.lookup_meta_opt(false),
+                tr: st.lookup_meta_opt(false),
                 nonstandard_keywords: st.lookup_all_nonstandard(),
                 specific,
             })
@@ -1699,8 +1985,8 @@ trait VersionedMeasurement: Sized + Versioned {
         let v = Self::fcs_version();
         let ps: Vec<_> = (1..(par + 1))
             .flat_map(|n| {
-                let maybe_bytes = st.lookup_meas_bytes(n);
-                let maybe_range = st.lookup_meas_range(n);
+                let maybe_bytes = st.lookup_meas_req(n);
+                let maybe_range = st.lookup_meas_req(n);
                 let maybe_specific = Self::lookup_specific(st, n);
                 if let (Some(bytes), Some(range), Some(specific)) =
                     (maybe_bytes, maybe_range, maybe_specific)
@@ -1708,12 +1994,12 @@ trait VersionedMeasurement: Sized + Versioned {
                     Some(Measurement {
                         bytes,
                         range,
-                        longname: st.lookup_meas_longname(n),
-                        filter: st.lookup_meas_filter(n),
-                        power: st.lookup_meas_power(n),
-                        detector_type: st.lookup_meas_detector_type(n),
-                        percent_emitted: st.lookup_meas_percent_emitted(n, v == Version::FCS3_2),
-                        detector_voltage: st.lookup_meas_detector_voltage(n),
+                        longname: st.lookup_meas_opt(n, false),
+                        filter: st.lookup_meas_opt(n, false),
+                        power: st.lookup_meas_opt(n, false),
+                        detector_type: st.lookup_meas_opt(n, false),
+                        percent_emitted: st.lookup_meas_opt(n, v == Version::FCS3_2),
+                        detector_voltage: st.lookup_meas_opt(n, false),
                         specific,
                         nonstandard_keywords: st.lookup_all_meas_nonstandard(n),
                     })
@@ -3186,9 +3472,9 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
 
     fn lookup_specific(st: &mut KwParser, n: usize) -> Option<InnerMeasurement2_0> {
         Some(InnerMeasurement2_0 {
-            scale: st.lookup_meas_scale_opt(n),
-            shortname: st.lookup_meas_shortname_opt(n),
-            wavelength: st.lookup_meas_wavelength(n),
+            scale: st.lookup_meas_opt(n, false),
+            shortname: st.lookup_meas_opt(n, false),
+            wavelength: st.lookup_meas_opt(n, false),
         })
     }
 
@@ -3234,12 +3520,11 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
     }
 
     fn lookup_specific(st: &mut KwParser, n: usize) -> Option<InnerMeasurement3_0> {
-        let shortname = st.lookup_meas_shortname_opt(n);
         Some(InnerMeasurement3_0 {
-            scale: st.lookup_meas_scale_req(n)?,
-            gain: st.lookup_meas_gain(n),
-            shortname,
-            wavelength: st.lookup_meas_wavelength(n),
+            scale: st.lookup_meas_req(n)?,
+            gain: st.lookup_meas_opt(n, false),
+            shortname: st.lookup_meas_opt(n, false),
+            wavelength: st.lookup_meas_opt(n, false),
         })
     }
 
@@ -3280,15 +3565,18 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
     }
 
     fn lookup_specific(st: &mut KwParser, n: usize) -> Option<InnerMeasurement3_1> {
-        let shortname = st.lookup_meas_shortname_req(n)?;
-        Some(InnerMeasurement3_1 {
-            scale: st.lookup_meas_scale_req(n)?,
-            gain: st.lookup_meas_gain(n),
-            shortname,
-            wavelengths: st.lookup_meas_wavelengths(n),
-            calibration: st.lookup_meas_cal3_1(n),
-            display: st.lookup_meas_display(n),
-        })
+        if let (Some(shortname), Some(scale)) = (st.lookup_meas_req(n), st.lookup_meas_req(n)) {
+            Some(InnerMeasurement3_1 {
+                scale,
+                shortname,
+                gain: st.lookup_meas_opt(n, false),
+                wavelengths: st.lookup_meas_opt(n, false),
+                calibration: st.lookup_meas_opt(n, false),
+                display: st.lookup_meas_opt(n, false),
+            })
+        } else {
+            None
+        }
     }
 
     fn req_suffixes_inner(&self) -> Vec<(&'static str, String)> {
@@ -3334,22 +3622,24 @@ impl VersionedMeasurement for InnerMeasurement3_2 {
     }
 
     fn lookup_specific(st: &mut KwParser, n: usize) -> Option<InnerMeasurement3_2> {
-        let shortname = st.lookup_meas_shortname_req(n)?;
-        Some(InnerMeasurement3_2 {
-            gain: st.lookup_meas_gain(n),
-            scale: st.lookup_meas_scale_req(n)?,
-            shortname,
-            wavelengths: st.lookup_meas_wavelengths(n),
-            calibration: st.lookup_meas_cal3_2(n),
-            display: st.lookup_meas_display(n),
-            detector_name: st.lookup_meas_detector(n),
-            tag: st.lookup_meas_tag(n),
-            // TODO this should be "Time" if time channel
-            measurement_type: st.lookup_meas_type(n),
-            feature: st.lookup_meas_feature(n),
-            analyte: st.lookup_meas_analyte(n),
-            datatype: st.lookup_meas_datatype(n),
-        })
+        if let (Some(shortname), Some(scale)) = (st.lookup_meas_req(n), st.lookup_meas_req(n)) {
+            Some(InnerMeasurement3_2 {
+                scale,
+                shortname,
+                gain: st.lookup_meas_opt(n, false),
+                wavelengths: st.lookup_meas_opt(n, false),
+                calibration: st.lookup_meas_opt(n, false),
+                display: st.lookup_meas_opt(n, false),
+                detector_name: st.lookup_meas_opt(n, false),
+                tag: st.lookup_meas_opt(n, false),
+                measurement_type: st.lookup_meas_opt(n, false),
+                feature: st.lookup_meas_opt(n, false),
+                analyte: st.lookup_meas_opt(n, false),
+                datatype: st.lookup_meas_opt(n, false),
+            })
+        } else {
+            None
+        }
     }
 
     fn req_suffixes_inner(&self) -> Vec<(&'static str, String)> {
@@ -4172,8 +4462,12 @@ where
         })
     }
 
+    // TODO add non-kw deprecation checker
+
     fn validate(&self, conf: &TimeConfig) -> PureSuccess<()> {
         let mut deferred = PureErrorBuf::default();
+
+        // TODO check that measurmenttype is "Time" if time channel
 
         // Ensure $PnN are unique; if this fails we can't make a dataframe, so
         // failure will always be an error and not a warning.
@@ -5429,13 +5723,13 @@ impl VersionedMetadata for InnerMetadata2_0 {
     get_set_pre_3_2_datetime!(FCSTime);
 
     fn lookup_specific(st: &mut KwParser, par: usize) -> Option<InnerMetadata2_0> {
-        let maybe_mode = st.lookup_mode();
-        let maybe_byteord = st.lookup_byteord();
+        let maybe_mode = st.lookup_meta_req();
+        let maybe_byteord = st.lookup_meta_req();
         if let (Some(mode), Some(byteord)) = (maybe_mode, maybe_byteord) {
             Some(InnerMetadata2_0 {
                 mode,
                 byteord,
-                cyt: st.lookup_cyt_opt(),
+                cyt: st.lookup_meta_opt(false),
                 comp: st.lookup_compensation_2_0(par),
                 timestamps: st.lookup_timestamps2_0(),
             })
@@ -5497,18 +5791,18 @@ impl VersionedMetadata for InnerMetadata3_0 {
     get_set_pre_3_2_datetime!(FCSTime60);
 
     fn lookup_specific(st: &mut KwParser, _: usize) -> Option<InnerMetadata3_0> {
-        let maybe_mode = st.lookup_mode();
-        let maybe_byteord = st.lookup_byteord();
+        let maybe_mode = st.lookup_meta_req();
+        let maybe_byteord = st.lookup_meta_req();
         if let (Some(mode), Some(byteord)) = (maybe_mode, maybe_byteord) {
             Some(InnerMetadata3_0 {
                 mode,
                 byteord,
-                cyt: st.lookup_cyt_opt(),
-                comp: st.lookup_compensation_3_0(),
+                cyt: st.lookup_meta_opt(false),
+                comp: st.lookup_meta_opt(false),
+                cytsn: st.lookup_meta_opt(false),
+                timestep: st.lookup_meta_opt(false),
+                unicode: st.lookup_meta_opt(false),
                 timestamps: st.lookup_timestamps3_0(),
-                cytsn: st.lookup_cytsn(),
-                timestep: st.lookup_timestep(),
-                unicode: st.lookup_unicode(),
             })
         } else {
             None
@@ -5575,24 +5869,20 @@ impl VersionedMetadata for InnerMetadata3_1 {
     get_set_pre_3_2_datetime!(FCSTime100);
 
     fn lookup_specific(st: &mut KwParser, _: usize) -> Option<InnerMetadata3_1> {
-        let maybe_mode = st.lookup_mode();
-        let maybe_byteord = st.lookup_endian();
+        let maybe_mode = st.lookup_meta_req();
+        let maybe_byteord = st.lookup_meta_req();
         if let (Some(mode), Some(byteord)) = (maybe_mode, maybe_byteord) {
-            // TODO make deprecated error
-            // if mode != Mode::List {
-            //     st.push_meta_deprecated_str("$MODE should only be L");
-            // };
             Some(InnerMetadata3_1 {
                 mode,
                 byteord,
-                cyt: st.lookup_cyt_opt(),
-                spillover: st.lookup_spillover(),
-                timestamps: st.lookup_timestamps3_1(false),
-                cytsn: st.lookup_cytsn(),
-                timestep: st.lookup_timestep(),
+                cyt: st.lookup_meta_opt(false),
+                spillover: st.lookup_meta_opt(false),
+                cytsn: st.lookup_meta_opt(false),
+                timestep: st.lookup_meta_opt(false),
+                vol: st.lookup_meta_opt(false),
                 modification: st.lookup_modification(),
+                timestamps: st.lookup_timestamps3_1(false),
                 plate: st.lookup_plate(false),
-                vol: st.lookup_vol(),
             })
         } else {
             None
@@ -5742,24 +6032,24 @@ impl VersionedMetadata for InnerMetadata3_2 {
         // Only L is allowed as of 3.2, so pull the value and check it if given.
         // The only thing we care about is that the value is valid, since we
         // don't need to use it anywhere.
-        let _ = st.lookup_mode3_2();
-        let maybe_byteord = st.lookup_endian();
-        let maybe_cyt = st.lookup_cyt_req();
+        let _: OptionalKw<Mode3_2> = st.lookup_meta_opt(true);
+        let maybe_byteord = st.lookup_meta_req();
+        let maybe_cyt = st.lookup_meta_req();
         if let (Some(byteord), Some(cyt)) = (maybe_byteord, maybe_cyt) {
             Some(InnerMetadata3_2 {
                 byteord,
                 cyt,
-                spillover: st.lookup_spillover(),
-                timestamps: st.lookup_timestamps3_1(true),
-                cytsn: st.lookup_cytsn(),
-                timestep: st.lookup_timestep(),
+                spillover: st.lookup_meta_opt(false),
+                cytsn: st.lookup_meta_opt(false),
+                timestep: st.lookup_meta_opt(false),
+                vol: st.lookup_meta_opt(false),
+                flowrate: st.lookup_meta_opt(false),
                 modification: st.lookup_modification(),
                 plate: st.lookup_plate(true),
-                vol: st.lookup_vol(),
+                timestamps: st.lookup_timestamps3_1(true),
                 carrier: st.lookup_carrier(),
                 datetimes: st.lookup_datetimes(),
                 unstained: st.lookup_unstained(),
-                flowrate: st.lookup_flowrate(),
             })
         } else {
             None
@@ -5955,84 +6245,84 @@ impl<'a, 'b> KwParser<'a, 'b> {
 
     // offsets
 
-    kws_req!(lookup_begindata, u32, BEGINDATA, false);
-    kws_req!(lookup_enddata, u32, ENDDATA, false);
-    kws_req!(lookup_beginstext_req, u32, BEGINSTEXT, false);
-    kws_req!(lookup_endstext_req, u32, ENDSTEXT, false);
-    kws_req!(lookup_beginanalysis_req, u32, BEGINANALYSIS, false);
-    kws_req!(lookup_endanalysis_req, u32, ENDANALYSIS, false);
-    kws_opt!(lookup_beginstext_opt, u32, BEGINSTEXT, false);
-    kws_opt!(lookup_endstext_opt, u32, ENDSTEXT, false);
-    kws_opt!(lookup_beginanalysis_opt, u32, BEGINANALYSIS, false);
-    kws_opt!(lookup_endanalysis_opt, u32, ENDANALYSIS, false);
-    kws_req!(lookup_nextdata, u32, NEXTDATA, false);
+    // kws_req!(lookup_begindata, u32, BEGINDATA, false);
+    // kws_req!(lookup_enddata, u32, ENDDATA, false);
+    // kws_req!(lookup_beginstext_req, u32, BEGINSTEXT, false);
+    // kws_req!(lookup_endstext_req, u32, ENDSTEXT, false);
+    // kws_req!(lookup_beginanalysis_req, u32, BEGINANALYSIS, false);
+    // kws_req!(lookup_endanalysis_req, u32, ENDANALYSIS, false);
+    // kws_opt!(lookup_beginstext_opt, u32, BEGINSTEXT, false);
+    // kws_opt!(lookup_endstext_opt, u32, ENDSTEXT, false);
+    // kws_opt!(lookup_beginanalysis_opt, u32, BEGINANALYSIS, false);
+    // kws_opt!(lookup_endanalysis_opt, u32, ENDANALYSIS, false);
+    // kws_req!(lookup_nextdata, u32, NEXTDATA, false);
 
     // TODO add more
 
     // metadata
 
-    kws_req!(lookup_par, usize, PAR, false);
-    kws_req!(lookup_tot_req, usize, TOT, false);
-    kws_opt!(lookup_tot_opt, usize, TOT, false);
+    // kws_req!(lookup_par, usize, PAR, false);
+    // kws_req!(lookup_tot_req, usize, TOT, false);
+    // kws_opt!(lookup_tot_opt, usize, TOT, false);
 
-    kws_req!(lookup_byteord, ByteOrd, BYTEORD, false);
-    kws_req!(lookup_endian, Endian, BYTEORD, false);
-    kws_req!(lookup_datatype, AlphaNumType, DATATYPE, false);
-    kws_req!(lookup_mode, Mode, MODE, false);
-    kws_opt!(lookup_mode3_2, Mode3_2, MODE, true);
-    kws_req!(lookup_cyt_req, Cyt, CYT, false);
-    kws_opt!(lookup_cyt_opt, Cyt, CYT, false);
-    kws_opt!(lookup_cytsn, Cytsn, CYTSN, false);
-    kws_opt!(lookup_abrt, Abrt, ABRT, false);
-    kws_opt!(lookup_cells, Cells, CELLS, false);
-    kws_opt!(lookup_com, Com, COM, false);
-    kws_opt!(lookup_exp, Exp, EXP, false);
-    kws_opt!(lookup_fil, Fil, FIL, false);
-    kws_opt!(lookup_inst, Inst, INST, false);
-    kws_opt!(lookup_lost, Lost, LOST, false);
-    kws_opt!(lookup_op, Op, OP, false);
-    kws_opt!(lookup_proj, Proj, PROJ, false);
-    kws_opt!(lookup_smno, Smno, SMNO, false);
-    kws_opt!(lookup_src, Src, SRC, false);
-    kws_opt!(lookup_sys, Sys, SYS, false);
-    kws_opt!(lookup_trigger, Trigger, TR, false);
-    kws_opt!(lookup_timestep, Timestep, TIMESTEP, false);
-    kws_opt!(lookup_vol, Vol, VOL, false);
-    kws_opt!(lookup_flowrate, Flowrate, FLOWRATE, false);
-    kws_opt!(lookup_unicode, Unicode, UNICODE, false);
-    kws_opt!(lookup_unstainedinfo, UnstainedInfo, UNSTAINEDINFO, false);
-    kws_opt!(
-        lookup_unstainedcenters,
-        UnstainedCenters,
-        UNSTAINEDCENTERS,
-        false
-    );
-    kws_opt!(lookup_last_modifier, LastModifier, LAST_MODIFIER, false);
-    kws_opt!(lookup_last_modified, ModifiedDateTime, LAST_MODIFIED, false);
-    kws_opt!(lookup_originality, Originality, ORIGINALITY, false);
-    kws_opt!(lookup_carrierid, Carrierid, CARRIERID, false);
-    kws_opt!(lookup_carriertype, Carriertype, CARRIERTYPE, false);
-    kws_opt!(lookup_locationid, Locationid, LOCATIONID, false);
-    kws_opt!(lookup_begindatetime, FCSDateTime, BEGINDATETIME, false);
-    kws_opt!(lookup_enddatetime, FCSDateTime, ENDDATETIME, false);
-    kws_opt!(lookup_btim, FCSTime, BTIM, false);
-    kws_opt!(lookup_etim, FCSTime, ETIM, false);
-    kws_opt!(lookup_btim60, FCSTime60, BTIM, false);
-    kws_opt!(lookup_etim60, FCSTime60, ETIM, false);
-    kws_opt!(lookup_compensation_3_0, Compensation, COMP, false);
-    kws_opt!(lookup_spillover, Spillover, SPILLOVER, false);
+    // kws_req!(lookup_byteord, ByteOrd, BYTEORD, false);
+    // kws_req!(lookup_endian, Endian, BYTEORD, false);
+    // kws_req!(lookup_datatype, AlphaNumType, DATATYPE, false);
+    // kws_req!(lookup_mode, Mode, MODE, false);
+    // kws_opt!(lookup_mode3_2, Mode3_2, MODE, true);
+    // kws_req!(lookup_cyt_req, Cyt, CYT, false);
+    // kws_opt!(lookup_cyt_opt, Cyt, CYT, false);
+    // kws_opt!(lookup_cytsn, Cytsn, CYTSN, false);
+    // kws_opt!(lookup_abrt, Abrt, ABRT, false);
+    // kws_opt!(lookup_cells, Cells, CELLS, false);
+    // kws_opt!(lookup_com, Com, COM, false);
+    // kws_opt!(lookup_exp, Exp, EXP, false);
+    // kws_opt!(lookup_fil, Fil, FIL, false);
+    // kws_opt!(lookup_inst, Inst, INST, false);
+    // kws_opt!(lookup_lost, Lost, LOST, false);
+    // kws_opt!(lookup_op, Op, OP, false);
+    // kws_opt!(lookup_proj, Proj, PROJ, false);
+    // kws_opt!(lookup_smno, Smno, SMNO, false);
+    // kws_opt!(lookup_src, Src, SRC, false);
+    // kws_opt!(lookup_sys, Sys, SYS, false);
+    // kws_opt!(lookup_trigger, Trigger, TR, false);
+    // kws_opt!(lookup_timestep, Timestep, TIMESTEP, false);
+    // kws_opt!(lookup_vol, Vol, VOL, false);
+    // kws_opt!(lookup_flowrate, Flowrate, FLOWRATE, false);
+    // kws_opt!(lookup_unicode, Unicode, UNICODE, false);
+    // kws_opt!(lookup_unstainedinfo, UnstainedInfo, UNSTAINEDINFO, false);
+    // kws_opt!(
+    //     lookup_unstainedcenters,
+    //     UnstainedCenters,
+    //     UNSTAINEDCENTERS,
+    //     false
+    // );
+    // kws_opt!(lookup_last_modifier, LastModifier, LAST_MODIFIER, false);
+    // kws_opt!(lookup_last_modified, ModifiedDateTime, LAST_MODIFIED, false);
+    // kws_opt!(lookup_originality, Originality, ORIGINALITY, false);
+    // kws_opt!(lookup_carrierid, Carrierid, CARRIERID, false);
+    // kws_opt!(lookup_carriertype, Carriertype, CARRIERTYPE, false);
+    // kws_opt!(lookup_locationid, Locationid, LOCATIONID, false);
+    // kws_opt!(lookup_begindatetime, FCSDateTime, BEGINDATETIME, false);
+    // kws_opt!(lookup_enddatetime, FCSDateTime, ENDDATETIME, false);
+    // kws_opt!(lookup_btim, FCSTime, BTIM, false);
+    // kws_opt!(lookup_etim, FCSTime, ETIM, false);
+    // kws_opt!(lookup_btim60, FCSTime60, BTIM, false);
+    // kws_opt!(lookup_etim60, FCSTime60, ETIM, false);
+    // kws_opt!(lookup_compensation_3_0, Compensation, COMP, false);
+    // kws_opt!(lookup_spillover, Spillover, SPILLOVER, false);
 
-    fn lookup_date(&mut self, dep: bool) -> OptionalKw<FCSDate> {
-        self.lookup_optional(DATE, dep)
-    }
+    // fn lookup_date(&mut self, dep: bool) -> OptionalKw<FCSDate> {
+    //     self.lookup_optional(DATE, dep)
+    // }
 
-    fn lookup_btim100(&mut self, dep: bool) -> OptionalKw<FCSTime100> {
-        self.lookup_optional(BTIM, dep)
-    }
+    // fn lookup_btim100(&mut self, dep: bool) -> OptionalKw<FCSTime100> {
+    //     self.lookup_optional(BTIM, dep)
+    // }
 
-    fn lookup_etim100(&mut self, dep: bool) -> OptionalKw<FCSTime100> {
-        self.lookup_optional(ETIM, dep)
-    }
+    // fn lookup_etim100(&mut self, dep: bool) -> OptionalKw<FCSTime100> {
+    //     self.lookup_optional(ETIM, dep)
+    // }
 
     fn lookup_timestamps2_0(&mut self) -> Timestamps2_0 {
         Timestamps2_0 {
@@ -6066,32 +6356,32 @@ impl<'a, 'b> KwParser<'a, 'b> {
 
     fn lookup_modification(&mut self) -> ModificationData {
         ModificationData {
-            last_modifier: self.lookup_last_modifier(),
-            last_modified: self.lookup_last_modified(),
-            originality: self.lookup_originality(),
+            last_modifier: self.lookup_meta_opt(false),
+            last_modified: self.lookup_meta_opt(false),
+            originality: self.lookup_meta_opt(false),
         }
     }
 
     fn lookup_plate(&mut self, dep: bool) -> PlateData {
         PlateData {
-            wellid: self.lookup_optional(PLATEID, dep),
-            platename: self.lookup_optional(PLATENAME, dep),
-            plateid: self.lookup_optional(WELLID, dep),
+            wellid: self.lookup_meta_opt(dep),
+            platename: self.lookup_meta_opt(dep),
+            plateid: self.lookup_meta_opt(dep),
         }
     }
 
     fn lookup_carrier(&mut self) -> CarrierData {
         CarrierData {
-            locationid: self.lookup_locationid(),
-            carrierid: self.lookup_carrierid(),
-            carriertype: self.lookup_carriertype(),
+            locationid: self.lookup_meta_opt(false),
+            carrierid: self.lookup_meta_opt(false),
+            carriertype: self.lookup_meta_opt(false),
         }
     }
 
     fn lookup_unstained(&mut self) -> UnstainedData {
         UnstainedData {
-            unstainedcenters: self.lookup_unstainedcenters(),
-            unstainedinfo: self.lookup_unstainedinfo(),
+            unstainedcenters: self.lookup_meta_opt(false),
+            unstainedinfo: self.lookup_meta_opt(false),
         }
     }
 
@@ -6104,7 +6394,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
         for r in 0..par {
             for c in 0..par {
                 let m = format!("DFC{c}TO{r}");
-                if let Some(x) = self.lookup_optional(m.as_str(), false).0 {
+                if let Some(x) = self.lookup_meta_opt(m.as_str(), false).0 {
                     matrix[(r, c)] = x;
                 } else {
                     any_error = true;
@@ -6134,38 +6424,38 @@ impl<'a, 'b> KwParser<'a, 'b> {
 
     // measurements
 
-    kws_meas_req!(lookup_meas_bytes, Bytes, BYTES_SFX, false);
-    kws_meas_req!(lookup_meas_range, Range, RANGE_SFX, false);
-    kws_meas_opt!(lookup_meas_wavelength, Wavelength, WAVELEN_SFX, false);
-    kws_meas_opt!(lookup_meas_wavelengths, Wavelengths, WAVELEN_SFX, false);
-    kws_meas_opt!(lookup_meas_power, Power, POWER_SFX, false);
-    kws_meas_opt!(lookup_meas_detector_type, DetectorType, DET_TYPE_SFX, false);
-    kws_meas_req!(lookup_meas_shortname_req, Shortname, SHORTNAME_SFX, false);
-    kws_meas_opt!(lookup_meas_shortname_opt, Shortname, SHORTNAME_SFX, false);
-    kws_meas_opt!(lookup_meas_longname, Longname, LONGNAME_SFX, false);
-    kws_meas_opt!(lookup_meas_filter, Filter, FILTER_SFX, false);
-    kws_meas_opt!(
-        lookup_meas_detector_voltage,
-        DetectorVoltage,
-        DET_VOLT_SFX,
-        false
-    );
-    kws_meas_opt!(lookup_meas_detector, DetectorName, DET_NAME_SFX, false);
-    kws_meas_opt!(lookup_meas_tag, Tag, TAG_SFX, false);
-    kws_meas_opt!(lookup_meas_analyte, Analyte, ANALYTE_SFX, false);
-    kws_meas_opt!(lookup_meas_gain, Gain, GAIN_SFX, false);
-    kws_meas_req!(lookup_meas_scale_req, Scale, SCALE_SFX, false);
-    kws_meas_opt!(lookup_meas_scale_opt, Scale, SCALE_SFX, false);
-    kws_meas_opt!(lookup_meas_cal3_1, Calibration3_1, CALIBRATION_SFX, false);
-    kws_meas_opt!(lookup_meas_cal3_2, Calibration3_2, CALIBRATION_SFX, false);
-    kws_meas_opt!(lookup_meas_display, Display, DISPLAY_SFX, false);
-    kws_meas_opt!(lookup_meas_datatype, NumType, DATATYPE_SFX, false);
-    kws_meas_opt!(lookup_meas_type, MeasurementType, DET_TYPE_SFX, false);
-    kws_meas_opt!(lookup_meas_feature, Feature, FEATURE_SFX, false);
+    // kws_meas_req!(lookup_meas_bytes, Bytes, BYTES_SFX, false);
+    // kws_meas_req!(lookup_meas_range, Range, RANGE_SFX, false);
+    // kws_meas_opt!(lookup_meas_wavelength, Wavelength, WAVELEN_SFX, false);
+    // kws_meas_opt!(lookup_meas_wavelengths, Wavelengths, WAVELEN_SFX, false);
+    // kws_meas_opt!(lookup_meas_power, Power, POWER_SFX, false);
+    // kws_meas_opt!(lookup_meas_detector_type, DetectorType, DET_TYPE_SFX, false);
+    // kws_meas_req!(lookup_meas_shortname_req, Shortname, SHORTNAME_SFX, false);
+    // kws_meas_opt!(lookup_meas_shortname_opt, Shortname, SHORTNAME_SFX, false);
+    // kws_meas_opt!(lookup_meas_longname, Longname, LONGNAME_SFX, false);
+    // kws_meas_opt!(lookup_meas_filter, Filter, FILTER_SFX, false);
+    // kws_meas_opt!(
+    //     lookup_meas_detector_voltage,
+    //     DetectorVoltage,
+    //     DET_VOLT_SFX,
+    //     false
+    // );
+    // kws_meas_opt!(lookup_meas_detector, DetectorName, DET_NAME_SFX, false);
+    // kws_meas_opt!(lookup_meas_tag, Tag, TAG_SFX, false);
+    // kws_meas_opt!(lookup_meas_analyte, Analyte, ANALYTE_SFX, false);
+    // kws_meas_opt!(lookup_meas_gain, Gain, GAIN_SFX, false);
+    // kws_meas_req!(lookup_meas_scale_req, Scale, SCALE_SFX, false);
+    // kws_meas_opt!(lookup_meas_scale_opt, Scale, SCALE_SFX, false);
+    // kws_meas_opt!(lookup_meas_cal3_1, Calibration3_1, CALIBRATION_SFX, false);
+    // kws_meas_opt!(lookup_meas_cal3_2, Calibration3_2, CALIBRATION_SFX, false);
+    // kws_meas_opt!(lookup_meas_display, Display, DISPLAY_SFX, false);
+    // kws_meas_opt!(lookup_meas_datatype, NumType, DATATYPE_SFX, false);
+    // kws_meas_opt!(lookup_meas_type, MeasurementType, DET_TYPE_SFX, false);
+    // kws_meas_opt!(lookup_meas_feature, Feature, FEATURE_SFX, false);
 
-    fn lookup_meas_percent_emitted(&mut self, n: usize, dep: bool) -> OptionalKw<PercentEmitted> {
-        self.lookup_meas_opt(PCNT_EMT_SFX, n, dep)
-    }
+    // fn lookup_meas_percent_emitted(&mut self, n: usize, dep: bool) -> OptionalKw<PercentEmitted> {
+    //     self.lookup_meas_opt(PCNT_EMT_SFX, n, dep)
+    // }
 
     fn lookup_all_meas_nonstandard(&mut self, n: usize) -> NonStdKeywords {
         let mut ns = HashMap::new();
@@ -6214,76 +6504,80 @@ impl<'a, 'b> KwParser<'a, 'b> {
         }
     }
 
-    // TODO not DRY (although will likely need HKTs)
-    fn lookup_required<V: FromStr>(&mut self, k: &str, dep: bool) -> Option<V>
+    fn lookup_meta_req<V>(&mut self) -> Option<V>
     where
+        V: ReqMetaKey,
+        V: FromStr,
         <V as FromStr>::Err: fmt::Display,
     {
-        match self.raw_keywords.remove(k) {
-            Some(v) => {
-                let res = match v.parse() {
-                    Err(e) => {
-                        let msg = format!("{e} (key='{k}', value='{v}')");
-                        self.deferred.push_error(msg);
-                        None
-                    }
-                    Ok(x) => Some(x),
-                };
-                if dep {
-                    self.push_deprecated(k);
-                }
-                res
+        match V::lookup_meta_req(&mut self.raw_keywords) {
+            Ok(x) => Some(x),
+            Err(e) => {
+                self.deferred.push_error(e);
+                None.into()
             }
-            None => {
-                let msg = format!("missing required key: {k}");
-                self.deferred.push_error(msg);
+        }
+    }
+
+    fn lookup_meta_opt<V>(&mut self, dep: bool) -> OptionalKw<V>
+    where
+        V: OptMetaKey,
+        V: FromStr,
+        <V as FromStr>::Err: fmt::Display,
+    {
+        match V::lookup_meta_opt(&mut self.raw_keywords) {
+            Ok(x) => {
+                if dep {
+                    self.push_deprecated(V::std().as_str());
+                };
+                x
+            }
+            Err(e) => {
+                self.deferred.push_warning(e);
+                None.into()
+            }
+        }
+    }
+
+    fn lookup_meas_req<V>(&mut self, n: usize) -> Option<V>
+    where
+        V: ReqMeasKey,
+        V: FromStr,
+        <V as FromStr>::Err: fmt::Display,
+    {
+        match V::lookup_meas_req(&mut self.raw_keywords, n) {
+            Ok(x) => Some(x),
+            Err(e) => {
+                self.deferred.push_error(e);
                 None
             }
         }
     }
 
-    fn lookup_optional<V: FromStr>(&mut self, k: &str, dep: bool) -> OptionalKw<V>
+    fn lookup_meas_opt<V>(&mut self, n: usize, dep: bool) -> OptionalKw<V>
     where
+        V: OptMeasKey,
+        V: FromStr,
         <V as FromStr>::Err: fmt::Display,
     {
-        match self.raw_keywords.remove(k) {
-            Some(v) => {
-                let res = match v.parse() {
-                    Err(w) => {
-                        let msg = format!("{w} (key={k}, value='{v}')");
-                        self.deferred.push_warning(msg);
-                        None
-                    }
-                    Ok(x) => Some(x),
-                };
+        match V::lookup_meas_opt(&mut self.raw_keywords, n) {
+            Ok(x) => {
                 if dep {
-                    self.push_deprecated(k);
-                }
-                res
+                    self.push_deprecated(V::std(n).as_str());
+                };
+                x
             }
-            None => None,
+            Err(e) => {
+                self.deferred.push_warning(e);
+                None.into()
+            }
         }
-        .into()
     }
 
     fn push_deprecated(&mut self, k: &str) {
         let msg = format!("deprecated key: {k}");
         self.deferred
             .push_msg_leveled(msg, self.conf.disallow_deprecated);
-    }
-
-    fn lookup_meas_req<V: FromStr>(&mut self, m: &'static str, n: usize, dep: bool) -> Option<V>
-    where
-        <V as FromStr>::Err: fmt::Display,
-    {
-        self.lookup_required(&format_measurement(&n.to_string(), m), dep)
-    }
-
-    fn lookup_meas_opt<V: FromStr>(&mut self, m: &'static str, n: usize, dep: bool) -> OptionalKw<V>
-    where
-        <V as FromStr>::Err: fmt::Display,
-    {
-        self.lookup_optional(&format_measurement(&n.to_string(), m), dep)
     }
 }
 

@@ -93,6 +93,12 @@ impl FromStr for NonStdMeasKey {
     }
 }
 
+impl NonStdKey {
+    pub fn from_unchecked(s: &str) -> Self {
+        Self(s.into())
+    }
+}
+
 impl NonStdMeasKey {
     pub fn from_index(&self, n: usize) -> NonStdKey {
         NonStdKey(self.0.replace("%n", n.to_string().as_str()))

@@ -3,9 +3,9 @@ use crate::error::*;
 pub use crate::header::*;
 use crate::header_text::*;
 use crate::keywords::*;
+use crate::macros::{newtype_disp, newtype_from, newtype_from_outer, newtype_fromstr};
 use crate::optionalkw::OptionalKw;
 pub use crate::segment::*;
-use crate::validated::nonstandard::DefaultOptional;
 use crate::validated::nonstandard::{
     DefaultMatrix, DefaultMeasOptional, DefaultMetaOptional, NonStdKey, NonStdKeywords,
     NonStdMeasPattern,
@@ -20,6 +20,7 @@ use regex::Regex;
 use serde::ser::SerializeStruct;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
+use std::convert::Infallible;
 use std::fmt;
 use std::fs;
 use std::io;
@@ -587,41 +588,41 @@ enum Originality {
 }
 
 /// A bundle for $ORIGINALITY, $LAST_MODIFIER, and $LAST_MODIFIED (3.1+)
-#[derive(Debug, Clone, Serialize, Default)]
+#[derive(Clone, Serialize, Default)]
 struct ModificationData {
-    last_modifier: OptionalKw<String>,
+    last_modifier: OptionalKw<LastModifier>,
     last_modified: OptionalKw<ModifiedDateTime>,
     originality: OptionalKw<Originality>,
 }
 
 /// A bundle for $PLATEID, $PLATENAME, and $WELLID (3.1+)
-#[derive(Debug, Clone, Serialize, Default)]
+#[derive(Clone, Serialize, Default)]
 struct PlateData {
-    plateid: OptionalKw<String>,
-    platename: OptionalKw<String>,
-    wellid: OptionalKw<String>,
+    plateid: OptionalKw<Plateid>,
+    platename: OptionalKw<Platename>,
+    wellid: OptionalKw<Wellid>,
 }
 
 /// The value for the $UNSTAINEDCENTERS key (3.2+)
 ///
 /// This is actually encoded as a string like 'n,[measuremnts,],[values]' but
 /// here is more conveniently encoded as a hash table.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 struct UnstainedCenters(HashMap<Shortname, f32>);
 
 /// A bundle for $UNSTAINEDCENTERS and $UNSTAINEDINFO (3.2+)
-#[derive(Debug, Clone, Serialize, Default)]
+#[derive(Clone, Serialize, Default)]
 struct UnstainedData {
     unstainedcenters: OptionalKw<UnstainedCenters>,
-    unstainedinfo: OptionalKw<String>,
+    unstainedinfo: OptionalKw<UnstainedInfo>,
 }
 
 /// A bundle for $CARRIERID, $CARRIERTYPE, $LOCATIONID (3.2+)
-#[derive(Debug, Clone, Serialize, Default)]
+#[derive(Clone, Serialize, Default)]
 struct CarrierData {
-    carrierid: OptionalKw<String>,
-    carriertype: OptionalKw<String>,
-    locationid: OptionalKw<String>,
+    carrierid: OptionalKw<Carrierid>,
+    carriertype: OptionalKw<Carriertype>,
+    locationid: OptionalKw<Locationid>,
 }
 
 /// The value of the $UNICODE key (3.0 only)
@@ -684,36 +685,36 @@ enum Range {
 }
 
 /// Measurement fields specific to version 2.0
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct InnerMeasurement2_0 {
     /// Value for $PnE
     scale: OptionalKw<Scale>,
 
     /// Value for $PnL
-    wavelength: OptionalKw<u32>,
+    wavelength: OptionalKw<Wavelength>,
 
     /// Value for $PnN
     shortname: OptionalKw<Shortname>,
 }
 
 /// Measurement fields specific to version 3.0
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct InnerMeasurement3_0 {
     /// Value for $PnE
     scale: Scale,
 
     /// Value for $PnL
-    wavelength: OptionalKw<u32>,
+    wavelength: OptionalKw<Wavelength>,
 
     /// Value for $PnN
     shortname: OptionalKw<Shortname>,
 
     /// Value for $PnG
-    gain: OptionalKw<f32>,
+    gain: OptionalKw<Gain>,
 }
 
 /// Measurement fields specific to version 3.1
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct InnerMeasurement3_1 {
     /// Value for $PnE
     scale: Scale,
@@ -725,7 +726,7 @@ pub struct InnerMeasurement3_1 {
     shortname: Shortname,
 
     /// Value for $PnG
-    gain: OptionalKw<f32>,
+    gain: OptionalKw<Gain>,
 
     /// Value for $PnCALIBRATION
     calibration: OptionalKw<Calibration3_1>,
@@ -735,7 +736,7 @@ pub struct InnerMeasurement3_1 {
 }
 
 /// Measurement fields specific to version 3.2
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct InnerMeasurement3_2 {
     /// Value for $PnE
     scale: Scale,
@@ -747,7 +748,7 @@ pub struct InnerMeasurement3_2 {
     shortname: Shortname,
 
     /// Value for $PnG
-    gain: OptionalKw<f32>,
+    gain: OptionalKw<Gain>,
 
     /// Value for $PnCALIBRATION
     calibration: OptionalKw<Calibration3_2>,
@@ -756,7 +757,7 @@ pub struct InnerMeasurement3_2 {
     display: OptionalKw<Display>,
 
     /// Value for $PnANALYTE
-    analyte: OptionalKw<String>,
+    analyte: OptionalKw<Analyte>,
 
     /// Value for $PnFEATURE
     feature: OptionalKw<Feature>,
@@ -765,10 +766,10 @@ pub struct InnerMeasurement3_2 {
     measurement_type: OptionalKw<MeasurementType>,
 
     /// Value for $PnTAG
-    tag: OptionalKw<String>,
+    tag: OptionalKw<Tag>,
 
     /// Value for $PnDET
-    detector_name: OptionalKw<String>,
+    detector_name: OptionalKw<DetectorName>,
 
     /// Value for $PnDATATYPE
     datatype: OptionalKw<NumType>,
@@ -791,22 +792,22 @@ pub struct Measurement<X> {
     range: Range,
 
     /// Value for $PnS
-    longname: OptionalKw<String>,
+    longname: OptionalKw<Longname>,
 
     /// Value for $PnF
-    filter: OptionalKw<String>,
+    filter: OptionalKw<Filter>,
 
     /// Value for $PnO
-    power: OptionalKw<u32>,
+    power: OptionalKw<Power>,
 
     /// Value for $PnD
-    detector_type: OptionalKw<String>,
+    detector_type: OptionalKw<DetectorType>,
 
     /// Value for $PnP
-    percent_emitted: OptionalKw<u32>,
+    percent_emitted: OptionalKw<PercentEmitted>,
 
     /// Value for $PnV
-    detector_voltage: OptionalKw<f32>,
+    detector_voltage: OptionalKw<DetectorVoltage>,
 
     /// Non standard keywords that belong to this measurement.
     ///
@@ -823,8 +824,94 @@ pub type Measurement3_0 = Measurement<InnerMeasurement3_0>;
 pub type Measurement3_1 = Measurement<InnerMeasurement3_1>;
 pub type Measurement3_2 = Measurement<InnerMeasurement3_2>;
 
+macro_rules! newtype_string {
+    ($t:ident) => {
+        #[derive(Clone, Serialize)]
+        pub struct $t(pub String);
+
+        newtype_disp!($t);
+        newtype_fromstr!($t, Infallible);
+        newtype_from!($t, String);
+        newtype_from_outer!($t, String);
+    };
+}
+
+macro_rules! newtype_u32 {
+    ($t:ident) => {
+        #[derive(Clone, Copy, Serialize)]
+        pub struct $t(pub u32);
+
+        newtype_disp!($t);
+        newtype_fromstr!($t, ParseIntError);
+        newtype_from!($t, u32);
+        newtype_from_outer!($t, u32);
+    };
+}
+
+newtype_string!(Cyt);
+newtype_string!(Cytsn);
+newtype_string!(Com);
+newtype_string!(Flowrate);
+newtype_string!(Cells);
+newtype_string!(Exp);
+newtype_string!(Fil);
+newtype_string!(Inst);
+newtype_string!(Op);
+newtype_string!(Proj);
+newtype_string!(Smno);
+newtype_string!(Src);
+newtype_string!(Sys);
+newtype_string!(LastModifier);
+newtype_string!(Plateid);
+newtype_string!(Platename);
+newtype_string!(Wellid);
+newtype_string!(UnstainedInfo);
+newtype_string!(Carrierid);
+newtype_string!(Carriertype);
+newtype_string!(Locationid);
+newtype_string!(Analyte);
+newtype_string!(Tag);
+newtype_string!(DetectorName);
+newtype_string!(DetectorType);
+newtype_string!(PercentEmitted);
+newtype_string!(Longname);
+newtype_string!(Filter);
+
+newtype_u32!(Abrt);
+newtype_u32!(Lost);
+newtype_u32!(Wavelength);
+newtype_u32!(Power);
+
+// TODO technically this should be validated to be > 0
+#[derive(Clone, Serialize)]
+pub struct Timestep(pub f32);
+
+newtype_disp!(Timestep);
+newtype_fromstr!(Timestep, ParseFloatError);
+
+// TODO ditto
+#[derive(Clone, Serialize)]
+pub struct Vol(pub f32);
+
+newtype_disp!(Vol);
+newtype_fromstr!(Vol, ParseFloatError);
+
+// TODO ditto
+#[derive(Clone, Serialize)]
+pub struct Gain(pub f32);
+
+newtype_disp!(Gain);
+newtype_fromstr!(Gain, ParseFloatError);
+
+// TODO ditto
+#[derive(Clone, Serialize)]
+pub struct DetectorVoltage(pub f32);
+
+newtype_disp!(DetectorVoltage);
+newtype_fromstr!(DetectorVoltage, ParseFloatError);
+
 /// Metadata fields specific to version 2.0
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct InnerMetadata2_0 {
     /// Value of $MODE
     mode: Mode,
@@ -833,7 +920,7 @@ pub struct InnerMetadata2_0 {
     byteord: ByteOrd,
 
     /// Value of $CYT
-    cyt: OptionalKw<String>,
+    cyt: OptionalKw<Cyt>,
 
     /// Compensation matrix derived from 'DFCnTOm' key/value pairs
     comp: OptionalKw<Compensation>,
@@ -843,7 +930,7 @@ pub struct InnerMetadata2_0 {
 }
 
 /// Metadata fields specific to version 3.0
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct InnerMetadata3_0 {
     /// Value of $MODE
     mode: Mode,
@@ -852,7 +939,7 @@ pub struct InnerMetadata3_0 {
     byteord: ByteOrd,
 
     /// Value of $CYT
-    cyt: OptionalKw<String>,
+    cyt: OptionalKw<Cyt>,
 
     /// Value of $COMP
     comp: OptionalKw<Compensation>,
@@ -861,17 +948,17 @@ pub struct InnerMetadata3_0 {
     timestamps: Timestamps3_0,
 
     /// Value of $CYTSN
-    cytsn: OptionalKw<String>,
+    cytsn: OptionalKw<Cytsn>,
 
     /// Value of $TIMESTEP
-    timestep: OptionalKw<f32>,
+    timestep: OptionalKw<Timestep>,
 
     /// Value of $UNICODE
     unicode: OptionalKw<Unicode>,
 }
 
 /// Metadata fields specific to version 3.1
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct InnerMetadata3_1 {
     /// Value of $MODE
     mode: Mode,
@@ -880,16 +967,16 @@ pub struct InnerMetadata3_1 {
     byteord: Endian,
 
     /// Value of $CYT
-    cyt: OptionalKw<String>,
+    cyt: OptionalKw<Cyt>,
 
     /// Values of $BTIM/ETIM/$DATE
     timestamps: Timestamps3_1,
 
     /// Value of $CYTSN
-    cytsn: OptionalKw<String>,
+    cytsn: OptionalKw<Cytsn>,
 
     /// Value of $TIMESTEP
-    timestep: OptionalKw<f32>,
+    timestep: OptionalKw<Timestep>,
 
     /// Value of $SPILLOVER
     spillover: OptionalKw<Spillover>,
@@ -901,10 +988,10 @@ pub struct InnerMetadata3_1 {
     plate: PlateData,
 
     /// Value of $VOL
-    vol: OptionalKw<f32>,
+    vol: OptionalKw<Vol>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct InnerMetadata3_2 {
     /// Value of $BYTEORD
     byteord: Endian,
@@ -916,16 +1003,16 @@ pub struct InnerMetadata3_2 {
     datetimes: Datetimes,
 
     /// Value of $CYT
-    cyt: String,
+    cyt: Cyt,
 
     /// Value of $SPILLOVER
     spillover: OptionalKw<Spillover>,
 
     /// Value of $CYTSN
-    cytsn: OptionalKw<String>,
+    cytsn: OptionalKw<Cytsn>,
 
     /// Value of $TIMESTEP
-    timestep: OptionalKw<f32>,
+    timestep: OptionalKw<Timestep>,
 
     /// Values of $LAST_MODIFIED/$LAST_MODIFIER/$ORIGINALITY
     modification: ModificationData,
@@ -934,7 +1021,7 @@ pub struct InnerMetadata3_2 {
     plate: PlateData,
 
     /// Value of $VOL
-    vol: OptionalKw<f32>,
+    vol: OptionalKw<Vol>,
 
     /// Values of $CARRIERID/$CARRIERTYPE/$LOCATIONID
     carrier: CarrierData,
@@ -943,7 +1030,7 @@ pub struct InnerMetadata3_2 {
     unstained: UnstainedData,
 
     /// Value of $FLOWRATE
-    flowrate: OptionalKw<String>,
+    flowrate: OptionalKw<Flowrate>,
 }
 
 /// Structured non-measurement metadata.
@@ -957,40 +1044,40 @@ pub struct Metadata<X> {
     datatype: AlphaNumType,
 
     /// Value of $ABRT
-    abrt: OptionalKw<u32>,
+    abrt: OptionalKw<Abrt>,
 
     /// Value of $COM
-    com: OptionalKw<String>,
+    com: OptionalKw<Com>,
 
     /// Value of $CELLS
-    cells: OptionalKw<String>,
+    cells: OptionalKw<Cells>,
 
     /// Value of $EXP
-    exp: OptionalKw<String>,
+    exp: OptionalKw<Exp>,
 
     /// Value of $FIL
-    fil: OptionalKw<String>,
+    fil: OptionalKw<Fil>,
 
     /// Value of $INST
-    inst: OptionalKw<String>,
+    inst: OptionalKw<Inst>,
 
     /// Value of $LOST
-    lost: OptionalKw<u32>,
+    lost: OptionalKw<Lost>,
 
     /// Value of $OP
-    op: OptionalKw<String>,
+    op: OptionalKw<Op>,
 
     /// Value of $PROJ
-    proj: OptionalKw<String>,
+    proj: OptionalKw<Proj>,
 
     /// Value of $SMNO
-    smno: OptionalKw<String>,
+    smno: OptionalKw<Smno>,
 
     /// Value of $SRC
-    src: OptionalKw<String>,
+    src: OptionalKw<Src>,
 
     /// Value of $SYS
-    sys: OptionalKw<String>,
+    sys: OptionalKw<Sys>,
 
     /// Value of $TR
     tr: OptionalKw<Trigger>,
@@ -1595,13 +1682,17 @@ trait VersionedMeasurement: Sized + Versioned {
 
     fn set_shortname(m: &mut Measurement<Self>, n: Shortname);
 
-    fn longname(p: &Measurement<Self>, n: usize) -> String {
+    fn longname(p: &Measurement<Self>, n: usize) -> Longname {
         // TODO not DRY
-        p.longname.0.as_ref().cloned().unwrap_or(format!("M{n}"))
+        p.longname
+            .0
+            .as_ref()
+            .cloned()
+            .unwrap_or(Longname(format!("M{n}")))
     }
 
     fn set_longname(m: &mut Measurement<Self>, n: Option<String>) {
-        m.longname = n.into();
+        m.longname = n.map(|y| y.into()).into();
     }
 
     fn lookup_measurements(st: &mut KwParser, par: usize) -> Option<Vec<Measurement<Self>>> {
@@ -3500,8 +3591,8 @@ impl AnyCoreTEXT {
         }
     }
 
-    any_core_get_set_copied!(abrt, set_abrt, u32);
-    any_core_get_set_copied!(lost, set_lost, u32);
+    any_core_get_set_copied!(abrt, set_abrt, Abrt);
+    any_core_get_set_copied!(lost, set_lost, Lost);
 
     any_core_get_set_str!(cells, set_cells);
     any_core_get_set_str!(com, set_com);
@@ -3733,11 +3824,11 @@ macro_rules! get_set_copied {
 macro_rules! get_set_str {
     ($get:ident, $set:ident) => {
         pub fn $get(&self) -> Option<&str> {
-            self.metadata.$get.0.as_ref().map(|x| x.as_str())
+            self.metadata.$get.0.as_ref().map(|x| x.0.as_str())
         }
 
         pub fn $set(&mut self, x: Option<String>) {
-            self.metadata.$get = x.into();
+            self.metadata.$get = x.map(|y| y.into()).into();
         }
     };
 }
@@ -3840,8 +3931,8 @@ where
         M::clear_datetimes(&mut self.metadata.specific)
     }
 
-    get_set_copied!(abrt, set_abrt, u32);
-    get_set_copied!(lost, set_lost, u32);
+    get_set_copied!(abrt, set_abrt, Abrt);
+    get_set_copied!(lost, set_lost, Lost);
 
     get_set_str!(cells, set_cells);
     get_set_str!(com, set_com);
@@ -3934,7 +4025,7 @@ where
     ///
     /// If not given, will be replaced by "Mn" where "n" is the measurement
     /// index starting at 1.
-    pub fn longnames(&self) -> Vec<String> {
+    pub fn longnames(&self) -> Vec<Longname> {
         self.measurements
             .iter()
             .enumerate()
@@ -5880,47 +5971,48 @@ impl<'a, 'b> KwParser<'a, 'b> {
 
     // metadata
 
+    kws_req!(lookup_par, usize, PAR, false);
+    kws_req!(lookup_tot_req, usize, TOT, false);
+    kws_opt!(lookup_tot_opt, usize, TOT, false);
+
     kws_req!(lookup_byteord, ByteOrd, BYTEORD, false);
     kws_req!(lookup_endian, Endian, BYTEORD, false);
     kws_req!(lookup_datatype, AlphaNumType, DATATYPE, false);
     kws_req!(lookup_mode, Mode, MODE, false);
     kws_opt!(lookup_mode3_2, Mode3_2, MODE, true);
-    kws_req!(lookup_par, usize, PAR, false);
-    kws_req!(lookup_tot_req, usize, TOT, false);
-    kws_opt!(lookup_tot_opt, usize, TOT, false);
-    kws_req!(lookup_cyt_req, String, CYT, false);
-    kws_opt!(lookup_cyt_opt, String, CYT, false);
-    kws_opt!(lookup_cytsn, String, CYTSN, false);
-    kws_opt!(lookup_abrt, u32, ABRT, false);
-    kws_opt!(lookup_cells, String, CELLS, false);
-    kws_opt!(lookup_com, String, COM, false);
-    kws_opt!(lookup_exp, String, EXP, false);
-    kws_opt!(lookup_fil, String, FIL, false);
-    kws_opt!(lookup_inst, String, INST, false);
-    kws_opt!(lookup_lost, u32, LOST, false);
-    kws_opt!(lookup_op, String, OP, false);
-    kws_opt!(lookup_proj, String, PROJ, false);
-    kws_opt!(lookup_smno, String, SMNO, false);
-    kws_opt!(lookup_src, String, SRC, false);
-    kws_opt!(lookup_sys, String, SYS, false);
+    kws_req!(lookup_cyt_req, Cyt, CYT, false);
+    kws_opt!(lookup_cyt_opt, Cyt, CYT, false);
+    kws_opt!(lookup_cytsn, Cytsn, CYTSN, false);
+    kws_opt!(lookup_abrt, Abrt, ABRT, false);
+    kws_opt!(lookup_cells, Cells, CELLS, false);
+    kws_opt!(lookup_com, Com, COM, false);
+    kws_opt!(lookup_exp, Exp, EXP, false);
+    kws_opt!(lookup_fil, Fil, FIL, false);
+    kws_opt!(lookup_inst, Inst, INST, false);
+    kws_opt!(lookup_lost, Lost, LOST, false);
+    kws_opt!(lookup_op, Op, OP, false);
+    kws_opt!(lookup_proj, Proj, PROJ, false);
+    kws_opt!(lookup_smno, Smno, SMNO, false);
+    kws_opt!(lookup_src, Src, SRC, false);
+    kws_opt!(lookup_sys, Sys, SYS, false);
     kws_opt!(lookup_trigger, Trigger, TR, false);
-    kws_opt!(lookup_timestep, f32, TIMESTEP, false);
-    kws_opt!(lookup_vol, f32, VOL, false);
-    kws_opt!(lookup_flowrate, String, FLOWRATE, false);
+    kws_opt!(lookup_timestep, Timestep, TIMESTEP, false);
+    kws_opt!(lookup_vol, Vol, VOL, false);
+    kws_opt!(lookup_flowrate, Flowrate, FLOWRATE, false);
     kws_opt!(lookup_unicode, Unicode, UNICODE, false);
-    kws_opt!(lookup_unstainedinfo, String, UNSTAINEDINFO, false);
+    kws_opt!(lookup_unstainedinfo, UnstainedInfo, UNSTAINEDINFO, false);
     kws_opt!(
         lookup_unstainedcenters,
         UnstainedCenters,
         UNSTAINEDCENTERS,
         false
     );
-    kws_opt!(lookup_last_modifier, String, LAST_MODIFIER, false);
+    kws_opt!(lookup_last_modifier, LastModifier, LAST_MODIFIER, false);
     kws_opt!(lookup_last_modified, ModifiedDateTime, LAST_MODIFIED, false);
     kws_opt!(lookup_originality, Originality, ORIGINALITY, false);
-    kws_opt!(lookup_carrierid, String, CARRIERID, false);
-    kws_opt!(lookup_carriertype, String, CARRIERTYPE, false);
-    kws_opt!(lookup_locationid, String, LOCATIONID, false);
+    kws_opt!(lookup_carrierid, Carrierid, CARRIERID, false);
+    kws_opt!(lookup_carriertype, Carriertype, CARRIERTYPE, false);
+    kws_opt!(lookup_locationid, Locationid, LOCATIONID, false);
     kws_opt!(lookup_begindatetime, FCSDateTime, BEGINDATETIME, false);
     kws_opt!(lookup_enddatetime, FCSDateTime, ENDDATETIME, false);
     kws_opt!(lookup_btim, FCSTime, BTIM, false);
@@ -6044,19 +6136,24 @@ impl<'a, 'b> KwParser<'a, 'b> {
 
     kws_meas_req!(lookup_meas_bytes, Bytes, BYTES_SFX, false);
     kws_meas_req!(lookup_meas_range, Range, RANGE_SFX, false);
-    kws_meas_opt!(lookup_meas_wavelength, u32, WAVELEN_SFX, false);
+    kws_meas_opt!(lookup_meas_wavelength, Wavelength, WAVELEN_SFX, false);
     kws_meas_opt!(lookup_meas_wavelengths, Wavelengths, WAVELEN_SFX, false);
-    kws_meas_opt!(lookup_meas_power, u32, POWER_SFX, false);
-    kws_meas_opt!(lookup_meas_detector_type, String, DET_TYPE_SFX, false);
+    kws_meas_opt!(lookup_meas_power, Power, POWER_SFX, false);
+    kws_meas_opt!(lookup_meas_detector_type, DetectorType, DET_TYPE_SFX, false);
     kws_meas_req!(lookup_meas_shortname_req, Shortname, SHORTNAME_SFX, false);
     kws_meas_opt!(lookup_meas_shortname_opt, Shortname, SHORTNAME_SFX, false);
-    kws_meas_opt!(lookup_meas_longname, String, LONGNAME_SFX, false);
-    kws_meas_opt!(lookup_meas_filter, String, FILTER_SFX, false);
-    kws_meas_opt!(lookup_meas_detector_voltage, f32, DET_VOLT_SFX, false);
-    kws_meas_opt!(lookup_meas_detector, String, DET_NAME_SFX, false);
-    kws_meas_opt!(lookup_meas_tag, String, TAG_SFX, false);
-    kws_meas_opt!(lookup_meas_analyte, String, ANALYTE_SFX, false);
-    kws_meas_opt!(lookup_meas_gain, f32, GAIN_SFX, false);
+    kws_meas_opt!(lookup_meas_longname, Longname, LONGNAME_SFX, false);
+    kws_meas_opt!(lookup_meas_filter, Filter, FILTER_SFX, false);
+    kws_meas_opt!(
+        lookup_meas_detector_voltage,
+        DetectorVoltage,
+        DET_VOLT_SFX,
+        false
+    );
+    kws_meas_opt!(lookup_meas_detector, DetectorName, DET_NAME_SFX, false);
+    kws_meas_opt!(lookup_meas_tag, Tag, TAG_SFX, false);
+    kws_meas_opt!(lookup_meas_analyte, Analyte, ANALYTE_SFX, false);
+    kws_meas_opt!(lookup_meas_gain, Gain, GAIN_SFX, false);
     kws_meas_req!(lookup_meas_scale_req, Scale, SCALE_SFX, false);
     kws_meas_opt!(lookup_meas_scale_opt, Scale, SCALE_SFX, false);
     kws_meas_opt!(lookup_meas_cal3_1, Calibration3_1, CALIBRATION_SFX, false);
@@ -6066,7 +6163,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
     kws_meas_opt!(lookup_meas_type, MeasurementType, DET_TYPE_SFX, false);
     kws_meas_opt!(lookup_meas_feature, Feature, FEATURE_SFX, false);
 
-    fn lookup_meas_percent_emitted(&mut self, n: usize, dep: bool) -> OptionalKw<u32> {
+    fn lookup_meas_percent_emitted(&mut self, n: usize, dep: bool) -> OptionalKw<PercentEmitted> {
         self.lookup_meas_opt(PCNT_EMT_SFX, n, dep)
     }
 
@@ -6876,13 +6973,13 @@ impl TryFrom<ByteOrd> for Endian {
     }
 }
 
-impl From<u32> for Wavelengths {
-    fn from(value: u32) -> Self {
-        Wavelengths(vec![value])
+impl From<Wavelength> for Wavelengths {
+    fn from(value: Wavelength) -> Self {
+        Wavelengths(vec![value.0])
     }
 }
 
-impl From<OptionalKw<Wavelengths>> for OptionalKw<u32> {
+impl From<OptionalKw<Wavelengths>> for OptionalKw<Wavelength> {
     fn from(value: OptionalKw<Wavelengths>) -> Self {
         value
             .0
@@ -6890,6 +6987,7 @@ impl From<OptionalKw<Wavelengths>> for OptionalKw<u32> {
             .unwrap_or_default()
             .first()
             .copied()
+            .map(|x| x.into())
             .into()
     }
 }
@@ -7149,7 +7247,7 @@ trait ConvertConfig {
 #[derive(Default)]
 pub struct ModificationDefaults {
     last_modified: DefaultMetaOptional<ModifiedDateTime>,
-    last_modifier: DefaultMetaOptional<String>,
+    last_modifier: DefaultMetaOptional<LastModifier>,
     originality: DefaultMetaOptional<Originality>,
 }
 
@@ -7165,9 +7263,9 @@ impl ModificationDefaults {
 
 #[derive(Default)]
 pub struct PlateDefaults {
-    plateid: DefaultMetaOptional<String>,
-    platename: DefaultMetaOptional<String>,
-    wellid: DefaultMetaOptional<String>,
+    plateid: DefaultMetaOptional<Plateid>,
+    platename: DefaultMetaOptional<Platename>,
+    wellid: DefaultMetaOptional<Wellid>,
 }
 
 impl PlateDefaults {
@@ -7182,9 +7280,9 @@ impl PlateDefaults {
 
 #[derive(Default)]
 pub struct CarrierDefaults {
-    carrierid: DefaultMetaOptional<String>,
-    carriertype: DefaultMetaOptional<String>,
-    locationid: DefaultMetaOptional<String>,
+    carrierid: DefaultMetaOptional<Carrierid>,
+    carriertype: DefaultMetaOptional<Carriertype>,
+    locationid: DefaultMetaOptional<Locationid>,
 }
 
 impl CarrierDefaults {
@@ -7200,7 +7298,7 @@ impl CarrierDefaults {
 #[derive(Default)]
 pub struct UnstainedDefaults {
     unstainedcenters: DefaultMetaOptional<UnstainedCenters>,
-    unstainedinfo: DefaultMetaOptional<String>,
+    unstainedinfo: DefaultMetaOptional<UnstainedInfo>,
 }
 
 impl UnstainedDefaults {
@@ -7247,8 +7345,8 @@ pub struct MetadataDefaults3_0To3_0;
 
 #[derive(Default)]
 pub struct MetadataDefaults2_0To3_0 {
-    cytsn: DefaultMetaOptional<String>,
-    timestep: DefaultMetaOptional<f32>,
+    cytsn: DefaultMetaOptional<Cytsn>,
+    timestep: DefaultMetaOptional<Timestep>,
     unicode: DefaultMetaOptional<Unicode>,
 }
 
@@ -7296,9 +7394,9 @@ pub struct MetadataDefaults3_1To3_1;
 
 pub struct MetadataDefaults2_0To3_1 {
     endian: Endian,
-    cytsn: DefaultMetaOptional<String>,
-    timestep: DefaultMetaOptional<f32>,
-    vol: DefaultMetaOptional<f32>,
+    cytsn: DefaultMetaOptional<Cytsn>,
+    timestep: DefaultMetaOptional<Timestep>,
+    vol: DefaultMetaOptional<Vol>,
     spillover: DefaultMatrix<Spillover>,
     modification: ModificationDefaults,
     plate: PlateDefaults,
@@ -7332,7 +7430,7 @@ impl MetadataDefaults2_0To3_1 {
 
 pub struct MetadataDefaults3_0To3_1 {
     endian: Endian,
-    vol: DefaultMetaOptional<f32>,
+    vol: DefaultMetaOptional<Vol>,
     spillover: DefaultMatrix<Spillover>,
     modification: ModificationDefaults,
     plate: PlateDefaults,
@@ -7366,12 +7464,12 @@ pub struct MetadataDefaults3_2To3_2;
 
 pub struct MetadataDefaults2_0To3_2 {
     endian: Endian,
-    cyt: String,
-    cytsn: DefaultMetaOptional<String>,
-    timestep: DefaultMetaOptional<f32>,
-    vol: DefaultMetaOptional<f32>,
+    cyt: Cyt,
+    cytsn: DefaultMetaOptional<Cytsn>,
+    timestep: DefaultMetaOptional<Timestep>,
+    vol: DefaultMetaOptional<Vol>,
     spillover: DefaultMatrix<Spillover>,
-    flowrate: DefaultMetaOptional<String>,
+    flowrate: DefaultMetaOptional<Flowrate>,
     modification: ModificationDefaults,
     plate: PlateDefaults,
     unstained: UnstainedDefaults,
@@ -7380,7 +7478,7 @@ pub struct MetadataDefaults2_0To3_2 {
 }
 
 impl MetadataDefaults2_0To3_2 {
-    pub fn new(endian: Endian, cyt: String) -> Self {
+    pub fn new(endian: Endian, cyt: Cyt) -> Self {
         MetadataDefaults2_0To3_2 {
             endian,
             cyt,
@@ -7397,7 +7495,7 @@ impl MetadataDefaults2_0To3_2 {
         }
     }
 
-    fn keyed(endian: Endian, cyt: String) -> Self {
+    fn keyed(endian: Endian, cyt: Cyt) -> Self {
         Self {
             endian,
             cyt,
@@ -7417,10 +7515,10 @@ impl MetadataDefaults2_0To3_2 {
 
 pub struct MetadataDefaults3_0To3_2 {
     endian: Endian,
-    cyt: String,
-    vol: DefaultMetaOptional<f32>,
+    cyt: Cyt,
+    vol: DefaultMetaOptional<Vol>,
     spillover: DefaultMatrix<Spillover>,
-    flowrate: DefaultMetaOptional<String>,
+    flowrate: DefaultMetaOptional<Flowrate>,
     modification: ModificationDefaults,
     plate: PlateDefaults,
     unstained: UnstainedDefaults,
@@ -7429,7 +7527,7 @@ pub struct MetadataDefaults3_0To3_2 {
 }
 
 impl MetadataDefaults3_0To3_2 {
-    pub fn new(endian: Endian, cyt: String) -> Self {
+    pub fn new(endian: Endian, cyt: Cyt) -> Self {
         MetadataDefaults3_0To3_2 {
             endian,
             cyt,
@@ -7444,7 +7542,7 @@ impl MetadataDefaults3_0To3_2 {
         }
     }
 
-    fn keyed(endian: Endian, cyt: String) -> Self {
+    fn keyed(endian: Endian, cyt: Cyt) -> Self {
         Self {
             endian,
             cyt,
@@ -7461,15 +7559,15 @@ impl MetadataDefaults3_0To3_2 {
 }
 
 pub struct MetadataDefaults3_1To3_2 {
-    cyt: String,
-    flowrate: DefaultMetaOptional<String>,
+    cyt: Cyt,
+    flowrate: DefaultMetaOptional<Flowrate>,
     unstained: UnstainedDefaults,
     carrier: CarrierDefaults,
     datetimes: DatetimesDefaults,
 }
 
 impl MetadataDefaults3_1To3_2 {
-    pub fn new(cyt: String) -> Self {
+    pub fn new(cyt: Cyt) -> Self {
         MetadataDefaults3_1To3_2 {
             cyt,
             flowrate: DefaultMetaOptional::default(),
@@ -7479,7 +7577,7 @@ impl MetadataDefaults3_1To3_2 {
         }
     }
 
-    fn keyed(cyt: String) -> Self {
+    fn keyed(cyt: Cyt) -> Self {
         Self {
             cyt,
             flowrate: DefaultMetaOptional::init_unchecked(NS_FLOWRATE),
@@ -7498,8 +7596,8 @@ pub struct MetadataDefaultsTo2_0 {
 
 #[derive(Default)]
 pub struct MetadataDefaultsTo3_0 {
-    cytsn: DefaultMetaOptional<String>,
-    timestep: DefaultMetaOptional<f32>,
+    cytsn: DefaultMetaOptional<Cytsn>,
+    timestep: DefaultMetaOptional<Timestep>,
     unicode: DefaultMetaOptional<Unicode>,
     comp: DefaultMatrix<Compensation>,
 }
@@ -7526,9 +7624,9 @@ impl MetadataDefaultsTo3_0 {
 
 pub struct MetadataDefaultsTo3_1 {
     endian: Endian,
-    cytsn: DefaultMetaOptional<String>,
-    timestep: DefaultMetaOptional<f32>,
-    vol: DefaultMetaOptional<f32>,
+    cytsn: DefaultMetaOptional<Cytsn>,
+    timestep: DefaultMetaOptional<Timestep>,
+    vol: DefaultMetaOptional<Vol>,
     spillover: DefaultMatrix<Spillover>,
     modification: ModificationDefaults,
     plate: PlateDefaults,
@@ -7562,12 +7660,12 @@ impl MetadataDefaultsTo3_1 {
 
 pub struct MetadataDefaultsTo3_2 {
     endian: Endian,
-    cyt: String,
-    cytsn: DefaultMetaOptional<String>,
-    timestep: DefaultMetaOptional<f32>,
-    vol: DefaultMetaOptional<f32>,
+    cyt: Cyt,
+    cytsn: DefaultMetaOptional<Cytsn>,
+    timestep: DefaultMetaOptional<Timestep>,
+    vol: DefaultMetaOptional<Vol>,
     spillover: DefaultMatrix<Spillover>,
-    flowrate: DefaultMetaOptional<String>,
+    flowrate: DefaultMetaOptional<Flowrate>,
     modification: ModificationDefaults,
     plate: PlateDefaults,
     unstained: UnstainedDefaults,
@@ -7576,7 +7674,7 @@ pub struct MetadataDefaultsTo3_2 {
 }
 
 impl MetadataDefaultsTo3_2 {
-    pub fn new(endian: Endian, cyt: String) -> Self {
+    pub fn new(endian: Endian, cyt: Cyt) -> Self {
         Self {
             endian,
             cyt,
@@ -7593,7 +7691,7 @@ impl MetadataDefaultsTo3_2 {
         }
     }
 
-    fn keyed(endian: Endian, cyt: String) -> Self {
+    fn keyed(endian: Endian, cyt: Cyt) -> Self {
         Self {
             endian,
             cyt,
@@ -7613,7 +7711,7 @@ impl MetadataDefaultsTo3_2 {
 
 pub struct RequiredEndianCyt {
     pub endian: Endian,
-    pub cyt: String,
+    pub cyt: Cyt,
 }
 
 macro_rules! txfr_keys {
@@ -7739,7 +7837,7 @@ pub struct MeasurementDefaults3_0To3_0;
 #[derive(Clone)]
 pub struct MeasurementDefaults2_0To3_0 {
     scale: Scale,
-    gain: DefaultMeasOptional<f32>,
+    gain: DefaultMeasOptional<Gain>,
 }
 
 impl MeasurementDefaults2_0To3_0 {
@@ -7767,7 +7865,7 @@ pub struct MeasurementDefaults3_2To3_0;
 #[derive(Clone)]
 pub struct MeasurementDefaultsTo3_0 {
     scale: Scale,
-    gain: DefaultMeasOptional<f32>,
+    gain: DefaultMeasOptional<Gain>,
 }
 
 impl MeasurementDefaultsTo3_0 {
@@ -7793,7 +7891,7 @@ pub struct MeasurementDefaults3_1To3_1;
 pub struct MeasurementDefaults2_0To3_1 {
     scale: Scale,
     shortname: Shortname,
-    gain: DefaultMeasOptional<f32>,
+    gain: DefaultMeasOptional<Gain>,
     calibration: DefaultMeasOptional<Calibration3_1>,
     display: DefaultMeasOptional<Display>,
 }
@@ -7857,7 +7955,7 @@ pub struct MeasurementDefaults3_2To3_1;
 pub struct MeasurementDefaultsTo3_1 {
     scale: Scale,
     shortname: Shortname,
-    gain: DefaultMeasOptional<f32>,
+    gain: DefaultMeasOptional<Gain>,
     calibration: DefaultMeasOptional<Calibration3_1>,
     display: DefaultMeasOptional<Display>,
 }
@@ -7891,12 +7989,12 @@ pub struct MeasurementDefaults3_2To3_2;
 pub struct MeasurementDefaults2_0To3_2 {
     scale: Scale,
     shortname: Shortname,
-    gain: DefaultMeasOptional<f32>,
+    gain: DefaultMeasOptional<Gain>,
     calibration: DefaultMeasOptional<Calibration3_2>,
     display: DefaultMeasOptional<Display>,
-    analyte: DefaultMeasOptional<String>,
-    tag: DefaultMeasOptional<String>,
-    detector_name: DefaultMeasOptional<String>,
+    analyte: DefaultMeasOptional<Analyte>,
+    tag: DefaultMeasOptional<Tag>,
+    detector_name: DefaultMeasOptional<DetectorName>,
     feature: DefaultMeasOptional<Feature>,
     datatype: DefaultMeasOptional<NumType>,
     measurement_type: DefaultMeasOptional<MeasurementType>,
@@ -7941,9 +8039,9 @@ pub struct MeasurementDefaults3_0To3_2 {
     shortname: Shortname,
     calibration: DefaultMeasOptional<Calibration3_2>,
     display: DefaultMeasOptional<Display>,
-    analyte: DefaultMeasOptional<String>,
-    tag: DefaultMeasOptional<String>,
-    detector_name: DefaultMeasOptional<String>,
+    analyte: DefaultMeasOptional<Analyte>,
+    tag: DefaultMeasOptional<Tag>,
+    detector_name: DefaultMeasOptional<DetectorName>,
     feature: DefaultMeasOptional<Feature>,
     datatype: DefaultMeasOptional<NumType>,
     measurement_type: DefaultMeasOptional<MeasurementType>,
@@ -7981,9 +8079,9 @@ impl MeasurementDefaults3_0To3_2 {
 
 #[derive(Clone, Default)]
 pub struct MeasurementDefaults3_1To3_2 {
-    analyte: DefaultMeasOptional<String>,
-    tag: DefaultMeasOptional<String>,
-    detector_name: DefaultMeasOptional<String>,
+    analyte: DefaultMeasOptional<Analyte>,
+    tag: DefaultMeasOptional<Tag>,
+    detector_name: DefaultMeasOptional<DetectorName>,
     feature: DefaultMeasOptional<Feature>,
     datatype: DefaultMeasOptional<NumType>,
     measurement_type: DefaultMeasOptional<MeasurementType>,
@@ -8006,12 +8104,12 @@ impl MeasurementDefaults3_1To3_2 {
 pub struct MeasurementDefaultsTo3_2 {
     scale: Scale,
     shortname: Shortname,
-    gain: DefaultMeasOptional<f32>,
+    gain: DefaultMeasOptional<Gain>,
     calibration: DefaultMeasOptional<Calibration3_2>,
     display: DefaultMeasOptional<Display>,
-    analyte: DefaultMeasOptional<String>,
-    tag: DefaultMeasOptional<String>,
-    detector_name: DefaultMeasOptional<String>,
+    analyte: DefaultMeasOptional<Analyte>,
+    tag: DefaultMeasOptional<Tag>,
+    detector_name: DefaultMeasOptional<DetectorName>,
     feature: DefaultMeasOptional<Feature>,
     datatype: DefaultMeasOptional<NumType>,
     measurement_type: DefaultMeasOptional<MeasurementType>,
@@ -8034,6 +8132,11 @@ impl MeasurementDefaultsTo3_2 {
         }
     }
 
+    // TODO lots of this boilerplate could be cleaned up by wrapping each
+    // kw value in a newtype (for those that aren't unique) and then
+    // assigning a trait which (among other things) would have a const param
+    // for the key/suffix/default. This way I would only need to write each
+    // kw once and could refer to them using the type.
     fn fixed(scale: Scale, shortname: Shortname, n: usize) -> Self {
         Self {
             scale,
@@ -8939,7 +9042,7 @@ impl IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2> for InnerMetadata3_0 
 
 impl IntoMetadata<InnerMetadata3_2, MetadataDefaultsTo3_2> for InnerMetadata3_1 {
     type DefaultsXToY = MetadataDefaults3_1To3_2;
-    type Req = String;
+    type Req = Cyt;
 
     fn defaults(cyt: Self::Req) -> Self::DefaultsXToY {
         MetadataDefaults3_1To3_2::new(cyt)

@@ -914,8 +914,8 @@ macro_rules! get_set_datetime {
 macro_rules! core_text_methods {
     ($pytype:ident, [$($root:ident)*]) => {
         get_set_datetime!($pytype, [$($root,)*]);
-        get_set_copied!(  $pytype, [$($root,)*], abrt, set_abrt, u32);
-        get_set_copied!(  $pytype, [$($root,)*], lost, set_lost, u32);
+        // get_set_copied!(  $pytype, [$($root,)*], abrt, set_abrt, api::Abrt);
+        // get_set_copied!(  $pytype, [$($root,)*], lost, set_lost, api::Lost);
         get_set_str!(     $pytype, [$($root,)*], cells, set_cells);
         get_set_str!(     $pytype, [$($root,)*], com, set_com);
         get_set_str!(     $pytype, [$($root,)*], exp, set_exp);

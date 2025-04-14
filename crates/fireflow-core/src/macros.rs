@@ -36,6 +36,20 @@ macro_rules! newtype_disp {
 
 pub(crate) use newtype_disp;
 
+macro_rules! newtype_fromstr {
+    ($outer:ident, $err:ident) => {
+        impl FromStr for $outer {
+            type Err = $err;
+
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                s.parse().map($outer)
+            }
+        }
+    };
+}
+
+pub(crate) use newtype_fromstr;
+
 macro_rules! newtype_asref {
     ($from:ident, $to:ident) => {
         impl AsRef<$to> for $from {

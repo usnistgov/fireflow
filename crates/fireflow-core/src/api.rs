@@ -57,7 +57,7 @@ macro_rules! match_many_to_one {
 ///
 /// This will also be used as input downstream to 'standardize' the TEXT segment
 /// according to version, and also to parse DATA if either is desired.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct RawTEXT {
     /// FCS Version from HEADER
     pub version: Version,
@@ -96,7 +96,7 @@ pub struct RawTEXT {
 /// ANALYSIS, or the next dataset via NEXTDATA. The other offsets are only
 /// valuable for informing the user since by the time this struct will exist the
 /// primary (and possibly supplemental) TEXT will have already been parsed.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct Offsets {
     /// Primary TEXT offsets
     ///
@@ -131,7 +131,7 @@ pub struct Offsets {
     ///
     /// This will be copied as represented in TEXT. If it is 0, there is no next
     /// dataset, otherwise it points to the next dataset in the file.
-    pub nextdata: Option<u32>,
+    pub nextdata: Option<Nextdata>,
 }
 
 /// Output of parsing the TEXT segment and standardizing keywords.
@@ -334,13 +334,13 @@ struct FCSDate(NaiveDate);
 /// The generic type parameter is meant to account for the fact that the time
 /// types for different versions are all slightly different in their treatment
 /// of sub-second time.
-#[derive(Debug, Clone, Serialize)]
-struct Timestamps<T> {
+#[derive(Clone, Serialize)]
+struct Timestamps<X> {
     /// The value of the $BTIM key
-    btim: OptionalKw<T>,
+    btim: OptionalKw<Btim<X>>,
 
     /// The value of the $ETIM key
-    etim: OptionalKw<T>,
+    etim: OptionalKw<Etim<X>>,
 
     /// The value of the $DATE key
     date: OptionalKw<FCSDate>,
@@ -352,8 +352,8 @@ impl<X> Timestamps<X> {
         F: Fn(X) -> Y,
     {
         Timestamps {
-            btim: self.btim.map(&f),
-            etim: self.etim.map(&f),
+            btim: self.btim.map(|x| Btim(f(x.0))),
+            etim: self.etim.map(|x| Etim(f(x.0))),
             date: self.date,
         }
     }
@@ -363,7 +363,7 @@ impl<X: PartialOrd> Timestamps<X> {
     fn valid(&self) -> bool {
         if self.date.0.is_some() {
             if let (Some(b), Some(e)) = (&self.btim.0, &self.etim.0) {
-                b < e
+                b.0 < e.0
             } else {
                 true
             }
@@ -375,26 +375,26 @@ impl<X: PartialOrd> Timestamps<X> {
 
 // TODO this might be useful but there shouldn't be an equivilencey b/t these
 // two since the former does not include time zone
-fn timestamps_eq_datetimes<T>(ts: &Timestamps<T>, dt: &Datetimes) -> bool
-where
-    T: Copy,
-    NaiveTime: From<T>,
-{
-    if let (Some(td), Some(tb), Some(te), Some(db), Some(de)) =
-        (&ts.date.0, &ts.btim.0, &ts.etim.0, &dt.begin.0, &dt.end.0)
-    {
-        let dt_d1 = db.0.date_naive();
-        let dt_d2 = de.0.date_naive();
-        let dt_t1 = db.0.time();
-        let dt_t2 = de.0.time();
-        let ts_d = td.0;
-        let ts_t1: NaiveTime = (*tb).into();
-        let ts_t2: NaiveTime = (*te).into();
-        dt_d1 == dt_d2 && dt_d2 == ts_d && dt_t1 == ts_t1 && dt_t2 == ts_t2
-    } else {
-        true
-    }
-}
+// fn timestamps_eq_datetimes<T>(ts: &Timestamps<T>, dt: &Datetimes) -> bool
+// where
+//     T: Copy,
+//     NaiveTime: From<T>,
+// {
+//     if let (Some(td), Some(tb), Some(te), Some(db), Some(de)) =
+//         (&ts.date.0, &ts.btim.0, &ts.etim.0, &dt.begin.0, &dt.end.0)
+//     {
+//         let dt_d1 = db.0.date_naive();
+//         let dt_d2 = de.0.date_naive();
+//         let dt_t1 = db.0.time();
+//         let dt_t2 = de.0.time();
+//         let ts_d = td.0;
+//         let ts_t1: NaiveTime = (*tb).into();
+//         let ts_t2: NaiveTime = (*te).into();
+//         dt_d1 == dt_d2 && dt_d2 == ts_d && dt_t1 == ts_t1 && dt_t2 == ts_t2
+//     } else {
+//         true
+//     }
+// }
 
 /// $BTIM/ETIM/DATE for FCS 2.0
 type Timestamps2_0 = Timestamps<FCSTime>;
@@ -406,19 +406,19 @@ type Timestamps3_0 = Timestamps<FCSTime60>;
 type Timestamps3_1 = Timestamps<FCSTime100>;
 
 /// A convenient bundle for the $BEGINDATETIME and $ENDDATETIME keys (3.2+)
-#[derive(Debug, Clone, Serialize, Default)]
+#[derive(Clone, Serialize, Default)]
 struct Datetimes {
     /// Value for the $BEGINDATETIME key.
-    begin: OptionalKw<FCSDateTime>,
+    begin: OptionalKw<BeginDateTime>,
 
     /// Value for the $ENDDATETIME key.
-    end: OptionalKw<FCSDateTime>,
+    end: OptionalKw<EndDateTime>,
 }
 
 impl Datetimes {
     fn valid(&self) -> bool {
         if let (Some(b), Some(e)) = (&self.begin.0, &self.end.0) {
-            b.0 < e.0
+            (b.0).0 < (e.0).0
         } else {
             true
         }
@@ -836,15 +836,15 @@ macro_rules! newtype_string {
     };
 }
 
-macro_rules! newtype_u32 {
-    ($t:ident) => {
+macro_rules! newtype_int {
+    ($t:ident, $type:ident) => {
         #[derive(Clone, Copy, Serialize)]
-        pub struct $t(pub u32);
+        pub struct $t(pub $type);
 
         newtype_disp!($t);
         newtype_fromstr!($t, ParseIntError);
-        newtype_from!($t, u32);
-        newtype_from_outer!($t, u32);
+        newtype_from!($t, $type);
+        newtype_from_outer!($t, $type);
     };
 }
 
@@ -997,6 +997,23 @@ macro_rules! kw_meta_string {
     };
 }
 
+macro_rules! kw_meas_int {
+    ($t:ident, $type:ident, $sfx:expr) => {
+        newtype_int!($t, $type);
+        kw_meas!($t, $sfx);
+    };
+}
+
+macro_rules! kw_meta_int {
+    ($t:ident, $type:ident, $kw:expr) => {
+        newtype_int!($t, $type);
+
+        impl Key for $t {
+            const C: &'static str = $kw;
+        }
+    };
+}
+
 macro_rules! kw_meas_string {
     ($t:ident, $sfx:expr) => {
         newtype_string!($t);
@@ -1088,6 +1105,34 @@ macro_rules! kw_opt_meas_string {
     };
 }
 
+macro_rules! kw_req_meta_int {
+    ($t:ident, $type:ident, $sfx:expr) => {
+        kw_meta_int!($t, $type, $sfx);
+        req_meta!($t);
+    };
+}
+
+macro_rules! kw_opt_meta_int {
+    ($t:ident, $type:ident, $sfx:expr) => {
+        kw_meta_int!($t, $type, $sfx);
+        opt_meta!($t);
+    };
+}
+
+macro_rules! kw_req_meas_int {
+    ($t:ident, $type:ident, $sfx:expr) => {
+        kw_meas_int!($t, $type, $sfx);
+        req_meas!($t);
+    };
+}
+
+macro_rules! kw_opt_meas_int {
+    ($t:ident, $type:ident, $sfx:expr) => {
+        kw_meas_int!($t, $type, $sfx);
+        opt_meas!($t);
+    };
+}
+
 kw_opt_meta_string!(Cyt, "CYT");
 req_meta!(Cyt);
 
@@ -1120,15 +1165,86 @@ kw_opt_meas_string!(PercentEmitted, "P");
 kw_opt_meas_string!(Longname, "S");
 kw_opt_meas_string!(Filter, "F");
 
-newtype_u32!(Abrt);
-newtype_u32!(Lost);
-newtype_u32!(Wavelength);
-newtype_u32!(Power);
+kw_opt_meta_int!(Abrt, u32, "ABRT");
+kw_opt_meta_int!(Lost, u32, "LOST");
+kw_opt_meta_int!(Tot, usize, "TOT");
+req_meta!(Tot);
+kw_req_meta_int!(Par, usize, "PAR");
+kw_opt_meas_int!(Wavelength, u32, "L");
+kw_opt_meas_int!(Power, u32, "O");
 
-kw_opt_meta!(Abrt, "ABRT");
-kw_opt_meta!(Lost, "LOST");
-kw_opt_meas!(Wavelength, "L");
-kw_opt_meas!(Power, "O");
+kw_req_meta_int!(BeginSText, u32, "BEGINSTEXT");
+kw_req_meta_int!(BeginAnalysis, u32, "BEGINANALYSIS");
+kw_req_meta_int!(BeginData, u32, "BEGINDATA");
+kw_req_meta_int!(EndSText, u32, "ENDSTEXT");
+kw_req_meta_int!(EndAnalysis, u32, "ENDANALYSIS");
+kw_req_meta_int!(EndData, u32, "ENDDATA");
+kw_req_meta_int!(Nextdata, u32, "NEXTDATA");
+
+opt_meta!(BeginAnalysis);
+opt_meta!(BeginSText);
+opt_meta!(EndAnalysis);
+opt_meta!(EndSText);
+
+macro_rules! kw_time {
+    ($outer:ident, $wrap:ident, $inner:ident, $err:ident, $key:expr) => {
+        type $outer = $wrap<$inner>;
+
+        impl From<$inner> for $outer {
+            fn from(value: $inner) -> Self {
+                $wrap(value)
+            }
+        }
+
+        impl FromStr for $outer {
+            type Err = $err;
+
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                s.parse().map($wrap)
+            }
+        }
+
+        newtype_from_outer!($outer, $inner);
+        newtype_disp!($outer);
+        kw_opt_meta!($outer, $key);
+
+        impl From<NaiveTime> for $outer {
+            fn from(value: NaiveTime) -> Self {
+                $wrap($inner(value))
+            }
+        }
+    };
+}
+
+#[derive(Clone, Serialize)]
+struct Btim<T>(pub T);
+#[derive(Clone, Serialize)]
+struct Etim<T>(pub T);
+
+kw_time!(Btim2_0, Btim, FCSTime, FCSTimeError, "BTIM");
+kw_time!(Etim2_0, Etim, FCSTime, FCSTimeError, "ETIM");
+kw_time!(Btim3_0, Btim, FCSTime60, FCSTime60Error, "BTIM");
+kw_time!(Etim3_0, Etim, FCSTime60, FCSTime60Error, "ETIM");
+kw_time!(Btim3_1, Btim, FCSTime100, FCSTime100Error, "BTIM");
+kw_time!(Etim3_1, Etim, FCSTime100, FCSTime100Error, "ETIM");
+
+kw_opt_meta!(FCSDate, "DATE");
+
+#[derive(Clone, Serialize)]
+struct BeginDateTime(pub FCSDateTime);
+newtype_from!(BeginDateTime, FCSDateTime);
+newtype_from_outer!(BeginDateTime, FCSDateTime);
+newtype_disp!(BeginDateTime);
+newtype_fromstr!(BeginDateTime, FCSDateTimeError);
+kw_opt_meta!(BeginDateTime, "BEGINDATETIME");
+
+#[derive(Clone, Serialize)]
+struct EndDateTime(pub FCSDateTime);
+newtype_from!(EndDateTime, FCSDateTime);
+newtype_from_outer!(EndDateTime, FCSDateTime);
+newtype_disp!(EndDateTime);
+newtype_fromstr!(EndDateTime, FCSDateTimeError);
+kw_opt_meta!(EndDateTime, "ENDDATETIME");
 
 // TODO technically this should be validated to be > 0
 #[derive(Clone, Serialize)]
@@ -1411,17 +1527,17 @@ type DataReadMeasurement2_0 = DataReadMeasurement<()>;
 type DataReadMeasurement3_2 = DataReadMeasurement<NumType>;
 
 struct InnerBareMetadata2_0 {
-    tot: OptionalKw<usize>,
+    tot: OptionalKw<Tot>,
     byteord: ByteOrd,
 }
 
 struct InnerBareMetadata3_0 {
-    tot: usize,
+    tot: Tot,
     byteord: ByteOrd,
 }
 
 struct InnerBareMetadata3_1 {
-    tot: usize,
+    tot: Tot,
     byteord: Endian,
 }
 
@@ -1466,7 +1582,7 @@ enum DataLayout<T> {
 }
 
 type WriterDataLayout = DataLayout<()>;
-type ReaderDataLayout = DataLayout<usize>;
+type ReaderDataLayout = DataLayout<Tot>;
 
 struct NumColumnWriter<T, const LEN: usize> {
     column: Vec<T>,
@@ -1515,7 +1631,7 @@ enum MixedColumnType {
 }
 
 struct MixedParser {
-    nrows: usize,
+    nrows: Tot,
     columns: Vec<MixedColumnType>,
 }
 
@@ -1560,16 +1676,14 @@ struct UintReader {
     columns: Vec<AnyUintColumnReader>,
 }
 
-#[derive(Debug)]
 struct FixedAsciiReader {
     widths: Vec<u8>,
-    nrows: usize,
+    nrows: Tot,
 }
 
-#[derive(Debug)]
 struct DelimAsciiReader {
     ncols: usize,
-    nrows: Option<usize>,
+    nrows: Option<Tot>,
     nbytes: usize,
 }
 
@@ -1981,9 +2095,9 @@ trait VersionedMeasurement: Sized + Versioned {
         m.longname = n.map(|y| y.into()).into();
     }
 
-    fn lookup_measurements(st: &mut KwParser, par: usize) -> Option<Vec<Measurement<Self>>> {
+    fn lookup_measurements(st: &mut KwParser, par: Par) -> Option<Vec<Measurement<Self>>> {
         let v = Self::fcs_version();
-        let ps: Vec<_> = (1..(par + 1))
+        let ps: Vec<_> = (1..(par.0 + 1))
             .flat_map(|n| {
                 let maybe_bytes = st.lookup_meas_req(n);
                 let maybe_range = st.lookup_meas_req(n);
@@ -2008,7 +2122,7 @@ trait VersionedMeasurement: Sized + Versioned {
                 }
             })
             .collect();
-        if ps.len() == par {
+        if ps.len() == par.0 {
             Some(ps)
         } else {
             None
@@ -2168,26 +2282,30 @@ trait VersionedParserMeasurement: Sized {
 trait VersionedParserMetadata: Sized {
     type Target;
 
-    fn as_minimal_inner(&self, st: &mut KwParser) -> Option<Self::Target>;
+    fn as_minimal_inner(&self, kws: &mut RawKeywords) -> PureMaybe<Self::Target>;
 
-    fn as_minimal(md: &Metadata<Self>, st: &mut KwParser) -> Option<BareMetadata<Self::Target>> {
+    fn as_minimal(
+        md: &Metadata<Self>,
+        kws: &mut RawKeywords,
+    ) -> PureMaybe<BareMetadata<Self::Target>> {
         let datatype = md.datatype;
-        let specific = Self::as_minimal_inner(&md.specific, st)?;
-        Some(BareMetadata { datatype, specific })
+        Self::as_minimal_inner(&md.specific, kws).map(|maybe_specific| {
+            maybe_specific.map(|specific| BareMetadata { datatype, specific })
+        })
     }
 
     fn byteord(&self) -> ByteOrd;
 
     fn target_byteord(t: &Self::Target) -> ByteOrd;
 
-    fn tot(t: &Self::Target) -> Option<usize>;
+    fn tot(t: &Self::Target) -> Option<Tot>;
 
     fn total_events(
         t: &Self::Target,
         data_nbytes: usize,
         event_width: usize,
         conf: &DataReadConfig,
-    ) -> PureSuccess<usize> {
+    ) -> PureSuccess<Tot> {
         let mut def = PureErrorBuf::default();
         let remainder = data_nbytes % event_width;
         let total_events = data_nbytes / event_width;
@@ -2200,7 +2318,7 @@ trait VersionedParserMetadata: Sized {
             def.push_msg_leveled(msg, conf.enfore_data_width_divisibility)
         }
         if let Some(tot) = Self::tot(t) {
-            if total_events != tot {
+            if total_events != tot.0 {
                 let msg = format!(
                     "$TOT field is {tot} but number of events \
                          that evenly fit into DATA is {total_events}"
@@ -2209,7 +2327,7 @@ trait VersionedParserMetadata: Sized {
             }
         }
         PureSuccess {
-            data: total_events,
+            data: Tot(total_events),
             deferred: def,
         }
     }
@@ -2444,10 +2562,10 @@ where
     /// Make configuration to read one column of floats in a dataset.
     fn make_column_reader(
         order: SizedByteOrd<LEN>,
-        total_events: usize,
+        total_events: Tot,
     ) -> FloatColumnReader<Self::Native, LEN> {
         FloatColumnReader {
-            column: vec![Self::Native::zero(); total_events],
+            column: vec![Self::Native::zero(); total_events.0],
             order,
         }
     }
@@ -4054,7 +4172,7 @@ impl Serialize for AnyCoreTEXT {
     }
 }
 
-fn build_mixed_reader(cs: Vec<ColumnType>, total_events: usize) -> MixedParser {
+fn build_mixed_reader(cs: Vec<ColumnType>, total_events: Tot) -> MixedParser {
     let columns = cs
         .into_iter()
         .map(|p| match p {
@@ -4395,17 +4513,13 @@ where
         conf: &DataReadConfig,
         data_seg: &Segment,
     ) -> PureMaybe<ReaderDataLayout> {
-        let succ = KwParser::run(kws, (&conf.standard).into(), |st| {
-            let maybe_md = <M as VersionedParserMetadata>::as_minimal(&self.metadata, st);
-            let measurements: Vec<_> = self
-                .measurements
-                .iter()
-                .map(<M::P as VersionedParserMeasurement>::as_minimal)
-                .collect();
-            maybe_md.map(|metadata| (measurements, metadata))
-        });
         let data_nbytes = data_seg.nbytes() as usize;
-        succ.and_then_opt(|(measurements, metadata)| {
+        let measurements: Vec<_> = self
+            .measurements
+            .iter()
+            .map(<M::P as VersionedParserMeasurement>::as_minimal)
+            .collect();
+        <M as VersionedParserMetadata>::as_minimal(&self.metadata, kws).and_then_opt(|metadata| {
             M::as_reader_data_layout_bare(&metadata, &measurements, data_nbytes, &conf)
         })
     }
@@ -4430,23 +4544,20 @@ where
         // tested without $PAR, so if we really wanted to be aggressive we could
         // pass $PAR as an Option and only test if not None when we need it and
         // possibly bail. Might be worth it.
-        let par_fail = "could not find $PAR".to_string();
-        let c: KwParserConfig = conf.into();
-        let par_succ = KwParser::try_run(kws, c.clone(), par_fail, |st| st.lookup_par())?;
+        let par = Failure::from_result(Par::lookup_meta_req(kws))?;
         // Lookup measurements+metadata based on $PAR, which also might fail in
         // a zillion ways. If this fails we need to bail since we cannot create
         // a struct with missing fields.
         let md_fail = "could not standardize TEXT".to_string();
-        let md_succ = par_succ.try_map(|par| {
-            KwParser::try_run(kws, c, md_fail, |st| {
-                let ms = M::P::lookup_measurements(st, par);
-                let md = ms.as_ref().and_then(|xs| M::lookup_metadata(st, xs));
-                if let (Some(measurements), Some(metadata)) = (ms, md) {
-                    Some((measurements, metadata))
-                } else {
-                    None
-                }
-            })
+        let c: KwParserConfig = conf.into();
+        let md_succ = KwParser::try_run(kws, c, md_fail, |st| {
+            let ms = M::P::lookup_measurements(st, par);
+            let md = ms.as_ref().and_then(|xs| M::lookup_metadata(st, xs));
+            if let (Some(measurements), Some(metadata)) = (ms, md) {
+                Some((measurements, metadata))
+            } else {
+                None
+            }
         })?;
         // hooray, we win and can now make the core struct
         Ok(md_succ.map(|(measurements, metadata)| CoreTEXT {
@@ -4897,39 +5008,40 @@ impl AnyUintColumnReader {
 
 impl AnyUintColumnReader {
     // TODO clean this up
-    fn from_column(ut: AnyUintType, total_events: usize) -> Self {
+    fn from_column(ut: AnyUintType, total_events: Tot) -> Self {
+        let t = total_events.0;
         match ut {
             AnyUintType::Uint8(layout) => AnyUintColumnReader::Uint8(UintColumnReader {
                 layout,
-                column: vec![0; total_events],
+                column: vec![0; t],
             }),
             AnyUintType::Uint16(layout) => AnyUintColumnReader::Uint16(UintColumnReader {
                 layout,
-                column: vec![0; total_events],
+                column: vec![0; t],
             }),
             AnyUintType::Uint24(layout) => AnyUintColumnReader::Uint24(UintColumnReader {
                 layout,
-                column: vec![0; total_events],
+                column: vec![0; t],
             }),
             AnyUintType::Uint32(layout) => AnyUintColumnReader::Uint32(UintColumnReader {
                 layout,
-                column: vec![0; total_events],
+                column: vec![0; t],
             }),
             AnyUintType::Uint40(layout) => AnyUintColumnReader::Uint40(UintColumnReader {
                 layout,
-                column: vec![0; total_events],
+                column: vec![0; t],
             }),
             AnyUintType::Uint48(layout) => AnyUintColumnReader::Uint48(UintColumnReader {
                 layout,
-                column: vec![0; total_events],
+                column: vec![0; t],
             }),
             AnyUintType::Uint56(layout) => AnyUintColumnReader::Uint56(UintColumnReader {
                 layout,
-                column: vec![0; total_events],
+                column: vec![0; t],
             }),
             AnyUintType::Uint64(layout) => AnyUintColumnReader::Uint64(UintColumnReader {
                 layout,
-                column: vec![0; total_events],
+                column: vec![0; t],
             }),
         }
     }
@@ -5027,11 +5139,13 @@ fn read_data_delim_ascii<R: Read>(
         // FCS 2.0 files have an optional $TOT field, which complicates this a
         // bit. If we know the number of rows, initialize a bunch of zero-ed
         // vectors and fill them sequentially.
-        let mut data: Vec<_> = iter::repeat_with(|| vec![0; nrows]).take(p.ncols).collect();
+        let mut data: Vec<_> = iter::repeat_with(|| vec![0; nrows.0])
+            .take(p.ncols)
+            .collect();
         for b in h.bytes().take(p.nbytes) {
             let byte = b?;
             // exit if we encounter more rows than expected.
-            if row == nrows {
+            if row == nrows.0 {
                 let msg = format!("Exceeded expected number of rows: {nrows}");
                 return Err(io::Error::new(io::ErrorKind::InvalidData, msg));
             }
@@ -5054,7 +5168,7 @@ fn read_data_delim_ascii<R: Read>(
                 last_was_delim = false;
             }
         }
-        if !(col == 0 && row == nrows) {
+        if !(col == 0 && row == nrows.0) {
             let msg = format!(
                 "Parsing ended in column {col} and row {row}, \
                                where expected number of rows is {nrows}"
@@ -5118,11 +5232,11 @@ fn read_data_ascii_fixed<R: Read>(
     parser: &FixedAsciiReader,
 ) -> io::Result<DataFrame> {
     let ncols = parser.widths.len();
-    let mut data: Vec<_> = iter::repeat_with(|| vec![0; parser.nrows])
+    let mut data: Vec<_> = iter::repeat_with(|| vec![0; parser.nrows.0])
         .take(ncols)
         .collect();
     let mut buf = String::new();
-    for r in 0..parser.nrows {
+    for r in 0..parser.nrows.0 {
         for (c, width) in parser.widths.iter().enumerate() {
             buf.clear();
             h.take(u64::from(*width)).read_to_string(&mut buf)?;
@@ -5145,7 +5259,7 @@ fn read_data_ascii_fixed<R: Read>(
 fn read_data_mixed<R: Read>(h: &mut BufReader<R>, parser: MixedParser) -> io::Result<DataFrame> {
     let mut p = parser;
     let mut strbuf = String::new();
-    for r in 0..p.nrows {
+    for r in 0..p.nrows.0 {
         for c in p.columns.iter_mut() {
             match c {
                 MixedColumnType::Single(t) => Float32Type::read_to_column(h, t, r)?,
@@ -5378,37 +5492,47 @@ fn h_write_dataset<W: Write>(
     res
 }
 
+// TODO unclear if these next two functions should throw errors or warnings
+// on failure
 fn lookup_data_offsets(
     kws: &mut RawKeywords,
     conf: &DataReadConfig,
     version: Version,
     default: &Segment,
 ) -> PureSuccess<Segment> {
-    KwParser::run(kws, (&conf.standard).into(), |st| match version {
+    let mut deferred = PureErrorBuf::default();
+    let data = match version {
         Version::FCS2_0 => *default,
         _ => {
-            let b = st.lookup_begindata();
-            let e = st.lookup_enddata();
-            if let (Some(begin), Some(end)) = (b, e) {
-                let res = Segment::try_new(begin, end, conf.data, SegmentId::Data);
-                match res {
-                    Ok(seg) => seg,
-                    Err(err) => {
-                        st.push_meta_warning(format!(
-                            "defaulting to header DATA offsets due to error: {}",
-                            err
-                        ));
-                        *default
+            let b = BeginData::lookup_meta_req(kws);
+            let e = EndData::lookup_meta_req(kws);
+            match (b, e) {
+                (Ok(begin), Ok(end)) => {
+                    let res = Segment::try_new(begin.0, end.0, conf.data, SegmentId::Data);
+                    match res {
+                        Ok(seg) => seg,
+                        Err(err) => {
+                            deferred.push_warning(format!(
+                                "defaulting to header DATA offsets due to error: {}",
+                                err
+                            ));
+                            *default
+                        }
                     }
                 }
-            } else {
-                st.push_meta_warning(
-                    "could not find DATA offsets in TEXT, defaulting to HEADER offsets".to_string(),
-                );
-                *default
+                (a, b) => {
+                    let es = [a.err(), b.err()].into_iter().flatten().collect();
+                    deferred.concat(PureErrorBuf::from_many(es, PureErrorLevel::Warning));
+                    deferred.push_warning(
+                        "could not find DATA offsets in TEXT, defaulting to HEADER offsets"
+                            .to_string(),
+                    );
+                    *default
+                }
             }
         }
-    })
+    };
+    PureSuccess { data, deferred }
 }
 
 fn lookup_analysis_offsets(
@@ -5417,37 +5541,76 @@ fn lookup_analysis_offsets(
     version: Version,
     default: &Segment,
 ) -> PureSuccess<Segment> {
-    let go = |st: &mut KwParser, b, e| {
-        if let (Some(begin), Some(end)) = (b, e) {
-            Segment::try_new(begin, end, conf.analysis, SegmentId::Analysis)
-        } else {
-            let msg = "could not find DATA offsets in TEXT, \
-                 defaulting to HEADER offsets"
-                .to_string();
-            st.push_meta_warning(msg);
-            Ok(*default)
+    let mut deferred = PureErrorBuf::default();
+    let data = match version {
+        Version::FCS2_0 => *default,
+        Version::FCS3_0 | Version::FCS3_1 => {
+            let b = BeginAnalysis::lookup_meta_req(kws);
+            let e = EndAnalysis::lookup_meta_req(kws);
+            // TODO wet
+            match (b, e) {
+                (Ok(begin), Ok(end)) => {
+                    let res = Segment::try_new(begin.0, end.0, conf.data, SegmentId::Analysis);
+                    match res {
+                        Ok(seg) => seg,
+                        Err(err) => {
+                            deferred.push_warning(format!(
+                                "defaulting to header DATA offsets due to error: {}",
+                                err
+                            ));
+                            *default
+                        }
+                    }
+                }
+                (a, b) => {
+                    let es = [a.err(), b.err()].into_iter().flatten().collect();
+                    deferred.concat(PureErrorBuf::from_many(es, PureErrorLevel::Warning));
+                    deferred.push_warning(
+                        "could not find DATA offsets in TEXT, defaulting to HEADER offsets"
+                            .to_string(),
+                    );
+                    *default
+                }
+            }
+        }
+        Version::FCS3_2 => {
+            let b = BeginAnalysis::lookup_meta_opt(kws);
+            let e = EndAnalysis::lookup_meta_opt(kws);
+            match (b, e) {
+                (Ok(begin), Ok(end)) => {
+                    if let (Some(begin), Some(end)) = (begin.0, end.0) {
+                        let res = Segment::try_new(begin.0, end.0, conf.data, SegmentId::Analysis);
+                        match res {
+                            Ok(seg) => seg,
+                            Err(err) => {
+                                deferred.push_warning(format!(
+                                    "defaulting to header DATA offsets due to error: {}",
+                                    err
+                                ));
+                                *default
+                            }
+                        }
+                    } else {
+                        *default
+                    }
+                }
+                (a, b) => {
+                    let es = [a.err(), b.err()].into_iter().flatten().collect();
+                    deferred.concat(PureErrorBuf::from_many(es, PureErrorLevel::Warning));
+                    deferred.push_warning(
+                        "could not find DATA offsets in TEXT, defaulting to HEADER offsets"
+                            .to_string(),
+                    );
+                    *default
+                }
+            }
         }
     };
-    KwParser::run(kws, (&conf.standard).into(), |st| {
-        match version {
-            Version::FCS2_0 => Ok(*default),
-            Version::FCS3_0 | Version::FCS3_1 => {
-                let b = st.lookup_beginanalysis_req();
-                let e = st.lookup_endanalysis_req();
-                go(st, b, e)
-            }
-            Version::FCS3_2 => {
-                let b = st.lookup_beginanalysis_opt();
-                let e = st.lookup_endanalysis_opt();
-                go(st, b.0, e.0)
-            }
-        }
-        .map_err(|err| {
-            let msg = format!("defaulting to header ANALYSIS offsets due to error: {err}",);
-            st.push_meta_warning(msg);
-        })
-        .unwrap_or(*default)
-    })
+    // .map_err(|err| {
+    //     let msg = format!("defaulting to header ANALYSIS offsets due to error: {err}",);
+    //     deferred.push_warning(msg);
+    // });
+    PureSuccess { data, deferred }
 }
 
 fn h_read_analysis<R: Read + Seek>(h: &mut BufReader<R>, seg: &Segment) -> io::Result<Vec<u8>> {
@@ -5571,14 +5734,16 @@ impl VersionedParserMetadata for InnerMetadata2_0 {
         t.byteord.clone()
     }
 
-    fn tot(t: &Self::Target) -> Option<usize> {
+    fn tot(t: &Self::Target) -> Option<Tot> {
         t.tot.0.as_ref().copied()
     }
 
-    fn as_minimal_inner(&self, st: &mut KwParser) -> Option<InnerBareMetadata2_0> {
-        Some(InnerBareMetadata2_0 {
-            byteord: self.byteord.clone(),
-            tot: st.lookup_tot_opt(),
+    fn as_minimal_inner(&self, kws: &mut RawKeywords) -> PureMaybe<InnerBareMetadata2_0> {
+        PureMaybe::from_result_1(Tot::lookup_meta_opt(kws), PureErrorLevel::Warning).map(|res| {
+            res.map(|tot| InnerBareMetadata2_0 {
+                byteord: self.byteord.clone(),
+                tot,
+            })
         })
     }
 }
@@ -5594,15 +5759,16 @@ impl VersionedParserMetadata for InnerMetadata3_0 {
         t.byteord.clone()
     }
 
-    fn tot(t: &Self::Target) -> Option<usize> {
+    fn tot(t: &Self::Target) -> Option<Tot> {
         Some(t.tot)
     }
 
-    fn as_minimal_inner(&self, st: &mut KwParser) -> Option<InnerBareMetadata3_0> {
-        st.lookup_tot_req().map(|tot| InnerBareMetadata3_0 {
+    fn as_minimal_inner(&self, kws: &mut RawKeywords) -> PureMaybe<InnerBareMetadata3_0> {
+        let res = Tot::lookup_meta_req(kws).map(|tot| InnerBareMetadata3_0 {
             byteord: self.byteord.clone(),
             tot,
-        })
+        });
+        PureMaybe::from_result_1(res, PureErrorLevel::Error)
     }
 }
 
@@ -5617,15 +5783,16 @@ impl VersionedParserMetadata for InnerMetadata3_1 {
         ByteOrd::Endian(t.byteord)
     }
 
-    fn tot(t: &Self::Target) -> Option<usize> {
+    fn tot(t: &Self::Target) -> Option<Tot> {
         Some(t.tot)
     }
 
-    fn as_minimal_inner(&self, st: &mut KwParser) -> Option<InnerBareMetadata3_1> {
-        st.lookup_tot_req().map(|tot| InnerBareMetadata3_1 {
+    fn as_minimal_inner(&self, kws: &mut RawKeywords) -> PureMaybe<InnerBareMetadata3_1> {
+        let res = Tot::lookup_meta_req(kws).map(|tot| InnerBareMetadata3_1 {
             byteord: self.byteord,
             tot,
-        })
+        });
+        PureMaybe::from_result_1(res, PureErrorLevel::Error)
     }
 }
 
@@ -5640,15 +5807,16 @@ impl VersionedParserMetadata for InnerMetadata3_2 {
         ByteOrd::Endian(t.byteord)
     }
 
-    fn tot(t: &Self::Target) -> Option<usize> {
+    fn tot(t: &Self::Target) -> Option<Tot> {
         Some(t.tot)
     }
 
-    fn as_minimal_inner(&self, st: &mut KwParser) -> Option<InnerBareMetadata3_1> {
-        st.lookup_tot_req().map(|tot| InnerBareMetadata3_1 {
+    fn as_minimal_inner(&self, kws: &mut RawKeywords) -> PureMaybe<InnerBareMetadata3_1> {
+        let res = Tot::lookup_meta_req(kws).map(|tot| InnerBareMetadata3_1 {
             byteord: self.byteord,
             tot,
-        })
+        });
+        PureMaybe::from_result_1(res, PureErrorLevel::Error)
     }
 }
 
@@ -5663,11 +5831,11 @@ macro_rules! get_set_pre_3_2_datetime {
         }
 
         fn begin_time(&self) -> Option<NaiveTime> {
-            self.timestamps.btim.0.as_ref().map(|x| x.0)
+            self.timestamps.btim.0.as_ref().map(|x| (x.0).0)
         }
 
         fn end_time(&self) -> Option<NaiveTime> {
-            self.timestamps.etim.0.as_ref().map(|x| x.0)
+            self.timestamps.etim.0.as_ref().map(|x| (x.0).0)
         }
 
         fn set_datetimes_inner(
@@ -5677,8 +5845,8 @@ macro_rules! get_set_pre_3_2_datetime {
         ) {
             let d1 = begin.date_naive();
             let d2 = end.date_naive();
-            self.timestamps.btim = Some($fcstime(begin.time())).into();
-            self.timestamps.etim = Some($fcstime(end.time())).into();
+            self.timestamps.btim = Some($fcstime(begin.time()).into()).into();
+            self.timestamps.etim = Some($fcstime(end.time()).into()).into();
             // If two dates are the same, set $DATE, if not, then keep date
             // unset since pre-3.2 versions do not have a way to store two
             // dates. This is an inherent limitation in these early versions.
@@ -5981,7 +6149,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
             .begin
             .0
             .as_ref()
-            .map(|x| x.0.date_naive())
+            .map(|x| (x.0).0.date_naive())
             .or(self.timestamps.date.0.as_ref().map(|x| x.0))
     }
 
@@ -5990,31 +6158,31 @@ impl VersionedMetadata for InnerMetadata3_2 {
             .end
             .0
             .as_ref()
-            .map(|x| x.0.date_naive())
+            .map(|x| (x.0).0.date_naive())
             .or(self.timestamps.date.0.as_ref().map(|x| x.0))
     }
 
     fn begin_time(&self) -> Option<NaiveTime> {
-        self.datetimes.begin.0.as_ref().map(|x| x.0.time()).or(self
-            .timestamps
-            .btim
+        self.datetimes
+            .begin
             .0
             .as_ref()
-            .map(|x| x.0))
+            .map(|x| (x.0).0.time())
+            .or(self.timestamps.btim.0.as_ref().map(|x| (x.0).0))
     }
 
     fn end_time(&self) -> Option<NaiveTime> {
-        self.datetimes.end.0.as_ref().map(|x| x.0.time()).or(self
-            .timestamps
-            .etim
+        self.datetimes
+            .end
             .0
             .as_ref()
-            .map(|x| x.0))
+            .map(|x| (x.0).0.time())
+            .or(self.timestamps.etim.0.as_ref().map(|x| (x.0).0))
     }
 
     fn set_datetimes_inner(&mut self, begin: DateTime<FixedOffset>, end: DateTime<FixedOffset>) {
-        self.datetimes.begin = Some(FCSDateTime(begin)).into();
-        self.datetimes.end = Some(FCSDateTime(end)).into();
+        self.datetimes.begin = Some(BeginDateTime(FCSDateTime(begin))).into();
+        self.datetimes.end = Some(EndDateTime(FCSDateTime(end))).into();
         self.timestamps.btim = None.into();
         self.timestamps.etim = None.into();
         self.timestamps.date = None.into();
@@ -6326,31 +6494,31 @@ impl<'a, 'b> KwParser<'a, 'b> {
 
     fn lookup_timestamps2_0(&mut self) -> Timestamps2_0 {
         Timestamps2_0 {
-            btim: self.lookup_btim(),
-            etim: self.lookup_etim(),
-            date: self.lookup_date(false),
+            btim: self.lookup_meta_opt(false),
+            etim: self.lookup_meta_opt(false),
+            date: self.lookup_meta_opt(false),
         }
     }
 
     fn lookup_timestamps3_0(&mut self) -> Timestamps3_0 {
         Timestamps3_0 {
-            btim: self.lookup_btim60(),
-            etim: self.lookup_etim60(),
-            date: self.lookup_date(false),
+            btim: self.lookup_meta_opt(false),
+            etim: self.lookup_meta_opt(false),
+            date: self.lookup_meta_opt(false),
         }
     }
 
     fn lookup_timestamps3_1(&mut self, dep: bool) -> Timestamps3_1 {
         Timestamps3_1 {
-            btim: self.lookup_btim100(dep),
-            etim: self.lookup_etim100(dep),
-            date: self.lookup_date(dep),
+            btim: self.lookup_meta_opt(dep),
+            etim: self.lookup_meta_opt(dep),
+            date: self.lookup_meta_opt(dep),
         }
     }
 
     fn lookup_datetimes(&mut self) -> Datetimes {
-        let begin = self.lookup_begindatetime();
-        let end = self.lookup_enddatetime();
+        let begin = self.lookup_meta_opt(false);
+        let end = self.lookup_meta_opt(false);
         Datetimes { begin, end }
     }
 
@@ -6393,8 +6561,8 @@ impl<'a, 'b> KwParser<'a, 'b> {
         let mut matrix = DMatrix::<f32>::identity(par, par);
         for r in 0..par {
             for c in 0..par {
-                let m = format!("DFC{c}TO{r}");
-                if let Some(x) = self.lookup_meta_opt(m.as_str(), false).0 {
+                let k = format!("DFC{c}TO{r}");
+                if let Some(x) = self.lookup_dfc(k.as_str()) {
                     matrix[(r, c)] = x;
                 } else {
                     any_error = true;
@@ -6407,6 +6575,17 @@ impl<'a, 'b> KwParser<'a, 'b> {
             Some(Compensation { matrix })
         }
         .into()
+    }
+
+    fn lookup_dfc(&mut self, k: &str) -> Option<f32> {
+        self.raw_keywords.remove(k).and_then(|v| {
+            v.parse::<f32>()
+                .inspect_err(|e| {
+                    let msg = format!("{e} (key={k}, value='{v}'))");
+                    self.deferred.push_warning(msg);
+                })
+                .ok()
+        })
     }
 
     fn lookup_all_nonstandard(&mut self) -> NonStdKeywords {
@@ -6510,13 +6689,9 @@ impl<'a, 'b> KwParser<'a, 'b> {
         V: FromStr,
         <V as FromStr>::Err: fmt::Display,
     {
-        match V::lookup_meta_req(&mut self.raw_keywords) {
-            Ok(x) => Some(x),
-            Err(e) => {
-                self.deferred.push_error(e);
-                None.into()
-            }
-        }
+        V::lookup_meta_req(self.raw_keywords)
+            .map_err(|e| self.deferred.push_error(e))
+            .ok()
     }
 
     fn lookup_meta_opt<V>(&mut self, dep: bool) -> OptionalKw<V>
@@ -6525,7 +6700,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
         V: FromStr,
         <V as FromStr>::Err: fmt::Display,
     {
-        match V::lookup_meta_opt(&mut self.raw_keywords) {
+        match V::lookup_meta_opt(self.raw_keywords) {
             Ok(x) => {
                 if dep {
                     self.push_deprecated(V::std().as_str());
@@ -6545,13 +6720,9 @@ impl<'a, 'b> KwParser<'a, 'b> {
         V: FromStr,
         <V as FromStr>::Err: fmt::Display,
     {
-        match V::lookup_meas_req(&mut self.raw_keywords, n) {
-            Ok(x) => Some(x),
-            Err(e) => {
-                self.deferred.push_error(e);
-                None
-            }
-        }
+        V::lookup_meas_req(self.raw_keywords, n)
+            .map_err(|e| self.deferred.push_error(e))
+            .ok()
     }
 
     fn lookup_meas_opt<V>(&mut self, n: usize, dep: bool) -> OptionalKw<V>
@@ -6560,7 +6731,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
         V: FromStr,
         <V as FromStr>::Err: fmt::Display,
     {
-        match V::lookup_meas_opt(&mut self.raw_keywords, n) {
+        match V::lookup_meas_opt(self.raw_keywords, n) {
             Ok(x) => {
                 if dep {
                     self.push_deprecated(V::std(n).as_str());
@@ -6973,19 +7144,19 @@ fn lookup_stext_offsets(
     let offset_succ = KwParser::run(kws, conf.into(), |st| match version {
         Version::FCS2_0 => (None, None, false),
         Version::FCS3_0 | Version::FCS3_1 => {
-            let b = st.lookup_beginstext_req();
-            let e = st.lookup_endstext_req();
+            let b: Option<BeginSText> = st.lookup_meta_req();
+            let e: Option<EndSText> = st.lookup_meta_req();
             (b, e, conf.enforce_stext)
         }
         Version::FCS3_2 => {
-            let b = st.lookup_beginstext_opt().into();
-            let e = st.lookup_endstext_opt().into();
-            (b, e, false)
+            let b: OptionalKw<BeginSText> = st.lookup_meta_opt(false).into();
+            let e: OptionalKw<EndSText> = st.lookup_meta_opt(false).into();
+            (b.0, e.0, false)
         }
     });
     offset_succ.and_then(|offsets| match offsets {
         (Some(begin), Some(end), enforce) => {
-            let seg_res = Segment::try_new(begin, end, conf.stext, SegmentId::SupplementalText);
+            let seg_res = Segment::try_new(begin.0, end.0, conf.stext, SegmentId::SupplementalText);
             let level = if enforce {
                 PureErrorLevel::Error
             } else {
@@ -7047,7 +7218,7 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
             repair_keywords(&mut kws, &conf);
             // TODO this will throw an error if not present, but we may not care
             // so toggle b/t error and warning
-            KwParser::run(&mut kws, kwconf, |st| st.lookup_nextdata()).map(|nextdata| RawTEXT {
+            KwParser::run(&mut kws, kwconf, |st| st.lookup_meta_req()).map(|nextdata| RawTEXT {
                 version: header.version,
                 offsets: Offsets {
                     prim_text: header.text,
@@ -7606,8 +7777,8 @@ impl UnstainedDefaults {
 
 #[derive(Default)]
 pub struct DatetimesDefaults {
-    begin: DefaultMetaOptional<FCSDateTime>,
-    end: DefaultMetaOptional<FCSDateTime>,
+    begin: DefaultMetaOptional<BeginDateTime>,
+    end: DefaultMetaOptional<EndDateTime>,
 }
 
 impl DatetimesDefaults {

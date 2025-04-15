@@ -142,16 +142,19 @@ impl<E> Failure<E> {
 }
 
 impl PureErrorBuf {
-    pub fn from(msg: String, level: PureErrorLevel) -> PureErrorBuf {
+    pub fn from(msg: String, level: PureErrorLevel) -> Self {
         PureErrorBuf {
             errors: vec![PureError { msg, level }],
         }
     }
 
-    pub fn concat(mut self, other: PureErrorBuf) -> PureErrorBuf {
-        self.errors.extend(other.errors);
+    pub fn concat(&mut self, other: Self) {
+        self.errors.extend(other.errors)
+    }
+
+    pub fn chain(self, other: Self) -> Self {
         PureErrorBuf {
-            errors: self.errors,
+            errors: self.errors.into_iter().chain(other.errors).collect(),
         }
     }
 
@@ -308,7 +311,7 @@ impl<X> PureSuccess<X> {
     ) -> PureSuccess<Z> {
         PureSuccess {
             data: f(self.data, other.data),
-            deferred: self.deferred.concat(other.deferred),
+            deferred: self.deferred.chain(other.deferred),
         }
     }
 
@@ -328,7 +331,7 @@ impl<X> PureSuccess<X> {
     ) -> PureSuccess<Y> {
         PureSuccess {
             data: f(self.data, a.data, b.data),
-            deferred: self.deferred.concat(a.deferred).concat(b.deferred),
+            deferred: self.deferred.chain(a.deferred).chain(b.deferred),
         }
     }
 
@@ -343,9 +346,9 @@ impl<X> PureSuccess<X> {
             data: f(self.data, a.data, b.data, c.data),
             deferred: self
                 .deferred
-                .concat(a.deferred)
-                .concat(b.deferred)
-                .concat(c.deferred),
+                .chain(a.deferred)
+                .chain(b.deferred)
+                .chain(c.deferred),
         }
     }
 

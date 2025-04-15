@@ -4,7 +4,8 @@ use fireflow_core::config::Strict;
 use fireflow_core::config::{self, OffsetCorrection};
 use fireflow_core::error;
 use fireflow_core::validated::datepattern::DatePattern;
-use fireflow_core::validated::nonstandard::NonStdMeasPattern;
+use fireflow_core::validated::nonstandard::*;
+use fireflow_core::validated::ranged_float::*;
 use fireflow_core::validated::shortname::Shortname;
 use fireflow_core::validated::textdelim::TEXTDelim;
 
@@ -589,7 +590,12 @@ pywrap!(PyMeasurement3_2, api::Measurement3_2, "Measurement3_2");
 pywrap!(PyDatePattern, DatePattern, "DatePattern");
 pywrap!(PyShortname, Shortname, "Shortname");
 pywrap!(PyNonStdMeasPattern, NonStdMeasPattern, "NonStdMeasPattern");
+pywrap!(PyNonStdMeasKey, NonStdMeasKey, "NonStdMeasKey");
+pywrap!(PyNonStdKey, NonStdKey, "NonStdKey");
 pywrap!(PyTEXTDelim, TEXTDelim, "TEXTDelim");
+pywrap!(PyCytSetter, MetaKwSetter<api::Cyt>, "CytSetter");
+
+pywrap!(PyEndian, api::Endian, "Endian");
 
 py_parse!(PyDatePattern, DatePattern);
 py_disp!(PyDatePattern);
@@ -599,6 +605,14 @@ py_disp!(PyShortname);
 
 py_parse!(PyNonStdMeasPattern, NonStdMeasPattern);
 py_disp!(PyNonStdMeasPattern);
+
+// #[pymethods]
+// impl PyCytSetter {
+//     #[new]
+//     fn new(def_key: bool, default: Option<String>, key: Option<PyNonStdKey>) -> PyCytSetter {
+//         api::OptMetaKey::setter(default.map(|x| x.into()), def_key, key.map(|x| x.0)).into()
+//     }
+// }
 
 #[pymethods]
 impl PyTEXTDelim {
@@ -974,6 +988,100 @@ impl PyCoreTEXT3_2 {
         );
         handle_pure(new)
     }
+
+    #[getter]
+    fn get_byteord(&self) -> PyEndian {
+        self.0.metadata.specific.byteord.into()
+    }
+
+    #[setter]
+    fn set_byteord(&mut self, x: PyEndian) {
+        self.0.metadata.specific.byteord = x.into()
+    }
+
+    #[getter]
+    fn get_cyt(&self) -> String {
+        self.0.metadata.specific.cyt.0.clone()
+    }
+
+    #[setter]
+    fn set_cyt(&mut self, x: String) {
+        self.0.metadata.specific.cyt = x.into()
+    }
+
+    // TODO add get/set $SPILLOVER matrix, which will need some validation
+
+    #[getter]
+    fn get_cytsn(&self) -> Option<String> {
+        self.0
+            .metadata
+            .specific
+            .cytsn
+            .0
+            .as_ref()
+            .map(|x| x.0.clone())
+    }
+
+    #[setter]
+    fn set_cytsn(&mut self, x: Option<String>) {
+        self.0.metadata.specific.cytsn = x.map(|x| x.into()).into()
+    }
+
+    #[getter]
+    fn get_timestep(&self) -> Option<f32> {
+        self.0
+            .metadata
+            .specific
+            .timestep
+            .0
+            .as_ref()
+            .map(|x| x.0.into())
+    }
+
+    #[setter]
+    fn set_timestep(&mut self, x: Option<f32>) -> PyResult<()> {
+        let t = x
+            .map(PositiveFloat::try_from)
+            .transpose()
+            .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+        self.0.metadata.specific.timestep = t.map(api::Timestep).into();
+        Ok(())
+    }
+
+    #[getter]
+    fn get_vol(&self) -> Option<f32> {
+        self.0.metadata.specific.vol.0.as_ref().map(|x| x.0.into())
+    }
+
+    #[setter]
+    fn set_vol(&mut self, x: Option<f32>) -> PyResult<()> {
+        let t = x
+            .map(NonNegFloat::try_from)
+            .transpose()
+            .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+        self.0.metadata.specific.vol = t.map(api::Vol).into();
+        Ok(())
+    }
+
+    #[getter]
+    fn get_flowrate(&self) -> Option<String> {
+        self.0
+            .metadata
+            .specific
+            .flowrate
+            .0
+            .as_ref()
+            .map(|x| x.0.clone())
+    }
+
+    #[setter]
+    fn set_flowrate(&mut self, x: Option<String>) {
+        self.0.metadata.specific.flowrate = x.map(|x| x.into()).into()
+    }
+
+    // TODO add rest of metadata keywords
+    // TODO add option to get/set measurements
+    // TODO add option to populate fields based on nonstandard keywords?
 
     // TODO make function to add DATA/ANALYSIS, which will convert this to a CoreDataset
 }

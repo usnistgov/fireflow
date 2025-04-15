@@ -7,6 +7,7 @@ use crate::macros::{newtype_disp, newtype_from, newtype_from_outer, newtype_from
 use crate::optionalkw::OptionalKw;
 pub use crate::segment::*;
 use crate::validated::nonstandard::*;
+use crate::validated::ranged_float::*;
 use crate::validated::shortname::Shortname;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
@@ -285,7 +286,7 @@ pub struct CoreTEXT<M, P> {
     ///
     /// This is specific to each FCS version, which is encoded in the generic
     /// type variable.
-    metadata: Metadata<M>,
+    pub metadata: Metadata<M>,
 
     /// All measurement TEXT keywords.
     ///
@@ -295,7 +296,7 @@ pub struct CoreTEXT<M, P> {
     ///
     /// This is specific to each FCS version, which is encoded in the generic
     /// type variable.
-    measurements: Vec<Measurement<P>>,
+    pub measurements: Vec<Measurement<P>>,
 }
 
 /// Raw TEXT key/value pairs
@@ -303,28 +304,28 @@ type RawKeywords = HashMap<String, String>;
 
 /// A datetime as used in the $(BEGIN|END)DATETIME keys (3.2+ only)
 #[derive(Debug, Clone, Serialize)]
-struct FCSDateTime(DateTime<FixedOffset>);
+pub struct FCSDateTime(pub DateTime<FixedOffset>);
 
 /// A time as used in the $BTIM/ETIM keys without seconds (2.0 only)
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, PartialOrd)]
-struct FCSTime(NaiveTime);
+pub struct FCSTime(pub NaiveTime);
 
 /// A time as used in the $BTIM/ETIM keys with 1/60 seconds (3.0 only)
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, PartialOrd)]
-struct FCSTime60(NaiveTime);
+pub struct FCSTime60(pub NaiveTime);
 
 /// A time as used in the $BTIM/ETIM keys with centiseconds (3.1+ only)
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, PartialOrd)]
-struct FCSTime100(NaiveTime);
+pub struct FCSTime100(pub NaiveTime);
 
 /// A datetime as used in the $LAST_MODIFIED key (3.1+ only)
 // TODO this should almost certainly be after $ENDDATETIME if given
 #[derive(Debug, Clone, Serialize)]
-struct ModifiedDateTime(NaiveDateTime);
+pub struct ModifiedDateTime(pub NaiveDateTime);
 
 /// A date as used in the $DATE key (all versions)
 #[derive(Debug, Clone, Serialize)]
-struct FCSDate(NaiveDate);
+pub struct FCSDate(pub NaiveDate);
 
 /// A convenient bundle holding data/time keyword values.
 ///
@@ -332,15 +333,15 @@ struct FCSDate(NaiveDate);
 /// types for different versions are all slightly different in their treatment
 /// of sub-second time.
 #[derive(Clone, Serialize)]
-struct Timestamps<X> {
+pub struct Timestamps<X> {
     /// The value of the $BTIM key
-    btim: OptionalKw<Btim<X>>,
+    pub btim: OptionalKw<Btim<X>>,
 
     /// The value of the $ETIM key
-    etim: OptionalKw<Etim<X>>,
+    pub etim: OptionalKw<Etim<X>>,
 
     /// The value of the $DATE key
-    date: OptionalKw<FCSDate>,
+    pub date: OptionalKw<FCSDate>,
 }
 
 impl<X> Timestamps<X> {
@@ -394,22 +395,22 @@ impl<X: PartialOrd> Timestamps<X> {
 // }
 
 /// $BTIM/ETIM/DATE for FCS 2.0
-type Timestamps2_0 = Timestamps<FCSTime>;
+pub type Timestamps2_0 = Timestamps<FCSTime>;
 
 /// $BTIM/ETIM/DATE for FCS 3.0
-type Timestamps3_0 = Timestamps<FCSTime60>;
+pub type Timestamps3_0 = Timestamps<FCSTime60>;
 
 /// $BTIM/ETIM/DATE for FCS 3.1+
-type Timestamps3_1 = Timestamps<FCSTime100>;
+pub type Timestamps3_1 = Timestamps<FCSTime100>;
 
 /// A convenient bundle for the $BEGINDATETIME and $ENDDATETIME keys (3.2+)
 #[derive(Clone, Serialize, Default)]
-struct Datetimes {
+pub struct Datetimes {
     /// Value for the $BEGINDATETIME key.
-    begin: OptionalKw<BeginDateTime>,
+    pub begin: OptionalKw<BeginDateTime>,
 
     /// Value for the $ENDDATETIME key.
-    end: OptionalKw<EndDateTime>,
+    pub end: OptionalKw<EndDateTime>,
 }
 
 impl Datetimes {
@@ -424,7 +425,7 @@ impl Datetimes {
 
 /// The values used for the $MODE key (up to 3.1)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-enum Mode {
+pub enum Mode {
     List,
     // TODO I have no idea what these even mean and IDK how to support them
     Uncorrelated,
@@ -460,7 +461,7 @@ pub enum Endian {
 /// technically allowed to vary in length in the case of $DATATYPE=I since
 /// integers do not necessarily need to be 32 or 64-bit.
 #[derive(Debug, Clone, Serialize)]
-enum ByteOrd {
+pub enum ByteOrd {
     // TODO this should also be applied to things like 1,2,3 or 5,4,3,2,1, which
     // are big/little endian but not "traditional" byte widths.
     Endian(Endian),
@@ -469,7 +470,7 @@ enum ByteOrd {
 
 /// The four allowed values for the $DATATYPE keyword.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize)]
-enum AlphaNumType {
+pub enum AlphaNumType {
     Ascii,
     Integer,
     Single,
@@ -488,29 +489,28 @@ enum NumType {
 ///
 /// This is encoded in the $DFCmTOn keywords in 2.0 and $COMP in 3.0.
 #[derive(Debug, Clone, Serialize)]
-struct Compensation {
+pub struct Compensation {
     /// Values in the comp matrix in row-major order. Assumed to be the
     /// same width and height as $PAR
-    // TODO just use a DMatrix here?
-    matrix: DMatrix<f32>,
+    pub matrix: DMatrix<f32>,
 }
 
 /// The spillover matrix from the $SPILLOVER keyword (3.1+)
 #[derive(Debug, Clone, Serialize)]
-struct Spillover {
+pub struct Spillover {
     /// The measurements in the spillover matrix. Assumed to be a subset of the
     /// values in the $PnN keys.
-    measurements: Vec<Shortname>,
+    pub measurements: Vec<Shortname>,
 
     /// Numeric values in the spillover matrix in row-major order.
-    matrix: DMatrix<f32>,
+    pub matrix: DMatrix<f32>,
 }
 
 /// The value of the $TR field (all versions)
 ///
 /// This is formatted as 'string,f' where 'string' is a measurement name.
 #[derive(Debug, Clone, Serialize)]
-struct Trigger {
+pub struct Trigger {
     /// The measurement name (assumed to match a '$PnN' value).
     measurement: Shortname,
 
@@ -957,7 +957,7 @@ trait Optional {
     }
 }
 
-trait ReqMetaKey
+pub trait ReqMetaKey
 where
     Self: Required,
     Self: fmt::Display,
@@ -974,7 +974,7 @@ where
     }
 }
 
-trait ReqMeasKey
+pub trait ReqMeasKey
 where
     Self: Required,
     Self: fmt::Display,
@@ -991,7 +991,7 @@ where
     }
 }
 
-trait OptMetaKey
+pub trait OptMetaKey
 where
     Self: Optional,
     Self: fmt::Display,
@@ -1007,12 +1007,7 @@ where
         (Self::std(), opt.0.as_ref().map(|s| s.to_string()))
     }
 
-    fn setter(
-        &self,
-        default: Option<Self>,
-        def_key: bool,
-        key: Option<NonStdKey>,
-    ) -> MetaKwSetter<Self> {
+    fn setter(default: Option<Self>, def_key: bool, key: Option<NonStdKey>) -> MetaKwSetter<Self> {
         if let Some(def) = default {
             KwSetter::Default(def)
         } else {
@@ -1022,7 +1017,7 @@ where
     }
 }
 
-trait OptMeasKey
+pub trait OptMeasKey
 where
     Self: Optional,
     Self: fmt::Display,
@@ -1039,7 +1034,6 @@ where
     }
 
     fn setter(
-        &self,
         default: Option<Self>,
         def_key: bool,
         key: Option<NonStdMeasKey>,
@@ -1291,9 +1285,9 @@ macro_rules! kw_time {
 }
 
 #[derive(Clone, Serialize)]
-struct Btim<T>(pub T);
+pub struct Btim<T>(pub T);
 #[derive(Clone, Serialize)]
-struct Etim<T>(pub T);
+pub struct Etim<T>(pub T);
 
 kw_time!(Btim2_0, Btim, FCSTime, FCSTimeError, "BTIM");
 kw_time!(Etim2_0, Etim, FCSTime, FCSTimeError, "ETIM");
@@ -1320,39 +1314,35 @@ newtype_disp!(EndDateTime);
 newtype_fromstr!(EndDateTime, FCSDateTimeError);
 kw_opt_meta!(EndDateTime, "ENDDATETIME");
 
-// TODO technically this should be validated to be > 0
 #[derive(Clone, Serialize)]
-pub struct Timestep(pub f32);
+pub struct Timestep(pub PositiveFloat);
 
 newtype_disp!(Timestep);
-newtype_fromstr!(Timestep, ParseFloatError);
+newtype_fromstr!(Timestep, RangedFloatError);
 
 kw_opt_meta!(Timestep, "TIMESTEP");
 
-// TODO ditto
 #[derive(Clone, Serialize)]
-pub struct Vol(pub f32);
+pub struct Vol(pub NonNegFloat);
 
 newtype_disp!(Vol);
-newtype_fromstr!(Vol, ParseFloatError);
+newtype_fromstr!(Vol, RangedFloatError);
 
 kw_opt_meta!(Vol, "VOL");
 
-// TODO ditto
 #[derive(Clone, Serialize)]
-pub struct Gain(pub f32);
+pub struct Gain(pub PositiveFloat);
 
 newtype_disp!(Gain);
-newtype_fromstr!(Gain, ParseFloatError);
+newtype_fromstr!(Gain, RangedFloatError);
 
 kw_opt_meas!(Gain, "G");
 
-// TODO ditto
 #[derive(Clone, Serialize)]
-pub struct DetectorVoltage(pub f32);
+pub struct DetectorVoltage(pub NonNegFloat);
 
 newtype_disp!(DetectorVoltage);
-newtype_fromstr!(DetectorVoltage, ParseFloatError);
+newtype_fromstr!(DetectorVoltage, RangedFloatError);
 
 kw_opt_meas!(DetectorVoltage, "V");
 
@@ -1390,123 +1380,123 @@ kw_opt_meas!(Calibration3_2, "CALIBRATION");
 #[derive(Clone, Serialize)]
 pub struct InnerMetadata2_0 {
     /// Value of $MODE
-    mode: Mode,
+    pub mode: Mode,
 
     /// Value of $BYTEORD
-    byteord: ByteOrd,
+    pub byteord: ByteOrd,
 
     /// Value of $CYT
-    cyt: OptionalKw<Cyt>,
+    pub cyt: OptionalKw<Cyt>,
 
     /// Compensation matrix derived from 'DFCnTOm' key/value pairs
-    comp: OptionalKw<Compensation>,
+    pub comp: OptionalKw<Compensation>,
 
     /// Values of $BTIM/ETIM/$DATE
-    timestamps: Timestamps2_0,
+    pub timestamps: Timestamps2_0,
 }
 
 /// Metadata fields specific to version 3.0
 #[derive(Clone, Serialize)]
 pub struct InnerMetadata3_0 {
     /// Value of $MODE
-    mode: Mode,
+    pub mode: Mode,
 
     /// Value of $BYTEORD
-    byteord: ByteOrd,
+    pub byteord: ByteOrd,
 
     /// Value of $CYT
-    cyt: OptionalKw<Cyt>,
+    pub cyt: OptionalKw<Cyt>,
 
     /// Value of $COMP
-    comp: OptionalKw<Compensation>,
+    pub comp: OptionalKw<Compensation>,
 
     /// Values of $BTIM/ETIM/$DATE
-    timestamps: Timestamps3_0,
+    pub timestamps: Timestamps3_0,
 
     /// Value of $CYTSN
-    cytsn: OptionalKw<Cytsn>,
+    pub cytsn: OptionalKw<Cytsn>,
 
     /// Value of $TIMESTEP
-    timestep: OptionalKw<Timestep>,
+    pub timestep: OptionalKw<Timestep>,
 
     /// Value of $UNICODE
-    unicode: OptionalKw<Unicode>,
+    pub unicode: OptionalKw<Unicode>,
 }
 
 /// Metadata fields specific to version 3.1
 #[derive(Clone, Serialize)]
 pub struct InnerMetadata3_1 {
     /// Value of $MODE
-    mode: Mode,
+    pub mode: Mode,
 
     /// Value of $BYTEORD
-    byteord: Endian,
+    pub byteord: Endian,
 
     /// Value of $CYT
-    cyt: OptionalKw<Cyt>,
+    pub cyt: OptionalKw<Cyt>,
 
     /// Values of $BTIM/ETIM/$DATE
-    timestamps: Timestamps3_1,
+    pub timestamps: Timestamps3_1,
 
     /// Value of $CYTSN
-    cytsn: OptionalKw<Cytsn>,
+    pub cytsn: OptionalKw<Cytsn>,
 
     /// Value of $TIMESTEP
-    timestep: OptionalKw<Timestep>,
+    pub timestep: OptionalKw<Timestep>,
 
     /// Value of $SPILLOVER
-    spillover: OptionalKw<Spillover>,
+    pub spillover: OptionalKw<Spillover>,
 
     /// Values of $LAST_MODIFIED/$LAST_MODIFIER/$ORIGINALITY
-    modification: ModificationData,
+    pub modification: ModificationData,
 
     /// Values of $PLATEID/$PLATENAME/$WELLID
-    plate: PlateData,
+    pub plate: PlateData,
 
     /// Value of $VOL
-    vol: OptionalKw<Vol>,
+    pub vol: OptionalKw<Vol>,
 }
 
 #[derive(Clone, Serialize)]
 pub struct InnerMetadata3_2 {
     /// Value of $BYTEORD
-    byteord: Endian,
+    pub byteord: Endian,
 
     /// Values of $BTIM/ETIM/$DATE
-    timestamps: Timestamps3_1,
+    pub timestamps: Timestamps3_1,
 
     /// Values of $BEGINDATETIME/$ENDDATETIME
-    datetimes: Datetimes,
+    pub datetimes: Datetimes,
 
     /// Value of $CYT
-    cyt: Cyt,
+    pub cyt: Cyt,
 
     /// Value of $SPILLOVER
-    spillover: OptionalKw<Spillover>,
+    pub spillover: OptionalKw<Spillover>,
 
     /// Value of $CYTSN
-    cytsn: OptionalKw<Cytsn>,
+    pub cytsn: OptionalKw<Cytsn>,
 
     /// Value of $TIMESTEP
-    timestep: OptionalKw<Timestep>,
+    pub timestep: OptionalKw<Timestep>,
 
     /// Values of $LAST_MODIFIED/$LAST_MODIFIER/$ORIGINALITY
-    modification: ModificationData,
+    pub modification: ModificationData,
 
     /// Values of $PLATEID/$PLATENAME/$WELLID
-    plate: PlateData,
+    pub plate: PlateData,
 
     /// Value of $VOL
-    vol: OptionalKw<Vol>,
+    pub vol: OptionalKw<Vol>,
 
     /// Values of $CARRIERID/$CARRIERTYPE/$LOCATIONID
-    carrier: CarrierData,
+    pub carrier: CarrierData,
 
     /// Values of $UNSTAINEDINFO/$UNSTAINEDCENTERS
-    unstained: UnstainedData,
+    pub unstained: UnstainedData,
 
     /// Value of $FLOWRATE
-    flowrate: OptionalKw<Flowrate>,
+    pub flowrate: OptionalKw<Flowrate>,
 }
 
 /// Structured non-measurement metadata.
@@ -1517,49 +1507,49 @@ pub struct InnerMetadata3_2 {
 #[derive(Clone, Serialize)]
 pub struct Metadata<X> {
     /// Value of $DATATYPE
-    datatype: AlphaNumType,
+    pub datatype: AlphaNumType,
 
     /// Value of $ABRT
-    abrt: OptionalKw<Abrt>,
+    pub abrt: OptionalKw<Abrt>,
 
     /// Value of $COM
-    com: OptionalKw<Com>,
+    pub com: OptionalKw<Com>,
 
     /// Value of $CELLS
-    cells: OptionalKw<Cells>,
+    pub cells: OptionalKw<Cells>,
 
     /// Value of $EXP
-    exp: OptionalKw<Exp>,
+    pub exp: OptionalKw<Exp>,
 
     /// Value of $FIL
-    fil: OptionalKw<Fil>,
+    pub fil: OptionalKw<Fil>,
 
     /// Value of $INST
-    inst: OptionalKw<Inst>,
+    pub inst: OptionalKw<Inst>,
 
     /// Value of $LOST
-    lost: OptionalKw<Lost>,
+    pub lost: OptionalKw<Lost>,
 
     /// Value of $OP
-    op: OptionalKw<Op>,
+    pub op: OptionalKw<Op>,
 
     /// Value of $PROJ
-    proj: OptionalKw<Proj>,
+    pub proj: OptionalKw<Proj>,
 
     /// Value of $SMNO
-    smno: OptionalKw<Smno>,
+    pub smno: OptionalKw<Smno>,
 
     /// Value of $SRC
-    src: OptionalKw<Src>,
+    pub src: OptionalKw<Src>,
 
     /// Value of $SYS
-    sys: OptionalKw<Sys>,
+    pub sys: OptionalKw<Sys>,
 
     /// Value of $TR
-    tr: OptionalKw<Trigger>,
+    pub tr: OptionalKw<Trigger>,
 
     /// Version-specific data
-    specific: X,
+    pub specific: X,
 
     /// Non-standard keywords.
     ///
@@ -1569,7 +1559,7 @@ pub struct Metadata<X> {
     /// considered 'deviant' and stored elsewhere since this structure will also
     /// be used to write FCS-compliant files (which do not allow nonstandard
     /// keywords starting with '$')
-    nonstandard_keywords: NonStdKeywords,
+    pub nonstandard_keywords: NonStdKeywords,
 }
 
 /// Version-specific structured metadata derived from TEXT
@@ -1787,56 +1777,56 @@ struct DataReader {
     begin: u64,
 }
 
-struct FCSDateTimeError;
-struct FCSTimeError;
-struct FCSTime60Error;
-struct FCSTime100Error;
-struct FCSDateError;
+pub struct FCSDateTimeError;
+pub struct FCSTimeError;
+pub struct FCSTime60Error;
+pub struct FCSTime100Error;
+pub struct FCSDateError;
 
-struct AlphaNumTypeError;
-struct NumTypeError;
+pub struct AlphaNumTypeError;
+pub struct NumTypeError;
 pub struct EndianError;
-struct ModifiedDateTimeError;
-struct FeatureError;
-struct OriginalityError;
+pub struct ModifiedDateTimeError;
+pub struct FeatureError;
+pub struct OriginalityError;
 
-enum BytesError {
+pub enum BytesError {
     Int(ParseIntError),
     Range,
     NotOctet,
 }
 
-enum FixedSeqError {
+pub enum FixedSeqError {
     WrongLength { total: usize, expected: usize },
     BadLength,
     BadFloat,
 }
 
-enum NamedFixedSeqError {
+pub enum NamedFixedSeqError {
     Seq(FixedSeqError),
     NonUnique,
 }
 
-enum CalibrationError<C> {
+pub enum CalibrationError<C> {
     Float(ParseFloatError),
     Range,
     Format(C),
 }
 
-struct CalibrationFormat3_1;
-struct CalibrationFormat3_2;
+pub struct CalibrationFormat3_1;
+pub struct CalibrationFormat3_2;
 
-enum UnicodeError {
+pub enum UnicodeError {
     Empty,
     BadFormat,
 }
 
-enum ParseByteOrdError {
+pub enum ParseByteOrdError {
     InvalidOrder,
     InvalidNumbers,
 }
 
-enum TriggerError {
+pub enum TriggerError {
     WrongFieldNumber,
     IntFormat(std::num::ParseIntError),
 }
@@ -1846,20 +1836,20 @@ pub enum ScaleError {
     WrongFormat,
 }
 
-enum DisplayError {
+pub enum DisplayError {
     FloatError(ParseFloatError),
     InvalidType,
     FormatError,
 }
 
-struct ModeError;
+pub struct ModeError;
 
-enum RangeError {
+pub enum RangeError {
     Int(ParseIntError),
     Float(ParseFloatError),
 }
 
-struct Mode3_2Error;
+pub struct Mode3_2Error;
 
 macro_rules! series_cast {
     ($series:expr, $from:ident, $to:ty) => {
@@ -7467,7 +7457,7 @@ impl From<FCSTime100> for FCSTime60 {
     }
 }
 
-struct FromByteOrdError;
+pub struct FromByteOrdError;
 
 impl TryFrom<ByteOrd> for Endian {
     type Error = FromByteOrdError;

@@ -6545,14 +6545,10 @@ impl<'a, 'b> KwParser<'a, 'b> {
                         true
                     }
                 }),
-                Err(err) => self.push_meta_warning(err.to_string()),
+                Err(err) => self.deferred.push_warning(err.to_string()),
             }
         }
         ns
-    }
-
-    fn push_meta_warning(&mut self, msg: String) {
-        self.deferred.push_warning(msg);
     }
 
     // auxiliary functions
@@ -6593,18 +6589,8 @@ impl<'a, 'b> KwParser<'a, 'b> {
         V: FromStr,
         <V as FromStr>::Err: fmt::Display,
     {
-        match V::lookup_meta_opt(self.raw_keywords) {
-            Ok(x) => {
-                if dep {
-                    self.push_deprecated(V::std().as_str());
-                };
-                x
-            }
-            Err(e) => {
-                self.deferred.push_warning(e);
-                None.into()
-            }
-        }
+        let res = V::lookup_meta_opt(self.raw_keywords);
+        self.process_opt(res, V::std(), dep)
     }
 
     fn lookup_meas_req<V>(&mut self, n: MeasIdx) -> Option<V>
@@ -6624,24 +6610,25 @@ impl<'a, 'b> KwParser<'a, 'b> {
         V: FromStr,
         <V as FromStr>::Err: fmt::Display,
     {
-        match V::lookup_meas_opt(self.raw_keywords, n) {
-            Ok(x) => {
-                if dep {
-                    self.push_deprecated(V::std(n).as_str());
-                };
-                x
-            }
-            Err(e) => {
-                self.deferred.push_warning(e);
-                None.into()
-            }
-        }
+        let res = V::lookup_meas_opt(self.raw_keywords, n);
+        self.process_opt(res, V::std(n), dep)
     }
 
-    fn push_deprecated(&mut self, k: &str) {
-        let msg = format!("deprecated key: {k}");
-        self.deferred
-            .push_msg_leveled(msg, self.conf.disallow_deprecated);
+    fn process_opt<V>(
+        &mut self,
+        res: Result<OptionalKw<V>, String>,
+        k: String,
+        dep: bool,
+    ) -> OptionalKw<V> {
+        res.inspect(|_| {
+            if dep {
+                let msg = format!("deprecated key: {k}");
+                self.deferred
+                    .push_msg_leveled(msg, self.conf.disallow_deprecated);
+            }
+        })
+        .map_err(|e| self.deferred.push_warning(e))
+        .unwrap_or(None.into())
     }
 }
 

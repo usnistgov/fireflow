@@ -16,43 +16,43 @@ pub struct PositiveFloat(f32);
 newtype_disp!(NonNegFloat);
 newtype_disp!(PositiveFloat);
 
-impl FromStr for NonNegFloat {
-    type Err = RangedFloatError;
+macro_rules! impl_ranged_float {
+    ($type:ident, $op:tt, $zero:expr) => {
+        impl FromStr for $type {
+            type Err = RangedFloatError;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.parse::<f32>()
-            .map_err(RangedFloatError::Parse)
-            .and_then(|x| {
-                if x >= 0.0 {
-                    Ok(NonNegFloat(x))
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                s.parse::<f32>()
+                    .map_err(RangedFloatError::Parse)
+                    .and_then(Self::try_from)
+            }
+        }
+
+        impl From<$type> for f32 {
+            fn from(x: $type) -> Self {
+                x.0
+            }
+        }
+
+        impl TryFrom<f32> for $type {
+            type Error = RangedFloatError;
+
+            fn try_from(x: f32) -> Result<Self, RangedFloatError> {
+                if 0.0 $op x {
+                    Ok(Self(x))
                 } else {
                     Err(RangedFloatError::Range {
                         x,
-                        include_zero: true,
+                        include_zero: $zero,
                     })
                 }
-            })
-    }
+            }
+        }
+    };
 }
 
-impl FromStr for PositiveFloat {
-    type Err = RangedFloatError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.parse::<f32>()
-            .map_err(RangedFloatError::Parse)
-            .and_then(|x| {
-                if x > 0.0 {
-                    Ok(PositiveFloat(x))
-                } else {
-                    Err(RangedFloatError::Range {
-                        x,
-                        include_zero: false,
-                    })
-                }
-            })
-    }
-}
+impl_ranged_float!(PositiveFloat, <, false);
+impl_ranged_float!(NonNegFloat, <=, true);
 
 pub enum RangedFloatError {
     Parse(ParseFloatError),

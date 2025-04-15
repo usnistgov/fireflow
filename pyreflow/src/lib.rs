@@ -941,10 +941,10 @@ impl PyCoreTEXT3_2 {
     fn version_2_0(&self) -> PyResult<PyCoreTEXT2_0> {
         let new = api::CoreTEXT3_2::convert_core_def(
             self.0.clone(),
-            api::CoreDefaults::new(
-                api::MetadataDefaults3_2To2_0::default(),
-                api::MeasurementDefaults3_2To2_0,
-                self.0.par().0,
+            api::CoreSetter::new(
+                api::MetaSetter3_2To2_0::default(),
+                api::MeasSetter3_2To2_0,
+                self.0.par(),
             ),
         );
         handle_pure(new)
@@ -954,10 +954,10 @@ impl PyCoreTEXT3_2 {
     fn version_3_0(&self) -> PyResult<PyCoreTEXT3_0> {
         let new = api::CoreTEXT3_2::convert_core_def(
             self.0.clone(),
-            api::CoreDefaults::new(
-                api::MetadataDefaults3_2To3_0::default(),
-                api::MeasurementDefaults3_2To3_0,
-                self.0.par().0,
+            api::CoreSetter::new(
+                api::MetaSetter3_2To3_0::default(),
+                api::MeasSetter3_2To3_0,
+                self.0.par(),
             ),
         );
         handle_pure(new)
@@ -966,10 +966,10 @@ impl PyCoreTEXT3_2 {
     fn version_3_1(&self) -> PyResult<PyCoreTEXT3_1> {
         let new = api::CoreTEXT3_2::convert_core_def(
             self.0.clone(),
-            api::CoreDefaults::new(
-                api::MetadataDefaults3_2To3_1,
-                api::MeasurementDefaults3_2To3_1,
-                self.0.par().0,
+            api::CoreSetter::new(
+                api::MetaSetter3_2To3_1,
+                api::MeasSetter3_2To3_1,
+                self.0.par(),
             ),
         );
         handle_pure(new)

@@ -1,4 +1,3 @@
-use std::fmt;
 use std::io;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -236,14 +235,16 @@ impl PureErrorBuf {
     }
 }
 
-impl<X> PureSuccess<X> {
-    pub fn from(data: X) -> PureSuccess<X> {
+impl<X> From<X> for PureSuccess<X> {
+    fn from(data: X) -> Self {
         PureSuccess {
             data,
             deferred: PureErrorBuf::default(),
         }
     }
+}
 
+impl<X> PureSuccess<X> {
     pub fn push(&mut self, e: PureError) {
         self.deferred.errors.push(e)
     }

@@ -7528,7 +7528,7 @@ pub trait IntoMeasurement<T, Y>: Sized {
     type XToY: From<Y>;
     type Req;
 
-    fn defaults(r: Self::Req) -> Self::XToY;
+    fn setter(r: Self::Req) -> Self::XToY;
 
     fn convert(m: Measurement<Self>, n: MeasIdx, def: Self::XToY) -> PureSuccess<Measurement<T>> {
         let mut m = m;
@@ -7555,7 +7555,7 @@ pub trait IntoMetadata<T, D>: Sized {
     type XToY: From<D>;
     type Req;
 
-    fn defaults(r: Self::Req) -> Self::XToY;
+    fn setter(r: Self::Req) -> Self::XToY;
 
     fn convert(m: Metadata<Self>, def: Self::XToY, ms: &[Shortname]) -> PureSuccess<Metadata<T>> {
         let mut m = m;
@@ -7602,7 +7602,7 @@ where
     type FromM: IntoMetadata<ToM, DM>;
     type FromP: IntoMeasurement<ToP, DP>;
 
-    fn defaults(
+    fn setter(
         req: CoreSetter<
             <Self::FromM as IntoMetadata<ToM, DM>>::Req,
             <Self::FromP as IntoMeasurement<ToP, DP>>::Req,
@@ -7611,11 +7611,11 @@ where
         <Self::FromM as IntoMetadata<ToM, DM>>::XToY,
         <Self::FromP as IntoMeasurement<ToP, DP>>::XToY,
     > {
-        let metadata = <Self::FromM as IntoMetadata<ToM, DM>>::defaults(req.metadata);
+        let metadata = <Self::FromM as IntoMetadata<ToM, DM>>::setter(req.metadata);
         let measurements = req
             .measurements
             .into_iter()
-            .map(<Self::FromP as IntoMeasurement<ToP, DP>>::defaults)
+            .map(<Self::FromP as IntoMeasurement<ToP, DP>>::setter)
             .collect();
         CoreSetter {
             metadata,
@@ -8765,7 +8765,7 @@ impl IntoMeasurement<InnerMeasurement2_0, MeasSetterTo2_0> for InnerMeasurement2
     type XToY = MeasSetter2_0To2_0;
     type Req = ();
 
-    fn defaults(_: Self::Req) -> Self::XToY {
+    fn setter(_: Self::Req) -> Self::XToY {
         MeasSetter2_0To2_0
     }
 
@@ -8783,7 +8783,7 @@ impl IntoMeasurement<InnerMeasurement2_0, MeasSetterTo2_0> for InnerMeasurement3
     type XToY = MeasSetter3_0To2_0;
     type Req = ();
 
-    fn defaults(_: Self::Req) -> Self::XToY {
+    fn setter(_: Self::Req) -> Self::XToY {
         MeasSetter3_0To2_0
     }
 
@@ -8805,7 +8805,7 @@ impl IntoMeasurement<InnerMeasurement2_0, MeasSetterTo2_0> for InnerMeasurement3
     type XToY = MeasSetter3_1To2_0;
     type Req = ();
 
-    fn defaults(_: Self::Req) -> Self::XToY {
+    fn setter(_: Self::Req) -> Self::XToY {
         MeasSetter3_1To2_0
     }
 
@@ -8827,7 +8827,7 @@ impl IntoMeasurement<InnerMeasurement2_0, MeasSetterTo2_0> for InnerMeasurement3
     type XToY = MeasSetter3_2To2_0;
     type Req = ();
 
-    fn defaults(_: Self::Req) -> Self::XToY {
+    fn setter(_: Self::Req) -> Self::XToY {
         MeasSetter3_2To2_0
     }
 
@@ -8849,7 +8849,7 @@ impl IntoMeasurement<InnerMeasurement3_0, MeasSetterTo3_0> for InnerMeasurement2
     type XToY = MeasSetter2_0To3_0;
     type Req = Scale;
 
-    fn defaults(scale: Self::Req) -> Self::XToY {
+    fn setter(scale: Self::Req) -> Self::XToY {
         MeasSetter2_0To3_0::new(scale)
     }
 
@@ -8873,7 +8873,7 @@ impl IntoMeasurement<InnerMeasurement3_0, MeasSetterTo3_0> for InnerMeasurement3
     type XToY = MeasSetter3_0To3_0;
     type Req = ();
 
-    fn defaults(_: Self::Req) -> Self::XToY {
+    fn setter(_: Self::Req) -> Self::XToY {
         MeasSetter3_0To3_0
     }
 
@@ -8891,7 +8891,7 @@ impl IntoMeasurement<InnerMeasurement3_0, MeasSetterTo3_0> for InnerMeasurement3
     type XToY = MeasSetter3_1To3_0;
     type Req = ();
 
-    fn defaults(_: Self::Req) -> Self::XToY {
+    fn setter(_: Self::Req) -> Self::XToY {
         MeasSetter3_1To3_0
     }
 
@@ -8914,7 +8914,7 @@ impl IntoMeasurement<InnerMeasurement3_0, MeasSetterTo3_0> for InnerMeasurement3
     type XToY = MeasSetter3_2To3_0;
     type Req = ();
 
-    fn defaults(_: Self::Req) -> Self::XToY {
+    fn setter(_: Self::Req) -> Self::XToY {
         MeasSetter3_2To3_0
     }
 
@@ -8937,7 +8937,7 @@ impl IntoMeasurement<InnerMeasurement3_1, MeasSetterTo3_1> for InnerMeasurement2
     type XToY = MeasSetter2_0To3_1;
     type Req = RequireScaleShortname;
 
-    fn defaults(r: Self::Req) -> Self::XToY {
+    fn setter(r: Self::Req) -> Self::XToY {
         MeasSetter2_0To3_1::new(r.scale, r.shortname)
     }
 
@@ -8964,7 +8964,7 @@ impl IntoMeasurement<InnerMeasurement3_1, MeasSetterTo3_1> for InnerMeasurement3
     type XToY = MeasSetter3_0To3_1;
     type Req = Shortname;
 
-    fn defaults(shortname: Self::Req) -> Self::XToY {
+    fn setter(shortname: Self::Req) -> Self::XToY {
         MeasSetter3_0To3_1::new(shortname)
     }
 
@@ -8990,7 +8990,7 @@ impl IntoMeasurement<InnerMeasurement3_1, MeasSetterTo3_1> for InnerMeasurement3
     type XToY = MeasSetter3_1To3_1;
     type Req = ();
 
-    fn defaults(_: Self::Req) -> Self::XToY {
+    fn setter(_: Self::Req) -> Self::XToY {
         MeasSetter3_1To3_1
     }
 
@@ -9008,7 +9008,7 @@ impl IntoMeasurement<InnerMeasurement3_1, MeasSetterTo3_1> for InnerMeasurement3
     type XToY = MeasSetter3_2To3_1;
     type Req = ();
 
-    fn defaults(_: Self::Req) -> Self::XToY {
+    fn setter(_: Self::Req) -> Self::XToY {
         MeasSetter3_2To3_1
     }
 
@@ -9033,7 +9033,7 @@ impl IntoMeasurement<InnerMeasurement3_2, MeasSetterTo3_2> for InnerMeasurement2
     type XToY = MeasSetter2_0To3_2;
     type Req = RequireScaleShortname;
 
-    fn defaults(r: Self::Req) -> Self::XToY {
+    fn setter(r: Self::Req) -> Self::XToY {
         MeasSetter2_0To3_2::new(r.scale, r.shortname)
     }
 
@@ -9066,7 +9066,7 @@ impl IntoMeasurement<InnerMeasurement3_2, MeasSetterTo3_2> for InnerMeasurement3
     type XToY = MeasSetter3_0To3_2;
     type Req = Shortname;
 
-    fn defaults(shortname: Self::Req) -> Self::XToY {
+    fn setter(shortname: Self::Req) -> Self::XToY {
         MeasSetter3_0To3_2::new(shortname)
     }
 
@@ -9098,7 +9098,7 @@ impl IntoMeasurement<InnerMeasurement3_2, MeasSetterTo3_2> for InnerMeasurement3
     type XToY = MeasSetter3_1To3_2;
     type Req = ();
 
-    fn defaults(_: Self::Req) -> Self::XToY {
+    fn setter(_: Self::Req) -> Self::XToY {
         MeasSetter3_1To3_2::default()
     }
 
@@ -9129,7 +9129,7 @@ impl IntoMeasurement<InnerMeasurement3_2, MeasSetterTo3_2> for InnerMeasurement3
     type XToY = MeasSetter3_2To3_2;
     type Req = ();
 
-    fn defaults(_: Self::Req) -> Self::XToY {
+    fn setter(_: Self::Req) -> Self::XToY {
         MeasSetter3_2To3_2
     }
 
@@ -9147,7 +9147,7 @@ impl IntoMetadata<InnerMetadata2_0, MetaSetterTo2_0> for InnerMetadata2_0 {
     type XToY = MetaSetter2_0To2_0;
     type Req = ();
 
-    fn defaults(_: Self::Req) -> Self::XToY {
+    fn setter(_: Self::Req) -> Self::XToY {
         MetaSetter2_0To2_0
     }
 
@@ -9165,7 +9165,7 @@ impl IntoMetadata<InnerMetadata2_0, MetaSetterTo2_0> for InnerMetadata3_0 {
     type XToY = MetaSetter3_0To2_0;
     type Req = ();
 
-    fn defaults(_: Self::Req) -> Self::XToY {
+    fn setter(_: Self::Req) -> Self::XToY {
         MetaSetter3_0To2_0
     }
 
@@ -9189,7 +9189,7 @@ impl IntoMetadata<InnerMetadata2_0, MetaSetterTo2_0> for InnerMetadata3_1 {
     type XToY = MetaSetter3_1To2_0;
     type Req = ();
 
-    fn defaults(_: Self::Req) -> Self::XToY {
+    fn setter(_: Self::Req) -> Self::XToY {
         MetaSetter3_1To2_0::default()
     }
 
@@ -9213,7 +9213,7 @@ impl IntoMetadata<InnerMetadata2_0, MetaSetterTo2_0> for InnerMetadata3_2 {
     type XToY = MetaSetter3_2To2_0;
     type Req = ();
 
-    fn defaults(_: Self::Req) -> Self::XToY {
+    fn setter(_: Self::Req) -> Self::XToY {
         MetaSetter3_2To2_0::default()
     }
 
@@ -9237,7 +9237,7 @@ impl IntoMetadata<InnerMetadata3_0, MetaSetterTo3_0> for InnerMetadata2_0 {
     type XToY = MetaSetter2_0To3_0;
     type Req = ();
 
-    fn defaults(_: Self::Req) -> Self::XToY {
+    fn setter(_: Self::Req) -> Self::XToY {
         MetaSetter2_0To3_0::default()
     }
 
@@ -9264,7 +9264,7 @@ impl IntoMetadata<InnerMetadata3_0, MetaSetterTo3_0> for InnerMetadata3_0 {
     type XToY = MetaSetter3_0To3_0;
     type Req = ();
 
-    fn defaults(_: Self::Req) -> Self::XToY {
+    fn setter(_: Self::Req) -> Self::XToY {
         MetaSetter3_0To3_0
     }
 
@@ -9282,7 +9282,7 @@ impl IntoMetadata<InnerMetadata3_0, MetaSetterTo3_0> for InnerMetadata3_1 {
     type XToY = MetaSetter3_1To3_0;
     type Req = ();
 
-    fn defaults(_: Self::Req) -> Self::XToY {
+    fn setter(_: Self::Req) -> Self::XToY {
         MetaSetter3_1To3_0::default()
     }
 
@@ -9309,7 +9309,7 @@ impl IntoMetadata<InnerMetadata3_0, MetaSetterTo3_0> for InnerMetadata3_2 {
     type XToY = MetaSetter3_2To3_0;
     type Req = ();
 
-    fn defaults(_: Self::Req) -> Self::XToY {
+    fn setter(_: Self::Req) -> Self::XToY {
         MetaSetter3_2To3_0::default()
     }
 
@@ -9336,7 +9336,7 @@ impl IntoMetadata<InnerMetadata3_1, MetaSetterTo3_1> for InnerMetadata2_0 {
     type XToY = MetaSetter2_0To3_1;
     type Req = Endian;
 
-    fn defaults(endian: Self::Req) -> Self::XToY {
+    fn setter(endian: Self::Req) -> Self::XToY {
         MetaSetter2_0To3_1::new(endian)
     }
 
@@ -9368,7 +9368,7 @@ impl IntoMetadata<InnerMetadata3_1, MetaSetterTo3_1> for InnerMetadata3_0 {
     type XToY = MetaSetter3_0To3_1;
     type Req = Endian;
 
-    fn defaults(endian: Self::Req) -> Self::XToY {
+    fn setter(endian: Self::Req) -> Self::XToY {
         MetaSetter3_0To3_1::new(endian)
     }
 
@@ -9400,7 +9400,7 @@ impl IntoMetadata<InnerMetadata3_1, MetaSetterTo3_1> for InnerMetadata3_1 {
     type XToY = MetaSetter3_1To3_1;
     type Req = ();
 
-    fn defaults(_: Self::Req) -> Self::XToY {
+    fn setter(_: Self::Req) -> Self::XToY {
         MetaSetter3_1To3_1
     }
 
@@ -9418,7 +9418,7 @@ impl IntoMetadata<InnerMetadata3_1, MetaSetterTo3_1> for InnerMetadata3_2 {
     type XToY = MetaSetter3_2To3_1;
     type Req = ();
 
-    fn defaults(_: Self::Req) -> Self::XToY {
+    fn setter(_: Self::Req) -> Self::XToY {
         MetaSetter3_2To3_1
     }
 
@@ -9447,7 +9447,7 @@ impl IntoMetadata<InnerMetadata3_2, MetaSetterTo3_2> for InnerMetadata2_0 {
     type XToY = MetaSetter2_0To3_2;
     type Req = RequiredEndianCyt;
 
-    fn defaults(r: Self::Req) -> Self::XToY {
+    fn setter(r: Self::Req) -> Self::XToY {
         MetaSetter2_0To3_2::new(r.endian, r.cyt)
     }
 
@@ -9484,7 +9484,7 @@ impl IntoMetadata<InnerMetadata3_2, MetaSetterTo3_2> for InnerMetadata3_0 {
     type XToY = MetaSetter3_0To3_2;
     type Req = RequiredEndianCyt;
 
-    fn defaults(r: Self::Req) -> Self::XToY {
+    fn setter(r: Self::Req) -> Self::XToY {
         MetaSetter3_0To3_2::new(r.endian, r.cyt)
     }
 
@@ -9520,7 +9520,7 @@ impl IntoMetadata<InnerMetadata3_2, MetaSetterTo3_2> for InnerMetadata3_1 {
     type XToY = MetaSetter3_1To3_2;
     type Req = Cyt;
 
-    fn defaults(cyt: Self::Req) -> Self::XToY {
+    fn setter(cyt: Self::Req) -> Self::XToY {
         MetaSetter3_1To3_2::new(cyt)
     }
 
@@ -9553,7 +9553,7 @@ impl IntoMetadata<InnerMetadata3_2, MetaSetterTo3_2> for InnerMetadata3_2 {
     type XToY = MetaSetter3_2To3_2;
     type Req = ();
 
-    fn defaults(_: Self::Req) -> Self::XToY {
+    fn setter(_: Self::Req) -> Self::XToY {
         MetaSetter3_2To3_2
     }
 

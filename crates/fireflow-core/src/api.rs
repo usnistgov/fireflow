@@ -6,10 +6,7 @@ use crate::keywords::*;
 use crate::macros::{newtype_disp, newtype_from, newtype_from_outer, newtype_fromstr};
 use crate::optionalkw::OptionalKw;
 pub use crate::segment::*;
-use crate::validated::nonstandard::{
-    DefaultMatrix, DefaultMeasOptional, DefaultMetaOptional, NonStdKey, NonStdKeywords,
-    NonStdMeasPattern,
-};
+use crate::validated::nonstandard::*;
 use crate::validated::shortname::Shortname;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
@@ -868,8 +865,20 @@ trait IndexedKey {
         format!("{}{i}{}", Self::PREFIX, Self::SUFFIX)
     }
 
-    fn std(i: usize) -> String {
-        format!("${}", Self::fmt(i))
+    fn fmt_blank() -> String {
+        format!("{}n{}", Self::PREFIX, Self::SUFFIX)
+    }
+
+    fn std(i: MeasIdx) -> String {
+        format!("${}", Self::fmt(i.0))
+    }
+
+    fn std_blank() -> String {
+        format!("${}", Self::fmt_blank())
+    }
+
+    fn std_maybe(i: Option<MeasIdx>) -> String {
+        i.map(Self::std).unwrap_or(Self::fmt_blank())
     }
 
     fn nonstd(i: usize) -> NonStdKey {
@@ -943,6 +952,7 @@ trait Optional {
 trait ReqMetaKey
 where
     Self: Required,
+    Self: fmt::Display,
     Self: Key,
     Self: FromStr,
     <Self as FromStr>::Err: fmt::Display,
@@ -950,23 +960,33 @@ where
     fn lookup_meta_req(kws: &mut RawKeywords) -> ReqResult<Self> {
         Self::lookup_req(kws, Self::std().as_str())
     }
+
+    fn pair(&self) -> (String, String) {
+        (Self::std(), self.to_string())
+    }
 }
 
 trait ReqMeasKey
 where
     Self: Required,
+    Self: fmt::Display,
     Self: IndexedKey,
     Self: FromStr,
     <Self as FromStr>::Err: fmt::Display,
 {
-    fn lookup_meas_req(kws: &mut RawKeywords, n: usize) -> ReqResult<Self> {
+    fn lookup_meas_req(kws: &mut RawKeywords, n: MeasIdx) -> ReqResult<Self> {
         Self::lookup_req(kws, Self::std(n).as_str())
+    }
+
+    fn pair(&self, n: Option<MeasIdx>) -> (String, String) {
+        (Self::std_maybe(n), self.to_string())
     }
 }
 
 trait OptMetaKey
 where
     Self: Optional,
+    Self: fmt::Display,
     Self: Key,
     Self: FromStr,
     <Self as FromStr>::Err: fmt::Display,
@@ -974,17 +994,26 @@ where
     fn lookup_meta_opt(kws: &mut RawKeywords) -> OptResult<Self> {
         Self::lookup_opt(kws, Self::std().as_str())
     }
+
+    fn pair(opt: &OptionalKw<Self>) -> (String, Option<String>) {
+        (Self::std(), opt.0.as_ref().map(|s| s.to_string()))
+    }
 }
 
 trait OptMeasKey
 where
     Self: Optional,
+    Self: fmt::Display,
     Self: IndexedKey,
     Self: FromStr,
     <Self as FromStr>::Err: fmt::Display,
 {
-    fn lookup_meas_opt(kws: &mut RawKeywords, n: usize) -> OptResult<Self> {
+    fn lookup_meas_opt(kws: &mut RawKeywords, n: MeasIdx) -> OptResult<Self> {
         Self::lookup_opt(kws, Self::std(n).as_str())
+    }
+
+    fn pair(opt: &OptionalKw<Self>, n: Option<MeasIdx>) -> (String, Option<String>) {
+        (Self::std_maybe(n), opt.0.as_ref().map(|s| s.to_string()))
     }
 }
 
@@ -1190,19 +1219,6 @@ req_meta!(Tot);
 kw_req_meta_int!(Par, usize, "PAR");
 kw_opt_meas_int!(Wavelength, u32, "L");
 kw_opt_meas_int!(Power, u32, "O");
-
-// kw_req_meta_int!(BeginSText, u32, "BEGINSTEXT");
-// kw_req_meta_int!(BeginAnalysis, u32, "BEGINANALYSIS");
-// kw_req_meta_int!(BeginData, u32, "BEGINDATA");
-// kw_req_meta_int!(EndSText, u32, "ENDSTEXT");
-// kw_req_meta_int!(EndAnalysis, u32, "ENDANALYSIS");
-// kw_req_meta_int!(EndData, u32, "ENDDATA");
-// kw_req_meta_int!(Nextdata, u32, "NEXTDATA");
-
-// opt_meta!(BeginAnalysis);
-// opt_meta!(BeginSText);
-// opt_meta!(EndAnalysis);
-// opt_meta!(EndSText);
 
 macro_rules! kw_time {
     ($outer:ident, $wrap:ident, $inner:ident, $err:ident, $key:expr) => {
@@ -2044,12 +2060,13 @@ where
         }
     }
 
-    fn keywords_req_inner(&self) -> Vec<(&'static str, String)>;
+    fn keywords_req_inner(&self) -> Vec<(String, String)>;
 
-    fn keywords_opt_inner(&self) -> Vec<(&'static str, String)>;
+    fn keywords_opt_inner(&self) -> Vec<(String, String)>;
 
-    fn all_req_keywords(m: &Metadata<Self>, par: usize) -> RawPairs {
-        let fixed = [(PAR, par.to_string()), (DATATYPE, m.datatype.to_string())];
+    fn all_req_keywords(m: &Metadata<Self>, par: Par) -> RawPairs {
+        // let fixed = [(PAR, par.to_string()), (DATATYPE, m.datatype.to_string())];
+        let fixed = [par.pair(), m.datatype.pair()];
         fixed
             .into_iter()
             .chain(m.specific.keywords_req_inner())
@@ -2059,19 +2076,19 @@ where
 
     fn all_opt_keywords(m: &Metadata<Self>) -> RawPairs {
         [
-            (ABRT, m.abrt.as_opt_string()),
-            (COM, m.com.as_opt_string()),
-            (CELLS, m.cells.as_opt_string()),
-            (EXP, m.exp.as_opt_string()),
-            (FIL, m.fil.as_opt_string()),
-            (INST, m.inst.as_opt_string()),
-            (LOST, m.lost.as_opt_string()),
-            (OP, m.op.as_opt_string()),
-            (PROJ, m.proj.as_opt_string()),
-            (SMNO, m.smno.as_opt_string()),
-            (SRC, m.src.as_opt_string()),
-            (SYS, m.sys.as_opt_string()),
-            (TR, m.tr.as_opt_string()),
+            OptMetaKey::pair(&m.abrt),
+            OptMetaKey::pair(&m.com),
+            OptMetaKey::pair(&m.cells),
+            OptMetaKey::pair(&m.exp),
+            OptMetaKey::pair(&m.fil),
+            OptMetaKey::pair(&m.inst),
+            OptMetaKey::pair(&m.lost),
+            OptMetaKey::pair(&m.op),
+            OptMetaKey::pair(&m.proj),
+            OptMetaKey::pair(&m.smno),
+            OptMetaKey::pair(&m.src),
+            OptMetaKey::pair(&m.sys),
+            OptMetaKey::pair(&m.tr),
         ]
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))
@@ -2088,7 +2105,7 @@ where
 }
 
 trait VersionedMeasurement: Sized + Versioned {
-    fn lookup_specific(st: &mut KwParser, n: usize) -> Option<Self>;
+    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self>;
 
     fn has_linear_scale(&self) -> bool;
 
@@ -2117,23 +2134,24 @@ trait VersionedMeasurement: Sized + Versioned {
         let v = Self::fcs_version();
         let ps: Vec<_> = (1..(par.0 + 1))
             .flat_map(|n| {
-                let maybe_bytes = st.lookup_meas_req(n);
-                let maybe_range = st.lookup_meas_req(n);
-                let maybe_specific = Self::lookup_specific(st, n);
+                let i = MeasIdx(n);
+                let maybe_bytes = st.lookup_meas_req(i);
+                let maybe_range = st.lookup_meas_req(i);
+                let maybe_specific = Self::lookup_specific(st, i);
                 if let (Some(bytes), Some(range), Some(specific)) =
                     (maybe_bytes, maybe_range, maybe_specific)
                 {
                     Some(Measurement {
                         bytes,
                         range,
-                        longname: st.lookup_meas_opt(n, false),
-                        filter: st.lookup_meas_opt(n, false),
-                        power: st.lookup_meas_opt(n, false),
-                        detector_type: st.lookup_meas_opt(n, false),
-                        percent_emitted: st.lookup_meas_opt(n, v == Version::FCS3_2),
-                        detector_voltage: st.lookup_meas_opt(n, false),
+                        longname: st.lookup_meas_opt(i, false),
+                        filter: st.lookup_meas_opt(i, false),
+                        power: st.lookup_meas_opt(i, false),
+                        detector_type: st.lookup_meas_opt(i, false),
+                        percent_emitted: st.lookup_meas_opt(i, v == Version::FCS3_2),
+                        detector_voltage: st.lookup_meas_opt(i, false),
                         specific,
-                        nonstandard_keywords: st.lookup_all_meas_nonstandard(n),
+                        nonstandard_keywords: st.lookup_all_meas_nonstandard(i),
                     })
                 } else {
                     None
@@ -2147,58 +2165,61 @@ trait VersionedMeasurement: Sized + Versioned {
         }
     }
 
-    fn req_suffixes_inner(&self) -> Vec<(&'static str, String)>;
+    fn req_suffixes_inner(&self, n: Option<MeasIdx>) -> Vec<(String, String)>;
 
-    fn opt_suffixes_inner(&self) -> Vec<(&'static str, Option<String>)>;
+    fn opt_suffixes_inner(&self, n: Option<MeasIdx>) -> Vec<(String, Option<String>)>;
 
-    fn req_suffixes(m: &Measurement<Self>) -> Vec<(&'static str, String)> {
-        [
-            (BYTES_SFX, m.bytes.to_string()),
-            (RANGE_SFX, m.range.to_string()),
-        ]
-        .into_iter()
-        .chain(m.specific.req_suffixes_inner())
-        .collect()
+    fn req_suffixes(m: &Measurement<Self>, n: Option<MeasIdx>) -> Vec<(String, String)> {
+        [m.bytes.pair(n), m.range.pair(n)]
+            .into_iter()
+            .chain(m.specific.req_suffixes_inner(n))
+            .collect()
     }
 
-    fn opt_suffixes(m: &Measurement<Self>) -> Vec<(&'static str, Option<String>)> {
+    fn opt_suffixes(m: &Measurement<Self>, n: Option<MeasIdx>) -> Vec<(String, Option<String>)> {
         [
-            (LONGNAME_SFX, m.longname.as_opt_string()),
-            (FILTER_SFX, m.filter.as_opt_string()),
-            (POWER_SFX, m.power.as_opt_string()),
-            (DET_TYPE_SFX, m.detector_type.as_opt_string()),
-            (PCNT_EMT_SFX, m.percent_emitted.as_opt_string()),
-            (DET_VOLT_SFX, m.detector_voltage.as_opt_string()),
+            OptMeasKey::pair(&m.longname, n),
+            OptMeasKey::pair(&m.filter, n),
+            OptMeasKey::pair(&m.power, n),
+            OptMeasKey::pair(&m.detector_type, n),
+            OptMeasKey::pair(&m.percent_emitted, n),
+            OptMeasKey::pair(&m.detector_voltage, n),
+            // (LONGNAME_SFX, m.longname.as_opt_string()),
+            // (FILTER_SFX, m.filter.as_opt_string()),
+            // (POWER_SFX, m.power.as_opt_string()),
+            // (DET_TYPE_SFX, m.detector_type.as_opt_string()),
+            // (PCNT_EMT_SFX, m.percent_emitted.as_opt_string()),
+            // (DET_VOLT_SFX, m.detector_voltage.as_opt_string()),
         ]
         .into_iter()
-        .chain(m.specific.opt_suffixes_inner())
+        .chain(m.specific.opt_suffixes_inner(n))
         .collect()
     }
 
     // for table
-    fn keywords(m: &Measurement<Self>, n: &str) -> Vec<(String, Option<String>)> {
-        Self::req_suffixes(m)
+    fn keywords(m: &Measurement<Self>, n: Option<MeasIdx>) -> Vec<(String, Option<String>)> {
+        Self::req_suffixes(m, n)
             .into_iter()
             .map(|(k, v)| (k, Some(v)))
-            .chain(Self::opt_suffixes(m))
-            .map(|(s, v)| (format_measurement(n, s), v))
+            .chain(Self::opt_suffixes(m, n))
+            // .map(|(s, v)| (format_measurement(n, s), v))
             .collect()
     }
 
     // TODO this name is weird, this is standard+nonstandard keywords
     // after filtering out None values
-    fn req_keywords(m: &Measurement<Self>, n: &str) -> RawPairs {
-        Self::req_suffixes(m)
+    fn req_keywords(m: &Measurement<Self>, n: Option<MeasIdx>) -> RawPairs {
+        Self::req_suffixes(m, n)
             .into_iter()
-            .map(|(s, v)| (format_measurement(n, s), v))
+            // .map(|(s, v)| (format_measurement(n, s), v))
             .collect()
     }
 
-    fn opt_keywords(m: &Measurement<Self>, n: &str) -> RawPairs {
-        Self::opt_suffixes(m)
+    fn opt_keywords(m: &Measurement<Self>, n: Option<MeasIdx>) -> RawPairs {
+        Self::opt_suffixes(m, n)
             .into_iter()
             .filter_map(|(k, v)| v.map(|x| (k, x)))
-            .map(|(s, v)| (format_measurement(n, s), v))
+            // .map(|(s, v)| (format_measurement(n, s), v))
             // TODO useless clone?
             .chain(
                 m.nonstandard_keywords
@@ -3529,15 +3550,15 @@ impl<P: VersionedMeasurement> Measurement<P> {
     fn table_header(&self) -> Vec<String> {
         vec![String::from("index")]
             .into_iter()
-            .chain(P::keywords(self, "n").into_iter().map(|(k, _)| k))
+            .chain(P::keywords(self, None).into_iter().map(|(k, _)| k))
             .collect()
     }
 
     fn table_row(&self, n: usize) -> Vec<Option<String>> {
         vec![Some(n.to_string())]
             .into_iter()
-            // NOTE; the "n" is a dummy and never used
-            .chain(P::keywords(self, "n").into_iter().map(|(_, v)| v))
+            // NOTE; the None is a dummy and never used
+            .chain(P::keywords(self, None).into_iter().map(|(_, v)| v))
             .collect()
     }
 }
@@ -3606,7 +3627,7 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
         m.specific.shortname = Some(n).into();
     }
 
-    fn lookup_specific(st: &mut KwParser, n: usize) -> Option<InnerMeasurement2_0> {
+    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<InnerMeasurement2_0> {
         Some(InnerMeasurement2_0 {
             scale: st.lookup_meas_opt(n, false),
             shortname: st.lookup_meas_opt(n, false),
@@ -3614,15 +3635,15 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
         })
     }
 
-    fn req_suffixes_inner(&self) -> Vec<(&'static str, String)> {
+    fn req_suffixes_inner(&self, _: Option<MeasIdx>) -> Vec<(String, String)> {
         vec![]
     }
 
-    fn opt_suffixes_inner(&self) -> Vec<(&'static str, Option<String>)> {
+    fn opt_suffixes_inner(&self, n: Option<MeasIdx>) -> Vec<(String, Option<String>)> {
         [
-            (SCALE_SFX, self.scale.as_opt_string()),
-            (SHORTNAME_SFX, self.shortname.as_opt_string()),
-            (WAVELEN_SFX, self.wavelength.as_opt_string()),
+            OptMeasKey::pair(&self.scale, n),
+            OptMeasKey::pair(&self.shortname, n),
+            OptMeasKey::pair(&self.wavelength, n),
         ]
         .into_iter()
         .collect()
@@ -3655,7 +3676,7 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
         m.specific.shortname = Some(n).into()
     }
 
-    fn lookup_specific(st: &mut KwParser, n: usize) -> Option<InnerMeasurement3_0> {
+    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<InnerMeasurement3_0> {
         Some(InnerMeasurement3_0 {
             scale: st.lookup_meas_req(n)?,
             gain: st.lookup_meas_opt(n, false),
@@ -3664,15 +3685,15 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
         })
     }
 
-    fn req_suffixes_inner(&self) -> Vec<(&'static str, String)> {
-        [(SCALE_SFX, self.scale.to_string())].into_iter().collect()
+    fn req_suffixes_inner(&self, n: Option<MeasIdx>) -> Vec<(String, String)> {
+        [self.scale.pair(n)].into_iter().collect()
     }
 
-    fn opt_suffixes_inner(&self) -> Vec<(&'static str, Option<String>)> {
+    fn opt_suffixes_inner(&self, n: Option<MeasIdx>) -> Vec<(String, Option<String>)> {
         [
-            (SHORTNAME_SFX, self.shortname.as_opt_string()),
-            (WAVELEN_SFX, self.wavelength.as_opt_string()),
-            (GAIN_SFX, self.gain.as_opt_string()),
+            OptMeasKey::pair(&self.shortname, n),
+            OptMeasKey::pair(&self.wavelength, n),
+            OptMeasKey::pair(&self.gain, n),
         ]
         .into_iter()
         .collect()
@@ -3700,7 +3721,7 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
         m.specific.shortname = n
     }
 
-    fn lookup_specific(st: &mut KwParser, n: usize) -> Option<InnerMeasurement3_1> {
+    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<InnerMeasurement3_1> {
         if let (Some(shortname), Some(scale)) = (st.lookup_meas_req(n), st.lookup_meas_req(n)) {
             Some(InnerMeasurement3_1 {
                 scale,
@@ -3715,21 +3736,18 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
         }
     }
 
-    fn req_suffixes_inner(&self) -> Vec<(&'static str, String)> {
-        [
-            (SCALE_SFX, self.scale.to_string()),
-            (SHORTNAME_SFX, self.shortname.to_string()),
-        ]
-        .into_iter()
-        .collect()
+    fn req_suffixes_inner(&self, n: Option<MeasIdx>) -> Vec<(String, String)> {
+        [self.scale.pair(n), self.shortname.pair(n)]
+            .into_iter()
+            .collect()
     }
 
-    fn opt_suffixes_inner(&self) -> Vec<(&'static str, Option<String>)> {
+    fn opt_suffixes_inner(&self, n: Option<MeasIdx>) -> Vec<(String, Option<String>)> {
         [
-            (WAVELEN_SFX, self.wavelengths.as_opt_string()),
-            (GAIN_SFX, self.gain.as_opt_string()),
-            (CALIBRATION_SFX, self.calibration.as_opt_string()),
-            (DISPLAY_SFX, self.display.as_opt_string()),
+            OptMeasKey::pair(&self.wavelengths, n),
+            OptMeasKey::pair(&self.gain, n),
+            OptMeasKey::pair(&self.calibration, n),
+            OptMeasKey::pair(&self.display, n),
         ]
         .into_iter()
         .collect()
@@ -3757,7 +3775,7 @@ impl VersionedMeasurement for InnerMeasurement3_2 {
         m.specific.shortname = n
     }
 
-    fn lookup_specific(st: &mut KwParser, n: usize) -> Option<InnerMeasurement3_2> {
+    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<InnerMeasurement3_2> {
         if let (Some(shortname), Some(scale)) = (st.lookup_meas_req(n), st.lookup_meas_req(n)) {
             Some(InnerMeasurement3_2 {
                 scale,
@@ -3778,27 +3796,24 @@ impl VersionedMeasurement for InnerMeasurement3_2 {
         }
     }
 
-    fn req_suffixes_inner(&self) -> Vec<(&'static str, String)> {
-        [
-            (SCALE_SFX, self.scale.to_string()),
-            (SHORTNAME_SFX, self.shortname.to_string()),
-        ]
-        .into_iter()
-        .collect()
+    fn req_suffixes_inner(&self, n: Option<MeasIdx>) -> Vec<(String, String)> {
+        [self.scale.pair(n), self.shortname.pair(n)]
+            .into_iter()
+            .collect()
     }
 
-    fn opt_suffixes_inner(&self) -> Vec<(&'static str, Option<String>)> {
+    fn opt_suffixes_inner(&self, n: Option<MeasIdx>) -> Vec<(String, Option<String>)> {
         [
-            (WAVELEN_SFX, self.wavelengths.as_opt_string()),
-            (GAIN_SFX, self.gain.as_opt_string()),
-            (CALIBRATION_SFX, self.calibration.as_opt_string()),
-            (DISPLAY_SFX, self.display.as_opt_string()),
-            (DET_NAME_SFX, self.detector_name.as_opt_string()),
-            (TAG_SFX, self.tag.as_opt_string()),
-            (MEAS_TYPE_SFX, self.measurement_type.as_opt_string()),
-            (FEATURE_SFX, self.feature.as_opt_string()),
-            (ANALYTE_SFX, self.analyte.as_opt_string()),
-            (DATATYPE_SFX, self.datatype.as_opt_string()),
+            OptMeasKey::pair(&self.wavelengths, n),
+            OptMeasKey::pair(&self.gain, n),
+            OptMeasKey::pair(&self.calibration, n),
+            OptMeasKey::pair(&self.display, n),
+            OptMeasKey::pair(&self.detector_name, n),
+            OptMeasKey::pair(&self.tag, n),
+            OptMeasKey::pair(&self.measurement_type, n),
+            OptMeasKey::pair(&self.feature, n),
+            OptMeasKey::pair(&self.analyte, n),
+            OptMeasKey::pair(&self.datatype, n),
         ]
         .into_iter()
         .collect()
@@ -4105,14 +4120,14 @@ impl AnyCoreTEXT {
 
     pub fn text_segment(
         &self,
-        tot: usize,
+        tot: Tot,
         data_len: usize,
         analysis_len: usize,
     ) -> Option<Vec<String>> {
         match_anycoretext!(self, x, { x.text_segment(tot, data_len, analysis_len) })
     }
 
-    pub fn par(&self) -> usize {
+    pub fn par(&self) -> Par {
         match_anycoretext!(self, x, { x.par() })
     }
 
@@ -4277,12 +4292,7 @@ where
     /// order.
     ///
     /// Return None if primary TEXT does not fit into first 99,999,999 bytes.
-    fn text_segment(
-        &self,
-        tot: usize,
-        data_len: usize,
-        analysis_len: usize,
-    ) -> Option<Vec<String>> {
+    fn text_segment(&self, tot: Tot, data_len: usize, analysis_len: usize) -> Option<Vec<String>> {
         self.header_and_raw_keywords(tot, data_len, analysis_len)
             .map(|(header, kws)| {
                 let version = M::P::fcs_version();
@@ -4375,12 +4385,12 @@ where
 
     fn header_and_raw_keywords(
         &self,
-        tot: usize,
+        tot: Tot,
         data_len: usize,
         analysis_len: usize,
     ) -> Option<(String, RawKeywords)> {
         let version = M::P::fcs_version();
-        let tot_pair = (TOT.to_string(), tot.to_string());
+        let tot_pair = (Tot::std().to_string(), tot.to_string());
 
         let (req_meas, req_meta, req_text_len) =
             self.some_keywords(M::P::req_keywords, M::all_req_keywords);
@@ -4476,8 +4486,8 @@ where
         }
     }
 
-    pub fn par(&self) -> usize {
-        self.measurements.len()
+    pub fn par(&self) -> Par {
+        Par(self.measurements.len())
     }
 
     fn some_keywords<F, G>(
@@ -4486,14 +4496,14 @@ where
         g: G,
     ) -> (Vec<(String, String)>, Vec<(String, String)>, usize)
     where
-        F: Fn(&Measurement<M::P>, &str) -> Vec<(String, String)>,
-        G: Fn(&Metadata<M>, usize) -> Vec<(String, String)>,
+        F: Fn(&Measurement<M::P>, Option<MeasIdx>) -> Vec<(String, String)>,
+        G: Fn(&Metadata<M>, Par) -> Vec<(String, String)>,
     {
         let meas: Vec<_> = self
             .measurements
             .iter()
             .enumerate()
-            .flat_map(|(i, m)| f(m, &(i + 1).to_string()))
+            .flat_map(|(i, m)| f(m, Some(MeasIdx(i + 1))))
             .collect();
         let meta: Vec<_> = g(&self.metadata, self.par()).into_iter().collect();
         let l = meas.len() + meta.len();
@@ -5439,7 +5449,7 @@ fn h_write_dataset<W: Write>(
     // Make common HEADER+TEXT writing function, for which the only unknown
     // now is the length of DATA.
     let write_text = |h: &mut BufWriter<W>, data_len| -> ImpureResult<()> {
-        if let Some(text) = d.text.text_segment(nrows, data_len, analysis_len) {
+        if let Some(text) = d.text.text_segment(Tot(nrows), data_len, analysis_len) {
             for t in text {
                 h.write_all(t.as_bytes())?;
                 h.write_all(&[conf.delim.inner()])?;
@@ -5803,22 +5813,19 @@ impl VersionedMetadata for InnerMetadata2_0 {
         }
     }
 
-    fn keywords_req_inner(&self) -> Vec<(&'static str, String)> {
-        [
-            (MODE, self.mode.to_string()),
-            (BYTEORD, self.byteord.to_string()),
-        ]
-        .into_iter()
-        .collect()
+    fn keywords_req_inner(&self) -> Vec<(String, String)> {
+        [self.mode.pair(), self.byteord.pair()]
+            .into_iter()
+            .collect()
     }
 
-    fn keywords_opt_inner(&self) -> Vec<(&'static str, String)> {
+    fn keywords_opt_inner(&self) -> Vec<(String, String)> {
         [
-            (CYT, self.cyt.as_opt_string()),
-            (COMP, self.comp.as_opt_string()),
-            (BTIM, self.timestamps.btim.as_opt_string()),
-            (ETIM, self.timestamps.etim.as_opt_string()),
-            (DATE, self.timestamps.date.as_opt_string()),
+            OptMetaKey::pair(&self.cyt),
+            OptMetaKey::pair(&self.comp),
+            OptMetaKey::pair(&self.timestamps.btim),
+            OptMetaKey::pair(&self.timestamps.etim),
+            OptMetaKey::pair(&self.timestamps.date),
         ]
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))
@@ -5874,26 +5881,23 @@ impl VersionedMetadata for InnerMetadata3_0 {
         }
     }
 
-    fn keywords_req_inner(&self) -> Vec<(&'static str, String)> {
-        [
-            (MODE, self.mode.to_string()),
-            (BYTEORD, self.byteord.to_string()),
-        ]
-        .into_iter()
-        .collect()
+    fn keywords_req_inner(&self) -> Vec<(String, String)> {
+        [self.mode.pair(), self.byteord.pair()]
+            .into_iter()
+            .collect()
     }
 
-    fn keywords_opt_inner(&self) -> Vec<(&'static str, String)> {
+    fn keywords_opt_inner(&self) -> Vec<(String, String)> {
         let ts = &self.timestamps;
         [
-            (CYT, self.cyt.as_opt_string()),
-            (COMP, self.comp.as_opt_string()),
-            (BTIM, ts.btim.as_opt_string()),
-            (ETIM, ts.etim.as_opt_string()),
-            (DATE, ts.date.as_opt_string()),
-            (CYTSN, self.cytsn.as_opt_string()),
-            (TIMESTEP, self.timestep.as_opt_string()),
-            (UNICODE, self.unicode.as_opt_string()),
+            OptMetaKey::pair(&self.cyt),
+            OptMetaKey::pair(&self.comp),
+            OptMetaKey::pair(&ts.btim),
+            OptMetaKey::pair(&ts.etim),
+            OptMetaKey::pair(&ts.date),
+            OptMetaKey::pair(&self.cytsn),
+            OptMetaKey::pair(&self.timestep),
+            OptMetaKey::pair(&self.unicode),
         ]
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))
@@ -5927,7 +5931,7 @@ impl VersionedMetadata for InnerMetadata3_1 {
     fn check_spillover(&self, names: &HashSet<&Shortname>) -> Option<String> {
         self.spillover.0.as_ref().and_then(|s| {
             let xs: Vec<_> = s.measurements.iter().collect();
-            check_noexist(xs.as_slice(), names, SPILLOVER)
+            check_noexist(xs.as_slice(), names, Spillover::C)
         })
     }
 
@@ -5954,34 +5958,31 @@ impl VersionedMetadata for InnerMetadata3_1 {
         }
     }
 
-    fn keywords_req_inner(&self) -> Vec<(&'static str, String)> {
-        [
-            (MODE, self.mode.to_string()),
-            (BYTEORD, self.byteord.to_string()),
-        ]
-        .into_iter()
-        .collect()
+    fn keywords_req_inner(&self) -> Vec<(String, String)> {
+        [self.mode.pair(), self.byteord.pair()]
+            .into_iter()
+            .collect()
     }
 
-    fn keywords_opt_inner(&self) -> Vec<(&'static str, String)> {
+    fn keywords_opt_inner(&self) -> Vec<(String, String)> {
         let mdn = &self.modification;
         let ts = &self.timestamps;
         let pl = &self.plate;
         [
-            (CYT, self.cyt.as_opt_string()),
-            (SPILLOVER, self.spillover.as_opt_string()),
-            (BTIM, ts.btim.as_opt_string()),
-            (ETIM, ts.etim.as_opt_string()),
-            (DATE, ts.date.as_opt_string()),
-            (CYTSN, self.cytsn.as_opt_string()),
-            (TIMESTEP, self.timestep.as_opt_string()),
-            (LAST_MODIFIER, mdn.last_modifier.as_opt_string()),
-            (LAST_MODIFIED, mdn.last_modified.as_opt_string()),
-            (ORIGINALITY, mdn.originality.as_opt_string()),
-            (PLATEID, pl.plateid.as_opt_string()),
-            (PLATENAME, pl.platename.as_opt_string()),
-            (WELLID, pl.wellid.as_opt_string()),
-            (VOL, self.vol.as_opt_string()),
+            OptMetaKey::pair(&self.cyt),
+            OptMetaKey::pair(&self.spillover),
+            OptMetaKey::pair(&ts.btim),
+            OptMetaKey::pair(&ts.etim),
+            OptMetaKey::pair(&ts.date),
+            OptMetaKey::pair(&self.cytsn),
+            OptMetaKey::pair(&self.timestep),
+            OptMetaKey::pair(&mdn.last_modifier),
+            OptMetaKey::pair(&mdn.last_modified),
+            OptMetaKey::pair(&mdn.originality),
+            OptMetaKey::pair(&pl.plateid),
+            OptMetaKey::pair(&pl.platename),
+            OptMetaKey::pair(&pl.wellid),
+            OptMetaKey::pair(&self.vol),
         ]
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))
@@ -6029,14 +6030,14 @@ impl VersionedMetadata for InnerMetadata3_2 {
     fn check_unstainedcenters(&self, names: &HashSet<&Shortname>) -> Option<String> {
         self.unstained.unstainedcenters.0.as_ref().and_then(|u| {
             let xs: Vec<_> = u.0.keys().collect();
-            check_noexist(xs.as_slice(), names, UNSTAINEDCENTERS)
+            check_noexist(xs.as_slice(), names, UnstainedCenters::C)
         })
     }
 
     fn check_spillover(&self, names: &HashSet<&Shortname>) -> Option<String> {
         self.spillover.0.as_ref().and_then(|s| {
             let xs: Vec<_> = s.measurements.iter().collect();
-            check_noexist(xs.as_slice(), names, SPILLOVER)
+            check_noexist(xs.as_slice(), names, Spillover::C)
         })
     }
 
@@ -6121,16 +6122,11 @@ impl VersionedMetadata for InnerMetadata3_2 {
         }
     }
 
-    fn keywords_req_inner(&self) -> Vec<(&'static str, String)> {
-        [
-            (BYTEORD, self.byteord.to_string()),
-            (CYT, self.cyt.to_string()),
-        ]
-        .into_iter()
-        .collect()
+    fn keywords_req_inner(&self) -> Vec<(String, String)> {
+        [self.byteord.pair(), self.cyt.pair()].into_iter().collect()
     }
 
-    fn keywords_opt_inner(&self) -> Vec<(&'static str, String)> {
+    fn keywords_opt_inner(&self) -> Vec<(String, String)> {
         let mdn = &self.modification;
         let ts = &self.timestamps;
         let pl = &self.plate;
@@ -6138,27 +6134,27 @@ impl VersionedMetadata for InnerMetadata3_2 {
         let dt = &self.datetimes;
         let us = &self.unstained;
         [
-            (SPILLOVER, self.spillover.as_opt_string()),
-            (BTIM, ts.btim.as_opt_string()),
-            (ETIM, ts.etim.as_opt_string()),
-            (DATE, ts.date.as_opt_string()),
-            (CYTSN, self.cytsn.as_opt_string()),
-            (TIMESTEP, self.timestep.as_opt_string()),
-            (LAST_MODIFIER, mdn.last_modifier.as_opt_string()),
-            (LAST_MODIFIED, mdn.last_modified.as_opt_string()),
-            (ORIGINALITY, mdn.originality.as_opt_string()),
-            (PLATEID, pl.plateid.as_opt_string()),
-            (PLATENAME, pl.platename.as_opt_string()),
-            (WELLID, pl.wellid.as_opt_string()),
-            (VOL, self.vol.as_opt_string()),
-            (CARRIERID, car.carrierid.as_opt_string()),
-            (CARRIERTYPE, car.carriertype.as_opt_string()),
-            (LOCATIONID, car.locationid.as_opt_string()),
-            (BEGINDATETIME, dt.begin.as_opt_string()),
-            (ENDDATETIME, dt.end.as_opt_string()),
-            (UNSTAINEDCENTERS, us.unstainedcenters.as_opt_string()),
-            (UNSTAINEDINFO, us.unstainedinfo.as_opt_string()),
-            (FLOWRATE, self.flowrate.as_opt_string()),
+            OptMetaKey::pair(&self.spillover),
+            OptMetaKey::pair(&ts.btim),
+            OptMetaKey::pair(&ts.etim),
+            OptMetaKey::pair(&ts.date),
+            OptMetaKey::pair(&self.cytsn),
+            OptMetaKey::pair(&self.timestep),
+            OptMetaKey::pair(&mdn.last_modifier),
+            OptMetaKey::pair(&mdn.last_modified),
+            OptMetaKey::pair(&mdn.originality),
+            OptMetaKey::pair(&pl.plateid),
+            OptMetaKey::pair(&pl.platename),
+            OptMetaKey::pair(&pl.wellid),
+            OptMetaKey::pair(&self.vol),
+            OptMetaKey::pair(&car.carrierid),
+            OptMetaKey::pair(&car.carriertype),
+            OptMetaKey::pair(&car.locationid),
+            OptMetaKey::pair(&dt.begin),
+            OptMetaKey::pair(&dt.end),
+            OptMetaKey::pair(&us.unstainedcenters),
+            OptMetaKey::pair(&us.unstainedinfo),
+            OptMetaKey::pair(&self.flowrate),
         ]
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))
@@ -6533,7 +6529,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
     //     self.lookup_meas_opt(PCNT_EMT_SFX, n, dep)
     // }
 
-    fn lookup_all_meas_nonstandard(&mut self, n: usize) -> NonStdKeywords {
+    fn lookup_all_meas_nonstandard(&mut self, n: MeasIdx) -> NonStdKeywords {
         let mut ns = HashMap::new();
         // ASSUME the pattern does not start with "$" and has a %n which will be
         // subbed for the measurement index. The pattern will then be turned
@@ -6611,7 +6607,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
         }
     }
 
-    fn lookup_meas_req<V>(&mut self, n: usize) -> Option<V>
+    fn lookup_meas_req<V>(&mut self, n: MeasIdx) -> Option<V>
     where
         V: ReqMeasKey,
         V: FromStr,
@@ -6622,7 +6618,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
             .ok()
     }
 
-    fn lookup_meas_opt<V>(&mut self, n: usize, dep: bool) -> OptionalKw<V>
+    fn lookup_meas_opt<V>(&mut self, n: MeasIdx, dep: bool) -> OptionalKw<V>
     where
         V: OptMeasKey,
         V: FromStr,
@@ -6672,7 +6668,7 @@ impl<'a> NSKwParser<'a> {
         dopt: DefaultMatrix<Y>,
         spillover: OptionalKw<X>,
         ns: &[Shortname],
-        which: &'static str,
+        which: NonStdKey,
         f: F,
     ) -> OptionalKw<Y>
     where
@@ -6700,7 +6696,13 @@ impl<'a> NSKwParser<'a> {
         spillover: OptionalKw<Spillover>,
         ns: &[Shortname],
     ) -> OptionalKw<Compensation> {
-        self.try_convert_lookup_matrix(dopt, spillover, ns, SPILLOVER, spillover_to_comp)
+        self.try_convert_lookup_matrix(
+            dopt,
+            spillover,
+            ns,
+            Compensation::nonstd(),
+            spillover_to_comp,
+        )
     }
 
     fn try_convert_lookup_spillover(
@@ -6709,7 +6711,7 @@ impl<'a> NSKwParser<'a> {
         comp: OptionalKw<Compensation>,
         ns: &[Shortname],
     ) -> OptionalKw<Spillover> {
-        self.try_convert_lookup_matrix(dopt, comp, ns, SPILLOVER, comp_to_spillover)
+        self.try_convert_lookup_matrix(dopt, comp, ns, Spillover::nonstd(), comp_to_spillover)
     }
 
     fn lookup_modification(&mut self, look: ModificationDefaults) -> ModificationData {
@@ -6982,7 +6984,8 @@ fn split_raw_text(xs: &[u8], delim: u8, conf: &RawTextReadConfig) -> PureSuccess
 fn repair_keywords(kws: &mut RawKeywords, conf: &RawTextReadConfig) {
     for (key, v) in kws.iter_mut() {
         let k = key.as_str();
-        if k == DATE {
+        // TODO generalized this and possibly put in a trait
+        if k == FCSDate::std() {
             if let Some(pattern) = &conf.date_pattern {
                 if let Ok(d) = NaiveDate::parse_from_str(v, pattern.as_ref()) {
                     *v = format!("{}", FCSDate(d))
@@ -7266,7 +7269,11 @@ fn h_read_raw_text<R: Read + Seek>(
 fn split_remainder(xs: RawKeywords) -> (RawKeywords, RawKeywords) {
     xs.into_iter()
         .map(|(k, v)| {
-            if k == TOT || k == BEGINDATA || k == ENDDATA || k == BEGINANALYSIS || k == ENDANALYSIS
+            if k == Tot::std()
+                || k == BEGINDATA
+                || k == ENDDATA
+                || k == BEGINANALYSIS
+                || k == ENDANALYSIS
             {
                 Ok((k, v))
             } else {
@@ -8335,12 +8342,12 @@ impl MeasurementDefaults2_0To3_0 {
         }
     }
 
-    fn keyed(scale: Scale, n: usize) -> Self {
-        Self {
-            scale,
-            gain: DefaultMeasOptional::init_unchecked(GAIN_SFX, n),
-        }
-    }
+    // fn keyed(scale: Scale, n: usize) -> Self {
+    //     Self {
+    //         scale,
+    //         gain: DefaultMeasOptional::init_unchecked(GAIN_SFX, n),
+    //     }
+    // }
 }
 
 #[derive(Clone)]
@@ -8363,12 +8370,12 @@ impl MeasurementDefaultsTo3_0 {
         }
     }
 
-    fn keyed(scale: Scale, n: usize) -> Self {
-        Self {
-            scale,
-            gain: DefaultMeasOptional::init_unchecked(GAIN_SFX, n),
-        }
-    }
+    // fn keyed(scale: Scale, n: usize) -> Self {
+    //     Self {
+    //         scale,
+    //         gain: DefaultMeasOptional::init_unchecked(GAIN_SFX, n),
+    //     }
+    // }
 }
 
 #[derive(Clone)]
@@ -8399,15 +8406,15 @@ impl MeasurementDefaults2_0To3_1 {
         }
     }
 
-    fn keyed(scale: Scale, shortname: Shortname, n: usize) -> Self {
-        Self {
-            scale,
-            shortname,
-            gain: DefaultMeasOptional::init_unchecked(GAIN_SFX, n),
-            calibration: DefaultMeasOptional::init_unchecked(CALIBRATION_SFX, n),
-            display: DefaultMeasOptional::init_unchecked(DISPLAY_SFX, n),
-        }
-    }
+    // fn keyed(scale: Scale, shortname: Shortname, n: usize) -> Self {
+    //     Self {
+    //         scale,
+    //         shortname,
+    //         gain: DefaultMeasOptional::init_unchecked(GAIN_SFX, n),
+    //         calibration: DefaultMeasOptional::init_unchecked(CALIBRATION_SFX, n),
+    //         display: DefaultMeasOptional::init_unchecked(DISPLAY_SFX, n),
+    //     }
+    // }
 }
 
 #[derive(Clone)]
@@ -8426,13 +8433,13 @@ impl MeasurementDefaults3_0To3_1 {
         }
     }
 
-    fn keyed(shortname: Shortname, n: usize) -> Self {
-        Self {
-            shortname,
-            calibration: DefaultMeasOptional::init_unchecked(CALIBRATION_SFX, n),
-            display: DefaultMeasOptional::init_unchecked(DISPLAY_SFX, n),
-        }
-    }
+    // fn keyed(shortname: Shortname, n: usize) -> Self {
+    //     Self {
+    //         shortname,
+    //         calibration: DefaultMeasOptional::init_unchecked(CALIBRATION_SFX, n),
+    //         display: DefaultMeasOptional::init_unchecked(DISPLAY_SFX, n),
+    //     }
+    // }
 }
 
 #[derive(Clone)]
@@ -8458,15 +8465,15 @@ impl MeasurementDefaultsTo3_1 {
         }
     }
 
-    fn keyed(scale: Scale, shortname: Shortname, n: usize) -> Self {
-        Self {
-            scale,
-            shortname,
-            gain: DefaultMeasOptional::init_unchecked(GAIN_SFX, n),
-            calibration: DefaultMeasOptional::init_unchecked(CALIBRATION_SFX, n),
-            display: DefaultMeasOptional::init_unchecked(DISPLAY_SFX, n),
-        }
-    }
+    // fn keyed(scale: Scale, shortname: Shortname, n: usize) -> Self {
+    //     Self {
+    //         scale,
+    //         shortname,
+    //         gain: DefaultMeasOptional::init_unchecked(GAIN_SFX, n),
+    //         calibration: DefaultMeasOptional::init_unchecked(CALIBRATION_SFX, n),
+    //         display: DefaultMeasOptional::init_unchecked(DISPLAY_SFX, n),
+    //     }
+    // }
 }
 
 #[derive(Clone)]
@@ -8504,21 +8511,21 @@ impl MeasurementDefaults2_0To3_2 {
         }
     }
 
-    fn fixed(scale: Scale, shortname: Shortname, n: usize) -> Self {
-        Self {
-            scale,
-            shortname,
-            gain: DefaultMeasOptional::init_unchecked(GAIN_SFX, n),
-            calibration: DefaultMeasOptional::init_unchecked(CALIBRATION_SFX, n),
-            display: DefaultMeasOptional::init_unchecked(DISPLAY_SFX, n),
-            analyte: DefaultMeasOptional::init_unchecked(ANALYTE_SFX, n),
-            tag: DefaultMeasOptional::init_unchecked(TAG_SFX, n),
-            detector_name: DefaultMeasOptional::init_unchecked(DET_NAME_SFX, n),
-            feature: DefaultMeasOptional::init_unchecked(FEATURE_SFX, n),
-            datatype: DefaultMeasOptional::init_unchecked(DATATYPE_SFX, n),
-            measurement_type: DefaultMeasOptional::init_unchecked(MEAS_TYPE_SFX, n),
-        }
-    }
+    // fn fixed(scale: Scale, shortname: Shortname, n: usize) -> Self {
+    //     Self {
+    //         scale,
+    //         shortname,
+    //         gain: DefaultMeasOptional::init_unchecked(GAIN_SFX, n),
+    //         calibration: DefaultMeasOptional::init_unchecked(CALIBRATION_SFX, n),
+    //         display: DefaultMeasOptional::init_unchecked(DISPLAY_SFX, n),
+    //         analyte: DefaultMeasOptional::init_unchecked(ANALYTE_SFX, n),
+    //         tag: DefaultMeasOptional::init_unchecked(TAG_SFX, n),
+    //         detector_name: DefaultMeasOptional::init_unchecked(DET_NAME_SFX, n),
+    //         feature: DefaultMeasOptional::init_unchecked(FEATURE_SFX, n),
+    //         datatype: DefaultMeasOptional::init_unchecked(DATATYPE_SFX, n),
+    //         measurement_type: DefaultMeasOptional::init_unchecked(MEAS_TYPE_SFX, n),
+    //     }
+    // }
 }
 
 #[derive(Clone)]
@@ -8549,19 +8556,19 @@ impl MeasurementDefaults3_0To3_2 {
         }
     }
 
-    fn fixed(shortname: Shortname, n: usize) -> Self {
-        Self {
-            shortname,
-            calibration: DefaultMeasOptional::init_unchecked(CALIBRATION_SFX, n),
-            display: DefaultMeasOptional::init_unchecked(DISPLAY_SFX, n),
-            analyte: DefaultMeasOptional::init_unchecked(ANALYTE_SFX, n),
-            tag: DefaultMeasOptional::init_unchecked(TAG_SFX, n),
-            detector_name: DefaultMeasOptional::init_unchecked(DET_NAME_SFX, n),
-            feature: DefaultMeasOptional::init_unchecked(FEATURE_SFX, n),
-            datatype: DefaultMeasOptional::init_unchecked(DATATYPE_SFX, n),
-            measurement_type: DefaultMeasOptional::init_unchecked(MEAS_TYPE_SFX, n),
-        }
-    }
+    // fn fixed(shortname: Shortname, n: usize) -> Self {
+    //     Self {
+    //         shortname,
+    //         calibration: DefaultMeasOptional::init_unchecked(CALIBRATION_SFX, n),
+    //         display: DefaultMeasOptional::init_unchecked(DISPLAY_SFX, n),
+    //         analyte: DefaultMeasOptional::init_unchecked(ANALYTE_SFX, n),
+    //         tag: DefaultMeasOptional::init_unchecked(TAG_SFX, n),
+    //         detector_name: DefaultMeasOptional::init_unchecked(DET_NAME_SFX, n),
+    //         feature: DefaultMeasOptional::init_unchecked(FEATURE_SFX, n),
+    //         datatype: DefaultMeasOptional::init_unchecked(DATATYPE_SFX, n),
+    //         measurement_type: DefaultMeasOptional::init_unchecked(MEAS_TYPE_SFX, n),
+    //     }
+    // }
 }
 
 #[derive(Clone, Default)]
@@ -8574,18 +8581,18 @@ pub struct MeasurementDefaults3_1To3_2 {
     measurement_type: DefaultMeasOptional<MeasurementType>,
 }
 
-impl MeasurementDefaults3_1To3_2 {
-    fn fixed(n: usize) -> Self {
-        Self {
-            analyte: DefaultMeasOptional::init_unchecked(ANALYTE_SFX, n),
-            tag: DefaultMeasOptional::init_unchecked(TAG_SFX, n),
-            detector_name: DefaultMeasOptional::init_unchecked(DET_NAME_SFX, n),
-            feature: DefaultMeasOptional::init_unchecked(FEATURE_SFX, n),
-            datatype: DefaultMeasOptional::init_unchecked(DATATYPE_SFX, n),
-            measurement_type: DefaultMeasOptional::init_unchecked(MEAS_TYPE_SFX, n),
-        }
-    }
-}
+// impl MeasurementDefaults3_1To3_2 {
+//     fn fixed(n: usize) -> Self {
+//         Self {
+//             analyte: DefaultMeasOptional::init_unchecked(ANALYTE_SFX, n),
+//             tag: DefaultMeasOptional::init_unchecked(TAG_SFX, n),
+//             detector_name: DefaultMeasOptional::init_unchecked(DET_NAME_SFX, n),
+//             feature: DefaultMeasOptional::init_unchecked(FEATURE_SFX, n),
+//             datatype: DefaultMeasOptional::init_unchecked(DATATYPE_SFX, n),
+//             measurement_type: DefaultMeasOptional::init_unchecked(MEAS_TYPE_SFX, n),
+//         }
+//     }
+// }
 
 #[derive(Clone)]
 pub struct MeasurementDefaultsTo3_2 {
@@ -8624,21 +8631,21 @@ impl MeasurementDefaultsTo3_2 {
     // assigning a trait which (among other things) would have a const param
     // for the key/suffix/default. This way I would only need to write each
     // kw once and could refer to them using the type.
-    fn fixed(scale: Scale, shortname: Shortname, n: usize) -> Self {
-        Self {
-            scale,
-            shortname,
-            gain: DefaultMeasOptional::init_unchecked(GAIN_SFX, n),
-            calibration: DefaultMeasOptional::init_unchecked(CALIBRATION_SFX, n),
-            display: DefaultMeasOptional::init_unchecked(DISPLAY_SFX, n),
-            analyte: DefaultMeasOptional::init_unchecked(ANALYTE_SFX, n),
-            tag: DefaultMeasOptional::init_unchecked(TAG_SFX, n),
-            detector_name: DefaultMeasOptional::init_unchecked(DET_NAME_SFX, n),
-            feature: DefaultMeasOptional::init_unchecked(FEATURE_SFX, n),
-            datatype: DefaultMeasOptional::init_unchecked(DATATYPE_SFX, n),
-            measurement_type: DefaultMeasOptional::init_unchecked(MEAS_TYPE_SFX, n),
-        }
-    }
+    // fn fixed(scale: Scale, shortname: Shortname, n: usize) -> Self {
+    //     Self {
+    //         scale,
+    //         shortname,
+    //         gain: DefaultMeasOptional::init_unchecked(GAIN_SFX, n),
+    //         calibration: DefaultMeasOptional::init_unchecked(CALIBRATION_SFX, n),
+    //         display: DefaultMeasOptional::init_unchecked(DISPLAY_SFX, n),
+    //         analyte: DefaultMeasOptional::init_unchecked(ANALYTE_SFX, n),
+    //         tag: DefaultMeasOptional::init_unchecked(TAG_SFX, n),
+    //         detector_name: DefaultMeasOptional::init_unchecked(DET_NAME_SFX, n),
+    //         feature: DefaultMeasOptional::init_unchecked(FEATURE_SFX, n),
+    //         datatype: DefaultMeasOptional::init_unchecked(DATATYPE_SFX, n),
+    //         measurement_type: DefaultMeasOptional::init_unchecked(MEAS_TYPE_SFX, n),
+    //     }
+    // }
 }
 
 txfr_keys!(MeasurementDefaultsTo2_0, MeasurementDefaults2_0To2_0, []);

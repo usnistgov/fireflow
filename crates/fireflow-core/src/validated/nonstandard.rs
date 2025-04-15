@@ -52,6 +52,10 @@ pub struct DefaultOptional<T, K> {
     pub key: Option<K>,
 }
 
+/// The index for a measurement
+#[derive(Clone, Copy)]
+pub struct MeasIdx(pub usize);
+
 pub type DefaultMetaOptional<T> = DefaultOptional<T, NonStdKey>;
 pub type DefaultMeasOptional<T> = DefaultOptional<T, NonStdMeasKey>;
 
@@ -130,7 +134,7 @@ impl FromStr for NonStdMeasPattern {
 }
 
 impl NonStdMeasPattern {
-    pub fn from_index(&self, n: usize) -> Result<NonStdMeasRegex, NonStdMeasRegexError> {
+    pub fn from_index(&self, n: MeasIdx) -> Result<NonStdMeasRegex, NonStdMeasRegexError> {
         let pattern = self.0.replace("%n", n.to_string().as_str());
         Regex::new(pattern.as_str())
             .map_err(|_| NonStdMeasRegexError { pattern, index: n })
@@ -178,7 +182,7 @@ impl fmt::Display for NonStdMeasPatternError {
 
 pub struct NonStdMeasRegexError {
     pattern: String,
-    index: usize,
+    index: MeasIdx,
 }
 
 impl fmt::Display for NonStdMeasRegexError {
@@ -264,6 +268,7 @@ impl<T> Default for DefaultMatrix<T> {
 newtype_disp!(NonStdKey);
 newtype_disp!(NonStdMeasKey);
 newtype_disp!(NonStdMeasPattern);
+newtype_disp!(MeasIdx);
 
 newtype_asref!(NonStdKey, str);
 newtype_asref!(NonStdMeasKey, str);

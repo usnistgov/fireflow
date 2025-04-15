@@ -944,7 +944,7 @@ impl PyCoreTEXT3_2 {
             api::CoreDefaults::new(
                 api::MetadataDefaults3_2To2_0::default(),
                 api::MeasurementDefaults3_2To2_0,
-                self.0.par(),
+                self.0.par().0,
             ),
         );
         handle_pure(new)
@@ -957,7 +957,7 @@ impl PyCoreTEXT3_2 {
             api::CoreDefaults::new(
                 api::MetadataDefaults3_2To3_0::default(),
                 api::MeasurementDefaults3_2To3_0,
-                self.0.par(),
+                self.0.par().0,
             ),
         );
         handle_pure(new)
@@ -969,7 +969,7 @@ impl PyCoreTEXT3_2 {
             api::CoreDefaults::new(
                 api::MetadataDefaults3_2To3_1,
                 api::MeasurementDefaults3_2To3_1,
-                self.0.par(),
+                self.0.par().0,
             ),
         );
         handle_pure(new)

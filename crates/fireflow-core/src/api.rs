@@ -131,7 +131,7 @@ pub struct Offsets {
     ///
     /// This will be copied as represented in TEXT. If it is 0, there is no next
     /// dataset, otherwise it points to the next dataset in the file.
-    pub nextdata: Option<Nextdata>,
+    pub nextdata: Option<u32>,
 }
 
 /// Output of parsing the TEXT segment and standardizing keywords.
@@ -893,32 +893,50 @@ where
 type ReqResult<T> = Result<T, String>;
 type OptResult<T> = Result<OptionalKw<T>, String>;
 
+fn lookup_req<T>(kws: &mut RawKeywords, k: &str) -> Result<T, String>
+where
+    T: FromStr,
+    <T as FromStr>::Err: fmt::Display,
+{
+    match kws.remove(k) {
+        Some(v) => v
+            .parse()
+            .map_err(|e| format!("{e} (key='{k}', value='{v}')")),
+        None => Err(format!("missing required key: {k}")),
+    }
+}
+
+fn lookup_opt<T>(kws: &mut RawKeywords, k: &str) -> Result<Option<T>, String>
+where
+    T: FromStr,
+    <T as FromStr>::Err: fmt::Display,
+{
+    match kws.remove(k) {
+        Some(v) => v
+            .parse()
+            .map(Some)
+            .map_err(|e| format!("{e} (key='{k}', value='{v}')")),
+        None => Ok(None),
+    }
+}
+
 trait Required {
-    fn lookup_req<V: FromStr>(kws: &mut RawKeywords, k: &str) -> Result<V, String>
+    fn lookup_req<V>(kws: &mut RawKeywords, k: &str) -> Result<V, String>
     where
+        V: FromStr,
         <V as FromStr>::Err: fmt::Display,
     {
-        match kws.remove(k) {
-            Some(v) => v
-                .parse()
-                .map_err(|e| format!("{e} (key='{k}', value='{v}')")),
-            None => Err(format!("missing required key: {k}")),
-        }
+        lookup_req(kws, k)
     }
 }
 
 trait Optional {
-    fn lookup_opt<V: FromStr>(kws: &mut RawKeywords, k: &str) -> Result<OptionalKw<V>, String>
+    fn lookup_opt<V>(kws: &mut RawKeywords, k: &str) -> Result<OptionalKw<V>, String>
     where
+        V: FromStr,
         <V as FromStr>::Err: fmt::Display,
     {
-        match kws.remove(k) {
-            Some(v) => v
-                .parse()
-                .map(|x| Some(x).into())
-                .map_err(|w| format!("{w} (key={k}, value='{v}')")),
-            None => Ok(None.into()),
-        }
+        lookup_opt(kws, k).map(|x| x.into())
     }
 }
 
@@ -1173,18 +1191,18 @@ kw_req_meta_int!(Par, usize, "PAR");
 kw_opt_meas_int!(Wavelength, u32, "L");
 kw_opt_meas_int!(Power, u32, "O");
 
-kw_req_meta_int!(BeginSText, u32, "BEGINSTEXT");
-kw_req_meta_int!(BeginAnalysis, u32, "BEGINANALYSIS");
-kw_req_meta_int!(BeginData, u32, "BEGINDATA");
-kw_req_meta_int!(EndSText, u32, "ENDSTEXT");
-kw_req_meta_int!(EndAnalysis, u32, "ENDANALYSIS");
-kw_req_meta_int!(EndData, u32, "ENDDATA");
-kw_req_meta_int!(Nextdata, u32, "NEXTDATA");
+// kw_req_meta_int!(BeginSText, u32, "BEGINSTEXT");
+// kw_req_meta_int!(BeginAnalysis, u32, "BEGINANALYSIS");
+// kw_req_meta_int!(BeginData, u32, "BEGINDATA");
+// kw_req_meta_int!(EndSText, u32, "ENDSTEXT");
+// kw_req_meta_int!(EndAnalysis, u32, "ENDANALYSIS");
+// kw_req_meta_int!(EndData, u32, "ENDDATA");
+// kw_req_meta_int!(Nextdata, u32, "NEXTDATA");
 
-opt_meta!(BeginAnalysis);
-opt_meta!(BeginSText);
-opt_meta!(EndAnalysis);
-opt_meta!(EndSText);
+// opt_meta!(BeginAnalysis);
+// opt_meta!(BeginSText);
+// opt_meta!(EndAnalysis);
+// opt_meta!(EndSText);
 
 macro_rules! kw_time {
     ($outer:ident, $wrap:ident, $inner:ident, $err:ident, $key:expr) => {
@@ -5492,127 +5510,6 @@ fn h_write_dataset<W: Write>(
     res
 }
 
-// TODO unclear if these next two functions should throw errors or warnings
-// on failure
-fn lookup_data_offsets(
-    kws: &mut RawKeywords,
-    conf: &DataReadConfig,
-    version: Version,
-    default: &Segment,
-) -> PureSuccess<Segment> {
-    let mut deferred = PureErrorBuf::default();
-    let data = match version {
-        Version::FCS2_0 => *default,
-        _ => {
-            let b = BeginData::lookup_meta_req(kws);
-            let e = EndData::lookup_meta_req(kws);
-            match (b, e) {
-                (Ok(begin), Ok(end)) => {
-                    let res = Segment::try_new(begin.0, end.0, conf.data, SegmentId::Data);
-                    match res {
-                        Ok(seg) => seg,
-                        Err(err) => {
-                            deferred.push_warning(format!(
-                                "defaulting to header DATA offsets due to error: {}",
-                                err
-                            ));
-                            *default
-                        }
-                    }
-                }
-                (a, b) => {
-                    let es = [a.err(), b.err()].into_iter().flatten().collect();
-                    deferred.concat(PureErrorBuf::from_many(es, PureErrorLevel::Warning));
-                    deferred.push_warning(
-                        "could not find DATA offsets in TEXT, defaulting to HEADER offsets"
-                            .to_string(),
-                    );
-                    *default
-                }
-            }
-        }
-    };
-    PureSuccess { data, deferred }
-}
-
-fn lookup_analysis_offsets(
-    kws: &mut RawKeywords,
-    conf: &DataReadConfig,
-    version: Version,
-    default: &Segment,
-) -> PureSuccess<Segment> {
-    let mut deferred = PureErrorBuf::default();
-    let data = match version {
-        Version::FCS2_0 => *default,
-        Version::FCS3_0 | Version::FCS3_1 => {
-            let b = BeginAnalysis::lookup_meta_req(kws);
-            let e = EndAnalysis::lookup_meta_req(kws);
-            // TODO wet
-            match (b, e) {
-                (Ok(begin), Ok(end)) => {
-                    let res = Segment::try_new(begin.0, end.0, conf.data, SegmentId::Analysis);
-                    match res {
-                        Ok(seg) => seg,
-                        Err(err) => {
-                            deferred.push_warning(format!(
-                                "defaulting to header DATA offsets due to error: {}",
-                                err
-                            ));
-                            *default
-                        }
-                    }
-                }
-                (a, b) => {
-                    let es = [a.err(), b.err()].into_iter().flatten().collect();
-                    deferred.concat(PureErrorBuf::from_many(es, PureErrorLevel::Warning));
-                    deferred.push_warning(
-                        "could not find DATA offsets in TEXT, defaulting to HEADER offsets"
-                            .to_string(),
-                    );
-                    *default
-                }
-            }
-        }
-        Version::FCS3_2 => {
-            let b = BeginAnalysis::lookup_meta_opt(kws);
-            let e = EndAnalysis::lookup_meta_opt(kws);
-            match (b, e) {
-                (Ok(begin), Ok(end)) => {
-                    if let (Some(begin), Some(end)) = (begin.0, end.0) {
-                        let res = Segment::try_new(begin.0, end.0, conf.data, SegmentId::Analysis);
-                        match res {
-                            Ok(seg) => seg,
-                            Err(err) => {
-                                deferred.push_warning(format!(
-                                    "defaulting to header DATA offsets due to error: {}",
-                                    err
-                                ));
-                                *default
-                            }
-                        }
-                    } else {
-                        *default
-                    }
-                }
-                (a, b) => {
-                    let es = [a.err(), b.err()].into_iter().flatten().collect();
-                    deferred.concat(PureErrorBuf::from_many(es, PureErrorLevel::Warning));
-                    deferred.push_warning(
-                        "could not find DATA offsets in TEXT, defaulting to HEADER offsets"
-                            .to_string(),
-                    );
-                    *default
-                }
-            }
-        }
-    };
-    // .map_err(|err| {
-    //     let msg = format!("defaulting to header ANALYSIS offsets due to error: {err}",);
-    //     deferred.push_warning(msg);
-    // });
-    PureSuccess { data, deferred }
-}
-
 fn h_read_analysis<R: Read + Seek>(h: &mut BufReader<R>, seg: &Segment) -> io::Result<Vec<u8>> {
     let mut buf = vec![];
     h.seek(SeekFrom::Start(u64::from(seg.begin())))?;
@@ -7136,36 +7033,151 @@ fn repair_offsets(pairs: &mut RawPairs, conf: &RawTextReadConfig) {
     }
 }
 
+fn lookup_req_segment(
+    kws: &mut RawKeywords,
+    bk: &str,
+    ek: &str,
+    corr: OffsetCorrection,
+    id: SegmentId,
+) -> Result<Segment, Vec<String>> {
+    let b = lookup_req(kws, bk);
+    let e = lookup_req(kws, ek);
+    match (b, e) {
+        (Ok(begin), Ok(end)) => Segment::try_new(begin, end, corr, id).map_err(|x| vec![x]),
+        (a, b) => Err([a.err(), b.err()].into_iter().flatten().collect()),
+    }
+}
+
+fn lookup_opt_segment(
+    kws: &mut RawKeywords,
+    bk: &str,
+    ek: &str,
+    corr: OffsetCorrection,
+    id: SegmentId,
+) -> Result<Option<Segment>, Vec<String>> {
+    let b = lookup_opt(kws, bk);
+    let e = lookup_opt(kws, ek);
+    match (b, e) {
+        (Ok(mb), Ok(me)) => {
+            if let (Some(begin), Some(end)) = (mb, me) {
+                Segment::try_new(begin, end, corr, id)
+                    .map_err(|x| vec![x])
+                    .map(Some)
+            } else {
+                Ok(None)
+            }
+        }
+        (a, b) => Err([a.err(), b.err()].into_iter().flatten().collect()),
+    }
+}
+
+// TODO unclear if these next two functions should throw errors or warnings
+// on failure
+fn lookup_data_offsets(
+    kws: &mut RawKeywords,
+    conf: &DataReadConfig,
+    version: Version,
+    default: &Segment,
+) -> PureSuccess<Segment> {
+    match version {
+        Version::FCS2_0 => Ok(*default),
+        _ => lookup_req_segment(kws, BEGINDATA, ENDDATA, conf.data, SegmentId::Data),
+    }
+    .map_or_else(
+        |es| {
+            // TODO toggle this?
+            let mut def = PureErrorBuf::from_many(es, PureErrorLevel::Warning);
+            let msg =
+                "could not use DATA offsets in TEXT, defaulting to HEADER offsets".to_string();
+            def.push_warning(msg);
+            PureSuccess {
+                data: *default,
+                deferred: def,
+            }
+        },
+        PureSuccess::from,
+    )
+}
+
+fn lookup_analysis_offsets(
+    kws: &mut RawKeywords,
+    conf: &DataReadConfig,
+    version: Version,
+    default: &Segment,
+) -> PureSuccess<Segment> {
+    let default_succ = |msgs| {
+        // TODO toggle this?
+        let mut def = PureErrorBuf::from_many(msgs, PureErrorLevel::Warning);
+        let msg =
+            "could not use ANALYSIS offsets in TEXT, defaulting to HEADER offsets".to_string();
+        def.push_warning(msg);
+        PureSuccess {
+            data: *default,
+            deferred: def,
+        }
+    };
+    match version {
+        Version::FCS2_0 => Ok(Some(*default)),
+        Version::FCS3_0 | Version::FCS3_1 => lookup_req_segment(
+            kws,
+            BEGINANALYSIS,
+            ENDANALYSIS,
+            conf.analysis,
+            SegmentId::Analysis,
+        )
+        .map(Some),
+        Version::FCS3_2 => lookup_opt_segment(
+            kws,
+            BEGINANALYSIS,
+            ENDANALYSIS,
+            conf.analysis,
+            SegmentId::Analysis,
+        ),
+    }
+    .map_or_else(default_succ, |mab_seg| {
+        mab_seg.map_or_else(|| default_succ(vec![]), PureSuccess::from)
+    })
+}
+
 fn lookup_stext_offsets(
     kws: &mut RawKeywords,
     version: Version,
     conf: &RawTextReadConfig,
-) -> PureSuccess<Option<Segment>> {
-    let offset_succ = KwParser::run(kws, conf.into(), |st| match version {
-        Version::FCS2_0 => (None, None, false),
+) -> PureMaybe<Segment> {
+    // TODO add another msg explaining that the supp text won't be read if
+    // offsets not found
+    match version {
+        Version::FCS2_0 => PureSuccess::from(None),
         Version::FCS3_0 | Version::FCS3_1 => {
-            let b: Option<BeginSText> = st.lookup_meta_req();
-            let e: Option<EndSText> = st.lookup_meta_req();
-            (b, e, conf.enforce_stext)
-        }
-        Version::FCS3_2 => {
-            let b: OptionalKw<BeginSText> = st.lookup_meta_opt(false).into();
-            let e: OptionalKw<EndSText> = st.lookup_meta_opt(false).into();
-            (b.0, e.0, false)
-        }
-    });
-    offset_succ.and_then(|offsets| match offsets {
-        (Some(begin), Some(end), enforce) => {
-            let seg_res = Segment::try_new(begin.0, end.0, conf.stext, SegmentId::SupplementalText);
-            let level = if enforce {
+            let res = lookup_req_segment(
+                kws,
+                BEGINSTEXT,
+                ENDSTEXT,
+                conf.stext,
+                SegmentId::SupplementalText,
+            );
+            let level = if conf.enforce_stext {
                 PureErrorLevel::Error
             } else {
                 PureErrorLevel::Warning
             };
-            PureMaybe::from_result_1(seg_res, level)
+            PureMaybe::from_result_strs(res, level)
         }
-        _ => PureMaybe::empty(),
-    })
+        Version::FCS3_2 => lookup_opt_segment(
+            kws,
+            BEGINSTEXT,
+            ENDSTEXT,
+            conf.stext,
+            SegmentId::SupplementalText,
+        )
+        .map_or_else(
+            |es| PureSuccess {
+                data: None,
+                deferred: PureErrorBuf::from_many(es, PureErrorLevel::Warning),
+            },
+            PureSuccess::from,
+        ),
+    }
 }
 
 fn add_keywords(
@@ -7184,6 +7196,15 @@ fn add_keywords(
         }
     }
     succ
+}
+
+fn lookup_nextdata(kws: &mut RawKeywords, enforce: bool) -> PureMaybe<u32> {
+    if enforce {
+        PureMaybe::from_result_1(lookup_req(kws, NEXTDATA), PureErrorLevel::Error)
+    } else {
+        PureMaybe::from_result_1(lookup_opt(kws, NEXTDATA), PureErrorLevel::Warning)
+            .map(|x| x.flatten())
+    }
 }
 
 fn h_read_raw_text_from_header<R: Read + Seek>(
@@ -7218,7 +7239,8 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
             repair_keywords(&mut kws, &conf);
             // TODO this will throw an error if not present, but we may not care
             // so toggle b/t error and warning
-            KwParser::run(&mut kws, kwconf, |st| st.lookup_meta_req()).map(|nextdata| RawTEXT {
+            let enforce_nextdata = true;
+            lookup_nextdata(&mut kws, enforce_nextdata).map(|nextdata| RawTEXT {
                 version: header.version,
                 offsets: Offsets {
                     prim_text: header.text,

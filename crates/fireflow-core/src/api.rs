@@ -2030,10 +2030,10 @@ where
         }
     }
 
-    fn lookup_specific(st: &mut KwParser, par: usize) -> Option<Self>;
+    fn lookup_specific(st: &mut KwParser, par: Par) -> Option<Self>;
 
     fn lookup_metadata(st: &mut KwParser, ms: &[Measurement<Self::P>]) -> Option<Metadata<Self>> {
-        let par = ms.len();
+        let par = Par(ms.len());
         let maybe_datatype = st.lookup_meta_req();
         let maybe_specific = Self::lookup_specific(st, par);
         if let (Some(datatype), Some(specific)) = (maybe_datatype, maybe_specific) {
@@ -5797,7 +5797,7 @@ impl VersionedMetadata for InnerMetadata2_0 {
 
     get_set_pre_3_2_datetime!(FCSTime);
 
-    fn lookup_specific(st: &mut KwParser, par: usize) -> Option<InnerMetadata2_0> {
+    fn lookup_specific(st: &mut KwParser, par: Par) -> Option<InnerMetadata2_0> {
         let maybe_mode = st.lookup_meta_req();
         let maybe_byteord = st.lookup_meta_req();
         if let (Some(mode), Some(byteord)) = (maybe_mode, maybe_byteord) {
@@ -5862,7 +5862,7 @@ impl VersionedMetadata for InnerMetadata3_0 {
 
     get_set_pre_3_2_datetime!(FCSTime60);
 
-    fn lookup_specific(st: &mut KwParser, _: usize) -> Option<InnerMetadata3_0> {
+    fn lookup_specific(st: &mut KwParser, _: Par) -> Option<InnerMetadata3_0> {
         let maybe_mode = st.lookup_meta_req();
         let maybe_byteord = st.lookup_meta_req();
         if let (Some(mode), Some(byteord)) = (maybe_mode, maybe_byteord) {
@@ -5937,7 +5937,7 @@ impl VersionedMetadata for InnerMetadata3_1 {
 
     get_set_pre_3_2_datetime!(FCSTime100);
 
-    fn lookup_specific(st: &mut KwParser, _: usize) -> Option<InnerMetadata3_1> {
+    fn lookup_specific(st: &mut KwParser, _: Par) -> Option<InnerMetadata3_1> {
         let maybe_mode = st.lookup_meta_req();
         let maybe_byteord = st.lookup_meta_req();
         if let (Some(mode), Some(byteord)) = (maybe_mode, maybe_byteord) {
@@ -6094,7 +6094,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
         self.timestamps.date = None.into();
     }
 
-    fn lookup_specific(st: &mut KwParser, _: usize) -> Option<InnerMetadata3_2> {
+    fn lookup_specific(st: &mut KwParser, _: Par) -> Option<InnerMetadata3_2> {
         // Only L is allowed as of 3.2, so pull the value and check it if given.
         // The only thing we care about is that the value is valid, since we
         // don't need to use it anywhere.
@@ -6175,37 +6175,37 @@ fn parse_raw_text(
     }
 }
 
-macro_rules! kws_req {
-    ($name:ident, $ret:ty, $key:expr, $dep:expr ) => {
-        fn $name(&mut self) -> Option<$ret> {
-            self.lookup_required($key, $dep)
-        }
-    };
-}
+// macro_rules! kws_req {
+//     ($name:ident, $ret:ty, $key:expr, $dep:expr ) => {
+//         fn $name(&mut self) -> Option<$ret> {
+//             self.lookup_required($key, $dep)
+//         }
+//     };
+// }
 
-macro_rules! kws_opt {
-    ($name:ident, $ret:ty, $key:expr, $dep:expr ) => {
-        fn $name(&mut self) -> OptionalKw<$ret> {
-            self.lookup_optional($key, $dep)
-        }
-    };
-}
+// macro_rules! kws_opt {
+//     ($name:ident, $ret:ty, $key:expr, $dep:expr ) => {
+//         fn $name(&mut self) -> OptionalKw<$ret> {
+//             self.lookup_optional($key, $dep)
+//         }
+//     };
+// }
 
-macro_rules! kws_meas_req {
-    ($name:ident, $ret:ty, $key:expr, $dep:expr ) => {
-        fn $name(&mut self, n: usize) -> Option<$ret> {
-            self.lookup_meas_req($key, n, $dep)
-        }
-    };
-}
+// macro_rules! kws_meas_req {
+//     ($name:ident, $ret:ty, $key:expr, $dep:expr ) => {
+//         fn $name(&mut self, n: usize) -> Option<$ret> {
+//             self.lookup_meas_req($key, n, $dep)
+//         }
+//     };
+// }
 
-macro_rules! kws_meas_opt {
-    ($name:ident, $ret:ty, $key:expr, $dep:expr ) => {
-        fn $name(&mut self, n: usize) -> OptionalKw<$ret> {
-            self.lookup_meas_opt($key, n, $dep)
-        }
-    };
-}
+// macro_rules! kws_meas_opt {
+//     ($name:ident, $ret:ty, $key:expr, $dep:expr ) => {
+//         fn $name(&mut self, n: usize) -> OptionalKw<$ret> {
+//             self.lookup_meas_opt($key, n, $dep)
+//         }
+//     };
+// }
 
 /// A structure to look up and parse keywords in the TEXT segment
 ///
@@ -6234,15 +6234,6 @@ struct KwParser<'a, 'b> {
 struct KwParserConfig<'a> {
     disallow_deprecated: bool,
     nonstandard_measurement_pattern: Option<&'a NonStdMeasPattern>,
-}
-
-impl<'a> From<&'a RawTextReadConfig> for KwParserConfig<'a> {
-    fn from(value: &'a RawTextReadConfig) -> Self {
-        KwParserConfig {
-            disallow_deprecated: value.disallow_deprecated,
-            nonstandard_measurement_pattern: None,
-        }
-    }
 }
 
 impl<'a> From<&'a StdTextReadConfig> for KwParserConfig<'a> {
@@ -6446,14 +6437,15 @@ impl<'a, 'b> KwParser<'a, 'b> {
         }
     }
 
-    fn lookup_compensation_2_0(&mut self, par: usize) -> OptionalKw<Compensation> {
+    fn lookup_compensation_2_0(&mut self, par: Par) -> OptionalKw<Compensation> {
         // column = src channel
         // row = target channel
         // These are "flipped" in 2.0, where "column" goes TO the "row"
+        let n = par.0;
         let mut any_error = false;
-        let mut matrix = DMatrix::<f32>::identity(par, par);
-        for r in 0..par {
-            for c in 0..par {
+        let mut matrix = DMatrix::<f32>::identity(n, n);
+        for r in 0..n {
+            for c in 0..n {
                 let k = format!("DFC{c}TO{r}");
                 if let Some(x) = self.lookup_dfc(k.as_str()) {
                     matrix[(r, c)] = x;

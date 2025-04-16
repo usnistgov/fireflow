@@ -4236,38 +4236,6 @@ impl<M> Metadata<M>
 where
     M: VersionedMetadata,
 {
-    // TODO more to coretext?
-    fn as_writer_data_layout(
-        &self,
-        ms: &[Measurement<M::P>],
-    ) -> Result<WriterDataLayout, Vec<String>> {
-        let dt = self.datatype;
-        let byteord = self.specific.byteord();
-        let ncols = ms.len();
-        let (pass, fail): (Vec<_>, Vec<_>) = ms
-            .iter()
-            .map(|m| m.as_column_type(dt, &byteord))
-            .partition_result();
-        let mut deferred: Vec<_> = fail.into_iter().flatten().collect();
-        if pass.len() == ncols {
-            let fixed: Vec<_> = pass.into_iter().flatten().collect();
-            let nfixed = fixed.len();
-            if nfixed == ncols {
-                return Ok(DataLayout::AlphaNum {
-                    nrows: (),
-                    columns: fixed,
-                });
-            } else if nfixed == 0 {
-                return Ok(DataLayout::AsciiDelimited { nrows: None, ncols });
-            } else {
-                deferred.push(format!(
-                    "{nfixed} out of {ncols} measurements are fixed width"
-                ));
-            }
-        }
-        Err(deferred)
-    }
-
     // fn as_reader_data_layout_bare(
     //     m: &BareMetadata<Self::Target>,
     //     ms: &[DataReadMeasurement<<Self::P as VersionedParserMeasurement>::Target>],
@@ -4656,26 +4624,35 @@ where
     }
 
     fn as_writer_data_layout(&self) -> Result<WriterDataLayout, Vec<String>> {
-        Metadata::as_writer_data_layout(&self.metadata, &self.measurements)
+        let dt = self.metadata.datatype;
+        let byteord = self.metadata.specific.byteord();
+        let ncols = self.measurements.len();
+        let (pass, fail): (Vec<_>, Vec<_>) = self
+            .measurements
+            .iter()
+            .map(|m| m.as_column_type(dt, &byteord))
+            .partition_result();
+        let mut deferred: Vec<_> = fail.into_iter().flatten().collect();
+        if pass.len() == ncols {
+            let fixed: Vec<_> = pass.into_iter().flatten().collect();
+            let nfixed = fixed.len();
+            if nfixed == ncols {
+                return Ok(DataLayout::AlphaNum {
+                    nrows: (),
+                    columns: fixed,
+                });
+            } else if nfixed == 0 {
+                return Ok(DataLayout::AsciiDelimited { nrows: None, ncols });
+            } else {
+                deferred.push(format!(
+                    "{nfixed} out of {ncols} measurements are fixed width"
+                ));
+            }
+        }
+        Err(deferred)
     }
 
-    // fn as_data_layout_from_raw(
-    //     &self,
-    //     kws: &mut RawKeywords,
-    //     conf: &DataReadConfig,
-    //     data_seg: &Segment,
-    // ) -> PureMaybe<ReaderDataLayout> {
-    //     let data_nbytes = data_seg.nbytes() as usize;
-    //     let measurements: Vec<_> = self
-    //         .measurements
-    //         .iter()
-    //         .map(Measurement::raw_to_col_type)
-    //         .collect();
-    //     // <M as VersionedParserMetadata>::as_minimal(&self.metadata, kws).and_then_opt(|metadata| {
-    //     //     M::as_reader_data_layout_bare(&metadata, &measurements, data_nbytes, &conf)
-    //     // })
-    // }
-
+    // TODO not dry
     fn as_reader_data_layout(
         &self,
         kws: &mut RawKeywords,
@@ -4691,9 +4668,12 @@ where
             .iter()
             .map(|m| m.as_column_type(dt, &byteord))
             .partition_result();
-        let mut deferred =
-            PureErrorBuf::from_many(fail.into_iter().flatten().collect(), PureErrorLevel::Error);
         let tot_succ = M::lookup_tot(kws);
+        let mut errors = PureMaybe::empty();
+
+        for f in fail.into_iter().flatten() {
+            errors.push_error(f);
+        }
         if pass.len() == ncols {
             let fixed: Vec<_> = pass.into_iter().flatten().collect();
             let nfixed = fixed.len();
@@ -4710,15 +4690,11 @@ where
             } else if nfixed == 0 {
                 return tot_succ.map(|tot| Some(DataLayout::AsciiDelimited { nrows: tot, ncols }));
             } else {
-                deferred.push_error(format!(
-                    "{nfixed} out of {ncols} measurements are fixed width"
-                ));
+                let msg = format!("{nfixed} out of {ncols} measurements are fixed width");
+                errors.push_error(msg);
             }
         }
-        PureSuccess {
-            data: None,
-            deferred,
-        }
+        errors
     }
 
     // TODO this doesn't need to be here

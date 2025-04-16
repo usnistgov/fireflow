@@ -664,23 +664,11 @@ pub enum Feature {
 /// Technically this should only be an integer, but many versions also store
 /// floats which makes sense for cases where $DATATYPE/$PnDATATYPE indicates
 /// float or double.
-// TODO use Decimal for this to capture both of these at once
-#[derive(Debug, Clone, Copy, Serialize)]
-pub enum Range {
-    /// The value when stored as an integer.
-    ///
-    /// This will actually store PnR - 1; most cytometers will store this as a
-    /// power of 2, so in the case of a 64 bit channel this will be 2^64 which
-    /// is one greater than u64::MAX.
-    // TODO what if they store an integer for a float value? Then the range will
-    // be off by one.
-    Int(u64),
+#[derive(Debug, Clone, Serialize)]
+pub struct Range(pub String);
 
-    /// The value when stored as a float.
-    ///
-    /// Unlike above, this will be parsed and used as-is.
-    Float(f64),
-}
+newtype_disp!(Range);
+newtype_fromstr!(Range, Infallible);
 
 /// Measurement fields specific to version 2.0
 #[derive(Clone, Serialize)]
@@ -2289,7 +2277,7 @@ trait VersionedParserMeasurement: Sized {
     fn as_minimal(m: &Measurement<Self>) -> DataReadMeasurement<Self::Target> {
         DataReadMeasurement {
             bytes: m.bytes,
-            range: m.range,
+            range: m.range.clone(),
             specific: Self::as_minimal_inner(m),
         }
     }
@@ -2300,7 +2288,7 @@ trait VersionedParserMeasurement: Sized {
         byteord: &ByteOrd,
     ) -> Result<Option<ColumnType>, Vec<String>> {
         let mdt = Self::datatype(m).map(|d| d.into()).unwrap_or(dt);
-        let rng = m.range;
+        let rng = m.range.clone();
         Self::to_col_type(m.bytes, mdt, byteord, rng)
     }
 
@@ -2311,7 +2299,7 @@ trait VersionedParserMeasurement: Sized {
         byteord: &ByteOrd,
     ) -> Result<Option<ColumnType>, Vec<String>> {
         let mdt = Self::datatype_minimal(m).map(|d| d.into()).unwrap_or(dt);
-        let rng = m.range;
+        let rng = m.range.clone();
         Self::to_col_type(m.bytes, mdt, byteord, rng)
     }
 
@@ -2419,8 +2407,30 @@ trait VersionedParserMetadata: Sized {
     }
 }
 
-trait IntMath: Sized + fmt::Display {
+// hack to get bounds on error to work in IntMath trait
+trait IntErr: Sized {
+    fn err_kind(&self) -> &IntErrorKind;
+}
+
+impl IntErr for ParseIntError {
+    fn err_kind(&self) -> &IntErrorKind {
+        self.kind()
+    }
+}
+
+trait IntMath: Sized
+where
+    Self: fmt::Display,
+    Self: FromStr,
+    <Self as FromStr>::Err: IntErr,
+    <Self as FromStr>::Err: fmt::Display,
+{
     fn next_power_2(x: Self) -> Self;
+
+    fn int_from_str<'a>(s: &str) -> Result<Self, IntErrorKind> {
+        s.parse()
+            .map_err(|e| <Self as FromStr>::Err::err_kind(&e).clone())
+    }
 
     fn maxval() -> Self;
 
@@ -2501,6 +2511,10 @@ where
     Self::Native: TryFrom<u64>,
     Self::Native: IntMath,
     Self::Native: Ord,
+    Self::Native: FromStr,
+    <Self::Native as FromStr>::Err: fmt::Display,
+    <Self::Native as FromStr>::Err: IntErr,
+    Self::Native: FromStr,
     Self: PolarsNumericType,
     ChunkedArray<Self>: IntoSeries,
 {
@@ -2509,13 +2523,14 @@ where
     }
 
     fn range_to_bitmask(range: Range) -> Result<Self::Native, String> {
-        match range {
-            Range::Float(_) => Err("$PnR is float for an integer column".to_string()),
-            // TODO this seems sloppy
-            Range::Int(i) => Ok(Self::Native::try_from(i)
-                .map(Self::Native::next_power_2)
-                .unwrap_or(Self::Native::maxval())),
-        }
+        // TODO add way to control this behavior, we may not always want to
+        // truncate an overflowing number
+        Self::Native::int_from_str(range.0.as_str())
+            .map(Self::Native::next_power_2)
+            .or_else(|e| match e {
+                IntErrorKind::PosOverflow => Ok(Self::Native::maxval()),
+                _ => Err(format!("could not convert to u{INTLEN}")),
+            })
     }
 
     fn to_col(
@@ -3567,31 +3582,31 @@ impl fmt::Display for RangeError {
     }
 }
 
-impl str::FromStr for Range {
-    type Err = RangeError;
+// impl str::FromStr for Range {
+//     type Err = RangeError;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.parse::<u64>() {
-            Ok(x) => Ok(Range::Int(x - 1)),
-            Err(e) => match e.kind() {
-                IntErrorKind::InvalidDigit => s
-                    .parse::<f64>()
-                    .map_or_else(|e| Err(RangeError::Float(e)), |x| Ok(Range::Float(x))),
-                IntErrorKind::PosOverflow => Ok(Range::Int(u64::MAX)),
-                _ => Err(RangeError::Int(e)),
-            },
-        }
-    }
-}
+//     fn from_str(s: &str) -> Result<Self, Self::Err> {
+//         match s.parse::<u64>() {
+//             Ok(x) => Ok(Range::Int(x - 1)),
+//             Err(e) => match e.kind() {
+//                 IntErrorKind::InvalidDigit => s
+//                     .parse::<f64>()
+//                     .map_or_else(|e| Err(RangeError::Float(e)), |x| Ok(Range::Float(x))),
+//                 IntErrorKind::PosOverflow => Ok(Range::Int(u64::MAX)),
+//                 _ => Err(RangeError::Int(e)),
+//             },
+//         }
+//     }
+// }
 
-impl fmt::Display for Range {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Range::Int(x) => write!(f, "{x}"),
-            Range::Float(x) => write!(f, "{x}"),
-        }
-    }
-}
+// impl fmt::Display for Range {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+//         match self {
+//             Range::Int(x) => write!(f, "{x}"),
+//             Range::Float(x) => write!(f, "{x}"),
+//         }
+//     }
+// }
 
 impl<P: VersionedMeasurement> Measurement<P> {
     fn table_header(&self) -> Vec<String> {

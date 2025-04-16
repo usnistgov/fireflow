@@ -37,7 +37,7 @@ macro_rules! newtype_disp {
 pub(crate) use newtype_disp;
 
 macro_rules! newtype_fromstr {
-    ($outer:ident, $err:ident) => {
+    ($outer:ident, $err:path) => {
         impl FromStr for $outer {
             type Err = $err;
 

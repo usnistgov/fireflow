@@ -1637,12 +1637,18 @@ enum AnyUintType {
     Uint64(UintType<u64, 8>),
 }
 
-#[derive(PartialEq, Eq, Hash)]
+#[derive(PartialEq)]
+struct FloatType<const LEN: usize, T> {
+    order: SizedByteOrd<LEN>,
+    range: T,
+}
+
+#[derive(PartialEq)]
 enum ColumnType {
     Ascii { bytes: u8 },
     Integer(AnyUintType),
-    Float(SizedByteOrd<4>),
-    Double(SizedByteOrd<8>),
+    Float(FloatType<4, f32>),
+    Double(FloatType<8, f64>),
 }
 
 enum DataLayout<T> {
@@ -2325,20 +2331,16 @@ trait VersionedParserMeasurement: Sized {
                 }
                 AlphaNumType::Single => {
                     if bytes == 4 {
-                        Float32Type::to_float_byteord(byteord)
-                            .map(ColumnType::Float)
-                            .map_err(|e| vec![e])
+                        Float32Type::to_float_type(byteord, rng).map(ColumnType::Float)
                     } else {
-                        Err(vec!["$DATATYPE=F but $PnB=8".to_string()])
+                        Err(vec![format!("$DATATYPE=F but $PnB={bytes}")])
                     }
                 }
                 AlphaNumType::Double => {
                     if bytes == 8 {
-                        Float64Type::to_float_byteord(byteord)
-                            .map(ColumnType::Double)
-                            .map_err(|e| vec![e])
+                        Float64Type::to_float_type(byteord, rng).map(ColumnType::Double)
                     } else {
-                        Err(vec!["$DATATYPE=D but $PnB=8".to_string()])
+                        Err(vec![format!("$DATATYPE=D but $PnB={bytes}")])
                     }
                 }
             }
@@ -2524,7 +2526,8 @@ where
 
     fn range_to_bitmask(range: Range) -> Result<Self::Native, String> {
         // TODO add way to control this behavior, we may not always want to
-        // truncate an overflowing number
+        // truncate an overflowing number, and at the very least may wish to
+        // warn the user that truncation happened
         Self::Native::int_from_str(range.0.as_str())
             .map(Self::Native::next_power_2)
             .or_else(|e| match e {
@@ -2621,6 +2624,8 @@ trait FloatFromBytes<const LEN: usize>
 where
     Self::Native: NumProps<LEN>,
     Self::Native: OrderedFromBytes<LEN, LEN>,
+    Self::Native: FromStr,
+    <Self::Native as FromStr>::Err: fmt::Display,
     Self: Clone,
     Self: PolarsNumericType,
     ChunkedArray<Self>: IntoSeries,
@@ -2668,6 +2673,16 @@ where
         FloatColumnReader {
             column: vec![Self::Native::zero(); total_events.0],
             order,
+        }
+    }
+
+    fn to_float_type(b: &ByteOrd, r: Range) -> Result<FloatType<LEN, Self::Native>, Vec<String>> {
+        match (Self::to_float_byteord(b), r.0.parse::<Self::Native>()) {
+            (Ok(order), Ok(range)) => Ok(FloatType { order, range }),
+            (a, b) => Err([a.err(), b.err().map(|s| s.to_string())]
+                .into_iter()
+                .flatten()
+                .collect()),
         }
     }
 
@@ -4291,11 +4306,11 @@ fn build_mixed_reader(cs: Vec<ColumnType>, total_events: Tot) -> MixedParser {
                 width: bytes,
                 column: vec![],
             }),
-            ColumnType::Float(order) => {
-                MixedColumnType::Single(Float32Type::make_column_reader(order, total_events))
+            ColumnType::Float(t) => {
+                MixedColumnType::Single(Float32Type::make_column_reader(t.order, total_events))
             }
-            ColumnType::Double(order) => {
-                MixedColumnType::Double(Float64Type::make_column_reader(order, total_events))
+            ColumnType::Double(t) => {
+                MixedColumnType::Double(Float64Type::make_column_reader(t.order, total_events))
             }
             ColumnType::Integer(col) => {
                 MixedColumnType::Uint(AnyUintColumnReader::from_column(col, total_events))
@@ -4936,7 +4951,7 @@ fn series_coerce(
 
         // Floats can hold small uints and themselves, anything else might
         // truncate.
-        ColumnType::Float(size) => {
+        ColumnType::Float(t) => {
             match dt {
                 ValidType::U32 => num_warn(&mut deferred, "float", "uint32"),
                 ValidType::U64 => num_warn(&mut deferred, "float", "uint64"),
@@ -4944,27 +4959,27 @@ fn series_coerce(
                 _ => (),
             }
             match dt {
-                ValidType::U08 => convert_to_f32!(size, c, u8),
-                ValidType::U16 => convert_to_f32!(size, c, u16),
-                ValidType::U32 => convert_to_f32!(size, c, u32),
-                ValidType::U64 => convert_to_f32!(size, c, u64),
-                ValidType::F32 => convert_to_f32!(size, c, f32),
-                ValidType::F64 => convert_to_f32!(size, c, f64),
+                ValidType::U08 => convert_to_f32!(t.order, c, u8),
+                ValidType::U16 => convert_to_f32!(t.order, c, u16),
+                ValidType::U32 => convert_to_f32!(t.order, c, u32),
+                ValidType::U64 => convert_to_f32!(t.order, c, u64),
+                ValidType::F32 => convert_to_f32!(t.order, c, f32),
+                ValidType::F64 => convert_to_f32!(t.order, c, f64),
             }
         }
 
         // Doubles can hold all but uint64
-        ColumnType::Double(size) => {
+        ColumnType::Double(t) => {
             if let ValidType::U64 = dt {
                 num_warn(&mut deferred, "double", "uint64")
             }
             match dt {
-                ValidType::U08 => convert_to_f64!(size, c, u8),
-                ValidType::U16 => convert_to_f64!(size, c, u16),
-                ValidType::U32 => convert_to_f64!(size, c, u32),
-                ValidType::U64 => convert_to_f64!(size, c, u64),
-                ValidType::F32 => convert_to_f64!(size, c, f32),
-                ValidType::F64 => convert_to_f64!(size, c, f64),
+                ValidType::U08 => convert_to_f64!(t.order, c, u8),
+                ValidType::U16 => convert_to_f64!(t.order, c, u16),
+                ValidType::U32 => convert_to_f64!(t.order, c, u32),
+                ValidType::U64 => convert_to_f64!(t.order, c, u64),
+                ValidType::F32 => convert_to_f64!(t.order, c, f32),
+                ValidType::F64 => convert_to_f64!(t.order, c, f64),
             }
         }
     };
@@ -5049,8 +5064,12 @@ impl_num_props!(8, 0.0, f64, F64);
 macro_rules! impl_int_math {
     ($t:ty) => {
         impl IntMath for $t {
+            // TODO this name is deceptive because it actually returns one less
+            // the next power of 2
             fn next_power_2(x: Self) -> Self {
-                Self::checked_next_power_of_two(x).unwrap_or(Self::MAX)
+                Self::checked_next_power_of_two(x)
+                    .map(|x| x - 1)
+                    .unwrap_or(Self::MAX)
             }
 
             fn maxval() -> Self {

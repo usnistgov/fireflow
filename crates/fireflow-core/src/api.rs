@@ -893,6 +893,22 @@ trait IndexedKey {
     fn nonstd_sub() -> NonStdMeasKey {
         NonStdMeasKey::from_unchecked(Self::fmt_sub().as_str())
     }
+
+    /// Return true if a key matches the prefix/suffix.
+    ///
+    /// Specifically, test if string is like <PREFIX><N><SUFFIX> where
+    /// N is an integer greater than zero.
+    fn matches(other: &str, std: bool) -> bool {
+        if std {
+            other.strip_prefix("$")
+        } else {
+            Some(other)
+        }
+        .and_then(|s| s.strip_prefix(Self::PREFIX))
+        .and_then(|s| s.strip_suffix(Self::SUFFIX))
+        .and_then(|s| s.parse::<u32>().ok())
+        .is_some_and(|x| x > 0)
+    }
 }
 
 fn lookup_optional<V: FromStr>(kws: &mut RawKeywords, k: &str) -> Result<OptionalKw<V>, String>

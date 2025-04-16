@@ -664,6 +664,7 @@ pub enum Feature {
 /// Technically this should only be an integer, but many versions also store
 /// floats which makes sense for cases where $DATATYPE/$PnDATATYPE indicates
 /// float or double.
+// TODO use Decimal for this to capture both of these at once
 #[derive(Debug, Clone, Copy, Serialize)]
 pub enum Range {
     /// The value when stored as an integer.

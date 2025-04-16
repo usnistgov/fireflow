@@ -1573,51 +1573,51 @@ type Metadata3_0 = Metadata<InnerMetadata3_0>;
 type Metadata3_1 = Metadata<InnerMetadata3_1>;
 type Metadata3_2 = Metadata<InnerMetadata3_2>;
 
-/// The bare minimum of measurement data required to parse the DATA segment.
-struct DataReadMeasurement<X> {
-    /// The value of $PnB
-    bytes: Bytes,
+// /// The bare minimum of measurement data required to parse the DATA segment.
+// struct DataReadMeasurement<X> {
+//     /// The value of $PnB
+//     bytes: Bytes,
 
-    /// The value of $PnR
-    range: Range,
+//     /// The value of $PnR
+//     range: Range,
 
-    /// Version-specific data
-    specific: X,
-}
+//     /// Version-specific data
+//     specific: X,
+// }
 
-struct InnerDataReadMeasurement3_2 {
-    datatype: OptionalKw<NumType>,
-}
+// struct InnerDataReadMeasurement3_2 {
+//     datatype: OptionalKw<NumType>,
+// }
 
-/// Minimal data to parse one measurement column in FCS 2.0 (up to 3.1)
-type DataReadMeasurement2_0 = DataReadMeasurement<()>;
+// /// Minimal data to parse one measurement column in FCS 2.0 (up to 3.1)
+// type DataReadMeasurement2_0 = DataReadMeasurement<()>;
 
-/// Minimal data to parse one measurement column in FCS 3.2+
-type DataReadMeasurement3_2 = DataReadMeasurement<NumType>;
+// /// Minimal data to parse one measurement column in FCS 3.2+
+// type DataReadMeasurement3_2 = DataReadMeasurement<NumType>;
 
-struct InnerBareMetadata2_0 {
-    tot: OptionalKw<Tot>,
-    byteord: ByteOrd,
-}
+// struct InnerBareMetadata2_0 {
+//     tot: OptionalKw<Tot>,
+//     byteord: ByteOrd,
+// }
 
-struct InnerBareMetadata3_0 {
-    tot: Tot,
-    byteord: ByteOrd,
-}
+// struct InnerBareMetadata3_0 {
+//     tot: Tot,
+//     byteord: ByteOrd,
+// }
 
-struct InnerBareMetadata3_1 {
-    tot: Tot,
-    byteord: Endian,
-}
+// struct InnerBareMetadata3_1 {
+//     tot: Tot,
+//     byteord: Endian,
+// }
 
-struct BareMetadata<M> {
-    datatype: AlphaNumType,
-    specific: M,
-}
+// struct BareMetadata<M> {
+//     datatype: AlphaNumType,
+//     specific: M,
+// }
 
-type BareMetadata2_0 = BareMetadata<InnerBareMetadata2_0>;
-type BareMetadata3_0 = BareMetadata<InnerBareMetadata3_0>;
-type BareMetadata3_1 = BareMetadata<InnerBareMetadata3_1>;
+// type BareMetadata2_0 = BareMetadata<InnerBareMetadata2_0>;
+// type BareMetadata3_0 = BareMetadata<InnerBareMetadata3_0>;
+// type BareMetadata3_1 = BareMetadata<InnerBareMetadata3_1>;
 
 #[derive(PartialEq, Eq, Hash)]
 struct UintType<T, const LEN: usize> {
@@ -2028,48 +2028,48 @@ where
     }
 
     // TODO not DRY
-    fn as_reader_data_layout_bare(
-        m: &BareMetadata<Self::Target>,
-        ms: &[DataReadMeasurement<<Self::P as VersionedParserMeasurement>::Target>],
-        data_nbytes: usize,
-        conf: &DataReadConfig,
-    ) -> PureMaybe<ReaderDataLayout> {
-        let dt = m.datatype;
-        let byteord = Self::target_byteord(&m.specific);
-        let ncols = ms.len();
-        let (pass, fail): (Vec<_>, Vec<_>) = ms
-            .iter()
-            .map(|m| Self::P::as_column_type_from_bare(m, dt, &byteord))
-            .partition_result();
-        let mut deferred =
-            PureErrorBuf::from_many(fail.into_iter().flatten().collect(), PureErrorLevel::Error);
-        if pass.len() == ncols {
-            let fixed: Vec<_> = pass.into_iter().flatten().collect();
-            let nfixed = fixed.len();
-            if nfixed == ncols {
-                let event_width = fixed.iter().map(|c| c.width()).sum();
-                return Self::total_events(&m.specific, data_nbytes, event_width, conf).and_then(
-                    |nrows| {
-                        PureSuccess::from(Some(DataLayout::AlphaNum {
-                            nrows,
-                            columns: fixed,
-                        }))
-                    },
-                );
-            } else if nfixed == 0 {
-                let nrows = Self::tot(&m.specific);
-                return PureSuccess::from(Some(DataLayout::AsciiDelimited { nrows, ncols }));
-            } else {
-                deferred.push_error(format!(
-                    "{nfixed} out of {ncols} measurements are fixed width"
-                ));
-            }
-        }
-        PureSuccess {
-            data: None,
-            deferred,
-        }
-    }
+    // fn as_reader_data_layout_bare(
+    //     m: &BareMetadata<Self::Target>,
+    //     ms: &[DataReadMeasurement<<Self::P as VersionedParserMeasurement>::Target>],
+    //     data_nbytes: usize,
+    //     conf: &DataReadConfig,
+    // ) -> PureMaybe<ReaderDataLayout> {
+    //     let dt = m.datatype;
+    //     let byteord = Self::target_byteord(&m.specific);
+    //     let ncols = ms.len();
+    //     let (pass, fail): (Vec<_>, Vec<_>) = ms
+    //         .iter()
+    //         .map(|m| Self::P::as_column_type_from_bare(m, dt, &byteord))
+    //         .partition_result();
+    //     let mut deferred =
+    //         PureErrorBuf::from_many(fail.into_iter().flatten().collect(), PureErrorLevel::Error);
+    //     if pass.len() == ncols {
+    //         let fixed: Vec<_> = pass.into_iter().flatten().collect();
+    //         let nfixed = fixed.len();
+    //         if nfixed == ncols {
+    //             let event_width = fixed.iter().map(|c| c.width()).sum();
+    //             return Self::total_events(&m.specific, data_nbytes, event_width, conf).and_then(
+    //                 |nrows| {
+    //                     PureSuccess::from(Some(DataLayout::AlphaNum {
+    //                         nrows,
+    //                         columns: fixed,
+    //                     }))
+    //                 },
+    //             );
+    //         } else if nfixed == 0 {
+    //             let nrows = Self::tot(&m.specific);
+    //             return PureSuccess::from(Some(DataLayout::AsciiDelimited { nrows, ncols }));
+    //         } else {
+    //             deferred.push_error(format!(
+    //                 "{nfixed} out of {ncols} measurements are fixed width"
+    //             ));
+    //         }
+    //     }
+    //     PureSuccess {
+    //         data: None,
+    //         deferred,
+    //     }
+    // }
 
     fn lookup_specific(st: &mut KwParser, par: Par) -> Option<Self>;
 
@@ -2272,21 +2272,21 @@ trait VersionedMeasurement: Sized + Versioned {
 }
 
 trait VersionedParserMeasurement: Sized {
-    type Target;
+    // type Target;
 
     fn datatype(m: &Measurement<Self>) -> Option<NumType>;
 
-    fn datatype_minimal(m: &DataReadMeasurement<Self::Target>) -> Option<NumType>;
+    // fn datatype_minimal(m: &DataReadMeasurement<Self::Target>) -> Option<NumType>;
 
-    fn as_minimal_inner(m: &Measurement<Self>) -> Self::Target;
+    // fn as_minimal_inner(m: &Measurement<Self>) -> Self::Target;
 
-    fn as_minimal(m: &Measurement<Self>) -> DataReadMeasurement<Self::Target> {
-        DataReadMeasurement {
-            bytes: m.bytes,
-            range: m.range.clone(),
-            specific: Self::as_minimal_inner(m),
-        }
-    }
+    // fn as_minimal(m: &Measurement<Self>) -> DataReadMeasurement<Self::Target> {
+    //     DataReadMeasurement {
+    //         bytes: m.bytes,
+    //         range: m.range.clone(),
+    //         specific: Self::as_minimal_inner(m),
+    //     }
+    // }
 
     fn as_column_type(
         m: &Measurement<Self>,
@@ -2299,15 +2299,15 @@ trait VersionedParserMeasurement: Sized {
     }
 
     // TODO make errors index-specific
-    fn as_column_type_from_bare(
-        m: &DataReadMeasurement<Self::Target>,
-        dt: AlphaNumType,
-        byteord: &ByteOrd,
-    ) -> Result<Option<ColumnType>, Vec<String>> {
-        let mdt = Self::datatype_minimal(m).map(|d| d.into()).unwrap_or(dt);
-        let rng = m.range.clone();
-        Self::to_col_type(m.bytes, mdt, byteord, rng)
-    }
+    // fn as_column_type_from_bare(
+    //     m: &DataReadMeasurement<Self::Target>,
+    //     dt: AlphaNumType,
+    //     byteord: &ByteOrd,
+    // ) -> Result<Option<ColumnType>, Vec<String>> {
+    //     let mdt = Self::datatype_minimal(m).map(|d| d.into()).unwrap_or(dt);
+    //     let rng = m.range.clone();
+    //     Self::to_col_type(m.bytes, mdt, byteord, rng)
+    // }
 
     fn to_col_type(
         b: Bytes,
@@ -2356,26 +2356,27 @@ trait VersionedParserMeasurement: Sized {
 }
 
 trait VersionedParserMetadata: Sized {
-    type Target;
+    // type Target;
 
-    fn as_minimal_inner(&self, kws: &mut RawKeywords) -> PureMaybe<Self::Target>;
+    // fn as_minimal_inner(&self, kws: &mut RawKeywords) -> PureMaybe<Self::Target>;
 
-    fn as_minimal(
-        md: &Metadata<Self>,
-        kws: &mut RawKeywords,
-    ) -> PureMaybe<BareMetadata<Self::Target>> {
-        let datatype = md.datatype;
-        Self::as_minimal_inner(&md.specific, kws).map(|maybe_specific| {
-            maybe_specific.map(|specific| BareMetadata { datatype, specific })
-        })
-    }
+    // fn as_minimal(
+    //     md: &Metadata<Self>,
+    //     kws: &mut RawKeywords,
+    // ) -> PureMaybe<BareMetadata<Self::Target>> {
+    //     let datatype = md.datatype;
+    //     Self::as_minimal_inner(&md.specific, kws).map(|maybe_specific| {
+    //         maybe_specific.map(|specific| BareMetadata { datatype, specific })
+    //     })
+    // }
 
     fn byteord(&self) -> ByteOrd;
 
-    fn target_byteord(t: &Self::Target) -> ByteOrd;
+    // fn target_byteord(t: &Self::Target) -> ByteOrd;
 
-    fn tot(t: &Self::Target) -> Option<Tot>;
+    // fn tot(t: &Self::Target) -> Option<Tot>;
 
+    // TODO this can be a free function
     fn total_events(
         t: &Self::Target,
         data_nbytes: usize,
@@ -5683,13 +5684,13 @@ fn h_read_std_dataset<R: Read + Seek>(
 }
 
 impl VersionedParserMeasurement for InnerMeasurement2_0 {
-    type Target = ();
+    // type Target = ();
 
-    fn as_minimal_inner(_: &Measurement<Self>) {}
+    // fn as_minimal_inner(_: &Measurement<Self>) {}
 
-    fn datatype_minimal(_: &DataReadMeasurement<Self::Target>) -> Option<NumType> {
-        None
-    }
+    // fn datatype_minimal(_: &DataReadMeasurement<Self::Target>) -> Option<NumType> {
+    //     None
+    // }
 
     fn datatype(_: &Measurement<Self>) -> Option<NumType> {
         None
@@ -5697,13 +5698,13 @@ impl VersionedParserMeasurement for InnerMeasurement2_0 {
 }
 
 impl VersionedParserMeasurement for InnerMeasurement3_0 {
-    type Target = ();
+    // type Target = ();
 
-    fn as_minimal_inner(_: &Measurement<Self>) {}
+    // fn as_minimal_inner(_: &Measurement<Self>) {}
 
-    fn datatype_minimal(_: &DataReadMeasurement<Self::Target>) -> Option<NumType> {
-        None
-    }
+    // fn datatype_minimal(_: &DataReadMeasurement<Self::Target>) -> Option<NumType> {
+    // None
+    // }
 
     fn datatype(_: &Measurement<Self>) -> Option<NumType> {
         None
@@ -5711,13 +5712,13 @@ impl VersionedParserMeasurement for InnerMeasurement3_0 {
 }
 
 impl VersionedParserMeasurement for InnerMeasurement3_1 {
-    type Target = ();
+    // type Target = ();
 
-    fn as_minimal_inner(_: &Measurement<Self>) {}
+    // fn as_minimal_inner(_: &Measurement<Self>) {}
 
-    fn datatype_minimal(_: &DataReadMeasurement<Self::Target>) -> Option<NumType> {
-        None
-    }
+    // fn datatype_minimal(_: &DataReadMeasurement<Self::Target>) -> Option<NumType> {
+    // None
+    // }
 
     fn datatype(_: &Measurement<Self>) -> Option<NumType> {
         None
@@ -5725,17 +5726,17 @@ impl VersionedParserMeasurement for InnerMeasurement3_1 {
 }
 
 impl VersionedParserMeasurement for InnerMeasurement3_2 {
-    type Target = InnerDataReadMeasurement3_2;
+    // type Target = InnerDataReadMeasurement3_2;
 
-    fn as_minimal_inner(m: &Measurement<Self>) -> InnerDataReadMeasurement3_2 {
-        InnerDataReadMeasurement3_2 {
-            datatype: m.specific.datatype.0.as_ref().copied().into(),
-        }
-    }
+    // fn as_minimal_inner(m: &Measurement<Self>) -> InnerDataReadMeasurement3_2 {
+    //     InnerDataReadMeasurement3_2 {
+    //         datatype: m.specific.datatype.0.as_ref().copied().into(),
+    //     }
+    // }
 
-    fn datatype_minimal(m: &DataReadMeasurement<Self::Target>) -> Option<NumType> {
-        m.specific.datatype.0.as_ref().copied()
-    }
+    // fn datatype_minimal(m: &DataReadMeasurement<Self::Target>) -> Option<NumType> {
+    //     m.specific.datatype.0.as_ref().copied()
+    // }
 
     // TODO lame?
     fn datatype(m: &Measurement<Self>) -> Option<NumType> {
@@ -5744,100 +5745,100 @@ impl VersionedParserMeasurement for InnerMeasurement3_2 {
 }
 
 impl VersionedParserMetadata for InnerMetadata2_0 {
-    type Target = InnerBareMetadata2_0;
+    // type Target = InnerBareMetadata2_0;
 
     fn byteord(&self) -> ByteOrd {
         self.byteord.clone()
     }
 
-    fn target_byteord(t: &Self::Target) -> ByteOrd {
-        t.byteord.clone()
-    }
+    // fn target_byteord(t: &Self::Target) -> ByteOrd {
+    //     t.byteord.clone()
+    // }
 
-    fn tot(t: &Self::Target) -> Option<Tot> {
-        t.tot.0.as_ref().copied()
-    }
+    // fn tot(t: &Self::Target) -> Option<Tot> {
+    //     t.tot.0.as_ref().copied()
+    // }
 
-    fn as_minimal_inner(&self, kws: &mut RawKeywords) -> PureMaybe<InnerBareMetadata2_0> {
-        PureMaybe::from_result_1(Tot::lookup_meta_opt(kws), PureErrorLevel::Warning).map(|res| {
-            res.map(|tot| InnerBareMetadata2_0 {
-                byteord: self.byteord.clone(),
-                tot,
-            })
-        })
-    }
+    // fn as_minimal_inner(&self, kws: &mut RawKeywords) -> PureMaybe<InnerBareMetadata2_0> {
+    //     PureMaybe::from_result_1(Tot::lookup_meta_opt(kws), PureErrorLevel::Warning).map(|res| {
+    //         res.map(|tot| InnerBareMetadata2_0 {
+    //             byteord: self.byteord.clone(),
+    //             tot,
+    //         })
+    //     })
+    // }
 }
 
 impl VersionedParserMetadata for InnerMetadata3_0 {
-    type Target = InnerBareMetadata3_0;
+    // type Target = InnerBareMetadata3_0;
 
     fn byteord(&self) -> ByteOrd {
         self.byteord.clone()
     }
 
-    fn target_byteord(t: &Self::Target) -> ByteOrd {
-        t.byteord.clone()
-    }
+    // fn target_byteord(t: &Self::Target) -> ByteOrd {
+    //     t.byteord.clone()
+    // }
 
-    fn tot(t: &Self::Target) -> Option<Tot> {
-        Some(t.tot)
-    }
+    // fn tot(t: &Self::Target) -> Option<Tot> {
+    //     Some(t.tot)
+    // }
 
-    fn as_minimal_inner(&self, kws: &mut RawKeywords) -> PureMaybe<InnerBareMetadata3_0> {
-        let res = Tot::lookup_meta_req(kws).map(|tot| InnerBareMetadata3_0 {
-            byteord: self.byteord.clone(),
-            tot,
-        });
-        PureMaybe::from_result_1(res, PureErrorLevel::Error)
-    }
+    // fn as_minimal_inner(&self, kws: &mut RawKeywords) -> PureMaybe<InnerBareMetadata3_0> {
+    //     let res = Tot::lookup_meta_req(kws).map(|tot| InnerBareMetadata3_0 {
+    //         byteord: self.byteord.clone(),
+    //         tot,
+    //     });
+    //     PureMaybe::from_result_1(res, PureErrorLevel::Error)
+    // }
 }
 
 impl VersionedParserMetadata for InnerMetadata3_1 {
-    type Target = InnerBareMetadata3_1;
+    // type Target = InnerBareMetadata3_1;
 
     fn byteord(&self) -> ByteOrd {
         ByteOrd::Endian(self.byteord)
     }
 
-    fn target_byteord(t: &Self::Target) -> ByteOrd {
-        ByteOrd::Endian(t.byteord)
-    }
+    // fn target_byteord(t: &Self::Target) -> ByteOrd {
+    //     ByteOrd::Endian(t.byteord)
+    // }
 
-    fn tot(t: &Self::Target) -> Option<Tot> {
-        Some(t.tot)
-    }
+    // fn tot(t: &Self::Target) -> Option<Tot> {
+    //     Some(t.tot)
+    // }
 
-    fn as_minimal_inner(&self, kws: &mut RawKeywords) -> PureMaybe<InnerBareMetadata3_1> {
-        let res = Tot::lookup_meta_req(kws).map(|tot| InnerBareMetadata3_1 {
-            byteord: self.byteord,
-            tot,
-        });
-        PureMaybe::from_result_1(res, PureErrorLevel::Error)
-    }
+    // fn as_minimal_inner(&self, kws: &mut RawKeywords) -> PureMaybe<InnerBareMetadata3_1> {
+    //     let res = Tot::lookup_meta_req(kws).map(|tot| InnerBareMetadata3_1 {
+    //         byteord: self.byteord,
+    //         tot,
+    //     });
+    //     PureMaybe::from_result_1(res, PureErrorLevel::Error)
+    // }
 }
 
 impl VersionedParserMetadata for InnerMetadata3_2 {
-    type Target = InnerBareMetadata3_1;
+    // type Target = InnerBareMetadata3_1;
 
     fn byteord(&self) -> ByteOrd {
         ByteOrd::Endian(self.byteord)
     }
 
-    fn target_byteord(t: &Self::Target) -> ByteOrd {
-        ByteOrd::Endian(t.byteord)
-    }
+    // fn target_byteord(t: &Self::Target) -> ByteOrd {
+    //     ByteOrd::Endian(t.byteord)
+    // }
 
-    fn tot(t: &Self::Target) -> Option<Tot> {
-        Some(t.tot)
-    }
+    // fn tot(t: &Self::Target) -> Option<Tot> {
+    //     Some(t.tot)
+    // }
 
-    fn as_minimal_inner(&self, kws: &mut RawKeywords) -> PureMaybe<InnerBareMetadata3_1> {
-        let res = Tot::lookup_meta_req(kws).map(|tot| InnerBareMetadata3_1 {
-            byteord: self.byteord,
-            tot,
-        });
-        PureMaybe::from_result_1(res, PureErrorLevel::Error)
-    }
+    // fn as_minimal_inner(&self, kws: &mut RawKeywords) -> PureMaybe<InnerBareMetadata3_1> {
+    //     let res = Tot::lookup_meta_req(kws).map(|tot| InnerBareMetadata3_1 {
+    //         byteord: self.byteord,
+    //         tot,
+    //     });
+    //     PureMaybe::from_result_1(res, PureErrorLevel::Error)
+    // }
 }
 
 macro_rules! get_set_pre_3_2_datetime {

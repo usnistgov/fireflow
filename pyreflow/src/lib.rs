@@ -9,7 +9,7 @@ use fireflow_core::validated::ranged_float::*;
 use fireflow_core::validated::shortname::Shortname;
 use fireflow_core::validated::textdelim::TEXTDelim;
 
-use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
+use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 use pyo3::class::basic::CompareOp;
 use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyWarning};
@@ -596,6 +596,9 @@ pywrap!(PyTEXTDelim, TEXTDelim, "TEXTDelim");
 pywrap!(PyCytSetter, MetaKwSetter<api::Cyt>, "CytSetter");
 
 pywrap!(PyEndian, api::Endian, "Endian");
+pywrap!(PyOriginality, api::Originality, "Originality");
+pywrap!(PyTrigger, api::Trigger, "Trigger");
+pywrap!(PyAlphaNumType, api::AlphaNumType, "AlphaNumType");
 
 py_parse!(PyDatePattern, DatePattern);
 py_disp!(PyDatePattern);
@@ -870,17 +873,17 @@ macro_rules! get_set_str {
 }
 
 macro_rules! get_set_copied {
-    ($pytype:ident, [$($root:ident,)*], $get:ident, $set:ident, $t:ty) => {
+    ($pytype:ident, [$($root:ident,)*], $get:ident, $set:ident, $in:expr, $out:ty) => {
         #[pymethods]
         impl $pytype {
             #[getter]
-            fn $get(&self) -> Option<$t> {
-                self.0.$($root.)*$get()
+            fn $get(&self) -> Option<$out> {
+                self.0.$($root.)*$get().map(|x| x.into())
             }
 
             #[setter]
-            fn $set(&mut self, s: Option<$t>) {
-                self.0.$($root.)*$set(s)
+            fn $set(&mut self, s: Option<$out>) {
+                self.0.$($root.)*$set(s.map($in))
             }
         }
     };
@@ -928,18 +931,41 @@ macro_rules! get_set_datetime {
 macro_rules! core_text_methods {
     ($pytype:ident, [$($root:ident)*]) => {
         get_set_datetime!($pytype, [$($root,)*]);
-        // get_set_copied!(  $pytype, [$($root,)*], abrt, set_abrt, api::Abrt);
-        // get_set_copied!(  $pytype, [$($root,)*], lost, set_lost, api::Lost);
-        get_set_str!(     $pytype, [$($root,)*], cells, set_cells);
-        get_set_str!(     $pytype, [$($root,)*], com, set_com);
-        get_set_str!(     $pytype, [$($root,)*], exp, set_exp);
-        get_set_str!(     $pytype, [$($root,)*], fil, set_fil);
-        get_set_str!(     $pytype, [$($root,)*], inst, set_inst);
-        get_set_str!(     $pytype, [$($root,)*], op, set_op);
-        get_set_str!(     $pytype, [$($root,)*], proj, set_proj);
-        get_set_str!(     $pytype, [$($root,)*], smno, set_smno);
-        get_set_str!(     $pytype, [$($root,)*], src, set_src);
-        get_set_str!(     $pytype, [$($root,)*], sys, set_sys);
+        get_set_copied!( $pytype, [$($root,)*], abrt, set_abrt, api::Abrt, u32);
+        get_set_copied!( $pytype, [$($root,)*], lost, set_lost, api::Lost, u32);
+        get_set_str!(    $pytype, [$($root,)*], cells, set_cells);
+        get_set_str!(    $pytype, [$($root,)*], com, set_com);
+        get_set_str!(    $pytype, [$($root,)*], exp, set_exp);
+        get_set_str!(    $pytype, [$($root,)*], fil, set_fil);
+        get_set_str!(    $pytype, [$($root,)*], inst, set_inst);
+        get_set_str!(    $pytype, [$($root,)*], op, set_op);
+        get_set_str!(    $pytype, [$($root,)*], proj, set_proj);
+        get_set_str!(    $pytype, [$($root,)*], smno, set_smno);
+        get_set_str!(    $pytype, [$($root,)*], src, set_src);
+        get_set_str!(    $pytype, [$($root,)*], sys, set_sys);
+
+        #[pymethods]
+        impl $pytype {
+            #[getter]
+            fn get_trigger(&self) -> Option<PyTrigger> {
+                self.0.$($root.)*trigger().map(|x| x.clone().into())
+            }
+
+            #[setter]
+            fn set_trigger(&mut self, t: Option<PyTrigger>) {
+                self.0.$($root.)*set_trigger(t.map(|x| x.into()))
+            }
+
+            #[getter]
+            fn get_datatype(&self) -> PyAlphaNumType {
+                self.0.$($root.)*datatype().into()
+            }
+
+            #[setter]
+            fn set_datatype(&mut self, t: PyAlphaNumType) {
+                self.0.$($root.)*set_datatype(t.into())
+            }
+        }
     };
 }
 
@@ -1076,7 +1102,180 @@ impl PyCoreTEXT3_2 {
 
     #[setter]
     fn set_flowrate(&mut self, x: Option<String>) {
-        self.0.metadata.specific.flowrate = x.map(|x| x.into()).into()
+        self.0.metadata.specific.flowrate = x.map(api::Flowrate).into()
+    }
+
+    #[getter]
+    fn get_last_modifier(&self) -> Option<String> {
+        self.0
+            .metadata
+            .specific
+            .modification
+            .last_modifier
+            .0
+            .as_ref()
+            .map(|x| x.0.clone())
+    }
+
+    #[setter]
+    fn set_last_modifier(&mut self, x: Option<String>) {
+        self.0.metadata.specific.modification.last_modifier = x.map(api::LastModifier).into()
+    }
+
+    #[getter]
+    fn get_last_modified(&self) -> Option<NaiveDateTime> {
+        self.0
+            .metadata
+            .specific
+            .modification
+            .last_modified
+            .0
+            .as_ref()
+            .map(|x| x.0)
+    }
+
+    #[setter]
+    fn set_last_modified(&mut self, x: Option<NaiveDateTime>) {
+        self.0.metadata.specific.modification.last_modified = x.map(api::ModifiedDateTime).into()
+    }
+
+    // TODO how do I make one of these?
+    #[getter]
+    fn get_originality(&self) -> Option<PyOriginality> {
+        self.0
+            .metadata
+            .specific
+            .modification
+            .originality
+            .0
+            .as_ref()
+            .map(|x| x.clone().into())
+    }
+
+    #[setter]
+    fn set_originality(&mut self, x: Option<PyOriginality>) {
+        self.0.metadata.specific.modification.originality = x.map(|x| x.0).into()
+    }
+
+    #[getter]
+    fn get_carrierid(&self) -> Option<String> {
+        self.0
+            .metadata
+            .specific
+            .carrier
+            .carrierid
+            .0
+            .as_ref()
+            .map(|x| x.clone().into())
+    }
+
+    #[setter]
+    fn set_carrierid(&mut self, x: Option<String>) {
+        self.0.metadata.specific.carrier.carrierid = x.map(|x| x.into()).into()
+    }
+
+    #[getter]
+    fn get_carriertype(&self) -> Option<String> {
+        self.0
+            .metadata
+            .specific
+            .carrier
+            .carriertype
+            .0
+            .as_ref()
+            .map(|x| x.clone().into())
+    }
+
+    #[setter]
+    fn set_carriertype(&mut self, x: Option<String>) {
+        self.0.metadata.specific.carrier.carriertype = x.map(|x| x.into()).into()
+    }
+
+    #[getter]
+    fn get_locationid(&self) -> Option<String> {
+        self.0
+            .metadata
+            .specific
+            .carrier
+            .locationid
+            .0
+            .as_ref()
+            .map(|x| x.clone().into())
+    }
+
+    #[setter]
+    fn set_locationid(&mut self, x: Option<String>) {
+        self.0.metadata.specific.carrier.locationid = x.map(|x| x.into()).into()
+    }
+
+    #[getter]
+    fn get_unstainedinfo(&self) -> Option<String> {
+        self.0
+            .metadata
+            .specific
+            .unstained
+            .unstainedinfo
+            .0
+            .as_ref()
+            .map(|x| x.clone().into())
+    }
+
+    #[setter]
+    fn set_unstainedinfo(&mut self, x: Option<String>) {
+        self.0.metadata.specific.unstained.unstainedinfo = x.map(|x| x.into()).into()
+    }
+
+    // TODO unstainedcenters?
+
+    #[getter]
+    fn get_platename(&self) -> Option<String> {
+        self.0
+            .metadata
+            .specific
+            .plate
+            .platename
+            .0
+            .as_ref()
+            .map(|x| x.clone().into())
+    }
+
+    #[setter]
+    fn set_platename(&mut self, x: Option<String>) {
+        self.0.metadata.specific.plate.platename = x.map(|x| x.into()).into()
+    }
+
+    #[getter]
+    fn get_plateid(&self) -> Option<String> {
+        self.0
+            .metadata
+            .specific
+            .plate
+            .plateid
+            .0
+            .as_ref()
+            .map(|x| x.clone().into())
+    }
+
+    #[setter]
+    fn set_plateid(&mut self, x: Option<String>) {
+        self.0.metadata.specific.plate.plateid = x.map(|x| x.into()).into()
+    }
+
+    #[getter]
+    fn get_wellid(&self) -> Option<String> {
+        self.0
+            .metadata
+            .specific
+            .plate
+            .wellid
+            .0
+            .as_ref()
+            .map(|x| x.clone().into())
+    }
+
+    #[setter]
+    fn set_wellid(&mut self, x: Option<String>) {
+        self.0.metadata.specific.plate.wellid = x.map(|x| x.into()).into()
     }
 
     // TODO add rest of metadata keywords

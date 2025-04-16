@@ -437,7 +437,7 @@ struct Mode3_2;
 
 /// The value for the $PnDISPLAY key (3.1+)
 #[derive(Debug, Clone, Serialize)]
-enum Display {
+pub enum Display {
     /// Linear display (value like 'Linear,<lower>,<upper>')
     Lin { lower: f32, upper: f32 },
 
@@ -479,7 +479,7 @@ pub enum AlphaNumType {
 
 /// The three values for the $PnDATATYPE keyword (3.2+)
 #[derive(Debug, Clone, Copy, Serialize)]
-enum NumType {
+pub enum NumType {
     Integer,
     Single,
     Double,
@@ -512,10 +512,10 @@ pub struct Spillover {
 #[derive(Debug, Clone, Serialize)]
 pub struct Trigger {
     /// The measurement name (assumed to match a '$PnN' value).
-    measurement: Shortname,
+    pub measurement: Shortname,
 
     /// The threshold of the trigger.
-    threshold: u32,
+    pub threshold: u32,
 }
 
 /// The value for the $PnE key (all versions).
@@ -537,9 +537,9 @@ pub enum Scale {
 ///
 /// This should be formatted like '<value>,<unit>'
 #[derive(Debug, Clone, Serialize)]
-struct Calibration3_1 {
-    value: f32,
-    unit: String,
+pub struct Calibration3_1 {
+    pub value: f32,
+    pub unit: String,
 }
 
 /// The value for the $PnCALIBRATION key (3.2+)
@@ -547,10 +547,10 @@ struct Calibration3_1 {
 /// This should be formatted like '<value>,[<offset>,]<unit>' and differs from
 /// 3.1 with the optional inclusion of "offset" (assumed 0 if not included).
 #[derive(Debug, Clone, Serialize)]
-struct Calibration3_2 {
-    value: f32,
-    offset: f32,
-    unit: String,
+pub struct Calibration3_2 {
+    pub value: f32,
+    pub offset: f32,
+    pub unit: String,
 }
 
 /// The value for the $PnL key (3.1).
@@ -559,7 +559,7 @@ struct Calibration3_2 {
 /// this could be a list, where it needed to be a single number in previous
 /// versions.
 #[derive(Debug, Clone, Serialize)]
-struct Wavelengths(Vec<u32>);
+pub struct Wavelengths(Vec<u32>);
 
 /// The value for the $PnB key (all versions)
 ///
@@ -570,14 +570,14 @@ struct Wavelengths(Vec<u32>);
 /// This may also be '*' which means "delimited ASCII" which is only valid when
 /// $DATATYPE=A.
 #[derive(Debug, Clone, Copy, Serialize)]
-enum Bytes {
+pub enum Bytes {
     Fixed(u8),
     Variable,
 }
 
 /// The value for the $ORIGINALITY key (3.1+)
 #[derive(Debug, Clone, Serialize)]
-enum Originality {
+pub enum Originality {
     Original,
     NonDataModified,
     Appended,
@@ -586,18 +586,18 @@ enum Originality {
 
 /// A bundle for $ORIGINALITY, $LAST_MODIFIER, and $LAST_MODIFIED (3.1+)
 #[derive(Clone, Serialize, Default)]
-struct ModificationData {
-    last_modifier: OptionalKw<LastModifier>,
-    last_modified: OptionalKw<ModifiedDateTime>,
-    originality: OptionalKw<Originality>,
+pub struct ModificationData {
+    pub last_modifier: OptionalKw<LastModifier>,
+    pub last_modified: OptionalKw<ModifiedDateTime>,
+    pub originality: OptionalKw<Originality>,
 }
 
 /// A bundle for $PLATEID, $PLATENAME, and $WELLID (3.1+)
 #[derive(Clone, Serialize, Default)]
-struct PlateData {
-    plateid: OptionalKw<Plateid>,
-    platename: OptionalKw<Platename>,
-    wellid: OptionalKw<Wellid>,
+pub struct PlateData {
+    pub plateid: OptionalKw<Plateid>,
+    pub platename: OptionalKw<Platename>,
+    pub wellid: OptionalKw<Wellid>,
 }
 
 /// The value for the $UNSTAINEDCENTERS key (3.2+)
@@ -605,21 +605,21 @@ struct PlateData {
 /// This is actually encoded as a string like 'n,[measuremnts,],[values]' but
 /// here is more conveniently encoded as a hash table.
 #[derive(Clone, Serialize)]
-struct UnstainedCenters(HashMap<Shortname, f32>);
+pub struct UnstainedCenters(HashMap<Shortname, f32>);
 
 /// A bundle for $UNSTAINEDCENTERS and $UNSTAINEDINFO (3.2+)
 #[derive(Clone, Serialize, Default)]
-struct UnstainedData {
-    unstainedcenters: OptionalKw<UnstainedCenters>,
-    unstainedinfo: OptionalKw<UnstainedInfo>,
+pub struct UnstainedData {
+    pub unstainedcenters: OptionalKw<UnstainedCenters>,
+    pub unstainedinfo: OptionalKw<UnstainedInfo>,
 }
 
 /// A bundle for $CARRIERID, $CARRIERTYPE, $LOCATIONID (3.2+)
 #[derive(Clone, Serialize, Default)]
-struct CarrierData {
-    carrierid: OptionalKw<Carrierid>,
-    carriertype: OptionalKw<Carriertype>,
-    locationid: OptionalKw<Locationid>,
+pub struct CarrierData {
+    pub carrierid: OptionalKw<Carrierid>,
+    pub carriertype: OptionalKw<Carriertype>,
+    pub locationid: OptionalKw<Locationid>,
 }
 
 /// The value of the $UNICODE key (3.0 only)
@@ -629,7 +629,7 @@ struct CarrierData {
 /// indicate keywords which supported UTF-8, but these days it is hard to
 /// write a library that does NOT support UTF-8 ;)
 #[derive(Debug, Clone, Serialize)]
-struct Unicode {
+pub struct Unicode {
     page: u32,
     // TODO check that these are valid keywords (probably not worth it)
     kws: Vec<String>,
@@ -637,7 +637,7 @@ struct Unicode {
 
 /// The value of the $PnTYPE key (3.2+)
 #[derive(Debug, Clone, Serialize)]
-enum MeasurementType {
+pub enum MeasurementType {
     ForwardScatter,
     SideScatter,
     RawFluorescence,
@@ -653,7 +653,7 @@ enum MeasurementType {
 
 /// The value of the $PnFEATURE key (3.2+)
 #[derive(Debug, Clone, Serialize)]
-enum Feature {
+pub enum Feature {
     Area,
     Width,
     Height,
@@ -665,7 +665,7 @@ enum Feature {
 /// floats which makes sense for cases where $DATATYPE/$PnDATATYPE indicates
 /// float or double.
 #[derive(Debug, Clone, Copy, Serialize)]
-enum Range {
+pub enum Range {
     /// The value when stored as an integer.
     ///
     /// This will actually store PnR - 1; most cytometers will store this as a
@@ -685,91 +685,91 @@ enum Range {
 #[derive(Clone, Serialize)]
 pub struct InnerMeasurement2_0 {
     /// Value for $PnE
-    scale: OptionalKw<Scale>,
+    pub scale: OptionalKw<Scale>,
 
     /// Value for $PnL
-    wavelength: OptionalKw<Wavelength>,
+    pub wavelength: OptionalKw<Wavelength>,
 
     /// Value for $PnN
-    shortname: OptionalKw<Shortname>,
+    pub shortname: OptionalKw<Shortname>,
 }
 
 /// Measurement fields specific to version 3.0
 #[derive(Clone, Serialize)]
 pub struct InnerMeasurement3_0 {
     /// Value for $PnE
-    scale: Scale,
+    pub scale: Scale,
 
     /// Value for $PnL
-    wavelength: OptionalKw<Wavelength>,
+    pub wavelength: OptionalKw<Wavelength>,
 
     /// Value for $PnN
-    shortname: OptionalKw<Shortname>,
+    pub shortname: OptionalKw<Shortname>,
 
     /// Value for $PnG
-    gain: OptionalKw<Gain>,
+    pub gain: OptionalKw<Gain>,
 }
 
 /// Measurement fields specific to version 3.1
 #[derive(Clone, Serialize)]
 pub struct InnerMeasurement3_1 {
     /// Value for $PnE
-    scale: Scale,
+    pub scale: Scale,
 
     /// Value for $PnL
-    wavelengths: OptionalKw<Wavelengths>,
+    pub wavelengths: OptionalKw<Wavelengths>,
 
     /// Value for $PnN
-    shortname: Shortname,
+    pub shortname: Shortname,
 
     /// Value for $PnG
-    gain: OptionalKw<Gain>,
+    pub gain: OptionalKw<Gain>,
 
     /// Value for $PnCALIBRATION
-    calibration: OptionalKw<Calibration3_1>,
+    pub calibration: OptionalKw<Calibration3_1>,
 
     /// Value for $PnDISPLAY
-    display: OptionalKw<Display>,
+    pub display: OptionalKw<Display>,
 }
 
 /// Measurement fields specific to version 3.2
 #[derive(Clone, Serialize)]
 pub struct InnerMeasurement3_2 {
     /// Value for $PnE
-    scale: Scale,
+    pub scale: Scale,
 
     /// Value for $PnL
-    wavelengths: OptionalKw<Wavelengths>,
+    pub wavelengths: OptionalKw<Wavelengths>,
 
     /// Value for $PnN
-    shortname: Shortname,
+    pub shortname: Shortname,
 
     /// Value for $PnG
-    gain: OptionalKw<Gain>,
+    pub gain: OptionalKw<Gain>,
 
     /// Value for $PnCALIBRATION
-    calibration: OptionalKw<Calibration3_2>,
+    pub calibration: OptionalKw<Calibration3_2>,
 
     /// Value for $PnDISPLAY
-    display: OptionalKw<Display>,
+    pub display: OptionalKw<Display>,
 
     /// Value for $PnANALYTE
-    analyte: OptionalKw<Analyte>,
+    pub analyte: OptionalKw<Analyte>,
 
     /// Value for $PnFEATURE
-    feature: OptionalKw<Feature>,
+    pub feature: OptionalKw<Feature>,
 
     /// Value for $PnTYPE
-    measurement_type: OptionalKw<MeasurementType>,
+    pub measurement_type: OptionalKw<MeasurementType>,
 
     /// Value for $PnTAG
-    tag: OptionalKw<Tag>,
+    pub tag: OptionalKw<Tag>,
 
     /// Value for $PnDET
-    detector_name: OptionalKw<DetectorName>,
+    pub detector_name: OptionalKw<DetectorName>,
 
     /// Value for $PnDATATYPE
-    datatype: OptionalKw<NumType>,
+    pub datatype: OptionalKw<NumType>,
 }
 
 /// Structured data for measurement keywords.
@@ -783,36 +783,36 @@ pub struct InnerMeasurement3_2 {
 #[derive(Clone, Serialize)]
 pub struct Measurement<X> {
     /// Value for $PnB
-    bytes: Bytes,
+    pub bytes: Bytes,
 
     /// Value for $PnR
-    range: Range,
+    pub range: Range,
 
     /// Value for $PnS
-    longname: OptionalKw<Longname>,
+    pub longname: OptionalKw<Longname>,
 
     /// Value for $PnF
-    filter: OptionalKw<Filter>,
+    pub filter: OptionalKw<Filter>,
 
     /// Value for $PnO
-    power: OptionalKw<Power>,
+    pub power: OptionalKw<Power>,
 
     /// Value for $PnD
-    detector_type: OptionalKw<DetectorType>,
+    pub detector_type: OptionalKw<DetectorType>,
 
     /// Value for $PnP
-    percent_emitted: OptionalKw<PercentEmitted>,
+    pub percent_emitted: OptionalKw<PercentEmitted>,
 
     /// Value for $PnV
-    detector_voltage: OptionalKw<DetectorVoltage>,
+    pub detector_voltage: OptionalKw<DetectorVoltage>,
 
     /// Non standard keywords that belong to this measurement.
     ///
     /// These are found using a configurable pattern to filter matching keys.
-    nonstandard_keywords: NonStdKeywords,
+    pub nonstandard_keywords: NonStdKeywords,
 
     /// Version specific data
-    specific: X,
+    pub specific: X,
 }
 
 /// Version-specific data for one measurement
@@ -4076,6 +4076,22 @@ impl AnyCoreTEXT {
     any_core_get_set_str!(src, set_src);
     any_core_get_set_str!(sys, set_sys);
 
+    pub fn trigger(&self) -> Option<&Trigger> {
+        match_anycoretext!(self, x, { x.trigger() })
+    }
+
+    pub fn set_trigger(&mut self, t: Option<Trigger>) {
+        match_anycoretext!(self, x, { x.set_trigger(t) })
+    }
+
+    pub fn datatype(&self) -> AlphaNumType {
+        match_anycoretext!(self, x, { x.datatype() })
+    }
+
+    pub fn set_datatype(&mut self, t: AlphaNumType) {
+        match_anycoretext!(self, x, { x.set_datatype(t) })
+    }
+
     pub fn begin_date(&self) -> Option<NaiveDate> {
         match_anycoretext!(self, x, { x.begin_date() })
     }
@@ -4410,6 +4426,22 @@ where
     get_set_str!(smno, set_smno);
     get_set_str!(src, set_src);
     get_set_str!(sys, set_sys);
+
+    pub fn trigger(&self) -> Option<&Trigger> {
+        self.metadata.tr.as_ref().into()
+    }
+
+    pub fn set_trigger(&mut self, t: Option<Trigger>) {
+        self.metadata.tr = t.into()
+    }
+
+    pub fn datatype(&self) -> AlphaNumType {
+        self.metadata.datatype
+    }
+
+    pub fn set_datatype(&mut self, t: AlphaNumType) {
+        self.metadata.datatype = t
+    }
 
     // fn btim(&self) -> NaiveDate {}
 

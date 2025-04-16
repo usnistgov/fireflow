@@ -1619,45 +1619,58 @@ type Metadata3_2 = Metadata<InnerMetadata3_2>;
 // type BareMetadata3_0 = BareMetadata<InnerBareMetadata3_0>;
 // type BareMetadata3_1 = BareMetadata<InnerBareMetadata3_1>;
 
-#[derive(PartialEq, Eq, Hash)]
-struct UintType<T, const LEN: usize> {
-    bitmask: T,
-    size: SizedByteOrd<LEN>,
+#[derive(PartialEq, Clone)]
+pub struct UintType<T, const LEN: usize> {
+    pub bitmask: T,
+    pub size: SizedByteOrd<LEN>,
 }
 
-#[derive(PartialEq, Eq, Hash)]
-enum AnyUintType {
-    Uint8(UintType<u8, 1>),
-    Uint16(UintType<u16, 2>),
-    Uint24(UintType<u32, 3>),
-    Uint32(UintType<u32, 4>),
-    Uint40(UintType<u64, 5>),
-    Uint48(UintType<u64, 6>),
-    Uint56(UintType<u64, 7>),
-    Uint64(UintType<u64, 8>),
+pub type Uint08Type = UintType<u8, 1>;
+pub type Uint16Type = UintType<u16, 2>;
+pub type Uint24Type = UintType<u32, 3>;
+pub type Uint32Type = UintType<u32, 4>;
+pub type Uint40Type = UintType<u64, 5>;
+pub type Uint48Type = UintType<u64, 6>;
+pub type Uint56Type = UintType<u64, 7>;
+pub type Uint64Type = UintType<u64, 8>;
+
+#[derive(PartialEq, Clone)]
+pub enum AnyUintType {
+    Uint08(Uint08Type),
+    Uint16(Uint16Type),
+    Uint24(Uint24Type),
+    Uint32(Uint32Type),
+    Uint40(Uint40Type),
+    Uint48(Uint48Type),
+    Uint56(Uint56Type),
+    Uint64(Uint64Type),
 }
 
-#[derive(PartialEq)]
-struct FloatType<const LEN: usize, T> {
-    order: SizedByteOrd<LEN>,
-    range: T,
+#[derive(PartialEq, Clone)]
+pub struct FloatType<const LEN: usize, T> {
+    pub order: SizedByteOrd<LEN>,
+    pub range: T,
 }
 
-#[derive(PartialEq)]
-enum ColumnType {
+pub type SingleType = FloatType<4, f32>;
+pub type DoubleType = FloatType<8, f64>;
+
+#[derive(PartialEq, Clone)]
+pub enum ColumnType {
     Ascii { bytes: u8 },
     Integer(AnyUintType),
-    Float(FloatType<4, f32>),
-    Double(FloatType<8, f64>),
+    Float(SingleType),
+    Double(DoubleType),
 }
 
-enum DataLayout<T> {
+#[derive(Clone)]
+pub enum DataLayout<T> {
     AsciiDelimited { nrows: Option<T>, ncols: usize },
     AlphaNum { nrows: T, columns: Vec<ColumnType> },
 }
 
-type WriterDataLayout = DataLayout<()>;
-type ReaderDataLayout = DataLayout<Tot>;
+pub type ColumnLayout = DataLayout<()>;
+pub type RowColumnLayout = DataLayout<Tot>;
 
 struct NumColumnWriter<T, const LEN: usize> {
     column: Vec<T>,
@@ -1711,7 +1724,7 @@ struct MixedParser {
 }
 
 #[derive(PartialEq, Eq, Hash, Copy, Clone)]
-enum SizedByteOrd<const LEN: usize> {
+pub enum SizedByteOrd<const LEN: usize> {
     Endian(Endian),
     Order([u8; LEN]),
 }
@@ -1902,7 +1915,7 @@ macro_rules! convert_to_uint1 {
 macro_rules! convert_to_uint {
     ($size:expr, $series:expr, $from:ident, $deferred:expr) => {
         match $size {
-            AnyUintType::Uint8(ut) => {
+            AnyUintType::Uint08(ut) => {
                 convert_to_uint1!($series, $deferred, NumU8, $from, u8, ut)
             }
             AnyUintType::Uint16(ut) => {
@@ -1994,6 +2007,7 @@ where
 
     fn byteord(&self) -> ByteOrd;
 
+    // TODO fix viz
     fn lookup_specific(st: &mut KwParser, par: Par) -> Option<Self>;
 
     fn lookup_tot(kws: &mut RawKeywords) -> PureMaybe<Tot>;
@@ -2003,7 +2017,7 @@ where
     fn keywords_opt_inner(&self) -> Vec<(String, String)>;
 }
 
-trait VersionedMeasurement: Sized + Versioned {
+pub trait VersionedMeasurement: Sized + Versioned {
     fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self>;
 
     fn has_linear_scale(&self) -> bool;
@@ -2066,57 +2080,6 @@ fn to_col_type(
     }
 }
 
-// trait VersionedParserMeasurement: Sized {
-//     // type Target;
-
-//     // fn datatype_minimal(m: &DataReadMeasurement<Self::Target>) -> Option<NumType>;
-
-//     // fn as_minimal_inner(m: &Measurement<Self>) -> Self::Target;
-
-//     // fn as_minimal(m: &Measurement<Self>) -> DataReadMeasurement<Self::Target> {
-//     //     DataReadMeasurement {
-//     //         bytes: m.bytes,
-//     //         range: m.range.clone(),
-//     //         specific: Self::as_minimal_inner(m),
-//     //     }
-//     // }
-
-//     // TODO make errors index-specific
-//     // fn as_column_type_from_bare(
-//     //     m: &DataReadMeasurement<Self::Target>,
-//     //     dt: AlphaNumType,
-//     //     byteord: &ByteOrd,
-//     // ) -> Result<Option<ColumnType>, Vec<String>> {
-//     //     let mdt = Self::datatype_minimal(m).map(|d| d.into()).unwrap_or(dt);
-//     //     let rng = m.range.clone();
-//     //     Self::to_col_type(m.bytes, mdt, byteord, rng)
-//     // }
-// }
-
-// trait VersionedParserMetadata: Sized {
-//     // type Target;
-
-//     // fn as_minimal_inner(&self, kws: &mut RawKeywords) -> PureMaybe<Self::Target>;
-
-//     // fn as_minimal(
-//     //     md: &Metadata<Self>,
-//     //     kws: &mut RawKeywords,
-//     // ) -> PureMaybe<BareMetadata<Self::Target>> {
-//     //     let datatype = md.datatype;
-//     //     Self::as_minimal_inner(&md.specific, kws).map(|maybe_specific| {
-//     //         maybe_specific.map(|specific| BareMetadata { datatype, specific })
-//     //     })
-//     // }
-
-//     fn byteord(&self) -> ByteOrd;
-
-//     // fn target_byteord(t: &Self::Target) -> ByteOrd;
-
-//     // fn tot(t: &Self::Target) -> Option<Tot>;
-
-//     // TODO this can be a free function
-// }
-
 fn total_events(
     kw_tot: Option<Tot>,
     data_nbytes: usize,
@@ -2132,15 +2095,16 @@ fn total_events(
                  divide DATA segment which is {data_nbytes} bytes long \
                  (remainder of {remainder})"
         );
-        def.push_msg_leveled(msg, conf.enfore_data_width_divisibility)
+        def.push_msg_leveled(msg, conf.enforce_data_width_divisibility)
     }
+    // TODO it seems like this could be factored out
     if let Some(tot) = kw_tot {
         if total_events != tot.0 {
             let msg = format!(
                 "$TOT field is {tot} but number of events \
                          that evenly fit into DATA is {total_events}"
             );
-            def.push_msg_leveled(msg, conf.enfore_matching_tot);
+            def.push_msg_leveled(msg, conf.enforce_matching_tot);
         }
     }
     PureSuccess {
@@ -2512,7 +2476,7 @@ impl<T> DataLayout<T> {
 impl AnyUintType {
     fn native_nbytes(&self) -> u8 {
         match self {
-            AnyUintType::Uint8(_) => 1,
+            AnyUintType::Uint08(_) => 1,
             AnyUintType::Uint16(_) => 2,
             AnyUintType::Uint24(_) => 4,
             AnyUintType::Uint32(_) => 4,
@@ -2525,7 +2489,7 @@ impl AnyUintType {
 
     fn nbytes(&self) -> u8 {
         match self {
-            AnyUintType::Uint8(_) => 1,
+            AnyUintType::Uint08(_) => 1,
             AnyUintType::Uint16(_) => 2,
             AnyUintType::Uint24(_) => 3,
             AnyUintType::Uint32(_) => 4,
@@ -2544,6 +2508,16 @@ fn format_measurement(n: &str, m: &str) -> String {
 impl fmt::Display for FCSDateTimeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "must be formatted like 'yyyy-mm-ddThh:mm:ss[TZD]'")
+    }
+}
+
+impl<const LEN: usize> fmt::Display for SizedByteOrd<LEN> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let s = match self {
+            SizedByteOrd::Endian(e) => e.to_string(),
+            SizedByteOrd::Order(o) => o.iter().join(","),
+        };
+        write!(f, "[{}]", s)
     }
 }
 
@@ -3367,7 +3341,7 @@ impl<P: VersionedMeasurement> Measurement<P> {}
 
 fn make_uint_type(b: u8, r: Range, o: &ByteOrd) -> Result<AnyUintType, Vec<String>> {
     match b {
-        1 => UInt8Type::to_col(r, o).map(AnyUintType::Uint8),
+        1 => UInt8Type::to_col(r, o).map(AnyUintType::Uint08),
         2 => UInt16Type::to_col(r, o).map(AnyUintType::Uint16),
         3 => <UInt32Type as IntFromBytes<4, 3>>::to_col(r, o).map(AnyUintType::Uint24),
         4 => <UInt32Type as IntFromBytes<4, 4>>::to_col(r, o).map(AnyUintType::Uint32),
@@ -3995,8 +3969,8 @@ impl AnyCoreTEXT {
         match_anycoretext!(self, x, { x.set_df_column_names(df) })
     }
 
-    fn as_writer_data_layout(&self) -> Result<WriterDataLayout, Vec<String>> {
-        match_anycoretext!(self, x, { x.as_writer_data_layout() })
+    pub fn as_column_layout(&self) -> Result<ColumnLayout, Vec<String>> {
+        match_anycoretext!(self, x, { x.as_column_layout() })
     }
 
     fn as_data_reader(
@@ -4062,7 +4036,7 @@ fn build_mixed_reader(cs: Vec<ColumnType>, total_events: Tot) -> MixedParser {
     }
 }
 
-fn build_data_reader(layout: ReaderDataLayout, data_seg: &Segment) -> DataReader {
+fn build_data_reader(layout: RowColumnLayout, data_seg: &Segment) -> DataReader {
     let column_parser = match layout {
         DataLayout::AlphaNum { nrows, columns } => {
             ColumnReader::Mixed(build_mixed_reader(columns, nrows))
@@ -4236,49 +4210,6 @@ impl<M> Metadata<M>
 where
     M: VersionedMetadata,
 {
-    // fn as_reader_data_layout_bare(
-    //     m: &BareMetadata<Self::Target>,
-    //     ms: &[DataReadMeasurement<<Self::P as VersionedParserMeasurement>::Target>],
-    //     data_nbytes: usize,
-    //     conf: &DataReadConfig,
-    // ) -> PureMaybe<ReaderDataLayout> {
-    //     let dt = m.datatype;
-    //     let byteord = Self::target_byteord(&m.specific);
-    //     let ncols = ms.len();
-    //     let (pass, fail): (Vec<_>, Vec<_>) = ms
-    //         .iter()
-    //         .map(|m| Self::P::as_column_type_from_bare(m, dt, &byteord))
-    //         .partition_result();
-    //     let mut deferred =
-    //         PureErrorBuf::from_many(fail.into_iter().flatten().collect(), PureErrorLevel::Error);
-    //     if pass.len() == ncols {
-    //         let fixed: Vec<_> = pass.into_iter().flatten().collect();
-    //         let nfixed = fixed.len();
-    //         if nfixed == ncols {
-    //             let event_width = fixed.iter().map(|c| c.width()).sum();
-    //             return Self::total_events(&m.specific, data_nbytes, event_width, conf).and_then(
-    //                 |nrows| {
-    //                     PureSuccess::from(Some(DataLayout::AlphaNum {
-    //                         nrows,
-    //                         columns: fixed,
-    //                     }))
-    //                 },
-    //             );
-    //         } else if nfixed == 0 {
-    //             let nrows = Self::tot(&m.specific);
-    //             return PureSuccess::from(Some(DataLayout::AsciiDelimited { nrows, ncols }));
-    //         } else {
-    //             deferred.push_error(format!(
-    //                 "{nfixed} out of {ncols} measurements are fixed width"
-    //             ));
-    //         }
-    //     }
-    //     PureSuccess {
-    //         data: None,
-    //         deferred,
-    //     }
-    // }
-
     fn lookup_metadata(st: &mut KwParser, ms: &[Measurement<M::P>]) -> Option<Self> {
         let par = Par(ms.len());
         let maybe_datatype = st.lookup_meta_req();
@@ -4308,9 +4239,7 @@ where
     }
 
     fn all_req_keywords(&self, par: Par) -> RawPairs {
-        // let fixed = [(PAR, par.to_string()), (DATATYPE, m.datatype.to_string())];
-        let fixed = [par.pair(), self.datatype.pair()];
-        fixed
+        [par.pair(), self.datatype.pair()]
             .into_iter()
             .chain(self.specific.keywords_req_inner())
             .map(|(k, v)| (k.to_string(), v))
@@ -4471,8 +4400,6 @@ where
         self.metadata.datatype = t
     }
 
-    // fn btim(&self) -> NaiveDate {}
-
     fn header_and_raw_keywords(
         &self,
         tot: Tot,
@@ -4582,14 +4509,10 @@ where
         Par(self.measurements.len())
     }
 
-    fn some_keywords<F, G>(
-        &self,
-        f: F,
-        g: G,
-    ) -> (Vec<(String, String)>, Vec<(String, String)>, usize)
+    fn some_keywords<F, G>(&self, f: F, g: G) -> (RawPairs, RawPairs, usize)
     where
-        F: Fn(&Measurement<M::P>, Option<MeasIdx>) -> Vec<(String, String)>,
-        G: Fn(&Metadata<M>, Par) -> Vec<(String, String)>,
+        F: Fn(&Measurement<M::P>, Option<MeasIdx>) -> RawPairs,
+        G: Fn(&Metadata<M>, Par) -> RawPairs,
     {
         let meas: Vec<_> = self
             .measurements
@@ -4611,7 +4534,7 @@ where
         let rows = self.measurements.iter().enumerate().map(|(i, m)| {
             m.table_row(i)
                 .into_iter()
-                .map(|v| v.unwrap_or(String::from("NA")))
+                .map(|v| v.unwrap_or("NA".into()))
                 .join(delim)
         });
         vec![header].into_iter().chain(rows).collect()
@@ -4623,7 +4546,9 @@ where
         }
     }
 
-    fn as_writer_data_layout(&self) -> Result<WriterDataLayout, Vec<String>> {
+    // NOTE return vec of strings in error term because these will generally
+    // always be errors on failure with no warnings on success.
+    pub fn as_column_layout(&self) -> Result<ColumnLayout, Vec<String>> {
         let dt = self.metadata.datatype;
         let byteord = self.metadata.specific.byteord();
         let ncols = self.measurements.len();
@@ -4652,63 +4577,46 @@ where
         Err(deferred)
     }
 
-    // TODO not dry
-    fn as_reader_data_layout(
+    fn add_tot(
+        dl: ColumnLayout,
+        kws: &mut RawKeywords,
+        conf: &DataReadConfig,
+        data_seg: &Segment,
+    ) -> PureSuccess<RowColumnLayout> {
+        M::lookup_tot(kws).and_then(|tot| match dl {
+            DataLayout::AsciiDelimited { nrows: _, ncols } => {
+                PureSuccess::from(DataLayout::AsciiDelimited { nrows: tot, ncols })
+            }
+            DataLayout::AlphaNum { nrows: _, columns } => {
+                let data_nbytes = data_seg.nbytes() as usize;
+                let event_width = columns.iter().map(|c| c.width()).sum();
+                total_events(tot, data_nbytes, event_width, conf)
+                    .map(|nrows| DataLayout::AlphaNum { nrows, columns })
+            }
+        })
+    }
+
+    fn as_row_column_layout(
         &self,
         kws: &mut RawKeywords,
         conf: &DataReadConfig,
         data_seg: &Segment,
-    ) -> PureMaybe<ReaderDataLayout> {
-        let data_nbytes = data_seg.nbytes() as usize;
-        let dt = self.metadata.datatype;
-        let byteord = self.metadata.specific.byteord();
-        let ncols = self.measurements.len();
-        let (pass, fail): (Vec<_>, Vec<_>) = self
-            .measurements
-            .iter()
-            .map(|m| m.as_column_type(dt, &byteord))
-            .partition_result();
-        let tot_succ = M::lookup_tot(kws);
-        let mut errors = PureMaybe::empty();
-
-        for f in fail.into_iter().flatten() {
-            errors.push_error(f);
-        }
-        if pass.len() == ncols {
-            let fixed: Vec<_> = pass.into_iter().flatten().collect();
-            let nfixed = fixed.len();
-            if nfixed == ncols {
-                let event_width = fixed.iter().map(|c| c.width()).sum();
-                return tot_succ
-                    .and_then(|tot| total_events(tot, data_nbytes, event_width, conf))
-                    .and_then(|nrows| {
-                        PureSuccess::from(Some(DataLayout::AlphaNum {
-                            nrows,
-                            columns: fixed,
-                        }))
-                    });
-            } else if nfixed == 0 {
-                return tot_succ.map(|tot| Some(DataLayout::AsciiDelimited { nrows: tot, ncols }));
-            } else {
-                let msg = format!("{nfixed} out of {ncols} measurements are fixed width");
-                errors.push_error(msg);
-            }
-        }
-        errors
+    ) -> PureMaybe<RowColumnLayout> {
+        PureMaybe::from_result_strs(self.as_column_layout(), PureErrorLevel::Error)
+            .and_then_opt(|dl| Self::add_tot(dl, kws, conf, data_seg).map(Some))
     }
 
-    // TODO this doesn't need to be here
     fn as_data_reader(
         &self,
         kws: &mut RawKeywords,
         conf: &DataReadConfig,
         data_seg: &Segment,
     ) -> PureMaybe<DataReader> {
-        self.as_reader_data_layout(kws, conf, data_seg)
+        self.as_row_column_layout(kws, conf, data_seg)
             .map(|maybe_layout| maybe_layout.map(|layout| build_data_reader(layout, data_seg)))
     }
 
-    fn from_raw(kws: &mut RawKeywords, conf: &StdTextReadConfig) -> PureResult<Self> {
+    fn new_from_raw(kws: &mut RawKeywords, conf: &StdTextReadConfig) -> PureResult<Self> {
         // Lookup $PAR first; everything depends on this since we need to know
         // the number of measurements to find which are used in turn for
         // validating lots of keywords in metadata. If we fail we need to bail.
@@ -5183,7 +5091,7 @@ impl AnyUintColumnReader {
     fn from_column(ut: AnyUintType, total_events: Tot) -> Self {
         let t = total_events.0;
         match ut {
-            AnyUintType::Uint8(layout) => AnyUintColumnReader::Uint8(UintColumnReader {
+            AnyUintType::Uint08(layout) => AnyUintColumnReader::Uint8(UintColumnReader {
                 layout,
                 column: vec![0; t],
             }),
@@ -5575,7 +5483,7 @@ fn h_write_dataset<W: Write>(
     let nrows = df.height();
 
     // Get the layout, or bail if we can't
-    let layout = d.text.as_writer_data_layout().map_err(|es| Failure {
+    let layout = d.text.as_column_layout().map_err(|es| Failure {
         reason: "could not create data layout".to_string(),
         deferred: PureErrorBuf::from_many(es, PureErrorLevel::Error),
     })?;
@@ -6336,10 +6244,10 @@ fn parse_raw_text(
     conf: &StdTextReadConfig,
 ) -> PureResult<AnyCoreTEXT> {
     match version {
-        Version::FCS2_0 => CoreTEXT2_0::from_raw(kws, conf).map(|x| x.map(|y| y.into())),
-        Version::FCS3_0 => CoreTEXT3_0::from_raw(kws, conf).map(|x| x.map(|y| y.into())),
-        Version::FCS3_1 => CoreTEXT3_1::from_raw(kws, conf).map(|x| x.map(|y| y.into())),
-        Version::FCS3_2 => CoreTEXT3_2::from_raw(kws, conf).map(|x| x.map(|y| y.into())),
+        Version::FCS2_0 => CoreTEXT2_0::new_from_raw(kws, conf).map(|x| x.map(|y| y.into())),
+        Version::FCS3_0 => CoreTEXT3_0::new_from_raw(kws, conf).map(|x| x.map(|y| y.into())),
+        Version::FCS3_1 => CoreTEXT3_1::new_from_raw(kws, conf).map(|x| x.map(|y| y.into())),
+        Version::FCS3_2 => CoreTEXT3_2::new_from_raw(kws, conf).map(|x| x.map(|y| y.into())),
     }
 }
 

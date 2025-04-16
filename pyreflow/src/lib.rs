@@ -10,6 +10,7 @@ use fireflow_core::validated::shortname::Shortname;
 use fireflow_core::validated::textdelim::TEXTDelim;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
+use itertools::Itertools;
 use pyo3::class::basic::CompareOp;
 use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyWarning};
@@ -337,8 +338,8 @@ fn read_fcs_std_text(
 
     disallow_deviant=false,
     disallow_nonstandard=false,
-    enfore_data_width_divisibility=false,
-    enfore_matching_tot=false,
+    enforce_data_width_divisibility=false,
+    enforce_matching_tot=false,
 
     nonstandard_measurement_pattern=None,
     time_shortname=None,
@@ -383,8 +384,8 @@ fn read_fcs_file(
 
     disallow_deviant: bool,
     disallow_nonstandard: bool,
-    enfore_data_width_divisibility: bool,
-    enfore_matching_tot: bool,
+    enforce_data_width_divisibility: bool,
+    enforce_matching_tot: bool,
 
     nonstandard_measurement_pattern: Option<PyNonStdMeasPattern>,
     time_shortname: Option<PyShortname>,
@@ -451,8 +452,8 @@ fn read_fcs_file(
             begin: text_begin_analysis,
             end: text_end_analysis,
         },
-        enfore_data_width_divisibility,
-        enfore_matching_tot,
+        enforce_data_width_divisibility,
+        enforce_matching_tot,
     };
 
     handle_errors(api::read_fcs_file(&p, &conf.set_strict(strict)))
@@ -599,6 +600,18 @@ pywrap!(PyEndian, api::Endian, "Endian");
 pywrap!(PyOriginality, api::Originality, "Originality");
 pywrap!(PyTrigger, api::Trigger, "Trigger");
 pywrap!(PyAlphaNumType, api::AlphaNumType, "AlphaNumType");
+
+pywrap!(PyColumnType, api::ColumnType, "ColumnType");
+pywrap!(PyUint08Type, api::Uint08Type, "Uint08Type");
+pywrap!(PyUint16Type, api::Uint16Type, "Uint16Type");
+pywrap!(PyUint24Type, api::Uint24Type, "Uint24Type");
+pywrap!(PyUint32Type, api::Uint32Type, "Uint32Type");
+pywrap!(PyUint40Type, api::Uint40Type, "Uint40Type");
+pywrap!(PyUint48Type, api::Uint48Type, "Uint48Type");
+pywrap!(PyUint56Type, api::Uint56Type, "Uint56Type");
+pywrap!(PyUint64Type, api::Uint64Type, "Uint64Type");
+pywrap!(PySingleType, api::SingleType, "SingleType");
+pywrap!(PyDoubleType, api::DoubleType, "SingleType");
 
 py_parse!(PyDatePattern, DatePattern);
 py_disp!(PyDatePattern);
@@ -1278,6 +1291,43 @@ impl PyCoreTEXT3_2 {
         self.0.metadata.specific.plate.wellid = x.map(|x| x.into()).into()
     }
 
+    #[getter]
+    // python type is Union[int, list[Union[int, UintXType, SingleType, FloatType]]]
+    fn get_column_layout(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let x = self.0.as_column_layout();
+        let y = error::PureMaybe::from_result_strs(x, error::PureErrorLevel::Error)
+            .into_result("could not make column layout".to_string())
+            .map_err(|a| a.into());
+        match handle_errors(y)? {
+            api::DataLayout::AsciiDelimited { nrows: _, ncols } => ncols.into_py_any(py),
+            api::DataLayout::AlphaNum { nrows: _, columns } => {
+                let (pass, fail): (Vec<_>, Vec<_>) = columns
+                    .iter()
+                    .map(|ct| match ct {
+                        api::ColumnType::Ascii { bytes } => bytes.into_py_any(py),
+                        api::ColumnType::Integer(u) => match u {
+                            api::AnyUintType::Uint08(t) => PyUint08Type(t.clone()).into_py_any(py),
+                            api::AnyUintType::Uint16(t) => PyUint16Type(t.clone()).into_py_any(py),
+                            api::AnyUintType::Uint24(t) => PyUint24Type(t.clone()).into_py_any(py),
+                            api::AnyUintType::Uint32(t) => PyUint32Type(t.clone()).into_py_any(py),
+                            api::AnyUintType::Uint40(t) => PyUint40Type(t.clone()).into_py_any(py),
+                            api::AnyUintType::Uint48(t) => PyUint48Type(t.clone()).into_py_any(py),
+                            api::AnyUintType::Uint56(t) => PyUint56Type(t.clone()).into_py_any(py),
+                            api::AnyUintType::Uint64(t) => PyUint64Type(t.clone()).into_py_any(py),
+                        },
+                        api::ColumnType::Float(u) => PySingleType(u.clone()).into_py_any(py),
+                        api::ColumnType::Double(u) => PyDoubleType(u.clone()).into_py_any(py),
+                    })
+                    .partition_result();
+                if let Some(err) = fail.into_iter().next() {
+                    Err(err)
+                } else {
+                    pass.into_py_any(py)
+                }
+            }
+        }
+    }
+
     // TODO add rest of metadata keywords
     // TODO add option to get/set measurements
     // TODO add option to populate fields based on nonstandard keywords?
@@ -1285,13 +1335,55 @@ impl PyCoreTEXT3_2 {
     // TODO make function to add DATA/ANALYSIS, which will convert this to a CoreDataset
 }
 
-struct FailWrapper(error::ImpureFailure);
+macro_rules! pyuint_methods {
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            fn __repr__(&self) -> String {
+                format!("UintType(bitmask={}, size={})", self.0.bitmask, self.0.size)
+            }
+        }
+    };
+}
+
+pyuint_methods!(PyUint08Type);
+pyuint_methods!(PyUint16Type);
+pyuint_methods!(PyUint24Type);
+pyuint_methods!(PyUint32Type);
+pyuint_methods!(PyUint40Type);
+pyuint_methods!(PyUint48Type);
+pyuint_methods!(PyUint56Type);
+pyuint_methods!(PyUint64Type);
+
+#[pymethods]
+impl PySingleType {
+    fn __repr__(&self) -> String {
+        format!(
+            "SingleType(maxval={}, order={})",
+            self.0.range, self.0.order
+        )
+    }
+}
+
+// #[pymethods]
+// impl PyColumnType {
+//     fn __repr__(&self) -> String {
+//         match &self.0 {
+//             api::ColumnType::Ascii { bytes } => format!("AsciiColumnType"),
+//             api::ColumnType::Integer(u) => format!("IntColumnType"),
+//             api::ColumnType::Float(u) => format!("FloatColumnType"),
+//             api::ColumnType::Double(u) => format!("DoubleColumnType"),
+//         }
+//     }
+// }
+
+struct PyImpureError(error::ImpureFailure);
 
 fn handle_errors<X, Y>(res: error::ImpureResult<X>) -> PyResult<Y>
 where
     Y: From<X>,
 {
-    handle_pure(res.map_err(FailWrapper)?)
+    handle_pure(res.map_err(PyImpureError)?)
 }
 
 // TODO use warnings_are_errors flag
@@ -1317,14 +1409,14 @@ where
     }
 }
 
-impl From<error::ImpureFailure> for FailWrapper {
+impl From<error::ImpureFailure> for PyImpureError {
     fn from(value: error::ImpureFailure) -> Self {
         Self(value)
     }
 }
 
-impl From<FailWrapper> for PyErr {
-    fn from(err: FailWrapper) -> Self {
+impl From<PyImpureError> for PyErr {
+    fn from(err: PyImpureError) -> Self {
         let inner = err.0;
         let reason = match inner.reason {
             error::ImpureError::IO(e) => format!("IO ERROR: {e}"),

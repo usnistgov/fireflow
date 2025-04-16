@@ -1957,9 +1957,7 @@ pub trait Versioned {
 
 pub trait VersionedMetadata: Sized
 where
-    Self: VersionedParserMetadata,
     Self::P: VersionedMeasurement,
-    Self::P: VersionedParserMeasurement,
 {
     type P;
 
@@ -1994,155 +1992,15 @@ where
 
     fn clear_datetimes(&mut self);
 
-    fn into_any(s: CoreTEXT<Self, Self::P>) -> AnyCoreTEXT;
-
-    fn as_writer_data_layout(
-        m: &Metadata<Self>,
-        ms: &[Measurement<Self::P>],
-    ) -> Result<WriterDataLayout, Vec<String>> {
-        let dt = m.datatype;
-        let byteord = Self::byteord(&m.specific);
-        let ncols = ms.len();
-        let (pass, fail): (Vec<_>, Vec<_>) = ms
-            .iter()
-            .map(|m| Self::P::as_column_type(m, dt, &byteord))
-            .partition_result();
-        let mut deferred: Vec<_> = fail.into_iter().flatten().collect();
-        if pass.len() == ncols {
-            let fixed: Vec<_> = pass.into_iter().flatten().collect();
-            let nfixed = fixed.len();
-            if nfixed == ncols {
-                return Ok(DataLayout::AlphaNum {
-                    nrows: (),
-                    columns: fixed,
-                });
-            } else if nfixed == 0 {
-                return Ok(DataLayout::AsciiDelimited { nrows: None, ncols });
-            } else {
-                deferred.push(format!(
-                    "{nfixed} out of {ncols} measurements are fixed width"
-                ));
-            }
-        }
-        Err(deferred)
-    }
-
-    // TODO not DRY
-    // fn as_reader_data_layout_bare(
-    //     m: &BareMetadata<Self::Target>,
-    //     ms: &[DataReadMeasurement<<Self::P as VersionedParserMeasurement>::Target>],
-    //     data_nbytes: usize,
-    //     conf: &DataReadConfig,
-    // ) -> PureMaybe<ReaderDataLayout> {
-    //     let dt = m.datatype;
-    //     let byteord = Self::target_byteord(&m.specific);
-    //     let ncols = ms.len();
-    //     let (pass, fail): (Vec<_>, Vec<_>) = ms
-    //         .iter()
-    //         .map(|m| Self::P::as_column_type_from_bare(m, dt, &byteord))
-    //         .partition_result();
-    //     let mut deferred =
-    //         PureErrorBuf::from_many(fail.into_iter().flatten().collect(), PureErrorLevel::Error);
-    //     if pass.len() == ncols {
-    //         let fixed: Vec<_> = pass.into_iter().flatten().collect();
-    //         let nfixed = fixed.len();
-    //         if nfixed == ncols {
-    //             let event_width = fixed.iter().map(|c| c.width()).sum();
-    //             return Self::total_events(&m.specific, data_nbytes, event_width, conf).and_then(
-    //                 |nrows| {
-    //                     PureSuccess::from(Some(DataLayout::AlphaNum {
-    //                         nrows,
-    //                         columns: fixed,
-    //                     }))
-    //                 },
-    //             );
-    //         } else if nfixed == 0 {
-    //             let nrows = Self::tot(&m.specific);
-    //             return PureSuccess::from(Some(DataLayout::AsciiDelimited { nrows, ncols }));
-    //         } else {
-    //             deferred.push_error(format!(
-    //                 "{nfixed} out of {ncols} measurements are fixed width"
-    //             ));
-    //         }
-    //     }
-    //     PureSuccess {
-    //         data: None,
-    //         deferred,
-    //     }
-    // }
+    fn byteord(&self) -> ByteOrd;
 
     fn lookup_specific(st: &mut KwParser, par: Par) -> Option<Self>;
 
-    fn lookup_metadata(st: &mut KwParser, ms: &[Measurement<Self::P>]) -> Option<Metadata<Self>> {
-        let par = Par(ms.len());
-        let maybe_datatype = st.lookup_meta_req();
-        let maybe_specific = Self::lookup_specific(st, par);
-        if let (Some(datatype), Some(specific)) = (maybe_datatype, maybe_specific) {
-            Some(Metadata {
-                datatype,
-                abrt: st.lookup_meta_opt(false),
-                com: st.lookup_meta_opt(false),
-                cells: st.lookup_meta_opt(false),
-                exp: st.lookup_meta_opt(false),
-                fil: st.lookup_meta_opt(false),
-                inst: st.lookup_meta_opt(false),
-                lost: st.lookup_meta_opt(false),
-                op: st.lookup_meta_opt(false),
-                proj: st.lookup_meta_opt(false),
-                smno: st.lookup_meta_opt(false),
-                src: st.lookup_meta_opt(false),
-                sys: st.lookup_meta_opt(false),
-                tr: st.lookup_meta_opt(false),
-                nonstandard_keywords: st.lookup_all_nonstandard(),
-                specific,
-            })
-        } else {
-            None
-        }
-    }
+    fn lookup_tot(kws: &mut RawKeywords) -> PureMaybe<Tot>;
 
     fn keywords_req_inner(&self) -> Vec<(String, String)>;
 
     fn keywords_opt_inner(&self) -> Vec<(String, String)>;
-
-    fn all_req_keywords(m: &Metadata<Self>, par: Par) -> RawPairs {
-        // let fixed = [(PAR, par.to_string()), (DATATYPE, m.datatype.to_string())];
-        let fixed = [par.pair(), m.datatype.pair()];
-        fixed
-            .into_iter()
-            .chain(m.specific.keywords_req_inner())
-            .map(|(k, v)| (k.to_string(), v))
-            .collect()
-    }
-
-    fn all_opt_keywords(m: &Metadata<Self>) -> RawPairs {
-        [
-            OptMetaKey::pair(&m.abrt),
-            OptMetaKey::pair(&m.com),
-            OptMetaKey::pair(&m.cells),
-            OptMetaKey::pair(&m.exp),
-            OptMetaKey::pair(&m.fil),
-            OptMetaKey::pair(&m.inst),
-            OptMetaKey::pair(&m.lost),
-            OptMetaKey::pair(&m.op),
-            OptMetaKey::pair(&m.proj),
-            OptMetaKey::pair(&m.smno),
-            OptMetaKey::pair(&m.src),
-            OptMetaKey::pair(&m.sys),
-            OptMetaKey::pair(&m.tr),
-        ]
-        .into_iter()
-        .flat_map(|(k, v)| v.map(|x| (k, x)))
-        .chain(m.specific.keywords_opt_inner())
-        .map(|(k, v)| (k.to_string(), v))
-        // TODO useless clone
-        .chain(
-            m.nonstandard_keywords
-                .iter()
-                .map(|(k, v)| (k.as_ref().to_string(), v.clone())),
-        )
-        .collect()
-    }
 }
 
 trait VersionedMeasurement: Sized + Versioned {
@@ -2152,261 +2010,142 @@ trait VersionedMeasurement: Sized + Versioned {
 
     fn has_gain(&self) -> bool;
 
-    fn maybe_name(p: &Measurement<Self>) -> Option<&Shortname>;
+    fn maybe_name(&self) -> Option<&Shortname>;
 
-    fn shortname(p: &Measurement<Self>, n: usize) -> Shortname;
+    fn shortname(&self, n: usize) -> Shortname;
 
-    fn set_shortname(m: &mut Measurement<Self>, n: Shortname);
-
-    fn longname(p: &Measurement<Self>, n: usize) -> Longname {
-        // TODO not DRY
-        p.longname
-            .0
-            .as_ref()
-            .cloned()
-            .unwrap_or(Longname(format!("M{n}")))
-    }
-
-    fn set_longname(m: &mut Measurement<Self>, n: Option<String>) {
-        m.longname = n.map(|y| y.into()).into();
-    }
-
-    fn lookup_measurements(st: &mut KwParser, par: Par) -> Option<Vec<Measurement<Self>>> {
-        let v = Self::fcs_version();
-        let ps: Vec<_> = (1..(par.0 + 1))
-            .flat_map(|n| {
-                let i = MeasIdx(n);
-                let maybe_bytes = st.lookup_meas_req(i);
-                let maybe_range = st.lookup_meas_req(i);
-                let maybe_specific = Self::lookup_specific(st, i);
-                if let (Some(bytes), Some(range), Some(specific)) =
-                    (maybe_bytes, maybe_range, maybe_specific)
-                {
-                    Some(Measurement {
-                        bytes,
-                        range,
-                        longname: st.lookup_meas_opt(i, false),
-                        filter: st.lookup_meas_opt(i, false),
-                        power: st.lookup_meas_opt(i, false),
-                        detector_type: st.lookup_meas_opt(i, false),
-                        percent_emitted: st.lookup_meas_opt(i, v == Version::FCS3_2),
-                        detector_voltage: st.lookup_meas_opt(i, false),
-                        specific,
-                        nonstandard_keywords: st.lookup_all_meas_nonstandard(i),
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect();
-        if ps.len() == par.0 {
-            Some(ps)
-        } else {
-            None
-        }
-    }
+    fn set_shortname(&mut self, n: Shortname);
 
     fn req_suffixes_inner(&self, n: Option<MeasIdx>) -> Vec<(String, String)>;
 
     fn opt_suffixes_inner(&self, n: Option<MeasIdx>) -> Vec<(String, Option<String>)>;
 
-    fn req_suffixes(m: &Measurement<Self>, n: Option<MeasIdx>) -> Vec<(String, String)> {
-        [m.bytes.pair(n), m.range.pair(n)]
-            .into_iter()
-            .chain(m.specific.req_suffixes_inner(n))
-            .collect()
-    }
-
-    fn opt_suffixes(m: &Measurement<Self>, n: Option<MeasIdx>) -> Vec<(String, Option<String>)> {
-        [
-            OptMeasKey::pair(&m.longname, n),
-            OptMeasKey::pair(&m.filter, n),
-            OptMeasKey::pair(&m.power, n),
-            OptMeasKey::pair(&m.detector_type, n),
-            OptMeasKey::pair(&m.percent_emitted, n),
-            OptMeasKey::pair(&m.detector_voltage, n),
-            // (LONGNAME_SFX, m.longname.as_opt_string()),
-            // (FILTER_SFX, m.filter.as_opt_string()),
-            // (POWER_SFX, m.power.as_opt_string()),
-            // (DET_TYPE_SFX, m.detector_type.as_opt_string()),
-            // (PCNT_EMT_SFX, m.percent_emitted.as_opt_string()),
-            // (DET_VOLT_SFX, m.detector_voltage.as_opt_string()),
-        ]
-        .into_iter()
-        .chain(m.specific.opt_suffixes_inner(n))
-        .collect()
-    }
-
-    // for table
-    fn keywords(m: &Measurement<Self>, n: Option<MeasIdx>) -> Vec<(String, Option<String>)> {
-        Self::req_suffixes(m, n)
-            .into_iter()
-            .map(|(k, v)| (k, Some(v)))
-            .chain(Self::opt_suffixes(m, n))
-            // .map(|(s, v)| (format_measurement(n, s), v))
-            .collect()
-    }
-
-    // TODO this name is weird, this is standard+nonstandard keywords
-    // after filtering out None values
-    fn req_keywords(m: &Measurement<Self>, n: Option<MeasIdx>) -> RawPairs {
-        Self::req_suffixes(m, n)
-            .into_iter()
-            // .map(|(s, v)| (format_measurement(n, s), v))
-            .collect()
-    }
-
-    fn opt_keywords(m: &Measurement<Self>, n: Option<MeasIdx>) -> RawPairs {
-        Self::opt_suffixes(m, n)
-            .into_iter()
-            .filter_map(|(k, v)| v.map(|x| (k, x)))
-            // .map(|(s, v)| (format_measurement(n, s), v))
-            // TODO useless clone?
-            .chain(
-                m.nonstandard_keywords
-                    .iter()
-                    .map(|(k, v)| (k.as_ref().to_string(), v.clone())),
-            )
-            .collect()
-    }
+    fn datatype(&self) -> Option<NumType>;
 }
 
-trait VersionedParserMeasurement: Sized {
-    // type Target;
-
-    fn datatype(m: &Measurement<Self>) -> Option<NumType>;
-
-    // fn datatype_minimal(m: &DataReadMeasurement<Self::Target>) -> Option<NumType>;
-
-    // fn as_minimal_inner(m: &Measurement<Self>) -> Self::Target;
-
-    // fn as_minimal(m: &Measurement<Self>) -> DataReadMeasurement<Self::Target> {
-    //     DataReadMeasurement {
-    //         bytes: m.bytes,
-    //         range: m.range.clone(),
-    //         specific: Self::as_minimal_inner(m),
-    //     }
-    // }
-
-    fn as_column_type(
-        m: &Measurement<Self>,
-        dt: AlphaNumType,
-        byteord: &ByteOrd,
-    ) -> Result<Option<ColumnType>, Vec<String>> {
-        let mdt = Self::datatype(m).map(|d| d.into()).unwrap_or(dt);
-        let rng = m.range.clone();
-        Self::to_col_type(m.bytes, mdt, byteord, rng)
-    }
-
-    // TODO make errors index-specific
-    // fn as_column_type_from_bare(
-    //     m: &DataReadMeasurement<Self::Target>,
-    //     dt: AlphaNumType,
-    //     byteord: &ByteOrd,
-    // ) -> Result<Option<ColumnType>, Vec<String>> {
-    //     let mdt = Self::datatype_minimal(m).map(|d| d.into()).unwrap_or(dt);
-    //     let rng = m.range.clone();
-    //     Self::to_col_type(m.bytes, mdt, byteord, rng)
-    // }
-
-    fn to_col_type(
-        b: Bytes,
-        dt: AlphaNumType,
-        byteord: &ByteOrd,
-        rng: Range,
-    ) -> Result<Option<ColumnType>, Vec<String>> {
-        match b {
-            Bytes::Fixed(bytes) => match dt {
-                AlphaNumType::Ascii => {
-                    if bytes > 20 {
-                        Ok(ColumnType::Ascii { bytes })
-                    } else {
-                        Err(vec![
-                            "$DATATYPE=A but $PnB greater than 20 bytes".to_string()
-                        ])
-                    }
-                }
-                AlphaNumType::Integer => {
-                    make_uint_type(bytes, rng, byteord).map(ColumnType::Integer)
-                }
-                AlphaNumType::Single => {
-                    if bytes == 4 {
-                        Float32Type::to_float_type(byteord, rng).map(ColumnType::Float)
-                    } else {
-                        Err(vec![format!("$DATATYPE=F but $PnB={bytes}")])
-                    }
-                }
-                AlphaNumType::Double => {
-                    if bytes == 8 {
-                        Float64Type::to_float_type(byteord, rng).map(ColumnType::Double)
-                    } else {
-                        Err(vec![format!("$DATATYPE=D but $PnB={bytes}")])
-                    }
+fn to_col_type(
+    b: Bytes,
+    dt: AlphaNumType,
+    byteord: &ByteOrd,
+    rng: Range,
+) -> Result<Option<ColumnType>, Vec<String>> {
+    match b {
+        Bytes::Fixed(bytes) => match dt {
+            AlphaNumType::Ascii => {
+                if bytes > 20 {
+                    Ok(ColumnType::Ascii { bytes })
+                } else {
+                    Err(vec![
+                        "$DATATYPE=A but $PnB greater than 20 bytes".to_string()
+                    ])
                 }
             }
-            .map(Some),
-            Bytes::Variable => match dt {
-                // ASSUME the only way this can happen is if $DATATYPE=A since
-                // Ascii is not allowed in $PnDATATYPE.
-                AlphaNumType::Ascii => Ok(None),
-                _ => Err(vec![format!("variable $PnB not allowed for {dt}")]),
-            },
+            AlphaNumType::Integer => make_uint_type(bytes, rng, byteord).map(ColumnType::Integer),
+            AlphaNumType::Single => {
+                if bytes == 4 {
+                    Float32Type::to_float_type(byteord, rng).map(ColumnType::Float)
+                } else {
+                    Err(vec![format!("$DATATYPE=F but $PnB={bytes}")])
+                }
+            }
+            AlphaNumType::Double => {
+                if bytes == 8 {
+                    Float64Type::to_float_type(byteord, rng).map(ColumnType::Double)
+                } else {
+                    Err(vec![format!("$DATATYPE=D but $PnB={bytes}")])
+                }
+            }
         }
+        .map(Some),
+        Bytes::Variable => match dt {
+            // ASSUME the only way this can happen is if $DATATYPE=A since
+            // Ascii is not allowed in $PnDATATYPE.
+            AlphaNumType::Ascii => Ok(None),
+            _ => Err(vec![format!("variable $PnB not allowed for {dt}")]),
+        },
     }
 }
 
-trait VersionedParserMetadata: Sized {
-    // type Target;
+// trait VersionedParserMeasurement: Sized {
+//     // type Target;
 
-    // fn as_minimal_inner(&self, kws: &mut RawKeywords) -> PureMaybe<Self::Target>;
+//     // fn datatype_minimal(m: &DataReadMeasurement<Self::Target>) -> Option<NumType>;
 
-    // fn as_minimal(
-    //     md: &Metadata<Self>,
-    //     kws: &mut RawKeywords,
-    // ) -> PureMaybe<BareMetadata<Self::Target>> {
-    //     let datatype = md.datatype;
-    //     Self::as_minimal_inner(&md.specific, kws).map(|maybe_specific| {
-    //         maybe_specific.map(|specific| BareMetadata { datatype, specific })
-    //     })
-    // }
+//     // fn as_minimal_inner(m: &Measurement<Self>) -> Self::Target;
 
-    fn byteord(&self) -> ByteOrd;
+//     // fn as_minimal(m: &Measurement<Self>) -> DataReadMeasurement<Self::Target> {
+//     //     DataReadMeasurement {
+//     //         bytes: m.bytes,
+//     //         range: m.range.clone(),
+//     //         specific: Self::as_minimal_inner(m),
+//     //     }
+//     // }
 
-    // fn target_byteord(t: &Self::Target) -> ByteOrd;
+//     // TODO make errors index-specific
+//     // fn as_column_type_from_bare(
+//     //     m: &DataReadMeasurement<Self::Target>,
+//     //     dt: AlphaNumType,
+//     //     byteord: &ByteOrd,
+//     // ) -> Result<Option<ColumnType>, Vec<String>> {
+//     //     let mdt = Self::datatype_minimal(m).map(|d| d.into()).unwrap_or(dt);
+//     //     let rng = m.range.clone();
+//     //     Self::to_col_type(m.bytes, mdt, byteord, rng)
+//     // }
+// }
 
-    // fn tot(t: &Self::Target) -> Option<Tot>;
+// trait VersionedParserMetadata: Sized {
+//     // type Target;
 
-    // TODO this can be a free function
-    fn total_events(
-        t: &Self::Target,
-        data_nbytes: usize,
-        event_width: usize,
-        conf: &DataReadConfig,
-    ) -> PureSuccess<Tot> {
-        let mut def = PureErrorBuf::default();
-        let remainder = data_nbytes % event_width;
-        let total_events = data_nbytes / event_width;
-        if data_nbytes % event_width > 0 {
-            let msg = format!(
-                "Events are {event_width} bytes wide, but this does not evenly \
+//     // fn as_minimal_inner(&self, kws: &mut RawKeywords) -> PureMaybe<Self::Target>;
+
+//     // fn as_minimal(
+//     //     md: &Metadata<Self>,
+//     //     kws: &mut RawKeywords,
+//     // ) -> PureMaybe<BareMetadata<Self::Target>> {
+//     //     let datatype = md.datatype;
+//     //     Self::as_minimal_inner(&md.specific, kws).map(|maybe_specific| {
+//     //         maybe_specific.map(|specific| BareMetadata { datatype, specific })
+//     //     })
+//     // }
+
+//     fn byteord(&self) -> ByteOrd;
+
+//     // fn target_byteord(t: &Self::Target) -> ByteOrd;
+
+//     // fn tot(t: &Self::Target) -> Option<Tot>;
+
+//     // TODO this can be a free function
+// }
+
+fn total_events(
+    kw_tot: Option<Tot>,
+    data_nbytes: usize,
+    event_width: usize,
+    conf: &DataReadConfig,
+) -> PureSuccess<Tot> {
+    let mut def = PureErrorBuf::default();
+    let remainder = data_nbytes % event_width;
+    let total_events = data_nbytes / event_width;
+    if data_nbytes % event_width > 0 {
+        let msg = format!(
+            "Events are {event_width} bytes wide, but this does not evenly \
                  divide DATA segment which is {data_nbytes} bytes long \
                  (remainder of {remainder})"
-            );
-            def.push_msg_leveled(msg, conf.enfore_data_width_divisibility)
-        }
-        if let Some(tot) = Self::tot(t) {
-            if total_events != tot.0 {
-                let msg = format!(
-                    "$TOT field is {tot} but number of events \
+        );
+        def.push_msg_leveled(msg, conf.enfore_data_width_divisibility)
+    }
+    if let Some(tot) = kw_tot {
+        if total_events != tot.0 {
+            let msg = format!(
+                "$TOT field is {tot} but number of events \
                          that evenly fit into DATA is {total_events}"
-                );
-                def.push_msg_leveled(msg, conf.enfore_matching_tot);
-            }
+            );
+            def.push_msg_leveled(msg, conf.enfore_matching_tot);
         }
-        PureSuccess {
-            data: Tot(total_events),
-            deferred: def,
-        }
+    }
+    PureSuccess {
+        data: Tot(total_events),
+        deferred: def,
     }
 }
 
@@ -3624,22 +3363,7 @@ impl fmt::Display for RangeError {
 //     }
 // }
 
-impl<P: VersionedMeasurement> Measurement<P> {
-    fn table_header(&self) -> Vec<String> {
-        vec![String::from("index")]
-            .into_iter()
-            .chain(P::keywords(self, None).into_iter().map(|(k, _)| k))
-            .collect()
-    }
-
-    fn table_row(&self, n: usize) -> Vec<Option<String>> {
-        vec![Some(n.to_string())]
-            .into_iter()
-            // NOTE; the None is a dummy and never used
-            .chain(P::keywords(self, None).into_iter().map(|(_, v)| v))
-            .collect()
-    }
-}
+impl<P: VersionedMeasurement> Measurement<P> {}
 
 fn make_uint_type(b: u8, r: Range, o: &ByteOrd) -> Result<AnyUintType, Vec<String>> {
     match b {
@@ -3680,8 +3404,12 @@ impl Versioned for InnerMeasurement3_2 {
 }
 
 impl VersionedMeasurement for InnerMeasurement2_0 {
-    fn maybe_name(p: &Measurement<Self>) -> Option<&Shortname> {
-        p.specific.shortname.0.as_ref()
+    fn datatype(&self) -> Option<NumType> {
+        None
+    }
+
+    fn maybe_name(&self) -> Option<&Shortname> {
+        self.shortname.0.as_ref()
     }
 
     fn has_linear_scale(&self) -> bool {
@@ -3692,17 +3420,16 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
         false
     }
 
-    fn shortname(p: &Measurement<Self>, n: usize) -> Shortname {
-        p.specific
-            .shortname
+    fn shortname(&self, n: usize) -> Shortname {
+        self.shortname
             .0
             .as_ref()
             .cloned()
             .unwrap_or(Shortname::from_index(n))
     }
 
-    fn set_shortname(m: &mut Measurement<Self>, n: Shortname) {
-        m.specific.shortname = Some(n).into();
+    fn set_shortname(&mut self, n: Shortname) {
+        self.shortname = Some(n).into();
     }
 
     fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<InnerMeasurement2_0> {
@@ -3729,8 +3456,12 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
 }
 
 impl VersionedMeasurement for InnerMeasurement3_0 {
-    fn maybe_name(p: &Measurement<Self>) -> Option<&Shortname> {
-        p.specific.shortname.0.as_ref()
+    fn datatype(&self) -> Option<NumType> {
+        None
+    }
+
+    fn maybe_name(&self) -> Option<&Shortname> {
+        self.shortname.0.as_ref()
     }
 
     fn has_linear_scale(&self) -> bool {
@@ -3741,17 +3472,16 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
         self.gain.0.is_some()
     }
 
-    fn shortname(p: &Measurement<Self>, n: usize) -> Shortname {
-        p.specific
-            .shortname
+    fn shortname(&self, n: usize) -> Shortname {
+        self.shortname
             .0
             .as_ref()
             .cloned()
             .unwrap_or(Shortname::from_index(n))
     }
 
-    fn set_shortname(m: &mut Measurement<Self>, n: Shortname) {
-        m.specific.shortname = Some(n).into()
+    fn set_shortname(&mut self, n: Shortname) {
+        self.shortname = Some(n).into()
     }
 
     fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<InnerMeasurement3_0> {
@@ -3779,8 +3509,12 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
 }
 
 impl VersionedMeasurement for InnerMeasurement3_1 {
-    fn maybe_name(p: &Measurement<Self>) -> Option<&Shortname> {
-        Some(&p.specific.shortname)
+    fn datatype(&self) -> Option<NumType> {
+        None
+    }
+
+    fn maybe_name(&self) -> Option<&Shortname> {
+        Some(&self.shortname)
     }
 
     fn has_linear_scale(&self) -> bool {
@@ -3791,12 +3525,12 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
         self.gain.0.is_some()
     }
 
-    fn shortname(p: &Measurement<Self>, _: usize) -> Shortname {
-        p.specific.shortname.clone()
+    fn shortname(&self, _: usize) -> Shortname {
+        self.shortname.clone()
     }
 
-    fn set_shortname(m: &mut Measurement<Self>, n: Shortname) {
-        m.specific.shortname = n
+    fn set_shortname(&mut self, n: Shortname) {
+        self.shortname = n
     }
 
     fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<InnerMeasurement3_1> {
@@ -3833,8 +3567,12 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
 }
 
 impl VersionedMeasurement for InnerMeasurement3_2 {
-    fn maybe_name(p: &Measurement<Self>) -> Option<&Shortname> {
-        Some(&p.specific.shortname)
+    fn datatype(&self) -> Option<NumType> {
+        self.datatype.0.as_ref().copied()
+    }
+
+    fn maybe_name(&self) -> Option<&Shortname> {
+        Some(&self.shortname)
     }
 
     fn has_linear_scale(&self) -> bool {
@@ -3845,12 +3583,12 @@ impl VersionedMeasurement for InnerMeasurement3_2 {
         self.gain.0.is_some()
     }
 
-    fn shortname(p: &Measurement<Self>, _: usize) -> Shortname {
-        p.specific.shortname.clone()
+    fn shortname(&self, _: usize) -> Shortname {
+        self.shortname.clone()
     }
 
-    fn set_shortname(m: &mut Measurement<Self>, n: Shortname) {
-        m.specific.shortname = n
+    fn set_shortname(&mut self, n: Shortname) {
+        self.shortname = n
     }
 
     fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<InnerMeasurement3_2> {
@@ -4368,10 +4106,282 @@ macro_rules! get_set_str {
     };
 }
 
+impl<P> Measurement<P>
+where
+    P: VersionedMeasurement,
+{
+    fn longname(&self, n: usize) -> Longname {
+        // TODO not DRY
+        self.longname
+            .0
+            .as_ref()
+            .cloned()
+            .unwrap_or(Longname(format!("M{n}")))
+    }
+
+    fn set_longname(&mut self, n: Option<String>) {
+        self.longname = n.map(|y| y.into()).into();
+    }
+
+    fn lookup_measurements(st: &mut KwParser, par: Par) -> Option<Vec<Self>> {
+        let v = P::fcs_version();
+        let ps: Vec<_> = (1..(par.0 + 1))
+            .flat_map(|n| {
+                let i = MeasIdx(n);
+                let maybe_bytes = st.lookup_meas_req(i);
+                let maybe_range = st.lookup_meas_req(i);
+                let maybe_specific = P::lookup_specific(st, i);
+                if let (Some(bytes), Some(range), Some(specific)) =
+                    (maybe_bytes, maybe_range, maybe_specific)
+                {
+                    Some(Measurement {
+                        bytes,
+                        range,
+                        longname: st.lookup_meas_opt(i, false),
+                        filter: st.lookup_meas_opt(i, false),
+                        power: st.lookup_meas_opt(i, false),
+                        detector_type: st.lookup_meas_opt(i, false),
+                        percent_emitted: st.lookup_meas_opt(i, v == Version::FCS3_2),
+                        detector_voltage: st.lookup_meas_opt(i, false),
+                        specific,
+                        nonstandard_keywords: st.lookup_all_meas_nonstandard(i),
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if ps.len() == par.0 {
+            Some(ps)
+        } else {
+            None
+        }
+    }
+
+    fn req_suffixes(&self, n: Option<MeasIdx>) -> Vec<(String, String)> {
+        [self.bytes.pair(n), self.range.pair(n)]
+            .into_iter()
+            .chain(self.specific.req_suffixes_inner(n))
+            .collect()
+    }
+
+    fn opt_suffixes(&self, n: Option<MeasIdx>) -> Vec<(String, Option<String>)> {
+        [
+            OptMeasKey::pair(&self.longname, n),
+            OptMeasKey::pair(&self.filter, n),
+            OptMeasKey::pair(&self.power, n),
+            OptMeasKey::pair(&self.detector_type, n),
+            OptMeasKey::pair(&self.percent_emitted, n),
+            OptMeasKey::pair(&self.detector_voltage, n),
+        ]
+        .into_iter()
+        .chain(self.specific.opt_suffixes_inner(n))
+        .collect()
+    }
+
+    // for table
+    fn keywords(&self, n: Option<MeasIdx>) -> Vec<(String, Option<String>)> {
+        self.req_suffixes(n)
+            .into_iter()
+            .map(|(k, v)| (k, Some(v)))
+            .chain(self.opt_suffixes(n))
+            .collect()
+    }
+
+    fn table_header(&self) -> Vec<String> {
+        vec![String::from("index")]
+            .into_iter()
+            .chain(self.keywords(None).into_iter().map(|(k, _)| k))
+            .collect()
+    }
+
+    fn table_row(&self, n: usize) -> Vec<Option<String>> {
+        vec![Some(n.to_string())]
+            .into_iter()
+            // NOTE; the None is a dummy and never used
+            .chain(self.keywords(None).into_iter().map(|(_, v)| v))
+            .collect()
+    }
+
+    // TODO this name is weird, this is standard+nonstandard keywords
+    // after filtering out None values
+    fn req_keywords(&self, n: Option<MeasIdx>) -> RawPairs {
+        self.req_suffixes(n).into_iter().collect()
+    }
+
+    fn opt_keywords(&self, n: Option<MeasIdx>) -> RawPairs {
+        self.opt_suffixes(n)
+            .into_iter()
+            .filter_map(|(k, v)| v.map(|x| (k, x)))
+            .chain(
+                self.nonstandard_keywords
+                    .iter()
+                    .map(|(k, v)| (k.as_ref().to_string(), v.clone())),
+            )
+            .collect()
+    }
+
+    fn as_column_type(
+        &self,
+        dt: AlphaNumType,
+        byteord: &ByteOrd,
+    ) -> Result<Option<ColumnType>, Vec<String>> {
+        let mdt = self.specific.datatype().map(|d| d.into()).unwrap_or(dt);
+        let rng = self.range.clone();
+        to_col_type(self.bytes, mdt, byteord, rng)
+    }
+}
+
+impl<M> Metadata<M>
+where
+    M: VersionedMetadata,
+{
+    // TODO more to coretext?
+    fn as_writer_data_layout(
+        &self,
+        ms: &[Measurement<M::P>],
+    ) -> Result<WriterDataLayout, Vec<String>> {
+        let dt = self.datatype;
+        let byteord = self.specific.byteord();
+        let ncols = ms.len();
+        let (pass, fail): (Vec<_>, Vec<_>) = ms
+            .iter()
+            .map(|m| m.as_column_type(dt, &byteord))
+            .partition_result();
+        let mut deferred: Vec<_> = fail.into_iter().flatten().collect();
+        if pass.len() == ncols {
+            let fixed: Vec<_> = pass.into_iter().flatten().collect();
+            let nfixed = fixed.len();
+            if nfixed == ncols {
+                return Ok(DataLayout::AlphaNum {
+                    nrows: (),
+                    columns: fixed,
+                });
+            } else if nfixed == 0 {
+                return Ok(DataLayout::AsciiDelimited { nrows: None, ncols });
+            } else {
+                deferred.push(format!(
+                    "{nfixed} out of {ncols} measurements are fixed width"
+                ));
+            }
+        }
+        Err(deferred)
+    }
+
+    // fn as_reader_data_layout_bare(
+    //     m: &BareMetadata<Self::Target>,
+    //     ms: &[DataReadMeasurement<<Self::P as VersionedParserMeasurement>::Target>],
+    //     data_nbytes: usize,
+    //     conf: &DataReadConfig,
+    // ) -> PureMaybe<ReaderDataLayout> {
+    //     let dt = m.datatype;
+    //     let byteord = Self::target_byteord(&m.specific);
+    //     let ncols = ms.len();
+    //     let (pass, fail): (Vec<_>, Vec<_>) = ms
+    //         .iter()
+    //         .map(|m| Self::P::as_column_type_from_bare(m, dt, &byteord))
+    //         .partition_result();
+    //     let mut deferred =
+    //         PureErrorBuf::from_many(fail.into_iter().flatten().collect(), PureErrorLevel::Error);
+    //     if pass.len() == ncols {
+    //         let fixed: Vec<_> = pass.into_iter().flatten().collect();
+    //         let nfixed = fixed.len();
+    //         if nfixed == ncols {
+    //             let event_width = fixed.iter().map(|c| c.width()).sum();
+    //             return Self::total_events(&m.specific, data_nbytes, event_width, conf).and_then(
+    //                 |nrows| {
+    //                     PureSuccess::from(Some(DataLayout::AlphaNum {
+    //                         nrows,
+    //                         columns: fixed,
+    //                     }))
+    //                 },
+    //             );
+    //         } else if nfixed == 0 {
+    //             let nrows = Self::tot(&m.specific);
+    //             return PureSuccess::from(Some(DataLayout::AsciiDelimited { nrows, ncols }));
+    //         } else {
+    //             deferred.push_error(format!(
+    //                 "{nfixed} out of {ncols} measurements are fixed width"
+    //             ));
+    //         }
+    //     }
+    //     PureSuccess {
+    //         data: None,
+    //         deferred,
+    //     }
+    // }
+
+    fn lookup_metadata(st: &mut KwParser, ms: &[Measurement<M::P>]) -> Option<Self> {
+        let par = Par(ms.len());
+        let maybe_datatype = st.lookup_meta_req();
+        let maybe_specific = M::lookup_specific(st, par);
+        if let (Some(datatype), Some(specific)) = (maybe_datatype, maybe_specific) {
+            Some(Metadata {
+                datatype,
+                abrt: st.lookup_meta_opt(false),
+                com: st.lookup_meta_opt(false),
+                cells: st.lookup_meta_opt(false),
+                exp: st.lookup_meta_opt(false),
+                fil: st.lookup_meta_opt(false),
+                inst: st.lookup_meta_opt(false),
+                lost: st.lookup_meta_opt(false),
+                op: st.lookup_meta_opt(false),
+                proj: st.lookup_meta_opt(false),
+                smno: st.lookup_meta_opt(false),
+                src: st.lookup_meta_opt(false),
+                sys: st.lookup_meta_opt(false),
+                tr: st.lookup_meta_opt(false),
+                nonstandard_keywords: st.lookup_all_nonstandard(),
+                specific,
+            })
+        } else {
+            None
+        }
+    }
+
+    fn all_req_keywords(&self, par: Par) -> RawPairs {
+        // let fixed = [(PAR, par.to_string()), (DATATYPE, m.datatype.to_string())];
+        let fixed = [par.pair(), self.datatype.pair()];
+        fixed
+            .into_iter()
+            .chain(self.specific.keywords_req_inner())
+            .map(|(k, v)| (k.to_string(), v))
+            .collect()
+    }
+
+    fn all_opt_keywords(&self) -> RawPairs {
+        [
+            OptMetaKey::pair(&self.abrt),
+            OptMetaKey::pair(&self.com),
+            OptMetaKey::pair(&self.cells),
+            OptMetaKey::pair(&self.exp),
+            OptMetaKey::pair(&self.fil),
+            OptMetaKey::pair(&self.inst),
+            OptMetaKey::pair(&self.lost),
+            OptMetaKey::pair(&self.op),
+            OptMetaKey::pair(&self.proj),
+            OptMetaKey::pair(&self.smno),
+            OptMetaKey::pair(&self.src),
+            OptMetaKey::pair(&self.sys),
+            OptMetaKey::pair(&self.tr),
+        ]
+        .into_iter()
+        .flat_map(|(k, v)| v.map(|x| (k, x)))
+        .chain(self.specific.keywords_opt_inner())
+        .map(|(k, v)| (k.to_string(), v))
+        // TODO useless clone
+        .chain(
+            self.nonstandard_keywords
+                .iter()
+                .map(|(k, v)| (k.as_ref().to_string(), v.clone())),
+        )
+        .collect()
+    }
+}
+
 impl<M> CoreTEXT<M, M::P>
 where
     M: VersionedMetadata,
-    M: VersionedParserMetadata,
 {
     /// Return HEADER+TEXT as a list of strings
     ///
@@ -4404,9 +4414,11 @@ where
     /// [CoreTEXT]. This means it will not include $TOT, since this depends on
     /// the DATA segment.
     pub fn raw_keywords(&self, want_req: Option<bool>, want_meta: Option<bool>) -> RawKeywords {
-        let (req_meas, req_meta, _) = self.some_keywords(M::P::req_keywords, M::all_req_keywords);
-        let (opt_meas, opt_meta, _) =
-            self.some_keywords(M::P::opt_keywords, |m, _| M::all_opt_keywords(m));
+        let (req_meas, req_meta, _) =
+            self.some_keywords(Measurement::req_keywords, Metadata::all_req_keywords);
+        let (opt_meas, opt_meta, _) = self.some_keywords(Measurement::opt_keywords, |m, _| {
+            Metadata::all_opt_keywords(m)
+        });
 
         let triop = |op| match op {
             None => (true, true),
@@ -4503,9 +4515,11 @@ where
         let tot_pair = (Tot::std().to_string(), tot.to_string());
 
         let (req_meas, req_meta, req_text_len) =
-            self.some_keywords(M::P::req_keywords, M::all_req_keywords);
-        let (opt_meas, opt_meta, opt_text_len) =
-            self.some_keywords(M::P::opt_keywords, |m, _| M::all_opt_keywords(m));
+            self.some_keywords(Measurement::req_keywords, Metadata::all_req_keywords);
+        let (opt_meas, opt_meta, opt_text_len) = self
+            .some_keywords(Measurement::opt_keywords, |m, _| {
+                Metadata::all_opt_keywords(m)
+            });
 
         let offset_result = if version == Version::FCS2_0 {
             make_data_offset_keywords_2_0(req_text_len + opt_text_len, data_len, analysis_len)
@@ -4542,7 +4556,7 @@ where
         self.measurements
             .iter()
             .enumerate()
-            .map(|(i, p)| M::P::shortname(p, i))
+            .map(|(i, p)| p.specific.shortname(i))
             .collect()
     }
 
@@ -4561,7 +4575,7 @@ where
             false
         } else {
             for (m, n) in self.measurements.iter_mut().zip(ns) {
-                M::P::set_shortname(m, n)
+                m.specific.set_shortname(n)
             }
             true
         }
@@ -4575,7 +4589,7 @@ where
         self.measurements
             .iter()
             .enumerate()
-            .map(|(i, m)| M::P::longname(m, i))
+            .map(|(i, m)| m.longname(i))
             .collect()
     }
 
@@ -4590,7 +4604,7 @@ where
             false
         } else {
             for (m, n) in self.measurements.iter_mut().zip(ns) {
-                M::P::set_longname(m, n)
+                m.set_longname(n)
             }
             true
         }
@@ -4642,24 +4656,69 @@ where
     }
 
     fn as_writer_data_layout(&self) -> Result<WriterDataLayout, Vec<String>> {
-        M::as_writer_data_layout(&self.metadata, &self.measurements)
+        Metadata::as_writer_data_layout(&self.metadata, &self.measurements)
     }
 
-    fn as_data_layout_from_raw(
+    // fn as_data_layout_from_raw(
+    //     &self,
+    //     kws: &mut RawKeywords,
+    //     conf: &DataReadConfig,
+    //     data_seg: &Segment,
+    // ) -> PureMaybe<ReaderDataLayout> {
+    //     let data_nbytes = data_seg.nbytes() as usize;
+    //     let measurements: Vec<_> = self
+    //         .measurements
+    //         .iter()
+    //         .map(Measurement::raw_to_col_type)
+    //         .collect();
+    //     // <M as VersionedParserMetadata>::as_minimal(&self.metadata, kws).and_then_opt(|metadata| {
+    //     //     M::as_reader_data_layout_bare(&metadata, &measurements, data_nbytes, &conf)
+    //     // })
+    // }
+
+    fn as_reader_data_layout(
         &self,
         kws: &mut RawKeywords,
         conf: &DataReadConfig,
         data_seg: &Segment,
     ) -> PureMaybe<ReaderDataLayout> {
         let data_nbytes = data_seg.nbytes() as usize;
-        let measurements: Vec<_> = self
+        let dt = self.metadata.datatype;
+        let byteord = self.metadata.specific.byteord();
+        let ncols = self.measurements.len();
+        let (pass, fail): (Vec<_>, Vec<_>) = self
             .measurements
             .iter()
-            .map(<M::P as VersionedParserMeasurement>::as_minimal)
-            .collect();
-        <M as VersionedParserMetadata>::as_minimal(&self.metadata, kws).and_then_opt(|metadata| {
-            M::as_reader_data_layout_bare(&metadata, &measurements, data_nbytes, &conf)
-        })
+            .map(|m| m.as_column_type(dt, &byteord))
+            .partition_result();
+        let mut deferred =
+            PureErrorBuf::from_many(fail.into_iter().flatten().collect(), PureErrorLevel::Error);
+        let tot_succ = M::lookup_tot(kws);
+        if pass.len() == ncols {
+            let fixed: Vec<_> = pass.into_iter().flatten().collect();
+            let nfixed = fixed.len();
+            if nfixed == ncols {
+                let event_width = fixed.iter().map(|c| c.width()).sum();
+                return tot_succ
+                    .and_then(|tot| total_events(tot, data_nbytes, event_width, conf))
+                    .and_then(|nrows| {
+                        PureSuccess::from(Some(DataLayout::AlphaNum {
+                            nrows,
+                            columns: fixed,
+                        }))
+                    });
+            } else if nfixed == 0 {
+                return tot_succ.map(|tot| Some(DataLayout::AsciiDelimited { nrows: tot, ncols }));
+            } else {
+                deferred.push_error(format!(
+                    "{nfixed} out of {ncols} measurements are fixed width"
+                ));
+            }
+        }
+        PureSuccess {
+            data: None,
+            deferred,
+        }
     }
 
     // TODO this doesn't need to be here
@@ -4669,7 +4728,7 @@ where
         conf: &DataReadConfig,
         data_seg: &Segment,
     ) -> PureMaybe<DataReader> {
-        self.as_data_layout_from_raw(kws, conf, data_seg)
+        self.as_reader_data_layout(kws, conf, data_seg)
             .map(|maybe_layout| maybe_layout.map(|layout| build_data_reader(layout, data_seg)))
     }
 
@@ -4689,8 +4748,8 @@ where
         let md_fail = "could not standardize TEXT".to_string();
         let c: KwParserConfig = conf.into();
         let md_succ = KwParser::try_run(kws, c, md_fail, |st| {
-            let ms = M::P::lookup_measurements(st, par);
-            let md = ms.as_ref().and_then(|xs| M::lookup_metadata(st, xs));
+            let ms = Measurement::lookup_measurements(st, par);
+            let md = ms.as_ref().and_then(|xs| Metadata::lookup_metadata(st, xs));
             if let (Some(measurements), Some(metadata)) = (ms, md) {
                 Some((measurements, metadata))
             } else {
@@ -4698,17 +4757,12 @@ where
             }
         })?;
         // hooray, we win and can now make the core struct
-        Ok(md_succ.map(|(measurements, metadata)| CoreTEXT {
-            metadata,
-            measurements,
-        }))
-    }
-
-    fn any_from_raw(kws: &mut RawKeywords, conf: &StdTextReadConfig) -> PureResult<AnyCoreTEXT> {
-        Self::from_raw(kws, conf).map(|succ| {
-            succ.and_then(|c| c.validate(&conf.time).map(|_| c))
-                .map(M::into_any)
-        })
+        Ok(md_succ
+            .map(|(measurements, metadata)| CoreTEXT {
+                metadata,
+                measurements,
+            })
+            .and_then(|core| core.validate(&conf.time).map(|_| core)))
     }
 
     // TODO add non-kw deprecation checker
@@ -4723,7 +4777,7 @@ where
         let names: Vec<_> = self
             .measurements
             .iter()
-            .filter_map(|m| M::P::maybe_name(m))
+            .filter_map(|m| m.specific.maybe_name())
             .collect();
         let n_names = names.len();
         let unique_names: HashSet<_> = names.into_iter().collect();
@@ -4759,7 +4813,7 @@ where
             if let Some(time_meas) = self
                 .measurements
                 .iter()
-                .find(|m| M::P::maybe_name(m) == Some(time_name))
+                .find(|m| m.specific.maybe_name() == Some(time_name))
             {
                 // check if $TIMESTEP exists
                 if !self.metadata.specific.has_timestep() {
@@ -5683,163 +5737,163 @@ fn h_read_std_dataset<R: Read + Seek>(
         })
 }
 
-impl VersionedParserMeasurement for InnerMeasurement2_0 {
-    // type Target = ();
+// impl VersionedParserMeasurement for InnerMeasurement2_0 {
+//     // type Target = ();
 
-    // fn as_minimal_inner(_: &Measurement<Self>) {}
+//     // fn as_minimal_inner(_: &Measurement<Self>) {}
 
-    // fn datatype_minimal(_: &DataReadMeasurement<Self::Target>) -> Option<NumType> {
-    //     None
-    // }
+//     // fn datatype_minimal(_: &DataReadMeasurement<Self::Target>) -> Option<NumType> {
+//     //     None
+//     // }
 
-    fn datatype(_: &Measurement<Self>) -> Option<NumType> {
-        None
-    }
-}
+//     fn datatype(_: &Measurement<Self>) -> Option<NumType> {
+//         None
+//     }
+// }
 
-impl VersionedParserMeasurement for InnerMeasurement3_0 {
-    // type Target = ();
+// impl VersionedParserMeasurement for InnerMeasurement3_0 {
+//     // type Target = ();
 
-    // fn as_minimal_inner(_: &Measurement<Self>) {}
+//     // fn as_minimal_inner(_: &Measurement<Self>) {}
 
-    // fn datatype_minimal(_: &DataReadMeasurement<Self::Target>) -> Option<NumType> {
-    // None
-    // }
+//     // fn datatype_minimal(_: &DataReadMeasurement<Self::Target>) -> Option<NumType> {
+//     // None
+//     // }
 
-    fn datatype(_: &Measurement<Self>) -> Option<NumType> {
-        None
-    }
-}
+//     fn datatype(_: &Measurement<Self>) -> Option<NumType> {
+//         None
+//     }
+// }
 
-impl VersionedParserMeasurement for InnerMeasurement3_1 {
-    // type Target = ();
+// impl VersionedParserMeasurement for InnerMeasurement3_1 {
+//     // type Target = ();
 
-    // fn as_minimal_inner(_: &Measurement<Self>) {}
+//     // fn as_minimal_inner(_: &Measurement<Self>) {}
 
-    // fn datatype_minimal(_: &DataReadMeasurement<Self::Target>) -> Option<NumType> {
-    // None
-    // }
+//     // fn datatype_minimal(_: &DataReadMeasurement<Self::Target>) -> Option<NumType> {
+//     // None
+//     // }
 
-    fn datatype(_: &Measurement<Self>) -> Option<NumType> {
-        None
-    }
-}
+//     fn datatype(_: &Measurement<Self>) -> Option<NumType> {
+//         None
+//     }
+// }
 
-impl VersionedParserMeasurement for InnerMeasurement3_2 {
-    // type Target = InnerDataReadMeasurement3_2;
+// impl VersionedParserMeasurement for InnerMeasurement3_2 {
+//     // type Target = InnerDataReadMeasurement3_2;
 
-    // fn as_minimal_inner(m: &Measurement<Self>) -> InnerDataReadMeasurement3_2 {
-    //     InnerDataReadMeasurement3_2 {
-    //         datatype: m.specific.datatype.0.as_ref().copied().into(),
-    //     }
-    // }
+//     // fn as_minimal_inner(m: &Measurement<Self>) -> InnerDataReadMeasurement3_2 {
+//     //     InnerDataReadMeasurement3_2 {
+//     //         datatype: m.specific.datatype.0.as_ref().copied().into(),
+//     //     }
+//     // }
 
-    // fn datatype_minimal(m: &DataReadMeasurement<Self::Target>) -> Option<NumType> {
-    //     m.specific.datatype.0.as_ref().copied()
-    // }
+//     // fn datatype_minimal(m: &DataReadMeasurement<Self::Target>) -> Option<NumType> {
+//     //     m.specific.datatype.0.as_ref().copied()
+//     // }
 
-    // TODO lame?
-    fn datatype(m: &Measurement<Self>) -> Option<NumType> {
-        m.specific.datatype.0.as_ref().copied()
-    }
-}
+//     // TODO lame?
+//     fn datatype(m: &Measurement<Self>) -> Option<NumType> {
+//         m.specific.datatype.0.as_ref().copied()
+//     }
+// }
 
-impl VersionedParserMetadata for InnerMetadata2_0 {
-    // type Target = InnerBareMetadata2_0;
+// impl VersionedParserMetadata for InnerMetadata2_0 {
+//     // type Target = InnerBareMetadata2_0;
 
-    fn byteord(&self) -> ByteOrd {
-        self.byteord.clone()
-    }
+//     fn byteord(&self) -> ByteOrd {
+//         self.byteord.clone()
+//     }
 
-    // fn target_byteord(t: &Self::Target) -> ByteOrd {
-    //     t.byteord.clone()
-    // }
+//     // fn target_byteord(t: &Self::Target) -> ByteOrd {
+//     //     t.byteord.clone()
+//     // }
 
-    // fn tot(t: &Self::Target) -> Option<Tot> {
-    //     t.tot.0.as_ref().copied()
-    // }
+//     // fn tot(t: &Self::Target) -> Option<Tot> {
+//     //     t.tot.0.as_ref().copied()
+//     // }
 
-    // fn as_minimal_inner(&self, kws: &mut RawKeywords) -> PureMaybe<InnerBareMetadata2_0> {
-    //     PureMaybe::from_result_1(Tot::lookup_meta_opt(kws), PureErrorLevel::Warning).map(|res| {
-    //         res.map(|tot| InnerBareMetadata2_0 {
-    //             byteord: self.byteord.clone(),
-    //             tot,
-    //         })
-    //     })
-    // }
-}
+//     // fn as_minimal_inner(&self, kws: &mut RawKeywords) -> PureMaybe<InnerBareMetadata2_0> {
+//     //     PureMaybe::from_result_1(Tot::lookup_meta_opt(kws), PureErrorLevel::Warning).map(|res| {
+//     //         res.map(|tot| InnerBareMetadata2_0 {
+//     //             byteord: self.byteord.clone(),
+//     //             tot,
+//     //         })
+//     //     })
+//     // }
+// }
 
-impl VersionedParserMetadata for InnerMetadata3_0 {
-    // type Target = InnerBareMetadata3_0;
+// impl VersionedParserMetadata for InnerMetadata3_0 {
+//     // type Target = InnerBareMetadata3_0;
 
-    fn byteord(&self) -> ByteOrd {
-        self.byteord.clone()
-    }
+//     fn byteord(&self) -> ByteOrd {
+//         self.byteord.clone()
+//     }
 
-    // fn target_byteord(t: &Self::Target) -> ByteOrd {
-    //     t.byteord.clone()
-    // }
+//     // fn target_byteord(t: &Self::Target) -> ByteOrd {
+//     //     t.byteord.clone()
+//     // }
 
-    // fn tot(t: &Self::Target) -> Option<Tot> {
-    //     Some(t.tot)
-    // }
+//     // fn tot(t: &Self::Target) -> Option<Tot> {
+//     //     Some(t.tot)
+//     // }
 
-    // fn as_minimal_inner(&self, kws: &mut RawKeywords) -> PureMaybe<InnerBareMetadata3_0> {
-    //     let res = Tot::lookup_meta_req(kws).map(|tot| InnerBareMetadata3_0 {
-    //         byteord: self.byteord.clone(),
-    //         tot,
-    //     });
-    //     PureMaybe::from_result_1(res, PureErrorLevel::Error)
-    // }
-}
+//     // fn as_minimal_inner(&self, kws: &mut RawKeywords) -> PureMaybe<InnerBareMetadata3_0> {
+//     //     let res = Tot::lookup_meta_req(kws).map(|tot| InnerBareMetadata3_0 {
+//     //         byteord: self.byteord.clone(),
+//     //         tot,
+//     //     });
+//     //     PureMaybe::from_result_1(res, PureErrorLevel::Error)
+//     // }
+// }
 
-impl VersionedParserMetadata for InnerMetadata3_1 {
-    // type Target = InnerBareMetadata3_1;
+// impl VersionedParserMetadata for InnerMetadata3_1 {
+//     // type Target = InnerBareMetadata3_1;
 
-    fn byteord(&self) -> ByteOrd {
-        ByteOrd::Endian(self.byteord)
-    }
+//     fn byteord(&self) -> ByteOrd {
+//         ByteOrd::Endian(self.byteord)
+//     }
 
-    // fn target_byteord(t: &Self::Target) -> ByteOrd {
-    //     ByteOrd::Endian(t.byteord)
-    // }
+//     // fn target_byteord(t: &Self::Target) -> ByteOrd {
+//     //     ByteOrd::Endian(t.byteord)
+//     // }
 
-    // fn tot(t: &Self::Target) -> Option<Tot> {
-    //     Some(t.tot)
-    // }
+//     // fn tot(t: &Self::Target) -> Option<Tot> {
+//     //     Some(t.tot)
+//     // }
 
-    // fn as_minimal_inner(&self, kws: &mut RawKeywords) -> PureMaybe<InnerBareMetadata3_1> {
-    //     let res = Tot::lookup_meta_req(kws).map(|tot| InnerBareMetadata3_1 {
-    //         byteord: self.byteord,
-    //         tot,
-    //     });
-    //     PureMaybe::from_result_1(res, PureErrorLevel::Error)
-    // }
-}
+//     // fn as_minimal_inner(&self, kws: &mut RawKeywords) -> PureMaybe<InnerBareMetadata3_1> {
+//     //     let res = Tot::lookup_meta_req(kws).map(|tot| InnerBareMetadata3_1 {
+//     //         byteord: self.byteord,
+//     //         tot,
+//     //     });
+//     //     PureMaybe::from_result_1(res, PureErrorLevel::Error)
+//     // }
+// }
 
-impl VersionedParserMetadata for InnerMetadata3_2 {
-    // type Target = InnerBareMetadata3_1;
+// impl VersionedParserMetadata for InnerMetadata3_2 {
+//     // type Target = InnerBareMetadata3_1;
 
-    fn byteord(&self) -> ByteOrd {
-        ByteOrd::Endian(self.byteord)
-    }
+//     fn byteord(&self) -> ByteOrd {
+//         ByteOrd::Endian(self.byteord)
+//     }
 
-    // fn target_byteord(t: &Self::Target) -> ByteOrd {
-    //     ByteOrd::Endian(t.byteord)
-    // }
+//     // fn target_byteord(t: &Self::Target) -> ByteOrd {
+//     //     ByteOrd::Endian(t.byteord)
+//     // }
 
-    // fn tot(t: &Self::Target) -> Option<Tot> {
-    //     Some(t.tot)
-    // }
+//     // fn tot(t: &Self::Target) -> Option<Tot> {
+//     //     Some(t.tot)
+//     // }
 
-    // fn as_minimal_inner(&self, kws: &mut RawKeywords) -> PureMaybe<InnerBareMetadata3_1> {
-    //     let res = Tot::lookup_meta_req(kws).map(|tot| InnerBareMetadata3_1 {
-    //         byteord: self.byteord,
-    //         tot,
-    //     });
-    //     PureMaybe::from_result_1(res, PureErrorLevel::Error)
-    // }
-}
+//     // fn as_minimal_inner(&self, kws: &mut RawKeywords) -> PureMaybe<InnerBareMetadata3_1> {
+//     //     let res = Tot::lookup_meta_req(kws).map(|tot| InnerBareMetadata3_1 {
+//     //         byteord: self.byteord,
+//     //         tot,
+//     //     });
+//     //     PureMaybe::from_result_1(res, PureErrorLevel::Error)
+//     // }
+// }
 
 macro_rules! get_set_pre_3_2_datetime {
     ($fcstime:ident) => {
@@ -5885,8 +5939,8 @@ macro_rules! get_set_pre_3_2_datetime {
 impl VersionedMetadata for InnerMetadata2_0 {
     type P = InnerMeasurement2_0;
 
-    fn into_any(t: CoreTEXT2_0) -> AnyCoreTEXT {
-        AnyCoreTEXT::FCS2_0(Box::new(t))
+    fn byteord(&self) -> ByteOrd {
+        self.byteord.clone()
     }
 
     fn timestamps_valid(&self) -> bool {
@@ -5927,6 +5981,17 @@ impl VersionedMetadata for InnerMetadata2_0 {
         }
     }
 
+    fn lookup_tot(kws: &mut RawKeywords) -> PureMaybe<Tot> {
+        Tot::lookup_meta_opt(kws).map_or_else(
+            |e| {
+                let mut r = PureMaybe::empty();
+                r.push_warning(e);
+                r
+            },
+            |s| PureSuccess::from(s.0),
+        )
+    }
+
     fn keywords_req_inner(&self) -> Vec<(String, String)> {
         [self.mode.pair(), self.byteord.pair()]
             .into_iter()
@@ -5950,8 +6015,12 @@ impl VersionedMetadata for InnerMetadata2_0 {
 impl VersionedMetadata for InnerMetadata3_0 {
     type P = InnerMeasurement3_0;
 
-    fn into_any(t: CoreTEXT3_0) -> AnyCoreTEXT {
-        AnyCoreTEXT::FCS3_0(Box::new(t))
+    fn byteord(&self) -> ByteOrd {
+        self.byteord.clone()
+    }
+
+    fn lookup_tot(kws: &mut RawKeywords) -> PureMaybe<Tot> {
+        PureMaybe::from_result_1(Tot::lookup_meta_req(kws), PureErrorLevel::Error)
     }
 
     fn timestamps_valid(&self) -> bool {
@@ -6022,8 +6091,12 @@ impl VersionedMetadata for InnerMetadata3_0 {
 impl VersionedMetadata for InnerMetadata3_1 {
     type P = InnerMeasurement3_1;
 
-    fn into_any(t: CoreTEXT3_1) -> AnyCoreTEXT {
-        AnyCoreTEXT::FCS3_1(Box::new(t))
+    fn byteord(&self) -> ByteOrd {
+        ByteOrd::Endian(self.byteord)
+    }
+
+    fn lookup_tot(kws: &mut RawKeywords) -> PureMaybe<Tot> {
+        PureMaybe::from_result_1(Tot::lookup_meta_req(kws), PureErrorLevel::Error)
     }
 
     fn timestamps_valid(&self) -> bool {
@@ -6125,8 +6198,12 @@ fn check_noexist(
 impl VersionedMetadata for InnerMetadata3_2 {
     type P = InnerMeasurement3_2;
 
-    fn into_any(t: CoreTEXT3_2) -> AnyCoreTEXT {
-        AnyCoreTEXT::FCS3_2(Box::new(t))
+    fn lookup_tot(kws: &mut RawKeywords) -> PureMaybe<Tot> {
+        PureMaybe::from_result_1(Tot::lookup_meta_req(kws), PureErrorLevel::Error)
+    }
+
+    fn byteord(&self) -> ByteOrd {
+        ByteOrd::Endian(self.byteord)
     }
 
     fn timestamps_valid(&self) -> bool {
@@ -6276,16 +6353,41 @@ impl VersionedMetadata for InnerMetadata3_2 {
     }
 }
 
+// TODO macros?
 fn parse_raw_text(
     version: Version,
     kws: &mut RawKeywords,
     conf: &StdTextReadConfig,
 ) -> PureResult<AnyCoreTEXT> {
     match version {
-        Version::FCS2_0 => CoreTEXT2_0::any_from_raw(kws, conf),
-        Version::FCS3_0 => CoreTEXT3_0::any_from_raw(kws, conf),
-        Version::FCS3_1 => CoreTEXT3_1::any_from_raw(kws, conf),
-        Version::FCS3_2 => CoreTEXT3_2::any_from_raw(kws, conf),
+        Version::FCS2_0 => CoreTEXT2_0::from_raw(kws, conf).map(|x| x.map(|y| y.into())),
+        Version::FCS3_0 => CoreTEXT3_0::from_raw(kws, conf).map(|x| x.map(|y| y.into())),
+        Version::FCS3_1 => CoreTEXT3_1::from_raw(kws, conf).map(|x| x.map(|y| y.into())),
+        Version::FCS3_2 => CoreTEXT3_2::from_raw(kws, conf).map(|x| x.map(|y| y.into())),
+    }
+}
+
+impl From<CoreTEXT2_0> for AnyCoreTEXT {
+    fn from(value: CoreTEXT2_0) -> Self {
+        AnyCoreTEXT::FCS2_0(Box::new(value))
+    }
+}
+
+impl From<CoreTEXT3_0> for AnyCoreTEXT {
+    fn from(value: CoreTEXT3_0) -> Self {
+        AnyCoreTEXT::FCS3_0(Box::new(value))
+    }
+}
+
+impl From<CoreTEXT3_1> for AnyCoreTEXT {
+    fn from(value: CoreTEXT3_1) -> Self {
+        AnyCoreTEXT::FCS3_1(Box::new(value))
+    }
+}
+
+impl From<CoreTEXT3_2> for AnyCoreTEXT {
+    fn from(value: CoreTEXT3_2) -> Self {
+        AnyCoreTEXT::FCS3_2(Box::new(value))
     }
 }
 
@@ -7750,7 +7852,7 @@ where
 fn measurement_shortnames<P: VersionedMeasurement>(ms: &[Measurement<P>]) -> Vec<Shortname> {
     ms.iter()
         .enumerate()
-        .map(|(i, p)| P::shortname(p, i))
+        .map(|(i, p)| p.specific.shortname(i))
         .collect()
 }
 

@@ -163,12 +163,12 @@ pub struct DataReadConfig {
 
     /// If true, throw error when total event width does not evenly divide
     /// the DATA segment. Meaningless for delimited ASCII data.
-    pub enfore_data_width_divisibility: bool,
+    pub enforce_data_width_divisibility: bool,
 
     /// If true, throw error if the total number of events as computed by
     /// dividing DATA segment length event width doesn't match $TOT. Does
     /// nothing if $TOT not given, which may be the case in version 2.0.
-    pub enfore_matching_tot: bool,
+    pub enforce_matching_tot: bool,
 }
 
 /// Configuration options that do not fit anywhere else
@@ -249,8 +249,8 @@ impl Strict for DataReadConfig {
     fn set_strict_inner(self) -> Self {
         Self {
             standard: StdTextReadConfig::set_strict_inner(self.standard),
-            enfore_data_width_divisibility: true,
-            enfore_matching_tot: true,
+            enforce_data_width_divisibility: true,
+            enforce_matching_tot: true,
             ..self
         }
     }

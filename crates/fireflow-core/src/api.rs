@@ -1573,52 +1573,6 @@ type Metadata3_0 = Metadata<InnerMetadata3_0>;
 type Metadata3_1 = Metadata<InnerMetadata3_1>;
 type Metadata3_2 = Metadata<InnerMetadata3_2>;
 
-// /// The bare minimum of measurement data required to parse the DATA segment.
-// struct DataReadMeasurement<X> {
-//     /// The value of $PnB
-//     bytes: Bytes,
-
-//     /// The value of $PnR
-//     range: Range,
-
-//     /// Version-specific data
-//     specific: X,
-// }
-
-// struct InnerDataReadMeasurement3_2 {
-//     datatype: OptionalKw<NumType>,
-// }
-
-// /// Minimal data to parse one measurement column in FCS 2.0 (up to 3.1)
-// type DataReadMeasurement2_0 = DataReadMeasurement<()>;
-
-// /// Minimal data to parse one measurement column in FCS 3.2+
-// type DataReadMeasurement3_2 = DataReadMeasurement<NumType>;
-
-// struct InnerBareMetadata2_0 {
-//     tot: OptionalKw<Tot>,
-//     byteord: ByteOrd,
-// }
-
-// struct InnerBareMetadata3_0 {
-//     tot: Tot,
-//     byteord: ByteOrd,
-// }
-
-// struct InnerBareMetadata3_1 {
-//     tot: Tot,
-//     byteord: Endian,
-// }
-
-// struct BareMetadata<M> {
-//     datatype: AlphaNumType,
-//     specific: M,
-// }
-
-// type BareMetadata2_0 = BareMetadata<InnerBareMetadata2_0>;
-// type BareMetadata3_0 = BareMetadata<InnerBareMetadata3_0>;
-// type BareMetadata3_1 = BareMetadata<InnerBareMetadata3_1>;
-
 #[derive(PartialEq, Clone)]
 pub struct UintType<T, const LEN: usize> {
     pub bitmask: T,
@@ -3311,32 +3265,6 @@ impl fmt::Display for RangeError {
     }
 }
 
-// impl str::FromStr for Range {
-//     type Err = RangeError;
-
-//     fn from_str(s: &str) -> Result<Self, Self::Err> {
-//         match s.parse::<u64>() {
-//             Ok(x) => Ok(Range::Int(x - 1)),
-//             Err(e) => match e.kind() {
-//                 IntErrorKind::InvalidDigit => s
-//                     .parse::<f64>()
-//                     .map_or_else(|e| Err(RangeError::Float(e)), |x| Ok(Range::Float(x))),
-//                 IntErrorKind::PosOverflow => Ok(Range::Int(u64::MAX)),
-//                 _ => Err(RangeError::Int(e)),
-//             },
-//         }
-//     }
-// }
-
-// impl fmt::Display for Range {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-//         match self {
-//             Range::Int(x) => write!(f, "{x}"),
-//             Range::Float(x) => write!(f, "{x}"),
-//         }
-//     }
-// }
-
 impl<P: VersionedMeasurement> Measurement<P> {}
 
 fn make_uint_type(b: u8, r: Range, o: &ByteOrd) -> Result<AnyUintType, Vec<String>> {
@@ -4963,12 +4891,6 @@ fn series_coerce64(s: &Column, conf: &WriteConfig) -> Option<PureSuccess<Vec<u64
 
 macro_rules! impl_num_props {
     ($size:expr, $zero:expr, $t:ty, $p:ident) => {
-        // impl From<Vec<$t>> for Series {
-        //     fn from(value: Vec<$t>) -> Self {
-        //         Series::$p(value)
-        //     }
-        // }
-
         impl NumProps<$size> for $t {
             fn zero() -> Self {
                 $zero
@@ -5470,15 +5392,6 @@ fn h_write_dataset<W: Write>(
     let df = d.data;
     let df_ncols = df.width();
 
-    // Check that the dataframe isn't "ragged" (columns are different lengths).
-    // If this is false, something terrible happened and we need to stop
-    // immediately.
-    // if df.is_ragged() {
-    //     Err(Failure::new(
-    //         "dataframe has unequal column lengths".to_string(),
-    //     ))?;
-    // }
-
     // We can now confidently count the number of events (rows)
     let nrows = df.height();
 
@@ -5620,164 +5533,6 @@ fn h_read_std_dataset<R: Read + Seek>(
             }))
         })
 }
-
-// impl VersionedParserMeasurement for InnerMeasurement2_0 {
-//     // type Target = ();
-
-//     // fn as_minimal_inner(_: &Measurement<Self>) {}
-
-//     // fn datatype_minimal(_: &DataReadMeasurement<Self::Target>) -> Option<NumType> {
-//     //     None
-//     // }
-
-//     fn datatype(_: &Measurement<Self>) -> Option<NumType> {
-//         None
-//     }
-// }
-
-// impl VersionedParserMeasurement for InnerMeasurement3_0 {
-//     // type Target = ();
-
-//     // fn as_minimal_inner(_: &Measurement<Self>) {}
-
-//     // fn datatype_minimal(_: &DataReadMeasurement<Self::Target>) -> Option<NumType> {
-//     // None
-//     // }
-
-//     fn datatype(_: &Measurement<Self>) -> Option<NumType> {
-//         None
-//     }
-// }
-
-// impl VersionedParserMeasurement for InnerMeasurement3_1 {
-//     // type Target = ();
-
-//     // fn as_minimal_inner(_: &Measurement<Self>) {}
-
-//     // fn datatype_minimal(_: &DataReadMeasurement<Self::Target>) -> Option<NumType> {
-//     // None
-//     // }
-
-//     fn datatype(_: &Measurement<Self>) -> Option<NumType> {
-//         None
-//     }
-// }
-
-// impl VersionedParserMeasurement for InnerMeasurement3_2 {
-//     // type Target = InnerDataReadMeasurement3_2;
-
-//     // fn as_minimal_inner(m: &Measurement<Self>) -> InnerDataReadMeasurement3_2 {
-//     //     InnerDataReadMeasurement3_2 {
-//     //         datatype: m.specific.datatype.0.as_ref().copied().into(),
-//     //     }
-//     // }
-
-//     // fn datatype_minimal(m: &DataReadMeasurement<Self::Target>) -> Option<NumType> {
-//     //     m.specific.datatype.0.as_ref().copied()
-//     // }
-
-//     // TODO lame?
-//     fn datatype(m: &Measurement<Self>) -> Option<NumType> {
-//         m.specific.datatype.0.as_ref().copied()
-//     }
-// }
-
-// impl VersionedParserMetadata for InnerMetadata2_0 {
-//     // type Target = InnerBareMetadata2_0;
-
-//     fn byteord(&self) -> ByteOrd {
-//         self.byteord.clone()
-//     }
-
-//     // fn target_byteord(t: &Self::Target) -> ByteOrd {
-//     //     t.byteord.clone()
-//     // }
-
-//     // fn tot(t: &Self::Target) -> Option<Tot> {
-//     //     t.tot.0.as_ref().copied()
-//     // }
-
-//     // fn as_minimal_inner(&self, kws: &mut RawKeywords) -> PureMaybe<InnerBareMetadata2_0> {
-//     //     PureMaybe::from_result_1(Tot::lookup_meta_opt(kws), PureErrorLevel::Warning).map(|res| {
-//     //         res.map(|tot| InnerBareMetadata2_0 {
-//     //             byteord: self.byteord.clone(),
-//     //             tot,
-//     //         })
-//     //     })
-//     // }
-// }
-
-// impl VersionedParserMetadata for InnerMetadata3_0 {
-//     // type Target = InnerBareMetadata3_0;
-
-//     fn byteord(&self) -> ByteOrd {
-//         self.byteord.clone()
-//     }
-
-//     // fn target_byteord(t: &Self::Target) -> ByteOrd {
-//     //     t.byteord.clone()
-//     // }
-
-//     // fn tot(t: &Self::Target) -> Option<Tot> {
-//     //     Some(t.tot)
-//     // }
-
-//     // fn as_minimal_inner(&self, kws: &mut RawKeywords) -> PureMaybe<InnerBareMetadata3_0> {
-//     //     let res = Tot::lookup_meta_req(kws).map(|tot| InnerBareMetadata3_0 {
-//     //         byteord: self.byteord.clone(),
-//     //         tot,
-//     //     });
-//     //     PureMaybe::from_result_1(res, PureErrorLevel::Error)
-//     // }
-// }
-
-// impl VersionedParserMetadata for InnerMetadata3_1 {
-//     // type Target = InnerBareMetadata3_1;
-
-//     fn byteord(&self) -> ByteOrd {
-//         ByteOrd::Endian(self.byteord)
-//     }
-
-//     // fn target_byteord(t: &Self::Target) -> ByteOrd {
-//     //     ByteOrd::Endian(t.byteord)
-//     // }
-
-//     // fn tot(t: &Self::Target) -> Option<Tot> {
-//     //     Some(t.tot)
-//     // }
-
-//     // fn as_minimal_inner(&self, kws: &mut RawKeywords) -> PureMaybe<InnerBareMetadata3_1> {
-//     //     let res = Tot::lookup_meta_req(kws).map(|tot| InnerBareMetadata3_1 {
-//     //         byteord: self.byteord,
-//     //         tot,
-//     //     });
-//     //     PureMaybe::from_result_1(res, PureErrorLevel::Error)
-//     // }
-// }
-
-// impl VersionedParserMetadata for InnerMetadata3_2 {
-//     // type Target = InnerBareMetadata3_1;
-
-//     fn byteord(&self) -> ByteOrd {
-//         ByteOrd::Endian(self.byteord)
-//     }
-
-//     // fn target_byteord(t: &Self::Target) -> ByteOrd {
-//     //     ByteOrd::Endian(t.byteord)
-//     // }
-
-//     // fn tot(t: &Self::Target) -> Option<Tot> {
-//     //     Some(t.tot)
-//     // }
-
-//     // fn as_minimal_inner(&self, kws: &mut RawKeywords) -> PureMaybe<InnerBareMetadata3_1> {
-//     //     let res = Tot::lookup_meta_req(kws).map(|tot| InnerBareMetadata3_1 {
-//     //         byteord: self.byteord,
-//     //         tot,
-//     //     });
-//     //     PureMaybe::from_result_1(res, PureErrorLevel::Error)
-//     // }
-// }
 
 macro_rules! get_set_pre_3_2_datetime {
     ($fcstime:ident) => {
@@ -6237,7 +5992,6 @@ impl VersionedMetadata for InnerMetadata3_2 {
     }
 }
 
-// TODO macros?
 fn parse_raw_text(
     version: Version,
     kws: &mut RawKeywords,
@@ -6251,61 +6005,20 @@ fn parse_raw_text(
     }
 }
 
-impl From<CoreTEXT2_0> for AnyCoreTEXT {
-    fn from(value: CoreTEXT2_0) -> Self {
-        AnyCoreTEXT::FCS2_0(Box::new(value))
-    }
+macro_rules! from_anycoretext {
+    ($anyvar:ident, $coretype:ident) => {
+        impl From<$coretype> for AnyCoreTEXT {
+            fn from(value: $coretype) -> Self {
+                Self::$anyvar(Box::new(value))
+            }
+        }
+    };
 }
 
-impl From<CoreTEXT3_0> for AnyCoreTEXT {
-    fn from(value: CoreTEXT3_0) -> Self {
-        AnyCoreTEXT::FCS3_0(Box::new(value))
-    }
-}
-
-impl From<CoreTEXT3_1> for AnyCoreTEXT {
-    fn from(value: CoreTEXT3_1) -> Self {
-        AnyCoreTEXT::FCS3_1(Box::new(value))
-    }
-}
-
-impl From<CoreTEXT3_2> for AnyCoreTEXT {
-    fn from(value: CoreTEXT3_2) -> Self {
-        AnyCoreTEXT::FCS3_2(Box::new(value))
-    }
-}
-
-// macro_rules! kws_req {
-//     ($name:ident, $ret:ty, $key:expr, $dep:expr ) => {
-//         fn $name(&mut self) -> Option<$ret> {
-//             self.lookup_required($key, $dep)
-//         }
-//     };
-// }
-
-// macro_rules! kws_opt {
-//     ($name:ident, $ret:ty, $key:expr, $dep:expr ) => {
-//         fn $name(&mut self) -> OptionalKw<$ret> {
-//             self.lookup_optional($key, $dep)
-//         }
-//     };
-// }
-
-// macro_rules! kws_meas_req {
-//     ($name:ident, $ret:ty, $key:expr, $dep:expr ) => {
-//         fn $name(&mut self, n: usize) -> Option<$ret> {
-//             self.lookup_meas_req($key, n, $dep)
-//         }
-//     };
-// }
-
-// macro_rules! kws_meas_opt {
-//     ($name:ident, $ret:ty, $key:expr, $dep:expr ) => {
-//         fn $name(&mut self, n: usize) -> OptionalKw<$ret> {
-//             self.lookup_meas_opt($key, n, $dep)
-//         }
-//     };
-// }
+from_anycoretext!(FCS2_0, CoreTEXT2_0);
+from_anycoretext!(FCS3_0, CoreTEXT3_0);
+from_anycoretext!(FCS3_1, CoreTEXT3_1);
+from_anycoretext!(FCS3_2, CoreTEXT3_2);
 
 /// A structure to look up and parse keywords in the TEXT segment
 ///
@@ -6394,87 +6107,6 @@ impl<'a, 'b> KwParser<'a, 'b> {
             Err(st.into_failure(reason))
         }
     }
-
-    // offsets
-
-    // kws_req!(lookup_begindata, u32, BEGINDATA, false);
-    // kws_req!(lookup_enddata, u32, ENDDATA, false);
-    // kws_req!(lookup_beginstext_req, u32, BEGINSTEXT, false);
-    // kws_req!(lookup_endstext_req, u32, ENDSTEXT, false);
-    // kws_req!(lookup_beginanalysis_req, u32, BEGINANALYSIS, false);
-    // kws_req!(lookup_endanalysis_req, u32, ENDANALYSIS, false);
-    // kws_opt!(lookup_beginstext_opt, u32, BEGINSTEXT, false);
-    // kws_opt!(lookup_endstext_opt, u32, ENDSTEXT, false);
-    // kws_opt!(lookup_beginanalysis_opt, u32, BEGINANALYSIS, false);
-    // kws_opt!(lookup_endanalysis_opt, u32, ENDANALYSIS, false);
-    // kws_req!(lookup_nextdata, u32, NEXTDATA, false);
-
-    // TODO add more
-
-    // metadata
-
-    // kws_req!(lookup_par, usize, PAR, false);
-    // kws_req!(lookup_tot_req, usize, TOT, false);
-    // kws_opt!(lookup_tot_opt, usize, TOT, false);
-
-    // kws_req!(lookup_byteord, ByteOrd, BYTEORD, false);
-    // kws_req!(lookup_endian, Endian, BYTEORD, false);
-    // kws_req!(lookup_datatype, AlphaNumType, DATATYPE, false);
-    // kws_req!(lookup_mode, Mode, MODE, false);
-    // kws_opt!(lookup_mode3_2, Mode3_2, MODE, true);
-    // kws_req!(lookup_cyt_req, Cyt, CYT, false);
-    // kws_opt!(lookup_cyt_opt, Cyt, CYT, false);
-    // kws_opt!(lookup_cytsn, Cytsn, CYTSN, false);
-    // kws_opt!(lookup_abrt, Abrt, ABRT, false);
-    // kws_opt!(lookup_cells, Cells, CELLS, false);
-    // kws_opt!(lookup_com, Com, COM, false);
-    // kws_opt!(lookup_exp, Exp, EXP, false);
-    // kws_opt!(lookup_fil, Fil, FIL, false);
-    // kws_opt!(lookup_inst, Inst, INST, false);
-    // kws_opt!(lookup_lost, Lost, LOST, false);
-    // kws_opt!(lookup_op, Op, OP, false);
-    // kws_opt!(lookup_proj, Proj, PROJ, false);
-    // kws_opt!(lookup_smno, Smno, SMNO, false);
-    // kws_opt!(lookup_src, Src, SRC, false);
-    // kws_opt!(lookup_sys, Sys, SYS, false);
-    // kws_opt!(lookup_trigger, Trigger, TR, false);
-    // kws_opt!(lookup_timestep, Timestep, TIMESTEP, false);
-    // kws_opt!(lookup_vol, Vol, VOL, false);
-    // kws_opt!(lookup_flowrate, Flowrate, FLOWRATE, false);
-    // kws_opt!(lookup_unicode, Unicode, UNICODE, false);
-    // kws_opt!(lookup_unstainedinfo, UnstainedInfo, UNSTAINEDINFO, false);
-    // kws_opt!(
-    //     lookup_unstainedcenters,
-    //     UnstainedCenters,
-    //     UNSTAINEDCENTERS,
-    //     false
-    // );
-    // kws_opt!(lookup_last_modifier, LastModifier, LAST_MODIFIER, false);
-    // kws_opt!(lookup_last_modified, ModifiedDateTime, LAST_MODIFIED, false);
-    // kws_opt!(lookup_originality, Originality, ORIGINALITY, false);
-    // kws_opt!(lookup_carrierid, Carrierid, CARRIERID, false);
-    // kws_opt!(lookup_carriertype, Carriertype, CARRIERTYPE, false);
-    // kws_opt!(lookup_locationid, Locationid, LOCATIONID, false);
-    // kws_opt!(lookup_begindatetime, FCSDateTime, BEGINDATETIME, false);
-    // kws_opt!(lookup_enddatetime, FCSDateTime, ENDDATETIME, false);
-    // kws_opt!(lookup_btim, FCSTime, BTIM, false);
-    // kws_opt!(lookup_etim, FCSTime, ETIM, false);
-    // kws_opt!(lookup_btim60, FCSTime60, BTIM, false);
-    // kws_opt!(lookup_etim60, FCSTime60, ETIM, false);
-    // kws_opt!(lookup_compensation_3_0, Compensation, COMP, false);
-    // kws_opt!(lookup_spillover, Spillover, SPILLOVER, false);
-
-    // fn lookup_date(&mut self, dep: bool) -> OptionalKw<FCSDate> {
-    //     self.lookup_optional(DATE, dep)
-    // }
-
-    // fn lookup_btim100(&mut self, dep: bool) -> OptionalKw<FCSTime100> {
-    //     self.lookup_optional(BTIM, dep)
-    // }
-
-    // fn lookup_etim100(&mut self, dep: bool) -> OptionalKw<FCSTime100> {
-    //     self.lookup_optional(ETIM, dep)
-    // }
 
     fn lookup_timestamps2_0(&mut self) -> Timestamps2_0 {
         Timestamps2_0 {
@@ -6585,41 +6217,6 @@ impl<'a, 'b> KwParser<'a, 'b> {
         });
         ns
     }
-
-    // measurements
-
-    // kws_meas_req!(lookup_meas_bytes, Bytes, BYTES_SFX, false);
-    // kws_meas_req!(lookup_meas_range, Range, RANGE_SFX, false);
-    // kws_meas_opt!(lookup_meas_wavelength, Wavelength, WAVELEN_SFX, false);
-    // kws_meas_opt!(lookup_meas_wavelengths, Wavelengths, WAVELEN_SFX, false);
-    // kws_meas_opt!(lookup_meas_power, Power, POWER_SFX, false);
-    // kws_meas_opt!(lookup_meas_detector_type, DetectorType, DET_TYPE_SFX, false);
-    // kws_meas_req!(lookup_meas_shortname_req, Shortname, SHORTNAME_SFX, false);
-    // kws_meas_opt!(lookup_meas_shortname_opt, Shortname, SHORTNAME_SFX, false);
-    // kws_meas_opt!(lookup_meas_longname, Longname, LONGNAME_SFX, false);
-    // kws_meas_opt!(lookup_meas_filter, Filter, FILTER_SFX, false);
-    // kws_meas_opt!(
-    //     lookup_meas_detector_voltage,
-    //     DetectorVoltage,
-    //     DET_VOLT_SFX,
-    //     false
-    // );
-    // kws_meas_opt!(lookup_meas_detector, DetectorName, DET_NAME_SFX, false);
-    // kws_meas_opt!(lookup_meas_tag, Tag, TAG_SFX, false);
-    // kws_meas_opt!(lookup_meas_analyte, Analyte, ANALYTE_SFX, false);
-    // kws_meas_opt!(lookup_meas_gain, Gain, GAIN_SFX, false);
-    // kws_meas_req!(lookup_meas_scale_req, Scale, SCALE_SFX, false);
-    // kws_meas_opt!(lookup_meas_scale_opt, Scale, SCALE_SFX, false);
-    // kws_meas_opt!(lookup_meas_cal3_1, Calibration3_1, CALIBRATION_SFX, false);
-    // kws_meas_opt!(lookup_meas_cal3_2, Calibration3_2, CALIBRATION_SFX, false);
-    // kws_meas_opt!(lookup_meas_display, Display, DISPLAY_SFX, false);
-    // kws_meas_opt!(lookup_meas_datatype, NumType, DATATYPE_SFX, false);
-    // kws_meas_opt!(lookup_meas_type, MeasurementType, DET_TYPE_SFX, false);
-    // kws_meas_opt!(lookup_meas_feature, Feature, FEATURE_SFX, false);
-
-    // fn lookup_meas_percent_emitted(&mut self, n: usize, dep: bool) -> OptionalKw<PercentEmitted> {
-    //     self.lookup_meas_opt(PCNT_EMT_SFX, n, dep)
-    // }
 
     fn lookup_all_meas_nonstandard(&mut self, n: MeasIdx) -> NonStdKeywords {
         let mut ns = HashMap::new();

@@ -4298,6 +4298,7 @@ where
         M::clear_datetimes(&mut self.metadata.specific)
     }
 
+    // TODO do I really need these?
     get_set_copied!(abrt, set_abrt, Abrt);
     get_set_copied!(lost, set_lost, Lost);
 
@@ -4393,6 +4394,7 @@ where
     }
 
     /// Set all $PnN keywords to list of names.
+    // TODO this needs to change lots of stuff, $TR, $UNSTAINEDCENTERS, $SPILLOVER, etc
     pub fn set_shortnames(&mut self, ns: Vec<Shortname>) -> bool {
         if self.measurements.len() != ns.len() {
             false

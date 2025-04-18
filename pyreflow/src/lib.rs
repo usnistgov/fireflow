@@ -959,15 +959,15 @@ macro_rules! core_text_methods {
 
         #[pymethods]
         impl $pytype {
-            #[getter]
-            fn get_trigger(&self) -> Option<PyTrigger> {
-                self.0.$($root.)*trigger().map(|x| x.clone().into())
-            }
+            // #[getter]
+            // fn get_trigger(&self) -> Option<PyTrigger> {
+            //     self.0.$($root.)*trigger().map(|x| x.clone().into())
+            // }
 
-            #[setter]
-            fn set_trigger(&mut self, t: Option<PyTrigger>) {
-                self.0.$($root.)*set_trigger(t.map(|x| x.into()))
-            }
+            // #[setter]
+            // fn set_trigger(&mut self, t: Option<PyTrigger>) {
+            //     self.0.$($root.)*set_trigger(t.map(|x| x.into()))
+            // }
 
             #[getter]
             fn get_datatype(&self) -> PyAlphaNumType {

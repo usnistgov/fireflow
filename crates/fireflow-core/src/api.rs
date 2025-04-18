@@ -979,7 +979,7 @@ where
     }
 }
 
-pub trait ReqMeasKey
+trait ReqMeasKey
 where
     Self: Required,
     Self: fmt::Display,
@@ -996,7 +996,7 @@ where
     }
 }
 
-pub trait OptMetaKey
+trait OptMetaKey
 where
     Self: Optional,
     Self: fmt::Display,
@@ -1012,17 +1012,17 @@ where
         (Self::std(), opt.0.as_ref().map(|s| s.to_string()))
     }
 
-    fn setter(default: Option<Self>, def_key: bool, key: Option<NonStdKey>) -> MetaKwSetter<Self> {
-        if let Some(def) = default {
-            KwSetter::Default(def)
-        } else {
-            let k = if def_key { Some(Self::nonstd()) } else { key };
-            KwSetter::Key(k)
-        }
-    }
+    // fn setter(default: Option<Self>, def_key: bool, key: Option<NonStdKey>) -> MetaKwSetter<Self> {
+    //     if let Some(def) = default {
+    //         KwSetter::Default(def)
+    //     } else {
+    //         let k = if def_key { Some(Self::nonstd()) } else { key };
+    //         KwSetter::Key(k)
+    //     }
+    // }
 }
 
-pub trait OptMeasKey
+trait OptMeasKey
 where
     Self: Optional,
     Self: fmt::Display,
@@ -1038,21 +1038,90 @@ where
         (Self::std_maybe(n), opt.0.as_ref().map(|s| s.to_string()))
     }
 
-    fn setter(
-        default: Option<Self>,
-        def_key: bool,
-        key: Option<NonStdMeasKey>,
-    ) -> MeasKwSetter<Self> {
-        if let Some(def) = default {
-            KwSetter::Default(def)
+    // fn setter(
+    //     default: Option<Self>,
+    //     def_key: bool,
+    //     key: Option<NonStdMeasKey>,
+    // ) -> MeasKwSetter<Self> {
+    //     if let Some(def) = default {
+    //         KwSetter::Default(def)
+    //     } else {
+    //         let k = if def_key {
+    //             Some(Self::nonstd_sub())
+    //         } else {
+    //             key
+    //         };
+    //         KwSetter::Key(k)
+    //     }
+    // }
+}
+
+// trait LinkedOptMetaKey
+// where
+//     Self: Optional,
+//     Self: fmt::Display,
+//     Self: Key,
+//     Self: Sized,
+// {
+//     fn lookup_linked_meta_opt(kws: &mut RawKeywords, names: &[&Shortname]) -> OptResult<Self> {
+//         let k = Self::std();
+//         let msg = format!("{k} references non-existent $PnN name");
+//         match kws.remove(k.as_str()) {
+//             Some(v) => Self::linked_from_str(v.as_str(), names)
+//                 .and_then(|opt| opt.ok_or(msg).map(Some))
+//                 .map_err(|e| format!("{e} (key='{k}', value='{v}')")),
+//             None => Ok(None),
+//         }
+//         .map(|x| x.into())
+//     }
+
+//     fn linked_from_str(s: &str, names: &[&Shortname]) -> Result<Option<Self>, String>;
+
+//     fn pair(opt: &OptionalKw<Self>) -> (String, Option<String>) {
+//         (Self::std(), opt.0.as_ref().map(|s| s.to_string()))
+//     }
+// }
+
+trait Linked
+where
+    Self: Key,
+    Self: Sized,
+{
+    fn test_link(&self, names: &HashSet<&Shortname>) -> Result<(), String> {
+        let k = Self::std();
+        let bad_names: Vec<_> = self.names().difference(names).copied().collect();
+        let bad_names_str = bad_names.iter().join(", ");
+        if bad_names.is_empty() {
+            Ok(())
+        } else if bad_names.len() == 1 {
+            Err(format!(
+                "{k} references non-existent $PnN name: {bad_names_str}"
+            ))
         } else {
-            let k = if def_key {
-                Some(Self::nonstd_sub())
-            } else {
-                key
-            };
-            KwSetter::Key(k)
+            Err(format!(
+                "{k} references non-existent $PnN names: {bad_names_str}"
+            ))
         }
+    }
+
+    fn names(&self) -> HashSet<&Shortname>;
+}
+
+impl Linked for Trigger {
+    fn names(&self) -> HashSet<&Shortname> {
+        [&self.measurement].into_iter().collect()
+    }
+}
+
+impl Linked for Spillover {
+    fn names(&self) -> HashSet<&Shortname> {
+        self.measurements.iter().collect()
+    }
+}
+
+impl Linked for UnstainedCenters {
+    fn names(&self) -> HashSet<&Shortname> {
+        self.0.keys().collect()
     }
 }
 
@@ -1364,6 +1433,32 @@ kw_opt_meta!(ModifiedDateTime, "LAST_MODIFIED");
 kw_opt_meta!(UnstainedCenters, "UNSTAINEDCENTERS");
 kw_opt_meta!(Unicode, "UNICODE");
 kw_opt_meta!(Trigger, "TR");
+
+// impl Key for Trigger {
+//     const C: &'static str = "TR";
+// }
+
+// impl Optional for Trigger {}
+
+// impl LinkedOptMetaKey for Trigger {
+//     fn linked_from_str(s: &str, names: &[&Shortname]) -> Result<Option<Self>, String> {
+//         match s.split(",").collect::<Vec<_>>()[..] {
+//             [p, n1] => n1
+//                 .parse::<u32>()
+//                 .map_err(|e| e.to_string())
+//                 .map(|threshold| {
+//                     names
+//                         .iter()
+//                         .find(|x| x.as_ref() == p)
+//                         .map(|measurement| Trigger {
+//                             measurement: (*measurement).clone(),
+//                             threshold,
+//                         })
+//                 }),
+//             _ => Err("must be formatted like 'string,n'".to_string()),
+//         }
+//     }
+// }
 
 kw_opt_meas!(Scale, "E");
 req_meas!(Scale);
@@ -1932,9 +2027,9 @@ where
 
     fn datetimes_valid(&self) -> bool;
 
-    fn check_unstainedcenters(&self, names: &HashSet<&Shortname>) -> Option<String>;
+    fn check_unstainedcenters(&self, names: &HashSet<&Shortname>) -> Result<(), String>;
 
-    fn check_spillover(&self, names: &HashSet<&Shortname>) -> Option<String>;
+    fn check_spillover(&self, names: &HashSet<&Shortname>) -> Result<(), String>;
 
     fn has_timestep(&self) -> bool;
 
@@ -3764,13 +3859,13 @@ impl AnyCoreTEXT {
     any_core_get_set_str!(src, set_src);
     any_core_get_set_str!(sys, set_sys);
 
-    pub fn trigger(&self) -> Option<&Trigger> {
-        match_anycoretext!(self, x, { x.trigger() })
-    }
+    // pub fn trigger(&self) -> Option<&Trigger> {
+    //     match_anycoretext!(self, x, { x.trigger() })
+    // }
 
-    pub fn set_trigger(&mut self, t: Option<Trigger>) {
-        match_anycoretext!(self, x, { x.set_trigger(t) })
-    }
+    // pub fn set_trigger(&mut self, t: Option<Trigger>) {
+    //     match_anycoretext!(self, x, { x.set_trigger(t) })
+    // }
 
     pub fn datatype(&self) -> AlphaNumType {
         match_anycoretext!(self, x, { x.datatype() })
@@ -4140,6 +4235,11 @@ where
 {
     fn lookup_metadata(st: &mut KwParser, ms: &[Measurement<M::P>]) -> Option<Self> {
         let par = Par(ms.len());
+        // let names: Vec<_> = ms
+        //     .iter()
+        //     .flat_map(|m| m.specific.maybe_name())
+        //     .unique()
+        //     .collect();
         let maybe_datatype = st.lookup_meta_req();
         let maybe_specific = M::lookup_specific(st, par);
         if let (Some(datatype), Some(specific)) = (maybe_datatype, maybe_specific) {
@@ -4313,13 +4413,13 @@ where
     get_set_str!(src, set_src);
     get_set_str!(sys, set_sys);
 
-    pub fn trigger(&self) -> Option<&Trigger> {
-        self.metadata.tr.as_ref().into()
-    }
+    // pub fn trigger(&self) -> Option<&Trigger> {
+    //     self.metadata.tr.as_ref().into()
+    // }
 
-    pub fn set_trigger(&mut self, t: Option<Trigger>) {
-        self.metadata.tr = t.into()
-    }
+    // pub fn set_trigger(&mut self, t: Option<Trigger>) {
+    //     self.metadata.tr = t.into()
+    // }
 
     pub fn datatype(&self) -> AlphaNumType {
         self.metadata.datatype
@@ -4562,24 +4662,39 @@ where
         let md_fail = "could not standardize TEXT".to_string();
         let c: KwParserConfig = conf.into();
         let md_succ = KwParser::try_run(kws, c, md_fail, |st| {
-            let ms = Measurement::lookup_measurements(st, par);
-            let md = ms.as_ref().and_then(|xs| Metadata::lookup_metadata(st, xs));
-            if let (Some(measurements), Some(metadata)) = (ms, md) {
-                Some((measurements, metadata))
+            if let Some(measurements) = Measurement::lookup_measurements(st, par) {
+                Metadata::lookup_metadata(st, &measurements).map(|metadata| CoreTEXT {
+                    metadata,
+                    measurements,
+                })
             } else {
                 None
             }
         })?;
         // hooray, we win and can now make the core struct
-        Ok(md_succ
-            .map(|(measurements, metadata)| CoreTEXT {
-                metadata,
-                measurements,
-            })
-            .and_then(|core| core.validate(&conf.time).map(|_| core)))
+        Ok(md_succ.and_then(|core| core.validate(&conf.time).map(|_| core)))
     }
 
     // TODO add non-kw deprecation checker
+
+    fn measurement_names(&self) -> Vec<&Shortname> {
+        self.measurements
+            .iter()
+            .filter_map(|m| m.specific.maybe_name())
+            .collect()
+    }
+
+    fn unique_meaurement_names(&self) -> Option<HashSet<&Shortname>> {
+        let mut unique = HashSet::new();
+        for n in self.measurement_names() {
+            if unique.contains(n) {
+                return None;
+            } else {
+                unique.insert(n);
+            }
+        }
+        Some(unique)
+    }
 
     fn validate(&self, conf: &TimeConfig) -> PureSuccess<()> {
         let mut deferred = PureErrorBuf::default();
@@ -4588,37 +4703,31 @@ where
 
         // Ensure $PnN are unique; if this fails we can't make a dataframe, so
         // failure will always be an error and not a warning.
-        let names: Vec<_> = self
-            .measurements
-            .iter()
-            .filter_map(|m| m.specific.maybe_name())
-            .collect();
-        let n_names = names.len();
-        let unique_names: HashSet<_> = names.into_iter().collect();
-        if unique_names.len() < n_names {
-            deferred.push_error("$PnN are not all unique".into());
-        }
+        if let Some(unique) = self.unique_meaurement_names() {
+            // Ensure $TR refers to a valid measurement
+            if let Err(msg) = self
+                .metadata
+                .tr
+                .0
+                .as_ref()
+                .map_or(Ok(()), |tr| tr.test_link(&unique))
+            {
+                deferred.push_error(msg);
+            }
 
-        // Ensure $TR refers to a valid measurement
-        if let Some(tr) = &self.metadata.tr.0 {
-            let p = &tr.measurement;
-            if !unique_names.contains(p) {
-                let msg = format!("$TR refers to non-existent measurement '{p}'",);
+            // Ensure $UNSTAINEDCENTERS refers to valid measurements (if applicable)
+            if let Err(msg) = self.metadata.specific.check_unstainedcenters(&unique) {
                 // TODO toggle this
                 deferred.push_error(msg);
             }
-        }
 
-        // Ensure $UNSTAINEDCENTERS refers to valid measurements (if applicable)
-        if let Some(msg) = self.metadata.specific.check_unstainedcenters(&unique_names) {
-            // TODO toggle this
-            deferred.push_error(msg);
-        }
-
-        // Ensure $SPILLOVER refers to valid measurements (if applicable)
-        if let Some(msg) = self.metadata.specific.check_spillover(&unique_names) {
-            // TODO toggle this
-            deferred.push_error(msg);
+            // Ensure $SPILLOVER refers to valid measurements (if applicable)
+            if let Err(msg) = self.metadata.specific.check_spillover(&unique) {
+                // TODO toggle this
+                deferred.push_error(msg);
+            }
+        } else {
+            deferred.push_error("$PnN are not all unique".into());
         }
 
         // Ensure time measurement is valid
@@ -5596,12 +5705,12 @@ impl VersionedMetadata for InnerMetadata2_0 {
         false
     }
 
-    fn check_unstainedcenters(&self, _: &HashSet<&Shortname>) -> Option<String> {
-        None
+    fn check_unstainedcenters(&self, _: &HashSet<&Shortname>) -> Result<(), String> {
+        Ok(())
     }
 
-    fn check_spillover(&self, _: &HashSet<&Shortname>) -> Option<String> {
-        None
+    fn check_spillover(&self, _: &HashSet<&Shortname>) -> Result<(), String> {
+        Ok(())
     }
 
     get_set_pre_3_2_datetime!(FCSTime);
@@ -5676,12 +5785,12 @@ impl VersionedMetadata for InnerMetadata3_0 {
         self.timestep.0.is_some()
     }
 
-    fn check_unstainedcenters(&self, _: &HashSet<&Shortname>) -> Option<String> {
-        None
+    fn check_unstainedcenters(&self, _: &HashSet<&Shortname>) -> Result<(), String> {
+        Ok(())
     }
 
-    fn check_spillover(&self, _: &HashSet<&Shortname>) -> Option<String> {
-        None
+    fn check_spillover(&self, _: &HashSet<&Shortname>) -> Result<(), String> {
+        Ok(())
     }
 
     get_set_pre_3_2_datetime!(FCSTime60);
@@ -5752,15 +5861,15 @@ impl VersionedMetadata for InnerMetadata3_1 {
         self.timestep.0.is_some()
     }
 
-    fn check_unstainedcenters(&self, _: &HashSet<&Shortname>) -> Option<String> {
-        None
+    fn check_unstainedcenters(&self, _: &HashSet<&Shortname>) -> Result<(), String> {
+        Ok(())
     }
 
-    fn check_spillover(&self, names: &HashSet<&Shortname>) -> Option<String> {
-        self.spillover.0.as_ref().and_then(|s| {
-            let xs: Vec<_> = s.measurements.iter().collect();
-            check_noexist(xs.as_slice(), names, Spillover::C)
-        })
+    fn check_spillover(&self, names: &HashSet<&Shortname>) -> Result<(), String> {
+        self.spillover
+            .0
+            .as_ref()
+            .map_or(Ok(()), |x| x.test_link(names))
     }
 
     get_set_pre_3_2_datetime!(FCSTime100);
@@ -5819,22 +5928,22 @@ impl VersionedMetadata for InnerMetadata3_1 {
 }
 
 // TODO moveme
-fn check_noexist(
-    xs: &[&Shortname],
-    names: &HashSet<&Shortname>,
-    which: &'static str,
-) -> Option<String> {
-    let noexist: Vec<_> = xs.iter().filter(|x| !names.contains(*x)).collect();
-    if !noexist.is_empty() {
-        let msg = format!(
-            "{} refers to non-existent measurements: {}",
-            which,
-            noexist.iter().join(","),
-        );
-        return Some(msg);
-    }
-    None
-}
+// fn check_noexist(
+//     xs: &[&Shortname],
+//     names: &HashSet<&Shortname>,
+//     which: &'static str,
+// ) -> Option<String> {
+//     let noexist: Vec<_> = xs.iter().filter(|x| !names.contains(*x)).collect();
+//     if !noexist.is_empty() {
+//         let msg = format!(
+//             "{} refers to non-existent measurements: {}",
+//             which,
+//             noexist.iter().join(","),
+//         );
+//         return Some(msg);
+//     }
+//     None
+// }
 
 impl VersionedMetadata for InnerMetadata3_2 {
     type P = InnerMeasurement3_2;
@@ -5859,18 +5968,19 @@ impl VersionedMetadata for InnerMetadata3_2 {
         self.timestep.0.is_some()
     }
 
-    fn check_unstainedcenters(&self, names: &HashSet<&Shortname>) -> Option<String> {
-        self.unstained.unstainedcenters.0.as_ref().and_then(|u| {
-            let xs: Vec<_> = u.0.keys().collect();
-            check_noexist(xs.as_slice(), names, UnstainedCenters::C)
-        })
+    fn check_unstainedcenters(&self, names: &HashSet<&Shortname>) -> Result<(), String> {
+        self.unstained
+            .unstainedcenters
+            .0
+            .as_ref()
+            .map_or(Ok(()), |x| x.test_link(names))
     }
 
-    fn check_spillover(&self, names: &HashSet<&Shortname>) -> Option<String> {
-        self.spillover.0.as_ref().and_then(|s| {
-            let xs: Vec<_> = s.measurements.iter().collect();
-            check_noexist(xs.as_slice(), names, Spillover::C)
-        })
+    fn check_spillover(&self, names: &HashSet<&Shortname>) -> Result<(), String> {
+        self.spillover
+            .0
+            .as_ref()
+            .map_or(Ok(()), |x| x.test_link(names))
     }
 
     // TODO not DRY
@@ -6283,6 +6393,14 @@ impl<'a, 'b> KwParser<'a, 'b> {
         let res = V::lookup_meta_opt(self.raw_keywords);
         self.process_opt(res, V::std(), dep)
     }
+
+    // fn lookup_linked_meta_opt<V>(&mut self, dep: bool, names: &[&Shortname]) -> OptionalKw<V>
+    // where
+    //     V: LinkedOptMetaKey,
+    // {
+    //     let res = V::lookup_linked_meta_opt(self.raw_keywords, names);
+    //     self.process_opt(res, V::std(), dep)
+    // }
 
     fn lookup_meas_req<V>(&mut self, n: MeasIdx) -> Option<V>
     where

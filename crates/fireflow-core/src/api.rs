@@ -4081,7 +4081,7 @@ impl AnyCoreTEXT {
     }
 
     fn remove_measurement(&mut self, n: &str) -> bool {
-        match_anycoretext!(self, x, { x.remove_shortname(n) })
+        match_anycoretext!(self, x, { x.remove_measurement(n) })
     }
 
     fn set_df_column_names(&self, df: &mut DataFrame) -> PolarsResult<()> {
@@ -4653,7 +4653,7 @@ where
     }
 
     // TODO what if the time channel is removed?
-    pub fn remove_shortname(&mut self, n: &str) -> bool {
+    pub fn remove_measurement(&mut self, n: &str) -> bool {
         if let Some(i) = self
             .measurements
             .iter()
@@ -4669,6 +4669,16 @@ where
             true
         } else {
             false
+        }
+    }
+
+    pub fn add_measurement(&mut self, i: usize, m: Measurement<M::P>) -> Result<(), String> {
+        let p = self.measurements.len();
+        if i > p {
+            Err(format!("Index must be {p} or less, got {i}"))
+        } else {
+            self.measurements.insert(i, m);
+            Ok(())
         }
     }
 

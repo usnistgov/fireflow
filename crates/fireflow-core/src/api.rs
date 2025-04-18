@@ -21,6 +21,7 @@ use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::fmt;
 use std::fs;
+use std::hash::Hash;
 use std::io;
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::iter;
@@ -500,6 +501,7 @@ pub struct Compensation {
 pub struct Spillover {
     /// The measurements in the spillover matrix. Assumed to be a subset of the
     /// values in the $PnN keys.
+    // TODO use BTreeSet to enforce uniqueness
     pub measurements: Vec<Shortname>,
 
     /// Numeric values in the spillover matrix in row-major order.
@@ -1087,7 +1089,7 @@ where
     Self: Key,
     Self: Sized,
 {
-    fn test_link(&self, names: &HashSet<&Shortname>) -> Result<(), String> {
+    fn check_link(&self, names: &HashSet<&Shortname>) -> Result<(), String> {
         let k = Self::std();
         let bad_names: Vec<_> = self.names().difference(names).copied().collect();
         let bad_names_str = bad_names.iter().join(", ");
@@ -1104,6 +1106,8 @@ where
         }
     }
 
+    fn reassign(&mut self, mapping: ShortnameMap);
+
     fn names(&self) -> HashSet<&Shortname>;
 }
 
@@ -1111,17 +1115,47 @@ impl Linked for Trigger {
     fn names(&self) -> HashSet<&Shortname> {
         [&self.measurement].into_iter().collect()
     }
+
+    fn reassign(&mut self, mapping: ShortnameMap) {
+        if let Some(new) = mapping.get(&self.measurement) {
+            self.measurement = (*new).clone()
+        }
+    }
 }
 
 impl Linked for Spillover {
     fn names(&self) -> HashSet<&Shortname> {
         self.measurements.iter().collect()
     }
+
+    fn reassign(&mut self, mapping: ShortnameMap) {
+        for n in self.measurements.iter_mut() {
+            if let Some(new) = mapping.get(n) {
+                *n = (*new).clone();
+            }
+        }
+    }
 }
 
 impl Linked for UnstainedCenters {
     fn names(&self) -> HashSet<&Shortname> {
         self.0.keys().collect()
+    }
+
+    fn reassign(&mut self, mapping: ShortnameMap) {
+        // keys can't be mutated in place so need to rebuild the hashmap with
+        // new keys from the mapping
+        let new: HashMap<_, _> = self
+            .0
+            .iter()
+            .map(|(k, v)| {
+                (
+                    mapping.get(k).map(|x| (*x).clone()).unwrap_or(k.clone()),
+                    *v,
+                )
+            })
+            .collect();
+        (*self).0 = new;
     }
 }
 
@@ -2017,6 +2051,8 @@ pub trait Versioned {
     fn fcs_version() -> Version;
 }
 
+type ShortnameMap<'a> = &'a HashMap<&'a Shortname, &'a Shortname>;
+
 pub trait VersionedMetadata: Sized
 where
     Self::P: VersionedMeasurement,
@@ -2030,6 +2066,10 @@ where
     fn check_unstainedcenters(&self, names: &HashSet<&Shortname>) -> Result<(), String>;
 
     fn check_spillover(&self, names: &HashSet<&Shortname>) -> Result<(), String>;
+
+    fn reassign_unstainedcenters(&mut self, mapping: ShortnameMap);
+
+    fn reassign_spillover(&mut self, mapping: ShortnameMap);
 
     fn has_timestep(&self) -> bool;
 
@@ -4302,6 +4342,28 @@ where
         )
         .collect()
     }
+
+    fn reassign_trigger(&mut self, mapping: ShortnameMap) {
+        self.tr.0.as_mut().map_or((), |tr| tr.reassign(mapping))
+    }
+
+    fn reassign_all(&mut self, mapping: ShortnameMap) {
+        self.reassign_trigger(mapping);
+        self.specific.reassign_spillover(mapping);
+        self.specific.reassign_unstainedcenters(mapping);
+    }
+
+    fn check_trigger(&self, names: &HashSet<&Shortname>) -> Result<(), String> {
+        self.tr.0.as_ref().map_or(Ok(()), |tr| tr.check_link(names))
+    }
+
+    fn check_unstainedcenters(&self, names: &HashSet<&Shortname>) -> Result<(), String> {
+        self.specific.check_unstainedcenters(names)
+    }
+
+    fn check_spillover(&self, names: &HashSet<&Shortname>) -> Result<(), String> {
+        self.specific.check_spillover(names)
+    }
 }
 
 impl<M> CoreTEXT<M, M::P>
@@ -4484,6 +4546,30 @@ where
             .collect()
     }
 
+    /// Set all $PnN keywords to list of names.
+    pub fn set_shortnames(&mut self, ns: Vec<Shortname>) -> Result<(), String> {
+        let old_len = self.measurements.len();
+        let new_len = ns.len();
+        if old_len != new_len {
+            Err(format!("Expecting {old_len} names, got {new_len}"))
+        } else if try_unique(ns.iter().collect::<Vec<_>>().as_slice()).is_some() {
+            let mapping: HashMap<_, _> = self
+                .measurements
+                .iter()
+                .zip(ns.iter())
+                .flat_map(|(meas, new)| meas.specific.maybe_name().map(|old| (old, new)))
+                .collect();
+            self.metadata.reassign_all(&mapping);
+            // TODO reassign names in dataframe
+            for (m, n) in self.measurements.iter_mut().zip(ns) {
+                m.specific.set_shortname(n)
+            }
+            Ok(())
+        } else {
+            Err("New names not unique".into())
+        }
+    }
+
     fn set_df_column_names(&self, df: &mut DataFrame) -> PolarsResult<()> {
         let ns: Vec<PlSmallStr> = self
             .shortnames()
@@ -4491,19 +4577,6 @@ where
             .map(|s| s.as_ref().into())
             .collect();
         df.set_column_names(ns)
-    }
-
-    /// Set all $PnN keywords to list of names.
-    // TODO this needs to change lots of stuff, $TR, $UNSTAINEDCENTERS, $SPILLOVER, etc
-    pub fn set_shortnames(&mut self, ns: Vec<Shortname>) -> bool {
-        if self.measurements.len() != ns.len() {
-            false
-        } else {
-            for (m, n) in self.measurements.iter_mut().zip(ns) {
-                m.specific.set_shortname(n)
-            }
-            true
-        }
     }
 
     /// Return a list of measurement names as stored in $PnS
@@ -4685,15 +4758,7 @@ where
     }
 
     fn unique_meaurement_names(&self) -> Option<HashSet<&Shortname>> {
-        let mut unique = HashSet::new();
-        for n in self.measurement_names() {
-            if unique.contains(n) {
-                return None;
-            } else {
-                unique.insert(n);
-            }
-        }
-        Some(unique)
+        try_unique(self.measurement_names().as_slice())
     }
 
     fn validate(&self, conf: &TimeConfig) -> PureSuccess<()> {
@@ -4705,24 +4770,18 @@ where
         // failure will always be an error and not a warning.
         if let Some(unique) = self.unique_meaurement_names() {
             // Ensure $TR refers to a valid measurement
-            if let Err(msg) = self
-                .metadata
-                .tr
-                .0
-                .as_ref()
-                .map_or(Ok(()), |tr| tr.test_link(&unique))
-            {
+            if let Err(msg) = self.metadata.check_trigger(&unique) {
                 deferred.push_error(msg);
             }
 
             // Ensure $UNSTAINEDCENTERS refers to valid measurements (if applicable)
-            if let Err(msg) = self.metadata.specific.check_unstainedcenters(&unique) {
+            if let Err(msg) = self.metadata.check_unstainedcenters(&unique) {
                 // TODO toggle this
                 deferred.push_error(msg);
             }
 
             // Ensure $SPILLOVER refers to valid measurements (if applicable)
-            if let Err(msg) = self.metadata.specific.check_spillover(&unique) {
+            if let Err(msg) = self.metadata.check_spillover(&unique) {
                 // TODO toggle this
                 deferred.push_error(msg);
             }
@@ -4779,6 +4838,18 @@ where
 
         PureSuccess { data: (), deferred }
     }
+}
+
+fn try_unique<'a, T: Eq + Hash>(xs: &[&'a T]) -> Option<HashSet<&'a T>> {
+    let mut unique = HashSet::new();
+    for x in xs {
+        if unique.contains(x) {
+            return None;
+        } else {
+            unique.insert(*x);
+        }
+    }
+    Some(unique)
 }
 
 enum ValidType {
@@ -5624,7 +5695,10 @@ fn h_read_std_dataset<R: Read + Seek>(
             let data_parser = data_maybe.ok_or(Failure::new(dmsg))?;
             let mut data = h_read_data_segment(h, data_parser)?;
             let analysis = h_read_analysis(h, &analysis_seg)?;
-            std.standardized.set_df_column_names(&mut data);
+            // ASSUME we have checked that the dataframe has the same number of
+            // columns as number of measurements, and that all measurement
+            // names are unique. Therefore, this should not fail.
+            std.standardized.set_df_column_names(&mut data).unwrap();
             Ok(PureSuccess::from(StandardizedDataset {
                 offsets: Offsets {
                     prim_text: std.offsets.prim_text,
@@ -5713,6 +5787,10 @@ impl VersionedMetadata for InnerMetadata2_0 {
         Ok(())
     }
 
+    fn reassign_unstainedcenters(&mut self, _: ShortnameMap) {}
+
+    fn reassign_spillover(&mut self, _: ShortnameMap) {}
+
     get_set_pre_3_2_datetime!(FCSTime);
 
     fn lookup_specific(st: &mut KwParser, par: Par) -> Option<InnerMetadata2_0> {
@@ -5793,6 +5871,10 @@ impl VersionedMetadata for InnerMetadata3_0 {
         Ok(())
     }
 
+    fn reassign_unstainedcenters(&mut self, _: ShortnameMap) {}
+
+    fn reassign_spillover(&mut self, _: ShortnameMap) {}
+
     get_set_pre_3_2_datetime!(FCSTime60);
 
     fn lookup_specific(st: &mut KwParser, _: Par) -> Option<InnerMetadata3_0> {
@@ -5869,7 +5951,16 @@ impl VersionedMetadata for InnerMetadata3_1 {
         self.spillover
             .0
             .as_ref()
-            .map_or(Ok(()), |x| x.test_link(names))
+            .map_or(Ok(()), |x| x.check_link(names))
+    }
+
+    fn reassign_unstainedcenters(&mut self, _: ShortnameMap) {}
+
+    fn reassign_spillover(&mut self, mapping: ShortnameMap) {
+        self.spillover
+            .0
+            .as_mut()
+            .map_or((), |x| x.reassign(mapping))
     }
 
     get_set_pre_3_2_datetime!(FCSTime100);
@@ -5973,14 +6064,29 @@ impl VersionedMetadata for InnerMetadata3_2 {
             .unstainedcenters
             .0
             .as_ref()
-            .map_or(Ok(()), |x| x.test_link(names))
+            .map_or(Ok(()), |x| x.check_link(names))
     }
 
     fn check_spillover(&self, names: &HashSet<&Shortname>) -> Result<(), String> {
         self.spillover
             .0
             .as_ref()
-            .map_or(Ok(()), |x| x.test_link(names))
+            .map_or(Ok(()), |x| x.check_link(names))
+    }
+
+    fn reassign_unstainedcenters(&mut self, mapping: ShortnameMap) {
+        self.unstained
+            .unstainedcenters
+            .0
+            .as_mut()
+            .map_or((), |x| x.reassign(mapping))
+    }
+
+    fn reassign_spillover(&mut self, mapping: ShortnameMap) {
+        self.spillover
+            .0
+            .as_mut()
+            .map_or((), |x| x.reassign(mapping))
     }
 
     // TODO not DRY
@@ -6826,6 +6932,7 @@ fn repair_offsets(pairs: &mut RawPairs, conf: &RawTextReadConfig) {
     }
 }
 
+// TODO use non-empty here (and everywhere else we return multiple errors)
 fn lookup_req_segment(
     kws: &mut RawKeywords,
     bk: &str,

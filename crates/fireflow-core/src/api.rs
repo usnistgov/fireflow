@@ -276,7 +276,7 @@ pub type CoreTEXT3_2 = CoreTEXT<InnerMetadata3_2, InnerMeasurement3_2>;
 /// - $TOT (inferred from summed bit width and length of DATA)
 /// - $PAR (inferred from length of measurement vector)
 /// - $NEXTDATA (handled elsewhere)
-/// - $(BEGIN|END)(DATA|ANALYSIS|STEXT) (already parsed when for raw TEXT)
+/// - $(BEGIN|END)(DATA|ANALYSIS|STEXT) (handled elsewhere)
 ///
 /// These are not included because this struct will also be used to encode the
 /// TEXT data when writing a new FCS file, and the keywords that are not
@@ -508,6 +508,21 @@ pub struct Spillover {
     pub matrix: DMatrix<f32>,
 }
 
+impl Spillover {
+    fn remove_by_name(&mut self, n: &str) -> bool {
+        if let Some(i) = self.measurements.iter().position(|m| m.as_ref() == n) {
+            // TODO this looks expensive; it copies basically everything 3x;
+            // good thing these matrices aren't that big (usually). The
+            // alternative is to iterate over the matrix and populate a new one
+            // while skipping certain elements.
+            self.matrix = self.matrix.clone().remove_row(i).remove_column(i);
+            true
+        } else {
+            false
+        }
+    }
+}
+
 /// The value of the $TR field (all versions)
 ///
 /// This is formatted as 'string,f' where 'string' is a measurement name.
@@ -608,6 +623,12 @@ pub struct PlateData {
 /// here is more conveniently encoded as a hash table.
 #[derive(Clone, Serialize)]
 pub struct UnstainedCenters(HashMap<Shortname, f32>);
+
+impl UnstainedCenters {
+    fn remove_by_name(&mut self, n: &str) -> bool {
+        self.0.remove(n).is_some()
+    }
+}
 
 /// A bundle for $UNSTAINEDCENTERS and $UNSTAINEDINFO (3.2+)
 #[derive(Clone, Serialize, Default)]
@@ -2059,19 +2080,31 @@ where
 {
     type P;
 
+    fn as_unstainedcenters(&self) -> Option<&UnstainedCenters>;
+
+    fn as_unstainedcenters_mut(&mut self) -> Option<&mut UnstainedCenters>;
+
+    fn as_spillover(&self) -> Option<&Spillover>;
+
+    fn as_spillover_mut(&mut self) -> Option<&mut Spillover>;
+
     fn timestamps_valid(&self) -> bool;
 
     fn datetimes_valid(&self) -> bool;
 
-    fn check_unstainedcenters(&self, names: &HashSet<&Shortname>) -> Result<(), String>;
+    // fn check_unstainedcenters(&self, names: &HashSet<&Shortname>) -> Result<(), String>;
 
-    fn check_spillover(&self, names: &HashSet<&Shortname>) -> Result<(), String>;
+    // fn check_spillover(&self, names: &HashSet<&Shortname>) -> Result<(), String>;
 
-    fn reassign_unstainedcenters(&mut self, mapping: ShortnameMap);
+    // fn reassign_unstainedcenters(&mut self, mapping: ShortnameMap);
 
-    fn reassign_spillover(&mut self, mapping: ShortnameMap);
+    // fn reassign_spillover(&mut self, mapping: ShortnameMap);
 
-    fn has_timestep(&self) -> bool;
+    // fn remove_unstainedcenters_by_name(&mut self, n: &str) -> bool;
+
+    // fn remove_spillover_by_name(&mut self, n: &str) -> bool;
+
+    fn check_timestep(&self) -> bool;
 
     fn begin_date(&self) -> Option<NaiveDate>;
 
@@ -4028,6 +4061,14 @@ impl AnyCoreTEXT {
         }
     }
 
+    fn set_shortnames(&mut self, names: Vec<Shortname>) -> Result<(), String> {
+        match_anycoretext!(self, x, { x.set_shortnames(names) })
+    }
+
+    fn remove_measurement(&mut self, n: &str) -> bool {
+        match_anycoretext!(self, x, { x.remove_shortname(n) })
+    }
+
     fn set_df_column_names(&self, df: &mut DataFrame) -> PolarsResult<()> {
         match_anycoretext!(self, x, { x.set_df_column_names(df) })
     }
@@ -4349,8 +4390,12 @@ where
 
     fn reassign_all(&mut self, mapping: ShortnameMap) {
         self.reassign_trigger(mapping);
-        self.specific.reassign_spillover(mapping);
-        self.specific.reassign_unstainedcenters(mapping);
+        self.specific
+            .as_spillover_mut()
+            .map(|x| x.reassign(mapping));
+        self.specific
+            .as_unstainedcenters_mut()
+            .map(|x| x.reassign(mapping));
     }
 
     fn check_trigger(&self, names: &HashSet<&Shortname>) -> Result<(), String> {
@@ -4358,11 +4403,28 @@ where
     }
 
     fn check_unstainedcenters(&self, names: &HashSet<&Shortname>) -> Result<(), String> {
-        self.specific.check_unstainedcenters(names)
+        self.specific
+            .as_unstainedcenters()
+            .map_or(Ok(()), |x| x.check_link(names))
     }
 
     fn check_spillover(&self, names: &HashSet<&Shortname>) -> Result<(), String> {
-        self.specific.check_spillover(names)
+        self.specific
+            .as_spillover()
+            .map_or(Ok(()), |x| x.check_link(names))
+    }
+
+    fn remove_trigger_by_name(&mut self, n: &str) -> bool {
+        if self
+            .tr
+            .as_ref_opt()
+            .is_some_and(|m| m.measurement.as_ref() == n)
+        {
+            self.tr = None.into();
+            true
+        } else {
+            false
+        }
     }
 }
 
@@ -4547,6 +4609,11 @@ where
     }
 
     /// Set all $PnN keywords to list of names.
+    ///
+    /// The length of the names must match the number of measurements. Any
+    /// keywords refering to the old names will be updated to reflect the new
+    /// names. For 2.0 and 3.0 which have optional $PnN, all $PnN will end up
+    /// being set.
     pub fn set_shortnames(&mut self, ns: Vec<Shortname>) -> Result<(), String> {
         let old_len = self.measurements.len();
         let new_len = ns.len();
@@ -4570,13 +4637,38 @@ where
         }
     }
 
-    fn set_df_column_names(&self, df: &mut DataFrame) -> PolarsResult<()> {
-        let ns: Vec<PlSmallStr> = self
-            .shortnames()
+    // TODO what if the time channel is removed?
+    pub fn remove_shortname(&mut self, n: &str) -> bool {
+        if let Some(i) = self
+            .measurements
+            .iter()
+            .position(|m| m.specific.maybe_name().is_some_and(|x| x.as_ref() == n))
+        {
+            self.measurements.remove(i);
+            self.metadata.remove_trigger_by_name(n);
+            self.metadata
+                .specific
+                .as_spillover_mut()
+                .map(|x| x.remove_by_name(n));
+            self.metadata
+                .specific
+                .as_unstainedcenters_mut()
+                .map(|x| x.remove_by_name(n));
+            true
+        } else {
+            false
+        }
+    }
+
+    fn df_names(&self) -> Vec<PlSmallStr> {
+        self.shortnames()
             .into_iter()
             .map(|s| s.as_ref().into())
-            .collect();
-        df.set_column_names(ns)
+            .collect()
+    }
+
+    fn set_df_column_names(&self, df: &mut DataFrame) -> PolarsResult<()> {
+        df.set_column_names(self.df_names())
     }
 
     /// Return a list of measurement names as stored in $PnS
@@ -4769,18 +4861,15 @@ where
         // Ensure $PnN are unique; if this fails we can't make a dataframe, so
         // failure will always be an error and not a warning.
         if let Some(unique) = self.unique_meaurement_names() {
-            // Ensure $TR refers to a valid measurement
             if let Err(msg) = self.metadata.check_trigger(&unique) {
                 deferred.push_error(msg);
             }
 
-            // Ensure $UNSTAINEDCENTERS refers to valid measurements (if applicable)
             if let Err(msg) = self.metadata.check_unstainedcenters(&unique) {
                 // TODO toggle this
                 deferred.push_error(msg);
             }
 
-            // Ensure $SPILLOVER refers to valid measurements (if applicable)
             if let Err(msg) = self.metadata.check_spillover(&unique) {
                 // TODO toggle this
                 deferred.push_error(msg);
@@ -4797,24 +4886,20 @@ where
                 .iter()
                 .find(|m| m.specific.maybe_name() == Some(time_name))
             {
-                // check if $TIMESTEP exists
-                if !self.metadata.specific.has_timestep() {
+                // check that $TIMESTEP exists
+                if !self.metadata.specific.check_timestep() {
                     let msg = "$TIMESTEP must be present if time measurement present".into();
                     deferred.push_msg_leveled(msg, conf.ensure_timestep)
                 }
                 // check that $PnE is linear
                 if !time_meas.specific.has_linear_scale() {
-                    deferred.push_msg_leveled(
-                        "Time measurement must have linear $PnE".into(),
-                        conf.ensure_linear,
-                    );
+                    let msg = "Time measurement must have linear $PnE".into();
+                    deferred.push_msg_leveled(msg, conf.ensure_linear);
                 }
                 // check that $PnG doesn't exist
                 if time_meas.specific.has_gain() {
-                    deferred.push_msg_leveled(
-                        "Time measurement should not have $PnG".into(),
-                        conf.ensure_nogain,
-                    );
+                    let msg = "Time measurement should not have $PnG".into();
+                    deferred.push_msg_leveled(msg, conf.ensure_nogain);
                 }
             } else {
                 let msg = format!("Measurement '{time_name}' not found for time");
@@ -4837,6 +4922,23 @@ where
         }
 
         PureSuccess { data: (), deferred }
+    }
+}
+
+impl CoreDataset {
+    fn set_shortnames(&mut self, names: Vec<Shortname>) -> Result<(), String> {
+        self.text
+            .set_shortnames(names)
+            .inspect(|_| self.text.set_df_column_names(&mut self.data).unwrap())
+    }
+
+    fn remove_measurement(&mut self, n: &str) -> bool {
+        if self.text.remove_measurement(n) {
+            self.data.drop_in_place(n).unwrap();
+            true
+        } else {
+            false
+        }
     }
 }
 
@@ -5767,6 +5869,22 @@ impl VersionedMetadata for InnerMetadata2_0 {
         self.byteord.clone()
     }
 
+    fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
+        None
+    }
+
+    fn as_unstainedcenters_mut(&mut self) -> Option<&mut UnstainedCenters> {
+        None
+    }
+
+    fn as_spillover(&self) -> Option<&Spillover> {
+        None
+    }
+
+    fn as_spillover_mut(&mut self) -> Option<&mut Spillover> {
+        None
+    }
+
     fn timestamps_valid(&self) -> bool {
         self.timestamps.valid()
     }
@@ -5775,21 +5893,9 @@ impl VersionedMetadata for InnerMetadata2_0 {
         true
     }
 
-    fn has_timestep(&self) -> bool {
-        false
+    fn check_timestep(&self) -> bool {
+        true
     }
-
-    fn check_unstainedcenters(&self, _: &HashSet<&Shortname>) -> Result<(), String> {
-        Ok(())
-    }
-
-    fn check_spillover(&self, _: &HashSet<&Shortname>) -> Result<(), String> {
-        Ok(())
-    }
-
-    fn reassign_unstainedcenters(&mut self, _: ShortnameMap) {}
-
-    fn reassign_spillover(&mut self, _: ShortnameMap) {}
 
     get_set_pre_3_2_datetime!(FCSTime);
 
@@ -5847,6 +5953,22 @@ impl VersionedMetadata for InnerMetadata3_0 {
         self.byteord.clone()
     }
 
+    fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
+        None
+    }
+
+    fn as_unstainedcenters_mut(&mut self) -> Option<&mut UnstainedCenters> {
+        None
+    }
+
+    fn as_spillover(&self) -> Option<&Spillover> {
+        None
+    }
+
+    fn as_spillover_mut(&mut self) -> Option<&mut Spillover> {
+        None
+    }
+
     fn lookup_tot(kws: &mut RawKeywords) -> PureMaybe<Tot> {
         PureMaybe::from_result_1(Tot::lookup_meta_req(kws), PureErrorLevel::Error)
     }
@@ -5859,21 +5981,9 @@ impl VersionedMetadata for InnerMetadata3_0 {
         true
     }
 
-    fn has_timestep(&self) -> bool {
+    fn check_timestep(&self) -> bool {
         self.timestep.0.is_some()
     }
-
-    fn check_unstainedcenters(&self, _: &HashSet<&Shortname>) -> Result<(), String> {
-        Ok(())
-    }
-
-    fn check_spillover(&self, _: &HashSet<&Shortname>) -> Result<(), String> {
-        Ok(())
-    }
-
-    fn reassign_unstainedcenters(&mut self, _: ShortnameMap) {}
-
-    fn reassign_spillover(&mut self, _: ShortnameMap) {}
 
     get_set_pre_3_2_datetime!(FCSTime60);
 
@@ -5927,6 +6037,22 @@ impl VersionedMetadata for InnerMetadata3_1 {
         ByteOrd::Endian(self.byteord)
     }
 
+    fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
+        None
+    }
+
+    fn as_unstainedcenters_mut(&mut self) -> Option<&mut UnstainedCenters> {
+        None
+    }
+
+    fn as_spillover(&self) -> Option<&Spillover> {
+        self.spillover.as_ref_opt()
+    }
+
+    fn as_spillover_mut(&mut self) -> Option<&mut Spillover> {
+        self.spillover.0.as_mut()
+    }
+
     fn lookup_tot(kws: &mut RawKeywords) -> PureMaybe<Tot> {
         PureMaybe::from_result_1(Tot::lookup_meta_req(kws), PureErrorLevel::Error)
     }
@@ -5939,28 +6065,8 @@ impl VersionedMetadata for InnerMetadata3_1 {
         true
     }
 
-    fn has_timestep(&self) -> bool {
+    fn check_timestep(&self) -> bool {
         self.timestep.0.is_some()
-    }
-
-    fn check_unstainedcenters(&self, _: &HashSet<&Shortname>) -> Result<(), String> {
-        Ok(())
-    }
-
-    fn check_spillover(&self, names: &HashSet<&Shortname>) -> Result<(), String> {
-        self.spillover
-            .0
-            .as_ref()
-            .map_or(Ok(()), |x| x.check_link(names))
-    }
-
-    fn reassign_unstainedcenters(&mut self, _: ShortnameMap) {}
-
-    fn reassign_spillover(&mut self, mapping: ShortnameMap) {
-        self.spillover
-            .0
-            .as_mut()
-            .map_or((), |x| x.reassign(mapping))
     }
 
     get_set_pre_3_2_datetime!(FCSTime100);
@@ -6018,24 +6124,6 @@ impl VersionedMetadata for InnerMetadata3_1 {
     }
 }
 
-// TODO moveme
-// fn check_noexist(
-//     xs: &[&Shortname],
-//     names: &HashSet<&Shortname>,
-//     which: &'static str,
-// ) -> Option<String> {
-//     let noexist: Vec<_> = xs.iter().filter(|x| !names.contains(*x)).collect();
-//     if !noexist.is_empty() {
-//         let msg = format!(
-//             "{} refers to non-existent measurements: {}",
-//             which,
-//             noexist.iter().join(","),
-//         );
-//         return Some(msg);
-//     }
-//     None
-// }
-
 impl VersionedMetadata for InnerMetadata3_2 {
     type P = InnerMeasurement3_2;
 
@@ -6047,6 +6135,22 @@ impl VersionedMetadata for InnerMetadata3_2 {
         ByteOrd::Endian(self.byteord)
     }
 
+    fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
+        self.unstained.unstainedcenters.as_ref_opt()
+    }
+
+    fn as_unstainedcenters_mut(&mut self) -> Option<&mut UnstainedCenters> {
+        self.unstained.unstainedcenters.0.as_mut()
+    }
+
+    fn as_spillover(&self) -> Option<&Spillover> {
+        self.spillover.as_ref_opt()
+    }
+
+    fn as_spillover_mut(&mut self) -> Option<&mut Spillover> {
+        self.spillover.0.as_mut()
+    }
+
     fn timestamps_valid(&self) -> bool {
         self.timestamps.valid()
     }
@@ -6055,75 +6159,41 @@ impl VersionedMetadata for InnerMetadata3_2 {
         self.datetimes.valid()
     }
 
-    fn has_timestep(&self) -> bool {
+    fn check_timestep(&self) -> bool {
         self.timestep.0.is_some()
-    }
-
-    fn check_unstainedcenters(&self, names: &HashSet<&Shortname>) -> Result<(), String> {
-        self.unstained
-            .unstainedcenters
-            .0
-            .as_ref()
-            .map_or(Ok(()), |x| x.check_link(names))
-    }
-
-    fn check_spillover(&self, names: &HashSet<&Shortname>) -> Result<(), String> {
-        self.spillover
-            .0
-            .as_ref()
-            .map_or(Ok(()), |x| x.check_link(names))
-    }
-
-    fn reassign_unstainedcenters(&mut self, mapping: ShortnameMap) {
-        self.unstained
-            .unstainedcenters
-            .0
-            .as_mut()
-            .map_or((), |x| x.reassign(mapping))
-    }
-
-    fn reassign_spillover(&mut self, mapping: ShortnameMap) {
-        self.spillover
-            .0
-            .as_mut()
-            .map_or((), |x| x.reassign(mapping))
     }
 
     // TODO not DRY
     fn begin_date(&self) -> Option<NaiveDate> {
         self.datetimes
             .begin
-            .0
-            .as_ref()
+            .as_ref_opt()
             .map(|x| (x.0).0.date_naive())
-            .or(self.timestamps.date.0.as_ref().map(|x| x.0))
+            .or(self.timestamps.date.as_ref_opt().map(|x| x.0))
     }
 
     fn end_date(&self) -> Option<NaiveDate> {
         self.datetimes
             .end
-            .0
-            .as_ref()
+            .as_ref_opt()
             .map(|x| (x.0).0.date_naive())
-            .or(self.timestamps.date.0.as_ref().map(|x| x.0))
+            .or(self.timestamps.date.as_ref_opt().map(|x| x.0))
     }
 
     fn begin_time(&self) -> Option<NaiveTime> {
         self.datetimes
             .begin
-            .0
-            .as_ref()
+            .as_ref_opt()
             .map(|x| (x.0).0.time())
-            .or(self.timestamps.btim.0.as_ref().map(|x| (x.0).0))
+            .or(self.timestamps.btim.as_ref_opt().map(|x| (x.0).0))
     }
 
     fn end_time(&self) -> Option<NaiveTime> {
         self.datetimes
             .end
-            .0
-            .as_ref()
+            .as_ref_opt()
             .map(|x| (x.0).0.time())
-            .or(self.timestamps.etim.0.as_ref().map(|x| (x.0).0))
+            .or(self.timestamps.etim.as_ref_opt().map(|x| (x.0).0))
     }
 
     fn set_datetimes_inner(&mut self, begin: DateTime<FixedOffset>, end: DateTime<FixedOffset>) {

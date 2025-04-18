@@ -1,6 +1,7 @@
 use crate::macros::{newtype_asref, newtype_disp};
 
 use serde::Serialize;
+use std::borrow::Borrow;
 use std::fmt;
 use std::str::FromStr;
 
@@ -12,6 +13,12 @@ pub struct Shortname(String);
 
 newtype_asref!(Shortname, str);
 newtype_disp!(Shortname);
+
+impl Borrow<str> for Shortname {
+    fn borrow(&self) -> &str {
+        self.0.as_str()
+    }
+}
 
 impl Shortname {
     pub fn new_unchecked<T: AsRef<str>>(s: T) -> Self {

@@ -30,6 +30,10 @@ impl<V> OptionalKw<V> {
         OptionalKw(self.0.as_ref())
     }
 
+    pub fn as_ref_opt(&self) -> Option<&V> {
+        self.0.as_ref()
+    }
+
     pub fn map<F, W>(self, f: F) -> OptionalKw<W>
     where
         F: Fn(V) -> W,

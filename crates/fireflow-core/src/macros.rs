@@ -1,7 +1,7 @@
 // TODO maybe just use derive_more?
 
 macro_rules! newtype_from {
-    ($outer:ident, $inner:ident) => {
+    ($outer:ident, $inner:path) => {
         impl From<$inner> for $outer {
             fn from(value: $inner) -> Self {
                 $outer(value)

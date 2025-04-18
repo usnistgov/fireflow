@@ -206,7 +206,7 @@ pub struct StandardizedDataset {
     pub delimiter: u8,
 
     /// Structured data derived from TEXT specific to the indicated FCS version.
-    pub dataset: CoreDataset,
+    pub dataset: AnyCoreDataset,
 
     /// Raw standard keyword remaining after processing.
     ///
@@ -222,9 +222,9 @@ pub struct StandardizedDataset {
 /// This will include the standardized TEXT keywords as well as its
 /// corresponding DATA segment parsed into a dataframe-like structure.
 #[derive(Clone)]
-pub struct CoreDataset {
+pub struct CoreDataset<M, P> {
     /// Standardized TEXT segment in version specific format
-    pub text: AnyCoreTEXT,
+    pub text: Box<CoreTEXT<M, P>>,
 
     /// DATA segment as a polars DataFrame
     ///
@@ -238,8 +238,13 @@ pub struct CoreDataset {
     /// This will be empty if ANALYSIS either doesn't exist or the computation
     /// fails. This has not standard structure, so the best we can capture is a
     /// byte sequence.
-    pub analysis: Vec<u8>,
+    pub analysis: Analysis,
 }
+
+#[derive(Clone)]
+pub struct Analysis(pub Vec<u8>);
+
+newtype_from!(Analysis, Vec<u8>);
 
 /// Critical FCS TEXT data for any supported FCS version
 #[derive(Clone)]
@@ -250,11 +255,25 @@ pub enum AnyCoreTEXT {
     FCS3_2(Box<CoreTEXT3_2>),
 }
 
+/// FCS file for any supported FCS version
+#[derive(Clone)]
+pub enum AnyCoreDataset {
+    FCS2_0(CoreDataset2_0),
+    FCS3_0(CoreDataset3_0),
+    FCS3_1(CoreDataset3_1),
+    FCS3_2(CoreDataset3_2),
+}
+
 /// Minimally-required FCS TEXT data for each version
 pub type CoreTEXT2_0 = CoreTEXT<InnerMetadata2_0, InnerMeasurement2_0>;
 pub type CoreTEXT3_0 = CoreTEXT<InnerMetadata3_0, InnerMeasurement3_0>;
 pub type CoreTEXT3_1 = CoreTEXT<InnerMetadata3_1, InnerMeasurement3_1>;
 pub type CoreTEXT3_2 = CoreTEXT<InnerMetadata3_2, InnerMeasurement3_2>;
+
+pub type CoreDataset2_0 = CoreDataset<InnerMetadata2_0, InnerMeasurement2_0>;
+pub type CoreDataset3_0 = CoreDataset<InnerMetadata3_0, InnerMeasurement3_0>;
+pub type CoreDataset3_1 = CoreDataset<InnerMetadata3_1, InnerMeasurement3_1>;
+pub type CoreDataset3_2 = CoreDataset<InnerMetadata3_2, InnerMeasurement3_2>;
 
 /// Represents the minimal data required to fully represent the TEXT keywords.
 ///
@@ -4100,6 +4119,78 @@ impl AnyCoreTEXT {
     ) -> PureMaybe<DataReader> {
         match_anycoretext!(self, x, { x.as_data_reader(kws, conf, data_seg) })
     }
+
+    fn into_core_dataset(self, data: DataFrame, analysis: Analysis) -> AnyCoreDataset {
+        match self {
+            AnyCoreTEXT::FCS2_0(text) => AnyCoreDataset::FCS2_0(CoreDataset {
+                text,
+                data,
+                analysis,
+            }),
+            AnyCoreTEXT::FCS3_0(text) => AnyCoreDataset::FCS3_0(CoreDataset {
+                text,
+                data,
+                analysis,
+            }),
+            AnyCoreTEXT::FCS3_1(text) => AnyCoreDataset::FCS3_1(CoreDataset {
+                text,
+                data,
+                analysis,
+            }),
+            AnyCoreTEXT::FCS3_2(text) => AnyCoreDataset::FCS3_2(CoreDataset {
+                text,
+                data,
+                analysis,
+            }),
+        }
+    }
+}
+
+impl AnyCoreDataset {
+    pub fn version(&self) -> Version {
+        match self {
+            AnyCoreDataset::FCS2_0(_) => Version::FCS2_0,
+            AnyCoreDataset::FCS3_0(_) => Version::FCS3_0,
+            AnyCoreDataset::FCS3_1(_) => Version::FCS3_1,
+            AnyCoreDataset::FCS3_2(_) => Version::FCS3_2,
+        }
+    }
+
+    pub fn into_parts(self) -> (AnyCoreTEXT, DataFrame, Analysis) {
+        match self {
+            AnyCoreDataset::FCS2_0(x) => (AnyCoreTEXT::FCS2_0(x.text), x.data, x.analysis),
+            AnyCoreDataset::FCS3_0(x) => (AnyCoreTEXT::FCS3_0(x.text), x.data, x.analysis),
+            AnyCoreDataset::FCS3_1(x) => (AnyCoreTEXT::FCS3_1(x.text), x.data, x.analysis),
+            AnyCoreDataset::FCS3_2(x) => (AnyCoreTEXT::FCS3_2(x.text), x.data, x.analysis),
+        }
+    }
+
+    // pub fn text(&self) -> AnyCoreTEXT {
+    //     match self {
+    //         AnyCoreDataset::FCS2_0(x) => AnyCoreTEXT::FCS2_0(Box::new(x.text)),
+    //         AnyCoreDataset::FCS3_0(x) => AnyCoreTEXT::FCS3_0(Box::new(x.text)),
+    //         AnyCoreDataset::FCS3_1(x) => AnyCoreTEXT::FCS3_1(Box::new(x.text)),
+    //         AnyCoreDataset::FCS3_2(x) => AnyCoreTEXT::FCS3_2(Box::new(x.text)),
+    //     }
+    // }
+
+    // pub fn analysis(&self) -> &Vec<u8> {
+    //     match_many_to_one!(self, AnyCoreDataset, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
+    //         &x.analysis
+    //     })
+    // }
+
+    pub fn as_data(&self) -> &DataFrame {
+        match_many_to_one!(self, AnyCoreDataset, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
+            &x.data
+        })
+    }
+
+    pub fn as_data_mut(&mut self) -> &mut DataFrame {
+        match_many_to_one!(self, AnyCoreDataset, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
+            &mut x.data
+        })
+    }
 }
 
 impl Serialize for AnyCoreTEXT {
@@ -4947,7 +5038,10 @@ where
     }
 }
 
-impl CoreDataset {
+impl<M> CoreDataset<M, M::P>
+where
+    M: VersionedMetadata,
+{
     fn set_shortnames(&mut self, names: Vec<Shortname>) -> Result<(), String> {
         self.text
             .set_shortnames(names)
@@ -5418,7 +5512,7 @@ pub fn print_parsed_data(s: &mut StandardizedDataset, _delim: &str) -> PolarsRes
         .include_header(true)
         .with_separator(b'\t')
         // TODO why does this need to be mutable?
-        .finish(&mut s.dataset.data)
+        .finish(&mut s.dataset.as_data_mut())
 }
 
 fn ascii_to_uint_io(buf: Vec<u8>) -> io::Result<u64> {
@@ -5691,18 +5785,18 @@ fn h_write_delimited_matrix<W: Write>(
 
 fn h_write_dataset<W: Write>(
     h: &mut BufWriter<W>,
-    d: CoreDataset,
+    d: AnyCoreDataset,
     conf: &WriteConfig,
 ) -> ImpureResult<()> {
-    let analysis_len = d.analysis.len();
-    let df = d.data;
+    let (text, df, analysis) = d.into_parts();
+    let analysis_len = analysis.0.len();
     let df_ncols = df.width();
 
     // We can now confidently count the number of events (rows)
     let nrows = df.height();
 
     // Get the layout, or bail if we can't
-    let layout = d.text.as_column_layout().map_err(|es| Failure {
+    let layout = text.as_column_layout().map_err(|es| Failure {
         reason: "could not create data layout".to_string(),
         deferred: PureErrorBuf::from_many(es, PureErrorLevel::Error),
     })?;
@@ -5720,7 +5814,7 @@ fn h_write_dataset<W: Write>(
     // Make common HEADER+TEXT writing function, for which the only unknown
     // now is the length of DATA.
     let write_text = |h: &mut BufWriter<W>, data_len| -> ImpureResult<()> {
-        if let Some(text) = d.text.text_segment(Tot(nrows), data_len, analysis_len) {
+        if let Some(text) = text.text_segment(Tot(nrows), data_len, analysis_len) {
             for t in text {
                 h.write_all(t.as_bytes())?;
                 h.write_all(&[conf.delim.inner()])?;
@@ -5787,15 +5881,15 @@ fn h_write_dataset<W: Write>(
         }
     };
 
-    h.write_all(&d.analysis)?;
+    h.write_all(&analysis.0)?;
     res
 }
 
-fn h_read_analysis<R: Read + Seek>(h: &mut BufReader<R>, seg: &Segment) -> io::Result<Vec<u8>> {
+fn h_read_analysis<R: Read + Seek>(h: &mut BufReader<R>, seg: &Segment) -> io::Result<Analysis> {
     let mut buf = vec![];
     h.seek(SeekFrom::Start(u64::from(seg.begin())))?;
     h.take(u64::from(seg.nbytes())).read_to_end(&mut buf)?;
-    Ok(buf)
+    Ok(buf.into())
 }
 
 fn h_read_std_dataset<R: Read + Seek>(
@@ -5833,11 +5927,7 @@ fn h_read_std_dataset<R: Read + Seek>(
                 },
                 delimiter: std.delimiter,
                 remainder: kws,
-                dataset: CoreDataset {
-                    data,
-                    text: std.standardized,
-                    analysis,
-                },
+                dataset: std.standardized.into_core_dataset(data, analysis),
                 deviant: std.deviant,
             }))
         })

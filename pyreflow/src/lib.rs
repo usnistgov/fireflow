@@ -816,55 +816,55 @@ impl PyStandardizedDataset {
         self.0.deviant.clone().into_py_dict(py)
     }
 
-    // TODO this will be in arbitrary order, might make sense to sort it
-    // TODO add flag to remove nonstandard
-    #[pyo3(signature = (want_req=None, want_meta=None))]
-    fn raw_keywords<'py>(
-        &self,
-        py: Python<'py>,
-        want_req: Option<bool>,
-        want_meta: Option<bool>,
-    ) -> PyResult<Bound<'py, PyDict>> {
-        self.0
-            .dataset
-            .text
-            .raw_keywords(want_req, want_meta)
-            .clone()
-            .into_py_dict(py)
-    }
+    // // TODO this will be in arbitrary order, might make sense to sort it
+    // // TODO add flag to remove nonstandard
+    // #[pyo3(signature = (want_req=None, want_meta=None))]
+    // fn raw_keywords<'py>(
+    //     &self,
+    //     py: Python<'py>,
+    //     want_req: Option<bool>,
+    //     want_meta: Option<bool>,
+    // ) -> PyResult<Bound<'py, PyDict>> {
+    //     self.0
+    //         .dataset
+    //         .as_text
+    //         .raw_keywords(want_req, want_meta)
+    //         .clone()
+    //         .into_py_dict(py)
+    // }
 
-    #[getter]
-    fn shortnames(&self) -> Vec<String> {
-        self.0
-            .dataset
-            .text
-            .shortnames()
-            .iter()
-            .map(|x| x.to_string())
-            .collect()
-    }
+    // #[getter]
+    // fn shortnames(&self) -> Vec<String> {
+    //     self.0
+    //         .dataset
+    //         .as_text
+    //         .shortnames()
+    //         .iter()
+    //         .map(|x| x.to_string())
+    //         .collect()
+    // }
 
-    // TODO add other converters here
+    // // TODO add other converters here
 
-    #[getter]
-    fn inner(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        match &self.0.dataset.text {
-            // TODO this copies all data from the "union type" into a new
-            // version-specific type. This might not be a big deal, but these
-            // types might be rather large with lots of strings.
-            api::AnyCoreTEXT::FCS2_0(x) => PyCoreTEXT2_0::from((**x).clone()).into_py_any(py),
-            api::AnyCoreTEXT::FCS3_0(x) => PyCoreTEXT3_0::from((**x).clone()).into_py_any(py),
-            api::AnyCoreTEXT::FCS3_1(x) => PyCoreTEXT3_1::from((**x).clone()).into_py_any(py),
-            api::AnyCoreTEXT::FCS3_2(x) => PyCoreTEXT3_2::from((**x).clone()).into_py_any(py),
-        }
-    }
+    // #[getter]
+    // fn inner(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+    //     match &self.0.dataset.as_text {
+    //         // TODO this copies all data from the "union type" into a new
+    //         // version-specific type. This might not be a big deal, but these
+    //         // types might be rather large with lots of strings.
+    //         api::AnyCoreTEXT::FCS2_0(x) => PyCoreTEXT2_0::from((**x).clone()).into_py_any(py),
+    //         api::AnyCoreTEXT::FCS3_0(x) => PyCoreTEXT3_0::from((**x).clone()).into_py_any(py),
+    //         api::AnyCoreTEXT::FCS3_1(x) => PyCoreTEXT3_1::from((**x).clone()).into_py_any(py),
+    //         api::AnyCoreTEXT::FCS3_2(x) => PyCoreTEXT3_2::from((**x).clone()).into_py_any(py),
+    //     }
+    // }
 
     #[getter]
     fn data(&self) -> PyDataFrame {
         // NOTE polars Series is a wrapper around an Arc so clone just
         // increments the ref count for each column rather than "deepcopy" the
         // whole dataset.
-        PyDataFrame(self.0.dataset.data.clone())
+        PyDataFrame(self.0.dataset.as_data().clone())
     }
 }
 

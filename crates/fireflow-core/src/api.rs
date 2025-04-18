@@ -4763,14 +4763,17 @@ where
         }
     }
 
-    pub fn add_measurement(&mut self, i: usize, m: Measurement<M::P>) -> Result<(), String> {
+    pub fn check_index(&self, i: usize) -> Result<(), String> {
         let p = self.measurements.len();
         if i > p {
             Err(format!("Index must be {p} or less, got {i}"))
         } else {
-            self.measurements.insert(i, m);
             Ok(())
         }
+    }
+
+    pub fn add_measurement(&mut self, i: usize, m: Measurement<M::P>) -> Result<(), String> {
+        self.check_index(i).map(|_| self.measurements.insert(i, m))
     }
 
     fn df_names(&self) -> Vec<PlSmallStr> {
@@ -5048,6 +5051,8 @@ where
             .inspect(|_| self.text.set_df_column_names(&mut self.data).unwrap())
     }
 
+    // TODO also make a version of this that takes an index since not all
+    // columns are named or we might not know the name
     fn remove_measurement(&mut self, n: &str) -> bool {
         if self.text.remove_measurement(n) {
             self.data.drop_in_place(n).unwrap();
@@ -5055,6 +5060,26 @@ where
         } else {
             false
         }
+    }
+
+    fn add_measurement<T>(
+        &mut self,
+        i: usize,
+        m: Measurement<M::P>,
+        col: Vec<T::Native>,
+    ) -> Result<(), String>
+    where
+        T: PolarsNumericType,
+        ChunkedArray<T>: IntoSeries,
+    {
+        // TODO index setting is not DRY
+        let n: PlSmallStr = m.specific.shortname(i + 1).as_ref().into();
+        self.text.check_index(i).and_then(|_| {
+            self.text.measurements.insert(i, m);
+            let ser = ChunkedArray::<T>::from_vec(n, col).into_series();
+            self.data.insert_column(i, ser).map_err(|e| e.to_string())?;
+            Ok(())
+        })
     }
 }
 

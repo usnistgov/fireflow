@@ -496,6 +496,17 @@ pub struct Compensation {
     pub matrix: DMatrix<f32>,
 }
 
+impl Compensation {
+    fn remove_by_index(&mut self, i: usize) -> bool {
+        if i <= self.matrix.ncols() {
+            self.matrix = self.matrix.clone().remove_row(i).remove_column(i);
+            true
+        } else {
+            false
+        }
+    }
+}
+
 /// The spillover matrix from the $SPILLOVER keyword (3.1+)
 #[derive(Debug, Clone, Serialize)]
 pub struct Spillover {
@@ -2087,6 +2098,10 @@ where
     fn as_spillover(&self) -> Option<&Spillover>;
 
     fn as_spillover_mut(&mut self) -> Option<&mut Spillover>;
+
+    fn as_compensation(&self) -> Option<&Compensation>;
+
+    fn as_compensation_mut(&mut self) -> Option<&mut Compensation>;
 
     fn timestamps_valid(&self) -> bool;
 
@@ -4645,15 +4660,12 @@ where
             .position(|m| m.specific.maybe_name().is_some_and(|x| x.as_ref() == n))
         {
             self.measurements.remove(i);
-            self.metadata.remove_trigger_by_name(n);
-            self.metadata
-                .specific
-                .as_spillover_mut()
-                .map(|x| x.remove_by_name(n));
-            self.metadata
-                .specific
-                .as_unstainedcenters_mut()
-                .map(|x| x.remove_by_name(n));
+            let m = &mut self.metadata;
+            m.remove_trigger_by_name(n);
+            let s = &mut m.specific;
+            s.as_spillover_mut().map(|x| x.remove_by_name(n));
+            s.as_unstainedcenters_mut().map(|x| x.remove_by_name(n));
+            s.as_compensation_mut().map(|x| x.remove_by_index(i));
             true
         } else {
             false
@@ -5885,6 +5897,14 @@ impl VersionedMetadata for InnerMetadata2_0 {
         None
     }
 
+    fn as_compensation(&self) -> Option<&Compensation> {
+        self.comp.as_ref_opt()
+    }
+
+    fn as_compensation_mut(&mut self) -> Option<&mut Compensation> {
+        self.comp.0.as_mut()
+    }
+
     fn timestamps_valid(&self) -> bool {
         self.timestamps.valid()
     }
@@ -5969,6 +5989,14 @@ impl VersionedMetadata for InnerMetadata3_0 {
         None
     }
 
+    fn as_compensation(&self) -> Option<&Compensation> {
+        self.comp.as_ref_opt()
+    }
+
+    fn as_compensation_mut(&mut self) -> Option<&mut Compensation> {
+        self.comp.0.as_mut()
+    }
+
     fn lookup_tot(kws: &mut RawKeywords) -> PureMaybe<Tot> {
         PureMaybe::from_result_1(Tot::lookup_meta_req(kws), PureErrorLevel::Error)
     }
@@ -6051,6 +6079,14 @@ impl VersionedMetadata for InnerMetadata3_1 {
 
     fn as_spillover_mut(&mut self) -> Option<&mut Spillover> {
         self.spillover.0.as_mut()
+    }
+
+    fn as_compensation(&self) -> Option<&Compensation> {
+        None
+    }
+
+    fn as_compensation_mut(&mut self) -> Option<&mut Compensation> {
+        None
     }
 
     fn lookup_tot(kws: &mut RawKeywords) -> PureMaybe<Tot> {
@@ -6149,6 +6185,14 @@ impl VersionedMetadata for InnerMetadata3_2 {
 
     fn as_spillover_mut(&mut self) -> Option<&mut Spillover> {
         self.spillover.0.as_mut()
+    }
+
+    fn as_compensation(&self) -> Option<&Compensation> {
+        None
+    }
+
+    fn as_compensation_mut(&mut self) -> Option<&mut Compensation> {
+        None
     }
 
     fn timestamps_valid(&self) -> bool {

@@ -4120,36 +4120,24 @@ impl AnyCoreTEXT {
         match_anycoretext!(self, x, { x.as_data_reader(kws, conf, data_seg) })
     }
 
-    fn into_core_dataset_unchecked(self, data: DataFrame, analysis: Analysis) -> AnyCoreDataset {
+    fn into_dataset_unchecked(self, data: DataFrame, analysis: Analysis) -> AnyCoreDataset {
         match self {
-            AnyCoreTEXT::FCS2_0(text) => AnyCoreDataset::FCS2_0(CoreDataset {
-                text,
-                data,
-                analysis,
-            }),
-            AnyCoreTEXT::FCS3_0(text) => AnyCoreDataset::FCS3_0(CoreDataset {
-                text,
-                data,
-                analysis,
-            }),
-            AnyCoreTEXT::FCS3_1(text) => AnyCoreDataset::FCS3_1(CoreDataset {
-                text,
-                data,
-                analysis,
-            }),
-            AnyCoreTEXT::FCS3_2(text) => AnyCoreDataset::FCS3_2(CoreDataset {
-                text,
-                data,
-                analysis,
-            }),
+            AnyCoreTEXT::FCS2_0(text) => {
+                AnyCoreDataset::FCS2_0(text.into_dataset_unchecked(data, analysis))
+            }
+            AnyCoreTEXT::FCS3_0(text) => {
+                AnyCoreDataset::FCS3_0(text.into_dataset_unchecked(data, analysis))
+            }
+            AnyCoreTEXT::FCS3_1(text) => {
+                AnyCoreDataset::FCS3_1(text.into_dataset_unchecked(data, analysis))
+            }
+            AnyCoreTEXT::FCS3_2(text) => {
+                AnyCoreDataset::FCS3_2(text.into_dataset_unchecked(data, analysis))
+            }
         }
     }
 
-    fn into_core_dataset(
-        self,
-        data: DataFrame,
-        analysis: Analysis,
-    ) -> Result<AnyCoreDataset, String> {
+    fn into_dataset(self, data: DataFrame, analysis: Analysis) -> Result<AnyCoreDataset, String> {
         match self {
             AnyCoreTEXT::FCS2_0(text) => text
                 .into_dataset(data, analysis)
@@ -5084,6 +5072,17 @@ where
         PureSuccess { data: (), deferred }
     }
 
+    fn into_dataset_unchecked(self, data: DataFrame, analysis: Analysis) -> CoreDataset<M, M::P> {
+        let ns = self.df_names();
+        let mut data = data;
+        data.set_column_names(ns).unwrap();
+        CoreDataset {
+            text: Box::new(self),
+            data,
+            analysis,
+        }
+    }
+
     fn into_dataset(
         self,
         data: DataFrame,
@@ -5096,11 +5095,7 @@ where
                 "DATA has {w} columns but TEXT has {p} measurements"
             ))
         } else {
-            Ok(CoreDataset {
-                text: Box::new(self),
-                data,
-                analysis,
-            })
+            Ok(self.into_dataset_unchecked(data, analysis))
         }
     }
 }
@@ -6000,12 +5995,8 @@ fn h_read_std_dataset<R: Read + Seek>(
         .try_map(|(data_maybe, data_seg, analysis_seg)| {
             let dmsg = "could not create data parser".to_string();
             let data_parser = data_maybe.ok_or(Failure::new(dmsg))?;
-            let mut data = h_read_data_segment(h, data_parser)?;
+            let data = h_read_data_segment(h, data_parser)?;
             let analysis = h_read_analysis(h, &analysis_seg)?;
-            // ASSUME we have checked that the dataframe has the same number of
-            // columns as number of measurements, and that all measurement
-            // names are unique. Therefore, this should not fail.
-            std.standardized.set_df_column_names(&mut data).unwrap();
             Ok(PureSuccess::from(StandardizedDataset {
                 offsets: Offsets {
                     prim_text: std.offsets.prim_text,
@@ -6016,7 +6007,11 @@ fn h_read_std_dataset<R: Read + Seek>(
                 },
                 delimiter: std.delimiter,
                 remainder: kws,
-                dataset: std.standardized.into_core_dataset_unchecked(data, analysis),
+                // ASSUME we have checked that the dataframe has the same number
+                // of columns as number of measurements, and that all
+                // measurement names are unique. Therefore, this should not
+                // fail.
+                dataset: std.standardized.into_dataset_unchecked(data, analysis),
                 deviant: std.deviant,
             }))
         })

@@ -4103,9 +4103,9 @@ impl AnyCoreTEXT {
         match_anycoretext!(self, x, { x.remove_measurement(n) })
     }
 
-    fn set_df_column_names(&self, df: &mut DataFrame) -> PolarsResult<()> {
-        match_anycoretext!(self, x, { x.set_df_column_names(df) })
-    }
+    // fn set_df_column_names(&self, df: &mut DataFrame) -> PolarsResult<()> {
+    //     match_anycoretext!(self, x, { x.set_df_column_names(df) })
+    // }
 
     pub fn as_column_layout(&self) -> Result<ColumnLayout, Vec<String>> {
         match_anycoretext!(self, x, { x.as_column_layout() })
@@ -4804,8 +4804,24 @@ where
         }
     }
 
+    // TODO might be good to wrap the entire measurement vector into something
+    // that can only be updated if it passes some uniqueness test. It needs to
+    // be done manually since we can't use a hashset.
     pub fn add_measurement(&mut self, i: usize, m: Measurement<M::P>) -> Result<(), String> {
-        self.check_index(i).map(|_| self.measurements.insert(i, m))
+        self.check_index(i).and_then(|_| {
+            let newname = m.specific.maybe_name();
+            if self.measurements.iter().any(|m| {
+                m.specific
+                    .maybe_name()
+                    .zip(newname)
+                    .is_some_and(|(a, b)| a == b)
+            }) {
+                Err("Measurement with same name already present".to_string())
+            } else {
+                self.measurements.insert(i, m);
+                Ok(())
+            }
+        })
     }
 
     fn df_names(&self) -> Vec<PlSmallStr> {

@@ -4156,6 +4156,8 @@ impl AnyCoreDataset {
         }
     }
 
+    // TODO this would be much more elegant with real rankN support, see:
+    // https://github.com/rust-lang/rust/issues/108185
     pub fn into_parts(self) -> (AnyCoreTEXT, DataFrame, Analysis) {
         match self {
             AnyCoreDataset::FCS2_0(x) => (AnyCoreTEXT::FCS2_0(x.text), x.data, x.analysis),
@@ -4165,20 +4167,11 @@ impl AnyCoreDataset {
         }
     }
 
-    // pub fn text(&self) -> AnyCoreTEXT {
-    //     match self {
-    //         AnyCoreDataset::FCS2_0(x) => AnyCoreTEXT::FCS2_0(Box::new(x.text)),
-    //         AnyCoreDataset::FCS3_0(x) => AnyCoreTEXT::FCS3_0(Box::new(x.text)),
-    //         AnyCoreDataset::FCS3_1(x) => AnyCoreTEXT::FCS3_1(Box::new(x.text)),
-    //         AnyCoreDataset::FCS3_2(x) => AnyCoreTEXT::FCS3_2(Box::new(x.text)),
-    //     }
-    // }
-
-    // pub fn analysis(&self) -> &Vec<u8> {
-    //     match_many_to_one!(self, AnyCoreDataset, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
-    //         &x.analysis
-    //     })
-    // }
+    pub fn as_analysis(&self) -> &Analysis {
+        match_many_to_one!(self, AnyCoreDataset, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
+            &x.analysis
+        })
+    }
 
     pub fn as_data(&self) -> &DataFrame {
         match_many_to_one!(self, AnyCoreDataset, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
@@ -4191,6 +4184,36 @@ impl AnyCoreDataset {
             &mut x.data
         })
     }
+}
+
+macro_rules! coredataset_as_text {
+    ($this:expr, $bind:ident, $f:expr) => {
+        match_many_to_one!(
+            $this,
+            AnyCoreDataset,
+            [FCS2_0, FCS3_0, FCS3_1, FCS3_2],
+            x,
+            {
+                let $bind = &(*x.text);
+                $f
+            }
+        )
+    };
+}
+
+macro_rules! coredataset_as_text_mut {
+    ($this:expr, $bind:ident, $f:expr) => {
+        match_many_to_one!(
+            $this,
+            AnyCoreDataset,
+            [FCS2_0, FCS3_0, FCS3_1, FCS3_2],
+            x,
+            {
+                let $bind = &mut (*x.text);
+                $f
+            }
+        )
+    };
 }
 
 impl Serialize for AnyCoreTEXT {

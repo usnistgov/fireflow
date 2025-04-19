@@ -6,6 +6,7 @@ use crate::keywords::*;
 use crate::macros::{newtype_disp, newtype_from, newtype_from_outer, newtype_fromstr};
 use crate::optionalkw::OptionalKw;
 pub use crate::segment::*;
+use crate::validated::distinct::{DistinctBy, DistinctVec};
 use crate::validated::nonstandard::*;
 use crate::validated::ranged_float::*;
 use crate::validated::shortname::Shortname;
@@ -222,9 +223,9 @@ pub struct StandardizedDataset {
 /// This will include the standardized TEXT keywords as well as its
 /// corresponding DATA segment parsed into a dataframe-like structure.
 #[derive(Clone)]
-pub struct CoreDataset<M, P> {
+pub struct CoreDataset<M, P, N> {
     /// Standardized TEXT segment in version specific format
-    pub text: Box<CoreTEXT<M, P>>,
+    pub text: Box<CoreTEXT<M, P, N>>,
 
     /// DATA segment as a polars DataFrame
     ///
@@ -265,15 +266,15 @@ pub enum AnyCoreDataset {
 }
 
 /// Minimally-required FCS TEXT data for each version
-pub type CoreTEXT2_0 = CoreTEXT<InnerMetadata2_0, InnerMeasurement2_0>;
-pub type CoreTEXT3_0 = CoreTEXT<InnerMetadata3_0, InnerMeasurement3_0>;
-pub type CoreTEXT3_1 = CoreTEXT<InnerMetadata3_1, InnerMeasurement3_1>;
-pub type CoreTEXT3_2 = CoreTEXT<InnerMetadata3_2, InnerMeasurement3_2>;
+pub type CoreTEXT2_0 = CoreTEXT<InnerMetadata2_0, InnerMeasurement2_0, OptionalKw<Shortname>>;
+pub type CoreTEXT3_0 = CoreTEXT<InnerMetadata3_0, InnerMeasurement3_0, OptionalKw<Shortname>>;
+pub type CoreTEXT3_1 = CoreTEXT<InnerMetadata3_1, InnerMeasurement3_1, Shortname>;
+pub type CoreTEXT3_2 = CoreTEXT<InnerMetadata3_2, InnerMeasurement3_2, Shortname>;
 
-pub type CoreDataset2_0 = CoreDataset<InnerMetadata2_0, InnerMeasurement2_0>;
-pub type CoreDataset3_0 = CoreDataset<InnerMetadata3_0, InnerMeasurement3_0>;
-pub type CoreDataset3_1 = CoreDataset<InnerMetadata3_1, InnerMeasurement3_1>;
-pub type CoreDataset3_2 = CoreDataset<InnerMetadata3_2, InnerMeasurement3_2>;
+pub type CoreDataset2_0 = CoreDataset<InnerMetadata2_0, InnerMeasurement2_0, OptionalKw<Shortname>>;
+pub type CoreDataset3_0 = CoreDataset<InnerMetadata3_0, InnerMeasurement3_0, OptionalKw<Shortname>>;
+pub type CoreDataset3_1 = CoreDataset<InnerMetadata3_1, InnerMeasurement3_1, Shortname>;
+pub type CoreDataset3_2 = CoreDataset<InnerMetadata3_2, InnerMeasurement3_2, Shortname>;
 
 /// Represents the minimal data required to fully represent the TEXT keywords.
 ///
@@ -301,7 +302,7 @@ pub type CoreDataset3_2 = CoreDataset<InnerMetadata3_2, InnerMeasurement3_2>;
 /// TEXT data when writing a new FCS file, and the keywords that are not
 /// included can be computed on the fly when writing.
 #[derive(Clone, Serialize)]
-pub struct CoreTEXT<M, P> {
+pub struct CoreTEXT<M, P, N> {
     /// All "non-measurement" TEXT keywords.
     ///
     /// This is specific to each FCS version, which is encoded in the generic
@@ -316,7 +317,7 @@ pub struct CoreTEXT<M, P> {
     ///
     /// This is specific to each FCS version, which is encoded in the generic
     /// type variable.
-    pub measurements: Vec<Measurement<P>>,
+    pub measurements: DistinctVec<N, Measurement<P>>,
 }
 
 /// Raw TEXT key/value pairs
@@ -731,9 +732,8 @@ pub struct InnerMeasurement2_0 {
 
     /// Value for $PnL
     pub wavelength: OptionalKw<Wavelength>,
-
-    /// Value for $PnN
-    pub shortname: OptionalKw<Shortname>,
+    // /// Value for $PnN
+    // pub shortname: OptionalKw<Shortname>,
 }
 
 /// Measurement fields specific to version 3.0
@@ -745,9 +745,8 @@ pub struct InnerMeasurement3_0 {
     /// Value for $PnL
     pub wavelength: OptionalKw<Wavelength>,
 
-    /// Value for $PnN
-    pub shortname: OptionalKw<Shortname>,
-
+    // /// Value for $PnN
+    // pub shortname: OptionalKw<Shortname>,
     /// Value for $PnG
     pub gain: OptionalKw<Gain>,
 }
@@ -761,9 +760,8 @@ pub struct InnerMeasurement3_1 {
     /// Value for $PnL
     pub wavelengths: OptionalKw<Wavelengths>,
 
-    /// Value for $PnN
-    pub shortname: Shortname,
-
+    // /// Value for $PnN
+    // pub shortname: Shortname,
     /// Value for $PnG
     pub gain: OptionalKw<Gain>,
 
@@ -783,9 +781,8 @@ pub struct InnerMeasurement3_2 {
     /// Value for $PnL
     pub wavelengths: OptionalKw<Wavelengths>,
 
-    /// Value for $PnN
-    pub shortname: Shortname,
-
+    // /// Value for $PnN
+    // pub shortname: Shortname,
     /// Value for $PnG
     pub gain: OptionalKw<Gain>,
 
@@ -855,6 +852,24 @@ pub struct Measurement<X> {
 
     /// Version specific data
     pub specific: X,
+}
+
+impl DistinctBy for OptionalKw<Shortname> {
+    type Inner = Shortname;
+    const WHAT: &'static str = "name";
+
+    fn project(&self) -> Option<&Shortname> {
+        self.as_ref_opt()
+    }
+}
+
+impl DistinctBy for Shortname {
+    type Inner = Shortname;
+    const WHAT: &'static str = "name";
+
+    fn project(&self) -> Option<&Shortname> {
+        Some(self)
+    }
 }
 
 /// Version-specific data for one measurement
@@ -2174,17 +2189,21 @@ where
 }
 
 pub trait VersionedMeasurement: Sized + Versioned {
+    type N: DistinctBy;
+
+    fn lookup_shortname(st: &mut KwParser, n: MeasIdx) -> Option<Self::N>;
+
     fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self>;
 
     fn has_linear_scale(&self) -> bool;
 
     fn has_gain(&self) -> bool;
 
-    fn maybe_name(&self) -> Option<&Shortname>;
+    fn maybe_name(n: &Self::N) -> Option<&Shortname>;
 
-    fn shortname(&self, n: usize) -> Shortname;
+    // fn shortname(&self, n: usize) -> Shortname;
 
-    fn set_shortname(&mut self, n: Shortname);
+    // fn set_shortname(&mut self, n: Shortname);
 
     fn req_suffixes_inner(&self, n: Option<MeasIdx>) -> Vec<(String, String)>;
 
@@ -3508,12 +3527,14 @@ impl Versioned for InnerMeasurement3_2 {
 }
 
 impl VersionedMeasurement for InnerMeasurement2_0 {
+    type N = OptionalKw<Shortname>;
+
     fn datatype(&self) -> Option<NumType> {
         None
     }
 
-    fn maybe_name(&self) -> Option<&Shortname> {
-        self.shortname.0.as_ref()
+    fn maybe_name(n: &Self::N) -> Option<&Shortname> {
+        n.as_ref_opt()
     }
 
     fn has_linear_scale(&self) -> bool {
@@ -3524,22 +3545,25 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
         false
     }
 
-    fn shortname(&self, n: usize) -> Shortname {
-        self.shortname
-            .0
-            .as_ref()
-            .cloned()
-            .unwrap_or(Shortname::from_index(n))
+    // fn shortname(&self, n: usize) -> Shortname {
+    //     self.shortname
+    //         .0
+    //         .as_ref()
+    //         .cloned()
+    //         .unwrap_or(Shortname::from_index(n))
+    // }
+
+    // fn set_shortname(&mut self, n: Shortname) {
+    //     self.shortname = Some(n).into();
+    // }
+
+    fn lookup_shortname(st: &mut KwParser, n: MeasIdx) -> Option<Self::N> {
+        Some(st.lookup_meas_opt(n, false))
     }
 
-    fn set_shortname(&mut self, n: Shortname) {
-        self.shortname = Some(n).into();
-    }
-
-    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<InnerMeasurement2_0> {
-        Some(InnerMeasurement2_0 {
+    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self> {
+        Some(Self {
             scale: st.lookup_meas_opt(n, false),
-            shortname: st.lookup_meas_opt(n, false),
             wavelength: st.lookup_meas_opt(n, false),
         })
     }
@@ -3551,7 +3575,7 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
     fn opt_suffixes_inner(&self, n: Option<MeasIdx>) -> Vec<(String, Option<String>)> {
         [
             OptMeasKey::pair(&self.scale, n),
-            OptMeasKey::pair(&self.shortname, n),
+            // OptMeasKey::pair(&self.shortname, n),
             OptMeasKey::pair(&self.wavelength, n),
         ]
         .into_iter()
@@ -3560,12 +3584,14 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
 }
 
 impl VersionedMeasurement for InnerMeasurement3_0 {
+    type N = OptionalKw<Shortname>;
+
     fn datatype(&self) -> Option<NumType> {
         None
     }
 
-    fn maybe_name(&self) -> Option<&Shortname> {
-        self.shortname.0.as_ref()
+    fn maybe_name(n: &Self::N) -> Option<&Shortname> {
+        n.as_ref_opt()
     }
 
     fn has_linear_scale(&self) -> bool {
@@ -3576,23 +3602,26 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
         self.gain.0.is_some()
     }
 
-    fn shortname(&self, n: usize) -> Shortname {
-        self.shortname
-            .0
-            .as_ref()
-            .cloned()
-            .unwrap_or(Shortname::from_index(n))
+    // fn shortname(&self, n: usize) -> Shortname {
+    //     self.shortname
+    //         .0
+    //         .as_ref()
+    //         .cloned()
+    //         .unwrap_or(Shortname::from_index(n))
+    // }
+
+    // fn set_shortname(&mut self, n: Shortname) {
+    //     self.shortname = Some(n).into()
+    // }
+
+    fn lookup_shortname(st: &mut KwParser, n: MeasIdx) -> Option<Self::N> {
+        Some(st.lookup_meas_opt(n, false))
     }
 
-    fn set_shortname(&mut self, n: Shortname) {
-        self.shortname = Some(n).into()
-    }
-
-    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<InnerMeasurement3_0> {
-        Some(InnerMeasurement3_0 {
+    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self> {
+        Some(Self {
             scale: st.lookup_meas_req(n)?,
             gain: st.lookup_meas_opt(n, false),
-            shortname: st.lookup_meas_opt(n, false),
             wavelength: st.lookup_meas_opt(n, false),
         })
     }
@@ -3603,7 +3632,7 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
 
     fn opt_suffixes_inner(&self, n: Option<MeasIdx>) -> Vec<(String, Option<String>)> {
         [
-            OptMeasKey::pair(&self.shortname, n),
+            // OptMeasKey::pair(&self.shortname, n),
             OptMeasKey::pair(&self.wavelength, n),
             OptMeasKey::pair(&self.gain, n),
         ]
@@ -3613,12 +3642,14 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
 }
 
 impl VersionedMeasurement for InnerMeasurement3_1 {
+    type N = Shortname;
+
     fn datatype(&self) -> Option<NumType> {
         None
     }
 
-    fn maybe_name(&self) -> Option<&Shortname> {
-        Some(&self.shortname)
+    fn maybe_name(n: &Self::N) -> Option<&Shortname> {
+        Some(n)
     }
 
     fn has_linear_scale(&self) -> bool {
@@ -3629,19 +3660,22 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
         self.gain.0.is_some()
     }
 
-    fn shortname(&self, _: usize) -> Shortname {
-        self.shortname.clone()
+    // fn shortname(&self, _: usize) -> Shortname {
+    //     self.shortname.clone()
+    // }
+
+    // fn set_shortname(&mut self, n: Shortname) {
+    //     self.shortname = n
+    // }
+
+    fn lookup_shortname(st: &mut KwParser, n: MeasIdx) -> Option<Self::N> {
+        st.lookup_meas_req(n)
     }
 
-    fn set_shortname(&mut self, n: Shortname) {
-        self.shortname = n
-    }
-
-    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<InnerMeasurement3_1> {
-        if let (Some(shortname), Some(scale)) = (st.lookup_meas_req(n), st.lookup_meas_req(n)) {
-            Some(InnerMeasurement3_1 {
+    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self> {
+        if let Some(scale) = st.lookup_meas_req(n) {
+            Some(Self {
                 scale,
-                shortname,
                 gain: st.lookup_meas_opt(n, false),
                 wavelengths: st.lookup_meas_opt(n, false),
                 calibration: st.lookup_meas_opt(n, false),
@@ -3653,9 +3687,12 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
     }
 
     fn req_suffixes_inner(&self, n: Option<MeasIdx>) -> Vec<(String, String)> {
-        [self.scale.pair(n), self.shortname.pair(n)]
-            .into_iter()
-            .collect()
+        [
+            self.scale.pair(n),
+            // self.shortname.pair(n)
+        ]
+        .into_iter()
+        .collect()
     }
 
     fn opt_suffixes_inner(&self, n: Option<MeasIdx>) -> Vec<(String, Option<String>)> {
@@ -3671,12 +3708,14 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
 }
 
 impl VersionedMeasurement for InnerMeasurement3_2 {
+    type N = Shortname;
+
     fn datatype(&self) -> Option<NumType> {
         self.datatype.0.as_ref().copied()
     }
 
-    fn maybe_name(&self) -> Option<&Shortname> {
-        Some(&self.shortname)
+    fn maybe_name(n: &Self::N) -> Option<&Shortname> {
+        Some(n)
     }
 
     fn has_linear_scale(&self) -> bool {
@@ -3687,19 +3726,22 @@ impl VersionedMeasurement for InnerMeasurement3_2 {
         self.gain.0.is_some()
     }
 
-    fn shortname(&self, _: usize) -> Shortname {
-        self.shortname.clone()
+    // fn shortname(&self, _: usize) -> Shortname {
+    //     self.shortname.clone()
+    // }
+
+    // fn set_shortname(&mut self, n: Shortname) {
+    //     self.shortname = n
+    // }
+
+    fn lookup_shortname(st: &mut KwParser, n: MeasIdx) -> Option<Self::N> {
+        st.lookup_meas_req(n)
     }
 
-    fn set_shortname(&mut self, n: Shortname) {
-        self.shortname = n
-    }
-
-    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<InnerMeasurement3_2> {
-        if let (Some(shortname), Some(scale)) = (st.lookup_meas_req(n), st.lookup_meas_req(n)) {
-            Some(InnerMeasurement3_2 {
+    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self> {
+        if let Some(scale) = st.lookup_meas_req(n) {
+            Some(Self {
                 scale,
-                shortname,
                 gain: st.lookup_meas_opt(n, false),
                 wavelengths: st.lookup_meas_opt(n, false),
                 calibration: st.lookup_meas_opt(n, false),
@@ -3717,9 +3759,12 @@ impl VersionedMeasurement for InnerMeasurement3_2 {
     }
 
     fn req_suffixes_inner(&self, n: Option<MeasIdx>) -> Vec<(String, String)> {
-        [self.scale.pair(n), self.shortname.pair(n)]
-            .into_iter()
-            .collect()
+        [
+            self.scale.pair(n),
+            // self.shortname.pair(n)
+        ]
+        .into_iter()
+        .collect()
     }
 
     fn opt_suffixes_inner(&self, n: Option<MeasIdx>) -> Vec<(String, Option<String>)> {
@@ -4018,41 +4063,41 @@ impl AnyCoreTEXT {
         match_anycoretext!(self, x, { x.shortnames() })
     }
 
-    pub fn into_2_0(self, def: CoreSetterTo2_0) -> PureSuccess<CoreTEXT2_0> {
-        match self {
-            AnyCoreTEXT::FCS2_0(c) => CoreTEXT2_0::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_0(c) => CoreTEXT3_0::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_1(c) => CoreTEXT3_1::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_2(c) => CoreTEXT3_2::convert_core(*c, def),
-        }
-    }
+    // pub fn into_2_0(self, def: CoreSetterTo2_0) -> PureSuccess<CoreTEXT2_0> {
+    //     match self {
+    //         AnyCoreTEXT::FCS2_0(c) => CoreTEXT2_0::convert_core(*c, def),
+    //         AnyCoreTEXT::FCS3_0(c) => CoreTEXT3_0::convert_core(*c, def),
+    //         AnyCoreTEXT::FCS3_1(c) => CoreTEXT3_1::convert_core(*c, def),
+    //         AnyCoreTEXT::FCS3_2(c) => CoreTEXT3_2::convert_core(*c, def),
+    //     }
+    // }
 
-    pub fn into_3_0(self, def: CoreSetterTo3_0) -> PureSuccess<CoreTEXT3_0> {
-        match self {
-            AnyCoreTEXT::FCS2_0(c) => CoreTEXT2_0::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_0(c) => CoreTEXT3_0::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_1(c) => CoreTEXT3_1::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_2(c) => CoreTEXT3_2::convert_core(*c, def),
-        }
-    }
+    // pub fn into_3_0(self, def: CoreSetterTo3_0) -> PureSuccess<CoreTEXT3_0> {
+    //     match self {
+    //         AnyCoreTEXT::FCS2_0(c) => CoreTEXT2_0::convert_core(*c, def),
+    //         AnyCoreTEXT::FCS3_0(c) => CoreTEXT3_0::convert_core(*c, def),
+    //         AnyCoreTEXT::FCS3_1(c) => CoreTEXT3_1::convert_core(*c, def),
+    //         AnyCoreTEXT::FCS3_2(c) => CoreTEXT3_2::convert_core(*c, def),
+    //     }
+    // }
 
-    pub fn into_3_1(self, def: CoreSetterTo3_1) -> PureSuccess<CoreTEXT3_1> {
-        match self {
-            AnyCoreTEXT::FCS2_0(c) => CoreTEXT2_0::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_0(c) => CoreTEXT3_0::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_1(c) => CoreTEXT3_1::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_2(c) => CoreTEXT3_2::convert_core(*c, def),
-        }
-    }
+    // pub fn into_3_1(self, def: CoreSetterTo3_1) -> PureSuccess<CoreTEXT3_1> {
+    //     match self {
+    //         AnyCoreTEXT::FCS2_0(c) => CoreTEXT2_0::convert_core(*c, def),
+    //         AnyCoreTEXT::FCS3_0(c) => CoreTEXT3_0::convert_core(*c, def),
+    //         AnyCoreTEXT::FCS3_1(c) => CoreTEXT3_1::convert_core(*c, def),
+    //         AnyCoreTEXT::FCS3_2(c) => CoreTEXT3_2::convert_core(*c, def),
+    //     }
+    // }
 
-    pub fn into_3_2(self, def: CoreSetterTo3_2) -> PureSuccess<CoreTEXT3_2> {
-        match self {
-            AnyCoreTEXT::FCS2_0(c) => CoreTEXT2_0::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_0(c) => CoreTEXT3_0::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_1(c) => CoreTEXT3_1::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_2(c) => CoreTEXT3_2::convert_core(*c, def),
-        }
-    }
+    // pub fn into_3_2(self, def: CoreSetterTo3_2) -> PureSuccess<CoreTEXT3_2> {
+    //     match self {
+    //         AnyCoreTEXT::FCS2_0(c) => CoreTEXT2_0::convert_core(*c, def),
+    //         AnyCoreTEXT::FCS3_0(c) => CoreTEXT3_0::convert_core(*c, def),
+    //         AnyCoreTEXT::FCS3_1(c) => CoreTEXT3_1::convert_core(*c, def),
+    //         AnyCoreTEXT::FCS3_2(c) => CoreTEXT3_2::convert_core(*c, def),
+    //     }
+    // }
 
     pub fn text_segment(
         &self,
@@ -4339,7 +4384,7 @@ where
         self.longname = n.map(|y| y.into()).into();
     }
 
-    fn lookup_measurements(st: &mut KwParser, par: Par) -> Option<Vec<Self>> {
+    fn lookup_measurements(st: &mut KwParser, par: Par) -> Option<DistinctVec<P::N, Self>> {
         let v = P::fcs_version();
         let ps: Vec<_> = (1..(par.0 + 1))
             .flat_map(|n| {
@@ -4347,29 +4392,39 @@ where
                 let maybe_bytes = st.lookup_meas_req(i);
                 let maybe_range = st.lookup_meas_req(i);
                 let maybe_specific = P::lookup_specific(st, i);
-                if let (Some(bytes), Some(range), Some(specific)) =
-                    (maybe_bytes, maybe_range, maybe_specific)
+                let maybe_name = P::lookup_shortname(st, i);
+                if let (Some(bytes), Some(range), Some(specific), Some(key)) =
+                    (maybe_bytes, maybe_range, maybe_specific, maybe_name)
                 {
-                    Some(Measurement {
-                        bytes,
-                        range,
-                        longname: st.lookup_meas_opt(i, false),
-                        filter: st.lookup_meas_opt(i, false),
-                        power: st.lookup_meas_opt(i, false),
-                        detector_type: st.lookup_meas_opt(i, false),
-                        percent_emitted: st.lookup_meas_opt(i, v == Version::FCS3_2),
-                        detector_voltage: st.lookup_meas_opt(i, false),
-                        specific,
-                        nonstandard_keywords: st.lookup_all_meas_nonstandard(i),
-                    })
+                    Some((
+                        key,
+                        Measurement {
+                            bytes,
+                            range,
+                            longname: st.lookup_meas_opt(i, false),
+                            filter: st.lookup_meas_opt(i, false),
+                            power: st.lookup_meas_opt(i, false),
+                            detector_type: st.lookup_meas_opt(i, false),
+                            percent_emitted: st.lookup_meas_opt(i, v == Version::FCS3_2),
+                            detector_voltage: st.lookup_meas_opt(i, false),
+                            specific,
+                            nonstandard_keywords: st.lookup_all_meas_nonstandard(i),
+                        },
+                    ))
                 } else {
                     None
                 }
             })
             .collect();
         if ps.len() == par.0 {
-            Some(ps)
+            let dv = DistinctVec::from_vec(ps);
+            if dv.is_none() {
+                let msg = "Not all measurement names are unique".to_string();
+                st.deferred.push_error(msg);
+            }
+            dv
         } else {
+            // ASSUME errors were capture elsewhere
             None
         }
     }
@@ -4452,13 +4507,11 @@ impl<M> Metadata<M>
 where
     M: VersionedMetadata,
 {
-    fn lookup_metadata(st: &mut KwParser, ms: &[Measurement<M::P>]) -> Option<Self> {
+    fn lookup_metadata(
+        st: &mut KwParser,
+        ms: &DistinctVec<<M::P as VersionedMeasurement>::N, Measurement<M::P>>,
+    ) -> Option<Self> {
         let par = Par(ms.len());
-        // let names: Vec<_> = ms
-        //     .iter()
-        //     .flat_map(|m| m.specific.maybe_name())
-        //     .unique()
-        //     .collect();
         let maybe_datatype = st.lookup_meta_req();
         let maybe_specific = M::lookup_specific(st, par);
         if let (Some(datatype), Some(specific)) = (maybe_datatype, maybe_specific) {
@@ -4566,7 +4619,7 @@ where
     }
 }
 
-impl<M> CoreTEXT<M, M::P>
+impl<M> CoreTEXT<M, M::P, <M::P as VersionedMeasurement>::N>
 where
     M: VersionedMetadata,
 {
@@ -4740,7 +4793,7 @@ where
     // TODO start at 1?
     pub fn shortnames(&self) -> Vec<Shortname> {
         self.measurements
-            .iter()
+            .iter_projections()
             .enumerate()
             .map(|(i, p)| p.specific.shortname(i))
             .collect()
@@ -4777,11 +4830,11 @@ where
 
     // TODO what if the time channel is removed?
     pub fn remove_measurement(&mut self, n: &str) -> bool {
-        if let Some(i) = self
+        let mi: Option<usize> = self
             .measurements
-            .iter()
-            .position(|m| m.specific.maybe_name().is_some_and(|x| x.as_ref() == n))
-        {
+            .iter_keys()
+            .position(|k| M::P::maybe_name(k).is_some_and(|x| x.as_ref() == n));
+        if let Some(i) = mi {
             self.measurements.remove(i);
             let m = &mut self.metadata;
             m.remove_trigger_by_name(n);
@@ -4807,21 +4860,27 @@ where
     // TODO might be good to wrap the entire measurement vector into something
     // that can only be updated if it passes some uniqueness test. It needs to
     // be done manually since we can't use a hashset.
-    pub fn add_measurement(&mut self, i: usize, m: Measurement<M::P>) -> Result<(), String> {
-        self.check_index(i).and_then(|_| {
-            let newname = m.specific.maybe_name();
-            if self.measurements.iter().any(|m| {
-                m.specific
-                    .maybe_name()
-                    .zip(newname)
-                    .is_some_and(|(a, b)| a == b)
-            }) {
-                Err("Measurement with same name already present".to_string())
-            } else {
-                self.measurements.insert(i, m);
-                Ok(())
-            }
-        })
+    pub fn add_measurement(
+        &mut self,
+        i: usize,
+        n: <M::P as VersionedMeasurement>::N,
+        m: Measurement<M::P>,
+    ) -> Result<(), String> {
+        self.measurements.insert(i, n, m).map_err(|e| e.to_string())
+        // self.check_index(i).and_then(|_| {
+        //     let newname = m.specific.maybe_name();
+        //     if self.measurements.iter().any(|m| {
+        //         m.specific
+        //             .maybe_name()
+        //             .zip(newname)
+        //             .is_some_and(|(a, b)| a == b)
+        //     }) {
+        //         Err("Measurement with same name already present".to_string())
+        //     } else {
+        //         self.measurements.insert(i, n, m);
+        //         Ok(())
+        //     }
+        // })
     }
 
     fn df_names(&self) -> Vec<PlSmallStr> {
@@ -4889,14 +4948,16 @@ where
         if ms.is_empty() {
             return vec![];
         }
-        let header = ms[0].table_header().join(delim);
+        // TODO add back header
+        // let header = ms[0].table_header().join(delim);
         let rows = self.measurements.iter().enumerate().map(|(i, m)| {
             m.table_row(i)
                 .into_iter()
                 .map(|v| v.unwrap_or("NA".into()))
                 .join(delim)
         });
-        vec![header].into_iter().chain(rows).collect()
+        // vec![header].into_iter().chain(rows).collect()
+        rows.collect()
     }
 
     fn print_meas_table(&self, delim: &str) {
@@ -5008,14 +5069,14 @@ where
 
     fn measurement_names(&self) -> Vec<&Shortname> {
         self.measurements
-            .iter()
-            .filter_map(|m| m.specific.maybe_name())
+            .iter_keys()
+            .filter_map(|k| M::P::maybe_name(k))
             .collect()
     }
 
-    fn unique_meaurement_names(&self) -> Option<HashSet<&Shortname>> {
-        try_unique(self.measurement_names().as_slice())
-    }
+    // fn unique_meaurement_names(&self) -> Option<HashSet<&Shortname>> {
+    //     try_unique(self.measurement_names().as_slice())
+    // }
 
     fn validate(&self, conf: &TimeConfig) -> PureSuccess<()> {
         let mut deferred = PureErrorBuf::default();
@@ -5024,22 +5085,19 @@ where
 
         // Ensure $PnN are unique; if this fails we can't make a dataframe, so
         // failure will always be an error and not a warning.
-        if let Some(unique) = self.unique_meaurement_names() {
-            if let Err(msg) = self.metadata.check_trigger(&unique) {
-                deferred.push_error(msg);
-            }
+        let names: HashSet<_> = self.measurement_names().into_iter().collect();
+        if let Err(msg) = self.metadata.check_trigger(&names) {
+            deferred.push_error(msg);
+        }
 
-            if let Err(msg) = self.metadata.check_unstainedcenters(&unique) {
-                // TODO toggle this
-                deferred.push_error(msg);
-            }
+        if let Err(msg) = self.metadata.check_unstainedcenters(&names) {
+            // TODO toggle this
+            deferred.push_error(msg);
+        }
 
-            if let Err(msg) = self.metadata.check_spillover(&unique) {
-                // TODO toggle this
-                deferred.push_error(msg);
-            }
-        } else {
-            deferred.push_error("$PnN are not all unique".into());
+        if let Err(msg) = self.metadata.check_spillover(&names) {
+            // TODO toggle this
+            deferred.push_error(msg);
         }
 
         // Ensure time measurement is valid
@@ -5047,8 +5105,9 @@ where
             // Find the time measurement, check lots of stuff if it exists
             if let Some(time_meas) = self
                 .measurements
-                .iter()
-                .find(|m| m.specific.maybe_name() == Some(time_name))
+                .iter_pairs()
+                .find(|(k, _)| M::P::maybe_name(k) == Some(time_name))
+                .map(|x| x.1)
             {
                 // check that $TIMESTEP exists
                 if !self.metadata.specific.check_timestep() {
@@ -5088,7 +5147,11 @@ where
         PureSuccess { data: (), deferred }
     }
 
-    fn into_dataset_unchecked(self, data: DataFrame, analysis: Analysis) -> CoreDataset<M, M::P> {
+    fn into_dataset_unchecked(
+        self,
+        data: DataFrame,
+        analysis: Analysis,
+    ) -> CoreDataset<M, M::P, <M::P as VersionedMeasurement>::N> {
         let ns = self.df_names();
         let mut data = data;
         data.set_column_names(ns).unwrap();
@@ -5103,7 +5166,7 @@ where
         self,
         data: DataFrame,
         analysis: Analysis,
-    ) -> Result<CoreDataset<M, M::P>, String> {
+    ) -> Result<CoreDataset<M, M::P, <M::P as VersionedMeasurement>::N>, String> {
         let w = data.width();
         let p = self.measurements.len();
         if w != p {
@@ -5116,7 +5179,7 @@ where
     }
 }
 
-impl<M> CoreDataset<M, M::P>
+impl<M> CoreDataset<M, M::P, <M::P as VersionedMeasurement>::N>
 where
     M: VersionedMetadata,
 {
@@ -5140,6 +5203,7 @@ where
     fn add_measurement<T>(
         &mut self,
         i: usize,
+        n: <M::P as VersionedMeasurement>::N,
         m: Measurement<M::P>,
         col: Vec<T::Native>,
     ) -> Result<(), String>
@@ -5149,10 +5213,11 @@ where
     {
         // TODO index setting is not DRY
         let n: PlSmallStr = m.specific.shortname(i + 1).as_ref().into();
+        // let n: PlSmallStr = n.as_ref().into();
         self.text.check_index(i).and_then(|_| {
-            self.text.measurements.insert(i, m);
-            let ser = ChunkedArray::<T>::from_vec(n, col).into_series();
-            self.data.insert_column(i, ser).map_err(|e| e.to_string())?;
+            self.text.measurements.insert(i, n, m);
+            // let ser = ChunkedArray::<T>::from_vec(n, col).into_series();
+            // self.data.insert_column(i, ser).map_err(|e| e.to_string())?;
             Ok(())
         })
     }
@@ -6861,178 +6926,178 @@ impl<'a, 'b> KwParser<'a, 'b> {
     }
 }
 
-struct NSKwParser<'a> {
-    raw_keywords: &'a mut NonStdKeywords,
-    deferred: PureErrorBuf,
-}
+// struct NSKwParser<'a> {
+//     raw_keywords: &'a mut NonStdKeywords,
+//     deferred: PureErrorBuf,
+// }
 
-impl<'a> NSKwParser<'a> {
-    fn run<X, F>(kws: &'a mut NonStdKeywords, f: F) -> PureSuccess<X>
-    where
-        F: FnOnce(&mut Self) -> X,
-    {
-        let mut st = Self::from(kws);
-        let data = f(&mut st);
-        PureSuccess {
-            data,
-            deferred: st.collect(),
-        }
-    }
+// impl<'a> NSKwParser<'a> {
+//     fn run<X, F>(kws: &'a mut NonStdKeywords, f: F) -> PureSuccess<X>
+//     where
+//         F: FnOnce(&mut Self) -> X,
+//     {
+//         let mut st = Self::from(kws);
+//         let data = f(&mut st);
+//         PureSuccess {
+//             data,
+//             deferred: st.collect(),
+//         }
+//     }
 
-    fn try_convert_lookup_matrix<F, X, Y: FromStr>(
-        &mut self,
-        dopt: MatrixSetter<Y>,
-        spillover: OptionalKw<X>,
-        ns: &[Shortname],
-        which: NonStdKey,
-        f: F,
-    ) -> OptionalKw<Y>
-    where
-        F: FnOnce(X, &[Shortname]) -> Option<Y>,
-        <Y as FromStr>::Err: fmt::Display,
-    {
-        let fallback = self.lookup_maybe(dopt.default);
-        if dopt.try_convert {
-            if let Some(s) = spillover.0 {
-                return match f(s, ns) {
-                    Some(c) => Some(c).into(),
-                    None => {
-                        self.deferred.push_warning(format!("{which} not full rank"));
-                        fallback
-                    }
-                };
-            }
-        }
-        fallback
-    }
+//     fn try_convert_lookup_matrix<F, X, Y: FromStr>(
+//         &mut self,
+//         dopt: MatrixSetter<Y>,
+//         spillover: OptionalKw<X>,
+//         ns: &[Shortname],
+//         which: NonStdKey,
+//         f: F,
+//     ) -> OptionalKw<Y>
+//     where
+//         F: FnOnce(X, &[Shortname]) -> Option<Y>,
+//         <Y as FromStr>::Err: fmt::Display,
+//     {
+//         let fallback = self.lookup_maybe(dopt.default);
+//         if dopt.try_convert {
+//             if let Some(s) = spillover.0 {
+//                 return match f(s, ns) {
+//                     Some(c) => Some(c).into(),
+//                     None => {
+//                         self.deferred.push_warning(format!("{which} not full rank"));
+//                         fallback
+//                     }
+//                 };
+//             }
+//         }
+//         fallback
+//     }
 
-    fn try_convert_lookup_comp(
-        &mut self,
-        dopt: MatrixSetter<Compensation>,
-        spillover: OptionalKw<Spillover>,
-        ns: &[Shortname],
-    ) -> OptionalKw<Compensation> {
-        self.try_convert_lookup_matrix(
-            dopt,
-            spillover,
-            ns,
-            Compensation::nonstd(),
-            spillover_to_comp,
-        )
-    }
+//     fn try_convert_lookup_comp(
+//         &mut self,
+//         dopt: MatrixSetter<Compensation>,
+//         spillover: OptionalKw<Spillover>,
+//         ns: &[Shortname],
+//     ) -> OptionalKw<Compensation> {
+//         self.try_convert_lookup_matrix(
+//             dopt,
+//             spillover,
+//             ns,
+//             Compensation::nonstd(),
+//             spillover_to_comp,
+//         )
+//     }
 
-    fn try_convert_lookup_spillover(
-        &mut self,
-        dopt: MatrixSetter<Spillover>,
-        comp: OptionalKw<Compensation>,
-        ns: &[Shortname],
-    ) -> OptionalKw<Spillover> {
-        self.try_convert_lookup_matrix(dopt, comp, ns, Spillover::nonstd(), comp_to_spillover)
-    }
+//     fn try_convert_lookup_spillover(
+//         &mut self,
+//         dopt: MatrixSetter<Spillover>,
+//         comp: OptionalKw<Compensation>,
+//         ns: &[Shortname],
+//     ) -> OptionalKw<Spillover> {
+//         self.try_convert_lookup_matrix(dopt, comp, ns, Spillover::nonstd(), comp_to_spillover)
+//     }
 
-    fn lookup_modification(&mut self, look: ModificationDefaults) -> ModificationData {
-        ModificationData {
-            last_modified: self.lookup_maybe(look.last_modified),
-            last_modifier: self.lookup_maybe(look.last_modifier),
-            originality: self.lookup_maybe(look.originality),
-        }
-    }
+//     fn lookup_modification(&mut self, look: ModificationDefaults) -> ModificationData {
+//         ModificationData {
+//             last_modified: self.lookup_maybe(look.last_modified),
+//             last_modifier: self.lookup_maybe(look.last_modifier),
+//             originality: self.lookup_maybe(look.originality),
+//         }
+//     }
 
-    fn lookup_plate(&mut self, look: PlateDefaults) -> PlateData {
-        PlateData {
-            plateid: self.lookup_maybe(look.plateid),
-            platename: self.lookup_maybe(look.platename),
-            wellid: self.lookup_maybe(look.wellid),
-        }
-    }
+//     fn lookup_plate(&mut self, look: PlateDefaults) -> PlateData {
+//         PlateData {
+//             plateid: self.lookup_maybe(look.plateid),
+//             platename: self.lookup_maybe(look.platename),
+//             wellid: self.lookup_maybe(look.wellid),
+//         }
+//     }
 
-    fn lookup_unstained(&mut self, look: UnstainedDefaults) -> UnstainedData {
-        UnstainedData {
-            unstainedcenters: self.lookup_maybe(look.unstainedcenters),
-            unstainedinfo: self.lookup_maybe(look.unstainedinfo),
-        }
-    }
+//     fn lookup_unstained(&mut self, look: UnstainedDefaults) -> UnstainedData {
+//         UnstainedData {
+//             unstainedcenters: self.lookup_maybe(look.unstainedcenters),
+//             unstainedinfo: self.lookup_maybe(look.unstainedinfo),
+//         }
+//     }
 
-    fn lookup_carrier(&mut self, look: CarrierDefaults) -> CarrierData {
-        CarrierData {
-            carrierid: self.lookup_maybe(look.carrierid),
-            carriertype: self.lookup_maybe(look.carriertype),
-            locationid: self.lookup_maybe(look.locationid),
-        }
-    }
+//     fn lookup_carrier(&mut self, look: CarrierDefaults) -> CarrierData {
+//         CarrierData {
+//             carrierid: self.lookup_maybe(look.carrierid),
+//             carriertype: self.lookup_maybe(look.carriertype),
+//             locationid: self.lookup_maybe(look.locationid),
+//         }
+//     }
 
-    fn lookup_datetimes(&mut self, look: DatetimesDefaults) -> Datetimes {
-        Datetimes {
-            begin: self.lookup_maybe(look.begin),
-            end: self.lookup_maybe(look.end),
-        }
-    }
+//     fn lookup_datetimes(&mut self, look: DatetimesDefaults) -> Datetimes {
+//         Datetimes {
+//             begin: self.lookup_maybe(look.begin),
+//             end: self.lookup_maybe(look.end),
+//         }
+//     }
 
-    // auxiliary functions
+//     // auxiliary functions
 
-    fn collect(self) -> PureErrorBuf {
-        self.deferred
-    }
+//     fn collect(self) -> PureErrorBuf {
+//         self.deferred
+//     }
 
-    fn from(kws: &'a mut NonStdKeywords) -> Self {
-        NSKwParser {
-            raw_keywords: kws,
-            deferred: PureErrorBuf::default(),
-        }
-    }
+//     fn from(kws: &'a mut NonStdKeywords) -> Self {
+//         NSKwParser {
+//             raw_keywords: kws,
+//             deferred: PureErrorBuf::default(),
+//         }
+//     }
 
-    fn lookup_meas_maybe<V: FromStr>(&mut self, n: MeasIdx, ks: MeasKwSetter<V>) -> OptionalKw<V>
-    where
-        <V as FromStr>::Err: fmt::Display,
-    {
-        match ks {
-            KwSetter::Default(x) => Some(x),
-            KwSetter::Key(key) => key
-                .as_ref()
-                .and_then(|kk| self.lookup_opt(&kk.from_index(n))),
-        }
-        .into()
-    }
+//     fn lookup_meas_maybe<V: FromStr>(&mut self, n: MeasIdx, ks: MeasKwSetter<V>) -> OptionalKw<V>
+//     where
+//         <V as FromStr>::Err: fmt::Display,
+//     {
+//         match ks {
+//             KwSetter::Default(x) => Some(x),
+//             KwSetter::Key(key) => key
+//                 .as_ref()
+//                 .and_then(|kk| self.lookup_opt(&kk.from_index(n))),
+//         }
+//         .into()
+//     }
 
-    fn lookup_maybe<V: FromStr>(&mut self, ks: MetaKwSetter<V>) -> OptionalKw<V>
-    where
-        <V as FromStr>::Err: fmt::Display,
-    {
-        match ks {
-            KwSetter::Default(x) => Some(x),
-            KwSetter::Key(key) => key.as_ref().and_then(|kk| self.lookup_opt(kk)),
-        }
-        .into()
-    }
+//     fn lookup_maybe<V: FromStr>(&mut self, ks: MetaKwSetter<V>) -> OptionalKw<V>
+//     where
+//         <V as FromStr>::Err: fmt::Display,
+//     {
+//         match ks {
+//             KwSetter::Default(x) => Some(x),
+//             KwSetter::Key(key) => key.as_ref().and_then(|kk| self.lookup_opt(kk)),
+//         }
+//         .into()
+//     }
 
-    fn lookup_opt<V: FromStr>(&mut self, k: &NonStdKey) -> Option<V>
-    where
-        <V as FromStr>::Err: fmt::Display,
-    {
-        self.lookup(k).into()
-    }
+//     fn lookup_opt<V: FromStr>(&mut self, k: &NonStdKey) -> Option<V>
+//     where
+//         <V as FromStr>::Err: fmt::Display,
+//     {
+//         self.lookup(k).into()
+//     }
 
-    fn lookup<V: FromStr>(&mut self, k: &NonStdKey) -> OptionalKw<V>
-    where
-        <V as FromStr>::Err: fmt::Display,
-    {
-        match self.raw_keywords.get(k) {
-            Some(v) => match v.parse() {
-                Err(w) => {
-                    let msg = format!("{w} for key '{}' with value '{v}'", k.as_ref());
-                    self.deferred.push_warning(msg);
-                    None
-                }
-                Ok(x) => {
-                    self.raw_keywords.remove(k);
-                    Some(x)
-                }
-            },
-            None => None,
-        }
-        .into()
-    }
-}
+//     fn lookup<V: FromStr>(&mut self, k: &NonStdKey) -> OptionalKw<V>
+//     where
+//         <V as FromStr>::Err: fmt::Display,
+//     {
+//         match self.raw_keywords.get(k) {
+//             Some(v) => match v.parse() {
+//                 Err(w) => {
+//                     let msg = format!("{w} for key '{}' with value '{v}'", k.as_ref());
+//                     self.deferred.push_warning(msg);
+//                     None
+//                 }
+//                 Ok(x) => {
+//                     self.raw_keywords.remove(k);
+//                     Some(x)
+//                 }
+//             },
+//             None => None,
+//         }
+//         .into()
+//     }
+// }
 
 fn verify_delim(xs: &[u8], conf: &RawTextReadConfig) -> PureSuccess<u8> {
     // First character is the delimiter
@@ -7722,2048 +7787,2048 @@ impl From<Endian> for ByteOrd {
     }
 }
 
-pub trait IntoMeasurement<T, Y>: Sized {
-    type XToY: From<Y>;
-    type Req;
+// pub trait IntoMeasurement<T, Y>: Sized {
+//     type XToY: From<Y>;
+//     type Req;
 
-    fn setter(r: Self::Req) -> Self::XToY;
+//     fn setter(r: Self::Req) -> Self::XToY;
 
-    fn convert(m: Measurement<Self>, n: MeasIdx, def: Self::XToY) -> PureSuccess<Measurement<T>> {
-        let mut m = m;
-        Self::convert_inner(m.specific, n, def, &mut m.nonstandard_keywords).map(|specific| {
-            Measurement {
-                bytes: m.bytes,
-                range: m.range,
-                longname: m.longname,
-                detector_type: m.detector_type,
-                detector_voltage: m.detector_voltage,
-                filter: m.filter,
-                power: m.power,
-                percent_emitted: m.percent_emitted,
-                nonstandard_keywords: m.nonstandard_keywords,
-                specific,
-            }
-        })
-    }
-
-    fn convert_inner(self, n: MeasIdx, def: Self::XToY, ns: &mut NonStdKeywords) -> PureSuccess<T>;
-}
-
-pub trait IntoMetadata<T, D>: Sized {
-    type XToY: From<D>;
-    type Req;
-
-    fn setter(r: Self::Req) -> Self::XToY;
-
-    fn convert(m: Metadata<Self>, def: Self::XToY, ms: &[Shortname]) -> PureSuccess<Metadata<T>> {
-        let mut m = m;
-        Self::convert_inner(m.specific, def, &mut m.nonstandard_keywords, ms).map(|specific| {
-            // TODO this seems silly, break struct up into common bits
-            Metadata {
-                abrt: m.abrt,
-                cells: m.cells,
-                com: m.com,
-                datatype: m.datatype,
-                exp: m.exp,
-                fil: m.fil,
-                inst: m.inst,
-                lost: m.lost,
-                op: m.op,
-                proj: m.proj,
-                smno: m.smno,
-                sys: m.sys,
-                src: m.src,
-                tr: m.tr,
-                nonstandard_keywords: m.nonstandard_keywords,
-                specific,
-            }
-        })
-    }
-
-    fn convert_inner(
-        self,
-        def: Self::XToY,
-        ns: &mut NonStdKeywords,
-        ms: &[Shortname],
-    ) -> PureSuccess<T>;
-}
-
-pub trait IntoCore<ToM, ToP, DM, DP>: Sized
-where
-    ToM: VersionedMetadata,
-    ToP: VersionedMeasurement,
-    Self::FromM: VersionedMetadata,
-    Self::FromP: VersionedMeasurement,
-    <Self::FromM as IntoMetadata<ToM, DM>>::XToY: From<DM>,
-    <Self::FromP as IntoMeasurement<ToP, DP>>::XToY: From<DP>,
-{
-    type FromM: IntoMetadata<ToM, DM>;
-    type FromP: IntoMeasurement<ToP, DP>;
-
-    fn setter(
-        req: CoreSetter<
-            <Self::FromM as IntoMetadata<ToM, DM>>::Req,
-            <Self::FromP as IntoMeasurement<ToP, DP>>::Req,
-        >,
-    ) -> CoreSetter<
-        <Self::FromM as IntoMetadata<ToM, DM>>::XToY,
-        <Self::FromP as IntoMeasurement<ToP, DP>>::XToY,
-    > {
-        let metadata = <Self::FromM as IntoMetadata<ToM, DM>>::setter(req.metadata);
-        let measurements = req
-            .measurements
-            .into_iter()
-            .map(<Self::FromP as IntoMeasurement<ToP, DP>>::setter)
-            .collect();
-        CoreSetter {
-            metadata,
-            measurements,
-        }
-    }
-
-    fn convert_core_def(
-        c: CoreTEXT<Self::FromM, Self::FromP>,
-        def: CoreSetter<
-            <Self::FromM as IntoMetadata<ToM, DM>>::XToY,
-            <Self::FromP as IntoMeasurement<ToP, DP>>::XToY,
-        >,
-    ) -> PureSuccess<CoreTEXT<ToM, ToP>> {
-        let metadata = c.metadata;
-        // ASSUME measurement defaults is same length as measurements
-        let ms = c
-            .measurements
-            .into_iter()
-            .zip(def.measurements)
-            .enumerate()
-            .map(|(i, (m, d))| Self::FromP::convert(m, MeasIdx(i), d))
-            .collect();
-        PureSuccess::sequence(ms).and_then(|measurements| {
-            let ms = measurement_shortnames(&measurements);
-            Self::FromM::convert(metadata, def.metadata, &ms).map(|metadata| CoreTEXT {
-                measurements,
-                metadata,
-            })
-        })
-    }
-
-    // TODO not DRY, trying to put this in terms of the above function results
-    // in a compile-time recursion loop, for reasons that elude me
-    fn convert_core(
-        c: CoreTEXT<Self::FromM, Self::FromP>,
-        def: CoreSetter<DM, DP>,
-    ) -> PureSuccess<CoreTEXT<ToM, ToP>> {
-        let metadata = c.metadata;
-        // ASSUME measurement defaults is same length as measurements
-        let ms = c
-            .measurements
-            .into_iter()
-            .zip(def.measurements)
-            .enumerate()
-            .map(|(i, (m, d))| Self::FromP::convert(m, MeasIdx(i), d.into()))
-            .collect();
-        PureSuccess::sequence(ms).and_then(|measurements| {
-            let ms = measurement_shortnames(&measurements);
-            Self::FromM::convert(metadata, def.metadata.into(), &ms).map(|metadata| CoreTEXT {
-                measurements,
-                metadata,
-            })
-        })
-    }
-}
-
-fn measurement_shortnames<P: VersionedMeasurement>(ms: &[Measurement<P>]) -> Vec<Shortname> {
-    ms.iter()
-        .enumerate()
-        .map(|(i, p)| p.specific.shortname(i))
-        .collect()
-}
-
-impl<M, P> IntoCore<InnerMetadata2_0, InnerMeasurement2_0, MetaSetterTo2_0, MeasSetterTo2_0>
-    for CoreTEXT<M, P>
-where
-    M: VersionedMetadata,
-    P: VersionedMeasurement,
-    M: IntoMetadata<InnerMetadata2_0, MetaSetterTo2_0>,
-    P: IntoMeasurement<InnerMeasurement2_0, MeasSetterTo2_0>,
-{
-    type FromM = M;
-    type FromP = P;
-}
-
-impl<M, P> IntoCore<InnerMetadata3_0, InnerMeasurement3_0, MetaSetterTo3_0, MeasSetterTo3_0>
-    for CoreTEXT<M, P>
-where
-    M: VersionedMetadata,
-    P: VersionedMeasurement,
-    M: IntoMetadata<InnerMetadata3_0, MetaSetterTo3_0>,
-    P: IntoMeasurement<InnerMeasurement3_0, MeasSetterTo3_0>,
-{
-    type FromM = M;
-    type FromP = P;
-}
-
-impl<M, P> IntoCore<InnerMetadata3_1, InnerMeasurement3_1, MetaSetterTo3_1, MeasSetterTo3_1>
-    for CoreTEXT<M, P>
-where
-    M: VersionedMetadata,
-    P: VersionedMeasurement,
-    M: IntoMetadata<InnerMetadata3_1, MetaSetterTo3_1>,
-    P: IntoMeasurement<InnerMeasurement3_1, MeasSetterTo3_1>,
-{
-    type FromM = M;
-    type FromP = P;
-}
-
-impl<M, P> IntoCore<InnerMetadata3_2, InnerMeasurement3_2, MetaSetterTo3_2, MeasSetterTo3_2>
-    for CoreTEXT<M, P>
-where
-    M: VersionedMetadata,
-    P: VersionedMeasurement,
-    M: IntoMetadata<InnerMetadata3_2, MetaSetterTo3_2>,
-    P: IntoMeasurement<InnerMeasurement3_2, MeasSetterTo3_2>,
-{
-    type FromM = M;
-    type FromP = P;
-}
-
-trait ConvertConfig {
-    type Req;
-
-    fn lookup(r: Self::Req) -> Self;
-}
-
-#[derive(Default)]
-pub struct ModificationDefaults {
-    last_modified: MetaKwSetter<ModifiedDateTime>,
-    last_modifier: MetaKwSetter<LastModifier>,
-    originality: MetaKwSetter<Originality>,
-}
-
-// impl ModificationDefaults {
-//     fn keyed() -> Self {
-//         Self {
-//             last_modified: DefaultMetaOptional::init_unchecked(NS_LAST_MODIFIED),
-//             last_modifier: DefaultMetaOptional::init_unchecked(NS_LAST_MODIFIER),
-//             originality: DefaultMetaOptional::init_unchecked(NS_ORIGINALITY),
-//         }
+//     fn convert(m: Measurement<Self>, n: MeasIdx, def: Self::XToY) -> PureSuccess<Measurement<T>> {
+//         let mut m = m;
+//         Self::convert_inner(m.specific, n, def, &mut m.nonstandard_keywords).map(|specific| {
+//             Measurement {
+//                 bytes: m.bytes,
+//                 range: m.range,
+//                 longname: m.longname,
+//                 detector_type: m.detector_type,
+//                 detector_voltage: m.detector_voltage,
+//                 filter: m.filter,
+//                 power: m.power,
+//                 percent_emitted: m.percent_emitted,
+//                 nonstandard_keywords: m.nonstandard_keywords,
+//                 specific,
+//             }
+//         })
 //     }
+
+//     fn convert_inner(self, n: MeasIdx, def: Self::XToY, ns: &mut NonStdKeywords) -> PureSuccess<T>;
 // }
 
-#[derive(Default)]
-pub struct PlateDefaults {
-    plateid: MetaKwSetter<Plateid>,
-    platename: MetaKwSetter<Platename>,
-    wellid: MetaKwSetter<Wellid>,
-}
+// pub trait IntoMetadata<T, D>: Sized {
+//     type XToY: From<D>;
+//     type Req;
 
-// impl PlateDefaults {
-//     fn keyed() -> Self {
-//         Self {
-//             plateid: DefaultMetaOptional::init_unchecked(NS_PLATEID),
-//             platename: DefaultMetaOptional::init_unchecked(NS_PLATENAME),
-//             wellid: DefaultMetaOptional::init_unchecked(NS_WELLID),
-//         }
+//     fn setter(r: Self::Req) -> Self::XToY;
+
+//     fn convert(m: Metadata<Self>, def: Self::XToY, ms: &[Shortname]) -> PureSuccess<Metadata<T>> {
+//         let mut m = m;
+//         Self::convert_inner(m.specific, def, &mut m.nonstandard_keywords, ms).map(|specific| {
+//             // TODO this seems silly, break struct up into common bits
+//             Metadata {
+//                 abrt: m.abrt,
+//                 cells: m.cells,
+//                 com: m.com,
+//                 datatype: m.datatype,
+//                 exp: m.exp,
+//                 fil: m.fil,
+//                 inst: m.inst,
+//                 lost: m.lost,
+//                 op: m.op,
+//                 proj: m.proj,
+//                 smno: m.smno,
+//                 sys: m.sys,
+//                 src: m.src,
+//                 tr: m.tr,
+//                 nonstandard_keywords: m.nonstandard_keywords,
+//                 specific,
+//             }
+//         })
 //     }
+
+//     fn convert_inner(
+//         self,
+//         def: Self::XToY,
+//         ns: &mut NonStdKeywords,
+//         ms: &[Shortname],
+//     ) -> PureSuccess<T>;
 // }
 
-#[derive(Default)]
-pub struct CarrierDefaults {
-    carrierid: MetaKwSetter<Carrierid>,
-    carriertype: MetaKwSetter<Carriertype>,
-    locationid: MetaKwSetter<Locationid>,
-}
-
-// impl CarrierDefaults {
-//     fn keyed() -> Self {
-//         Self {
-//             carrierid: DefaultMetaOptional::init_unchecked(NS_CARRIERID),
-//             carriertype: DefaultMetaOptional::init_unchecked(NS_CARRIERTYPE),
-//             locationid: DefaultMetaOptional::init_unchecked(NS_LOCATIONID),
-//         }
-//     }
-// }
-
-#[derive(Default)]
-pub struct UnstainedDefaults {
-    unstainedcenters: MetaKwSetter<UnstainedCenters>,
-    unstainedinfo: MetaKwSetter<UnstainedInfo>,
-}
-
-// impl UnstainedDefaults {
-//     fn keyed() -> Self {
-//         Self {
-//             unstainedcenters: DefaultMetaOptional::init_unchecked(NS_UNSTAINEDCENTERS),
-//             unstainedinfo: DefaultMetaOptional::init_unchecked(NS_UNSTAINEDINFO),
-//         }
-//     }
-// }
-
-#[derive(Default)]
-pub struct DatetimesDefaults {
-    begin: MetaKwSetter<BeginDateTime>,
-    end: MetaKwSetter<EndDateTime>,
-}
-
-// impl DatetimesDefaults {
-//     fn keyed() -> Self {
-//         Self {
-//             begin: DefaultMetaOptional::init_unchecked(NS_BEGINDATETIME),
-//             end: DefaultMetaOptional::init_unchecked(NS_ENDDATETIME),
-//         }
-//     }
-// }
-
-pub struct MetaSetter2_0To2_0;
-
-pub struct MetaSetter3_0To2_0;
-
-#[derive(Default)]
-pub struct MetaSetter3_1To2_0 {
-    comp: MatrixSetter<Compensation>,
-}
-
-#[derive(Default)]
-pub struct MetaSetter3_2To2_0 {
-    comp: MatrixSetter<Compensation>,
-}
-
-pub struct MetaSetter3_0To3_0;
-
-#[derive(Default)]
-pub struct MetaSetter2_0To3_0 {
-    cytsn: MetaKwSetter<Cytsn>,
-    timestep: MetaKwSetter<Timestep>,
-    unicode: MetaKwSetter<Unicode>,
-}
-
-// impl MetaSetter2_0To3_0 {
-//     fn keyed() -> Self {
-//         Self {
-//             cytsn: DefaultMetaOptional::init_unchecked(NS_CYTSN),
-//             timestep: DefaultMetaOptional::init_unchecked(NS_TIMESTEP),
-//             unicode: DefaultMetaOptional::init_unchecked(NS_UNICODE),
-//         }
-//     }
-// }
-
-#[derive(Default)]
-pub struct MetaSetter3_1To3_0 {
-    comp: MatrixSetter<Compensation>,
-    unicode: MetaKwSetter<Unicode>,
-}
-
-// impl MetaSetter3_1To3_0 {
-//     fn keyed() -> Self {
-//         Self {
-//             comp: DefaultMatrix::init_unchecked(NS_COMP),
-//             unicode: DefaultMetaOptional::init_unchecked(NS_UNICODE),
-//         }
-//     }
-// }
-
-#[derive(Default)]
-pub struct MetaSetter3_2To3_0 {
-    comp: MatrixSetter<Compensation>,
-    unicode: MetaKwSetter<Unicode>,
-}
-
-// impl MetaSetter3_2To3_0 {
-//     fn keyed() -> Self {
-//         Self {
-//             comp: DefaultMatrix::init_unchecked(NS_COMP),
-//             unicode: DefaultMetaOptional::init_unchecked(NS_UNICODE),
-//         }
-//     }
-// }
-
-pub struct MetaSetter3_1To3_1;
-
-pub struct MetaSetter2_0To3_1 {
-    endian: Endian,
-    cytsn: MetaKwSetter<Cytsn>,
-    timestep: MetaKwSetter<Timestep>,
-    vol: MetaKwSetter<Vol>,
-    spillover: MatrixSetter<Spillover>,
-    modification: ModificationDefaults,
-    plate: PlateDefaults,
-}
-
-impl MetaSetter2_0To3_1 {
-    pub fn new(endian: Endian) -> Self {
-        MetaSetter2_0To3_1 {
-            endian,
-            cytsn: MetaKwSetter::default(),
-            timestep: MetaKwSetter::default(),
-            vol: MetaKwSetter::default(),
-            spillover: MatrixSetter::default(),
-            modification: ModificationDefaults::default(),
-            plate: PlateDefaults::default(),
-        }
-    }
-
-    // fn keyed(endian: Endian) -> Self {
-    //     Self {
-    //         endian,
-    //         cytsn: DefaultMetaOptional::init_unchecked(NS_CYTSN),
-    //         timestep: DefaultMetaOptional::init_unchecked(NS_TIMESTEP),
-    //         vol: DefaultMetaOptional::init_unchecked(NS_VOL),
-    //         spillover: DefaultMatrix::init_unchecked(NS_SPILLOVER),
-    //         modification: ModificationDefaults::keyed(),
-    //         plate: PlateDefaults::keyed(),
-    //     }
-    // }
-}
-
-pub struct MetaSetter3_0To3_1 {
-    endian: Endian,
-    vol: MetaKwSetter<Vol>,
-    spillover: MatrixSetter<Spillover>,
-    modification: ModificationDefaults,
-    plate: PlateDefaults,
-}
-
-impl MetaSetter3_0To3_1 {
-    pub fn new(endian: Endian) -> Self {
-        MetaSetter3_0To3_1 {
-            endian,
-            vol: MetaKwSetter::default(),
-            spillover: MatrixSetter::default(),
-            modification: ModificationDefaults::default(),
-            plate: PlateDefaults::default(),
-        }
-    }
-
-    // fn keyed(endian: Endian) -> Self {
-    //     Self {
-    //         endian,
-    //         vol: DefaultMetaOptional::init_unchecked(NS_VOL),
-    //         spillover: DefaultMatrix::init_unchecked(NS_SPILLOVER),
-    //         modification: ModificationDefaults::keyed(),
-    //         plate: PlateDefaults::keyed(),
-    //     }
-    // }
-}
-
-pub struct MetaSetter3_2To3_1;
-
-pub struct MetaSetter3_2To3_2;
-
-pub struct MetaSetter2_0To3_2 {
-    endian: Endian,
-    cyt: Cyt,
-    cytsn: MetaKwSetter<Cytsn>,
-    timestep: MetaKwSetter<Timestep>,
-    vol: MetaKwSetter<Vol>,
-    spillover: MatrixSetter<Spillover>,
-    flowrate: MetaKwSetter<Flowrate>,
-    modification: ModificationDefaults,
-    plate: PlateDefaults,
-    unstained: UnstainedDefaults,
-    carrier: CarrierDefaults,
-    datetimes: DatetimesDefaults,
-}
-
-impl MetaSetter2_0To3_2 {
-    pub fn new(endian: Endian, cyt: Cyt) -> Self {
-        MetaSetter2_0To3_2 {
-            endian,
-            cyt,
-            cytsn: MetaKwSetter::default(),
-            timestep: MetaKwSetter::default(),
-            vol: MetaKwSetter::default(),
-            spillover: MatrixSetter::default(),
-            flowrate: MetaKwSetter::default(),
-            modification: ModificationDefaults::default(),
-            plate: PlateDefaults::default(),
-            unstained: UnstainedDefaults::default(),
-            carrier: CarrierDefaults::default(),
-            datetimes: DatetimesDefaults::default(),
-        }
-    }
-
-    // fn keyed(endian: Endian, cyt: Cyt) -> Self {
-    //     Self {
-    //         endian,
-    //         cyt,
-    //         cytsn: DefaultMetaOptional::init_unchecked(NS_CYTSN),
-    //         timestep: DefaultMetaOptional::init_unchecked(NS_TIMESTEP),
-    //         flowrate: DefaultMetaOptional::init_unchecked(NS_FLOWRATE),
-    //         vol: DefaultMetaOptional::init_unchecked(NS_VOL),
-    //         spillover: DefaultMatrix::init_unchecked(NS_SPILLOVER),
-    //         modification: ModificationDefaults::keyed(),
-    //         plate: PlateDefaults::keyed(),
-    //         unstained: UnstainedDefaults::keyed(),
-    //         carrier: CarrierDefaults::keyed(),
-    //         datetimes: DatetimesDefaults::keyed(),
-    //     }
-    // }
-}
-
-pub struct MetaSetter3_0To3_2 {
-    endian: Endian,
-    cyt: Cyt,
-    vol: MetaKwSetter<Vol>,
-    spillover: MatrixSetter<Spillover>,
-    flowrate: MetaKwSetter<Flowrate>,
-    modification: ModificationDefaults,
-    plate: PlateDefaults,
-    unstained: UnstainedDefaults,
-    carrier: CarrierDefaults,
-    datetimes: DatetimesDefaults,
-}
-
-impl MetaSetter3_0To3_2 {
-    pub fn new(endian: Endian, cyt: Cyt) -> Self {
-        MetaSetter3_0To3_2 {
-            endian,
-            cyt,
-            vol: MetaKwSetter::default(),
-            spillover: MatrixSetter::default(),
-            flowrate: MetaKwSetter::default(),
-            modification: ModificationDefaults::default(),
-            plate: PlateDefaults::default(),
-            unstained: UnstainedDefaults::default(),
-            carrier: CarrierDefaults::default(),
-            datetimes: DatetimesDefaults::default(),
-        }
-    }
-
-    // fn keyed(endian: Endian, cyt: Cyt) -> Self {
-    //     Self {
-    //         endian,
-    //         cyt,
-    //         flowrate: DefaultMetaOptional::init_unchecked(NS_FLOWRATE),
-    //         vol: DefaultMetaOptional::init_unchecked(NS_VOL),
-    //         spillover: DefaultMatrix::init_unchecked(NS_SPILLOVER),
-    //         modification: ModificationDefaults::keyed(),
-    //         plate: PlateDefaults::keyed(),
-    //         unstained: UnstainedDefaults::keyed(),
-    //         carrier: CarrierDefaults::keyed(),
-    //         datetimes: DatetimesDefaults::keyed(),
-    //     }
-    // }
-}
-
-pub struct MetaSetter3_1To3_2 {
-    cyt: Cyt,
-    flowrate: MetaKwSetter<Flowrate>,
-    unstained: UnstainedDefaults,
-    carrier: CarrierDefaults,
-    datetimes: DatetimesDefaults,
-}
-
-impl MetaSetter3_1To3_2 {
-    pub fn new(cyt: Cyt) -> Self {
-        MetaSetter3_1To3_2 {
-            cyt,
-            flowrate: MetaKwSetter::default(),
-            unstained: UnstainedDefaults::default(),
-            carrier: CarrierDefaults::default(),
-            datetimes: DatetimesDefaults::default(),
-        }
-    }
-
-    // fn keyed(cyt: Cyt) -> Self {
-    //     Self {
-    //         cyt,
-    //         flowrate: DefaultMetaOptional::init_unchecked(NS_FLOWRATE),
-    //         unstained: UnstainedDefaults::keyed(),
-    //         carrier: CarrierDefaults::keyed(),
-    //         datetimes: DatetimesDefaults::keyed(),
-    //     }
-    // }
-}
-
-#[derive(Default)]
-pub struct MetaSetterTo2_0 {
-    // TODO no sensible kw
-    comp: MatrixSetter<Compensation>,
-}
-
-#[derive(Default)]
-pub struct MetaSetterTo3_0 {
-    cytsn: MetaKwSetter<Cytsn>,
-    timestep: MetaKwSetter<Timestep>,
-    unicode: MetaKwSetter<Unicode>,
-    comp: MatrixSetter<Compensation>,
-}
-
-impl MetaSetterTo3_0 {
-    fn new() -> Self {
-        Self {
-            cytsn: MetaKwSetter::default(),
-            timestep: MetaKwSetter::default(),
-            unicode: MetaKwSetter::default(),
-            comp: MatrixSetter::default(),
-        }
-    }
-
-    // fn keyed() -> Self {
-    //     Self {
-    //         cytsn: DefaultMetaOptional::init_unchecked(NS_CYTSN),
-    //         timestep: DefaultMetaOptional::init_unchecked(NS_TIMESTEP),
-    //         unicode: DefaultMetaOptional::init_unchecked(NS_UNICODE),
-    //         comp: DefaultMatrix::init_unchecked(NS_COMP),
-    //     }
-    // }
-}
-
-pub struct MetaSetterTo3_1 {
-    endian: Endian,
-    cytsn: MetaKwSetter<Cytsn>,
-    timestep: MetaKwSetter<Timestep>,
-    vol: MetaKwSetter<Vol>,
-    spillover: MatrixSetter<Spillover>,
-    modification: ModificationDefaults,
-    plate: PlateDefaults,
-}
-
-impl MetaSetterTo3_1 {
-    pub fn new(endian: Endian) -> Self {
-        Self {
-            endian,
-            cytsn: MetaKwSetter::default(),
-            timestep: MetaKwSetter::default(),
-            vol: MetaKwSetter::default(),
-            spillover: MatrixSetter::default(),
-            modification: ModificationDefaults::default(),
-            plate: PlateDefaults::default(),
-        }
-    }
-
-    // fn keyed(endian: Endian) -> Self {
-    //     Self {
-    //         endian,
-    //         cytsn: DefaultMetaOptional::init_unchecked(NS_CYTSN),
-    //         timestep: DefaultMetaOptional::init_unchecked(NS_TIMESTEP),
-    //         vol: DefaultMetaOptional::init_unchecked(NS_VOL),
-    //         spillover: DefaultMatrix::init_unchecked(NS_SPILLOVER),
-    //         modification: ModificationDefaults::keyed(),
-    //         plate: PlateDefaults::keyed(),
-    //     }
-    // }
-}
-
-pub struct MetaSetterTo3_2 {
-    endian: Endian,
-    cyt: Cyt,
-    cytsn: MetaKwSetter<Cytsn>,
-    timestep: MetaKwSetter<Timestep>,
-    vol: MetaKwSetter<Vol>,
-    spillover: MatrixSetter<Spillover>,
-    flowrate: MetaKwSetter<Flowrate>,
-    modification: ModificationDefaults,
-    plate: PlateDefaults,
-    unstained: UnstainedDefaults,
-    carrier: CarrierDefaults,
-    datetimes: DatetimesDefaults,
-}
-
-impl MetaSetterTo3_2 {
-    pub fn new(endian: Endian, cyt: Cyt) -> Self {
-        Self {
-            endian,
-            cyt,
-            cytsn: MetaKwSetter::default(),
-            timestep: MetaKwSetter::default(),
-            vol: MetaKwSetter::default(),
-            spillover: MatrixSetter::default(),
-            flowrate: MetaKwSetter::default(),
-            modification: ModificationDefaults::default(),
-            plate: PlateDefaults::default(),
-            unstained: UnstainedDefaults::default(),
-            carrier: CarrierDefaults::default(),
-            datetimes: DatetimesDefaults::default(),
-        }
-    }
-
-    // fn keyed(endian: Endian, cyt: Cyt) -> Self {
-    //     Self {
-    //         endian,
-    //         cyt,
-    //         cytsn: DefaultMetaOptional::init_unchecked(NS_CYTSN),
-    //         timestep: DefaultMetaOptional::init_unchecked(NS_TIMESTEP),
-    //         flowrate: DefaultMetaOptional::init_unchecked(NS_FLOWRATE),
-    //         vol: DefaultMetaOptional::init_unchecked(NS_VOL),
-    //         spillover: DefaultMatrix::init_unchecked(NS_SPILLOVER),
-    //         modification: ModificationDefaults::keyed(),
-    //         plate: PlateDefaults::keyed(),
-    //         unstained: UnstainedDefaults::keyed(),
-    //         carrier: CarrierDefaults::keyed(),
-    //         datetimes: DatetimesDefaults::keyed(),
-    //     }
-    // }
-}
-
-pub struct RequiredEndianCyt {
-    pub endian: Endian,
-    pub cyt: Cyt,
-}
-
-macro_rules! txfr_keys {
-    ($from:ident, $to:ident, [$($key:ident),*]) => {
-        impl From<$from> for $to {
-            fn from(_value: $from) -> Self {
-                $to {
-                    $(
-                        $key: _value.$key,
-                    )*
-                }
-            }
-        }
-    };
-}
-
-txfr_keys!(MetaSetterTo2_0, MetaSetter2_0To2_0, []);
-
-txfr_keys!(MetaSetterTo2_0, MetaSetter3_0To2_0, []);
-
-txfr_keys!(MetaSetterTo2_0, MetaSetter3_1To2_0, [comp]);
-
-txfr_keys!(MetaSetterTo2_0, MetaSetter3_2To2_0, [comp]);
-
-txfr_keys!(MetaSetterTo3_0, MetaSetter3_0To3_0, []);
-
-txfr_keys!(
-    MetaSetterTo3_0,
-    MetaSetter2_0To3_0,
-    [cytsn, timestep, unicode]
-);
-
-txfr_keys!(MetaSetterTo3_0, MetaSetter3_1To3_0, [comp, unicode]);
-
-txfr_keys!(MetaSetterTo3_0, MetaSetter3_2To3_0, [comp, unicode]);
-
-txfr_keys!(MetaSetterTo3_1, MetaSetter3_1To3_1, []);
-
-txfr_keys!(
-    MetaSetterTo3_1,
-    MetaSetter2_0To3_1,
-    [endian, cytsn, timestep, vol, spillover, modification, plate]
-);
-
-txfr_keys!(
-    MetaSetterTo3_1,
-    MetaSetter3_0To3_1,
-    [endian, vol, spillover, modification, plate]
-);
-
-txfr_keys!(MetaSetterTo3_1, MetaSetter3_2To3_1, []);
-
-txfr_keys!(MetaSetterTo3_2, MetaSetter3_2To3_2, []);
-
-txfr_keys!(
-    MetaSetterTo3_2,
-    MetaSetter2_0To3_2,
-    [
-        endian,
-        cyt,
-        flowrate,
-        cytsn,
-        timestep,
-        vol,
-        spillover,
-        modification,
-        plate,
-        unstained,
-        carrier,
-        datetimes
-    ]
-);
-
-txfr_keys!(
-    MetaSetterTo3_2,
-    MetaSetter3_0To3_2,
-    [
-        endian,
-        cyt,
-        flowrate,
-        vol,
-        spillover,
-        modification,
-        plate,
-        unstained,
-        carrier,
-        datetimes
-    ]
-);
-
-txfr_keys!(
-    MetaSetterTo3_2,
-    MetaSetter3_1To3_2,
-    [cyt, flowrate, unstained, carrier, datetimes]
-);
-
-#[derive(Clone)]
-pub struct MeasSetter2_0To2_0;
-
-#[derive(Clone)]
-pub struct MeasSetter3_0To2_0;
-
-#[derive(Clone)]
-pub struct MeasSetter3_1To2_0;
-
-#[derive(Clone)]
-pub struct MeasSetter3_2To2_0;
-
-#[derive(Clone)]
-pub struct MeasSetterTo2_0;
-
-#[derive(Clone)]
-pub struct MeasSetter3_0To3_0;
-
-#[derive(Clone)]
-pub struct MeasSetter2_0To3_0 {
-    scale: Scale,
-    gain: MeasKwSetter<Gain>,
-}
-
-impl MeasSetter2_0To3_0 {
-    fn new(scale: Scale) -> Self {
-        Self {
-            scale,
-            gain: MeasKwSetter::default(),
-        }
-    }
-
-    // fn keyed(scale: Scale, n: usize) -> Self {
-    //     Self {
-    //         scale,
-    //         gain: DefaultMeasOptional::init_unchecked(GAIN_SFX, n),
-    //     }
-    // }
-}
-
-#[derive(Clone)]
-pub struct MeasSetter3_1To3_0;
-
-#[derive(Clone)]
-pub struct MeasSetter3_2To3_0;
-
-#[derive(Clone)]
-pub struct MeasSetterTo3_0 {
-    scale: Scale,
-    gain: MeasKwSetter<Gain>,
-}
-
-impl MeasSetterTo3_0 {
-    fn new(scale: Scale) -> Self {
-        Self {
-            scale,
-            gain: MeasKwSetter::default(),
-        }
-    }
-
-    // fn keyed(scale: Scale, n: usize) -> Self {
-    //     Self {
-    //         scale,
-    //         gain: DefaultMeasOptional::init_unchecked(GAIN_SFX, n),
-    //     }
-    // }
-}
-
-#[derive(Clone)]
-pub struct MeasSetter3_1To3_1;
-
-#[derive(Clone)]
-pub struct MeasSetter2_0To3_1 {
-    scale: Scale,
-    shortname: Shortname,
-    gain: MeasKwSetter<Gain>,
-    calibration: MeasKwSetter<Calibration3_1>,
-    display: MeasKwSetter<Display>,
-}
-
-pub struct RequireScaleShortname {
-    scale: Scale,
-    shortname: Shortname,
-}
-
-impl MeasSetter2_0To3_1 {
-    fn new(scale: Scale, shortname: Shortname) -> Self {
-        Self {
-            scale,
-            shortname,
-            gain: MeasKwSetter::default(),
-            calibration: MeasKwSetter::default(),
-            display: MeasKwSetter::default(),
-        }
-    }
-
-    // fn keyed(scale: Scale, shortname: Shortname, n: usize) -> Self {
-    //     Self {
-    //         scale,
-    //         shortname,
-    //         gain: DefaultMeasOptional::init_unchecked(GAIN_SFX, n),
-    //         calibration: DefaultMeasOptional::init_unchecked(CALIBRATION_SFX, n),
-    //         display: DefaultMeasOptional::init_unchecked(DISPLAY_SFX, n),
-    //     }
-    // }
-}
-
-#[derive(Clone)]
-pub struct MeasSetter3_0To3_1 {
-    shortname: Shortname,
-    calibration: MeasKwSetter<Calibration3_1>,
-    display: MeasKwSetter<Display>,
-}
-
-impl MeasSetter3_0To3_1 {
-    fn new(shortname: Shortname) -> Self {
-        Self {
-            shortname,
-            calibration: MeasKwSetter::default(),
-            display: MeasKwSetter::default(),
-        }
-    }
-
-    // fn keyed(shortname: Shortname, n: usize) -> Self {
-    //     Self {
-    //         shortname,
-    //         calibration: DefaultMeasOptional::init_unchecked(CALIBRATION_SFX, n),
-    //         display: DefaultMeasOptional::init_unchecked(DISPLAY_SFX, n),
-    //     }
-    // }
-}
-
-#[derive(Clone)]
-pub struct MeasSetter3_2To3_1;
-
-#[derive(Clone)]
-pub struct MeasSetterTo3_1 {
-    scale: Scale,
-    shortname: Shortname,
-    gain: MeasKwSetter<Gain>,
-    calibration: MeasKwSetter<Calibration3_1>,
-    display: MeasKwSetter<Display>,
-}
-
-impl MeasSetterTo3_1 {
-    fn new(scale: Scale, shortname: Shortname) -> Self {
-        Self {
-            scale,
-            shortname,
-            gain: MeasKwSetter::default(),
-            calibration: MeasKwSetter::default(),
-            display: MeasKwSetter::default(),
-        }
-    }
-
-    // fn keyed(scale: Scale, shortname: Shortname, n: usize) -> Self {
-    //     Self {
-    //         scale,
-    //         shortname,
-    //         gain: DefaultMeasOptional::init_unchecked(GAIN_SFX, n),
-    //         calibration: DefaultMeasOptional::init_unchecked(CALIBRATION_SFX, n),
-    //         display: DefaultMeasOptional::init_unchecked(DISPLAY_SFX, n),
-    //     }
-    // }
-}
-
-#[derive(Clone)]
-pub struct MeasSetter3_2To3_2;
-
-#[derive(Clone)]
-pub struct MeasSetter2_0To3_2 {
-    scale: Scale,
-    shortname: Shortname,
-    gain: MeasKwSetter<Gain>,
-    calibration: MeasKwSetter<Calibration3_2>,
-    display: MeasKwSetter<Display>,
-    analyte: MeasKwSetter<Analyte>,
-    tag: MeasKwSetter<Tag>,
-    detector_name: MeasKwSetter<DetectorName>,
-    feature: MeasKwSetter<Feature>,
-    datatype: MeasKwSetter<NumType>,
-    measurement_type: MeasKwSetter<MeasurementType>,
-}
-
-impl MeasSetter2_0To3_2 {
-    fn new(scale: Scale, shortname: Shortname) -> Self {
-        Self {
-            scale,
-            shortname,
-            gain: MeasKwSetter::default(),
-            calibration: MeasKwSetter::default(),
-            display: MeasKwSetter::default(),
-            analyte: MeasKwSetter::default(),
-            tag: MeasKwSetter::default(),
-            detector_name: MeasKwSetter::default(),
-            feature: MeasKwSetter::default(),
-            datatype: MeasKwSetter::default(),
-            measurement_type: MeasKwSetter::default(),
-        }
-    }
-
-    // fn fixed(scale: Scale, shortname: Shortname, n: usize) -> Self {
-    //     Self {
-    //         scale,
-    //         shortname,
-    //         gain: DefaultMeasOptional::init_unchecked(GAIN_SFX, n),
-    //         calibration: DefaultMeasOptional::init_unchecked(CALIBRATION_SFX, n),
-    //         display: DefaultMeasOptional::init_unchecked(DISPLAY_SFX, n),
-    //         analyte: DefaultMeasOptional::init_unchecked(ANALYTE_SFX, n),
-    //         tag: DefaultMeasOptional::init_unchecked(TAG_SFX, n),
-    //         detector_name: DefaultMeasOptional::init_unchecked(DET_NAME_SFX, n),
-    //         feature: DefaultMeasOptional::init_unchecked(FEATURE_SFX, n),
-    //         datatype: DefaultMeasOptional::init_unchecked(DATATYPE_SFX, n),
-    //         measurement_type: DefaultMeasOptional::init_unchecked(MEAS_TYPE_SFX, n),
-    //     }
-    // }
-}
-
-#[derive(Clone)]
-pub struct MeasSetter3_0To3_2 {
-    shortname: Shortname,
-    calibration: MeasKwSetter<Calibration3_2>,
-    display: MeasKwSetter<Display>,
-    analyte: MeasKwSetter<Analyte>,
-    tag: MeasKwSetter<Tag>,
-    detector_name: MeasKwSetter<DetectorName>,
-    feature: MeasKwSetter<Feature>,
-    datatype: MeasKwSetter<NumType>,
-    measurement_type: MeasKwSetter<MeasurementType>,
-}
-
-impl MeasSetter3_0To3_2 {
-    fn new(shortname: Shortname) -> Self {
-        Self {
-            shortname,
-            calibration: MeasKwSetter::default(),
-            display: MeasKwSetter::default(),
-            analyte: MeasKwSetter::default(),
-            tag: MeasKwSetter::default(),
-            detector_name: MeasKwSetter::default(),
-            feature: MeasKwSetter::default(),
-            datatype: MeasKwSetter::default(),
-            measurement_type: MeasKwSetter::default(),
-        }
-    }
-
-    // fn fixed(shortname: Shortname, n: usize) -> Self {
-    //     Self {
-    //         shortname,
-    //         calibration: DefaultMeasOptional::init_unchecked(CALIBRATION_SFX, n),
-    //         display: DefaultMeasOptional::init_unchecked(DISPLAY_SFX, n),
-    //         analyte: DefaultMeasOptional::init_unchecked(ANALYTE_SFX, n),
-    //         tag: DefaultMeasOptional::init_unchecked(TAG_SFX, n),
-    //         detector_name: DefaultMeasOptional::init_unchecked(DET_NAME_SFX, n),
-    //         feature: DefaultMeasOptional::init_unchecked(FEATURE_SFX, n),
-    //         datatype: DefaultMeasOptional::init_unchecked(DATATYPE_SFX, n),
-    //         measurement_type: DefaultMeasOptional::init_unchecked(MEAS_TYPE_SFX, n),
-    //     }
-    // }
-}
-
-#[derive(Clone, Default)]
-pub struct MeasSetter3_1To3_2 {
-    analyte: MeasKwSetter<Analyte>,
-    tag: MeasKwSetter<Tag>,
-    detector_name: MeasKwSetter<DetectorName>,
-    feature: MeasKwSetter<Feature>,
-    datatype: MeasKwSetter<NumType>,
-    measurement_type: MeasKwSetter<MeasurementType>,
-}
-
-// impl MeasSetter3_1To3_2 {
-//     fn fixed(n: usize) -> Self {
-//         Self {
-//             analyte: DefaultMeasOptional::init_unchecked(ANALYTE_SFX, n),
-//             tag: DefaultMeasOptional::init_unchecked(TAG_SFX, n),
-//             detector_name: DefaultMeasOptional::init_unchecked(DET_NAME_SFX, n),
-//             feature: DefaultMeasOptional::init_unchecked(FEATURE_SFX, n),
-//             datatype: DefaultMeasOptional::init_unchecked(DATATYPE_SFX, n),
-//             measurement_type: DefaultMeasOptional::init_unchecked(MEAS_TYPE_SFX, n),
-//         }
-//     }
-// }
-
-#[derive(Clone)]
-pub struct MeasSetterTo3_2 {
-    scale: Scale,
-    shortname: Shortname,
-    gain: MeasKwSetter<Gain>,
-    calibration: MeasKwSetter<Calibration3_2>,
-    display: MeasKwSetter<Display>,
-    analyte: MeasKwSetter<Analyte>,
-    tag: MeasKwSetter<Tag>,
-    detector_name: MeasKwSetter<DetectorName>,
-    feature: MeasKwSetter<Feature>,
-    datatype: MeasKwSetter<NumType>,
-    measurement_type: MeasKwSetter<MeasurementType>,
-}
-
-impl MeasSetterTo3_2 {
-    fn new(scale: Scale, shortname: Shortname) -> Self {
-        Self {
-            scale,
-            shortname,
-            gain: MeasKwSetter::default(),
-            calibration: MeasKwSetter::default(),
-            display: MeasKwSetter::default(),
-            analyte: MeasKwSetter::default(),
-            tag: MeasKwSetter::default(),
-            detector_name: MeasKwSetter::default(),
-            feature: MeasKwSetter::default(),
-            datatype: MeasKwSetter::default(),
-            measurement_type: MeasKwSetter::default(),
-        }
-    }
-
-    // TODO lots of this boilerplate could be cleaned up by wrapping each
-    // kw value in a newtype (for those that aren't unique) and then
-    // assigning a trait which (among other things) would have a const param
-    // for the key/suffix/default. This way I would only need to write each
-    // kw once and could refer to them using the type.
-    // fn fixed(scale: Scale, shortname: Shortname, n: usize) -> Self {
-    //     Self {
-    //         scale,
-    //         shortname,
-    //         gain: DefaultMeasOptional::init_unchecked(GAIN_SFX, n),
-    //         calibration: DefaultMeasOptional::init_unchecked(CALIBRATION_SFX, n),
-    //         display: DefaultMeasOptional::init_unchecked(DISPLAY_SFX, n),
-    //         analyte: DefaultMeasOptional::init_unchecked(ANALYTE_SFX, n),
-    //         tag: DefaultMeasOptional::init_unchecked(TAG_SFX, n),
-    //         detector_name: DefaultMeasOptional::init_unchecked(DET_NAME_SFX, n),
-    //         feature: DefaultMeasOptional::init_unchecked(FEATURE_SFX, n),
-    //         datatype: DefaultMeasOptional::init_unchecked(DATATYPE_SFX, n),
-    //         measurement_type: DefaultMeasOptional::init_unchecked(MEAS_TYPE_SFX, n),
-    //     }
-    // }
-}
-
-txfr_keys!(MeasSetterTo2_0, MeasSetter2_0To2_0, []);
-
-txfr_keys!(MeasSetterTo2_0, MeasSetter3_0To2_0, []);
-
-txfr_keys!(MeasSetterTo2_0, MeasSetter3_1To2_0, []);
-
-txfr_keys!(MeasSetterTo2_0, MeasSetter3_2To2_0, []);
-
-txfr_keys!(MeasSetterTo3_0, MeasSetter2_0To3_0, [gain, scale]);
-
-txfr_keys!(MeasSetterTo3_0, MeasSetter3_0To3_0, []);
-
-txfr_keys!(MeasSetterTo3_0, MeasSetter3_1To3_0, []);
-
-txfr_keys!(MeasSetterTo3_0, MeasSetter3_2To3_0, []);
-
-txfr_keys!(
-    MeasSetterTo3_1,
-    MeasSetter2_0To3_1,
-    [scale, shortname, gain, calibration, display]
-);
-
-txfr_keys!(
-    MeasSetterTo3_1,
-    MeasSetter3_0To3_1,
-    [shortname, calibration, display]
-);
-
-txfr_keys!(MeasSetterTo3_1, MeasSetter3_1To3_1, []);
-
-txfr_keys!(MeasSetterTo3_1, MeasSetter3_2To3_1, []);
-
-txfr_keys!(
-    MeasSetterTo3_2,
-    MeasSetter2_0To3_2,
-    [
-        scale,
-        shortname,
-        gain,
-        calibration,
-        display,
-        analyte,
-        tag,
-        detector_name,
-        feature,
-        datatype,
-        measurement_type
-    ]
-);
-
-txfr_keys!(
-    MeasSetterTo3_2,
-    MeasSetter3_0To3_2,
-    [
-        shortname,
-        calibration,
-        display,
-        analyte,
-        tag,
-        detector_name,
-        feature,
-        datatype,
-        measurement_type
-    ]
-);
-
-txfr_keys!(
-    MeasSetterTo3_2,
-    MeasSetter3_1To3_2,
-    [
-        analyte,
-        tag,
-        detector_name,
-        feature,
-        datatype,
-        measurement_type
-    ]
-);
-
-txfr_keys!(MeasSetterTo3_2, MeasSetter3_2To3_2, []);
-
-pub struct CoreSetter<X, Y> {
-    metadata: X,
-    measurements: Vec<Y>,
-}
-
-impl<X, Y: Clone> CoreSetter<X, Y> {
-    pub fn new(metadata: X, measurement: Y, par: Par) -> Self {
-        CoreSetter {
-            metadata,
-            measurements: iter::repeat_n(measurement, par.0).collect(),
-        }
-    }
-}
-
-// pub type CoreSetter3_0To2_0 = CoreSetter<MetaSetter3_0To2_0, MeasSetter3_0To2_0>;
-// pub type CoreSetter3_1To2_0 = CoreSetter<MetaSetter3_1To2_0, MeasSetter3_1To2_0>;
-// pub type CoreSetter3_2To2_0 = CoreSetter<MetaSetter3_2To2_0, MeasSetter3_2To2_0>;
-
-// pub type CoreSetter2_0To3_0 = CoreSetter<MetaSetter2_0To3_0, MeasSetter2_0To3_0>;
-// pub type CoreSetter3_1To3_0 = CoreSetter<MetaSetter3_1To3_0, MeasSetter3_1To3_0>;
-// pub type CoreSetter3_2To3_0 = CoreSetter<MetaSetter3_2To3_0, MeasSetter3_2To3_0>;
-
-// pub type CoreSetter2_0To3_1 = CoreSetter<MetaSetter2_0To3_1, MeasSetter2_0To3_1>;
-// pub type CoreSetter3_0To3_1 = CoreSetter<MetaSetter3_0To3_1, MeasSetter3_0To3_1>;
-// pub type CoreSetter3_2To3_1 = CoreSetter<MetaSetter3_2To3_1, MeasSetter3_2To3_1>;
-
-// pub type CoreSetter2_0To3_2 = CoreSetter<MetaSetter2_0To3_2, MeasSetter2_0To3_2>;
-// pub type CoreSetter3_0To3_2 = CoreSetter<MetaSetter3_0To3_2, MeasSetter3_0To3_2>;
-// pub type CoreSetter3_1To3_2 = CoreSetter<MetaSetter3_1To3_2, MeasSetter3_1To3_2>;
-
-pub type CoreSetterTo2_0 = CoreSetter<MetaSetterTo2_0, MeasSetterTo2_0>;
-pub type CoreSetterTo3_0 = CoreSetter<MetaSetterTo3_0, MeasSetterTo3_0>;
-pub type CoreSetterTo3_1 = CoreSetter<MetaSetterTo3_1, MeasSetterTo3_1>;
-pub type CoreSetterTo3_2 = CoreSetter<MetaSetterTo3_2, MeasSetterTo3_2>;
-
-// fn project_defaults<A, B, X, Y>(value: CoreSetter<A, B>) -> CoreSetter<X, Y>
+// pub trait IntoCore<ToM, ToP, DM, DP>: Sized
 // where
-//     A: Into<X>,
-//     B: Into<Y>,
+//     ToM: VersionedMetadata,
+//     ToP: VersionedMeasurement,
+//     Self::FromM: VersionedMetadata,
+//     Self::FromP: VersionedMeasurement,
+//     <Self::FromM as IntoMetadata<ToM, DM>>::XToY: From<DM>,
+//     <Self::FromP as IntoMeasurement<ToP, DP>>::XToY: From<DP>,
 // {
-//     CoreSetter {
-//         metadata: value.metadata.into(),
-//         measurements: value.measurements.into_iter().map(|m| m.into()).collect(),
+//     type FromM: IntoMetadata<ToM, DM>;
+//     type FromP: IntoMeasurement<ToP, DP>;
+
+//     fn setter(
+//         req: CoreSetter<
+//             <Self::FromM as IntoMetadata<ToM, DM>>::Req,
+//             <Self::FromP as IntoMeasurement<ToP, DP>>::Req,
+//         >,
+//     ) -> CoreSetter<
+//         <Self::FromM as IntoMetadata<ToM, DM>>::XToY,
+//         <Self::FromP as IntoMeasurement<ToP, DP>>::XToY,
+//     > {
+//         let metadata = <Self::FromM as IntoMetadata<ToM, DM>>::setter(req.metadata);
+//         let measurements = req
+//             .measurements
+//             .into_iter()
+//             .map(<Self::FromP as IntoMeasurement<ToP, DP>>::setter)
+//             .collect();
+//         CoreSetter {
+//             metadata,
+//             measurements,
+//         }
+//     }
+
+//     fn convert_core_def(
+//         c: CoreTEXT<Self::FromM, Self::FromP>,
+//         def: CoreSetter<
+//             <Self::FromM as IntoMetadata<ToM, DM>>::XToY,
+//             <Self::FromP as IntoMeasurement<ToP, DP>>::XToY,
+//         >,
+//     ) -> PureSuccess<CoreTEXT<ToM, ToP>> {
+//         let metadata = c.metadata;
+//         // ASSUME measurement defaults is same length as measurements
+//         let ms = c
+//             .measurements
+//             .into_iter()
+//             .zip(def.measurements)
+//             .enumerate()
+//             .map(|(i, (m, d))| Self::FromP::convert(m, MeasIdx(i), d))
+//             .collect();
+//         PureSuccess::sequence(ms).and_then(|measurements| {
+//             let ms = measurement_shortnames(&measurements);
+//             Self::FromM::convert(metadata, def.metadata, &ms).map(|metadata| CoreTEXT {
+//                 measurements,
+//                 metadata,
+//             })
+//         })
+//     }
+
+//     // TODO not DRY, trying to put this in terms of the above function results
+//     // in a compile-time recursion loop, for reasons that elude me
+//     fn convert_core(
+//         c: CoreTEXT<Self::FromM, Self::FromP>,
+//         def: CoreSetter<DM, DP>,
+//     ) -> PureSuccess<CoreTEXT<ToM, ToP>> {
+//         let metadata = c.metadata;
+//         // ASSUME measurement defaults is same length as measurements
+//         let ms = c
+//             .measurements
+//             .into_iter()
+//             .zip(def.measurements)
+//             .enumerate()
+//             .map(|(i, (m, d))| Self::FromP::convert(m, MeasIdx(i), d.into()))
+//             .collect();
+//         PureSuccess::sequence(ms).and_then(|measurements| {
+//             let ms = measurement_shortnames(&measurements);
+//             Self::FromM::convert(metadata, def.metadata.into(), &ms).map(|metadata| CoreTEXT {
+//                 measurements,
+//                 metadata,
+//             })
+//         })
 //     }
 // }
 
-impl IntoMeasurement<InnerMeasurement2_0, MeasSetterTo2_0> for InnerMeasurement2_0 {
-    type XToY = MeasSetter2_0To2_0;
-    type Req = ();
-
-    fn setter(_: Self::Req) -> Self::XToY {
-        MeasSetter2_0To2_0
-    }
-
-    fn convert_inner(
-        self,
-        _: MeasIdx,
-        _: Self::XToY,
-        _: &mut NonStdKeywords,
-    ) -> PureSuccess<InnerMeasurement2_0> {
-        PureSuccess::from(self)
-    }
-}
-
-impl IntoMeasurement<InnerMeasurement2_0, MeasSetterTo2_0> for InnerMeasurement3_0 {
-    type XToY = MeasSetter3_0To2_0;
-    type Req = ();
-
-    fn setter(_: Self::Req) -> Self::XToY {
-        MeasSetter3_0To2_0
-    }
-
-    fn convert_inner(
-        self,
-        _: MeasIdx,
-        _: Self::XToY,
-        _: &mut NonStdKeywords,
-    ) -> PureSuccess<InnerMeasurement2_0> {
-        PureSuccess::from(InnerMeasurement2_0 {
-            scale: Some(self.scale).into(),
-            shortname: self.shortname,
-            wavelength: self.wavelength,
-        })
-    }
-}
-
-impl IntoMeasurement<InnerMeasurement2_0, MeasSetterTo2_0> for InnerMeasurement3_1 {
-    type XToY = MeasSetter3_1To2_0;
-    type Req = ();
-
-    fn setter(_: Self::Req) -> Self::XToY {
-        MeasSetter3_1To2_0
-    }
-
-    fn convert_inner(
-        self,
-        _: MeasIdx,
-        _: Self::XToY,
-        _: &mut NonStdKeywords,
-    ) -> PureSuccess<InnerMeasurement2_0> {
-        PureSuccess::from(InnerMeasurement2_0 {
-            shortname: Some(self.shortname).into(),
-            scale: Some(self.scale).into(),
-            wavelength: self.wavelengths.into(),
-        })
-    }
-}
-
-impl IntoMeasurement<InnerMeasurement2_0, MeasSetterTo2_0> for InnerMeasurement3_2 {
-    type XToY = MeasSetter3_2To2_0;
-    type Req = ();
-
-    fn setter(_: Self::Req) -> Self::XToY {
-        MeasSetter3_2To2_0
-    }
-
-    fn convert_inner(
-        self,
-        _: MeasIdx,
-        _: Self::XToY,
-        _: &mut NonStdKeywords,
-    ) -> PureSuccess<InnerMeasurement2_0> {
-        PureSuccess::from(InnerMeasurement2_0 {
-            shortname: Some(self.shortname).into(),
-            scale: Some(self.scale).into(),
-            wavelength: self.wavelengths.into(),
-        })
-    }
-}
-
-impl IntoMeasurement<InnerMeasurement3_0, MeasSetterTo3_0> for InnerMeasurement2_0 {
-    type XToY = MeasSetter2_0To3_0;
-    type Req = Scale;
-
-    fn setter(scale: Self::Req) -> Self::XToY {
-        MeasSetter2_0To3_0::new(scale)
-    }
-
-    fn convert_inner(
-        self,
-        n: MeasIdx,
-        def: Self::XToY,
-        ns: &mut NonStdKeywords,
-    ) -> PureSuccess<InnerMeasurement3_0> {
-        let scale = self.scale.0.unwrap_or(def.scale);
-        NSKwParser::run(ns, |st| InnerMeasurement3_0 {
-            scale,
-            wavelength: self.wavelength,
-            shortname: self.shortname,
-            gain: st.lookup_meas_maybe(n, def.gain),
-        })
-    }
-}
-
-impl IntoMeasurement<InnerMeasurement3_0, MeasSetterTo3_0> for InnerMeasurement3_0 {
-    type XToY = MeasSetter3_0To3_0;
-    type Req = ();
-
-    fn setter(_: Self::Req) -> Self::XToY {
-        MeasSetter3_0To3_0
-    }
-
-    fn convert_inner(
-        self,
-        _: MeasIdx,
-        _: Self::XToY,
-        _: &mut NonStdKeywords,
-    ) -> PureSuccess<InnerMeasurement3_0> {
-        PureSuccess::from(self)
-    }
-}
-
-impl IntoMeasurement<InnerMeasurement3_0, MeasSetterTo3_0> for InnerMeasurement3_1 {
-    type XToY = MeasSetter3_1To3_0;
-    type Req = ();
-
-    fn setter(_: Self::Req) -> Self::XToY {
-        MeasSetter3_1To3_0
-    }
-
-    fn convert_inner(
-        self,
-        _: MeasIdx,
-        _: Self::XToY,
-        _: &mut NonStdKeywords,
-    ) -> PureSuccess<InnerMeasurement3_0> {
-        PureSuccess::from(InnerMeasurement3_0 {
-            shortname: Some(self.shortname).into(),
-            scale: self.scale,
-            gain: self.gain,
-            wavelength: self.wavelengths.into(),
-        })
-    }
-}
-
-impl IntoMeasurement<InnerMeasurement3_0, MeasSetterTo3_0> for InnerMeasurement3_2 {
-    type XToY = MeasSetter3_2To3_0;
-    type Req = ();
-
-    fn setter(_: Self::Req) -> Self::XToY {
-        MeasSetter3_2To3_0
-    }
-
-    fn convert_inner(
-        self,
-        _: MeasIdx,
-        _: Self::XToY,
-        _: &mut NonStdKeywords,
-    ) -> PureSuccess<InnerMeasurement3_0> {
-        PureSuccess::from(InnerMeasurement3_0 {
-            shortname: Some(self.shortname).into(),
-            scale: self.scale,
-            gain: self.gain,
-            wavelength: self.wavelengths.into(),
-        })
-    }
-}
-
-impl IntoMeasurement<InnerMeasurement3_1, MeasSetterTo3_1> for InnerMeasurement2_0 {
-    type XToY = MeasSetter2_0To3_1;
-    type Req = RequireScaleShortname;
-
-    fn setter(r: Self::Req) -> Self::XToY {
-        MeasSetter2_0To3_1::new(r.scale, r.shortname)
-    }
-
-    fn convert_inner(
-        self,
-        n: MeasIdx,
-        def: Self::XToY,
-        ns: &mut NonStdKeywords,
-    ) -> PureSuccess<InnerMeasurement3_1> {
-        let scale = self.scale.0.unwrap_or(def.scale);
-        let shortname = self.shortname.0.unwrap_or(def.shortname);
-        NSKwParser::run(ns, |st| InnerMeasurement3_1 {
-            scale,
-            shortname,
-            wavelengths: self.wavelength.map(|x| x.into()),
-            gain: st.lookup_meas_maybe(n, def.gain),
-            calibration: st.lookup_meas_maybe(n, def.calibration),
-            display: st.lookup_meas_maybe(n, def.display),
-        })
-    }
-}
-
-impl IntoMeasurement<InnerMeasurement3_1, MeasSetterTo3_1> for InnerMeasurement3_0 {
-    type XToY = MeasSetter3_0To3_1;
-    type Req = Shortname;
-
-    fn setter(shortname: Self::Req) -> Self::XToY {
-        MeasSetter3_0To3_1::new(shortname)
-    }
-
-    fn convert_inner(
-        self,
-        n: MeasIdx,
-        def: Self::XToY,
-        ns: &mut NonStdKeywords,
-    ) -> PureSuccess<InnerMeasurement3_1> {
-        let shortname = self.shortname.0.unwrap_or(def.shortname);
-        NSKwParser::run(ns, |st| InnerMeasurement3_1 {
-            shortname,
-            scale: self.scale,
-            gain: self.gain,
-            wavelengths: self.wavelength.map(|x| x.into()),
-            calibration: st.lookup_meas_maybe(n, def.calibration),
-            display: st.lookup_meas_maybe(n, def.display),
-        })
-    }
-}
-
-impl IntoMeasurement<InnerMeasurement3_1, MeasSetterTo3_1> for InnerMeasurement3_1 {
-    type XToY = MeasSetter3_1To3_1;
-    type Req = ();
-
-    fn setter(_: Self::Req) -> Self::XToY {
-        MeasSetter3_1To3_1
-    }
-
-    fn convert_inner(
-        self,
-        _: MeasIdx,
-        _: Self::XToY,
-        _: &mut NonStdKeywords,
-    ) -> PureSuccess<InnerMeasurement3_1> {
-        PureSuccess::from(self)
-    }
-}
-
-impl IntoMeasurement<InnerMeasurement3_1, MeasSetterTo3_1> for InnerMeasurement3_2 {
-    type XToY = MeasSetter3_2To3_1;
-    type Req = ();
-
-    fn setter(_: Self::Req) -> Self::XToY {
-        MeasSetter3_2To3_1
-    }
-
-    fn convert_inner(
-        self,
-        _: MeasIdx,
-        _: Self::XToY,
-        _: &mut NonStdKeywords,
-    ) -> PureSuccess<InnerMeasurement3_1> {
-        PureSuccess::from(InnerMeasurement3_1 {
-            shortname: self.shortname,
-            scale: self.scale,
-            gain: self.gain,
-            wavelengths: self.wavelengths,
-            calibration: self.calibration.map(|x| x.into()),
-            display: self.display,
-        })
-    }
-}
-
-impl IntoMeasurement<InnerMeasurement3_2, MeasSetterTo3_2> for InnerMeasurement2_0 {
-    type XToY = MeasSetter2_0To3_2;
-    type Req = RequireScaleShortname;
-
-    fn setter(r: Self::Req) -> Self::XToY {
-        MeasSetter2_0To3_2::new(r.scale, r.shortname)
-    }
-
-    fn convert_inner(
-        self,
-        n: MeasIdx,
-        def: Self::XToY,
-        ns: &mut NonStdKeywords,
-    ) -> PureSuccess<InnerMeasurement3_2> {
-        let scale = self.scale.0.unwrap_or(def.scale);
-        let shortname = self.shortname.0.unwrap_or(def.shortname);
-        NSKwParser::run(ns, |st| InnerMeasurement3_2 {
-            scale,
-            shortname,
-            wavelengths: self.wavelength.map(|x| x.into()),
-            gain: st.lookup_meas_maybe(n, def.gain),
-            calibration: st.lookup_meas_maybe(n, def.calibration),
-            display: st.lookup_meas_maybe(n, def.display),
-            analyte: st.lookup_meas_maybe(n, def.analyte),
-            feature: st.lookup_meas_maybe(n, def.feature),
-            tag: st.lookup_meas_maybe(n, def.tag),
-            detector_name: st.lookup_meas_maybe(n, def.detector_name),
-            datatype: st.lookup_meas_maybe(n, def.datatype),
-            measurement_type: st.lookup_meas_maybe(n, def.measurement_type),
-        })
-    }
-}
-
-impl IntoMeasurement<InnerMeasurement3_2, MeasSetterTo3_2> for InnerMeasurement3_0 {
-    type XToY = MeasSetter3_0To3_2;
-    type Req = Shortname;
-
-    fn setter(shortname: Self::Req) -> Self::XToY {
-        MeasSetter3_0To3_2::new(shortname)
-    }
-
-    fn convert_inner(
-        self,
-        n: MeasIdx,
-        def: Self::XToY,
-        ns: &mut NonStdKeywords,
-    ) -> PureSuccess<InnerMeasurement3_2> {
-        let shortname = self.shortname.0.unwrap_or(def.shortname);
-        NSKwParser::run(ns, |st| InnerMeasurement3_2 {
-            shortname,
-            scale: self.scale,
-            wavelengths: self.wavelength.map(|x| x.into()),
-            gain: self.gain,
-            calibration: st.lookup_meas_maybe(n, def.calibration),
-            display: st.lookup_meas_maybe(n, def.display),
-            analyte: st.lookup_meas_maybe(n, def.analyte),
-            feature: st.lookup_meas_maybe(n, def.feature),
-            tag: st.lookup_meas_maybe(n, def.tag),
-            detector_name: st.lookup_meas_maybe(n, def.detector_name),
-            datatype: st.lookup_meas_maybe(n, def.datatype),
-            measurement_type: st.lookup_meas_maybe(n, def.measurement_type),
-        })
-    }
-}
-
-impl IntoMeasurement<InnerMeasurement3_2, MeasSetterTo3_2> for InnerMeasurement3_1 {
-    type XToY = MeasSetter3_1To3_2;
-    type Req = ();
-
-    fn setter(_: Self::Req) -> Self::XToY {
-        MeasSetter3_1To3_2::default()
-    }
-
-    fn convert_inner(
-        self,
-        n: MeasIdx,
-        def: Self::XToY,
-        ns: &mut NonStdKeywords,
-    ) -> PureSuccess<InnerMeasurement3_2> {
-        NSKwParser::run(ns, |st| InnerMeasurement3_2 {
-            shortname: self.shortname,
-            scale: self.scale,
-            wavelengths: self.wavelengths,
-            gain: self.gain,
-            calibration: self.calibration.map(|x| x.into()),
-            display: self.display,
-            analyte: st.lookup_meas_maybe(n, def.analyte),
-            feature: st.lookup_meas_maybe(n, def.feature),
-            tag: st.lookup_meas_maybe(n, def.tag),
-            detector_name: st.lookup_meas_maybe(n, def.detector_name),
-            datatype: st.lookup_meas_maybe(n, def.datatype),
-            measurement_type: st.lookup_meas_maybe(n, def.measurement_type),
-        })
-    }
-}
-
-impl IntoMeasurement<InnerMeasurement3_2, MeasSetterTo3_2> for InnerMeasurement3_2 {
-    type XToY = MeasSetter3_2To3_2;
-    type Req = ();
-
-    fn setter(_: Self::Req) -> Self::XToY {
-        MeasSetter3_2To3_2
-    }
-
-    fn convert_inner(
-        self,
-        _: MeasIdx,
-        _: Self::XToY,
-        _: &mut NonStdKeywords,
-    ) -> PureSuccess<InnerMeasurement3_2> {
-        PureSuccess::from(self)
-    }
-}
-
-impl IntoMetadata<InnerMetadata2_0, MetaSetterTo2_0> for InnerMetadata2_0 {
-    type XToY = MetaSetter2_0To2_0;
-    type Req = ();
-
-    fn setter(_: Self::Req) -> Self::XToY {
-        MetaSetter2_0To2_0
-    }
-
-    fn convert_inner(
-        self,
-        _: Self::XToY,
-        _: &mut NonStdKeywords,
-        _: &[Shortname],
-    ) -> PureSuccess<InnerMetadata2_0> {
-        PureSuccess::from(self)
-    }
-}
-
-impl IntoMetadata<InnerMetadata2_0, MetaSetterTo2_0> for InnerMetadata3_0 {
-    type XToY = MetaSetter3_0To2_0;
-    type Req = ();
-
-    fn setter(_: Self::Req) -> Self::XToY {
-        MetaSetter3_0To2_0
-    }
-
-    fn convert_inner(
-        self,
-        _: Self::XToY,
-        _: &mut NonStdKeywords,
-        _: &[Shortname],
-    ) -> PureSuccess<InnerMetadata2_0> {
-        PureSuccess::from(InnerMetadata2_0 {
-            mode: self.mode,
-            byteord: self.byteord,
-            cyt: self.cyt,
-            comp: self.comp,
-            timestamps: self.timestamps.map(|d| d.into()),
-        })
-    }
-}
-
-impl IntoMetadata<InnerMetadata2_0, MetaSetterTo2_0> for InnerMetadata3_1 {
-    type XToY = MetaSetter3_1To2_0;
-    type Req = ();
-
-    fn setter(_: Self::Req) -> Self::XToY {
-        MetaSetter3_1To2_0::default()
-    }
-
-    fn convert_inner(
-        self,
-        def: Self::XToY,
-        ns: &mut NonStdKeywords,
-        ms: &[Shortname],
-    ) -> PureSuccess<InnerMetadata2_0> {
-        NSKwParser::run(ns, |st| InnerMetadata2_0 {
-            mode: self.mode,
-            byteord: self.byteord.into(),
-            cyt: self.cyt,
-            comp: st.try_convert_lookup_comp(def.comp, self.spillover, ms),
-            timestamps: self.timestamps.map(|d| d.into()),
-        })
-    }
-}
-
-impl IntoMetadata<InnerMetadata2_0, MetaSetterTo2_0> for InnerMetadata3_2 {
-    type XToY = MetaSetter3_2To2_0;
-    type Req = ();
-
-    fn setter(_: Self::Req) -> Self::XToY {
-        MetaSetter3_2To2_0::default()
-    }
-
-    fn convert_inner(
-        self,
-        def: Self::XToY,
-        ns: &mut NonStdKeywords,
-        ms: &[Shortname],
-    ) -> PureSuccess<InnerMetadata2_0> {
-        NSKwParser::run(ns, |st| InnerMetadata2_0 {
-            mode: Mode::List,
-            byteord: self.byteord.into(),
-            cyt: Some(self.cyt).into(),
-            comp: st.try_convert_lookup_comp(def.comp, self.spillover, ms),
-            timestamps: self.timestamps.map(|d| d.into()),
-        })
-    }
-}
-
-impl IntoMetadata<InnerMetadata3_0, MetaSetterTo3_0> for InnerMetadata2_0 {
-    type XToY = MetaSetter2_0To3_0;
-    type Req = ();
-
-    fn setter(_: Self::Req) -> Self::XToY {
-        MetaSetter2_0To3_0::default()
-    }
-
-    fn convert_inner(
-        self,
-        def: Self::XToY,
-        ns: &mut NonStdKeywords,
-        _: &[Shortname],
-    ) -> PureSuccess<InnerMetadata3_0> {
-        NSKwParser::run(ns, |st| InnerMetadata3_0 {
-            mode: self.mode,
-            byteord: self.byteord,
-            cyt: self.cyt,
-            comp: self.comp,
-            timestamps: self.timestamps.map(|d| d.into()),
-            cytsn: st.lookup_maybe(def.cytsn),
-            timestep: st.lookup_maybe(def.timestep),
-            unicode: st.lookup_maybe(def.unicode),
-        })
-    }
-}
-
-impl IntoMetadata<InnerMetadata3_0, MetaSetterTo3_0> for InnerMetadata3_0 {
-    type XToY = MetaSetter3_0To3_0;
-    type Req = ();
-
-    fn setter(_: Self::Req) -> Self::XToY {
-        MetaSetter3_0To3_0
-    }
-
-    fn convert_inner(
-        self,
-        _: Self::XToY,
-        _: &mut NonStdKeywords,
-        _: &[Shortname],
-    ) -> PureSuccess<InnerMetadata3_0> {
-        PureSuccess::from(self)
-    }
-}
-
-impl IntoMetadata<InnerMetadata3_0, MetaSetterTo3_0> for InnerMetadata3_1 {
-    type XToY = MetaSetter3_1To3_0;
-    type Req = ();
-
-    fn setter(_: Self::Req) -> Self::XToY {
-        MetaSetter3_1To3_0::default()
-    }
-
-    fn convert_inner(
-        self,
-        def: Self::XToY,
-        ns: &mut NonStdKeywords,
-        ms: &[Shortname],
-    ) -> PureSuccess<InnerMetadata3_0> {
-        NSKwParser::run(ns, |st| InnerMetadata3_0 {
-            mode: self.mode,
-            byteord: self.byteord.into(),
-            cyt: self.cyt,
-            cytsn: self.cytsn,
-            timestep: self.timestep,
-            timestamps: self.timestamps.map(|d| d.into()),
-            comp: st.try_convert_lookup_comp(def.comp, self.spillover, ms),
-            unicode: st.lookup_maybe(def.unicode),
-        })
-    }
-}
-
-impl IntoMetadata<InnerMetadata3_0, MetaSetterTo3_0> for InnerMetadata3_2 {
-    type XToY = MetaSetter3_2To3_0;
-    type Req = ();
-
-    fn setter(_: Self::Req) -> Self::XToY {
-        MetaSetter3_2To3_0::default()
-    }
-
-    fn convert_inner(
-        self,
-        def: Self::XToY,
-        ns: &mut NonStdKeywords,
-        ms: &[Shortname],
-    ) -> PureSuccess<InnerMetadata3_0> {
-        NSKwParser::run(ns, |st| InnerMetadata3_0 {
-            mode: Mode::List,
-            byteord: self.byteord.into(),
-            cyt: Some(self.cyt).into(),
-            cytsn: self.cytsn,
-            timestep: self.timestep,
-            timestamps: self.timestamps.map(|d| d.into()),
-            comp: st.try_convert_lookup_comp(def.comp, self.spillover, ms),
-            unicode: st.lookup_maybe(def.unicode),
-        })
-    }
-}
-
-impl IntoMetadata<InnerMetadata3_1, MetaSetterTo3_1> for InnerMetadata2_0 {
-    type XToY = MetaSetter2_0To3_1;
-    type Req = Endian;
-
-    fn setter(endian: Self::Req) -> Self::XToY {
-        MetaSetter2_0To3_1::new(endian)
-    }
-
-    fn convert_inner(
-        self,
-        def: Self::XToY,
-        ns: &mut NonStdKeywords,
-        ms: &[Shortname],
-    ) -> PureSuccess<InnerMetadata3_1> {
-        NSKwParser::run(ns, |st| {
-            let byteord = self.byteord.try_into().ok().unwrap_or(def.endian);
-            InnerMetadata3_1 {
-                mode: self.mode,
-                byteord,
-                cyt: self.cyt,
-                timestamps: self.timestamps.map(|d| d.into()),
-                spillover: st.try_convert_lookup_spillover(def.spillover, self.comp, ms),
-                cytsn: st.lookup_maybe(def.cytsn),
-                timestep: st.lookup_maybe(def.timestep),
-                modification: st.lookup_modification(def.modification),
-                plate: st.lookup_plate(def.plate),
-                vol: st.lookup_maybe(def.vol),
-            }
-        })
-    }
-}
-
-impl IntoMetadata<InnerMetadata3_1, MetaSetterTo3_1> for InnerMetadata3_0 {
-    type XToY = MetaSetter3_0To3_1;
-    type Req = Endian;
-
-    fn setter(endian: Self::Req) -> Self::XToY {
-        MetaSetter3_0To3_1::new(endian)
-    }
-
-    fn convert_inner(
-        self,
-        def: Self::XToY,
-        ns: &mut NonStdKeywords,
-        ms: &[Shortname],
-    ) -> PureSuccess<InnerMetadata3_1> {
-        NSKwParser::run(ns, |st| {
-            let byteord = self.byteord.try_into().ok().unwrap_or(def.endian);
-            InnerMetadata3_1 {
-                byteord,
-                mode: self.mode,
-                cyt: self.cyt,
-                timestep: self.timestep,
-                cytsn: self.cytsn,
-                timestamps: self.timestamps.map(|d| d.into()),
-                spillover: st.try_convert_lookup_spillover(def.spillover, self.comp, ms),
-                modification: st.lookup_modification(def.modification),
-                plate: st.lookup_plate(def.plate),
-                vol: st.lookup_maybe(def.vol),
-            }
-        })
-    }
-}
-
-impl IntoMetadata<InnerMetadata3_1, MetaSetterTo3_1> for InnerMetadata3_1 {
-    type XToY = MetaSetter3_1To3_1;
-    type Req = ();
-
-    fn setter(_: Self::Req) -> Self::XToY {
-        MetaSetter3_1To3_1
-    }
-
-    fn convert_inner(
-        self,
-        _: Self::XToY,
-        _: &mut NonStdKeywords,
-        _: &[Shortname],
-    ) -> PureSuccess<InnerMetadata3_1> {
-        PureSuccess::from(self)
-    }
-}
-
-impl IntoMetadata<InnerMetadata3_1, MetaSetterTo3_1> for InnerMetadata3_2 {
-    type XToY = MetaSetter3_2To3_1;
-    type Req = ();
-
-    fn setter(_: Self::Req) -> Self::XToY {
-        MetaSetter3_2To3_1
-    }
-
-    fn convert_inner(
-        self,
-        _: Self::XToY,
-        _: &mut NonStdKeywords,
-        _: &[Shortname],
-    ) -> PureSuccess<InnerMetadata3_1> {
-        PureSuccess::from(InnerMetadata3_1 {
-            mode: Mode::List,
-            byteord: self.byteord,
-            cyt: Some(self.cyt).into(),
-            cytsn: self.cytsn,
-            timestep: self.timestep,
-            timestamps: self.timestamps,
-            spillover: self.spillover,
-            plate: self.plate,
-            modification: self.modification,
-            vol: self.vol,
-        })
-    }
-}
-
-impl IntoMetadata<InnerMetadata3_2, MetaSetterTo3_2> for InnerMetadata2_0 {
-    type XToY = MetaSetter2_0To3_2;
-    type Req = RequiredEndianCyt;
-
-    fn setter(r: Self::Req) -> Self::XToY {
-        MetaSetter2_0To3_2::new(r.endian, r.cyt)
-    }
-
-    fn convert_inner(
-        self,
-        def: Self::XToY,
-        ns: &mut NonStdKeywords,
-        ms: &[Shortname],
-    ) -> PureSuccess<InnerMetadata3_2> {
-        NSKwParser::run(ns, |st| {
-            let byteord = self.byteord.try_into().ok().unwrap_or(def.endian);
-            let cyt = self.cyt.0.unwrap_or(def.cyt);
-            // TODO what happens if $MODE is not list?
-            InnerMetadata3_2 {
-                byteord,
-                cyt,
-                spillover: st.try_convert_lookup_spillover(def.spillover, self.comp, ms),
-                timestamps: self.timestamps.map(|d| d.into()),
-                cytsn: st.lookup_maybe(def.cytsn),
-                timestep: st.lookup_maybe(def.timestep),
-                modification: st.lookup_modification(def.modification),
-                plate: st.lookup_plate(def.plate),
-                vol: st.lookup_maybe(def.vol),
-                flowrate: st.lookup_maybe(def.flowrate),
-                carrier: st.lookup_carrier(def.carrier),
-                unstained: st.lookup_unstained(def.unstained),
-                datetimes: st.lookup_datetimes(def.datetimes),
-            }
-        })
-    }
-}
-
-impl IntoMetadata<InnerMetadata3_2, MetaSetterTo3_2> for InnerMetadata3_0 {
-    type XToY = MetaSetter3_0To3_2;
-    type Req = RequiredEndianCyt;
-
-    fn setter(r: Self::Req) -> Self::XToY {
-        MetaSetter3_0To3_2::new(r.endian, r.cyt)
-    }
-
-    fn convert_inner(
-        self,
-        def: Self::XToY,
-        ns: &mut NonStdKeywords,
-        ms: &[Shortname],
-    ) -> PureSuccess<InnerMetadata3_2> {
-        NSKwParser::run(ns, |st| {
-            let byteord = self.byteord.try_into().ok().unwrap_or(def.endian);
-            let cyt = self.cyt.0.unwrap_or(def.cyt);
-            InnerMetadata3_2 {
-                byteord,
-                cyt,
-                timestep: self.timestep,
-                cytsn: self.cytsn,
-                timestamps: self.timestamps.map(|d| d.into()),
-                modification: st.lookup_modification(def.modification),
-                spillover: st.try_convert_lookup_spillover(def.spillover, self.comp, ms),
-                plate: st.lookup_plate(def.plate),
-                vol: st.lookup_maybe(def.vol),
-                flowrate: st.lookup_maybe(def.flowrate),
-                carrier: st.lookup_carrier(def.carrier),
-                unstained: st.lookup_unstained(def.unstained),
-                datetimes: st.lookup_datetimes(def.datetimes),
-            }
-        })
-    }
-}
-
-impl IntoMetadata<InnerMetadata3_2, MetaSetterTo3_2> for InnerMetadata3_1 {
-    type XToY = MetaSetter3_1To3_2;
-    type Req = Cyt;
-
-    fn setter(cyt: Self::Req) -> Self::XToY {
-        MetaSetter3_1To3_2::new(cyt)
-    }
-
-    fn convert_inner(
-        self,
-        def: Self::XToY,
-        ns: &mut NonStdKeywords,
-        _: &[Shortname],
-    ) -> PureSuccess<InnerMetadata3_2> {
-        let cyt = self.cyt.0.unwrap_or(def.cyt);
-        NSKwParser::run(ns, |st| InnerMetadata3_2 {
-            byteord: self.byteord,
-            cyt,
-            cytsn: self.cytsn,
-            timestep: self.timestep,
-            timestamps: self.timestamps,
-            spillover: self.spillover,
-            modification: self.modification,
-            plate: self.plate,
-            vol: self.vol,
-            flowrate: st.lookup_maybe(def.flowrate),
-            carrier: st.lookup_carrier(def.carrier),
-            unstained: st.lookup_unstained(def.unstained),
-            datetimes: st.lookup_datetimes(def.datetimes),
-        })
-    }
-}
-
-impl IntoMetadata<InnerMetadata3_2, MetaSetterTo3_2> for InnerMetadata3_2 {
-    type XToY = MetaSetter3_2To3_2;
-    type Req = ();
-
-    fn setter(_: Self::Req) -> Self::XToY {
-        MetaSetter3_2To3_2
-    }
-
-    fn convert_inner(
-        self,
-        _: Self::XToY,
-        _: &mut NonStdKeywords,
-        _: &[Shortname],
-    ) -> PureSuccess<InnerMetadata3_2> {
-        PureSuccess::from(self)
-    }
-}
+// fn measurement_shortnames<P: VersionedMeasurement>(ms: &[Measurement<P>]) -> Vec<Shortname> {
+//     ms.iter()
+//         .enumerate()
+//         .map(|(i, p)| p.specific.shortname(i))
+//         .collect()
+// }
+
+// impl<M, P> IntoCore<InnerMetadata2_0, InnerMeasurement2_0, MetaSetterTo2_0, MeasSetterTo2_0>
+//     for CoreTEXT<M, P>
+// where
+//     M: VersionedMetadata,
+//     P: VersionedMeasurement,
+//     M: IntoMetadata<InnerMetadata2_0, MetaSetterTo2_0>,
+//     P: IntoMeasurement<InnerMeasurement2_0, MeasSetterTo2_0>,
+// {
+//     type FromM = M;
+//     type FromP = P;
+// }
+
+// impl<M, P> IntoCore<InnerMetadata3_0, InnerMeasurement3_0, MetaSetterTo3_0, MeasSetterTo3_0>
+//     for CoreTEXT<M, P>
+// where
+//     M: VersionedMetadata,
+//     P: VersionedMeasurement,
+//     M: IntoMetadata<InnerMetadata3_0, MetaSetterTo3_0>,
+//     P: IntoMeasurement<InnerMeasurement3_0, MeasSetterTo3_0>,
+// {
+//     type FromM = M;
+//     type FromP = P;
+// }
+
+// impl<M, P> IntoCore<InnerMetadata3_1, InnerMeasurement3_1, MetaSetterTo3_1, MeasSetterTo3_1>
+//     for CoreTEXT<M, P>
+// where
+//     M: VersionedMetadata,
+//     P: VersionedMeasurement,
+//     M: IntoMetadata<InnerMetadata3_1, MetaSetterTo3_1>,
+//     P: IntoMeasurement<InnerMeasurement3_1, MeasSetterTo3_1>,
+// {
+//     type FromM = M;
+//     type FromP = P;
+// }
+
+// impl<M, P> IntoCore<InnerMetadata3_2, InnerMeasurement3_2, MetaSetterTo3_2, MeasSetterTo3_2>
+//     for CoreTEXT<M, P>
+// where
+//     M: VersionedMetadata,
+//     P: VersionedMeasurement,
+//     M: IntoMetadata<InnerMetadata3_2, MetaSetterTo3_2>,
+//     P: IntoMeasurement<InnerMeasurement3_2, MeasSetterTo3_2>,
+// {
+//     type FromM = M;
+//     type FromP = P;
+// }
+
+// trait ConvertConfig {
+//     type Req;
+
+//     fn lookup(r: Self::Req) -> Self;
+// }
+
+// #[derive(Default)]
+// pub struct ModificationDefaults {
+//     last_modified: MetaKwSetter<ModifiedDateTime>,
+//     last_modifier: MetaKwSetter<LastModifier>,
+//     originality: MetaKwSetter<Originality>,
+// }
+
+// // impl ModificationDefaults {
+// //     fn keyed() -> Self {
+// //         Self {
+// //             last_modified: DefaultMetaOptional::init_unchecked(NS_LAST_MODIFIED),
+// //             last_modifier: DefaultMetaOptional::init_unchecked(NS_LAST_MODIFIER),
+// //             originality: DefaultMetaOptional::init_unchecked(NS_ORIGINALITY),
+// //         }
+// //     }
+// // }
+
+// #[derive(Default)]
+// pub struct PlateDefaults {
+//     plateid: MetaKwSetter<Plateid>,
+//     platename: MetaKwSetter<Platename>,
+//     wellid: MetaKwSetter<Wellid>,
+// }
+
+// // impl PlateDefaults {
+// //     fn keyed() -> Self {
+// //         Self {
+// //             plateid: DefaultMetaOptional::init_unchecked(NS_PLATEID),
+// //             platename: DefaultMetaOptional::init_unchecked(NS_PLATENAME),
+// //             wellid: DefaultMetaOptional::init_unchecked(NS_WELLID),
+// //         }
+// //     }
+// // }
+
+// #[derive(Default)]
+// pub struct CarrierDefaults {
+//     carrierid: MetaKwSetter<Carrierid>,
+//     carriertype: MetaKwSetter<Carriertype>,
+//     locationid: MetaKwSetter<Locationid>,
+// }
+
+// // impl CarrierDefaults {
+// //     fn keyed() -> Self {
+// //         Self {
+// //             carrierid: DefaultMetaOptional::init_unchecked(NS_CARRIERID),
+// //             carriertype: DefaultMetaOptional::init_unchecked(NS_CARRIERTYPE),
+// //             locationid: DefaultMetaOptional::init_unchecked(NS_LOCATIONID),
+// //         }
+// //     }
+// // }
+
+// #[derive(Default)]
+// pub struct UnstainedDefaults {
+//     unstainedcenters: MetaKwSetter<UnstainedCenters>,
+//     unstainedinfo: MetaKwSetter<UnstainedInfo>,
+// }
+
+// // impl UnstainedDefaults {
+// //     fn keyed() -> Self {
+// //         Self {
+// //             unstainedcenters: DefaultMetaOptional::init_unchecked(NS_UNSTAINEDCENTERS),
+// //             unstainedinfo: DefaultMetaOptional::init_unchecked(NS_UNSTAINEDINFO),
+// //         }
+// //     }
+// // }
+
+// #[derive(Default)]
+// pub struct DatetimesDefaults {
+//     begin: MetaKwSetter<BeginDateTime>,
+//     end: MetaKwSetter<EndDateTime>,
+// }
+
+// // impl DatetimesDefaults {
+// //     fn keyed() -> Self {
+// //         Self {
+// //             begin: DefaultMetaOptional::init_unchecked(NS_BEGINDATETIME),
+// //             end: DefaultMetaOptional::init_unchecked(NS_ENDDATETIME),
+// //         }
+// //     }
+// // }
+
+// pub struct MetaSetter2_0To2_0;
+
+// pub struct MetaSetter3_0To2_0;
+
+// #[derive(Default)]
+// pub struct MetaSetter3_1To2_0 {
+//     comp: MatrixSetter<Compensation>,
+// }
+
+// #[derive(Default)]
+// pub struct MetaSetter3_2To2_0 {
+//     comp: MatrixSetter<Compensation>,
+// }
+
+// pub struct MetaSetter3_0To3_0;
+
+// #[derive(Default)]
+// pub struct MetaSetter2_0To3_0 {
+//     cytsn: MetaKwSetter<Cytsn>,
+//     timestep: MetaKwSetter<Timestep>,
+//     unicode: MetaKwSetter<Unicode>,
+// }
+
+// // impl MetaSetter2_0To3_0 {
+// //     fn keyed() -> Self {
+// //         Self {
+// //             cytsn: DefaultMetaOptional::init_unchecked(NS_CYTSN),
+// //             timestep: DefaultMetaOptional::init_unchecked(NS_TIMESTEP),
+// //             unicode: DefaultMetaOptional::init_unchecked(NS_UNICODE),
+// //         }
+// //     }
+// // }
+
+// #[derive(Default)]
+// pub struct MetaSetter3_1To3_0 {
+//     comp: MatrixSetter<Compensation>,
+//     unicode: MetaKwSetter<Unicode>,
+// }
+
+// // impl MetaSetter3_1To3_0 {
+// //     fn keyed() -> Self {
+// //         Self {
+// //             comp: DefaultMatrix::init_unchecked(NS_COMP),
+// //             unicode: DefaultMetaOptional::init_unchecked(NS_UNICODE),
+// //         }
+// //     }
+// // }
+
+// #[derive(Default)]
+// pub struct MetaSetter3_2To3_0 {
+//     comp: MatrixSetter<Compensation>,
+//     unicode: MetaKwSetter<Unicode>,
+// }
+
+// // impl MetaSetter3_2To3_0 {
+// //     fn keyed() -> Self {
+// //         Self {
+// //             comp: DefaultMatrix::init_unchecked(NS_COMP),
+// //             unicode: DefaultMetaOptional::init_unchecked(NS_UNICODE),
+// //         }
+// //     }
+// // }
+
+// pub struct MetaSetter3_1To3_1;
+
+// pub struct MetaSetter2_0To3_1 {
+//     endian: Endian,
+//     cytsn: MetaKwSetter<Cytsn>,
+//     timestep: MetaKwSetter<Timestep>,
+//     vol: MetaKwSetter<Vol>,
+//     spillover: MatrixSetter<Spillover>,
+//     modification: ModificationDefaults,
+//     plate: PlateDefaults,
+// }
+
+// impl MetaSetter2_0To3_1 {
+//     pub fn new(endian: Endian) -> Self {
+//         MetaSetter2_0To3_1 {
+//             endian,
+//             cytsn: MetaKwSetter::default(),
+//             timestep: MetaKwSetter::default(),
+//             vol: MetaKwSetter::default(),
+//             spillover: MatrixSetter::default(),
+//             modification: ModificationDefaults::default(),
+//             plate: PlateDefaults::default(),
+//         }
+//     }
+
+//     // fn keyed(endian: Endian) -> Self {
+//     //     Self {
+//     //         endian,
+//     //         cytsn: DefaultMetaOptional::init_unchecked(NS_CYTSN),
+//     //         timestep: DefaultMetaOptional::init_unchecked(NS_TIMESTEP),
+//     //         vol: DefaultMetaOptional::init_unchecked(NS_VOL),
+//     //         spillover: DefaultMatrix::init_unchecked(NS_SPILLOVER),
+//     //         modification: ModificationDefaults::keyed(),
+//     //         plate: PlateDefaults::keyed(),
+//     //     }
+//     // }
+// }
+
+// pub struct MetaSetter3_0To3_1 {
+//     endian: Endian,
+//     vol: MetaKwSetter<Vol>,
+//     spillover: MatrixSetter<Spillover>,
+//     modification: ModificationDefaults,
+//     plate: PlateDefaults,
+// }
+
+// impl MetaSetter3_0To3_1 {
+//     pub fn new(endian: Endian) -> Self {
+//         MetaSetter3_0To3_1 {
+//             endian,
+//             vol: MetaKwSetter::default(),
+//             spillover: MatrixSetter::default(),
+//             modification: ModificationDefaults::default(),
+//             plate: PlateDefaults::default(),
+//         }
+//     }
+
+//     // fn keyed(endian: Endian) -> Self {
+//     //     Self {
+//     //         endian,
+//     //         vol: DefaultMetaOptional::init_unchecked(NS_VOL),
+//     //         spillover: DefaultMatrix::init_unchecked(NS_SPILLOVER),
+//     //         modification: ModificationDefaults::keyed(),
+//     //         plate: PlateDefaults::keyed(),
+//     //     }
+//     // }
+// }
+
+// pub struct MetaSetter3_2To3_1;
+
+// pub struct MetaSetter3_2To3_2;
+
+// pub struct MetaSetter2_0To3_2 {
+//     endian: Endian,
+//     cyt: Cyt,
+//     cytsn: MetaKwSetter<Cytsn>,
+//     timestep: MetaKwSetter<Timestep>,
+//     vol: MetaKwSetter<Vol>,
+//     spillover: MatrixSetter<Spillover>,
+//     flowrate: MetaKwSetter<Flowrate>,
+//     modification: ModificationDefaults,
+//     plate: PlateDefaults,
+//     unstained: UnstainedDefaults,
+//     carrier: CarrierDefaults,
+//     datetimes: DatetimesDefaults,
+// }
+
+// impl MetaSetter2_0To3_2 {
+//     pub fn new(endian: Endian, cyt: Cyt) -> Self {
+//         MetaSetter2_0To3_2 {
+//             endian,
+//             cyt,
+//             cytsn: MetaKwSetter::default(),
+//             timestep: MetaKwSetter::default(),
+//             vol: MetaKwSetter::default(),
+//             spillover: MatrixSetter::default(),
+//             flowrate: MetaKwSetter::default(),
+//             modification: ModificationDefaults::default(),
+//             plate: PlateDefaults::default(),
+//             unstained: UnstainedDefaults::default(),
+//             carrier: CarrierDefaults::default(),
+//             datetimes: DatetimesDefaults::default(),
+//         }
+//     }
+
+//     // fn keyed(endian: Endian, cyt: Cyt) -> Self {
+//     //     Self {
+//     //         endian,
+//     //         cyt,
+//     //         cytsn: DefaultMetaOptional::init_unchecked(NS_CYTSN),
+//     //         timestep: DefaultMetaOptional::init_unchecked(NS_TIMESTEP),
+//     //         flowrate: DefaultMetaOptional::init_unchecked(NS_FLOWRATE),
+//     //         vol: DefaultMetaOptional::init_unchecked(NS_VOL),
+//     //         spillover: DefaultMatrix::init_unchecked(NS_SPILLOVER),
+//     //         modification: ModificationDefaults::keyed(),
+//     //         plate: PlateDefaults::keyed(),
+//     //         unstained: UnstainedDefaults::keyed(),
+//     //         carrier: CarrierDefaults::keyed(),
+//     //         datetimes: DatetimesDefaults::keyed(),
+//     //     }
+//     // }
+// }
+
+// pub struct MetaSetter3_0To3_2 {
+//     endian: Endian,
+//     cyt: Cyt,
+//     vol: MetaKwSetter<Vol>,
+//     spillover: MatrixSetter<Spillover>,
+//     flowrate: MetaKwSetter<Flowrate>,
+//     modification: ModificationDefaults,
+//     plate: PlateDefaults,
+//     unstained: UnstainedDefaults,
+//     carrier: CarrierDefaults,
+//     datetimes: DatetimesDefaults,
+// }
+
+// impl MetaSetter3_0To3_2 {
+//     pub fn new(endian: Endian, cyt: Cyt) -> Self {
+//         MetaSetter3_0To3_2 {
+//             endian,
+//             cyt,
+//             vol: MetaKwSetter::default(),
+//             spillover: MatrixSetter::default(),
+//             flowrate: MetaKwSetter::default(),
+//             modification: ModificationDefaults::default(),
+//             plate: PlateDefaults::default(),
+//             unstained: UnstainedDefaults::default(),
+//             carrier: CarrierDefaults::default(),
+//             datetimes: DatetimesDefaults::default(),
+//         }
+//     }
+
+//     // fn keyed(endian: Endian, cyt: Cyt) -> Self {
+//     //     Self {
+//     //         endian,
+//     //         cyt,
+//     //         flowrate: DefaultMetaOptional::init_unchecked(NS_FLOWRATE),
+//     //         vol: DefaultMetaOptional::init_unchecked(NS_VOL),
+//     //         spillover: DefaultMatrix::init_unchecked(NS_SPILLOVER),
+//     //         modification: ModificationDefaults::keyed(),
+//     //         plate: PlateDefaults::keyed(),
+//     //         unstained: UnstainedDefaults::keyed(),
+//     //         carrier: CarrierDefaults::keyed(),
+//     //         datetimes: DatetimesDefaults::keyed(),
+//     //     }
+//     // }
+// }
+
+// pub struct MetaSetter3_1To3_2 {
+//     cyt: Cyt,
+//     flowrate: MetaKwSetter<Flowrate>,
+//     unstained: UnstainedDefaults,
+//     carrier: CarrierDefaults,
+//     datetimes: DatetimesDefaults,
+// }
+
+// impl MetaSetter3_1To3_2 {
+//     pub fn new(cyt: Cyt) -> Self {
+//         MetaSetter3_1To3_2 {
+//             cyt,
+//             flowrate: MetaKwSetter::default(),
+//             unstained: UnstainedDefaults::default(),
+//             carrier: CarrierDefaults::default(),
+//             datetimes: DatetimesDefaults::default(),
+//         }
+//     }
+
+//     // fn keyed(cyt: Cyt) -> Self {
+//     //     Self {
+//     //         cyt,
+//     //         flowrate: DefaultMetaOptional::init_unchecked(NS_FLOWRATE),
+//     //         unstained: UnstainedDefaults::keyed(),
+//     //         carrier: CarrierDefaults::keyed(),
+//     //         datetimes: DatetimesDefaults::keyed(),
+//     //     }
+//     // }
+// }
+
+// #[derive(Default)]
+// pub struct MetaSetterTo2_0 {
+//     // TODO no sensible kw
+//     comp: MatrixSetter<Compensation>,
+// }
+
+// #[derive(Default)]
+// pub struct MetaSetterTo3_0 {
+//     cytsn: MetaKwSetter<Cytsn>,
+//     timestep: MetaKwSetter<Timestep>,
+//     unicode: MetaKwSetter<Unicode>,
+//     comp: MatrixSetter<Compensation>,
+// }
+
+// impl MetaSetterTo3_0 {
+//     fn new() -> Self {
+//         Self {
+//             cytsn: MetaKwSetter::default(),
+//             timestep: MetaKwSetter::default(),
+//             unicode: MetaKwSetter::default(),
+//             comp: MatrixSetter::default(),
+//         }
+//     }
+
+//     // fn keyed() -> Self {
+//     //     Self {
+//     //         cytsn: DefaultMetaOptional::init_unchecked(NS_CYTSN),
+//     //         timestep: DefaultMetaOptional::init_unchecked(NS_TIMESTEP),
+//     //         unicode: DefaultMetaOptional::init_unchecked(NS_UNICODE),
+//     //         comp: DefaultMatrix::init_unchecked(NS_COMP),
+//     //     }
+//     // }
+// }
+
+// pub struct MetaSetterTo3_1 {
+//     endian: Endian,
+//     cytsn: MetaKwSetter<Cytsn>,
+//     timestep: MetaKwSetter<Timestep>,
+//     vol: MetaKwSetter<Vol>,
+//     spillover: MatrixSetter<Spillover>,
+//     modification: ModificationDefaults,
+//     plate: PlateDefaults,
+// }
+
+// impl MetaSetterTo3_1 {
+//     pub fn new(endian: Endian) -> Self {
+//         Self {
+//             endian,
+//             cytsn: MetaKwSetter::default(),
+//             timestep: MetaKwSetter::default(),
+//             vol: MetaKwSetter::default(),
+//             spillover: MatrixSetter::default(),
+//             modification: ModificationDefaults::default(),
+//             plate: PlateDefaults::default(),
+//         }
+//     }
+
+//     // fn keyed(endian: Endian) -> Self {
+//     //     Self {
+//     //         endian,
+//     //         cytsn: DefaultMetaOptional::init_unchecked(NS_CYTSN),
+//     //         timestep: DefaultMetaOptional::init_unchecked(NS_TIMESTEP),
+//     //         vol: DefaultMetaOptional::init_unchecked(NS_VOL),
+//     //         spillover: DefaultMatrix::init_unchecked(NS_SPILLOVER),
+//     //         modification: ModificationDefaults::keyed(),
+//     //         plate: PlateDefaults::keyed(),
+//     //     }
+//     // }
+// }
+
+// pub struct MetaSetterTo3_2 {
+//     endian: Endian,
+//     cyt: Cyt,
+//     cytsn: MetaKwSetter<Cytsn>,
+//     timestep: MetaKwSetter<Timestep>,
+//     vol: MetaKwSetter<Vol>,
+//     spillover: MatrixSetter<Spillover>,
+//     flowrate: MetaKwSetter<Flowrate>,
+//     modification: ModificationDefaults,
+//     plate: PlateDefaults,
+//     unstained: UnstainedDefaults,
+//     carrier: CarrierDefaults,
+//     datetimes: DatetimesDefaults,
+// }
+
+// impl MetaSetterTo3_2 {
+//     pub fn new(endian: Endian, cyt: Cyt) -> Self {
+//         Self {
+//             endian,
+//             cyt,
+//             cytsn: MetaKwSetter::default(),
+//             timestep: MetaKwSetter::default(),
+//             vol: MetaKwSetter::default(),
+//             spillover: MatrixSetter::default(),
+//             flowrate: MetaKwSetter::default(),
+//             modification: ModificationDefaults::default(),
+//             plate: PlateDefaults::default(),
+//             unstained: UnstainedDefaults::default(),
+//             carrier: CarrierDefaults::default(),
+//             datetimes: DatetimesDefaults::default(),
+//         }
+//     }
+
+//     // fn keyed(endian: Endian, cyt: Cyt) -> Self {
+//     //     Self {
+//     //         endian,
+//     //         cyt,
+//     //         cytsn: DefaultMetaOptional::init_unchecked(NS_CYTSN),
+//     //         timestep: DefaultMetaOptional::init_unchecked(NS_TIMESTEP),
+//     //         flowrate: DefaultMetaOptional::init_unchecked(NS_FLOWRATE),
+//     //         vol: DefaultMetaOptional::init_unchecked(NS_VOL),
+//     //         spillover: DefaultMatrix::init_unchecked(NS_SPILLOVER),
+//     //         modification: ModificationDefaults::keyed(),
+//     //         plate: PlateDefaults::keyed(),
+//     //         unstained: UnstainedDefaults::keyed(),
+//     //         carrier: CarrierDefaults::keyed(),
+//     //         datetimes: DatetimesDefaults::keyed(),
+//     //     }
+//     // }
+// }
+
+// pub struct RequiredEndianCyt {
+//     pub endian: Endian,
+//     pub cyt: Cyt,
+// }
+
+// macro_rules! txfr_keys {
+//     ($from:ident, $to:ident, [$($key:ident),*]) => {
+//         impl From<$from> for $to {
+//             fn from(_value: $from) -> Self {
+//                 $to {
+//                     $(
+//                         $key: _value.$key,
+//                     )*
+//                 }
+//             }
+//         }
+//     };
+// }
+
+// txfr_keys!(MetaSetterTo2_0, MetaSetter2_0To2_0, []);
+
+// txfr_keys!(MetaSetterTo2_0, MetaSetter3_0To2_0, []);
+
+// txfr_keys!(MetaSetterTo2_0, MetaSetter3_1To2_0, [comp]);
+
+// txfr_keys!(MetaSetterTo2_0, MetaSetter3_2To2_0, [comp]);
+
+// txfr_keys!(MetaSetterTo3_0, MetaSetter3_0To3_0, []);
+
+// txfr_keys!(
+//     MetaSetterTo3_0,
+//     MetaSetter2_0To3_0,
+//     [cytsn, timestep, unicode]
+// );
+
+// txfr_keys!(MetaSetterTo3_0, MetaSetter3_1To3_0, [comp, unicode]);
+
+// txfr_keys!(MetaSetterTo3_0, MetaSetter3_2To3_0, [comp, unicode]);
+
+// txfr_keys!(MetaSetterTo3_1, MetaSetter3_1To3_1, []);
+
+// txfr_keys!(
+//     MetaSetterTo3_1,
+//     MetaSetter2_0To3_1,
+//     [endian, cytsn, timestep, vol, spillover, modification, plate]
+// );
+
+// txfr_keys!(
+//     MetaSetterTo3_1,
+//     MetaSetter3_0To3_1,
+//     [endian, vol, spillover, modification, plate]
+// );
+
+// txfr_keys!(MetaSetterTo3_1, MetaSetter3_2To3_1, []);
+
+// txfr_keys!(MetaSetterTo3_2, MetaSetter3_2To3_2, []);
+
+// txfr_keys!(
+//     MetaSetterTo3_2,
+//     MetaSetter2_0To3_2,
+//     [
+//         endian,
+//         cyt,
+//         flowrate,
+//         cytsn,
+//         timestep,
+//         vol,
+//         spillover,
+//         modification,
+//         plate,
+//         unstained,
+//         carrier,
+//         datetimes
+//     ]
+// );
+
+// txfr_keys!(
+//     MetaSetterTo3_2,
+//     MetaSetter3_0To3_2,
+//     [
+//         endian,
+//         cyt,
+//         flowrate,
+//         vol,
+//         spillover,
+//         modification,
+//         plate,
+//         unstained,
+//         carrier,
+//         datetimes
+//     ]
+// );
+
+// txfr_keys!(
+//     MetaSetterTo3_2,
+//     MetaSetter3_1To3_2,
+//     [cyt, flowrate, unstained, carrier, datetimes]
+// );
+
+// #[derive(Clone)]
+// pub struct MeasSetter2_0To2_0;
+
+// #[derive(Clone)]
+// pub struct MeasSetter3_0To2_0;
+
+// #[derive(Clone)]
+// pub struct MeasSetter3_1To2_0;
+
+// #[derive(Clone)]
+// pub struct MeasSetter3_2To2_0;
+
+// #[derive(Clone)]
+// pub struct MeasSetterTo2_0;
+
+// #[derive(Clone)]
+// pub struct MeasSetter3_0To3_0;
+
+// #[derive(Clone)]
+// pub struct MeasSetter2_0To3_0 {
+//     scale: Scale,
+//     gain: MeasKwSetter<Gain>,
+// }
+
+// impl MeasSetter2_0To3_0 {
+//     fn new(scale: Scale) -> Self {
+//         Self {
+//             scale,
+//             gain: MeasKwSetter::default(),
+//         }
+//     }
+
+//     // fn keyed(scale: Scale, n: usize) -> Self {
+//     //     Self {
+//     //         scale,
+//     //         gain: DefaultMeasOptional::init_unchecked(GAIN_SFX, n),
+//     //     }
+//     // }
+// }
+
+// #[derive(Clone)]
+// pub struct MeasSetter3_1To3_0;
+
+// #[derive(Clone)]
+// pub struct MeasSetter3_2To3_0;
+
+// #[derive(Clone)]
+// pub struct MeasSetterTo3_0 {
+//     scale: Scale,
+//     gain: MeasKwSetter<Gain>,
+// }
+
+// impl MeasSetterTo3_0 {
+//     fn new(scale: Scale) -> Self {
+//         Self {
+//             scale,
+//             gain: MeasKwSetter::default(),
+//         }
+//     }
+
+//     // fn keyed(scale: Scale, n: usize) -> Self {
+//     //     Self {
+//     //         scale,
+//     //         gain: DefaultMeasOptional::init_unchecked(GAIN_SFX, n),
+//     //     }
+//     // }
+// }
+
+// #[derive(Clone)]
+// pub struct MeasSetter3_1To3_1;
+
+// #[derive(Clone)]
+// pub struct MeasSetter2_0To3_1 {
+//     scale: Scale,
+//     shortname: Shortname,
+//     gain: MeasKwSetter<Gain>,
+//     calibration: MeasKwSetter<Calibration3_1>,
+//     display: MeasKwSetter<Display>,
+// }
+
+// pub struct RequireScaleShortname {
+//     scale: Scale,
+//     shortname: Shortname,
+// }
+
+// impl MeasSetter2_0To3_1 {
+//     fn new(scale: Scale, shortname: Shortname) -> Self {
+//         Self {
+//             scale,
+//             shortname,
+//             gain: MeasKwSetter::default(),
+//             calibration: MeasKwSetter::default(),
+//             display: MeasKwSetter::default(),
+//         }
+//     }
+
+//     // fn keyed(scale: Scale, shortname: Shortname, n: usize) -> Self {
+//     //     Self {
+//     //         scale,
+//     //         shortname,
+//     //         gain: DefaultMeasOptional::init_unchecked(GAIN_SFX, n),
+//     //         calibration: DefaultMeasOptional::init_unchecked(CALIBRATION_SFX, n),
+//     //         display: DefaultMeasOptional::init_unchecked(DISPLAY_SFX, n),
+//     //     }
+//     // }
+// }
+
+// #[derive(Clone)]
+// pub struct MeasSetter3_0To3_1 {
+//     shortname: Shortname,
+//     calibration: MeasKwSetter<Calibration3_1>,
+//     display: MeasKwSetter<Display>,
+// }
+
+// impl MeasSetter3_0To3_1 {
+//     fn new(shortname: Shortname) -> Self {
+//         Self {
+//             shortname,
+//             calibration: MeasKwSetter::default(),
+//             display: MeasKwSetter::default(),
+//         }
+//     }
+
+//     // fn keyed(shortname: Shortname, n: usize) -> Self {
+//     //     Self {
+//     //         shortname,
+//     //         calibration: DefaultMeasOptional::init_unchecked(CALIBRATION_SFX, n),
+//     //         display: DefaultMeasOptional::init_unchecked(DISPLAY_SFX, n),
+//     //     }
+//     // }
+// }
+
+// #[derive(Clone)]
+// pub struct MeasSetter3_2To3_1;
+
+// #[derive(Clone)]
+// pub struct MeasSetterTo3_1 {
+//     scale: Scale,
+//     shortname: Shortname,
+//     gain: MeasKwSetter<Gain>,
+//     calibration: MeasKwSetter<Calibration3_1>,
+//     display: MeasKwSetter<Display>,
+// }
+
+// impl MeasSetterTo3_1 {
+//     fn new(scale: Scale, shortname: Shortname) -> Self {
+//         Self {
+//             scale,
+//             shortname,
+//             gain: MeasKwSetter::default(),
+//             calibration: MeasKwSetter::default(),
+//             display: MeasKwSetter::default(),
+//         }
+//     }
+
+//     // fn keyed(scale: Scale, shortname: Shortname, n: usize) -> Self {
+//     //     Self {
+//     //         scale,
+//     //         shortname,
+//     //         gain: DefaultMeasOptional::init_unchecked(GAIN_SFX, n),
+//     //         calibration: DefaultMeasOptional::init_unchecked(CALIBRATION_SFX, n),
+//     //         display: DefaultMeasOptional::init_unchecked(DISPLAY_SFX, n),
+//     //     }
+//     // }
+// }
+
+// #[derive(Clone)]
+// pub struct MeasSetter3_2To3_2;
+
+// #[derive(Clone)]
+// pub struct MeasSetter2_0To3_2 {
+//     scale: Scale,
+//     shortname: Shortname,
+//     gain: MeasKwSetter<Gain>,
+//     calibration: MeasKwSetter<Calibration3_2>,
+//     display: MeasKwSetter<Display>,
+//     analyte: MeasKwSetter<Analyte>,
+//     tag: MeasKwSetter<Tag>,
+//     detector_name: MeasKwSetter<DetectorName>,
+//     feature: MeasKwSetter<Feature>,
+//     datatype: MeasKwSetter<NumType>,
+//     measurement_type: MeasKwSetter<MeasurementType>,
+// }
+
+// impl MeasSetter2_0To3_2 {
+//     fn new(scale: Scale, shortname: Shortname) -> Self {
+//         Self {
+//             scale,
+//             shortname,
+//             gain: MeasKwSetter::default(),
+//             calibration: MeasKwSetter::default(),
+//             display: MeasKwSetter::default(),
+//             analyte: MeasKwSetter::default(),
+//             tag: MeasKwSetter::default(),
+//             detector_name: MeasKwSetter::default(),
+//             feature: MeasKwSetter::default(),
+//             datatype: MeasKwSetter::default(),
+//             measurement_type: MeasKwSetter::default(),
+//         }
+//     }
+
+//     // fn fixed(scale: Scale, shortname: Shortname, n: usize) -> Self {
+//     //     Self {
+//     //         scale,
+//     //         shortname,
+//     //         gain: DefaultMeasOptional::init_unchecked(GAIN_SFX, n),
+//     //         calibration: DefaultMeasOptional::init_unchecked(CALIBRATION_SFX, n),
+//     //         display: DefaultMeasOptional::init_unchecked(DISPLAY_SFX, n),
+//     //         analyte: DefaultMeasOptional::init_unchecked(ANALYTE_SFX, n),
+//     //         tag: DefaultMeasOptional::init_unchecked(TAG_SFX, n),
+//     //         detector_name: DefaultMeasOptional::init_unchecked(DET_NAME_SFX, n),
+//     //         feature: DefaultMeasOptional::init_unchecked(FEATURE_SFX, n),
+//     //         datatype: DefaultMeasOptional::init_unchecked(DATATYPE_SFX, n),
+//     //         measurement_type: DefaultMeasOptional::init_unchecked(MEAS_TYPE_SFX, n),
+//     //     }
+//     // }
+// }
+
+// #[derive(Clone)]
+// pub struct MeasSetter3_0To3_2 {
+//     shortname: Shortname,
+//     calibration: MeasKwSetter<Calibration3_2>,
+//     display: MeasKwSetter<Display>,
+//     analyte: MeasKwSetter<Analyte>,
+//     tag: MeasKwSetter<Tag>,
+//     detector_name: MeasKwSetter<DetectorName>,
+//     feature: MeasKwSetter<Feature>,
+//     datatype: MeasKwSetter<NumType>,
+//     measurement_type: MeasKwSetter<MeasurementType>,
+// }
+
+// impl MeasSetter3_0To3_2 {
+//     fn new(shortname: Shortname) -> Self {
+//         Self {
+//             shortname,
+//             calibration: MeasKwSetter::default(),
+//             display: MeasKwSetter::default(),
+//             analyte: MeasKwSetter::default(),
+//             tag: MeasKwSetter::default(),
+//             detector_name: MeasKwSetter::default(),
+//             feature: MeasKwSetter::default(),
+//             datatype: MeasKwSetter::default(),
+//             measurement_type: MeasKwSetter::default(),
+//         }
+//     }
+
+//     // fn fixed(shortname: Shortname, n: usize) -> Self {
+//     //     Self {
+//     //         shortname,
+//     //         calibration: DefaultMeasOptional::init_unchecked(CALIBRATION_SFX, n),
+//     //         display: DefaultMeasOptional::init_unchecked(DISPLAY_SFX, n),
+//     //         analyte: DefaultMeasOptional::init_unchecked(ANALYTE_SFX, n),
+//     //         tag: DefaultMeasOptional::init_unchecked(TAG_SFX, n),
+//     //         detector_name: DefaultMeasOptional::init_unchecked(DET_NAME_SFX, n),
+//     //         feature: DefaultMeasOptional::init_unchecked(FEATURE_SFX, n),
+//     //         datatype: DefaultMeasOptional::init_unchecked(DATATYPE_SFX, n),
+//     //         measurement_type: DefaultMeasOptional::init_unchecked(MEAS_TYPE_SFX, n),
+//     //     }
+//     // }
+// }
+
+// #[derive(Clone, Default)]
+// pub struct MeasSetter3_1To3_2 {
+//     analyte: MeasKwSetter<Analyte>,
+//     tag: MeasKwSetter<Tag>,
+//     detector_name: MeasKwSetter<DetectorName>,
+//     feature: MeasKwSetter<Feature>,
+//     datatype: MeasKwSetter<NumType>,
+//     measurement_type: MeasKwSetter<MeasurementType>,
+// }
+
+// // impl MeasSetter3_1To3_2 {
+// //     fn fixed(n: usize) -> Self {
+// //         Self {
+// //             analyte: DefaultMeasOptional::init_unchecked(ANALYTE_SFX, n),
+// //             tag: DefaultMeasOptional::init_unchecked(TAG_SFX, n),
+// //             detector_name: DefaultMeasOptional::init_unchecked(DET_NAME_SFX, n),
+// //             feature: DefaultMeasOptional::init_unchecked(FEATURE_SFX, n),
+// //             datatype: DefaultMeasOptional::init_unchecked(DATATYPE_SFX, n),
+// //             measurement_type: DefaultMeasOptional::init_unchecked(MEAS_TYPE_SFX, n),
+// //         }
+// //     }
+// // }
+
+// #[derive(Clone)]
+// pub struct MeasSetterTo3_2 {
+//     scale: Scale,
+//     shortname: Shortname,
+//     gain: MeasKwSetter<Gain>,
+//     calibration: MeasKwSetter<Calibration3_2>,
+//     display: MeasKwSetter<Display>,
+//     analyte: MeasKwSetter<Analyte>,
+//     tag: MeasKwSetter<Tag>,
+//     detector_name: MeasKwSetter<DetectorName>,
+//     feature: MeasKwSetter<Feature>,
+//     datatype: MeasKwSetter<NumType>,
+//     measurement_type: MeasKwSetter<MeasurementType>,
+// }
+
+// impl MeasSetterTo3_2 {
+//     fn new(scale: Scale, shortname: Shortname) -> Self {
+//         Self {
+//             scale,
+//             shortname,
+//             gain: MeasKwSetter::default(),
+//             calibration: MeasKwSetter::default(),
+//             display: MeasKwSetter::default(),
+//             analyte: MeasKwSetter::default(),
+//             tag: MeasKwSetter::default(),
+//             detector_name: MeasKwSetter::default(),
+//             feature: MeasKwSetter::default(),
+//             datatype: MeasKwSetter::default(),
+//             measurement_type: MeasKwSetter::default(),
+//         }
+//     }
+
+//     // TODO lots of this boilerplate could be cleaned up by wrapping each
+//     // kw value in a newtype (for those that aren't unique) and then
+//     // assigning a trait which (among other things) would have a const param
+//     // for the key/suffix/default. This way I would only need to write each
+//     // kw once and could refer to them using the type.
+//     // fn fixed(scale: Scale, shortname: Shortname, n: usize) -> Self {
+//     //     Self {
+//     //         scale,
+//     //         shortname,
+//     //         gain: DefaultMeasOptional::init_unchecked(GAIN_SFX, n),
+//     //         calibration: DefaultMeasOptional::init_unchecked(CALIBRATION_SFX, n),
+//     //         display: DefaultMeasOptional::init_unchecked(DISPLAY_SFX, n),
+//     //         analyte: DefaultMeasOptional::init_unchecked(ANALYTE_SFX, n),
+//     //         tag: DefaultMeasOptional::init_unchecked(TAG_SFX, n),
+//     //         detector_name: DefaultMeasOptional::init_unchecked(DET_NAME_SFX, n),
+//     //         feature: DefaultMeasOptional::init_unchecked(FEATURE_SFX, n),
+//     //         datatype: DefaultMeasOptional::init_unchecked(DATATYPE_SFX, n),
+//     //         measurement_type: DefaultMeasOptional::init_unchecked(MEAS_TYPE_SFX, n),
+//     //     }
+//     // }
+// }
+
+// txfr_keys!(MeasSetterTo2_0, MeasSetter2_0To2_0, []);
+
+// txfr_keys!(MeasSetterTo2_0, MeasSetter3_0To2_0, []);
+
+// txfr_keys!(MeasSetterTo2_0, MeasSetter3_1To2_0, []);
+
+// txfr_keys!(MeasSetterTo2_0, MeasSetter3_2To2_0, []);
+
+// txfr_keys!(MeasSetterTo3_0, MeasSetter2_0To3_0, [gain, scale]);
+
+// txfr_keys!(MeasSetterTo3_0, MeasSetter3_0To3_0, []);
+
+// txfr_keys!(MeasSetterTo3_0, MeasSetter3_1To3_0, []);
+
+// txfr_keys!(MeasSetterTo3_0, MeasSetter3_2To3_0, []);
+
+// txfr_keys!(
+//     MeasSetterTo3_1,
+//     MeasSetter2_0To3_1,
+//     [scale, shortname, gain, calibration, display]
+// );
+
+// txfr_keys!(
+//     MeasSetterTo3_1,
+//     MeasSetter3_0To3_1,
+//     [shortname, calibration, display]
+// );
+
+// txfr_keys!(MeasSetterTo3_1, MeasSetter3_1To3_1, []);
+
+// txfr_keys!(MeasSetterTo3_1, MeasSetter3_2To3_1, []);
+
+// txfr_keys!(
+//     MeasSetterTo3_2,
+//     MeasSetter2_0To3_2,
+//     [
+//         scale,
+//         shortname,
+//         gain,
+//         calibration,
+//         display,
+//         analyte,
+//         tag,
+//         detector_name,
+//         feature,
+//         datatype,
+//         measurement_type
+//     ]
+// );
+
+// txfr_keys!(
+//     MeasSetterTo3_2,
+//     MeasSetter3_0To3_2,
+//     [
+//         shortname,
+//         calibration,
+//         display,
+//         analyte,
+//         tag,
+//         detector_name,
+//         feature,
+//         datatype,
+//         measurement_type
+//     ]
+// );
+
+// txfr_keys!(
+//     MeasSetterTo3_2,
+//     MeasSetter3_1To3_2,
+//     [
+//         analyte,
+//         tag,
+//         detector_name,
+//         feature,
+//         datatype,
+//         measurement_type
+//     ]
+// );
+
+// txfr_keys!(MeasSetterTo3_2, MeasSetter3_2To3_2, []);
+
+// pub struct CoreSetter<X, Y> {
+//     metadata: X,
+//     measurements: Vec<Y>,
+// }
+
+// impl<X, Y: Clone> CoreSetter<X, Y> {
+//     pub fn new(metadata: X, measurement: Y, par: Par) -> Self {
+//         CoreSetter {
+//             metadata,
+//             measurements: iter::repeat_n(measurement, par.0).collect(),
+//         }
+//     }
+// }
+
+// // pub type CoreSetter3_0To2_0 = CoreSetter<MetaSetter3_0To2_0, MeasSetter3_0To2_0>;
+// // pub type CoreSetter3_1To2_0 = CoreSetter<MetaSetter3_1To2_0, MeasSetter3_1To2_0>;
+// // pub type CoreSetter3_2To2_0 = CoreSetter<MetaSetter3_2To2_0, MeasSetter3_2To2_0>;
+
+// // pub type CoreSetter2_0To3_0 = CoreSetter<MetaSetter2_0To3_0, MeasSetter2_0To3_0>;
+// // pub type CoreSetter3_1To3_0 = CoreSetter<MetaSetter3_1To3_0, MeasSetter3_1To3_0>;
+// // pub type CoreSetter3_2To3_0 = CoreSetter<MetaSetter3_2To3_0, MeasSetter3_2To3_0>;
+
+// // pub type CoreSetter2_0To3_1 = CoreSetter<MetaSetter2_0To3_1, MeasSetter2_0To3_1>;
+// // pub type CoreSetter3_0To3_1 = CoreSetter<MetaSetter3_0To3_1, MeasSetter3_0To3_1>;
+// // pub type CoreSetter3_2To3_1 = CoreSetter<MetaSetter3_2To3_1, MeasSetter3_2To3_1>;
+
+// // pub type CoreSetter2_0To3_2 = CoreSetter<MetaSetter2_0To3_2, MeasSetter2_0To3_2>;
+// // pub type CoreSetter3_0To3_2 = CoreSetter<MetaSetter3_0To3_2, MeasSetter3_0To3_2>;
+// // pub type CoreSetter3_1To3_2 = CoreSetter<MetaSetter3_1To3_2, MeasSetter3_1To3_2>;
+
+// pub type CoreSetterTo2_0 = CoreSetter<MetaSetterTo2_0, MeasSetterTo2_0>;
+// pub type CoreSetterTo3_0 = CoreSetter<MetaSetterTo3_0, MeasSetterTo3_0>;
+// pub type CoreSetterTo3_1 = CoreSetter<MetaSetterTo3_1, MeasSetterTo3_1>;
+// pub type CoreSetterTo3_2 = CoreSetter<MetaSetterTo3_2, MeasSetterTo3_2>;
+
+// // fn project_defaults<A, B, X, Y>(value: CoreSetter<A, B>) -> CoreSetter<X, Y>
+// // where
+// //     A: Into<X>,
+// //     B: Into<Y>,
+// // {
+// //     CoreSetter {
+// //         metadata: value.metadata.into(),
+// //         measurements: value.measurements.into_iter().map(|m| m.into()).collect(),
+// //     }
+// // }
+
+// impl IntoMeasurement<InnerMeasurement2_0, MeasSetterTo2_0> for InnerMeasurement2_0 {
+//     type XToY = MeasSetter2_0To2_0;
+//     type Req = ();
+
+//     fn setter(_: Self::Req) -> Self::XToY {
+//         MeasSetter2_0To2_0
+//     }
+
+//     fn convert_inner(
+//         self,
+//         _: MeasIdx,
+//         _: Self::XToY,
+//         _: &mut NonStdKeywords,
+//     ) -> PureSuccess<InnerMeasurement2_0> {
+//         PureSuccess::from(self)
+//     }
+// }
+
+// impl IntoMeasurement<InnerMeasurement2_0, MeasSetterTo2_0> for InnerMeasurement3_0 {
+//     type XToY = MeasSetter3_0To2_0;
+//     type Req = ();
+
+//     fn setter(_: Self::Req) -> Self::XToY {
+//         MeasSetter3_0To2_0
+//     }
+
+//     fn convert_inner(
+//         self,
+//         _: MeasIdx,
+//         _: Self::XToY,
+//         _: &mut NonStdKeywords,
+//     ) -> PureSuccess<InnerMeasurement2_0> {
+//         PureSuccess::from(InnerMeasurement2_0 {
+//             scale: Some(self.scale).into(),
+//             shortname: self.shortname,
+//             wavelength: self.wavelength,
+//         })
+//     }
+// }
+
+// impl IntoMeasurement<InnerMeasurement2_0, MeasSetterTo2_0> for InnerMeasurement3_1 {
+//     type XToY = MeasSetter3_1To2_0;
+//     type Req = ();
+
+//     fn setter(_: Self::Req) -> Self::XToY {
+//         MeasSetter3_1To2_0
+//     }
+
+//     fn convert_inner(
+//         self,
+//         _: MeasIdx,
+//         _: Self::XToY,
+//         _: &mut NonStdKeywords,
+//     ) -> PureSuccess<InnerMeasurement2_0> {
+//         PureSuccess::from(InnerMeasurement2_0 {
+//             shortname: Some(self.shortname).into(),
+//             scale: Some(self.scale).into(),
+//             wavelength: self.wavelengths.into(),
+//         })
+//     }
+// }
+
+// impl IntoMeasurement<InnerMeasurement2_0, MeasSetterTo2_0> for InnerMeasurement3_2 {
+//     type XToY = MeasSetter3_2To2_0;
+//     type Req = ();
+
+//     fn setter(_: Self::Req) -> Self::XToY {
+//         MeasSetter3_2To2_0
+//     }
+
+//     fn convert_inner(
+//         self,
+//         _: MeasIdx,
+//         _: Self::XToY,
+//         _: &mut NonStdKeywords,
+//     ) -> PureSuccess<InnerMeasurement2_0> {
+//         PureSuccess::from(InnerMeasurement2_0 {
+//             shortname: Some(self.shortname).into(),
+//             scale: Some(self.scale).into(),
+//             wavelength: self.wavelengths.into(),
+//         })
+//     }
+// }
+
+// impl IntoMeasurement<InnerMeasurement3_0, MeasSetterTo3_0> for InnerMeasurement2_0 {
+//     type XToY = MeasSetter2_0To3_0;
+//     type Req = Scale;
+
+//     fn setter(scale: Self::Req) -> Self::XToY {
+//         MeasSetter2_0To3_0::new(scale)
+//     }
+
+//     fn convert_inner(
+//         self,
+//         n: MeasIdx,
+//         def: Self::XToY,
+//         ns: &mut NonStdKeywords,
+//     ) -> PureSuccess<InnerMeasurement3_0> {
+//         let scale = self.scale.0.unwrap_or(def.scale);
+//         NSKwParser::run(ns, |st| InnerMeasurement3_0 {
+//             scale,
+//             wavelength: self.wavelength,
+//             shortname: self.shortname,
+//             gain: st.lookup_meas_maybe(n, def.gain),
+//         })
+//     }
+// }
+
+// impl IntoMeasurement<InnerMeasurement3_0, MeasSetterTo3_0> for InnerMeasurement3_0 {
+//     type XToY = MeasSetter3_0To3_0;
+//     type Req = ();
+
+//     fn setter(_: Self::Req) -> Self::XToY {
+//         MeasSetter3_0To3_0
+//     }
+
+//     fn convert_inner(
+//         self,
+//         _: MeasIdx,
+//         _: Self::XToY,
+//         _: &mut NonStdKeywords,
+//     ) -> PureSuccess<InnerMeasurement3_0> {
+//         PureSuccess::from(self)
+//     }
+// }
+
+// impl IntoMeasurement<InnerMeasurement3_0, MeasSetterTo3_0> for InnerMeasurement3_1 {
+//     type XToY = MeasSetter3_1To3_0;
+//     type Req = ();
+
+//     fn setter(_: Self::Req) -> Self::XToY {
+//         MeasSetter3_1To3_0
+//     }
+
+//     fn convert_inner(
+//         self,
+//         _: MeasIdx,
+//         _: Self::XToY,
+//         _: &mut NonStdKeywords,
+//     ) -> PureSuccess<InnerMeasurement3_0> {
+//         PureSuccess::from(InnerMeasurement3_0 {
+//             shortname: Some(self.shortname).into(),
+//             scale: self.scale,
+//             gain: self.gain,
+//             wavelength: self.wavelengths.into(),
+//         })
+//     }
+// }
+
+// impl IntoMeasurement<InnerMeasurement3_0, MeasSetterTo3_0> for InnerMeasurement3_2 {
+//     type XToY = MeasSetter3_2To3_0;
+//     type Req = ();
+
+//     fn setter(_: Self::Req) -> Self::XToY {
+//         MeasSetter3_2To3_0
+//     }
+
+//     fn convert_inner(
+//         self,
+//         _: MeasIdx,
+//         _: Self::XToY,
+//         _: &mut NonStdKeywords,
+//     ) -> PureSuccess<InnerMeasurement3_0> {
+//         PureSuccess::from(InnerMeasurement3_0 {
+//             shortname: Some(self.shortname).into(),
+//             scale: self.scale,
+//             gain: self.gain,
+//             wavelength: self.wavelengths.into(),
+//         })
+//     }
+// }
+
+// impl IntoMeasurement<InnerMeasurement3_1, MeasSetterTo3_1> for InnerMeasurement2_0 {
+//     type XToY = MeasSetter2_0To3_1;
+//     type Req = RequireScaleShortname;
+
+//     fn setter(r: Self::Req) -> Self::XToY {
+//         MeasSetter2_0To3_1::new(r.scale, r.shortname)
+//     }
+
+//     fn convert_inner(
+//         self,
+//         n: MeasIdx,
+//         def: Self::XToY,
+//         ns: &mut NonStdKeywords,
+//     ) -> PureSuccess<InnerMeasurement3_1> {
+//         let scale = self.scale.0.unwrap_or(def.scale);
+//         let shortname = self.shortname.0.unwrap_or(def.shortname);
+//         NSKwParser::run(ns, |st| InnerMeasurement3_1 {
+//             scale,
+//             shortname,
+//             wavelengths: self.wavelength.map(|x| x.into()),
+//             gain: st.lookup_meas_maybe(n, def.gain),
+//             calibration: st.lookup_meas_maybe(n, def.calibration),
+//             display: st.lookup_meas_maybe(n, def.display),
+//         })
+//     }
+// }
+
+// impl IntoMeasurement<InnerMeasurement3_1, MeasSetterTo3_1> for InnerMeasurement3_0 {
+//     type XToY = MeasSetter3_0To3_1;
+//     type Req = Shortname;
+
+//     fn setter(shortname: Self::Req) -> Self::XToY {
+//         MeasSetter3_0To3_1::new(shortname)
+//     }
+
+//     fn convert_inner(
+//         self,
+//         n: MeasIdx,
+//         def: Self::XToY,
+//         ns: &mut NonStdKeywords,
+//     ) -> PureSuccess<InnerMeasurement3_1> {
+//         let shortname = self.shortname.0.unwrap_or(def.shortname);
+//         NSKwParser::run(ns, |st| InnerMeasurement3_1 {
+//             shortname,
+//             scale: self.scale,
+//             gain: self.gain,
+//             wavelengths: self.wavelength.map(|x| x.into()),
+//             calibration: st.lookup_meas_maybe(n, def.calibration),
+//             display: st.lookup_meas_maybe(n, def.display),
+//         })
+//     }
+// }
+
+// impl IntoMeasurement<InnerMeasurement3_1, MeasSetterTo3_1> for InnerMeasurement3_1 {
+//     type XToY = MeasSetter3_1To3_1;
+//     type Req = ();
+
+//     fn setter(_: Self::Req) -> Self::XToY {
+//         MeasSetter3_1To3_1
+//     }
+
+//     fn convert_inner(
+//         self,
+//         _: MeasIdx,
+//         _: Self::XToY,
+//         _: &mut NonStdKeywords,
+//     ) -> PureSuccess<InnerMeasurement3_1> {
+//         PureSuccess::from(self)
+//     }
+// }
+
+// impl IntoMeasurement<InnerMeasurement3_1, MeasSetterTo3_1> for InnerMeasurement3_2 {
+//     type XToY = MeasSetter3_2To3_1;
+//     type Req = ();
+
+//     fn setter(_: Self::Req) -> Self::XToY {
+//         MeasSetter3_2To3_1
+//     }
+
+//     fn convert_inner(
+//         self,
+//         _: MeasIdx,
+//         _: Self::XToY,
+//         _: &mut NonStdKeywords,
+//     ) -> PureSuccess<InnerMeasurement3_1> {
+//         PureSuccess::from(InnerMeasurement3_1 {
+//             shortname: self.shortname,
+//             scale: self.scale,
+//             gain: self.gain,
+//             wavelengths: self.wavelengths,
+//             calibration: self.calibration.map(|x| x.into()),
+//             display: self.display,
+//         })
+//     }
+// }
+
+// impl IntoMeasurement<InnerMeasurement3_2, MeasSetterTo3_2> for InnerMeasurement2_0 {
+//     type XToY = MeasSetter2_0To3_2;
+//     type Req = RequireScaleShortname;
+
+//     fn setter(r: Self::Req) -> Self::XToY {
+//         MeasSetter2_0To3_2::new(r.scale, r.shortname)
+//     }
+
+//     fn convert_inner(
+//         self,
+//         n: MeasIdx,
+//         def: Self::XToY,
+//         ns: &mut NonStdKeywords,
+//     ) -> PureSuccess<InnerMeasurement3_2> {
+//         let scale = self.scale.0.unwrap_or(def.scale);
+//         let shortname = self.shortname.0.unwrap_or(def.shortname);
+//         NSKwParser::run(ns, |st| InnerMeasurement3_2 {
+//             scale,
+//             shortname,
+//             wavelengths: self.wavelength.map(|x| x.into()),
+//             gain: st.lookup_meas_maybe(n, def.gain),
+//             calibration: st.lookup_meas_maybe(n, def.calibration),
+//             display: st.lookup_meas_maybe(n, def.display),
+//             analyte: st.lookup_meas_maybe(n, def.analyte),
+//             feature: st.lookup_meas_maybe(n, def.feature),
+//             tag: st.lookup_meas_maybe(n, def.tag),
+//             detector_name: st.lookup_meas_maybe(n, def.detector_name),
+//             datatype: st.lookup_meas_maybe(n, def.datatype),
+//             measurement_type: st.lookup_meas_maybe(n, def.measurement_type),
+//         })
+//     }
+// }
+
+// impl IntoMeasurement<InnerMeasurement3_2, MeasSetterTo3_2> for InnerMeasurement3_0 {
+//     type XToY = MeasSetter3_0To3_2;
+//     type Req = Shortname;
+
+//     fn setter(shortname: Self::Req) -> Self::XToY {
+//         MeasSetter3_0To3_2::new(shortname)
+//     }
+
+//     fn convert_inner(
+//         self,
+//         n: MeasIdx,
+//         def: Self::XToY,
+//         ns: &mut NonStdKeywords,
+//     ) -> PureSuccess<InnerMeasurement3_2> {
+//         let shortname = self.shortname.0.unwrap_or(def.shortname);
+//         NSKwParser::run(ns, |st| InnerMeasurement3_2 {
+//             shortname,
+//             scale: self.scale,
+//             wavelengths: self.wavelength.map(|x| x.into()),
+//             gain: self.gain,
+//             calibration: st.lookup_meas_maybe(n, def.calibration),
+//             display: st.lookup_meas_maybe(n, def.display),
+//             analyte: st.lookup_meas_maybe(n, def.analyte),
+//             feature: st.lookup_meas_maybe(n, def.feature),
+//             tag: st.lookup_meas_maybe(n, def.tag),
+//             detector_name: st.lookup_meas_maybe(n, def.detector_name),
+//             datatype: st.lookup_meas_maybe(n, def.datatype),
+//             measurement_type: st.lookup_meas_maybe(n, def.measurement_type),
+//         })
+//     }
+// }
+
+// impl IntoMeasurement<InnerMeasurement3_2, MeasSetterTo3_2> for InnerMeasurement3_1 {
+//     type XToY = MeasSetter3_1To3_2;
+//     type Req = ();
+
+//     fn setter(_: Self::Req) -> Self::XToY {
+//         MeasSetter3_1To3_2::default()
+//     }
+
+//     fn convert_inner(
+//         self,
+//         n: MeasIdx,
+//         def: Self::XToY,
+//         ns: &mut NonStdKeywords,
+//     ) -> PureSuccess<InnerMeasurement3_2> {
+//         NSKwParser::run(ns, |st| InnerMeasurement3_2 {
+//             shortname: self.shortname,
+//             scale: self.scale,
+//             wavelengths: self.wavelengths,
+//             gain: self.gain,
+//             calibration: self.calibration.map(|x| x.into()),
+//             display: self.display,
+//             analyte: st.lookup_meas_maybe(n, def.analyte),
+//             feature: st.lookup_meas_maybe(n, def.feature),
+//             tag: st.lookup_meas_maybe(n, def.tag),
+//             detector_name: st.lookup_meas_maybe(n, def.detector_name),
+//             datatype: st.lookup_meas_maybe(n, def.datatype),
+//             measurement_type: st.lookup_meas_maybe(n, def.measurement_type),
+//         })
+//     }
+// }
+
+// impl IntoMeasurement<InnerMeasurement3_2, MeasSetterTo3_2> for InnerMeasurement3_2 {
+//     type XToY = MeasSetter3_2To3_2;
+//     type Req = ();
+
+//     fn setter(_: Self::Req) -> Self::XToY {
+//         MeasSetter3_2To3_2
+//     }
+
+//     fn convert_inner(
+//         self,
+//         _: MeasIdx,
+//         _: Self::XToY,
+//         _: &mut NonStdKeywords,
+//     ) -> PureSuccess<InnerMeasurement3_2> {
+//         PureSuccess::from(self)
+//     }
+// }
+
+// impl IntoMetadata<InnerMetadata2_0, MetaSetterTo2_0> for InnerMetadata2_0 {
+//     type XToY = MetaSetter2_0To2_0;
+//     type Req = ();
+
+//     fn setter(_: Self::Req) -> Self::XToY {
+//         MetaSetter2_0To2_0
+//     }
+
+//     fn convert_inner(
+//         self,
+//         _: Self::XToY,
+//         _: &mut NonStdKeywords,
+//         _: &[Shortname],
+//     ) -> PureSuccess<InnerMetadata2_0> {
+//         PureSuccess::from(self)
+//     }
+// }
+
+// impl IntoMetadata<InnerMetadata2_0, MetaSetterTo2_0> for InnerMetadata3_0 {
+//     type XToY = MetaSetter3_0To2_0;
+//     type Req = ();
+
+//     fn setter(_: Self::Req) -> Self::XToY {
+//         MetaSetter3_0To2_0
+//     }
+
+//     fn convert_inner(
+//         self,
+//         _: Self::XToY,
+//         _: &mut NonStdKeywords,
+//         _: &[Shortname],
+//     ) -> PureSuccess<InnerMetadata2_0> {
+//         PureSuccess::from(InnerMetadata2_0 {
+//             mode: self.mode,
+//             byteord: self.byteord,
+//             cyt: self.cyt,
+//             comp: self.comp,
+//             timestamps: self.timestamps.map(|d| d.into()),
+//         })
+//     }
+// }
+
+// impl IntoMetadata<InnerMetadata2_0, MetaSetterTo2_0> for InnerMetadata3_1 {
+//     type XToY = MetaSetter3_1To2_0;
+//     type Req = ();
+
+//     fn setter(_: Self::Req) -> Self::XToY {
+//         MetaSetter3_1To2_0::default()
+//     }
+
+//     fn convert_inner(
+//         self,
+//         def: Self::XToY,
+//         ns: &mut NonStdKeywords,
+//         ms: &[Shortname],
+//     ) -> PureSuccess<InnerMetadata2_0> {
+//         NSKwParser::run(ns, |st| InnerMetadata2_0 {
+//             mode: self.mode,
+//             byteord: self.byteord.into(),
+//             cyt: self.cyt,
+//             comp: st.try_convert_lookup_comp(def.comp, self.spillover, ms),
+//             timestamps: self.timestamps.map(|d| d.into()),
+//         })
+//     }
+// }
+
+// impl IntoMetadata<InnerMetadata2_0, MetaSetterTo2_0> for InnerMetadata3_2 {
+//     type XToY = MetaSetter3_2To2_0;
+//     type Req = ();
+
+//     fn setter(_: Self::Req) -> Self::XToY {
+//         MetaSetter3_2To2_0::default()
+//     }
+
+//     fn convert_inner(
+//         self,
+//         def: Self::XToY,
+//         ns: &mut NonStdKeywords,
+//         ms: &[Shortname],
+//     ) -> PureSuccess<InnerMetadata2_0> {
+//         NSKwParser::run(ns, |st| InnerMetadata2_0 {
+//             mode: Mode::List,
+//             byteord: self.byteord.into(),
+//             cyt: Some(self.cyt).into(),
+//             comp: st.try_convert_lookup_comp(def.comp, self.spillover, ms),
+//             timestamps: self.timestamps.map(|d| d.into()),
+//         })
+//     }
+// }
+
+// impl IntoMetadata<InnerMetadata3_0, MetaSetterTo3_0> for InnerMetadata2_0 {
+//     type XToY = MetaSetter2_0To3_0;
+//     type Req = ();
+
+//     fn setter(_: Self::Req) -> Self::XToY {
+//         MetaSetter2_0To3_0::default()
+//     }
+
+//     fn convert_inner(
+//         self,
+//         def: Self::XToY,
+//         ns: &mut NonStdKeywords,
+//         _: &[Shortname],
+//     ) -> PureSuccess<InnerMetadata3_0> {
+//         NSKwParser::run(ns, |st| InnerMetadata3_0 {
+//             mode: self.mode,
+//             byteord: self.byteord,
+//             cyt: self.cyt,
+//             comp: self.comp,
+//             timestamps: self.timestamps.map(|d| d.into()),
+//             cytsn: st.lookup_maybe(def.cytsn),
+//             timestep: st.lookup_maybe(def.timestep),
+//             unicode: st.lookup_maybe(def.unicode),
+//         })
+//     }
+// }
+
+// impl IntoMetadata<InnerMetadata3_0, MetaSetterTo3_0> for InnerMetadata3_0 {
+//     type XToY = MetaSetter3_0To3_0;
+//     type Req = ();
+
+//     fn setter(_: Self::Req) -> Self::XToY {
+//         MetaSetter3_0To3_0
+//     }
+
+//     fn convert_inner(
+//         self,
+//         _: Self::XToY,
+//         _: &mut NonStdKeywords,
+//         _: &[Shortname],
+//     ) -> PureSuccess<InnerMetadata3_0> {
+//         PureSuccess::from(self)
+//     }
+// }
+
+// impl IntoMetadata<InnerMetadata3_0, MetaSetterTo3_0> for InnerMetadata3_1 {
+//     type XToY = MetaSetter3_1To3_0;
+//     type Req = ();
+
+//     fn setter(_: Self::Req) -> Self::XToY {
+//         MetaSetter3_1To3_0::default()
+//     }
+
+//     fn convert_inner(
+//         self,
+//         def: Self::XToY,
+//         ns: &mut NonStdKeywords,
+//         ms: &[Shortname],
+//     ) -> PureSuccess<InnerMetadata3_0> {
+//         NSKwParser::run(ns, |st| InnerMetadata3_0 {
+//             mode: self.mode,
+//             byteord: self.byteord.into(),
+//             cyt: self.cyt,
+//             cytsn: self.cytsn,
+//             timestep: self.timestep,
+//             timestamps: self.timestamps.map(|d| d.into()),
+//             comp: st.try_convert_lookup_comp(def.comp, self.spillover, ms),
+//             unicode: st.lookup_maybe(def.unicode),
+//         })
+//     }
+// }
+
+// impl IntoMetadata<InnerMetadata3_0, MetaSetterTo3_0> for InnerMetadata3_2 {
+//     type XToY = MetaSetter3_2To3_0;
+//     type Req = ();
+
+//     fn setter(_: Self::Req) -> Self::XToY {
+//         MetaSetter3_2To3_0::default()
+//     }
+
+//     fn convert_inner(
+//         self,
+//         def: Self::XToY,
+//         ns: &mut NonStdKeywords,
+//         ms: &[Shortname],
+//     ) -> PureSuccess<InnerMetadata3_0> {
+//         NSKwParser::run(ns, |st| InnerMetadata3_0 {
+//             mode: Mode::List,
+//             byteord: self.byteord.into(),
+//             cyt: Some(self.cyt).into(),
+//             cytsn: self.cytsn,
+//             timestep: self.timestep,
+//             timestamps: self.timestamps.map(|d| d.into()),
+//             comp: st.try_convert_lookup_comp(def.comp, self.spillover, ms),
+//             unicode: st.lookup_maybe(def.unicode),
+//         })
+//     }
+// }
+
+// impl IntoMetadata<InnerMetadata3_1, MetaSetterTo3_1> for InnerMetadata2_0 {
+//     type XToY = MetaSetter2_0To3_1;
+//     type Req = Endian;
+
+//     fn setter(endian: Self::Req) -> Self::XToY {
+//         MetaSetter2_0To3_1::new(endian)
+//     }
+
+//     fn convert_inner(
+//         self,
+//         def: Self::XToY,
+//         ns: &mut NonStdKeywords,
+//         ms: &[Shortname],
+//     ) -> PureSuccess<InnerMetadata3_1> {
+//         NSKwParser::run(ns, |st| {
+//             let byteord = self.byteord.try_into().ok().unwrap_or(def.endian);
+//             InnerMetadata3_1 {
+//                 mode: self.mode,
+//                 byteord,
+//                 cyt: self.cyt,
+//                 timestamps: self.timestamps.map(|d| d.into()),
+//                 spillover: st.try_convert_lookup_spillover(def.spillover, self.comp, ms),
+//                 cytsn: st.lookup_maybe(def.cytsn),
+//                 timestep: st.lookup_maybe(def.timestep),
+//                 modification: st.lookup_modification(def.modification),
+//                 plate: st.lookup_plate(def.plate),
+//                 vol: st.lookup_maybe(def.vol),
+//             }
+//         })
+//     }
+// }
+
+// impl IntoMetadata<InnerMetadata3_1, MetaSetterTo3_1> for InnerMetadata3_0 {
+//     type XToY = MetaSetter3_0To3_1;
+//     type Req = Endian;
+
+//     fn setter(endian: Self::Req) -> Self::XToY {
+//         MetaSetter3_0To3_1::new(endian)
+//     }
+
+//     fn convert_inner(
+//         self,
+//         def: Self::XToY,
+//         ns: &mut NonStdKeywords,
+//         ms: &[Shortname],
+//     ) -> PureSuccess<InnerMetadata3_1> {
+//         NSKwParser::run(ns, |st| {
+//             let byteord = self.byteord.try_into().ok().unwrap_or(def.endian);
+//             InnerMetadata3_1 {
+//                 byteord,
+//                 mode: self.mode,
+//                 cyt: self.cyt,
+//                 timestep: self.timestep,
+//                 cytsn: self.cytsn,
+//                 timestamps: self.timestamps.map(|d| d.into()),
+//                 spillover: st.try_convert_lookup_spillover(def.spillover, self.comp, ms),
+//                 modification: st.lookup_modification(def.modification),
+//                 plate: st.lookup_plate(def.plate),
+//                 vol: st.lookup_maybe(def.vol),
+//             }
+//         })
+//     }
+// }
+
+// impl IntoMetadata<InnerMetadata3_1, MetaSetterTo3_1> for InnerMetadata3_1 {
+//     type XToY = MetaSetter3_1To3_1;
+//     type Req = ();
+
+//     fn setter(_: Self::Req) -> Self::XToY {
+//         MetaSetter3_1To3_1
+//     }
+
+//     fn convert_inner(
+//         self,
+//         _: Self::XToY,
+//         _: &mut NonStdKeywords,
+//         _: &[Shortname],
+//     ) -> PureSuccess<InnerMetadata3_1> {
+//         PureSuccess::from(self)
+//     }
+// }
+
+// impl IntoMetadata<InnerMetadata3_1, MetaSetterTo3_1> for InnerMetadata3_2 {
+//     type XToY = MetaSetter3_2To3_1;
+//     type Req = ();
+
+//     fn setter(_: Self::Req) -> Self::XToY {
+//         MetaSetter3_2To3_1
+//     }
+
+//     fn convert_inner(
+//         self,
+//         _: Self::XToY,
+//         _: &mut NonStdKeywords,
+//         _: &[Shortname],
+//     ) -> PureSuccess<InnerMetadata3_1> {
+//         PureSuccess::from(InnerMetadata3_1 {
+//             mode: Mode::List,
+//             byteord: self.byteord,
+//             cyt: Some(self.cyt).into(),
+//             cytsn: self.cytsn,
+//             timestep: self.timestep,
+//             timestamps: self.timestamps,
+//             spillover: self.spillover,
+//             plate: self.plate,
+//             modification: self.modification,
+//             vol: self.vol,
+//         })
+//     }
+// }
+
+// impl IntoMetadata<InnerMetadata3_2, MetaSetterTo3_2> for InnerMetadata2_0 {
+//     type XToY = MetaSetter2_0To3_2;
+//     type Req = RequiredEndianCyt;
+
+//     fn setter(r: Self::Req) -> Self::XToY {
+//         MetaSetter2_0To3_2::new(r.endian, r.cyt)
+//     }
+
+//     fn convert_inner(
+//         self,
+//         def: Self::XToY,
+//         ns: &mut NonStdKeywords,
+//         ms: &[Shortname],
+//     ) -> PureSuccess<InnerMetadata3_2> {
+//         NSKwParser::run(ns, |st| {
+//             let byteord = self.byteord.try_into().ok().unwrap_or(def.endian);
+//             let cyt = self.cyt.0.unwrap_or(def.cyt);
+//             // TODO what happens if $MODE is not list?
+//             InnerMetadata3_2 {
+//                 byteord,
+//                 cyt,
+//                 spillover: st.try_convert_lookup_spillover(def.spillover, self.comp, ms),
+//                 timestamps: self.timestamps.map(|d| d.into()),
+//                 cytsn: st.lookup_maybe(def.cytsn),
+//                 timestep: st.lookup_maybe(def.timestep),
+//                 modification: st.lookup_modification(def.modification),
+//                 plate: st.lookup_plate(def.plate),
+//                 vol: st.lookup_maybe(def.vol),
+//                 flowrate: st.lookup_maybe(def.flowrate),
+//                 carrier: st.lookup_carrier(def.carrier),
+//                 unstained: st.lookup_unstained(def.unstained),
+//                 datetimes: st.lookup_datetimes(def.datetimes),
+//             }
+//         })
+//     }
+// }
+
+// impl IntoMetadata<InnerMetadata3_2, MetaSetterTo3_2> for InnerMetadata3_0 {
+//     type XToY = MetaSetter3_0To3_2;
+//     type Req = RequiredEndianCyt;
+
+//     fn setter(r: Self::Req) -> Self::XToY {
+//         MetaSetter3_0To3_2::new(r.endian, r.cyt)
+//     }
+
+//     fn convert_inner(
+//         self,
+//         def: Self::XToY,
+//         ns: &mut NonStdKeywords,
+//         ms: &[Shortname],
+//     ) -> PureSuccess<InnerMetadata3_2> {
+//         NSKwParser::run(ns, |st| {
+//             let byteord = self.byteord.try_into().ok().unwrap_or(def.endian);
+//             let cyt = self.cyt.0.unwrap_or(def.cyt);
+//             InnerMetadata3_2 {
+//                 byteord,
+//                 cyt,
+//                 timestep: self.timestep,
+//                 cytsn: self.cytsn,
+//                 timestamps: self.timestamps.map(|d| d.into()),
+//                 modification: st.lookup_modification(def.modification),
+//                 spillover: st.try_convert_lookup_spillover(def.spillover, self.comp, ms),
+//                 plate: st.lookup_plate(def.plate),
+//                 vol: st.lookup_maybe(def.vol),
+//                 flowrate: st.lookup_maybe(def.flowrate),
+//                 carrier: st.lookup_carrier(def.carrier),
+//                 unstained: st.lookup_unstained(def.unstained),
+//                 datetimes: st.lookup_datetimes(def.datetimes),
+//             }
+//         })
+//     }
+// }
+
+// impl IntoMetadata<InnerMetadata3_2, MetaSetterTo3_2> for InnerMetadata3_1 {
+//     type XToY = MetaSetter3_1To3_2;
+//     type Req = Cyt;
+
+//     fn setter(cyt: Self::Req) -> Self::XToY {
+//         MetaSetter3_1To3_2::new(cyt)
+//     }
+
+//     fn convert_inner(
+//         self,
+//         def: Self::XToY,
+//         ns: &mut NonStdKeywords,
+//         _: &[Shortname],
+//     ) -> PureSuccess<InnerMetadata3_2> {
+//         let cyt = self.cyt.0.unwrap_or(def.cyt);
+//         NSKwParser::run(ns, |st| InnerMetadata3_2 {
+//             byteord: self.byteord,
+//             cyt,
+//             cytsn: self.cytsn,
+//             timestep: self.timestep,
+//             timestamps: self.timestamps,
+//             spillover: self.spillover,
+//             modification: self.modification,
+//             plate: self.plate,
+//             vol: self.vol,
+//             flowrate: st.lookup_maybe(def.flowrate),
+//             carrier: st.lookup_carrier(def.carrier),
+//             unstained: st.lookup_unstained(def.unstained),
+//             datetimes: st.lookup_datetimes(def.datetimes),
+//         })
+//     }
+// }
+
+// impl IntoMetadata<InnerMetadata3_2, MetaSetterTo3_2> for InnerMetadata3_2 {
+//     type XToY = MetaSetter3_2To3_2;
+//     type Req = ();
+
+//     fn setter(_: Self::Req) -> Self::XToY {
+//         MetaSetter3_2To3_2
+//     }
+
+//     fn convert_inner(
+//         self,
+//         _: Self::XToY,
+//         _: &mut NonStdKeywords,
+//         _: &[Shortname],
+//     ) -> PureSuccess<InnerMetadata3_2> {
+//         PureSuccess::from(self)
+//     }
+// }
 
 fn comp_to_spillover(comp: Compensation, ns: &[Shortname]) -> Option<Spillover> {
     // Matrix should be square, so if inverse fails that means that somehow it

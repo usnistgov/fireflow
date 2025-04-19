@@ -6,10 +6,10 @@ use crate::keywords::*;
 use crate::macros::{newtype_disp, newtype_from, newtype_from_outer, newtype_fromstr};
 use crate::optionalkw::OptionalKw;
 pub use crate::segment::*;
-use crate::validated::distinct::{DistinctBy, DistinctVec};
+use crate::validated::distinct::*;
 use crate::validated::nonstandard::*;
 use crate::validated::ranged_float::*;
-use crate::validated::shortname::Shortname;
+use crate::validated::shortname::*;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use itertools::Itertools;
@@ -324,28 +324,28 @@ pub struct CoreTEXT<M, P, N> {
 type RawKeywords = HashMap<String, String>;
 
 /// A datetime as used in the $(BEGIN|END)DATETIME keys (3.2+ only)
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct FCSDateTime(pub DateTime<FixedOffset>);
 
 /// A time as used in the $BTIM/ETIM keys without seconds (2.0 only)
-#[derive(Debug, Clone, Serialize, PartialEq, Eq, PartialOrd)]
+#[derive(Clone, Serialize, PartialEq, Eq, PartialOrd)]
 pub struct FCSTime(pub NaiveTime);
 
 /// A time as used in the $BTIM/ETIM keys with 1/60 seconds (3.0 only)
-#[derive(Debug, Clone, Serialize, PartialEq, Eq, PartialOrd)]
+#[derive(Clone, Serialize, PartialEq, Eq, PartialOrd)]
 pub struct FCSTime60(pub NaiveTime);
 
 /// A time as used in the $BTIM/ETIM keys with centiseconds (3.1+ only)
-#[derive(Debug, Clone, Serialize, PartialEq, Eq, PartialOrd)]
+#[derive(Clone, Serialize, PartialEq, Eq, PartialOrd)]
 pub struct FCSTime100(pub NaiveTime);
 
 /// A datetime as used in the $LAST_MODIFIED key (3.1+ only)
 // TODO this should almost certainly be after $ENDDATETIME if given
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct ModifiedDateTime(pub NaiveDateTime);
 
 /// A date as used in the $DATE key (all versions)
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct FCSDate(pub NaiveDate);
 
 /// A convenient bundle holding data/time keyword values.
@@ -445,7 +445,7 @@ impl Datetimes {
 }
 
 /// The values used for the $MODE key (up to 3.1)
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Clone, PartialEq, Eq, Serialize)]
 pub enum Mode {
     List,
     // TODO I have no idea what these even mean and IDK how to support them
@@ -457,7 +457,7 @@ pub enum Mode {
 struct Mode3_2;
 
 /// The value for the $PnDISPLAY key (3.1+)
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub enum Display {
     /// Linear display (value like 'Linear,<lower>,<upper>')
     Lin { lower: f32, upper: f32 },
@@ -469,7 +469,7 @@ pub enum Display {
 /// Endianness
 ///
 /// This is also stored in the $BYTEORD key in 3.1+
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Serialize, PartialEq, Eq, Hash)]
 pub enum Endian {
     Big,
     Little,
@@ -481,7 +481,7 @@ pub enum Endian {
 /// sequence representing byte order. For 2.0 and 3.0, this sequence is
 /// technically allowed to vary in length in the case of $DATATYPE=I since
 /// integers do not necessarily need to be 32 or 64-bit.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub enum ByteOrd {
     // TODO this should also be applied to things like 1,2,3 or 5,4,3,2,1, which
     // are big/little endian but not "traditional" byte widths.
@@ -490,7 +490,7 @@ pub enum ByteOrd {
 }
 
 /// The four allowed values for the $DATATYPE keyword.
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize)]
+#[derive(Clone, Copy, Eq, PartialEq, Hash, Serialize)]
 pub enum AlphaNumType {
     Ascii,
     Integer,
@@ -499,7 +499,7 @@ pub enum AlphaNumType {
 }
 
 /// The three values for the $PnDATATYPE keyword (3.2+)
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Serialize)]
 pub enum NumType {
     Integer,
     Single,
@@ -509,7 +509,7 @@ pub enum NumType {
 /// A compensation matrix.
 ///
 /// This is encoded in the $DFCmTOn keywords in 2.0 and $COMP in 3.0.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct Compensation {
     /// Values in the comp matrix in row-major order. Assumed to be the
     /// same width and height as $PAR
@@ -528,7 +528,7 @@ impl Compensation {
 }
 
 /// The spillover matrix from the $SPILLOVER keyword (3.1+)
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct Spillover {
     /// The measurements in the spillover matrix. Assumed to be a subset of the
     /// values in the $PnN keys.
@@ -540,8 +540,8 @@ pub struct Spillover {
 }
 
 impl Spillover {
-    fn remove_by_name(&mut self, n: &str) -> bool {
-        if let Some(i) = self.measurements.iter().position(|m| m.as_ref() == n) {
+    fn remove_by_name(&mut self, n: &Shortname) -> bool {
+        if let Some(i) = self.measurements.iter().position(|m| m == n) {
             // TODO this looks expensive; it copies basically everything 3x;
             // good thing these matrices aren't that big (usually). The
             // alternative is to iterate over the matrix and populate a new one
@@ -557,7 +557,7 @@ impl Spillover {
 /// The value of the $TR field (all versions)
 ///
 /// This is formatted as 'string,f' where 'string' is a measurement name.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct Trigger {
     /// The measurement name (assumed to match a '$PnN' value).
     pub measurement: Shortname,
@@ -571,7 +571,7 @@ pub struct Trigger {
 /// Format is assumed to be 'f1,f2'
 // TODO this is super messy, see 3.2 spec for restrictions on this we may with
 // to use further
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Clone, PartialEq, Serialize)]
 pub enum Scale {
     /// Linear scale, which maps to the value '0,0'
     Linear,
@@ -584,7 +584,7 @@ pub enum Scale {
 /// The value for the $PnCALIBRATION key (3.1 only)
 ///
 /// This should be formatted like '<value>,<unit>'
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct Calibration3_1 {
     pub value: f32,
     pub unit: String,
@@ -594,7 +594,7 @@ pub struct Calibration3_1 {
 ///
 /// This should be formatted like '<value>,[<offset>,]<unit>' and differs from
 /// 3.1 with the optional inclusion of "offset" (assumed 0 if not included).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct Calibration3_2 {
     pub value: f32,
     pub offset: f32,
@@ -606,7 +606,7 @@ pub struct Calibration3_2 {
 /// This is a list of wavelengths used for the measurement. Starting in 3.1
 /// this could be a list, where it needed to be a single number in previous
 /// versions.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct Wavelengths(Vec<u32>);
 
 /// The value for the $PnB key (all versions)
@@ -617,14 +617,14 @@ pub struct Wavelengths(Vec<u32>);
 ///
 /// This may also be '*' which means "delimited ASCII" which is only valid when
 /// $DATATYPE=A.
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Serialize)]
 pub enum Bytes {
     Fixed(u8),
     Variable,
 }
 
 /// The value for the $ORIGINALITY key (3.1+)
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub enum Originality {
     Original,
     NonDataModified,
@@ -656,7 +656,7 @@ pub struct PlateData {
 pub struct UnstainedCenters(HashMap<Shortname, f32>);
 
 impl UnstainedCenters {
-    fn remove_by_name(&mut self, n: &str) -> bool {
+    fn remove_by_name(&mut self, n: &Shortname) -> bool {
         self.0.remove(n).is_some()
     }
 }
@@ -682,7 +682,7 @@ pub struct CarrierData {
 /// in this library and is present to be complete. The original purpose was to
 /// indicate keywords which supported UTF-8, but these days it is hard to
 /// write a library that does NOT support UTF-8 ;)
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct Unicode {
     page: u32,
     // TODO check that these are valid keywords (probably not worth it)
@@ -690,7 +690,7 @@ pub struct Unicode {
 }
 
 /// The value of the $PnTYPE key (3.2+)
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub enum MeasurementType {
     ForwardScatter,
     SideScatter,
@@ -706,7 +706,7 @@ pub enum MeasurementType {
 }
 
 /// The value of the $PnFEATURE key (3.2+)
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub enum Feature {
     Area,
     Width,
@@ -718,7 +718,7 @@ pub enum Feature {
 /// Technically this should only be an integer, but many versions also store
 /// floats which makes sense for cases where $DATATYPE/$PnDATATYPE indicates
 /// float or double.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct Range(pub String);
 
 newtype_disp!(Range);
@@ -854,21 +854,23 @@ pub struct Measurement<X> {
     pub specific: X,
 }
 
-impl DistinctBy for OptionalKw<Shortname> {
-    type Inner = Shortname;
-    const WHAT: &'static str = "name";
-
-    fn project(&self) -> Option<&Shortname> {
+impl IntoShortname for OptionalKw<Shortname> {
+    fn as_name_opt(&self) -> Option<&Shortname> {
         self.as_ref_opt()
+    }
+
+    fn from_name(n: Shortname) -> Self {
+        Some(n).into()
     }
 }
 
-impl DistinctBy for Shortname {
-    type Inner = Shortname;
-    const WHAT: &'static str = "name";
-
-    fn project(&self) -> Option<&Shortname> {
+impl IntoShortname for Shortname {
+    fn as_name_opt(&self) -> Option<&Shortname> {
         Some(self)
+    }
+
+    fn from_name(n: Shortname) -> Self {
+        n
     }
 }
 
@@ -1172,7 +1174,7 @@ where
         }
     }
 
-    fn reassign(&mut self, mapping: ShortnameMap);
+    fn reassign(&mut self, mapping: &NameMapping);
 
     fn names(&self) -> HashSet<&Shortname>;
 }
@@ -1182,7 +1184,7 @@ impl Linked for Trigger {
         [&self.measurement].into_iter().collect()
     }
 
-    fn reassign(&mut self, mapping: ShortnameMap) {
+    fn reassign(&mut self, mapping: &NameMapping) {
         if let Some(new) = mapping.get(&self.measurement) {
             self.measurement = (*new).clone()
         }
@@ -1194,7 +1196,7 @@ impl Linked for Spillover {
         self.measurements.iter().collect()
     }
 
-    fn reassign(&mut self, mapping: ShortnameMap) {
+    fn reassign(&mut self, mapping: &NameMapping) {
         for n in self.measurements.iter_mut() {
             if let Some(new) = mapping.get(n) {
                 *n = (*new).clone();
@@ -1208,7 +1210,7 @@ impl Linked for UnstainedCenters {
         self.0.keys().collect()
     }
 
-    fn reassign(&mut self, mapping: ShortnameMap) {
+    fn reassign(&mut self, mapping: &NameMapping) {
         // keys can't be mutated in place so need to rebuild the hashmap with
         // new keys from the mapping
         let new: HashMap<_, _> = self
@@ -2117,8 +2119,6 @@ pub trait Versioned {
     fn fcs_version() -> Version;
 }
 
-type ShortnameMap<'a> = &'a HashMap<&'a Shortname, &'a Shortname>;
-
 pub trait VersionedMetadata: Sized
 where
     Self::P: VersionedMeasurement,
@@ -2189,7 +2189,7 @@ where
 }
 
 pub trait VersionedMeasurement: Sized + Versioned {
-    type N: DistinctBy;
+    type N: IntoShortname;
 
     fn lookup_shortname(st: &mut KwParser, n: MeasIdx) -> Option<Self::N>;
 
@@ -4140,12 +4140,12 @@ impl AnyCoreTEXT {
         }
     }
 
-    fn set_shortnames(&mut self, names: Vec<Shortname>) -> Result<(), String> {
+    fn set_shortnames(&mut self, names: Vec<Shortname>) -> Result<NameMapping, String> {
         match_anycoretext!(self, x, { x.set_shortnames(names) })
     }
 
-    fn remove_measurement(&mut self, n: &str) -> bool {
-        match_anycoretext!(self, x, { x.remove_measurement(n) })
+    fn remove_measurement(&mut self, n: &Shortname) -> Option<usize> {
+        match_anycoretext!(self, x, { x.remove_measurement(n).map(|x| x.0) })
     }
 
     // fn set_df_column_names(&self, df: &mut DataFrame) -> PolarsResult<()> {
@@ -4417,7 +4417,7 @@ where
             })
             .collect();
         if ps.len() == par.0 {
-            let dv = DistinctVec::from_vec(ps);
+            let dv = DistinctVec::from_vec(ps, ShortnamePrefix::default());
             if dv.is_none() {
                 let msg = "Not all measurement names are unique".to_string();
                 st.deferred.push_error(msg);
@@ -4575,11 +4575,11 @@ where
         .collect()
     }
 
-    fn reassign_trigger(&mut self, mapping: ShortnameMap) {
+    fn reassign_trigger(&mut self, mapping: &NameMapping) {
         self.tr.0.as_mut().map_or((), |tr| tr.reassign(mapping))
     }
 
-    fn reassign_all(&mut self, mapping: ShortnameMap) {
+    fn reassign_all(&mut self, mapping: &NameMapping) {
         self.reassign_trigger(mapping);
         self.specific
             .as_spillover_mut()
@@ -4605,12 +4605,8 @@ where
             .map_or(Ok(()), |x| x.check_link(names))
     }
 
-    fn remove_trigger_by_name(&mut self, n: &str) -> bool {
-        if self
-            .tr
-            .as_ref_opt()
-            .is_some_and(|m| m.measurement.as_ref() == n)
-        {
+    fn remove_trigger_by_name(&mut self, n: &Shortname) -> bool {
+        if self.tr.as_ref_opt().is_some_and(|m| &m.measurement == n) {
             self.tr = None.into();
             true
         } else {
@@ -4790,13 +4786,8 @@ where
     ///
     /// For cases where $PnN is optional and its value is not given, this will
     /// return "Mn" where "n" is the parameter index starting at 0.
-    // TODO start at 1?
     pub fn shortnames(&self) -> Vec<Shortname> {
-        self.measurements
-            .iter_projections()
-            .enumerate()
-            .map(|(i, p)| p.specific.shortname(i))
-            .collect()
+        self.measurements.iter_names().collect()
     }
 
     /// Set all $PnN keywords to list of names.
@@ -4805,47 +4796,46 @@ where
     /// keywords refering to the old names will be updated to reflect the new
     /// names. For 2.0 and 3.0 which have optional $PnN, all $PnN will end up
     /// being set.
-    pub fn set_shortnames(&mut self, ns: Vec<Shortname>) -> Result<(), String> {
-        let old_len = self.measurements.len();
-        let new_len = ns.len();
-        if old_len != new_len {
-            Err(format!("Expecting {old_len} names, got {new_len}"))
-        } else if try_unique(ns.iter().collect::<Vec<_>>().as_slice()).is_some() {
-            let mapping: HashMap<_, _> = self
-                .measurements
-                .iter()
-                .zip(ns.iter())
-                .flat_map(|(meas, new)| meas.specific.maybe_name().map(|old| (old, new)))
-                .collect();
-            self.metadata.reassign_all(&mapping);
-            // TODO reassign names in dataframe
-            for (m, n) in self.measurements.iter_mut().zip(ns) {
-                m.specific.set_shortname(n)
-            }
-            Ok(())
-        } else {
-            Err("New names not unique".into())
-        }
+    pub fn set_shortnames(&mut self, ns: Vec<Shortname>) -> Result<NameMapping, String> {
+        let mapping = self.measurements.set_names(ns).map_err(|e| e.to_string())?;
+        // TODO reassign names in dataframe
+        self.metadata.reassign_all(&mapping);
+        Ok(mapping)
     }
 
     // TODO what if the time channel is removed?
-    pub fn remove_measurement(&mut self, n: &str) -> bool {
-        let mi: Option<usize> = self
-            .measurements
-            .iter_keys()
-            .position(|k| M::P::maybe_name(k).is_some_and(|x| x.as_ref() == n));
-        if let Some(i) = mi {
-            self.measurements.remove(i);
+    pub fn remove_measurement(
+        &mut self,
+        n: &Shortname,
+    ) -> Option<(usize, <M::P as VersionedMeasurement>::N, Measurement<M::P>)> {
+        if let Some((i, k, v)) = self.measurements.remove_name(n) {
             let m = &mut self.metadata;
             m.remove_trigger_by_name(n);
             let s = &mut m.specific;
             s.as_spillover_mut().map(|x| x.remove_by_name(n));
             s.as_unstainedcenters_mut().map(|x| x.remove_by_name(n));
             s.as_compensation_mut().map(|x| x.remove_by_index(i));
-            true
+            Some((i, k, v))
         } else {
-            false
+            None
         }
+
+        // let mi: Option<usize> = self
+        //     .measurements
+        //     .iter_keys()
+        //     .position(|k| M::P::maybe_name(k).is_some_and(|x| x.as_ref() == n));
+        // if let Some(i) = mi {
+        //     self.measurements.remove_index_unchecked(i);
+        //     let m = &mut self.metadata;
+        //     m.remove_trigger_by_name(n);
+        //     let s = &mut m.specific;
+        //     s.as_spillover_mut().map(|x| x.remove_by_name(n));
+        //     s.as_unstainedcenters_mut().map(|x| x.remove_by_name(n));
+        //     s.as_compensation_mut().map(|x| x.remove_by_index(i));
+        //     true
+        // } else {
+        //     false
+        // }
     }
 
     pub fn check_index(&self, i: usize) -> Result<(), String> {
@@ -4865,7 +4855,7 @@ where
         i: usize,
         n: <M::P as VersionedMeasurement>::N,
         m: Measurement<M::P>,
-    ) -> Result<(), String> {
+    ) -> Result<Shortname, String> {
         self.measurements.insert(i, n, m).map_err(|e| e.to_string())
         // self.check_index(i).and_then(|_| {
         //     let newname = m.specific.maybe_name();
@@ -4900,7 +4890,7 @@ where
     /// index starting at 1.
     pub fn longnames(&self) -> Vec<Longname> {
         self.measurements
-            .iter()
+            .iter_values()
             .enumerate()
             .map(|(i, m)| m.longname(i))
             .collect()
@@ -4916,7 +4906,7 @@ where
         if self.measurements.len() != ns.len() {
             false
         } else {
-            for (m, n) in self.measurements.iter_mut().zip(ns) {
+            for (m, n) in self.measurements.iter_values_mut().zip(ns) {
                 m.set_longname(n)
             }
             true
@@ -4934,7 +4924,7 @@ where
     {
         let meas: Vec<_> = self
             .measurements
-            .iter()
+            .iter_values()
             .enumerate()
             .flat_map(|(i, m)| f(m, Some(MeasIdx(i + 1))))
             .collect();
@@ -4950,7 +4940,7 @@ where
         }
         // TODO add back header
         // let header = ms[0].table_header().join(delim);
-        let rows = self.measurements.iter().enumerate().map(|(i, m)| {
+        let rows = self.measurements.iter_values().enumerate().map(|(i, m)| {
             m.table_row(i)
                 .into_iter()
                 .map(|v| v.unwrap_or("NA".into()))
@@ -4974,7 +4964,7 @@ where
         let ncols = self.measurements.len();
         let (pass, fail): (Vec<_>, Vec<_>) = self
             .measurements
-            .iter()
+            .iter_values()
             .map(|m| m.as_column_type(dt, &byteord))
             .partition_result();
         let mut deferred: Vec<_> = fail.into_iter().flatten().collect();
@@ -5105,7 +5095,7 @@ where
             // Find the time measurement, check lots of stuff if it exists
             if let Some(time_meas) = self
                 .measurements
-                .iter_pairs()
+                .iter()
                 .find(|(k, _)| M::P::maybe_name(k) == Some(time_name))
                 .map(|x| x.1)
             {
@@ -5183,7 +5173,7 @@ impl<M> CoreDataset<M, M::P, <M::P as VersionedMeasurement>::N>
 where
     M: VersionedMetadata,
 {
-    fn set_shortnames(&mut self, names: Vec<Shortname>) -> Result<(), String> {
+    fn set_shortnames(&mut self, names: Vec<Shortname>) -> Result<NameMapping, String> {
         self.text
             .set_shortnames(names)
             .inspect(|_| self.text.set_df_column_names(&mut self.data).unwrap())
@@ -5191,13 +5181,10 @@ where
 
     // TODO also make a version of this that takes an index since not all
     // columns are named or we might not know the name
-    fn remove_measurement(&mut self, n: &str) -> bool {
-        if self.text.remove_measurement(n) {
-            self.data.drop_in_place(n).unwrap();
-            true
-        } else {
-            false
-        }
+    fn remove_measurement(&mut self, n: &Shortname) -> Option<usize> {
+        let i = self.text.remove_measurement(n)?;
+        self.data.drop_in_place(n.as_ref()).unwrap();
+        Some(i.0)
     }
 
     fn add_measurement<T>(
@@ -5206,20 +5193,19 @@ where
         n: <M::P as VersionedMeasurement>::N,
         m: Measurement<M::P>,
         col: Vec<T::Native>,
-    ) -> Result<(), String>
+    ) -> Result<Shortname, String>
     where
         T: PolarsNumericType,
         ChunkedArray<T>: IntoSeries,
     {
-        // TODO index setting is not DRY
-        let n: PlSmallStr = m.specific.shortname(i + 1).as_ref().into();
-        // let n: PlSmallStr = n.as_ref().into();
-        self.text.check_index(i).and_then(|_| {
-            self.text.measurements.insert(i, n, m);
-            // let ser = ChunkedArray::<T>::from_vec(n, col).into_series();
-            // self.data.insert_column(i, ser).map_err(|e| e.to_string())?;
-            Ok(())
-        })
+        let k = self
+            .text
+            .measurements
+            .insert(i, n, m)
+            .map_err(|e| e.to_string())?;
+        let ser = ChunkedArray::<T>::from_vec(k.as_ref().into(), col).into_series();
+        self.data.insert_column(i, ser).map_err(|e| e.to_string())?;
+        Ok(k)
     }
 }
 

@@ -8,11 +8,20 @@ use std::str::FromStr;
 /// The value for the $PnN key (all versions).
 ///
 /// This cannot contain commas.
-#[derive(Debug, Clone, Serialize, Eq, PartialEq, Hash)]
+#[derive(Clone, Serialize, Eq, PartialEq, Hash)]
 pub struct Shortname(String);
+
+/// A prefix that can be made into a shortname by appending an index
+///
+/// This cannot contain commas.
+#[derive(Clone, Serialize, Eq, PartialEq, Hash)]
+pub struct ShortnamePrefix(Shortname);
 
 newtype_asref!(Shortname, str);
 newtype_disp!(Shortname);
+
+newtype_asref!(ShortnamePrefix, str);
+newtype_disp!(ShortnamePrefix);
 
 impl Borrow<str> for Shortname {
     fn borrow(&self) -> &str {
@@ -39,6 +48,28 @@ impl FromStr for Shortname {
         } else {
             Ok(Shortname(s.to_string()))
         }
+    }
+}
+
+impl FromStr for ShortnamePrefix {
+    type Err = ShortnameError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.parse::<Shortname>().map(ShortnamePrefix)
+    }
+}
+
+impl ShortnamePrefix {
+    // TODO use MeasIdx here?
+    pub fn as_indexed(&self, i: usize) -> Shortname {
+        // TODO +1?
+        Shortname(format!("{}{i}", self))
+    }
+}
+
+impl Default for ShortnamePrefix {
+    fn default() -> ShortnamePrefix {
+        ShortnamePrefix(Shortname("P".into()))
     }
 }
 

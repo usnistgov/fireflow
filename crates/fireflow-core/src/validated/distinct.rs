@@ -1,16 +1,15 @@
+use crate::validated::shortname::{Shortname, ShortnamePrefix};
+
 use serde::Serialize;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::hash::Hash;
-
-// TODO could make this much more useful if I locked down the return type
-// of the projection to be a shortname, and also enforced the "default" names
-// like X1, X2... here
 
 /// A vector with members that are unique by a key that might exist.
 #[derive(Clone)]
 pub struct DistinctVec<K, V> {
     members: Vec<DistinctPair<K, V>>,
+    prefix: ShortnamePrefix,
 }
 
 #[derive(Clone, Serialize)]
@@ -19,16 +18,18 @@ struct DistinctPair<K, V> {
     value: V,
 }
 
-impl<K, V> DistinctVec<K, V> {
-    pub fn iter(&self) -> impl Iterator<Item = &V> + '_ {
-        self.members.iter().map(|x| &x.value)
-    }
+pub type NameMapping = HashMap<Shortname, Shortname>;
 
-    pub fn iter_pairs(&self) -> impl Iterator<Item = (&K, &V)> + '_ {
+impl<K, V> DistinctVec<K, V> {
+    pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> + '_ {
         self.members.iter().map(|x| (&x.key, &x.value))
     }
 
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut V> + '_ {
+    pub fn iter_values(&self) -> impl Iterator<Item = &V> + '_ {
+        self.members.iter().map(|x| &x.value)
+    }
+
+    pub fn iter_values_mut(&mut self) -> impl Iterator<Item = &mut V> + '_ {
         self.members.iter_mut().map(|x| &mut x.value)
     }
 
@@ -44,19 +45,44 @@ impl<K, V> DistinctVec<K, V> {
         self.members.is_empty()
     }
 
-    pub fn remove(&mut self, i: usize) -> DistinctPair<K, V> {
-        self.members.remove(i)
+    fn remove_index_unchecked(&mut self, i: usize) -> (K, V) {
+        let p = self.members.remove(i);
+        (p.key, p.value)
     }
 }
 
-impl<K: DistinctBy, V> DistinctVec<K, V> {
-    pub fn iter_projections(&self) -> impl Iterator<Item = Option<&K::Inner>> + '_ {
-        self.members.iter().map(|x| x.key.project())
+impl<K: IntoShortname, V> DistinctVec<K, V> {
+    pub fn find_name(&mut self, n: &Shortname) -> Option<usize> {
+        self.iter_keys()
+            .position(|k| k.as_name_opt().is_some_and(|kn| kn == n))
     }
 
-    pub fn from_vec(xs: Vec<(K, V)>) -> Option<Self> {
-        if DistinctBy::all_unique(xs.iter().map(|x| &x.0).collect()) {
+    pub fn remove_name(&mut self, n: &Shortname) -> Option<(usize, K, V)> {
+        if let Some(i) = self.find_name(n) {
+            let (k, v) = self.remove_index_unchecked(i);
+            Some((i, k, v))
+        } else {
+            None
+        }
+    }
+
+    pub fn iter_maybe_names(&self) -> impl Iterator<Item = Option<&Shortname>> + '_ {
+        self.members.iter().map(|x| x.key.as_name_opt())
+    }
+
+    pub fn iter_names(&self) -> impl Iterator<Item = Shortname> + '_ {
+        self.members.iter().enumerate().map(|(i, x)| {
+            x.key
+                .as_name_opt()
+                .cloned()
+                .unwrap_or(self.prefix.as_indexed(i))
+        })
+    }
+
+    pub fn from_vec(xs: Vec<(K, V)>, prefix: ShortnamePrefix) -> Option<Self> {
+        if IntoShortname::all_unique(xs.iter().map(|x| &x.0).collect(), &prefix) {
             Some(DistinctVec {
+                prefix,
                 members: xs
                     .into_iter()
                     .map(|(key, value)| DistinctPair { key, value })
@@ -67,61 +93,132 @@ impl<K: DistinctBy, V> DistinctVec<K, V> {
         }
     }
 
-    pub fn insert(&mut self, i: usize, key: K, value: V) -> Result<(), DistinctError> {
+    pub fn insert(&mut self, i: usize, key: K, value: V) -> Result<Shortname, DistinctError> {
         let p = self.members.len();
+        let k = key.into_name(i, &self.prefix);
         if i > p {
-            Err(DistinctError::IndexError { index: i, len: p })
-        } else if self.members.iter().any(|m| {
-            m.key
-                .project()
-                .zip(key.project())
-                .is_some_and(|(a, b)| a == b)
-        }) {
-            Err(DistinctError::MembershipError(K::WHAT))
+            Err(DistinctError::Index { index: i, len: p })
+        } else if self.iter_names().any(|n| n == k) {
+            Err(DistinctError::Membership(k))
         } else {
             self.members.insert(i, DistinctPair { key, value });
-            Ok(())
+            Ok(k)
+        }
+    }
+
+    pub fn set_keys(&mut self, ks: Vec<K>) -> Result<NameMapping, DistinctKeysError> {
+        let new_len = ks.len();
+        let old_len = self.members.len();
+        if new_len != old_len {
+            Err(DistinctKeysError::Length { old_len, new_len })
+        } else if !IntoShortname::all_unique(ks.iter().collect(), &self.prefix) {
+            Err(DistinctKeysError::NonUnique)
+        } else {
+            let mut mapping = HashMap::new();
+            for (p, k) in self.members.iter_mut().zip(ks) {
+                if let (Some(old), Some(new)) = (p.key.as_name_opt(), k.as_name_opt()) {
+                    mapping.insert(old.clone(), new.clone());
+                }
+                p.key = k;
+            }
+            Ok(mapping)
+        }
+    }
+
+    pub fn set_names(&mut self, ns: Vec<Shortname>) -> Result<NameMapping, DistinctKeysError> {
+        let new_len = ns.len();
+        let old_len = self.members.len();
+        if new_len != old_len {
+            Err(DistinctKeysError::Length { old_len, new_len })
+        } else if !all_unique(ns.iter()) {
+            Err(DistinctKeysError::NonUnique)
+        } else {
+            let mut mapping = HashMap::new();
+            for (p, n) in self.members.iter_mut().zip(ns) {
+                if let Some(old) = p.key.as_name_opt() {
+                    mapping.insert(old.clone(), n.clone());
+                }
+                p.key = IntoShortname::from_name(n);
+            }
+            Ok(mapping)
         }
     }
 }
 
+// enum DistinctName {
+//     Real(Shortname),
+//     Indexed(Shortname),
+// }
+
+// impl PartialEq for DistinctName {
+//     fn eq(&self, other: &Self) -> bool {
+//         match (self, other) {
+//             (DistinctName::Real(x), DistinctName::Real(y)) => x == y,
+//             _ => false,
+//         }
+//     }
+// }
+
 pub enum DistinctError {
-    IndexError { index: usize, len: usize },
-    MembershipError(&'static str),
+    Index { index: usize, len: usize },
+    Membership(Shortname),
+}
+
+pub enum DistinctKeysError {
+    Length { old_len: usize, new_len: usize },
+    NonUnique,
 }
 
 impl fmt::Display for DistinctError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            DistinctError::IndexError { index, len } => {
+            DistinctError::Index { index, len } => {
                 write!(f, "Index must be {len} or less, got {index}")
             }
-            DistinctError::MembershipError(what) => {
-                write!(f, "New member does not have a unique {what}")
+            DistinctError::Membership(k) => {
+                write!(f, "New key named '{k}' already in list")
             }
         }
     }
 }
 
-pub trait DistinctBy {
-    type Inner: Eq + Hash;
-    const WHAT: &'static str;
-
-    fn project(&self) -> Option<&Self::Inner>;
-
-    fn all_unique(xs: Vec<&Self>) -> bool {
-        let mut unique = HashSet::new();
-        for x in xs {
-            if let Some(y) = x.project() {
-                if unique.contains(y) {
-                    return false;
-                } else {
-                    unique.insert(y);
-                }
+impl fmt::Display for DistinctKeysError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            DistinctKeysError::Length { old_len, new_len } => {
+                write!(f, "New key list length must be {old_len} but is {new_len}")
+            }
+            DistinctKeysError::NonUnique => {
+                write!(f, "Keys to be inserted are not unique")
             }
         }
-        true
     }
+}
+
+pub trait IntoShortname {
+    fn as_name_opt(&self) -> Option<&Shortname>;
+
+    fn from_name(n: Shortname) -> Self;
+
+    fn into_name(&self, i: usize, prefix: &ShortnamePrefix) -> Shortname {
+        self.as_name_opt().cloned().unwrap_or(prefix.as_indexed(i))
+    }
+
+    fn all_unique(xs: Vec<&Self>, prefix: &ShortnamePrefix) -> bool {
+        all_unique(xs.iter().enumerate().map(|(i, x)| x.into_name(i, &prefix)))
+    }
+}
+
+fn all_unique<'a, T: Hash + Eq>(xs: impl Iterator<Item = T> + 'a) -> bool {
+    let mut unique = HashSet::new();
+    for x in xs {
+        if unique.contains(&x) {
+            return false;
+        } else {
+            unique.insert(x);
+        }
+    }
+    true
 }
 
 impl<K, V> IntoIterator for DistinctVec<K, V> {

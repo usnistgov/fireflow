@@ -4120,7 +4120,7 @@ impl AnyCoreTEXT {
         match_anycoretext!(self, x, { x.as_data_reader(kws, conf, data_seg) })
     }
 
-    fn into_core_dataset(self, data: DataFrame, analysis: Analysis) -> AnyCoreDataset {
+    fn into_core_dataset_unchecked(self, data: DataFrame, analysis: Analysis) -> AnyCoreDataset {
         match self {
             AnyCoreTEXT::FCS2_0(text) => AnyCoreDataset::FCS2_0(CoreDataset {
                 text,
@@ -4142,6 +4142,27 @@ impl AnyCoreTEXT {
                 data,
                 analysis,
             }),
+        }
+    }
+
+    fn into_core_dataset(
+        self,
+        data: DataFrame,
+        analysis: Analysis,
+    ) -> Result<AnyCoreDataset, String> {
+        match self {
+            AnyCoreTEXT::FCS2_0(text) => text
+                .into_dataset(data, analysis)
+                .map(AnyCoreDataset::FCS2_0),
+            AnyCoreTEXT::FCS3_0(text) => text
+                .into_dataset(data, analysis)
+                .map(AnyCoreDataset::FCS3_0),
+            AnyCoreTEXT::FCS3_1(text) => text
+                .into_dataset(data, analysis)
+                .map(AnyCoreDataset::FCS3_1),
+            AnyCoreTEXT::FCS3_2(text) => text
+                .into_dataset(data, analysis)
+                .map(AnyCoreDataset::FCS3_2),
         }
     }
 }
@@ -5062,6 +5083,26 @@ where
 
         PureSuccess { data: (), deferred }
     }
+
+    fn into_dataset(
+        self,
+        data: DataFrame,
+        analysis: Analysis,
+    ) -> Result<CoreDataset<M, M::P>, String> {
+        let w = data.width();
+        let p = self.measurements.len();
+        if w != p {
+            Err(format!(
+                "DATA has {w} columns but TEXT has {p} measurements"
+            ))
+        } else {
+            Ok(CoreDataset {
+                text: Box::new(self),
+                data,
+                analysis,
+            })
+        }
+    }
 }
 
 impl<M> CoreDataset<M, M::P>
@@ -5975,7 +6016,7 @@ fn h_read_std_dataset<R: Read + Seek>(
                 },
                 delimiter: std.delimiter,
                 remainder: kws,
-                dataset: std.standardized.into_core_dataset(data, analysis),
+                dataset: std.standardized.into_core_dataset_unchecked(data, analysis),
                 deviant: std.deviant,
             }))
         })

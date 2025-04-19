@@ -143,21 +143,22 @@ impl<K: IntoShortname, V> DistinctVec<K, V> {
             Ok(mapping)
         }
     }
+
+    pub fn try_new_names<J: IntoShortname>(self) -> Option<DistinctVec<J, V>> {
+        let mut new = vec![];
+        for p in self.members {
+            let name = p.key.as_name_opt()?;
+            let newkey: J = IntoShortname::from_name(name.clone());
+            new.push((newkey, p.value));
+        }
+        // This probably isn't necessary, but there is not guarantee based on
+        // the conversion above that the values of the keys won't change. For
+        // the use cases here we could assume that the only difference will be
+        // if Shortname is wrapped in OptionalKw, in which case the only thing
+        // that we need to worry about are collisions brought about by None's.
+        DistinctVec::from_vec(new, self.prefix)
+    }
 }
-
-// enum DistinctName {
-//     Real(Shortname),
-//     Indexed(Shortname),
-// }
-
-// impl PartialEq for DistinctName {
-//     fn eq(&self, other: &Self) -> bool {
-//         match (self, other) {
-//             (DistinctName::Real(x), DistinctName::Real(y)) => x == y,
-//             _ => false,
-//         }
-//     }
-// }
 
 pub enum DistinctError {
     Index { index: usize, len: usize },

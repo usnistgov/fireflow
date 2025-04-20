@@ -742,42 +742,36 @@ newtype_fromstr!(Range, Infallible);
 #[derive(Clone, Serialize)]
 pub struct InnerMeasurement2_0 {
     /// Value for $PnE
-    pub scale: OptionalKw<Scale>,
+    scale: OptionalKw<Scale>,
 
     /// Value for $PnL
     pub wavelength: OptionalKw<Wavelength>,
-    // /// Value for $PnN
-    // pub shortname: OptionalKw<Shortname>,
 }
 
 /// Measurement fields specific to version 3.0
 #[derive(Clone, Serialize)]
 pub struct InnerMeasurement3_0 {
     /// Value for $PnE
-    pub scale: Scale,
+    scale: Scale,
 
     /// Value for $PnL
     pub wavelength: OptionalKw<Wavelength>,
 
-    // /// Value for $PnN
-    // pub shortname: OptionalKw<Shortname>,
     /// Value for $PnG
-    pub gain: OptionalKw<Gain>,
+    gain: OptionalKw<Gain>,
 }
 
 /// Measurement fields specific to version 3.1
 #[derive(Clone, Serialize)]
 pub struct InnerMeasurement3_1 {
     /// Value for $PnE
-    pub scale: Scale,
+    scale: Scale,
 
     /// Value for $PnL
     pub wavelengths: OptionalKw<Wavelengths>,
 
-    // /// Value for $PnN
-    // pub shortname: Shortname,
     /// Value for $PnG
-    pub gain: OptionalKw<Gain>,
+    gain: OptionalKw<Gain>,
 
     /// Value for $PnCALIBRATION
     pub calibration: OptionalKw<Calibration3_1>,
@@ -790,15 +784,13 @@ pub struct InnerMeasurement3_1 {
 #[derive(Clone, Serialize)]
 pub struct InnerMeasurement3_2 {
     /// Value for $PnE
-    pub scale: Scale,
+    scale: Scale,
 
     /// Value for $PnL
     pub wavelengths: OptionalKw<Wavelengths>,
 
-    // /// Value for $PnN
-    // pub shortname: Shortname,
     /// Value for $PnG
-    pub gain: OptionalKw<Gain>,
+    gain: OptionalKw<Gain>,
 
     /// Value for $PnCALIBRATION
     pub calibration: OptionalKw<Calibration3_2>,
@@ -813,7 +805,7 @@ pub struct InnerMeasurement3_2 {
     pub feature: OptionalKw<Feature>,
 
     /// Value for $PnTYPE
-    pub measurement_type: OptionalKw<MeasurementType>,
+    measurement_type: OptionalKw<MeasurementType>,
 
     /// Value for $PnTAG
     pub tag: OptionalKw<Tag>,
@@ -1431,7 +1423,7 @@ kw_opt_meta_string!(Locationid, "LOCATIONID");
 kw_opt_meas_string!(Analyte, "ANALYTE");
 kw_opt_meas_string!(Tag, "TAG");
 kw_opt_meas_string!(DetectorName, "DET");
-kw_opt_meas_string!(DetectorType, "D");
+kw_opt_meas_string!(DetectorType, "T");
 kw_opt_meas_string!(PercentEmitted, "P");
 kw_opt_meas_string!(Longname, "S");
 kw_opt_meas_string!(Filter, "F");
@@ -1591,7 +1583,7 @@ kw_opt_meas!(Wavelengths, "W");
 kw_opt_meas!(Feature, "FEATURE");
 kw_opt_meas!(MeasurementType, "TYPE");
 kw_opt_meas!(NumType, "DATATYPE");
-kw_opt_meas!(Display, "DISPLAY");
+kw_opt_meas!(Display, "D");
 kw_opt_meas!(Shortname, "N");
 req_meas!(Shortname);
 
@@ -4976,14 +4968,11 @@ where
         self.measurements.iter_maybe_names().flatten().collect()
     }
 
-    // fn set_time_channel(&mut self, name: Option<Shortname>) -> bool {
-    //     // blabla
-    // }
-
-    fn validate_time_channel(&self) -> PureErrorBuf {
+    fn validate_time_channel(&self, n: &Option<Shortname>) -> PureErrorBuf {
         let mut def = PureErrorBuf::default();
         let m = &self.metadata;
-        if let Some(time_name) = &self.time_channel {
+        let s = &m.specific;
+        if let Some(time_name) = n {
             // Ensure time channel is not used for $TR
             if m.tr
                 .as_ref_opt()
@@ -4993,23 +4982,21 @@ where
                 def.push_error(msg)
             }
             // Ensure time channel is not used in $SPILLOVER
-            if m.specific
-                .as_spillover()
-                .is_some_and(|s| s.measurements.contains(time_name))
+            if s.as_spillover()
+                .is_some_and(|x| x.measurements.contains(time_name))
             {
                 let msg = "Time channel cannot be used in $SPILLOVER".into();
                 def.push_error(msg)
             }
             // Ensure time channel is not used in $UNSTAINEDCENTERS
-            if m.specific
-                .as_unstainedcenters()
+            if s.as_unstainedcenters()
                 .is_some_and(|u| u.0.contains_key(time_name))
             {
                 let msg = "Time channel cannot be used in $UNSTAINEDCENTERS".into();
                 def.push_error(msg)
             }
             // Ensure $TIMESTEP exists
-            if !m.specific.check_timestep(true) {
+            if !s.check_timestep(true) {
                 let msg = "$TIMESTEP must be present if time measurement present".into();
                 def.push_error(msg)
             }
@@ -5024,7 +5011,7 @@ where
             }
         } else {
             // Ensure $TIMESTEP is unset
-            if !m.specific.check_timestep(true) {
+            if !s.check_timestep(true) {
                 let msg = "$TIMESTEP should only be present with a time channel".into();
                 def.push_error(msg)
             }
@@ -5044,7 +5031,7 @@ where
     // fail the entire struct entirely. Then each manipulation can be assumed
     // to operate on a clean state.
     fn validate(&self) -> PureSuccess<()> {
-        let mut deferred = self.validate_time_channel();
+        let mut deferred = self.validate_time_channel(&self.time_channel);
 
         let names: HashSet<_> = self.measurement_names().into_iter().collect();
 
@@ -5159,7 +5146,7 @@ where
                 // has no way of being set during conversion since it doesn't
                 // exist in lower versions. Same will happen when coming from
                 // 2.0 since $TIMESTAMP doesn't exist.
-                let deferred = core.validate_time_channel();
+                let deferred = core.validate_time_channel(&core.time_channel);
                 PureSuccess {
                     data: Some(core),
                     deferred,
@@ -5168,6 +5155,17 @@ where
             .into_result(msg)
     }
 }
+
+// impl CoreTEXT2_0 {
+//     fn set_time_channel(&mut self, n: Shortname, timestep: Timestep) {
+//         let errs = self.validate_time_channel(&Some(n));
+//         // 1. check that the name doesn't collide with anything
+//         // 2. check that target measurement name exists and is valid (linear/nogain/etc)
+//         // 3. assign measurement values
+//         // 4. set timestep
+//         // 5. set time channel name
+//     }
+// }
 
 impl<M> CoreDataset<M, M::P, <M::P as VersionedMeasurement>::N>
 where

@@ -552,10 +552,6 @@ impl Spillover {
             false
         }
     }
-
-    fn into_compensation(self) -> Compensation {
-        spillover_to_comp(self)
-    }
 }
 
 /// The value of the $TR field (all versions)
@@ -2123,11 +2119,8 @@ pub trait Versioned {
     fn fcs_version() -> Version;
 }
 
-pub trait VersionedMetadata: Sized
-where
-    Self::P: VersionedMeasurement,
-{
-    type P;
+pub trait VersionedMetadata: Sized {
+    type P: VersionedMeasurement;
 
     fn as_unstainedcenters(&self) -> Option<&UnstainedCenters>;
 
@@ -4067,40 +4060,20 @@ impl AnyCoreTEXT {
         match_anycoretext!(self, x, { x.shortnames() })
     }
 
-    pub fn into_2_0(self, def: CoreSetterTo2_0) -> PureSuccess<CoreTEXT2_0> {
-        match self {
-            AnyCoreTEXT::FCS2_0(c) => CoreTEXT2_0::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_0(c) => CoreTEXT3_0::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_1(c) => CoreTEXT3_1::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_2(c) => CoreTEXT3_2::convert_core(*c, def),
-        }
+    pub fn into_2_0(self) -> PureMaybe<CoreTEXT2_0> {
+        match_anycoretext!(self, x, { x.try_convert() })
     }
 
-    pub fn into_3_0(self, def: CoreSetterTo3_0) -> PureSuccess<CoreTEXT3_0> {
-        match self {
-            AnyCoreTEXT::FCS2_0(c) => CoreTEXT2_0::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_0(c) => CoreTEXT3_0::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_1(c) => CoreTEXT3_1::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_2(c) => CoreTEXT3_2::convert_core(*c, def),
-        }
+    pub fn into_3_0(self) -> PureMaybe<CoreTEXT3_0> {
+        match_anycoretext!(self, x, { x.try_convert() })
     }
 
-    pub fn into_3_1(self, def: CoreSetterTo3_1) -> PureSuccess<CoreTEXT3_1> {
-        match self {
-            AnyCoreTEXT::FCS2_0(c) => CoreTEXT2_0::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_0(c) => CoreTEXT3_0::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_1(c) => CoreTEXT3_1::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_2(c) => CoreTEXT3_2::convert_core(*c, def),
-        }
+    pub fn into_3_1(self) -> PureMaybe<CoreTEXT3_1> {
+        match_anycoretext!(self, x, { x.try_convert() })
     }
 
-    pub fn into_3_2(self, def: CoreSetterTo3_2) -> PureSuccess<CoreTEXT3_2> {
-        match self {
-            AnyCoreTEXT::FCS2_0(c) => CoreTEXT2_0::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_0(c) => CoreTEXT3_0::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_1(c) => CoreTEXT3_1::convert_core(*c, def),
-            AnyCoreTEXT::FCS3_2(c) => CoreTEXT3_2::convert_core(*c, def),
-        }
+    pub fn into_3_2(self) -> PureMaybe<CoreTEXT3_2> {
+        match_anycoretext!(self, x, { x.try_convert() })
     }
 
     pub fn text_segment(
@@ -5170,6 +5143,41 @@ where
         } else {
             Ok(self.into_dataset_unchecked(data, analysis))
         }
+    }
+
+    fn try_convert<ToM>(
+        self,
+    ) -> PureMaybe<CoreTEXT<ToM, ToM::P, <ToM::P as VersionedMeasurement>::N>>
+    where
+        M: IntoMetadata<ToM>,
+        M::P: IntoMeasurement<ToM::P>,
+        ToM: VersionedMetadata,
+        ToM::P: VersionedMeasurement,
+    {
+        let ps = self
+            .measurements
+            .map_values(|i, v| IntoMeasurement::try_convert(v, MeasIdx(i)));
+        let m = IntoMetadata::try_convert(self.metadata);
+        let res = match (m, ps) {
+            (Ok(metadata), Ok(old_ps)) => {
+                if let Some(measurements) = old_ps.try_new_names() {
+                    Ok(CoreTEXT {
+                        metadata,
+                        measurements,
+                    })
+                } else {
+                    Err(vec!["Some $PnN are blank and could not be converted".into()])
+                }
+            }
+            (a, bs) => Err(bs
+                .err()
+                .unwrap_or_default()
+                .concat()
+                .into_iter()
+                .chain(a.err().unwrap_or_default())
+                .collect()),
+        };
+        PureMaybe::from_result_strs(res, PureErrorLevel::Error)
     }
 }
 
@@ -6916,179 +6924,6 @@ impl<'a, 'b> KwParser<'a, 'b> {
     }
 }
 
-// struct NSKwParser<'a> {
-//     raw_keywords: &'a mut NonStdKeywords,
-//     deferred: PureErrorBuf,
-// }
-
-// impl<'a> NSKwParser<'a> {
-//     fn run<X, F>(kws: &'a mut NonStdKeywords, f: F) -> PureSuccess<X>
-//     where
-//         F: FnOnce(&mut Self) -> X,
-//     {
-//         let mut st = Self::from(kws);
-//         let data = f(&mut st);
-//         PureSuccess {
-//             data,
-//             deferred: st.collect(),
-//         }
-//     }
-
-//     fn try_convert_lookup_matrix<F, X, Y: FromStr>(
-//         &mut self,
-//         dopt: MatrixSetter<Y>,
-//         spillover: OptionalKw<X>,
-//         ns: &[Shortname],
-//         which: NonStdKey,
-//         f: F,
-//     ) -> OptionalKw<Y>
-//     where
-//         F: FnOnce(X, &[Shortname]) -> Option<Y>,
-//         <Y as FromStr>::Err: fmt::Display,
-//     {
-//         let fallback = self.lookup_maybe(dopt.default);
-//         if dopt.try_convert {
-//             if let Some(s) = spillover.0 {
-//                 return match f(s, ns) {
-//                     Some(c) => Some(c).into(),
-//                     None => {
-//                         self.deferred.push_warning(format!("{which} not full rank"));
-//                         fallback
-//                     }
-//                 };
-//             }
-//         }
-//         fallback
-//     }
-
-//     fn try_convert_lookup_comp(
-//         &mut self,
-//         dopt: MatrixSetter<Compensation>,
-//         spillover: OptionalKw<Spillover>,
-//         ns: &[Shortname],
-//     ) -> OptionalKw<Compensation> {
-//         self.try_convert_lookup_matrix(
-//             dopt,
-//             spillover,
-//             ns,
-//             Compensation::nonstd(),
-//             spillover_to_comp,
-//         )
-//     }
-
-//     fn try_convert_lookup_spillover(
-//         &mut self,
-//         dopt: MatrixSetter<Spillover>,
-//         comp: OptionalKw<Compensation>,
-//         ns: &[Shortname],
-//     ) -> OptionalKw<Spillover> {
-//         self.try_convert_lookup_matrix(dopt, comp, ns, Spillover::nonstd(), comp_to_spillover)
-//     }
-
-//     fn lookup_modification(&mut self, look: ModificationDefaults) -> ModificationData {
-//         ModificationData {
-//             last_modified: self.lookup_maybe(look.last_modified),
-//             last_modifier: self.lookup_maybe(look.last_modifier),
-//             originality: self.lookup_maybe(look.originality),
-//         }
-//     }
-
-//     fn lookup_plate(&mut self, look: PlateDefaults) -> PlateData {
-//         PlateData {
-//             plateid: self.lookup_maybe(look.plateid),
-//             platename: self.lookup_maybe(look.platename),
-//             wellid: self.lookup_maybe(look.wellid),
-//         }
-//     }
-
-//     fn lookup_unstained(&mut self, look: UnstainedDefaults) -> UnstainedData {
-//         UnstainedData {
-//             unstainedcenters: self.lookup_maybe(look.unstainedcenters),
-//             unstainedinfo: self.lookup_maybe(look.unstainedinfo),
-//         }
-//     }
-
-//     fn lookup_carrier(&mut self, look: CarrierDefaults) -> CarrierData {
-//         CarrierData {
-//             carrierid: self.lookup_maybe(look.carrierid),
-//             carriertype: self.lookup_maybe(look.carriertype),
-//             locationid: self.lookup_maybe(look.locationid),
-//         }
-//     }
-
-//     fn lookup_datetimes(&mut self, look: DatetimesDefaults) -> Datetimes {
-//         Datetimes {
-//             begin: self.lookup_maybe(look.begin),
-//             end: self.lookup_maybe(look.end),
-//         }
-//     }
-
-//     // auxiliary functions
-
-//     fn collect(self) -> PureErrorBuf {
-//         self.deferred
-//     }
-
-//     fn from(kws: &'a mut NonStdKeywords) -> Self {
-//         NSKwParser {
-//             raw_keywords: kws,
-//             deferred: PureErrorBuf::default(),
-//         }
-//     }
-
-//     fn lookup_meas_maybe<V: FromStr>(&mut self, n: MeasIdx, ks: MeasKwSetter<V>) -> OptionalKw<V>
-//     where
-//         <V as FromStr>::Err: fmt::Display,
-//     {
-//         match ks {
-//             KwSetter::Default(x) => Some(x),
-//             KwSetter::Key(key) => key
-//                 .as_ref()
-//                 .and_then(|kk| self.lookup_opt(&kk.from_index(n))),
-//         }
-//         .into()
-//     }
-
-//     fn lookup_maybe<V: FromStr>(&mut self, ks: MetaKwSetter<V>) -> OptionalKw<V>
-//     where
-//         <V as FromStr>::Err: fmt::Display,
-//     {
-//         match ks {
-//             KwSetter::Default(x) => Some(x),
-//             KwSetter::Key(key) => key.as_ref().and_then(|kk| self.lookup_opt(kk)),
-//         }
-//         .into()
-//     }
-
-//     fn lookup_opt<V: FromStr>(&mut self, k: &NonStdKey) -> Option<V>
-//     where
-//         <V as FromStr>::Err: fmt::Display,
-//     {
-//         self.lookup(k).into()
-//     }
-
-//     fn lookup<V: FromStr>(&mut self, k: &NonStdKey) -> OptionalKw<V>
-//     where
-//         <V as FromStr>::Err: fmt::Display,
-//     {
-//         match self.raw_keywords.get(k) {
-//             Some(v) => match v.parse() {
-//                 Err(w) => {
-//                     let msg = format!("{w} for key '{}' with value '{v}'", k.as_ref());
-//                     self.deferred.push_warning(msg);
-//                     None
-//                 }
-//                 Ok(x) => {
-//                     self.raw_keywords.remove(k);
-//                     Some(x)
-//                 }
-//             },
-//             None => None,
-//         }
-//         .into()
-//     }
-// }
-
 fn verify_delim(xs: &[u8], conf: &RawTextReadConfig) -> PureSuccess<u8> {
     // First character is the delimiter
     let delimiter: u8 = xs[0];
@@ -7786,7 +7621,7 @@ impl From<Endian> for ByteOrd {
     }
 }
 
-pub trait IntoMeasurement<P, S>
+pub trait IntoMeasurement<P>
 where
     Self: VersionedMeasurement,
     P: VersionedMeasurement,
@@ -7809,448 +7644,43 @@ where
     fn try_convert_inner(self, n: MeasIdx) -> MsgsResult<P>;
 }
 
-pub trait IntoMetadata<M, S>
+pub trait IntoMetadata<M>
 where
     Self: VersionedMetadata,
     M: VersionedMetadata,
 {
     fn try_convert(m: Metadata<Self>) -> Result<Metadata<M>, Vec<String>> {
-        let mut m = m;
         // TODO this seems silly, break struct up into common bits
-        Self::try_convert_inner(m.specific, &mut m.nonstandard_keywords, ms).map(|specific| {
-            Metadata {
-                abrt: m.abrt,
-                cells: m.cells,
-                com: m.com,
-                datatype: m.datatype,
-                exp: m.exp,
-                fil: m.fil,
-                inst: m.inst,
-                lost: m.lost,
-                op: m.op,
-                proj: m.proj,
-                smno: m.smno,
-                sys: m.sys,
-                src: m.src,
-                tr: m.tr,
-                nonstandard_keywords: m.nonstandard_keywords,
-                specific,
-            }
+        Self::try_convert_inner(m.specific).map(|specific| Metadata {
+            abrt: m.abrt,
+            cells: m.cells,
+            com: m.com,
+            datatype: m.datatype,
+            exp: m.exp,
+            fil: m.fil,
+            inst: m.inst,
+            lost: m.lost,
+            op: m.op,
+            proj: m.proj,
+            smno: m.smno,
+            sys: m.sys,
+            src: m.src,
+            tr: m.tr,
+            nonstandard_keywords: m.nonstandard_keywords,
+            specific,
         })
     }
 
     fn try_convert_inner(self) -> Result<M, Vec<String>>;
 }
 
-pub trait IntoCore<ToM, DM, DP>: Sized
-where
-    ToM: VersionedMetadata,
-    ToM::P: VersionedMeasurement,
-    Self::FromM: VersionedMetadata,
-    Self::FromP: VersionedMeasurement,
-    <Self::FromM as IntoMetadata<ToM, DM>>::XToY: From<DM>,
-    <Self::FromP as IntoMeasurement<ToM::P, DP>>::XToY: From<DP>,
-{
-    type FromM: IntoMetadata<ToM, DM>;
-    type FromP: IntoMeasurement<ToM::P, DP>;
-
-    //     fn setter(
-    //         req: CoreSetter<
-    //             <Self::FromM as IntoMetadata<ToM, DM>>::Req,
-    //             <Self::FromP as IntoMeasurement<ToP, DP>>::Req,
-    //         >,
-    //     ) -> CoreSetter<
-    //         <Self::FromM as IntoMetadata<ToM, DM>>::XToY,
-    //         <Self::FromP as IntoMeasurement<ToP, DP>>::XToY,
-    //     > {
-    //         let metadata = <Self::FromM as IntoMetadata<ToM, DM>>::setter(req.metadata);
-    //         let measurements = req
-    //             .measurements
-    //             .into_iter()
-    //             .map(<Self::FromP as IntoMeasurement<ToP, DP>>::setter)
-    //             .collect();
-    //         CoreSetter {
-    //             metadata,
-    //             measurements,
-    //         }
-    //     }
-
-    //     fn convert_core_def(
-    //         c: CoreTEXT<Self::FromM, Self::FromP>,
-    //         def: CoreSetter<
-    //             <Self::FromM as IntoMetadata<ToM, DM>>::XToY,
-    //             <Self::FromP as IntoMeasurement<ToP, DP>>::XToY,
-    //         >,
-    //     ) -> PureSuccess<CoreTEXT<ToM, ToP>> {
-    //         let metadata = c.metadata;
-    //         // ASSUME measurement defaults is same length as measurements
-    //         let ms = c
-    //             .measurements
-    //             .into_iter()
-    //             .zip(def.measurements)
-    //             .enumerate()
-    //             .map(|(i, (m, d))| Self::FromP::convert(m, MeasIdx(i), d))
-    //             .collect();
-    //         PureSuccess::sequence(ms).and_then(|measurements| {
-    //             let ms = measurement_shortnames(&measurements);
-    //             Self::FromM::convert(metadata, def.metadata, &ms).map(|metadata| CoreTEXT {
-    //                 measurements,
-    //                 metadata,
-    //             })
-    //         })
-    //     }
-
-    // TODO not DRY, trying to put this in terms of the above function results
-    // in a compile-time recursion loop, for reasons that elude me
-    fn convert_core(
-        c: CoreTEXT<Self::FromM, Self::FromP>,
-        def: CoreSetter<DM, DP>,
-    ) -> PureSuccess<CoreTEXT<ToM, ToP>> {
-        let metadata = c.metadata;
-        // ASSUME measurement defaults is same length as measurements
-        let ms = c
-            .measurements
-            .into_iter()
-            .zip(def.measurements)
-            .enumerate()
-            .map(|(i, (m, d))| Self::FromP::try_convert(m, MeasIdx(i), d.into()))
-            .collect();
-        PureSuccess::sequence(ms).and_then(|measurements| {
-            let ms = measurement_shortnames(&measurements);
-            Self::FromM::try_convert(metadata, def.metadata.into(), &ms).map(|metadata| CoreTEXT {
-                measurements,
-                metadata,
-            })
-        })
-    }
-}
-
-// fn measurement_shortnames<P: VersionedMeasurement>(ms: &[Measurement<P>]) -> Vec<Shortname> {
-//     ms.iter()
-//         .enumerate()
-//         .map(|(i, p)| p.specific.shortname(i))
-//         .collect()
-// }
-
-// impl<M, P> IntoCore<InnerMetadata2_0, InnerMeasurement2_0, MetaSetterTo2_0, MeasSetterTo2_0>
-//     for CoreTEXT<M, P>
-// where
-//     M: VersionedMetadata,
-//     P: VersionedMeasurement,
-//     M: IntoMetadata<InnerMetadata2_0, MetaSetterTo2_0>,
-//     P: IntoMeasurement<InnerMeasurement2_0, MeasSetterTo2_0>,
-// {
-//     type FromM = M;
-//     type FromP = P;
-// }
-
-// impl<M, P> IntoCore<InnerMetadata3_0, InnerMeasurement3_0, MetaSetterTo3_0, MeasSetterTo3_0>
-//     for CoreTEXT<M, P>
-// where
-//     M: VersionedMetadata,
-//     P: VersionedMeasurement,
-//     M: IntoMetadata<InnerMetadata3_0, MetaSetterTo3_0>,
-//     P: IntoMeasurement<InnerMeasurement3_0, MeasSetterTo3_0>,
-// {
-//     type FromM = M;
-//     type FromP = P;
-// }
-
-// impl<M, P> IntoCore<InnerMetadata3_1, InnerMeasurement3_1, MetaSetterTo3_1, MeasSetterTo3_1>
-//     for CoreTEXT<M, P>
-// where
-//     M: VersionedMetadata,
-//     P: VersionedMeasurement,
-//     M: IntoMetadata<InnerMetadata3_1, MetaSetterTo3_1>,
-//     P: IntoMeasurement<InnerMeasurement3_1, MeasSetterTo3_1>,
-// {
-//     type FromM = M;
-//     type FromP = P;
-// }
-
-// impl<M, P> IntoCore<InnerMetadata3_2, InnerMeasurement3_2, MetaSetterTo3_2, MeasSetterTo3_2>
-//     for CoreTEXT<M, P>
-// where
-//     M: VersionedMetadata,
-//     P: VersionedMeasurement,
-//     M: IntoMetadata<InnerMetadata3_2, MetaSetterTo3_2>,
-//     P: IntoMeasurement<InnerMeasurement3_2, MeasSetterTo3_2>,
-// {
-//     type FromM = M;
-//     type FromP = P;
-// }
-
-pub struct MetaSetter2_0To2_0;
-
-pub struct MetaSetter3_0To2_0;
-
-pub struct MetaSetter3_1To2_0;
-
-pub struct MetaSetter3_2To2_0;
-
-pub struct MetaSetter3_0To3_0;
-
-pub struct MetaSetter2_0To3_0;
-
-pub struct MetaSetter3_1To3_0;
-
-pub struct MetaSetter3_2To3_0;
-
-pub struct MetaSetter3_1To3_1;
-
-pub struct MetaSetter2_0To3_1 {
-    endian: Endian,
-}
-
-pub struct MetaSetter3_0To3_1 {
-    endian: Endian,
-}
-
-pub struct MetaSetter3_2To3_1;
-
-pub struct MetaSetter3_2To3_2;
-
-pub struct MetaSetter2_0To3_2 {
-    endian: Endian,
-    cyt: Cyt,
-}
-
-pub struct MetaSetter3_0To3_2 {
-    endian: Endian,
-    cyt: Cyt,
-}
-
-pub struct MetaSetter3_1To3_2 {
-    cyt: Cyt,
-}
-
-#[derive(Default)]
-pub struct MetaSetterTo2_0;
-
-#[derive(Default)]
-pub struct MetaSetterTo3_0;
-
-pub struct MetaSetterTo3_1 {
-    endian: Endian,
-}
-
-pub struct MetaSetterTo3_2 {
-    endian: Endian,
-    cyt: Cyt,
-}
-
-pub struct RequiredEndianCyt {
-    pub endian: Endian,
-    pub cyt: Cyt,
-}
-
-macro_rules! txfr_keys {
-    ($from:ident, $to:ident, [$($key:ident),*]) => {
-        impl From<$from> for $to {
-            fn from(_value: $from) -> Self {
-                $to {
-                    $(
-                        $key: _value.$key,
-                    )*
-                }
-            }
-        }
-    };
-}
-
-txfr_keys!(MetaSetterTo2_0, MetaSetter2_0To2_0, []);
-
-txfr_keys!(MetaSetterTo2_0, MetaSetter3_0To2_0, []);
-
-txfr_keys!(MetaSetterTo2_0, MetaSetter3_1To2_0, []);
-
-txfr_keys!(MetaSetterTo2_0, MetaSetter3_2To2_0, []);
-
-txfr_keys!(MetaSetterTo3_0, MetaSetter3_0To3_0, []);
-
-txfr_keys!(MetaSetterTo3_0, MetaSetter2_0To3_0, []);
-
-txfr_keys!(MetaSetterTo3_0, MetaSetter3_1To3_0, []);
-
-txfr_keys!(MetaSetterTo3_0, MetaSetter3_2To3_0, []);
-
-txfr_keys!(MetaSetterTo3_1, MetaSetter3_1To3_1, []);
-
-txfr_keys!(MetaSetterTo3_1, MetaSetter2_0To3_1, [endian]);
-
-txfr_keys!(MetaSetterTo3_1, MetaSetter3_0To3_1, [endian]);
-
-txfr_keys!(MetaSetterTo3_1, MetaSetter3_2To3_1, []);
-
-txfr_keys!(MetaSetterTo3_2, MetaSetter3_2To3_2, []);
-
-txfr_keys!(MetaSetterTo3_2, MetaSetter2_0To3_2, [endian, cyt]);
-
-txfr_keys!(MetaSetterTo3_2, MetaSetter3_0To3_2, [endian, cyt]);
-
-txfr_keys!(MetaSetterTo3_2, MetaSetter3_1To3_2, [cyt]);
-
-#[derive(Clone)]
-pub struct MeasSetter2_0To2_0;
-
-#[derive(Clone)]
-pub struct MeasSetter3_0To2_0;
-
-#[derive(Clone)]
-pub struct MeasSetter3_1To2_0;
-
-#[derive(Clone)]
-pub struct MeasSetter3_2To2_0;
-
-#[derive(Clone)]
-pub struct MeasSetterTo2_0;
-
-#[derive(Clone)]
-pub struct MeasSetter3_0To3_0;
-
-#[derive(Clone)]
-pub struct MeasSetter2_0To3_0 {
-    scale: Scale,
-}
-
-#[derive(Clone)]
-pub struct MeasSetter3_1To3_0;
-
-#[derive(Clone)]
-pub struct MeasSetter3_2To3_0;
-
-#[derive(Clone)]
-pub struct MeasSetterTo3_0 {
-    scale: Scale,
-}
-
-#[derive(Clone)]
-pub struct MeasSetter3_1To3_1;
-
-#[derive(Clone)]
-pub struct MeasSetter2_0To3_1 {
-    scale: Scale,
-}
-
-pub struct RequireScaleShortname {
-    scale: Scale,
-}
-
-#[derive(Clone)]
-pub struct MeasSetter3_0To3_1;
-
-#[derive(Clone)]
-pub struct MeasSetter3_2To3_1;
-
-#[derive(Clone)]
-pub struct MeasSetterTo3_1 {
-    scale: Scale,
-}
-
-#[derive(Clone)]
-pub struct MeasSetter3_2To3_2;
-
-#[derive(Clone)]
-pub struct MeasSetter2_0To3_2 {
-    scale: Scale,
-}
-
-#[derive(Clone)]
-pub struct MeasSetter3_0To3_2;
-
-#[derive(Clone, Default)]
-pub struct MeasSetter3_1To3_2;
-
-#[derive(Clone)]
-pub struct MeasSetterTo3_2 {
-    scale: Scale,
-}
-
-txfr_keys!(MeasSetterTo2_0, MeasSetter2_0To2_0, []);
-
-txfr_keys!(MeasSetterTo2_0, MeasSetter3_0To2_0, []);
-
-txfr_keys!(MeasSetterTo2_0, MeasSetter3_1To2_0, []);
-
-txfr_keys!(MeasSetterTo2_0, MeasSetter3_2To2_0, []);
-
-txfr_keys!(MeasSetterTo3_0, MeasSetter2_0To3_0, [scale]);
-
-txfr_keys!(MeasSetterTo3_0, MeasSetter3_0To3_0, []);
-
-txfr_keys!(MeasSetterTo3_0, MeasSetter3_1To3_0, []);
-
-txfr_keys!(MeasSetterTo3_0, MeasSetter3_2To3_0, []);
-
-txfr_keys!(MeasSetterTo3_1, MeasSetter2_0To3_1, [scale]);
-
-txfr_keys!(MeasSetterTo3_1, MeasSetter3_0To3_1, []);
-
-txfr_keys!(MeasSetterTo3_1, MeasSetter3_1To3_1, []);
-
-txfr_keys!(MeasSetterTo3_1, MeasSetter3_2To3_1, []);
-
-txfr_keys!(MeasSetterTo3_2, MeasSetter2_0To3_2, [scale]);
-
-txfr_keys!(MeasSetterTo3_2, MeasSetter3_0To3_2, []);
-
-txfr_keys!(MeasSetterTo3_2, MeasSetter3_1To3_2, []);
-
-txfr_keys!(MeasSetterTo3_2, MeasSetter3_2To3_2, []);
-
-// pub struct CoreSetter<X, Y> {
-//     metadata: X,
-//     measurements: Vec<Y>,
-// }
-
-// impl<X, Y: Clone> CoreSetter<X, Y> {
-//     pub fn new(metadata: X, measurement: Y, par: Par) -> Self {
-//         CoreSetter {
-//             metadata,
-//             measurements: iter::repeat_n(measurement, par.0).collect(),
-//         }
-//     }
-// }
-
-// // pub type CoreSetter3_0To2_0 = CoreSetter<MetaSetter3_0To2_0, MeasSetter3_0To2_0>;
-// // pub type CoreSetter3_1To2_0 = CoreSetter<MetaSetter3_1To2_0, MeasSetter3_1To2_0>;
-// // pub type CoreSetter3_2To2_0 = CoreSetter<MetaSetter3_2To2_0, MeasSetter3_2To2_0>;
-
-// // pub type CoreSetter2_0To3_0 = CoreSetter<MetaSetter2_0To3_0, MeasSetter2_0To3_0>;
-// // pub type CoreSetter3_1To3_0 = CoreSetter<MetaSetter3_1To3_0, MeasSetter3_1To3_0>;
-// // pub type CoreSetter3_2To3_0 = CoreSetter<MetaSetter3_2To3_0, MeasSetter3_2To3_0>;
-
-// // pub type CoreSetter2_0To3_1 = CoreSetter<MetaSetter2_0To3_1, MeasSetter2_0To3_1>;
-// // pub type CoreSetter3_0To3_1 = CoreSetter<MetaSetter3_0To3_1, MeasSetter3_0To3_1>;
-// // pub type CoreSetter3_2To3_1 = CoreSetter<MetaSetter3_2To3_1, MeasSetter3_2To3_1>;
-
-// // pub type CoreSetter2_0To3_2 = CoreSetter<MetaSetter2_0To3_2, MeasSetter2_0To3_2>;
-// // pub type CoreSetter3_0To3_2 = CoreSetter<MetaSetter3_0To3_2, MeasSetter3_0To3_2>;
-// // pub type CoreSetter3_1To3_2 = CoreSetter<MetaSetter3_1To3_2, MeasSetter3_1To3_2>;
-
-// pub type CoreSetterTo2_0 = CoreSetter<MetaSetterTo2_0, MeasSetterTo2_0>;
-// pub type CoreSetterTo3_0 = CoreSetter<MetaSetterTo3_0, MeasSetterTo3_0>;
-// pub type CoreSetterTo3_1 = CoreSetter<MetaSetterTo3_1, MeasSetterTo3_1>;
-// pub type CoreSetterTo3_2 = CoreSetter<MetaSetterTo3_2, MeasSetterTo3_2>;
-
-// // fn project_defaults<A, B, X, Y>(value: CoreSetter<A, B>) -> CoreSetter<X, Y>
-// // where
-// //     A: Into<X>,
-// //     B: Into<Y>,
-// // {
-// //     CoreSetter {
-// //         metadata: value.metadata.into(),
-// //         measurements: value.measurements.into_iter().map(|m| m.into()).collect(),
-// //     }
-// // }
-
-impl IntoMeasurement<InnerMeasurement2_0, MeasSetterTo2_0> for InnerMeasurement2_0 {
+impl IntoMeasurement<InnerMeasurement2_0> for InnerMeasurement2_0 {
     fn try_convert_inner(self, _: MeasIdx) -> MsgsResult<InnerMeasurement2_0> {
         Ok(self)
     }
 }
 
-impl IntoMeasurement<InnerMeasurement2_0, MeasSetterTo2_0> for InnerMeasurement3_0 {
+impl IntoMeasurement<InnerMeasurement2_0> for InnerMeasurement3_0 {
     fn try_convert_inner(self, _: MeasIdx) -> MsgsResult<InnerMeasurement2_0> {
         Ok(InnerMeasurement2_0 {
             scale: Some(self.scale).into(),
@@ -8259,7 +7689,7 @@ impl IntoMeasurement<InnerMeasurement2_0, MeasSetterTo2_0> for InnerMeasurement3
     }
 }
 
-impl IntoMeasurement<InnerMeasurement2_0, MeasSetterTo2_0> for InnerMeasurement3_1 {
+impl IntoMeasurement<InnerMeasurement2_0> for InnerMeasurement3_1 {
     fn try_convert_inner(self, _: MeasIdx) -> MsgsResult<InnerMeasurement2_0> {
         Ok(InnerMeasurement2_0 {
             scale: Some(self.scale).into(),
@@ -8268,7 +7698,7 @@ impl IntoMeasurement<InnerMeasurement2_0, MeasSetterTo2_0> for InnerMeasurement3
     }
 }
 
-impl IntoMeasurement<InnerMeasurement2_0, MeasSetterTo2_0> for InnerMeasurement3_2 {
+impl IntoMeasurement<InnerMeasurement2_0> for InnerMeasurement3_2 {
     fn try_convert_inner(self, _: MeasIdx) -> MsgsResult<InnerMeasurement2_0> {
         Ok(InnerMeasurement2_0 {
             scale: Some(self.scale).into(),
@@ -8277,7 +7707,7 @@ impl IntoMeasurement<InnerMeasurement2_0, MeasSetterTo2_0> for InnerMeasurement3
     }
 }
 
-impl IntoMeasurement<InnerMeasurement3_0, MeasSetterTo3_0> for InnerMeasurement2_0 {
+impl IntoMeasurement<InnerMeasurement3_0> for InnerMeasurement2_0 {
     fn try_convert_inner(self, n: MeasIdx) -> MsgsResult<InnerMeasurement3_0> {
         self.scale
             .try_meas_from(n)
@@ -8290,13 +7720,13 @@ impl IntoMeasurement<InnerMeasurement3_0, MeasSetterTo3_0> for InnerMeasurement2
     }
 }
 
-impl IntoMeasurement<InnerMeasurement3_0, MeasSetterTo3_0> for InnerMeasurement3_0 {
+impl IntoMeasurement<InnerMeasurement3_0> for InnerMeasurement3_0 {
     fn try_convert_inner(self, _: MeasIdx) -> MsgsResult<InnerMeasurement3_0> {
         Ok(self)
     }
 }
 
-impl IntoMeasurement<InnerMeasurement3_0, MeasSetterTo3_0> for InnerMeasurement3_1 {
+impl IntoMeasurement<InnerMeasurement3_0> for InnerMeasurement3_1 {
     fn try_convert_inner(self, _: MeasIdx) -> MsgsResult<InnerMeasurement3_0> {
         Ok(InnerMeasurement3_0 {
             scale: self.scale,
@@ -8306,7 +7736,7 @@ impl IntoMeasurement<InnerMeasurement3_0, MeasSetterTo3_0> for InnerMeasurement3
     }
 }
 
-impl IntoMeasurement<InnerMeasurement3_0, MeasSetterTo3_0> for InnerMeasurement3_2 {
+impl IntoMeasurement<InnerMeasurement3_0> for InnerMeasurement3_2 {
     fn try_convert_inner(self, _: MeasIdx) -> MsgsResult<InnerMeasurement3_0> {
         Ok(InnerMeasurement3_0 {
             scale: self.scale,
@@ -8316,7 +7746,7 @@ impl IntoMeasurement<InnerMeasurement3_0, MeasSetterTo3_0> for InnerMeasurement3
     }
 }
 
-impl IntoMeasurement<InnerMeasurement3_1, MeasSetterTo3_1> for InnerMeasurement2_0 {
+impl IntoMeasurement<InnerMeasurement3_1> for InnerMeasurement2_0 {
     fn try_convert_inner(self, n: MeasIdx) -> MsgsResult<InnerMeasurement3_1> {
         self.scale
             .try_meas_from(n)
@@ -8331,7 +7761,7 @@ impl IntoMeasurement<InnerMeasurement3_1, MeasSetterTo3_1> for InnerMeasurement2
     }
 }
 
-impl IntoMeasurement<InnerMeasurement3_1, MeasSetterTo3_1> for InnerMeasurement3_0 {
+impl IntoMeasurement<InnerMeasurement3_1> for InnerMeasurement3_0 {
     fn try_convert_inner(self, _: MeasIdx) -> MsgsResult<InnerMeasurement3_1> {
         Ok(InnerMeasurement3_1 {
             scale: self.scale,
@@ -8343,13 +7773,13 @@ impl IntoMeasurement<InnerMeasurement3_1, MeasSetterTo3_1> for InnerMeasurement3
     }
 }
 
-impl IntoMeasurement<InnerMeasurement3_1, MeasSetterTo3_1> for InnerMeasurement3_1 {
+impl IntoMeasurement<InnerMeasurement3_1> for InnerMeasurement3_1 {
     fn try_convert_inner(self, _: MeasIdx) -> MsgsResult<InnerMeasurement3_1> {
         Ok(self)
     }
 }
 
-impl IntoMeasurement<InnerMeasurement3_1, MeasSetterTo3_1> for InnerMeasurement3_2 {
+impl IntoMeasurement<InnerMeasurement3_1> for InnerMeasurement3_2 {
     fn try_convert_inner(self, _: MeasIdx) -> MsgsResult<InnerMeasurement3_1> {
         Ok(InnerMeasurement3_1 {
             scale: self.scale,
@@ -8361,7 +7791,7 @@ impl IntoMeasurement<InnerMeasurement3_1, MeasSetterTo3_1> for InnerMeasurement3
     }
 }
 
-impl IntoMeasurement<InnerMeasurement3_2, MeasSetterTo3_2> for InnerMeasurement2_0 {
+impl IntoMeasurement<InnerMeasurement3_2> for InnerMeasurement2_0 {
     fn try_convert_inner(self, n: MeasIdx) -> MsgsResult<InnerMeasurement3_2> {
         self.scale
             .try_meas_from(n)
@@ -8382,7 +7812,7 @@ impl IntoMeasurement<InnerMeasurement3_2, MeasSetterTo3_2> for InnerMeasurement2
     }
 }
 
-impl IntoMeasurement<InnerMeasurement3_2, MeasSetterTo3_2> for InnerMeasurement3_0 {
+impl IntoMeasurement<InnerMeasurement3_2> for InnerMeasurement3_0 {
     fn try_convert_inner(self, _: MeasIdx) -> MsgsResult<InnerMeasurement3_2> {
         Ok(InnerMeasurement3_2 {
             scale: self.scale,
@@ -8400,7 +7830,7 @@ impl IntoMeasurement<InnerMeasurement3_2, MeasSetterTo3_2> for InnerMeasurement3
     }
 }
 
-impl IntoMeasurement<InnerMeasurement3_2, MeasSetterTo3_2> for InnerMeasurement3_1 {
+impl IntoMeasurement<InnerMeasurement3_2> for InnerMeasurement3_1 {
     fn try_convert_inner(self, _: MeasIdx) -> MsgsResult<InnerMeasurement3_2> {
         Ok(InnerMeasurement3_2 {
             scale: self.scale,
@@ -8418,7 +7848,7 @@ impl IntoMeasurement<InnerMeasurement3_2, MeasSetterTo3_2> for InnerMeasurement3
     }
 }
 
-impl IntoMeasurement<InnerMeasurement3_2, MeasSetterTo3_2> for InnerMeasurement3_2 {
+impl IntoMeasurement<InnerMeasurement3_2> for InnerMeasurement3_2 {
     fn try_convert_inner(self, _: MeasIdx) -> MsgsResult<InnerMeasurement3_2> {
         Ok(self)
     }
@@ -8426,13 +7856,13 @@ impl IntoMeasurement<InnerMeasurement3_2, MeasSetterTo3_2> for InnerMeasurement3
 
 type MsgsResult<T> = Result<T, Vec<String>>;
 
-impl IntoMetadata<InnerMetadata2_0, MetaSetterTo2_0> for InnerMetadata2_0 {
+impl IntoMetadata<InnerMetadata2_0> for InnerMetadata2_0 {
     fn try_convert_inner(self) -> MsgsResult<InnerMetadata2_0> {
         Ok(self)
     }
 }
 
-impl IntoMetadata<InnerMetadata2_0, MetaSetterTo2_0> for InnerMetadata3_0 {
+impl IntoMetadata<InnerMetadata2_0> for InnerMetadata3_0 {
     fn try_convert_inner(self) -> MsgsResult<InnerMetadata2_0> {
         Ok(InnerMetadata2_0 {
             mode: self.mode,
@@ -8444,7 +7874,7 @@ impl IntoMetadata<InnerMetadata2_0, MetaSetterTo2_0> for InnerMetadata3_0 {
     }
 }
 
-impl IntoMetadata<InnerMetadata2_0, MetaSetterTo2_0> for InnerMetadata3_1 {
+impl IntoMetadata<InnerMetadata2_0> for InnerMetadata3_1 {
     fn try_convert_inner(self) -> MsgsResult<InnerMetadata2_0> {
         Ok(InnerMetadata2_0 {
             mode: self.mode,
@@ -8456,7 +7886,7 @@ impl IntoMetadata<InnerMetadata2_0, MetaSetterTo2_0> for InnerMetadata3_1 {
     }
 }
 
-impl IntoMetadata<InnerMetadata2_0, MetaSetterTo2_0> for InnerMetadata3_2 {
+impl IntoMetadata<InnerMetadata2_0> for InnerMetadata3_2 {
     fn try_convert_inner(self) -> MsgsResult<InnerMetadata2_0> {
         Ok(InnerMetadata2_0 {
             mode: Mode::List,
@@ -8468,7 +7898,7 @@ impl IntoMetadata<InnerMetadata2_0, MetaSetterTo2_0> for InnerMetadata3_2 {
     }
 }
 
-impl IntoMetadata<InnerMetadata3_0, MetaSetterTo3_0> for InnerMetadata2_0 {
+impl IntoMetadata<InnerMetadata3_0> for InnerMetadata2_0 {
     fn try_convert_inner(self) -> MsgsResult<InnerMetadata3_0> {
         Ok(InnerMetadata3_0 {
             mode: self.mode,
@@ -8483,13 +7913,13 @@ impl IntoMetadata<InnerMetadata3_0, MetaSetterTo3_0> for InnerMetadata2_0 {
     }
 }
 
-impl IntoMetadata<InnerMetadata3_0, MetaSetterTo3_0> for InnerMetadata3_0 {
+impl IntoMetadata<InnerMetadata3_0> for InnerMetadata3_0 {
     fn try_convert_inner(self) -> MsgsResult<InnerMetadata3_0> {
         Ok(self)
     }
 }
 
-impl IntoMetadata<InnerMetadata3_0, MetaSetterTo3_0> for InnerMetadata3_1 {
+impl IntoMetadata<InnerMetadata3_0> for InnerMetadata3_1 {
     fn try_convert_inner(self) -> MsgsResult<InnerMetadata3_0> {
         Ok(InnerMetadata3_0 {
             mode: self.mode,
@@ -8504,7 +7934,7 @@ impl IntoMetadata<InnerMetadata3_0, MetaSetterTo3_0> for InnerMetadata3_1 {
     }
 }
 
-impl IntoMetadata<InnerMetadata3_0, MetaSetterTo3_0> for InnerMetadata3_2 {
+impl IntoMetadata<InnerMetadata3_0> for InnerMetadata3_2 {
     fn try_convert_inner(self) -> MsgsResult<InnerMetadata3_0> {
         Ok(InnerMetadata3_0 {
             mode: Mode::List,
@@ -8519,7 +7949,7 @@ impl IntoMetadata<InnerMetadata3_0, MetaSetterTo3_0> for InnerMetadata3_2 {
     }
 }
 
-impl IntoMetadata<InnerMetadata3_1, MetaSetterTo3_1> for InnerMetadata2_0 {
+impl IntoMetadata<InnerMetadata3_1> for InnerMetadata2_0 {
     fn try_convert_inner(self) -> MsgsResult<InnerMetadata3_1> {
         self.byteord
             .try_into()
@@ -8539,7 +7969,7 @@ impl IntoMetadata<InnerMetadata3_1, MetaSetterTo3_1> for InnerMetadata2_0 {
     }
 }
 
-impl IntoMetadata<InnerMetadata3_1, MetaSetterTo3_1> for InnerMetadata3_0 {
+impl IntoMetadata<InnerMetadata3_1> for InnerMetadata3_0 {
     fn try_convert_inner(self) -> MsgsResult<InnerMetadata3_1> {
         self.byteord
             .try_into()
@@ -8559,13 +7989,13 @@ impl IntoMetadata<InnerMetadata3_1, MetaSetterTo3_1> for InnerMetadata3_0 {
     }
 }
 
-impl IntoMetadata<InnerMetadata3_1, MetaSetterTo3_1> for InnerMetadata3_1 {
+impl IntoMetadata<InnerMetadata3_1> for InnerMetadata3_1 {
     fn try_convert_inner(self) -> MsgsResult<InnerMetadata3_1> {
         Ok(self)
     }
 }
 
-impl IntoMetadata<InnerMetadata3_1, MetaSetterTo3_1> for InnerMetadata3_2 {
+impl IntoMetadata<InnerMetadata3_1> for InnerMetadata3_2 {
     fn try_convert_inner(self) -> MsgsResult<InnerMetadata3_1> {
         Ok(InnerMetadata3_1 {
             mode: Mode::List,
@@ -8582,7 +8012,7 @@ impl IntoMetadata<InnerMetadata3_1, MetaSetterTo3_1> for InnerMetadata3_2 {
     }
 }
 
-impl IntoMetadata<InnerMetadata3_2, MetaSetterTo3_2> for InnerMetadata2_0 {
+impl IntoMetadata<InnerMetadata3_2> for InnerMetadata2_0 {
     fn try_convert_inner(self) -> MsgsResult<InnerMetadata3_2> {
         // TODO what happens if $MODE is not list?
         let b = self
@@ -8611,7 +8041,7 @@ impl IntoMetadata<InnerMetadata3_2, MetaSetterTo3_2> for InnerMetadata2_0 {
     }
 }
 
-impl IntoMetadata<InnerMetadata3_2, MetaSetterTo3_2> for InnerMetadata3_0 {
+impl IntoMetadata<InnerMetadata3_2> for InnerMetadata3_0 {
     fn try_convert_inner(self) -> MsgsResult<InnerMetadata3_2> {
         let b = self
             .byteord
@@ -8641,7 +8071,7 @@ impl IntoMetadata<InnerMetadata3_2, MetaSetterTo3_2> for InnerMetadata3_0 {
     }
 }
 
-impl IntoMetadata<InnerMetadata3_2, MetaSetterTo3_2> for InnerMetadata3_1 {
+impl IntoMetadata<InnerMetadata3_2> for InnerMetadata3_1 {
     fn try_convert_inner(self) -> MsgsResult<InnerMetadata3_2> {
         self.cyt
             .try_meta_from()
@@ -8664,7 +8094,7 @@ impl IntoMetadata<InnerMetadata3_2, MetaSetterTo3_2> for InnerMetadata3_1 {
     }
 }
 
-impl IntoMetadata<InnerMetadata3_2, MetaSetterTo3_2> for InnerMetadata3_2 {
+impl IntoMetadata<InnerMetadata3_2> for InnerMetadata3_2 {
     fn try_convert_inner(self) -> MsgsResult<InnerMetadata3_2> {
         Ok(self)
     }

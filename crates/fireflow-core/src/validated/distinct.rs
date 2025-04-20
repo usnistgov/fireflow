@@ -1,5 +1,6 @@
 use crate::validated::shortname::{Shortname, ShortnamePrefix};
 
+use itertools::Itertools;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -13,7 +14,7 @@ pub struct DistinctVec<K, V> {
 }
 
 #[derive(Clone, Serialize)]
-struct DistinctPair<K, V> {
+pub struct DistinctPair<K, V> {
     key: K,
     value: V,
 }
@@ -31,6 +32,26 @@ impl<K, V> DistinctVec<K, V> {
 
     pub fn iter_values_mut(&mut self) -> impl Iterator<Item = &mut V> + '_ {
         self.members.iter_mut().map(|x| &mut x.value)
+    }
+
+    pub fn map_values<E, F, U>(self, f: F) -> Result<DistinctVec<K, U>, Vec<E>>
+    where
+        F: Fn(usize, V) -> Result<U, E>,
+    {
+        let (members, fail): (Vec<_>, Vec<_>) = self
+            .members
+            .into_iter()
+            .enumerate()
+            .map(|(i, p)| f(i, p.value).map(|value| DistinctPair { key: p.key, value }))
+            .partition_result();
+        if fail.is_empty() {
+            Ok(DistinctVec {
+                members,
+                prefix: self.prefix,
+            })
+        } else {
+            Err(fail)
+        }
     }
 
     pub fn iter_keys(&self) -> impl Iterator<Item = &K> + '_ {

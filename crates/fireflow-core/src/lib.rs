@@ -1,3 +1,6 @@
+#![warn(clippy::shadow_reuse)]
+#![warn(clippy::shadow_unrelated)]
+
 pub mod api;
 pub mod config;
 pub mod error;

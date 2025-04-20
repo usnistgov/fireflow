@@ -529,6 +529,7 @@ pub struct Compensation {
 }
 
 impl Compensation {
+    // TODO what happens if the matrix become less than 2x2?
     fn remove_by_index(&mut self, i: usize) -> bool {
         if i <= self.matrix.ncols() {
             self.matrix = self.matrix.clone().remove_row(i).remove_column(i);
@@ -552,6 +553,7 @@ pub struct Spillover {
 }
 
 impl Spillover {
+    // TODO what happens if the matrix becomes less than 2x2?
     fn remove_by_name(&mut self, n: &Shortname) -> bool {
         if let Some(i) = self.measurements.iter().position(|m| m == n) {
             // TODO this looks expensive; it copies basically everything 3x;
@@ -4082,8 +4084,10 @@ impl AnyCoreTEXT {
         match_anycoretext!(self, x, { x.set_shortnames(names) })
     }
 
-    fn remove_measurement(&mut self, n: &Shortname) -> Option<usize> {
-        match_anycoretext!(self, x, { x.remove_measurement(n).map(|x| x.0) })
+    // TODO this is an instance where I may want to return different errors
+    // that can be caught in python or whatever
+    fn remove_measurement(&mut self, n: &Shortname) -> Result<Option<usize>, String> {
+        match_anycoretext!(self, x, { x.remove_measurement(n).map(|x| x.map(|y| y.0)) })
     }
 
     // fn set_df_column_names(&self, df: &mut DataFrame) -> PolarsResult<()> {
@@ -4738,33 +4742,39 @@ where
         let mapping = self.measurements.set_names(ns).map_err(|e| e.to_string())?;
         // TODO reassign names in dataframe
         self.metadata.reassign_all(&mapping);
+        self.reassign_time_channel(&mapping);
         Ok(mapping)
     }
 
-    // TODO what if the time channel is removed?
+    fn reassign_time_channel(&mut self, mapping: &NameMapping) {
+        if let Some(old) = &mut self.time_channel {
+            if let Some(new) = mapping.get(old) {
+                *old = new.clone();
+            }
+        }
+    }
+
     pub fn remove_measurement(
         &mut self,
         n: &Shortname,
-    ) -> Option<(usize, <M::P as VersionedMeasurement>::N, Measurement<M::P>)> {
-        if let Some((i, k, v)) = self.measurements.remove_name(n) {
+    ) -> Result<Option<(usize, <M::P as VersionedMeasurement>::N, Measurement<M::P>)>, String> {
+        if self.time_channel.as_ref().is_some_and(|tn| tn == n) {
+            let msg = format!(
+                "measurement names {n} is set to the time channel \
+                 and cannot be removed; unset the time channel \
+                 first to remove this measurement"
+            );
+            Err(msg)
+        } else if let Some((i, k, v)) = self.measurements.remove_name(n) {
             let m = &mut self.metadata;
             m.remove_trigger_by_name(n);
             let s = &mut m.specific;
             s.as_spillover_mut().map(|x| x.remove_by_name(n));
             s.as_unstainedcenters_mut().map(|x| x.remove_by_name(n));
             s.as_compensation_mut().map(|x| x.remove_by_index(i));
-            Some((i, k, v))
+            Ok(Some((i, k, v)))
         } else {
-            None
-        }
-    }
-
-    pub fn check_index(&self, i: usize) -> Result<(), String> {
-        let p = self.measurements.len();
-        if i > p {
-            Err(format!("Index must be {p} or less, got {i}"))
-        } else {
-            Ok(())
+            Ok(None)
         }
     }
 
@@ -4966,11 +4976,40 @@ where
         self.measurements.iter_maybe_names().flatten().collect()
     }
 
+    // fn set_time_channel(&mut self, name: Option<Shortname>) -> bool {
+    //     // blabla
+    // }
+
     fn validate_time_channel(&self) -> PureErrorBuf {
         let mut def = PureErrorBuf::default();
+        let m = &self.metadata;
         if let Some(time_name) = &self.time_channel {
+            // Ensure time channel is not used for $TR
+            if m.tr
+                .as_ref_opt()
+                .is_some_and(|tr| tr.measurement == *time_name)
+            {
+                let msg = "Time channel cannot be used in $TR".into();
+                def.push_error(msg)
+            }
+            // Ensure time channel is not used in $SPILLOVER
+            if m.specific
+                .as_spillover()
+                .is_some_and(|s| s.measurements.contains(time_name))
+            {
+                let msg = "Time channel cannot be used in $SPILLOVER".into();
+                def.push_error(msg)
+            }
+            // Ensure time channel is not used in $UNSTAINEDCENTERS
+            if m.specific
+                .as_unstainedcenters()
+                .is_some_and(|u| u.0.contains_key(time_name))
+            {
+                let msg = "Time channel cannot be used in $UNSTAINEDCENTERS".into();
+                def.push_error(msg)
+            }
             // Ensure $TIMESTEP exists
-            if !self.metadata.specific.check_timestep(true) {
+            if !m.specific.check_timestep(true) {
                 let msg = "$TIMESTEP must be present if time measurement present".into();
                 def.push_error(msg)
             }
@@ -4985,13 +5024,13 @@ where
             }
         } else {
             // Ensure $TIMESTEP is unset
-            if !self.metadata.specific.check_timestep(true) {
+            if !m.specific.check_timestep(true) {
                 let msg = "$TIMESTEP should only be present with a time channel".into();
                 def.push_error(msg)
             }
             // Ensure no channels are time channels
-            for m in self.measurements.iter_values() {
-                if let Err(msg) = m.specific.check_time_channel(false) {
+            for p in self.measurements.iter_values() {
+                if let Err(msg) = p.specific.check_time_channel(false) {
                     def.push_error(msg);
                 }
             }
@@ -5142,10 +5181,10 @@ where
 
     // TODO also make a version of this that takes an index since not all
     // columns are named or we might not know the name
-    fn remove_measurement(&mut self, n: &Shortname) -> Option<usize> {
+    fn remove_measurement(&mut self, n: &Shortname) -> Result<Option<usize>, String> {
         let i = self.text.remove_measurement(n)?;
         self.data.drop_in_place(n.as_ref()).unwrap();
-        Some(i.0)
+        Ok(i.map(|x| x.0))
     }
 
     fn add_measurement<T>(
@@ -8052,40 +8091,41 @@ impl<V: IndexedKey> OptionalKw<V> {
     }
 }
 
-fn comp_to_spillover(comp: Compensation, ns: &[Shortname]) -> Option<Spillover> {
-    // Matrix should be square, so if inverse fails that means that somehow it
-    // isn't full rank
-    comp.matrix.try_inverse().map(|matrix| Spillover {
-        measurements: ns.to_vec(),
-        matrix,
-    })
-}
+// fn comp_to_spillover(comp: Compensation, ns: &[Shortname]) -> Option<Spillover> {
+//     // Matrix should be square, so if inverse fails that means that somehow it
+//     // isn't full rank
+//     comp.matrix.try_inverse().map(|matrix| Spillover {
+//         measurements: ns.to_vec(),
+//         matrix,
+//     })
+// }
 
-fn spillover_to_comp(spillover: Spillover, ns: &[Shortname]) -> Option<Compensation> {
-    // Start by making a new square matrix for all measurements, since the older
-    // $COMP keyword couldn't specify measurements and thus covered all of them.
-    // Then assign the spillover matrix to the bigger full matrix, using the
-    // index of the measurement names. This will be a spillover matrix defined
-    // for all measurements. Anything absent from the original will have 0 in
-    // it's row/column except for the diagonal. Finally, invert this result to
-    // get the compensation matrix.
-    let n = ns.len();
-    let mut full_matrix = DMatrix::<f32>::identity(n, n);
-    // ASSUME spillover measurements are a subset of names supplied to function
-    let positions: Vec<_> = spillover
-        .measurements
-        .into_iter()
-        .enumerate()
-        .flat_map(|(i, m)| ns.iter().position(|x| *x == m).map(|x| (i, x)))
-        .collect();
-    for r in positions.iter() {
-        for c in positions.iter() {
-            full_matrix[(r.1, c.1)] = spillover.matrix[(r.0, c.0)]
-        }
-    }
-    // Matrix should be square, so if inverse fails that means that somehow it
-    // isn't full rank
-    full_matrix
-        .try_inverse()
-        .map(|matrix| Compensation { matrix })
-}
+// // TODO doesn't this need to be transposed also?
+// fn spillover_to_comp(spillover: Spillover, ns: &[Shortname]) -> Option<Compensation> {
+//     // Start by making a new square matrix for all measurements, since the older
+//     // $COMP keyword couldn't specify measurements and thus covered all of them.
+//     // Then assign the spillover matrix to the bigger full matrix, using the
+//     // index of the measurement names. This will be a spillover matrix defined
+//     // for all measurements. Anything absent from the original will have 0 in
+//     // it's row/column except for the diagonal. Finally, invert this result to
+//     // get the compensation matrix.
+//     let n = ns.len();
+//     let mut full_matrix = DMatrix::<f32>::identity(n, n);
+//     // ASSUME spillover measurements are a subset of names supplied to function
+//     let positions: Vec<_> = spillover
+//         .measurements
+//         .into_iter()
+//         .enumerate()
+//         .flat_map(|(i, m)| ns.iter().position(|x| *x == m).map(|x| (i, x)))
+//         .collect();
+//     for r in positions.iter() {
+//         for c in positions.iter() {
+//             full_matrix[(r.1, c.1)] = spillover.matrix[(r.0, c.0)]
+//         }
+//     }
+//     // Matrix should be square, so if inverse fails that means that somehow it
+//     // isn't full rank
+//     full_matrix
+//         .try_inverse()
+//         .map(|matrix| Compensation { matrix })
+// }

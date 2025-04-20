@@ -84,6 +84,9 @@ impl<K: IntoShortname, V> DistinctVec<K, V> {
             .map(|p| p.1)
     }
 
+    /// Remove key/value pair by name of key.
+    ///
+    /// Return None if name is not found.
     pub fn remove_name(&mut self, n: &Shortname) -> Option<(usize, K, V)> {
         if let Some(i) = self.position_by_name(n) {
             let (k, v) = self.remove_index_unchecked(i);

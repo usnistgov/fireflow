@@ -4060,19 +4060,19 @@ impl AnyCoreTEXT {
         match_anycoretext!(self, x, { x.shortnames() })
     }
 
-    pub fn into_2_0(self) -> PureMaybe<CoreTEXT2_0> {
+    pub fn into_2_0(self) -> PureResult<CoreTEXT2_0> {
         match_anycoretext!(self, x, { x.try_convert() })
     }
 
-    pub fn into_3_0(self) -> PureMaybe<CoreTEXT3_0> {
+    pub fn into_3_0(self) -> PureResult<CoreTEXT3_0> {
         match_anycoretext!(self, x, { x.try_convert() })
     }
 
-    pub fn into_3_1(self) -> PureMaybe<CoreTEXT3_1> {
+    pub fn into_3_1(self) -> PureResult<CoreTEXT3_1> {
         match_anycoretext!(self, x, { x.try_convert() })
     }
 
-    pub fn into_3_2(self) -> PureMaybe<CoreTEXT3_2> {
+    pub fn into_3_2(self) -> PureResult<CoreTEXT3_2> {
         match_anycoretext!(self, x, { x.try_convert() })
     }
 
@@ -5145,9 +5145,9 @@ where
         }
     }
 
-    fn try_convert<ToM>(
+    pub fn try_convert<ToM>(
         self,
-    ) -> PureMaybe<CoreTEXT<ToM, ToM::P, <ToM::P as VersionedMeasurement>::N>>
+    ) -> PureResult<CoreTEXT<ToM, ToM::P, <ToM::P as VersionedMeasurement>::N>>
     where
         M: IntoMetadata<ToM>,
         M::P: IntoMeasurement<ToM::P>,
@@ -5177,7 +5177,13 @@ where
                 .chain(a.err().unwrap_or_default())
                 .collect()),
         };
-        PureMaybe::from_result_strs(res, PureErrorLevel::Error)
+        let msg = format!(
+            "could not convert from {} to {}",
+            M::P::fcs_version(),
+            ToM::P::fcs_version()
+        );
+
+        PureMaybe::from_result_strs(res, PureErrorLevel::Error).into_result(msg)
     }
 }
 

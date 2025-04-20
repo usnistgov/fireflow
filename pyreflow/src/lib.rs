@@ -1,5 +1,4 @@
 use fireflow_core::api;
-use fireflow_core::api::IntoCore;
 use fireflow_core::config::Strict;
 use fireflow_core::config::{self, OffsetCorrection};
 use fireflow_core::error;
@@ -990,42 +989,19 @@ core_text_methods!(PyCoreTEXT3_2, []);
 
 #[pymethods]
 impl PyCoreTEXT3_2 {
-    // TODO allow user to set $COMP if they really want
     fn version_2_0(&self) -> PyResult<PyCoreTEXT2_0> {
-        let new = api::CoreTEXT3_2::convert_core_def(
-            self.0.clone(),
-            api::CoreSetter::new(
-                api::MetaSetter3_2To2_0::default(),
-                api::MeasSetter3_2To2_0,
-                self.0.par(),
-            ),
-        );
-        handle_pure(new)
+        let new = self.0.clone().try_convert();
+        handle_errors(new.map_err(|e| e.into()))
     }
 
-    // TODO allow user to set $COMP/$UNICODE if they really want
     fn version_3_0(&self) -> PyResult<PyCoreTEXT3_0> {
-        let new = api::CoreTEXT3_2::convert_core_def(
-            self.0.clone(),
-            api::CoreSetter::new(
-                api::MetaSetter3_2To3_0::default(),
-                api::MeasSetter3_2To3_0,
-                self.0.par(),
-            ),
-        );
-        handle_pure(new)
+        let new = self.0.clone().try_convert();
+        handle_errors(new.map_err(|e| e.into()))
     }
 
     fn version_3_1(&self) -> PyResult<PyCoreTEXT3_1> {
-        let new = api::CoreTEXT3_2::convert_core_def(
-            self.0.clone(),
-            api::CoreSetter::new(
-                api::MetaSetter3_2To3_1,
-                api::MeasSetter3_2To3_1,
-                self.0.par(),
-            ),
-        );
-        handle_pure(new)
+        let new = self.0.clone().try_convert();
+        handle_errors(new.map_err(|e| e.into()))
     }
 
     #[getter]

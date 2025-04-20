@@ -318,6 +318,18 @@ pub struct CoreTEXT<M, P, N> {
     /// This is specific to each FCS version, which is encoded in the generic
     /// type variable.
     measurements: DistinctVec<N, Measurement<P>>,
+
+    /// The name of the time channel, if present.
+    ///
+    /// If this is Some, a measurement with the same $PnN must exist and have
+    /// the following:
+    ///
+    /// * $PnE set to 0,0
+    /// * $PnG set to 1.0 or not set at all (3.0+)
+    /// * $PnTYPE set to "Time" (3.2+)
+    ///
+    /// Additionally, $TIMESTEP must be present (3.0+).
+    time_channel: Option<Shortname>,
 }
 
 /// Raw TEXT key/value pairs
@@ -690,7 +702,7 @@ pub struct Unicode {
 }
 
 /// The value of the $PnTYPE key (3.2+)
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, PartialEq)]
 pub enum MeasurementType {
     ForwardScatter,
     SideScatter,
@@ -1506,8 +1518,14 @@ newtype_fromstr!(Vol, RangedFloatError);
 
 kw_opt_meta!(Vol, "VOL");
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, PartialEq)]
 pub struct Gain(pub PositiveFloat);
+
+impl OptionalKw<Gain> {
+    fn is_unset(&self) -> bool {
+        self.0.as_ref().map_or(true, |x| f32::from(x.0) == 1.0)
+    }
+}
 
 newtype_disp!(Gain);
 newtype_fromstr!(Gain, RangedFloatError);
@@ -2138,7 +2156,7 @@ pub trait VersionedMetadata: Sized {
 
     fn datetimes_valid(&self) -> bool;
 
-    fn check_timestep(&self) -> bool;
+    fn check_timestep(&self, has_time_channel: bool) -> bool;
 
     fn begin_date(&self) -> Option<NaiveDate>;
 
@@ -2181,9 +2199,11 @@ pub trait VersionedMeasurement: Sized + Versioned {
 
     fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self>;
 
-    fn has_linear_scale(&self) -> bool;
+    fn check_time_channel(&self, has_time_channel: bool) -> Result<(), String>;
 
-    fn has_gain(&self) -> bool;
+    // fn has_linear_scale(&self) -> bool;
+
+    // fn has_gain(&self) -> bool;
 
     fn req_suffixes_inner(&self, n: Option<MeasIdx>) -> RawPairs;
 
@@ -3513,25 +3533,13 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
         None
     }
 
-    fn has_linear_scale(&self) -> bool {
-        self.scale.0.as_ref().map_or(false, |x| *x == Scale::Linear)
+    fn check_time_channel(&self, has_time_channel: bool) -> Result<(), String> {
+        if has_time_channel && self.scale.0.as_ref().is_some_and(|x| *x == Scale::Linear) {
+            Ok(())
+        } else {
+            Err("Time channel must have linear $PnE".into())
+        }
     }
-
-    fn has_gain(&self) -> bool {
-        false
-    }
-
-    // fn shortname(&self, n: usize) -> Shortname {
-    //     self.shortname
-    //         .0
-    //         .as_ref()
-    //         .cloned()
-    //         .unwrap_or(Shortname::from_index(n))
-    // }
-
-    // fn set_shortname(&mut self, n: Shortname) {
-    //     self.shortname = Some(n).into();
-    // }
 
     fn lookup_shortname(st: &mut KwParser, n: MeasIdx) -> Option<Self::N> {
         Some(st.lookup_meas_opt(n, false))
@@ -3566,25 +3574,13 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
         None
     }
 
-    fn has_linear_scale(&self) -> bool {
-        self.scale == Scale::Linear
+    fn check_time_channel(&self, has_time_channel: bool) -> Result<(), String> {
+        if has_time_channel && self.scale == Scale::Linear && self.gain.is_unset() {
+            Ok(())
+        } else {
+            Err("Time channel must have linear $PnE and $PnG=1.0 or unset".into())
+        }
     }
-
-    fn has_gain(&self) -> bool {
-        self.gain.0.is_some()
-    }
-
-    // fn shortname(&self, n: usize) -> Shortname {
-    //     self.shortname
-    //         .0
-    //         .as_ref()
-    //         .cloned()
-    //         .unwrap_or(Shortname::from_index(n))
-    // }
-
-    // fn set_shortname(&mut self, n: Shortname) {
-    //     self.shortname = Some(n).into()
-    // }
 
     fn lookup_shortname(st: &mut KwParser, n: MeasIdx) -> Option<Self::N> {
         Some(st.lookup_meas_opt(n, false))
@@ -3620,21 +3616,13 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
         None
     }
 
-    fn has_linear_scale(&self) -> bool {
-        self.scale == Scale::Linear
+    fn check_time_channel(&self, has_time_channel: bool) -> Result<(), String> {
+        if has_time_channel && self.scale == Scale::Linear && self.gain.is_unset() {
+            Ok(())
+        } else {
+            Err("Time channel must have linear $PnE and $PnG=1.0 or unset".into())
+        }
     }
-
-    fn has_gain(&self) -> bool {
-        self.gain.0.is_some()
-    }
-
-    // fn shortname(&self, _: usize) -> Shortname {
-    //     self.shortname.clone()
-    // }
-
-    // fn set_shortname(&mut self, n: Shortname) {
-    //     self.shortname = n
-    // }
 
     fn lookup_shortname(st: &mut KwParser, n: MeasIdx) -> Option<Self::N> {
         st.lookup_meas_req(n)
@@ -3682,21 +3670,27 @@ impl VersionedMeasurement for InnerMeasurement3_2 {
         self.datatype.0.as_ref().copied()
     }
 
-    fn has_linear_scale(&self) -> bool {
-        self.scale == Scale::Linear
+    fn check_time_channel(&self, has_time_channel: bool) -> Result<(), String> {
+        let mt = self.measurement_type.0.as_ref();
+        if has_time_channel {
+            if self.scale == Scale::Linear
+                && self.gain.is_unset()
+                && mt.is_some_and(|x| *x == MeasurementType::Time)
+            {
+                Ok(())
+            } else {
+                let msg = "Time channel must have linear $PnE, $PnG set to \
+                           either 1.0 or nothing, and $PnTYPE = Time"
+                    .into();
+                Err(msg)
+            }
+        } else if mt.map_or(true, |x| *x != MeasurementType::Time) {
+            Ok(())
+        } else {
+            let msg = "Non-time channel must have $PnTYPE =/= Time".into();
+            Err(msg)
+        }
     }
-
-    fn has_gain(&self) -> bool {
-        self.gain.0.is_some()
-    }
-
-    // fn shortname(&self, _: usize) -> Shortname {
-    //     self.shortname.clone()
-    // }
-
-    // fn set_shortname(&mut self, n: Shortname) {
-    //     self.shortname = n
-    // }
 
     fn lookup_shortname(st: &mut KwParser, n: MeasIdx) -> Option<Self::N> {
         st.lookup_meas_req(n)
@@ -4956,13 +4950,14 @@ where
                 Metadata::lookup_metadata(st, &measurements).map(|metadata| CoreTEXT {
                     metadata,
                     measurements,
+                    time_channel: conf.time.shortname.clone(),
                 })
             } else {
                 None
             }
         })?;
         // hooray, we win and can now make the core struct
-        Ok(md_succ.and_then(|core| core.validate(&conf.time).map(|_| core)))
+        Ok(md_succ.and_then(|core| core.validate().map(|_| core)))
     }
 
     // TODO add non-kw deprecation checker
@@ -4971,10 +4966,46 @@ where
         self.measurements.iter_maybe_names().flatten().collect()
     }
 
-    fn validate(&self, conf: &TimeConfig) -> PureSuccess<()> {
-        let mut deferred = PureErrorBuf::default();
+    fn validate_time_channel(&self) -> PureErrorBuf {
+        let mut def = PureErrorBuf::default();
+        if let Some(time_name) = &self.time_channel {
+            // Ensure $TIMESTEP exists
+            if !self.metadata.specific.check_timestep(true) {
+                let msg = "$TIMESTEP must be present if time measurement present".into();
+                def.push_error(msg)
+            }
+            // Ensure time channel exists and that it is valid
+            if let Some(time_meas) = self.measurements.find_by_name(time_name) {
+                if let Err(msg) = time_meas.specific.check_time_channel(true) {
+                    def.push_error(msg);
+                }
+            } else {
+                let msg = format!("Measurement '{time_name}' not found for time");
+                def.push_error(msg);
+            }
+        } else {
+            // Ensure $TIMESTEP is unset
+            if !self.metadata.specific.check_timestep(true) {
+                let msg = "$TIMESTEP should only be present with a time channel".into();
+                def.push_error(msg)
+            }
+            // Ensure no channels are time channels
+            for m in self.measurements.iter_values() {
+                if let Err(msg) = m.specific.check_time_channel(false) {
+                    def.push_error(msg);
+                }
+            }
+        }
+        def
+    }
 
-        // TODO check that measurmenttype is "Time" if time channel
+    // TODO The goal of this function is to ensure that the internal state of
+    // this struct is "fully compliant". This means that anything that fails
+    // the below tests needs to either be dropped, altered (if possible), or
+    // fail the entire struct entirely. Then each manipulation can be assumed
+    // to operate on a clean state.
+    fn validate(&self) -> PureSuccess<()> {
+        let mut deferred = self.validate_time_channel();
 
         let names: HashSet<_> = self.measurement_names().into_iter().collect();
 
@@ -4991,31 +5022,6 @@ where
         if let Err(msg) = self.metadata.check_spillover(&names) {
             // TODO toggle this
             deferred.push_error(msg);
-        }
-
-        // Ensure time measurement is valid
-        if let Some(time_name) = &conf.shortname {
-            // Find the time measurement, check lots of stuff if it exists
-            if let Some(time_meas) = self.measurements.find_by_name(time_name) {
-                // check that $TIMESTEP exists
-                if !self.metadata.specific.check_timestep() {
-                    let msg = "$TIMESTEP must be present if time measurement present".into();
-                    deferred.push_msg_leveled(msg, conf.ensure_timestep)
-                }
-                // check that $PnE is linear
-                if !time_meas.specific.has_linear_scale() {
-                    let msg = "Time measurement must have linear $PnE".into();
-                    deferred.push_msg_leveled(msg, conf.ensure_linear);
-                }
-                // check that $PnG doesn't exist
-                if time_meas.specific.has_gain() {
-                    let msg = "Time measurement should not have $PnG".into();
-                    deferred.push_msg_leveled(msg, conf.ensure_nogain);
-                }
-            } else {
-                let msg = format!("Measurement '{time_name}' not found for time");
-                deferred.push_msg_leveled(msg, conf.ensure);
-            }
         }
 
         // TODO these can be made more robust by hiding the fields on these
@@ -5088,6 +5094,7 @@ where
                     Ok(CoreTEXT {
                         metadata,
                         measurements,
+                        time_channel: self.time_channel,
                     })
                 } else {
                     Err(vec!["Some $PnN are blank and could not be converted".into()])
@@ -5106,8 +5113,20 @@ where
             M::P::fcs_version(),
             ToM::P::fcs_version()
         );
-
-        PureMaybe::from_result_strs(res, PureErrorLevel::Error).into_result(msg)
+        PureMaybe::from_result_strs(res, PureErrorLevel::Error)
+            .and_then_opt(|core| {
+                // TODO this will always fail when upgrading to 3.2 with a set
+                // time_channel since $PnTYPE needs to be set to Time and this
+                // has no way of being set during conversion since it doesn't
+                // exist in lower versions. Same will happen when coming from
+                // 2.0 since $TIMESTAMP doesn't exist.
+                let deferred = core.validate_time_channel();
+                PureSuccess {
+                    data: Some(core),
+                    deferred,
+                }
+            })
+            .into_result(msg)
     }
 }
 
@@ -6106,8 +6125,8 @@ impl VersionedMetadata for InnerMetadata2_0 {
         true
     }
 
-    fn check_timestep(&self) -> bool {
-        true
+    fn check_timestep(&self, has_time_channel: bool) -> bool {
+        has_time_channel
     }
 
     get_set_pre_3_2_datetime!(FCSTime);
@@ -6202,8 +6221,8 @@ impl VersionedMetadata for InnerMetadata3_0 {
         true
     }
 
-    fn check_timestep(&self) -> bool {
-        self.timestep.0.is_some()
+    fn check_timestep(&self, has_time_channel: bool) -> bool {
+        self.timestep.0.is_some() == has_time_channel
     }
 
     get_set_pre_3_2_datetime!(FCSTime60);
@@ -6294,8 +6313,8 @@ impl VersionedMetadata for InnerMetadata3_1 {
         true
     }
 
-    fn check_timestep(&self) -> bool {
-        self.timestep.0.is_some()
+    fn check_timestep(&self, has_time_channel: bool) -> bool {
+        self.timestep.0.is_some() == has_time_channel
     }
 
     get_set_pre_3_2_datetime!(FCSTime100);
@@ -6396,8 +6415,8 @@ impl VersionedMetadata for InnerMetadata3_2 {
         self.datetimes.valid()
     }
 
-    fn check_timestep(&self) -> bool {
-        self.timestep.0.is_some()
+    fn check_timestep(&self, has_time_channel: bool) -> bool {
+        self.timestep.0.is_some() == has_time_channel
     }
 
     // TODO not DRY

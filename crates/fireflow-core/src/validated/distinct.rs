@@ -73,13 +73,19 @@ impl<K, V> DistinctVec<K, V> {
 }
 
 impl<K: IntoShortname, V> DistinctVec<K, V> {
-    pub fn find_name(&mut self, n: &Shortname) -> Option<usize> {
+    pub fn position_by_name(&self, n: &Shortname) -> Option<usize> {
         self.iter_keys()
             .position(|k| k.as_name_opt().is_some_and(|kn| kn == n))
     }
 
+    pub fn find_by_name(&self, n: &Shortname) -> Option<&V> {
+        self.iter()
+            .find(|(k, _)| k.as_name_opt().is_some_and(|kn| kn == n))
+            .map(|p| p.1)
+    }
+
     pub fn remove_name(&mut self, n: &Shortname) -> Option<(usize, K, V)> {
-        if let Some(i) = self.find_name(n) {
+        if let Some(i) = self.position_by_name(n) {
             let (k, v) = self.remove_index_unchecked(i);
             Some((i, k, v))
         } else {

@@ -2138,18 +2138,6 @@ pub trait VersionedMetadata: Sized {
 
     fn datetimes_valid(&self) -> bool;
 
-    // fn check_unstainedcenters(&self, names: &HashSet<&Shortname>) -> Result<(), String>;
-
-    // fn check_spillover(&self, names: &HashSet<&Shortname>) -> Result<(), String>;
-
-    // fn reassign_unstainedcenters(&mut self, mapping: ShortnameMap);
-
-    // fn reassign_spillover(&mut self, mapping: ShortnameMap);
-
-    // fn remove_unstainedcenters_by_name(&mut self, n: &str) -> bool;
-
-    // fn remove_spillover_by_name(&mut self, n: &str) -> bool;
-
     fn check_timestep(&self) -> bool;
 
     fn begin_date(&self) -> Option<NaiveDate>;
@@ -2180,9 +2168,9 @@ pub trait VersionedMetadata: Sized {
 
     fn lookup_tot(kws: &mut RawKeywords) -> PureMaybe<Tot>;
 
-    fn keywords_req_inner(&self) -> Vec<(String, String)>;
+    fn keywords_req_inner(&self) -> RawPairs;
 
-    fn keywords_opt_inner(&self) -> Vec<(String, String)>;
+    fn keywords_opt_inner(&self) -> RawPairs;
 }
 
 pub trait VersionedMeasurement: Sized + Versioned {
@@ -2196,13 +2184,7 @@ pub trait VersionedMeasurement: Sized + Versioned {
 
     fn has_gain(&self) -> bool;
 
-    fn maybe_name(n: &Self::N) -> Option<&Shortname>;
-
-    // fn shortname(&self, n: usize) -> Shortname;
-
-    // fn set_shortname(&mut self, n: Shortname);
-
-    fn req_suffixes_inner(&self, n: Option<MeasIdx>) -> Vec<(String, String)>;
+    fn req_suffixes_inner(&self, n: Option<MeasIdx>) -> RawPairs;
 
     fn opt_suffixes_inner(&self, n: Option<MeasIdx>) -> Vec<(String, Option<String>)>;
 
@@ -3530,10 +3512,6 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
         None
     }
 
-    fn maybe_name(n: &Self::N) -> Option<&Shortname> {
-        n.as_ref_opt()
-    }
-
     fn has_linear_scale(&self) -> bool {
         self.scale.0.as_ref().map_or(false, |x| *x == Scale::Linear)
     }
@@ -3565,7 +3543,7 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
         })
     }
 
-    fn req_suffixes_inner(&self, _: Option<MeasIdx>) -> Vec<(String, String)> {
+    fn req_suffixes_inner(&self, _: Option<MeasIdx>) -> RawPairs {
         vec![]
     }
 
@@ -3585,10 +3563,6 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
 
     fn datatype(&self) -> Option<NumType> {
         None
-    }
-
-    fn maybe_name(n: &Self::N) -> Option<&Shortname> {
-        n.as_ref_opt()
     }
 
     fn has_linear_scale(&self) -> bool {
@@ -3623,7 +3597,7 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
         })
     }
 
-    fn req_suffixes_inner(&self, n: Option<MeasIdx>) -> Vec<(String, String)> {
+    fn req_suffixes_inner(&self, n: Option<MeasIdx>) -> RawPairs {
         [self.scale.pair(n)].into_iter().collect()
     }
 
@@ -3643,10 +3617,6 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
 
     fn datatype(&self) -> Option<NumType> {
         None
-    }
-
-    fn maybe_name(n: &Self::N) -> Option<&Shortname> {
-        Some(n)
     }
 
     fn has_linear_scale(&self) -> bool {
@@ -3683,7 +3653,7 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
         }
     }
 
-    fn req_suffixes_inner(&self, n: Option<MeasIdx>) -> Vec<(String, String)> {
+    fn req_suffixes_inner(&self, n: Option<MeasIdx>) -> RawPairs {
         [
             self.scale.pair(n),
             // self.shortname.pair(n)
@@ -3709,10 +3679,6 @@ impl VersionedMeasurement for InnerMeasurement3_2 {
 
     fn datatype(&self) -> Option<NumType> {
         self.datatype.0.as_ref().copied()
-    }
-
-    fn maybe_name(n: &Self::N) -> Option<&Shortname> {
-        Some(n)
     }
 
     fn has_linear_scale(&self) -> bool {
@@ -3755,7 +3721,7 @@ impl VersionedMeasurement for InnerMeasurement3_2 {
         }
     }
 
-    fn req_suffixes_inner(&self, n: Option<MeasIdx>) -> Vec<(String, String)> {
+    fn req_suffixes_inner(&self, n: Option<MeasIdx>) -> RawPairs {
         [
             self.scale.pair(n),
             // self.shortname.pair(n)
@@ -4406,7 +4372,7 @@ where
         }
     }
 
-    fn req_suffixes(&self, n: Option<MeasIdx>) -> Vec<(String, String)> {
+    fn req_suffixes(&self, n: Option<MeasIdx>) -> RawPairs {
         [self.bytes.pair(n), self.range.pair(n)]
             .into_iter()
             .chain(self.specific.req_suffixes_inner(n))
@@ -4796,23 +4762,6 @@ where
         } else {
             None
         }
-
-        // let mi: Option<usize> = self
-        //     .measurements
-        //     .iter_keys()
-        //     .position(|k| M::P::maybe_name(k).is_some_and(|x| x.as_ref() == n));
-        // if let Some(i) = mi {
-        //     self.measurements.remove_index_unchecked(i);
-        //     let m = &mut self.metadata;
-        //     m.remove_trigger_by_name(n);
-        //     let s = &mut m.specific;
-        //     s.as_spillover_mut().map(|x| x.remove_by_name(n));
-        //     s.as_unstainedcenters_mut().map(|x| x.remove_by_name(n));
-        //     s.as_compensation_mut().map(|x| x.remove_by_index(i));
-        //     true
-        // } else {
-        //     false
-        // }
     }
 
     pub fn check_index(&self, i: usize) -> Result<(), String> {
@@ -4824,9 +4773,6 @@ where
         }
     }
 
-    // TODO might be good to wrap the entire measurement vector into something
-    // that can only be updated if it passes some uniqueness test. It needs to
-    // be done manually since we can't use a hashset.
     pub fn add_measurement(
         &mut self,
         i: usize,
@@ -4834,20 +4780,6 @@ where
         m: Measurement<M::P>,
     ) -> Result<Shortname, String> {
         self.measurements.insert(i, n, m).map_err(|e| e.to_string())
-        // self.check_index(i).and_then(|_| {
-        //     let newname = m.specific.maybe_name();
-        //     if self.measurements.iter().any(|m| {
-        //         m.specific
-        //             .maybe_name()
-        //             .zip(newname)
-        //             .is_some_and(|(a, b)| a == b)
-        //     }) {
-        //         Err("Measurement with same name already present".to_string())
-        //     } else {
-        //         self.measurements.insert(i, n, m);
-        //         Ok(())
-        //     }
-        // })
     }
 
     fn df_names(&self) -> Vec<PlSmallStr> {
@@ -5035,15 +4967,8 @@ where
     // TODO add non-kw deprecation checker
 
     fn measurement_names(&self) -> Vec<&Shortname> {
-        self.measurements
-            .iter_keys()
-            .filter_map(|k| M::P::maybe_name(k))
-            .collect()
+        self.measurements.iter_maybe_names().flatten().collect()
     }
-
-    // fn unique_meaurement_names(&self) -> Option<HashSet<&Shortname>> {
-    //     try_unique(self.measurement_names().as_slice())
-    // }
 
     fn validate(&self, conf: &TimeConfig) -> PureSuccess<()> {
         let mut deferred = PureErrorBuf::default();
@@ -5070,12 +4995,7 @@ where
         // Ensure time measurement is valid
         if let Some(time_name) = &conf.shortname {
             // Find the time measurement, check lots of stuff if it exists
-            if let Some(time_meas) = self
-                .measurements
-                .iter()
-                .find(|(k, _)| M::P::maybe_name(k) == Some(time_name))
-                .map(|x| x.1)
-            {
+            if let Some(time_meas) = self.measurements.find_by_name(time_name) {
                 // check that $TIMESTEP exists
                 if !self.metadata.specific.check_timestep() {
                     let msg = "$TIMESTEP must be present if time measurement present".into();
@@ -6215,13 +6135,13 @@ impl VersionedMetadata for InnerMetadata2_0 {
         )
     }
 
-    fn keywords_req_inner(&self) -> Vec<(String, String)> {
+    fn keywords_req_inner(&self) -> RawPairs {
         [self.mode.pair(), self.byteord.pair()]
             .into_iter()
             .collect()
     }
 
-    fn keywords_opt_inner(&self) -> Vec<(String, String)> {
+    fn keywords_opt_inner(&self) -> RawPairs {
         [
             OptMetaKey::pair(&self.cyt),
             OptMetaKey::pair(&self.comp),
@@ -6303,13 +6223,13 @@ impl VersionedMetadata for InnerMetadata3_0 {
         }
     }
 
-    fn keywords_req_inner(&self) -> Vec<(String, String)> {
+    fn keywords_req_inner(&self) -> RawPairs {
         [self.mode.pair(), self.byteord.pair()]
             .into_iter()
             .collect()
     }
 
-    fn keywords_opt_inner(&self) -> Vec<(String, String)> {
+    fn keywords_opt_inner(&self) -> RawPairs {
         let ts = &self.timestamps;
         [
             OptMetaKey::pair(&self.cyt),
@@ -6397,13 +6317,13 @@ impl VersionedMetadata for InnerMetadata3_1 {
         }
     }
 
-    fn keywords_req_inner(&self) -> Vec<(String, String)> {
+    fn keywords_req_inner(&self) -> RawPairs {
         [self.mode.pair(), self.byteord.pair()]
             .into_iter()
             .collect()
     }
 
-    fn keywords_opt_inner(&self) -> Vec<(String, String)> {
+    fn keywords_opt_inner(&self) -> RawPairs {
         let mdn = &self.modification;
         let ts = &self.timestamps;
         let pl = &self.plate;
@@ -6553,11 +6473,11 @@ impl VersionedMetadata for InnerMetadata3_2 {
         }
     }
 
-    fn keywords_req_inner(&self) -> Vec<(String, String)> {
+    fn keywords_req_inner(&self) -> RawPairs {
         [self.byteord.pair(), self.cyt.pair()].into_iter().collect()
     }
 
-    fn keywords_opt_inner(&self) -> Vec<(String, String)> {
+    fn keywords_opt_inner(&self) -> RawPairs {
         let mdn = &self.modification;
         let ts = &self.timestamps;
         let pl = &self.plate;
@@ -7101,10 +7021,7 @@ fn repair_keywords(kws: &mut RawKeywords, conf: &RawTextReadConfig) {
     }
 }
 
-fn hash_raw_pairs(
-    pairs: Vec<(String, String)>,
-    conf: &RawTextReadConfig,
-) -> PureSuccess<RawKeywords> {
+fn hash_raw_pairs(pairs: RawPairs, conf: &RawTextReadConfig) -> PureSuccess<RawKeywords> {
     let standard: HashMap<_, _> = HashMap::new();
     let mut res = PureSuccess::from(standard);
     // TODO filter keywords based on pattern somewhere here

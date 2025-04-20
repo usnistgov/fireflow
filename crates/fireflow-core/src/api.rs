@@ -317,7 +317,7 @@ pub struct CoreTEXT<M, P, N> {
     ///
     /// This is specific to each FCS version, which is encoded in the generic
     /// type variable.
-    pub measurements: DistinctVec<N, Measurement<P>>,
+    measurements: DistinctVec<N, Measurement<P>>,
 }
 
 /// Raw TEXT key/value pairs
@@ -664,7 +664,7 @@ impl UnstainedCenters {
 /// A bundle for $UNSTAINEDCENTERS and $UNSTAINEDINFO (3.2+)
 #[derive(Clone, Serialize, Default)]
 pub struct UnstainedData {
-    pub unstainedcenters: OptionalKw<UnstainedCenters>,
+    unstainedcenters: OptionalKw<UnstainedCenters>,
     pub unstainedinfo: OptionalKw<UnstainedInfo>,
 }
 
@@ -1591,7 +1591,7 @@ pub struct InnerMetadata2_0 {
     pub cyt: OptionalKw<Cyt>,
 
     /// Compensation matrix derived from 'DFCnTOm' key/value pairs
-    pub comp: OptionalKw<Compensation>,
+    comp: OptionalKw<Compensation>,
 
     /// Values of $BTIM/ETIM/$DATE
     pub timestamps: Timestamps2_0,
@@ -1610,7 +1610,7 @@ pub struct InnerMetadata3_0 {
     pub cyt: OptionalKw<Cyt>,
 
     /// Value of $COMP
-    pub comp: OptionalKw<Compensation>,
+    comp: OptionalKw<Compensation>,
 
     /// Values of $BTIM/ETIM/$DATE
     pub timestamps: Timestamps3_0,
@@ -1619,7 +1619,7 @@ pub struct InnerMetadata3_0 {
     pub cytsn: OptionalKw<Cytsn>,
 
     /// Value of $TIMESTEP
-    pub timestep: OptionalKw<Timestep>,
+    timestep: OptionalKw<Timestep>,
 
     /// Value of $UNICODE
     pub unicode: OptionalKw<Unicode>,
@@ -1644,7 +1644,7 @@ pub struct InnerMetadata3_1 {
     pub cytsn: OptionalKw<Cytsn>,
 
     /// Value of $TIMESTEP
-    pub timestep: OptionalKw<Timestep>,
+    timestep: OptionalKw<Timestep>,
 
     /// Value of $SPILLOVER
     pub spillover: OptionalKw<Spillover>,
@@ -1674,13 +1674,13 @@ pub struct InnerMetadata3_2 {
     pub cyt: Cyt,
 
     /// Value of $SPILLOVER
-    pub spillover: OptionalKw<Spillover>,
+    spillover: OptionalKw<Spillover>,
 
     /// Value of $CYTSN
     pub cytsn: OptionalKw<Cytsn>,
 
     /// Value of $TIMESTEP
-    pub timestep: OptionalKw<Timestep>,
+    timestep: OptionalKw<Timestep>,
 
     /// Values of $LAST_MODIFIED/$LAST_MODIFIER/$ORIGINALITY
     pub modification: ModificationData,
@@ -1748,7 +1748,7 @@ pub struct Metadata<X> {
     pub sys: OptionalKw<Sys>,
 
     /// Value of $TR
-    pub tr: OptionalKw<Trigger>,
+    tr: OptionalKw<Trigger>,
 
     /// Version-specific data
     pub specific: X,
@@ -2148,6 +2148,7 @@ pub trait VersionedMetadata: Sized {
 
     fn end_time(&self) -> Option<NaiveTime>;
 
+    // TODO this is logic that could go in the datatime struct itself
     fn set_datetimes(&mut self, begin: DateTime<FixedOffset>, end: DateTime<FixedOffset>) -> bool {
         if begin > end {
             false
@@ -2287,7 +2288,7 @@ where
 {
     fn next_power_2(x: Self) -> Self;
 
-    fn int_from_str<'a>(s: &str) -> Result<Self, IntErrorKind> {
+    fn int_from_str(s: &str) -> Result<Self, IntErrorKind> {
         s.parse()
             .map_err(|e| <Self as FromStr>::Err::err_kind(&e).clone())
     }
@@ -4975,10 +4976,10 @@ where
 
         // TODO check that measurmenttype is "Time" if time channel
 
-        // Ensure $PnN are unique; if this fails we can't make a dataframe, so
-        // failure will always be an error and not a warning.
         let names: HashSet<_> = self.measurement_names().into_iter().collect();
+
         if let Err(msg) = self.metadata.check_trigger(&names) {
+            // TODO toggle this
             deferred.push_error(msg);
         }
 
@@ -5016,6 +5017,9 @@ where
                 deferred.push_msg_leveled(msg, conf.ensure);
             }
         }
+
+        // TODO these can be made more robust by hiding the fields on these
+        // structs and using validators on creation
 
         // Ensure $BTIM/$ETIM/$DATE are valid
         if !self.metadata.specific.timestamps_valid() {
@@ -6802,14 +6806,6 @@ impl<'a, 'b> KwParser<'a, 'b> {
         let res = V::lookup_meta_opt(self.raw_keywords);
         self.process_opt(res, V::std(), dep)
     }
-
-    // fn lookup_linked_meta_opt<V>(&mut self, dep: bool, names: &[&Shortname]) -> OptionalKw<V>
-    // where
-    //     V: LinkedOptMetaKey,
-    // {
-    //     let res = V::lookup_linked_meta_opt(self.raw_keywords, names);
-    //     self.process_opt(res, V::std(), dep)
-    // }
 
     fn lookup_meas_req<V>(&mut self, n: MeasIdx) -> Option<V>
     where

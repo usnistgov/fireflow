@@ -1042,26 +1042,26 @@ impl PyCoreTEXT3_2 {
         self.0.metadata.specific.cytsn = x.map(|x| x.into()).into()
     }
 
-    #[getter]
-    fn get_timestep(&self) -> Option<f32> {
-        self.0
-            .metadata
-            .specific
-            .timestep
-            .0
-            .as_ref()
-            .map(|x| x.0.into())
-    }
+    // #[getter]
+    // fn get_timestep(&self) -> Option<f32> {
+    //     self.0
+    //         .metadata
+    //         .specific
+    //         .timestep
+    //         .0
+    //         .as_ref()
+    //         .map(|x| x.0.into())
+    // }
 
-    #[setter]
-    fn set_timestep(&mut self, x: Option<f32>) -> PyResult<()> {
-        let t = x
-            .map(PositiveFloat::try_from)
-            .transpose()
-            .map_err(|e| PyreflowException::new_err(e.to_string()))?;
-        self.0.metadata.specific.timestep = t.map(api::Timestep).into();
-        Ok(())
-    }
+    // #[setter]
+    // fn set_timestep(&mut self, x: Option<f32>) -> PyResult<()> {
+    //     let t = x
+    //         .map(PositiveFloat::try_from)
+    //         .transpose()
+    //         .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+    //     self.0.metadata.specific.timestep = t.map(api::Timestep).into();
+    //     Ok(())
+    // }
 
     #[getter]
     fn get_vol(&self) -> Option<f32> {

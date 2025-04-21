@@ -223,9 +223,9 @@ pub struct StandardizedDataset {
 /// This will include the standardized TEXT keywords as well as its
 /// corresponding DATA segment parsed into a dataframe-like structure.
 #[derive(Clone)]
-pub struct CoreDataset<M, P, N> {
+pub struct CoreDataset<M, T, P, N, W> {
     /// Standardized TEXT segment in version specific format
-    pub text: Box<CoreTEXT<M, P, N>>,
+    pub text: Box<CoreTEXT<M, T, P, N, W>>,
 
     /// DATA segment as a polars DataFrame
     ///
@@ -266,15 +266,63 @@ pub enum AnyCoreDataset {
 }
 
 /// Minimally-required FCS TEXT data for each version
-pub type CoreTEXT2_0 = CoreTEXT<InnerMetadata2_0, InnerMeasurement2_0, OptionalKw<Shortname>>;
-pub type CoreTEXT3_0 = CoreTEXT<InnerMetadata3_0, InnerMeasurement3_0, OptionalKw<Shortname>>;
-pub type CoreTEXT3_1 = CoreTEXT<InnerMetadata3_1, InnerMeasurement3_1, Shortname>;
-pub type CoreTEXT3_2 = CoreTEXT<InnerMetadata3_2, InnerMeasurement3_2, Shortname>;
+pub type CoreTEXT2_0 = CoreTEXT<
+    InnerMetadata2_0,
+    InnerTime2_0,
+    InnerMeasurement2_0,
+    OptionalKwFamily,
+    OptionalKw<Shortname>,
+>;
+pub type CoreTEXT3_0 = CoreTEXT<
+    InnerMetadata3_0,
+    InnerTime3_0,
+    InnerMeasurement3_0,
+    OptionalKwFamily,
+    OptionalKw<Shortname>,
+>;
+pub type CoreTEXT3_1 = CoreTEXT<
+    InnerMetadata3_1,
+    InnerTime3_1,
+    InnerMeasurement3_1,
+    IdentityFamily,
+    Identity<Shortname>,
+>;
+pub type CoreTEXT3_2 = CoreTEXT<
+    InnerMetadata3_2,
+    InnerTime3_2,
+    InnerMeasurement3_2,
+    IdentityFamily,
+    Identity<Shortname>,
+>;
 
-pub type CoreDataset2_0 = CoreDataset<InnerMetadata2_0, InnerMeasurement2_0, OptionalKw<Shortname>>;
-pub type CoreDataset3_0 = CoreDataset<InnerMetadata3_0, InnerMeasurement3_0, OptionalKw<Shortname>>;
-pub type CoreDataset3_1 = CoreDataset<InnerMetadata3_1, InnerMeasurement3_1, Shortname>;
-pub type CoreDataset3_2 = CoreDataset<InnerMetadata3_2, InnerMeasurement3_2, Shortname>;
+pub type CoreDataset2_0 = CoreDataset<
+    InnerMetadata2_0,
+    InnerTime2_0,
+    InnerMeasurement2_0,
+    OptionalKwFamily,
+    OptionalKw<Shortname>,
+>;
+pub type CoreDataset3_0 = CoreDataset<
+    InnerMetadata3_0,
+    InnerTime3_0,
+    InnerMeasurement3_0,
+    OptionalKwFamily,
+    OptionalKw<Shortname>,
+>;
+pub type CoreDataset3_1 = CoreDataset<
+    InnerMetadata3_1,
+    InnerTime3_1,
+    InnerMeasurement3_1,
+    IdentityFamily,
+    Identity<Shortname>,
+>;
+pub type CoreDataset3_2 = CoreDataset<
+    InnerMetadata3_2,
+    InnerTime3_2,
+    InnerMeasurement3_2,
+    IdentityFamily,
+    Identity<Shortname>,
+>;
 
 /// Represents the minimal data required to fully represent the TEXT keywords.
 ///
@@ -302,7 +350,7 @@ pub type CoreDataset3_2 = CoreDataset<InnerMetadata3_2, InnerMeasurement3_2, Sho
 /// TEXT data when writing a new FCS file, and the keywords that are not
 /// included can be computed on the fly when writing.
 #[derive(Clone, Serialize)]
-pub struct CoreTEXT<M, P, N> {
+pub struct CoreTEXT<M, T, P, N, W> {
     /// All "non-measurement" TEXT keywords.
     ///
     /// This is specific to each FCS version, which is encoded in the generic
@@ -317,7 +365,7 @@ pub struct CoreTEXT<M, P, N> {
     ///
     /// This is specific to each FCS version, which is encoded in the generic
     /// type variable.
-    measurements: DistinctVec<N, Measurement<P>>,
+    measurements: NamedVec<N, W, TimeChannel<T>, Measurement<P>>,
 
     /// The name of the time channel, if present.
     ///
@@ -738,6 +786,40 @@ pub struct Range(pub String);
 newtype_disp!(Range);
 newtype_fromstr!(Range, Infallible);
 
+/// Time channel fields specific to version 2.0
+#[derive(Clone, Serialize)]
+pub struct InnerTime2_0;
+
+/// Time channel fields specific to version 3.0
+#[derive(Clone, Serialize)]
+pub struct InnerTime3_0 {
+    /// Value for $TIMESTEP
+    timestep: Timestep,
+}
+
+/// Time channel fields specific to version 3.1
+#[derive(Clone, Serialize)]
+pub struct InnerTime3_1 {
+    /// Value for $TIMESTEP
+    timestep: Timestep,
+
+    /// Value for $PnDISPLAY
+    pub display: OptionalKw<Display>,
+}
+
+/// Time channel fields specific to version 3.2
+#[derive(Clone, Serialize)]
+pub struct InnerTime3_2 {
+    /// Value for $TIMESTEP
+    timestep: Timestep,
+
+    /// Value for $PnDISPLAY
+    pub display: OptionalKw<Display>,
+
+    /// Value for $PnDATATYPE
+    pub datatype: OptionalKw<NumType>,
+}
+
 /// Measurement fields specific to version 2.0
 #[derive(Clone, Serialize)]
 pub struct InnerMeasurement2_0 {
@@ -817,14 +899,34 @@ pub struct InnerMeasurement3_2 {
     pub datatype: OptionalKw<NumType>,
 }
 
+/// Structured data for time keywords.
+///
+/// Explicit fields are common to all versions. The generic type parameter
+/// allows for version-specific information to be encoded.
+#[derive(Clone, Serialize)]
+pub struct TimeChannel<X> {
+    /// Value for $PnB
+    pub bytes: Bytes,
+
+    /// Value for $PnR
+    pub range: Range,
+
+    /// Value for $PnS
+    pub longname: OptionalKw<Longname>,
+
+    /// Non standard keywords that belong to this measurement.
+    ///
+    /// These are found using a configurable pattern to filter matching keys.
+    pub nonstandard_keywords: NonStdKeywords,
+
+    /// Version specific data
+    pub specific: X,
+}
+
 /// Structured data for measurement keywords.
 ///
 /// Explicit fields are common to all versions. The generic type parameter
 /// allows for version-specific information to be encoded.
-///
-/// To make this struct, all required keys need to be present for the specific
-/// version. This is often more than required to parse the DATA segment. (see
-/// ['MinimalMeasurement']
 #[derive(Clone, Serialize)]
 pub struct Measurement<X> {
     /// Value for $PnB
@@ -860,23 +962,44 @@ pub struct Measurement<X> {
     pub specific: X,
 }
 
-impl IntoShortname for OptionalKw<Shortname> {
-    fn as_name_opt(&self) -> Option<&Shortname> {
-        self.as_ref_opt()
+#[derive(Clone, Serialize)]
+struct OptionalKwFamily;
+
+#[derive(Clone, Serialize)]
+struct Identity<T>(pub T);
+
+impl MightHave for OptionalKwFamily {
+    type Wrapper<T> = OptionalKw<T>;
+
+    fn as_opt<T>(x: Self::Wrapper<&T>) -> Option<&T> {
+        x.0
     }
 
-    fn from_name(n: Shortname) -> Self {
+    fn as_ref<T>(x: &Self::Wrapper<T>) -> Self::Wrapper<&T> {
+        x.as_ref()
+    }
+
+    fn into_wrapped<T>(n: T) -> Self::Wrapper<T> {
         Some(n).into()
     }
 }
 
-impl IntoShortname for Shortname {
-    fn as_name_opt(&self) -> Option<&Shortname> {
-        Some(self)
+#[derive(Clone, Serialize)]
+struct IdentityFamily;
+
+impl MightHave for IdentityFamily {
+    type Wrapper<T> = Identity<T>;
+
+    fn as_opt<T>(x: Self::Wrapper<&T>) -> Option<&T> {
+        Some(x.0)
     }
 
-    fn from_name(n: Shortname) -> Self {
-        n
+    fn as_ref<T>(x: &Self::Wrapper<T>) -> Self::Wrapper<&T> {
+        Identity(&x.0)
+    }
+
+    fn into_wrapped<T>(n: T) -> Self::Wrapper<T> {
+        Identity(n)
     }
 }
 
@@ -1502,7 +1625,7 @@ pub struct Timestep(pub PositiveFloat);
 newtype_disp!(Timestep);
 newtype_fromstr!(Timestep, RangedFloatError);
 
-kw_opt_meta!(Timestep, "TIMESTEP");
+kw_req_meta!(Timestep, "TIMESTEP");
 
 #[derive(Clone, Serialize)]
 pub struct Vol(pub NonNegFloat);
@@ -1631,7 +1754,7 @@ pub struct InnerMetadata3_0 {
     pub cytsn: OptionalKw<Cytsn>,
 
     /// Value of $TIMESTEP
-    timestep: OptionalKw<Timestep>,
+    // timestep: OptionalKw<Timestep>,
 
     /// Value of $UNICODE
     pub unicode: OptionalKw<Unicode>,
@@ -1656,7 +1779,7 @@ pub struct InnerMetadata3_1 {
     pub cytsn: OptionalKw<Cytsn>,
 
     /// Value of $TIMESTEP
-    timestep: OptionalKw<Timestep>,
+    // timestep: OptionalKw<Timestep>,
 
     /// Value of $SPILLOVER
     pub spillover: OptionalKw<Spillover>,
@@ -1692,7 +1815,7 @@ pub struct InnerMetadata3_2 {
     pub cytsn: OptionalKw<Cytsn>,
 
     /// Value of $TIMESTEP
-    timestep: OptionalKw<Timestep>,
+    // timestep: OptionalKw<Timestep>,
 
     /// Values of $LAST_MODIFIED/$LAST_MODIFIER/$ORIGINALITY
     pub modification: ModificationData,
@@ -2133,6 +2256,13 @@ pub trait Versioned {
 
 pub trait VersionedMetadata: Sized {
     type P: VersionedMeasurement;
+    type T: VersionedTime;
+    type N: MightHave;
+
+    fn lookup_shortname(
+        st: &mut KwParser,
+        n: MeasIdx,
+    ) -> Option<<Self::N as MightHave>::Wrapper<Shortname>>;
 
     fn as_unstainedcenters(&self) -> Option<&UnstainedCenters>;
 
@@ -2150,7 +2280,7 @@ pub trait VersionedMetadata: Sized {
 
     fn datetimes_valid(&self) -> bool;
 
-    fn check_timestep(&self, has_time_channel: bool) -> bool;
+    // fn check_timestep(&self, has_time_channel: bool) -> bool;
 
     fn begin_date(&self) -> Option<NaiveDate>;
 
@@ -2187,9 +2317,9 @@ pub trait VersionedMetadata: Sized {
 }
 
 pub trait VersionedMeasurement: Sized + Versioned {
-    type N: IntoShortname;
+    // type N: IntoShortname;
 
-    fn lookup_shortname(st: &mut KwParser, n: MeasIdx) -> Option<Self::N>;
+    // fn lookup_shortname(st: &mut KwParser, n: MeasIdx) -> Option<Self::N>;
 
     fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self>;
 
@@ -2204,6 +2334,10 @@ pub trait VersionedMeasurement: Sized + Versioned {
     fn opt_suffixes_inner(&self, n: Option<MeasIdx>) -> Vec<(String, Option<String>)>;
 
     fn datatype(&self) -> Option<NumType>;
+}
+
+pub trait VersionedTime: Sized {
+    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self>;
 }
 
 fn to_col_type(
@@ -3521,8 +3655,6 @@ impl Versioned for InnerMeasurement3_2 {
 }
 
 impl VersionedMeasurement for InnerMeasurement2_0 {
-    type N = OptionalKw<Shortname>;
-
     fn datatype(&self) -> Option<NumType> {
         None
     }
@@ -3533,10 +3665,6 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
         } else {
             Err("Time channel must have linear $PnE".into())
         }
-    }
-
-    fn lookup_shortname(st: &mut KwParser, n: MeasIdx) -> Option<Self::N> {
-        Some(st.lookup_meas_opt(n, false))
     }
 
     fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self> {
@@ -3562,8 +3690,6 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
 }
 
 impl VersionedMeasurement for InnerMeasurement3_0 {
-    type N = OptionalKw<Shortname>;
-
     fn datatype(&self) -> Option<NumType> {
         None
     }
@@ -3574,10 +3700,6 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
         } else {
             Err("Time channel must have linear $PnE and $PnG=1.0 or unset".into())
         }
-    }
-
-    fn lookup_shortname(st: &mut KwParser, n: MeasIdx) -> Option<Self::N> {
-        Some(st.lookup_meas_opt(n, false))
     }
 
     fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self> {
@@ -3604,8 +3726,6 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
 }
 
 impl VersionedMeasurement for InnerMeasurement3_1 {
-    type N = Shortname;
-
     fn datatype(&self) -> Option<NumType> {
         None
     }
@@ -3616,10 +3736,6 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
         } else {
             Err("Time channel must have linear $PnE and $PnG=1.0 or unset".into())
         }
-    }
-
-    fn lookup_shortname(st: &mut KwParser, n: MeasIdx) -> Option<Self::N> {
-        st.lookup_meas_req(n)
     }
 
     fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self> {
@@ -3657,9 +3773,58 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
     }
 }
 
-impl VersionedMeasurement for InnerMeasurement3_2 {
-    type N = Shortname;
+impl VersionedTime for InnerTime2_0 {
+    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self> {
+        // TODO check that scale is linear
+        Some(Self)
+    }
+}
 
+impl VersionedTime for InnerTime3_0 {
+    fn lookup_specific(st: &mut KwParser, _: MeasIdx) -> Option<Self> {
+        // TODO check that scale is linear
+        // TODO check that gain is not set
+        if let Some(timestep) = st.lookup_meta_req() {
+            Some(Self { timestep })
+        } else {
+            None
+        }
+    }
+}
+
+impl VersionedTime for InnerTime3_1 {
+    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self> {
+        // TODO check that scale is linear
+        // TODO check that gain is not set
+        if let Some(timestep) = st.lookup_meta_req() {
+            Some(Self {
+                timestep,
+                display: st.lookup_meas_opt(n, false),
+            })
+        } else {
+            None
+        }
+    }
+}
+
+impl VersionedTime for InnerTime3_2 {
+    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self> {
+        // TODO check that scale is linear
+        // TODO check that gain is not set
+        // TODO check that PnTYPE is Time
+        if let Some(timestep) = st.lookup_meta_req() {
+            Some(Self {
+                timestep,
+                display: st.lookup_meas_opt(n, false),
+                datatype: st.lookup_meas_opt(n, false),
+            })
+        } else {
+            None
+        }
+    }
+}
+
+impl VersionedMeasurement for InnerMeasurement3_2 {
     fn datatype(&self) -> Option<NumType> {
         self.datatype.0.as_ref().copied()
     }
@@ -3684,10 +3849,6 @@ impl VersionedMeasurement for InnerMeasurement3_2 {
             let msg = "Non-time channel must have $PnTYPE =/= Time".into();
             Err(msg)
         }
-    }
-
-    fn lookup_shortname(st: &mut KwParser, n: MeasIdx) -> Option<Self::N> {
-        st.lookup_meas_req(n)
     }
 
     fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self> {
@@ -4301,6 +4462,29 @@ macro_rules! get_set_str {
     };
 }
 
+impl<T> TimeChannel<T>
+where
+    T: VersionedTime,
+{
+    fn lookup_time_channel(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
+        if let (Some(bytes), Some(range), Some(specific)) = (
+            st.lookup_meas_req(i),
+            st.lookup_meas_req(i),
+            T::lookup_specific(st, i),
+        ) {
+            Some(TimeChannel {
+                bytes,
+                range,
+                longname: st.lookup_meas_opt(i, false),
+                specific,
+                nonstandard_keywords: st.lookup_all_meas_nonstandard(i),
+            })
+        } else {
+            None
+        }
+    }
+}
+
 impl<P> Measurement<P>
 where
     P: VersionedMeasurement,
@@ -4318,50 +4502,74 @@ where
         self.longname = n.map(|y| y.into()).into();
     }
 
-    fn lookup_measurements(st: &mut KwParser, par: Par) -> Option<DistinctVec<P::N, Self>> {
+    fn lookup_measurement(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
         let v = P::fcs_version();
-        let ps: Vec<_> = (1..(par.0 + 1))
-            .flat_map(|n| {
-                let i = MeasIdx(n);
-                let maybe_bytes = st.lookup_meas_req(i);
-                let maybe_range = st.lookup_meas_req(i);
-                let maybe_specific = P::lookup_specific(st, i);
-                let maybe_name = P::lookup_shortname(st, i);
-                if let (Some(bytes), Some(range), Some(specific), Some(key)) =
-                    (maybe_bytes, maybe_range, maybe_specific, maybe_name)
-                {
-                    Some((
-                        key,
-                        Measurement {
-                            bytes,
-                            range,
-                            longname: st.lookup_meas_opt(i, false),
-                            filter: st.lookup_meas_opt(i, false),
-                            power: st.lookup_meas_opt(i, false),
-                            detector_type: st.lookup_meas_opt(i, false),
-                            percent_emitted: st.lookup_meas_opt(i, v == Version::FCS3_2),
-                            detector_voltage: st.lookup_meas_opt(i, false),
-                            specific,
-                            nonstandard_keywords: st.lookup_all_meas_nonstandard(i),
-                        },
-                    ))
-                } else {
-                    None
-                }
+        if let (Some(bytes), Some(range), Some(specific)) = (
+            st.lookup_meas_req(i),
+            st.lookup_meas_req(i),
+            P::lookup_specific(st, i),
+        ) {
+            Some(Measurement {
+                bytes,
+                range,
+                longname: st.lookup_meas_opt(i, false),
+                filter: st.lookup_meas_opt(i, false),
+                power: st.lookup_meas_opt(i, false),
+                detector_type: st.lookup_meas_opt(i, false),
+                percent_emitted: st.lookup_meas_opt(i, v == Version::FCS3_2),
+                detector_voltage: st.lookup_meas_opt(i, false),
+                specific,
+                nonstandard_keywords: st.lookup_all_meas_nonstandard(i),
             })
-            .collect();
-        if ps.len() == par.0 {
-            let dv = DistinctVec::from_vec(ps, ShortnamePrefix::default());
-            if dv.is_none() {
-                let msg = "Not all measurement names are unique".to_string();
-                st.deferred.push_error(msg);
-            }
-            dv
         } else {
-            // ASSUME errors were capture elsewhere
             None
         }
     }
+
+    // fn lookup_measurements(st: &mut KwParser, par: Par) -> Option<NamedVec<P::N, Self>> {
+    //     let v = P::fcs_version();
+    //     let ps: Vec<_> = (1..(par.0 + 1))
+    //         .flat_map(|n| {
+    //             let i = MeasIdx(n);
+    //             let maybe_bytes = st.lookup_meas_req(i);
+    //             let maybe_range = st.lookup_meas_req(i);
+    //             let maybe_specific = P::lookup_specific(st, i);
+    //             let maybe_name = P::lookup_shortname(st, i);
+    //             if let (Some(bytes), Some(range), Some(specific), Some(key)) =
+    //                 (maybe_bytes, maybe_range, maybe_specific, maybe_name)
+    //             {
+    //                 Some((
+    //                     key,
+    //                     Measurement {
+    //                         bytes,
+    //                         range,
+    //                         longname: st.lookup_meas_opt(i, false),
+    //                         filter: st.lookup_meas_opt(i, false),
+    //                         power: st.lookup_meas_opt(i, false),
+    //                         detector_type: st.lookup_meas_opt(i, false),
+    //                         percent_emitted: st.lookup_meas_opt(i, v == Version::FCS3_2),
+    //                         detector_voltage: st.lookup_meas_opt(i, false),
+    //                         specific,
+    //                         nonstandard_keywords: st.lookup_all_meas_nonstandard(i),
+    //                     },
+    //                 ))
+    //             } else {
+    //                 None
+    //             }
+    //         })
+    //         .collect();
+    //     if ps.len() == par.0 {
+    //         let dv = NamedVec::from_vec(ps, ShortnamePrefix::default());
+    //         if dv.is_none() {
+    //             let msg = "Not all measurement names are unique".to_string();
+    //             st.deferred.push_error(msg);
+    //         }
+    //         dv
+    //     } else {
+    //         // ASSUME errors were capture elsewhere
+    //         None
+    //     }
+    // }
 
     fn req_suffixes(&self, n: Option<MeasIdx>) -> RawPairs {
         [self.bytes.pair(n), self.range.pair(n)]
@@ -4443,7 +4651,12 @@ where
 {
     fn lookup_metadata(
         st: &mut KwParser,
-        ms: &DistinctVec<<M::P as VersionedMeasurement>::N, Measurement<M::P>>,
+        ms: &NamedVec<
+            M::N,
+            <M::N as MightHave>::Wrapper<Shortname>,
+            TimeChannel<M::T>,
+            Measurement<M::P>,
+        >,
     ) -> Option<Self> {
         let par = Par(ms.len());
         let maybe_datatype = st.lookup_meta_req();
@@ -4549,9 +4762,13 @@ where
     }
 }
 
-impl<M> CoreTEXT<M, M::P, <M::P as VersionedMeasurement>::N>
+type Measurements<N, T, P> =
+    NamedVec<N, <N as MightHave>::Wrapper<Shortname>, TimeChannel<T>, Measurement<P>>;
+
+impl<M> CoreTEXT<M, M::T, M::P, M::N, <M::N as MightHave>::Wrapper<Shortname>>
 where
     M: VersionedMetadata,
+    M::N: Clone,
 {
     /// Return HEADER+TEXT as a list of strings
     ///
@@ -4749,7 +4966,7 @@ where
     pub fn remove_measurement(
         &mut self,
         n: &Shortname,
-    ) -> Result<Option<(usize, <M::P as VersionedMeasurement>::N, Measurement<M::P>)>, String> {
+    ) -> Result<Option<(usize, M::N, Measurement<M::P>)>, String> {
         if self.time_channel.as_ref().is_some_and(|tn| tn == n) {
             let msg = format!(
                 "measurement names {n} is set to the time channel \
@@ -4773,7 +4990,7 @@ where
     pub fn add_measurement(
         &mut self,
         i: usize,
-        n: <M::P as VersionedMeasurement>::N,
+        n: <M::N as MightHave>::Wrapper<Shortname>,
         m: Measurement<M::P>,
     ) -> Result<Shortname, String> {
         self.measurements.insert(i, n, m).map_err(|e| e.to_string())
@@ -4932,6 +5149,38 @@ where
             .map(|maybe_layout| maybe_layout.map(|layout| build_data_reader(layout, data_seg)))
     }
 
+    fn lookup_measurements(st: &mut KwParser, par: Par) -> Option<Measurements<M::N, M::T, M::P>> {
+        let ps: Vec<_> = (1..(par.0 + 1))
+            .flat_map(|n| {
+                let i = MeasIdx(n);
+                if let Some(name_res) = M::lookup_shortname(st, i) {
+                    if let Some(name) = M::N::as_opt(M::N::as_ref(&name_res)) {
+                        if name.as_ref() == "Time" {
+                            // TODO useless clone
+                            return TimeChannel::lookup_time_channel(st, i)
+                                .map(|x| Err((name.clone(), x)));
+                        }
+                    }
+                    Measurement::lookup_measurement(st, i).map(|x| Ok((name_res, x)))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if ps.len() == par.0 {
+            NamedVec::new(ps, ShortnamePrefix::default()).map_or_else(
+                |e| {
+                    st.deferred.push_error(e);
+                    None
+                },
+                Some,
+            )
+        } else {
+            // ASSUME errors were capture elsewhere
+            None
+        }
+    }
+
     fn new_from_raw(kws: &mut RawKeywords, conf: &StdTextReadConfig) -> PureResult<Self> {
         // Lookup $PAR first; everything depends on this since we need to know
         // the number of measurements to find which are used in turn for
@@ -4948,7 +5197,7 @@ where
         let md_fail = "could not standardize TEXT".to_string();
         let c: KwParserConfig = conf.into();
         let md_succ = KwParser::try_run(kws, c, md_fail, |st| {
-            if let Some(measurements) = Measurement::lookup_measurements(st, par) {
+            if let Some(measurements) = Self::lookup_measurements(st, par) {
                 Metadata::lookup_metadata(st, &measurements).map(|metadata| CoreTEXT {
                     metadata,
                     measurements,
@@ -4996,10 +5245,10 @@ where
                 def.push_error(msg)
             }
             // Ensure $TIMESTEP exists
-            if !s.check_timestep(true) {
-                let msg = "$TIMESTEP must be present if time measurement present".into();
-                def.push_error(msg)
-            }
+            // if !s.check_timestep(true) {
+            //     let msg = "$TIMESTEP must be present if time measurement present".into();
+            //     def.push_error(msg)
+            // }
             // Ensure time channel exists and that it is valid
             if let Some(time_meas) = self.measurements.find_by_name(time_name) {
                 if let Err(msg) = time_meas.specific.check_time_channel(true) {
@@ -5011,10 +5260,10 @@ where
             }
         } else {
             // Ensure $TIMESTEP is unset
-            if !s.check_timestep(true) {
-                let msg = "$TIMESTEP should only be present with a time channel".into();
-                def.push_error(msg)
-            }
+            // if !s.check_timestep(true) {
+            //     let msg = "$TIMESTEP should only be present with a time channel".into();
+            //     def.push_error(msg)
+            // }
             // Ensure no channels are time channels
             for p in self.measurements.iter_values() {
                 if let Err(msg) = p.specific.check_time_channel(false) {
@@ -5074,7 +5323,7 @@ where
         self,
         data: DataFrame,
         analysis: Analysis,
-    ) -> CoreDataset<M, M::P, <M::P as VersionedMeasurement>::N> {
+    ) -> CoreDataset<M, M::T, M::P, M::N, <M::N as MightHave>::Wrapper<Shortname>> {
         let ns = self.df_names();
         let mut data = data;
         data.set_column_names(ns).unwrap();
@@ -5089,7 +5338,8 @@ where
         self,
         data: DataFrame,
         analysis: Analysis,
-    ) -> Result<CoreDataset<M, M::P, <M::P as VersionedMeasurement>::N>, String> {
+    ) -> Result<CoreDataset<M, M::T, M::P, M::N, <M::N as MightHave>::Wrapper<Shortname>>, String>
+    {
         let w = data.width();
         let p = self.measurements.len();
         if w != p {
@@ -5103,10 +5353,11 @@ where
 
     pub fn try_convert<ToM>(
         self,
-    ) -> PureResult<CoreTEXT<ToM, ToM::P, <ToM::P as VersionedMeasurement>::N>>
+    ) -> PureResult<CoreTEXT<ToM, ToM::T, ToM::P, ToM::N, <ToM::N as MightHave>::Wrapper<Shortname>>>
     where
         M: IntoMetadata<ToM>,
         M::P: IntoMeasurement<ToM::P>,
+        M::N: Clone,
         ToM: VersionedMetadata,
         ToM::P: VersionedMeasurement,
     {
@@ -5114,7 +5365,10 @@ where
             .measurements
             .map_values(|i, v| IntoMeasurement::try_convert(v, MeasIdx(i)));
         let m = IntoMetadata::try_convert(self.metadata);
-        let res = match (m, ps) {
+        let res: Result<
+            CoreTEXT<ToM, ToM::T, ToM::P, ToM::N, <ToM::N as MightHave>::Wrapper<Shortname>>,
+            Vec<String>,
+        > = match (m, ps) {
             (Ok(metadata), Ok(old_ps)) => {
                 if let Some(measurements) = old_ps.try_new_names() {
                     Ok(CoreTEXT {
@@ -5140,18 +5394,18 @@ where
             ToM::P::fcs_version()
         );
         PureMaybe::from_result_strs(res, PureErrorLevel::Error)
-            .and_then_opt(|core| {
-                // TODO this will always fail when upgrading to 3.2 with a set
-                // time_channel since $PnTYPE needs to be set to Time and this
-                // has no way of being set during conversion since it doesn't
-                // exist in lower versions. Same will happen when coming from
-                // 2.0 since $TIMESTAMP doesn't exist.
-                let deferred = core.validate_time_channel(&core.time_channel);
-                PureSuccess {
-                    data: Some(core),
-                    deferred,
-                }
-            })
+            // .and_then_opt(|core| {
+            //     // TODO this will always fail when upgrading to 3.2 with a set
+            //     // time_channel since $PnTYPE needs to be set to Time and this
+            //     // has no way of being set during conversion since it doesn't
+            //     // exist in lower versions. Same will happen when coming from
+            //     // 2.0 since $TIMESTAMP doesn't exist.
+            //     let deferred = core.validate_time_channel(&core.time_channel);
+            //     PureSuccess {
+            //         data: Some(core),
+            //         deferred,
+            //     }
+            // })
             .into_result(msg)
     }
 }
@@ -5167,9 +5421,10 @@ where
 //     }
 // }
 
-impl<M> CoreDataset<M, M::P, <M::P as VersionedMeasurement>::N>
+impl<M> CoreDataset<M, M::T, M::P, M::N, <M::N as MightHave>::Wrapper<Shortname>>
 where
     M: VersionedMetadata,
+    M::N: Clone,
 {
     fn set_shortnames(&mut self, names: Vec<Shortname>) -> Result<NameMapping, String> {
         self.text
@@ -5188,7 +5443,7 @@ where
     fn add_measurement<T>(
         &mut self,
         i: usize,
-        n: <M::P as VersionedMeasurement>::N,
+        n: <M::N as MightHave>::Wrapper<Shortname>,
         m: Measurement<M::P>,
         col: Vec<T::Native>,
     ) -> Result<Shortname, String>
@@ -6125,6 +6380,8 @@ macro_rules! get_set_pre_3_2_datetime {
 
 impl VersionedMetadata for InnerMetadata2_0 {
     type P = InnerMeasurement2_0;
+    type T = InnerTime2_0;
+    type N = OptionalKwFamily;
 
     fn byteord(&self) -> ByteOrd {
         self.byteord.clone()
@@ -6162,11 +6419,18 @@ impl VersionedMetadata for InnerMetadata2_0 {
         true
     }
 
-    fn check_timestep(&self, has_time_channel: bool) -> bool {
-        has_time_channel
-    }
+    // fn check_timestep(&self, has_time_channel: bool) -> bool {
+    //     has_time_channel
+    // }
 
     get_set_pre_3_2_datetime!(FCSTime);
+
+    fn lookup_shortname(
+        st: &mut KwParser,
+        n: MeasIdx,
+    ) -> Option<<Self::N as MightHave>::Wrapper<Shortname>> {
+        Some(st.lookup_meas_opt(n, false))
+    }
 
     fn lookup_specific(st: &mut KwParser, par: Par) -> Option<InnerMetadata2_0> {
         let maybe_mode = st.lookup_meta_req();
@@ -6217,6 +6481,8 @@ impl VersionedMetadata for InnerMetadata2_0 {
 
 impl VersionedMetadata for InnerMetadata3_0 {
     type P = InnerMeasurement3_0;
+    type T = InnerTime3_0;
+    type N = OptionalKwFamily;
 
     fn byteord(&self) -> ByteOrd {
         self.byteord.clone()
@@ -6258,11 +6524,18 @@ impl VersionedMetadata for InnerMetadata3_0 {
         true
     }
 
-    fn check_timestep(&self, has_time_channel: bool) -> bool {
-        self.timestep.0.is_some() == has_time_channel
-    }
+    // fn check_timestep(&self, has_time_channel: bool) -> bool {
+    //     self.timestep.0.is_some() == has_time_channel
+    // }
 
     get_set_pre_3_2_datetime!(FCSTime60);
+
+    fn lookup_shortname(
+        st: &mut KwParser,
+        n: MeasIdx,
+    ) -> Option<<Self::N as MightHave>::Wrapper<Shortname>> {
+        Some(st.lookup_meas_opt(n, false))
+    }
 
     fn lookup_specific(st: &mut KwParser, _: Par) -> Option<InnerMetadata3_0> {
         let maybe_mode = st.lookup_meta_req();
@@ -6274,7 +6547,7 @@ impl VersionedMetadata for InnerMetadata3_0 {
                 cyt: st.lookup_meta_opt(false),
                 comp: st.lookup_meta_opt(false),
                 cytsn: st.lookup_meta_opt(false),
-                timestep: st.lookup_meta_opt(false),
+                // timestep: st.lookup_meta_opt(false),
                 unicode: st.lookup_meta_opt(false),
                 timestamps: st.lookup_timestamps3_0(),
             })
@@ -6298,7 +6571,7 @@ impl VersionedMetadata for InnerMetadata3_0 {
             OptMetaKey::pair(&ts.etim),
             OptMetaKey::pair(&ts.date),
             OptMetaKey::pair(&self.cytsn),
-            OptMetaKey::pair(&self.timestep),
+            // OptMetaKey::pair(&self.timestep),
             OptMetaKey::pair(&self.unicode),
         ]
         .into_iter()
@@ -6309,6 +6582,8 @@ impl VersionedMetadata for InnerMetadata3_0 {
 
 impl VersionedMetadata for InnerMetadata3_1 {
     type P = InnerMeasurement3_1;
+    type T = InnerTime3_1;
+    type N = IdentityFamily;
 
     fn byteord(&self) -> ByteOrd {
         ByteOrd::Endian(self.byteord)
@@ -6350,11 +6625,18 @@ impl VersionedMetadata for InnerMetadata3_1 {
         true
     }
 
-    fn check_timestep(&self, has_time_channel: bool) -> bool {
-        self.timestep.0.is_some() == has_time_channel
-    }
+    // fn check_timestep(&self, has_time_channel: bool) -> bool {
+    //     self.timestep.0.is_some() == has_time_channel
+    // }
 
     get_set_pre_3_2_datetime!(FCSTime100);
+
+    fn lookup_shortname(
+        st: &mut KwParser,
+        n: MeasIdx,
+    ) -> Option<<Self::N as MightHave>::Wrapper<Shortname>> {
+        st.lookup_meas_req(n).map(Identity)
+    }
 
     fn lookup_specific(st: &mut KwParser, _: Par) -> Option<InnerMetadata3_1> {
         let maybe_mode = st.lookup_meta_req();
@@ -6366,7 +6648,7 @@ impl VersionedMetadata for InnerMetadata3_1 {
                 cyt: st.lookup_meta_opt(false),
                 spillover: st.lookup_meta_opt(false),
                 cytsn: st.lookup_meta_opt(false),
-                timestep: st.lookup_meta_opt(false),
+                // timestep: st.lookup_meta_opt(false),
                 vol: st.lookup_meta_opt(false),
                 modification: st.lookup_modification(),
                 timestamps: st.lookup_timestamps3_1(false),
@@ -6394,7 +6676,7 @@ impl VersionedMetadata for InnerMetadata3_1 {
             OptMetaKey::pair(&ts.etim),
             OptMetaKey::pair(&ts.date),
             OptMetaKey::pair(&self.cytsn),
-            OptMetaKey::pair(&self.timestep),
+            // OptMetaKey::pair(&self.timestep),
             OptMetaKey::pair(&mdn.last_modifier),
             OptMetaKey::pair(&mdn.last_modified),
             OptMetaKey::pair(&mdn.originality),
@@ -6411,6 +6693,8 @@ impl VersionedMetadata for InnerMetadata3_1 {
 
 impl VersionedMetadata for InnerMetadata3_2 {
     type P = InnerMeasurement3_2;
+    type T = InnerTime3_2;
+    type N = IdentityFamily;
 
     fn lookup_tot(kws: &mut RawKeywords) -> PureMaybe<Tot> {
         PureMaybe::from_result_1(Tot::lookup_meta_req(kws), PureErrorLevel::Error)
@@ -6452,9 +6736,9 @@ impl VersionedMetadata for InnerMetadata3_2 {
         self.datetimes.valid()
     }
 
-    fn check_timestep(&self, has_time_channel: bool) -> bool {
-        self.timestep.0.is_some() == has_time_channel
-    }
+    // fn check_timestep(&self, has_time_channel: bool) -> bool {
+    //     self.timestep.0.is_some() == has_time_channel
+    // }
 
     // TODO not DRY
     fn begin_date(&self) -> Option<NaiveDate> {
@@ -6505,6 +6789,13 @@ impl VersionedMetadata for InnerMetadata3_2 {
         self.timestamps.date = None.into();
     }
 
+    fn lookup_shortname(
+        st: &mut KwParser,
+        n: MeasIdx,
+    ) -> Option<<Self::N as MightHave>::Wrapper<Shortname>> {
+        st.lookup_meas_req(n).map(Identity)
+    }
+
     fn lookup_specific(st: &mut KwParser, _: Par) -> Option<InnerMetadata3_2> {
         // Only L is allowed as of 3.2, so pull the value and check it if given.
         // The only thing we care about is that the value is valid, since we
@@ -6518,7 +6809,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
                 cyt,
                 spillover: st.lookup_meta_opt(false),
                 cytsn: st.lookup_meta_opt(false),
-                timestep: st.lookup_meta_opt(false),
+                // timestep: st.lookup_meta_opt(false),
                 vol: st.lookup_meta_opt(false),
                 flowrate: st.lookup_meta_opt(false),
                 modification: st.lookup_modification(),
@@ -6550,7 +6841,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
             OptMetaKey::pair(&ts.etim),
             OptMetaKey::pair(&ts.date),
             OptMetaKey::pair(&self.cytsn),
-            OptMetaKey::pair(&self.timestep),
+            // OptMetaKey::pair(&self.timestep),
             OptMetaKey::pair(&mdn.last_modifier),
             OptMetaKey::pair(&mdn.last_modified),
             OptMetaKey::pair(&mdn.originality),
@@ -7882,7 +8173,7 @@ impl IntoMetadata<InnerMetadata3_0> for InnerMetadata2_0 {
             comp: self.comp,
             timestamps: self.timestamps.map(|d| d.into()),
             cytsn: None.into(),
-            timestep: None.into(),
+            // timestep: None.into(),
             unicode: None.into(),
         })
     }
@@ -7901,7 +8192,7 @@ impl IntoMetadata<InnerMetadata3_0> for InnerMetadata3_1 {
             byteord: self.byteord.into(),
             cyt: self.cyt,
             cytsn: self.cytsn,
-            timestep: self.timestep,
+            // timestep: self.timestep,
             timestamps: self.timestamps.map(|d| d.into()),
             comp: None.into(),
             unicode: None.into(),
@@ -7916,7 +8207,7 @@ impl IntoMetadata<InnerMetadata3_0> for InnerMetadata3_2 {
             byteord: self.byteord.into(),
             cyt: Some(self.cyt).into(),
             cytsn: self.cytsn,
-            timestep: self.timestep,
+            // timestep: self.timestep,
             timestamps: self.timestamps.map(|d| d.into()),
             comp: None.into(),
             unicode: None.into(),
@@ -7935,7 +8226,7 @@ impl IntoMetadata<InnerMetadata3_1> for InnerMetadata2_0 {
                 cyt: self.cyt,
                 timestamps: self.timestamps.map(|d| d.into()),
                 cytsn: None.into(),
-                timestep: None.into(),
+                // timestep: None.into(),
                 spillover: None.into(),
                 modification: ModificationData::default(),
                 plate: PlateData::default(),
@@ -7953,7 +8244,7 @@ impl IntoMetadata<InnerMetadata3_1> for InnerMetadata3_0 {
                 byteord,
                 mode: self.mode,
                 cyt: self.cyt,
-                timestep: self.timestep,
+                // timestep: self.timestep,
                 cytsn: self.cytsn,
                 timestamps: self.timestamps.map(|d| d.into()),
                 spillover: None.into(),
@@ -7977,7 +8268,7 @@ impl IntoMetadata<InnerMetadata3_1> for InnerMetadata3_2 {
             byteord: self.byteord,
             cyt: Some(self.cyt).into(),
             cytsn: self.cytsn,
-            timestep: self.timestep,
+            // timestep: self.timestep,
             timestamps: self.timestamps,
             spillover: self.spillover,
             plate: self.plate,
@@ -8000,7 +8291,7 @@ impl IntoMetadata<InnerMetadata3_2> for InnerMetadata2_0 {
                 byteord,
                 cyt,
                 timestamps: self.timestamps.map(|d| d.into()),
-                timestep: None.into(),
+                // timestep: None.into(),
                 cytsn: None.into(),
                 modification: ModificationData::default(),
                 spillover: None.into(),
@@ -8028,7 +8319,7 @@ impl IntoMetadata<InnerMetadata3_2> for InnerMetadata3_0 {
                 InnerMetadata3_2 {
                     byteord,
                     cyt,
-                    timestep: self.timestep,
+                    // timestep: self.timestep,
                     cytsn: self.cytsn,
                     timestamps: self.timestamps.map(|d| d.into()),
                     modification: ModificationData::default(),
@@ -8055,7 +8346,7 @@ impl IntoMetadata<InnerMetadata3_2> for InnerMetadata3_1 {
                 byteord: self.byteord,
                 cyt,
                 cytsn: self.cytsn,
-                timestep: self.timestep,
+                // timestep: self.timestep,
                 timestamps: self.timestamps,
                 spillover: self.spillover,
                 modification: self.modification,

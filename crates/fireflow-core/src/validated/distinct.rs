@@ -318,8 +318,6 @@ impl<K: MightHave + Clone, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
             .map(|(i, x)| K::as_opt(&x.key).cloned().unwrap_or(prefix.as_indexed(i)))
     }
 
-    // TODO add functions to remove/add center value
-
     // TODO this only can insert a non-center value
     pub fn insert(
         &mut self,
@@ -426,7 +424,7 @@ impl<K: MightHave + Clone, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
         }
     }
 
-    pub fn try_set_center(&mut self, n: &Shortname) -> bool
+    pub fn set_center(&mut self, n: &Shortname) -> bool
     where
         V: From<U>,
         U: From<V>,
@@ -440,20 +438,20 @@ impl<K: MightHave + Clone, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
             let new_center = it.next().and_then(|p| Self::try_to_center(p)).unwrap();
             (new_left, new_center, it)
         };
+        let merge_old_center =
+            |xs: DistinctVec<K::Wrapper<Shortname>, V>,
+             c: DistinctPair<Shortname, U>,
+             ys: DistinctVec<K::Wrapper<Shortname>, V>| {
+                xs.into_iter()
+                    .chain([Self::from_center(c)])
+                    .chain(ys)
+                    .collect()
+            };
         // Use "dummy enum trick" to replace self with a dummy so I can "move"
         // the real value out. The only caveat is that self needs to be replaced
         // with the original value if the manipulations don't need to happen.
         let (ret, newself) = match mem::take(self) {
             NamedVec::Split(s, _) => {
-                let merge_old_center =
-                    |xs: DistinctVec<K::Wrapper<Shortname>, V>,
-                     c: DistinctPair<Shortname, U>,
-                     ys: DistinctVec<K::Wrapper<Shortname>, V>| {
-                        xs.into_iter()
-                            .chain([Self::from_center(c)])
-                            .chain(ys)
-                            .collect()
-                    };
                 if let Some(i) = position_by_name::<K, V>(&s.left, n) {
                     let (left, center, l_iter) = split_new_center(i, s.left);
                     let right = merge_old_center(l_iter.collect(), s.center, s.right);
@@ -481,38 +479,56 @@ impl<K: MightHave + Clone, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
         ret
     }
 
+    pub fn remove_center(&mut self) -> bool
+    where
+        V: From<U>,
+        U: From<V>,
+    {
+        // Use "dummy enum trick" to replace self with a dummy so I can "move"
+        // the real value out. The only caveat is that self needs to be replaced
+        // with the original value if the manipulations don't need to happen.
+        let (ret, newself) = match mem::take(self) {
+            NamedVec::Split(s, _) => {
+                let members = s
+                    .left
+                    .into_iter()
+                    .chain([Self::from_center(s.center)])
+                    .chain(s.right)
+                    .collect();
+                (true, Self::new_unsplit(members, s.prefix))
+            }
+            NamedVec::Unsplit(u) => (false, NamedVec::Unsplit(u)),
+        };
+        *self = newself;
+        ret
+    }
+
     // TODO this seems like it could be more general (like "map_keys" or something)
     pub fn try_new_names<J: MightHave>(self) -> Option<NamedVec<J, J::Wrapper<Shortname>, U, V>> {
-        let go = |p: DistinctPair<K::Wrapper<Shortname>, V>| {
-            let name = K::to_opt(p.key)?;
-            let newkey = J::into_wrapped(name);
-            Some(DistinctPair {
-                key: newkey,
-                value: p.value,
-            })
+        let go = |xs: DistinctVec<K::Wrapper<Shortname>, V>| {
+            xs.into_iter()
+                .map(Self::try_into_wrapper::<J>)
+                .collect::<Option<Vec<_>>>()
         };
         match self {
             NamedVec::Split(s, _) => Some(NamedVec::new_split(
-                s.left.into_iter().map(go).collect::<Option<Vec<_>>>()?,
+                go(s.left)?,
                 s.center,
-                s.right.into_iter().map(go).collect::<Option<Vec<_>>>()?,
+                go(s.right)?,
                 s.prefix,
             )),
-            NamedVec::Unsplit(u) => Some(NamedVec::Unsplit(UnsplitVec {
-                members: u.members.into_iter().map(go).collect::<Option<Vec<_>>>()?,
-                prefix: u.prefix,
-            })),
+            NamedVec::Unsplit(u) => Some(NamedVec::new_unsplit(go(u.members)?, u.prefix)),
         }
     }
 
-    // fn try_into_wrapper<J: MightHave>(p: WrappedPair<K, V>) -> Option<WrappedPair<J, V>> {
-    //     let name = K::to_opt(p.key)?;
-    //     let newkey = J::into_wrapped(name);
-    //     Some(DistinctPair {
-    //         key: newkey,
-    //         value: p.value,
-    //     })
-    // }
+    fn try_into_wrapper<J: MightHave>(p: WrappedPair<K, V>) -> Option<WrappedPair<J, V>> {
+        let name = K::to_opt(p.key)?;
+        let newkey = J::into_wrapped(name);
+        Some(DistinctPair {
+            key: newkey,
+            value: p.value,
+        })
+    }
 
     fn try_to_center(p: WrappedPair<K, V>) -> Option<DistinctPair<Shortname, U>>
     where

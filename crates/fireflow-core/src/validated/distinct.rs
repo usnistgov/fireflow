@@ -136,9 +136,23 @@ impl<K: MightHave, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
         self.iter_dpairs().map(|x| &x.value)
     }
 
-    // // pub fn iter_values_mut(&mut self) -> impl Iterator<Item = &mut V> + '_ {
-    // //     self.iter_dpairs().map(|x| &mut x.value)
-    // // }
+    // pub fn map_values_in_place<F, X>(&mut self, f: F)
+    // where
+    //     F: Fn(&mut V),
+    // {
+    //     match self {
+    //         NamedVec::Split(s, _) => {
+    //             for p in s.left.iter_mut() {
+    //                 f(&mut p.value);
+    //             }
+    //         }
+    //         NamedVec::Unsplit(u) => {
+    //             for p in u.members.iter_mut() {
+    //                 f(&mut p.value);
+    //             }
+    //         }
+    //     }
+    // }
 
     pub fn map_values<E, F, W>(
         self,
@@ -147,23 +161,21 @@ impl<K: MightHave, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
     where
         F: Fn(usize, V) -> Result<W, E>,
     {
+        let go = |xs: DistinctVec<K::Wrapper<Shortname>, V>, offset: usize| {
+            let (ls, lfail): (Vec<_>, Vec<_>) = xs
+                .into_iter()
+                .enumerate()
+                .map(|(i, p)| {
+                    f(i + offset, p.value).map(|value| DistinctPair { key: p.key, value })
+                })
+                .partition_result();
+            (ls, lfail)
+        };
         match self {
             NamedVec::Split(s, _) => {
                 let nleft = s.left.len();
-                let (ls, lfail): (Vec<_>, Vec<_>) = s
-                    .left
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, p)| f(i, p.value).map(|value| DistinctPair { key: p.key, value }))
-                    .partition_result();
-                let (rs, rfail): (Vec<_>, Vec<_>) = s
-                    .right
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, p)| {
-                        f(i + nleft + 1, p.value).map(|value| DistinctPair { key: p.key, value })
-                    })
-                    .partition_result();
+                let (ls, lfail) = go(s.left, 0);
+                let (rs, rfail) = go(s.right, nleft + 1);
                 let fail: Vec<_> = lfail.into_iter().chain(rfail).collect();
                 if fail.is_empty() {
                     Ok(NamedVec::Split(
@@ -180,12 +192,7 @@ impl<K: MightHave, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
                 }
             }
             NamedVec::Unsplit(u) => {
-                let (members, fail): (Vec<_>, Vec<_>) = u
-                    .members
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, p)| f(i, p.value).map(|value| DistinctPair { key: p.key, value }))
-                    .partition_result();
+                let (members, fail) = go(u.members, 0);
                 if fail.is_empty() {
                     Ok(NamedVec::Unsplit(UnsplitVec {
                         members,
@@ -195,6 +202,31 @@ impl<K: MightHave, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
                     Err(fail)
                 }
             }
+        }
+    }
+
+    pub fn map_center<F, W>(self, f: F) -> NamedVec<K, K::Wrapper<Shortname>, W, V>
+    where
+        F: Fn(usize, U) -> W,
+    {
+        match self {
+            NamedVec::Split(s, _) => {
+                let i = s.left.len();
+                let c = s.center;
+                NamedVec::Split(
+                    SplitVec {
+                        left: s.left,
+                        center: DistinctPair {
+                            key: c.key,
+                            value: f(i, c.value),
+                        },
+                        right: s.right,
+                        prefix: s.prefix,
+                    },
+                    PhantomData,
+                )
+            }
+            NamedVec::Unsplit(u) => NamedVec::Unsplit(u),
         }
     }
 
@@ -224,10 +256,10 @@ impl<K: MightHave, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
 }
 
 impl<K: MightHave + Clone, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
-    pub fn position_by_name(&self, n: &Shortname) -> Option<usize> {
-        self.iter_keys()
-            .position(|k| K::as_opt(k).is_some_and(|kn| kn == n))
-    }
+    // pub fn position_by_name(&self, n: &Shortname) -> Option<usize> {
+    //     self.iter_keys()
+    //         .position(|k| K::as_opt(k).is_some_and(|kn| kn == n))
+    // }
 
     pub fn find_by_name(&self, n: &Shortname) -> Option<&V> {
         self.iter_dpairs()
@@ -235,17 +267,23 @@ impl<K: MightHave + Clone, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
             .map(|p| &p.value)
     }
 
-    // /// Remove key/value pair by name of key.
-    // ///
-    // /// Return None if name is not found.
-    // pub fn remove_name(&mut self, n: &Shortname) -> Option<(usize, K, V)> {
-    //     if let Some(i) = self.position_by_name(n) {
-    //         let (k, v) = self.remove_index_unchecked(i);
-    //         Some((i, k, v))
-    //     } else {
-    //         None
-    //     }
-    // }
+    /// Remove key/value pair by name of key.
+    ///
+    /// Return None if name is not found.
+    pub fn remove_name(&mut self, n: &Shortname) -> Option<(usize, K::Wrapper<Shortname>, V)> {
+        let go = |xs: &mut Vec<_>| {
+            if let Some(i) = position_by_name::<K, V>(&xs, n) {
+                let p = xs.remove(i);
+                Some((i, p.key, p.value))
+            } else {
+                None
+            }
+        };
+        match self {
+            NamedVec::Split(s, _) => go(&mut s.left).or(go(&mut s.right)),
+            NamedVec::Unsplit(u) => go(&mut u.members),
+        }
+    }
 
     pub fn iter_maybe_names(&self) -> impl Iterator<Item = Option<&Shortname>> + '_ {
         self.iter_dpairs().map(|x| K::as_opt(&x.key))
@@ -328,6 +366,7 @@ impl<K: MightHave + Clone, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
         }
     }
 
+    // TODO not DRY
     pub fn set_names(&mut self, ns: Vec<Shortname>) -> Result<NameMapping, DistinctKeysError> {
         let new_len = ns.len();
         let old_len = self.len();
@@ -364,7 +403,7 @@ impl<K: MightHave + Clone, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
     }
 
     // TODO this seems like it could be more general (like "map_keys" or something)
-    pub fn try_new_names<J: MightHave>(self) -> Option<NamedVec<K, J::Wrapper<Shortname>, U, V>> {
+    pub fn try_new_names<J: MightHave>(self) -> Option<NamedVec<J, J::Wrapper<Shortname>, U, V>> {
         let go = |p: DistinctPair<K::Wrapper<Shortname>, V>| {
             let name = K::to_opt(p.key)?;
             let newkey = J::into_wrapped(name);
@@ -466,6 +505,14 @@ fn all_unique<'a, T: Hash + Eq>(xs: impl Iterator<Item = T> + 'a) -> bool {
         }
     }
     true
+}
+
+pub fn position_by_name<K: MightHave, V>(
+    xs: &DistinctVec<K::Wrapper<Shortname>, V>,
+    n: &Shortname,
+) -> Option<usize> {
+    xs.iter()
+        .position(|p| K::as_opt(&p.key).is_some_and(|kn| kn == n))
 }
 
 // impl<K, U, V> IntoIterator for NamedVec<K, U, V> {

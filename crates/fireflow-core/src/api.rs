@@ -1622,6 +1622,13 @@ kw_opt_meta!(EndDateTime, "ENDDATETIME");
 #[derive(Clone, Serialize)]
 pub struct Timestep(pub PositiveFloat);
 
+impl Default for Timestep {
+    fn default() -> Self {
+        // ASSUME this will never panic...1.0 is still a positive number, right?
+        Timestep(PositiveFloat::try_from(1.0).ok().unwrap())
+    }
+}
+
 newtype_disp!(Timestep);
 newtype_fromstr!(Timestep, RangedFloatError);
 
@@ -4963,18 +4970,19 @@ where
         }
     }
 
+    // NOTE this does not apply to time channel
     pub fn remove_measurement(
         &mut self,
         n: &Shortname,
-    ) -> Result<Option<(usize, M::N, Measurement<M::P>)>, String> {
-        if self.time_channel.as_ref().is_some_and(|tn| tn == n) {
-            let msg = format!(
-                "measurement names {n} is set to the time channel \
-                 and cannot be removed; unset the time channel \
-                 first to remove this measurement"
-            );
-            Err(msg)
-        } else if let Some((i, k, v)) = self.measurements.remove_name(n) {
+    ) -> Result<
+        Option<(
+            usize,
+            <M::N as MightHave>::Wrapper<Shortname>,
+            Measurement<M::P>,
+        )>,
+        String,
+    > {
+        if let Some((i, k, v)) = self.measurements.remove_name(n) {
             let m = &mut self.metadata;
             m.remove_trigger_by_name(n);
             let s = &mut m.specific;
@@ -5025,16 +5033,16 @@ where
     /// of measurements; true otherwise. Since $PnS is an optional keyword for
     /// all versions, any name in the list may be None which will blank the
     /// keyword.
-    pub fn set_longnames(&mut self, ns: Vec<Option<String>>) -> bool {
-        if self.measurements.len() != ns.len() {
-            false
-        } else {
-            for (m, n) in self.measurements.iter_values_mut().zip(ns) {
-                m.set_longname(n)
-            }
-            true
-        }
-    }
+    // pub fn set_longnames(&mut self, ns: Vec<Option<String>>) -> bool {
+    //     if self.measurements.len() != ns.len() {
+    //         false
+    //     } else {
+    //         for (m, n) in self.measurements.iter_values_mut().zip(ns) {
+    //             m.set_longname(n)
+    //         }
+    //         true
+    //     }
+    // }
 
     pub fn par(&self) -> Par {
         Par(self.measurements.len())
@@ -5357,13 +5365,18 @@ where
     where
         M: IntoMetadata<ToM>,
         M::P: IntoMeasurement<ToM::P>,
+        M::T: IntoTimeChannel<ToM::T>,
         M::N: Clone,
         ToM: VersionedMetadata,
         ToM::P: VersionedMeasurement,
+        ToM::T: VersionedTime,
+        ToM::N: MightHave,
+        ToM::N: Clone,
     {
-        let ps = self
+        let ps: Result<Measurements<M::N, ToM::T, ToM::P>, Vec<Vec<String>>> = self
             .measurements
-            .map_values(|i, v| IntoMeasurement::try_convert(v, MeasIdx(i)));
+            .map_values(|i, v| IntoMeasurement::try_convert(v, MeasIdx(i)))
+            .map(|x| x.map_center(|i, v| IntoTimeChannel::try_convert(v, MeasIdx(i))));
         let m = IntoMetadata::try_convert(self.metadata);
         let res: Result<
             CoreTEXT<ToM, ToM::T, ToM::P, ToM::N, <ToM::N as MightHave>::Wrapper<Shortname>>,
@@ -7910,6 +7923,24 @@ where
     fn try_convert_inner(self, n: MeasIdx) -> MsgsResult<P>;
 }
 
+pub trait IntoTimeChannel<T>
+where
+    Self: VersionedTime,
+    T: VersionedTime,
+{
+    fn try_convert(t: TimeChannel<Self>, n: MeasIdx) -> TimeChannel<T> {
+        TimeChannel {
+            bytes: t.bytes,
+            range: t.range,
+            longname: t.longname,
+            nonstandard_keywords: t.nonstandard_keywords,
+            specific: Self::try_convert_inner(t.specific, n),
+        }
+    }
+
+    fn try_convert_inner(self, n: MeasIdx) -> T;
+}
+
 pub trait IntoMetadata<M>
 where
     Self: VersionedMetadata,
@@ -8363,6 +8394,129 @@ impl IntoMetadata<InnerMetadata3_2> for InnerMetadata3_1 {
 impl IntoMetadata<InnerMetadata3_2> for InnerMetadata3_2 {
     fn try_convert_inner(self) -> MsgsResult<InnerMetadata3_2> {
         Ok(self)
+    }
+}
+
+impl IntoTimeChannel<InnerTime2_0> for InnerTime2_0 {
+    fn try_convert_inner(self, _: MeasIdx) -> Self {
+        self
+    }
+}
+
+impl IntoTimeChannel<InnerTime2_0> for InnerTime3_0 {
+    fn try_convert_inner(self, _: MeasIdx) -> InnerTime2_0 {
+        InnerTime2_0
+    }
+}
+
+impl IntoTimeChannel<InnerTime2_0> for InnerTime3_1 {
+    fn try_convert_inner(self, _: MeasIdx) -> InnerTime2_0 {
+        InnerTime2_0
+    }
+}
+
+impl IntoTimeChannel<InnerTime2_0> for InnerTime3_2 {
+    fn try_convert_inner(self, _: MeasIdx) -> InnerTime2_0 {
+        InnerTime2_0
+    }
+}
+
+impl IntoTimeChannel<InnerTime3_0> for InnerTime2_0 {
+    fn try_convert_inner(self, _: MeasIdx) -> InnerTime3_0 {
+        InnerTime3_0 {
+            timestep: Timestep::default(),
+        }
+    }
+}
+
+impl IntoTimeChannel<InnerTime3_0> for InnerTime3_0 {
+    fn try_convert_inner(self, _: MeasIdx) -> InnerTime3_0 {
+        self
+    }
+}
+
+impl IntoTimeChannel<InnerTime3_0> for InnerTime3_1 {
+    fn try_convert_inner(self, _: MeasIdx) -> InnerTime3_0 {
+        InnerTime3_0 {
+            timestep: self.timestep,
+        }
+    }
+}
+
+impl IntoTimeChannel<InnerTime3_0> for InnerTime3_2 {
+    fn try_convert_inner(self, _: MeasIdx) -> InnerTime3_0 {
+        InnerTime3_0 {
+            timestep: self.timestep,
+        }
+    }
+}
+
+impl IntoTimeChannel<InnerTime3_1> for InnerTime2_0 {
+    fn try_convert_inner(self, _: MeasIdx) -> InnerTime3_1 {
+        InnerTime3_1 {
+            timestep: Timestep::default(),
+            display: None.into(),
+        }
+    }
+}
+
+impl IntoTimeChannel<InnerTime3_1> for InnerTime3_0 {
+    fn try_convert_inner(self, _: MeasIdx) -> InnerTime3_1 {
+        InnerTime3_1 {
+            timestep: self.timestep,
+            display: None.into(),
+        }
+    }
+}
+
+impl IntoTimeChannel<InnerTime3_1> for InnerTime3_1 {
+    fn try_convert_inner(self, _: MeasIdx) -> InnerTime3_1 {
+        self
+    }
+}
+
+impl IntoTimeChannel<InnerTime3_1> for InnerTime3_2 {
+    fn try_convert_inner(self, _: MeasIdx) -> InnerTime3_1 {
+        InnerTime3_1 {
+            timestep: self.timestep,
+            display: self.display,
+        }
+    }
+}
+
+impl IntoTimeChannel<InnerTime3_2> for InnerTime2_0 {
+    fn try_convert_inner(self, _: MeasIdx) -> InnerTime3_2 {
+        InnerTime3_2 {
+            timestep: Timestep::default(),
+            display: None.into(),
+            datatype: None.into(),
+        }
+    }
+}
+
+impl IntoTimeChannel<InnerTime3_2> for InnerTime3_0 {
+    fn try_convert_inner(self, _: MeasIdx) -> InnerTime3_2 {
+        InnerTime3_2 {
+            timestep: self.timestep,
+            display: None.into(),
+            datatype: None.into(),
+        }
+    }
+}
+
+impl IntoTimeChannel<InnerTime3_2> for InnerTime3_1 {
+    fn try_convert_inner(self, _: MeasIdx) -> InnerTime3_2 {
+        InnerTime3_2 {
+            timestep: self.timestep,
+            display: self.display,
+            datatype: None.into(),
+        }
+    }
+}
+
+impl IntoTimeChannel<InnerTime3_2> for InnerTime3_2 {
+    fn try_convert_inner(self, _: MeasIdx) -> InnerTime3_2 {
+        self
     }
 }
 

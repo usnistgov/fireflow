@@ -963,10 +963,10 @@ pub struct Measurement<X> {
 }
 
 #[derive(Clone, Serialize)]
-struct OptionalKwFamily;
+pub struct OptionalKwFamily;
 
 #[derive(Clone, Serialize)]
-struct Identity<T>(pub T);
+pub struct Identity<T>(pub T);
 
 impl MightHave for OptionalKwFamily {
     type Wrapper<T> = OptionalKw<T>;
@@ -985,7 +985,7 @@ impl MightHave for OptionalKwFamily {
 }
 
 #[derive(Clone, Serialize)]
-struct IdentityFamily;
+pub struct IdentityFamily;
 
 impl MightHave for IdentityFamily {
     type Wrapper<T> = Identity<T>;

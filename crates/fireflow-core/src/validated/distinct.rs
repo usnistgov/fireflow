@@ -206,6 +206,13 @@ impl<K: MightHave, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
         self.iter_dpairs().count()
     }
 
+    pub fn non_center_len(&self) -> usize {
+        match self {
+            NamedVec::Split(s, _) => s.left.len() + s.right.len(),
+            NamedVec::Unsplit(u) => u.members.len(),
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -219,12 +226,12 @@ impl<K: MightHave, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
 impl<K: MightHave + Clone, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
     pub fn position_by_name(&self, n: &Shortname) -> Option<usize> {
         self.iter_keys()
-            .position(|k| K::as_opt(K::as_ref(k)).is_some_and(|kn| kn == n))
+            .position(|k| K::as_opt(k).is_some_and(|kn| kn == n))
     }
 
     pub fn find_by_name(&self, n: &Shortname) -> Option<&V> {
         self.iter_dpairs()
-            .find(|p| K::as_opt(K::as_ref(&p.key)).is_some_and(|kn| kn == n))
+            .find(|p| K::as_opt(&p.key).is_some_and(|kn| kn == n))
             .map(|p| &p.value)
     }
 
@@ -241,18 +248,19 @@ impl<K: MightHave + Clone, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
     // }
 
     pub fn iter_maybe_names(&self) -> impl Iterator<Item = Option<&Shortname>> + '_ {
-        self.iter_dpairs().map(|x| K::as_opt(K::as_ref(&x.key)))
+        self.iter_dpairs().map(|x| K::as_opt(&x.key))
     }
 
     pub fn iter_names(&self) -> impl Iterator<Item = Shortname> + '_ {
         let prefix = self.as_prefix();
-        self.iter_dpairs().enumerate().map(|(i, x)| {
-            K::as_opt(K::as_ref(&x.key))
-                .cloned()
-                .unwrap_or(prefix.as_indexed(i))
-        })
+        self.iter_dpairs()
+            .enumerate()
+            .map(|(i, x)| K::as_opt(&x.key).cloned().unwrap_or(prefix.as_indexed(i)))
     }
 
+    // TODO add functions to remove/add center value
+
+    // TODO this only can insert a non-center value
     pub fn insert(
         &mut self,
         i: usize,
@@ -282,12 +290,13 @@ impl<K: MightHave + Clone, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
         }
     }
 
-    pub fn set_keys(
+    // this will ONLY be able to set the keys of the non-center members
+    pub fn set_non_center_keys(
         &mut self,
         ks: Vec<K::Wrapper<Shortname>>,
     ) -> Result<NameMapping, DistinctKeysError> {
         let new_len = ks.len();
-        let old_len = self.len();
+        let old_len = self.non_center_len();
         if new_len != old_len {
             Err(DistinctKeysError::Length { old_len, new_len })
         } else if !self
@@ -297,25 +306,23 @@ impl<K: MightHave + Clone, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
             Err(DistinctKeysError::NonUnique)
         } else {
             let mut mapping = HashMap::new();
-            match self {
-                // NamedVec::Split(s) => {
-                //     for (p, k) in s.left.iter_mut().zip(ks) {
-                //         if let (Some(old), Some(new)) = (p.key.as_name_opt(), k.as_name_opt()) {
-                //             mapping.insert(old.clone(), new.clone());
-                //         }
-                //         p.key = k;
-                //     }
-                // }
-                NamedVec::Unsplit(u) => {
-                    for (p, k) in u.members.iter_mut().zip(ks) {
-                        if let (Some(old), Some(new)) =
-                            (K::as_opt(K::as_ref(&p.key)), K::as_opt(K::as_ref(&k)))
-                        {
-                            mapping.insert(old.clone(), new.clone());
-                        }
-                        p.key = k;
+            let mut go = |side: &mut DistinctVec<K::Wrapper<Shortname>, V>,
+                          ks_side: Vec<K::Wrapper<Shortname>>| {
+                for (p, k) in side.iter_mut().zip(ks_side) {
+                    if let (Some(old), Some(new)) = (K::as_opt(&p.key), K::as_opt(&k)) {
+                        mapping.insert(old.clone(), new.clone());
                     }
+                    p.key = k;
                 }
+            };
+            match self {
+                NamedVec::Split(s, _) => {
+                    let mut ks_left = ks;
+                    let ks_right = ks_left.split_off(s.left.len());
+                    go(&mut s.left, ks_left);
+                    go(&mut s.right, ks_right);
+                }
+                NamedVec::Unsplit(u) => go(&mut u.members, ks),
             }
             Ok(mapping)
         }
@@ -330,45 +337,56 @@ impl<K: MightHave + Clone, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
             Err(DistinctKeysError::NonUnique)
         } else {
             let mut mapping = HashMap::new();
-            match self {
-                // NamedVec::Split(s) => {
-                //     for (p, k) in s.left.iter_mut().zip(ks) {
-                //         if let (Some(old), Some(new)) = (p.key.as_name_opt(), k.as_name_opt()) {
-                //             mapping.insert(old.clone(), new.clone());
-                //         }
-                //         p.key = k;
-                //     }
-                // }
-                NamedVec::Unsplit(u) => {
-                    for (p, n) in u.members.iter_mut().zip(ns) {
-                        if let Some(old) = K::as_opt(K::as_ref(&p.key)) {
-                            mapping.insert(old.clone(), n.clone());
-                        }
-                        p.key = K::into_wrapped(n);
+            let mut go = |side: &mut DistinctVec<K::Wrapper<Shortname>, V>,
+                          ns_side: Vec<Shortname>| {
+                for (p, n) in side.iter_mut().zip(ns_side) {
+                    if let Some(old) = K::as_opt(&p.key) {
+                        mapping.insert(old.clone(), n.clone());
                     }
+                    p.key = K::into_wrapped(n);
                 }
+            };
+            match self {
+                NamedVec::Split(s, _) => {
+                    let mut ns_left = ns;
+                    let mut ns_right = ns_left.split_off(s.left.len());
+                    // ASSUME this won't fail because we already checked length
+                    let n_center = ns_right.pop().unwrap();
+                    go(&mut s.left, ns_left);
+                    go(&mut s.right, ns_right);
+                    mapping.insert(s.center.key.clone(), n_center.clone());
+                    s.center.key = n_center;
+                }
+                NamedVec::Unsplit(u) => go(&mut u.members, ns),
             }
             Ok(mapping)
         }
     }
 
+    // TODO this seems like it could be more general (like "map_keys" or something)
     pub fn try_new_names<J: MightHave>(self) -> Option<NamedVec<K, J::Wrapper<Shortname>, U, V>> {
+        let go = |p: DistinctPair<K::Wrapper<Shortname>, V>| {
+            let name = K::to_opt(p.key)?;
+            let newkey = J::into_wrapped(name);
+            Some(DistinctPair {
+                key: newkey,
+                value: p.value,
+            })
+        };
         match self {
-            NamedVec::Unsplit(u) => {
-                let mut new = vec![];
-                for p in u.members {
-                    let name = K::as_opt(K::as_ref(&p.key))?;
-                    let newkey = J::into_wrapped(*name);
-                    new.push(DistinctPair {
-                        key: newkey,
-                        value: p.value,
-                    });
-                }
-                Some(NamedVec::Unsplit(UnsplitVec {
-                    members: new,
-                    prefix: u.prefix,
-                }))
-            }
+            NamedVec::Split(s, _) => Some(NamedVec::Split(
+                SplitVec {
+                    left: s.left.into_iter().map(go).collect::<Option<Vec<_>>>()?,
+                    right: s.right.into_iter().map(go).collect::<Option<Vec<_>>>()?,
+                    center: s.center,
+                    prefix: s.prefix,
+                },
+                PhantomData,
+            )),
+            NamedVec::Unsplit(u) => Some(NamedVec::Unsplit(UnsplitVec {
+                members: u.members.into_iter().map(go).collect::<Option<Vec<_>>>()?,
+                prefix: u.prefix,
+            })),
         }
     }
 }
@@ -412,16 +430,21 @@ impl fmt::Display for DistinctKeysError {
 pub trait MightHave {
     type Wrapper<T>;
 
-    fn as_opt<T>(x: Self::Wrapper<&T>) -> Option<&T>;
+    fn to_opt<T>(x: Self::Wrapper<T>) -> Option<T>;
 
     fn as_ref<T>(x: &Self::Wrapper<T>) -> Self::Wrapper<&T>;
 
+    fn as_opt<T>(x: &Self::Wrapper<T>) -> Option<&T> {
+        Self::to_opt(Self::as_ref(x))
+    }
+
+    // TODO this is basically From<T>
     fn into_wrapped<T>(n: T) -> Self::Wrapper<T>;
 }
 
 impl ShortnamePrefix {
     fn as_opt_or_indexed<X: MightHave>(&self, x: X::Wrapper<&Shortname>, i: usize) -> Shortname {
-        X::as_opt(x).cloned().unwrap_or(self.as_indexed(i))
+        X::to_opt(x).cloned().unwrap_or(self.as_indexed(i))
     }
 
     fn all_unique<X: MightHave>(&self, xs: Vec<X::Wrapper<&Shortname>>) -> bool {

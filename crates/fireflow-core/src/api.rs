@@ -971,7 +971,7 @@ struct Identity<T>(pub T);
 impl MightHave for OptionalKwFamily {
     type Wrapper<T> = OptionalKw<T>;
 
-    fn as_opt<T>(x: Self::Wrapper<&T>) -> Option<&T> {
+    fn to_opt<T>(x: Self::Wrapper<T>) -> Option<T> {
         x.0
     }
 
@@ -990,7 +990,7 @@ struct IdentityFamily;
 impl MightHave for IdentityFamily {
     type Wrapper<T> = Identity<T>;
 
-    fn as_opt<T>(x: Self::Wrapper<&T>) -> Option<&T> {
+    fn to_opt<T>(x: Self::Wrapper<T>) -> Option<T> {
         Some(x.0)
     }
 
@@ -5154,7 +5154,7 @@ where
             .flat_map(|n| {
                 let i = MeasIdx(n);
                 if let Some(name_res) = M::lookup_shortname(st, i) {
-                    if let Some(name) = M::N::as_opt(M::N::as_ref(&name_res)) {
+                    if let Some(name) = M::N::to_opt(M::N::as_ref(&name_res)) {
                         if name.as_ref() == "Time" {
                             // TODO useless clone
                             return TimeChannel::lookup_time_channel(st, i)

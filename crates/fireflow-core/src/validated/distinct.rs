@@ -16,7 +16,7 @@ pub enum NamedVec<K, W, U, V> {
 }
 
 #[derive(Clone, Serialize)]
-struct SplitVec<K, U, V> {
+pub struct SplitVec<K, U, V> {
     left: DistinctVec<K, V>,
     // TODO boxme
     center: DistinctPair<Shortname, U>,
@@ -25,7 +25,7 @@ struct SplitVec<K, U, V> {
 }
 
 #[derive(Clone, Serialize)]
-struct UnsplitVec<K, V> {
+pub struct UnsplitVec<K, V> {
     members: DistinctVec<K, V>,
     prefix: ShortnamePrefix,
 }
@@ -38,11 +38,15 @@ struct DistinctPair<K, V> {
     value: V,
 }
 
+type RawInput<K, U, V> = Vec<Result<(<K as MightHave>::Wrapper<Shortname>, V), (Shortname, U)>>;
+
+type WrappedNamedVec<K, U, V> = NamedVec<K, <K as MightHave>::Wrapper<Shortname>, U, V>;
+
 pub type NameMapping = HashMap<Shortname, Shortname>;
 
 impl<K: MightHave, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
     pub fn new(
-        xs: Vec<Result<(K::Wrapper<Shortname>, V), (Shortname, U)>>,
+        xs: RawInput<K, U, V>,
         prefix: ShortnamePrefix,
     ) -> Result<NamedVec<K, K::Wrapper<Shortname>, U, V>, String> {
         // TODO these clones shouldn't be necessary
@@ -154,10 +158,7 @@ impl<K: MightHave, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
     //     }
     // }
 
-    pub fn map_values<E, F, W>(
-        self,
-        f: F,
-    ) -> Result<NamedVec<K, K::Wrapper<Shortname>, U, W>, Vec<E>>
+    pub fn map_values<E, F, W>(self, f: F) -> Result<WrappedNamedVec<K, U, W>, Vec<E>>
     where
         F: Fn(usize, V) -> Result<W, E>,
     {
@@ -272,7 +273,7 @@ impl<K: MightHave + Clone, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
     /// Return None if name is not found.
     pub fn remove_name(&mut self, n: &Shortname) -> Option<(usize, K::Wrapper<Shortname>, V)> {
         let go = |xs: &mut Vec<_>| {
-            if let Some(i) = position_by_name::<K, V>(&xs, n) {
+            if let Some(i) = position_by_name::<K, V>(xs, n) {
                 let p = xs.remove(i);
                 Some((i, p.key, p.value))
             } else {
@@ -301,14 +302,16 @@ impl<K: MightHave + Clone, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
     // TODO this only can insert a non-center value
     pub fn insert(
         &mut self,
-        i: usize,
+        index: usize,
         key: K::Wrapper<Shortname>,
         value: V,
     ) -> Result<Shortname, DistinctError> {
-        let p = self.len();
-        let k = self.as_prefix().as_opt_or_indexed::<K>(K::as_ref(&key), i);
-        if i > p {
-            Err(DistinctError::Index { index: i, len: p })
+        let len = self.len();
+        let k = self
+            .as_prefix()
+            .as_opt_or_indexed::<K>(K::as_ref(&key), index);
+        if index > len {
+            Err(DistinctError::Index { index, len })
         } else if self.iter_names().any(|n| n == k) {
             Err(DistinctError::Membership(k))
         } else {
@@ -316,13 +319,13 @@ impl<K: MightHave + Clone, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
             match self {
                 NamedVec::Split(s, _) => {
                     let ln = s.left.len();
-                    if i <= ln {
-                        s.left.insert(i, p);
+                    if index <= ln {
+                        s.left.insert(index, p);
                     } else {
-                        s.right.insert(i - ln - 1, p);
+                        s.right.insert(index - ln - 1, p);
                     }
                 }
-                NamedVec::Unsplit(u) => u.members.insert(i, p),
+                NamedVec::Unsplit(u) => u.members.insert(index, p),
             }
             Ok(k)
         }
@@ -507,32 +510,10 @@ fn all_unique<'a, T: Hash + Eq>(xs: impl Iterator<Item = T> + 'a) -> bool {
     true
 }
 
-pub fn position_by_name<K: MightHave, V>(
+fn position_by_name<K: MightHave, V>(
     xs: &DistinctVec<K::Wrapper<Shortname>, V>,
     n: &Shortname,
 ) -> Option<usize> {
     xs.iter()
         .position(|p| K::as_opt(&p.key).is_some_and(|kn| kn == n))
 }
-
-// impl<K, U, V> IntoIterator for NamedVec<K, U, V> {
-//     type Item = DistinctPair<K, V>;
-//     type IntoIter = std::vec::IntoIter<Self::Item>;
-
-//     fn into_iter(self) -> Self::IntoIter {
-//         self.members.into_iter()
-//     }
-// }
-
-// TODO this will probably look really bad
-// impl<K: Serialize, U: Serialize, V: Serialize> Serialize for NamedVec<K, U, V> {
-//     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-//     where
-//         S: serde::Serializer,
-//     {
-//         match self {
-//             NamedVec::Split(s) => s.serialize(serializer),
-//             NamedVec::Unsplit(u) => u.serialize(serializer),
-//         }
-//     }
-// }

@@ -3621,8 +3621,6 @@ impl fmt::Display for RangeError {
     }
 }
 
-impl<P: VersionedMeasurement> Measurement<P> {}
-
 fn make_uint_type(b: u8, r: Range, o: &ByteOrd) -> Result<AnyUintType, Vec<String>> {
     match b {
         1 => UInt8Type::to_col(r, o).map(AnyUintType::Uint08),
@@ -4490,12 +4488,46 @@ where
             None
         }
     }
+
+    fn convert<ToT>(self) -> TimeChannel<ToT>
+    where
+        ToT: From<T>,
+    {
+        TimeChannel {
+            bytes: self.bytes,
+            range: self.range,
+            longname: self.longname,
+            nonstandard_keywords: self.nonstandard_keywords,
+            specific: self.specific.into(),
+        }
+    }
 }
 
 impl<P> Measurement<P>
 where
     P: VersionedMeasurement,
 {
+    fn try_convert<ToP: TryFrom<P, Error = MeasConvertError>>(
+        self,
+        n: MeasIdx,
+    ) -> Result<Measurement<ToP>, String> {
+        self.specific
+            .try_into()
+            .map_err(|e: MeasConvertError| e.fmt(n))
+            .map(|specific| Measurement {
+                bytes: self.bytes,
+                range: self.range,
+                longname: self.longname,
+                detector_type: self.detector_type,
+                detector_voltage: self.detector_voltage,
+                filter: self.filter,
+                power: self.power,
+                percent_emitted: self.percent_emitted,
+                nonstandard_keywords: self.nonstandard_keywords,
+                specific,
+            })
+    }
+
     fn longname(&self, n: usize) -> Longname {
         // TODO not DRY
         self.longname
@@ -4656,6 +4688,33 @@ impl<M> Metadata<M>
 where
     M: VersionedMetadata,
 {
+    fn try_convert<ToM: TryFrom<M, Error = MetaConvertErrors>>(
+        self,
+    ) -> Result<Metadata<ToM>, Vec<String>> {
+        // TODO this seems silly, break struct up into common bits
+        self.specific
+            .try_into()
+            .map_err(|es: MetaConvertErrors| es.into_iter().map(|s| s.to_string()).collect())
+            .map(|specific| Metadata {
+                abrt: self.abrt,
+                cells: self.cells,
+                com: self.com,
+                datatype: self.datatype,
+                exp: self.exp,
+                fil: self.fil,
+                inst: self.inst,
+                lost: self.lost,
+                op: self.op,
+                proj: self.proj,
+                smno: self.smno,
+                sys: self.sys,
+                src: self.src,
+                tr: self.tr,
+                nonstandard_keywords: self.nonstandard_keywords,
+                specific,
+            })
+    }
+
     fn lookup_metadata(
         st: &mut KwParser,
         ms: &NamedVec<
@@ -7883,73 +7942,6 @@ impl From<Endian> for ByteOrd {
     }
 }
 
-impl<P> Measurement<P> {
-    fn try_convert<Q: TryFrom<P, Error = MeasConvertError>>(
-        self,
-        n: MeasIdx,
-    ) -> Result<Measurement<Q>, String> {
-        self.specific
-            .try_into()
-            .map_err(|e: MeasConvertError| e.fmt(n))
-            .map(|specific| Measurement {
-                bytes: self.bytes,
-                range: self.range,
-                longname: self.longname,
-                detector_type: self.detector_type,
-                detector_voltage: self.detector_voltage,
-                filter: self.filter,
-                power: self.power,
-                percent_emitted: self.percent_emitted,
-                nonstandard_keywords: self.nonstandard_keywords,
-                specific,
-            })
-    }
-}
-
-impl<T> TimeChannel<T> {
-    fn convert<U>(self) -> TimeChannel<U>
-    where
-        U: From<T>,
-    {
-        TimeChannel {
-            bytes: self.bytes,
-            range: self.range,
-            longname: self.longname,
-            nonstandard_keywords: self.nonstandard_keywords,
-            specific: self.specific.into(),
-        }
-    }
-}
-
-impl<M> Metadata<M> {
-    fn try_convert<ToM: TryFrom<M, Error = MetaConvertErrors>>(
-        self,
-    ) -> Result<Metadata<ToM>, Vec<String>> {
-        // TODO this seems silly, break struct up into common bits
-        self.specific
-            .try_into()
-            .map_err(|es: MetaConvertErrors| es.into_iter().map(|s| s.to_string()).collect())
-            .map(|specific| Metadata {
-                abrt: self.abrt,
-                cells: self.cells,
-                com: self.com,
-                datatype: self.datatype,
-                exp: self.exp,
-                fil: self.fil,
-                inst: self.inst,
-                lost: self.lost,
-                op: self.op,
-                proj: self.proj,
-                smno: self.smno,
-                sys: self.sys,
-                src: self.src,
-                tr: self.tr,
-                nonstandard_keywords: self.nonstandard_keywords,
-                specific,
-            })
-    }
-}
-
 impl TryFrom<InnerMeasurement3_0> for InnerMeasurement2_0 {
     type Error = MeasConvertError;
 
@@ -8467,13 +8459,6 @@ impl From<InnerTime3_1> for InnerTime3_2 {
             display: value.display,
             datatype: None.into(),
         }
-    }
-}
-
-impl<V: Key> OptionalKw<V> {
-    pub fn try_meta_from(self) -> Result<V, String> {
-        self.0
-            .ok_or(format!("value for key {} does not exist", V::std()))
     }
 }
 

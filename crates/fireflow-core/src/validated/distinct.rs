@@ -19,7 +19,7 @@ pub enum NamedVec<K, W, U, V> {
 pub struct SplitVec<K, U, V> {
     left: DistinctVec<K, V>,
     // TODO boxme
-    center: DistinctPair<Shortname, U>,
+    center: Center<U>,
     right: DistinctVec<K, V>,
     prefix: ShortnamePrefix,
 }
@@ -38,26 +38,50 @@ struct DistinctPair<K, V> {
     value: V,
 }
 
+type Center<U> = DistinctPair<Shortname, U>;
+
 type RawInput<K, U, V> = Vec<Result<(<K as MightHave>::Wrapper<Shortname>, V), (Shortname, U)>>;
 
 type WrappedNamedVec<K, U, V> = NamedVec<K, <K as MightHave>::Wrapper<Shortname>, U, V>;
 
 pub type NameMapping = HashMap<Shortname, Shortname>;
 
-impl<K: MightHave, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
+impl<K, W, U, V> NamedVec<K, W, U, V> {
+    fn new_split(
+        left: DistinctVec<W, V>,
+        center: DistinctPair<Shortname, U>,
+        right: DistinctVec<W, V>,
+        prefix: ShortnamePrefix,
+    ) -> Self {
+        NamedVec::Split(
+            SplitVec {
+                left,
+                center,
+                right,
+                prefix,
+            },
+            PhantomData,
+        )
+    }
+
+    fn new_unsplit(members: DistinctVec<W, V>, prefix: ShortnamePrefix) -> Self {
+        NamedVec::Unsplit(UnsplitVec { members, prefix })
+    }
+}
+
+impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     pub fn new(
         xs: RawInput<K, U, V>,
         prefix: ShortnamePrefix,
-    ) -> Result<NamedVec<K, K::Wrapper<Shortname>, U, V>, String> {
-        // TODO these clones shouldn't be necessary
-        let names: Vec<K::Wrapper<&Shortname>> = xs
+    ) -> Result<WrappedNamedVec<K, U, V>, String> {
+        let names: Vec<_> = xs
             .iter()
             .map(|x| {
                 x.as_ref()
                     .map_or_else(|e| K::into_wrapped(&e.0), |o| K::as_ref(&o.0))
             })
             .collect();
-        if prefix.all_unique::<K>(names.into_iter().collect()) {
+        if prefix.all_unique::<K>(names) {
             let mut left = vec![];
             let mut center = None;
             let mut right = vec![];
@@ -84,23 +108,13 @@ impl<K: MightHave, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
                 }
             }
             let s = if let Some(c) = center {
-                NamedVec::Split(
-                    SplitVec {
-                        left,
-                        center: DistinctPair {
-                            key: c.0,
-                            value: c.1,
-                        },
-                        right,
-                        prefix,
-                    },
-                    PhantomData,
-                )
+                let cp = DistinctPair {
+                    key: c.0,
+                    value: c.1,
+                };
+                Self::new_split(left, cp, right, prefix)
             } else {
-                NamedVec::Unsplit(UnsplitVec {
-                    members: left,
-                    prefix,
-                })
+                Self::new_unsplit(left, prefix)
             };
             Ok(s)
         } else {
@@ -214,18 +228,11 @@ impl<K: MightHave, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
             NamedVec::Split(s, _) => {
                 let i = s.left.len();
                 let c = s.center;
-                NamedVec::Split(
-                    SplitVec {
-                        left: s.left,
-                        center: DistinctPair {
-                            key: c.key,
-                            value: f(i, c.value),
-                        },
-                        right: s.right,
-                        prefix: s.prefix,
-                    },
-                    PhantomData,
-                )
+                let center = DistinctPair {
+                    key: c.key,
+                    value: f(i, c.value),
+                };
+                NamedVec::new_split(s.left, center, s.right, s.prefix)
             }
             NamedVec::Unsplit(u) => NamedVec::Unsplit(u),
         }
@@ -416,14 +423,11 @@ impl<K: MightHave + Clone, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
             })
         };
         match self {
-            NamedVec::Split(s, _) => Some(NamedVec::Split(
-                SplitVec {
-                    left: s.left.into_iter().map(go).collect::<Option<Vec<_>>>()?,
-                    right: s.right.into_iter().map(go).collect::<Option<Vec<_>>>()?,
-                    center: s.center,
-                    prefix: s.prefix,
-                },
-                PhantomData,
+            NamedVec::Split(s, _) => Some(NamedVec::new_split(
+                s.left.into_iter().map(go).collect::<Option<Vec<_>>>()?,
+                s.center,
+                s.right.into_iter().map(go).collect::<Option<Vec<_>>>()?,
+                s.prefix,
             )),
             NamedVec::Unsplit(u) => Some(NamedVec::Unsplit(UnsplitVec {
                 members: u.members.into_iter().map(go).collect::<Option<Vec<_>>>()?,

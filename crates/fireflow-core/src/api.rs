@@ -4183,21 +4183,21 @@ impl AnyCoreTEXT {
         match_anycoretext!(self, x, { x.shortnames() })
     }
 
-    pub fn into_2_0(self) -> PureResult<CoreTEXT2_0> {
-        match_anycoretext!(self, x, { x.try_convert() })
-    }
+    // pub fn into_2_0(self) -> PureResult<CoreTEXT2_0> {
+    //     match_anycoretext!(self, x, { x.try_convert() })
+    // }
 
-    pub fn into_3_0(self) -> PureResult<CoreTEXT3_0> {
-        match_anycoretext!(self, x, { x.try_convert() })
-    }
+    // pub fn into_3_0(self) -> PureResult<CoreTEXT3_0> {
+    //     match_anycoretext!(self, x, { x.try_convert() })
+    // }
 
-    pub fn into_3_1(self) -> PureResult<CoreTEXT3_1> {
-        match_anycoretext!(self, x, { x.try_convert() })
-    }
+    // pub fn into_3_1(self) -> PureResult<CoreTEXT3_1> {
+    //     match_anycoretext!(self, x, { x.try_convert() })
+    // }
 
-    pub fn into_3_2(self) -> PureResult<CoreTEXT3_2> {
-        match_anycoretext!(self, x, { x.try_convert() })
-    }
+    // pub fn into_3_2(self) -> PureResult<CoreTEXT3_2> {
+    //     match_anycoretext!(self, x, { x.try_convert() })
+    // }
 
     pub fn text_segment(
         &self,
@@ -5364,18 +5364,18 @@ where
     ) -> PureResult<CoreTEXT<ToM, ToM::T, ToM::P, ToM::N, <ToM::N as MightHave>::Wrapper<Shortname>>>
     where
         M: IntoMetadata<ToM>,
-        M::P: IntoMeasurement<ToM::P>,
         M::N: Clone,
         ToM: VersionedMetadata,
         ToM::P: VersionedMeasurement,
         ToM::T: VersionedTime,
         ToM::N: MightHave,
         ToM::N: Clone,
+        ToM::P: TryFrom<M::P, Error = MeasConvertError>,
         ToM::T: From<M::T>,
     {
-        let ps: Result<Measurements<M::N, ToM::T, ToM::P>, Vec<Vec<String>>> = self
+        let ps: Result<Measurements<M::N, ToM::T, ToM::P>, Vec<String>> = self
             .measurements
-            .map_values(|i, v| IntoMeasurement::try_convert(v, MeasIdx(i)))
+            .map_values(|i, v| v.try_convert(MeasIdx(i)))
             .map(|x| x.map_center(|_, v| v.convert()));
         let m = IntoMetadata::try_convert(self.metadata);
         let res: Result<
@@ -5396,7 +5396,6 @@ where
             (a, bs) => Err(bs
                 .err()
                 .unwrap_or_default()
-                .concat()
                 .into_iter()
                 .chain(a.err().unwrap_or_default())
                 .collect()),
@@ -7900,28 +7899,27 @@ impl From<Endian> for ByteOrd {
     }
 }
 
-// TODO these can be cleaned up by using TryFrom
-pub trait IntoMeasurement<P>
-where
-    Self: VersionedMeasurement,
-    P: VersionedMeasurement,
-{
-    fn try_convert(m: Measurement<Self>, n: MeasIdx) -> MsgsResult<Measurement<P>> {
-        Self::try_convert_inner(m.specific, n).map(|specific| Measurement {
-            bytes: m.bytes,
-            range: m.range,
-            longname: m.longname,
-            detector_type: m.detector_type,
-            detector_voltage: m.detector_voltage,
-            filter: m.filter,
-            power: m.power,
-            percent_emitted: m.percent_emitted,
-            nonstandard_keywords: m.nonstandard_keywords,
-            specific,
-        })
+impl<P> Measurement<P> {
+    fn try_convert<Q: TryFrom<P, Error = MeasConvertError>>(
+        self,
+        n: MeasIdx,
+    ) -> Result<Measurement<Q>, String> {
+        self.specific
+            .try_into()
+            .map_err(|e: MeasConvertError| e.fmt(n))
+            .map(|specific| Measurement {
+                bytes: self.bytes,
+                range: self.range,
+                longname: self.longname,
+                detector_type: self.detector_type,
+                detector_voltage: self.detector_voltage,
+                filter: self.filter,
+                power: self.power,
+                percent_emitted: self.percent_emitted,
+                nonstandard_keywords: self.nonstandard_keywords,
+                specific,
+            })
     }
-
-    fn try_convert_inner(self, n: MeasIdx) -> MsgsResult<P>;
 }
 
 impl<T> TimeChannel<T> {
@@ -7969,86 +7967,90 @@ where
     fn try_convert_inner(self) -> Result<M, Vec<String>>;
 }
 
-impl IntoMeasurement<InnerMeasurement2_0> for InnerMeasurement2_0 {
-    fn try_convert_inner(self, _: MeasIdx) -> MsgsResult<InnerMeasurement2_0> {
-        Ok(self)
-    }
-}
+impl TryFrom<InnerMeasurement3_0> for InnerMeasurement2_0 {
+    type Error = MeasConvertError;
 
-impl IntoMeasurement<InnerMeasurement2_0> for InnerMeasurement3_0 {
-    fn try_convert_inner(self, _: MeasIdx) -> MsgsResult<InnerMeasurement2_0> {
+    fn try_from(value: InnerMeasurement3_0) -> Result<Self, Self::Error> {
         Ok(InnerMeasurement2_0 {
-            scale: Some(self.scale).into(),
-            wavelength: self.wavelength,
+            scale: Some(value.scale).into(),
+            wavelength: value.wavelength,
         })
     }
 }
 
-impl IntoMeasurement<InnerMeasurement2_0> for InnerMeasurement3_1 {
-    fn try_convert_inner(self, _: MeasIdx) -> MsgsResult<InnerMeasurement2_0> {
+impl TryFrom<InnerMeasurement3_1> for InnerMeasurement2_0 {
+    type Error = MeasConvertError;
+
+    fn try_from(value: InnerMeasurement3_1) -> Result<Self, Self::Error> {
         Ok(InnerMeasurement2_0 {
-            scale: Some(self.scale).into(),
-            wavelength: self.wavelengths.into(),
+            scale: Some(value.scale).into(),
+            wavelength: value.wavelengths.into(),
         })
     }
 }
 
-impl IntoMeasurement<InnerMeasurement2_0> for InnerMeasurement3_2 {
-    fn try_convert_inner(self, _: MeasIdx) -> MsgsResult<InnerMeasurement2_0> {
+impl TryFrom<InnerMeasurement3_2> for InnerMeasurement2_0 {
+    type Error = MeasConvertError;
+
+    fn try_from(value: InnerMeasurement3_2) -> Result<Self, Self::Error> {
         Ok(InnerMeasurement2_0 {
-            scale: Some(self.scale).into(),
-            wavelength: self.wavelengths.into(),
+            scale: Some(value.scale).into(),
+            wavelength: value.wavelengths.into(),
         })
     }
 }
 
-impl IntoMeasurement<InnerMeasurement3_0> for InnerMeasurement2_0 {
-    fn try_convert_inner(self, n: MeasIdx) -> MsgsResult<InnerMeasurement3_0> {
-        self.scale
-            .try_meas_from(n)
-            .map_err(|e| vec![e])
+impl TryFrom<InnerMeasurement2_0> for InnerMeasurement3_0 {
+    type Error = MeasConvertError;
+
+    fn try_from(value: InnerMeasurement2_0) -> Result<Self, Self::Error> {
+        value
+            .scale
+            .0
+            .ok_or(MeasConvertError::NoScale)
             .map(|scale| InnerMeasurement3_0 {
                 scale,
-                wavelength: self.wavelength,
+                wavelength: value.wavelength,
                 gain: None.into(),
             })
     }
 }
 
-impl IntoMeasurement<InnerMeasurement3_0> for InnerMeasurement3_0 {
-    fn try_convert_inner(self, _: MeasIdx) -> MsgsResult<InnerMeasurement3_0> {
-        Ok(self)
-    }
-}
+impl TryFrom<InnerMeasurement3_1> for InnerMeasurement3_0 {
+    type Error = MeasConvertError;
 
-impl IntoMeasurement<InnerMeasurement3_0> for InnerMeasurement3_1 {
-    fn try_convert_inner(self, _: MeasIdx) -> MsgsResult<InnerMeasurement3_0> {
+    fn try_from(value: InnerMeasurement3_1) -> Result<Self, Self::Error> {
         Ok(InnerMeasurement3_0 {
-            scale: self.scale,
-            gain: self.gain,
-            wavelength: self.wavelengths.into(),
+            scale: value.scale,
+            gain: value.gain,
+            wavelength: value.wavelengths.into(),
         })
     }
 }
 
-impl IntoMeasurement<InnerMeasurement3_0> for InnerMeasurement3_2 {
-    fn try_convert_inner(self, _: MeasIdx) -> MsgsResult<InnerMeasurement3_0> {
+impl TryFrom<InnerMeasurement3_2> for InnerMeasurement3_0 {
+    type Error = MeasConvertError;
+
+    fn try_from(value: InnerMeasurement3_2) -> Result<Self, Self::Error> {
         Ok(InnerMeasurement3_0 {
-            scale: self.scale,
-            gain: self.gain,
-            wavelength: self.wavelengths.into(),
+            scale: value.scale,
+            gain: value.gain,
+            wavelength: value.wavelengths.into(),
         })
     }
 }
 
-impl IntoMeasurement<InnerMeasurement3_1> for InnerMeasurement2_0 {
-    fn try_convert_inner(self, n: MeasIdx) -> MsgsResult<InnerMeasurement3_1> {
-        self.scale
-            .try_meas_from(n)
-            .map_err(|e| vec![e])
+impl TryFrom<InnerMeasurement2_0> for InnerMeasurement3_1 {
+    type Error = MeasConvertError;
+
+    fn try_from(value: InnerMeasurement2_0) -> Result<Self, Self::Error> {
+        value
+            .scale
+            .0
+            .ok_or(MeasConvertError::NoScale)
             .map(|scale| InnerMeasurement3_1 {
                 scale,
-                wavelengths: self.wavelength.map(|x| x.into()),
+                wavelengths: value.wavelength.map(|x| x.into()),
                 gain: None.into(),
                 calibration: None.into(),
                 display: None.into(),
@@ -8056,11 +8058,13 @@ impl IntoMeasurement<InnerMeasurement3_1> for InnerMeasurement2_0 {
     }
 }
 
-impl IntoMeasurement<InnerMeasurement3_1> for InnerMeasurement3_0 {
-    fn try_convert_inner(self, _: MeasIdx) -> MsgsResult<InnerMeasurement3_1> {
+impl TryFrom<InnerMeasurement3_0> for InnerMeasurement3_1 {
+    type Error = MeasConvertError;
+
+    fn try_from(value: InnerMeasurement3_0) -> Result<Self, Self::Error> {
         Ok(InnerMeasurement3_1 {
-            scale: self.scale,
-            gain: self.gain,
+            scale: value.scale,
+            gain: value.gain,
             wavelengths: None.into(),
             calibration: None.into(),
             display: None.into(),
@@ -8068,29 +8072,28 @@ impl IntoMeasurement<InnerMeasurement3_1> for InnerMeasurement3_0 {
     }
 }
 
-impl IntoMeasurement<InnerMeasurement3_1> for InnerMeasurement3_1 {
-    fn try_convert_inner(self, _: MeasIdx) -> MsgsResult<InnerMeasurement3_1> {
-        Ok(self)
-    }
-}
+impl TryFrom<InnerMeasurement3_2> for InnerMeasurement3_1 {
+    type Error = MeasConvertError;
 
-impl IntoMeasurement<InnerMeasurement3_1> for InnerMeasurement3_2 {
-    fn try_convert_inner(self, _: MeasIdx) -> MsgsResult<InnerMeasurement3_1> {
+    fn try_from(value: InnerMeasurement3_2) -> Result<Self, Self::Error> {
         Ok(InnerMeasurement3_1 {
-            scale: self.scale,
-            gain: self.gain,
-            wavelengths: self.wavelengths,
-            calibration: self.calibration.map(|x| x.into()),
-            display: self.display,
+            scale: value.scale,
+            gain: value.gain,
+            wavelengths: value.wavelengths,
+            calibration: value.calibration.map(|x| x.into()),
+            display: value.display,
         })
     }
 }
 
-impl IntoMeasurement<InnerMeasurement3_2> for InnerMeasurement2_0 {
-    fn try_convert_inner(self, n: MeasIdx) -> MsgsResult<InnerMeasurement3_2> {
-        self.scale
-            .try_meas_from(n)
-            .map_err(|e| vec![e])
+impl TryFrom<InnerMeasurement2_0> for InnerMeasurement3_2 {
+    type Error = MeasConvertError;
+
+    fn try_from(value: InnerMeasurement2_0) -> Result<Self, Self::Error> {
+        value
+            .scale
+            .0
+            .ok_or(MeasConvertError::NoScale)
             .map(|scale| InnerMeasurement3_2 {
                 scale,
                 wavelengths: None.into(),
@@ -8107,12 +8110,14 @@ impl IntoMeasurement<InnerMeasurement3_2> for InnerMeasurement2_0 {
     }
 }
 
-impl IntoMeasurement<InnerMeasurement3_2> for InnerMeasurement3_0 {
-    fn try_convert_inner(self, _: MeasIdx) -> MsgsResult<InnerMeasurement3_2> {
+impl TryFrom<InnerMeasurement3_0> for InnerMeasurement3_2 {
+    type Error = MeasConvertError;
+
+    fn try_from(value: InnerMeasurement3_0) -> Result<Self, Self::Error> {
         Ok(InnerMeasurement3_2 {
-            scale: self.scale,
-            wavelengths: self.wavelength.map(|x| x.into()),
-            gain: self.gain,
+            scale: value.scale,
+            wavelengths: value.wavelength.map(|x| x.into()),
+            gain: value.gain,
             calibration: None.into(),
             display: None.into(),
             analyte: None.into(),
@@ -8125,14 +8130,16 @@ impl IntoMeasurement<InnerMeasurement3_2> for InnerMeasurement3_0 {
     }
 }
 
-impl IntoMeasurement<InnerMeasurement3_2> for InnerMeasurement3_1 {
-    fn try_convert_inner(self, _: MeasIdx) -> MsgsResult<InnerMeasurement3_2> {
+impl TryFrom<InnerMeasurement3_1> for InnerMeasurement3_2 {
+    type Error = MeasConvertError;
+
+    fn try_from(value: InnerMeasurement3_1) -> Result<Self, Self::Error> {
         Ok(InnerMeasurement3_2 {
-            scale: self.scale,
-            wavelengths: self.wavelengths,
-            gain: self.gain,
-            calibration: self.calibration.map(|x| x.into()),
-            display: self.display,
+            scale: value.scale,
+            wavelengths: value.wavelengths,
+            gain: value.gain,
+            calibration: value.calibration.map(|x| x.into()),
+            display: value.display,
             analyte: None.into(),
             feature: None.into(),
             tag: None.into(),
@@ -8140,12 +8147,6 @@ impl IntoMeasurement<InnerMeasurement3_2> for InnerMeasurement3_1 {
             datatype: None.into(),
             measurement_type: None.into(),
         })
-    }
-}
-
-impl IntoMeasurement<InnerMeasurement3_2> for InnerMeasurement3_2 {
-    fn try_convert_inner(self, _: MeasIdx) -> MsgsResult<InnerMeasurement3_2> {
-        Ok(self)
     }
 }
 
@@ -8501,12 +8502,29 @@ impl<V: Key> OptionalKw<V> {
     }
 }
 
-impl<V: IndexedKey> OptionalKw<V> {
-    pub fn try_meas_from(self, n: MeasIdx) -> Result<V, String> {
-        self.0
-            .ok_or(format!("value for key {} does not exist", V::std(n)))
+// TODO generalize this
+pub enum MeasConvertError {
+    NoScale,
+}
+
+impl MeasConvertError {
+    fn fmt(&self, n: MeasIdx) -> String {
+        match self {
+            MeasConvertError::NoScale => format!("$PnE not found when converting measurement {n}"),
+        }
     }
 }
+
+// impl<V: IndexedKey> OptionalKw<V> {
+//     // pub fn try_meas_from(self, n: MeasIdx) -> Result<V, String> {
+//     //     self.0
+//     //         .ok_or(format!("value for key {} does not exist", V::std(n)))
+//     // }
+
+//     pub fn try_meas_from(self) -> Result<V, NoExist> {
+//         self.0.ok_or(NoExist(V::std(n)))
+//     }
+// }
 
 // fn comp_to_spillover(comp: Compensation, ns: &[Shortname]) -> Option<Spillover> {
 //     // Matrix should be square, so if inverse fails that means that somehow it

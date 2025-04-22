@@ -5363,13 +5363,13 @@ where
         self,
     ) -> PureResult<CoreTEXT<ToM, ToM::T, ToM::P, ToM::N, <ToM::N as MightHave>::Wrapper<Shortname>>>
     where
-        M: IntoMetadata<ToM>,
         M::N: Clone,
         ToM: VersionedMetadata,
         ToM::P: VersionedMeasurement,
         ToM::T: VersionedTime,
         ToM::N: MightHave,
         ToM::N: Clone,
+        ToM: TryFrom<M, Error = MetaConvertErrors>,
         ToM::P: TryFrom<M::P, Error = MeasConvertError>,
         ToM::T: From<M::T>,
     {
@@ -5377,7 +5377,7 @@ where
             .measurements
             .map_values(|i, v| v.try_convert(MeasIdx(i)))
             .map(|x| x.map_center(|_, v| v.convert()));
-        let m = IntoMetadata::try_convert(self.metadata);
+        let m = self.metadata.try_convert();
         let res = match (m, ps) {
             (Ok(metadata), Ok(old_ps)) => {
                 if let Some(measurements) = old_ps.try_new_names() {
@@ -5390,7 +5390,7 @@ where
                     Err(vec!["Some $PnN are blank and could not be converted".into()])
                 }
             }
-            (a, bs) => Err(bs
+            (a, b) => Err(b
                 .err()
                 .unwrap_or_default()
                 .into_iter()
@@ -7921,34 +7921,33 @@ impl<T> TimeChannel<T> {
     }
 }
 
-pub trait IntoMetadata<M>
-where
-    Self: VersionedMetadata,
-    M: VersionedMetadata,
-{
-    fn try_convert(m: Metadata<Self>) -> Result<Metadata<M>, Vec<String>> {
+impl<M> Metadata<M> {
+    fn try_convert<ToM: TryFrom<M, Error = MetaConvertErrors>>(
+        self,
+    ) -> Result<Metadata<ToM>, Vec<String>> {
         // TODO this seems silly, break struct up into common bits
-        Self::try_convert_inner(m.specific).map(|specific| Metadata {
-            abrt: m.abrt,
-            cells: m.cells,
-            com: m.com,
-            datatype: m.datatype,
-            exp: m.exp,
-            fil: m.fil,
-            inst: m.inst,
-            lost: m.lost,
-            op: m.op,
-            proj: m.proj,
-            smno: m.smno,
-            sys: m.sys,
-            src: m.src,
-            tr: m.tr,
-            nonstandard_keywords: m.nonstandard_keywords,
-            specific,
-        })
+        self.specific
+            .try_into()
+            .map_err(|es: MetaConvertErrors| es.into_iter().map(|s| s.to_string()).collect())
+            .map(|specific| Metadata {
+                abrt: self.abrt,
+                cells: self.cells,
+                com: self.com,
+                datatype: self.datatype,
+                exp: self.exp,
+                fil: self.fil,
+                inst: self.inst,
+                lost: self.lost,
+                op: self.op,
+                proj: self.proj,
+                smno: self.smno,
+                sys: self.sys,
+                src: self.src,
+                tr: self.tr,
+                nonstandard_keywords: self.nonstandard_keywords,
+                specific,
+            })
     }
-
-    fn try_convert_inner(self) -> Result<M, Vec<String>>;
 }
 
 impl TryFrom<InnerMeasurement3_0> for InnerMeasurement2_0 {
@@ -8134,178 +8133,173 @@ impl TryFrom<InnerMeasurement3_1> for InnerMeasurement3_2 {
     }
 }
 
-type MsgsResult<T> = Result<T, Vec<String>>;
+impl TryFrom<InnerMetadata3_0> for InnerMetadata2_0 {
+    type Error = MetaConvertErrors;
 
-impl IntoMetadata<InnerMetadata2_0> for InnerMetadata2_0 {
-    fn try_convert_inner(self) -> MsgsResult<InnerMetadata2_0> {
-        Ok(self)
-    }
-}
-
-impl IntoMetadata<InnerMetadata2_0> for InnerMetadata3_0 {
-    fn try_convert_inner(self) -> MsgsResult<InnerMetadata2_0> {
+    fn try_from(value: InnerMetadata3_0) -> Result<Self, Self::Error> {
         Ok(InnerMetadata2_0 {
-            mode: self.mode,
-            byteord: self.byteord,
-            cyt: self.cyt,
-            comp: self.comp,
-            timestamps: self.timestamps.map(|d| d.into()),
+            mode: value.mode,
+            byteord: value.byteord,
+            cyt: value.cyt,
+            comp: value.comp,
+            timestamps: value.timestamps.map(|d| d.into()),
         })
     }
 }
 
-impl IntoMetadata<InnerMetadata2_0> for InnerMetadata3_1 {
-    fn try_convert_inner(self) -> MsgsResult<InnerMetadata2_0> {
+impl TryFrom<InnerMetadata3_1> for InnerMetadata2_0 {
+    type Error = MetaConvertErrors;
+
+    fn try_from(value: InnerMetadata3_1) -> Result<Self, Self::Error> {
         Ok(InnerMetadata2_0 {
-            mode: self.mode,
-            byteord: self.byteord.into(),
-            cyt: self.cyt,
+            mode: value.mode,
+            byteord: value.byteord.into(),
+            cyt: value.cyt,
             comp: None.into(),
-            timestamps: self.timestamps.map(|d| d.into()),
+            timestamps: value.timestamps.map(|d| d.into()),
         })
     }
 }
 
-impl IntoMetadata<InnerMetadata2_0> for InnerMetadata3_2 {
-    fn try_convert_inner(self) -> MsgsResult<InnerMetadata2_0> {
+impl TryFrom<InnerMetadata3_2> for InnerMetadata2_0 {
+    type Error = MetaConvertErrors;
+
+    fn try_from(value: InnerMetadata3_2) -> Result<Self, Self::Error> {
         Ok(InnerMetadata2_0 {
             mode: Mode::List,
-            byteord: self.byteord.into(),
-            cyt: Some(self.cyt).into(),
+            byteord: value.byteord.into(),
+            cyt: Some(value.cyt).into(),
             comp: None.into(),
-            timestamps: self.timestamps.map(|d| d.into()),
+            timestamps: value.timestamps.map(|d| d.into()),
         })
     }
 }
 
-impl IntoMetadata<InnerMetadata3_0> for InnerMetadata2_0 {
-    fn try_convert_inner(self) -> MsgsResult<InnerMetadata3_0> {
+impl TryFrom<InnerMetadata2_0> for InnerMetadata3_0 {
+    type Error = MetaConvertErrors;
+
+    fn try_from(value: InnerMetadata2_0) -> Result<Self, Self::Error> {
         Ok(InnerMetadata3_0 {
-            mode: self.mode,
-            byteord: self.byteord,
-            cyt: self.cyt,
-            comp: self.comp,
-            timestamps: self.timestamps.map(|d| d.into()),
+            mode: value.mode,
+            byteord: value.byteord,
+            cyt: value.cyt,
+            comp: value.comp,
+            timestamps: value.timestamps.map(|d| d.into()),
             cytsn: None.into(),
-            // timestep: None.into(),
             unicode: None.into(),
         })
     }
 }
 
-impl IntoMetadata<InnerMetadata3_0> for InnerMetadata3_0 {
-    fn try_convert_inner(self) -> MsgsResult<InnerMetadata3_0> {
-        Ok(self)
-    }
-}
+impl TryFrom<InnerMetadata3_1> for InnerMetadata3_0 {
+    type Error = MetaConvertErrors;
 
-impl IntoMetadata<InnerMetadata3_0> for InnerMetadata3_1 {
-    fn try_convert_inner(self) -> MsgsResult<InnerMetadata3_0> {
+    fn try_from(value: InnerMetadata3_1) -> Result<Self, Self::Error> {
         Ok(InnerMetadata3_0 {
-            mode: self.mode,
-            byteord: self.byteord.into(),
-            cyt: self.cyt,
-            cytsn: self.cytsn,
-            // timestep: self.timestep,
-            timestamps: self.timestamps.map(|d| d.into()),
+            mode: value.mode,
+            byteord: value.byteord.into(),
+            cyt: value.cyt,
+            cytsn: value.cytsn,
+            timestamps: value.timestamps.map(|d| d.into()),
             comp: None.into(),
             unicode: None.into(),
         })
     }
 }
 
-impl IntoMetadata<InnerMetadata3_0> for InnerMetadata3_2 {
-    fn try_convert_inner(self) -> MsgsResult<InnerMetadata3_0> {
+impl TryFrom<InnerMetadata3_2> for InnerMetadata3_0 {
+    type Error = MetaConvertErrors;
+
+    fn try_from(value: InnerMetadata3_2) -> Result<Self, Self::Error> {
         Ok(InnerMetadata3_0 {
             mode: Mode::List,
-            byteord: self.byteord.into(),
-            cyt: Some(self.cyt).into(),
-            cytsn: self.cytsn,
-            // timestep: self.timestep,
-            timestamps: self.timestamps.map(|d| d.into()),
+            byteord: value.byteord.into(),
+            cyt: Some(value.cyt).into(),
+            cytsn: value.cytsn,
+            timestamps: value.timestamps.map(|d| d.into()),
             comp: None.into(),
             unicode: None.into(),
         })
     }
 }
 
-impl IntoMetadata<InnerMetadata3_1> for InnerMetadata2_0 {
-    fn try_convert_inner(self) -> MsgsResult<InnerMetadata3_1> {
-        self.byteord
-            .try_into()
-            .map_err(|e: FromByteOrdError| vec![e.to_string()])
-            .map(|byteord| InnerMetadata3_1 {
-                mode: self.mode,
-                byteord,
-                cyt: self.cyt,
-                timestamps: self.timestamps.map(|d| d.into()),
-                cytsn: None.into(),
-                // timestep: None.into(),
-                spillover: None.into(),
-                modification: ModificationData::default(),
-                plate: PlateData::default(),
-                vol: None.into(),
-            })
-    }
-}
+impl TryFrom<InnerMetadata2_0> for InnerMetadata3_1 {
+    type Error = MetaConvertErrors;
 
-impl IntoMetadata<InnerMetadata3_1> for InnerMetadata3_0 {
-    fn try_convert_inner(self) -> MsgsResult<InnerMetadata3_1> {
-        self.byteord
-            .try_into()
-            .map_err(|e: FromByteOrdError| vec![e.to_string()])
-            .map(|byteord| InnerMetadata3_1 {
-                byteord,
-                mode: self.mode,
-                cyt: self.cyt,
-                // timestep: self.timestep,
-                cytsn: self.cytsn,
-                timestamps: self.timestamps.map(|d| d.into()),
-                spillover: None.into(),
-                modification: ModificationData::default(),
-                plate: PlateData::default(),
-                vol: None.into(),
-            })
-    }
-}
-
-impl IntoMetadata<InnerMetadata3_1> for InnerMetadata3_1 {
-    fn try_convert_inner(self) -> MsgsResult<InnerMetadata3_1> {
-        Ok(self)
-    }
-}
-
-impl IntoMetadata<InnerMetadata3_1> for InnerMetadata3_2 {
-    fn try_convert_inner(self) -> MsgsResult<InnerMetadata3_1> {
-        Ok(InnerMetadata3_1 {
-            mode: Mode::List,
-            byteord: self.byteord,
-            cyt: Some(self.cyt).into(),
-            cytsn: self.cytsn,
-            // timestep: self.timestep,
-            timestamps: self.timestamps,
-            spillover: self.spillover,
-            plate: self.plate,
-            modification: self.modification,
-            vol: self.vol,
-        })
-    }
-}
-
-impl IntoMetadata<InnerMetadata3_2> for InnerMetadata2_0 {
-    fn try_convert_inner(self) -> MsgsResult<InnerMetadata3_2> {
-        // TODO what happens if $MODE is not list?
-        let b = self
+    fn try_from(value: InnerMetadata2_0) -> Result<Self, Self::Error> {
+        value
             .byteord
             .try_into()
-            .map_err(|e: FromByteOrdError| e.to_string());
-        let c = self.cyt.try_meta_from();
+            .map_err(|e| vec![MetaConvertError::BadByteOrd(e)])
+            .map(|byteord| InnerMetadata3_1 {
+                mode: value.mode,
+                byteord,
+                cyt: value.cyt,
+                timestamps: value.timestamps.map(|d| d.into()),
+                cytsn: None.into(),
+                spillover: None.into(),
+                modification: ModificationData::default(),
+                plate: PlateData::default(),
+                vol: None.into(),
+            })
+    }
+}
+
+impl TryFrom<InnerMetadata3_0> for InnerMetadata3_1 {
+    type Error = MetaConvertErrors;
+
+    fn try_from(value: InnerMetadata3_0) -> Result<Self, Self::Error> {
+        value
+            .byteord
+            .try_into()
+            .map_err(|e| vec![MetaConvertError::BadByteOrd(e)])
+            .map(|byteord| InnerMetadata3_1 {
+                byteord,
+                mode: value.mode,
+                cyt: value.cyt,
+                cytsn: value.cytsn,
+                timestamps: value.timestamps.map(|d| d.into()),
+                spillover: None.into(),
+                modification: ModificationData::default(),
+                plate: PlateData::default(),
+                vol: None.into(),
+            })
+    }
+}
+
+impl TryFrom<InnerMetadata3_2> for InnerMetadata3_1 {
+    type Error = MetaConvertErrors;
+
+    fn try_from(value: InnerMetadata3_2) -> Result<Self, Self::Error> {
+        Ok(InnerMetadata3_1 {
+            mode: Mode::List,
+            byteord: value.byteord,
+            cyt: Some(value.cyt).into(),
+            cytsn: value.cytsn,
+            timestamps: value.timestamps,
+            spillover: value.spillover,
+            plate: value.plate,
+            modification: value.modification,
+            vol: value.vol,
+        })
+    }
+}
+
+impl TryFrom<InnerMetadata2_0> for InnerMetadata3_2 {
+    type Error = MetaConvertErrors;
+
+    fn try_from(value: InnerMetadata2_0) -> Result<Self, Self::Error> {
+        // TODO what happens if $MODE is not list?
+        let b = value
+            .byteord
+            .try_into()
+            .map_err(MetaConvertError::BadByteOrd);
+        let c = value.cyt.0.ok_or(MetaConvertError::NoCyt);
         match (b, c) {
             (Ok(byteord), Ok(cyt)) => Ok(InnerMetadata3_2 {
                 byteord,
                 cyt,
-                timestamps: self.timestamps.map(|d| d.into()),
-                // timestep: None.into(),
+                timestamps: value.timestamps.map(|d| d.into()),
                 cytsn: None.into(),
                 modification: ModificationData::default(),
                 spillover: None.into(),
@@ -8321,21 +8315,22 @@ impl IntoMetadata<InnerMetadata3_2> for InnerMetadata2_0 {
     }
 }
 
-impl IntoMetadata<InnerMetadata3_2> for InnerMetadata3_0 {
-    fn try_convert_inner(self) -> MsgsResult<InnerMetadata3_2> {
-        let b = self
+impl TryFrom<InnerMetadata3_0> for InnerMetadata3_2 {
+    type Error = MetaConvertErrors;
+
+    fn try_from(value: InnerMetadata3_0) -> Result<Self, Self::Error> {
+        let b = value
             .byteord
             .try_into()
-            .map_err(|e: FromByteOrdError| e.to_string());
-        let c = self.cyt.try_meta_from();
+            .map_err(MetaConvertError::BadByteOrd);
+        let c = value.cyt.0.ok_or(MetaConvertError::NoCyt);
         match (b, c) {
             (Ok(byteord), Ok(cyt)) => Ok({
                 InnerMetadata3_2 {
                     byteord,
                     cyt,
-                    // timestep: self.timestep,
-                    cytsn: self.cytsn,
-                    timestamps: self.timestamps.map(|d| d.into()),
+                    cytsn: value.cytsn,
+                    timestamps: value.timestamps.map(|d| d.into()),
                     modification: ModificationData::default(),
                     spillover: None.into(),
                     plate: PlateData::default(),
@@ -8351,32 +8346,28 @@ impl IntoMetadata<InnerMetadata3_2> for InnerMetadata3_0 {
     }
 }
 
-impl IntoMetadata<InnerMetadata3_2> for InnerMetadata3_1 {
-    fn try_convert_inner(self) -> MsgsResult<InnerMetadata3_2> {
-        self.cyt
-            .try_meta_from()
-            .map_err(|e| vec![e])
+impl TryFrom<InnerMetadata3_1> for InnerMetadata3_2 {
+    type Error = MetaConvertErrors;
+
+    fn try_from(value: InnerMetadata3_1) -> Result<Self, Self::Error> {
+        value
+            .cyt
+            .0
+            .ok_or(vec![MetaConvertError::NoCyt])
             .map(|cyt| InnerMetadata3_2 {
-                byteord: self.byteord,
+                byteord: value.byteord,
                 cyt,
-                cytsn: self.cytsn,
-                // timestep: self.timestep,
-                timestamps: self.timestamps,
-                spillover: self.spillover,
-                modification: self.modification,
-                plate: self.plate,
-                vol: self.vol,
+                cytsn: value.cytsn,
+                timestamps: value.timestamps,
+                spillover: value.spillover,
+                modification: value.modification,
+                plate: value.plate,
+                vol: value.vol,
                 flowrate: None.into(),
                 carrier: CarrierData::default(),
                 unstained: UnstainedData::default(),
                 datetimes: Datetimes::default(),
             })
-    }
-}
-
-impl IntoMetadata<InnerMetadata3_2> for InnerMetadata3_2 {
-    fn try_convert_inner(self) -> MsgsResult<InnerMetadata3_2> {
-        Ok(self)
     }
 }
 
@@ -8483,6 +8474,22 @@ impl<V: Key> OptionalKw<V> {
     pub fn try_meta_from(self) -> Result<V, String> {
         self.0
             .ok_or(format!("value for key {} does not exist", V::std()))
+    }
+}
+
+type MetaConvertErrors = Vec<MetaConvertError>;
+
+pub enum MetaConvertError {
+    NoCyt,
+    BadByteOrd(FromByteOrdError),
+}
+
+impl fmt::Display for MetaConvertError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            MetaConvertError::NoCyt => write!(f, "$Cyt is missing"),
+            MetaConvertError::BadByteOrd(e) => e.fmt(f),
+        }
     }
 }
 

@@ -5373,15 +5373,12 @@ where
         ToM::P: TryFrom<M::P, Error = MeasConvertError>,
         ToM::T: From<M::T>,
     {
-        let ps: Result<Measurements<M::N, ToM::T, ToM::P>, Vec<String>> = self
+        let ps = self
             .measurements
             .map_values(|i, v| v.try_convert(MeasIdx(i)))
             .map(|x| x.map_center(|_, v| v.convert()));
         let m = IntoMetadata::try_convert(self.metadata);
-        let res: Result<
-            CoreTEXT<ToM, ToM::T, ToM::P, ToM::N, <ToM::N as MightHave>::Wrapper<Shortname>>,
-            Vec<String>,
-        > = match (m, ps) {
+        let res = match (m, ps) {
             (Ok(metadata), Ok(old_ps)) => {
                 if let Some(measurements) = old_ps.try_new_names() {
                     Ok(CoreTEXT {
@@ -5405,20 +5402,7 @@ where
             M::P::fcs_version(),
             ToM::P::fcs_version()
         );
-        PureMaybe::from_result_strs(res, PureErrorLevel::Error)
-            // .and_then_opt(|core| {
-            //     // TODO this will always fail when upgrading to 3.2 with a set
-            //     // time_channel since $PnTYPE needs to be set to Time and this
-            //     // has no way of being set during conversion since it doesn't
-            //     // exist in lower versions. Same will happen when coming from
-            //     // 2.0 since $TIMESTAMP doesn't exist.
-            //     let deferred = core.validate_time_channel(&core.time_channel);
-            //     PureSuccess {
-            //         data: Some(core),
-            //         deferred,
-            //     }
-            // })
-            .into_result(msg)
+        PureMaybe::from_result_strs(res, PureErrorLevel::Error).into_result(msg)
     }
 }
 

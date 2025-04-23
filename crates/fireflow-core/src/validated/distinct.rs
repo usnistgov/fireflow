@@ -31,17 +31,6 @@ pub trait MightHave {
     fn into_wrapped<T>(n: T) -> Self::Wrapper<T>;
 }
 
-// dummy value to use when mutating NamedVec in place
-// TODO this doesn't need to be public
-impl<K, W, U, V> Default for NamedVec<K, W, U, V> {
-    fn default() -> Self {
-        NamedVec::Unsplit(UnsplitVec {
-            members: vec![],
-            prefix: ShortnamePrefix::default(),
-        })
-    }
-}
-
 #[derive(Clone, Serialize)]
 pub struct SplitVec<K, U, V> {
     left: DistinctVec<K, V>,
@@ -487,7 +476,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         // Use "dummy enum trick" to replace self with a dummy so I can "move"
         // the real value out. The only caveat is that self needs to be replaced
         // with the original value if the manipulations don't need to happen.
-        let (ret, newself) = match mem::take(self) {
+        let (ret, newself) = match mem::replace(self, dummy()) {
             NamedVec::Split(s, _) => {
                 if let Some(i) = position_by_name::<K, V>(&s.left, n) {
                     let (left, center, l_iter) = split_new_center(i, s.left);
@@ -525,7 +514,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     where
         V: From<U>,
     {
-        let (ret, newself) = match mem::take(self) {
+        let (ret, newself) = match mem::replace(self, dummy()) {
             NamedVec::Split(s, _) => {
                 let members = s
                     .left
@@ -693,4 +682,12 @@ fn value_by_name_mut<'a, K: MightHave, V>(
     xs.iter_mut()
         .find(|p| K::as_opt(&p.key).is_some_and(|kn| kn == n))
         .map(|p| &mut p.value)
+}
+
+// dummy value to use when mutating NamedVec in place
+fn dummy<K, W, U, V>() -> NamedVec<K, W, U, V> {
+    NamedVec::Unsplit(UnsplitVec {
+        members: vec![],
+        prefix: ShortnamePrefix::default(),
+    })
 }

@@ -31,6 +31,16 @@ pub enum NamedVec<K, W, U, V> {
     Unsplit(UnsplitVec<W, V>),
 }
 
+/// An error that allows returning of the original value
+///
+/// This is useful in TryFrom impl's where one wants to try a conversion but
+/// re-use the input on failure.
+// TODO this probably belongs somewhere else, more general than just this mod
+pub struct TryFromErrorReset<E, T> {
+    pub error: E,
+    pub value: T,
+}
+
 #[derive(Clone, Serialize)]
 pub struct SplitVec<K, U, V> {
     left: PairedVec<K, V>,
@@ -581,7 +591,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     ///
     /// Return true if vector is updated. The conversion process from center
     /// value to non-center value cannot fail.
-    pub fn unset_center<E>(&mut self) -> bool
+    pub fn unset_center(&mut self) -> bool
     where
         V: From<U>,
     {
@@ -778,9 +788,4 @@ fn dummy<K, W, U, V>() -> NamedVec<K, W, U, V> {
         members: vec![],
         prefix: ShortnamePrefix::default(),
     })
-}
-
-pub struct TryFromErrorReset<E, T> {
-    error: E,
-    value: T,
 }

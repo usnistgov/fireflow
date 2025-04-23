@@ -5048,6 +5048,13 @@ where
         self.measurements.set_center_by_name(n)
     }
 
+    fn unset_time_channel(&mut self) -> bool
+    where
+        Measurement<M::P>: From<TimeChannel<M::T>>,
+    {
+        self.measurements.unset_center()
+    }
+
     // NOTE this does not apply to time channel
     pub fn remove_measurement(
         &mut self,

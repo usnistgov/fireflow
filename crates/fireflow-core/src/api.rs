@@ -1639,7 +1639,7 @@ newtype_disp!(EndDateTime);
 newtype_fromstr!(EndDateTime, FCSDateTimeError);
 kw_opt_meta!(EndDateTime, "ENDDATETIME");
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Copy, Serialize)]
 pub struct Timestep(pub PositiveFloat);
 
 impl Default for Timestep {
@@ -2365,6 +2365,10 @@ pub trait VersionedMeasurement: Sized + Versioned {
 
 pub trait VersionedTime: Sized {
     fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self>;
+
+    fn timestep(&self) -> Option<Timestep>;
+
+    fn set_timestep(&mut self, ts: Timestep);
 }
 
 fn to_col_type(
@@ -3803,6 +3807,12 @@ impl VersionedTime for InnerTime2_0 {
         // TODO check that scale is linear
         Some(Self)
     }
+
+    fn timestep(&self) -> Option<Timestep> {
+        None
+    }
+
+    fn set_timestep(&mut self, ts: Timestep) {}
 }
 
 impl VersionedTime for InnerTime3_0 {
@@ -3814,6 +3824,14 @@ impl VersionedTime for InnerTime3_0 {
         } else {
             None
         }
+    }
+
+    fn timestep(&self) -> Option<Timestep> {
+        Some(self.timestep)
+    }
+
+    fn set_timestep(&mut self, ts: Timestep) {
+        self.timestep = ts;
     }
 }
 
@@ -3829,6 +3847,14 @@ impl VersionedTime for InnerTime3_1 {
         } else {
             None
         }
+    }
+
+    fn timestep(&self) -> Option<Timestep> {
+        Some(self.timestep)
+    }
+
+    fn set_timestep(&mut self, ts: Timestep) {
+        self.timestep = ts;
     }
 }
 
@@ -3846,6 +3872,14 @@ impl VersionedTime for InnerTime3_2 {
         } else {
             None
         }
+    }
+
+    fn timestep(&self) -> Option<Timestep> {
+        Some(self.timestep)
+    }
+
+    fn set_timestep(&mut self, ts: Timestep) {
+        self.timestep = ts;
     }
 }
 
@@ -5045,11 +5079,27 @@ where
         Measurement<M::P>: From<TimeChannel<M::T>>,
         TimeChannel<M::T>: TryFrom<Measurement<M::P>, Error = TryFromTimeError<Measurement<M::P>>>,
     {
-        // TODO the From instance for TimeChannel will reset $TIMESTEP each
-        // time, which will get rather annoying. However, $TIMESTEP doesn't
-        // exist for each version, so will need to invoke the parent traits here
-        // somehow
-        self.measurements.set_center_by_name(n)
+        // This is tricky because $TIMESTEP will be filled with a dummy value
+        // when TimeChannel is converted from a Measurement. This will get
+        // annoying for cases where the time channel already exists and we are
+        // simply "moving" it to a new channel; $TIMESTEP should follow the move
+        // in this case. Therefore, get the value of $TIMESTEP (if it exists)
+        // and reassign to new time channel (if it exists). The added
+        // complication is that not all versions have $TIMESTEP, so consult
+        // trait-level functions for this and wrap in Option.
+        let ms = &mut self.measurements;
+        let current_timestep = ms.as_center().and_then(|c| c.1.specific.timestep());
+        match ms.set_center_by_name(n) {
+            Ok(center) => {
+                // Technically this is a bit more work than necessary because
+                // we should know by this point if the center exists. Oh well..
+                if let (Some(ts), Some(c)) = (current_timestep, ms.as_center_mut()) {
+                    M::T::set_timestep(&mut c.1.specific, ts);
+                }
+                Ok(center)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     fn unset_time_channel(&mut self) -> bool

@@ -46,7 +46,7 @@ pub struct UnsplitVec<K, V> {
 }
 
 pub trait MightHave {
-    type Wrapper<T>;
+    type Wrapper<T>: From<T>;
 
     fn to_opt<T>(x: Self::Wrapper<T>) -> Option<T>;
 
@@ -56,8 +56,9 @@ pub trait MightHave {
         Self::to_opt(Self::as_ref(x))
     }
 
-    // TODO this is basically From<T>
-    fn into_wrapped<T>(n: T) -> Self::Wrapper<T>;
+    fn into_wrapped<T>(n: T) -> Self::Wrapper<T> {
+        n.into()
+    }
 }
 
 type DistinctVec<K, V> = Vec<DistinctPair<K, V>>;
@@ -547,9 +548,12 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     // TODO this seems like it could be more general (like "map_keys" or something)
     /// Unwrap and rewrap the non-center names of vector.
     ///
-    /// This operation may fail if an original wrapped value contains nothing,
-    /// since we must have something to rewrap.
-    pub fn try_rewrapped<J: MightHave>(self) -> Option<NamedVec<J, J::Wrapper<Shortname>, U, V>> {
+    /// This may fail if the original wrapped name cannot be converted.
+    pub fn try_rewrapped<J>(self) -> Option<NamedVec<J, J::Wrapper<Shortname>, U, V>>
+    where
+        J: MightHave,
+        J::Wrapper<Shortname>: TryFrom<K::Wrapper<Shortname>>,
+    {
         let go = |xs: DistinctVec<K::Wrapper<Shortname>, V>| {
             xs.into_iter()
                 .map(Self::try_into_wrapper::<J>)
@@ -566,9 +570,12 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         }
     }
 
-    fn try_into_wrapper<J: MightHave>(p: WrappedPair<K, V>) -> Option<WrappedPair<J, V>> {
-        let name = K::to_opt(p.key)?;
-        let newkey = J::into_wrapped(name);
+    fn try_into_wrapper<J>(p: WrappedPair<K, V>) -> Option<WrappedPair<J, V>>
+    where
+        J: MightHave,
+        J::Wrapper<Shortname>: TryFrom<K::Wrapper<Shortname>>,
+    {
+        let newkey = p.key.try_into().ok()?;
         Some(DistinctPair {
             key: newkey,
             value: p.value,

@@ -978,10 +978,6 @@ impl MightHave for OptionalKwFamily {
     fn as_ref<T>(x: &Self::Wrapper<T>) -> Self::Wrapper<&T> {
         x.as_ref()
     }
-
-    fn into_wrapped<T>(n: T) -> Self::Wrapper<T> {
-        Some(n).into()
-    }
 }
 
 #[derive(Clone, Serialize)]
@@ -997,9 +993,32 @@ impl MightHave for IdentityFamily {
     fn as_ref<T>(x: &Self::Wrapper<T>) -> Self::Wrapper<&T> {
         Identity(&x.0)
     }
+}
 
-    fn into_wrapped<T>(n: T) -> Self::Wrapper<T> {
-        Identity(n)
+impl<T> From<T> for Identity<T> {
+    fn from(value: T) -> Self {
+        Identity(value)
+    }
+}
+
+impl<T> From<T> for OptionalKw<T> {
+    fn from(value: T) -> Self {
+        Some(value).into()
+    }
+}
+
+impl<T> TryFrom<OptionalKw<T>> for Identity<T> {
+    type Error = ();
+    fn try_from(value: OptionalKw<T>) -> Result<Self, ()> {
+        value.0.ok_or(()).map(Identity)
+    }
+}
+
+// This will never really fail but is implemented for symmetry with its inverse
+impl<T> TryFrom<Identity<T>> for OptionalKw<T> {
+    type Error = ();
+    fn try_from(value: Identity<T>) -> Result<Self, ()> {
+        Ok(Some(value.0).into())
     }
 }
 
@@ -5431,6 +5450,7 @@ where
         ToM: TryFrom<M, Error = MetaConvertErrors>,
         ToM::P: TryFrom<M::P, Error = MeasConvertError>,
         ToM::T: From<M::T>,
+        <ToM::N as MightHave>::Wrapper<Shortname>: TryFrom<<M::N as MightHave>::Wrapper<Shortname>>,
     {
         let ps = self
             .measurements

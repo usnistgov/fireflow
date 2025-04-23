@@ -1078,10 +1078,6 @@ trait IndexedKey {
         format!("${}", Self::fmt_blank())
     }
 
-    fn std_maybe(i: Option<MeasIdx>) -> String {
-        i.map(Self::std).unwrap_or(Self::fmt_blank())
-    }
-
     fn nonstd(i: usize) -> NonStdKey {
         NonStdKey::from_unchecked(Self::fmt(i).as_str())
     }
@@ -1199,8 +1195,13 @@ where
         Self::lookup_req(kws, Self::std(n).as_str())
     }
 
-    fn pair(&self, n: Option<MeasIdx>) -> (String, String) {
-        (Self::std_maybe(n), self.to_string())
+    fn triple(&self, n: MeasIdx) -> (String, String, String) {
+        (Self::std_blank(), Self::std(n), self.to_string())
+    }
+
+    fn pair(&self, n: MeasIdx) -> (String, String) {
+        let (_, k, v) = self.triple(n);
+        (k, v)
     }
 }
 
@@ -1219,15 +1220,6 @@ where
     fn pair(opt: &OptionalKw<Self>) -> (String, Option<String>) {
         (Self::std(), opt.0.as_ref().map(|s| s.to_string()))
     }
-
-    // fn setter(default: Option<Self>, def_key: bool, key: Option<NonStdKey>) -> MetaKwSetter<Self> {
-    //     if let Some(def) = default {
-    //         KwSetter::Default(def)
-    //     } else {
-    //         let k = if def_key { Some(Self::nonstd()) } else { key };
-    //         KwSetter::Key(k)
-    //     }
-    // }
 }
 
 trait OptMeasKey
@@ -1242,53 +1234,19 @@ where
         Self::lookup_opt(kws, Self::std(n).as_str())
     }
 
-    fn pair(opt: &OptionalKw<Self>, n: Option<MeasIdx>) -> (String, Option<String>) {
-        (Self::std_maybe(n), opt.0.as_ref().map(|s| s.to_string()))
+    fn triple(opt: &OptionalKw<Self>, n: MeasIdx) -> (String, String, Option<String>) {
+        (
+            Self::std_blank(),
+            Self::std(n),
+            opt.0.as_ref().map(|s| s.to_string()),
+        )
     }
 
-    // fn setter(
-    //     default: Option<Self>,
-    //     def_key: bool,
-    //     key: Option<NonStdMeasKey>,
-    // ) -> MeasKwSetter<Self> {
-    //     if let Some(def) = default {
-    //         KwSetter::Default(def)
-    //     } else {
-    //         let k = if def_key {
-    //             Some(Self::nonstd_sub())
-    //         } else {
-    //             key
-    //         };
-    //         KwSetter::Key(k)
-    //     }
-    // }
+    fn pair(opt: &OptionalKw<Self>, n: MeasIdx) -> (String, Option<String>) {
+        let (_, k, v) = Self::triple(opt, n);
+        (k, v)
+    }
 }
-
-// trait LinkedOptMetaKey
-// where
-//     Self: Optional,
-//     Self: fmt::Display,
-//     Self: Key,
-//     Self: Sized,
-// {
-//     fn lookup_linked_meta_opt(kws: &mut RawKeywords, names: &[&Shortname]) -> OptResult<Self> {
-//         let k = Self::std();
-//         let msg = format!("{k} references non-existent $PnN name");
-//         match kws.remove(k.as_str()) {
-//             Some(v) => Self::linked_from_str(v.as_str(), names)
-//                 .and_then(|opt| opt.ok_or(msg).map(Some))
-//                 .map_err(|e| format!("{e} (key='{k}', value='{v}')")),
-//             None => Ok(None),
-//         }
-//         .map(|x| x.into())
-//     }
-
-//     fn linked_from_str(s: &str, names: &[&Shortname]) -> Result<Option<Self>, String>;
-
-//     fn pair(opt: &OptionalKw<Self>) -> (String, Option<String>) {
-//         (Self::std(), opt.0.as_ref().map(|s| s.to_string()))
-//     }
-// }
 
 trait Linked
 where
@@ -2335,9 +2293,9 @@ pub trait VersionedMetadata: Sized {
 pub trait VersionedMeasurement: Sized + Versioned {
     fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self>;
 
-    fn req_suffixes_inner(&self, n: Option<MeasIdx>) -> RawPairs;
+    fn req_suffixes_inner(&self, n: MeasIdx) -> RawTriples;
 
-    fn opt_suffixes_inner(&self, n: Option<MeasIdx>) -> Vec<(String, Option<String>)>;
+    fn opt_suffixes_inner(&self, n: MeasIdx) -> RawOptTriples;
 
     fn datatype(&self) -> Option<NumType>;
 }
@@ -2349,9 +2307,9 @@ pub trait VersionedTime: Sized {
 
     fn set_timestep(&mut self, ts: Timestep);
 
-    fn req_keywords_inner(&self, _: Option<MeasIdx>) -> RawPairs;
+    fn req_meta_keywords_inner(&self) -> RawPairs;
 
-    fn opt_keywords_inner(&self, _: Option<MeasIdx>) -> Vec<(String, Option<String>)>;
+    fn opt_meas_keywords_inner(&self, _: MeasIdx) -> RawOptPairs;
 }
 
 fn to_col_type(
@@ -3678,15 +3636,15 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
         })
     }
 
-    fn req_suffixes_inner(&self, _: Option<MeasIdx>) -> RawPairs {
+    fn req_suffixes_inner(&self, _: MeasIdx) -> RawTriples {
         vec![]
     }
 
-    fn opt_suffixes_inner(&self, n: Option<MeasIdx>) -> Vec<(String, Option<String>)> {
+    fn opt_suffixes_inner(&self, n: MeasIdx) -> RawOptTriples {
         [
-            OptMeasKey::pair(&self.scale, n),
+            OptMeasKey::triple(&self.scale, n),
             // OptMeasKey::pair(&self.shortname, n),
-            OptMeasKey::pair(&self.wavelength, n),
+            OptMeasKey::triple(&self.wavelength, n),
         ]
         .into_iter()
         .collect()
@@ -3706,15 +3664,14 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
         })
     }
 
-    fn req_suffixes_inner(&self, n: Option<MeasIdx>) -> RawPairs {
-        [self.scale.pair(n)].into_iter().collect()
+    fn req_suffixes_inner(&self, n: MeasIdx) -> RawTriples {
+        [self.scale.triple(n)].into_iter().collect()
     }
 
-    fn opt_suffixes_inner(&self, n: Option<MeasIdx>) -> Vec<(String, Option<String>)> {
+    fn opt_suffixes_inner(&self, n: MeasIdx) -> RawOptTriples {
         [
-            // OptMeasKey::pair(&self.shortname, n),
-            OptMeasKey::pair(&self.wavelength, n),
-            OptMeasKey::pair(&self.gain, n),
+            OptMeasKey::triple(&self.wavelength, n),
+            OptMeasKey::triple(&self.gain, n),
         ]
         .into_iter()
         .collect()
@@ -3740,21 +3697,16 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
         }
     }
 
-    fn req_suffixes_inner(&self, n: Option<MeasIdx>) -> RawPairs {
-        [
-            self.scale.pair(n),
-            // self.shortname.pair(n)
-        ]
-        .into_iter()
-        .collect()
+    fn req_suffixes_inner(&self, n: MeasIdx) -> RawTriples {
+        [self.scale.triple(n)].into_iter().collect()
     }
 
-    fn opt_suffixes_inner(&self, n: Option<MeasIdx>) -> Vec<(String, Option<String>)> {
+    fn opt_suffixes_inner(&self, n: MeasIdx) -> RawOptTriples {
         [
-            OptMeasKey::pair(&self.wavelengths, n),
-            OptMeasKey::pair(&self.gain, n),
-            OptMeasKey::pair(&self.calibration, n),
-            OptMeasKey::pair(&self.display, n),
+            OptMeasKey::triple(&self.wavelengths, n),
+            OptMeasKey::triple(&self.gain, n),
+            OptMeasKey::triple(&self.calibration, n),
+            OptMeasKey::triple(&self.display, n),
         ]
         .into_iter()
         .collect()
@@ -3773,11 +3725,11 @@ impl VersionedTime for InnerTime2_0 {
 
     fn set_timestep(&mut self, ts: Timestep) {}
 
-    fn req_keywords_inner(&self, _: Option<MeasIdx>) -> RawPairs {
+    fn req_meta_keywords_inner(&self) -> RawPairs {
         vec![]
     }
 
-    fn opt_keywords_inner(&self, _: Option<MeasIdx>) -> Vec<(String, Option<String>)> {
+    fn opt_meas_keywords_inner(&self, _: MeasIdx) -> RawOptPairs {
         vec![]
     }
 }
@@ -3801,11 +3753,11 @@ impl VersionedTime for InnerTime3_0 {
         self.timestep = ts;
     }
 
-    fn req_keywords_inner(&self, _: Option<MeasIdx>) -> RawPairs {
+    fn req_meta_keywords_inner(&self) -> RawPairs {
         [ReqMetaKey::pair(&self.timestep)].into_iter().collect()
     }
 
-    fn opt_keywords_inner(&self, _: Option<MeasIdx>) -> Vec<(String, Option<String>)> {
+    fn opt_meas_keywords_inner(&self, _: MeasIdx) -> RawOptPairs {
         vec![]
     }
 }
@@ -3832,11 +3784,11 @@ impl VersionedTime for InnerTime3_1 {
         self.timestep = ts;
     }
 
-    fn req_keywords_inner(&self, _: Option<MeasIdx>) -> RawPairs {
+    fn req_meta_keywords_inner(&self) -> RawPairs {
         [ReqMetaKey::pair(&self.timestep)].into_iter().collect()
     }
 
-    fn opt_keywords_inner(&self, n: Option<MeasIdx>) -> Vec<(String, Option<String>)> {
+    fn opt_meas_keywords_inner(&self, n: MeasIdx) -> RawOptPairs {
         [OptMeasKey::pair(&self.display, n)].into_iter().collect()
     }
 }
@@ -3865,11 +3817,11 @@ impl VersionedTime for InnerTime3_2 {
         self.timestep = ts;
     }
 
-    fn req_keywords_inner(&self, _: Option<MeasIdx>) -> RawPairs {
+    fn req_meta_keywords_inner(&self) -> RawPairs {
         [ReqMetaKey::pair(&self.timestep)].into_iter().collect()
     }
 
-    fn opt_keywords_inner(&self, n: Option<MeasIdx>) -> Vec<(String, Option<String>)> {
+    fn opt_meas_keywords_inner(&self, n: MeasIdx) -> RawOptPairs {
         [
             OptMeasKey::pair(&self.display, n),
             OptMeasKey::pair(&self.datatype, n),
@@ -3904,27 +3856,22 @@ impl VersionedMeasurement for InnerMeasurement3_2 {
         }
     }
 
-    fn req_suffixes_inner(&self, n: Option<MeasIdx>) -> RawPairs {
-        [
-            self.scale.pair(n),
-            // self.shortname.pair(n)
-        ]
-        .into_iter()
-        .collect()
+    fn req_suffixes_inner(&self, n: MeasIdx) -> RawTriples {
+        [self.scale.triple(n)].into_iter().collect()
     }
 
-    fn opt_suffixes_inner(&self, n: Option<MeasIdx>) -> Vec<(String, Option<String>)> {
+    fn opt_suffixes_inner(&self, n: MeasIdx) -> RawOptTriples {
         [
-            OptMeasKey::pair(&self.wavelengths, n),
-            OptMeasKey::pair(&self.gain, n),
-            OptMeasKey::pair(&self.calibration, n),
-            OptMeasKey::pair(&self.display, n),
-            OptMeasKey::pair(&self.detector_name, n),
-            OptMeasKey::pair(&self.tag, n),
-            OptMeasKey::pair(&self.measurement_type, n),
-            OptMeasKey::pair(&self.feature, n),
-            OptMeasKey::pair(&self.analyte, n),
-            OptMeasKey::pair(&self.datatype, n),
+            OptMeasKey::triple(&self.wavelengths, n),
+            OptMeasKey::triple(&self.gain, n),
+            OptMeasKey::triple(&self.calibration, n),
+            OptMeasKey::triple(&self.display, n),
+            OptMeasKey::triple(&self.detector_name, n),
+            OptMeasKey::triple(&self.tag, n),
+            OptMeasKey::triple(&self.measurement_type, n),
+            OptMeasKey::triple(&self.feature, n),
+            OptMeasKey::triple(&self.analyte, n),
+            OptMeasKey::triple(&self.datatype, n),
         ]
         .into_iter()
         .collect()
@@ -4530,17 +4477,17 @@ where
         }
     }
 
-    fn req_keywords(&self, n: Option<MeasIdx>) -> RawPairs {
+    fn req_keywords(&self, n: MeasIdx) -> RawPairs {
         [self.bytes.pair(n), self.range.pair(n)]
             .into_iter()
-            .chain(self.specific.req_keywords_inner(n))
+            .chain(self.specific.req_meta_keywords_inner())
             .collect()
     }
 
-    fn opt_keywords(&self, n: Option<MeasIdx>) -> Vec<(String, Option<String>)> {
+    fn opt_keywords(&self, n: MeasIdx) -> RawOptPairs {
         [OptMeasKey::pair(&self.longname, n)]
             .into_iter()
-            .chain(self.specific.opt_keywords_inner(n))
+            .chain(self.specific.opt_meas_keywords_inner(n))
             .collect()
     }
 }
@@ -4607,21 +4554,21 @@ where
         }
     }
 
-    fn req_suffixes(&self, n: Option<MeasIdx>) -> RawPairs {
-        [self.bytes.pair(n), self.range.pair(n)]
+    fn req_keywords(&self, n: MeasIdx) -> RawTriples {
+        [self.bytes.triple(n), self.range.triple(n)]
             .into_iter()
             .chain(self.specific.req_suffixes_inner(n))
             .collect()
     }
 
-    fn opt_suffixes(&self, n: Option<MeasIdx>) -> Vec<(String, Option<String>)> {
+    fn opt_keywords(&self, n: MeasIdx) -> RawOptTriples {
         [
-            OptMeasKey::pair(&self.longname, n),
-            OptMeasKey::pair(&self.filter, n),
-            OptMeasKey::pair(&self.power, n),
-            OptMeasKey::pair(&self.detector_type, n),
-            OptMeasKey::pair(&self.percent_emitted, n),
-            OptMeasKey::pair(&self.detector_voltage, n),
+            OptMeasKey::triple(&self.longname, n),
+            OptMeasKey::triple(&self.filter, n),
+            OptMeasKey::triple(&self.power, n),
+            OptMeasKey::triple(&self.detector_type, n),
+            OptMeasKey::triple(&self.percent_emitted, n),
+            OptMeasKey::triple(&self.detector_voltage, n),
         ]
         .into_iter()
         .chain(self.specific.opt_suffixes_inner(n))
@@ -4629,39 +4576,43 @@ where
     }
 
     // for table
-    fn keywords(&self, n: Option<MeasIdx>) -> Vec<(String, Option<String>)> {
-        self.req_suffixes(n)
+    fn table_pairs(&self) -> Vec<(String, Option<String>)> {
+        // zero is a dummy and not meaningful here
+        let n = MeasIdx(0);
+        self.req_keywords(n)
             .into_iter()
-            .map(|(k, v)| (k, Some(v)))
-            .chain(self.opt_suffixes(n))
+            .map(|(t, _, v)| (t, Some(v)))
+            .chain(self.opt_keywords(n).into_iter().map(|(k, _, v)| (k, v)))
             .collect()
     }
 
     fn table_header(&self) -> Vec<String> {
-        vec![String::from("index")]
+        ["index".into()]
             .into_iter()
-            .chain(self.keywords(None).into_iter().map(|(k, _)| k))
+            .chain(self.table_pairs().into_iter().map(|(k, _)| k))
             .collect()
     }
 
     fn table_row(&self, n: usize) -> Vec<Option<String>> {
         vec![Some(n.to_string())]
             .into_iter()
-            // NOTE; the None is a dummy and never used
-            .chain(self.keywords(None).into_iter().map(|(_, v)| v))
+            .chain(self.table_pairs().into_iter().map(|(_, v)| v))
             .collect()
     }
 
     // TODO this name is weird, this is standard+nonstandard keywords
     // after filtering out None values
-    fn req_keywords(&self, n: Option<MeasIdx>) -> RawPairs {
-        self.req_suffixes(n).into_iter().collect()
+    fn all_req_keywords(&self, n: MeasIdx) -> RawPairs {
+        self.req_keywords(n)
+            .into_iter()
+            .map(|(_, k, v)| (k, v))
+            .collect()
     }
 
-    fn opt_keywords(&self, n: Option<MeasIdx>) -> RawPairs {
-        self.opt_suffixes(n)
+    fn all_opt_keywords(&self, n: MeasIdx) -> RawPairs {
+        self.opt_keywords(n)
             .into_iter()
-            .filter_map(|(k, v)| v.map(|x| (k, x)))
+            .filter_map(|(_, k, v)| v.map(|x| (k, x)))
             .chain(
                 self.nonstandard_keywords
                     .iter()
@@ -4722,10 +4673,9 @@ where
         >,
     ) -> Option<Self> {
         let par = Par(ms.len());
-        let maybe_datatype = st.lookup_meta_req();
-        let maybe_specific = M::lookup_specific(st, par);
-        if let (Some(datatype), Some(specific)) = (maybe_datatype, maybe_specific) {
-            Some(Metadata {
+        st.lookup_meta_req()
+            .zip(M::lookup_specific(st, par))
+            .map(|(datatype, specific)| Metadata {
                 datatype,
                 abrt: st.lookup_meta_opt(false),
                 com: st.lookup_meta_opt(false),
@@ -4743,16 +4693,12 @@ where
                 nonstandard_keywords: st.lookup_all_nonstandard(),
                 specific,
             })
-        } else {
-            None
-        }
     }
 
     fn all_req_keywords(&self, par: Par) -> RawPairs {
         [par.pair(), self.datatype.pair()]
             .into_iter()
             .chain(self.specific.keywords_req_inner())
-            .map(|(k, v)| (k.to_string(), v))
             .collect()
     }
 
@@ -4776,7 +4722,6 @@ where
         .flat_map(|(k, v)| v.map(|x| (k, x)))
         .chain(self.specific.keywords_opt_inner())
         .map(|(k, v)| (k.to_string(), v))
-        // TODO useless clone
         .chain(
             self.nonstandard_keywords
                 .iter()
@@ -4865,8 +4810,8 @@ where
     /// the DATA segment.
     pub fn raw_keywords(&self, want_req: Option<bool>, want_meta: Option<bool>) -> RawKeywords {
         let (req_meas, req_meta, _) =
-            self.some_keywords(Measurement::req_keywords, Metadata::all_req_keywords);
-        let (opt_meas, opt_meta, _) = self.some_keywords(Measurement::opt_keywords, |m, _| {
+            self.some_keywords(Measurement::all_req_keywords, Metadata::all_req_keywords);
+        let (opt_meas, opt_meta, _) = self.some_keywords(Measurement::all_opt_keywords, |m, _| {
             Metadata::all_opt_keywords(m)
         });
 
@@ -4964,9 +4909,9 @@ where
         let tot_pair = (Tot::std().to_string(), tot.to_string());
 
         let (req_meas, req_meta, req_text_len) =
-            self.some_keywords(Measurement::req_keywords, Metadata::all_req_keywords);
+            self.some_keywords(Measurement::all_req_keywords, Metadata::all_req_keywords);
         let (opt_meas, opt_meta, opt_text_len) = self
-            .some_keywords(Measurement::opt_keywords, |m, _| {
+            .some_keywords(Measurement::all_opt_keywords, |m, _| {
                 Metadata::all_opt_keywords(m)
             });
 
@@ -5130,16 +5075,17 @@ where
         Par(self.measurements.len())
     }
 
-    fn some_keywords<F, G>(&self, f: F, g: G) -> (RawPairs, RawPairs, usize)
+    fn some_keywords<F, G>(&self, f: F, g: G, h: H) -> (RawPairs, RawPairs, usize)
     where
-        F: Fn(&Measurement<M::P>, Option<MeasIdx>) -> RawPairs,
-        G: Fn(&Metadata<M>, Par) -> RawPairs,
+        F: Fn(&Measurement<M::P>, MeasIdx) -> RawPairs,
+        G: Fn(&TimeChannel<M::T>, MeasIdx) -> RawPairs,
+        H: Fn(&Metadata<M>, Par) -> RawPairs,
     {
         let meas: Vec<_> = self
             .measurements
             .iter_values()
             .enumerate()
-            .flat_map(|(i, m)| f(m, Some(MeasIdx(i + 1))))
+            .flat_map(|(i, m)| f(m, MeasIdx(i + 1)))
             .collect();
         let meta: Vec<_> = g(&self.metadata, self.par()).into_iter().collect();
         let l = meas.len() + meta.len();
@@ -7261,6 +7207,9 @@ fn verify_delim(xs: &[u8], conf: &RawTextReadConfig) -> PureSuccess<u8> {
 }
 
 type RawPairs = Vec<(String, String)>;
+type RawTriples = Vec<(String, String, String)>;
+type RawOptPairs = Vec<(String, Option<String>)>;
+type RawOptTriples = Vec<(String, String, Option<String>)>;
 
 fn split_raw_text(xs: &[u8], delim: u8, conf: &RawTextReadConfig) -> PureSuccess<RawPairs> {
     let mut res = PureSuccess::from(vec![]);

@@ -16,6 +16,21 @@ pub enum NamedVec<K, W, U, V> {
     Unsplit(UnsplitVec<W, V>),
 }
 
+pub trait MightHave {
+    type Wrapper<T>;
+
+    fn to_opt<T>(x: Self::Wrapper<T>) -> Option<T>;
+
+    fn as_ref<T>(x: &Self::Wrapper<T>) -> Self::Wrapper<&T>;
+
+    fn as_opt<T>(x: &Self::Wrapper<T>) -> Option<&T> {
+        Self::to_opt(Self::as_ref(x))
+    }
+
+    // TODO this is basically From<T>
+    fn into_wrapped<T>(n: T) -> Self::Wrapper<T>;
+}
+
 // dummy value to use when mutating NamedVec in place
 // TODO this doesn't need to be public
 impl<K, W, U, V> Default for NamedVec<K, W, U, V> {
@@ -60,30 +75,11 @@ type WrappedNamedVec<K, U, V> = NamedVec<K, <K as MightHave>::Wrapper<Shortname>
 
 pub type NameMapping = HashMap<Shortname, Shortname>;
 
-impl<K, W, U, V> NamedVec<K, W, U, V> {
-    fn new_split(
-        left: DistinctVec<W, V>,
-        center: DistinctPair<Shortname, U>,
-        right: DistinctVec<W, V>,
-        prefix: ShortnamePrefix,
-    ) -> Self {
-        NamedVec::Split(
-            SplitVec {
-                left,
-                center,
-                right,
-                prefix,
-            },
-            PhantomData,
-        )
-    }
-
-    fn new_unsplit(members: DistinctVec<W, V>, prefix: ShortnamePrefix) -> Self {
-        NamedVec::Unsplit(UnsplitVec { members, prefix })
-    }
-}
-
 impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
+    /// Build new NamedVec using either center or non-center values.
+    ///
+    /// Must contain either one or zero center values, otherwise return error.
+    /// All names within keys (including center) must be unique.
     pub fn new(
         xs: RawInput<K, U, V>,
         prefix: ShortnamePrefix,
@@ -136,6 +132,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         }
     }
 
+    /// Return reference to center
     pub fn as_center(&self) -> Option<(&Shortname, &U)> {
         match self {
             NamedVec::Split(s, _) => Some((&s.center.key, &s.center.value)),
@@ -143,6 +140,15 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         }
     }
 
+    /// Return mutable reference to center
+    pub fn as_center_mut(&mut self) -> Option<(&mut Shortname, &mut U)> {
+        match self {
+            NamedVec::Split(s, _) => Some((&mut s.center.key, &mut s.center.value)),
+            NamedVec::Unsplit(_) => None,
+        }
+    }
+
+    /// Return reference to prefix
     pub fn as_prefix(&self) -> &ShortnamePrefix {
         match self {
             NamedVec::Split(s, _) => &s.prefix,
@@ -150,42 +156,72 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         }
     }
 
-    fn iter_dpairs(&self) -> impl Iterator<Item = &DistinctPair<K::Wrapper<Shortname>, V>> + '_ {
+    /// Set the prefix
+    pub fn set_prefix(&mut self, prefix: ShortnamePrefix) {
         match self {
-            NamedVec::Split(s, _) => s.left.iter().chain(s.right.iter()),
-            // chain thing is a dirty hack to get the types to match,
-            // unfortunately this doesn't work for mut because it requires two
-            // borrows
-            NamedVec::Unsplit(u) => u.members.iter().chain(u.members[0..0].iter()),
+            NamedVec::Split(s, _) => {
+                s.prefix = prefix;
+            }
+            NamedVec::Unsplit(u) => {
+                u.prefix = prefix;
+            }
         }
     }
 
-    pub fn itr_pairs(&self) -> impl Iterator<Item = (&K::Wrapper<Shortname>, &V)> + '_ {
-        self.iter_dpairs().map(|x| (&x.key, &x.value))
-    }
-
+    /// Return iterator over borrowed non-center values
     pub fn iter_values(&self) -> impl Iterator<Item = &V> + '_ {
         self.iter_dpairs().map(|x| &x.value)
     }
 
-    // pub fn map_values_in_place<F, X>(&mut self, f: F)
-    // where
-    //     F: Fn(&mut V),
-    // {
-    //     match self {
-    //         NamedVec::Split(s, _) => {
-    //             for p in s.left.iter_mut() {
-    //                 f(&mut p.value);
-    //             }
-    //         }
-    //         NamedVec::Unsplit(u) => {
-    //             for p in u.members.iter_mut() {
-    //                 f(&mut p.value);
-    //             }
-    //         }
-    //     }
-    // }
+    /// Return iterator over borrowed non-center keys
+    pub fn iter_keys(&self) -> impl Iterator<Item = &K::Wrapper<Shortname>> + '_ {
+        self.iter_dpairs().map(|x| &x.key)
+    }
 
+    /// Apply function to non-center values, altering them in place
+    pub fn alter_values<F, X>(&mut self, f: F) -> Vec<X>
+    where
+        F: Fn(&mut V) -> X,
+    {
+        match self {
+            NamedVec::Split(s, _) => s
+                .left
+                .iter_mut()
+                .map(|p| f(&mut p.value))
+                .chain(s.right.iter_mut().map(|p| f(&mut p.value)))
+                .collect(),
+            NamedVec::Unsplit(u) => u.members.iter_mut().map(|p| f(&mut p.value)).collect(),
+        }
+    }
+
+    /// Return position of center, if it exists
+    pub fn center_index(&self) -> Option<usize> {
+        match self {
+            NamedVec::Split(s, _) => Some(s.left.len() + 1),
+            NamedVec::Unsplit(_) => None,
+        }
+    }
+
+    /// Apply function over center value, possibly changing it's type
+    pub fn map_center<F, W>(self, f: F) -> NamedVec<K, K::Wrapper<Shortname>, W, V>
+    where
+        F: Fn(usize, U) -> W,
+    {
+        match self {
+            NamedVec::Split(s, _) => {
+                let i = s.left.len();
+                let c = s.center;
+                let center = DistinctPair {
+                    key: c.key,
+                    value: f(i, c.value),
+                };
+                NamedVec::new_split(s.left, center, s.right, s.prefix)
+            }
+            NamedVec::Unsplit(u) => NamedVec::Unsplit(u),
+        }
+    }
+
+    /// Apply function over non-center values, possibly changing their type
     pub fn map_values<E, F, W>(self, f: F) -> Result<WrappedNamedVec<K, U, W>, Vec<E>>
     where
         F: Fn(usize, V) -> Result<W, E>,
@@ -234,33 +270,11 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         }
     }
 
-    pub fn map_center<F, W>(self, f: F) -> NamedVec<K, K::Wrapper<Shortname>, W, V>
-    where
-        F: Fn(usize, U) -> W,
-    {
-        match self {
-            NamedVec::Split(s, _) => {
-                let i = s.left.len();
-                let c = s.center;
-                let center = DistinctPair {
-                    key: c.key,
-                    value: f(i, c.value),
-                };
-                NamedVec::new_split(s.left, center, s.right, s.prefix)
-            }
-            NamedVec::Unsplit(u) => NamedVec::Unsplit(u),
-        }
-    }
-
-    pub fn iter_keys(&self) -> impl Iterator<Item = &K::Wrapper<Shortname>> + '_ {
-        self.iter_dpairs().map(|x| &x.key)
-    }
-
     pub fn len(&self) -> usize {
         self.iter_dpairs().count()
     }
 
-    pub fn non_center_len(&self) -> usize {
+    pub fn len_non_center(&self) -> usize {
         match self {
             NamedVec::Split(s, _) => s.left.len() + s.right.len(),
             NamedVec::Unsplit(u) => u.members.len(),
@@ -271,22 +285,70 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         self.len() == 0
     }
 
-    // fn remove_index_unchecked(&mut self, i: usize) -> (K, V) {
-    //     let p = self.members.remove(i);
-    //     (p.key, p.value)
-    // }
-}
+    fn iter_dpairs(&self) -> impl Iterator<Item = &DistinctPair<K::Wrapper<Shortname>, V>> + '_ {
+        match self {
+            NamedVec::Split(s, _) => s.left.iter().chain(s.right.iter()),
+            // chain thing is a dirty hack to get the types to match,
+            // unfortunately this doesn't work for mut because it requires two
+            // borrows
+            NamedVec::Unsplit(u) => u.members.iter().chain(u.members[0..0].iter()),
+        }
+    }
 
-impl<K: MightHave + Clone, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
-    // pub fn position_by_name(&self, n: &Shortname) -> Option<usize> {
-    //     self.iter_keys()
-    //         .position(|k| K::as_opt(k).is_some_and(|kn| kn == n))
-    // }
+    pub fn iter_names_opt(&self) -> impl Iterator<Item = Option<&Shortname>> + '_ {
+        self.iter_dpairs().map(|x| K::as_opt(&x.key))
+    }
 
-    pub fn find_by_name(&self, n: &Shortname) -> Option<&V> {
+    pub fn iter_all_names(&self) -> impl Iterator<Item = Shortname> + '_ {
+        let prefix = self.as_prefix();
+        self.iter_dpairs()
+            .enumerate()
+            .map(|(i, x)| K::as_opt(&x.key).cloned().unwrap_or(prefix.as_indexed(i)))
+    }
+
+    pub fn get_name(&self, n: &Shortname) -> Option<&V> {
         self.iter_dpairs()
             .find(|p| K::as_opt(&p.key).is_some_and(|kn| kn == n))
             .map(|p| &p.value)
+    }
+
+    pub fn get_name_mut(&mut self, n: &Shortname) -> Option<&mut V> {
+        match self {
+            NamedVec::Split(s, _) => value_by_name_mut::<K, V>(&mut s.left, n)
+                .or(value_by_name_mut::<K, V>(&mut s.right, n)),
+            NamedVec::Unsplit(u) => value_by_name_mut::<K, V>(&mut u.members, n),
+        }
+    }
+
+    pub fn insert(
+        &mut self,
+        index: usize,
+        key: K::Wrapper<Shortname>,
+        value: V,
+    ) -> Result<Shortname, DistinctError> {
+        let len = self.len();
+        let k = self
+            .as_prefix()
+            .as_opt_or_indexed::<K>(K::as_ref(&key), index);
+        if index > len {
+            Err(DistinctError::Index { index, len })
+        } else if self.iter_all_names().any(|n| n == k) {
+            Err(DistinctError::Membership(k))
+        } else {
+            let p = DistinctPair { key, value };
+            match self {
+                NamedVec::Split(s, _) => {
+                    let ln = s.left.len();
+                    if index <= ln {
+                        s.left.insert(index, p);
+                    } else {
+                        s.right.insert(index - ln - 1, p);
+                    }
+                }
+                NamedVec::Unsplit(u) => u.members.insert(index, p),
+            }
+            Ok(k)
+        }
     }
 
     /// Remove key/value pair by name of key.
@@ -307,59 +369,24 @@ impl<K: MightHave + Clone, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
         }
     }
 
-    pub fn iter_maybe_names(&self) -> impl Iterator<Item = Option<&Shortname>> + '_ {
-        self.iter_dpairs().map(|x| K::as_opt(&x.key))
-    }
-
-    pub fn iter_names(&self) -> impl Iterator<Item = Shortname> + '_ {
-        let prefix = self.as_prefix();
-        self.iter_dpairs()
-            .enumerate()
-            .map(|(i, x)| K::as_opt(&x.key).cloned().unwrap_or(prefix.as_indexed(i)))
-    }
-
-    // TODO this only can insert a non-center value
-    pub fn insert(
-        &mut self,
-        index: usize,
-        key: K::Wrapper<Shortname>,
-        value: V,
-    ) -> Result<Shortname, DistinctError> {
-        let len = self.len();
-        let k = self
-            .as_prefix()
-            .as_opt_or_indexed::<K>(K::as_ref(&key), index);
-        if index > len {
-            Err(DistinctError::Index { index, len })
-        } else if self.iter_names().any(|n| n == k) {
-            Err(DistinctError::Membership(k))
-        } else {
-            let p = DistinctPair { key, value };
-            match self {
-                NamedVec::Split(s, _) => {
-                    let ln = s.left.len();
-                    if index <= ln {
-                        s.left.insert(index, p);
-                    } else {
-                        s.right.insert(index - ln - 1, p);
-                    }
-                }
-                NamedVec::Unsplit(u) => u.members.insert(index, p),
-            }
-            Ok(k)
-        }
-    }
-
-    // this will ONLY be able to set the keys of the non-center members
+    /// Set non-center keys to list
+    ///
+    /// The center key cannot be replaced by this method since the list will
+    /// contain wrapped names which may or may not have a name inside, and
+    /// the center value always has a name.
+    ///
+    /// List must be the same length as all non-center keys and must be unique
+    /// (including the center key).
     pub fn set_non_center_keys(
         &mut self,
         ks: Vec<K::Wrapper<Shortname>>,
     ) -> Result<NameMapping, DistinctKeysError> {
         let new_len = ks.len();
-        let old_len = self.non_center_len();
+        let old_len = self.len_non_center();
         if new_len != old_len {
             Err(DistinctKeysError::Length { old_len, new_len })
         } else if !self
+            // TODO check the center key as well
             .as_prefix()
             .all_unique::<K>(ks.iter().map(K::as_ref).collect())
         {
@@ -388,7 +415,13 @@ impl<K: MightHave + Clone, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
         }
     }
 
-    // TODO not DRY
+    /// Set all names to list of Shortnames
+    ///
+    /// This will update the center value along with everything else. Non-center
+    /// keys will be wrapped such that they will contain a name.
+    ///
+    /// Supplied list must be unique and have the same length as the target
+    /// vector.
     pub fn set_names(&mut self, ns: Vec<Shortname>) -> Result<NameMapping, DistinctKeysError> {
         let new_len = ns.len();
         let old_len = self.len();
@@ -424,7 +457,11 @@ impl<K: MightHave + Clone, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
         }
     }
 
-    pub fn set_center(&mut self, n: &Shortname) -> bool
+    // TODO make an indexed version as well?
+    /// Set center to be the member with name 'n' if it exists.
+    ///
+    /// Return true if vector is updated.
+    pub fn set_center_by_name(&mut self, n: &Shortname) -> bool
     where
         V: From<U>,
         U: From<V>,
@@ -479,14 +516,15 @@ impl<K: MightHave + Clone, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
         ret
     }
 
-    pub fn remove_center(&mut self) -> bool
+    /// Convert the center element into a non-center element.
+    ///
+    /// Has no effect if there already is no center element.
+    ///
+    /// Return true if vector is updated.
+    pub fn unset_center(&mut self) -> bool
     where
         V: From<U>,
-        U: From<V>,
     {
-        // Use "dummy enum trick" to replace self with a dummy so I can "move"
-        // the real value out. The only caveat is that self needs to be replaced
-        // with the original value if the manipulations don't need to happen.
         let (ret, newself) = match mem::take(self) {
             NamedVec::Split(s, _) => {
                 let members = s
@@ -504,7 +542,11 @@ impl<K: MightHave + Clone, U, V> NamedVec<K, K::Wrapper<Shortname>, U, V> {
     }
 
     // TODO this seems like it could be more general (like "map_keys" or something)
-    pub fn try_new_names<J: MightHave>(self) -> Option<NamedVec<J, J::Wrapper<Shortname>, U, V>> {
+    /// Unwrap and rewrap the non-center names of vector.
+    ///
+    /// This operation may fail if an original wrapped value contains nothing,
+    /// since we must have something to rewrap.
+    pub fn try_rewrapped<J: MightHave>(self) -> Option<NamedVec<J, J::Wrapper<Shortname>, U, V>> {
         let go = |xs: DistinctVec<K::Wrapper<Shortname>, V>| {
             xs.into_iter()
                 .map(Self::try_into_wrapper::<J>)
@@ -587,19 +629,27 @@ impl fmt::Display for DistinctKeysError {
     }
 }
 
-pub trait MightHave {
-    type Wrapper<T>;
-
-    fn to_opt<T>(x: Self::Wrapper<T>) -> Option<T>;
-
-    fn as_ref<T>(x: &Self::Wrapper<T>) -> Self::Wrapper<&T>;
-
-    fn as_opt<T>(x: &Self::Wrapper<T>) -> Option<&T> {
-        Self::to_opt(Self::as_ref(x))
+impl<K, W, U, V> NamedVec<K, W, U, V> {
+    fn new_split(
+        left: DistinctVec<W, V>,
+        center: DistinctPair<Shortname, U>,
+        right: DistinctVec<W, V>,
+        prefix: ShortnamePrefix,
+    ) -> Self {
+        NamedVec::Split(
+            SplitVec {
+                left,
+                center,
+                right,
+                prefix,
+            },
+            PhantomData,
+        )
     }
 
-    // TODO this is basically From<T>
-    fn into_wrapped<T>(n: T) -> Self::Wrapper<T>;
+    fn new_unsplit(members: DistinctVec<W, V>, prefix: ShortnamePrefix) -> Self {
+        NamedVec::Unsplit(UnsplitVec { members, prefix })
+    }
 }
 
 impl ShortnamePrefix {
@@ -634,4 +684,13 @@ fn position_by_name<K: MightHave, V>(
 ) -> Option<usize> {
     xs.iter()
         .position(|p| K::as_opt(&p.key).is_some_and(|kn| kn == n))
+}
+
+fn value_by_name_mut<'a, K: MightHave, V>(
+    xs: &'a mut DistinctVec<K::Wrapper<Shortname>, V>,
+    n: &Shortname,
+) -> Option<&'a mut V> {
+    xs.iter_mut()
+        .find(|p| K::as_opt(&p.key).is_some_and(|kn| kn == n))
+        .map(|p| &mut p.value)
 }

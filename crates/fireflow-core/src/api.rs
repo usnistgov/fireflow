@@ -5004,7 +5004,7 @@ where
     /// For cases where $PnN is optional and its value is not given, this will
     /// return "Mn" where "n" is the parameter index starting at 0.
     pub fn shortnames(&self) -> Vec<Shortname> {
-        self.measurements.iter_names().collect()
+        self.measurements.iter_all_names().collect()
     }
 
     /// Set all $PnN keywords to list of names.
@@ -5281,7 +5281,7 @@ where
     // TODO add non-kw deprecation checker
 
     fn measurement_names(&self) -> Vec<&Shortname> {
-        self.measurements.iter_maybe_names().flatten().collect()
+        self.measurements.iter_names_opt().flatten().collect()
     }
 
     fn validate_time_channel(&self, n: &Option<Shortname>) -> PureErrorBuf {
@@ -5317,7 +5317,7 @@ where
             //     def.push_error(msg)
             // }
             // Ensure time channel exists and that it is valid
-            if let Some(time_meas) = self.measurements.find_by_name(time_name) {
+            if let Some(time_meas) = self.measurements.get_name(time_name) {
                 if let Err(msg) = time_meas.specific.check_time_channel(true) {
                     def.push_error(msg);
                 }
@@ -5436,10 +5436,11 @@ where
             .measurements
             .map_values(|i, v| v.try_convert(MeasIdx(i)))
             .map(|x| x.map_center(|_, v| v.convert()));
+
         let m = self.metadata.try_convert();
         let res = match (m, ps) {
             (Ok(metadata), Ok(old_ps)) => {
-                if let Some(measurements) = old_ps.try_new_names() {
+                if let Some(measurements) = old_ps.try_rewrapped() {
                     Ok(CoreTEXT {
                         metadata,
                         measurements,

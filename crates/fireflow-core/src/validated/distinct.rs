@@ -8,27 +8,26 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 use std::mem;
 
+/// A list of potentially named values with an optional "center value".
+///
+/// Each element is a pair consisting of a key and a value. The key is a
+/// wrapper type which may have a name in it. If their is no name, that
+/// element has a "default" name which is created from its index and a
+/// supplied prefix, which is stored along with the data. Each name (including)
+/// these "default" names) must be unique.
+///
+/// Additionally, up to one element may be designated the "center" value, which
+/// must have a name (ie not in the same wrapper type as the others) and can
+/// have a value type distinct from the rest.
+///
+/// All elements, including the center if it exists, are stored in a defined
+/// order.
 #[derive(Clone, Serialize)]
 pub enum NamedVec<K, W, U, V> {
     // W is an associated type constructor defined by K, so we need to bind K
     // but won't actually use it, hence phantom hack thing
     Split(SplitVec<W, U, V>, PhantomData<K>),
     Unsplit(UnsplitVec<W, V>),
-}
-
-pub trait MightHave {
-    type Wrapper<T>;
-
-    fn to_opt<T>(x: Self::Wrapper<T>) -> Option<T>;
-
-    fn as_ref<T>(x: &Self::Wrapper<T>) -> Self::Wrapper<&T>;
-
-    fn as_opt<T>(x: &Self::Wrapper<T>) -> Option<&T> {
-        Self::to_opt(Self::as_ref(x))
-    }
-
-    // TODO this is basically From<T>
-    fn into_wrapped<T>(n: T) -> Self::Wrapper<T>;
 }
 
 #[derive(Clone, Serialize)]
@@ -44,6 +43,21 @@ pub struct SplitVec<K, U, V> {
 pub struct UnsplitVec<K, V> {
     members: DistinctVec<K, V>,
     prefix: ShortnamePrefix,
+}
+
+pub trait MightHave {
+    type Wrapper<T>;
+
+    fn to_opt<T>(x: Self::Wrapper<T>) -> Option<T>;
+
+    fn as_ref<T>(x: &Self::Wrapper<T>) -> Self::Wrapper<&T>;
+
+    fn as_opt<T>(x: &Self::Wrapper<T>) -> Option<&T> {
+        Self::to_opt(Self::as_ref(x))
+    }
+
+    // TODO this is basically From<T>
+    fn into_wrapped<T>(n: T) -> Self::Wrapper<T>;
 }
 
 type DistinctVec<K, V> = Vec<DistinctPair<K, V>>;

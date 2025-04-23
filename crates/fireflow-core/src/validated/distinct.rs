@@ -55,17 +55,30 @@ pub struct UnsplitVec<K, V> {
     prefix: ShortnamePrefix,
 }
 
+/// Encodes a type which might have something in it
 pub trait MightHave {
     type Wrapper<T>: From<T>;
 
-    fn to_opt<T>(x: Self::Wrapper<T>) -> Option<T>;
+    /// Consume a wrapped value and possibly return its contents.
+    ///
+    /// If no contents exist, return the original input so the caller can
+    /// take back ownership.
+    fn to_res<T>(x: Self::Wrapper<T>) -> Result<T, Self::Wrapper<T>>;
 
+    /// Borrow a wrapped value and return a new wrapper with borrowed contents.
     fn as_ref<T>(x: &Self::Wrapper<T>) -> Self::Wrapper<&T>;
 
+    /// Consume a wrapped value and possibly return its contents.
+    fn to_opt<T>(x: Self::Wrapper<T>) -> Option<T> {
+        Self::to_res(x).ok()
+    }
+
+    /// Borrow a wrapped value and possibly return borrowed contents.
     fn as_opt<T>(x: &Self::Wrapper<T>) -> Option<&T> {
         Self::to_opt(Self::as_ref(x))
     }
 
+    /// Consume a value and return it as a wrapped value
     fn into_wrapped<T>(n: T) -> Self::Wrapper<T> {
         n.into()
     }

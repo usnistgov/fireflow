@@ -972,8 +972,8 @@ pub struct Identity<T>(pub T);
 impl MightHave for OptionalKwFamily {
     type Wrapper<T> = OptionalKw<T>;
 
-    fn to_opt<T>(x: Self::Wrapper<T>) -> Option<T> {
-        x.0
+    fn to_res<T>(x: Self::Wrapper<T>) -> Result<T, Self::Wrapper<T>> {
+        x.0.ok_or(None.into())
     }
 
     fn as_ref<T>(x: &Self::Wrapper<T>) -> Self::Wrapper<&T> {
@@ -987,8 +987,8 @@ pub struct IdentityFamily;
 impl MightHave for IdentityFamily {
     type Wrapper<T> = Identity<T>;
 
-    fn to_opt<T>(x: Self::Wrapper<T>) -> Option<T> {
-        Some(x.0)
+    fn to_res<T>(x: Self::Wrapper<T>) -> Result<T, Self::Wrapper<T>> {
+        Ok(x.0)
     }
 
     fn as_ref<T>(x: &Self::Wrapper<T>) -> Self::Wrapper<&T> {
@@ -5300,18 +5300,25 @@ where
         let ps: Vec<_> = (1..(par.0 + 1))
             .flat_map(|n| {
                 let i = MeasIdx(n);
-                if let Some(name_res) = M::lookup_shortname(st, i) {
-                    if let Some(name) = M::N::to_opt(M::N::as_ref(&name_res)) {
-                        if name.as_ref() == "Time" {
-                            // TODO useless clone
-                            return TimeChannel::lookup_time_channel(st, i)
-                                .map(|x| Err((name.clone(), x)));
-                        }
+                let name_res = M::lookup_shortname(st, i)?;
+                let key = M::N::to_res(name_res).and_then(|name| {
+                    if name.as_ref() == "Time" {
+                        Ok(name)
+                    } else {
+                        Err(M::N::into_wrapped(name))
                     }
-                    Measurement::lookup_measurement(st, i).map(|x| Ok((name_res, x)))
-                } else {
-                    None
-                }
+                });
+                let res = match key {
+                    Ok(name) => {
+                        let t = TimeChannel::lookup_time_channel(st, i)?;
+                        Err((name, t))
+                    }
+                    Err(k) => {
+                        let m = Measurement::lookup_measurement(st, i)?;
+                        Ok((k, m))
+                    }
+                };
+                Some(res)
             })
             .collect();
         if ps.len() == par.0 {

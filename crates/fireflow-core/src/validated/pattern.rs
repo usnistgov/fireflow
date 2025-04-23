@@ -1,4 +1,4 @@
-use crate::macros::{newtype_from_outer, newtype_fromstr};
+use crate::macros::{newtype_disp, newtype_from_outer, newtype_fromstr};
 
 use regex::Regex;
 use std::fmt;
@@ -12,6 +12,7 @@ pub struct TimePattern(pub CheckedPattern);
 
 newtype_from_outer!(TimePattern, CheckedPattern);
 newtype_fromstr!(TimePattern, PatternError);
+newtype_disp!(TimePattern);
 
 impl Default for TimePattern {
     fn default() -> Self {
@@ -21,6 +22,8 @@ impl Default for TimePattern {
 
 #[derive(Clone)]
 pub struct CheckedPattern(Regex);
+
+newtype_disp!(CheckedPattern);
 
 impl CheckedPattern {
     pub fn as_inner(&self) -> &Regex {

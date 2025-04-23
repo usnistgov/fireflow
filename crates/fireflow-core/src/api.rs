@@ -5312,7 +5312,7 @@ where
             }
         })?;
         // hooray, we win and can now make the core struct
-        Ok(md_succ.and_then(|core| core.validate().map(|_| core)))
+        Ok(md_succ.and_then(|core| core.validate(&conf.time).map(|_| core)))
     }
 
     // TODO add non-kw deprecation checker
@@ -5321,71 +5321,20 @@ where
         self.measurements.iter_names_opt().flatten().collect()
     }
 
-    // fn validate_time_channel(&self, n: &Option<Shortname>) -> PureErrorBuf {
-    //     let mut def = PureErrorBuf::default();
-    //     let m = &self.metadata;
-    //     let s = &m.specific;
-    //     if let Some(time_name) = n {
-    //         // Ensure time channel is not used for $TR
-    //         if m.tr
-    //             .as_ref_opt()
-    //             .is_some_and(|tr| tr.measurement == *time_name)
-    //         {
-    //             let msg = "Time channel cannot be used in $TR".into();
-    //             def.push_error(msg)
-    //         }
-    //         // Ensure time channel is not used in $SPILLOVER
-    //         if s.as_spillover()
-    //             .is_some_and(|x| x.measurements.contains(time_name))
-    //         {
-    //             let msg = "Time channel cannot be used in $SPILLOVER".into();
-    //             def.push_error(msg)
-    //         }
-    //         // Ensure time channel is not used in $UNSTAINEDCENTERS
-    //         if s.as_unstainedcenters()
-    //             .is_some_and(|u| u.0.contains_key(time_name))
-    //         {
-    //             let msg = "Time channel cannot be used in $UNSTAINEDCENTERS".into();
-    //             def.push_error(msg)
-    //         }
-    //         // Ensure $TIMESTEP exists
-    //         // if !s.check_timestep(true) {
-    //         //     let msg = "$TIMESTEP must be present if time measurement present".into();
-    //         //     def.push_error(msg)
-    //         // }
-    //         // Ensure time channel exists and that it is valid
-    //         if let Some(time_meas) = self.measurements.get_name(time_name) {
-    //             if let Err(msg) = time_meas.specific.check_time_channel(true) {
-    //                 def.push_error(msg);
-    //             }
-    //         } else {
-    //             let msg = format!("Measurement '{time_name}' not found for time");
-    //             def.push_error(msg);
-    //         }
-    //     } else {
-    //         // Ensure $TIMESTEP is unset
-    //         // if !s.check_timestep(true) {
-    //         //     let msg = "$TIMESTEP should only be present with a time channel".into();
-    //         //     def.push_error(msg)
-    //         // }
-    //         // Ensure no channels are time channels
-    //         for p in self.measurements.iter_values() {
-    //             if let Err(msg) = p.specific.check_time_channel(false) {
-    //                 def.push_error(msg);
-    //             }
-    //         }
-    //     }
-    //     def
-    // }
-
     // TODO The goal of this function is to ensure that the internal state of
     // this struct is "fully compliant". This means that anything that fails
     // the below tests needs to either be dropped, altered (if possible), or
     // fail the entire struct entirely. Then each manipulation can be assumed
     // to operate on a clean state.
-    fn validate(&self) -> PureSuccess<()> {
-        // let mut deferred = self.validate_time_channel(&self.time_channel);
+    fn validate(&self, conf: &TimeConfig) -> PureSuccess<()> {
         let mut deferred = PureErrorBuf::default();
+
+        if let Some(pat) = conf.pattern.as_ref() {
+            if conf.ensure && self.measurements.as_center().is_none() {
+                let msg = format!("Could not find time channel matching {}", pat);
+                deferred.push_error(msg);
+            }
+        }
 
         let names: HashSet<_> = self.measurement_names().into_iter().collect();
 

@@ -232,7 +232,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     where
         F: Fn(usize, V) -> Result<W, E>,
     {
-        let go = |xs: PairedVec<K::Wrapper<Shortname>, V>, offset: usize| {
+        let go = |xs: WrappedPairedVec<K, V>, offset: usize| {
             let (ls, lfail): (Vec<_>, Vec<_>) = xs
                 .into_iter()
                 .enumerate()
@@ -247,15 +247,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                 let (rs, rfail) = go(s.right, nleft + 1);
                 let fail: Vec<_> = lfail.into_iter().chain(rfail).collect();
                 if fail.is_empty() {
-                    Ok(NamedVec::Split(
-                        SplitVec {
-                            left: ls,
-                            center: s.center,
-                            right: rs,
-                            prefix: s.prefix,
-                        },
-                        PhantomData,
-                    ))
+                    Ok(NamedVec::new_split(ls, *s.center, rs, s.prefix))
                 } else {
                     Err(fail)
                 }
@@ -263,10 +255,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
             NamedVec::Unsplit(u) => {
                 let (members, fail) = go(u.members, 0);
                 if fail.is_empty() {
-                    Ok(NamedVec::Unsplit(UnsplitVec {
-                        members,
-                        prefix: u.prefix,
-                    }))
+                    Ok(NamedVec::new_unsplit(members, u.prefix))
                 } else {
                     Err(fail)
                 }

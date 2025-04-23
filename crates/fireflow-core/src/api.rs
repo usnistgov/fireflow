@@ -4608,51 +4608,6 @@ where
         }
     }
 
-    // fn lookup_measurements(st: &mut KwParser, par: Par) -> Option<NamedVec<P::N, Self>> {
-    //     let v = P::fcs_version();
-    //     let ps: Vec<_> = (1..(par.0 + 1))
-    //         .flat_map(|n| {
-    //             let i = MeasIdx(n);
-    //             let maybe_bytes = st.lookup_meas_req(i);
-    //             let maybe_range = st.lookup_meas_req(i);
-    //             let maybe_specific = P::lookup_specific(st, i);
-    //             let maybe_name = P::lookup_shortname(st, i);
-    //             if let (Some(bytes), Some(range), Some(specific), Some(key)) =
-    //                 (maybe_bytes, maybe_range, maybe_specific, maybe_name)
-    //             {
-    //                 Some((
-    //                     key,
-    //                     Measurement {
-    //                         bytes,
-    //                         range,
-    //                         longname: st.lookup_meas_opt(i, false),
-    //                         filter: st.lookup_meas_opt(i, false),
-    //                         power: st.lookup_meas_opt(i, false),
-    //                         detector_type: st.lookup_meas_opt(i, false),
-    //                         percent_emitted: st.lookup_meas_opt(i, v == Version::FCS3_2),
-    //                         detector_voltage: st.lookup_meas_opt(i, false),
-    //                         specific,
-    //                         nonstandard_keywords: st.lookup_all_meas_nonstandard(i),
-    //                     },
-    //                 ))
-    //             } else {
-    //                 None
-    //             }
-    //         })
-    //         .collect();
-    //     if ps.len() == par.0 {
-    //         let dv = NamedVec::from_vec(ps, ShortnamePrefix::default());
-    //         if dv.is_none() {
-    //             let msg = "Not all measurement names are unique".to_string();
-    //             st.deferred.push_error(msg);
-    //         }
-    //         dv
-    //     } else {
-    //         // ASSUME errors were capture elsewhere
-    //         None
-    //     }
-    // }
-
     fn req_suffixes(&self, n: Option<MeasIdx>) -> RawPairs {
         [self.bytes.pair(n), self.range.pair(n)]
             .into_iter()
@@ -5289,6 +5244,7 @@ where
         st: &mut KwParser,
         par: Par,
         pat: Option<&TimePattern>,
+        prefix: &ShortnamePrefix,
     ) -> Option<Measurements<M::N, M::T, M::P>> {
         let ps: Vec<_> = (1..(par.0 + 1))
             .flat_map(|n| {
@@ -5316,7 +5272,7 @@ where
             })
             .collect();
         if ps.len() == par.0 {
-            NamedVec::new(ps, ShortnamePrefix::default()).map_or_else(
+            NamedVec::new(ps, prefix.clone()).map_or_else(
                 |e| {
                     st.deferred.push_error(e);
                     None
@@ -5346,7 +5302,7 @@ where
         let c: KwParserConfig = conf.into();
         let tp = conf.time.pattern.as_ref();
         let md_succ = KwParser::try_run(kws, c, md_fail, |st| {
-            if let Some(ms) = Self::lookup_measurements(st, par, tp) {
+            if let Some(ms) = Self::lookup_measurements(st, par, tp, &conf.shortname_prefix) {
                 Metadata::lookup_metadata(st, &ms).map(|metadata| CoreTEXT {
                     metadata,
                     measurements: ms,

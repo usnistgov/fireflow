@@ -2,7 +2,7 @@ use crate::header::Version;
 use crate::validated::datepattern::DatePattern;
 use crate::validated::nonstandard::NonStdMeasPattern;
 use crate::validated::pattern::TimePattern;
-use crate::validated::shortname::Shortname;
+use crate::validated::shortname::*;
 use crate::validated::textdelim::TEXTDelim;
 
 #[derive(Default, Clone)]
@@ -125,6 +125,13 @@ pub struct StdTextReadConfig {
 
     /// Time-related options.
     pub time: TimeConfig,
+
+    /// Prefix to use when filling in missing $PnN values.
+    ///
+    /// This is only applicable to 2.0 and 3.0 since $PnN became required in
+    /// 3.1. For cases where $PnN is missing, the name used for the measurement
+    /// will be this prefix appended with the measurement index.
+    pub shortname_prefix: ShortnamePrefix,
 
     /// If true, throw an error if TEXT includes any keywords that start with
     /// "$" which are not standard.

@@ -6,7 +6,7 @@ use fireflow_core::validated::datepattern::DatePattern;
 use fireflow_core::validated::nonstandard::*;
 use fireflow_core::validated::pattern::*;
 use fireflow_core::validated::ranged_float::*;
-use fireflow_core::validated::shortname::Shortname;
+use fireflow_core::validated::shortname::*;
 use fireflow_core::validated::textdelim::TEXTDelim;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
@@ -202,6 +202,7 @@ fn read_fcs_raw_text(
     disallow_deviant=false,
     disallow_nonstandard=false,
 
+    shortname_prefix=None,
     nonstandard_measurement_pattern=None,
     time_pattern=None,
     date_pattern=None,
@@ -241,6 +242,7 @@ fn read_fcs_std_text(
     disallow_deviant: bool,
     disallow_nonstandard: bool,
 
+    shortname_prefix: Option<PyShortnamePrefix>,
     nonstandard_measurement_pattern: Option<PyNonStdMeasPattern>,
     time_pattern: Option<PyTimePattern>,
     date_pattern: Option<PyDatePattern>,
@@ -284,6 +286,7 @@ fn read_fcs_std_text(
 
     let conf = config::StdTextReadConfig {
         raw,
+        shortname_prefix: shortname_prefix.map(|x| x.0).unwrap_or_default(),
         time: config::TimeConfig {
             pattern: time_pattern.map(|x| x.0),
             ensure: time_ensure,
@@ -341,6 +344,7 @@ fn read_fcs_std_text(
     enforce_data_width_divisibility=false,
     enforce_matching_tot=false,
 
+    shortname_prefix=None,
     nonstandard_measurement_pattern=None,
     time_pattern=None,
     date_pattern=None,
@@ -387,6 +391,7 @@ fn read_fcs_file(
     enforce_data_width_divisibility: bool,
     enforce_matching_tot: bool,
 
+    shortname_prefix: Option<PyShortnamePrefix>,
     nonstandard_measurement_pattern: Option<PyNonStdMeasPattern>,
     time_pattern: Option<PyTimePattern>,
     date_pattern: Option<PyDatePattern>,
@@ -430,6 +435,7 @@ fn read_fcs_file(
 
     let standard = config::StdTextReadConfig {
         raw,
+        shortname_prefix: shortname_prefix.map(|x| x.0).unwrap_or_default(),
         time: config::TimeConfig {
             pattern: time_pattern.map(|x| x.0),
             ensure: time_ensure,
@@ -591,6 +597,7 @@ pywrap!(PyMeasurement3_2, api::Measurement3_2, "Measurement3_2");
 pywrap!(PyDatePattern, DatePattern, "DatePattern");
 pywrap!(PyShortname, Shortname, "Shortname");
 pywrap!(PyTimePattern, TimePattern, "TimePattern");
+pywrap!(PyShortnamePrefix, ShortnamePrefix, "ShortnamePrefix");
 pywrap!(PyNonStdMeasPattern, NonStdMeasPattern, "NonStdMeasPattern");
 pywrap!(PyNonStdMeasKey, NonStdMeasKey, "NonStdMeasKey");
 pywrap!(PyNonStdKey, NonStdKey, "NonStdKey");

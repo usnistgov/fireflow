@@ -5045,6 +5045,10 @@ where
         Measurement<M::P>: From<TimeChannel<M::T>>,
         TimeChannel<M::T>: TryFrom<Measurement<M::P>, Error = TryFromTimeError<Measurement<M::P>>>,
     {
+        // TODO the From instance for TimeChannel will reset $TIMESTEP each
+        // time, which will get rather annoying. However, $TIMESTEP doesn't
+        // exist for each version, so will need to invoke the parent traits here
+        // somehow
         self.measurements.set_center_by_name(n)
     }
 

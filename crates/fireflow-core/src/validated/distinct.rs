@@ -490,7 +490,9 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     // TODO make an indexed version as well?
     /// Set center to be the member with name 'n' if it exists.
     ///
-    /// Return true if vector is updated.
+    /// Return 'Ok(())' if vector is updated, otherwise return errors
+    /// encountered when converting non-center to center value. The reverse
+    /// process (center to non-center) should not fail.
     pub fn set_center_by_name<E>(&mut self, n: &Shortname) -> Result<(), E>
     where
         // TODO just make these both tryfrom? it would be more general and I
@@ -577,7 +579,8 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     ///
     /// Has no effect if there already is no center element.
     ///
-    /// Return true if vector is updated.
+    /// Return true if vector is updated. The conversion process from center
+    /// value to non-center value cannot fail.
     pub fn unset_center<E>(&mut self) -> bool
     where
         V: From<U>,

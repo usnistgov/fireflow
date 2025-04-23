@@ -8,6 +8,7 @@ use crate::optionalkw::OptionalKw;
 pub use crate::segment::*;
 use crate::validated::distinct::*;
 use crate::validated::nonstandard::*;
+use crate::validated::pattern::*;
 use crate::validated::ranged_float::*;
 use crate::validated::shortname::*;
 
@@ -366,18 +367,6 @@ pub struct CoreTEXT<M, T, P, N, W> {
     /// This is specific to each FCS version, which is encoded in the generic
     /// type variable.
     measurements: NamedVec<N, W, TimeChannel<T>, Measurement<P>>,
-
-    /// The name of the time channel, if present.
-    ///
-    /// If this is Some, a measurement with the same $PnN must exist and have
-    /// the following:
-    ///
-    /// * $PnE set to 0,0
-    /// * $PnG set to 1.0 or not set at all (3.0+)
-    /// * $PnTYPE set to "Time" (3.2+)
-    ///
-    /// Additionally, $TIMESTEP must be present (3.0+).
-    time_channel: Option<Shortname>,
 }
 
 /// Raw TEXT key/value pairs
@@ -5296,17 +5285,22 @@ where
             .map(|maybe_layout| maybe_layout.map(|layout| build_data_reader(layout, data_seg)))
     }
 
-    fn lookup_measurements(st: &mut KwParser, par: Par) -> Option<Measurements<M::N, M::T, M::P>> {
+    fn lookup_measurements(
+        st: &mut KwParser,
+        par: Par,
+        pat: Option<&TimePattern>,
+    ) -> Option<Measurements<M::N, M::T, M::P>> {
         let ps: Vec<_> = (1..(par.0 + 1))
             .flat_map(|n| {
                 let i = MeasIdx(n);
                 let name_res = M::lookup_shortname(st, i)?;
                 let key = M::N::to_res(name_res).and_then(|name| {
-                    if name.as_ref() == "Time" {
-                        Ok(name)
-                    } else {
-                        Err(M::N::into_wrapped(name))
+                    if let Some(tp) = pat {
+                        if tp.0.as_inner().is_match(name.as_ref()) {
+                            return Ok(name);
+                        }
                     }
+                    Err(M::N::into_wrapped(name))
                 });
                 let res = match key {
                     Ok(name) => {
@@ -5350,12 +5344,12 @@ where
         // a struct with missing fields.
         let md_fail = "could not standardize TEXT".to_string();
         let c: KwParserConfig = conf.into();
+        let tp = conf.time.pattern.as_ref();
         let md_succ = KwParser::try_run(kws, c, md_fail, |st| {
-            if let Some(measurements) = Self::lookup_measurements(st, par) {
-                Metadata::lookup_metadata(st, &measurements).map(|metadata| CoreTEXT {
+            if let Some(ms) = Self::lookup_measurements(st, par, tp) {
+                Metadata::lookup_metadata(st, &ms).map(|metadata| CoreTEXT {
                     metadata,
-                    measurements,
-                    time_channel: conf.time.shortname.clone(),
+                    measurements: ms,
                 })
             } else {
                 None
@@ -5371,62 +5365,62 @@ where
         self.measurements.iter_names_opt().flatten().collect()
     }
 
-    fn validate_time_channel(&self, n: &Option<Shortname>) -> PureErrorBuf {
-        let mut def = PureErrorBuf::default();
-        let m = &self.metadata;
-        let s = &m.specific;
-        if let Some(time_name) = n {
-            // Ensure time channel is not used for $TR
-            if m.tr
-                .as_ref_opt()
-                .is_some_and(|tr| tr.measurement == *time_name)
-            {
-                let msg = "Time channel cannot be used in $TR".into();
-                def.push_error(msg)
-            }
-            // Ensure time channel is not used in $SPILLOVER
-            if s.as_spillover()
-                .is_some_and(|x| x.measurements.contains(time_name))
-            {
-                let msg = "Time channel cannot be used in $SPILLOVER".into();
-                def.push_error(msg)
-            }
-            // Ensure time channel is not used in $UNSTAINEDCENTERS
-            if s.as_unstainedcenters()
-                .is_some_and(|u| u.0.contains_key(time_name))
-            {
-                let msg = "Time channel cannot be used in $UNSTAINEDCENTERS".into();
-                def.push_error(msg)
-            }
-            // Ensure $TIMESTEP exists
-            // if !s.check_timestep(true) {
-            //     let msg = "$TIMESTEP must be present if time measurement present".into();
-            //     def.push_error(msg)
-            // }
-            // Ensure time channel exists and that it is valid
-            if let Some(time_meas) = self.measurements.get_name(time_name) {
-                if let Err(msg) = time_meas.specific.check_time_channel(true) {
-                    def.push_error(msg);
-                }
-            } else {
-                let msg = format!("Measurement '{time_name}' not found for time");
-                def.push_error(msg);
-            }
-        } else {
-            // Ensure $TIMESTEP is unset
-            // if !s.check_timestep(true) {
-            //     let msg = "$TIMESTEP should only be present with a time channel".into();
-            //     def.push_error(msg)
-            // }
-            // Ensure no channels are time channels
-            for p in self.measurements.iter_values() {
-                if let Err(msg) = p.specific.check_time_channel(false) {
-                    def.push_error(msg);
-                }
-            }
-        }
-        def
-    }
+    // fn validate_time_channel(&self, n: &Option<Shortname>) -> PureErrorBuf {
+    //     let mut def = PureErrorBuf::default();
+    //     let m = &self.metadata;
+    //     let s = &m.specific;
+    //     if let Some(time_name) = n {
+    //         // Ensure time channel is not used for $TR
+    //         if m.tr
+    //             .as_ref_opt()
+    //             .is_some_and(|tr| tr.measurement == *time_name)
+    //         {
+    //             let msg = "Time channel cannot be used in $TR".into();
+    //             def.push_error(msg)
+    //         }
+    //         // Ensure time channel is not used in $SPILLOVER
+    //         if s.as_spillover()
+    //             .is_some_and(|x| x.measurements.contains(time_name))
+    //         {
+    //             let msg = "Time channel cannot be used in $SPILLOVER".into();
+    //             def.push_error(msg)
+    //         }
+    //         // Ensure time channel is not used in $UNSTAINEDCENTERS
+    //         if s.as_unstainedcenters()
+    //             .is_some_and(|u| u.0.contains_key(time_name))
+    //         {
+    //             let msg = "Time channel cannot be used in $UNSTAINEDCENTERS".into();
+    //             def.push_error(msg)
+    //         }
+    //         // Ensure $TIMESTEP exists
+    //         // if !s.check_timestep(true) {
+    //         //     let msg = "$TIMESTEP must be present if time measurement present".into();
+    //         //     def.push_error(msg)
+    //         // }
+    //         // Ensure time channel exists and that it is valid
+    //         if let Some(time_meas) = self.measurements.get_name(time_name) {
+    //             if let Err(msg) = time_meas.specific.check_time_channel(true) {
+    //                 def.push_error(msg);
+    //             }
+    //         } else {
+    //             let msg = format!("Measurement '{time_name}' not found for time");
+    //             def.push_error(msg);
+    //         }
+    //     } else {
+    //         // Ensure $TIMESTEP is unset
+    //         // if !s.check_timestep(true) {
+    //         //     let msg = "$TIMESTEP should only be present with a time channel".into();
+    //         //     def.push_error(msg)
+    //         // }
+    //         // Ensure no channels are time channels
+    //         for p in self.measurements.iter_values() {
+    //             if let Err(msg) = p.specific.check_time_channel(false) {
+    //                 def.push_error(msg);
+    //             }
+    //         }
+    //     }
+    //     def
+    // }
 
     // TODO The goal of this function is to ensure that the internal state of
     // this struct is "fully compliant". This means that anything that fails
@@ -5434,7 +5428,8 @@ where
     // fail the entire struct entirely. Then each manipulation can be assumed
     // to operate on a clean state.
     fn validate(&self) -> PureSuccess<()> {
-        let mut deferred = self.validate_time_channel(&self.time_channel);
+        // let mut deferred = self.validate_time_channel(&self.time_channel);
+        let mut deferred = PureErrorBuf::default();
 
         let names: HashSet<_> = self.measurement_names().into_iter().collect();
 
@@ -5505,6 +5500,7 @@ where
         }
     }
 
+    // TODO this is basically tryfrom
     pub fn try_convert<ToM>(
         self,
     ) -> PureResult<CoreTEXT<ToM, ToM::T, ToM::P, ToM::N, <ToM::N as MightHave>::Wrapper<Shortname>>>
@@ -5524,7 +5520,6 @@ where
             .measurements
             .map_values(|i, v| v.try_convert(MeasIdx(i)))
             .map(|x| x.map_center(|_, v| v.convert()));
-
         let m = self.metadata.try_convert();
         let res = match (m, ps) {
             (Ok(metadata), Ok(old_ps)) => {
@@ -5532,7 +5527,6 @@ where
                     Ok(CoreTEXT {
                         metadata,
                         measurements,
-                        time_channel: self.time_channel,
                     })
                 } else {
                     Err(vec!["Some $PnN are blank and could not be converted".into()])

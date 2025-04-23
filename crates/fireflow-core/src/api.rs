@@ -751,6 +751,7 @@ pub struct Unicode {
     kws: Vec<String>,
 }
 
+// TODO split off Time to time-channel specific struct
 /// The value of the $PnTYPE key (3.2+)
 #[derive(Clone, Serialize, PartialEq)]
 pub enum MeasurementType {
@@ -5036,16 +5037,15 @@ where
         let mapping = self.measurements.set_names(ns).map_err(|e| e.to_string())?;
         // TODO reassign names in dataframe
         self.metadata.reassign_all(&mapping);
-        self.reassign_time_channel(&mapping);
         Ok(mapping)
     }
 
-    fn reassign_time_channel(&mut self, mapping: &NameMapping) {
-        if let Some(old) = &mut self.time_channel {
-            if let Some(new) = mapping.get(old) {
-                *old = new.clone();
-            }
-        }
+    fn set_time_channel(&mut self, n: &Shortname) -> Result<(), MeasToTimeErrors>
+    where
+        Measurement<M::P>: From<TimeChannel<M::T>>,
+        TimeChannel<M::T>: TryFrom<Measurement<M::P>, Error = TryFromTimeError<Measurement<M::P>>>,
+    {
+        self.measurements.set_center_by_name(n)
     }
 
     // NOTE this does not apply to time channel
@@ -8481,6 +8481,181 @@ impl From<InnerTime3_1> for InnerTime3_2 {
             datatype: None.into(),
         }
     }
+}
+
+impl From<InnerTime2_0> for InnerMeasurement2_0 {
+    fn from(_: InnerTime2_0) -> Self {
+        Self {
+            scale: Some(Scale::Linear).into(),
+            wavelength: None.into(),
+        }
+    }
+}
+
+impl From<InnerTime3_0> for InnerMeasurement3_0 {
+    fn from(_: InnerTime3_0) -> Self {
+        Self {
+            scale: Scale::Linear,
+            wavelength: None.into(),
+            gain: None.into(),
+        }
+    }
+}
+
+impl From<InnerTime3_1> for InnerMeasurement3_1 {
+    fn from(value: InnerTime3_1) -> Self {
+        Self {
+            scale: Scale::Linear,
+            display: value.display,
+            wavelengths: None.into(),
+            gain: None.into(),
+            calibration: None.into(),
+        }
+    }
+}
+
+impl From<InnerTime3_2> for InnerMeasurement3_2 {
+    fn from(value: InnerTime3_2) -> Self {
+        Self {
+            scale: Scale::Linear,
+            display: value.display,
+            datatype: value.datatype,
+            wavelengths: None.into(),
+            gain: None.into(),
+            calibration: None.into(),
+            analyte: None.into(),
+            measurement_type: None.into(),
+            tag: None.into(),
+            detector_name: None.into(),
+            feature: None.into(),
+        }
+    }
+}
+
+impl TryFrom<InnerMeasurement2_0> for InnerTime2_0 {
+    type Error = TryFromTimeError<InnerMeasurement2_0>;
+    fn try_from(value: InnerMeasurement2_0) -> Result<Self, Self::Error> {
+        if value.scale.0.as_ref().is_some_and(|s| *s == Scale::Linear) {
+            Ok(Self)
+        } else {
+            Err(TryFromTimeError {
+                error: vec![MeasToTimeError::NonLinear],
+                value,
+            })
+        }
+    }
+}
+
+impl TryFrom<InnerMeasurement3_0> for InnerTime3_0 {
+    type Error = TryFromTimeError<InnerMeasurement3_0>;
+    fn try_from(value: InnerMeasurement3_0) -> Result<Self, Self::Error> {
+        let mut error = vec![];
+        if value.scale != Scale::Linear {
+            error.push(MeasToTimeError::NonLinear);
+        }
+        if value.gain.0.is_some() {
+            error.push(MeasToTimeError::HasGain);
+        }
+        if error.is_empty() {
+            Ok(Self {
+                timestep: Timestep::default(),
+            })
+        } else {
+            Err(TryFromTimeError { error, value })
+        }
+    }
+}
+
+impl TryFrom<InnerMeasurement3_1> for InnerTime3_1 {
+    type Error = TryFromTimeError<InnerMeasurement3_1>;
+    fn try_from(value: InnerMeasurement3_1) -> Result<Self, Self::Error> {
+        let mut error = vec![];
+        if value.scale != Scale::Linear {
+            error.push(MeasToTimeError::NonLinear);
+        }
+        if value.gain.0.is_some() {
+            error.push(MeasToTimeError::HasGain);
+        }
+        if error.is_empty() {
+            Ok(Self {
+                timestep: Timestep::default(),
+                display: value.display,
+            })
+        } else {
+            Err(TryFromTimeError { error, value })
+        }
+    }
+}
+
+impl TryFrom<InnerMeasurement3_2> for InnerTime3_2 {
+    type Error = TryFromTimeError<InnerMeasurement3_2>;
+    fn try_from(value: InnerMeasurement3_2) -> Result<Self, Self::Error> {
+        let mut error = vec![];
+        if value.scale != Scale::Linear {
+            error.push(MeasToTimeError::NonLinear);
+        }
+        if value.gain.0.is_some() {
+            error.push(MeasToTimeError::HasGain);
+        }
+        if value.measurement_type.0.is_some() {
+            error.push(MeasToTimeError::NotTimeType);
+        }
+        if error.is_empty() {
+            Ok(Self {
+                timestep: Timestep::default(),
+                display: value.display,
+                datatype: value.datatype,
+            })
+        } else {
+            Err(TryFromTimeError { error, value })
+        }
+    }
+}
+
+impl<M, T> TryFrom<Measurement<M>> for TimeChannel<T>
+where
+    T: TryFrom<M>,
+{
+    type Error = T::Error;
+    fn try_from(value: Measurement<M>) -> Result<Self, Self::Error> {
+        value.specific.try_into().map(|specific| Self {
+            bytes: value.bytes,
+            range: value.range,
+            longname: value.longname,
+            nonstandard_keywords: value.nonstandard_keywords,
+            specific,
+        })
+    }
+}
+
+impl<M, T> From<TimeChannel<T>> for Measurement<M>
+where
+    M: From<T>,
+{
+    fn from(value: TimeChannel<T>) -> Self {
+        Self {
+            bytes: value.bytes,
+            range: value.range,
+            longname: value.longname,
+            detector_type: None.into(),
+            detector_voltage: None.into(),
+            filter: None.into(),
+            percent_emitted: None.into(),
+            power: None.into(),
+            nonstandard_keywords: value.nonstandard_keywords,
+            specific: value.specific.into(),
+        }
+    }
+}
+
+type TryFromTimeError<T> = TryFromErrorReset<MeasToTimeErrors, T>;
+
+type MeasToTimeErrors = Vec<MeasToTimeError>;
+
+pub enum MeasToTimeError {
+    NonLinear,
+    HasGain,
+    NotTimeType,
 }
 
 type MetaConvertErrors = Vec<MetaConvertError>;

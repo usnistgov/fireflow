@@ -491,10 +491,12 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// Set center to be the member with name 'n' if it exists.
     ///
     /// Return true if vector is updated.
-    pub fn set_center_by_name(&mut self, n: &Shortname) -> bool
+    pub fn set_center_by_name<E>(&mut self, n: &Shortname) -> Result<(), E>
     where
+        // TODO just make these both tryfrom? it would be more general and I
+        // can just blanket the from trait to make a tryfrom<infallible>
+        U: TryFrom<V, Error = TryFromErrorReset<E, V>>,
         V: From<U>,
-        U: From<V>,
     {
         // ASSUME pop-ing the center won't fail because we already located the
         // target index, therefore we know it exists and has a key with a name
@@ -502,11 +504,20 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         let split_new_center = |i, xs: WrappedPairedVec<K, V>| {
             let mut it = xs.into_iter();
             let new_left: Vec<_> = it.by_ref().take(i).collect();
-            let new_center = it.next().and_then(|p| Self::try_to_center(p)).unwrap();
-            (new_left, new_center, it)
+            match it
+                .next()
+                .and_then(|p| Self::try_to_center(p).transpose())
+                .unwrap()
+            {
+                Ok(new_center) => Ok((new_left, new_center, it)),
+                Err(e) => Err(TryFromErrorReset {
+                    error: e.error,
+                    value: new_left.into_iter().chain([e.value]).chain(it).collect(),
+                }),
+            }
         };
         let merge_old_center =
-            |xs: WrappedPairedVec<K, V>, c: Pair<Shortname, U>, ys: WrappedPairedVec<K, V>| {
+            |xs: WrappedPairedVec<K, V>, c: Center<U>, ys: WrappedPairedVec<K, V>| {
                 xs.into_iter()
                     .chain([Self::from_center(c)])
                     .chain(ys)
@@ -515,28 +526,46 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         // Use "dummy enum trick" to replace self with a dummy so I can "move"
         // the real value out. The only caveat is that self needs to be replaced
         // with the original value if the manipulations don't need to happen.
-        let (ret, newself) = match mem::replace(self, dummy()) {
+        let (newself, ret) = match mem::replace(self, dummy()) {
             NamedVec::Split(s, _) => {
                 if let Some(i) = Self::position_by_name(&s.left, n) {
-                    let (left, center, l_iter) = split_new_center(i, s.left);
-                    let right = merge_old_center(l_iter.collect(), *s.center, s.right);
-                    (true, Self::new_split(left, center, right, s.prefix))
+                    match split_new_center(i, s.left) {
+                        Err(e) => (
+                            Self::new_split(e.value, *s.center, s.right, s.prefix),
+                            Err(e.error),
+                        ),
+                        Ok((left, new_center, l_iter)) => {
+                            let right = merge_old_center(l_iter.collect(), *s.center, s.right);
+                            (Self::new_split(left, new_center, right, s.prefix), Ok(()))
+                        }
+                    }
                 } else if let Some(i) = Self::position_by_name(&s.right, n) {
-                    let (on_left, center, r_iter) = split_new_center(i, s.right);
-                    let left = merge_old_center(s.left, *s.center, on_left);
-                    let right = r_iter.collect();
-                    (true, Self::new_split(left, center, right, s.prefix))
+                    match split_new_center(i, s.right) {
+                        Err(e) => (
+                            Self::new_split(s.left, *s.center, e.value, s.prefix),
+                            Err(e.error),
+                        ),
+                        Ok((on_left, center, r_iter)) => {
+                            let right = r_iter.collect();
+                            let left = merge_old_center(s.left, *s.center, on_left);
+                            (Self::new_split(left, center, right, s.prefix), Ok(()))
+                        }
+                    }
                 } else {
-                    (false, NamedVec::Split(s, PhantomData))
+                    (NamedVec::Split(s, PhantomData), Ok(()))
                 }
             }
             NamedVec::Unsplit(u) => {
                 if let Some(i) = Self::position_by_name(&u.members, n) {
-                    let (left, center, r_iter) = split_new_center(i, u.members);
-                    let right = r_iter.collect();
-                    (true, Self::new_split(left, center, right, u.prefix))
+                    match split_new_center(i, u.members) {
+                        Err(e) => (Self::new_unsplit(e.value, u.prefix), Err(e.error)),
+                        Ok((left, center, r_iter)) => {
+                            let right = r_iter.collect();
+                            (Self::new_split(left, center, right, u.prefix), Ok(()))
+                        }
+                    }
                 } else {
-                    (false, NamedVec::Unsplit(u))
+                    (NamedVec::Unsplit(u), Ok(()))
                 }
             }
         };
@@ -549,11 +578,11 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// Has no effect if there already is no center element.
     ///
     /// Return true if vector is updated.
-    pub fn unset_center(&mut self) -> bool
+    pub fn unset_center<E>(&mut self) -> bool
     where
         V: From<U>,
     {
-        let (ret, newself) = match mem::replace(self, dummy()) {
+        let (newself, ret) = match mem::replace(self, dummy()) {
             NamedVec::Split(s, _) => {
                 let members = s
                     .left
@@ -561,9 +590,9 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                     .chain([Self::from_center(*s.center)])
                     .chain(s.right)
                     .collect();
-                (true, Self::new_unsplit(members, s.prefix))
+                (Self::new_unsplit(members, s.prefix), true)
             }
-            NamedVec::Unsplit(u) => (false, NamedVec::Unsplit(u)),
+            NamedVec::Unsplit(u) => (NamedVec::Unsplit(u), false),
         };
         *self = newself;
         ret
@@ -604,14 +633,22 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         })
     }
 
-    fn try_to_center(p: WrappedPair<K, V>) -> Option<Center<U>>
+    fn try_to_center<E>(
+        p: WrappedPair<K, V>,
+    ) -> Result<Option<Center<U>>, TryFromErrorReset<E, WrappedPair<K, V>>>
     where
-        U: From<V>,
+        U: TryFrom<V, Error = TryFromErrorReset<E, V>>,
     {
-        K::to_opt(p.key).map(|key| Pair {
-            key,
-            value: p.value.into(),
-        })
+        match p.value.try_into() {
+            Ok(value) => Ok(K::to_opt(p.key).map(|key| Pair { key, value })),
+            Err(e) => Err(TryFromErrorReset {
+                error: e.error,
+                value: Pair {
+                    key: p.key,
+                    value: e.value,
+                },
+            }),
+        }
     }
 
     fn from_center(p: Center<U>) -> WrappedPair<K, V>
@@ -738,4 +775,9 @@ fn dummy<K, W, U, V>() -> NamedVec<K, W, U, V> {
         members: vec![],
         prefix: ShortnamePrefix::default(),
     })
+}
+
+pub struct TryFromErrorReset<E, T> {
+    error: E,
+    value: T,
 }

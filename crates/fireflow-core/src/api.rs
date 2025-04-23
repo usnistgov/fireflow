@@ -2333,17 +2333,7 @@ pub trait VersionedMetadata: Sized {
 }
 
 pub trait VersionedMeasurement: Sized + Versioned {
-    // type N: IntoShortname;
-
-    // fn lookup_shortname(st: &mut KwParser, n: MeasIdx) -> Option<Self::N>;
-
     fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self>;
-
-    fn check_time_channel(&self, has_time_channel: bool) -> Result<(), String>;
-
-    // fn has_linear_scale(&self) -> bool;
-
-    // fn has_gain(&self) -> bool;
 
     fn req_suffixes_inner(&self, n: Option<MeasIdx>) -> RawPairs;
 
@@ -2358,6 +2348,10 @@ pub trait VersionedTime: Sized {
     fn timestep(&self) -> Option<Timestep>;
 
     fn set_timestep(&mut self, ts: Timestep);
+
+    fn req_keywords_inner(&self, _: Option<MeasIdx>) -> RawPairs;
+
+    fn opt_keywords_inner(&self, _: Option<MeasIdx>) -> Vec<(String, Option<String>)>;
 }
 
 fn to_col_type(
@@ -3677,14 +3671,6 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
         None
     }
 
-    fn check_time_channel(&self, has_time_channel: bool) -> Result<(), String> {
-        if has_time_channel && self.scale.0.as_ref().is_some_and(|x| *x == Scale::Linear) {
-            Ok(())
-        } else {
-            Err("Time channel must have linear $PnE".into())
-        }
-    }
-
     fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self> {
         Some(Self {
             scale: st.lookup_meas_opt(n, false),
@@ -3710,14 +3696,6 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
 impl VersionedMeasurement for InnerMeasurement3_0 {
     fn datatype(&self) -> Option<NumType> {
         None
-    }
-
-    fn check_time_channel(&self, has_time_channel: bool) -> Result<(), String> {
-        if has_time_channel && self.scale == Scale::Linear && self.gain.is_unset() {
-            Ok(())
-        } else {
-            Err("Time channel must have linear $PnE and $PnG=1.0 or unset".into())
-        }
     }
 
     fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self> {
@@ -3746,14 +3724,6 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
 impl VersionedMeasurement for InnerMeasurement3_1 {
     fn datatype(&self) -> Option<NumType> {
         None
-    }
-
-    fn check_time_channel(&self, has_time_channel: bool) -> Result<(), String> {
-        if has_time_channel && self.scale == Scale::Linear && self.gain.is_unset() {
-            Ok(())
-        } else {
-            Err("Time channel must have linear $PnE and $PnG=1.0 or unset".into())
-        }
     }
 
     fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self> {
@@ -3802,6 +3772,14 @@ impl VersionedTime for InnerTime2_0 {
     }
 
     fn set_timestep(&mut self, ts: Timestep) {}
+
+    fn req_keywords_inner(&self, _: Option<MeasIdx>) -> RawPairs {
+        vec![]
+    }
+
+    fn opt_keywords_inner(&self, _: Option<MeasIdx>) -> Vec<(String, Option<String>)> {
+        vec![]
+    }
 }
 
 impl VersionedTime for InnerTime3_0 {
@@ -3821,6 +3799,14 @@ impl VersionedTime for InnerTime3_0 {
 
     fn set_timestep(&mut self, ts: Timestep) {
         self.timestep = ts;
+    }
+
+    fn req_keywords_inner(&self, _: Option<MeasIdx>) -> RawPairs {
+        [ReqMetaKey::pair(&self.timestep)].into_iter().collect()
+    }
+
+    fn opt_keywords_inner(&self, _: Option<MeasIdx>) -> Vec<(String, Option<String>)> {
+        vec![]
     }
 }
 
@@ -3844,6 +3830,14 @@ impl VersionedTime for InnerTime3_1 {
 
     fn set_timestep(&mut self, ts: Timestep) {
         self.timestep = ts;
+    }
+
+    fn req_keywords_inner(&self, _: Option<MeasIdx>) -> RawPairs {
+        [ReqMetaKey::pair(&self.timestep)].into_iter().collect()
+    }
+
+    fn opt_keywords_inner(&self, n: Option<MeasIdx>) -> Vec<(String, Option<String>)> {
+        [OptMeasKey::pair(&self.display, n)].into_iter().collect()
     }
 }
 
@@ -3870,33 +3864,24 @@ impl VersionedTime for InnerTime3_2 {
     fn set_timestep(&mut self, ts: Timestep) {
         self.timestep = ts;
     }
+
+    fn req_keywords_inner(&self, _: Option<MeasIdx>) -> RawPairs {
+        [ReqMetaKey::pair(&self.timestep)].into_iter().collect()
+    }
+
+    fn opt_keywords_inner(&self, n: Option<MeasIdx>) -> Vec<(String, Option<String>)> {
+        [
+            OptMeasKey::pair(&self.display, n),
+            OptMeasKey::pair(&self.datatype, n),
+        ]
+        .into_iter()
+        .collect()
+    }
 }
 
 impl VersionedMeasurement for InnerMeasurement3_2 {
     fn datatype(&self) -> Option<NumType> {
         self.datatype.0.as_ref().copied()
-    }
-
-    fn check_time_channel(&self, has_time_channel: bool) -> Result<(), String> {
-        let mt = self.measurement_type.0.as_ref();
-        if has_time_channel {
-            if self.scale == Scale::Linear
-                && self.gain.is_unset()
-                && mt.is_some_and(|x| *x == MeasurementType::Time)
-            {
-                Ok(())
-            } else {
-                let msg = "Time channel must have linear $PnE, $PnG set to \
-                           either 1.0 or nothing, and $PnTYPE = Time"
-                    .into();
-                Err(msg)
-            }
-        } else if mt.map_or(true, |x| *x != MeasurementType::Time) {
-            Ok(())
-        } else {
-            let msg = "Non-time channel must have $PnTYPE =/= Time".into();
-            Err(msg)
-        }
     }
 
     fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self> {
@@ -4543,6 +4528,20 @@ where
             nonstandard_keywords: self.nonstandard_keywords,
             specific: self.specific.into(),
         }
+    }
+
+    fn req_keywords(&self, n: Option<MeasIdx>) -> RawPairs {
+        [self.bytes.pair(n), self.range.pair(n)]
+            .into_iter()
+            .chain(self.specific.req_keywords_inner(n))
+            .collect()
+    }
+
+    fn opt_keywords(&self, n: Option<MeasIdx>) -> Vec<(String, Option<String>)> {
+        [OptMeasKey::pair(&self.longname, n)]
+            .into_iter()
+            .chain(self.specific.opt_keywords_inner(n))
+            .collect()
     }
 }
 

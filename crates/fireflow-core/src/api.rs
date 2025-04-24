@@ -6,6 +6,7 @@ use crate::keywords::*;
 use crate::macros::{newtype_disp, newtype_from, newtype_from_outer, newtype_fromstr};
 use crate::optionalkw::OptionalKw;
 pub use crate::segment::*;
+use crate::validated::datetimes::*;
 use crate::validated::distinct::*;
 use crate::validated::nonstandard::*;
 use crate::validated::pattern::*;
@@ -373,10 +374,6 @@ pub struct CoreTEXT<M, T, P, N, W> {
 /// Raw TEXT key/value pairs
 type RawKeywords = HashMap<String, String>;
 
-/// A datetime as used in the $(BEGIN|END)DATETIME keys (3.2+ only)
-#[derive(Clone, Serialize)]
-pub struct FCSDateTime(pub DateTime<FixedOffset>);
-
 /// A time as used in the $BTIM/ETIM keys without seconds (2.0 only)
 #[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd)]
 pub struct FCSTime(pub NaiveTime);
@@ -425,26 +422,6 @@ pub type Timestamps3_0 = Timestamps<FCSTime60>;
 
 /// $BTIM/ETIM/DATE for FCS 3.1+
 pub type Timestamps3_1 = Timestamps<FCSTime100>;
-
-/// A convenient bundle for the $BEGINDATETIME and $ENDDATETIME keys (3.2+)
-#[derive(Clone, Serialize, Default)]
-pub struct Datetimes {
-    /// Value for the $BEGINDATETIME key.
-    pub begin: OptionalKw<BeginDateTime>,
-
-    /// Value for the $ENDDATETIME key.
-    pub end: OptionalKw<EndDateTime>,
-}
-
-impl Datetimes {
-    fn valid(&self) -> bool {
-        if let (Some(b), Some(e)) = (&self.begin.0, &self.end.0) {
-            (b.0).0 < (e.0).0
-        } else {
-            true
-        }
-    }
-}
 
 /// The values used for the $MODE key (up to 3.1)
 #[derive(Clone, PartialEq, Eq, Serialize)]
@@ -1520,16 +1497,12 @@ kw_time!(Etim3_1, Etim, FCSTime100, FCSTime100Error, "ETIM");
 
 kw_opt_meta!(FCSDate, "DATE");
 
-#[derive(Clone, Serialize)]
-struct BeginDateTime(pub FCSDateTime);
 newtype_from!(BeginDateTime, FCSDateTime);
 newtype_from_outer!(BeginDateTime, FCSDateTime);
 newtype_disp!(BeginDateTime);
 newtype_fromstr!(BeginDateTime, FCSDateTimeError);
 kw_opt_meta!(BeginDateTime, "BEGINDATETIME");
 
-#[derive(Clone, Serialize)]
-struct EndDateTime(pub FCSDateTime);
 newtype_from!(EndDateTime, FCSDateTime);
 newtype_from_outer!(EndDateTime, FCSDateTime);
 newtype_disp!(EndDateTime);
@@ -5270,16 +5243,6 @@ where
             deferred.push_error(msg);
         }
 
-        // TODO these can be made more robust by hiding the fields on these
-        // structs and using validators on creation
-
-        // // Ensure $BEGIN/ENDDATETIME are valid (if applicable)
-        if !self.metadata.specific.datetimes_valid() {
-            let msg = "$BEGINDATETIME is after $ENDDATETIME".into();
-            // TODO toggle this
-            deferred.push_warning(msg);
-        }
-
         PureSuccess { data: (), deferred }
     }
 
@@ -6689,8 +6652,8 @@ impl VersionedMetadata for InnerMetadata3_2 {
             OptMetaKey::pair(&car.carrierid),
             OptMetaKey::pair(&car.carriertype),
             OptMetaKey::pair(&car.locationid),
-            OptMetaKey::pair(&dt.begin),
-            OptMetaKey::pair(&dt.end),
+            OptMetaKey::pair(&dt.begin()),
+            OptMetaKey::pair(&dt.end()),
             OptMetaKey::pair(&us.unstainedcenters),
             OptMetaKey::pair(&us.unstainedinfo),
             OptMetaKey::pair(&self.flowrate),
@@ -6838,9 +6801,12 @@ impl<'a, 'b> KwParser<'a, 'b> {
     }
 
     fn lookup_datetimes(&mut self) -> Datetimes {
-        let begin = self.lookup_meta_opt(false);
-        let end = self.lookup_meta_opt(false);
-        Datetimes { begin, end }
+        let b = self.lookup_meta_opt(false);
+        let e = self.lookup_meta_opt(false);
+        Datetimes::new(b, e).unwrap_or_else(|w| {
+            self.deferred.push_warning(w.to_string());
+            Datetimes::default()
+        })
     }
 
     fn lookup_modification(&mut self) -> ModificationData {

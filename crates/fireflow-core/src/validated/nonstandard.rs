@@ -70,8 +70,21 @@ pub struct MatrixSetter<T> {
 }
 
 /// The index for a measurement
+// TODO this should start from 1?
 #[derive(Clone, Copy)]
-pub struct MeasIdx(pub usize);
+pub struct MeasIdx(usize);
+
+impl From<usize> for MeasIdx {
+    fn from(value: usize) -> Self {
+        MeasIdx(value + 1)
+    }
+}
+
+impl From<MeasIdx> for usize {
+    fn from(value: MeasIdx) -> Self {
+        value.0 - 1
+    }
+}
 
 impl FromStr for NonStdKey {
     type Err = NonStdKeyError;

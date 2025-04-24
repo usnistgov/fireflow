@@ -1,7 +1,8 @@
 use crate::header::Version;
 use crate::validated::datepattern::DatePattern;
 use crate::validated::nonstandard::NonStdMeasPattern;
-use crate::validated::shortname::Shortname;
+use crate::validated::pattern::TimePattern;
+use crate::validated::shortname::*;
 use crate::validated::textdelim::TEXTDelim;
 
 #[derive(Default, Clone)]
@@ -95,13 +96,12 @@ pub struct RawTextReadConfig {
 /// Instructions for validating time-related properties.
 #[derive(Default, Clone)]
 pub struct TimeConfig {
-    /// If given, will be the $PnN used to identify the time channel.
+    /// If given, a pattern to find/match the $PnN of the time channel.
     ///
-    /// This is meaningless for FCS 2.0 and will be ignored in that case.
-    ///
-    /// Will be used for the [`ensure_time*`] options below. If not given, skip
-    /// time channel checking entirely.
-    pub shortname: Option<Shortname>,
+    /// If matched, the time channel must conform to the requirements of the
+    /// target FCS version, such as having $TIMESTEP present and having a PnE
+    /// set to '0,0'.
+    pub pattern: Option<TimePattern>,
 
     /// If true, will ensure that time channel is present
     pub ensure: bool,
@@ -125,6 +125,13 @@ pub struct StdTextReadConfig {
 
     /// Time-related options.
     pub time: TimeConfig,
+
+    /// Prefix to use when filling in missing $PnN values.
+    ///
+    /// This is only applicable to 2.0 and 3.0 since $PnN became required in
+    /// 3.1. For cases where $PnN is missing, the name used for the measurement
+    /// will be this prefix appended with the measurement index.
+    pub shortname_prefix: ShortnamePrefix,
 
     /// If true, throw an error if TEXT includes any keywords that start with
     /// "$" which are not standard.
@@ -236,7 +243,7 @@ impl Strict for StdTextReadConfig {
 impl Strict for TimeConfig {
     fn set_strict_inner(self) -> Self {
         Self {
-            shortname: Some(Shortname::new_unchecked("Time")),
+            pattern: Some(TimePattern::default()),
             ensure: true,
             ensure_timestep: true,
             ensure_linear: true,

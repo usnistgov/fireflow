@@ -1,4 +1,5 @@
 use crate::macros::{newtype_asref, newtype_disp};
+use crate::validated::nonstandard::MeasIdx;
 
 use serde::Serialize;
 use std::borrow::Borrow;
@@ -60,9 +61,7 @@ impl FromStr for ShortnamePrefix {
 }
 
 impl ShortnamePrefix {
-    // TODO use MeasIdx here?
-    pub fn as_indexed(&self, i: usize) -> Shortname {
-        // TODO +1?
+    pub fn as_indexed(&self, i: MeasIdx) -> Shortname {
         Shortname(format!("{}{i}", self))
     }
 }

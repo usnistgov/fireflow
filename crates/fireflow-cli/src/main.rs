@@ -4,6 +4,7 @@ use fireflow_core::config;
 use fireflow_core::error::*;
 use fireflow_core::validated::datepattern::DatePattern;
 use fireflow_core::validated::nonstandard::NonStdMeasPattern;
+use fireflow_core::validated::pattern::*;
 use fireflow_core::validated::shortname::Shortname;
 use serde::ser::Serialize;
 use std::io;
@@ -223,7 +224,7 @@ fn main() -> io::Result<()> {
             }
 
             if let Some(m) = sargs.get_one::<String>("time-name").cloned() {
-                conf.time.shortname = Some(handle_failure(m.parse::<Shortname>().map_err(|e| {
+                conf.time.pattern = Some(handle_failure(m.parse::<TimePattern>().map_err(|e| {
                     Failure::from_many_errors("bad time-name".to_string(), vec![e.to_string()])
                         .into()
                 }))?);

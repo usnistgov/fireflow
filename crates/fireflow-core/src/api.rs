@@ -4941,12 +4941,15 @@ where
             .collect()
     }
 
-    /// Set all $PnS keywords to list of names.
-    ///
-    /// Will return false if length of supplied list does not match length
-    /// of measurements; true otherwise. Since $PnS is an optional keyword for
-    /// all versions, any name in the list may be None which will blank the
-    /// keyword.
+    // TODO there are a few keywords that can be set for each measurement,
+    // including time: $PnB, PnR, PnS, sometimes $PnD, sometimes $PnDatatype
+
+    // /// Set all $PnS keywords to list of names.
+    // ///
+    // /// Will return false if length of supplied list does not match length
+    // /// of measurements; true otherwise. Since $PnS is an optional keyword for
+    // /// all versions, any name in the list may be None which will blank the
+    // /// keyword.
     // pub fn set_longnames(&mut self, ns: Vec<Option<String>>) -> bool {
     //     if self.measurements.len() != ns.len() {
     //         false
@@ -5047,7 +5050,7 @@ where
         M::P: From<M::T>,
     {
         let ms = &self.measurements;
-        if let Some(m0) = ms.get(0) {
+        if let Some(m0) = ms.get(0).and_then(|x| x.ok()) {
             let header = m0.table_header();
             let rows = self.measurements.iter().map(|(i, r)| {
                 r.map_or_else(
@@ -5373,7 +5376,7 @@ impl CoreTEXT3_2 {
         }
     }
 
-    // fn set_time_channel(&mut self, n: Shortname, timestep: Timestep) {
+    // fn set_time_channel(&mut self, n: Shortname) {
     //     let errs = self.validate_time_channel(&Some(n));
     //     // 1. check that the name doesn't collide with anything
     //     // 2. check that target measurement name exists and is valid (linear/nogain/etc)

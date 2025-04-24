@@ -380,39 +380,35 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     }
 
     /// Get reference at position.
-    ///
-    /// If position points to the center element, return None.
-    pub fn get(&self, i: usize) -> Option<&V> {
+    pub fn get(&self, i: usize) -> Option<Result<&V, &U>> {
         match self {
             NamedVec::Split(s, _) => {
                 let left_len = s.left.len();
                 match i.cmp(&left_len) {
-                    Ordering::Less => s.left.get(i),
-                    Ordering::Equal => None,
-                    Ordering::Greater => s.left.get(i - left_len - 1),
+                    Ordering::Less => Ok(s.left.get(i)).transpose(),
+                    Ordering::Equal => Some(Err(&s.center)),
+                    Ordering::Greater => Ok(s.left.get(i - left_len - 1)).transpose(),
                 }
             }
-            NamedVec::Unsplit(u) => u.members.get(i),
+            NamedVec::Unsplit(u) => Ok(u.members.get(i)).transpose(),
         }
-        .map(|p| &p.value)
+        .map(|x| x.map(|p| &p.value).map_err(|p| &p.value))
     }
 
     /// Get mutable reference at position.
-    ///
-    /// If position points to the center element, return None.
-    pub fn get_mut(&mut self, i: usize) -> Option<&mut V> {
+    pub fn get_mut(&mut self, i: usize) -> Option<Result<&mut V, &mut U>> {
         match self {
             NamedVec::Split(s, _) => {
                 let left_len = s.left.len();
                 match i.cmp(&left_len) {
-                    Ordering::Less => s.left.get_mut(i),
-                    Ordering::Equal => None,
-                    Ordering::Greater => s.left.get_mut(i - left_len - 1),
+                    Ordering::Less => Ok(s.left.get_mut(i)).transpose(),
+                    Ordering::Equal => Some(Err(&mut s.center)),
+                    Ordering::Greater => Ok(s.left.get_mut(i - left_len - 1)).transpose(),
                 }
             }
-            NamedVec::Unsplit(u) => u.members.get_mut(i),
+            NamedVec::Unsplit(u) => Ok(u.members.get_mut(i)).transpose(),
         }
-        .map(|p| &mut p.value)
+        .map(|x| x.map(|p| &mut p.value).map_err(|p| &mut p.value))
     }
 
     /// Get reference to value with name.

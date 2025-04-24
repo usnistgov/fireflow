@@ -910,48 +910,48 @@ macro_rules! get_set_copied {
     };
 }
 
-macro_rules! get_set_datetime {
-    ($pytype:ident, [$($root:ident,)*]) => {
-        #[pymethods]
-        impl $pytype {
-            #[getter]
-            fn begin_date(&self) -> Option<NaiveDate> {
-                self.0.$($root.)*begin_date()
-            }
+// macro_rules! get_set_datetime {
+//     ($pytype:ident, [$($root:ident,)*]) => {
+//         #[pymethods]
+//         impl $pytype {
+//             #[getter]
+//             fn begin_date(&self) -> Option<NaiveDate> {
+//                 self.0.$($root.)*begin_date()
+//             }
 
-            #[getter]
-            fn end_date(&self) -> Option<NaiveDate> {
-                self.0.$($root.)*end_date()
-            }
+//             #[getter]
+//             fn end_date(&self) -> Option<NaiveDate> {
+//                 self.0.$($root.)*end_date()
+//             }
 
-            #[getter]
-            fn begin_time(&self) -> Option<NaiveTime> {
-                self.0.$($root.)*begin_time()
-            }
+//             #[getter]
+//             fn begin_time(&self) -> Option<NaiveTime> {
+//                 self.0.$($root.)*begin_time()
+//             }
 
-            #[getter]
-            fn end_time(&self) -> Option<NaiveTime> {
-                self.0.$($root.)*end_time()
-            }
+//             #[getter]
+//             fn end_time(&self) -> Option<NaiveTime> {
+//                 self.0.$($root.)*end_time()
+//             }
 
-            fn set_datetimes(
-                &mut self,
-                begin: DateTime<FixedOffset>,
-                end: DateTime<FixedOffset>,
-            ) -> bool {
-                self.0.$($root.)*set_datetimes(begin, end)
-            }
+//             fn set_datetimes(
+//                 &mut self,
+//                 begin: DateTime<FixedOffset>,
+//                 end: DateTime<FixedOffset>,
+//             ) -> bool {
+//                 self.0.$($root.)*set_datetimes(begin, end)
+//             }
 
-            fn clear_datetimes(&mut self) {
-                self.0.$($root.)*clear_datetimes()
-            }
-        }
-    };
-}
+//             fn clear_datetimes(&mut self) {
+//                 self.0.$($root.)*clear_datetimes()
+//             }
+//         }
+//     };
+// }
 
 macro_rules! core_text_methods {
     ($pytype:ident, [$($root:ident)*]) => {
-        get_set_datetime!($pytype, [$($root,)*]);
+        // get_set_datetime!($pytype, [$($root,)*]);
         get_set_copied!( $pytype, [$($root,)*], abrt, set_abrt, api::Abrt, u32);
         get_set_copied!( $pytype, [$($root,)*], lost, set_lost, api::Lost, u32);
         get_set_str!(    $pytype, [$($root,)*], cells, set_cells);

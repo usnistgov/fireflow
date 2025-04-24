@@ -2256,28 +2256,6 @@ pub trait VersionedMetadata: Sized {
 
     fn datetimes_valid(&self) -> bool;
 
-    fn begin_date(&self) -> Option<NaiveDate>;
-
-    fn end_date(&self) -> Option<NaiveDate>;
-
-    fn begin_time(&self) -> Option<NaiveTime>;
-
-    fn end_time(&self) -> Option<NaiveTime>;
-
-    // TODO this is logic that could go in the datatime struct itself
-    fn set_datetimes(&mut self, begin: DateTime<FixedOffset>, end: DateTime<FixedOffset>) -> bool {
-        if begin > end {
-            false
-        } else {
-            self.set_datetimes_inner(begin, end);
-            true
-        }
-    }
-
-    fn set_datetimes_inner(&mut self, begin: DateTime<FixedOffset>, end: DateTime<FixedOffset>);
-
-    fn clear_datetimes(&mut self);
-
     fn byteord(&self) -> ByteOrd;
 
     // TODO fix viz
@@ -4150,34 +4128,6 @@ impl AnyCoreTEXT {
         match_anycoretext!(self, x, { x.set_datatype(t) })
     }
 
-    pub fn begin_date(&self) -> Option<NaiveDate> {
-        match_anycoretext!(self, x, { x.begin_date() })
-    }
-
-    pub fn begin_time(&self) -> Option<NaiveTime> {
-        match_anycoretext!(self, x, { x.begin_time() })
-    }
-
-    pub fn end_date(&self) -> Option<NaiveDate> {
-        match_anycoretext!(self, x, { x.end_date() })
-    }
-
-    pub fn end_time(&self) -> Option<NaiveTime> {
-        match_anycoretext!(self, x, { x.end_time() })
-    }
-
-    pub fn set_datetimes(
-        &mut self,
-        begin: DateTime<FixedOffset>,
-        end: DateTime<FixedOffset>,
-    ) -> bool {
-        match_anycoretext!(self, x, { x.set_datetimes(begin, end) })
-    }
-
-    pub fn clear_datetimes(&mut self) {
-        match_anycoretext!(self, x, { x.clear_datetimes() })
-    }
-
     pub fn raw_keywords(&self, want_req: Option<bool>, want_meta: Option<bool>) -> RawKeywords {
         match_anycoretext!(self, x, { x.raw_keywords(want_req, want_meta) })
     }
@@ -4877,34 +4827,6 @@ where
             .collect()
     }
 
-    pub fn begin_date(&self) -> Option<NaiveDate> {
-        M::begin_date(&self.metadata.specific)
-    }
-
-    pub fn end_date(&self) -> Option<NaiveDate> {
-        M::end_date(&self.metadata.specific)
-    }
-
-    pub fn begin_time(&self) -> Option<NaiveTime> {
-        M::begin_time(&self.metadata.specific)
-    }
-
-    pub fn end_time(&self) -> Option<NaiveTime> {
-        M::end_time(&self.metadata.specific)
-    }
-
-    pub fn set_datetimes(
-        &mut self,
-        begin: DateTime<FixedOffset>,
-        end: DateTime<FixedOffset>,
-    ) -> bool {
-        M::set_datetimes(&mut self.metadata.specific, begin, end)
-    }
-
-    pub fn clear_datetimes(&mut self) {
-        M::clear_datetimes(&mut self.metadata.specific)
-    }
-
     // TODO do I really need these?
     get_set_copied!(abrt, set_abrt, Abrt);
     get_set_copied!(lost, set_lost, Lost);
@@ -5404,18 +5326,18 @@ where
         // structs and using validators on creation
 
         // Ensure $BTIM/$ETIM/$DATE are valid
-        if !self.metadata.specific.timestamps_valid() {
-            let msg = "$ETIM is before $BTIM and $DATE is given".into();
-            // TODO toggle this
-            deferred.push_error(msg);
-        }
+        // if !self.metadata.specific.timestamps_valid() {
+        //     let msg = "$ETIM is before $BTIM and $DATE is given".into();
+        //     // TODO toggle this
+        //     deferred.push_error(msg);
+        // }
 
-        // Ensure $BEGIN/ENDDATETIME are valid (if applicable)
-        if !self.metadata.specific.datetimes_valid() {
-            let msg = "$BEGINDATETIME is after $ENDDATETIME".into();
-            // TODO toggle this
-            deferred.push_error(msg);
-        }
+        // // Ensure $BEGIN/ENDDATETIME are valid (if applicable)
+        // if !self.metadata.specific.datetimes_valid() {
+        //     let msg = "$BEGINDATETIME is after $ENDDATETIME".into();
+        //     // TODO toggle this
+        //     deferred.push_error(msg);
+        // }
 
         PureSuccess { data: (), deferred }
     }
@@ -6429,47 +6351,6 @@ fn h_read_std_dataset<R: Read + Seek>(
         })
 }
 
-macro_rules! get_set_pre_3_2_datetime {
-    ($fcstime:ident) => {
-        fn begin_date(&self) -> Option<NaiveDate> {
-            self.timestamps.date.0.as_ref().map(|x| x.0)
-        }
-
-        fn end_date(&self) -> Option<NaiveDate> {
-            self.begin_date()
-        }
-
-        fn begin_time(&self) -> Option<NaiveTime> {
-            self.timestamps.btim.0.as_ref().map(|x| (x.0).0)
-        }
-
-        fn end_time(&self) -> Option<NaiveTime> {
-            self.timestamps.etim.0.as_ref().map(|x| (x.0).0)
-        }
-
-        fn set_datetimes_inner(
-            &mut self,
-            begin: DateTime<FixedOffset>,
-            end: DateTime<FixedOffset>,
-        ) {
-            let d1 = begin.date_naive();
-            let d2 = end.date_naive();
-            self.timestamps.btim = Some($fcstime(begin.time()).into()).into();
-            self.timestamps.etim = Some($fcstime(end.time()).into()).into();
-            // If two dates are the same, set $DATE, if not, then keep date
-            // unset since pre-3.2 versions do not have a way to store two
-            // dates. This is an inherent limitation in these early versions.
-            self.timestamps.date = if d1 != d2 { None } else { Some(FCSDate(d1)) }.into();
-        }
-
-        fn clear_datetimes(&mut self) {
-            self.timestamps.btim = None.into();
-            self.timestamps.etim = None.into();
-            self.timestamps.date = None.into();
-        }
-    };
-}
-
 impl VersionedMetadata for InnerMetadata2_0 {
     type P = InnerMeasurement2_0;
     type T = InnerTime2_0;
@@ -6510,8 +6391,6 @@ impl VersionedMetadata for InnerMetadata2_0 {
     fn datetimes_valid(&self) -> bool {
         true
     }
-
-    get_set_pre_3_2_datetime!(FCSTime);
 
     fn lookup_shortname(
         st: &mut KwParser,
@@ -6612,8 +6491,6 @@ impl VersionedMetadata for InnerMetadata3_0 {
         true
     }
 
-    get_set_pre_3_2_datetime!(FCSTime60);
-
     fn lookup_shortname(
         st: &mut KwParser,
         n: MeasIdx,
@@ -6706,8 +6583,6 @@ impl VersionedMetadata for InnerMetadata3_1 {
     fn datetimes_valid(&self) -> bool {
         true
     }
-
-    get_set_pre_3_2_datetime!(FCSTime100);
 
     fn lookup_shortname(
         st: &mut KwParser,
@@ -6810,55 +6685,6 @@ impl VersionedMetadata for InnerMetadata3_2 {
 
     fn datetimes_valid(&self) -> bool {
         self.datetimes.valid()
-    }
-
-    // TODO not DRY
-    fn begin_date(&self) -> Option<NaiveDate> {
-        self.datetimes
-            .begin
-            .as_ref_opt()
-            .map(|x| (x.0).0.date_naive())
-            .or(self.timestamps.date.as_ref_opt().map(|x| x.0))
-    }
-
-    fn end_date(&self) -> Option<NaiveDate> {
-        self.datetimes
-            .end
-            .as_ref_opt()
-            .map(|x| (x.0).0.date_naive())
-            .or(self.timestamps.date.as_ref_opt().map(|x| x.0))
-    }
-
-    fn begin_time(&self) -> Option<NaiveTime> {
-        self.datetimes
-            .begin
-            .as_ref_opt()
-            .map(|x| (x.0).0.time())
-            .or(self.timestamps.btim.as_ref_opt().map(|x| (x.0).0))
-    }
-
-    fn end_time(&self) -> Option<NaiveTime> {
-        self.datetimes
-            .end
-            .as_ref_opt()
-            .map(|x| (x.0).0.time())
-            .or(self.timestamps.etim.as_ref_opt().map(|x| (x.0).0))
-    }
-
-    fn set_datetimes_inner(&mut self, begin: DateTime<FixedOffset>, end: DateTime<FixedOffset>) {
-        self.datetimes.begin = Some(BeginDateTime(FCSDateTime(begin))).into();
-        self.datetimes.end = Some(EndDateTime(FCSDateTime(end))).into();
-        self.timestamps.btim = None.into();
-        self.timestamps.etim = None.into();
-        self.timestamps.date = None.into();
-    }
-
-    fn clear_datetimes(&mut self) {
-        self.datetimes.begin = None.into();
-        self.datetimes.end = None.into();
-        self.timestamps.btim = None.into();
-        self.timestamps.etim = None.into();
-        self.timestamps.date = None.into();
     }
 
     fn lookup_shortname(

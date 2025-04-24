@@ -285,6 +285,10 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         })
     }
 
+    // TODO add a zip_with function that takes a vector of stuff and two
+    // functions to apply said stuff mutably to elements. Will be useful for
+    // setting $PnB, $PnR, etc
+
     /// Apply function to non-center values, altering them in place
     pub fn alter_non_center_values<F, X>(&mut self, f: F) -> Vec<X>
     where

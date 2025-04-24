@@ -5039,7 +5039,6 @@ where
         // to named vector structure
         self.measurements
             .indexed_names()
-            .into_iter()
             .map(|(i, n)| ReqMeasKey::pair(n, i))
             .collect()
     }

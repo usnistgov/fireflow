@@ -977,15 +977,15 @@ macro_rules! core_text_methods {
             //     self.0.$($root.)*set_trigger(t.map(|x| x.into()))
             // }
 
-            #[getter]
-            fn get_datatype(&self) -> PyAlphaNumType {
-                self.0.$($root.)*datatype().into()
-            }
+            // #[getter]
+            // fn get_datatype(&self) -> PyAlphaNumType {
+            //     self.0.$($root.)*datatype().into()
+            // }
 
-            #[setter]
-            fn set_datatype(&mut self, t: PyAlphaNumType) {
-                self.0.$($root.)*set_datatype(t.into())
-            }
+            // #[setter]
+            // fn set_datatype(&mut self, t: PyAlphaNumType) {
+            //     self.0.$($root.)*set_datatype(t.into())
+            // }
         }
     };
 }

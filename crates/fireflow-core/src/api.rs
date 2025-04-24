@@ -588,6 +588,7 @@ pub struct Calibration3_2 {
 /// this could be a list, where it needed to be a single number in previous
 /// versions.
 #[derive(Clone, Serialize)]
+// TODO use non-empty here
 pub struct Wavelengths(Vec<u32>);
 
 /// The value for the $PnB key (all versions)
@@ -5340,16 +5341,47 @@ where
     }
 }
 
-// impl CoreTEXT2_0 {
-//     fn set_time_channel(&mut self, n: Shortname, timestep: Timestep) {
-//         let errs = self.validate_time_channel(&Some(n));
-//         // 1. check that the name doesn't collide with anything
-//         // 2. check that target measurement name exists and is valid (linear/nogain/etc)
-//         // 3. assign measurement values
-//         // 4. set timestep
-//         // 5. set time channel name
-//     }
-// }
+impl CoreTEXT3_2 {
+    pub fn insert_unstained_center(&mut self, k: Shortname, v: f32) -> Option<f32> {
+        if !self.measurement_names().contains(&k) {
+            // TODO this is ambiguous, user has no idea why their value was
+            // rejected
+            return None;
+        }
+        let us = &mut self.metadata.specific.unstained;
+        if let Some(u) = us.unstainedcenters.0.as_mut() {
+            u.0.insert(k, v)
+        } else {
+            let mut h = HashMap::new();
+            h.insert(k, v);
+            us.unstainedcenters = Some(UnstainedCenters(h)).into();
+            None
+        }
+    }
+
+    pub fn remove_unstained_center(&mut self, k: &Shortname) -> Option<f32> {
+        let us = &mut self.metadata.specific.unstained;
+        if let Some(u) = us.unstainedcenters.0.as_mut() {
+            let ret = u.0.remove(k);
+            // TODO this is a pattern I will likely keep using :/
+            if u.0.is_empty() {
+                us.unstainedcenters = None.into();
+            }
+            ret
+        } else {
+            None
+        }
+    }
+
+    // fn set_time_channel(&mut self, n: Shortname, timestep: Timestep) {
+    //     let errs = self.validate_time_channel(&Some(n));
+    //     // 1. check that the name doesn't collide with anything
+    //     // 2. check that target measurement name exists and is valid (linear/nogain/etc)
+    //     // 3. assign measurement values
+    //     // 4. set timestep
+    //     // 5. set time channel name
+    // }
+}
 
 impl<M> CoreDataset<M, M::T, M::P, M::N, <M::N as MightHave>::Wrapper<Shortname>>
 where

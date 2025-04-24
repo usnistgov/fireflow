@@ -4041,14 +4041,6 @@ impl AnyCoreTEXT {
     //     match_anycoretext!(self, x, { x.set_trigger(t) })
     // }
 
-    pub fn datatype(&self) -> AlphaNumType {
-        match_anycoretext!(self, x, { x.datatype() })
-    }
-
-    pub fn set_datatype(&mut self, t: AlphaNumType) {
-        match_anycoretext!(self, x, { x.set_datatype(t) })
-    }
-
     pub fn raw_keywords(&self, want_req: Option<bool>, want_meta: Option<bool>) -> RawKeywords {
         match_anycoretext!(self, x, { x.raw_keywords(want_req, want_meta) })
     }
@@ -4763,20 +4755,37 @@ where
     get_set_str!(src, set_src);
     get_set_str!(sys, set_sys);
 
-    // pub fn trigger(&self) -> Option<&Trigger> {
-    //     self.metadata.tr.as_ref().into()
-    // }
-
-    // pub fn set_trigger(&mut self, t: Option<Trigger>) {
-    //     self.metadata.tr = t.into()
-    // }
-
-    pub fn datatype(&self) -> AlphaNumType {
-        self.metadata.datatype
+    pub fn trigger_name(&self) -> Option<&Shortname> {
+        self.metadata.tr.as_ref_opt().map(|x| &x.measurement)
     }
 
-    pub fn set_datatype(&mut self, t: AlphaNumType) {
-        self.metadata.datatype = t
+    pub fn set_trigger_name(&mut self, n: Shortname) -> bool {
+        if !self.measurement_names().contains(&n) {
+            return false;
+        }
+        if let Some(tr) = self.metadata.tr.0.as_mut() {
+            tr.measurement = n;
+        } else {
+            self.metadata.tr = Some(Trigger {
+                measurement: n,
+                threshold: 0,
+            })
+            .into();
+        }
+        true
+    }
+
+    pub fn set_trigger_threshold(&mut self, x: u32) -> bool {
+        if let Some(tr) = self.metadata.tr.0.as_mut() {
+            tr.threshold = x;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn clear_trigger(&mut self) {
+        self.metadata.tr = None.into();
     }
 
     fn header_and_raw_keywords(
@@ -4904,6 +4913,7 @@ where
         n: <M::N as MightHave>::Wrapper<Shortname>,
         m: Measurement<M::P>,
     ) -> Result<Shortname, String> {
+        // TODO update $COMP
         self.measurements.insert(i, n, m).map_err(|e| e.to_string())
     }
 
@@ -5209,6 +5219,10 @@ where
         Ok(md_succ.and_then(|core| core.validate(&conf.time).map(|_| core)))
     }
 
+    fn measurement_names(&self) -> HashSet<&Shortname> {
+        self.measurements.indexed_names().map(|(_, x)| x).collect()
+    }
+
     // TODO add non-kw deprecation checker
 
     // TODO The goal of this function is to ensure that the internal state of
@@ -5226,7 +5240,7 @@ where
             }
         }
 
-        let names: HashSet<_> = self.measurements.indexed_names().map(|(_, x)| x).collect();
+        let names = self.measurement_names();
 
         if let Err(msg) = self.metadata.check_trigger(&names) {
             // TODO toggle this

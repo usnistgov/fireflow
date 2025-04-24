@@ -103,9 +103,9 @@ pub trait MightHave {
 type PairedVec<K, V> = Vec<Pair<K, V>>;
 
 #[derive(Clone, Serialize)]
-struct Pair<K, V> {
-    key: K,
-    value: V,
+pub struct Pair<K, V> {
+    pub key: K,
+    pub value: V,
 }
 
 type WrappedNamedVec<K, U, V> = NamedVec<K, <K as MightHave>::Wrapper<Shortname>, U, V>;
@@ -181,7 +181,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     pub fn as_center(&self) -> Option<IndexedElement<&Shortname, &U>> {
         match self {
             NamedVec::Split(s, _) => Some(IndexedElement {
-                index: MeasIdx(s.left.len()),
+                index: s.left.len().into(),
                 key: &s.center.key,
                 value: &s.center.value,
             }),
@@ -193,7 +193,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     pub fn as_center_mut(&mut self) -> Option<IndexedElement<&mut Shortname, &mut U>> {
         match self {
             NamedVec::Split(s, _) => Some(IndexedElement {
-                index: MeasIdx(s.left.len()),
+                index: s.left.len().into(),
                 key: &mut s.center.key,
                 value: &mut s.center.value,
             }),
@@ -221,18 +221,72 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         }
     }
 
+    // pub fn into_iter(
+    //     self,
+    // ) -> impl IntoIterator<Item = (MeasIdx, Result<WrappedPair<K, V>, Pair<Shortname, U>>)> {
+    //     let go =
+    //         |xs: Vec<WrappedPair<K, V>>| xs.into_iter().enumerate().map(|(i, p)| (i.into(), Ok(p)));
+    //     match self {
+    //         NamedVec::Split(s, _) => {
+    //             let c = (s.left.len().into(), Err(*s.center));
+    //             go(s.left).chain(vec![c]).chain(go(s.right))
+    //         }
+    //         NamedVec::Unsplit(u) => go(u.members).chain(vec![]).chain(go(vec![])),
+    //     }
+    // }
+
+    /// Return iterator over all elements with indices
+    pub fn iter<'a>(
+        &'a self,
+    ) -> impl Iterator<
+        Item = (
+            MeasIdx,
+            Result<&'a WrappedPair<K, V>, &'a Pair<Shortname, U>>,
+        ),
+    > + 'a {
+        let go =
+            |xs: &'a [WrappedPair<K, V>]| xs.iter().enumerate().map(|(i, p)| (i.into(), Ok(p)));
+        match self {
+            NamedVec::Split(s, _) => {
+                let c = (s.left.len().into(), Err(&(*s.center)));
+                go(&s.left).chain(vec![c]).chain(go(&s.right))
+            }
+            NamedVec::Unsplit(u) => go(&u.members).chain(vec![]).chain(go(&u.members[0..0])),
+        }
+    }
+
     /// Return iterator over borrowed non-center values
-    pub fn iter_values(&self) -> impl Iterator<Item = &V> + '_ {
-        self.iter_dpairs().map(|x| &x.value)
+    pub fn iter_non_center_values(&self) -> impl Iterator<Item = &V> + '_ {
+        self.iter().flat_map(|(_, x)| x.ok().map(|p| &p.value))
     }
 
     /// Return iterator over borrowed non-center keys
-    pub fn iter_keys(&self) -> impl Iterator<Item = &K::Wrapper<Shortname>> + '_ {
-        self.iter_dpairs().map(|x| &x.key)
+    pub fn iter_non_center_keys(&self) -> impl Iterator<Item = &K::Wrapper<Shortname>> + '_ {
+        self.iter().flat_map(|(_, x)| x.ok().map(|p| &p.key))
+    }
+
+    /// Return all existing names in the vector with their indices
+    pub fn indexed_names(&self) -> impl Iterator<Item = (MeasIdx, &Shortname)> + '_ {
+        self.iter().flat_map(|(i, r)| {
+            r.map_or_else(|x| Some(&x.key), |x| K::as_opt(&x.key))
+                .map(|x| (i, x))
+        })
+    }
+
+    /// Return iterator over key names with non-existent names as default.
+    // TODO seems like we should give a different type for this
+    pub fn iter_all_names(&self) -> impl Iterator<Item = Shortname> + '_ {
+        let prefix = self.as_prefix();
+        self.iter().map(|(i, r)| {
+            r.map_or_else(
+                |x| x.key.clone(),
+                |x| K::as_opt(&x.key).cloned().unwrap_or(prefix.as_indexed(i)),
+            )
+        })
     }
 
     /// Apply function to non-center values, altering them in place
-    pub fn alter_values<F, X>(&mut self, f: F) -> Vec<X>
+    pub fn alter_non_center_values<F, X>(&mut self, f: F) -> Vec<X>
     where
         F: Fn(&mut V) -> X,
     {
@@ -250,13 +304,13 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// Return position of center, if it exists
     pub fn center_index(&self) -> Option<usize> {
         match self {
-            NamedVec::Split(s, _) => Some(s.left.len() + 1),
+            NamedVec::Split(s, _) => Some(s.left.len()),
             NamedVec::Unsplit(_) => None,
         }
     }
 
     /// Apply function over center value, possibly changing it's type
-    pub fn map_center<F, W>(self, f: F) -> NamedVec<K, K::Wrapper<Shortname>, W, V>
+    pub fn map_center_value<F, W>(self, f: F) -> NamedVec<K, K::Wrapper<Shortname>, W, V>
     where
         F: Fn(usize, U) -> W,
     {
@@ -275,7 +329,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     }
 
     /// Apply function over non-center values, possibly changing their type
-    pub fn map_values<E, F, W>(self, f: F) -> Result<WrappedNamedVec<K, U, W>, Vec<E>>
+    pub fn map_non_center_values<E, F, W>(self, f: F) -> Result<WrappedNamedVec<K, U, W>, Vec<E>>
     where
         F: Fn(usize, V) -> Result<W, E>,
     {
@@ -312,50 +366,17 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
 
     /// Return number of all elements.
     pub fn len(&self) -> usize {
-        self.iter_dpairs().count()
+        self.iter().count()
     }
 
     /// Return number of non-center elements.
     pub fn len_non_center(&self) -> usize {
-        match self {
-            NamedVec::Split(s, _) => s.left.len() + s.right.len(),
-            NamedVec::Unsplit(u) => u.members.len(),
-        }
+        self.iter().filter(|(_, r)| r.is_ok()).count()
     }
 
     /// Return true if there are no contained elements.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
-    }
-
-    /// Return all existing names in the vector with their indices
-    pub fn all_names<'a>(&'a self) -> Vec<(MeasIdx, &'a Shortname)> {
-        let go = |xs: &'a Vec<WrappedPair<K, V>>| {
-            xs.iter()
-                .enumerate()
-                .flat_map(|(i, p)| K::as_opt(&p.key).map(|x| (MeasIdx(i), x)))
-        };
-        match self {
-            NamedVec::Split(s, _) => go(&s.left)
-                .chain([(MeasIdx(s.left.len()), &s.center.key)])
-                .chain(go(&s.right))
-                .collect(),
-            NamedVec::Unsplit(u) => go(&u.members).collect(),
-        }
-    }
-
-    /// Return iterator over key names which may or may not exist.
-    pub fn iter_names_opt(&self) -> impl Iterator<Item = Option<&Shortname>> + '_ {
-        self.iter_dpairs().map(|x| K::as_opt(&x.key))
-    }
-
-    /// Return iterator over key names with non-existent names as default.
-    // TODO seems like we should give a different type for this
-    pub fn iter_all_names(&self) -> impl Iterator<Item = Shortname> + '_ {
-        let prefix = self.as_prefix();
-        self.iter_dpairs()
-            .enumerate()
-            .map(|(i, x)| K::as_opt(&x.key).cloned().unwrap_or(prefix.as_indexed(i)))
     }
 
     /// Get reference at position.
@@ -394,16 +415,17 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         .map(|p| &mut p.value)
     }
 
-    /// Get reference with name.
+    /// Get reference to value with name.
     ///
     /// The center element can never be returned.
     pub fn get_name(&self, n: &Shortname) -> Option<&V> {
-        self.iter_dpairs()
+        self.iter()
+            .flat_map(|(_, r)| r.ok())
             .find(|p| K::as_opt(&p.key).is_some_and(|kn| kn == n))
             .map(|p| &p.value)
     }
 
-    /// Get mutable reference with name.
+    /// Get mutable reference to value with name.
     ///
     /// The center element can never be returned.
     pub fn get_name_mut(&mut self, n: &Shortname) -> Option<&mut V> {
@@ -418,7 +440,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// Insert a new non-center element at a given position.
     pub fn insert(
         &mut self,
-        index: usize,
+        index: MeasIdx,
         key: K::Wrapper<Shortname>,
         value: V,
     ) -> Result<Shortname, DistinctError> {
@@ -426,7 +448,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         let k = self
             .as_prefix()
             .as_opt_or_indexed::<K>(K::as_ref(&key), index);
-        if index > len {
+        if usize::from(index) > len {
             Err(DistinctError::Index { index, len })
         } else if self.iter_all_names().any(|n| n == k) {
             Err(DistinctError::Membership(k))
@@ -435,13 +457,13 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
             match self {
                 NamedVec::Split(s, _) => {
                     let ln = s.left.len();
-                    if index <= ln {
-                        s.left.insert(index, p);
+                    if usize::from(index) <= ln {
+                        s.left.insert(index.into(), p);
                     } else {
-                        s.right.insert(index - ln - 1, p);
+                        s.right.insert(usize::from(index) - ln - 1, p);
                     }
                 }
-                NamedVec::Unsplit(u) => u.members.insert(index, p),
+                NamedVec::Unsplit(u) => u.members.insert(index.into(), p),
             }
             Ok(k)
         }
@@ -741,15 +763,31 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
             .map(|p| &mut p.value)
     }
 
-    fn iter_dpairs(&self) -> impl Iterator<Item = &Pair<K::Wrapper<Shortname>, V>> + '_ {
-        match self {
-            NamedVec::Split(s, _) => s.left.iter().chain(s.right.iter()),
-            // chain thing is a dirty hack to get the types to match,
-            // unfortunately this doesn't work for mut because it requires two
-            // borrows
-            NamedVec::Unsplit(u) => u.members.iter().chain(u.members[0..0].iter()),
-        }
-    }
+    // fn iter_dpairs(&self) -> impl Iterator<Item = &Pair<K::Wrapper<Shortname>, V>> + '_ {
+    //     match self {
+    //         NamedVec::Split(s, _) => s.left.iter().chain(s.right.iter()),
+    //         // chain thing is a dirty hack to get the types to match,
+    //         // unfortunately this doesn't work for mut because it requires two
+    //         // borrows
+    //         NamedVec::Unsplit(u) => u.members.iter().chain(u.members[0..0].iter()),
+    //     }
+    // }
+
+    // fn iter_non_center_indexed_dpairs<'a>(
+    //     &'a self,
+    // ) -> impl Iterator<Item = IndexedElement<K::Wrapper<&'a Shortname>, &'a V>> + 'a {
+    //     let go = |xs: &'a [WrappedPair<K, V>]| {
+    //         xs.iter().enumerate().map(|(i, p)| IndexedElement {
+    //             index: MeasIdx(i),
+    //             key: K::as_ref(&p.key),
+    //             value: &p.value,
+    //         })
+    //     };
+    //     match self {
+    //         NamedVec::Split(s, _) => go(&s.left).chain(go(&s.right)),
+    //         NamedVec::Unsplit(u) => go(&u.members).chain(go(&u.members[0..0])),
+    //     }
+    // }
 
     fn new_split(
         left: WrappedPairedVec<K, V>,
@@ -774,7 +812,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
 }
 
 pub enum DistinctError {
-    Index { index: usize, len: usize },
+    Index { index: MeasIdx, len: usize },
     Membership(Shortname),
 }
 
@@ -810,7 +848,7 @@ impl fmt::Display for DistinctKeysError {
 }
 
 impl ShortnamePrefix {
-    fn as_opt_or_indexed<X: MightHave>(&self, x: X::Wrapper<&Shortname>, i: usize) -> Shortname {
+    fn as_opt_or_indexed<X: MightHave>(&self, x: X::Wrapper<&Shortname>, i: MeasIdx) -> Shortname {
         X::to_opt(x).cloned().unwrap_or(self.as_indexed(i))
     }
 
@@ -818,7 +856,7 @@ impl ShortnamePrefix {
         all_unique(
             xs.into_iter()
                 .enumerate()
-                .map(|(i, x)| self.as_opt_or_indexed::<X>(x, i)),
+                .map(|(i, x)| self.as_opt_or_indexed::<X>(x, i.into())),
         )
     }
 }

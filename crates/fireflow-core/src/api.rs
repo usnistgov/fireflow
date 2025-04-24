@@ -1060,7 +1060,7 @@ trait IndexedKey {
     const PREFIX: &'static str;
     const SUFFIX: &'static str;
 
-    fn fmt(i: usize) -> String {
+    fn fmt(i: MeasIdx) -> String {
         format!("{}{i}{}", Self::PREFIX, Self::SUFFIX)
     }
 
@@ -1073,14 +1073,14 @@ trait IndexedKey {
     }
 
     fn std(i: MeasIdx) -> String {
-        format!("${}", Self::fmt(i.0))
+        format!("${}", Self::fmt(i))
     }
 
     fn std_blank() -> String {
         format!("${}", Self::fmt_blank())
     }
 
-    fn nonstd(i: usize) -> NonStdKey {
+    fn nonstd(i: MeasIdx) -> NonStdKey {
         NonStdKey::from_unchecked(Self::fmt(i).as_str())
     }
 
@@ -4584,7 +4584,7 @@ where
     // for table
     fn table_pairs(&self) -> Vec<(String, Option<String>)> {
         // zero is a dummy and not meaningful here
-        let n = MeasIdx(0);
+        let n = 0.into();
         self.req_keywords(n)
             .into_iter()
             .map(|(t, _, v)| (t, Some(v)))
@@ -4593,16 +4593,22 @@ where
     }
 
     fn table_header(&self) -> Vec<String> {
-        ["index".into()]
+        ["index".into(), "$PnN".into()]
             .into_iter()
             .chain(self.table_pairs().into_iter().map(|(k, _)| k))
             .collect()
     }
 
-    fn table_row(&self, n: usize) -> Vec<Option<String>> {
-        vec![Some(n.to_string())]
+    fn table_row(&self, i: MeasIdx, n: Option<&Shortname>) -> Vec<String> {
+        let na = || "NA".into();
+        [i.to_string(), n.map_or(na(), |x| x.to_string())]
             .into_iter()
-            .chain(self.table_pairs().into_iter().map(|(_, v)| v))
+            .chain(
+                self.table_pairs()
+                    .into_iter()
+                    .map(|(_, v)| v)
+                    .map(|v| v.unwrap_or(na())),
+            )
             .collect()
     }
 
@@ -5023,7 +5029,7 @@ where
 
     pub fn add_measurement(
         &mut self,
-        i: usize,
+        i: MeasIdx,
         n: <M::N as MightHave>::Wrapper<Shortname>,
         m: Measurement<M::P>,
     ) -> Result<Shortname, String> {
@@ -5047,7 +5053,7 @@ where
     /// index starting at 1.
     pub fn longnames(&self) -> Vec<Longname> {
         self.measurements
-            .iter_values()
+            .iter_non_center_values()
             .enumerate()
             .map(|(i, m)| m.longname(i))
             .collect()
@@ -5089,9 +5095,9 @@ where
     {
         let meas: Vec<_> = self
             .measurements
-            .iter_values()
+            .iter_non_center_values()
             .enumerate()
-            .flat_map(|(i, m)| f_meas(m, MeasIdx(i + 1)))
+            .flat_map(|(i, m)| f_meas(m, i.into()))
             .collect();
         let (time_meas, time_meta) = self
             .measurements
@@ -5147,30 +5153,41 @@ where
         // instance since we already pre-filter using the wrapper type internal
         // to named vector structure
         self.measurements
-            .all_names()
+            .indexed_names()
             .into_iter()
             .map(|(i, n)| ReqMeasKey::pair(n, i))
             .collect()
     }
 
-    fn meas_table(&self, delim: &str) -> Vec<String> {
+    fn meas_table(&self, delim: &str) -> Vec<String>
+    where
+        M::T: Clone,
+        M::P: From<M::T>,
+    {
         let ms = &self.measurements;
-        if ms.is_empty() {
-            return vec![];
-        }
-        // TODO add back header
-        // let header = ms[0].table_header().join(delim);
-        let rows = self.measurements.iter_values().enumerate().map(|(i, m)| {
-            m.table_row(i)
+        if let Some(m0) = ms.get(0) {
+            let header = m0.table_header();
+            let rows = self.measurements.iter().map(|(i, r)| {
+                r.map_or_else(
+                    |c| Measurement::<M::P>::from(c.value.clone()).table_row(i, Some(&c.key)),
+                    |nc| nc.value.table_row(i, M::N::as_opt(&nc.key)),
+                )
+            });
+            [header]
                 .into_iter()
-                .map(|v| v.unwrap_or("NA".into()))
-                .join(delim)
-        });
-        // vec![header].into_iter().chain(rows).collect()
-        rows.collect()
+                .chain(rows)
+                .map(|r| r.join(delim))
+                .collect()
+        } else {
+            vec![]
+        }
     }
 
-    fn print_meas_table(&self, delim: &str) {
+    fn print_meas_table(&self, delim: &str)
+    where
+        M::T: Clone,
+        M::P: From<M::T>,
+    {
         for e in self.meas_table(delim) {
             println!("{}", e);
         }
@@ -5184,7 +5201,7 @@ where
         let ncols = self.measurements.len();
         let (pass, fail): (Vec<_>, Vec<_>) = self
             .measurements
-            .iter_values()
+            .iter_non_center_values()
             .map(|m| m.as_column_type(dt, &byteord))
             .partition_result();
         let mut deferred: Vec<_> = fail.into_iter().flatten().collect();
@@ -5252,9 +5269,9 @@ where
         pat: Option<&TimePattern>,
         prefix: &ShortnamePrefix,
     ) -> Option<Measurements<M::N, M::T, M::P>> {
-        let ps: Vec<_> = (1..(par.0 + 1))
+        let ps: Vec<_> = (0..par.0)
             .flat_map(|n| {
-                let i = MeasIdx(n);
+                let i = n.into();
                 let name_res = M::lookup_shortname(st, i)?;
                 let key = M::N::to_res(name_res).and_then(|name| {
                     if let Some(tp) = pat {
@@ -5323,10 +5340,6 @@ where
 
     // TODO add non-kw deprecation checker
 
-    fn measurement_names(&self) -> Vec<&Shortname> {
-        self.measurements.iter_names_opt().flatten().collect()
-    }
-
     // TODO The goal of this function is to ensure that the internal state of
     // this struct is "fully compliant". This means that anything that fails
     // the below tests needs to either be dropped, altered (if possible), or
@@ -5342,7 +5355,7 @@ where
             }
         }
 
-        let names: HashSet<_> = self.measurement_names().into_iter().collect();
+        let names: HashSet<_> = self.measurements.indexed_names().map(|(_, x)| x).collect();
 
         if let Err(msg) = self.metadata.check_trigger(&names) {
             // TODO toggle this
@@ -5429,8 +5442,8 @@ where
     {
         let ps = self
             .measurements
-            .map_values(|i, v| v.try_convert(MeasIdx(i)))
-            .map(|x| x.map_center(|_, v| v.convert()));
+            .map_non_center_values(|i, v| v.try_convert(i.into()))
+            .map(|x| x.map_center_value(|_, v| v.convert()));
         let m = self.metadata.try_convert();
         let res = match (m, ps) {
             (Ok(metadata), Ok(old_ps)) => {
@@ -5491,7 +5504,7 @@ where
 
     fn add_measurement<T>(
         &mut self,
-        i: usize,
+        i: MeasIdx,
         n: <M::N as MightHave>::Wrapper<Shortname>,
         m: Measurement<M::P>,
         col: Vec<T::Native>,
@@ -5506,7 +5519,9 @@ where
             .insert(i, n, m)
             .map_err(|e| e.to_string())?;
         let ser = ChunkedArray::<T>::from_vec(k.as_ref().into(), col).into_series();
-        self.data.insert_column(i, ser).map_err(|e| e.to_string())?;
+        self.data
+            .insert_column(i.into(), ser)
+            .map_err(|e| e.to_string())?;
         Ok(k)
     }
 }

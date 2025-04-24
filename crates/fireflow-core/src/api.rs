@@ -489,10 +489,10 @@ pub enum NumType {
 ///
 /// This is encoded in the $DFCmTOn keywords in 2.0 and $COMP in 3.0.
 #[derive(Clone, Serialize)]
-pub struct Compensation {
+struct Compensation {
     /// Values in the comp matrix in row-major order. Assumed to be the
     /// same width and height as $PAR
-    pub matrix: DMatrix<f32>,
+    matrix: DMatrix<f32>,
 }
 
 impl Compensation {
@@ -509,14 +509,14 @@ impl Compensation {
 
 /// The spillover matrix from the $SPILLOVER keyword (3.1+)
 #[derive(Clone, Serialize)]
-pub struct Spillover {
+struct Spillover {
     /// The measurements in the spillover matrix. Assumed to be a subset of the
     /// values in the $PnN keys.
     // TODO use BTreeSet to enforce uniqueness
-    pub measurements: Vec<Shortname>,
+    measurements: Vec<Shortname>,
 
     /// Numeric values in the spillover matrix in row-major order.
-    pub matrix: DMatrix<f32>,
+    matrix: DMatrix<f32>,
 }
 
 impl Spillover {
@@ -541,7 +541,7 @@ impl Spillover {
 #[derive(Clone, Serialize)]
 pub struct Trigger {
     /// The measurement name (assumed to match a '$PnN' value).
-    pub measurement: Shortname,
+    measurement: Shortname,
 
     /// The threshold of the trigger.
     pub threshold: u32,
@@ -634,7 +634,7 @@ pub struct PlateData {
 /// This is actually encoded as a string like 'n,[measuremnts,],[values]' but
 /// here is more conveniently encoded as a hash table.
 #[derive(Clone, Serialize)]
-pub struct UnstainedCenters(HashMap<Shortname, f32>);
+struct UnstainedCenters(HashMap<Shortname, f32>);
 
 impl UnstainedCenters {
     fn remove_by_name(&mut self, n: &Shortname) -> bool {

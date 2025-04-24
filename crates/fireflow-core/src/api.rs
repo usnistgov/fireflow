@@ -3714,8 +3714,12 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
 }
 
 impl VersionedTime for InnerTime2_0 {
-    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self> {
-        // TODO check that scale is linear
+    fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
+        let scale: OptionalKw<Scale> = st.lookup_meas_opt(i, false);
+        if scale.0.is_some_and(|x| x != Scale::Linear) {
+            st.deferred
+                .push_error("$PnE for time channel must be linear".into());
+        }
         Some(Self)
     }
 
@@ -3735,14 +3739,18 @@ impl VersionedTime for InnerTime2_0 {
 }
 
 impl VersionedTime for InnerTime3_0 {
-    fn lookup_specific(st: &mut KwParser, _: MeasIdx) -> Option<Self> {
-        // TODO check that scale is linear
-        // TODO check that gain is not set
-        if let Some(timestep) = st.lookup_meta_req() {
-            Some(Self { timestep })
-        } else {
-            None
+    fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
+        let scale: Option<Scale> = st.lookup_meas_req(i);
+        if scale.is_some_and(|x| x != Scale::Linear) {
+            st.deferred
+                .push_error("$PnE for time channel must be linear".into());
         }
+        let gain: OptionalKw<Gain> = st.lookup_meas_opt(i, false);
+        if gain.0.is_some() {
+            st.deferred
+                .push_error("$PnG for time channel should not be set".into());
+        }
+        st.lookup_meta_req().map(|timestep| Self { timestep })
     }
 
     fn timestep(&self) -> Option<Timestep> {
@@ -3763,17 +3771,22 @@ impl VersionedTime for InnerTime3_0 {
 }
 
 impl VersionedTime for InnerTime3_1 {
-    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self> {
-        // TODO check that scale is linear
-        // TODO check that gain is not set
-        if let Some(timestep) = st.lookup_meta_req() {
-            Some(Self {
-                timestep,
-                display: st.lookup_meas_opt(n, false),
-            })
-        } else {
-            None
+    fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
+        // TODO not DRY
+        let scale: Option<Scale> = st.lookup_meas_req(i);
+        if scale.is_some_and(|x| x != Scale::Linear) {
+            st.deferred
+                .push_error("$PnE for time channel must be linear".into());
         }
+        let gain: OptionalKw<Gain> = st.lookup_meas_opt(i, false);
+        if gain.0.is_some() {
+            st.deferred
+                .push_error("$PnG for time channel should not be set".into());
+        }
+        st.lookup_meta_req().map(|timestep| Self {
+            timestep,
+            display: st.lookup_meas_opt(i, false),
+        })
     }
 
     fn timestep(&self) -> Option<Timestep> {
@@ -3794,19 +3807,27 @@ impl VersionedTime for InnerTime3_1 {
 }
 
 impl VersionedTime for InnerTime3_2 {
-    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self> {
-        // TODO check that scale is linear
-        // TODO check that gain is not set
-        // TODO check that PnTYPE is Time
-        if let Some(timestep) = st.lookup_meta_req() {
-            Some(Self {
-                timestep,
-                display: st.lookup_meas_opt(n, false),
-                datatype: st.lookup_meas_opt(n, false),
-            })
-        } else {
-            None
+    fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
+        let scale: Option<Scale> = st.lookup_meas_req(i);
+        if scale.is_some_and(|x| x != Scale::Linear) {
+            st.deferred
+                .push_error("$PnE for time channel must be linear".into());
         }
+        let gain: OptionalKw<Gain> = st.lookup_meas_opt(i, false);
+        if gain.0.is_some() {
+            st.deferred
+                .push_error("$PnG for time channel should not be set".into());
+        }
+        let mt: OptionalKw<MeasurementType> = st.lookup_meas_opt(i, false);
+        if mt.0.is_some_and(|x| x != MeasurementType::Time) {
+            st.deferred
+                .push_error("$PnTYPE for time channel should be 'Time' if given".into());
+        }
+        st.lookup_meta_req().map(|timestep| Self {
+            timestep,
+            display: st.lookup_meas_opt(i, false),
+            datatype: st.lookup_meas_opt(i, false),
+        })
     }
 
     fn timestep(&self) -> Option<Timestep> {
@@ -3836,20 +3857,29 @@ impl VersionedMeasurement for InnerMeasurement3_2 {
         self.datatype.0.as_ref().copied()
     }
 
-    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self> {
-        if let Some(scale) = st.lookup_meas_req(n) {
+    fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
+        let measurement_type: OptionalKw<MeasurementType> = st.lookup_meas_opt(i, false);
+        if measurement_type
+            .0
+            .as_ref()
+            .is_some_and(|x| *x == MeasurementType::Time)
+        {
+            let msg = "$PnTYPE for non-time channel should not be 'Time' if given".into();
+            st.deferred.push_error(msg);
+        }
+        if let Some(scale) = st.lookup_meas_req(i) {
             Some(Self {
                 scale,
-                gain: st.lookup_meas_opt(n, false),
-                wavelengths: st.lookup_meas_opt(n, false),
-                calibration: st.lookup_meas_opt(n, false),
-                display: st.lookup_meas_opt(n, false),
-                detector_name: st.lookup_meas_opt(n, false),
-                tag: st.lookup_meas_opt(n, false),
-                measurement_type: st.lookup_meas_opt(n, false),
-                feature: st.lookup_meas_opt(n, false),
-                analyte: st.lookup_meas_opt(n, false),
-                datatype: st.lookup_meas_opt(n, false),
+                gain: st.lookup_meas_opt(i, false),
+                wavelengths: st.lookup_meas_opt(i, false),
+                calibration: st.lookup_meas_opt(i, false),
+                display: st.lookup_meas_opt(i, false),
+                detector_name: st.lookup_meas_opt(i, false),
+                tag: st.lookup_meas_opt(i, false),
+                measurement_type,
+                feature: st.lookup_meas_opt(i, false),
+                analyte: st.lookup_meas_opt(i, false),
+                datatype: st.lookup_meas_opt(i, false),
             })
         } else {
             None

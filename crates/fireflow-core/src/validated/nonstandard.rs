@@ -70,6 +70,7 @@ pub struct MatrixSetter<T> {
 }
 
 /// The index for a measurement
+// TODO this should start from 1?
 #[derive(Clone, Copy)]
 pub struct MeasIdx(pub usize);
 

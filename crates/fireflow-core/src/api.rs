@@ -4479,17 +4479,21 @@ where
         }
     }
 
-    fn req_keywords(&self, n: MeasIdx) -> RawPairs {
+    fn req_meas_keywords(&self, n: MeasIdx) -> RawPairs {
         [self.bytes.pair(n), self.range.pair(n)]
             .into_iter()
-            .chain(self.specific.req_meta_keywords_inner())
             .collect()
     }
 
-    fn opt_keywords(&self, n: MeasIdx) -> RawOptPairs {
+    fn req_meta_keywords(&self) -> RawPairs {
+        self.specific.req_meta_keywords_inner()
+    }
+
+    fn opt_meas_keywords(&self, n: MeasIdx) -> RawPairs {
         [OptMeasKey::pair(&self.longname, n)]
             .into_iter()
             .chain(self.specific.opt_meas_keywords_inner(n))
+            .flat_map(|(k, v)| v.map(|x| (k, x)))
             .collect()
     }
 }
@@ -4811,11 +4815,8 @@ where
     /// [CoreTEXT]. This means it will not include $TOT, since this depends on
     /// the DATA segment.
     pub fn raw_keywords(&self, want_req: Option<bool>, want_meta: Option<bool>) -> RawKeywords {
-        let (req_meas, req_meta, _) =
-            self.some_keywords(Measurement::all_req_keywords, Metadata::all_req_keywords);
-        let (opt_meas, opt_meta, _) = self.some_keywords(Measurement::all_opt_keywords, |m, _| {
-            Metadata::all_opt_keywords(m)
-        });
+        let (req_meas, req_meta, _) = self.req_meta_meas_keywords();
+        let (opt_meas, opt_meta, _) = self.opt_meta_meas_keywords();
 
         let triop = |op| match op {
             None => (true, true),
@@ -4910,12 +4911,8 @@ where
         let version = M::P::fcs_version();
         let tot_pair = (Tot::std().to_string(), tot.to_string());
 
-        let (req_meas, req_meta, req_text_len) =
-            self.some_keywords(Measurement::all_req_keywords, Metadata::all_req_keywords);
-        let (opt_meas, opt_meta, opt_text_len) = self
-            .some_keywords(Measurement::all_opt_keywords, |m, _| {
-                Metadata::all_opt_keywords(m)
-            });
+        let (req_meas, req_meta, req_text_len) = self.req_meta_meas_keywords();
+        let (opt_meas, opt_meta, opt_text_len) = self.opt_meta_meas_keywords();
 
         let offset_result = if version == Version::FCS2_0 {
             make_data_offset_keywords_2_0(req_text_len + opt_text_len, data_len, analysis_len)
@@ -4978,13 +4975,13 @@ where
         // complication is that not all versions have $TIMESTEP, so consult
         // trait-level functions for this and wrap in Option.
         let ms = &mut self.measurements;
-        let current_timestep = ms.as_center().and_then(|c| c.1.specific.timestep());
+        let current_timestep = ms.as_center().and_then(|c| c.value.specific.timestep());
         match ms.set_center_by_name(n) {
             Ok(center) => {
                 // Technically this is a bit more work than necessary because
                 // we should know by this point if the center exists. Oh well..
                 if let (Some(ts), Some(c)) = (current_timestep, ms.as_center_mut()) {
-                    M::T::set_timestep(&mut c.1.specific, ts);
+                    M::T::set_timestep(&mut c.value.specific, ts);
                 }
                 Ok(center)
             }
@@ -5077,21 +5074,83 @@ where
         Par(self.measurements.len())
     }
 
-    fn some_keywords<F, G>(&self, f: F, g: G, h: H) -> (RawPairs, RawPairs, usize)
+    fn meta_meas_keywords<F, G, H, I>(
+        &self,
+        f_meas: F,
+        f_time_meas: G,
+        f_time_meta: H,
+        f_meta: I,
+    ) -> (RawPairs, RawPairs)
     where
         F: Fn(&Measurement<M::P>, MeasIdx) -> RawPairs,
         G: Fn(&TimeChannel<M::T>, MeasIdx) -> RawPairs,
-        H: Fn(&Metadata<M>, Par) -> RawPairs,
+        H: Fn(&TimeChannel<M::T>) -> RawPairs,
+        I: Fn(&Metadata<M>, Par) -> RawPairs,
     {
         let meas: Vec<_> = self
             .measurements
             .iter_values()
             .enumerate()
-            .flat_map(|(i, m)| f(m, MeasIdx(i + 1)))
+            .flat_map(|(i, m)| f_meas(m, MeasIdx(i + 1)))
             .collect();
-        let meta: Vec<_> = g(&self.metadata, self.par()).into_iter().collect();
-        let l = meas.len() + meta.len();
-        (meas, meta, l)
+        let (time_meas, time_meta) = self
+            .measurements
+            .as_center()
+            .map_or((vec![], vec![]), |tc| {
+                (f_time_meas(tc.value, tc.index), f_time_meta(tc.value))
+            });
+        let meta: Vec<_> = f_meta(&self.metadata, self.par()).into_iter().collect();
+        let all_meas: Vec<_> = meas.into_iter().chain(time_meas).collect();
+        let all_meta: Vec<_> = meta.into_iter().chain(time_meta).collect();
+        (all_meta, all_meas)
+    }
+
+    fn req_meta_meas_keywords(&self) -> (RawPairs, RawPairs, usize) {
+        let (meta, mut meas) = self.meta_meas_keywords(
+            Measurement::all_req_keywords,
+            TimeChannel::req_meas_keywords,
+            TimeChannel::req_meta_keywords,
+            Metadata::all_req_keywords,
+        );
+        if M::N::INFALLABLE {
+            meas.append(&mut self.shortname_keywords());
+        };
+        let length = meta
+            .iter()
+            .chain(meas.iter())
+            .map(|(k, v)| k.len() + v.len())
+            .sum();
+        (meta, meas, length)
+    }
+
+    fn opt_meta_meas_keywords(&self) -> (RawPairs, RawPairs, usize) {
+        let (meta, mut meas) = self.meta_meas_keywords(
+            Measurement::all_opt_keywords,
+            TimeChannel::opt_meas_keywords,
+            |_| vec![],
+            |s, _| Metadata::all_opt_keywords(s),
+        );
+        if !M::N::INFALLABLE {
+            meas.append(&mut self.shortname_keywords());
+        };
+        // TODO not DRY
+        let length = meta
+            .iter()
+            .chain(meas.iter())
+            .map(|(k, v)| k.len() + v.len())
+            .sum();
+        (meta, meas, length)
+    }
+
+    fn shortname_keywords(&self) -> RawPairs {
+        // This is sometimes an optional key, but here we use ReqMeasKey
+        // instance since we already pre-filter using the wrapper type internal
+        // to named vector structure
+        self.measurements
+            .all_names()
+            .into_iter()
+            .map(|(i, n)| ReqMeasKey::pair(n, i))
+            .collect()
     }
 
     fn meas_table(&self, delim: &str) -> Vec<String> {

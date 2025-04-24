@@ -2256,8 +2256,6 @@ pub trait VersionedMetadata: Sized {
 
     fn datetimes_valid(&self) -> bool;
 
-    // fn check_timestep(&self, has_time_channel: bool) -> bool;
-
     fn begin_date(&self) -> Option<NaiveDate>;
 
     fn end_date(&self) -> Option<NaiveDate>;
@@ -6483,10 +6481,6 @@ impl VersionedMetadata for InnerMetadata2_0 {
         true
     }
 
-    // fn check_timestep(&self, has_time_channel: bool) -> bool {
-    //     has_time_channel
-    // }
-
     get_set_pre_3_2_datetime!(FCSTime);
 
     fn lookup_shortname(
@@ -6588,10 +6582,6 @@ impl VersionedMetadata for InnerMetadata3_0 {
         true
     }
 
-    // fn check_timestep(&self, has_time_channel: bool) -> bool {
-    //     self.timestep.0.is_some() == has_time_channel
-    // }
-
     get_set_pre_3_2_datetime!(FCSTime60);
 
     fn lookup_shortname(
@@ -6611,7 +6601,6 @@ impl VersionedMetadata for InnerMetadata3_0 {
                 cyt: st.lookup_meta_opt(false),
                 comp: st.lookup_meta_opt(false),
                 cytsn: st.lookup_meta_opt(false),
-                // timestep: st.lookup_meta_opt(false),
                 unicode: st.lookup_meta_opt(false),
                 timestamps: st.lookup_timestamps3_0(),
             })
@@ -6635,7 +6624,6 @@ impl VersionedMetadata for InnerMetadata3_0 {
             OptMetaKey::pair(&ts.etim),
             OptMetaKey::pair(&ts.date),
             OptMetaKey::pair(&self.cytsn),
-            // OptMetaKey::pair(&self.timestep),
             OptMetaKey::pair(&self.unicode),
         ]
         .into_iter()
@@ -6689,10 +6677,6 @@ impl VersionedMetadata for InnerMetadata3_1 {
         true
     }
 
-    // fn check_timestep(&self, has_time_channel: bool) -> bool {
-    //     self.timestep.0.is_some() == has_time_channel
-    // }
-
     get_set_pre_3_2_datetime!(FCSTime100);
 
     fn lookup_shortname(
@@ -6712,7 +6696,6 @@ impl VersionedMetadata for InnerMetadata3_1 {
                 cyt: st.lookup_meta_opt(false),
                 spillover: st.lookup_meta_opt(false),
                 cytsn: st.lookup_meta_opt(false),
-                // timestep: st.lookup_meta_opt(false),
                 vol: st.lookup_meta_opt(false),
                 modification: st.lookup_modification(),
                 timestamps: st.lookup_timestamps3_1(false),
@@ -6740,7 +6723,6 @@ impl VersionedMetadata for InnerMetadata3_1 {
             OptMetaKey::pair(&ts.etim),
             OptMetaKey::pair(&ts.date),
             OptMetaKey::pair(&self.cytsn),
-            // OptMetaKey::pair(&self.timestep),
             OptMetaKey::pair(&mdn.last_modifier),
             OptMetaKey::pair(&mdn.last_modified),
             OptMetaKey::pair(&mdn.originality),
@@ -6799,10 +6781,6 @@ impl VersionedMetadata for InnerMetadata3_2 {
     fn datetimes_valid(&self) -> bool {
         self.datetimes.valid()
     }
-
-    // fn check_timestep(&self, has_time_channel: bool) -> bool {
-    //     self.timestep.0.is_some() == has_time_channel
-    // }
 
     // TODO not DRY
     fn begin_date(&self) -> Option<NaiveDate> {
@@ -6873,7 +6851,6 @@ impl VersionedMetadata for InnerMetadata3_2 {
                 cyt,
                 spillover: st.lookup_meta_opt(false),
                 cytsn: st.lookup_meta_opt(false),
-                // timestep: st.lookup_meta_opt(false),
                 vol: st.lookup_meta_opt(false),
                 flowrate: st.lookup_meta_opt(false),
                 modification: st.lookup_modification(),
@@ -6905,7 +6882,6 @@ impl VersionedMetadata for InnerMetadata3_2 {
             OptMetaKey::pair(&ts.etim),
             OptMetaKey::pair(&ts.date),
             OptMetaKey::pair(&self.cytsn),
-            // OptMetaKey::pair(&self.timestep),
             OptMetaKey::pair(&mdn.last_modifier),
             OptMetaKey::pair(&mdn.last_modified),
             OptMetaKey::pair(&mdn.originality),

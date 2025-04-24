@@ -11,6 +11,7 @@ use crate::validated::nonstandard::*;
 use crate::validated::pattern::*;
 use crate::validated::ranged_float::*;
 use crate::validated::shortname::*;
+use crate::validated::timestamps::*;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use itertools::Itertools;
@@ -377,69 +378,21 @@ type RawKeywords = HashMap<String, String>;
 pub struct FCSDateTime(pub DateTime<FixedOffset>);
 
 /// A time as used in the $BTIM/ETIM keys without seconds (2.0 only)
-#[derive(Clone, Serialize, PartialEq, Eq, PartialOrd)]
+#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd)]
 pub struct FCSTime(pub NaiveTime);
 
 /// A time as used in the $BTIM/ETIM keys with 1/60 seconds (3.0 only)
-#[derive(Clone, Serialize, PartialEq, Eq, PartialOrd)]
+#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd)]
 pub struct FCSTime60(pub NaiveTime);
 
 /// A time as used in the $BTIM/ETIM keys with centiseconds (3.1+ only)
-#[derive(Clone, Serialize, PartialEq, Eq, PartialOrd)]
+#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd)]
 pub struct FCSTime100(pub NaiveTime);
 
 /// A datetime as used in the $LAST_MODIFIED key (3.1+ only)
 // TODO this should almost certainly be after $ENDDATETIME if given
 #[derive(Clone, Serialize)]
 pub struct ModifiedDateTime(pub NaiveDateTime);
-
-/// A date as used in the $DATE key (all versions)
-#[derive(Clone, Serialize)]
-pub struct FCSDate(pub NaiveDate);
-
-/// A convenient bundle holding data/time keyword values.
-///
-/// The generic type parameter is meant to account for the fact that the time
-/// types for different versions are all slightly different in their treatment
-/// of sub-second time.
-#[derive(Clone, Serialize)]
-pub struct Timestamps<X> {
-    /// The value of the $BTIM key
-    pub btim: OptionalKw<Btim<X>>,
-
-    /// The value of the $ETIM key
-    pub etim: OptionalKw<Etim<X>>,
-
-    /// The value of the $DATE key
-    pub date: OptionalKw<FCSDate>,
-}
-
-impl<X> Timestamps<X> {
-    fn map<F, Y>(self, f: F) -> Timestamps<Y>
-    where
-        F: Fn(X) -> Y,
-    {
-        Timestamps {
-            btim: self.btim.map(|x| Btim(f(x.0))),
-            etim: self.etim.map(|x| Etim(f(x.0))),
-            date: self.date,
-        }
-    }
-}
-
-impl<X: PartialOrd> Timestamps<X> {
-    fn valid(&self) -> bool {
-        if self.date.0.is_some() {
-            if let (Some(b), Some(e)) = (&self.btim.0, &self.etim.0) {
-                b.0 < e.0
-            } else {
-                true
-            }
-        } else {
-            true
-        }
-    }
-}
 
 // TODO this might be useful but there shouldn't be an equivilencey b/t these
 // two since the former does not include time zone
@@ -1557,11 +1510,6 @@ macro_rules! kw_time {
         }
     };
 }
-
-#[derive(Clone, Serialize)]
-pub struct Btim<T>(pub T);
-#[derive(Clone, Serialize)]
-pub struct Etim<T>(pub T);
 
 kw_time!(Btim2_0, Btim, FCSTime, FCSTimeError, "BTIM");
 kw_time!(Etim2_0, Etim, FCSTime, FCSTimeError, "ETIM");
@@ -5325,19 +5273,12 @@ where
         // TODO these can be made more robust by hiding the fields on these
         // structs and using validators on creation
 
-        // Ensure $BTIM/$ETIM/$DATE are valid
-        // if !self.metadata.specific.timestamps_valid() {
-        //     let msg = "$ETIM is before $BTIM and $DATE is given".into();
-        //     // TODO toggle this
-        //     deferred.push_error(msg);
-        // }
-
         // // Ensure $BEGIN/ENDDATETIME are valid (if applicable)
-        // if !self.metadata.specific.datetimes_valid() {
-        //     let msg = "$BEGINDATETIME is after $ENDDATETIME".into();
-        //     // TODO toggle this
-        //     deferred.push_error(msg);
-        // }
+        if !self.metadata.specific.datetimes_valid() {
+            let msg = "$BEGINDATETIME is after $ENDDATETIME".into();
+            // TODO toggle this
+            deferred.push_warning(msg);
+        }
 
         PureSuccess { data: (), deferred }
     }
@@ -6408,7 +6349,7 @@ impl VersionedMetadata for InnerMetadata2_0 {
                 byteord,
                 cyt: st.lookup_meta_opt(false),
                 comp: st.lookup_compensation_2_0(par),
-                timestamps: st.lookup_timestamps2_0(),
+                timestamps: st.lookup_timestamps(false),
             })
         } else {
             None
@@ -6436,9 +6377,9 @@ impl VersionedMetadata for InnerMetadata2_0 {
         [
             OptMetaKey::pair(&self.cyt),
             OptMetaKey::pair(&self.comp),
-            OptMetaKey::pair(&self.timestamps.btim),
-            OptMetaKey::pair(&self.timestamps.etim),
-            OptMetaKey::pair(&self.timestamps.date),
+            OptMetaKey::pair(&self.timestamps.btim()),
+            OptMetaKey::pair(&self.timestamps.etim()),
+            OptMetaKey::pair(&self.timestamps.date()),
         ]
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))
@@ -6509,7 +6450,7 @@ impl VersionedMetadata for InnerMetadata3_0 {
                 comp: st.lookup_meta_opt(false),
                 cytsn: st.lookup_meta_opt(false),
                 unicode: st.lookup_meta_opt(false),
-                timestamps: st.lookup_timestamps3_0(),
+                timestamps: st.lookup_timestamps(false),
             })
         } else {
             None
@@ -6527,9 +6468,9 @@ impl VersionedMetadata for InnerMetadata3_0 {
         [
             OptMetaKey::pair(&self.cyt),
             OptMetaKey::pair(&self.comp),
-            OptMetaKey::pair(&ts.btim),
-            OptMetaKey::pair(&ts.etim),
-            OptMetaKey::pair(&ts.date),
+            OptMetaKey::pair(&ts.btim()),
+            OptMetaKey::pair(&ts.etim()),
+            OptMetaKey::pair(&ts.date()),
             OptMetaKey::pair(&self.cytsn),
             OptMetaKey::pair(&self.unicode),
         ]
@@ -6603,7 +6544,7 @@ impl VersionedMetadata for InnerMetadata3_1 {
                 cytsn: st.lookup_meta_opt(false),
                 vol: st.lookup_meta_opt(false),
                 modification: st.lookup_modification(),
-                timestamps: st.lookup_timestamps3_1(false),
+                timestamps: st.lookup_timestamps(false),
                 plate: st.lookup_plate(false),
             })
         } else {
@@ -6624,9 +6565,9 @@ impl VersionedMetadata for InnerMetadata3_1 {
         [
             OptMetaKey::pair(&self.cyt),
             OptMetaKey::pair(&self.spillover),
-            OptMetaKey::pair(&ts.btim),
-            OptMetaKey::pair(&ts.etim),
-            OptMetaKey::pair(&ts.date),
+            OptMetaKey::pair(&ts.btim()),
+            OptMetaKey::pair(&ts.etim()),
+            OptMetaKey::pair(&ts.date()),
             OptMetaKey::pair(&self.cytsn),
             OptMetaKey::pair(&mdn.last_modifier),
             OptMetaKey::pair(&mdn.last_modified),
@@ -6711,7 +6652,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
                 flowrate: st.lookup_meta_opt(false),
                 modification: st.lookup_modification(),
                 plate: st.lookup_plate(true),
-                timestamps: st.lookup_timestamps3_1(true),
+                timestamps: st.lookup_timestamps(true),
                 carrier: st.lookup_carrier(),
                 datetimes: st.lookup_datetimes(),
                 unstained: st.lookup_unstained(),
@@ -6734,9 +6675,9 @@ impl VersionedMetadata for InnerMetadata3_2 {
         let us = &self.unstained;
         [
             OptMetaKey::pair(&self.spillover),
-            OptMetaKey::pair(&ts.btim),
-            OptMetaKey::pair(&ts.etim),
-            OptMetaKey::pair(&ts.date),
+            OptMetaKey::pair(&ts.btim()),
+            OptMetaKey::pair(&ts.etim()),
+            OptMetaKey::pair(&ts.date()),
             OptMetaKey::pair(&self.cytsn),
             OptMetaKey::pair(&mdn.last_modifier),
             OptMetaKey::pair(&mdn.last_modified),
@@ -6876,28 +6817,24 @@ impl<'a, 'b> KwParser<'a, 'b> {
         }
     }
 
-    fn lookup_timestamps2_0(&mut self) -> Timestamps2_0 {
-        Timestamps2_0 {
-            btim: self.lookup_meta_opt(false),
-            etim: self.lookup_meta_opt(false),
-            date: self.lookup_meta_opt(false),
-        }
-    }
-
-    fn lookup_timestamps3_0(&mut self) -> Timestamps3_0 {
-        Timestamps3_0 {
-            btim: self.lookup_meta_opt(false),
-            etim: self.lookup_meta_opt(false),
-            date: self.lookup_meta_opt(false),
-        }
-    }
-
-    fn lookup_timestamps3_1(&mut self, dep: bool) -> Timestamps3_1 {
-        Timestamps3_1 {
-            btim: self.lookup_meta_opt(dep),
-            etim: self.lookup_meta_opt(dep),
-            date: self.lookup_meta_opt(dep),
-        }
+    fn lookup_timestamps<T>(&mut self, dep: bool) -> Timestamps<T>
+    where
+        T: PartialOrd,
+        T: Copy,
+        Btim<T>: OptMetaKey,
+        <Btim<T> as FromStr>::Err: fmt::Display,
+        Etim<T>: OptMetaKey,
+        <Etim<T> as FromStr>::Err: fmt::Display,
+    {
+        Timestamps::new(
+            self.lookup_meta_opt(dep),
+            self.lookup_meta_opt(dep),
+            self.lookup_meta_opt(dep),
+        )
+        .unwrap_or_else(|e| {
+            self.deferred.push_warning(e.to_string());
+            Timestamps::default()
+        })
     }
 
     fn lookup_datetimes(&mut self) -> Datetimes {

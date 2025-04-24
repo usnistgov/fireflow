@@ -55,9 +55,18 @@ pub struct UnsplitVec<K, V> {
     prefix: ShortnamePrefix,
 }
 
-/// Encodes a type which might have something in it
+/// Encodes a type which might have something in it.
+///
+/// Intended to be used as a "type family" pattern.
 pub trait MightHave {
+    /// Concrete wrapper type which might have something
     type Wrapper<T>: From<T>;
+
+    /// If true, the wrapper will always have a value.
+    ///
+    /// Obviously, the implementation needs to ensure this is in sync with the
+    /// meaning of Wrapper<T>.
+    const INFALLABLE: bool;
 
     /// Consume a wrapped value and possibly return its contents.
     ///

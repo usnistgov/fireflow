@@ -960,6 +960,7 @@ pub struct Identity<T>(pub T);
 
 impl MightHave for OptionalKwFamily {
     type Wrapper<T> = OptionalKw<T>;
+    const INFALLABLE: bool = false;
 
     fn to_res<T>(x: Self::Wrapper<T>) -> Result<T, Self::Wrapper<T>> {
         x.0.ok_or(None.into())
@@ -975,6 +976,7 @@ pub struct IdentityFamily;
 
 impl MightHave for IdentityFamily {
     type Wrapper<T> = Identity<T>;
+    const INFALLABLE: bool = true;
 
     fn to_res<T>(x: Self::Wrapper<T>) -> Result<T, Self::Wrapper<T>> {
         Ok(x.0)

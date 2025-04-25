@@ -469,7 +469,7 @@ pub enum ByteOrd {
 }
 
 /// The four allowed values for the $DATATYPE keyword.
-#[derive(Clone, Copy, Eq, PartialEq, Hash, Serialize)]
+#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash, Serialize)]
 pub enum AlphaNumType {
     Ascii,
     Integer,
@@ -851,10 +851,10 @@ pub struct TimeChannel<X> {
 #[derive(Clone, Serialize)]
 pub struct Measurement<X> {
     /// Value for $PnB
-    pub bytes: Bytes,
+    bytes: Bytes,
 
     /// Value for $PnR
-    pub range: Range,
+    range: Range,
 
     /// Value for $PnS
     pub longname: OptionalKw<Longname>,
@@ -1651,9 +1651,6 @@ pub struct InnerMetadata3_0 {
     /// Value of $CYTSN
     pub cytsn: OptionalKw<Cytsn>,
 
-    /// Value of $TIMESTEP
-    // timestep: OptionalKw<Timestep>,
-
     /// Value of $UNICODE
     pub unicode: OptionalKw<Unicode>,
 }
@@ -1675,9 +1672,6 @@ pub struct InnerMetadata3_1 {
 
     /// Value of $CYTSN
     pub cytsn: OptionalKw<Cytsn>,
-
-    /// Value of $TIMESTEP
-    // timestep: OptionalKw<Timestep>,
 
     /// Value of $SPILLOVER
     pub spillover: OptionalKw<Spillover>,
@@ -1712,9 +1706,6 @@ pub struct InnerMetadata3_2 {
     /// Value of $CYTSN
     pub cytsn: OptionalKw<Cytsn>,
 
-    /// Value of $TIMESTEP
-    // timestep: OptionalKw<Timestep>,
-
     /// Values of $LAST_MODIFIED/$LAST_MODIFIER/$ORIGINALITY
     pub modification: ModificationData,
 
@@ -1728,7 +1719,7 @@ pub struct InnerMetadata3_2 {
     pub carrier: CarrierData,
 
     /// Values of $UNSTAINEDINFO/$UNSTAINEDCENTERS
-    pub unstained: UnstainedData,
+    unstained: UnstainedData,
 
     /// Value of $FLOWRATE
     pub flowrate: OptionalKw<Flowrate>,
@@ -1742,7 +1733,7 @@ pub struct InnerMetadata3_2 {
 #[derive(Clone, Serialize)]
 pub struct Metadata<X> {
     /// Value of $DATATYPE
-    pub datatype: AlphaNumType,
+    datatype: AlphaNumType,
 
     /// Value of $ABRT
     pub abrt: OptionalKw<Abrt>,
@@ -2880,6 +2871,18 @@ impl From<NumType> for AlphaNumType {
             NumType::Integer => AlphaNumType::Integer,
             NumType::Single => AlphaNumType::Single,
             NumType::Double => AlphaNumType::Double,
+        }
+    }
+}
+
+impl TryFrom<AlphaNumType> for NumType {
+    type Error = ();
+    fn try_from(value: AlphaNumType) -> Result<Self, Self::Error> {
+        match value {
+            AlphaNumType::Integer => Ok(NumType::Integer),
+            AlphaNumType::Single => Ok(NumType::Single),
+            AlphaNumType::Double => Ok(NumType::Double),
+            AlphaNumType::Ascii => Err(()),
         }
     }
 }
@@ -4415,18 +4418,18 @@ where
             })
     }
 
-    fn longname(&self, n: usize) -> Longname {
-        // TODO not DRY
-        self.longname
-            .0
-            .as_ref()
-            .cloned()
-            .unwrap_or(Longname(format!("M{n}")))
-    }
+    // fn longname(&self, n: usize) -> Longname {
+    //     // TODO not DRY
+    //     self.longname
+    //         .0
+    //         .as_ref()
+    //         .cloned()
+    //         .unwrap_or(Longname(format!("M{n}")))
+    // }
 
-    fn set_longname(&mut self, n: Option<String>) {
-        self.longname = n.map(|y| y.into()).into();
-    }
+    // fn set_longname(&mut self, n: Option<String>) {
+    //     self.longname = n.map(|y| y.into()).into();
+    // }
 
     fn lookup_measurement(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
         let v = P::fcs_version();
@@ -4933,33 +4936,43 @@ where
     ///
     /// If not given, will be replaced by "Mn" where "n" is the measurement
     /// index starting at 1.
-    pub fn longnames(&self) -> Vec<Longname> {
+    pub fn longnames(&self) -> Vec<Option<&Longname>> {
         self.measurements
-            .iter_non_center_values()
-            .enumerate()
-            .map(|(i, m)| m.longname(i))
+            .iter()
+            .map(|x| {
+                x.1.map_or_else(
+                    |t| t.value.longname.as_ref_opt(),
+                    |m| m.value.longname.as_ref_opt(),
+                )
+            })
             .collect()
+        // self.measurements
+        //     .iter_non_center_values()
+        //     .enumerate()
+        //     .map(|(i, m)| m.longname(i))
+        //     .collect()
     }
 
     // TODO there are a few keywords that can be set for each measurement,
     // including time: $PnB, PnR, PnS, sometimes $PnD, sometimes $PnDatatype
 
-    // /// Set all $PnS keywords to list of names.
-    // ///
-    // /// Will return false if length of supplied list does not match length
-    // /// of measurements; true otherwise. Since $PnS is an optional keyword for
-    // /// all versions, any name in the list may be None which will blank the
-    // /// keyword.
-    // pub fn set_longnames(&mut self, ns: Vec<Option<String>>) -> bool {
-    //     if self.measurements.len() != ns.len() {
-    //         false
-    //     } else {
-    //         for (m, n) in self.measurements.iter_values_mut().zip(ns) {
-    //             m.set_longname(n)
-    //         }
-    //         true
-    //     }
-    // }
+    /// Set all $PnS keywords to list of names.
+    ///
+    /// Will return false if length of supplied list does not match length
+    /// of measurements; true otherwise. Since $PnS is an optional keyword for
+    /// all versions, any name in the list may be None which will blank the
+    /// keyword.
+    pub fn set_longnames(&mut self, ns: Vec<Option<String>>) -> bool {
+        self.measurements
+            .alter_values_zip(
+                ns,
+                |m, n| m.longname = n.map(Longname).into(),
+                |t, n| t.longname = n.map(Longname).into(),
+            )
+            .is_some()
+    }
+
+    // TODO set fixed width integer somewhere here
 
     pub fn par(&self) -> Par {
         Par(self.measurements.len())
@@ -5375,14 +5388,159 @@ impl CoreTEXT3_2 {
         }
     }
 
-    // fn set_time_channel(&mut self, n: Shortname) {
-    //     let errs = self.validate_time_channel(&Some(n));
-    //     // 1. check that the name doesn't collide with anything
-    //     // 2. check that target measurement name exists and is valid (linear/nogain/etc)
-    //     // 3. assign measurement values
-    //     // 4. set timestep
-    //     // 5. set time channel name
-    // }
+    /// Set data layout to be 32-bit float for all measurements.
+    pub fn set_data_f32(&mut self, rs: Vec<f32>) -> bool {
+        let res = self.measurements.alter_values_zip(
+            rs,
+            |m, x| m.range = Range(x.to_string()),
+            |t, x| t.range = Range(x.to_string()),
+        );
+        if res.is_some() {
+            self.set_to_floating_point(false);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Set data layout to be 64-bit float for all measurements.
+    pub fn set_data_f64(&mut self, rs: Vec<f64>) -> bool {
+        let res = self.measurements.alter_values_zip(
+            rs,
+            |m, x| m.range = Range(x.to_string()),
+            |t, x| t.range = Range(x.to_string()),
+        );
+        if res.is_some() {
+            self.set_to_floating_point(true);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Set data layout to be a mix of datatypes
+    pub fn set_data_mixed(&mut self, xs: Vec<MixedColumnSetter>) -> bool {
+        // Figure out what $DATATYPE (the default) should be; count frequencies
+        // of each type, and if ASCII is given at all, this must be $DATATYPE
+        // since it can't be set to $PnDATATYPE; otherwise, use whatever is
+        // most frequent.
+        let dt_opt = xs
+            .iter()
+            .map(|y| AlphaNumType::from(y.clone()))
+            .sorted()
+            .chunk_by(|x| *x)
+            .into_iter()
+            .map(|(key, gs)| (key, gs.count()))
+            .sorted_by_key(|(_, count)| *count)
+            .rev()
+            .find_or_first(|(key, _)| *key == AlphaNumType::Ascii)
+            .map(|(key, _)| key);
+        if let Some(dt) = dt_opt {
+            let go = |x: MixedColumnSetter| {
+                let this_dt = x.clone().into();
+                let pndt = if dt == this_dt {
+                    None
+                } else {
+                    // ASSUME this will never fail since we set the default type
+                    // to ASCII if any ASCII are found in the input
+                    Some(this_dt.try_into().unwrap())
+                };
+                match x {
+                    MixedColumnSetter::Float(range) => (32, range.to_string(), Scale::Linear, pndt),
+                    MixedColumnSetter::Double(range) => {
+                        (64, range.to_string(), Scale::Linear, pndt)
+                    }
+                    MixedColumnSetter::Ascii(s) => (s.bytes, s.range.to_string(), s.scale, None),
+                    // TODO cap range using bytes, also correct for +1
+                    MixedColumnSetter::Uint(s) => (s.bytes, s.range.to_string(), s.scale, pndt),
+                }
+            };
+            let alter_opt = self.measurements.alter_values_zip(
+                xs,
+                |m, x| {
+                    let (b, r, s, pndt) = go(x);
+                    m.bytes = Bytes::Fixed(b);
+                    m.range = Range(r);
+                    m.specific.scale = s;
+                    m.specific.datatype = pndt.into();
+                },
+                |t, x| {
+                    let (b, r, _, pndt) = go(x);
+                    t.bytes = Bytes::Fixed(b);
+                    t.range = Range(r);
+                    t.specific.datatype = pndt.into();
+                },
+            );
+            if alter_opt.is_some() {
+                self.metadata.datatype = dt;
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Set data layout to be ASCII-delimited
+    pub fn set_data_delimited(&mut self, rs: Vec<u64>) {
+        self.measurements.alter_values_zip(
+            rs,
+            |m, r| {
+                m.bytes = Bytes::Variable;
+                m.range = Range(r.to_string())
+            },
+            |t, r| {
+                t.bytes = Bytes::Variable;
+                t.range = Range(r.to_string())
+            },
+        );
+        self.metadata.datatype = AlphaNumType::Ascii;
+    }
+
+    // TODO check that floating point types are linear
+    fn set_to_floating_point(&mut self, is_double: bool) {
+        let (dt, b) = if is_double {
+            (AlphaNumType::Double, 8)
+        } else {
+            (AlphaNumType::Single, 4)
+        };
+        self.measurements.alter_values(
+            |m| {
+                m.bytes = Bytes::Fixed(b);
+                // TODO is this always really necessary?
+                m.specific.scale = Scale::Linear;
+            },
+            |t| {
+                t.bytes = Bytes::Fixed(b);
+            },
+        );
+        self.metadata.datatype = dt;
+    }
+}
+
+#[derive(Clone)]
+enum MixedColumnSetter {
+    Float(f32),
+    Double(f64),
+    Ascii(BRESetter),
+    Uint(BRESetter),
+}
+
+// TODO comical name...
+#[derive(Clone)]
+struct BRESetter {
+    bytes: u8,
+    range: u64,
+    scale: Scale,
+}
+
+impl From<MixedColumnSetter> for AlphaNumType {
+    fn from(value: MixedColumnSetter) -> Self {
+        match value {
+            MixedColumnSetter::Float(_) => AlphaNumType::Single,
+            MixedColumnSetter::Double(_) => AlphaNumType::Double,
+            MixedColumnSetter::Ascii(_) => AlphaNumType::Ascii,
+            MixedColumnSetter::Uint(_) => AlphaNumType::Integer,
+        }
+    }
 }
 
 impl<M> CoreDataset<M, M::T, M::P, M::N, <M::N as MightHave>::Wrapper<Shortname>>

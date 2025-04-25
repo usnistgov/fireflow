@@ -289,6 +289,65 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     // functions to apply said stuff mutably to elements. Will be useful for
     // setting $PnB, $PnR, etc
 
+    /// Apply functions to values with payload, altering them in place.
+    ///
+    /// This will alter all values, including center and non-center values. The
+    /// two functions apply to the different values contained. Return None
+    /// if input vector is not the same length.
+    pub fn alter_values_zip<F, G, X, R>(&mut self, xs: Vec<X>, f: F, g: G) -> Option<Vec<R>>
+    where
+        F: Fn(&mut V, X) -> R,
+        G: Fn(&mut U, X) -> R,
+    {
+        let this_len = self.len();
+        let other_len = xs.len();
+        if this_len != other_len {
+            return None;
+        }
+        let x = match self {
+            NamedVec::Split(s, _) => {
+                let nleft = s.left.len();
+                let nright = s.right.len();
+                let mut it = xs.into_iter();
+                let left_r: Vec<_> = s
+                    .left
+                    .iter_mut()
+                    .zip(it.by_ref().take(nleft))
+                    .map(|(y, x)| f(&mut y.value, x))
+                    .collect();
+                let center_r = g(&mut s.center.value, it.next().unwrap());
+                let right_r: Vec<_> = s
+                    .right
+                    .iter_mut()
+                    .zip(it.by_ref().take(nright))
+                    .map(|(y, x)| f(&mut y.value, x))
+                    .collect();
+                left_r
+                    .into_iter()
+                    .chain([center_r])
+                    .chain(right_r)
+                    .collect()
+            }
+            NamedVec::Unsplit(u) => u
+                .members
+                .iter_mut()
+                .zip(xs)
+                .map(|(y, x)| f(&mut y.value, x))
+                .collect(),
+        };
+        Some(x)
+    }
+
+    /// Apply function(s) to all values, altering them in place.
+    pub fn alter_values<F, G, R>(&mut self, f: F, g: G) -> Vec<R>
+    where
+        F: Fn(&mut V) -> R,
+        G: Fn(&mut U) -> R,
+    {
+        let xs = vec![(); self.len()];
+        self.alter_values_zip(xs, |v, _| f(v), |v, _| g(v)).unwrap()
+    }
+
     /// Apply function to non-center values, altering them in place
     pub fn alter_non_center_values<F, X>(&mut self, f: F) -> Vec<X>
     where

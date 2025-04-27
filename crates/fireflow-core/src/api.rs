@@ -468,6 +468,15 @@ pub enum ByteOrd {
     Mixed(Vec<u8>),
 }
 
+impl From<ByteOrd> for u8 {
+    fn from(value: ByteOrd) -> Self {
+        match value {
+            ByteOrd::Endian(_) => 4,
+            ByteOrd::Mixed(xs) => xs.len() as u8,
+        }
+    }
+}
+
 /// The four allowed values for the $DATATYPE keyword.
 #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash, Serialize)]
 pub enum AlphaNumType {
@@ -5355,6 +5364,121 @@ where
         );
         PureMaybe::from_result_strs(res, PureErrorLevel::Error).into_result(msg)
     }
+
+    fn set_data_delimited_inner(&mut self, rs: Vec<u64>) {
+        self.measurements.alter_values_zip(
+            rs,
+            |m, r| {
+                m.bytes = Bytes::Variable;
+                m.range = Range(r.to_string())
+            },
+            |t, r| {
+                t.bytes = Bytes::Variable;
+                t.range = Range(r.to_string())
+            },
+        );
+        self.metadata.datatype = AlphaNumType::Ascii;
+    }
+}
+
+impl CoreTEXT2_0 {
+    pub fn set_data_ascii(&mut self, rs: Vec<(u8, u64)>) -> bool {
+        let res = self.measurements.alter_values_zip(
+            rs,
+            |m, (b, r)| {
+                m.bytes = Bytes::Fixed(b);
+                m.range = Range(r.to_string());
+            },
+            |m, (b, r)| {
+                m.bytes = Bytes::Fixed(b);
+                m.range = Range(r.to_string());
+            },
+        );
+        if res.is_some() {
+            self.metadata.datatype = AlphaNumType::Ascii;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn set_data_integer(&mut self, rs: Vec<u64>, byteord: ByteOrd) -> bool {
+        // TODO useless clone
+        let b = u8::from(byteord.clone());
+        let bytes = Bytes::Fixed(b);
+        let res = self.measurements.alter_values_zip(
+            rs,
+            |m, r| {
+                m.bytes = bytes;
+                m.range = Range((b as u64).min(r).to_string());
+            },
+            |m, r| {
+                m.bytes = bytes;
+                m.range = Range((b as u64).min(r).to_string());
+            },
+        );
+        if res.is_some() {
+            self.metadata.datatype = AlphaNumType::Integer;
+            self.metadata.specific.byteord = byteord;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn set_data_f32(&mut self, rs: Vec<f32>) -> bool {
+        let res = self.measurements.alter_values_zip(
+            rs,
+            |m, x| m.range = Range(x.to_string()),
+            |t, x| t.range = Range(x.to_string()),
+        );
+        if res.is_some() {
+            self.set_to_floating_point(false);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Set data layout to be 64-bit float for all measurements.
+    pub fn set_data_f64(&mut self, rs: Vec<f64>) -> bool {
+        let res = self.measurements.alter_values_zip(
+            rs,
+            |m, x| m.range = Range(x.to_string()),
+            |t, x| t.range = Range(x.to_string()),
+        );
+        if res.is_some() {
+            self.set_to_floating_point(true);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn set_to_floating_point(&mut self, is_double: bool) {
+        // TODO almost not DRY
+        let (dt, b) = if is_double {
+            (AlphaNumType::Double, 8)
+        } else {
+            (AlphaNumType::Single, 4)
+        };
+        self.measurements.alter_values(
+            |m| {
+                m.bytes = Bytes::Fixed(b);
+                // TODO is this always really necessary?
+                m.specific.scale = Some(Scale::Linear).into();
+            },
+            |t| {
+                t.bytes = Bytes::Fixed(b);
+            },
+        );
+        self.metadata.datatype = dt;
+    }
+
+    /// Set data layout to be ASCII-delimited
+    pub fn set_data_delimited(&mut self, rs: Vec<u64>) {
+        self.set_data_delimited_inner(rs);
+    }
 }
 
 impl CoreTEXT3_2 {
@@ -5388,6 +5512,8 @@ impl CoreTEXT3_2 {
             None
         }
     }
+
+    // TODO get/set $SPILLOVER
 
     /// Set data layout to be 32-bit float for all measurements.
     pub fn set_data_f32(&mut self, rs: Vec<f32>) -> bool {
@@ -5486,18 +5612,19 @@ impl CoreTEXT3_2 {
 
     /// Set data layout to be ASCII-delimited
     pub fn set_data_delimited(&mut self, rs: Vec<u64>) {
-        self.measurements.alter_values_zip(
-            rs,
-            |m, r| {
-                m.bytes = Bytes::Variable;
-                m.range = Range(r.to_string())
+        self.set_data_delimited_inner(rs);
+        self.unset_meas_datatypes();
+    }
+
+    fn unset_meas_datatypes(&mut self) {
+        self.measurements.alter_values(
+            |m| {
+                m.specific.datatype = None.into();
             },
-            |t, r| {
-                t.bytes = Bytes::Variable;
-                t.range = Range(r.to_string())
+            |t| {
+                t.specific.datatype = None.into();
             },
         );
-        self.metadata.datatype = AlphaNumType::Ascii;
     }
 
     // TODO check that floating point types are linear
@@ -5518,6 +5645,7 @@ impl CoreTEXT3_2 {
             },
         );
         self.metadata.datatype = dt;
+        self.unset_meas_datatypes();
     }
 }
 

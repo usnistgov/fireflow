@@ -1707,6 +1707,7 @@ pub struct InnerMetadata3_2 {
     pub cytsn: OptionalKw<Cytsn>,
 
     /// Values of $LAST_MODIFIED/$LAST_MODIFIER/$ORIGINALITY
+    // TODO it makes sense to verify this isn't before the file was created
     pub modification: ModificationData,
 
     /// Values of $PLATEID/$PLATENAME/$WELLID
@@ -5451,8 +5452,12 @@ impl CoreTEXT3_2 {
                         (64, range.to_string(), Scale::Linear, pndt)
                     }
                     MixedColumnSetter::Ascii(s) => (s.bytes, s.range.to_string(), s.scale, None),
-                    // TODO cap range using bytes, also correct for +1
-                    MixedColumnSetter::Uint(s) => (s.bytes, s.range.to_string(), s.scale, pndt),
+                    MixedColumnSetter::Uint(s) => (
+                        s.bytes,
+                        2_u64.pow(s.bytes as u32).min(s.range).to_string(),
+                        s.scale,
+                        pndt,
+                    ),
                 }
             };
             let alter_opt = self.measurements.alter_values_zip(

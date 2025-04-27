@@ -1719,7 +1719,7 @@ pub struct InnerMetadata3_2 {
     pub carrier: CarrierData,
 
     /// Values of $UNSTAINEDINFO/$UNSTAINEDCENTERS
-    unstained: UnstainedData,
+    pub unstained: UnstainedData,
 
     /// Value of $FLOWRATE
     pub flowrate: OptionalKw<Flowrate>,

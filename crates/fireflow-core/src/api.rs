@@ -561,7 +561,7 @@ pub struct Trigger {
 /// Format is assumed to be 'f1,f2'
 // TODO this is super messy, see 3.2 spec for restrictions on this we may with
 // to use further
-#[derive(Clone, PartialEq, Serialize)]
+#[derive(Clone, Copy, PartialEq, Serialize)]
 pub enum Scale {
     /// Linear scale, which maps to the value '0,0'
     Linear,
@@ -5512,6 +5512,14 @@ pub enum SetDataError {
 type SetDataResult<T> = Result<T, SetDataError>;
 
 impl CoreTEXT2_0 {
+    /// Show $PnE for each measurement
+    pub fn scales(&self) -> Vec<Option<Scale>> {
+        self.measurements
+            .iter()
+            .map(|(_, x)| x.map_or(Some(Scale::Linear), |p| p.value.specific.scale.0))
+            .collect()
+    }
+
     /// Set data layout to be Integer for all measurements
     pub fn set_data_integer(
         &mut self,
@@ -5547,6 +5555,14 @@ impl CoreTEXT2_0 {
 }
 
 impl CoreTEXT3_0 {
+    /// Show $PnE for each measurement
+    pub fn scales(&self) -> Vec<Scale> {
+        self.measurements
+            .iter()
+            .map(|(_, x)| x.map_or(Scale::Linear, |p| p.value.specific.scale))
+            .collect()
+    }
+
     /// Set data layout to be Integer for all measurements
     // TODO not DRY
     pub fn set_data_integer(&mut self, rs: Vec<(u64, Scale)>, byteord: ByteOrd) -> Option<bool> {
@@ -5585,6 +5601,14 @@ impl CoreTEXT3_0 {
 }
 
 impl CoreTEXT3_1 {
+    /// Show $PnE for each measurement
+    pub fn scales(&self) -> Vec<Scale> {
+        self.measurements
+            .iter()
+            .map(|(_, x)| x.map_or(Scale::Linear, |p| p.value.specific.scale))
+            .collect()
+    }
+
     // TODO better input type here?
     /// Set data layout to be integers for all measurements.
     pub fn set_data_integer(&mut self, xs: Vec<(u8, u64, Scale)>) -> Option<bool> {
@@ -5652,6 +5676,14 @@ impl CoreTEXT3_2 {
     }
 
     // TODO get/set $SPILLOVER
+
+    /// Show $PnE for each measurement
+    pub fn scales(&self) -> Vec<Scale> {
+        self.measurements
+            .iter()
+            .map(|(_, x)| x.map_or(Scale::Linear, |p| p.value.specific.scale))
+            .collect()
+    }
 
     /// Set data layout to be a mix of datatypes
     pub fn set_data_mixed(&mut self, xs: Vec<MixedColumnSetter>) -> bool {

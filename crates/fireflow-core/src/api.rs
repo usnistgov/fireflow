@@ -468,9 +468,9 @@ pub enum ByteOrd {
     Mixed(Vec<u8>),
 }
 
-impl From<ByteOrd> for u8 {
-    fn from(value: ByteOrd) -> Self {
-        match value {
+impl ByteOrd {
+    fn nbytes(&self) -> u8 {
+        match self {
             ByteOrd::Endian(_) => 4,
             ByteOrd::Mixed(xs) => xs.len() as u8,
         }
@@ -568,6 +568,7 @@ pub enum Scale {
 
     /// Log scale, which maps to anything not '0,0' (although decades should be
     /// a positive number presumably)
+    // TODO these should both be positive numbers
     Log { decades: f32, offset: f32 },
 }
 
@@ -2192,6 +2193,10 @@ pub trait VersionedMetadata: Sized {
 }
 
 pub trait VersionedMeasurement: Sized + Versioned {
+    type S: MightHave;
+
+    fn set_scale(&mut self, s: <Self::S as MightHave>::Wrapper<Scale>);
+
     fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self>;
 
     fn req_suffixes_inner(&self, n: MeasIdx) -> RawTriples;
@@ -3538,6 +3543,12 @@ impl Versioned for InnerMeasurement3_2 {
 }
 
 impl VersionedMeasurement for InnerMeasurement2_0 {
+    type S = OptionalKwFamily;
+
+    fn set_scale(&mut self, s: <Self::S as MightHave>::Wrapper<Scale>) {
+        self.scale = s;
+    }
+
     fn datatype(&self) -> Option<NumType> {
         None
     }
@@ -3565,6 +3576,12 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
 }
 
 impl VersionedMeasurement for InnerMeasurement3_0 {
+    type S = IdentityFamily;
+
+    fn set_scale(&mut self, s: <Self::S as MightHave>::Wrapper<Scale>) {
+        self.scale = s.0;
+    }
+
     fn datatype(&self) -> Option<NumType> {
         None
     }
@@ -3592,6 +3609,12 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
 }
 
 impl VersionedMeasurement for InnerMeasurement3_1 {
+    type S = IdentityFamily;
+
+    fn set_scale(&mut self, s: <Self::S as MightHave>::Wrapper<Scale>) {
+        self.scale = s.0;
+    }
+
     fn datatype(&self) -> Option<NumType> {
         None
     }
@@ -3766,6 +3789,12 @@ impl VersionedTime for InnerTime3_2 {
 }
 
 impl VersionedMeasurement for InnerMeasurement3_2 {
+    type S = IdentityFamily;
+
+    fn set_scale(&mut self, s: <Self::S as MightHave>::Wrapper<Scale>) {
+        self.scale = s.0;
+    }
+
     fn datatype(&self) -> Option<NumType> {
         self.datatype.0.as_ref().copied()
     }
@@ -5365,119 +5394,192 @@ where
         PureMaybe::from_result_strs(res, PureErrorLevel::Error).into_result(msg)
     }
 
-    fn set_data_delimited_inner(&mut self, rs: Vec<u64>) {
-        self.measurements.alter_values_zip(
-            rs,
-            |m, r| {
-                m.bytes = Bytes::Variable;
-                m.range = Range(r.to_string())
-            },
-            |t, r| {
-                t.bytes = Bytes::Variable;
-                t.range = Range(r.to_string())
-            },
-        );
-        self.metadata.datatype = AlphaNumType::Ascii;
-    }
-}
-
-impl CoreTEXT2_0 {
-    pub fn set_data_ascii(&mut self, rs: Vec<(u8, u64)>) -> bool {
-        let res = self.measurements.alter_values_zip(
-            rs,
-            |m, (b, r)| {
-                m.bytes = Bytes::Fixed(b);
-                m.range = Range(r.to_string());
-            },
-            |m, (b, r)| {
-                m.bytes = Bytes::Fixed(b);
-                m.range = Range(r.to_string());
-            },
-        );
-        if res.is_some() {
-            self.metadata.datatype = AlphaNumType::Ascii;
-            true
-        } else {
-            false
-        }
+    fn set_data_bytes_range_scale(
+        &mut self,
+        xs: Vec<(
+            Bytes,
+            Range,
+            <<M::P as VersionedMeasurement>::S as MightHave>::Wrapper<Scale>,
+        )>,
+    ) -> Option<bool> {
+        self.measurements
+            .alter_values_zip(
+                xs,
+                |m, (b, r, s)| {
+                    m.bytes = b;
+                    m.range = r;
+                    m.specific.set_scale(s);
+                    true
+                },
+                |t, (b, r, s)| {
+                    t.bytes = b;
+                    t.range = r;
+                    <M::P as VersionedMeasurement>::S::as_opt(&s)
+                        .is_some_and(|x| *x == Scale::Linear)
+                },
+            )
+            .map(|xs| xs.into_iter().all(|x| x))
     }
 
-    pub fn set_data_integer(&mut self, rs: Vec<u64>, byteord: ByteOrd) -> bool {
-        // TODO useless clone
-        let b = u8::from(byteord.clone());
-        let bytes = Bytes::Fixed(b);
-        let res = self.measurements.alter_values_zip(
-            rs,
-            |m, r| {
-                m.bytes = bytes;
-                m.range = Range((b as u64).min(r).to_string());
-            },
-            |m, r| {
-                m.bytes = bytes;
-                m.range = Range((b as u64).min(r).to_string());
-            },
-        );
-        if res.is_some() {
-            self.metadata.datatype = AlphaNumType::Integer;
-            self.metadata.specific.byteord = byteord;
-            true
-        } else {
-            false
-        }
+    fn set_data_delimited_inner(
+        &mut self,
+        xs: Vec<(
+            u64,
+            <<M::P as VersionedMeasurement>::S as MightHave>::Wrapper<Scale>,
+        )>,
+    ) -> Option<bool> {
+        let ys: Vec<_> = xs
+            .into_iter()
+            .map(|(r, s)| (Bytes::Variable, Range(r.to_string()), s))
+            .collect();
+        self.set_data_bytes_range_scale(ys)
     }
 
-    pub fn set_data_f32(&mut self, rs: Vec<f32>) -> bool {
-        let res = self.measurements.alter_values_zip(
-            rs,
-            |m, x| m.range = Range(x.to_string()),
-            |t, x| t.range = Range(x.to_string()),
-        );
-        if res.is_some() {
-            self.set_to_floating_point(false);
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Set data layout to be 64-bit float for all measurements.
-    pub fn set_data_f64(&mut self, rs: Vec<f64>) -> bool {
-        let res = self.measurements.alter_values_zip(
-            rs,
-            |m, x| m.range = Range(x.to_string()),
-            |t, x| t.range = Range(x.to_string()),
-        );
-        if res.is_some() {
-            self.set_to_floating_point(true);
-            true
-        } else {
-            false
-        }
-    }
-
-    fn set_to_floating_point(&mut self, is_double: bool) {
-        // TODO almost not DRY
+    fn set_to_floating_point(&mut self, is_double: bool, rs: Vec<Range>) -> bool
+    where
+        <<M::P as VersionedMeasurement>::S as MightHave>::Wrapper<Scale>: Clone,
+    {
         let (dt, b) = if is_double {
             (AlphaNumType::Double, 8)
         } else {
             (AlphaNumType::Single, 4)
         };
-        self.measurements.alter_values(
-            |m| {
-                m.bytes = Bytes::Fixed(b);
-                // TODO is this always really necessary?
-                m.specific.scale = Some(Scale::Linear).into();
+        let s = <M::P as VersionedMeasurement>::S::into_wrapped(Scale::Linear);
+        let xs: Vec<_> = rs
+            .into_iter()
+            .map(|r| (Bytes::Fixed(b), Range(r.to_string()), s.clone()))
+            .collect();
+        // ASSUME time channel will always be set to linear since we do that
+        // a few lines above, so the only error/warning we need to screen is
+        // for the length of the input
+        let res = self.set_data_bytes_range_scale(xs).is_some();
+        if res {
+            self.metadata.datatype = dt;
+        }
+        res
+    }
+}
+
+pub enum SetDataError {
+    Length,
+    Scale,
+}
+
+type SetDataResult<T> = Result<T, SetDataError>;
+
+impl CoreTEXT2_0 {
+    pub fn set_data_ascii(&mut self, rs: Vec<(u8, u64, Option<Scale>)>) -> SetDataResult<()> {
+        let ys: Vec<_> = rs
+            .into_iter()
+            .map(|(b, r, s)| (Bytes::Fixed(b), Range(r.to_string()), s))
+            .collect();
+        if let Some(res) = self.measurements.alter_values_zip(
+            ys,
+            |m, (b, r, s)| {
+                m.bytes = b;
+                m.range = r;
+                m.specific.scale = s.into();
+                true
             },
-            |t| {
-                t.bytes = Bytes::Fixed(b);
+            |m, (b, r, s)| {
+                m.bytes = b;
+                m.range = r;
+                s.is_some_and(|x| x == Scale::Linear)
             },
-        );
-        self.metadata.datatype = dt;
+        ) {
+            if res.into_iter().all(|x| x) {
+                self.metadata.datatype = AlphaNumType::Ascii;
+                Ok(())
+            } else {
+                Err(SetDataError::Scale)
+            }
+        } else {
+            Err(SetDataError::Length)
+        }
+    }
+
+    pub fn set_data_integer(
+        &mut self,
+        rs: Vec<(u64, Option<Scale>)>,
+        byteord: ByteOrd,
+    ) -> SetDataResult<()> {
+        let n = byteord.nbytes();
+        let bytes = Bytes::Fixed(n);
+        let ys: Vec<_> = rs
+            .into_iter()
+            .map(|(r, s)| (bytes, Range((n as u64).min(r).to_string()), s))
+            .collect();
+        if let Some(res) = self.measurements.alter_values_zip(
+            ys,
+            |m, (b, r, s)| {
+                m.bytes = b;
+                m.range = r;
+                m.specific.scale = s.into();
+                true
+            },
+            |m, (b, r, s)| {
+                m.bytes = b;
+                m.range = r;
+                s.is_some_and(|x| x == Scale::Linear)
+            },
+        ) {
+            if res.into_iter().any(|x| x) {
+                self.metadata.datatype = AlphaNumType::Integer;
+                self.metadata.specific.byteord = byteord;
+                Ok(())
+            } else {
+                Err(SetDataError::Scale)
+            }
+        } else {
+            Err(SetDataError::Length)
+        }
+    }
+
+    /// Set data layout to be 32-bit float for all measurements.
+    pub fn set_data_f32(&mut self, rs: Vec<f32>) -> bool {
+        let ys: Vec<_> = rs.into_iter().map(|r| Range(r.to_string())).collect();
+        self.set_to_floating_point(false, ys)
+    }
+
+    /// Set data layout to be 64-bit float for all measurements.
+    pub fn set_data_f64(&mut self, rs: Vec<f64>) -> bool {
+        let ys: Vec<_> = rs.into_iter().map(|r| Range(r.to_string())).collect();
+        self.set_to_floating_point(true, ys)
     }
 
     /// Set data layout to be ASCII-delimited
-    pub fn set_data_delimited(&mut self, rs: Vec<u64>) {
-        self.set_data_delimited_inner(rs);
+    pub fn set_data_delimited(&mut self, xs: Vec<(u64, OptionalKw<Scale>)>) {
+        self.set_data_delimited_inner(xs);
+    }
+}
+
+impl CoreTEXT3_1 {
+    // TODO better input type here?
+    pub fn set_data_integer(&mut self, rs: Vec<(u8, u64, Scale)>) -> Result<(), SetDataError> {
+        let res = self.measurements.alter_values_zip(
+            rs,
+            |m, (b, r, s)| {
+                m.bytes = Bytes::Fixed(b);
+                m.range = Range((b as u64).min(r).to_string());
+                m.specific.scale = s;
+                true
+            },
+            |m, (b, r, s)| {
+                m.bytes = Bytes::Fixed(b);
+                m.range = Range((b as u64).min(r).to_string());
+                s == Scale::Linear
+            },
+        );
+        if let Some(valid_scale) = res {
+            if valid_scale.into_iter().all(|x| x) {
+                self.metadata.datatype = AlphaNumType::Integer;
+                Ok(())
+            } else {
+                Err(SetDataError::Scale)
+            }
+        } else {
+            Err(SetDataError::Length)
+        }
     }
 }
 
@@ -5517,32 +5619,14 @@ impl CoreTEXT3_2 {
 
     /// Set data layout to be 32-bit float for all measurements.
     pub fn set_data_f32(&mut self, rs: Vec<f32>) -> bool {
-        let res = self.measurements.alter_values_zip(
-            rs,
-            |m, x| m.range = Range(x.to_string()),
-            |t, x| t.range = Range(x.to_string()),
-        );
-        if res.is_some() {
-            self.set_to_floating_point(false);
-            true
-        } else {
-            false
-        }
+        let ys: Vec<_> = rs.into_iter().map(|r| Range(r.to_string())).collect();
+        self.set_to_floating_point_3_2(false, ys)
     }
 
     /// Set data layout to be 64-bit float for all measurements.
     pub fn set_data_f64(&mut self, rs: Vec<f64>) -> bool {
-        let res = self.measurements.alter_values_zip(
-            rs,
-            |m, x| m.range = Range(x.to_string()),
-            |t, x| t.range = Range(x.to_string()),
-        );
-        if res.is_some() {
-            self.set_to_floating_point(true);
-            true
-        } else {
-            false
-        }
+        let ys: Vec<_> = rs.into_iter().map(|r| Range(r.to_string())).collect();
+        self.set_to_floating_point_3_2(true, ys)
     }
 
     /// Set data layout to be a mix of datatypes
@@ -5611,9 +5695,12 @@ impl CoreTEXT3_2 {
     }
 
     /// Set data layout to be ASCII-delimited
-    pub fn set_data_delimited(&mut self, rs: Vec<u64>) {
-        self.set_data_delimited_inner(rs);
-        self.unset_meas_datatypes();
+    pub fn set_data_delimited(&mut self, rs: Vec<(u64, Identity<Scale>)>) -> Option<bool> {
+        let res = self.set_data_delimited_inner(rs);
+        if res.is_some() {
+            self.unset_meas_datatypes();
+        }
+        res
     }
 
     fn unset_meas_datatypes(&mut self) {
@@ -5628,24 +5715,12 @@ impl CoreTEXT3_2 {
     }
 
     // TODO check that floating point types are linear
-    fn set_to_floating_point(&mut self, is_double: bool) {
-        let (dt, b) = if is_double {
-            (AlphaNumType::Double, 8)
-        } else {
-            (AlphaNumType::Single, 4)
-        };
-        self.measurements.alter_values(
-            |m| {
-                m.bytes = Bytes::Fixed(b);
-                // TODO is this always really necessary?
-                m.specific.scale = Scale::Linear;
-            },
-            |t| {
-                t.bytes = Bytes::Fixed(b);
-            },
-        );
-        self.metadata.datatype = dt;
-        self.unset_meas_datatypes();
+    fn set_to_floating_point_3_2(&mut self, is_double: bool, rs: Vec<Range>) -> bool {
+        let res = self.set_to_floating_point(is_double, rs);
+        if res {
+            self.unset_meas_datatypes();
+        }
+        res
     }
 }
 

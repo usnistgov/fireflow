@@ -628,7 +628,7 @@ pub struct PlateData {
 /// This is actually encoded as a string like 'n,[measuremnts,],[values]' but
 /// here is more conveniently encoded as a hash table.
 #[derive(Clone, Serialize)]
-struct UnstainedCenters(HashMap<Shortname, f32>);
+pub struct UnstainedCenters(HashMap<Shortname, f32>);
 
 impl UnstainedCenters {
     fn remove_by_name(&mut self, n: &Shortname) -> bool {
@@ -5464,14 +5464,36 @@ where
     }
 }
 
-pub enum SetDataError {
-    Length,
-    Scale,
+macro_rules! comp_methods {
+    () => {
+        /// Return matrix for $COMP
+        pub fn compensation(&self) -> Option<&Compensation> {
+            self.metadata.specific.comp.as_ref_opt()
+        }
+
+        /// Set matrix for $COMP
+        ///
+        /// Return true if successfully set. Return false if matrix is either not
+        /// square or rows/columns are not the same length as $PAR.
+        pub fn set_compensation(&mut self, matrix: DMatrix<f32>) -> bool {
+            if !matrix.is_square() && matrix.ncols() != self.par().0 {
+                self.metadata.specific.comp = Some(Compensation { matrix }).into();
+                true
+            } else {
+                false
+            }
+        }
+
+        /// Clear $COMP
+        pub fn unset_compensation(&mut self) {
+            self.metadata.specific.comp = None.into();
+        }
+    };
 }
 
-type SetDataResult<T> = Result<T, SetDataError>;
-
 impl CoreTEXT2_0 {
+    comp_methods!();
+
     /// Show $PnE for each measurement
     pub fn scales(&self) -> Vec<Option<Scale>> {
         self.measurements
@@ -5525,14 +5547,21 @@ impl CoreTEXT2_0 {
     }
 }
 
+macro_rules! scale_req {
+    () => {
+        /// Show $PnE for each measurement
+        pub fn scales(&self) -> Vec<Scale> {
+            self.measurements
+                .iter()
+                .map(|(_, x)| x.map_or(Scale::Linear, |p| p.value.specific.scale))
+                .collect()
+        }
+    };
+}
+
 impl CoreTEXT3_0 {
-    /// Show $PnE for each measurement
-    pub fn scales(&self) -> Vec<Scale> {
-        self.measurements
-            .iter()
-            .map(|(_, x)| x.map_or(Scale::Linear, |p| p.value.specific.scale))
-            .collect()
-    }
+    comp_methods!();
+    scale_req!();
 
     /// Show $DATATYPE
     pub fn datatype(&self) -> AlphaNumType {
@@ -5576,14 +5605,33 @@ impl CoreTEXT3_0 {
     }
 }
 
+macro_rules! spillover_methods {
+    () => {
+        /// Show $SPILLOVER
+        pub fn spillover(&self) -> Option<&Spillover> {
+            self.metadata.specific.spillover.as_ref_opt()
+        }
+
+        /// Set names and matrix for $SPILLOVER
+        pub fn set_spillover(
+            &mut self,
+            ns: Vec<Shortname>,
+            m: DMatrix<f32>,
+        ) -> Result<(), SpilloverError> {
+            self.metadata.specific.spillover = Some(Spillover::new(ns, m)?).into();
+            Ok(())
+        }
+
+        /// Clear $SPILLOVER
+        pub fn unset_spillover(&mut self) {
+            self.metadata.specific.spillover = None.into();
+        }
+    };
+}
+
 impl CoreTEXT3_1 {
-    /// Show $PnE for each measurement
-    pub fn scales(&self) -> Vec<Scale> {
-        self.measurements
-            .iter()
-            .map(|(_, x)| x.map_or(Scale::Linear, |p| p.value.specific.scale))
-            .collect()
-    }
+    scale_req!();
+    spillover_methods!();
 
     /// Show $DATATYPE
     pub fn datatype(&self) -> AlphaNumType {
@@ -5665,33 +5713,8 @@ impl CoreTEXT3_2 {
         }
     }
 
-    /// Show $SPILLOVER
-    pub fn spillover(&self) -> Option<&Spillover> {
-        self.metadata.specific.spillover.as_ref_opt()
-    }
-
-    /// Set names and matrix for $SPILLOVER
-    pub fn set_spillover(
-        &mut self,
-        ns: Vec<Shortname>,
-        m: DMatrix<f32>,
-    ) -> Result<(), SpilloverError> {
-        self.metadata.specific.spillover = Some(Spillover::new(ns, m)?).into();
-        Ok(())
-    }
-
-    /// Clear $SPILLOVER
-    pub fn unset_spillover(&mut self) {
-        self.metadata.specific.spillover = None.into();
-    }
-
-    /// Show $PnE for each measurement
-    pub fn scales(&self) -> Vec<Scale> {
-        self.measurements
-            .iter()
-            .map(|(_, x)| x.map_or(Scale::Linear, |p| p.value.specific.scale))
-            .collect()
-    }
+    scale_req!();
+    spillover_methods!();
 
     /// Show datatype for all measurements
     ///

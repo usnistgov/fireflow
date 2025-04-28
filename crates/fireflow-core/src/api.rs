@@ -5665,13 +5665,12 @@ impl CoreTEXT3_2 {
         }
     }
 
-    // TODO get/set $SPILLOVER
-
     /// Show $SPILLOVER
     pub fn spillover(&self) -> Option<&Spillover> {
         self.metadata.specific.spillover.as_ref_opt()
     }
 
+    /// Set names and matrix for $SPILLOVER
     pub fn set_spillover(
         &mut self,
         ns: Vec<Shortname>,
@@ -5681,6 +5680,7 @@ impl CoreTEXT3_2 {
         Ok(())
     }
 
+    /// Clear $SPILLOVER
     pub fn unset_spillover(&mut self) {
         self.metadata.specific.spillover = None.into();
     }

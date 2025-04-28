@@ -1525,12 +1525,6 @@ kw_opt_meta!(Vol, "VOL");
 #[derive(Clone, Serialize, PartialEq)]
 pub struct Gain(pub PositiveFloat);
 
-impl OptionalKw<Gain> {
-    fn is_unset(&self) -> bool {
-        self.0.as_ref().map_or(true, |x| f32::from(x.0) == 1.0)
-    }
-}
-
 newtype_disp!(Gain);
 newtype_fromstr!(Gain, RangedFloatError);
 

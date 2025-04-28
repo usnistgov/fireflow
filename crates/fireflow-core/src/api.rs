@@ -1558,32 +1558,6 @@ kw_opt_meta!(UnstainedCenters, "UNSTAINEDCENTERS");
 kw_opt_meta!(Unicode, "UNICODE");
 kw_opt_meta!(Trigger, "TR");
 
-// impl Key for Trigger {
-//     const C: &'static str = "TR";
-// }
-
-// impl Optional for Trigger {}
-
-// impl LinkedOptMetaKey for Trigger {
-//     fn linked_from_str(s: &str, names: &[&Shortname]) -> Result<Option<Self>, String> {
-//         match s.split(",").collect::<Vec<_>>()[..] {
-//             [p, n1] => n1
-//                 .parse::<u32>()
-//                 .map_err(|e| e.to_string())
-//                 .map(|threshold| {
-//                     names
-//                         .iter()
-//                         .find(|x| x.as_ref() == p)
-//                         .map(|measurement| Trigger {
-//                             measurement: (*measurement).clone(),
-//                             threshold,
-//                         })
-//                 }),
-//             _ => Err("must be formatted like 'string,n'".to_string()),
-//         }
-//     }
-// }
-
 kw_opt_meas!(Scale, "E");
 req_meas!(Scale);
 

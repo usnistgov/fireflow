@@ -5328,6 +5328,8 @@ where
     // fail the entire struct entirely. Then each manipulation can be assumed
     // to operate on a clean state.
     fn validate(&self, conf: &TimeConfig) -> PureSuccess<()> {
+        // TODO also validate internal data configuration state, since many
+        // functions assume that it is "valid"
         let mut deferred = PureErrorBuf::default();
 
         if let Some(pat) = conf.pattern.as_ref() {
@@ -5595,9 +5597,15 @@ impl CoreTEXT2_0 {
     }
 
     /// Set data layout to be ASCII-delimited
-    pub fn set_data_delimited(&mut self, xs: Vec<(u64, Option<Scale>)>) {
+    pub fn set_data_delimited(&mut self, xs: Vec<(u64, Option<Scale>)>) -> Option<bool> {
         let ys = xs.into_iter().map(|(r, s)| (r, s.into())).collect();
-        self.set_data_delimited_inner(ys);
+        self.set_data_delimited_inner(ys)
+    }
+
+    /// Set data layout to be ASCII-fixed for all measurements
+    pub fn set_data_ascii(&mut self, xs: Vec<(u8, u64, Option<Scale>)>) -> Option<bool> {
+        let ys = xs.into_iter().map(|(b, r, s)| (b, r, s.into())).collect();
+        self.set_data_ascii_inner(ys)
     }
 }
 
@@ -5640,9 +5648,9 @@ impl CoreTEXT3_0 {
     }
 
     /// Set data layout to be ASCII-delimited
-    pub fn set_data_delimited(&mut self, xs: Vec<(u64, Scale)>) {
+    pub fn set_data_delimited(&mut self, xs: Vec<(u64, Scale)>) -> Option<bool> {
         let ys = xs.into_iter().map(|(r, s)| (r, s.into())).collect();
-        self.set_data_delimited_inner(ys);
+        self.set_data_delimited_inner(ys)
     }
 
     /// Set data layout to be ASCII-fixed for all measurements
@@ -5692,9 +5700,9 @@ impl CoreTEXT3_1 {
     }
 
     /// Set data layout to be ASCII-delimited
-    pub fn set_data_delimited(&mut self, xs: Vec<(u64, Scale)>) {
+    pub fn set_data_delimited(&mut self, xs: Vec<(u64, Scale)>) -> Option<bool> {
         let ys = xs.into_iter().map(|(r, s)| (r, s.into())).collect();
-        self.set_data_delimited_inner(ys);
+        self.set_data_delimited_inner(ys)
     }
 }
 
@@ -5762,7 +5770,7 @@ impl CoreTEXT3_2 {
     }
 
     /// Set data layout to be a mix of datatypes
-    pub fn set_data_mixed(&mut self, xs: Vec<MixedColumnSetter>) -> bool {
+    pub fn set_data_mixed(&mut self, xs: Vec<MixedColumnSetter>) -> Option<bool> {
         // Figure out what $DATATYPE (the default) should be; count frequencies
         // of each type, and if ASCII is given at all, this must be $DATATYPE
         // since it can't be set to $PnDATATYPE; otherwise, use whatever is
@@ -5800,28 +5808,34 @@ impl CoreTEXT3_2 {
                     ),
                 }
             };
-            let alter_opt = self.measurements.alter_values_zip(
-                xs,
-                |m, x| {
-                    let (b, r, s, pndt) = go(x);
-                    m.bytes = Bytes::Fixed(b);
-                    m.range = Range(r);
-                    m.specific.scale = s;
-                    m.specific.datatype = pndt.into();
-                },
-                |t, x| {
-                    let (b, r, _, pndt) = go(x);
-                    t.bytes = Bytes::Fixed(b);
-                    t.range = Range(r);
-                    t.specific.datatype = pndt.into();
-                },
-            );
-            if alter_opt.is_some() {
+            let res = self
+                .measurements
+                .alter_values_zip(
+                    xs,
+                    |m, x| {
+                        let (b, r, s, pndt) = go(x);
+                        m.bytes = Bytes::Fixed(b);
+                        m.range = Range(r);
+                        m.specific.scale = s;
+                        m.specific.datatype = pndt.into();
+                        true
+                    },
+                    |t, x| {
+                        let (b, r, s, pndt) = go(x);
+                        t.bytes = Bytes::Fixed(b);
+                        t.range = Range(r);
+                        t.specific.datatype = pndt.into();
+                        s == Scale::Linear
+                    },
+                )
+                .map(|ys| ys.into_iter().all(|x| x));
+            if res.is_some() {
                 self.metadata.datatype = dt;
-                return true;
             }
+            return res;
         }
-        false
+        // this will only happen if the input is empty
+        None
     }
 
     /// Set data layout to be integer for all measurements

@@ -11,11 +11,12 @@ use crate::validated::distinct::*;
 use crate::validated::nonstandard::*;
 use crate::validated::pattern::*;
 use crate::validated::ranged_float::*;
+use crate::validated::scale::*;
 use crate::validated::shortname::*;
 use crate::validated::spillover::*;
 use crate::validated::timestamps::*;
 
-use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use itertools::Itertools;
 use nalgebra::DMatrix;
 use polars::prelude::*;
@@ -527,22 +528,6 @@ pub struct Trigger {
 
     /// The threshold of the trigger.
     pub threshold: u32,
-}
-
-/// The value for the $PnE key (all versions).
-///
-/// Format is assumed to be 'f1,f2'
-// TODO this is super messy, see 3.2 spec for restrictions on this we may with
-// to use further
-#[derive(Clone, Copy, PartialEq, Serialize)]
-pub enum Scale {
-    /// Linear scale, which maps to the value '0,0'
-    Linear,
-
-    /// Log scale, which maps to anything not '0,0' (although decades should be
-    /// a positive number presumably)
-    // TODO these should both be positive numbers
-    Log { decades: f32, offset: f32 },
 }
 
 /// The value for the $PnCALIBRATION key (3.1 only)
@@ -1988,11 +1973,6 @@ pub enum TriggerError {
     IntFormat(std::num::ParseIntError),
 }
 
-pub enum ScaleError {
-    FloatError(ParseFloatError),
-    WrongFormat,
-}
-
 pub enum DisplayError {
     FloatError(ParseFloatError),
     InvalidType,
@@ -3099,44 +3079,6 @@ impl fmt::Display for FCSDate {
 impl fmt::Display for FCSDateError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "must be like 'dd-mmm-yyyy'")
-    }
-}
-
-use Scale::*;
-
-impl fmt::Display for Scale {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Scale::Log { decades, offset } => write!(f, "{decades},{offset}"),
-            Scale::Linear => write!(f, "Lin"),
-        }
-    }
-}
-
-impl fmt::Display for ScaleError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            ScaleError::FloatError(x) => write!(f, "{}", x),
-            ScaleError::WrongFormat => write!(f, "must be like 'f1,f2'"),
-        }
-    }
-}
-
-impl str::FromStr for Scale {
-    type Err = ScaleError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.split(",").collect::<Vec<_>>()[..] {
-            [ds, os] => {
-                let f1 = ds.parse().map_err(ScaleError::FloatError)?;
-                let f2 = os.parse().map_err(ScaleError::FloatError)?;
-                match (f1, f2) {
-                    (0.0, 0.0) => Ok(Linear),
-                    (decades, offset) => Ok(Log { decades, offset }),
-                }
-            }
-            _ => Err(ScaleError::WrongFormat),
-        }
     }
 }
 

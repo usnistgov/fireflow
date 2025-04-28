@@ -8,3 +8,4 @@ pub mod shortname;
 pub mod textdelim;
 pub mod timestamps;
 pub mod spillover;
+pub mod scale;

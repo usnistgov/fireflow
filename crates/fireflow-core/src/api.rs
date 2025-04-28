@@ -443,6 +443,7 @@ pub enum Display {
     /// Linear display (value like 'Linear,<lower>,<upper>')
     Lin { lower: f32, upper: f32 },
 
+    // TODO not clear if these can be <0
     /// Logarithmic display (value like 'Logarithmic,<offset>,<decades>')
     Log { offset: f32, decades: f32 },
 }
@@ -467,6 +468,7 @@ pub enum ByteOrd {
     // TODO this should also be applied to things like 1,2,3 or 5,4,3,2,1, which
     // are big/little endian but not "traditional" byte widths.
     Endian(Endian),
+    // TODO use lehmer encoding for this
     Mixed(Vec<u8>),
 }
 

@@ -12,6 +12,7 @@ use crate::validated::nonstandard::*;
 use crate::validated::pattern::*;
 use crate::validated::ranged_float::*;
 use crate::validated::shortname::*;
+use crate::validated::spillover::*;
 use crate::validated::timestamps::*;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
@@ -508,34 +509,6 @@ impl Compensation {
     // TODO what happens if the matrix become less than 2x2?
     fn remove_by_index(&mut self, i: usize) -> bool {
         if i <= self.matrix.ncols() {
-            self.matrix = self.matrix.clone().remove_row(i).remove_column(i);
-            true
-        } else {
-            false
-        }
-    }
-}
-
-/// The spillover matrix from the $SPILLOVER keyword (3.1+)
-#[derive(Clone, Serialize)]
-struct Spillover {
-    /// The measurements in the spillover matrix. Assumed to be a subset of the
-    /// values in the $PnN keys.
-    // TODO use BTreeSet to enforce uniqueness
-    measurements: Vec<Shortname>,
-
-    /// Numeric values in the spillover matrix in row-major order.
-    matrix: DMatrix<f32>,
-}
-
-impl Spillover {
-    // TODO what happens if the matrix becomes less than 2x2?
-    fn remove_by_name(&mut self, n: &Shortname) -> bool {
-        if let Some(i) = self.measurements.iter().position(|m| m == n) {
-            // TODO this looks expensive; it copies basically everything 3x;
-            // good thing these matrices aren't that big (usually). The
-            // alternative is to iterate over the matrix and populate a new one
-            // while skipping certain elements.
             self.matrix = self.matrix.clone().remove_row(i).remove_column(i);
             true
         } else {
@@ -1235,22 +1208,18 @@ impl Linked for Trigger {
 
     fn reassign(&mut self, mapping: &NameMapping) {
         if let Some(new) = mapping.get(&self.measurement) {
-            self.measurement = (*new).clone()
+            self.measurement = (*new).clone();
         }
     }
 }
 
 impl Linked for Spillover {
     fn names(&self) -> HashSet<&Shortname> {
-        self.measurements.iter().collect()
+        self.measurements().into_iter().collect()
     }
 
     fn reassign(&mut self, mapping: &NameMapping) {
-        for n in self.measurements.iter_mut() {
-            if let Some(new) = mapping.get(n) {
-                *n = (*new).clone();
-            }
-        }
+        self.remap_measurements(mapping)
     }
 }
 
@@ -2176,10 +2145,12 @@ pub trait VersionedMetadata: Sized {
 
     fn as_unstainedcenters(&self) -> Option<&UnstainedCenters>;
 
+    // TODO don't expose this
     fn as_unstainedcenters_mut(&mut self) -> Option<&mut UnstainedCenters>;
 
     fn as_spillover(&self) -> Option<&Spillover>;
 
+    // TODO don't expose this
     fn as_spillover_mut(&mut self) -> Option<&mut Spillover>;
 
     fn as_compensation(&self) -> Option<&Compensation>;
@@ -2968,61 +2939,6 @@ impl fmt::Display for FixedSeqError {
     }
 }
 
-impl FromStr for Spillover {
-    type Err = NamedFixedSeqError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        {
-            let mut xs = s.split(",");
-            if let Some(first) = &xs.next().and_then(|x| x.parse::<usize>().ok()) {
-                let n = *first;
-                let nn = n * n;
-                let expected = n + nn;
-                // This should be safe since we split on commas
-                let measurements: Vec<_> =
-                    xs.by_ref().take(n).map(Shortname::new_unchecked).collect();
-                let values: Vec<_> = xs.by_ref().take(nn).collect();
-                let remainder = xs.by_ref().count();
-                let total = measurements.len() + values.len() + remainder;
-                if total != expected {
-                    Err(NamedFixedSeqError::Seq(FixedSeqError::WrongLength {
-                        total,
-                        expected,
-                    }))
-                } else if measurements.iter().unique().count() != n {
-                    Err(NamedFixedSeqError::NonUnique)
-                } else {
-                    let fvalues: Vec<_> = values
-                        .into_iter()
-                        .filter_map(|x| x.parse::<f32>().ok())
-                        .collect();
-                    if fvalues.len() != nn {
-                        Err(NamedFixedSeqError::Seq(FixedSeqError::BadFloat))
-                    } else {
-                        let matrix = DMatrix::from_row_iterator(n, n, fvalues);
-                        Ok(Spillover {
-                            measurements,
-                            matrix,
-                        })
-                    }
-                }
-            } else {
-                Err(NamedFixedSeqError::Seq(FixedSeqError::BadLength))
-            }
-        }
-    }
-}
-
-impl fmt::Display for Spillover {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let n = self.measurements.len();
-        // DMatrix slices are column major, so transpose first to output
-        // row-major
-        let xs = self.matrix.transpose().as_slice().iter().join(",");
-        write!(f, "{n},{xs}")
-    }
-}
-
 impl fmt::Display for NamedFixedSeqError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
@@ -3037,10 +2953,10 @@ impl Spillover {
         let header0 = vec!["[-]"];
         let header = header0
             .into_iter()
-            .chain(self.measurements.iter().map(|m| m.as_ref()))
+            .chain(self.measurements().iter().map(|m| m.as_ref()))
             .join(delim);
         let lines = vec![header];
-        let rows = self.matrix.row_iter().map(|xs| xs.iter().join(delim));
+        let rows = self.matrix().row_iter().map(|xs| xs.iter().join(delim));
         lines.into_iter().chain(rows).collect()
     }
 
@@ -5707,6 +5623,15 @@ impl CoreTEXT3_1 {
 }
 
 impl CoreTEXT3_2 {
+    /// Show $UNSTAINEDCENTERS
+    pub fn unstained_centers(&self) -> Option<&UnstainedCenters> {
+        self.metadata
+            .specific
+            .unstained
+            .unstainedcenters
+            .as_ref_opt()
+    }
+
     /// Insert an unstained center
     pub fn insert_unstained_center(&mut self, k: Shortname, v: f32) -> Option<f32> {
         if !self.measurement_names().contains(&k) {
@@ -5741,6 +5666,24 @@ impl CoreTEXT3_2 {
     }
 
     // TODO get/set $SPILLOVER
+
+    /// Show $SPILLOVER
+    pub fn spillover(&self) -> Option<&Spillover> {
+        self.metadata.specific.spillover.as_ref_opt()
+    }
+
+    pub fn set_spillover(
+        &mut self,
+        ns: Vec<Shortname>,
+        m: DMatrix<f32>,
+    ) -> Result<(), SpilloverError> {
+        self.metadata.specific.spillover = Some(Spillover::new(ns, m)?).into();
+        Ok(())
+    }
+
+    pub fn unset_spillover(&mut self) {
+        self.metadata.specific.spillover = None.into();
+    }
 
     /// Show $PnE for each measurement
     pub fn scales(&self) -> Vec<Scale> {

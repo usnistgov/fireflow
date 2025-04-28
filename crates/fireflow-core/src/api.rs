@@ -615,6 +615,16 @@ pub enum Bytes {
     Variable,
 }
 
+impl TryFrom<Bytes> for u8 {
+    type Error = ();
+    fn try_from(value: Bytes) -> Result<Self, Self::Error> {
+        match value {
+            Bytes::Fixed(x) => Ok(x),
+            _ => Err(()),
+        }
+    }
+}
+
 /// The value for the $ORIGINALITY key (3.1+)
 #[derive(Clone, Serialize)]
 pub enum Originality {
@@ -5013,6 +5023,38 @@ where
 
     // TODO set fixed width integer somewhere here
 
+    /// Show $PnB for each measurement
+    ///
+    /// Will be None if all $PnB are variable, and a vector of u8 showing the
+    /// width of each measurement otherwise.
+    pub fn bytes(&self) -> Option<Vec<u8>> {
+        let xs: Vec<_> = self
+            .measurements
+            .iter()
+            .flat_map(|(_, x)| {
+                x.map_or_else(|p| p.value.bytes, |p| p.value.bytes)
+                    .try_into()
+                    .ok()
+            })
+            .collect();
+        // ASSUME internal state is controlled such that no "partially variable"
+        // configurations are possible
+        if xs.len() != self.par().0 {
+            None
+        } else {
+            Some(xs)
+        }
+    }
+
+    /// Show $PnR for each measurement
+    // TODO this will give a bunch of strings, we can probably do better
+    pub fn ranges(&self) -> Vec<Range> {
+        self.measurements
+            .iter()
+            .map(|(_, x)| x.map_or_else(|p| p.value.range.clone(), |p| p.value.range.clone()))
+            .collect()
+    }
+
     pub fn par(&self) -> Par {
         Par(self.measurements.len())
     }
@@ -5520,6 +5562,11 @@ impl CoreTEXT2_0 {
             .collect()
     }
 
+    /// Show $DATATYPE
+    pub fn datatype(&self) -> AlphaNumType {
+        self.metadata.datatype
+    }
+
     /// Set data layout to be Integer for all measurements
     pub fn set_data_integer(
         &mut self,
@@ -5561,6 +5608,11 @@ impl CoreTEXT3_0 {
             .iter()
             .map(|(_, x)| x.map_or(Scale::Linear, |p| p.value.specific.scale))
             .collect()
+    }
+
+    /// Show $DATATYPE
+    pub fn datatype(&self) -> AlphaNumType {
+        self.metadata.datatype
     }
 
     /// Set data layout to be Integer for all measurements
@@ -5607,6 +5659,11 @@ impl CoreTEXT3_1 {
             .iter()
             .map(|(_, x)| x.map_or(Scale::Linear, |p| p.value.specific.scale))
             .collect()
+    }
+
+    /// Show $DATATYPE
+    pub fn datatype(&self) -> AlphaNumType {
+        self.metadata.datatype
     }
 
     // TODO better input type here?
@@ -5682,6 +5739,25 @@ impl CoreTEXT3_2 {
         self.measurements
             .iter()
             .map(|(_, x)| x.map_or(Scale::Linear, |p| p.value.specific.scale))
+            .collect()
+    }
+
+    /// Show datatype for all measurements
+    ///
+    /// This will be $PnDATATYPE if given and $DATATYPE otherwise at each
+    /// measurement index
+    pub fn datatypes(&self) -> Vec<AlphaNumType> {
+        let dt = self.metadata.datatype;
+        self.measurements
+            .iter()
+            .map(|(_, x)| {
+                x.map_or_else(
+                    |p| p.value.specific.datatype.as_ref_opt(),
+                    |p| p.value.specific.datatype.as_ref_opt(),
+                )
+                .map(|t| (*t).into())
+                .unwrap_or(dt)
+            })
             .collect()
     }
 

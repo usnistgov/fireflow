@@ -820,10 +820,10 @@ pub struct InnerMeasurement3_2 {
 #[derive(Clone, Serialize)]
 pub struct TimeChannel<X> {
     /// Value for $PnB
-    pub bytes: Bytes,
+    bytes: Bytes,
 
     /// Value for $PnR
-    pub range: Range,
+    range: Range,
 
     /// Value for $PnS
     pub longname: OptionalKw<Longname>,

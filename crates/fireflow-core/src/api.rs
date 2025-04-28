@@ -1663,7 +1663,7 @@ pub struct InnerMetadata3_1 {
     pub cytsn: OptionalKw<Cytsn>,
 
     /// Value of $SPILLOVER
-    pub spillover: OptionalKw<Spillover>,
+    spillover: OptionalKw<Spillover>,
 
     /// Values of $LAST_MODIFIED/$LAST_MODIFIER/$ORIGINALITY
     pub modification: ModificationData,

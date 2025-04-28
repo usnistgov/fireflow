@@ -5458,6 +5458,50 @@ where
         }
         res
     }
+
+    fn set_data_ascii_inner(
+        &mut self,
+        xs: Vec<(
+            u8,
+            u64,
+            <<M::P as VersionedMeasurement>::S as MightHave>::Wrapper<Scale>,
+        )>,
+    ) -> Option<bool> {
+        let ys: Vec<_> = xs
+            .into_iter()
+            .map(|(b, r, s)| (Bytes::Fixed(b), Range(r.to_string()), s))
+            .collect();
+        let res = self.set_data_bytes_range_scale(ys);
+        if res.is_some() {
+            self.metadata.datatype = AlphaNumType::Ascii;
+        }
+        res
+    }
+
+    pub fn set_data_integer_inner(
+        &mut self,
+        xs: Vec<(
+            u8,
+            u64,
+            <<M::P as VersionedMeasurement>::S as MightHave>::Wrapper<Scale>,
+        )>,
+    ) -> Option<bool> {
+        let ys: Vec<_> = xs
+            .into_iter()
+            .map(|(b, r, s)| {
+                (
+                    Bytes::Fixed(b),
+                    Range(2_u64.pow(b as u32).min(r).to_string()),
+                    s,
+                )
+            })
+            .collect();
+        let res = self.set_data_bytes_range_scale(ys);
+        if res.is_some() {
+            self.metadata.datatype = AlphaNumType::Integer;
+        }
+        res
+    }
 }
 
 pub enum SetDataError {
@@ -5468,71 +5512,19 @@ pub enum SetDataError {
 type SetDataResult<T> = Result<T, SetDataError>;
 
 impl CoreTEXT2_0 {
-    pub fn set_data_ascii(&mut self, rs: Vec<(u8, u64, Option<Scale>)>) -> SetDataResult<()> {
-        let ys: Vec<_> = rs
-            .into_iter()
-            .map(|(b, r, s)| (Bytes::Fixed(b), Range(r.to_string()), s))
-            .collect();
-        if let Some(res) = self.measurements.alter_values_zip(
-            ys,
-            |m, (b, r, s)| {
-                m.bytes = b;
-                m.range = r;
-                m.specific.scale = s.into();
-                true
-            },
-            |m, (b, r, s)| {
-                m.bytes = b;
-                m.range = r;
-                s.is_some_and(|x| x == Scale::Linear)
-            },
-        ) {
-            if res.into_iter().all(|x| x) {
-                self.metadata.datatype = AlphaNumType::Ascii;
-                Ok(())
-            } else {
-                Err(SetDataError::Scale)
-            }
-        } else {
-            Err(SetDataError::Length)
-        }
-    }
-
+    /// Set data layout to be Integer for all measurements
     pub fn set_data_integer(
         &mut self,
         rs: Vec<(u64, Option<Scale>)>,
         byteord: ByteOrd,
-    ) -> SetDataResult<()> {
+    ) -> Option<bool> {
         let n = byteord.nbytes();
-        let bytes = Bytes::Fixed(n);
-        let ys: Vec<_> = rs
-            .into_iter()
-            .map(|(r, s)| (bytes, Range((n as u64).min(r).to_string()), s))
-            .collect();
-        if let Some(res) = self.measurements.alter_values_zip(
-            ys,
-            |m, (b, r, s)| {
-                m.bytes = b;
-                m.range = r;
-                m.specific.scale = s.into();
-                true
-            },
-            |m, (b, r, s)| {
-                m.bytes = b;
-                m.range = r;
-                s.is_some_and(|x| x == Scale::Linear)
-            },
-        ) {
-            if res.into_iter().any(|x| x) {
-                self.metadata.datatype = AlphaNumType::Integer;
-                self.metadata.specific.byteord = byteord;
-                Ok(())
-            } else {
-                Err(SetDataError::Scale)
-            }
-        } else {
-            Err(SetDataError::Length)
+        let ys = rs.into_iter().map(|(r, s)| (n, r, s.into())).collect();
+        let res = self.set_data_integer_inner(ys);
+        if res.is_some() {
+            self.metadata.specific.byteord = byteord;
         }
+        res
     }
 
     /// Set data layout to be 32-bit float for all measurements.
@@ -5548,42 +5540,85 @@ impl CoreTEXT2_0 {
     }
 
     /// Set data layout to be ASCII-delimited
-    pub fn set_data_delimited(&mut self, xs: Vec<(u64, OptionalKw<Scale>)>) {
-        self.set_data_delimited_inner(xs);
+    pub fn set_data_delimited(&mut self, xs: Vec<(u64, Option<Scale>)>) {
+        let ys = xs.into_iter().map(|(r, s)| (r, s.into())).collect();
+        self.set_data_delimited_inner(ys);
+    }
+}
+
+impl CoreTEXT3_0 {
+    /// Set data layout to be Integer for all measurements
+    // TODO not DRY
+    pub fn set_data_integer(&mut self, rs: Vec<(u64, Scale)>, byteord: ByteOrd) -> Option<bool> {
+        let n = byteord.nbytes();
+        let ys = rs.into_iter().map(|(r, s)| (n, r, s.into())).collect();
+        let res = self.set_data_integer_inner(ys);
+        if res.is_some() {
+            self.metadata.specific.byteord = byteord;
+        }
+        res
+    }
+
+    /// Set data layout to be 32-bit float for all measurements.
+    pub fn set_data_f32(&mut self, rs: Vec<f32>) -> bool {
+        let ys: Vec<_> = rs.into_iter().map(|r| Range(r.to_string())).collect();
+        self.set_to_floating_point(false, ys)
+    }
+
+    /// Set data layout to be 64-bit float for all measurements.
+    pub fn set_data_f64(&mut self, rs: Vec<f64>) -> bool {
+        let ys: Vec<_> = rs.into_iter().map(|r| Range(r.to_string())).collect();
+        self.set_to_floating_point(true, ys)
+    }
+
+    /// Set data layout to be ASCII-delimited
+    pub fn set_data_delimited(&mut self, xs: Vec<(u64, Scale)>) {
+        let ys = xs.into_iter().map(|(r, s)| (r, s.into())).collect();
+        self.set_data_delimited_inner(ys);
+    }
+
+    /// Set data layout to be ASCII-fixed for all measurements
+    pub fn set_data_ascii(&mut self, xs: Vec<(u8, u64, Scale)>) -> Option<bool> {
+        let ys = xs.into_iter().map(|(b, r, s)| (b, r, s.into())).collect();
+        self.set_data_ascii_inner(ys)
     }
 }
 
 impl CoreTEXT3_1 {
     // TODO better input type here?
-    pub fn set_data_integer(&mut self, rs: Vec<(u8, u64, Scale)>) -> Result<(), SetDataError> {
-        let res = self.measurements.alter_values_zip(
-            rs,
-            |m, (b, r, s)| {
-                m.bytes = Bytes::Fixed(b);
-                m.range = Range((b as u64).min(r).to_string());
-                m.specific.scale = s;
-                true
-            },
-            |m, (b, r, s)| {
-                m.bytes = Bytes::Fixed(b);
-                m.range = Range((b as u64).min(r).to_string());
-                s == Scale::Linear
-            },
-        );
-        if let Some(valid_scale) = res {
-            if valid_scale.into_iter().all(|x| x) {
-                self.metadata.datatype = AlphaNumType::Integer;
-                Ok(())
-            } else {
-                Err(SetDataError::Scale)
-            }
-        } else {
-            Err(SetDataError::Length)
-        }
+    /// Set data layout to be integers for all measurements.
+    pub fn set_data_integer(&mut self, xs: Vec<(u8, u64, Scale)>) -> Option<bool> {
+        let ys = xs.into_iter().map(|(b, r, s)| (b, r, s.into())).collect();
+        self.set_data_integer_inner(ys)
+    }
+
+    /// Set data layout to be 32-bit float for all measurements.
+    pub fn set_data_f32(&mut self, rs: Vec<f32>) -> bool {
+        let ys: Vec<_> = rs.into_iter().map(|r| Range(r.to_string())).collect();
+        self.set_to_floating_point(false, ys)
+    }
+
+    /// Set data layout to be 64-bit float for all measurements.
+    pub fn set_data_f64(&mut self, rs: Vec<f64>) -> bool {
+        let ys: Vec<_> = rs.into_iter().map(|r| Range(r.to_string())).collect();
+        self.set_to_floating_point(true, ys)
+    }
+
+    /// Set data layout to be fixed-ASCII for all measurements
+    pub fn set_data_ascii(&mut self, xs: Vec<(u8, u64, Scale)>) -> Option<bool> {
+        let ys: Vec<_> = xs.into_iter().map(|(b, r, s)| (b, r, s.into())).collect();
+        self.set_data_ascii_inner(ys)
+    }
+
+    /// Set data layout to be ASCII-delimited
+    pub fn set_data_delimited(&mut self, xs: Vec<(u64, Scale)>) {
+        let ys = xs.into_iter().map(|(r, s)| (r, s.into())).collect();
+        self.set_data_delimited_inner(ys);
     }
 }
 
 impl CoreTEXT3_2 {
+    /// Insert an unstained center
     pub fn insert_unstained_center(&mut self, k: Shortname, v: f32) -> Option<f32> {
         if !self.measurement_names().contains(&k) {
             // TODO this is ambiguous, user has no idea why their value was
@@ -5601,6 +5636,7 @@ impl CoreTEXT3_2 {
         }
     }
 
+    /// Remove an unstained center
     pub fn remove_unstained_center(&mut self, k: &Shortname) -> Option<f32> {
         let us = &mut self.metadata.specific.unstained;
         if let Some(u) = us.unstainedcenters.0.as_mut() {
@@ -5616,18 +5652,6 @@ impl CoreTEXT3_2 {
     }
 
     // TODO get/set $SPILLOVER
-
-    /// Set data layout to be 32-bit float for all measurements.
-    pub fn set_data_f32(&mut self, rs: Vec<f32>) -> bool {
-        let ys: Vec<_> = rs.into_iter().map(|r| Range(r.to_string())).collect();
-        self.set_to_floating_point_3_2(false, ys)
-    }
-
-    /// Set data layout to be 64-bit float for all measurements.
-    pub fn set_data_f64(&mut self, rs: Vec<f64>) -> bool {
-        let ys: Vec<_> = rs.into_iter().map(|r| Range(r.to_string())).collect();
-        self.set_to_floating_point_3_2(true, ys)
-    }
 
     /// Set data layout to be a mix of datatypes
     pub fn set_data_mixed(&mut self, xs: Vec<MixedColumnSetter>) -> bool {
@@ -5657,10 +5681,8 @@ impl CoreTEXT3_2 {
                     Some(this_dt.try_into().unwrap())
                 };
                 match x {
-                    MixedColumnSetter::Float(range) => (32, range.to_string(), Scale::Linear, pndt),
-                    MixedColumnSetter::Double(range) => {
-                        (64, range.to_string(), Scale::Linear, pndt)
-                    }
+                    MixedColumnSetter::Float(range) => (4, range.to_string(), Scale::Linear, pndt),
+                    MixedColumnSetter::Double(range) => (8, range.to_string(), Scale::Linear, pndt),
                     MixedColumnSetter::Ascii(s) => (s.bytes, s.range.to_string(), s.scale, None),
                     MixedColumnSetter::Uint(s) => (
                         s.bytes,
@@ -5694,9 +5716,42 @@ impl CoreTEXT3_2 {
         false
     }
 
-    /// Set data layout to be ASCII-delimited
-    pub fn set_data_delimited(&mut self, rs: Vec<(u64, Identity<Scale>)>) -> Option<bool> {
-        let res = self.set_data_delimited_inner(rs);
+    /// Set data layout to be integer for all measurements
+    pub fn set_data_integer(&mut self, xs: Vec<(u8, u64, Scale)>) -> Option<bool> {
+        let ys = xs.into_iter().map(|(b, r, s)| (b, r, s.into())).collect();
+        let res = self.set_data_integer_inner(ys);
+        if res.is_some() {
+            self.unset_meas_datatypes();
+        }
+        res
+    }
+
+    /// Set data layout to be 32-bit float for all measurements.
+    pub fn set_data_f32(&mut self, rs: Vec<f32>) -> bool {
+        let ys: Vec<_> = rs.into_iter().map(|r| Range(r.to_string())).collect();
+        self.set_to_floating_point_3_2(false, ys)
+    }
+
+    /// Set data layout to be 64-bit float for all measurements.
+    pub fn set_data_f64(&mut self, rs: Vec<f64>) -> bool {
+        let ys: Vec<_> = rs.into_iter().map(|r| Range(r.to_string())).collect();
+        self.set_to_floating_point_3_2(true, ys)
+    }
+
+    /// Set data layout to be fixed-ASCII for all measurements
+    pub fn set_data_ascii(&mut self, xs: Vec<(u8, u64, Scale)>) -> Option<bool> {
+        let ys: Vec<_> = xs.into_iter().map(|(b, r, s)| (b, r, s.into())).collect();
+        let res = self.set_data_ascii_inner(ys);
+        if res.is_some() {
+            self.unset_meas_datatypes();
+        }
+        res
+    }
+
+    /// Set data layout to be ASCII-delimited for all measurements
+    pub fn set_data_delimited(&mut self, rs: Vec<(u64, Scale)>) -> Option<bool> {
+        let ys = rs.into_iter().map(|(r, s)| (r, s.into())).collect();
+        let res = self.set_data_delimited_inner(ys);
         if res.is_some() {
             self.unset_meas_datatypes();
         }

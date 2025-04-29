@@ -44,6 +44,7 @@ impl ByteOrd {
             _ => {
                 let n = xs.len();
                 if xs.iter().unique().count() != n
+                    || n > 8
                     || xs.iter().min().is_some_and(|x| *x != 1)
                     || xs.iter().max().is_some_and(|x| usize::from(*x) != n)
                 {

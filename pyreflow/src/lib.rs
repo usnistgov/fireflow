@@ -2,6 +2,7 @@ use fireflow_core::api;
 use fireflow_core::config::Strict;
 use fireflow_core::config::{self, OffsetCorrection};
 use fireflow_core::error;
+use fireflow_core::validated::byteord::*;
 use fireflow_core::validated::datepattern::DatePattern;
 use fireflow_core::validated::nonstandard::*;
 use fireflow_core::validated::pattern::*;
@@ -604,7 +605,7 @@ pywrap!(PyNonStdKey, NonStdKey, "NonStdKey");
 pywrap!(PyTEXTDelim, TEXTDelim, "TEXTDelim");
 pywrap!(PyCytSetter, MetaKwSetter<api::Cyt>, "CytSetter");
 
-pywrap!(PyEndian, api::Endian, "Endian");
+pywrap!(PyEndian, Endian, "Endian");
 pywrap!(PyOriginality, api::Originality, "Originality");
 pywrap!(PyTrigger, api::Trigger, "Trigger");
 pywrap!(PyAlphaNumType, api::AlphaNumType, "AlphaNumType");

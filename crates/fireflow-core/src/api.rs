@@ -6,6 +6,7 @@ use crate::keywords::*;
 use crate::macros::{newtype_disp, newtype_from, newtype_from_outer, newtype_fromstr};
 use crate::optionalkw::OptionalKw;
 pub use crate::segment::*;
+use crate::validated::byteord::*;
 use crate::validated::datetimes::*;
 use crate::validated::distinct::*;
 use crate::validated::nonstandard::*;
@@ -446,39 +447,6 @@ pub enum Display {
     // TODO not clear if these can be <0
     /// Logarithmic display (value like 'Logarithmic,<offset>,<decades>')
     Log { offset: f32, decades: f32 },
-}
-
-/// Endianness
-///
-/// This is also stored in the $BYTEORD key in 3.1+
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, Hash)]
-pub enum Endian {
-    Big,
-    Little,
-}
-
-/// The byte order as shown in the $BYTEORD field in 2.0 and 3.0
-///
-/// This can be either 1,2,3,4 (little endian), 4,3,2,1 (big endian), or some
-/// sequence representing byte order. For 2.0 and 3.0, this sequence is
-/// technically allowed to vary in length in the case of $DATATYPE=I since
-/// integers do not necessarily need to be 32 or 64-bit.
-#[derive(Clone, Serialize)]
-pub enum ByteOrd {
-    // TODO this should also be applied to things like 1,2,3 or 5,4,3,2,1, which
-    // are big/little endian but not "traditional" byte widths.
-    Endian(Endian),
-    // TODO use lehmer encoding for this
-    Mixed(Vec<u8>),
-}
-
-impl ByteOrd {
-    fn nbytes(&self) -> u8 {
-        match self {
-            ByteOrd::Endian(_) => 4,
-            ByteOrd::Mixed(xs) => xs.len() as u8,
-        }
-    }
 }
 
 /// The four allowed values for the $DATATYPE keyword.
@@ -1843,12 +1811,6 @@ struct MixedParser {
     columns: Vec<MixedColumnType>,
 }
 
-#[derive(PartialEq, Eq, Hash, Copy, Clone)]
-pub enum SizedByteOrd<const LEN: usize> {
-    Endian(Endian),
-    Order([u8; LEN]),
-}
-
 struct UintColumnReader<B, const LEN: usize> {
     layout: UintType<B, LEN>,
     column: Vec<B>,
@@ -1929,7 +1891,6 @@ pub struct FCSDateError;
 
 pub struct AlphaNumTypeError;
 pub struct NumTypeError;
-pub struct EndianError;
 pub struct ModifiedDateTimeError;
 pub struct FeatureError;
 pub struct OriginalityError;
@@ -1963,11 +1924,6 @@ pub struct CalibrationFormat3_2;
 pub enum UnicodeError {
     Empty,
     BadFormat,
-}
-
-pub enum ParseByteOrdError {
-    InvalidOrder,
-    InvalidNumbers,
 }
 
 pub enum TriggerError {
@@ -2336,10 +2292,6 @@ where
     Self: PolarsNumericType,
     ChunkedArray<Self>: IntoSeries,
 {
-    fn byteord_to_sized(byteord: &ByteOrd) -> Result<SizedByteOrd<INTLEN>, String> {
-        byteord_to_sized(byteord)
-    }
-
     fn range_to_bitmask(range: Range) -> Result<Self::Native, String> {
         // TODO add way to control this behavior, we may not always want to
         // truncate an overflowing number, and at the very least may wish to
@@ -2358,7 +2310,7 @@ where
     ) -> Result<UintType<Self::Native, INTLEN>, Vec<String>> {
         // TODO be more specific, which means we need the measurement index
         let b = Self::range_to_bitmask(range);
-        let s = Self::byteord_to_sized(byteord);
+        let s = byteord.as_sized();
         match (b, s) {
             (Ok(bitmask), Ok(size)) => Ok(UintType { bitmask, size }),
             (Err(x), Err(y)) => Err(vec![x, y]),
@@ -2493,7 +2445,7 @@ where
     }
 
     fn to_float_type(b: &ByteOrd, r: Range) -> Result<FloatType<LEN, Self::Native>, Vec<String>> {
-        match (Self::to_float_byteord(b), r.0.parse::<Self::Native>()) {
+        match (b.as_sized(), r.0.parse::<Self::Native>()) {
             (Ok(order), Ok(range)) => Ok(FloatType { order, range }),
             (a, b) => Err([a.err(), b.err().map(|s| s.to_string())]
                 .into_iter()
@@ -2502,16 +2454,12 @@ where
         }
     }
 
-    fn to_float_byteord(byteord: &ByteOrd) -> Result<SizedByteOrd<LEN>, String> {
-        byteord_to_sized(byteord)
-    }
-
     fn make_matrix_parser(
         byteord: &ByteOrd,
         par: usize,
         total_events: usize,
     ) -> PureMaybe<FloatReader<LEN>> {
-        let res = Self::to_float_byteord(byteord).map(|byteord| FloatReader {
+        let res = byteord.as_sized().map(|byteord| FloatReader {
             nrows: total_events,
             ncols: par,
             byteord,
@@ -2917,79 +2865,9 @@ impl Spillover {
     }
 }
 
-impl fmt::Display for EndianError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "Endian must be either 1,2,3,4 or 4,3,2,1")
-    }
-}
-
 impl<const LEN: usize> From<Endian> for SizedByteOrd<LEN> {
     fn from(value: Endian) -> Self {
         SizedByteOrd::Endian(value)
-    }
-}
-
-impl FromStr for Endian {
-    type Err = EndianError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "1,2,3,4" => Ok(Endian::Little),
-            "4,3,2,1" => Ok(Endian::Big),
-            _ => Err(EndianError),
-        }
-    }
-}
-
-impl fmt::Display for Endian {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let x = match self {
-            Endian::Big => "4,3,2,1",
-            Endian::Little => "1,2,3,4",
-        };
-        write!(f, "{x}")
-    }
-}
-
-impl fmt::Display for ParseByteOrdError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            ParseByteOrdError::InvalidNumbers => write!(f, "Could not parse numbers in byte order"),
-            ParseByteOrdError::InvalidOrder => write!(f, "Byte order must include 1-n uniquely"),
-        }
-    }
-}
-
-impl FromStr for ByteOrd {
-    type Err = ParseByteOrdError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.parse() {
-            Ok(e) => Ok(ByteOrd::Endian(e)),
-            _ => {
-                let xs: Vec<_> = s.split(",").collect();
-                let nxs = xs.len();
-                let xs_num: Vec<u8> = xs.iter().filter_map(|s| s.parse().ok()).unique().collect();
-                if let (Some(min), Some(max)) = (xs_num.iter().min(), xs_num.iter().max()) {
-                    if *min == 1 && usize::from(*max) == nxs && xs_num.len() == nxs {
-                        Ok(ByteOrd::Mixed(xs_num.iter().map(|x| x - 1).collect()))
-                    } else {
-                        Err(ParseByteOrdError::InvalidOrder)
-                    }
-                } else {
-                    Err(ParseByteOrdError::InvalidNumbers)
-                }
-            }
-        }
-    }
-}
-
-impl fmt::Display for ByteOrd {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            ByteOrd::Endian(e) => write!(f, "{}", e),
-            ByteOrd::Mixed(xs) => write!(f, "{}", xs.iter().join(",")),
-        }
     }
 }
 
@@ -6135,20 +6013,6 @@ impl_int_math!(u8);
 impl_int_math!(u16);
 impl_int_math!(u32);
 impl_int_math!(u64);
-
-// TODO where to put this?
-fn byteord_to_sized<const LEN: usize>(byteord: &ByteOrd) -> Result<SizedByteOrd<LEN>, String> {
-    match byteord {
-        ByteOrd::Endian(e) => Ok(SizedByteOrd::Endian(*e)),
-        ByteOrd::Mixed(v) => v[..]
-            .try_into()
-            .map(|order: [u8; LEN]| SizedByteOrd::Order(order))
-            .or(Err(format!(
-                "$BYTEORD is mixed but length is {} and not {LEN}",
-                v.len()
-            ))),
-    }
-}
 
 impl OrderedFromBytes<1, 1> for u8 {}
 impl OrderedFromBytes<2, 2> for u16 {}

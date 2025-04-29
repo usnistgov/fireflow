@@ -4454,19 +4454,19 @@ where
 }
 
 macro_rules! non_time_get_set {
-    ($get:ident, $set:ident, $ty:ident, $field:ident, $kw:ident) => {
+    ($get:ident, $set:ident, $ty:ident, [$($root:ident)*], $field:ident, $kw:ident) => {
         /// Get $$kw value for all non-time measurements
         pub fn $get(&self) -> Vec<(MeasIdx, Option<&$ty>)> {
             self.measurements
                 .iter_non_center_values()
-                .map(|(i, m)| (i, m.$field.as_ref_opt()))
+                .map(|(i, m)| (i, m.$($root.)*$field.as_ref_opt()))
                 .collect()
         }
 
         /// Set $$kw value for for all non-time measurements
         pub fn $set(&mut self, xs: Vec<Option<$ty>>) {
             self.measurements.alter_non_center_values_zip(xs, |m, x| {
-                m.$field = x.into();
+                m.$($root.)*$field = x.into();
             });
         }
     };
@@ -4746,14 +4746,15 @@ where
         df.set_column_names(self.df_names())
     }
 
-    non_time_get_set!(filters, set_filters, Filter, filter, PnF);
+    non_time_get_set!(filters, set_filters, Filter, [], filter, PnF);
 
-    non_time_get_set!(powers, set_powers, Power, power, PnO);
+    non_time_get_set!(powers, set_powers, Power, [], power, PnO);
 
     non_time_get_set!(
         detector_types,
         set_detector_types,
         DetectorType,
+        [],
         detector_type,
         PnD
     );
@@ -4762,6 +4763,7 @@ where
         percents_emitted,
         set_percents_emitted,
         PercentEmitted,
+        [],
         percent_emitted,
         PnP
     );
@@ -4770,6 +4772,7 @@ where
         detector_voltages,
         set_detector_voltages,
         DetectorVoltage,
+        [],
         detector_voltage,
         PnV
     );
@@ -5474,6 +5477,8 @@ impl CoreTEXT3_0 {
         let ys = xs.into_iter().map(|(b, r, s)| (b, r, s.into())).collect();
         self.set_data_ascii_inner(ys)
     }
+
+    non_time_get_set!(gains, set_gains, Gain, [specific], gain, PnG);
 }
 
 macro_rules! spillover_methods {
@@ -5539,6 +5544,19 @@ impl CoreTEXT3_1 {
         let ys = xs.into_iter().map(|(r, s)| (r, s.into())).collect();
         self.set_data_delimited_inner(ys)
     }
+
+    // TODO add $PnDISPLAY setters
+
+    non_time_get_set!(gains, set_gains, Gain, [specific], gain, PnG);
+
+    non_time_get_set!(
+        calibrations,
+        set_calibrations,
+        Calibration3_1,
+        [specific],
+        calibration,
+        PnCALIBRATION
+    );
 }
 
 impl CoreTEXT3_2 {
@@ -5741,6 +5759,55 @@ impl CoreTEXT3_2 {
         }
         res
     }
+
+    non_time_get_set!(gains, set_gains, Gain, [specific], gain, PnG);
+
+    non_time_get_set!(
+        detector_names,
+        set_detector_names,
+        DetectorName,
+        [specific],
+        detector_name,
+        PnDET
+    );
+
+    non_time_get_set!(
+        calibrations,
+        set_calibrations,
+        Calibration3_2,
+        [specific],
+        calibration,
+        PnCALIBRATION
+    );
+
+    non_time_get_set!(tags, set_tags, Tag, [specific], tag, PnTAG);
+
+    non_time_get_set!(
+        measurement_types,
+        set_measurement_types,
+        MeasurementType,
+        [specific],
+        measurement_type,
+        PnTYPE
+    );
+
+    non_time_get_set!(
+        features,
+        set_features,
+        Feature,
+        [specific],
+        feature,
+        PnFEATURE
+    );
+
+    non_time_get_set!(
+        analyte,
+        set_analyte,
+        Analyte,
+        [specific],
+        analyte,
+        PnANALYTE
+    );
 }
 
 #[derive(Clone)]

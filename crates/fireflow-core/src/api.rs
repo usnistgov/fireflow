@@ -4453,6 +4453,25 @@ where
     }
 }
 
+macro_rules! non_time_get_set {
+    ($get:ident, $set:ident, $ty:ident, $field:ident, $kw:ident) => {
+        /// Get $$kw value for all non-time measurements
+        pub fn $get(&self) -> Vec<(MeasIdx, Option<&$ty>)> {
+            self.measurements
+                .iter_non_center_values()
+                .map(|(i, m)| (i, m.$field.as_ref_opt()))
+                .collect()
+        }
+
+        /// Set $$kw value for for all non-time measurements
+        pub fn $set(&mut self, xs: Vec<Option<$ty>>) {
+            self.measurements.alter_non_center_values_zip(xs, |m, x| {
+                m.$field = x.into();
+            });
+        }
+    };
+}
+
 type Measurements<N, T, P> =
     NamedVec<N, <N as MightHave>::Wrapper<Shortname>, TimeChannel<T>, Measurement<P>>;
 
@@ -4727,6 +4746,34 @@ where
         df.set_column_names(self.df_names())
     }
 
+    non_time_get_set!(filters, set_filters, Filter, filter, PnF);
+
+    non_time_get_set!(powers, set_powers, Power, power, PnO);
+
+    non_time_get_set!(
+        detector_types,
+        set_detector_types,
+        DetectorType,
+        detector_type,
+        PnD
+    );
+
+    non_time_get_set!(
+        percents_emitted,
+        set_percents_emitted,
+        PercentEmitted,
+        percent_emitted,
+        PnP
+    );
+
+    non_time_get_set!(
+        detector_voltages,
+        set_detector_voltages,
+        DetectorVoltage,
+        detector_voltage,
+        PnV
+    );
+
     /// Return a list of measurement names as stored in $PnS
     ///
     /// If not given, will be replaced by "Mn" where "n" is the measurement
@@ -4816,7 +4863,6 @@ where
         let meas: Vec<_> = self
             .measurements
             .iter_non_center_values()
-            .enumerate()
             .flat_map(|(i, m)| f_meas(m, i.into()))
             .collect();
         let (time_meas, time_meta) = self
@@ -4921,7 +4967,7 @@ where
         let (pass, fail): (Vec<_>, Vec<_>) = self
             .measurements
             .iter_non_center_values()
-            .map(|m| m.as_column_type(dt, &byteord))
+            .map(|(_, m)| m.as_column_type(dt, &byteord))
             .partition_result();
         let mut deferred: Vec<_> = fail.into_iter().flatten().collect();
         if pass.len() == ncols {

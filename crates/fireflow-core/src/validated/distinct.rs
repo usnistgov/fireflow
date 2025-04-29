@@ -256,8 +256,8 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     }
 
     /// Return iterator over borrowed non-center values
-    pub fn iter_non_center_values(&self) -> impl Iterator<Item = &V> + '_ {
-        self.iter().flat_map(|(_, x)| x.ok().map(|p| &p.value))
+    pub fn iter_non_center_values(&self) -> impl Iterator<Item = (MeasIdx, &V)> + '_ {
+        self.iter().flat_map(|(i, x)| x.ok().map(|p| (i, &p.value)))
     }
 
     /// Return iterator over borrowed non-center keys
@@ -362,6 +362,45 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                 .collect(),
             NamedVec::Unsplit(u) => u.members.iter_mut().map(|p| f(&mut p.value)).collect(),
         }
+    }
+
+    /// Apply function to non-center values with values, altering them in place
+    pub fn alter_non_center_values_zip<E, F, X>(&mut self, xs: Vec<X>, f: F) -> Option<Vec<E>>
+    where
+        F: Fn(&mut V, X) -> E,
+    {
+        let this_len = self.len_non_center();
+        let other_len = xs.len();
+        if this_len != other_len {
+            return None;
+        }
+        let res = match self {
+            NamedVec::Split(s, _) => {
+                let nleft = s.left.len();
+                let nright = s.right.len();
+                let mut it = xs.into_iter();
+                let left_r: Vec<_> = s
+                    .left
+                    .iter_mut()
+                    .zip(it.by_ref().take(nleft))
+                    .map(|(y, x)| f(&mut y.value, x))
+                    .collect();
+                let right_r: Vec<_> = s
+                    .right
+                    .iter_mut()
+                    .zip(it.by_ref().take(nright))
+                    .map(|(y, x)| f(&mut y.value, x))
+                    .collect();
+                left_r.into_iter().chain(right_r).collect()
+            }
+            NamedVec::Unsplit(u) => u
+                .members
+                .iter_mut()
+                .zip(xs)
+                .map(|(p, x)| f(&mut p.value, x))
+                .collect(),
+        };
+        Some(res)
     }
 
     /// Return position of center, if it exists

@@ -8,12 +8,12 @@ use fireflow_core::validated::datepattern::DatePattern;
 use fireflow_core::validated::nonstandard::*;
 use fireflow_core::validated::pattern::*;
 use fireflow_core::validated::ranged_float::*;
+use fireflow_core::validated::scale::*;
 use fireflow_core::validated::shortname::*;
 use fireflow_core::validated::spillover::*;
 use fireflow_core::validated::textdelim::TEXTDelim;
 
-use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
-use itertools::Itertools;
+use chrono::NaiveDateTime;
 use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
 use pyo3::class::basic::CompareOp;
 use pyo3::create_exception;
@@ -615,6 +615,7 @@ pywrap!(PyEndian, Endian, "Endian");
 pywrap!(PyOriginality, api::Originality, "Originality");
 pywrap!(PyTrigger, api::Trigger, "Trigger");
 pywrap!(PyAlphaNumType, api::AlphaNumType, "AlphaNumType");
+pywrap!(PyScale, Scale, "Scale");
 pywrap!(PySpillover, Spillover, "Spillover");
 
 pywrap!(PyColumnType, api::ColumnType, "ColumnType");
@@ -1033,6 +1034,18 @@ impl PyCoreTEXT3_2 {
         self.0.metadata.specific.byteord == Endian::Big
     }
 
+    #[getter]
+    fn get_datatypes(&self) -> Vec<PyAlphaNumType> {
+        self.0.datatypes().into_iter().map(|x| x.into()).collect()
+    }
+
+    #[getter]
+    fn get_scales(&self) -> Vec<PyScale> {
+        self.0.scales().into_iter().map(|x| x.into()).collect()
+    }
+
+    // TODO add data setters
+
     #[setter]
     fn set_big_endian(&mut self, is_big: bool) {
         let e = if is_big { Endian::Big } else { Endian::Little };
@@ -1341,42 +1354,42 @@ impl PyCoreTEXT3_2 {
         self.0.metadata.specific.plate.wellid = x.map(|x| x.into()).into()
     }
 
-    #[getter]
+    // #[getter]
     // python type is Union[int, list[Union[int, UintXType, SingleType, FloatType]]]
-    fn get_column_layout(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        let x = self.0.as_column_layout();
-        let y = error::PureMaybe::from_result_strs(x, error::PureErrorLevel::Error)
-            .into_result("could not make column layout".to_string())
-            .map_err(|a| a.into());
-        match handle_errors(y)? {
-            api::DataLayout::AsciiDelimited { nrows: _, ncols } => ncols.into_py_any(py),
-            api::DataLayout::AlphaNum { nrows: _, columns } => {
-                let (pass, fail): (Vec<_>, Vec<_>) = columns
-                    .iter()
-                    .map(|ct| match ct {
-                        api::ColumnType::Ascii { bytes } => bytes.into_py_any(py),
-                        api::ColumnType::Integer(u) => match u {
-                            api::AnyUintType::Uint08(t) => PyUint08Type(t.clone()).into_py_any(py),
-                            api::AnyUintType::Uint16(t) => PyUint16Type(t.clone()).into_py_any(py),
-                            api::AnyUintType::Uint24(t) => PyUint24Type(t.clone()).into_py_any(py),
-                            api::AnyUintType::Uint32(t) => PyUint32Type(t.clone()).into_py_any(py),
-                            api::AnyUintType::Uint40(t) => PyUint40Type(t.clone()).into_py_any(py),
-                            api::AnyUintType::Uint48(t) => PyUint48Type(t.clone()).into_py_any(py),
-                            api::AnyUintType::Uint56(t) => PyUint56Type(t.clone()).into_py_any(py),
-                            api::AnyUintType::Uint64(t) => PyUint64Type(t.clone()).into_py_any(py),
-                        },
-                        api::ColumnType::Float(u) => PySingleType(u.clone()).into_py_any(py),
-                        api::ColumnType::Double(u) => PyDoubleType(u.clone()).into_py_any(py),
-                    })
-                    .partition_result();
-                if let Some(err) = fail.into_iter().next() {
-                    Err(err)
-                } else {
-                    pass.into_py_any(py)
-                }
-            }
-        }
-    }
+    // fn get_column_layout(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+    //     let x = self.0.as_column_layout();
+    //     let y = error::PureMaybe::from_result_strs(x, error::PureErrorLevel::Error)
+    //         .into_result("could not make column layout".to_string())
+    //         .map_err(|a| a.into());
+    //     match handle_errors(y)? {
+    //         api::DataLayout::AsciiDelimited { nrows: _, ncols } => ncols.into_py_any(py),
+    //         api::DataLayout::AlphaNum { nrows: _, columns } => {
+    //             let (pass, fail): (Vec<_>, Vec<_>) = columns
+    //                 .iter()
+    //                 .map(|ct| match ct {
+    //                     api::ColumnType::Ascii { bytes } => bytes.into_py_any(py),
+    //                     api::ColumnType::Integer(u) => match u {
+    //                         api::AnyUintType::Uint08(t) => PyUint08Type(t.clone()).into_py_any(py),
+    //                         api::AnyUintType::Uint16(t) => PyUint16Type(t.clone()).into_py_any(py),
+    //                         api::AnyUintType::Uint24(t) => PyUint24Type(t.clone()).into_py_any(py),
+    //                         api::AnyUintType::Uint32(t) => PyUint32Type(t.clone()).into_py_any(py),
+    //                         api::AnyUintType::Uint40(t) => PyUint40Type(t.clone()).into_py_any(py),
+    //                         api::AnyUintType::Uint48(t) => PyUint48Type(t.clone()).into_py_any(py),
+    //                         api::AnyUintType::Uint56(t) => PyUint56Type(t.clone()).into_py_any(py),
+    //                         api::AnyUintType::Uint64(t) => PyUint64Type(t.clone()).into_py_any(py),
+    //                     },
+    //                     api::ColumnType::Float(u) => PySingleType(u.clone()).into_py_any(py),
+    //                     api::ColumnType::Double(u) => PyDoubleType(u.clone()).into_py_any(py),
+    //                 })
+    //                 .partition_result();
+    //             if let Some(err) = fail.into_iter().next() {
+    //                 Err(err)
+    //             } else {
+    //                 pass.into_py_any(py)
+    //             }
+    //         }
+    //     }
+    // }
 
     // TODO add rest of metadata keywords
     // TODO add option to get/set measurements

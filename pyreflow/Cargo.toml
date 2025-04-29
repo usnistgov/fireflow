@@ -14,3 +14,5 @@ chrono = { workspace = true }
 polars = { version = "0.46.0" }
 pyo3-polars = { version = "0.20.0" }
 itertools = { workspace = true }
+nalgebra = { workspace = true }
+numpy = { version = "0.23", features = ["nalgebra"] }

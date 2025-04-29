@@ -689,6 +689,24 @@ pub struct InnerTime3_2 {
     pub datatype: OptionalKw<NumType>,
 }
 
+// impl InnerTime3_0 {
+//     pub fn timestep(&self) -> Timestep {
+//         self.timestep
+//     }
+// }
+
+// impl InnerTime3_1 {
+//     pub fn timestep(&self) -> Timestep {
+//         self.timestep
+//     }
+// }
+
+// impl InnerTime3_1 {
+//     pub fn timestep(&self) -> Timestep {
+//         self.timestep
+//     }
+// }
+
 /// Measurement fields specific to version 2.0
 #[derive(Clone, Serialize)]
 pub struct InnerMeasurement2_0 {
@@ -1466,6 +1484,7 @@ impl Default for Timestep {
 
 newtype_disp!(Timestep);
 newtype_fromstr!(Timestep, RangedFloatError);
+newtype_from!(Timestep, PositiveFloat);
 
 kw_req_meta!(Timestep, "TIMESTEP");
 
@@ -4664,6 +4683,16 @@ where
         } else {
             Ok(None)
         }
+    }
+
+    pub fn measurements(&self) -> &Measurements<M::N, M::T, M::P> {
+        &self.measurements
+    }
+
+    pub fn as_center_mut(
+        &mut self,
+    ) -> Option<IndexedElement<&mut Shortname, &mut TimeChannel<M::T>>> {
+        self.measurements.as_center_mut()
     }
 
     pub fn add_measurement(

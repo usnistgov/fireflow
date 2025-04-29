@@ -1,4 +1,5 @@
 use fireflow_core::api;
+use fireflow_core::api::VersionedTime;
 use fireflow_core::config::Strict;
 use fireflow_core::config::{self, OffsetCorrection};
 use fireflow_core::error;
@@ -8,10 +9,12 @@ use fireflow_core::validated::nonstandard::*;
 use fireflow_core::validated::pattern::*;
 use fireflow_core::validated::ranged_float::*;
 use fireflow_core::validated::shortname::*;
+use fireflow_core::validated::spillover::*;
 use fireflow_core::validated::textdelim::TEXTDelim;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 use itertools::Itertools;
+use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
 use pyo3::class::basic::CompareOp;
 use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyWarning};
@@ -609,6 +612,7 @@ pywrap!(PyEndian, Endian, "Endian");
 pywrap!(PyOriginality, api::Originality, "Originality");
 pywrap!(PyTrigger, api::Trigger, "Trigger");
 pywrap!(PyAlphaNumType, api::AlphaNumType, "AlphaNumType");
+pywrap!(PySpillover, Spillover, "Spillover");
 
 pywrap!(PyColumnType, api::ColumnType, "ColumnType");
 pywrap!(PyUint08Type, api::Uint08Type, "Uint08Type");
@@ -1015,13 +1019,14 @@ impl PyCoreTEXT3_2 {
     }
 
     #[getter]
-    fn get_byteord(&self) -> PyEndian {
-        self.0.metadata.specific.byteord.into()
+    fn get_big_endian(&self) -> bool {
+        self.0.metadata.specific.byteord == Endian::Big
     }
 
     #[setter]
-    fn set_byteord(&mut self, x: PyEndian) {
-        self.0.metadata.specific.byteord = x.into()
+    fn set_big_endian(&mut self, is_big: bool) {
+        let e = if is_big { Endian::Big } else { Endian::Little };
+        self.0.metadata.specific.byteord = e;
     }
 
     #[getter]
@@ -1034,7 +1039,36 @@ impl PyCoreTEXT3_2 {
         self.0.metadata.specific.cyt = x.into()
     }
 
-    // TODO add get/set $SPILLOVER matrix, which will need some validation
+    #[getter]
+    fn get_spillover_matrix<'a>(&self, py: Python<'a>) -> Option<Bound<'a, PyArray2<f32>>> {
+        self.0.spillover().map(|x| x.matrix().to_pyarray(py))
+    }
+
+    #[getter]
+    fn get_spillover_names(&self) -> Vec<String> {
+        self.0
+            .spillover()
+            .map(|x| x.measurements())
+            .unwrap_or_default()
+            .iter()
+            .map(|x| x.as_ref().to_string())
+            .collect()
+    }
+
+    fn set_spillover(
+        &mut self,
+        ns: Vec<PyShortname>,
+        a: PyReadonlyArray2<f32>,
+    ) -> Result<(), PyErr> {
+        let m = a.as_matrix().into_owned();
+        self.0
+            .set_spillover(ns.into_iter().map(|x| x.into()).collect(), m)
+            .map_err(|e| PyreflowException::new_err(e.to_string()))
+    }
+
+    fn unset_spillover(&mut self) {
+        self.0.unset_spillover()
+    }
 
     #[getter]
     fn get_cytsn(&self) -> Option<String> {
@@ -1052,26 +1086,26 @@ impl PyCoreTEXT3_2 {
         self.0.metadata.specific.cytsn = x.map(|x| x.into()).into()
     }
 
-    // #[getter]
-    // fn get_timestep(&self) -> Option<f32> {
-    //     self.0
-    //         .metadata
-    //         .specific
-    //         .timestep
-    //         .0
-    //         .as_ref()
-    //         .map(|x| x.0.into())
-    // }
+    #[getter]
+    fn get_timestep(&self) -> Option<f32> {
+        self.0
+            .measurements()
+            .as_center()
+            .and_then(|x| x.value.specific.timestep())
+            .map(|x| x.0.into())
+    }
 
-    // #[setter]
-    // fn set_timestep(&mut self, x: Option<f32>) -> PyResult<()> {
-    //     let t = x
-    //         .map(PositiveFloat::try_from)
-    //         .transpose()
-    //         .map_err(|e| PyreflowException::new_err(e.to_string()))?;
-    //     self.0.metadata.specific.timestep = t.map(api::Timestep).into();
-    //     Ok(())
-    // }
+    #[setter]
+    fn set_timestep(&mut self, x: f32) -> PyResult<bool> {
+        x.try_into()
+            .map(|x: PositiveFloat| {
+                self.0
+                    .as_center_mut()
+                    .map(|y| y.value.specific.set_timestep(x.into()))
+                    .is_some()
+            })
+            .map_err(|e| PyreflowException::new_err(e.to_string()))
+    }
 
     #[getter]
     fn get_vol(&self) -> Option<f32> {

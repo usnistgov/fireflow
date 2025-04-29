@@ -5505,6 +5505,32 @@ macro_rules! spillover_methods {
     };
 }
 
+macro_rules! display_methods {
+    () => {
+        pub fn displays(&self) -> Vec<Option<&Display>> {
+            self.measurements
+                .iter()
+                .map(|x| {
+                    x.1.map_or_else(
+                        |t| t.value.specific.display.as_ref_opt(),
+                        |m| m.value.specific.display.as_ref_opt(),
+                    )
+                })
+                .collect()
+        }
+
+        pub fn set_displays(&mut self, ns: Vec<Option<Display>>) -> bool {
+            self.measurements
+                .alter_values_zip(
+                    ns,
+                    |m, n| m.specific.display = n.into(),
+                    |t, n| t.specific.display = n.into(),
+                )
+                .is_some()
+        }
+    };
+}
+
 impl CoreTEXT3_1 {
     scale_req!();
     spillover_methods!();
@@ -5545,7 +5571,7 @@ impl CoreTEXT3_1 {
         self.set_data_delimited_inner(ys)
     }
 
-    // TODO add $PnDISPLAY setters
+    display_methods!();
 
     non_time_get_set!(gains, set_gains, Gain, [specific], gain, PnG);
 
@@ -5759,6 +5785,8 @@ impl CoreTEXT3_2 {
         }
         res
     }
+
+    display_methods!();
 
     non_time_get_set!(gains, set_gains, Gain, [specific], gain, PnG);
 

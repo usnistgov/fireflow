@@ -25,8 +25,10 @@ use pyo3::types::PyDict;
 use pyo3::IntoPyObjectExt;
 use pyo3_polars::PyDataFrame;
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::ffi::CString;
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::path;
 
 #[pymodule]
@@ -599,6 +601,7 @@ pywrap!(PyMeasurement3_0, api::Measurement3_0, "Measurement3_0");
 pywrap!(PyMeasurement3_1, api::Measurement3_1, "Measurement3_1");
 pywrap!(PyMeasurement3_2, api::Measurement3_2, "Measurement3_2");
 pywrap!(PyDatePattern, DatePattern, "DatePattern");
+
 pywrap!(PyShortname, Shortname, "Shortname");
 pywrap!(PyTimePattern, TimePattern, "TimePattern");
 pywrap!(PyShortnamePrefix, ShortnamePrefix, "ShortnamePrefix");
@@ -631,6 +634,13 @@ py_disp!(PyDatePattern);
 
 py_parse!(PyShortname, Shortname);
 py_disp!(PyShortname);
+py_eq!(PyShortname);
+
+impl Hash for PyShortname {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
+}
 
 py_parse!(PyNonStdMeasPattern, NonStdMeasPattern);
 py_disp!(PyNonStdMeasPattern);
@@ -1258,7 +1268,27 @@ impl PyCoreTEXT3_2 {
         self.0.metadata.specific.unstained.unstainedinfo = x.map(|x| x.into()).into()
     }
 
-    // TODO unstainedcenters?
+    #[getter]
+    fn get_unstained_centers(&self) -> Option<HashMap<PyShortname, f32>> {
+        self.0.unstained_centers().map(|x| {
+            <HashMap<Shortname, f32>>::from(x.clone())
+                .into_iter()
+                .map(|(k, v)| (k.into(), v))
+                .collect()
+        })
+    }
+
+    fn insert_unstained_center(&mut self, k: PyShortname, v: f32) -> Option<f32> {
+        self.0.insert_unstained_center(k.into(), v)
+    }
+
+    fn remove_unstained_center(&mut self, k: PyShortname) -> Option<f32> {
+        self.0.remove_unstained_center(&k.into())
+    }
+
+    fn clear_unstained_centers(&mut self) {
+        self.0.clear_unstained_centers()
+    }
 
     #[getter]
     fn get_platename(&self) -> Option<String> {

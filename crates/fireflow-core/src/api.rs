@@ -585,6 +585,8 @@ pub struct PlateData {
 #[derive(Clone, Serialize)]
 pub struct UnstainedCenters(HashMap<Shortname, f32>);
 
+newtype_from_outer!(UnstainedCenters, HashMap<Shortname, f32>);
+
 impl UnstainedCenters {
     fn remove_by_name(&mut self, n: &Shortname) -> bool {
         self.0.remove(n).is_some()
@@ -5530,6 +5532,11 @@ impl CoreTEXT3_2 {
         } else {
             None
         }
+    }
+
+    /// Remove all unstained center
+    pub fn clear_unstained_centers(&mut self) {
+        self.metadata.specific.unstained.unstainedcenters = None.into()
     }
 
     scale_req!();

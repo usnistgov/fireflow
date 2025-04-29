@@ -13,7 +13,7 @@ macro_rules! newtype_from {
 pub(crate) use newtype_from;
 
 macro_rules! newtype_from_outer {
-    ($outer:ident, $inner:ident) => {
+    ($outer:ident, $inner:path) => {
         impl From<$outer> for $inner {
             fn from(value: $outer) -> Self {
                 value.0

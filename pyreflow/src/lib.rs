@@ -1391,6 +1391,57 @@ impl PyCoreTEXT3_2 {
     //     }
     // }
 
+    #[getter]
+    fn get_bytes(&self) -> Option<Vec<u8>> {
+        self.0.bytes()
+    }
+
+    #[getter]
+    fn get_ranges(&self) -> Vec<String> {
+        // TODO strings, lame
+        self.0.ranges().iter().map(|r| r.0.clone()).collect()
+    }
+
+    #[getter]
+    fn get_longnames(&self) -> Vec<Option<String>> {
+        self.0
+            .longnames()
+            .into_iter()
+            .map(|x| x.map(|y| y.0.to_string()))
+            .collect()
+    }
+
+    #[setter]
+    fn set_longnames(&mut self, ns: Vec<Option<String>>) -> bool {
+        self.0.set_longnames(ns)
+    }
+
+    #[getter]
+    fn get_shortnames(&self) -> Vec<Option<PyShortname>> {
+        self.0
+            .shortnames()
+            .into_iter()
+            .map(|x| x.map(|y| y.clone().into()))
+            .collect()
+    }
+
+    #[getter]
+    fn get_all_shortnames(&self) -> Vec<PyShortname> {
+        self.0
+            .all_shortnames()
+            .into_iter()
+            .map(|x| x.into())
+            .collect()
+    }
+
+    #[setter]
+    fn set_shortnames(&mut self, ns: Vec<PyShortname>) -> PyResult<()> {
+        self.0
+            .set_shortnames(ns.into_iter().map(|x| x.into()).collect())
+            .map_err(|e| PyreflowException::new_err(e.to_string()))
+            .map(|_| ())
+    }
+
     // TODO add rest of metadata keywords
     // TODO add option to get/set measurements
     // TODO add option to populate fields based on nonstandard keywords?

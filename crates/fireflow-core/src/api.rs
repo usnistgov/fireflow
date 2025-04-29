@@ -3826,7 +3826,7 @@ impl AnyCoreTEXT {
     }
 
     pub fn shortnames(&self) -> Vec<Shortname> {
-        match_anycoretext!(self, x, { x.shortnames() })
+        match_anycoretext!(self, x, { x.all_shortnames() })
     }
 
     // pub fn into_2_0(self) -> PureResult<CoreTEXT2_0> {
@@ -3886,9 +3886,9 @@ impl AnyCoreTEXT {
         }
     }
 
-    fn set_shortnames(&mut self, names: Vec<Shortname>) -> Result<NameMapping, String> {
-        match_anycoretext!(self, x, { x.set_shortnames(names) })
-    }
+    // fn set_shortnames(&mut self, names: Vec<Shortname>) -> Result<NameMapping, String> {
+    //     match_anycoretext!(self, x, { x.set_shortnames(names) })
+    // }
 
     // TODO this is an instance where I may want to return different errors
     // that can be caught in python or whatever
@@ -4607,10 +4607,18 @@ where
     }
 
     /// Return a list of measurement names as stored in $PnN
+    pub fn shortnames(&self) -> Vec<Option<&Shortname>> {
+        self.measurements
+            .iter()
+            .map(|(_, x)| x.map_or_else(|t| Some(&t.key), |m| M::N::as_opt(&m.key)))
+            .collect()
+    }
+
+    /// Return a list of measurement names as stored in $PnN
     ///
     /// For cases where $PnN is optional and its value is not given, this will
     /// return "Mn" where "n" is the parameter index starting at 0.
-    pub fn shortnames(&self) -> Vec<Shortname> {
+    pub fn all_shortnames(&self) -> Vec<Shortname> {
         self.measurements.iter_all_names().collect()
     }
 
@@ -4620,8 +4628,9 @@ where
     /// keywords refering to the old names will be updated to reflect the new
     /// names. For 2.0 and 3.0 which have optional $PnN, all $PnN will end up
     /// being set.
-    pub fn set_shortnames(&mut self, ns: Vec<Shortname>) -> Result<NameMapping, String> {
-        let mapping = self.measurements.set_names(ns).map_err(|e| e.to_string())?;
+    // TODO what if I want to clear a name?
+    pub fn set_shortnames(&mut self, ns: Vec<Shortname>) -> Result<NameMapping, DistinctKeysError> {
+        let mapping = self.measurements.set_names(ns)?;
         // TODO reassign names in dataframe
         self.metadata.reassign_all(&mapping);
         Ok(mapping)
@@ -4708,7 +4717,7 @@ where
     }
 
     fn df_names(&self) -> Vec<PlSmallStr> {
-        self.shortnames()
+        self.all_shortnames()
             .into_iter()
             .map(|s| s.as_ref().into())
             .collect()
@@ -4732,11 +4741,6 @@ where
                 )
             })
             .collect()
-        // self.measurements
-        //     .iter_non_center_values()
-        //     .enumerate()
-        //     .map(|(i, m)| m.longname(i))
-        //     .collect()
     }
 
     // TODO there are a few keywords that can be set for each measurement,
@@ -4785,10 +4789,10 @@ where
 
     /// Show $PnR for each measurement
     // TODO this will give a bunch of strings, we can probably do better
-    pub fn ranges(&self) -> Vec<Range> {
+    pub fn ranges(&self) -> Vec<&Range> {
         self.measurements
             .iter()
-            .map(|(_, x)| x.map_or_else(|p| p.value.range.clone(), |p| p.value.range.clone()))
+            .map(|(_, x)| x.map_or_else(|p| &p.value.range, |p| &p.value.range))
             .collect()
     }
 
@@ -5725,11 +5729,11 @@ where
     M: VersionedMetadata,
     M::N: Clone,
 {
-    fn set_shortnames(&mut self, names: Vec<Shortname>) -> Result<NameMapping, String> {
-        self.text
-            .set_shortnames(names)
-            .inspect(|_| self.text.set_df_column_names(&mut self.data).unwrap())
-    }
+    // fn set_shortnames(&mut self, names: Vec<Shortname>) -> Result<NameMapping, String> {
+    //     self.text
+    //         .set_shortnames(names)
+    //         .inspect(|_| self.text.set_df_column_names(&mut self.data).unwrap())
+    // }
 
     // TODO also make a version of this that takes an index since not all
     // columns are named or we might not know the name

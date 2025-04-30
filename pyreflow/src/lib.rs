@@ -623,6 +623,7 @@ pywrap!(PyNonStdMeasKey, NonStdMeasKey, "NonStdMeasKey");
 pywrap!(PyNonStdKey, NonStdKey, "NonStdKey");
 pywrap!(PyTEXTDelim, TEXTDelim, "TEXTDelim");
 pywrap!(PyCytSetter, MetaKwSetter<api::Cyt>, "CytSetter");
+pywrap!(PyCalibration3_1, api::Calibration3_1, "Calibration3_1");
 pywrap!(PyCalibration3_2, api::Calibration3_2, "Calibration3_2");
 pywrap!(PyMeasurementType, api::MeasurementType, "MeasurementType");
 pywrap!(PyFeature, api::Feature, "Feature");
@@ -1555,10 +1556,19 @@ common_methods!(PyCoreTEXT3_0, []);
 common_methods!(PyCoreTEXT3_1, []);
 common_methods!(PyCoreTEXT3_2, []);
 
+meas_get_set!(PyCoreTEXT3_0, gains, set_gains, PyPositiveFloat);
+meas_get_set!(PyCoreTEXT3_1, gains, set_gains, PyPositiveFloat);
 meas_get_set!(PyCoreTEXT3_2, gains, set_gains, PyPositiveFloat);
-// TODO wavelengths
+
 meas_get_set!(PyCoreTEXT3_2, detector_names, set_detector_names, String);
 // TODO make sure we can make a calibration object
+
+meas_get_set!(
+    PyCoreTEXT3_1,
+    calibrations,
+    set_calibrations,
+    PyCalibration3_1
+);
 meas_get_set!(
     PyCoreTEXT3_2,
     calibrations,

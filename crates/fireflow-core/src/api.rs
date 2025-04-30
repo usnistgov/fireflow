@@ -3809,19 +3809,19 @@ impl AnyCoreTEXT {
         }
     }
 
-    any_core_get_set_copied!(abrt, set_abrt, Abrt);
-    any_core_get_set_copied!(lost, set_lost, Lost);
+    // any_core_get_set_copied!(abrt, set_abrt, Abrt);
+    // any_core_get_set_copied!(lost, set_lost, Lost);
 
-    any_core_get_set_str!(cells, set_cells);
-    any_core_get_set_str!(com, set_com);
-    any_core_get_set_str!(exp, set_exp);
-    any_core_get_set_str!(fil, set_fil);
-    any_core_get_set_str!(inst, set_inst);
-    any_core_get_set_str!(op, set_op);
-    any_core_get_set_str!(proj, set_proj);
-    any_core_get_set_str!(smno, set_smno);
-    any_core_get_set_str!(src, set_src);
-    any_core_get_set_str!(sys, set_sys);
+    // any_core_get_set_str!(cells, set_cells);
+    // any_core_get_set_str!(com, set_com);
+    // any_core_get_set_str!(exp, set_exp);
+    // any_core_get_set_str!(fil, set_fil);
+    // any_core_get_set_str!(inst, set_inst);
+    // any_core_get_set_str!(op, set_op);
+    // any_core_get_set_str!(proj, set_proj);
+    // any_core_get_set_str!(smno, set_smno);
+    // any_core_get_set_str!(src, set_src);
+    // any_core_get_set_str!(sys, set_sys);
 
     // pub fn trigger(&self) -> Option<&Trigger> {
     //     match_anycoretext!(self, x, { x.trigger() })
@@ -4550,19 +4550,19 @@ where
     }
 
     // TODO do I really need these?
-    get_set_copied!(abrt, set_abrt, Abrt);
-    get_set_copied!(lost, set_lost, Lost);
+    // get_set_copied!(abrt, set_abrt, Abrt);
+    // get_set_copied!(lost, set_lost, Lost);
 
-    get_set_str!(cells, set_cells);
-    get_set_str!(com, set_com);
-    get_set_str!(exp, set_exp);
-    get_set_str!(fil, set_fil);
-    get_set_str!(inst, set_inst);
-    get_set_str!(op, set_op);
-    get_set_str!(proj, set_proj);
-    get_set_str!(smno, set_smno);
-    get_set_str!(src, set_src);
-    get_set_str!(sys, set_sys);
+    // get_set_str!(cells, set_cells);
+    // get_set_str!(com, set_com);
+    // get_set_str!(exp, set_exp);
+    // get_set_str!(fil, set_fil);
+    // get_set_str!(inst, set_inst);
+    // get_set_str!(op, set_op);
+    // get_set_str!(proj, set_proj);
+    // get_set_str!(smno, set_smno);
+    // get_set_str!(src, set_src);
+    // get_set_str!(sys, set_sys);
 
     pub fn trigger_name(&self) -> Option<&Shortname> {
         self.metadata.tr.as_ref_opt().map(|x| &x.measurement)

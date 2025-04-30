@@ -948,34 +948,34 @@ impl PyStandardizedDataset {
 }
 
 macro_rules! get_set_str {
-    ($pytype:ident, [$($root:ident,)*], $get:ident, $set:ident) => {
+    ($pytype:ident, [$($root:ident),*], $get:ident, $set:ident, $field:ident) => {
         #[pymethods]
         impl $pytype {
             #[getter]
             fn $get(&self) -> Option<String> {
-                self.0.$($root.)*$get().map(String::from)
+                self.0.$($root.)*$field.as_ref_opt().map(|x| x.clone().into())
             }
 
             #[setter]
             fn $set(&mut self, s: Option<String>) {
-                self.0.$($root.)*$set(s)
+                self.0.$($root.)*$field = s.map(|x| x.into()).into()
             }
         }
     };
 }
 
 macro_rules! get_set_copied {
-    ($pytype:ident, [$($root:ident,)*], $get:ident, $set:ident, $in:expr, $out:ty) => {
+    ($pytype:ident, [$($root:ident),*], $get:ident, $set:ident, $field:ident, $in:expr, $out:ty) => {
         #[pymethods]
         impl $pytype {
             #[getter]
             fn $get(&self) -> Option<$out> {
-                self.0.$($root.)*$get().map(|x| x.into())
+                self.0.$($root.)*$field.0.map(|x| x.into())
             }
 
             #[setter]
             fn $set(&mut self, s: Option<$out>) {
-                self.0.$($root.)*$set(s.map($in))
+                self.0.$($root.)*$field = s.map($in).into()
             }
         }
     };
@@ -1458,18 +1458,19 @@ macro_rules! spillover_methods {
 macro_rules! common_methods {
     ($pytype:ident, [$($root:ident)*]) => {
         // common metadata keywords
-        get_set_copied!( $pytype, [$($root,)*], abrt, set_abrt, api::Abrt, u32);
-        get_set_copied!( $pytype, [$($root,)*], lost, set_lost, api::Lost, u32);
-        get_set_str!(    $pytype, [$($root,)*], cells, set_cells);
-        get_set_str!(    $pytype, [$($root,)*], com, set_com);
-        get_set_str!(    $pytype, [$($root,)*], exp, set_exp);
-        get_set_str!(    $pytype, [$($root,)*], fil, set_fil);
-        get_set_str!(    $pytype, [$($root,)*], inst, set_inst);
-        get_set_str!(    $pytype, [$($root,)*], op, set_op);
-        get_set_str!(    $pytype, [$($root,)*], proj, set_proj);
-        get_set_str!(    $pytype, [$($root,)*], smno, set_smno);
-        get_set_str!(    $pytype, [$($root,)*], src, set_src);
-        get_set_str!(    $pytype, [$($root,)*], sys, set_sys);
+        get_set_copied!($pytype, [$($root),*metadata], get_abrt, set_abrt, abrt, api::Abrt, u32);
+        get_set_copied!($pytype, [$($root),*metadata], get_lost, set_lost, lost, api::Lost, u32);
+
+        get_set_str!($pytype, [$($root),*metadata], get_cells, set_cells, cells);
+        get_set_str!($pytype, [$($root),*metadata], get_com,   set_com,   com);
+        get_set_str!($pytype, [$($root),*metadata], get_exp,   set_exp,   exp);
+        get_set_str!($pytype, [$($root),*metadata], get_fil,   set_fil,   fil);
+        get_set_str!($pytype, [$($root),*metadata], get_inst,  set_inst,  inst);
+        get_set_str!($pytype, [$($root),*metadata], get_op,    set_op,    op);
+        get_set_str!($pytype, [$($root),*metadata], get_proj,  set_proj,  proj);
+        get_set_str!($pytype, [$($root),*metadata], get_smno,  set_smno,  smno);
+        get_set_str!($pytype, [$($root),*metadata], get_src,   set_src,   src);
+        get_set_str!($pytype, [$($root),*metadata], get_sys,   set_sys,   sys);
 
         // common measurement keywords
         meas_get_set!($pytype, filters,           set_filters,           String);

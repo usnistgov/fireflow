@@ -4665,7 +4665,7 @@ where
         Ok(mapping)
     }
 
-    fn set_time_channel(&mut self, n: &Shortname) -> Result<(), MeasToTimeErrors>
+    pub fn set_time_channel(&mut self, n: &Shortname) -> Result<(), MeasToTimeErrors>
     where
         Measurement<M::P>: From<TimeChannel<M::T>>,
         TimeChannel<M::T>: TryFrom<Measurement<M::P>, Error = TryFromTimeError<Measurement<M::P>>>,
@@ -4693,7 +4693,7 @@ where
         }
     }
 
-    fn unset_time_channel(&mut self) -> bool
+    pub fn unset_time_channel(&mut self) -> bool
     where
         Measurement<M::P>: From<TimeChannel<M::T>>,
     {
@@ -8891,17 +8891,26 @@ impl TryFrom<InnerMeasurement3_2> for InnerTime3_2 {
 
 impl<M, T> TryFrom<Measurement<M>> for TimeChannel<T>
 where
-    T: TryFrom<M>,
+    T: TryFrom<M, Error = TryFromTimeError<M>>,
 {
-    type Error = T::Error;
+    type Error = TryFromErrorReset<MeasToTimeErrors, Measurement<M>>;
     fn try_from(value: Measurement<M>) -> Result<Self, Self::Error> {
-        value.specific.try_into().map(|specific| Self {
-            bytes: value.bytes,
-            range: value.range,
-            longname: value.longname,
-            nonstandard_keywords: value.nonstandard_keywords,
-            specific,
-        })
+        match value.specific.try_into() {
+            Ok(specific) => Ok(Self {
+                bytes: value.bytes,
+                range: value.range,
+                longname: value.longname,
+                nonstandard_keywords: value.nonstandard_keywords,
+                specific,
+            }),
+            Err(old) => Err(TryFromErrorReset {
+                error: old.error,
+                value: Measurement {
+                    specific: old.value,
+                    ..value
+                },
+            }),
+        }
     }
 }
 
@@ -8933,6 +8942,16 @@ pub enum MeasToTimeError {
     NonLinear,
     HasGain,
     NotTimeType,
+}
+
+impl fmt::Display for MeasToTimeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            MeasToTimeError::NonLinear => write!(f, "$PnE must be '0,0'"),
+            MeasToTimeError::HasGain => write!(f, "$PnG must not be set"),
+            MeasToTimeError::NotTimeType => write!(f, "$PnTYPE must not be set"),
+        }
+    }
 }
 
 type MetaConvertErrors = Vec<MetaConvertError>;

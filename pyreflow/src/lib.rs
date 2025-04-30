@@ -14,6 +14,7 @@ use fireflow_core::validated::spillover::*;
 use fireflow_core::validated::textdelim::TEXTDelim;
 
 use chrono::NaiveDateTime;
+use itertools::Itertools;
 use nonempty::NonEmpty;
 use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
 use pyo3::class::basic::CompareOp;
@@ -1463,6 +1464,18 @@ macro_rules! common_methods {
 
             fn clear_trigger(&mut self) {
                 self.0.clear_trigger()
+            }
+
+            fn set_time_channnel(&mut self, n: PyShortname) -> PyResult<()> {
+                self.0.set_time_channel(&n.into()).map_err(|es| {
+                    let f = es.into_iter().map(|e| e.to_string()).join(", ");
+                    let s = format!("Error(s) encountered when converting measurement to time: {f}");
+                    PyreflowException::new_err(s)
+                })
+            }
+
+            fn unset_time_channel(&mut self) -> bool {
+                self.0.unset_time_channel()
             }
 
             #[getter]

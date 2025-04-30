@@ -1018,35 +1018,6 @@ macro_rules! get_set_copied {
 //     };
 // }
 
-// macro_rules! core_text_methods {
-//     ($pytype:ident, [$($root:ident)*]) => {
-//         // get_set_datetime!($pytype, [$($root,)*]);
-
-//         #[pymethods]
-//         impl $pytype {
-//             // #[getter]
-//             // fn get_trigger(&self) -> Option<PyTrigger> {
-//             //     self.0.$($root.)*trigger().map(|x| x.clone().into())
-//             // }
-
-//             // #[setter]
-//             // fn set_trigger(&mut self, t: Option<PyTrigger>) {
-//             //     self.0.$($root.)*set_trigger(t.map(|x| x.into()))
-//             // }
-
-//             // #[getter]
-//             // fn get_datatype(&self) -> PyAlphaNumType {
-//             //     self.0.$($root.)*datatype().into()
-//             // }
-
-//             // #[setter]
-//             // fn set_datatype(&mut self, t: PyAlphaNumType) {
-//             //     self.0.$($root.)*set_datatype(t.into())
-//             // }
-//         }
-//     };
-// }
-
 // core_text_methods!(PyStandardizedTEXT, [standardized]);
 // core_text_methods!(PyCoreTEXT2_0, []);
 // core_text_methods!(PyCoreTEXT3_0, []);

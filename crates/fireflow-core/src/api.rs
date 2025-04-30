@@ -8816,7 +8816,10 @@ impl TryFrom<InnerMeasurement2_0> for InnerTime2_0 {
             Ok(Self)
         } else {
             Err(TryFromTimeError {
-                error: vec![MeasToTimeError::NonLinear],
+                error: NonEmpty {
+                    head: MeasToTimeError::NonLinear,
+                    tail: vec![],
+                },
                 value,
             })
         }
@@ -8826,40 +8829,38 @@ impl TryFrom<InnerMeasurement2_0> for InnerTime2_0 {
 impl TryFrom<InnerMeasurement3_0> for InnerTime3_0 {
     type Error = TryFromTimeError<InnerMeasurement3_0>;
     fn try_from(value: InnerMeasurement3_0) -> Result<Self, Self::Error> {
-        let mut error = vec![];
+        let mut es = vec![];
         if value.scale != Scale::Linear {
-            error.push(MeasToTimeError::NonLinear);
+            es.push(MeasToTimeError::NonLinear);
         }
         if value.gain.0.is_some() {
-            error.push(MeasToTimeError::HasGain);
+            es.push(MeasToTimeError::HasGain);
         }
-        if error.is_empty() {
+        NonEmpty::from_vec(es).map_or(
             Ok(Self {
                 timestep: Timestep::default(),
-            })
-        } else {
-            Err(TryFromTimeError { error, value })
-        }
+            }),
+            |error| Err(TryFromTimeError { error, value }),
+        )
     }
 }
 
 impl TryFrom<InnerMeasurement3_1> for InnerTime3_1 {
     type Error = TryFromTimeError<InnerMeasurement3_1>;
     fn try_from(value: InnerMeasurement3_1) -> Result<Self, Self::Error> {
-        let mut error = vec![];
+        let mut es = vec![];
         if value.scale != Scale::Linear {
-            error.push(MeasToTimeError::NonLinear);
+            es.push(MeasToTimeError::NonLinear);
         }
         if value.gain.0.is_some() {
-            error.push(MeasToTimeError::HasGain);
+            es.push(MeasToTimeError::HasGain);
         }
-        if error.is_empty() {
-            Ok(Self {
+        match NonEmpty::from_vec(es) {
+            None => Ok(Self {
                 timestep: Timestep::default(),
                 display: value.display,
-            })
-        } else {
-            Err(TryFromTimeError { error, value })
+            }),
+            Some(error) => Err(TryFromTimeError { error, value }),
         }
     }
 }
@@ -8867,24 +8868,23 @@ impl TryFrom<InnerMeasurement3_1> for InnerTime3_1 {
 impl TryFrom<InnerMeasurement3_2> for InnerTime3_2 {
     type Error = TryFromTimeError<InnerMeasurement3_2>;
     fn try_from(value: InnerMeasurement3_2) -> Result<Self, Self::Error> {
-        let mut error = vec![];
+        let mut es = vec![];
         if value.scale != Scale::Linear {
-            error.push(MeasToTimeError::NonLinear);
+            es.push(MeasToTimeError::NonLinear);
         }
         if value.gain.0.is_some() {
-            error.push(MeasToTimeError::HasGain);
+            es.push(MeasToTimeError::HasGain);
         }
         if value.measurement_type.0.is_some() {
-            error.push(MeasToTimeError::NotTimeType);
+            es.push(MeasToTimeError::NotTimeType);
         }
-        if error.is_empty() {
-            Ok(Self {
+        match NonEmpty::from_vec(es) {
+            None => Ok(Self {
                 timestep: Timestep::default(),
                 display: value.display,
                 datatype: value.datatype,
-            })
-        } else {
-            Err(TryFromTimeError { error, value })
+            }),
+            Some(error) => Err(TryFromTimeError { error, value }),
         }
     }
 }
@@ -8927,7 +8927,7 @@ where
 
 type TryFromTimeError<T> = TryFromErrorReset<MeasToTimeErrors, T>;
 
-type MeasToTimeErrors = Vec<MeasToTimeError>;
+type MeasToTimeErrors = NonEmpty<MeasToTimeError>;
 
 pub enum MeasToTimeError {
     NonLinear,

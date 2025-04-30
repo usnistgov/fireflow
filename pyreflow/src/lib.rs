@@ -1576,6 +1576,10 @@ scales_methods!(PyCoreTEXT3_0);
 scales_methods!(PyCoreTEXT3_1);
 scales_methods!(PyCoreTEXT3_2);
 
+get_set_str!(PyCoreTEXT2_0, [metadata, specific], get_cyt, set_cyt, cyt);
+get_set_str!(PyCoreTEXT3_0, [metadata, specific], get_cyt, set_cyt, cyt);
+get_set_str!(PyCoreTEXT3_1, [metadata, specific], get_cyt, set_cyt, cyt);
+
 get_set_str!(
     PyCoreTEXT3_2,
     [metadata, specific],

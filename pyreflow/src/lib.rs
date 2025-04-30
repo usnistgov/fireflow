@@ -1471,6 +1471,26 @@ macro_rules! common_methods {
         #[pymethods]
         impl $pytype {
             #[getter]
+            fn trigger_name(&self) -> Option<PyShortname> {
+                self.0.trigger_name().map(|x| x.clone().into())
+            }
+
+            #[getter]
+            fn trigger_threshold(&self) -> Option<u32> {
+                self.0.metadata.tr.as_ref_opt().map(|x| x.threshold)
+            }
+
+            #[setter]
+            fn set_trigger_name(&mut self, n: PyShortname) -> bool {
+                self.0.set_trigger_name(n.into())
+            }
+
+            #[setter]
+            fn set_trigger_threshold(&mut self, x: u32) -> bool {
+                self.0.set_trigger_threshold(x)
+            }
+
+            #[getter]
             fn get_bytes(&self) -> Option<Vec<u8>> {
                 self.0.bytes()
             }

@@ -1728,7 +1728,7 @@ pub struct Metadata<X> {
     pub sys: OptionalKw<Sys>,
 
     /// Value of $TR
-    tr: OptionalKw<Trigger>,
+    pub tr: OptionalKw<Trigger>,
 
     /// Version-specific data
     pub specific: X,

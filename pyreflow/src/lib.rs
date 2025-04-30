@@ -590,11 +590,16 @@ pywrap!(
     "StandardizedDataset"
 );
 pywrap!(PyAnyCoreTEXT, api::AnyCoreTEXT, "AnyCoreTEXT");
-
 pywrap!(PyCoreTEXT2_0, api::CoreTEXT2_0, "CoreTEXT2_0");
 pywrap!(PyCoreTEXT3_0, api::CoreTEXT3_0, "CoreTEXT3_0");
 pywrap!(PyCoreTEXT3_1, api::CoreTEXT3_1, "CoreTEXT3_1");
 pywrap!(PyCoreTEXT3_2, api::CoreTEXT3_2, "CoreTEXT3_2");
+
+pywrap!(PyAnyCoreDataset, api::AnyCoreDataset, "AnyCoreDataset");
+pywrap!(PyCoreDataset2_0, api::CoreDataset2_0, "CoreDataset2_0");
+pywrap!(PyCoreDataset3_0, api::CoreDataset3_0, "CoreDataset3_0");
+pywrap!(PyCoreDataset3_1, api::CoreDataset3_1, "CoreDataset3_1");
+pywrap!(PyCoreDataset3_2, api::CoreDataset3_2, "CoreDataset3_2");
 
 pywrap!(PyMeasurement2_0, api::Measurement2_0, "Measurement2_0");
 pywrap!(PyMeasurement3_0, api::Measurement3_0, "Measurement3_0");
@@ -1065,8 +1070,8 @@ impl PyCoreTEXT3_2 {
     }
 
     #[getter]
-    fn get_scales(&self) -> Vec<PyScale> {
-        self.0.scales().into_iter().map(|x| x.into()).collect()
+    fn get_all_scales(&self) -> Vec<PyScale> {
+        self.0.all_scales().into_iter().map(|x| x.into()).collect()
     }
 
     // TODO add data setters

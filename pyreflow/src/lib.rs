@@ -1097,37 +1097,6 @@ impl PyCoreTEXT3_2 {
     }
 
     #[getter]
-    fn get_spillover_matrix<'a>(&self, py: Python<'a>) -> Option<Bound<'a, PyArray2<f32>>> {
-        self.0.spillover().map(|x| x.matrix().to_pyarray(py))
-    }
-
-    #[getter]
-    fn get_spillover_names(&self) -> Vec<String> {
-        self.0
-            .spillover()
-            .map(|x| x.measurements())
-            .unwrap_or_default()
-            .iter()
-            .map(|x| x.as_ref().to_string())
-            .collect()
-    }
-
-    fn set_spillover(
-        &mut self,
-        ns: Vec<PyShortname>,
-        a: PyReadonlyArray2<f32>,
-    ) -> Result<(), PyErr> {
-        let m = a.as_matrix().into_owned();
-        self.0
-            .set_spillover(ns.into_iter().map(|x| x.into()).collect(), m)
-            .map_err(|e| PyreflowException::new_err(e.to_string()))
-    }
-
-    fn unset_spillover(&mut self) {
-        self.0.unset_spillover()
-    }
-
-    #[getter]
     fn get_cytsn(&self) -> Option<String> {
         self.0
             .metadata
@@ -1447,6 +1416,44 @@ macro_rules! wavelengths_methods {
     };
 }
 
+macro_rules! spillover_methods {
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            #[getter]
+            fn get_spillover_matrix<'a>(&self, py: Python<'a>) -> Option<Bound<'a, PyArray2<f32>>> {
+                self.0.spillover().map(|x| x.matrix().to_pyarray(py))
+            }
+
+            #[getter]
+            fn get_spillover_names(&self) -> Vec<String> {
+                self.0
+                    .spillover()
+                    .map(|x| x.measurements())
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|x| x.as_ref().to_string())
+                    .collect()
+            }
+
+            fn set_spillover(
+                &mut self,
+                ns: Vec<PyShortname>,
+                a: PyReadonlyArray2<f32>,
+            ) -> Result<(), PyErr> {
+                let m = a.as_matrix().into_owned();
+                self.0
+                    .set_spillover(ns.into_iter().map(|x| x.into()).collect(), m)
+                    .map_err(|e| PyreflowException::new_err(e.to_string()))
+            }
+
+            fn unset_spillover(&mut self) {
+                self.0.unset_spillover()
+            }
+        }
+    };
+}
+
 // TODO add measurement getter/setter
 macro_rules! common_methods {
     ($pytype:ident, [$($root:ident)*]) => {
@@ -1620,6 +1627,9 @@ wavelength_methods!(PyCoreTEXT3_0);
 
 wavelengths_methods!(PyCoreTEXT3_1);
 wavelengths_methods!(PyCoreTEXT3_2);
+
+spillover_methods!(PyCoreTEXT3_1);
+spillover_methods!(PyCoreTEXT3_2);
 
 struct PyImpureError(error::ImpureFailure);
 

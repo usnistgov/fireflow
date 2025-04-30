@@ -20,6 +20,7 @@ use crate::validated::timestamps::*;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use itertools::Itertools;
 use nalgebra::DMatrix;
+use nonempty::NonEmpty;
 use polars::prelude::*;
 use regex::Regex;
 use serde::ser::SerializeStruct;
@@ -525,12 +526,20 @@ pub struct Calibration3_2 {
 /// This is a list of wavelengths used for the measurement. Starting in 3.1
 /// this could be a list, where it needed to be a single number in previous
 /// versions.
-#[derive(Clone, Serialize)]
-// TODO use non-empty here
-pub struct Wavelengths(pub Vec<u32>);
+#[derive(Clone)]
+pub struct Wavelengths(pub NonEmpty<u32>);
 
-newtype_from!(Wavelengths, Vec<u32>);
-newtype_from_outer!(Wavelengths, Vec<u32>);
+impl Serialize for Wavelengths {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.0.iter().collect::<Vec<_>>().serialize(serializer)
+    }
+}
+
+newtype_from!(Wavelengths, NonEmpty<u32>);
+newtype_from_outer!(Wavelengths, NonEmpty<u32>);
 
 /// The value for the $PnB key (all versions)
 ///
@@ -3192,14 +3201,30 @@ impl fmt::Display for Wavelengths {
 }
 
 impl str::FromStr for Wavelengths {
-    type Err = ParseIntError;
+    type Err = WavelengthsError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut ws = vec![];
         for x in s.split(",") {
-            ws.push(x.parse()?);
+            ws.push(x.parse().map_err(WavelengthsError::Int)?);
         }
-        Ok(Wavelengths(ws))
+        NonEmpty::from_vec(ws)
+            .ok_or(WavelengthsError::Empty)
+            .map(Wavelengths)
+    }
+}
+
+pub enum WavelengthsError {
+    Int(ParseIntError),
+    Empty,
+}
+
+impl fmt::Display for WavelengthsError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            WavelengthsError::Int(i) => write!(f, "{}", i),
+            WavelengthsError::Empty => write!(f, "list must not be empty"),
+        }
     }
 }
 
@@ -8201,20 +8226,16 @@ impl fmt::Display for FromByteOrdError {
 
 impl From<Wavelength> for Wavelengths {
     fn from(value: Wavelength) -> Self {
-        Wavelengths(vec![value.0])
+        Wavelengths(NonEmpty {
+            head: value.0,
+            tail: vec![],
+        })
     }
 }
 
 impl From<OptionalKw<Wavelengths>> for OptionalKw<Wavelength> {
     fn from(value: OptionalKw<Wavelengths>) -> Self {
-        value
-            .0
-            .map(|x| x.0)
-            .unwrap_or_default()
-            .first()
-            .copied()
-            .map(|x| x.into())
-            .into()
+        value.0.map(|x| (*x.0.first()).into()).into()
     }
 }
 

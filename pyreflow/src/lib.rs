@@ -1485,9 +1485,8 @@ meas_get_set!(
     String
 );
 
-// TODO this will probably change if/when we use non-empty
-meas_get_set!(PyCoreTEXT3_2, wavelengths, set_wavelengths, Vec<u32>);
 // TODO gain (validated)
+// TODO wavelengths
 meas_get_set!(PyCoreTEXT3_2, detector_names, set_detector_names, String);
 // TODO make sure we can make a calibration object
 meas_get_set!(

@@ -527,7 +527,10 @@ pub struct Calibration3_2 {
 /// versions.
 #[derive(Clone, Serialize)]
 // TODO use non-empty here
-pub struct Wavelengths(Vec<u32>);
+pub struct Wavelengths(pub Vec<u32>);
+
+newtype_from!(Wavelengths, Vec<u32>);
+newtype_from_outer!(Wavelengths, Vec<u32>);
 
 /// The value for the $PnB key (all versions)
 ///
@@ -5423,7 +5426,7 @@ impl CoreTEXT2_0 {
 
     non_time_get_set!(
         wavelengths,
-        set_wavelenths,
+        set_wavelengths,
         Wavelength,
         [specific],
         wavelength,
@@ -5492,7 +5495,7 @@ impl CoreTEXT3_0 {
 
     non_time_get_set!(
         wavelengths,
-        set_wavelenths,
+        set_wavelengths,
         Wavelength,
         [specific],
         wavelength,
@@ -5605,7 +5608,7 @@ impl CoreTEXT3_1 {
 
     non_time_get_set!(
         wavelengths,
-        set_wavelenths,
+        set_wavelengths,
         Wavelengths,
         [specific],
         wavelengths,
@@ -5820,7 +5823,7 @@ impl CoreTEXT3_2 {
 
     non_time_get_set!(
         wavelengths,
-        set_wavelenths,
+        set_wavelengths,
         Wavelengths,
         [specific],
         wavelengths,
@@ -5866,8 +5869,8 @@ impl CoreTEXT3_2 {
     );
 
     non_time_get_set!(
-        analyte,
-        set_analyte,
+        analytes,
+        set_analytes,
         Analyte,
         [specific],
         analyte,

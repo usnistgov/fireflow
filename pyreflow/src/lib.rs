@@ -610,6 +610,9 @@ pywrap!(PyNonStdMeasKey, NonStdMeasKey, "NonStdMeasKey");
 pywrap!(PyNonStdKey, NonStdKey, "NonStdKey");
 pywrap!(PyTEXTDelim, TEXTDelim, "TEXTDelim");
 pywrap!(PyCytSetter, MetaKwSetter<api::Cyt>, "CytSetter");
+pywrap!(PyCalibration3_2, api::Calibration3_2, "Calibration3_2");
+pywrap!(PyMeasurementType, api::MeasurementType, "MeasurementType");
+pywrap!(PyFeature, api::Feature, "Feature");
 
 pywrap!(PyEndian, Endian, "Endian");
 pywrap!(PyOriginality, api::Originality, "Originality");
@@ -1011,6 +1014,28 @@ core_text_methods!(PyCoreTEXT2_0, []);
 core_text_methods!(PyCoreTEXT3_0, []);
 core_text_methods!(PyCoreTEXT3_1, []);
 core_text_methods!(PyCoreTEXT3_2, []);
+
+macro_rules! meas_get_set {
+    ($pytype:ident, $get:ident, $set:ident, $t:path) => {
+        #[pymethods]
+        impl $pytype {
+            #[getter]
+            fn $get(&self) -> Vec<(usize, Option<$t>)> {
+                self.0
+                    .$get()
+                    .into_iter()
+                    .map(|(i, x)| (i.into(), x.map(|y| y.clone().into())))
+                    .collect()
+            }
+
+            #[setter]
+            fn $set(&mut self, xs: Vec<Option<$t>>) -> bool {
+                self.0
+                    .$set(xs.into_iter().map(|x| x.map(|y| y.into())).collect())
+            }
+        }
+    };
+}
 
 #[pymethods]
 impl PyCoreTEXT3_2 {
@@ -1448,6 +1473,42 @@ impl PyCoreTEXT3_2 {
 
     // TODO make function to add DATA/ANALYSIS, which will convert this to a CoreDataset
 }
+
+// common stuff
+meas_get_set!(PyCoreTEXT3_2, filters, set_filters, String);
+meas_get_set!(PyCoreTEXT3_2, powers, set_powers, u32);
+meas_get_set!(PyCoreTEXT3_2, detector_types, set_detector_types, String);
+meas_get_set!(
+    PyCoreTEXT3_2,
+    percents_emitted,
+    set_percents_emitted,
+    String
+);
+
+// TODO this will probably change if/when we use non-empty
+meas_get_set!(PyCoreTEXT3_2, wavelengths, set_wavelengths, Vec<u32>);
+// TODO gain (validated)
+meas_get_set!(PyCoreTEXT3_2, detector_names, set_detector_names, String);
+// TODO make sure we can make a calibration object
+meas_get_set!(
+    PyCoreTEXT3_2,
+    calibrations,
+    set_calibrations,
+    PyCalibration3_2
+);
+
+meas_get_set!(PyCoreTEXT3_2, tags, set_tags, String);
+meas_get_set!(
+    PyCoreTEXT3_2,
+    measurement_types,
+    set_measurement_types,
+    PyMeasurementType
+);
+
+meas_get_set!(PyCoreTEXT3_2, features, set_features, PyFeature);
+meas_get_set!(PyCoreTEXT3_2, analytes, set_analytes, String);
+
+// TODO detector voltage needs to be validated
 
 macro_rules! pyuint_methods {
     ($pytype:ident) => {

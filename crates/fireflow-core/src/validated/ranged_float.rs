@@ -1,4 +1,4 @@
-use crate::macros::{newtype_disp, newtype_from_outer};
+use crate::macros::newtype_disp;
 
 use serde::Serialize;
 use std::fmt;

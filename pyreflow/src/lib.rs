@@ -609,6 +609,12 @@ pywrap!(PyMeasurement3_2, api::Measurement3_2, "Measurement3_2");
 pywrap!(PyDatePattern, DatePattern, "DatePattern");
 
 pywrap!(PyShortname, Shortname, "Shortname");
+pywrap!(PyRangeSetter, api::RangeSetter, "RangeSetter");
+pywrap!(
+    PyMixedColumnSetter,
+    api::MixedColumnSetter,
+    "MixedColumnSetter"
+);
 pywrap!(PyTimePattern, TimePattern, "TimePattern");
 pywrap!(PyShortnamePrefix, ShortnamePrefix, "ShortnamePrefix");
 pywrap!(PyNonStdMeasPattern, NonStdMeasPattern, "NonStdMeasPattern");
@@ -1523,6 +1529,33 @@ impl PyCoreTEXT3_2 {
                 .map(|x| NonEmpty::from_vec(x).map(api::Wavelengths))
                 .collect(),
         )
+    }
+
+    fn set_data_mixed(&mut self, cs: Vec<PyMixedColumnSetter>) -> bool {
+        self.0
+            .set_data_mixed(cs.into_iter().map(|x| x.into()).collect())
+    }
+
+    fn set_data_integer(&mut self, rs: Vec<PyRangeSetter>) -> bool {
+        self.0
+            .set_data_integer(rs.into_iter().map(|x| x.into()).collect())
+    }
+
+    fn set_data_f32(&mut self, ranges: Vec<f32>) -> bool {
+        self.0.set_data_f32(ranges)
+    }
+
+    fn set_data_f64(&mut self, ranges: Vec<f64>) -> bool {
+        self.0.set_data_f64(ranges)
+    }
+
+    fn set_data_ascii(&mut self, rs: Vec<PyRangeSetter>) -> bool {
+        self.0
+            .set_data_ascii(rs.into_iter().map(|x| x.into()).collect())
+    }
+
+    fn set_data_delimited(&mut self, ranges: Vec<u64>) -> bool {
+        self.0.set_data_delimited(ranges)
     }
 
     // TODO add rest of metadata keywords

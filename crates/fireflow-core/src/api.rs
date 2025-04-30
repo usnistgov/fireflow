@@ -5308,11 +5308,8 @@ where
         res
     }
 
-    fn set_data_ascii_inner(&mut self, xs: Vec<(u8, u64)>) -> bool {
-        let ys: Vec<_> = xs
-            .into_iter()
-            .map(|(b, r)| (Bytes::Fixed(b), Range(r.to_string())))
-            .collect();
+    fn set_data_ascii_inner(&mut self, xs: Vec<RangeSetter>) -> bool {
+        let ys: Vec<_> = xs.into_iter().map(|s| s.ascii_truncated().pair()).collect();
         let res = self.set_data_bytes_range(ys);
         if res {
             self.metadata.datatype = AlphaNumType::Ascii;
@@ -5320,16 +5317,8 @@ where
         res
     }
 
-    pub fn set_data_integer_inner(&mut self, xs: Vec<(u8, u64)>) -> bool {
-        let ys: Vec<_> = xs
-            .into_iter()
-            .map(|(b, r)| {
-                (
-                    Bytes::Fixed(b),
-                    Range(2_u64.pow(b as u32).min(r).to_string()),
-                )
-            })
-            .collect();
+    pub fn set_data_integer_inner(&mut self, xs: Vec<RangeSetter>) -> bool {
+        let ys: Vec<_> = xs.into_iter().map(|s| s.uint_truncated().pair()).collect();
         let res = self.set_data_bytes_range(ys);
         if res {
             self.metadata.datatype = AlphaNumType::Integer;
@@ -5431,7 +5420,10 @@ impl CoreTEXT2_0 {
     /// Set data layout to be Integer for all measurements
     pub fn set_data_integer(&mut self, rs: Vec<u64>, byteord: ByteOrd) -> bool {
         let n = byteord.nbytes();
-        let ys = rs.into_iter().map(|r| (n, r)).collect();
+        let ys = rs
+            .into_iter()
+            .map(|r| RangeSetter { bytes: n, range: r })
+            .collect();
         let res = self.set_data_integer_inner(ys);
         if res {
             self.metadata.specific.byteord = byteord;
@@ -5457,7 +5449,7 @@ impl CoreTEXT2_0 {
     }
 
     /// Set data layout to be ASCII-fixed for all measurements
-    pub fn set_data_ascii(&mut self, xs: Vec<(u8, u64)>) -> bool {
+    pub fn set_data_ascii(&mut self, xs: Vec<RangeSetter>) -> bool {
         self.set_data_ascii_inner(xs)
     }
 
@@ -5484,7 +5476,10 @@ impl CoreTEXT3_0 {
     // TODO not DRY
     pub fn set_data_integer(&mut self, rs: Vec<u64>, byteord: ByteOrd) -> bool {
         let n = byteord.nbytes();
-        let ys = rs.into_iter().map(|r| (n, r)).collect();
+        let ys = rs
+            .into_iter()
+            .map(|r| RangeSetter { bytes: n, range: r })
+            .collect();
         let res = self.set_data_integer_inner(ys);
         if res {
             self.metadata.specific.byteord = byteord;
@@ -5510,7 +5505,7 @@ impl CoreTEXT3_0 {
     }
 
     /// Set data layout to be ASCII-fixed for all measurements
-    pub fn set_data_ascii(&mut self, xs: Vec<(u8, u64)>) -> bool {
+    pub fn set_data_ascii(&mut self, xs: Vec<RangeSetter>) -> bool {
         self.set_data_ascii_inner(xs)
     }
 
@@ -5587,7 +5582,7 @@ impl CoreTEXT3_1 {
 
     // TODO better input type here?
     /// Set data layout to be integers for all measurements.
-    pub fn set_data_integer(&mut self, xs: Vec<(u8, u64)>) -> bool {
+    pub fn set_data_integer(&mut self, xs: Vec<RangeSetter>) -> bool {
         self.set_data_integer_inner(xs)
     }
 
@@ -5604,7 +5599,7 @@ impl CoreTEXT3_1 {
     }
 
     /// Set data layout to be fixed-ASCII for all measurements
-    pub fn set_data_ascii(&mut self, xs: Vec<(u8, u64)>) -> bool {
+    pub fn set_data_ascii(&mut self, xs: Vec<RangeSetter>) -> bool {
         self.set_data_ascii_inner(xs)
     }
 
@@ -5707,14 +5702,14 @@ impl CoreTEXT3_2 {
     }
 
     /// Set data layout to be a mix of datatypes
-    pub fn set_data_mixed(&mut self, xs: Vec<MixedColumnSetter>) -> Option<bool> {
+    pub fn set_data_mixed(&mut self, xs: Vec<MixedColumnSetter>) -> bool {
         // Figure out what $DATATYPE (the default) should be; count frequencies
         // of each type, and if ASCII is given at all, this must be $DATATYPE
         // since it can't be set to $PnDATATYPE; otherwise, use whatever is
         // most frequent.
         let dt_opt = xs
             .iter()
-            .map(|y| AlphaNumType::from(y.clone()))
+            .map(|y| AlphaNumType::from(*y))
             .sorted()
             .chunk_by(|x| *x)
             .into_iter()
@@ -5725,7 +5720,7 @@ impl CoreTEXT3_2 {
             .map(|(key, _)| key);
         if let Some(dt) = dt_opt {
             let go = |x: MixedColumnSetter| {
-                let this_dt = x.clone().into();
+                let this_dt = x.into();
                 let pndt = if dt == this_dt {
                     None
                 } else {
@@ -5734,15 +5729,20 @@ impl CoreTEXT3_2 {
                     Some(this_dt.try_into().unwrap())
                 };
                 match x {
-                    MixedColumnSetter::Float(range) => (4, range.to_string(), Scale::Linear, pndt),
-                    MixedColumnSetter::Double(range) => (8, range.to_string(), Scale::Linear, pndt),
-                    MixedColumnSetter::Ascii(s) => (s.bytes, s.range.to_string(), s.scale, None),
-                    MixedColumnSetter::Uint(s) => (
-                        s.bytes,
-                        2_u64.pow(s.bytes as u32).min(s.range).to_string(),
-                        s.scale,
-                        pndt,
-                    ),
+                    MixedColumnSetter::Float(range) => {
+                        (Bytes::Fixed(4), Range(range.to_string()), pndt)
+                    }
+                    MixedColumnSetter::Double(range) => {
+                        (Bytes::Fixed(8), Range(range.to_string()), pndt)
+                    }
+                    MixedColumnSetter::Ascii(s) => {
+                        let (b, r) = s.ascii_truncated().pair();
+                        (b, r, None)
+                    }
+                    MixedColumnSetter::Uint(s) => {
+                        let (b, r) = s.uint_truncated().pair();
+                        (b, r, pndt)
+                    }
                 }
             };
             let res = self
@@ -5750,33 +5750,30 @@ impl CoreTEXT3_2 {
                 .alter_values_zip(
                     xs,
                     |m, x| {
-                        let (b, r, s, pndt) = go(x);
-                        m.bytes = Bytes::Fixed(b);
-                        m.range = Range(r);
-                        m.specific.scale = s;
+                        let (b, r, pndt) = go(x);
+                        m.bytes = b;
+                        m.range = r;
                         m.specific.datatype = pndt.into();
-                        true
                     },
                     |t, x| {
-                        let (b, r, s, pndt) = go(x);
-                        t.bytes = Bytes::Fixed(b);
-                        t.range = Range(r);
+                        let (b, r, pndt) = go(x);
+                        t.bytes = b;
+                        t.range = r;
                         t.specific.datatype = pndt.into();
-                        s == Scale::Linear
                     },
                 )
-                .map(|ys| ys.into_iter().all(|x| x));
-            if res.is_some() {
+                .is_some();
+            if res {
                 self.metadata.datatype = dt;
             }
             return res;
         }
         // this will only happen if the input is empty
-        None
+        false
     }
 
     /// Set data layout to be integer for all measurements
-    pub fn set_data_integer(&mut self, xs: Vec<(u8, u64)>) -> bool {
+    pub fn set_data_integer(&mut self, xs: Vec<RangeSetter>) -> bool {
         let res = self.set_data_integer_inner(xs);
         if res {
             self.unset_meas_datatypes();
@@ -5797,7 +5794,7 @@ impl CoreTEXT3_2 {
     }
 
     /// Set data layout to be fixed-ASCII for all measurements
-    pub fn set_data_ascii(&mut self, xs: Vec<(u8, u64)>) -> bool {
+    pub fn set_data_ascii(&mut self, xs: Vec<RangeSetter>) -> bool {
         let res = self.set_data_ascii_inner(xs);
         if res {
             self.unset_meas_datatypes();
@@ -5895,20 +5892,38 @@ impl CoreTEXT3_2 {
     );
 }
 
-#[derive(Clone)]
-enum MixedColumnSetter {
+#[derive(Clone, Copy)]
+pub enum MixedColumnSetter {
     Float(f32),
     Double(f64),
-    Ascii(BRESetter),
-    Uint(BRESetter),
+    Ascii(RangeSetter),
+    Uint(RangeSetter),
 }
 
-// TODO comical name...
-#[derive(Clone)]
-struct BRESetter {
-    bytes: u8,
-    range: u64,
-    scale: Scale,
+#[derive(Clone, Copy)]
+pub struct RangeSetter {
+    pub bytes: u8,
+    pub range: u64,
+}
+
+impl RangeSetter {
+    fn pair(&self) -> (Bytes, Range) {
+        (Bytes::Fixed(self.bytes), Range(self.range.to_string()))
+    }
+
+    fn uint_truncated(&self) -> Self {
+        Self {
+            bytes: self.bytes,
+            range: 2_u64.pow(self.bytes as u32).min(self.range),
+        }
+    }
+
+    fn ascii_truncated(&self) -> Self {
+        Self {
+            bytes: self.bytes,
+            range: 10_u64.pow(self.bytes as u32).min(self.range),
+        }
+    }
 }
 
 impl From<MixedColumnSetter> for AlphaNumType {

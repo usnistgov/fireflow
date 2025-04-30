@@ -1070,20 +1070,15 @@ impl PyCoreTEXT3_2 {
         self.0.metadata.specific.byteord == Endian::Big
     }
 
-    #[getter]
-    fn get_datatypes(&self) -> Vec<PyAlphaNumType> {
-        self.0.datatypes().into_iter().map(|x| x.into()).collect()
-    }
-
-    #[getter]
-    fn get_all_scales(&self) -> Vec<PyScale> {
-        self.0.all_scales().into_iter().map(|x| x.into()).collect()
-    }
-
     #[setter]
     fn set_big_endian(&mut self, is_big: bool) {
         let e = if is_big { Endian::Big } else { Endian::Little };
         self.0.metadata.specific.byteord = e;
+    }
+
+    #[getter]
+    fn get_datatypes(&self) -> Vec<PyAlphaNumType> {
+        self.0.datatypes().into_iter().map(|x| x.into()).collect()
     }
 
     #[getter]
@@ -1167,6 +1162,33 @@ impl PyCoreTEXT3_2 {
     // TODO make function to add DATA/ANALYSIS, which will convert this to a CoreDataset
 }
 
+macro_rules! scales_methods {
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            #[getter]
+            fn get_all_scales(&self) -> Vec<PyScale> {
+                self.0.all_scales().into_iter().map(|x| x.into()).collect()
+            }
+
+            #[getter]
+            fn get_scales(&self) -> Vec<(usize, PyScale)> {
+                self.0
+                    .scales()
+                    .into_iter()
+                    .map(|(i, x)| (i.into(), x.into()))
+                    .collect()
+            }
+
+            #[setter]
+            fn set_scales(&mut self, xs: Vec<PyScale>) -> bool {
+                self.0
+                    .set_scales(xs.into_iter().map(|x| x.into()).collect())
+            }
+        }
+    };
+}
+
 macro_rules! timestep_methods {
     ($pytype:ident) => {
         get_set_str!($pytype, [metadata, specific], get_cytsn, set_cytsn, cytsn);
@@ -1245,7 +1267,7 @@ macro_rules! wavelengths_methods {
     };
 }
 
-macro_rules! modified_methods {
+macro_rules! modification_methods {
     ($pytype:ident) => {
         get_set_copied!(
             $pytype,
@@ -1488,6 +1510,7 @@ macro_rules! common_methods {
                     .collect()
             }
 
+            // TODO what if I want to clear a shortname on 2.0
             #[setter]
             fn set_shortnames(&mut self, ns: Vec<PyShortname>) -> PyResult<()> {
                 self.0
@@ -1565,8 +1588,12 @@ plate_methods!(PyCoreTEXT3_2);
 
 carrier_methods!(PyCoreTEXT3_2);
 
-modified_methods!(PyCoreTEXT3_1);
-modified_methods!(PyCoreTEXT3_2);
+scales_methods!(PyCoreTEXT3_0);
+scales_methods!(PyCoreTEXT3_1);
+scales_methods!(PyCoreTEXT3_2);
+
+modification_methods!(PyCoreTEXT3_1);
+modification_methods!(PyCoreTEXT3_2);
 
 vol_methods!(PyCoreTEXT3_1, []);
 vol_methods!(PyCoreTEXT3_2, []);

@@ -1208,57 +1208,6 @@ impl PyCoreTEXT3_2 {
     }
 
     #[getter]
-    fn get_carrierid(&self) -> Option<String> {
-        self.0
-            .metadata
-            .specific
-            .carrier
-            .carrierid
-            .0
-            .as_ref()
-            .map(|x| x.clone().into())
-    }
-
-    #[setter]
-    fn set_carrierid(&mut self, x: Option<String>) {
-        self.0.metadata.specific.carrier.carrierid = x.map(|x| x.into()).into()
-    }
-
-    #[getter]
-    fn get_carriertype(&self) -> Option<String> {
-        self.0
-            .metadata
-            .specific
-            .carrier
-            .carriertype
-            .0
-            .as_ref()
-            .map(|x| x.clone().into())
-    }
-
-    #[setter]
-    fn set_carriertype(&mut self, x: Option<String>) {
-        self.0.metadata.specific.carrier.carriertype = x.map(|x| x.into()).into()
-    }
-
-    #[getter]
-    fn get_locationid(&self) -> Option<String> {
-        self.0
-            .metadata
-            .specific
-            .carrier
-            .locationid
-            .0
-            .as_ref()
-            .map(|x| x.clone().into())
-    }
-
-    #[setter]
-    fn set_locationid(&mut self, x: Option<String>) {
-        self.0.metadata.specific.carrier.locationid = x.map(|x| x.into()).into()
-    }
-
-    #[getter]
     fn get_unstainedinfo(&self) -> Option<String> {
         self.0
             .metadata
@@ -1362,6 +1311,34 @@ macro_rules! wavelengths_methods {
                 )
             }
         }
+    };
+}
+
+macro_rules! carrier_methods {
+    ($pytype:ident) => {
+        get_set_str!(
+            $pytype,
+            [metadata, specific, carrier],
+            get_carriertype,
+            set_carriertype,
+            carriertype
+        );
+
+        get_set_str!(
+            $pytype,
+            [metadata, specific, carrier],
+            get_carrierid,
+            set_carrierid,
+            carrierid
+        );
+
+        get_set_str!(
+            $pytype,
+            [metadata, specific, carrier],
+            get_locationid,
+            set_locationid,
+            locationid
+        );
     };
 }
 
@@ -1611,6 +1588,8 @@ spillover_methods!(PyCoreTEXT3_2);
 
 plate_methods!(PyCoreTEXT3_1);
 plate_methods!(PyCoreTEXT3_2);
+
+carrier_methods!(PyCoreTEXT3_2);
 
 struct PyImpureError(error::ImpureFailure);
 

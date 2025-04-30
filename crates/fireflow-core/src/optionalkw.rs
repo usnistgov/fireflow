@@ -19,6 +19,15 @@ impl<T> From<OptionalKw<T>> for Option<T> {
     }
 }
 
+impl<T: Copy> Copy for OptionalKw<T> {}
+
+// slightly hacky thing to let us copy the inner bit while re-wrapping as option
+// impl<T: Copy> From<OptionalKw<T>> for Option<T> {
+//     fn from(value: &OptionalKw<T>) -> Self {
+//         value.0
+//     }
+// }
+
 impl<T> Default for OptionalKw<T> {
     fn default() -> OptionalKw<T> {
         OptionalKw(None)

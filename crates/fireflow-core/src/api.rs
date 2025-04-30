@@ -5361,33 +5361,63 @@ macro_rules! comp_methods {
     };
 }
 
+macro_rules! scale_get_set {
+    ($t:path, $time_default:expr) => {
+        /// Show $PnE for each measurement, including time
+        pub fn all_scales(&self) -> Vec<$t> {
+            self.measurements
+                .iter()
+                .map(|(_, x)| x.map_or($time_default, |p| p.value.specific.scale.into()))
+                .collect()
+        }
+
+        /// Show $PnE for each measurement, not including time
+        pub fn scales(&self) -> Vec<(MeasIdx, $t)> {
+            self.measurements
+                .iter_non_center_values()
+                .map(|(i, m)| (i, m.specific.scale.into()))
+                .collect()
+        }
+
+        /// Set $PnE for for all non-time measurements
+        pub fn set_scales(&mut self, xs: Vec<$t>) -> bool {
+            self.measurements
+                .alter_non_center_values_zip(xs, |m, x| {
+                    m.specific.scale = x.into();
+                })
+                .is_some()
+        }
+    };
+}
+
 impl CoreTEXT2_0 {
     comp_methods!();
+    scale_get_set!(Option<Scale>, Some(Scale::Linear));
 
-    /// Show $PnE for each measurement
-    pub fn all_scales(&self) -> Vec<Option<Scale>> {
-        self.measurements
-            .iter()
-            .map(|(_, x)| x.map_or(Some(Scale::Linear), |p| p.value.specific.scale.0))
-            .collect()
-    }
+    // /// Show $PnE for each measurement
+    // pub fn all_scales(&self) -> Vec<Option<Scale>> {
+    //     self.measurements
+    //         .iter()
+    //         .map(|(_, x)| x.map_or(Some(Scale::Linear), |p| p.value.specific.scale.0))
+    //         .collect()
+    // }
 
-    /// Show $PnE for each measurement, not including time
-    pub fn scales(&self) -> Vec<(MeasIdx, Option<Scale>)> {
-        self.measurements
-            .iter_non_center_values()
-            .map(|(i, m)| (i, m.specific.scale.0))
-            .collect()
-    }
+    // /// Show $PnE for each measurement, not including time
+    // pub fn scales(&self) -> Vec<(MeasIdx, Option<Scale>)> {
+    //     self.measurements
+    //         .iter_non_center_values()
+    //         .map(|(i, m)| (i, m.specific.scale.0))
+    //         .collect()
+    // }
 
-    /// Set $PnE for for all non-time measurements
-    pub fn set_scales(&mut self, xs: Vec<Option<Scale>>) -> bool {
-        self.measurements
-            .alter_non_center_values_zip(xs, |m, x| {
-                m.specific.scale = x.into();
-            })
-            .is_some()
-    }
+    // /// Set $PnE for for all non-time measurements
+    // pub fn set_scales(&mut self, xs: Vec<Option<Scale>>) -> bool {
+    //     self.measurements
+    //         .alter_non_center_values_zip(xs, |m, x| {
+    //             m.specific.scale = x.into();
+    //         })
+    //         .is_some()
+    // }
 
     /// Show $DATATYPE
     pub fn datatype(&self) -> AlphaNumType {
@@ -5437,38 +5467,9 @@ impl CoreTEXT2_0 {
     );
 }
 
-macro_rules! scale_req {
-    () => {
-        /// Show $PnE for each measurement, including time
-        pub fn all_scales(&self) -> Vec<Scale> {
-            self.measurements
-                .iter()
-                .map(|(_, x)| x.map_or(Scale::Linear, |p| p.value.specific.scale))
-                .collect()
-        }
-
-        /// Show $PnE for each measurement, not including time
-        pub fn scales(&self) -> Vec<(MeasIdx, Scale)> {
-            self.measurements
-                .iter_non_center_values()
-                .map(|(i, m)| (i, m.specific.scale))
-                .collect()
-        }
-
-        /// Set $PnE for for all non-time measurements
-        pub fn set_scales(&mut self, xs: Vec<Scale>) -> bool {
-            self.measurements
-                .alter_non_center_values_zip(xs, |m, x| {
-                    m.specific.scale = x.into();
-                })
-                .is_some()
-        }
-    };
-}
-
 impl CoreTEXT3_0 {
     comp_methods!();
-    scale_req!();
+    scale_get_set!(Scale, Scale::Linear);
 
     /// Show $DATATYPE
     pub fn datatype(&self) -> AlphaNumType {
@@ -5572,7 +5573,7 @@ macro_rules! display_methods {
 }
 
 impl CoreTEXT3_1 {
-    scale_req!();
+    scale_get_set!(Scale, Scale::Linear);
     spillover_methods!();
 
     /// Show $DATATYPE
@@ -5679,7 +5680,7 @@ impl CoreTEXT3_2 {
         self.metadata.specific.unstained.unstainedcenters = None.into()
     }
 
-    scale_req!();
+    scale_get_set!(Scale, Scale::Linear);
     spillover_methods!();
 
     /// Show datatype for all measurements

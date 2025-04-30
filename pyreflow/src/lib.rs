@@ -965,7 +965,7 @@ macro_rules! get_set_str {
 }
 
 macro_rules! get_set_copied {
-    ($pytype:ident, [$($root:ident),*], $get:ident, $set:ident, $field:ident, $in:expr, $out:ty) => {
+    ($pytype:ident, [$($root:ident),*], $get:ident, $set:ident, $field:ident, $out:ty) => {
         #[pymethods]
         impl $pytype {
             #[getter]
@@ -975,7 +975,7 @@ macro_rules! get_set_copied {
 
             #[setter]
             fn $set(&mut self, s: Option<$out>) {
-                self.0.$($root.)*$field = s.map($in).into()
+                self.0.$($root.)*$field = s.map(|x| x.into()).into()
             }
         }
     };
@@ -1113,33 +1113,6 @@ impl PyCoreTEXT3_2 {
     }
 
     #[getter]
-    fn get_timestep(&self) -> Option<PyPositiveFloat> {
-        self.0
-            .measurements()
-            .as_center()
-            .and_then(|x| x.value.specific.timestep())
-            .map(|x| x.0.into())
-    }
-
-    #[setter]
-    fn set_timestep(&mut self, x: PyPositiveFloat) -> bool {
-        self.0
-            .as_center_mut()
-            .map(|y| y.value.specific.set_timestep(api::Timestep(x.into())))
-            .is_some()
-    }
-
-    #[getter]
-    fn get_vol(&self) -> Option<PyNonNegFloat> {
-        self.0.metadata.specific.vol.0.as_ref().map(|x| x.0.into())
-    }
-
-    #[setter]
-    fn set_vol(&mut self, x: Option<PyNonNegFloat>) {
-        self.0.metadata.specific.vol = x.map(|y| api::Vol(y.into())).into()
-    }
-
-    #[getter]
     fn get_flowrate(&self) -> Option<String> {
         self.0
             .metadata
@@ -1260,6 +1233,30 @@ impl PyCoreTEXT3_2 {
     // TODO add option to populate fields based on nonstandard keywords?
 
     // TODO make function to add DATA/ANALYSIS, which will convert this to a CoreDataset
+}
+
+macro_rules! timestep_methods {
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            #[getter]
+            fn get_timestep(&self) -> Option<PyPositiveFloat> {
+                self.0
+                    .measurements()
+                    .as_center()
+                    .and_then(|x| x.value.specific.timestep())
+                    .map(|x| x.0.into())
+            }
+
+            #[setter]
+            fn set_timestep(&mut self, x: PyPositiveFloat) -> bool {
+                self.0
+                    .as_center_mut()
+                    .map(|y| y.value.specific.set_timestep(api::Timestep(x.into())))
+                    .is_some()
+            }
+        }
+    };
 }
 
 macro_rules! wavelength_methods {
@@ -1408,12 +1405,25 @@ macro_rules! spillover_methods {
     };
 }
 
+macro_rules! vol_methods {
+    ($pytype:ident, [$($root:ident)*]) => {
+        get_set_copied!(
+            $pytype,
+            [$($root),* metadata, specific],
+            get_vol,
+            set_vol,
+            vol,
+            PyNonNegFloat
+        );
+    };
+}
+
 // TODO add measurement getter/setter
 macro_rules! common_methods {
     ($pytype:ident, [$($root:ident)*]) => {
         // common metadata keywords
-        get_set_copied!($pytype, [$($root),*metadata], get_abrt, set_abrt, abrt, api::Abrt, u32);
-        get_set_copied!($pytype, [$($root),*metadata], get_lost, set_lost, lost, api::Lost, u32);
+        get_set_copied!($pytype, [$($root),*metadata], get_abrt, set_abrt, abrt, u32);
+        get_set_copied!($pytype, [$($root),*metadata], get_lost, set_lost, lost, u32);
 
         get_set_str!($pytype, [$($root),*metadata], get_cells, set_cells, cells);
         get_set_str!($pytype, [$($root),*metadata], get_com,   set_com,   com);
@@ -1590,6 +1600,13 @@ plate_methods!(PyCoreTEXT3_1);
 plate_methods!(PyCoreTEXT3_2);
 
 carrier_methods!(PyCoreTEXT3_2);
+
+vol_methods!(PyCoreTEXT3_1, []);
+vol_methods!(PyCoreTEXT3_2, []);
+
+timestep_methods!(PyCoreTEXT3_0);
+timestep_methods!(PyCoreTEXT3_1);
+timestep_methods!(PyCoreTEXT3_2);
 
 struct PyImpureError(error::ImpureFailure);
 

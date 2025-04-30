@@ -1417,6 +1417,7 @@ impl PyCoreTEXT3_2 {
     // TODO make function to add DATA/ANALYSIS, which will convert this to a CoreDataset
 }
 
+// TODO add measurement getter/setter
 macro_rules! common_methods {
     ($pytype:ident, [$($root:ident)*]) => {
         // common metadata keywords
@@ -1469,7 +1470,7 @@ macro_rules! common_methods {
             fn set_time_channnel(&mut self, n: PyShortname) -> PyResult<()> {
                 self.0.set_time_channel(&n.into()).map_err(|es| {
                     let f = es.into_iter().map(|e| e.to_string()).join(", ");
-                    let s = format!("Error(s) encountered when converting measurement to time: {f}");
+                    let s = format!("Error(s) when converting measurement to time: {f}");
                     PyreflowException::new_err(s)
                 })
             }

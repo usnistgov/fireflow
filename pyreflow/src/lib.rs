@@ -1379,29 +1379,6 @@ impl PyCoreTEXT3_2 {
         self.0.metadata.specific.plate.wellid = x.map(|x| x.into()).into()
     }
 
-    #[getter]
-    fn get_wavelengths(&self) -> Vec<(usize, Vec<u32>)> {
-        self.0
-            .wavelengths()
-            .into_iter()
-            .map(|(i, x)| {
-                (
-                    i.into(),
-                    x.map(|y| y.0.iter().copied().collect()).unwrap_or_default(),
-                )
-            })
-            .collect()
-    }
-
-    #[setter]
-    fn set_wavelengths(&mut self, xs: Vec<Vec<u32>>) -> bool {
-        self.0.set_wavelengths(
-            xs.into_iter()
-                .map(|x| NonEmpty::from_vec(x).map(api::Wavelengths))
-                .collect(),
-        )
-    }
-
     fn set_data_mixed(&mut self, cs: Vec<PyMixedColumnSetter>) -> bool {
         self.0
             .set_data_mixed(cs.into_iter().map(|x| x.into()).collect())
@@ -1416,6 +1393,58 @@ impl PyCoreTEXT3_2 {
     // TODO add option to populate fields based on nonstandard keywords?
 
     // TODO make function to add DATA/ANALYSIS, which will convert this to a CoreDataset
+}
+
+macro_rules! wavelength_methods {
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            #[getter]
+            fn get_wavelengths(&self) -> Vec<(usize, Option<u32>)> {
+                self.0
+                    .wavelengths()
+                    .into_iter()
+                    .map(|(i, x)| (i.into(), x.map(|y| y.0)))
+                    .collect()
+            }
+
+            #[setter]
+            fn set_wavelengths(&mut self, xs: Vec<Option<u32>>) -> bool {
+                self.0
+                    .set_wavelengths(xs.into_iter().map(|x| x.map(|y| y.into())).collect())
+            }
+        }
+    };
+}
+
+macro_rules! wavelengths_methods {
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            #[getter]
+            fn get_wavelengths(&self) -> Vec<(usize, Vec<u32>)> {
+                self.0
+                    .wavelengths()
+                    .into_iter()
+                    .map(|(i, x)| {
+                        (
+                            i.into(),
+                            x.map(|y| y.0.iter().copied().collect()).unwrap_or_default(),
+                        )
+                    })
+                    .collect()
+            }
+
+            #[setter]
+            fn set_wavelengths(&mut self, xs: Vec<Vec<u32>>) -> bool {
+                self.0.set_wavelengths(
+                    xs.into_iter()
+                        .map(|x| NonEmpty::from_vec(x).map(api::Wavelengths))
+                        .collect(),
+                )
+            }
+        }
+    };
 }
 
 // TODO add measurement getter/setter
@@ -1586,6 +1615,11 @@ meas_get_set!(
 
 meas_get_set!(PyCoreTEXT3_2, features, set_features, PyFeature);
 meas_get_set!(PyCoreTEXT3_2, analytes, set_analytes, String);
+
+wavelength_methods!(PyCoreTEXT3_0);
+
+wavelengths_methods!(PyCoreTEXT3_1);
+wavelengths_methods!(PyCoreTEXT3_2);
 
 struct PyImpureError(error::ImpureFailure);
 

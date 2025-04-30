@@ -1509,6 +1509,12 @@ kw_opt_meas!(Gain, "G");
 #[derive(Clone, Serialize)]
 pub struct DetectorVoltage(pub NonNegFloat);
 
+impl From<DetectorVoltage> for f32 {
+    fn from(value: DetectorVoltage) -> Self {
+        value.0.into()
+    }
+}
+
 newtype_disp!(DetectorVoltage);
 newtype_fromstr!(DetectorVoltage, RangedFloatError);
 
@@ -4464,10 +4470,10 @@ macro_rules! non_time_get_set {
         }
 
         /// Set $$kw value for for all non-time measurements
-        pub fn $set(&mut self, xs: Vec<Option<$ty>>) {
+        pub fn $set(&mut self, xs: Vec<Option<$ty>>) -> bool {
             self.measurements.alter_non_center_values_zip(xs, |m, x| {
                 m.$($root.)*$field = x.into();
-            });
+            }).is_some()
         }
     };
 }
@@ -4793,9 +4799,6 @@ where
             .collect()
     }
 
-    // TODO there are a few keywords that can be set for each measurement,
-    // including time: $PnB, PnR, PnS, sometimes $PnD, sometimes $PnDatatype
-
     /// Set all $PnS keywords to list of names.
     ///
     /// Will return false if length of supplied list does not match length
@@ -4811,8 +4814,6 @@ where
             )
             .is_some()
     }
-
-    // TODO set fixed width integer somewhere here
 
     /// Show $PnB for each measurement
     ///
@@ -5419,6 +5420,15 @@ impl CoreTEXT2_0 {
         let ys = xs.into_iter().map(|(b, r, s)| (b, r, s.into())).collect();
         self.set_data_ascii_inner(ys)
     }
+
+    non_time_get_set!(
+        wavelengths,
+        set_wavelenths,
+        Wavelength,
+        [specific],
+        wavelength,
+        PnL
+    );
 }
 
 macro_rules! scale_req {
@@ -5479,6 +5489,15 @@ impl CoreTEXT3_0 {
     }
 
     non_time_get_set!(gains, set_gains, Gain, [specific], gain, PnG);
+
+    non_time_get_set!(
+        wavelengths,
+        set_wavelenths,
+        Wavelength,
+        [specific],
+        wavelength,
+        PnL
+    );
 }
 
 macro_rules! spillover_methods {
@@ -5582,6 +5601,15 @@ impl CoreTEXT3_1 {
         [specific],
         calibration,
         PnCALIBRATION
+    );
+
+    non_time_get_set!(
+        wavelengths,
+        set_wavelenths,
+        Wavelengths,
+        [specific],
+        wavelengths,
+        PnL
     );
 }
 
@@ -5789,6 +5817,15 @@ impl CoreTEXT3_2 {
     display_methods!();
 
     non_time_get_set!(gains, set_gains, Gain, [specific], gain, PnG);
+
+    non_time_get_set!(
+        wavelengths,
+        set_wavelenths,
+        Wavelengths,
+        [specific],
+        wavelengths,
+        PnL
+    );
 
     non_time_get_set!(
         detector_names,

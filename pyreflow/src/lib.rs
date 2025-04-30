@@ -1097,22 +1097,6 @@ impl PyCoreTEXT3_2 {
     }
 
     #[getter]
-    fn get_cytsn(&self) -> Option<String> {
-        self.0
-            .metadata
-            .specific
-            .cytsn
-            .0
-            .as_ref()
-            .map(|x| x.0.clone())
-    }
-
-    #[setter]
-    fn set_cytsn(&mut self, x: Option<String>) {
-        self.0.metadata.specific.cytsn = x.map(|x| x.into()).into()
-    }
-
-    #[getter]
     fn get_flowrate(&self) -> Option<String> {
         self.0
             .metadata
@@ -1126,58 +1110,6 @@ impl PyCoreTEXT3_2 {
     #[setter]
     fn set_flowrate(&mut self, x: Option<String>) {
         self.0.metadata.specific.flowrate = x.map(api::Flowrate).into()
-    }
-
-    #[getter]
-    fn get_last_modifier(&self) -> Option<String> {
-        self.0
-            .metadata
-            .specific
-            .modification
-            .last_modifier
-            .0
-            .as_ref()
-            .map(|x| x.0.clone())
-    }
-
-    #[setter]
-    fn set_last_modifier(&mut self, x: Option<String>) {
-        self.0.metadata.specific.modification.last_modifier = x.map(api::LastModifier).into()
-    }
-
-    #[getter]
-    fn get_last_modified(&self) -> Option<NaiveDateTime> {
-        self.0
-            .metadata
-            .specific
-            .modification
-            .last_modified
-            .0
-            .as_ref()
-            .map(|x| x.0)
-    }
-
-    #[setter]
-    fn set_last_modified(&mut self, x: Option<NaiveDateTime>) {
-        self.0.metadata.specific.modification.last_modified = x.map(api::ModifiedDateTime).into()
-    }
-
-    // TODO how do I make one of these?
-    #[getter]
-    fn get_originality(&self) -> Option<PyOriginality> {
-        self.0
-            .metadata
-            .specific
-            .modification
-            .originality
-            .0
-            .as_ref()
-            .map(|x| x.clone().into())
-    }
-
-    #[setter]
-    fn set_originality(&mut self, x: Option<PyOriginality>) {
-        self.0.metadata.specific.modification.originality = x.map(|x| x.0).into()
     }
 
     #[getter]
@@ -1237,6 +1169,8 @@ impl PyCoreTEXT3_2 {
 
 macro_rules! timestep_methods {
     ($pytype:ident) => {
+        get_set_str!($pytype, [metadata, specific], get_cytsn, set_cytsn, cytsn);
+
         #[pymethods]
         impl $pytype {
             #[getter]
@@ -1308,6 +1242,36 @@ macro_rules! wavelengths_methods {
                 )
             }
         }
+    };
+}
+
+macro_rules! modified_methods {
+    ($pytype:ident) => {
+        get_set_copied!(
+            $pytype,
+            [metadata, specific, modification],
+            get_originality,
+            set_originality,
+            originality,
+            PyOriginality
+        );
+
+        get_set_copied!(
+            $pytype,
+            [metadata, specific, modification],
+            get_last_modified,
+            set_last_modified,
+            last_modified,
+            NaiveDateTime
+        );
+
+        get_set_str!(
+            $pytype,
+            [metadata, specific, modification],
+            get_last_modifier,
+            set_last_modifier,
+            last_modifier
+        );
     };
 }
 
@@ -1600,6 +1564,9 @@ plate_methods!(PyCoreTEXT3_1);
 plate_methods!(PyCoreTEXT3_2);
 
 carrier_methods!(PyCoreTEXT3_2);
+
+modified_methods!(PyCoreTEXT3_1);
+modified_methods!(PyCoreTEXT3_2);
 
 vol_methods!(PyCoreTEXT3_1, []);
 vol_methods!(PyCoreTEXT3_2, []);

@@ -392,8 +392,11 @@ pub struct FCSTime100(pub NaiveTime);
 
 /// A datetime as used in the $LAST_MODIFIED key (3.1+ only)
 // TODO this should almost certainly be after $ENDDATETIME if given
-#[derive(Clone, Serialize)]
+#[derive(Clone, Copy, Serialize)]
 pub struct ModifiedDateTime(pub NaiveDateTime);
+
+newtype_from!(ModifiedDateTime, NaiveDateTime);
+newtype_from_outer!(ModifiedDateTime, NaiveDateTime);
 
 // TODO this might be useful but there shouldn't be an equivilencey b/t these
 // two since the former does not include time zone
@@ -566,7 +569,7 @@ impl TryFrom<Bytes> for u8 {
 }
 
 /// The value for the $ORIGINALITY key (3.1+)
-#[derive(Clone, Serialize)]
+#[derive(Clone, Copy, Serialize)]
 pub enum Originality {
     Original,
     NonDataModified,

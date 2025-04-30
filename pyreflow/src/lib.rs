@@ -1297,57 +1297,6 @@ impl PyCoreTEXT3_2 {
         self.0.clear_unstained_centers()
     }
 
-    #[getter]
-    fn get_platename(&self) -> Option<String> {
-        self.0
-            .metadata
-            .specific
-            .plate
-            .platename
-            .0
-            .as_ref()
-            .map(|x| x.clone().into())
-    }
-
-    #[setter]
-    fn set_platename(&mut self, x: Option<String>) {
-        self.0.metadata.specific.plate.platename = x.map(|x| x.into()).into()
-    }
-
-    #[getter]
-    fn get_plateid(&self) -> Option<String> {
-        self.0
-            .metadata
-            .specific
-            .plate
-            .plateid
-            .0
-            .as_ref()
-            .map(|x| x.clone().into())
-    }
-
-    #[setter]
-    fn set_plateid(&mut self, x: Option<String>) {
-        self.0.metadata.specific.plate.plateid = x.map(|x| x.into()).into()
-    }
-
-    #[getter]
-    fn get_wellid(&self) -> Option<String> {
-        self.0
-            .metadata
-            .specific
-            .plate
-            .wellid
-            .0
-            .as_ref()
-            .map(|x| x.clone().into())
-    }
-
-    #[setter]
-    fn set_wellid(&mut self, x: Option<String>) {
-        self.0.metadata.specific.plate.wellid = x.map(|x| x.into()).into()
-    }
-
     fn set_data_mixed(&mut self, cs: Vec<PyMixedColumnSetter>) -> bool {
         self.0
             .set_data_mixed(cs.into_iter().map(|x| x.into()).collect())
@@ -1413,6 +1362,34 @@ macro_rules! wavelengths_methods {
                 )
             }
         }
+    };
+}
+
+macro_rules! plate_methods {
+    ($pytype:ident) => {
+        get_set_str!(
+            $pytype,
+            [metadata, specific, plate],
+            get_wellid,
+            set_wellid,
+            wellid
+        );
+
+        get_set_str!(
+            $pytype,
+            [metadata, specific, plate],
+            get_plateid,
+            set_plateid,
+            plateid
+        );
+
+        get_set_str!(
+            $pytype,
+            [metadata, specific, plate],
+            get_platename,
+            set_platename,
+            platename
+        );
     };
 }
 
@@ -1631,6 +1608,9 @@ wavelengths_methods!(PyCoreTEXT3_2);
 
 spillover_methods!(PyCoreTEXT3_1);
 spillover_methods!(PyCoreTEXT3_2);
+
+plate_methods!(PyCoreTEXT3_1);
+plate_methods!(PyCoreTEXT3_2);
 
 struct PyImpureError(error::ImpureFailure);
 

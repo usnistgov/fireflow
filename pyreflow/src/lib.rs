@@ -665,17 +665,17 @@ pywrap!(PyAlphaNumType, api::AlphaNumType, "AlphaNumType");
 pywrap!(PyScale, Scale, "Scale");
 pywrap!(PySpillover, Spillover, "Spillover");
 
-pywrap!(PyColumnType, api::ColumnType, "ColumnType");
-pywrap!(PyUint08Type, api::Uint08Type, "Uint08Type");
-pywrap!(PyUint16Type, api::Uint16Type, "Uint16Type");
-pywrap!(PyUint24Type, api::Uint24Type, "Uint24Type");
-pywrap!(PyUint32Type, api::Uint32Type, "Uint32Type");
-pywrap!(PyUint40Type, api::Uint40Type, "Uint40Type");
-pywrap!(PyUint48Type, api::Uint48Type, "Uint48Type");
-pywrap!(PyUint56Type, api::Uint56Type, "Uint56Type");
-pywrap!(PyUint64Type, api::Uint64Type, "Uint64Type");
-pywrap!(PySingleType, api::SingleType, "SingleType");
-pywrap!(PyDoubleType, api::DoubleType, "SingleType");
+// pywrap!(PyColumnType, api::ColumnType, "ColumnType");
+// pywrap!(PyUint08Type, api::Uint08Type, "Uint08Type");
+// pywrap!(PyUint16Type, api::Uint16Type, "Uint16Type");
+// pywrap!(PyUint24Type, api::Uint24Type, "Uint24Type");
+// pywrap!(PyUint32Type, api::Uint32Type, "Uint32Type");
+// pywrap!(PyUint40Type, api::Uint40Type, "Uint40Type");
+// pywrap!(PyUint48Type, api::Uint48Type, "Uint48Type");
+// pywrap!(PyUint56Type, api::Uint56Type, "Uint56Type");
+// pywrap!(PyUint64Type, api::Uint64Type, "Uint64Type");
+// pywrap!(PySingleType, api::SingleType, "SingleType");
+// pywrap!(PyDoubleType, api::DoubleType, "SingleType");
 
 py_parse!(PyDatePattern, DatePattern);
 py_disp!(PyDatePattern);
@@ -1571,35 +1571,35 @@ meas_get_set!(
 meas_get_set!(PyCoreTEXT3_2, features, set_features, PyFeature);
 meas_get_set!(PyCoreTEXT3_2, analytes, set_analytes, String);
 
-macro_rules! pyuint_methods {
-    ($pytype:ident) => {
-        #[pymethods]
-        impl $pytype {
-            fn __repr__(&self) -> String {
-                format!("UintType(bitmask={}, size={})", self.0.bitmask, self.0.size)
-            }
-        }
-    };
-}
+// macro_rules! pyuint_methods {
+//     ($pytype:ident) => {
+//         #[pymethods]
+//         impl $pytype {
+//             fn __repr__(&self) -> String {
+//                 format!("UintType(bitmask={}, size={})", self.0.bitmask, self.0.size)
+//             }
+//         }
+//     };
+// }
 
-pyuint_methods!(PyUint08Type);
-pyuint_methods!(PyUint16Type);
-pyuint_methods!(PyUint24Type);
-pyuint_methods!(PyUint32Type);
-pyuint_methods!(PyUint40Type);
-pyuint_methods!(PyUint48Type);
-pyuint_methods!(PyUint56Type);
-pyuint_methods!(PyUint64Type);
+// pyuint_methods!(PyUint08Type);
+// pyuint_methods!(PyUint16Type);
+// pyuint_methods!(PyUint24Type);
+// pyuint_methods!(PyUint32Type);
+// pyuint_methods!(PyUint40Type);
+// pyuint_methods!(PyUint48Type);
+// pyuint_methods!(PyUint56Type);
+// pyuint_methods!(PyUint64Type);
 
-#[pymethods]
-impl PySingleType {
-    fn __repr__(&self) -> String {
-        format!(
-            "SingleType(maxval={}, order={})",
-            self.0.range, self.0.order
-        )
-    }
-}
+// #[pymethods]
+// impl PySingleType {
+//     fn __repr__(&self) -> String {
+//         format!(
+//             "SingleType(maxval={}, order={})",
+//             self.0.range, self.0.order
+//         )
+//     }
+// }
 
 // #[pymethods]
 // impl PyColumnType {

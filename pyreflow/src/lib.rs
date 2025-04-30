@@ -1490,6 +1490,10 @@ macro_rules! common_methods {
                 self.0.set_trigger_threshold(x)
             }
 
+            fn clear_trigger(&mut self) {
+                self.0.clear_trigger()
+            }
+
             #[getter]
             fn get_bytes(&self) -> Option<Vec<u8>> {
                 self.0.bytes()

@@ -1092,22 +1092,6 @@ impl PyCoreTEXT3_2 {
     }
 
     #[getter]
-    fn get_flowrate(&self) -> Option<String> {
-        self.0
-            .metadata
-            .specific
-            .flowrate
-            .0
-            .as_ref()
-            .map(|x| x.0.clone())
-    }
-
-    #[setter]
-    fn set_flowrate(&mut self, x: Option<String>) {
-        self.0.metadata.specific.flowrate = x.map(api::Flowrate).into()
-    }
-
-    #[getter]
     fn get_unstainedinfo(&self) -> Option<String> {
         self.0
             .metadata
@@ -1591,6 +1575,14 @@ carrier_methods!(PyCoreTEXT3_2);
 scales_methods!(PyCoreTEXT3_0);
 scales_methods!(PyCoreTEXT3_1);
 scales_methods!(PyCoreTEXT3_2);
+
+get_set_str!(
+    PyCoreTEXT3_2,
+    [metadata, specific],
+    get_flowrate,
+    set_flowrate,
+    flowrate
+);
 
 modification_methods!(PyCoreTEXT3_1);
 modification_methods!(PyCoreTEXT3_2);

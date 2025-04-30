@@ -14,6 +14,7 @@ use fireflow_core::validated::spillover::*;
 use fireflow_core::validated::textdelim::TEXTDelim;
 
 use chrono::NaiveDateTime;
+use nonempty::NonEmpty;
 use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
 use pyo3::class::basic::CompareOp;
 use pyo3::create_exception;
@@ -618,6 +619,44 @@ pywrap!(PyCytSetter, MetaKwSetter<api::Cyt>, "CytSetter");
 pywrap!(PyCalibration3_2, api::Calibration3_2, "Calibration3_2");
 pywrap!(PyMeasurementType, api::MeasurementType, "MeasurementType");
 pywrap!(PyFeature, api::Feature, "Feature");
+pywrap!(PyPositiveFloat, PositiveFloat, "PositiveFloat");
+pywrap!(PyNonNegFloat, NonNegFloat, "NonNegFloat");
+
+impl From<api::DetectorVoltage> for PyNonNegFloat {
+    fn from(value: api::DetectorVoltage) -> Self {
+        value.0.into()
+    }
+}
+
+impl From<PyNonNegFloat> for api::DetectorVoltage {
+    fn from(value: PyNonNegFloat) -> Self {
+        value.0.into()
+    }
+}
+
+impl From<api::Gain> for PyPositiveFloat {
+    fn from(value: api::Gain) -> Self {
+        value.0.into()
+    }
+}
+
+impl From<PyPositiveFloat> for api::Gain {
+    fn from(value: PyPositiveFloat) -> Self {
+        value.0.into()
+    }
+}
+
+impl From<api::Vol> for PyNonNegFloat {
+    fn from(value: api::Vol) -> Self {
+        value.0.into()
+    }
+}
+
+impl From<PyNonNegFloat> for api::Vol {
+    fn from(value: PyNonNegFloat) -> Self {
+        value.0.into()
+    }
+}
 
 pywrap!(PyEndian, Endian, "Endian");
 pywrap!(PyOriginality, api::Originality, "Originality");
@@ -1140,7 +1179,7 @@ impl PyCoreTEXT3_2 {
     }
 
     #[getter]
-    fn get_timestep(&self) -> Option<f32> {
+    fn get_timestep(&self) -> Option<PyPositiveFloat> {
         self.0
             .measurements()
             .as_center()
@@ -1149,30 +1188,21 @@ impl PyCoreTEXT3_2 {
     }
 
     #[setter]
-    fn set_timestep(&mut self, x: f32) -> PyResult<bool> {
-        x.try_into()
-            .map(|x: PositiveFloat| {
-                self.0
-                    .as_center_mut()
-                    .map(|y| y.value.specific.set_timestep(x.into()))
-                    .is_some()
-            })
-            .map_err(|e| PyreflowException::new_err(e.to_string()))
+    fn set_timestep(&mut self, x: PyPositiveFloat) -> bool {
+        self.0
+            .as_center_mut()
+            .map(|y| y.value.specific.set_timestep(api::Timestep(x.into())))
+            .is_some()
     }
 
     #[getter]
-    fn get_vol(&self) -> Option<f32> {
+    fn get_vol(&self) -> Option<PyNonNegFloat> {
         self.0.metadata.specific.vol.0.as_ref().map(|x| x.0.into())
     }
 
     #[setter]
-    fn set_vol(&mut self, x: Option<f32>) -> PyResult<()> {
-        let t = x
-            .map(NonNegFloat::try_from)
-            .transpose()
-            .map_err(|e| PyreflowException::new_err(e.to_string()))?;
-        self.0.metadata.specific.vol = t.map(api::Vol).into();
-        Ok(())
+    fn set_vol(&mut self, x: Option<PyNonNegFloat>) {
+        self.0.metadata.specific.vol = x.map(|y| api::Vol(y.into())).into()
     }
 
     #[getter]
@@ -1472,6 +1502,29 @@ impl PyCoreTEXT3_2 {
             .map(|_| ())
     }
 
+    #[getter]
+    fn get_wavelengths(&self) -> Vec<(usize, Vec<u32>)> {
+        self.0
+            .wavelengths()
+            .into_iter()
+            .map(|(i, x)| {
+                (
+                    i.into(),
+                    x.map(|y| y.0.iter().copied().collect()).unwrap_or_default(),
+                )
+            })
+            .collect()
+    }
+
+    #[setter]
+    fn set_wavelengths(&mut self, xs: Vec<Vec<u32>>) -> bool {
+        self.0.set_wavelengths(
+            xs.into_iter()
+                .map(|x| NonEmpty::from_vec(x).map(api::Wavelengths))
+                .collect(),
+        )
+    }
+
     // TODO add rest of metadata keywords
     // TODO add option to get/set measurements
     // TODO add option to populate fields based on nonstandard keywords?
@@ -1490,7 +1543,13 @@ meas_get_set!(
     String
 );
 
-// TODO gain (validated)
+meas_get_set!(PyCoreTEXT3_2, gains, set_gains, PyPositiveFloat);
+meas_get_set!(
+    PyCoreTEXT3_2,
+    detector_voltages,
+    set_detector_voltages,
+    PyNonNegFloat
+);
 // TODO wavelengths
 meas_get_set!(PyCoreTEXT3_2, detector_names, set_detector_names, String);
 // TODO make sure we can make a calibration object
@@ -1511,8 +1570,6 @@ meas_get_set!(
 
 meas_get_set!(PyCoreTEXT3_2, features, set_features, PyFeature);
 meas_get_set!(PyCoreTEXT3_2, analytes, set_analytes, String);
-
-// TODO detector voltage needs to be validated
 
 macro_rules! pyuint_methods {
     ($pytype:ident) => {

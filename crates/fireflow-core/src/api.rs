@@ -1502,30 +1502,34 @@ newtype_from!(Timestep, PositiveFloat);
 
 kw_req_meta!(Timestep, "TIMESTEP");
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Copy, Serialize)]
 pub struct Vol(pub NonNegFloat);
 
+newtype_from!(Vol, NonNegFloat);
 newtype_disp!(Vol);
 newtype_fromstr!(Vol, RangedFloatError);
 
 kw_opt_meta!(Vol, "VOL");
 
-#[derive(Clone, Serialize, PartialEq)]
+#[derive(Clone, Copy, Serialize, PartialEq)]
 pub struct Gain(pub PositiveFloat);
 
+newtype_from!(Gain, PositiveFloat);
 newtype_disp!(Gain);
 newtype_fromstr!(Gain, RangedFloatError);
 
 kw_opt_meas!(Gain, "G");
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Copy, Serialize)]
 pub struct DetectorVoltage(pub NonNegFloat);
 
-impl From<DetectorVoltage> for f32 {
-    fn from(value: DetectorVoltage) -> Self {
-        value.0.into()
-    }
-}
+newtype_from!(DetectorVoltage, NonNegFloat);
+
+// impl From<DetectorVoltage> for f32 {
+//     fn from(value: DetectorVoltage) -> Self {
+//         value.0.into()
+//     }
+// }
 
 newtype_disp!(DetectorVoltage);
 newtype_fromstr!(DetectorVoltage, RangedFloatError);

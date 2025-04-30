@@ -2123,10 +2123,6 @@ pub trait VersionedMetadata: Sized {
 }
 
 pub trait VersionedMeasurement: Sized + Versioned {
-    type S: MightHave;
-
-    fn set_scale(&mut self, s: <Self::S as MightHave>::Wrapper<Scale>);
-
     fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self>;
 
     fn req_suffixes_inner(&self, n: MeasIdx) -> RawTriples;
@@ -3318,12 +3314,6 @@ impl Versioned for InnerMeasurement3_2 {
 }
 
 impl VersionedMeasurement for InnerMeasurement2_0 {
-    type S = OptionalKwFamily;
-
-    fn set_scale(&mut self, s: <Self::S as MightHave>::Wrapper<Scale>) {
-        self.scale = s;
-    }
-
     fn datatype(&self) -> Option<NumType> {
         None
     }
@@ -3351,12 +3341,6 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
 }
 
 impl VersionedMeasurement for InnerMeasurement3_0 {
-    type S = IdentityFamily;
-
-    fn set_scale(&mut self, s: <Self::S as MightHave>::Wrapper<Scale>) {
-        self.scale = s.0;
-    }
-
     fn datatype(&self) -> Option<NumType> {
         None
     }
@@ -3384,12 +3368,6 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
 }
 
 impl VersionedMeasurement for InnerMeasurement3_1 {
-    type S = IdentityFamily;
-
-    fn set_scale(&mut self, s: <Self::S as MightHave>::Wrapper<Scale>) {
-        self.scale = s.0;
-    }
-
     fn datatype(&self) -> Option<NumType> {
         None
     }
@@ -3564,12 +3542,6 @@ impl VersionedTime for InnerTime3_2 {
 }
 
 impl VersionedMeasurement for InnerMeasurement3_2 {
-    type S = IdentityFamily;
-
-    fn set_scale(&mut self, s: <Self::S as MightHave>::Wrapper<Scale>) {
-        self.scale = s.0;
-    }
-
     fn datatype(&self) -> Option<NumType> {
         self.datatype.0.as_ref().copied()
     }
@@ -5285,10 +5257,7 @@ where
         self.set_data_bytes_range(ys)
     }
 
-    fn set_to_floating_point(&mut self, is_double: bool, rs: Vec<Range>) -> bool
-    where
-        <<M::P as VersionedMeasurement>::S as MightHave>::Wrapper<Scale>: Clone,
-    {
+    fn set_to_floating_point(&mut self, is_double: bool, rs: Vec<Range>) -> bool {
         let (dt, b) = if is_double {
             (AlphaNumType::Double, 8)
         } else {

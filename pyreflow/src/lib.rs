@@ -1018,52 +1018,40 @@ macro_rules! get_set_copied {
 //     };
 // }
 
-macro_rules! core_text_methods {
-    ($pytype:ident, [$($root:ident)*]) => {
-        // get_set_datetime!($pytype, [$($root,)*]);
-        get_set_copied!( $pytype, [$($root,)*], abrt, set_abrt, api::Abrt, u32);
-        get_set_copied!( $pytype, [$($root,)*], lost, set_lost, api::Lost, u32);
-        get_set_str!(    $pytype, [$($root,)*], cells, set_cells);
-        get_set_str!(    $pytype, [$($root,)*], com, set_com);
-        get_set_str!(    $pytype, [$($root,)*], exp, set_exp);
-        get_set_str!(    $pytype, [$($root,)*], fil, set_fil);
-        get_set_str!(    $pytype, [$($root,)*], inst, set_inst);
-        get_set_str!(    $pytype, [$($root,)*], op, set_op);
-        get_set_str!(    $pytype, [$($root,)*], proj, set_proj);
-        get_set_str!(    $pytype, [$($root,)*], smno, set_smno);
-        get_set_str!(    $pytype, [$($root,)*], src, set_src);
-        get_set_str!(    $pytype, [$($root,)*], sys, set_sys);
+// macro_rules! core_text_methods {
+//     ($pytype:ident, [$($root:ident)*]) => {
+//         // get_set_datetime!($pytype, [$($root,)*]);
 
-        #[pymethods]
-        impl $pytype {
-            // #[getter]
-            // fn get_trigger(&self) -> Option<PyTrigger> {
-            //     self.0.$($root.)*trigger().map(|x| x.clone().into())
-            // }
+//         #[pymethods]
+//         impl $pytype {
+//             // #[getter]
+//             // fn get_trigger(&self) -> Option<PyTrigger> {
+//             //     self.0.$($root.)*trigger().map(|x| x.clone().into())
+//             // }
 
-            // #[setter]
-            // fn set_trigger(&mut self, t: Option<PyTrigger>) {
-            //     self.0.$($root.)*set_trigger(t.map(|x| x.into()))
-            // }
+//             // #[setter]
+//             // fn set_trigger(&mut self, t: Option<PyTrigger>) {
+//             //     self.0.$($root.)*set_trigger(t.map(|x| x.into()))
+//             // }
 
-            // #[getter]
-            // fn get_datatype(&self) -> PyAlphaNumType {
-            //     self.0.$($root.)*datatype().into()
-            // }
+//             // #[getter]
+//             // fn get_datatype(&self) -> PyAlphaNumType {
+//             //     self.0.$($root.)*datatype().into()
+//             // }
 
-            // #[setter]
-            // fn set_datatype(&mut self, t: PyAlphaNumType) {
-            //     self.0.$($root.)*set_datatype(t.into())
-            // }
-        }
-    };
-}
+//             // #[setter]
+//             // fn set_datatype(&mut self, t: PyAlphaNumType) {
+//             //     self.0.$($root.)*set_datatype(t.into())
+//             // }
+//         }
+//     };
+// }
 
-core_text_methods!(PyStandardizedTEXT, [standardized]);
-core_text_methods!(PyCoreTEXT2_0, []);
-core_text_methods!(PyCoreTEXT3_0, []);
-core_text_methods!(PyCoreTEXT3_1, []);
-core_text_methods!(PyCoreTEXT3_2, []);
+// core_text_methods!(PyStandardizedTEXT, [standardized]);
+// core_text_methods!(PyCoreTEXT2_0, []);
+// core_text_methods!(PyCoreTEXT3_0, []);
+// core_text_methods!(PyCoreTEXT3_1, []);
+// core_text_methods!(PyCoreTEXT3_2, []);
 
 macro_rules! meas_get_set {
     ($pytype:ident, $get:ident, $set:ident, $t:path) => {
@@ -1118,8 +1106,6 @@ impl PyCoreTEXT3_2 {
     fn get_all_scales(&self) -> Vec<PyScale> {
         self.0.all_scales().into_iter().map(|x| x.into()).collect()
     }
-
-    // TODO add data setters
 
     #[setter]
     fn set_big_endian(&mut self, is_big: bool) {
@@ -1420,94 +1406,6 @@ impl PyCoreTEXT3_2 {
         self.0.metadata.specific.plate.wellid = x.map(|x| x.into()).into()
     }
 
-    // #[getter]
-    // python type is Union[int, list[Union[int, UintXType, SingleType, FloatType]]]
-    // fn get_column_layout(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-    //     let x = self.0.as_column_layout();
-    //     let y = error::PureMaybe::from_result_strs(x, error::PureErrorLevel::Error)
-    //         .into_result("could not make column layout".to_string())
-    //         .map_err(|a| a.into());
-    //     match handle_errors(y)? {
-    //         api::DataLayout::AsciiDelimited { nrows: _, ncols } => ncols.into_py_any(py),
-    //         api::DataLayout::AlphaNum { nrows: _, columns } => {
-    //             let (pass, fail): (Vec<_>, Vec<_>) = columns
-    //                 .iter()
-    //                 .map(|ct| match ct {
-    //                     api::ColumnType::Ascii { bytes } => bytes.into_py_any(py),
-    //                     api::ColumnType::Integer(u) => match u {
-    //                         api::AnyUintType::Uint08(t) => PyUint08Type(t.clone()).into_py_any(py),
-    //                         api::AnyUintType::Uint16(t) => PyUint16Type(t.clone()).into_py_any(py),
-    //                         api::AnyUintType::Uint24(t) => PyUint24Type(t.clone()).into_py_any(py),
-    //                         api::AnyUintType::Uint32(t) => PyUint32Type(t.clone()).into_py_any(py),
-    //                         api::AnyUintType::Uint40(t) => PyUint40Type(t.clone()).into_py_any(py),
-    //                         api::AnyUintType::Uint48(t) => PyUint48Type(t.clone()).into_py_any(py),
-    //                         api::AnyUintType::Uint56(t) => PyUint56Type(t.clone()).into_py_any(py),
-    //                         api::AnyUintType::Uint64(t) => PyUint64Type(t.clone()).into_py_any(py),
-    //                     },
-    //                     api::ColumnType::Float(u) => PySingleType(u.clone()).into_py_any(py),
-    //                     api::ColumnType::Double(u) => PyDoubleType(u.clone()).into_py_any(py),
-    //                 })
-    //                 .partition_result();
-    //             if let Some(err) = fail.into_iter().next() {
-    //                 Err(err)
-    //             } else {
-    //                 pass.into_py_any(py)
-    //             }
-    //         }
-    //     }
-    // }
-
-    #[getter]
-    fn get_bytes(&self) -> Option<Vec<u8>> {
-        self.0.bytes()
-    }
-
-    #[getter]
-    fn get_ranges(&self) -> Vec<String> {
-        // TODO strings, lame
-        self.0.ranges().iter().map(|r| r.0.clone()).collect()
-    }
-
-    #[getter]
-    fn get_longnames(&self) -> Vec<Option<String>> {
-        self.0
-            .longnames()
-            .into_iter()
-            .map(|x| x.map(|y| y.0.to_string()))
-            .collect()
-    }
-
-    #[setter]
-    fn set_longnames(&mut self, ns: Vec<Option<String>>) -> bool {
-        self.0.set_longnames(ns)
-    }
-
-    #[getter]
-    fn get_shortnames(&self) -> Vec<Option<PyShortname>> {
-        self.0
-            .shortnames()
-            .into_iter()
-            .map(|x| x.map(|y| y.clone().into()))
-            .collect()
-    }
-
-    #[getter]
-    fn get_all_shortnames(&self) -> Vec<PyShortname> {
-        self.0
-            .all_shortnames()
-            .into_iter()
-            .map(|x| x.into())
-            .collect()
-    }
-
-    #[setter]
-    fn set_shortnames(&mut self, ns: Vec<PyShortname>) -> PyResult<()> {
-        self.0
-            .set_shortnames(ns.into_iter().map(|x| x.into()).collect())
-            .map_err(|e| PyreflowException::new_err(e.to_string()))
-            .map(|_| ())
-    }
-
     #[getter]
     fn get_wavelengths(&self) -> Vec<(usize, Vec<u32>)> {
         self.0
@@ -1541,48 +1439,114 @@ impl PyCoreTEXT3_2 {
             .set_data_integer(rs.into_iter().map(|x| x.into()).collect())
     }
 
-    fn set_data_f32(&mut self, ranges: Vec<f32>) -> bool {
-        self.0.set_data_f32(ranges)
-    }
-
-    fn set_data_f64(&mut self, ranges: Vec<f64>) -> bool {
-        self.0.set_data_f64(ranges)
-    }
-
-    fn set_data_ascii(&mut self, rs: Vec<PyRangeSetter>) -> bool {
-        self.0
-            .set_data_ascii(rs.into_iter().map(|x| x.into()).collect())
-    }
-
-    fn set_data_delimited(&mut self, ranges: Vec<u64>) -> bool {
-        self.0.set_data_delimited(ranges)
-    }
-
-    // TODO add rest of metadata keywords
     // TODO add option to get/set measurements
     // TODO add option to populate fields based on nonstandard keywords?
 
     // TODO make function to add DATA/ANALYSIS, which will convert this to a CoreDataset
 }
 
-// common stuff
-meas_get_set!(PyCoreTEXT3_2, filters, set_filters, String);
-meas_get_set!(PyCoreTEXT3_2, powers, set_powers, u32);
-meas_get_set!(PyCoreTEXT3_2, detector_types, set_detector_types, String);
-meas_get_set!(
-    PyCoreTEXT3_2,
-    percents_emitted,
-    set_percents_emitted,
-    String
-);
+macro_rules! common_methods {
+    ($pytype:ident, [$($root:ident)*]) => {
+        // common metadata keywords
+        get_set_copied!( $pytype, [$($root,)*], abrt, set_abrt, api::Abrt, u32);
+        get_set_copied!( $pytype, [$($root,)*], lost, set_lost, api::Lost, u32);
+        get_set_str!(    $pytype, [$($root,)*], cells, set_cells);
+        get_set_str!(    $pytype, [$($root,)*], com, set_com);
+        get_set_str!(    $pytype, [$($root,)*], exp, set_exp);
+        get_set_str!(    $pytype, [$($root,)*], fil, set_fil);
+        get_set_str!(    $pytype, [$($root,)*], inst, set_inst);
+        get_set_str!(    $pytype, [$($root,)*], op, set_op);
+        get_set_str!(    $pytype, [$($root,)*], proj, set_proj);
+        get_set_str!(    $pytype, [$($root,)*], smno, set_smno);
+        get_set_str!(    $pytype, [$($root,)*], src, set_src);
+        get_set_str!(    $pytype, [$($root,)*], sys, set_sys);
+
+        // common measurement keywords
+        meas_get_set!($pytype, filters,           set_filters,           String);
+        meas_get_set!($pytype, powers,            set_powers,            u32);
+        meas_get_set!($pytype, detector_types,    set_detector_types,    String);
+        meas_get_set!($pytype, percents_emitted,  set_percents_emitted,  String);
+        meas_get_set!($pytype, detector_voltages, set_detector_voltages, PyNonNegFloat);
+
+        #[pymethods]
+        impl $pytype {
+            #[getter]
+            fn get_bytes(&self) -> Option<Vec<u8>> {
+                self.0.bytes()
+            }
+
+            #[getter]
+            fn get_ranges(&self) -> Vec<String> {
+                // TODO strings, lame
+                self.0.ranges().iter().map(|r| r.0.clone()).collect()
+            }
+
+            #[getter]
+            fn get_longnames(&self) -> Vec<Option<String>> {
+                self.0
+                    .longnames()
+                    .into_iter()
+                    .map(|x| x.map(|y| y.0.to_string()))
+                    .collect()
+            }
+
+            #[setter]
+            fn set_longnames(&mut self, ns: Vec<Option<String>>) -> bool {
+                self.0.set_longnames(ns)
+            }
+
+            #[getter]
+            fn get_shortnames(&self) -> Vec<Option<PyShortname>> {
+                self.0
+                    .shortnames()
+                    .into_iter()
+                    .map(|x| x.map(|y| y.clone().into()))
+                    .collect()
+            }
+
+            #[getter]
+            fn get_all_shortnames(&self) -> Vec<PyShortname> {
+                self.0
+                    .all_shortnames()
+                    .into_iter()
+                    .map(|x| x.into())
+                    .collect()
+            }
+
+            #[setter]
+            fn set_shortnames(&mut self, ns: Vec<PyShortname>) -> PyResult<()> {
+                self.0
+                    .set_shortnames(ns.into_iter().map(|x| x.into()).collect())
+                    .map_err(|e| PyreflowException::new_err(e.to_string()))
+                    .map(|_| ())
+            }
+
+            fn set_data_f32(&mut self, ranges: Vec<f32>) -> bool {
+                self.0.set_data_f32(ranges)
+            }
+
+            fn set_data_f64(&mut self, ranges: Vec<f64>) -> bool {
+                self.0.set_data_f64(ranges)
+            }
+
+            fn set_data_ascii(&mut self, rs: Vec<PyRangeSetter>) -> bool {
+                self.0
+                    .set_data_ascii(rs.into_iter().map(|x| x.into()).collect())
+            }
+
+            fn set_data_delimited(&mut self, ranges: Vec<u64>) -> bool {
+                self.0.set_data_delimited(ranges)
+            }
+        }
+    };
+}
+
+common_methods!(PyCoreTEXT2_0, []);
+common_methods!(PyCoreTEXT3_0, []);
+common_methods!(PyCoreTEXT3_1, []);
+common_methods!(PyCoreTEXT3_2, []);
 
 meas_get_set!(PyCoreTEXT3_2, gains, set_gains, PyPositiveFloat);
-meas_get_set!(
-    PyCoreTEXT3_2,
-    detector_voltages,
-    set_detector_voltages,
-    PyNonNegFloat
-);
 // TODO wavelengths
 meas_get_set!(PyCoreTEXT3_2, detector_names, set_detector_names, String);
 // TODO make sure we can make a calibration object
@@ -1603,48 +1567,6 @@ meas_get_set!(
 
 meas_get_set!(PyCoreTEXT3_2, features, set_features, PyFeature);
 meas_get_set!(PyCoreTEXT3_2, analytes, set_analytes, String);
-
-// macro_rules! pyuint_methods {
-//     ($pytype:ident) => {
-//         #[pymethods]
-//         impl $pytype {
-//             fn __repr__(&self) -> String {
-//                 format!("UintType(bitmask={}, size={})", self.0.bitmask, self.0.size)
-//             }
-//         }
-//     };
-// }
-
-// pyuint_methods!(PyUint08Type);
-// pyuint_methods!(PyUint16Type);
-// pyuint_methods!(PyUint24Type);
-// pyuint_methods!(PyUint32Type);
-// pyuint_methods!(PyUint40Type);
-// pyuint_methods!(PyUint48Type);
-// pyuint_methods!(PyUint56Type);
-// pyuint_methods!(PyUint64Type);
-
-// #[pymethods]
-// impl PySingleType {
-//     fn __repr__(&self) -> String {
-//         format!(
-//             "SingleType(maxval={}, order={})",
-//             self.0.range, self.0.order
-//         )
-//     }
-// }
-
-// #[pymethods]
-// impl PyColumnType {
-//     fn __repr__(&self) -> String {
-//         match &self.0 {
-//             api::ColumnType::Ascii { bytes } => format!("AsciiColumnType"),
-//             api::ColumnType::Integer(u) => format!("IntColumnType"),
-//             api::ColumnType::Float(u) => format!("FloatColumnType"),
-//             api::ColumnType::Double(u) => format!("DoubleColumnType"),
-//         }
-//     }
-// }
 
 struct PyImpureError(error::ImpureFailure);
 

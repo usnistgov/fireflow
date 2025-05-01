@@ -3862,13 +3862,13 @@ impl AnyCoreTEXT {
     //     match_anycoretext!(self, x, { x.set_trigger(t) })
     // }
 
-    pub fn raw_keywords(&self, want_req: Option<bool>, want_meta: Option<bool>) -> RawKeywords {
-        match_anycoretext!(self, x, { x.raw_keywords(want_req, want_meta) })
-    }
+    // pub fn raw_keywords(&self, want_req: Option<bool>, want_meta: Option<bool>) -> RawKeywords {
+    //     match_anycoretext!(self, x, { x.raw_keywords(want_req, want_meta) })
+    // }
 
-    pub fn shortnames(&self) -> Vec<Shortname> {
-        match_anycoretext!(self, x, { x.all_shortnames() })
-    }
+    // pub fn shortnames(&self) -> Vec<Shortname> {
+    //     match_anycoretext!(self, x, { x.all_shortnames() })
+    // }
 
     // pub fn into_2_0(self) -> PureResult<CoreTEXT2_0> {
     //     match_anycoretext!(self, x, { x.try_convert() })

@@ -1,5 +1,6 @@
 use fireflow_core::api;
 use fireflow_core::api::AnyCoreDataset;
+use fireflow_core::api::AnyCoreTEXT;
 use fireflow_core::api::VersionedTime;
 use fireflow_core::config::Strict;
 use fireflow_core::config::{self, OffsetCorrection};
@@ -802,6 +803,18 @@ impl PyOffsets {
     }
 }
 
+macro_rules! match_anycoretext {
+    ($self:expr, $bind:ident, $stuff:block) => {
+        match_many_to_one!(
+            $self,
+            AnyCoreTEXT,
+            [FCS2_0, FCS3_0, FCS3_1, FCS3_2],
+            $bind,
+            $stuff
+        )
+    };
+}
+
 #[pymethods]
 impl PyStandardizedTEXT {
     #[getter]
@@ -828,22 +841,20 @@ impl PyStandardizedTEXT {
         want_req: Option<bool>,
         want_meta: Option<bool>,
     ) -> PyResult<Bound<'py, PyDict>> {
-        self.0
-            .standardized
-            .raw_keywords(want_req, want_meta)
-            .clone()
-            .into_py_dict(py)
+        match_anycoretext!(&self.0.standardized, t, {
+            t.raw_keywords(want_req, want_meta).clone().into_py_dict(py)
+        })
     }
 
-    #[getter]
-    fn shortnames(&self) -> Vec<String> {
-        self.0
-            .standardized
-            .shortnames()
-            .iter()
-            .map(|x| x.to_string())
-            .collect()
-    }
+    // #[getter]
+    // fn shortnames(&self) -> Vec<String> {
+    //     self.0
+    //         .standardized
+    //         .shortnames()
+    //         .iter()
+    //         .map(|x| x.to_string())
+    //         .collect()
+    // }
 
     // TODO add other converters here
 

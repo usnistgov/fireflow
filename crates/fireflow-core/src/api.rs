@@ -382,13 +382,40 @@ type RawKeywords = HashMap<String, String>;
 #[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd)]
 pub struct FCSTime(pub NaiveTime);
 
+newtype_from!(FCSTime, NaiveTime);
+newtype_from_outer!(FCSTime, NaiveTime);
+
 /// A time as used in the $BTIM/ETIM keys with 1/60 seconds (3.0 only)
 #[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd)]
 pub struct FCSTime60(pub NaiveTime);
 
+newtype_from!(FCSTime60, NaiveTime);
+newtype_from_outer!(FCSTime60, NaiveTime);
+
 /// A time as used in the $BTIM/ETIM keys with centiseconds (3.1+ only)
 #[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd)]
 pub struct FCSTime100(pub NaiveTime);
+
+newtype_from!(FCSTime100, NaiveTime);
+newtype_from_outer!(FCSTime100, NaiveTime);
+
+impl<T> From<Btim<T>> for NaiveTime
+where
+    NaiveTime: From<T>,
+{
+    fn from(value: Btim<T>) -> Self {
+        value.0.into()
+    }
+}
+
+impl<T> From<Etim<T>> for NaiveTime
+where
+    NaiveTime: From<T>,
+{
+    fn from(value: Etim<T>) -> Self {
+        value.0.into()
+    }
+}
 
 /// A datetime as used in the $LAST_MODIFIED key (3.1+ only)
 // TODO this should almost certainly be after $ENDDATETIME if given

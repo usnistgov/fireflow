@@ -13,7 +13,7 @@ use fireflow_core::validated::shortname::*;
 use fireflow_core::validated::spillover::*;
 use fireflow_core::validated::textdelim::TEXTDelim;
 
-use chrono::NaiveDateTime;
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
@@ -1048,6 +1048,63 @@ macro_rules! meas_get_set {
     };
 }
 
+macro_rules! timestamp_methods {
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            #[getter]
+            fn get_btim(&self) -> Option<NaiveTime> {
+                self.0.metadata.specific.timestamps.btim_naive()
+            }
+
+            #[setter]
+            fn set_btim(&mut self, x: Option<NaiveTime>) -> PyResult<()> {
+                self.0
+                    .metadata
+                    .specific
+                    .timestamps
+                    .set_btim_naive(x)
+                    .map_err(|e| PyreflowException::new_err(e.to_string()))
+            }
+
+            #[getter]
+            fn get_etim(&self) -> Option<NaiveTime> {
+                self.0.metadata.specific.timestamps.etim_naive()
+            }
+
+            #[setter]
+            fn set_etim(&mut self, x: Option<NaiveTime>) -> PyResult<()> {
+                self.0
+                    .metadata
+                    .specific
+                    .timestamps
+                    .set_etim_naive(x)
+                    .map_err(|e| PyreflowException::new_err(e.to_string()))
+            }
+
+            #[getter]
+            fn get_date(&self) -> Option<NaiveDate> {
+                self.0.metadata.specific.timestamps.date_naive()
+            }
+
+            #[setter]
+            fn set_date(&mut self, x: Option<NaiveDate>) -> PyResult<()> {
+                self.0
+                    .metadata
+                    .specific
+                    .timestamps
+                    .set_date_naive(x)
+                    .map_err(|e| PyreflowException::new_err(e.to_string()))
+            }
+        }
+    };
+}
+
+timestamp_methods!(PyCoreTEXT2_0);
+timestamp_methods!(PyCoreTEXT3_0);
+timestamp_methods!(PyCoreTEXT3_1);
+timestamp_methods!(PyCoreTEXT3_2);
+
 #[pymethods]
 impl PyCoreTEXT3_2 {
     fn version_2_0(&self) -> PyResult<PyCoreTEXT2_0> {
@@ -1140,8 +1197,7 @@ impl PyCoreTEXT3_2 {
             .set_data_integer(rs.into_iter().map(|x| x.into()).collect())
     }
 
-    // TODO add option to get/set measurements
-    // TODO add option to populate fields based on nonstandard keywords?
+    // TODO add option to insert/pop/read values from nonstandard hash table
 
     // TODO make function to add DATA/ANALYSIS, which will convert this to a CoreDataset
 }

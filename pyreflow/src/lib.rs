@@ -970,6 +970,11 @@ macro_rules! get_set_str {
 }
 
 macro_rules! get_set_copied {
+    ($pytype:ident, $($rest:ident,)+ [$($root:ident),*], $get:ident, $set:ident, $field:ident, $out:ty) => {
+        get_set_copied!($pytype, [$($root),*], $get, $set, $field, $out);
+        get_set_copied!($($rest,)+ [$($root),*], $get, $set, $field, $out);
+    };
+
     ($pytype:ident, [$($root:ident),*], $get:ident, $set:ident, $field:ident, $out:ty) => {
         #[pymethods]
         impl $pytype {
@@ -986,52 +991,12 @@ macro_rules! get_set_copied {
     };
 }
 
-// macro_rules! get_set_datetime {
-//     ($pytype:ident, [$($root:ident,)*]) => {
-//         #[pymethods]
-//         impl $pytype {
-//             #[getter]
-//             fn begin_date(&self) -> Option<NaiveDate> {
-//                 self.0.$($root.)*begin_date()
-//             }
-
-//             #[getter]
-//             fn end_date(&self) -> Option<NaiveDate> {
-//                 self.0.$($root.)*end_date()
-//             }
-
-//             #[getter]
-//             fn begin_time(&self) -> Option<NaiveTime> {
-//                 self.0.$($root.)*begin_time()
-//             }
-
-//             #[getter]
-//             fn end_time(&self) -> Option<NaiveTime> {
-//                 self.0.$($root.)*end_time()
-//             }
-
-//             fn set_datetimes(
-//                 &mut self,
-//                 begin: DateTime<FixedOffset>,
-//                 end: DateTime<FixedOffset>,
-//             ) -> bool {
-//                 self.0.$($root.)*set_datetimes(begin, end)
-//             }
-
-//             fn clear_datetimes(&mut self) {
-//                 self.0.$($root.)*clear_datetimes()
-//             }
-//         }
-//     };
-// }
-
-// core_text_methods!(PyStandardizedTEXT, [standardized]);
-// core_text_methods!(PyCoreTEXT2_0, []);
-// core_text_methods!(PyCoreTEXT3_0, []);
-// core_text_methods!(PyCoreTEXT3_1, []);
-// core_text_methods!(PyCoreTEXT3_2, []);
-
 macro_rules! meas_get_set {
+    ($pytype:ident, $($rest:ident,)+ [$($root:ident),*], $get:ident, $set:ident, $t:path) => {
+        meas_get_set!($pytype, [$($root),*], $get, $set, $t);
+        meas_get_set!($($rest,)+ [$($root),*], $get, $set, $t);
+    };
+
     ($pytype:ident, [$($root:ident),*], $get:ident, $set:ident, $t:path) => {
         #[pymethods]
         impl $pytype {
@@ -1177,8 +1142,6 @@ impl PyCoreTEXT3_2 {
             .set_data_integer(rs.into_iter().map(|x| x.into()).collect())
     }
 
-    // TODO add option to insert/pop/read values from nonstandard hash table
-
     // TODO make function to add DATA/ANALYSIS, which will convert this to a CoreDataset
 }
 
@@ -1217,15 +1180,21 @@ macro_rules! scales_methods {
 }
 
 macro_rules! timestep_methods {
-    ($pytype:ident) => {
-        get_set_str!($pytype, [metadata, specific], get_cytsn, set_cytsn, cytsn);
+    ($pytype:ident, $($rest:ident),+; $($root:ident),*) => {
+        timestep_methods!($pytype; $($root),*);
+        timestep_methods!($($rest),+; $($root),*);
+    };
+
+    ($pytype:ident; $($root:ident),*) => {
+        get_set_str!($pytype, [$($root,)* metadata, specific], get_cytsn, set_cytsn, cytsn);
 
         #[pymethods]
         impl $pytype {
             #[getter]
             fn get_timestep(&self) -> Option<PyPositiveFloat> {
                 self.0
-                    .measurements()
+                    .$($root.)*
+                    measurements()
                     .as_center()
                     .and_then(|x| x.value.specific.timestep())
                     .map(|x| x.0.into())
@@ -1234,7 +1203,8 @@ macro_rules! timestep_methods {
             #[setter]
             fn set_timestep(&mut self, x: PyPositiveFloat) -> bool {
                 self.0
-                    .as_center_mut()
+                    .$($root.)*
+                    as_center_mut()
                     .map(|y| y.value.specific.set_timestep(api::Timestep(x.into())))
                     .is_some()
             }
@@ -1310,14 +1280,9 @@ macro_rules! wavelengths_methods {
 }
 
 macro_rules! modification_methods {
-    ($pytype:ident, $($rest:ident),+; $($root:ident),*) => {
-        modification_methods!($pytype; $($root),*);
-        modification_methods!($($rest),+; $($root),*);
-    };
-
-    ($pytype:ident; $($root:ident),*) => {
+    ($($pytype:ident),+; $($root:ident),*) => {
         get_set_copied!(
-            $pytype,
+            $($pytype,)*
             [$($root,)* metadata, specific, modification],
             get_originality,
             set_originality,
@@ -1326,7 +1291,7 @@ macro_rules! modification_methods {
         );
 
         get_set_copied!(
-            $pytype,
+            $($pytype,)*
             [$($root,)* metadata, specific, modification],
             get_last_modified,
             set_last_modified,
@@ -1335,7 +1300,7 @@ macro_rules! modification_methods {
         );
 
         get_set_str!(
-            $pytype,
+            $($pytype,)*
             [$($root,)* metadata, specific, modification],
             get_last_modifier,
             set_last_modifier,
@@ -1345,14 +1310,9 @@ macro_rules! modification_methods {
 }
 
 macro_rules! carrier_methods {
-    ($pytype:ident, $($rest:ident),+; $($root:ident),*) => {
-        carrier_methods!($pytype; $($root),*);
-        carrier_methods!($($rest),+; $($root),*);
-    };
-
-    ($pytype:ident; $($root:ident),*) => {
+    ($($pytype:ident),*; $($root:ident),*) => {
         get_set_str!(
-            $pytype,
+            $($pytype,)*
             [$($root,)* metadata, specific, carrier],
             get_carriertype,
             set_carriertype,
@@ -1360,7 +1320,7 @@ macro_rules! carrier_methods {
         );
 
         get_set_str!(
-            $pytype,
+            $($pytype,)*
             [$($root,)* metadata, specific, carrier],
             get_carrierid,
             set_carrierid,
@@ -1368,7 +1328,7 @@ macro_rules! carrier_methods {
         );
 
         get_set_str!(
-            $pytype,
+            $($pytype,)*
             [$($root,)* metadata, specific, carrier],
             get_locationid,
             set_locationid,
@@ -1378,14 +1338,9 @@ macro_rules! carrier_methods {
 }
 
 macro_rules! plate_methods {
-    ($pytype:ident, $($rest:ident),+; $($root:ident),*) => {
-        plate_methods!($pytype; $($root),*);
-        plate_methods!($($rest),+; $($root),*);
-    };
-
-    ($pytype:ident; $($root:ident),*) => {
+    ($($pytype:ident),*; $($root:ident),*) => {
         get_set_str!(
-            $pytype,
+            $($pytype,)*
             [$($root,)* metadata, specific, plate],
             get_wellid,
             set_wellid,
@@ -1393,7 +1348,7 @@ macro_rules! plate_methods {
         );
 
         get_set_str!(
-            $pytype,
+            $($pytype,)*
             [$($root,)* metadata, specific, plate],
             get_plateid,
             set_plateid,
@@ -1401,7 +1356,7 @@ macro_rules! plate_methods {
         );
 
         get_set_str!(
-            $pytype,
+            $($pytype,)*
             [$($root,)* metadata, specific, plate],
             get_platename,
             set_platename,
@@ -1457,10 +1412,10 @@ macro_rules! spillover_methods {
 }
 
 macro_rules! vol_methods {
-    ($pytype:ident, [$($root:ident)*]) => {
+    ($($pytype:ident),*; $($root:ident)*) => {
         get_set_copied!(
-            $pytype,
-            [$($root),* metadata, specific],
+            $($pytype,)*
+            [$($root,)* metadata, specific],
             get_vol,
             set_vol,
             vol,
@@ -1470,7 +1425,12 @@ macro_rules! vol_methods {
 }
 
 macro_rules! common_methods {
-    ($pytype:ident, [$($root:ident),*]) => {
+    ($pytype:ident, $($rest:ident),+; $($root:ident),*) => {
+        common_methods!($pytype; $($root),*);
+        common_methods!($($rest),+; $($root),*);
+    };
+
+    ($pytype:ident; $($root:ident),*) => {
         // common metadata keywords
         get_set_copied!($pytype, [$($root,)*metadata], get_abrt, set_abrt, abrt, u32);
         get_set_copied!($pytype, [$($root,)*metadata], get_lost, set_lost, lost, u32);
@@ -1689,23 +1649,27 @@ macro_rules! common_methods {
     };
 }
 
-common_methods!(PyCoreTEXT2_0, []);
-common_methods!(PyCoreTEXT3_0, []);
-common_methods!(PyCoreTEXT3_1, []);
-common_methods!(PyCoreTEXT3_2, []);
+common_methods!(PyCoreTEXT2_0, PyCoreTEXT3_0, PyCoreTEXT3_1, PyCoreTEXT3_2;);
+common_methods!(PyCoreDataset2_0, PyCoreDataset3_0, PyCoreDataset3_1, PyCoreDataset3_2; text);
 
-common_methods!(PyCoreDataset2_0, [text]);
-common_methods!(PyCoreDataset3_0, [text]);
-common_methods!(PyCoreDataset3_1, [text]);
-common_methods!(PyCoreDataset3_2, [text]);
-
-meas_get_set!(PyCoreTEXT3_0, [], gains, set_gains, PyPositiveFloat);
-meas_get_set!(PyCoreTEXT3_1, [], gains, set_gains, PyPositiveFloat);
-meas_get_set!(PyCoreTEXT3_2, [], gains, set_gains, PyPositiveFloat);
-
-meas_get_set!(PyCoreDataset3_0, [text], gains, set_gains, PyPositiveFloat);
-meas_get_set!(PyCoreDataset3_1, [text], gains, set_gains, PyPositiveFloat);
-meas_get_set!(PyCoreDataset3_2, [text], gains, set_gains, PyPositiveFloat);
+meas_get_set!(
+    PyCoreTEXT3_0,
+    PyCoreTEXT3_1,
+    PyCoreTEXT3_2,
+    [],
+    gains,
+    set_gains,
+    PyPositiveFloat
+);
+meas_get_set!(
+    PyCoreDataset3_0,
+    PyCoreDataset3_1,
+    PyCoreDataset3_2,
+    [text],
+    gains,
+    set_gains,
+    PyPositiveFloat
+);
 
 meas_get_set!(PyCoreTEXT3_2, [], det_names, set_det_names, String);
 meas_get_set!(PyCoreDataset3_2, [text], det_names, set_det_names, String);
@@ -1719,14 +1683,31 @@ meas_get_set!(
     PyCalibration3_1
 );
 meas_get_set!(
+    PyCoreDataset3_1,
+    [text],
+    calibrations,
+    set_calibrations,
+    PyCalibration3_1
+);
+
+meas_get_set!(
     PyCoreTEXT3_2,
     [],
     calibrations,
     set_calibrations,
     PyCalibration3_2
 );
+meas_get_set!(
+    PyCoreDataset3_2,
+    [text],
+    calibrations,
+    set_calibrations,
+    PyCalibration3_2
+);
 
 meas_get_set!(PyCoreTEXT3_2, [], tags, set_tags, String);
+meas_get_set!(PyCoreDataset3_2, [text], tags, set_tags, String);
+
 meas_get_set!(
     PyCoreTEXT3_2,
     [],
@@ -1734,13 +1715,25 @@ meas_get_set!(
     set_measurement_types,
     PyMeasurementType
 );
+meas_get_set!(
+    PyCoreDataset3_2,
+    [text],
+    measurement_types,
+    set_measurement_types,
+    PyMeasurementType
+);
 
 meas_get_set!(PyCoreTEXT3_2, [], features, set_features, PyFeature);
+meas_get_set!(PyCoreDataset3_2, [text], features, set_features, PyFeature);
+
 meas_get_set!(PyCoreTEXT3_2, [], analytes, set_analytes, String);
+meas_get_set!(PyCoreDataset3_2, [text], analytes, set_analytes, String);
 
 wavelength_methods!(PyCoreTEXT2_0, PyCoreTEXT3_0;);
+wavelength_methods!(PyCoreDataset2_0, PyCoreDataset3_0; text);
 
 wavelengths_methods!(PyCoreTEXT3_1, PyCoreTEXT3_2;);
+wavelengths_methods!(PyCoreDataset3_1, PyCoreDataset3_2; text);
 
 spillover_methods!(PyCoreTEXT3_1, PyCoreTEXT3_2;);
 spillover_methods!(PyCoreDataset3_1, PyCoreDataset3_2; text);
@@ -1763,6 +1756,15 @@ get_set_str!(
     set_cyt,
     cyt
 );
+get_set_str!(
+    PyCoreDataset2_0,
+    PyCoreDataset3_0,
+    PyCoreDataset3_1,
+    [text, metadata, specific],
+    get_cyt,
+    set_cyt,
+    cyt
+);
 
 get_set_str!(
     PyCoreTEXT3_2,
@@ -1771,16 +1773,22 @@ get_set_str!(
     set_flowrate,
     flowrate
 );
+get_set_str!(
+    PyCoreDataset3_2,
+    [text, metadata, specific],
+    get_flowrate,
+    set_flowrate,
+    flowrate
+);
 
 modification_methods!(PyCoreTEXT3_1, PyCoreTEXT3_2;);
 modification_methods!(PyCoreDataset3_1, PyCoreDataset3_2; text);
 
-vol_methods!(PyCoreTEXT3_1, []);
-vol_methods!(PyCoreTEXT3_2, []);
+vol_methods!(PyCoreTEXT3_1, PyCoreTEXT3_2;);
+vol_methods!(PyCoreDataset3_1, PyCoreDataset3_2; text);
 
-timestep_methods!(PyCoreTEXT3_0);
-timestep_methods!(PyCoreTEXT3_1);
-timestep_methods!(PyCoreTEXT3_2);
+timestep_methods!(PyCoreTEXT3_0, PyCoreTEXT3_1, PyCoreTEXT3_2;);
+timestep_methods!(PyCoreDataset3_0, PyCoreDataset3_1, PyCoreDataset3_2; text);
 
 struct PyImpureError(error::ImpureFailure);
 

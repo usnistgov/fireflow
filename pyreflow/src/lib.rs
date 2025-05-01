@@ -667,23 +667,12 @@ impl From<PyNonNegFloat> for api::Vol {
 }
 
 pywrap!(PyEndian, Endian, "Endian");
+pywrap!(PyByteOrd, ByteOrd, "ByteOrd");
 pywrap!(PyOriginality, api::Originality, "Originality");
 pywrap!(PyTrigger, api::Trigger, "Trigger");
 pywrap!(PyAlphaNumType, api::AlphaNumType, "AlphaNumType");
 pywrap!(PyScale, Scale, "Scale");
 pywrap!(PySpillover, Spillover, "Spillover");
-
-// pywrap!(PyColumnType, api::ColumnType, "ColumnType");
-// pywrap!(PyUint08Type, api::Uint08Type, "Uint08Type");
-// pywrap!(PyUint16Type, api::Uint16Type, "Uint16Type");
-// pywrap!(PyUint24Type, api::Uint24Type, "Uint24Type");
-// pywrap!(PyUint32Type, api::Uint32Type, "Uint32Type");
-// pywrap!(PyUint40Type, api::Uint40Type, "Uint40Type");
-// pywrap!(PyUint48Type, api::Uint48Type, "Uint48Type");
-// pywrap!(PyUint56Type, api::Uint56Type, "Uint56Type");
-// pywrap!(PyUint64Type, api::Uint64Type, "Uint64Type");
-// pywrap!(PySingleType, api::SingleType, "SingleType");
-// pywrap!(PyDoubleType, api::DoubleType, "SingleType");
 
 py_parse!(PyDatePattern, DatePattern);
 py_disp!(PyDatePattern);
@@ -700,14 +689,6 @@ impl Hash for PyShortname {
 
 py_parse!(PyNonStdMeasPattern, NonStdMeasPattern);
 py_disp!(PyNonStdMeasPattern);
-
-// #[pymethods]
-// impl PyCytSetter {
-//     #[new]
-//     fn new(def_key: bool, default: Option<String>, key: Option<PyNonStdKey>) -> PyCytSetter {
-//         api::OptMetaKey::setter(default.map(|x| x.into()), def_key, key.map(|x| x.0)).into()
-//     }
-// }
 
 #[pymethods]
 impl PyTEXTDelim {
@@ -1191,6 +1172,25 @@ impl PyCoreTEXT3_2 {
 
     // TODO make function to add DATA/ANALYSIS, which will convert this to a CoreDataset
 }
+
+macro_rules! integer_2_0_methods {
+    ($pytype:ident, $($rest:ident),+; $($root:ident),*) => {
+        integer_2_0_methods!($pytype; $($root),*);
+        integer_2_0_methods!($($rest),+; $($root),*);
+    };
+
+    ($pytype:ident; $($root:ident),*) => {
+        #[pymethods]
+        impl $pytype {
+            fn set_data_integer(&mut self, rs: Vec<u64>, byteord: PyByteOrd) -> bool {
+                self.0.$($root.)*set_data_integer(rs, byteord.into())
+            }
+        }
+    };
+}
+
+integer_2_0_methods!(PyCoreTEXT2_0, PyCoreTEXT3_0;);
+integer_2_0_methods!(PyCoreDataset2_0, PyCoreDataset3_0; text);
 
 macro_rules! integer_methods {
     ($pytype:ident, $($rest:ident),+; $($root:ident),*) => {

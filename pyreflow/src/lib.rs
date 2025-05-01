@@ -617,6 +617,7 @@ pywrap!(
     "MixedColumnSetter"
 );
 pywrap!(PyTimePattern, TimePattern, "TimePattern");
+pywrap!(PyUnicode, api::Unicode, "Unicode");
 pywrap!(PyShortnamePrefix, ShortnamePrefix, "ShortnamePrefix");
 pywrap!(PyNonStdMeasPattern, NonStdMeasPattern, "NonStdMeasPattern");
 pywrap!(PyNonStdMeasKey, NonStdMeasKey, "NonStdMeasKey");
@@ -1078,6 +1079,24 @@ convert_methods!(
     [version_3_0, PyCoreDataset3_0],
     [version_3_1, PyCoreDataset3_1]
 );
+
+#[pymethods]
+impl PyCoreTEXT3_0 {
+    #[getter]
+    fn get_unicode(&self) -> Option<PyUnicode> {
+        self.0
+            .metadata
+            .specific
+            .unicode
+            .as_ref_opt()
+            .map(|x| x.clone().into())
+    }
+
+    #[setter]
+    fn set_unicode(&mut self, x: Option<PyUnicode>) {
+        self.0.metadata.specific.unicode = x.map(|y| y.into()).into();
+    }
+}
 
 #[pymethods]
 impl PyCoreTEXT3_2 {

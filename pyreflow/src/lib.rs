@@ -1131,17 +1131,6 @@ impl PyCoreTEXT3_2 {
     }
 
     #[getter]
-    fn get_big_endian(&self) -> bool {
-        self.0.metadata.specific.byteord == Endian::Big
-    }
-
-    #[setter]
-    fn set_big_endian(&mut self, is_big: bool) {
-        let e = if is_big { Endian::Big } else { Endian::Little };
-        self.0.metadata.specific.byteord = e;
-    }
-
-    #[getter]
     fn get_datatypes(&self) -> Vec<PyAlphaNumType> {
         self.0.datatypes().into_iter().map(|x| x.into()).collect()
     }
@@ -1200,13 +1189,55 @@ impl PyCoreTEXT3_2 {
             .set_data_mixed(cs.into_iter().map(|x| x.into()).collect())
     }
 
-    fn set_data_integer(&mut self, rs: Vec<PyRangeSetter>) -> bool {
-        self.0
-            .set_data_integer(rs.into_iter().map(|x| x.into()).collect())
-    }
-
     // TODO make function to add DATA/ANALYSIS, which will convert this to a CoreDataset
 }
+
+macro_rules! integer_methods {
+    ($pytype:ident, $($rest:ident),+; $($root:ident),*) => {
+        integer_methods!($pytype; $($root),*);
+        integer_methods!($($rest),+; $($root),*);
+    };
+
+    ($pytype:ident; $($root:ident),*) => {
+        #[pymethods]
+        impl $pytype {
+            fn set_data_integer(&mut self, rs: Vec<PyRangeSetter>) -> bool {
+                self.0
+                    .$($root.)*
+                    set_data_integer(rs.into_iter().map(|x| x.into()).collect())
+            }
+        }
+    };
+}
+
+integer_methods!(PyCoreTEXT3_1, PyCoreTEXT3_2;);
+integer_methods!(PyCoreDataset3_1, PyCoreDataset3_2; text);
+
+macro_rules! endian_methods {
+    ($pytype:ident, $($rest:ident),+; $($root:ident),*) => {
+        endian_methods!($pytype; $($root),*);
+        endian_methods!($($rest),+; $($root),*);
+    };
+
+    ($pytype:ident; $($root:ident),*) => {
+        #[pymethods]
+        impl $pytype {
+            #[getter]
+            fn get_big_endian(&self) -> bool {
+                self.0.$($root.)*metadata.specific.byteord == Endian::Big
+            }
+
+            #[setter]
+            fn set_big_endian(&mut self, is_big: bool) {
+                let e = if is_big { Endian::Big } else { Endian::Little };
+                self.0.$($root.)*metadata.specific.byteord = e;
+            }
+        }
+    };
+}
+
+endian_methods!(PyCoreTEXT3_1, PyCoreTEXT3_2;);
+endian_methods!(PyCoreDataset3_1, PyCoreDataset3_2; text);
 
 macro_rules! scales_methods {
     ($pytype:ident, $($rest:ident),+; $($root:ident),*) => {

@@ -5987,6 +5987,32 @@ where
     M: VersionedMetadata,
     M::N: Clone,
 {
+    pub fn try_convert<ToM>(
+        self,
+    ) -> PureResult<
+        CoreDataset<ToM, ToM::T, ToM::P, ToM::N, <ToM::N as MightHave>::Wrapper<Shortname>>,
+    >
+    where
+        M::N: Clone,
+        ToM: VersionedMetadata,
+        ToM::P: VersionedMeasurement,
+        ToM::T: VersionedTime,
+        ToM::N: MightHave,
+        ToM::N: Clone,
+        ToM: TryFrom<M, Error = MetaConvertErrors>,
+        ToM::P: TryFrom<M::P, Error = MeasConvertError>,
+        ToM::T: From<M::T>,
+        <ToM::N as MightHave>::Wrapper<Shortname>: TryFrom<<M::N as MightHave>::Wrapper<Shortname>>,
+    {
+        self.text.try_convert().map(|res| {
+            res.map(|newtext| CoreDataset {
+                text: Box::new(newtext),
+                data: self.data,
+                analysis: self.analysis,
+            })
+        })
+    }
+
     // fn set_shortnames(&mut self, names: Vec<Shortname>) -> Result<NameMapping, String> {
     //     self.text
     //         .set_shortnames(names)

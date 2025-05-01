@@ -1020,23 +1020,50 @@ macro_rules! meas_get_set {
     };
 }
 
+macro_rules! convert_methods {
+    ($pytype:ident, $([$fn:ident, $to:ident]),+) => {
+        #[pymethods]
+        impl $pytype {
+            $(
+                fn $fn(&self) -> PyResult<$to> {
+                    let new = self.0.clone().try_convert();
+                    handle_errors(new.map_err(|e| e.into()))
+                }
+            )*
+        }
+    };
+}
+
+convert_methods!(
+    PyCoreTEXT2_0,
+    [version_3_0, PyCoreTEXT3_0],
+    [version_3_1, PyCoreTEXT3_1],
+    [version_3_2, PyCoreTEXT3_2]
+);
+
+convert_methods!(
+    PyCoreTEXT3_0,
+    [version_2_0, PyCoreTEXT2_0],
+    [version_3_1, PyCoreTEXT3_1],
+    [version_3_2, PyCoreTEXT3_2]
+);
+
+convert_methods!(
+    PyCoreTEXT3_1,
+    [version_2_0, PyCoreTEXT2_0],
+    [version_3_0, PyCoreTEXT3_0],
+    [version_3_2, PyCoreTEXT3_2]
+);
+
+convert_methods!(
+    PyCoreTEXT3_2,
+    [version_2_0, PyCoreTEXT2_0],
+    [version_3_0, PyCoreTEXT3_0],
+    [version_3_1, PyCoreTEXT3_1]
+);
+
 #[pymethods]
 impl PyCoreTEXT3_2 {
-    fn version_2_0(&self) -> PyResult<PyCoreTEXT2_0> {
-        let new = self.0.clone().try_convert();
-        handle_errors(new.map_err(|e| e.into()))
-    }
-
-    fn version_3_0(&self) -> PyResult<PyCoreTEXT3_0> {
-        let new = self.0.clone().try_convert();
-        handle_errors(new.map_err(|e| e.into()))
-    }
-
-    fn version_3_1(&self) -> PyResult<PyCoreTEXT3_1> {
-        let new = self.0.clone().try_convert();
-        handle_errors(new.map_err(|e| e.into()))
-    }
-
     #[getter]
     fn get_begin(&self) -> Option<DateTime<FixedOffset>> {
         self.0.metadata.specific.datetimes.begin_naive()

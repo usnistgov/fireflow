@@ -1,3 +1,4 @@
+use crate::macros::{newtype_from, newtype_from_outer};
 use crate::optionalkw::*;
 
 use chrono::{DateTime, FixedOffset};
@@ -24,6 +25,36 @@ pub struct EndDateTime(pub FCSDateTime);
 #[derive(Clone, Copy, Serialize)]
 pub struct FCSDateTime(pub DateTime<FixedOffset>);
 
+newtype_from!(FCSDateTime, DateTime<FixedOffset>);
+newtype_from_outer!(FCSDateTime, DateTime<FixedOffset>);
+
+macro_rules! get_set {
+    ($fn_get_naive:ident, $fn:ident, $fn_naive:ident, $in:path, $field:ident) => {
+        pub fn $field(&self) -> OptionalKw<$in> {
+            OptionalKw(self.$field)
+        }
+
+        pub fn $fn_get_naive(&self) -> Option<DateTime<FixedOffset>> {
+            self.$field().0.map(|x| x.0.into())
+        }
+
+        pub fn $fn(&mut self, x: OptionalKw<$in>) -> DatetimesResult<()> {
+            let tmp = self.$field;
+            self.$field = x.0;
+            if self.valid() {
+                Ok(())
+            } else {
+                self.$field = tmp;
+                Err(InvalidDatetimes)
+            }
+        }
+
+        pub fn $fn_naive(&mut self, x: Option<DateTime<FixedOffset>>) -> DatetimesResult<()> {
+            self.$fn(x.map(|y| FCSDateTime(y).into()).into())
+        }
+    };
+}
+
 impl Datetimes {
     pub fn new(
         begin: OptionalKw<BeginDateTime>,
@@ -40,35 +71,15 @@ impl Datetimes {
         }
     }
 
-    pub fn begin(&self) -> OptionalKw<BeginDateTime> {
-        OptionalKw(self.begin)
-    }
+    get_set!(
+        begin_naive,
+        set_begin,
+        set_begin_naive,
+        BeginDateTime,
+        begin
+    );
 
-    pub fn end(&self) -> OptionalKw<EndDateTime> {
-        OptionalKw(self.end)
-    }
-
-    pub fn set_begin(&mut self, x: OptionalKw<BeginDateTime>) -> DatetimesResult<()> {
-        let tmp = self.begin;
-        self.begin = x.0;
-        if self.valid() {
-            Ok(())
-        } else {
-            self.begin = tmp;
-            Err(InvalidDatetimes)
-        }
-    }
-
-    pub fn set_end(&mut self, x: OptionalKw<EndDateTime>) -> DatetimesResult<()> {
-        let tmp = self.end;
-        self.end = x.0;
-        if self.valid() {
-            Ok(())
-        } else {
-            self.end = tmp;
-            Err(InvalidDatetimes)
-        }
-    }
+    get_set!(end_naive, set_end, set_end_naive, EndDateTime, end);
 
     pub fn valid(&self) -> bool {
         if let (Some(b), Some(e)) = (&self.begin, &self.end) {

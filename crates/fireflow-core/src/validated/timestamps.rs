@@ -1,6 +1,7 @@
+use crate::macros::{newtype_from, newtype_from_outer};
 use crate::optionalkw::*;
 
-use chrono::NaiveDate;
+use chrono::{NaiveDate, NaiveTime};
 use serde::Serialize;
 use std::fmt;
 
@@ -41,6 +42,42 @@ pub struct Etim<T>(pub T);
 #[derive(Clone, Copy, Serialize)]
 pub struct FCSDate(pub NaiveDate);
 
+newtype_from!(FCSDate, NaiveDate);
+newtype_from_outer!(FCSDate, NaiveDate);
+
+macro_rules! get_set {
+    ($fn_get_naive:ident, $fn:ident, $fn_naive:ident, $in:path, $in_naive:path, $field:ident) => {
+        pub fn $field(&self) -> OptionalKw<$in> {
+            OptionalKw(self.$field)
+        }
+
+        pub fn $fn_get_naive(&self) -> Option<$in_naive>
+        where
+            $in_naive: From<$in>,
+        {
+            self.$field().0.map(|x| x.into())
+        }
+
+        pub fn $fn(&mut self, x: OptionalKw<$in>) -> TimestampsResult<()> {
+            let tmp = self.$field;
+            self.$field = x.0;
+            if self.valid() {
+                Ok(())
+            } else {
+                self.$field = tmp;
+                Err(InvalidTimestamps)
+            }
+        }
+
+        pub fn $fn_naive(&mut self, x: Option<$in_naive>) -> TimestampsResult<()>
+        where
+            $in: From<$in_naive>,
+        {
+            self.$fn(x.map(|y| y.into()).into())
+        }
+    };
+}
+
 impl<X> Timestamps<X>
 where
     X: PartialOrd,
@@ -63,50 +100,32 @@ where
         }
     }
 
-    pub fn btim(&self) -> OptionalKw<Btim<X>> {
-        OptionalKw(self.btim)
-    }
+    get_set!(
+        btim_naive,
+        set_btim,
+        set_btim_naive,
+        Btim<X>,
+        NaiveTime,
+        btim
+    );
 
-    pub fn etim(&self) -> OptionalKw<Etim<X>> {
-        OptionalKw(self.etim)
-    }
+    get_set!(
+        etim_naive,
+        set_etim,
+        set_etim_naive,
+        Etim<X>,
+        NaiveTime,
+        etim
+    );
 
-    pub fn date(&self) -> OptionalKw<FCSDate> {
-        OptionalKw(self.date)
-    }
-
-    pub fn set_btim(&mut self, x: OptionalKw<Btim<X>>) -> TimestampsResult<()> {
-        let tmp = self.btim;
-        self.btim = x.0;
-        if self.valid() {
-            Ok(())
-        } else {
-            self.btim = tmp;
-            Err(InvalidTimestamps)
-        }
-    }
-
-    pub fn set_etim(&mut self, x: OptionalKw<Etim<X>>) -> TimestampsResult<()> {
-        let tmp = self.etim;
-        self.etim = x.0;
-        if self.valid() {
-            Ok(())
-        } else {
-            self.etim = tmp;
-            Err(InvalidTimestamps)
-        }
-    }
-
-    pub fn set_date(&mut self, x: OptionalKw<FCSDate>) -> TimestampsResult<()> {
-        let tmp = self.date;
-        self.date = x.0;
-        if self.valid() {
-            Ok(())
-        } else {
-            self.date = tmp;
-            Err(InvalidTimestamps)
-        }
-    }
+    get_set!(
+        date_naive,
+        set_date,
+        set_date_naive,
+        FCSDate,
+        NaiveDate,
+        date
+    );
 
     pub fn map<F, Y>(self, f: F) -> Timestamps<Y>
     where

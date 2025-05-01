@@ -948,6 +948,11 @@ impl PyStandardizedDataset {
 }
 
 macro_rules! get_set_str {
+    ($pytype:ident, $($rest:ident,)+ [$($root:ident),*], $get:ident, $set:ident, $field:ident) => {
+        get_set_str!($pytype, [$($root),*], $get, $set, $field);
+        get_set_str!($($rest,)+ [$($root),*], $get, $set, $field);
+    };
+
     ($pytype:ident, [$($root:ident),*], $get:ident, $set:ident, $field:ident) => {
         #[pymethods]
         impl $pytype {
@@ -1027,13 +1032,14 @@ macro_rules! get_set_copied {
 // core_text_methods!(PyCoreTEXT3_2, []);
 
 macro_rules! meas_get_set {
-    ($pytype:ident, $get:ident, $set:ident, $t:path) => {
+    ($pytype:ident, [$($root:ident),*], $get:ident, $set:ident, $t:path) => {
         #[pymethods]
         impl $pytype {
             #[getter]
             fn $get(&self) -> Vec<(usize, Option<$t>)> {
                 self.0
-                    .$get()
+                    .$($root.)*
+                    $get()
                     .into_iter()
                     .map(|(i, x)| (i.into(), x.map(|y| y.clone().into())))
                     .collect()
@@ -1042,7 +1048,8 @@ macro_rules! meas_get_set {
             #[setter]
             fn $set(&mut self, xs: Vec<Option<$t>>) -> bool {
                 self.0
-                    .$set(xs.into_iter().map(|x| x.map(|y| y.into())).collect())
+                    .$($root.)*
+                    $set(xs.into_iter().map(|x| x.map(|y| y.into())).collect())
             }
         }
     };
@@ -1176,18 +1183,24 @@ impl PyCoreTEXT3_2 {
 }
 
 macro_rules! scales_methods {
-    ($pytype:ident) => {
+    ($pytype:ident, $($rest:ident),+; $($root:ident),*) => {
+        scales_methods!($pytype; $($root),*);
+        scales_methods!($($rest),+; $($root),*);
+    };
+
+    ($pytype:ident; $($root:ident),*) => {
         #[pymethods]
         impl $pytype {
             #[getter]
             fn get_all_scales(&self) -> Vec<PyScale> {
-                self.0.all_scales().into_iter().map(|x| x.into()).collect()
+                self.0.$($root.)*all_scales().into_iter().map(|x| x.into()).collect()
             }
 
             #[getter]
             fn get_scales(&self) -> Vec<(usize, PyScale)> {
                 self.0
-                    .scales()
+                    .$($root.)*
+                    scales()
                     .into_iter()
                     .map(|(i, x)| (i.into(), x.into()))
                     .collect()
@@ -1196,7 +1209,8 @@ macro_rules! scales_methods {
             #[setter]
             fn set_scales(&mut self, xs: Vec<PyScale>) -> bool {
                 self.0
-                    .set_scales(xs.into_iter().map(|x| x.into()).collect())
+                    .$($root.)*
+                    set_scales(xs.into_iter().map(|x| x.into()).collect())
             }
         }
     };
@@ -1229,13 +1243,19 @@ macro_rules! timestep_methods {
 }
 
 macro_rules! wavelength_methods {
-    ($pytype:ident) => {
+    ($pytype:ident, $($rest:ident),+; $($root:ident),*) => {
+        wavelength_methods!($pytype; $($root),*);
+        wavelength_methods!($($rest),+; $($root),*);
+    };
+
+    ($pytype:ident; $($root:ident),*) => {
         #[pymethods]
         impl $pytype {
             #[getter]
             fn get_wavelengths(&self) -> Vec<(usize, Option<u32>)> {
                 self.0
-                    .wavelengths()
+                    .$($root.)*
+                    wavelengths()
                     .into_iter()
                     .map(|(i, x)| (i.into(), x.map(|y| y.0)))
                     .collect()
@@ -1244,20 +1264,27 @@ macro_rules! wavelength_methods {
             #[setter]
             fn set_wavelengths(&mut self, xs: Vec<Option<u32>>) -> bool {
                 self.0
-                    .set_wavelengths(xs.into_iter().map(|x| x.map(|y| y.into())).collect())
+                    .$($root.)*
+                    set_wavelengths(xs.into_iter().map(|x| x.map(|y| y.into())).collect())
             }
         }
     };
 }
 
 macro_rules! wavelengths_methods {
-    ($pytype:ident) => {
+    ($pytype:ident, $($rest:ident),+; $($root:ident),*) => {
+        wavelengths_methods!($pytype; $($root),*);
+        wavelengths_methods!($($rest),+; $($root),*);
+    };
+
+    ($pytype:ident; $($root:ident),*) => {
         #[pymethods]
         impl $pytype {
             #[getter]
             fn get_wavelengths(&self) -> Vec<(usize, Vec<u32>)> {
                 self.0
-                    .wavelengths()
+                    .$($root.)*
+                    wavelengths()
                     .into_iter()
                     .map(|(i, x)| {
                         (
@@ -1270,7 +1297,9 @@ macro_rules! wavelengths_methods {
 
             #[setter]
             fn set_wavelengths(&mut self, xs: Vec<Vec<u32>>) -> bool {
-                self.0.set_wavelengths(
+                self.0.
+                    $($root.)*
+                    set_wavelengths(
                     xs.into_iter()
                         .map(|x| NonEmpty::from_vec(x).map(api::Wavelengths))
                         .collect(),
@@ -1281,10 +1310,15 @@ macro_rules! wavelengths_methods {
 }
 
 macro_rules! modification_methods {
-    ($pytype:ident) => {
+    ($pytype:ident, $($rest:ident),+; $($root:ident),*) => {
+        modification_methods!($pytype; $($root),*);
+        modification_methods!($($rest),+; $($root),*);
+    };
+
+    ($pytype:ident; $($root:ident),*) => {
         get_set_copied!(
             $pytype,
-            [metadata, specific, modification],
+            [$($root,)* metadata, specific, modification],
             get_originality,
             set_originality,
             originality,
@@ -1293,7 +1327,7 @@ macro_rules! modification_methods {
 
         get_set_copied!(
             $pytype,
-            [metadata, specific, modification],
+            [$($root,)* metadata, specific, modification],
             get_last_modified,
             set_last_modified,
             last_modified,
@@ -1302,7 +1336,7 @@ macro_rules! modification_methods {
 
         get_set_str!(
             $pytype,
-            [metadata, specific, modification],
+            [$($root,)* metadata, specific, modification],
             get_last_modifier,
             set_last_modifier,
             last_modifier
@@ -1311,10 +1345,15 @@ macro_rules! modification_methods {
 }
 
 macro_rules! carrier_methods {
-    ($pytype:ident) => {
+    ($pytype:ident, $($rest:ident),+; $($root:ident),*) => {
+        carrier_methods!($pytype; $($root),*);
+        carrier_methods!($($rest),+; $($root),*);
+    };
+
+    ($pytype:ident; $($root:ident),*) => {
         get_set_str!(
             $pytype,
-            [metadata, specific, carrier],
+            [$($root,)* metadata, specific, carrier],
             get_carriertype,
             set_carriertype,
             carriertype
@@ -1322,7 +1361,7 @@ macro_rules! carrier_methods {
 
         get_set_str!(
             $pytype,
-            [metadata, specific, carrier],
+            [$($root,)* metadata, specific, carrier],
             get_carrierid,
             set_carrierid,
             carrierid
@@ -1330,7 +1369,7 @@ macro_rules! carrier_methods {
 
         get_set_str!(
             $pytype,
-            [metadata, specific, carrier],
+            [$($root,)* metadata, specific, carrier],
             get_locationid,
             set_locationid,
             locationid
@@ -1339,10 +1378,15 @@ macro_rules! carrier_methods {
 }
 
 macro_rules! plate_methods {
-    ($pytype:ident) => {
+    ($pytype:ident, $($rest:ident),+; $($root:ident),*) => {
+        plate_methods!($pytype; $($root),*);
+        plate_methods!($($rest),+; $($root),*);
+    };
+
+    ($pytype:ident; $($root:ident),*) => {
         get_set_str!(
             $pytype,
-            [metadata, specific, plate],
+            [$($root,)* metadata, specific, plate],
             get_wellid,
             set_wellid,
             wellid
@@ -1350,7 +1394,7 @@ macro_rules! plate_methods {
 
         get_set_str!(
             $pytype,
-            [metadata, specific, plate],
+            [$($root,)* metadata, specific, plate],
             get_plateid,
             set_plateid,
             plateid
@@ -1358,7 +1402,7 @@ macro_rules! plate_methods {
 
         get_set_str!(
             $pytype,
-            [metadata, specific, plate],
+            [$($root,)* metadata, specific, plate],
             get_platename,
             set_platename,
             platename
@@ -1367,11 +1411,19 @@ macro_rules! plate_methods {
 }
 
 macro_rules! spillover_methods {
-    ($pytype:ident) => {
+    ($pytype:ident, $($rest:ident),+; $($root:ident),*) => {
+        spillover_methods!($pytype; $($root),*);
+        spillover_methods!($($rest),+; $($root),*);
+    };
+
+    ($pytype:ident; $($root:ident),*) => {
         #[pymethods]
         impl $pytype {
             #[getter]
-            fn get_spillover_matrix<'a>(&self, py: Python<'a>) -> Option<Bound<'a, PyArray2<f32>>> {
+            fn get_spillover_matrix<'a>(
+                &self, py:
+                Python<'a>
+            ) -> Option<Bound<'a, PyArray2<f32>>> {
                 self.0.spillover().map(|x| x.matrix().to_pyarray(py))
             }
 
@@ -1417,43 +1469,42 @@ macro_rules! vol_methods {
     };
 }
 
-// TODO add measurement getter/setter
 macro_rules! common_methods {
-    ($pytype:ident, [$($root:ident)*]) => {
+    ($pytype:ident, [$($root:ident),*]) => {
         // common metadata keywords
-        get_set_copied!($pytype, [$($root),*metadata], get_abrt, set_abrt, abrt, u32);
-        get_set_copied!($pytype, [$($root),*metadata], get_lost, set_lost, lost, u32);
+        get_set_copied!($pytype, [$($root,)*metadata], get_abrt, set_abrt, abrt, u32);
+        get_set_copied!($pytype, [$($root,)*metadata], get_lost, set_lost, lost, u32);
 
-        get_set_str!($pytype, [$($root),*metadata], get_cells, set_cells, cells);
-        get_set_str!($pytype, [$($root),*metadata], get_com,   set_com,   com);
-        get_set_str!($pytype, [$($root),*metadata], get_exp,   set_exp,   exp);
-        get_set_str!($pytype, [$($root),*metadata], get_fil,   set_fil,   fil);
-        get_set_str!($pytype, [$($root),*metadata], get_inst,  set_inst,  inst);
-        get_set_str!($pytype, [$($root),*metadata], get_op,    set_op,    op);
-        get_set_str!($pytype, [$($root),*metadata], get_proj,  set_proj,  proj);
-        get_set_str!($pytype, [$($root),*metadata], get_smno,  set_smno,  smno);
-        get_set_str!($pytype, [$($root),*metadata], get_src,   set_src,   src);
-        get_set_str!($pytype, [$($root),*metadata], get_sys,   set_sys,   sys);
+        get_set_str!($pytype, [$($root,)*metadata], get_cells, set_cells, cells);
+        get_set_str!($pytype, [$($root,)*metadata], get_com,   set_com,   com);
+        get_set_str!($pytype, [$($root,)*metadata], get_exp,   set_exp,   exp);
+        get_set_str!($pytype, [$($root,)*metadata], get_fil,   set_fil,   fil);
+        get_set_str!($pytype, [$($root,)*metadata], get_inst,  set_inst,  inst);
+        get_set_str!($pytype, [$($root,)*metadata], get_op,    set_op,    op);
+        get_set_str!($pytype, [$($root,)*metadata], get_proj,  set_proj,  proj);
+        get_set_str!($pytype, [$($root,)*metadata], get_smno,  set_smno,  smno);
+        get_set_str!($pytype, [$($root,)*metadata], get_src,   set_src,   src);
+        get_set_str!($pytype, [$($root,)*metadata], get_sys,   set_sys,   sys);
 
         // common measurement keywords
-        meas_get_set!($pytype, filters,           set_filters,           String);
-        meas_get_set!($pytype, powers,            set_powers,            u32);
-        meas_get_set!($pytype, detector_types,    set_detector_types,    String);
-        meas_get_set!($pytype, percents_emitted,  set_percents_emitted,  String);
-        meas_get_set!($pytype, detector_voltages, set_detector_voltages, PyNonNegFloat);
+        meas_get_set!($pytype, [$($root),*], filters,           set_filters,           String);
+        meas_get_set!($pytype, [$($root),*], powers,            set_powers,            u32);
+        meas_get_set!($pytype, [$($root),*], detector_types,    set_detector_types,    String);
+        meas_get_set!($pytype, [$($root),*], percents_emitted,  set_percents_emitted,  String);
+        meas_get_set!($pytype, [$($root),*], detector_voltages, set_detector_voltages, PyNonNegFloat);
 
         #[pymethods]
         impl $pytype {
             fn insert_nonstandard(&mut self, k: PyNonStdKey, v: String) -> Option<String> {
-                self.0.metadata.nonstandard_keywords.insert(k.into(), v)
+                self.0.$($root.)*metadata.nonstandard_keywords.insert(k.into(), v)
             }
 
             fn remove_nonstandard(&mut self, k: PyNonStdKey) -> Option<String> {
-                self.0.metadata.nonstandard_keywords.remove(&k.into())
+                self.0.$($root.)*metadata.nonstandard_keywords.remove(&k.into())
             }
 
             fn get_nonstandard(&mut self, k: PyNonStdKey) -> Option<String> {
-                self.0.metadata.nonstandard_keywords.get(&k.into()).cloned()
+                self.0.$($root.)*metadata.nonstandard_keywords.get(&k.into()).cloned()
             }
 
             fn insert_meas_nonstandard(
@@ -1461,30 +1512,32 @@ macro_rules! common_methods {
                 xs: Vec<(PyNonStdKey, String)>,
             ) -> Option<Vec<Option<String>>> {
                 let ys = xs.into_iter().map(|(k, v)| (k.into(), v)).collect();
-                self.0.insert_meas_nonstandard(ys)
+                self.0.$($root.)*insert_meas_nonstandard(ys)
             }
 
             fn remove_meas_nonstandard(&mut self, ks: Vec<PyNonStdKey>) -> Option<Vec<Option<String>>> {
                 let ys: Vec<_> = ks.into_iter().map(|k| k.into()).collect();
-                self.0.remove_meas_nonstandard(ys.iter().collect())
+                self.0.$($root.)*remove_meas_nonstandard(ys.iter().collect())
             }
 
             fn get_meas_nonstandard(&mut self, ks: Vec<PyNonStdKey>) -> Option<Vec<Option<String>>> {
                 let ys: Vec<_> = ks.into_iter().map(|k| k.into()).collect();
                 self.0
-                    .get_meas_nonstandard(&ys)
+                    .$($root.)*
+                    get_meas_nonstandard(&ys)
                     .map(|rs| rs.into_iter().map(|r| r.cloned()).collect())
             }
 
             #[getter]
             fn get_btim(&self) -> Option<NaiveTime> {
-                self.0.metadata.specific.timestamps.btim_naive()
+                self.0.$($root.)*metadata.specific.timestamps.btim_naive()
             }
 
             #[setter]
             fn set_btim(&mut self, x: Option<NaiveTime>) -> PyResult<()> {
                 self.0
-                    .metadata
+                    .$($root.)*
+                    metadata
                     .specific
                     .timestamps
                     .set_btim_naive(x)
@@ -1493,13 +1546,14 @@ macro_rules! common_methods {
 
             #[getter]
             fn get_etim(&self) -> Option<NaiveTime> {
-                self.0.metadata.specific.timestamps.etim_naive()
+                self.0.$($root.)*metadata.specific.timestamps.etim_naive()
             }
 
             #[setter]
             fn set_etim(&mut self, x: Option<NaiveTime>) -> PyResult<()> {
                 self.0
-                    .metadata
+                    .$($root.)*
+                    metadata
                     .specific
                     .timestamps
                     .set_etim_naive(x)
@@ -1508,13 +1562,14 @@ macro_rules! common_methods {
 
             #[getter]
             fn get_date(&self) -> Option<NaiveDate> {
-                self.0.metadata.specific.timestamps.date_naive()
+                self.0.$($root.)*metadata.specific.timestamps.date_naive()
             }
 
             #[setter]
             fn set_date(&mut self, x: Option<NaiveDate>) -> PyResult<()> {
                 self.0
-                    .metadata
+                    .$($root.)*
+                    metadata
                     .specific
                     .timestamps
                     .set_date_naive(x)
@@ -1523,30 +1578,30 @@ macro_rules! common_methods {
 
             #[getter]
             fn trigger_name(&self) -> Option<PyShortname> {
-                self.0.trigger_name().map(|x| x.clone().into())
+                self.0.$($root.)*trigger_name().map(|x| x.clone().into())
             }
 
             #[getter]
             fn trigger_threshold(&self) -> Option<u32> {
-                self.0.metadata.tr.as_ref_opt().map(|x| x.threshold)
+                self.0.$($root.)*metadata.tr.as_ref_opt().map(|x| x.threshold)
             }
 
             #[setter]
             fn set_trigger_name(&mut self, n: PyShortname) -> bool {
-                self.0.set_trigger_name(n.into())
+                self.0.$($root.)*set_trigger_name(n.into())
             }
 
             #[setter]
             fn set_trigger_threshold(&mut self, x: u32) -> bool {
-                self.0.set_trigger_threshold(x)
+                self.0.$($root.)*set_trigger_threshold(x)
             }
 
             fn clear_trigger(&mut self) {
-                self.0.clear_trigger()
+                self.0.$($root.)*clear_trigger()
             }
 
             fn set_time_channnel(&mut self, n: PyShortname) -> PyResult<()> {
-                self.0.set_time_channel(&n.into()).map_err(|es| {
+                self.0.$($root.)*set_time_channel(&n.into()).map_err(|es| {
                     let f = es.into_iter().map(|e| e.to_string()).join(", ");
                     let s = format!("Error(s) when converting measurement to time: {f}");
                     PyreflowException::new_err(s)
@@ -1554,24 +1609,25 @@ macro_rules! common_methods {
             }
 
             fn unset_time_channel(&mut self) -> bool {
-                self.0.unset_time_channel()
+                self.0.$($root.)*unset_time_channel()
             }
 
             #[getter]
             fn get_bytes(&self) -> Option<Vec<u8>> {
-                self.0.bytes()
+                self.0.$($root.)*bytes()
             }
 
             #[getter]
             fn get_ranges(&self) -> Vec<String> {
                 // TODO strings, lame
-                self.0.ranges().iter().map(|r| r.0.clone()).collect()
+                self.0.$($root.)*ranges().iter().map(|r| r.0.clone()).collect()
             }
 
             #[getter]
             fn get_longnames(&self) -> Vec<Option<String>> {
                 self.0
-                    .longnames()
+                    .$($root.)*
+                    longnames()
                     .into_iter()
                     .map(|x| x.map(|y| y.0.to_string()))
                     .collect()
@@ -1579,13 +1635,14 @@ macro_rules! common_methods {
 
             #[setter]
             fn set_longnames(&mut self, ns: Vec<Option<String>>) -> bool {
-                self.0.set_longnames(ns)
+                self.0.$($root.)*set_longnames(ns)
             }
 
             #[getter]
             fn get_shortnames(&self) -> Vec<Option<PyShortname>> {
                 self.0
-                    .shortnames()
+                    .$($root.)*
+                    shortnames()
                     .into_iter()
                     .map(|x| x.map(|y| y.clone().into()))
                     .collect()
@@ -1594,7 +1651,8 @@ macro_rules! common_methods {
             #[getter]
             fn get_all_shortnames(&self) -> Vec<PyShortname> {
                 self.0
-                    .all_shortnames()
+                    .$($root.)*
+                    all_shortnames()
                     .into_iter()
                     .map(|x| x.into())
                     .collect()
@@ -1604,26 +1662,28 @@ macro_rules! common_methods {
             #[setter]
             fn set_shortnames(&mut self, ns: Vec<PyShortname>) -> PyResult<()> {
                 self.0
-                    .set_shortnames(ns.into_iter().map(|x| x.into()).collect())
+                    .$($root.)*
+                    set_shortnames(ns.into_iter().map(|x| x.into()).collect())
                     .map_err(|e| PyreflowException::new_err(e.to_string()))
                     .map(|_| ())
             }
 
             fn set_data_f32(&mut self, ranges: Vec<f32>) -> bool {
-                self.0.set_data_f32(ranges)
+                self.0.$($root.)*set_data_f32(ranges)
             }
 
             fn set_data_f64(&mut self, ranges: Vec<f64>) -> bool {
-                self.0.set_data_f64(ranges)
+                self.0.$($root.)*set_data_f64(ranges)
             }
 
             fn set_data_ascii(&mut self, rs: Vec<PyRangeSetter>) -> bool {
                 self.0
-                    .set_data_ascii(rs.into_iter().map(|x| x.into()).collect())
+                    .$($root.)*
+                    set_data_ascii(rs.into_iter().map(|x| x.into()).collect())
             }
 
             fn set_data_delimited(&mut self, ranges: Vec<u64>) -> bool {
-                self.0.set_data_delimited(ranges)
+                self.0.$($root.)*set_data_delimited(ranges)
             }
         }
     };
@@ -1634,57 +1694,75 @@ common_methods!(PyCoreTEXT3_0, []);
 common_methods!(PyCoreTEXT3_1, []);
 common_methods!(PyCoreTEXT3_2, []);
 
-meas_get_set!(PyCoreTEXT3_0, gains, set_gains, PyPositiveFloat);
-meas_get_set!(PyCoreTEXT3_1, gains, set_gains, PyPositiveFloat);
-meas_get_set!(PyCoreTEXT3_2, gains, set_gains, PyPositiveFloat);
+common_methods!(PyCoreDataset2_0, [text]);
+common_methods!(PyCoreDataset3_0, [text]);
+common_methods!(PyCoreDataset3_1, [text]);
+common_methods!(PyCoreDataset3_2, [text]);
 
-meas_get_set!(PyCoreTEXT3_2, detector_names, set_detector_names, String);
+meas_get_set!(PyCoreTEXT3_0, [], gains, set_gains, PyPositiveFloat);
+meas_get_set!(PyCoreTEXT3_1, [], gains, set_gains, PyPositiveFloat);
+meas_get_set!(PyCoreTEXT3_2, [], gains, set_gains, PyPositiveFloat);
+
+meas_get_set!(PyCoreDataset3_0, [text], gains, set_gains, PyPositiveFloat);
+meas_get_set!(PyCoreDataset3_1, [text], gains, set_gains, PyPositiveFloat);
+meas_get_set!(PyCoreDataset3_2, [text], gains, set_gains, PyPositiveFloat);
+
+meas_get_set!(PyCoreTEXT3_2, [], det_names, set_det_names, String);
+meas_get_set!(PyCoreDataset3_2, [text], det_names, set_det_names, String);
 // TODO make sure we can make a calibration object
 
 meas_get_set!(
     PyCoreTEXT3_1,
+    [],
     calibrations,
     set_calibrations,
     PyCalibration3_1
 );
 meas_get_set!(
     PyCoreTEXT3_2,
+    [],
     calibrations,
     set_calibrations,
     PyCalibration3_2
 );
 
-meas_get_set!(PyCoreTEXT3_2, tags, set_tags, String);
+meas_get_set!(PyCoreTEXT3_2, [], tags, set_tags, String);
 meas_get_set!(
     PyCoreTEXT3_2,
+    [],
     measurement_types,
     set_measurement_types,
     PyMeasurementType
 );
 
-meas_get_set!(PyCoreTEXT3_2, features, set_features, PyFeature);
-meas_get_set!(PyCoreTEXT3_2, analytes, set_analytes, String);
+meas_get_set!(PyCoreTEXT3_2, [], features, set_features, PyFeature);
+meas_get_set!(PyCoreTEXT3_2, [], analytes, set_analytes, String);
 
-wavelength_methods!(PyCoreTEXT3_0);
+wavelength_methods!(PyCoreTEXT2_0, PyCoreTEXT3_0;);
 
-wavelengths_methods!(PyCoreTEXT3_1);
-wavelengths_methods!(PyCoreTEXT3_2);
+wavelengths_methods!(PyCoreTEXT3_1, PyCoreTEXT3_2;);
 
-spillover_methods!(PyCoreTEXT3_1);
-spillover_methods!(PyCoreTEXT3_2);
+spillover_methods!(PyCoreTEXT3_1, PyCoreTEXT3_2;);
+spillover_methods!(PyCoreDataset3_1, PyCoreDataset3_2; text);
 
-plate_methods!(PyCoreTEXT3_1);
-plate_methods!(PyCoreTEXT3_2);
+plate_methods!(PyCoreTEXT3_1, PyCoreTEXT3_2;);
+plate_methods!(PyCoreDataset3_1, PyCoreDataset3_2; text);
 
-carrier_methods!(PyCoreTEXT3_2);
+carrier_methods!(PyCoreTEXT3_2;);
+carrier_methods!(PyCoreDataset3_2; text);
 
-scales_methods!(PyCoreTEXT3_0);
-scales_methods!(PyCoreTEXT3_1);
-scales_methods!(PyCoreTEXT3_2);
+scales_methods!(PyCoreTEXT3_0, PyCoreTEXT3_1, PyCoreTEXT3_2;);
+scales_methods!(PyCoreDataset3_0, PyCoreDataset3_1, PyCoreDataset3_2; text);
 
-get_set_str!(PyCoreTEXT2_0, [metadata, specific], get_cyt, set_cyt, cyt);
-get_set_str!(PyCoreTEXT3_0, [metadata, specific], get_cyt, set_cyt, cyt);
-get_set_str!(PyCoreTEXT3_1, [metadata, specific], get_cyt, set_cyt, cyt);
+get_set_str!(
+    PyCoreTEXT2_0,
+    PyCoreTEXT3_0,
+    PyCoreTEXT3_1,
+    [metadata, specific],
+    get_cyt,
+    set_cyt,
+    cyt
+);
 
 get_set_str!(
     PyCoreTEXT3_2,
@@ -1694,8 +1772,8 @@ get_set_str!(
     flowrate
 );
 
-modification_methods!(PyCoreTEXT3_1);
-modification_methods!(PyCoreTEXT3_2);
+modification_methods!(PyCoreTEXT3_1, PyCoreTEXT3_2;);
+modification_methods!(PyCoreDataset3_1, PyCoreDataset3_2; text);
 
 vol_methods!(PyCoreTEXT3_1, []);
 vol_methods!(PyCoreTEXT3_2, []);

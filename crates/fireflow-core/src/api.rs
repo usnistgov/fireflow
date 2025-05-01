@@ -5559,10 +5559,10 @@ impl CoreTEXT3_0 {
 }
 
 macro_rules! spillover_methods {
-    () => {
+    ($($root:ident),*) => {
         /// Show $SPILLOVER
         pub fn spillover(&self) -> Option<&Spillover> {
-            self.metadata.specific.spillover.as_ref_opt()
+            self.$($root.)*metadata.specific.spillover.as_ref_opt()
         }
 
         /// Set names and matrix for $SPILLOVER
@@ -5571,13 +5571,13 @@ macro_rules! spillover_methods {
             ns: Vec<Shortname>,
             m: DMatrix<f32>,
         ) -> Result<(), SpilloverError> {
-            self.metadata.specific.spillover = Some(Spillover::new(ns, m)?).into();
+            self.$($root.)*metadata.specific.spillover = Some(Spillover::new(ns, m)?).into();
             Ok(())
         }
 
         /// Clear $SPILLOVER
         pub fn unset_spillover(&mut self) {
-            self.metadata.specific.spillover = None.into();
+            self.$($root.)*metadata.specific.spillover = None.into();
         }
     };
 }
@@ -5882,8 +5882,8 @@ impl CoreTEXT3_2 {
     );
 
     non_time_get_set!(
-        detector_names,
-        set_detector_names,
+        det_names,
+        set_det_names,
         DetectorName,
         [specific],
         detector_name,
@@ -5941,6 +5941,14 @@ pub enum MixedColumnSetter {
 pub struct RangeSetter {
     pub bytes: u8,
     pub range: u64,
+}
+
+impl CoreDataset3_1 {
+    spillover_methods!(text);
+}
+
+impl CoreDataset3_2 {
+    spillover_methods!(text);
 }
 
 impl RangeSetter {

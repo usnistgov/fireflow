@@ -13,7 +13,7 @@ use fireflow_core::validated::shortname::*;
 use fireflow_core::validated::spillover::*;
 use fireflow_core::validated::textdelim::TEXTDelim;
 
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
@@ -1120,6 +1120,36 @@ impl PyCoreTEXT3_2 {
     fn version_3_1(&self) -> PyResult<PyCoreTEXT3_1> {
         let new = self.0.clone().try_convert();
         handle_errors(new.map_err(|e| e.into()))
+    }
+
+    #[getter]
+    fn get_begin(&self) -> Option<DateTime<FixedOffset>> {
+        self.0.metadata.specific.datetimes.begin_naive()
+    }
+
+    #[setter]
+    fn set_begin(&mut self, x: Option<DateTime<FixedOffset>>) -> PyResult<()> {
+        self.0
+            .metadata
+            .specific
+            .datetimes
+            .set_begin_naive(x)
+            .map_err(|e| PyreflowException::new_err(e.to_string()))
+    }
+
+    #[getter]
+    fn get_end(&self) -> Option<DateTime<FixedOffset>> {
+        self.0.metadata.specific.datetimes.end_naive()
+    }
+
+    #[setter]
+    fn set_end(&mut self, x: Option<DateTime<FixedOffset>>) -> PyResult<()> {
+        self.0
+            .metadata
+            .specific
+            .datetimes
+            .set_end_naive(x)
+            .map_err(|e| PyreflowException::new_err(e.to_string()))
     }
 
     #[getter]

@@ -4775,6 +4775,44 @@ where
         self.measurements.insert(i, n, m).map_err(|e| e.to_string())
     }
 
+    pub fn insert_meas_nonstandard(
+        &mut self,
+        xs: Vec<(NonStdKey, String)>,
+    ) -> Option<Vec<Option<String>>> {
+        self.measurements.alter_values_zip(
+            xs,
+            |m, (k, v)| m.nonstandard_keywords.insert(k, v),
+            |t, (k, v)| t.nonstandard_keywords.insert(k, v),
+        )
+    }
+
+    pub fn remove_meas_nonstandard(&mut self, xs: Vec<&NonStdKey>) -> Option<Vec<Option<String>>> {
+        self.measurements.alter_values_zip(
+            xs,
+            |m, k| m.nonstandard_keywords.remove(k),
+            |t, k| t.nonstandard_keywords.remove(k),
+        )
+    }
+
+    pub fn get_meas_nonstandard(&self, ks: &Vec<NonStdKey>) -> Option<Vec<Option<&String>>> {
+        let ms = &self.measurements;
+        if ks.len() != ms.len() {
+            None
+        } else {
+            let res = ms
+                .iter()
+                .zip(ks)
+                .map(|((_, x), k)| {
+                    x.map_or_else(
+                        |t| t.value.nonstandard_keywords.get(k),
+                        |m| m.value.nonstandard_keywords.get(k),
+                    )
+                })
+                .collect();
+            Some(res)
+        }
+    }
+
     fn df_names(&self) -> Vec<PlSmallStr> {
         self.all_shortnames()
             .into_iter()

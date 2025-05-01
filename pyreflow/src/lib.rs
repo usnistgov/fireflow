@@ -1048,63 +1048,6 @@ macro_rules! meas_get_set {
     };
 }
 
-macro_rules! timestamp_methods {
-    ($pytype:ident) => {
-        #[pymethods]
-        impl $pytype {
-            #[getter]
-            fn get_btim(&self) -> Option<NaiveTime> {
-                self.0.metadata.specific.timestamps.btim_naive()
-            }
-
-            #[setter]
-            fn set_btim(&mut self, x: Option<NaiveTime>) -> PyResult<()> {
-                self.0
-                    .metadata
-                    .specific
-                    .timestamps
-                    .set_btim_naive(x)
-                    .map_err(|e| PyreflowException::new_err(e.to_string()))
-            }
-
-            #[getter]
-            fn get_etim(&self) -> Option<NaiveTime> {
-                self.0.metadata.specific.timestamps.etim_naive()
-            }
-
-            #[setter]
-            fn set_etim(&mut self, x: Option<NaiveTime>) -> PyResult<()> {
-                self.0
-                    .metadata
-                    .specific
-                    .timestamps
-                    .set_etim_naive(x)
-                    .map_err(|e| PyreflowException::new_err(e.to_string()))
-            }
-
-            #[getter]
-            fn get_date(&self) -> Option<NaiveDate> {
-                self.0.metadata.specific.timestamps.date_naive()
-            }
-
-            #[setter]
-            fn set_date(&mut self, x: Option<NaiveDate>) -> PyResult<()> {
-                self.0
-                    .metadata
-                    .specific
-                    .timestamps
-                    .set_date_naive(x)
-                    .map_err(|e| PyreflowException::new_err(e.to_string()))
-            }
-        }
-    };
-}
-
-timestamp_methods!(PyCoreTEXT2_0);
-timestamp_methods!(PyCoreTEXT3_0);
-timestamp_methods!(PyCoreTEXT3_1);
-timestamp_methods!(PyCoreTEXT3_2);
-
 #[pymethods]
 impl PyCoreTEXT3_2 {
     fn version_2_0(&self) -> PyResult<PyCoreTEXT2_0> {
@@ -1501,6 +1444,83 @@ macro_rules! common_methods {
 
         #[pymethods]
         impl $pytype {
+            fn insert_nonstandard(&mut self, k: PyNonStdKey, v: String) -> Option<String> {
+                self.0.metadata.nonstandard_keywords.insert(k.into(), v)
+            }
+
+            fn remove_nonstandard(&mut self, k: PyNonStdKey) -> Option<String> {
+                self.0.metadata.nonstandard_keywords.remove(&k.into())
+            }
+
+            fn get_nonstandard(&mut self, k: PyNonStdKey) -> Option<String> {
+                self.0.metadata.nonstandard_keywords.get(&k.into()).cloned()
+            }
+
+            fn insert_meas_nonstandard(
+                &mut self,
+                xs: Vec<(PyNonStdKey, String)>,
+            ) -> Option<Vec<Option<String>>> {
+                let ys = xs.into_iter().map(|(k, v)| (k.into(), v)).collect();
+                self.0.insert_meas_nonstandard(ys)
+            }
+
+            fn remove_meas_nonstandard(&mut self, ks: Vec<PyNonStdKey>) -> Option<Vec<Option<String>>> {
+                let ys: Vec<_> = ks.into_iter().map(|k| k.into()).collect();
+                self.0.remove_meas_nonstandard(ys.iter().collect())
+            }
+
+            fn get_meas_nonstandard(&mut self, ks: Vec<PyNonStdKey>) -> Option<Vec<Option<String>>> {
+                let ys: Vec<_> = ks.into_iter().map(|k| k.into()).collect();
+                self.0
+                    .get_meas_nonstandard(&ys)
+                    .map(|rs| rs.into_iter().map(|r| r.cloned()).collect())
+            }
+
+            #[getter]
+            fn get_btim(&self) -> Option<NaiveTime> {
+                self.0.metadata.specific.timestamps.btim_naive()
+            }
+
+            #[setter]
+            fn set_btim(&mut self, x: Option<NaiveTime>) -> PyResult<()> {
+                self.0
+                    .metadata
+                    .specific
+                    .timestamps
+                    .set_btim_naive(x)
+                    .map_err(|e| PyreflowException::new_err(e.to_string()))
+            }
+
+            #[getter]
+            fn get_etim(&self) -> Option<NaiveTime> {
+                self.0.metadata.specific.timestamps.etim_naive()
+            }
+
+            #[setter]
+            fn set_etim(&mut self, x: Option<NaiveTime>) -> PyResult<()> {
+                self.0
+                    .metadata
+                    .specific
+                    .timestamps
+                    .set_etim_naive(x)
+                    .map_err(|e| PyreflowException::new_err(e.to_string()))
+            }
+
+            #[getter]
+            fn get_date(&self) -> Option<NaiveDate> {
+                self.0.metadata.specific.timestamps.date_naive()
+            }
+
+            #[setter]
+            fn set_date(&mut self, x: Option<NaiveDate>) -> PyResult<()> {
+                self.0
+                    .metadata
+                    .specific
+                    .timestamps
+                    .set_date_naive(x)
+                    .map_err(|e| PyreflowException::new_err(e.to_string()))
+            }
+
             #[getter]
             fn trigger_name(&self) -> Option<PyShortname> {
                 self.0.trigger_name().map(|x| x.clone().into())

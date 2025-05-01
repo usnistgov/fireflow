@@ -38,6 +38,7 @@ use std::path;
 use std::str;
 use std::str::FromStr;
 
+#[macro_export]
 macro_rules! match_many_to_one {
     ($value:expr, $root:ident, [$($variant:ident),*], $inner:ident, $action:block) => {
         match $value {
@@ -4026,36 +4027,6 @@ impl AnyCoreDataset {
             &mut x.data
         })
     }
-}
-
-macro_rules! coredataset_as_text {
-    ($this:expr, $bind:ident, $f:expr) => {
-        match_many_to_one!(
-            $this,
-            AnyCoreDataset,
-            [FCS2_0, FCS3_0, FCS3_1, FCS3_2],
-            x,
-            {
-                let $bind = &(*x.text);
-                $f
-            }
-        )
-    };
-}
-
-macro_rules! coredataset_as_text_mut {
-    ($this:expr, $bind:ident, $f:expr) => {
-        match_many_to_one!(
-            $this,
-            AnyCoreDataset,
-            [FCS2_0, FCS3_0, FCS3_1, FCS3_2],
-            x,
-            {
-                let $bind = &mut (*x.text);
-                $f
-            }
-        )
-    };
 }
 
 impl Serialize for AnyCoreTEXT {

@@ -1,8 +1,10 @@
 use fireflow_core::api;
+use fireflow_core::api::AnyCoreDataset;
 use fireflow_core::api::VersionedTime;
 use fireflow_core::config::Strict;
 use fireflow_core::config::{self, OffsetCorrection};
 use fireflow_core::error;
+use fireflow_core::match_many_to_one;
 use fireflow_core::validated::byteord::*;
 use fireflow_core::validated::datepattern::DatePattern;
 use fireflow_core::validated::nonstandard::*;
@@ -859,6 +861,37 @@ impl PyStandardizedTEXT {
     }
 }
 
+#[macro_export]
+macro_rules! coredataset_as_text {
+    ($this:expr, $bind:ident, $f:expr) => {
+        match_many_to_one!(
+            $this,
+            AnyCoreDataset,
+            [FCS2_0, FCS3_0, FCS3_1, FCS3_2],
+            x,
+            {
+                let $bind = &(*x.text);
+                $f
+            }
+        )
+    };
+}
+
+macro_rules! coredataset_as_text_mut {
+    ($this:expr, $bind:ident, $f:expr) => {
+        match_many_to_one!(
+            $this,
+            AnyCoreDataset,
+            [FCS2_0, FCS3_0, FCS3_1, FCS3_2],
+            x,
+            {
+                let $bind = &mut (*x.text);
+                $f
+            }
+        )
+    };
+}
+
 // TODO not DRY
 #[pymethods]
 impl PyStandardizedDataset {
@@ -875,6 +908,48 @@ impl PyStandardizedDataset {
     #[getter]
     fn deviant<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         self.0.deviant.clone().into_py_dict(py)
+    }
+
+    #[getter]
+    fn bytes(&self) -> Option<Vec<u8>> {
+        coredataset_as_text!(&self.0.dataset, t, t.bytes())
+    }
+
+    #[getter]
+    fn ranges(&self) -> Vec<String> {
+        coredataset_as_text!(
+            &self.0.dataset,
+            t,
+            t.ranges().into_iter().map(|r| r.0.clone()).collect()
+        )
+    }
+
+    #[getter]
+    fn shortnames(&self) -> Vec<Option<PyShortname>> {
+        coredataset_as_text!(
+            &self.0.dataset,
+            t,
+            t.shortnames()
+                .into_iter()
+                .map(|n| n.map(|x| x.clone().into()))
+                .collect()
+        )
+    }
+
+    #[getter]
+    fn all_shortnames(&self) -> Vec<PyShortname> {
+        coredataset_as_text!(
+            &self.0.dataset,
+            t,
+            t.all_shortnames().into_iter().map(|n| n.into()).collect()
+        )
+    }
+
+    // TODO shortname setter
+
+    #[setter]
+    fn set_longnames(&mut self, xs: Vec<Option<String>>) -> bool {
+        coredataset_as_text_mut!(&mut self.0.dataset, t, t.set_longnames(xs))
     }
 
     // // TODO this will be in arbitrary order, might make sense to sort it
@@ -907,18 +982,18 @@ impl PyStandardizedDataset {
 
     // // TODO add other converters here
 
-    // #[getter]
-    // fn inner(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-    //     match &self.0.dataset.as_text {
-    //         // TODO this copies all data from the "union type" into a new
-    //         // version-specific type. This might not be a big deal, but these
-    //         // types might be rather large with lots of strings.
-    //         api::AnyCoreTEXT::FCS2_0(x) => PyCoreTEXT2_0::from((**x).clone()).into_py_any(py),
-    //         api::AnyCoreTEXT::FCS3_0(x) => PyCoreTEXT3_0::from((**x).clone()).into_py_any(py),
-    //         api::AnyCoreTEXT::FCS3_1(x) => PyCoreTEXT3_1::from((**x).clone()).into_py_any(py),
-    //         api::AnyCoreTEXT::FCS3_2(x) => PyCoreTEXT3_2::from((**x).clone()).into_py_any(py),
-    //     }
-    // }
+    #[getter]
+    fn inner(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        match &self.0.dataset {
+            // TODO this copies all data from the "union type" into a new
+            // version-specific type. This might not be a big deal, but these
+            // types might be rather large with lots of strings.
+            api::AnyCoreDataset::FCS2_0(x) => PyCoreDataset2_0::from(x.clone()).into_py_any(py),
+            api::AnyCoreDataset::FCS3_0(x) => PyCoreDataset3_0::from(x.clone()).into_py_any(py),
+            api::AnyCoreDataset::FCS3_1(x) => PyCoreDataset3_1::from(x.clone()).into_py_any(py),
+            api::AnyCoreDataset::FCS3_2(x) => PyCoreDataset3_2::from(x.clone()).into_py_any(py),
+        }
+    }
 
     #[getter]
     fn data(&self) -> PyDataFrame {
@@ -1712,7 +1787,7 @@ macro_rules! common_methods {
             }
 
             #[getter]
-            fn get_shortnames(&self) -> Vec<Option<PyShortname>> {
+            fn shortnames(&self) -> Vec<Option<PyShortname>> {
                 self.0
                     .$($root.)*
                     shortnames()
@@ -1722,7 +1797,7 @@ macro_rules! common_methods {
             }
 
             #[getter]
-            fn get_all_shortnames(&self) -> Vec<PyShortname> {
+            fn all_shortnames(&self) -> Vec<PyShortname> {
                 self.0
                     .$($root.)*
                     all_shortnames()

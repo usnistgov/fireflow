@@ -1219,8 +1219,7 @@ macro_rules! endian_methods {
 
             #[setter]
             fn set_big_endian(&mut self, is_big: bool) {
-                let e = if is_big { Endian::Big } else { Endian::Little };
-                self.0.$($root.)*metadata.specific.byteord = e;
+                self.0.$($root.)*metadata.specific.byteord = Endian::is_big(is_big);
             }
         }
     };

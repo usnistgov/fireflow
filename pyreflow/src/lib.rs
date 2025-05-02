@@ -1182,6 +1182,33 @@ macro_rules! integer_2_0_methods {
 integer_2_0_methods!(PyCoreTEXT2_0, PyCoreTEXT3_0;);
 integer_2_0_methods!(PyCoreDataset2_0, PyCoreDataset3_0; text);
 
+macro_rules! shortnames_methods {
+    ($pytype:ident, $($rest:ident),+; $($root:ident),*) => {
+        shortnames_methods!($pytype; $($root),*);
+        shortnames_methods!($($rest),+; $($root),*);
+    };
+
+    ($pytype:ident; $($root:ident),*) => {
+        #[pymethods]
+        impl $pytype {
+            pub fn set_measurement_shortnames_maybe(
+                &mut self,
+                ns: Vec<Option<PyShortname>>,
+            ) -> PyResult<()> {
+                let xs = ns.into_iter().map(|n| n.map(|y| y.into())).collect();
+                self.0
+                    .$($root.)*
+                    set_measurement_shortnames_maybe(xs)
+                    .map_err(|e| PyreflowException::new_err(e.to_string()))
+                    .map(|_| ())
+            }
+        }
+    };
+}
+
+shortnames_methods!(PyCoreTEXT2_0, PyCoreTEXT3_0;);
+shortnames_methods!(PyCoreDataset2_0, PyCoreDataset3_0; text);
+
 macro_rules! integer_methods {
     ($pytype:ident, $($rest:ident),+; $($root:ident),*) => {
         integer_methods!($pytype; $($root),*);
@@ -1698,10 +1725,10 @@ macro_rules! common_methods {
             }
 
             #[getter]
-            fn shortnames(&self) -> Vec<Option<PyShortname>> {
+            fn shortnames_maybe(&self) -> Vec<Option<PyShortname>> {
                 self.0
                     .$($root.)*
-                    shortnames()
+                    shortnames_maybe()
                     .into_iter()
                     .map(|x| x.map(|y| y.clone().into()))
                     .collect()
@@ -1717,12 +1744,11 @@ macro_rules! common_methods {
                     .collect()
             }
 
-            // TODO what if I want to clear a shortname on 2.0
             #[setter]
-            fn set_shortnames(&mut self, ns: Vec<PyShortname>) -> PyResult<()> {
+            fn set_all_shortnames(&mut self, ns: Vec<PyShortname>) -> PyResult<()> {
                 self.0
                     .$($root.)*
-                    set_shortnames(ns.into_iter().map(|x| x.into()).collect())
+                    set_all_shortnames(ns.into_iter().map(|x| x.into()).collect())
                     .map_err(|e| PyreflowException::new_err(e.to_string()))
                     .map(|_| ())
             }

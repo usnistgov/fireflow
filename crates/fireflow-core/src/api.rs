@@ -4639,10 +4639,8 @@ where
         self.metadata.tr = None.into();
     }
 
-    // TODO this isn't that useful since in most cases we can determine the
-    // version and set with an option wrapper or not
     /// Return a list of measurement names as stored in $PnN.
-    pub fn shortnames(&self) -> Vec<Option<&Shortname>> {
+    pub fn shortnames_maybe(&self) -> Vec<Option<&Shortname>> {
         self.measurements
             .iter()
             .map(|(_, x)| x.map_or_else(|t| Some(&t.key), |m| M::N::as_opt(&m.key)))
@@ -4657,15 +4655,16 @@ where
         self.measurements.iter_all_names().collect()
     }
 
-    // See shortnames
     /// Set all $PnN keywords to list of names.
     ///
     /// The length of the names must match the number of measurements. Any
     /// keywords refering to the old names will be updated to reflect the new
     /// names. For 2.0 and 3.0 which have optional $PnN, all $PnN will end up
     /// being set.
-    // TODO what if I want to clear a name?
-    pub fn set_shortnames(&mut self, ns: Vec<Shortname>) -> Result<NameMapping, DistinctKeysError> {
+    pub fn set_all_shortnames(
+        &mut self,
+        ns: Vec<Shortname>,
+    ) -> Result<NameMapping, DistinctKeysError> {
         let mapping = self.measurements.set_names(ns)?;
         // TODO reassign names in dataframe
         self.metadata.reassign_all(&mapping);
@@ -5722,6 +5721,17 @@ impl CoreTEXT2_0 {
     comp_methods!();
     scale_get_set!(Option<Scale>, Some(Scale::Linear));
 
+    /// Set all non-time $PnN keywords to list of names.
+    pub fn set_measurement_shortnames_maybe(
+        &mut self,
+        ns: Vec<Option<Shortname>>,
+    ) -> Result<NameMapping, DistinctKeysError> {
+        let ks = ns.into_iter().map(|n| n.into()).collect();
+        let mapping = self.measurements.set_non_center_keys(ks)?;
+        self.metadata.reassign_all(&mapping);
+        Ok(mapping)
+    }
+
     /// Show $DATATYPE
     pub fn datatype(&self) -> AlphaNumType {
         self.metadata.datatype
@@ -5785,6 +5795,17 @@ impl CoreTEXT3_0 {
 
     comp_methods!();
     scale_get_set!(Scale, Scale::Linear);
+
+    /// Set all non-time $PnN keywords to list of names.
+    pub fn set_measurement_shortnames_maybe(
+        &mut self,
+        ns: Vec<Option<Shortname>>,
+    ) -> Result<NameMapping, DistinctKeysError> {
+        let ks = ns.into_iter().map(|n| n.into()).collect();
+        let mapping = self.measurements.set_non_center_keys(ks)?;
+        self.metadata.reassign_all(&mapping);
+        Ok(mapping)
+    }
 
     /// Show $DATATYPE
     pub fn datatype(&self) -> AlphaNumType {

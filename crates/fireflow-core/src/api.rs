@@ -3937,8 +3937,10 @@ impl AnyCoreTEXT {
 
     // TODO this is an instance where I may want to return different errors
     // that can be caught in python or whatever
-    fn remove_measurement(&mut self, n: &Shortname) -> Result<Option<usize>, String> {
-        match_anycoretext!(self, x, { x.remove_measurement(n).map(|x| x.map(|y| y.0)) })
+    fn remove_measurement(&mut self, n: &Shortname) -> Result<Option<MeasIdx>, String> {
+        match_anycoretext!(self, x, {
+            x.remove_measurement_inner(n).map(|x| x.map(|y| y.index))
+        })
     }
 
     // fn set_df_column_names(&self, df: &mut DataFrame) -> PolarsResult<()> {
@@ -4802,28 +4804,77 @@ where
         self.measurements.as_center_mut()
     }
 
-    fn remove_measurement(
+    fn set_measurements_inner(
+        &mut self,
+        xs: RawInput<M::N, TimeChannel<M::T>, Measurement<M::P>>,
+        prefix: ShortnamePrefix,
+    ) -> Result<(), String> {
+        let ms = NamedVec::new(xs, prefix)?;
+        self.measurements = ms;
+        Ok(())
+    }
+
+    fn unset_measurements_inner(&mut self) {
+        self.measurements = NamedVec::default();
+    }
+
+    fn remove_measurement_inner(
         &mut self,
         n: &Shortname,
     ) -> Result<
-        Option<(
-            usize,
-            <M::N as MightHave>::Wrapper<Shortname>,
-            Measurement<M::P>,
-        )>,
+        Option<IndexedElement<<M::N as MightHave>::Wrapper<Shortname>, Measurement<M::P>>>,
         String,
     > {
-        if let Some((i, k, v)) = self.measurements.remove_name(n) {
+        if let Some(e) = self.measurements.remove_name(n) {
             let m = &mut self.metadata;
             m.remove_trigger_by_name(n);
             let s = &mut m.specific;
             s.as_spillover_mut().map(|x| x.remove_by_name(n));
             s.as_unstainedcenters_mut().map(|x| x.remove_by_name(n));
-            s.as_compensation_mut().map(|x| x.remove_by_index(i));
-            Ok(Some((i, k, v)))
+            s.as_compensation_mut()
+                .map(|x| x.remove_by_index(e.index.into()));
+            Ok(Some(e))
         } else {
             Ok(None)
         }
+    }
+
+    fn push_time_channel_inner(
+        &mut self,
+        n: Shortname,
+        m: TimeChannel<M::T>,
+    ) -> Result<(), String> {
+        self.measurements
+            .push_center(n, m)
+            .map_err(|e| e.to_string())
+    }
+
+    fn insert_time_channel_inner(
+        &mut self,
+        i: MeasIdx,
+        n: Shortname,
+        m: TimeChannel<M::T>,
+    ) -> Result<(), String> {
+        self.measurements
+            .insert_center(i, n, m)
+            .map_err(|e| e.to_string())
+    }
+
+    fn push_measurement_inner(
+        &mut self,
+        n: <M::N as MightHave>::Wrapper<Shortname>,
+        m: Measurement<M::P>,
+    ) -> Result<Shortname, String> {
+        self.measurements.push(n, m).map_err(|e| e.to_string())
+    }
+
+    fn insert_measurement_inner(
+        &mut self,
+        i: MeasIdx,
+        n: <M::N as MightHave>::Wrapper<Shortname>,
+        m: Measurement<M::P>,
+    ) -> Result<Shortname, String> {
+        self.measurements.insert(i, n, m).map_err(|e| e.to_string())
     }
 
     fn header_and_raw_keywords(
@@ -4862,46 +4913,6 @@ where
                 .chain(req_opt_kws)
                 .collect(),
         ))
-    }
-
-    // NOTE this won't update $COMP, so for 2.0/3.0 this should noop if $COMP is
-    // set
-    fn push_time_channel(&mut self, n: Shortname, m: TimeChannel<M::T>) -> Result<(), String> {
-        self.measurements
-            .push_center(n, m)
-            .map_err(|e| e.to_string())
-    }
-
-    fn insert_time_channel(
-        &mut self,
-        i: MeasIdx,
-        n: Shortname,
-        m: TimeChannel<M::T>,
-    ) -> Result<(), String> {
-        self.measurements
-            .insert_center(i, n, m)
-            .map_err(|e| e.to_string())
-    }
-
-    // NOTE this won't update $COMP, so for 2.0/3.0 this should noop if $COMP is
-    // set
-    fn push_measurement(
-        &mut self,
-        n: <M::N as MightHave>::Wrapper<Shortname>,
-        m: Measurement<M::P>,
-    ) -> Result<Shortname, String> {
-        self.measurements.push(n, m).map_err(|e| e.to_string())
-    }
-
-    // NOTE this won't update $COMP, so for 2.0/3.0 this should noop if $COMP is
-    // set
-    fn insert_measurement(
-        &mut self,
-        i: MeasIdx,
-        n: <M::N as MightHave>::Wrapper<Shortname>,
-        m: Measurement<M::P>,
-    ) -> Result<Shortname, String> {
-        self.measurements.insert(i, n, m).map_err(|e| e.to_string())
     }
 
     fn df_names(&self) -> Vec<PlSmallStr> {
@@ -5097,7 +5108,7 @@ where
         M::P: From<M::T>,
     {
         let ms = &self.measurements;
-        if let Some(m0) = ms.get(0).and_then(|x| x.ok()) {
+        if let Some(m0) = ms.get(0.into()).and_then(|x| x.ok()) {
             let header = m0.table_header();
             let rows = self.measurements.iter().map(|(i, r)| {
                 r.map_or_else(
@@ -5364,7 +5375,7 @@ where
         let ps = self
             .measurements
             .map_non_center_values(|i, v| v.try_convert(i.into()))
-            .map(|x| x.map_center_value(|_, v| v.convert()));
+            .map(|x| x.map_center_value(|x| x.value.convert()));
         let m = self.metadata.try_convert();
         let res = match (m, ps) {
             (Ok(metadata), Ok(old_ps)) => {
@@ -5781,6 +5792,39 @@ impl CoreTEXT2_0 {
         wavelength,
         PnL
     );
+
+    fn push_measurement(
+        &mut self,
+        n: Option<Shortname>,
+        m: Measurement2_0,
+    ) -> Result<Shortname, String> {
+        if self.metadata.specific.comp.0.is_some() {
+            return Err("cannot alter measurements while $COMP is set".to_string());
+        }
+        self.push_measurement_inner(n.into(), m)
+    }
+
+    fn insert_measurement(
+        &mut self,
+        i: MeasIdx,
+        n: Option<Shortname>,
+        m: Measurement2_0,
+    ) -> Result<Shortname, String> {
+        if self.metadata.specific.comp.0.is_some() {
+            return Err("cannot alter measurements while $COMP is set".to_string());
+        }
+        self.insert_measurement_inner(i, n.into(), m)
+    }
+
+    fn remove_measurement(
+        &mut self,
+        n: &Shortname,
+    ) -> Result<Option<IndexedElement<OptionalKw<Shortname>, Measurement2_0>>, String> {
+        if self.metadata.specific.comp.0.is_some() {
+            return Err("cannot alter measurements while $COMP is set".to_string());
+        }
+        self.remove_measurement_inner(n)
+    }
 }
 
 impl CoreTEXT3_0 {
@@ -6344,10 +6388,10 @@ where
 
     // TODO also make a version of this that takes an index since not all
     // columns are named or we might not know the name
-    fn remove_measurement(&mut self, n: &Shortname) -> Result<Option<usize>, String> {
-        let i = self.text.remove_measurement(n)?;
+    fn remove_measurement(&mut self, n: &Shortname) -> Result<Option<MeasIdx>, String> {
+        let i = self.text.remove_measurement_inner(n)?;
         self.data.drop_in_place(n.as_ref()).unwrap();
-        Ok(i.map(|x| x.0))
+        Ok(i.map(|x| x.index))
     }
 
     fn push_measurement<T>(
@@ -6360,7 +6404,7 @@ where
         T: PolarsNumericType,
         ChunkedArray<T>: IntoSeries,
     {
-        let k = self.text.push_measurement(n, m)?;
+        let k = self.text.push_measurement_inner(n, m)?;
         let ser = ChunkedArray::<T>::from_vec(k.as_ref().into(), col).into_series();
         self.data.with_column(ser).map_err(|e| e.to_string())?;
         Ok(k)
@@ -6377,7 +6421,7 @@ where
         T: PolarsNumericType,
         ChunkedArray<T>: IntoSeries,
     {
-        let k = self.text.insert_measurement(i, n, m)?;
+        let k = self.text.insert_measurement_inner(i, n, m)?;
         let ser = ChunkedArray::<T>::from_vec(k.as_ref().into(), col).into_series();
         self.data
             .insert_column(i.into(), ser)

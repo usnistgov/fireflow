@@ -125,7 +125,7 @@ type WrappedPairedVec<K, V> = PairedVec<<K as MightHave>::Wrapper<Shortname>, V>
 
 type Center<U> = Pair<Shortname, U>;
 
-type RawInput<K, U, V> = Vec<Result<(<K as MightHave>::Wrapper<Shortname>, V), (Shortname, U)>>;
+pub type RawInput<K, U, V> = Vec<Result<(<K as MightHave>::Wrapper<Shortname>, V), (Shortname, U)>>;
 
 pub type NameMapping = HashMap<Shortname, Shortname>;
 
@@ -424,9 +424,9 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     }
 
     /// Return position of center, if it exists
-    pub fn center_index(&self) -> Option<usize> {
+    pub fn center_index(&self) -> Option<MeasIdx> {
         match self {
-            NamedVec::Split(s, _) => Some(s.left.len()),
+            NamedVec::Split(s, _) => Some(s.left.len().into()),
             NamedVec::Unsplit(_) => None,
         }
     }
@@ -434,15 +434,19 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// Apply function over center value, possibly changing it's type
     pub fn map_center_value<F, W>(self, f: F) -> NamedVec<K, K::Wrapper<Shortname>, W, V>
     where
-        F: Fn(usize, U) -> W,
+        F: Fn(IndexedElement<&Shortname, U>) -> W,
     {
         match self {
             NamedVec::Split(s, _) => {
-                let i = s.left.len();
                 let c = s.center;
+                let e = IndexedElement {
+                    index: s.left.len().into(),
+                    key: &c.key,
+                    value: c.value,
+                };
                 let center = Pair {
+                    value: f(e),
                     key: c.key,
-                    value: f(i, c.value),
                 };
                 NamedVec::new_split(s.left, center, s.right, s.prefix)
             }
@@ -502,7 +506,8 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     }
 
     /// Get reference at position.
-    pub fn get(&self, i: usize) -> Option<Result<&V, &U>> {
+    pub fn get(&self, index: MeasIdx) -> Option<Result<&V, &U>> {
+        let i: usize = index.into();
         match self {
             NamedVec::Split(s, _) => {
                 let left_len = s.left.len();
@@ -518,7 +523,8 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     }
 
     /// Get mutable reference at position.
-    pub fn get_mut(&mut self, i: usize) -> Option<Result<&mut V, &mut U>> {
+    pub fn get_mut(&mut self, index: MeasIdx) -> Option<Result<&mut V, &mut U>> {
+        let i: usize = index.into();
         match self {
             NamedVec::Split(s, _) => {
                 let left_len = s.left.len();
@@ -666,11 +672,18 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// Remove non-center key/value pair by name of key.
     ///
     /// Return None if name is not found.
-    pub fn remove_name(&mut self, n: &Shortname) -> Option<(usize, K::Wrapper<Shortname>, V)> {
+    pub fn remove_name(
+        &mut self,
+        n: &Shortname,
+    ) -> Option<IndexedElement<K::Wrapper<Shortname>, V>> {
         let go = |xs: &mut Vec<_>| {
             if let Some(i) = Self::position_by_name(xs, n) {
                 let p = xs.remove(i);
-                Some((i, p.key, p.value))
+                Some(IndexedElement {
+                    index: i.into(),
+                    key: p.key,
+                    value: p.value,
+                })
             } else {
                 None
             }

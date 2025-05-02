@@ -1277,7 +1277,7 @@ macro_rules! timestep_methods {
             fn get_timestep(&self) -> Option<PyPositiveFloat> {
                 self.0
                     .$($root.)*
-                    measurements()
+                    measurements_named_vec()
                     .as_center()
                     .and_then(|x| x.value.specific.timestep())
                     .map(|x| x.0.into())

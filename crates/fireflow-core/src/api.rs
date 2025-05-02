@@ -501,7 +501,7 @@ pub enum NumType {
 ///
 /// This is encoded in the $DFCmTOn keywords in 2.0 and $COMP in 3.0.
 #[derive(Clone, Serialize)]
-struct Compensation {
+pub struct Compensation {
     /// Values in the comp matrix in row-major order. Assumed to be the
     /// same width and height as $PAR
     matrix: DMatrix<f32>,
@@ -954,6 +954,11 @@ impl<T> TryFrom<Identity<T>> for OptionalKw<T> {
         Ok(Some(value.0).into())
     }
 }
+
+pub type TimeChannel2_0 = TimeChannel<InnerTime2_0>;
+pub type TimeChannel3_0 = TimeChannel<InnerTime3_0>;
+pub type TimeChannel3_1 = TimeChannel<InnerTime3_1>;
+pub type TimeChannel3_2 = TimeChannel<InnerTime3_2>;
 
 /// Version-specific data for one measurement
 pub type Measurement2_0 = Measurement<InnerMeasurement2_0>;
@@ -4129,6 +4134,16 @@ impl<T> TimeChannel<T>
 where
     T: VersionedTime,
 {
+    pub fn new_common(bytes: Bytes, range: Range, specific: T) -> Self {
+        Self {
+            bytes,
+            range,
+            specific,
+            longname: None.into(),
+            nonstandard_keywords: HashMap::new(),
+        }
+    }
+
     fn lookup_time_channel(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
         if let (Some(bytes), Some(range), Some(specific)) = (
             st.lookup_meas_req(i),
@@ -4183,6 +4198,21 @@ impl<P> Measurement<P>
 where
     P: VersionedMeasurement,
 {
+    pub fn new_common(bytes: Bytes, range: Range, specific: P) -> Self {
+        Self {
+            bytes,
+            range,
+            specific,
+            detector_type: None.into(),
+            detector_voltage: None.into(),
+            filter: None.into(),
+            longname: None.into(),
+            percent_emitted: None.into(),
+            power: None.into(),
+            nonstandard_keywords: HashMap::new(),
+        }
+    }
+
     fn try_convert<ToP: TryFrom<P, Error = MeasConvertError>>(
         self,
         n: MeasIdx,
@@ -4570,25 +4600,14 @@ where
             .collect()
     }
 
-    // TODO do I really need these?
-    // get_set_copied!(abrt, set_abrt, Abrt);
-    // get_set_copied!(lost, set_lost, Lost);
-
-    // get_set_str!(cells, set_cells);
-    // get_set_str!(com, set_com);
-    // get_set_str!(exp, set_exp);
-    // get_set_str!(fil, set_fil);
-    // get_set_str!(inst, set_inst);
-    // get_set_str!(op, set_op);
-    // get_set_str!(proj, set_proj);
-    // get_set_str!(smno, set_smno);
-    // get_set_str!(src, set_src);
-    // get_set_str!(sys, set_sys);
-
+    /// Get measurement name for $TR keyword
     pub fn trigger_name(&self) -> Option<&Shortname> {
         self.metadata.tr.as_ref_opt().map(|x| &x.measurement)
     }
 
+    // TODO return an error for these since returning false is less obvious
+    // and doesn't impl try
+    /// Set measurement name for $TR keyword.
     pub fn set_trigger_name(&mut self, n: Shortname) -> bool {
         if !self.measurement_names().contains(&n) {
             return false;
@@ -4605,6 +4624,7 @@ where
         true
     }
 
+    /// Set threshold for $TR keyword
     pub fn set_trigger_threshold(&mut self, x: u32) -> bool {
         if let Some(tr) = self.metadata.tr.0.as_mut() {
             tr.threshold = x;
@@ -4614,8 +4634,192 @@ where
         }
     }
 
+    /// Remove $TR keyword
     pub fn clear_trigger(&mut self) {
         self.metadata.tr = None.into();
+    }
+
+    // TODO this isn't that useful since in most cases we can determine the
+    // version and set with an option wrapper or not
+    /// Return a list of measurement names as stored in $PnN.
+    pub fn shortnames(&self) -> Vec<Option<&Shortname>> {
+        self.measurements
+            .iter()
+            .map(|(_, x)| x.map_or_else(|t| Some(&t.key), |m| M::N::as_opt(&m.key)))
+            .collect()
+    }
+
+    /// Return a list of measurement names as stored in $PnN
+    ///
+    /// For cases where $PnN is optional and its value is not given, this will
+    /// return "Mn" where "n" is the parameter index starting at 0.
+    pub fn all_shortnames(&self) -> Vec<Shortname> {
+        self.measurements.iter_all_names().collect()
+    }
+
+    // See shortnames
+    /// Set all $PnN keywords to list of names.
+    ///
+    /// The length of the names must match the number of measurements. Any
+    /// keywords refering to the old names will be updated to reflect the new
+    /// names. For 2.0 and 3.0 which have optional $PnN, all $PnN will end up
+    /// being set.
+    // TODO what if I want to clear a name?
+    pub fn set_shortnames(&mut self, ns: Vec<Shortname>) -> Result<NameMapping, DistinctKeysError> {
+        let mapping = self.measurements.set_names(ns)?;
+        // TODO reassign names in dataframe
+        self.metadata.reassign_all(&mapping);
+        Ok(mapping)
+    }
+
+    /// Set the channel matching given name to the time channel.
+    ///
+    /// Return error if time channel already exists or if measurement cannot
+    /// be converted to a time channel.
+    pub fn set_time_channel(&mut self, n: &Shortname) -> Result<(), MeasToTimeErrors>
+    where
+        Measurement<M::P>: From<TimeChannel<M::T>>,
+        TimeChannel<M::T>: TryFrom<Measurement<M::P>, Error = TryFromTimeError<Measurement<M::P>>>,
+    {
+        // This is tricky because $TIMESTEP will be filled with a dummy value
+        // when TimeChannel is converted from a Measurement. This will get
+        // annoying for cases where the time channel already exists and we are
+        // simply "moving" it to a new channel; $TIMESTEP should follow the move
+        // in this case. Therefore, get the value of $TIMESTEP (if it exists)
+        // and reassign to new time channel (if it exists). The added
+        // complication is that not all versions have $TIMESTEP, so consult
+        // trait-level functions for this and wrap in Option.
+        let ms = &mut self.measurements;
+        let current_timestep = ms.as_center().and_then(|c| c.value.specific.timestep());
+        match ms.set_center_by_name(n) {
+            Ok(center) => {
+                // Technically this is a bit more work than necessary because
+                // we should know by this point if the center exists. Oh well..
+                if let (Some(ts), Some(c)) = (current_timestep, ms.as_center_mut()) {
+                    M::T::set_timestep(&mut c.value.specific, ts);
+                }
+                Ok(center)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Convert the current time channel to a measurement
+    ///
+    /// Return false if there was no time channel to convert.
+    pub fn unset_time_channel(&mut self) -> bool
+    where
+        Measurement<M::P>: From<TimeChannel<M::T>>,
+    {
+        self.measurements.unset_center()
+    }
+
+    /// Insert a nonstandard key/value pair for each measurement.
+    ///
+    /// Return a vector of elements corresponding to each measurement, where
+    /// each element is the value of the inserted key if already present.
+    ///
+    /// This includes the time channel if present.
+    pub fn insert_meas_nonstandard(
+        &mut self,
+        xs: Vec<(NonStdKey, String)>,
+    ) -> Option<Vec<Option<String>>> {
+        self.measurements.alter_values_zip(
+            xs,
+            |_, _, m, (k, v)| m.nonstandard_keywords.insert(k, v),
+            |_, _, t, (k, v)| t.nonstandard_keywords.insert(k, v),
+        )
+    }
+
+    /// Remove a key from nonstandard key/value pairs for each measurement.
+    ///
+    /// Return a vector with removed values for each measurement if present.
+    ///
+    /// This includes the time channel if present.
+    pub fn remove_meas_nonstandard(&mut self, xs: Vec<&NonStdKey>) -> Option<Vec<Option<String>>> {
+        self.measurements.alter_values_zip(
+            xs,
+            |_, _, m, k| m.nonstandard_keywords.remove(k),
+            |_, _, t, k| t.nonstandard_keywords.remove(k),
+        )
+    }
+
+    /// Read a key from nonstandard key/value pairs for each measurement.
+    ///
+    /// Return a vector with each successfully found value.
+    ///
+    /// This includes the time channel if present.
+    pub fn get_meas_nonstandard(&self, ks: &Vec<NonStdKey>) -> Option<Vec<Option<&String>>> {
+        let ms = &self.measurements;
+        if ks.len() != ms.len() {
+            None
+        } else {
+            let res = ms
+                .iter()
+                .zip(ks)
+                .map(|((_, x), k)| {
+                    x.map_or_else(
+                        |t| t.value.nonstandard_keywords.get(k),
+                        |m| m.value.nonstandard_keywords.get(k),
+                    )
+                })
+                .collect();
+            Some(res)
+        }
+    }
+
+    /// Return read-only reference to measurement vector
+    pub fn measurements_named_vec(&self) -> &Measurements<M::N, M::T, M::P> {
+        &self.measurements
+    }
+
+    /// Apply functions to time and non-time channel values
+    pub fn alter_measurements<F, G, R>(&mut self, f: F, g: G) -> Vec<R>
+    where
+        F: Fn(MeasIdx, &<M::N as MightHave>::Wrapper<Shortname>, &mut Measurement<M::P>) -> R,
+        G: Fn(MeasIdx, &Shortname, &mut TimeChannel<M::T>) -> R,
+    {
+        self.measurements.alter_values(f, g)
+    }
+
+    /// Apply functions to time and non-time channel values with payload
+    pub fn alter_measurements_zip<F, G, X, R>(&mut self, xs: Vec<X>, f: F, g: G) -> Option<Vec<R>>
+    where
+        F: Fn(MeasIdx, &<M::N as MightHave>::Wrapper<Shortname>, &mut Measurement<M::P>, X) -> R,
+        G: Fn(MeasIdx, &Shortname, &mut TimeChannel<M::T>, X) -> R,
+    {
+        self.measurements.alter_values_zip(xs, f, g)
+    }
+
+    /// Return mutable reference to time channel as a name/value pair.
+    pub fn as_center_mut(
+        &mut self,
+    ) -> Option<IndexedElement<&mut Shortname, &mut TimeChannel<M::T>>> {
+        self.measurements.as_center_mut()
+    }
+
+    fn remove_measurement(
+        &mut self,
+        n: &Shortname,
+    ) -> Result<
+        Option<(
+            usize,
+            <M::N as MightHave>::Wrapper<Shortname>,
+            Measurement<M::P>,
+        )>,
+        String,
+    > {
+        if let Some((i, k, v)) = self.measurements.remove_name(n) {
+            let m = &mut self.metadata;
+            m.remove_trigger_by_name(n);
+            let s = &mut m.specific;
+            s.as_spillover_mut().map(|x| x.remove_by_name(n));
+            s.as_unstainedcenters_mut().map(|x| x.remove_by_name(n));
+            s.as_compensation_mut().map(|x| x.remove_by_index(i));
+            Ok(Some((i, k, v)))
+        } else {
+            Ok(None)
+        }
     }
 
     fn header_and_raw_keywords(
@@ -4656,152 +4860,44 @@ where
         ))
     }
 
-    /// Return a list of measurement names as stored in $PnN
-    pub fn shortnames(&self) -> Vec<Option<&Shortname>> {
+    // NOTE this won't update $COMP, so for 2.0/3.0 this should noop if $COMP is
+    // set
+    fn push_time_channel(&mut self, n: Shortname, m: TimeChannel<M::T>) -> Result<(), String> {
         self.measurements
-            .iter()
-            .map(|(_, x)| x.map_or_else(|t| Some(&t.key), |m| M::N::as_opt(&m.key)))
-            .collect()
+            .push_center(n, m)
+            .map_err(|e| e.to_string())
     }
 
-    /// Return a list of measurement names as stored in $PnN
-    ///
-    /// For cases where $PnN is optional and its value is not given, this will
-    /// return "Mn" where "n" is the parameter index starting at 0.
-    pub fn all_shortnames(&self) -> Vec<Shortname> {
-        self.measurements.iter_all_names().collect()
-    }
-
-    /// Set all $PnN keywords to list of names.
-    ///
-    /// The length of the names must match the number of measurements. Any
-    /// keywords refering to the old names will be updated to reflect the new
-    /// names. For 2.0 and 3.0 which have optional $PnN, all $PnN will end up
-    /// being set.
-    // TODO what if I want to clear a name?
-    pub fn set_shortnames(&mut self, ns: Vec<Shortname>) -> Result<NameMapping, DistinctKeysError> {
-        let mapping = self.measurements.set_names(ns)?;
-        // TODO reassign names in dataframe
-        self.metadata.reassign_all(&mapping);
-        Ok(mapping)
-    }
-
-    pub fn set_time_channel(&mut self, n: &Shortname) -> Result<(), MeasToTimeErrors>
-    where
-        Measurement<M::P>: From<TimeChannel<M::T>>,
-        TimeChannel<M::T>: TryFrom<Measurement<M::P>, Error = TryFromTimeError<Measurement<M::P>>>,
-    {
-        // This is tricky because $TIMESTEP will be filled with a dummy value
-        // when TimeChannel is converted from a Measurement. This will get
-        // annoying for cases where the time channel already exists and we are
-        // simply "moving" it to a new channel; $TIMESTEP should follow the move
-        // in this case. Therefore, get the value of $TIMESTEP (if it exists)
-        // and reassign to new time channel (if it exists). The added
-        // complication is that not all versions have $TIMESTEP, so consult
-        // trait-level functions for this and wrap in Option.
-        let ms = &mut self.measurements;
-        let current_timestep = ms.as_center().and_then(|c| c.value.specific.timestep());
-        match ms.set_center_by_name(n) {
-            Ok(center) => {
-                // Technically this is a bit more work than necessary because
-                // we should know by this point if the center exists. Oh well..
-                if let (Some(ts), Some(c)) = (current_timestep, ms.as_center_mut()) {
-                    M::T::set_timestep(&mut c.value.specific, ts);
-                }
-                Ok(center)
-            }
-            Err(e) => Err(e),
-        }
-    }
-
-    pub fn unset_time_channel(&mut self) -> bool
-    where
-        Measurement<M::P>: From<TimeChannel<M::T>>,
-    {
-        self.measurements.unset_center()
-    }
-
-    // NOTE this does not apply to time channel
-    pub fn remove_measurement(
+    fn insert_time_channel(
         &mut self,
-        n: &Shortname,
-    ) -> Result<
-        Option<(
-            usize,
-            <M::N as MightHave>::Wrapper<Shortname>,
-            Measurement<M::P>,
-        )>,
-        String,
-    > {
-        if let Some((i, k, v)) = self.measurements.remove_name(n) {
-            let m = &mut self.metadata;
-            m.remove_trigger_by_name(n);
-            let s = &mut m.specific;
-            s.as_spillover_mut().map(|x| x.remove_by_name(n));
-            s.as_unstainedcenters_mut().map(|x| x.remove_by_name(n));
-            s.as_compensation_mut().map(|x| x.remove_by_index(i));
-            Ok(Some((i, k, v)))
-        } else {
-            Ok(None)
-        }
+        i: MeasIdx,
+        n: Shortname,
+        m: TimeChannel<M::T>,
+    ) -> Result<(), String> {
+        self.measurements
+            .insert_center(i, n, m)
+            .map_err(|e| e.to_string())
     }
 
-    pub fn measurements(&self) -> &Measurements<M::N, M::T, M::P> {
-        &self.measurements
-    }
-
-    pub fn as_center_mut(
+    // NOTE this won't update $COMP, so for 2.0/3.0 this should noop if $COMP is
+    // set
+    fn push_measurement(
         &mut self,
-    ) -> Option<IndexedElement<&mut Shortname, &mut TimeChannel<M::T>>> {
-        self.measurements.as_center_mut()
+        n: <M::N as MightHave>::Wrapper<Shortname>,
+        m: Measurement<M::P>,
+    ) -> Result<Shortname, String> {
+        self.measurements.push(n, m).map_err(|e| e.to_string())
     }
 
-    pub fn add_measurement(
+    // NOTE this won't update $COMP, so for 2.0/3.0 this should noop if $COMP is
+    // set
+    fn insert_measurement(
         &mut self,
         i: MeasIdx,
         n: <M::N as MightHave>::Wrapper<Shortname>,
         m: Measurement<M::P>,
     ) -> Result<Shortname, String> {
-        // TODO update $COMP
         self.measurements.insert(i, n, m).map_err(|e| e.to_string())
-    }
-
-    pub fn insert_meas_nonstandard(
-        &mut self,
-        xs: Vec<(NonStdKey, String)>,
-    ) -> Option<Vec<Option<String>>> {
-        self.measurements.alter_values_zip(
-            xs,
-            |m, (k, v)| m.nonstandard_keywords.insert(k, v),
-            |t, (k, v)| t.nonstandard_keywords.insert(k, v),
-        )
-    }
-
-    pub fn remove_meas_nonstandard(&mut self, xs: Vec<&NonStdKey>) -> Option<Vec<Option<String>>> {
-        self.measurements.alter_values_zip(
-            xs,
-            |m, k| m.nonstandard_keywords.remove(k),
-            |t, k| t.nonstandard_keywords.remove(k),
-        )
-    }
-
-    pub fn get_meas_nonstandard(&self, ks: &Vec<NonStdKey>) -> Option<Vec<Option<&String>>> {
-        let ms = &self.measurements;
-        if ks.len() != ms.len() {
-            None
-        } else {
-            let res = ms
-                .iter()
-                .zip(ks)
-                .map(|((_, x), k)| {
-                    x.map_or_else(
-                        |t| t.value.nonstandard_keywords.get(k),
-                        |m| m.value.nonstandard_keywords.get(k),
-                    )
-                })
-                .collect();
-            Some(res)
-        }
     }
 
     fn df_names(&self) -> Vec<PlSmallStr> {
@@ -4872,8 +4968,8 @@ where
         self.measurements
             .alter_values_zip(
                 ns,
-                |m, n| m.longname = n.map(Longname).into(),
-                |t, n| t.longname = n.map(Longname).into(),
+                |_, _, m, n| m.longname = n.map(Longname).into(),
+                |_, _, t, n| t.longname = n.map(Longname).into(),
             )
             .is_some()
     }
@@ -5296,11 +5392,11 @@ where
         self.measurements
             .alter_values_zip(
                 xs,
-                |m, (b, r)| {
+                |_, _, m, (b, r)| {
                     m.bytes = b;
                     m.range = r;
                 },
-                |t, (b, r)| {
+                |_, _, t, (b, r)| {
                     t.bytes = b;
                     t.range = r;
                 },
@@ -5411,6 +5507,86 @@ macro_rules! scale_get_set {
     };
 }
 
+impl InnerTime2_0 {
+    fn new() -> Self {
+        Self
+    }
+}
+
+impl InnerTime3_0 {
+    fn new(timestep: Timestep) -> Self {
+        Self { timestep }
+    }
+}
+
+impl InnerTime3_1 {
+    fn new(timestep: Timestep) -> Self {
+        Self {
+            timestep,
+            display: None.into(),
+        }
+    }
+}
+
+impl InnerTime3_2 {
+    fn new(timestep: Timestep) -> Self {
+        Self {
+            timestep,
+            datatype: None.into(),
+            display: None.into(),
+        }
+    }
+}
+
+impl InnerMeasurement2_0 {
+    fn new() -> Self {
+        Self {
+            scale: None.into(),
+            wavelength: None.into(),
+        }
+    }
+}
+
+impl InnerMeasurement3_0 {
+    fn new(scale: Scale) -> Self {
+        Self {
+            scale,
+            gain: None.into(),
+            wavelength: None.into(),
+        }
+    }
+}
+
+impl InnerMeasurement3_1 {
+    fn new(scale: Scale) -> Self {
+        Self {
+            scale,
+            calibration: None.into(),
+            display: None.into(),
+            gain: None.into(),
+            wavelengths: None.into(),
+        }
+    }
+}
+
+impl InnerMeasurement3_2 {
+    fn new(scale: Scale) -> Self {
+        Self {
+            scale,
+            analyte: None.into(),
+            calibration: None.into(),
+            datatype: None.into(),
+            detector_name: None.into(),
+            display: None.into(),
+            feature: None.into(),
+            gain: None.into(),
+            measurement_type: None.into(),
+            tag: None.into(),
+            wavelengths: None.into(),
+        }
+    }
+}
+
 impl InnerMetadata2_0 {
     fn new(mode: Mode, byteord: ByteOrd) -> Self {
         Self {
@@ -5469,6 +5645,62 @@ impl InnerMetadata3_2 {
             spillover: None.into(),
             vol: None.into(),
         }
+    }
+}
+
+impl TimeChannel2_0 {
+    pub fn new(bytes: Bytes, range: Range) -> Self {
+        let specific = InnerTime2_0::new();
+        TimeChannel::new_common(bytes, range, specific)
+    }
+}
+
+impl TimeChannel3_0 {
+    pub fn new(bytes: Bytes, range: Range, timestep: Timestep) -> Self {
+        let specific = InnerTime3_0::new(timestep);
+        TimeChannel::new_common(bytes, range, specific)
+    }
+}
+
+impl TimeChannel3_1 {
+    pub fn new(bytes: Bytes, range: Range, timestep: Timestep) -> Self {
+        let specific = InnerTime3_1::new(timestep);
+        TimeChannel::new_common(bytes, range, specific)
+    }
+}
+
+impl TimeChannel3_2 {
+    pub fn new(bytes: Bytes, range: Range, timestep: Timestep) -> Self {
+        let specific = InnerTime3_2::new(timestep);
+        TimeChannel::new_common(bytes, range, specific)
+    }
+}
+
+impl Measurement2_0 {
+    pub fn new(bytes: Bytes, range: Range) -> Self {
+        let specific = InnerMeasurement2_0::new();
+        Measurement::new_common(bytes, range, specific)
+    }
+}
+
+impl Measurement3_0 {
+    pub fn new(bytes: Bytes, range: Range, scale: Scale) -> Self {
+        let specific = InnerMeasurement3_0::new(scale);
+        Measurement::new_common(bytes, range, specific)
+    }
+}
+
+impl Measurement3_1 {
+    pub fn new(bytes: Bytes, range: Range, scale: Scale) -> Self {
+        let specific = InnerMeasurement3_1::new(scale);
+        Measurement::new_common(bytes, range, specific)
+    }
+}
+
+impl Measurement3_2 {
+    pub fn new(bytes: Bytes, range: Range, scale: Scale) -> Self {
+        let specific = InnerMeasurement3_2::new(scale);
+        Measurement::new_common(bytes, range, specific)
     }
 }
 
@@ -5645,8 +5877,8 @@ macro_rules! display_methods {
             self.measurements
                 .alter_values_zip(
                     ns,
-                    |m, n| m.specific.display = n.into(),
-                    |t, n| t.specific.display = n.into(),
+                    |_, _, m, n| m.specific.display = n.into(),
+                    |_, _, t, n| t.specific.display = n.into(),
                 )
                 .is_some()
         }
@@ -5849,13 +6081,13 @@ impl CoreTEXT3_2 {
                 .measurements
                 .alter_values_zip(
                     xs,
-                    |m, x| {
+                    |_, _, m, x| {
                         let (b, r, pndt) = go(x);
                         m.bytes = b;
                         m.range = r;
                         m.specific.datatype = pndt.into();
                     },
-                    |t, x| {
+                    |_, _, t, x| {
                         let (b, r, pndt) = go(x);
                         t.bytes = b;
                         t.range = r;
@@ -5905,26 +6137,6 @@ impl CoreTEXT3_2 {
     /// Set data layout to be ASCII-delimited for all measurements
     pub fn set_data_delimited(&mut self, xs: Vec<u64>) -> bool {
         let res = self.set_data_delimited_inner(xs);
-        if res {
-            self.unset_meas_datatypes();
-        }
-        res
-    }
-
-    fn unset_meas_datatypes(&mut self) {
-        self.measurements.alter_values(
-            |m| {
-                m.specific.datatype = None.into();
-            },
-            |t| {
-                t.specific.datatype = None.into();
-            },
-        );
-    }
-
-    // TODO check that floating point types are linear
-    fn set_to_floating_point_3_2(&mut self, is_double: bool, rs: Vec<Range>) -> bool {
-        let res = self.set_to_floating_point(is_double, rs);
         if res {
             self.unset_meas_datatypes();
         }
@@ -5990,6 +6202,26 @@ impl CoreTEXT3_2 {
         analyte,
         PnANALYTE
     );
+
+    fn unset_meas_datatypes(&mut self) {
+        self.measurements.alter_values(
+            |_, _, m| {
+                m.specific.datatype = None.into();
+            },
+            |_, _, t| {
+                t.specific.datatype = None.into();
+            },
+        );
+    }
+
+    // TODO check that floating point types are linear
+    fn set_to_floating_point_3_2(&mut self, is_double: bool, rs: Vec<Range>) -> bool {
+        let res = self.set_to_floating_point(is_double, rs);
+        if res {
+            self.unset_meas_datatypes();
+        }
+        res
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -6090,7 +6322,23 @@ where
         Ok(i.map(|x| x.0))
     }
 
-    fn add_measurement<T>(
+    fn push_measurement<T>(
+        &mut self,
+        n: <M::N as MightHave>::Wrapper<Shortname>,
+        m: Measurement<M::P>,
+        col: Vec<T::Native>,
+    ) -> Result<Shortname, String>
+    where
+        T: PolarsNumericType,
+        ChunkedArray<T>: IntoSeries,
+    {
+        let k = self.text.push_measurement(n, m)?;
+        let ser = ChunkedArray::<T>::from_vec(k.as_ref().into(), col).into_series();
+        self.data.with_column(ser).map_err(|e| e.to_string())?;
+        Ok(k)
+    }
+
+    fn insert_measurement<T>(
         &mut self,
         i: MeasIdx,
         n: <M::N as MightHave>::Wrapper<Shortname>,
@@ -6101,11 +6349,7 @@ where
         T: PolarsNumericType,
         ChunkedArray<T>: IntoSeries,
     {
-        let k = self
-            .text
-            .measurements
-            .insert(i, n, m)
-            .map_err(|e| e.to_string())?;
+        let k = self.text.insert_measurement(i, n, m)?;
         let ser = ChunkedArray::<T>::from_vec(k.as_ref().into(), col).into_series();
         self.data
             .insert_column(i.into(), ser)

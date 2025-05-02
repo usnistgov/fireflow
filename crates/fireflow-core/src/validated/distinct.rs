@@ -305,8 +305,8 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// if input vector is not the same length.
     pub fn alter_values_zip<F, G, X, R>(&mut self, xs: Vec<X>, f: F, g: G) -> Option<Vec<R>>
     where
-        F: Fn(&mut V, X) -> R,
-        G: Fn(&mut U, X) -> R,
+        F: Fn(MeasIdx, &K::Wrapper<Shortname>, &mut V, X) -> R,
+        G: Fn(MeasIdx, &Shortname, &mut U, X) -> R,
     {
         let this_len = self.len();
         let other_len = xs.len();
@@ -322,14 +322,17 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                     .left
                     .iter_mut()
                     .zip(it.by_ref().take(nleft))
-                    .map(|(y, x)| f(&mut y.value, x))
+                    .enumerate()
+                    .map(|(i, (y, x))| f(i.into(), &y.key, &mut y.value, x))
                     .collect();
-                let center_r = g(&mut s.center.value, it.next().unwrap());
+                let c = &mut s.center;
+                let center_r = g(nleft.into(), &c.key, &mut c.value, it.next().unwrap());
                 let right_r: Vec<_> = s
                     .right
                     .iter_mut()
                     .zip(it.by_ref().take(nright))
-                    .map(|(y, x)| f(&mut y.value, x))
+                    .enumerate()
+                    .map(|(i, (y, x))| f((i + 1 + nleft).into(), &y.key, &mut y.value, x))
                     .collect();
                 left_r
                     .into_iter()
@@ -341,7 +344,8 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                 .members
                 .iter_mut()
                 .zip(xs)
-                .map(|(y, x)| f(&mut y.value, x))
+                .enumerate()
+                .map(|(i, (y, x))| f(i.into(), &y.key, &mut y.value, x))
                 .collect(),
         };
         Some(x)
@@ -350,11 +354,12 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// Apply function(s) to all values, altering them in place.
     pub fn alter_values<F, G, R>(&mut self, f: F, g: G) -> Vec<R>
     where
-        F: Fn(&mut V) -> R,
-        G: Fn(&mut U) -> R,
+        F: Fn(MeasIdx, &K::Wrapper<Shortname>, &mut V) -> R,
+        G: Fn(MeasIdx, &Shortname, &mut U) -> R,
     {
         let xs = vec![(); self.len()];
-        self.alter_values_zip(xs, |v, _| f(v), |v, _| g(v)).unwrap()
+        self.alter_values_zip(xs, |i, k, v, _| f(i, k, v), |i, k, v, _| g(i, k, v))
+            .unwrap()
     }
 
     /// Apply function to non-center values, altering them in place
@@ -544,6 +549,30 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         }
     }
 
+    /// Add a new non-center element at the end of the vector
+    pub fn push(
+        &mut self,
+        key: K::Wrapper<Shortname>,
+        value: V,
+    ) -> Result<Shortname, DistinctError> {
+        let index = self.len().into();
+        let k = self
+            .as_prefix()
+            .as_opt_or_indexed::<K>(K::as_ref(&key), index);
+        if self.iter_all_names().any(|n| n == k) {
+            Err(DistinctError::Membership(k))
+        } else {
+            let p = Pair { key, value };
+            match self {
+                NamedVec::Split(s, _) => {
+                    s.right.push(p);
+                }
+                NamedVec::Unsplit(u) => u.members.push(p),
+            }
+            Ok(k)
+        }
+    }
+
     /// Insert a new non-center element at a given position.
     pub fn insert(
         &mut self,
@@ -576,7 +605,59 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         }
     }
 
-    /// Remove key/value pair by name of key.
+    /// Push a new center element to the end of the vector
+    ///
+    /// Return error if center already exists.
+    pub fn push_center(&mut self, key: Shortname, value: U) -> Result<(), InsertCenterError> {
+        if self.iter_all_names().any(|n| n == key) {
+            Err(InsertCenterError::Distinct(DistinctError::Membership(key)))
+        } else {
+            let p = Pair { key, value };
+            let (newself, ret) = match mem::replace(self, dummy()) {
+                NamedVec::Unsplit(u) => {
+                    (NamedVec::new_split(u.members, p, vec![], u.prefix), Ok(()))
+                }
+                s => (s, Err(InsertCenterError::Present)),
+            };
+            *self = newself;
+            ret
+        }
+    }
+
+    /// Insert a new center element at a given position.
+    ///
+    /// Return error if center already exists.
+    pub fn insert_center(
+        &mut self,
+        index: MeasIdx,
+        key: Shortname,
+        value: U,
+    ) -> Result<(), InsertCenterError> {
+        let len = self.len();
+        if usize::from(index) > len {
+            Err(InsertCenterError::Distinct(DistinctError::Index {
+                index,
+                len,
+            }))
+        } else if self.iter_all_names().any(|n| n == key) {
+            Err(InsertCenterError::Distinct(DistinctError::Membership(key)))
+        } else {
+            let p = Pair { key, value };
+            let (newself, ret) = match mem::replace(self, dummy()) {
+                NamedVec::Unsplit(u) => {
+                    let mut it = u.members.into_iter();
+                    let left: Vec<_> = it.by_ref().take(index.into()).collect();
+                    let right: Vec<_> = it.collect();
+                    (NamedVec::new_split(left, p, right, u.prefix), Ok(()))
+                }
+                s => (s, Err(InsertCenterError::Present)),
+            };
+            *self = newself;
+            ret
+        }
+    }
+
+    /// Remove non-center key/value pair by name of key.
     ///
     /// Return None if name is not found.
     pub fn remove_name(&mut self, n: &Shortname) -> Option<(usize, K::Wrapper<Shortname>, V)> {
@@ -923,9 +1004,25 @@ pub enum DistinctError {
     Membership(Shortname),
 }
 
+pub enum InsertCenterError {
+    Distinct(DistinctError),
+    Present,
+}
+
 pub enum DistinctKeysError {
     Length { old_len: usize, new_len: usize },
     NonUnique,
+}
+
+impl fmt::Display for InsertCenterError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            InsertCenterError::Distinct(d) => d.fmt(f),
+            InsertCenterError::Present => {
+                write!(f, "Center already exists")
+            }
+        }
+    }
 }
 
 impl fmt::Display for DistinctError {

@@ -509,7 +509,8 @@ pub struct Compensation {
 
 impl Compensation {
     // TODO what happens if the matrix become less than 2x2?
-    fn remove_by_index(&mut self, i: usize) -> bool {
+    fn remove_by_index(&mut self, index: MeasIdx) -> bool {
+        let i: usize = index.into();
         if i <= self.matrix.ncols() {
             self.matrix = self.matrix.clone().remove_row(i).remove_column(i);
             true
@@ -3939,7 +3940,7 @@ impl AnyCoreTEXT {
     // that can be caught in python or whatever
     fn remove_measurement(&mut self, n: &Shortname) -> Result<Option<MeasIdx>, String> {
         match_anycoretext!(self, x, {
-            x.remove_measurement_inner(n).map(|x| x.map(|y| y.index))
+            x.remove_measurement_inner(n).map(|x| x.map(|y| y.0))
         })
     }
 
@@ -4821,18 +4822,14 @@ where
     fn remove_measurement_inner(
         &mut self,
         n: &Shortname,
-    ) -> Result<
-        Option<IndexedElement<<M::N as MightHave>::Wrapper<Shortname>, Measurement<M::P>>>,
-        String,
-    > {
+    ) -> Result<Option<(MeasIdx, Measurement<M::P>)>, String> {
         if let Some(e) = self.measurements.remove_name(n) {
             let m = &mut self.metadata;
             m.remove_trigger_by_name(n);
             let s = &mut m.specific;
             s.as_spillover_mut().map(|x| x.remove_by_name(n));
             s.as_unstainedcenters_mut().map(|x| x.remove_by_name(n));
-            s.as_compensation_mut()
-                .map(|x| x.remove_by_index(e.index.into()));
+            s.as_compensation_mut().map(|x| x.remove_by_index(e.0));
             Ok(Some(e))
         } else {
             Ok(None)
@@ -5819,7 +5816,7 @@ impl CoreTEXT2_0 {
     fn remove_measurement(
         &mut self,
         n: &Shortname,
-    ) -> Result<Option<IndexedElement<OptionalKw<Shortname>, Measurement2_0>>, String> {
+    ) -> Result<Option<(MeasIdx, Measurement2_0)>, String> {
         if self.metadata.specific.comp.0.is_some() {
             return Err("cannot alter measurements while $COMP is set".to_string());
         }
@@ -6391,7 +6388,7 @@ where
     fn remove_measurement(&mut self, n: &Shortname) -> Result<Option<MeasIdx>, String> {
         let i = self.text.remove_measurement_inner(n)?;
         self.data.drop_in_place(n.as_ref()).unwrap();
-        Ok(i.map(|x| x.index))
+        Ok(i.map(|x| x.0))
     }
 
     fn push_measurement<T>(

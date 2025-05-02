@@ -672,18 +672,11 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// Remove non-center key/value pair by name of key.
     ///
     /// Return None if name is not found.
-    pub fn remove_name(
-        &mut self,
-        n: &Shortname,
-    ) -> Option<IndexedElement<K::Wrapper<Shortname>, V>> {
+    pub fn remove_name(&mut self, n: &Shortname) -> Option<(MeasIdx, V)> {
         let go = |xs: &mut Vec<_>| {
             if let Some(i) = Self::position_by_name(xs, n) {
                 let p = xs.remove(i);
-                Some(IndexedElement {
-                    index: i.into(),
-                    key: p.key,
-                    value: p.value,
-                })
+                Some((i.into(), p.value))
             } else {
                 None
             }

@@ -38,7 +38,6 @@ use std::path;
 use std::str;
 use std::str::FromStr;
 
-#[macro_export]
 macro_rules! match_many_to_one {
     ($value:expr, $root:ident, [$($variant:ident),*], $inner:ident, $action:block) => {
         match $value {

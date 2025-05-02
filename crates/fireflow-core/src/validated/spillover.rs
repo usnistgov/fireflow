@@ -1,3 +1,4 @@
+use crate::optionalkw::ClearOptional;
 use crate::validated::shortname::*;
 
 use itertools::Itertools;
@@ -57,20 +58,20 @@ impl Spillover {
         }
     }
 
-    pub(crate) fn remove_by_name(&mut self, n: &Shortname) -> Option<bool> {
+    pub(crate) fn remove_by_name(&mut self, n: &Shortname) -> Result<bool, ClearOptional> {
         if let Some(i) = self.measurements.iter().position(|m| m == n) {
             if self.measurements.len() < 3 {
-                None
+                Err(ClearOptional)
             } else {
                 // TODO this looks expensive; it copies basically everything 3x;
                 // good thing these matrices aren't that big (usually). The
                 // alternative is to iterate over the matrix and populate a new
                 // one while skipping certain elements.
                 self.matrix = self.matrix.clone().remove_row(i).remove_column(i);
-                Some(true)
+                Ok(true)
             }
         } else {
-            Some(false)
+            Ok(false)
         }
     }
 }

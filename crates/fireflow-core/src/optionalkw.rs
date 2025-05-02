@@ -1,5 +1,6 @@
 use serde::Serialize;
 use std::fmt;
+use std::mem;
 
 /// Denotes that the value for a key is optional.
 ///
@@ -49,7 +50,26 @@ impl<V> OptionalKw<V> {
     {
         OptionalKw(self.0.map(f))
     }
+
+    /// Mutate thing in Option if present, and possibly unset Option entirely
+    pub fn mut_or_unset<F, X>(&mut self, f: F) -> Option<X>
+    where
+        F: Fn(&mut V) -> Result<X, ClearOptional>,
+    {
+        match mem::replace(self, None.into()).0 {
+            None => None,
+            Some(mut x) => match f(&mut x) {
+                Ok(y) => Some(y),
+                Err(_) => {
+                    *self = None.into();
+                    None
+                }
+            },
+        }
+    }
 }
+
+pub struct ClearOptional;
 
 impl<V: fmt::Display> OptionalKw<V> {
     pub fn as_opt_string(&self) -> Option<String> {

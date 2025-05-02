@@ -4,7 +4,7 @@ pub use crate::header::*;
 use crate::header_text::*;
 use crate::keywords::*;
 use crate::macros::{newtype_disp, newtype_from, newtype_from_outer, newtype_fromstr};
-use crate::optionalkw::OptionalKw;
+use crate::optionalkw::*;
 pub use crate::segment::*;
 use crate::validated::byteord::*;
 use crate::validated::datetimes::*;
@@ -16,6 +16,7 @@ use crate::validated::scale::*;
 use crate::validated::shortname::*;
 use crate::validated::spillover::*;
 use crate::validated::timestamps::*;
+use crate::validated::unstainedcenters::*;
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use itertools::Itertools;
@@ -511,14 +512,18 @@ pub struct Compensation {
 }
 
 impl Compensation {
-    // TODO what happens if the matrix become less than 2x2?
-    fn remove_by_index(&mut self, index: MeasIdx) -> bool {
+    fn remove_by_index(&mut self, index: MeasIdx) -> Result<bool, ClearOptional> {
         let i: usize = index.into();
-        if i <= self.matrix.ncols() {
-            self.matrix = self.matrix.clone().remove_row(i).remove_column(i);
-            true
+        let n = self.matrix.ncols();
+        if i <= n {
+            if n < 3 {
+                Err(ClearOptional)
+            } else {
+                self.matrix = self.matrix.clone().remove_row(i).remove_column(i);
+                Ok(true)
+            }
         } else {
-            false
+            Ok(false)
         }
     }
 }
@@ -622,21 +627,6 @@ pub struct PlateData {
     pub plateid: OptionalKw<Plateid>,
     pub platename: OptionalKw<Platename>,
     pub wellid: OptionalKw<Wellid>,
-}
-
-/// The value for the $UNSTAINEDCENTERS key (3.2+)
-///
-/// This is actually encoded as a string like 'n,[measuremnts,],[values]' but
-/// here is more conveniently encoded as a hash table.
-#[derive(Clone, Serialize)]
-pub struct UnstainedCenters(HashMap<Shortname, f32>);
-
-newtype_from_outer!(UnstainedCenters, HashMap<Shortname, f32>);
-
-impl UnstainedCenters {
-    fn remove_by_name(&mut self, n: &Shortname) -> bool {
-        self.0.remove(n).is_some()
-    }
 }
 
 /// A bundle for $UNSTAINEDCENTERS and $UNSTAINEDINFO (3.2+)
@@ -1251,23 +1241,11 @@ impl Linked for Spillover {
 
 impl Linked for UnstainedCenters {
     fn names(&self) -> HashSet<&Shortname> {
-        self.0.keys().collect()
+        self.inner().keys().collect()
     }
 
     fn reassign(&mut self, mapping: &NameMapping) {
-        // keys can't be mutated in place so need to rebuild the hashmap with
-        // new keys from the mapping
-        let new: HashMap<_, _> = self
-            .0
-            .iter()
-            .map(|(k, v)| {
-                (
-                    mapping.get(k).map(|x| (*x).clone()).unwrap_or(k.clone()),
-                    *v,
-                )
-            })
-            .collect();
-        (*self).0 = new;
+        self.rekey(mapping)
     }
 }
 
@@ -2133,18 +2111,21 @@ pub trait VersionedMetadata: Sized {
 
     fn as_unstainedcenters(&self) -> Option<&UnstainedCenters>;
 
-    // TODO this function is ill-defined since unstainedcenters should never
-    // be empty
-    fn as_unstainedcenters_mut(&mut self) -> Option<&mut UnstainedCenters>;
+    fn with_unstainedcenters<F, X>(&mut self, f: F) -> Option<X>
+    where
+        F: Fn(&mut UnstainedCenters) -> Result<X, ClearOptional>;
 
     fn as_spillover(&self) -> Option<&Spillover>;
 
-    // TODO ditto
-    fn as_spillover_mut(&mut self) -> Option<&mut Spillover>;
+    fn with_spillover<F, X>(&mut self, f: F) -> Option<X>
+    where
+        F: Fn(&mut Spillover) -> Result<X, ClearOptional>;
 
     fn as_compensation(&self) -> Option<&Compensation>;
 
-    fn as_compensation_mut(&mut self) -> Option<&mut Compensation>;
+    fn with_compensation<F, X>(&mut self, f: F) -> Option<X>
+    where
+        F: Fn(&mut Compensation) -> Result<X, ClearOptional>;
 
     fn timestamps_valid(&self) -> bool;
 
@@ -3673,52 +3654,6 @@ impl fmt::Display for Originality {
     }
 }
 
-impl FromStr for UnstainedCenters {
-    type Err = NamedFixedSeqError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut xs = s.split(",");
-        if let Some(n) = xs.next().and_then(|s| s.parse().ok()) {
-            // This should be safe since we are splitting by commas
-            let measurements: Vec<_> = xs.by_ref().take(n).map(Shortname::new_unchecked).collect();
-            let values: Vec<_> = xs.by_ref().take(n).collect();
-            let remainder = xs.by_ref().count();
-            let total = values.len() + measurements.len() + remainder;
-            let expected = 2 * n;
-            if total != expected {
-                let fvalues: Vec<_> = values
-                    .into_iter()
-                    .filter_map(|s| s.parse::<f32>().ok())
-                    .collect();
-                if fvalues.len() != n {
-                    Err(NamedFixedSeqError::Seq(FixedSeqError::BadFloat))
-                } else if measurements.iter().unique().count() != n {
-                    Err(NamedFixedSeqError::NonUnique)
-                } else {
-                    Ok(UnstainedCenters(
-                        measurements.into_iter().zip(fvalues).collect(),
-                    ))
-                }
-            } else {
-                Err(NamedFixedSeqError::Seq(FixedSeqError::WrongLength {
-                    total,
-                    expected,
-                }))
-            }
-        } else {
-            Err(NamedFixedSeqError::Seq(FixedSeqError::BadLength))
-        }
-    }
-}
-
-impl fmt::Display for UnstainedCenters {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let n = self.0.len();
-        let (ms, vs): (Vec<&Shortname>, Vec<f32>) = self.0.iter().unzip();
-        write!(f, "{n},{},{}", ms.iter().join(","), vs.iter().join(","))
-    }
-}
-
 impl fmt::Display for UnicodeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
@@ -4487,12 +4422,9 @@ where
 
     fn reassign_all(&mut self, mapping: &NameMapping) {
         self.reassign_trigger(mapping);
+        self.specific.with_spillover(|s| Ok(s.reassign(mapping)));
         self.specific
-            .as_spillover_mut()
-            .map(|x| x.reassign(mapping));
-        self.specific
-            .as_unstainedcenters_mut()
-            .map(|x| x.reassign(mapping));
+            .with_unstainedcenters(|u| Ok(u.rekey(mapping)));
     }
 
     fn check_trigger(&self, names: &HashSet<&Shortname>) -> Result<(), String> {
@@ -4518,6 +4450,14 @@ where
         } else {
             false
         }
+    }
+
+    fn remove_name_index(&mut self, n: &Shortname, i: MeasIdx) {
+        self.remove_trigger_by_name(n);
+        let s = &mut self.specific;
+        s.with_spillover(|x| x.remove_by_name(n));
+        s.with_unstainedcenters(|u| u.remove(n));
+        s.with_compensation(|c| c.remove_by_index(i));
     }
 }
 
@@ -4818,13 +4758,7 @@ where
         n: &Shortname,
     ) -> Result<Option<(MeasIdx, Result<Measurement<M::P>, TimeChannel<M::T>>)>, String> {
         if let Some(e) = self.measurements.remove_name(n) {
-            let m = &mut self.metadata;
-            m.remove_trigger_by_name(n);
-            let s = &mut m.specific;
-            // TODO what if these become too small?
-            s.as_spillover_mut().map(|x| x.remove_by_name(n));
-            s.as_unstainedcenters_mut().map(|x| x.remove_by_name(n));
-            s.as_compensation_mut().map(|x| x.remove_by_index(e.0));
+            self.metadata.remove_name_index(n, e.0);
             Ok(Some(e))
         } else {
             Ok(None)
@@ -4838,13 +4772,7 @@ where
         if let Some(e) = self.measurements.remove_index(index) {
             if let Ok(left) = &e {
                 if let Some(n) = M::N::as_opt(&left.key) {
-                    // TODO not DRY (see above)
-                    let m = &mut self.metadata;
-                    m.remove_trigger_by_name(n);
-                    let s = &mut m.specific;
-                    s.as_spillover_mut().map(|x| x.remove_by_name(n));
-                    s.as_unstainedcenters_mut().map(|x| x.remove_by_name(n));
-                    s.as_compensation_mut().map(|x| x.remove_by_index(index));
+                    self.metadata.remove_name_index(n, index);
                 }
             }
             Ok(Some(e))
@@ -6069,11 +5997,9 @@ impl CoreTEXT3_2 {
         }
         let us = &mut self.metadata.specific.unstained;
         if let Some(u) = us.unstainedcenters.0.as_mut() {
-            u.0.insert(k, v)
+            u.insert(k, v)
         } else {
-            let mut h = HashMap::new();
-            h.insert(k, v);
-            us.unstainedcenters = Some(UnstainedCenters(h)).into();
+            us.unstainedcenters = Some(UnstainedCenters::new_1(k, v)).into();
             None
         }
     }
@@ -6082,12 +6008,13 @@ impl CoreTEXT3_2 {
     pub fn remove_unstained_center(&mut self, k: &Shortname) -> Option<f32> {
         let us = &mut self.metadata.specific.unstained;
         if let Some(u) = us.unstainedcenters.0.as_mut() {
-            let ret = u.0.remove(k);
-            // TODO this is a pattern I will likely keep using :/
-            if u.0.is_empty() {
-                us.unstainedcenters = None.into();
+            match u.remove(k) {
+                Ok(ret) => ret,
+                Err(_) => {
+                    us.unstainedcenters = None.into();
+                    None
+                }
             }
-            ret
         } else {
             None
         }
@@ -7321,7 +7248,10 @@ impl VersionedMetadata for InnerMetadata2_0 {
         None
     }
 
-    fn as_unstainedcenters_mut(&mut self) -> Option<&mut UnstainedCenters> {
+    fn with_unstainedcenters<F, X>(&mut self, _: F) -> Option<X>
+    where
+        F: Fn(&mut UnstainedCenters) -> Result<X, ClearOptional>,
+    {
         None
     }
 
@@ -7329,7 +7259,10 @@ impl VersionedMetadata for InnerMetadata2_0 {
         None
     }
 
-    fn as_spillover_mut(&mut self) -> Option<&mut Spillover> {
+    fn with_spillover<F, X>(&mut self, _: F) -> Option<X>
+    where
+        F: Fn(&mut Spillover) -> Result<X, ClearOptional>,
+    {
         None
     }
 
@@ -7337,8 +7270,11 @@ impl VersionedMetadata for InnerMetadata2_0 {
         self.comp.as_ref_opt()
     }
 
-    fn as_compensation_mut(&mut self) -> Option<&mut Compensation> {
-        self.comp.0.as_mut()
+    fn with_compensation<F, X>(&mut self, f: F) -> Option<X>
+    where
+        F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
+    {
+        self.comp.mut_or_unset(f)
     }
 
     fn timestamps_valid(&self) -> bool {
@@ -7416,7 +7352,10 @@ impl VersionedMetadata for InnerMetadata3_0 {
         None
     }
 
-    fn as_unstainedcenters_mut(&mut self) -> Option<&mut UnstainedCenters> {
+    fn with_unstainedcenters<F, X>(&mut self, _: F) -> Option<X>
+    where
+        F: Fn(&mut UnstainedCenters) -> Result<X, ClearOptional>,
+    {
         None
     }
 
@@ -7424,7 +7363,10 @@ impl VersionedMetadata for InnerMetadata3_0 {
         None
     }
 
-    fn as_spillover_mut(&mut self) -> Option<&mut Spillover> {
+    fn with_spillover<F, X>(&mut self, _: F) -> Option<X>
+    where
+        F: Fn(&mut Spillover) -> Result<X, ClearOptional>,
+    {
         None
     }
 
@@ -7432,8 +7374,11 @@ impl VersionedMetadata for InnerMetadata3_0 {
         self.comp.as_ref_opt()
     }
 
-    fn as_compensation_mut(&mut self) -> Option<&mut Compensation> {
-        self.comp.0.as_mut()
+    fn with_compensation<F, X>(&mut self, f: F) -> Option<X>
+    where
+        F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
+    {
+        self.comp.mut_or_unset(f)
     }
 
     fn lookup_tot(kws: &mut RawKeywords) -> PureMaybe<Tot> {
@@ -7509,7 +7454,10 @@ impl VersionedMetadata for InnerMetadata3_1 {
         None
     }
 
-    fn as_unstainedcenters_mut(&mut self) -> Option<&mut UnstainedCenters> {
+    fn with_unstainedcenters<F, X>(&mut self, _: F) -> Option<X>
+    where
+        F: Fn(&mut UnstainedCenters) -> Result<X, ClearOptional>,
+    {
         None
     }
 
@@ -7517,15 +7465,21 @@ impl VersionedMetadata for InnerMetadata3_1 {
         self.spillover.as_ref_opt()
     }
 
-    fn as_spillover_mut(&mut self) -> Option<&mut Spillover> {
-        self.spillover.0.as_mut()
+    fn with_spillover<F, X>(&mut self, f: F) -> Option<X>
+    where
+        F: Fn(&mut Spillover) -> Result<X, ClearOptional>,
+    {
+        self.spillover.mut_or_unset(f)
     }
 
     fn as_compensation(&self) -> Option<&Compensation> {
         None
     }
 
-    fn as_compensation_mut(&mut self) -> Option<&mut Compensation> {
+    fn with_compensation<F, X>(&mut self, _: F) -> Option<X>
+    where
+        F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
+    {
         None
     }
 
@@ -7616,23 +7570,32 @@ impl VersionedMetadata for InnerMetadata3_2 {
         self.unstained.unstainedcenters.as_ref_opt()
     }
 
-    fn as_unstainedcenters_mut(&mut self) -> Option<&mut UnstainedCenters> {
-        self.unstained.unstainedcenters.0.as_mut()
+    fn with_unstainedcenters<F, X>(&mut self, f: F) -> Option<X>
+    where
+        F: Fn(&mut UnstainedCenters) -> Result<X, ClearOptional>,
+    {
+        self.unstained.unstainedcenters.mut_or_unset(f)
     }
 
     fn as_spillover(&self) -> Option<&Spillover> {
         self.spillover.as_ref_opt()
     }
 
-    fn as_spillover_mut(&mut self) -> Option<&mut Spillover> {
-        self.spillover.0.as_mut()
+    fn with_spillover<F, X>(&mut self, f: F) -> Option<X>
+    where
+        F: Fn(&mut Spillover) -> Result<X, ClearOptional>,
+    {
+        self.spillover.mut_or_unset(f)
     }
 
     fn as_compensation(&self) -> Option<&Compensation> {
         None
     }
 
-    fn as_compensation_mut(&mut self) -> Option<&mut Compensation> {
+    fn with_compensation<F, X>(&mut self, _: F) -> Option<X>
+    where
+        F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
+    {
         None
     }
 

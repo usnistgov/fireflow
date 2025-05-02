@@ -357,6 +357,9 @@ pub type CoreDataset3_2 = CoreDataset<
 /// TEXT data when writing a new FCS file, and the keywords that are not
 /// included can be computed on the fly when writing.
 #[derive(Clone, Serialize)]
+// TODO this entire thing needs to be encapsulated so that coredataset and
+// others are forced to use the public API rather than mutating potentially
+// reality-destroying internal structures
 pub struct CoreTEXT<M, T, P, N, W> {
     /// All "non-measurement" TEXT keywords.
     ///
@@ -2130,12 +2133,13 @@ pub trait VersionedMetadata: Sized {
 
     fn as_unstainedcenters(&self) -> Option<&UnstainedCenters>;
 
-    // TODO don't expose this
+    // TODO this function is ill-defined since unstainedcenters should never
+    // be empty
     fn as_unstainedcenters_mut(&mut self) -> Option<&mut UnstainedCenters>;
 
     fn as_spillover(&self) -> Option<&Spillover>;
 
-    // TODO don't expose this
+    // TODO ditto
     fn as_spillover_mut(&mut self) -> Option<&mut Spillover>;
 
     fn as_compensation(&self) -> Option<&Compensation>;

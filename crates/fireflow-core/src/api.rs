@@ -4726,8 +4726,8 @@ where
     ) -> Option<Vec<Option<String>>> {
         self.measurements.alter_values_zip(
             xs,
-            |_, _, m, (k, v)| m.nonstandard_keywords.insert(k, v),
-            |_, _, t, (k, v)| t.nonstandard_keywords.insert(k, v),
+            |x, (k, v)| x.value.nonstandard_keywords.insert(k, v),
+            |x, (k, v)| x.value.nonstandard_keywords.insert(k, v),
         )
     }
 
@@ -4739,8 +4739,8 @@ where
     pub fn remove_meas_nonstandard(&mut self, xs: Vec<&NonStdKey>) -> Option<Vec<Option<String>>> {
         self.measurements.alter_values_zip(
             xs,
-            |_, _, m, k| m.nonstandard_keywords.remove(k),
-            |_, _, t, k| t.nonstandard_keywords.remove(k),
+            |x, k| x.value.nonstandard_keywords.remove(k),
+            |x, k| x.value.nonstandard_keywords.remove(k),
         )
     }
 
@@ -4776,8 +4776,10 @@ where
     /// Apply functions to time and non-time channel values
     pub fn alter_measurements<F, G, R>(&mut self, f: F, g: G) -> Vec<R>
     where
-        F: Fn(MeasIdx, &<M::N as MightHave>::Wrapper<Shortname>, &mut Measurement<M::P>) -> R,
-        G: Fn(MeasIdx, &Shortname, &mut TimeChannel<M::T>) -> R,
+        F: Fn(
+            IndexedElement<&<M::N as MightHave>::Wrapper<Shortname>, &mut Measurement<M::P>>,
+        ) -> R,
+        G: Fn(IndexedElement<&Shortname, &mut TimeChannel<M::T>>) -> R,
     {
         self.measurements.alter_values(f, g)
     }
@@ -4785,8 +4787,11 @@ where
     /// Apply functions to time and non-time channel values with payload
     pub fn alter_measurements_zip<F, G, X, R>(&mut self, xs: Vec<X>, f: F, g: G) -> Option<Vec<R>>
     where
-        F: Fn(MeasIdx, &<M::N as MightHave>::Wrapper<Shortname>, &mut Measurement<M::P>, X) -> R,
-        G: Fn(MeasIdx, &Shortname, &mut TimeChannel<M::T>, X) -> R,
+        F: Fn(
+            IndexedElement<&<M::N as MightHave>::Wrapper<Shortname>, &mut Measurement<M::P>>,
+            X,
+        ) -> R,
+        G: Fn(IndexedElement<&Shortname, &mut TimeChannel<M::T>>, X) -> R,
     {
         self.measurements.alter_values_zip(xs, f, g)
     }
@@ -4968,8 +4973,8 @@ where
         self.measurements
             .alter_values_zip(
                 ns,
-                |_, _, m, n| m.longname = n.map(Longname).into(),
-                |_, _, t, n| t.longname = n.map(Longname).into(),
+                |x, n| x.value.longname = n.map(Longname).into(),
+                |x, n| x.value.longname = n.map(Longname).into(),
             )
             .is_some()
     }
@@ -5392,13 +5397,13 @@ where
         self.measurements
             .alter_values_zip(
                 xs,
-                |_, _, m, (b, r)| {
-                    m.bytes = b;
-                    m.range = r;
+                |x, (b, r)| {
+                    x.value.bytes = b;
+                    x.value.range = r;
                 },
-                |_, _, t, (b, r)| {
-                    t.bytes = b;
-                    t.range = r;
+                |x, (b, r)| {
+                    x.value.bytes = b;
+                    x.value.range = r;
                 },
             )
             .is_some()
@@ -5877,8 +5882,8 @@ macro_rules! display_methods {
             self.measurements
                 .alter_values_zip(
                     ns,
-                    |_, _, m, n| m.specific.display = n.into(),
-                    |_, _, t, n| t.specific.display = n.into(),
+                    |x, n| x.value.specific.display = n.into(),
+                    |x, n| x.value.specific.display = n.into(),
                 )
                 .is_some()
         }
@@ -6081,14 +6086,16 @@ impl CoreTEXT3_2 {
                 .measurements
                 .alter_values_zip(
                     xs,
-                    |_, _, m, x| {
-                        let (b, r, pndt) = go(x);
+                    |x, y| {
+                        let (b, r, pndt) = go(y);
+                        let m = x.value;
                         m.bytes = b;
                         m.range = r;
                         m.specific.datatype = pndt.into();
                     },
-                    |_, _, t, x| {
-                        let (b, r, pndt) = go(x);
+                    |x, y| {
+                        let (b, r, pndt) = go(y);
+                        let t = x.value;
                         t.bytes = b;
                         t.range = r;
                         t.specific.datatype = pndt.into();
@@ -6205,11 +6212,11 @@ impl CoreTEXT3_2 {
 
     fn unset_meas_datatypes(&mut self) {
         self.measurements.alter_values(
-            |_, _, m| {
-                m.specific.datatype = None.into();
+            |x| {
+                x.value.specific.datatype = None.into();
             },
-            |_, _, t| {
-                t.specific.datatype = None.into();
+            |x| {
+                x.value.specific.datatype = None.into();
             },
         );
     }

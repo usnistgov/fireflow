@@ -305,48 +305,55 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// if input vector is not the same length.
     pub fn alter_values_zip<F, G, X, R>(&mut self, xs: Vec<X>, f: F, g: G) -> Option<Vec<R>>
     where
-        F: Fn(MeasIdx, &K::Wrapper<Shortname>, &mut V, X) -> R,
-        G: Fn(MeasIdx, &Shortname, &mut U, X) -> R,
+        F: Fn(IndexedElement<&K::Wrapper<Shortname>, &mut V>, X) -> R,
+        G: Fn(IndexedElement<&Shortname, &mut U>, X) -> R,
     {
         let this_len = self.len();
         let other_len = xs.len();
         if this_len != other_len {
             return None;
         }
+
+        let go = |xs: &mut PairedVec<K::Wrapper<Shortname>, V>, ys: Vec<X>, offset: usize| {
+            xs.iter_mut()
+                .zip(ys)
+                .enumerate()
+                .map(|(i, (y, x))| {
+                    f(
+                        IndexedElement {
+                            index: (i + offset).into(),
+                            key: &y.key,
+                            value: &mut y.value,
+                        },
+                        x,
+                    )
+                })
+                .collect()
+        };
         let x = match self {
             NamedVec::Split(s, _) => {
                 let nleft = s.left.len();
                 let nright = s.right.len();
                 let mut it = xs.into_iter();
-                let left_r: Vec<_> = s
-                    .left
-                    .iter_mut()
-                    .zip(it.by_ref().take(nleft))
-                    .enumerate()
-                    .map(|(i, (y, x))| f(i.into(), &y.key, &mut y.value, x))
-                    .collect();
+                let left_r: Vec<_> = go(&mut s.left, it.by_ref().take(nleft).collect(), 0);
                 let c = &mut s.center;
-                let center_r = g(nleft.into(), &c.key, &mut c.value, it.next().unwrap());
-                let right_r: Vec<_> = s
-                    .right
-                    .iter_mut()
-                    .zip(it.by_ref().take(nright))
-                    .enumerate()
-                    .map(|(i, (y, x))| f((i + 1 + nleft).into(), &y.key, &mut y.value, x))
-                    .collect();
+                let center_r = g(
+                    IndexedElement {
+                        index: nleft.into(),
+                        key: &c.key,
+                        value: &mut c.value,
+                    },
+                    it.next().unwrap(),
+                );
+                let right_r: Vec<_> =
+                    go(&mut s.right, it.by_ref().take(nright).collect(), 1 + nleft);
                 left_r
                     .into_iter()
                     .chain([center_r])
                     .chain(right_r)
                     .collect()
             }
-            NamedVec::Unsplit(u) => u
-                .members
-                .iter_mut()
-                .zip(xs)
-                .enumerate()
-                .map(|(i, (y, x))| f(i.into(), &y.key, &mut y.value, x))
-                .collect(),
+            NamedVec::Unsplit(u) => go(&mut u.members, xs, 0),
         };
         Some(x)
     }
@@ -354,12 +361,11 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// Apply function(s) to all values, altering them in place.
     pub fn alter_values<F, G, R>(&mut self, f: F, g: G) -> Vec<R>
     where
-        F: Fn(MeasIdx, &K::Wrapper<Shortname>, &mut V) -> R,
-        G: Fn(MeasIdx, &Shortname, &mut U) -> R,
+        F: Fn(IndexedElement<&K::Wrapper<Shortname>, &mut V>) -> R,
+        G: Fn(IndexedElement<&Shortname, &mut U>) -> R,
     {
         let xs = vec![(); self.len()];
-        self.alter_values_zip(xs, |i, k, v, _| f(i, k, v), |i, k, v, _| g(i, k, v))
-            .unwrap()
+        self.alter_values_zip(xs, |x, _| f(x), |x, _| g(x)).unwrap()
     }
 
     /// Apply function to non-center values, altering them in place

@@ -4822,7 +4822,7 @@ where
     fn remove_measurement_inner(
         &mut self,
         n: &Shortname,
-    ) -> Result<Option<(MeasIdx, Measurement<M::P>)>, String> {
+    ) -> Result<Option<(MeasIdx, Result<Measurement<M::P>, TimeChannel<M::T>>)>, String> {
         if let Some(e) = self.measurements.remove_name(n) {
             let m = &mut self.metadata;
             m.remove_trigger_by_name(n);
@@ -5816,7 +5816,7 @@ impl CoreTEXT2_0 {
     fn remove_measurement(
         &mut self,
         n: &Shortname,
-    ) -> Result<Option<(MeasIdx, Measurement2_0)>, String> {
+    ) -> Result<Option<(MeasIdx, Result<Measurement2_0, TimeChannel2_0>)>, String> {
         if self.metadata.specific.comp.0.is_some() {
             return Err("cannot alter measurements while $COMP is set".to_string());
         }

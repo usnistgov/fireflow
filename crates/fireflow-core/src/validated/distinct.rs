@@ -125,7 +125,9 @@ type WrappedPairedVec<K, V> = PairedVec<<K as MightHave>::Wrapper<Shortname>, V>
 
 type Center<U> = Pair<Shortname, U>;
 
-pub type RawInput<K, U, V> = Vec<Result<(<K as MightHave>::Wrapper<Shortname>, V), (Shortname, U)>>;
+type Either<K, V, U> = Result<(<K as MightHave>::Wrapper<Shortname>, V), (Shortname, U)>;
+
+pub type RawInput<K, U, V> = Vec<Either<K, V, U>>;
 
 pub type NameMapping = HashMap<Shortname, Shortname>;
 
@@ -672,7 +674,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// Remove non-center key/value pair by name of key.
     ///
     /// Return None if name is not found.
-    pub fn remove_name(&mut self, n: &Shortname) -> Option<(MeasIdx, V)> {
+    pub fn remove_name(&mut self, n: &Shortname) -> Option<(MeasIdx, Result<V, U>)> {
         let go = |xs: &mut Vec<_>| {
             if let Some(i) = Self::position_by_name(xs, n) {
                 let p = xs.remove(i);
@@ -681,10 +683,26 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                 None
             }
         };
-        match self {
-            NamedVec::Split(s, _) => go(&mut s.left).or(go(&mut s.right)),
-            NamedVec::Unsplit(u) => go(&mut u.members),
-        }
+        let (newself, ret) = match mem::replace(self, dummy()) {
+            NamedVec::Split(mut s, p) => {
+                if let Some((i, v)) = go(&mut s.left).or(go(&mut s.right)) {
+                    (NamedVec::Split(s, p), Some((i, Ok(v))))
+                } else if &s.center.key == n {
+                    let i = s.left.len().into();
+                    let xs = s.left.into_iter().chain(s.right).collect();
+                    let new = NamedVec::new_unsplit(xs, s.prefix);
+                    (new, Some((i, Err(s.center.value))))
+                } else {
+                    (NamedVec::Split(s, p), None)
+                }
+            }
+            NamedVec::Unsplit(mut u) => {
+                let ret = go(&mut u.members);
+                (NamedVec::Unsplit(u), ret.map(|(i, v)| (i, Ok(v))))
+            }
+        };
+        *self = newself;
+        ret
     }
 
     /// Set non-center keys to list

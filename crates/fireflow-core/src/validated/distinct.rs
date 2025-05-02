@@ -127,6 +127,9 @@ type Center<U> = Pair<Shortname, U>;
 
 type Either<K, V, U> = Result<(<K as MightHave>::Wrapper<Shortname>, V), (Shortname, U)>;
 
+pub type EitherPair<K, V, U> =
+    Result<Pair<<K as MightHave>::Wrapper<Shortname>, V>, Pair<Shortname, U>>;
+
 pub type RawInput<K, U, V> = Vec<Either<K, V, U>>;
 
 pub type NameMapping = HashMap<Shortname, Shortname>;
@@ -669,6 +672,42 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
             *self = newself;
             ret
         }
+    }
+
+    /// Remove non-center key/value pair by name of key.
+    ///
+    /// Return None if name is not found.
+    pub fn remove_index(&mut self, index: MeasIdx) -> Option<EitherPair<K, V, U>> {
+        let i: usize = index.into();
+        let (newself, ret) = match mem::replace(self, dummy()) {
+            NamedVec::Split(mut s, p) => {
+                let nleft = s.left.len();
+                if i < nleft {
+                    let x = s.left.remove(i);
+                    (NamedVec::Split(s, p), Some(Ok(x)))
+                } else if i == nleft {
+                    let new = s.left.into_iter().chain(s.right).collect();
+                    let ret = Some(Err(*s.center));
+                    (NamedVec::new_unsplit(new, s.prefix), ret)
+                } else if i - nleft - 1 < s.right.len() {
+                    let x = s.right.remove(i);
+                    (NamedVec::Split(s, p), Some(Ok(x)))
+                } else {
+                    (NamedVec::Split(s, p), None)
+                }
+            }
+            NamedVec::Unsplit(mut u) => {
+                let x = if i < u.members.len() {
+                    let x = u.members.remove(i);
+                    Some(Ok(x))
+                } else {
+                    None
+                };
+                (NamedVec::Unsplit(u), x)
+            }
+        };
+        *self = newself;
+        ret
     }
 
     /// Remove non-center key/value pair by name of key.

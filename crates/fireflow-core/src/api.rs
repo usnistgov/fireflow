@@ -3940,7 +3940,7 @@ impl AnyCoreTEXT {
     // that can be caught in python or whatever
     fn remove_measurement(&mut self, n: &Shortname) -> Result<Option<MeasIdx>, String> {
         match_anycoretext!(self, x, {
-            x.remove_measurement_inner(n).map(|x| x.map(|y| y.0))
+            x.remove_measurement_by_name(n).map(|x| x.map(|y| y.0))
         })
     }
 
@@ -4805,21 +4805,11 @@ where
         self.measurements.as_center_mut()
     }
 
-    fn set_measurements_inner(
-        &mut self,
-        xs: RawInput<M::N, TimeChannel<M::T>, Measurement<M::P>>,
-        prefix: ShortnamePrefix,
-    ) -> Result<(), String> {
-        let ms = NamedVec::new(xs, prefix)?;
-        self.measurements = ms;
-        Ok(())
-    }
-
-    fn unset_measurements_inner(&mut self) {
-        self.measurements = NamedVec::default();
-    }
-
-    fn remove_measurement_inner(
+    // TODO is a measurement the same as a time channel? does that term
+    // include the time channel? hmm....
+    // TODO make a better way to distinguish time and measurement (or whatever
+    // we end up calling these)
+    fn remove_measurement_by_name(
         &mut self,
         n: &Shortname,
     ) -> Result<Option<(MeasIdx, Result<Measurement<M::P>, TimeChannel<M::T>>)>, String> {
@@ -4836,17 +4826,34 @@ where
         }
     }
 
-    fn push_time_channel_inner(
+    fn remove_measurement_by_index(
         &mut self,
-        n: Shortname,
-        m: TimeChannel<M::T>,
-    ) -> Result<(), String> {
+        index: MeasIdx,
+    ) -> Result<Option<EitherPair<M::N, Measurement<M::P>, TimeChannel<M::T>>>, String> {
+        if let Some(e) = self.measurements.remove_index(index) {
+            if let Ok(left) = &e {
+                if let Some(n) = M::N::as_opt(&left.key) {
+                    let m = &mut self.metadata;
+                    m.remove_trigger_by_name(n);
+                    let s = &mut m.specific;
+                    s.as_spillover_mut().map(|x| x.remove_by_name(n));
+                    s.as_unstainedcenters_mut().map(|x| x.remove_by_name(n));
+                    s.as_compensation_mut().map(|x| x.remove_by_index(index));
+                }
+            }
+            Ok(Some(e))
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn push_time_channel(&mut self, n: Shortname, m: TimeChannel<M::T>) -> Result<(), String> {
         self.measurements
             .push_center(n, m)
             .map_err(|e| e.to_string())
     }
 
-    fn insert_time_channel_inner(
+    fn insert_time_channel(
         &mut self,
         i: MeasIdx,
         n: Shortname,
@@ -4857,7 +4864,9 @@ where
             .map_err(|e| e.to_string())
     }
 
-    fn push_measurement_inner(
+    // TODO this doesn't buy much since it will ulimately be easier to use
+    // the type specific wrapper in practice
+    fn push_measurement(
         &mut self,
         n: <M::N as MightHave>::Wrapper<Shortname>,
         m: Measurement<M::P>,
@@ -4865,13 +4874,29 @@ where
         self.measurements.push(n, m).map_err(|e| e.to_string())
     }
 
-    fn insert_measurement_inner(
+    fn insert_measurement(
         &mut self,
         i: MeasIdx,
         n: <M::N as MightHave>::Wrapper<Shortname>,
         m: Measurement<M::P>,
     ) -> Result<Shortname, String> {
         self.measurements.insert(i, n, m).map_err(|e| e.to_string())
+    }
+
+    fn set_measurements(
+        &mut self,
+        xs: RawInput<M::N, TimeChannel<M::T>, Measurement<M::P>>,
+        prefix: ShortnamePrefix,
+    ) -> Result<(), String> {
+        // TODO what about everything that depended on the previous names?
+        let ms = NamedVec::new(xs, prefix)?;
+        self.measurements = ms;
+        Ok(())
+    }
+
+    fn unset_measurements_inner(&mut self) {
+        // TODO this also needs to remove anything that depends on the names
+        self.measurements = NamedVec::default();
     }
 
     fn header_and_raw_keywords(
@@ -5789,39 +5814,6 @@ impl CoreTEXT2_0 {
         wavelength,
         PnL
     );
-
-    fn push_measurement(
-        &mut self,
-        n: Option<Shortname>,
-        m: Measurement2_0,
-    ) -> Result<Shortname, String> {
-        if self.metadata.specific.comp.0.is_some() {
-            return Err("cannot alter measurements while $COMP is set".to_string());
-        }
-        self.push_measurement_inner(n.into(), m)
-    }
-
-    fn insert_measurement(
-        &mut self,
-        i: MeasIdx,
-        n: Option<Shortname>,
-        m: Measurement2_0,
-    ) -> Result<Shortname, String> {
-        if self.metadata.specific.comp.0.is_some() {
-            return Err("cannot alter measurements while $COMP is set".to_string());
-        }
-        self.insert_measurement_inner(i, n.into(), m)
-    }
-
-    fn remove_measurement(
-        &mut self,
-        n: &Shortname,
-    ) -> Result<Option<(MeasIdx, Result<Measurement2_0, TimeChannel2_0>)>, String> {
-        if self.metadata.specific.comp.0.is_some() {
-            return Err("cannot alter measurements while $COMP is set".to_string());
-        }
-        self.remove_measurement_inner(n)
-    }
 }
 
 impl CoreTEXT3_0 {
@@ -6386,7 +6378,7 @@ where
     // TODO also make a version of this that takes an index since not all
     // columns are named or we might not know the name
     fn remove_measurement(&mut self, n: &Shortname) -> Result<Option<MeasIdx>, String> {
-        let i = self.text.remove_measurement_inner(n)?;
+        let i = self.text.remove_measurement_by_name(n)?;
         self.data.drop_in_place(n.as_ref()).unwrap();
         Ok(i.map(|x| x.0))
     }
@@ -6401,7 +6393,7 @@ where
         T: PolarsNumericType,
         ChunkedArray<T>: IntoSeries,
     {
-        let k = self.text.push_measurement_inner(n, m)?;
+        let k = self.text.push_measurement(n, m)?;
         let ser = ChunkedArray::<T>::from_vec(k.as_ref().into(), col).into_series();
         self.data.with_column(ser).map_err(|e| e.to_string())?;
         Ok(k)
@@ -6418,7 +6410,7 @@ where
         T: PolarsNumericType,
         ChunkedArray<T>: IntoSeries,
     {
-        let k = self.text.insert_measurement_inner(i, n, m)?;
+        let k = self.text.insert_measurement(i, n, m)?;
         let ser = ChunkedArray::<T>::from_vec(k.as_ref().into(), col).into_series();
         self.data
             .insert_column(i.into(), ser)

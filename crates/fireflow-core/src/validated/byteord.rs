@@ -80,6 +80,16 @@ impl ByteOrd {
     }
 }
 
+impl Endian {
+    pub fn is_big(x: bool) -> Self {
+        if x {
+            Endian::Big
+        } else {
+            Endian::Little
+        }
+    }
+}
+
 impl FromStr for Endian {
     type Err = EndianError;
 

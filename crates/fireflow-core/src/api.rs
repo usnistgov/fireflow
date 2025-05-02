@@ -4329,6 +4329,27 @@ impl<M> Metadata<M>
 where
     M: VersionedMetadata,
 {
+    pub fn new(datatype: AlphaNumType, specific: M) -> Self {
+        Metadata {
+            datatype,
+            abrt: None.into(),
+            cells: None.into(),
+            com: None.into(),
+            exp: None.into(),
+            fil: None.into(),
+            inst: None.into(),
+            lost: None.into(),
+            op: None.into(),
+            proj: None.into(),
+            smno: None.into(),
+            src: None.into(),
+            sys: None.into(),
+            tr: None.into(),
+            nonstandard_keywords: HashMap::new(),
+            specific,
+        }
+    }
+
     fn try_convert<ToM: TryFrom<M, Error = MetaConvertErrors>>(
         self,
     ) -> Result<Metadata<ToM>, Vec<String>> {
@@ -5390,34 +5411,79 @@ macro_rules! scale_get_set {
     };
 }
 
+impl InnerMetadata2_0 {
+    fn new(mode: Mode, byteord: ByteOrd) -> Self {
+        Self {
+            mode,
+            byteord,
+            cyt: None.into(),
+            timestamps: Timestamps::default(),
+            comp: None.into(),
+        }
+    }
+}
+
+impl InnerMetadata3_0 {
+    fn new(mode: Mode, byteord: ByteOrd) -> Self {
+        Self {
+            mode,
+            byteord,
+            cyt: None.into(),
+            timestamps: Timestamps::default(),
+            cytsn: None.into(),
+            comp: None.into(),
+            unicode: None.into(),
+        }
+    }
+}
+
+impl InnerMetadata3_1 {
+    fn new(mode: Mode, is_big: bool) -> Self {
+        Self {
+            mode,
+            byteord: Endian::is_big(is_big),
+            cyt: None.into(),
+            plate: PlateData::default(),
+            timestamps: Timestamps::default(),
+            cytsn: None.into(),
+            modification: ModificationData::default(),
+            spillover: None.into(),
+            vol: None.into(),
+        }
+    }
+}
+
+impl InnerMetadata3_2 {
+    fn new(is_big: bool, cyt: String) -> Self {
+        Self {
+            byteord: Endian::is_big(is_big),
+            cyt: cyt.into(),
+            carrier: CarrierData::default(),
+            plate: PlateData::default(),
+            datetimes: Datetimes::default(),
+            timestamps: Timestamps::default(),
+            cytsn: None.into(),
+            flowrate: None.into(),
+            modification: ModificationData::default(),
+            unstained: UnstainedData::default(),
+            spillover: None.into(),
+            vol: None.into(),
+        }
+    }
+}
+
 impl CoreTEXT2_0 {
+    pub fn new(datatype: AlphaNumType, byteord: ByteOrd, mode: Mode) -> Self {
+        let specific = InnerMetadata2_0::new(mode, byteord);
+        let metadata = Metadata::new(datatype, specific);
+        CoreTEXT {
+            metadata,
+            measurements: NamedVec::default(),
+        }
+    }
+
     comp_methods!();
     scale_get_set!(Option<Scale>, Some(Scale::Linear));
-
-    // /// Show $PnE for each measurement
-    // pub fn all_scales(&self) -> Vec<Option<Scale>> {
-    //     self.measurements
-    //         .iter()
-    //         .map(|(_, x)| x.map_or(Some(Scale::Linear), |p| p.value.specific.scale.0))
-    //         .collect()
-    // }
-
-    // /// Show $PnE for each measurement, not including time
-    // pub fn scales(&self) -> Vec<(MeasIdx, Option<Scale>)> {
-    //     self.measurements
-    //         .iter_non_center_values()
-    //         .map(|(i, m)| (i, m.specific.scale.0))
-    //         .collect()
-    // }
-
-    // /// Set $PnE for for all non-time measurements
-    // pub fn set_scales(&mut self, xs: Vec<Option<Scale>>) -> bool {
-    //     self.measurements
-    //         .alter_non_center_values_zip(xs, |m, x| {
-    //             m.specific.scale = x.into();
-    //         })
-    //         .is_some()
-    // }
 
     /// Show $DATATYPE
     pub fn datatype(&self) -> AlphaNumType {
@@ -5471,6 +5537,15 @@ impl CoreTEXT2_0 {
 }
 
 impl CoreTEXT3_0 {
+    pub fn new(datatype: AlphaNumType, byteord: ByteOrd, mode: Mode) -> Self {
+        let specific = InnerMetadata3_0::new(mode, byteord);
+        let metadata = Metadata::new(datatype, specific);
+        CoreTEXT {
+            metadata,
+            measurements: NamedVec::default(),
+        }
+    }
+
     comp_methods!();
     scale_get_set!(Scale, Scale::Linear);
 
@@ -5579,6 +5654,15 @@ macro_rules! display_methods {
 }
 
 impl CoreTEXT3_1 {
+    pub fn new(datatype: AlphaNumType, is_big: bool, mode: Mode) -> Self {
+        let specific = InnerMetadata3_1::new(mode, is_big);
+        let metadata = Metadata::new(datatype, specific);
+        CoreTEXT {
+            metadata,
+            measurements: NamedVec::default(),
+        }
+    }
+
     scale_get_set!(Scale, Scale::Linear);
     spillover_methods!();
 
@@ -5639,6 +5723,15 @@ impl CoreTEXT3_1 {
 }
 
 impl CoreTEXT3_2 {
+    pub fn new(datatype: AlphaNumType, is_big: bool, cyt: String) -> Self {
+        let specific = InnerMetadata3_2::new(is_big, cyt);
+        let metadata = Metadata::new(datatype, specific);
+        CoreTEXT {
+            metadata,
+            measurements: NamedVec::default(),
+        }
+    }
+
     /// Show $UNSTAINEDCENTERS
     pub fn unstained_centers(&self) -> Option<&UnstainedCenters> {
         self.metadata

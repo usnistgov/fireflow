@@ -591,13 +591,11 @@ pywrap!(
     api::StandardizedDataset,
     "StandardizedDataset"
 );
-pywrap!(PyAnyCoreTEXT, api::AnyCoreTEXT, "AnyCoreTEXT");
 pywrap!(PyCoreTEXT2_0, api::CoreTEXT2_0, "CoreTEXT2_0");
 pywrap!(PyCoreTEXT3_0, api::CoreTEXT3_0, "CoreTEXT3_0");
 pywrap!(PyCoreTEXT3_1, api::CoreTEXT3_1, "CoreTEXT3_1");
 pywrap!(PyCoreTEXT3_2, api::CoreTEXT3_2, "CoreTEXT3_2");
 
-pywrap!(PyAnyCoreDataset, api::AnyCoreDataset, "AnyCoreDataset");
 pywrap!(PyCoreDataset2_0, api::CoreDataset2_0, "CoreDataset2_0");
 pywrap!(PyCoreDataset3_0, api::CoreDataset3_0, "CoreDataset3_0");
 pywrap!(PyCoreDataset3_1, api::CoreDataset3_1, "CoreDataset3_1");
@@ -669,6 +667,7 @@ impl From<PyNonNegFloat> for api::Vol {
 
 pywrap!(PyEndian, Endian, "Endian");
 pywrap!(PyByteOrd, ByteOrd, "ByteOrd");
+pywrap!(PyMode, api::Mode, "Mode");
 pywrap!(PyOriginality, api::Originality, "Originality");
 pywrap!(PyTrigger, api::Trigger, "Trigger");
 pywrap!(PyAlphaNumType, api::AlphaNumType, "AlphaNumType");
@@ -1027,7 +1026,20 @@ convert_methods!(
 );
 
 #[pymethods]
+impl PyCoreTEXT2_0 {
+    #[new]
+    fn new(datatype: PyAlphaNumType, byteord: PyByteOrd, mode: PyMode) -> Self {
+        api::CoreTEXT2_0::new(datatype.into(), byteord.into(), mode.into()).into()
+    }
+}
+
+#[pymethods]
 impl PyCoreTEXT3_0 {
+    #[new]
+    fn new(datatype: PyAlphaNumType, byteord: PyByteOrd, mode: PyMode) -> Self {
+        api::CoreTEXT3_0::new(datatype.into(), byteord.into(), mode.into()).into()
+    }
+
     #[getter]
     fn get_unicode(&self) -> Option<PyUnicode> {
         self.0
@@ -1045,7 +1057,20 @@ impl PyCoreTEXT3_0 {
 }
 
 #[pymethods]
+impl PyCoreTEXT3_1 {
+    #[new]
+    fn new(datatype: PyAlphaNumType, is_big: bool, mode: PyMode) -> Self {
+        api::CoreTEXT3_1::new(datatype.into(), is_big, mode.into()).into()
+    }
+}
+
+#[pymethods]
 impl PyCoreTEXT3_2 {
+    #[new]
+    fn new(datatype: PyAlphaNumType, is_big: bool, cyt: String) -> Self {
+        api::CoreTEXT3_2::new(datatype.into(), is_big, cyt).into()
+    }
+
     #[getter]
     fn get_datetime_begin(&self) -> Option<DateTime<FixedOffset>> {
         self.0.metadata.specific.datetimes.begin_naive()

@@ -32,6 +32,15 @@ pub enum NamedVec<K, W, U, V> {
     Unsplit(UnsplitVec<W, V>),
 }
 
+impl<K, W, U, V> Default for NamedVec<K, W, U, V> {
+    fn default() -> Self {
+        NamedVec::Unsplit(UnsplitVec {
+            prefix: ShortnamePrefix::default(),
+            members: vec![],
+        })
+    }
+}
+
 /// An error that allows returning of the original value
 ///
 /// This is useful in TryFrom impl's where one wants to try a conversion but

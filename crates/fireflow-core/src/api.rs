@@ -4817,6 +4817,7 @@ where
             let m = &mut self.metadata;
             m.remove_trigger_by_name(n);
             let s = &mut m.specific;
+            // TODO what if these become too small?
             s.as_spillover_mut().map(|x| x.remove_by_name(n));
             s.as_unstainedcenters_mut().map(|x| x.remove_by_name(n));
             s.as_compensation_mut().map(|x| x.remove_by_index(e.0));
@@ -4833,6 +4834,7 @@ where
         if let Some(e) = self.measurements.remove_index(index) {
             if let Ok(left) = &e {
                 if let Some(n) = M::N::as_opt(&left.key) {
+                    // TODO not DRY (see above)
                     let m = &mut self.metadata;
                     m.remove_trigger_by_name(n);
                     let s = &mut m.specific;
@@ -4888,15 +4890,37 @@ where
         xs: RawInput<M::N, TimeChannel<M::T>, Measurement<M::P>>,
         prefix: ShortnamePrefix,
     ) -> Result<(), String> {
-        // TODO what about everything that depended on the previous names?
+        if self.trigger_name().is_some() {
+            return Err("$TR depends on existing measurements".into());
+        }
+        let m = &self.metadata;
+        let s = &m.specific;
+        if s.as_unstainedcenters().is_some() {
+            return Err("$UNSTAINEDCENTERS depends on existing measurements".into());
+        }
+        if s.as_compensation().is_some() || s.as_spillover().is_some() {
+            return Err("$COMP/$SPILLOVER depends on existing measurements".into());
+        }
         let ms = NamedVec::new(xs, prefix)?;
         self.measurements = ms;
         Ok(())
     }
 
-    fn unset_measurements_inner(&mut self) {
-        // TODO this also needs to remove anything that depends on the names
+    fn unset_measurements(&mut self) -> Result<(), String> {
+        // TODO not DRY
+        if self.trigger_name().is_some() {
+            return Err("$TR depends on existing measurements".into());
+        }
+        let m = &self.metadata;
+        let s = &m.specific;
+        if s.as_unstainedcenters().is_some() {
+            return Err("$UNSTAINEDCENTERS depends on existing measurements".into());
+        }
+        if s.as_compensation().is_some() || s.as_spillover().is_some() {
+            return Err("$COMP/$SPILLOVER depends on existing measurements".into());
+        }
         self.measurements = NamedVec::default();
+        Ok(())
     }
 
     fn header_and_raw_keywords(

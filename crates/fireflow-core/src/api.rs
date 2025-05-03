@@ -8,12 +8,13 @@ pub use crate::segment::*;
 pub use crate::text::core::*;
 pub use crate::text::keywords::*;
 use crate::validated::byteord::*;
-use crate::validated::distinct::*;
 use crate::validated::nonstandard::*;
 use crate::validated::scale::*;
 use crate::validated::shortname::*;
 use crate::validated::spillover::*;
 use crate::validated::timestamps::*;
+
+use crate::text::named_vec::*;
 
 use chrono::NaiveDate;
 use itertools::Itertools;

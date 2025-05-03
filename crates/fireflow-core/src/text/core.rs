@@ -5,7 +5,6 @@ use crate::header_text::*;
 use crate::optionalkw::*;
 use crate::validated::byteord::*;
 use crate::validated::datetimes::*;
-use crate::validated::distinct::*;
 use crate::validated::nonstandard::*;
 use crate::validated::pattern::*;
 use crate::validated::scale::*;
@@ -15,6 +14,7 @@ use crate::validated::timestamps::*;
 use crate::validated::unstainedcenters::*;
 
 use super::keywords::*;
+use super::named_vec::*;
 
 use chrono::Timelike;
 use itertools::Itertools;

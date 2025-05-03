@@ -5,6 +5,7 @@ use super::optionalkw::*;
 use chrono::{DateTime, FixedOffset};
 use serde::Serialize;
 use std::fmt;
+use std::str::FromStr;
 
 /// A convenient bundle for the $BEGINDATETIME and $ENDDATETIME keys (3.2+)
 #[derive(Clone, Serialize, Default)]
@@ -98,5 +99,39 @@ type DatetimesResult<T> = Result<T, InvalidDatetimes>;
 impl fmt::Display for InvalidDatetimes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "$BEGINDATETIME is after $ENDDATETIME")
+    }
+}
+
+impl FromStr for FCSDateTime {
+    type Err = FCSDateTimeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let formats = [
+            "%Y-%m-%dT%H:%M:%S%.f",
+            "%Y-%m-%dT%H:%M:%S%.f%#z",
+            "%Y-%m-%dT%H:%M:%S%.f%:z",
+            "%Y-%m-%dT%H:%M:%S%.f%::z",
+            "%Y-%m-%dT%H:%M:%S%.f%:::z",
+        ];
+        for f in formats {
+            if let Ok(t) = DateTime::parse_from_str(s, f) {
+                return Ok(FCSDateTime(t));
+            }
+        }
+        Err(FCSDateTimeError)
+    }
+}
+
+impl fmt::Display for FCSDateTime {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{}", self.0.format("%Y-%m-%dT%H:%M:%S%.f%:z"))
+    }
+}
+
+pub struct FCSDateTimeError;
+
+impl fmt::Display for FCSDateTimeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "must be formatted like 'yyyy-mm-ddThh:mm:ss[TZD]'")
     }
 }

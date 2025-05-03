@@ -1060,12 +1060,6 @@ fn format_measurement(n: &str, m: &str) -> String {
     format!("$P{}{}", n, m)
 }
 
-impl fmt::Display for FCSDateTimeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "must be formatted like 'yyyy-mm-ddThh:mm:ss[TZD]'")
-    }
-}
-
 impl<const LEN: usize> fmt::Display for SizedByteOrd<LEN> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let s = match self {

@@ -14,10 +14,9 @@ use super::spillover::*;
 use super::timestamps::*;
 use super::unstainedcenters::*;
 
-use chrono::{DateTime, NaiveDate, NaiveTime, Timelike};
+use chrono::NaiveTime;
 use itertools::Itertools;
 use nonempty::NonEmpty;
-use regex::Regex;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
@@ -297,26 +296,38 @@ pub enum AlphaNumType {
     Double,
 }
 
-/// A time as used in the $BTIM/ETIM keys without seconds (2.0 only)
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd)]
-pub struct FCSTime(pub NaiveTime);
+impl FromStr for AlphaNumType {
+    type Err = AlphaNumTypeError;
 
-newtype_from!(FCSTime, NaiveTime);
-newtype_from_outer!(FCSTime, NaiveTime);
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "I" => Ok(AlphaNumType::Integer),
+            "F" => Ok(AlphaNumType::Single),
+            "D" => Ok(AlphaNumType::Double),
+            "A" => Ok(AlphaNumType::Ascii),
+            _ => Err(AlphaNumTypeError),
+        }
+    }
+}
 
-/// A time as used in the $BTIM/ETIM keys with 1/60 seconds (3.0 only)
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd)]
-pub struct FCSTime60(pub NaiveTime);
+impl fmt::Display for AlphaNumType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            AlphaNumType::Ascii => write!(f, "A"),
+            AlphaNumType::Integer => write!(f, "I"),
+            AlphaNumType::Single => write!(f, "F"),
+            AlphaNumType::Double => write!(f, "D"),
+        }
+    }
+}
 
-newtype_from!(FCSTime60, NaiveTime);
-newtype_from_outer!(FCSTime60, NaiveTime);
+pub struct AlphaNumTypeError;
 
-/// A time as used in the $BTIM/ETIM keys with centiseconds (3.1+ only)
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd)]
-pub struct FCSTime100(pub NaiveTime);
-
-newtype_from!(FCSTime100, NaiveTime);
-newtype_from_outer!(FCSTime100, NaiveTime);
+impl fmt::Display for AlphaNumTypeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "must be one of 'I', 'F', 'D', or 'A'")
+    }
+}
 
 /// The value for the $PnCALIBRATION key (3.1 only)
 ///
@@ -1119,24 +1130,6 @@ newtype_disp!(EndDateTime);
 newtype_fromstr!(EndDateTime, FCSDateTimeError);
 kw_opt_meta!(EndDateTime, "ENDDATETIME");
 
-impl<T> From<Btim<T>> for NaiveTime
-where
-    NaiveTime: From<T>,
-{
-    fn from(value: Btim<T>) -> Self {
-        value.0.into()
-    }
-}
-
-impl<T> From<Etim<T>> for NaiveTime
-where
-    NaiveTime: From<T>,
-{
-    fn from(value: Etim<T>) -> Self {
-        value.0.into()
-    }
-}
-
 #[derive(Clone, Copy, Serialize)]
 pub struct Timestep(pub PositiveFloat);
 
@@ -1203,155 +1196,6 @@ req_meas!(Shortname);
 kw_opt_meas!(Calibration3_1, "CALIBRATION");
 kw_opt_meas!(Calibration3_2, "CALIBRATION");
 
-impl FromStr for FCSDateTime {
-    type Err = FCSDateTimeError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let formats = [
-            "%Y-%m-%dT%H:%M:%S%.f",
-            "%Y-%m-%dT%H:%M:%S%.f%#z",
-            "%Y-%m-%dT%H:%M:%S%.f%:z",
-            "%Y-%m-%dT%H:%M:%S%.f%::z",
-            "%Y-%m-%dT%H:%M:%S%.f%:::z",
-        ];
-        for f in formats {
-            if let Ok(t) = DateTime::parse_from_str(s, f) {
-                return Ok(FCSDateTime(t));
-            }
-        }
-        Err(FCSDateTimeError)
-    }
-}
-
-impl fmt::Display for FCSDateTime {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}", self.0.format("%Y-%m-%dT%H:%M:%S%.f%:z"))
-    }
-}
-
-impl FromStr for FCSTime {
-    type Err = FCSTimeError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        NaiveTime::parse_from_str(s, "%H:%M:%S")
-            .map(FCSTime)
-            .or(Err(FCSTimeError))
-    }
-}
-
-impl fmt::Display for FCSTime {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}", self.0.format("%H:%M:%S"))
-    }
-}
-
-impl fmt::Display for FCSTimeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "must be like 'hh:mm:ss'")
-    }
-}
-
-impl FromStr for FCSTime60 {
-    type Err = FCSTime60Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        NaiveTime::parse_from_str(s, "%H:%M:%S")
-            .or_else(|_| match s.split(":").collect::<Vec<_>>()[..] {
-                [s1, s2, s3, s4] => {
-                    let hh: u32 = s1.parse().or(Err(FCSTime60Error))?;
-                    let mm: u32 = s2.parse().or(Err(FCSTime60Error))?;
-                    let ss: u32 = s3.parse().or(Err(FCSTime60Error))?;
-                    let tt: u32 = s4.parse().or(Err(FCSTime60Error))?;
-                    let nn = tt * 1_000_000 / 60;
-                    NaiveTime::from_hms_micro_opt(hh, mm, ss, nn).ok_or(FCSTime60Error)
-                }
-                _ => Err(FCSTime60Error),
-            })
-            .map(FCSTime60)
-    }
-}
-
-impl fmt::Display for FCSTime60 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let base = self.0.format("%H:%M:%S");
-        let cc = u64::from(self.0.nanosecond()) * 60 / 1_000_000_000;
-        write!(f, "{}.{}", base, cc)
-    }
-}
-
-impl fmt::Display for FCSTime60Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "must be like 'hh:mm:ss[:tt]' where 'tt' is in 1/60th seconds"
-        )
-    }
-}
-
-impl FromStr for FCSTime100 {
-    type Err = FCSTime100Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        NaiveTime::parse_from_str(s, "%H:%M:%S")
-            .or_else(|_| {
-                let re = Regex::new(r"(\d){2}:(\d){2}:(\d){2}.(\d){2}").unwrap();
-                let cap = re.captures(s).ok_or(FCSTime100Error)?;
-                let [s1, s2, s3, s4] = cap.extract().1;
-                let hh: u32 = s1.parse().or(Err(FCSTime100Error))?;
-                let mm: u32 = s2.parse().or(Err(FCSTime100Error))?;
-                let ss: u32 = s3.parse().or(Err(FCSTime100Error))?;
-                let tt: u32 = s4.parse().or(Err(FCSTime100Error))?;
-                NaiveTime::from_hms_milli_opt(hh, mm, ss, tt * 10).ok_or(FCSTime100Error)
-            })
-            .map(FCSTime100)
-    }
-}
-
-impl fmt::Display for FCSTime100 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let base = self.0.format("%H:%M:%S");
-        let cc = self.0.nanosecond() / 10_000_000;
-        write!(f, "{}.{}", base, cc)
-    }
-}
-
-impl fmt::Display for FCSTime100Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "must be like 'hh:mm:ss[.cc]'")
-    }
-}
-
-impl FromStr for AlphaNumType {
-    type Err = AlphaNumTypeError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "I" => Ok(AlphaNumType::Integer),
-            "F" => Ok(AlphaNumType::Single),
-            "D" => Ok(AlphaNumType::Double),
-            "A" => Ok(AlphaNumType::Ascii),
-            _ => Err(AlphaNumTypeError),
-        }
-    }
-}
-
-impl fmt::Display for AlphaNumType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            AlphaNumType::Ascii => write!(f, "A"),
-            AlphaNumType::Integer => write!(f, "I"),
-            AlphaNumType::Single => write!(f, "F"),
-            AlphaNumType::Double => write!(f, "D"),
-        }
-    }
-}
-
-impl fmt::Display for AlphaNumTypeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "must be one of 'I', 'F', 'D', or 'A'")
-    }
-}
-
 impl FromStr for NumType {
     type Err = NumTypeError;
 
@@ -1381,7 +1225,6 @@ impl fmt::Display for NumTypeError {
     }
 }
 
-pub struct AlphaNumTypeError;
 pub struct NumTypeError;
 
 pub enum CalibrationError<C> {
@@ -1454,35 +1297,3 @@ impl Linked for UnstainedCenters {
         self.rekey(mapping)
     }
 }
-
-// the "%b" format is case-insensitive so this should work for "Jan", "JAN",
-// "jan", "jaN", etc
-const FCS_DATE_FORMAT: &str = "%d-%b-%Y";
-
-impl FromStr for FCSDate {
-    type Err = FCSDateError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        NaiveDate::parse_from_str(s, FCS_DATE_FORMAT)
-            .or(Err(FCSDateError))
-            .map(FCSDate)
-    }
-}
-
-impl fmt::Display for FCSDate {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}", self.0.format(FCS_DATE_FORMAT))
-    }
-}
-
-impl fmt::Display for FCSDateError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "must be like 'dd-mmm-yyyy'")
-    }
-}
-
-pub struct FCSDateTimeError;
-pub struct FCSTimeError;
-pub struct FCSTime60Error;
-pub struct FCSTime100Error;
-pub struct FCSDateError;

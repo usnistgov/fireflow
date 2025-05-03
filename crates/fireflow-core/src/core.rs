@@ -25,7 +25,7 @@ use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::fmt;
-use std::num::{IntErrorKind, ParseFloatError, ParseIntError};
+use std::num::{ParseFloatError, ParseIntError};
 use std::str::FromStr;
 
 /// Represents the minimal data required to fully represent the TEXT keywords.

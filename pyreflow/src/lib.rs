@@ -669,7 +669,6 @@ pywrap!(PyEndian, Endian, "Endian");
 pywrap!(PyByteOrd, ByteOrd, "ByteOrd");
 pywrap!(PyMode, api::Mode, "Mode");
 pywrap!(PyOriginality, api::Originality, "Originality");
-pywrap!(PyTrigger, api::Trigger, "Trigger");
 pywrap!(PyAlphaNumType, api::AlphaNumType, "AlphaNumType");
 pywrap!(PyScale, Scale, "Scale");
 pywrap!(PySpillover, Spillover, "Spillover");

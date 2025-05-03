@@ -28,12 +28,49 @@ use std::str::FromStr;
 ///
 /// This is formatted as 'string,f' where 'string' is a measurement name.
 #[derive(Clone, Serialize)]
-pub struct Trigger {
+pub(crate) struct Trigger {
     /// The measurement name (assumed to match a '$PnN' value).
     pub measurement: Shortname,
 
     /// The threshold of the trigger.
     pub threshold: u32,
+}
+
+pub enum TriggerError {
+    WrongFieldNumber,
+    IntFormat(std::num::ParseIntError),
+}
+
+impl FromStr for Trigger {
+    type Err = TriggerError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.split(",").collect::<Vec<_>>()[..] {
+            [p, n1] => n1
+                .parse()
+                .map_err(TriggerError::IntFormat)
+                .map(|threshold| Trigger {
+                    measurement: Shortname::new_unchecked(p),
+                    threshold,
+                }),
+            _ => Err(TriggerError::WrongFieldNumber),
+        }
+    }
+}
+
+impl fmt::Display for Trigger {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{},{}", self.measurement, self.threshold)
+    }
+}
+
+impl fmt::Display for TriggerError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            TriggerError::WrongFieldNumber => write!(f, "must be like 'string,f'"),
+            TriggerError::IntFormat(i) => write!(f, "{}", i),
+        }
+    }
 }
 
 /// The value for the $PnB key (all versions)
@@ -967,11 +1004,6 @@ pub enum UnicodeError {
     BadFormat,
 }
 
-pub enum TriggerError {
-    WrongFieldNumber,
-    IntFormat(std::num::ParseIntError),
-}
-
 pub enum DisplayError {
     FloatError(ParseFloatError),
     InvalidType,
@@ -1046,38 +1078,6 @@ impl Linked for UnstainedCenters {
 
     fn reassign(&mut self, mapping: &NameMapping) {
         self.rekey(mapping)
-    }
-}
-
-impl FromStr for Trigger {
-    type Err = TriggerError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.split(",").collect::<Vec<_>>()[..] {
-            [p, n1] => n1
-                .parse()
-                .map_err(TriggerError::IntFormat)
-                .map(|threshold| Trigger {
-                    measurement: Shortname::new_unchecked(p),
-                    threshold,
-                }),
-            _ => Err(TriggerError::WrongFieldNumber),
-        }
-    }
-}
-
-impl fmt::Display for Trigger {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{},{}", self.measurement, self.threshold)
-    }
-}
-
-impl fmt::Display for TriggerError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            TriggerError::WrongFieldNumber => write!(f, "must be like 'string,f'"),
-            TriggerError::IntFormat(i) => write!(f, "{}", i),
-        }
     }
 }
 

@@ -3,6 +3,7 @@ pub mod compensation;
 pub mod core;
 pub mod datetimes;
 pub mod keywords;
+pub mod modified_date_time;
 pub mod named_vec;
 pub mod optionalkw;
 pub mod ranged_float;

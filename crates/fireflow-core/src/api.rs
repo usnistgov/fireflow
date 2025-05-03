@@ -2,7 +2,7 @@ use crate::config::*;
 pub use crate::core::*;
 use crate::error::*;
 pub use crate::header::*;
-use crate::keywords::*;
+pub use crate::header_text::*;
 use crate::macros::newtype_from;
 use crate::optionalkw::*;
 pub use crate::segment::*;

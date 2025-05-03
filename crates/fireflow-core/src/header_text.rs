@@ -8,7 +8,6 @@
 //! up to 99,999,999). This process also differs b/t FCS versions.
 
 use crate::header::HEADER_LEN;
-use crate::keywords::*;
 
 /// HEADER and TEXT offsets
 pub struct OffsetFormatResult {
@@ -312,3 +311,11 @@ const SUPP_TEXT_LEN_NO_VAL: usize = BEGINSTEXT.len() + ENDSTEXT.len() + 4;
 /// This only applies to 3.0+ since 2.0 only has NEXTDATA.
 const OFFSETS_LEN_NO_VAL: usize =
     DATA_LEN_NO_VAL + ANALYSIS_LEN_NO_VAL + SUPP_TEXT_LEN_NO_VAL + NEXTDATA_LEN;
+
+pub(crate) const BEGINANALYSIS: &str = "$BEGINANALYSIS";
+pub(crate) const BEGINDATA: &str = "$BEGINDATA";
+pub(crate) const BEGINSTEXT: &str = "$BEGINSTEXT";
+pub(crate) const ENDANALYSIS: &str = "$ENDANALYSIS";
+pub(crate) const ENDDATA: &str = "$ENDDATA";
+pub(crate) const ENDSTEXT: &str = "$ENDSTEXT";
+pub(crate) const NEXTDATA: &str = "$NEXTDATA";

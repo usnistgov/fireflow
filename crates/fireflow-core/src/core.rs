@@ -4,7 +4,6 @@ use crate::header::*;
 use crate::header_text::*;
 use crate::macros::{newtype_disp, newtype_from, newtype_from_outer, newtype_fromstr};
 use crate::optionalkw::*;
-use crate::segment::*;
 use crate::validated::byteord::*;
 use crate::validated::datetimes::*;
 use crate::validated::distinct::*;
@@ -17,11 +16,11 @@ use crate::validated::spillover::*;
 use crate::validated::timestamps::*;
 use crate::validated::unstainedcenters::*;
 
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Timelike};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use itertools::Itertools;
 use nalgebra::DMatrix;
 use nonempty::NonEmpty;
-use polars::prelude::*;
+use regex::Regex;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
@@ -6058,5 +6057,183 @@ impl InnerMetadata3_2 {
             spillover: None.into(),
             vol: None.into(),
         }
+    }
+}
+
+impl FromStr for FCSDateTime {
+    type Err = FCSDateTimeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let formats = [
+            "%Y-%m-%dT%H:%M:%S%.f",
+            "%Y-%m-%dT%H:%M:%S%.f%#z",
+            "%Y-%m-%dT%H:%M:%S%.f%:z",
+            "%Y-%m-%dT%H:%M:%S%.f%::z",
+            "%Y-%m-%dT%H:%M:%S%.f%:::z",
+        ];
+        for f in formats {
+            if let Ok(t) = DateTime::parse_from_str(s, f) {
+                return Ok(FCSDateTime(t));
+            }
+        }
+        Err(FCSDateTimeError)
+    }
+}
+
+impl fmt::Display for FCSDateTime {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{}", self.0.format("%Y-%m-%dT%H:%M:%S%.f%:z"))
+    }
+}
+
+impl FromStr for FCSTime {
+    type Err = FCSTimeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        NaiveTime::parse_from_str(s, "%H:%M:%S")
+            .map(FCSTime)
+            .or(Err(FCSTimeError))
+    }
+}
+
+impl fmt::Display for FCSTime {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{}", self.0.format("%H:%M:%S"))
+    }
+}
+
+impl fmt::Display for FCSTimeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "must be like 'hh:mm:ss'")
+    }
+}
+
+impl FromStr for FCSTime60 {
+    type Err = FCSTime60Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        NaiveTime::parse_from_str(s, "%H:%M:%S")
+            .or_else(|_| match s.split(":").collect::<Vec<_>>()[..] {
+                [s1, s2, s3, s4] => {
+                    let hh: u32 = s1.parse().or(Err(FCSTime60Error))?;
+                    let mm: u32 = s2.parse().or(Err(FCSTime60Error))?;
+                    let ss: u32 = s3.parse().or(Err(FCSTime60Error))?;
+                    let tt: u32 = s4.parse().or(Err(FCSTime60Error))?;
+                    let nn = tt * 1_000_000 / 60;
+                    NaiveTime::from_hms_micro_opt(hh, mm, ss, nn).ok_or(FCSTime60Error)
+                }
+                _ => Err(FCSTime60Error),
+            })
+            .map(FCSTime60)
+    }
+}
+
+impl fmt::Display for FCSTime60 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let base = self.0.format("%H:%M:%S");
+        let cc = u64::from(self.0.nanosecond()) * 60 / 1_000_000_000;
+        write!(f, "{}.{}", base, cc)
+    }
+}
+
+impl fmt::Display for FCSTime60Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "must be like 'hh:mm:ss[:tt]' where 'tt' is in 1/60th seconds"
+        )
+    }
+}
+
+impl FromStr for FCSTime100 {
+    type Err = FCSTime100Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        NaiveTime::parse_from_str(s, "%H:%M:%S")
+            .or_else(|_| {
+                let re = Regex::new(r"(\d){2}:(\d){2}:(\d){2}.(\d){2}").unwrap();
+                let cap = re.captures(s).ok_or(FCSTime100Error)?;
+                let [s1, s2, s3, s4] = cap.extract().1;
+                let hh: u32 = s1.parse().or(Err(FCSTime100Error))?;
+                let mm: u32 = s2.parse().or(Err(FCSTime100Error))?;
+                let ss: u32 = s3.parse().or(Err(FCSTime100Error))?;
+                let tt: u32 = s4.parse().or(Err(FCSTime100Error))?;
+                NaiveTime::from_hms_milli_opt(hh, mm, ss, tt * 10).ok_or(FCSTime100Error)
+            })
+            .map(FCSTime100)
+    }
+}
+
+impl fmt::Display for FCSTime100 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let base = self.0.format("%H:%M:%S");
+        let cc = self.0.nanosecond() / 10_000_000;
+        write!(f, "{}.{}", base, cc)
+    }
+}
+
+impl fmt::Display for FCSTime100Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "must be like 'hh:mm:ss[.cc]'")
+    }
+}
+
+impl FromStr for AlphaNumType {
+    type Err = AlphaNumTypeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "I" => Ok(AlphaNumType::Integer),
+            "F" => Ok(AlphaNumType::Single),
+            "D" => Ok(AlphaNumType::Double),
+            "A" => Ok(AlphaNumType::Ascii),
+            _ => Err(AlphaNumTypeError),
+        }
+    }
+}
+
+impl fmt::Display for AlphaNumType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            AlphaNumType::Ascii => write!(f, "A"),
+            AlphaNumType::Integer => write!(f, "I"),
+            AlphaNumType::Single => write!(f, "F"),
+            AlphaNumType::Double => write!(f, "D"),
+        }
+    }
+}
+
+impl fmt::Display for AlphaNumTypeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "must be one of 'I', 'F', 'D', or 'A'")
+    }
+}
+
+impl FromStr for NumType {
+    type Err = NumTypeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "I" => Ok(NumType::Integer),
+            "F" => Ok(NumType::Single),
+            "D" => Ok(NumType::Double),
+            _ => Err(NumTypeError),
+        }
+    }
+}
+
+impl fmt::Display for NumType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            NumType::Integer => write!(f, "I"),
+            NumType::Single => write!(f, "F"),
+            NumType::Double => write!(f, "D"),
+        }
+    }
+}
+
+impl fmt::Display for NumTypeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "must be one of 'F', 'D', or 'A'")
     }
 }

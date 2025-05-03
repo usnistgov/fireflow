@@ -2641,7 +2641,7 @@ pub struct InnerMetadata2_0 {
     pub mode: Mode,
 
     /// Value of $BYTEORD
-    pub byteord: ByteOrd,
+    byteord: ByteOrd,
 
     /// Value of $CYT
     pub cyt: OptionalKw<Cyt>,
@@ -2660,7 +2660,7 @@ pub struct InnerMetadata3_0 {
     pub mode: Mode,
 
     /// Value of $BYTEORD
-    pub byteord: ByteOrd,
+    byteord: ByteOrd,
 
     /// Value of $CYT
     pub cyt: OptionalKw<Cyt>,

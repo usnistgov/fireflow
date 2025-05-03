@@ -1,4 +1,4 @@
-use crate::macros::{newtype_from, newtype_from_outer};
+use crate::macros::{newtype_disp, newtype_from, newtype_from_outer, newtype_fromstr};
 
 use super::optionalkw::*;
 
@@ -20,8 +20,18 @@ pub struct Datetimes {
 #[derive(Clone, Copy, Serialize)]
 pub struct BeginDateTime(pub FCSDateTime);
 
+newtype_from!(BeginDateTime, FCSDateTime);
+newtype_from_outer!(BeginDateTime, FCSDateTime);
+newtype_disp!(BeginDateTime);
+newtype_fromstr!(BeginDateTime, FCSDateTimeError);
+
 #[derive(Clone, Copy, Serialize)]
 pub struct EndDateTime(pub FCSDateTime);
+
+newtype_from!(EndDateTime, FCSDateTime);
+newtype_from_outer!(EndDateTime, FCSDateTime);
+newtype_disp!(EndDateTime);
+newtype_fromstr!(EndDateTime, FCSDateTimeError);
 
 /// A datetime as used in the $(BEGIN|END)DATETIME keys (3.2+ only)
 #[derive(Clone, Copy, Serialize)]

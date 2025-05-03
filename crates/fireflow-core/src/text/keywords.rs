@@ -24,6 +24,37 @@ use std::fmt;
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::FromStr;
 
+/// The value of the $PnG keyword
+#[derive(Clone, Copy, Serialize, PartialEq)]
+pub struct Gain(pub PositiveFloat);
+
+newtype_from!(Gain, PositiveFloat);
+newtype_disp!(Gain);
+newtype_fromstr!(Gain, RangedFloatError);
+
+/// The value of the $TIMESTEP keyword
+#[derive(Clone, Copy, Serialize)]
+pub struct Timestep(pub PositiveFloat);
+
+impl Default for Timestep {
+    fn default() -> Self {
+        // ASSUME this will never panic...1.0 is still a positive number, right?
+        Timestep(PositiveFloat::try_from(1.0).ok().unwrap())
+    }
+}
+
+newtype_disp!(Timestep);
+newtype_fromstr!(Timestep, RangedFloatError);
+newtype_from!(Timestep, PositiveFloat);
+
+/// The value of the $VOL keyword
+#[derive(Clone, Copy, Serialize)]
+pub struct Vol(pub NonNegFloat);
+
+newtype_from!(Vol, NonNegFloat);
+newtype_disp!(Vol);
+newtype_fromstr!(Vol, RangedFloatError);
+
 /// The value of the $TR field (all versions)
 ///
 /// This is formatted as 'string,f' where 'string' is a measurement name.
@@ -268,24 +299,36 @@ pub enum NumType {
     Double,
 }
 
-/// The value of the $PnR key (all versions)
-///
-/// Technically this should only be an integer, but many versions also store
-/// floats which makes sense for cases where $DATATYPE/$PnDATATYPE indicates
-/// float or double.
-#[derive(Clone, Serialize)]
-pub struct Range(pub String);
+impl FromStr for NumType {
+    type Err = NumTypeError;
 
-newtype_disp!(Range);
-newtype_fromstr!(Range, Infallible);
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "I" => Ok(NumType::Integer),
+            "F" => Ok(NumType::Single),
+            "D" => Ok(NumType::Double),
+            _ => Err(NumTypeError),
+        }
+    }
+}
 
-/// The value of the $PnV key
-#[derive(Clone, Copy, Serialize)]
-pub struct DetectorVoltage(pub NonNegFloat);
+impl fmt::Display for NumType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            NumType::Integer => write!(f, "I"),
+            NumType::Single => write!(f, "F"),
+            NumType::Double => write!(f, "D"),
+        }
+    }
+}
 
-newtype_from!(DetectorVoltage, NonNegFloat);
-newtype_disp!(DetectorVoltage);
-newtype_fromstr!(DetectorVoltage, RangedFloatError);
+pub struct NumTypeError;
+
+impl fmt::Display for NumTypeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "must be one of 'F', 'D', or 'A'")
+    }
+}
 
 /// The four allowed values for the $DATATYPE keyword.
 #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash, Serialize)]
@@ -365,10 +408,18 @@ impl fmt::Display for Calibration3_1 {
     }
 }
 
+pub struct CalibrationFormat3_1;
+
 impl fmt::Display for CalibrationFormat3_1 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "must be like 'f,string'")
     }
+}
+
+pub enum CalibrationError<C> {
+    Float(ParseFloatError),
+    Range,
+    Format(C),
 }
 
 impl<C: fmt::Display> fmt::Display for CalibrationError<C> {
@@ -426,6 +477,8 @@ impl fmt::Display for Calibration3_2 {
         write!(f, "{},{},{}", self.value, self.offset, self.unit)
     }
 }
+
+pub struct CalibrationFormat3_2;
 
 impl fmt::Display for CalibrationFormat3_2 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -676,6 +729,25 @@ impl fmt::Display for FeatureError {
         write!(f, "must be one of 'Area', 'Width', or 'Height'")
     }
 }
+
+/// The value of the $PnR key (all versions)
+///
+/// Technically this should only be an integer, but many versions also store
+/// floats which makes sense for cases where $DATATYPE/$PnDATATYPE indicates
+/// float or double.
+#[derive(Clone, Serialize)]
+pub struct Range(pub String);
+
+newtype_disp!(Range);
+newtype_fromstr!(Range, Infallible);
+
+/// The value of the $PnV key
+#[derive(Clone, Copy, Serialize)]
+pub struct DetectorVoltage(pub NonNegFloat);
+
+newtype_from!(DetectorVoltage, NonNegFloat);
+newtype_disp!(DetectorVoltage);
+newtype_fromstr!(DetectorVoltage, RangedFloatError);
 
 pub(crate) trait IndexedKey {
     const PREFIX: &'static str;
@@ -1118,49 +1190,12 @@ kw_time!(Etim3_1, Etim, FCSTime100, FCSTime100Error, "ETIM");
 
 kw_opt_meta!(FCSDate, "DATE");
 
-newtype_from!(BeginDateTime, FCSDateTime);
-newtype_from_outer!(BeginDateTime, FCSDateTime);
-newtype_disp!(BeginDateTime);
-newtype_fromstr!(BeginDateTime, FCSDateTimeError);
 kw_opt_meta!(BeginDateTime, "BEGINDATETIME");
 
-newtype_from!(EndDateTime, FCSDateTime);
-newtype_from_outer!(EndDateTime, FCSDateTime);
-newtype_disp!(EndDateTime);
-newtype_fromstr!(EndDateTime, FCSDateTimeError);
 kw_opt_meta!(EndDateTime, "ENDDATETIME");
 
-#[derive(Clone, Copy, Serialize)]
-pub struct Timestep(pub PositiveFloat);
-
-impl Default for Timestep {
-    fn default() -> Self {
-        // ASSUME this will never panic...1.0 is still a positive number, right?
-        Timestep(PositiveFloat::try_from(1.0).ok().unwrap())
-    }
-}
-
-newtype_disp!(Timestep);
-newtype_fromstr!(Timestep, RangedFloatError);
-newtype_from!(Timestep, PositiveFloat);
-
 kw_req_meta!(Timestep, "TIMESTEP");
-
-#[derive(Clone, Copy, Serialize)]
-pub struct Vol(pub NonNegFloat);
-
-newtype_from!(Vol, NonNegFloat);
-newtype_disp!(Vol);
-newtype_fromstr!(Vol, RangedFloatError);
-
 kw_opt_meta!(Vol, "VOL");
-
-#[derive(Clone, Copy, Serialize, PartialEq)]
-pub struct Gain(pub PositiveFloat);
-
-newtype_from!(Gain, PositiveFloat);
-newtype_disp!(Gain);
-newtype_fromstr!(Gain, RangedFloatError);
 
 kw_opt_meas!(Gain, "G");
 
@@ -1195,46 +1230,6 @@ req_meas!(Shortname);
 
 kw_opt_meas!(Calibration3_1, "CALIBRATION");
 kw_opt_meas!(Calibration3_2, "CALIBRATION");
-
-impl FromStr for NumType {
-    type Err = NumTypeError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "I" => Ok(NumType::Integer),
-            "F" => Ok(NumType::Single),
-            "D" => Ok(NumType::Double),
-            _ => Err(NumTypeError),
-        }
-    }
-}
-
-impl fmt::Display for NumType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            NumType::Integer => write!(f, "I"),
-            NumType::Single => write!(f, "F"),
-            NumType::Double => write!(f, "D"),
-        }
-    }
-}
-
-impl fmt::Display for NumTypeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "must be one of 'F', 'D', or 'A'")
-    }
-}
-
-pub struct NumTypeError;
-
-pub enum CalibrationError<C> {
-    Float(ParseFloatError),
-    Range,
-    Format(C),
-}
-
-pub struct CalibrationFormat3_1;
-pub struct CalibrationFormat3_2;
 
 pub(crate) trait Linked
 where

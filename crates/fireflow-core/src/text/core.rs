@@ -7,6 +7,7 @@ use crate::validated::pattern::*;
 use crate::validated::shortname::*;
 
 use super::byteord::*;
+use super::compensation::*;
 use super::datetimes::*;
 use super::keywords::*;
 use super::named_vec::*;

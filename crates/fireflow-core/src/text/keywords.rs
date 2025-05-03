@@ -1,12 +1,13 @@
 use crate::macros::{newtype_disp, newtype_from, newtype_from_outer, newtype_fromstr};
 use crate::validated::nonstandard::*;
-use crate::validated::ranged_float::*;
 use crate::validated::shortname::*;
 
 use super::byteord::*;
+use super::compensation::*;
 use super::datetimes::*;
 use super::named_vec::NameMapping;
 use super::optionalkw::*;
+use super::ranged_float::*;
 use super::scale::*;
 use super::spillover::*;
 use super::timestamps::*;
@@ -14,7 +15,6 @@ use super::unstainedcenters::*;
 
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use itertools::Itertools;
-use nalgebra::DMatrix;
 use nonempty::NonEmpty;
 use regex::Regex;
 use serde::Serialize;
@@ -23,6 +23,64 @@ use std::convert::Infallible;
 use std::fmt;
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::FromStr;
+
+/// The value of the $TR field (all versions)
+///
+/// This is formatted as 'string,f' where 'string' is a measurement name.
+#[derive(Clone, Serialize)]
+pub struct Trigger {
+    /// The measurement name (assumed to match a '$PnN' value).
+    pub measurement: Shortname,
+
+    /// The threshold of the trigger.
+    pub threshold: u32,
+}
+
+/// The value for the $PnB key (all versions)
+///
+/// The $PnB key actually stores bits. However, this library only supports
+/// widths that are multiples of 8 (ie bytes) for now. Therefore, this key
+/// actually stores the number of bytes indicated by $PnB.
+///
+/// This may also be '*' which means "delimited ASCII" which is only valid when
+/// $DATATYPE=A.
+#[derive(Clone, Copy, Serialize)]
+// TODO this will be off by 8x for ascii
+pub enum Bytes {
+    Fixed(u8),
+    Variable,
+}
+
+/// The values used for the $MODE key (up to 3.1)
+#[derive(Clone, PartialEq, Eq, Serialize)]
+pub enum Mode {
+    List,
+    // TODO I have no idea what these even mean and IDK how to support them
+    Uncorrelated,
+    Correlated,
+}
+
+/// The value for the $MODE key, which can only contain 'L' (3.2)
+pub struct Mode3_2;
+
+/// The value for the $PnDISPLAY key (3.1+)
+#[derive(Clone, Serialize)]
+pub enum Display {
+    /// Linear display (value like 'Linear,<lower>,<upper>')
+    Lin { lower: f32, upper: f32 },
+
+    // TODO not clear if these can be <0
+    /// Logarithmic display (value like 'Logarithmic,<offset>,<decades>')
+    Log { offset: f32, decades: f32 },
+}
+
+/// The three values for the $PnDATATYPE keyword (3.2+)
+#[derive(Clone, Copy, Serialize)]
+pub enum NumType {
+    Integer,
+    Single,
+    Double,
+}
 
 /// The value of the $PnR key (all versions)
 ///
@@ -35,240 +93,138 @@ pub struct Range(pub String);
 newtype_disp!(Range);
 newtype_fromstr!(Range, Infallible);
 
+/// The value of the $PnV key
 #[derive(Clone, Copy, Serialize)]
 pub struct DetectorVoltage(pub NonNegFloat);
 
 newtype_from!(DetectorVoltage, NonNegFloat);
-
 newtype_disp!(DetectorVoltage);
 newtype_fromstr!(DetectorVoltage, RangedFloatError);
 
-macro_rules! newtype_string {
-    ($t:ident) => {
-        #[derive(Clone, Serialize)]
-        pub struct $t(pub String);
-
-        newtype_disp!($t);
-        newtype_fromstr!($t, Infallible);
-        newtype_from!($t, String);
-        newtype_from_outer!($t, String);
-    };
+/// The four allowed values for the $DATATYPE keyword.
+#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash, Serialize)]
+pub enum AlphaNumType {
+    Ascii,
+    Integer,
+    Single,
+    Double,
 }
 
-macro_rules! newtype_int {
-    ($t:ident, $type:ident) => {
-        #[derive(Clone, Copy, Serialize)]
-        pub struct $t(pub $type);
+/// A time as used in the $BTIM/ETIM keys without seconds (2.0 only)
+#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd)]
+pub struct FCSTime(pub NaiveTime);
 
-        newtype_disp!($t);
-        newtype_fromstr!($t, ParseIntError);
-        newtype_from!($t, $type);
-        newtype_from_outer!($t, $type);
-    };
+newtype_from!(FCSTime, NaiveTime);
+newtype_from_outer!(FCSTime, NaiveTime);
+
+/// A time as used in the $BTIM/ETIM keys with 1/60 seconds (3.0 only)
+#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd)]
+pub struct FCSTime60(pub NaiveTime);
+
+newtype_from!(FCSTime60, NaiveTime);
+newtype_from_outer!(FCSTime60, NaiveTime);
+
+/// A time as used in the $BTIM/ETIM keys with centiseconds (3.1+ only)
+#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd)]
+pub struct FCSTime100(pub NaiveTime);
+
+newtype_from!(FCSTime100, NaiveTime);
+newtype_from_outer!(FCSTime100, NaiveTime);
+
+/// The value for the $PnCALIBRATION key (3.1 only)
+///
+/// This should be formatted like '<value>,<unit>'
+#[derive(Clone, Serialize)]
+pub struct Calibration3_1 {
+    pub value: f32,
+    pub unit: String,
 }
 
-macro_rules! kw_meta {
-    ($t:ident, $k:expr) => {
-        impl Key for $t {
-            const C: &'static str = $k;
-        }
-    };
+/// The value for the $PnCALIBRATION key (3.2+)
+///
+/// This should be formatted like '<value>,[<offset>,]<unit>' and differs from
+/// 3.1 with the optional inclusion of "offset" (assumed 0 if not included).
+#[derive(Clone, Serialize)]
+pub struct Calibration3_2 {
+    pub value: f32,
+    pub offset: f32,
+    pub unit: String,
 }
 
-macro_rules! kw_meas {
-    ($t:ident, $sfx:expr) => {
-        impl IndexedKey for $t {
-            const PREFIX: &'static str = "P";
-            const SUFFIX: &'static str = $sfx;
-        }
-    };
+/// The value for the $PnL key (3.1).
+///
+/// This is a list of wavelengths used for the measurement. Starting in 3.1
+/// this could be a list, where it needed to be a single number in previous
+/// versions.
+#[derive(Clone)]
+pub struct Wavelengths(pub NonEmpty<u32>);
+
+impl Serialize for Wavelengths {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.0.iter().collect::<Vec<_>>().serialize(serializer)
+    }
 }
 
-macro_rules! kw_meta_string {
-    ($t:ident, $kw:expr) => {
-        newtype_string!($t);
+newtype_from!(Wavelengths, NonEmpty<u32>);
+newtype_from_outer!(Wavelengths, NonEmpty<u32>);
 
-        impl Key for $t {
-            const C: &'static str = $kw;
-        }
-    };
+/// The value for the $ORIGINALITY key (3.1+)
+#[derive(Clone, Copy, Serialize)]
+pub enum Originality {
+    Original,
+    NonDataModified,
+    Appended,
+    DataModified,
 }
 
-macro_rules! kw_meas_int {
-    ($t:ident, $type:ident, $sfx:expr) => {
-        newtype_int!($t, $type);
-        kw_meas!($t, $sfx);
-    };
+/// A datetime as used in the $LAST_MODIFIED key (3.1+ only)
+// TODO this should almost certainly be after $ENDDATETIME if given
+#[derive(Clone, Copy, Serialize)]
+pub struct ModifiedDateTime(pub NaiveDateTime);
+
+newtype_from!(ModifiedDateTime, NaiveDateTime);
+newtype_from_outer!(ModifiedDateTime, NaiveDateTime);
+
+/// The value of the $UNICODE key (3.0 only)
+///
+/// Formatted like 'codepage,[keys]'. This key is not actually used for anything
+/// in this library and is present to be complete. The original purpose was to
+/// indicate keywords which supported UTF-8, but these days it is hard to
+/// write a library that does NOT support UTF-8 ;)
+#[derive(Clone, Serialize)]
+pub struct Unicode {
+    page: u32,
+    // TODO check that these are valid keywords (probably not worth it)
+    kws: Vec<String>,
 }
 
-macro_rules! kw_meta_int {
-    ($t:ident, $type:ident, $kw:expr) => {
-        newtype_int!($t, $type);
-
-        impl Key for $t {
-            const C: &'static str = $kw;
-        }
-    };
+// TODO split off Time to time-channel specific struct
+/// The value of the $PnTYPE key (3.2+)
+#[derive(Clone, Serialize, PartialEq)]
+pub enum MeasurementType {
+    ForwardScatter,
+    SideScatter,
+    RawFluorescence,
+    UnmixedFluorescence,
+    Mass,
+    Time,
+    ElectronicVolume,
+    Classification,
+    Index,
+    // TODO is isn't clear if this is allowed according to the standard
+    Other(String),
 }
 
-macro_rules! kw_meas_string {
-    ($t:ident, $sfx:expr) => {
-        newtype_string!($t);
-        kw_meas!($t, $sfx);
-    };
+/// The value of the $PnFEATURE key (3.2+)
+#[derive(Clone, Serialize)]
+pub enum Feature {
+    Area,
+    Width,
+    Height,
 }
-
-macro_rules! req_meta {
-    ($t:ident) => {
-        impl Required for $t {}
-        impl ReqMetaKey for $t {}
-    };
-}
-
-macro_rules! opt_meta {
-    ($t:ident) => {
-        impl Optional for $t {}
-        impl OptMetaKey for $t {}
-    };
-}
-
-macro_rules! req_meas {
-    ($t:ident) => {
-        impl Required for $t {}
-        impl ReqMeasKey for $t {}
-    };
-}
-
-macro_rules! opt_meas {
-    ($t:ident) => {
-        impl Optional for $t {}
-        impl OptMeasKey for $t {}
-    };
-}
-
-macro_rules! kw_req_meta {
-    ($t:ident, $sfx:expr) => {
-        kw_meta!($t, $sfx);
-        req_meta!($t);
-    };
-}
-
-macro_rules! kw_opt_meta {
-    ($t:ident, $sfx:expr) => {
-        kw_meta!($t, $sfx);
-        opt_meta!($t);
-    };
-}
-
-macro_rules! kw_req_meas {
-    ($t:ident, $sfx:expr) => {
-        kw_meas!($t, $sfx);
-        req_meas!($t);
-    };
-}
-
-macro_rules! kw_opt_meas {
-    ($t:ident, $sfx:expr) => {
-        kw_meas!($t, $sfx);
-        opt_meas!($t);
-    };
-}
-
-macro_rules! kw_req_meta_string {
-    ($t:ident, $sfx:expr) => {
-        kw_meta_string!($t, $sfx);
-        req_meta!($t);
-    };
-}
-
-macro_rules! kw_opt_meta_string {
-    ($t:ident, $sfx:expr) => {
-        kw_meta_string!($t, $sfx);
-        opt_meta!($t);
-    };
-}
-
-macro_rules! kw_req_meas_string {
-    ($t:ident, $sfx:expr) => {
-        kw_meas_string!($t, $sfx);
-        req_meas!($t);
-    };
-}
-
-macro_rules! kw_opt_meas_string {
-    ($t:ident, $sfx:expr) => {
-        kw_meas_string!($t, $sfx);
-        opt_meas!($t);
-    };
-}
-
-macro_rules! kw_req_meta_int {
-    ($t:ident, $type:ident, $sfx:expr) => {
-        kw_meta_int!($t, $type, $sfx);
-        req_meta!($t);
-    };
-}
-
-macro_rules! kw_opt_meta_int {
-    ($t:ident, $type:ident, $sfx:expr) => {
-        kw_meta_int!($t, $type, $sfx);
-        opt_meta!($t);
-    };
-}
-
-macro_rules! kw_req_meas_int {
-    ($t:ident, $type:ident, $sfx:expr) => {
-        kw_meas_int!($t, $type, $sfx);
-        req_meas!($t);
-    };
-}
-
-macro_rules! kw_opt_meas_int {
-    ($t:ident, $type:ident, $sfx:expr) => {
-        kw_meas_int!($t, $type, $sfx);
-        opt_meas!($t);
-    };
-}
-
-kw_opt_meta_string!(Cyt, "CYT");
-req_meta!(Cyt);
-
-kw_opt_meta_string!(Cytsn, "CYTSN");
-kw_opt_meta_string!(Com, "COM");
-kw_opt_meta_string!(Flowrate, "FLOWRATE");
-kw_opt_meta_string!(Cells, "CELLS");
-kw_opt_meta_string!(Exp, "EXP");
-kw_opt_meta_string!(Fil, "FIL");
-kw_opt_meta_string!(Inst, "INST");
-kw_opt_meta_string!(Op, "OP");
-kw_opt_meta_string!(Proj, "PROJ");
-kw_opt_meta_string!(Smno, "SMNO");
-kw_opt_meta_string!(Src, "SRC");
-kw_opt_meta_string!(Sys, "SYS");
-kw_opt_meta_string!(LastModifier, "LAST_MODIFIER");
-kw_opt_meta_string!(Plateid, "PLATEID");
-kw_opt_meta_string!(Platename, "PLATENAME");
-kw_opt_meta_string!(Wellid, "WELLID");
-kw_opt_meta_string!(UnstainedInfo, "UNSTAINEDINFO");
-kw_opt_meta_string!(Carrierid, "CARRIERID");
-kw_opt_meta_string!(Carriertype, "CARRIERTYPE");
-kw_opt_meta_string!(Locationid, "LOCATIONID");
-
-kw_opt_meas_string!(Analyte, "ANALYTE");
-kw_opt_meas_string!(Tag, "TAG");
-kw_opt_meas_string!(DetectorName, "DET");
-kw_opt_meas_string!(DetectorType, "T");
-kw_opt_meas_string!(PercentEmitted, "P");
-kw_opt_meas_string!(Longname, "S");
-kw_opt_meas_string!(Filter, "F");
-
-kw_opt_meta_int!(Abrt, u32, "ABRT");
-kw_opt_meta_int!(Lost, u32, "LOST");
-kw_opt_meta_int!(Tot, usize, "TOT");
-req_meta!(Tot);
-kw_req_meta_int!(Par, usize, "PAR");
-kw_opt_meas_int!(Wavelength, u32, "L");
-kw_opt_meas_int!(Power, u32, "O");
 
 pub(crate) trait IndexedKey {
     const PREFIX: &'static str;
@@ -282,9 +238,9 @@ pub(crate) trait IndexedKey {
         format!("{}n{}", Self::PREFIX, Self::SUFFIX)
     }
 
-    fn fmt_sub() -> String {
-        format!("{}%n{}", Self::PREFIX, Self::SUFFIX)
-    }
+    // fn fmt_sub() -> String {
+    //     format!("{}%n{}", Self::PREFIX, Self::SUFFIX)
+    // }
 
     fn std(i: MeasIdx) -> String {
         format!("${}", Self::fmt(i))
@@ -294,29 +250,29 @@ pub(crate) trait IndexedKey {
         format!("${}", Self::fmt_blank())
     }
 
-    fn nonstd(i: MeasIdx) -> NonStdKey {
-        NonStdKey::from_unchecked(Self::fmt(i).as_str())
-    }
+    // fn nonstd(i: MeasIdx) -> NonStdKey {
+    //     NonStdKey::from_unchecked(Self::fmt(i).as_str())
+    // }
 
-    fn nonstd_sub() -> NonStdMeasKey {
-        NonStdMeasKey::from_unchecked(Self::fmt_sub().as_str())
-    }
+    // fn nonstd_sub() -> NonStdMeasKey {
+    //     NonStdMeasKey::from_unchecked(Self::fmt_sub().as_str())
+    // }
 
-    /// Return true if a key matches the prefix/suffix.
-    ///
-    /// Specifically, test if string is like <PREFIX><N><SUFFIX> where
-    /// N is an integer greater than zero.
-    fn matches(other: &str, std: bool) -> bool {
-        if std {
-            other.strip_prefix("$")
-        } else {
-            Some(other)
-        }
-        .and_then(|s| s.strip_prefix(Self::PREFIX))
-        .and_then(|s| s.strip_suffix(Self::SUFFIX))
-        .and_then(|s| s.parse::<u32>().ok())
-        .is_some_and(|x| x > 0)
-    }
+    // /// Return true if a key matches the prefix/suffix.
+    // ///
+    // /// Specifically, test if string is like <PREFIX><N><SUFFIX> where
+    // /// N is an integer greater than zero.
+    // fn matches(other: &str, std: bool) -> bool {
+    //     if std {
+    //         other.strip_prefix("$")
+    //     } else {
+    //         Some(other)
+    //     }
+    //     .and_then(|s| s.strip_prefix(Self::PREFIX))
+    //     .and_then(|s| s.strip_suffix(Self::SUFFIX))
+    //     .and_then(|s| s.parse::<u32>().ok())
+    //     .is_some_and(|x| x > 0)
+    // }
 }
 
 pub(crate) trait Key {
@@ -326,9 +282,9 @@ pub(crate) trait Key {
         format!("${}", Self::C)
     }
 
-    fn nonstd() -> NonStdKey {
-        NonStdKey::from_unchecked(Self::C)
-    }
+    // fn nonstd() -> NonStdKey {
+    //     NonStdKey::from_unchecked(Self::C)
+    // }
 }
 
 /// Raw TEXT key/value pairs
@@ -466,14 +422,211 @@ where
     }
 }
 
-/// The four allowed values for the $DATATYPE keyword.
-#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash, Serialize)]
-pub enum AlphaNumType {
-    Ascii,
-    Integer,
-    Single,
-    Double,
+macro_rules! newtype_string {
+    ($t:ident) => {
+        #[derive(Clone, Serialize)]
+        pub struct $t(pub String);
+
+        newtype_disp!($t);
+        newtype_fromstr!($t, Infallible);
+        newtype_from!($t, String);
+        newtype_from_outer!($t, String);
+    };
 }
+
+macro_rules! newtype_int {
+    ($t:ident, $type:ident) => {
+        #[derive(Clone, Copy, Serialize)]
+        pub struct $t(pub $type);
+
+        newtype_disp!($t);
+        newtype_fromstr!($t, ParseIntError);
+        newtype_from!($t, $type);
+        newtype_from_outer!($t, $type);
+    };
+}
+
+macro_rules! kw_meta {
+    ($t:ident, $k:expr) => {
+        impl Key for $t {
+            const C: &'static str = $k;
+        }
+    };
+}
+
+macro_rules! kw_meas {
+    ($t:ident, $sfx:expr) => {
+        impl IndexedKey for $t {
+            const PREFIX: &'static str = "P";
+            const SUFFIX: &'static str = $sfx;
+        }
+    };
+}
+
+macro_rules! kw_meta_string {
+    ($t:ident, $kw:expr) => {
+        newtype_string!($t);
+
+        impl Key for $t {
+            const C: &'static str = $kw;
+        }
+    };
+}
+
+macro_rules! kw_meas_int {
+    ($t:ident, $type:ident, $sfx:expr) => {
+        newtype_int!($t, $type);
+        kw_meas!($t, $sfx);
+    };
+}
+
+macro_rules! kw_meta_int {
+    ($t:ident, $type:ident, $kw:expr) => {
+        newtype_int!($t, $type);
+
+        impl Key for $t {
+            const C: &'static str = $kw;
+        }
+    };
+}
+
+macro_rules! kw_meas_string {
+    ($t:ident, $sfx:expr) => {
+        newtype_string!($t);
+        kw_meas!($t, $sfx);
+    };
+}
+
+macro_rules! req_meta {
+    ($t:ident) => {
+        impl Required for $t {}
+        impl ReqMetaKey for $t {}
+    };
+}
+
+macro_rules! opt_meta {
+    ($t:ident) => {
+        impl Optional for $t {}
+        impl OptMetaKey for $t {}
+    };
+}
+
+macro_rules! req_meas {
+    ($t:ident) => {
+        impl Required for $t {}
+        impl ReqMeasKey for $t {}
+    };
+}
+
+macro_rules! opt_meas {
+    ($t:ident) => {
+        impl Optional for $t {}
+        impl OptMeasKey for $t {}
+    };
+}
+
+macro_rules! kw_req_meta {
+    ($t:ident, $sfx:expr) => {
+        kw_meta!($t, $sfx);
+        req_meta!($t);
+    };
+}
+
+macro_rules! kw_opt_meta {
+    ($t:ident, $sfx:expr) => {
+        kw_meta!($t, $sfx);
+        opt_meta!($t);
+    };
+}
+
+macro_rules! kw_req_meas {
+    ($t:ident, $sfx:expr) => {
+        kw_meas!($t, $sfx);
+        req_meas!($t);
+    };
+}
+
+macro_rules! kw_opt_meas {
+    ($t:ident, $sfx:expr) => {
+        kw_meas!($t, $sfx);
+        opt_meas!($t);
+    };
+}
+
+macro_rules! kw_opt_meta_string {
+    ($t:ident, $sfx:expr) => {
+        kw_meta_string!($t, $sfx);
+        opt_meta!($t);
+    };
+}
+
+macro_rules! kw_opt_meas_string {
+    ($t:ident, $sfx:expr) => {
+        kw_meas_string!($t, $sfx);
+        opt_meas!($t);
+    };
+}
+
+macro_rules! kw_req_meta_int {
+    ($t:ident, $type:ident, $sfx:expr) => {
+        kw_meta_int!($t, $type, $sfx);
+        req_meta!($t);
+    };
+}
+
+macro_rules! kw_opt_meta_int {
+    ($t:ident, $type:ident, $sfx:expr) => {
+        kw_meta_int!($t, $type, $sfx);
+        opt_meta!($t);
+    };
+}
+
+macro_rules! kw_opt_meas_int {
+    ($t:ident, $type:ident, $sfx:expr) => {
+        kw_meas_int!($t, $type, $sfx);
+        opt_meas!($t);
+    };
+}
+
+kw_opt_meta_string!(Cyt, "CYT");
+req_meta!(Cyt);
+
+kw_opt_meta_string!(Cytsn, "CYTSN");
+kw_opt_meta_string!(Com, "COM");
+kw_opt_meta_string!(Flowrate, "FLOWRATE");
+kw_opt_meta_string!(Cells, "CELLS");
+kw_opt_meta_string!(Exp, "EXP");
+kw_opt_meta_string!(Fil, "FIL");
+kw_opt_meta_string!(Inst, "INST");
+kw_opt_meta_string!(Op, "OP");
+kw_opt_meta_string!(Proj, "PROJ");
+kw_opt_meta_string!(Smno, "SMNO");
+kw_opt_meta_string!(Src, "SRC");
+kw_opt_meta_string!(Sys, "SYS");
+kw_opt_meta_string!(LastModifier, "LAST_MODIFIER");
+kw_opt_meta_string!(Plateid, "PLATEID");
+kw_opt_meta_string!(Platename, "PLATENAME");
+kw_opt_meta_string!(Wellid, "WELLID");
+kw_opt_meta_string!(UnstainedInfo, "UNSTAINEDINFO");
+kw_opt_meta_string!(Carrierid, "CARRIERID");
+kw_opt_meta_string!(Carriertype, "CARRIERTYPE");
+kw_opt_meta_string!(Locationid, "LOCATIONID");
+
+kw_opt_meas_string!(Analyte, "ANALYTE");
+kw_opt_meas_string!(Tag, "TAG");
+kw_opt_meas_string!(DetectorName, "DET");
+kw_opt_meas_string!(DetectorType, "T");
+kw_opt_meas_string!(PercentEmitted, "P");
+kw_opt_meas_string!(Longname, "S");
+kw_opt_meas_string!(Filter, "F");
+
+kw_opt_meta_int!(Abrt, u32, "ABRT");
+kw_opt_meta_int!(Lost, u32, "LOST");
+kw_opt_meta_int!(Tot, usize, "TOT");
+req_meta!(Tot);
+kw_req_meta_int!(Par, usize, "PAR");
+kw_opt_meas_int!(Wavelength, u32, "L");
+kw_opt_meas_int!(Power, u32, "O");
 
 macro_rules! kw_time {
     ($outer:ident, $wrap:ident, $inner:ident, $err:ident, $key:expr) => {
@@ -512,12 +665,6 @@ kw_time!(Etim3_0, Etim, FCSTime60, FCSTime60Error, "ETIM");
 kw_time!(Btim3_1, Btim, FCSTime100, FCSTime100Error, "BTIM");
 kw_time!(Etim3_1, Etim, FCSTime100, FCSTime100Error, "ETIM");
 
-pub struct FCSDateTimeError;
-pub struct FCSTimeError;
-pub struct FCSTime60Error;
-pub struct FCSTime100Error;
-pub struct FCSDateError;
-
 kw_opt_meta!(FCSDate, "DATE");
 
 newtype_from!(BeginDateTime, FCSDateTime);
@@ -531,27 +678,6 @@ newtype_from_outer!(EndDateTime, FCSDateTime);
 newtype_disp!(EndDateTime);
 newtype_fromstr!(EndDateTime, FCSDateTimeError);
 kw_opt_meta!(EndDateTime, "ENDDATETIME");
-
-/// A time as used in the $BTIM/ETIM keys without seconds (2.0 only)
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd)]
-pub struct FCSTime(pub NaiveTime);
-
-newtype_from!(FCSTime, NaiveTime);
-newtype_from_outer!(FCSTime, NaiveTime);
-
-/// A time as used in the $BTIM/ETIM keys with 1/60 seconds (3.0 only)
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd)]
-pub struct FCSTime60(pub NaiveTime);
-
-newtype_from!(FCSTime60, NaiveTime);
-newtype_from_outer!(FCSTime60, NaiveTime);
-
-/// A time as used in the $BTIM/ETIM keys with centiseconds (3.1+ only)
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd)]
-pub struct FCSTime100(pub NaiveTime);
-
-newtype_from!(FCSTime100, NaiveTime);
-newtype_from_outer!(FCSTime100, NaiveTime);
 
 impl<T> From<Btim<T>> for NaiveTime
 where
@@ -827,17 +953,6 @@ pub enum BytesError {
     NotOctet,
 }
 
-pub enum FixedSeqError {
-    WrongLength { total: usize, expected: usize },
-    BadLength,
-    BadFloat,
-}
-
-pub enum NamedFixedSeqError {
-    Seq(FixedSeqError),
-    NonUnique,
-}
-
 pub enum CalibrationError<C> {
     Float(ParseFloatError),
     Range,
@@ -871,194 +986,6 @@ pub enum RangeError {
 }
 
 pub struct Mode3_2Error;
-
-/// The value of the $TR field (all versions)
-///
-/// This is formatted as 'string,f' where 'string' is a measurement name.
-#[derive(Clone, Serialize)]
-pub struct Trigger {
-    /// The measurement name (assumed to match a '$PnN' value).
-    pub measurement: Shortname,
-
-    /// The threshold of the trigger.
-    pub threshold: u32,
-}
-
-/// The value for the $PnB key (all versions)
-///
-/// The $PnB key actually stores bits. However, this library only supports
-/// widths that are multiples of 8 (ie bytes) for now. Therefore, this key
-/// actually stores the number of bytes indicated by $PnB.
-///
-/// This may also be '*' which means "delimited ASCII" which is only valid when
-/// $DATATYPE=A.
-#[derive(Clone, Copy, Serialize)]
-// TODO this will be off by 8x for ascii
-pub enum Bytes {
-    Fixed(u8),
-    Variable,
-}
-
-/// The values used for the $MODE key (up to 3.1)
-#[derive(Clone, PartialEq, Eq, Serialize)]
-pub enum Mode {
-    List,
-    // TODO I have no idea what these even mean and IDK how to support them
-    Uncorrelated,
-    Correlated,
-}
-
-/// The value for the $MODE key, which can only contain 'L' (3.2)
-pub struct Mode3_2;
-
-/// The value for the $PnDISPLAY key (3.1+)
-#[derive(Clone, Serialize)]
-pub enum Display {
-    /// Linear display (value like 'Linear,<lower>,<upper>')
-    Lin { lower: f32, upper: f32 },
-
-    // TODO not clear if these can be <0
-    /// Logarithmic display (value like 'Logarithmic,<offset>,<decades>')
-    Log { offset: f32, decades: f32 },
-}
-
-/// The three values for the $PnDATATYPE keyword (3.2+)
-#[derive(Clone, Copy, Serialize)]
-pub enum NumType {
-    Integer,
-    Single,
-    Double,
-}
-
-/// A compensation matrix.
-///
-/// This is encoded in the $DFCmTOn keywords in 2.0 and $COMP in 3.0.
-#[derive(Clone, Serialize)]
-pub struct Compensation {
-    /// Values in the comp matrix in row-major order. Assumed to be the
-    /// same width and height as $PAR
-    matrix: DMatrix<f32>,
-}
-
-impl Compensation {
-    pub fn new(matrix: DMatrix<f32>) -> Option<Self> {
-        if matrix.ncols() > 2 {
-            Some(Self { matrix })
-        } else {
-            None
-        }
-    }
-
-    pub fn remove_by_index(&mut self, index: MeasIdx) -> Result<bool, ClearOptional> {
-        let i: usize = index.into();
-        let n = self.matrix.ncols();
-        if i <= n {
-            if n < 3 {
-                Err(ClearOptional)
-            } else {
-                self.matrix = self.matrix.clone().remove_row(i).remove_column(i);
-                Ok(true)
-            }
-        } else {
-            Ok(false)
-        }
-    }
-}
-
-/// The value for the $PnCALIBRATION key (3.1 only)
-///
-/// This should be formatted like '<value>,<unit>'
-#[derive(Clone, Serialize)]
-pub struct Calibration3_1 {
-    pub value: f32,
-    pub unit: String,
-}
-
-/// The value for the $PnCALIBRATION key (3.2+)
-///
-/// This should be formatted like '<value>,[<offset>,]<unit>' and differs from
-/// 3.1 with the optional inclusion of "offset" (assumed 0 if not included).
-#[derive(Clone, Serialize)]
-pub struct Calibration3_2 {
-    pub value: f32,
-    pub offset: f32,
-    pub unit: String,
-}
-
-/// The value for the $PnL key (3.1).
-///
-/// This is a list of wavelengths used for the measurement. Starting in 3.1
-/// this could be a list, where it needed to be a single number in previous
-/// versions.
-#[derive(Clone)]
-pub struct Wavelengths(pub NonEmpty<u32>);
-
-impl Serialize for Wavelengths {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.0.iter().collect::<Vec<_>>().serialize(serializer)
-    }
-}
-
-newtype_from!(Wavelengths, NonEmpty<u32>);
-newtype_from_outer!(Wavelengths, NonEmpty<u32>);
-
-/// The value for the $ORIGINALITY key (3.1+)
-#[derive(Clone, Copy, Serialize)]
-pub enum Originality {
-    Original,
-    NonDataModified,
-    Appended,
-    DataModified,
-}
-
-/// A datetime as used in the $LAST_MODIFIED key (3.1+ only)
-// TODO this should almost certainly be after $ENDDATETIME if given
-#[derive(Clone, Copy, Serialize)]
-pub struct ModifiedDateTime(pub NaiveDateTime);
-
-newtype_from!(ModifiedDateTime, NaiveDateTime);
-newtype_from_outer!(ModifiedDateTime, NaiveDateTime);
-
-/// The value of the $UNICODE key (3.0 only)
-///
-/// Formatted like 'codepage,[keys]'. This key is not actually used for anything
-/// in this library and is present to be complete. The original purpose was to
-/// indicate keywords which supported UTF-8, but these days it is hard to
-/// write a library that does NOT support UTF-8 ;)
-#[derive(Clone, Serialize)]
-pub struct Unicode {
-    page: u32,
-    // TODO check that these are valid keywords (probably not worth it)
-    kws: Vec<String>,
-}
-
-// TODO split off Time to time-channel specific struct
-/// The value of the $PnTYPE key (3.2+)
-#[derive(Clone, Serialize, PartialEq)]
-pub enum MeasurementType {
-    ForwardScatter,
-    SideScatter,
-    RawFluorescence,
-    UnmixedFluorescence,
-    Mass,
-    Time,
-    ElectronicVolume,
-    Classification,
-    Index,
-    // TODO is isn't clear if this is allowed according to the standard
-    Other(String),
-}
-
-/// The value of the $PnFEATURE key (3.2+)
-#[derive(Clone, Serialize)]
-pub enum Feature {
-    Area,
-    Width,
-    Height,
-}
 
 pub(crate) trait Linked
 where
@@ -1150,71 +1077,6 @@ impl fmt::Display for TriggerError {
         match self {
             TriggerError::WrongFieldNumber => write!(f, "must be like 'string,f'"),
             TriggerError::IntFormat(i) => write!(f, "{}", i),
-        }
-    }
-}
-
-impl FromStr for Compensation {
-    type Err = FixedSeqError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut xs = s.split(",");
-        if let Some(first) = &xs.next().and_then(|x| x.parse::<usize>().ok()) {
-            let n = *first;
-            let nn = n * n;
-            let values: Vec<_> = xs.by_ref().take(nn).collect();
-            let remainder = xs.by_ref().count();
-            let total = values.len() + remainder;
-            if total != nn {
-                Err(FixedSeqError::WrongLength {
-                    expected: nn,
-                    total,
-                })
-            } else {
-                let fvalues: Vec<_> = values
-                    .into_iter()
-                    .filter_map(|x| x.parse::<f32>().ok())
-                    .collect();
-                if fvalues.len() != nn {
-                    Err(FixedSeqError::BadFloat)
-                } else {
-                    let matrix = DMatrix::from_row_iterator(n, n, fvalues);
-                    Ok(Compensation { matrix })
-                }
-            }
-        } else {
-            Err(FixedSeqError::BadLength)
-        }
-    }
-}
-
-impl fmt::Display for Compensation {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let n = self.matrix.len();
-        // DMatrix slices are column major, so transpose first to output
-        // row-major
-        let xs = self.matrix.transpose().as_slice().iter().join(",");
-        write!(f, "{n},{xs}")
-    }
-}
-
-impl fmt::Display for FixedSeqError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            FixedSeqError::BadFloat => write!(f, "Float could not be parsed"),
-            FixedSeqError::WrongLength { total, expected } => {
-                write!(f, "Expected {expected} entries, found {total}")
-            }
-            FixedSeqError::BadLength => write!(f, "Could not determine length"),
-        }
-    }
-}
-
-impl fmt::Display for NamedFixedSeqError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            NamedFixedSeqError::Seq(s) => write!(f, "{}", s),
-            NamedFixedSeqError::NonUnique => write!(f, "Names in sequence is not unique"),
         }
     }
 }
@@ -1672,3 +1534,9 @@ impl fmt::Display for Mode3_2Error {
         write!(f, "can only be 'L'")
     }
 }
+
+pub struct FCSDateTimeError;
+pub struct FCSTimeError;
+pub struct FCSTime60Error;
+pub struct FCSTime100Error;
+pub struct FCSDateError;

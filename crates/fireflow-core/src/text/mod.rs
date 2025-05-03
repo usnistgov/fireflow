@@ -1,9 +1,11 @@
 pub mod byteord;
+pub mod compensation;
 pub mod core;
 pub mod datetimes;
 pub mod keywords;
 pub mod named_vec;
 pub mod optionalkw;
+pub mod ranged_float;
 pub mod scale;
 pub mod spillover;
 pub mod timestamps;

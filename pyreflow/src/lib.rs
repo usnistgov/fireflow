@@ -1475,51 +1475,51 @@ macro_rules! plate_methods {
     };
 }
 
-macro_rules! spillover_methods {
-    ($pytype:ident, $($rest:ident),+; $($root:ident),*) => {
-        spillover_methods!($pytype; $($root),*);
-        spillover_methods!($($rest),+; $($root),*);
-    };
+// macro_rules! spillover_methods {
+//     ($pytype:ident, $($rest:ident),+; $($root:ident),*) => {
+//         spillover_methods!($pytype; $($root),*);
+//         spillover_methods!($($rest),+; $($root),*);
+//     };
 
-    ($pytype:ident; $($root:ident),*) => {
-        #[pymethods]
-        impl $pytype {
-            #[getter]
-            fn get_spillover_matrix<'a>(
-                &self, py:
-                Python<'a>
-            ) -> Option<Bound<'a, PyArray2<f32>>> {
-                self.0.spillover().map(|x| x.matrix().to_pyarray(py))
-            }
+//     ($pytype:ident; $($root:ident),*) => {
+//         #[pymethods]
+//         impl $pytype {
+//             #[getter]
+//             fn get_spillover_matrix<'a>(
+//                 &self, py:
+//                 Python<'a>
+//             ) -> Option<Bound<'a, PyArray2<f32>>> {
+//                 self.0.spillover().map(|x| x.matrix().to_pyarray(py))
+//             }
 
-            #[getter]
-            fn get_spillover_names(&self) -> Vec<String> {
-                self.0
-                    .spillover()
-                    .map(|x| x.measurements())
-                    .unwrap_or_default()
-                    .iter()
-                    .map(|x| x.as_ref().to_string())
-                    .collect()
-            }
+//             #[getter]
+//             fn get_spillover_names(&self) -> Vec<String> {
+//                 self.0
+//                     .spillover()
+//                     .map(|x| x.measurements())
+//                     .unwrap_or_default()
+//                     .iter()
+//                     .map(|x| x.as_ref().to_string())
+//                     .collect()
+//             }
 
-            fn set_spillover(
-                &mut self,
-                ns: Vec<PyShortname>,
-                a: PyReadonlyArray2<f32>,
-            ) -> Result<(), PyErr> {
-                let m = a.as_matrix().into_owned();
-                self.0
-                    .set_spillover(ns.into_iter().map(|x| x.into()).collect(), m)
-                    .map_err(|e| PyreflowException::new_err(e.to_string()))
-            }
+//             fn set_spillover(
+//                 &mut self,
+//                 ns: Vec<PyShortname>,
+//                 a: PyReadonlyArray2<f32>,
+//             ) -> Result<(), PyErr> {
+//                 let m = a.as_matrix().into_owned();
+//                 self.0
+//                     .set_spillover(ns.into_iter().map(|x| x.into()).collect(), m)
+//                     .map_err(|e| PyreflowException::new_err(e.to_string()))
+//             }
 
-            fn unset_spillover(&mut self) {
-                self.0.unset_spillover()
-            }
-        }
-    };
-}
+//             fn unset_spillover(&mut self) {
+//                 self.0.unset_spillover()
+//             }
+//         }
+//     };
+// }
 
 macro_rules! vol_methods {
     ($($pytype:ident),*; $($root:ident)*) => {
@@ -1860,8 +1860,8 @@ wavelength_methods!(PyCoreDataset2_0, PyCoreDataset3_0; text);
 wavelengths_methods!(PyCoreTEXT3_1, PyCoreTEXT3_2;);
 wavelengths_methods!(PyCoreDataset3_1, PyCoreDataset3_2; text);
 
-spillover_methods!(PyCoreTEXT3_1, PyCoreTEXT3_2;);
-spillover_methods!(PyCoreDataset3_1, PyCoreDataset3_2; text);
+// spillover_methods!(PyCoreTEXT3_1, PyCoreTEXT3_2;);
+// spillover_methods!(PyCoreDataset3_1, PyCoreDataset3_2; text);
 
 plate_methods!(PyCoreTEXT3_1, PyCoreTEXT3_2;);
 plate_methods!(PyCoreDataset3_1, PyCoreDataset3_2; text);

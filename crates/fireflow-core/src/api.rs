@@ -3,18 +3,17 @@ use crate::error::*;
 pub use crate::header::*;
 pub use crate::header_text::*;
 use crate::macros::newtype_from;
-use crate::optionalkw::*;
 pub use crate::segment::*;
+use crate::text::byteord::*;
 pub use crate::text::core::*;
 pub use crate::text::keywords::*;
-use crate::validated::byteord::*;
-use crate::validated::nonstandard::*;
-use crate::validated::scale::*;
-use crate::validated::shortname::*;
-use crate::validated::spillover::*;
-use crate::validated::timestamps::*;
-
 use crate::text::named_vec::*;
+use crate::text::optionalkw::*;
+use crate::text::scale::*;
+use crate::text::spillover::*;
+use crate::text::timestamps::*;
+use crate::validated::nonstandard::*;
+use crate::validated::shortname::*;
 
 use chrono::NaiveDate;
 use itertools::Itertools;

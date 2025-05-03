@@ -1,5 +1,6 @@
 use crate::macros::{newtype_from, newtype_from_outer};
-use crate::optionalkw::*;
+
+use super::optionalkw::*;
 
 use chrono::{NaiveDate, NaiveTime};
 use serde::Serialize;

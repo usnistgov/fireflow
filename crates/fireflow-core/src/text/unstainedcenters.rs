@@ -1,6 +1,7 @@
 use crate::macros::newtype_from_outer;
-use crate::optionalkw::ClearOptional;
 use crate::validated::shortname::*;
+
+use super::optionalkw::ClearOptional;
 
 use itertools::Itertools;
 use serde::Serialize;

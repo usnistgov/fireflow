@@ -7,7 +7,6 @@ pub mod error;
 mod header;
 mod header_text;
 mod macros;
-mod optionalkw;
 mod segment;
 pub mod text;
 pub mod validated;

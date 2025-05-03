@@ -3,14 +3,14 @@ use fireflow_core::api::VersionedTime;
 use fireflow_core::config::Strict;
 use fireflow_core::config::{self, OffsetCorrection};
 use fireflow_core::error;
-use fireflow_core::validated::byteord::*;
+use fireflow_core::text::byteord::*;
+use fireflow_core::text::scale::*;
+use fireflow_core::text::spillover::*;
 use fireflow_core::validated::datepattern::DatePattern;
 use fireflow_core::validated::nonstandard::*;
 use fireflow_core::validated::pattern::*;
 use fireflow_core::validated::ranged_float::*;
-use fireflow_core::validated::scale::*;
 use fireflow_core::validated::shortname::*;
-use fireflow_core::validated::spillover::*;
 use fireflow_core::validated::textdelim::TEXTDelim;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};

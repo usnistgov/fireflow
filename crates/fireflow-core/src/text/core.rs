@@ -2,19 +2,19 @@ use crate::config::*;
 use crate::error::*;
 use crate::header::*;
 use crate::header_text::*;
-use crate::optionalkw::*;
-use crate::validated::byteord::*;
-use crate::validated::datetimes::*;
 use crate::validated::nonstandard::*;
 use crate::validated::pattern::*;
-use crate::validated::scale::*;
 use crate::validated::shortname::*;
-use crate::validated::spillover::*;
-use crate::validated::timestamps::*;
-use crate::validated::unstainedcenters::*;
 
+use super::byteord::*;
+use super::datetimes::*;
 use super::keywords::*;
 use super::named_vec::*;
+use super::optionalkw::*;
+use super::scale::*;
+use super::spillover::*;
+use super::timestamps::*;
+use super::unstainedcenters::*;
 
 use chrono::Timelike;
 use itertools::Itertools;

@@ -2,7 +2,6 @@ use crate::config::*;
 use crate::error::*;
 use crate::header::*;
 use crate::header_text::*;
-use crate::keywords::*;
 use crate::optionalkw::*;
 use crate::validated::byteord::*;
 use crate::validated::datetimes::*;
@@ -14,6 +13,8 @@ use crate::validated::shortname::*;
 use crate::validated::spillover::*;
 use crate::validated::timestamps::*;
 use crate::validated::unstainedcenters::*;
+
+use super::keywords::*;
 
 use chrono::Timelike;
 use itertools::Itertools;

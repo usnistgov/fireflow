@@ -333,19 +333,6 @@ pub(crate) trait Key {
 /// Raw TEXT key/value pairs
 pub(crate) type RawKeywords = HashMap<String, String>;
 
-fn lookup_optional<V: FromStr>(kws: &mut RawKeywords, k: &str) -> Result<OptionalKw<V>, String>
-where
-    <V as FromStr>::Err: fmt::Display,
-{
-    match kws.remove(k) {
-        Some(v) => v
-            .parse()
-            .map(|x| Some(x).into())
-            .map_err(|w| format!("{w} (key={k}, value='{v}')")),
-        None => Ok(None.into()),
-    }
-}
-
 type ReqResult<T> = Result<T, String>;
 type OptResult<T> = Result<OptionalKw<T>, String>;
 
@@ -376,7 +363,7 @@ where
     }
 }
 
-trait Required {
+pub(crate) trait Required {
     fn lookup_req<V>(kws: &mut RawKeywords, k: &str) -> Result<V, String>
     where
         V: FromStr,
@@ -386,7 +373,7 @@ trait Required {
     }
 }
 
-trait Optional {
+pub(crate) trait Optional {
     fn lookup_opt<V>(kws: &mut RawKeywords, k: &str) -> Result<OptionalKw<V>, String>
     where
         V: FromStr,
@@ -1614,7 +1601,7 @@ impl FromStr for Unicode {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut xs = s.split(",");
-        if let Some(page) = xs.next().and_then(|s| s.parse().ok()) {
+        if let Some(page) = xs.next().and_then(|x| x.parse().ok()) {
             let kws: Vec<String> = xs.map(String::from).collect();
             if kws.is_empty() {
                 Err(UnicodeError::Empty)

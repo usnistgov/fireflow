@@ -88,17 +88,116 @@ pub enum Bytes {
     Variable,
 }
 
+pub enum BytesError {
+    Int(ParseIntError),
+    Range,
+    NotOctet,
+}
+
+impl fmt::Display for BytesError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            BytesError::Int(i) => write!(f, "{}", i),
+            BytesError::Range => write!(f, "bit widths over 64 are not supported"),
+            BytesError::NotOctet => write!(f, "bit widths must be octets"),
+        }
+    }
+}
+
+impl FromStr for Bytes {
+    type Err = BytesError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "*" => Ok(Bytes::Variable),
+            _ => s.parse::<u8>().map_err(BytesError::Int).and_then(|x| {
+                if x > 64 {
+                    Err(BytesError::Range)
+                } else if x % 8 > 1 {
+                    Err(BytesError::NotOctet)
+                } else {
+                    Ok(Bytes::Fixed(x / 8))
+                }
+            }),
+        }
+    }
+}
+
+impl fmt::Display for Bytes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Bytes::Fixed(x) => write!(f, "{}", x * 8),
+            Bytes::Variable => write!(f, "*"),
+        }
+    }
+}
+
 /// The values used for the $MODE key (up to 3.1)
 #[derive(Clone, PartialEq, Eq, Serialize)]
 pub enum Mode {
     List,
-    // TODO I have no idea what these even mean and IDK how to support them
     Uncorrelated,
     Correlated,
 }
 
+pub struct ModeError;
+
+impl FromStr for Mode {
+    type Err = ModeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "C" => Ok(Mode::Correlated),
+            "L" => Ok(Mode::List),
+            "U" => Ok(Mode::Uncorrelated),
+            _ => Err(ModeError),
+        }
+    }
+}
+
+impl fmt::Display for Mode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let x = match self {
+            Mode::Correlated => "C",
+            Mode::List => "L",
+            Mode::Uncorrelated => "U",
+        };
+        write!(f, "{}", x)
+    }
+}
+
+impl fmt::Display for ModeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "must be one of 'C', 'L', or 'U'")
+    }
+}
+
 /// The value for the $MODE key, which can only contain 'L' (3.2)
 pub struct Mode3_2;
+
+pub struct Mode3_2Error;
+
+impl FromStr for Mode3_2 {
+    type Err = Mode3_2Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "L" => Ok(Mode3_2),
+            _ => Err(Mode3_2Error),
+        }
+    }
+}
+
+impl fmt::Display for Mode3_2 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "L")
+    }
+}
+impl fmt::Display for Mode3_2Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "can only be 'L'")
+    }
+}
 
 /// The value for the $PnDISPLAY key (3.1+)
 #[derive(Clone, Serialize)]
@@ -109,6 +208,56 @@ pub enum Display {
     // TODO not clear if these can be <0
     /// Logarithmic display (value like 'Logarithmic,<offset>,<decades>')
     Log { offset: f32, decades: f32 },
+}
+
+impl FromStr for Display {
+    type Err = DisplayError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.split(",").collect::<Vec<_>>()[..] {
+            [which, s1, s2] => {
+                let f1 = s1.parse().map_err(DisplayError::FloatError)?;
+                let f2 = s2.parse().map_err(DisplayError::FloatError)?;
+                match which {
+                    "Linear" => Ok(Display::Lin {
+                        lower: f1,
+                        upper: f2,
+                    }),
+                    "Logarithmic" => Ok(Display::Log {
+                        decades: f1,
+                        offset: f2,
+                    }),
+                    _ => Err(DisplayError::InvalidType),
+                }
+            }
+            _ => Err(DisplayError::FormatError),
+        }
+    }
+}
+
+impl fmt::Display for Display {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Display::Lin { lower, upper } => write!(f, "Linear,{lower},{upper}"),
+            Display::Log { offset, decades } => write!(f, "Log,{offset},{decades}"),
+        }
+    }
+}
+
+pub enum DisplayError {
+    FloatError(ParseFloatError),
+    InvalidType,
+    FormatError,
+}
+
+impl fmt::Display for DisplayError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            DisplayError::FloatError(x) => write!(f, "{}", x),
+            DisplayError::InvalidType => write!(f, "Type must be either 'Logarithmic' or 'Linear'"),
+            DisplayError::FormatError => write!(f, "must be like 'string,f1,f2'"),
+        }
+    }
 }
 
 /// The three values for the $PnDATATYPE keyword (3.2+)
@@ -177,6 +326,49 @@ pub struct Calibration3_1 {
     pub unit: String,
 }
 
+impl FromStr for Calibration3_1 {
+    type Err = CalibrationError<CalibrationFormat3_1>;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.split(",").collect::<Vec<_>>()[..] {
+            [svalue, unit] => {
+                let value = svalue.parse().map_err(CalibrationError::Float)?;
+                if value >= 0.0 {
+                    Ok(Calibration3_1 {
+                        value,
+                        unit: String::from(unit),
+                    })
+                } else {
+                    Err(CalibrationError::Range)
+                }
+            }
+            _ => Err(CalibrationError::Format(CalibrationFormat3_1)),
+        }
+    }
+}
+
+impl fmt::Display for Calibration3_1 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{},{}", self.value, self.unit)
+    }
+}
+
+impl fmt::Display for CalibrationFormat3_1 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "must be like 'f,string'")
+    }
+}
+
+impl<C: fmt::Display> fmt::Display for CalibrationError<C> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            CalibrationError::Float(x) => write!(f, "{}", x),
+            CalibrationError::Range => write!(f, "must be a positive float"),
+            CalibrationError::Format(x) => write!(f, "{}", x),
+        }
+    }
+}
+
 /// The value for the $PnCALIBRATION key (3.2+)
 ///
 /// This should be formatted like '<value>,[<offset>,]<unit>' and differs from
@@ -186,6 +378,47 @@ pub struct Calibration3_2 {
     pub value: f32,
     pub offset: f32,
     pub unit: String,
+}
+
+impl FromStr for Calibration3_2 {
+    type Err = CalibrationError<CalibrationFormat3_2>;
+
+    // TODO not dry
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (value, offset, unit) = match s.split(",").collect::<Vec<_>>()[..] {
+            [svalue, unit] => {
+                let f1 = svalue.parse().map_err(CalibrationError::Float)?;
+                Ok((f1, 0.0, String::from(unit)))
+            }
+            [svalue, soffset, unit] => {
+                let f1 = svalue.parse().map_err(CalibrationError::Float)?;
+                let f2 = soffset.parse().map_err(CalibrationError::Float)?;
+                Ok((f1, f2, String::from(unit)))
+            }
+            _ => Err(CalibrationError::Format(CalibrationFormat3_2)),
+        }?;
+        if value >= 0.0 {
+            Ok(Calibration3_2 {
+                value,
+                offset,
+                unit,
+            })
+        } else {
+            Err(CalibrationError::Range)
+        }
+    }
+}
+
+impl fmt::Display for Calibration3_2 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{},{},{}", self.value, self.offset, self.unit)
+    }
+}
+
+impl fmt::Display for CalibrationFormat3_2 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "must be like 'f1,[f2],string'")
+    }
 }
 
 /// The value for the $PnL key (3.1).
@@ -208,6 +441,40 @@ impl Serialize for Wavelengths {
 newtype_from!(Wavelengths, NonEmpty<u32>);
 newtype_from_outer!(Wavelengths, NonEmpty<u32>);
 
+impl fmt::Display for Wavelengths {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{}", self.0.iter().join(","))
+    }
+}
+
+impl FromStr for Wavelengths {
+    type Err = WavelengthsError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut ws = vec![];
+        for x in s.split(",") {
+            ws.push(x.parse().map_err(WavelengthsError::Int)?);
+        }
+        NonEmpty::from_vec(ws)
+            .ok_or(WavelengthsError::Empty)
+            .map(Wavelengths)
+    }
+}
+
+pub enum WavelengthsError {
+    Int(ParseIntError),
+    Empty,
+}
+
+impl fmt::Display for WavelengthsError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            WavelengthsError::Int(i) => write!(f, "{}", i),
+            WavelengthsError::Empty => write!(f, "list must not be empty"),
+        }
+    }
+}
+
 /// The value for the $ORIGINALITY key (3.1+)
 #[derive(Clone, Copy, Serialize)]
 pub enum Originality {
@@ -217,6 +484,44 @@ pub enum Originality {
     DataModified,
 }
 
+impl FromStr for Originality {
+    type Err = OriginalityError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Original" => Ok(Originality::Original),
+            "NonDataModified" => Ok(Originality::NonDataModified),
+            "Appended" => Ok(Originality::Appended),
+            "DataModified" => Ok(Originality::DataModified),
+            _ => Err(OriginalityError),
+        }
+    }
+}
+
+impl fmt::Display for Originality {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let x = match self {
+            Originality::Appended => "Appended",
+            Originality::Original => "Original",
+            Originality::NonDataModified => "NonDataModified",
+            Originality::DataModified => "DataModified",
+        };
+        write!(f, "{x}")
+    }
+}
+
+pub struct OriginalityError;
+
+impl fmt::Display for OriginalityError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "Originality must be one of 'Original', 'NonDataModified', \
+                   'Appended', or 'DataModified'"
+        )
+    }
+}
+
 /// A datetime as used in the $LAST_MODIFIED key (3.1+ only)
 // TODO this should almost certainly be after $ENDDATETIME if given
 #[derive(Clone, Copy, Serialize)]
@@ -224,6 +529,39 @@ pub struct ModifiedDateTime(pub NaiveDateTime);
 
 newtype_from!(ModifiedDateTime, NaiveDateTime);
 newtype_from_outer!(ModifiedDateTime, NaiveDateTime);
+
+impl FromStr for ModifiedDateTime {
+    type Err = ModifiedDateTimeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (dt, cc) = NaiveDateTime::parse_and_remainder(s, "%d-%b-%Y %H:%M:%S")
+            .or(Err(ModifiedDateTimeError))?;
+        if cc.is_empty() {
+            Ok(ModifiedDateTime(dt))
+        } else if cc.len() == 3 && cc.starts_with(".") {
+            let tt: u32 = cc[1..3].parse().or(Err(ModifiedDateTimeError))?;
+            dt.with_nanosecond(tt * 10000000)
+                .map(ModifiedDateTime)
+                .ok_or(ModifiedDateTimeError)
+        } else {
+            Err(ModifiedDateTimeError)
+        }
+    }
+}
+
+impl fmt::Display for ModifiedDateTime {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let dt = self.0.format("%d-%b-%Y %H:%M:%S");
+        let cc = self.0.nanosecond() / 10000000;
+        write!(f, "{dt}.{cc}")
+    }
+}
+
+impl fmt::Display for ModifiedDateTimeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "must be like 'dd-mmm-yyyy hh:mm:ss[.cc]'")
+    }
+}
 
 /// The value of the $UNICODE key (3.0 only)
 ///
@@ -236,6 +574,44 @@ pub struct Unicode {
     page: u32,
     // TODO check that these are valid keywords (probably not worth it)
     kws: Vec<String>,
+}
+
+impl FromStr for Unicode {
+    type Err = UnicodeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut xs = s.split(",");
+        if let Some(page) = xs.next().and_then(|x| x.parse().ok()) {
+            let kws: Vec<String> = xs.map(String::from).collect();
+            if kws.is_empty() {
+                Err(UnicodeError::Empty)
+            } else {
+                Ok(Unicode { page, kws })
+            }
+        } else {
+            Err(UnicodeError::BadFormat)
+        }
+    }
+}
+
+impl fmt::Display for Unicode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{},{}", self.page, self.kws.iter().join(","))
+    }
+}
+
+pub enum UnicodeError {
+    Empty,
+    BadFormat,
+}
+
+impl fmt::Display for UnicodeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            UnicodeError::Empty => write!(f, "No keywords given"),
+            UnicodeError::BadFormat => write!(f, "Must be like 'n,string,[[string],...]'"),
+        }
+    }
 }
 
 // TODO split off Time to time-channel specific struct
@@ -255,12 +631,79 @@ pub enum MeasurementType {
     Other(String),
 }
 
+impl FromStr for MeasurementType {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Forward Scatter" => Ok(MeasurementType::ForwardScatter),
+            "Side Scatter" => Ok(MeasurementType::SideScatter),
+            "Raw Fluorescence" => Ok(MeasurementType::RawFluorescence),
+            "Unmixed Fluorescence" => Ok(MeasurementType::UnmixedFluorescence),
+            "Mass" => Ok(MeasurementType::Mass),
+            "Time" => Ok(MeasurementType::Time),
+            "Electronic Volume" => Ok(MeasurementType::ElectronicVolume),
+            "Index" => Ok(MeasurementType::Index),
+            "Classification" => Ok(MeasurementType::Classification),
+            s => Ok(MeasurementType::Other(String::from(s))),
+        }
+    }
+}
+
+impl fmt::Display for MeasurementType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            MeasurementType::ForwardScatter => write!(f, "Foward Scatter"),
+            MeasurementType::SideScatter => write!(f, "Side Scatter"),
+            MeasurementType::RawFluorescence => write!(f, "Raw Fluorescence"),
+            MeasurementType::UnmixedFluorescence => write!(f, "Unmixed Fluorescence"),
+            MeasurementType::Mass => write!(f, "Mass"),
+            MeasurementType::Time => write!(f, "Time"),
+            MeasurementType::ElectronicVolume => write!(f, "Electronic Volume"),
+            MeasurementType::Classification => write!(f, "Classification"),
+            MeasurementType::Index => write!(f, "Index"),
+            MeasurementType::Other(s) => write!(f, "{}", s),
+        }
+    }
+}
+
 /// The value of the $PnFEATURE key (3.2+)
 #[derive(Clone, Serialize)]
 pub enum Feature {
     Area,
     Width,
     Height,
+}
+
+impl FromStr for Feature {
+    type Err = FeatureError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Area" => Ok(Feature::Area),
+            "Width" => Ok(Feature::Width),
+            "Height" => Ok(Feature::Height),
+            _ => Err(FeatureError),
+        }
+    }
+}
+
+impl fmt::Display for Feature {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Feature::Area => write!(f, "Area"),
+            Feature::Width => write!(f, "Width"),
+            Feature::Height => write!(f, "Height"),
+        }
+    }
+}
+
+pub struct FeatureError;
+
+impl fmt::Display for FeatureError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "must be one of 'Area', 'Width', or 'Height'")
+    }
 }
 
 pub(crate) trait IndexedKey {
@@ -981,14 +1424,6 @@ impl fmt::Display for NumTypeError {
 pub struct AlphaNumTypeError;
 pub struct NumTypeError;
 pub struct ModifiedDateTimeError;
-pub struct FeatureError;
-pub struct OriginalityError;
-
-pub enum BytesError {
-    Int(ParseIntError),
-    Range,
-    NotOctet,
-}
 
 pub enum CalibrationError<C> {
     Float(ParseFloatError),
@@ -998,26 +1433,6 @@ pub enum CalibrationError<C> {
 
 pub struct CalibrationFormat3_1;
 pub struct CalibrationFormat3_2;
-
-pub enum UnicodeError {
-    Empty,
-    BadFormat,
-}
-
-pub enum DisplayError {
-    FloatError(ParseFloatError),
-    InvalidType,
-    FormatError,
-}
-
-pub struct ModeError;
-
-pub enum RangeError {
-    Int(ParseIntError),
-    Float(ParseFloatError),
-}
-
-pub struct Mode3_2Error;
 
 pub(crate) trait Linked
 where
@@ -1081,39 +1496,6 @@ impl Linked for UnstainedCenters {
     }
 }
 
-impl FromStr for ModifiedDateTime {
-    type Err = ModifiedDateTimeError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (dt, cc) = NaiveDateTime::parse_and_remainder(s, "%d-%b-%Y %H:%M:%S")
-            .or(Err(ModifiedDateTimeError))?;
-        if cc.is_empty() {
-            Ok(ModifiedDateTime(dt))
-        } else if cc.len() == 3 && cc.starts_with(".") {
-            let tt: u32 = cc[1..3].parse().or(Err(ModifiedDateTimeError))?;
-            dt.with_nanosecond(tt * 10000000)
-                .map(ModifiedDateTime)
-                .ok_or(ModifiedDateTimeError)
-        } else {
-            Err(ModifiedDateTimeError)
-        }
-    }
-}
-
-impl fmt::Display for ModifiedDateTime {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let dt = self.0.format("%d-%b-%Y %H:%M:%S");
-        let cc = self.0.nanosecond() / 10000000;
-        write!(f, "{dt}.{cc}")
-    }
-}
-
-impl fmt::Display for ModifiedDateTimeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "must be like 'dd-mmm-yyyy hh:mm:ss[.cc]'")
-    }
-}
-
 // the "%b" format is case-insensitive so this should work for "Jan", "JAN",
 // "jan", "jaN", etc
 const FCS_DATE_FORMAT: &str = "%d-%b-%Y";
@@ -1137,401 +1519,6 @@ impl fmt::Display for FCSDate {
 impl fmt::Display for FCSDateError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "must be like 'dd-mmm-yyyy'")
-    }
-}
-
-impl fmt::Display for DisplayError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            DisplayError::FloatError(x) => write!(f, "{}", x),
-            DisplayError::InvalidType => write!(f, "Type must be either 'Logarithmic' or 'Linear'"),
-            DisplayError::FormatError => write!(f, "must be like 'string,f1,f2'"),
-        }
-    }
-}
-
-impl FromStr for Display {
-    type Err = DisplayError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.split(",").collect::<Vec<_>>()[..] {
-            [which, s1, s2] => {
-                let f1 = s1.parse().map_err(DisplayError::FloatError)?;
-                let f2 = s2.parse().map_err(DisplayError::FloatError)?;
-                match which {
-                    "Linear" => Ok(Display::Lin {
-                        lower: f1,
-                        upper: f2,
-                    }),
-                    "Logarithmic" => Ok(Display::Log {
-                        decades: f1,
-                        offset: f2,
-                    }),
-                    _ => Err(DisplayError::InvalidType),
-                }
-            }
-            _ => Err(DisplayError::FormatError),
-        }
-    }
-}
-
-impl fmt::Display for Display {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Display::Lin { lower, upper } => write!(f, "Linear,{lower},{upper}"),
-            Display::Log { offset, decades } => write!(f, "Log,{offset},{decades}"),
-        }
-    }
-}
-
-impl fmt::Display for CalibrationFormat3_1 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "must be like 'f,string'")
-    }
-}
-
-impl fmt::Display for CalibrationFormat3_2 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "must be like 'f1,[f2],string'")
-    }
-}
-
-impl<C: fmt::Display> fmt::Display for CalibrationError<C> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            CalibrationError::Float(x) => write!(f, "{}", x),
-            CalibrationError::Range => write!(f, "must be a positive float"),
-            CalibrationError::Format(x) => write!(f, "{}", x),
-        }
-    }
-}
-
-impl FromStr for Calibration3_1 {
-    type Err = CalibrationError<CalibrationFormat3_1>;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.split(",").collect::<Vec<_>>()[..] {
-            [svalue, unit] => {
-                let value = svalue.parse().map_err(CalibrationError::Float)?;
-                if value >= 0.0 {
-                    Ok(Calibration3_1 {
-                        value,
-                        unit: String::from(unit),
-                    })
-                } else {
-                    Err(CalibrationError::Range)
-                }
-            }
-            _ => Err(CalibrationError::Format(CalibrationFormat3_1)),
-        }
-    }
-}
-
-impl fmt::Display for Calibration3_1 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{},{}", self.value, self.unit)
-    }
-}
-
-impl FromStr for Calibration3_2 {
-    type Err = CalibrationError<CalibrationFormat3_2>;
-
-    // TODO not dry
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (value, offset, unit) = match s.split(",").collect::<Vec<_>>()[..] {
-            [svalue, unit] => {
-                let f1 = svalue.parse().map_err(CalibrationError::Float)?;
-                Ok((f1, 0.0, String::from(unit)))
-            }
-            [svalue, soffset, unit] => {
-                let f1 = svalue.parse().map_err(CalibrationError::Float)?;
-                let f2 = soffset.parse().map_err(CalibrationError::Float)?;
-                Ok((f1, f2, String::from(unit)))
-            }
-            _ => Err(CalibrationError::Format(CalibrationFormat3_2)),
-        }?;
-        if value >= 0.0 {
-            Ok(Calibration3_2 {
-                value,
-                offset,
-                unit,
-            })
-        } else {
-            Err(CalibrationError::Range)
-        }
-    }
-}
-
-impl fmt::Display for Calibration3_2 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{},{},{}", self.value, self.offset, self.unit)
-    }
-}
-
-impl FromStr for MeasurementType {
-    type Err = std::convert::Infallible;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "Forward Scatter" => Ok(MeasurementType::ForwardScatter),
-            "Side Scatter" => Ok(MeasurementType::SideScatter),
-            "Raw Fluorescence" => Ok(MeasurementType::RawFluorescence),
-            "Unmixed Fluorescence" => Ok(MeasurementType::UnmixedFluorescence),
-            "Mass" => Ok(MeasurementType::Mass),
-            "Time" => Ok(MeasurementType::Time),
-            "Electronic Volume" => Ok(MeasurementType::ElectronicVolume),
-            "Index" => Ok(MeasurementType::Index),
-            "Classification" => Ok(MeasurementType::Classification),
-            s => Ok(MeasurementType::Other(String::from(s))),
-        }
-    }
-}
-
-impl fmt::Display for MeasurementType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            MeasurementType::ForwardScatter => write!(f, "Foward Scatter"),
-            MeasurementType::SideScatter => write!(f, "Side Scatter"),
-            MeasurementType::RawFluorescence => write!(f, "Raw Fluorescence"),
-            MeasurementType::UnmixedFluorescence => write!(f, "Unmixed Fluorescence"),
-            MeasurementType::Mass => write!(f, "Mass"),
-            MeasurementType::Time => write!(f, "Time"),
-            MeasurementType::ElectronicVolume => write!(f, "Electronic Volume"),
-            MeasurementType::Classification => write!(f, "Classification"),
-            MeasurementType::Index => write!(f, "Index"),
-            MeasurementType::Other(s) => write!(f, "{}", s),
-        }
-    }
-}
-
-impl fmt::Display for FeatureError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "must be one of 'Area', 'Width', or 'Height'")
-    }
-}
-
-impl FromStr for Feature {
-    type Err = FeatureError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "Area" => Ok(Feature::Area),
-            "Width" => Ok(Feature::Width),
-            "Height" => Ok(Feature::Height),
-            _ => Err(FeatureError),
-        }
-    }
-}
-
-impl fmt::Display for Feature {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Feature::Area => write!(f, "Area"),
-            Feature::Width => write!(f, "Width"),
-            Feature::Height => write!(f, "Height"),
-        }
-    }
-}
-
-impl fmt::Display for Wavelengths {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}", self.0.iter().join(","))
-    }
-}
-
-impl FromStr for Wavelengths {
-    type Err = WavelengthsError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut ws = vec![];
-        for x in s.split(",") {
-            ws.push(x.parse().map_err(WavelengthsError::Int)?);
-        }
-        NonEmpty::from_vec(ws)
-            .ok_or(WavelengthsError::Empty)
-            .map(Wavelengths)
-    }
-}
-
-pub enum WavelengthsError {
-    Int(ParseIntError),
-    Empty,
-}
-
-impl fmt::Display for WavelengthsError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            WavelengthsError::Int(i) => write!(f, "{}", i),
-            WavelengthsError::Empty => write!(f, "list must not be empty"),
-        }
-    }
-}
-
-impl fmt::Display for BytesError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            BytesError::Int(i) => write!(f, "{}", i),
-            BytesError::Range => write!(f, "bit widths over 64 are not supported"),
-            BytesError::NotOctet => write!(f, "bit widths must be octets"),
-        }
-    }
-}
-
-impl FromStr for Bytes {
-    type Err = BytesError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "*" => Ok(Bytes::Variable),
-            _ => s.parse::<u8>().map_err(BytesError::Int).and_then(|x| {
-                if x > 64 {
-                    Err(BytesError::Range)
-                } else if x % 8 > 1 {
-                    Err(BytesError::NotOctet)
-                } else {
-                    Ok(Bytes::Fixed(x / 8))
-                }
-            }),
-        }
-    }
-}
-
-impl fmt::Display for Bytes {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Bytes::Fixed(x) => write!(f, "{}", x * 8),
-            Bytes::Variable => write!(f, "*"),
-        }
-    }
-}
-
-impl fmt::Display for RangeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            RangeError::Int(x) => write!(f, "{x}"),
-            RangeError::Float(x) => write!(f, "{x}"),
-        }
-    }
-}
-
-impl fmt::Display for OriginalityError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "Originality must be one of 'Original', 'NonDataModified', \
-                   'Appended', or 'DataModified'"
-        )
-    }
-}
-
-impl FromStr for Originality {
-    type Err = OriginalityError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "Original" => Ok(Originality::Original),
-            "NonDataModified" => Ok(Originality::NonDataModified),
-            "Appended" => Ok(Originality::Appended),
-            "DataModified" => Ok(Originality::DataModified),
-            _ => Err(OriginalityError),
-        }
-    }
-}
-
-impl fmt::Display for Originality {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let x = match self {
-            Originality::Appended => "Appended",
-            Originality::Original => "Original",
-            Originality::NonDataModified => "NonDataModified",
-            Originality::DataModified => "DataModified",
-        };
-        write!(f, "{x}")
-    }
-}
-
-impl fmt::Display for UnicodeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            UnicodeError::Empty => write!(f, "No keywords given"),
-            UnicodeError::BadFormat => write!(f, "Must be like 'n,string,[[string],...]'"),
-        }
-    }
-}
-
-impl FromStr for Unicode {
-    type Err = UnicodeError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut xs = s.split(",");
-        if let Some(page) = xs.next().and_then(|x| x.parse().ok()) {
-            let kws: Vec<String> = xs.map(String::from).collect();
-            if kws.is_empty() {
-                Err(UnicodeError::Empty)
-            } else {
-                Ok(Unicode { page, kws })
-            }
-        } else {
-            Err(UnicodeError::BadFormat)
-        }
-    }
-}
-
-impl fmt::Display for Unicode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{},{}", self.page, self.kws.iter().join(","))
-    }
-}
-
-impl FromStr for Mode {
-    type Err = ModeError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "C" => Ok(Mode::Correlated),
-            "L" => Ok(Mode::List),
-            "U" => Ok(Mode::Uncorrelated),
-            _ => Err(ModeError),
-        }
-    }
-}
-
-impl fmt::Display for Mode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let x = match self {
-            Mode::Correlated => "C",
-            Mode::List => "L",
-            Mode::Uncorrelated => "U",
-        };
-        write!(f, "{}", x)
-    }
-}
-
-impl fmt::Display for ModeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "must be one of 'C', 'L', or 'U'")
-    }
-}
-
-impl FromStr for Mode3_2 {
-    type Err = Mode3_2Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "L" => Ok(Mode3_2),
-            _ => Err(Mode3_2Error),
-        }
-    }
-}
-
-impl fmt::Display for Mode3_2 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "L")
-    }
-}
-impl fmt::Display for Mode3_2Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "can only be 'L'")
     }
 }
 

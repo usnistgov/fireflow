@@ -1669,7 +1669,7 @@ macro_rules! common_methods {
 
             #[getter]
             fn trigger_threshold(&self) -> Option<u32> {
-                self.0.$($root.)*metadata.tr.as_ref_opt().map(|x| x.threshold)
+                self.0.$($root.)*trigger_threshold()
             }
 
             #[setter]

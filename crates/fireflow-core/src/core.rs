@@ -115,9 +115,7 @@ pub struct Metadata<X> {
     pub sys: OptionalKw<Sys>,
 
     /// Value of $TR
-    // TODO nothing is stopping me/anyone from reassigning an entirely new
-    // trigger with bad state
-    pub tr: OptionalKw<Trigger>,
+    tr: OptionalKw<Trigger>,
 
     /// Version-specific data
     pub specific: X,
@@ -1287,6 +1285,11 @@ where
     /// Get measurement name for $TR keyword
     pub fn trigger_name(&self) -> Option<&Shortname> {
         self.metadata.tr.as_ref_opt().map(|x| &x.measurement)
+    }
+
+    /// Get threshold for $TR keyword
+    pub fn trigger_threshold(&self) -> Option<u32> {
+        self.metadata.tr.as_ref_opt().map(|x| x.threshold)
     }
 
     // TODO return an error for these since returning false is less obvious

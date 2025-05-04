@@ -480,7 +480,10 @@ where
         }
     }
 
-    fn lookup_time_channel(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
+    fn lookup_time_channel(st: &mut KwParser, i: MeasIdx) -> Option<Self>
+    where
+        T: LookupTime,
+    {
         if let (Some(bytes), Some(range), Some(specific)) = (
             st.lookup_meas_req(i),
             st.lookup_meas_req(i),
@@ -591,7 +594,10 @@ where
     //     self.longname = n.map(|y| y.into()).into();
     // }
 
-    fn lookup_measurement(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
+    fn lookup_measurement(st: &mut KwParser, i: MeasIdx) -> Option<Self>
+    where
+        P: LookupMeasurement,
+    {
         let v = P::fcs_version();
         if let (Some(bytes), Some(range), Some(specific)) = (
             st.lookup_meas_req(i),
@@ -747,7 +753,10 @@ where
             })
     }
 
-    fn lookup_metadata(st: &mut KwParser, ms: &Measurements<M::N, M::T, M::P>) -> Option<Self> {
+    fn lookup_metadata(st: &mut KwParser, ms: &Measurements<M::N, M::T, M::P>) -> Option<Self>
+    where
+        M: LookupMetadata,
+    {
         let par = Par(ms.len());
         st.lookup_meta_req()
             .zip(M::lookup_specific(st, par))
@@ -860,15 +869,19 @@ pub trait Versioned {
     fn fcs_version() -> Version;
 }
 
-pub trait VersionedMetadata: Sized {
-    type P: VersionedMeasurement;
-    type T: VersionedTime;
-    type N: MightHave;
-
+pub(crate) trait LookupMetadata: Sized + VersionedMetadata {
     fn lookup_shortname(
         st: &mut KwParser,
         n: MeasIdx,
     ) -> Option<<Self::N as MightHave>::Wrapper<Shortname>>;
+
+    fn lookup_specific(st: &mut KwParser, par: Par) -> Option<Self>;
+}
+
+pub trait VersionedMetadata: Sized {
+    type P: VersionedMeasurement;
+    type T: VersionedTime;
+    type N: MightHave;
 
     fn as_unstainedcenters(&self) -> Option<&UnstainedCenters>;
 
@@ -894,9 +907,6 @@ pub trait VersionedMetadata: Sized {
 
     fn byteord(&self) -> ByteOrd;
 
-    // TODO fix viz
-    fn lookup_specific(st: &mut KwParser, par: Par) -> Option<Self>;
-
     fn lookup_tot(kws: &mut RawKeywords) -> PureMaybe<Tot>;
 
     fn keywords_req_inner(&self) -> RawPairs;
@@ -905,8 +915,6 @@ pub trait VersionedMetadata: Sized {
 }
 
 pub trait VersionedMeasurement: Sized + Versioned {
-    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self>;
-
     fn req_suffixes_inner(&self, n: MeasIdx) -> RawTriples;
 
     fn opt_suffixes_inner(&self, n: MeasIdx) -> RawOptTriples;
@@ -914,9 +922,11 @@ pub trait VersionedMeasurement: Sized + Versioned {
     fn datatype(&self) -> Option<NumType>;
 }
 
-pub trait VersionedTime: Sized {
+pub(crate) trait LookupMeasurement: Sized + VersionedMeasurement {
     fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self>;
+}
 
+pub trait VersionedTime: Sized {
     fn timestep(&self) -> Option<Timestep>;
 
     fn set_timestep(&mut self, ts: Timestep);
@@ -924,6 +934,10 @@ pub trait VersionedTime: Sized {
     fn req_meta_keywords_inner(&self) -> RawPairs;
 
     fn opt_meas_keywords_inner(&self, _: MeasIdx) -> RawOptPairs;
+}
+
+pub(crate) trait LookupTime: VersionedTime {
+    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self>;
 }
 
 pub(crate) type RawPairs = Vec<(String, String)>;
@@ -955,26 +969,6 @@ pub(crate) struct KwParser<'a, 'b> {
 }
 
 impl<'a, 'b> KwParser<'a, 'b> {
-    /// Run a computation within a keyword lookup context.
-    ///
-    /// The computation must return a result, although it may record deferred
-    /// errors along the way which will be returned.
-    ///
-    /// Any errors which are logged must be pushed into the state's error buffer
-    /// directly, as errors are not allowed to be returned by the inner
-    /// computation.
-    fn run<X, F>(kws: &'b mut RawKeywords, conf: &'a StdTextReadConfig, f: F) -> PureSuccess<X>
-    where
-        F: FnOnce(&mut Self) -> X,
-    {
-        let mut st = Self::from(kws, conf);
-        let data = f(&mut st);
-        PureSuccess {
-            data,
-            deferred: st.collect(),
-        }
-    }
-
     /// Run a computation within a keyword lookup context which may fail.
     ///
     /// This is like 'run' except the computation may not return anything (None)
@@ -1357,30 +1351,6 @@ pub struct CarrierData {
 type Measurements<N, T, P> =
     NamedVec<N, <N as MightHave>::Wrapper<Shortname>, TimeChannel<T>, Measurement<P>>;
 
-macro_rules! get_set_copied {
-    ($get:ident, $set:ident, $t:ty) => {
-        pub fn $get(&self) -> Option<$t> {
-            self.metadata.$get.0.as_ref().copied()
-        }
-
-        pub fn $set(&mut self, x: Option<$t>) {
-            self.metadata.$get = x.into();
-        }
-    };
-}
-
-macro_rules! get_set_str {
-    ($get:ident, $set:ident) => {
-        pub fn $get(&self) -> Option<&str> {
-            self.metadata.$get.0.as_ref().map(|x| x.0.as_str())
-        }
-
-        pub fn $set(&mut self, x: Option<String>) {
-            self.metadata.$get = x.map(|y| y.into()).into();
-        }
-    };
-}
-
 macro_rules! non_time_get_set {
     ($get:ident, $set:ident, $ty:ident, [$($root:ident)*], $field:ident, $kw:ident) => {
         /// Get $$kw value for all non-time measurements
@@ -1457,7 +1427,15 @@ macro_rules! scale_get_set {
     };
 }
 
-impl<M> CoreTEXT<M, M::T, M::P, M::N, <M::N as MightHave>::Wrapper<Shortname>>
+type VersionedCoreTEXT<M> = CoreTEXT<
+    M,
+    <M as VersionedMetadata>::T,
+    <M as VersionedMetadata>::P,
+    <M as VersionedMetadata>::N,
+    <<M as VersionedMetadata>::N as MightHave>::Wrapper<Shortname>,
+>;
+
+impl<M> VersionedCoreTEXT<M>
 where
     M: VersionedMetadata,
     M::N: Clone,
@@ -1992,7 +1970,7 @@ where
         let meas: Vec<_> = self
             .measurements
             .iter_non_center_values()
-            .flat_map(|(i, m)| f_meas(m, i.into()))
+            .flat_map(|(i, m)| f_meas(m, i))
             .collect();
         let (time_meas, time_meta) = self
             .measurements
@@ -2093,7 +2071,12 @@ where
         par: Par,
         pat: Option<&TimePattern>,
         prefix: &ShortnamePrefix,
-    ) -> Option<Measurements<M::N, M::T, M::P>> {
+    ) -> Option<Measurements<M::N, M::T, M::P>>
+    where
+        M: LookupMetadata,
+        M::T: LookupTime,
+        M::P: LookupMeasurement,
+    {
         let ps: Vec<_> = (0..par.0)
             .flat_map(|n| {
                 let i = n.into();
@@ -2135,10 +2118,12 @@ where
         }
     }
 
-    pub(crate) fn new_from_raw(
-        kws: &mut RawKeywords,
-        conf: &StdTextReadConfig,
-    ) -> PureResult<Self> {
+    pub(crate) fn new_from_raw(kws: &mut RawKeywords, conf: &StdTextReadConfig) -> PureResult<Self>
+    where
+        M: LookupMetadata,
+        M::T: LookupTime,
+        M::P: LookupMeasurement,
+    {
         // Lookup $PAR first; everything depends on this since we need to know
         // the number of measurements to find which are used in turn for
         // validating lots of keywords in metadata. If we fail we need to bail.
@@ -2211,9 +2196,7 @@ where
     }
 
     // TODO this is basically tryfrom
-    pub fn try_convert<ToM>(
-        self,
-    ) -> PureResult<CoreTEXT<ToM, ToM::T, ToM::P, ToM::N, <ToM::N as MightHave>::Wrapper<Shortname>>>
+    pub fn try_convert<ToM>(self) -> PureResult<VersionedCoreTEXT<ToM>>
     where
         M::N: Clone,
         ToM: VersionedMetadata,
@@ -2229,7 +2212,7 @@ where
         let ps = self
             .measurements
             .map_non_center_values(|i, v| v.try_convert(i.into()))
-            .map(|x| x.map_center_value(|x| x.value.convert()));
+            .map(|x| x.map_center_value(|y| y.value.convert()));
         let m = self.metadata.try_convert();
         let res = match (m, ps) {
             (Ok(metadata), Ok(old_ps)) => {
@@ -3333,12 +3316,12 @@ impl TryFrom<InnerMetadata2_0> for InnerMetadata3_2 {
 
     fn try_from(value: InnerMetadata2_0) -> Result<Self, Self::Error> {
         // TODO what happens if $MODE is not list?
-        let b = value
+        let bord = value
             .byteord
             .try_into()
             .map_err(MetaConvertError::BadByteOrd);
         let c = value.cyt.0.ok_or(MetaConvertError::NoCyt);
-        match (b, c) {
+        match (bord, c) {
             (Ok(byteord), Ok(cyt)) => Ok(InnerMetadata3_2 {
                 byteord,
                 cyt,
@@ -3362,12 +3345,12 @@ impl TryFrom<InnerMetadata3_0> for InnerMetadata3_2 {
     type Error = MetaConvertErrors;
 
     fn try_from(value: InnerMetadata3_0) -> Result<Self, Self::Error> {
-        let b = value
+        let bord = value
             .byteord
             .try_into()
             .map_err(MetaConvertError::BadByteOrd);
         let c = value.cyt.0.ok_or(MetaConvertError::NoCyt);
-        match (b, c) {
+        match (bord, c) {
             (Ok(byteord), Ok(cyt)) => Ok({
                 InnerMetadata3_2 {
                     byteord,
@@ -3666,16 +3649,18 @@ impl Versioned for InnerMeasurement3_2 {
     }
 }
 
-impl VersionedMeasurement for InnerMeasurement2_0 {
-    fn datatype(&self) -> Option<NumType> {
-        None
-    }
-
+impl LookupMeasurement for InnerMeasurement2_0 {
     fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self> {
         Some(Self {
             scale: st.lookup_meas_opt(n, false),
             wavelength: st.lookup_meas_opt(n, false),
         })
+    }
+}
+
+impl VersionedMeasurement for InnerMeasurement2_0 {
+    fn datatype(&self) -> Option<NumType> {
+        None
     }
 
     fn req_suffixes_inner(&self, _: MeasIdx) -> RawTriples {
@@ -3693,17 +3678,19 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
     }
 }
 
-impl VersionedMeasurement for InnerMeasurement3_0 {
-    fn datatype(&self) -> Option<NumType> {
-        None
-    }
-
+impl LookupMeasurement for InnerMeasurement3_0 {
     fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self> {
         Some(Self {
             scale: st.lookup_meas_req(n)?,
             gain: st.lookup_meas_opt(n, false),
             wavelength: st.lookup_meas_opt(n, false),
         })
+    }
+}
+
+impl VersionedMeasurement for InnerMeasurement3_0 {
+    fn datatype(&self) -> Option<NumType> {
+        None
     }
 
     fn req_suffixes_inner(&self, n: MeasIdx) -> RawTriples {
@@ -3720,11 +3707,7 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
     }
 }
 
-impl VersionedMeasurement for InnerMeasurement3_1 {
-    fn datatype(&self) -> Option<NumType> {
-        None
-    }
-
+impl LookupMeasurement for InnerMeasurement3_1 {
     fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self> {
         if let Some(scale) = st.lookup_meas_req(n) {
             Some(Self {
@@ -3737,6 +3720,12 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
         } else {
             None
         }
+    }
+}
+
+impl VersionedMeasurement for InnerMeasurement3_1 {
+    fn datatype(&self) -> Option<NumType> {
+        None
     }
 
     fn req_suffixes_inner(&self, n: MeasIdx) -> RawTriples {
@@ -3755,11 +3744,7 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
     }
 }
 
-impl VersionedMeasurement for InnerMeasurement3_2 {
-    fn datatype(&self) -> Option<NumType> {
-        self.datatype.0.as_ref().copied()
-    }
-
+impl LookupMeasurement for InnerMeasurement3_2 {
     fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
         let measurement_type: OptionalKw<MeasurementType> = st.lookup_meas_opt(i, false);
         if measurement_type
@@ -3788,6 +3773,12 @@ impl VersionedMeasurement for InnerMeasurement3_2 {
             None
         }
     }
+}
+
+impl VersionedMeasurement for InnerMeasurement3_2 {
+    fn datatype(&self) -> Option<NumType> {
+        self.datatype.0.as_ref().copied()
+    }
 
     fn req_suffixes_inner(&self, n: MeasIdx) -> RawTriples {
         [self.scale.triple(n)].into_iter().collect()
@@ -3811,7 +3802,7 @@ impl VersionedMeasurement for InnerMeasurement3_2 {
     }
 }
 
-impl VersionedTime for InnerTime2_0 {
+impl LookupTime for InnerTime2_0 {
     fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
         let scale: OptionalKw<Scale> = st.lookup_meas_opt(i, false);
         if scale.0.is_some_and(|x| x != Scale::Linear) {
@@ -3820,12 +3811,14 @@ impl VersionedTime for InnerTime2_0 {
         }
         Some(Self)
     }
+}
 
+impl VersionedTime for InnerTime2_0 {
     fn timestep(&self) -> Option<Timestep> {
         None
     }
 
-    fn set_timestep(&mut self, ts: Timestep) {}
+    fn set_timestep(&mut self, _: Timestep) {}
 
     fn req_meta_keywords_inner(&self) -> RawPairs {
         vec![]
@@ -3836,7 +3829,7 @@ impl VersionedTime for InnerTime2_0 {
     }
 }
 
-impl VersionedTime for InnerTime3_0 {
+impl LookupTime for InnerTime3_0 {
     fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
         let scale: Option<Scale> = st.lookup_meas_req(i);
         if scale.is_some_and(|x| x != Scale::Linear) {
@@ -3850,7 +3843,9 @@ impl VersionedTime for InnerTime3_0 {
         }
         st.lookup_meta_req().map(|timestep| Self { timestep })
     }
+}
 
+impl VersionedTime for InnerTime3_0 {
     fn timestep(&self) -> Option<Timestep> {
         Some(self.timestep)
     }
@@ -3868,7 +3863,7 @@ impl VersionedTime for InnerTime3_0 {
     }
 }
 
-impl VersionedTime for InnerTime3_1 {
+impl LookupTime for InnerTime3_1 {
     fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
         // TODO not DRY
         let scale: Option<Scale> = st.lookup_meas_req(i);
@@ -3886,7 +3881,9 @@ impl VersionedTime for InnerTime3_1 {
             display: st.lookup_meas_opt(i, false),
         })
     }
+}
 
+impl VersionedTime for InnerTime3_1 {
     fn timestep(&self) -> Option<Timestep> {
         Some(self.timestep)
     }
@@ -3904,7 +3901,7 @@ impl VersionedTime for InnerTime3_1 {
     }
 }
 
-impl VersionedTime for InnerTime3_2 {
+impl LookupTime for InnerTime3_2 {
     fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
         let scale: Option<Scale> = st.lookup_meas_req(i);
         if scale.is_some_and(|x| x != Scale::Linear) {
@@ -3927,7 +3924,9 @@ impl VersionedTime for InnerTime3_2 {
             datatype: st.lookup_meas_opt(i, false),
         })
     }
+}
 
+impl VersionedTime for InnerTime3_2 {
     fn timestep(&self) -> Option<Timestep> {
         Some(self.timestep)
     }
@@ -3995,6 +3994,31 @@ type Timestamps2_0 = Timestamps<FCSTime>;
 type Timestamps3_0 = Timestamps<FCSTime60>;
 type Timestamps3_1 = Timestamps<FCSTime100>;
 
+impl LookupMetadata for InnerMetadata2_0 {
+    fn lookup_shortname(
+        st: &mut KwParser,
+        n: MeasIdx,
+    ) -> Option<<Self::N as MightHave>::Wrapper<Shortname>> {
+        Some(st.lookup_meas_opt(n, false))
+    }
+
+    fn lookup_specific(st: &mut KwParser, par: Par) -> Option<InnerMetadata2_0> {
+        let maybe_mode = st.lookup_meta_req();
+        let maybe_byteord = st.lookup_meta_req();
+        if let (Some(mode), Some(byteord)) = (maybe_mode, maybe_byteord) {
+            Some(InnerMetadata2_0 {
+                mode,
+                byteord,
+                cyt: st.lookup_meta_opt(false),
+                comp: st.lookup_compensation_2_0(par),
+                timestamps: st.lookup_timestamps(false),
+            })
+        } else {
+            None
+        }
+    }
+}
+
 impl VersionedMetadata for InnerMetadata2_0 {
     type P = InnerMeasurement2_0;
     type T = InnerTime2_0;
@@ -4045,29 +4069,6 @@ impl VersionedMetadata for InnerMetadata2_0 {
         true
     }
 
-    fn lookup_shortname(
-        st: &mut KwParser,
-        n: MeasIdx,
-    ) -> Option<<Self::N as MightHave>::Wrapper<Shortname>> {
-        Some(st.lookup_meas_opt(n, false))
-    }
-
-    fn lookup_specific(st: &mut KwParser, par: Par) -> Option<InnerMetadata2_0> {
-        let maybe_mode = st.lookup_meta_req();
-        let maybe_byteord = st.lookup_meta_req();
-        if let (Some(mode), Some(byteord)) = (maybe_mode, maybe_byteord) {
-            Some(InnerMetadata2_0 {
-                mode,
-                byteord,
-                cyt: st.lookup_meta_opt(false),
-                comp: st.lookup_compensation_2_0(par),
-                timestamps: st.lookup_timestamps(false),
-            })
-        } else {
-            None
-        }
-    }
-
     fn lookup_tot(kws: &mut RawKeywords) -> PureMaybe<Tot> {
         Tot::lookup_meta_opt(kws).map_or_else(
             |e| {
@@ -4096,6 +4097,33 @@ impl VersionedMetadata for InnerMetadata2_0 {
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))
         .collect()
+    }
+}
+
+impl LookupMetadata for InnerMetadata3_0 {
+    fn lookup_shortname(
+        st: &mut KwParser,
+        n: MeasIdx,
+    ) -> Option<<Self::N as MightHave>::Wrapper<Shortname>> {
+        Some(st.lookup_meas_opt(n, false))
+    }
+
+    fn lookup_specific(st: &mut KwParser, _: Par) -> Option<InnerMetadata3_0> {
+        let maybe_mode = st.lookup_meta_req();
+        let maybe_byteord = st.lookup_meta_req();
+        if let (Some(mode), Some(byteord)) = (maybe_mode, maybe_byteord) {
+            Some(InnerMetadata3_0 {
+                mode,
+                byteord,
+                cyt: st.lookup_meta_opt(false),
+                comp: st.lookup_meta_opt(false),
+                cytsn: st.lookup_meta_opt(false),
+                unicode: st.lookup_meta_opt(false),
+                timestamps: st.lookup_timestamps(false),
+            })
+        } else {
+            None
+        }
     }
 }
 
@@ -4153,31 +4181,6 @@ impl VersionedMetadata for InnerMetadata3_0 {
         true
     }
 
-    fn lookup_shortname(
-        st: &mut KwParser,
-        n: MeasIdx,
-    ) -> Option<<Self::N as MightHave>::Wrapper<Shortname>> {
-        Some(st.lookup_meas_opt(n, false))
-    }
-
-    fn lookup_specific(st: &mut KwParser, _: Par) -> Option<InnerMetadata3_0> {
-        let maybe_mode = st.lookup_meta_req();
-        let maybe_byteord = st.lookup_meta_req();
-        if let (Some(mode), Some(byteord)) = (maybe_mode, maybe_byteord) {
-            Some(InnerMetadata3_0 {
-                mode,
-                byteord,
-                cyt: st.lookup_meta_opt(false),
-                comp: st.lookup_meta_opt(false),
-                cytsn: st.lookup_meta_opt(false),
-                unicode: st.lookup_meta_opt(false),
-                timestamps: st.lookup_timestamps(false),
-            })
-        } else {
-            None
-        }
-    }
-
     fn keywords_req_inner(&self) -> RawPairs {
         [self.mode.pair(), self.byteord.pair()]
             .into_iter()
@@ -4198,6 +4201,35 @@ impl VersionedMetadata for InnerMetadata3_0 {
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))
         .collect()
+    }
+}
+
+impl LookupMetadata for InnerMetadata3_1 {
+    fn lookup_shortname(
+        st: &mut KwParser,
+        n: MeasIdx,
+    ) -> Option<<Self::N as MightHave>::Wrapper<Shortname>> {
+        st.lookup_meas_req(n).map(Identity)
+    }
+
+    fn lookup_specific(st: &mut KwParser, _: Par) -> Option<InnerMetadata3_1> {
+        let maybe_mode = st.lookup_meta_req();
+        let maybe_byteord = st.lookup_meta_req();
+        if let (Some(mode), Some(byteord)) = (maybe_mode, maybe_byteord) {
+            Some(InnerMetadata3_1 {
+                mode,
+                byteord,
+                cyt: st.lookup_meta_opt(false),
+                spillover: st.lookup_meta_opt(false),
+                cytsn: st.lookup_meta_opt(false),
+                vol: st.lookup_meta_opt(false),
+                modification: st.lookup_modification(),
+                timestamps: st.lookup_timestamps(false),
+                plate: st.lookup_plate(false),
+            })
+        } else {
+            None
+        }
     }
 }
 
@@ -4255,33 +4287,6 @@ impl VersionedMetadata for InnerMetadata3_1 {
         true
     }
 
-    fn lookup_shortname(
-        st: &mut KwParser,
-        n: MeasIdx,
-    ) -> Option<<Self::N as MightHave>::Wrapper<Shortname>> {
-        st.lookup_meas_req(n).map(Identity)
-    }
-
-    fn lookup_specific(st: &mut KwParser, _: Par) -> Option<InnerMetadata3_1> {
-        let maybe_mode = st.lookup_meta_req();
-        let maybe_byteord = st.lookup_meta_req();
-        if let (Some(mode), Some(byteord)) = (maybe_mode, maybe_byteord) {
-            Some(InnerMetadata3_1 {
-                mode,
-                byteord,
-                cyt: st.lookup_meta_opt(false),
-                spillover: st.lookup_meta_opt(false),
-                cytsn: st.lookup_meta_opt(false),
-                vol: st.lookup_meta_opt(false),
-                modification: st.lookup_modification(),
-                timestamps: st.lookup_timestamps(false),
-                plate: st.lookup_plate(false),
-            })
-        } else {
-            None
-        }
-    }
-
     fn keywords_req_inner(&self) -> RawPairs {
         [self.mode.pair(), self.byteord.pair()]
             .into_iter()
@@ -4310,6 +4315,42 @@ impl VersionedMetadata for InnerMetadata3_1 {
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))
         .collect()
+    }
+}
+
+impl LookupMetadata for InnerMetadata3_2 {
+    fn lookup_shortname(
+        st: &mut KwParser,
+        n: MeasIdx,
+    ) -> Option<<Self::N as MightHave>::Wrapper<Shortname>> {
+        st.lookup_meas_req(n).map(Identity)
+    }
+
+    fn lookup_specific(st: &mut KwParser, _: Par) -> Option<InnerMetadata3_2> {
+        // Only L is allowed as of 3.2, so pull the value and check it if given.
+        // The only thing we care about is that the value is valid, since we
+        // don't need to use it anywhere.
+        let _: OptionalKw<Mode3_2> = st.lookup_meta_opt(true);
+        let maybe_byteord = st.lookup_meta_req();
+        let maybe_cyt = st.lookup_meta_req();
+        if let (Some(byteord), Some(cyt)) = (maybe_byteord, maybe_cyt) {
+            Some(InnerMetadata3_2 {
+                byteord,
+                cyt,
+                spillover: st.lookup_meta_opt(false),
+                cytsn: st.lookup_meta_opt(false),
+                vol: st.lookup_meta_opt(false),
+                flowrate: st.lookup_meta_opt(false),
+                modification: st.lookup_modification(),
+                plate: st.lookup_plate(true),
+                timestamps: st.lookup_timestamps(true),
+                carrier: st.lookup_carrier(),
+                datetimes: st.lookup_datetimes(),
+                unstained: st.lookup_unstained(),
+            })
+        } else {
+            None
+        }
     }
 }
 
@@ -4365,40 +4406,6 @@ impl VersionedMetadata for InnerMetadata3_2 {
 
     fn datetimes_valid(&self) -> bool {
         self.datetimes.valid()
-    }
-
-    fn lookup_shortname(
-        st: &mut KwParser,
-        n: MeasIdx,
-    ) -> Option<<Self::N as MightHave>::Wrapper<Shortname>> {
-        st.lookup_meas_req(n).map(Identity)
-    }
-
-    fn lookup_specific(st: &mut KwParser, _: Par) -> Option<InnerMetadata3_2> {
-        // Only L is allowed as of 3.2, so pull the value and check it if given.
-        // The only thing we care about is that the value is valid, since we
-        // don't need to use it anywhere.
-        let _: OptionalKw<Mode3_2> = st.lookup_meta_opt(true);
-        let maybe_byteord = st.lookup_meta_req();
-        let maybe_cyt = st.lookup_meta_req();
-        if let (Some(byteord), Some(cyt)) = (maybe_byteord, maybe_cyt) {
-            Some(InnerMetadata3_2 {
-                byteord,
-                cyt,
-                spillover: st.lookup_meta_opt(false),
-                cytsn: st.lookup_meta_opt(false),
-                vol: st.lookup_meta_opt(false),
-                flowrate: st.lookup_meta_opt(false),
-                modification: st.lookup_modification(),
-                plate: st.lookup_plate(true),
-                timestamps: st.lookup_timestamps(true),
-                carrier: st.lookup_carrier(),
-                datetimes: st.lookup_datetimes(),
-                unstained: st.lookup_unstained(),
-            })
-        } else {
-            None
-        }
     }
 
     fn keywords_req_inner(&self) -> RawPairs {

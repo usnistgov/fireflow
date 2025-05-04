@@ -2864,8 +2864,6 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
 ) -> ImpureResult<RawTEXT> {
     let mut buf = vec![];
     header.text.read(h, &mut buf)?;
-    let mut kwconf = KwParserConfig::default();
-    kwconf.disallow_deprecated = conf.disallow_deprecated;
 
     verify_delim(&buf, &conf).try_map(|delimiter| {
         let split_succ = split_raw_text(&buf, delimiter, &conf).and_then(|mut pairs| {

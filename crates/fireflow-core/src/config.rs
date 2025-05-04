@@ -85,9 +85,6 @@ pub struct RawTextReadConfig {
     /// supplied, $DATE will be parsed according to the standard pattern which
     /// is '%d-%b-%Y'.
     pub date_pattern: Option<DatePattern>,
-
-    /// If true, throw an error if TEXT includes any deprecated features
-    pub disallow_deprecated: bool,
     // TODO add keyword and value overrides, something like a list of patterns
     // that can be used to alter each keyword
     // TODO allow lambda function to be supplied which will alter the kv list
@@ -140,6 +137,9 @@ pub struct StdTextReadConfig {
     /// If true, throw an error if TEXT includes any keywords that do not
     /// start with "$".
     pub disallow_nonstandard: bool,
+
+    /// If true, throw an error if TEXT includes any deprecated features
+    pub disallow_deprecated: bool,
 
     /// If supplied, this pattern will be used to group "nonstandard" keywords
     /// with matching measurements.

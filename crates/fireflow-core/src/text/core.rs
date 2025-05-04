@@ -951,23 +951,7 @@ pub(crate) type RawOptTriples = Vec<(String, String, Option<String>)>;
 pub(crate) struct KwParser<'a, 'b> {
     raw_keywords: &'b mut RawKeywords,
     deferred: PureErrorBuf,
-    conf: KwParserConfig<'a>,
-}
-
-// TODO get rid of this
-#[derive(Default, Clone)]
-pub(crate) struct KwParserConfig<'a> {
-    pub(crate) disallow_deprecated: bool,
-    pub(crate) nonstandard_measurement_pattern: Option<&'a NonStdMeasPattern>,
-}
-
-impl<'a> From<&'a StdTextReadConfig> for KwParserConfig<'a> {
-    fn from(value: &'a StdTextReadConfig) -> Self {
-        KwParserConfig {
-            disallow_deprecated: value.raw.disallow_deprecated,
-            nonstandard_measurement_pattern: value.nonstandard_measurement_pattern.as_ref(),
-        }
-    }
+    conf: &'a StdTextReadConfig,
 }
 
 impl<'a, 'b> KwParser<'a, 'b> {
@@ -979,7 +963,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
     /// Any errors which are logged must be pushed into the state's error buffer
     /// directly, as errors are not allowed to be returned by the inner
     /// computation.
-    fn run<X, F>(kws: &'b mut RawKeywords, conf: KwParserConfig<'a>, f: F) -> PureSuccess<X>
+    fn run<X, F>(kws: &'b mut RawKeywords, conf: &'a StdTextReadConfig, f: F) -> PureSuccess<X>
     where
         F: FnOnce(&mut Self) -> X,
     {
@@ -1002,7 +986,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
     /// computation.
     fn try_run<X, F>(
         kws: &'b mut RawKeywords,
-        conf: KwParserConfig<'a>,
+        conf: &'a StdTextReadConfig,
         reason: String,
         f: F,
     ) -> PureResult<X>
@@ -1166,7 +1150,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
         }
     }
 
-    fn from(kws: &'b mut RawKeywords, conf: KwParserConfig<'a>) -> Self {
+    fn from(kws: &'b mut RawKeywords, conf: &'a StdTextReadConfig) -> Self {
         KwParser {
             raw_keywords: kws,
             deferred: PureErrorBuf::default(),
@@ -2168,9 +2152,8 @@ where
         // a zillion ways. If this fails we need to bail since we cannot create
         // a struct with missing fields.
         let md_fail = "could not standardize TEXT".to_string();
-        let c: KwParserConfig = conf.into();
         let tp = conf.time.pattern.as_ref();
-        let md_succ = KwParser::try_run(kws, c, md_fail, |st| {
+        let md_succ = KwParser::try_run(kws, conf, md_fail, |st| {
             if let Some(ms) = Self::lookup_measurements(st, par, tp, &conf.shortname_prefix) {
                 Metadata::lookup_metadata(st, &ms).map(|metadata| CoreTEXT {
                     metadata,

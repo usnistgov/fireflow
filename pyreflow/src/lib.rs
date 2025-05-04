@@ -105,7 +105,6 @@ fn read_fcs_header(
     enforce_keyword_ascii=false,
     enforce_stext=false,
     repair_offset_spaces=false,
-    disallow_deprecated=false,
     date_pattern=None,
     version_override=None)
 )]
@@ -133,7 +132,6 @@ fn read_fcs_raw_text(
     enforce_keyword_ascii: bool,
     enforce_stext: bool,
     repair_offset_spaces: bool,
-    disallow_deprecated: bool,
     date_pattern: Option<PyDatePattern>,
     version_override: Option<PyVersion>,
 ) -> PyResult<PyRawTEXT> {
@@ -170,7 +168,6 @@ fn read_fcs_raw_text(
         enforce_stext,
         repair_offset_spaces,
         date_pattern: date_pattern.map(|x| x.0),
-        disallow_deprecated,
     };
     handle_errors(api::read_fcs_raw_text(&p, &conf.set_strict(strict)))
 }
@@ -289,7 +286,6 @@ fn read_fcs_std_text(
         enforce_stext,
         repair_offset_spaces,
         date_pattern: date_pattern.map(|x| x.0),
-        disallow_deprecated,
     };
 
     let conf = config::StdTextReadConfig {
@@ -304,6 +300,7 @@ fn read_fcs_std_text(
         },
         disallow_deviant,
         disallow_nonstandard,
+        disallow_deprecated,
         nonstandard_measurement_pattern: nonstandard_measurement_pattern.map(|x| x.0),
     };
 
@@ -438,7 +435,6 @@ fn read_fcs_file(
         enforce_stext,
         repair_offset_spaces,
         date_pattern: date_pattern.map(|x| x.0),
-        disallow_deprecated,
     };
 
     let standard = config::StdTextReadConfig {
@@ -452,6 +448,7 @@ fn read_fcs_file(
             ensure_nogain: time_ensure_nogain,
         },
         disallow_deviant,
+        disallow_deprecated,
         disallow_nonstandard,
         nonstandard_measurement_pattern: nonstandard_measurement_pattern.map(|x| x.0),
     };

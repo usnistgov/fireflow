@@ -1861,6 +1861,8 @@ where
                     }
                     Err(M::N::into_wrapped(name))
                 });
+                // TODO this will make cryptic errors if the time pattern
+                // happens to match more than one channel
                 let res = match key {
                     Ok(name) => {
                         let t = TimeChannel::lookup_time_channel(st, i)?;
@@ -3767,6 +3769,62 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
     }
 }
 
+impl VersionedMeasurement for InnerMeasurement3_2 {
+    fn datatype(&self) -> Option<NumType> {
+        self.datatype.0.as_ref().copied()
+    }
+
+    fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
+        let measurement_type: OptionalKw<MeasurementType> = st.lookup_meas_opt(i, false);
+        if measurement_type
+            .0
+            .as_ref()
+            .is_some_and(|x| *x == MeasurementType::Time)
+        {
+            let msg = "$PnTYPE for non-time channel should not be 'Time' if given".into();
+            st.deferred.push_error(msg);
+        }
+        if let Some(scale) = st.lookup_meas_req(i) {
+            Some(Self {
+                scale,
+                gain: st.lookup_meas_opt(i, false),
+                wavelengths: st.lookup_meas_opt(i, false),
+                calibration: st.lookup_meas_opt(i, false),
+                display: st.lookup_meas_opt(i, false),
+                detector_name: st.lookup_meas_opt(i, false),
+                tag: st.lookup_meas_opt(i, false),
+                measurement_type,
+                feature: st.lookup_meas_opt(i, false),
+                analyte: st.lookup_meas_opt(i, false),
+                datatype: st.lookup_meas_opt(i, false),
+            })
+        } else {
+            None
+        }
+    }
+
+    fn req_suffixes_inner(&self, n: MeasIdx) -> RawTriples {
+        [self.scale.triple(n)].into_iter().collect()
+    }
+
+    fn opt_suffixes_inner(&self, n: MeasIdx) -> RawOptTriples {
+        [
+            OptMeasKey::triple(&self.wavelengths, n),
+            OptMeasKey::triple(&self.gain, n),
+            OptMeasKey::triple(&self.calibration, n),
+            OptMeasKey::triple(&self.display, n),
+            OptMeasKey::triple(&self.detector_name, n),
+            OptMeasKey::triple(&self.tag, n),
+            OptMeasKey::triple(&self.measurement_type, n),
+            OptMeasKey::triple(&self.feature, n),
+            OptMeasKey::triple(&self.analyte, n),
+            OptMeasKey::triple(&self.datatype, n),
+        ]
+        .into_iter()
+        .collect()
+    }
+}
+
 impl VersionedTime for InnerTime2_0 {
     fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
         let scale: OptionalKw<Scale> = st.lookup_meas_opt(i, false);
@@ -3900,62 +3958,6 @@ impl VersionedTime for InnerTime3_2 {
         [
             OptMeasKey::pair(&self.display, n),
             OptMeasKey::pair(&self.datatype, n),
-        ]
-        .into_iter()
-        .collect()
-    }
-}
-
-impl VersionedMeasurement for InnerMeasurement3_2 {
-    fn datatype(&self) -> Option<NumType> {
-        self.datatype.0.as_ref().copied()
-    }
-
-    fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
-        let measurement_type: OptionalKw<MeasurementType> = st.lookup_meas_opt(i, false);
-        if measurement_type
-            .0
-            .as_ref()
-            .is_some_and(|x| *x == MeasurementType::Time)
-        {
-            let msg = "$PnTYPE for non-time channel should not be 'Time' if given".into();
-            st.deferred.push_error(msg);
-        }
-        if let Some(scale) = st.lookup_meas_req(i) {
-            Some(Self {
-                scale,
-                gain: st.lookup_meas_opt(i, false),
-                wavelengths: st.lookup_meas_opt(i, false),
-                calibration: st.lookup_meas_opt(i, false),
-                display: st.lookup_meas_opt(i, false),
-                detector_name: st.lookup_meas_opt(i, false),
-                tag: st.lookup_meas_opt(i, false),
-                measurement_type,
-                feature: st.lookup_meas_opt(i, false),
-                analyte: st.lookup_meas_opt(i, false),
-                datatype: st.lookup_meas_opt(i, false),
-            })
-        } else {
-            None
-        }
-    }
-
-    fn req_suffixes_inner(&self, n: MeasIdx) -> RawTriples {
-        [self.scale.triple(n)].into_iter().collect()
-    }
-
-    fn opt_suffixes_inner(&self, n: MeasIdx) -> RawOptTriples {
-        [
-            OptMeasKey::triple(&self.wavelengths, n),
-            OptMeasKey::triple(&self.gain, n),
-            OptMeasKey::triple(&self.calibration, n),
-            OptMeasKey::triple(&self.display, n),
-            OptMeasKey::triple(&self.detector_name, n),
-            OptMeasKey::triple(&self.tag, n),
-            OptMeasKey::triple(&self.measurement_type, n),
-            OptMeasKey::triple(&self.feature, n),
-            OptMeasKey::triple(&self.analyte, n),
-            OptMeasKey::triple(&self.datatype, n),
         ]
         .into_iter()
         .collect()

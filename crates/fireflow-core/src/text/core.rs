@@ -13,6 +13,7 @@ use super::keywords::*;
 use super::modified_date_time::*;
 use super::named_vec::*;
 use super::optionalkw::*;
+use super::range::*;
 use super::scale::*;
 use super::spillover::*;
 use super::timestamps::*;
@@ -2029,7 +2030,7 @@ where
     fn set_data_delimited_inner(&mut self, xs: Vec<u64>) -> bool {
         let ys: Vec<_> = xs
             .into_iter()
-            .map(|r| (Width::Variable, Range(r.to_string())))
+            .map(|r| (Width::Variable, r.into()))
             .collect();
         self.set_data_bytes_range(ys)
     }
@@ -2040,7 +2041,7 @@ where
         } else {
             (AlphaNumType::Single, Width::new_f32())
         };
-        let xs: Vec<_> = rs.into_iter().map(|r| (b, Range(r.to_string()))).collect();
+        let xs: Vec<_> = rs.into_iter().map(|r| (b, r)).collect();
         // ASSUME time channel will always be set to linear since we do that
         // a few lines above, so the only error/warning we need to screen is
         // for the length of the input
@@ -2110,13 +2111,13 @@ impl CoreTEXT2_0 {
 
     /// Set data layout to be 32-bit float for all measurements.
     pub fn set_data_f32(&mut self, rs: Vec<f32>) -> bool {
-        let ys: Vec<_> = rs.into_iter().map(|r| Range(r.to_string())).collect();
+        let ys: Vec<_> = rs.into_iter().map(|r| r.into()).collect();
         self.set_to_floating_point(false, ys)
     }
 
     /// Set data layout to be 64-bit float for all measurements.
     pub fn set_data_f64(&mut self, rs: Vec<f64>) -> bool {
-        let ys: Vec<_> = rs.into_iter().map(|r| Range(r.to_string())).collect();
+        let ys: Vec<_> = rs.into_iter().map(|r| r.into()).collect();
         self.set_to_floating_point(true, ys)
     }
 
@@ -2181,13 +2182,13 @@ impl CoreTEXT3_0 {
 
     /// Set data layout to be 32-bit float for all measurements.
     pub fn set_data_f32(&mut self, rs: Vec<f32>) -> bool {
-        let ys: Vec<_> = rs.into_iter().map(|r| Range(r.to_string())).collect();
+        let ys: Vec<_> = rs.into_iter().map(|r| r.into()).collect();
         self.set_to_floating_point(false, ys)
     }
 
     /// Set data layout to be 64-bit float for all measurements.
     pub fn set_data_f64(&mut self, rs: Vec<f64>) -> bool {
-        let ys: Vec<_> = rs.into_iter().map(|r| Range(r.to_string())).collect();
+        let ys: Vec<_> = rs.into_iter().map(|r| r.into()).collect();
         self.set_to_floating_point(true, ys)
     }
 
@@ -2285,13 +2286,13 @@ impl CoreTEXT3_1 {
 
     /// Set data layout to be 32-bit float for all measurements.
     pub fn set_data_f32(&mut self, rs: Vec<f32>) -> bool {
-        let ys: Vec<_> = rs.into_iter().map(|r| Range(r.to_string())).collect();
+        let ys: Vec<_> = rs.into_iter().map(|r| r.into()).collect();
         self.set_to_floating_point(false, ys)
     }
 
     /// Set data layout to be 64-bit float for all measurements.
     pub fn set_data_f64(&mut self, rs: Vec<f64>) -> bool {
-        let ys: Vec<_> = rs.into_iter().map(|r| Range(r.to_string())).collect();
+        let ys: Vec<_> = rs.into_iter().map(|r| r.into()).collect();
         self.set_to_floating_point(true, ys)
     }
 
@@ -2434,12 +2435,8 @@ impl CoreTEXT3_2 {
                     Some(this_dt.try_into().unwrap())
                 };
                 match x {
-                    MixedColumnSetter::Float(range) => {
-                        (Width::new_f32(), Range(range.to_string()), pndt)
-                    }
-                    MixedColumnSetter::Double(range) => {
-                        (Width::new_f64(), Range(range.to_string()), pndt)
-                    }
+                    MixedColumnSetter::Float(range) => (Width::new_f32(), range.into(), pndt),
+                    MixedColumnSetter::Double(range) => (Width::new_f64(), range.into(), pndt),
                     MixedColumnSetter::Ascii(s) => {
                         let (b, r) = s.truncated();
                         (b, r, None)
@@ -2490,13 +2487,13 @@ impl CoreTEXT3_2 {
 
     /// Set data layout to be 32-bit float for all measurements.
     pub fn set_data_f32(&mut self, rs: Vec<f32>) -> bool {
-        let ys: Vec<_> = rs.into_iter().map(|r| Range(r.to_string())).collect();
+        let ys: Vec<_> = rs.into_iter().map(|r| r.into()).collect();
         self.set_to_floating_point_3_2(false, ys)
     }
 
     /// Set data layout to be 64-bit float for all measurements.
     pub fn set_data_f64(&mut self, rs: Vec<f64>) -> bool {
-        let ys: Vec<_> = rs.into_iter().map(|r| Range(r.to_string())).collect();
+        let ys: Vec<_> = rs.into_iter().map(|r| r.into()).collect();
         self.set_to_floating_point_3_2(true, ys)
     }
 
@@ -3986,12 +3983,10 @@ impl NumRangeSetter {
     fn truncated(&self) -> (Width, Range) {
         (
             self.width.into(),
-            Range(
-                2_u64
-                    .pow(u8::from(self.width).into())
-                    .min(self.range)
-                    .to_string(),
-            ),
+            2_u64
+                .pow(u8::from(self.width).into())
+                .min(self.range)
+                .into(),
         )
     }
 }
@@ -4000,12 +3995,10 @@ impl AsciiRangeSetter {
     fn truncated(&self) -> (Width, Range) {
         (
             self.width.into(),
-            Range(
-                10_u64
-                    .pow(u8::from(self.width).into())
-                    .min(self.range)
-                    .to_string(),
-            ),
+            10_u64
+                .pow(u8::from(self.width).into())
+                .min(self.range)
+                .into(),
         )
     }
 }

@@ -8,6 +8,7 @@ use super::datetimes::*;
 use super::modified_date_time::*;
 use super::named_vec::NameMapping;
 use super::optionalkw::*;
+use super::range::*;
 use super::ranged_float::*;
 use super::scale::*;
 use super::spillover::*;
@@ -682,18 +683,6 @@ impl fmt::Display for FeatureError {
         write!(f, "must be one of 'Area', 'Width', or 'Height'")
     }
 }
-
-/// The value of the $PnR key (all versions)
-///
-/// Technically this should only be an integer, but many versions also store
-/// floats which makes sense for cases where $DATATYPE/$PnDATATYPE indicates
-/// float or double.
-// TODO make sure this is really a number
-#[derive(Clone, Serialize)]
-pub struct Range(pub String);
-
-newtype_disp!(Range);
-newtype_fromstr!(Range, Infallible);
 
 /// The value of the $PnV key
 #[derive(Clone, Copy, Serialize)]

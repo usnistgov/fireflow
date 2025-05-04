@@ -1,4 +1,5 @@
 pub mod byteord;
+pub mod range;
 pub mod compensation;
 pub mod core;
 pub mod datetimes;

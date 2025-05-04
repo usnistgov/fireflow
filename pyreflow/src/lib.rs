@@ -1710,7 +1710,7 @@ macro_rules! common_methods {
             #[getter]
             fn get_ranges(&self) -> Vec<String> {
                 // TODO strings, lame
-                self.0.$($root.)*ranges().iter().map(|r| r.0.clone()).collect()
+                self.0.$($root.)*ranges().iter().map(|r| r.as_ref().to_string()).collect()
             }
 
             #[getter]

@@ -9,6 +9,7 @@ pub use crate::text::core::*;
 pub use crate::text::keywords::*;
 use crate::text::named_vec::*;
 use crate::text::optionalkw::*;
+use crate::text::range::*;
 use crate::text::scale::*;
 use crate::text::spillover::*;
 use crate::text::timestamps::*;
@@ -800,7 +801,7 @@ where
         // TODO add way to control this behavior, we may not always want to
         // truncate an overflowing number, and at the very least may wish to
         // warn the user that truncation happened
-        Self::Native::int_from_str(range.0.as_str())
+        Self::Native::int_from_str(range.as_ref())
             .map(Self::Native::next_power_2)
             .or_else(|e| match e {
                 IntErrorKind::PosOverflow => Ok(Self::Native::maxval()),
@@ -949,7 +950,7 @@ where
     }
 
     fn to_float_type(b: &ByteOrd, r: &Range) -> Result<FloatType<LEN, Self::Native>, Vec<String>> {
-        match (b.as_sized(), r.0.parse::<Self::Native>()) {
+        match (b.as_sized(), r.as_ref().parse::<Self::Native>()) {
             (Ok(order), Ok(range)) => Ok(FloatType { order, range }),
             (a, b) => Err([a.err(), b.err().map(|s| s.to_string())]
                 .into_iter()

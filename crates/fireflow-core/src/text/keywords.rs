@@ -442,9 +442,7 @@ impl fmt::Display for CalibrationFormat3_2 {
 
 /// The value for the $PnL key (3.1).
 ///
-/// This is a list of wavelengths used for the measurement. Starting in 3.1
-/// this could be a list, where it needed to be a single number in previous
-/// versions.
+/// Starting in 3.1 this is a vector rather than a scaler.
 #[derive(Clone)]
 pub struct Wavelengths(pub NonEmpty<u32>);
 

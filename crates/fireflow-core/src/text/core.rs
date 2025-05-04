@@ -198,6 +198,274 @@ pub struct Measurement<X> {
     pub specific: X,
 }
 
+/// Minimally-required FCS TEXT data for each version
+pub type CoreTEXT2_0 = CoreTEXT<
+    InnerMetadata2_0,
+    InnerTime2_0,
+    InnerMeasurement2_0,
+    OptionalKwFamily,
+    OptionalKw<Shortname>,
+>;
+pub type CoreTEXT3_0 = CoreTEXT<
+    InnerMetadata3_0,
+    InnerTime3_0,
+    InnerMeasurement3_0,
+    OptionalKwFamily,
+    OptionalKw<Shortname>,
+>;
+pub type CoreTEXT3_1 = CoreTEXT<
+    InnerMetadata3_1,
+    InnerTime3_1,
+    InnerMeasurement3_1,
+    IdentityFamily,
+    Identity<Shortname>,
+>;
+pub type CoreTEXT3_2 = CoreTEXT<
+    InnerMetadata3_2,
+    InnerTime3_2,
+    InnerMeasurement3_2,
+    IdentityFamily,
+    Identity<Shortname>,
+>;
+
+/// Metadata fields specific to version 2.0
+#[derive(Clone, Serialize)]
+pub struct InnerMetadata2_0 {
+    /// Value of $MODE
+    pub mode: Mode,
+
+    /// Value of $BYTEORD
+    byteord: ByteOrd,
+
+    /// Value of $CYT
+    pub cyt: OptionalKw<Cyt>,
+
+    /// Compensation matrix derived from 'DFCnTOm' key/value pairs
+    comp: OptionalKw<Compensation>,
+
+    /// Values of $BTIM/ETIM/$DATE
+    pub timestamps: Timestamps2_0,
+}
+
+/// Metadata fields specific to version 3.0
+#[derive(Clone, Serialize)]
+pub struct InnerMetadata3_0 {
+    /// Value of $MODE
+    pub mode: Mode,
+
+    /// Value of $BYTEORD
+    byteord: ByteOrd,
+
+    /// Value of $CYT
+    pub cyt: OptionalKw<Cyt>,
+
+    /// Value of $COMP
+    comp: OptionalKw<Compensation>,
+
+    /// Values of $BTIM/ETIM/$DATE
+    pub timestamps: Timestamps3_0,
+
+    /// Value of $CYTSN
+    pub cytsn: OptionalKw<Cytsn>,
+
+    /// Value of $UNICODE
+    pub unicode: OptionalKw<Unicode>,
+}
+
+/// Metadata fields specific to version 3.1
+#[derive(Clone, Serialize)]
+pub struct InnerMetadata3_1 {
+    /// Value of $MODE
+    pub mode: Mode,
+
+    /// Value of $BYTEORD
+    pub byteord: Endian,
+
+    /// Value of $CYT
+    pub cyt: OptionalKw<Cyt>,
+
+    /// Values of $BTIM/ETIM/$DATE
+    pub timestamps: Timestamps3_1,
+
+    /// Value of $CYTSN
+    pub cytsn: OptionalKw<Cytsn>,
+
+    /// Value of $SPILLOVER
+    spillover: OptionalKw<Spillover>,
+
+    /// Values of $LAST_MODIFIED/$LAST_MODIFIER/$ORIGINALITY
+    pub modification: ModificationData,
+
+    /// Values of $PLATEID/$PLATENAME/$WELLID
+    pub plate: PlateData,
+
+    /// Value of $VOL
+    pub vol: OptionalKw<Vol>,
+}
+
+#[derive(Clone, Serialize)]
+pub struct InnerMetadata3_2 {
+    /// Value of $BYTEORD
+    pub byteord: Endian,
+
+    /// Values of $BTIM/ETIM/$DATE
+    pub timestamps: Timestamps3_1,
+
+    /// Values of $BEGINDATETIME/$ENDDATETIME
+    pub datetimes: Datetimes,
+
+    /// Value of $CYT
+    pub cyt: Cyt,
+
+    /// Value of $SPILLOVER
+    spillover: OptionalKw<Spillover>,
+
+    /// Value of $CYTSN
+    pub cytsn: OptionalKw<Cytsn>,
+
+    /// Values of $LAST_MODIFIED/$LAST_MODIFIER/$ORIGINALITY
+    // TODO it makes sense to verify this isn't before the file was created
+    pub modification: ModificationData,
+
+    /// Values of $PLATEID/$PLATENAME/$WELLID
+    pub plate: PlateData,
+
+    /// Value of $VOL
+    pub vol: OptionalKw<Vol>,
+
+    /// Values of $CARRIERID/$CARRIERTYPE/$LOCATIONID
+    pub carrier: CarrierData,
+
+    /// Values of $UNSTAINEDINFO/$UNSTAINEDCENTERS
+    pub unstained: UnstainedData,
+
+    /// Value of $FLOWRATE
+    pub flowrate: OptionalKw<Flowrate>,
+}
+
+/// Time channel fields specific to version 2.0
+#[derive(Clone, Serialize)]
+pub struct InnerTime2_0;
+
+/// Time channel fields specific to version 3.0
+#[derive(Clone, Serialize)]
+pub struct InnerTime3_0 {
+    /// Value for $TIMESTEP
+    timestep: Timestep,
+}
+
+/// Time channel fields specific to version 3.1
+#[derive(Clone, Serialize)]
+pub struct InnerTime3_1 {
+    /// Value for $TIMESTEP
+    timestep: Timestep,
+
+    /// Value for $PnDISPLAY
+    pub display: OptionalKw<Display>,
+}
+
+/// Time channel fields specific to version 3.2
+#[derive(Clone, Serialize)]
+pub struct InnerTime3_2 {
+    /// Value for $TIMESTEP
+    timestep: Timestep,
+
+    /// Value for $PnDISPLAY
+    pub display: OptionalKw<Display>,
+
+    /// Value for $PnDATATYPE
+    pub datatype: OptionalKw<NumType>,
+}
+
+/// Measurement fields specific to version 2.0
+#[derive(Clone, Serialize)]
+pub struct InnerMeasurement2_0 {
+    /// Value for $PnE
+    scale: OptionalKw<Scale>,
+
+    /// Value for $PnL
+    pub wavelength: OptionalKw<Wavelength>,
+}
+
+/// Measurement fields specific to version 3.0
+#[derive(Clone, Serialize)]
+pub struct InnerMeasurement3_0 {
+    /// Value for $PnE
+    scale: Scale,
+
+    /// Value for $PnL
+    pub wavelength: OptionalKw<Wavelength>,
+
+    /// Value for $PnG
+    gain: OptionalKw<Gain>,
+}
+
+/// Measurement fields specific to version 3.1
+#[derive(Clone, Serialize)]
+pub struct InnerMeasurement3_1 {
+    /// Value for $PnE
+    scale: Scale,
+
+    /// Value for $PnL
+    pub wavelengths: OptionalKw<Wavelengths>,
+
+    /// Value for $PnG
+    gain: OptionalKw<Gain>,
+
+    /// Value for $PnCALIBRATION
+    pub calibration: OptionalKw<Calibration3_1>,
+
+    /// Value for $PnDISPLAY
+    pub display: OptionalKw<Display>,
+}
+
+/// Measurement fields specific to version 3.2
+#[derive(Clone, Serialize)]
+pub struct InnerMeasurement3_2 {
+    /// Value for $PnE
+    scale: Scale,
+
+    /// Value for $PnL
+    pub wavelengths: OptionalKw<Wavelengths>,
+
+    /// Value for $PnG
+    gain: OptionalKw<Gain>,
+
+    /// Value for $PnCALIBRATION
+    pub calibration: OptionalKw<Calibration3_2>,
+
+    /// Value for $PnDISPLAY
+    pub display: OptionalKw<Display>,
+
+    /// Value for $PnANALYTE
+    pub analyte: OptionalKw<Analyte>,
+
+    /// Value for $PnFEATURE
+    pub feature: OptionalKw<Feature>,
+
+    /// Value for $PnTYPE
+    measurement_type: OptionalKw<MeasurementType>,
+
+    /// Value for $PnTAG
+    pub tag: OptionalKw<Tag>,
+
+    /// Value for $PnDET
+    pub detector_name: OptionalKw<DetectorName>,
+
+    /// Value for $PnDATATYPE
+    pub datatype: OptionalKw<NumType>,
+}
+
+pub type TimeChannel2_0 = TimeChannel<InnerTime2_0>;
+pub type TimeChannel3_0 = TimeChannel<InnerTime3_0>;
+pub type TimeChannel3_1 = TimeChannel<InnerTime3_1>;
+pub type TimeChannel3_2 = TimeChannel<InnerTime3_2>;
+
+pub type Measurement2_0 = Measurement<InnerMeasurement2_0>;
+pub type Measurement3_0 = Measurement<InnerMeasurement3_0>;
+pub type Measurement3_1 = Measurement<InnerMeasurement3_1>;
+pub type Measurement3_2 = Measurement<InnerMeasurement3_2>;
+
 impl<T> TimeChannel<T>
 where
     T: VersionedTime,
@@ -368,6 +636,7 @@ where
         .collect()
     }
 
+    // TODO move out, this is specific to the CLI interface
     // for table
     fn table_pairs(&self) -> Vec<(String, Option<String>)> {
         // zero is a dummy and not meaningful here
@@ -478,15 +747,7 @@ where
             })
     }
 
-    fn lookup_metadata(
-        st: &mut KwParser,
-        ms: &NamedVec<
-            M::N,
-            <M::N as MightHave>::Wrapper<Shortname>,
-            TimeChannel<M::T>,
-            Measurement<M::P>,
-        >,
-    ) -> Option<Self> {
+    fn lookup_metadata(st: &mut KwParser, ms: &Measurements<M::N, M::T, M::P>) -> Option<Self> {
         let par = Par(ms.len());
         st.lookup_meta_req()
             .zip(M::lookup_specific(st, par))
@@ -2596,264 +2857,6 @@ impl CoreTEXT3_2 {
         }
         res
     }
-}
-
-/// Minimally-required FCS TEXT data for each version
-pub type CoreTEXT2_0 = CoreTEXT<
-    InnerMetadata2_0,
-    InnerTime2_0,
-    InnerMeasurement2_0,
-    OptionalKwFamily,
-    OptionalKw<Shortname>,
->;
-pub type CoreTEXT3_0 = CoreTEXT<
-    InnerMetadata3_0,
-    InnerTime3_0,
-    InnerMeasurement3_0,
-    OptionalKwFamily,
-    OptionalKw<Shortname>,
->;
-pub type CoreTEXT3_1 = CoreTEXT<
-    InnerMetadata3_1,
-    InnerTime3_1,
-    InnerMeasurement3_1,
-    IdentityFamily,
-    Identity<Shortname>,
->;
-pub type CoreTEXT3_2 = CoreTEXT<
-    InnerMetadata3_2,
-    InnerTime3_2,
-    InnerMeasurement3_2,
-    IdentityFamily,
-    Identity<Shortname>,
->;
-
-/// Metadata fields specific to version 2.0
-#[derive(Clone, Serialize)]
-pub struct InnerMetadata2_0 {
-    /// Value of $MODE
-    pub mode: Mode,
-
-    /// Value of $BYTEORD
-    byteord: ByteOrd,
-
-    /// Value of $CYT
-    pub cyt: OptionalKw<Cyt>,
-
-    /// Compensation matrix derived from 'DFCnTOm' key/value pairs
-    comp: OptionalKw<Compensation>,
-
-    /// Values of $BTIM/ETIM/$DATE
-    pub timestamps: Timestamps2_0,
-}
-
-/// Metadata fields specific to version 3.0
-#[derive(Clone, Serialize)]
-pub struct InnerMetadata3_0 {
-    /// Value of $MODE
-    pub mode: Mode,
-
-    /// Value of $BYTEORD
-    byteord: ByteOrd,
-
-    /// Value of $CYT
-    pub cyt: OptionalKw<Cyt>,
-
-    /// Value of $COMP
-    comp: OptionalKw<Compensation>,
-
-    /// Values of $BTIM/ETIM/$DATE
-    pub timestamps: Timestamps3_0,
-
-    /// Value of $CYTSN
-    pub cytsn: OptionalKw<Cytsn>,
-
-    /// Value of $UNICODE
-    pub unicode: OptionalKw<Unicode>,
-}
-
-/// Metadata fields specific to version 3.1
-#[derive(Clone, Serialize)]
-pub struct InnerMetadata3_1 {
-    /// Value of $MODE
-    pub mode: Mode,
-
-    /// Value of $BYTEORD
-    pub byteord: Endian,
-
-    /// Value of $CYT
-    pub cyt: OptionalKw<Cyt>,
-
-    /// Values of $BTIM/ETIM/$DATE
-    pub timestamps: Timestamps3_1,
-
-    /// Value of $CYTSN
-    pub cytsn: OptionalKw<Cytsn>,
-
-    /// Value of $SPILLOVER
-    spillover: OptionalKw<Spillover>,
-
-    /// Values of $LAST_MODIFIED/$LAST_MODIFIER/$ORIGINALITY
-    pub modification: ModificationData,
-
-    /// Values of $PLATEID/$PLATENAME/$WELLID
-    pub plate: PlateData,
-
-    /// Value of $VOL
-    pub vol: OptionalKw<Vol>,
-}
-
-#[derive(Clone, Serialize)]
-pub struct InnerMetadata3_2 {
-    /// Value of $BYTEORD
-    pub byteord: Endian,
-
-    /// Values of $BTIM/ETIM/$DATE
-    pub timestamps: Timestamps3_1,
-
-    /// Values of $BEGINDATETIME/$ENDDATETIME
-    pub datetimes: Datetimes,
-
-    /// Value of $CYT
-    pub cyt: Cyt,
-
-    /// Value of $SPILLOVER
-    spillover: OptionalKw<Spillover>,
-
-    /// Value of $CYTSN
-    pub cytsn: OptionalKw<Cytsn>,
-
-    /// Values of $LAST_MODIFIED/$LAST_MODIFIER/$ORIGINALITY
-    // TODO it makes sense to verify this isn't before the file was created
-    pub modification: ModificationData,
-
-    /// Values of $PLATEID/$PLATENAME/$WELLID
-    pub plate: PlateData,
-
-    /// Value of $VOL
-    pub vol: OptionalKw<Vol>,
-
-    /// Values of $CARRIERID/$CARRIERTYPE/$LOCATIONID
-    pub carrier: CarrierData,
-
-    /// Values of $UNSTAINEDINFO/$UNSTAINEDCENTERS
-    pub unstained: UnstainedData,
-
-    /// Value of $FLOWRATE
-    pub flowrate: OptionalKw<Flowrate>,
-}
-
-/// Time channel fields specific to version 2.0
-#[derive(Clone, Serialize)]
-pub struct InnerTime2_0;
-
-/// Time channel fields specific to version 3.0
-#[derive(Clone, Serialize)]
-pub struct InnerTime3_0 {
-    /// Value for $TIMESTEP
-    timestep: Timestep,
-}
-
-/// Time channel fields specific to version 3.1
-#[derive(Clone, Serialize)]
-pub struct InnerTime3_1 {
-    /// Value for $TIMESTEP
-    timestep: Timestep,
-
-    /// Value for $PnDISPLAY
-    pub display: OptionalKw<Display>,
-}
-
-/// Time channel fields specific to version 3.2
-#[derive(Clone, Serialize)]
-pub struct InnerTime3_2 {
-    /// Value for $TIMESTEP
-    timestep: Timestep,
-
-    /// Value for $PnDISPLAY
-    pub display: OptionalKw<Display>,
-
-    /// Value for $PnDATATYPE
-    pub datatype: OptionalKw<NumType>,
-}
-
-/// Measurement fields specific to version 2.0
-#[derive(Clone, Serialize)]
-pub struct InnerMeasurement2_0 {
-    /// Value for $PnE
-    scale: OptionalKw<Scale>,
-
-    /// Value for $PnL
-    pub wavelength: OptionalKw<Wavelength>,
-}
-
-/// Measurement fields specific to version 3.0
-#[derive(Clone, Serialize)]
-pub struct InnerMeasurement3_0 {
-    /// Value for $PnE
-    scale: Scale,
-
-    /// Value for $PnL
-    pub wavelength: OptionalKw<Wavelength>,
-
-    /// Value for $PnG
-    gain: OptionalKw<Gain>,
-}
-
-/// Measurement fields specific to version 3.1
-#[derive(Clone, Serialize)]
-pub struct InnerMeasurement3_1 {
-    /// Value for $PnE
-    scale: Scale,
-
-    /// Value for $PnL
-    pub wavelengths: OptionalKw<Wavelengths>,
-
-    /// Value for $PnG
-    gain: OptionalKw<Gain>,
-
-    /// Value for $PnCALIBRATION
-    pub calibration: OptionalKw<Calibration3_1>,
-
-    /// Value for $PnDISPLAY
-    pub display: OptionalKw<Display>,
-}
-
-/// Measurement fields specific to version 3.2
-#[derive(Clone, Serialize)]
-pub struct InnerMeasurement3_2 {
-    /// Value for $PnE
-    scale: Scale,
-
-    /// Value for $PnL
-    pub wavelengths: OptionalKw<Wavelengths>,
-
-    /// Value for $PnG
-    gain: OptionalKw<Gain>,
-
-    /// Value for $PnCALIBRATION
-    pub calibration: OptionalKw<Calibration3_2>,
-
-    /// Value for $PnDISPLAY
-    pub display: OptionalKw<Display>,
-
-    /// Value for $PnANALYTE
-    pub analyte: OptionalKw<Analyte>,
-
-    /// Value for $PnFEATURE
-    pub feature: OptionalKw<Feature>,
-
-    /// Value for $PnTYPE
-    measurement_type: OptionalKw<MeasurementType>,
-
-    /// Value for $PnTAG
-    pub tag: OptionalKw<Tag>,
-
-    /// Value for $PnDET
-    pub detector_name: OptionalKw<DetectorName>,
-
-    /// Value for $PnDATATYPE
-    pub datatype: OptionalKw<NumType>,
 }
 
 #[derive(Clone, Serialize)]

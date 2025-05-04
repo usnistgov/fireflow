@@ -296,23 +296,6 @@ pub type CoreDataset3_2 = CoreDataset<
     Identity<Shortname>,
 >;
 
-pub type TimeChannel2_0 = TimeChannel<InnerTime2_0>;
-pub type TimeChannel3_0 = TimeChannel<InnerTime3_0>;
-pub type TimeChannel3_1 = TimeChannel<InnerTime3_1>;
-pub type TimeChannel3_2 = TimeChannel<InnerTime3_2>;
-
-/// Version-specific data for one measurement
-pub type Measurement2_0 = Measurement<InnerMeasurement2_0>;
-pub type Measurement3_0 = Measurement<InnerMeasurement3_0>;
-pub type Measurement3_1 = Measurement<InnerMeasurement3_1>;
-pub type Measurement3_2 = Measurement<InnerMeasurement3_2>;
-
-/// Version-specific structured metadata derived from TEXT
-type Metadata2_0 = Metadata<InnerMetadata2_0>;
-type Metadata3_0 = Metadata<InnerMetadata3_0>;
-type Metadata3_1 = Metadata<InnerMetadata3_1>;
-type Metadata3_2 = Metadata<InnerMetadata3_2>;
-
 #[derive(PartialEq, Clone)]
 pub struct UintType<T, const LEN: usize> {
     pub bitmask: T,

@@ -104,6 +104,18 @@ impl fmt::Display for TriggerError {
     }
 }
 
+impl Linked for Trigger {
+    fn names(&self) -> HashSet<&Shortname> {
+        [&self.measurement].into_iter().collect()
+    }
+
+    fn reassign(&mut self, mapping: &NameMapping) {
+        if let Some(new) = mapping.get(&self.measurement) {
+            self.measurement = (*new).clone();
+        }
+    }
+}
+
 /// The value for the $PnB key (all versions)
 ///
 /// The $PnB key actually stores bits. However, this library only supports
@@ -735,6 +747,7 @@ impl fmt::Display for FeatureError {
 /// Technically this should only be an integer, but many versions also store
 /// floats which makes sense for cases where $DATATYPE/$PnDATATYPE indicates
 /// float or double.
+// TODO make sure this is really a number
 #[derive(Clone, Serialize)]
 pub struct Range(pub String);
 
@@ -748,6 +761,18 @@ pub struct DetectorVoltage(pub NonNegFloat);
 newtype_from!(DetectorVoltage, NonNegFloat);
 newtype_disp!(DetectorVoltage);
 newtype_fromstr!(DetectorVoltage, RangedFloatError);
+
+pub(crate) trait Key {
+    const C: &'static str;
+
+    fn std() -> String {
+        format!("${}", Self::C)
+    }
+
+    // fn nonstd() -> NonStdKey {
+    //     NonStdKey::from_unchecked(Self::C)
+    // }
+}
 
 pub(crate) trait IndexedKey {
     const PREFIX: &'static str;
@@ -795,18 +820,6 @@ pub(crate) trait IndexedKey {
     //     .and_then(|s| s.strip_suffix(Self::SUFFIX))
     //     .and_then(|s| s.parse::<u32>().ok())
     //     .is_some_and(|x| x > 0)
-    // }
-}
-
-pub(crate) trait Key {
-    const C: &'static str;
-
-    fn std() -> String {
-        format!("${}", Self::C)
-    }
-
-    // fn nonstd() -> NonStdKey {
-    //     NonStdKey::from_unchecked(Self::C)
     // }
 }
 
@@ -943,6 +956,33 @@ where
         let (_, k, v) = Self::triple(opt, n);
         (k, v)
     }
+}
+
+pub(crate) trait Linked
+where
+    Self: Key,
+    Self: Sized,
+{
+    fn check_link(&self, names: &HashSet<&Shortname>) -> Result<(), String> {
+        let k = Self::std();
+        let bad_names: Vec<_> = self.names().difference(names).copied().collect();
+        let bad_names_str = bad_names.iter().join(", ");
+        if bad_names.is_empty() {
+            Ok(())
+        } else if bad_names.len() == 1 {
+            Err(format!(
+                "{k} references non-existent $PnN name: {bad_names_str}"
+            ))
+        } else {
+            Err(format!(
+                "{k} references non-existent $PnN names: {bad_names_str}"
+            ))
+        }
+    }
+
+    fn reassign(&mut self, mapping: &NameMapping);
+
+    fn names(&self) -> HashSet<&Shortname>;
 }
 
 macro_rules! newtype_string {
@@ -1111,46 +1151,6 @@ macro_rules! kw_opt_meas_int {
     };
 }
 
-kw_opt_meta_string!(Cyt, "CYT");
-req_meta!(Cyt);
-
-kw_opt_meta_string!(Cytsn, "CYTSN");
-kw_opt_meta_string!(Com, "COM");
-kw_opt_meta_string!(Flowrate, "FLOWRATE");
-kw_opt_meta_string!(Cells, "CELLS");
-kw_opt_meta_string!(Exp, "EXP");
-kw_opt_meta_string!(Fil, "FIL");
-kw_opt_meta_string!(Inst, "INST");
-kw_opt_meta_string!(Op, "OP");
-kw_opt_meta_string!(Proj, "PROJ");
-kw_opt_meta_string!(Smno, "SMNO");
-kw_opt_meta_string!(Src, "SRC");
-kw_opt_meta_string!(Sys, "SYS");
-kw_opt_meta_string!(LastModifier, "LAST_MODIFIER");
-kw_opt_meta_string!(Plateid, "PLATEID");
-kw_opt_meta_string!(Platename, "PLATENAME");
-kw_opt_meta_string!(Wellid, "WELLID");
-kw_opt_meta_string!(UnstainedInfo, "UNSTAINEDINFO");
-kw_opt_meta_string!(Carrierid, "CARRIERID");
-kw_opt_meta_string!(Carriertype, "CARRIERTYPE");
-kw_opt_meta_string!(Locationid, "LOCATIONID");
-
-kw_opt_meas_string!(Analyte, "ANALYTE");
-kw_opt_meas_string!(Tag, "TAG");
-kw_opt_meas_string!(DetectorName, "DET");
-kw_opt_meas_string!(DetectorType, "T");
-kw_opt_meas_string!(PercentEmitted, "P");
-kw_opt_meas_string!(Longname, "S");
-kw_opt_meas_string!(Filter, "F");
-
-kw_opt_meta_int!(Abrt, u32, "ABRT");
-kw_opt_meta_int!(Lost, u32, "LOST");
-kw_opt_meta_int!(Tot, usize, "TOT");
-req_meta!(Tot);
-kw_req_meta_int!(Par, usize, "PAR");
-kw_opt_meas_int!(Wavelength, u32, "L");
-kw_opt_meas_int!(Power, u32, "O");
-
 macro_rules! kw_time {
     ($outer:ident, $wrap:ident, $inner:ident, $err:ident, $key:expr) => {
         type $outer = $wrap<$inner>;
@@ -1181,114 +1181,116 @@ macro_rules! kw_time {
     };
 }
 
+// all versions
+kw_req_meta!(AlphaNumType, "DATATYPE");
+kw_opt_meta_int!(Abrt, u32, "ABRT");
+kw_opt_meta_string!(Cytsn, "CYTSN");
+kw_opt_meta_string!(Com, "COM");
+kw_opt_meta_string!(Cells, "CELLS");
+kw_opt_meta!(FCSDate, "DATE");
+kw_opt_meta_string!(Exp, "EXP");
+kw_opt_meta_string!(Fil, "FIL");
+kw_opt_meta_string!(Inst, "INST");
+kw_opt_meta_int!(Lost, u32, "LOST");
+kw_opt_meta_string!(Op, "OP");
+kw_req_meta_int!(Par, usize, "PAR");
+kw_opt_meta_string!(Proj, "PROJ");
+kw_opt_meta_string!(Smno, "SMNO");
+kw_opt_meta_string!(Src, "SRC");
+kw_opt_meta_string!(Sys, "SYS");
+kw_opt_meta!(Trigger, "TR");
+
+// time for 2.0
 kw_time!(Btim2_0, Btim, FCSTime, FCSTimeError, "BTIM");
 kw_time!(Etim2_0, Etim, FCSTime, FCSTimeError, "ETIM");
+
+// time for 3.0
 kw_time!(Btim3_0, Btim, FCSTime60, FCSTime60Error, "BTIM");
 kw_time!(Etim3_0, Etim, FCSTime60, FCSTime60Error, "ETIM");
+
+// time for 3.1-3.2
 kw_time!(Btim3_1, Btim, FCSTime100, FCSTime100Error, "BTIM");
 kw_time!(Etim3_1, Etim, FCSTime100, FCSTime100Error, "ETIM");
 
-kw_opt_meta!(FCSDate, "DATE");
-
-kw_opt_meta!(BeginDateTime, "BEGINDATETIME");
-
-kw_opt_meta!(EndDateTime, "ENDDATETIME");
-
-kw_req_meta!(Timestep, "TIMESTEP");
-kw_opt_meta!(Vol, "VOL");
-
-kw_opt_meas!(Gain, "G");
-
-kw_opt_meas!(DetectorVoltage, "V");
-
-kw_req_meta!(Mode, "MODE");
-kw_opt_meta!(Mode3_2, "MODE");
-kw_req_meta!(AlphaNumType, "DATATYPE");
-kw_req_meta!(Endian, "BYTEORD");
-kw_req_meta!(ByteOrd, "BYTEORD");
-
-kw_opt_meta!(Spillover, "SPILLOVER");
+// 3.0 only
 kw_opt_meta!(Compensation, "COMP");
+kw_opt_meta!(Unicode, "UNICODE");
+
+// for 3.0+
+kw_req_meta!(Timestep, "TIMESTEP");
+
+// for 3.1+
+kw_opt_meta_string!(LastModifier, "LAST_MODIFIER");
 kw_opt_meta!(Originality, "ORIGINALITY");
 kw_opt_meta!(ModifiedDateTime, "LAST_MODIFIED");
+
+kw_opt_meta_string!(Plateid, "PLATEID");
+kw_opt_meta_string!(Platename, "PLATENAME");
+kw_opt_meta_string!(Wellid, "WELLID");
+
+kw_opt_meta!(Spillover, "SPILLOVER");
+
+kw_opt_meta!(Vol, "VOL");
+
+// for 3.2+
+kw_opt_meta_string!(Carrierid, "CARRIERID");
+kw_opt_meta_string!(Carriertype, "CARRIERTYPE");
+kw_opt_meta_string!(Locationid, "LOCATIONID");
+
+kw_opt_meta!(BeginDateTime, "BEGINDATETIME");
+kw_opt_meta!(EndDateTime, "ENDDATETIME");
+
 kw_opt_meta!(UnstainedCenters, "UNSTAINEDCENTERS");
-kw_opt_meta!(Unicode, "UNICODE");
-kw_opt_meta!(Trigger, "TR");
+kw_opt_meta_string!(UnstainedInfo, "UNSTAINEDINFO");
 
-kw_opt_meas!(Scale, "E");
-req_meas!(Scale);
+kw_opt_meta_string!(Flowrate, "FLOWRATE");
 
-kw_req_meas!(Range, "R");
+// version-specific
+kw_opt_meta_int!(Tot, usize, "TOT"); // optional in 2.0
+req_meta!(Tot); // required in 3.0+
+
+kw_req_meta!(Mode, "MODE"); // for 2.0-3.1
+kw_opt_meta!(Mode3_2, "MODE"); // for 3.2+
+
+kw_opt_meta_string!(Cyt, "CYT"); // optional for 2.0-3.1
+req_meta!(Cyt); // required for 3.2+
+
+kw_req_meta!(Endian, "BYTEORD"); // 2.0 to 3.0
+kw_req_meta!(ByteOrd, "BYTEORD"); // 3.1+
+
+// all versions
 kw_req_meas!(Bytes, "B");
-kw_opt_meas!(Wavelengths, "W");
+kw_opt_meas_string!(Filter, "F");
+kw_opt_meas_int!(Power, u32, "O");
+kw_opt_meas_string!(PercentEmitted, "P");
+kw_req_meas!(Range, "R");
+kw_opt_meas_string!(Longname, "S");
+kw_opt_meas_string!(DetectorType, "T");
+kw_opt_meas!(DetectorVoltage, "V");
+
+// 3.0+
+kw_opt_meas!(Gain, "G");
+
+// 3.1+
+kw_opt_meas!(Display, "D");
+
+// 3.2+
 kw_opt_meas!(Feature, "FEATURE");
 kw_opt_meas!(MeasurementType, "TYPE");
 kw_opt_meas!(NumType, "DATATYPE");
-kw_opt_meas!(Display, "D");
-kw_opt_meas!(Shortname, "N");
-req_meas!(Shortname);
+kw_opt_meas_string!(Analyte, "ANALYTE");
+kw_opt_meas_string!(Tag, "TAG");
+kw_opt_meas_string!(DetectorName, "DET");
 
-kw_opt_meas!(Calibration3_1, "CALIBRATION");
-kw_opt_meas!(Calibration3_2, "CALIBRATION");
+// version specific
+kw_opt_meas!(Shortname, "N"); // optional for 2.0/3.0
+req_meas!(Shortname); // required for 3.1+
 
-pub(crate) trait Linked
-where
-    Self: Key,
-    Self: Sized,
-{
-    fn check_link(&self, names: &HashSet<&Shortname>) -> Result<(), String> {
-        let k = Self::std();
-        let bad_names: Vec<_> = self.names().difference(names).copied().collect();
-        let bad_names_str = bad_names.iter().join(", ");
-        if bad_names.is_empty() {
-            Ok(())
-        } else if bad_names.len() == 1 {
-            Err(format!(
-                "{k} references non-existent $PnN name: {bad_names_str}"
-            ))
-        } else {
-            Err(format!(
-                "{k} references non-existent $PnN names: {bad_names_str}"
-            ))
-        }
-    }
+kw_opt_meas!(Scale, "E"); // optional for 2.0
+req_meas!(Scale); // required for 3.0+
 
-    fn reassign(&mut self, mapping: &NameMapping);
+kw_opt_meas_int!(Wavelength, u32, "L"); // scaler in 2.0/3.0
+kw_opt_meas!(Wavelengths, "L"); // vector in 3.1+
 
-    fn names(&self) -> HashSet<&Shortname>;
-}
-
-// TODO define in same mode as type
-impl Linked for Trigger {
-    fn names(&self) -> HashSet<&Shortname> {
-        [&self.measurement].into_iter().collect()
-    }
-
-    fn reassign(&mut self, mapping: &NameMapping) {
-        if let Some(new) = mapping.get(&self.measurement) {
-            self.measurement = (*new).clone();
-        }
-    }
-}
-
-// TODO define in same mode as type
-impl Linked for Spillover {
-    fn names(&self) -> HashSet<&Shortname> {
-        self.measurements().into_iter().collect()
-    }
-
-    fn reassign(&mut self, mapping: &NameMapping) {
-        self.remap_measurements(mapping)
-    }
-}
-
-// TODO define in same mode as type
-impl Linked for UnstainedCenters {
-    fn names(&self) -> HashSet<&Shortname> {
-        self.inner().keys().collect()
-    }
-
-    fn reassign(&mut self, mapping: &NameMapping) {
-        self.rekey(mapping)
-    }
-}
+kw_opt_meas!(Calibration3_1, "CALIBRATION"); // 3.1 doesn't have offset
+kw_opt_meas!(Calibration3_2, "CALIBRATION"); // 3.2+ includes offset

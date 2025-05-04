@@ -560,9 +560,14 @@ where
 
     fn reassign_all(&mut self, mapping: &NameMapping) {
         self.reassign_trigger(mapping);
-        self.specific.with_spillover(|s| Ok(s.reassign(mapping)));
-        self.specific
-            .with_unstainedcenters(|u| Ok(u.rekey(mapping)));
+        self.specific.with_spillover(|s| {
+            s.reassign(mapping);
+            Ok(())
+        });
+        self.specific.with_unstainedcenters(|u| {
+            u.reassign(mapping);
+            Ok(())
+        });
     }
 
     fn check_trigger(&self, names: &HashSet<&Shortname>) -> Result<(), String> {

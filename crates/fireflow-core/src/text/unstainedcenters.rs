@@ -1,11 +1,13 @@
 use crate::macros::newtype_from_outer;
 use crate::validated::shortname::*;
 
+use super::keywords::Linked;
+use super::named_vec::NameMapping;
 use super::optionalkw::ClearOptional;
 
 use itertools::Itertools;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::str::FromStr;
 
@@ -49,22 +51,6 @@ impl UnstainedCenters {
 
     pub(crate) fn insert(&mut self, k: Shortname, v: f32) -> Option<f32> {
         self.0.insert(k, v)
-    }
-
-    pub(crate) fn rekey(&mut self, mapping: &HashMap<Shortname, Shortname>) {
-        // keys can't be mutated in place so need to rebuild the hashmap with
-        // new keys from the mapping
-        let new: HashMap<_, _> = self
-            .0
-            .iter()
-            .map(|(k, v)| {
-                (
-                    mapping.get(k).map(|x| (*x).clone()).unwrap_or(k.clone()),
-                    *v,
-                )
-            })
-            .collect();
-        self.0 = new;
     }
 
     pub(crate) fn remove(&mut self, n: &Shortname) -> Result<Option<f32>, ClearOptional> {
@@ -136,5 +122,28 @@ impl fmt::Display for ParseUnstainedCenterError {
             ParseUnstainedCenterError::BadN => write!(f, "Could not parse N"),
             ParseUnstainedCenterError::New(n) => n.fmt(f),
         }
+    }
+}
+
+// TODO define in same mode as type
+impl Linked for UnstainedCenters {
+    fn names(&self) -> HashSet<&Shortname> {
+        self.0.keys().collect()
+    }
+
+    fn reassign(&mut self, mapping: &NameMapping) {
+        // keys can't be mutated in place so need to rebuild the hashmap with
+        // new keys from the mapping
+        let new: HashMap<_, _> = self
+            .0
+            .iter()
+            .map(|(k, v)| {
+                (
+                    mapping.get(k).map(|x| (*x).clone()).unwrap_or(k.clone()),
+                    *v,
+                )
+            })
+            .collect();
+        self.0 = new;
     }
 }

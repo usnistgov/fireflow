@@ -1,11 +1,13 @@
 use crate::validated::shortname::*;
 
+use super::keywords::Linked;
+use super::named_vec::NameMapping;
 use super::optionalkw::ClearOptional;
 
 use itertools::Itertools;
 use nalgebra::DMatrix;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fmt;
 use std::str::FromStr;
 
@@ -48,15 +50,6 @@ impl Spillover {
 
     pub fn matrix(&self) -> &DMatrix<f32> {
         &self.matrix
-    }
-
-    pub(crate) fn remap_measurements(&mut self, mapping: &HashMap<Shortname, Shortname>) {
-        // ASSUME mapping is such that new names will be unique
-        for n in self.measurements.iter_mut() {
-            if let Some(new) = mapping.get(n) {
-                *n = (*new).clone();
-            }
-        }
     }
 
     pub(crate) fn remove_by_name(&mut self, n: &Shortname) -> Result<bool, ClearOptional> {
@@ -159,5 +152,20 @@ impl fmt::Display for SpilloverError {
             SpilloverError::TooSmall => "Matrix is less than 2x2",
         };
         write!(f, "{}", s)
+    }
+}
+
+impl Linked for Spillover {
+    fn names(&self) -> HashSet<&Shortname> {
+        self.measurements.iter().collect()
+    }
+
+    fn reassign(&mut self, mapping: &NameMapping) {
+        // ASSUME mapping is such that new names will be unique
+        for n in self.measurements.iter_mut() {
+            if let Some(new) = mapping.get(n) {
+                *n = (*new).clone();
+            }
+        }
     }
 }

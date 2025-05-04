@@ -141,7 +141,7 @@ pub struct Metadata<X> {
 #[derive(Clone, Serialize)]
 pub struct TimeChannel<X> {
     /// Value for $PnB
-    bytes: Bytes,
+    bytes: Width,
 
     /// Value for $PnR
     range: Range,
@@ -165,7 +165,7 @@ pub struct TimeChannel<X> {
 #[derive(Clone, Serialize)]
 pub struct Measurement<X> {
     /// Value for $PnB
-    bytes: Bytes,
+    bytes: Width,
 
     /// Value for $PnR
     range: Range,
@@ -197,21 +197,11 @@ pub struct Measurement<X> {
     pub specific: X,
 }
 
-impl TryFrom<Bytes> for u8 {
-    type Error = ();
-    fn try_from(value: Bytes) -> Result<Self, Self::Error> {
-        match value {
-            Bytes::Fixed(x) => Ok(x),
-            _ => Err(()),
-        }
-    }
-}
-
 impl<T> TimeChannel<T>
 where
     T: VersionedTime,
 {
-    pub fn new_common(bytes: Bytes, range: Range, specific: T) -> Self {
+    pub fn new_common(bytes: Width, range: Range, specific: T) -> Self {
         Self {
             bytes,
             range,
@@ -275,7 +265,7 @@ impl<P> Measurement<P>
 where
     P: VersionedMeasurement,
 {
-    pub fn bytes(&self) -> &Bytes {
+    pub fn bytes(&self) -> &Width {
         &self.bytes
     }
 
@@ -283,7 +273,7 @@ where
         &self.range
     }
 
-    pub fn new_common(bytes: Bytes, range: Range, specific: P) -> Self {
+    pub fn new_common(bytes: Width, range: Range, specific: P) -> Self {
         Self {
             bytes,
             range,
@@ -2020,7 +2010,7 @@ where
         PureMaybe::from_result_strs(res, PureErrorLevel::Error).into_result(msg)
     }
 
-    fn set_data_bytes_range(&mut self, xs: Vec<(Bytes, Range)>) -> bool {
+    fn set_data_bytes_range(&mut self, xs: Vec<(Width, Range)>) -> bool {
         self.measurements
             .alter_values_zip(
                 xs,
@@ -2039,21 +2029,18 @@ where
     fn set_data_delimited_inner(&mut self, xs: Vec<u64>) -> bool {
         let ys: Vec<_> = xs
             .into_iter()
-            .map(|r| (Bytes::Variable, Range(r.to_string())))
+            .map(|r| (Width::Variable, Range(r.to_string())))
             .collect();
         self.set_data_bytes_range(ys)
     }
 
     fn set_to_floating_point(&mut self, is_double: bool, rs: Vec<Range>) -> bool {
         let (dt, b) = if is_double {
-            (AlphaNumType::Double, 8)
+            (AlphaNumType::Double, Width::new_f64())
         } else {
-            (AlphaNumType::Single, 4)
+            (AlphaNumType::Single, Width::new_f32())
         };
-        let xs: Vec<_> = rs
-            .into_iter()
-            .map(|r| (Bytes::Fixed(b), Range(r.to_string())))
-            .collect();
+        let xs: Vec<_> = rs.into_iter().map(|r| (b, Range(r.to_string()))).collect();
         // ASSUME time channel will always be set to linear since we do that
         // a few lines above, so the only error/warning we need to screen is
         // for the length of the input
@@ -2064,8 +2051,8 @@ where
         res
     }
 
-    fn set_data_ascii_inner(&mut self, xs: Vec<RangeSetter>) -> bool {
-        let ys: Vec<_> = xs.into_iter().map(|s| s.ascii_truncated().pair()).collect();
+    fn set_data_ascii_inner(&mut self, xs: Vec<AsciiRangeSetter>) -> bool {
+        let ys: Vec<_> = xs.into_iter().map(|s| s.truncated()).collect();
         let res = self.set_data_bytes_range(ys);
         if res {
             self.metadata.datatype = AlphaNumType::Ascii;
@@ -2073,8 +2060,8 @@ where
         res
     }
 
-    pub fn set_data_integer_inner(&mut self, xs: Vec<RangeSetter>) -> bool {
-        let ys: Vec<_> = xs.into_iter().map(|s| s.uint_truncated().pair()).collect();
+    pub fn set_data_integer_inner(&mut self, xs: Vec<NumRangeSetter>) -> bool {
+        let ys: Vec<_> = xs.into_iter().map(|s| s.truncated()).collect();
         let res = self.set_data_bytes_range(ys);
         if res {
             self.metadata.datatype = AlphaNumType::Integer;
@@ -2112,7 +2099,7 @@ impl CoreTEXT2_0 {
         let n = byteord.nbytes();
         let ys = rs
             .into_iter()
-            .map(|r| RangeSetter { bytes: n, range: r })
+            .map(|r| RangeSetter { width: n, range: r })
             .collect();
         let res = self.set_data_integer_inner(ys);
         if res {
@@ -2139,7 +2126,7 @@ impl CoreTEXT2_0 {
     }
 
     /// Set data layout to be ASCII-fixed for all measurements
-    pub fn set_data_ascii(&mut self, xs: Vec<RangeSetter>) -> bool {
+    pub fn set_data_ascii(&mut self, xs: Vec<AsciiRangeSetter>) -> bool {
         self.set_data_ascii_inner(xs)
     }
 
@@ -2183,7 +2170,7 @@ impl CoreTEXT3_0 {
         let n = byteord.nbytes();
         let ys = rs
             .into_iter()
-            .map(|r| RangeSetter { bytes: n, range: r })
+            .map(|r| RangeSetter { width: n, range: r })
             .collect();
         let res = self.set_data_integer_inner(ys);
         if res {
@@ -2210,7 +2197,7 @@ impl CoreTEXT3_0 {
     }
 
     /// Set data layout to be ASCII-fixed for all measurements
-    pub fn set_data_ascii(&mut self, xs: Vec<RangeSetter>) -> bool {
+    pub fn set_data_ascii(&mut self, xs: Vec<AsciiRangeSetter>) -> bool {
         self.set_data_ascii_inner(xs)
     }
 
@@ -2292,7 +2279,7 @@ impl CoreTEXT3_1 {
 
     // TODO better input type here?
     /// Set data layout to be integers for all measurements.
-    pub fn set_data_integer(&mut self, xs: Vec<RangeSetter>) -> bool {
+    pub fn set_data_integer(&mut self, xs: Vec<NumRangeSetter>) -> bool {
         self.set_data_integer_inner(xs)
     }
 
@@ -2309,7 +2296,7 @@ impl CoreTEXT3_1 {
     }
 
     /// Set data layout to be fixed-ASCII for all measurements
-    pub fn set_data_ascii(&mut self, xs: Vec<RangeSetter>) -> bool {
+    pub fn set_data_ascii(&mut self, xs: Vec<AsciiRangeSetter>) -> bool {
         self.set_data_ascii_inner(xs)
     }
 
@@ -2448,17 +2435,17 @@ impl CoreTEXT3_2 {
                 };
                 match x {
                     MixedColumnSetter::Float(range) => {
-                        (Bytes::Fixed(4), Range(range.to_string()), pndt)
+                        (Width::new_f32(), Range(range.to_string()), pndt)
                     }
                     MixedColumnSetter::Double(range) => {
-                        (Bytes::Fixed(8), Range(range.to_string()), pndt)
+                        (Width::new_f64(), Range(range.to_string()), pndt)
                     }
                     MixedColumnSetter::Ascii(s) => {
-                        let (b, r) = s.ascii_truncated().pair();
+                        let (b, r) = s.truncated();
                         (b, r, None)
                     }
                     MixedColumnSetter::Uint(s) => {
-                        let (b, r) = s.uint_truncated().pair();
+                        let (b, r) = s.truncated();
                         (b, r, pndt)
                     }
                 }
@@ -2493,7 +2480,7 @@ impl CoreTEXT3_2 {
     }
 
     /// Set data layout to be integer for all measurements
-    pub fn set_data_integer(&mut self, xs: Vec<RangeSetter>) -> bool {
+    pub fn set_data_integer(&mut self, xs: Vec<NumRangeSetter>) -> bool {
         let res = self.set_data_integer_inner(xs);
         if res {
             self.unset_meas_datatypes();
@@ -2514,7 +2501,7 @@ impl CoreTEXT3_2 {
     }
 
     /// Set data layout to be fixed-ASCII for all measurements
-    pub fn set_data_ascii(&mut self, xs: Vec<RangeSetter>) -> bool {
+    pub fn set_data_ascii(&mut self, xs: Vec<AsciiRangeSetter>) -> bool {
         let res = self.set_data_ascii_inner(xs);
         if res {
             self.unset_meas_datatypes();
@@ -3982,33 +3969,44 @@ impl VersionedMeasurement for InnerMeasurement3_2 {
 pub enum MixedColumnSetter {
     Float(f32),
     Double(f64),
-    Ascii(RangeSetter),
-    Uint(RangeSetter),
+    Ascii(AsciiRangeSetter),
+    Uint(NumRangeSetter),
 }
 
 #[derive(Clone, Copy)]
-pub struct RangeSetter {
-    pub bytes: u8,
+pub struct RangeSetter<B> {
+    pub width: B,
     pub range: u64,
 }
 
-impl RangeSetter {
-    fn pair(&self) -> (Bytes, Range) {
-        (Bytes::Fixed(self.bytes), Range(self.range.to_string()))
-    }
+pub type AsciiRangeSetter = RangeSetter<Chars>;
+pub type NumRangeSetter = RangeSetter<Bytes>;
 
-    fn uint_truncated(&self) -> Self {
-        Self {
-            bytes: self.bytes,
-            range: 2_u64.pow(self.bytes as u32).min(self.range),
-        }
+impl NumRangeSetter {
+    fn truncated(&self) -> (Width, Range) {
+        (
+            self.width.into(),
+            Range(
+                2_u64
+                    .pow(u8::from(self.width).into())
+                    .min(self.range)
+                    .to_string(),
+            ),
+        )
     }
+}
 
-    fn ascii_truncated(&self) -> Self {
-        Self {
-            bytes: self.bytes,
-            range: 10_u64.pow(self.bytes as u32).min(self.range),
-        }
+impl AsciiRangeSetter {
+    fn truncated(&self) -> (Width, Range) {
+        (
+            self.width.into(),
+            Range(
+                10_u64
+                    .pow(u8::from(self.width).into())
+                    .min(self.range)
+                    .to_string(),
+            ),
+        )
     }
 }
 

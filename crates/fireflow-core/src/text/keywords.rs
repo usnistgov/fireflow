@@ -116,65 +116,6 @@ impl Linked for Trigger {
     }
 }
 
-/// The value for the $PnB key (all versions)
-///
-/// The $PnB key actually stores bits. However, this library only supports
-/// widths that are multiples of 8 (ie bytes) for now. Therefore, this key
-/// actually stores the number of bytes indicated by $PnB.
-///
-/// This may also be '*' which means "delimited ASCII" which is only valid when
-/// $DATATYPE=A.
-#[derive(Clone, Copy, Serialize)]
-// TODO this will be off by 8x for ascii
-pub enum Bytes {
-    Fixed(u8),
-    Variable,
-}
-
-pub enum BytesError {
-    Int(ParseIntError),
-    Range,
-    NotOctet,
-}
-
-impl fmt::Display for BytesError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            BytesError::Int(i) => write!(f, "{}", i),
-            BytesError::Range => write!(f, "bit widths over 64 are not supported"),
-            BytesError::NotOctet => write!(f, "bit widths must be octets"),
-        }
-    }
-}
-
-impl FromStr for Bytes {
-    type Err = BytesError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "*" => Ok(Bytes::Variable),
-            _ => s.parse::<u8>().map_err(BytesError::Int).and_then(|x| {
-                if x > 64 {
-                    Err(BytesError::Range)
-                } else if x % 8 > 1 {
-                    Err(BytesError::NotOctet)
-                } else {
-                    Ok(Bytes::Fixed(x / 8))
-                }
-            }),
-        }
-    }
-}
-
-impl fmt::Display for Bytes {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Bytes::Fixed(x) => write!(f, "{}", x * 8),
-            Bytes::Variable => write!(f, "*"),
-        }
-    }
-}
-
 /// The values used for the $MODE key (up to 3.1)
 #[derive(Clone, PartialEq, Eq, Serialize)]
 pub enum Mode {
@@ -1259,7 +1200,7 @@ kw_req_meta!(Endian, "BYTEORD"); // 2.0 to 3.0
 kw_req_meta!(ByteOrd, "BYTEORD"); // 3.1+
 
 // all versions
-kw_req_meas!(Bytes, "B");
+kw_req_meas!(Width, "B");
 kw_opt_meas_string!(Filter, "F");
 kw_opt_meas_int!(Power, u32, "O");
 kw_opt_meas_string!(PercentEmitted, "P");

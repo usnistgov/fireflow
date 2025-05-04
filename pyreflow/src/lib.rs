@@ -608,7 +608,12 @@ pywrap!(PyMeasurement3_2, api::Measurement3_2, "Measurement3_2");
 pywrap!(PyDatePattern, DatePattern, "DatePattern");
 
 pywrap!(PyShortname, Shortname, "Shortname");
-pywrap!(PyRangeSetter, api::RangeSetter, "RangeSetter");
+pywrap!(PyNumRangeSetter, api::NumRangeSetter, "NumRangeSetter");
+pywrap!(
+    PyAsciiRangeSetter,
+    api::AsciiRangeSetter,
+    "AsciiRangeSetter"
+);
 pywrap!(
     PyMixedColumnSetter,
     api::MixedColumnSetter,
@@ -1217,7 +1222,7 @@ macro_rules! integer_methods {
     ($pytype:ident; $($root:ident),*) => {
         #[pymethods]
         impl $pytype {
-            fn set_data_integer(&mut self, rs: Vec<PyRangeSetter>) -> bool {
+            fn set_data_integer(&mut self, rs: Vec<PyNumRangeSetter>) -> bool {
                 self.0
                     .$($root.)*
                     set_data_integer(rs.into_iter().map(|x| x.into()).collect())
@@ -1760,7 +1765,7 @@ macro_rules! common_methods {
                 self.0.$($root.)*set_data_f64(ranges)
             }
 
-            fn set_data_ascii(&mut self, rs: Vec<PyRangeSetter>) -> bool {
+            fn set_data_ascii(&mut self, rs: Vec<PyAsciiRangeSetter>) -> bool {
                 self.0
                     .$($root.)*
                     set_data_ascii(rs.into_iter().map(|x| x.into()).collect())

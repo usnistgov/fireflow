@@ -1,6 +1,9 @@
+use crate::macros::newtype_from_outer;
+
 use itertools::Itertools;
 use serde::Serialize;
 use std::fmt;
+use std::num::ParseIntError;
 use std::str::FromStr;
 
 /// Endianness
@@ -27,6 +30,31 @@ pub enum ByteOrd {
     Mixed(MixedOrder),
 }
 
+/// The value for the $PnB key (all versions)
+///
+/// The $PnB key actually stores bits. However, this library only supports
+/// widths that are multiples of 8 (ie bytes) for now. Therefore, this key
+/// actually stores the number of bytes indicated by $PnB.
+///
+/// This may also be '*' which means "delimited ASCII" which is only valid when
+/// $DATATYPE=A.
+#[derive(Clone, Copy, Serialize)]
+pub enum Width {
+    Fixed(BitsOrChars),
+    Variable,
+}
+
+/// The number of bytes for a numeric measurement
+#[derive(Clone, Copy, Serialize, PartialEq)]
+pub struct Bytes(u8);
+
+/// The number of chars or an ASCII measurement
+#[derive(Clone, Copy, Serialize, PartialEq)]
+pub struct Chars(u8);
+
+#[derive(Clone, Copy, Serialize)]
+pub struct BitsOrChars(u8);
+
 #[derive(PartialEq, Eq, Hash, Copy, Clone)]
 pub enum SizedByteOrd<const LEN: usize> {
     Endian(Endian),
@@ -44,7 +72,7 @@ impl ByteOrd {
             _ => {
                 let n = xs.len();
                 if xs.iter().unique().count() != n
-                    || n > 8
+                    || !(1..8).contains(&n)
                     || xs.iter().min().is_some_and(|x| *x != 1)
                     || xs.iter().max().is_some_and(|x| usize::from(*x) != n)
                 {
@@ -58,10 +86,11 @@ impl ByteOrd {
         }
     }
 
-    pub fn nbytes(&self) -> u8 {
+    pub fn nbytes(&self) -> Bytes {
         match self {
-            ByteOrd::Endian(_) => 4,
-            ByteOrd::Mixed(xs) => xs.0.len() as u8,
+            ByteOrd::Endian(_) => Bytes(4),
+            // ASSUME this will always be 1-8 elements
+            ByteOrd::Mixed(xs) => Bytes(xs.0.len() as u8),
         }
     }
 
@@ -87,6 +116,68 @@ impl Endian {
         } else {
             Endian::Little
         }
+    }
+}
+
+impl Bytes {
+    pub fn try_new(x: u8) -> Option<Self> {
+        if 0 < x && x <= 64 {
+            Some(Self(x))
+        } else {
+            None
+        }
+    }
+}
+
+impl Chars {
+    pub fn try_new(x: u8) -> Option<Self> {
+        if 0 < x && x <= 20 {
+            Some(Self(x))
+        } else {
+            None
+        }
+    }
+}
+
+impl Width {
+    pub fn new_f32() -> Self {
+        Width::Fixed(BitsOrChars(32))
+    }
+
+    pub fn new_f64() -> Self {
+        Width::Fixed(BitsOrChars(64))
+    }
+}
+
+impl BitsOrChars {
+    /// Return the number of chars represented by this if 20 or less.
+    ///
+    /// We can only check if the inner value is <=64 since we don't know at
+    /// parse time if this is for an ASCII column or a numeric column, so
+    /// need to check that the number is less then 20, which is the maximum
+    /// number of digits that can be stored in a u64.
+    pub fn chars(&self) -> Option<Chars> {
+        if self.0 > 20 {
+            None
+        } else {
+            Some(Chars(self.0))
+        }
+    }
+
+    /// Return number of bytes represented by this.
+    ///
+    /// Return None if not divisible by 8. This should only return a number
+    /// in [1, 8] because we check that Self is within [1,64]
+    pub fn bytes(&self) -> Option<Bytes> {
+        if self.0 % 8 == 0 {
+            Some(Bytes(self.0 / 8))
+        } else {
+            None
+        }
+    }
+
+    pub fn inner(&self) -> u8 {
+        self.0
     }
 }
 
@@ -159,5 +250,79 @@ impl fmt::Display for ParseByteOrdError {
             ParseByteOrdError::InvalidNumbers => write!(f, "Could not parse numbers in byte order"),
             ParseByteOrdError::InvalidOrder => write!(f, "Byte order must include 1-n uniquely"),
         }
+    }
+}
+
+newtype_from_outer!(Bytes, u8);
+newtype_from_outer!(Chars, u8);
+newtype_from_outer!(BitsOrChars, u8);
+
+impl From<Chars> for Width {
+    fn from(value: Chars) -> Self {
+        Width::Fixed(BitsOrChars(value.0))
+    }
+}
+
+impl From<Bytes> for Width {
+    fn from(value: Bytes) -> Self {
+        Width::Fixed(BitsOrChars(value.0 * 8))
+    }
+}
+
+impl TryFrom<Width> for u8 {
+    type Error = ();
+    fn try_from(value: Width) -> Result<Self, Self::Error> {
+        match value {
+            Width::Fixed(x) => Ok(x.0),
+            _ => Err(()),
+        }
+    }
+}
+
+impl FromStr for Width {
+    type Err = ParseBitsError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "*" => Ok(Width::Variable),
+            _ => s.parse::<u8>().map_err(ParseBitsError::Int).and_then(|x| {
+                if x < 1 || 64 < x {
+                    Err(ParseBitsError::Inner(BitsError))
+                } else {
+                    Ok(Width::Fixed(BitsOrChars(x)))
+                }
+            }),
+        }
+    }
+}
+
+impl fmt::Display for Width {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Width::Fixed(x) => write!(f, "{}", x.0),
+            Width::Variable => write!(f, "*"),
+        }
+    }
+}
+
+pub enum ParseBitsError {
+    Int(ParseIntError),
+    Inner(BitsError),
+}
+
+pub struct BitsError;
+
+impl fmt::Display for ParseBitsError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            ParseBitsError::Int(i) => write!(f, "{}", i),
+            ParseBitsError::Inner(i) => i.fmt(f),
+        }
+    }
+}
+
+impl fmt::Display for BitsError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "bits must be between 8 and 64")
     }
 }

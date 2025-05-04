@@ -373,7 +373,7 @@ pub type DoubleType = FloatType<8, f64>;
 
 #[derive(PartialEq, Clone)]
 pub enum ColumnType {
-    Ascii { bytes: u8 },
+    Ascii { chars: Chars },
     Integer(AnyUintType),
     Float(SingleType),
     Double(DoubleType),
@@ -395,7 +395,7 @@ struct NumColumnWriter<T, const LEN: usize> {
 
 struct AsciiColumnWriter<T> {
     column: Vec<T>,
-    bytes: u8,
+    chars: Chars,
 }
 
 enum ColumnWriter {
@@ -419,7 +419,7 @@ use ColumnWriter::*;
 
 struct AsciiColumnReader {
     column: Vec<u64>,
-    width: u8,
+    chars: Chars,
 }
 
 struct FloatColumnReader<T, const LEN: usize> {
@@ -601,40 +601,48 @@ macro_rules! convert_to_f64 {
 }
 
 fn to_col_type(
-    b: Bytes,
+    b: Width,
     dt: AlphaNumType,
     byteord: &ByteOrd,
     rng: &Range,
 ) -> Result<Option<ColumnType>, Vec<String>> {
     match b {
-        Bytes::Fixed(bytes) => match dt {
+        Width::Fixed(f) => match dt {
             AlphaNumType::Ascii => {
-                if bytes > 20 {
-                    Ok(ColumnType::Ascii { bytes })
+                if let Some(chars) = f.chars() {
+                    Ok(ColumnType::Ascii { chars })
                 } else {
                     Err(vec![
-                        "$DATATYPE=A but $PnB greater than 20 bytes".to_string()
+                        "$DATATYPE=A but $PnB greater than 20 chars".to_string()
                     ])
                 }
             }
-            AlphaNumType::Integer => make_uint_type(bytes, rng, byteord).map(ColumnType::Integer),
+            AlphaNumType::Integer => make_uint_type(f, rng, byteord).map(ColumnType::Integer),
             AlphaNumType::Single => {
-                if bytes == 4 {
-                    Float32Type::to_float_type(byteord, rng).map(ColumnType::Float)
+                if let Some(bytes) = f.bytes() {
+                    if u8::from(bytes) == 4 {
+                        Float32Type::to_float_type(byteord, rng).map(ColumnType::Float)
+                    } else {
+                        Err(vec![format!("$DATATYPE=F but $PnB={}", f.inner())])
+                    }
                 } else {
-                    Err(vec![format!("$DATATYPE=F but $PnB={bytes}")])
+                    Err(vec![format!("$PnB is not an octet, got {}", f.inner())])
                 }
             }
             AlphaNumType::Double => {
-                if bytes == 8 {
-                    Float64Type::to_float_type(byteord, rng).map(ColumnType::Double)
+                if let Some(bytes) = f.bytes() {
+                    if u8::from(bytes) == 8 {
+                        Float64Type::to_float_type(byteord, rng).map(ColumnType::Double)
+                    } else {
+                        Err(vec![format!("$DATATYPE=D but $PnB={}", f.inner())])
+                    }
                 } else {
-                    Err(vec![format!("$DATATYPE=D but $PnB={bytes}")])
+                    Err(vec![format!("$PnB is not an octet, got {}", f.inner())])
                 }
             }
         }
         .map(Some),
-        Bytes::Variable => match dt {
+        Width::Variable => match dt {
             // ASSUME the only way this can happen is if $DATATYPE=A since
             // Ascii is not allowed in $PnDATATYPE.
             AlphaNumType::Ascii => Ok(None),
@@ -703,12 +711,13 @@ where
 
     fn maxval() -> Self;
 
-    fn write_ascii_int<W: Write>(h: &mut BufWriter<W>, bytes: u8, x: Self) -> io::Result<()> {
+    fn write_ascii_int<W: Write>(h: &mut BufWriter<W>, chars: Chars, x: Self) -> io::Result<()> {
         let s = x.to_string();
         // ASSUME bytes has been ensured to be able to hold the largest digit
         // expressible with this type, which means this will never be negative
-        let offset = usize::from(bytes) - s.len();
-        let mut buf: Vec<u8> = vec![0, bytes];
+        let c = u8::from(chars);
+        let offset = usize::from(c) - s.len();
+        let mut buf: Vec<u8> = vec![0, c];
         for (i, c) in s.bytes().enumerate() {
             buf[offset + i] = c;
         }
@@ -1000,9 +1009,11 @@ where
 }
 
 impl ColumnType {
+    // TODO this in the number of literal bytes taken up by the column, use a
+    // newtype wrapper for this
     fn width(&self) -> usize {
         match self {
-            ColumnType::Ascii { bytes } => usize::from(*bytes),
+            ColumnType::Ascii { chars } => usize::from(u8::from(*chars)),
             ColumnType::Integer(ut) => usize::from(ut.nbytes()),
             ColumnType::Float(_) => 4,
             ColumnType::Double(_) => 8,
@@ -1011,7 +1022,7 @@ impl ColumnType {
 
     fn datatype(&self) -> AlphaNumType {
         match self {
-            ColumnType::Ascii { bytes: _ } => AlphaNumType::Ascii,
+            ColumnType::Ascii { chars: _ } => AlphaNumType::Ascii,
             ColumnType::Integer(_) => AlphaNumType::Integer,
             ColumnType::Float(_) => AlphaNumType::Single,
             ColumnType::Double(_) => AlphaNumType::Double,
@@ -1117,17 +1128,22 @@ impl<const LEN: usize> From<Endian> for SizedByteOrd<LEN> {
     }
 }
 
-fn make_uint_type(b: u8, r: &Range, o: &ByteOrd) -> Result<AnyUintType, Vec<String>> {
-    match b {
-        1 => UInt8Type::to_col(r, o).map(AnyUintType::Uint08),
-        2 => UInt16Type::to_col(r, o).map(AnyUintType::Uint16),
-        3 => <UInt32Type as IntFromBytes<4, 3>>::to_col(r, o).map(AnyUintType::Uint24),
-        4 => <UInt32Type as IntFromBytes<4, 4>>::to_col(r, o).map(AnyUintType::Uint32),
-        5 => <UInt64Type as IntFromBytes<8, 5>>::to_col(r, o).map(AnyUintType::Uint40),
-        6 => <UInt64Type as IntFromBytes<8, 6>>::to_col(r, o).map(AnyUintType::Uint48),
-        7 => <UInt64Type as IntFromBytes<8, 7>>::to_col(r, o).map(AnyUintType::Uint56),
-        8 => <UInt64Type as IntFromBytes<8, 8>>::to_col(r, o).map(AnyUintType::Uint64),
-        _ => Err(vec!["$PnB has invalid byte length".to_string()]),
+fn make_uint_type(b: BitsOrChars, r: &Range, o: &ByteOrd) -> Result<AnyUintType, Vec<String>> {
+    if let Some(bytes) = b.bytes() {
+        // ASSUME this can only be 1-8
+        match u8::from(bytes) {
+            1 => UInt8Type::to_col(r, o).map(AnyUintType::Uint08),
+            2 => UInt16Type::to_col(r, o).map(AnyUintType::Uint16),
+            3 => <UInt32Type as IntFromBytes<4, 3>>::to_col(r, o).map(AnyUintType::Uint24),
+            4 => <UInt32Type as IntFromBytes<4, 4>>::to_col(r, o).map(AnyUintType::Uint32),
+            5 => <UInt64Type as IntFromBytes<8, 5>>::to_col(r, o).map(AnyUintType::Uint40),
+            6 => <UInt64Type as IntFromBytes<8, 6>>::to_col(r, o).map(AnyUintType::Uint48),
+            7 => <UInt64Type as IntFromBytes<8, 7>>::to_col(r, o).map(AnyUintType::Uint56),
+            8 => <UInt64Type as IntFromBytes<8, 8>>::to_col(r, o).map(AnyUintType::Uint64),
+            _ => Err(vec!["make_uint_type: this should not happen".to_string()]),
+        }
+    } else {
+        Err(vec!["$PnB is not an octet".to_string()])
     }
 }
 
@@ -1390,8 +1406,8 @@ fn build_mixed_reader(cs: Vec<ColumnType>, total_events: Tot) -> MixedParser {
     let columns = cs
         .into_iter()
         .map(|p| match p {
-            ColumnType::Ascii { bytes } => MixedColumnType::Ascii(AsciiColumnReader {
-                width: bytes,
+            ColumnType::Ascii { chars } => MixedColumnType::Ascii(AsciiColumnReader {
+                chars: chars.into(),
                 column: vec![],
             }),
             ColumnType::Float(t) => {
@@ -1438,56 +1454,56 @@ impl InnerTime2_0 {
 }
 
 impl TimeChannel2_0 {
-    pub fn new(bytes: Bytes, range: Range) -> Self {
+    pub fn new(bytes: Width, range: Range) -> Self {
         let specific = InnerTime2_0::new();
         TimeChannel::new_common(bytes, range, specific)
     }
 }
 
 impl TimeChannel3_0 {
-    pub fn new(bytes: Bytes, range: Range, timestep: Timestep) -> Self {
+    pub fn new(bytes: Width, range: Range, timestep: Timestep) -> Self {
         let specific = InnerTime3_0::new(timestep);
         TimeChannel::new_common(bytes, range, specific)
     }
 }
 
 impl TimeChannel3_1 {
-    pub fn new(bytes: Bytes, range: Range, timestep: Timestep) -> Self {
+    pub fn new(bytes: Width, range: Range, timestep: Timestep) -> Self {
         let specific = InnerTime3_1::new(timestep);
         TimeChannel::new_common(bytes, range, specific)
     }
 }
 
 impl TimeChannel3_2 {
-    pub fn new(bytes: Bytes, range: Range, timestep: Timestep) -> Self {
+    pub fn new(bytes: Width, range: Range, timestep: Timestep) -> Self {
         let specific = InnerTime3_2::new(timestep);
         TimeChannel::new_common(bytes, range, specific)
     }
 }
 
 impl Measurement2_0 {
-    pub fn new(bytes: Bytes, range: Range) -> Self {
+    pub fn new(bytes: Width, range: Range) -> Self {
         let specific = InnerMeasurement2_0::new();
         Measurement::new_common(bytes, range, specific)
     }
 }
 
 impl Measurement3_0 {
-    pub fn new(bytes: Bytes, range: Range, scale: Scale) -> Self {
+    pub fn new(bytes: Width, range: Range, scale: Scale) -> Self {
         let specific = InnerMeasurement3_0::new(scale);
         Measurement::new_common(bytes, range, specific)
     }
 }
 
 impl Measurement3_1 {
-    pub fn new(bytes: Bytes, range: Range, scale: Scale) -> Self {
+    pub fn new(bytes: Width, range: Range, scale: Scale) -> Self {
         let specific = InnerMeasurement3_1::new(scale);
         Measurement::new_common(bytes, range, specific)
     }
 }
 
 impl Measurement3_2 {
-    pub fn new(bytes: Bytes, range: Range, scale: Scale) -> Self {
+    pub fn new(bytes: Width, range: Range, scale: Scale) -> Self {
         let specific = InnerMeasurement3_2::new(scale);
         Measurement::new_common(bytes, range, specific)
     }
@@ -1668,55 +1684,55 @@ fn series_coerce(
         // hold the max range of the type being formatted. ASCII shouldn't
         // store floats at all, so warn user if input data is float or
         // double.
-        ColumnType::Ascii { bytes } => match dt {
+        ColumnType::Ascii { chars } => match dt {
             ValidType::U08 => {
-                if bytes < 3 {
+                if u8::from(chars) < 3 {
                     ascii_uint_warn(&mut deferred, 8, 3);
                 }
                 AsciiU8(AsciiColumnWriter {
                     column: c.u8().unwrap().into_no_null_iter().collect(),
-                    bytes,
+                    chars,
                 })
             }
             ValidType::U16 => {
-                if bytes < 5 {
+                if u8::from(chars) < 5 {
                     ascii_uint_warn(&mut deferred, 16, 5);
                 }
                 AsciiU16(AsciiColumnWriter {
                     column: c.u16().unwrap().into_no_null_iter().collect(),
-                    bytes,
+                    chars,
                 })
             }
             ValidType::U32 => {
-                if bytes < 10 {
+                if u8::from(chars) < 10 {
                     ascii_uint_warn(&mut deferred, 32, 10);
                 }
                 AsciiU32(AsciiColumnWriter {
                     column: c.u32().unwrap().into_no_null_iter().collect(),
-                    bytes,
+                    chars,
                 })
             }
             ValidType::U64 => {
-                if bytes < 20 {
+                if u8::from(chars) < 20 {
                     ascii_uint_warn(&mut deferred, 64, 20);
                 }
                 AsciiU64(AsciiColumnWriter {
                     column: c.u64().unwrap().into_no_null_iter().collect(),
-                    bytes,
+                    chars,
                 })
             }
             ValidType::F32 => {
                 num_warn(&mut deferred, "float", "uint64");
                 AsciiU64(AsciiColumnWriter {
                     column: series_cast!(c, f32, u64),
-                    bytes,
+                    chars,
                 })
             }
             ValidType::F64 => {
                 num_warn(&mut deferred, "double", "uint64");
                 AsciiU64(AsciiColumnWriter {
                     column: series_cast!(c, f32, u64),
-                    bytes,
+                    chars,
                 })
             }
         },
@@ -2190,7 +2206,8 @@ fn read_data_mixed<R: Read>(h: &mut BufReader<R>, parser: MixedParser) -> io::Re
                 MixedColumnType::Uint(u) => u.read_to_column(h, r)?,
                 MixedColumnType::Ascii(d) => {
                     strbuf.clear();
-                    h.take(u64::from(d.width)).read_to_string(&mut strbuf)?;
+                    h.take(u64::from(u8::from(d.chars)))
+                        .read_to_string(&mut strbuf)?;
                     d.column[r] = parse_u64_io(&strbuf)?;
                 }
             }
@@ -2259,10 +2276,10 @@ fn h_write_numeric_dataframe<W: Write>(
                         NumU64(w) => UInt64Type::write_int(h, &w.size, w.column[r]),
                         NumF32(w) => Float32Type::write_float(h, &w.size, w.column[r]),
                         NumF64(w) => Float64Type::write_float(h, &w.size, w.column[r]),
-                        AsciiU8(w) => u8::write_ascii_int(h, w.bytes, w.column[r]),
-                        AsciiU16(w) => u16::write_ascii_int(h, w.bytes, w.column[r]),
-                        AsciiU32(w) => u32::write_ascii_int(h, w.bytes, w.column[r]),
-                        AsciiU64(w) => u64::write_ascii_int(h, w.bytes, w.column[r]),
+                        AsciiU8(w) => u8::write_ascii_int(h, w.chars, w.column[r]),
+                        AsciiU16(w) => u16::write_ascii_int(h, w.chars, w.column[r]),
+                        AsciiU32(w) => u32::write_ascii_int(h, w.chars, w.column[r]),
+                        AsciiU64(w) => u64::write_ascii_int(h, w.chars, w.column[r]),
                     }?
                 }
             }

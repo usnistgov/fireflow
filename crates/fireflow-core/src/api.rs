@@ -296,29 +296,6 @@ pub type CoreDataset3_2 = CoreDataset<
     Identity<Shortname>,
 >;
 
-// TODO this might be useful but there shouldn't be an equivilencey b/t these
-// two since the former does not include time zone
-// fn timestamps_eq_datetimes<T>(ts: &Timestamps<T>, dt: &Datetimes) -> bool
-// where
-//     T: Copy,
-//     NaiveTime: From<T>,
-// {
-//     if let (Some(td), Some(tb), Some(te), Some(db), Some(de)) =
-//         (&ts.date.0, &ts.btim.0, &ts.etim.0, &dt.begin.0, &dt.end.0)
-//     {
-//         let dt_d1 = db.0.date_naive();
-//         let dt_d2 = de.0.date_naive();
-//         let dt_t1 = db.0.time();
-//         let dt_t2 = de.0.time();
-//         let ts_d = td.0;
-//         let ts_t1: NaiveTime = (*tb).into();
-//         let ts_t2: NaiveTime = (*te).into();
-//         dt_d1 == dt_d2 && dt_d2 == ts_d && dt_t1 == ts_t1 && dt_t2 == ts_t2
-//     } else {
-//         true
-//     }
-// }
-
 pub type TimeChannel2_0 = TimeChannel<InnerTime2_0>;
 pub type TimeChannel3_0 = TimeChannel<InnerTime3_0>;
 pub type TimeChannel3_1 = TimeChannel<InnerTime3_1>;

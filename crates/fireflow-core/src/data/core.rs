@@ -1846,18 +1846,22 @@ fn h_write_delimited_matrix<W: Write>(
     Ok(PureSuccess::from(()))
 }
 
-// TODO why is this an AnyCoreDataset? at this point we should know the type
-fn h_write_dataset<W: Write>(
+fn h_write_dataset<M, W>(
     h: &mut BufWriter<W>,
-    d: AnyCoreDataset,
+    d: VersionedCoreDataset<M>,
     conf: &WriteConfig,
-) -> ImpureResult<()> {
-    let (text, df, analysis) = d.into_parts();
-    let analysis_len = analysis.0.len();
-    let df_ncols = df.width();
+) -> ImpureResult<()>
+where
+    W: Write,
+    M: VersionedMetadata,
+    M::N: Clone,
+{
+    let text = *d.text;
+    let analysis_len = d.analysis.0.len();
+    let df_ncols = d.data.width();
 
     // We can now confidently count the number of events (rows)
-    let nrows = df.height();
+    let nrows = d.data.height();
 
     // Get the layout, or bail if we can't
     let layout = text.as_column_layout().map_err(|es| Failure {
@@ -1911,7 +1915,7 @@ fn h_write_dataset<W: Write>(
                 let event_width: usize = col_types.iter().map(|c| c.width()).sum();
                 let data_len = event_width * nrows;
                 write_text(h, data_len)?;
-                h_write_numeric_dataframe(h, col_types, df, conf)
+                h_write_numeric_dataframe(h, col_types, d.data, conf)
             }
 
             // For delimited ASCII, need to first convert dataframe to u64 and
@@ -1920,7 +1924,7 @@ fn h_write_dataset<W: Write>(
             // value. Then convert values to strings and write byte
             // representation of strings. Fun...
             DataLayout::AsciiDelimited { nrows: _, ncols: _ } => {
-                if let Some(succ) = into_writable_matrix64(df, &conf) {
+                if let Some(succ) = into_writable_matrix64(d.data, &conf) {
                     succ.try_map(|columns| {
                         let ndelim = df_ncols * nrows - 1;
                         // TODO cast?
@@ -1945,7 +1949,7 @@ fn h_write_dataset<W: Write>(
         }
     };
 
-    h.write_all(&analysis.0)?;
+    h.write_all(&d.analysis.0)?;
     res
 }
 

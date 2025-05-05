@@ -577,7 +577,7 @@ pywrap!(PySegment, api::Segment, "Segment");
 pywrap!(PyVersion, api::Version, "Version");
 pywrap!(PyHeader, api::Header, "Header");
 pywrap!(PyRawTEXT, api::RawTEXT, "RawTEXT");
-pywrap!(PyOffsets, api::Offsets, "Offsets");
+pywrap!(PyOffsets, api::ParseParameters, "Offsets");
 pywrap!(
     PyStandardizedTEXT,
     api::StandardizedTEXT,
@@ -755,12 +755,7 @@ impl PyRawTEXT {
 
     #[getter]
     fn offsets(&self) -> PyOffsets {
-        self.0.offsets.clone().into()
-    }
-
-    #[getter]
-    fn delimiter(&self) -> u8 {
-        self.0.delimiter
+        self.0.parse.clone().into()
     }
 
     // TODO this is a gotcha because if someone tries to modify a keyword like
@@ -804,12 +799,7 @@ impl PyOffsets {
 impl PyStandardizedTEXT {
     #[getter]
     fn offsets(&self) -> PyOffsets {
-        self.0.offsets.clone().into()
-    }
-
-    #[getter]
-    fn delimiter(&self) -> u8 {
-        self.0.delimiter
+        self.0.parse.clone().into()
     }
 
     #[getter]
@@ -840,12 +830,7 @@ impl PyStandardizedTEXT {
 impl PyStandardizedDataset {
     #[getter]
     fn offsets(&self) -> PyOffsets {
-        self.0.offsets.clone().into()
-    }
-
-    #[getter]
-    fn delimiter(&self) -> u8 {
-        self.0.delimiter
+        self.0.parse.clone().into()
     }
 
     #[getter]

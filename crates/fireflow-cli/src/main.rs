@@ -250,7 +250,7 @@ fn main() -> io::Result<()> {
 
             let res = handle_result(api::read_fcs_std_text(filepath, &conf))?;
             if sargs.get_flag("header") {
-                print_json(&res.offsets);
+                print_json(&res.parse);
             }
             // if sargs.get_flag("raw") {
             //     print_json(&res.raw);

@@ -36,42 +36,115 @@ pub struct RawTEXT {
     /// FCS Version from HEADER
     pub version: Version,
 
-    /// Offsets from the HEADER and partially from TEXT.
-    ///
-    /// This will include primary TEXT, DATA, and ANALYSIS offsets as seen in
-    /// HEADER. It will also include $BEGIN/ENDSTEXT as found in TEXT (if found)
-    /// which will be used to parse the supplemental TEXT segment if it exists.
-    /// $NEXTDATA will also be included if found.
-    ///
-    /// This will not include $BEGIN/ENDDATA or $BEGIN/ENDANALYSIS since the
-    /// intention of parsing RawTEXT is to minimally process the TEXT segment
-    /// such that the fewest possible errors are thrown.
-    pub offsets: Offsets,
-
-    /// Delimiter used to parse TEXT.
-    ///
-    /// Included here for informational purposes.
-    pub delimiter: u8,
-
     /// Keyword pairs
     ///
     /// This does not include $BEGIN/ENDSTEXT and will include supplemental TEXT
     /// keywords if present and the offsets for supplemental TEXT are
     /// successfully found.
     pub keywords: RawKeywords,
+
+    /// Data used for parsing TEXT which might be used later to parse remainder.
+    ///
+    /// This will include primary TEXT, DATA, and ANALYSIS offsets as seen in
+    /// HEADER. It will also include $BEGIN/ENDSTEXT as found in TEXT (if found)
+    /// which will be used to parse the supplemental TEXT segment if it exists.
+    ///
+    /// $NEXTDATA will also be included if found.
+    ///
+    /// The delimiter used to parse the keywords will also be included.
+    pub parse: ParseParameters,
 }
 
-/// All segment offsets.
+/// Output of parsing the TEXT segment and standardizing keywords.
 ///
-/// These are derived after parsing TEXT so they include both the HEADER offsets
-/// and anything present in TEXT.
+/// This is derived from ['RawTEXT'].
 ///
-/// Functionally, this is mostly useful downstream to either parse DATA,
-/// ANALYSIS, or the next dataset via NEXTDATA. The other offsets are only
-/// valuable for informing the user since by the time this struct will exist the
-/// primary (and possibly supplemental) TEXT will have already been parsed.
+/// The process of "standardization" involves gathering version specific
+/// keywords in the TEXT segment and parsing their values such that they
+/// conform to the types specified in the standard.
+///
+/// Version is not included since this is implied by the standardized structs
+/// used.
+#[derive(Clone)]
+pub struct StandardizedTEXT {
+    /// Structured data derived from TEXT specific to the indicated FCS version.
+    ///
+    /// All keywords that were included in the ['RawTEXT'] used to create this
+    /// will be included here. Anything standardized will be put into a field
+    /// that can be readily accessed directly and returned with the proper type.
+    /// Anything nonstandard will be kept in a hash table whose values will
+    /// be strings.
+    pub standardized: AnyCoreTEXT,
+
+    /// Raw standard keywords remaining after the standardization process
+    ///
+    /// This only should include $TOT, $BEGINDATA, $ENDDATA, $BEGINANALISYS, and
+    /// $ENDANALYSIS. These are only needed to process the data segment and are
+    /// not necessary to create the CoreTEXT, and thus are not included.
+    pub remainder: RawKeywords,
+
+    /// Raw keywords that are not standard but start with '$'
+    pub deviant: RawKeywords,
+
+    /// Data used for parsing TEXT which might be used later to parse remainder.
+    ///
+    /// The is analogous to that of [`RawTEXT`] and is copied as-is when
+    /// creating this.
+    pub parse: ParseParameters,
+}
+
+// /// Output of parsing one raw dataset (TEXT+DATA) from an FCS file.
+// ///
+// /// Computationally this will be created by skipping (most of) the
+// /// standardization step and instead parsing the minimal-required keywords
+// /// to parse DATA (BYTEORD, DATATYPE, etc).
+// ///
+// // TODO why is this important? this will likely be used by flowcore (at least
+// // initially) because this replicates what it would need to do to get a
+// // dataframe. Furthermore, it could be useful for someone who wishes to parse
+// // all their data and then repair it, although there should be easier ways to do
+// // this using the standardized interface.
+// pub struct RawDataset {
+//     /// Offsets as parsed from raw TEXT and HEADER
+//     // TODO the data segment in this should be non-Option since we know it
+//     // exists if this struct exists.
+//     pub offsets: ParseParameters,
+
+//     // TODO add keywords
+//     // TODO add dataset
+//     /// Delimiter used to parse TEXT.
+//     ///
+//     /// Included here for informational purposes.
+//     pub delimiter: u8,
+// }
+
+/// Output of parsing one standardized dataset (TEXT+DATA) from an FCS file.
+#[derive(Clone)]
+pub struct StandardizedDataset {
+    /// Structured data derived from TEXT specific to the indicated FCS version.
+    pub dataset: AnyCoreDataset,
+
+    /// Raw standard keywords remaining after processing.
+    ///
+    /// This should be empty if everything worked. Here for debugging.
+    pub remainder: RawKeywords,
+
+    /// Non-standard keywords that start with '$'.
+    pub deviant: RawKeywords,
+
+    /// Data used for parsing the FCS file.
+    ///
+    /// This will include all offsets, $NEXTDATA (if found) and the TEXT
+    /// delimiter. The DATA and ANALYSIS offsets will reflect those actually
+    /// used to parse these segments, which may or may not reflect the HEADER.
+    pub parse: ParseParameters,
+}
+
+/// Parameters used to parse the FCS file.
+///
+/// Includes offsets, TEXT delimiter, and $NEXTDATA (if present).
 #[derive(Clone, Serialize)]
-pub struct Offsets {
+pub struct ParseParameters {
     /// Primary TEXT offsets
     ///
     /// The offsets that were used to parse the TEXT segment. Included here for
@@ -92,8 +165,7 @@ pub struct Offsets {
     /// $BEGIN/ENDDATA if applicable.
     ///
     /// This will be 0,0 if DATA has no data or if there was an error acquiring
-    /// the offsets (which will be emitted separately depending on
-    /// configuration)
+    /// the offsets.
     pub data: Segment,
 
     /// ANALYSIS offsets.
@@ -106,90 +178,11 @@ pub struct Offsets {
     /// This will be copied as represented in TEXT. If it is 0, there is no next
     /// dataset, otherwise it points to the next dataset in the file.
     pub nextdata: Option<u32>,
-}
-
-/// Output of parsing the TEXT segment and standardizing keywords.
-///
-/// This is derived from ['RawTEXT'].
-///
-/// The process of "standardization" involves gathering version specific
-/// keywords in the TEXT segment and parsing their values such that they
-/// conform to the types specified in the standard.
-///
-/// Version is not included since this is implied by the standardized structs
-/// used.
-#[derive(Clone)]
-pub struct StandardizedTEXT {
-    pub offsets: Offsets,
 
     /// Delimiter used to parse TEXT.
     ///
     /// Included here for informational purposes.
     pub delimiter: u8,
-
-    /// Structured data derived from TEXT specific to the indicated FCS version.
-    ///
-    /// All keywords that were included in the ['RawTEXT'] used to create this
-    /// will be included here. Anything standardized will be put into a field
-    /// that can be readily accessed directly and returned with the proper type.
-    /// Anything nonstandard will be kept in a hash table whose values will
-    /// be strings.
-    pub standardized: AnyCoreTEXT,
-
-    /// Raw standard keywords remaining after the standardization process
-    ///
-    /// This only should include $TOT, $BEGINDATA, $ENDDATA, $BEGINANALISYS, and
-    /// $ENDANALYSIS. These are only needed to process the data segment and are
-    /// not necessary to create the CoreTEXT, and thus are not included.
-    pub remainder: RawKeywords,
-
-    /// Raw keywords that are not standard but start with '$'
-    pub deviant: RawKeywords,
-}
-
-/// Output of parsing one raw dataset (TEXT+DATA) from an FCS file.
-///
-/// Computationally this will be created by skipping (most of) the
-/// standardization step and instead parsing the minimal-required keywords
-/// to parse DATA (BYTEORD, DATATYPE, etc).
-///
-// TODO why is this important? this will likely be used by flowcore (at least
-// initially) because this replicates what it would need to do to get a
-// dataframe. Furthermore, it could be useful for someone who wishes to parse
-// all their data and then repair it, although there should be easier ways to do
-// this using the standardized interface.
-pub struct RawDataset {
-    /// Offsets as parsed from raw TEXT and HEADER
-    // TODO the data segment in this should be non-Option since we know it
-    // exists if this struct exists.
-    pub offsets: Offsets,
-
-    // TODO add keywords
-    // TODO add dataset
-    /// Delimiter used to parse TEXT.
-    ///
-    /// Included here for informational purposes.
-    pub delimiter: u8,
-}
-
-/// Output of parsing one standardized dataset (TEXT+DATA) from an FCS file.
-#[derive(Clone)]
-pub struct StandardizedDataset {
-    pub offsets: Offsets,
-
-    /// Delimiter used to parse TEXT.
-    pub delimiter: u8,
-
-    /// Structured data derived from TEXT specific to the indicated FCS version.
-    pub dataset: AnyCoreDataset,
-
-    /// Raw standard keyword remaining after processing.
-    ///
-    /// This should be empty if everything worked. Here for debugging.
-    pub remainder: RawKeywords,
-
-    /// Non-standard keywords that start with '$'.
-    pub deviant: RawKeywords,
 }
 
 /// Return header in an FCS file.
@@ -270,8 +263,8 @@ fn h_read_std_dataset<R: Read + Seek>(
 ) -> ImpureResult<StandardizedDataset> {
     let mut kws = std.remainder;
     let version = std.standardized.version();
-    let anal_succ = lookup_analysis_offsets(&mut kws, conf, version, &std.offsets.analysis);
-    lookup_data_offsets(&mut kws, conf, version, &std.offsets.data)
+    let anal_succ = lookup_analysis_offsets(&mut kws, conf, version, &std.parse.analysis);
+    lookup_data_offsets(&mut kws, conf, version, &std.parse.data)
         .and_then(|data_seg| {
             std.standardized
                 .as_data_reader(&mut kws, conf, &data_seg)
@@ -285,14 +278,11 @@ fn h_read_std_dataset<R: Read + Seek>(
             let data = h_read_data_segment(h, data_parser)?;
             let analysis = h_read_analysis(h, &analysis_seg)?;
             Ok(PureSuccess::from(StandardizedDataset {
-                offsets: Offsets {
-                    prim_text: std.offsets.prim_text,
-                    supp_text: std.offsets.supp_text,
-                    nextdata: std.offsets.nextdata,
+                parse: ParseParameters {
                     data: data_seg,
                     analysis: analysis_seg,
+                    ..std.parse
                 },
-                delimiter: std.delimiter,
                 remainder: kws,
                 // ASSUME we have checked that the dataframe has the same number
                 // of columns as number of measurements, and that all
@@ -354,9 +344,8 @@ impl RawTEXT {
                 |standardized| {
                     let (remainder, deviant) = split_remainder(kws);
                     StandardizedTEXT {
-                        offsets: self.offsets,
+                        parse: self.parse,
                         standardized,
-                        delimiter: self.delimiter,
                         remainder,
                         deviant,
                     }
@@ -781,14 +770,14 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
             let enforce_nextdata = true;
             lookup_nextdata(&mut kws, enforce_nextdata).map(|nextdata| RawTEXT {
                 version: header.version,
-                offsets: Offsets {
+                parse: ParseParameters {
                     prim_text: header.text,
                     supp_text: supp_text_seg,
                     data: header.data,
                     analysis: header.analysis,
                     nextdata,
+                    delimiter,
                 },
-                delimiter,
                 keywords: kws,
             })
         }))

@@ -2510,7 +2510,7 @@ where
         data_seg: &Segment,
     ) -> PureMaybe<DataReader> {
         self.as_row_column_layout(kws, conf, data_seg)
-            .map(|maybe_layout| maybe_layout.map(|layout| build_data_reader(layout, data_seg)))
+            .map(|maybe_layout| maybe_layout.map(|layout| layout.into_data_reader(data_seg)))
     }
 
     pub(crate) fn into_dataset_unchecked(

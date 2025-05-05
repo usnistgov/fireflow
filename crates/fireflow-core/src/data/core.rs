@@ -72,42 +72,6 @@ impl AnyCoreDataset {
     }
 }
 
-impl AnyCoreTEXT {
-    // pub(crate) fn as_column_layout(&self) -> Result<ColumnLayout, Vec<String>> {
-    //     match_anycoretext!(self, x, { x.as_column_layout() })
-    // }
-
-    pub(crate) fn as_data_reader(
-        &self,
-        kws: &mut RawKeywords,
-        conf: &DataReadConfig,
-        data_seg: &Segment,
-    ) -> PureMaybe<DataReader> {
-        match_anycoretext!(self, x, { x.as_data_reader(kws, conf, data_seg) })
-    }
-
-    pub(crate) fn into_dataset_unchecked(
-        self,
-        data: DataFrame,
-        analysis: Analysis,
-    ) -> AnyCoreDataset {
-        match self {
-            AnyCoreTEXT::FCS2_0(text) => {
-                AnyCoreDataset::FCS2_0(text.into_dataset_unchecked(data, analysis))
-            }
-            AnyCoreTEXT::FCS3_0(text) => {
-                AnyCoreDataset::FCS3_0(text.into_dataset_unchecked(data, analysis))
-            }
-            AnyCoreTEXT::FCS3_1(text) => {
-                AnyCoreDataset::FCS3_1(text.into_dataset_unchecked(data, analysis))
-            }
-            AnyCoreTEXT::FCS3_2(text) => {
-                AnyCoreDataset::FCS3_2(text.into_dataset_unchecked(data, analysis))
-            }
-        }
-    }
-}
-
 pub type CoreDataset2_0 = CoreDataset<
     InnerMetadata2_0,
     InnerTime2_0,
@@ -319,281 +283,13 @@ where
 //     spillover_methods!(text);
 // }
 
-impl<P> Measurement<P>
-where
-    P: VersionedMeasurement,
-{
-    fn as_column_type(
-        &self,
-        dt: AlphaNumType,
-        byteord: &ByteOrd,
-    ) -> Result<Option<ColumnType>, Vec<String>> {
-        let mdt = self.specific.datatype().map(|d| d.into()).unwrap_or(dt);
-        let rng = self.range();
-        to_col_type(*self.bytes(), mdt, byteord, rng)
-    }
-}
-
-impl<M> VersionedCoreTEXT<M>
-where
-    M: VersionedMetadata,
-    M::N: Clone,
-{
-    // NOTE return vec of strings in error term because these will generally
-    // always be errors on failure with no warnings on success.
-    fn as_column_layout(&self) -> Result<ColumnLayout, Vec<String>> {
-        let dt = self.metadata.datatype();
-        let byteord = self.metadata.specific.byteord();
-        let ncols = self.measurements_named_vec().len();
-        let (pass, fail): (Vec<_>, Vec<_>) = self
-            .measurements_named_vec()
-            .iter_non_center_values()
-            .map(|(_, m)| m.as_column_type(dt, &byteord))
-            .partition_result();
-        let mut deferred: Vec<_> = fail.into_iter().flatten().collect();
-        if pass.len() == ncols {
-            let fixed: Vec<_> = pass.into_iter().flatten().collect();
-            let nfixed = fixed.len();
-            if nfixed == ncols {
-                return Ok(DataLayout::AlphaNum {
-                    nrows: (),
-                    columns: fixed,
-                });
-            } else if nfixed == 0 {
-                return Ok(DataLayout::AsciiDelimited { nrows: None, ncols });
-            } else {
-                deferred.push(format!(
-                    "{nfixed} out of {ncols} measurements are fixed width"
-                ));
-            }
-        }
-        Err(deferred)
-    }
-
-    fn df_names(&self) -> Vec<PlSmallStr> {
-        self.all_shortnames()
-            .into_iter()
-            .map(|s| s.as_ref().into())
-            .collect()
-    }
-
-    // fn set_df_column_names(&self, df: &mut DataFrame) -> PolarsResult<()> {
-    //     df.set_column_names(self.df_names())
-    // }
-
-    fn add_tot(
-        dl: ColumnLayout,
-        kws: &mut RawKeywords,
-        conf: &DataReadConfig,
-        data_seg: &Segment,
-    ) -> PureSuccess<RowColumnLayout> {
-        M::lookup_tot(kws).and_then(|tot| match dl {
-            DataLayout::AsciiDelimited { nrows: _, ncols } => {
-                PureSuccess::from(DataLayout::AsciiDelimited { nrows: tot, ncols })
-            }
-            DataLayout::AlphaNum { nrows: _, columns } => {
-                let data_nbytes = data_seg.nbytes() as usize;
-                let event_width = columns.iter().map(|c| c.width()).sum();
-                total_events(tot, data_nbytes, event_width, conf)
-                    .map(|nrows| DataLayout::AlphaNum { nrows, columns })
-            }
-        })
-    }
-
-    fn as_row_column_layout(
-        &self,
-        kws: &mut RawKeywords,
-        conf: &DataReadConfig,
-        data_seg: &Segment,
-    ) -> PureMaybe<RowColumnLayout> {
-        PureMaybe::from_result_strs(self.as_column_layout(), PureErrorLevel::Error)
-            .and_then_opt(|dl| Self::add_tot(dl, kws, conf, data_seg).map(Some))
-    }
-
-    pub(crate) fn as_data_reader(
-        &self,
-        kws: &mut RawKeywords,
-        conf: &DataReadConfig,
-        data_seg: &Segment,
-    ) -> PureMaybe<DataReader> {
-        self.as_row_column_layout(kws, conf, data_seg)
-            .map(|maybe_layout| maybe_layout.map(|layout| build_data_reader(layout, data_seg)))
-    }
-
-    pub(crate) fn into_dataset_unchecked(
-        self,
-        data: DataFrame,
-        analysis: Analysis,
-    ) -> VersionedCoreDataset<M> {
-        let ns = self.df_names();
-        let mut data = data;
-        data.set_column_names(ns).unwrap();
-        CoreDataset {
-            text: Box::new(self),
-            data,
-            analysis,
-        }
-    }
-
-    // TODO useme
-    // fn into_dataset(
-    //     self,
-    //     data: DataFrame,
-    //     analysis: Analysis,
-    // ) -> Result<VersionedCoreDataset<M>, String> {
-    //     let w = data.width();
-    //     let p = self.par().0;
-    //     if w != p {
-    //         Err(format!(
-    //             "DATA has {w} columns but TEXT has {p} measurements"
-    //         ))
-    //     } else {
-    //         Ok(self.into_dataset_unchecked(data, analysis))
-    //     }
-    // }
-}
-
-#[derive(PartialEq, Clone)]
-pub struct UintType<T, const LEN: usize> {
-    pub bitmask: T,
-    pub size: SizedByteOrd<LEN>,
-}
-
-type Uint08Type = UintType<u8, 1>;
-type Uint16Type = UintType<u16, 2>;
-type Uint24Type = UintType<u32, 3>;
-type Uint32Type = UintType<u32, 4>;
-type Uint40Type = UintType<u64, 5>;
-type Uint48Type = UintType<u64, 6>;
-type Uint56Type = UintType<u64, 7>;
-type Uint64Type = UintType<u64, 8>;
-
-#[derive(PartialEq, Clone)]
-enum AnyUintType {
-    Uint08(Uint08Type),
-    Uint16(Uint16Type),
-    Uint24(Uint24Type),
-    Uint32(Uint32Type),
-    Uint40(Uint40Type),
-    Uint48(Uint48Type),
-    Uint56(Uint56Type),
-    Uint64(Uint64Type),
-}
-
-#[derive(PartialEq, Clone)]
-struct FloatType<const LEN: usize, T> {
-    pub order: SizedByteOrd<LEN>,
-    pub range: T,
-}
-
-type SingleType = FloatType<4, f32>;
-type DoubleType = FloatType<8, f64>;
-
-#[derive(PartialEq, Clone)]
-enum ColumnType {
-    Ascii { chars: Chars },
-    Integer(AnyUintType),
-    Float(SingleType),
-    Double(DoubleType),
-}
-
-#[derive(Clone)]
-enum DataLayout<T> {
-    AsciiDelimited { nrows: Option<T>, ncols: usize },
-    AlphaNum { nrows: T, columns: Vec<ColumnType> },
-}
-
-type ColumnLayout = DataLayout<()>;
-type RowColumnLayout = DataLayout<Tot>;
-
-fn to_col_type(
-    b: Width,
-    dt: AlphaNumType,
-    byteord: &ByteOrd,
-    rng: &Range,
-) -> Result<Option<ColumnType>, Vec<String>> {
-    match b {
-        Width::Fixed(f) => match dt {
-            AlphaNumType::Ascii => {
-                if let Some(chars) = f.chars() {
-                    Ok(ColumnType::Ascii { chars })
-                } else {
-                    Err(vec![
-                        "$DATATYPE=A but $PnB greater than 20 chars".to_string()
-                    ])
-                }
-            }
-            AlphaNumType::Integer => make_uint_type(f, rng, byteord).map(ColumnType::Integer),
-            AlphaNumType::Single => {
-                if let Some(bytes) = f.bytes() {
-                    if u8::from(bytes) == 4 {
-                        Float32Type::to_float_type(byteord, rng).map(ColumnType::Float)
-                    } else {
-                        Err(vec![format!("$DATATYPE=F but $PnB={}", f.inner())])
-                    }
-                } else {
-                    Err(vec![format!("$PnB is not an octet, got {}", f.inner())])
-                }
-            }
-            AlphaNumType::Double => {
-                if let Some(bytes) = f.bytes() {
-                    if u8::from(bytes) == 8 {
-                        Float64Type::to_float_type(byteord, rng).map(ColumnType::Double)
-                    } else {
-                        Err(vec![format!("$DATATYPE=D but $PnB={}", f.inner())])
-                    }
-                } else {
-                    Err(vec![format!("$PnB is not an octet, got {}", f.inner())])
-                }
-            }
-        }
-        .map(Some),
-        Width::Variable => match dt {
-            // ASSUME the only way this can happen is if $DATATYPE=A since
-            // Ascii is not allowed in $PnDATATYPE.
-            AlphaNumType::Ascii => Ok(None),
-            _ => Err(vec![format!("variable $PnB not allowed for {dt}")]),
-        },
-    }
-}
-
-fn total_events(
-    kw_tot: Option<Tot>,
-    data_nbytes: usize,
-    event_width: usize,
-    conf: &DataReadConfig,
-) -> PureSuccess<Tot> {
-    let mut def = PureErrorBuf::default();
-    let remainder = data_nbytes % event_width;
-    let total_events = data_nbytes / event_width;
-    if data_nbytes % event_width > 0 {
-        let msg = format!(
-            "Events are {event_width} bytes wide, but this does not evenly \
-                 divide DATA segment which is {data_nbytes} bytes long \
-                 (remainder of {remainder})"
-        );
-        def.push_msg_leveled(msg, conf.enforce_data_width_divisibility)
-    }
-    // TODO it seems like this could be factored out
-    if let Some(tot) = kw_tot {
-        if total_events != tot.0 {
-            let msg = format!(
-                "$TOT field is {tot} but number of events \
-                         that evenly fit into DATA is {total_events}"
-            );
-            def.push_msg_leveled(msg, conf.enforce_matching_tot);
-        }
-    }
-    PureSuccess {
-        data: Tot(total_events),
-        deferred: def,
-    }
-}
+pub(crate) type ColumnLayout = DataLayout<()>;
+pub(crate) type RowColumnLayout = DataLayout<Tot>;
 
 impl ColumnType {
     // TODO this in the number of literal bytes taken up by the column, use a
     // newtype wrapper for this
-    fn width(&self) -> usize {
+    pub(crate) fn width(&self) -> usize {
         match self {
             ColumnType::Ascii { chars } => usize::from(u8::from(*chars)),
             ColumnType::Integer(ut) => usize::from(ut.nbytes()),
@@ -763,7 +459,7 @@ pub(crate) struct DataReader {
     begin: u64,
 }
 
-fn build_data_reader(layout: RowColumnLayout, data_seg: &Segment) -> DataReader {
+pub(crate) fn build_data_reader(layout: RowColumnLayout, data_seg: &Segment) -> DataReader {
     let column_parser = match layout {
         DataLayout::AlphaNum { nrows, columns } => {
             ColumnReader::Mixed(build_mixed_reader(columns, nrows))
@@ -1945,4 +1641,107 @@ impl<T> DataLayout<T> {
             DataLayout::AlphaNum { nrows: _, columns } => columns.len(),
         }
     }
+}
+
+#[derive(Clone)]
+pub(crate) enum DataLayout<T> {
+    AsciiDelimited { nrows: Option<T>, ncols: usize },
+    AlphaNum { nrows: T, columns: Vec<ColumnType> },
+}
+
+#[derive(PartialEq, Clone)]
+pub(crate) enum ColumnType {
+    Ascii { chars: Chars },
+    Integer(AnyUintType),
+    Float(SingleType),
+    Double(DoubleType),
+}
+
+impl ColumnType {
+    pub(crate) fn try_new(
+        b: Width,
+        dt: AlphaNumType,
+        byteord: &ByteOrd,
+        rng: &Range,
+    ) -> Result<Option<Self>, Vec<String>> {
+        match b {
+            Width::Fixed(f) => match dt {
+                AlphaNumType::Ascii => {
+                    if let Some(chars) = f.chars() {
+                        Ok(Self::Ascii { chars })
+                    } else {
+                        Err(vec![
+                            "$DATATYPE=A but $PnB greater than 20 chars".to_string()
+                        ])
+                    }
+                }
+                AlphaNumType::Integer => make_uint_type(f, rng, byteord).map(Self::Integer),
+                AlphaNumType::Single => {
+                    if let Some(bytes) = f.bytes() {
+                        if u8::from(bytes) == 4 {
+                            Float32Type::to_float_type(byteord, rng).map(Self::Float)
+                        } else {
+                            Err(vec![format!("$DATATYPE=F but $PnB={}", f.inner())])
+                        }
+                    } else {
+                        Err(vec![format!("$PnB is not an octet, got {}", f.inner())])
+                    }
+                }
+                AlphaNumType::Double => {
+                    if let Some(bytes) = f.bytes() {
+                        if u8::from(bytes) == 8 {
+                            Float64Type::to_float_type(byteord, rng).map(Self::Double)
+                        } else {
+                            Err(vec![format!("$DATATYPE=D but $PnB={}", f.inner())])
+                        }
+                    } else {
+                        Err(vec![format!("$PnB is not an octet, got {}", f.inner())])
+                    }
+                }
+            }
+            .map(Some),
+            Width::Variable => match dt {
+                // ASSUME the only way this can happen is if $DATATYPE=A since
+                // Ascii is not allowed in $PnDATATYPE.
+                AlphaNumType::Ascii => Ok(None),
+                _ => Err(vec![format!("variable $PnB not allowed for {dt}")]),
+            },
+        }
+    }
+}
+
+type SingleType = FloatType<4, f32>;
+type DoubleType = FloatType<8, f64>;
+
+#[derive(PartialEq, Clone)]
+struct FloatType<const LEN: usize, T> {
+    pub order: SizedByteOrd<LEN>,
+    pub range: T,
+}
+
+#[derive(PartialEq, Clone)]
+enum AnyUintType {
+    Uint08(Uint08Type),
+    Uint16(Uint16Type),
+    Uint24(Uint24Type),
+    Uint32(Uint32Type),
+    Uint40(Uint40Type),
+    Uint48(Uint48Type),
+    Uint56(Uint56Type),
+    Uint64(Uint64Type),
+}
+
+type Uint08Type = UintType<u8, 1>;
+type Uint16Type = UintType<u16, 2>;
+type Uint24Type = UintType<u32, 3>;
+type Uint32Type = UintType<u32, 4>;
+type Uint40Type = UintType<u64, 5>;
+type Uint48Type = UintType<u64, 6>;
+type Uint56Type = UintType<u64, 7>;
+type Uint64Type = UintType<u64, 8>;
+
+#[derive(PartialEq, Clone)]
+pub struct UintType<T, const LEN: usize> {
+    pub bitmask: T,
+    pub size: SizedByteOrd<LEN>,
 }

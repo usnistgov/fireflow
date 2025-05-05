@@ -1,8 +1,10 @@
 use crate::config::*;
+use crate::data::core::*;
 use crate::error::*;
 use crate::header::*;
 use crate::header_text::*;
 use crate::macros::match_many_to_one;
+use crate::segment::*;
 use crate::validated::nonstandard::*;
 use crate::validated::pattern::*;
 use crate::validated::shortname::*;
@@ -24,6 +26,7 @@ use chrono::Timelike;
 use itertools::Itertools;
 use nalgebra::DMatrix;
 use nonempty::NonEmpty;
+use polars::prelude::*;
 use serde::ser::SerializeStruct;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -280,6 +283,40 @@ impl AnyCoreTEXT {
             .map(|s| s.print_table(delim));
         if res.is_none() {
             println!("None")
+        }
+    }
+
+    // pub(crate) fn as_column_layout(&self) -> Result<ColumnLayout, Vec<String>> {
+    //     match_anycoretext!(self, x, { x.as_column_layout() })
+    // }
+
+    pub(crate) fn as_data_reader(
+        &self,
+        kws: &mut RawKeywords,
+        conf: &DataReadConfig,
+        data_seg: &Segment,
+    ) -> PureMaybe<DataReader> {
+        match_anycoretext!(self, x, { x.as_data_reader(kws, conf, data_seg) })
+    }
+
+    pub(crate) fn into_dataset_unchecked(
+        self,
+        data: DataFrame,
+        analysis: Analysis,
+    ) -> AnyCoreDataset {
+        match self {
+            AnyCoreTEXT::FCS2_0(text) => {
+                AnyCoreDataset::FCS2_0(text.into_dataset_unchecked(data, analysis))
+            }
+            AnyCoreTEXT::FCS3_0(text) => {
+                AnyCoreDataset::FCS3_0(text.into_dataset_unchecked(data, analysis))
+            }
+            AnyCoreTEXT::FCS3_1(text) => {
+                AnyCoreDataset::FCS3_1(text.into_dataset_unchecked(data, analysis))
+            }
+            AnyCoreTEXT::FCS3_2(text) => {
+                AnyCoreDataset::FCS3_2(text.into_dataset_unchecked(data, analysis))
+            }
         }
     }
 }
@@ -779,6 +816,16 @@ where
                     .map(|(k, v)| (k.as_ref().to_string(), v.clone())),
             )
             .collect()
+    }
+
+    fn as_column_type(
+        &self,
+        dt: AlphaNumType,
+        byteord: &ByteOrd,
+    ) -> Result<Option<ColumnType>, Vec<String>> {
+        let mdt = self.specific.datatype().map(|d| d.into()).unwrap_or(dt);
+        let rng = self.range();
+        ColumnType::try_new(*self.bytes(), mdt, byteord, rng)
     }
 }
 
@@ -1513,7 +1560,7 @@ macro_rules! scale_get_set {
     };
 }
 
-pub(crate) type VersionedCoreTEXT<M> = CoreTEXT<
+type VersionedCoreTEXT<M> = CoreTEXT<
     M,
     <M as VersionedMetadata>::T,
     <M as VersionedMetadata>::P,
@@ -2384,6 +2431,119 @@ where
         }
         res
     }
+
+    // NOTE return vec of strings in error term because these will generally
+    // always be errors on failure with no warnings on success.
+    pub(crate) fn as_column_layout(&self) -> Result<ColumnLayout, Vec<String>> {
+        let dt = self.metadata.datatype();
+        let byteord = self.metadata.specific.byteord();
+        let ncols = self.measurements_named_vec().len();
+        let (pass, fail): (Vec<_>, Vec<_>) = self
+            .measurements_named_vec()
+            .iter_non_center_values()
+            .map(|(_, m)| m.as_column_type(dt, &byteord))
+            .partition_result();
+        let mut deferred: Vec<_> = fail.into_iter().flatten().collect();
+        if pass.len() == ncols {
+            let fixed: Vec<_> = pass.into_iter().flatten().collect();
+            let nfixed = fixed.len();
+            if nfixed == ncols {
+                return Ok(DataLayout::AlphaNum {
+                    nrows: (),
+                    columns: fixed,
+                });
+            } else if nfixed == 0 {
+                return Ok(DataLayout::AsciiDelimited { nrows: None, ncols });
+            } else {
+                deferred.push(format!(
+                    "{nfixed} out of {ncols} measurements are fixed width"
+                ));
+            }
+        }
+        Err(deferred)
+    }
+
+    fn df_names(&self) -> Vec<PlSmallStr> {
+        self.all_shortnames()
+            .into_iter()
+            .map(|s| s.as_ref().into())
+            .collect()
+    }
+
+    // fn set_df_column_names(&self, df: &mut DataFrame) -> PolarsResult<()> {
+    //     df.set_column_names(self.df_names())
+    // }
+
+    fn add_tot(
+        dl: ColumnLayout,
+        kws: &mut RawKeywords,
+        conf: &DataReadConfig,
+        data_seg: &Segment,
+    ) -> PureSuccess<RowColumnLayout> {
+        M::lookup_tot(kws).and_then(|tot| match dl {
+            DataLayout::AsciiDelimited { nrows: _, ncols } => {
+                PureSuccess::from(DataLayout::AsciiDelimited { nrows: tot, ncols })
+            }
+            DataLayout::AlphaNum { nrows: _, columns } => {
+                let data_nbytes = data_seg.nbytes() as usize;
+                let event_width = columns.iter().map(|c| c.width()).sum();
+                total_events(tot, data_nbytes, event_width, conf)
+                    .map(|nrows| DataLayout::AlphaNum { nrows, columns })
+            }
+        })
+    }
+
+    fn as_row_column_layout(
+        &self,
+        kws: &mut RawKeywords,
+        conf: &DataReadConfig,
+        data_seg: &Segment,
+    ) -> PureMaybe<RowColumnLayout> {
+        PureMaybe::from_result_strs(self.as_column_layout(), PureErrorLevel::Error)
+            .and_then_opt(|dl| Self::add_tot(dl, kws, conf, data_seg).map(Some))
+    }
+
+    pub(crate) fn as_data_reader(
+        &self,
+        kws: &mut RawKeywords,
+        conf: &DataReadConfig,
+        data_seg: &Segment,
+    ) -> PureMaybe<DataReader> {
+        self.as_row_column_layout(kws, conf, data_seg)
+            .map(|maybe_layout| maybe_layout.map(|layout| build_data_reader(layout, data_seg)))
+    }
+
+    pub(crate) fn into_dataset_unchecked(
+        self,
+        data: DataFrame,
+        analysis: Analysis,
+    ) -> VersionedCoreDataset<M> {
+        let ns = self.df_names();
+        let mut data = data;
+        data.set_column_names(ns).unwrap();
+        CoreDataset {
+            text: Box::new(self),
+            data,
+            analysis,
+        }
+    }
+
+    // TODO useme
+    // fn into_dataset(
+    //     self,
+    //     data: DataFrame,
+    //     analysis: Analysis,
+    // ) -> Result<VersionedCoreDataset<M>, String> {
+    //     let w = data.width();
+    //     let p = self.par().0;
+    //     if w != p {
+    //         Err(format!(
+    //             "DATA has {w} columns but TEXT has {p} measurements"
+    //         ))
+    //     } else {
+    //         Ok(self.into_dataset_unchecked(data, analysis))
+    //     }
+    // }
 }
 
 impl CoreTEXT2_0 {
@@ -4732,5 +4892,38 @@ impl Measurement3_2 {
     pub fn new(bytes: Width, range: Range, scale: Scale) -> Self {
         let specific = InnerMeasurement3_2::new(scale);
         Measurement::new_common(bytes, range, specific)
+    }
+}
+
+fn total_events(
+    kw_tot: Option<Tot>,
+    data_nbytes: usize,
+    event_width: usize,
+    conf: &DataReadConfig,
+) -> PureSuccess<Tot> {
+    let mut def = PureErrorBuf::default();
+    let remainder = data_nbytes % event_width;
+    let total_events = data_nbytes / event_width;
+    if data_nbytes % event_width > 0 {
+        let msg = format!(
+            "Events are {event_width} bytes wide, but this does not evenly \
+                 divide DATA segment which is {data_nbytes} bytes long \
+                 (remainder of {remainder})"
+        );
+        def.push_msg_leveled(msg, conf.enforce_data_width_divisibility)
+    }
+    // TODO it seems like this could be factored out
+    if let Some(tot) = kw_tot {
+        if total_events != tot.0 {
+            let msg = format!(
+                "$TOT field is {tot} but number of events \
+                         that evenly fit into DATA is {total_events}"
+            );
+            def.push_msg_leveled(msg, conf.enforce_matching_tot);
+        }
+    }
+    PureSuccess {
+        data: Tot(total_events),
+        deferred: def,
     }
 }

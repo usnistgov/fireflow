@@ -3932,6 +3932,127 @@ impl LookupMeasurement for InnerMeasurement2_0 {
     }
 }
 
+impl LookupMeasurement for InnerMeasurement3_0 {
+    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self> {
+        Some(Self {
+            scale: st.lookup_meas_req(n)?,
+            gain: st.lookup_meas_opt(n, false),
+            wavelength: st.lookup_meas_opt(n, false),
+        })
+    }
+}
+
+impl LookupMeasurement for InnerMeasurement3_1 {
+    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self> {
+        Some(Self {
+            scale: st.lookup_meas_req(n)?,
+            gain: st.lookup_meas_opt(n, false),
+            wavelengths: st.lookup_meas_opt(n, false),
+            calibration: st.lookup_meas_opt(n, false),
+            display: st.lookup_meas_opt(n, false),
+        })
+    }
+}
+
+impl LookupMeasurement for InnerMeasurement3_2 {
+    fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
+        let measurement_type: OptionalKw<MeasurementType> = st.lookup_meas_opt(i, false);
+        if measurement_type
+            .0
+            .as_ref()
+            .is_some_and(|x| *x == MeasurementType::Time)
+        {
+            let msg = "$PnTYPE for non-time channel should not be 'Time' if given".into();
+            st.deferred.push_error(msg);
+        }
+        Some(Self {
+            scale: st.lookup_meas_req(i)?,
+            gain: st.lookup_meas_opt(i, false),
+            wavelengths: st.lookup_meas_opt(i, false),
+            calibration: st.lookup_meas_opt(i, false),
+            display: st.lookup_meas_opt(i, false),
+            detector_name: st.lookup_meas_opt(i, false),
+            tag: st.lookup_meas_opt(i, false),
+            measurement_type,
+            feature: st.lookup_meas_opt(i, false),
+            analyte: st.lookup_meas_opt(i, false),
+            datatype: st.lookup_meas_opt(i, false),
+        })
+    }
+}
+
+impl LookupTime for InnerTime2_0 {
+    fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
+        let scale: OptionalKw<Scale> = st.lookup_meas_opt(i, false);
+        if scale.0.is_some_and(|x| x != Scale::Linear) {
+            st.deferred
+                .push_error("$PnE for time channel must be linear".into());
+        }
+        Some(Self)
+    }
+}
+
+impl LookupTime for InnerTime3_0 {
+    fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
+        let scale: Option<Scale> = st.lookup_meas_req(i);
+        if scale.is_some_and(|x| x != Scale::Linear) {
+            st.deferred
+                .push_error("$PnE for time channel must be linear".into());
+        }
+        let gain: OptionalKw<Gain> = st.lookup_meas_opt(i, false);
+        if gain.0.is_some() {
+            st.deferred
+                .push_error("$PnG for time channel should not be set".into());
+        }
+        st.lookup_meta_req().map(|timestep| Self { timestep })
+    }
+}
+
+impl LookupTime for InnerTime3_1 {
+    fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
+        // TODO not DRY
+        let scale: Option<Scale> = st.lookup_meas_req(i);
+        if scale.is_some_and(|x| x != Scale::Linear) {
+            st.deferred
+                .push_error("$PnE for time channel must be linear".into());
+        }
+        let gain: OptionalKw<Gain> = st.lookup_meas_opt(i, false);
+        if gain.0.is_some() {
+            st.deferred
+                .push_error("$PnG for time channel should not be set".into());
+        }
+        st.lookup_meta_req().map(|timestep| Self {
+            timestep,
+            display: st.lookup_meas_opt(i, false),
+        })
+    }
+}
+
+impl LookupTime for InnerTime3_2 {
+    fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
+        let scale: Option<Scale> = st.lookup_meas_req(i);
+        if scale.is_some_and(|x| x != Scale::Linear) {
+            st.deferred
+                .push_error("$PnE for time channel must be linear".into());
+        }
+        let gain: OptionalKw<Gain> = st.lookup_meas_opt(i, false);
+        if gain.0.is_some() {
+            st.deferred
+                .push_error("$PnG for time channel should not be set".into());
+        }
+        let mt: OptionalKw<MeasurementType> = st.lookup_meas_opt(i, false);
+        if mt.0.is_some_and(|x| x != MeasurementType::Time) {
+            st.deferred
+                .push_error("$PnTYPE for time channel should be 'Time' if given".into());
+        }
+        st.lookup_meta_req().map(|timestep| Self {
+            timestep,
+            display: st.lookup_meas_opt(i, false),
+            datatype: st.lookup_meas_opt(i, false),
+        })
+    }
+}
+
 impl VersionedMeasurement for InnerMeasurement2_0 {
     fn datatype(&self) -> Option<NumType> {
         None
@@ -3949,16 +4070,6 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
         ]
         .into_iter()
         .collect()
-    }
-}
-
-impl LookupMeasurement for InnerMeasurement3_0 {
-    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self> {
-        Some(Self {
-            scale: st.lookup_meas_req(n)?,
-            gain: st.lookup_meas_opt(n, false),
-            wavelength: st.lookup_meas_opt(n, false),
-        })
     }
 }
 
@@ -3981,22 +4092,6 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
     }
 }
 
-impl LookupMeasurement for InnerMeasurement3_1 {
-    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self> {
-        if let Some(scale) = st.lookup_meas_req(n) {
-            Some(Self {
-                scale,
-                gain: st.lookup_meas_opt(n, false),
-                wavelengths: st.lookup_meas_opt(n, false),
-                calibration: st.lookup_meas_opt(n, false),
-                display: st.lookup_meas_opt(n, false),
-            })
-        } else {
-            None
-        }
-    }
-}
-
 impl VersionedMeasurement for InnerMeasurement3_1 {
     fn datatype(&self) -> Option<NumType> {
         None
@@ -4015,37 +4110,6 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
         ]
         .into_iter()
         .collect()
-    }
-}
-
-impl LookupMeasurement for InnerMeasurement3_2 {
-    fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
-        let measurement_type: OptionalKw<MeasurementType> = st.lookup_meas_opt(i, false);
-        if measurement_type
-            .0
-            .as_ref()
-            .is_some_and(|x| *x == MeasurementType::Time)
-        {
-            let msg = "$PnTYPE for non-time channel should not be 'Time' if given".into();
-            st.deferred.push_error(msg);
-        }
-        if let Some(scale) = st.lookup_meas_req(i) {
-            Some(Self {
-                scale,
-                gain: st.lookup_meas_opt(i, false),
-                wavelengths: st.lookup_meas_opt(i, false),
-                calibration: st.lookup_meas_opt(i, false),
-                display: st.lookup_meas_opt(i, false),
-                detector_name: st.lookup_meas_opt(i, false),
-                tag: st.lookup_meas_opt(i, false),
-                measurement_type,
-                feature: st.lookup_meas_opt(i, false),
-                analyte: st.lookup_meas_opt(i, false),
-                datatype: st.lookup_meas_opt(i, false),
-            })
-        } else {
-            None
-        }
     }
 }
 
@@ -4076,17 +4140,6 @@ impl VersionedMeasurement for InnerMeasurement3_2 {
     }
 }
 
-impl LookupTime for InnerTime2_0 {
-    fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
-        let scale: OptionalKw<Scale> = st.lookup_meas_opt(i, false);
-        if scale.0.is_some_and(|x| x != Scale::Linear) {
-            st.deferred
-                .push_error("$PnE for time channel must be linear".into());
-        }
-        Some(Self)
-    }
-}
-
 impl VersionedTime for InnerTime2_0 {
     fn timestep(&self) -> Option<Timestep> {
         None
@@ -4100,22 +4153,6 @@ impl VersionedTime for InnerTime2_0 {
 
     fn opt_meas_keywords_inner(&self, _: MeasIdx) -> RawOptPairs {
         vec![]
-    }
-}
-
-impl LookupTime for InnerTime3_0 {
-    fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
-        let scale: Option<Scale> = st.lookup_meas_req(i);
-        if scale.is_some_and(|x| x != Scale::Linear) {
-            st.deferred
-                .push_error("$PnE for time channel must be linear".into());
-        }
-        let gain: OptionalKw<Gain> = st.lookup_meas_opt(i, false);
-        if gain.0.is_some() {
-            st.deferred
-                .push_error("$PnG for time channel should not be set".into());
-        }
-        st.lookup_meta_req().map(|timestep| Self { timestep })
     }
 }
 
@@ -4137,26 +4174,6 @@ impl VersionedTime for InnerTime3_0 {
     }
 }
 
-impl LookupTime for InnerTime3_1 {
-    fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
-        // TODO not DRY
-        let scale: Option<Scale> = st.lookup_meas_req(i);
-        if scale.is_some_and(|x| x != Scale::Linear) {
-            st.deferred
-                .push_error("$PnE for time channel must be linear".into());
-        }
-        let gain: OptionalKw<Gain> = st.lookup_meas_opt(i, false);
-        if gain.0.is_some() {
-            st.deferred
-                .push_error("$PnG for time channel should not be set".into());
-        }
-        st.lookup_meta_req().map(|timestep| Self {
-            timestep,
-            display: st.lookup_meas_opt(i, false),
-        })
-    }
-}
-
 impl VersionedTime for InnerTime3_1 {
     fn timestep(&self) -> Option<Timestep> {
         Some(self.timestep)
@@ -4172,31 +4189,6 @@ impl VersionedTime for InnerTime3_1 {
 
     fn opt_meas_keywords_inner(&self, n: MeasIdx) -> RawOptPairs {
         [OptMeasKey::pair(&self.display, n)].into_iter().collect()
-    }
-}
-
-impl LookupTime for InnerTime3_2 {
-    fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
-        let scale: Option<Scale> = st.lookup_meas_req(i);
-        if scale.is_some_and(|x| x != Scale::Linear) {
-            st.deferred
-                .push_error("$PnE for time channel must be linear".into());
-        }
-        let gain: OptionalKw<Gain> = st.lookup_meas_opt(i, false);
-        if gain.0.is_some() {
-            st.deferred
-                .push_error("$PnG for time channel should not be set".into());
-        }
-        let mt: OptionalKw<MeasurementType> = st.lookup_meas_opt(i, false);
-        if mt.0.is_some_and(|x| x != MeasurementType::Time) {
-            st.deferred
-                .push_error("$PnTYPE for time channel should be 'Time' if given".into());
-        }
-        st.lookup_meta_req().map(|timestep| Self {
-            timestep,
-            display: st.lookup_meas_opt(i, false),
-            datatype: st.lookup_meas_opt(i, false),
-        })
     }
 }
 

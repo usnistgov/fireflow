@@ -198,6 +198,15 @@ pub struct Measurement<X> {
     pub specific: X,
 }
 
+/// Critical FCS TEXT data for any supported FCS version
+#[derive(Clone)]
+pub enum AnyCoreTEXT {
+    FCS2_0(Box<CoreTEXT2_0>),
+    FCS3_0(Box<CoreTEXT3_0>),
+    FCS3_1(Box<CoreTEXT3_1>),
+    FCS3_2(Box<CoreTEXT3_2>),
+}
+
 /// Minimally-required FCS TEXT data for each version
 pub type CoreTEXT2_0 = CoreTEXT<
     InnerMetadata2_0,
@@ -4579,5 +4588,61 @@ impl InnerMetadata3_2 {
             spillover: None.into(),
             vol: None.into(),
         }
+    }
+}
+
+impl TimeChannel2_0 {
+    pub fn new(bytes: Width, range: Range) -> Self {
+        let specific = InnerTime2_0;
+        TimeChannel::new_common(bytes, range, specific)
+    }
+}
+
+impl TimeChannel3_0 {
+    pub fn new(bytes: Width, range: Range, timestep: Timestep) -> Self {
+        let specific = InnerTime3_0::new(timestep);
+        TimeChannel::new_common(bytes, range, specific)
+    }
+}
+
+impl TimeChannel3_1 {
+    pub fn new(bytes: Width, range: Range, timestep: Timestep) -> Self {
+        let specific = InnerTime3_1::new(timestep);
+        TimeChannel::new_common(bytes, range, specific)
+    }
+}
+
+impl TimeChannel3_2 {
+    pub fn new(bytes: Width, range: Range, timestep: Timestep) -> Self {
+        let specific = InnerTime3_2::new(timestep);
+        TimeChannel::new_common(bytes, range, specific)
+    }
+}
+
+impl Measurement2_0 {
+    pub fn new(bytes: Width, range: Range) -> Self {
+        let specific = InnerMeasurement2_0::new();
+        Measurement::new_common(bytes, range, specific)
+    }
+}
+
+impl Measurement3_0 {
+    pub fn new(bytes: Width, range: Range, scale: Scale) -> Self {
+        let specific = InnerMeasurement3_0::new(scale);
+        Measurement::new_common(bytes, range, specific)
+    }
+}
+
+impl Measurement3_1 {
+    pub fn new(bytes: Width, range: Range, scale: Scale) -> Self {
+        let specific = InnerMeasurement3_1::new(scale);
+        Measurement::new_common(bytes, range, specific)
+    }
+}
+
+impl Measurement3_2 {
+    pub fn new(bytes: Width, range: Range, scale: Scale) -> Self {
+        let specific = InnerMeasurement3_2::new(scale);
+        Measurement::new_common(bytes, range, specific)
     }
 }

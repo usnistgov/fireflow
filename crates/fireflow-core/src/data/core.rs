@@ -1,10 +1,10 @@
-use crate::config::{DataReadConfig, WriteConfig};
+use crate::config::WriteConfig;
 use crate::error::*;
 use crate::macros::{match_many_to_one, newtype_from};
 use crate::segment::*;
 use crate::text::byteord::*;
 use crate::text::core::*;
-use crate::text::keywords::{AlphaNumType, RawKeywords, Tot};
+use crate::text::keywords::{AlphaNumType, Tot};
 use crate::text::named_vec::MightHave;
 use crate::text::optionalkw::*;
 use crate::text::range::*;
@@ -417,15 +417,15 @@ enum AnyUintColumnReader {
 // where the entire file is u32 with big/little BYTEORD and only a handful
 // of different bitmasks. For now, the increased complexity of dealing with this
 // is likely not worth it.
-struct UintReader {
-    nrows: usize,
-    columns: Vec<AnyUintColumnReader>,
-}
+// struct UintReader {
+//     nrows: usize,
+//     columns: Vec<AnyUintColumnReader>,
+// }
 
-struct FixedAsciiReader {
-    widths: Vec<u8>,
-    nrows: Tot,
-}
+// struct FixedAsciiReader {
+//     widths: Vec<u8>,
+//     nrows: Tot,
+// }
 
 struct DelimAsciiReader {
     ncols: usize,
@@ -433,23 +433,23 @@ struct DelimAsciiReader {
     nbytes: usize,
 }
 
-struct FloatReader<const LEN: usize> {
-    nrows: usize,
-    ncols: usize,
-    byteord: SizedByteOrd<LEN>,
-}
+// struct FloatReader<const LEN: usize> {
+//     nrows: usize,
+//     ncols: usize,
+//     byteord: SizedByteOrd<LEN>,
+// }
 
 enum ColumnReader {
     // DATATYPE=A where all PnB = *
     DelimitedAscii(DelimAsciiReader),
     // DATATYPE=A where all PnB = number
-    FixedWidthAscii(FixedAsciiReader),
-    // DATATYPE=F (with no overrides in 3.2+)
-    Single(FloatReader<4>),
-    // DATATYPE=D (with no overrides in 3.2+)
-    Double(FloatReader<8>),
-    // DATATYPE=I this is complicated so see struct definition
-    Uint(UintReader),
+    // FixedWidthAscii(FixedAsciiReader),
+    // // DATATYPE=F (with no overrides in 3.2+)
+    // Single(FloatReader<4>),
+    // // DATATYPE=D (with no overrides in 3.2+)
+    // Double(FloatReader<8>),
+    // // DATATYPE=I this is complicated so see struct definition
+    // Uint(UintReader),
     // Mixed column types (3.2+)
     Mixed(MixedParser),
 }
@@ -731,30 +731,30 @@ where
         Ok(())
     }
 
-    /// Read byte sequence into a matrix of floats
-    fn read_matrix<R: Read>(h: &mut BufReader<R>, p: FloatReader<LEN>) -> io::Result<DataFrame> {
-        let mut columns: Vec<_> = iter::repeat_with(|| vec![Self::Native::zero(); p.nrows])
-            .take(p.ncols)
-            .collect();
-        for row in 0..p.nrows {
-            for column in columns.iter_mut() {
-                column[row] = Self::read_float(h, &p.byteord)?;
-            }
-        }
-        let ss: Vec<_> = columns
-            .into_iter()
-            .enumerate()
-            .map(|(i, s)| {
-                ChunkedArray::<Self>::from_vec(format!("M{i}").into(), s)
-                    .into_series()
-                    .into()
-            })
-            .collect();
-        DataFrame::new(ss).map_err(|e| io::Error::other(e.to_string()))
-        // Ok(Dataframe::from(
-        //     columns.into_iter().map(Vec::<Self>::into).collect(),
-        // ))
-    }
+    // /// Read byte sequence into a matrix of floats
+    // fn read_matrix<R: Read>(h: &mut BufReader<R>, p: FloatReader<LEN>) -> io::Result<DataFrame> {
+    //     let mut columns: Vec<_> = iter::repeat_with(|| vec![Self::Native::zero(); p.nrows])
+    //         .take(p.ncols)
+    //         .collect();
+    //     for row in 0..p.nrows {
+    //         for column in columns.iter_mut() {
+    //             column[row] = Self::read_float(h, &p.byteord)?;
+    //         }
+    //     }
+    //     let ss: Vec<_> = columns
+    //         .into_iter()
+    //         .enumerate()
+    //         .map(|(i, s)| {
+    //             ChunkedArray::<Self>::from_vec(format!("M{i}").into(), s)
+    //                 .into_series()
+    //                 .into()
+    //         })
+    //         .collect();
+    //     DataFrame::new(ss).map_err(|e| io::Error::other(e.to_string()))
+    //     // Ok(Dataframe::from(
+    //     //     columns.into_iter().map(Vec::<Self>::into).collect(),
+    //     // ))
+    // }
 
     /// Make configuration to read one column of floats in a dataset.
     fn make_column_reader(
@@ -1351,34 +1351,50 @@ fn read_data_delim_ascii<R: Read>(
     DataFrame::new(ss).map_err(|e| io::Error::other(e.to_string()))
 }
 
-fn read_data_ascii_fixed<R: Read>(
-    h: &mut BufReader<R>,
-    parser: &FixedAsciiReader,
-) -> io::Result<DataFrame> {
-    let ncols = parser.widths.len();
-    let mut data: Vec<_> = iter::repeat_with(|| vec![0; parser.nrows.0])
-        .take(ncols)
-        .collect();
-    let mut buf = String::new();
-    for r in 0..parser.nrows.0 {
-        for (c, width) in parser.widths.iter().enumerate() {
-            buf.clear();
-            h.take(u64::from(*width)).read_to_string(&mut buf)?;
-            data[c][r] = parse_u64_io(&buf)?;
-        }
-    }
-    // TODO not DRY
-    let ss: Vec<_> = data
-        .into_iter()
-        .enumerate()
-        .map(|(i, s)| {
-            ChunkedArray::<UInt64Type>::from_vec(format!("M{i}").into(), s)
-                .into_series()
-                .into()
-        })
-        .collect();
-    DataFrame::new(ss).map_err(|e| io::Error::other(e.to_string()))
-}
+// fn read_data_ascii_fixed<R: Read>(
+//     h: &mut BufReader<R>,
+//     parser: &FixedAsciiReader,
+// ) -> io::Result<DataFrame> {
+//     let ncols = parser.widths.len();
+//     let mut data: Vec<_> = iter::repeat_with(|| vec![0; parser.nrows.0])
+//         .take(ncols)
+//         .collect();
+//     let mut buf = String::new();
+//     for r in 0..parser.nrows.0 {
+//         for (c, width) in parser.widths.iter().enumerate() {
+//             buf.clear();
+//             h.take(u64::from(*width)).read_to_string(&mut buf)?;
+//             data[c][r] = parse_u64_io(&buf)?;
+//         }
+//     }
+//     // TODO not DRY
+//     let ss: Vec<_> = data
+//         .into_iter()
+//         .enumerate()
+//         .map(|(i, s)| {
+//             ChunkedArray::<UInt64Type>::from_vec(format!("M{i}").into(), s)
+//                 .into_series()
+//                 .into()
+//         })
+//         .collect();
+//     DataFrame::new(ss).map_err(|e| io::Error::other(e.to_string()))
+// }
+
+// fn read_data_int<R: Read>(h: &mut BufReader<R>, parser: UintReader) -> io::Result<DataFrame> {
+//     let mut p = parser;
+//     for r in 0..p.nrows {
+//         for c in p.columns.iter_mut() {
+//             c.read_to_column(h, r)?;
+//         }
+//     }
+//     let ss: Vec<_> = p
+//         .columns
+//         .into_iter()
+//         .enumerate()
+//         .map(|(i, c)| c.into_pl_series(format!("X{i}").into()).into())
+//         .collect();
+//     DataFrame::new(ss).map_err(|e| io::Error::other(e.to_string()))
+// }
 
 fn read_data_mixed<R: Read>(h: &mut BufReader<R>, parser: MixedParser) -> io::Result<DataFrame> {
     let mut p = parser;
@@ -1407,22 +1423,6 @@ fn read_data_mixed<R: Read>(h: &mut BufReader<R>, parser: MixedParser) -> io::Re
     DataFrame::new(ss).map_err(|e| io::Error::other(e.to_string()))
 }
 
-fn read_data_int<R: Read>(h: &mut BufReader<R>, parser: UintReader) -> io::Result<DataFrame> {
-    let mut p = parser;
-    for r in 0..p.nrows {
-        for c in p.columns.iter_mut() {
-            c.read_to_column(h, r)?;
-        }
-    }
-    let ss: Vec<_> = p
-        .columns
-        .into_iter()
-        .enumerate()
-        .map(|(i, c)| c.into_pl_series(format!("X{i}").into()).into())
-        .collect();
-    DataFrame::new(ss).map_err(|e| io::Error::other(e.to_string()))
-}
-
 pub(crate) fn h_read_data_segment<R: Read + Seek>(
     h: &mut BufReader<R>,
     parser: DataReader,
@@ -1430,11 +1430,11 @@ pub(crate) fn h_read_data_segment<R: Read + Seek>(
     h.seek(SeekFrom::Start(parser.begin))?;
     match parser.column_reader {
         ColumnReader::DelimitedAscii(p) => read_data_delim_ascii(h, p),
-        ColumnReader::FixedWidthAscii(p) => read_data_ascii_fixed(h, &p),
-        ColumnReader::Single(p) => Float32Type::read_matrix(h, p),
-        ColumnReader::Double(p) => Float64Type::read_matrix(h, p),
+        // ColumnReader::FixedWidthAscii(p) => read_data_ascii_fixed(h, &p),
+        // ColumnReader::Single(p) => Float32Type::read_matrix(h, p),
+        // ColumnReader::Double(p) => Float64Type::read_matrix(h, p),
+        // ColumnReader::Uint(p) => read_data_int(h, p),
         ColumnReader::Mixed(p) => read_data_mixed(h, p),
-        ColumnReader::Uint(p) => read_data_int(h, p),
     }
 }
 
@@ -1714,13 +1714,13 @@ type SingleType = FloatType<4, f32>;
 type DoubleType = FloatType<8, f64>;
 
 #[derive(PartialEq, Clone)]
-struct FloatType<const LEN: usize, T> {
+pub(crate) struct FloatType<const LEN: usize, T> {
     pub order: SizedByteOrd<LEN>,
     pub range: T,
 }
 
 #[derive(PartialEq, Clone)]
-enum AnyUintType {
+pub(crate) enum AnyUintType {
     Uint08(Uint08Type),
     Uint16(Uint16Type),
     Uint24(Uint24Type),

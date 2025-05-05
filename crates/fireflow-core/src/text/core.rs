@@ -212,6 +212,21 @@ pub enum AnyCoreTEXT {
     FCS3_2(Box<CoreTEXT3_2>),
 }
 
+macro_rules! from_anycoretext {
+    ($anyvar:ident, $coretype:ident) => {
+        impl From<$coretype> for AnyCoreTEXT {
+            fn from(value: $coretype) -> Self {
+                Self::$anyvar(Box::new(value))
+            }
+        }
+    };
+}
+
+from_anycoretext!(FCS2_0, CoreTEXT2_0);
+from_anycoretext!(FCS3_0, CoreTEXT3_0);
+from_anycoretext!(FCS3_1, CoreTEXT3_1);
+from_anycoretext!(FCS3_2, CoreTEXT3_2);
+
 impl Serialize for AnyCoreTEXT {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -255,6 +270,19 @@ macro_rules! match_anycoretext {
 pub(crate) use match_anycoretext;
 
 impl AnyCoreTEXT {
+    pub(crate) fn parse_raw(
+        version: Version,
+        kws: &mut RawKeywords,
+        conf: &StdTextReadConfig,
+    ) -> PureResult<Self> {
+        match version {
+            Version::FCS2_0 => CoreTEXT2_0::new_from_raw(kws, conf).map(|x| x.map(|y| y.into())),
+            Version::FCS3_0 => CoreTEXT3_0::new_from_raw(kws, conf).map(|x| x.map(|y| y.into())),
+            Version::FCS3_1 => CoreTEXT3_1::new_from_raw(kws, conf).map(|x| x.map(|y| y.into())),
+            Version::FCS3_2 => CoreTEXT3_2::new_from_raw(kws, conf).map(|x| x.map(|y| y.into())),
+        }
+    }
+
     pub fn version(&self) -> Version {
         match self {
             AnyCoreTEXT::FCS2_0(_) => Version::FCS2_0,

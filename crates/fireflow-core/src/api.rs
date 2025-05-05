@@ -192,36 +192,179 @@ pub struct StandardizedDataset {
     pub deviant: RawKeywords,
 }
 
-// TODO fix delim
-// TODO move to CLI since this is only to print the dataframe
+/// Return header in an FCS file.
+///
+/// The header contains the version and offsets for the TEXT, DATA, and ANALYSIS
+/// segments, all of which are present in fixed byte offset segments. This
+/// function will fail and return an error if the file does not follow this
+/// structure. Will also check that the begin and end segments are not reversed.
+///
+/// Depending on the version, all of these except the TEXT offsets might be 0
+/// which indicates they are actually stored in TEXT due to size limitations.
+pub fn read_fcs_header(p: &path::PathBuf, conf: &HeaderConfig) -> ImpureResult<Header> {
+    let file = fs::File::options().read(true).open(p)?;
+    let mut reader = BufReader::new(file);
+    h_read_header(&mut reader, conf)
+}
 
-fn parse_raw_text(
-    version: Version,
-    kws: &mut RawKeywords,
+/// Return header and raw key/value metadata pairs in an FCS file.
+///
+/// First will parse the header according to [`read_fcs_header`]. If this fails
+/// an error will be returned.
+///
+/// Next will use the offset information in the header to parse the TEXT segment
+/// for key/value pairs. On success will return these pairs as-is using Strings
+/// in a HashMap. No other processing will be performed.
+pub fn read_fcs_raw_text(p: &path::PathBuf, conf: &RawTextReadConfig) -> ImpureResult<RawTEXT> {
+    let file = fs::File::options().read(true).open(p)?;
+    let mut h = BufReader::new(file);
+    RawTEXT::h_read(&mut h, conf)
+}
+
+/// Return header and standardized metadata in an FCS file.
+///
+/// Begins by parsing header and raw keywords according to [`read_fcs_raw_text`]
+/// and will return error if this function fails.
+///
+/// Next, all keywords in the TEXT segment will be validated to conform to the
+/// FCS standard indicated in the header and returned in a struct storing each
+/// key/value pair in a standardized manner. This will halt and return any
+/// errors encountered during this process.
+pub fn read_fcs_std_text(
+    p: &path::PathBuf,
     conf: &StdTextReadConfig,
-) -> PureResult<AnyCoreTEXT> {
-    match version {
-        Version::FCS2_0 => CoreTEXT2_0::new_from_raw(kws, conf).map(|x| x.map(|y| y.into())),
-        Version::FCS3_0 => CoreTEXT3_0::new_from_raw(kws, conf).map(|x| x.map(|y| y.into())),
-        Version::FCS3_1 => CoreTEXT3_1::new_from_raw(kws, conf).map(|x| x.map(|y| y.into())),
-        Version::FCS3_2 => CoreTEXT3_2::new_from_raw(kws, conf).map(|x| x.map(|y| y.into())),
+) -> ImpureResult<StandardizedTEXT> {
+    let raw_succ = read_fcs_raw_text(p, &conf.raw)?;
+    let out = raw_succ.try_map(|raw| raw.into_std(conf))?;
+    Ok(out)
+}
+
+/// Return header, structured metadata, and data in an FCS file.
+///
+/// Begins by parsing header and raw keywords according to [`read_fcs_text`]
+/// and will return error if this function fails.
+///
+/// Next, the DATA segment will be parsed according to the metadata present
+/// in TEXT.
+///
+/// On success will return all three of the above segments along with any
+/// non-critical warnings.
+///
+/// The [`conf`] argument can be used to control the behavior of each reading
+/// step, including the repair of non-conforming files.
+pub fn read_fcs_file(
+    p: &path::PathBuf,
+    conf: &DataReadConfig,
+) -> ImpureResult<StandardizedDataset> {
+    let file = fs::File::options().read(true).open(p)?;
+    let mut h = BufReader::new(file);
+    RawTEXT::h_read(&mut h, &conf.standard.raw)?
+        .try_map(|raw| raw.into_std(&conf.standard))?
+        .try_map(|std| h_read_std_dataset(&mut h, std, conf))
+}
+
+fn h_read_std_dataset<R: Read + Seek>(
+    h: &mut BufReader<R>,
+    std: StandardizedTEXT,
+    conf: &DataReadConfig,
+) -> ImpureResult<StandardizedDataset> {
+    let mut kws = std.remainder;
+    let version = std.standardized.version();
+    let anal_succ = lookup_analysis_offsets(&mut kws, conf, version, &std.offsets.analysis);
+    lookup_data_offsets(&mut kws, conf, version, &std.offsets.data)
+        .and_then(|data_seg| {
+            std.standardized
+                .as_data_reader(&mut kws, conf, &data_seg)
+                .combine(anal_succ, |data_parser, analysis_seg| {
+                    (data_parser, data_seg, analysis_seg)
+                })
+        })
+        .try_map(|(data_maybe, data_seg, analysis_seg)| {
+            let dmsg = "could not create data parser".to_string();
+            let data_parser = data_maybe.ok_or(Failure::new(dmsg))?;
+            let data = h_read_data_segment(h, data_parser)?;
+            let analysis = h_read_analysis(h, &analysis_seg)?;
+            Ok(PureSuccess::from(StandardizedDataset {
+                offsets: Offsets {
+                    prim_text: std.offsets.prim_text,
+                    supp_text: std.offsets.supp_text,
+                    nextdata: std.offsets.nextdata,
+                    data: data_seg,
+                    analysis: analysis_seg,
+                },
+                delimiter: std.delimiter,
+                remainder: kws,
+                // ASSUME we have checked that the dataframe has the same number
+                // of columns as number of measurements, and that all
+                // measurement names are unique. Therefore, this should not
+                // fail.
+                dataset: std.standardized.into_dataset_unchecked(data, analysis),
+                deviant: std.deviant,
+            }))
+        })
+}
+
+// /// Return header, raw metadata, and data in an FCS file.
+// ///
+// /// In contrast to [`read_fcs_file`], this will return the keywords as a flat
+// /// list of key/value pairs. Only the bare minimum of these will be read in
+// /// order to determine how to parse the DATA segment (including $DATATYPE,
+// /// $BYTEORD, etc). No other checks will be performed to ensure the metadata
+// /// conforms to the FCS standard version indicated in the header.
+// ///
+// /// This might be useful for applications where one does not necessarily need
+// /// the strict structure of the standardized metadata, or if one does not care
+// /// too much about the degree to which the metadata conforms to standard.
+// ///
+// /// Other than this, behavior is identical to [`read_fcs_file`],
+// pub fn read_fcs_raw_file(p: path::PathBuf, conf: Reader) -> io::Result<FCSResult<()>> {
+//     let file = fs::File::options().read(true).open(p)?;
+//     let mut reader = BufReader::new(file);
+//     let header = read_header(&mut reader)?;
+//     let raw = read_raw_text(&mut reader, &header, &conf.text.raw)?;
+//     // TODO need to modify this so it doesn't do the crazy version checking
+//     // stuff we don't actually want in this case
+//     match parse_raw_text(header.clone(), raw.clone(), &conf.text) {
+//         Ok(std) => {
+//             let data = read_data(&mut reader, std.data_parser).unwrap();
+//             Ok(Ok(FCSSuccess {
+//                 header,
+//                 raw,
+//                 std: (),
+//                 data,
+//             }))
+//         }
+//         Err(e) => Ok(Err(e)),
+//     }
+// }
+
+impl RawTEXT {
+    fn h_read<R: Read + Seek>(
+        h: &mut BufReader<R>,
+        conf: &RawTextReadConfig,
+    ) -> ImpureResult<Self> {
+        h_read_header(h, &conf.header)?
+            .try_map(|header| h_read_raw_text_from_header(h, &header, conf))
+    }
+
+    fn into_std(self, conf: &StdTextReadConfig) -> PureResult<StandardizedTEXT> {
+        let mut kws = self.keywords;
+        AnyCoreTEXT::parse_raw(self.version, &mut kws, conf).map(|std_succ| {
+            std_succ.map({
+                |standardized| {
+                    let (remainder, deviant) = split_remainder(kws);
+                    StandardizedTEXT {
+                        offsets: self.offsets,
+                        standardized,
+                        delimiter: self.delimiter,
+                        remainder,
+                        deviant,
+                    }
+                }
+            })
+        })
     }
 }
-
-macro_rules! from_anycoretext {
-    ($anyvar:ident, $coretype:ident) => {
-        impl From<$coretype> for AnyCoreTEXT {
-            fn from(value: $coretype) -> Self {
-                Self::$anyvar(Box::new(value))
-            }
-        }
-    };
-}
-
-from_anycoretext!(FCS2_0, CoreTEXT2_0);
-from_anycoretext!(FCS3_0, CoreTEXT3_0);
-from_anycoretext!(FCS3_1, CoreTEXT3_1);
-from_anycoretext!(FCS3_2, CoreTEXT3_2);
 
 fn verify_delim(xs: &[u8], conf: &RawTextReadConfig) -> PureSuccess<u8> {
     // First character is the delimiter
@@ -652,13 +795,6 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
     })
 }
 
-fn h_read_raw_text<R: Read + Seek>(
-    h: &mut BufReader<R>,
-    conf: &RawTextReadConfig,
-) -> ImpureResult<RawTEXT> {
-    h_read_header(h, &conf.header)?.try_map(|header| h_read_raw_text_from_header(h, &header, conf))
-}
-
 fn split_remainder(xs: RawKeywords) -> (RawKeywords, RawKeywords) {
     xs.into_iter()
         .map(|(k, v)| {
@@ -675,191 +811,6 @@ fn split_remainder(xs: RawKeywords) -> (RawKeywords, RawKeywords) {
         })
         .partition_result()
 }
-
-fn raw_to_std(raw: RawTEXT, conf: &StdTextReadConfig) -> PureResult<StandardizedTEXT> {
-    let mut kws = raw.keywords;
-    parse_raw_text(raw.version, &mut kws, conf).map(|std_succ| {
-        std_succ.map({
-            |standardized| {
-                let (remainder, deviant) = split_remainder(kws);
-                StandardizedTEXT {
-                    offsets: raw.offsets,
-                    standardized,
-                    delimiter: raw.delimiter,
-                    remainder,
-                    deviant,
-                }
-            }
-        })
-    })
-}
-
-/// Return header in an FCS file.
-///
-/// The header contains the version and offsets for the TEXT, DATA, and ANALYSIS
-/// segments, all of which are present in fixed byte offset segments. This
-/// function will fail and return an error if the file does not follow this
-/// structure. Will also check that the begin and end segments are not reversed.
-///
-/// Depending on the version, all of these except the TEXT offsets might be 0
-/// which indicates they are actually stored in TEXT due to size limitations.
-pub fn read_fcs_header(p: &path::PathBuf, conf: &HeaderConfig) -> ImpureResult<Header> {
-    let file = fs::File::options().read(true).open(p)?;
-    let mut reader = BufReader::new(file);
-    h_read_header(&mut reader, conf)
-}
-
-/// Return header and raw key/value metadata pairs in an FCS file.
-///
-/// First will parse the header according to [`read_fcs_header`]. If this fails
-/// an error will be returned.
-///
-/// Next will use the offset information in the header to parse the TEXT segment
-/// for key/value pairs. On success will return these pairs as-is using Strings
-/// in a HashMap. No other processing will be performed.
-pub fn read_fcs_raw_text(p: &path::PathBuf, conf: &RawTextReadConfig) -> ImpureResult<RawTEXT> {
-    let file = fs::File::options().read(true).open(p)?;
-    let mut h = BufReader::new(file);
-    h_read_raw_text(&mut h, conf)
-}
-
-/// Return header and standardized metadata in an FCS file.
-///
-/// Begins by parsing header and raw keywords according to [`read_fcs_raw_text`]
-/// and will return error if this function fails.
-///
-/// Next, all keywords in the TEXT segment will be validated to conform to the
-/// FCS standard indicated in the header and returned in a struct storing each
-/// key/value pair in a standardized manner. This will halt and return any
-/// errors encountered during this process.
-pub fn read_fcs_std_text(
-    p: &path::PathBuf,
-    conf: &StdTextReadConfig,
-) -> ImpureResult<StandardizedTEXT> {
-    let raw_succ = read_fcs_raw_text(p, &conf.raw)?;
-    let out = raw_succ.try_map(|raw| raw_to_std(raw, conf))?;
-    Ok(out)
-}
-
-// fn read_fcs_text_2_0(p: path::PathBuf, conf: StdTextReader) -> TEXTResult<TEXT2_0>;
-// fn read_fcs_text_3_0(p: path::PathBuf, conf: StdTextReader) -> TEXTResult<TEXT3_0>;
-// fn read_fcs_text_3_1(p: path::PathBuf, conf: StdTextReader) -> TEXTResult<TEXT3_1>;
-// fn read_fcs_text_3_2(p: path::PathBuf, conf: StdTextReader) -> TEXTResult<TEXT3_2>;
-
-/// Return header, structured metadata, and data in an FCS file.
-///
-/// Begins by parsing header and raw keywords according to [`read_fcs_text`]
-/// and will return error if this function fails.
-///
-/// Next, the DATA segment will be parsed according to the metadata present
-/// in TEXT.
-///
-/// On success will return all three of the above segments along with any
-/// non-critical warnings.
-///
-/// The [`conf`] argument can be used to control the behavior of each reading
-/// step, including the repair of non-conforming files.
-pub fn read_fcs_file(
-    p: &path::PathBuf,
-    conf: &DataReadConfig,
-) -> ImpureResult<StandardizedDataset> {
-    let file = fs::File::options().read(true).open(p)?;
-    let mut h = BufReader::new(file);
-    h_read_raw_text(&mut h, &conf.standard.raw)?
-        .try_map(|raw| raw_to_std(raw, &conf.standard))?
-        .try_map(|std| h_read_std_dataset(&mut h, std, conf))
-}
-
-fn h_read_std_dataset<R: Read + Seek>(
-    h: &mut BufReader<R>,
-    std: StandardizedTEXT,
-    conf: &DataReadConfig,
-) -> ImpureResult<StandardizedDataset> {
-    let mut kws = std.remainder;
-    let version = std.standardized.version();
-    let anal_succ = lookup_analysis_offsets(&mut kws, conf, version, &std.offsets.analysis);
-    lookup_data_offsets(&mut kws, conf, version, &std.offsets.data)
-        .and_then(|data_seg| {
-            std.standardized
-                .as_data_reader(&mut kws, conf, &data_seg)
-                .combine(anal_succ, |data_parser, analysis_seg| {
-                    (data_parser, data_seg, analysis_seg)
-                })
-        })
-        .try_map(|(data_maybe, data_seg, analysis_seg)| {
-            let dmsg = "could not create data parser".to_string();
-            let data_parser = data_maybe.ok_or(Failure::new(dmsg))?;
-            let data = h_read_data_segment(h, data_parser)?;
-            let analysis = h_read_analysis(h, &analysis_seg)?;
-            Ok(PureSuccess::from(StandardizedDataset {
-                offsets: Offsets {
-                    prim_text: std.offsets.prim_text,
-                    supp_text: std.offsets.supp_text,
-                    nextdata: std.offsets.nextdata,
-                    data: data_seg,
-                    analysis: analysis_seg,
-                },
-                delimiter: std.delimiter,
-                remainder: kws,
-                // ASSUME we have checked that the dataframe has the same number
-                // of columns as number of measurements, and that all
-                // measurement names are unique. Therefore, this should not
-                // fail.
-                dataset: std.standardized.into_dataset_unchecked(data, analysis),
-                deviant: std.deviant,
-            }))
-        })
-}
-
-// fn read_fcs_file_2_0(p: path::PathBuf, conf: Reader) -> FCSResult<TEXT2_0>;
-// fn read_fcs_file_3_0(p: path::PathBuf, conf: Reader) -> FCSResult<TEXT3_0>;
-// fn read_fcs_file_3_1(p: path::PathBuf, conf: Reader) -> FCSResult<TEXT3_1>;
-// fn read_fcs_file_3_2(p: path::PathBuf, conf: Reader) -> FCSResult<TEXT3_2>;
-
-// /// Return header, raw metadata, and data in an FCS file.
-// ///
-// /// In contrast to [`read_fcs_file`], this will return the keywords as a flat
-// /// list of key/value pairs. Only the bare minimum of these will be read in
-// /// order to determine how to parse the DATA segment (including $DATATYPE,
-// /// $BYTEORD, etc). No other checks will be performed to ensure the metadata
-// /// conforms to the FCS standard version indicated in the header.
-// ///
-// /// This might be useful for applications where one does not necessarily need
-// /// the strict structure of the standardized metadata, or if one does not care
-// /// too much about the degree to which the metadata conforms to standard.
-// ///
-// /// Other than this, behavior is identical to [`read_fcs_file`],
-// pub fn read_fcs_raw_file(p: path::PathBuf, conf: Reader) -> io::Result<FCSResult<()>> {
-//     let file = fs::File::options().read(true).open(p)?;
-//     let mut reader = BufReader::new(file);
-//     let header = read_header(&mut reader)?;
-//     let raw = read_raw_text(&mut reader, &header, &conf.text.raw)?;
-//     // TODO need to modify this so it doesn't do the crazy version checking
-//     // stuff we don't actually want in this case
-//     match parse_raw_text(header.clone(), raw.clone(), &conf.text) {
-//         Ok(std) => {
-//             let data = read_data(&mut reader, std.data_parser).unwrap();
-//             Ok(Ok(FCSSuccess {
-//                 header,
-//                 raw,
-//                 std: (),
-//                 data,
-//             }))
-//         }
-//         Err(e) => Ok(Err(e)),
-//     }
-// }
-
-// impl<V: IndexedKey> OptionalKw<V> {
-//     // pub fn try_meas_from(self, n: MeasIdx) -> Result<V, String> {
-//     //     self.0
-//     //         .ok_or(format!("value for key {} does not exist", V::std(n)))
-//     // }
-
-//     pub fn try_meas_from(self) -> Result<V, NoExist> {
-//         self.0.ok_or(NoExist(V::std(n)))
-//     }
-// }
 
 // fn comp_to_spillover(comp: Compensation, ns: &[Shortname]) -> Option<Spillover> {
 //     // Matrix should be square, so if inverse fails that means that somehow it

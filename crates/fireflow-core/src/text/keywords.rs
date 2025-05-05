@@ -326,6 +326,28 @@ impl fmt::Display for AlphaNumTypeError {
     }
 }
 
+impl From<NumType> for AlphaNumType {
+    fn from(value: NumType) -> Self {
+        match value {
+            NumType::Integer => AlphaNumType::Integer,
+            NumType::Single => AlphaNumType::Single,
+            NumType::Double => AlphaNumType::Double,
+        }
+    }
+}
+
+impl TryFrom<AlphaNumType> for NumType {
+    type Error = ();
+    fn try_from(value: AlphaNumType) -> Result<Self, Self::Error> {
+        match value {
+            AlphaNumType::Integer => Ok(NumType::Integer),
+            AlphaNumType::Single => Ok(NumType::Single),
+            AlphaNumType::Double => Ok(NumType::Double),
+            AlphaNumType::Ascii => Err(()),
+        }
+    }
+}
+
 /// The value for the $PnCALIBRATION key (3.1 only)
 ///
 /// This should be formatted like '<value>,<unit>'

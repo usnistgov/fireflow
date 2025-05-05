@@ -286,6 +286,8 @@ impl FromStr for Width {
         match s {
             "*" => Ok(Width::Variable),
             _ => s.parse::<u8>().map_err(ParseBitsError::Int).and_then(|x| {
+                // TODO this isn't necessary, we can check this when converting
+                // to bytes or chars later
                 if x < 1 || 64 < x {
                     Err(ParseBitsError::Inner(BitsError))
                 } else {
@@ -324,5 +326,21 @@ impl fmt::Display for ParseBitsError {
 impl fmt::Display for BitsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "bits must be between 8 and 64")
+    }
+}
+
+// impl<const LEN: usize> fmt::Display for SizedByteOrd<LEN> {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+//         let s = match self {
+//             SizedByteOrd::Endian(e) => e.to_string(),
+//             SizedByteOrd::Order(o) => o.iter().join(","),
+//         };
+//         write!(f, "[{}]", s)
+//     }
+// }
+
+impl<const LEN: usize> From<Endian> for SizedByteOrd<LEN> {
+    fn from(value: Endian) -> Self {
+        SizedByteOrd::Endian(value)
     }
 }

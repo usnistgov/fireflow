@@ -1,6 +1,6 @@
 use crate::config::{DataReadConfig, WriteConfig};
 use crate::error::*;
-use crate::macros::newtype_from;
+use crate::macros::{match_many_to_one, newtype_from};
 use crate::segment::*;
 use crate::text::byteord::*;
 use crate::text::core::*;
@@ -56,6 +56,73 @@ pub enum AnyCoreDataset {
     FCS3_0(CoreDataset3_0),
     FCS3_1(CoreDataset3_1),
     FCS3_2(CoreDataset3_2),
+}
+
+impl AnyCoreDataset {
+    // TODO this would be much more elegant with real rankN support, see:
+    // https://github.com/rust-lang/rust/issues/108185
+    pub fn into_parts(self) -> (AnyCoreTEXT, DataFrame, Analysis) {
+        match self {
+            AnyCoreDataset::FCS2_0(x) => (AnyCoreTEXT::FCS2_0(x.text), x.data, x.analysis),
+            AnyCoreDataset::FCS3_0(x) => (AnyCoreTEXT::FCS3_0(x.text), x.data, x.analysis),
+            AnyCoreDataset::FCS3_1(x) => (AnyCoreTEXT::FCS3_1(x.text), x.data, x.analysis),
+            AnyCoreDataset::FCS3_2(x) => (AnyCoreTEXT::FCS3_2(x.text), x.data, x.analysis),
+        }
+    }
+
+    pub fn as_analysis(&self) -> &Analysis {
+        match_many_to_one!(self, AnyCoreDataset, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
+            &x.analysis
+        })
+    }
+
+    pub fn as_data(&self) -> &DataFrame {
+        match_many_to_one!(self, AnyCoreDataset, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
+            &x.data
+        })
+    }
+
+    pub fn as_data_mut(&mut self) -> &mut DataFrame {
+        match_many_to_one!(self, AnyCoreDataset, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
+            &mut x.data
+        })
+    }
+}
+
+impl AnyCoreTEXT {
+    pub(crate) fn as_column_layout(&self) -> Result<ColumnLayout, Vec<String>> {
+        match_anycoretext!(self, x, { x.as_column_layout() })
+    }
+
+    pub(crate) fn as_data_reader(
+        &self,
+        kws: &mut RawKeywords,
+        conf: &DataReadConfig,
+        data_seg: &Segment,
+    ) -> PureMaybe<DataReader> {
+        match_anycoretext!(self, x, { x.as_data_reader(kws, conf, data_seg) })
+    }
+
+    pub(crate) fn into_dataset_unchecked(
+        self,
+        data: DataFrame,
+        analysis: Analysis,
+    ) -> AnyCoreDataset {
+        match self {
+            AnyCoreTEXT::FCS2_0(text) => {
+                AnyCoreDataset::FCS2_0(text.into_dataset_unchecked(data, analysis))
+            }
+            AnyCoreTEXT::FCS3_0(text) => {
+                AnyCoreDataset::FCS3_0(text.into_dataset_unchecked(data, analysis))
+            }
+            AnyCoreTEXT::FCS3_1(text) => {
+                AnyCoreDataset::FCS3_1(text.into_dataset_unchecked(data, analysis))
+            }
+            AnyCoreTEXT::FCS3_2(text) => {
+                AnyCoreDataset::FCS3_2(text.into_dataset_unchecked(data, analysis))
+            }
+        }
+    }
 }
 
 pub type CoreDataset2_0 = CoreDataset<

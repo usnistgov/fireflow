@@ -2,6 +2,7 @@ use crate::config::*;
 use crate::error::*;
 use crate::header::*;
 use crate::header_text::*;
+use crate::macros::match_many_to_one;
 use crate::validated::nonstandard::*;
 use crate::validated::pattern::*;
 use crate::validated::shortname::*;
@@ -23,6 +24,7 @@ use chrono::Timelike;
 use itertools::Itertools;
 use nalgebra::DMatrix;
 use nonempty::NonEmpty;
+use serde::ser::SerializeStruct;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -205,6 +207,81 @@ pub enum AnyCoreTEXT {
     FCS3_0(Box<CoreTEXT3_0>),
     FCS3_1(Box<CoreTEXT3_1>),
     FCS3_2(Box<CoreTEXT3_2>),
+}
+
+impl Serialize for AnyCoreTEXT {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut state = serializer.serialize_struct("AnyStdTEXT", 2)?;
+        match self {
+            AnyCoreTEXT::FCS2_0(x) => {
+                state.serialize_field("version", &Version::FCS2_0)?;
+                state.serialize_field("data", &x)?;
+            }
+            AnyCoreTEXT::FCS3_0(x) => {
+                state.serialize_field("version", &Version::FCS3_0)?;
+                state.serialize_field("data", &x)?;
+            }
+            AnyCoreTEXT::FCS3_1(x) => {
+                state.serialize_field("version", &Version::FCS3_1)?;
+                state.serialize_field("data", &x)?;
+            }
+            AnyCoreTEXT::FCS3_2(x) => {
+                state.serialize_field("version", &Version::FCS3_2)?;
+                state.serialize_field("data", &x)?;
+            }
+        }
+        state.end()
+    }
+}
+
+macro_rules! match_anycoretext {
+    ($self:expr, $bind:ident, $stuff:block) => {
+        match_many_to_one!(
+            $self,
+            AnyCoreTEXT,
+            [FCS2_0, FCS3_0, FCS3_1, FCS3_2],
+            $bind,
+            $stuff
+        )
+    };
+}
+
+pub(crate) use match_anycoretext;
+
+impl AnyCoreTEXT {
+    pub fn version(&self) -> Version {
+        match self {
+            AnyCoreTEXT::FCS2_0(_) => Version::FCS2_0,
+            AnyCoreTEXT::FCS3_0(_) => Version::FCS3_0,
+            AnyCoreTEXT::FCS3_1(_) => Version::FCS3_1,
+            AnyCoreTEXT::FCS3_2(_) => Version::FCS3_2,
+        }
+    }
+
+    pub fn text_segment(
+        &self,
+        tot: Tot,
+        data_len: usize,
+        analysis_len: usize,
+    ) -> Option<Vec<String>> {
+        match_anycoretext!(self, x, { x.text_segment(tot, data_len, analysis_len) })
+    }
+
+    pub fn print_meas_table(&self, delim: &str) {
+        match_anycoretext!(self, x, { x.print_meas_table(delim) })
+    }
+
+    pub fn print_spillover_table(&self, delim: &str) {
+        let res = match_anycoretext!(self, x, { x.metadata.specific.as_spillover() })
+            .as_ref()
+            .map(|s| s.print_table(delim));
+        if res.is_none() {
+            println!("None")
+        }
+    }
 }
 
 /// Minimally-required FCS TEXT data for each version
@@ -3964,6 +4041,17 @@ pub enum MixedColumnSetter {
     Double(f64),
     Ascii(AsciiRangeSetter),
     Uint(NumRangeSetter),
+}
+
+impl From<MixedColumnSetter> for AlphaNumType {
+    fn from(value: MixedColumnSetter) -> Self {
+        match value {
+            MixedColumnSetter::Float(_) => AlphaNumType::Single,
+            MixedColumnSetter::Double(_) => AlphaNumType::Double,
+            MixedColumnSetter::Ascii(_) => AlphaNumType::Ascii,
+            MixedColumnSetter::Uint(_) => AlphaNumType::Integer,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]

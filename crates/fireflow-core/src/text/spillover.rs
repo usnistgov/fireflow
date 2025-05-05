@@ -68,6 +68,24 @@ impl Spillover {
             Ok(false)
         }
     }
+
+    pub(crate) fn table(&self, delim: &str) -> Vec<String> {
+        let header0 = vec!["[-]"];
+        let header = header0
+            .into_iter()
+            .chain(self.measurements().iter().map(|m| m.as_ref()))
+            .join(delim);
+        let lines = vec![header];
+        let rows = self.matrix().row_iter().map(|xs| xs.iter().join(delim));
+        lines.into_iter().chain(rows).collect()
+    }
+
+    // TODO move this to CLI since this pertains to printing
+    pub(crate) fn print_table(&self, delim: &str) {
+        for e in self.table(delim) {
+            println!("{}", e);
+        }
+    }
 }
 
 impl fmt::Display for Spillover {

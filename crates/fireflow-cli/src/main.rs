@@ -1,17 +1,27 @@
-use clap::{arg, value_parser, ArgMatches, Command};
 use fireflow_core::api;
 use fireflow_core::config;
 use fireflow_core::error::*;
 use fireflow_core::validated::datepattern::DatePattern;
 use fireflow_core::validated::nonstandard::NonStdMeasPattern;
 use fireflow_core::validated::pattern::*;
-use fireflow_core::validated::shortname::Shortname;
+
+use clap::{arg, value_parser, ArgMatches, Command};
+use polars::prelude::*;
 use serde::ser::Serialize;
 use std::io;
 use std::path::PathBuf;
 
 fn print_json<T: Serialize>(j: &T) {
     println!("{}", serde_json::to_string(j).unwrap());
+}
+
+pub fn print_parsed_data(s: &mut api::StandardizedDataset, _delim: &str) -> PolarsResult<()> {
+    let mut fd = std::io::stdout();
+    CsvWriter::new(&mut fd)
+        .include_header(true)
+        .with_separator(b'\t')
+        // TODO why does this need to be mutable?
+        .finish(s.dataset.as_data_mut())
 }
 
 // TODO use warnings_are_errors flag
@@ -145,7 +155,7 @@ fn main() -> io::Result<()> {
 
     let filepath = args.get_one::<PathBuf>("INPUT_PATH").unwrap();
 
-    let mut get_text_delta = |args: &ArgMatches| {
+    let get_text_delta = |args: &ArgMatches| {
         let mut begin = 0;
         let mut end = 0;
         if let Some(x) = args.get_one("begintext-delta") {
@@ -258,7 +268,7 @@ fn main() -> io::Result<()> {
             let delim = sargs.get_one::<String>("delimiter").unwrap();
 
             let mut res = handle_result(api::read_fcs_file(filepath, &conf))?;
-            api::print_parsed_data(&mut res, delim).map_err(|e| io::Error::other(e.to_string()))?;
+            print_parsed_data(&mut res, delim).map_err(|e| io::Error::other(e.to_string()))?;
         }
 
         _ => (),

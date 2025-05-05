@@ -10,7 +10,6 @@ use crate::text::timestamps::*;
 
 use chrono::NaiveDate;
 use itertools::Itertools;
-use polars::prelude::*;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
@@ -195,14 +194,6 @@ pub struct StandardizedDataset {
 
 // TODO fix delim
 // TODO move to CLI since this is only to print the dataframe
-pub fn print_parsed_data(s: &mut StandardizedDataset, _delim: &str) -> PolarsResult<()> {
-    let mut fd = std::io::stdout();
-    CsvWriter::new(&mut fd)
-        .include_header(true)
-        .with_separator(b'\t')
-        // TODO why does this need to be mutable?
-        .finish(s.dataset.as_data_mut())
-}
 
 fn parse_raw_text(
     version: Version,

@@ -10,6 +10,7 @@ use crate::text::timestamps::*;
 
 use chrono::NaiveDate;
 use itertools::Itertools;
+use polars::prelude::*;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
@@ -36,11 +37,7 @@ pub struct RawTEXT {
     /// FCS Version from HEADER
     pub version: Version,
 
-    /// Keyword pairs
-    ///
-    /// This does not include $BEGIN/ENDSTEXT and will include supplemental TEXT
-    /// keywords if present and the offsets for supplemental TEXT are
-    /// successfully found.
+    /// Keyword pairs from TEXT
     pub keywords: RawKeywords,
 
     /// Data used for parsing TEXT which might be used later to parse remainder.
@@ -93,30 +90,39 @@ pub struct StandardizedTEXT {
     pub parse: ParseParameters,
 }
 
-// /// Output of parsing one raw dataset (TEXT+DATA) from an FCS file.
-// ///
-// /// Computationally this will be created by skipping (most of) the
-// /// standardization step and instead parsing the minimal-required keywords
-// /// to parse DATA (BYTEORD, DATATYPE, etc).
-// ///
-// // TODO why is this important? this will likely be used by flowcore (at least
-// // initially) because this replicates what it would need to do to get a
-// // dataframe. Furthermore, it could be useful for someone who wishes to parse
-// // all their data and then repair it, although there should be easier ways to do
-// // this using the standardized interface.
-// pub struct RawDataset {
-//     /// Offsets as parsed from raw TEXT and HEADER
-//     // TODO the data segment in this should be non-Option since we know it
-//     // exists if this struct exists.
-//     pub offsets: ParseParameters,
+/// Output of parsing one raw dataset (TEXT+DATA) from an FCS file.
+///
+/// Computationally this will be created by skipping (most of) the
+/// standardization step and instead parsing the minimal-required keywords
+/// to parse DATA (BYTEORD, DATATYPE, etc).
+pub struct RawDataset {
+    /// FCS Version from HEADER
+    pub version: Version,
 
-//     // TODO add keywords
-//     // TODO add dataset
-//     /// Delimiter used to parse TEXT.
-//     ///
-//     /// Included here for informational purposes.
-//     pub delimiter: u8,
-// }
+    /// Keyword pairs from TEXT
+    pub keywords: RawKeywords,
+
+    /// DATA segment as a polars DataFrame
+    ///
+    /// The type of each column is such that each measurement is encoded with
+    /// zero loss. This will/should never contain NULL values despite the
+    /// underlying arrow framework allowing NULLs to exist.
+    pub data: DataFrame,
+
+    /// ANALYSIS segment
+    ///
+    /// This will be empty if ANALYSIS either doesn't exist or the computation
+    /// fails. This has not standard structure, so the best we can capture is a
+    /// byte sequence.
+    pub analysis: Analysis,
+
+    /// Data used for parsing the FCS file.
+    ///
+    /// This will include all offsets, $NEXTDATA (if found) and the TEXT
+    /// delimiter. The DATA and ANALYSIS offsets will reflect those actually
+    /// used to parse these segments, which may or may not reflect the HEADER.
+    pub parse: ParseParameters,
+}
 
 /// Output of parsing one standardized dataset (TEXT+DATA) from an FCS file.
 #[derive(Clone)]
@@ -232,6 +238,45 @@ pub fn read_fcs_std_text(
     Ok(out)
 }
 
+/// Return header, raw metadata, and data in an FCS file.
+///
+/// In contrast to [`read_fcs_file`], this will return the keywords as a flat
+/// list of key/value pairs. Only the bare minimum of these will be read in
+/// order to determine how to parse the DATA segment (including $DATATYPE,
+/// $BYTEORD, etc). No other checks will be performed to ensure the metadata
+/// conforms to the FCS standard version indicated in the header.
+///
+/// This might be useful for applications where one does not necessarily need
+/// the strict structure of the standardized metadata, or if one does not care
+/// too much about the degree to which the metadata conforms to standard.
+///
+/// Other than this, behavior is identical to [`read_fcs_file`],
+pub fn read_fcs_raw_file(p: path::PathBuf, conf: &DataReadConfig) -> ImpureResult<RawDataset> {
+    let file = fs::File::options().read(true).open(p)?;
+    let mut h = BufReader::new(file);
+    RawTEXT::h_read(&mut h, &conf.standard.raw)?
+        .try_map(|raw| h_read_raw_dataset(&mut h, raw, conf))
+
+    // let file = fs::File::options().read(true).open(p)?;
+    // let mut reader = BufReader::new(file);
+    // let header = read_header(&mut reader)?;
+    // let raw = read_raw_text(&mut reader, &header, &conf.text.raw)?;
+    // // TODO need to modify this so it doesn't do the crazy version checking
+    // // stuff we don't actually want in this case
+    // match parse_raw_text(header.clone(), raw.clone(), &conf.text) {
+    //     Ok(std) => {
+    //         let data = read_data(&mut reader, std.data_parser).unwrap();
+    //         Ok(Ok(FCSSuccess {
+    //             header,
+    //             raw,
+    //             std: (),
+    //             data,
+    //         }))
+    //     }
+    //     Err(e) => Ok(Err(e)),
+    // }
+}
+
 /// Return header, structured metadata, and data in an FCS file.
 ///
 /// Begins by parsing header and raw keywords according to [`read_fcs_text`]
@@ -256,6 +301,39 @@ pub fn read_fcs_file(
         .try_map(|std| h_read_std_dataset(&mut h, std, conf))
 }
 
+fn h_read_raw_dataset<R: Read + Seek>(
+    h: &mut BufReader<R>,
+    raw: RawTEXT,
+    conf: &DataReadConfig,
+) -> ImpureResult<RawDataset> {
+    let anal_succ = lookup_analysis_offsets(&raw.keywords, conf, raw.version, &raw.parse.analysis);
+    lookup_data_offsets(&raw.keywords, conf, raw.version, &raw.parse.data)
+        .and_then(|data_seg| {
+            raw.standardized
+                .as_data_reader(&raw.keywords, conf, &data_seg)
+                .combine(anal_succ, |reader, analysis_seg| {
+                    (reader, data_seg, analysis_seg)
+                })
+        })
+        .try_map(|(reader_maybe, data_seg, analysis_seg)| {
+            let dmsg = "could not create data parser".to_string();
+            let data_parser = reader_maybe.ok_or(Failure::new(dmsg))?;
+            let data = h_read_data_segment(h, data_parser)?;
+            let analysis = h_read_analysis(h, &analysis_seg)?;
+            Ok(PureSuccess::from(RawDataset {
+                version: raw.version,
+                keywords: raw.keywords,
+                data,
+                analysis,
+                parse: ParseParameters {
+                    data: data_seg,
+                    analysis: analysis_seg,
+                    ..raw.parse
+                },
+            }))
+        })
+}
+
 fn h_read_std_dataset<R: Read + Seek>(
     h: &mut BufReader<R>,
     std: StandardizedTEXT,
@@ -263,8 +341,8 @@ fn h_read_std_dataset<R: Read + Seek>(
 ) -> ImpureResult<StandardizedDataset> {
     let mut kws = std.remainder;
     let version = std.standardized.version();
-    let anal_succ = lookup_analysis_offsets(&mut kws, conf, version, &std.parse.analysis);
-    lookup_data_offsets(&mut kws, conf, version, &std.parse.data)
+    let anal_succ = lookup_analysis_offsets(&kws, conf, version, &std.parse.analysis);
+    lookup_data_offsets(&kws, conf, version, &std.parse.data)
         .and_then(|data_seg| {
             std.standardized
                 .as_data_reader(&mut kws, conf, &data_seg)
@@ -272,10 +350,10 @@ fn h_read_std_dataset<R: Read + Seek>(
                     (data_parser, data_seg, analysis_seg)
                 })
         })
-        .try_map(|(data_maybe, data_seg, analysis_seg)| {
+        .try_map(|(reader_maybe, data_seg, analysis_seg)| {
             let dmsg = "could not create data parser".to_string();
-            let data_parser = data_maybe.ok_or(Failure::new(dmsg))?;
-            let data = h_read_data_segment(h, data_parser)?;
+            let reader = reader_maybe.ok_or(Failure::new(dmsg))?;
+            let data = h_read_data_segment(h, reader)?;
             let analysis = h_read_analysis(h, &analysis_seg)?;
             Ok(PureSuccess::from(StandardizedDataset {
                 parse: ParseParameters {
@@ -293,40 +371,6 @@ fn h_read_std_dataset<R: Read + Seek>(
             }))
         })
 }
-
-// /// Return header, raw metadata, and data in an FCS file.
-// ///
-// /// In contrast to [`read_fcs_file`], this will return the keywords as a flat
-// /// list of key/value pairs. Only the bare minimum of these will be read in
-// /// order to determine how to parse the DATA segment (including $DATATYPE,
-// /// $BYTEORD, etc). No other checks will be performed to ensure the metadata
-// /// conforms to the FCS standard version indicated in the header.
-// ///
-// /// This might be useful for applications where one does not necessarily need
-// /// the strict structure of the standardized metadata, or if one does not care
-// /// too much about the degree to which the metadata conforms to standard.
-// ///
-// /// Other than this, behavior is identical to [`read_fcs_file`],
-// pub fn read_fcs_raw_file(p: path::PathBuf, conf: Reader) -> io::Result<FCSResult<()>> {
-//     let file = fs::File::options().read(true).open(p)?;
-//     let mut reader = BufReader::new(file);
-//     let header = read_header(&mut reader)?;
-//     let raw = read_raw_text(&mut reader, &header, &conf.text.raw)?;
-//     // TODO need to modify this so it doesn't do the crazy version checking
-//     // stuff we don't actually want in this case
-//     match parse_raw_text(header.clone(), raw.clone(), &conf.text) {
-//         Ok(std) => {
-//             let data = read_data(&mut reader, std.data_parser).unwrap();
-//             Ok(Ok(FCSSuccess {
-//                 header,
-//                 raw,
-//                 std: (),
-//                 data,
-//             }))
-//         }
-//         Err(e) => Ok(Err(e)),
-//     }
-// }
 
 impl RawTEXT {
     fn h_read<R: Read + Seek>(
@@ -564,14 +608,14 @@ fn repair_offsets(pairs: &mut RawPairs, conf: &RawTextReadConfig) {
 
 // TODO use non-empty here (and everywhere else we return multiple errors)
 fn lookup_req_segment(
-    kws: &mut RawKeywords,
+    kws: &RawKeywords,
     bk: &str,
     ek: &str,
     corr: OffsetCorrection,
     id: SegmentId,
 ) -> Result<Segment, Vec<String>> {
-    let x0 = lookup_req(kws, bk);
-    let x1 = lookup_req(kws, ek);
+    let x0 = get_req(kws, bk);
+    let x1 = get_req(kws, ek);
     match (x0, x1) {
         (Ok(begin), Ok(end)) => Segment::try_new(begin, end, corr, id).map_err(|x| vec![x]),
         (a, b) => Err([a.err(), b.err()].into_iter().flatten().collect()),
@@ -579,14 +623,14 @@ fn lookup_req_segment(
 }
 
 fn lookup_opt_segment(
-    kws: &mut RawKeywords,
+    kws: &RawKeywords,
     bk: &str,
     ek: &str,
     corr: OffsetCorrection,
     id: SegmentId,
 ) -> Result<Option<Segment>, Vec<String>> {
-    let x0 = lookup_opt(kws, bk);
-    let x1 = lookup_opt(kws, ek);
+    let x0 = get_opt(kws, bk);
+    let x1 = get_opt(kws, ek);
     match (x0, x1) {
         (Ok(mb), Ok(me)) => {
             if let (Some(begin), Some(end)) = (mb, me) {
@@ -604,7 +648,7 @@ fn lookup_opt_segment(
 // TODO unclear if these next two functions should throw errors or warnings
 // on failure
 fn lookup_data_offsets(
-    kws: &mut RawKeywords,
+    kws: &RawKeywords,
     conf: &DataReadConfig,
     version: Version,
     default: &Segment,
@@ -630,7 +674,7 @@ fn lookup_data_offsets(
 }
 
 fn lookup_analysis_offsets(
-    kws: &mut RawKeywords,
+    kws: &RawKeywords,
     conf: &DataReadConfig,
     version: Version,
     default: &Segment,
@@ -670,7 +714,7 @@ fn lookup_analysis_offsets(
 }
 
 fn lookup_stext_offsets(
-    kws: &mut RawKeywords,
+    kws: &RawKeywords,
     version: Version,
     conf: &RawTextReadConfig,
 ) -> PureMaybe<Segment> {
@@ -728,11 +772,11 @@ fn add_keywords(
     succ
 }
 
-fn lookup_nextdata(kws: &mut RawKeywords, enforce: bool) -> PureMaybe<u32> {
+fn lookup_nextdata(kws: &RawKeywords, enforce: bool) -> PureMaybe<u32> {
     if enforce {
-        PureMaybe::from_result_1(lookup_req(kws, NEXTDATA), PureErrorLevel::Error)
+        PureMaybe::from_result_1(get_req(kws, NEXTDATA), PureErrorLevel::Error)
     } else {
-        PureMaybe::from_result_1(lookup_opt(kws, NEXTDATA), PureErrorLevel::Warning)
+        PureMaybe::from_result_1(get_opt(kws, NEXTDATA), PureErrorLevel::Warning)
             .map(|x| x.flatten())
     }
 }
@@ -768,7 +812,7 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
             // TODO this will throw an error if not present, but we may not care
             // so toggle b/t error and warning
             let enforce_nextdata = true;
-            lookup_nextdata(&mut kws, enforce_nextdata).map(|nextdata| RawTEXT {
+            lookup_nextdata(&kws, enforce_nextdata).map(|nextdata| RawTEXT {
                 version: header.version,
                 parse: ParseParameters {
                     prim_text: header.text,

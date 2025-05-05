@@ -38,21 +38,21 @@ pub enum ByteOrd {
 ///
 /// This may also be '*' which means "delimited ASCII" which is only valid when
 /// $DATATYPE=A.
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Serialize, PartialEq, Eq, Hash)]
 pub enum Width {
     Fixed(BitsOrChars),
     Variable,
 }
 
 /// The number of bytes for a numeric measurement
-#[derive(Clone, Copy, Serialize, PartialEq)]
+#[derive(Clone, Copy, Serialize, PartialEq, Eq, Hash)]
 pub struct Bytes(u8);
 
 /// The number of chars or an ASCII measurement
-#[derive(Clone, Copy, Serialize, PartialEq)]
+#[derive(Clone, Copy, Serialize, PartialEq, Eq, Hash)]
 pub struct Chars(u8);
 
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Serialize, PartialEq, Eq, Hash)]
 pub struct BitsOrChars(u8);
 
 #[derive(PartialEq, Eq, Hash, Copy, Clone)]
@@ -146,6 +146,13 @@ impl Width {
 
     pub fn new_f64() -> Self {
         Width::Fixed(BitsOrChars(64))
+    }
+
+    pub(crate) fn as_fixed(&self) -> Option<BitsOrChars> {
+        match self {
+            Width::Fixed(x) => Some(*x),
+            _ => None,
+        }
     }
 }
 

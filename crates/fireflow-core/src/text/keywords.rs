@@ -779,7 +779,35 @@ pub(crate) type RawKeywords = HashMap<String, String>;
 type ReqResult<T> = Result<T, String>;
 type OptResult<T> = Result<OptionalKw<T>, String>;
 
-pub(crate) fn lookup_req<T>(kws: &mut RawKeywords, k: &str) -> Result<T, String>
+pub(crate) fn get_req<T>(kws: &RawKeywords, k: &str) -> Result<T, String>
+where
+    T: FromStr,
+    <T as FromStr>::Err: fmt::Display,
+{
+    match kws.get(k) {
+        Some(v) => v
+            .parse()
+            .map_err(|e| format!("{e} (key='{k}', value='{v}')")),
+        None => Err(format!("missing required key: {k}")),
+    }
+}
+
+pub(crate) fn get_opt<T>(kws: &RawKeywords, k: &str) -> Result<Option<T>, String>
+where
+    T: FromStr,
+    <T as FromStr>::Err: fmt::Display,
+{
+    match kws.get(k) {
+        Some(v) => v
+            .parse()
+            .map(Some)
+            .map_err(|e| format!("{e} (key='{k}', value='{v}')")),
+        None => Ok(None),
+    }
+}
+
+// TODO not DRY
+pub(crate) fn remove_req<T>(kws: &mut RawKeywords, k: &str) -> Result<T, String>
 where
     T: FromStr,
     <T as FromStr>::Err: fmt::Display,
@@ -792,7 +820,7 @@ where
     }
 }
 
-pub(crate) fn lookup_opt<T>(kws: &mut RawKeywords, k: &str) -> Result<Option<T>, String>
+pub(crate) fn remove_opt<T>(kws: &mut RawKeywords, k: &str) -> Result<Option<T>, String>
 where
     T: FromStr,
     <T as FromStr>::Err: fmt::Display,
@@ -807,22 +835,30 @@ where
 }
 
 pub(crate) trait Required {
-    fn lookup_req<V>(kws: &mut RawKeywords, k: &str) -> Result<V, String>
+    fn get_req<V>(kws: &RawKeywords, k: &str) -> Result<V, String>
     where
         V: FromStr,
         <V as FromStr>::Err: fmt::Display,
     {
-        lookup_req(kws, k)
+        get_req(kws, k)
+    }
+
+    fn remove_req<V>(kws: &mut RawKeywords, k: &str) -> Result<V, String>
+    where
+        V: FromStr,
+        <V as FromStr>::Err: fmt::Display,
+    {
+        remove_req(kws, k)
     }
 }
 
 pub(crate) trait Optional {
-    fn lookup_opt<V>(kws: &mut RawKeywords, k: &str) -> Result<OptionalKw<V>, String>
+    fn remove_opt<V>(kws: &mut RawKeywords, k: &str) -> Result<OptionalKw<V>, String>
     where
         V: FromStr,
         <V as FromStr>::Err: fmt::Display,
     {
-        lookup_opt(kws, k).map(|x| x.into())
+        remove_opt(kws, k).map(|x| x.into())
     }
 }
 
@@ -834,8 +870,12 @@ where
     Self: FromStr,
     <Self as FromStr>::Err: fmt::Display,
 {
-    fn lookup_meta_req(kws: &mut RawKeywords) -> ReqResult<Self> {
-        Self::lookup_req(kws, Self::std().as_str())
+    fn get_meta_req(kws: &RawKeywords) -> ReqResult<Self> {
+        Self::get_req(kws, Self::std().as_str())
+    }
+
+    fn remove_meta_req(kws: &mut RawKeywords) -> ReqResult<Self> {
+        Self::remove_req(kws, Self::std().as_str())
     }
 
     fn pair(&self) -> (String, String) {
@@ -851,8 +891,12 @@ where
     Self: FromStr,
     <Self as FromStr>::Err: fmt::Display,
 {
+    fn get_meas_req(kws: &RawKeywords, n: MeasIdx) -> ReqResult<Self> {
+        Self::get_req(kws, Self::std(n).as_str())
+    }
+
     fn lookup_meas_req(kws: &mut RawKeywords, n: MeasIdx) -> ReqResult<Self> {
-        Self::lookup_req(kws, Self::std(n).as_str())
+        Self::remove_req(kws, Self::std(n).as_str())
     }
 
     fn triple(&self, n: MeasIdx) -> (String, String, String) {
@@ -874,7 +918,7 @@ where
     <Self as FromStr>::Err: fmt::Display,
 {
     fn lookup_meta_opt(kws: &mut RawKeywords) -> OptResult<Self> {
-        Self::lookup_opt(kws, Self::std().as_str())
+        Self::remove_opt(kws, Self::std().as_str())
     }
 
     fn pair(opt: &OptionalKw<Self>) -> (String, Option<String>) {
@@ -891,7 +935,7 @@ where
     <Self as FromStr>::Err: fmt::Display,
 {
     fn lookup_meas_opt(kws: &mut RawKeywords, n: MeasIdx) -> OptResult<Self> {
-        Self::lookup_opt(kws, Self::std(n).as_str())
+        Self::remove_opt(kws, Self::std(n).as_str())
     }
 
     fn triple(opt: &OptionalKw<Self>, n: MeasIdx) -> (String, String, Option<String>) {

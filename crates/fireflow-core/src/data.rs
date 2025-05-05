@@ -1,16 +1,17 @@
-use crate::config::WriteConfig;
+use crate::config::{DataReadConfig, WriteConfig};
 use crate::error::*;
 use crate::macros::{match_many_to_one, newtype_from};
 use crate::segment::*;
 use crate::text::byteord::*;
 use crate::text::core::*;
-use crate::text::keywords::{AlphaNumType, Tot};
+use crate::text::keywords::*;
 use crate::text::named_vec::MightHave;
 use crate::text::optionalkw::*;
 use crate::text::range::*;
 use crate::validated::nonstandard::MeasIdx;
 use crate::validated::shortname::*;
 
+use arity::unary_mut_with_options;
 use itertools::Itertools;
 use polars::prelude::*;
 use std::fmt;
@@ -234,6 +235,8 @@ where
     }
 }
 
+// TODO add type-specific methods
+
 // impl CoreDataset3_1 {
 //     spillover_methods!(text);
 // }
@@ -282,6 +285,62 @@ impl AnyCoreDataset {
     }
 }
 
+pub(crate) enum DataLayout2_0<R> {
+    AsciiDelimited(DelimitedLayout<Option<R>>),
+    AsciiFixed(FixedLayout<R, AsciiType>),
+    Integer(AnyUintLayout<R>),
+    Float(FixedLayout<R, F32Type>),
+    Double(FixedLayout<R, F64Type>),
+}
+
+pub(crate) enum DataLayout3_0<R> {
+    AsciiDelimited(DelimitedLayout<R>),
+    AsciiFixed(FixedLayout<R, AsciiType>),
+    Integer(AnyUintLayout<R>),
+    Float(FixedLayout<R, F32Type>),
+    Double(FixedLayout<R, F64Type>),
+}
+
+pub(crate) enum DataLayout3_1<R> {
+    AsciiDelimited(DelimitedLayout<R>),
+    AsciiFixed(FixedLayout<R, AsciiType>),
+    Integer(FixedLayout<R, AnyUintType>),
+    Float(FixedLayout<R, F32Type>),
+    Double(FixedLayout<R, F64Type>),
+}
+
+pub(crate) enum DataLayout3_2<R> {
+    Delimited(DelimitedLayout<R>),
+    Mixed(FixedLayout<R, MixedType>),
+}
+
+// pub(crate) enum DataLayoutCommon<R> {
+//     AsciiFixed(FixedLayout<AsciiType, R>),
+//     Float(FixedLayout<F32Type, R>),
+//     Double(FixedLayout<F64Type, R>),
+// }
+
+pub(crate) struct DelimitedLayout<R> {
+    nrows: R,
+    ncols: usize,
+}
+
+pub(crate) struct FixedLayout<R, C> {
+    nrows: R,
+    columns: Vec<C>,
+}
+
+pub(crate) enum AnyUintLayout<R> {
+    Uint08(FixedLayout<R, Uint08Type>),
+    Uint16(FixedLayout<R, Uint16Type>),
+    Uint24(FixedLayout<R, Uint24Type>),
+    Uint32(FixedLayout<R, Uint32Type>),
+    Uint40(FixedLayout<R, Uint40Type>),
+    Uint48(FixedLayout<R, Uint48Type>),
+    Uint56(FixedLayout<R, Uint56Type>),
+    Uint64(FixedLayout<R, Uint64Type>),
+}
+
 /// The layout of the DATA segment
 ///
 /// There are only two main configurations; delimited ASCII which is variable
@@ -299,7 +358,7 @@ impl AnyCoreDataset {
 #[derive(Clone)]
 pub(crate) enum DataLayout<T> {
     AsciiDelimited { nrows: Option<T>, ncols: usize },
-    AlphaNum { nrows: T, columns: Vec<ColumnType> },
+    AlphaNum { nrows: T, columns: Vec<MixedType> },
 }
 
 /// Data layout which includes columns and number of rows (used for reading)
@@ -310,18 +369,22 @@ pub(crate) type RowColumnLayout = DataLayout<Tot>;
 
 /// The type of a non-delimited column in the DATA segment
 #[derive(PartialEq, Clone)]
-pub(crate) enum ColumnType {
+pub(crate) enum MixedType {
     Ascii { chars: Chars },
     Integer(AnyUintType),
-    Float(SingleType),
-    Double(DoubleType),
+    Float(F32Type),
+    Double(F64Type),
+}
+
+pub(crate) struct AsciiType {
+    chars: Chars,
 }
 
 /// An f32 column
-type SingleType = FloatType<4, f32>;
+type F32Type = FloatType<4, f32>;
 
 /// An f64 column
-type DoubleType = FloatType<8, f64>;
+type F64Type = FloatType<8, f64>;
 
 /// A floating point column (to be further constained)
 #[derive(PartialEq, Clone)]
@@ -750,15 +813,15 @@ macro_rules! convert_to_f64 {
     };
 }
 
-impl ColumnType {
+impl MixedType {
     // TODO this in the number of literal bytes taken up by the column, use a
     // newtype wrapper for this
     pub(crate) fn width(&self) -> usize {
         match self {
-            ColumnType::Ascii { chars } => usize::from(u8::from(*chars)),
-            ColumnType::Integer(ut) => usize::from(ut.nbytes()),
-            ColumnType::Float(_) => 4,
-            ColumnType::Double(_) => 8,
+            MixedType::Ascii { chars } => usize::from(u8::from(*chars)),
+            MixedType::Integer(ut) => usize::from(ut.nbytes()),
+            MixedType::Float(_) => 4,
+            MixedType::Double(_) => 8,
         }
     }
 
@@ -801,6 +864,14 @@ impl AnyUintType {
 }
 
 impl RowColumnLayout {
+    pub(crate) fn from_raw(kws: &RawKeywords, conf: &DataReadConfig) -> PureMaybe<Self> {
+        let par = Par::get_meta_req(kws);
+        let dt = AlphaNumType::get_meta_req(kws);
+        let byteord = ByteOrd::get_meta_req(kws);
+        self.as_row_column_layout(kws, conf, data_seg)
+            .map(|maybe_layout| maybe_layout.map(|layout| layout.into_data_reader(data_seg)))
+    }
+
     pub(crate) fn into_data_reader(self, data_seg: &Segment) -> DataReader {
         let column_parser = match self {
             DataLayout::AlphaNum { nrows, columns } => {
@@ -822,21 +893,21 @@ impl RowColumnLayout {
     }
 }
 
-fn make_mixed_reader(cs: Vec<ColumnType>, total_events: Tot) -> AlphaNumReader {
+fn make_mixed_reader(cs: Vec<MixedType>, total_events: Tot) -> AlphaNumReader {
     let columns = cs
         .into_iter()
         .map(|p| match p {
-            ColumnType::Ascii { chars } => AlphaNumColumnReader::Ascii(AsciiColumnReader {
+            MixedType::Ascii { chars } => AlphaNumColumnReader::Ascii(AsciiColumnReader {
                 chars,
                 column: vec![],
             }),
-            ColumnType::Float(t) => {
+            MixedType::Float(t) => {
                 AlphaNumColumnReader::Single(Float32Type::column_reader(t.order, total_events))
             }
-            ColumnType::Double(t) => {
+            MixedType::Double(t) => {
                 AlphaNumColumnReader::Double(Float64Type::column_reader(t.order, total_events))
             }
-            ColumnType::Integer(col) => {
+            MixedType::Integer(col) => {
                 AlphaNumColumnReader::Uint(AnyUintColumnReader::from_column(col, total_events))
             }
         })
@@ -865,6 +936,69 @@ fn make_uint_type(b: BitsOrChars, r: &Range, o: &ByteOrd) -> Result<AnyUintType,
         Err(vec!["$PnB is not an octet".to_string()])
     }
 }
+
+macro_rules! match_make_uint_layout {
+    ($it:expr, $nrows:expr, $ctype:ident, $ltype:ident) => {
+        let (columns, fail): (Vec<_>, Vec<_>) =
+            $it.map(|r| $ctype::column_type(r, o)).partition_result();
+        if fail.is_empty() {
+            Ok(AnyUintLayout::$ltype(FixedLayout {
+                nrows: $nrows,
+                columns,
+            }))
+        } else {
+            Err(fail.into_iter().flatten().collect())
+        }
+    };
+}
+
+pub(crate) fn make_uint_layout<R>(
+    pairs: Vec<(&Width, &Range)>,
+    o: &ByteOrd,
+    nrows: R,
+) -> Result<AnyUintLayout<R>, Vec<String>> {
+    let n = pairs.len();
+    let (ws, rs): (Vec<_>, Vec<_>) = pairs.into_iter().unzip();
+    // TODO test of octet vs variable
+    let fixed: Vec<_> = ws
+        .into_iter()
+        .flat_map(|w: Width| w.as_fixed().and_then(|f| f.bytes()))
+        .collect();
+    if fixed.len() < n {
+        return Err(vec!["bad stuff".into()]);
+    }
+    let mut fixed_unique = fixed.iter().unique();
+    // ASSUME this won't fail
+    let bytes = fixed_unique.next().unwrap();
+    if fixed_unique.count() > 0 {
+        return Err(vec!["bad stuff".into()]);
+    }
+    match u8::from(*bytes) {
+        1 => UInt8Type::layout(rs, o, nrows).map(AnyUintLayout::Uint08),
+        2 => UInt16Type::layout(rs, o, nrows).map(AnyUintLayout::Uint16),
+        3 => <UInt32Type as IntFromBytes<4, 3>>::layout(rs, o, nrows).map(AnyUintLayout::Uint24),
+        4 => <UInt32Type as IntFromBytes<4, 4>>::layout(rs, o, nrows).map(AnyUintLayout::Uint32),
+        5 => <UInt64Type as IntFromBytes<8, 5>>::layout(rs, o, nrows).map(AnyUintLayout::Uint40),
+        6 => <UInt64Type as IntFromBytes<8, 6>>::layout(rs, o, nrows).map(AnyUintLayout::Uint48),
+        7 => <UInt64Type as IntFromBytes<8, 7>>::layout(rs, o, nrows).map(AnyUintLayout::Uint56),
+        8 => <UInt64Type as IntFromBytes<8, 8>>::layout(rs, o, nrows).map(AnyUintLayout::Uint64),
+        _ => unreachable!(),
+    }
+}
+
+// fn make_uint_layout<R>(
+//     b: BitsOrChars,
+//     r: &Range,
+//     o: &ByteOrd,
+//     nrows: R,
+//     ncols: usize,
+// ) -> Result<AnyUintLayout<R>, Vec<String>> {
+//     let r = make_uint_type(b, r, o)?;
+//     let l = match_make_uint_layout!(
+//         r, nrows, ncols, Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64
+//     );
+//     Ok(l)
+// }
 
 // hack to get bounds on error to work in IntMath trait
 trait IntErr: Sized {
@@ -944,7 +1078,7 @@ trait OrderedFromBytes<const DTLEN: usize, const OLEN: usize>: NumProps<DTLEN> {
     }
 }
 
-trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>
+pub(crate) trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>
 where
     Self::Native: NumProps<DTLEN>,
     Self::Native: OrderedFromBytes<DTLEN, INTLEN>,
@@ -980,6 +1114,22 @@ where
         match (m, s) {
             (Ok(bitmask), Ok(size)) => Ok(UintType { bitmask, size }),
             (a, b) => Err([a.err(), b.err()].into_iter().flatten().collect()),
+        }
+    }
+
+    fn layout<R>(
+        rs: Vec<&Range>,
+        byteord: &ByteOrd,
+        nrows: R,
+    ) -> Result<FixedLayout<R, UintType<Self::Native, INTLEN>>, Vec<String>> {
+        let (columns, fail): (Vec<_>, Vec<_>) = rs
+            .into_iter()
+            .map(|r| UInt8Type::column_type(r, byteord))
+            .partition_result();
+        if fail.is_empty() {
+            Ok(FixedLayout { nrows, columns })
+        } else {
+            Err(fail.into_iter().flatten().collect())
         }
     }
 
@@ -1052,7 +1202,7 @@ where
     }
 }
 
-trait FloatFromBytes<const LEN: usize>
+pub(crate) trait FloatFromBytes<const LEN: usize>
 where
     Self::Native: NumProps<LEN>,
     Self::Native: OrderedFromBytes<LEN, LEN>,
@@ -1181,7 +1331,7 @@ where
 /// will happen to user's precious data.
 fn series_coerce(
     c: &Column,
-    w: ColumnType,
+    w: MixedType,
     conf: &WriteConfig,
 ) -> Option<PureSuccess<ColumnWriter>> {
     let dt = ValidType::from(c.dtype())?;
@@ -1207,7 +1357,7 @@ fn series_coerce(
         // hold the max range of the type being formatted. ASCII shouldn't
         // store floats at all, so warn user if input data is float or
         // double.
-        ColumnType::Ascii { chars } => match dt {
+        MixedType::Ascii { chars } => match dt {
             ValidType::U08 => {
                 if u8::from(chars) < 3 {
                     ascii_uint_warn(&mut deferred, 8, 3);
@@ -1264,7 +1414,7 @@ fn series_coerce(
         // target type is too small. Float/double -> Uint always could
         // potentially truncate a fractional value. Also check to see if
         // bitmask is exceeded, and if so truncate and warn user.
-        ColumnType::Integer(ut) => {
+        MixedType::Integer(ut) => {
             match dt {
                 ValidType::F32 => num_warn(&mut deferred, "float", "uint"),
                 ValidType::F64 => num_warn(&mut deferred, "float", "uint"),
@@ -1292,7 +1442,7 @@ fn series_coerce(
 
         // Floats can hold small uints and themselves, anything else might
         // truncate.
-        ColumnType::Float(t) => {
+        MixedType::Float(t) => {
             match dt {
                 ValidType::U32 => num_warn(&mut deferred, "float", "uint32"),
                 ValidType::U64 => num_warn(&mut deferred, "float", "uint64"),
@@ -1310,7 +1460,7 @@ fn series_coerce(
         }
 
         // Doubles can hold all but uint64
-        ColumnType::Double(t) => {
+        MixedType::Double(t) => {
             if let ValidType::U64 = dt {
                 num_warn(&mut deferred, "double", "uint64")
             }
@@ -1524,7 +1674,7 @@ impl AnyUintColumnReader {
 
 fn into_writable_columns(
     df: &DataFrame,
-    cs: Vec<ColumnType>,
+    cs: Vec<MixedType>,
     conf: &WriteConfig,
 ) -> Option<PureSuccess<Vec<ColumnWriter>>> {
     let cols = df.get_columns();
@@ -1614,7 +1764,7 @@ fn into_writable_matrix64(
 
 fn h_write_numeric_dataframe<W: Write>(
     h: &mut BufWriter<W>,
-    cs: Vec<ColumnType>,
+    cs: Vec<MixedType>,
     df: &DataFrame,
     conf: &WriteConfig,
 ) -> ImpureResult<()> {
@@ -1690,7 +1840,7 @@ impl<T> DataLayout<T> {
 }
 
 // TODO also check scale here?
-impl ColumnType {
+impl MixedType {
     pub(crate) fn try_new(
         b: Width,
         dt: AlphaNumType,

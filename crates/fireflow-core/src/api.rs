@@ -1,5 +1,5 @@
 use crate::config::*;
-pub use crate::data::core::*;
+pub use crate::data::*;
 use crate::error::*;
 pub use crate::header::*;
 pub use crate::header_text::*;

@@ -1846,6 +1846,7 @@ fn h_write_delimited_matrix<W: Write>(
     Ok(PureSuccess::from(()))
 }
 
+// TODO why is this an AnyCoreDataset? at this point we should know the type
 fn h_write_dataset<W: Write>(
     h: &mut BufWriter<W>,
     d: AnyCoreDataset,

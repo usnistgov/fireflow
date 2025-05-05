@@ -4,33 +4,19 @@ use crate::error::*;
 pub use crate::header::*;
 pub use crate::header_text::*;
 pub use crate::segment::*;
-use crate::text::byteord::*;
 pub use crate::text::core::*;
 pub use crate::text::keywords::*;
-use crate::text::named_vec::*;
-use crate::text::range::*;
-use crate::text::scale::*;
-use crate::text::spillover::*;
 use crate::text::timestamps::*;
-use crate::validated::nonstandard::*;
-use crate::validated::shortname::*;
 
 use chrono::NaiveDate;
 use itertools::Itertools;
 use polars::prelude::*;
-use serde::ser::SerializeStruct;
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
-use std::fmt;
+use std::collections::HashMap;
 use std::fs;
-use std::hash::Hash;
-use std::io;
-use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
-use std::iter;
-use std::num::{IntErrorKind, ParseIntError};
+use std::io::{BufReader, Read, Seek};
 use std::path;
 use std::str;
-use std::str::FromStr;
 
 // TODO gating parameters not added (yet)
 
@@ -461,9 +447,9 @@ fn lookup_req_segment(
     corr: OffsetCorrection,
     id: SegmentId,
 ) -> Result<Segment, Vec<String>> {
-    let b = lookup_req(kws, bk);
-    let e = lookup_req(kws, ek);
-    match (b, e) {
+    let x0 = lookup_req(kws, bk);
+    let x1 = lookup_req(kws, ek);
+    match (x0, x1) {
         (Ok(begin), Ok(end)) => Segment::try_new(begin, end, corr, id).map_err(|x| vec![x]),
         (a, b) => Err([a.err(), b.err()].into_iter().flatten().collect()),
     }
@@ -476,9 +462,9 @@ fn lookup_opt_segment(
     corr: OffsetCorrection,
     id: SegmentId,
 ) -> Result<Option<Segment>, Vec<String>> {
-    let b = lookup_opt(kws, bk);
-    let e = lookup_opt(kws, ek);
-    match (b, e) {
+    let x0 = lookup_opt(kws, bk);
+    let x1 = lookup_opt(kws, ek);
+    match (x0, x1) {
         (Ok(mb), Ok(me)) => {
             if let (Some(begin), Some(end)) = (mb, me) {
                 Segment::try_new(begin, end, corr, id)
@@ -636,18 +622,18 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
     let mut buf = vec![];
     header.text.read(h, &mut buf)?;
 
-    verify_delim(&buf, &conf).try_map(|delimiter| {
-        let split_succ = split_raw_text(&buf, delimiter, &conf).and_then(|mut pairs| {
+    verify_delim(&buf, conf).try_map(|delimiter| {
+        let split_succ = split_raw_text(&buf, delimiter, conf).and_then(|mut pairs| {
             repair_offsets(&mut pairs, conf);
-            hash_raw_pairs(pairs, &conf)
+            hash_raw_pairs(pairs, conf)
         });
         let stext_succ = split_succ.try_map(|mut kws| {
-            lookup_stext_offsets(&mut kws, header.version, &conf).try_map(|s| {
+            lookup_stext_offsets(&mut kws, header.version, conf).try_map(|s| {
                 let succ = if let Some(seg) = s {
                     buf.clear();
                     seg.read(h, &mut buf)?;
-                    split_raw_text(&buf, delimiter, &conf)
-                        .and_then(|pairs| add_keywords(&mut kws, pairs, &conf))
+                    split_raw_text(&buf, delimiter, conf)
+                        .and_then(|pairs| add_keywords(&mut kws, pairs, conf))
                 } else {
                     PureSuccess::from(())
                 };
@@ -655,7 +641,7 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
             })
         })?;
         Ok(stext_succ.and_then(|(mut kws, supp_text_seg)| {
-            repair_keywords(&mut kws, &conf);
+            repair_keywords(&mut kws, conf);
             // TODO this will throw an error if not present, but we may not care
             // so toggle b/t error and warning
             let enforce_nextdata = true;
@@ -701,7 +687,7 @@ fn split_remainder(xs: RawKeywords) -> (RawKeywords, RawKeywords) {
 
 fn raw_to_std(raw: RawTEXT, conf: &StdTextReadConfig) -> PureResult<StandardizedTEXT> {
     let mut kws = raw.keywords;
-    parse_raw_text(raw.version, &mut kws, &conf).map(|std_succ| {
+    parse_raw_text(raw.version, &mut kws, conf).map(|std_succ| {
         std_succ.map({
             |standardized| {
                 let (remainder, deviant) = split_remainder(kws);

@@ -1513,7 +1513,7 @@ macro_rules! scale_get_set {
     };
 }
 
-type VersionedCoreTEXT<M> = CoreTEXT<
+pub(crate) type VersionedCoreTEXT<M> = CoreTEXT<
     M,
     <M as VersionedMetadata>::T,
     <M as VersionedMetadata>::P,

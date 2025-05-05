@@ -243,16 +243,20 @@ macro_rules! convert_to_f64 {
     };
 }
 
-impl<M> CoreDataset<M, M::T, M::P, M::N, <M::N as MightHave>::Wrapper<Shortname>>
+pub(crate) type VersionedCoreDataset<M> = CoreDataset<
+    M,
+    <M as VersionedMetadata>::T,
+    <M as VersionedMetadata>::P,
+    <M as VersionedMetadata>::N,
+    <<M as VersionedMetadata>::N as MightHave>::Wrapper<Shortname>,
+>;
+
+impl<M> VersionedCoreDataset<M>
 where
     M: VersionedMetadata,
     M::N: Clone,
 {
-    pub fn try_convert<ToM>(
-        self,
-    ) -> PureResult<
-        CoreDataset<ToM, ToM::T, ToM::P, ToM::N, <ToM::N as MightHave>::Wrapper<Shortname>>,
-    >
+    pub fn try_convert<ToM>(self) -> PureResult<VersionedCoreDataset<ToM>>
     where
         M::N: Clone,
         ToM: VersionedMetadata,
@@ -347,7 +351,7 @@ where
     }
 }
 
-impl<M> CoreTEXT<M, M::T, M::P, M::N, <M::N as MightHave>::Wrapper<Shortname>>
+impl<M> VersionedCoreTEXT<M>
 where
     M: VersionedMetadata,
     M::N: Clone,
@@ -437,7 +441,7 @@ where
         self,
         data: DataFrame,
         analysis: Analysis,
-    ) -> CoreDataset<M, M::T, M::P, M::N, <M::N as MightHave>::Wrapper<Shortname>> {
+    ) -> VersionedCoreDataset<M> {
         let ns = self.df_names();
         let mut data = data;
         data.set_column_names(ns).unwrap();
@@ -452,8 +456,7 @@ where
         self,
         data: DataFrame,
         analysis: Analysis,
-    ) -> Result<CoreDataset<M, M::T, M::P, M::N, <M::N as MightHave>::Wrapper<Shortname>>, String>
-    {
+    ) -> Result<VersionedCoreDataset<M>, String> {
         let w = data.width();
         let p = self.par().0;
         if w != p {

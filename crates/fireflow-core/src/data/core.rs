@@ -341,7 +341,7 @@ where
 {
     // NOTE return vec of strings in error term because these will generally
     // always be errors on failure with no warnings on success.
-    pub fn as_column_layout(&self) -> Result<ColumnLayout, Vec<String>> {
+    fn as_column_layout(&self) -> Result<ColumnLayout, Vec<String>> {
         let dt = self.metadata.datatype();
         let byteord = self.metadata.specific.byteord();
         let ncols = self.measurements_named_vec().len();
@@ -459,17 +459,17 @@ pub struct UintType<T, const LEN: usize> {
     pub size: SizedByteOrd<LEN>,
 }
 
-pub type Uint08Type = UintType<u8, 1>;
-pub type Uint16Type = UintType<u16, 2>;
-pub type Uint24Type = UintType<u32, 3>;
-pub type Uint32Type = UintType<u32, 4>;
-pub type Uint40Type = UintType<u64, 5>;
-pub type Uint48Type = UintType<u64, 6>;
-pub type Uint56Type = UintType<u64, 7>;
-pub type Uint64Type = UintType<u64, 8>;
+type Uint08Type = UintType<u8, 1>;
+type Uint16Type = UintType<u16, 2>;
+type Uint24Type = UintType<u32, 3>;
+type Uint32Type = UintType<u32, 4>;
+type Uint40Type = UintType<u64, 5>;
+type Uint48Type = UintType<u64, 6>;
+type Uint56Type = UintType<u64, 7>;
+type Uint64Type = UintType<u64, 8>;
 
 #[derive(PartialEq, Clone)]
-pub enum AnyUintType {
+enum AnyUintType {
     Uint08(Uint08Type),
     Uint16(Uint16Type),
     Uint24(Uint24Type),
@@ -481,16 +481,16 @@ pub enum AnyUintType {
 }
 
 #[derive(PartialEq, Clone)]
-pub struct FloatType<const LEN: usize, T> {
+struct FloatType<const LEN: usize, T> {
     pub order: SizedByteOrd<LEN>,
     pub range: T,
 }
 
-pub type SingleType = FloatType<4, f32>;
-pub type DoubleType = FloatType<8, f64>;
+type SingleType = FloatType<4, f32>;
+type DoubleType = FloatType<8, f64>;
 
 #[derive(PartialEq, Clone)]
-pub enum ColumnType {
+enum ColumnType {
     Ascii { chars: Chars },
     Integer(AnyUintType),
     Float(SingleType),
@@ -498,13 +498,13 @@ pub enum ColumnType {
 }
 
 #[derive(Clone)]
-pub enum DataLayout<T> {
+enum DataLayout<T> {
     AsciiDelimited { nrows: Option<T>, ncols: usize },
     AlphaNum { nrows: T, columns: Vec<ColumnType> },
 }
 
-pub type ColumnLayout = DataLayout<()>;
-pub type RowColumnLayout = DataLayout<Tot>;
+type ColumnLayout = DataLayout<()>;
+type RowColumnLayout = DataLayout<Tot>;
 
 fn to_col_type(
     b: Width,

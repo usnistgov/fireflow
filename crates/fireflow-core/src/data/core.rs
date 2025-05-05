@@ -59,23 +59,6 @@ pub enum AnyCoreDataset {
 }
 
 impl AnyCoreDataset {
-    // TODO this would be much more elegant with real rankN support, see:
-    // https://github.com/rust-lang/rust/issues/108185
-    pub fn into_parts(self) -> (AnyCoreTEXT, DataFrame, Analysis) {
-        match self {
-            AnyCoreDataset::FCS2_0(x) => (AnyCoreTEXT::FCS2_0(x.text), x.data, x.analysis),
-            AnyCoreDataset::FCS3_0(x) => (AnyCoreTEXT::FCS3_0(x.text), x.data, x.analysis),
-            AnyCoreDataset::FCS3_1(x) => (AnyCoreTEXT::FCS3_1(x.text), x.data, x.analysis),
-            AnyCoreDataset::FCS3_2(x) => (AnyCoreTEXT::FCS3_2(x.text), x.data, x.analysis),
-        }
-    }
-
-    pub fn as_analysis(&self) -> &Analysis {
-        match_many_to_one!(self, AnyCoreDataset, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
-            &x.analysis
-        })
-    }
-
     pub fn as_data(&self) -> &DataFrame {
         match_many_to_one!(self, AnyCoreDataset, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
             &x.data
@@ -90,9 +73,9 @@ impl AnyCoreDataset {
 }
 
 impl AnyCoreTEXT {
-    pub(crate) fn as_column_layout(&self) -> Result<ColumnLayout, Vec<String>> {
-        match_anycoretext!(self, x, { x.as_column_layout() })
-    }
+    // pub(crate) fn as_column_layout(&self) -> Result<ColumnLayout, Vec<String>> {
+    //     match_anycoretext!(self, x, { x.as_column_layout() })
+    // }
 
     pub(crate) fn as_data_reader(
         &self,
@@ -347,7 +330,7 @@ where
     ) -> Result<Option<ColumnType>, Vec<String>> {
         let mdt = self.specific.datatype().map(|d| d.into()).unwrap_or(dt);
         let rng = self.range();
-        to_col_type(self.bytes().clone(), mdt, byteord, rng)
+        to_col_type(*self.bytes(), mdt, byteord, rng)
     }
 }
 
@@ -394,9 +377,9 @@ where
             .collect()
     }
 
-    fn set_df_column_names(&self, df: &mut DataFrame) -> PolarsResult<()> {
-        df.set_column_names(self.df_names())
-    }
+    // fn set_df_column_names(&self, df: &mut DataFrame) -> PolarsResult<()> {
+    //     df.set_column_names(self.df_names())
+    // }
 
     fn add_tot(
         dl: ColumnLayout,
@@ -452,21 +435,22 @@ where
         }
     }
 
-    fn into_dataset(
-        self,
-        data: DataFrame,
-        analysis: Analysis,
-    ) -> Result<VersionedCoreDataset<M>, String> {
-        let w = data.width();
-        let p = self.par().0;
-        if w != p {
-            Err(format!(
-                "DATA has {w} columns but TEXT has {p} measurements"
-            ))
-        } else {
-            Ok(self.into_dataset_unchecked(data, analysis))
-        }
-    }
+    // TODO useme
+    // fn into_dataset(
+    //     self,
+    //     data: DataFrame,
+    //     analysis: Analysis,
+    // ) -> Result<VersionedCoreDataset<M>, String> {
+    //     let w = data.width();
+    //     let p = self.par().0;
+    //     if w != p {
+    //         Err(format!(
+    //             "DATA has {w} columns but TEXT has {p} measurements"
+    //         ))
+    //     } else {
+    //         Ok(self.into_dataset_unchecked(data, analysis))
+    //     }
+    // }
 }
 
 #[derive(PartialEq, Clone)]
@@ -618,14 +602,14 @@ impl ColumnType {
         }
     }
 
-    fn datatype(&self) -> AlphaNumType {
-        match self {
-            ColumnType::Ascii { chars: _ } => AlphaNumType::Ascii,
-            ColumnType::Integer(_) => AlphaNumType::Integer,
-            ColumnType::Float(_) => AlphaNumType::Single,
-            ColumnType::Double(_) => AlphaNumType::Double,
-        }
-    }
+    // fn datatype(&self) -> AlphaNumType {
+    //     match self {
+    //         ColumnType::Ascii { chars: _ } => AlphaNumType::Ascii,
+    //         ColumnType::Integer(_) => AlphaNumType::Integer,
+    //         ColumnType::Float(_) => AlphaNumType::Single,
+    //         ColumnType::Double(_) => AlphaNumType::Double,
+    //     }
+    // }
 }
 
 impl AnyUintType {
@@ -804,7 +788,7 @@ fn build_mixed_reader(cs: Vec<ColumnType>, total_events: Tot) -> MixedParser {
         .into_iter()
         .map(|p| match p {
             ColumnType::Ascii { chars } => MixedColumnType::Ascii(AsciiColumnReader {
-                chars: chars.into(),
+                chars,
                 column: vec![],
             }),
             ColumnType::Float(t) => {
@@ -874,9 +858,9 @@ where
         let s = x.to_string();
         // ASSUME bytes has been ensured to be able to hold the largest digit
         // expressible with this type, which means this will never be negative
-        let c = u8::from(chars);
-        let offset = usize::from(c) - s.len();
-        let mut buf: Vec<u8> = vec![0, c];
+        let w = u8::from(chars);
+        let offset = usize::from(w) - s.len();
+        let mut buf: Vec<u8> = vec![0, w];
         for (i, c) in s.bytes().enumerate() {
             buf[offset + i] = c;
         }
@@ -894,26 +878,6 @@ trait NumProps<const DTLEN: usize>: Sized + Copy {
     fn to_big(self) -> [u8; DTLEN];
 
     fn to_little(self) -> [u8; DTLEN];
-
-    fn read_from_big<R: Read + Seek>(h: &mut BufReader<R>) -> io::Result<Self> {
-        let mut buf = [0; DTLEN];
-        h.read_exact(&mut buf)?;
-        Ok(Self::from_big(buf))
-    }
-
-    fn read_from_little<R: Read + Seek>(h: &mut BufReader<R>) -> io::Result<Self> {
-        let mut buf = [0; DTLEN];
-        h.read_exact(&mut buf)?;
-        Ok(Self::from_little(buf))
-    }
-
-    fn read_from_endian<R: Read + Seek>(h: &mut BufReader<R>, endian: Endian) -> io::Result<Self> {
-        if endian == Endian::Big {
-            Self::read_from_big(h)
-        } else {
-            Self::read_from_little(h)
-        }
-    }
 }
 
 trait OrderedFromBytes<const DTLEN: usize, const OLEN: usize>: NumProps<DTLEN> {
@@ -1107,8 +1071,8 @@ where
         }
     }
 
-    fn to_float_type(b: &ByteOrd, r: &Range) -> Result<FloatType<LEN, Self::Native>, Vec<String>> {
-        match (b.as_sized(), r.as_ref().parse::<Self::Native>()) {
+    fn to_float_type(o: &ByteOrd, r: &Range) -> Result<FloatType<LEN, Self::Native>, Vec<String>> {
+        match (o.as_sized(), r.as_ref().parse::<Self::Native>()) {
             (Ok(order), Ok(range)) => Ok(FloatType { order, range }),
             (a, b) => Err([a.err(), b.err().map(|s| s.to_string())]
                 .into_iter()
@@ -1117,18 +1081,18 @@ where
         }
     }
 
-    fn make_matrix_parser(
-        byteord: &ByteOrd,
-        par: usize,
-        total_events: usize,
-    ) -> PureMaybe<FloatReader<LEN>> {
-        let res = byteord.as_sized().map(|byteord| FloatReader {
-            nrows: total_events,
-            ncols: par,
-            byteord,
-        });
-        PureMaybe::from_result_1(res, PureErrorLevel::Error)
-    }
+    // fn make_matrix_parser(
+    //     byteord: &ByteOrd,
+    //     par: usize,
+    //     total_events: usize,
+    // ) -> PureMaybe<FloatReader<LEN>> {
+    //     let res = byteord.as_sized().map(|b| FloatReader {
+    //         nrows: total_events,
+    //         ncols: par,
+    //         byteord: b,
+    //     });
+    //     PureMaybe::from_result_1(res, PureErrorLevel::Error)
+    // }
 
     fn read_float<R: Read>(
         h: &mut BufReader<R>,
@@ -1335,7 +1299,7 @@ fn series_coerce(
 /// Used when writing delimited ASCII. This is faster and more convenient
 /// than the general coercion function.
 fn series_coerce64(s: &Column, conf: &WriteConfig) -> Option<PureSuccess<Vec<u64>>> {
-    let dt = ValidType::from(&s.dtype())?;
+    let dt = ValidType::from(s.dtype())?;
     let mut deferred = PureErrorBuf::default();
 
     let num_warn = |d: &mut PureErrorBuf, from, to| {
@@ -1785,7 +1749,7 @@ fn h_write_numeric_dataframe<W: Write>(
     conf: &WriteConfig,
 ) -> ImpureResult<()> {
     let df_nrows = df.height();
-    let res = into_writable_columns(df, cs, &conf);
+    let res = into_writable_columns(df, cs, conf);
     if let Some(succ) = res {
         succ.try_map(|writable_columns| {
             for r in 0..df_nrows {
@@ -1846,7 +1810,7 @@ fn h_write_delimited_matrix<W: Write>(
     Ok(PureSuccess::from(()))
 }
 
-fn h_write_dataset<M, W>(
+pub fn h_write_dataset<M, W>(
     h: &mut BufWriter<W>,
     d: VersionedCoreDataset<M>,
     conf: &WriteConfig,
@@ -1881,11 +1845,11 @@ where
 
     // Make common HEADER+TEXT writing function, for which the only unknown
     // now is the length of DATA.
-    let write_text = |h: &mut BufWriter<W>, data_len| -> ImpureResult<()> {
-        if let Some(text) = text.text_segment(Tot(nrows), data_len, analysis_len) {
-            for t in text {
-                h.write_all(t.as_bytes())?;
-                h.write_all(&[conf.delim.inner()])?;
+    let write_text = |hh: &mut BufWriter<W>, data_len| -> ImpureResult<()> {
+        if let Some(ts) = text.text_segment(Tot(nrows), data_len, analysis_len) {
+            for t in ts {
+                hh.write_all(t.as_bytes())?;
+                hh.write_all(&[conf.delim.inner()])?;
             }
         } else {
             Err(Failure::new(
@@ -1924,7 +1888,7 @@ where
             // value. Then convert values to strings and write byte
             // representation of strings. Fun...
             DataLayout::AsciiDelimited { nrows: _, ncols: _ } => {
-                if let Some(succ) = into_writable_matrix64(d.data, &conf) {
+                if let Some(succ) = into_writable_matrix64(d.data, conf) {
                     succ.try_map(|columns| {
                         let ndelim = df_ncols * nrows - 1;
                         // TODO cast?

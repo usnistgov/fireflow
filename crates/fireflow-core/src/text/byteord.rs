@@ -56,9 +56,15 @@ pub struct Chars(u8);
 pub struct BitsOrChars(u8);
 
 #[derive(PartialEq, Eq, Hash, Copy, Clone)]
-pub enum SizedByteOrd<const LEN: usize> {
+pub(crate) enum SizedByteOrd<const LEN: usize> {
     Endian(Endian),
     Order([u8; LEN]),
+}
+
+impl<const LEN: usize> SizedByteOrd<LEN> {
+    pub(crate) fn nbytes(&self) -> usize {
+        LEN
+    }
 }
 
 #[derive(Clone, Serialize)]

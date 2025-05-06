@@ -17,7 +17,6 @@ use std::fmt;
 use std::io;
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::iter;
-use std::marker::PhantomData;
 use std::num::{IntErrorKind, ParseIntError};
 use std::str::FromStr;
 
@@ -288,34 +287,34 @@ impl AnyCoreDataset {
 pub(crate) enum DataLayout2_0<R> {
     Ascii(AsciiLayout<Option<R>, R>),
     Integer(AnyUintLayout<R>),
-    // Float(FloatLayout<R>),
-    Float(FixedLayout<R, F32Type>),
-    Double(FixedLayout<R, F64Type>),
+    Float(FloatLayout<R>),
+    // Float(FixedLayout<R, F32Type>),
+    // Double(FixedLayout<R, F64Type>),
 }
 
 pub(crate) enum DataLayout3_0<R> {
     Ascii(AsciiLayout<R, R>),
     Integer(AnyUintLayout<R>),
-    Float(FixedLayout<R, F32Type>),
-    Double(FixedLayout<R, F64Type>),
-    // Float(FloatLayout<R>),
+    // Float(FixedLayout<R, F32Type>),
+    // Double(FixedLayout<R, F64Type>),
+    Float(FloatLayout<R>),
 }
 
 pub(crate) enum DataLayout3_1<R> {
     Ascii(AsciiLayout<R, R>),
     Integer(FixedLayout<R, AnyUintType>),
-    Float(FixedLayout<R, F32Type>),
-    Double(FixedLayout<R, F64Type>),
-    // Float(FloatLayout<R>),
+    // Float(FixedLayout<R, F32Type>),
+    // Double(FixedLayout<R, F64Type>),
+    Float(FloatLayout<R>),
 }
 
 pub(crate) enum DataLayout3_2<R> {
     // TODO we could just use delimited and mixed for this
     Ascii(AsciiLayout<R, R>),
     Integer(FixedLayout<R, AnyUintType>),
-    Float(FixedLayout<R, F32Type>),
-    Double(FixedLayout<R, F64Type>),
-    // Float(FloatLayout<R>),
+    // Float(FixedLayout<R, F32Type>),
+    // Double(FixedLayout<R, F64Type>),
+    Float(FloatLayout<R>),
     Mixed(FixedLayout<R, MixedType>),
 }
 
@@ -330,13 +329,125 @@ pub(crate) enum FloatLayout<R> {
 }
 
 pub(crate) struct DelimitedLayout<R> {
-    nrows: R,
-    ncols: usize,
+    pub(crate) nrows: R,
+    pub(crate) ncols: usize,
 }
 
 pub(crate) struct FixedLayout<R, C> {
-    nrows: R,
-    columns: Vec<C>,
+    pub(crate) nrows: R,
+    pub(crate) columns: Vec<C>,
+}
+
+impl<R, C> FixedLayout<R, C>
+where
+    C: IsFixed,
+{
+    fn event_width(&self) -> usize {
+        self.columns.iter().map(|c| c.width()).sum()
+    }
+
+    pub(crate) fn into_layout_with_tot(
+        self,
+        seg: Segment,
+        kw_tot: Option<Tot>,
+    ) -> FixedWidthResult<C> {
+        let n = seg.nbytes() as usize;
+        let w = self.event_width();
+        let total_events = Tot(n / w);
+        let remainder = n % w;
+        let segment_mismatch = if remainder != 0 {
+            Some((n, remainder))
+        } else {
+            None
+        };
+        let kw_mismatch = kw_tot.and_then(|t| if t.0 == total_events.0 { None } else { Some(t) });
+        let layout = FixedLayout {
+            nrows: total_events,
+            columns: self.columns,
+        };
+        FixedWidthResult {
+            layout,
+            event_width: w,
+            segment_mismatch,
+            kw_mismatch,
+        }
+    }
+}
+
+pub(crate) struct FixedWidthResult<C> {
+    pub(crate) layout: FixedLayout<Tot, C>,
+    event_width: usize,
+    segment_mismatch: Option<(usize, usize)>,
+    kw_mismatch: Option<Tot>,
+}
+
+impl<C> FixedWidthResult<C> {
+    pub(crate) fn segment_error(&self) -> Option<String> {
+        self.segment_mismatch.map(|(n, r)| {
+            format!(
+                "Events are {} bytes wide, but this does not evenly \
+                 divide DATA segment which is {n} bytes long \
+                 (remainder of {r})",
+                self.event_width
+            )
+        })
+    }
+
+    pub(crate) fn kw_error(&self) -> Option<String> {
+        self.kw_mismatch.map(|t| {
+            format!(
+                "$TOT field is {t} but number of events \
+                 that evenly fit into DATA is {}",
+                self.total_events
+            )
+        })
+    }
+}
+
+trait IsFixed {
+    fn width(&self) -> usize;
+}
+
+impl<X, const LEN: usize> IsFixed for UintType<X, LEN> {
+    fn width(&self) -> usize {
+        LEN
+    }
+}
+
+impl IsFixed for AnyUintType {
+    fn width(&self) -> usize {
+        match_many_to_one!(
+            self,
+            AnyUintType,
+            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+            x,
+            { x.width() }
+        )
+    }
+}
+
+// TODO flip args to make more consistent
+impl<X, const LEN: usize> IsFixed for FloatType<LEN, X> {
+    fn width(&self) -> usize {
+        LEN
+    }
+}
+
+impl IsFixed for AsciiType {
+    fn width(&self) -> usize {
+        u8::from(self.chars).into()
+    }
+}
+
+impl IsFixed for MixedType {
+    fn width(&self) -> usize {
+        match self {
+            MixedType::Ascii { chars } => u8::from(*chars).into(),
+            MixedType::Integer(i) => i.width(),
+            MixedType::Float(f) => f.width(),
+            MixedType::Double(d) => d.width(),
+        }
+    }
 }
 
 pub(crate) enum AnyUintLayout<R> {
@@ -386,7 +497,7 @@ pub(crate) enum MixedType {
 }
 
 pub(crate) struct AsciiType {
-    chars: Chars,
+    pub(crate) chars: Chars,
 }
 
 /// An f32 column
@@ -646,6 +757,7 @@ impl AlphaNumReader {
     }
 }
 
+// TODO this needs to be made generic
 /// Read the DATA segment and return a polars dataframe
 pub(crate) fn h_read_data_segment<R: Read + Seek>(
     h: &mut BufReader<R>,
@@ -873,35 +985,35 @@ impl AnyUintType {
     }
 }
 
-impl RowColumnLayout {
-    pub(crate) fn from_raw(kws: &RawKeywords, conf: &DataReadConfig) -> PureMaybe<Self> {
-        let par = Par::get_meta_req(kws);
-        let dt = AlphaNumType::get_meta_req(kws);
-        let byteord = ByteOrd::get_meta_req(kws);
-        self.as_row_column_layout(kws, conf, data_seg)
-            .map(|maybe_layout| maybe_layout.map(|layout| layout.into_data_reader(data_seg)))
-    }
+// impl RowColumnLayout {
+//     pub(crate) fn from_raw(kws: &RawKeywords, conf: &DataReadConfig) -> PureMaybe<Self> {
+//         let par = Par::get_meta_req(kws);
+//         let dt = AlphaNumType::get_meta_req(kws);
+//         let byteord = ByteOrd::get_meta_req(kws);
+//         self.as_row_column_layout(kws, conf, data_seg)
+//             .map(|maybe_layout| maybe_layout.map(|layout| layout.into_data_reader(data_seg)))
+//     }
 
-    pub(crate) fn into_data_reader(self, data_seg: &Segment) -> DataReader {
-        let column_parser = match self {
-            DataLayout::AlphaNum { nrows, columns } => {
-                ColumnReader::AlphaNum(make_mixed_reader(columns, nrows))
-            }
-            DataLayout::AsciiDelimited { nrows, ncols } => {
-                let nbytes = data_seg.nbytes() as usize;
-                ColumnReader::DelimitedAscii(DelimAsciiReader {
-                    ncols,
-                    nrows,
-                    nbytes,
-                })
-            }
-        };
-        DataReader {
-            column_reader: column_parser,
-            begin: u64::from(data_seg.begin()),
-        }
-    }
-}
+//     pub(crate) fn into_data_reader(self, data_seg: &Segment) -> DataReader {
+//         let column_parser = match self {
+//             DataLayout::AlphaNum { nrows, columns } => {
+//                 ColumnReader::AlphaNum(make_mixed_reader(columns, nrows))
+//             }
+//             DataLayout::AsciiDelimited { nrows, ncols } => {
+//                 let nbytes = data_seg.nbytes() as usize;
+//                 ColumnReader::DelimitedAscii(DelimAsciiReader {
+//                     ncols,
+//                     nrows,
+//                     nbytes,
+//                 })
+//             }
+//         };
+//         DataReader {
+//             column_reader: column_parser,
+//             begin: u64::from(data_seg.begin()),
+//         }
+//     }
+// }
 
 fn make_mixed_reader(cs: Vec<MixedType>, total_events: Tot) -> AlphaNumReader {
     let columns = cs

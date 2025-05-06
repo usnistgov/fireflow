@@ -895,7 +895,7 @@ where
         Self::get_req(kws, Self::std(n).as_str())
     }
 
-    fn lookup_meas_req(kws: &mut RawKeywords, n: MeasIdx) -> ReqResult<Self> {
+    fn remove_meas_req(kws: &mut RawKeywords, n: MeasIdx) -> ReqResult<Self> {
         Self::remove_req(kws, Self::std(n).as_str())
     }
 
@@ -917,7 +917,7 @@ where
     Self: FromStr,
     <Self as FromStr>::Err: fmt::Display,
 {
-    fn lookup_meta_opt(kws: &mut RawKeywords) -> OptResult<Self> {
+    fn remove_meta_opt(kws: &mut RawKeywords) -> OptResult<Self> {
         Self::remove_opt(kws, Self::std().as_str())
     }
 
@@ -934,7 +934,7 @@ where
     Self: FromStr,
     <Self as FromStr>::Err: fmt::Display,
 {
-    fn lookup_meas_opt(kws: &mut RawKeywords, n: MeasIdx) -> OptResult<Self> {
+    fn remove_meas_opt(kws: &mut RawKeywords, n: MeasIdx) -> OptResult<Self> {
         Self::remove_opt(kws, Self::std(n).as_str())
     }
 

@@ -11,13 +11,13 @@ use crate::text::range::*;
 use crate::validated::nonstandard::MeasIdx;
 use crate::validated::shortname::*;
 
-use arity::unary_mut_with_options;
 use itertools::Itertools;
 use polars::prelude::*;
 use std::fmt;
 use std::io;
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::iter;
+use std::marker::PhantomData;
 use std::num::{IntErrorKind, ParseIntError};
 use std::str::FromStr;
 
@@ -286,39 +286,48 @@ impl AnyCoreDataset {
 }
 
 pub(crate) enum DataLayout2_0<R> {
-    AsciiDelimited(DelimitedLayout<Option<R>>),
-    AsciiFixed(FixedLayout<R, AsciiType>),
+    Ascii(AsciiLayout<Option<R>, R>),
     Integer(AnyUintLayout<R>),
+    // Float(FloatLayout<R>),
     Float(FixedLayout<R, F32Type>),
     Double(FixedLayout<R, F64Type>),
 }
 
 pub(crate) enum DataLayout3_0<R> {
-    AsciiDelimited(DelimitedLayout<R>),
-    AsciiFixed(FixedLayout<R, AsciiType>),
+    Ascii(AsciiLayout<R, R>),
     Integer(AnyUintLayout<R>),
     Float(FixedLayout<R, F32Type>),
     Double(FixedLayout<R, F64Type>),
+    // Float(FloatLayout<R>),
 }
 
 pub(crate) enum DataLayout3_1<R> {
-    AsciiDelimited(DelimitedLayout<R>),
-    AsciiFixed(FixedLayout<R, AsciiType>),
+    Ascii(AsciiLayout<R, R>),
     Integer(FixedLayout<R, AnyUintType>),
     Float(FixedLayout<R, F32Type>),
     Double(FixedLayout<R, F64Type>),
+    // Float(FloatLayout<R>),
 }
 
 pub(crate) enum DataLayout3_2<R> {
-    Delimited(DelimitedLayout<R>),
+    // TODO we could just use delimited and mixed for this
+    Ascii(AsciiLayout<R, R>),
+    Integer(FixedLayout<R, AnyUintType>),
+    Float(FixedLayout<R, F32Type>),
+    Double(FixedLayout<R, F64Type>),
+    // Float(FloatLayout<R>),
     Mixed(FixedLayout<R, MixedType>),
 }
 
-// pub(crate) enum DataLayoutCommon<R> {
-//     AsciiFixed(FixedLayout<AsciiType, R>),
-//     Float(FixedLayout<F32Type, R>),
-//     Double(FixedLayout<F64Type, R>),
-// }
+pub(crate) enum AsciiLayout<RD, RF> {
+    Delimited(DelimitedLayout<RD>),
+    Fixed(FixedLayout<RF, AsciiType>),
+}
+
+pub(crate) enum FloatLayout<R> {
+    F32(FixedLayout<R, F32Type>),
+    F64(FixedLayout<R, F64Type>),
+}
 
 pub(crate) struct DelimitedLayout<R> {
     nrows: R,
@@ -390,6 +399,7 @@ type F64Type = FloatType<8, f64>;
 #[derive(PartialEq, Clone)]
 pub(crate) struct FloatType<const LEN: usize, T> {
     pub order: SizedByteOrd<LEN>,
+    // TODO why is this here?
     pub range: T,
 }
 
@@ -937,43 +947,30 @@ fn make_uint_type(b: BitsOrChars, r: &Range, o: &ByteOrd) -> Result<AnyUintType,
     }
 }
 
-macro_rules! match_make_uint_layout {
-    ($it:expr, $nrows:expr, $ctype:ident, $ltype:ident) => {
-        let (columns, fail): (Vec<_>, Vec<_>) =
-            $it.map(|r| $ctype::column_type(r, o)).partition_result();
-        if fail.is_empty() {
-            Ok(AnyUintLayout::$ltype(FixedLayout {
-                nrows: $nrows,
-                columns,
-            }))
-        } else {
-            Err(fail.into_iter().flatten().collect())
-        }
-    };
-}
-
-pub(crate) fn make_uint_layout<R>(
-    pairs: Vec<(&Width, &Range)>,
+pub(crate) fn make_uint_layout<D, R>(
+    cs: Vec<ColumnLayoutData<D>>,
     o: &ByteOrd,
     nrows: R,
 ) -> Result<AnyUintLayout<R>, Vec<String>> {
-    let n = pairs.len();
-    let (ws, rs): (Vec<_>, Vec<_>) = pairs.into_iter().unzip();
+    let ncols = cs.len();
+    let (ws, rs): (Vec<_>, Vec<_>) = cs.into_iter().map(|c| (c.width, c.range)).unzip();
     // TODO test of octet vs variable
-    let fixed: Vec<_> = ws
-        .into_iter()
-        .flat_map(|w: Width| w.as_fixed().and_then(|f| f.bytes()))
-        .collect();
-    if fixed.len() < n {
+    let fixed: Vec<_> = ws.into_iter().flat_map(|w: Width| w.as_fixed()).collect();
+    if fixed.len() < ncols {
+        //
+        return Err(vec!["not all fixed width".into()]);
+    }
+    let bytes: Vec<_> = fixed.into_iter().flat_map(|f| f.bytes()).collect();
+    if bytes.len() < ncols {
         return Err(vec!["bad stuff".into()]);
     }
-    let mut fixed_unique = fixed.iter().unique();
+    let mut fixed_unique = bytes.iter().unique();
     // ASSUME this won't fail
-    let bytes = fixed_unique.next().unwrap();
+    let bytes1 = fixed_unique.next().unwrap();
     if fixed_unique.count() > 0 {
         return Err(vec!["bad stuff".into()]);
     }
-    match u8::from(*bytes) {
+    match u8::from(*bytes1) {
         1 => UInt8Type::layout(rs, o, nrows).map(AnyUintLayout::Uint08),
         2 => UInt16Type::layout(rs, o, nrows).map(AnyUintLayout::Uint16),
         3 => <UInt32Type as IntFromBytes<4, 3>>::layout(rs, o, nrows).map(AnyUintLayout::Uint24),
@@ -985,20 +982,6 @@ pub(crate) fn make_uint_layout<R>(
         _ => unreachable!(),
     }
 }
-
-// fn make_uint_layout<R>(
-//     b: BitsOrChars,
-//     r: &Range,
-//     o: &ByteOrd,
-//     nrows: R,
-//     ncols: usize,
-// ) -> Result<AnyUintLayout<R>, Vec<String>> {
-//     let r = make_uint_type(b, r, o)?;
-//     let l = match_make_uint_layout!(
-//         r, nrows, ncols, Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64
-//     );
-//     Ok(l)
-// }
 
 // hack to get bounds on error to work in IntMath trait
 trait IntErr: Sized {
@@ -1016,7 +999,6 @@ where
     Self: fmt::Display,
     Self: FromStr,
     <Self as FromStr>::Err: IntErr,
-    <Self as FromStr>::Err: fmt::Display,
 {
     fn next_power_2(x: Self) -> Self;
 
@@ -1107,6 +1089,7 @@ where
     fn column_type(
         range: &Range,
         byteord: &ByteOrd,
+        // index: MeasIdx,
     ) -> Result<UintType<Self::Native, INTLEN>, Vec<String>> {
         // TODO be more specific, which means we need the measurement index
         let m = Self::range_to_bitmask(range);
@@ -1124,7 +1107,7 @@ where
     ) -> Result<FixedLayout<R, UintType<Self::Native, INTLEN>>, Vec<String>> {
         let (columns, fail): (Vec<_>, Vec<_>) = rs
             .into_iter()
-            .map(|r| UInt8Type::column_type(r, byteord))
+            .map(|r| Self::column_type(r, byteord))
             .partition_result();
         if fail.is_empty() {
             Ok(FixedLayout { nrows, columns })
@@ -1257,6 +1240,8 @@ where
         }
     }
 
+    // TODO what happens if byteord is endian which is only 4 bytes wide by
+    // definition but we want a 64bit float? probably bad stuff
     fn column_type(o: &ByteOrd, r: &Range) -> Result<FloatType<LEN, Self::Native>, Vec<String>> {
         match (o.as_sized(), r.as_ref().parse::<Self::Native>()) {
             (Ok(order), Ok(range)) => Ok(FloatType { order, range }),
@@ -1264,6 +1249,35 @@ where
                 .into_iter()
                 .flatten()
                 .collect()),
+        }
+    }
+
+    fn layout(
+        cs: Vec<ColumnLayoutData>,
+        byteord: &ByteOrd,
+    ) -> Result<FixedLayout<(), FloatType<LEN, Self::Native>>, String> {
+        let (pass, fail): (Vec<_>, Vec<_>) = cs
+            .into_iter()
+            .map(|c| {
+                if c.width
+                    .as_fixed()
+                    .and_then(|f| f.bytes())
+                    .is_some_and(|b| u8::from(b) == 4)
+                {
+                    Self::column_type(byteord, &c.range)
+                } else {
+                    // TODO which one?
+                    Err(vec![format!("$PnB is not {} bytes wide", 4)])
+                }
+            })
+            .partition_result();
+        if fail.is_empty() {
+            Ok(FixedLayout {
+                nrows: (),
+                columns: pass,
+            })
+        } else {
+            Err(fail.into_iter().flatten().collect())
         }
     }
 
@@ -1902,4 +1916,10 @@ fn ascii_to_uint_io(buf: Vec<u8>) -> io::Result<u64> {
 fn parse_u64_io(s: &str) -> io::Result<u64> {
     s.parse::<u64>()
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+}
+
+pub(crate) struct ColumnLayoutData<'a, D> {
+    pub(crate) width: Width,
+    pub(crate) range: &'a Range,
+    pub(crate) datatype: D,
 }

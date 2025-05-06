@@ -928,22 +928,55 @@ fn make_mixed_reader(cs: Vec<MixedType>, total_events: Tot) -> AlphaNumReader {
     }
 }
 
-fn make_uint_type(b: BitsOrChars, r: &Range, o: &ByteOrd) -> Result<AnyUintType, Vec<String>> {
+fn make_uint_type_inner(bytes: Bytes, r: &Range, e: Endian) -> Result<AnyUintType, String> {
+    // ASSUME this can only be 1-8
+    match u8::from(bytes) {
+        1 => UInt8Type::column_type_endian(r, e).map(AnyUintType::Uint08),
+        2 => UInt16Type::column_type_endian(r, e).map(AnyUintType::Uint16),
+        3 => <UInt32Type as IntFromBytes<4, 3>>::column_type_endian(r, e).map(AnyUintType::Uint24),
+        4 => <UInt32Type as IntFromBytes<4, 4>>::column_type_endian(r, e).map(AnyUintType::Uint32),
+        5 => <UInt64Type as IntFromBytes<8, 5>>::column_type_endian(r, e).map(AnyUintType::Uint40),
+        6 => <UInt64Type as IntFromBytes<8, 6>>::column_type_endian(r, e).map(AnyUintType::Uint48),
+        7 => <UInt64Type as IntFromBytes<8, 7>>::column_type_endian(r, e).map(AnyUintType::Uint56),
+        8 => <UInt64Type as IntFromBytes<8, 8>>::column_type_endian(r, e).map(AnyUintType::Uint64),
+        _ => unreachable!(),
+    }
+}
+
+fn make_uint_type(b: BitsOrChars, r: &Range, e: Endian) -> Result<AnyUintType, String> {
     if let Some(bytes) = b.bytes() {
-        // ASSUME this can only be 1-8
-        match u8::from(bytes) {
-            1 => UInt8Type::column_type(r, o).map(AnyUintType::Uint08),
-            2 => UInt16Type::column_type(r, o).map(AnyUintType::Uint16),
-            3 => <UInt32Type as IntFromBytes<4, 3>>::column_type(r, o).map(AnyUintType::Uint24),
-            4 => <UInt32Type as IntFromBytes<4, 4>>::column_type(r, o).map(AnyUintType::Uint32),
-            5 => <UInt64Type as IntFromBytes<8, 5>>::column_type(r, o).map(AnyUintType::Uint40),
-            6 => <UInt64Type as IntFromBytes<8, 6>>::column_type(r, o).map(AnyUintType::Uint48),
-            7 => <UInt64Type as IntFromBytes<8, 7>>::column_type(r, o).map(AnyUintType::Uint56),
-            8 => <UInt64Type as IntFromBytes<8, 8>>::column_type(r, o).map(AnyUintType::Uint64),
-            _ => Err(vec!["make_uint_type: this should not happen".to_string()]),
-        }
+        make_uint_type_inner(bytes, r, e)
     } else {
-        Err(vec!["$PnB is not an octet".to_string()])
+        Err("$PnB is not an octet".to_string())
+    }
+}
+
+pub(crate) fn make_uint_variable_layout<D, R>(
+    cs: Vec<ColumnLayoutData<D>>,
+    o: Endian,
+    nrows: R,
+) -> Result<FixedLayout<R, AnyUintType>, Vec<String>> {
+    let ncols = cs.len();
+    let (ws, rs): (Vec<_>, Vec<_>) = cs.into_iter().map(|c| (c.width, c.range)).unzip();
+    // TODO test of octet vs variable
+    let fixed: Vec<_> = ws.into_iter().flat_map(|w: Width| w.as_fixed()).collect();
+    if fixed.len() < ncols {
+        //
+        return Err(vec!["not all fixed width".into()]);
+    }
+    let bytes: Vec<_> = fixed.into_iter().flat_map(|f| f.bytes()).collect();
+    if bytes.len() < ncols {
+        return Err(vec!["bad stuff".into()]);
+    }
+    let (columns, fail): (Vec<_>, Vec<_>) = bytes
+        .into_iter()
+        .zip(rs)
+        .map(|(b, r)| make_uint_type_inner(b, r, o))
+        .partition_result();
+    if fail.is_empty() {
+        Ok(FixedLayout { nrows, columns })
+    } else {
+        Err(fail)
     }
 }
 
@@ -1084,6 +1117,17 @@ where
                 IntErrorKind::PosOverflow => Ok(Self::Native::maxval()),
                 _ => Err(format!("could not convert to u{INTLEN}")),
             })
+    }
+
+    fn column_type_endian(
+        range: &Range,
+        endian: Endian,
+    ) -> Result<UintType<Self::Native, INTLEN>, String> {
+        // TODO be more specific, which means we need the measurement index
+        Self::range_to_bitmask(range).map(|bitmask| UintType {
+            bitmask,
+            size: endian.into(),
+        })
     }
 
     fn column_type(
@@ -1240,6 +1284,16 @@ where
         }
     }
 
+    fn column_type_endian(o: Endian, r: &Range) -> Result<FloatType<LEN, Self::Native>, String> {
+        r.as_ref()
+            .parse::<Self::Native>()
+            .map(|range| FloatType {
+                order: o.into(),
+                range,
+            })
+            .map_err(|e| e.to_string())
+    }
+
     // TODO what happens if byteord is endian which is only 4 bytes wide by
     // definition but we want a 64bit float? probably bad stuff
     fn column_type(o: &ByteOrd, r: &Range) -> Result<FloatType<LEN, Self::Native>, Vec<String>> {
@@ -1252,8 +1306,37 @@ where
         }
     }
 
-    fn layout(
-        cs: Vec<ColumnLayoutData>,
+    fn layout_endian<D>(
+        cs: Vec<ColumnLayoutData<D>>,
+        endian: Endian,
+    ) -> Result<FixedLayout<(), FloatType<LEN, Self::Native>>, Vec<String>> {
+        let (pass, fail): (Vec<_>, Vec<_>) = cs
+            .into_iter()
+            .map(|c| {
+                if c.width
+                    .as_fixed()
+                    .and_then(|f| f.bytes())
+                    .is_some_and(|b| u8::from(b) == 4)
+                {
+                    Self::column_type_endian(endian, &c.range)
+                } else {
+                    // TODO which one?
+                    Err(format!("$PnB is not {} bytes wide", 4))
+                }
+            })
+            .partition_result();
+        if fail.is_empty() {
+            Ok(FixedLayout {
+                nrows: (),
+                columns: pass,
+            })
+        } else {
+            Err(fail)
+        }
+    }
+
+    fn layout<D>(
+        cs: Vec<ColumnLayoutData<D>>,
         byteord: &ByteOrd,
     ) -> Result<FixedLayout<(), FloatType<LEN, Self::Native>>, String> {
         let (pass, fail): (Vec<_>, Vec<_>) = cs
@@ -1858,41 +1941,41 @@ impl MixedType {
     pub(crate) fn try_new(
         b: Width,
         dt: AlphaNumType,
-        byteord: &ByteOrd,
+        // TODO this should only take an endian since it only applies to 3.2
+        // and has no chance in hogwarts of being in anything earlier
+        endian: Endian,
         rng: &Range,
-    ) -> Result<Option<Self>, Vec<String>> {
+    ) -> Result<Option<Self>, String> {
         match b {
             Width::Fixed(f) => match dt {
                 AlphaNumType::Ascii => {
                     if let Some(chars) = f.chars() {
                         Ok(Self::Ascii { chars })
                     } else {
-                        Err(vec![
-                            "$DATATYPE=A but $PnB greater than 20 chars".to_string()
-                        ])
+                        Err("$DATATYPE=A but $PnB greater than 20 chars".to_string())
                     }
                 }
-                AlphaNumType::Integer => make_uint_type(f, rng, byteord).map(Self::Integer),
+                AlphaNumType::Integer => make_uint_type(f, rng, endian).map(Self::Integer),
                 AlphaNumType::Single => {
                     if let Some(bytes) = f.bytes() {
                         if u8::from(bytes) == 4 {
-                            Float32Type::column_type(byteord, rng).map(Self::Float)
+                            Float32Type::column_type_endian(endian, rng).map(Self::Float)
                         } else {
-                            Err(vec![format!("$DATATYPE=F but $PnB={}", f.inner())])
+                            Err(format!("$DATATYPE=F but $PnB={}", f.inner()))
                         }
                     } else {
-                        Err(vec![format!("$PnB is not an octet, got {}", f.inner())])
+                        Err(format!("$PnB is not an octet, got {}", f.inner()))
                     }
                 }
                 AlphaNumType::Double => {
                     if let Some(bytes) = f.bytes() {
                         if u8::from(bytes) == 8 {
-                            Float64Type::column_type(byteord, rng).map(Self::Double)
+                            Float64Type::column_type_endian(endian, rng).map(Self::Double)
                         } else {
-                            Err(vec![format!("$DATATYPE=D but $PnB={}", f.inner())])
+                            Err(format!("$DATATYPE=D but $PnB={}", f.inner()))
                         }
                     } else {
-                        Err(vec![format!("$PnB is not an octet, got {}", f.inner())])
+                        Err(format!("$PnB is not an octet, got {}", f.inner()))
                     }
                 }
             }
@@ -1901,7 +1984,7 @@ impl MixedType {
                 // ASSUME the only way this can happen is if $DATATYPE=A since
                 // Ascii is not allowed in $PnDATATYPE.
                 AlphaNumType::Ascii => Ok(None),
-                _ => Err(vec![format!("variable $PnB not allowed for {dt}")]),
+                _ => Err(format!("variable $PnB not allowed for {dt}")),
             },
         }
     }

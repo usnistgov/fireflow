@@ -4746,22 +4746,23 @@ impl VersionedMetadata for InnerMetadata3_1 {
         metadata: &Metadata<Self>,
         cs: Vec<ColumnLayoutData<Self::D>>,
     ) -> Result<Self::L, Vec<String>> {
-        let byteord = metadata.specific.byteord();
+        let endian = metadata.specific.byteord;
         match metadata.datatype() {
             AlphaNumType::Ascii => {
                 let l = make_ascii_layout(cs, (), ()).map_err(|e| vec![e])?;
                 Ok(DataLayout3_1::Ascii(l))
             }
-            // AlphaNumType::Integer => {
-            //     let l = make_uint_layout(cs, &byteord, ())?;
-            //     Ok(DataLayout3_1::Integer(l))
-            // }
+
+            AlphaNumType::Integer => {
+                let l = make_uint_variable_layout(cs, endian, ())?;
+                Ok(DataLayout3_1::Integer(l))
+            }
             AlphaNumType::Single => {
-                let l = Float32Type::layout(cs, &byteord).map_err(|e| vec![e])?;
+                let l = Float32Type::layout_endian(cs, endian)?;
                 Ok(DataLayout3_1::Float(l))
             }
             AlphaNumType::Double => {
-                let l = Float64Type::layout(cs, &byteord).map_err(|e| vec![e])?;
+                let l = Float64Type::layout_endian(cs, endian)?;
                 Ok(DataLayout3_1::Double(l))
             }
         }
@@ -4902,24 +4903,24 @@ impl VersionedMetadata for InnerMetadata3_2 {
         metadata: &Metadata<Self>,
         cs: Vec<ColumnLayoutData<Self::D>>,
     ) -> Result<Self::L, Vec<String>> {
-        let byteord = metadata.specific.byteord();
+        let endian = metadata.specific.byteord;
         let unique_dt: Vec<_> = cs.iter().map(|c| c.datatype).unique().collect();
         match unique_dt[..] {
-            [dt] => match metadata.datatype() {
+            [dt] => match dt {
                 AlphaNumType::Ascii => {
                     let l = make_ascii_layout(cs, (), ()).map_err(|e| vec![e])?;
                     Ok(DataLayout3_2::Ascii(l))
                 }
-                // AlphaNumType::Integer => {
-                //     let l = make_uint_layout(cs, &byteord, ())?;
-                //     Ok(DataLayout3_1::Integer(l))
-                // }
+                AlphaNumType::Integer => {
+                    let l = make_uint_variable_layout(cs, endian, ())?;
+                    Ok(DataLayout3_2::Integer(l))
+                }
                 AlphaNumType::Single => {
-                    let l = Float32Type::layout(cs, &byteord).map_err(|e| vec![e])?;
+                    let l = Float32Type::layout_endian(cs, endian)?;
                     Ok(DataLayout3_2::Float(l))
                 }
                 AlphaNumType::Double => {
-                    let l = Float64Type::layout(cs, &byteord).map_err(|e| vec![e])?;
+                    let l = Float64Type::layout_endian(cs, endian)?;
                     Ok(DataLayout3_2::Double(l))
                 }
             },
@@ -4927,10 +4928,10 @@ impl VersionedMetadata for InnerMetadata3_2 {
                 let ncols = cs.len();
                 let (pass, fail): (Vec<_>, Vec<_>) = cs
                     .into_iter()
-                    .map(|c| MixedType::try_new(c.width, c.datatype, &byteord, c.range))
+                    .map(|c| MixedType::try_new(c.width, c.datatype, endian, c.range))
                     .partition_result();
                 if fail.is_empty() {
-                    let columns = pass.into_iter().flatten().collect();
+                    let columns: Vec<_> = pass.into_iter().flatten().collect();
                     if columns.len() == ncols {
                         Ok(DataLayout3_2::Mixed(FixedLayout { nrows: (), columns }))
                     } else {
@@ -4939,7 +4940,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
                         ])
                     }
                 } else {
-                    Err(fail.into_iter().flatten().collect())
+                    Err(fail)
                 }
             }
         }

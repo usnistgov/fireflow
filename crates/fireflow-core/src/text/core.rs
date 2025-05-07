@@ -1654,7 +1654,7 @@ where
     ///
     /// The actual bytes written will be the HEADER and TEXT, including the
     /// last delimiter.
-    fn h_write<W: Write>(
+    pub(crate) fn h_write<W: Write>(
         &self,
         h: &mut BufWriter<W>,
         nrows: Tot,

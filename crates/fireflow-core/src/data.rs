@@ -69,7 +69,7 @@ where
         let df_ncols = self.data.width();
 
         // We can now confidently count the number of events (rows)
-        let nrows = self.data.height();
+        let nrows = Tot(self.data.height());
 
         // Get the layout, or bail if we can't
         let layout = text.as_column_layout().map_err(|es| Failure {
@@ -87,80 +87,11 @@ where
             )))?;
         }
 
-        // Make common HEADER+TEXT writing function, for which the only unknown
-        // now is the length of DATA.
-        // let write_text = |hh: &mut BufWriter<W>, data_len| -> ImpureResult<()> {
-        //     if let Some(ts) = text.text_segment(Tot(nrows), data_len, analysis_len) {
-        //         for t in ts {
-        //             hh.write_all(t.as_bytes())?;
-        //             hh.write_all(&[conf.delim.inner()])?;
-        //         }
-        //     } else {
-        //         Err(Failure::new(
-        //             "primary TEXT does not fit into first 99,999,999 bytes".to_string(),
-        //         ))?;
-        //     }
-        //     Ok(PureSuccess::from(()))
-        // };
-
-        let res = if nrows == 0 {
-            // Write HEADER+TEXT with no DATA if dataframe is empty. This assumes
-            // the dataframe has the proper number of columns, but each column is
-            // empty.
-            write_text(h, 0)?;
-            Ok(PureSuccess::from(()))
-        } else {
-            match layout {
-                // For alphanumeric, only need to coerce the dataframe to the proper
-                // types in each column and write these out bit-for-bit. User will
-                // be warned if truncation happens.
-                DataLayout::AlphaNum {
-                    nrows: _,
-                    columns: col_types,
-                } => {
-                    // ASSUME the dataframe will be coerced such that this
-                    // relationship will hold true
-                    let event_width: usize = col_types.iter().map(|c| c.width()).sum();
-                    let data_len = event_width * nrows;
-                    write_text(h, data_len)?;
-                    h_write_numeric_dataframe(h, col_types, &self.data, conf)
-                }
-
-                // For delimited ASCII, need to first convert dataframe to u64 and
-                // then figure out how much space this will take up based on a)
-                // number of values in dataframe, and b) number of digits in each
-                // value. Then convert values to strings and write byte
-                // representation of strings. Fun...
-                DataLayout::AsciiDelimited { nrows: _, ncols: _ } => {
-                    if let Some(succ) = into_writable_matrix64(&self.data, conf) {
-                        succ.try_map(|columns| {
-                            let ndelim = df_ncols * nrows - 1;
-                            // TODO cast?
-                            let value_nbytes: u32 = columns
-                                .iter()
-                                .flat_map(|rows| {
-                                    rows.iter().map(|x| x.checked_ilog10().unwrap_or(1))
-                                })
-                                .sum();
-                            // compute data length (delimiters + number of digits)
-                            let data_len = value_nbytes as usize + ndelim;
-                            // write HEADER+TEXT
-                            write_text(h, data_len)?;
-                            // write DATA
-                            h_write_delimited_matrix(h, nrows, columns)
-                        })
-                    } else {
-                        // TODO lame...
-                        Err(io::Error::other(
-                            "could not get data from dataframe".to_string(),
-                        ))?
-                    }
-                }
-            }
-        };
-
+        let data_len = layout.nbytes(&self.data, conf);
+        self.text.h_write(h, nrows, data_len, analysis_len, conf)?;
+        layout.h_write(h, &self.data, conf)?;
         h.write_all(&self.analysis.0)?;
-        res
+        Ok(PureSuccess::from(()))
     }
 
     /// Convert this dataset into a different FCS version
@@ -289,6 +220,8 @@ impl AnyCoreDataset {
 trait VersionedDataLayout {
     fn ncols(&self) -> usize;
 
+    fn nbytes(&self, df: &DataFrame, conf: &WriteConfig) -> usize;
+
     fn h_write<W: Write>(
         &self,
         h: &mut BufWriter<W>,
@@ -340,6 +273,22 @@ impl<R> VersionedDataLayout for DataLayout2_0<R> {
         }
     }
 
+    fn nbytes(&self, df: &DataFrame, conf: &WriteConfig) -> usize {
+        match self {
+            DataLayout2_0::Ascii(a) => a.nbytes(df, conf),
+            DataLayout2_0::Integer(i) => {
+                match_many_to_one!(
+                    i,
+                    AnyUintLayout,
+                    [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+                    l,
+                    { l.nbytes(df.height()) }
+                )
+            }
+            DataLayout2_0::Float(f) => f.nbytes(df.height()),
+        }
+    }
+
     fn h_write<W: Write>(
         &self,
         h: &mut BufWriter<W>,
@@ -380,14 +329,14 @@ impl<X, Y> AsciiLayout<X, Y> {
         }
     }
 
-    fn nbytes(&self, df: &DataFrame) -> usize {
+    fn nbytes(&self, df: &DataFrame, conf: &WriteConfig) -> usize {
         match self {
-            AsciiLayout::Fixed(a) => a.nbytes(df),
-            AsciiLayout::Delimited(d) => {
+            AsciiLayout::Fixed(a) => a.nbytes(df.height()),
+            AsciiLayout::Delimited(_) => {
                 let matrix = into_writable_matrix64(df, conf).data;
                 let ndelim = df.width() * df.height() - 1;
                 // TODO cast?
-                let value_nbytes: u32 = matrix.map(|x| x.checked_ilog10().unwrap_or(1)).sum();
+                let value_nbytes = matrix.map(|x| x.checked_ilog10().unwrap_or(1)).sum();
                 // compute data length (delimiters + number of digits)
                 value_nbytes as usize + ndelim
             }
@@ -402,29 +351,8 @@ impl<X, Y> AsciiLayout<X, Y> {
     ) -> ImpureResult<()> {
         match self {
             AsciiLayout::Fixed(a) => a.h_write(h, df, conf),
-            AsciiLayout::Delimited(d) => {
-                if let Some(succ) = into_writable_matrix64(df, conf) {
-                    succ.try_map(|columns| {
-                        let ndelim = df.width() * df.height() - 1;
-                        // TODO cast?
-                        let value_nbytes: u32 = columns
-                            .iter()
-                            .flat_map(|rows| rows.iter().map(|x| x.checked_ilog10().unwrap_or(1)))
-                            .sum();
-                        // compute data length (delimiters + number of digits)
-                        let data_len = value_nbytes as usize + ndelim;
-                        // write HEADER+TEXT
-                        write_text(h, data_len)?;
-                        // write DATA
-                        h_write_delimited_matrix(h, df.height(), columns)
-                    })
-                } else {
-                    // TODO lame...
-                    Err(io::Error::other(
-                        "could not get data from dataframe".to_string(),
-                    ))?
-                }
-            }
+            AsciiLayout::Delimited(_) => into_writable_matrix64(df, conf)
+                .try_map(|matrix| h_write_delimited_matrix(h, matrix)),
         }
     }
 }
@@ -434,6 +362,13 @@ impl<R> FloatLayout<R> {
         match self {
             FloatLayout::F32(l) => l.columns.len(),
             FloatLayout::F64(l) => l.columns.len(),
+        }
+    }
+
+    fn nbytes(&self, nrows: usize) -> usize {
+        match self {
+            FloatLayout::F32(l) => l.nbytes(nrows),
+            FloatLayout::F64(l) => l.nbytes(nrows),
         }
     }
 
@@ -466,6 +401,10 @@ where
 {
     fn event_width(&self) -> usize {
         self.columns.iter().map(|c| c.width()).sum()
+    }
+
+    fn nbytes(&self, nrows: usize) -> usize {
+        self.event_width() * nrows
     }
 
     pub(crate) fn into_layout_with_tot(
@@ -525,9 +464,9 @@ where
         C: Copy,
     {
         // ASSUME the dataframe will be coerced such that this is valid
-        let event_width = self.event_width();
-        let data_len = event_width * df.height();
-        write_text(h, data_len)?;
+        // let event_width = self.event_width();
+        // let data_len = event_width * df.height();
+        // write_text(h, data_len)?;
         let col_types = self.columns.iter().map(|c| (*c).into()).collect();
         h_write_numeric_dataframe(h, col_types, df, conf)
     }
@@ -1920,10 +1859,10 @@ fn series_coerce64(s: &Column, conf: &WriteConfig) -> PureSuccess<Vec<u64>> {
             series_cast!(s, f64, u64)
         }
     };
-    Some(PureSuccess {
+    PureSuccess {
         data: res,
         deferred,
-    })
+    }
 }
 
 impl ValidType {
@@ -2195,15 +2134,10 @@ fn h_write_numeric_dataframe<W: Write>(
     })
 }
 
-fn h_write_delimited_matrix<W: Write>(
-    h: &mut BufWriter<W>,
-    nrows: usize,
-    columns: Vec<Vec<u64>>,
-) -> ImpureResult<()> {
-    let ncols = columns.len();
-    for ri in 0..nrows {
-        for (ci, c) in columns.iter().enumerate() {
-            let x = c[ri];
+fn h_write_delimited_matrix<W: Write>(h: &mut BufWriter<W>, m: DMatrix<u64>) -> ImpureResult<()> {
+    for r in 0..m.nrows() {
+        for c in 0..m.ncols() {
+            let x = m[(r, c)];
             // if zero, just write "0", if anything else convert
             // to a string and write that
             if x == 0 {
@@ -2215,7 +2149,7 @@ fn h_write_delimited_matrix<W: Write>(
                 h.write_all(buf)?;
             }
             // write delimiter after all but last value
-            if !(ci == ncols - 1 && ri == nrows - 1) {
+            if !(c == m.ncols() - 1 && r == m.nrows() - 1) {
                 h.write_all(&[32])?; // 32 = space in ASCII
             }
         }

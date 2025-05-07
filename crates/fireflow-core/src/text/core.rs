@@ -319,14 +319,14 @@ impl AnyCoreTEXT {
     //     match_anycoretext!(self, x, { x.as_column_layout() })
     // }
 
-    pub(crate) fn as_data_reader(
-        &self,
-        kws: &mut RawKeywords,
-        conf: &DataReadConfig,
-        data_seg: Segment,
-    ) -> PureMaybe<DataReader> {
-        match_anycoretext!(self, x, { x.as_data_reader(kws, conf, data_seg) })
-    }
+    // pub(crate) fn as_data_reader(
+    //     &self,
+    //     kws: &mut RawKeywords,
+    //     conf: &DataReadConfig,
+    //     data_seg: Segment,
+    // ) -> PureMaybe<DataReader> {
+    //     match_anycoretext!(self, x, { x.as_data_reader(kws, conf, data_seg) })
+    // }
 
     pub(crate) fn into_dataset_unchecked(
         self,
@@ -2520,37 +2520,9 @@ where
         res
     }
 
-    // // NOTE return vec of strings in error term because these will generally
-    // // always be errors on failure with no warnings on success.
-    // pub(crate) fn as_column_layout(&self) -> Result<ColumnLayout, Vec<String>> {
-    //     let dt = self.metadata.datatype();
-    //     let byteord = self.metadata.specific.byteord();
-    //     let ncols = self.measurements_named_vec().len();
-    //     let (pass, fail): (Vec<_>, Vec<_>) = self
-    //         .measurements_named_vec()
-    //         // TODO what about time?
-    //         .iter_non_center_values()
-    //         .map(|(_, m)| m.as_column_type(dt, &byteord))
-    //         .partition_result();
-    //     let mut deferred: Vec<_> = fail.into_iter().flatten().collect();
-    //     if pass.len() == ncols {
-    //         let fixed: Vec<_> = pass.into_iter().flatten().collect();
-    //         let nfixed = fixed.len();
-    //         if nfixed == ncols {
-    //             return Ok(DataLayout::AlphaNum {
-    //                 nrows: (),
-    //                 columns: fixed,
-    //             });
-    //         } else if nfixed == 0 {
-    //             return Ok(DataLayout::AsciiDelimited { nrows: None, ncols });
-    //         } else {
-    //             deferred.push(format!(
-    //                 "{nfixed} out of {ncols} measurements are fixed width"
-    //             ));
-    //         }
-    //     }
-    //     Err(deferred)
-    // }
+    pub(crate) fn as_column_layout(&self) -> Result<M::W, Vec<String>> {
+        M::as_column_layout(&self.metadata, &self.measurements)
+    }
 
     fn df_names(&self) -> Vec<PlSmallStr> {
         self.all_shortnames()
@@ -4368,17 +4340,9 @@ macro_rules! uint_with_tot {
     ($self:expr, $data_seg:expr, $tot:expr, $($m:ident),*) => {
         match $self {
             $(
-                AnyUintLayout::$m(fl) => {
-                    let res = fl.into_layout_with_tot($data_seg, $tot);
-                    let new = PureSuccess::from(AnyUintLayout::$m(res.layout));
-                    if let Some(e) = res.segment_error() {
-                        new.push_warning(e);
-                    }
-                    if let Some(e) = res.kw_error() {
-                        new.push_warning(e);
-                    }
-                    new
-                }
+                AnyUintLayout::$m(fl) => fl
+                    .into_layout_with_tot_res($data_seg, $tot)
+                    .map(AnyUintLayout::$m),
             )*
         }
     };
@@ -4436,16 +4400,16 @@ impl VersionedMetadata for InnerMetadata2_0 {
         true
     }
 
-    fn lookup_tot(kws: &mut RawKeywords) -> PureMaybe<Tot> {
-        Tot::remove_meta_opt(kws).map_or_else(
-            |e| {
-                let mut r = PureMaybe::empty();
-                r.push_warning(e);
-                r
-            },
-            |s| PureSuccess::from(s.0),
-        )
-    }
+    // fn lookup_tot(kws: &mut RawKeywords) -> PureMaybe<Tot> {
+    //     Tot::remove_meta_opt(kws).map_or_else(
+    //         |e| {
+    //             let mut r = PureMaybe::empty();
+    //             r.push_warning(e);
+    //             r
+    //         },
+    //         |s| PureSuccess::from(s.0),
+    //     )
+    // }
 
     fn keywords_req_inner(&self) -> RawPairs {
         [self.mode.pair(), self.byteord.pair()]
@@ -4508,17 +4472,9 @@ impl VersionedMetadata for InnerMetadata2_0 {
                             ncols: dl.ncols,
                         }))
                     }
-                    AsciiLayout::Fixed(fl) => {
-                        let res = fl.into_layout_with_tot(data_seg, tot);
-                        let new = PureSuccess::from(AsciiLayout::Fixed(res.layout));
-                        if let Some(e) = res.segment_error() {
-                            new.push_warning(e);
-                        }
-                        if let Some(e) = res.kw_error() {
-                            new.push_warning(e);
-                        }
-                        new
-                    }
+                    AsciiLayout::Fixed(fl) => fl
+                        .into_layout_with_tot_res(data_seg, tot)
+                        .map(AsciiLayout::Fixed),
                 }
                 .map(DataLayout2_0::Ascii),
                 DataLayout2_0::Integer(fl) => {
@@ -4538,28 +4494,12 @@ fn float_add_tot<R>(
     tot: Option<Tot>,
 ) -> PureSuccess<FloatLayout<Tot>> {
     match l {
-        FloatLayout::F32(fl) => {
-            let res = fl.into_layout_with_tot(data_seg, tot);
-            let new = PureSuccess::from(FloatLayout::F32(res.layout));
-            if let Some(e) = res.segment_error() {
-                new.push_warning(e);
-            }
-            if let Some(e) = res.kw_error() {
-                new.push_warning(e);
-            }
-            new
-        }
-        FloatLayout::F64(fl) => {
-            let res = fl.into_layout_with_tot(data_seg, tot);
-            let new = PureSuccess::from(FloatLayout::F64(res.layout));
-            if let Some(e) = res.segment_error() {
-                new.push_warning(e);
-            }
-            if let Some(e) = res.kw_error() {
-                new.push_warning(e);
-            }
-            new
-        }
+        FloatLayout::F32(fl) => fl
+            .into_layout_with_tot_res(data_seg, tot)
+            .map(FloatLayout::F32),
+        FloatLayout::F64(fl) => fl
+            .into_layout_with_tot_res(data_seg, tot)
+            .map(FloatLayout::F64),
     }
 }
 
@@ -4765,17 +4705,9 @@ fn ascii_add_tot<X, Y>(
                 ncols: dl.ncols,
             })
         })),
-        AsciiLayout::Fixed(fl) => {
-            let res = fl.into_layout_with_tot(data_seg, tot);
-            let new = PureSuccess::from(Some(AsciiLayout::Fixed(res.layout)));
-            if let Some(e) = res.segment_error() {
-                new.push_warning(e);
-            }
-            if let Some(e) = res.kw_error() {
-                new.push_warning(e);
-            }
-            new
-        }
+        AsciiLayout::Fixed(fl) => fl
+            .into_layout_with_tot_res(data_seg, tot)
+            .map(|x| Some(AsciiLayout::Fixed(x))),
     }
 }
 
@@ -4931,17 +4863,9 @@ impl VersionedMetadata for InnerMetadata3_1 {
             DataLayout3_1::Ascii(a) => {
                 ascii_add_tot(a, data_seg, tot).map(|x| x.map(|y| DataLayout3_1::Ascii(y)))
             }
-            DataLayout3_1::Integer(fl) => {
-                let res = fl.into_layout_with_tot(data_seg, tot);
-                let new = PureSuccess::from(res.layout);
-                if let Some(e) = res.segment_error() {
-                    new.push_warning(e);
-                }
-                if let Some(e) = res.kw_error() {
-                    new.push_warning(e);
-                }
-                new.map(|x| Some(DataLayout3_1::Integer(x)))
-            }
+            DataLayout3_1::Integer(fl) => fl
+                .into_layout_with_tot_res(data_seg, tot)
+                .map(|x| Some(DataLayout3_1::Integer(x))),
             DataLayout3_1::Float(fl) => {
                 float_add_tot(fl, data_seg, tot).map(|x| Some(DataLayout3_1::Float(x)))
             }
@@ -5156,31 +5080,15 @@ impl VersionedMetadata for InnerMetadata3_2 {
             DataLayout3_2::Ascii(a) => {
                 ascii_add_tot(a, data_seg, tot).map(|x| x.map(|y| DataLayout3_2::Ascii(y)))
             }
-            DataLayout3_2::Integer(fl) => {
-                let res = fl.into_layout_with_tot(data_seg, tot);
-                let new = PureSuccess::from(res.layout);
-                if let Some(e) = res.segment_error() {
-                    new.push_warning(e);
-                }
-                if let Some(e) = res.kw_error() {
-                    new.push_warning(e);
-                }
-                new.map(|x| Some(DataLayout3_2::Integer(x)))
-            }
+            DataLayout3_2::Integer(fl) => fl
+                .into_layout_with_tot_res(data_seg, tot)
+                .map(|x| Some(DataLayout3_2::Integer(x))),
             DataLayout3_2::Float(fl) => {
                 float_add_tot(fl, data_seg, tot).map(|x| Some(DataLayout3_2::Float(x)))
             }
-            DataLayout3_2::Mixed(fl) => {
-                let res = fl.into_layout_with_tot(data_seg, tot);
-                let new = PureSuccess::from(res.layout);
-                if let Some(e) = res.segment_error() {
-                    new.push_warning(e);
-                }
-                if let Some(e) = res.kw_error() {
-                    new.push_warning(e);
-                }
-                new.map(|x| Some(DataLayout3_2::Mixed(x)))
-            }
+            DataLayout3_2::Mixed(fl) => fl
+                .into_layout_with_tot_res(data_seg, tot)
+                .map(|x| Some(DataLayout3_2::Mixed(x))),
         })
     }
 }

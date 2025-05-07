@@ -56,6 +56,7 @@ impl<M> VersionedCoreDataset<M>
 where
     M: VersionedMetadata,
     M::N: Clone,
+    M::W: VersionedDataLayout,
 {
     /// Write this dataset (HEADER+TEXT+DATA+ANALYSIS) to a handle
     pub fn h_write<W>(&self, h: &mut BufWriter<W>, conf: &WriteConfig) -> ImpureResult<()>
@@ -284,6 +285,28 @@ impl AnyCoreDataset {
     }
 }
 
+trait VersionedDataLayout {
+    fn ncols(&self) -> usize;
+}
+
+impl<R> VersionedDataLayout for DataLayout2_0<R> {
+    fn ncols(&self) -> usize {
+        match self {
+            DataLayout2_0::Ascii(a) => a.ncols(),
+            DataLayout2_0::Integer(i) => {
+                match_many_to_one!(
+                    i,
+                    AnyUintLayout,
+                    [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+                    l,
+                    { l.columns.len() }
+                )
+            }
+            DataLayout2_0::Float(f) => f.ncols(),
+        }
+    }
+}
+
 pub(crate) enum DataLayout2_0<R> {
     Ascii(AsciiLayout<Option<R>, R>),
     Integer(AnyUintLayout<R>),
@@ -326,6 +349,24 @@ pub(crate) enum AsciiLayout<RD, RF> {
 pub(crate) enum FloatLayout<R> {
     F32(FixedLayout<R, F32Type>),
     F64(FixedLayout<R, F64Type>),
+}
+
+impl<X, Y> AsciiLayout<X, Y> {
+    fn ncols(&self) -> usize {
+        match self {
+            AsciiLayout::Delimited(a) => a.ncols,
+            AsciiLayout::Fixed(l) => l.columns.len(),
+        }
+    }
+}
+
+impl<R> FloatLayout<R> {
+    fn ncols(&self) -> usize {
+        match self {
+            FloatLayout::F32(l) => l.columns.len(),
+            FloatLayout::F64(l) => l.columns.len(),
+        }
+    }
 }
 
 pub(crate) struct DelimitedLayout<R> {
@@ -372,6 +413,25 @@ where
             kw_mismatch,
         }
     }
+
+    pub(crate) fn into_layout_with_tot_res(
+        self,
+        seg: Segment,
+        kw_tot: Option<Tot>,
+    ) -> PureSuccess<FixedLayout<Tot, C>> {
+        let res = self.into_layout_with_tot(seg, kw_tot);
+        let mut buf = PureErrorBuf::default();
+        if let Some(e) = res.segment_error() {
+            buf.push_warning(e);
+        }
+        if let Some(e) = res.kw_error() {
+            buf.push_warning(e);
+        }
+        PureSuccess {
+            data: res.layout,
+            deferred: buf,
+        }
+    }
 }
 
 pub(crate) struct FixedWidthResult<C> {
@@ -398,7 +458,7 @@ impl<C> FixedWidthResult<C> {
             format!(
                 "$TOT field is {t} but number of events \
                  that evenly fit into DATA is {}",
-                self.total_events
+                self.layout.nrows
             )
         })
     }

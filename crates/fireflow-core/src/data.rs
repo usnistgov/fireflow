@@ -57,22 +57,19 @@ impl<M> VersionedCoreDataset<M>
 where
     M: VersionedMetadata,
     M::N: Clone,
-    M::W: VersionedDataLayout,
+    M::L: VersionedDataLayout,
 {
     /// Write this dataset (HEADER+TEXT+DATA+ANALYSIS) to a handle
     pub fn h_write<W>(&self, h: &mut BufWriter<W>, conf: &WriteConfig) -> ImpureResult<()>
     where
         W: Write,
     {
-        let text = &self.text;
-        let analysis_len = self.analysis.0.len();
-        let df_ncols = self.data.width();
+        let df = &self.data;
 
-        // We can now confidently count the number of events (rows)
-        let nrows = Tot(self.data.height());
+        // TODO make sure all columns in dataframe are valid, and bail if not
 
         // Get the layout, or bail if we can't
-        let layout = text.as_column_layout().map_err(|es| Failure {
+        let layout = self.text.as_column_layout().map_err(|es| Failure {
             reason: "could not create data layout".to_string(),
             deferred: PureErrorBuf::from_many(es, PureErrorLevel::Error),
         })?;
@@ -81,15 +78,21 @@ where
         // then something terrible happened and we need to escape through the
         // wormhole.
         let par = layout.ncols();
+        let df_ncols = df.width();
         if df_ncols != par {
             Err(Failure::new(format!(
                 "datafame columns ({df_ncols}) unequal to number of measurements ({par})"
             )))?;
         }
 
-        let data_len = layout.nbytes(&self.data, conf);
-        self.text.h_write(h, nrows, data_len, analysis_len, conf)?;
-        layout.h_write(h, &self.data, conf)?;
+        // write HEADER+TEXT first
+        let data_len = layout.nbytes(df, conf);
+        let tot = Tot(df.height());
+        let analysis_len = self.analysis.0.len();
+        self.text.h_write(h, tot, data_len, analysis_len, conf)?;
+        // write DATA
+        layout.h_write(h, df, conf)?;
+        // write ANALYSIS
         h.write_all(&self.analysis.0)?;
         Ok(PureSuccess::from(()))
     }
@@ -217,7 +220,7 @@ impl AnyCoreDataset {
     }
 }
 
-trait VersionedDataLayout {
+pub(crate) trait VersionedDataLayout {
     fn ncols(&self) -> usize;
 
     fn nbytes(&self, df: &DataFrame, conf: &WriteConfig) -> usize;
@@ -228,6 +231,8 @@ trait VersionedDataLayout {
         df: &DataFrame,
         conf: &WriteConfig,
     ) -> ImpureResult<()>;
+
+    fn into_reader(self, kws: &mut RawKeywords, data_seg: Segment) -> PureMaybe<ColumnReader>;
 }
 
 pub(crate) enum DataLayout2_0<R> {
@@ -260,15 +265,7 @@ impl<R> VersionedDataLayout for DataLayout2_0<R> {
     fn ncols(&self) -> usize {
         match self {
             DataLayout2_0::Ascii(a) => a.ncols(),
-            DataLayout2_0::Integer(i) => {
-                match_many_to_one!(
-                    i,
-                    AnyUintLayout,
-                    [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-                    l,
-                    { l.columns.len() }
-                )
-            }
+            DataLayout2_0::Integer(i) => i.ncols(),
             DataLayout2_0::Float(f) => f.ncols(),
         }
     }
@@ -276,15 +273,7 @@ impl<R> VersionedDataLayout for DataLayout2_0<R> {
     fn nbytes(&self, df: &DataFrame, conf: &WriteConfig) -> usize {
         match self {
             DataLayout2_0::Ascii(a) => a.nbytes(df, conf),
-            DataLayout2_0::Integer(i) => {
-                match_many_to_one!(
-                    i,
-                    AnyUintLayout,
-                    [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-                    l,
-                    { l.nbytes(df.height()) }
-                )
-            }
+            DataLayout2_0::Integer(i) => i.nbytes(df.height()),
             DataLayout2_0::Float(f) => f.nbytes(df.height()),
         }
     }
@@ -297,17 +286,181 @@ impl<R> VersionedDataLayout for DataLayout2_0<R> {
     ) -> ImpureResult<()> {
         match self {
             DataLayout2_0::Ascii(a) => a.h_write(h, df, conf),
-            DataLayout2_0::Integer(i) => {
-                match_many_to_one!(
-                    i,
-                    AnyUintLayout,
-                    [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-                    l,
-                    { l.h_write(h, df, conf) }
-                )
-            }
+            DataLayout2_0::Integer(i) => i.h_write(h, df, conf),
             DataLayout2_0::Float(f) => f.h_write(h, df, conf),
         }
+    }
+
+    fn into_reader(self, kws: &mut RawKeywords, data_seg: Segment) -> PureMaybe<ColumnReader> {
+        let res = Tot::remove_meta_opt(kws).map(|tot| tot.0);
+        let nbytes = data_seg.nbytes() as usize;
+        PureMaybe::from_result_1(res, PureErrorLevel::Error)
+            .map(|tot| tot.flatten())
+            .and_then(|tot| match self {
+                DataLayout2_0::Ascii(a) => match a {
+                    AsciiLayout::Delimited(dl) => {
+                        PureSuccess::from(ColumnReader::DelimitedAscii(DelimAsciiReader {
+                            nbytes,
+                            nrows: tot,
+                            ncols: dl.ncols,
+                        }))
+                    }
+                    AsciiLayout::Fixed(fl) => {
+                        fl.into_reader(data_seg, tot).map(ColumnReader::AlphaNum)
+                    }
+                },
+                DataLayout2_0::Integer(fl) => {
+                    fl.into_reader(data_seg, tot).map(ColumnReader::AlphaNum)
+                }
+                DataLayout2_0::Float(fl) => {
+                    fl.into_reader(data_seg, tot).map(ColumnReader::AlphaNum)
+                }
+            })
+            .map(Some)
+    }
+}
+
+impl<R> VersionedDataLayout for DataLayout3_0<R> {
+    fn ncols(&self) -> usize {
+        match self {
+            DataLayout3_0::Ascii(a) => a.ncols(),
+            DataLayout3_0::Integer(i) => i.ncols(),
+            DataLayout3_0::Float(f) => f.ncols(),
+        }
+    }
+
+    fn nbytes(&self, df: &DataFrame, conf: &WriteConfig) -> usize {
+        match self {
+            DataLayout3_0::Ascii(a) => a.nbytes(df, conf),
+            DataLayout3_0::Integer(i) => i.nbytes(df.height()),
+            DataLayout3_0::Float(f) => f.nbytes(df.height()),
+        }
+    }
+
+    fn h_write<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        df: &DataFrame,
+        conf: &WriteConfig,
+    ) -> ImpureResult<()> {
+        match self {
+            DataLayout3_0::Ascii(a) => a.h_write(h, df, conf),
+            DataLayout3_0::Integer(i) => i.h_write(h, df, conf),
+            DataLayout3_0::Float(f) => f.h_write(h, df, conf),
+        }
+    }
+
+    fn into_reader(self, kws: &mut RawKeywords, data_seg: Segment) -> PureMaybe<ColumnReader> {
+        let res = Tot::remove_meta_opt(kws).map(|tot| tot.0);
+        PureMaybe::from_result_1(res, PureErrorLevel::Error)
+            .map(|tot| tot.flatten())
+            .and_then(|tot| match self {
+                DataLayout3_0::Ascii(a) => a.into_reader(data_seg, tot),
+                DataLayout3_0::Integer(fl) => fl
+                    .into_reader(data_seg, tot)
+                    .map(|x| Some(ColumnReader::AlphaNum(x))),
+                DataLayout3_0::Float(fl) => fl
+                    .into_reader(data_seg, tot)
+                    .map(|x| Some(ColumnReader::AlphaNum(x))),
+            })
+    }
+}
+
+impl<R> VersionedDataLayout for DataLayout3_1<R> {
+    fn ncols(&self) -> usize {
+        match self {
+            DataLayout3_1::Ascii(a) => a.ncols(),
+            DataLayout3_1::Integer(i) => i.ncols(),
+            DataLayout3_1::Float(f) => f.ncols(),
+        }
+    }
+
+    fn nbytes(&self, df: &DataFrame, conf: &WriteConfig) -> usize {
+        match self {
+            DataLayout3_1::Ascii(a) => a.nbytes(df, conf),
+            DataLayout3_1::Integer(i) => i.nbytes(df.height()),
+            DataLayout3_1::Float(f) => f.nbytes(df.height()),
+        }
+    }
+
+    fn h_write<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        df: &DataFrame,
+        conf: &WriteConfig,
+    ) -> ImpureResult<()> {
+        match self {
+            DataLayout3_1::Ascii(a) => a.h_write(h, df, conf),
+            DataLayout3_1::Integer(i) => i.h_write(h, df, conf),
+            DataLayout3_1::Float(f) => f.h_write(h, df, conf),
+        }
+    }
+
+    fn into_reader(self, kws: &mut RawKeywords, data_seg: Segment) -> PureMaybe<ColumnReader> {
+        let res = Tot::remove_meta_opt(kws).map(|tot| tot.0);
+        PureMaybe::from_result_1(res, PureErrorLevel::Error)
+            .map(|tot| tot.flatten())
+            .and_then(|tot| match self {
+                DataLayout3_1::Ascii(a) => a.into_reader(data_seg, tot),
+                DataLayout3_1::Integer(fl) => fl
+                    .into_reader(data_seg, tot)
+                    .map(|x| Some(ColumnReader::AlphaNum(x))),
+                DataLayout3_1::Float(fl) => fl
+                    .into_reader(data_seg, tot)
+                    .map(|x| Some(ColumnReader::AlphaNum(x))),
+            })
+    }
+}
+
+impl<R> VersionedDataLayout for DataLayout3_2<R> {
+    fn ncols(&self) -> usize {
+        match self {
+            DataLayout3_2::Ascii(a) => a.ncols(),
+            DataLayout3_2::Integer(i) => i.ncols(),
+            DataLayout3_2::Float(f) => f.ncols(),
+            DataLayout3_2::Mixed(m) => m.ncols(),
+        }
+    }
+
+    fn nbytes(&self, df: &DataFrame, conf: &WriteConfig) -> usize {
+        match self {
+            DataLayout3_2::Ascii(a) => a.nbytes(df, conf),
+            DataLayout3_2::Integer(i) => i.nbytes(df.height()),
+            DataLayout3_2::Float(f) => f.nbytes(df.height()),
+            DataLayout3_2::Mixed(m) => m.nbytes(df.height()),
+        }
+    }
+
+    fn h_write<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        df: &DataFrame,
+        conf: &WriteConfig,
+    ) -> ImpureResult<()> {
+        match self {
+            DataLayout3_2::Ascii(a) => a.h_write(h, df, conf),
+            DataLayout3_2::Integer(i) => i.h_write(h, df, conf),
+            DataLayout3_2::Float(f) => f.h_write(h, df, conf),
+            DataLayout3_2::Mixed(m) => m.h_write(h, df, conf),
+        }
+    }
+
+    fn into_reader(self, kws: &mut RawKeywords, data_seg: Segment) -> PureMaybe<ColumnReader> {
+        let res = Tot::remove_meta_opt(kws).map(|tot| tot.0);
+        PureMaybe::from_result_1(res, PureErrorLevel::Error)
+            .map(|tot| tot.flatten())
+            .and_then(|tot| match self {
+                DataLayout3_2::Ascii(a) => a.into_reader(data_seg, tot),
+                DataLayout3_2::Integer(fl) => fl
+                    .into_reader(data_seg, tot)
+                    .map(|x| Some(ColumnReader::AlphaNum(x))),
+                DataLayout3_2::Float(fl) => fl
+                    .into_reader(data_seg, tot)
+                    .map(|x| Some(ColumnReader::AlphaNum(x))),
+                DataLayout3_2::Mixed(fl) => fl
+                    .into_reader(data_seg, tot)
+                    .map(|x| Some(ColumnReader::AlphaNum(x))),
+            })
     }
 }
 
@@ -355,6 +508,23 @@ impl<X, Y> AsciiLayout<X, Y> {
                 .try_map(|matrix| h_write_delimited_matrix(h, matrix)),
         }
     }
+
+    fn into_reader(self, seg: Segment, kw_tot: Option<Tot>) -> PureMaybe<ColumnReader> {
+        let nbytes = seg.nbytes() as usize;
+        match self {
+            AsciiLayout::Delimited(l) => PureSuccess::from(kw_tot.map(|tot| {
+                ColumnReader::DelimitedAscii(DelimAsciiReader {
+                    ncols: l.ncols,
+                    // TODO wut???
+                    nrows: Some(tot),
+                    nbytes,
+                })
+            })),
+            AsciiLayout::Fixed(fl) => fl
+                .into_reader(seg, kw_tot)
+                .map(|x| Some(ColumnReader::AlphaNum(x))),
+        }
+    }
 }
 
 impl<R> FloatLayout<R> {
@@ -362,6 +532,13 @@ impl<R> FloatLayout<R> {
         match self {
             FloatLayout::F32(l) => l.columns.len(),
             FloatLayout::F64(l) => l.columns.len(),
+        }
+    }
+
+    fn into_reader(self, seg: Segment, kw_tot: Option<Tot>) -> PureSuccess<AlphaNumReader> {
+        match self {
+            FloatLayout::F32(l) => l.into_reader(seg, kw_tot),
+            FloatLayout::F64(l) => l.into_reader(seg, kw_tot),
         }
     }
 
@@ -403,55 +580,100 @@ where
         self.columns.iter().map(|c| c.width()).sum()
     }
 
+    fn ncols(&self) -> usize {
+        self.columns.len()
+    }
+
     fn nbytes(&self, nrows: usize) -> usize {
         self.event_width() * nrows
     }
 
-    pub(crate) fn into_layout_with_tot(
+    // pub(crate) fn into_layout_with_tot(
+    //     self,
+    //     seg: Segment,
+    //     kw_tot: Option<Tot>,
+    // ) -> FixedWidthResult<C> {
+    //     let n = seg.nbytes() as usize;
+    //     let w = self.event_width();
+    //     let total_events = Tot(n / w);
+    //     let remainder = n % w;
+    //     let segment_mismatch = if remainder != 0 {
+    //         Some((n, remainder))
+    //     } else {
+    //         None
+    //     };
+    //     let kw_mismatch = kw_tot.and_then(|t| if t.0 == total_events.0 { None } else { Some(t) });
+    //     let layout = FixedLayout {
+    //         nrows: total_events,
+    //         columns: self.columns,
+    //     };
+    //     FixedWidthResult {
+    //         layout,
+    //         event_width: w,
+    //         segment_mismatch,
+    //         kw_mismatch,
+    //     }
+    // }
+
+    pub(crate) fn into_reader(
         self,
         seg: Segment,
         kw_tot: Option<Tot>,
-    ) -> FixedWidthResult<C> {
+    ) -> PureSuccess<AlphaNumReader> {
         let n = seg.nbytes() as usize;
         let w = self.event_width();
-        let total_events = Tot(n / w);
+        let total_events = n / w;
         let remainder = n % w;
-        let segment_mismatch = if remainder != 0 {
-            Some((n, remainder))
-        } else {
-            None
-        };
-        let kw_mismatch = kw_tot.and_then(|t| if t.0 == total_events.0 { None } else { Some(t) });
-        let layout = FixedLayout {
-            nrows: total_events,
-            columns: self.columns,
-        };
-        FixedWidthResult {
-            layout,
-            event_width: w,
-            segment_mismatch,
-            kw_mismatch,
+        let mut deferred = PureErrorBuf::default();
+        if let Some(t) = kw_tot {
+            if t.0 != total_events {
+                let msg = format!(
+                    "$TOT field is {t} but number of events \
+                     that evenly fit into DATA is {total_events}",
+                );
+                // TODO toggle
+                deferred.push_warning(msg);
+            }
         }
+        if remainder > 0 {
+            let msg = format!(
+                "Events are {w} bytes wide, but this does not evenly \
+                     divide DATA segment which is {n} bytes long \
+                     (remainder of {remainder})",
+            );
+            // TODO toggle
+            deferred.push_warning(msg);
+        }
+        let columns = self
+            .columns
+            .into_iter()
+            .map(|c| c.into_reader(total_events))
+            .collect();
+        let r = AlphaNumReader {
+            columns,
+            nrows: Tot(total_events),
+        };
+        PureSuccess { data: r, deferred }
     }
 
-    pub(crate) fn into_layout_with_tot_res(
-        self,
-        seg: Segment,
-        kw_tot: Option<Tot>,
-    ) -> PureSuccess<FixedLayout<Tot, C>> {
-        let res = self.into_layout_with_tot(seg, kw_tot);
-        let mut buf = PureErrorBuf::default();
-        if let Some(e) = res.segment_error() {
-            buf.push_warning(e);
-        }
-        if let Some(e) = res.kw_error() {
-            buf.push_warning(e);
-        }
-        PureSuccess {
-            data: res.layout,
-            deferred: buf,
-        }
-    }
+    // pub(crate) fn into_layout_with_tot_res(
+    //     self,
+    //     seg: Segment,
+    //     kw_tot: Option<Tot>,
+    // ) -> PureSuccess<FixedLayout<Tot, C>> {
+    //     let res = self.into_layout_with_tot(seg, kw_tot);
+    //     let mut buf = PureErrorBuf::default();
+    //     if let Some(e) = res.segment_error() {
+    //         buf.push_warning(e);
+    //     }
+    //     if let Some(e) = res.kw_error() {
+    //         buf.push_warning(e);
+    //     }
+    //     PureSuccess {
+    //         data: res.layout,
+    //         deferred: buf,
+    //     }
+    // }
 
     fn h_write<W: Write>(
         &self,
@@ -472,43 +694,58 @@ where
     }
 }
 
-pub(crate) struct FixedWidthResult<C> {
-    pub(crate) layout: FixedLayout<Tot, C>,
-    event_width: usize,
-    segment_mismatch: Option<(usize, usize)>,
-    kw_mismatch: Option<Tot>,
-}
+// pub(crate) struct FixedWidthResult<C> {
+//     pub(crate) layout: FixedLayout<Tot, C>,
+//     event_width: usize,
+//     segment_mismatch: Option<(usize, usize)>,
+//     kw_mismatch: Option<Tot>,
+// }
 
-impl<C> FixedWidthResult<C> {
-    pub(crate) fn segment_error(&self) -> Option<String> {
-        self.segment_mismatch.map(|(n, r)| {
-            format!(
-                "Events are {} bytes wide, but this does not evenly \
-                 divide DATA segment which is {n} bytes long \
-                 (remainder of {r})",
-                self.event_width
-            )
-        })
-    }
+// impl<C> FixedWidthResult<C> {
+//     pub(crate) fn segment_error(&self) -> Option<String> {
+//         self.segment_mismatch.map(|(n, r)| {
+//             format!(
+//                 "Events are {} bytes wide, but this does not evenly \
+//                  divide DATA segment which is {n} bytes long \
+//                  (remainder of {r})",
+//                 self.event_width
+//             )
+//         })
+//     }
 
-    pub(crate) fn kw_error(&self) -> Option<String> {
-        self.kw_mismatch.map(|t| {
-            format!(
-                "$TOT field is {t} but number of events \
-                 that evenly fit into DATA is {}",
-                self.layout.nrows
-            )
-        })
-    }
-}
+//     pub(crate) fn kw_error(&self) -> Option<String> {
+//         self.kw_mismatch.map(|t| {
+//             format!(
+//                 "$TOT field is {t} but number of events \
+//                  that evenly fit into DATA is {}",
+//                 self.layout.nrows
+//             )
+//         })
+//     }
+// }
 
 trait IsFixed {
     fn width(&self) -> usize;
+
+    fn into_reader(self, nrows: usize) -> AlphaNumColumnReader;
 }
 
-impl<X, const LEN: usize> IsFixed for UintType<X, LEN> {
+impl<X, const LEN: usize> IsFixed for UintType<X, LEN>
+where
+    X: Clone,
+    X: Default,
+    AlphaNumColumnReader: From<UintColumnReader<X, LEN>>,
+{
     fn width(&self) -> usize {
         LEN
+    }
+
+    fn into_reader(self, nrows: usize) -> AlphaNumColumnReader {
+        UintColumnReader {
+            column: vec![X::default(); nrows],
+            uint_type: self,
+        }
+        .into()
     }
 }
 
@@ -519,21 +756,82 @@ impl IsFixed for AnyUintType {
             AnyUintType,
             [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
             x,
-            { x.width() }
+            { (*x).width() }
+        )
+    }
+
+    fn into_reader(self, nrows: usize) -> AlphaNumColumnReader {
+        match_many_to_one!(
+            self,
+            AnyUintType,
+            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+            x,
+            { x.into_reader(nrows) }
         )
     }
 }
 
+macro_rules! uint_from_reader {
+    ($from:path, $wrap:ident) => {
+        impl From<$from> for AlphaNumColumnReader {
+            fn from(value: $from) -> Self {
+                AlphaNumColumnReader::Uint(AnyUintColumnReader::$wrap(value))
+            }
+        }
+    };
+}
+
+uint_from_reader!(UintColumnReader<u8, 1>, Uint08);
+uint_from_reader!(UintColumnReader<u16, 2>, Uint16);
+uint_from_reader!(UintColumnReader<u32, 3>, Uint24);
+uint_from_reader!(UintColumnReader<u32, 4>, Uint32);
+uint_from_reader!(UintColumnReader<u64, 5>, Uint40);
+uint_from_reader!(UintColumnReader<u64, 6>, Uint48);
+uint_from_reader!(UintColumnReader<u64, 7>, Uint56);
+uint_from_reader!(UintColumnReader<u64, 8>, Uint64);
+
 // TODO flip args to make more consistent
-impl<X, const LEN: usize> IsFixed for FloatType<LEN, X> {
+impl<X, const LEN: usize> IsFixed for FloatType<LEN, X>
+where
+    X: Clone,
+    X: Default,
+    AlphaNumColumnReader: From<FloatColumnReader<X, LEN>>,
+{
     fn width(&self) -> usize {
         LEN
+    }
+
+    fn into_reader(self, nrows: usize) -> AlphaNumColumnReader {
+        FloatColumnReader {
+            column: vec![X::default(); nrows],
+            size: self.order,
+        }
+        .into()
+    }
+}
+
+impl From<FloatColumnReader<f32, 4>> for AlphaNumColumnReader {
+    fn from(value: FloatColumnReader<f32, 4>) -> Self {
+        AlphaNumColumnReader::Float(FloatReader::F32(value))
+    }
+}
+
+impl From<FloatColumnReader<f64, 8>> for AlphaNumColumnReader {
+    fn from(value: FloatColumnReader<f64, 8>) -> Self {
+        AlphaNumColumnReader::Float(FloatReader::F64(value))
     }
 }
 
 impl IsFixed for AsciiType {
     fn width(&self) -> usize {
         u8::from(self.chars).into()
+    }
+
+    fn into_reader(self, nrows: usize) -> AlphaNumColumnReader {
+        AlphaNumColumnReader::Ascii(AsciiColumnReader {
+            column: vec![0; nrows],
+            width: self.chars,
+        })
     }
 }
 
@@ -544,6 +842,15 @@ impl IsFixed for MixedType {
             MixedType::Integer(i) => i.width(),
             MixedType::Float(f) => f.width(),
             MixedType::Double(d) => d.width(),
+        }
+    }
+
+    fn into_reader(self, nrows: usize) -> AlphaNumColumnReader {
+        match self {
+            MixedType::Ascii(a) => a.into_reader(nrows),
+            MixedType::Integer(i) => i.into_reader(nrows),
+            MixedType::Float(f) => f.into_reader(nrows),
+            MixedType::Double(d) => d.into_reader(nrows),
         }
     }
 }
@@ -557,6 +864,59 @@ pub(crate) enum AnyUintLayout<R> {
     Uint48(FixedLayout<R, Uint48Type>),
     Uint56(FixedLayout<R, Uint56Type>),
     Uint64(FixedLayout<R, Uint64Type>),
+}
+
+macro_rules! uint_with_tot {
+    ($self:expr, $data_seg:expr, $tot:expr, $($m:ident),*) => {
+        match $self {
+            $(
+                AnyUintLayout::$m(fl) => fl.into_reader($data_seg, $tot),
+            )*
+        }
+    };
+}
+
+impl<R> AnyUintLayout<R> {
+    fn ncols(&self) -> usize {
+        match_many_to_one!(
+            self,
+            AnyUintLayout,
+            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+            l,
+            { l.columns.len() }
+        )
+    }
+
+    fn nbytes(&self, nrows: usize) -> usize {
+        match_many_to_one!(
+            self,
+            AnyUintLayout,
+            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+            l,
+            { l.nbytes(nrows) }
+        )
+    }
+
+    fn into_reader(self, data_seg: Segment, tot: Option<Tot>) -> PureSuccess<AlphaNumReader> {
+        uint_with_tot!(
+            self, data_seg, tot, Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64
+        )
+    }
+
+    fn h_write<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        df: &DataFrame,
+        conf: &WriteConfig,
+    ) -> ImpureResult<()> {
+        match_many_to_one!(
+            self,
+            AnyUintLayout,
+            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+            l,
+            { l.h_write(h, df, conf) }
+        )
+    }
 }
 
 /// The layout of the DATA segment
@@ -586,7 +946,7 @@ pub(crate) type ColumnLayout = DataLayout<()>;
 pub(crate) type RowColumnLayout = DataLayout<Tot>;
 
 /// The type of a non-delimited column in the DATA segment
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Copy)]
 pub(crate) enum MixedType {
     Ascii(AsciiType),
     Integer(AnyUintType),
@@ -708,6 +1068,12 @@ enum ColumnReader {
     // Uint(UintReader),
 }
 
+struct DelimAsciiReader {
+    ncols: usize,
+    nrows: Option<Tot>,
+    nbytes: usize,
+}
+
 struct AlphaNumReader {
     nrows: Tot,
     columns: Vec<AlphaNumColumnReader>,
@@ -716,18 +1082,45 @@ struct AlphaNumReader {
 enum AlphaNumColumnReader {
     Ascii(AsciiColumnReader),
     Uint(AnyUintColumnReader),
-    Single(FloatColumnReader<f32, 4>),
-    Double(FloatColumnReader<f64, 8>),
+    Float(FloatReader),
+    // Single(FloatColumnReader<f32, 4>),
+    // Double(FloatColumnReader<f64, 8>),
+}
+
+enum FloatReader {
+    F32(FloatColumnReader<f32, 4>),
+    F64(FloatColumnReader<f64, 8>),
+}
+
+impl FloatReader {
+    fn h_read<R: Read>(&mut self, h: &mut BufReader<R>, r: usize) -> io::Result<()> {
+        match self {
+            FloatReader::F32(t) => Float32Type::h_read_to_column(h, t, r),
+            FloatReader::F64(t) => Float64Type::h_read_to_column(h, t, r),
+        }
+    }
+
+    fn into_pl_series(self, name: PlSmallStr) -> Series {
+        match self {
+            FloatReader::F32(x) => Float32Chunked::from_vec(name, x.column).into_series(),
+            FloatReader::F64(x) => Float64Chunked::from_vec(name, x.column).into_series(),
+        }
+    }
+}
+
+struct FloatColumnReader<T, const LEN: usize> {
+    column: Vec<T>,
+    size: SizedByteOrd<LEN>,
 }
 
 struct AsciiColumnReader {
     column: Vec<u64>,
-    chars: Chars,
+    width: Chars,
 }
 
 struct UintColumnReader<B, const LEN: usize> {
-    layout: UintType<B, LEN>,
     column: Vec<B>,
+    uint_type: UintType<B, LEN>,
 }
 
 enum AnyUintColumnReader {
@@ -739,17 +1132,6 @@ enum AnyUintColumnReader {
     Uint48(UintColumnReader<u64, 6>),
     Uint56(UintColumnReader<u64, 7>),
     Uint64(UintColumnReader<u64, 8>),
-}
-
-struct FloatColumnReader<T, const LEN: usize> {
-    column: Vec<T>,
-    order: SizedByteOrd<LEN>,
-}
-
-struct DelimAsciiReader {
-    ncols: usize,
-    nrows: Option<Tot>,
-    nbytes: usize,
 }
 
 // struct UintReader {
@@ -876,12 +1258,11 @@ impl AlphaNumReader {
         for r in 0..self.nrows.0 {
             for c in self.columns.iter_mut() {
                 match c {
-                    AlphaNumColumnReader::Single(t) => Float32Type::h_read_to_column(h, t, r)?,
-                    AlphaNumColumnReader::Double(t) => Float64Type::h_read_to_column(h, t, r)?,
+                    AlphaNumColumnReader::Float(f) => f.h_read(h, r)?,
                     AlphaNumColumnReader::Uint(u) => u.h_read_to_column(h, r)?,
                     AlphaNumColumnReader::Ascii(d) => {
                         strbuf.clear();
-                        h.take(u64::from(u8::from(d.chars)))
+                        h.take(u64::from(u8::from(d.width)))
                             .read_to_string(&mut strbuf)?;
                         d.column[r] = parse_u64_io(&strbuf)?;
                     }
@@ -903,10 +1284,10 @@ impl AlphaNumReader {
 /// Read the DATA segment and return a polars dataframe
 pub(crate) fn h_read_data_segment<R: Read + Seek>(
     h: &mut BufReader<R>,
-    parser: DataReader,
+    r: DataReader,
 ) -> io::Result<DataFrame> {
-    h.seek(SeekFrom::Start(parser.begin))?;
-    match parser.column_reader {
+    h.seek(SeekFrom::Start(r.begin))?;
+    match r.column_reader {
         ColumnReader::DelimitedAscii(p) => p.h_read(h),
         ColumnReader::AlphaNum(p) => p.h_read(h),
         // ColumnReader::FixedWidthAscii(p) => read_data_ascii_fixed(h, &p),
@@ -1157,30 +1538,30 @@ impl AnyUintType {
 //     }
 // }
 
-fn make_mixed_reader(cs: Vec<MixedType>, total_events: Tot) -> AlphaNumReader {
-    let columns = cs
-        .into_iter()
-        .map(|p| match p {
-            MixedType::Ascii(a) => AlphaNumColumnReader::Ascii(AsciiColumnReader {
-                chars: a.chars,
-                column: vec![],
-            }),
-            MixedType::Float(t) => {
-                AlphaNumColumnReader::Single(Float32Type::column_reader(t.order, total_events))
-            }
-            MixedType::Double(t) => {
-                AlphaNumColumnReader::Double(Float64Type::column_reader(t.order, total_events))
-            }
-            MixedType::Integer(col) => {
-                AlphaNumColumnReader::Uint(AnyUintColumnReader::from_column(col, total_events))
-            }
-        })
-        .collect();
-    AlphaNumReader {
-        columns,
-        nrows: total_events,
-    }
-}
+// fn make_mixed_reader(cs: Vec<MixedType>, total_events: Tot) -> AlphaNumReader {
+//     let columns = cs
+//         .into_iter()
+//         .map(|p| match p {
+//             MixedType::Ascii(a) => AlphaNumColumnReader::Ascii(AsciiColumnReader {
+//                 width: a.chars,
+//                 column: vec![],
+//             }),
+//             MixedType::Float(t) => {
+//                 AlphaNumColumnReader::Single(Float32Type::column_reader(t.order, total_events))
+//             }
+//             MixedType::Double(t) => {
+//                 AlphaNumColumnReader::Double(Float64Type::column_reader(t.order, total_events))
+//             }
+//             MixedType::Integer(col) => {
+//                 AlphaNumColumnReader::Uint(AnyUintColumnReader::from_column(col, total_events))
+//             }
+//         })
+//         .collect();
+//     AlphaNumReader {
+//         columns,
+//         nrows: total_events,
+//     }
+// }
 
 fn make_uint_type_inner(bytes: Bytes, r: &Range, e: Endian) -> Result<AnyUintType, String> {
     // ASSUME this can only be 1-8
@@ -1311,6 +1692,7 @@ where
 }
 
 trait NumProps<const DTLEN: usize>: Sized + Copy {
+    // TODO just use default trait
     fn zero() -> Self;
 
     fn from_big(buf: [u8; DTLEN]) -> Self;
@@ -1458,7 +1840,7 @@ where
         d: &mut UintColumnReader<Self::Native, INTLEN>,
         row: usize,
     ) -> io::Result<()> {
-        d.column[row] = Self::h_read_int_masked(h, &d.layout.size, d.layout.bitmask)?;
+        d.column[row] = Self::h_read_int_masked(h, &d.uint_type.size, d.uint_type.bitmask)?;
         Ok(())
     }
 
@@ -1498,7 +1880,7 @@ where
         column: &mut FloatColumnReader<Self::Native, LEN>,
         row: usize,
     ) -> io::Result<()> {
-        column.column[row] = Self::h_read_float(h, &column.order)?;
+        column.column[row] = Self::h_read_float(h, &column.size)?;
         Ok(())
     }
 
@@ -1534,7 +1916,7 @@ where
     ) -> FloatColumnReader<Self::Native, LEN> {
         FloatColumnReader {
             column: vec![Self::Native::zero(); total_events.0],
-            order,
+            size: order,
         }
     }
 
@@ -1962,12 +2344,7 @@ impl AlphaNumColumnReader {
     fn into_pl_series(self, name: PlSmallStr) -> Series {
         match self {
             AlphaNumColumnReader::Ascii(x) => UInt64Chunked::from_vec(name, x.column).into_series(),
-            AlphaNumColumnReader::Single(x) => {
-                Float32Chunked::from_vec(name, x.column).into_series()
-            }
-            AlphaNumColumnReader::Double(x) => {
-                Float64Chunked::from_vec(name, x.column).into_series()
-            }
+            AlphaNumColumnReader::Float(x) => x.into_pl_series(name),
             AlphaNumColumnReader::Uint(x) => x.into_pl_series(name),
         }
     }
@@ -1992,8 +2369,8 @@ macro_rules! uint_reader_from_column {
     ($x:ident, $t:expr, $($a:ident),+) => {
         match $x {
             $(
-                AnyUintType::$a(layout) => AnyUintColumnReader::$a(UintColumnReader {
-                    layout,
+                AnyUintType::$a(uint_type) => AnyUintColumnReader::$a(UintColumnReader {
+                    uint_type,
                     column: vec![0; $t],
                 }),
             )+

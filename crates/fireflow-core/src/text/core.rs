@@ -320,14 +320,14 @@ impl AnyCoreTEXT {
     //     match_anycoretext!(self, x, { x.as_column_layout() })
     // }
 
-    // pub(crate) fn as_data_reader(
-    //     &self,
-    //     kws: &mut RawKeywords,
-    //     conf: &DataReadConfig,
-    //     data_seg: Segment,
-    // ) -> PureMaybe<DataReader> {
-    //     match_anycoretext!(self, x, { x.as_data_reader(kws, conf, data_seg) })
-    // }
+    pub(crate) fn as_data_reader(
+        &self,
+        kws: &mut RawKeywords,
+        conf: &DataReadConfig,
+        data_seg: Segment,
+    ) -> PureMaybe<DataReader> {
+        match_anycoretext!(self, x, { x.as_data_reader(kws, conf, data_seg) })
+    }
 
     pub(crate) fn into_dataset_unchecked(
         self,
@@ -688,7 +688,7 @@ where
     fn layout_data(&self) -> ColumnLayoutData<()> {
         ColumnLayoutData {
             width: self.bytes,
-            range: &self.range,
+            range: self.range.clone(),
             datatype: (),
         }
     }
@@ -725,7 +725,7 @@ where
     fn layout_data(&self) -> ColumnLayoutData<()> {
         ColumnLayoutData {
             width: self.bytes(),
-            range: self.range(),
+            range: self.range().clone(),
             datatype: (),
         }
     }
@@ -4380,7 +4380,7 @@ impl VersionedMetadata for InnerMetadata2_0 {
     type P = InnerMeasurement2_0;
     type T = InnerTime2_0;
     type N = OptionalKwFamily;
-    type L = DataLayout2_0<()>;
+    type L = DataLayout2_0;
 
     fn byteord(&self) -> ByteOrd {
         self.byteord.clone()
@@ -4461,26 +4461,11 @@ impl VersionedMetadata for InnerMetadata2_0 {
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
     ) -> Result<Self::L, Vec<String>> {
-        let byteord = metadata.specific.byteord();
-        let cs = ms.layout_data();
-        match metadata.datatype() {
-            AlphaNumType::Ascii => {
-                let l = make_ascii_layout(cs, None, ()).map_err(|e| vec![e])?;
-                Ok(DataLayout2_0::Ascii(l))
-            }
-            AlphaNumType::Integer => {
-                let l = make_uint_layout(cs, &byteord, ())?;
-                Ok(DataLayout2_0::Integer(l))
-            }
-            AlphaNumType::Single => {
-                let l = Float32Type::layout(cs, &byteord).map_err(|e| vec![e])?;
-                Ok(DataLayout2_0::Float(FloatLayout::F32(l)))
-            }
-            AlphaNumType::Double => {
-                let l = Float64Type::layout(cs, &byteord).map_err(|e| vec![e])?;
-                Ok(DataLayout2_0::Float(FloatLayout::F64(l)))
-            }
-        }
+        Self::L::try_new(
+            metadata.datatype,
+            metadata.specific.byteord.clone(),
+            ms.layout_data(),
+        )
     }
 
     // fn column_layout_with_tot(
@@ -4538,37 +4523,6 @@ impl VersionedMetadata for InnerMetadata2_0 {
 //     uint_with_tot!(l, data_seg, tot, Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64)
 // }
 
-fn make_ascii_layout<D, RD, RF>(
-    cs: Vec<ColumnLayoutData<D>>,
-    delim_nrows: RD,
-    fixed_nrows: RF,
-) -> Result<AsciiLayout<RD, RF>, String> {
-    let ncols = cs.len();
-    let fixed: Vec<_> = cs.into_iter().flat_map(|c| c.width.as_fixed()).collect();
-    if fixed.len() == ncols {
-        Ok(AsciiLayout::Delimited(DelimitedLayout {
-            nrows: delim_nrows,
-            ncols,
-        }))
-    } else if fixed.len() == ncols {
-        let columns: Vec<_> = fixed
-            .into_iter()
-            .flat_map(|f| f.chars())
-            .map(|chars| AsciiType { chars })
-            .collect();
-        if columns.len() == ncols {
-            Ok(AsciiLayout::Fixed(FixedLayout {
-                nrows: fixed_nrows,
-                columns,
-            }))
-        } else {
-            Err("some columns greater than 20 chars wide".into())
-        }
-    } else {
-        Err("mixed of variable and fixed column widths".into())
-    }
-}
-
 impl LookupMetadata for InnerMetadata3_0 {
     fn lookup_shortname(
         st: &mut KwParser,
@@ -4600,7 +4554,7 @@ impl VersionedMetadata for InnerMetadata3_0 {
     type P = InnerMeasurement3_0;
     type T = InnerTime3_0;
     type N = OptionalKwFamily;
-    type L = DataLayout3_0<()>;
+    type L = DataLayout3_0;
 
     fn byteord(&self) -> ByteOrd {
         self.byteord.clone()
@@ -4677,26 +4631,11 @@ impl VersionedMetadata for InnerMetadata3_0 {
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
     ) -> Result<Self::L, Vec<String>> {
-        let byteord = metadata.specific.byteord();
-        let cs = ms.layout_data();
-        match metadata.datatype() {
-            AlphaNumType::Ascii => {
-                let l = make_ascii_layout(cs, (), ()).map_err(|e| vec![e])?;
-                Ok(DataLayout3_0::Ascii(l))
-            }
-            AlphaNumType::Integer => {
-                let l = make_uint_layout(cs, &byteord, ())?;
-                Ok(DataLayout3_0::Integer(l))
-            }
-            AlphaNumType::Single => {
-                let l = Float32Type::layout(cs, &byteord).map_err(|e| vec![e])?;
-                Ok(DataLayout3_0::Float(FloatLayout::F32(l)))
-            }
-            AlphaNumType::Double => {
-                let l = Float64Type::layout(cs, &byteord).map_err(|e| vec![e])?;
-                Ok(DataLayout3_0::Float(FloatLayout::F64(l)))
-            }
-        }
+        Self::L::try_new(
+            metadata.datatype,
+            metadata.specific.byteord.clone(),
+            ms.layout_data(),
+        )
     }
 
     // fn column_layout_with_tot(
@@ -4770,7 +4709,7 @@ impl VersionedMetadata for InnerMetadata3_1 {
     type P = InnerMeasurement3_1;
     type T = InnerTime3_1;
     type N = IdentityFamily;
-    type L = DataLayout3_1<()>;
+    type L = DataLayout3_1;
 
     fn byteord(&self) -> ByteOrd {
         ByteOrd::Endian(self.byteord)
@@ -4855,27 +4794,11 @@ impl VersionedMetadata for InnerMetadata3_1 {
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
     ) -> Result<Self::L, Vec<String>> {
-        let endian = metadata.specific.byteord;
-        let cs = ms.layout_data();
-        match metadata.datatype() {
-            AlphaNumType::Ascii => {
-                let l = make_ascii_layout(cs, (), ()).map_err(|e| vec![e])?;
-                Ok(DataLayout3_1::Ascii(l))
-            }
-
-            AlphaNumType::Integer => {
-                let l = make_uint_variable_layout(cs, endian, ())?;
-                Ok(DataLayout3_1::Integer(l))
-            }
-            AlphaNumType::Single => {
-                let l = Float32Type::layout_endian(cs, endian)?;
-                Ok(DataLayout3_1::Float(FloatLayout::F32(l)))
-            }
-            AlphaNumType::Double => {
-                let l = Float64Type::layout_endian(cs, endian)?;
-                Ok(DataLayout3_1::Float(FloatLayout::F64(l)))
-            }
-        }
+        Self::L::try_new(
+            metadata.datatype,
+            metadata.specific.byteord,
+            ms.layout_data(),
+        )
     }
 
     // fn column_layout_with_tot(
@@ -4938,7 +4861,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
     type P = InnerMeasurement3_2;
     type T = InnerTime3_2;
     type N = IdentityFamily;
-    type L = DataLayout3_2<()>;
+    type L = DataLayout3_2;
 
     // fn lookup_tot(kws: &mut RawKeywords) -> PureMaybe<Tot> {
     //     PureMaybe::from_result_1(Tot::remove_meta_req(kws), PureErrorLevel::Error)
@@ -5052,46 +4975,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
                 datatype,
             })
             .collect();
-        let unique_dt: Vec<_> = cs.iter().map(|c| c.datatype).unique().collect();
-        match unique_dt[..] {
-            [dt] => match dt {
-                AlphaNumType::Ascii => {
-                    let l = make_ascii_layout(cs, (), ()).map_err(|e| vec![e])?;
-                    Ok(DataLayout3_2::Ascii(l))
-                }
-                AlphaNumType::Integer => {
-                    let l = make_uint_variable_layout(cs, endian, ())?;
-                    Ok(DataLayout3_2::Integer(l))
-                }
-                AlphaNumType::Single => {
-                    let l = Float32Type::layout_endian(cs, endian)?;
-                    Ok(DataLayout3_2::Float(FloatLayout::F32(l)))
-                }
-                AlphaNumType::Double => {
-                    let l = Float64Type::layout_endian(cs, endian)?;
-                    Ok(DataLayout3_2::Float(FloatLayout::F64(l)))
-                }
-            },
-            _ => {
-                let ncols = cs.len();
-                let (pass, fail): (Vec<_>, Vec<_>) = cs
-                    .into_iter()
-                    .map(|c| MixedType::try_new(c.width, c.datatype, endian, c.range))
-                    .partition_result();
-                if fail.is_empty() {
-                    let columns: Vec<_> = pass.into_iter().flatten().collect();
-                    if columns.len() == ncols {
-                        Ok(DataLayout3_2::Mixed(FixedLayout { nrows: (), columns }))
-                    } else {
-                        Err(vec![
-                            "columns contain mix of variable and fixed widths".into()
-                        ])
-                    }
-                } else {
-                    Err(fail)
-                }
-            }
-        }
+        Self::L::try_new(metadata.datatype, endian, cs)
     }
 
     // fn column_layout_with_tot(

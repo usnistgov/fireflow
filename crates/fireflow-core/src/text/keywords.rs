@@ -853,6 +853,14 @@ pub(crate) trait Required {
 }
 
 pub(crate) trait Optional {
+    fn get_opt<V>(kws: &RawKeywords, k: &str) -> Result<OptionalKw<V>, String>
+    where
+        V: FromStr,
+        <V as FromStr>::Err: fmt::Display,
+    {
+        get_opt(kws, k).map(|x| x.into())
+    }
+
     fn remove_opt<V>(kws: &mut RawKeywords, k: &str) -> Result<OptionalKw<V>, String>
     where
         V: FromStr,
@@ -934,6 +942,10 @@ where
     Self: FromStr,
     <Self as FromStr>::Err: fmt::Display,
 {
+    fn get_meas_opt(kws: &RawKeywords, n: MeasIdx) -> OptResult<Self> {
+        Self::get_opt(kws, Self::std(n).as_str())
+    }
+
     fn remove_meas_opt(kws: &mut RawKeywords, n: MeasIdx) -> OptResult<Self> {
         Self::remove_opt(kws, Self::std(n).as_str())
     }

@@ -31,6 +31,7 @@ use serde::ser::SerializeStruct;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::io::{BufWriter, Write};
 use std::str::FromStr;
 
 /// Represents the minimal data required to fully represent the TEXT keywords.
@@ -1649,6 +1650,32 @@ where
     M: VersionedMetadata,
     M::N: Clone,
 {
+    /// Write this structure to a handle.
+    ///
+    /// The actual bytes written will be the HEADER and TEXT, including the
+    /// last delimiter.
+    fn h_write<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        nrows: Tot,
+        data_len: usize,
+        analysis_len: usize,
+        conf: &WriteConfig,
+    ) -> ImpureResult<()> {
+        // TODO newtypes for data and analysis lenth to make them more obvious
+        if let Some(ts) = self.text_segment(nrows, data_len, analysis_len) {
+            for t in ts {
+                h.write_all(t.as_bytes())?;
+                h.write_all(&[conf.delim.inner()])?;
+            }
+        } else {
+            Err(Failure::new(
+                "primary TEXT does not fit into first 99,999,999 bytes".to_string(),
+            ))?;
+        }
+        Ok(PureSuccess::from(()))
+    }
+
     /// Return HEADER+TEXT as a list of strings
     ///
     /// The first member will be a string exactly 58 bytes long which will be
@@ -1662,12 +1689,7 @@ where
     /// order.
     ///
     /// Return None if primary TEXT does not fit into first 99,999,999 bytes.
-    pub(crate) fn text_segment(
-        &self,
-        tot: Tot,
-        data_len: usize,
-        analysis_len: usize,
-    ) -> Option<Vec<String>> {
+    fn text_segment(&self, tot: Tot, data_len: usize, analysis_len: usize) -> Option<Vec<String>> {
         self.header_and_raw_keywords(tot, data_len, analysis_len)
             .map(|(header, kws)| {
                 let version = M::P::fcs_version();

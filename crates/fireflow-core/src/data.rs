@@ -12,6 +12,7 @@ use crate::validated::nonstandard::MeasIdx;
 use crate::validated::shortname::*;
 
 use itertools::Itertools;
+use nalgebra::DMatrix;
 use polars::prelude::*;
 use std::fmt;
 use std::io;
@@ -88,19 +89,19 @@ where
 
         // Make common HEADER+TEXT writing function, for which the only unknown
         // now is the length of DATA.
-        let write_text = |hh: &mut BufWriter<W>, data_len| -> ImpureResult<()> {
-            if let Some(ts) = text.text_segment(Tot(nrows), data_len, analysis_len) {
-                for t in ts {
-                    hh.write_all(t.as_bytes())?;
-                    hh.write_all(&[conf.delim.inner()])?;
-                }
-            } else {
-                Err(Failure::new(
-                    "primary TEXT does not fit into first 99,999,999 bytes".to_string(),
-                ))?;
-            }
-            Ok(PureSuccess::from(()))
-        };
+        // let write_text = |hh: &mut BufWriter<W>, data_len| -> ImpureResult<()> {
+        //     if let Some(ts) = text.text_segment(Tot(nrows), data_len, analysis_len) {
+        //         for t in ts {
+        //             hh.write_all(t.as_bytes())?;
+        //             hh.write_all(&[conf.delim.inner()])?;
+        //         }
+        //     } else {
+        //         Err(Failure::new(
+        //             "primary TEXT does not fit into first 99,999,999 bytes".to_string(),
+        //         ))?;
+        //     }
+        //     Ok(PureSuccess::from(()))
+        // };
 
         let res = if nrows == 0 {
             // Write HEADER+TEXT with no DATA if dataframe is empty. This assumes
@@ -287,6 +288,39 @@ impl AnyCoreDataset {
 
 trait VersionedDataLayout {
     fn ncols(&self) -> usize;
+
+    fn h_write<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        df: &DataFrame,
+        conf: &WriteConfig,
+    ) -> ImpureResult<()>;
+}
+
+pub(crate) enum DataLayout2_0<R> {
+    Ascii(AsciiLayout<Option<R>, R>),
+    Integer(AnyUintLayout<R>),
+    Float(FloatLayout<R>),
+}
+
+pub(crate) enum DataLayout3_0<R> {
+    Ascii(AsciiLayout<R, R>),
+    Integer(AnyUintLayout<R>),
+    Float(FloatLayout<R>),
+}
+
+pub(crate) enum DataLayout3_1<R> {
+    Ascii(AsciiLayout<R, R>),
+    Integer(FixedLayout<R, AnyUintType>),
+    Float(FloatLayout<R>),
+}
+
+pub(crate) enum DataLayout3_2<R> {
+    // TODO we could just use delimited and mixed for this
+    Ascii(AsciiLayout<R, R>),
+    Integer(FixedLayout<R, AnyUintType>),
+    Float(FloatLayout<R>),
+    Mixed(FixedLayout<R, MixedType>),
 }
 
 impl<R> VersionedDataLayout for DataLayout2_0<R> {
@@ -305,40 +339,27 @@ impl<R> VersionedDataLayout for DataLayout2_0<R> {
             DataLayout2_0::Float(f) => f.ncols(),
         }
     }
-}
 
-pub(crate) enum DataLayout2_0<R> {
-    Ascii(AsciiLayout<Option<R>, R>),
-    Integer(AnyUintLayout<R>),
-    Float(FloatLayout<R>),
-    // Float(FixedLayout<R, F32Type>),
-    // Double(FixedLayout<R, F64Type>),
-}
-
-pub(crate) enum DataLayout3_0<R> {
-    Ascii(AsciiLayout<R, R>),
-    Integer(AnyUintLayout<R>),
-    // Float(FixedLayout<R, F32Type>),
-    // Double(FixedLayout<R, F64Type>),
-    Float(FloatLayout<R>),
-}
-
-pub(crate) enum DataLayout3_1<R> {
-    Ascii(AsciiLayout<R, R>),
-    Integer(FixedLayout<R, AnyUintType>),
-    // Float(FixedLayout<R, F32Type>),
-    // Double(FixedLayout<R, F64Type>),
-    Float(FloatLayout<R>),
-}
-
-pub(crate) enum DataLayout3_2<R> {
-    // TODO we could just use delimited and mixed for this
-    Ascii(AsciiLayout<R, R>),
-    Integer(FixedLayout<R, AnyUintType>),
-    // Float(FixedLayout<R, F32Type>),
-    // Double(FixedLayout<R, F64Type>),
-    Float(FloatLayout<R>),
-    Mixed(FixedLayout<R, MixedType>),
+    fn h_write<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        df: &DataFrame,
+        conf: &WriteConfig,
+    ) -> ImpureResult<()> {
+        match self {
+            DataLayout2_0::Ascii(a) => a.h_write(h, df, conf),
+            DataLayout2_0::Integer(i) => {
+                match_many_to_one!(
+                    i,
+                    AnyUintLayout,
+                    [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+                    l,
+                    { l.h_write(h, df, conf) }
+                )
+            }
+            DataLayout2_0::Float(f) => f.h_write(h, df, conf),
+        }
+    }
 }
 
 pub(crate) enum AsciiLayout<RD, RF> {
@@ -358,6 +379,54 @@ impl<X, Y> AsciiLayout<X, Y> {
             AsciiLayout::Fixed(l) => l.columns.len(),
         }
     }
+
+    fn nbytes(&self, df: &DataFrame) -> usize {
+        match self {
+            AsciiLayout::Fixed(a) => a.nbytes(df),
+            AsciiLayout::Delimited(d) => {
+                let matrix = into_writable_matrix64(df, conf).data;
+                let ndelim = df.width() * df.height() - 1;
+                // TODO cast?
+                let value_nbytes: u32 = matrix.map(|x| x.checked_ilog10().unwrap_or(1)).sum();
+                // compute data length (delimiters + number of digits)
+                value_nbytes as usize + ndelim
+            }
+        }
+    }
+
+    fn h_write<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        df: &DataFrame,
+        conf: &WriteConfig,
+    ) -> ImpureResult<()> {
+        match self {
+            AsciiLayout::Fixed(a) => a.h_write(h, df, conf),
+            AsciiLayout::Delimited(d) => {
+                if let Some(succ) = into_writable_matrix64(df, conf) {
+                    succ.try_map(|columns| {
+                        let ndelim = df.width() * df.height() - 1;
+                        // TODO cast?
+                        let value_nbytes: u32 = columns
+                            .iter()
+                            .flat_map(|rows| rows.iter().map(|x| x.checked_ilog10().unwrap_or(1)))
+                            .sum();
+                        // compute data length (delimiters + number of digits)
+                        let data_len = value_nbytes as usize + ndelim;
+                        // write HEADER+TEXT
+                        write_text(h, data_len)?;
+                        // write DATA
+                        h_write_delimited_matrix(h, df.height(), columns)
+                    })
+                } else {
+                    // TODO lame...
+                    Err(io::Error::other(
+                        "could not get data from dataframe".to_string(),
+                    ))?
+                }
+            }
+        }
+    }
 }
 
 impl<R> FloatLayout<R> {
@@ -365,6 +434,18 @@ impl<R> FloatLayout<R> {
         match self {
             FloatLayout::F32(l) => l.columns.len(),
             FloatLayout::F64(l) => l.columns.len(),
+        }
+    }
+
+    fn h_write<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        df: &DataFrame,
+        conf: &WriteConfig,
+    ) -> ImpureResult<()> {
+        match self {
+            FloatLayout::F32(l) => l.h_write(h, df, conf),
+            FloatLayout::F64(l) => l.h_write(h, df, conf),
         }
     }
 }
@@ -431,6 +512,24 @@ where
             data: res.layout,
             deferred: buf,
         }
+    }
+
+    fn h_write<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        df: &DataFrame,
+        conf: &WriteConfig,
+    ) -> ImpureResult<()>
+    where
+        MixedType: From<C>,
+        C: Copy,
+    {
+        // ASSUME the dataframe will be coerced such that this is valid
+        let event_width = self.event_width();
+        let data_len = event_width * df.height();
+        write_text(h, data_len)?;
+        let col_types = self.columns.iter().map(|c| (*c).into()).collect();
+        h_write_numeric_dataframe(h, col_types, df, conf)
     }
 }
 
@@ -502,7 +601,7 @@ impl IsFixed for AsciiType {
 impl IsFixed for MixedType {
     fn width(&self) -> usize {
         match self {
-            MixedType::Ascii { chars } => u8::from(*chars).into(),
+            MixedType::Ascii(a) => u8::from(a.chars).into(),
             MixedType::Integer(i) => i.width(),
             MixedType::Float(f) => f.width(),
             MixedType::Double(d) => d.width(),
@@ -550,14 +649,21 @@ pub(crate) type RowColumnLayout = DataLayout<Tot>;
 /// The type of a non-delimited column in the DATA segment
 #[derive(PartialEq, Clone)]
 pub(crate) enum MixedType {
-    Ascii { chars: Chars },
+    Ascii(AsciiType),
     Integer(AnyUintType),
     Float(F32Type),
     Double(F64Type),
 }
 
+#[derive(PartialEq, Clone, Copy)]
 pub(crate) struct AsciiType {
     pub(crate) chars: Chars,
+}
+
+impl From<AsciiType> for MixedType {
+    fn from(value: AsciiType) -> Self {
+        MixedType::Ascii(value)
+    }
 }
 
 /// An f32 column
@@ -566,8 +672,20 @@ type F32Type = FloatType<4, f32>;
 /// An f64 column
 type F64Type = FloatType<8, f64>;
 
+impl From<F32Type> for MixedType {
+    fn from(value: F32Type) -> Self {
+        MixedType::Float(value)
+    }
+}
+
+impl From<F64Type> for MixedType {
+    fn from(value: F64Type) -> Self {
+        MixedType::Double(value)
+    }
+}
+
 /// A floating point column (to be further constained)
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Copy)]
 pub(crate) struct FloatType<const LEN: usize, T> {
     pub order: SizedByteOrd<LEN>,
     // TODO why is this here?
@@ -575,7 +693,7 @@ pub(crate) struct FloatType<const LEN: usize, T> {
 }
 
 /// An integer column of some size (1-8 bytes)
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Copy)]
 pub(crate) enum AnyUintType {
     Uint08(Uint08Type),
     Uint16(Uint16Type),
@@ -587,6 +705,31 @@ pub(crate) enum AnyUintType {
     Uint64(Uint64Type),
 }
 
+impl From<AnyUintType> for MixedType {
+    fn from(value: AnyUintType) -> Self {
+        MixedType::Integer(value)
+    }
+}
+
+macro_rules! uint_to_mixed {
+    ($uint:ident, $wrap:ident) => {
+        impl From<$uint> for MixedType {
+            fn from(value: $uint) -> Self {
+                MixedType::Integer(AnyUintType::$wrap(value))
+            }
+        }
+    };
+}
+
+uint_to_mixed!(Uint08Type, Uint08);
+uint_to_mixed!(Uint16Type, Uint16);
+uint_to_mixed!(Uint24Type, Uint24);
+uint_to_mixed!(Uint32Type, Uint32);
+uint_to_mixed!(Uint40Type, Uint40);
+uint_to_mixed!(Uint48Type, Uint48);
+uint_to_mixed!(Uint56Type, Uint56);
+uint_to_mixed!(Uint64Type, Uint64);
+
 type Uint08Type = UintType<u8, 1>;
 type Uint16Type = UintType<u16, 2>;
 type Uint24Type = UintType<u32, 3>;
@@ -597,7 +740,7 @@ type Uint56Type = UintType<u64, 7>;
 type Uint64Type = UintType<u64, 8>;
 
 /// A generic integer column type with a byte-layout and bitmask.
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Copy)]
 pub struct UintType<T, const LEN: usize> {
     pub bitmask: T,
     pub size: SizedByteOrd<LEN>,
@@ -1000,7 +1143,7 @@ impl MixedType {
     // newtype wrapper for this
     pub(crate) fn width(&self) -> usize {
         match self {
-            MixedType::Ascii { chars } => usize::from(u8::from(*chars)),
+            MixedType::Ascii(a) => usize::from(u8::from(a.chars)),
             MixedType::Integer(ut) => usize::from(ut.nbytes()),
             MixedType::Float(_) => 4,
             MixedType::Double(_) => 8,
@@ -1079,8 +1222,8 @@ fn make_mixed_reader(cs: Vec<MixedType>, total_events: Tot) -> AlphaNumReader {
     let columns = cs
         .into_iter()
         .map(|p| match p {
-            MixedType::Ascii { chars } => AlphaNumColumnReader::Ascii(AsciiColumnReader {
-                chars,
+            MixedType::Ascii(a) => AlphaNumColumnReader::Ascii(AsciiColumnReader {
+                chars: a.chars,
                 column: vec![],
             }),
             MixedType::Float(t) => {
@@ -1598,12 +1741,12 @@ where
 ///
 /// If the start type will fit into the end type, all is well and nothing bad
 /// will happen to user's precious data.
-fn series_coerce(
-    c: &Column,
-    w: MixedType,
-    conf: &WriteConfig,
-) -> Option<PureSuccess<ColumnWriter>> {
-    let dt = ValidType::from(c.dtype())?;
+fn series_coerce(c: &Column, w: MixedType, conf: &WriteConfig) -> PureSuccess<ColumnWriter> {
+    // ASSUME this won't fail
+    //
+    // TODO could make this more robust by wrapping the Column in an
+    // encapsulated newtype that only has valid types
+    let dt = ValidType::from(c.dtype()).unwrap();
     let mut deferred = PureErrorBuf::default();
 
     let ascii_uint_warn = |d: &mut PureErrorBuf, bits, bytes| {
@@ -1626,55 +1769,55 @@ fn series_coerce(
         // hold the max range of the type being formatted. ASCII shouldn't
         // store floats at all, so warn user if input data is float or
         // double.
-        MixedType::Ascii { chars } => match dt {
+        MixedType::Ascii(a) => match dt {
             ValidType::U08 => {
-                if u8::from(chars) < 3 {
+                if u8::from(a.chars) < 3 {
                     ascii_uint_warn(&mut deferred, 8, 3);
                 }
                 AsciiU8(AsciiColumnWriter {
                     data: c.u8().unwrap().into_no_null_iter().collect(),
-                    chars,
+                    chars: a.chars,
                 })
             }
             ValidType::U16 => {
-                if u8::from(chars) < 5 {
+                if u8::from(a.chars) < 5 {
                     ascii_uint_warn(&mut deferred, 16, 5);
                 }
                 AsciiU16(AsciiColumnWriter {
                     data: c.u16().unwrap().into_no_null_iter().collect(),
-                    chars,
+                    chars: a.chars,
                 })
             }
             ValidType::U32 => {
-                if u8::from(chars) < 10 {
+                if u8::from(a.chars) < 10 {
                     ascii_uint_warn(&mut deferred, 32, 10);
                 }
                 AsciiU32(AsciiColumnWriter {
                     data: c.u32().unwrap().into_no_null_iter().collect(),
-                    chars,
+                    chars: a.chars,
                 })
             }
             ValidType::U64 => {
-                if u8::from(chars) < 20 {
+                if u8::from(a.chars) < 20 {
                     ascii_uint_warn(&mut deferred, 64, 20);
                 }
                 AsciiU64(AsciiColumnWriter {
                     data: c.u64().unwrap().into_no_null_iter().collect(),
-                    chars,
+                    chars: a.chars,
                 })
             }
             ValidType::F32 => {
                 num_warn(&mut deferred, "float", "uint64");
                 AsciiU64(AsciiColumnWriter {
                     data: series_cast!(c, f32, u64),
-                    chars,
+                    chars: a.chars,
                 })
             }
             ValidType::F64 => {
                 num_warn(&mut deferred, "double", "uint64");
                 AsciiU64(AsciiColumnWriter {
                     data: series_cast!(c, f32, u64),
-                    chars,
+                    chars: a.chars,
                 })
             }
         },
@@ -1743,18 +1886,19 @@ fn series_coerce(
             }
         }
     };
-    Some(PureSuccess {
+    PureSuccess {
         data: res,
         deferred,
-    })
+    }
 }
 
 /// Convert Series into a u64 vector.
 ///
 /// Used when writing delimited ASCII. This is faster and more convenient
 /// than the general coercion function.
-fn series_coerce64(s: &Column, conf: &WriteConfig) -> Option<PureSuccess<Vec<u64>>> {
-    let dt = ValidType::from(s.dtype())?;
+fn series_coerce64(s: &Column, conf: &WriteConfig) -> PureSuccess<Vec<u64>> {
+    // ASSUME this won't fail
+    let dt = ValidType::from(s.dtype()).unwrap();
     let mut deferred = PureErrorBuf::default();
 
     let num_warn = |d: &mut PureErrorBuf, from, to| {
@@ -1945,45 +2089,33 @@ fn into_writable_columns(
     df: &DataFrame,
     cs: Vec<MixedType>,
     conf: &WriteConfig,
-) -> Option<PureSuccess<Vec<ColumnWriter>>> {
+) -> PureSuccess<Vec<ColumnWriter>> {
     let cols = df.get_columns();
     let (writable_columns, msgs): (Vec<_>, Vec<_>) = cs
         .into_iter()
-        // TODO do this without cloning?
         .zip(cols)
-        .flat_map(|(w, c)| series_coerce(c, w, conf).map(|succ| (succ.data, succ.deferred)))
-        .unzip();
-    if df.width() != writable_columns.len() {
-        return None;
-    }
-    Some(PureSuccess {
-        data: writable_columns,
-        deferred: PureErrorBuf::mconcat(msgs),
-    })
-}
-
-fn into_writable_matrix64(
-    df: &DataFrame,
-    conf: &WriteConfig,
-) -> Option<PureSuccess<Vec<Vec<u64>>>> {
-    let (columns, msgs): (Vec<_>, Vec<_>) = df
-        .get_columns()
-        .iter()
-        .flat_map(|c| {
-            if let Some(res) = series_coerce64(c, conf) {
-                Some((res.data, res.deferred))
-            } else {
-                None
-            }
+        .map(|(w, c)| {
+            let succ = series_coerce(c, w, conf);
+            (succ.data, succ.deferred)
         })
         .unzip();
-    if df.width() != columns.len() {
-        return None;
-    }
-    Some(PureSuccess {
-        data: columns,
+    PureSuccess {
+        data: writable_columns,
         deferred: PureErrorBuf::mconcat(msgs),
-    })
+    }
+}
+
+fn into_writable_matrix64(df: &DataFrame, conf: &WriteConfig) -> PureSuccess<DMatrix<u64>> {
+    let mut it = df.get_columns().iter().map(|c| {
+        let res = series_coerce64(c, conf);
+        (res.data, res.deferred)
+    });
+    let m = DMatrix::from_iterator(df.height(), df.width(), it.by_ref().map(|x| x.0).flatten());
+    let msgs = it.map(|x| x.1).collect();
+    PureSuccess {
+        data: m,
+        deferred: PureErrorBuf::mconcat(msgs),
+    }
 }
 
 // fn read_data_ascii_fixed<R: Read>(
@@ -2038,37 +2170,29 @@ fn h_write_numeric_dataframe<W: Write>(
     conf: &WriteConfig,
 ) -> ImpureResult<()> {
     let df_nrows = df.height();
-    let res = into_writable_columns(df, cs, conf);
-    if let Some(succ) = res {
-        succ.try_map(|writable_columns| {
-            for r in 0..df_nrows {
-                for c in writable_columns.iter() {
-                    match c {
-                        NumU8(w) => UInt8Type::h_write_int(h, &w.size, w.data[r]),
-                        NumU16(w) => UInt16Type::h_write_int(h, &w.size, w.data[r]),
-                        NumU24(w) => UInt32Type::h_write_int(h, &w.size, w.data[r]),
-                        NumU32(w) => UInt32Type::h_write_int(h, &w.size, w.data[r]),
-                        NumU40(w) => UInt64Type::h_write_int(h, &w.size, w.data[r]),
-                        NumU48(w) => UInt64Type::h_write_int(h, &w.size, w.data[r]),
-                        NumU56(w) => UInt64Type::h_write_int(h, &w.size, w.data[r]),
-                        NumU64(w) => UInt64Type::h_write_int(h, &w.size, w.data[r]),
-                        NumF32(w) => Float32Type::h_write_float(h, &w.size, w.data[r]),
-                        NumF64(w) => Float64Type::h_write_float(h, &w.size, w.data[r]),
-                        AsciiU8(w) => u8::h_write_ascii_int(h, w.chars, w.data[r]),
-                        AsciiU16(w) => u16::h_write_ascii_int(h, w.chars, w.data[r]),
-                        AsciiU32(w) => u32::h_write_ascii_int(h, w.chars, w.data[r]),
-                        AsciiU64(w) => u64::h_write_ascii_int(h, w.chars, w.data[r]),
-                    }?
-                }
+    into_writable_columns(df, cs, conf).try_map(|writable_columns| {
+        for r in 0..df_nrows {
+            for c in writable_columns.iter() {
+                match c {
+                    NumU8(w) => UInt8Type::h_write_int(h, &w.size, w.data[r]),
+                    NumU16(w) => UInt16Type::h_write_int(h, &w.size, w.data[r]),
+                    NumU24(w) => UInt32Type::h_write_int(h, &w.size, w.data[r]),
+                    NumU32(w) => UInt32Type::h_write_int(h, &w.size, w.data[r]),
+                    NumU40(w) => UInt64Type::h_write_int(h, &w.size, w.data[r]),
+                    NumU48(w) => UInt64Type::h_write_int(h, &w.size, w.data[r]),
+                    NumU56(w) => UInt64Type::h_write_int(h, &w.size, w.data[r]),
+                    NumU64(w) => UInt64Type::h_write_int(h, &w.size, w.data[r]),
+                    NumF32(w) => Float32Type::h_write_float(h, &w.size, w.data[r]),
+                    NumF64(w) => Float64Type::h_write_float(h, &w.size, w.data[r]),
+                    AsciiU8(w) => u8::h_write_ascii_int(h, w.chars, w.data[r]),
+                    AsciiU16(w) => u16::h_write_ascii_int(h, w.chars, w.data[r]),
+                    AsciiU32(w) => u32::h_write_ascii_int(h, w.chars, w.data[r]),
+                    AsciiU64(w) => u64::h_write_ascii_int(h, w.chars, w.data[r]),
+                }?
             }
-            Ok(PureSuccess::from(()))
-        })
-    } else {
-        // TODO lame error message
-        Err(io::Error::other(
-            "could not get data from dataframe".to_string(),
-        ))?
-    }
+        }
+        Ok(PureSuccess::from(()))
+    })
 }
 
 fn h_write_delimited_matrix<W: Write>(
@@ -2122,7 +2246,7 @@ impl MixedType {
             Width::Fixed(f) => match dt {
                 AlphaNumType::Ascii => {
                     if let Some(chars) = f.chars() {
-                        Ok(Self::Ascii { chars })
+                        Ok(Self::Ascii(AsciiType { chars }))
                     } else {
                         Err("$DATATYPE=A but $PnB greater than 20 chars".to_string())
                     }

@@ -326,12 +326,7 @@ impl AnyCoreTEXT {
         conf: &DataReadConfig,
         data_seg: Segment,
     ) -> PureMaybe<DataReader> {
-        match self {
-            AnyCoreTEXT::FCS2_0(x) => x.as_data_reader::<DataLayout2_0>(kws, conf, data_seg),
-            AnyCoreTEXT::FCS3_0(x) => x.as_data_reader::<DataLayout3_0>(kws, conf, data_seg),
-            AnyCoreTEXT::FCS3_1(x) => x.as_data_reader::<DataLayout3_1>(kws, conf, data_seg),
-            AnyCoreTEXT::FCS3_2(x) => x.as_data_reader::<DataLayout3_2>(kws, conf, data_seg),
-        }
+        match_anycoretext!(self, x, { x.as_data_reader(kws, conf, data_seg) })
     }
 
     pub(crate) fn into_dataset_unchecked(
@@ -624,11 +619,6 @@ pub type Measurement3_0 = Measurement<InnerMeasurement3_0>;
 pub type Measurement3_1 = Measurement<InnerMeasurement3_1>;
 pub type Measurement3_2 = Measurement<InnerMeasurement3_2>;
 
-pub type Metadata2_0 = Metadata<InnerMetadata2_0>;
-pub type Metadata3_0 = Metadata<InnerMetadata3_0>;
-pub type Metadata3_1 = Metadata<InnerMetadata3_1>;
-pub type Metadata3_2 = Metadata<InnerMetadata3_2>;
-
 impl<T> TimeChannel<T>
 where
     T: VersionedTime,
@@ -892,7 +882,7 @@ where
     T: VersionedTime,
     P: VersionedMeasurement,
 {
-    pub(crate) fn layout_data(&self) -> Vec<ColumnLayoutData<()>> {
+    fn layout_data(&self) -> Vec<ColumnLayoutData<()>> {
         self.iter()
             .map(|x| {
                 x.1.map_or_else(|m| m.value.layout_data(), |t| t.value.layout_data())
@@ -933,7 +923,7 @@ where
 
     fn try_convert<ToM: TryFromMetadata<M>>(
         self,
-        convert: SizeConvert<M::S>,
+        convert: SizeConvert<M::D>,
     ) -> Result<Metadata<ToM>, Vec<String>> {
         // TODO this seems silly, break struct up into common bits
         ToM::try_from_meta(self.specific, convert)
@@ -1088,14 +1078,15 @@ where
     Self: VersionedMetadata,
     M: VersionedMetadata,
 {
-    fn try_from_meta(value: M, byteord: SizeConvert<M::S>) -> Result<Self, MetaConvertErrors>;
+    fn try_from_meta(value: M, byteord: SizeConvert<M::D>) -> Result<Self, MetaConvertErrors>;
 }
 
 pub trait VersionedMetadata: Sized {
     type P: VersionedMeasurement;
     type T: VersionedTime;
     type N: MightHave;
-    type S;
+    type L: VersionedDataLayout;
+    type D;
 
     fn as_unstainedcenters(&self) -> Option<&UnstainedCenters>;
 
@@ -1120,16 +1111,16 @@ pub trait VersionedMetadata: Sized {
     fn datetimes_valid(&self) -> bool;
 
     // TODO borrow?
-    fn byteord(&self) -> Self::S;
+    fn byteord(&self) -> Self::D;
 
     fn keywords_req_inner(&self) -> RawPairs;
 
     fn keywords_opt_inner(&self) -> RawPairs;
 
-    // fn as_column_layout(
-    //     metadata: &Metadata<Self>,
-    //     ms: &Measurements<Self::N, Self::T, Self::P>,
-    // ) -> Result<Self::L, Vec<String>>;
+    fn as_column_layout(
+        metadata: &Metadata<Self>,
+        ms: &Measurements<Self::N, Self::T, Self::P>,
+    ) -> Result<Self::L, Vec<String>>;
 }
 
 pub trait VersionedMeasurement: Sized + Versioned {
@@ -1574,13 +1565,8 @@ pub struct CarrierData {
     pub locationid: OptionalKw<Locationid>,
 }
 
-pub(crate) type Measurements<N, T, P> =
+type Measurements<N, T, P> =
     NamedVec<N, <N as MightHave>::Wrapper<Shortname>, TimeChannel<T>, Measurement<P>>;
-
-pub(crate) type Measurements2_0 = Measurements<OptionalKwFamily, InnerTime2_0, InnerMeasurement2_0>;
-pub(crate) type Measurements3_0 = Measurements<OptionalKwFamily, InnerTime3_0, InnerMeasurement3_0>;
-pub(crate) type Measurements3_1 = Measurements<IdentityFamily, InnerTime3_1, InnerMeasurement3_1>;
-pub(crate) type Measurements3_2 = Measurements<IdentityFamily, InnerTime3_2, InnerMeasurement3_2>;
 
 macro_rules! non_time_get_set {
     ($get:ident, $set:ident, $ty:ident, [$($root:ident)*], $field:ident, $kw:ident) => {
@@ -2581,11 +2567,8 @@ where
         res
     }
 
-    pub(crate) fn as_column_layout<L>(&self) -> Result<L, Vec<String>>
-    where
-        L: VersionedDataLayout<M = M>,
-    {
-        L::as_column_layout(&self.metadata, &self.measurements)
+    pub(crate) fn as_column_layout(&self) -> Result<M::L, Vec<String>> {
+        M::as_column_layout(&self.metadata, &self.measurements)
     }
 
     fn df_names(&self) -> Vec<PlSmallStr> {
@@ -2599,16 +2582,13 @@ where
     //     df.set_column_names(self.df_names())
     // }
 
-    pub(crate) fn as_data_reader<L>(
+    pub(crate) fn as_data_reader(
         &self,
         kws: &mut RawKeywords,
         _: &DataReadConfig,
         data_seg: Segment,
-    ) -> PureMaybe<DataReader>
-    where
-        L: VersionedDataLayout<M = M>,
-    {
-        let l = L::as_column_layout(&self.metadata, &self.measurements);
+    ) -> PureMaybe<DataReader> {
+        let l = M::as_column_layout(&self.metadata, &self.measurements);
         PureMaybe::from_result_strs(l, PureErrorLevel::Error)
             .and_then_opt(|dl| dl.into_reader(kws, data_seg))
             .map(|x| {
@@ -4390,7 +4370,8 @@ impl VersionedMetadata for InnerMetadata2_0 {
     type P = InnerMeasurement2_0;
     type T = InnerTime2_0;
     type N = OptionalKwFamily;
-    type S = ByteOrd;
+    type L = DataLayout2_0;
+    type D = ByteOrd;
 
     fn byteord(&self) -> ByteOrd {
         self.byteord.clone()
@@ -4456,16 +4437,16 @@ impl VersionedMetadata for InnerMetadata2_0 {
         .collect()
     }
 
-    // fn as_column_layout(
-    //     metadata: &Metadata<Self>,
-    //     ms: &Measurements<Self::N, Self::T, Self::P>,
-    // ) -> Result<Self::L, Vec<String>> {
-    //     Self::L::try_new(
-    //         metadata.datatype,
-    //         metadata.specific.byteord.clone(),
-    //         ms.layout_data(),
-    //     )
-    // }
+    fn as_column_layout(
+        metadata: &Metadata<Self>,
+        ms: &Measurements<Self::N, Self::T, Self::P>,
+    ) -> Result<Self::L, Vec<String>> {
+        Self::L::try_new(
+            metadata.datatype,
+            metadata.specific.byteord.clone(),
+            ms.layout_data(),
+        )
+    }
 }
 
 impl LookupMetadata for InnerMetadata3_0 {
@@ -4499,7 +4480,8 @@ impl VersionedMetadata for InnerMetadata3_0 {
     type P = InnerMeasurement3_0;
     type T = InnerTime3_0;
     type N = OptionalKwFamily;
-    type S = ByteOrd;
+    type L = DataLayout3_0;
+    type D = ByteOrd;
 
     fn byteord(&self) -> ByteOrd {
         self.byteord.clone()
@@ -4568,16 +4550,16 @@ impl VersionedMetadata for InnerMetadata3_0 {
         .collect()
     }
 
-    // fn as_column_layout(
-    //     metadata: &Metadata<Self>,
-    //     ms: &Measurements<Self::N, Self::T, Self::P>,
-    // ) -> Result<Self::L, Vec<String>> {
-    //     Self::L::try_new(
-    //         metadata.datatype,
-    //         metadata.specific.byteord.clone(),
-    //         ms.layout_data(),
-    //     )
-    // }
+    fn as_column_layout(
+        metadata: &Metadata<Self>,
+        ms: &Measurements<Self::N, Self::T, Self::P>,
+    ) -> Result<Self::L, Vec<String>> {
+        Self::L::try_new(
+            metadata.datatype,
+            metadata.specific.byteord.clone(),
+            ms.layout_data(),
+        )
+    }
 }
 
 impl LookupMetadata for InnerMetadata3_1 {
@@ -4613,7 +4595,8 @@ impl VersionedMetadata for InnerMetadata3_1 {
     type P = InnerMeasurement3_1;
     type T = InnerTime3_1;
     type N = IdentityFamily;
-    type S = Endian;
+    type L = DataLayout3_1;
+    type D = Endian;
 
     fn byteord(&self) -> Endian {
         self.byteord
@@ -4690,16 +4673,16 @@ impl VersionedMetadata for InnerMetadata3_1 {
         .collect()
     }
 
-    // fn as_column_layout(
-    //     metadata: &Metadata<Self>,
-    //     ms: &Measurements<Self::N, Self::T, Self::P>,
-    // ) -> Result<Self::L, Vec<String>> {
-    //     Self::L::try_new(
-    //         metadata.datatype,
-    //         metadata.specific.byteord,
-    //         ms.layout_data(),
-    //     )
-    // }
+    fn as_column_layout(
+        metadata: &Metadata<Self>,
+        ms: &Measurements<Self::N, Self::T, Self::P>,
+    ) -> Result<Self::L, Vec<String>> {
+        Self::L::try_new(
+            metadata.datatype,
+            metadata.specific.byteord,
+            ms.layout_data(),
+        )
+    }
 }
 
 impl LookupMetadata for InnerMetadata3_2 {
@@ -4742,7 +4725,8 @@ impl VersionedMetadata for InnerMetadata3_2 {
     type P = InnerMeasurement3_2;
     type T = InnerTime3_2;
     type N = IdentityFamily;
-    type S = Endian;
+    type L = DataLayout3_2;
+    type D = Endian;
 
     // fn lookup_tot(kws: &mut RawKeywords) -> PureMaybe<Tot> {
     //     PureMaybe::from_result_1(Tot::remove_meta_req(kws), PureErrorLevel::Error)
@@ -4829,6 +4813,31 @@ impl VersionedMetadata for InnerMetadata3_2 {
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))
         .collect()
+    }
+
+    fn as_column_layout(
+        metadata: &Metadata<Self>,
+        ms: &Measurements<Self::N, Self::T, Self::P>,
+    ) -> Result<Self::L, Vec<String>> {
+        let endian = metadata.specific.byteord;
+        let blank_cs = ms.layout_data();
+        let cs: Vec<_> = ms
+            .iter()
+            .map(|x| {
+                x.1.map_or_else(
+                    |m| (&m.value.specific.datatype),
+                    |t| (&t.value.specific.datatype),
+                )
+            })
+            .map(|dt| dt.0.map(|d| d.into()).unwrap_or(metadata.datatype))
+            .zip(blank_cs)
+            .map(|(datatype, c)| ColumnLayoutData {
+                width: c.width,
+                range: c.range,
+                datatype,
+            })
+            .collect();
+        Self::L::try_new(metadata.datatype, endian, cs)
     }
 }
 

@@ -8,6 +8,7 @@ use crate::text::keywords::*;
 use crate::text::named_vec::MightHave;
 use crate::text::optionalkw::*;
 use crate::text::range::*;
+use crate::validated::dataframe::*;
 use crate::validated::nonstandard::MeasIdx;
 use crate::validated::shortname::*;
 
@@ -66,6 +67,11 @@ where
     {
         let df = &self.data;
 
+        let valid_df = FCSDataFrame::try_from(df.clone()).map_err(|_| Failure {
+            reason: "dataframe is invalid".to_string(),
+            deferred: PureErrorBuf::default(),
+        })?;
+
         // TODO make sure all columns in dataframe are valid, and bail if not
 
         // Get the layout, or bail if we can't
@@ -86,12 +92,12 @@ where
         }
 
         // write HEADER+TEXT first
-        let data_len = layout.nbytes(df, conf);
+        let data_len = layout.nbytes(&valid_df, conf);
         let tot = Tot(df.height());
         let analysis_len = self.analysis.0.len();
         self.text.h_write(h, tot, data_len, analysis_len, conf)?;
         // write DATA
-        layout.h_write(h, df, conf)?;
+        layout.h_write(h, &valid_df, conf)?;
         // write ANALYSIS
         h.write_all(&self.analysis.0)?;
         Ok(PureSuccess::from(()))
@@ -232,12 +238,12 @@ pub trait VersionedDataLayout: Sized {
 
     fn ncols(&self) -> usize;
 
-    fn nbytes(&self, df: &DataFrame, conf: &WriteConfig) -> usize;
+    fn nbytes(&self, df: &FCSDataFrame, conf: &WriteConfig) -> usize;
 
     fn h_write<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        df: &DataFrame,
+        df: &FCSDataFrame,
         conf: &WriteConfig,
     ) -> ImpureResult<()>;
 
@@ -699,16 +705,6 @@ pub type CoreDataset3_2 = CoreDataset<
     IdentityFamily,
     Identity<Shortname>,
 >;
-
-/// A valid Rust/Polars type which may be written to the DATA segment
-enum ValidType {
-    U08,
-    U16,
-    U32,
-    U64,
-    F32,
-    F64,
-}
 
 macro_rules! series_cast {
     ($series:expr, $from:ident, $to:ty) => {
@@ -1264,12 +1260,15 @@ where
 ///
 /// If the start type will fit into the end type, all is well and nothing bad
 /// will happen to user's precious data.
-fn series_coerce(c: &Column, w: MixedType, conf: &WriteConfig) -> PureSuccess<FixedColumnWriter> {
+fn series_coerce(
+    c: &AnyFCSColumn,
+    w: MixedType,
+    conf: &WriteConfig,
+) -> PureSuccess<FixedColumnWriter> {
     // ASSUME this won't fail
     //
     // TODO could make this more robust by wrapping the Column in an
     // encapsulated newtype that only has valid types
-    let dt = ValidType::from(c.dtype()).unwrap();
     let mut deferred = PureErrorBuf::default();
 
     let num_warn = |d: &mut PureErrorBuf, from, to| {
@@ -1287,18 +1286,18 @@ fn series_coerce(c: &Column, w: MixedType, conf: &WriteConfig) -> PureSuccess<Fi
         // double.
         MixedType::Ascii(a) => {
             let chars = a.chars;
-            let data: Vec<_> = match dt {
-                ValidType::U08 => series_cast!(c, u8, u64),
-                ValidType::U16 => series_cast!(c, u16, u64),
-                ValidType::U32 => series_cast!(c, u32, u64),
-                ValidType::U64 => c.u64().unwrap().into_no_null_iter().collect(),
-                ValidType::F32 => {
+            let data: Vec<_> = match c {
+                AnyFCSColumn::U08(xs) => series_cast!(xs.as_ref(), u8, u64),
+                AnyFCSColumn::U16(xs) => series_cast!(xs.as_ref(), u16, u64),
+                AnyFCSColumn::U32(xs) => series_cast!(xs.as_ref(), u32, u64),
+                AnyFCSColumn::U64(xs) => xs.as_ref().u64().unwrap().into_no_null_iter().collect(),
+                AnyFCSColumn::F32(xs) => {
                     num_warn(&mut deferred, "float", "uint64");
-                    series_cast!(c, f32, u64)
+                    series_cast!(xs.as_ref(), f32, u64)
                 }
-                ValidType::F64 => {
+                AnyFCSColumn::F64(xs) => {
                     num_warn(&mut deferred, "double", "uint64");
-                    series_cast!(c, f32, u64)
+                    series_cast!(xs.as_ref(), f32, u64)
                 }
             };
             let maxdigits = data
@@ -1321,9 +1320,9 @@ fn series_coerce(c: &Column, w: MixedType, conf: &WriteConfig) -> PureSuccess<Fi
         // potentially truncate a fractional value. Also check to see if
         // bitmask is exceeded, and if so truncate and warn user.
         MixedType::Integer(ut) => {
-            match dt {
-                ValidType::F32 => num_warn(&mut deferred, "float", "uint"),
-                ValidType::F64 => num_warn(&mut deferred, "float", "uint"),
+            match c {
+                AnyFCSColumn::F32(_) => num_warn(&mut deferred, "float", "uint"),
+                AnyFCSColumn::F64(_) => num_warn(&mut deferred, "float", "uint"),
                 _ => {
                     let from_size = ut.nbytes();
                     let to_size = ut.native_nbytes();
@@ -1336,47 +1335,47 @@ fn series_coerce(c: &Column, w: MixedType, conf: &WriteConfig) -> PureSuccess<Fi
                     }
                 }
             }
-            match dt {
-                ValidType::U08 => convert_to_uint!(ut, c, u8, deferred),
-                ValidType::U16 => convert_to_uint!(ut, c, u16, deferred),
-                ValidType::U32 => convert_to_uint!(ut, c, u32, deferred),
-                ValidType::U64 => convert_to_uint!(ut, c, u64, deferred),
-                ValidType::F32 => convert_to_uint!(ut, c, f32, deferred),
-                ValidType::F64 => convert_to_uint!(ut, c, f64, deferred),
+            match c {
+                AnyFCSColumn::U08(xs) => convert_to_uint!(ut, xs.as_ref(), u8, deferred),
+                AnyFCSColumn::U16(xs) => convert_to_uint!(ut, xs.as_ref(), u16, deferred),
+                AnyFCSColumn::U32(xs) => convert_to_uint!(ut, xs.as_ref(), u32, deferred),
+                AnyFCSColumn::U64(xs) => convert_to_uint!(ut, xs.as_ref(), u64, deferred),
+                AnyFCSColumn::F32(xs) => convert_to_uint!(ut, xs.as_ref(), f32, deferred),
+                AnyFCSColumn::F64(xs) => convert_to_uint!(ut, xs.as_ref(), f64, deferred),
             }
         }
 
         // Floats can hold small uints and themselves, anything else might
         // truncate.
         MixedType::Float(t) => {
-            match dt {
-                ValidType::U32 => num_warn(&mut deferred, "float", "uint32"),
-                ValidType::U64 => num_warn(&mut deferred, "float", "uint64"),
-                ValidType::F64 => num_warn(&mut deferred, "float", "double"),
+            match c {
+                AnyFCSColumn::U32(_) => num_warn(&mut deferred, "float", "uint32"),
+                AnyFCSColumn::U64(_) => num_warn(&mut deferred, "float", "uint64"),
+                AnyFCSColumn::F64(_) => num_warn(&mut deferred, "float", "double"),
                 _ => (),
             }
-            match dt {
-                ValidType::U08 => convert_to_f32!(t.order, c, u8),
-                ValidType::U16 => convert_to_f32!(t.order, c, u16),
-                ValidType::U32 => convert_to_f32!(t.order, c, u32),
-                ValidType::U64 => convert_to_f32!(t.order, c, u64),
-                ValidType::F32 => convert_to_f32!(t.order, c, f32),
-                ValidType::F64 => convert_to_f32!(t.order, c, f64),
+            match c {
+                AnyFCSColumn::U08(xs) => convert_to_f32!(t.order, xs.as_ref(), u8),
+                AnyFCSColumn::U16(xs) => convert_to_f32!(t.order, xs.as_ref(), u16),
+                AnyFCSColumn::U32(xs) => convert_to_f32!(t.order, xs.as_ref(), u32),
+                AnyFCSColumn::U64(xs) => convert_to_f32!(t.order, xs.as_ref(), u64),
+                AnyFCSColumn::F32(xs) => convert_to_f32!(t.order, xs.as_ref(), f32),
+                AnyFCSColumn::F64(xs) => convert_to_f32!(t.order, xs.as_ref(), f64),
             }
         }
 
         // Doubles can hold all but uint64
         MixedType::Double(t) => {
-            if let ValidType::U64 = dt {
+            if let AnyFCSColumn::U64(_) = c {
                 num_warn(&mut deferred, "double", "uint64")
             }
-            match dt {
-                ValidType::U08 => convert_to_f64!(t.order, c, u8),
-                ValidType::U16 => convert_to_f64!(t.order, c, u16),
-                ValidType::U32 => convert_to_f64!(t.order, c, u32),
-                ValidType::U64 => convert_to_f64!(t.order, c, u64),
-                ValidType::F32 => convert_to_f64!(t.order, c, f32),
-                ValidType::F64 => convert_to_f64!(t.order, c, f64),
+            match c {
+                AnyFCSColumn::U08(xs) => convert_to_f64!(t.order, xs.as_ref(), u8),
+                AnyFCSColumn::U16(xs) => convert_to_f64!(t.order, xs.as_ref(), u16),
+                AnyFCSColumn::U32(xs) => convert_to_f64!(t.order, xs.as_ref(), u32),
+                AnyFCSColumn::U64(xs) => convert_to_f64!(t.order, xs.as_ref(), u64),
+                AnyFCSColumn::F32(xs) => convert_to_f64!(t.order, xs.as_ref(), f32),
+                AnyFCSColumn::F64(xs) => convert_to_f64!(t.order, xs.as_ref(), f64),
             }
         }
     };
@@ -1390,9 +1389,8 @@ fn series_coerce(c: &Column, w: MixedType, conf: &WriteConfig) -> PureSuccess<Fi
 ///
 /// Used when writing delimited ASCII. This is faster and more convenient
 /// than the general coercion function.
-fn series_coerce64(s: &Column, conf: &WriteConfig) -> PureSuccess<Vec<u64>> {
+fn series_coerce64(c: &AnyFCSColumn, conf: &WriteConfig) -> PureSuccess<Vec<u64>> {
     // ASSUME this won't fail
-    let dt = ValidType::from(s.dtype()).unwrap();
     let mut deferred = PureErrorBuf::default();
 
     let num_warn = |d: &mut PureErrorBuf, from, to| {
@@ -1400,37 +1398,23 @@ fn series_coerce64(s: &Column, conf: &WriteConfig) -> PureSuccess<Vec<u64>> {
         d.push_msg_leveled(msg, conf.disallow_lossy_conversions);
     };
 
-    let res = match dt {
-        ValidType::U08 => series_cast!(s, u8, u64),
-        ValidType::U16 => series_cast!(s, u16, u64),
-        ValidType::U32 => series_cast!(s, u32, u64),
-        ValidType::U64 => series_cast!(s, u64, u64),
-        ValidType::F32 => {
+    let res = match c {
+        AnyFCSColumn::U08(xs) => series_cast!(xs.as_ref(), u8, u64),
+        AnyFCSColumn::U16(xs) => series_cast!(xs.as_ref(), u16, u64),
+        AnyFCSColumn::U32(xs) => series_cast!(xs.as_ref(), u32, u64),
+        AnyFCSColumn::U64(xs) => series_cast!(xs.as_ref(), u64, u64),
+        AnyFCSColumn::F32(xs) => {
             num_warn(&mut deferred, "float", "uint64");
-            series_cast!(s, f32, u64)
+            series_cast!(xs.as_ref(), f32, u64)
         }
-        ValidType::F64 => {
+        AnyFCSColumn::F64(xs) => {
             num_warn(&mut deferred, "double", "uint64");
-            series_cast!(s, f64, u64)
+            series_cast!(xs.as_ref(), f64, u64)
         }
     };
     PureSuccess {
         data: res,
         deferred,
-    }
-}
-
-impl ValidType {
-    fn from(dt: &DataType) -> Option<Self> {
-        match dt {
-            DataType::UInt8 => Some(ValidType::U08),
-            DataType::UInt16 => Some(ValidType::U16),
-            DataType::UInt32 => Some(ValidType::U32),
-            DataType::UInt64 => Some(ValidType::U64),
-            DataType::Float32 => Some(ValidType::F32),
-            DataType::Float64 => Some(ValidType::F64),
-            _ => None,
-        }
     }
 }
 
@@ -1571,16 +1555,16 @@ impl AnyUintColumnReader {
 }
 
 fn into_writable_columns(
-    df: &DataFrame,
+    df: &FCSDataFrame,
     cs: Vec<MixedType>,
     conf: &WriteConfig,
 ) -> PureSuccess<Vec<FixedColumnWriter>> {
-    let cols = df.get_columns();
+    let cols = df.columns();
     let (writable_columns, msgs): (Vec<_>, Vec<_>) = cs
         .into_iter()
         .zip(cols)
         .map(|(w, c)| {
-            let succ = series_coerce(c, w, conf);
+            let succ = series_coerce(&c, w, conf);
             (succ.data, succ.deferred)
         })
         .unzip();
@@ -1590,12 +1574,16 @@ fn into_writable_columns(
     }
 }
 
-fn into_writable_matrix64(df: &DataFrame, conf: &WriteConfig) -> PureSuccess<DMatrix<u64>> {
-    let mut it = df.get_columns().iter().map(|c| {
-        let res = series_coerce64(c, conf);
+fn into_writable_matrix64(df: &FCSDataFrame, conf: &WriteConfig) -> PureSuccess<DMatrix<u64>> {
+    let mut it = df.columns().into_iter().map(|c| {
+        let res = series_coerce64(&c, conf);
         (res.data, res.deferred)
     });
-    let m = DMatrix::from_iterator(df.height(), df.width(), it.by_ref().flat_map(|x| x.0));
+    let m = DMatrix::from_iterator(
+        df.as_ref().height(),
+        df.as_ref().width(),
+        it.by_ref().flat_map(|x| x.0),
+    );
     let msgs = it.map(|x| x.1).collect();
     PureSuccess {
         data: m,
@@ -1606,10 +1594,10 @@ fn into_writable_matrix64(df: &DataFrame, conf: &WriteConfig) -> PureSuccess<DMa
 fn h_write_numeric_dataframe<W: Write>(
     h: &mut BufWriter<W>,
     cs: Vec<MixedType>,
-    df: &DataFrame,
+    df: &FCSDataFrame,
     conf: &WriteConfig,
 ) -> ImpureResult<()> {
-    let df_nrows = df.height();
+    let df_nrows = df.as_ref().height();
     into_writable_columns(df, cs, conf).try_map(|writable_columns| {
         for r in 0..df_nrows {
             for c in writable_columns.iter() {
@@ -1786,7 +1774,7 @@ where
     fn h_write<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        df: &DataFrame,
+        df: &FCSDataFrame,
         conf: &WriteConfig,
     ) -> ImpureResult<()>
     where
@@ -2006,7 +1994,7 @@ impl AnyUintLayout {
     fn h_write<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        df: &DataFrame,
+        df: &FCSDataFrame,
         conf: &WriteConfig,
     ) -> ImpureResult<()> {
         match_many_to_one!(
@@ -2048,12 +2036,12 @@ impl AsciiLayout {
         }
     }
 
-    fn nbytes(&self, df: &DataFrame, conf: &WriteConfig) -> usize {
+    fn nbytes(&self, df: &FCSDataFrame, conf: &WriteConfig) -> usize {
         match self {
-            AsciiLayout::Fixed(a) => a.nbytes(df.height()),
+            AsciiLayout::Fixed(a) => a.nbytes(df.as_ref().height()),
             AsciiLayout::Delimited(_) => {
                 let matrix = into_writable_matrix64(df, conf).data;
-                let ndelim = df.width() * df.height() - 1;
+                let ndelim = df.as_ref().width() * df.as_ref().height() - 1;
                 // TODO cast?
                 let value_nbytes = matrix.map(|x| x.checked_ilog10().unwrap_or(1)).sum();
                 // compute data length (delimiters + number of digits)
@@ -2065,7 +2053,7 @@ impl AsciiLayout {
     fn h_write<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        df: &DataFrame,
+        df: &FCSDataFrame,
         conf: &WriteConfig,
     ) -> ImpureResult<()> {
         match self {
@@ -2118,7 +2106,7 @@ impl FloatLayout {
     fn h_write<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        df: &DataFrame,
+        df: &FCSDataFrame,
         conf: &WriteConfig,
     ) -> ImpureResult<()> {
         match self {
@@ -2195,18 +2183,18 @@ impl VersionedDataLayout for DataLayout2_0 {
         }
     }
 
-    fn nbytes(&self, df: &DataFrame, conf: &WriteConfig) -> usize {
+    fn nbytes(&self, df: &FCSDataFrame, conf: &WriteConfig) -> usize {
         match self {
             DataLayout2_0::Ascii(a) => a.nbytes(df, conf),
-            DataLayout2_0::Integer(i) => i.nbytes(df.height()),
-            DataLayout2_0::Float(f) => f.nbytes(df.height()),
+            DataLayout2_0::Integer(i) => i.nbytes(df.as_ref().height()),
+            DataLayout2_0::Float(f) => f.nbytes(df.as_ref().height()),
         }
     }
 
     fn h_write<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        df: &DataFrame,
+        df: &FCSDataFrame,
         conf: &WriteConfig,
     ) -> ImpureResult<()> {
         match self {
@@ -2313,18 +2301,18 @@ impl VersionedDataLayout for DataLayout3_0 {
         }
     }
 
-    fn nbytes(&self, df: &DataFrame, conf: &WriteConfig) -> usize {
+    fn nbytes(&self, df: &FCSDataFrame, conf: &WriteConfig) -> usize {
         match self {
             DataLayout3_0::Ascii(a) => a.nbytes(df, conf),
-            DataLayout3_0::Integer(i) => i.nbytes(df.height()),
-            DataLayout3_0::Float(f) => f.nbytes(df.height()),
+            DataLayout3_0::Integer(i) => i.nbytes(df.as_ref().height()),
+            DataLayout3_0::Float(f) => f.nbytes(df.as_ref().height()),
         }
     }
 
     fn h_write<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        df: &DataFrame,
+        df: &FCSDataFrame,
         conf: &WriteConfig,
     ) -> ImpureResult<()> {
         match self {
@@ -2419,18 +2407,18 @@ impl VersionedDataLayout for DataLayout3_1 {
         }
     }
 
-    fn nbytes(&self, df: &DataFrame, conf: &WriteConfig) -> usize {
+    fn nbytes(&self, df: &FCSDataFrame, conf: &WriteConfig) -> usize {
         match self {
             DataLayout3_1::Ascii(a) => a.nbytes(df, conf),
-            DataLayout3_1::Integer(i) => i.nbytes(df.height()),
-            DataLayout3_1::Float(f) => f.nbytes(df.height()),
+            DataLayout3_1::Integer(i) => i.nbytes(df.as_ref().height()),
+            DataLayout3_1::Float(f) => f.nbytes(df.as_ref().height()),
         }
     }
 
     fn h_write<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        df: &DataFrame,
+        df: &FCSDataFrame,
         conf: &WriteConfig,
     ) -> ImpureResult<()> {
         match self {
@@ -2560,19 +2548,19 @@ impl VersionedDataLayout for DataLayout3_2 {
         }
     }
 
-    fn nbytes(&self, df: &DataFrame, conf: &WriteConfig) -> usize {
+    fn nbytes(&self, df: &FCSDataFrame, conf: &WriteConfig) -> usize {
         match self {
             DataLayout3_2::Ascii(a) => a.nbytes(df, conf),
-            DataLayout3_2::Integer(i) => i.nbytes(df.height()),
-            DataLayout3_2::Float(f) => f.nbytes(df.height()),
-            DataLayout3_2::Mixed(m) => m.nbytes(df.height()),
+            DataLayout3_2::Integer(i) => i.nbytes(df.as_ref().height()),
+            DataLayout3_2::Float(f) => f.nbytes(df.as_ref().height()),
+            DataLayout3_2::Mixed(m) => m.nbytes(df.as_ref().height()),
         }
     }
 
     fn h_write<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        df: &DataFrame,
+        df: &FCSDataFrame,
         conf: &WriteConfig,
     ) -> ImpureResult<()> {
         match self {

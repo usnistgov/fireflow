@@ -1,4 +1,4 @@
-use crate::config::{DataReadConfig, WriteConfig};
+use crate::config::WriteConfig;
 use crate::error::*;
 use crate::macros::{match_many_to_one, newtype_from};
 use crate::segment::*;
@@ -939,7 +939,7 @@ trait OrderedFromBytes<const DTLEN: usize, const OLEN: usize>: NumProps<DTLEN> {
     }
 }
 
-pub(crate) trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>
+trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>
 where
     Self::Native: NumProps<DTLEN>,
     Self::Native: OrderedFromBytes<DTLEN, INTLEN>,
@@ -1074,7 +1074,7 @@ where
     }
 }
 
-pub(crate) trait FloatFromBytes<const LEN: usize>
+trait FloatFromBytes<const LEN: usize>
 where
     Self::Native: NumProps<LEN>,
     Self::Native: OrderedFromBytes<LEN, LEN>,
@@ -1596,7 +1596,7 @@ fn into_writable_matrix64(df: &DataFrame, conf: &WriteConfig) -> PureSuccess<DMa
         let res = series_coerce64(c, conf);
         (res.data, res.deferred)
     });
-    let m = DMatrix::from_iterator(df.height(), df.width(), it.by_ref().map(|x| x.0).flatten());
+    let m = DMatrix::from_iterator(df.height(), df.width(), it.by_ref().flat_map(|x| x.0));
     let msgs = it.map(|x| x.1).collect();
     PureSuccess {
         data: m,
@@ -1803,7 +1803,7 @@ where
     }
 }
 
-trait IsFixed {
+pub trait IsFixed {
     fn width(&self) -> usize;
 
     fn into_reader(self, nrows: usize) -> AlphaNumColumnReader;
@@ -2495,9 +2495,9 @@ impl VersionedDataLayout for DataLayout3_2 {
                     .map(|c| MixedType::try_new(c.width, c.datatype, endian, &c.range))
                     .partition_result();
                 if fail.is_empty() {
-                    let columns: Vec<_> = pass.into_iter().flatten().collect();
-                    if columns.len() == ncols {
-                        Ok(DataLayout3_2::Mixed(FixedLayout { columns }))
+                    let cs: Vec<_> = pass.into_iter().flatten().collect();
+                    if cs.len() == ncols {
+                        Ok(DataLayout3_2::Mixed(FixedLayout { columns: cs }))
                     } else {
                         Err(vec![
                             "columns contain mix of variable and fixed widths".into()

@@ -1,4 +1,4 @@
-use crate::config::WriteConfig;
+use crate::config::{DataReadConfig, WriteConfig};
 use crate::error::*;
 use crate::macros::{match_many_to_one, newtype_from};
 use crate::segment::*;
@@ -224,7 +224,6 @@ pub(crate) trait VersionedDataLayout: Sized {
     type M: VersionedMetadata;
     type D;
 
-    #[allow(clippy::type_complexity)]
     fn as_column_layout(
         metadata: &Metadata<Self::M>,
         ms: &Measurements<
@@ -1606,7 +1605,7 @@ fn into_writable_matrix64(df: &DataFrame, conf: &WriteConfig) -> PureSuccess<DMa
         let res = series_coerce64(c, conf);
         (res.data, res.deferred)
     });
-    let m = DMatrix::from_iterator(df.height(), df.width(), it.by_ref().flat_map(|x| x.0));
+    let m = DMatrix::from_iterator(df.height(), df.width(), it.by_ref().map(|x| x.0).flatten());
     let msgs = it.map(|x| x.1).collect();
     PureSuccess {
         data: m,
@@ -2555,9 +2554,9 @@ impl VersionedDataLayout for DataLayout3_2 {
                     .map(|c| MixedType::try_new(c.width, c.datatype, endian, &c.range))
                     .partition_result();
                 if fail.is_empty() {
-                    let cs: Vec<_> = pass.into_iter().flatten().collect();
-                    if cs.len() == ncols {
-                        Ok(DataLayout3_2::Mixed(FixedLayout { columns: cs }))
+                    let columns: Vec<_> = pass.into_iter().flatten().collect();
+                    if columns.len() == ncols {
+                        Ok(DataLayout3_2::Mixed(FixedLayout { columns }))
                     } else {
                         Err(vec![
                             "columns contain mix of variable and fixed widths".into()

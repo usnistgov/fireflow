@@ -1101,7 +1101,7 @@ pub trait VersionedMetadata: Sized {
 
     fn datetimes_valid(&self) -> bool;
 
-    fn byteord(&self) -> ByteOrd;
+    // fn byteord(&self) -> ByteOrd;
 
     // fn lookup_tot(kws: &mut RawKeywords) -> PureMaybe<Tot>;
 
@@ -4380,9 +4380,9 @@ impl VersionedMetadata for InnerMetadata2_0 {
     type N = OptionalKwFamily;
     type L = DataLayout2_0;
 
-    fn byteord(&self) -> ByteOrd {
-        self.byteord.clone()
-    }
+    // fn byteord(&self) -> ByteOrd {
+    //     self.byteord.clone()
+    // }
 
     fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
         None
@@ -4554,9 +4554,9 @@ impl VersionedMetadata for InnerMetadata3_0 {
     type N = OptionalKwFamily;
     type L = DataLayout3_0;
 
-    fn byteord(&self) -> ByteOrd {
-        self.byteord.clone()
-    }
+    // fn byteord(&self) -> ByteOrd {
+    //     self.byteord.clone()
+    // }
 
     fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
         None
@@ -4709,9 +4709,9 @@ impl VersionedMetadata for InnerMetadata3_1 {
     type N = IdentityFamily;
     type L = DataLayout3_1;
 
-    fn byteord(&self) -> ByteOrd {
-        ByteOrd::Endian(self.byteord)
-    }
+    // fn byteord(&self) -> ByteOrd {
+    //     ByteOrd::Endian(self.byteord)
+    // }
 
     fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
         None
@@ -4865,9 +4865,9 @@ impl VersionedMetadata for InnerMetadata3_2 {
     //     PureMaybe::from_result_1(Tot::remove_meta_req(kws), PureErrorLevel::Error)
     // }
 
-    fn byteord(&self) -> ByteOrd {
-        ByteOrd::Endian(self.byteord)
-    }
+    // fn byteord(&self) -> ByteOrd {
+    //     ByteOrd::Endian(self.byteord)
+    // }
 
     fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
         self.unstained.unstainedcenters.as_ref_opt()

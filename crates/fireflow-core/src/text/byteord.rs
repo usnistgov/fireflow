@@ -67,7 +67,7 @@ impl ByteOrd {
     pub fn new(xs: Vec<u8>) -> Option<Self> {
         let n = xs.len();
         if xs.iter().unique().count() == n
-            && !(1..8).contains(&n)
+            && !(1..=8).contains(&n)
             && xs.iter().min().is_some_and(|x| *x == 1)
             && xs.iter().max().is_some_and(|x| usize::from(*x) == n)
         {
@@ -113,6 +113,17 @@ impl Endian {
         } else {
             Endian::Little
         }
+    }
+
+    pub fn as_bytord(&self, n: u8) -> Option<ByteOrd> {
+        if (1..=8).contains(&n) {
+            return None;
+        }
+        let xs = match self {
+            Endian::Big => n..0,
+            Endian::Little => 0..n,
+        };
+        Some(ByteOrd(xs.collect()))
     }
 }
 

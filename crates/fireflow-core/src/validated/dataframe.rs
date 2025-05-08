@@ -1,7 +1,4 @@
-use crate::macros::newtype_from_outer;
-
 use polars::prelude::*;
-use std::ops::Deref;
 
 /// A dataframe without NULL and only types that make sense for FCS files.
 pub(crate) struct FCSDataFrame(DataFrame);
@@ -25,7 +22,7 @@ pub struct U64Column<'a>(&'a Column);
 pub struct F32Column<'a>(&'a Column);
 pub struct F64Column<'a>(&'a Column);
 
-newtype_from_outer!(FCSDataFrame, DataFrame);
+// newtype_from_outer!(FCSDataFrame, DataFrame);
 
 impl AsRef<DataFrame> for FCSDataFrame {
     fn as_ref(&self) -> &DataFrame {
@@ -96,4 +93,65 @@ impl FCSDataFrame {
             })
             .collect()
     }
+
+    /// Return number of bytes this will occupy if written as delimited ASCII
+    pub(crate) fn ascii_nchars(&self) -> u32 {
+        let n = self.0.size() as u32;
+        if n == 0 {
+            return 0;
+        }
+        let ndelim = n - 1;
+        let ndigits: u32 = self
+            .0
+            .get_columns()
+            .iter()
+            .map(|c| match c.dtype() {
+                DataType::UInt8 => c
+                    .u8()
+                    .unwrap()
+                    .into_no_null_iter()
+                    .map(|x| x.checked_ilog10().unwrap_or(0) + 1)
+                    .sum(),
+                DataType::UInt16 => c
+                    .u16()
+                    .unwrap()
+                    .into_no_null_iter()
+                    .map(|x| x.checked_ilog10().unwrap_or(0) + 1)
+                    .sum(),
+                DataType::UInt32 => c
+                    .u32()
+                    .unwrap()
+                    .into_no_null_iter()
+                    .map(|x| x.checked_ilog10().unwrap_or(0) + 1)
+                    .sum(),
+                DataType::UInt64 => c
+                    .u64()
+                    .unwrap()
+                    .into_no_null_iter()
+                    .map(|x| x.checked_ilog10().unwrap_or(0) + 1)
+                    .sum(),
+                DataType::Float32 => c
+                    .f32()
+                    .unwrap()
+                    .into_no_null_iter()
+                    .map(|x| (x as u64).checked_ilog10().unwrap_or(0) + 1)
+                    .sum(),
+                DataType::Float64 => c
+                    .f64()
+                    .unwrap()
+                    .into_no_null_iter()
+                    .map(|x| (x as u64).checked_ilog10().unwrap_or(0) + 1)
+                    .sum(),
+                // this should never happen
+                _ => 0,
+            })
+            .sum();
+        ndigits + ndelim
+    }
 }
+
+// trait NumColumn {
+//     type T;
+
+//     fn ascii_nbytes() -> u32;
+// }

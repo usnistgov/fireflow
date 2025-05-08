@@ -241,8 +241,7 @@ pub trait VersionedDataLayout: Sized {
         conf: &WriteConfig,
     ) -> ImpureResult<()>;
 
-    // TODO does this need to be mut?
-    fn into_reader(self, kws: &mut RawKeywords, data_seg: Segment) -> PureMaybe<ColumnReader>;
+    fn into_reader(self, kws: &RawKeywords, data_seg: Segment) -> PureMaybe<ColumnReader>;
 
     fn try_new_from_raw(kws: &RawKeywords) -> Result<Self, Vec<String>>;
 }
@@ -2217,8 +2216,8 @@ impl VersionedDataLayout for DataLayout2_0 {
         }
     }
 
-    fn into_reader(self, kws: &mut RawKeywords, data_seg: Segment) -> PureMaybe<ColumnReader> {
-        let res = Tot::remove_meta_opt(kws).map(|tot| tot.0);
+    fn into_reader(self, kws: &RawKeywords, data_seg: Segment) -> PureMaybe<ColumnReader> {
+        let res = Tot::get_meta_opt(kws).map(|tot| tot.0);
         let nbytes = data_seg.nbytes() as usize;
         PureMaybe::from_result_1(res, PureErrorLevel::Error)
             .map(|tot| tot.flatten())
@@ -2335,19 +2334,17 @@ impl VersionedDataLayout for DataLayout3_0 {
         }
     }
 
-    fn into_reader(self, kws: &mut RawKeywords, data_seg: Segment) -> PureMaybe<ColumnReader> {
-        let res = Tot::remove_meta_opt(kws).map(|tot| tot.0);
-        PureMaybe::from_result_1(res, PureErrorLevel::Error)
-            .map(|tot| tot.flatten())
-            .and_then(|tot| match self {
-                DataLayout3_0::Ascii(a) => a.into_reader(data_seg, tot),
-                DataLayout3_0::Integer(fl) => fl
-                    .into_reader(data_seg, tot)
-                    .map(|x| Some(ColumnReader::AlphaNum(x))),
-                DataLayout3_0::Float(fl) => fl
-                    .into_reader(data_seg, tot)
-                    .map(|x| Some(ColumnReader::AlphaNum(x))),
-            })
+    fn into_reader(self, kws: &RawKeywords, data_seg: Segment) -> PureMaybe<ColumnReader> {
+        let res = Tot::get_meta_req(kws);
+        PureMaybe::from_result_1(res, PureErrorLevel::Error).and_then(|tot| match self {
+            DataLayout3_0::Ascii(a) => a.into_reader(data_seg, tot),
+            DataLayout3_0::Integer(fl) => fl
+                .into_reader(data_seg, tot)
+                .map(|x| Some(ColumnReader::AlphaNum(x))),
+            DataLayout3_0::Float(fl) => fl
+                .into_reader(data_seg, tot)
+                .map(|x| Some(ColumnReader::AlphaNum(x))),
+        })
     }
 }
 
@@ -2443,19 +2440,17 @@ impl VersionedDataLayout for DataLayout3_1 {
         }
     }
 
-    fn into_reader(self, kws: &mut RawKeywords, data_seg: Segment) -> PureMaybe<ColumnReader> {
-        let res = Tot::remove_meta_opt(kws).map(|tot| tot.0);
-        PureMaybe::from_result_1(res, PureErrorLevel::Error)
-            .map(|tot| tot.flatten())
-            .and_then(|tot| match self {
-                DataLayout3_1::Ascii(a) => a.into_reader(data_seg, tot),
-                DataLayout3_1::Integer(fl) => fl
-                    .into_reader(data_seg, tot)
-                    .map(|x| Some(ColumnReader::AlphaNum(x))),
-                DataLayout3_1::Float(fl) => fl
-                    .into_reader(data_seg, tot)
-                    .map(|x| Some(ColumnReader::AlphaNum(x))),
-            })
+    fn into_reader(self, kws: &RawKeywords, data_seg: Segment) -> PureMaybe<ColumnReader> {
+        let res = Tot::get_meta_req(kws);
+        PureMaybe::from_result_1(res, PureErrorLevel::Error).and_then(|tot| match self {
+            DataLayout3_1::Ascii(a) => a.into_reader(data_seg, tot),
+            DataLayout3_1::Integer(fl) => fl
+                .into_reader(data_seg, tot)
+                .map(|x| Some(ColumnReader::AlphaNum(x))),
+            DataLayout3_1::Float(fl) => fl
+                .into_reader(data_seg, tot)
+                .map(|x| Some(ColumnReader::AlphaNum(x))),
+        })
     }
 }
 
@@ -2588,22 +2583,20 @@ impl VersionedDataLayout for DataLayout3_2 {
         }
     }
 
-    fn into_reader(self, kws: &mut RawKeywords, data_seg: Segment) -> PureMaybe<ColumnReader> {
-        let res = Tot::remove_meta_opt(kws).map(|tot| tot.0);
-        PureMaybe::from_result_1(res, PureErrorLevel::Error)
-            .map(|tot| tot.flatten())
-            .and_then(|tot| match self {
-                DataLayout3_2::Ascii(a) => a.into_reader(data_seg, tot),
-                DataLayout3_2::Integer(fl) => fl
-                    .into_reader(data_seg, tot)
-                    .map(|x| Some(ColumnReader::AlphaNum(x))),
-                DataLayout3_2::Float(fl) => fl
-                    .into_reader(data_seg, tot)
-                    .map(|x| Some(ColumnReader::AlphaNum(x))),
-                DataLayout3_2::Mixed(fl) => fl
-                    .into_reader(data_seg, tot)
-                    .map(|x| Some(ColumnReader::AlphaNum(x))),
-            })
+    fn into_reader(self, kws: &RawKeywords, data_seg: Segment) -> PureMaybe<ColumnReader> {
+        let res = Tot::get_meta_req(kws);
+        PureMaybe::from_result_1(res, PureErrorLevel::Error).and_then(|tot| match self {
+            DataLayout3_2::Ascii(a) => a.into_reader(data_seg, tot),
+            DataLayout3_2::Integer(fl) => fl
+                .into_reader(data_seg, tot)
+                .map(|x| Some(ColumnReader::AlphaNum(x))),
+            DataLayout3_2::Float(fl) => fl
+                .into_reader(data_seg, tot)
+                .map(|x| Some(ColumnReader::AlphaNum(x))),
+            DataLayout3_2::Mixed(fl) => fl
+                .into_reader(data_seg, tot)
+                .map(|x| Some(ColumnReader::AlphaNum(x))),
+        })
     }
 }
 

@@ -3255,10 +3255,7 @@ impl TryFrom<ByteOrd> for Endian {
     type Error = FromByteOrdError;
 
     fn try_from(value: ByteOrd) -> Result<Self, Self::Error> {
-        match value {
-            ByteOrd::Endian(e) => Ok(e),
-            _ => Err(FromByteOrdError),
-        }
+        value.as_endian().ok_or(FromByteOrdError)
     }
 }
 
@@ -3296,11 +3293,12 @@ impl From<Calibration3_2> for Calibration3_1 {
     }
 }
 
-impl From<Endian> for ByteOrd {
-    fn from(value: Endian) -> ByteOrd {
-        ByteOrd::Endian(value)
-    }
-}
+// hmm, this is total nonsense actually...not sure what to do about this (yet)
+// impl From<Endian> for ByteOrd {
+//     fn from(value: Endian) -> ByteOrd {
+//         ByteOrd::Endian(value)
+//     }
+// }
 
 impl TryFrom<InnerMeasurement3_0> for InnerMeasurement2_0 {
     type Error = MeasConvertError;

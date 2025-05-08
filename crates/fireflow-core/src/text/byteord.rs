@@ -17,18 +17,11 @@ pub enum Endian {
 
 /// The byte order as shown in the $BYTEORD field in 2.0 and 3.0
 ///
-/// This can be either 1,2,3,4 (little endian), 4,3,2,1 (big endian), or some
-/// sequence representing byte order. For 2.0 and 3.0, this sequence is
-/// technically allowed to vary in length in the case of $DATATYPE=I since
-/// integers do not necessarily need to be 32 or 64-bit.
+/// This must be a set of unique integers in {1, N} where N is the length of the
+/// vector and ranged [1, 8]. It will actually be stored as 1 less than the
+/// input sequence, which will reflect the 0-indexed operation of Rust arrays.
 #[derive(Clone, Serialize)]
-pub enum ByteOrd {
-    // TODO this should also be applied to things like 1,2,3 or 5,4,3,2,1, which
-    // are big/little endian but not "traditional" byte widths.
-    Endian(Endian),
-    // TODO use lehmer encoding for this
-    Mixed(MixedOrder),
-}
+pub struct ByteOrd(Vec<u8>);
 
 /// The value for the $PnB key (all versions)
 ///
@@ -72,45 +65,43 @@ pub struct MixedOrder(Vec<u8>);
 
 impl ByteOrd {
     pub fn new(xs: Vec<u8>) -> Option<Self> {
-        match xs[..] {
-            [1, 2, 3, 4] => Some(ByteOrd::Endian(Endian::Little)),
-            [4, 3, 2, 1] => Some(ByteOrd::Endian(Endian::Big)),
-            _ => {
-                let n = xs.len();
-                if xs.iter().unique().count() != n
-                    || !(1..8).contains(&n)
-                    || xs.iter().min().is_some_and(|x| *x != 1)
-                    || xs.iter().max().is_some_and(|x| usize::from(*x) != n)
-                {
-                    None
-                } else {
-                    Some(ByteOrd::Mixed(MixedOrder(
-                        xs.iter().map(|x| x - 1).collect(),
-                    )))
-                }
-            }
+        let n = xs.len();
+        if xs.iter().unique().count() == n
+            && !(1..8).contains(&n)
+            && xs.iter().min().is_some_and(|x| *x == 1)
+            && xs.iter().max().is_some_and(|x| usize::from(*x) == n)
+        {
+            Some(ByteOrd(xs.iter().map(|x| x - 1).collect()))
+        } else {
+            None
         }
     }
 
+    // ASSUME this will always be 1-8 elements
     pub fn nbytes(&self) -> Bytes {
-        match self {
-            ByteOrd::Endian(_) => Bytes(4),
-            // ASSUME this will always be 1-8 elements
-            ByteOrd::Mixed(xs) => Bytes(xs.0.len() as u8),
+        Bytes(self.0.len() as u8)
+    }
+
+    pub fn as_endian(&self) -> Option<Endian> {
+        let mut it = self.0.iter().map(|x| usize::from(*x));
+        if it.by_ref().enumerate().all(|(i, x)| i == x) {
+            Some(Endian::Little)
+        } else if it.rev().enumerate().all(|(i, x)| i == x) {
+            Some(Endian::Big)
+        } else {
+            None
         }
     }
 
-    // TODO this is basically tryfrom
     pub fn as_sized<const LEN: usize>(&self) -> Result<SizedByteOrd<LEN>, String> {
-        match self {
-            ByteOrd::Endian(e) => Ok(SizedByteOrd::Endian(*e)),
-            ByteOrd::Mixed(v) => v.0[..]
-                .try_into()
-                .map(|order: [u8; LEN]| SizedByteOrd::Order(order))
-                .or(Err(format!(
-                    "$BYTEORD is mixed but length is {} and not {LEN}",
-                    v.0.len()
-                ))),
+        let xs = &self.0;
+        let n = xs.len();
+        if n != LEN {
+            Err(format!("$BYTEORD is {n} bytes, expected {LEN}"))
+        } else if let Some(e) = self.as_endian() {
+            Ok(SizedByteOrd::Endian(e))
+        } else {
+            Ok(SizedByteOrd::Order(xs[..].try_into().unwrap()))
         }
     }
 }
@@ -220,27 +211,19 @@ impl FromStr for ByteOrd {
     type Err = ParseByteOrdError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.parse() {
-            Ok(e) => Ok(ByteOrd::Endian(e)),
-            _ => {
-                let (pass, fail): (Vec<_>, Vec<_>) =
-                    s.split(",").map(|x| x.parse::<u8>()).partition_result();
-                if fail.is_empty() {
-                    ByteOrd::new(pass).ok_or(ParseByteOrdError::InvalidOrder)
-                } else {
-                    Err(ParseByteOrdError::InvalidNumbers)
-                }
-            }
+        let (pass, fail): (Vec<_>, Vec<_>) =
+            s.split(",").map(|x| x.parse::<u8>()).partition_result();
+        if fail.is_empty() {
+            ByteOrd::new(pass).ok_or(ParseByteOrdError::InvalidOrder)
+        } else {
+            Err(ParseByteOrdError::InvalidNumbers)
         }
     }
 }
 
 impl fmt::Display for ByteOrd {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            ByteOrd::Endian(e) => write!(f, "{}", e),
-            ByteOrd::Mixed(xs) => write!(f, "{}", xs.0.iter().join(",")),
-        }
+        write!(f, "{}", self.0.iter().join(","))
     }
 }
 

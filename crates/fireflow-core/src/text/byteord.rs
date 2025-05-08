@@ -1,5 +1,7 @@
 use crate::macros::{newtype_disp, newtype_from_outer};
 
+use super::keywords::AlphaNumType;
+
 use itertools::Itertools;
 use serde::Serialize;
 use std::fmt;
@@ -77,6 +79,10 @@ impl ByteOrd {
         }
     }
 
+    pub fn new_little4() -> Self {
+        ByteOrd((0..4).collect())
+    }
+
     // ASSUME this will always be 1-8 elements
     pub fn nbytes(&self) -> Bytes {
         Bytes(self.0.len() as u8)
@@ -115,15 +121,13 @@ impl Endian {
         }
     }
 
-    pub fn as_bytord(&self, n: u8) -> Option<ByteOrd> {
-        if (1..=8).contains(&n) {
-            return None;
-        }
+    pub fn as_bytord(&self, n: Bytes) -> ByteOrd {
+        let it = 0..(u8::from(n));
         let xs = match self {
-            Endian::Big => n..0,
-            Endian::Little => 0..n,
+            Endian::Big => it.rev().collect(),
+            Endian::Little => it.collect(),
         };
-        Some(ByteOrd(xs.collect()))
+        ByteOrd(xs)
     }
 }
 
@@ -160,6 +164,53 @@ impl Width {
         match self {
             Width::Fixed(x) => Some(*x),
             _ => None,
+        }
+    }
+
+    /// Given a list of widths and a type, return the byte-width for a matrix.
+    ///
+    /// That is, only return Some if the widths are all the same and they
+    /// match the given type.
+    ///
+    /// If type is Ascii, automatically return 4 bytes,
+    /// which is an arbitrary default since Ascii data does not care about
+    /// $BYTEORD.
+    ///
+    /// If type is Integer, returned number can be 1-8.
+    ///
+    /// If type is Float or Double, return number must be 4 or 8 respectively.
+    pub(crate) fn matrix_bytes(ms: &[Self], t: AlphaNumType) -> Option<Bytes> {
+        let sizes: Vec<_> = ms
+            .iter()
+            .map(|w| w.as_fixed().and_then(|x| x.bytes()))
+            .unique()
+            .collect();
+        match t {
+            AlphaNumType::Ascii => Some(Bytes(4)),
+            AlphaNumType::Integer => match sizes[..] {
+                [Some(bytes)] => Some(bytes),
+                _ => None,
+            },
+            AlphaNumType::Single => match sizes[..] {
+                [Some(bytes)] => {
+                    if u8::from(bytes) == 4 {
+                        Some(bytes)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            },
+            AlphaNumType::Double => match sizes[..] {
+                [Some(bytes)] => {
+                    if u8::from(bytes) == 8 {
+                        Some(bytes)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            },
         }
     }
 }
@@ -352,4 +403,10 @@ impl<const LEN: usize> From<Endian> for SizedByteOrd<LEN> {
     fn from(value: Endian) -> Self {
         SizedByteOrd::Endian(value)
     }
+}
+
+enum MatrixSizeError {
+    WrongWidth { is_double: bool, bytes: Bytes },
+    MultiWidth,
+    Variable,
 }

@@ -102,11 +102,11 @@ where
     where
         M::N: Clone,
         ToM: VersionedMetadata,
+        ToM: TryFromMetadata<M>,
         ToM::P: VersionedMeasurement,
         ToM::T: VersionedTime,
         ToM::N: MightHave,
         ToM::N: Clone,
-        ToM: TryFrom<M, Error = MetaConvertErrors>,
         ToM::P: TryFrom<M::P, Error = MeasConvertError>,
         ToM::T: From<M::T>,
         <ToM::N as MightHave>::Wrapper<Shortname>: TryFrom<<M::N as MightHave>::Wrapper<Shortname>>,

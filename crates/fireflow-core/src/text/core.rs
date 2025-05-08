@@ -1113,8 +1113,6 @@ pub trait VersionedMetadata: Sized {
     // TODO borrow?
     fn byteord(&self) -> Self::D;
 
-    // fn lookup_tot(kws: &mut RawKeywords) -> PureMaybe<Tot>;
-
     fn keywords_req_inner(&self) -> RawPairs;
 
     fn keywords_opt_inner(&self) -> RawPairs;
@@ -1123,12 +1121,6 @@ pub trait VersionedMetadata: Sized {
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
     ) -> Result<Self::L, Vec<String>>;
-
-    // fn column_layout_with_tot(
-    //     l: Self::W,
-    //     kws: &mut RawKeywords,
-    //     data_seg: Segment,
-    // ) -> PureMaybe<Self::R>;
 }
 
 pub trait VersionedMeasurement: Sized + Versioned {
@@ -2590,25 +2582,6 @@ where
     //     df.set_column_names(self.df_names())
     // }
 
-    // fn add_tot(
-    //     dl: M::W,
-    //     kws: &mut RawKeywords,
-    //     conf: &DataReadConfig,
-    //     data_seg: &Segment,
-    // ) -> PureSuccess<RowColumnLayout> {
-    //     M::lookup_tot(kws).and_then(|tot| match dl {
-    //         DataLayout::AsciiDelimited { nrows: _, ncols } => {
-    //             PureSuccess::from(DataLayout::AsciiDelimited { nrows: tot, ncols })
-    //         }
-    //         DataLayout::AlphaNum { nrows: _, columns } => {
-    //             let data_nbytes = data_seg.nbytes() as usize;
-    //             let event_width = columns.iter().map(|c| c.width()).sum();
-    //             total_events(tot, data_nbytes, event_width, conf)
-    //                 .map(|nrows| DataLayout::AlphaNum { nrows, columns })
-    //         }
-    //     })
-    // }
-
     pub(crate) fn as_data_reader(
         &self,
         kws: &mut RawKeywords,
@@ -3326,13 +3299,6 @@ impl From<Calibration3_2> for Calibration3_1 {
         }
     }
 }
-
-// hmm, this is total nonsense actually...not sure what to do about this (yet)
-// impl From<Endian> for ByteOrd {
-//     fn from(value: Endian) -> ByteOrd {
-//         ByteOrd::Endian(value)
-//     }
-// }
 
 impl TryFrom<InnerMeasurement3_0> for InnerMeasurement2_0 {
     type Error = MeasConvertError;
@@ -4154,7 +4120,6 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
     fn opt_suffixes_inner(&self, n: MeasIdx) -> RawOptTriples {
         [
             OptMeasKey::triple(&self.scale, n),
-            // OptMeasKey::pair(&self.shortname, n),
             OptMeasKey::triple(&self.wavelength, n),
         ]
         .into_iter()
@@ -4401,18 +4366,6 @@ impl LookupMetadata for InnerMetadata2_0 {
     }
 }
 
-// macro_rules! uint_with_tot {
-//     ($self:expr, $data_seg:expr, $tot:expr, $($m:ident),*) => {
-//         match $self {
-//             $(
-//                 AnyUintLayout::$m(fl) => fl
-//                     .into_layout_with_tot_res($data_seg, $tot)
-//                     .map(AnyUintLayout::$m),
-//             )*
-//         }
-//     };
-// }
-
 impl VersionedMetadata for InnerMetadata2_0 {
     type P = InnerMeasurement2_0;
     type T = InnerTime2_0;
@@ -4465,17 +4418,6 @@ impl VersionedMetadata for InnerMetadata2_0 {
         true
     }
 
-    // fn lookup_tot(kws: &mut RawKeywords) -> PureMaybe<Tot> {
-    //     Tot::remove_meta_opt(kws).map_or_else(
-    //         |e| {
-    //             let mut r = PureMaybe::empty();
-    //             r.push_warning(e);
-    //             r
-    //         },
-    //         |s| PureSuccess::from(s.0),
-    //     )
-    // }
-
     fn keywords_req_inner(&self) -> RawPairs {
         [self.mode.pair(), self.byteord.pair()]
             .into_iter()
@@ -4505,61 +4447,7 @@ impl VersionedMetadata for InnerMetadata2_0 {
             ms.layout_data(),
         )
     }
-
-    // fn column_layout_with_tot(
-    //     l: Self::W,
-    //     kws: &mut RawKeywords,
-    //     data_seg: Segment,
-    // ) -> PureMaybe<Self::R> {
-    //     let res = Tot::remove_meta_opt(kws).map(|tot| tot.0);
-    //     PureMaybe::from_result_1(res, PureErrorLevel::Error)
-    //         .map(|tot| tot.flatten())
-    //         .and_then(|tot| match l {
-    //             DataLayout2_0::Ascii(a) => match a {
-    //                 AsciiLayout::Delimited(dl) => {
-    //                     PureSuccess::from(AsciiLayout::Delimited(DelimitedLayout {
-    //                         nrows: tot,
-    //                         ncols: dl.ncols,
-    //                     }))
-    //                 }
-    //                 AsciiLayout::Fixed(fl) => fl
-    //                     .into_layout_with_tot_res(data_seg, tot)
-    //                     .map(AsciiLayout::Fixed),
-    //             }
-    //             .map(DataLayout2_0::Ascii),
-    //             DataLayout2_0::Integer(fl) => {
-    //                 uint_with_tot(fl, data_seg, tot).map(DataLayout2_0::Integer)
-    //             }
-    //             DataLayout2_0::Float(fl) => {
-    //                 float_add_tot(fl, data_seg, tot).map(DataLayout2_0::Float)
-    //             }
-    //         })
-    //         .map(Some)
-    // }
 }
-
-// fn float_add_tot<R>(
-//     l: FloatLayout<R>,
-//     data_seg: Segment,
-//     tot: Option<Tot>,
-// ) -> PureSuccess<FloatLayout<Tot>> {
-//     match l {
-//         FloatLayout::F32(fl) => fl
-//             .into_layout_with_tot_res(data_seg, tot)
-//             .map(FloatLayout::F32),
-//         FloatLayout::F64(fl) => fl
-//             .into_layout_with_tot_res(data_seg, tot)
-//             .map(FloatLayout::F64),
-//     }
-// }
-
-// fn uint_with_tot<X>(
-//     l: AnyUintLayout<X>,
-//     data_seg: Segment,
-//     tot: Option<Tot>,
-// ) -> PureSuccess<AnyUintLayout<Tot>> {
-//     uint_with_tot!(l, data_seg, tot, Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64)
-// }
 
 impl LookupMetadata for InnerMetadata3_0 {
     fn lookup_shortname(
@@ -4632,10 +4520,6 @@ impl VersionedMetadata for InnerMetadata3_0 {
         self.comp.mut_or_unset(f)
     }
 
-    // fn lookup_tot(kws: &mut RawKeywords) -> PureMaybe<Tot> {
-    //     PureMaybe::from_result_1(Tot::remove_meta_req(kws), PureErrorLevel::Error)
-    // }
-
     fn timestamps_valid(&self) -> bool {
         self.timestamps.valid()
     }
@@ -4676,44 +4560,7 @@ impl VersionedMetadata for InnerMetadata3_0 {
             ms.layout_data(),
         )
     }
-
-    // fn column_layout_with_tot(
-    //     l: Self::W,
-    //     kws: &mut RawKeywords,
-    //     data_seg: Segment,
-    // ) -> PureMaybe<Self::R> {
-    //     let res = Tot::remove_meta_req(kws);
-    //     PureMaybe::from_result_1(res, PureErrorLevel::Error).and_then(|tot| match l {
-    //         DataLayout3_0::Ascii(a) => {
-    //             ascii_add_tot(a, data_seg, tot).map(|x| x.map(|y| DataLayout3_0::Ascii(y)))
-    //         }
-    //         DataLayout3_0::Integer(fl) => {
-    //             uint_with_tot(fl, data_seg, tot).map(|x| Some(DataLayout3_0::Integer(x)))
-    //         }
-    //         DataLayout3_0::Float(fl) => {
-    //             float_add_tot(fl, data_seg, tot).map(|x| Some(DataLayout3_0::Float(x)))
-    //         }
-    //     })
-    // }
 }
-
-// fn ascii_add_tot<X, Y>(
-//     l: AsciiLayout<X, Y>,
-//     data_seg: Segment,
-//     tot: Option<Tot>,
-// ) -> PureMaybe<AsciiLayout<Tot, Tot>> {
-//     match l {
-//         AsciiLayout::Delimited(dl) => PureSuccess::from(tot.map(|nrows| {
-//             AsciiLayout::Delimited(DelimitedLayout {
-//                 nrows,
-//                 ncols: dl.ncols,
-//             })
-//         })),
-//         AsciiLayout::Fixed(fl) => fl
-//             .into_layout_with_tot_res(data_seg, tot)
-//             .map(|x| Some(AsciiLayout::Fixed(x))),
-//     }
-// }
 
 impl LookupMetadata for InnerMetadata3_1 {
     fn lookup_shortname(
@@ -4788,10 +4635,6 @@ impl VersionedMetadata for InnerMetadata3_1 {
         None
     }
 
-    // fn lookup_tot(kws: &mut RawKeywords) -> PureMaybe<Tot> {
-    //     PureMaybe::from_result_1(Tot::remove_meta_req(kws), PureErrorLevel::Error)
-    // }
-
     fn timestamps_valid(&self) -> bool {
         self.timestamps.valid()
     }
@@ -4840,25 +4683,6 @@ impl VersionedMetadata for InnerMetadata3_1 {
             ms.layout_data(),
         )
     }
-
-    // fn column_layout_with_tot(
-    //     l: Self::W,
-    //     kws: &mut RawKeywords,
-    //     data_seg: Segment,
-    // ) -> PureMaybe<Self::R> {
-    //     let res = Tot::remove_meta_req(kws);
-    //     PureMaybe::from_result_1(res, PureErrorLevel::Error).and_then(|tot| match l {
-    //         DataLayout3_1::Ascii(a) => {
-    //             ascii_add_tot(a, data_seg, tot).map(|x| x.map(|y| DataLayout3_1::Ascii(y)))
-    //         }
-    //         DataLayout3_1::Integer(fl) => fl
-    //             .into_layout_with_tot_res(data_seg, tot)
-    //             .map(|x| Some(DataLayout3_1::Integer(x))),
-    //         DataLayout3_1::Float(fl) => {
-    //             float_add_tot(fl, data_seg, tot).map(|x| Some(DataLayout3_1::Float(x)))
-    //         }
-    //     })
-    // }
 }
 
 impl LookupMetadata for InnerMetadata3_2 {
@@ -5015,28 +4839,6 @@ impl VersionedMetadata for InnerMetadata3_2 {
             .collect();
         Self::L::try_new(metadata.datatype, endian, cs)
     }
-
-    // fn column_layout_with_tot(
-    //     l: Self::W,
-    //     kws: &mut RawKeywords,
-    //     data_seg: Segment,
-    // ) -> PureMaybe<Self::R> {
-    //     let res = Tot::remove_meta_req(kws);
-    //     PureMaybe::from_result_1(res, PureErrorLevel::Error).and_then(|tot| match l {
-    //         DataLayout3_2::Ascii(a) => {
-    //             ascii_add_tot(a, data_seg, tot).map(|x| x.map(|y| DataLayout3_2::Ascii(y)))
-    //         }
-    //         DataLayout3_2::Integer(fl) => fl
-    //             .into_layout_with_tot_res(data_seg, tot)
-    //             .map(|x| Some(DataLayout3_2::Integer(x))),
-    //         DataLayout3_2::Float(fl) => {
-    //             float_add_tot(fl, data_seg, tot).map(|x| Some(DataLayout3_2::Float(x)))
-    //         }
-    //         DataLayout3_2::Mixed(fl) => fl
-    //             .into_layout_with_tot_res(data_seg, tot)
-    //             .map(|x| Some(DataLayout3_2::Mixed(x))),
-    //     })
-    // }
 }
 
 impl InnerTime3_0 {
@@ -5229,43 +5031,3 @@ impl Measurement3_2 {
         Measurement::new_common(bytes, range, specific)
     }
 }
-
-// struct TotalEventsError {
-//     event_width: usize,
-//     data_nbytes: usize,
-//     remainder: usize,
-// }
-
-// fn total_events(data_nbytes: usize, event_width: usize) -> (Tot, Option<String>) {
-//     let remainder = data_nbytes % event_width;
-//     let total_events = data_nbytes / event_width;
-//     let mut err = None;
-//     if data_nbytes % event_width > 0 {
-//         let msg = format!(
-//             "Events are {event_width} bytes wide, but this does not evenly \
-//                  divide DATA segment which is {data_nbytes} bytes long \
-//                  (remainder of {remainder})"
-//         );
-//         // def.push_msg_leveled(msg, conf.enforce_data_width_divisibility)
-//         // err = Some(TotalEventsError {
-//         //     event_width,
-//         //     data_nbytes,
-//         //     remainder,
-//         // });
-//         err = Some(msg);
-//     }
-//     // if let Some(tot) = kw_tot {
-//     //     if total_events != tot.0 {
-//     //         let msg = format!(
-//     //             "$TOT field is {tot} but number of events \
-//     //                      that evenly fit into DATA is {total_events}"
-//     //         );
-//     //         def.push_msg_leveled(msg, conf.enforce_matching_tot);
-//     //     }
-//     // }
-//     (Tot(total_events), err)
-//     // PureSuccess {
-//     //     data: Tot(total_events),
-//     //     deferred: def,
-//     // }
-// }

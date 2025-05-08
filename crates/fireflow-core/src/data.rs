@@ -427,28 +427,22 @@ pub struct UintType<T, const LEN: usize> {
 /// Each column contains a buffer with the data to be written (in the correct
 /// type) and other type-specific information.
 enum FixedColumnWriter {
-    NumU8(NumColumnWriter<u8, 1>),
-    NumU16(NumColumnWriter<u16, 2>),
-    NumU24(NumColumnWriter<u32, 3>),
-    NumU32(NumColumnWriter<u32, 4>),
-    NumU40(NumColumnWriter<u64, 5>),
-    NumU48(NumColumnWriter<u64, 6>),
-    NumU56(NumColumnWriter<u64, 7>),
-    NumU64(NumColumnWriter<u64, 8>),
-    NumF32(NumColumnWriter<f32, 4>),
-    NumF64(NumColumnWriter<f64, 8>),
-    // TODO why do I need four of these?
-    Ascii(AsciiColumnWriter<u64>),
+    NumU8(NumColumnWriter<u8, SizedByteOrd<1>>),
+    NumU16(NumColumnWriter<u16, SizedByteOrd<2>>),
+    NumU24(NumColumnWriter<u32, SizedByteOrd<3>>),
+    NumU32(NumColumnWriter<u32, SizedByteOrd<4>>),
+    NumU40(NumColumnWriter<u64, SizedByteOrd<5>>),
+    NumU48(NumColumnWriter<u64, SizedByteOrd<6>>),
+    NumU56(NumColumnWriter<u64, SizedByteOrd<7>>),
+    NumU64(NumColumnWriter<u64, SizedByteOrd<8>>),
+    NumF32(NumColumnWriter<f32, SizedByteOrd<4>>),
+    NumF64(NumColumnWriter<f64, SizedByteOrd<8>>),
+    Ascii(NumColumnWriter<u64, Chars>),
 }
 
-struct NumColumnWriter<T, const LEN: usize> {
+struct NumColumnWriter<T, S> {
     data: Vec<T>,
-    size: SizedByteOrd<LEN>,
-}
-
-struct AsciiColumnWriter<T> {
-    data: Vec<T>,
-    chars: Chars,
+    size: S,
 }
 
 /// Instructions and buffers to read the DATA segment
@@ -1320,7 +1314,7 @@ fn series_coerce(c: &Column, w: MixedType, conf: &WriteConfig) -> PureSuccess<Fi
                 );
                 deferred.push_msg_leveled(msg, conf.disallow_lossy_conversions);
             }
-            FixedColumnWriter::Ascii(AsciiColumnWriter { data, chars })
+            FixedColumnWriter::Ascii(NumColumnWriter { data, size: chars })
         }
 
         // Uint* -> Uint* is quite easy, just compare sizes and warn if the
@@ -1635,7 +1629,7 @@ fn h_write_numeric_dataframe<W: Write>(
                     FixedColumnWriter::NumF64(w) => {
                         Float64Type::h_write_float(h, &w.size, w.data[r])
                     }
-                    FixedColumnWriter::Ascii(w) => h_write_ascii_int(h, w.chars, w.data[r]),
+                    FixedColumnWriter::Ascii(w) => h_write_ascii_int(h, w.size, w.data[r]),
                 }?
             }
         }

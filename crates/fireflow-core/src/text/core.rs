@@ -1967,6 +1967,7 @@ where
     // include the time channel? hmm....
     // TODO make a better way to distinguish time and measurement (or whatever
     // we end up calling these)
+    #[allow(clippy::type_complexity)]
     pub fn remove_measurement_by_name(
         &mut self,
         n: &Shortname,
@@ -1979,6 +1980,7 @@ where
         }
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn remove_measurement_by_index(
         &mut self,
         index: MeasIdx,

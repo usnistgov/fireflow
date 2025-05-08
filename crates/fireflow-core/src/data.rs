@@ -301,7 +301,6 @@ impl VersionedDataLayout for DataLayout2_0 {
     fn try_new_from_raw(kws: &RawKeywords) -> Result<Self, Vec<String>> {
         let cs = Par::get_meta_req(kws).map_err(|e| vec![e]).and_then(|par| {
             let (pass, fail): (Vec<_>, Vec<_>) = (0..par.0)
-                .into_iter()
                 .map(|i| {
                     let w = Width::get_meas_req(kws, i.into());
                     let r = Range::get_meas_req(kws, i.into());
@@ -325,10 +324,10 @@ impl VersionedDataLayout for DataLayout2_0 {
         let b = ByteOrd::get_meta_req(kws);
         match (d, b, cs) {
             (Ok(datatype), Ok(byteord), Ok(columns)) => Self::try_new(datatype, byteord, columns),
-            (a, b, xs) => Err([a.err(), b.err()]
+            (x, y, zs) => Err([x.err(), y.err()]
                 .into_iter()
                 .flatten()
-                .chain(xs.err().unwrap_or_default())
+                .chain(zs.err().unwrap_or_default())
                 .collect()),
         }
     }
@@ -420,7 +419,6 @@ impl VersionedDataLayout for DataLayout3_0 {
     fn try_new_from_raw(kws: &RawKeywords) -> Result<Self, Vec<String>> {
         let cs = Par::get_meta_req(kws).map_err(|e| vec![e]).and_then(|par| {
             let (pass, fail): (Vec<_>, Vec<_>) = (0..par.0)
-                .into_iter()
                 .map(|i| {
                     let w = Width::get_meas_req(kws, i.into());
                     let r = Range::get_meas_req(kws, i.into());
@@ -444,10 +442,10 @@ impl VersionedDataLayout for DataLayout3_0 {
         let b = ByteOrd::get_meta_req(kws);
         match (d, b, cs) {
             (Ok(datatype), Ok(byteord), Ok(columns)) => Self::try_new(datatype, byteord, columns),
-            (a, b, xs) => Err([a.err(), b.err()]
+            (x, y, zs) => Err([x.err(), y.err()]
                 .into_iter()
                 .flatten()
-                .chain(xs.err().unwrap_or_default())
+                .chain(zs.err().unwrap_or_default())
                 .collect()),
         }
     }
@@ -529,7 +527,6 @@ impl VersionedDataLayout for DataLayout3_1 {
     fn try_new_from_raw(kws: &RawKeywords) -> Result<Self, Vec<String>> {
         let cs = Par::get_meta_req(kws).map_err(|e| vec![e]).and_then(|par| {
             let (pass, fail): (Vec<_>, Vec<_>) = (0..par.0)
-                .into_iter()
                 .map(|i| {
                     let w = Width::get_meas_req(kws, i.into());
                     let r = Range::get_meas_req(kws, i.into());
@@ -669,18 +666,16 @@ impl VersionedDataLayout for DataLayout3_2 {
         }?;
         let cs = {
             let (pass, fail): (Vec<_>, Vec<_>) = (0..par.0)
-                .into_iter()
                 .map(|i| {
                     let w = Width::get_meas_req(kws, i.into());
                     let r = Range::get_meas_req(kws, i.into());
-                    // TODO I use this alot...
-                    let d = NumType::get_meas_opt(kws, i.into())
-                        .map(|x| x.0.and_then(|y| y.try_into().ok()).unwrap_or(datatype));
-                    match (w, r, d) {
-                        (Ok(width), Ok(range), Ok(datatype)) => Ok(ColumnLayoutData {
+                    let pnd = NumType::get_meas_opt(kws, i.into())
+                        .map(|x| x.0.map(|y| y.into()).unwrap_or(datatype));
+                    match (w, r, pnd) {
+                        (Ok(width), Ok(range), Ok(pndatatype)) => Ok(ColumnLayoutData {
                             width,
                             range,
-                            datatype,
+                            datatype: pndatatype,
                         }),
                         (x, y, z) => {
                             Err([x.err(), y.err(), z.err()].into_iter().flatten().collect())
@@ -899,33 +894,6 @@ where
         self.event_width() * nrows
     }
 
-    // pub(crate) fn into_layout_with_tot(
-    //     self,
-    //     seg: Segment,
-    //     kw_tot: Option<Tot>,
-    // ) -> FixedWidthResult<C> {
-    //     let n = seg.nbytes() as usize;
-    //     let w = self.event_width();
-    //     let total_events = Tot(n / w);
-    //     let remainder = n % w;
-    //     let segment_mismatch = if remainder != 0 {
-    //         Some((n, remainder))
-    //     } else {
-    //         None
-    //     };
-    //     let kw_mismatch = kw_tot.and_then(|t| if t.0 == total_events.0 { None } else { Some(t) });
-    //     let layout = FixedLayout {
-    //         nrows: total_events,
-    //         columns: self.columns,
-    //     };
-    //     FixedWidthResult {
-    //         layout,
-    //         event_width: w,
-    //         segment_mismatch,
-    //         kw_mismatch,
-    //     }
-    // }
-
     pub(crate) fn into_reader(
         self,
         seg: Segment,
@@ -967,25 +935,6 @@ where
         PureSuccess { data: r, deferred }
     }
 
-    // pub(crate) fn into_layout_with_tot_res(
-    //     self,
-    //     seg: Segment,
-    //     kw_tot: Option<Tot>,
-    // ) -> PureSuccess<FixedLayout<Tot, C>> {
-    //     let res = self.into_layout_with_tot(seg, kw_tot);
-    //     let mut buf = PureErrorBuf::default();
-    //     if let Some(e) = res.segment_error() {
-    //         buf.push_warning(e);
-    //     }
-    //     if let Some(e) = res.kw_error() {
-    //         buf.push_warning(e);
-    //     }
-    //     PureSuccess {
-    //         data: res.layout,
-    //         deferred: buf,
-    //     }
-    // }
-
     fn h_write<W: Write>(
         &self,
         h: &mut BufWriter<W>,
@@ -1004,36 +953,6 @@ where
         h_write_numeric_dataframe(h, col_types, df, conf)
     }
 }
-
-// pub(crate) struct FixedWidthResult<C> {
-//     pub(crate) layout: FixedLayout<Tot, C>,
-//     event_width: usize,
-//     segment_mismatch: Option<(usize, usize)>,
-//     kw_mismatch: Option<Tot>,
-// }
-
-// impl<C> FixedWidthResult<C> {
-//     pub(crate) fn segment_error(&self) -> Option<String> {
-//         self.segment_mismatch.map(|(n, r)| {
-//             format!(
-//                 "Events are {} bytes wide, but this does not evenly \
-//                  divide DATA segment which is {n} bytes long \
-//                  (remainder of {r})",
-//                 self.event_width
-//             )
-//         })
-//     }
-
-//     pub(crate) fn kw_error(&self) -> Option<String> {
-//         self.kw_mismatch.map(|t| {
-//             format!(
-//                 "$TOT field is {t} but number of events \
-//                  that evenly fit into DATA is {}",
-//                 self.layout.nrows
-//             )
-//         })
-//     }
-// }
 
 trait IsFixed {
     fn width(&self) -> usize;
@@ -1194,10 +1113,8 @@ impl AnyUintLayout {
     ) -> Result<Self, Vec<String>> {
         let ncols = cs.len();
         let (ws, rs): (Vec<_>, Vec<_>) = cs.into_iter().map(|c| (c.width, c.range)).unzip();
-        // TODO test of octet vs variable
         let fixed: Vec<_> = ws.into_iter().flat_map(|w: Width| w.as_fixed()).collect();
         if fixed.len() < ncols {
-            //
             return Err(vec!["not all fixed width".into()]);
         }
         let bytes: Vec<_> = fixed.into_iter().flat_map(|f| f.bytes()).collect();
@@ -1626,7 +1543,6 @@ impl AlphaNumReader {
     }
 }
 
-// TODO this needs to be made generic
 /// Read the DATA segment and return a polars dataframe
 pub(crate) fn h_read_data_segment<R: Read + Seek>(
     h: &mut BufReader<R>,
@@ -1804,27 +1720,18 @@ macro_rules! convert_to_f64 {
     };
 }
 
-impl MixedType {
-    // TODO this in the number of literal bytes taken up by the column, use a
-    // newtype wrapper for this
-    pub(crate) fn width(&self) -> usize {
-        match self {
-            MixedType::Ascii(a) => usize::from(u8::from(a.chars)),
-            MixedType::Integer(ut) => usize::from(ut.nbytes()),
-            MixedType::Float(_) => 4,
-            MixedType::Double(_) => 8,
-        }
-    }
-
-    // fn datatype(&self) -> AlphaNumType {
-    //     match self {
-    //         ColumnType::Ascii { chars: _ } => AlphaNumType::Ascii,
-    //         ColumnType::Integer(_) => AlphaNumType::Integer,
-    //         ColumnType::Float(_) => AlphaNumType::Single,
-    //         ColumnType::Double(_) => AlphaNumType::Double,
-    //     }
-    // }
-}
+// impl MixedType {
+//     // TODO this in the number of literal bytes taken up by the column, use a
+//     // newtype wrapper for this
+//     pub(crate) fn width(&self) -> usize {
+//         match self {
+//             MixedType::Ascii(a) => usize::from(u8::from(a.chars)),
+//             MixedType::Integer(ut) => usize::from(ut.nbytes()),
+//             MixedType::Float(_) => 4,
+//             MixedType::Double(_) => 8,
+//         }
+//     }
+// }
 
 impl AnyUintType {
     fn native_nbytes(&self) -> u8 {
@@ -1853,61 +1760,6 @@ impl AnyUintType {
         }
     }
 }
-
-// impl RowColumnLayout {
-//     pub(crate) fn from_raw(kws: &RawKeywords, conf: &DataReadConfig) -> PureMaybe<Self> {
-//         let par = Par::get_meta_req(kws);
-//         let dt = AlphaNumType::get_meta_req(kws);
-//         let byteord = ByteOrd::get_meta_req(kws);
-//         self.as_row_column_layout(kws, conf, data_seg)
-//             .map(|maybe_layout| maybe_layout.map(|layout| layout.into_data_reader(data_seg)))
-//     }
-
-//     pub(crate) fn into_data_reader(self, data_seg: &Segment) -> DataReader {
-//         let column_parser = match self {
-//             DataLayout::AlphaNum { nrows, columns } => {
-//                 ColumnReader::AlphaNum(make_mixed_reader(columns, nrows))
-//             }
-//             DataLayout::AsciiDelimited { nrows, ncols } => {
-//                 let nbytes = data_seg.nbytes() as usize;
-//                 ColumnReader::DelimitedAscii(DelimAsciiReader {
-//                     ncols,
-//                     nrows,
-//                     nbytes,
-//                 })
-//             }
-//         };
-//         DataReader {
-//             column_reader: column_parser,
-//             begin: u64::from(data_seg.begin()),
-//         }
-//     }
-// }
-
-// fn make_mixed_reader(cs: Vec<MixedType>, total_events: Tot) -> AlphaNumReader {
-//     let columns = cs
-//         .into_iter()
-//         .map(|p| match p {
-//             MixedType::Ascii(a) => AlphaNumColumnReader::Ascii(AsciiColumnReader {
-//                 width: a.chars,
-//                 column: vec![],
-//             }),
-//             MixedType::Float(t) => {
-//                 AlphaNumColumnReader::Single(Float32Type::column_reader(t.order, total_events))
-//             }
-//             MixedType::Double(t) => {
-//                 AlphaNumColumnReader::Double(Float64Type::column_reader(t.order, total_events))
-//             }
-//             MixedType::Integer(col) => {
-//                 AlphaNumColumnReader::Uint(AnyUintColumnReader::from_column(col, total_events))
-//             }
-//         })
-//         .collect();
-//     AlphaNumReader {
-//         columns,
-//         nrows: total_events,
-//     }
-// }
 
 fn make_uint_type_inner(bytes: Bytes, r: &Range, e: Endian) -> Result<AnyUintType, String> {
     // ASSUME this can only be 1-8
@@ -2735,51 +2587,6 @@ fn into_writable_matrix64(df: &DataFrame, conf: &WriteConfig) -> PureSuccess<DMa
     }
 }
 
-// fn read_data_ascii_fixed<R: Read>(
-//     h: &mut BufReader<R>,
-//     parser: &FixedAsciiReader,
-// ) -> io::Result<DataFrame> {
-//     let ncols = parser.widths.len();
-//     let mut data: Vec<_> = iter::repeat_with(|| vec![0; parser.nrows.0])
-//         .take(ncols)
-//         .collect();
-//     let mut buf = String::new();
-//     for r in 0..parser.nrows.0 {
-//         for (c, width) in parser.widths.iter().enumerate() {
-//             buf.clear();
-//             h.take(u64::from(*width)).read_to_string(&mut buf)?;
-//             data[c][r] = parse_u64_io(&buf)?;
-//         }
-//     }
-//     // TODO not DRY
-//     let ss: Vec<_> = data
-//         .into_iter()
-//         .enumerate()
-//         .map(|(i, s)| {
-//             ChunkedArray::<UInt64Type>::from_vec(format!("M{i}").into(), s)
-//                 .into_series()
-//                 .into()
-//         })
-//         .collect();
-//     DataFrame::new(ss).map_err(|e| io::Error::other(e.to_string()))
-// }
-
-// fn read_data_int<R: Read>(h: &mut BufReader<R>, parser: UintReader) -> io::Result<DataFrame> {
-//     let mut p = parser;
-//     for r in 0..p.nrows {
-//         for c in p.columns.iter_mut() {
-//             c.read_to_column(h, r)?;
-//         }
-//     }
-//     let ss: Vec<_> = p
-//         .columns
-//         .into_iter()
-//         .enumerate()
-//         .map(|(i, c)| c.into_pl_series(format!("X{i}").into()).into())
-//         .collect();
-//     DataFrame::new(ss).map_err(|e| io::Error::other(e.to_string()))
-// }
-
 fn h_write_numeric_dataframe<W: Write>(
     h: &mut BufWriter<W>,
     cs: Vec<MixedType>,
@@ -2833,15 +2640,6 @@ fn h_write_delimited_matrix<W: Write>(h: &mut BufWriter<W>, m: DMatrix<u64>) -> 
         }
     }
     Ok(PureSuccess::from(()))
-}
-
-impl<T> DataLayout<T> {
-    fn ncols(&self) -> usize {
-        match self {
-            DataLayout::AsciiDelimited { nrows: _, ncols } => *ncols,
-            DataLayout::AlphaNum { nrows: _, columns } => columns.len(),
-        }
-    }
 }
 
 // TODO also check scale here?

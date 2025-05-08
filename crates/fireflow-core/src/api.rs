@@ -827,7 +827,7 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
             hash_raw_pairs(pairs, conf)
         });
         let stext_succ = split_succ.try_map(|mut kws| {
-            lookup_stext_offsets(&mut kws, header.version, conf).try_map(|s| {
+            lookup_stext_offsets(&kws, header.version, conf).try_map(|s| {
                 let succ = if let Some(seg) = s {
                     buf.clear();
                     seg.read(h, &mut buf)?;

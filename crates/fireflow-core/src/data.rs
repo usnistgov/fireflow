@@ -57,19 +57,19 @@ impl<M> VersionedCoreDataset<M>
 where
     M: VersionedMetadata,
     M::N: Clone,
-    M::L: VersionedDataLayout,
 {
     /// Write this dataset (HEADER+TEXT+DATA+ANALYSIS) to a handle
-    pub fn h_write<W>(&self, h: &mut BufWriter<W>, conf: &WriteConfig) -> ImpureResult<()>
+    pub(crate) fn h_write<L, W>(&self, h: &mut BufWriter<W>, conf: &WriteConfig) -> ImpureResult<()>
     where
         W: Write,
+        L: VersionedDataLayout<M = M>,
     {
         let df = &self.data;
 
         // TODO make sure all columns in dataframe are valid, and bail if not
 
         // Get the layout, or bail if we can't
-        let layout = self.text.as_column_layout().map_err(|es| Failure {
+        let layout: L = self.text.as_column_layout().map_err(|es| Failure {
             reason: "could not create data layout".to_string(),
             deferred: PureErrorBuf::from_many(es, PureErrorLevel::Error),
         })?;
@@ -221,12 +221,21 @@ impl AnyCoreDataset {
 }
 
 pub(crate) trait VersionedDataLayout: Sized {
-    type S;
+    type M: VersionedMetadata;
     type D;
+
+    fn as_column_layout(
+        metadata: &Metadata<Self::M>,
+        ms: &Measurements<
+            <Self::M as VersionedMetadata>::N,
+            <Self::M as VersionedMetadata>::T,
+            <Self::M as VersionedMetadata>::P,
+        >,
+    ) -> Result<Self, Vec<String>>;
 
     fn try_new(
         dt: AlphaNumType,
-        size: Self::S,
+        size: <Self::M as VersionedMetadata>::S,
         cs: Vec<ColumnLayoutData<Self::D>>,
     ) -> Result<Self, Vec<String>>;
 
@@ -247,25 +256,25 @@ pub(crate) trait VersionedDataLayout: Sized {
     fn try_new_from_raw(kws: &RawKeywords) -> Result<Self, Vec<String>>;
 }
 
-pub enum DataLayout2_0 {
+pub(crate) enum DataLayout2_0 {
     Ascii(AsciiLayout),
     Integer(AnyUintLayout),
     Float(FloatLayout),
 }
 
-pub enum DataLayout3_0 {
+pub(crate) enum DataLayout3_0 {
     Ascii(AsciiLayout),
     Integer(AnyUintLayout),
     Float(FloatLayout),
 }
 
-pub enum DataLayout3_1 {
+pub(crate) enum DataLayout3_1 {
     Ascii(AsciiLayout),
     Integer(FixedLayout<AnyUintType>),
     Float(FloatLayout),
 }
 
-pub enum DataLayout3_2 {
+pub(crate) enum DataLayout3_2 {
     // TODO we could just use delimited and mixed for this
     Ascii(AsciiLayout),
     Integer(FixedLayout<AnyUintType>),
@@ -417,9 +426,9 @@ type Uint64Type = UintType<u64, 8>;
 
 /// A generic integer column type with a byte-layout and bitmask.
 #[derive(PartialEq, Clone, Copy)]
-pub struct UintType<T, const LEN: usize> {
-    pub bitmask: T,
-    pub size: SizedByteOrd<LEN>,
+pub(crate) struct UintType<T, const LEN: usize> {
+    pub(crate) bitmask: T,
+    pub(crate) size: SizedByteOrd<LEN>,
 }
 
 /// Instructions and data to write one column of the DATA segment
@@ -462,44 +471,44 @@ pub(crate) enum ColumnReader {
     AlphaNum(AlphaNumReader),
 }
 
-struct DelimAsciiReader {
-    ncols: usize,
-    nrows: Option<Tot>,
-    nbytes: usize,
+pub(crate) struct DelimAsciiReader {
+    pub(crate) ncols: usize,
+    pub(crate) nrows: Option<Tot>,
+    pub(crate) nbytes: usize,
 }
 
-struct AlphaNumReader {
-    nrows: Tot,
-    columns: Vec<AlphaNumColumnReader>,
+pub(crate) struct AlphaNumReader {
+    pub(crate) nrows: Tot,
+    pub(crate) columns: Vec<AlphaNumColumnReader>,
 }
 
-enum AlphaNumColumnReader {
+pub(crate) enum AlphaNumColumnReader {
     Ascii(AsciiColumnReader),
     Uint(AnyUintColumnReader),
     Float(FloatReader),
 }
 
-enum FloatReader {
+pub(crate) enum FloatReader {
     F32(FloatColumnReader<f32, 4>),
     F64(FloatColumnReader<f64, 8>),
 }
 
-struct FloatColumnReader<T, const LEN: usize> {
-    column: Vec<T>,
-    size: SizedByteOrd<LEN>,
+pub(crate) struct FloatColumnReader<T, const LEN: usize> {
+    pub(crate) column: Vec<T>,
+    pub(crate) size: SizedByteOrd<LEN>,
 }
 
-struct AsciiColumnReader {
-    column: Vec<u64>,
-    width: Chars,
+pub(crate) struct AsciiColumnReader {
+    pub(crate) column: Vec<u64>,
+    pub(crate) width: Chars,
 }
 
-struct UintColumnReader<B, const LEN: usize> {
-    column: Vec<B>,
-    uint_type: UintType<B, LEN>,
+pub(crate) struct UintColumnReader<B, const LEN: usize> {
+    pub(crate) column: Vec<B>,
+    pub(crate) uint_type: UintType<B, LEN>,
 }
 
-enum AnyUintColumnReader {
+pub(crate) enum AnyUintColumnReader {
     Uint08(UintColumnReader<u8, 1>),
     Uint16(UintColumnReader<u16, 2>),
     Uint24(UintColumnReader<u32, 3>),
@@ -939,7 +948,7 @@ trait OrderedFromBytes<const DTLEN: usize, const OLEN: usize>: NumProps<DTLEN> {
     }
 }
 
-pub(crate) trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>
+trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>
 where
     Self::Native: NumProps<DTLEN>,
     Self::Native: OrderedFromBytes<DTLEN, INTLEN>,
@@ -1074,7 +1083,7 @@ where
     }
 }
 
-pub(crate) trait FloatFromBytes<const LEN: usize>
+trait FloatFromBytes<const LEN: usize>
 where
     Self::Native: NumProps<LEN>,
     Self::Native: OrderedFromBytes<LEN, LEN>,
@@ -1807,7 +1816,7 @@ where
     }
 }
 
-trait IsFixed {
+pub(crate) trait IsFixed {
     fn width(&self) -> usize;
 
     fn into_reader(self, nrows: usize) -> AlphaNumColumnReader;
@@ -2134,12 +2143,20 @@ impl FloatLayout {
 }
 
 impl VersionedDataLayout for DataLayout2_0 {
-    type S = ByteOrd;
+    type M = InnerMetadata2_0;
     type D = ();
+
+    fn as_column_layout(metadata: &Metadata2_0, ms: &Measurements2_0) -> Result<Self, Vec<String>> {
+        Self::try_new(
+            metadata.datatype(),
+            metadata.specific.byteord(),
+            ms.layout_data(),
+        )
+    }
 
     fn try_new(
         datatype: AlphaNumType,
-        byteord: Self::S,
+        byteord: ByteOrd,
         columns: Vec<ColumnLayoutData<Self::D>>,
     ) -> Result<Self, Vec<String>> {
         match datatype {
@@ -2251,12 +2268,20 @@ impl VersionedDataLayout for DataLayout2_0 {
 }
 
 impl VersionedDataLayout for DataLayout3_0 {
-    type S = ByteOrd;
+    type M = InnerMetadata3_0;
     type D = ();
+
+    fn as_column_layout(metadata: &Metadata3_0, ms: &Measurements3_0) -> Result<Self, Vec<String>> {
+        Self::try_new(
+            metadata.datatype(),
+            metadata.specific.byteord(),
+            ms.layout_data(),
+        )
+    }
 
     fn try_new(
         datatype: AlphaNumType,
-        byteord: Self::S,
+        byteord: ByteOrd,
         columns: Vec<ColumnLayoutData<Self::D>>,
     ) -> Result<Self, Vec<String>> {
         match datatype {
@@ -2356,12 +2381,20 @@ impl VersionedDataLayout for DataLayout3_0 {
 }
 
 impl VersionedDataLayout for DataLayout3_1 {
-    type S = Endian;
+    type M = InnerMetadata3_1;
     type D = ();
+
+    fn as_column_layout(metadata: &Metadata3_1, ms: &Measurements3_1) -> Result<Self, Vec<String>> {
+        Self::try_new(
+            metadata.datatype(),
+            metadata.specific.byteord(),
+            ms.layout_data(),
+        )
+    }
 
     fn try_new(
         datatype: AlphaNumType,
-        endian: Self::S,
+        endian: Endian,
         columns: Vec<ColumnLayoutData<Self::D>>,
     ) -> Result<Self, Vec<String>> {
         match datatype {
@@ -2464,12 +2497,34 @@ impl VersionedDataLayout for DataLayout3_1 {
 }
 
 impl VersionedDataLayout for DataLayout3_2 {
-    type S = Endian;
+    type M = InnerMetadata3_2;
     type D = AlphaNumType;
+
+    fn as_column_layout(metadata: &Metadata3_2, ms: &Measurements3_2) -> Result<Self, Vec<String>> {
+        let endian = metadata.specific.byteord;
+        let blank_cs = ms.layout_data();
+        let cs: Vec<_> = ms
+            .iter()
+            .map(|x| {
+                x.1.map_or_else(
+                    |m| (&m.value.specific.datatype),
+                    |t| (&t.value.specific.datatype),
+                )
+            })
+            .map(|dt| dt.0.map(|d| d.into()).unwrap_or(metadata.datatype()))
+            .zip(blank_cs)
+            .map(|(datatype, c)| ColumnLayoutData {
+                width: c.width,
+                range: c.range,
+                datatype,
+            })
+            .collect();
+        Self::try_new(metadata.datatype(), endian, cs)
+    }
 
     fn try_new(
         _: AlphaNumType,
-        endian: Self::S,
+        endian: Endian,
         columns: Vec<ColumnLayoutData<Self::D>>,
     ) -> Result<Self, Vec<String>> {
         let unique_dt: Vec<_> = columns.iter().map(|c| c.datatype).unique().collect();

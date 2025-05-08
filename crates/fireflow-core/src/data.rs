@@ -943,9 +943,6 @@ where
 }
 
 trait NumProps<const DTLEN: usize>: Sized + Copy {
-    // TODO just use default trait
-    fn zero() -> Self;
-
     fn from_big(buf: [u8; DTLEN]) -> Self;
 
     fn from_little(buf: [u8; DTLEN]) -> Self;
@@ -1165,7 +1162,7 @@ where
         total_events: Tot,
     ) -> FloatColumnReader<Self::Native, LEN> {
         FloatColumnReader {
-            column: vec![Self::Native::zero(); total_events.0],
+            column: vec![Self::Native::default(); total_events.0],
             size: order,
         }
     }
@@ -1506,12 +1503,8 @@ impl ValidType {
 }
 
 macro_rules! impl_num_props {
-    ($size:expr, $zero:expr, $t:ty, $p:ident) => {
+    ($size:expr, $t:ty, $p:ident) => {
         impl NumProps<$size> for $t {
-            fn zero() -> Self {
-                $zero
-            }
-
             fn to_big(self) -> [u8; $size] {
                 <$t>::to_be_bytes(self)
             }
@@ -1531,12 +1524,12 @@ macro_rules! impl_num_props {
     };
 }
 
-impl_num_props!(1, 0, u8, U08);
-impl_num_props!(2, 0, u16, U16);
-impl_num_props!(4, 0, u32, U32);
-impl_num_props!(8, 0, u64, U64);
-impl_num_props!(4, 0.0, f32, F32);
-impl_num_props!(8, 0.0, f64, F64);
+impl_num_props!(1, u8, U08);
+impl_num_props!(2, u16, U16);
+impl_num_props!(4, u32, U32);
+impl_num_props!(8, u64, U64);
+impl_num_props!(4, f32, F32);
+impl_num_props!(8, f64, F64);
 
 macro_rules! impl_int_math {
     ($t:ty) => {

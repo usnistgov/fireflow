@@ -1,4 +1,4 @@
-use crate::macros::newtype_from_outer;
+use crate::macros::{newtype_disp, newtype_from_outer};
 
 use itertools::Itertools;
 use serde::Serialize;
@@ -266,6 +266,8 @@ impl fmt::Display for ParseByteOrdError {
     }
 }
 
+newtype_disp!(Bytes);
+newtype_disp!(Chars);
 newtype_from_outer!(Bytes, u8);
 newtype_from_outer!(Chars, u8);
 newtype_from_outer!(BitsOrChars, u8);

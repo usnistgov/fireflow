@@ -1293,7 +1293,8 @@ fn series_coerce(c: &Column, w: MixedType, conf: &WriteConfig) -> PureSuccess<Fi
         // store floats at all, so warn user if input data is float or
         // double.
         MixedType::Ascii(a) => {
-            let xs: Vec<_> = match dt {
+            let chars = a.chars;
+            let data: Vec<_> = match dt {
                 ValidType::U08 => series_cast!(c, u8, u64),
                 ValidType::U16 => series_cast!(c, u16, u64),
                 ValidType::U32 => series_cast!(c, u32, u64),
@@ -1307,23 +1308,19 @@ fn series_coerce(c: &Column, w: MixedType, conf: &WriteConfig) -> PureSuccess<Fi
                     series_cast!(c, f32, u64)
                 }
             };
-            let maxdigits = xs
+            let maxdigits = data
                 .iter()
                 .max()
                 .and_then(|x| x.checked_ilog10().map(|y| y + 1))
                 .unwrap_or(1);
             if maxdigits > u8::from(a.chars).into() {
                 let msg = format!(
-                    "Largest value has {maxdigits} digits but only {} \
+                    "Largest value has {maxdigits} digits but only {chars} \
                      characters are allocated, data will be truncated.",
-                    u8::from(a.chars)
                 );
                 deferred.push_msg_leveled(msg, conf.disallow_lossy_conversions);
             }
-            FixedColumnWriter::Ascii(AsciiColumnWriter {
-                data: xs,
-                chars: a.chars,
-            })
+            FixedColumnWriter::Ascii(AsciiColumnWriter { data, chars })
         }
 
         // Uint* -> Uint* is quite easy, just compare sizes and warn if the

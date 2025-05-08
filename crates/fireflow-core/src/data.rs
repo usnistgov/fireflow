@@ -426,7 +426,7 @@ pub struct UintType<T, const LEN: usize> {
 ///
 /// Each column contains a buffer with the data to be written (in the correct
 /// type) and other type-specific information.
-enum ColumnWriter {
+enum FixedColumnWriter {
     NumU8(NumColumnWriter<u8, 1>),
     NumU16(NumColumnWriter<u16, 2>),
     NumU24(NumColumnWriter<u32, 3>),
@@ -438,13 +438,8 @@ enum ColumnWriter {
     NumF32(NumColumnWriter<f32, 4>),
     NumF64(NumColumnWriter<f64, 8>),
     // TODO why do I need four of these?
-    AsciiU8(AsciiColumnWriter<u8>),
-    AsciiU16(AsciiColumnWriter<u16>),
-    AsciiU32(AsciiColumnWriter<u32>),
-    AsciiU64(AsciiColumnWriter<u64>),
+    Ascii(AsciiColumnWriter<u64>),
 }
-
-use ColumnWriter::*;
 
 struct NumColumnWriter<T, const LEN: usize> {
     data: Vec<T>,
@@ -735,9 +730,10 @@ macro_rules! series_cast {
 
 fn warn_bitmask<T: Ord + Copy>(xs: Vec<T>, deferred: &mut PureErrorBuf, bitmask: T) -> Vec<T> {
     let mut has_seen = false;
+    // TODO can't I just find the max of the vector and use that?
     xs.into_iter()
         .map(|x| {
-            if x > bitmask && !has_seen {
+            if !has_seen && x > bitmask {
                 deferred.push_warning("bitmask exceed, value truncated".to_string());
                 has_seen = true
             }
@@ -748,7 +744,7 @@ fn warn_bitmask<T: Ord + Copy>(xs: Vec<T>, deferred: &mut PureErrorBuf, bitmask:
 
 macro_rules! convert_to_uint1 {
     ($series:expr, $deferred:expr, $wrap:ident, $from:ident, $to:ty, $ut:expr) => {
-        $wrap(NumColumnWriter {
+        FixedColumnWriter::$wrap(NumColumnWriter {
             data: warn_bitmask(
                 series_cast!($series, $from, $to),
                 &mut $deferred,
@@ -792,7 +788,7 @@ macro_rules! convert_to_uint {
 
 macro_rules! convert_to_float {
     ($size:expr, $series:expr, $wrap:ident, $from:ident, $to:ty) => {
-        $wrap(NumColumnWriter {
+        FixedColumnWriter::$wrap(NumColumnWriter {
             data: series_cast!($series, $from, $to),
             size: $size,
         })
@@ -810,19 +806,6 @@ macro_rules! convert_to_f64 {
         convert_to_float!($size, $series, NumF64, $from, f64)
     };
 }
-
-// impl MixedType {
-//     // TODO this in the number of literal bytes taken up by the column, use a
-//     // newtype wrapper for this
-//     pub(crate) fn width(&self) -> usize {
-//         match self {
-//             MixedType::Ascii(a) => usize::from(u8::from(a.chars)),
-//             MixedType::Integer(ut) => usize::from(ut.nbytes()),
-//             MixedType::Float(_) => 4,
-//             MixedType::Double(_) => 8,
-//         }
-//     }
-// }
 
 impl AnyUintType {
     fn native_nbytes(&self) -> u8 {
@@ -879,10 +862,8 @@ impl FixedLayout<AnyUintType> {
     pub(crate) fn try_new<D>(cs: Vec<ColumnLayoutData<D>>, o: Endian) -> Result<Self, Vec<String>> {
         let ncols = cs.len();
         let (ws, rs): (Vec<_>, Vec<_>) = cs.into_iter().map(|c| (c.width, c.range)).unzip();
-        // TODO test of octet vs variable
         let fixed: Vec<_> = ws.into_iter().flat_map(|w: Width| w.as_fixed()).collect();
         if fixed.len() < ncols {
-            //
             return Err(vec!["not all fixed width".into()]);
         }
         let bytes: Vec<_> = fixed.into_iter().flat_map(|f| f.bytes()).collect();
@@ -927,19 +908,6 @@ where
     }
 
     fn maxval() -> Self;
-
-    fn h_write_ascii_int<W: Write>(h: &mut BufWriter<W>, chars: Chars, x: Self) -> io::Result<()> {
-        let s = x.to_string();
-        // ASSUME bytes has been ensured to be able to hold the largest digit
-        // expressible with this type, which means this will never be negative
-        let w = u8::from(chars);
-        let offset = usize::from(w) - s.len();
-        let mut buf: Vec<u8> = vec![0, w];
-        for (i, c) in s.bytes().enumerate() {
-            buf[offset + i] = c;
-        }
-        h.write_all(&buf)
-    }
 }
 
 trait NumProps<const DTLEN: usize>: Sized + Copy {
@@ -1303,7 +1271,7 @@ where
 ///
 /// If the start type will fit into the end type, all is well and nothing bad
 /// will happen to user's precious data.
-fn series_coerce(c: &Column, w: MixedType, conf: &WriteConfig) -> PureSuccess<ColumnWriter> {
+fn series_coerce(c: &Column, w: MixedType, conf: &WriteConfig) -> PureSuccess<FixedColumnWriter> {
     // ASSUME this won't fail
     //
     // TODO could make this more robust by wrapping the Column in an
@@ -1311,13 +1279,6 @@ fn series_coerce(c: &Column, w: MixedType, conf: &WriteConfig) -> PureSuccess<Co
     let dt = ValidType::from(c.dtype()).unwrap();
     let mut deferred = PureErrorBuf::default();
 
-    let ascii_uint_warn = |d: &mut PureErrorBuf, bits, bytes| {
-        let msg = format!(
-            "writing ASCII as {bits}-bit uint in {bytes} \
-                             may result in truncation"
-        );
-        d.push_msg_leveled(msg, conf.disallow_lossy_conversions);
-    };
     let num_warn = |d: &mut PureErrorBuf, from, to| {
         let msg = format!("converting {from} to {to} may truncate data");
         d.push_msg_leveled(msg, conf.disallow_lossy_conversions);
@@ -1331,58 +1292,39 @@ fn series_coerce(c: &Column, w: MixedType, conf: &WriteConfig) -> PureSuccess<Co
         // hold the max range of the type being formatted. ASCII shouldn't
         // store floats at all, so warn user if input data is float or
         // double.
-        MixedType::Ascii(a) => match dt {
-            ValidType::U08 => {
-                if u8::from(a.chars) < 3 {
-                    ascii_uint_warn(&mut deferred, 8, 3);
+        MixedType::Ascii(a) => {
+            let xs: Vec<_> = match dt {
+                ValidType::U08 => series_cast!(c, u8, u64),
+                ValidType::U16 => series_cast!(c, u16, u64),
+                ValidType::U32 => series_cast!(c, u32, u64),
+                ValidType::U64 => c.u64().unwrap().into_no_null_iter().collect(),
+                ValidType::F32 => {
+                    num_warn(&mut deferred, "float", "uint64");
+                    series_cast!(c, f32, u64)
                 }
-                AsciiU8(AsciiColumnWriter {
-                    data: c.u8().unwrap().into_no_null_iter().collect(),
-                    chars: a.chars,
-                })
-            }
-            ValidType::U16 => {
-                if u8::from(a.chars) < 5 {
-                    ascii_uint_warn(&mut deferred, 16, 5);
+                ValidType::F64 => {
+                    num_warn(&mut deferred, "double", "uint64");
+                    series_cast!(c, f32, u64)
                 }
-                AsciiU16(AsciiColumnWriter {
-                    data: c.u16().unwrap().into_no_null_iter().collect(),
-                    chars: a.chars,
-                })
+            };
+            let maxdigits = xs
+                .iter()
+                .max()
+                .and_then(|x| x.checked_ilog10().map(|y| y + 1))
+                .unwrap_or(1);
+            if maxdigits > u8::from(a.chars).into() {
+                let msg = format!(
+                    "Largest value has {maxdigits} digits but only {} \
+                     characters are allocated, data will be truncated.",
+                    u8::from(a.chars)
+                );
+                deferred.push_msg_leveled(msg, conf.disallow_lossy_conversions);
             }
-            ValidType::U32 => {
-                if u8::from(a.chars) < 10 {
-                    ascii_uint_warn(&mut deferred, 32, 10);
-                }
-                AsciiU32(AsciiColumnWriter {
-                    data: c.u32().unwrap().into_no_null_iter().collect(),
-                    chars: a.chars,
-                })
-            }
-            ValidType::U64 => {
-                if u8::from(a.chars) < 20 {
-                    ascii_uint_warn(&mut deferred, 64, 20);
-                }
-                AsciiU64(AsciiColumnWriter {
-                    data: c.u64().unwrap().into_no_null_iter().collect(),
-                    chars: a.chars,
-                })
-            }
-            ValidType::F32 => {
-                num_warn(&mut deferred, "float", "uint64");
-                AsciiU64(AsciiColumnWriter {
-                    data: series_cast!(c, f32, u64),
-                    chars: a.chars,
-                })
-            }
-            ValidType::F64 => {
-                num_warn(&mut deferred, "double", "uint64");
-                AsciiU64(AsciiColumnWriter {
-                    data: series_cast!(c, f32, u64),
-                    chars: a.chars,
-                })
-            }
-        },
+            FixedColumnWriter::Ascii(AsciiColumnWriter {
+                data: xs,
+                chars: a.chars,
+            })
+        }
 
         // Uint* -> Uint* is quite easy, just compare sizes and warn if the
         // target type is too small. Float/double -> Uint always could
@@ -1642,7 +1584,7 @@ fn into_writable_columns(
     df: &DataFrame,
     cs: Vec<MixedType>,
     conf: &WriteConfig,
-) -> PureSuccess<Vec<ColumnWriter>> {
+) -> PureSuccess<Vec<FixedColumnWriter>> {
     let cols = df.get_columns();
     let (writable_columns, msgs): (Vec<_>, Vec<_>) = cs
         .into_iter()
@@ -1682,20 +1624,21 @@ fn h_write_numeric_dataframe<W: Write>(
         for r in 0..df_nrows {
             for c in writable_columns.iter() {
                 match c {
-                    NumU8(w) => UInt8Type::h_write_int(h, &w.size, w.data[r]),
-                    NumU16(w) => UInt16Type::h_write_int(h, &w.size, w.data[r]),
-                    NumU24(w) => UInt32Type::h_write_int(h, &w.size, w.data[r]),
-                    NumU32(w) => UInt32Type::h_write_int(h, &w.size, w.data[r]),
-                    NumU40(w) => UInt64Type::h_write_int(h, &w.size, w.data[r]),
-                    NumU48(w) => UInt64Type::h_write_int(h, &w.size, w.data[r]),
-                    NumU56(w) => UInt64Type::h_write_int(h, &w.size, w.data[r]),
-                    NumU64(w) => UInt64Type::h_write_int(h, &w.size, w.data[r]),
-                    NumF32(w) => Float32Type::h_write_float(h, &w.size, w.data[r]),
-                    NumF64(w) => Float64Type::h_write_float(h, &w.size, w.data[r]),
-                    AsciiU8(w) => u8::h_write_ascii_int(h, w.chars, w.data[r]),
-                    AsciiU16(w) => u16::h_write_ascii_int(h, w.chars, w.data[r]),
-                    AsciiU32(w) => u32::h_write_ascii_int(h, w.chars, w.data[r]),
-                    AsciiU64(w) => u64::h_write_ascii_int(h, w.chars, w.data[r]),
+                    FixedColumnWriter::NumU8(w) => UInt8Type::h_write_int(h, &w.size, w.data[r]),
+                    FixedColumnWriter::NumU16(w) => UInt16Type::h_write_int(h, &w.size, w.data[r]),
+                    FixedColumnWriter::NumU24(w) => UInt32Type::h_write_int(h, &w.size, w.data[r]),
+                    FixedColumnWriter::NumU32(w) => UInt32Type::h_write_int(h, &w.size, w.data[r]),
+                    FixedColumnWriter::NumU40(w) => UInt64Type::h_write_int(h, &w.size, w.data[r]),
+                    FixedColumnWriter::NumU48(w) => UInt64Type::h_write_int(h, &w.size, w.data[r]),
+                    FixedColumnWriter::NumU56(w) => UInt64Type::h_write_int(h, &w.size, w.data[r]),
+                    FixedColumnWriter::NumU64(w) => UInt64Type::h_write_int(h, &w.size, w.data[r]),
+                    FixedColumnWriter::NumF32(w) => {
+                        Float32Type::h_write_float(h, &w.size, w.data[r])
+                    }
+                    FixedColumnWriter::NumF64(w) => {
+                        Float64Type::h_write_float(h, &w.size, w.data[r])
+                    }
+                    FixedColumnWriter::Ascii(w) => h_write_ascii_int(h, w.chars, w.data[r]),
                 }?
             }
         }
@@ -2675,4 +2618,17 @@ impl VersionedDataLayout for DataLayout3_2 {
                     .map(|x| Some(ColumnReader::AlphaNum(x))),
             })
     }
+}
+
+fn h_write_ascii_int<W: Write>(h: &mut BufWriter<W>, chars: Chars, x: u64) -> io::Result<()> {
+    let s = x.to_string();
+    // ASSUME bytes has been ensured to be able to hold the largest digit
+    // in this column, which means this will never be negative
+    let w = u8::from(chars);
+    let offset = usize::from(w) - s.len();
+    let mut buf: Vec<u8> = vec![0, w];
+    for (i, c) in s.bytes().enumerate() {
+        buf[offset + i] = c;
+    }
+    h.write_all(&buf)
 }

@@ -220,7 +220,7 @@ impl AnyCoreDataset {
     }
 }
 
-pub(crate) trait VersionedDataLayout: Sized {
+pub trait VersionedDataLayout: Sized {
     type S;
     type D;
 
@@ -273,25 +273,25 @@ pub enum DataLayout3_2 {
     Mixed(FixedLayout<MixedType>),
 }
 
-pub(crate) enum AsciiLayout {
+pub enum AsciiLayout {
     Delimited(DelimitedLayout),
     Fixed(FixedLayout<AsciiType>),
 }
 
-pub(crate) enum FloatLayout {
+pub enum FloatLayout {
     F32(FixedLayout<F32Type>),
     F64(FixedLayout<F64Type>),
 }
 
-pub(crate) struct DelimitedLayout {
-    pub(crate) ncols: usize,
+pub struct DelimitedLayout {
+    pub ncols: usize,
 }
 
-pub(crate) struct FixedLayout<C> {
-    pub(crate) columns: Vec<C>,
+pub struct FixedLayout<C> {
+    pub columns: Vec<C>,
 }
 
-pub(crate) enum AnyUintLayout {
+pub enum AnyUintLayout {
     Uint08(FixedLayout<Uint08Type>),
     Uint16(FixedLayout<Uint16Type>),
     Uint24(FixedLayout<Uint24Type>),
@@ -317,14 +317,14 @@ pub(crate) enum AnyUintLayout {
 /// This will cover all possible data layouts, although not all possible layouts
 /// will be valid for each version, so this is enforced elsewhere.
 #[derive(Clone)]
-pub(crate) enum DataLayout<T> {
+pub enum DataLayout<T> {
     AsciiDelimited { nrows: Option<T>, ncols: usize },
     AlphaNum { nrows: T, columns: Vec<MixedType> },
 }
 
 /// The type of a non-delimited column in the DATA segment
 #[derive(PartialEq, Clone, Copy)]
-pub(crate) enum MixedType {
+pub enum MixedType {
     Ascii(AsciiType),
     Integer(AnyUintType),
     Float(F32Type),
@@ -332,7 +332,7 @@ pub(crate) enum MixedType {
 }
 
 #[derive(PartialEq, Clone, Copy)]
-pub(crate) struct AsciiType {
+pub struct AsciiType {
     pub(crate) chars: Chars,
 }
 
@@ -362,7 +362,7 @@ impl From<F64Type> for MixedType {
 
 /// A floating point column (to be further constained)
 #[derive(PartialEq, Clone, Copy)]
-pub(crate) struct FloatType<const LEN: usize, T> {
+pub struct FloatType<const LEN: usize, T> {
     pub order: SizedByteOrd<LEN>,
     // TODO why is this here?
     pub range: T,
@@ -370,7 +370,7 @@ pub(crate) struct FloatType<const LEN: usize, T> {
 
 /// An integer column of some size (1-8 bytes)
 #[derive(PartialEq, Clone, Copy)]
-pub(crate) enum AnyUintType {
+pub enum AnyUintType {
     Uint08(Uint08Type),
     Uint16(Uint16Type),
     Uint24(Uint24Type),
@@ -457,49 +457,49 @@ pub(crate) struct DataReader {
 /// but the case of delimited ASCII, this is pre-allocated with the number of
 /// rows to make reading faster. Each column has other information necessary to
 /// read the column (bitmask, width, etc).
-pub(crate) enum ColumnReader {
+pub enum ColumnReader {
     DelimitedAscii(DelimAsciiReader),
     AlphaNum(AlphaNumReader),
 }
 
-struct DelimAsciiReader {
-    ncols: usize,
-    nrows: Option<Tot>,
-    nbytes: usize,
+pub struct DelimAsciiReader {
+    pub ncols: usize,
+    pub nrows: Option<Tot>,
+    pub nbytes: usize,
 }
 
-struct AlphaNumReader {
-    nrows: Tot,
-    columns: Vec<AlphaNumColumnReader>,
+pub struct AlphaNumReader {
+    pub nrows: Tot,
+    pub columns: Vec<AlphaNumColumnReader>,
 }
 
-enum AlphaNumColumnReader {
+pub enum AlphaNumColumnReader {
     Ascii(AsciiColumnReader),
     Uint(AnyUintColumnReader),
     Float(FloatReader),
 }
 
-enum FloatReader {
+pub enum FloatReader {
     F32(FloatColumnReader<f32, 4>),
     F64(FloatColumnReader<f64, 8>),
 }
 
-struct FloatColumnReader<T, const LEN: usize> {
-    column: Vec<T>,
-    size: SizedByteOrd<LEN>,
+pub struct FloatColumnReader<T, const LEN: usize> {
+    pub column: Vec<T>,
+    pub size: SizedByteOrd<LEN>,
 }
 
-struct AsciiColumnReader {
-    column: Vec<u64>,
-    width: Chars,
+pub struct AsciiColumnReader {
+    pub column: Vec<u64>,
+    pub width: Chars,
 }
 
-struct UintColumnReader<B, const LEN: usize> {
-    column: Vec<B>,
-    uint_type: UintType<B, LEN>,
+pub struct UintColumnReader<B, const LEN: usize> {
+    pub column: Vec<B>,
+    pub uint_type: UintType<B, LEN>,
 }
 
-enum AnyUintColumnReader {
+pub enum AnyUintColumnReader {
     Uint08(UintColumnReader<u8, 1>),
     Uint16(UintColumnReader<u16, 2>),
     Uint24(UintColumnReader<u32, 3>),
@@ -1725,10 +1725,10 @@ fn parse_u64_io(s: &str) -> io::Result<u64> {
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }
 
-pub(crate) struct ColumnLayoutData<D> {
-    pub(crate) width: Width,
-    pub(crate) range: Range,
-    pub(crate) datatype: D,
+pub struct ColumnLayoutData<D> {
+    pub width: Width,
+    pub range: Range,
+    pub datatype: D,
 }
 
 impl<C> FixedLayout<C>
@@ -1747,11 +1747,7 @@ where
         self.event_width() * nrows
     }
 
-    pub(crate) fn into_reader(
-        self,
-        seg: Segment,
-        kw_tot: Option<Tot>,
-    ) -> PureSuccess<AlphaNumReader> {
+    pub fn into_reader(self, seg: Segment, kw_tot: Option<Tot>) -> PureSuccess<AlphaNumReader> {
         let n = seg.nbytes() as usize;
         let w = self.event_width();
         let total_events = n / w;

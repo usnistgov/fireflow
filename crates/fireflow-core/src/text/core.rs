@@ -619,6 +619,16 @@ pub type Measurement3_0 = Measurement<InnerMeasurement3_0>;
 pub type Measurement3_1 = Measurement<InnerMeasurement3_1>;
 pub type Measurement3_2 = Measurement<InnerMeasurement3_2>;
 
+pub type Measurements2_0 = Measurements<OptionalKwFamily, InnerTime2_0, InnerMeasurement2_0>;
+pub type Measurements3_0 = Measurements<OptionalKwFamily, InnerTime3_0, InnerMeasurement3_0>;
+pub type Measurements3_1 = Measurements<IdentityFamily, InnerTime3_1, InnerMeasurement3_1>;
+pub type Measurements3_2 = Measurements<IdentityFamily, InnerTime3_2, InnerMeasurement3_2>;
+
+pub type Metadata2_0 = Metadata<InnerMetadata2_0>;
+pub type Metadata3_0 = Metadata<InnerMetadata3_0>;
+pub type Metadata3_1 = Metadata<InnerMetadata3_1>;
+pub type Metadata3_2 = Metadata<InnerMetadata3_2>;
+
 impl<T> TimeChannel<T>
 where
     T: VersionedTime,

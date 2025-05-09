@@ -890,6 +890,9 @@ where
     fn maxval() -> Self;
 }
 
+// TODO clean this up with https://github.com/rust-lang/rust/issues/76560 once
+// it lands in a stable compiler, in theory there is no reason to put the length
+// of the type as a parameter, but the current compiler is not smart enough
 trait NumProps<const DTLEN: usize>: Sized + Copy {
     fn from_big(buf: [u8; DTLEN]) -> Self;
 

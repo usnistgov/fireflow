@@ -1410,7 +1410,7 @@ fn series_coerce64(c: &AnyFCSColumn, conf: &WriteConfig) -> PureSuccess<Vec<u64>
 }
 
 macro_rules! impl_num_props {
-    ($size:expr, $t:ty, $p:ident) => {
+    ($size:expr, $t:ty) => {
         impl NumProps<$size> for $t {
             fn to_big(self) -> [u8; $size] {
                 <$t>::to_be_bytes(self)
@@ -1431,12 +1431,12 @@ macro_rules! impl_num_props {
     };
 }
 
-impl_num_props!(1, u8, U08);
-impl_num_props!(2, u16, U16);
-impl_num_props!(4, u32, U32);
-impl_num_props!(8, u64, U64);
-impl_num_props!(4, f32, F32);
-impl_num_props!(8, f64, F64);
+impl_num_props!(1, u8);
+impl_num_props!(2, u16);
+impl_num_props!(4, u32);
+impl_num_props!(8, u64);
+impl_num_props!(4, f32);
+impl_num_props!(8, f64);
 
 macro_rules! impl_int_math {
     ($t:ty) => {

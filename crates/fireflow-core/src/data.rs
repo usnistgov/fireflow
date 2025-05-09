@@ -707,13 +707,8 @@ pub type CoreDataset3_2 = CoreDataset<
 >;
 
 macro_rules! series_cast {
-    ($series:expr, $from:ident, $to:ty) => {
-        $series
-            .$from()
-            .unwrap()
-            .into_no_null_iter()
-            .map(|x| x as $to)
-            .collect()
+    ($series:expr, $to:ty) => {
+        $series.iter_native().map(|x| x as $to).collect()
     };
 }
 
@@ -732,67 +727,63 @@ fn warn_bitmask<T: Ord + Copy>(xs: Vec<T>, deferred: &mut PureErrorBuf, bitmask:
 }
 
 macro_rules! convert_to_uint1 {
-    ($series:expr, $deferred:expr, $wrap:ident, $from:ident, $to:ty, $ut:expr) => {
+    ($series:expr, $deferred:expr, $wrap:ident, $to:ty, $ut:expr) => {
         FixedColumnWriter::$wrap(NumColumnWriter {
-            data: warn_bitmask(
-                series_cast!($series, $from, $to),
-                &mut $deferred,
-                $ut.bitmask,
-            ),
+            data: warn_bitmask(series_cast!($series, $to), &mut $deferred, $ut.bitmask),
             size: $ut.size,
         })
     };
 }
 
 macro_rules! convert_to_uint {
-    ($size:expr, $series:expr, $from:ident, $deferred:expr) => {
+    ($size:expr, $series:expr, $deferred:expr) => {
         match $size {
             AnyUintType::Uint08(ut) => {
-                convert_to_uint1!($series, $deferred, NumU8, $from, u8, ut)
+                convert_to_uint1!($series, $deferred, NumU8, u8, ut)
             }
             AnyUintType::Uint16(ut) => {
-                convert_to_uint1!($series, $deferred, NumU16, $from, u16, ut)
+                convert_to_uint1!($series, $deferred, NumU16, u16, ut)
             }
             AnyUintType::Uint24(ut) => {
-                convert_to_uint1!($series, $deferred, NumU24, $from, u32, ut)
+                convert_to_uint1!($series, $deferred, NumU24, u32, ut)
             }
             AnyUintType::Uint32(ut) => {
-                convert_to_uint1!($series, $deferred, NumU32, $from, u32, ut)
+                convert_to_uint1!($series, $deferred, NumU32, u32, ut)
             }
             AnyUintType::Uint40(ut) => {
-                convert_to_uint1!($series, $deferred, NumU40, $from, u64, ut)
+                convert_to_uint1!($series, $deferred, NumU40, u64, ut)
             }
             AnyUintType::Uint48(ut) => {
-                convert_to_uint1!($series, $deferred, NumU48, $from, u64, ut)
+                convert_to_uint1!($series, $deferred, NumU48, u64, ut)
             }
             AnyUintType::Uint56(ut) => {
-                convert_to_uint1!($series, $deferred, NumU56, $from, u64, ut)
+                convert_to_uint1!($series, $deferred, NumU56, u64, ut)
             }
             AnyUintType::Uint64(ut) => {
-                convert_to_uint1!($series, $deferred, NumU64, $from, u64, ut)
+                convert_to_uint1!($series, $deferred, NumU64, u64, ut)
             }
         }
     };
 }
 
 macro_rules! convert_to_float {
-    ($size:expr, $series:expr, $wrap:ident, $from:ident, $to:ty) => {
+    ($size:expr, $series:expr, $wrap:ident, $to:ty) => {
         FixedColumnWriter::$wrap(NumColumnWriter {
-            data: series_cast!($series, $from, $to),
+            data: series_cast!($series, $to),
             size: $size,
         })
     };
 }
 
 macro_rules! convert_to_f32 {
-    ($size:expr, $series:expr, $from:ident) => {
-        convert_to_float!($size, $series, NumF32, $from, f32)
+    ($size:expr, $series:expr) => {
+        convert_to_float!($size, $series, NumF32, f32)
     };
 }
 
 macro_rules! convert_to_f64 {
-    ($size:expr, $series:expr, $from:ident) => {
-        convert_to_float!($size, $series, NumF64, $from, f64)
+    ($size:expr, $series:expr) => {
+        convert_to_float!($size, $series, NumF64, f64)
     };
 }
 
@@ -1287,17 +1278,17 @@ fn series_coerce(
         MixedType::Ascii(a) => {
             let chars = a.chars;
             let data: Vec<_> = match c {
-                AnyFCSColumn::U08(xs) => series_cast!(xs.as_ref(), u8, u64),
-                AnyFCSColumn::U16(xs) => series_cast!(xs.as_ref(), u16, u64),
-                AnyFCSColumn::U32(xs) => series_cast!(xs.as_ref(), u32, u64),
-                AnyFCSColumn::U64(xs) => xs.as_ref().u64().unwrap().into_no_null_iter().collect(),
+                AnyFCSColumn::U08(xs) => series_cast!(xs, u64),
+                AnyFCSColumn::U16(xs) => series_cast!(xs, u64),
+                AnyFCSColumn::U32(xs) => series_cast!(xs, u64),
+                AnyFCSColumn::U64(xs) => xs.iter_native().collect(),
                 AnyFCSColumn::F32(xs) => {
                     num_warn(&mut deferred, "float", "uint64");
-                    series_cast!(xs.as_ref(), f32, u64)
+                    series_cast!(xs, u64)
                 }
                 AnyFCSColumn::F64(xs) => {
                     num_warn(&mut deferred, "double", "uint64");
-                    series_cast!(xs.as_ref(), f32, u64)
+                    series_cast!(xs, u64)
                 }
             };
             let maxdigits = data
@@ -1336,12 +1327,12 @@ fn series_coerce(
                 }
             }
             match c {
-                AnyFCSColumn::U08(xs) => convert_to_uint!(ut, xs.as_ref(), u8, deferred),
-                AnyFCSColumn::U16(xs) => convert_to_uint!(ut, xs.as_ref(), u16, deferred),
-                AnyFCSColumn::U32(xs) => convert_to_uint!(ut, xs.as_ref(), u32, deferred),
-                AnyFCSColumn::U64(xs) => convert_to_uint!(ut, xs.as_ref(), u64, deferred),
-                AnyFCSColumn::F32(xs) => convert_to_uint!(ut, xs.as_ref(), f32, deferred),
-                AnyFCSColumn::F64(xs) => convert_to_uint!(ut, xs.as_ref(), f64, deferred),
+                AnyFCSColumn::U08(xs) => convert_to_uint!(ut, xs, deferred),
+                AnyFCSColumn::U16(xs) => convert_to_uint!(ut, xs, deferred),
+                AnyFCSColumn::U32(xs) => convert_to_uint!(ut, xs, deferred),
+                AnyFCSColumn::U64(xs) => convert_to_uint!(ut, xs, deferred),
+                AnyFCSColumn::F32(xs) => convert_to_uint!(ut, xs, deferred),
+                AnyFCSColumn::F64(xs) => convert_to_uint!(ut, xs, deferred),
             }
         }
 
@@ -1355,12 +1346,12 @@ fn series_coerce(
                 _ => (),
             }
             match c {
-                AnyFCSColumn::U08(xs) => convert_to_f32!(t.order, xs.as_ref(), u8),
-                AnyFCSColumn::U16(xs) => convert_to_f32!(t.order, xs.as_ref(), u16),
-                AnyFCSColumn::U32(xs) => convert_to_f32!(t.order, xs.as_ref(), u32),
-                AnyFCSColumn::U64(xs) => convert_to_f32!(t.order, xs.as_ref(), u64),
-                AnyFCSColumn::F32(xs) => convert_to_f32!(t.order, xs.as_ref(), f32),
-                AnyFCSColumn::F64(xs) => convert_to_f32!(t.order, xs.as_ref(), f64),
+                AnyFCSColumn::U08(xs) => convert_to_f32!(t.order, xs),
+                AnyFCSColumn::U16(xs) => convert_to_f32!(t.order, xs),
+                AnyFCSColumn::U32(xs) => convert_to_f32!(t.order, xs),
+                AnyFCSColumn::U64(xs) => convert_to_f32!(t.order, xs),
+                AnyFCSColumn::F32(xs) => convert_to_f32!(t.order, xs),
+                AnyFCSColumn::F64(xs) => convert_to_f32!(t.order, xs),
             }
         }
 
@@ -1370,12 +1361,12 @@ fn series_coerce(
                 num_warn(&mut deferred, "double", "uint64")
             }
             match c {
-                AnyFCSColumn::U08(xs) => convert_to_f64!(t.order, xs.as_ref(), u8),
-                AnyFCSColumn::U16(xs) => convert_to_f64!(t.order, xs.as_ref(), u16),
-                AnyFCSColumn::U32(xs) => convert_to_f64!(t.order, xs.as_ref(), u32),
-                AnyFCSColumn::U64(xs) => convert_to_f64!(t.order, xs.as_ref(), u64),
-                AnyFCSColumn::F32(xs) => convert_to_f64!(t.order, xs.as_ref(), f32),
-                AnyFCSColumn::F64(xs) => convert_to_f64!(t.order, xs.as_ref(), f64),
+                AnyFCSColumn::U08(xs) => convert_to_f64!(t.order, xs),
+                AnyFCSColumn::U16(xs) => convert_to_f64!(t.order, xs),
+                AnyFCSColumn::U32(xs) => convert_to_f64!(t.order, xs),
+                AnyFCSColumn::U64(xs) => convert_to_f64!(t.order, xs),
+                AnyFCSColumn::F32(xs) => convert_to_f64!(t.order, xs),
+                AnyFCSColumn::F64(xs) => convert_to_f64!(t.order, xs),
             }
         }
     };
@@ -1399,17 +1390,17 @@ fn series_coerce64(c: &AnyFCSColumn, conf: &WriteConfig) -> PureSuccess<Vec<u64>
     };
 
     let res = match c {
-        AnyFCSColumn::U08(xs) => series_cast!(xs.as_ref(), u8, u64),
-        AnyFCSColumn::U16(xs) => series_cast!(xs.as_ref(), u16, u64),
-        AnyFCSColumn::U32(xs) => series_cast!(xs.as_ref(), u32, u64),
-        AnyFCSColumn::U64(xs) => series_cast!(xs.as_ref(), u64, u64),
+        AnyFCSColumn::U08(xs) => series_cast!(xs, u64),
+        AnyFCSColumn::U16(xs) => series_cast!(xs, u64),
+        AnyFCSColumn::U32(xs) => series_cast!(xs, u64),
+        AnyFCSColumn::U64(xs) => series_cast!(xs, u64),
         AnyFCSColumn::F32(xs) => {
             num_warn(&mut deferred, "float", "uint64");
-            series_cast!(xs.as_ref(), f32, u64)
+            series_cast!(xs, u64)
         }
         AnyFCSColumn::F64(xs) => {
             num_warn(&mut deferred, "double", "uint64");
-            series_cast!(xs.as_ref(), f64, u64)
+            series_cast!(xs, u64)
         }
     };
     PureSuccess {

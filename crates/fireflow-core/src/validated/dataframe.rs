@@ -150,8 +150,27 @@ impl FCSDataFrame {
     }
 }
 
-// trait NumColumn {
-//     type T;
+pub(crate) trait ColumnIter {
+    type T;
 
-//     fn ascii_nbytes() -> u32;
-// }
+    fn iter_native(&self) -> impl Iterator<Item = Self::T>;
+}
+
+macro_rules! impl_col_iter {
+    ($col_type:ident, $inner_type:ident) => {
+        impl ColumnIter for $col_type<'_> {
+            type T = $inner_type;
+
+            fn iter_native(&self) -> impl Iterator<Item = Self::T> {
+                self.0.$inner_type().unwrap().into_no_null_iter()
+            }
+        }
+    };
+}
+
+impl_col_iter!(U08Column, u8);
+impl_col_iter!(U16Column, u16);
+impl_col_iter!(U32Column, u32);
+impl_col_iter!(U64Column, u64);
+impl_col_iter!(F32Column, f32);
+impl_col_iter!(F64Column, f64);

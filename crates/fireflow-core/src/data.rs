@@ -66,33 +66,20 @@ where
     {
         let df = &self.data;
 
-        let valid_df = FCSDataFrame::try_from(df.clone()).map_err(|_| Failure {
-            reason: "dataframe is invalid".to_string(),
-            deferred: PureErrorBuf::default(),
-        })?;
-
         // Get the layout, or bail if we can't
         let layout = self.text.as_column_layout().map_err(|es| Failure {
             reason: "could not create data layout".to_string(),
             deferred: PureErrorBuf::from_many(es, PureErrorLevel::Error),
         })?;
 
-        // Count number of measurements from layout. If the dataframe doesn't match
-        // then something terrible happened and we need to escape through the
-        // wormhole.
-        let par = layout.ncols();
-        // TODO we can save a few method impl's by internalizing this check to
-        // the trait
-        let df_ncols = df.width();
-        if df_ncols != par {
-            Err(Failure::new(format!(
-                "datafame columns ({df_ncols}) unequal to number of measurements ({par})"
-            )))?;
-        }
+        let valid_df = FCSDataFrame::try_from(df.clone()).map_err(|_| Failure {
+            reason: "dataframe is invalid".to_string(),
+            deferred: PureErrorBuf::default(),
+        })?;
 
         let tot = Tot(df.height());
         let analysis_len = self.analysis.0.len();
-        let writer = layout.into_writer(&valid_df, conf)?;
+        let writer = layout.as_writer(&valid_df, conf)?;
         writer.try_map(|mut w| {
             // write HEADER+TEXT first
             if self.text.h_write(h, tot, w.nbytes(), analysis_len, conf)? {
@@ -248,12 +235,21 @@ pub trait VersionedDataLayout: Sized {
 
     fn into_reader(self, kws: &RawKeywords, data_seg: Segment) -> PureMaybe<ColumnReader>;
 
-    fn into_writer<'a>(
-        self,
+    fn as_writer<'a>(
+        &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
     ) -> PureResult<DataWriter<'a>> {
-        let res = self.into_writer_inner(df, conf);
+        // The dataframe should be encapsulated such that a) the column number
+        // matches the number of measurements. If these are not true, the code
+        // is wrong.
+        let par = self.ncols();
+        let ncols = df.as_ref().width();
+        if ncols != par {
+            panic!("datafame columns ({ncols}) unequal to number of measurements ({par})");
+        }
+
+        let res = self.as_writer_inner(df, conf);
         let level = if conf.disallow_lossy_conversions {
             PureErrorLevel::Error
         } else {
@@ -262,8 +258,8 @@ pub trait VersionedDataLayout: Sized {
         PureMaybe::from_result_strs(res, level).into_result("could not make data layout".into())
     }
 
-    fn into_writer_inner<'a>(
-        self,
+    fn as_writer_inner<'a>(
+        &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
     ) -> Result<DataWriter<'a>, Vec<String>>;
@@ -1607,7 +1603,7 @@ where
         PureSuccess { data: r, deferred }
     }
 
-    fn into_writer<'a>(
+    fn as_writer<'a>(
         &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
@@ -2041,8 +2037,8 @@ impl AnyUintLayout {
         )
     }
 
-    fn into_writer<'a>(
-        self,
+    fn as_writer<'a>(
+        &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
     ) -> Result<FixedWriter<'a>, Vec<String>> {
@@ -2051,7 +2047,7 @@ impl AnyUintLayout {
             AnyUintLayout,
             [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
             l,
-            { l.into_writer(df, conf) }
+            { l.as_writer(df, conf) }
         )
     }
 }
@@ -2085,13 +2081,13 @@ impl AsciiLayout {
         }
     }
 
-    fn into_writer<'a>(
+    fn as_writer<'a>(
         &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
     ) -> Result<DataWriter<'a>, Vec<String>> {
         match self {
-            AsciiLayout::Fixed(a) => a.into_writer(df, conf).map(DataWriter::Fixed),
+            AsciiLayout::Fixed(a) => a.as_writer(df, conf).map(DataWriter::Fixed),
             AsciiLayout::Delimited(_) => {
                 let ch = conf.check_conversion;
                 let go = |c| match c {
@@ -2165,14 +2161,14 @@ impl FloatLayout {
     }
 
     // TODO return type error is vague
-    fn into_writer<'a>(
-        self,
+    fn as_writer<'a>(
+        &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
     ) -> Result<FixedWriter<'a>, Vec<String>> {
         match self {
-            FloatLayout::F32(l) => l.into_writer(df, conf),
-            FloatLayout::F64(l) => l.into_writer(df, conf),
+            FloatLayout::F32(l) => l.as_writer(df, conf),
+            FloatLayout::F64(l) => l.as_writer(df, conf),
         }
     }
 }
@@ -2244,15 +2240,15 @@ impl VersionedDataLayout for DataLayout2_0 {
         }
     }
 
-    fn into_writer_inner<'a>(
-        self,
+    fn as_writer_inner<'a>(
+        &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
     ) -> Result<DataWriter<'a>, Vec<String>> {
         match self {
-            DataLayout2_0::Ascii(a) => a.into_writer(df, conf),
-            DataLayout2_0::Integer(i) => i.into_writer(df, conf).map(DataWriter::Fixed),
-            DataLayout2_0::Float(f) => f.into_writer(df, conf).map(DataWriter::Fixed),
+            DataLayout2_0::Ascii(a) => a.as_writer(df, conf),
+            DataLayout2_0::Integer(i) => i.as_writer(df, conf).map(DataWriter::Fixed),
+            DataLayout2_0::Float(f) => f.as_writer(df, conf).map(DataWriter::Fixed),
         }
     }
 
@@ -2353,15 +2349,15 @@ impl VersionedDataLayout for DataLayout3_0 {
         }
     }
 
-    fn into_writer_inner<'a>(
-        self,
+    fn as_writer_inner<'a>(
+        &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
     ) -> Result<DataWriter<'a>, Vec<String>> {
         match self {
-            DataLayout3_0::Ascii(a) => a.into_writer(df, conf),
-            DataLayout3_0::Integer(i) => i.into_writer(df, conf).map(DataWriter::Fixed),
-            DataLayout3_0::Float(f) => f.into_writer(df, conf).map(DataWriter::Fixed),
+            DataLayout3_0::Ascii(a) => a.as_writer(df, conf),
+            DataLayout3_0::Integer(i) => i.as_writer(df, conf).map(DataWriter::Fixed),
+            DataLayout3_0::Float(f) => f.as_writer(df, conf).map(DataWriter::Fixed),
         }
     }
 
@@ -2450,15 +2446,15 @@ impl VersionedDataLayout for DataLayout3_1 {
         }
     }
 
-    fn into_writer_inner<'a>(
-        self,
+    fn as_writer_inner<'a>(
+        &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
     ) -> Result<DataWriter<'a>, Vec<String>> {
         match self {
-            DataLayout3_1::Ascii(a) => a.into_writer(df, conf),
-            DataLayout3_1::Integer(i) => i.into_writer(df, conf).map(DataWriter::Fixed),
-            DataLayout3_1::Float(f) => f.into_writer(df, conf).map(DataWriter::Fixed),
+            DataLayout3_1::Ascii(a) => a.as_writer(df, conf),
+            DataLayout3_1::Integer(i) => i.as_writer(df, conf).map(DataWriter::Fixed),
+            DataLayout3_1::Float(f) => f.as_writer(df, conf).map(DataWriter::Fixed),
         }
     }
 
@@ -2582,16 +2578,16 @@ impl VersionedDataLayout for DataLayout3_2 {
         }
     }
 
-    fn into_writer_inner<'a>(
-        self,
+    fn as_writer_inner<'a>(
+        &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
     ) -> Result<DataWriter<'a>, Vec<String>> {
         match self {
-            DataLayout3_2::Ascii(a) => a.into_writer(df, conf),
-            DataLayout3_2::Integer(i) => i.into_writer(df, conf).map(DataWriter::Fixed),
-            DataLayout3_2::Float(f) => f.into_writer(df, conf).map(DataWriter::Fixed),
-            DataLayout3_2::Mixed(m) => m.into_writer(df, conf).map(DataWriter::Fixed),
+            DataLayout3_2::Ascii(a) => a.as_writer(df, conf),
+            DataLayout3_2::Integer(i) => i.as_writer(df, conf).map(DataWriter::Fixed),
+            DataLayout3_2::Float(f) => f.as_writer(df, conf).map(DataWriter::Fixed),
+            DataLayout3_2::Mixed(m) => m.as_writer(df, conf).map(DataWriter::Fixed),
         }
     }
 

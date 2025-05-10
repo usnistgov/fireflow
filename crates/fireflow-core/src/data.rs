@@ -2195,37 +2195,8 @@ impl VersionedDataLayout for DataLayout2_0 {
     }
 
     fn try_new_from_raw(kws: &RawKeywords) -> Result<Self, Vec<String>> {
-        let cs = Par::get_meta_req(kws).map_err(|e| vec![e]).and_then(|par| {
-            let (pass, fail): (Vec<_>, Vec<_>) = (0..par.0)
-                .map(|i| {
-                    let w = Width::get_meas_req(kws, i.into());
-                    let r = Range::get_meas_req(kws, i.into());
-                    match (w, r) {
-                        (Ok(width), Ok(range)) => Ok(ColumnLayoutData {
-                            width,
-                            range,
-                            datatype: (),
-                        }),
-                        (x, y) => Err([x.err(), y.err()].into_iter().flatten().collect()),
-                    }
-                })
-                .partition_result();
-            if fail.is_empty() {
-                Ok(pass)
-            } else {
-                Err(fail)
-            }
-        });
-        let d = AlphaNumType::get_meta_req(kws);
-        let b = ByteOrd::get_meta_req(kws);
-        match (d, b, cs) {
-            (Ok(datatype), Ok(byteord), Ok(columns)) => Self::try_new(datatype, byteord, columns),
-            (x, y, zs) => Err([x.err(), y.err()]
-                .into_iter()
-                .flatten()
-                .chain(zs.err().unwrap_or_default())
-                .collect()),
-        }
+        let (datatype, byteord, columns) = kws_get_layout_2_0(kws)?;
+        Self::try_new(datatype, byteord, columns)
     }
 
     fn ncols(&self) -> usize {
@@ -2302,39 +2273,9 @@ impl VersionedDataLayout for DataLayout3_0 {
         }
     }
 
-    // TODO very wetttt.....
     fn try_new_from_raw(kws: &RawKeywords) -> Result<Self, Vec<String>> {
-        let cs = Par::get_meta_req(kws).map_err(|e| vec![e]).and_then(|par| {
-            let (pass, fail): (Vec<_>, Vec<_>) = (0..par.0)
-                .map(|i| {
-                    let w = Width::get_meas_req(kws, i.into());
-                    let r = Range::get_meas_req(kws, i.into());
-                    match (w, r) {
-                        (Ok(width), Ok(range)) => Ok(ColumnLayoutData {
-                            width,
-                            range,
-                            datatype: (),
-                        }),
-                        (x, y) => Err([x.err(), y.err()].into_iter().flatten().collect()),
-                    }
-                })
-                .partition_result();
-            if fail.is_empty() {
-                Ok(pass)
-            } else {
-                Err(fail)
-            }
-        });
-        let d = AlphaNumType::get_meta_req(kws);
-        let b = ByteOrd::get_meta_req(kws);
-        match (d, b, cs) {
-            (Ok(datatype), Ok(byteord), Ok(columns)) => Self::try_new(datatype, byteord, columns),
-            (x, y, zs) => Err([x.err(), y.err()]
-                .into_iter()
-                .flatten()
-                .chain(zs.err().unwrap_or_default())
-                .collect()),
-        }
+        let (datatype, byteord, columns) = kws_get_layout_2_0(kws)?;
+        Self::try_new(datatype, byteord, columns)
     }
 
     fn ncols(&self) -> usize {
@@ -2401,27 +2342,7 @@ impl VersionedDataLayout for DataLayout3_1 {
     }
 
     fn try_new_from_raw(kws: &RawKeywords) -> Result<Self, Vec<String>> {
-        let cs = Par::get_meta_req(kws).map_err(|e| vec![e]).and_then(|par| {
-            let (pass, fail): (Vec<_>, Vec<_>) = (0..par.0)
-                .map(|i| {
-                    let w = Width::get_meas_req(kws, i.into());
-                    let r = Range::get_meas_req(kws, i.into());
-                    match (w, r) {
-                        (Ok(width), Ok(range)) => Ok(ColumnLayoutData {
-                            width,
-                            range,
-                            datatype: (),
-                        }),
-                        (x, y) => Err([x.err(), y.err()].into_iter().flatten().collect()),
-                    }
-                })
-                .partition_result();
-            if fail.is_empty() {
-                Ok(pass)
-            } else {
-                Err(fail)
-            }
-        });
+        let cs = kws_get_columns(kws);
         let d = AlphaNumType::get_meta_req(kws);
         let e = Endian::get_meta_req(kws);
         match (d, e, cs) {
@@ -2602,4 +2523,44 @@ impl VersionedDataLayout for DataLayout3_2 {
                 .map(|x| Some(ColumnReader::AlphaNum(x))),
         })
     }
+}
+
+fn kws_get_layout_2_0(
+    kws: &RawKeywords,
+) -> Result<(AlphaNumType, ByteOrd, Vec<ColumnLayoutData<()>>), Vec<String>> {
+    let cs = kws_get_columns(kws);
+    let d = AlphaNumType::get_meta_req(kws);
+    let b = ByteOrd::get_meta_req(kws);
+    match (d, b, cs) {
+        (Ok(datatype), Ok(byteord), Ok(columns)) => Ok((datatype, byteord, columns)),
+        (x, y, zs) => Err([x.err(), y.err()]
+            .into_iter()
+            .flatten()
+            .chain(zs.err().unwrap_or_default())
+            .collect()),
+    }
+}
+
+fn kws_get_columns(kws: &RawKeywords) -> Result<Vec<ColumnLayoutData<()>>, Vec<String>> {
+    Par::get_meta_req(kws).map_err(|e| vec![e]).and_then(|par| {
+        let (pass, fail): (Vec<_>, Vec<_>) = (0..par.0)
+            .map(|i| {
+                let w = Width::get_meas_req(kws, i.into());
+                let r = Range::get_meas_req(kws, i.into());
+                match (w, r) {
+                    (Ok(width), Ok(range)) => Ok(ColumnLayoutData {
+                        width,
+                        range,
+                        datatype: (),
+                    }),
+                    (x, y) => Err([x.err(), y.err()].into_iter().flatten().collect()),
+                }
+            })
+            .partition_result();
+        if fail.is_empty() {
+            Ok(pass)
+        } else {
+            Err(fail)
+        }
+    })
 }

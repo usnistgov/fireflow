@@ -856,7 +856,7 @@ impl PyStandardizedDataset {
         // NOTE polars Series is a wrapper around an Arc so clone just
         // increments the ref count for each column rather than "deepcopy" the
         // whole dataset.
-        PyDataFrame(self.0.dataset.as_data().clone())
+        PyDataFrame(self.0.dataset.as_data().clone().inner())
     }
 }
 

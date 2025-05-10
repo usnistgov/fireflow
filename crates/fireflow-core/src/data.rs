@@ -35,7 +35,7 @@ pub struct CoreDataset<M, T, P, N, W> {
     /// The type of each column is such that each measurement is encoded with
     /// zero loss. This will/should never contain NULL values despite the
     /// underlying arrow framework allowing NULLs to exist.
-    pub data: DataFrame,
+    pub data: FCSDataFrame,
 
     /// ANALYSIS segment
     ///
@@ -64,22 +64,16 @@ where
     where
         W: Write,
     {
-        let df = &self.data;
-
         // Get the layout, or bail if we can't
         let layout = self.text.as_column_layout().map_err(|es| Failure {
             reason: "could not create data layout".to_string(),
             deferred: PureErrorBuf::from_many(es, PureErrorLevel::Error),
         })?;
 
-        let valid_df = FCSDataFrame::try_from(df.clone()).map_err(|_| Failure {
-            reason: "dataframe is invalid".to_string(),
-            deferred: PureErrorBuf::default(),
-        })?;
-
-        let tot = Tot(df.height());
+        let df = &self.data;
+        let tot = Tot(df.as_ref().height());
         let analysis_len = self.analysis.0.len();
-        let writer = layout.as_writer(&valid_df, conf)?;
+        let writer = layout.as_writer(df, conf)?;
         writer.try_map(|mut w| {
             // write HEADER+TEXT first
             if self.text.h_write(h, tot, w.nbytes(), analysis_len, conf)? {
@@ -140,12 +134,14 @@ where
         col: Vec<T::Native>,
     ) -> Result<Shortname, String>
     where
-        T: PolarsNumericType,
+        T: PolarsFCSType,
         ChunkedArray<T>: IntoSeries,
     {
         let k = self.text.push_measurement(n, m)?;
-        let ser = ChunkedArray::<T>::from_vec(k.as_ref().into(), col).into_series();
-        self.data.with_column(ser).map_err(|e| e.to_string())?;
+        // ASSUME this won't be reached if the name already exists
+        self.data
+            .with_vec(k.as_ref(), col)
+            .map_err(|e| e.to_string())?;
         Ok(k)
     }
 
@@ -157,13 +153,13 @@ where
         col: Vec<T::Native>,
     ) -> Result<Shortname, String>
     where
-        T: PolarsNumericType,
+        T: PolarsFCSType,
         ChunkedArray<T>: IntoSeries,
     {
         let k = self.text.insert_measurement(i, n, m)?;
-        let ser = ChunkedArray::<T>::from_vec(k.as_ref().into(), col).into_series();
+        // ASSUME this won't be reached if the name already exists
         self.data
-            .insert_column(i.into(), ser)
+            .insert_vec(i.into(), k.as_ref(), col)
             .map_err(|e| e.to_string())?;
         Ok(k)
     }
@@ -206,13 +202,13 @@ pub enum AnyCoreDataset {
 }
 
 impl AnyCoreDataset {
-    pub fn as_data(&self) -> &DataFrame {
+    pub fn as_data(&self) -> &FCSDataFrame {
         match_many_to_one!(self, AnyCoreDataset, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
             &x.data
         })
     }
 
-    pub fn as_data_mut(&mut self) -> &mut DataFrame {
+    pub fn as_data_mut(&mut self) -> &mut FCSDataFrame {
         match_many_to_one!(self, AnyCoreDataset, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
             &mut x.data
         })

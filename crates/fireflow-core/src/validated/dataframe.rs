@@ -4,6 +4,7 @@ use polars::prelude::*;
 use std::iter;
 
 /// A dataframe without NULL and only types that make sense for FCS files.
+#[derive(Clone)]
 pub struct FCSDataFrame(DataFrame);
 
 /// Any valid column from an FCS dataframe
@@ -97,6 +98,43 @@ impl FCSDataFrame {
                 _ => unreachable!(),
             })
             .collect()
+    }
+
+    pub fn inner(self) -> DataFrame {
+        self.0
+    }
+
+    pub(crate) fn drop_in_place(&mut self, name: &str) -> Result<Column, PolarsError> {
+        self.0.drop_in_place(name)
+    }
+
+    pub(crate) fn with_vec<T>(
+        &mut self,
+        k: &str,
+        xs: Vec<T::Native>,
+    ) -> Result<&mut FCSDataFrame, PolarsError>
+    where
+        T: PolarsFCSType,
+        ChunkedArray<T>: IntoSeries,
+    {
+        let ser = ChunkedArray::<T>::from_vec(k.into(), xs).into_series();
+        self.0.with_column(ser)?;
+        Ok(self)
+    }
+
+    pub(crate) fn insert_vec<T>(
+        &mut self,
+        i: usize,
+        k: &str,
+        xs: Vec<T::Native>,
+    ) -> Result<&mut FCSDataFrame, PolarsError>
+    where
+        T: PolarsFCSType,
+        ChunkedArray<T>: IntoSeries,
+    {
+        let ser = ChunkedArray::<T>::from_vec(k.into(), xs).into_series();
+        self.0.insert_column(i, ser)?;
+        Ok(self)
     }
 
     /// Return number of bytes this will occupy if written as delimited ASCII

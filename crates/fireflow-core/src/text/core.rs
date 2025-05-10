@@ -5,6 +5,7 @@ use crate::header::*;
 use crate::header_text::*;
 use crate::macros::match_many_to_one;
 use crate::segment::*;
+use crate::validated::dataframe::FCSDataFrame;
 use crate::validated::nonstandard::*;
 use crate::validated::pattern::*;
 use crate::validated::shortname::*;
@@ -2611,12 +2612,13 @@ where
 
     pub(crate) fn into_dataset_unchecked(
         self,
-        data: DataFrame,
+        mut df: DataFrame,
         analysis: Analysis,
     ) -> VersionedCoreDataset<M> {
         let ns = self.df_names();
-        let mut data = data;
-        data.set_column_names(ns).unwrap();
+        df.set_column_names(ns)
+            .expect("error when setting new dataframe names");
+        let data = FCSDataFrame::try_from(df).expect("dataframe has non-FCS types");
         CoreDataset {
             text: Box::new(self),
             data,

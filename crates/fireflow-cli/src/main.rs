@@ -16,12 +16,12 @@ fn print_json<T: Serialize>(j: &T) {
 }
 
 pub fn print_parsed_data(s: &mut api::StandardizedDataset, _delim: &str) -> PolarsResult<()> {
+    let mut df = s.dataset.as_data().clone().inner();
     let mut fd = std::io::stdout();
     CsvWriter::new(&mut fd)
         .include_header(true)
         .with_separator(b'\t')
-        // TODO why does this need to be mutable?
-        .finish(s.dataset.as_data_mut())
+        .finish(&mut df)
 }
 
 // TODO use warnings_are_errors flag

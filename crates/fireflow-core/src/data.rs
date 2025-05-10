@@ -567,7 +567,7 @@ pub(crate) enum FixedColumnWriter0<'a, X> {
     Ascii(NumColumnWriter0<'a, X, u64, Chars>),
 }
 
-impl<'a, X> FixedColumnWriter0<'a, X> {
+impl<X> FixedColumnWriter0<'_, X> {
     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()> {
         match self {
             FixedColumnWriter0::U08(c) => c.h_write_int(h),
@@ -593,8 +593,9 @@ impl<X, Y, const INTLEN: usize> NumColumnWriter0<'_, X, Y, UintType<Y, INTLEN>> 
         <Y as FromStr>::Err: fmt::Display,
         <Y as FromStr>::Err: IntErr,
     {
-        let (_, x) = self.data.next().unwrap();
-        Y::h_write_int(h, &self.size.size, x)
+        let x = self.data.next().unwrap();
+        // TODO names are a bit weird...
+        Y::h_write_int(h, &self.size.size, x.new.min(self.size.bitmask))
     }
 }
 
@@ -604,22 +605,22 @@ impl<X, Y, const DTLEN: usize> NumColumnWriter0<'_, X, Y, SizedByteOrd<DTLEN>> {
         Y: FloatFromBytes<DTLEN>,
         <Y as FromStr>::Err: fmt::Display,
     {
-        let (_, x) = self.data.next().unwrap();
-        Y::h_write_float(h, &self.size, x)
+        let x = self.data.next().unwrap();
+        Y::h_write_float(h, &self.size, x.new)
     }
 }
 
 impl<X> NumColumnWriter0<'_, X, u64, Chars> {
     fn h_write_ascii<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()> {
-        let (_, x) = self.data.next().unwrap();
-        h_write_ascii_int(h, self.size, x)
+        let x = self.data.next().unwrap();
+        h_write_ascii_int(h, self.size, x.new)
     }
 }
 
 impl<X> NumColumnWriter0<'_, X, u64, ()> {
     fn h_write_delim_ascii<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()> {
-        let (_, x) = self.data.next().unwrap();
-        let s = x.to_string();
+        let x = self.data.next().unwrap();
+        let s = x.new.to_string();
         let buf = s.as_bytes();
         h.write_all(buf)
     }

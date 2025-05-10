@@ -158,18 +158,18 @@ impl FCSDataFrame {
 type FCSColIterInner<'a, T> = iter::Flatten<Box<dyn PolarsIterator<Item = Option<T>> + 'a>>;
 
 pub(crate) type FCSColIter<'a, FromType, ToType> =
-    iter::Map<FCSColIterInner<'a, FromType>, fn(FromType) -> (FromType, ToType)>;
+    iter::Map<FCSColIterInner<'a, FromType>, fn(FromType) -> CastResult<ToType>>;
 
 pub(crate) trait PolarsFCSType
 where
     Self: PolarsNumericType,
 {
-    fn iter_native<'a>(c: FCSColumn<'a, Self>) -> FCSColIterInner<'a, Self::Native>;
+    fn iter_native(c: FCSColumn<'_, Self>) -> FCSColIterInner<'_, Self::Native>;
 
-    fn into_writer<'a, ToType, S>(
-        c: FCSColumn<'a, Self>,
+    fn into_writer<ToType, S>(
+        c: FCSColumn<'_, Self>,
         s: S,
-    ) -> NumColumnWriter0<'a, Self::Native, ToType, S>
+    ) -> NumColumnWriter0<'_, Self::Native, ToType, S>
     where
         ToType: NumCast<Self::Native>,
     {
@@ -183,7 +183,7 @@ where
 macro_rules! impl_col_iter {
     ($pltype:ident) => {
         impl PolarsFCSType for $pltype {
-            fn iter_native<'a>(c: FCSColumn<'a, Self>) -> FCSColIterInner<'a, Self::Native> {
+            fn iter_native(c: FCSColumn<'_, Self>) -> FCSColIterInner<'_, Self::Native> {
                 c.0.into_iter().flatten()
             }
         }
@@ -197,29 +197,144 @@ impl_col_iter!(UInt64Type);
 impl_col_iter!(Float32Type);
 impl_col_iter!(Float64Type);
 
-pub(crate) trait NumCast<T> {
-    fn from_truncated(x: T) -> (T, Self);
+pub(crate) struct CastResult<T> {
+    pub(crate) new: T,
+    pub(crate) lossy: bool,
 }
 
-macro_rules! impl_numcast {
-    ($($numtype:ty),*) => {
-        impl_numcast!($($numtype,)* @inner $($numtype),*);
-    };
+pub(crate) trait NumCast<T>: Sized {
+    fn from_truncated(x: T) -> CastResult<Self>;
+}
 
-    ($first:ty, $($rest:ty),+, @inner $($to:ty),*) => {
-        impl_numcast!($first, @inner $($to),+);
-        impl_numcast!($($rest,)+ @inner $($to),+);
-    };
-
-    ($from:ty, @inner $($to:ty),*) => {
-        $(
-            impl NumCast<$from> for $to {
-                fn from_truncated(x: $from) -> ($from, Self) {
-                    (x, x as $to)
+macro_rules! impl_cast_noloss {
+    ($from:ident, $to:ident) => {
+        impl NumCast<$from> for $to {
+            fn from_truncated(x: $from) -> CastResult<Self> {
+                CastResult {
+                    new: x.into(),
+                    lossy: false,
                 }
             }
-        )*
+        }
     };
 }
 
-impl_numcast!(u8, u16, u32, u64, f32, f64);
+macro_rules! impl_cast_int_lossy {
+    ($from:ident, $to:ident) => {
+        impl NumCast<$from> for $to {
+            fn from_truncated(x: $from) -> CastResult<Self> {
+                CastResult {
+                    new: x as $to,
+                    lossy: $to::try_from(x).is_err(),
+                }
+            }
+        }
+    };
+}
+
+macro_rules! impl_cast_float_to_int_lossy {
+    ($from:ident, $to:ident) => {
+        impl NumCast<$from> for $to {
+            fn from_truncated(x: $from) -> CastResult<Self> {
+                CastResult {
+                    new: x as $to,
+                    lossy: x.is_nan()
+                        || x.is_infinite()
+                        || x.is_sign_negative()
+                        || x.floor() != x
+                        || x > $to::MAX as $from,
+                }
+            }
+        }
+    };
+}
+
+macro_rules! impl_cast_int_to_float_lossy {
+    ($from:ident, $to:ident, $bits:expr) => {
+        impl NumCast<$from> for $to {
+            fn from_truncated(x: $from) -> CastResult<Self> {
+                CastResult {
+                    new: x as $to,
+                    lossy: x > 2 ^ $bits,
+                }
+            }
+        }
+    };
+}
+
+impl_cast_noloss!(u8, u8);
+impl_cast_noloss!(u8, u16);
+impl_cast_noloss!(u8, u32);
+impl_cast_noloss!(u8, u64);
+impl_cast_noloss!(u8, f32);
+impl_cast_noloss!(u8, f64);
+
+impl_cast_int_lossy!(u16, u8);
+impl_cast_noloss!(u16, u16);
+impl_cast_noloss!(u16, u32);
+impl_cast_noloss!(u16, u64);
+impl_cast_noloss!(u16, f32);
+impl_cast_noloss!(u16, f64);
+
+impl_cast_int_lossy!(u32, u8);
+impl_cast_int_lossy!(u32, u16);
+impl_cast_noloss!(u32, u32);
+impl_cast_noloss!(u32, u64);
+impl_cast_int_to_float_lossy!(u32, f32, 24);
+impl_cast_noloss!(u32, f64);
+
+impl_cast_int_lossy!(u64, u8);
+impl_cast_int_lossy!(u64, u16);
+impl_cast_int_lossy!(u64, u32);
+impl_cast_noloss!(u64, u64);
+impl_cast_int_to_float_lossy!(u64, f32, 24);
+impl_cast_int_to_float_lossy!(u64, f64, 53);
+
+impl_cast_float_to_int_lossy!(f32, u8);
+impl_cast_float_to_int_lossy!(f32, u16);
+impl_cast_float_to_int_lossy!(f32, u32);
+impl_cast_float_to_int_lossy!(f32, u64);
+impl_cast_noloss!(f32, f32);
+impl_cast_noloss!(f32, f64);
+
+impl_cast_float_to_int_lossy!(f64, u8);
+impl_cast_float_to_int_lossy!(f64, u16);
+impl_cast_float_to_int_lossy!(f64, u32);
+impl_cast_float_to_int_lossy!(f64, u64);
+
+impl NumCast<f64> for f32 {
+    fn from_truncated(x: f64) -> CastResult<Self> {
+        CastResult {
+            new: x as f32,
+            lossy: true,
+        }
+    }
+}
+
+impl_cast_noloss!(f64, f64);
+
+// macro_rules! impl_numcast {
+//     ($($numtype:ty),*) => {
+//         impl_numcast!($($numtype,)* @inner $($numtype),*);
+//     };
+
+//     ($first:ty, $($rest:ty),+, @inner $($to:ty),*) => {
+//         impl_numcast!($first, @inner $($to),+);
+//         impl_numcast!($($rest,)+ @inner $($to),+);
+//     };
+
+//     ($from:ty, @inner $($to:ty),*) => {
+//         $(
+//             impl NumCast<$from> for $to {
+//                 fn from_truncated(x: $from) -> CastResult<Self> {
+//                     CastResult {
+//                         lossy: false,
+//                         new: x as $to,
+//                     }
+//                 }
+//             }
+//         )*
+//     };
+// }
+
+// impl_numcast!(u8, u16, u32, u64, f32, f64);

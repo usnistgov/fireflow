@@ -256,25 +256,6 @@ pub fn read_fcs_raw_file(p: path::PathBuf, conf: &DataReadConfig) -> ImpureResul
     let mut h = BufReader::new(file);
     RawTEXT::h_read(&mut h, &conf.standard.raw)?
         .try_map(|raw| h_read_raw_dataset(&mut h, raw, conf))
-
-    // let file = fs::File::options().read(true).open(p)?;
-    // let mut reader = BufReader::new(file);
-    // let header = read_header(&mut reader)?;
-    // let raw = read_raw_text(&mut reader, &header, &conf.text.raw)?;
-    // // TODO need to modify this so it doesn't do the crazy version checking
-    // // stuff we don't actually want in this case
-    // match parse_raw_text(header.clone(), raw.clone(), &conf.text) {
-    //     Ok(std) => {
-    //         let data = read_data(&mut reader, std.data_parser).unwrap();
-    //         Ok(Ok(FCSSuccess {
-    //             header,
-    //             raw,
-    //             std: (),
-    //             data,
-    //         }))
-    //     }
-    //     Err(e) => Ok(Err(e)),
-    // }
 }
 
 /// Return header, structured metadata, and data in an FCS file.
@@ -350,7 +331,7 @@ fn h_read_std_dataset<R: Read + Seek>(
                 })
         })
         .try_map(|(reader_maybe, data_seg, analysis_seg)| {
-            let dmsg = "could not create data parser".to_string();
+            let dmsg = "could not create data reader".to_string();
             let reader = reader_maybe.ok_or(Failure::new(dmsg))?;
             let data = reader.h_read(h)?;
             let analysis = h_read_analysis(h, &analysis_seg)?;

@@ -628,9 +628,12 @@ impl<X, Y, const INTLEN: usize> IntColumnWriter<'_, X, Y, INTLEN> {
         Y: IntFromBytes<DTLEN, INTLEN>,
         <Y as FromStr>::Err: fmt::Display,
         <Y as FromStr>::Err: IntErr,
+        Y: Ord,
     {
         let x = self.data.next().unwrap();
-        Y::h_write_int(h, &self.size.byteord, x.new.min(self.size.bitmask))
+        x.new
+            .min(self.size.bitmask)
+            .h_write_int(h, &self.size.byteord)
     }
 }
 
@@ -640,8 +643,7 @@ impl<X, Y, const DTLEN: usize> FloatColumnWriter<'_, X, Y, DTLEN> {
         Y: FloatFromBytes<DTLEN>,
         <Y as FromStr>::Err: fmt::Display,
     {
-        let x = self.data.next().unwrap();
-        Y::h_write_float(h, &self.size, x.new)
+        self.data.next().unwrap().new.h_write_float(h, &self.size)
     }
 }
 
@@ -754,8 +756,8 @@ impl DataReader {
 impl FloatReader {
     fn h_read<R: Read>(&mut self, h: &mut BufReader<R>, r: usize) -> io::Result<()> {
         match self {
-            FloatReader::F32(t) => f32::h_read_to_column(h, t, r),
-            FloatReader::F64(t) => f64::h_read_to_column(h, t, r),
+            FloatReader::F32(t) => t.h_read(h, r),
+            FloatReader::F64(t) => t.h_read(h, r),
         }
     }
 
@@ -1026,11 +1028,11 @@ trait OrderedFromBytes<const DTLEN: usize, const OLEN: usize>: NumProps<DTLEN> {
     }
 
     fn h_write_from_ordered<W: Write>(
+        self,
         h: &mut BufWriter<W>,
         order: &[u8; OLEN],
-        x: Self,
     ) -> io::Result<()> {
-        let tmp = Self::to_little(x);
+        let tmp = Self::to_little(self);
         let mut buf = [0; OLEN];
         for (i, j) in order.iter().enumerate() {
             buf[usize::from(*j)] = tmp[i];
@@ -1044,7 +1046,6 @@ where
     Self: OrderedFromBytes<DTLEN, INTLEN>,
     Self: TryFrom<u64>,
     Self: IntMath,
-    Self: Ord,
     <Self as FromStr>::Err: fmt::Display,
     <Self as FromStr>::Err: IntErr,
 {
@@ -1100,14 +1101,6 @@ where
         }
     }
 
-    fn h_read_int_masked<R: Read>(
-        h: &mut BufReader<R>,
-        byteord: &SizedByteOrd<INTLEN>,
-        bitmask: Self,
-    ) -> io::Result<Self> {
-        Self::h_read_int(h, byteord).map(|x| x.min(bitmask))
-    }
-
     fn h_read_int<R: Read>(
         h: &mut BufReader<R>,
         byteord: &SizedByteOrd<INTLEN>,
@@ -1139,32 +1132,23 @@ where
         }
     }
 
-    fn h_read_to_column<R: Read>(
-        h: &mut BufReader<R>,
-        d: &mut UintColumnReader<Self, INTLEN>,
-        row: usize,
-    ) -> io::Result<()> {
-        d.column[row] = Self::h_read_int_masked(h, &d.uint_type.byteord, d.uint_type.bitmask)?;
-        Ok(())
-    }
-
     fn h_write_int<W: Write>(
+        self,
         h: &mut BufWriter<W>,
         byteord: &SizedByteOrd<INTLEN>,
-        x: Self,
     ) -> io::Result<()> {
         match byteord {
             SizedByteOrd::Endian(e) => {
                 let mut buf = [0; INTLEN];
                 let (start, end, tmp) = if *e == Endian::Big {
-                    ((DTLEN - INTLEN), DTLEN, Self::to_big(x))
+                    ((DTLEN - INTLEN), DTLEN, Self::to_big(self))
                 } else {
-                    (0, INTLEN, Self::to_little(x))
+                    (0, INTLEN, Self::to_little(self))
                 };
                 buf[..].copy_from_slice(&tmp[start..end]);
                 h.write_all(&buf)
             }
-            SizedByteOrd::Order(order) => Self::h_write_from_ordered(h, order, x),
+            SizedByteOrd::Order(order) => self.h_write_from_ordered(h, order),
         }
     }
 }
@@ -1177,48 +1161,6 @@ where
     <Self as FromStr>::Err: fmt::Display,
     Self: Clone,
 {
-    fn h_read_to_column<R: Read>(
-        h: &mut BufReader<R>,
-        column: &mut FloatColumnReader<Self, LEN>,
-        row: usize,
-    ) -> io::Result<()> {
-        column.column[row] = Self::h_read_float(h, &column.size)?;
-        Ok(())
-    }
-
-    // /// Read byte sequence into a matrix of floats
-    // fn read_matrix<R: Read>(h: &mut BufReader<R>, p: FloatReader<LEN>) -> io::Result<DataFrame> {
-    //     let mut columns: Vec<_> = iter::repeat_with(|| vec![Self::zero(); p.nrows])
-    //         .take(p.ncols)
-    //         .collect();
-    //     for row in 0..p.nrows {
-    //         for column in columns.iter_mut() {
-    //             column[row] = Self::read_float(h, &p.byteord)?;
-    //         }
-    //     }
-    //     let ss: Vec<_> = columns
-    //         .into_iter()
-    //         .enumerate()
-    //         .map(|(i, s)| {
-    //             ChunkedArray::<Self>::from_vec(format!("M{i}").into(), s)
-    //                 .into_series()
-    //                 .into()
-    //         })
-    //         .collect();
-    //     DataFrame::new(ss).map_err(|e| io::Error::other(e.to_string()))
-    //     // Ok(Dataframe::from(
-    //     //     columns.into_iter().map(Vec::<Self>::into).collect(),
-    //     // ))
-    // }
-
-    // /// Make configuration to read one column of floats in a dataset.
-    // fn column_reader(order: SizedByteOrd<LEN>, total_events: Tot) -> FloatColumnReader<Self, LEN> {
-    //     FloatColumnReader {
-    //         column: vec![Self::default(); total_events.0],
-    //         size: order,
-    //     }
-    // }
-
     fn column_type_endian(o: Endian, r: &Range) -> Result<FloatType<LEN, Self>, String> {
         r.as_ref()
             .parse::<Self>()
@@ -1229,8 +1171,6 @@ where
             .map_err(|e| e.to_string())
     }
 
-    // TODO what happens if byteord is endian which is only 4 bytes wide by
-    // definition but we want a 64bit float? probably bad stuff
     fn column_type(o: &ByteOrd, r: &Range) -> Result<FloatType<LEN, Self>, Vec<String>> {
         match (o.as_sized(), r.as_ref().parse::<Self>()) {
             (Ok(order), Ok(range)) => Ok(FloatType { order, range }),
@@ -1293,19 +1233,6 @@ where
         }
     }
 
-    // fn make_matrix_parser(
-    //     byteord: &ByteOrd,
-    //     par: usize,
-    //     total_events: usize,
-    // ) -> PureMaybe<FloatReader<LEN>> {
-    //     let res = byteord.as_sized().map(|b| FloatReader {
-    //         nrows: total_events,
-    //         ncols: par,
-    //         byteord: b,
-    //     });
-    //     PureMaybe::from_result_1(res, PureErrorLevel::Error)
-    // }
-
     fn h_read_float<R: Read>(
         h: &mut BufReader<R>,
         byteord: &SizedByteOrd<LEN>,
@@ -1325,20 +1252,20 @@ where
     }
 
     fn h_write_float<W: Write>(
+        self,
         h: &mut BufWriter<W>,
         byteord: &SizedByteOrd<LEN>,
-        x: Self,
     ) -> io::Result<()> {
         match byteord {
             SizedByteOrd::Endian(e) => {
                 let buf: [u8; LEN] = if *e == Endian::Big {
-                    Self::to_big(x)
+                    Self::to_big(self)
                 } else {
-                    Self::to_little(x)
+                    Self::to_little(self)
                 };
                 h.write_all(&buf)
             }
-            SizedByteOrd::Order(order) => Self::h_write_from_ordered(h, order, x),
+            SizedByteOrd::Order(order) => self.h_write_from_ordered(h, order),
         }
     }
 }
@@ -1465,16 +1392,13 @@ impl AnyUintColumnReader {
     }
 
     fn h_read_to_column<R: Read>(&mut self, h: &mut BufReader<R>, r: usize) -> io::Result<()> {
-        match self {
-            AnyUintColumnReader::Uint08(d) => u8::h_read_to_column(h, d, r)?,
-            AnyUintColumnReader::Uint16(d) => u16::h_read_to_column(h, d, r)?,
-            AnyUintColumnReader::Uint24(d) => u32::h_read_to_column(h, d, r)?,
-            AnyUintColumnReader::Uint32(d) => u32::h_read_to_column(h, d, r)?,
-            AnyUintColumnReader::Uint40(d) => u64::h_read_to_column(h, d, r)?,
-            AnyUintColumnReader::Uint48(d) => u64::h_read_to_column(h, d, r)?,
-            AnyUintColumnReader::Uint56(d) => u64::h_read_to_column(h, d, r)?,
-            AnyUintColumnReader::Uint64(d) => u64::h_read_to_column(h, d, r)?,
-        }
+        match_many_to_one!(
+            self,
+            AnyUintColumnReader,
+            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+            d,
+            { d.h_read(h, r)? }
+        );
         Ok(())
     }
 }
@@ -1891,6 +1815,35 @@ where
     }
 }
 
+impl<T, const INTLEN: usize> UintColumnReader<T, INTLEN> {
+    fn h_read<R: Read, const DTLEN: usize>(
+        &mut self,
+        h: &mut BufReader<R>,
+        row: usize,
+    ) -> io::Result<()>
+    where
+        T: IntFromBytes<DTLEN, INTLEN>,
+        <T as FromStr>::Err: fmt::Display,
+        <T as FromStr>::Err: IntErr,
+        T: Ord,
+    {
+        let x = T::h_read_int(h, &self.uint_type.byteord)?;
+        self.column[row] = x.min(self.uint_type.bitmask);
+        Ok(())
+    }
+}
+
+impl<T, const LEN: usize> FloatColumnReader<T, LEN> {
+    fn h_read<R: Read>(&mut self, h: &mut BufReader<R>, row: usize) -> io::Result<()>
+    where
+        T: FloatFromBytes<LEN>,
+        <T as FromStr>::Err: fmt::Display,
+    {
+        self.column[row] = T::h_read_float(h, &self.size)?;
+        Ok(())
+    }
+}
+
 impl From<FloatColumnReader<f32, 4>> for AlphaNumColumnReader {
     fn from(value: FloatColumnReader<f32, 4>) -> Self {
         AlphaNumColumnReader::Float(FloatReader::F32(value))
@@ -1979,6 +1932,7 @@ impl IsFixed for MixedType {
     }
 }
 
+// TODO clean up errors here
 impl AnyUintLayout {
     pub(crate) fn try_new<D>(
         cs: Vec<ColumnLayoutData<D>>,

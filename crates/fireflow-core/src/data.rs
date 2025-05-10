@@ -3049,13 +3049,18 @@ impl VersionedDataLayout for DataLayout3_2 {
 
 fn h_write_ascii_int<W: Write>(h: &mut BufWriter<W>, chars: Chars, x: u64) -> io::Result<()> {
     let s = x.to_string();
-    // ASSUME bytes has been ensured to be able to hold the largest digit
-    // in this column, which means this will never be negative
-    let w = u8::from(chars);
-    let offset = usize::from(w) - s.len();
-    let mut buf: Vec<u8> = vec![0, w];
-    for (i, c) in s.bytes().enumerate() {
-        buf[offset + i] = c;
-    }
-    h.write_all(&buf)
+    let w: usize = u8::from(chars).into();
+    if s.len() >= w {
+        // if string is greater than allocated chars, only write a fraction
+        // starting from the left
+        let offset = s.len() - w;
+        h.write_all(&s.as_bytes()[offset..]);
+    } else {
+        // if string less than allocated chars, pad left side with zero before
+        // writing number
+        for _ in 0..(w - s.len()) {
+            h.write_all(&[30]);
+        }
+        h.write_all(s.as_bytes());
+    };
 }

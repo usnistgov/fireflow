@@ -429,22 +429,6 @@ pub struct UintType<T, const LEN: usize> {
     pub size: SizedByteOrd<LEN>,
 }
 
-enum DataWriter<'a> {
-    Delim(DelimWriter<'a>),
-    Fixed(FixedWriter<'a>),
-}
-
-struct DelimWriter<'a>(Vec<AnyDelimColumnWriter<'a>>);
-
-enum AnyDelimColumnWriter<'a> {
-    FromU08(NumColumnWriter0<'a, u8, u64, ()>),
-    FromU16(NumColumnWriter0<'a, u16, u64, ()>),
-    FromU32(NumColumnWriter0<'a, u32, u64, ()>),
-    FromU64(NumColumnWriter0<'a, u64, u64, ()>),
-    FromF32(NumColumnWriter0<'a, f32, u64, ()>),
-    FromF64(NumColumnWriter0<'a, f64, u64, ()>),
-}
-
 /// Instructions and data to write one column of the DATA segment
 ///
 /// Each column contains a buffer with the data to be written (in the correct
@@ -473,7 +457,79 @@ pub(crate) struct NumColumnWriter0<'a, X, Y, S> {
     pub(crate) size: S,
 }
 
-struct FixedWriter<'a>(Vec<AnyFixedColumnWriter<'a>>);
+enum DataWriter<'a> {
+    Delim(DelimWriter<'a>),
+    Fixed(FixedWriter<'a>),
+}
+
+impl<'a> DataWriter<'a> {
+    fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()> {
+        match self {
+            DataWriter::Delim(d) => d.h_write(h),
+            DataWriter::Fixed(f) => f.h_write(h),
+        }
+    }
+}
+
+struct DelimWriter<'a> {
+    columns: Vec<AnyDelimColumnWriter<'a>>,
+    nrows: usize,
+}
+
+impl<'a> DelimWriter<'a> {
+    fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()> {
+        let ncols = self.columns.len();
+        let nrows = self.nrows;
+        for i in 0..nrows {
+            for (j, c) in self.columns.iter_mut().enumerate() {
+                c.h_write(h)?;
+                // write delimiter after all but last value
+                if !(i == nrows - 1 && j == ncols - 1) {
+                    h.write_all(&[32])?; // 32 = space in ASCII
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<'a> FixedWriter<'a> {
+    fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()> {
+        for _ in 0..self.nrows {
+            for c in self.columns.iter_mut() {
+                c.h_write(h)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+enum AnyDelimColumnWriter<'a> {
+    FromU08(NumColumnWriter0<'a, u8, u64, ()>),
+    FromU16(NumColumnWriter0<'a, u16, u64, ()>),
+    FromU32(NumColumnWriter0<'a, u32, u64, ()>),
+    FromU64(NumColumnWriter0<'a, u64, u64, ()>),
+    FromF32(NumColumnWriter0<'a, f32, u64, ()>),
+    FromF64(NumColumnWriter0<'a, f64, u64, ()>),
+}
+
+impl AnyDelimColumnWriter<'_> {
+    fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()> {
+        match self {
+            AnyDelimColumnWriter::FromU08(c) => c.h_write_delim_ascii(h),
+            AnyDelimColumnWriter::FromU16(c) => c.h_write_delim_ascii(h),
+            AnyDelimColumnWriter::FromU32(c) => c.h_write_delim_ascii(h),
+            AnyDelimColumnWriter::FromU64(c) => c.h_write_delim_ascii(h),
+            AnyDelimColumnWriter::FromF32(c) => c.h_write_delim_ascii(h),
+            AnyDelimColumnWriter::FromF64(c) => c.h_write_delim_ascii(h),
+        }
+    }
+}
+
+struct FixedWriter<'a> {
+    columns: Vec<AnyFixedColumnWriter<'a>>,
+    nrows: usize,
+}
 
 enum AnyFixedColumnWriter<'a> {
     FromU08(FixedColumnWriter0<'a, u8>),
@@ -484,13 +540,18 @@ enum AnyFixedColumnWriter<'a> {
     FromF64(FixedColumnWriter0<'a, f64>),
 }
 
-// impl<'a> AnyFixedColumnWriter<'a> {
-//     fn new<S>(c: &AnyFCSColumn, s: S) -> Self {
-//         match c {
-//             AnyFCSColumn::U08(xs) => AnyFixedColumnWriter::FromU08(NumColumnWriter0::new(xs, s)),
-//         }
-//     }
-// }
+impl AnyFixedColumnWriter<'_> {
+    fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()> {
+        match self {
+            AnyFixedColumnWriter::FromU08(c) => c.h_write(h),
+            AnyFixedColumnWriter::FromU16(c) => c.h_write(h),
+            AnyFixedColumnWriter::FromU32(c) => c.h_write(h),
+            AnyFixedColumnWriter::FromU64(c) => c.h_write(h),
+            AnyFixedColumnWriter::FromF32(c) => c.h_write(h),
+            AnyFixedColumnWriter::FromF64(c) => c.h_write(h),
+        }
+    }
+}
 
 pub(crate) enum FixedColumnWriter0<'a, X> {
     U08(NumColumnWriter0<'a, X, u8, Uint08Type>),
@@ -506,20 +567,25 @@ pub(crate) enum FixedColumnWriter0<'a, X> {
     Ascii(NumColumnWriter0<'a, X, u64, Chars>),
 }
 
-// impl<'a, X, Y, S> NumColumnWriter0<'a, X, Y, S> {
-//     fn new<C>(c: &'a C, s: S) -> Self
-//     where
-//         C: ColumnIter<X = X>,
-//         Y: NumCast<X>,
-//     {
-//         NumColumnWriter0 {
-//             data: c.iter_casted(),
-//             size: s,
-//         }
-//     }
-// }
+impl<'a, X> FixedColumnWriter0<'a, X> {
+    fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()> {
+        match self {
+            FixedColumnWriter0::U08(c) => c.h_write_int(h),
+            FixedColumnWriter0::U16(c) => c.h_write_int(h),
+            FixedColumnWriter0::U24(c) => c.h_write_int(h),
+            FixedColumnWriter0::U32(c) => c.h_write_int(h),
+            FixedColumnWriter0::U40(c) => c.h_write_int(h),
+            FixedColumnWriter0::U48(c) => c.h_write_int(h),
+            FixedColumnWriter0::U56(c) => c.h_write_int(h),
+            FixedColumnWriter0::U64(c) => c.h_write_int(h),
+            FixedColumnWriter0::F32(c) => c.h_write_float(h),
+            FixedColumnWriter0::F64(c) => c.h_write_float(h),
+            FixedColumnWriter0::Ascii(c) => c.h_write_ascii(h),
+        }
+    }
+}
 
-impl<X, Y, const INTLEN: usize> NumColumnWriter0<'_, X, Y, SizedByteOrd<INTLEN>> {
+impl<X, Y, const INTLEN: usize> NumColumnWriter0<'_, X, Y, UintType<Y, INTLEN>> {
     fn h_write_int<W: Write, const DTLEN: usize>(&mut self, h: &mut BufWriter<W>) -> io::Result<()>
     where
         Y: IntFromBytes<DTLEN, INTLEN>,
@@ -527,7 +593,7 @@ impl<X, Y, const INTLEN: usize> NumColumnWriter0<'_, X, Y, SizedByteOrd<INTLEN>>
         <Y as FromStr>::Err: IntErr,
     {
         let x = self.data.next().unwrap();
-        Y::h_write_int(h, &self.size, x)
+        Y::h_write_int(h, &self.size.size, x)
     }
 }
 
@@ -536,7 +602,6 @@ impl<X, Y, const DTLEN: usize> NumColumnWriter0<'_, X, Y, SizedByteOrd<DTLEN>> {
     where
         Y: FloatFromBytes<DTLEN>,
         <Y as FromStr>::Err: fmt::Display,
-        <Y as FromStr>::Err: IntErr,
     {
         let x = self.data.next().unwrap();
         Y::h_write_float(h, &self.size, x)
@@ -547,6 +612,15 @@ impl<X> NumColumnWriter0<'_, X, u64, Chars> {
     fn h_write_ascii<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()> {
         let x = self.data.next().unwrap();
         h_write_ascii_int(h, self.size, x)
+    }
+}
+
+impl<X> NumColumnWriter0<'_, X, u64, ()> {
+    fn h_write_delim_ascii<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()> {
+        let x = self.data.next().unwrap();
+        let s = x.to_string();
+        let buf = s.as_bytes();
+        h.write_all(buf)
     }
 }
 
@@ -1862,7 +1936,10 @@ where
             .zip(df.columns())
             .map(|(t, c): (MixedType, AnyFCSColumn)| t.into_writer(c))
             .collect();
-        FixedWriter(ws)
+        FixedWriter {
+            columns: ws,
+            nrows: df.as_ref().height(),
+        }
         // h_write_numeric_dataframe(h, col_types, df, conf)
     }
 
@@ -2390,7 +2467,10 @@ impl AsciiLayout {
                         }
                     })
                     .collect();
-                DataWriter::Delim(DelimWriter(ws))
+                DataWriter::Delim(DelimWriter {
+                    columns: ws,
+                    nrows: df.as_ref().height(),
+                })
             } // into_writable_matrix64(df, conf)
               // .try_map(|matrix| h_write_delimited_matrix(h, matrix)),
         }

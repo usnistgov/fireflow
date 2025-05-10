@@ -1,10 +1,10 @@
-use crate::data::NumColumnWriter0;
+use crate::data::NumColumnWriter;
 
 use polars::prelude::*;
 use std::iter;
 
 /// A dataframe without NULL and only types that make sense for FCS files.
-pub(crate) struct FCSDataFrame(DataFrame);
+pub struct FCSDataFrame(DataFrame);
 
 /// Any valid column from an FCS dataframe
 pub enum AnyFCSColumn<'a> {
@@ -169,11 +169,11 @@ where
     fn into_writer<ToType, S>(
         c: FCSColumn<'_, Self>,
         s: S,
-    ) -> NumColumnWriter0<'_, Self::Native, ToType, S>
+    ) -> NumColumnWriter<'_, Self::Native, ToType, S>
     where
         ToType: NumCast<Self::Native>,
     {
-        NumColumnWriter0 {
+        NumColumnWriter {
             data: Self::iter_native(c).map(ToType::from_truncated),
             size: s,
         }

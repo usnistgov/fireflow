@@ -13,7 +13,6 @@ use crate::validated::nonstandard::MeasIdx;
 use crate::validated::shortname::*;
 
 use itertools::Itertools;
-use nalgebra::DMatrix;
 use polars::prelude::*;
 use std::fmt;
 use std::io;
@@ -240,13 +239,6 @@ pub trait VersionedDataLayout: Sized {
 
     fn nbytes(&self, df: &FCSDataFrame, conf: &WriteConfig) -> usize;
 
-    // fn h_write<W: Write>(
-    //     &self,
-    //     h: &mut BufWriter<W>,
-    //     df: &FCSDataFrame,
-    //     conf: &WriteConfig,
-    // ) -> ImpureResult<()>;
-
     fn into_reader(self, kws: &RawKeywords, data_seg: Segment) -> PureMaybe<ColumnReader>;
 
     fn into_writer<'a>(self, df: &'a FCSDataFrame, conf: &WriteConfig) -> DataWriter<'a>;
@@ -429,40 +421,25 @@ pub struct UintType<T, const LEN: usize> {
     pub size: SizedByteOrd<LEN>,
 }
 
-/// Instructions and data to write one column of the DATA segment
-///
-/// Each column contains a buffer with the data to be written (in the correct
-/// type) and other type-specific information.
-enum FixedColumnWriter {
-    NumU8(NumColumnWriter<u8, SizedByteOrd<1>>),
-    NumU16(NumColumnWriter<u16, SizedByteOrd<2>>),
-    NumU24(NumColumnWriter<u32, SizedByteOrd<3>>),
-    NumU32(NumColumnWriter<u32, SizedByteOrd<4>>),
-    NumU40(NumColumnWriter<u64, SizedByteOrd<5>>),
-    NumU48(NumColumnWriter<u64, SizedByteOrd<6>>),
-    NumU56(NumColumnWriter<u64, SizedByteOrd<7>>),
-    NumU64(NumColumnWriter<u64, SizedByteOrd<8>>),
-    NumF32(NumColumnWriter<f32, SizedByteOrd<4>>),
-    NumF64(NumColumnWriter<f64, SizedByteOrd<8>>),
-    Ascii(NumColumnWriter<u64, Chars>),
-}
-
-struct NumColumnWriter<T, S> {
-    data: Vec<T>,
-    size: S,
-}
-
-pub(crate) struct NumColumnWriter0<'a, X, Y, S> {
+pub struct NumColumnWriter<'a, X, Y, S> {
     pub(crate) data: FCSColIter<'a, X, Y>,
     pub(crate) size: S,
 }
 
-enum DataWriter<'a> {
+pub enum DataWriter<'a> {
     Delim(DelimWriter<'a>),
     Fixed(FixedWriter<'a>),
 }
 
-impl<'a> DataWriter<'a> {
+pub type DelimWriter<'a> = DataWriterInner<AnyDelimColumnWriter<'a>>;
+pub type FixedWriter<'a> = DataWriterInner<AnyFixedColumnWriter<'a>>;
+
+pub struct DataWriterInner<C> {
+    columns: Vec<C>,
+    nrows: usize,
+}
+
+impl DataWriter<'_> {
     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()> {
         match self {
             DataWriter::Delim(d) => d.h_write(h),
@@ -471,12 +448,7 @@ impl<'a> DataWriter<'a> {
     }
 }
 
-struct DelimWriter<'a> {
-    columns: Vec<AnyDelimColumnWriter<'a>>,
-    nrows: usize,
-}
-
-impl<'a> DelimWriter<'a> {
+impl DelimWriter<'_> {
     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()> {
         let ncols = self.columns.len();
         let nrows = self.nrows;
@@ -493,7 +465,7 @@ impl<'a> DelimWriter<'a> {
     }
 }
 
-impl<'a> FixedWriter<'a> {
+impl FixedWriter<'_> {
     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()> {
         for _ in 0..self.nrows {
             for c in self.columns.iter_mut() {
@@ -504,13 +476,13 @@ impl<'a> FixedWriter<'a> {
     }
 }
 
-enum AnyDelimColumnWriter<'a> {
-    FromU08(NumColumnWriter0<'a, u8, u64, ()>),
-    FromU16(NumColumnWriter0<'a, u16, u64, ()>),
-    FromU32(NumColumnWriter0<'a, u32, u64, ()>),
-    FromU64(NumColumnWriter0<'a, u64, u64, ()>),
-    FromF32(NumColumnWriter0<'a, f32, u64, ()>),
-    FromF64(NumColumnWriter0<'a, f64, u64, ()>),
+pub enum AnyDelimColumnWriter<'a> {
+    FromU08(NumColumnWriter<'a, u8, u64, ()>),
+    FromU16(NumColumnWriter<'a, u16, u64, ()>),
+    FromU32(NumColumnWriter<'a, u32, u64, ()>),
+    FromU64(NumColumnWriter<'a, u64, u64, ()>),
+    FromF32(NumColumnWriter<'a, f32, u64, ()>),
+    FromF64(NumColumnWriter<'a, f64, u64, ()>),
 }
 
 impl AnyDelimColumnWriter<'_> {
@@ -526,18 +498,13 @@ impl AnyDelimColumnWriter<'_> {
     }
 }
 
-struct FixedWriter<'a> {
-    columns: Vec<AnyFixedColumnWriter<'a>>,
-    nrows: usize,
-}
-
-enum AnyFixedColumnWriter<'a> {
-    FromU08(FixedColumnWriter0<'a, u8>),
-    FromU16(FixedColumnWriter0<'a, u16>),
-    FromU32(FixedColumnWriter0<'a, u32>),
-    FromU64(FixedColumnWriter0<'a, u64>),
-    FromF32(FixedColumnWriter0<'a, f32>),
-    FromF64(FixedColumnWriter0<'a, f64>),
+pub enum AnyFixedColumnWriter<'a> {
+    FromU08(FixedColumnWriter<'a, u8>),
+    FromU16(FixedColumnWriter<'a, u16>),
+    FromU32(FixedColumnWriter<'a, u32>),
+    FromU64(FixedColumnWriter<'a, u64>),
+    FromF32(FixedColumnWriter<'a, f32>),
+    FromF64(FixedColumnWriter<'a, f64>),
 }
 
 impl AnyFixedColumnWriter<'_> {
@@ -553,40 +520,40 @@ impl AnyFixedColumnWriter<'_> {
     }
 }
 
-pub(crate) enum FixedColumnWriter0<'a, X> {
-    U08(NumColumnWriter0<'a, X, u8, Uint08Type>),
-    U16(NumColumnWriter0<'a, X, u16, Uint16Type>),
-    U24(NumColumnWriter0<'a, X, u32, Uint24Type>),
-    U32(NumColumnWriter0<'a, X, u32, Uint32Type>),
-    U40(NumColumnWriter0<'a, X, u64, Uint40Type>),
-    U48(NumColumnWriter0<'a, X, u64, Uint48Type>),
-    U56(NumColumnWriter0<'a, X, u64, Uint56Type>),
-    U64(NumColumnWriter0<'a, X, u64, Uint64Type>),
-    F32(NumColumnWriter0<'a, X, f32, SizedByteOrd<4>>),
-    F64(NumColumnWriter0<'a, X, f64, SizedByteOrd<8>>),
-    Ascii(NumColumnWriter0<'a, X, u64, Chars>),
+pub enum FixedColumnWriter<'a, X> {
+    U08(NumColumnWriter<'a, X, u8, Uint08Type>),
+    U16(NumColumnWriter<'a, X, u16, Uint16Type>),
+    U24(NumColumnWriter<'a, X, u32, Uint24Type>),
+    U32(NumColumnWriter<'a, X, u32, Uint32Type>),
+    U40(NumColumnWriter<'a, X, u64, Uint40Type>),
+    U48(NumColumnWriter<'a, X, u64, Uint48Type>),
+    U56(NumColumnWriter<'a, X, u64, Uint56Type>),
+    U64(NumColumnWriter<'a, X, u64, Uint64Type>),
+    F32(NumColumnWriter<'a, X, f32, SizedByteOrd<4>>),
+    F64(NumColumnWriter<'a, X, f64, SizedByteOrd<8>>),
+    Ascii(NumColumnWriter<'a, X, u64, Chars>),
 }
 
-impl<X> FixedColumnWriter0<'_, X> {
+impl<X> FixedColumnWriter<'_, X> {
     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()> {
         match self {
-            FixedColumnWriter0::U08(c) => c.h_write_int(h),
-            FixedColumnWriter0::U16(c) => c.h_write_int(h),
-            FixedColumnWriter0::U24(c) => c.h_write_int(h),
-            FixedColumnWriter0::U32(c) => c.h_write_int(h),
-            FixedColumnWriter0::U40(c) => c.h_write_int(h),
-            FixedColumnWriter0::U48(c) => c.h_write_int(h),
-            FixedColumnWriter0::U56(c) => c.h_write_int(h),
-            FixedColumnWriter0::U64(c) => c.h_write_int(h),
-            FixedColumnWriter0::F32(c) => c.h_write_float(h),
-            FixedColumnWriter0::F64(c) => c.h_write_float(h),
-            FixedColumnWriter0::Ascii(c) => c.h_write_ascii(h),
+            FixedColumnWriter::U08(c) => c.h_write_int(h),
+            FixedColumnWriter::U16(c) => c.h_write_int(h),
+            FixedColumnWriter::U24(c) => c.h_write_int(h),
+            FixedColumnWriter::U32(c) => c.h_write_int(h),
+            FixedColumnWriter::U40(c) => c.h_write_int(h),
+            FixedColumnWriter::U48(c) => c.h_write_int(h),
+            FixedColumnWriter::U56(c) => c.h_write_int(h),
+            FixedColumnWriter::U64(c) => c.h_write_int(h),
+            FixedColumnWriter::F32(c) => c.h_write_float(h),
+            FixedColumnWriter::F64(c) => c.h_write_float(h),
+            FixedColumnWriter::Ascii(c) => c.h_write_ascii(h),
         }
     }
 }
 
 // TODO truncate bitmask here, and warn if we need to do it
-impl<X, Y, const INTLEN: usize> NumColumnWriter0<'_, X, Y, UintType<Y, INTLEN>> {
+impl<X, Y, const INTLEN: usize> NumColumnWriter<'_, X, Y, UintType<Y, INTLEN>> {
     fn h_write_int<W: Write, const DTLEN: usize>(&mut self, h: &mut BufWriter<W>) -> io::Result<()>
     where
         Y: IntFromBytes<DTLEN, INTLEN>,
@@ -599,7 +566,7 @@ impl<X, Y, const INTLEN: usize> NumColumnWriter0<'_, X, Y, UintType<Y, INTLEN>> 
     }
 }
 
-impl<X, Y, const DTLEN: usize> NumColumnWriter0<'_, X, Y, SizedByteOrd<DTLEN>> {
+impl<X, Y, const DTLEN: usize> NumColumnWriter<'_, X, Y, SizedByteOrd<DTLEN>> {
     fn h_write_float<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()>
     where
         Y: FloatFromBytes<DTLEN>,
@@ -610,14 +577,29 @@ impl<X, Y, const DTLEN: usize> NumColumnWriter0<'_, X, Y, SizedByteOrd<DTLEN>> {
     }
 }
 
-impl<X> NumColumnWriter0<'_, X, u64, Chars> {
+impl<X> NumColumnWriter<'_, X, u64, Chars> {
     fn h_write_ascii<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()> {
         let x = self.data.next().unwrap();
-        h_write_ascii_int(h, self.size, x.new)
+        let s = x.new.to_string();
+        let w: usize = u8::from(self.size).into();
+        if s.len() > w {
+            // if string is greater than allocated chars, only write a fraction
+            // starting from the left
+            let offset = s.len() - w;
+            h.write_all(&s.as_bytes()[offset..])
+            // TODO emit warning if this happens
+        } else {
+            // if string less than allocated chars, pad left side with zero before
+            // writing number
+            for _ in 0..(w - s.len()) {
+                h.write_all(&[30])?;
+            }
+            h.write_all(s.as_bytes())
+        }
     }
 }
 
-impl<X> NumColumnWriter0<'_, X, u64, ()> {
+impl<X> NumColumnWriter<'_, X, u64, ()> {
     fn h_write_delim_ascii<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()> {
         let x = self.data.next().unwrap();
         let s = x.new.to_string();
@@ -881,117 +863,6 @@ pub type CoreDataset3_2 = CoreDataset<
     IdentityFamily,
     Identity<Shortname>,
 >;
-
-macro_rules! series_cast {
-    ($series:expr, $to:ty) => {
-        PolarsFCSType::iter_native($series)
-            .map(|x| x as $to)
-            .collect()
-    };
-}
-
-fn warn_bitmask<T: Ord + Copy>(xs: Vec<T>, deferred: &mut PureErrorBuf, bitmask: T) -> Vec<T> {
-    let mut has_seen = false;
-    // TODO can't I just find the max of the vector and use that?
-    xs.into_iter()
-        .map(|x| {
-            if !has_seen && x > bitmask {
-                deferred.push_warning("bitmask exceed, value truncated".to_string());
-                has_seen = true
-            }
-            x.min(bitmask)
-        })
-        .collect()
-}
-
-macro_rules! convert_to_uint1 {
-    ($series:expr, $deferred:expr, $wrap:ident, $to:ty, $ut:expr) => {
-        FixedColumnWriter::$wrap(NumColumnWriter {
-            data: warn_bitmask(series_cast!($series, $to), &mut $deferred, $ut.bitmask),
-            size: $ut.size,
-        })
-    };
-}
-
-macro_rules! convert_to_uint {
-    ($size:expr, $series:expr, $deferred:expr) => {
-        match $size {
-            AnyUintType::Uint08(ut) => {
-                convert_to_uint1!($series, $deferred, NumU8, u8, ut)
-            }
-            AnyUintType::Uint16(ut) => {
-                convert_to_uint1!($series, $deferred, NumU16, u16, ut)
-            }
-            AnyUintType::Uint24(ut) => {
-                convert_to_uint1!($series, $deferred, NumU24, u32, ut)
-            }
-            AnyUintType::Uint32(ut) => {
-                convert_to_uint1!($series, $deferred, NumU32, u32, ut)
-            }
-            AnyUintType::Uint40(ut) => {
-                convert_to_uint1!($series, $deferred, NumU40, u64, ut)
-            }
-            AnyUintType::Uint48(ut) => {
-                convert_to_uint1!($series, $deferred, NumU48, u64, ut)
-            }
-            AnyUintType::Uint56(ut) => {
-                convert_to_uint1!($series, $deferred, NumU56, u64, ut)
-            }
-            AnyUintType::Uint64(ut) => {
-                convert_to_uint1!($series, $deferred, NumU64, u64, ut)
-            }
-        }
-    };
-}
-
-macro_rules! convert_to_float {
-    ($size:expr, $series:expr, $wrap:ident, $to:ty) => {
-        FixedColumnWriter::$wrap(NumColumnWriter {
-            data: series_cast!($series, $to),
-            size: $size,
-        })
-    };
-}
-
-macro_rules! convert_to_f32 {
-    ($size:expr, $series:expr) => {
-        convert_to_float!($size, $series, NumF32, f32)
-    };
-}
-
-macro_rules! convert_to_f64 {
-    ($size:expr, $series:expr) => {
-        convert_to_float!($size, $series, NumF64, f64)
-    };
-}
-
-impl AnyUintType {
-    fn native_nbytes(&self) -> u8 {
-        match self {
-            AnyUintType::Uint08(_) => 1,
-            AnyUintType::Uint16(_) => 2,
-            AnyUintType::Uint24(_) => 4,
-            AnyUintType::Uint32(_) => 4,
-            AnyUintType::Uint40(_) => 8,
-            AnyUintType::Uint48(_) => 8,
-            AnyUintType::Uint56(_) => 8,
-            AnyUintType::Uint64(_) => 8,
-        }
-    }
-
-    fn nbytes(&self) -> u8 {
-        match self {
-            AnyUintType::Uint08(_) => 1,
-            AnyUintType::Uint16(_) => 2,
-            AnyUintType::Uint24(_) => 3,
-            AnyUintType::Uint32(_) => 4,
-            AnyUintType::Uint40(_) => 5,
-            AnyUintType::Uint48(_) => 6,
-            AnyUintType::Uint56(_) => 7,
-            AnyUintType::Uint64(_) => 8,
-        }
-    }
-}
 
 fn make_uint_type_inner(bytes: Bytes, r: &Range, e: Endian) -> Result<AnyUintType, String> {
     // ASSUME this can only be 1-8
@@ -1275,13 +1146,13 @@ where
     //     // ))
     // }
 
-    /// Make configuration to read one column of floats in a dataset.
-    fn column_reader(order: SizedByteOrd<LEN>, total_events: Tot) -> FloatColumnReader<Self, LEN> {
-        FloatColumnReader {
-            column: vec![Self::default(); total_events.0],
-            size: order,
-        }
-    }
+    // /// Make configuration to read one column of floats in a dataset.
+    // fn column_reader(order: SizedByteOrd<LEN>, total_events: Tot) -> FloatColumnReader<Self, LEN> {
+    //     FloatColumnReader {
+    //         column: vec![Self::default(); total_events.0],
+    //         size: order,
+    //     }
+    // }
 
     fn column_type_endian(o: Endian, r: &Range) -> Result<FloatType<LEN, Self>, String> {
         r.as_ref()
@@ -1779,29 +1650,6 @@ impl AnyUintColumnReader {
 //     })
 // }
 
-fn h_write_delimited_matrix<W: Write>(h: &mut BufWriter<W>, m: DMatrix<u64>) -> ImpureResult<()> {
-    for r in 0..m.nrows() {
-        for c in 0..m.ncols() {
-            let x = m[(r, c)];
-            // if zero, just write "0", if anything else convert
-            // to a string and write that
-            if x == 0 {
-                h.write_all(&[48])?; // 48 = "0" in ASCII
-            } else {
-                let s = x.to_string();
-                let t = s.trim_start_matches("0");
-                let buf = t.as_bytes();
-                h.write_all(buf)?;
-            }
-            // write delimiter after all but last value
-            if !(c == m.ncols() - 1 && r == m.nrows() - 1) {
-                h.write_all(&[32])?; // 32 = space in ASCII
-            }
-        }
-    }
-    Ok(PureSuccess::from(()))
-}
-
 // TODO also check scale here?
 impl MixedType {
     pub(crate) fn try_new(
@@ -1969,7 +1817,7 @@ pub trait IsFixed {
 
     fn into_reader(self, nrows: usize) -> AlphaNumColumnReader;
 
-    fn into_writer<'a>(self, c: AnyFCSColumn<'a>) -> AnyFixedColumnWriter<'a>;
+    fn into_writer(self, c: AnyFCSColumn<'_>) -> AnyFixedColumnWriter<'_>;
 }
 
 impl<T, const LEN: usize> IsFixed for UintType<T, LEN>
@@ -1983,12 +1831,12 @@ where
     T: NumCast<u64>,
     T: NumCast<f32>,
     T: NumCast<f64>,
-    for<'b> AnyFixedColumnWriter<'b>: From<NumColumnWriter0<'b, u8, T, Self>>,
-    for<'b> AnyFixedColumnWriter<'b>: From<NumColumnWriter0<'b, u16, T, Self>>,
-    for<'b> AnyFixedColumnWriter<'b>: From<NumColumnWriter0<'b, u32, T, Self>>,
-    for<'b> AnyFixedColumnWriter<'b>: From<NumColumnWriter0<'b, u64, T, Self>>,
-    for<'b> AnyFixedColumnWriter<'b>: From<NumColumnWriter0<'b, f32, T, Self>>,
-    for<'b> AnyFixedColumnWriter<'b>: From<NumColumnWriter0<'b, f64, T, Self>>,
+    for<'b> AnyFixedColumnWriter<'b>: From<NumColumnWriter<'b, u8, T, Self>>,
+    for<'b> AnyFixedColumnWriter<'b>: From<NumColumnWriter<'b, u16, T, Self>>,
+    for<'b> AnyFixedColumnWriter<'b>: From<NumColumnWriter<'b, u32, T, Self>>,
+    for<'b> AnyFixedColumnWriter<'b>: From<NumColumnWriter<'b, u64, T, Self>>,
+    for<'b> AnyFixedColumnWriter<'b>: From<NumColumnWriter<'b, f32, T, Self>>,
+    for<'b> AnyFixedColumnWriter<'b>: From<NumColumnWriter<'b, f64, T, Self>>,
 {
     fn width(&self) -> usize {
         LEN
@@ -2002,7 +1850,7 @@ where
         .into()
     }
 
-    fn into_writer<'a>(self, c: AnyFCSColumn<'a>) -> AnyFixedColumnWriter<'a> {
+    fn into_writer(self, c: AnyFCSColumn<'_>) -> AnyFixedColumnWriter<'_> {
         match c {
             AnyFCSColumn::U08(xs) => PolarsFCSType::into_writer(xs, self).into(),
             AnyFCSColumn::U16(xs) => PolarsFCSType::into_writer(xs, self).into(),
@@ -2036,7 +1884,7 @@ impl IsFixed for AnyUintType {
         )
     }
 
-    fn into_writer<'a>(self, c: AnyFCSColumn<'a>) -> AnyFixedColumnWriter<'a> {
+    fn into_writer(self, c: AnyFCSColumn<'_>) -> AnyFixedColumnWriter<'_> {
         match_many_to_one!(
             self,
             AnyUintType,
@@ -2068,13 +1916,13 @@ uint_from_reader!(UintColumnReader<u64, 8>, Uint64);
 
 macro_rules! uint_from_writer {
     ($fromtype:ident, $totype:ident, $len:expr, $fromwrap:ident, $wrap:ident) => {
-        impl<'a> From<NumColumnWriter0<'a, $fromtype, $totype, UintType<$totype, $len>>>
+        impl<'a> From<NumColumnWriter<'a, $fromtype, $totype, UintType<$totype, $len>>>
             for AnyFixedColumnWriter<'a>
         {
             fn from(
-                value: NumColumnWriter0<'a, $fromtype, $totype, UintType<$totype, $len>>,
+                value: NumColumnWriter<'a, $fromtype, $totype, UintType<$totype, $len>>,
             ) -> Self {
-                AnyFixedColumnWriter::$fromwrap(FixedColumnWriter0::$wrap(value))
+                AnyFixedColumnWriter::$fromwrap(FixedColumnWriter::$wrap(value))
             }
         }
     };
@@ -2137,11 +1985,11 @@ uint_from_writer!(f64, u64, 8, FromF64, U64);
 
 macro_rules! float_from_writer {
     ($fromtype:ident, $totype:ident, $len:expr, $fromwrap:ident, $wrap:ident) => {
-        impl<'a> From<NumColumnWriter0<'a, $fromtype, $totype, SizedByteOrd<$len>>>
+        impl<'a> From<NumColumnWriter<'a, $fromtype, $totype, SizedByteOrd<$len>>>
             for AnyFixedColumnWriter<'a>
         {
-            fn from(value: NumColumnWriter0<'a, $fromtype, $totype, SizedByteOrd<$len>>) -> Self {
-                AnyFixedColumnWriter::$fromwrap(FixedColumnWriter0::$wrap(value))
+            fn from(value: NumColumnWriter<'a, $fromtype, $totype, SizedByteOrd<$len>>) -> Self {
+                AnyFixedColumnWriter::$fromwrap(FixedColumnWriter::$wrap(value))
             }
         }
     };
@@ -2178,12 +2026,12 @@ where
     T: NumCast<u64>,
     T: NumCast<f32>,
     T: NumCast<f64>,
-    for<'b> AnyFixedColumnWriter<'b>: From<NumColumnWriter0<'b, u8, T, SizedByteOrd<LEN>>>,
-    for<'b> AnyFixedColumnWriter<'b>: From<NumColumnWriter0<'b, u16, T, SizedByteOrd<LEN>>>,
-    for<'b> AnyFixedColumnWriter<'b>: From<NumColumnWriter0<'b, u32, T, SizedByteOrd<LEN>>>,
-    for<'b> AnyFixedColumnWriter<'b>: From<NumColumnWriter0<'b, u64, T, SizedByteOrd<LEN>>>,
-    for<'b> AnyFixedColumnWriter<'b>: From<NumColumnWriter0<'b, f32, T, SizedByteOrd<LEN>>>,
-    for<'b> AnyFixedColumnWriter<'b>: From<NumColumnWriter0<'b, f64, T, SizedByteOrd<LEN>>>,
+    for<'b> AnyFixedColumnWriter<'b>: From<NumColumnWriter<'b, u8, T, SizedByteOrd<LEN>>>,
+    for<'b> AnyFixedColumnWriter<'b>: From<NumColumnWriter<'b, u16, T, SizedByteOrd<LEN>>>,
+    for<'b> AnyFixedColumnWriter<'b>: From<NumColumnWriter<'b, u32, T, SizedByteOrd<LEN>>>,
+    for<'b> AnyFixedColumnWriter<'b>: From<NumColumnWriter<'b, u64, T, SizedByteOrd<LEN>>>,
+    for<'b> AnyFixedColumnWriter<'b>: From<NumColumnWriter<'b, f32, T, SizedByteOrd<LEN>>>,
+    for<'b> AnyFixedColumnWriter<'b>: From<NumColumnWriter<'b, f64, T, SizedByteOrd<LEN>>>,
 {
     fn width(&self) -> usize {
         LEN
@@ -2197,7 +2045,7 @@ where
         .into()
     }
 
-    fn into_writer<'a>(self, c: AnyFCSColumn<'a>) -> AnyFixedColumnWriter<'a> {
+    fn into_writer(self, c: AnyFCSColumn<'_>) -> AnyFixedColumnWriter<'_> {
         let size = self.order;
         // TODO some of these should trigger warnings
         match c {
@@ -2235,25 +2083,25 @@ impl IsFixed for AsciiType {
         })
     }
 
-    fn into_writer<'a>(self, col: AnyFCSColumn<'a>) -> AnyFixedColumnWriter<'a> {
+    fn into_writer(self, col: AnyFCSColumn<'_>) -> AnyFixedColumnWriter<'_> {
         let c = self.chars;
         match col {
-            AnyFCSColumn::U08(xs) => AnyFixedColumnWriter::FromU08(FixedColumnWriter0::Ascii(
+            AnyFCSColumn::U08(xs) => AnyFixedColumnWriter::FromU08(FixedColumnWriter::Ascii(
                 PolarsFCSType::into_writer(xs, c),
             )),
-            AnyFCSColumn::U16(xs) => AnyFixedColumnWriter::FromU16(FixedColumnWriter0::Ascii(
+            AnyFCSColumn::U16(xs) => AnyFixedColumnWriter::FromU16(FixedColumnWriter::Ascii(
                 PolarsFCSType::into_writer(xs, c),
             )),
-            AnyFCSColumn::U32(xs) => AnyFixedColumnWriter::FromU32(FixedColumnWriter0::Ascii(
+            AnyFCSColumn::U32(xs) => AnyFixedColumnWriter::FromU32(FixedColumnWriter::Ascii(
                 PolarsFCSType::into_writer(xs, c),
             )),
-            AnyFCSColumn::U64(xs) => AnyFixedColumnWriter::FromU64(FixedColumnWriter0::Ascii(
+            AnyFCSColumn::U64(xs) => AnyFixedColumnWriter::FromU64(FixedColumnWriter::Ascii(
                 PolarsFCSType::into_writer(xs, c),
             )),
-            AnyFCSColumn::F32(xs) => AnyFixedColumnWriter::FromF32(FixedColumnWriter0::Ascii(
+            AnyFCSColumn::F32(xs) => AnyFixedColumnWriter::FromF32(FixedColumnWriter::Ascii(
                 PolarsFCSType::into_writer(xs, c),
             )),
-            AnyFCSColumn::F64(xs) => AnyFixedColumnWriter::FromF64(FixedColumnWriter0::Ascii(
+            AnyFCSColumn::F64(xs) => AnyFixedColumnWriter::FromF64(FixedColumnWriter::Ascii(
                 PolarsFCSType::into_writer(xs, c),
             )),
         }
@@ -2279,7 +2127,7 @@ impl IsFixed for MixedType {
         }
     }
 
-    fn into_writer<'a>(self, c: AnyFCSColumn<'a>) -> AnyFixedColumnWriter<'a> {
+    fn into_writer(self, c: AnyFCSColumn<'_>) -> AnyFixedColumnWriter<'_> {
         match self {
             MixedType::Ascii(a) => a.into_writer(c),
             MixedType::Integer(i) => i.into_writer(c),
@@ -2287,16 +2135,6 @@ impl IsFixed for MixedType {
             MixedType::Double(d) => d.into_writer(c),
         }
     }
-}
-
-macro_rules! uint_with_tot {
-    ($self:expr, $data_seg:expr, $tot:expr, $($m:ident),*) => {
-        match $self {
-            $(
-                AnyUintLayout::$m(fl) => fl.into_reader($data_seg, $tot),
-            )*
-        }
-    };
 }
 
 impl AnyUintLayout {
@@ -2617,19 +2455,6 @@ impl VersionedDataLayout for DataLayout2_0 {
         }
     }
 
-    // fn h_write<W: Write>(
-    //     &self,
-    //     h: &mut BufWriter<W>,
-    //     df: &FCSDataFrame,
-    //     conf: &WriteConfig,
-    // ) -> ImpureResult<()> {
-    //     match self {
-    //         DataLayout2_0::Ascii(a) => a.h_write(h, df, conf),
-    //         DataLayout2_0::Integer(i) => i.h_write(h, df, conf),
-    //         DataLayout2_0::Float(f) => f.h_write(h, df, conf),
-    //     }
-    // }
-
     fn into_writer<'a>(self, df: &'a FCSDataFrame, conf: &WriteConfig) -> DataWriter<'a> {
         match self {
             DataLayout2_0::Ascii(a) => a.into_writer(df, conf),
@@ -2743,19 +2568,6 @@ impl VersionedDataLayout for DataLayout3_0 {
         }
     }
 
-    // fn h_write<W: Write>(
-    //     &self,
-    //     h: &mut BufWriter<W>,
-    //     df: &FCSDataFrame,
-    //     conf: &WriteConfig,
-    // ) -> ImpureResult<()> {
-    //     match self {
-    //         DataLayout3_0::Ascii(a) => a.h_write(h, df, conf),
-    //         DataLayout3_0::Integer(i) => i.h_write(h, df, conf),
-    //         DataLayout3_0::Float(f) => f.h_write(h, df, conf),
-    //     }
-    // }
-
     fn into_writer<'a>(self, df: &'a FCSDataFrame, conf: &WriteConfig) -> DataWriter<'a> {
         match self {
             DataLayout3_0::Ascii(a) => a.into_writer(df, conf),
@@ -2856,19 +2668,6 @@ impl VersionedDataLayout for DataLayout3_1 {
             DataLayout3_1::Float(f) => f.nbytes(df.as_ref().height()),
         }
     }
-
-    // fn h_write<W: Write>(
-    //     &self,
-    //     h: &mut BufWriter<W>,
-    //     df: &FCSDataFrame,
-    //     conf: &WriteConfig,
-    // ) -> ImpureResult<()> {
-    //     match self {
-    //         DataLayout3_1::Ascii(a) => a.h_write(h, df, conf),
-    //         DataLayout3_1::Integer(i) => i.h_write(h, df, conf),
-    //         DataLayout3_1::Float(f) => f.h_write(h, df, conf),
-    //     }
-    // }
 
     fn into_writer<'a>(self, df: &'a FCSDataFrame, conf: &WriteConfig) -> DataWriter<'a> {
         match self {
@@ -3007,20 +2806,6 @@ impl VersionedDataLayout for DataLayout3_2 {
         }
     }
 
-    // fn h_write<W: Write>(
-    //     &self,
-    //     h: &mut BufWriter<W>,
-    //     df: &FCSDataFrame,
-    //     conf: &WriteConfig,
-    // ) -> ImpureResult<()> {
-    //     match self {
-    //         DataLayout3_2::Ascii(a) => a.h_write(h, df, conf),
-    //         DataLayout3_2::Integer(i) => i.h_write(h, df, conf),
-    //         DataLayout3_2::Float(f) => f.h_write(h, df, conf),
-    //         DataLayout3_2::Mixed(m) => m.h_write(h, df, conf),
-    //     }
-    // }
-
     fn into_writer<'a>(self, df: &'a FCSDataFrame, conf: &WriteConfig) -> DataWriter<'a> {
         match self {
             DataLayout3_2::Ascii(a) => a.into_writer(df, conf),
@@ -3044,24 +2829,5 @@ impl VersionedDataLayout for DataLayout3_2 {
                 .into_reader(data_seg, tot)
                 .map(|x| Some(ColumnReader::AlphaNum(x))),
         })
-    }
-}
-
-fn h_write_ascii_int<W: Write>(h: &mut BufWriter<W>, chars: Chars, x: u64) -> io::Result<()> {
-    let s = x.to_string();
-    let w: usize = u8::from(chars).into();
-    if s.len() > w {
-        // if string is greater than allocated chars, only write a fraction
-        // starting from the left
-        let offset = s.len() - w;
-        h.write_all(&s.as_bytes()[offset..])
-        // TODO emit warning if this happens
-    } else {
-        // if string less than allocated chars, pad left side with zero before
-        // writing number
-        for _ in 0..(w - s.len()) {
-            h.write_all(&[30])?;
-        }
-        h.write_all(s.as_bytes())
     }
 }

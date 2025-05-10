@@ -100,8 +100,8 @@ impl FCSDataFrame {
     }
 
     /// Return number of bytes this will occupy if written as delimited ASCII
-    pub(crate) fn ascii_nchars(&self) -> u32 {
-        let n = self.0.size() as u32;
+    pub(crate) fn ascii_nchars(&self) -> usize {
+        let n = self.0.size();
         if n == 0 {
             return 0;
         }
@@ -151,7 +151,7 @@ impl FCSDataFrame {
                 _ => 0,
             })
             .sum();
-        ndigits + ndelim
+        (ndigits as usize) + ndelim
     }
 }
 

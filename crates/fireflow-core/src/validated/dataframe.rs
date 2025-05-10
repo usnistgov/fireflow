@@ -158,7 +158,7 @@ impl FCSDataFrame {
 type FCSColIterInner<'a, T> = iter::Flatten<Box<dyn PolarsIterator<Item = Option<T>> + 'a>>;
 
 pub(crate) type FCSColIter<'a, FromType, ToType> =
-    iter::Map<FCSColIterInner<'a, FromType>, fn(FromType) -> ToType>;
+    iter::Map<FCSColIterInner<'a, FromType>, fn(FromType) -> (FromType, ToType)>;
 
 pub(crate) trait PolarsFCSType
 where
@@ -166,14 +166,7 @@ where
 {
     fn iter_native<'a>(c: FCSColumn<'a, Self>) -> FCSColIterInner<'a, Self::Native>;
 
-    fn iter_casted<'a, ToType>(c: FCSColumn<'a, Self>) -> FCSColIter<'a, Self::Native, ToType>
-    where
-        ToType: NumCast<Self::Native>,
-    {
-        Self::iter_native(c).map(ToType::from_truncated)
-    }
-
-    fn into_writer<'a, S, ToType>(
+    fn into_writer<'a, ToType, S>(
         c: FCSColumn<'a, Self>,
         s: S,
     ) -> NumColumnWriter0<'a, Self::Native, ToType, S>
@@ -181,7 +174,7 @@ where
         ToType: NumCast<Self::Native>,
     {
         NumColumnWriter0 {
-            data: Self::iter_casted(c),
+            data: Self::iter_native(c).map(ToType::from_truncated),
             size: s,
         }
     }
@@ -205,7 +198,7 @@ impl_col_iter!(Float32Type);
 impl_col_iter!(Float64Type);
 
 pub(crate) trait NumCast<T> {
-    fn from_truncated(x: T) -> Self;
+    fn from_truncated(x: T) -> (T, Self);
 }
 
 macro_rules! impl_numcast {
@@ -221,8 +214,8 @@ macro_rules! impl_numcast {
     ($from:ty, @inner $($to:ty),*) => {
         $(
             impl NumCast<$from> for $to {
-                fn from_truncated(x: $from) -> Self {
-                    x as $to
+                fn from_truncated(x: $from) -> ($from, Self) {
+                    (x, x as $to)
                 }
             }
         )*

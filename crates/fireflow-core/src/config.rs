@@ -195,9 +195,27 @@ pub struct WriteConfig {
     /// (character 30).
     pub delim: TEXTDelim,
 
+    /// If true, check for conversion losses before writing data.
+    ///
+    /// Data in each column may be stored in several different types which may
+    /// or may not totally coincide with the measurement type. For example, a
+    /// measurement may be an 8-bit unsigned integer with a 4-bit bitmask, and
+    /// the column may be stored as 32-bit floats within the polars dataframe.
+    /// However, as long as the floats are only 0 to 2^4 - 1, no conversion
+    /// losses will result. This allows the user more flexibility when
+    /// manipulating the data for each measurement.
+    ///
+    /// Skipping this will result in slightly faster writing, as the data need
+    /// to be enumerated once prior to writing in order to perform this check.
+    /// Lossy conversion will be performed regardless, but warnings will be
+    /// emitted if this is true.
+    pub check_conversion: bool,
+
     /// If true, disallow lossy data conversions
     ///
-    /// Example, f32 -> u32
+    /// Only has an effect if `check_conversion` is true. If this is also true,
+    /// any lossy conversion will halt immediately and return an error to the
+    /// user.
     pub disallow_lossy_conversions: bool,
 }
 

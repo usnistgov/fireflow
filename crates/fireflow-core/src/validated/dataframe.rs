@@ -164,26 +164,47 @@ pub(crate) trait PolarsFCSType
 where
     Self: PolarsNumericType,
 {
-    fn iter_native(c: FCSColumn<'_, Self>) -> FCSColIterInner<'_, Self::Native>;
+    fn iter_native<'a>(c: &FCSColumn<'a, Self>) -> FCSColIterInner<'a, Self::Native>;
 
-    fn into_writer<ToType, S>(
-        c: FCSColumn<'_, Self>,
-        s: S,
-    ) -> ColumnWriter<'_, Self::Native, ToType, S>
+    fn iter_converted<'a, ToType>(c: &FCSColumn<'a, Self>) -> FCSColIter<'a, Self::Native, ToType>
     where
         ToType: NumCast<Self::Native>,
     {
-        ColumnWriter {
-            data: Self::iter_native(c).map(ToType::from_truncated),
-            size: s,
+        Self::iter_native(c).map(ToType::from_truncated)
+    }
+
+    fn into_writer<E, F, S, T>(
+        c: FCSColumn<'_, Self>,
+        s: S,
+        check: bool,
+        f: F,
+    ) -> Result<ColumnWriter<'_, Self::Native, T, S>, E>
+    where
+        E: Default,
+        F: Fn(T) -> Option<E>,
+        T: NumCast<Self::Native>,
+    {
+        if check {
+            for x in Self::iter_converted::<T>(&c) {
+                if x.lossy {
+                    return Err(E::default());
+                }
+                if let Some(err) = f(x.new) {
+                    return Err(err);
+                }
+            }
         }
+        Ok(ColumnWriter {
+            data: Self::iter_converted(&c),
+            size: s,
+        })
     }
 }
 
 macro_rules! impl_col_iter {
     ($pltype:ident) => {
         impl PolarsFCSType for $pltype {
-            fn iter_native(c: FCSColumn<'_, Self>) -> FCSColIterInner<'_, Self::Native> {
+            fn iter_native<'a>(c: &FCSColumn<'a, Self>) -> FCSColIterInner<'a, Self::Native> {
                 c.0.into_iter().flatten()
             }
         }

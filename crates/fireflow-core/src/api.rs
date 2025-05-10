@@ -303,7 +303,7 @@ pub fn read_fcs_file(
 
 fn h_read_raw_dataset<R: Read + Seek>(
     h: &mut BufReader<R>,
-    mut raw: RawTEXT,
+    raw: RawTEXT,
     conf: &DataReadConfig,
 ) -> ImpureResult<RawDataset> {
     let anal_succ = lookup_analysis_offsets(&raw.keywords, conf, raw.version, &raw.parse.analysis);
@@ -317,7 +317,7 @@ fn h_read_raw_dataset<R: Read + Seek>(
         .try_map(|(reader_maybe, data_seg, analysis_seg)| {
             let dmsg = "could not create data parser".to_string();
             let data_parser = reader_maybe.ok_or(Failure::new(dmsg))?;
-            let data = h_read_data_segment(h, data_parser)?;
+            let data = data_parser.h_read(h)?;
             let analysis = h_read_analysis(h, &analysis_seg)?;
             Ok(PureSuccess::from(RawDataset {
                 version: raw.version,
@@ -352,7 +352,7 @@ fn h_read_std_dataset<R: Read + Seek>(
         .try_map(|(reader_maybe, data_seg, analysis_seg)| {
             let dmsg = "could not create data parser".to_string();
             let reader = reader_maybe.ok_or(Failure::new(dmsg))?;
-            let data = h_read_data_segment(h, reader)?;
+            let data = reader.h_read(h)?;
             let analysis = h_read_analysis(h, &analysis_seg)?;
             Ok(PureSuccess::from(StandardizedDataset {
                 parse: ParseParameters {
@@ -397,28 +397,28 @@ impl RawTEXT {
         })
     }
 
-    fn as_reader(&mut self, data_seg: Segment) -> PureMaybe<DataReader> {
+    fn as_reader(&self, data_seg: Segment) -> PureMaybe<DataReader> {
         match self.version {
             // TODO clean this up
             Version::FCS2_0 => {
                 let res = DataLayout2_0::try_new_from_raw(&self.keywords);
                 PureMaybe::from_result_errors(res)
-                    .and_then_opt(|dl| dl.into_reader(&mut self.keywords, data_seg))
+                    .and_then_opt(|dl| dl.into_reader(&self.keywords, data_seg))
             }
             Version::FCS3_0 => {
                 let res = DataLayout3_0::try_new_from_raw(&self.keywords);
                 PureMaybe::from_result_errors(res)
-                    .and_then_opt(|dl| dl.into_reader(&mut self.keywords, data_seg))
+                    .and_then_opt(|dl| dl.into_reader(&self.keywords, data_seg))
             }
             Version::FCS3_1 => {
                 let res = DataLayout3_1::try_new_from_raw(&self.keywords);
                 PureMaybe::from_result_errors(res)
-                    .and_then_opt(|dl| dl.into_reader(&mut self.keywords, data_seg))
+                    .and_then_opt(|dl| dl.into_reader(&self.keywords, data_seg))
             }
             Version::FCS3_2 => {
                 let res = DataLayout3_2::try_new_from_raw(&self.keywords);
                 PureMaybe::from_result_errors(res)
-                    .and_then_opt(|dl| dl.into_reader(&mut self.keywords, data_seg))
+                    .and_then_opt(|dl| dl.into_reader(&self.keywords, data_seg))
             }
         }
         .map(|x| {

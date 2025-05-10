@@ -1,4 +1,4 @@
-use crate::data::NumColumnWriter;
+use crate::data::ColumnWriter;
 
 use polars::prelude::*;
 use std::iter;
@@ -169,11 +169,11 @@ where
     fn into_writer<ToType, S>(
         c: FCSColumn<'_, Self>,
         s: S,
-    ) -> NumColumnWriter<'_, Self::Native, ToType, S>
+    ) -> ColumnWriter<'_, Self::Native, ToType, S>
     where
         ToType: NumCast<Self::Native>,
     {
-        NumColumnWriter {
+        ColumnWriter {
             data: Self::iter_native(c).map(ToType::from_truncated),
             size: s,
         }

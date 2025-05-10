@@ -91,10 +91,10 @@ where
             )))?;
         }
 
-        // write HEADER+TEXT first
         let data_len = layout.nbytes(&valid_df, conf);
         let tot = Tot(df.height());
         let analysis_len = self.analysis.0.len();
+        // write HEADER+TEXT first
         self.text.h_write(h, tot, data_len, analysis_len, conf)?;
         // write DATA
         layout.into_writer(&valid_df, conf).h_write(h)?;
@@ -585,6 +585,7 @@ impl<'a, X> FixedColumnWriter0<'a, X> {
     }
 }
 
+// TODO truncate bitmask here, and warn if we need to do it
 impl<X, Y, const INTLEN: usize> NumColumnWriter0<'_, X, Y, UintType<Y, INTLEN>> {
     fn h_write_int<W: Write, const DTLEN: usize>(&mut self, h: &mut BufWriter<W>) -> io::Result<()>
     where
@@ -2006,6 +2007,7 @@ where
             AnyFCSColumn::U16(xs) => PolarsFCSType::into_writer(xs, self).into(),
             AnyFCSColumn::U32(xs) => PolarsFCSType::into_writer(xs, self).into(),
             AnyFCSColumn::U64(xs) => PolarsFCSType::into_writer(xs, self).into(),
+            // TODO these should trigger a warning
             AnyFCSColumn::F32(xs) => PolarsFCSType::into_writer(xs, self).into(),
             AnyFCSColumn::F64(xs) => PolarsFCSType::into_writer(xs, self).into(),
         }
@@ -2077,6 +2079,7 @@ macro_rules! uint_from_writer {
     };
 }
 
+// TODO ...
 uint_from_writer!(u8, u8, 1, FromU08, U08);
 uint_from_writer!(u8, u16, 2, FromU08, U16);
 uint_from_writer!(u8, u32, 3, FromU08, U24);
@@ -2143,6 +2146,7 @@ macro_rules! float_from_writer {
     };
 }
 
+// TODO ...
 float_from_writer!(u8, f32, 4, FromU08, F32);
 float_from_writer!(u8, f64, 8, FromU08, F64);
 
@@ -2194,6 +2198,7 @@ where
 
     fn into_writer<'a>(self, c: AnyFCSColumn<'a>) -> AnyFixedColumnWriter<'a> {
         let size = self.order;
+        // TODO some of these should trigger warnings
         match c {
             AnyFCSColumn::U08(xs) => PolarsFCSType::into_writer(xs, size).into(),
             AnyFCSColumn::U16(xs) => PolarsFCSType::into_writer(xs, size).into(),

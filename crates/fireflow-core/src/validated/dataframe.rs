@@ -1,4 +1,7 @@
+use crate::data::NumColumnWriter0;
+
 use polars::prelude::*;
+use std::iter;
 
 /// A dataframe without NULL and only types that make sense for FCS files.
 pub(crate) struct FCSDataFrame(DataFrame);
@@ -13,14 +16,16 @@ pub enum AnyFCSColumn<'a> {
     F64(F64Column<'a>),
 }
 
+pub struct FCSColumn<'a, T: PolarsNumericType>(&'a ChunkedArray<T>);
+
 // TODO the data is behind an Arc right? so cloning these and taking ownership
 // will be cheap?
-pub struct U08Column<'a>(&'a Column);
-pub struct U16Column<'a>(&'a Column);
-pub struct U32Column<'a>(&'a Column);
-pub struct U64Column<'a>(&'a Column);
-pub struct F32Column<'a>(&'a Column);
-pub struct F64Column<'a>(&'a Column);
+pub type U08Column<'a> = FCSColumn<'a, UInt8Type>;
+pub type U16Column<'a> = FCSColumn<'a, UInt16Type>;
+pub type U32Column<'a> = FCSColumn<'a, UInt32Type>;
+pub type U64Column<'a> = FCSColumn<'a, UInt64Type>;
+pub type F32Column<'a> = FCSColumn<'a, Float32Type>;
+pub type F64Column<'a> = FCSColumn<'a, Float64Type>;
 
 // newtype_from_outer!(FCSDataFrame, DataFrame);
 
@@ -36,25 +41,25 @@ impl AsRef<DataFrame> for FCSDataFrame {
 //     }
 // }
 
-macro_rules! newtype_from_column {
-    ($($col:ident),*) => {
-        $(
-            impl<'a> From<$col<'a>> for &'a Column {
-                fn from(value: $col<'a>) -> Self {
-                    value.0
-                }
-            }
+// macro_rules! newtype_from_column {
+//     ($($col:ident),*) => {
+//         $(
+//             impl<'a> From<$col<'a>> for &'a Column {
+//                 fn from(value: $col<'a>) -> Self {
+//                     value.0
+//                 }
+//             }
 
-            impl AsRef<Column> for $col<'_> {
-                fn as_ref(&self) ->  &Column {
-                    self.0
-                }
-            }
-        )*
-    };
-}
+//             impl AsRef<Column> for $col<'_> {
+//                 fn as_ref(&self) ->  &Column {
+//                     self.0
+//                 }
+//             }
+//         )*
+//     };
+// }
 
-newtype_from_column!(U08Column, U16Column, U32Column, U64Column, F32Column, F64Column);
+// newtype_from_column!(U08Column, U16Column, U32Column, U64Column, F32Column, F64Column);
 
 impl TryFrom<DataFrame> for FCSDataFrame {
     type Error = ();
@@ -83,12 +88,12 @@ impl FCSDataFrame {
             .get_columns()
             .iter()
             .map(|c| match c.dtype() {
-                DataType::UInt8 => AnyFCSColumn::U08(U08Column(c)),
-                DataType::UInt16 => AnyFCSColumn::U16(U16Column(c)),
-                DataType::UInt32 => AnyFCSColumn::U32(U32Column(c)),
-                DataType::UInt64 => AnyFCSColumn::U64(U64Column(c)),
-                DataType::Float32 => AnyFCSColumn::F32(F32Column(c)),
-                DataType::Float64 => AnyFCSColumn::F64(F64Column(c)),
+                DataType::UInt8 => AnyFCSColumn::U08(FCSColumn(c.u8().unwrap())),
+                DataType::UInt16 => AnyFCSColumn::U16(FCSColumn(c.u16().unwrap())),
+                DataType::UInt32 => AnyFCSColumn::U32(FCSColumn(c.u32().unwrap())),
+                DataType::UInt64 => AnyFCSColumn::U64(FCSColumn(c.u64().unwrap())),
+                DataType::Float32 => AnyFCSColumn::F32(FCSColumn(c.f32().unwrap())),
+                DataType::Float64 => AnyFCSColumn::F64(FCSColumn(c.f64().unwrap())),
                 _ => unreachable!(),
             })
             .collect()
@@ -150,27 +155,78 @@ impl FCSDataFrame {
     }
 }
 
-pub(crate) trait ColumnIter {
-    type T;
+type FCSColIterInner<'a, T> = iter::Flatten<Box<dyn PolarsIterator<Item = Option<T>> + 'a>>;
 
-    fn iter_native(&self) -> impl Iterator<Item = Self::T>;
+pub(crate) type FCSColIter<'a, FromType, ToType> =
+    iter::Map<FCSColIterInner<'a, FromType>, fn(FromType) -> ToType>;
+
+pub(crate) trait PolarsFCSType
+where
+    Self: PolarsNumericType,
+{
+    fn iter_native<'a>(c: FCSColumn<'a, Self>) -> FCSColIterInner<'a, Self::Native>;
+
+    fn iter_casted<'a, ToType>(c: FCSColumn<'a, Self>) -> FCSColIter<'a, Self::Native, ToType>
+    where
+        ToType: NumCast<Self::Native>,
+    {
+        Self::iter_native(c).map(ToType::from_truncated)
+    }
+
+    fn into_writer<'a, S, ToType>(
+        c: FCSColumn<'a, Self>,
+        s: S,
+    ) -> NumColumnWriter0<'a, Self::Native, ToType, S>
+    where
+        ToType: NumCast<Self::Native>,
+    {
+        NumColumnWriter0 {
+            data: Self::iter_casted(c),
+            size: s,
+        }
+    }
 }
 
 macro_rules! impl_col_iter {
-    ($col_type:ident, $inner_type:ident) => {
-        impl ColumnIter for $col_type<'_> {
-            type T = $inner_type;
-
-            fn iter_native(&self) -> impl Iterator<Item = Self::T> {
-                self.0.$inner_type().unwrap().into_no_null_iter()
+    ($pltype:ident) => {
+        impl PolarsFCSType for $pltype {
+            fn iter_native<'a>(c: FCSColumn<'a, Self>) -> FCSColIterInner<'a, Self::Native> {
+                c.0.into_iter().flatten()
             }
         }
     };
 }
 
-impl_col_iter!(U08Column, u8);
-impl_col_iter!(U16Column, u16);
-impl_col_iter!(U32Column, u32);
-impl_col_iter!(U64Column, u64);
-impl_col_iter!(F32Column, f32);
-impl_col_iter!(F64Column, f64);
+impl_col_iter!(UInt8Type);
+impl_col_iter!(UInt16Type);
+impl_col_iter!(UInt32Type);
+impl_col_iter!(UInt64Type);
+impl_col_iter!(Float32Type);
+impl_col_iter!(Float64Type);
+
+pub(crate) trait NumCast<T> {
+    fn from_truncated(x: T) -> Self;
+}
+
+macro_rules! impl_numcast {
+    ($($numtype:ty),*) => {
+        impl_numcast!($($numtype,)* @inner $($numtype),*);
+    };
+
+    ($first:ty, $($rest:ty),+, @inner $($to:ty),*) => {
+        impl_numcast!($first, @inner $($to),+);
+        impl_numcast!($($rest,)+ @inner $($to),+);
+    };
+
+    ($from:ty, @inner $($to:ty),*) => {
+        $(
+            impl NumCast<$from> for $to {
+                fn from_truncated(x: $from) -> Self {
+                    x as $to
+                }
+            }
+        )*
+    };
+}
+
+impl_numcast!(u8, u16, u32, u64, f32, f64);

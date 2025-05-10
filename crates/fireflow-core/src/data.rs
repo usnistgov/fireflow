@@ -90,17 +90,23 @@ where
             )))?;
         }
 
-        let data_len = layout.nbytes(&valid_df, conf);
         let tot = Tot(df.height());
         let analysis_len = self.analysis.0.len();
-        // write HEADER+TEXT first
-        self.text.h_write(h, tot, data_len, analysis_len, conf)?;
-        // write DATA
         let writer = layout.into_writer(&valid_df, conf)?;
-        writer.map(|mut w| w.h_write(h));
-        // write ANALYSIS
-        h.write_all(&self.analysis.0)?;
-        Ok(PureSuccess::from(()))
+        writer.try_map(|mut w| {
+            // write HEADER+TEXT first
+            if self.text.h_write(h, tot, w.nbytes(), analysis_len, conf)? {
+                // write DATA
+                w.h_write(h)?;
+                // write ANALYSIS
+                h.write_all(&self.analysis.0)?;
+                Ok(PureSuccess::from(()))
+            } else {
+                Err(Failure::new(
+                    "primary TEXT does not fit into first 99,999,999 bytes".to_string(),
+                ))?
+            }
+        })
     }
 
     /// Convert this dataset into a different FCS version
@@ -239,8 +245,6 @@ pub trait VersionedDataLayout: Sized {
     fn try_new_from_raw(kws: &RawKeywords) -> Result<Self, Vec<String>>;
 
     fn ncols(&self) -> usize;
-
-    fn nbytes(&self, df: &FCSDataFrame, conf: &WriteConfig) -> usize;
 
     fn into_reader(self, kws: &RawKeywords, data_seg: Segment) -> PureMaybe<ColumnReader>;
 
@@ -451,6 +455,7 @@ pub type FixedWriter<'a> = DataWriterInner<AnyFixedColumnWriter<'a>>;
 pub struct DataWriterInner<C> {
     columns: Vec<C>,
     nrows: usize,
+    nbytes: usize,
 }
 
 /// Writer for ASCII delimited layout.
@@ -524,6 +529,13 @@ impl DataWriter<'_> {
         match self {
             DataWriter::Delim(d) => d.h_write(h),
             DataWriter::Fixed(f) => f.h_write(h),
+        }
+    }
+
+    fn nbytes(&self) -> usize {
+        match self {
+            DataWriter::Delim(d) => d.nbytes,
+            DataWriter::Fixed(f) => f.nbytes,
         }
     }
 }
@@ -1339,176 +1351,6 @@ where
     }
 }
 
-// /// Convert a series into a writable vector
-// ///
-// /// Data that is to be written in a different type will be converted. Depending
-// /// on the start and end types, data loss may occur, in which case the user will
-// /// be warned.
-// ///
-// /// For some cases like float->ASCII (bad idea), it is not clear how much space
-// /// will be needed to represent every possible float in the file, so user will
-// /// be warned always.
-// ///
-// /// If the start type will fit into the end type, all is well and nothing bad
-// /// will happen to user's precious data.
-// fn series_coerce(
-//     c: AnyFCSColumn,
-//     w: MixedType,
-//     conf: &WriteConfig,
-// ) -> PureSuccess<FixedColumnWriter> {
-//     // ASSUME this won't fail
-//     //
-//     // TODO could make this more robust by wrapping the Column in an
-//     // encapsulated newtype that only has valid types
-//     let mut deferred = PureErrorBuf::default();
-
-//     let num_warn = |d: &mut PureErrorBuf, from, to| {
-//         let msg = format!("converting {from} to {to} may truncate data");
-//         d.push_msg_leveled(msg, conf.disallow_lossy_conversions);
-//     };
-
-//     // TODO this will make a copy of the data within a new vector, which is
-//     // simply going to be shoved onto disk a few nanoseconds later. Would make
-//     // more sense to return a lazy iterator which would skip this intermediate.
-//     let res = match w {
-//         // For Uint* -> ASCII, warn user if there are not enough bytes to
-//         // hold the max range of the type being formatted. ASCII shouldn't
-//         // store floats at all, so warn user if input data is float or
-//         // double.
-//         MixedType::Ascii(a) => {
-//             let chars = a.chars;
-//             let data: Vec<_> = match c {
-//                 AnyFCSColumn::U08(xs) => series_cast!(xs, u64),
-//                 AnyFCSColumn::U16(xs) => series_cast!(xs, u64),
-//                 AnyFCSColumn::U32(xs) => series_cast!(xs, u64),
-//                 AnyFCSColumn::U64(xs) => PolarsFCSType::iter_native(xs).collect(),
-//                 AnyFCSColumn::F32(xs) => {
-//                     num_warn(&mut deferred, "float", "uint64");
-//                     series_cast!(xs, u64)
-//                 }
-//                 AnyFCSColumn::F64(xs) => {
-//                     num_warn(&mut deferred, "double", "uint64");
-//                     series_cast!(xs, u64)
-//                 }
-//             };
-//             let maxdigits = data
-//                 .iter()
-//                 .max()
-//                 .and_then(|x| x.checked_ilog10().map(|y| y + 1))
-//                 .unwrap_or(1);
-//             if maxdigits > u8::from(a.chars).into() {
-//                 let msg = format!(
-//                     "Largest value has {maxdigits} digits but only {chars} \
-//                      characters are allocated, data will be truncated.",
-//                 );
-//                 deferred.push_msg_leveled(msg, conf.disallow_lossy_conversions);
-//             }
-//             FixedColumnWriter::Ascii(NumColumnWriter { data, size: chars })
-//         }
-
-//         // Uint* -> Uint* is quite easy, just compare sizes and warn if the
-//         // target type is too small. Float/double -> Uint always could
-//         // potentially truncate a fractional value. Also check to see if
-//         // bitmask is exceeded, and if so truncate and warn user.
-//         MixedType::Integer(ut) => {
-//             match c {
-//                 AnyFCSColumn::F32(_) => num_warn(&mut deferred, "float", "uint"),
-//                 AnyFCSColumn::F64(_) => num_warn(&mut deferred, "float", "uint"),
-//                 _ => {
-//                     let from_size = ut.nbytes();
-//                     let to_size = ut.native_nbytes();
-//                     if to_size < from_size {
-//                         let msg = format!(
-//                             "converted uint from {from_size} to \
-//                              {to_size} bytes may truncate data"
-//                         );
-//                         deferred.push_warning(msg);
-//                     }
-//                 }
-//             }
-//             match c {
-//                 AnyFCSColumn::U08(xs) => convert_to_uint!(ut, xs, deferred),
-//                 AnyFCSColumn::U16(xs) => convert_to_uint!(ut, xs, deferred),
-//                 AnyFCSColumn::U32(xs) => convert_to_uint!(ut, xs, deferred),
-//                 AnyFCSColumn::U64(xs) => convert_to_uint!(ut, xs, deferred),
-//                 AnyFCSColumn::F32(xs) => convert_to_uint!(ut, xs, deferred),
-//                 AnyFCSColumn::F64(xs) => convert_to_uint!(ut, xs, deferred),
-//             }
-//         }
-
-//         // Floats can hold small uints and themselves, anything else might
-//         // truncate.
-//         MixedType::Float(t) => {
-//             match c {
-//                 AnyFCSColumn::U32(_) => num_warn(&mut deferred, "float", "uint32"),
-//                 AnyFCSColumn::U64(_) => num_warn(&mut deferred, "float", "uint64"),
-//                 AnyFCSColumn::F64(_) => num_warn(&mut deferred, "float", "double"),
-//                 _ => (),
-//             }
-//             match c {
-//                 AnyFCSColumn::U08(xs) => convert_to_f32!(t.order, xs),
-//                 AnyFCSColumn::U16(xs) => convert_to_f32!(t.order, xs),
-//                 AnyFCSColumn::U32(xs) => convert_to_f32!(t.order, xs),
-//                 AnyFCSColumn::U64(xs) => convert_to_f32!(t.order, xs),
-//                 AnyFCSColumn::F32(xs) => convert_to_f32!(t.order, xs),
-//                 AnyFCSColumn::F64(xs) => convert_to_f32!(t.order, xs),
-//             }
-//         }
-
-//         // Doubles can hold all but uint64
-//         MixedType::Double(t) => {
-//             if let AnyFCSColumn::U64(_) = c {
-//                 num_warn(&mut deferred, "double", "uint64")
-//             }
-//             match c {
-//                 AnyFCSColumn::U08(xs) => convert_to_f64!(t.order, xs),
-//                 AnyFCSColumn::U16(xs) => convert_to_f64!(t.order, xs),
-//                 AnyFCSColumn::U32(xs) => convert_to_f64!(t.order, xs),
-//                 AnyFCSColumn::U64(xs) => convert_to_f64!(t.order, xs),
-//                 AnyFCSColumn::F32(xs) => convert_to_f64!(t.order, xs),
-//                 AnyFCSColumn::F64(xs) => convert_to_f64!(t.order, xs),
-//             }
-//         }
-//     };
-//     PureSuccess {
-//         data: res,
-//         deferred,
-//     }
-// }
-
-// /// Convert Series into a u64 vector.
-// ///
-// /// Used when writing delimited ASCII. This is faster and more convenient
-// /// than the general coercion function.
-// fn series_coerce64(c: AnyFCSColumn, conf: &WriteConfig) -> PureSuccess<Vec<u64>> {
-//     // ASSUME this won't fail
-//     let mut deferred = PureErrorBuf::default();
-
-//     let num_warn = |d: &mut PureErrorBuf, from, to| {
-//         let msg = format!("converting {from} to {to} may truncate data");
-//         d.push_msg_leveled(msg, conf.disallow_lossy_conversions);
-//     };
-
-//     let res = match c {
-//         AnyFCSColumn::U08(xs) => series_cast!(xs, u64),
-//         AnyFCSColumn::U16(xs) => series_cast!(xs, u64),
-//         AnyFCSColumn::U32(xs) => series_cast!(xs, u64),
-//         AnyFCSColumn::U64(xs) => series_cast!(xs, u64),
-//         AnyFCSColumn::F32(xs) => {
-//             num_warn(&mut deferred, "float", "uint64");
-//             series_cast!(xs, u64)
-//         }
-//         AnyFCSColumn::F64(xs) => {
-//             num_warn(&mut deferred, "double", "uint64");
-//             series_cast!(xs, u64)
-//         }
-//     };
-//     PureSuccess {
-//         data: res,
-//         deferred,
-//     }
-// }
-
 macro_rules! impl_num_props {
     ($size:expr, $t:ty) => {
         impl NumProps<$size> for $t {
@@ -1645,72 +1487,6 @@ impl AnyUintColumnReader {
     }
 }
 
-// fn into_writable_columns(
-//     df: &FCSDataFrame,
-//     cs: Vec<MixedType>,
-//     conf: &WriteConfig,
-// ) -> PureSuccess<Vec<FixedColumnWriter>> {
-//     let cols = df.columns();
-//     let (writable_columns, msgs): (Vec<_>, Vec<_>) = cs
-//         .into_iter()
-//         .zip(cols)
-//         .map(|(w, c)| {
-//             let succ = series_coerce(c, w, conf);
-//             (succ.data, succ.deferred)
-//         })
-//         .unzip();
-//     PureSuccess {
-//         data: writable_columns,
-//         deferred: PureErrorBuf::mconcat(msgs),
-//     }
-// }
-
-// fn into_writable_matrix64(df: &FCSDataFrame, conf: &WriteConfig) -> PureSuccess<DMatrix<u64>> {
-//     let mut it = df.columns().into_iter().map(|c| {
-//         let res = series_coerce64(c, conf);
-//         (res.data, res.deferred)
-//     });
-//     let m = DMatrix::from_iterator(
-//         df.as_ref().height(),
-//         df.as_ref().width(),
-//         it.by_ref().flat_map(|x| x.0),
-//     );
-//     let msgs = it.map(|x| x.1).collect();
-//     PureSuccess {
-//         data: m,
-//         deferred: PureErrorBuf::mconcat(msgs),
-//     }
-// }
-
-// fn h_write_numeric_dataframe<W: Write>(
-//     h: &mut BufWriter<W>,
-//     cs: Vec<MixedType>,
-//     df: &FCSDataFrame,
-//     conf: &WriteConfig,
-// ) -> ImpureResult<()> {
-//     let df_nrows = df.as_ref().height();
-//     into_writable_columns(df, cs, conf).try_map(|writable_columns| {
-//         for r in 0..df_nrows {
-//             for c in writable_columns.iter() {
-//                 match c {
-//                     FixedColumnWriter::NumU8(w) => u8::h_write_int(h, &w.size, w.data[r]),
-//                     FixedColumnWriter::NumU16(w) => u16::h_write_int(h, &w.size, w.data[r]),
-//                     FixedColumnWriter::NumU24(w) => u32::h_write_int(h, &w.size, w.data[r]),
-//                     FixedColumnWriter::NumU32(w) => u32::h_write_int(h, &w.size, w.data[r]),
-//                     FixedColumnWriter::NumU40(w) => u64::h_write_int(h, &w.size, w.data[r]),
-//                     FixedColumnWriter::NumU48(w) => u64::h_write_int(h, &w.size, w.data[r]),
-//                     FixedColumnWriter::NumU56(w) => u64::h_write_int(h, &w.size, w.data[r]),
-//                     FixedColumnWriter::NumU64(w) => u64::h_write_int(h, &w.size, w.data[r]),
-//                     FixedColumnWriter::NumF32(w) => f32::h_write_float(h, &w.size, w.data[r]),
-//                     FixedColumnWriter::NumF64(w) => f64::h_write_float(h, &w.size, w.data[r]),
-//                     FixedColumnWriter::Ascii(w) => h_write_ascii_int(h, w.size, w.data[r]),
-//                 }?
-//             }
-//         }
-//         Ok(PureSuccess::from(()))
-//     })
-// }
-
 // TODO also check scale here?
 impl MixedType {
     pub(crate) fn try_new(
@@ -1794,10 +1570,6 @@ where
         self.columns.len()
     }
 
-    fn nbytes(&self, nrows: usize) -> usize {
-        self.event_width() * nrows
-    }
-
     pub fn into_reader(self, seg: Segment, kw_tot: Option<Tot>) -> PureSuccess<AlphaNumReader> {
         let n = seg.nbytes() as usize;
         let w = self.event_width();
@@ -1855,10 +1627,12 @@ where
                 t.into_writer(c, check).map_err(|e| (i, e))
             })
             .partition_result();
+        let nbytes = self.event_width() * df.as_ref().height();
         if fail.is_empty() {
             Ok(FixedWriter {
                 columns: pass,
                 nrows: df.as_ref().height(),
+                nbytes,
             })
         } else {
             Err(fail
@@ -2257,16 +2031,6 @@ impl AnyUintLayout {
         )
     }
 
-    fn nbytes(&self, nrows: usize) -> usize {
-        match_many_to_one!(
-            self,
-            AnyUintLayout,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            l,
-            { l.nbytes(nrows) }
-        )
-    }
-
     fn into_reader(self, data_seg: Segment, tot: Option<Tot>) -> PureSuccess<AlphaNumReader> {
         match_many_to_one!(
             self,
@@ -2321,13 +2085,6 @@ impl AsciiLayout {
         }
     }
 
-    fn nbytes(&self, df: &FCSDataFrame, conf: &WriteConfig) -> usize {
-        match self {
-            AsciiLayout::Fixed(a) => a.nbytes(df.as_ref().height()),
-            AsciiLayout::Delimited(_) => df.ascii_nchars(),
-        }
-    }
-
     fn into_writer<'a>(
         &self,
         df: &'a FCSDataFrame,
@@ -2357,10 +2114,12 @@ impl AsciiLayout {
                     .enumerate()
                     .map(|(i, c)| go(c).map_err(|e: LossError| (i, e)))
                     .partition_result();
+                let nbytes = df.ascii_nchars();
                 if fail.is_empty() {
                     Ok(DataWriter::Delim(DelimWriter {
                         columns: pass,
                         nrows: df.as_ref().height(),
+                        nbytes,
                     }))
                 } else {
                     Err(fail
@@ -2414,13 +2173,6 @@ impl FloatLayout {
         match self {
             FloatLayout::F32(l) => l.into_writer(df, conf),
             FloatLayout::F64(l) => l.into_writer(df, conf),
-        }
-    }
-
-    fn nbytes(&self, nrows: usize) -> usize {
-        match self {
-            FloatLayout::F32(l) => l.nbytes(nrows),
-            FloatLayout::F64(l) => l.nbytes(nrows),
         }
     }
 }
@@ -2489,14 +2241,6 @@ impl VersionedDataLayout for DataLayout2_0 {
             DataLayout2_0::Ascii(a) => a.ncols(),
             DataLayout2_0::Integer(i) => i.ncols(),
             DataLayout2_0::Float(f) => f.ncols(),
-        }
-    }
-
-    fn nbytes(&self, df: &FCSDataFrame, conf: &WriteConfig) -> usize {
-        match self {
-            DataLayout2_0::Ascii(a) => a.nbytes(df, conf),
-            DataLayout2_0::Integer(i) => i.nbytes(df.as_ref().height()),
-            DataLayout2_0::Float(f) => f.nbytes(df.as_ref().height()),
         }
     }
 
@@ -2609,14 +2353,6 @@ impl VersionedDataLayout for DataLayout3_0 {
         }
     }
 
-    fn nbytes(&self, df: &FCSDataFrame, conf: &WriteConfig) -> usize {
-        match self {
-            DataLayout3_0::Ascii(a) => a.nbytes(df, conf),
-            DataLayout3_0::Integer(i) => i.nbytes(df.as_ref().height()),
-            DataLayout3_0::Float(f) => f.nbytes(df.as_ref().height()),
-        }
-    }
-
     fn into_writer_inner<'a>(
         self,
         df: &'a FCSDataFrame,
@@ -2711,14 +2447,6 @@ impl VersionedDataLayout for DataLayout3_1 {
             DataLayout3_1::Ascii(a) => a.ncols(),
             DataLayout3_1::Integer(i) => i.ncols(),
             DataLayout3_1::Float(f) => f.ncols(),
-        }
-    }
-
-    fn nbytes(&self, df: &FCSDataFrame, conf: &WriteConfig) -> usize {
-        match self {
-            DataLayout3_1::Ascii(a) => a.nbytes(df, conf),
-            DataLayout3_1::Integer(i) => i.nbytes(df.as_ref().height()),
-            DataLayout3_1::Float(f) => f.nbytes(df.as_ref().height()),
         }
     }
 
@@ -2851,15 +2579,6 @@ impl VersionedDataLayout for DataLayout3_2 {
             DataLayout3_2::Integer(i) => i.ncols(),
             DataLayout3_2::Float(f) => f.ncols(),
             DataLayout3_2::Mixed(m) => m.ncols(),
-        }
-    }
-
-    fn nbytes(&self, df: &FCSDataFrame, conf: &WriteConfig) -> usize {
-        match self {
-            DataLayout3_2::Ascii(a) => a.nbytes(df, conf),
-            DataLayout3_2::Integer(i) => i.nbytes(df.as_ref().height()),
-            DataLayout3_2::Float(f) => f.nbytes(df.as_ref().height()),
-            DataLayout3_2::Mixed(m) => m.nbytes(df.as_ref().height()),
         }
     }
 

@@ -31,6 +31,7 @@ use serde::ser::SerializeStruct;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::io;
 use std::io::{BufWriter, Write};
 use std::str::FromStr;
 
@@ -1678,19 +1679,17 @@ where
         data_len: usize,
         analysis_len: usize,
         conf: &WriteConfig,
-    ) -> ImpureResult<()> {
+    ) -> io::Result<bool> {
         // TODO newtypes for data and analysis lenth to make them more obvious
         if let Some(ts) = self.text_segment(tot, data_len, analysis_len) {
             for t in ts {
                 h.write_all(t.as_bytes())?;
                 h.write_all(&[conf.delim.inner()])?;
             }
+            Ok(true)
         } else {
-            Err(Failure::new(
-                "primary TEXT does not fit into first 99,999,999 bytes".to_string(),
-            ))?;
+            Ok(false)
         }
-        Ok(PureSuccess::from(()))
     }
 
     /// Return HEADER+TEXT as a list of strings

@@ -3060,7 +3060,7 @@ fn h_write_ascii_int<W: Write>(h: &mut BufWriter<W>, chars: Chars, x: u64) -> io
         // if string less than allocated chars, pad left side with zero before
         // writing number
         for _ in 0..(w - s.len()) {
-            h.write_all(&[30]);
+            h.write_all(&[30])?;
         }
         h.write_all(s.as_bytes())
     }

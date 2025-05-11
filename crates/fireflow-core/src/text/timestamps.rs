@@ -306,10 +306,11 @@ impl FromStr for FCSTime100 {
                 });
                 let cap = RE.captures(s).ok_or(FCSTime100Error)?;
                 let [s1, s2, s3, s4] = cap.extract().1;
-                let hh: u32 = s1.parse().or(Err(FCSTime100Error))?;
-                let mm: u32 = s2.parse().or(Err(FCSTime100Error))?;
-                let ss: u32 = s3.parse().or(Err(FCSTime100Error))?;
-                let tt: u32 = s4.parse().or(Err(FCSTime100Error))?;
+                // ASSUME these will never fail
+                let hh: u32 = s1.parse().unwrap();
+                let mm: u32 = s2.parse().unwrap();
+                let ss: u32 = s3.parse().unwrap();
+                let tt: u32 = s4.parse().unwrap();
                 NaiveTime::from_hms_milli_opt(hh, mm, ss, tt * 10).ok_or(FCSTime100Error)
             })
             .map(FCSTime100)

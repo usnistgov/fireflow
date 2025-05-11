@@ -455,10 +455,10 @@ fn split_raw_text(xs: &[u8], delim: u8, conf: &RawTextReadConfig) -> PureSuccess
 
     // Reduce position list to 'boundary list' which will be tuples of position
     // of a given delim and length until next delim.
-    let raw_boundaries = delim_positions.windows(2).filter_map(|x| match x {
-        [a, b] => Some((*a, b - a)),
-        _ => None,
-    });
+    let raw_boundaries = delim_positions
+        .iter()
+        .tuple_windows()
+        .map(|(a, b)| (*a, b - a));
 
     // Compute word boundaries depending on if we want to "escape" delims or
     // not. Technically all versions of the standard allow double delimiters to

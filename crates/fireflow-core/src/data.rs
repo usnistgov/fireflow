@@ -585,7 +585,10 @@ impl AnyFixedColumnWriter<'_> {
 }
 
 impl<X> AnyColumnWriter<'_, X> {
-    fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()> {
+    fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()>
+    where
+        X: Copy,
+    {
         match self {
             AnyColumnWriter::U08(c) => c.h_write_int(h),
             AnyColumnWriter::U16(c) => c.h_write_int(h),
@@ -625,6 +628,7 @@ impl fmt::Display for LossError {
 impl<X, Y, const INTLEN: usize> IntColumnWriter<'_, X, Y, INTLEN> {
     fn h_write_int<W: Write, const DTLEN: usize>(&mut self, h: &mut BufWriter<W>) -> io::Result<()>
     where
+        X: Copy,
         Y: IntFromBytes<DTLEN, INTLEN>,
         <Y as FromStr>::Err: fmt::Display,
         <Y as FromStr>::Err: IntErr,
@@ -640,6 +644,7 @@ impl<X, Y, const INTLEN: usize> IntColumnWriter<'_, X, Y, INTLEN> {
 impl<X, Y, const DTLEN: usize> FloatColumnWriter<'_, X, Y, DTLEN> {
     fn h_write_float<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()>
     where
+        X: Copy,
         Y: FloatFromBytes<DTLEN>,
         <Y as FromStr>::Err: fmt::Display,
     {
@@ -648,7 +653,10 @@ impl<X, Y, const DTLEN: usize> FloatColumnWriter<'_, X, Y, DTLEN> {
 }
 
 impl<X> AsciiColumnWriter<'_, X> {
-    fn h_write_ascii<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()> {
+    fn h_write_ascii<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()>
+    where
+        X: Copy,
+    {
         let x = self.data.next().unwrap();
         let s = x.new.to_string();
         let w: usize = u8::from(self.size).into();
@@ -669,7 +677,10 @@ impl<X> AsciiColumnWriter<'_, X> {
 }
 
 impl<X> DelimColumnWriter<'_, X> {
-    fn h_write_delim_ascii<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()> {
+    fn h_write_delim_ascii<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()>
+    where
+        X: Copy,
+    {
         let x = self.data.next().unwrap();
         let s = x.new.to_string();
         let buf = s.as_bytes();

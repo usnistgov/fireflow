@@ -851,6 +851,8 @@ impl PyStandardizedDataset {
         }
     }
 
+    // TODO if I modify this in python-land, does this change the underlying
+    // data in rust-land? If so then I probably need to use something else
     #[getter]
     fn data(&self) -> PyDataFrame {
         // NOTE polars Series is a wrapper around an Arc so clone just

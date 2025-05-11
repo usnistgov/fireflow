@@ -2,6 +2,7 @@ use crate::data::ColumnWriter;
 
 use polars::prelude::*;
 use std::iter;
+use std::slice::Iter;
 
 /// A dataframe without NULL and only types that make sense for FCS files.
 #[derive(Clone)]
@@ -192,16 +193,16 @@ impl FCSDataFrame {
     }
 }
 
-type FCSColIterInner<'a, T> = iter::Flatten<Box<dyn PolarsIterator<Item = Option<T>> + 'a>>;
+// type FCSColIterInner<'a, T> = iter::Flatten<Box<dyn PolarsIterator<Item = Option<T>> + 'a>>;
 
 pub(crate) type FCSColIter<'a, FromType, ToType> =
-    iter::Map<FCSColIterInner<'a, FromType>, fn(FromType) -> CastResult<ToType>>;
+    iter::Map<iter::Copied<Iter<'a, FromType>>, fn(FromType) -> CastResult<ToType>>;
 
 pub(crate) trait PolarsFCSType
 where
     Self: PolarsNumericType,
 {
-    fn iter_native<'a>(c: &FCSColumn<'a, Self>) -> FCSColIterInner<'a, Self::Native>;
+    fn iter_native<'a>(c: &FCSColumn<'a, Self>) -> iter::Copied<Iter<'a, Self::Native>>;
 
     fn iter_converted<'a, ToType>(c: &FCSColumn<'a, Self>) -> FCSColIter<'a, Self::Native, ToType>
     where
@@ -241,8 +242,10 @@ where
 macro_rules! impl_col_iter {
     ($pltype:ident) => {
         impl PolarsFCSType for $pltype {
-            fn iter_native<'a>(c: &FCSColumn<'a, Self>) -> FCSColIterInner<'a, Self::Native> {
-                c.0.into_iter().flatten()
+            fn iter_native<'a>(c: &FCSColumn<'a, Self>) -> iter::Copied<Iter<'a, Self::Native>> {
+                // TODO rechunk here, don't assume the user didn't screw with
+                // the layout in some way.
+                c.0.cont_slice().unwrap().iter().copied()
             }
         }
     };

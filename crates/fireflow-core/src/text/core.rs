@@ -1332,6 +1332,9 @@ impl<'a, 'b> KwParser<'a, 'b> {
         ns
     }
 
+    // TODO I don't really need a hash table for this. It would be easier and
+    // probably faster to just use a paired vector, although I would need to
+    // ensure the keys are unique.
     fn lookup_all_meas_nonstandard(&mut self, n: MeasIdx) -> NonStdKeywords {
         let mut ns = HashMap::new();
         // ASSUME the pattern does not start with "$" and has a %n which will be

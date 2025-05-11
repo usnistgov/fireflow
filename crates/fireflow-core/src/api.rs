@@ -438,6 +438,10 @@ fn verify_delim(xs: &[u8], conf: &RawTextReadConfig) -> PureSuccess<u8> {
     res
 }
 
+// TODO this might be optimized further by splitting into "double delim" and
+// non-double-delim versions, the former case can be done much more simply. In
+// either case, it will probably be possible to do more operations on raw bytes
+// rather than convert to strings.
 fn split_raw_text(xs: &[u8], delim: u8, conf: &RawTextReadConfig) -> PureSuccess<RawPairs> {
     let mut deferred = PureErrorBuf::default();
     let textlen = xs.len();
@@ -446,6 +450,8 @@ fn split_raw_text(xs: &[u8], delim: u8, conf: &RawTextReadConfig) -> PureSuccess
     let delim_positions: Vec<_> = xs
         .iter()
         .enumerate()
+        // TODO could check for non-unicode characters here, which might come
+        // in handy later
         .filter_map(|(i, c)| if *c == delim { Some(i) } else { None })
         .collect();
 
@@ -601,6 +607,20 @@ fn split_raw_text(xs: &[u8], delim: u8, conf: &RawTextReadConfig) -> PureSuccess
     // from start to finish in standardized mode
     for chunk in final_boundaries.chunks(2) {
         if let [kb, vb] = chunk {
+            // TODO lots of optimization opportunities here:
+            // - I should know if the bytes at this point are valid, since I've
+            //   already scanned through them once
+            // - None of the standard keys should have non-ascii in them
+            //   so that check is useless
+            // - I can split the standard and non-standard kws into two hash
+            //   tables and deal with them separately (since they don't need to
+            //   mix except at the bounds of the program)
+            // - If I split the tables then I don't need to store the '$' which
+            //   lowers memory/hashing cost, esp for all those little PnX keys
+            // - I don't need to store strings for standard keys, I just need to
+            //   store ASCII characters
+            // - For standard keys I can probably just iterate through and
+            //   convert to uppercase myself without allocating a new string
             if let (Ok(k), Ok(v)) = (
                 str::from_utf8(&xs[kb.start..kb.end]),
                 str::from_utf8(&xs[vb.start..vb.end]),

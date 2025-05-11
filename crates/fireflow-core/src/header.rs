@@ -2,7 +2,6 @@ use crate::config::{HeaderConfig, OffsetCorrection};
 use crate::error::*;
 use crate::segment::*;
 
-use regex::Regex;
 use serde::Serialize;
 use std::fmt;
 use std::io::{BufReader, Read};
@@ -12,10 +11,16 @@ use std::str;
 ///
 /// This should always be the same. This also assumes that there are no OTHER
 /// segments (which for now are not supported).
-pub const HEADER_LEN: usize = 58;
+pub const HEADER_LEN: usize = A1_END;
 
-/// The pattern of the header.
-const HEADER_PAT: &str = r"(.{6})    (.{8})(.{8})(.{8})(.{8})(.{8})(.{8})";
+const VERSION_END: usize = 6;
+const SPACE_END: usize = VERSION_END + 4;
+const T0_END: usize = SPACE_END + 8;
+const T1_END: usize = T0_END + 8;
+const D0_END: usize = T1_END + 8;
+const D1_END: usize = D0_END + 8;
+const A0_END: usize = D1_END + 8;
+const A1_END: usize = A0_END + 8;
 
 /// All FCS versions this library supports.
 ///
@@ -57,16 +62,11 @@ pub fn h_read_header<R: Read>(h: &mut BufReader<R>, conf: &HeaderConfig) -> Impu
 }
 
 fn parse_header_offset(s: &str, allow_blank: bool) -> Option<u32> {
-    if allow_blank && s.trim().is_empty() {
+    let trimmed = s.trim_start();
+    if allow_blank && trimmed.is_empty() {
         return Some(0);
     }
-    let re = Regex::new(r" *(\d+)").unwrap();
-    re.captures(s).map(|c| {
-        // ASSUME this won't fail since the regexp has one field
-        let [i] = c.extract().1;
-        // ASSUME this won't fail since the regexp capture only matches digits
-        i.parse().unwrap()
-    })
+    trimmed.parse().ok()
 }
 
 fn parse_bounds(
@@ -101,34 +101,37 @@ fn parse_bounds(
 }
 
 fn parse_header(s: &str, conf: &HeaderConfig) -> PureResult<Header> {
-    // ASSUME this will always work, if not the regexp is invalid
-    let re = Regex::new(HEADER_PAT).unwrap();
-    if let Some(cap) = re.captures(s) {
-        // ASSUME this will always work since the regexp has 7 fields
-        let [v, t0, t1, d0, d1, a0, a1] = cap.extract().1;
-        let vers_succ = PureMaybe::from_result_1(
-            v.parse::<Version>().map_err(|e| e.to_string()),
-            PureErrorLevel::Error,
-        );
-        let text_succ = parse_bounds(t0, t1, false, SegmentId::PrimaryText, conf.text);
-        let data_succ = parse_bounds(d0, d1, false, SegmentId::Data, conf.data);
-        let anal_succ = parse_bounds(a0, a1, true, SegmentId::Analysis, conf.analysis);
-        let succ = vers_succ.combine4(text_succ, data_succ, anal_succ, |v, t, d, a| {
-            if let (Some(version), Some(text), Some(data), Some(analysis)) = (v, t, d, a) {
-                Some(Header {
-                    version: conf.version_override.unwrap_or(version),
-                    text,
-                    data,
-                    analysis,
-                })
-            } else {
-                None
-            }
-        });
-        PureMaybe::into_result(succ, "could not parse HEADER fields".to_string())
-    } else {
-        Err(Failure::new("could not parse HEADER".to_string()))
+    let v = &s[0..VERSION_END];
+    let spaces = &s[VERSION_END..SPACE_END];
+    let t0 = &s[SPACE_END..T0_END];
+    let t1 = &s[T0_END..T1_END];
+    let d0 = &s[T1_END..D0_END];
+    let d1 = &s[D0_END..D1_END];
+    let a0 = &s[D1_END..A0_END];
+    let a1 = &s[A0_END..A1_END];
+    let vers_succ = PureMaybe::from_result_1(
+        v.parse::<Version>().map_err(|e| e.to_string()),
+        PureErrorLevel::Error,
+    );
+    let text_succ = parse_bounds(t0, t1, false, SegmentId::PrimaryText, conf.text);
+    let data_succ = parse_bounds(d0, d1, false, SegmentId::Data, conf.data);
+    let anal_succ = parse_bounds(a0, a1, true, SegmentId::Analysis, conf.analysis);
+    let mut succ = vers_succ.combine4(text_succ, data_succ, anal_succ, |ver, t, d, a| {
+        if let (Some(version), Some(text), Some(data), Some(analysis)) = (ver, t, d, a) {
+            Some(Header {
+                version: conf.version_override.unwrap_or(version),
+                text,
+                data,
+                analysis,
+            })
+        } else {
+            None
+        }
+    });
+    if !spaces.chars().all(|x| x == ' ') {
+        succ.push_error("version must be followed by 4 spaces".into());
     }
+    PureMaybe::into_result(succ, "could not parse HEADER fields".to_string())
 }
 
 impl str::FromStr for Version {

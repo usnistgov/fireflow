@@ -1,5 +1,6 @@
 use crate::macros::{newtype_asref, newtype_disp};
 
+use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Serialize;
 use std::fmt;
@@ -23,8 +24,8 @@ impl FromStr for Range {
     type Err = ParseRangeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let r = Regex::new(RANGEPAT).unwrap();
-        if r.is_match(s) {
+        static RE: Lazy<Regex> = Lazy::new(|| Regex::new(RANGEPAT).unwrap());
+        if RE.is_match(s) {
             Ok(Range(s.to_string()))
         } else {
             Err(ParseRangeError)

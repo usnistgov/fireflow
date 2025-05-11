@@ -12,6 +12,7 @@ use chrono::NaiveDate;
 use itertools::Itertools;
 use polars::prelude::*;
 use serde::Serialize;
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fs;
 use std::io::{BufReader, Read, Seek};
@@ -672,10 +673,14 @@ fn hash_raw_pairs(pairs: RawPairs, conf: &RawTextReadConfig) -> PureSuccess<RawK
     let mut res = PureSuccess::from(standard);
     // TODO filter keywords based on pattern somewhere here
     for (key, value) in pairs.into_iter() {
-        let msg = format!("Skipping already-inserted key: {}", key.as_str());
-        let ires = res.data.insert(key, value);
-        if ires.is_some() {
-            res.push_msg_leveled(msg, conf.enforce_unique);
+        match res.data.entry(key) {
+            Entry::Occupied(e) => {
+                let msg = format!("Skipping already-inserted key: {}", e.key());
+                res.push_msg_leveled(msg, conf.enforce_unique);
+            }
+            Entry::Vacant(e) => {
+                e.insert(value);
+            }
         }
     }
     res
@@ -860,12 +865,17 @@ fn add_keywords(
 ) -> PureSuccess<()> {
     let mut succ = PureSuccess::from(());
     for (k, v) in pairs.into_iter() {
-        let msg = format!(
-            "Skipping already-inserted key from supplemental TEXT: {}",
-            k.as_str()
-        );
-        if kws.insert(k, v).is_some() {
-            succ.push_msg_leveled(msg, conf.enforce_unique);
+        match kws.entry(k) {
+            Entry::Occupied(e) => {
+                let msg = format!(
+                    "Skipping already-inserted key from supplemental TEXT: {}",
+                    e.key()
+                );
+                succ.push_msg_leveled(msg, conf.enforce_unique);
+            }
+            Entry::Vacant(e) => {
+                e.insert(v);
+            }
         }
     }
     succ

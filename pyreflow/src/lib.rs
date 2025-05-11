@@ -852,7 +852,13 @@ impl PyStandardizedDataset {
     }
 
     // TODO if I modify this in python-land, does this change the underlying
-    // data in rust-land? If so then I probably need to use something else
+    // data in rust-land? It shouldn't because the dataframe needs to be cloned
+    // when passed thru FFI, and although the columns themselves are not copied
+    // (they are Arc'ed) the dataframe itself is rebuilt, which means adding
+    // columns won't propagate backwards. Furthermore, the columns themselves
+    // don't have a Mutex within the Arc, so modification shouldn't be possible
+    // either. NEED TO TEST since many library assumptions rely on the dataframe
+    // being encapsulated.
     #[getter]
     fn data(&self) -> PyDataFrame {
         // NOTE polars Series is a wrapper around an Arc so clone just

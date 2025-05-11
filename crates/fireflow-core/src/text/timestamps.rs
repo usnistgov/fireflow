@@ -3,6 +3,7 @@ use crate::macros::{newtype_from, newtype_from_outer};
 use super::optionalkw::*;
 
 use chrono::{NaiveDate, NaiveTime, Timelike};
+use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Serialize;
 use std::fmt;
@@ -300,8 +301,10 @@ impl FromStr for FCSTime100 {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         NaiveTime::parse_from_str(s, "%H:%M:%S")
             .or_else(|_| {
-                let re = Regex::new(r"(\d){2}:(\d){2}:(\d){2}.(\d){2}").unwrap();
-                let cap = re.captures(s).ok_or(FCSTime100Error)?;
+                static RE: Lazy<Regex> = Lazy::new(|| {
+                    Regex::new(r"([0-9]){2}:([0-9]){2}:([0-9]){2}.([0-9]){2}").unwrap()
+                });
+                let cap = RE.captures(s).ok_or(FCSTime100Error)?;
                 let [s1, s2, s3, s4] = cap.extract().1;
                 let hh: u32 = s1.parse().or(Err(FCSTime100Error))?;
                 let mm: u32 = s2.parse().or(Err(FCSTime100Error))?;

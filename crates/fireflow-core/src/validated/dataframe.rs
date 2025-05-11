@@ -154,7 +154,7 @@ impl FCSDataFrame {
                     .unwrap()
                     .into_no_null_iter()
                     .map(|x| x.checked_ilog10().unwrap_or(0) + 1)
-                    .sum(),
+                    .sum::<u32>(),
                 DataType::UInt16 => c
                     .u16()
                     .unwrap()
@@ -185,8 +185,7 @@ impl FCSDataFrame {
                     .into_no_null_iter()
                     .map(|x| (x as u64).checked_ilog10().unwrap_or(0) + 1)
                     .sum(),
-                // this should never happen
-                _ => 0,
+                _ => unreachable!(),
             })
             .sum();
         (ndigits as usize) + ndelim

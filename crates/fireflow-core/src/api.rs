@@ -7,10 +7,10 @@ pub use crate::segment::*;
 pub use crate::text::core::*;
 pub use crate::text::keywords::*;
 use crate::text::timestamps::*;
+use crate::validated::dataframe::FCSDataFrame;
 
 use chrono::NaiveDate;
 use itertools::Itertools;
-use polars::prelude::*;
 use serde::Serialize;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -108,7 +108,7 @@ pub struct RawDataset {
     /// The type of each column is such that each measurement is encoded with
     /// zero loss. This will/should never contain NULL values despite the
     /// underlying arrow framework allowing NULLs to exist.
-    pub data: DataFrame,
+    pub data: FCSDataFrame,
 
     /// ANALYSIS segment
     ///

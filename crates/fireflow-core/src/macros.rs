@@ -75,3 +75,15 @@ macro_rules! match_many_to_one {
 }
 
 pub(crate) use match_many_to_one;
+
+// macro_rules! enum_from {
+//     ($inner:path, $enum_type:ident, $var:ident) => {
+//         impl From<$inner> for $enum_type {
+//             fn from(value: $inner) -> Self {
+//                 $enum_type::$var(value)
+//             }
+//         }
+//     };
+// }
+
+// pub(crate) use enum_from;

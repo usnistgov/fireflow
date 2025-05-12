@@ -1,41 +1,80 @@
 use crate::data::ColumnWriter;
+use crate::macros::match_many_to_one;
 
-use polars::prelude::*;
+use polars_arrow::buffer::Buffer;
 use std::iter;
 use std::slice::Iter;
 
 /// A dataframe without NULL and only types that make sense for FCS files.
-#[derive(Clone)]
-pub struct FCSDataFrame(DataFrame);
-
-/// Any valid column from an FCS dataframe
-pub enum AnyFCSColumn<'a> {
-    U08(U08Column<'a>),
-    U16(U16Column<'a>),
-    U32(U32Column<'a>),
-    U64(U64Column<'a>),
-    F32(F32Column<'a>),
-    F64(F64Column<'a>),
+#[derive(Clone, Default)]
+pub struct FCSDataFrame {
+    columns: Vec<AnyFCSColumn>,
+    nrows: usize,
 }
 
-pub struct FCSColumn<'a, T: PolarsNumericType>(&'a ChunkedArray<T>);
+/// Any valid column from an FCS dataframe
+#[derive(Clone)]
+pub enum AnyFCSColumn {
+    U08(U08Column),
+    U16(U16Column),
+    U32(U32Column),
+    U64(U64Column),
+    F32(F32Column),
+    F64(F64Column),
+}
+
+#[derive(Clone)]
+pub struct FCSColumn<T>(pub Buffer<T>);
+
+impl<T> From<Vec<T>> for FCSColumn<T>
+// where
+//     [T]: ToOwned,
+//     T: Clone,
+{
+    fn from(value: Vec<T>) -> Self {
+        FCSColumn(value.into())
+    }
+}
+
+macro_rules! anycolumn_from {
+    ($inner:ident, $var:ident) => {
+        impl From<$inner> for AnyFCSColumn {
+            fn from(value: $inner) -> Self {
+                AnyFCSColumn::$var(value)
+            }
+        }
+    };
+}
+
+anycolumn_from!(U08Column, U08);
+anycolumn_from!(U16Column, U16);
+anycolumn_from!(U32Column, U32);
+anycolumn_from!(U64Column, U64);
+anycolumn_from!(F32Column, F32);
+anycolumn_from!(F64Column, F64);
+
+// impl<'a> From<U08Column<'a>> for AnyFCSColumn<'a> {
+//     fn from(value: U08Column<'a>) -> Self {
+//         AnyFCSColumn::U08(value)
+//     }
+// }
 
 // TODO the data is behind an Arc right? so cloning these and taking ownership
 // will be cheap?
-pub type U08Column<'a> = FCSColumn<'a, UInt8Type>;
-pub type U16Column<'a> = FCSColumn<'a, UInt16Type>;
-pub type U32Column<'a> = FCSColumn<'a, UInt32Type>;
-pub type U64Column<'a> = FCSColumn<'a, UInt64Type>;
-pub type F32Column<'a> = FCSColumn<'a, Float32Type>;
-pub type F64Column<'a> = FCSColumn<'a, Float64Type>;
+pub type U08Column = FCSColumn<u8>;
+pub type U16Column = FCSColumn<u16>;
+pub type U32Column = FCSColumn<u32>;
+pub type U64Column = FCSColumn<u64>;
+pub type F32Column = FCSColumn<f32>;
+pub type F64Column = FCSColumn<f64>;
 
 // newtype_from_outer!(FCSDataFrame, DataFrame);
 
-impl AsRef<DataFrame> for FCSDataFrame {
-    fn as_ref(&self) -> &DataFrame {
-        &self.0
-    }
-}
+// impl AsRef<DataFrame> for FCSDataFrame {
+//     fn as_ref(&self) -> &DataFrame {
+//         &self.0
+//     }
+// }
 
 // impl Deref<FCSDataFrame> for DataFrame {
 //     fn deref(&self) -> &FCSDataFrame {
@@ -63,130 +102,142 @@ impl AsRef<DataFrame> for FCSDataFrame {
 
 // newtype_from_column!(U08Column, U16Column, U32Column, U64Column, F32Column, F64Column);
 
-impl TryFrom<DataFrame> for FCSDataFrame {
-    type Error = ();
-    fn try_from(value: DataFrame) -> Result<Self, Self::Error> {
-        if value.get_columns().iter().all(|c| {
-            matches!(
-                c.dtype(),
-                DataType::UInt8
-                    | DataType::UInt16
-                    | DataType::UInt32
-                    | DataType::UInt64
-                    | DataType::Float32
-                    | DataType::Float64
-            ) && !c.has_nulls()
-        }) {
-            Ok(FCSDataFrame(value))
-        } else {
-            Err(())
-        }
+// impl TryFrom<DataFrame> for FCSDataFrame {
+//     type Error = ();
+//     fn try_from(value: DataFrame) -> Result<Self, Self::Error> {
+//         if value.get_columns().iter().all(|c| {
+//             matches!(
+//                 c.dtype(),
+//                 DataType::UInt8
+//                     | DataType::UInt16
+//                     | DataType::UInt32
+//                     | DataType::UInt64
+//                     | DataType::Float32
+//                     | DataType::Float64
+//             ) && !c.has_nulls()
+//         }) {
+//             Ok(FCSDataFrame(value))
+//         } else {
+//             Err(())
+//         }
+//     }
+// }
+
+impl AnyFCSColumn {
+    pub fn len(&self) -> usize {
+        match_many_to_one!(self, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], x, {
+            x.0.len()
+        })
+    }
+
+    pub fn pos_to_string(&self, i: usize) -> String {
+        match_many_to_one!(self, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], x, {
+            x.0[i].to_string()
+        })
     }
 }
 
 impl FCSDataFrame {
-    pub(crate) fn columns(&self) -> Vec<AnyFCSColumn> {
-        self.0
-            .get_columns()
-            .iter()
-            .map(|c| match c.dtype() {
-                DataType::UInt8 => AnyFCSColumn::U08(FCSColumn(c.u8().unwrap())),
-                DataType::UInt16 => AnyFCSColumn::U16(FCSColumn(c.u16().unwrap())),
-                DataType::UInt32 => AnyFCSColumn::U32(FCSColumn(c.u32().unwrap())),
-                DataType::UInt64 => AnyFCSColumn::U64(FCSColumn(c.u64().unwrap())),
-                DataType::Float32 => AnyFCSColumn::F32(FCSColumn(c.f32().unwrap())),
-                DataType::Float64 => AnyFCSColumn::F64(FCSColumn(c.f64().unwrap())),
-                _ => unreachable!(),
-            })
-            .collect()
+    pub(crate) fn try_new(columns: Vec<AnyFCSColumn>) -> Option<Self> {
+        if let Some(nrows) = columns.first().map(|c| c.len()) {
+            if columns.iter().all(|c| c.len() == nrows) {
+                Some(Self { columns, nrows })
+            } else {
+                None
+            }
+        } else {
+            Some(Self::default())
+        }
     }
 
-    pub fn inner(self) -> DataFrame {
-        self.0
+    pub fn iter_columns(&self) -> Iter<'_, AnyFCSColumn> {
+        self.columns.iter()
     }
 
-    pub(crate) fn drop_in_place(&mut self, name: &str) -> Result<Column, PolarsError> {
-        self.0.drop_in_place(name)
+    pub fn nrows(&self) -> usize {
+        self.nrows
     }
 
-    pub(crate) fn with_vec<T>(
-        &mut self,
-        k: &str,
-        xs: Vec<T::Native>,
-    ) -> Result<&mut FCSDataFrame, PolarsError>
-    where
-        T: PolarsFCSType,
-        ChunkedArray<T>: IntoSeries,
-    {
-        let ser = ChunkedArray::<T>::from_vec(k.into(), xs).into_series();
-        self.0.with_column(ser)?;
-        Ok(self)
+    pub fn ncols(&self) -> usize {
+        self.columns.len()
     }
 
-    pub(crate) fn insert_vec<T>(
-        &mut self,
-        i: usize,
-        k: &str,
-        xs: Vec<T::Native>,
-    ) -> Result<&mut FCSDataFrame, PolarsError>
-    where
-        T: PolarsFCSType,
-        ChunkedArray<T>: IntoSeries,
-    {
-        let ser = ChunkedArray::<T>::from_vec(k.into(), xs).into_series();
-        self.0.insert_column(i, ser)?;
-        Ok(self)
+    pub fn size(&self) -> usize {
+        self.ncols() * self.nrows()
     }
 
-    /// Return number of bytes this will occupy if written as delimited ASCII
+    pub(crate) fn is_empty(&self) -> bool {
+        self.ncols() == 0
+    }
+
+    pub(crate) fn drop_in_place(&mut self, i: usize) -> Option<AnyFCSColumn> {
+        if i > self.columns.len() {
+            None
+        } else {
+            Some(self.columns.remove(i))
+        }
+    }
+
+    // TODO return real error message from here
+    pub(crate) fn push_column(&mut self, col: AnyFCSColumn) -> Option<()> {
+        if col.len() == self.nrows() || self.is_empty() {
+            self.columns.push(col);
+            Some(())
+        } else {
+            None
+        }
+    }
+
+    // TODO return real error message from here
+    pub(crate) fn insert_column(&mut self, i: usize, col: AnyFCSColumn) -> Option<()> {
+        if (col.len() == self.nrows() || self.is_empty()) && i > self.columns.len() {
+            self.columns.insert(i, col);
+            Some(())
+        } else {
+            None
+        }
+    }
+
+    // /// Return number of bytes this will occupy if written as delimited ASCII
     pub(crate) fn ascii_nchars(&self) -> usize {
-        let n = self.0.size();
+        let n = self.size();
         if n == 0 {
             return 0;
         }
         let ndelim = n - 1;
         let ndigits: u32 = self
-            .0
-            .get_columns()
-            .iter()
-            .map(|c| match c.dtype() {
-                DataType::UInt8 => c
-                    .u8()
-                    .unwrap()
-                    .into_no_null_iter()
-                    .map(|x| x.checked_ilog10().unwrap_or(0) + 1)
-                    .sum::<u32>(),
-                DataType::UInt16 => c
-                    .u16()
-                    .unwrap()
-                    .into_no_null_iter()
-                    .map(|x| x.checked_ilog10().unwrap_or(0) + 1)
-                    .sum(),
-                DataType::UInt32 => c
-                    .u32()
-                    .unwrap()
-                    .into_no_null_iter()
-                    .map(|x| x.checked_ilog10().unwrap_or(0) + 1)
-                    .sum(),
-                DataType::UInt64 => c
-                    .u64()
-                    .unwrap()
-                    .into_no_null_iter()
-                    .map(|x| x.checked_ilog10().unwrap_or(0) + 1)
-                    .sum(),
-                DataType::Float32 => c
-                    .f32()
-                    .unwrap()
-                    .into_no_null_iter()
-                    .map(|x| (x as u64).checked_ilog10().unwrap_or(0) + 1)
-                    .sum(),
-                DataType::Float64 => c
-                    .f64()
-                    .unwrap()
-                    .into_no_null_iter()
-                    .map(|x| (x as u64).checked_ilog10().unwrap_or(0) + 1)
-                    .sum(),
-                _ => unreachable!(),
+            .iter_columns()
+            .map(|c| match c {
+                AnyFCSColumn::U08(xs) => {
+                    xs.0.iter()
+                        .map(|x| x.checked_ilog10().unwrap_or(0) + 1)
+                        .sum::<u32>()
+                }
+                AnyFCSColumn::U16(xs) => {
+                    xs.0.iter()
+                        .map(|x| x.checked_ilog10().unwrap_or(0) + 1)
+                        .sum()
+                }
+                AnyFCSColumn::U32(xs) => {
+                    xs.0.iter()
+                        .map(|x| x.checked_ilog10().unwrap_or(0) + 1)
+                        .sum()
+                }
+                AnyFCSColumn::U64(xs) => {
+                    xs.0.iter()
+                        .map(|x| x.checked_ilog10().unwrap_or(0) + 1)
+                        .sum()
+                }
+                AnyFCSColumn::F32(xs) => {
+                    xs.0.iter()
+                        .map(|x| (*x as u64).checked_ilog10().unwrap_or(0) + 1)
+                        .sum()
+                }
+                AnyFCSColumn::F64(xs) => {
+                    xs.0.iter()
+                        .map(|x| (*x as u64).checked_ilog10().unwrap_or(0) + 1)
+                        .sum()
+                }
             })
             .sum();
         (ndigits as usize) + ndelim
@@ -198,32 +249,34 @@ impl FCSDataFrame {
 pub(crate) type FCSColIter<'a, FromType, ToType> =
     iter::Map<iter::Copied<Iter<'a, FromType>>, fn(FromType) -> CastResult<ToType>>;
 
-pub(crate) trait PolarsFCSType
+pub(crate) trait FCSDataType
 where
-    Self: PolarsNumericType,
+    Self: Sized,
+    Self: Copy,
+    [Self]: ToOwned,
 {
-    fn iter_native<'a>(c: &FCSColumn<'a, Self>) -> iter::Copied<Iter<'a, Self::Native>>;
+    fn iter_native(c: &FCSColumn<Self>) -> iter::Copied<Iter<'_, Self>>;
 
-    fn iter_converted<'a, ToType>(c: &FCSColumn<'a, Self>) -> FCSColIter<'a, Self::Native, ToType>
+    fn iter_converted<ToType>(c: &FCSColumn<Self>) -> FCSColIter<'_, Self, ToType>
     where
-        ToType: NumCast<Self::Native>,
+        ToType: NumCast<Self>,
     {
         Self::iter_native(c).map(ToType::from_truncated)
     }
 
     fn into_writer<E, F, S, T>(
-        c: FCSColumn<'_, Self>,
+        c: &FCSColumn<Self>,
         s: S,
         check: bool,
         f: F,
-    ) -> Result<ColumnWriter<'_, Self::Native, T, S>, E>
+    ) -> Result<ColumnWriter<'_, Self, T, S>, E>
     where
         E: Default,
         F: Fn(T) -> Option<E>,
-        T: NumCast<Self::Native>,
+        T: NumCast<Self>,
     {
         if check {
-            for x in Self::iter_converted::<T>(&c) {
+            for x in Self::iter_converted::<T>(c) {
                 if x.lossy {
                     return Err(E::default());
                 }
@@ -233,7 +286,7 @@ where
             }
         }
         Ok(ColumnWriter {
-            data: Self::iter_converted(&c),
+            data: Self::iter_converted(c),
             size: s,
         })
     }
@@ -241,22 +294,20 @@ where
 
 macro_rules! impl_col_iter {
     ($pltype:ident) => {
-        impl PolarsFCSType for $pltype {
-            fn iter_native<'a>(c: &FCSColumn<'a, Self>) -> iter::Copied<Iter<'a, Self::Native>> {
-                // TODO rechunk here, don't assume the user didn't screw with
-                // the layout in some way.
-                c.0.cont_slice().unwrap().iter().copied()
+        impl FCSDataType for $pltype {
+            fn iter_native(c: &FCSColumn<Self>) -> iter::Copied<Iter<'_, Self>> {
+                c.0.iter().copied()
             }
         }
     };
 }
 
-impl_col_iter!(UInt8Type);
-impl_col_iter!(UInt16Type);
-impl_col_iter!(UInt32Type);
-impl_col_iter!(UInt64Type);
-impl_col_iter!(Float32Type);
-impl_col_iter!(Float64Type);
+impl_col_iter!(u8);
+impl_col_iter!(u16);
+impl_col_iter!(u32);
+impl_col_iter!(u64);
+impl_col_iter!(f32);
+impl_col_iter!(f64);
 
 pub(crate) struct CastResult<T> {
     pub(crate) new: T,

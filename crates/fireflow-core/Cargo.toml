@@ -13,6 +13,7 @@ itertools = { workspace = true }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 nalgebra = { workspace = true }
-polars = { workspace = true }
+# polars = { workspace = true }
+polars-arrow = { version = "0.47.1" }
 nonempty = { workspace = true }
 once_cell = { version = "1.21.3" }

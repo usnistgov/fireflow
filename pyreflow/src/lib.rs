@@ -859,13 +859,13 @@ impl PyStandardizedDataset {
     // don't have a Mutex within the Arc, so modification shouldn't be possible
     // either. NEED TO TEST since many library assumptions rely on the dataframe
     // being encapsulated.
-    #[getter]
-    fn data(&self) -> PyDataFrame {
-        // NOTE polars Series is a wrapper around an Arc so clone just
-        // increments the ref count for each column rather than "deepcopy" the
-        // whole dataset.
-        PyDataFrame(self.0.dataset.as_data().clone().inner())
-    }
+    // #[getter]
+    // fn data(&self) -> PyDataFrame {
+    //     // NOTE polars Series is a wrapper around an Arc so clone just
+    //     // increments the ref count for each column rather than "deepcopy" the
+    //     // whole dataset.
+    //     PyDataFrame(self.0.dataset.as_data().clone().inner())
+    // }
 }
 
 macro_rules! get_set_str {

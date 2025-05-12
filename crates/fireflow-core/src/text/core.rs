@@ -27,7 +27,6 @@ use chrono::Timelike;
 use itertools::Itertools;
 use nalgebra::DMatrix;
 use nonempty::NonEmpty;
-use polars::prelude::*;
 use serde::ser::SerializeStruct;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -331,24 +330,16 @@ impl AnyCoreTEXT {
         match_anycoretext!(self, x, { x.as_data_reader(kws, conf, data_seg) })
     }
 
-    pub(crate) fn into_dataset_unchecked(
+    pub(crate) fn into_dataset_unchecked<'a>(
         self,
-        data: DataFrame,
+        data: FCSDataFrame,
         analysis: Analysis,
     ) -> AnyCoreDataset {
         match self {
-            AnyCoreTEXT::FCS2_0(text) => {
-                AnyCoreDataset::FCS2_0(text.into_dataset_unchecked(data, analysis))
-            }
-            AnyCoreTEXT::FCS3_0(text) => {
-                AnyCoreDataset::FCS3_0(text.into_dataset_unchecked(data, analysis))
-            }
-            AnyCoreTEXT::FCS3_1(text) => {
-                AnyCoreDataset::FCS3_1(text.into_dataset_unchecked(data, analysis))
-            }
-            AnyCoreTEXT::FCS3_2(text) => {
-                AnyCoreDataset::FCS3_2(text.into_dataset_unchecked(data, analysis))
-            }
+            AnyCoreTEXT::FCS2_0(text) => AnyCoreDataset::FCS2_0(text.into_dataset(data, analysis)),
+            AnyCoreTEXT::FCS3_0(text) => AnyCoreDataset::FCS3_0(text.into_dataset(data, analysis)),
+            AnyCoreTEXT::FCS3_1(text) => AnyCoreDataset::FCS3_1(text.into_dataset(data, analysis)),
+            AnyCoreTEXT::FCS3_2(text) => AnyCoreDataset::FCS3_2(text.into_dataset(data, analysis)),
         }
     }
 }
@@ -2584,12 +2575,12 @@ where
         M::as_column_layout(&self.metadata, &self.measurements)
     }
 
-    fn df_names(&self) -> Vec<PlSmallStr> {
-        self.all_shortnames()
-            .into_iter()
-            .map(|s| s.as_ref().into())
-            .collect()
-    }
+    // fn df_names(&self) -> Vec<PlSmallStr> {
+    //     self.all_shortnames()
+    //         .into_iter()
+    //         .map(|s| s.as_ref().into())
+    //         .collect()
+    // }
 
     // fn set_df_column_names(&self, df: &mut DataFrame) -> PolarsResult<()> {
     //     df.set_column_names(self.df_names())
@@ -2613,15 +2604,11 @@ where
             })
     }
 
-    pub(crate) fn into_dataset_unchecked(
+    pub(crate) fn into_dataset(
         self,
-        mut df: DataFrame,
+        data: FCSDataFrame,
         analysis: Analysis,
     ) -> VersionedCoreDataset<M> {
-        let ns = self.df_names();
-        df.set_column_names(ns)
-            .expect("error when setting new dataframe names");
-        let data = FCSDataFrame::try_from(df).expect("dataframe has non-FCS types");
         CoreDataset {
             text: Box::new(self),
             data,

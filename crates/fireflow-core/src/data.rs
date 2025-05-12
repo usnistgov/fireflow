@@ -13,7 +13,7 @@ use crate::validated::nonstandard::MeasIdx;
 use crate::validated::shortname::*;
 
 use itertools::Itertools;
-use polars::prelude::*;
+// use polars::prelude::*;
 use std::fmt;
 use std::io;
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
@@ -71,7 +71,7 @@ where
         })?;
 
         let df = &self.data;
-        let tot = Tot(df.as_ref().height());
+        let tot = Tot(df.nrows());
         let analysis_len = self.analysis.0.len();
         let writer = layout.as_writer(df, conf)?;
         writer.try_map(|mut w| {
@@ -122,26 +122,25 @@ where
     // TODO also make a version of this that takes an index since not all
     // columns are named or we might not know the name
     fn remove_measurement(&mut self, n: &Shortname) -> Result<Option<MeasIdx>, String> {
-        let i = self.text.remove_measurement_by_name(n)?;
-        self.data.drop_in_place(n.as_ref()).unwrap();
-        Ok(i.map(|x| x.0))
+        let res = self.text.remove_measurement_by_name(n)?.map(|(i, _)| {
+            self.data.drop_in_place(i.into()).unwrap();
+            i
+        });
+        Ok(res)
     }
 
     fn push_measurement<T>(
         &mut self,
         n: <M::N as MightHave>::Wrapper<Shortname>,
         m: Measurement<M::P>,
-        col: Vec<T::Native>,
+        col: AnyFCSColumn,
     ) -> Result<Shortname, String>
     where
-        T: PolarsFCSType,
-        ChunkedArray<T>: IntoSeries,
+        T: FCSDataType,
     {
         let k = self.text.push_measurement(n, m)?;
         // ASSUME this won't be reached if the name already exists
-        self.data
-            .with_vec(k.as_ref(), col)
-            .map_err(|e| e.to_string())?;
+        self.data.push_column(col);
         Ok(k)
     }
 
@@ -150,17 +149,15 @@ where
         i: MeasIdx,
         n: <M::N as MightHave>::Wrapper<Shortname>,
         m: Measurement<M::P>,
-        col: Vec<T::Native>,
+        col: AnyFCSColumn,
     ) -> Result<Shortname, String>
     where
-        T: PolarsFCSType,
-        ChunkedArray<T>: IntoSeries,
+        T: FCSDataType,
     {
         let k = self.text.insert_measurement(i, n, m)?;
-        // ASSUME this won't be reached if the name already exists
-        self.data
-            .insert_vec(i.into(), k.as_ref(), col)
-            .map_err(|e| e.to_string())?;
+        // ASSUME this won't be reached if the name already exists or index is
+        // out of bounds
+        self.data.insert_column(i.into(), col);
         Ok(k)
     }
 }
@@ -202,6 +199,12 @@ pub enum AnyCoreDataset {
 }
 
 impl AnyCoreDataset {
+    pub fn shortnames(&self) -> Vec<Shortname> {
+        match_many_to_one!(self, AnyCoreDataset, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
+            x.text.all_shortnames()
+        })
+    }
+
     pub fn as_data(&self) -> &FCSDataFrame {
         match_many_to_one!(self, AnyCoreDataset, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
             &x.data
@@ -240,7 +243,7 @@ pub trait VersionedDataLayout: Sized {
         // matches the number of measurements. If these are not true, the code
         // is wrong.
         let par = self.ncols();
-        let ncols = df.as_ref().width();
+        let ncols = df.ncols();
         if ncols != par {
             panic!("datafame columns ({ncols}) unequal to number of measurements ({par})");
         }
@@ -755,7 +758,10 @@ pub enum AnyUintColumnReader {
 
 impl DataReader {
     // TODO don't take ownership
-    pub(crate) fn h_read<R: Read + Seek>(self, h: &mut BufReader<R>) -> io::Result<DataFrame> {
+    pub(crate) fn h_read<R>(self, h: &mut BufReader<R>) -> io::Result<FCSDataFrame>
+    where
+        R: Read + Seek,
+    {
         h.seek(SeekFrom::Start(self.begin))?;
         match self.column_reader {
             ColumnReader::DelimitedAscii(p) => p.h_read(h),
@@ -772,16 +778,16 @@ impl FloatReader {
         }
     }
 
-    fn into_pl_series(self, name: PlSmallStr) -> Series {
+    fn into_fcs_column(self) -> AnyFCSColumn {
         match self {
-            FloatReader::F32(x) => Float32Chunked::from_vec(name, x.column).into_series(),
-            FloatReader::F64(x) => Float64Chunked::from_vec(name, x.column).into_series(),
+            FloatReader::F32(x) => F32Column::from(x.column).into(),
+            FloatReader::F64(x) => F64Column::from(x.column).into(),
         }
     }
 }
 
 impl DelimAsciiReader {
-    fn h_read<R: Read>(self, h: &mut BufReader<R>) -> io::Result<DataFrame> {
+    fn h_read<R: Read>(self, h: &mut BufReader<R>) -> io::Result<FCSDataFrame> {
         let mut buf = Vec::new();
         let mut row = 0;
         let mut col = 0;
@@ -869,21 +875,19 @@ impl DelimAsciiReader {
         if !buf.is_empty() {
             data[col][row] = ascii_to_uint_io(buf.clone())?;
         }
-        let ss: Vec<_> = data
+        let cs: Vec<_> = data
             .into_iter()
-            .enumerate()
-            .map(|(i, s)| {
-                ChunkedArray::<UInt64Type>::from_vec(format!("M{i}").into(), s)
-                    .into_series()
-                    .into()
-            })
+            .map(FCSColumn::from)
+            .map(AnyFCSColumn::from)
             .collect();
-        DataFrame::new(ss).map_err(|e| io::Error::other(e.to_string()))
+        // ASSUME this will never fail because all columns should be the same
+        // length
+        Ok(FCSDataFrame::try_new(cs).unwrap())
     }
 }
 
 impl AlphaNumReader {
-    fn h_read<R: Read>(mut self, h: &mut BufReader<R>) -> io::Result<DataFrame> {
+    fn h_read<R: Read>(mut self, h: &mut BufReader<R>) -> io::Result<FCSDataFrame> {
         let mut strbuf = String::new();
         for r in 0..self.nrows.0 {
             for c in self.columns.iter_mut() {
@@ -899,14 +903,12 @@ impl AlphaNumReader {
                 }
             }
         }
-        // TODO get real column names here
-        let ss: Vec<_> = self
+        let cs: Vec<_> = self
             .columns
             .into_iter()
-            .enumerate()
-            .map(|(i, c)| c.into_pl_series(format!("X{i}").into()).into())
+            .map(|c| c.into_fcs_column())
             .collect();
-        DataFrame::new(ss).map_err(|e| io::Error::other(e.to_string()))
+        Ok(FCSDataFrame::try_new(cs).unwrap())
     }
 }
 
@@ -1357,26 +1359,26 @@ impl IntFromBytes<8, 7> for u64 {}
 impl IntFromBytes<8, 8> for u64 {}
 
 impl AlphaNumColumnReader {
-    fn into_pl_series(self, name: PlSmallStr) -> Series {
+    fn into_fcs_column(self) -> AnyFCSColumn {
         match self {
-            AlphaNumColumnReader::Ascii(x) => UInt64Chunked::from_vec(name, x.column).into_series(),
-            AlphaNumColumnReader::Float(x) => x.into_pl_series(name),
-            AlphaNumColumnReader::Uint(x) => x.into_pl_series(name),
+            AlphaNumColumnReader::Ascii(x) => U64Column::from(x.column).into(),
+            AlphaNumColumnReader::Float(x) => x.into_fcs_column(),
+            AlphaNumColumnReader::Uint(x) => x.into_fcs_column(),
         }
     }
 }
 
 impl AnyUintColumnReader {
-    fn into_pl_series(self, name: PlSmallStr) -> Series {
+    fn into_fcs_column(self) -> AnyFCSColumn {
         match self {
-            AnyUintColumnReader::Uint08(x) => UInt8Chunked::from_vec(name, x.column).into_series(),
-            AnyUintColumnReader::Uint16(x) => UInt16Chunked::from_vec(name, x.column).into_series(),
-            AnyUintColumnReader::Uint24(x) => UInt32Chunked::from_vec(name, x.column).into_series(),
-            AnyUintColumnReader::Uint32(x) => UInt32Chunked::from_vec(name, x.column).into_series(),
-            AnyUintColumnReader::Uint40(x) => UInt64Chunked::from_vec(name, x.column).into_series(),
-            AnyUintColumnReader::Uint48(x) => UInt64Chunked::from_vec(name, x.column).into_series(),
-            AnyUintColumnReader::Uint56(x) => UInt64Chunked::from_vec(name, x.column).into_series(),
-            AnyUintColumnReader::Uint64(x) => UInt64Chunked::from_vec(name, x.column).into_series(),
+            AnyUintColumnReader::Uint08(x) => U08Column::from(x.column).into(),
+            AnyUintColumnReader::Uint16(x) => U16Column::from(x.column).into(),
+            AnyUintColumnReader::Uint24(x) => U32Column::from(x.column).into(),
+            AnyUintColumnReader::Uint32(x) => U32Column::from(x.column).into(),
+            AnyUintColumnReader::Uint40(x) => U64Column::from(x.column).into(),
+            AnyUintColumnReader::Uint48(x) => U64Column::from(x.column).into(),
+            AnyUintColumnReader::Uint56(x) => U64Column::from(x.column).into(),
+            AnyUintColumnReader::Uint64(x) => U64Column::from(x.column).into(),
         }
     }
 }
@@ -1548,17 +1550,17 @@ where
             .columns
             .iter()
             .map(|c| (*c).into())
-            .zip(df.columns())
+            .zip(df.iter_columns())
             .enumerate()
-            .map(|(i, (t, c)): (usize, (MixedType, AnyFCSColumn))| {
+            .map(|(i, (t, c)): (usize, (MixedType, &AnyFCSColumn))| {
                 t.into_writer(c, check).map_err(|e| (i, e))
             })
             .partition_result();
-        let nbytes = self.event_width() * df.as_ref().height();
+        let nbytes = self.event_width() * df.nrows();
         if fail.is_empty() {
             Ok(FixedWriter {
                 columns: pass,
-                nrows: df.as_ref().height(),
+                nrows: df.nrows(),
                 nbytes,
             })
         } else {
@@ -1575,11 +1577,7 @@ pub trait IsFixed {
 
     fn into_reader(self, nrows: usize) -> AlphaNumColumnReader;
 
-    fn into_writer(
-        self,
-        c: AnyFCSColumn<'_>,
-        check: bool,
-    ) -> Result<AnyFixedColumnWriter<'_>, LossError>;
+    fn into_writer(self, c: &AnyFCSColumn, check: bool) -> Result<AnyFixedColumnWriter, LossError>;
 }
 
 impl<T, const LEN: usize> IsFixed for UintType<T, LEN>
@@ -1614,14 +1612,10 @@ where
         .into()
     }
 
-    fn into_writer(
-        self,
-        c: AnyFCSColumn<'_>,
-        check: bool,
-    ) -> Result<AnyFixedColumnWriter<'_>, LossError> {
+    fn into_writer(self, c: &AnyFCSColumn, check: bool) -> Result<AnyFixedColumnWriter, LossError> {
         let bitmask = self.bitmask;
         match_many_to_one!(c, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], xs, {
-            PolarsFCSType::into_writer(xs, self, check, |x: T| {
+            FCSDataType::into_writer(xs, self, check, |x: T| {
                 if x > bitmask {
                     Some(LossError::Bitmask)
                 } else {
@@ -1654,11 +1648,7 @@ impl IsFixed for AnyUintType {
         )
     }
 
-    fn into_writer(
-        self,
-        c: AnyFCSColumn<'_>,
-        check: bool,
-    ) -> Result<AnyFixedColumnWriter<'_>, LossError> {
+    fn into_writer(self, c: &AnyFCSColumn, check: bool) -> Result<AnyFixedColumnWriter, LossError> {
         match_many_to_one!(
             self,
             AnyUintType,
@@ -1815,13 +1805,9 @@ where
         .into()
     }
 
-    fn into_writer(
-        self,
-        c: AnyFCSColumn<'_>,
-        check: bool,
-    ) -> Result<AnyFixedColumnWriter<'_>, LossError> {
+    fn into_writer(self, c: &AnyFCSColumn, check: bool) -> Result<AnyFixedColumnWriter, LossError> {
         match_many_to_one!(c, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], xs, {
-            PolarsFCSType::into_writer(xs, self.order, check, |_| None).map(|w| w.into())
+            FCSDataType::into_writer(xs, self.order, check, |_| None).map(|w| w.into())
         })
     }
 }
@@ -1881,9 +1867,9 @@ impl IsFixed for AsciiType {
 
     fn into_writer(
         self,
-        col: AnyFCSColumn<'_>,
+        col: &AnyFCSColumn,
         check: bool,
-    ) -> Result<AnyFixedColumnWriter<'_>, LossError> {
+    ) -> Result<AnyFixedColumnWriter, LossError> {
         let c = self.chars;
         let width = u8::from(c).into();
         let go = |x: u64| {
@@ -1894,17 +1880,17 @@ impl IsFixed for AsciiType {
             }
         };
         match col {
-            AnyFCSColumn::U08(xs) => PolarsFCSType::into_writer(xs, c, check, go)
+            AnyFCSColumn::U08(xs) => FCSDataType::into_writer(xs, c, check, go)
                 .map(|w| AnyFixedColumnWriter::FromU08(AnyColumnWriter::Ascii(w))),
-            AnyFCSColumn::U16(xs) => PolarsFCSType::into_writer(xs, c, check, go)
+            AnyFCSColumn::U16(xs) => FCSDataType::into_writer(xs, c, check, go)
                 .map(|w| AnyFixedColumnWriter::FromU16(AnyColumnWriter::Ascii(w))),
-            AnyFCSColumn::U32(xs) => PolarsFCSType::into_writer(xs, c, check, go)
+            AnyFCSColumn::U32(xs) => FCSDataType::into_writer(xs, c, check, go)
                 .map(|w| AnyFixedColumnWriter::FromU32(AnyColumnWriter::Ascii(w))),
-            AnyFCSColumn::U64(xs) => PolarsFCSType::into_writer(xs, c, check, go)
+            AnyFCSColumn::U64(xs) => FCSDataType::into_writer(xs, c, check, go)
                 .map(|w| AnyFixedColumnWriter::FromU64(AnyColumnWriter::Ascii(w))),
-            AnyFCSColumn::F32(xs) => PolarsFCSType::into_writer(xs, c, check, go)
+            AnyFCSColumn::F32(xs) => FCSDataType::into_writer(xs, c, check, go)
                 .map(|w| AnyFixedColumnWriter::FromF32(AnyColumnWriter::Ascii(w))),
-            AnyFCSColumn::F64(xs) => PolarsFCSType::into_writer(xs, c, check, go)
+            AnyFCSColumn::F64(xs) => FCSDataType::into_writer(xs, c, check, go)
                 .map(|w| AnyFixedColumnWriter::FromF64(AnyColumnWriter::Ascii(w))),
         }
     }
@@ -1929,11 +1915,7 @@ impl IsFixed for MixedType {
         }
     }
 
-    fn into_writer(
-        self,
-        c: AnyFCSColumn<'_>,
-        check: bool,
-    ) -> Result<AnyFixedColumnWriter<'_>, LossError> {
+    fn into_writer(self, c: &AnyFCSColumn, check: bool) -> Result<AnyFixedColumnWriter, LossError> {
         match self {
             MixedType::Ascii(a) => a.into_writer(c, check),
             MixedType::Integer(i) => i.into_writer(c, check),
@@ -2051,23 +2033,22 @@ impl AsciiLayout {
             AsciiLayout::Fixed(a) => a.as_writer(df, conf).map(DataWriter::Fixed),
             AsciiLayout::Delimited(_) => {
                 let ch = conf.check_conversion;
-                let go = |c| match c {
-                    AnyFCSColumn::U08(xs) => PolarsFCSType::into_writer(xs, (), ch, |_| None)
+                let go = |c: &'a AnyFCSColumn| match c {
+                    AnyFCSColumn::U08(xs) => FCSDataType::into_writer(xs, (), ch, |_| None)
                         .map(AnyDelimColumnWriter::FromU08),
-                    AnyFCSColumn::U16(xs) => PolarsFCSType::into_writer(xs, (), ch, |_| None)
+                    AnyFCSColumn::U16(xs) => FCSDataType::into_writer(xs, (), ch, |_| None)
                         .map(AnyDelimColumnWriter::FromU16),
-                    AnyFCSColumn::U32(xs) => PolarsFCSType::into_writer(xs, (), ch, |_| None)
+                    AnyFCSColumn::U32(xs) => FCSDataType::into_writer(xs, (), ch, |_| None)
                         .map(AnyDelimColumnWriter::FromU32),
-                    AnyFCSColumn::U64(xs) => PolarsFCSType::into_writer(xs, (), ch, |_| None)
+                    AnyFCSColumn::U64(xs) => FCSDataType::into_writer(xs, (), ch, |_| None)
                         .map(AnyDelimColumnWriter::FromU64),
-                    AnyFCSColumn::F32(xs) => PolarsFCSType::into_writer(xs, (), ch, |_| None)
+                    AnyFCSColumn::F32(xs) => FCSDataType::into_writer(xs, (), ch, |_| None)
                         .map(AnyDelimColumnWriter::FromF32),
-                    AnyFCSColumn::F64(xs) => PolarsFCSType::into_writer(xs, (), ch, |_| None)
+                    AnyFCSColumn::F64(xs) => FCSDataType::into_writer(xs, (), ch, |_| None)
                         .map(AnyDelimColumnWriter::FromF64),
                 };
                 let (pass, fail): (Vec<_>, Vec<_>) = df
-                    .columns()
-                    .into_iter()
+                    .iter_columns()
                     .enumerate()
                     .map(|(i, c)| go(c).map_err(|e: LossError| (i, e)))
                     .partition_result();
@@ -2075,7 +2056,7 @@ impl AsciiLayout {
                 if fail.is_empty() {
                     Ok(DataWriter::Delim(DelimWriter {
                         columns: pass,
-                        nrows: df.as_ref().height(),
+                        nrows: df.nrows(),
                         nbytes,
                     }))
                 } else {

@@ -15,13 +15,26 @@ fn print_json<T: Serialize>(j: &T) {
     println!("{}", serde_json::to_string(j).unwrap());
 }
 
-pub fn print_parsed_data(s: &mut api::StandardizedDataset, _delim: &str) -> PolarsResult<()> {
-    let mut df = s.dataset.as_data().clone().inner();
-    let mut fd = std::io::stdout();
-    CsvWriter::new(&mut fd)
-        .include_header(true)
-        .with_separator(b'\t')
-        .finish(&mut df)
+pub fn print_parsed_data(s: &mut api::StandardizedDataset, _delim: &str) {
+    let df = s.dataset.as_data();
+    let nrows = df.nrows();
+    let cols: Vec<_> = df.iter_columns().collect();
+    let ncols = cols.len();
+    if ncols == 0 {
+        return;
+    }
+    let mut ns = s.dataset.shortnames().into_iter();
+    print!("{}", ns.next().unwrap());
+    for n in ns {
+        print!("\t{n}");
+    }
+    for r in 0..nrows {
+        print!("\n");
+        print!("{}", cols[0].pos_to_string(r));
+        for c in 1..ncols {
+            print!("\t{}", cols[c].pos_to_string(r));
+        }
+    }
 }
 
 // TODO use warnings_are_errors flag
@@ -268,7 +281,7 @@ fn main() -> io::Result<()> {
             let delim = sargs.get_one::<String>("delimiter").unwrap();
 
             let mut res = handle_result(api::read_fcs_file(filepath, &conf))?;
-            print_parsed_data(&mut res, delim).map_err(|e| io::Error::other(e.to_string()))?;
+            print_parsed_data(&mut res, delim);
         }
 
         _ => (),

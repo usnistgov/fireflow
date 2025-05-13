@@ -1,5 +1,5 @@
-use fireflow_core::api;
 use fireflow_core::api::VersionedTime;
+use fireflow_core::api::{self};
 use fireflow_core::config::Strict;
 use fireflow_core::config::{self, OffsetCorrection};
 use fireflow_core::error;
@@ -216,7 +216,9 @@ fn read_fcs_raw_text(
     date_pattern=None,
     version_override=None)
 )]
-fn read_fcs_std_text(
+fn read_fcs_std_text<'py>(
+    py: Python<'py>,
+
     p: path::PathBuf,
 
     strict: bool,
@@ -255,7 +257,7 @@ fn read_fcs_std_text(
     time_pattern: Option<PyTimePattern>,
     date_pattern: Option<PyDatePattern>,
     version_override: Option<PyVersion>,
-) -> PyResult<PyStandardizedTEXT> {
+) -> PyResult<(Bound<'py, PyAny>, PyParseParameters, Bound<'py, PyDict>)> {
     let header = config::HeaderConfig {
         version_override: version_override.map(|x| x.0),
         text: config::OffsetCorrection {
@@ -307,7 +309,20 @@ fn read_fcs_std_text(
         nonstandard_measurement_pattern: nonstandard_measurement_pattern.map(|x| x.0),
     };
 
-    handle_errors(api::read_fcs_std_text(&p, &conf.set_strict(strict)))
+    let out: api::StandardizedTEXT =
+        handle_errors(api::read_fcs_std_text(&p, &conf.set_strict(strict)))?;
+
+    let text = match &out.standardized {
+        // TODO this copies all data from the "union type" into a new
+        // version-specific type. This might not be a big deal, but these
+        // types might be rather large with lots of strings.
+        api::AnyCoreTEXT::FCS2_0(x) => PyCoreTEXT2_0::from((**x).clone()).into_bound_py_any(py),
+        api::AnyCoreTEXT::FCS3_0(x) => PyCoreTEXT3_0::from((**x).clone()).into_bound_py_any(py),
+        api::AnyCoreTEXT::FCS3_1(x) => PyCoreTEXT3_1::from((**x).clone()).into_bound_py_any(py),
+        api::AnyCoreTEXT::FCS3_2(x) => PyCoreTEXT3_2::from((**x).clone()).into_bound_py_any(py),
+    }?;
+
+    Ok((text, out.parse.into(), out.deviant.into_py_dict(py)?))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -358,7 +373,9 @@ fn read_fcs_std_text(
     date_pattern=None,
     version_override=None)
 )]
-fn read_fcs_file(
+fn read_fcs_file<'py>(
+    py: Python<'py>,
+
     p: path::PathBuf,
 
     strict: bool,
@@ -404,7 +421,7 @@ fn read_fcs_file(
     time_pattern: Option<PyTimePattern>,
     date_pattern: Option<PyDatePattern>,
     version_override: Option<PyVersion>,
-) -> PyResult<PyStandardizedDataset> {
+) -> PyResult<(Bound<'py, PyAny>, PyParseParameters, Bound<'py, PyDict>)> {
     let header = config::HeaderConfig {
         version_override: version_override.map(|x| x.0),
         text: config::OffsetCorrection {
@@ -470,7 +487,20 @@ fn read_fcs_file(
         enforce_matching_tot,
     };
 
-    handle_errors(api::read_fcs_file(&p, &conf.set_strict(strict)))
+    let out: api::StandardizedDataset =
+        handle_errors(api::read_fcs_file(&p, &conf.set_strict(strict)))?;
+
+    let dataset = match &out.dataset {
+        // TODO this copies all data from the "union type" into a new
+        // version-specific type. This might not be a big deal, but these
+        // types might be rather large with lots of strings.
+        api::AnyCoreDataset::FCS2_0(x) => PyCoreDataset2_0::from(x.clone()).into_bound_py_any(py),
+        api::AnyCoreDataset::FCS3_0(x) => PyCoreDataset3_0::from(x.clone()).into_bound_py_any(py),
+        api::AnyCoreDataset::FCS3_1(x) => PyCoreDataset3_1::from(x.clone()).into_bound_py_any(py),
+        api::AnyCoreDataset::FCS3_2(x) => PyCoreDataset3_2::from(x.clone()).into_bound_py_any(py),
+    }?;
+
+    Ok((dataset, out.parse.into(), out.deviant.into_py_dict(py)?))
 }
 
 macro_rules! pywrap {
@@ -581,16 +611,17 @@ pywrap!(PyVersion, api::Version, "Version");
 pywrap!(PyHeader, api::Header, "Header");
 pywrap!(PyRawTEXT, api::RawTEXT, "RawTEXT");
 pywrap!(PyOffsets, api::ParseParameters, "Offsets");
-pywrap!(
-    PyStandardizedTEXT,
-    api::StandardizedTEXT,
-    "StandardizedTEXT"
-);
-pywrap!(
-    PyStandardizedDataset,
-    api::StandardizedDataset,
-    "StandardizedDataset"
-);
+// pywrap!(
+//     PyStandardizedTEXT,
+//     api::StandardizedTEXT,
+//     "StandardizedTEXT"
+// );
+// pywrap!(
+//     PyStandardizedDataset,
+//     api::StandardizedDataset,
+//     "StandardizedDataset"
+// );
+pywrap!(PyParseParameters, api::ParseParameters, "ParseParameters");
 pywrap!(PyCoreTEXT2_0, api::CoreTEXT2_0, "CoreTEXT2_0");
 pywrap!(PyCoreTEXT3_0, api::CoreTEXT3_0, "CoreTEXT3_0");
 pywrap!(PyCoreTEXT3_1, api::CoreTEXT3_1, "CoreTEXT3_1");
@@ -798,82 +829,62 @@ impl PyOffsets {
     }
 }
 
-#[pymethods]
-impl PyStandardizedTEXT {
-    #[getter]
-    fn offsets(&self) -> PyOffsets {
-        self.0.parse.clone().into()
-    }
+// #[pymethods]
+// impl PyStandardizedTEXT {
+//     #[getter]
+//     fn offsets(&self) -> PyOffsets {
+//         self.0.parse.clone().into()
+//     }
 
-    #[getter]
-    fn deviant<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
-        self.0.deviant.clone().into_py_dict(py)
-    }
+//     #[getter]
+//     fn deviant<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+//         self.0.deviant.clone().into_py_dict(py)
+//     }
 
-    #[getter]
-    fn remainder<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
-        self.0.remainder.clone().into_py_dict(py)
-    }
+//     #[getter]
+//     fn remainder<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+//         self.0.remainder.clone().into_py_dict(py)
+//     }
 
-    #[getter]
-    fn standardized(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        match &self.0.standardized {
-            // TODO this copies all data from the "union type" into a new
-            // version-specific type. This might not be a big deal, but these
-            // types might be rather large with lots of strings.
-            api::AnyCoreTEXT::FCS2_0(x) => PyCoreTEXT2_0::from((**x).clone()).into_py_any(py),
-            api::AnyCoreTEXT::FCS3_0(x) => PyCoreTEXT3_0::from((**x).clone()).into_py_any(py),
-            api::AnyCoreTEXT::FCS3_1(x) => PyCoreTEXT3_1::from((**x).clone()).into_py_any(py),
-            api::AnyCoreTEXT::FCS3_2(x) => PyCoreTEXT3_2::from((**x).clone()).into_py_any(py),
-        }
-    }
-}
+//     #[getter]
+//     fn standardized(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+//         match &self.0.standardized {
+//             // TODO this copies all data from the "union type" into a new
+//             // version-specific type. This might not be a big deal, but these
+//             // types might be rather large with lots of strings.
+//             api::AnyCoreTEXT::FCS2_0(x) => PyCoreTEXT2_0::from((**x).clone()).into_py_any(py),
+//             api::AnyCoreTEXT::FCS3_0(x) => PyCoreTEXT3_0::from((**x).clone()).into_py_any(py),
+//             api::AnyCoreTEXT::FCS3_1(x) => PyCoreTEXT3_1::from((**x).clone()).into_py_any(py),
+//             api::AnyCoreTEXT::FCS3_2(x) => PyCoreTEXT3_2::from((**x).clone()).into_py_any(py),
+//         }
+//     }
+// }
 
-#[pymethods]
-impl PyStandardizedDataset {
-    #[getter]
-    fn offsets(&self) -> PyOffsets {
-        self.0.parse.clone().into()
-    }
+// #[pymethods]
+// impl PyStandardizedDataset {
+//     #[getter]
+//     fn offsets(&self) -> PyOffsets {
+//         self.0.parse.clone().into()
+//     }
 
-    #[getter]
-    fn deviant<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
-        self.0.deviant.clone().into_py_dict(py)
-    }
+//     #[getter]
+//     fn deviant<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+//         self.0.deviant.clone().into_py_dict(py)
+//     }
 
-    #[getter]
-    fn text(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        match &self.0.dataset {
-            // TODO this copies all data from the "union type" into a new
-            // version-specific type. This might not be a big deal, but these
-            // types might be rather large with lots of strings.
-            api::AnyCoreDataset::FCS2_0(x) => PyCoreDataset2_0::from(x.clone()).into_py_any(py),
-            api::AnyCoreDataset::FCS3_0(x) => PyCoreDataset3_0::from(x.clone()).into_py_any(py),
-            api::AnyCoreDataset::FCS3_1(x) => PyCoreDataset3_1::from(x.clone()).into_py_any(py),
-            api::AnyCoreDataset::FCS3_2(x) => PyCoreDataset3_2::from(x.clone()).into_py_any(py),
-        }
-    }
-
-    fn data(&self) -> PyDataFrame {
-        let ds = &self.0.dataset;
-        let ns = ds.shortnames();
-        let columns = ds
-            .as_data()
-            .iter_columns()
-            .zip(ns)
-            .map(|(c, n)| {
-                // ASSUME this will not fail because the we know the types and
-                // we don't have a validity array
-                Series::from_arrow(n.as_ref().into(), c.as_array())
-                    .unwrap()
-                    .into()
-            })
-            .collect();
-        // ASSUME this will not fail because all columns should have unique
-        // names and the same length
-        PyDataFrame(DataFrame::new(columns).unwrap())
-    }
-}
+//     #[getter]
+//     fn text(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+//         match &self.0.dataset {
+//             // TODO this copies all data from the "union type" into a new
+//             // version-specific type. This might not be a big deal, but these
+//             // types might be rather large with lots of strings.
+//             api::AnyCoreDataset::FCS2_0(x) => PyCoreDataset2_0::from(x.clone()).into_py_any(py),
+//             api::AnyCoreDataset::FCS3_0(x) => PyCoreDataset3_0::from(x.clone()).into_py_any(py),
+//             api::AnyCoreDataset::FCS3_1(x) => PyCoreDataset3_1::from(x.clone()).into_py_any(py),
+//             api::AnyCoreDataset::FCS3_2(x) => PyCoreDataset3_2::from(x.clone()).into_py_any(py),
+//         }
+//     }
+// }
 
 macro_rules! get_set_str {
     ($pytype:ident, $($rest:ident,)+ [$($root:ident),*], $get:ident, $set:ident, $field:ident) => {
@@ -1160,18 +1171,40 @@ impl PyCoreTEXT3_2 {
         self.0
             .set_data_mixed(cs.into_iter().map(|x| x.into()).collect())
     }
+}
 
-    fn into_dataset(&self, df: PyDataFrame, analysis: Vec<u8>) -> PyResult<PyCoreDataset3_2> {
-        let cols =
-            polars_to_fcs(df.into()).map_err(|e| PyreflowException::new_err(e.to_string()))?;
-        self.0
-            .clone()
-            .into_dataset(cols, analysis.into())
-            .map_err(|e| PyreflowException::new_err(e.to_string()))
-            .map(|df| df.into())
+#[pymethods]
+impl PyCoreDataset3_2 {
+    #[getter]
+    fn data(&self) -> PyDataFrame {
+        let ns = self.0.text().all_shortnames();
+        let columns = self
+            .0
+            .data()
+            .iter_columns()
+            .zip(ns)
+            .map(|(c, n)| {
+                // ASSUME this will not fail because the we know the types and
+                // we don't have a validity array
+                Series::from_arrow(n.as_ref().into(), c.as_array())
+                    .unwrap()
+                    .into()
+            })
+            .collect();
+        // ASSUME this will not fail because all columns should have unique
+        // names and the same length
+        PyDataFrame(DataFrame::new(columns).unwrap())
     }
 
-    // TODO make function to add DATA/ANALYSIS, which will convert this to a CoreDataset
+    #[getter]
+    fn analysis(&self) -> Vec<u8> {
+        self.0.analysis.0.clone()
+    }
+
+    #[setter]
+    fn set_analysis(&mut self, xs: Vec<u8>) {
+        self.0.analysis = xs.into();
+    }
 }
 
 macro_rules! integer_2_0_methods {
@@ -1191,7 +1224,7 @@ macro_rules! integer_2_0_methods {
 }
 
 integer_2_0_methods!(PyCoreTEXT2_0, PyCoreTEXT3_0;);
-integer_2_0_methods!(PyCoreDataset2_0, PyCoreDataset3_0; text);
+// integer_2_0_methods!(PyCoreDataset2_0, PyCoreDataset3_0; text);
 
 macro_rules! shortnames_methods {
     ($pytype:ident, $($rest:ident),+; $($root:ident),*) => {
@@ -1218,7 +1251,7 @@ macro_rules! shortnames_methods {
 }
 
 shortnames_methods!(PyCoreTEXT2_0, PyCoreTEXT3_0;);
-shortnames_methods!(PyCoreDataset2_0, PyCoreDataset3_0; text);
+// shortnames_methods!(PyCoreDataset2_0, PyCoreDataset3_0; text);
 
 macro_rules! integer_methods {
     ($pytype:ident, $($rest:ident),+; $($root:ident),*) => {
@@ -1239,7 +1272,7 @@ macro_rules! integer_methods {
 }
 
 integer_methods!(PyCoreTEXT3_1, PyCoreTEXT3_2;);
-integer_methods!(PyCoreDataset3_1, PyCoreDataset3_2; text);
+// integer_methods!(PyCoreDataset3_1, PyCoreDataset3_2; text);
 
 macro_rules! endian_methods {
     ($pytype:ident, $($rest:ident),+; $($root:ident),*) => {
@@ -1264,7 +1297,7 @@ macro_rules! endian_methods {
 }
 
 endian_methods!(PyCoreTEXT3_1, PyCoreTEXT3_2;);
-endian_methods!(PyCoreDataset3_1, PyCoreDataset3_2; text);
+// endian_methods!(PyCoreDataset3_1, PyCoreDataset3_2; text);
 
 macro_rules! scales_methods {
     ($pytype:ident, $($rest:ident),+; $($root:ident),*) => {
@@ -1545,6 +1578,28 @@ macro_rules! vol_methods {
     };
 }
 
+macro_rules! to_dataset_method {
+    ($from:ident, $to:ident) => {
+        #[pymethods]
+        impl $from {
+            fn to_dataset(&self, df: PyDataFrame, analysis: Vec<u8>) -> PyResult<$to> {
+                let cols = polars_to_fcs(df.into())
+                    .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+                self.0
+                    .clone()
+                    .into_dataset(cols, analysis.into())
+                    .map_err(|e| PyreflowException::new_err(e.to_string()))
+                    .map(|df| df.into())
+            }
+        }
+    };
+}
+
+to_dataset_method!(PyCoreTEXT2_0, PyCoreDataset2_0);
+to_dataset_method!(PyCoreTEXT3_0, PyCoreDataset3_0);
+to_dataset_method!(PyCoreTEXT3_1, PyCoreDataset3_1);
+to_dataset_method!(PyCoreTEXT3_2, PyCoreDataset3_2);
+
 macro_rules! common_methods {
     ($pytype:ident, $($rest:ident),+; $($root:ident),*) => {
         common_methods!($pytype; $($root),*);
@@ -1786,7 +1841,7 @@ macro_rules! common_methods {
 }
 
 common_methods!(PyCoreTEXT2_0, PyCoreTEXT3_0, PyCoreTEXT3_1, PyCoreTEXT3_2;);
-common_methods!(PyCoreDataset2_0, PyCoreDataset3_0, PyCoreDataset3_1, PyCoreDataset3_2; text);
+// common_methods!(PyCoreDataset2_0, PyCoreDataset3_0, PyCoreDataset3_1, PyCoreDataset3_2; text);
 
 meas_get_set!(
     PyCoreTEXT3_0,
@@ -1797,18 +1852,18 @@ meas_get_set!(
     set_gains,
     PyPositiveFloat
 );
-meas_get_set!(
-    PyCoreDataset3_0,
-    PyCoreDataset3_1,
-    PyCoreDataset3_2,
-    [text],
-    gains,
-    set_gains,
-    PyPositiveFloat
-);
+// meas_get_set!(
+//     PyCoreDataset3_0,
+//     PyCoreDataset3_1,
+//     PyCoreDataset3_2,
+//     [text],
+//     gains,
+//     set_gains,
+//     PyPositiveFloat
+// );
 
 meas_get_set!(PyCoreTEXT3_2, [], det_names, set_det_names, String);
-meas_get_set!(PyCoreDataset3_2, [text], det_names, set_det_names, String);
+// meas_get_set!(PyCoreDataset3_2, [text], det_names, set_det_names, String);
 // TODO make sure we can make a calibration object
 
 meas_get_set!(
@@ -1818,13 +1873,13 @@ meas_get_set!(
     set_calibrations,
     PyCalibration3_1
 );
-meas_get_set!(
-    PyCoreDataset3_1,
-    [text],
-    calibrations,
-    set_calibrations,
-    PyCalibration3_1
-);
+// meas_get_set!(
+//     PyCoreDataset3_1,
+//     [text],
+//     calibrations,
+//     set_calibrations,
+//     PyCalibration3_1
+// );
 
 meas_get_set!(
     PyCoreTEXT3_2,
@@ -1833,16 +1888,16 @@ meas_get_set!(
     set_calibrations,
     PyCalibration3_2
 );
-meas_get_set!(
-    PyCoreDataset3_2,
-    [text],
-    calibrations,
-    set_calibrations,
-    PyCalibration3_2
-);
+// meas_get_set!(
+//     PyCoreDataset3_2,
+//     [text],
+//     calibrations,
+//     set_calibrations,
+//     PyCalibration3_2
+// );
 
 meas_get_set!(PyCoreTEXT3_2, [], tags, set_tags, String);
-meas_get_set!(PyCoreDataset3_2, [text], tags, set_tags, String);
+// meas_get_set!(PyCoreDataset3_2, [text], tags, set_tags, String);
 
 meas_get_set!(
     PyCoreTEXT3_2,
@@ -1851,37 +1906,37 @@ meas_get_set!(
     set_measurement_types,
     PyMeasurementType
 );
-meas_get_set!(
-    PyCoreDataset3_2,
-    [text],
-    measurement_types,
-    set_measurement_types,
-    PyMeasurementType
-);
+// meas_get_set!(
+//     PyCoreDataset3_2,
+//     [text],
+//     measurement_types,
+//     set_measurement_types,
+//     PyMeasurementType
+// );
 
 meas_get_set!(PyCoreTEXT3_2, [], features, set_features, PyFeature);
-meas_get_set!(PyCoreDataset3_2, [text], features, set_features, PyFeature);
+// meas_get_set!(PyCoreDataset3_2, [text], features, set_features, PyFeature);
 
 meas_get_set!(PyCoreTEXT3_2, [], analytes, set_analytes, String);
-meas_get_set!(PyCoreDataset3_2, [text], analytes, set_analytes, String);
+// meas_get_set!(PyCoreDataset3_2, [text], analytes, set_analytes, String);
 
 wavelength_methods!(PyCoreTEXT2_0, PyCoreTEXT3_0;);
-wavelength_methods!(PyCoreDataset2_0, PyCoreDataset3_0; text);
+// wavelength_methods!(PyCoreDataset2_0, PyCoreDataset3_0; text);
 
 wavelengths_methods!(PyCoreTEXT3_1, PyCoreTEXT3_2;);
-wavelengths_methods!(PyCoreDataset3_1, PyCoreDataset3_2; text);
+// wavelengths_methods!(PyCoreDataset3_1, PyCoreDataset3_2; text);
 
 // spillover_methods!(PyCoreTEXT3_1, PyCoreTEXT3_2;);
 // spillover_methods!(PyCoreDataset3_1, PyCoreDataset3_2; text);
 
 plate_methods!(PyCoreTEXT3_1, PyCoreTEXT3_2;);
-plate_methods!(PyCoreDataset3_1, PyCoreDataset3_2; text);
+// plate_methods!(PyCoreDataset3_1, PyCoreDataset3_2; text);
 
 carrier_methods!(PyCoreTEXT3_2;);
-carrier_methods!(PyCoreDataset3_2; text);
+// carrier_methods!(PyCoreDataset3_2; text);
 
 scales_methods!(PyCoreTEXT3_0, PyCoreTEXT3_1, PyCoreTEXT3_2;);
-scales_methods!(PyCoreDataset3_0, PyCoreDataset3_1, PyCoreDataset3_2; text);
+// scales_methods!(PyCoreDataset3_0, PyCoreDataset3_1, PyCoreDataset3_2; text);
 
 get_set_str!(
     PyCoreTEXT2_0,
@@ -1892,15 +1947,15 @@ get_set_str!(
     set_cyt,
     cyt
 );
-get_set_str!(
-    PyCoreDataset2_0,
-    PyCoreDataset3_0,
-    PyCoreDataset3_1,
-    [text, metadata, specific],
-    get_cyt,
-    set_cyt,
-    cyt
-);
+// get_set_str!(
+//     PyCoreDataset2_0,
+//     PyCoreDataset3_0,
+//     PyCoreDataset3_1,
+//     [text, metadata, specific],
+//     get_cyt,
+//     set_cyt,
+//     cyt
+// );
 
 get_set_str!(
     PyCoreTEXT3_2,
@@ -1909,22 +1964,22 @@ get_set_str!(
     set_flowrate,
     flowrate
 );
-get_set_str!(
-    PyCoreDataset3_2,
-    [text, metadata, specific],
-    get_flowrate,
-    set_flowrate,
-    flowrate
-);
+// get_set_str!(
+//     PyCoreDataset3_2,
+//     [text, metadata, specific],
+//     get_flowrate,
+//     set_flowrate,
+//     flowrate
+// );
 
 modification_methods!(PyCoreTEXT3_1, PyCoreTEXT3_2;);
-modification_methods!(PyCoreDataset3_1, PyCoreDataset3_2; text);
+// modification_methods!(PyCoreDataset3_1, PyCoreDataset3_2; text);
 
 vol_methods!(PyCoreTEXT3_1, PyCoreTEXT3_2;);
-vol_methods!(PyCoreDataset3_1, PyCoreDataset3_2; text);
+// vol_methods!(PyCoreDataset3_1, PyCoreDataset3_2; text);
 
 timestep_methods!(PyCoreTEXT3_0, PyCoreTEXT3_1, PyCoreTEXT3_2;);
-timestep_methods!(PyCoreDataset3_0, PyCoreDataset3_1, PyCoreDataset3_2; text);
+// timestep_methods!(PyCoreDataset3_0, PyCoreDataset3_1, PyCoreDataset3_2; text);
 
 struct PyImpureError(error::ImpureFailure);
 

@@ -334,8 +334,9 @@ fn h_read_std_dataset<R: Read + Seek>(
         .try_map(|(reader_maybe, data_seg, analysis_seg)| {
             let dmsg = "could not create data reader".to_string();
             let reader = reader_maybe.ok_or(Failure::new(dmsg))?;
-            let data = reader.h_read(h)?;
-            let analysis = h_read_analysis(h, &analysis_seg)?;
+            let mut dataset: AnyCoreDataset = std.standardized.into();
+            *dataset.as_data_mut() = reader.h_read(h)?;
+            *dataset.as_analysis_mut() = h_read_analysis(h, &analysis_seg)?;
             Ok(PureSuccess::from(StandardizedDataset {
                 parse: ParseParameters {
                     data: data_seg,
@@ -346,7 +347,7 @@ fn h_read_std_dataset<R: Read + Seek>(
                 // ASSUME we have checked that the dataframe has the same number
                 // of columns as number of measurements; therefore, this should
                 // not fail.
-                dataset: std.standardized.into_dataset_unchecked(data, analysis),
+                dataset,
                 deviant: std.deviant,
             }))
         })

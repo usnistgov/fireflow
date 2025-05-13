@@ -28,14 +28,14 @@ use std::str::FromStr;
 #[derive(Clone)]
 pub struct CoreDataset<M, T, P, N, W> {
     /// Standardized TEXT segment in version specific format
-    pub text: Box<CoreTEXT<M, T, P, N, W>>,
+    text: Box<CoreTEXT<M, T, P, N, W>>,
 
     /// DATA segment as a polars DataFrame
     ///
     /// The type of each column is such that each measurement is encoded with
     /// zero loss. This will/should never contain NULL values despite the
     /// underlying arrow framework allowing NULLs to exist.
-    pub data: FCSDataFrame,
+    data: FCSDataFrame,
 
     /// ANALYSIS segment
     ///
@@ -113,6 +113,36 @@ where
         })
     }
 
+    /// Return reference to structure representing TEXT
+    pub fn text(&self) -> &VersionedCoreTEXT<M> {
+        &self.text
+    }
+
+    /// Return reference to dataframe representing DATA
+    pub fn data(&self) -> &FCSDataFrame {
+        &self.data
+    }
+
+    /// Add columns to this dataset.
+    ///
+    /// Return error if columns are not all the same length or number of columns
+    /// doesn't match the number of measurement.
+    pub fn set_data(&mut self, cols: Vec<AnyFCSColumn>) -> Result<(), String> {
+        let n = &cols.len();
+        let p = self.text.par();
+        if *n != p.0 {
+            return Err(format!(
+                "DATA has {n} columns but TEXT has {p} measurements",
+            ));
+        }
+        if let Some(df) = FCSDataFrame::try_new(cols) {
+            self.data = df;
+            Ok(())
+        } else {
+            Err("columns have different lengths".into())
+        }
+    }
+
     // fn set_shortnames(&mut self, names: Vec<Shortname>) -> Result<NameMapping, String> {
     //     self.text
     //         .set_shortnames(names)
@@ -159,6 +189,16 @@ where
         // out of bounds
         self.data.insert_column(i.into(), col);
         Ok(k)
+    }
+}
+
+impl<M, T, P, N, W> From<CoreTEXT<M, T, P, N, W>> for CoreDataset<M, T, P, N, W> {
+    fn from(value: CoreTEXT<M, T, P, N, W>) -> Self {
+        CoreDataset {
+            text: Box::new(value),
+            data: FCSDataFrame::default(),
+            analysis: Vec::default().into(),
+        }
     }
 }
 
@@ -211,9 +251,15 @@ impl AnyCoreDataset {
         })
     }
 
-    pub fn as_data_mut(&mut self) -> &mut FCSDataFrame {
+    pub(crate) fn as_data_mut(&mut self) -> &mut FCSDataFrame {
         match_many_to_one!(self, AnyCoreDataset, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
             &mut x.data
+        })
+    }
+
+    pub(crate) fn as_analysis_mut(&mut self) -> &mut Analysis {
+        match_many_to_one!(self, AnyCoreDataset, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
+            &mut x.analysis
         })
     }
 }

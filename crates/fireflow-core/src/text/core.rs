@@ -330,25 +330,15 @@ impl AnyCoreTEXT {
     ) -> PureMaybe<DataReader> {
         match_anycoretext!(self, x, { x.as_data_reader(kws, conf, data_seg) })
     }
+}
 
-    pub(crate) fn into_dataset_unchecked(
-        self,
-        data: FCSDataFrame,
-        analysis: Analysis,
-    ) -> AnyCoreDataset {
-        match self {
-            AnyCoreTEXT::FCS2_0(text) => {
-                AnyCoreDataset::FCS2_0(text.into_dataset_unchecked(data, analysis))
-            }
-            AnyCoreTEXT::FCS3_0(text) => {
-                AnyCoreDataset::FCS3_0(text.into_dataset_unchecked(data, analysis))
-            }
-            AnyCoreTEXT::FCS3_1(text) => {
-                AnyCoreDataset::FCS3_1(text.into_dataset_unchecked(data, analysis))
-            }
-            AnyCoreTEXT::FCS3_2(text) => {
-                AnyCoreDataset::FCS3_2(text.into_dataset_unchecked(data, analysis))
-            }
+impl From<AnyCoreTEXT> for AnyCoreDataset {
+    fn from(value: AnyCoreTEXT) -> Self {
+        match value {
+            AnyCoreTEXT::FCS2_0(x) => AnyCoreDataset::FCS2_0((*x).into()),
+            AnyCoreTEXT::FCS3_0(x) => AnyCoreDataset::FCS3_0((*x).into()),
+            AnyCoreTEXT::FCS3_1(x) => AnyCoreDataset::FCS3_1((*x).into()),
+            AnyCoreTEXT::FCS3_2(x) => AnyCoreDataset::FCS3_2((*x).into()),
         }
     }
 }
@@ -1659,7 +1649,7 @@ macro_rules! scale_get_set {
     };
 }
 
-type VersionedCoreTEXT<M> = CoreTEXT<
+pub(crate) type VersionedCoreTEXT<M> = CoreTEXT<
     M,
     <M as VersionedMetadata>::T,
     <M as VersionedMetadata>::P,
@@ -1696,21 +1686,15 @@ where
         }
     }
 
-    /// Add DATA and ANALYSIS data to this data structure
     pub fn into_dataset(
         self,
-        cols: Vec<AnyFCSColumn>,
+        columns: Vec<AnyFCSColumn>,
         analysis: Analysis,
     ) -> Result<VersionedCoreDataset<M>, String> {
-        let n = &cols.len();
-        if let Some(df) = FCSDataFrame::try_new(cols) {
-            Ok(self.into_dataset_unchecked(df, analysis))
-        } else {
-            Err(format!(
-                "DATA has {n} columns but TEXT has {} measurements",
-                self.par(),
-            ))
-        }
+        let mut dataset: VersionedCoreDataset<M> = self.into();
+        dataset.set_data(columns)?;
+        dataset.analysis = analysis;
+        Ok(dataset)
     }
 
     /// Return HEADER+TEXT as a list of strings
@@ -2628,18 +2612,6 @@ where
                     begin: data_seg.begin() as u64,
                 })
             })
-    }
-
-    pub(crate) fn into_dataset_unchecked(
-        self,
-        data: FCSDataFrame,
-        analysis: Analysis,
-    ) -> VersionedCoreDataset<M> {
-        CoreDataset {
-            text: Box::new(self),
-            data,
-            analysis,
-        }
     }
 }
 

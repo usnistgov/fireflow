@@ -344,9 +344,8 @@ fn h_read_std_dataset<R: Read + Seek>(
                 },
                 remainder: kws,
                 // ASSUME we have checked that the dataframe has the same number
-                // of columns as number of measurements, and that all
-                // measurement names are unique. Therefore, this should not
-                // fail.
+                // of columns as number of measurements; therefore, this should
+                // not fail.
                 dataset: std.standardized.into_dataset_unchecked(data, analysis),
                 deviant: std.deviant,
             }))

@@ -5,6 +5,7 @@ use crate::header::*;
 use crate::header_text::*;
 use crate::macros::match_many_to_one;
 use crate::segment::*;
+use crate::validated::dataframe::AnyFCSColumn;
 use crate::validated::dataframe::FCSDataFrame;
 use crate::validated::nonstandard::*;
 use crate::validated::pattern::*;
@@ -330,16 +331,24 @@ impl AnyCoreTEXT {
         match_anycoretext!(self, x, { x.as_data_reader(kws, conf, data_seg) })
     }
 
-    pub(crate) fn into_dataset_unchecked<'a>(
+    pub(crate) fn into_dataset_unchecked(
         self,
         data: FCSDataFrame,
         analysis: Analysis,
     ) -> AnyCoreDataset {
         match self {
-            AnyCoreTEXT::FCS2_0(text) => AnyCoreDataset::FCS2_0(text.into_dataset(data, analysis)),
-            AnyCoreTEXT::FCS3_0(text) => AnyCoreDataset::FCS3_0(text.into_dataset(data, analysis)),
-            AnyCoreTEXT::FCS3_1(text) => AnyCoreDataset::FCS3_1(text.into_dataset(data, analysis)),
-            AnyCoreTEXT::FCS3_2(text) => AnyCoreDataset::FCS3_2(text.into_dataset(data, analysis)),
+            AnyCoreTEXT::FCS2_0(text) => {
+                AnyCoreDataset::FCS2_0(text.into_dataset_unchecked(data, analysis))
+            }
+            AnyCoreTEXT::FCS3_0(text) => {
+                AnyCoreDataset::FCS3_0(text.into_dataset_unchecked(data, analysis))
+            }
+            AnyCoreTEXT::FCS3_1(text) => {
+                AnyCoreDataset::FCS3_1(text.into_dataset_unchecked(data, analysis))
+            }
+            AnyCoreTEXT::FCS3_2(text) => {
+                AnyCoreDataset::FCS3_2(text.into_dataset_unchecked(data, analysis))
+            }
         }
     }
 }
@@ -1687,6 +1696,23 @@ where
         }
     }
 
+    /// Add DATA and ANALYSIS data to this data structure
+    pub fn into_dataset(
+        self,
+        cols: Vec<AnyFCSColumn>,
+        analysis: Analysis,
+    ) -> Result<VersionedCoreDataset<M>, String> {
+        let n = &cols.len();
+        if let Some(df) = FCSDataFrame::try_new(cols) {
+            Ok(self.into_dataset_unchecked(df, analysis))
+        } else {
+            Err(format!(
+                "DATA has {n} columns but TEXT has {} measurements",
+                self.par(),
+            ))
+        }
+    }
+
     /// Return HEADER+TEXT as a list of strings
     ///
     /// The first member will be a string exactly 58 bytes long which will be
@@ -2604,7 +2630,7 @@ where
             })
     }
 
-    pub(crate) fn into_dataset(
+    pub(crate) fn into_dataset_unchecked(
         self,
         data: FCSDataFrame,
         analysis: Analysis,
@@ -2615,23 +2641,6 @@ where
             analysis,
         }
     }
-
-    // TODO useme
-    // fn into_dataset(
-    //     self,
-    //     data: DataFrame,
-    //     analysis: Analysis,
-    // ) -> Result<VersionedCoreDataset<M>, String> {
-    //     let w = data.width();
-    //     let p = self.par().0;
-    //     if w != p {
-    //         Err(format!(
-    //             "DATA has {w} columns but TEXT has {p} measurements"
-    //         ))
-    //     } else {
-    //         Ok(self.into_dataset_unchecked(data, analysis))
-    //     }
-    // }
 }
 
 impl CoreTEXT2_0 {

@@ -7,7 +7,7 @@ use fireflow_core::text::byteord::*;
 use fireflow_core::text::ranged_float::*;
 use fireflow_core::text::scale::*;
 use fireflow_core::text::spillover::*;
-use fireflow_core::validated::dataframe::AnyFCSColumn;
+use fireflow_core::validated::dataframe::*;
 use fireflow_core::validated::datepattern::DatePattern;
 use fireflow_core::validated::nonstandard::*;
 use fireflow_core::validated::pattern::*;
@@ -19,6 +19,7 @@ use itertools::Itertools;
 use nonempty::NonEmpty;
 use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
 use polars::prelude::*;
+use polars_arrow::array::PrimitiveArray;
 use pyo3::class::basic::CompareOp;
 use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyWarning};
@@ -1160,6 +1161,16 @@ impl PyCoreTEXT3_2 {
             .set_data_mixed(cs.into_iter().map(|x| x.into()).collect())
     }
 
+    fn into_dataset(&self, df: PyDataFrame, analysis: Vec<u8>) -> PyResult<PyCoreDataset3_2> {
+        let cols =
+            polars_to_fcs(df.into()).map_err(|e| PyreflowException::new_err(e.to_string()))?;
+        self.0
+            .clone()
+            .into_dataset(cols, analysis.into())
+            .map_err(|e| PyreflowException::new_err(e.to_string()))
+            .map(|df| df.into())
+    }
+
     // TODO make function to add DATA/ANALYSIS, which will convert this to a CoreDataset
 }
 
@@ -1979,3 +1990,49 @@ create_exception!(
     PyWarning,
     "Warning created by internal pyreflow."
 );
+
+macro_rules! column_to_buf {
+    ($cols:expr, $col:expr, $prim:ident) => {
+        let ca = $col.$prim().unwrap();
+        if ca.first_non_null().is_some() {
+            return Err(format!("column {} has null values", $col.name()));
+        }
+        let buf = ca.chunks()[0]
+            .as_any()
+            .downcast_ref::<PrimitiveArray<$prim>>()
+            .unwrap()
+            .values()
+            .clone();
+        $cols.push(FCSColumn(buf).into());
+    };
+}
+
+fn polars_to_fcs(mut df: DataFrame) -> Result<Vec<AnyFCSColumn>, String> {
+    // make sure data is contiguous
+    df.rechunk_mut();
+    let mut cols = Vec::with_capacity(df.width());
+    for c in df.get_columns() {
+        match c.dtype() {
+            DataType::UInt8 => {
+                column_to_buf!(cols, c, u8);
+            }
+            DataType::UInt16 => {
+                column_to_buf!(cols, c, u16);
+            }
+            DataType::UInt32 => {
+                column_to_buf!(cols, c, u32);
+            }
+            DataType::UInt64 => {
+                column_to_buf!(cols, c, u64);
+            }
+            DataType::Float32 => {
+                column_to_buf!(cols, c, f32);
+            }
+            DataType::Float64 => {
+                column_to_buf!(cols, c, f64);
+            }
+            t => return Err(format!("invalid datatype: {t}")),
+        }
+    }
+    Ok(cols)
+}

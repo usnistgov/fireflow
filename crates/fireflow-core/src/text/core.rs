@@ -6,7 +6,6 @@ use crate::header_text::*;
 use crate::macros::match_many_to_one;
 use crate::segment::*;
 use crate::validated::dataframe::AnyFCSColumn;
-use crate::validated::dataframe::FCSDataFrame;
 use crate::validated::nonstandard::*;
 use crate::validated::pattern::*;
 use crate::validated::shortname::*;
@@ -1443,7 +1442,7 @@ impl MeasConvertError {
 
 type TryFromTimeError<T> = TryFromErrorReset<MeasToTimeErrors, T>;
 
-type MeasToTimeErrors = NonEmpty<MeasToTimeError>;
+pub(crate) type MeasToTimeErrors = NonEmpty<MeasToTimeError>;
 
 pub enum MeasToTimeError {
     NonLinear,
@@ -1570,7 +1569,7 @@ pub struct CarrierData {
     pub locationid: OptionalKw<Locationid>,
 }
 
-type Measurements<N, T, P> =
+pub(crate) type Measurements<N, T, P> =
     NamedVec<N, <N as MightHave>::Wrapper<Shortname>, TimeChannel<T>, Measurement<P>>;
 
 macro_rules! non_time_get_set {
@@ -1909,7 +1908,8 @@ where
     /// Return a vector with each successfully found value.
     ///
     /// This includes the time channel if present.
-    pub fn get_meas_nonstandard(&self, ks: &Vec<NonStdKey>) -> Option<Vec<Option<&String>>> {
+    // TODO generlize this to take slices
+    pub fn get_meas_nonstandard(&self, ks: Vec<&NonStdKey>) -> Option<Vec<Option<&String>>> {
         let ms = &self.measurements;
         if ks.len() != ms.len() {
             None
@@ -2615,6 +2615,18 @@ where
     }
 }
 
+macro_rules! timestamp_methods {
+    ($timetype:ident) => {
+        pub fn timestamps(&self) -> &Timestamps<$timetype> {
+            &self.metadata.specific.timestamps
+        }
+
+        pub fn timestamps_mut(&mut self) -> &mut Timestamps<$timetype> {
+            &mut self.metadata.specific.timestamps
+        }
+    };
+}
+
 impl CoreTEXT2_0 {
     pub fn new(datatype: AlphaNumType, byteord: ByteOrd, mode: Mode) -> Self {
         let specific = InnerMetadata2_0::new(mode, byteord);
@@ -2674,6 +2686,8 @@ impl CoreTEXT2_0 {
     pub fn set_data_ascii(&mut self, xs: Vec<AsciiRangeSetter>) -> bool {
         self.set_data_ascii_inner(xs)
     }
+
+    timestamp_methods!(FCSTime);
 
     non_time_get_set!(
         wavelengths,
@@ -2745,6 +2759,8 @@ impl CoreTEXT3_0 {
     pub fn set_data_ascii(&mut self, xs: Vec<AsciiRangeSetter>) -> bool {
         self.set_data_ascii_inner(xs)
     }
+
+    timestamp_methods!(FCSTime60);
 
     non_time_get_set!(gains, set_gains, Gain, [specific], gain, PnG);
 
@@ -2849,6 +2865,16 @@ impl CoreTEXT3_1 {
     pub fn set_data_delimited(&mut self, xs: Vec<u64>) -> bool {
         self.set_data_delimited_inner(xs)
     }
+
+    pub fn get_big_endian(&self) -> bool {
+        self.metadata.specific.byteord == Endian::Big
+    }
+
+    pub fn set_big_endian(&mut self, is_big: bool) {
+        self.metadata.specific.byteord = Endian::is_big(is_big);
+    }
+
+    timestamp_methods!(FCSTime100);
 
     display_methods!();
 
@@ -3058,6 +3084,16 @@ impl CoreTEXT3_2 {
         }
         res
     }
+
+    pub fn get_big_endian(&self) -> bool {
+        self.metadata.specific.byteord == Endian::Big
+    }
+
+    pub fn set_big_endian(&mut self, is_big: bool) {
+        self.metadata.specific.byteord = Endian::is_big(is_big);
+    }
+
+    timestamp_methods!(FCSTime100);
 
     display_methods!();
 

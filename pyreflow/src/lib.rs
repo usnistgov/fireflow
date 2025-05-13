@@ -7,6 +7,7 @@ use fireflow_core::text::byteord::*;
 use fireflow_core::text::ranged_float::*;
 use fireflow_core::text::scale::*;
 use fireflow_core::text::spillover::*;
+use fireflow_core::validated::dataframe::AnyFCSColumn;
 use fireflow_core::validated::datepattern::DatePattern;
 use fireflow_core::validated::nonstandard::*;
 use fireflow_core::validated::pattern::*;
@@ -17,6 +18,7 @@ use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
+use polars::prelude::*;
 use pyo3::class::basic::CompareOp;
 use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyWarning};
@@ -851,21 +853,25 @@ impl PyStandardizedDataset {
         }
     }
 
-    // TODO if I modify this in python-land, does this change the underlying
-    // data in rust-land? It shouldn't because the dataframe needs to be cloned
-    // when passed thru FFI, and although the columns themselves are not copied
-    // (they are Arc'ed) the dataframe itself is rebuilt, which means adding
-    // columns won't propagate backwards. Furthermore, the columns themselves
-    // don't have a Mutex within the Arc, so modification shouldn't be possible
-    // either. NEED TO TEST since many library assumptions rely on the dataframe
-    // being encapsulated.
-    // #[getter]
-    // fn data(&self) -> PyDataFrame {
-    //     // NOTE polars Series is a wrapper around an Arc so clone just
-    //     // increments the ref count for each column rather than "deepcopy" the
-    //     // whole dataset.
-    //     PyDataFrame(self.0.dataset.as_data().clone().inner())
-    // }
+    fn data(&self) -> PyDataFrame {
+        let ds = &self.0.dataset;
+        let ns = ds.shortnames();
+        let columns = ds
+            .as_data()
+            .iter_columns()
+            .zip(ns)
+            .map(|(c, n)| {
+                // ASSUME this will not fail because the we know the types and
+                // we don't have a validity array
+                Series::from_arrow(n.as_ref().into(), c.as_array())
+                    .unwrap()
+                    .into()
+            })
+            .collect();
+        // ASSUME this will not fail because all columns should have unique
+        // names and the same length
+        PyDataFrame(DataFrame::new(columns).unwrap())
+    }
 }
 
 macro_rules! get_set_str {

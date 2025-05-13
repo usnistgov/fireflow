@@ -1,7 +1,9 @@
 use crate::data::ColumnWriter;
 use crate::macros::match_many_to_one;
 
+use polars_arrow::array::{Array, PrimitiveArray};
 use polars_arrow::buffer::Buffer;
+use polars_arrow::datatypes::ArrowDataType;
 use std::iter;
 use std::slice::Iter;
 
@@ -134,6 +136,29 @@ impl AnyFCSColumn {
         match_many_to_one!(self, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], x, {
             x.0[i].to_string()
         })
+    }
+
+    pub fn as_array(&self) -> Box<dyn Array> {
+        match self.clone() {
+            AnyFCSColumn::U08(xs) => {
+                Box::new(PrimitiveArray::new(ArrowDataType::UInt8, xs.0, None))
+            }
+            AnyFCSColumn::U16(xs) => {
+                Box::new(PrimitiveArray::new(ArrowDataType::UInt16, xs.0, None))
+            }
+            AnyFCSColumn::U32(xs) => {
+                Box::new(PrimitiveArray::new(ArrowDataType::UInt32, xs.0, None))
+            }
+            AnyFCSColumn::U64(xs) => {
+                Box::new(PrimitiveArray::new(ArrowDataType::UInt64, xs.0, None))
+            }
+            AnyFCSColumn::F32(xs) => {
+                Box::new(PrimitiveArray::new(ArrowDataType::Float32, xs.0, None))
+            }
+            AnyFCSColumn::F64(xs) => {
+                Box::new(PrimitiveArray::new(ArrowDataType::Float64, xs.0, None))
+            }
+        }
     }
 }
 

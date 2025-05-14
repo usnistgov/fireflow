@@ -216,8 +216,8 @@ fn read_fcs_raw_text(
     date_pattern=None,
     version_override=None)
 )]
-fn read_fcs_std_text<'py>(
-    py: Python<'py>,
+fn read_fcs_std_text(
+    py: Python<'_>,
 
     p: path::PathBuf,
 
@@ -257,7 +257,7 @@ fn read_fcs_std_text<'py>(
     time_pattern: Option<PyTimePattern>,
     date_pattern: Option<PyDatePattern>,
     version_override: Option<PyVersion>,
-) -> PyResult<(Bound<'py, PyAny>, PyParseParameters, Bound<'py, PyDict>)> {
+) -> PyResult<(Bound<'_, PyAny>, PyParseParameters, Bound<'_, PyDict>)> {
     let header = config::HeaderConfig {
         version_override: version_override.map(|x| x.0),
         text: config::OffsetCorrection {
@@ -373,8 +373,8 @@ fn read_fcs_std_text<'py>(
     date_pattern=None,
     version_override=None)
 )]
-fn read_fcs_file<'py>(
-    py: Python<'py>,
+fn read_fcs_file(
+    py: Python<'_>,
 
     p: path::PathBuf,
 
@@ -421,7 +421,7 @@ fn read_fcs_file<'py>(
     time_pattern: Option<PyTimePattern>,
     date_pattern: Option<PyDatePattern>,
     version_override: Option<PyVersion>,
-) -> PyResult<(Bound<'py, PyAny>, PyParseParameters, Bound<'py, PyDict>)> {
+) -> PyResult<(Bound<'_, PyAny>, PyParseParameters, Bound<'_, PyDict>)> {
     let header = config::HeaderConfig {
         version_override: version_override.map(|x| x.0),
         text: config::OffsetCorrection {

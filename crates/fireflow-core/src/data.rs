@@ -31,6 +31,8 @@ use std::str::FromStr;
 /// This will include the standardized TEXT keywords as well as its
 /// corresponding DATA segment parsed into a dataframe-like structure.
 #[derive(Clone)]
+// TODO use generics to combine this with coretext, which will make everything
+// soooooo much simpler
 pub struct CoreDataset<M, T, P, N, W> {
     /// Standardized TEXT segment in version specific format
     text: Box<CoreTEXT<M, T, P, N, W>>,

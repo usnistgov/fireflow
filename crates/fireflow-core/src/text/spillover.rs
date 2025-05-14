@@ -24,7 +24,10 @@ pub struct Spillover {
 }
 
 impl Spillover {
-    pub fn new(measurements: Vec<Shortname>, matrix: DMatrix<f32>) -> Result<Self, SpilloverError> {
+    pub fn try_new(
+        measurements: Vec<Shortname>,
+        matrix: DMatrix<f32>,
+    ) -> Result<Self, SpilloverError> {
         let n = measurements.len();
         let c = matrix.ncols();
         let r = matrix.nrows();
@@ -124,7 +127,8 @@ impl FromStr for Spillover {
                         Err(ParseSpilloverError::BadFloat)
                     } else {
                         let matrix = DMatrix::from_row_iterator(n, n, fvalues);
-                        Spillover::new(measurements, matrix).map_err(ParseSpilloverError::Internal)
+                        Spillover::try_new(measurements, matrix)
+                            .map_err(ParseSpilloverError::Internal)
                     }
                 }
             } else {

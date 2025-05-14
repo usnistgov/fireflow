@@ -5,7 +5,7 @@ use crate::header::*;
 use crate::header_text::*;
 use crate::macros::match_many_to_one;
 use crate::segment::*;
-use crate::validated::dataframe::FCSDataFrame;
+use crate::validated::dataframe::*;
 use crate::validated::nonstandard::*;
 use crate::validated::pattern::*;
 use crate::validated::shortname::*;
@@ -27,7 +27,6 @@ use chrono::Timelike;
 use itertools::Itertools;
 use nalgebra::DMatrix;
 use nonempty::NonEmpty;
-use polars::prelude::*;
 use serde::ser::SerializeStruct;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -318,10 +317,6 @@ impl AnyCoreTEXT {
         }
     }
 
-    // pub(crate) fn as_column_layout(&self) -> Result<ColumnLayout, Vec<String>> {
-    //     match_anycoretext!(self, x, { x.as_column_layout() })
-    // }
-
     pub(crate) fn as_data_reader(
         &self,
         kws: &mut RawKeywords,
@@ -329,27 +324,6 @@ impl AnyCoreTEXT {
         data_seg: Segment,
     ) -> PureMaybe<DataReader> {
         match_anycoretext!(self, x, { x.as_data_reader(kws, conf, data_seg) })
-    }
-
-    pub(crate) fn into_dataset_unchecked(
-        self,
-        data: DataFrame,
-        analysis: Analysis,
-    ) -> AnyCoreDataset {
-        match self {
-            AnyCoreTEXT::FCS2_0(text) => {
-                AnyCoreDataset::FCS2_0(text.into_dataset_unchecked(data, analysis))
-            }
-            AnyCoreTEXT::FCS3_0(text) => {
-                AnyCoreDataset::FCS3_0(text.into_dataset_unchecked(data, analysis))
-            }
-            AnyCoreTEXT::FCS3_1(text) => {
-                AnyCoreDataset::FCS3_1(text.into_dataset_unchecked(data, analysis))
-            }
-            AnyCoreTEXT::FCS3_2(text) => {
-                AnyCoreDataset::FCS3_2(text.into_dataset_unchecked(data, analysis))
-            }
-        }
     }
 }
 
@@ -1453,7 +1427,7 @@ impl MeasConvertError {
 
 type TryFromTimeError<T> = TryFromErrorReset<MeasToTimeErrors, T>;
 
-type MeasToTimeErrors = NonEmpty<MeasToTimeError>;
+pub(crate) type MeasToTimeErrors = NonEmpty<MeasToTimeError>;
 
 pub enum MeasToTimeError {
     NonLinear,
@@ -1580,7 +1554,7 @@ pub struct CarrierData {
     pub locationid: OptionalKw<Locationid>,
 }
 
-type Measurements<N, T, P> =
+pub(crate) type Measurements<N, T, P> =
     NamedVec<N, <N as MightHave>::Wrapper<Shortname>, TimeChannel<T>, Measurement<P>>;
 
 macro_rules! non_time_get_set {
@@ -1659,7 +1633,7 @@ macro_rules! scale_get_set {
     };
 }
 
-type VersionedCoreTEXT<M> = CoreTEXT<
+pub(crate) type VersionedCoreTEXT<M> = CoreTEXT<
     M,
     <M as VersionedMetadata>::T,
     <M as VersionedMetadata>::P,
@@ -1693,6 +1667,24 @@ where
             Ok(true)
         } else {
             Ok(false)
+        }
+    }
+
+    pub(crate) fn try_cols_to_dataframe(
+        &self,
+        cols: Vec<AnyFCSColumn>,
+    ) -> Result<FCSDataFrame, String> {
+        let n = &cols.len();
+        let p = self.par();
+        if *n != p.0 {
+            return Err(format!(
+                "DATA has {n} columns but TEXT has {p} measurements",
+            ));
+        }
+        if let Some(df) = FCSDataFrame::try_new(cols) {
+            Ok(df)
+        } else {
+            Err("columns have different lengths".into())
         }
     }
 
@@ -1908,7 +1900,8 @@ where
     /// Return a vector with each successfully found value.
     ///
     /// This includes the time channel if present.
-    pub fn get_meas_nonstandard(&self, ks: &Vec<NonStdKey>) -> Option<Vec<Option<&String>>> {
+    // TODO generlize this to take slices
+    pub fn get_meas_nonstandard(&self, ks: Vec<&NonStdKey>) -> Option<Vec<Option<&String>>> {
         let ms = &self.measurements;
         if ks.len() != ms.len() {
             None
@@ -2584,12 +2577,12 @@ where
         M::as_column_layout(&self.metadata, &self.measurements)
     }
 
-    fn df_names(&self) -> Vec<PlSmallStr> {
-        self.all_shortnames()
-            .into_iter()
-            .map(|s| s.as_ref().into())
-            .collect()
-    }
+    // fn df_names(&self) -> Vec<PlSmallStr> {
+    //     self.all_shortnames()
+    //         .into_iter()
+    //         .map(|s| s.as_ref().into())
+    //         .collect()
+    // }
 
     // fn set_df_column_names(&self, df: &mut DataFrame) -> PolarsResult<()> {
     //     df.set_column_names(self.df_names())
@@ -2612,39 +2605,18 @@ where
                 })
             })
     }
+}
 
-    pub(crate) fn into_dataset_unchecked(
-        self,
-        mut df: DataFrame,
-        analysis: Analysis,
-    ) -> VersionedCoreDataset<M> {
-        let ns = self.df_names();
-        df.set_column_names(ns)
-            .expect("error when setting new dataframe names");
-        let data = FCSDataFrame::try_from(df).expect("dataframe has non-FCS types");
-        CoreDataset {
-            text: Box::new(self),
-            data,
-            analysis,
+macro_rules! timestamp_methods {
+    ($timetype:ident) => {
+        pub fn timestamps(&self) -> &Timestamps<$timetype> {
+            &self.metadata.specific.timestamps
         }
-    }
 
-    // TODO useme
-    // fn into_dataset(
-    //     self,
-    //     data: DataFrame,
-    //     analysis: Analysis,
-    // ) -> Result<VersionedCoreDataset<M>, String> {
-    //     let w = data.width();
-    //     let p = self.par().0;
-    //     if w != p {
-    //         Err(format!(
-    //             "DATA has {w} columns but TEXT has {p} measurements"
-    //         ))
-    //     } else {
-    //         Ok(self.into_dataset_unchecked(data, analysis))
-    //     }
-    // }
+        pub fn timestamps_mut(&mut self) -> &mut Timestamps<$timetype> {
+            &mut self.metadata.specific.timestamps
+        }
+    };
 }
 
 impl CoreTEXT2_0 {
@@ -2706,6 +2678,8 @@ impl CoreTEXT2_0 {
     pub fn set_data_ascii(&mut self, xs: Vec<AsciiRangeSetter>) -> bool {
         self.set_data_ascii_inner(xs)
     }
+
+    timestamp_methods!(FCSTime);
 
     non_time_get_set!(
         wavelengths,
@@ -2778,6 +2752,8 @@ impl CoreTEXT3_0 {
         self.set_data_ascii_inner(xs)
     }
 
+    timestamp_methods!(FCSTime60);
+
     non_time_get_set!(gains, set_gains, Gain, [specific], gain, PnG);
 
     non_time_get_set!(
@@ -2790,30 +2766,35 @@ impl CoreTEXT3_0 {
     );
 }
 
-// TODO this needs to be safer
-// macro_rules! spillover_methods {
-//     ($($root:ident),*) => {
-//         /// Show $SPILLOVER
-//         pub fn spillover(&self) -> Option<&Spillover> {
-//             self.$($root.)*metadata.specific.spillover.as_ref_opt()
-//         }
+macro_rules! spillover_methods {
+    () => {
+        /// Show $SPILLOVER
+        pub fn spillover(&self) -> Option<&Spillover> {
+            self.metadata.specific.spillover.as_ref_opt()
+        }
 
-//         /// Set names and matrix for $SPILLOVER
-//         pub fn set_spillover(
-//             &mut self,
-//             ns: Vec<Shortname>,
-//             m: DMatrix<f32>,
-//         ) -> Result<(), SpilloverError> {
-//             self.$($root.)*metadata.specific.spillover = Some(Spillover::new(ns, m)?).into();
-//             Ok(())
-//         }
+        /// Set names and matrix for $SPILLOVER
+        ///
+        /// Names must match number of rows/columns in matrix and also must be a
+        /// subset of the measurement names (ie $PnN). Matrix must be square and
+        /// at least 2x2.
+        pub fn set_spillover(&mut self, ns: Vec<Shortname>, m: DMatrix<f32>) -> Result<(), String> {
+            let current = self.all_shortnames();
+            let new: HashSet<_> = ns.iter().collect();
+            if !new.is_subset(&current.iter().collect()) {
+                return Err("all $SPILLOVER names must match a $PnN".into());
+            }
+            let m = Spillover::try_new(ns, m).map_err(|e| e.to_string())?;
+            self.metadata.specific.spillover = Some(m).into();
+            Ok(())
+        }
 
-//         /// Clear $SPILLOVER
-//         pub fn unset_spillover(&mut self) {
-//             self.$($root.)*metadata.specific.spillover = None.into();
-//         }
-//     };
-// }
+        /// Clear $SPILLOVER
+        pub fn unset_spillover(&mut self) {
+            self.metadata.specific.spillover = None.into();
+        }
+    };
+}
 
 macro_rules! display_methods {
     () => {
@@ -2852,7 +2833,7 @@ impl CoreTEXT3_1 {
     }
 
     scale_get_set!(Scale, Scale::Linear);
-    // spillover_methods!();
+    spillover_methods!();
 
     // TODO better input type here?
     /// Set data layout to be integers for all measurements.
@@ -2881,6 +2862,16 @@ impl CoreTEXT3_1 {
     pub fn set_data_delimited(&mut self, xs: Vec<u64>) -> bool {
         self.set_data_delimited_inner(xs)
     }
+
+    pub fn get_big_endian(&self) -> bool {
+        self.metadata.specific.byteord == Endian::Big
+    }
+
+    pub fn set_big_endian(&mut self, is_big: bool) {
+        self.metadata.specific.byteord = Endian::is_big(is_big);
+    }
+
+    timestamp_methods!(FCSTime100);
 
     display_methods!();
 
@@ -2962,7 +2953,7 @@ impl CoreTEXT3_2 {
     }
 
     scale_get_set!(Scale, Scale::Linear);
-    // spillover_methods!();
+    spillover_methods!();
 
     /// Show datatype for all measurements
     ///
@@ -3090,6 +3081,16 @@ impl CoreTEXT3_2 {
         }
         res
     }
+
+    pub fn get_big_endian(&self) -> bool {
+        self.metadata.specific.byteord == Endian::Big
+    }
+
+    pub fn set_big_endian(&mut self, is_big: bool) {
+        self.metadata.specific.byteord = Endian::is_big(is_big);
+    }
+
+    timestamp_methods!(FCSTime100);
 
     display_methods!();
 

@@ -7,10 +7,10 @@ pub use crate::segment::*;
 pub use crate::text::core::*;
 pub use crate::text::keywords::*;
 use crate::text::timestamps::*;
+use crate::validated::dataframe::FCSDataFrame;
 
 use chrono::NaiveDate;
 use itertools::Itertools;
-use polars::prelude::*;
 use serde::Serialize;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -108,7 +108,7 @@ pub struct RawDataset {
     /// The type of each column is such that each measurement is encoded with
     /// zero loss. This will/should never contain NULL values despite the
     /// underlying arrow framework allowing NULLs to exist.
-    pub data: DataFrame,
+    pub data: FCSDataFrame,
 
     /// ANALYSIS segment
     ///
@@ -334,8 +334,10 @@ fn h_read_std_dataset<R: Read + Seek>(
         .try_map(|(reader_maybe, data_seg, analysis_seg)| {
             let dmsg = "could not create data reader".to_string();
             let reader = reader_maybe.ok_or(Failure::new(dmsg))?;
-            let data = reader.h_read(h)?;
+            let columns = reader.h_read(h)?;
             let analysis = h_read_analysis(h, &analysis_seg)?;
+            let dataset =
+                AnyCoreDataset::from_coretext_unchecked(std.standardized, columns, analysis);
             Ok(PureSuccess::from(StandardizedDataset {
                 parse: ParseParameters {
                     data: data_seg,
@@ -344,10 +346,9 @@ fn h_read_std_dataset<R: Read + Seek>(
                 },
                 remainder: kws,
                 // ASSUME we have checked that the dataframe has the same number
-                // of columns as number of measurements, and that all
-                // measurement names are unique. Therefore, this should not
-                // fail.
-                dataset: std.standardized.into_dataset_unchecked(data, analysis),
+                // of columns as number of measurements; therefore, this should
+                // not fail.
+                dataset,
                 deviant: std.deviant,
             }))
         })

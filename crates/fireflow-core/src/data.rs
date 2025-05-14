@@ -26,31 +26,33 @@ use std::iter;
 use std::num::{IntErrorKind, ParseIntError};
 use std::str::FromStr;
 
-/// Represents the minimal data to fully describe one dataset in an FCS file.
-///
-/// This will include the standardized TEXT keywords as well as its
-/// corresponding DATA segment parsed into a dataframe-like structure.
-#[derive(Clone)]
+// /// Represents the minimal data to fully describe one dataset in an FCS file.
+// ///
+// /// This will include the standardized TEXT keywords as well as its
+// /// corresponding DATA segment parsed into a dataframe-like structure.
+// #[derive(Clone)]
 // TODO use generics to combine this with coretext, which will make everything
 // soooooo much simpler
-pub struct CoreDataset<M, T, P, N, W> {
-    /// Standardized TEXT segment in version specific format
-    text: Box<CoreTEXT<M, T, P, N, W>>,
+// pub struct CoreDataset<M, T, P, N, W> {
+//     /// Standardized TEXT segment in version specific format
+//     text: Box<CoreTEXT<M, T, P, N, W>>,
 
-    /// DATA segment as a polars DataFrame
-    ///
-    /// The type of each column is such that each measurement is encoded with
-    /// zero loss. This will/should never contain NULL values despite the
-    /// underlying arrow framework allowing NULLs to exist.
-    data: FCSDataFrame,
+//     /// DATA segment as a polars DataFrame
+//     ///
+//     /// The type of each column is such that each measurement is encoded with
+//     /// zero loss. This will/should never contain NULL values despite the
+//     /// underlying arrow framework allowing NULLs to exist.
+//     data: FCSDataFrame,
 
-    /// ANALYSIS segment
-    ///
-    /// This will be empty if ANALYSIS either doesn't exist or the computation
-    /// fails. This has not standard structure, so the best we can capture is a
-    /// byte sequence.
-    pub analysis: Analysis,
-}
+//     /// ANALYSIS segment
+//     ///
+//     /// This will be empty if ANALYSIS either doesn't exist or the computation
+//     /// fails. This has not standard structure, so the best we can capture is a
+//     /// byte sequence.
+//     pub analysis: Analysis,
+// }
+
+pub type CoreDataset<M, T, P, N, W> = Core<Analysis, FCSDataFrame, M, T, P, N, W>;
 
 pub(crate) type VersionedCoreDataset<M> = CoreDataset<
     M,
@@ -94,195 +96,6 @@ macro_rules! passthru_method_mut {
     };
 }
 
-impl<M> VersionedCoreDataset<M>
-where
-    M: VersionedMetadata,
-    M::N: Clone,
-    M::L: VersionedDataLayout,
-{
-    /// Write this dataset (HEADER+TEXT+DATA+ANALYSIS) to a handle
-    pub fn h_write<W>(&self, h: &mut BufWriter<W>, conf: &WriteConfig) -> ImpureResult<()>
-    where
-        W: Write,
-    {
-        // Get the layout, or bail if we can't
-        let layout = self.text.as_column_layout().map_err(|es| Failure {
-            reason: "could not create data layout".to_string(),
-            deferred: PureErrorBuf::from_many(es, PureErrorLevel::Error),
-        })?;
-
-        let df = &self.data;
-        let tot = Tot(df.nrows());
-        let analysis_len = self.analysis.0.len();
-        let writer = layout.as_writer(df, conf)?;
-        writer.try_map(|mut w| {
-            // write HEADER+TEXT first
-            if self.text.h_write(h, tot, w.nbytes(), analysis_len, conf)? {
-                // write DATA
-                w.h_write(h)?;
-                // write ANALYSIS
-                h.write_all(&self.analysis.0)?;
-                Ok(PureSuccess::from(()))
-            } else {
-                Err(Failure::new(
-                    "primary TEXT does not fit into first 99,999,999 bytes".to_string(),
-                ))?
-            }
-        })
-    }
-
-    /// Convert this dataset into a different FCS version
-    pub fn try_convert<ToM>(self) -> PureResult<VersionedCoreDataset<ToM>>
-    where
-        M::N: Clone,
-        ToM: VersionedMetadata,
-        ToM: TryFromMetadata<M>,
-        ToM::P: VersionedMeasurement,
-        ToM::T: VersionedTime,
-        ToM::N: MightHave,
-        ToM::N: Clone,
-        ToM::P: TryFrom<M::P, Error = MeasConvertError>,
-        ToM::T: From<M::T>,
-        <ToM::N as MightHave>::Wrapper<Shortname>: TryFrom<<M::N as MightHave>::Wrapper<Shortname>>,
-    {
-        self.text.try_convert().map(|res| {
-            res.map(|newtext| CoreDataset {
-                text: Box::new(newtext),
-                data: self.data,
-                analysis: self.analysis,
-            })
-        })
-    }
-
-    /// Return reference to structure representing TEXT
-    pub fn text(&self) -> &VersionedCoreTEXT<M> {
-        &self.text
-    }
-
-    /// Return reference to dataframe representing DATA
-    pub fn data(&self) -> &FCSDataFrame {
-        &self.data
-    }
-
-    /// Add columns to this dataset.
-    ///
-    /// Return error if columns are not all the same length or number of columns
-    /// doesn't match the number of measurement.
-    pub fn set_data(&mut self, cols: Vec<AnyFCSColumn>) -> Result<(), String> {
-        self.data = self.text.try_cols_to_dataframe(cols)?;
-        Ok(())
-    }
-
-    pub fn measurements_named_vec(&self) -> &Measurements<M::N, M::T, M::P> {
-        self.text.measurements_named_vec()
-    }
-
-    pub fn as_center_mut(
-        &mut self,
-    ) -> Option<IndexedElement<&mut Shortname, &mut TimeChannel<M::T>>> {
-        self.text.as_center_mut()
-    }
-
-    pub fn nonstandard_keywords(&self) -> &NonStdKeywords {
-        &self.text.metadata.nonstandard_keywords
-    }
-
-    pub fn nonstandard_keywords_mut(&mut self) -> &mut NonStdKeywords {
-        &mut self.text.metadata.nonstandard_keywords
-    }
-
-    // fn set_shortnames(&mut self, names: Vec<Shortname>) -> Result<NameMapping, String> {
-    //     self.text
-    //         .set_shortnames(names)
-    //         .inspect(|_| self.text.set_df_column_names(&mut self.data).unwrap())
-    // }
-
-    pub fn remove_measurement_by_name(
-        &mut self,
-        n: &Shortname,
-    ) -> Result<Option<(MeasIdx, Result<Measurement<M::P>, TimeChannel<M::T>>)>, String> {
-        let res = self.text.remove_measurement_by_name(n)?.map(|(i, x)| {
-            self.data.drop_in_place(i.into()).unwrap();
-            (i, x)
-        });
-        Ok(res)
-    }
-
-    pub fn remove_measurement_by_index(
-        &mut self,
-        index: MeasIdx,
-    ) -> Result<Option<EitherPair<M::N, Measurement<M::P>, TimeChannel<M::T>>>, String> {
-        let res = self.text.remove_measurement_by_index(index)?.inspect(|_| {
-            self.data.drop_in_place(index.into()).unwrap();
-        });
-        Ok(res)
-    }
-
-    pub fn push_time_channel<T>(
-        &mut self,
-        n: Shortname,
-        m: TimeChannel<M::T>,
-        col: AnyFCSColumn,
-    ) -> Result<(), String>
-    where
-        T: FCSDataType,
-    {
-        self.text.push_time_channel(n, m)?;
-        self.data.push_column(col);
-        Ok(())
-    }
-
-    pub fn push_measurement<T>(
-        &mut self,
-        n: <M::N as MightHave>::Wrapper<Shortname>,
-        m: Measurement<M::P>,
-        col: AnyFCSColumn,
-    ) -> Result<Shortname, String>
-    where
-        T: FCSDataType,
-    {
-        let k = self.text.push_measurement(n, m)?;
-        self.data.push_column(col);
-        Ok(k)
-    }
-
-    fn insert_measurement<T>(
-        &mut self,
-        i: MeasIdx,
-        n: <M::N as MightHave>::Wrapper<Shortname>,
-        m: Measurement<M::P>,
-        col: AnyFCSColumn,
-    ) -> Result<Shortname, String>
-    where
-        T: FCSDataType,
-    {
-        let k = self.text.insert_measurement(i, n, m)?;
-        self.data.insert_column(i.into(), col);
-        Ok(k)
-    }
-
-    pub fn from_coretext(
-        c: VersionedCoreTEXT<M>,
-        columns: Vec<AnyFCSColumn>,
-        analysis: Analysis,
-    ) -> Result<Self, String> {
-        let data = c.try_cols_to_dataframe(columns)?;
-        Ok(Self::from_coretext_unchecked(c, data, analysis))
-    }
-
-    pub(crate) fn from_coretext_unchecked(
-        c: VersionedCoreTEXT<M>,
-        data: FCSDataFrame,
-        analysis: Analysis,
-    ) -> Self {
-        CoreDataset {
-            text: Box::new(c),
-            data,
-            analysis,
-        }
-    }
-}
-
 // TODO add type-specific methods
 
 // impl CoreDataset3_1 {
@@ -319,283 +132,254 @@ pub enum AnyCoreDataset {
     FCS3_2(CoreDataset3_2),
 }
 
-macro_rules! get_set_text {
-    ($get:ident, $set:ident, $ret:ty; $($root:ident),*) => {
-        pub fn $get(&self) -> Option<&$ret> {
-            self.text.metadata.$($root.)*$get.as_ref_opt()
-        }
-
-        pub fn $set(&mut self, x: Option<$ret>) {
-            self.text.metadata.$($root.)*$get = x.into();
-        }
-    };
-}
-
-macro_rules! common_passthru_methods {
-    () => {
-        passthru_method!(
-            raw_keywords(want_req: Option<bool>, want_meta: Option<bool>) ->
-                RawKeywords
-        );
-
-        passthru_method!(par() -> Par);
-
-        passthru_method_mut!(
-            insert_meas_nonstandard(xs: Vec<(NonStdKey, String)>) ->
-                Option<Vec<Option<String>>>
-        );
-
-        passthru_method_mut!(
-            remove_meas_nonstandard(xs: Vec<&NonStdKey>) ->
-                Option<Vec<Option<String>>>
-        );
-
-        passthru_method!(
-            get_meas_nonstandard(xs: Vec<&NonStdKey>) ->
-                Option<Vec<Option<&String>>>
-        );
-
-        passthru_method!(trigger_name() -> Option<&Shortname>);
-        passthru_method!(trigger_threshold() -> Option<u32>);
-        passthru_method_mut!(set_trigger_name(x: Shortname) -> bool);
-        passthru_method_mut!(set_trigger_threshold(x: u32) -> bool);
-        passthru_method_mut!(clear_trigger());
-
-        passthru_method_mut!(set_time_channel(x: &Shortname) -> Result<(), MeasToTimeErrors>);
-        passthru_method_mut!(unset_time_channel() -> bool);
-
-        passthru_method!(bytes() -> Option<Vec<u8>>);
-        passthru_method!(ranges() -> Vec<&Range>);
-
-        passthru_method!(longnames() -> Vec<Option<&Longname>>);
-        passthru_method_mut!(set_longnames(xs: Vec<Option<String>>) -> bool);
-
-        passthru_method!(shortnames_maybe() -> Vec<Option<&Shortname>>);
-        passthru_method!(all_shortnames() -> Vec<Shortname>);
-        passthru_method_mut!(
-            set_all_shortnames(xs: Vec<Shortname>) ->
-                Result<NameMapping, DistinctKeysError>
-        );
-
-        passthru_method_mut!(set_data_f32(ranges: Vec<f32>) -> bool);
-        passthru_method_mut!(set_data_f64(ranges: Vec<f64>) -> bool);
-        passthru_method_mut!(set_data_ascii(rs: Vec<AsciiRangeSetter>) -> bool);
-        passthru_method_mut!(set_data_delimited(ranges: Vec<u64>) -> bool);
-
-        passthru_method!(filters() -> Vec<(MeasIdx, Option<&Filter>)>);
-        passthru_method_mut!(set_filters(xs: Vec<Option<Filter>>) -> bool);
-
-        passthru_method!(powers() -> Vec<(MeasIdx, Option<&Power>)>);
-        passthru_method_mut!(set_powers(xs: Vec<Option<Power>>) -> bool);
-
-        passthru_method!(detector_types() -> Vec<(MeasIdx, Option<&DetectorType>)>);
-        passthru_method_mut!(set_detector_types(xs: Vec<Option<DetectorType>>) -> bool);
-
-        passthru_method!(percents_emitted() -> Vec<(MeasIdx, Option<&PercentEmitted>)>);
-        passthru_method_mut!(set_percents_emitted(xs: Vec<Option<PercentEmitted>>) -> bool);
-
-        passthru_method!(detector_voltages() -> Vec<(MeasIdx, Option<&DetectorVoltage>)>);
-        passthru_method_mut!(set_detector_voltages(xs: Vec<Option<DetectorVoltage>>) -> bool);
-
-        get_set_text!(abrt, set_abrt, Abrt;);
-        get_set_text!(lost, set_lost, Lost;);
-        get_set_text!(cells, set_cells, Cells;);
-        get_set_text!(com, set_com, Com;);
-        get_set_text!(exp, set_exp, Exp;);
-        get_set_text!(fil, set_fil, Fil;);
-        get_set_text!(inst, set_inst, Inst;);
-        get_set_text!(op, set_op, Op;);
-        get_set_text!(proj, set_proj, Proj;);
-        get_set_text!(smno, set_smno, Smno;);
-        get_set_text!(src, set_src, Src;);
-        get_set_text!(sys, set_sys, Sys;);
-    };
-}
+// macro_rules! get_set_text {
+//     ($get:ident, $set:ident, $ret:ty; $($root:ident),*) => {
+//         pub fn $get(&self) -> Option<&$ret> {
+//             self.text.metadata.$($root.)*$get.as_ref_opt()
+//         }
+
+//         pub fn $set(&mut self, x: Option<$ret>) {
+//             self.text.metadata.$($root.)*$get = x.into();
+//         }
+//     };
+// }
+
+// macro_rules! common_passthru_methods {
+//     () => {
+//         passthru_method!(
+//             raw_keywords(want_req: Option<bool>, want_meta: Option<bool>) ->
+//                 RawKeywords
+//         );
+
+//         passthru_method!(par() -> Par);
+
+//         passthru_method_mut!(
+//             insert_meas_nonstandard(xs: Vec<(NonStdKey, String)>) ->
+//                 Option<Vec<Option<String>>>
+//         );
+
+//         passthru_method_mut!(
+//             remove_meas_nonstandard(xs: Vec<&NonStdKey>) ->
+//                 Option<Vec<Option<String>>>
+//         );
+
+//         passthru_method!(
+//             get_meas_nonstandard(xs: Vec<&NonStdKey>) ->
+//                 Option<Vec<Option<&String>>>
+//         );
+
+//         passthru_method!(trigger_name() -> Option<&Shortname>);
+//         passthru_method!(trigger_threshold() -> Option<u32>);
+//         passthru_method_mut!(set_trigger_name(x: Shortname) -> bool);
+//         passthru_method_mut!(set_trigger_threshold(x: u32) -> bool);
+//         passthru_method_mut!(clear_trigger());
+
+//         passthru_method_mut!(set_time_channel(x: &Shortname) -> Result<(), MeasToTimeErrors>);
+//         passthru_method_mut!(unset_time_channel() -> bool);
+
+//         passthru_method!(bytes() -> Option<Vec<u8>>);
+//         passthru_method!(ranges() -> Vec<&Range>);
+
+//         passthru_method!(longnames() -> Vec<Option<&Longname>>);
+//         passthru_method_mut!(set_longnames(xs: Vec<Option<String>>) -> bool);
+
+//         passthru_method!(shortnames_maybe() -> Vec<Option<&Shortname>>);
+//         passthru_method!(all_shortnames() -> Vec<Shortname>);
+//         passthru_method_mut!(
+//             set_all_shortnames(xs: Vec<Shortname>) ->
+//                 Result<NameMapping, DistinctKeysError>
+//         );
+
+//         passthru_method_mut!(set_data_f32(ranges: Vec<f32>) -> bool);
+//         passthru_method_mut!(set_data_f64(ranges: Vec<f64>) -> bool);
+//         passthru_method_mut!(set_data_ascii(rs: Vec<AsciiRangeSetter>) -> bool);
+//         passthru_method_mut!(set_data_delimited(ranges: Vec<u64>) -> bool);
+
+//         passthru_method!(filters() -> Vec<(MeasIdx, Option<&Filter>)>);
+//         passthru_method_mut!(set_filters(xs: Vec<Option<Filter>>) -> bool);
+
+//         passthru_method!(powers() -> Vec<(MeasIdx, Option<&Power>)>);
+//         passthru_method_mut!(set_powers(xs: Vec<Option<Power>>) -> bool);
+
+//         passthru_method!(detector_types() -> Vec<(MeasIdx, Option<&DetectorType>)>);
+//         passthru_method_mut!(set_detector_types(xs: Vec<Option<DetectorType>>) -> bool);
+
+//         passthru_method!(percents_emitted() -> Vec<(MeasIdx, Option<&PercentEmitted>)>);
+//         passthru_method_mut!(set_percents_emitted(xs: Vec<Option<PercentEmitted>>) -> bool);
+
+//         passthru_method!(detector_voltages() -> Vec<(MeasIdx, Option<&DetectorVoltage>)>);
+//         passthru_method_mut!(set_detector_voltages(xs: Vec<Option<DetectorVoltage>>) -> bool);
+
+//         get_set_text!(abrt, set_abrt, Abrt;);
+//         get_set_text!(lost, set_lost, Lost;);
+//         get_set_text!(cells, set_cells, Cells;);
+//         get_set_text!(com, set_com, Com;);
+//         get_set_text!(exp, set_exp, Exp;);
+//         get_set_text!(fil, set_fil, Fil;);
+//         get_set_text!(inst, set_inst, Inst;);
+//         get_set_text!(op, set_op, Op;);
+//         get_set_text!(proj, set_proj, Proj;);
+//         get_set_text!(smno, set_smno, Smno;);
+//         get_set_text!(src, set_src, Src;);
+//         get_set_text!(sys, set_sys, Sys;);
+//     };
+// }
 
-macro_rules! timestamps_methods {
-    ($out:ident) => {
-        pub fn timestamps(&self) -> &Timestamps<$out> {
-            self.text.timestamps()
-        }
+// macro_rules! timestamps_methods {
+//     ($out:ident) => {
+//         pub fn timestamps(&self) -> &Timestamps<$out> {
+//             self.text.timestamps()
+//         }
 
-        pub fn timestamps_mut(&mut self) -> &mut Timestamps<$out> {
-            self.text.timestamps_mut()
-        }
-    };
-}
+//         pub fn timestamps_mut(&mut self) -> &mut Timestamps<$out> {
+//             self.text.timestamps_mut()
+//         }
+//     };
+// }
 
-impl CoreDataset2_0 {
-    common_passthru_methods!();
+// impl CoreDataset2_0 {
+//     common_passthru_methods!();
 
-    passthru_method_mut!(set_data_integer(rs: Vec<u64>, byteord: ByteOrd) -> bool);
+//     passthru_method_mut!(set_data_integer(rs: Vec<u64>, byteord: ByteOrd) -> bool);
 
-    passthru_method_mut!(
-        set_measurement_shortnames_maybe(ns: Vec<Option<Shortname>>) ->
-        Result<NameMapping, DistinctKeysError>
-    );
+//     passthru_method_mut!(
+//         set_measurement_shortnames_maybe(ns: Vec<Option<Shortname>>) ->
+//         Result<NameMapping, DistinctKeysError>
+//     );
 
-    passthru_method!(wavelengths() -> Vec<(MeasIdx, Option<&Wavelength>)>);
-    passthru_method_mut!(set_wavelengths(xs: Vec<Option<Wavelength>>) -> bool);
+//     passthru_method!(wavelengths() -> Vec<(MeasIdx, Option<&Wavelength>)>);
+//     passthru_method_mut!(set_wavelengths(xs: Vec<Option<Wavelength>>) -> bool);
 
-    get_set_text!(cyt, set_cyt, Cyt; specific);
+//     get_set_text!(cyt, set_cyt, Cyt; specific);
 
-    timestamps_methods!(FCSTime);
-}
+//     timestamps_methods!(FCSTime);
+// }
 
-impl CoreDataset3_0 {
-    common_passthru_methods!();
+// impl CoreDataset3_0 {
+//     common_passthru_methods!();
 
-    passthru_method_mut!(set_data_integer(rs: Vec<u64>, byteord: ByteOrd) -> bool);
+//     passthru_method_mut!(set_data_integer(rs: Vec<u64>, byteord: ByteOrd) -> bool);
 
-    passthru_method_mut!(
-        set_measurement_shortnames_maybe(ns: Vec<Option<Shortname>>) ->
-        Result<NameMapping, DistinctKeysError>
-    );
+//     passthru_method_mut!(
+//         set_measurement_shortnames_maybe(ns: Vec<Option<Shortname>>) ->
+//         Result<NameMapping, DistinctKeysError>
+//     );
 
-    passthru_method!(all_scales() -> Vec<Scale>);
-    passthru_method!(scales() -> Vec<(MeasIdx, Scale)>);
-    passthru_method_mut!(set_scales(xs: Vec<Scale>) -> bool);
+//     passthru_method!(all_scales() -> Vec<Scale>);
+//     passthru_method!(scales() -> Vec<(MeasIdx, Scale)>);
+//     passthru_method_mut!(set_scales(xs: Vec<Scale>) -> bool);
 
-    passthru_method!(wavelengths() -> Vec<(MeasIdx, Option<&Wavelength>)>);
-    passthru_method_mut!(set_wavelengths(xs: Vec<Option<Wavelength>>) -> bool);
+//     passthru_method!(wavelengths() -> Vec<(MeasIdx, Option<&Wavelength>)>);
+//     passthru_method_mut!(set_wavelengths(xs: Vec<Option<Wavelength>>) -> bool);
 
-    passthru_method!(gains() -> Vec<(MeasIdx, Option<&Gain>)>);
-    passthru_method_mut!(set_gains(xs: Vec<Option<Gain>>) -> bool);
+//     passthru_method!(gains() -> Vec<(MeasIdx, Option<&Gain>)>);
+//     passthru_method_mut!(set_gains(xs: Vec<Option<Gain>>) -> bool);
 
-    get_set_text!(cyt, set_cyt, Cyt; specific);
+//     get_set_text!(cyt, set_cyt, Cyt; specific);
 
-    timestamps_methods!(FCSTime60);
-}
+//     timestamps_methods!(FCSTime60);
+// }
 
-impl CoreDataset3_1 {
-    common_passthru_methods!();
+// impl CoreDataset3_1 {
+//     common_passthru_methods!();
 
-    passthru_method_mut!(set_data_integer(rs: Vec<NumRangeSetter>) -> bool);
+//     passthru_method_mut!(set_data_integer(rs: Vec<NumRangeSetter>) -> bool);
 
-    passthru_method!(get_big_endian() -> bool);
-    passthru_method_mut!(set_big_endian(is_big: bool));
+//     passthru_method!(get_big_endian() -> bool);
+//     passthru_method_mut!(set_big_endian(is_big: bool));
 
-    passthru_method!(all_scales() -> Vec<Scale>);
-    passthru_method!(scales() -> Vec<(MeasIdx, Scale)>);
-    passthru_method_mut!(set_scales(xs: Vec<Scale>) -> bool);
+//     passthru_method!(all_scales() -> Vec<Scale>);
+//     passthru_method!(scales() -> Vec<(MeasIdx, Scale)>);
+//     passthru_method_mut!(set_scales(xs: Vec<Scale>) -> bool);
 
-    passthru_method!(wavelengths() -> Vec<(MeasIdx, Option<&Wavelengths>)>);
-    passthru_method_mut!(set_wavelengths(xs: Vec<Option<Wavelengths>>) -> bool);
+//     passthru_method!(wavelengths() -> Vec<(MeasIdx, Option<&Wavelengths>)>);
+//     passthru_method_mut!(set_wavelengths(xs: Vec<Option<Wavelengths>>) -> bool);
 
-    passthru_method!(gains() -> Vec<(MeasIdx, Option<&Gain>)>);
-    passthru_method_mut!(set_gains(xs: Vec<Option<Gain>>) -> bool);
+//     passthru_method!(gains() -> Vec<(MeasIdx, Option<&Gain>)>);
+//     passthru_method_mut!(set_gains(xs: Vec<Option<Gain>>) -> bool);
 
-    passthru_method!(calibrations() -> Vec<(MeasIdx, Option<&Calibration3_1>)>);
-    passthru_method_mut!(set_calibrations(xs: Vec<Option<Calibration3_1>>) -> bool);
+//     passthru_method!(calibrations() -> Vec<(MeasIdx, Option<&Calibration3_1>)>);
+//     passthru_method_mut!(set_calibrations(xs: Vec<Option<Calibration3_1>>) -> bool);
 
-    passthru_method!(spillover() -> Option<&Spillover>);
-    passthru_method_mut!(
-        set_spillover(ns: Vec<Shortname>, m: DMatrix<f32>) -> Result<(), String>
-    );
-    passthru_method_mut!(unset_spillover());
+//     passthru_method!(spillover() -> Option<&Spillover>);
+//     passthru_method_mut!(
+//         set_spillover(ns: Vec<Shortname>, m: DMatrix<f32>) -> Result<(), String>
+//     );
+//     passthru_method_mut!(unset_spillover());
 
-    get_set_text!(cyt, set_cyt, Cyt; specific);
-    get_set_text!(vol, set_vol, Vol; specific);
+//     get_set_text!(cyt, set_cyt, Cyt; specific);
+//     get_set_text!(vol, set_vol, Vol; specific);
 
-    get_set_text!(last_modified, set_last_modified, ModifiedDateTime; specific, modification);
-    get_set_text!(last_modifier, set_last_modifier, LastModifier; specific, modification);
-    get_set_text!(originality, set_originality, Originality; specific, modification);
+//     get_set_text!(last_modified, set_last_modified, ModifiedDateTime; specific, modification);
+//     get_set_text!(last_modifier, set_last_modifier, LastModifier; specific, modification);
+//     get_set_text!(originality, set_originality, Originality; specific, modification);
 
-    get_set_text!(wellid, set_wellid, Wellid; specific, plate);
-    get_set_text!(plateid, set_plateid, Plateid; specific, plate);
-    get_set_text!(platename, set_platename, Platename; specific, plate);
+//     get_set_text!(wellid, set_wellid, Wellid; specific, plate);
+//     get_set_text!(plateid, set_plateid, Plateid; specific, plate);
+//     get_set_text!(platename, set_platename, Platename; specific, plate);
 
-    timestamps_methods!(FCSTime100);
-}
+//     timestamps_methods!(FCSTime100);
+// }
 
-impl CoreDataset3_2 {
-    common_passthru_methods!();
+// impl CoreDataset3_2 {
+//     common_passthru_methods!();
 
-    passthru_method_mut!(set_data_integer(rs: Vec<NumRangeSetter>) -> bool);
+//     passthru_method_mut!(set_data_integer(rs: Vec<NumRangeSetter>) -> bool);
 
-    passthru_method!(get_big_endian() -> bool);
-    passthru_method_mut!(set_big_endian(is_big: bool));
+//     passthru_method!(get_big_endian() -> bool);
+//     passthru_method_mut!(set_big_endian(is_big: bool));
 
-    passthru_method!(all_scales() -> Vec<Scale>);
-    passthru_method!(scales() -> Vec<(MeasIdx, Scale)>);
-    passthru_method_mut!(set_scales(xs: Vec<Scale>) -> bool);
+//     passthru_method!(all_scales() -> Vec<Scale>);
+//     passthru_method!(scales() -> Vec<(MeasIdx, Scale)>);
+//     passthru_method_mut!(set_scales(xs: Vec<Scale>) -> bool);
 
-    passthru_method!(wavelengths() -> Vec<(MeasIdx, Option<&Wavelengths>)>);
-    passthru_method_mut!(set_wavelengths(xs: Vec<Option<Wavelengths>>) -> bool);
+//     passthru_method!(wavelengths() -> Vec<(MeasIdx, Option<&Wavelengths>)>);
+//     passthru_method_mut!(set_wavelengths(xs: Vec<Option<Wavelengths>>) -> bool);
 
-    passthru_method!(analytes() -> Vec<(MeasIdx, Option<&Analyte>)>);
-    passthru_method_mut!(set_analytes(xs: Vec<Option<Analyte>>) -> bool);
+//     passthru_method!(analytes() -> Vec<(MeasIdx, Option<&Analyte>)>);
+//     passthru_method_mut!(set_analytes(xs: Vec<Option<Analyte>>) -> bool);
 
-    passthru_method!(gains() -> Vec<(MeasIdx, Option<&Gain>)>);
-    passthru_method_mut!(set_gains(xs: Vec<Option<Gain>>) -> bool);
+//     passthru_method!(gains() -> Vec<(MeasIdx, Option<&Gain>)>);
+//     passthru_method_mut!(set_gains(xs: Vec<Option<Gain>>) -> bool);
 
-    passthru_method!(det_names() -> Vec<(MeasIdx, Option<&DetectorName>)>);
-    passthru_method_mut!(set_det_names(xs: Vec<Option<DetectorName>>) -> bool);
+//     passthru_method!(det_names() -> Vec<(MeasIdx, Option<&DetectorName>)>);
+//     passthru_method_mut!(set_det_names(xs: Vec<Option<DetectorName>>) -> bool);
 
-    passthru_method!(calibrations() -> Vec<(MeasIdx, Option<&Calibration3_2>)>);
-    passthru_method_mut!(set_calibrations(xs: Vec<Option<Calibration3_2>>) -> bool);
+//     passthru_method!(calibrations() -> Vec<(MeasIdx, Option<&Calibration3_2>)>);
+//     passthru_method_mut!(set_calibrations(xs: Vec<Option<Calibration3_2>>) -> bool);
 
-    passthru_method!(tags() -> Vec<(MeasIdx, Option<&Tag>)>);
-    passthru_method_mut!(set_tags(xs: Vec<Option<Tag>>) -> bool);
+//     passthru_method!(tags() -> Vec<(MeasIdx, Option<&Tag>)>);
+//     passthru_method_mut!(set_tags(xs: Vec<Option<Tag>>) -> bool);
 
-    passthru_method!(measurement_types() -> Vec<(MeasIdx, Option<&MeasurementType>)>);
-    passthru_method_mut!(set_measurement_types(xs: Vec<Option<MeasurementType>>) -> bool);
+//     passthru_method!(measurement_types() -> Vec<(MeasIdx, Option<&MeasurementType>)>);
+//     passthru_method_mut!(set_measurement_types(xs: Vec<Option<MeasurementType>>) -> bool);
 
-    passthru_method!(features() -> Vec<(MeasIdx, Option<&Feature>)>);
-    passthru_method_mut!(set_features(xs: Vec<Option<Feature>>) -> bool);
+//     passthru_method!(features() -> Vec<(MeasIdx, Option<&Feature>)>);
+//     passthru_method_mut!(set_features(xs: Vec<Option<Feature>>) -> bool);
 
-    passthru_method!(spillover() -> Option<&Spillover>);
-    passthru_method_mut!(
-        set_spillover(ns: Vec<Shortname>, m: DMatrix<f32>) -> Result<(), String>
-    );
-    passthru_method_mut!(unset_spillover());
+//     passthru_method!(spillover() -> Option<&Spillover>);
+//     passthru_method_mut!(
+//         set_spillover(ns: Vec<Shortname>, m: DMatrix<f32>) -> Result<(), String>
+//     );
+//     passthru_method_mut!(unset_spillover());
 
-    get_set_text!(flowrate, set_flowrate, Flowrate; specific);
-    get_set_text!(vol, set_vol, Vol; specific);
+//     get_set_text!(flowrate, set_flowrate, Flowrate; specific);
+//     get_set_text!(vol, set_vol, Vol; specific);
 
-    get_set_text!(last_modified, set_last_modified, ModifiedDateTime; specific, modification);
-    get_set_text!(last_modifier, set_last_modifier, LastModifier; specific, modification);
-    get_set_text!(originality, set_originality, Originality; specific, modification);
+//     get_set_text!(last_modified, set_last_modified, ModifiedDateTime; specific, modification);
+//     get_set_text!(last_modifier, set_last_modifier, LastModifier; specific, modification);
+//     get_set_text!(originality, set_originality, Originality; specific, modification);
 
-    get_set_text!(locationid, set_locationid, Locationid; specific, carrier);
-    get_set_text!(carrierid, set_carrierid, Carrierid; specific, carrier);
-    get_set_text!(carriertype, set_carriertype, Carriertype; specific, carrier);
+//     get_set_text!(locationid, set_locationid, Locationid; specific, carrier);
+//     get_set_text!(carrierid, set_carrierid, Carrierid; specific, carrier);
+//     get_set_text!(carriertype, set_carriertype, Carriertype; specific, carrier);
 
-    get_set_text!(wellid, set_wellid, Wellid; specific, plate);
-    get_set_text!(plateid, set_plateid, Plateid; specific, plate);
-    get_set_text!(platename, set_platename, Platename; specific, plate);
+//     get_set_text!(wellid, set_wellid, Wellid; specific, plate);
+//     get_set_text!(plateid, set_plateid, Plateid; specific, plate);
+//     get_set_text!(platename, set_platename, Platename; specific, plate);
 
-    timestamps_methods!(FCSTime100);
-}
-
-impl AnyCoreDataset {
-    pub fn shortnames(&self) -> Vec<Shortname> {
-        match_many_to_one!(self, AnyCoreDataset, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
-            x.text.all_shortnames()
-        })
-    }
-
-    pub fn as_data(&self) -> &FCSDataFrame {
-        match_many_to_one!(self, AnyCoreDataset, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
-            &x.data
-        })
-    }
-
-    pub(crate) fn as_analysis_mut(&mut self) -> &mut Analysis {
-        match_many_to_one!(self, AnyCoreDataset, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
-            &mut x.analysis
-        })
-    }
-
-    pub(crate) fn from_coretext_unchecked(c: AnyCoreTEXT, df: FCSDataFrame, a: Analysis) -> Self {
-        match c {
-            AnyCoreTEXT::FCS2_0(x) => Self::FCS2_0(CoreDataset::from_coretext_unchecked(*x, df, a)),
-            AnyCoreTEXT::FCS3_0(x) => Self::FCS3_0(CoreDataset::from_coretext_unchecked(*x, df, a)),
-            AnyCoreTEXT::FCS3_1(x) => Self::FCS3_1(CoreDataset::from_coretext_unchecked(*x, df, a)),
-            AnyCoreTEXT::FCS3_2(x) => Self::FCS3_2(CoreDataset::from_coretext_unchecked(*x, df, a)),
-        }
-    }
-}
+//     timestamps_methods!(FCSTime100);
+// }
 
 pub trait VersionedDataLayout: Sized {
     type S;
@@ -899,14 +683,14 @@ pub struct ColumnWriter<'a, X, Y, S> {
 }
 
 impl DataWriter<'_> {
-    fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()> {
+    pub(crate) fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()> {
         match self {
             DataWriter::Delim(d) => d.h_write(h),
             DataWriter::Fixed(f) => f.h_write(h),
         }
     }
 
-    fn nbytes(&self) -> usize {
+    pub(crate) fn nbytes(&self) -> usize {
         match self {
             DataWriter::Delim(d) => d.nbytes,
             DataWriter::Fixed(f) => f.nbytes,

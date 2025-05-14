@@ -61,7 +61,7 @@ use std::str::FromStr;
 /// TEXT data when writing a new FCS file, and the keywords that are not
 /// included can be computed on the fly when writing.
 #[derive(Clone, Serialize)]
-pub struct CoreTEXT<M, T, P, N, W> {
+pub struct Core<A, D, M, T, P, N, W> {
     /// All "non-measurement" TEXT keywords.
     ///
     /// This is specific to each FCS version, which is encoded in the generic
@@ -77,7 +77,23 @@ pub struct CoreTEXT<M, T, P, N, W> {
     /// This is specific to each FCS version, which is encoded in the generic
     /// type variable.
     measurements: NamedVec<N, W, TimeChannel<T>, Measurement<P>>,
+
+    /// DATA segment as a polars DataFrame
+    ///
+    /// The type of each column is such that each measurement is encoded with
+    /// zero loss. This will/should never contain NULL values despite the
+    /// underlying arrow framework allowing NULLs to exist.
+    data: D,
+
+    /// ANALYSIS segment
+    ///
+    /// This will be empty if ANALYSIS either doesn't exist or the computation
+    /// fails. This has not standard structure, so the best we can capture is a
+    /// byte sequence.
+    pub analysis: A,
 }
+
+pub type CoreTEXT<M, T, P, N, W> = Core<(), (), M, T, P, N, W>;
 
 /// Structured non-measurement metadata.
 ///
@@ -327,6 +343,35 @@ impl AnyCoreTEXT {
     }
 }
 
+impl AnyCoreDataset {
+    pub fn shortnames(&self) -> Vec<Shortname> {
+        match_many_to_one!(self, AnyCoreDataset, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
+            x.all_shortnames()
+        })
+    }
+
+    pub fn as_data(&self) -> &FCSDataFrame {
+        match_many_to_one!(self, AnyCoreDataset, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
+            &x.data
+        })
+    }
+
+    pub(crate) fn as_analysis_mut(&mut self) -> &mut Analysis {
+        match_many_to_one!(self, AnyCoreDataset, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
+            &mut x.analysis
+        })
+    }
+
+    pub(crate) fn from_coretext_unchecked(c: AnyCoreTEXT, df: FCSDataFrame, a: Analysis) -> Self {
+        match c {
+            AnyCoreTEXT::FCS2_0(x) => Self::FCS2_0(CoreDataset::from_coretext_unchecked(*x, df, a)),
+            AnyCoreTEXT::FCS3_0(x) => Self::FCS3_0(CoreDataset::from_coretext_unchecked(*x, df, a)),
+            AnyCoreTEXT::FCS3_1(x) => Self::FCS3_1(CoreDataset::from_coretext_unchecked(*x, df, a)),
+            AnyCoreTEXT::FCS3_2(x) => Self::FCS3_2(CoreDataset::from_coretext_unchecked(*x, df, a)),
+        }
+    }
+}
+
 /// Minimally-required FCS TEXT data for each version
 pub type CoreTEXT2_0 = CoreTEXT<
     InnerMetadata2_0,
@@ -350,6 +395,43 @@ pub type CoreTEXT3_1 = CoreTEXT<
     Identity<Shortname>,
 >;
 pub type CoreTEXT3_2 = CoreTEXT<
+    InnerMetadata3_2,
+    InnerTime3_2,
+    InnerMeasurement3_2,
+    IdentityFamily,
+    Identity<Shortname>,
+>;
+
+pub type Core2_0<A, D> = Core<
+    A,
+    D,
+    InnerMetadata2_0,
+    InnerTime2_0,
+    InnerMeasurement2_0,
+    OptionalKwFamily,
+    OptionalKw<Shortname>,
+>;
+pub type Core3_0<A, D> = Core<
+    A,
+    D,
+    InnerMetadata3_0,
+    InnerTime3_0,
+    InnerMeasurement3_0,
+    OptionalKwFamily,
+    OptionalKw<Shortname>,
+>;
+pub type Core3_1<A, D> = Core<
+    A,
+    D,
+    InnerMetadata3_1,
+    InnerTime3_1,
+    InnerMeasurement3_1,
+    IdentityFamily,
+    Identity<Shortname>,
+>;
+pub type Core3_2<A, D> = Core<
+    A,
+    D,
     InnerMetadata3_2,
     InnerTime3_2,
     InnerMeasurement3_2,
@@ -1646,11 +1728,59 @@ where
     M: VersionedMetadata,
     M::N: Clone,
 {
+    pub(crate) fn new_from_raw(kws: &mut RawKeywords, conf: &StdTextReadConfig) -> PureResult<Self>
+    where
+        M: LookupMetadata,
+        M::T: LookupTime,
+        M::P: LookupMeasurement,
+    {
+        // Lookup $PAR first; everything depends on this since we need to know
+        // the number of measurements to find which are used in turn for
+        // validating lots of keywords in metadata. If we fail we need to bail.
+        //
+        // TODO this isn't entirely true; there are some things that can be
+        // tested without $PAR, so if we really wanted to be aggressive we could
+        // pass $PAR as an Option and only test if not None when we need it and
+        // possibly bail. Might be worth it.
+        let par = Failure::from_result(Par::remove_meta_req(kws))?;
+        // Lookup measurements+metadata based on $PAR, which also might fail in
+        // a zillion ways. If this fails we need to bail since we cannot create
+        // a struct with missing fields.
+        let md_fail = "could not standardize TEXT".to_string();
+        let tp = conf.time.pattern.as_ref();
+        let md_succ = KwParser::try_run(kws, conf, md_fail, |st| {
+            if let Some(ms) = Self::lookup_measurements(st, par, tp, &conf.shortname_prefix) {
+                Metadata::lookup_metadata(st, &ms)
+                    .map(|metadata| CoreTEXT::new_text_unchecked(metadata, ms))
+            } else {
+                None
+            }
+        })?;
+        // hooray, we win and can now make the core struct
+        Ok(md_succ.and_then(|core| core.validate(&conf.time).map(|_| core)))
+    }
+}
+
+pub(crate) type VersionedCore<A, D, M> = Core<
+    A,
+    D,
+    M,
+    <M as VersionedMetadata>::T,
+    <M as VersionedMetadata>::P,
+    <M as VersionedMetadata>::N,
+    <<M as VersionedMetadata>::N as MightHave>::Wrapper<Shortname>,
+>;
+
+impl<M, A, D> VersionedCore<A, D, M>
+where
+    M: VersionedMetadata,
+    M::N: Clone,
+{
     /// Write this structure to a handle.
     ///
     /// The actual bytes written will be the HEADER and TEXT, including the
     /// last delimiter.
-    pub(crate) fn h_write<W: Write>(
+    pub(crate) fn h_write_text<W: Write>(
         &self,
         h: &mut BufWriter<W>,
         tot: Tot,
@@ -1959,7 +2089,7 @@ where
     // include the time channel? hmm....
     // TODO make a better way to distinguish time and measurement (or whatever
     // we end up calling these)
-    pub fn remove_measurement_by_name(
+    fn remove_measurement_by_name_inner(
         &mut self,
         n: &Shortname,
     ) -> Result<Option<(MeasIdx, Result<Measurement<M::P>, TimeChannel<M::T>>)>, String> {
@@ -1971,7 +2101,7 @@ where
         }
     }
 
-    pub fn remove_measurement_by_index(
+    fn remove_measurement_by_index_inner(
         &mut self,
         index: MeasIdx,
     ) -> Result<Option<EitherPair<M::N, Measurement<M::P>, TimeChannel<M::T>>>, String> {
@@ -1987,13 +2117,17 @@ where
         }
     }
 
-    pub fn push_time_channel(&mut self, n: Shortname, m: TimeChannel<M::T>) -> Result<(), String> {
+    fn push_time_channel_inner(
+        &mut self,
+        n: Shortname,
+        m: TimeChannel<M::T>,
+    ) -> Result<(), String> {
         self.measurements
             .push_center(n, m)
             .map_err(|e| e.to_string())
     }
 
-    pub fn insert_time_channel(
+    fn insert_time_channel_inner(
         &mut self,
         i: MeasIdx,
         n: Shortname,
@@ -2006,7 +2140,7 @@ where
 
     // TODO this doesn't buy much since it will ulimately be easier to use
     // the type specific wrapper in practice
-    pub fn push_measurement(
+    fn push_measurement_inner(
         &mut self,
         n: <M::N as MightHave>::Wrapper<Shortname>,
         m: Measurement<M::P>,
@@ -2014,7 +2148,7 @@ where
         self.measurements.push(n, m).map_err(|e| e.to_string())
     }
 
-    pub fn insert_measurement(
+    fn insert_measurement_inner(
         &mut self,
         i: MeasIdx,
         n: <M::N as MightHave>::Wrapper<Shortname>,
@@ -2023,7 +2157,7 @@ where
         self.measurements.insert(i, n, m).map_err(|e| e.to_string())
     }
 
-    pub fn set_measurements(
+    fn set_measurements_inner(
         &mut self,
         xs: RawInput<M::N, TimeChannel<M::T>, Measurement<M::P>>,
         prefix: ShortnamePrefix,
@@ -2044,7 +2178,7 @@ where
         Ok(())
     }
 
-    pub fn unset_measurements(&mut self) -> Result<(), String> {
+    fn unset_measurements_inner(&mut self) -> Result<(), String> {
         // TODO not DRY
         if self.trigger_name().is_some() {
             return Err("$TR depends on existing measurements".into());
@@ -2386,40 +2520,6 @@ where
         }
     }
 
-    pub(crate) fn new_from_raw(kws: &mut RawKeywords, conf: &StdTextReadConfig) -> PureResult<Self>
-    where
-        M: LookupMetadata,
-        M::T: LookupTime,
-        M::P: LookupMeasurement,
-    {
-        // Lookup $PAR first; everything depends on this since we need to know
-        // the number of measurements to find which are used in turn for
-        // validating lots of keywords in metadata. If we fail we need to bail.
-        //
-        // TODO this isn't entirely true; there are some things that can be
-        // tested without $PAR, so if we really wanted to be aggressive we could
-        // pass $PAR as an Option and only test if not None when we need it and
-        // possibly bail. Might be worth it.
-        let par = Failure::from_result(Par::remove_meta_req(kws))?;
-        // Lookup measurements+metadata based on $PAR, which also might fail in
-        // a zillion ways. If this fails we need to bail since we cannot create
-        // a struct with missing fields.
-        let md_fail = "could not standardize TEXT".to_string();
-        let tp = conf.time.pattern.as_ref();
-        let md_succ = KwParser::try_run(kws, conf, md_fail, |st| {
-            if let Some(ms) = Self::lookup_measurements(st, par, tp, &conf.shortname_prefix) {
-                Metadata::lookup_metadata(st, &ms).map(|metadata| CoreTEXT {
-                    metadata,
-                    measurements: ms,
-                })
-            } else {
-                None
-            }
-        })?;
-        // hooray, we win and can now make the core struct
-        Ok(md_succ.and_then(|core| core.validate(&conf.time).map(|_| core)))
-    }
-
     fn measurement_names(&self) -> HashSet<&Shortname> {
         self.measurements.indexed_names().map(|(_, x)| x).collect()
     }
@@ -2463,8 +2563,7 @@ where
         PureSuccess { data: (), deferred }
     }
 
-    // TODO this is basically tryfrom
-    pub fn try_convert<ToM>(self) -> PureResult<VersionedCoreTEXT<ToM>>
+    pub fn try_convert<ToM>(self) -> PureResult<VersionedCore<A, D, ToM>>
     where
         M::N: Clone,
         ToM: VersionedMetadata,
@@ -2491,9 +2590,11 @@ where
         let res = match (m, ps) {
             (Ok(metadata), Ok(old_ps)) => {
                 if let Some(measurements) = old_ps.try_rewrapped() {
-                    Ok(CoreTEXT {
+                    Ok(Core {
                         metadata,
                         measurements,
+                        data: self.data,
+                        analysis: self.analysis,
                     })
                 } else {
                     Err(vec!["Some $PnN are blank and could not be converted".into()])
@@ -2607,6 +2708,214 @@ where
     }
 }
 
+impl<M> VersionedCoreDataset<M>
+where
+    M: VersionedMetadata,
+    M::N: Clone,
+    M::L: VersionedDataLayout,
+{
+    /// Write this dataset (HEADER+TEXT+DATA+ANALYSIS) to a handle
+    pub fn h_write<W>(&self, h: &mut BufWriter<W>, conf: &WriteConfig) -> ImpureResult<()>
+    where
+        W: Write,
+    {
+        // Get the layout, or bail if we can't
+        let layout = self.as_column_layout().map_err(|es| Failure {
+            reason: "could not create data layout".to_string(),
+            deferred: PureErrorBuf::from_many(es, PureErrorLevel::Error),
+        })?;
+
+        let df = &self.data;
+        let tot = Tot(df.nrows());
+        let analysis_len = self.analysis.0.len();
+        let writer = layout.as_writer(df, conf)?;
+        writer.try_map(|mut w| {
+            // write HEADER+TEXT first
+            if self.h_write_text(h, tot, w.nbytes(), analysis_len, conf)? {
+                // write DATA
+                w.h_write(h)?;
+                // write ANALYSIS
+                h.write_all(&self.analysis.0)?;
+                Ok(PureSuccess::from(()))
+            } else {
+                Err(Failure::new(
+                    "primary TEXT does not fit into first 99,999,999 bytes".to_string(),
+                ))?
+            }
+        })
+    }
+
+    // /// Convert this dataset into a different FCS version
+    // pub fn try_convert<ToM>(self) -> PureResult<VersionedCoreDataset<ToM>>
+    // where
+    //     M::N: Clone,
+    //     ToM: VersionedMetadata,
+    //     ToM: TryFromMetadata<M>,
+    //     ToM::P: VersionedMeasurement,
+    //     ToM::T: VersionedTime,
+    //     ToM::N: MightHave,
+    //     ToM::N: Clone,
+    //     ToM::P: TryFrom<M::P, Error = MeasConvertError>,
+    //     ToM::T: From<M::T>,
+    //     <ToM::N as MightHave>::Wrapper<Shortname>: TryFrom<<M::N as MightHave>::Wrapper<Shortname>>,
+    // {
+    //     self.text.try_convert().map(|res| {
+    //         res.map(|newtext| CoreDataset {
+    //             text: Box::new(newtext),
+    //             data: self.data,
+    //             analysis: self.analysis,
+    //         })
+    //     })
+    // }
+
+    /// Return reference to dataframe representing DATA
+    pub fn data(&self) -> &FCSDataFrame {
+        &self.data
+    }
+
+    /// Add columns to this dataset.
+    ///
+    /// Return error if columns are not all the same length or number of columns
+    /// doesn't match the number of measurement.
+    pub fn set_data(&mut self, cols: Vec<AnyFCSColumn>) -> Result<(), String> {
+        self.data = self.try_cols_to_dataframe(cols)?;
+        Ok(())
+    }
+
+    // pub fn measurements_named_vec(&self) -> &Measurements<M::N, M::T, M::P> {
+    //     self.text.measurements_named_vec()
+    // }
+
+    // pub fn as_center_mut(
+    //     &mut self,
+    // ) -> Option<IndexedElement<&mut Shortname, &mut TimeChannel<M::T>>> {
+    //     self.text.as_center_mut()
+    // }
+
+    // pub fn nonstandard_keywords(&self) -> &NonStdKeywords {
+    //     &self.text.metadata.nonstandard_keywords
+    // }
+
+    // pub fn nonstandard_keywords_mut(&mut self) -> &mut NonStdKeywords {
+    //     &mut self.text.metadata.nonstandard_keywords
+    // }
+
+    // fn set_shortnames(&mut self, names: Vec<Shortname>) -> Result<NameMapping, String> {
+    //     self.text
+    //         .set_shortnames(names)
+    //         .inspect(|_| self.text.set_df_column_names(&mut self.data).unwrap())
+    // }
+
+    pub fn remove_measurement_by_name(
+        &mut self,
+        n: &Shortname,
+    ) -> Result<Option<(MeasIdx, Result<Measurement<M::P>, TimeChannel<M::T>>)>, String> {
+        let res = self.remove_measurement_by_name_inner(n)?.map(|(i, x)| {
+            self.data.drop_in_place(i.into()).unwrap();
+            (i, x)
+        });
+        Ok(res)
+    }
+
+    pub fn remove_measurement_by_index(
+        &mut self,
+        index: MeasIdx,
+    ) -> Result<Option<EitherPair<M::N, Measurement<M::P>, TimeChannel<M::T>>>, String> {
+        let res = self.remove_measurement_by_index_inner(index)?.inspect(|_| {
+            self.data.drop_in_place(index.into()).unwrap();
+        });
+        Ok(res)
+    }
+
+    pub fn push_time_channel<T>(
+        &mut self,
+        n: Shortname,
+        m: TimeChannel<M::T>,
+        col: AnyFCSColumn,
+    ) -> Result<(), String>
+    where
+        T: FCSDataType,
+    {
+        self.push_time_channel_inner(n, m)?;
+        self.data.push_column(col);
+        Ok(())
+    }
+
+    pub fn push_measurement<T>(
+        &mut self,
+        n: <M::N as MightHave>::Wrapper<Shortname>,
+        m: Measurement<M::P>,
+        col: AnyFCSColumn,
+    ) -> Result<Shortname, String>
+    where
+        T: FCSDataType,
+    {
+        let k = self.push_measurement_inner(n, m)?;
+        self.data.push_column(col);
+        Ok(k)
+    }
+
+    fn insert_measurement<T>(
+        &mut self,
+        i: MeasIdx,
+        n: <M::N as MightHave>::Wrapper<Shortname>,
+        m: Measurement<M::P>,
+        col: AnyFCSColumn,
+    ) -> Result<Shortname, String>
+    where
+        T: FCSDataType,
+    {
+        let k = self.insert_measurement_inner(i, n, m)?;
+        self.data.insert_column(i.into(), col);
+        Ok(k)
+    }
+
+    pub fn from_coretext(
+        c: VersionedCoreTEXT<M>,
+        columns: Vec<AnyFCSColumn>,
+        analysis: Analysis,
+    ) -> Result<Self, String> {
+        let data = c.try_cols_to_dataframe(columns)?;
+        Ok(Self::from_coretext_unchecked(c, data, analysis))
+    }
+
+    pub(crate) fn from_coretext_unchecked(
+        c: VersionedCoreTEXT<M>,
+        data: FCSDataFrame,
+        analysis: Analysis,
+    ) -> Self {
+        CoreDataset {
+            metadata: c.metadata,
+            measurements: c.measurements,
+            data,
+            analysis,
+        }
+    }
+}
+
+impl<M, T, P, N, W> CoreTEXT<M, T, P, N, W> {
+    pub(crate) fn new_text_nomeas(metadata: Metadata<M>) -> Self {
+        Self {
+            metadata,
+            measurements: NamedVec::default(),
+            data: (),
+            analysis: (),
+        }
+    }
+
+    pub(crate) fn new_text_unchecked(
+        metadata: Metadata<M>,
+        measurements: NamedVec<N, W, TimeChannel<T>, Measurement<P>>,
+    ) -> Self {
+        Self {
+            metadata,
+            measurements,
+            data: (),
+            analysis: (),
+        }
+    }
+}
+
 macro_rules! timestamp_methods {
     ($timetype:ident) => {
         pub fn timestamps(&self) -> &Timestamps<$timetype> {
@@ -2623,12 +2932,11 @@ impl CoreTEXT2_0 {
     pub fn new(datatype: AlphaNumType, byteord: ByteOrd, mode: Mode) -> Self {
         let specific = InnerMetadata2_0::new(mode, byteord);
         let metadata = Metadata::new(datatype, specific);
-        CoreTEXT {
-            metadata,
-            measurements: NamedVec::default(),
-        }
+        CoreTEXT::new_text_nomeas(metadata)
     }
+}
 
+impl<A, D> Core2_0<A, D> {
     comp_methods!();
     scale_get_set!(Option<Scale>, Some(Scale::Linear));
 
@@ -2695,12 +3003,11 @@ impl CoreTEXT3_0 {
     pub fn new(datatype: AlphaNumType, byteord: ByteOrd, mode: Mode) -> Self {
         let specific = InnerMetadata3_0::new(mode, byteord);
         let metadata = Metadata::new(datatype, specific);
-        CoreTEXT {
-            metadata,
-            measurements: NamedVec::default(),
-        }
+        CoreTEXT::new_text_nomeas(metadata)
     }
+}
 
+impl<A, D> Core3_0<A, D> {
     comp_methods!();
     scale_get_set!(Scale, Scale::Linear);
 
@@ -2826,12 +3133,11 @@ impl CoreTEXT3_1 {
     pub fn new(datatype: AlphaNumType, is_big: bool, mode: Mode) -> Self {
         let specific = InnerMetadata3_1::new(mode, is_big);
         let metadata = Metadata::new(datatype, specific);
-        CoreTEXT {
-            metadata,
-            measurements: NamedVec::default(),
-        }
+        CoreTEXT::new_text_nomeas(metadata)
     }
+}
 
+impl<A, D> Core3_1<A, D> {
     scale_get_set!(Scale, Scale::Linear);
     spillover_methods!();
 
@@ -2900,12 +3206,11 @@ impl CoreTEXT3_2 {
     pub fn new(datatype: AlphaNumType, is_big: bool, cyt: String) -> Self {
         let specific = InnerMetadata3_2::new(is_big, cyt);
         let metadata = Metadata::new(datatype, specific);
-        CoreTEXT {
-            metadata,
-            measurements: NamedVec::default(),
-        }
+        CoreTEXT::new_text_nomeas(metadata)
     }
+}
 
+impl<A, D> Core3_2<A, D> {
     /// Show $UNSTAINEDCENTERS
     pub fn unstained_centers(&self) -> Option<&UnstainedCenters> {
         self.metadata

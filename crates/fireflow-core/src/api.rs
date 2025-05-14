@@ -1,10 +1,10 @@
 use crate::config::*;
+pub use crate::core::*;
 pub use crate::data::*;
 use crate::error::*;
 pub use crate::header::*;
 pub use crate::header_text::*;
 pub use crate::segment::*;
-pub use crate::text::core::*;
 pub use crate::text::keywords::*;
 use crate::text::timestamps::*;
 use crate::validated::dataframe::FCSDataFrame;

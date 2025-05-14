@@ -3,6 +3,7 @@
 
 pub mod api;
 pub mod config;
+mod core;
 pub mod data;
 pub mod error;
 mod header;

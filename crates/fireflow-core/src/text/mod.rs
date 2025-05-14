@@ -1,6 +1,5 @@
 pub mod byteord;
 pub mod compensation;
-pub mod core;
 pub mod datetimes;
 pub mod keywords;
 pub mod modified_date_time;

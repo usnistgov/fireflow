@@ -1,56 +1,23 @@
 use crate::config::WriteConfig;
+use crate::core::*;
 use crate::error::*;
 use crate::macros::{match_many_to_one, newtype_from};
 use crate::segment::*;
 use crate::text::byteord::*;
-use crate::text::core::*;
 use crate::text::keywords::*;
-use crate::text::modified_date_time::ModifiedDateTime;
 use crate::text::named_vec::*;
 use crate::text::optionalkw::*;
 use crate::text::range::*;
-use crate::text::scale::*;
-use crate::text::spillover::*;
-use crate::text::timestamps::*;
 use crate::validated::dataframe::*;
-use crate::validated::nonstandard::*;
 use crate::validated::shortname::*;
 
 use itertools::Itertools;
-use nalgebra::DMatrix;
-// use polars::prelude::*;
 use std::fmt;
 use std::io;
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::iter;
 use std::num::{IntErrorKind, ParseIntError};
 use std::str::FromStr;
-
-// /// Represents the minimal data to fully describe one dataset in an FCS file.
-// ///
-// /// This will include the standardized TEXT keywords as well as its
-// /// corresponding DATA segment parsed into a dataframe-like structure.
-// #[derive(Clone)]
-// TODO use generics to combine this with coretext, which will make everything
-// soooooo much simpler
-// pub struct CoreDataset<M, T, P, N, W> {
-//     /// Standardized TEXT segment in version specific format
-//     text: Box<CoreTEXT<M, T, P, N, W>>,
-
-//     /// DATA segment as a polars DataFrame
-//     ///
-//     /// The type of each column is such that each measurement is encoded with
-//     /// zero loss. This will/should never contain NULL values despite the
-//     /// underlying arrow framework allowing NULLs to exist.
-//     data: FCSDataFrame,
-
-//     /// ANALYSIS segment
-//     ///
-//     /// This will be empty if ANALYSIS either doesn't exist or the computation
-//     /// fails. This has not standard structure, so the best we can capture is a
-//     /// byte sequence.
-//     pub analysis: Analysis,
-// }
 
 pub type CoreDataset<M, T, P, N, W> = Core<Analysis, FCSDataFrame, M, T, P, N, W>;
 

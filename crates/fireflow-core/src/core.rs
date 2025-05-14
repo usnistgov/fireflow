@@ -33,7 +33,6 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::io;
 use std::io::{BufWriter, Write};
-use std::str::FromStr;
 
 /// Represents the minimal data required to write an FCS file.
 ///
@@ -1366,82 +1365,6 @@ impl fmt::Display for FromByteOrdError {
 pub(crate) type Measurements<N, T, P> =
     NamedVec<N, <N as MightHave>::Wrapper<Shortname>, TimeChannel<T>, Measurement<P>>;
 
-macro_rules! non_time_get_set {
-    ($get:ident, $set:ident, $ty:ident, [$($root:ident)*], $field:ident, $kw:ident) => {
-        /// Get $$kw value for all non-time measurements
-        pub fn $get(&self) -> Vec<(MeasIdx, Option<&$ty>)> {
-            self.measurements
-                .iter_non_center_values()
-                .map(|(i, m)| (i, m.$($root.)*$field.as_ref_opt()))
-                .collect()
-        }
-
-        /// Set $$kw value for for all non-time measurements
-        pub fn $set(&mut self, xs: Vec<Option<$ty>>) -> bool {
-            self.measurements.alter_non_center_values_zip(xs, |m, x| {
-                m.$($root.)*$field = x.into();
-            }).is_some()
-        }
-    };
-}
-
-macro_rules! comp_methods {
-    () => {
-        /// Return matrix for $COMP
-        pub fn compensation(&self) -> Option<&Compensation> {
-            self.metadata.specific.comp.as_ref_opt()
-        }
-
-        /// Set matrix for $COMP
-        ///
-        /// Return true if successfully set. Return false if matrix is either not
-        /// square or rows/columns are not the same length as $PAR.
-        pub fn set_compensation(&mut self, matrix: DMatrix<f32>) -> bool {
-            if !matrix.is_square() && matrix.ncols() != self.par().0 {
-                // TODO None here is actually an error
-                self.metadata.specific.comp = Compensation::new(matrix).into();
-                true
-            } else {
-                false
-            }
-        }
-
-        /// Clear $COMP
-        pub fn unset_compensation(&mut self) {
-            self.metadata.specific.comp = None.into();
-        }
-    };
-}
-
-macro_rules! scale_get_set {
-    ($t:path, $time_default:expr) => {
-        /// Show $PnE for each measurement, including time
-        pub fn all_scales(&self) -> Vec<$t> {
-            self.measurements
-                .iter()
-                .map(|(_, x)| x.map_or($time_default, |p| p.value.specific.scale.into()))
-                .collect()
-        }
-
-        /// Show $PnE for each measurement, not including time
-        pub fn scales(&self) -> Vec<(MeasIdx, $t)> {
-            self.measurements
-                .iter_non_center_values()
-                .map(|(i, m)| (i, m.specific.scale.into()))
-                .collect()
-        }
-
-        /// Set $PnE for for all non-time measurements
-        pub fn set_scales(&mut self, xs: Vec<$t>) -> bool {
-            self.measurements
-                .alter_non_center_values_zip(xs, |m, x| {
-                    m.specific.scale = x.into();
-                })
-                .is_some()
-        }
-    };
-}
-
 pub(crate) type VersionedCoreTEXT<M> = CoreTEXT<
     M,
     <M as VersionedMetadata>::T,
@@ -1468,42 +1391,23 @@ pub(crate) type VersionedCore<A, D, M> = Core<
     <<M as VersionedMetadata>::N as MightHave>::Wrapper<Shortname>,
 >;
 
-impl<M> VersionedCoreTEXT<M>
-where
-    M: VersionedMetadata,
-    M::N: Clone,
-{
-    pub(crate) fn new_from_raw(kws: &mut RawKeywords, conf: &StdTextReadConfig) -> PureResult<Self>
-    where
-        M: LookupMetadata,
-        M::T: LookupTime,
-        M::P: LookupMeasurement,
-    {
-        // Lookup $PAR first; everything depends on this since we need to know
-        // the number of measurements to find which are used in turn for
-        // validating lots of keywords in metadata. If we fail we need to bail.
-        //
-        // TODO this isn't entirely true; there are some things that can be
-        // tested without $PAR, so if we really wanted to be aggressive we could
-        // pass $PAR as an Option and only test if not None when we need it and
-        // possibly bail. Might be worth it.
-        let par = Failure::from_result(Par::remove_meta_req(kws))?;
-        // Lookup measurements+metadata based on $PAR, which also might fail in
-        // a zillion ways. If this fails we need to bail since we cannot create
-        // a struct with missing fields.
-        let md_fail = "could not standardize TEXT".to_string();
-        let tp = conf.time.pattern.as_ref();
-        let md_succ = KwParser::try_run(kws, conf, md_fail, |st| {
-            if let Some(ms) = Self::lookup_measurements(st, par, tp, &conf.shortname_prefix) {
-                Metadata::lookup_metadata(st, &ms)
-                    .map(|metadata| CoreTEXT::new_text_unchecked(metadata, ms))
-            } else {
-                None
-            }
-        })?;
-        // hooray, we win and can now make the core struct
-        Ok(md_succ.and_then(|core| core.validate(&conf.time).map(|_| core)))
-    }
+macro_rules! non_time_get_set {
+    ($get:ident, $set:ident, $ty:ident, [$($root:ident)*], $field:ident, $kw:ident) => {
+        /// Get $$kw value for all non-time measurements
+        pub fn $get(&self) -> Vec<(MeasIdx, Option<&$ty>)> {
+            self.measurements
+                .iter_non_center_values()
+                .map(|(i, m)| (i, m.$($root.)*$field.as_ref_opt()))
+                .collect()
+        }
+
+        /// Set $$kw value for for all non-time measurements
+        pub fn $set(&mut self, xs: Vec<Option<$ty>>) -> bool {
+            self.measurements.alter_non_center_values_zip(xs, |m, x| {
+                m.$($root.)*$field = x.into();
+            }).is_some()
+        }
+    };
 }
 
 impl<M, A, D> VersionedCore<A, D, M>
@@ -1820,22 +1724,188 @@ where
         self.measurements.as_center_mut()
     }
 
+    non_time_get_set!(filters, set_filters, Filter, [], filter, PnF);
+
+    non_time_get_set!(powers, set_powers, Power, [], power, PnO);
+
+    non_time_get_set!(
+        detector_types,
+        set_detector_types,
+        DetectorType,
+        [],
+        detector_type,
+        PnD
+    );
+
+    non_time_get_set!(
+        percents_emitted,
+        set_percents_emitted,
+        PercentEmitted,
+        [],
+        percent_emitted,
+        PnP
+    );
+
+    non_time_get_set!(
+        detector_voltages,
+        set_detector_voltages,
+        DetectorVoltage,
+        [],
+        detector_voltage,
+        PnV
+    );
+
+    /// Return a list of measurement names as stored in $PnS
+    ///
+    /// If not given, will be replaced by "Mn" where "n" is the measurement
+    /// index starting at 1.
+    pub fn longnames(&self) -> Vec<Option<&Longname>> {
+        self.measurements
+            .iter()
+            .map(|x| {
+                x.1.map_or_else(
+                    |t| t.value.longname.as_ref_opt(),
+                    |m| m.value.longname.as_ref_opt(),
+                )
+            })
+            .collect()
+    }
+
+    /// Set all $PnS keywords to list of names.
+    ///
+    /// Will return false if length of supplied list does not match length
+    /// of measurements; true otherwise. Since $PnS is an optional keyword for
+    /// all versions, any name in the list may be None which will blank the
+    /// keyword.
+    pub fn set_longnames(&mut self, ns: Vec<Option<String>>) -> bool {
+        self.measurements
+            .alter_values_zip(
+                ns,
+                |x, n| x.value.longname = n.map(Longname).into(),
+                |x, n| x.value.longname = n.map(Longname).into(),
+            )
+            .is_some()
+    }
+
+    /// Show $PnB for each measurement
+    ///
+    /// Will be None if all $PnB are variable, and a vector of u8 showing the
+    /// width of each measurement otherwise.
+    // TODO misleading name
+    pub fn bytes(&self) -> Option<Vec<u8>> {
+        let xs: Vec<_> = self
+            .measurements
+            .iter()
+            .flat_map(|(_, x)| {
+                x.map_or_else(|p| p.value.bytes, |p| p.value.bytes)
+                    .try_into()
+                    .ok()
+            })
+            .collect();
+        // ASSUME internal state is controlled such that no "partially variable"
+        // configurations are possible
+        if xs.len() != self.par().0 {
+            None
+        } else {
+            Some(xs)
+        }
+    }
+
+    /// Show $PnB for each measurement
+    pub fn widths(&self) -> Vec<Width> {
+        self.measurements
+            .iter()
+            .map(|(_, x)| x.map_or_else(|p| p.value.bytes, |p| p.value.bytes))
+            .collect()
+    }
+
+    /// Show $PnR for each measurement
+    pub fn ranges(&self) -> Vec<&Range> {
+        self.measurements
+            .iter()
+            .map(|(_, x)| x.map_or_else(|p| &p.value.range, |p| &p.value.range))
+            .collect()
+    }
+
+    /// Return $PAR, which is simply the number of measurements in this struct
+    pub fn par(&self) -> Par {
+        Par(self.measurements.len())
+    }
+
+    /// Convert to another FCS version.
+    ///
+    /// Conversion may fail if some required keywords in the target version
+    /// are not present in current version.
+    pub fn try_convert<ToM>(self) -> PureResult<VersionedCore<A, D, ToM>>
+    where
+        M::N: Clone,
+        ToM: VersionedMetadata,
+        ToM: TryFromMetadata<M>,
+        ToM::P: VersionedMeasurement,
+        ToM::T: VersionedTime,
+        ToM::N: MightHave,
+        ToM::N: Clone,
+        ToM::P: TryFrom<M::P, Error = MeasConvertError>,
+        ToM::T: From<M::T>,
+        <ToM::N as MightHave>::Wrapper<Shortname>: TryFrom<<M::N as MightHave>::Wrapper<Shortname>>,
+    {
+        let widths = self.widths();
+        let ps = self
+            .measurements
+            .map_non_center_values(|i, v| v.try_convert(i.into()))
+            .map(|x| x.map_center_value(|y| y.value.convert()));
+        let convert = SizeConvert {
+            widths,
+            datatype: self.metadata.datatype,
+            size: self.metadata.specific.byteord(),
+        };
+        let m = self.metadata.try_convert(convert);
+        let res = match (m, ps) {
+            (Ok(metadata), Ok(old_ps)) => {
+                if let Some(measurements) = old_ps.try_rewrapped() {
+                    Ok(Core {
+                        metadata,
+                        measurements,
+                        data: self.data,
+                        analysis: self.analysis,
+                    })
+                } else {
+                    Err(vec!["Some $PnN are blank and could not be converted".into()])
+                }
+            }
+            (a, b) => Err(b
+                .err()
+                .unwrap_or_default()
+                .into_iter()
+                .chain(a.err().unwrap_or_default())
+                .collect()),
+        };
+        let msg = format!(
+            "could not convert from {} to {}",
+            M::P::fcs_version(),
+            ToM::P::fcs_version()
+        );
+        PureMaybe::from_result_strs(res, PureErrorLevel::Error).into_result(msg)
+    }
+
     // TODO is a measurement the same as a time channel? does that term
     // include the time channel? hmm....
     // TODO make a better way to distinguish time and measurement (or whatever
     // we end up calling these)
+    #[allow(clippy::type_complexity)]
     fn remove_measurement_by_name_inner(
         &mut self,
         n: &Shortname,
-    ) -> Result<Option<(MeasIdx, Result<Measurement<M::P>, TimeChannel<M::T>>)>, String> {
+    ) -> Option<(MeasIdx, Result<Measurement<M::P>, TimeChannel<M::T>>)> {
         if let Some(e) = self.measurements.remove_name(n) {
             self.metadata.remove_name_index(n, e.0);
-            Ok(Some(e))
+            Some(e)
         } else {
-            Ok(None)
+            None
         }
     }
 
+    #[allow(clippy::type_complexity)]
     fn remove_measurement_by_index_inner(
         &mut self,
         index: MeasIdx,
@@ -1967,129 +2037,6 @@ where
                 .collect(),
         ))
     }
-
-    non_time_get_set!(filters, set_filters, Filter, [], filter, PnF);
-
-    non_time_get_set!(powers, set_powers, Power, [], power, PnO);
-
-    non_time_get_set!(
-        detector_types,
-        set_detector_types,
-        DetectorType,
-        [],
-        detector_type,
-        PnD
-    );
-
-    non_time_get_set!(
-        percents_emitted,
-        set_percents_emitted,
-        PercentEmitted,
-        [],
-        percent_emitted,
-        PnP
-    );
-
-    non_time_get_set!(
-        detector_voltages,
-        set_detector_voltages,
-        DetectorVoltage,
-        [],
-        detector_voltage,
-        PnV
-    );
-
-    /// Return a list of measurement names as stored in $PnS
-    ///
-    /// If not given, will be replaced by "Mn" where "n" is the measurement
-    /// index starting at 1.
-    pub fn longnames(&self) -> Vec<Option<&Longname>> {
-        self.measurements
-            .iter()
-            .map(|x| {
-                x.1.map_or_else(
-                    |t| t.value.longname.as_ref_opt(),
-                    |m| m.value.longname.as_ref_opt(),
-                )
-            })
-            .collect()
-    }
-
-    /// Set all $PnS keywords to list of names.
-    ///
-    /// Will return false if length of supplied list does not match length
-    /// of measurements; true otherwise. Since $PnS is an optional keyword for
-    /// all versions, any name in the list may be None which will blank the
-    /// keyword.
-    pub fn set_longnames(&mut self, ns: Vec<Option<String>>) -> bool {
-        self.measurements
-            .alter_values_zip(
-                ns,
-                |x, n| x.value.longname = n.map(Longname).into(),
-                |x, n| x.value.longname = n.map(Longname).into(),
-            )
-            .is_some()
-    }
-
-    /// Show $PnB for each measurement
-    ///
-    /// Will be None if all $PnB are variable, and a vector of u8 showing the
-    /// width of each measurement otherwise.
-    // TODO misleading name
-    pub fn bytes(&self) -> Option<Vec<u8>> {
-        let xs: Vec<_> = self
-            .measurements
-            .iter()
-            .flat_map(|(_, x)| {
-                x.map_or_else(|p| p.value.bytes, |p| p.value.bytes)
-                    .try_into()
-                    .ok()
-            })
-            .collect();
-        // ASSUME internal state is controlled such that no "partially variable"
-        // configurations are possible
-        if xs.len() != self.par().0 {
-            None
-        } else {
-            Some(xs)
-        }
-    }
-
-    /// Show $PnB for each measurement
-    ///
-    /// Will be None if all $PnB are variable, and a vector of u8 showing the
-    /// width of each measurement otherwise.
-    // TODO misleading name
-    pub fn widths(&self) -> Vec<Width> {
-        self.measurements
-            .iter()
-            .map(|(_, x)| x.map_or_else(|p| p.value.bytes, |p| p.value.bytes))
-            .collect()
-    }
-
-    /// Show $PnR for each measurement
-    pub fn ranges(&self) -> Vec<&Range> {
-        self.measurements
-            .iter()
-            .map(|(_, x)| x.map_or_else(|p| &p.value.range, |p| &p.value.range))
-            .collect()
-    }
-
-    pub fn par(&self) -> Par {
-        Par(self.measurements.len())
-    }
-
-    // pub(crate) fn iter_width_range_pairs(&self) -> Vec<(Width, &Range)> {
-    //     self.measurements
-    //         .iter()
-    //         .map(|(_, x)| {
-    //             x.map_or_else(
-    //                 |p| (p.value.bytes, &p.value.range),
-    //                 |p| (p.value.bytes, &p.value.range),
-    //             )
-    //         })
-    //         .collect()
-    // }
 
     fn meta_meas_keywords<F, G, H, I>(
         &self,
@@ -2261,11 +2208,6 @@ where
 
     // TODO add non-kw deprecation checker
 
-    // TODO The goal of this function is to ensure that the internal state of
-    // this struct is "fully compliant". This means that anything that fails
-    // the below tests needs to either be dropped, altered (if possible), or
-    // fail the entire struct entirely. Then each manipulation can be assumed
-    // to operate on a clean state.
     fn validate(&self, conf: &TimeConfig) -> PureSuccess<()> {
         // TODO also validate internal data configuration state, since many
         // functions assume that it is "valid"
@@ -2296,58 +2238,6 @@ where
         }
 
         PureSuccess { data: (), deferred }
-    }
-
-    pub fn try_convert<ToM>(self) -> PureResult<VersionedCore<A, D, ToM>>
-    where
-        M::N: Clone,
-        ToM: VersionedMetadata,
-        ToM: TryFromMetadata<M>,
-        ToM::P: VersionedMeasurement,
-        ToM::T: VersionedTime,
-        ToM::N: MightHave,
-        ToM::N: Clone,
-        ToM::P: TryFrom<M::P, Error = MeasConvertError>,
-        ToM::T: From<M::T>,
-        <ToM::N as MightHave>::Wrapper<Shortname>: TryFrom<<M::N as MightHave>::Wrapper<Shortname>>,
-    {
-        let widths = self.widths();
-        let ps = self
-            .measurements
-            .map_non_center_values(|i, v| v.try_convert(i.into()))
-            .map(|x| x.map_center_value(|y| y.value.convert()));
-        let convert = SizeConvert {
-            widths,
-            datatype: self.metadata.datatype,
-            size: self.metadata.specific.byteord(),
-        };
-        let m = self.metadata.try_convert(convert);
-        let res = match (m, ps) {
-            (Ok(metadata), Ok(old_ps)) => {
-                if let Some(measurements) = old_ps.try_rewrapped() {
-                    Ok(Core {
-                        metadata,
-                        measurements,
-                        data: self.data,
-                        analysis: self.analysis,
-                    })
-                } else {
-                    Err(vec!["Some $PnN are blank and could not be converted".into()])
-                }
-            }
-            (a, b) => Err(b
-                .err()
-                .unwrap_or_default()
-                .into_iter()
-                .chain(a.err().unwrap_or_default())
-                .collect()),
-        };
-        let msg = format!(
-            "could not convert from {} to {}",
-            M::P::fcs_version(),
-            ToM::P::fcs_version()
-        );
-        PureMaybe::from_result_strs(res, PureErrorLevel::Error).into_result(msg)
     }
 
     fn set_data_bytes_range(&mut self, xs: Vec<(Width, Range)>) -> bool {
@@ -2413,17 +2303,6 @@ where
         M::as_column_layout(&self.metadata, &self.measurements)
     }
 
-    // fn df_names(&self) -> Vec<PlSmallStr> {
-    //     self.all_shortnames()
-    //         .into_iter()
-    //         .map(|s| s.as_ref().into())
-    //         .collect()
-    // }
-
-    // fn set_df_column_names(&self, df: &mut DataFrame) -> PolarsResult<()> {
-    //     df.set_column_names(self.df_names())
-    // }
-
     pub(crate) fn as_data_reader(
         &self,
         kws: &mut RawKeywords,
@@ -2440,6 +2319,126 @@ where
                     begin: data_seg.begin() as u64,
                 })
             })
+    }
+}
+
+impl<M> VersionedCoreTEXT<M>
+where
+    M: VersionedMetadata,
+    M::N: Clone,
+{
+    /// Make a new CoreTEXT from raw keywords.
+    ///
+    /// Return any errors encountered, including messing required keywords,
+    /// parse errors, and/or deprecation warnings.
+    pub(crate) fn new_from_raw(kws: &mut RawKeywords, conf: &StdTextReadConfig) -> PureResult<Self>
+    where
+        M: LookupMetadata,
+        M::T: LookupTime,
+        M::P: LookupMeasurement,
+    {
+        // Lookup $PAR first since we need this to get the measurements
+        let par = Failure::from_result(Par::remove_meta_req(kws))?;
+        let md_fail = "could not standardize TEXT".to_string();
+        let tp = conf.time.pattern.as_ref();
+        let md_succ = KwParser::try_run(kws, conf, md_fail, |st| {
+            // Lookup measurement keywords, return Some if no errors encountered
+            if let Some(ms) = Self::lookup_measurements(st, par, tp, &conf.shortname_prefix) {
+                // Lookup non-measurement keywords, build struct if this works
+                Metadata::lookup_metadata(st, &ms)
+                    .map(|metadata| CoreTEXT::new_unchecked(metadata, ms))
+            } else {
+                None
+            }
+        })?;
+        // validate struct, still return Ok even if this "fails" as we can
+        // check for errors later.
+        //
+        // TODO error handling here is confusing, since we are returning a result
+        // that might have errors in the Ok var
+        Ok(md_succ.and_then(|core| core.validate(&conf.time).map(|_| core)))
+    }
+
+    /// Remove a measurement matching the given name.
+    ///
+    /// Return removed measurement and its index if found.
+    #[allow(clippy::type_complexity)]
+    pub fn remove_measurement_by_name(
+        &mut self,
+        n: &Shortname,
+    ) -> Option<(MeasIdx, Result<Measurement<M::P>, TimeChannel<M::T>>)> {
+        self.remove_measurement_by_name_inner(n)
+    }
+
+    /// Remove a measurement at a given position
+    ///
+    /// Return removed measurement and its name if found.
+    #[allow(clippy::type_complexity)]
+    pub fn remove_measurement_by_index(
+        &mut self,
+        index: MeasIdx,
+    ) -> Result<Option<EitherPair<M::N, Measurement<M::P>, TimeChannel<M::T>>>, String> {
+        self.remove_measurement_by_index_inner(index)
+    }
+
+    /// Add time channel to the end of the measurement vector.
+    ///
+    /// Return error if time channel already exists or name is non-unique.
+    pub fn push_time_channel(&mut self, n: Shortname, m: TimeChannel<M::T>) -> Result<(), String> {
+        self.push_time_channel_inner(n, m)
+    }
+
+    /// Add time channel at the given position
+    ///
+    /// Return error if time channel already exists, name is non-unique, or
+    /// index is out of bounds.
+    pub fn insert_time_channel(
+        &mut self,
+        i: MeasIdx,
+        n: Shortname,
+        m: TimeChannel<M::T>,
+    ) -> Result<(), String> {
+        self.insert_time_channel_inner(i, n, m)
+    }
+
+    /// Add measurement to the end of the measurement vector
+    ///
+    /// Return error if name is non-unique.
+    pub fn push_measurement(
+        &mut self,
+        n: <M::N as MightHave>::Wrapper<Shortname>,
+        m: Measurement<M::P>,
+    ) -> Result<Shortname, String> {
+        self.push_measurement_inner(n, m)
+    }
+
+    /// Add measurement at a given position
+    ///
+    /// Return error if name is non-unique, or index is out of bounds.
+    pub fn insert_measurement(
+        &mut self,
+        i: MeasIdx,
+        n: <M::N as MightHave>::Wrapper<Shortname>,
+        m: Measurement<M::P>,
+    ) -> Result<Shortname, String> {
+        self.insert_measurement_inner(i, n, m)
+    }
+
+    /// Set measurements.
+    ///
+    /// Return error if names are not unique or there is more than one
+    /// time channel.
+    pub fn set_measurements(
+        &mut self,
+        xs: RawInput<M::N, TimeChannel<M::T>, Measurement<M::P>>,
+        prefix: ShortnamePrefix,
+    ) -> Result<(), String> {
+        self.set_measurements_inner(xs, prefix)
+    }
+
+    /// Remove measurements
+    pub fn unset_measurements(&mut self) -> Result<(), String> {
+        self.unset_measurements_inner()
     }
 }
 
@@ -2480,29 +2479,6 @@ where
         })
     }
 
-    // /// Convert this dataset into a different FCS version
-    // pub fn try_convert<ToM>(self) -> PureResult<VersionedCoreDataset<ToM>>
-    // where
-    //     M::N: Clone,
-    //     ToM: VersionedMetadata,
-    //     ToM: TryFromMetadata<M>,
-    //     ToM::P: VersionedMeasurement,
-    //     ToM::T: VersionedTime,
-    //     ToM::N: MightHave,
-    //     ToM::N: Clone,
-    //     ToM::P: TryFrom<M::P, Error = MeasConvertError>,
-    //     ToM::T: From<M::T>,
-    //     <ToM::N as MightHave>::Wrapper<Shortname>: TryFrom<<M::N as MightHave>::Wrapper<Shortname>>,
-    // {
-    //     self.text.try_convert().map(|res| {
-    //         res.map(|newtext| CoreDataset {
-    //             text: Box::new(newtext),
-    //             data: self.data,
-    //             analysis: self.analysis,
-    //         })
-    //     })
-    // }
-
     /// Return reference to dataframe representing DATA
     pub fn data(&self) -> &FCSDataFrame {
         &self.data
@@ -2517,41 +2493,65 @@ where
         Ok(())
     }
 
-    // pub fn measurements_named_vec(&self) -> &Measurements<M::N, M::T, M::P> {
-    //     self.text.measurements_named_vec()
-    // }
+    /// Remove all measurements and data
+    pub fn unset_data(&mut self) -> Result<(), String> {
+        self.unset_measurements_inner()?;
+        self.data.clear();
+        Ok(())
+    }
 
-    // pub fn as_center_mut(
-    //     &mut self,
-    // ) -> Option<IndexedElement<&mut Shortname, &mut TimeChannel<M::T>>> {
-    //     self.text.as_center_mut()
-    // }
+    /// Set measurements.
+    ///
+    /// Length of measurements must match the current width of the dataframe.
+    pub fn set_measurements(
+        &mut self,
+        xs: RawInput<M::N, TimeChannel<M::T>, Measurement<M::P>>,
+        prefix: ShortnamePrefix,
+    ) -> Result<(), String> {
+        if xs.len() != self.par().0 {
+            let msg = "measurement number does not match dataframe column number";
+            return Err(msg.into());
+        }
+        self.set_measurements_inner(xs, prefix)
+    }
 
-    // pub fn nonstandard_keywords(&self) -> &NonStdKeywords {
-    //     &self.text.metadata.nonstandard_keywords
-    // }
+    /// Set measurements and dataframe together
+    ///
+    /// Length of measurements must match the width of the input dataframe.
+    pub fn set_measurements_and_data(
+        &mut self,
+        xs: RawInput<M::N, TimeChannel<M::T>, Measurement<M::P>>,
+        cs: Vec<AnyFCSColumn>,
+        prefix: ShortnamePrefix,
+    ) -> Result<(), String> {
+        if xs.len() != cs.len() {
+            let msg = "measurement number does not match dataframe column number";
+            return Err(msg.into());
+        }
+        let df = FCSDataFrame::try_new(cs).ok_or("columns lengths to not match".to_string())?;
+        self.set_measurements_inner(xs, prefix)?;
+        self.data = df;
+        Ok(())
+    }
 
-    // pub fn nonstandard_keywords_mut(&mut self) -> &mut NonStdKeywords {
-    //     &mut self.text.metadata.nonstandard_keywords
-    // }
-
-    // fn set_shortnames(&mut self, names: Vec<Shortname>) -> Result<NameMapping, String> {
-    //     self.text
-    //         .set_shortnames(names)
-    //         .inspect(|_| self.text.set_df_column_names(&mut self.data).unwrap())
-    // }
-
+    /// Remove a measurement matching the given name.
+    ///
+    /// Return removed measurement and its index if found.
+    #[allow(clippy::type_complexity)]
     pub fn remove_measurement_by_name(
         &mut self,
         n: &Shortname,
-    ) -> Result<Option<(MeasIdx, Result<Measurement<M::P>, TimeChannel<M::T>>)>, String> {
-        let res = self.remove_measurement_by_name_inner(n)?.map(|(i, x)| {
+    ) -> Option<(MeasIdx, Result<Measurement<M::P>, TimeChannel<M::T>>)> {
+        self.remove_measurement_by_name_inner(n).map(|(i, x)| {
             self.data.drop_in_place(i.into()).unwrap();
             (i, x)
-        });
-        Ok(res)
+        })
     }
 
+    /// Remove a measurement at a given position
+    ///
+    /// Return removed measurement and its name if found.
+    #[allow(clippy::type_complexity)]
     pub fn remove_measurement_by_index(
         &mut self,
         index: MeasIdx,
@@ -2562,6 +2562,9 @@ where
         Ok(res)
     }
 
+    /// Add time channel to the end of the measurement vector.
+    ///
+    /// Return error if time channel already exists or name is non-unique.
     pub fn push_time_channel(
         &mut self,
         n: Shortname,
@@ -2573,6 +2576,25 @@ where
         Ok(())
     }
 
+    /// Add time channel at the given position
+    ///
+    /// Return error if time channel already exists, name is non-unique, or
+    /// index is out of bounds.
+    pub fn insert_time_channel(
+        &mut self,
+        i: MeasIdx,
+        n: Shortname,
+        m: TimeChannel<M::T>,
+        col: AnyFCSColumn,
+    ) -> Result<(), String> {
+        self.insert_time_channel_inner(i, n, m)?;
+        self.data.insert_column(i.into(), col);
+        Ok(())
+    }
+
+    /// Add measurement to the end of the measurement vector
+    ///
+    /// Return error if name is non-unique.
     pub fn push_measurement(
         &mut self,
         n: <M::N as MightHave>::Wrapper<Shortname>,
@@ -2584,6 +2606,9 @@ where
         Ok(k)
     }
 
+    /// Add measurement at a given position
+    ///
+    /// Return error if name is non-unique, or index is out of bounds.
     pub fn insert_measurement(
         &mut self,
         i: MeasIdx,
@@ -2596,6 +2621,18 @@ where
         Ok(k)
     }
 
+    /// Convert this struct into a CoreTEXT.
+    ///
+    /// This simply entails taking ownership and dropping the ANALYSIS and DATA
+    /// fields.
+    pub fn into_coretext(self) -> VersionedCoreTEXT<M> {
+        CoreTEXT::new_unchecked(self.metadata, self.measurements)
+    }
+
+    /// Make new CoreDataset from CoreTEXT with supplied DATA and ANALYSIS
+    ///
+    /// Number of columns must match number of measurements and must all be the
+    /// same length.
     pub fn from_coretext(
         c: VersionedCoreTEXT<M>,
         columns: Vec<AnyFCSColumn>,
@@ -2620,7 +2657,7 @@ where
 }
 
 impl<M, T, P, N, W> CoreTEXT<M, T, P, N, W> {
-    pub(crate) fn new_text_nomeas(metadata: Metadata<M>) -> Self {
+    pub(crate) fn new_nomeas(metadata: Metadata<M>) -> Self {
         Self {
             metadata,
             measurements: NamedVec::default(),
@@ -2629,7 +2666,7 @@ impl<M, T, P, N, W> CoreTEXT<M, T, P, N, W> {
         }
     }
 
-    pub(crate) fn new_text_unchecked(
+    pub(crate) fn new_unchecked(
         metadata: Metadata<M>,
         measurements: NamedVec<N, W, TimeChannel<T>, Measurement<P>>,
     ) -> Self {
@@ -2640,6 +2677,34 @@ impl<M, T, P, N, W> CoreTEXT<M, T, P, N, W> {
             analysis: (),
         }
     }
+}
+
+macro_rules! comp_methods {
+    () => {
+        /// Return matrix for $COMP
+        pub fn compensation(&self) -> Option<&Compensation> {
+            self.metadata.specific.comp.as_ref_opt()
+        }
+
+        /// Set matrix for $COMP
+        ///
+        /// Return true if successfully set. Return false if matrix is either not
+        /// square or rows/columns are not the same length as $PAR.
+        pub fn set_compensation(&mut self, matrix: DMatrix<f32>) -> bool {
+            if !matrix.is_square() && matrix.ncols() != self.par().0 {
+                // TODO None here is actually an error
+                self.metadata.specific.comp = Compensation::new(matrix).into();
+                true
+            } else {
+                false
+            }
+        }
+
+        /// Clear $COMP
+        pub fn unset_compensation(&mut self) {
+            self.metadata.specific.comp = None.into();
+        }
+    };
 }
 
 macro_rules! timestamp_methods {
@@ -2654,12 +2719,89 @@ macro_rules! timestamp_methods {
     };
 }
 
-impl CoreTEXT2_0 {
-    pub fn new(datatype: AlphaNumType, byteord: ByteOrd, mode: Mode) -> Self {
-        let specific = InnerMetadata2_0::new(mode, byteord);
-        let metadata = Metadata::new(datatype, specific);
-        CoreTEXT::new_text_nomeas(metadata)
-    }
+macro_rules! spillover_methods {
+    () => {
+        /// Show $SPILLOVER
+        pub fn spillover(&self) -> Option<&Spillover> {
+            self.metadata.specific.spillover.as_ref_opt()
+        }
+
+        /// Set names and matrix for $SPILLOVER
+        ///
+        /// Names must match number of rows/columns in matrix and also must be a
+        /// subset of the measurement names (ie $PnN). Matrix must be square and
+        /// at least 2x2.
+        pub fn set_spillover(&mut self, ns: Vec<Shortname>, m: DMatrix<f32>) -> Result<(), String> {
+            let current = self.all_shortnames();
+            let new: HashSet<_> = ns.iter().collect();
+            if !new.is_subset(&current.iter().collect()) {
+                return Err("all $SPILLOVER names must match a $PnN".into());
+            }
+            let m = Spillover::try_new(ns, m).map_err(|e| e.to_string())?;
+            self.metadata.specific.spillover = Some(m).into();
+            Ok(())
+        }
+
+        /// Clear $SPILLOVER
+        pub fn unset_spillover(&mut self) {
+            self.metadata.specific.spillover = None.into();
+        }
+    };
+}
+
+macro_rules! display_methods {
+    () => {
+        pub fn displays(&self) -> Vec<Option<&Display>> {
+            self.measurements
+                .iter()
+                .map(|x| {
+                    x.1.map_or_else(
+                        |t| t.value.specific.display.as_ref_opt(),
+                        |m| m.value.specific.display.as_ref_opt(),
+                    )
+                })
+                .collect()
+        }
+
+        pub fn set_displays(&mut self, ns: Vec<Option<Display>>) -> bool {
+            self.measurements
+                .alter_values_zip(
+                    ns,
+                    |x, n| x.value.specific.display = n.into(),
+                    |x, n| x.value.specific.display = n.into(),
+                )
+                .is_some()
+        }
+    };
+}
+
+macro_rules! scale_get_set {
+    ($t:path, $time_default:expr) => {
+        /// Show $PnE for each measurement, including time
+        pub fn all_scales(&self) -> Vec<$t> {
+            self.measurements
+                .iter()
+                .map(|(_, x)| x.map_or($time_default, |p| p.value.specific.scale.into()))
+                .collect()
+        }
+
+        /// Show $PnE for each measurement, not including time
+        pub fn scales(&self) -> Vec<(MeasIdx, $t)> {
+            self.measurements
+                .iter_non_center_values()
+                .map(|(i, m)| (i, m.specific.scale.into()))
+                .collect()
+        }
+
+        /// Set $PnE for for all non-time measurements
+        pub fn set_scales(&mut self, xs: Vec<$t>) -> bool {
+            self.measurements
+                .alter_non_center_values_zip(xs, |m, x| {
+                    m.specific.scale = x.into();
+                })
+                .is_some()
+        }
+    };
 }
 
 impl<A, D> Core2_0<A, D> {
@@ -2723,14 +2865,6 @@ impl<A, D> Core2_0<A, D> {
         wavelength,
         PnL
     );
-}
-
-impl CoreTEXT3_0 {
-    pub fn new(datatype: AlphaNumType, byteord: ByteOrd, mode: Mode) -> Self {
-        let specific = InnerMetadata3_0::new(mode, byteord);
-        let metadata = Metadata::new(datatype, specific);
-        CoreTEXT::new_text_nomeas(metadata)
-    }
 }
 
 impl<A, D> Core3_0<A, D> {
@@ -2799,70 +2933,6 @@ impl<A, D> Core3_0<A, D> {
     );
 }
 
-macro_rules! spillover_methods {
-    () => {
-        /// Show $SPILLOVER
-        pub fn spillover(&self) -> Option<&Spillover> {
-            self.metadata.specific.spillover.as_ref_opt()
-        }
-
-        /// Set names and matrix for $SPILLOVER
-        ///
-        /// Names must match number of rows/columns in matrix and also must be a
-        /// subset of the measurement names (ie $PnN). Matrix must be square and
-        /// at least 2x2.
-        pub fn set_spillover(&mut self, ns: Vec<Shortname>, m: DMatrix<f32>) -> Result<(), String> {
-            let current = self.all_shortnames();
-            let new: HashSet<_> = ns.iter().collect();
-            if !new.is_subset(&current.iter().collect()) {
-                return Err("all $SPILLOVER names must match a $PnN".into());
-            }
-            let m = Spillover::try_new(ns, m).map_err(|e| e.to_string())?;
-            self.metadata.specific.spillover = Some(m).into();
-            Ok(())
-        }
-
-        /// Clear $SPILLOVER
-        pub fn unset_spillover(&mut self) {
-            self.metadata.specific.spillover = None.into();
-        }
-    };
-}
-
-macro_rules! display_methods {
-    () => {
-        pub fn displays(&self) -> Vec<Option<&Display>> {
-            self.measurements
-                .iter()
-                .map(|x| {
-                    x.1.map_or_else(
-                        |t| t.value.specific.display.as_ref_opt(),
-                        |m| m.value.specific.display.as_ref_opt(),
-                    )
-                })
-                .collect()
-        }
-
-        pub fn set_displays(&mut self, ns: Vec<Option<Display>>) -> bool {
-            self.measurements
-                .alter_values_zip(
-                    ns,
-                    |x, n| x.value.specific.display = n.into(),
-                    |x, n| x.value.specific.display = n.into(),
-                )
-                .is_some()
-        }
-    };
-}
-
-impl CoreTEXT3_1 {
-    pub fn new(datatype: AlphaNumType, is_big: bool, mode: Mode) -> Self {
-        let specific = InnerMetadata3_1::new(mode, is_big);
-        let metadata = Metadata::new(datatype, specific);
-        CoreTEXT::new_text_nomeas(metadata)
-    }
-}
-
 impl<A, D> Core3_1<A, D> {
     scale_get_set!(Scale, Scale::Linear);
     spillover_methods!();
@@ -2926,14 +2996,6 @@ impl<A, D> Core3_1<A, D> {
         wavelengths,
         PnL
     );
-}
-
-impl CoreTEXT3_2 {
-    pub fn new(datatype: AlphaNumType, is_big: bool, cyt: String) -> Self {
-        let specific = InnerMetadata3_2::new(is_big, cyt);
-        let metadata = Metadata::new(datatype, specific);
-        CoreTEXT::new_text_nomeas(metadata)
-    }
 }
 
 impl<A, D> Core3_2<A, D> {
@@ -3201,6 +3263,38 @@ impl<A, D> Core3_2<A, D> {
             self.unset_meas_datatypes();
         }
         res
+    }
+}
+
+impl CoreTEXT2_0 {
+    pub fn new(datatype: AlphaNumType, byteord: ByteOrd, mode: Mode) -> Self {
+        let specific = InnerMetadata2_0::new(mode, byteord);
+        let metadata = Metadata::new(datatype, specific);
+        CoreTEXT::new_nomeas(metadata)
+    }
+}
+
+impl CoreTEXT3_0 {
+    pub fn new(datatype: AlphaNumType, byteord: ByteOrd, mode: Mode) -> Self {
+        let specific = InnerMetadata3_0::new(mode, byteord);
+        let metadata = Metadata::new(datatype, specific);
+        CoreTEXT::new_nomeas(metadata)
+    }
+}
+
+impl CoreTEXT3_1 {
+    pub fn new(datatype: AlphaNumType, is_big: bool, mode: Mode) -> Self {
+        let specific = InnerMetadata3_1::new(mode, is_big);
+        let metadata = Metadata::new(datatype, specific);
+        CoreTEXT::new_nomeas(metadata)
+    }
+}
+
+impl CoreTEXT3_2 {
+    pub fn new(datatype: AlphaNumType, is_big: bool, cyt: String) -> Self {
+        let specific = InnerMetadata3_2::new(is_big, cyt);
+        let metadata = Metadata::new(datatype, specific);
+        CoreTEXT::new_nomeas(metadata)
     }
 }
 

@@ -175,6 +175,11 @@ impl FCSDataFrame {
         }
     }
 
+    pub fn clear(&mut self) {
+        self.columns = Vec::default();
+        self.nrows = 0;
+    }
+
     pub fn iter_columns(&self) -> Iter<'_, AnyFCSColumn> {
         self.columns.iter()
     }

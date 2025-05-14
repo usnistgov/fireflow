@@ -5,11 +5,6 @@ use crate::header::*;
 use crate::header_text::*;
 use crate::macros::{match_many_to_one, newtype_from};
 use crate::segment::*;
-use crate::validated::dataframe::*;
-use crate::validated::nonstandard::*;
-use crate::validated::pattern::*;
-use crate::validated::shortname::*;
-
 use crate::text::byteord::*;
 use crate::text::compensation::*;
 use crate::text::datetimes::*;
@@ -17,11 +12,16 @@ use crate::text::keywords::*;
 use crate::text::modified_date_time::*;
 use crate::text::named_vec::*;
 use crate::text::optionalkw::*;
+use crate::text::parser::*;
 use crate::text::range::*;
 use crate::text::scale::*;
 use crate::text::spillover::*;
 use crate::text::timestamps::*;
 use crate::text::unstainedcenters::*;
+use crate::validated::dataframe::*;
+use crate::validated::nonstandard::*;
+use crate::validated::pattern::*;
+use crate::validated::shortname::*;
 
 use chrono::Timelike;
 use itertools::Itertools;
@@ -35,21 +35,12 @@ use std::io;
 use std::io::{BufWriter, Write};
 use std::str::FromStr;
 
-/// Represents the minimal data required to fully represent the TEXT keywords.
+/// Represents the minimal data required to write an FCS file.
 ///
-/// This is created by further processing ['RawTEXT'] and arranging keywords
-/// in a static structure that conforms to each version's FCS standard.
-///
-/// This includes "measurement data" (bit width, voltage, filter, name, etc) for
-/// each measurement (aka "parameter" aka "channel") and "metadata" which is all
-/// non-measurement data. Both of these are "standardized" which means they are
-/// structured in a manner that reflects the indicated FCS standard in the
-/// HEADER. If these structures cannot be created, then an error should be
-/// thrown informing the user that their keywords are not standards-compliant.
-///
-/// Additionally this includes keywords that do not fit into the standard
-/// (deviant and nonstandard, which means keys that start with '$' or not
-/// respectively).
+/// At minimum, this contains the TEXT keywords in a version-specific structure
+/// with a few exceptions (see next). It may also contain the DATA and ANALYSIS
+/// segments depending on how much of the FCS file is read. These fields are
+/// left generic to allow this flexibility.
 ///
 /// Importantly this does NOT include the following:
 /// - $TOT (inferred from summed bit width and length of DATA)
@@ -63,25 +54,19 @@ use std::str::FromStr;
 #[derive(Clone, Serialize)]
 pub struct Core<A, D, M, T, P, N, W> {
     /// All "non-measurement" TEXT keywords.
-    ///
-    /// This is specific to each FCS version, which is encoded in the generic
-    /// type variable.
     pub metadata: Metadata<M>,
 
     /// All measurement TEXT keywords.
     ///
     /// Specifically these are denoted by "$Pn*" keywords where "n" is the index
     /// of the measurement which also corresponds to its column in the DATA
-    /// segment. The order of each measurement in this vector is n - 1.
-    ///
-    /// This is specific to each FCS version, which is encoded in the generic
-    /// type variable.
+    /// segment. The index of each measurement in this vector is n - 1.
     measurements: NamedVec<N, W, TimeChannel<T>, Measurement<P>>,
 
-    /// DATA segment
+    /// DATA segment (if applicable)
     data: D,
 
-    /// ANALYSIS segment
+    /// ANALYSIS segment (if applicable)
     pub analysis: A,
 }
 
@@ -90,9 +75,6 @@ pub struct Core<A, D, M, T, P, N, W> {
 pub struct Analysis(pub Vec<u8>);
 
 newtype_from!(Analysis, Vec<u8>);
-
-pub type CoreTEXT<M, T, P, N, W> = Core<(), (), M, T, P, N, W>;
-pub type CoreDataset<M, T, P, N, W> = Core<Analysis, FCSDataFrame, M, T, P, N, W>;
 
 /// Structured non-measurement metadata.
 ///
@@ -221,7 +203,8 @@ pub struct Measurement<X> {
     pub specific: X,
 }
 
-/// Critical FCS TEXT data for any supported FCS version
+/// Minimal TEXT data for any supported FCS version
+// TODO make this generic?
 #[derive(Clone)]
 pub enum AnyCoreTEXT {
     FCS2_0(Box<CoreTEXT2_0>),
@@ -230,7 +213,7 @@ pub enum AnyCoreTEXT {
     FCS3_2(Box<CoreTEXT3_2>),
 }
 
-/// FCS file for any supported FCS version
+/// Minimal TEXT/DATA/ANALYSIS for any supported FCS version
 #[derive(Clone)]
 pub enum AnyCoreDataset {
     FCS2_0(CoreDataset2_0),
@@ -373,73 +356,6 @@ impl AnyCoreDataset {
         }
     }
 }
-
-/// Minimally-required FCS TEXT data for each version
-pub type CoreTEXT2_0 = CoreTEXT<
-    InnerMetadata2_0,
-    InnerTime2_0,
-    InnerMeasurement2_0,
-    OptionalKwFamily,
-    OptionalKw<Shortname>,
->;
-pub type CoreTEXT3_0 = CoreTEXT<
-    InnerMetadata3_0,
-    InnerTime3_0,
-    InnerMeasurement3_0,
-    OptionalKwFamily,
-    OptionalKw<Shortname>,
->;
-pub type CoreTEXT3_1 = CoreTEXT<
-    InnerMetadata3_1,
-    InnerTime3_1,
-    InnerMeasurement3_1,
-    IdentityFamily,
-    Identity<Shortname>,
->;
-pub type CoreTEXT3_2 = CoreTEXT<
-    InnerMetadata3_2,
-    InnerTime3_2,
-    InnerMeasurement3_2,
-    IdentityFamily,
-    Identity<Shortname>,
->;
-
-pub type Core2_0<A, D> = Core<
-    A,
-    D,
-    InnerMetadata2_0,
-    InnerTime2_0,
-    InnerMeasurement2_0,
-    OptionalKwFamily,
-    OptionalKw<Shortname>,
->;
-pub type Core3_0<A, D> = Core<
-    A,
-    D,
-    InnerMetadata3_0,
-    InnerTime3_0,
-    InnerMeasurement3_0,
-    OptionalKwFamily,
-    OptionalKw<Shortname>,
->;
-pub type Core3_1<A, D> = Core<
-    A,
-    D,
-    InnerMetadata3_1,
-    InnerTime3_1,
-    InnerMeasurement3_1,
-    IdentityFamily,
-    Identity<Shortname>,
->;
-pub type Core3_2<A, D> = Core<
-    A,
-    D,
-    InnerMetadata3_2,
-    InnerTime3_2,
-    InnerMeasurement3_2,
-    IdentityFamily,
-    Identity<Shortname>,
->;
 
 /// Metadata fields specific to version 2.0
 #[derive(Clone, Serialize)]
@@ -669,6 +585,37 @@ pub struct InnerMeasurement3_2 {
     pub datatype: OptionalKw<NumType>,
 }
 
+/// A bundle for $ORIGINALITY, $LAST_MODIFIER, and $LAST_MODIFIED (3.1+)
+#[derive(Clone, Serialize, Default)]
+pub struct ModificationData {
+    pub last_modifier: OptionalKw<LastModifier>,
+    pub last_modified: OptionalKw<ModifiedDateTime>,
+    pub originality: OptionalKw<Originality>,
+}
+
+/// A bundle for $PLATEID, $PLATENAME, and $WELLID (3.1+)
+#[derive(Clone, Serialize, Default)]
+pub struct PlateData {
+    pub plateid: OptionalKw<Plateid>,
+    pub platename: OptionalKw<Platename>,
+    pub wellid: OptionalKw<Wellid>,
+}
+
+/// A bundle for $UNSTAINEDCENTERS and $UNSTAINEDINFO (3.2+)
+#[derive(Clone, Serialize, Default)]
+pub struct UnstainedData {
+    unstainedcenters: OptionalKw<UnstainedCenters>,
+    pub unstainedinfo: OptionalKw<UnstainedInfo>,
+}
+
+/// A bundle for $CARRIERID, $CARRIERTYPE, $LOCATIONID (3.2+)
+#[derive(Clone, Serialize, Default)]
+pub struct CarrierData {
+    pub carrierid: OptionalKw<Carrierid>,
+    pub carriertype: OptionalKw<Carriertype>,
+    pub locationid: OptionalKw<Locationid>,
+}
+
 pub type TimeChannel2_0 = TimeChannel<InnerTime2_0>;
 pub type TimeChannel3_0 = TimeChannel<InnerTime3_0>;
 pub type TimeChannel3_1 = TimeChannel<InnerTime3_1>;
@@ -689,11 +636,203 @@ pub type Metadata3_0 = Metadata<InnerMetadata3_0>;
 pub type Metadata3_1 = Metadata<InnerMetadata3_1>;
 pub type Metadata3_2 = Metadata<InnerMetadata3_2>;
 
+/// A minimal representation of the TEXT segment
+pub type CoreTEXT<M, T, P, N, W> = Core<(), (), M, T, P, N, W>;
+
+/// A minimal representation of the TEXT+DATA+ANALYSIS segments
+pub type CoreDataset<M, T, P, N, W> = Core<Analysis, FCSDataFrame, M, T, P, N, W>;
+
+pub type CoreTEXT2_0 = CoreTEXT<
+    InnerMetadata2_0,
+    InnerTime2_0,
+    InnerMeasurement2_0,
+    OptionalKwFamily,
+    OptionalKw<Shortname>,
+>;
+pub type CoreTEXT3_0 = CoreTEXT<
+    InnerMetadata3_0,
+    InnerTime3_0,
+    InnerMeasurement3_0,
+    OptionalKwFamily,
+    OptionalKw<Shortname>,
+>;
+pub type CoreTEXT3_1 = CoreTEXT<
+    InnerMetadata3_1,
+    InnerTime3_1,
+    InnerMeasurement3_1,
+    IdentityFamily,
+    Identity<Shortname>,
+>;
+pub type CoreTEXT3_2 = CoreTEXT<
+    InnerMetadata3_2,
+    InnerTime3_2,
+    InnerMeasurement3_2,
+    IdentityFamily,
+    Identity<Shortname>,
+>;
+
+pub type CoreDataset2_0 = CoreDataset<
+    InnerMetadata2_0,
+    InnerTime2_0,
+    InnerMeasurement2_0,
+    OptionalKwFamily,
+    OptionalKw<Shortname>,
+>;
+pub type CoreDataset3_0 = CoreDataset<
+    InnerMetadata3_0,
+    InnerTime3_0,
+    InnerMeasurement3_0,
+    OptionalKwFamily,
+    OptionalKw<Shortname>,
+>;
+pub type CoreDataset3_1 = CoreDataset<
+    InnerMetadata3_1,
+    InnerTime3_1,
+    InnerMeasurement3_1,
+    IdentityFamily,
+    Identity<Shortname>,
+>;
+pub type CoreDataset3_2 = CoreDataset<
+    InnerMetadata3_2,
+    InnerTime3_2,
+    InnerMeasurement3_2,
+    IdentityFamily,
+    Identity<Shortname>,
+>;
+
+pub type Core2_0<A, D> = Core<
+    A,
+    D,
+    InnerMetadata2_0,
+    InnerTime2_0,
+    InnerMeasurement2_0,
+    OptionalKwFamily,
+    OptionalKw<Shortname>,
+>;
+pub type Core3_0<A, D> = Core<
+    A,
+    D,
+    InnerMetadata3_0,
+    InnerTime3_0,
+    InnerMeasurement3_0,
+    OptionalKwFamily,
+    OptionalKw<Shortname>,
+>;
+pub type Core3_1<A, D> = Core<
+    A,
+    D,
+    InnerMetadata3_1,
+    InnerTime3_1,
+    InnerMeasurement3_1,
+    IdentityFamily,
+    Identity<Shortname>,
+>;
+pub type Core3_2<A, D> = Core<
+    A,
+    D,
+    InnerMetadata3_2,
+    InnerTime3_2,
+    InnerMeasurement3_2,
+    IdentityFamily,
+    Identity<Shortname>,
+>;
+
+pub trait Versioned {
+    fn fcs_version() -> Version;
+}
+
+pub(crate) trait LookupMetadata: Sized + VersionedMetadata {
+    fn lookup_shortname(
+        st: &mut KwParser,
+        n: MeasIdx,
+    ) -> Option<<Self::N as MightHave>::Wrapper<Shortname>>;
+
+    fn lookup_specific(st: &mut KwParser, par: Par) -> Option<Self>;
+}
+
+pub trait TryFromMetadata<M>: Sized
+where
+    Self: VersionedMetadata,
+    M: VersionedMetadata,
+{
+    fn try_from_meta(value: M, byteord: SizeConvert<M::D>) -> Result<Self, MetaConvertErrors>;
+}
+
+pub trait VersionedMetadata: Sized {
+    type P: VersionedMeasurement;
+    type T: VersionedTime;
+    type N: MightHave;
+    type L: VersionedDataLayout;
+    type D;
+
+    fn as_unstainedcenters(&self) -> Option<&UnstainedCenters>;
+
+    fn with_unstainedcenters<F, X>(&mut self, f: F) -> Option<X>
+    where
+        F: Fn(&mut UnstainedCenters) -> Result<X, ClearOptional>;
+
+    fn as_spillover(&self) -> Option<&Spillover>;
+
+    fn with_spillover<F, X>(&mut self, f: F) -> Option<X>
+    where
+        F: Fn(&mut Spillover) -> Result<X, ClearOptional>;
+
+    fn as_compensation(&self) -> Option<&Compensation>;
+
+    fn with_compensation<F, X>(&mut self, f: F) -> Option<X>
+    where
+        F: Fn(&mut Compensation) -> Result<X, ClearOptional>;
+
+    fn timestamps_valid(&self) -> bool;
+
+    fn datetimes_valid(&self) -> bool;
+
+    // TODO borrow?
+    fn byteord(&self) -> Self::D;
+
+    fn keywords_req_inner(&self) -> RawPairs;
+
+    fn keywords_opt_inner(&self) -> RawPairs;
+
+    fn as_column_layout(
+        metadata: &Metadata<Self>,
+        ms: &Measurements<Self::N, Self::T, Self::P>,
+    ) -> Result<Self::L, Vec<String>>;
+}
+
+pub trait VersionedMeasurement: Sized + Versioned {
+    fn req_suffixes_inner(&self, n: MeasIdx) -> RawTriples;
+
+    fn opt_suffixes_inner(&self, n: MeasIdx) -> RawOptTriples;
+
+    fn datatype(&self) -> Option<NumType>;
+}
+
+pub(crate) trait LookupMeasurement: Sized + VersionedMeasurement {
+    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self>;
+}
+
+pub trait VersionedTime: Sized {
+    fn timestep(&self) -> Option<Timestep>;
+
+    fn datatype(&self) -> Option<NumType>;
+
+    fn set_timestep(&mut self, ts: Timestep);
+
+    fn req_meta_keywords_inner(&self) -> RawPairs;
+
+    fn opt_meas_keywords_inner(&self, _: MeasIdx) -> RawOptPairs;
+}
+
+pub(crate) trait LookupTime: VersionedTime {
+    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self>;
+}
+
 impl<T> TimeChannel<T>
 where
     T: VersionedTime,
 {
-    pub fn new_common(bytes: Width, range: Range, specific: T) -> Self {
+    fn new_common(bytes: Width, range: Range, specific: T) -> Self {
         Self {
             bytes,
             range,
@@ -777,7 +916,7 @@ where
         &self.range
     }
 
-    pub fn new_common(bytes: Width, range: Range, specific: P) -> Self {
+    fn new_common(bytes: Width, range: Range, specific: P) -> Self {
         Self {
             bytes,
             range,
@@ -820,19 +959,6 @@ where
                 specific,
             })
     }
-
-    // fn longname(&self, n: usize) -> Longname {
-    //     // TODO not DRY
-    //     self.longname
-    //         .0
-    //         .as_ref()
-    //         .cloned()
-    //         .unwrap_or(Longname(format!("M{n}")))
-    // }
-
-    // fn set_longname(&mut self, n: Option<String>) {
-    //     self.longname = n.map(|y| y.into()).into();
-    // }
 
     fn lookup_measurement(st: &mut KwParser, i: MeasIdx) -> Option<Self>
     where
@@ -934,16 +1060,6 @@ where
             )
             .collect()
     }
-
-    // fn as_column_type(
-    //     &self,
-    //     dt: AlphaNumType,
-    //     byteord: &ByteOrd,
-    // ) -> Result<Option<MixedType>, Vec<String>> {
-    //     let mdt = self.specific.datatype().map(|d| d.into()).unwrap_or(dt);
-    //     let rng = self.range();
-    //     MixedType::try_new(*self.bytes(), mdt, byteord, rng)
-    // }
 }
 
 impl<N, P, T> Measurements<N, T, P>
@@ -965,6 +1081,7 @@ impl<M> Metadata<M>
 where
     M: VersionedMetadata,
 {
+    /// Make new version-specific metadata
     pub fn new(datatype: AlphaNumType, specific: M) -> Self {
         Metadata {
             datatype,
@@ -1130,371 +1247,10 @@ where
     }
 }
 
-pub trait Versioned {
-    fn fcs_version() -> Version;
-}
-
-pub(crate) trait LookupMetadata: Sized + VersionedMetadata {
-    fn lookup_shortname(
-        st: &mut KwParser,
-        n: MeasIdx,
-    ) -> Option<<Self::N as MightHave>::Wrapper<Shortname>>;
-
-    fn lookup_specific(st: &mut KwParser, par: Par) -> Option<Self>;
-}
-
-pub trait TryFromMetadata<M>: Sized
-where
-    Self: VersionedMetadata,
-    M: VersionedMetadata,
-{
-    fn try_from_meta(value: M, byteord: SizeConvert<M::D>) -> Result<Self, MetaConvertErrors>;
-}
-
-pub trait VersionedMetadata: Sized {
-    type P: VersionedMeasurement;
-    type T: VersionedTime;
-    type N: MightHave;
-    type L: VersionedDataLayout;
-    type D;
-
-    fn as_unstainedcenters(&self) -> Option<&UnstainedCenters>;
-
-    fn with_unstainedcenters<F, X>(&mut self, f: F) -> Option<X>
-    where
-        F: Fn(&mut UnstainedCenters) -> Result<X, ClearOptional>;
-
-    fn as_spillover(&self) -> Option<&Spillover>;
-
-    fn with_spillover<F, X>(&mut self, f: F) -> Option<X>
-    where
-        F: Fn(&mut Spillover) -> Result<X, ClearOptional>;
-
-    fn as_compensation(&self) -> Option<&Compensation>;
-
-    fn with_compensation<F, X>(&mut self, f: F) -> Option<X>
-    where
-        F: Fn(&mut Compensation) -> Result<X, ClearOptional>;
-
-    fn timestamps_valid(&self) -> bool;
-
-    fn datetimes_valid(&self) -> bool;
-
-    // TODO borrow?
-    fn byteord(&self) -> Self::D;
-
-    fn keywords_req_inner(&self) -> RawPairs;
-
-    fn keywords_opt_inner(&self) -> RawPairs;
-
-    fn as_column_layout(
-        metadata: &Metadata<Self>,
-        ms: &Measurements<Self::N, Self::T, Self::P>,
-    ) -> Result<Self::L, Vec<String>>;
-}
-
-pub trait VersionedMeasurement: Sized + Versioned {
-    fn req_suffixes_inner(&self, n: MeasIdx) -> RawTriples;
-
-    fn opt_suffixes_inner(&self, n: MeasIdx) -> RawOptTriples;
-
-    fn datatype(&self) -> Option<NumType>;
-}
-
-pub(crate) trait LookupMeasurement: Sized + VersionedMeasurement {
-    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self>;
-}
-
-pub trait VersionedTime: Sized {
-    fn timestep(&self) -> Option<Timestep>;
-
-    fn datatype(&self) -> Option<NumType>;
-
-    fn set_timestep(&mut self, ts: Timestep);
-
-    fn req_meta_keywords_inner(&self) -> RawPairs;
-
-    fn opt_meas_keywords_inner(&self, _: MeasIdx) -> RawOptPairs;
-}
-
-pub(crate) trait LookupTime: VersionedTime {
-    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self>;
-}
-
 pub(crate) type RawPairs = Vec<(String, String)>;
 pub(crate) type RawTriples = Vec<(String, String, String)>;
 pub(crate) type RawOptPairs = Vec<(String, Option<String>)>;
 pub(crate) type RawOptTriples = Vec<(String, String, Option<String>)>;
-
-/// A structure to look up and parse keywords in the TEXT segment
-///
-/// Given a hash table of keywords (as String pairs) and a configuration, this
-/// provides an interface to extract keywords. If found, the keyword will be
-/// removed from the table and parsed to its native type (number, list, matrix,
-/// etc). If lookup or parsing fails, an error/warning will be logged within the
-/// state depending on if the key is required or optional (among other things
-/// depending on the keyword).
-///
-/// Errors in all cases are deferred until the end of the state's lifetime, at
-/// which point the errors are returned along with the result of the computation
-/// or failure (if applicable).
-///
-/// For Haskell zealots, this is somewhat like a pure state monad in that it has
-/// a 'run' interface which takes an input and a function to act within the
-/// state. The main difference is that it modifies the keywords in-place
-/// and returns the error result (rather than purely returning both).
-pub(crate) struct KwParser<'a, 'b> {
-    raw_keywords: &'b mut RawKeywords,
-    deferred: PureErrorBuf,
-    conf: &'a StdTextReadConfig,
-}
-
-impl<'a, 'b> KwParser<'a, 'b> {
-    /// Run a computation within a keyword lookup context which may fail.
-    ///
-    /// This is like 'run' except the computation may not return anything (None)
-    /// in which case Err(Failure(...)) will be returned along with the reason
-    /// for failure which must be given a priori.
-    ///
-    /// Any errors which are logged must be pushed into the state's error buffer
-    /// directly, as errors are not allowed to be returned by the inner
-    /// computation.
-    fn try_run<X, F>(
-        kws: &'b mut RawKeywords,
-        conf: &'a StdTextReadConfig,
-        reason: String,
-        f: F,
-    ) -> PureResult<X>
-    where
-        F: FnOnce(&mut Self) -> Option<X>,
-    {
-        let mut st = Self::from(kws, conf);
-        if let Some(data) = f(&mut st) {
-            Ok(PureSuccess {
-                data,
-                deferred: st.collect(),
-            })
-        } else {
-            Err(st.into_failure(reason))
-        }
-    }
-
-    fn lookup_timestamps<T>(&mut self, dep: bool) -> Timestamps<T>
-    where
-        T: PartialOrd,
-        T: Copy,
-        Btim<T>: OptMetaKey,
-        <Btim<T> as FromStr>::Err: fmt::Display,
-        Etim<T>: OptMetaKey,
-        <Etim<T> as FromStr>::Err: fmt::Display,
-    {
-        Timestamps::new(
-            self.lookup_meta_opt(dep),
-            self.lookup_meta_opt(dep),
-            self.lookup_meta_opt(dep),
-        )
-        .unwrap_or_else(|e| {
-            self.deferred.push_warning(e.to_string());
-            Timestamps::default()
-        })
-    }
-
-    fn lookup_datetimes(&mut self) -> Datetimes {
-        let b = self.lookup_meta_opt(false);
-        let e = self.lookup_meta_opt(false);
-        Datetimes::new(b, e).unwrap_or_else(|w| {
-            self.deferred.push_warning(w.to_string());
-            Datetimes::default()
-        })
-    }
-
-    fn lookup_modification(&mut self) -> ModificationData {
-        ModificationData {
-            last_modifier: self.lookup_meta_opt(false),
-            last_modified: self.lookup_meta_opt(false),
-            originality: self.lookup_meta_opt(false),
-        }
-    }
-
-    fn lookup_plate(&mut self, dep: bool) -> PlateData {
-        PlateData {
-            wellid: self.lookup_meta_opt(dep),
-            platename: self.lookup_meta_opt(dep),
-            plateid: self.lookup_meta_opt(dep),
-        }
-    }
-
-    fn lookup_carrier(&mut self) -> CarrierData {
-        CarrierData {
-            locationid: self.lookup_meta_opt(false),
-            carrierid: self.lookup_meta_opt(false),
-            carriertype: self.lookup_meta_opt(false),
-        }
-    }
-
-    fn lookup_unstained(&mut self) -> UnstainedData {
-        UnstainedData {
-            unstainedcenters: self.lookup_meta_opt(false),
-            unstainedinfo: self.lookup_meta_opt(false),
-        }
-    }
-
-    fn lookup_compensation_2_0(&mut self, par: Par) -> OptionalKw<Compensation> {
-        // column = src channel
-        // row = target channel
-        // These are "flipped" in 2.0, where "column" goes TO the "row"
-        let n = par.0;
-        let mut any_error = false;
-        let mut matrix = DMatrix::<f32>::identity(n, n);
-        for r in 0..n {
-            for c in 0..n {
-                let k = format!("DFC{c}TO{r}");
-                if let Some(x) = self.lookup_dfc(k.as_str()) {
-                    matrix[(r, c)] = x;
-                } else {
-                    any_error = true;
-                }
-            }
-        }
-        if any_error {
-            None
-        } else {
-            // TODO will return none if matrix is less than 2x2, which is a
-            // warning
-            Compensation::new(matrix)
-        }
-        .into()
-    }
-
-    fn lookup_dfc(&mut self, k: &str) -> Option<f32> {
-        self.raw_keywords.remove(k).and_then(|v| {
-            v.parse::<f32>()
-                .inspect_err(|e| {
-                    let msg = format!("{e} (key={k}, value='{v}'))");
-                    self.deferred.push_warning(msg);
-                })
-                .ok()
-        })
-    }
-
-    fn lookup_all_nonstandard(&mut self) -> NonStdKeywords {
-        let mut ns = HashMap::new();
-        self.raw_keywords.retain(|k, v| {
-            if let Ok(nk) = k.parse::<NonStdKey>() {
-                ns.insert(nk, v.clone());
-                false
-            } else {
-                true
-            }
-        });
-        ns
-    }
-
-    // TODO I don't really need a hash table for this. It would be easier and
-    // probably faster to just use a paired vector, although I would need to
-    // ensure the keys are unique.
-    fn lookup_all_meas_nonstandard(&mut self, n: MeasIdx) -> NonStdKeywords {
-        let mut ns = HashMap::new();
-        // ASSUME the pattern does not start with "$" and has a %n which will be
-        // subbed for the measurement index. The pattern will then be turned
-        // into a legit rust regular expression, which may fail depending on
-        // what %n does, so check it each time.
-        if let Some(p) = &self.conf.nonstandard_measurement_pattern {
-            match p.from_index(n) {
-                Ok(pattern) => self.raw_keywords.retain(|k, v| {
-                    if let Some(nk) = pattern.try_match(k.as_str()) {
-                        ns.insert(nk, v.clone());
-                        false
-                    } else {
-                        true
-                    }
-                }),
-                Err(err) => self.deferred.push_warning(err.to_string()),
-            }
-        }
-        ns
-    }
-
-    // auxiliary functions
-
-    fn collect(self) -> PureErrorBuf {
-        self.deferred
-    }
-
-    fn into_failure(self, reason: String) -> PureFailure {
-        Failure {
-            reason,
-            deferred: self.collect(),
-        }
-    }
-
-    fn from(kws: &'b mut RawKeywords, conf: &'a StdTextReadConfig) -> Self {
-        KwParser {
-            raw_keywords: kws,
-            deferred: PureErrorBuf::default(),
-            conf,
-        }
-    }
-
-    fn lookup_meta_req<V>(&mut self) -> Option<V>
-    where
-        V: ReqMetaKey,
-        V: FromStr,
-        <V as FromStr>::Err: fmt::Display,
-    {
-        V::remove_meta_req(self.raw_keywords)
-            .map_err(|e| self.deferred.push_error(e))
-            .ok()
-    }
-
-    fn lookup_meta_opt<V>(&mut self, dep: bool) -> OptionalKw<V>
-    where
-        V: OptMetaKey,
-        V: FromStr,
-        <V as FromStr>::Err: fmt::Display,
-    {
-        let res = V::remove_meta_opt(self.raw_keywords);
-        self.process_opt(res, V::std(), dep)
-    }
-
-    fn lookup_meas_req<V>(&mut self, n: MeasIdx) -> Option<V>
-    where
-        V: ReqMeasKey,
-        V: FromStr,
-        <V as FromStr>::Err: fmt::Display,
-    {
-        V::remove_meas_req(self.raw_keywords, n)
-            .map_err(|e| self.deferred.push_error(e))
-            .ok()
-    }
-
-    fn lookup_meas_opt<V>(&mut self, n: MeasIdx, dep: bool) -> OptionalKw<V>
-    where
-        V: OptMeasKey,
-        V: FromStr,
-        <V as FromStr>::Err: fmt::Display,
-    {
-        let res = V::remove_meas_opt(self.raw_keywords, n);
-        self.process_opt(res, V::std(n), dep)
-    }
-
-    fn process_opt<V>(
-        &mut self,
-        res: Result<OptionalKw<V>, String>,
-        k: String,
-        dep: bool,
-    ) -> OptionalKw<V> {
-        res.inspect(|_| {
-            if dep {
-                let msg = format!("deprecated key: {k}");
-                self.deferred
-                    .push_msg_leveled(msg, self.conf.disallow_deprecated);
-            }
-        })
-        .map_err(|e| self.deferred.push_warning(e))
-        .unwrap_or(None.into())
-    }
-}
 
 // TODO generalize this
 pub enum MeasConvertError {
@@ -1605,37 +1361,6 @@ impl fmt::Display for FromByteOrdError {
             "could not convert ByteOrd, must be either '1,2,3,4' or '4,3,2,1'",
         )
     }
-}
-
-/// A bundle for $ORIGINALITY, $LAST_MODIFIER, and $LAST_MODIFIED (3.1+)
-#[derive(Clone, Serialize, Default)]
-pub struct ModificationData {
-    pub last_modifier: OptionalKw<LastModifier>,
-    pub last_modified: OptionalKw<ModifiedDateTime>,
-    pub originality: OptionalKw<Originality>,
-}
-
-/// A bundle for $PLATEID, $PLATENAME, and $WELLID (3.1+)
-#[derive(Clone, Serialize, Default)]
-pub struct PlateData {
-    pub plateid: OptionalKw<Plateid>,
-    pub platename: OptionalKw<Platename>,
-    pub wellid: OptionalKw<Wellid>,
-}
-
-/// A bundle for $UNSTAINEDCENTERS and $UNSTAINEDINFO (3.2+)
-#[derive(Clone, Serialize, Default)]
-pub struct UnstainedData {
-    unstainedcenters: OptionalKw<UnstainedCenters>,
-    pub unstainedinfo: OptionalKw<UnstainedInfo>,
-}
-
-/// A bundle for $CARRIERID, $CARRIERTYPE, $LOCATIONID (3.2+)
-#[derive(Clone, Serialize, Default)]
-pub struct CarrierData {
-    pub carrierid: OptionalKw<Carrierid>,
-    pub carriertype: OptionalKw<Carriertype>,
-    pub locationid: OptionalKw<Locationid>,
 }
 
 pub(crate) type Measurements<N, T, P> =
@@ -2519,7 +2244,7 @@ where
         if ps.len() == par.0 {
             NamedVec::new(ps, prefix.clone()).map_or_else(
                 |e| {
-                    st.deferred.push_error(e);
+                    st.push_error(e);
                     None
                 },
                 Some,
@@ -3479,6 +3204,18 @@ impl<A, D> Core3_2<A, D> {
     }
 }
 
+impl UnstainedData {
+    pub(crate) fn new_unchecked(
+        us: OptionalKw<UnstainedCenters>,
+        ui: OptionalKw<UnstainedInfo>,
+    ) -> Self {
+        Self {
+            unstainedcenters: us,
+            unstainedinfo: ui,
+        }
+    }
+}
+
 #[derive(Clone, Serialize)]
 pub struct OptionalKwFamily;
 
@@ -4339,7 +4076,7 @@ impl LookupMeasurement for InnerMeasurement3_2 {
             .is_some_and(|x| *x == MeasurementType::Time)
         {
             let msg = "$PnTYPE for non-time channel should not be 'Time' if given".into();
-            st.deferred.push_error(msg);
+            st.push_error(msg);
         }
         Some(Self {
             scale: st.lookup_meas_req(i)?,
@@ -4361,8 +4098,7 @@ impl LookupTime for InnerTime2_0 {
     fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
         let scale: OptionalKw<Scale> = st.lookup_meas_opt(i, false);
         if scale.0.is_some_and(|x| x != Scale::Linear) {
-            st.deferred
-                .push_error("$PnE for time channel must be linear".into());
+            st.push_error("$PnE for time channel must be linear".into());
         }
         Some(Self)
     }
@@ -4372,13 +4108,11 @@ impl LookupTime for InnerTime3_0 {
     fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
         let scale: Option<Scale> = st.lookup_meas_req(i);
         if scale.is_some_and(|x| x != Scale::Linear) {
-            st.deferred
-                .push_error("$PnE for time channel must be linear".into());
+            st.push_error("$PnE for time channel must be linear".into());
         }
         let gain: OptionalKw<Gain> = st.lookup_meas_opt(i, false);
         if gain.0.is_some() {
-            st.deferred
-                .push_error("$PnG for time channel should not be set".into());
+            st.push_error("$PnG for time channel should not be set".into());
         }
         st.lookup_meta_req().map(|timestep| Self { timestep })
     }
@@ -4389,13 +4123,11 @@ impl LookupTime for InnerTime3_1 {
         // TODO not DRY
         let scale: Option<Scale> = st.lookup_meas_req(i);
         if scale.is_some_and(|x| x != Scale::Linear) {
-            st.deferred
-                .push_error("$PnE for time channel must be linear".into());
+            st.push_error("$PnE for time channel must be linear".into());
         }
         let gain: OptionalKw<Gain> = st.lookup_meas_opt(i, false);
         if gain.0.is_some() {
-            st.deferred
-                .push_error("$PnG for time channel should not be set".into());
+            st.push_error("$PnG for time channel should not be set".into());
         }
         st.lookup_meta_req().map(|timestep| Self {
             timestep,
@@ -4408,18 +4140,15 @@ impl LookupTime for InnerTime3_2 {
     fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
         let scale: Option<Scale> = st.lookup_meas_req(i);
         if scale.is_some_and(|x| x != Scale::Linear) {
-            st.deferred
-                .push_error("$PnE for time channel must be linear".into());
+            st.push_error("$PnE for time channel must be linear".into());
         }
         let gain: OptionalKw<Gain> = st.lookup_meas_opt(i, false);
         if gain.0.is_some() {
-            st.deferred
-                .push_error("$PnG for time channel should not be set".into());
+            st.push_error("$PnG for time channel should not be set".into());
         }
         let mt: OptionalKw<MeasurementType> = st.lookup_meas_opt(i, false);
         if mt.0.is_some_and(|x| x != MeasurementType::Time) {
-            st.deferred
-                .push_error("$PnTYPE for time channel should be 'Time' if given".into());
+            st.push_error("$PnTYPE for time channel should be 'Time' if given".into());
         }
         st.lookup_meta_req().map(|timestep| Self {
             timestep,

@@ -723,35 +723,6 @@ impl AlphaNumReader {
     }
 }
 
-pub type CoreDataset2_0 = CoreDataset<
-    InnerMetadata2_0,
-    InnerTime2_0,
-    InnerMeasurement2_0,
-    OptionalKwFamily,
-    OptionalKw<Shortname>,
->;
-pub type CoreDataset3_0 = CoreDataset<
-    InnerMetadata3_0,
-    InnerTime3_0,
-    InnerMeasurement3_0,
-    OptionalKwFamily,
-    OptionalKw<Shortname>,
->;
-pub type CoreDataset3_1 = CoreDataset<
-    InnerMetadata3_1,
-    InnerTime3_1,
-    InnerMeasurement3_1,
-    IdentityFamily,
-    Identity<Shortname>,
->;
-pub type CoreDataset3_2 = CoreDataset<
-    InnerMetadata3_2,
-    InnerTime3_2,
-    InnerMeasurement3_2,
-    IdentityFamily,
-    Identity<Shortname>,
->;
-
 fn make_uint_type_inner(bytes: Bytes, r: &Range, e: Endian) -> Result<AnyUintType, String> {
     // ASSUME this can only be 1-8
     match u8::from(bytes) {

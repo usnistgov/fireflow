@@ -5,6 +5,7 @@ pub mod keywords;
 pub mod modified_date_time;
 pub mod named_vec;
 pub mod optionalkw;
+pub mod parser;
 pub mod range;
 pub mod ranged_float;
 pub mod scale;

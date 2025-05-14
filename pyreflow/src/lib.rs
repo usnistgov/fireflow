@@ -830,12 +830,12 @@ macro_rules! get_set_str {
         impl $pytype {
             #[getter]
             fn $get(&self) -> Option<String> {
-                self.0.$($root.)*$field.as_ref_opt().map(|x| x.clone().into())
+                self.0.metadata.$($root.)*$field.as_ref_opt().map(|x| x.clone().into())
             }
 
             #[setter]
             fn $set(&mut self, s: Option<String>) {
-                self.0.$($root.)*$field = s.map(|x| x.into()).into()
+                self.0.metadata.$($root.)*$field = s.map(|x| x.into()).into()
             }
         }
     };
@@ -869,12 +869,12 @@ macro_rules! get_set_copied {
         impl $pytype {
             #[getter]
             fn $get(&self) -> Option<$out> {
-                self.0.$($root.)*$field.0.map(|x| x.into())
+                self.0.metadata.$($root.)*$field.0.map(|x| x.into())
             }
 
             #[setter]
             fn $set(&mut self, s: Option<$out>) {
-                self.0.$($root.)*$field = s.map(|x| x.into()).into()
+                self.0.metadata.$($root.)*$field = s.map(|x| x.into()).into()
             }
         }
     };
@@ -1135,9 +1135,9 @@ impl PyCoreTEXT3_2 {
     }
 }
 
+// TODO make this common
 #[pymethods]
 impl PyCoreDataset3_2 {
-    // TODO make this common
     #[getter]
     fn data(&self) -> PyDataFrame {
         let ns = self.0.all_shortnames();
@@ -1170,450 +1170,7 @@ impl PyCoreDataset3_2 {
     }
 }
 
-macro_rules! integer_2_0_methods {
-    ($($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                fn set_data_integer(&mut self, rs: Vec<u64>, byteord: PyByteOrd) -> bool {
-                    self.0.set_data_integer(rs, byteord.into())
-                }
-            }
-        )*
-    };
-}
-
-integer_2_0_methods!(
-    PyCoreTEXT2_0,
-    PyCoreTEXT3_0,
-    PyCoreDataset2_0,
-    PyCoreDataset3_0
-);
-
-macro_rules! shortnames_methods {
-    ($($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                pub fn set_measurement_shortnames_maybe(
-                    &mut self,
-                    ns: Vec<Option<PyShortname>>,
-                ) -> PyResult<()> {
-                    let xs = ns.into_iter().map(|n| n.map(|y| y.into())).collect();
-                    self.0
-                        .set_measurement_shortnames_maybe(xs)
-                        .map_err(|e| PyreflowException::new_err(e.to_string()))
-                        .map(|_| ())
-                }
-            }
-        )*
-    };
-}
-
-shortnames_methods!(
-    PyCoreTEXT2_0,
-    PyCoreTEXT3_0,
-    PyCoreDataset2_0,
-    PyCoreDataset3_0
-);
-
-macro_rules! integer_methods {
-    ($($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                fn set_data_integer(&mut self, rs: Vec<PyNumRangeSetter>) -> bool {
-                    self.0
-                        .set_data_integer(rs.into_iter().map(|x| x.into()).collect())
-                }
-            }
-        )*
-    };
-}
-
-integer_methods!(
-    PyCoreTEXT3_1,
-    PyCoreTEXT3_2,
-    PyCoreDataset3_1,
-    PyCoreDataset3_2
-);
-
-macro_rules! endian_methods {
-    ($($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                #[getter]
-                fn get_big_endian(&self) -> bool {
-                    self.0.get_big_endian()
-                }
-
-                #[setter]
-                fn set_big_endian(&mut self, is_big: bool) {
-                    self.0.set_big_endian(is_big)
-                }
-            }
-        )*
-    };
-}
-
-endian_methods!(
-    PyCoreTEXT3_1,
-    PyCoreTEXT3_2,
-    PyCoreDataset3_1,
-    PyCoreDataset3_2
-);
-
-macro_rules! scales_methods {
-    ($($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                #[getter]
-                fn get_all_scales(&self) -> Vec<PyScale> {
-                    self.0.all_scales().into_iter().map(|x| x.into()).collect()
-                }
-
-                #[getter]
-                fn get_scales(&self) -> Vec<(usize, PyScale)> {
-                    self.0
-                        .scales()
-                        .into_iter()
-                        .map(|(i, x)| (i.into(), x.into()))
-                        .collect()
-                }
-
-                #[setter]
-                fn set_scales(&mut self, xs: Vec<PyScale>) -> bool {
-                    self.0.set_scales(xs.into_iter().map(|x| x.into()).collect())
-                }
-            }
-        )*
-    };
-}
-
-macro_rules! timestep_methods {
-    ($($pytype:ident),*) => {
-        //get_set_str!($pytype, [$($root,)* metadata, specific], get_cytsn, set_cytsn, cytsn);
-        $(
-            #[pymethods]
-            impl $pytype {
-                #[getter]
-                fn get_timestep(&self) -> Option<PyPositiveFloat> {
-                    self.0
-                        .measurements_named_vec()
-                        .as_center()
-                        .and_then(|x| x.value.specific.timestep())
-                        .map(|x| x.0.into())
-                }
-
-                #[setter]
-                fn set_timestep(&mut self, x: PyPositiveFloat) -> bool {
-                    self.0
-                        .as_center_mut()
-                        .map(|y| y.value.specific.set_timestep(api::Timestep(x.into())))
-                        .is_some()
-                }
-            }
-        )*
-    };
-}
-
-macro_rules! wavelength_methods {
-    ($($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                #[getter]
-                fn get_wavelengths(&self) -> Vec<(usize, Option<u32>)> {
-                    self.0
-                        .wavelengths()
-                        .into_iter()
-                        .map(|(i, x)| (i.into(), x.map(|y| y.0)))
-                        .collect()
-                }
-
-                #[setter]
-                fn set_wavelengths(&mut self, xs: Vec<Option<u32>>) -> bool {
-                    self.0
-                        .set_wavelengths(xs.into_iter().map(|x| x.map(|y| y.into())).collect())
-                }
-            }
-        )*
-    };
-}
-
-macro_rules! wavelengths_methods {
-    ($($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                #[getter]
-                fn get_wavelengths(&self) -> Vec<(usize, Vec<u32>)> {
-                    self.0
-                        .wavelengths()
-                        .into_iter()
-                        .map(|(i, x)| {
-                            (
-                                i.into(),
-                                x.map(|y| y.0.iter().copied().collect()).unwrap_or_default(),
-                            )
-                        })
-                        .collect()
-                }
-
-                #[setter]
-                fn set_wavelengths(&mut self, xs: Vec<Vec<u32>>) -> bool {
-                    self.0
-                        .set_wavelengths(
-                            xs.into_iter()
-                                .map(|x| NonEmpty::from_vec(x).map(api::Wavelengths))
-                                .collect(),
-                        )
-                }
-            }
-        )*
-    };
-}
-
-macro_rules! modification_methods {
-    ($($pytype:ident),+) => {
-        get_set_copied!(
-            $($pytype,)*
-                [metadata, specific, modification],
-            get_originality,
-            set_originality,
-            originality,
-            PyOriginality
-        );
-
-        get_set_copied!(
-            $($pytype,)*
-                [metadata, specific, modification],
-            get_last_modified,
-            set_last_modified,
-            last_modified,
-            NaiveDateTime
-        );
-
-        get_set_str!(
-            $($pytype,)*
-                [metadata, specific, modification],
-            get_last_modifier,
-            set_last_modifier,
-            last_modifier
-        );
-    };
-}
-
-macro_rules! carrier_methods {
-    ($($pytype:ident),*) => {
-        get_set_str!(
-            $($pytype,)*
-                [metadata, specific, carrier],
-            get_carriertype,
-            set_carriertype,
-            carriertype
-        );
-
-        get_set_str!(
-            $($pytype,)*
-                [metadata, specific, carrier],
-            get_carrierid,
-            set_carrierid,
-            carrierid
-        );
-
-        get_set_str!(
-            $($pytype,)*
-                [metadata, specific, carrier],
-            get_locationid,
-            set_locationid,
-            locationid
-        );
-    };
-
-    // CoreDataset
-    (dataset $($pytype:ident),*) => {
-        get_set_str!($($pytype),*; carriertype, set_carriertype);
-        get_set_str!($($pytype),*; carrierid, set_carrierid );
-        get_set_str!($($pytype),*; locationid, set_locationid );
-    };
-}
-
-macro_rules! plate_methods {
-    ($($pytype:ident),*) => {
-        get_set_str!(
-            $($pytype,)*
-                [metadata, specific, plate],
-            get_wellid,
-            set_wellid,
-            wellid
-        );
-
-        get_set_str!(
-            $($pytype,)*
-                [metadata, specific, plate],
-            get_plateid,
-            set_plateid,
-            plateid
-        );
-
-        get_set_str!(
-            $($pytype,)*
-                [metadata, specific, plate],
-            get_platename,
-            set_platename,
-            platename
-        );
-    };
-
-    (dataset $($pytype:ident),*) => {
-        get_set_str!($($pytype),*; wellid, set_wellid);
-        get_set_str!($($pytype),*; plateid, set_plateid);
-        get_set_str!($($pytype),*; platename, set_platename);
-    };
-}
-
-macro_rules! spillover_methods {
-    ($($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                #[getter]
-                fn get_spillover_matrix<'a>(&self, py: Python<'a>) -> Option<Bound<'a, PyArray2<f32>>> {
-                    self.0.spillover().map(|x| x.matrix().to_pyarray(py))
-                }
-
-                #[getter]
-                fn get_spillover_names(&self) -> Vec<String> {
-                    self.0
-                        .spillover()
-                        .map(|x| x.measurements())
-                        .unwrap_or_default()
-                        .iter()
-                        .map(|x| x.as_ref().to_string())
-                        .collect()
-                }
-
-                fn set_spillover(
-                    &mut self,
-                    ns: Vec<PyShortname>,
-                    a: PyReadonlyArray2<f32>,
-                ) -> Result<(), PyErr> {
-                    let m = a.as_matrix().into_owned();
-                    self.0
-                        .set_spillover(ns.into_iter().map(|x| x.into()).collect(), m)
-                        .map_err(|e| PyreflowException::new_err(e.to_string()))
-                }
-
-                fn unset_spillover(&mut self) {
-                    self.0.unset_spillover()
-                }
-            }
-        )*
-    };
-}
-
-macro_rules! to_dataset_method {
-    ($from:ident, $to:ident) => {
-        #[pymethods]
-        impl $from {
-            fn to_dataset(&self, df: PyDataFrame, analysis: Vec<u8>) -> PyResult<$to> {
-                let cols = polars_to_fcs(df.into())
-                    .map_err(|e| PyreflowException::new_err(e.to_string()))?;
-                api::CoreDataset::from_coretext(self.0.clone(), cols, analysis.into())
-                    .map_err(|e| PyreflowException::new_err(e.to_string()))
-                    .map(|df| df.into())
-            }
-        }
-    };
-}
-
-to_dataset_method!(PyCoreTEXT2_0, PyCoreDataset2_0);
-to_dataset_method!(PyCoreTEXT3_0, PyCoreDataset3_0);
-to_dataset_method!(PyCoreTEXT3_1, PyCoreDataset3_1);
-to_dataset_method!(PyCoreTEXT3_2, PyCoreDataset3_2);
-
-macro_rules! common_coretext_methods {
-    ($($pytype:ident),*) => {
-        $(
-            get_set_copied!($pytype, [metadata], get_abrt, set_abrt, abrt, u32);
-            get_set_copied!($pytype, [metadata], get_lost, set_lost, lost, u32);
-
-            get_set_str!($pytype, [metadata], get_cells, set_cells, cells);
-            get_set_str!($pytype, [metadata], get_com, set_com, com);
-            get_set_str!($pytype, [metadata], get_exp, set_exp, exp);
-            get_set_str!($pytype, [metadata], get_fil, set_fil, fil);
-            get_set_str!($pytype, [metadata], get_inst, set_inst, inst);
-            get_set_str!($pytype, [metadata], get_op, set_op, op);
-            get_set_str!($pytype, [metadata], get_proj, set_proj, proj);
-            get_set_str!($pytype, [metadata], get_smno, set_smno, smno);
-            get_set_str!($pytype, [metadata], get_src, set_src, src);
-            get_set_str!($pytype, [metadata], get_sys, set_sys, sys);
-
-            #[pymethods]
-            impl $pytype {
-                fn insert_nonstandard(&mut self, k: PyNonStdKey, v: String) -> Option<String> {
-                    self.0.metadata.nonstandard_keywords.insert(k.into(), v)
-                }
-
-                fn remove_nonstandard(&mut self, k: PyNonStdKey) -> Option<String> {
-                    self.0.metadata.nonstandard_keywords.remove(&k.into())
-                }
-
-                fn get_nonstandard(&mut self, k: PyNonStdKey) -> Option<String> {
-                    self.0.metadata.nonstandard_keywords.get(&k.into()).cloned()
-                }
-            }
-        )*
-    };
-}
-
-common_coretext_methods!(PyCoreTEXT2_0, PyCoreTEXT3_0, PyCoreTEXT3_1, PyCoreTEXT3_2);
-
-macro_rules! common_dataset_methods {
-    ($($pytype:ident),*) => {
-        $(
-            get_set_copied!($pytype, [metadata], get_abrt, set_abrt, abrt, u32);
-            get_set_copied!($pytype, [metadata], get_lost, set_lost, lost, u32);
-
-            get_set_str!($pytype, [metadata], get_cells, set_cells, cells);
-            get_set_str!($pytype, [metadata], get_com,   set_com,   com);
-            get_set_str!($pytype, [metadata], get_exp,   set_exp,   exp);
-            get_set_str!($pytype, [metadata], get_fil,   set_fil,   fil);
-            get_set_str!($pytype, [metadata], get_inst,  set_inst,  inst);
-            get_set_str!($pytype, [metadata], get_op,    set_op,    op);
-            get_set_str!($pytype, [metadata], get_proj,  set_proj,  proj);
-            get_set_str!($pytype, [metadata], get_smno,  set_smno,  smno);
-            get_set_str!($pytype, [metadata], get_src,   set_src,   src);
-            get_set_str!($pytype, [metadata], get_sys,   set_sys,   sys);
-
-            #[pymethods]
-            impl $pytype {
-                fn insert_nonstandard(&mut self, k: PyNonStdKey, v: String) -> Option<String> {
-                    self.0.metadata.nonstandard_keywords.insert(k.into(), v)
-                }
-
-                fn remove_nonstandard(&mut self, k: PyNonStdKey) -> Option<String> {
-                    self.0.metadata.nonstandard_keywords.remove(&k.into())
-                }
-
-                fn get_nonstandard(&mut self, k: PyNonStdKey) -> Option<String> {
-                    self.0.metadata.nonstandard_keywords.get(&k.into()).cloned()
-                }
-            }
-        )*
-    };
-}
-
-common_dataset_methods!(
-    PyCoreDataset2_0,
-    PyCoreDataset3_0,
-    PyCoreDataset3_1,
-    PyCoreDataset3_2
-);
-
+// Get/set methods for all versions
 macro_rules! common_methods {
     ($pytype:ident, $($rest:ident),*) => {
         common_methods!($pytype);
@@ -1628,6 +1185,35 @@ macro_rules! common_methods {
         meas_get_set!(detector_types,    set_detector_types,    String,        $pytype);
         meas_get_set!(percents_emitted,  set_percents_emitted,  String,        $pytype);
         meas_get_set!(detector_voltages, set_detector_voltages, PyNonNegFloat, $pytype);
+
+        get_set_copied!($pytype, [], get_abrt, set_abrt, abrt, u32);
+        get_set_copied!($pytype, [], get_lost, set_lost, lost, u32);
+
+        get_set_str!($pytype, [], get_cells, set_cells, cells);
+        get_set_str!($pytype, [], get_com,   set_com,   com);
+        get_set_str!($pytype, [], get_exp,   set_exp,   exp);
+        get_set_str!($pytype, [], get_fil,   set_fil,   fil);
+        get_set_str!($pytype, [], get_inst,  set_inst,  inst);
+        get_set_str!($pytype, [], get_op,    set_op,    op);
+        get_set_str!($pytype, [], get_proj,  set_proj,  proj);
+        get_set_str!($pytype, [], get_smno,  set_smno,  smno);
+        get_set_str!($pytype, [], get_src,   set_src,   src);
+        get_set_str!($pytype, [], get_sys,   set_sys,   sys);
+
+        #[pymethods]
+        impl $pytype {
+            fn insert_nonstandard(&mut self, k: PyNonStdKey, v: String) -> Option<String> {
+                self.0.metadata.nonstandard_keywords.insert(k.into(), v)
+            }
+
+            fn remove_nonstandard(&mut self, k: PyNonStdKey) -> Option<String> {
+                self.0.metadata.nonstandard_keywords.remove(&k.into())
+            }
+
+            fn get_nonstandard(&mut self, k: PyNonStdKey) -> Option<String> {
+                self.0.metadata.nonstandard_keywords.get(&k.into()).cloned()
+            }
+        }
 
         #[pymethods]
         impl $pytype {
@@ -1823,6 +1409,418 @@ common_methods!(
     PyCoreDataset3_2
 );
 
+// Get/set methods for setting $PnN (2.0-3.0)
+macro_rules! shortnames_methods {
+    ($($pytype:ident),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                pub fn set_measurement_shortnames_maybe(
+                    &mut self,
+                    ns: Vec<Option<PyShortname>>,
+                ) -> PyResult<()> {
+                    let xs = ns.into_iter().map(|n| n.map(|y| y.into())).collect();
+                    self.0
+                        .set_measurement_shortnames_maybe(xs)
+                        .map_err(|e| PyreflowException::new_err(e.to_string()))
+                        .map(|_| ())
+                }
+            }
+        )*
+    };
+}
+
+shortnames_methods!(
+    PyCoreTEXT2_0,
+    PyCoreTEXT3_0,
+    PyCoreDataset2_0,
+    PyCoreDataset3_0
+);
+
+// Get/set methods for setting integer measurement types (2.0-3.0)
+macro_rules! integer_2_0_methods {
+    ($($pytype:ident),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                fn set_data_integer(&mut self, rs: Vec<u64>, byteord: PyByteOrd) -> bool {
+                    self.0.set_data_integer(rs, byteord.into())
+                }
+            }
+        )*
+    };
+}
+
+integer_2_0_methods!(
+    PyCoreTEXT2_0,
+    PyCoreTEXT3_0,
+    PyCoreDataset2_0,
+    PyCoreDataset3_0
+);
+
+// Get/set methods for setting integer measurement types (3.1-3.2)
+macro_rules! integer_methods {
+    ($($pytype:ident),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                fn set_data_integer(&mut self, rs: Vec<PyNumRangeSetter>) -> bool {
+                    self.0
+                        .set_data_integer(rs.into_iter().map(|x| x.into()).collect())
+                }
+            }
+        )*
+    };
+}
+
+integer_methods!(
+    PyCoreTEXT3_1,
+    PyCoreTEXT3_2,
+    PyCoreDataset3_1,
+    PyCoreDataset3_2
+);
+
+// Get/set methods for $BYTEORD (3.1-3.2)
+macro_rules! endian_methods {
+    ($($pytype:ident),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                #[getter]
+                fn get_big_endian(&self) -> bool {
+                    self.0.get_big_endian()
+                }
+
+                #[setter]
+                fn set_big_endian(&mut self, is_big: bool) {
+                    self.0.set_big_endian(is_big)
+                }
+            }
+        )*
+    };
+}
+
+endian_methods!(
+    PyCoreTEXT3_1,
+    PyCoreTEXT3_2,
+    PyCoreDataset3_1,
+    PyCoreDataset3_2
+);
+
+// Get/set methods for $PnE (3.0-3.2)
+macro_rules! scales_methods {
+    ($($pytype:ident),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                #[getter]
+                fn get_all_scales(&self) -> Vec<PyScale> {
+                    self.0.all_scales().into_iter().map(|x| x.into()).collect()
+                }
+
+                #[getter]
+                fn get_scales(&self) -> Vec<(usize, PyScale)> {
+                    self.0
+                        .scales()
+                        .into_iter()
+                        .map(|(i, x)| (i.into(), x.into()))
+                        .collect()
+                }
+
+                #[setter]
+                fn set_scales(&mut self, xs: Vec<PyScale>) -> bool {
+                    self.0.set_scales(xs.into_iter().map(|x| x.into()).collect())
+                }
+            }
+        )*
+    };
+}
+
+scales_methods!(
+    PyCoreTEXT3_0,
+    PyCoreTEXT3_1,
+    PyCoreTEXT3_2,
+    PyCoreDataset3_0,
+    PyCoreDataset3_1,
+    PyCoreDataset3_2
+);
+
+// Get/set methods for $TIMESTEP (3.0-3.2)
+macro_rules! timestep_methods {
+    ($($pytype:ident),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                #[getter]
+                fn get_timestep(&self) -> Option<PyPositiveFloat> {
+                    self.0
+                        .measurements_named_vec()
+                        .as_center()
+                        .and_then(|x| x.value.specific.timestep())
+                        .map(|x| x.0.into())
+                }
+
+                #[setter]
+                fn set_timestep(&mut self, x: PyPositiveFloat) -> bool {
+                    self.0
+                        .as_center_mut()
+                        .map(|y| y.value.specific.set_timestep(api::Timestep(x.into())))
+                        .is_some()
+                }
+            }
+        )*
+    };
+}
+
+timestep_methods!(
+    PyCoreTEXT3_0,
+    PyCoreTEXT3_1,
+    PyCoreTEXT3_2,
+    PyCoreDataset3_0,
+    PyCoreDataset3_1,
+    PyCoreDataset3_2
+);
+
+// Get/set methods for scaler $PnL (3.1-3.2)
+macro_rules! wavelength_methods {
+    ($($pytype:ident),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                #[getter]
+                fn get_wavelengths(&self) -> Vec<(usize, Option<u32>)> {
+                    self.0
+                        .wavelengths()
+                        .into_iter()
+                        .map(|(i, x)| (i.into(), x.map(|y| y.0)))
+                        .collect()
+                }
+
+                #[setter]
+                fn set_wavelengths(&mut self, xs: Vec<Option<u32>>) -> bool {
+                    self.0
+                        .set_wavelengths(xs.into_iter().map(|x| x.map(|y| y.into())).collect())
+                }
+            }
+        )*
+    };
+}
+
+wavelength_methods!(
+    PyCoreTEXT2_0,
+    PyCoreTEXT3_0,
+    PyCoreDataset2_0,
+    PyCoreDataset3_0
+);
+
+// Get/set methods for vector $PnL (3.1-3.2)
+macro_rules! wavelengths_methods {
+    ($($pytype:ident),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                #[getter]
+                fn get_wavelengths(&self) -> Vec<(usize, Vec<u32>)> {
+                    self.0
+                        .wavelengths()
+                        .into_iter()
+                        .map(|(i, x)| {
+                            (
+                                i.into(),
+                                x.map(|y| y.0.iter().copied().collect()).unwrap_or_default(),
+                            )
+                        })
+                        .collect()
+                }
+
+                #[setter]
+                fn set_wavelengths(&mut self, xs: Vec<Vec<u32>>) -> bool {
+                    self.0
+                        .set_wavelengths(
+                            xs.into_iter()
+                                .map(|x| NonEmpty::from_vec(x).map(api::Wavelengths))
+                                .collect(),
+                        )
+                }
+            }
+        )*
+    };
+}
+
+wavelengths_methods!(
+    PyCoreTEXT3_1,
+    PyCoreTEXT3_2,
+    PyCoreDataset3_1,
+    PyCoreDataset3_2
+);
+
+// Get/set methods for $LAST_MODIFIER/$LAST_MODIFIED/$ORIGINALITY (3.1-3.2)
+macro_rules! modification_methods {
+    ($($pytype:ident),+) => {
+        get_set_copied!(
+            $($pytype,)*
+            [specific, modification],
+            get_originality,
+            set_originality,
+            originality,
+            PyOriginality
+        );
+
+        get_set_copied!(
+            $($pytype,)*
+            [specific, modification],
+            get_last_modified,
+            set_last_modified,
+            last_modified,
+            NaiveDateTime
+        );
+
+        get_set_str!(
+            $($pytype,)*
+            [specific, modification],
+            get_last_modifier,
+            set_last_modifier,
+            last_modifier
+        );
+    };
+}
+
+modification_methods!(
+    PyCoreTEXT3_1,
+    PyCoreTEXT3_2,
+    PyCoreDataset3_1,
+    PyCoreDataset3_2
+);
+
+// Get/set methods for $CARRIERID/$CARRIERTYPE/$LOCATIONID (3.2)
+macro_rules! carrier_methods {
+    ($($pytype:ident),*) => {
+        get_set_str!($($pytype,)* [specific, carrier], get_carriertype, set_carriertype, carriertype);
+        get_set_str!($($pytype,)* [specific, carrier], get_carrierid,   set_carrierid,   carrierid);
+        get_set_str!($($pytype,)* [specific, carrier], get_locationid,  set_locationid,  locationid);
+    };
+}
+
+carrier_methods!(PyCoreTEXT3_2, PyCoreDataset3_2);
+
+// Get/set methods for $PLATEID/$WELLID/$PLATENAME (3.1-3.2)
+macro_rules! plate_methods {
+    ($($pytype:ident),*) => {
+        get_set_str!($($pytype,)* [specific, plate], get_wellid,    set_wellid,    wellid);
+        get_set_str!($($pytype,)* [specific, plate], get_plateid,   set_plateid,   plateid);
+        get_set_str!($($pytype,)* [specific, plate], get_platename, set_platename, platename);
+    };
+}
+
+plate_methods!(
+    PyCoreTEXT3_1,
+    PyCoreTEXT3_2,
+    PyCoreDataset3_1,
+    PyCoreDataset3_2
+);
+
+// Get/set methods for $SPILLOVER (3.1-3.2)
+macro_rules! spillover_methods {
+    ($($pytype:ident),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                #[getter]
+                fn get_spillover_matrix<'a>(&self, py: Python<'a>) -> Option<Bound<'a, PyArray2<f32>>> {
+                    self.0.spillover().map(|x| x.matrix().to_pyarray(py))
+                }
+
+                #[getter]
+                fn get_spillover_names(&self) -> Vec<String> {
+                    self.0
+                        .spillover()
+                        .map(|x| x.measurements())
+                        .unwrap_or_default()
+                        .iter()
+                        .map(|x| x.as_ref().to_string())
+                        .collect()
+                }
+
+                fn set_spillover(
+                    &mut self,
+                    ns: Vec<PyShortname>,
+                    a: PyReadonlyArray2<f32>,
+                ) -> Result<(), PyErr> {
+                    let m = a.as_matrix().into_owned();
+                    self.0
+                        .set_spillover(ns.into_iter().map(|x| x.into()).collect(), m)
+                        .map_err(|e| PyreflowException::new_err(e.to_string()))
+                }
+
+                fn unset_spillover(&mut self) {
+                    self.0.unset_spillover()
+                }
+            }
+        )*
+    };
+}
+
+spillover_methods!(
+    PyCoreTEXT3_1,
+    PyCoreTEXT3_2,
+    PyCoreDataset3_1,
+    PyCoreDataset3_2
+);
+
+// Get/set methods for (optional) $CYT (2.0-3.1)
+//
+// 3.2 is required which is why it is not included here
+get_set_str!(
+    PyCoreTEXT2_0,
+    PyCoreTEXT3_0,
+    PyCoreTEXT3_1,
+    PyCoreDataset2_0,
+    PyCoreDataset3_0,
+    PyCoreDataset3_1,
+    [specific],
+    get_cyt,
+    set_cyt,
+    cyt
+);
+
+// Get/set methods for $FLOWRATE (3.2)
+get_set_str!(
+    PyCoreTEXT3_2,
+    PyCoreDataset3_2,
+    [specific],
+    get_flowrate,
+    set_flowrate,
+    flowrate
+);
+
+// Get/set methods for $VOL (3.1-3.2)
+get_set_copied!(
+    PyCoreTEXT3_1,
+    PyCoreTEXT3_2,
+    PyCoreDataset3_1,
+    PyCoreDataset3_2,
+    [specific],
+    get_vol,
+    set_vol,
+    vol,
+    PyNonNegFloat
+);
+
+// Get/set methods for $CYTSN (3.0-3.2)
+get_set_str!(
+    PyCoreTEXT3_0,
+    PyCoreTEXT3_1,
+    PyCoreTEXT3_2,
+    PyCoreDataset3_0,
+    PyCoreDataset3_1,
+    PyCoreDataset3_2,
+    [specific],
+    get_cytsn,
+    set_cytsn,
+    cytsn
+);
+
+// Get/set methods for $PnG (3.0-3.2)
 meas_get_set!(
     gains,
     set_gains,
@@ -1834,6 +1832,7 @@ meas_get_set!(
     PyCoreDataset3_1
 );
 
+// Get/set methods for $PnDET (3.2)
 meas_get_set!(
     det_names,
     set_det_names,
@@ -1842,8 +1841,7 @@ meas_get_set!(
     PyCoreDataset3_2
 );
 
-// // TODO make sure we can make a calibration object
-
+// Get/set methods for $PnCALIBRATION (3.1)
 meas_get_set!(
     calibrations,
     set_calibrations,
@@ -1852,6 +1850,7 @@ meas_get_set!(
     PyCoreDataset3_1
 );
 
+// Get/set methods for $PnCALIBRATION (3.2)
 meas_get_set!(
     calibrations,
     set_calibrations,
@@ -1860,8 +1859,10 @@ meas_get_set!(
     PyCoreDataset3_2
 );
 
+// Get/set methods for $PnTAG (3.2)
 meas_get_set!(tags, set_tags, String, PyCoreTEXT3_2, PyCoreDataset3_2);
 
+// Get/set methods for $PnTYPE (3.2)
 meas_get_set!(
     measurement_types,
     set_measurement_types,
@@ -1870,6 +1871,7 @@ meas_get_set!(
     PyCoreDataset3_2
 );
 
+// Get/set methods for $PnFEATURE (3.2)
 meas_get_set!(
     features,
     set_features,
@@ -1878,6 +1880,7 @@ meas_get_set!(
     PyCoreDataset3_2
 );
 
+// Get/set methods for $PnANALYTE (3.2)
 meas_get_set!(
     analytes,
     set_analytes,
@@ -1886,94 +1889,27 @@ meas_get_set!(
     PyCoreDataset3_2
 );
 
-wavelength_methods!(
-    PyCoreTEXT2_0,
-    PyCoreTEXT3_0,
-    PyCoreDataset2_0,
-    PyCoreDataset3_0
-);
+// Add method to convert CoreTEXT* to CoreDataset* by adding DATA and ANALYSIS
+// (all versions)
+macro_rules! to_dataset_method {
+    ($from:ident, $to:ident) => {
+        #[pymethods]
+        impl $from {
+            fn to_dataset(&self, df: PyDataFrame, analysis: Vec<u8>) -> PyResult<$to> {
+                let cols = polars_to_fcs(df.into())
+                    .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+                api::CoreDataset::from_coretext(self.0.clone(), cols, analysis.into())
+                    .map_err(|e| PyreflowException::new_err(e.to_string()))
+                    .map(|df| df.into())
+            }
+        }
+    };
+}
 
-wavelengths_methods!(
-    PyCoreTEXT3_1,
-    PyCoreTEXT3_2,
-    PyCoreDataset3_1,
-    PyCoreDataset3_2
-);
-
-spillover_methods!(
-    PyCoreTEXT3_1,
-    PyCoreTEXT3_2,
-    PyCoreDataset3_1,
-    PyCoreDataset3_2
-);
-
-plate_methods!(
-    PyCoreTEXT3_1,
-    PyCoreTEXT3_2,
-    PyCoreDataset3_1,
-    PyCoreDataset3_2
-);
-
-carrier_methods!(PyCoreTEXT3_2, PyCoreDataset3_2);
-
-scales_methods!(
-    PyCoreTEXT3_0,
-    PyCoreTEXT3_1,
-    PyCoreTEXT3_2,
-    PyCoreDataset3_0,
-    PyCoreDataset3_1,
-    PyCoreDataset3_2
-);
-
-get_set_str!(
-    PyCoreTEXT2_0,
-    PyCoreTEXT3_0,
-    PyCoreTEXT3_1,
-    PyCoreDataset2_0,
-    PyCoreDataset3_0,
-    PyCoreDataset3_1,
-    [metadata, specific],
-    get_cyt,
-    set_cyt,
-    cyt
-);
-
-get_set_str!(
-    PyCoreTEXT3_2,
-    PyCoreDataset3_2,
-    [metadata, specific],
-    get_flowrate,
-    set_flowrate,
-    flowrate
-);
-
-modification_methods!(
-    PyCoreTEXT3_1,
-    PyCoreTEXT3_2,
-    PyCoreDataset3_1,
-    PyCoreDataset3_2
-);
-
-get_set_copied!(
-    PyCoreTEXT3_1,
-    PyCoreTEXT3_2,
-    PyCoreDataset3_1,
-    PyCoreDataset3_2,
-    [metadata, specific],
-    get_vol,
-    set_vol,
-    vol,
-    PyNonNegFloat
-);
-
-timestep_methods!(
-    PyCoreTEXT3_0,
-    PyCoreTEXT3_1,
-    PyCoreTEXT3_2,
-    PyCoreDataset3_0,
-    PyCoreDataset3_1,
-    PyCoreDataset3_2
-);
+to_dataset_method!(PyCoreTEXT2_0, PyCoreDataset2_0);
+to_dataset_method!(PyCoreTEXT3_0, PyCoreDataset3_0);
+to_dataset_method!(PyCoreTEXT3_1, PyCoreDataset3_1);
+to_dataset_method!(PyCoreTEXT3_2, PyCoreDataset3_2);
 
 struct PyImpureError(error::ImpureFailure);
 

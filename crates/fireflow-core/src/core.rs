@@ -3,7 +3,7 @@ use crate::data::*;
 use crate::error::*;
 use crate::header::*;
 use crate::header_text::*;
-use crate::macros::match_many_to_one;
+use crate::macros::{match_many_to_one, newtype_from};
 use crate::segment::*;
 use crate::validated::dataframe::*;
 use crate::validated::nonstandard::*;
@@ -78,22 +78,21 @@ pub struct Core<A, D, M, T, P, N, W> {
     /// type variable.
     measurements: NamedVec<N, W, TimeChannel<T>, Measurement<P>>,
 
-    /// DATA segment as a polars DataFrame
-    ///
-    /// The type of each column is such that each measurement is encoded with
-    /// zero loss. This will/should never contain NULL values despite the
-    /// underlying arrow framework allowing NULLs to exist.
+    /// DATA segment
     data: D,
 
     /// ANALYSIS segment
-    ///
-    /// This will be empty if ANALYSIS either doesn't exist or the computation
-    /// fails. This has not standard structure, so the best we can capture is a
-    /// byte sequence.
     pub analysis: A,
 }
 
+/// The ANALYSIS segment, which is just a string of bytes
+#[derive(Clone)]
+pub struct Analysis(pub Vec<u8>);
+
+newtype_from!(Analysis, Vec<u8>);
+
 pub type CoreTEXT<M, T, P, N, W> = Core<(), (), M, T, P, N, W>;
+pub type CoreDataset<M, T, P, N, W> = Core<Analysis, FCSDataFrame, M, T, P, N, W>;
 
 /// Structured non-measurement metadata.
 ///
@@ -231,6 +230,15 @@ pub enum AnyCoreTEXT {
     FCS3_2(Box<CoreTEXT3_2>),
 }
 
+/// FCS file for any supported FCS version
+#[derive(Clone)]
+pub enum AnyCoreDataset {
+    FCS2_0(CoreDataset2_0),
+    FCS3_0(CoreDataset3_0),
+    FCS3_1(CoreDataset3_1),
+    FCS3_2(CoreDataset3_2),
+}
+
 macro_rules! from_anycoretext {
     ($anyvar:ident, $coretype:ident) => {
         impl From<$coretype> for AnyCoreTEXT {
@@ -353,12 +361,6 @@ impl AnyCoreDataset {
     pub fn as_data(&self) -> &FCSDataFrame {
         match_many_to_one!(self, AnyCoreDataset, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
             &x.data
-        })
-    }
-
-    pub(crate) fn as_analysis_mut(&mut self) -> &mut Analysis {
-        match_many_to_one!(self, AnyCoreDataset, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
-            &mut x.analysis
         })
     }
 
@@ -1723,6 +1725,24 @@ pub(crate) type VersionedCoreTEXT<M> = CoreTEXT<
     <<M as VersionedMetadata>::N as MightHave>::Wrapper<Shortname>,
 >;
 
+pub(crate) type VersionedCoreDataset<M> = CoreDataset<
+    M,
+    <M as VersionedMetadata>::T,
+    <M as VersionedMetadata>::P,
+    <M as VersionedMetadata>::N,
+    <<M as VersionedMetadata>::N as MightHave>::Wrapper<Shortname>,
+>;
+
+pub(crate) type VersionedCore<A, D, M> = Core<
+    A,
+    D,
+    M,
+    <M as VersionedMetadata>::T,
+    <M as VersionedMetadata>::P,
+    <M as VersionedMetadata>::N,
+    <<M as VersionedMetadata>::N as MightHave>::Wrapper<Shortname>,
+>;
+
 impl<M> VersionedCoreTEXT<M>
 where
     M: VersionedMetadata,
@@ -1760,16 +1780,6 @@ where
         Ok(md_succ.and_then(|core| core.validate(&conf.time).map(|_| core)))
     }
 }
-
-pub(crate) type VersionedCore<A, D, M> = Core<
-    A,
-    D,
-    M,
-    <M as VersionedMetadata>::T,
-    <M as VersionedMetadata>::P,
-    <M as VersionedMetadata>::N,
-    <<M as VersionedMetadata>::N as MightHave>::Wrapper<Shortname>,
->;
 
 impl<M, A, D> VersionedCore<A, D, M>
 where
@@ -2827,44 +2837,35 @@ where
         Ok(res)
     }
 
-    pub fn push_time_channel<T>(
+    pub fn push_time_channel(
         &mut self,
         n: Shortname,
         m: TimeChannel<M::T>,
         col: AnyFCSColumn,
-    ) -> Result<(), String>
-    where
-        T: FCSDataType,
-    {
+    ) -> Result<(), String> {
         self.push_time_channel_inner(n, m)?;
         self.data.push_column(col);
         Ok(())
     }
 
-    pub fn push_measurement<T>(
+    pub fn push_measurement(
         &mut self,
         n: <M::N as MightHave>::Wrapper<Shortname>,
         m: Measurement<M::P>,
         col: AnyFCSColumn,
-    ) -> Result<Shortname, String>
-    where
-        T: FCSDataType,
-    {
+    ) -> Result<Shortname, String> {
         let k = self.push_measurement_inner(n, m)?;
         self.data.push_column(col);
         Ok(k)
     }
 
-    fn insert_measurement<T>(
+    pub fn insert_measurement(
         &mut self,
         i: MeasIdx,
         n: <M::N as MightHave>::Wrapper<Shortname>,
         m: Measurement<M::P>,
         col: AnyFCSColumn,
-    ) -> Result<Shortname, String>
-    where
-        T: FCSDataType,
-    {
+    ) -> Result<Shortname, String> {
         let k = self.insert_measurement_inner(i, n, m)?;
         self.data.insert_column(i.into(), col);
         Ok(k)

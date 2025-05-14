@@ -1529,9 +1529,7 @@ macro_rules! to_dataset_method {
             fn to_dataset(&self, df: PyDataFrame, analysis: Vec<u8>) -> PyResult<$to> {
                 let cols = polars_to_fcs(df.into())
                     .map_err(|e| PyreflowException::new_err(e.to_string()))?;
-                self.0
-                    .clone()
-                    .into_dataset(cols, analysis.into())
+                api::CoreDataset::from_coretext(self.0.clone(), cols, analysis.into())
                     .map_err(|e| PyreflowException::new_err(e.to_string()))
                     .map(|df| df.into())
             }

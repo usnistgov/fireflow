@@ -5,7 +5,7 @@ use crate::header::*;
 use crate::header_text::*;
 use crate::macros::match_many_to_one;
 use crate::segment::*;
-use crate::validated::dataframe::AnyFCSColumn;
+use crate::validated::dataframe::*;
 use crate::validated::nonstandard::*;
 use crate::validated::pattern::*;
 use crate::validated::shortname::*;
@@ -324,17 +324,6 @@ impl AnyCoreTEXT {
         data_seg: Segment,
     ) -> PureMaybe<DataReader> {
         match_anycoretext!(self, x, { x.as_data_reader(kws, conf, data_seg) })
-    }
-}
-
-impl From<AnyCoreTEXT> for AnyCoreDataset {
-    fn from(value: AnyCoreTEXT) -> Self {
-        match value {
-            AnyCoreTEXT::FCS2_0(x) => AnyCoreDataset::FCS2_0((*x).into()),
-            AnyCoreTEXT::FCS3_0(x) => AnyCoreDataset::FCS3_0((*x).into()),
-            AnyCoreTEXT::FCS3_1(x) => AnyCoreDataset::FCS3_1((*x).into()),
-            AnyCoreTEXT::FCS3_2(x) => AnyCoreDataset::FCS3_2((*x).into()),
-        }
     }
 }
 
@@ -1681,15 +1670,22 @@ where
         }
     }
 
-    pub fn into_dataset(
-        self,
-        columns: Vec<AnyFCSColumn>,
-        analysis: Analysis,
-    ) -> Result<VersionedCoreDataset<M>, String> {
-        let mut dataset: VersionedCoreDataset<M> = self.into();
-        dataset.set_data(columns)?;
-        dataset.analysis = analysis;
-        Ok(dataset)
+    pub(crate) fn try_cols_to_dataframe(
+        &self,
+        cols: Vec<AnyFCSColumn>,
+    ) -> Result<FCSDataFrame, String> {
+        let n = &cols.len();
+        let p = self.par();
+        if *n != p.0 {
+            return Err(format!(
+                "DATA has {n} columns but TEXT has {p} measurements",
+            ));
+        }
+        if let Some(df) = FCSDataFrame::try_new(cols) {
+            Ok(df)
+        } else {
+            Err("columns have different lengths".into())
+        }
     }
 
     /// Return HEADER+TEXT as a list of strings

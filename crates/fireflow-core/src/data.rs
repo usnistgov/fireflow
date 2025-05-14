@@ -167,19 +167,8 @@ where
     /// Return error if columns are not all the same length or number of columns
     /// doesn't match the number of measurement.
     pub fn set_data(&mut self, cols: Vec<AnyFCSColumn>) -> Result<(), String> {
-        let n = &cols.len();
-        let p = self.text.par();
-        if *n != p.0 {
-            return Err(format!(
-                "DATA has {n} columns but TEXT has {p} measurements",
-            ));
-        }
-        if let Some(df) = FCSDataFrame::try_new(cols) {
-            self.data = df;
-            Ok(())
-        } else {
-            Err("columns have different lengths".into())
-        }
+        self.data = self.text.try_cols_to_dataframe(cols)?;
+        Ok(())
     }
 
     pub fn measurements_named_vec(&self) -> &Measurements<M::N, M::T, M::P> {
@@ -206,17 +195,42 @@ where
     //         .inspect(|_| self.text.set_df_column_names(&mut self.data).unwrap())
     // }
 
-    // TODO also make a version of this that takes an index since not all
-    // columns are named or we might not know the name
-    fn remove_measurement(&mut self, n: &Shortname) -> Result<Option<MeasIdx>, String> {
-        let res = self.text.remove_measurement_by_name(n)?.map(|(i, _)| {
+    pub fn remove_measurement_by_name(
+        &mut self,
+        n: &Shortname,
+    ) -> Result<Option<(MeasIdx, Result<Measurement<M::P>, TimeChannel<M::T>>)>, String> {
+        let res = self.text.remove_measurement_by_name(n)?.map(|(i, x)| {
             self.data.drop_in_place(i.into()).unwrap();
-            i
+            (i, x)
         });
         Ok(res)
     }
 
-    fn push_measurement<T>(
+    pub fn remove_measurement_by_index(
+        &mut self,
+        index: MeasIdx,
+    ) -> Result<Option<EitherPair<M::N, Measurement<M::P>, TimeChannel<M::T>>>, String> {
+        let res = self.text.remove_measurement_by_index(index)?.inspect(|_| {
+            self.data.drop_in_place(index.into()).unwrap();
+        });
+        Ok(res)
+    }
+
+    pub fn push_time_channel<T>(
+        &mut self,
+        n: Shortname,
+        m: TimeChannel<M::T>,
+        col: AnyFCSColumn,
+    ) -> Result<(), String>
+    where
+        T: FCSDataType,
+    {
+        self.text.push_time_channel(n, m)?;
+        self.data.push_column(col);
+        Ok(())
+    }
+
+    pub fn push_measurement<T>(
         &mut self,
         n: <M::N as MightHave>::Wrapper<Shortname>,
         m: Measurement<M::P>,
@@ -226,7 +240,6 @@ where
         T: FCSDataType,
     {
         let k = self.text.push_measurement(n, m)?;
-        // ASSUME this won't be reached if the name already exists
         self.data.push_column(col);
         Ok(k)
     }
@@ -242,19 +255,28 @@ where
         T: FCSDataType,
     {
         let k = self.text.insert_measurement(i, n, m)?;
-        // ASSUME this won't be reached if the name already exists or index is
-        // out of bounds
         self.data.insert_column(i.into(), col);
         Ok(k)
     }
-}
 
-impl<M, T, P, N, W> From<CoreTEXT<M, T, P, N, W>> for CoreDataset<M, T, P, N, W> {
-    fn from(value: CoreTEXT<M, T, P, N, W>) -> Self {
+    pub fn from_coretext(
+        c: VersionedCoreTEXT<M>,
+        columns: Vec<AnyFCSColumn>,
+        analysis: Analysis,
+    ) -> Result<Self, String> {
+        let data = c.try_cols_to_dataframe(columns)?;
+        Ok(Self::from_coretext_unchecked(c, data, analysis))
+    }
+
+    pub(crate) fn from_coretext_unchecked(
+        c: VersionedCoreTEXT<M>,
+        data: FCSDataFrame,
+        analysis: Analysis,
+    ) -> Self {
         CoreDataset {
-            text: Box::new(value),
-            data: FCSDataFrame::default(),
-            analysis: Vec::default().into(),
+            text: Box::new(c),
+            data,
+            analysis,
         }
     }
 }
@@ -557,16 +579,19 @@ impl AnyCoreDataset {
         })
     }
 
-    pub(crate) fn as_data_mut(&mut self) -> &mut FCSDataFrame {
-        match_many_to_one!(self, AnyCoreDataset, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
-            &mut x.data
-        })
-    }
-
     pub(crate) fn as_analysis_mut(&mut self) -> &mut Analysis {
         match_many_to_one!(self, AnyCoreDataset, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
             &mut x.analysis
         })
+    }
+
+    pub(crate) fn from_coretext_unchecked(c: AnyCoreTEXT, df: FCSDataFrame, a: Analysis) -> Self {
+        match c {
+            AnyCoreTEXT::FCS2_0(x) => Self::FCS2_0(CoreDataset::from_coretext_unchecked(*x, df, a)),
+            AnyCoreTEXT::FCS3_0(x) => Self::FCS3_0(CoreDataset::from_coretext_unchecked(*x, df, a)),
+            AnyCoreTEXT::FCS3_1(x) => Self::FCS3_1(CoreDataset::from_coretext_unchecked(*x, df, a)),
+            AnyCoreTEXT::FCS3_2(x) => Self::FCS3_2(CoreDataset::from_coretext_unchecked(*x, df, a)),
+        }
     }
 }
 

@@ -334,9 +334,10 @@ fn h_read_std_dataset<R: Read + Seek>(
         .try_map(|(reader_maybe, data_seg, analysis_seg)| {
             let dmsg = "could not create data reader".to_string();
             let reader = reader_maybe.ok_or(Failure::new(dmsg))?;
-            let mut dataset: AnyCoreDataset = std.standardized.into();
-            *dataset.as_data_mut() = reader.h_read(h)?;
-            *dataset.as_analysis_mut() = h_read_analysis(h, &analysis_seg)?;
+            let columns = reader.h_read(h)?;
+            let analysis = h_read_analysis(h, &analysis_seg)?;
+            let dataset =
+                AnyCoreDataset::from_coretext_unchecked(std.standardized, columns, analysis);
             Ok(PureSuccess::from(StandardizedDataset {
                 parse: ParseParameters {
                     data: data_seg,

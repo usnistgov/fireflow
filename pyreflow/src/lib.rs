@@ -612,6 +612,7 @@ pywrap!(PyHeader, api::Header, "Header");
 pywrap!(PyRawTEXT, api::RawTEXT, "RawTEXT");
 pywrap!(PyOffsets, api::ParseParameters, "Offsets");
 pywrap!(PyParseParameters, api::ParseParameters, "ParseParameters");
+
 pywrap!(PyCoreTEXT2_0, api::CoreTEXT2_0, "CoreTEXT2_0");
 pywrap!(PyCoreTEXT3_0, api::CoreTEXT3_0, "CoreTEXT3_0");
 pywrap!(PyCoreTEXT3_1, api::CoreTEXT3_1, "CoreTEXT3_1");
@@ -626,6 +627,12 @@ pywrap!(PyMeasurement2_0, api::Measurement2_0, "Measurement2_0");
 pywrap!(PyMeasurement3_0, api::Measurement3_0, "Measurement3_0");
 pywrap!(PyMeasurement3_1, api::Measurement3_1, "Measurement3_1");
 pywrap!(PyMeasurement3_2, api::Measurement3_2, "Measurement3_2");
+
+pywrap!(PyTimeChannel2_0, api::TimeChannel2_0, "TimeChannel2_0");
+pywrap!(PyTimeChannel3_0, api::TimeChannel3_0, "TimeChannel3_0");
+pywrap!(PyTimeChannel3_1, api::TimeChannel3_1, "TimeChannel3_1");
+pywrap!(PyTimeChannel3_2, api::TimeChannel3_2, "TimeChannel3_2");
+
 pywrap!(PyDatePattern, DatePattern, "DatePattern");
 
 pywrap!(PyShortname, Shortname, "Shortname");
@@ -1409,13 +1416,39 @@ common_methods!(
     PyCoreDataset3_2
 );
 
+macro_rules! common_meas_get_set {
+    ($([$pytype:ident, $meastype:ident, $timetype:ident]),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                fn remove_measurement_by_name<'py>(
+                    &mut self,
+                    n: PyShortname,
+                    py: Python<'py>,
+                ) -> PyResult<Option<(usize, Bound<'py, PyAny>)>> {
+                    self.0
+                        .remove_measurement_by_name(&Shortname::from(n))
+                        .map(|(i, x)| {
+                            x.map_or_else(
+                                |l| $timetype::from(l).into_bound_py_any(py),
+                                |r| $meastype::from(r).into_bound_py_any(py)
+                            ).map(|x| (usize::from(i), x))
+                        }).transpose()
+                }
+            }
+        )*
+
+    };
+}
+common_meas_get_set!([PyCoreTEXT2_0, PyMeasurement2_0, PyTimeChannel2_0]);
+
 // Get/set methods for setting $PnN (2.0-3.0)
 macro_rules! shortnames_methods {
     ($($pytype:ident),*) => {
         $(
             #[pymethods]
             impl $pytype {
-                pub fn set_measurement_shortnames_maybe(
+                fn set_measurement_shortnames_maybe(
                     &mut self,
                     ns: Vec<Option<PyShortname>>,
                 ) -> PyResult<()> {

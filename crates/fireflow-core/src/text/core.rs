@@ -317,10 +317,6 @@ impl AnyCoreTEXT {
         }
     }
 
-    // pub(crate) fn as_column_layout(&self) -> Result<ColumnLayout, Vec<String>> {
-    //     match_anycoretext!(self, x, { x.as_column_layout() })
-    // }
-
     pub(crate) fn as_data_reader(
         &self,
         kws: &mut RawKeywords,
@@ -2774,30 +2770,35 @@ impl CoreTEXT3_0 {
     );
 }
 
-// TODO this needs to be safer
-// macro_rules! spillover_methods {
-//     ($($root:ident),*) => {
-//         /// Show $SPILLOVER
-//         pub fn spillover(&self) -> Option<&Spillover> {
-//             self.$($root.)*metadata.specific.spillover.as_ref_opt()
-//         }
+macro_rules! spillover_methods {
+    () => {
+        /// Show $SPILLOVER
+        pub fn spillover(&self) -> Option<&Spillover> {
+            self.metadata.specific.spillover.as_ref_opt()
+        }
 
-//         /// Set names and matrix for $SPILLOVER
-//         pub fn set_spillover(
-//             &mut self,
-//             ns: Vec<Shortname>,
-//             m: DMatrix<f32>,
-//         ) -> Result<(), SpilloverError> {
-//             self.$($root.)*metadata.specific.spillover = Some(Spillover::new(ns, m)?).into();
-//             Ok(())
-//         }
+        /// Set names and matrix for $SPILLOVER
+        ///
+        /// Names must match number of rows/columns in matrix and also must be a
+        /// subset of the measurement names (ie $PnN). Matrix must be square and
+        /// at least 2x2.
+        pub fn set_spillover(&mut self, ns: Vec<Shortname>, m: DMatrix<f32>) -> Result<(), String> {
+            let current = self.all_shortnames();
+            let new: HashSet<_> = ns.iter().collect();
+            if !new.is_subset(&current.iter().collect()) {
+                return Err("all $SPILLOVER names must match a $PnN".into());
+            }
+            let m = Spillover::try_new(ns, m).map_err(|e| e.to_string())?;
+            self.metadata.specific.spillover = Some(m).into();
+            Ok(())
+        }
 
-//         /// Clear $SPILLOVER
-//         pub fn unset_spillover(&mut self) {
-//             self.$($root.)*metadata.specific.spillover = None.into();
-//         }
-//     };
-// }
+        /// Clear $SPILLOVER
+        pub fn unset_spillover(&mut self) {
+            self.metadata.specific.spillover = None.into();
+        }
+    };
+}
 
 macro_rules! display_methods {
     () => {
@@ -2836,7 +2837,7 @@ impl CoreTEXT3_1 {
     }
 
     scale_get_set!(Scale, Scale::Linear);
-    // spillover_methods!();
+    spillover_methods!();
 
     // TODO better input type here?
     /// Set data layout to be integers for all measurements.
@@ -2956,7 +2957,7 @@ impl CoreTEXT3_2 {
     }
 
     scale_get_set!(Scale, Scale::Linear);
-    // spillover_methods!();
+    spillover_methods!();
 
     /// Show datatype for all measurements
     ///

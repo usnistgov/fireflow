@@ -10,12 +10,14 @@ use crate::text::named_vec::*;
 use crate::text::optionalkw::*;
 use crate::text::range::*;
 use crate::text::scale::*;
+use crate::text::spillover::*;
 use crate::text::timestamps::*;
 use crate::validated::dataframe::*;
 use crate::validated::nonstandard::*;
 use crate::validated::shortname::*;
 
 use itertools::Itertools;
+use nalgebra::DMatrix;
 // use polars::prelude::*;
 use std::fmt;
 use std::io;
@@ -462,6 +464,12 @@ impl CoreDataset3_1 {
     passthru_method!(calibrations() -> Vec<(MeasIdx, Option<&Calibration3_1>)>);
     passthru_method_mut!(set_calibrations(xs: Vec<Option<Calibration3_1>>) -> bool);
 
+    passthru_method!(spillover() -> Option<&Spillover>);
+    passthru_method_mut!(
+        set_spillover(ns: Vec<Shortname>, m: DMatrix<f32>) -> Result<(), String>
+    );
+    passthru_method_mut!(unset_spillover());
+
     get_set_text!(cyt, set_cyt, Cyt; specific);
     get_set_text!(vol, set_vol, Vol; specific);
 
@@ -511,6 +519,12 @@ impl CoreDataset3_2 {
 
     passthru_method!(features() -> Vec<(MeasIdx, Option<&Feature>)>);
     passthru_method_mut!(set_features(xs: Vec<Option<Feature>>) -> bool);
+
+    passthru_method!(spillover() -> Option<&Spillover>);
+    passthru_method_mut!(
+        set_spillover(ns: Vec<Shortname>, m: DMatrix<f32>) -> Result<(), String>
+    );
+    passthru_method_mut!(unset_spillover());
 
     get_set_text!(flowrate, set_flowrate, Flowrate; specific);
     get_set_text!(vol, set_vol, Vol; specific);

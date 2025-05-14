@@ -190,6 +190,14 @@ where
         self.text.as_center_mut()
     }
 
+    pub fn nonstandard_keywords(&self) -> &NonStdKeywords {
+        &self.text.metadata.nonstandard_keywords
+    }
+
+    pub fn nonstandard_keywords_mut(&mut self) -> &mut NonStdKeywords {
+        &mut self.text.metadata.nonstandard_keywords
+    }
+
     // fn set_shortnames(&mut self, names: Vec<Shortname>) -> Result<NameMapping, String> {
     //     self.text
     //         .set_shortnames(names)
@@ -288,11 +296,11 @@ pub enum AnyCoreDataset {
 macro_rules! get_set_text {
     ($get:ident, $set:ident, $ret:ty; $($root:ident),*) => {
         pub fn $get(&self) -> Option<&$ret> {
-            self.text.metadata.specific.$($root.)*$get.as_ref_opt()
+            self.text.metadata.$($root.)*$get.as_ref_opt()
         }
 
         pub fn $set(&mut self, x: Option<$ret>) {
-            self.text.metadata.specific.$($root.)*$get = x.into();
+            self.text.metadata.$($root.)*$get = x.into();
         }
     };
 }
@@ -362,6 +370,19 @@ macro_rules! common_passthru_methods {
 
         passthru_method!(detector_voltages() -> Vec<(MeasIdx, Option<&DetectorVoltage>)>);
         passthru_method_mut!(set_detector_voltages(xs: Vec<Option<DetectorVoltage>>) -> bool);
+
+        get_set_text!(abrt, set_abrt, Abrt;);
+        get_set_text!(lost, set_lost, Lost;);
+        get_set_text!(cells, set_cells, Cells;);
+        get_set_text!(com, set_com, Com;);
+        get_set_text!(exp, set_exp, Exp;);
+        get_set_text!(fil, set_fil, Fil;);
+        get_set_text!(inst, set_inst, Inst;);
+        get_set_text!(op, set_op, Op;);
+        get_set_text!(proj, set_proj, Proj;);
+        get_set_text!(smno, set_smno, Smno;);
+        get_set_text!(src, set_src, Src;);
+        get_set_text!(sys, set_sys, Sys;);
     };
 }
 
@@ -390,7 +411,7 @@ impl CoreDataset2_0 {
     passthru_method!(wavelengths() -> Vec<(MeasIdx, Option<&Wavelength>)>);
     passthru_method_mut!(set_wavelengths(xs: Vec<Option<Wavelength>>) -> bool);
 
-    get_set_text!(cyt, set_cyt, Cyt;);
+    get_set_text!(cyt, set_cyt, Cyt; specific);
 
     timestamps_methods!(FCSTime);
 }
@@ -415,7 +436,7 @@ impl CoreDataset3_0 {
     passthru_method!(gains() -> Vec<(MeasIdx, Option<&Gain>)>);
     passthru_method_mut!(set_gains(xs: Vec<Option<Gain>>) -> bool);
 
-    get_set_text!(cyt, set_cyt, Cyt;);
+    get_set_text!(cyt, set_cyt, Cyt; specific);
 
     timestamps_methods!(FCSTime60);
 }
@@ -441,16 +462,16 @@ impl CoreDataset3_1 {
     passthru_method!(calibrations() -> Vec<(MeasIdx, Option<&Calibration3_1>)>);
     passthru_method_mut!(set_calibrations(xs: Vec<Option<Calibration3_1>>) -> bool);
 
-    get_set_text!(cyt, set_cyt, Cyt;);
-    get_set_text!(vol, set_vol, Vol;);
+    get_set_text!(cyt, set_cyt, Cyt; specific);
+    get_set_text!(vol, set_vol, Vol; specific);
 
-    get_set_text!(last_modified, set_last_modified, ModifiedDateTime; modification);
-    get_set_text!(last_modifier, set_last_modifier, LastModifier; modification);
-    get_set_text!(originality, set_originality, Originality; modification);
+    get_set_text!(last_modified, set_last_modified, ModifiedDateTime; specific, modification);
+    get_set_text!(last_modifier, set_last_modifier, LastModifier; specific, modification);
+    get_set_text!(originality, set_originality, Originality; specific, modification);
 
-    get_set_text!(wellid, set_wellid, Wellid; plate);
-    get_set_text!(plateid, set_plateid, Plateid; plate);
-    get_set_text!(platename, set_platename, Platename; plate);
+    get_set_text!(wellid, set_wellid, Wellid; specific, plate);
+    get_set_text!(plateid, set_plateid, Plateid; specific, plate);
+    get_set_text!(platename, set_platename, Platename; specific, plate);
 
     timestamps_methods!(FCSTime100);
 }
@@ -491,20 +512,20 @@ impl CoreDataset3_2 {
     passthru_method!(features() -> Vec<(MeasIdx, Option<&Feature>)>);
     passthru_method_mut!(set_features(xs: Vec<Option<Feature>>) -> bool);
 
-    get_set_text!(flowrate, set_flowrate, Flowrate;);
-    get_set_text!(vol, set_vol, Vol;);
+    get_set_text!(flowrate, set_flowrate, Flowrate; specific);
+    get_set_text!(vol, set_vol, Vol; specific);
 
-    get_set_text!(last_modified, set_last_modified, ModifiedDateTime; modification);
-    get_set_text!(last_modifier, set_last_modifier, LastModifier; modification);
-    get_set_text!(originality, set_originality, Originality; modification);
+    get_set_text!(last_modified, set_last_modified, ModifiedDateTime; specific, modification);
+    get_set_text!(last_modifier, set_last_modifier, LastModifier; specific, modification);
+    get_set_text!(originality, set_originality, Originality; specific, modification);
 
-    get_set_text!(locationid, set_locationid, Locationid; carrier);
-    get_set_text!(carrierid, set_carrierid, Carrierid; carrier);
-    get_set_text!(carriertype, set_carriertype, Carriertype; carrier);
+    get_set_text!(locationid, set_locationid, Locationid; specific, carrier);
+    get_set_text!(carrierid, set_carrierid, Carrierid; specific, carrier);
+    get_set_text!(carriertype, set_carriertype, Carriertype; specific, carrier);
 
-    get_set_text!(wellid, set_wellid, Wellid; plate);
-    get_set_text!(plateid, set_plateid, Plateid; plate);
-    get_set_text!(platename, set_platename, Platename; plate);
+    get_set_text!(wellid, set_wellid, Wellid; specific, plate);
+    get_set_text!(plateid, set_plateid, Plateid; specific, plate);
+    get_set_text!(platename, set_platename, Platename; specific, plate);
 
     timestamps_methods!(FCSTime100);
 }

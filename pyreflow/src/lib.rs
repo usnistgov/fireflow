@@ -1379,7 +1379,7 @@ macro_rules! modification_methods {
     ($($pytype:ident),+; $($root:ident),*) => {
         get_set_copied!(
             $($pytype,)*
-            [$($root,)* metadata, specific, modification],
+                [$($root,)* metadata, specific, modification],
             get_originality,
             set_originality,
             originality,
@@ -1388,7 +1388,7 @@ macro_rules! modification_methods {
 
         get_set_copied!(
             $($pytype,)*
-            [$($root,)* metadata, specific, modification],
+                [$($root,)* metadata, specific, modification],
             get_last_modified,
             set_last_modified,
             last_modified,
@@ -1397,7 +1397,7 @@ macro_rules! modification_methods {
 
         get_set_str!(
             $($pytype,)*
-            [$($root,)* metadata, specific, modification],
+                [$($root,)* metadata, specific, modification],
             get_last_modifier,
             set_last_modifier,
             last_modifier
@@ -1417,7 +1417,7 @@ macro_rules! carrier_methods {
     (text $($pytype:ident),*) => {
         get_set_str!(
             $($pytype,)*
-            [metadata, specific, carrier],
+                [metadata, specific, carrier],
             get_carriertype,
             set_carriertype,
             carriertype
@@ -1425,7 +1425,7 @@ macro_rules! carrier_methods {
 
         get_set_str!(
             $($pytype,)*
-            [metadata, specific, carrier],
+                [metadata, specific, carrier],
             get_carrierid,
             set_carrierid,
             carrierid
@@ -1433,7 +1433,7 @@ macro_rules! carrier_methods {
 
         get_set_str!(
             $($pytype,)*
-            [metadata, specific, carrier],
+                [metadata, specific, carrier],
             get_locationid,
             set_locationid,
             locationid
@@ -1452,7 +1452,7 @@ macro_rules! plate_methods {
     (text $($pytype:ident),*) => {
         get_set_str!(
             $($pytype,)*
-            [metadata, specific, plate],
+                [metadata, specific, plate],
             get_wellid,
             set_wellid,
             wellid
@@ -1460,7 +1460,7 @@ macro_rules! plate_methods {
 
         get_set_str!(
             $($pytype,)*
-            [metadata, specific, plate],
+                [metadata, specific, plate],
             get_plateid,
             set_plateid,
             plateid
@@ -1468,7 +1468,7 @@ macro_rules! plate_methods {
 
         get_set_str!(
             $($pytype,)*
-            [metadata, specific, plate],
+                [metadata, specific, plate],
             get_platename,
             set_platename,
             platename
@@ -1550,6 +1550,85 @@ to_dataset_method!(PyCoreTEXT3_0, PyCoreDataset3_0);
 to_dataset_method!(PyCoreTEXT3_1, PyCoreDataset3_1);
 to_dataset_method!(PyCoreTEXT3_2, PyCoreDataset3_2);
 
+macro_rules! common_coretext_methods {
+    ($($pytype:ident),*) => {
+        $(
+            get_set_copied!($pytype, [metadata], get_abrt, set_abrt, abrt, u32);
+            get_set_copied!($pytype, [metadata], get_lost, set_lost, lost, u32);
+
+            get_set_str!($pytype, [metadata], get_cells, set_cells, cells);
+            get_set_str!($pytype, [metadata], get_com, set_com, com);
+            get_set_str!($pytype, [metadata], get_exp, set_exp, exp);
+            get_set_str!($pytype, [metadata], get_fil, set_fil, fil);
+            get_set_str!($pytype, [metadata], get_inst, set_inst, inst);
+            get_set_str!($pytype, [metadata], get_op, set_op, op);
+            get_set_str!($pytype, [metadata], get_proj, set_proj, proj);
+            get_set_str!($pytype, [metadata], get_smno, set_smno, smno);
+            get_set_str!($pytype, [metadata], get_src, set_src, src);
+            get_set_str!($pytype, [metadata], get_sys, set_sys, sys);
+
+            #[pymethods]
+            impl $pytype {
+                fn insert_nonstandard(&mut self, k: PyNonStdKey, v: String) -> Option<String> {
+                    self.0.metadata.nonstandard_keywords.insert(k.into(), v)
+                }
+
+                fn remove_nonstandard(&mut self, k: PyNonStdKey) -> Option<String> {
+                    self.0.metadata.nonstandard_keywords.remove(&k.into())
+                }
+
+                fn get_nonstandard(&mut self, k: PyNonStdKey) -> Option<String> {
+                    self.0.metadata.nonstandard_keywords.get(&k.into()).cloned()
+                }
+            }
+        )*
+    };
+}
+
+common_coretext_methods!(PyCoreTEXT2_0, PyCoreTEXT3_0, PyCoreTEXT3_1, PyCoreTEXT3_2);
+
+macro_rules! common_dataset_methods {
+    ($($pytype:ident),*) => {
+        $(
+            get_set_copied!($pytype; abrt, set_abrt, u32);
+            get_set_copied!($pytype; lost, set_lost, u32);
+
+            get_set_str!($pytype; cells, set_cells);
+            get_set_str!($pytype; com, set_com);
+            get_set_str!($pytype; exp, set_exp);
+            get_set_str!($pytype; fil, set_fil);
+            get_set_str!($pytype; inst, set_inst);
+            get_set_str!($pytype; op, set_op);
+            get_set_str!($pytype; proj, set_proj);
+            get_set_str!($pytype; smno, set_smno);
+            get_set_str!($pytype; src, set_src);
+            get_set_str!($pytype; sys, set_sys);
+
+            #[pymethods]
+            impl $pytype {
+                fn insert_nonstandard(&mut self, k: PyNonStdKey, v: String) -> Option<String> {
+                    self.0.nonstandard_keywords_mut().insert(k.into(), v)
+                }
+
+                fn remove_nonstandard(&mut self, k: PyNonStdKey) -> Option<String> {
+                    self.0.nonstandard_keywords_mut().remove(&k.into())
+                }
+
+                fn get_nonstandard(&mut self, k: PyNonStdKey) -> Option<String> {
+                    self.0.nonstandard_keywords().get(&k.into()).cloned()
+                }
+            }
+        )*
+    };
+}
+
+common_dataset_methods!(
+    PyCoreDataset2_0,
+    PyCoreDataset3_0,
+    PyCoreDataset3_1,
+    PyCoreDataset3_2
+);
+
 macro_rules! common_methods {
     ($pytype:ident, $($rest:ident),*) => {
         common_methods!($pytype);
@@ -1558,21 +1637,6 @@ macro_rules! common_methods {
     };
 
     ($pytype:ident) => {
-        // common metadata keywords
-        // get_set_copied!($pytype, [metadata], get_abrt, set_abrt, abrt, u32);
-        // get_set_copied!($pytype, [metadata], get_lost, set_lost, lost, u32);
-
-        // get_set_str!($pytype, [metadata], get_cells, set_cells, cells);
-        // get_set_str!($pytype, [metadata], get_com,   set_com,   com);
-        // get_set_str!($pytype, [metadata], get_exp,   set_exp,   exp);
-        // get_set_str!($pytype, [metadata], get_fil,   set_fil,   fil);
-        // get_set_str!($pytype, [metadata], get_inst,  set_inst,  inst);
-        // get_set_str!($pytype, [metadata], get_op,    set_op,    op);
-        // get_set_str!($pytype, [metadata], get_proj,  set_proj,  proj);
-        // get_set_str!($pytype, [metadata], get_smno,  set_smno,  smno);
-        // get_set_str!($pytype, [metadata], get_src,   set_src,   src);
-        // get_set_str!($pytype, [metadata], get_sys,   set_sys,   sys);
-
         // common measurement keywords
         meas_get_set!(filters,           set_filters,           String,        $pytype);
         meas_get_set!(powers,            set_powers,            u32,           $pytype);
@@ -1597,21 +1661,6 @@ macro_rules! common_methods {
             fn par(&self) -> usize {
                 self.0.par().0
             }
-
-            // // TODO dataset
-            // fn insert_nonstandard(&mut self, k: PyNonStdKey, v: String) -> Option<String> {
-            //     self.0.$($root.)*metadata.nonstandard_keywords.insert(k.into(), v)
-            // }
-
-            // // TODO dataset
-            // fn remove_nonstandard(&mut self, k: PyNonStdKey) -> Option<String> {
-            //     self.0.$($root.)*metadata.nonstandard_keywords.remove(&k.into())
-            // }
-
-            // // TODO dataset
-            // fn get_nonstandard(&mut self, k: PyNonStdKey) -> Option<String> {
-            //     self.0.$($root.)*metadata.nonstandard_keywords.get(&k.into()).cloned()
-            // }
 
             fn insert_meas_nonstandard(
                 &mut self,

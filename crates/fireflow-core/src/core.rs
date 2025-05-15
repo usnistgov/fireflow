@@ -1358,17 +1358,6 @@ where
     }
 }
 
-pub struct FromByteOrdError;
-
-impl fmt::Display for FromByteOrdError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "could not convert ByteOrd, must be either '1,2,3,4' or '4,3,2,1'",
-        )
-    }
-}
-
 pub(crate) type Measurements<N, T, P> =
     NamedVec<N, <N as MightHave>::Wrapper<Shortname>, Temporal<T>, Optical<P>>;
 
@@ -3472,14 +3461,6 @@ impl From<FCSTime60> for FCSTime100 {
 impl From<FCSTime100> for FCSTime60 {
     fn from(value: FCSTime100) -> Self {
         FCSTime60(value.0)
-    }
-}
-
-impl TryFrom<ByteOrd> for Endian {
-    type Error = FromByteOrdError;
-
-    fn try_from(value: ByteOrd) -> Result<Self, Self::Error> {
-        value.as_endian().ok_or(FromByteOrdError)
     }
 }
 

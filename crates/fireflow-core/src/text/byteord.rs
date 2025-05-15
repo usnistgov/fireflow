@@ -405,3 +405,22 @@ impl<const LEN: usize> From<Endian> for SizedByteOrd<LEN> {
         SizedByteOrd::Endian(value)
     }
 }
+
+impl TryFrom<ByteOrd> for Endian {
+    type Error = FromByteOrdError;
+
+    fn try_from(value: ByteOrd) -> Result<Self, Self::Error> {
+        value.as_endian().ok_or(FromByteOrdError)
+    }
+}
+
+pub struct FromByteOrdError;
+
+impl fmt::Display for FromByteOrdError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "could not convert ByteOrd, must be either '1,2,3,4' or '4,3,2,1'",
+        )
+    }
+}

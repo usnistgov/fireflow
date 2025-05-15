@@ -4,7 +4,7 @@ use regex::Regex;
 use std::fmt;
 use std::str::FromStr;
 
-/// A pattern to match the $PnN for the time channel.
+/// A pattern to match the $PnN for the time measurement.
 ///
 /// Defaults to matching "TIME" or "Time".
 #[derive(Clone)]

@@ -1,4 +1,4 @@
-use fireflow_core::api::VersionedTime;
+use fireflow_core::api::VersionedTemporal;
 use fireflow_core::api::{self};
 use fireflow_core::config::Strict;
 use fireflow_core::config::{self, OffsetCorrection};
@@ -625,15 +625,15 @@ pywrap!(PyCoreDataset3_0, api::CoreDataset3_0, "CoreDataset3_0");
 pywrap!(PyCoreDataset3_1, api::CoreDataset3_1, "CoreDataset3_1");
 pywrap!(PyCoreDataset3_2, api::CoreDataset3_2, "CoreDataset3_2");
 
-pywrap!(PyMeasurement2_0, api::Measurement2_0, "Measurement2_0");
-pywrap!(PyMeasurement3_0, api::Measurement3_0, "Measurement3_0");
-pywrap!(PyMeasurement3_1, api::Measurement3_1, "Measurement3_1");
-pywrap!(PyMeasurement3_2, api::Measurement3_2, "Measurement3_2");
+pywrap!(PyOptical2_0, api::Optical2_0, "Optical2_0");
+pywrap!(PyOptical3_0, api::Optical3_0, "Optical3_0");
+pywrap!(PyOptical3_1, api::Optical3_1, "Optical3_1");
+pywrap!(PyOptical3_2, api::Optical3_2, "Optical3_2");
 
-pywrap!(PyTimeChannel2_0, api::TimeChannel2_0, "TimeChannel2_0");
-pywrap!(PyTimeChannel3_0, api::TimeChannel3_0, "TimeChannel3_0");
-pywrap!(PyTimeChannel3_1, api::TimeChannel3_1, "TimeChannel3_1");
-pywrap!(PyTimeChannel3_2, api::TimeChannel3_2, "TimeChannel3_2");
+pywrap!(PyTemporal2_0, api::Temporal2_0, "Temporal2_0");
+pywrap!(PyTemporal3_0, api::Temporal3_0, "Temporal3_0");
+pywrap!(PyTemporal3_1, api::Temporal3_1, "Temporal3_1");
+pywrap!(PyTemporal3_2, api::Temporal3_2, "Temporal3_2");
 
 pywrap!(PyDatePattern, DatePattern, "DatePattern");
 
@@ -1290,16 +1290,16 @@ macro_rules! common_methods {
                 self.0.clear_trigger()
             }
 
-            fn set_time_channnel(&mut self, n: PyShortname) -> PyResult<()> {
-                self.0.set_time_channel(&n.into()).map_err(|es| {
+            fn set_temporal(&mut self, n: PyShortname) -> PyResult<()> {
+                self.0.set_temporal(&n.into()).map_err(|es| {
                     let f = es.into_iter().map(|e| e.to_string()).join(", ");
-                    let s = format!("Error(s) when converting measurement to time: {f}");
+                    let s = format!("Error(s) when converting optical to temporal: {f}");
                     PyreflowException::new_err(s)
                 })
             }
 
-            fn unset_time_channel(&mut self) -> bool {
-                self.0.unset_time_channel()
+            fn unset_temporal(&mut self) -> bool {
+                self.0.unset_temporal()
             }
 
             #[getter]
@@ -1372,7 +1372,7 @@ macro_rules! common_methods {
             // TODO add measurements_named_vec
             // TODO add alter_measurements
             // TODO add alter_measurements_zip
-            // TODO add time_channel_mut
+            // TODO add temporal_mut
             // TODO add methods to get/modify single measurements
         }
     };
@@ -1415,28 +1415,28 @@ macro_rules! common_meas_get_set {
 }
 
 common_meas_get_set!(
-    [PyCoreTEXT2_0, PyMeasurement2_0, PyTimeChannel2_0],
-    [PyCoreTEXT3_0, PyMeasurement3_0, PyTimeChannel3_0],
-    [PyCoreTEXT3_1, PyMeasurement3_1, PyTimeChannel3_1],
-    [PyCoreTEXT3_2, PyMeasurement3_2, PyTimeChannel3_2],
-    [PyCoreDataset2_0, PyMeasurement2_0, PyTimeChannel2_0],
-    [PyCoreDataset3_0, PyMeasurement3_0, PyTimeChannel3_0],
-    [PyCoreDataset3_1, PyMeasurement3_1, PyTimeChannel3_1],
-    [PyCoreDataset3_2, PyMeasurement3_2, PyTimeChannel3_2]
+    [PyCoreTEXT2_0, PyOptical2_0, PyTemporal2_0],
+    [PyCoreTEXT3_0, PyOptical3_0, PyTemporal3_0],
+    [PyCoreTEXT3_1, PyOptical3_1, PyTemporal3_1],
+    [PyCoreTEXT3_2, PyOptical3_2, PyTemporal3_2],
+    [PyCoreDataset2_0, PyOptical2_0, PyTemporal2_0],
+    [PyCoreDataset3_0, PyOptical3_0, PyTemporal3_0],
+    [PyCoreDataset3_1, PyOptical3_1, PyTemporal3_1],
+    [PyCoreDataset3_2, PyOptical3_2, PyTemporal3_2]
 );
 
 macro_rules! common_coretext_meas_get_set {
-    ($([$pytype:ident, $meastype:ident, $timetype:ident]),*) => {
+    ($([$pytype:ident, $timetype:ident]),*) => {
         $(
             #[pymethods]
             impl $pytype {
-                fn push_time_channel(
+                fn push_temporal(
                     &mut self,
                     n: PyShortname,
                     t: $timetype,
                 ) -> PyResult<()> {
                     self.0
-                        .push_time_channel(n.into(), t.into())
+                        .push_temporal(n.into(), t.into())
                         .map_err(PyreflowException::new_err)
                 }
 
@@ -1447,7 +1447,7 @@ macro_rules! common_coretext_meas_get_set {
                     t: $timetype,
                 ) -> PyResult<()> {
                     self.0
-                        .insert_time_channel(i.into(), n.into(), t.into())
+                        .insert_temporal(i.into(), n.into(), t.into())
                         .map_err(PyreflowException::new_err)
                 }
 
@@ -1464,16 +1464,16 @@ macro_rules! common_coretext_meas_get_set {
 }
 
 common_coretext_meas_get_set!(
-    [PyCoreTEXT2_0, PyMeasurement2_0, PyTimeChannel2_0],
-    [PyCoreTEXT3_0, PyMeasurement3_0, PyTimeChannel3_0]
+    [PyCoreTEXT2_0, PyTemporal2_0],
+    [PyCoreTEXT3_0, PyTemporal3_0]
 );
 
 macro_rules! coredata_meas_get_set {
-    ($([$pytype:ident, $meastype:ident, $timetype:ident]),*) => {
+    ($([$pytype:ident, $timetype:ident]),*) => {
         $(
             #[pymethods]
             impl $pytype {
-                fn push_time_channel(
+                fn push_temporal(
                     &mut self,
                     n: PyShortname,
                     t: $timetype,
@@ -1481,7 +1481,7 @@ macro_rules! coredata_meas_get_set {
                 ) -> PyResult<()> {
                     let col = series_to_fcs(xs.into()).map_err(PyreflowException::new_err)?;
                     self.0
-                        .push_time_channel(n.into(), t.into(), col)
+                        .push_temporal(n.into(), t.into(), col)
                         .map_err(PyreflowException::new_err)
                 }
 
@@ -1494,7 +1494,7 @@ macro_rules! coredata_meas_get_set {
                 ) -> PyResult<()> {
                     let col = series_to_fcs(xs.into()).map_err(PyreflowException::new_err)?;
                     self.0
-                        .insert_time_channel(i.into(), n.into(), t.into(), col)
+                        .insert_temporal(i.into(), n.into(), t.into(), col)
                         .map_err(PyreflowException::new_err)
                 }
 
@@ -1542,10 +1542,10 @@ macro_rules! coredata_meas_get_set {
 }
 
 coredata_meas_get_set!(
-    [PyCoreDataset2_0, PyMeasurement2_0, PyTimeChannel2_0],
-    [PyCoreDataset3_0, PyMeasurement3_0, PyTimeChannel3_0],
-    [PyCoreDataset3_1, PyMeasurement3_1, PyTimeChannel3_1],
-    [PyCoreDataset3_2, PyMeasurement3_2, PyTimeChannel3_2]
+    [PyCoreDataset2_0, PyTemporal2_0],
+    [PyCoreDataset3_0, PyTemporal3_0],
+    [PyCoreDataset3_1, PyTemporal3_1],
+    [PyCoreDataset3_2, PyTemporal3_2]
 );
 
 macro_rules! coretext2_0_meas_methods {
@@ -1582,20 +1582,20 @@ macro_rules! coretext2_0_meas_methods {
                     n: Option<PyShortname>,
                 ) -> PyResult<PyShortname> {
                     self.0
-                        .push_measurement(n.map(|x| x.into()).into(), m.into())
+                        .push_optical(n.map(|x| x.into()).into(), m.into())
                         .map(|x| x.into())
                         .map_err(PyreflowException::new_err)
                 }
 
                 #[pyo3(signature = (i, m, n=None))]
-                fn insert_measurement(
+                fn insert_optical(
                     &mut self,
                     i: usize,
                     m: $meastype,
                     n: Option<PyShortname>,
                 ) -> PyResult<PyShortname> {
                     self.0
-                        .insert_measurement(i.into(), n.map(|x| x.into()).into(), m.into())
+                        .insert_optical(i.into(), n.map(|x| x.into()).into(), m.into())
                         .map(|x| x.into())
                         .map_err(PyreflowException::new_err)
                 }
@@ -1605,8 +1605,8 @@ macro_rules! coretext2_0_meas_methods {
 }
 
 coretext2_0_meas_methods!(
-    [PyCoreTEXT2_0, PyMeasurement2_0, PyTimeChannel2_0],
-    [PyCoreTEXT3_0, PyMeasurement3_0, PyTimeChannel3_0]
+    [PyCoreTEXT2_0, PyOptical2_0, PyTemporal2_0],
+    [PyCoreTEXT3_0, PyOptical3_0, PyTemporal3_0]
 );
 
 macro_rules! coretext3_1_meas_methods {
@@ -1636,21 +1636,21 @@ macro_rules! coretext3_1_meas_methods {
                         .transpose()
                 }
 
-                fn push_measurement(&mut self, m: $meastype, n: PyShortname) -> PyResult<()> {
+                fn push_optical(&mut self, m: $meastype, n: PyShortname) -> PyResult<()> {
                     self.0
-                        .push_measurement(Identity(n.into()), m.into())
+                        .push_optical(Identity(n.into()), m.into())
                         .map(|_| ())
                         .map_err(PyreflowException::new_err)
                 }
 
-                fn insert_measurement(
+                fn insert_optical(
                     &mut self,
                     i: usize,
                     m: $meastype,
                     n: PyShortname,
                 ) -> PyResult<()> {
                     self.0
-                        .insert_measurement(i.into(), Identity(n.into()), m.into())
+                        .insert_optical(i.into(), Identity(n.into()), m.into())
                         .map(|_| ())
                         .map_err(PyreflowException::new_err)
                 }
@@ -1660,8 +1660,8 @@ macro_rules! coretext3_1_meas_methods {
 }
 
 coretext3_1_meas_methods!(
-    [PyCoreTEXT3_1, PyMeasurement3_1, PyTimeChannel3_1],
-    [PyCoreTEXT3_2, PyMeasurement3_2, PyTimeChannel3_2]
+    [PyCoreTEXT3_1, PyOptical3_1, PyTemporal3_1],
+    [PyCoreTEXT3_2, PyOptical3_2, PyTemporal3_2]
 );
 
 macro_rules! set_measurements2_0 {
@@ -1694,10 +1694,10 @@ macro_rules! set_measurements2_0 {
 }
 
 set_measurements2_0!(
-    [PyCoreTEXT2_0, PyMeasurement2_0, PyTimeChannel2_0],
-    [PyCoreTEXT3_0, PyMeasurement3_0, PyTimeChannel3_0],
-    [PyCoreDataset2_0, PyMeasurement2_0, PyTimeChannel2_0],
-    [PyCoreDataset3_0, PyMeasurement3_0, PyTimeChannel3_0]
+    [PyCoreTEXT2_0, PyOptical2_0, PyTemporal2_0],
+    [PyCoreTEXT3_0, PyOptical3_0, PyTemporal3_0],
+    [PyCoreDataset2_0, PyOptical2_0, PyTemporal2_0],
+    [PyCoreDataset3_0, PyOptical3_0, PyTemporal3_0]
 );
 
 macro_rules! set_measurements3_1 {
@@ -1729,10 +1729,10 @@ macro_rules! set_measurements3_1 {
 }
 
 set_measurements3_1!(
-    [PyCoreTEXT3_1, PyMeasurement3_1, PyTimeChannel3_1],
-    [PyCoreTEXT3_2, PyMeasurement3_2, PyTimeChannel3_2],
-    [PyCoreDataset3_1, PyMeasurement3_1, PyTimeChannel3_1],
-    [PyCoreDataset3_2, PyMeasurement3_2, PyTimeChannel3_2]
+    [PyCoreTEXT3_1, PyOptical3_1, PyTemporal3_1],
+    [PyCoreTEXT3_2, PyOptical3_2, PyTemporal3_2],
+    [PyCoreDataset3_1, PyOptical3_1, PyTemporal3_1],
+    [PyCoreDataset3_2, PyOptical3_2, PyTemporal3_2]
 );
 
 macro_rules! coredata2_0_meas_methods {
@@ -1768,8 +1768,8 @@ macro_rules! coredata2_0_meas_methods {
 }
 
 coredata2_0_meas_methods!(
-    [PyCoreDataset2_0, PyMeasurement2_0, PyTimeChannel2_0],
-    [PyCoreDataset3_0, PyMeasurement3_0, PyTimeChannel3_0]
+    [PyCoreDataset2_0, PyOptical2_0, PyTemporal2_0],
+    [PyCoreDataset3_0, PyOptical3_0, PyTemporal3_0]
 );
 
 macro_rules! coredata3_1_meas_methods {
@@ -1804,8 +1804,8 @@ macro_rules! coredata3_1_meas_methods {
 }
 
 coredata3_1_meas_methods!(
-    [PyCoreDataset3_1, PyMeasurement3_1, PyTimeChannel3_1],
-    [PyCoreDataset3_2, PyMeasurement3_2, PyTimeChannel3_2]
+    [PyCoreDataset3_1, PyOptical3_1, PyTemporal3_1],
+    [PyCoreDataset3_2, PyOptical3_2, PyTemporal3_2]
 );
 
 // Get/set methods for setting $PnN (2.0-3.0)
@@ -1962,7 +1962,7 @@ macro_rules! timestep_methods {
                 #[setter]
                 fn set_timestep(&mut self, x: PyPositiveFloat) -> bool {
                     self.0
-                        .time_channel_mut()
+                        .temporal_mut()
                         .map(|y| y.value.specific.set_timestep(api::Timestep(x.into())))
                         .is_some()
                 }
@@ -2376,11 +2376,11 @@ create_exception!(
 );
 
 #[pymethods]
-impl PyMeasurement2_0 {
+impl PyOptical2_0 {
     #[new]
     #[pyo3(signature = (range, width=None))]
     fn new(range: Bound<'_, PyAny>, width: Option<u8>) -> PyResult<Self> {
-        any_to_range(range).map(|r| api::Measurement2_0::new(width.into(), r).into())
+        any_to_range(range).map(|r| api::Optical2_0::new(width.into(), r).into())
     }
 
     // #[getter]
@@ -2390,29 +2390,29 @@ impl PyMeasurement2_0 {
 }
 
 #[pymethods]
-impl PyMeasurement3_0 {
+impl PyOptical3_0 {
     #[new]
     #[pyo3(signature = (range, scale, width=None))]
     fn new(range: Bound<'_, PyAny>, scale: PyScale, width: Option<u8>) -> PyResult<Self> {
-        any_to_range(range).map(|r| api::Measurement3_0::new(width.into(), r, scale.into()).into())
+        any_to_range(range).map(|r| api::Optical3_0::new(width.into(), r, scale.into()).into())
     }
 }
 
 #[pymethods]
-impl PyMeasurement3_1 {
+impl PyOptical3_1 {
     #[new]
     #[pyo3(signature = (range, scale, width=None))]
     fn new(range: Bound<'_, PyAny>, scale: PyScale, width: Option<u8>) -> PyResult<Self> {
-        any_to_range(range).map(|r| api::Measurement3_1::new(width.into(), r, scale.into()).into())
+        any_to_range(range).map(|r| api::Optical3_1::new(width.into(), r, scale.into()).into())
     }
 }
 
 #[pymethods]
-impl PyMeasurement3_2 {
+impl PyOptical3_2 {
     #[new]
     #[pyo3(signature = (range, scale, width=None))]
     fn new(range: Bound<'_, PyAny>, scale: PyScale, width: Option<u8>) -> PyResult<Self> {
-        any_to_range(range).map(|r| api::Measurement3_2::new(width.into(), r, scale.into()).into())
+        any_to_range(range).map(|r| api::Optical3_2::new(width.into(), r, scale.into()).into())
     }
 }
 
@@ -2491,7 +2491,7 @@ where
     Ok((n.into(), m))
 }
 
-fn any_to_range<'py>(a: Bound<'py, PyAny>) -> PyResult<Range> {
+fn any_to_range(a: Bound<'_, PyAny>) -> PyResult<Range> {
     a.clone()
         .extract::<f64>()
         .map_or(a.extract::<u64>().map(|x| x.into()), |x| Ok(x.into()))

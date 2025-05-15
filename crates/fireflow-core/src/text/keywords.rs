@@ -612,7 +612,6 @@ impl fmt::Display for UnicodeError {
     }
 }
 
-// TODO split off Time to time-channel specific struct
 /// The value of the $PnTYPE key (3.2+)
 #[derive(Clone, Serialize, PartialEq)]
 pub enum MeasurementType {

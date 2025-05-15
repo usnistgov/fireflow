@@ -60,7 +60,7 @@ pub struct Core<A, D, M, T, P, N, W> {
     /// Specifically these are denoted by "$Pn*" keywords where "n" is the index
     /// of the measurement which also corresponds to its column in the DATA
     /// segment. The index of each measurement in this vector is n - 1.
-    measurements: NamedVec<N, W, TimeChannel<T>, Measurement<P>>,
+    measurements: NamedVec<N, W, Temporal<T>, Optical<P>>,
 
     /// DATA segment (if applicable)
     data: D,
@@ -143,7 +143,7 @@ pub struct Metadata<X> {
 /// Explicit fields are common to all versions. The generic type parameter
 /// allows for version-specific information to be encoded.
 #[derive(Clone, Serialize)]
-pub struct TimeChannel<X> {
+pub struct Temporal<X> {
     /// Value for $PnB
     // TODO rename this
     bytes: Width,
@@ -163,12 +163,12 @@ pub struct TimeChannel<X> {
     pub specific: X,
 }
 
-/// Structured data for measurement keywords.
+/// Structured data for optical keywords.
 ///
 /// Explicit fields are common to all versions. The generic type parameter
 /// allows for version-specific information to be encoded.
 #[derive(Clone, Serialize)]
-pub struct Measurement<X> {
+pub struct Optical<X> {
     /// Value for $PnB
     bytes: Width,
 
@@ -471,20 +471,20 @@ pub struct InnerMetadata3_2 {
     pub flowrate: OptionalKw<Flowrate>,
 }
 
-/// Time channel fields specific to version 2.0
+/// Temporal measurement fields specific to version 2.0
 #[derive(Clone, Serialize)]
-pub struct InnerTime2_0;
+pub struct InnerTemporal2_0;
 
-/// Time channel fields specific to version 3.0
+/// Temporal measurement fields specific to version 3.0
 #[derive(Clone, Serialize)]
-pub struct InnerTime3_0 {
+pub struct InnerTemporal3_0 {
     /// Value for $TIMESTEP
     timestep: Timestep,
 }
 
-/// Time channel fields specific to version 3.1
+/// Temporal measurement fields specific to version 3.1
 #[derive(Clone, Serialize)]
-pub struct InnerTime3_1 {
+pub struct InnerTemporal3_1 {
     /// Value for $TIMESTEP
     timestep: Timestep,
 
@@ -492,9 +492,9 @@ pub struct InnerTime3_1 {
     pub display: OptionalKw<Display>,
 }
 
-/// Time channel fields specific to version 3.2
+/// Temporal measurement fields specific to version 3.2
 #[derive(Clone, Serialize)]
-pub struct InnerTime3_2 {
+pub struct InnerTemporal3_2 {
     /// Value for $TIMESTEP
     timestep: Timestep,
 
@@ -505,9 +505,9 @@ pub struct InnerTime3_2 {
     pub datatype: OptionalKw<NumType>,
 }
 
-/// Measurement fields specific to version 2.0
+/// Optical measurement fields specific to version 2.0
 #[derive(Clone, Serialize)]
-pub struct InnerMeasurement2_0 {
+pub struct InnerOptical2_0 {
     /// Value for $PnE
     scale: OptionalKw<Scale>,
 
@@ -515,9 +515,9 @@ pub struct InnerMeasurement2_0 {
     pub wavelength: OptionalKw<Wavelength>,
 }
 
-/// Measurement fields specific to version 3.0
+/// Optical measurement fields specific to version 3.0
 #[derive(Clone, Serialize)]
-pub struct InnerMeasurement3_0 {
+pub struct InnerOptical3_0 {
     /// Value for $PnE
     scale: Scale,
 
@@ -528,9 +528,9 @@ pub struct InnerMeasurement3_0 {
     gain: OptionalKw<Gain>,
 }
 
-/// Measurement fields specific to version 3.1
+/// Optical measurement fields specific to version 3.1
 #[derive(Clone, Serialize)]
-pub struct InnerMeasurement3_1 {
+pub struct InnerOptical3_1 {
     /// Value for $PnE
     scale: Scale,
 
@@ -547,9 +547,9 @@ pub struct InnerMeasurement3_1 {
     pub display: OptionalKw<Display>,
 }
 
-/// Measurement fields specific to version 3.2
+/// Optical measurement fields specific to version 3.2
 #[derive(Clone, Serialize)]
-pub struct InnerMeasurement3_2 {
+pub struct InnerOptical3_2 {
     /// Value for $PnE
     scale: Scale,
 
@@ -615,20 +615,20 @@ pub struct CarrierData {
     pub locationid: OptionalKw<Locationid>,
 }
 
-pub type TimeChannel2_0 = TimeChannel<InnerTime2_0>;
-pub type TimeChannel3_0 = TimeChannel<InnerTime3_0>;
-pub type TimeChannel3_1 = TimeChannel<InnerTime3_1>;
-pub type TimeChannel3_2 = TimeChannel<InnerTime3_2>;
+pub type Temporal2_0 = Temporal<InnerTemporal2_0>;
+pub type Temporal3_0 = Temporal<InnerTemporal3_0>;
+pub type Temporal3_1 = Temporal<InnerTemporal3_1>;
+pub type Temporal3_2 = Temporal<InnerTemporal3_2>;
 
-pub type Measurement2_0 = Measurement<InnerMeasurement2_0>;
-pub type Measurement3_0 = Measurement<InnerMeasurement3_0>;
-pub type Measurement3_1 = Measurement<InnerMeasurement3_1>;
-pub type Measurement3_2 = Measurement<InnerMeasurement3_2>;
+pub type Optical2_0 = Optical<InnerOptical2_0>;
+pub type Optical3_0 = Optical<InnerOptical3_0>;
+pub type Optical3_1 = Optical<InnerOptical3_1>;
+pub type Optical3_2 = Optical<InnerOptical3_2>;
 
-pub type Measurements2_0 = Measurements<OptionalKwFamily, InnerTime2_0, InnerMeasurement2_0>;
-pub type Measurements3_0 = Measurements<OptionalKwFamily, InnerTime3_0, InnerMeasurement3_0>;
-pub type Measurements3_1 = Measurements<IdentityFamily, InnerTime3_1, InnerMeasurement3_1>;
-pub type Measurements3_2 = Measurements<IdentityFamily, InnerTime3_2, InnerMeasurement3_2>;
+pub type Measurements2_0 = Measurements<OptionalKwFamily, InnerTemporal2_0, InnerOptical2_0>;
+pub type Measurements3_0 = Measurements<OptionalKwFamily, InnerTemporal3_0, InnerOptical3_0>;
+pub type Measurements3_1 = Measurements<IdentityFamily, InnerTemporal3_1, InnerOptical3_1>;
+pub type Measurements3_2 = Measurements<IdentityFamily, InnerTemporal3_2, InnerOptical3_2>;
 
 pub type Metadata2_0 = Metadata<InnerMetadata2_0>;
 pub type Metadata3_0 = Metadata<InnerMetadata3_0>;
@@ -643,58 +643,58 @@ pub type CoreDataset<M, T, P, N, W> = Core<Analysis, FCSDataFrame, M, T, P, N, W
 
 pub type CoreTEXT2_0 = CoreTEXT<
     InnerMetadata2_0,
-    InnerTime2_0,
-    InnerMeasurement2_0,
+    InnerTemporal2_0,
+    InnerOptical2_0,
     OptionalKwFamily,
     OptionalKw<Shortname>,
 >;
 pub type CoreTEXT3_0 = CoreTEXT<
     InnerMetadata3_0,
-    InnerTime3_0,
-    InnerMeasurement3_0,
+    InnerTemporal3_0,
+    InnerOptical3_0,
     OptionalKwFamily,
     OptionalKw<Shortname>,
 >;
 pub type CoreTEXT3_1 = CoreTEXT<
     InnerMetadata3_1,
-    InnerTime3_1,
-    InnerMeasurement3_1,
+    InnerTemporal3_1,
+    InnerOptical3_1,
     IdentityFamily,
     Identity<Shortname>,
 >;
 pub type CoreTEXT3_2 = CoreTEXT<
     InnerMetadata3_2,
-    InnerTime3_2,
-    InnerMeasurement3_2,
+    InnerTemporal3_2,
+    InnerOptical3_2,
     IdentityFamily,
     Identity<Shortname>,
 >;
 
 pub type CoreDataset2_0 = CoreDataset<
     InnerMetadata2_0,
-    InnerTime2_0,
-    InnerMeasurement2_0,
+    InnerTemporal2_0,
+    InnerOptical2_0,
     OptionalKwFamily,
     OptionalKw<Shortname>,
 >;
 pub type CoreDataset3_0 = CoreDataset<
     InnerMetadata3_0,
-    InnerTime3_0,
-    InnerMeasurement3_0,
+    InnerTemporal3_0,
+    InnerOptical3_0,
     OptionalKwFamily,
     OptionalKw<Shortname>,
 >;
 pub type CoreDataset3_1 = CoreDataset<
     InnerMetadata3_1,
-    InnerTime3_1,
-    InnerMeasurement3_1,
+    InnerTemporal3_1,
+    InnerOptical3_1,
     IdentityFamily,
     Identity<Shortname>,
 >;
 pub type CoreDataset3_2 = CoreDataset<
     InnerMetadata3_2,
-    InnerTime3_2,
-    InnerMeasurement3_2,
+    InnerTemporal3_2,
+    InnerOptical3_2,
     IdentityFamily,
     Identity<Shortname>,
 >;
@@ -703,8 +703,8 @@ pub type Core2_0<A, D> = Core<
     A,
     D,
     InnerMetadata2_0,
-    InnerTime2_0,
-    InnerMeasurement2_0,
+    InnerTemporal2_0,
+    InnerOptical2_0,
     OptionalKwFamily,
     OptionalKw<Shortname>,
 >;
@@ -712,8 +712,8 @@ pub type Core3_0<A, D> = Core<
     A,
     D,
     InnerMetadata3_0,
-    InnerTime3_0,
-    InnerMeasurement3_0,
+    InnerTemporal3_0,
+    InnerOptical3_0,
     OptionalKwFamily,
     OptionalKw<Shortname>,
 >;
@@ -721,8 +721,8 @@ pub type Core3_1<A, D> = Core<
     A,
     D,
     InnerMetadata3_1,
-    InnerTime3_1,
-    InnerMeasurement3_1,
+    InnerTemporal3_1,
+    InnerOptical3_1,
     IdentityFamily,
     Identity<Shortname>,
 >;
@@ -730,16 +730,16 @@ pub type Core3_2<A, D> = Core<
     A,
     D,
     InnerMetadata3_2,
-    InnerTime3_2,
-    InnerMeasurement3_2,
+    InnerTemporal3_2,
+    InnerOptical3_2,
     IdentityFamily,
     Identity<Shortname>,
 >;
 
-type RawInput2_0 = RawInput<OptionalKwFamily, TimeChannel2_0, Measurement2_0>;
-type RawInput3_0 = RawInput<OptionalKwFamily, TimeChannel3_0, Measurement3_0>;
-type RawInput3_1 = RawInput<IdentityFamily, TimeChannel3_1, Measurement3_1>;
-type RawInput3_2 = RawInput<IdentityFamily, TimeChannel3_2, Measurement3_2>;
+type RawInput2_0 = RawInput<OptionalKwFamily, Temporal2_0, Optical2_0>;
+type RawInput3_0 = RawInput<OptionalKwFamily, Temporal3_0, Optical3_0>;
+type RawInput3_1 = RawInput<IdentityFamily, Temporal3_1, Optical3_1>;
+type RawInput3_2 = RawInput<IdentityFamily, Temporal3_2, Optical3_2>;
 
 pub trait Versioned {
     fn fcs_version() -> Version;
@@ -763,8 +763,8 @@ where
 }
 
 pub trait VersionedMetadata: Sized {
-    type P: VersionedMeasurement;
-    type T: VersionedTime;
+    type P: VersionedOptical;
+    type T: VersionedTemporal;
     type N: MightHave;
     type L: VersionedDataLayout;
     type D;
@@ -804,7 +804,7 @@ pub trait VersionedMetadata: Sized {
     ) -> Result<Self::L, Vec<String>>;
 }
 
-pub trait VersionedMeasurement: Sized + Versioned {
+pub trait VersionedOptical: Sized + Versioned {
     fn req_suffixes_inner(&self, n: MeasIdx) -> RawTriples;
 
     fn opt_suffixes_inner(&self, n: MeasIdx) -> RawOptTriples;
@@ -812,11 +812,11 @@ pub trait VersionedMeasurement: Sized + Versioned {
     fn datatype(&self) -> Option<NumType>;
 }
 
-pub(crate) trait LookupMeasurement: Sized + VersionedMeasurement {
+pub(crate) trait LookupOptical: Sized + VersionedOptical {
     fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self>;
 }
 
-pub trait VersionedTime: Sized {
+pub trait VersionedTemporal: Sized {
     fn timestep(&self) -> Option<Timestep>;
 
     fn datatype(&self) -> Option<NumType>;
@@ -828,13 +828,13 @@ pub trait VersionedTime: Sized {
     fn opt_meas_keywords_inner(&self, _: MeasIdx) -> RawOptPairs;
 }
 
-pub(crate) trait LookupTime: VersionedTime {
+pub(crate) trait LookupTemporal: VersionedTemporal {
     fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self>;
 }
 
-impl<T> TimeChannel<T>
+impl<T> Temporal<T>
 where
-    T: VersionedTime,
+    T: VersionedTemporal,
 {
     fn new_common(bytes: Width, range: Range, specific: T) -> Self {
         Self {
@@ -846,16 +846,16 @@ where
         }
     }
 
-    fn lookup_time_channel(st: &mut KwParser, i: MeasIdx) -> Option<Self>
+    fn lookup_temporal(st: &mut KwParser, i: MeasIdx) -> Option<Self>
     where
-        T: LookupTime,
+        T: LookupTemporal,
     {
         if let (Some(bytes), Some(range), Some(specific)) = (
             st.lookup_meas_req(i),
             st.lookup_meas_req(i),
             T::lookup_specific(st, i),
         ) {
-            Some(TimeChannel {
+            Some(Temporal {
                 bytes,
                 range,
                 longname: st.lookup_meas_opt(i, false),
@@ -867,11 +867,11 @@ where
         }
     }
 
-    fn convert<ToT>(self) -> TimeChannel<ToT>
+    fn convert<ToT>(self) -> Temporal<ToT>
     where
         ToT: From<T>,
     {
-        TimeChannel {
+        Temporal {
             bytes: self.bytes,
             range: self.range,
             longname: self.longname,
@@ -907,9 +907,9 @@ where
     }
 }
 
-impl<P> Measurement<P>
+impl<P> Optical<P>
 where
-    P: VersionedMeasurement,
+    P: VersionedOptical,
 {
     // TODO renameme
     pub fn bytes(&self) -> Width {
@@ -943,14 +943,14 @@ where
         }
     }
 
-    fn try_convert<ToP: TryFrom<P, Error = MeasConvertError>>(
+    fn try_convert<ToP: TryFrom<P, Error = OpticalConvertError>>(
         self,
         n: MeasIdx,
-    ) -> Result<Measurement<ToP>, String> {
+    ) -> Result<Optical<ToP>, String> {
         self.specific
             .try_into()
-            .map_err(|e: MeasConvertError| e.fmt(n))
-            .map(|specific| Measurement {
+            .map_err(|e: OpticalConvertError| e.fmt(n))
+            .map(|specific| Optical {
                 bytes: self.bytes,
                 range: self.range,
                 longname: self.longname,
@@ -964,9 +964,9 @@ where
             })
     }
 
-    fn lookup_measurement(st: &mut KwParser, i: MeasIdx) -> Option<Self>
+    fn lookup_optical(st: &mut KwParser, i: MeasIdx) -> Option<Self>
     where
-        P: LookupMeasurement,
+        P: LookupOptical,
     {
         let v = P::fcs_version();
         if let (Some(bytes), Some(range), Some(specific)) = (
@@ -974,7 +974,7 @@ where
             st.lookup_meas_req(i),
             P::lookup_specific(st, i),
         ) {
-            Some(Measurement {
+            Some(Optical {
                 bytes,
                 range,
                 longname: st.lookup_meas_opt(i, false),
@@ -1069,8 +1069,8 @@ where
 impl<N, P, T> Measurements<N, T, P>
 where
     N: MightHave,
-    T: VersionedTime,
-    P: VersionedMeasurement,
+    T: VersionedTemporal,
+    P: VersionedOptical,
 {
     fn layout_data(&self) -> Vec<ColumnLayoutData<()>> {
         self.iter()
@@ -1257,34 +1257,36 @@ pub(crate) type RawOptPairs = Vec<(String, Option<String>)>;
 pub(crate) type RawOptTriples = Vec<(String, String, Option<String>)>;
 
 // TODO generalize this
-pub enum MeasConvertError {
+pub enum OpticalConvertError {
     NoScale,
 }
 
-impl MeasConvertError {
+impl OpticalConvertError {
     fn fmt(&self, n: MeasIdx) -> String {
         match self {
-            MeasConvertError::NoScale => format!("$PnE not found when converting measurement {n}"),
+            OpticalConvertError::NoScale => {
+                format!("$PnE not found when converting optical measurement {n}")
+            }
         }
     }
 }
 
-type TryFromTimeError<T> = TryFromErrorReset<MeasToTimeErrors, T>;
+type TryFromTemporalError<T> = TryFromErrorReset<OpticalToTemporalErrors, T>;
 
-pub(crate) type MeasToTimeErrors = NonEmpty<MeasToTimeError>;
+pub(crate) type OpticalToTemporalErrors = NonEmpty<OpticalToTemporalError>;
 
-pub enum MeasToTimeError {
+pub enum OpticalToTemporalError {
     NonLinear,
     HasGain,
     NotTimeType,
 }
 
-impl fmt::Display for MeasToTimeError {
+impl fmt::Display for OpticalToTemporalError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            MeasToTimeError::NonLinear => write!(f, "$PnE must be '0,0'"),
-            MeasToTimeError::HasGain => write!(f, "$PnG must not be set"),
-            MeasToTimeError::NotTimeType => write!(f, "$PnTYPE must not be set"),
+            OpticalToTemporalError::NonLinear => write!(f, "$PnE must be '0,0'"),
+            OpticalToTemporalError::HasGain => write!(f, "$PnG must not be set"),
+            OpticalToTemporalError::NotTimeType => write!(f, "$PnTYPE must not be set"),
         }
     }
 }
@@ -1311,12 +1313,12 @@ impl fmt::Display for MetaConvertError {
     }
 }
 
-impl<M, T> TryFrom<Measurement<M>> for TimeChannel<T>
+impl<M, T> TryFrom<Optical<M>> for Temporal<T>
 where
-    T: TryFrom<M, Error = TryFromTimeError<M>>,
+    T: TryFrom<M, Error = TryFromTemporalError<M>>,
 {
-    type Error = TryFromErrorReset<MeasToTimeErrors, Measurement<M>>;
-    fn try_from(value: Measurement<M>) -> Result<Self, Self::Error> {
+    type Error = TryFromErrorReset<OpticalToTemporalErrors, Optical<M>>;
+    fn try_from(value: Optical<M>) -> Result<Self, Self::Error> {
         match value.specific.try_into() {
             Ok(specific) => Ok(Self {
                 bytes: value.bytes,
@@ -1327,7 +1329,7 @@ where
             }),
             Err(old) => Err(TryFromErrorReset {
                 error: old.error,
-                value: Measurement {
+                value: Optical {
                     specific: old.value,
                     ..value
                 },
@@ -1336,11 +1338,11 @@ where
     }
 }
 
-impl<M, T> From<TimeChannel<T>> for Measurement<M>
+impl<M, T> From<Temporal<T>> for Optical<M>
 where
     M: From<T>,
 {
-    fn from(value: TimeChannel<T>) -> Self {
+    fn from(value: Temporal<T>) -> Self {
         Self {
             bytes: value.bytes,
             range: value.range,
@@ -1368,7 +1370,7 @@ impl fmt::Display for FromByteOrdError {
 }
 
 pub(crate) type Measurements<N, T, P> =
-    NamedVec<N, <N as MightHave>::Wrapper<Shortname>, TimeChannel<T>, Measurement<P>>;
+    NamedVec<N, <N as MightHave>::Wrapper<Shortname>, Temporal<T>, Optical<P>>;
 
 pub(crate) type VersionedCoreTEXT<M> = CoreTEXT<
     M,
@@ -1398,7 +1400,7 @@ pub(crate) type VersionedCore<A, D, M> = Core<
 
 macro_rules! non_time_get_set {
     ($get:ident, $set:ident, $ty:ident, [$($root:ident)*], $field:ident, $kw:ident) => {
-        /// Get $$kw value for all non-time measurements
+        /// Get $$kw value for optical measurements
         pub fn $get(&self) -> Vec<(MeasIdx, Option<&$ty>)> {
             self.measurements
                 .iter_non_center_values()
@@ -1406,7 +1408,7 @@ macro_rules! non_time_get_set {
                 .collect()
         }
 
-        /// Set $$kw value for for all non-time measurements
+        /// Set $$kw value for for optical measurements
         pub fn $set(&mut self, xs: Vec<Option<$ty>>) -> bool {
             self.measurements.alter_non_center_values_zip(xs, |m, x| {
                 m.$($root.)*$field = x.into();
@@ -1597,21 +1599,21 @@ where
         Ok(mapping)
     }
 
-    /// Set the channel matching given name to the time channel.
+    /// Set the measurement matching given name to be the time measurement.
     ///
-    /// Return error if time channel already exists or if measurement cannot
-    /// be converted to a time channel.
-    pub fn set_time_channel(&mut self, n: &Shortname) -> Result<(), MeasToTimeErrors>
+    /// Return error if time measurement already exists or if measurement cannot
+    /// be converted to a time measurement.
+    pub fn set_temporal(&mut self, n: &Shortname) -> Result<(), OpticalToTemporalErrors>
     where
-        Measurement<M::P>: From<TimeChannel<M::T>>,
-        TimeChannel<M::T>: TryFrom<Measurement<M::P>, Error = TryFromTimeError<Measurement<M::P>>>,
+        Optical<M::P>: From<Temporal<M::T>>,
+        Temporal<M::T>: TryFrom<Optical<M::P>, Error = TryFromTemporalError<Optical<M::P>>>,
     {
         // This is tricky because $TIMESTEP will be filled with a dummy value
-        // when TimeChannel is converted from a Measurement. This will get
-        // annoying for cases where the time channel already exists and we are
-        // simply "moving" it to a new channel; $TIMESTEP should follow the move
-        // in this case. Therefore, get the value of $TIMESTEP (if it exists)
-        // and reassign to new time channel (if it exists). The added
+        // when a Temporal is converted from an Optical. This will get annoying
+        // for cases where the time measurement already exists and we are simply
+        // "moving" it to a new measurement; $TIMESTEP should follow the move in
+        // this case. Therefore, get the value of $TIMESTEP (if it exists) and
+        // reassign to new time measurement (if it exists). The added
         // complication is that not all versions have $TIMESTEP, so consult
         // trait-level functions for this and wrap in Option.
         let ms = &mut self.measurements;
@@ -1629,12 +1631,12 @@ where
         }
     }
 
-    /// Convert the current time channel to a measurement
+    /// Convert the current time measurement to an optical measurement.
     ///
-    /// Return false if there was no time channel to convert.
-    pub fn unset_time_channel(&mut self) -> bool
+    /// Return false if there was no time measurement to convert.
+    pub fn unset_temporal(&mut self) -> bool
     where
-        Measurement<M::P>: From<TimeChannel<M::T>>,
+        Optical<M::P>: From<Temporal<M::T>>,
     {
         self.measurements.unset_center()
     }
@@ -1644,7 +1646,7 @@ where
     /// Return a vector of elements corresponding to each measurement, where
     /// each element is the value of the inserted key if already present.
     ///
-    /// This includes the time channel if present.
+    /// This includes the time measurement if present.
     pub fn insert_meas_nonstandard(
         &mut self,
         xs: Vec<(NonStdKey, String)>,
@@ -1660,7 +1662,7 @@ where
     ///
     /// Return a vector with removed values for each measurement if present.
     ///
-    /// This includes the time channel if present.
+    /// This includes the time measurement if present.
     pub fn remove_meas_nonstandard(&mut self, xs: Vec<&NonStdKey>) -> Option<Vec<Option<String>>> {
         self.measurements.alter_values_zip(
             xs,
@@ -1673,7 +1675,7 @@ where
     ///
     /// Return a vector with each successfully found value.
     ///
-    /// This includes the time channel if present.
+    /// This includes the time measurement if present.
     // TODO generlize this to take slices
     pub fn get_meas_nonstandard(&self, ks: Vec<&NonStdKey>) -> Option<Vec<Option<&String>>> {
         let ms = &self.measurements;
@@ -1699,33 +1701,26 @@ where
         &self.measurements
     }
 
-    /// Apply functions to time and non-time channel values
+    /// Apply functions to measurement values
     pub fn alter_measurements<F, G, R>(&mut self, f: F, g: G) -> Vec<R>
     where
-        F: Fn(
-            IndexedElement<&<M::N as MightHave>::Wrapper<Shortname>, &mut Measurement<M::P>>,
-        ) -> R,
-        G: Fn(IndexedElement<&Shortname, &mut TimeChannel<M::T>>) -> R,
+        F: Fn(IndexedElement<&<M::N as MightHave>::Wrapper<Shortname>, &mut Optical<M::P>>) -> R,
+        G: Fn(IndexedElement<&Shortname, &mut Temporal<M::T>>) -> R,
     {
         self.measurements.alter_values(f, g)
     }
 
-    /// Apply functions to time and non-time channel values with payload
+    /// Apply functions to measurement values with payload
     pub fn alter_measurements_zip<F, G, X, R>(&mut self, xs: Vec<X>, f: F, g: G) -> Option<Vec<R>>
     where
-        F: Fn(
-            IndexedElement<&<M::N as MightHave>::Wrapper<Shortname>, &mut Measurement<M::P>>,
-            X,
-        ) -> R,
-        G: Fn(IndexedElement<&Shortname, &mut TimeChannel<M::T>>, X) -> R,
+        F: Fn(IndexedElement<&<M::N as MightHave>::Wrapper<Shortname>, &mut Optical<M::P>>, X) -> R,
+        G: Fn(IndexedElement<&Shortname, &mut Temporal<M::T>>, X) -> R,
     {
         self.measurements.alter_values_zip(xs, f, g)
     }
 
-    /// Return mutable reference to time channel as a name/value pair.
-    pub fn time_channel_mut(
-        &mut self,
-    ) -> Option<IndexedElement<&mut Shortname, &mut TimeChannel<M::T>>> {
+    /// Return mutable reference to time measurement as a name/value pair.
+    pub fn temporal_mut(&mut self) -> Option<IndexedElement<&mut Shortname, &mut Temporal<M::T>>> {
         self.measurements.as_center_mut()
     }
 
@@ -1846,11 +1841,11 @@ where
         M::N: Clone,
         ToM: VersionedMetadata,
         ToM: TryFromMetadata<M>,
-        ToM::P: VersionedMeasurement,
-        ToM::T: VersionedTime,
+        ToM::P: VersionedOptical,
+        ToM::T: VersionedTemporal,
         ToM::N: MightHave,
         ToM::N: Clone,
-        ToM::P: TryFrom<M::P, Error = MeasConvertError>,
+        ToM::P: TryFrom<M::P, Error = OpticalConvertError>,
         ToM::T: From<M::T>,
         <ToM::N as MightHave>::Wrapper<Shortname>: TryFrom<<M::N as MightHave>::Wrapper<Shortname>>,
     {
@@ -1893,15 +1888,11 @@ where
         PureMaybe::from_result_strs(res, PureErrorLevel::Error).into_result(msg)
     }
 
-    // TODO is a measurement the same as a time channel? does that term
-    // include the time channel? hmm....
-    // TODO make a better way to distinguish time and measurement (or whatever
-    // we end up calling these)
     #[allow(clippy::type_complexity)]
     fn remove_measurement_by_name_inner(
         &mut self,
         n: &Shortname,
-    ) -> Option<(MeasIdx, Result<Measurement<M::P>, TimeChannel<M::T>>)> {
+    ) -> Option<(MeasIdx, Result<Optical<M::P>, Temporal<M::T>>)> {
         if let Some(e) = self.measurements.remove_name(n) {
             self.metadata.remove_name_index(n, e.0);
             Some(e)
@@ -1914,7 +1905,7 @@ where
     fn remove_measurement_by_index_inner(
         &mut self,
         index: MeasIdx,
-    ) -> Option<EitherPair<M::N, Measurement<M::P>, TimeChannel<M::T>>> {
+    ) -> Option<EitherPair<M::N, Optical<M::P>, Temporal<M::T>>> {
         if let Some(e) = self.measurements.remove_index(index) {
             if let Ok(left) = &e {
                 if let Some(n) = M::N::as_opt(&left.key) {
@@ -1927,21 +1918,17 @@ where
         }
     }
 
-    fn push_time_channel_inner(
-        &mut self,
-        n: Shortname,
-        m: TimeChannel<M::T>,
-    ) -> Result<(), String> {
+    fn push_temporal_inner(&mut self, n: Shortname, m: Temporal<M::T>) -> Result<(), String> {
         self.measurements
             .push_center(n, m)
             .map_err(|e| e.to_string())
     }
 
-    fn insert_time_channel_inner(
+    fn insert_temporal_inner(
         &mut self,
         i: MeasIdx,
         n: Shortname,
-        m: TimeChannel<M::T>,
+        m: Temporal<M::T>,
     ) -> Result<(), String> {
         self.measurements
             .insert_center(i, n, m)
@@ -1950,26 +1937,26 @@ where
 
     // TODO this doesn't buy much since it will ulimately be easier to use
     // the type specific wrapper in practice
-    fn push_measurement_inner(
+    fn push_optical_inner(
         &mut self,
         n: <M::N as MightHave>::Wrapper<Shortname>,
-        m: Measurement<M::P>,
+        m: Optical<M::P>,
     ) -> Result<Shortname, String> {
         self.measurements.push(n, m).map_err(|e| e.to_string())
     }
 
-    fn insert_measurement_inner(
+    fn insert_optical_inner(
         &mut self,
         i: MeasIdx,
         n: <M::N as MightHave>::Wrapper<Shortname>,
-        m: Measurement<M::P>,
+        m: Optical<M::P>,
     ) -> Result<Shortname, String> {
         self.measurements.insert(i, n, m).map_err(|e| e.to_string())
     }
 
     fn set_measurements_inner(
         &mut self,
-        xs: RawInput<M::N, TimeChannel<M::T>, Measurement<M::P>>,
+        xs: RawInput<M::N, Temporal<M::T>, Optical<M::P>>,
         prefix: ShortnamePrefix,
     ) -> Result<(), String> {
         if self.trigger_name().is_some() {
@@ -2051,9 +2038,9 @@ where
         f_meta: I,
     ) -> (RawPairs, RawPairs)
     where
-        F: Fn(&Measurement<M::P>, MeasIdx) -> RawPairs,
-        G: Fn(&TimeChannel<M::T>, MeasIdx) -> RawPairs,
-        H: Fn(&TimeChannel<M::T>) -> RawPairs,
+        F: Fn(&Optical<M::P>, MeasIdx) -> RawPairs,
+        G: Fn(&Temporal<M::T>, MeasIdx) -> RawPairs,
+        H: Fn(&Temporal<M::T>) -> RawPairs,
         I: Fn(&Metadata<M>, Par) -> RawPairs,
     {
         let meas: Vec<_> = self
@@ -2075,9 +2062,9 @@ where
 
     fn req_meta_meas_keywords(&self) -> (RawPairs, RawPairs, usize) {
         let (meta, mut meas) = self.meta_meas_keywords(
-            Measurement::all_req_keywords,
-            TimeChannel::req_meas_keywords,
-            TimeChannel::req_meta_keywords,
+            Optical::all_req_keywords,
+            Temporal::req_meas_keywords,
+            Temporal::req_meta_keywords,
             Metadata::all_req_keywords,
         );
         if M::N::INFALLABLE {
@@ -2093,8 +2080,8 @@ where
 
     fn opt_meta_meas_keywords(&self) -> (RawPairs, RawPairs, usize) {
         let (meta, mut meas) = self.meta_meas_keywords(
-            Measurement::all_opt_keywords,
-            TimeChannel::opt_meas_keywords,
+            Optical::all_opt_keywords,
+            Temporal::opt_meas_keywords,
             |_| vec![],
             |s, _| Metadata::all_opt_keywords(s),
         );
@@ -2130,7 +2117,7 @@ where
             let header = m0.1.table_header();
             let rows = self.measurements.iter().map(|(i, r)| {
                 r.map_or_else(
-                    |c| Measurement::<M::P>::from(c.value.clone()).table_row(i, Some(&c.key)),
+                    |c| Optical::<M::P>::from(c.value.clone()).table_row(i, Some(&c.key)),
                     |nc| nc.value.table_row(i, M::N::as_opt(&nc.key)),
                 )
             });
@@ -2163,8 +2150,8 @@ where
     ) -> Option<Measurements<M::N, M::T, M::P>>
     where
         M: LookupMetadata,
-        M::T: LookupTime,
-        M::P: LookupMeasurement,
+        M::T: LookupTemporal,
+        M::P: LookupOptical,
     {
         let ps: Vec<_> = (0..par.0)
             .flat_map(|n| {
@@ -2179,14 +2166,14 @@ where
                     Err(M::N::into_wrapped(name))
                 });
                 // TODO this will make cryptic errors if the time pattern
-                // happens to match more than one channel
+                // happens to match more than one measurement
                 let res = match key {
                     Ok(name) => {
-                        let t = TimeChannel::lookup_time_channel(st, i)?;
+                        let t = Temporal::lookup_temporal(st, i)?;
                         Err((name, t))
                     }
                     Err(k) => {
-                        let m = Measurement::lookup_measurement(st, i)?;
+                        let m = Optical::lookup_optical(st, i)?;
                         Ok((k, m))
                     }
                 };
@@ -2220,7 +2207,7 @@ where
 
         if let Some(pat) = conf.pattern.as_ref() {
             if conf.ensure && self.measurements.as_center().is_none() {
-                let msg = format!("Could not find time channel matching {}", pat);
+                let msg = format!("Could not find time measurement matching {}", pat);
                 deferred.push_error(msg);
             }
         }
@@ -2276,7 +2263,7 @@ where
             (AlphaNumType::Single, Width::new_f32())
         };
         let xs: Vec<_> = rs.into_iter().map(|r| (b, r)).collect();
-        // ASSUME time channel will always be set to linear since we do that
+        // ASSUME time measurement will always be set to linear since we do that
         // a few lines above, so the only error/warning we need to screen is
         // for the length of the input
         let res = self.set_data_bytes_range(xs);
@@ -2339,8 +2326,8 @@ where
     pub(crate) fn new_from_raw(kws: &mut RawKeywords, conf: &StdTextReadConfig) -> PureResult<Self>
     where
         M: LookupMetadata,
-        M::T: LookupTime,
-        M::P: LookupMeasurement,
+        M::T: LookupTemporal,
+        M::P: LookupOptical,
     {
         // Lookup $PAR first since we need this to get the measurements
         let par = Failure::from_result(Par::remove_meta_req(kws))?;
@@ -2371,7 +2358,7 @@ where
     pub fn remove_measurement_by_name(
         &mut self,
         n: &Shortname,
-    ) -> Option<(MeasIdx, Result<Measurement<M::P>, TimeChannel<M::T>>)> {
+    ) -> Option<(MeasIdx, Result<Optical<M::P>, Temporal<M::T>>)> {
         self.remove_measurement_by_name_inner(n)
     }
 
@@ -2382,51 +2369,51 @@ where
     pub fn remove_measurement_by_index(
         &mut self,
         index: MeasIdx,
-    ) -> Option<EitherPair<M::N, Measurement<M::P>, TimeChannel<M::T>>> {
+    ) -> Option<EitherPair<M::N, Optical<M::P>, Temporal<M::T>>> {
         self.remove_measurement_by_index_inner(index)
     }
 
-    /// Add time channel to the end of the measurement vector.
+    /// Add time measurement to the end of the measurement vector.
     ///
-    /// Return error if time channel already exists or name is non-unique.
-    pub fn push_time_channel(&mut self, n: Shortname, m: TimeChannel<M::T>) -> Result<(), String> {
-        self.push_time_channel_inner(n, m)
+    /// Return error if time measurement already exists or name is non-unique.
+    pub fn push_temporal(&mut self, n: Shortname, m: Temporal<M::T>) -> Result<(), String> {
+        self.push_temporal_inner(n, m)
     }
 
-    /// Add time channel at the given position
+    /// Add time measurement at the given position
     ///
-    /// Return error if time channel already exists, name is non-unique, or
+    /// Return error if time measurement already exists, name is non-unique, or
     /// index is out of bounds.
-    pub fn insert_time_channel(
+    pub fn insert_temporal(
         &mut self,
         i: MeasIdx,
         n: Shortname,
-        m: TimeChannel<M::T>,
+        m: Temporal<M::T>,
     ) -> Result<(), String> {
-        self.insert_time_channel_inner(i, n, m)
+        self.insert_temporal_inner(i, n, m)
     }
 
-    /// Add measurement to the end of the measurement vector
+    /// Add optical measurement to the end of the measurement vector
     ///
     /// Return error if name is non-unique.
-    pub fn push_measurement(
+    pub fn push_optical(
         &mut self,
         n: <M::N as MightHave>::Wrapper<Shortname>,
-        m: Measurement<M::P>,
+        m: Optical<M::P>,
     ) -> Result<Shortname, String> {
-        self.push_measurement_inner(n, m)
+        self.push_optical_inner(n, m)
     }
 
-    /// Add measurement at a given position
+    /// Add optical measurement at a given position
     ///
     /// Return error if name is non-unique, or index is out of bounds.
-    pub fn insert_measurement(
+    pub fn insert_optical(
         &mut self,
         i: MeasIdx,
         n: <M::N as MightHave>::Wrapper<Shortname>,
-        m: Measurement<M::P>,
+        m: Optical<M::P>,
     ) -> Result<Shortname, String> {
-        self.insert_measurement_inner(i, n, m)
+        self.insert_optical_inner(i, n, m)
     }
 
     /// Remove measurements
@@ -2500,7 +2487,7 @@ where
     pub fn remove_measurement_by_name(
         &mut self,
         n: &Shortname,
-    ) -> Option<(MeasIdx, Result<Measurement<M::P>, TimeChannel<M::T>>)> {
+    ) -> Option<(MeasIdx, Result<Optical<M::P>, Temporal<M::T>>)> {
         self.remove_measurement_by_name_inner(n).map(|(i, x)| {
             self.data.drop_in_place(i.into()).unwrap();
             (i, x)
@@ -2514,38 +2501,38 @@ where
     pub fn remove_measurement_by_index(
         &mut self,
         index: MeasIdx,
-    ) -> Option<EitherPair<M::N, Measurement<M::P>, TimeChannel<M::T>>> {
+    ) -> Option<EitherPair<M::N, Optical<M::P>, Temporal<M::T>>> {
         self.remove_measurement_by_index_inner(index).inspect(|_| {
             self.data.drop_in_place(index.into()).unwrap();
         })
     }
 
-    /// Add time channel to the end of the measurement vector.
+    /// Add time measurement to the end of the measurement vector.
     ///
-    /// Return error if time channel already exists or name is non-unique.
-    pub fn push_time_channel(
+    /// Return error if time measurement already exists or name is non-unique.
+    pub fn push_temporal(
         &mut self,
         n: Shortname,
-        m: TimeChannel<M::T>,
+        m: Temporal<M::T>,
         col: AnyFCSColumn,
     ) -> Result<(), String> {
-        self.push_time_channel_inner(n, m)?;
+        self.push_temporal_inner(n, m)?;
         self.data.push_column(col);
         Ok(())
     }
 
-    /// Add time channel at the given position
+    /// Add time measurement at the given position
     ///
-    /// Return error if time channel already exists, name is non-unique, or
+    /// Return error if time measurement already exists, name is non-unique, or
     /// index is out of bounds.
-    pub fn insert_time_channel(
+    pub fn insert_temporal(
         &mut self,
         i: MeasIdx,
         n: Shortname,
-        m: TimeChannel<M::T>,
+        m: Temporal<M::T>,
         col: AnyFCSColumn,
     ) -> Result<(), String> {
-        self.insert_time_channel_inner(i, n, m)?;
+        self.insert_temporal_inner(i, n, m)?;
         self.data.insert_column(i.into(), col);
         Ok(())
     }
@@ -2553,13 +2540,13 @@ where
     /// Add measurement to the end of the measurement vector
     ///
     /// Return error if name is non-unique.
-    pub fn push_measurement(
+    pub fn push_optical(
         &mut self,
         n: <M::N as MightHave>::Wrapper<Shortname>,
-        m: Measurement<M::P>,
+        m: Optical<M::P>,
         col: AnyFCSColumn,
     ) -> Result<Shortname, String> {
-        let k = self.push_measurement_inner(n, m)?;
+        let k = self.push_optical_inner(n, m)?;
         self.data.push_column(col);
         Ok(k)
     }
@@ -2567,14 +2554,14 @@ where
     /// Add measurement at a given position
     ///
     /// Return error if name is non-unique, or index is out of bounds.
-    pub fn insert_measurement(
+    pub fn insert_optical(
         &mut self,
         i: MeasIdx,
         n: <M::N as MightHave>::Wrapper<Shortname>,
-        m: Measurement<M::P>,
+        m: Optical<M::P>,
         col: AnyFCSColumn,
     ) -> Result<Shortname, String> {
-        let k = self.insert_measurement_inner(i, n, m)?;
+        let k = self.insert_optical_inner(i, n, m)?;
         self.data.insert_column(i.into(), col);
         Ok(k)
     }
@@ -2626,7 +2613,7 @@ impl<M, T, P, N, W> CoreTEXT<M, T, P, N, W> {
 
     pub(crate) fn new_unchecked(
         metadata: Metadata<M>,
-        measurements: NamedVec<N, W, TimeChannel<T>, Measurement<P>>,
+        measurements: NamedVec<N, W, Temporal<T>, Optical<P>>,
     ) -> Self {
         Self {
             metadata,
@@ -2735,7 +2722,7 @@ macro_rules! display_methods {
 
 macro_rules! scale_get_set {
     ($t:path, $time_default:expr) => {
-        /// Show $PnE for each measurement, including time
+        /// Show $PnE for all measurements
         pub fn all_scales(&self) -> Vec<$t> {
             self.measurements
                 .iter()
@@ -2743,7 +2730,7 @@ macro_rules! scale_get_set {
                 .collect()
         }
 
-        /// Show $PnE for each measurement, not including time
+        /// Show $PnE for optical measurements
         pub fn scales(&self) -> Vec<(MeasIdx, $t)> {
             self.measurements
                 .iter_non_center_values()
@@ -2751,7 +2738,7 @@ macro_rules! scale_get_set {
                 .collect()
         }
 
-        /// Set $PnE for for all non-time measurements
+        /// Set $PnE for for all optical measurements
         pub fn set_scales(&mut self, xs: Vec<$t>) -> bool {
             self.measurements
                 .alter_non_center_values_zip(xs, |m, x| {
@@ -2766,7 +2753,7 @@ impl<A, D> Core2_0<A, D> {
     comp_methods!();
     scale_get_set!(Option<Scale>, Some(Scale::Linear));
 
-    /// Set all non-time $PnN keywords to list of names.
+    /// Set all optical $PnN keywords to list of names.
     pub fn set_measurement_shortnames_maybe(
         &mut self,
         ns: Vec<Option<Shortname>>,
@@ -2829,7 +2816,7 @@ impl<A, D> Core3_0<A, D> {
     comp_methods!();
     scale_get_set!(Scale, Scale::Linear);
 
-    /// Set all non-time $PnN keywords to list of names.
+    /// Set all optical $PnN keywords to list of names.
     pub fn set_measurement_shortnames_maybe(
         &mut self,
         ns: Vec<Option<Shortname>>,
@@ -3229,7 +3216,7 @@ macro_rules! coretext_set_measurements2_0 {
         /// Set measurements.
         ///
         /// Return error if names are not unique or there is more than one
-        /// time channel.
+        /// time measurement.
         pub fn set_measurements(
             &mut self,
             xs: $rawinput,
@@ -3245,7 +3232,7 @@ macro_rules! coretext_set_measurements3_1 {
         /// Set measurements.
         ///
         /// Return error if names are not unique or there is more than one
-        /// time channel.
+        /// time measurement.
         pub fn set_measurements(&mut self, xs: $rawinput) -> Result<(), String> {
             self.set_measurements_inner(xs, ShortnamePrefix::default())
         }
@@ -3530,48 +3517,48 @@ impl From<Calibration3_2> for Calibration3_1 {
     }
 }
 
-impl TryFrom<InnerMeasurement3_0> for InnerMeasurement2_0 {
-    type Error = MeasConvertError;
+impl TryFrom<InnerOptical3_0> for InnerOptical2_0 {
+    type Error = OpticalConvertError;
 
-    fn try_from(value: InnerMeasurement3_0) -> Result<Self, Self::Error> {
-        Ok(InnerMeasurement2_0 {
+    fn try_from(value: InnerOptical3_0) -> Result<Self, Self::Error> {
+        Ok(InnerOptical2_0 {
             scale: Some(value.scale).into(),
             wavelength: value.wavelength,
         })
     }
 }
 
-impl TryFrom<InnerMeasurement3_1> for InnerMeasurement2_0 {
-    type Error = MeasConvertError;
+impl TryFrom<InnerOptical3_1> for InnerOptical2_0 {
+    type Error = OpticalConvertError;
 
-    fn try_from(value: InnerMeasurement3_1) -> Result<Self, Self::Error> {
-        Ok(InnerMeasurement2_0 {
+    fn try_from(value: InnerOptical3_1) -> Result<Self, Self::Error> {
+        Ok(InnerOptical2_0 {
             scale: Some(value.scale).into(),
             wavelength: value.wavelengths.into(),
         })
     }
 }
 
-impl TryFrom<InnerMeasurement3_2> for InnerMeasurement2_0 {
-    type Error = MeasConvertError;
+impl TryFrom<InnerOptical3_2> for InnerOptical2_0 {
+    type Error = OpticalConvertError;
 
-    fn try_from(value: InnerMeasurement3_2) -> Result<Self, Self::Error> {
-        Ok(InnerMeasurement2_0 {
+    fn try_from(value: InnerOptical3_2) -> Result<Self, Self::Error> {
+        Ok(InnerOptical2_0 {
             scale: Some(value.scale).into(),
             wavelength: value.wavelengths.into(),
         })
     }
 }
 
-impl TryFrom<InnerMeasurement2_0> for InnerMeasurement3_0 {
-    type Error = MeasConvertError;
+impl TryFrom<InnerOptical2_0> for InnerOptical3_0 {
+    type Error = OpticalConvertError;
 
-    fn try_from(value: InnerMeasurement2_0) -> Result<Self, Self::Error> {
+    fn try_from(value: InnerOptical2_0) -> Result<Self, Self::Error> {
         value
             .scale
             .0
-            .ok_or(MeasConvertError::NoScale)
-            .map(|scale| InnerMeasurement3_0 {
+            .ok_or(OpticalConvertError::NoScale)
+            .map(|scale| InnerOptical3_0 {
                 scale,
                 wavelength: value.wavelength,
                 gain: None.into(),
@@ -3579,11 +3566,11 @@ impl TryFrom<InnerMeasurement2_0> for InnerMeasurement3_0 {
     }
 }
 
-impl TryFrom<InnerMeasurement3_1> for InnerMeasurement3_0 {
-    type Error = MeasConvertError;
+impl TryFrom<InnerOptical3_1> for InnerOptical3_0 {
+    type Error = OpticalConvertError;
 
-    fn try_from(value: InnerMeasurement3_1) -> Result<Self, Self::Error> {
-        Ok(InnerMeasurement3_0 {
+    fn try_from(value: InnerOptical3_1) -> Result<Self, Self::Error> {
+        Ok(InnerOptical3_0 {
             scale: value.scale,
             gain: value.gain,
             wavelength: value.wavelengths.into(),
@@ -3591,11 +3578,11 @@ impl TryFrom<InnerMeasurement3_1> for InnerMeasurement3_0 {
     }
 }
 
-impl TryFrom<InnerMeasurement3_2> for InnerMeasurement3_0 {
-    type Error = MeasConvertError;
+impl TryFrom<InnerOptical3_2> for InnerOptical3_0 {
+    type Error = OpticalConvertError;
 
-    fn try_from(value: InnerMeasurement3_2) -> Result<Self, Self::Error> {
-        Ok(InnerMeasurement3_0 {
+    fn try_from(value: InnerOptical3_2) -> Result<Self, Self::Error> {
+        Ok(InnerOptical3_0 {
             scale: value.scale,
             gain: value.gain,
             wavelength: value.wavelengths.into(),
@@ -3603,15 +3590,15 @@ impl TryFrom<InnerMeasurement3_2> for InnerMeasurement3_0 {
     }
 }
 
-impl TryFrom<InnerMeasurement2_0> for InnerMeasurement3_1 {
-    type Error = MeasConvertError;
+impl TryFrom<InnerOptical2_0> for InnerOptical3_1 {
+    type Error = OpticalConvertError;
 
-    fn try_from(value: InnerMeasurement2_0) -> Result<Self, Self::Error> {
+    fn try_from(value: InnerOptical2_0) -> Result<Self, Self::Error> {
         value
             .scale
             .0
-            .ok_or(MeasConvertError::NoScale)
-            .map(|scale| InnerMeasurement3_1 {
+            .ok_or(OpticalConvertError::NoScale)
+            .map(|scale| InnerOptical3_1 {
                 scale,
                 wavelengths: value.wavelength.map(|x| x.into()),
                 gain: None.into(),
@@ -3621,11 +3608,11 @@ impl TryFrom<InnerMeasurement2_0> for InnerMeasurement3_1 {
     }
 }
 
-impl TryFrom<InnerMeasurement3_0> for InnerMeasurement3_1 {
-    type Error = MeasConvertError;
+impl TryFrom<InnerOptical3_0> for InnerOptical3_1 {
+    type Error = OpticalConvertError;
 
-    fn try_from(value: InnerMeasurement3_0) -> Result<Self, Self::Error> {
-        Ok(InnerMeasurement3_1 {
+    fn try_from(value: InnerOptical3_0) -> Result<Self, Self::Error> {
+        Ok(InnerOptical3_1 {
             scale: value.scale,
             gain: value.gain,
             wavelengths: None.into(),
@@ -3635,11 +3622,11 @@ impl TryFrom<InnerMeasurement3_0> for InnerMeasurement3_1 {
     }
 }
 
-impl TryFrom<InnerMeasurement3_2> for InnerMeasurement3_1 {
-    type Error = MeasConvertError;
+impl TryFrom<InnerOptical3_2> for InnerOptical3_1 {
+    type Error = OpticalConvertError;
 
-    fn try_from(value: InnerMeasurement3_2) -> Result<Self, Self::Error> {
-        Ok(InnerMeasurement3_1 {
+    fn try_from(value: InnerOptical3_2) -> Result<Self, Self::Error> {
+        Ok(InnerOptical3_1 {
             scale: value.scale,
             gain: value.gain,
             wavelengths: value.wavelengths,
@@ -3649,15 +3636,15 @@ impl TryFrom<InnerMeasurement3_2> for InnerMeasurement3_1 {
     }
 }
 
-impl TryFrom<InnerMeasurement2_0> for InnerMeasurement3_2 {
-    type Error = MeasConvertError;
+impl TryFrom<InnerOptical2_0> for InnerOptical3_2 {
+    type Error = OpticalConvertError;
 
-    fn try_from(value: InnerMeasurement2_0) -> Result<Self, Self::Error> {
+    fn try_from(value: InnerOptical2_0) -> Result<Self, Self::Error> {
         value
             .scale
             .0
-            .ok_or(MeasConvertError::NoScale)
-            .map(|scale| InnerMeasurement3_2 {
+            .ok_or(OpticalConvertError::NoScale)
+            .map(|scale| InnerOptical3_2 {
                 scale,
                 wavelengths: None.into(),
                 gain: None.into(),
@@ -3673,11 +3660,11 @@ impl TryFrom<InnerMeasurement2_0> for InnerMeasurement3_2 {
     }
 }
 
-impl TryFrom<InnerMeasurement3_0> for InnerMeasurement3_2 {
-    type Error = MeasConvertError;
+impl TryFrom<InnerOptical3_0> for InnerOptical3_2 {
+    type Error = OpticalConvertError;
 
-    fn try_from(value: InnerMeasurement3_0) -> Result<Self, Self::Error> {
-        Ok(InnerMeasurement3_2 {
+    fn try_from(value: InnerOptical3_0) -> Result<Self, Self::Error> {
+        Ok(InnerOptical3_2 {
             scale: value.scale,
             wavelengths: value.wavelength.map(|x| x.into()),
             gain: value.gain,
@@ -3693,11 +3680,11 @@ impl TryFrom<InnerMeasurement3_0> for InnerMeasurement3_2 {
     }
 }
 
-impl TryFrom<InnerMeasurement3_1> for InnerMeasurement3_2 {
-    type Error = MeasConvertError;
+impl TryFrom<InnerOptical3_1> for InnerOptical3_2 {
+    type Error = OpticalConvertError;
 
-    fn try_from(value: InnerMeasurement3_1) -> Result<Self, Self::Error> {
-        Ok(InnerMeasurement3_2 {
+    fn try_from(value: InnerOptical3_1) -> Result<Self, Self::Error> {
+        Ok(InnerOptical3_2 {
             scale: value.scale,
             wavelengths: value.wavelengths,
             gain: value.gain,
@@ -3956,50 +3943,50 @@ impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata3_2 {
     }
 }
 
-impl From<InnerTime3_0> for InnerTime2_0 {
-    fn from(_: InnerTime3_0) -> Self {
+impl From<InnerTemporal3_0> for InnerTemporal2_0 {
+    fn from(_: InnerTemporal3_0) -> Self {
         Self
     }
 }
 
-impl From<InnerTime3_1> for InnerTime2_0 {
-    fn from(_: InnerTime3_1) -> Self {
+impl From<InnerTemporal3_1> for InnerTemporal2_0 {
+    fn from(_: InnerTemporal3_1) -> Self {
         Self
     }
 }
 
-impl From<InnerTime3_2> for InnerTime2_0 {
-    fn from(_: InnerTime3_2) -> Self {
+impl From<InnerTemporal3_2> for InnerTemporal2_0 {
+    fn from(_: InnerTemporal3_2) -> Self {
         Self
     }
 }
 
-impl From<InnerTime2_0> for InnerTime3_0 {
-    fn from(_: InnerTime2_0) -> Self {
+impl From<InnerTemporal2_0> for InnerTemporal3_0 {
+    fn from(_: InnerTemporal2_0) -> Self {
         Self {
             timestep: Timestep::default(),
         }
     }
 }
 
-impl From<InnerTime3_1> for InnerTime3_0 {
-    fn from(value: InnerTime3_1) -> Self {
+impl From<InnerTemporal3_1> for InnerTemporal3_0 {
+    fn from(value: InnerTemporal3_1) -> Self {
         Self {
             timestep: value.timestep,
         }
     }
 }
 
-impl From<InnerTime3_2> for InnerTime3_0 {
-    fn from(value: InnerTime3_2) -> Self {
+impl From<InnerTemporal3_2> for InnerTemporal3_0 {
+    fn from(value: InnerTemporal3_2) -> Self {
         Self {
             timestep: value.timestep,
         }
     }
 }
 
-impl From<InnerTime2_0> for InnerTime3_1 {
-    fn from(_: InnerTime2_0) -> Self {
+impl From<InnerTemporal2_0> for InnerTemporal3_1 {
+    fn from(_: InnerTemporal2_0) -> Self {
         Self {
             timestep: Timestep::default(),
             display: None.into(),
@@ -4007,8 +3994,8 @@ impl From<InnerTime2_0> for InnerTime3_1 {
     }
 }
 
-impl From<InnerTime3_0> for InnerTime3_1 {
-    fn from(value: InnerTime3_0) -> Self {
+impl From<InnerTemporal3_0> for InnerTemporal3_1 {
+    fn from(value: InnerTemporal3_0) -> Self {
         Self {
             timestep: value.timestep,
             display: None.into(),
@@ -4016,8 +4003,8 @@ impl From<InnerTime3_0> for InnerTime3_1 {
     }
 }
 
-impl From<InnerTime3_2> for InnerTime3_1 {
-    fn from(value: InnerTime3_2) -> Self {
+impl From<InnerTemporal3_2> for InnerTemporal3_1 {
+    fn from(value: InnerTemporal3_2) -> Self {
         Self {
             timestep: value.timestep,
             display: value.display,
@@ -4025,8 +4012,8 @@ impl From<InnerTime3_2> for InnerTime3_1 {
     }
 }
 
-impl From<InnerTime2_0> for InnerTime3_2 {
-    fn from(_: InnerTime2_0) -> Self {
+impl From<InnerTemporal2_0> for InnerTemporal3_2 {
+    fn from(_: InnerTemporal2_0) -> Self {
         Self {
             timestep: Timestep::default(),
             display: None.into(),
@@ -4035,8 +4022,8 @@ impl From<InnerTime2_0> for InnerTime3_2 {
     }
 }
 
-impl From<InnerTime3_0> for InnerTime3_2 {
-    fn from(value: InnerTime3_0) -> Self {
+impl From<InnerTemporal3_0> for InnerTemporal3_2 {
+    fn from(value: InnerTemporal3_0) -> Self {
         Self {
             timestep: value.timestep,
             display: None.into(),
@@ -4045,8 +4032,8 @@ impl From<InnerTime3_0> for InnerTime3_2 {
     }
 }
 
-impl From<InnerTime3_1> for InnerTime3_2 {
-    fn from(value: InnerTime3_1) -> Self {
+impl From<InnerTemporal3_1> for InnerTemporal3_2 {
+    fn from(value: InnerTemporal3_1) -> Self {
         Self {
             timestep: value.timestep,
             display: value.display,
@@ -4055,8 +4042,8 @@ impl From<InnerTime3_1> for InnerTime3_2 {
     }
 }
 
-impl From<InnerTime2_0> for InnerMeasurement2_0 {
-    fn from(_: InnerTime2_0) -> Self {
+impl From<InnerTemporal2_0> for InnerOptical2_0 {
+    fn from(_: InnerTemporal2_0) -> Self {
         Self {
             scale: Some(Scale::Linear).into(),
             wavelength: None.into(),
@@ -4064,8 +4051,8 @@ impl From<InnerTime2_0> for InnerMeasurement2_0 {
     }
 }
 
-impl From<InnerTime3_0> for InnerMeasurement3_0 {
-    fn from(_: InnerTime3_0) -> Self {
+impl From<InnerTemporal3_0> for InnerOptical3_0 {
+    fn from(_: InnerTemporal3_0) -> Self {
         Self {
             scale: Scale::Linear,
             wavelength: None.into(),
@@ -4074,8 +4061,8 @@ impl From<InnerTime3_0> for InnerMeasurement3_0 {
     }
 }
 
-impl From<InnerTime3_1> for InnerMeasurement3_1 {
-    fn from(value: InnerTime3_1) -> Self {
+impl From<InnerTemporal3_1> for InnerOptical3_1 {
+    fn from(value: InnerTemporal3_1) -> Self {
         Self {
             scale: Scale::Linear,
             display: value.display,
@@ -4086,8 +4073,8 @@ impl From<InnerTime3_1> for InnerMeasurement3_1 {
     }
 }
 
-impl From<InnerTime3_2> for InnerMeasurement3_2 {
-    fn from(value: InnerTime3_2) -> Self {
+impl From<InnerTemporal3_2> for InnerOptical3_2 {
+    fn from(value: InnerTemporal3_2) -> Self {
         Self {
             scale: Scale::Linear,
             display: value.display,
@@ -4104,15 +4091,15 @@ impl From<InnerTime3_2> for InnerMeasurement3_2 {
     }
 }
 
-impl TryFrom<InnerMeasurement2_0> for InnerTime2_0 {
-    type Error = TryFromTimeError<InnerMeasurement2_0>;
-    fn try_from(value: InnerMeasurement2_0) -> Result<Self, Self::Error> {
+impl TryFrom<InnerOptical2_0> for InnerTemporal2_0 {
+    type Error = TryFromTemporalError<InnerOptical2_0>;
+    fn try_from(value: InnerOptical2_0) -> Result<Self, Self::Error> {
         if value.scale.0.as_ref().is_some_and(|s| *s == Scale::Linear) {
             Ok(Self)
         } else {
-            Err(TryFromTimeError {
+            Err(TryFromTemporalError {
                 error: NonEmpty {
-                    head: MeasToTimeError::NonLinear,
+                    head: OpticalToTemporalError::NonLinear,
                     tail: vec![],
                 },
                 value,
@@ -4121,57 +4108,57 @@ impl TryFrom<InnerMeasurement2_0> for InnerTime2_0 {
     }
 }
 
-impl TryFrom<InnerMeasurement3_0> for InnerTime3_0 {
-    type Error = TryFromTimeError<InnerMeasurement3_0>;
-    fn try_from(value: InnerMeasurement3_0) -> Result<Self, Self::Error> {
+impl TryFrom<InnerOptical3_0> for InnerTemporal3_0 {
+    type Error = TryFromTemporalError<InnerOptical3_0>;
+    fn try_from(value: InnerOptical3_0) -> Result<Self, Self::Error> {
         let mut es = vec![];
         if value.scale != Scale::Linear {
-            es.push(MeasToTimeError::NonLinear);
+            es.push(OpticalToTemporalError::NonLinear);
         }
         if value.gain.0.is_some() {
-            es.push(MeasToTimeError::HasGain);
+            es.push(OpticalToTemporalError::HasGain);
         }
         NonEmpty::from_vec(es).map_or(
             Ok(Self {
                 timestep: Timestep::default(),
             }),
-            |error| Err(TryFromTimeError { error, value }),
+            |error| Err(TryFromTemporalError { error, value }),
         )
     }
 }
 
-impl TryFrom<InnerMeasurement3_1> for InnerTime3_1 {
-    type Error = TryFromTimeError<InnerMeasurement3_1>;
-    fn try_from(value: InnerMeasurement3_1) -> Result<Self, Self::Error> {
+impl TryFrom<InnerOptical3_1> for InnerTemporal3_1 {
+    type Error = TryFromTemporalError<InnerOptical3_1>;
+    fn try_from(value: InnerOptical3_1) -> Result<Self, Self::Error> {
         let mut es = vec![];
         if value.scale != Scale::Linear {
-            es.push(MeasToTimeError::NonLinear);
+            es.push(OpticalToTemporalError::NonLinear);
         }
         if value.gain.0.is_some() {
-            es.push(MeasToTimeError::HasGain);
+            es.push(OpticalToTemporalError::HasGain);
         }
         match NonEmpty::from_vec(es) {
             None => Ok(Self {
                 timestep: Timestep::default(),
                 display: value.display,
             }),
-            Some(error) => Err(TryFromTimeError { error, value }),
+            Some(error) => Err(TryFromTemporalError { error, value }),
         }
     }
 }
 
-impl TryFrom<InnerMeasurement3_2> for InnerTime3_2 {
-    type Error = TryFromTimeError<InnerMeasurement3_2>;
-    fn try_from(value: InnerMeasurement3_2) -> Result<Self, Self::Error> {
+impl TryFrom<InnerOptical3_2> for InnerTemporal3_2 {
+    type Error = TryFromTemporalError<InnerOptical3_2>;
+    fn try_from(value: InnerOptical3_2) -> Result<Self, Self::Error> {
         let mut es = vec![];
         if value.scale != Scale::Linear {
-            es.push(MeasToTimeError::NonLinear);
+            es.push(OpticalToTemporalError::NonLinear);
         }
         if value.gain.0.is_some() {
-            es.push(MeasToTimeError::HasGain);
+            es.push(OpticalToTemporalError::HasGain);
         }
         if value.measurement_type.0.is_some() {
-            es.push(MeasToTimeError::NotTimeType);
+            es.push(OpticalToTemporalError::NotTimeType);
         }
         match NonEmpty::from_vec(es) {
             None => Ok(Self {
@@ -4179,36 +4166,36 @@ impl TryFrom<InnerMeasurement3_2> for InnerTime3_2 {
                 display: value.display,
                 datatype: value.datatype,
             }),
-            Some(error) => Err(TryFromTimeError { error, value }),
+            Some(error) => Err(TryFromTemporalError { error, value }),
         }
     }
 }
 
-impl Versioned for InnerMeasurement2_0 {
+impl Versioned for InnerOptical2_0 {
     fn fcs_version() -> Version {
         Version::FCS2_0
     }
 }
 
-impl Versioned for InnerMeasurement3_0 {
+impl Versioned for InnerOptical3_0 {
     fn fcs_version() -> Version {
         Version::FCS3_0
     }
 }
 
-impl Versioned for InnerMeasurement3_1 {
+impl Versioned for InnerOptical3_1 {
     fn fcs_version() -> Version {
         Version::FCS3_1
     }
 }
 
-impl Versioned for InnerMeasurement3_2 {
+impl Versioned for InnerOptical3_2 {
     fn fcs_version() -> Version {
         Version::FCS3_2
     }
 }
 
-impl LookupMeasurement for InnerMeasurement2_0 {
+impl LookupOptical for InnerOptical2_0 {
     fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self> {
         Some(Self {
             scale: st.lookup_meas_opt(n, false),
@@ -4217,7 +4204,7 @@ impl LookupMeasurement for InnerMeasurement2_0 {
     }
 }
 
-impl LookupMeasurement for InnerMeasurement3_0 {
+impl LookupOptical for InnerOptical3_0 {
     fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self> {
         Some(Self {
             scale: st.lookup_meas_req(n)?,
@@ -4227,7 +4214,7 @@ impl LookupMeasurement for InnerMeasurement3_0 {
     }
 }
 
-impl LookupMeasurement for InnerMeasurement3_1 {
+impl LookupOptical for InnerOptical3_1 {
     fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self> {
         Some(Self {
             scale: st.lookup_meas_req(n)?,
@@ -4239,7 +4226,7 @@ impl LookupMeasurement for InnerMeasurement3_1 {
     }
 }
 
-impl LookupMeasurement for InnerMeasurement3_2 {
+impl LookupOptical for InnerOptical3_2 {
     fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
         let measurement_type: OptionalKw<MeasurementType> = st.lookup_meas_opt(i, false);
         if measurement_type
@@ -4247,7 +4234,7 @@ impl LookupMeasurement for InnerMeasurement3_2 {
             .as_ref()
             .is_some_and(|x| *x == MeasurementType::Time)
         {
-            let msg = "$PnTYPE for non-time channel should not be 'Time' if given".into();
+            let msg = "$PnTYPE for optical measurements should not be 'Time' if given".into();
             st.push_error(msg);
         }
         Some(Self {
@@ -4266,40 +4253,40 @@ impl LookupMeasurement for InnerMeasurement3_2 {
     }
 }
 
-impl LookupTime for InnerTime2_0 {
+impl LookupTemporal for InnerTemporal2_0 {
     fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
         let scale: OptionalKw<Scale> = st.lookup_meas_opt(i, false);
         if scale.0.is_some_and(|x| x != Scale::Linear) {
-            st.push_error("$PnE for time channel must be linear".into());
+            st.push_error("$PnE for time measurement must be linear".into());
         }
         Some(Self)
     }
 }
 
-impl LookupTime for InnerTime3_0 {
+impl LookupTemporal for InnerTemporal3_0 {
     fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
         let scale: Option<Scale> = st.lookup_meas_req(i);
         if scale.is_some_and(|x| x != Scale::Linear) {
-            st.push_error("$PnE for time channel must be linear".into());
+            st.push_error("$PnE for time measurement must be linear".into());
         }
         let gain: OptionalKw<Gain> = st.lookup_meas_opt(i, false);
         if gain.0.is_some() {
-            st.push_error("$PnG for time channel should not be set".into());
+            st.push_error("$PnG for time measurement should not be set".into());
         }
         st.lookup_meta_req().map(|timestep| Self { timestep })
     }
 }
 
-impl LookupTime for InnerTime3_1 {
+impl LookupTemporal for InnerTemporal3_1 {
     fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
         // TODO not DRY
         let scale: Option<Scale> = st.lookup_meas_req(i);
         if scale.is_some_and(|x| x != Scale::Linear) {
-            st.push_error("$PnE for time channel must be linear".into());
+            st.push_error("$PnE for time measurement must be linear".into());
         }
         let gain: OptionalKw<Gain> = st.lookup_meas_opt(i, false);
         if gain.0.is_some() {
-            st.push_error("$PnG for time channel should not be set".into());
+            st.push_error("$PnG for time measurement should not be set".into());
         }
         st.lookup_meta_req().map(|timestep| Self {
             timestep,
@@ -4308,19 +4295,19 @@ impl LookupTime for InnerTime3_1 {
     }
 }
 
-impl LookupTime for InnerTime3_2 {
+impl LookupTemporal for InnerTemporal3_2 {
     fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
         let scale: Option<Scale> = st.lookup_meas_req(i);
         if scale.is_some_and(|x| x != Scale::Linear) {
-            st.push_error("$PnE for time channel must be linear".into());
+            st.push_error("$PnE for time measurement must be linear".into());
         }
         let gain: OptionalKw<Gain> = st.lookup_meas_opt(i, false);
         if gain.0.is_some() {
-            st.push_error("$PnG for time channel should not be set".into());
+            st.push_error("$PnG for time measurement should not be set".into());
         }
         let mt: OptionalKw<MeasurementType> = st.lookup_meas_opt(i, false);
         if mt.0.is_some_and(|x| x != MeasurementType::Time) {
-            st.push_error("$PnTYPE for time channel should be 'Time' if given".into());
+            st.push_error("$PnTYPE for time measurement should be 'Time' if given".into());
         }
         st.lookup_meta_req().map(|timestep| Self {
             timestep,
@@ -4330,7 +4317,7 @@ impl LookupTime for InnerTime3_2 {
     }
 }
 
-impl VersionedMeasurement for InnerMeasurement2_0 {
+impl VersionedOptical for InnerOptical2_0 {
     fn datatype(&self) -> Option<NumType> {
         None
     }
@@ -4349,7 +4336,7 @@ impl VersionedMeasurement for InnerMeasurement2_0 {
     }
 }
 
-impl VersionedMeasurement for InnerMeasurement3_0 {
+impl VersionedOptical for InnerOptical3_0 {
     fn datatype(&self) -> Option<NumType> {
         None
     }
@@ -4368,7 +4355,7 @@ impl VersionedMeasurement for InnerMeasurement3_0 {
     }
 }
 
-impl VersionedMeasurement for InnerMeasurement3_1 {
+impl VersionedOptical for InnerOptical3_1 {
     fn datatype(&self) -> Option<NumType> {
         None
     }
@@ -4389,7 +4376,7 @@ impl VersionedMeasurement for InnerMeasurement3_1 {
     }
 }
 
-impl VersionedMeasurement for InnerMeasurement3_2 {
+impl VersionedOptical for InnerOptical3_2 {
     fn datatype(&self) -> Option<NumType> {
         self.datatype.0.as_ref().copied()
     }
@@ -4416,7 +4403,7 @@ impl VersionedMeasurement for InnerMeasurement3_2 {
     }
 }
 
-impl VersionedTime for InnerTime2_0 {
+impl VersionedTemporal for InnerTemporal2_0 {
     fn timestep(&self) -> Option<Timestep> {
         None
     }
@@ -4436,7 +4423,7 @@ impl VersionedTime for InnerTime2_0 {
     }
 }
 
-impl VersionedTime for InnerTime3_0 {
+impl VersionedTemporal for InnerTemporal3_0 {
     fn timestep(&self) -> Option<Timestep> {
         Some(self.timestep)
     }
@@ -4458,7 +4445,7 @@ impl VersionedTime for InnerTime3_0 {
     }
 }
 
-impl VersionedTime for InnerTime3_1 {
+impl VersionedTemporal for InnerTemporal3_1 {
     fn timestep(&self) -> Option<Timestep> {
         Some(self.timestep)
     }
@@ -4480,7 +4467,7 @@ impl VersionedTime for InnerTime3_1 {
     }
 }
 
-impl VersionedTime for InnerTime3_2 {
+impl VersionedTemporal for InnerTemporal3_2 {
     fn timestep(&self) -> Option<Timestep> {
         Some(self.timestep)
     }
@@ -4589,8 +4576,8 @@ impl LookupMetadata for InnerMetadata2_0 {
 }
 
 impl VersionedMetadata for InnerMetadata2_0 {
-    type P = InnerMeasurement2_0;
-    type T = InnerTime2_0;
+    type P = InnerOptical2_0;
+    type T = InnerTemporal2_0;
     type N = OptionalKwFamily;
     type L = DataLayout2_0;
     type D = ByteOrd;
@@ -4699,8 +4686,8 @@ impl LookupMetadata for InnerMetadata3_0 {
 }
 
 impl VersionedMetadata for InnerMetadata3_0 {
-    type P = InnerMeasurement3_0;
-    type T = InnerTime3_0;
+    type P = InnerOptical3_0;
+    type T = InnerTemporal3_0;
     type N = OptionalKwFamily;
     type L = DataLayout3_0;
     type D = ByteOrd;
@@ -4814,8 +4801,8 @@ impl LookupMetadata for InnerMetadata3_1 {
 }
 
 impl VersionedMetadata for InnerMetadata3_1 {
-    type P = InnerMeasurement3_1;
-    type T = InnerTime3_1;
+    type P = InnerOptical3_1;
+    type T = InnerTemporal3_1;
     type N = IdentityFamily;
     type L = DataLayout3_1;
     type D = Endian;
@@ -4944,8 +4931,8 @@ impl LookupMetadata for InnerMetadata3_2 {
 }
 
 impl VersionedMetadata for InnerMetadata3_2 {
-    type P = InnerMeasurement3_2;
-    type T = InnerTime3_2;
+    type P = InnerOptical3_2;
+    type T = InnerTemporal3_2;
     type N = IdentityFamily;
     type L = DataLayout3_2;
     type D = Endian;
@@ -5063,13 +5050,13 @@ impl VersionedMetadata for InnerMetadata3_2 {
     }
 }
 
-impl InnerTime3_0 {
+impl InnerTemporal3_0 {
     pub(crate) fn new(timestep: Timestep) -> Self {
         Self { timestep }
     }
 }
 
-impl InnerTime3_1 {
+impl InnerTemporal3_1 {
     pub(crate) fn new(timestep: Timestep) -> Self {
         Self {
             timestep,
@@ -5078,7 +5065,7 @@ impl InnerTime3_1 {
     }
 }
 
-impl InnerTime3_2 {
+impl InnerTemporal3_2 {
     pub(crate) fn new(timestep: Timestep) -> Self {
         Self {
             timestep,
@@ -5088,7 +5075,7 @@ impl InnerTime3_2 {
     }
 }
 
-impl InnerMeasurement2_0 {
+impl InnerOptical2_0 {
     pub(crate) fn new() -> Self {
         Self {
             scale: None.into(),
@@ -5097,7 +5084,7 @@ impl InnerMeasurement2_0 {
     }
 }
 
-impl InnerMeasurement3_0 {
+impl InnerOptical3_0 {
     pub(crate) fn new(scale: Scale) -> Self {
         Self {
             scale,
@@ -5107,7 +5094,7 @@ impl InnerMeasurement3_0 {
     }
 }
 
-impl InnerMeasurement3_1 {
+impl InnerOptical3_1 {
     pub(crate) fn new(scale: Scale) -> Self {
         Self {
             scale,
@@ -5119,7 +5106,7 @@ impl InnerMeasurement3_1 {
     }
 }
 
-impl InnerMeasurement3_2 {
+impl InnerOptical3_2 {
     pub(crate) fn new(scale: Scale) -> Self {
         Self {
             scale,
@@ -5198,58 +5185,58 @@ impl InnerMetadata3_2 {
     }
 }
 
-impl TimeChannel2_0 {
+impl Temporal2_0 {
     pub fn new(bytes: Width, range: Range) -> Self {
-        let specific = InnerTime2_0;
-        TimeChannel::new_common(bytes, range, specific)
+        let specific = InnerTemporal2_0;
+        Temporal::new_common(bytes, range, specific)
     }
 }
 
-impl TimeChannel3_0 {
+impl Temporal3_0 {
     pub fn new(bytes: Width, range: Range, timestep: Timestep) -> Self {
-        let specific = InnerTime3_0::new(timestep);
-        TimeChannel::new_common(bytes, range, specific)
+        let specific = InnerTemporal3_0::new(timestep);
+        Temporal::new_common(bytes, range, specific)
     }
 }
 
-impl TimeChannel3_1 {
+impl Temporal3_1 {
     pub fn new(bytes: Width, range: Range, timestep: Timestep) -> Self {
-        let specific = InnerTime3_1::new(timestep);
-        TimeChannel::new_common(bytes, range, specific)
+        let specific = InnerTemporal3_1::new(timestep);
+        Temporal::new_common(bytes, range, specific)
     }
 }
 
-impl TimeChannel3_2 {
+impl Temporal3_2 {
     pub fn new(bytes: Width, range: Range, timestep: Timestep) -> Self {
-        let specific = InnerTime3_2::new(timestep);
-        TimeChannel::new_common(bytes, range, specific)
+        let specific = InnerTemporal3_2::new(timestep);
+        Temporal::new_common(bytes, range, specific)
     }
 }
 
-impl Measurement2_0 {
+impl Optical2_0 {
     pub fn new(width: Width, range: Range) -> Self {
-        let specific = InnerMeasurement2_0::new();
-        Measurement::new_common(width, range, specific)
+        let specific = InnerOptical2_0::new();
+        Optical::new_common(width, range, specific)
     }
 }
 
-impl Measurement3_0 {
+impl Optical3_0 {
     pub fn new(bytes: Width, range: Range, scale: Scale) -> Self {
-        let specific = InnerMeasurement3_0::new(scale);
-        Measurement::new_common(bytes, range, specific)
+        let specific = InnerOptical3_0::new(scale);
+        Optical::new_common(bytes, range, specific)
     }
 }
 
-impl Measurement3_1 {
+impl Optical3_1 {
     pub fn new(bytes: Width, range: Range, scale: Scale) -> Self {
-        let specific = InnerMeasurement3_1::new(scale);
-        Measurement::new_common(bytes, range, specific)
+        let specific = InnerOptical3_1::new(scale);
+        Optical::new_common(bytes, range, specific)
     }
 }
 
-impl Measurement3_2 {
+impl Optical3_2 {
     pub fn new(bytes: Width, range: Range, scale: Scale) -> Self {
-        let specific = InnerMeasurement3_2::new(scale);
-        Measurement::new_common(bytes, range, specific)
+        let specific = InnerOptical3_2::new(scale);
+        Optical::new_common(bytes, range, specific)
     }
 }

@@ -93,24 +93,24 @@ pub struct RawTextReadConfig {
 /// Instructions for validating time-related properties.
 #[derive(Default, Clone)]
 pub struct TimeConfig {
-    /// If given, a pattern to find/match the $PnN of the time channel.
+    /// If given, a pattern to find/match the $PnN of the time measurement.
     ///
-    /// If matched, the time channel must conform to the requirements of the
+    /// If matched, the time measurement must conform to the requirements of the
     /// target FCS version, such as having $TIMESTEP present and having a PnE
     /// set to '0,0'.
     pub pattern: Option<TimePattern>,
 
-    /// If true, will ensure that time channel is present
+    /// If true, will ensure that time measurement is present
     pub ensure: bool,
 
-    /// If true, will ensure TIMESTEP is present if time channel is also
+    /// If true, will ensure TIMESTEP is present if time measurement is also
     /// present.
     pub ensure_timestep: bool,
 
-    /// If true, will ensure PnE is 0,0 for time channel.
+    /// If true, will ensure PnE is 0,0 for time measurement.
     pub ensure_linear: bool,
 
-    /// If true, will ensure PnG is absent for time channel.
+    /// If true, will ensure PnG is absent for time measurement.
     pub ensure_nogain: bool,
 }
 

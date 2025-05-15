@@ -612,15 +612,14 @@ impl fmt::Display for UnicodeError {
     }
 }
 
-/// The value of the $PnTYPE key (3.2+)
+/// The value of the $PnTYPE key in optical channels (3.2+)
 #[derive(Clone, Serialize, PartialEq)]
-pub enum MeasurementType {
+pub enum OpticalType {
     ForwardScatter,
     SideScatter,
     RawFluorescence,
     UnmixedFluorescence,
     Mass,
-    Time,
     ElectronicVolume,
     Classification,
     Index,
@@ -628,39 +627,78 @@ pub enum MeasurementType {
     Other(String),
 }
 
-impl FromStr for MeasurementType {
-    type Err = std::convert::Infallible;
+pub struct OpticalTypeError;
+
+impl FromStr for OpticalType {
+    type Err = OpticalTypeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "Forward Scatter" => Ok(MeasurementType::ForwardScatter),
-            "Side Scatter" => Ok(MeasurementType::SideScatter),
-            "Raw Fluorescence" => Ok(MeasurementType::RawFluorescence),
-            "Unmixed Fluorescence" => Ok(MeasurementType::UnmixedFluorescence),
-            "Mass" => Ok(MeasurementType::Mass),
-            "Time" => Ok(MeasurementType::Time),
-            "Electronic Volume" => Ok(MeasurementType::ElectronicVolume),
-            "Index" => Ok(MeasurementType::Index),
-            "Classification" => Ok(MeasurementType::Classification),
-            s => Ok(MeasurementType::Other(String::from(s))),
+            "Time" => Err(OpticalTypeError),
+            "Forward Scatter" => Ok(OpticalType::ForwardScatter),
+            "Side Scatter" => Ok(OpticalType::SideScatter),
+            "Raw Fluorescence" => Ok(OpticalType::RawFluorescence),
+            "Unmixed Fluorescence" => Ok(OpticalType::UnmixedFluorescence),
+            "Mass" => Ok(OpticalType::Mass),
+            "Electronic Volume" => Ok(OpticalType::ElectronicVolume),
+            "Index" => Ok(OpticalType::Index),
+            "Classification" => Ok(OpticalType::Classification),
+            s => Ok(OpticalType::Other(String::from(s))),
         }
     }
 }
 
-impl fmt::Display for MeasurementType {
+impl fmt::Display for OpticalType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            MeasurementType::ForwardScatter => write!(f, "Foward Scatter"),
-            MeasurementType::SideScatter => write!(f, "Side Scatter"),
-            MeasurementType::RawFluorescence => write!(f, "Raw Fluorescence"),
-            MeasurementType::UnmixedFluorescence => write!(f, "Unmixed Fluorescence"),
-            MeasurementType::Mass => write!(f, "Mass"),
-            MeasurementType::Time => write!(f, "Time"),
-            MeasurementType::ElectronicVolume => write!(f, "Electronic Volume"),
-            MeasurementType::Classification => write!(f, "Classification"),
-            MeasurementType::Index => write!(f, "Index"),
-            MeasurementType::Other(s) => write!(f, "{}", s),
+            OpticalType::ForwardScatter => write!(f, "Foward Scatter"),
+            OpticalType::SideScatter => write!(f, "Side Scatter"),
+            OpticalType::RawFluorescence => write!(f, "Raw Fluorescence"),
+            OpticalType::UnmixedFluorescence => write!(f, "Unmixed Fluorescence"),
+            OpticalType::Mass => write!(f, "Mass"),
+            OpticalType::ElectronicVolume => write!(f, "Electronic Volume"),
+            OpticalType::Classification => write!(f, "Classification"),
+            OpticalType::Index => write!(f, "Index"),
+            OpticalType::Other(s) => write!(f, "{}", s),
         }
+    }
+}
+
+impl fmt::Display for OpticalTypeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "$PnTYPE for time measurement shall not be 'Time' if given"
+        )
+    }
+}
+
+/// The value of the $PnTYPE key in temporal channels (3.2+)
+#[derive(Clone, Serialize, PartialEq)]
+pub struct TemporalType;
+
+pub struct TemporalTypeError;
+
+impl FromStr for TemporalType {
+    type Err = TemporalTypeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Time" => Ok(TemporalType),
+            _ => Err(TemporalTypeError),
+        }
+    }
+}
+
+impl fmt::Display for TemporalType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "Time")
+    }
+}
+
+impl fmt::Display for TemporalTypeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "$PnTYPE for time measurement shall be 'Time' if given")
     }
 }
 
@@ -1285,7 +1323,8 @@ kw_opt_meas!(Display, "D");
 
 // 3.2+
 kw_opt_meas!(Feature, "FEATURE");
-kw_opt_meas!(MeasurementType, "TYPE");
+kw_opt_meas!(OpticalType, "TYPE");
+kw_opt_meas!(TemporalType, "TYPE");
 kw_opt_meas!(NumType, "DATATYPE");
 kw_opt_meas_string!(Analyte, "ANALYTE");
 kw_opt_meas_string!(Tag, "TAG");

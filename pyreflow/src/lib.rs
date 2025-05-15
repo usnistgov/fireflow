@@ -659,7 +659,7 @@ pywrap!(PyTEXTDelim, TEXTDelim, "TEXTDelim");
 pywrap!(PyCytSetter, MetaKwSetter<api::Cyt>, "CytSetter");
 pywrap!(PyCalibration3_1, api::Calibration3_1, "Calibration3_1");
 pywrap!(PyCalibration3_2, api::Calibration3_2, "Calibration3_2");
-pywrap!(PyMeasurementType, api::MeasurementType, "MeasurementType");
+pywrap!(PyOpticalType, api::OpticalType, "OpticalType");
 pywrap!(PyFeature, api::Feature, "Feature");
 pywrap!(PyPositiveFloat, PositiveFloat, "PositiveFloat");
 pywrap!(PyNonNegFloat, NonNegFloat, "NonNegFloat");
@@ -2265,7 +2265,7 @@ meas_get_set!(tags, set_tags, String, PyCoreTEXT3_2, PyCoreDataset3_2);
 meas_get_set!(
     measurement_types,
     set_measurement_types,
-    PyMeasurementType,
+    PyOpticalType,
     PyCoreTEXT3_2,
     PyCoreDataset3_2
 );

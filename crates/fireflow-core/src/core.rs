@@ -497,13 +497,16 @@ pub struct InnerTemporal3_2 {
 
     /// Value for $PnDATATYPE
     pub datatype: OptionalKw<NumType>,
+
+    /// Value for $PnTYPE
+    pub measurement_type: OptionalKw<TemporalType>,
 }
 
 /// Optical measurement fields specific to version 2.0
 #[derive(Clone, Serialize)]
 pub struct InnerOptical2_0 {
     /// Value for $PnE
-    scale: OptionalKw<Scale>,
+    pub scale: OptionalKw<Scale>,
 
     /// Value for $PnL
     pub wavelength: OptionalKw<Wavelength>,
@@ -513,26 +516,26 @@ pub struct InnerOptical2_0 {
 #[derive(Clone, Serialize)]
 pub struct InnerOptical3_0 {
     /// Value for $PnE
-    scale: Scale,
+    pub scale: Scale,
 
     /// Value for $PnL
     pub wavelength: OptionalKw<Wavelength>,
 
     /// Value for $PnG
-    gain: OptionalKw<Gain>,
+    pub gain: OptionalKw<Gain>,
 }
 
 /// Optical measurement fields specific to version 3.1
 #[derive(Clone, Serialize)]
 pub struct InnerOptical3_1 {
     /// Value for $PnE
-    scale: Scale,
+    pub scale: Scale,
 
     /// Value for $PnL
     pub wavelengths: OptionalKw<Wavelengths>,
 
     /// Value for $PnG
-    gain: OptionalKw<Gain>,
+    pub gain: OptionalKw<Gain>,
 
     /// Value for $PnCALIBRATION
     pub calibration: OptionalKw<Calibration3_1>,
@@ -545,13 +548,13 @@ pub struct InnerOptical3_1 {
 #[derive(Clone, Serialize)]
 pub struct InnerOptical3_2 {
     /// Value for $PnE
-    scale: Scale,
+    pub scale: Scale,
 
     /// Value for $PnL
     pub wavelengths: OptionalKw<Wavelengths>,
 
     /// Value for $PnG
-    gain: OptionalKw<Gain>,
+    pub gain: OptionalKw<Gain>,
 
     /// Value for $PnCALIBRATION
     pub calibration: OptionalKw<Calibration3_2>,
@@ -566,7 +569,7 @@ pub struct InnerOptical3_2 {
     pub feature: OptionalKw<Feature>,
 
     /// Value for $PnTYPE
-    measurement_type: OptionalKw<MeasurementType>,
+    pub measurement_type: OptionalKw<OpticalType>,
 
     /// Value for $PnTAG
     pub tag: OptionalKw<Tag>,
@@ -3142,7 +3145,7 @@ impl<A, D> Core3_2<A, D> {
     non_time_get_set!(
         measurement_types,
         set_measurement_types,
-        MeasurementType,
+        OpticalType,
         [specific],
         measurement_type,
         PnTYPE
@@ -3986,6 +3989,7 @@ impl From<InnerTemporal2_0> for InnerTemporal3_2 {
             timestep: Timestep::default(),
             display: None.into(),
             datatype: None.into(),
+            measurement_type: None.into(),
         }
     }
 }
@@ -3996,6 +4000,7 @@ impl From<InnerTemporal3_0> for InnerTemporal3_2 {
             timestep: value.timestep,
             display: None.into(),
             datatype: None.into(),
+            measurement_type: None.into(),
         }
     }
 }
@@ -4006,6 +4011,7 @@ impl From<InnerTemporal3_1> for InnerTemporal3_2 {
             timestep: value.timestep,
             display: value.display,
             datatype: None.into(),
+            measurement_type: None.into(),
         }
     }
 }
@@ -4133,6 +4139,7 @@ impl TryFrom<InnerOptical3_2> for InnerTemporal3_2 {
                 timestep: Timestep::default(),
                 display: value.display,
                 datatype: value.datatype,
+                measurement_type: None.into(),
             }),
             Some(error) => Err(TryFromTemporalError { error, value }),
         }
@@ -4196,15 +4203,6 @@ impl LookupOptical for InnerOptical3_1 {
 
 impl LookupOptical for InnerOptical3_2 {
     fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
-        let measurement_type: OptionalKw<MeasurementType> = st.lookup_meas_opt(i, false);
-        if measurement_type
-            .0
-            .as_ref()
-            .is_some_and(|x| *x == MeasurementType::Time)
-        {
-            let msg = "$PnTYPE for optical measurements should not be 'Time' if given".into();
-            st.push_error(msg);
-        }
         Some(Self {
             scale: st.lookup_meas_req(i)?,
             gain: st.lookup_meas_opt(i, false),
@@ -4213,7 +4211,7 @@ impl LookupOptical for InnerOptical3_2 {
             display: st.lookup_meas_opt(i, false),
             detector_name: st.lookup_meas_opt(i, false),
             tag: st.lookup_meas_opt(i, false),
-            measurement_type,
+            measurement_type: st.lookup_meas_opt(i, false),
             feature: st.lookup_meas_opt(i, false),
             analyte: st.lookup_meas_opt(i, false),
             datatype: st.lookup_meas_opt(i, false),
@@ -4273,14 +4271,11 @@ impl LookupTemporal for InnerTemporal3_2 {
         if gain.0.is_some() {
             st.push_error("$PnG for time measurement should not be set".into());
         }
-        let mt: OptionalKw<MeasurementType> = st.lookup_meas_opt(i, false);
-        if mt.0.is_some_and(|x| x != MeasurementType::Time) {
-            st.push_error("$PnTYPE for time measurement should be 'Time' if given".into());
-        }
         st.lookup_meta_req().map(|timestep| Self {
             timestep,
             display: st.lookup_meas_opt(i, false),
             datatype: st.lookup_meas_opt(i, false),
+            measurement_type: st.lookup_meas_opt(i, false),
         })
     }
 }
@@ -5039,6 +5034,7 @@ impl InnerTemporal3_2 {
             timestep,
             datatype: None.into(),
             display: None.into(),
+            measurement_type: None.into(),
         }
     }
 }

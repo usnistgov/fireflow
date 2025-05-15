@@ -311,6 +311,14 @@ newtype_from_outer!(Bytes, u8);
 newtype_from_outer!(Chars, u8);
 newtype_from_outer!(BitsOrChars, u8);
 
+impl From<Option<u8>> for Width {
+    fn from(value: Option<u8>) -> Self {
+        value
+            .map(|x| Width::Fixed(BitsOrChars(x)))
+            .unwrap_or(Width::Variable)
+    }
+}
+
 impl From<Chars> for Width {
     fn from(value: Chars) -> Self {
         Width::Fixed(BitsOrChars(value.0))

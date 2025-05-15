@@ -5227,9 +5227,9 @@ impl TimeChannel3_2 {
 }
 
 impl Measurement2_0 {
-    pub fn new(bytes: Width, range: Range) -> Self {
+    pub fn new(width: Width, range: Range) -> Self {
         let specific = InnerMeasurement2_0::new();
-        Measurement::new_common(bytes, range, specific)
+        Measurement::new_common(width, range, specific)
     }
 }
 

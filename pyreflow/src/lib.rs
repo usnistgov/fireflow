@@ -5,6 +5,7 @@ use fireflow_core::config::{self, OffsetCorrection};
 use fireflow_core::error;
 use fireflow_core::text::byteord::*;
 use fireflow_core::text::optionalkw::*;
+use fireflow_core::text::range::*;
 use fireflow_core::text::ranged_float::*;
 use fireflow_core::text::scale::*;
 use fireflow_core::text::spillover::*;
@@ -2368,6 +2369,42 @@ create_exception!(
     "Warning created by internal pyreflow."
 );
 
+#[pymethods]
+impl PyMeasurement2_0 {
+    #[new]
+    #[pyo3(signature = (range, width=None))]
+    fn new(range: Bound<'_, PyAny>, width: Option<u8>) -> PyResult<Self> {
+        any_to_range(range).map(|r| api::Measurement2_0::new(width.into(), r).into())
+    }
+}
+
+#[pymethods]
+impl PyMeasurement3_0 {
+    #[new]
+    #[pyo3(signature = (range, scale, width=None))]
+    fn new(range: Bound<'_, PyAny>, scale: PyScale, width: Option<u8>) -> PyResult<Self> {
+        any_to_range(range).map(|r| api::Measurement3_0::new(width.into(), r, scale.into()).into())
+    }
+}
+
+#[pymethods]
+impl PyMeasurement3_1 {
+    #[new]
+    #[pyo3(signature = (range, scale, width=None))]
+    fn new(range: Bound<'_, PyAny>, scale: PyScale, width: Option<u8>) -> PyResult<Self> {
+        any_to_range(range).map(|r| api::Measurement3_1::new(width.into(), r, scale.into()).into())
+    }
+}
+
+#[pymethods]
+impl PyMeasurement3_2 {
+    #[new]
+    #[pyo3(signature = (range, scale, width=None))]
+    fn new(range: Bound<'_, PyAny>, scale: PyScale, width: Option<u8>) -> PyResult<Self> {
+        any_to_range(range).map(|r| api::Measurement3_2::new(width.into(), r, scale.into()).into())
+    }
+}
+
 macro_rules! column_to_buf {
     ($col:expr, $prim:ident) => {
         let ca = $col.$prim().unwrap();
@@ -2441,4 +2478,10 @@ where
     let n: PyShortname = tup.0.extract()?;
     let m: X = tup.1.extract()?;
     Ok((n.into(), m))
+}
+
+fn any_to_range<'py>(a: Bound<'py, PyAny>) -> PyResult<Range> {
+    a.clone()
+        .extract::<f64>()
+        .map_or(a.extract::<u64>().map(|x| x.into()), |x| Ok(x.into()))
 }

@@ -1302,10 +1302,10 @@ macro_rules! common_methods {
                 self.0.unset_temporal()
             }
 
-            #[getter]
-            fn get_bytes(&self) -> Option<Vec<u8>> {
-                self.0.bytes()
-            }
+            // #[getter]
+            // fn get_bytes(&self) -> Option<Vec<u8>> {
+            //     self.0.bytes()
+            // }
 
             #[getter]
             fn get_ranges(&self) -> Vec<String> {

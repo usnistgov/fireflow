@@ -145,8 +145,7 @@ pub struct Metadata<X> {
 #[derive(Clone, Serialize)]
 pub struct Temporal<X> {
     /// Value for $PnB
-    // TODO rename this
-    bytes: Width,
+    width: Width,
 
     /// Value for $PnR
     range: Range,
@@ -170,7 +169,7 @@ pub struct Temporal<X> {
 #[derive(Clone, Serialize)]
 pub struct Optical<X> {
     /// Value for $PnB
-    bytes: Width,
+    width: Width,
 
     /// Value for $PnR
     range: Range,
@@ -836,9 +835,9 @@ impl<T> Temporal<T>
 where
     T: VersionedTemporal,
 {
-    fn new_common(bytes: Width, range: Range, specific: T) -> Self {
+    fn new_common(width: Width, range: Range, specific: T) -> Self {
         Self {
-            bytes,
+            width,
             range,
             specific,
             longname: None.into(),
@@ -850,13 +849,13 @@ where
     where
         T: LookupTemporal,
     {
-        if let (Some(bytes), Some(range), Some(specific)) = (
+        if let (Some(width), Some(range), Some(specific)) = (
             st.lookup_meas_req(i),
             st.lookup_meas_req(i),
             T::lookup_specific(st, i),
         ) {
             Some(Temporal {
-                bytes,
+                width,
                 range,
                 longname: st.lookup_meas_opt(i, false),
                 specific,
@@ -872,7 +871,7 @@ where
         ToT: From<T>,
     {
         Temporal {
-            bytes: self.bytes,
+            width: self.width,
             range: self.range,
             longname: self.longname,
             nonstandard_keywords: self.nonstandard_keywords,
@@ -881,7 +880,7 @@ where
     }
 
     fn req_meas_keywords(&self, n: MeasIdx) -> RawPairs {
-        [self.bytes.pair(n), self.range.pair(n)]
+        [self.width.pair(n), self.range.pair(n)]
             .into_iter()
             .collect()
     }
@@ -900,7 +899,7 @@ where
 
     fn layout_data(&self) -> ColumnLayoutData<()> {
         ColumnLayoutData {
-            width: self.bytes,
+            width: self.width,
             range: self.range.clone(),
             datatype: (),
         }
@@ -911,18 +910,17 @@ impl<P> Optical<P>
 where
     P: VersionedOptical,
 {
-    // TODO renameme
-    pub fn bytes(&self) -> Width {
-        self.bytes
+    pub fn width(&self) -> Width {
+        self.width
     }
 
     pub fn range(&self) -> &Range {
         &self.range
     }
 
-    fn new_common(bytes: Width, range: Range, specific: P) -> Self {
+    fn new_common(width: Width, range: Range, specific: P) -> Self {
         Self {
-            bytes,
+            width,
             range,
             specific,
             detector_type: None.into(),
@@ -937,7 +935,7 @@ where
 
     fn layout_data(&self) -> ColumnLayoutData<()> {
         ColumnLayoutData {
-            width: self.bytes(),
+            width: self.width(),
             range: self.range().clone(),
             datatype: (),
         }
@@ -951,7 +949,7 @@ where
             .try_into()
             .map_err(|e: OpticalConvertError| e.fmt(n))
             .map(|specific| Optical {
-                bytes: self.bytes,
+                width: self.width,
                 range: self.range,
                 longname: self.longname,
                 detector_type: self.detector_type,
@@ -969,13 +967,13 @@ where
         P: LookupOptical,
     {
         let v = P::fcs_version();
-        if let (Some(bytes), Some(range), Some(specific)) = (
+        if let (Some(width), Some(range), Some(specific)) = (
             st.lookup_meas_req(i),
             st.lookup_meas_req(i),
             P::lookup_specific(st, i),
         ) {
             Some(Optical {
-                bytes,
+                width,
                 range,
                 longname: st.lookup_meas_opt(i, false),
                 filter: st.lookup_meas_opt(i, false),
@@ -992,7 +990,7 @@ where
     }
 
     fn req_keywords(&self, n: MeasIdx) -> RawTriples {
-        [self.bytes.triple(n), self.range.triple(n)]
+        [self.width.triple(n), self.range.triple(n)]
             .into_iter()
             .chain(self.specific.req_suffixes_inner(n))
             .collect()
@@ -1321,7 +1319,7 @@ where
     fn try_from(value: Optical<M>) -> Result<Self, Self::Error> {
         match value.specific.try_into() {
             Ok(specific) => Ok(Self {
-                bytes: value.bytes,
+                width: value.width,
                 range: value.range,
                 longname: value.longname,
                 nonstandard_keywords: value.nonstandard_keywords,
@@ -1344,7 +1342,7 @@ where
 {
     fn from(value: Temporal<T>) -> Self {
         Self {
-            bytes: value.bytes,
+            width: value.width,
             range: value.range,
             longname: value.longname,
             detector_type: None.into(),
@@ -1776,35 +1774,35 @@ where
             .is_some()
     }
 
-    /// Show $PnB for each measurement
-    ///
-    /// Will be None if all $PnB are variable, and a vector of u8 showing the
-    /// width of each measurement otherwise.
-    // TODO misleading name
-    pub fn bytes(&self) -> Option<Vec<u8>> {
-        let xs: Vec<_> = self
-            .measurements
-            .iter()
-            .flat_map(|(_, x)| {
-                x.map_or_else(|p| p.value.bytes, |p| p.value.bytes)
-                    .try_into()
-                    .ok()
-            })
-            .collect();
-        // ASSUME internal state is controlled such that no "partially variable"
-        // configurations are possible
-        if xs.len() != self.par().0 {
-            None
-        } else {
-            Some(xs)
-        }
-    }
+    // /// Show $PnB for each measurement
+    // ///
+    // /// Will be None if all $PnB are variable, and a vector of u8 showing the
+    // /// width of each measurement otherwise.
+    // // TODO misleading name
+    // pub fn bytes(&self) -> Option<Vec<u8>> {
+    //     let xs: Vec<_> = self
+    //         .measurements
+    //         .iter()
+    //         .flat_map(|(_, x)| {
+    //             x.map_or_else(|p| p.value.width, |p| p.value.width)
+    //                 .try_into()
+    //                 .ok()
+    //         })
+    //         .collect();
+    //     // ASSUME internal state is controlled such that no "partially variable"
+    //     // configurations are possible
+    //     if xs.len() != self.par().0 {
+    //         None
+    //     } else {
+    //         Some(xs)
+    //     }
+    // }
 
     /// Show $PnB for each measurement
     pub fn widths(&self) -> Vec<Width> {
         self.measurements
             .iter()
-            .map(|(_, x)| x.map_or_else(|p| p.value.bytes, |p| p.value.bytes))
+            .map(|(_, x)| x.map_or_else(|p| p.value.width, |p| p.value.width))
             .collect()
     }
 
@@ -2221,16 +2219,16 @@ where
         PureSuccess { data: (), deferred }
     }
 
-    fn set_data_bytes_range(&mut self, xs: Vec<(Width, Range)>) -> bool {
+    fn set_data_width_range(&mut self, xs: Vec<(Width, Range)>) -> bool {
         self.measurements
             .alter_values_zip(
                 xs,
                 |x, (b, r)| {
-                    x.value.bytes = b;
+                    x.value.width = b;
                     x.value.range = r;
                 },
                 |x, (b, r)| {
-                    x.value.bytes = b;
+                    x.value.width = b;
                     x.value.range = r;
                 },
             )
@@ -2242,7 +2240,7 @@ where
             .into_iter()
             .map(|r| (Width::Variable, r.into()))
             .collect();
-        self.set_data_bytes_range(ys)
+        self.set_data_width_range(ys)
     }
 
     fn set_to_floating_point(&mut self, is_double: bool, rs: Vec<Range>) -> bool {
@@ -2255,7 +2253,7 @@ where
         // ASSUME time measurement will always be set to linear since we do that
         // a few lines above, so the only error/warning we need to screen is
         // for the length of the input
-        let res = self.set_data_bytes_range(xs);
+        let res = self.set_data_width_range(xs);
         if res {
             self.metadata.datatype = dt;
         }
@@ -2264,7 +2262,7 @@ where
 
     fn set_data_ascii_inner(&mut self, xs: Vec<AsciiRangeSetter>) -> bool {
         let ys: Vec<_> = xs.into_iter().map(|s| s.truncated()).collect();
-        let res = self.set_data_bytes_range(ys);
+        let res = self.set_data_width_range(ys);
         if res {
             self.metadata.datatype = AlphaNumType::Ascii;
         }
@@ -2273,7 +2271,7 @@ where
 
     pub fn set_data_integer_inner(&mut self, xs: Vec<NumRangeSetter>) -> bool {
         let ys: Vec<_> = xs.into_iter().map(|s| s.truncated()).collect();
-        let res = self.set_data_bytes_range(ys);
+        let res = self.set_data_width_range(ys);
         if res {
             self.metadata.datatype = AlphaNumType::Integer;
         }
@@ -3048,14 +3046,14 @@ impl<A, D> Core3_2<A, D> {
                     |x, y| {
                         let (b, r, pndt) = go(y);
                         let m = x.value;
-                        m.bytes = b;
+                        m.width = b;
                         m.range = r;
                         m.specific.datatype = pndt.into();
                     },
                     |x, y| {
                         let (b, r, pndt) = go(y);
                         let t = x.value;
-                        t.bytes = b;
+                        t.width = b;
                         t.range = r;
                         t.specific.datatype = pndt.into();
                     },
@@ -5167,30 +5165,30 @@ impl InnerMetadata3_2 {
 }
 
 impl Temporal2_0 {
-    pub fn new(bytes: Width, range: Range) -> Self {
+    pub fn new(width: Width, range: Range) -> Self {
         let specific = InnerTemporal2_0;
-        Temporal::new_common(bytes, range, specific)
+        Temporal::new_common(width, range, specific)
     }
 }
 
 impl Temporal3_0 {
-    pub fn new(bytes: Width, range: Range, timestep: Timestep) -> Self {
+    pub fn new(width: Width, range: Range, timestep: Timestep) -> Self {
         let specific = InnerTemporal3_0::new(timestep);
-        Temporal::new_common(bytes, range, specific)
+        Temporal::new_common(width, range, specific)
     }
 }
 
 impl Temporal3_1 {
-    pub fn new(bytes: Width, range: Range, timestep: Timestep) -> Self {
+    pub fn new(width: Width, range: Range, timestep: Timestep) -> Self {
         let specific = InnerTemporal3_1::new(timestep);
-        Temporal::new_common(bytes, range, specific)
+        Temporal::new_common(width, range, specific)
     }
 }
 
 impl Temporal3_2 {
-    pub fn new(bytes: Width, range: Range, timestep: Timestep) -> Self {
+    pub fn new(width: Width, range: Range, timestep: Timestep) -> Self {
         let specific = InnerTemporal3_2::new(timestep);
-        Temporal::new_common(bytes, range, specific)
+        Temporal::new_common(width, range, specific)
     }
 }
 
@@ -5202,22 +5200,22 @@ impl Optical2_0 {
 }
 
 impl Optical3_0 {
-    pub fn new(bytes: Width, range: Range, scale: Scale) -> Self {
+    pub fn new(width: Width, range: Range, scale: Scale) -> Self {
         let specific = InnerOptical3_0::new(scale);
-        Optical::new_common(bytes, range, specific)
+        Optical::new_common(width, range, specific)
     }
 }
 
 impl Optical3_1 {
-    pub fn new(bytes: Width, range: Range, scale: Scale) -> Self {
+    pub fn new(width: Width, range: Range, scale: Scale) -> Self {
         let specific = InnerOptical3_1::new(scale);
-        Optical::new_common(bytes, range, specific)
+        Optical::new_common(width, range, specific)
     }
 }
 
 impl Optical3_2 {
-    pub fn new(bytes: Width, range: Range, scale: Scale) -> Self {
+    pub fn new(width: Width, range: Range, scale: Scale) -> Self {
         let specific = InnerOptical3_2::new(scale);
-        Optical::new_common(bytes, range, specific)
+        Optical::new_common(width, range, specific)
     }
 }

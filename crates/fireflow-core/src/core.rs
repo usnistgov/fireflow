@@ -138,12 +138,8 @@ pub struct Metadata<X> {
     pub nonstandard_keywords: NonStdKeywords,
 }
 
-/// Structured data for time keywords.
-///
-/// Explicit fields are common to all versions. The generic type parameter
-/// allows for version-specific information to be encoded.
 #[derive(Clone, Serialize)]
-pub struct Temporal<X> {
+pub struct CommonMeasurement {
     /// Value for $PnB
     width: Width,
 
@@ -157,6 +153,16 @@ pub struct Temporal<X> {
     ///
     /// These are found using a configurable pattern to filter matching keys.
     pub nonstandard_keywords: NonStdKeywords,
+}
+
+/// Structured data for time keywords.
+///
+/// Explicit fields are common to all versions. The generic type parameter
+/// allows for version-specific information to be encoded.
+#[derive(Clone, Serialize)]
+pub struct Temporal<X> {
+    /// Fields shared with optical measurements
+    pub common: CommonMeasurement,
 
     /// Version specific data
     pub specific: X,
@@ -168,14 +174,8 @@ pub struct Temporal<X> {
 /// allows for version-specific information to be encoded.
 #[derive(Clone, Serialize)]
 pub struct Optical<X> {
-    /// Value for $PnB
-    width: Width,
-
-    /// Value for $PnR
-    range: Range,
-
-    /// Value for $PnS
-    pub longname: OptionalKw<Longname>,
+    /// Fields shared with optical measurements
+    pub common: CommonMeasurement,
 
     /// Value for $PnF
     pub filter: OptionalKw<Filter>,
@@ -191,11 +191,6 @@ pub struct Optical<X> {
 
     /// Value for $PnV
     pub detector_voltage: OptionalKw<DetectorVoltage>,
-
-    /// Non standard keywords that belong to this measurement.
-    ///
-    /// These are found using a configurable pattern to filter matching keys.
-    pub nonstandard_keywords: NonStdKeywords,
 
     /// Version specific data
     pub specific: X,
@@ -831,17 +826,38 @@ pub(crate) trait LookupTemporal: VersionedTemporal {
     fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self>;
 }
 
+impl CommonMeasurement {
+    fn new(width: Width, range: Range) -> Self {
+        Self {
+            width,
+            range,
+            nonstandard_keywords: HashMap::new(),
+            longname: None.into(),
+        }
+    }
+
+    fn lookup(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
+        if let (Some(width), Some(range)) = (st.lookup_meas_req(i), st.lookup_meas_req(i)) {
+            Some(Self {
+                width,
+                range,
+                longname: st.lookup_meas_opt(i, false),
+                nonstandard_keywords: st.lookup_all_meas_nonstandard(i),
+            })
+        } else {
+            None
+        }
+    }
+}
+
 impl<T> Temporal<T>
 where
     T: VersionedTemporal,
 {
     fn new_common(width: Width, range: Range, specific: T) -> Self {
         Self {
-            width,
-            range,
+            common: CommonMeasurement::new(width, range),
             specific,
-            longname: None.into(),
-            nonstandard_keywords: HashMap::new(),
         }
     }
 
@@ -849,18 +865,10 @@ where
     where
         T: LookupTemporal,
     {
-        if let (Some(width), Some(range), Some(specific)) = (
-            st.lookup_meas_req(i),
-            st.lookup_meas_req(i),
-            T::lookup_specific(st, i),
-        ) {
-            Some(Temporal {
-                width,
-                range,
-                longname: st.lookup_meas_opt(i, false),
-                specific,
-                nonstandard_keywords: st.lookup_all_meas_nonstandard(i),
-            })
+        if let (Some(common), Some(specific)) =
+            (CommonMeasurement::lookup(st, i), T::lookup_specific(st, i))
+        {
+            Some(Temporal { common, specific })
         } else {
             None
         }
@@ -871,16 +879,13 @@ where
         ToT: From<T>,
     {
         Temporal {
-            width: self.width,
-            range: self.range,
-            longname: self.longname,
-            nonstandard_keywords: self.nonstandard_keywords,
+            common: self.common,
             specific: self.specific.into(),
         }
     }
 
     fn req_meas_keywords(&self, n: MeasIdx) -> RawPairs {
-        [self.width.pair(n), self.range.pair(n)]
+        [self.common.width.pair(n), self.common.range.pair(n)]
             .into_iter()
             .collect()
     }
@@ -890,7 +895,7 @@ where
     }
 
     fn opt_meas_keywords(&self, n: MeasIdx) -> RawPairs {
-        [OptMeasKey::pair(&self.longname, n)]
+        [OptMeasKey::pair(&self.common.longname, n)]
             .into_iter()
             .chain(self.specific.opt_meas_keywords_inner(n))
             .flat_map(|(k, v)| v.map(|x| (k, x)))
@@ -899,8 +904,8 @@ where
 
     fn layout_data(&self) -> ColumnLayoutData<()> {
         ColumnLayoutData {
-            width: self.width,
-            range: self.range.clone(),
+            width: self.common.width,
+            range: self.common.range.clone(),
             datatype: (),
         }
     }
@@ -911,25 +916,22 @@ where
     P: VersionedOptical,
 {
     pub fn width(&self) -> Width {
-        self.width
+        self.common.width
     }
 
     pub fn range(&self) -> &Range {
-        &self.range
+        &self.common.range
     }
 
     fn new_common(width: Width, range: Range, specific: P) -> Self {
         Self {
-            width,
-            range,
+            common: CommonMeasurement::new(width, range),
             specific,
             detector_type: None.into(),
             detector_voltage: None.into(),
             filter: None.into(),
-            longname: None.into(),
             percent_emitted: None.into(),
             power: None.into(),
-            nonstandard_keywords: HashMap::new(),
         }
     }
 
@@ -949,15 +951,12 @@ where
             .try_into()
             .map_err(|e: OpticalConvertError| e.fmt(n))
             .map(|specific| Optical {
-                width: self.width,
-                range: self.range,
-                longname: self.longname,
+                common: self.common,
                 detector_type: self.detector_type,
                 detector_voltage: self.detector_voltage,
                 filter: self.filter,
                 power: self.power,
                 percent_emitted: self.percent_emitted,
-                nonstandard_keywords: self.nonstandard_keywords,
                 specific,
             })
     }
@@ -967,22 +966,17 @@ where
         P: LookupOptical,
     {
         let v = P::fcs_version();
-        if let (Some(width), Some(range), Some(specific)) = (
-            st.lookup_meas_req(i),
-            st.lookup_meas_req(i),
-            P::lookup_specific(st, i),
-        ) {
+        if let (Some(common), Some(specific)) =
+            (CommonMeasurement::lookup(st, i), P::lookup_specific(st, i))
+        {
             Some(Optical {
-                width,
-                range,
-                longname: st.lookup_meas_opt(i, false),
+                common,
                 filter: st.lookup_meas_opt(i, false),
                 power: st.lookup_meas_opt(i, false),
                 detector_type: st.lookup_meas_opt(i, false),
                 percent_emitted: st.lookup_meas_opt(i, v == Version::FCS3_2),
                 detector_voltage: st.lookup_meas_opt(i, false),
                 specific,
-                nonstandard_keywords: st.lookup_all_meas_nonstandard(i),
             })
         } else {
             None
@@ -990,7 +984,7 @@ where
     }
 
     fn req_keywords(&self, n: MeasIdx) -> RawTriples {
-        [self.width.triple(n), self.range.triple(n)]
+        [self.common.width.triple(n), self.common.range.triple(n)]
             .into_iter()
             .chain(self.specific.req_suffixes_inner(n))
             .collect()
@@ -998,7 +992,7 @@ where
 
     fn opt_keywords(&self, n: MeasIdx) -> RawOptTriples {
         [
-            OptMeasKey::triple(&self.longname, n),
+            OptMeasKey::triple(&self.common.longname, n),
             OptMeasKey::triple(&self.filter, n),
             OptMeasKey::triple(&self.power, n),
             OptMeasKey::triple(&self.detector_type, n),
@@ -1056,7 +1050,8 @@ where
             .into_iter()
             .filter_map(|(_, k, v)| v.map(|x| (k, x)))
             .chain(
-                self.nonstandard_keywords
+                self.common
+                    .nonstandard_keywords
                     .iter()
                     .map(|(k, v)| (k.as_ref().to_string(), v.clone())),
             )
@@ -1319,10 +1314,7 @@ where
     fn try_from(value: Optical<M>) -> Result<Self, Self::Error> {
         match value.specific.try_into() {
             Ok(specific) => Ok(Self {
-                width: value.width,
-                range: value.range,
-                longname: value.longname,
-                nonstandard_keywords: value.nonstandard_keywords,
+                common: value.common,
                 specific,
             }),
             Err(old) => Err(TryFromErrorReset {
@@ -1342,15 +1334,12 @@ where
 {
     fn from(value: Temporal<T>) -> Self {
         Self {
-            width: value.width,
-            range: value.range,
-            longname: value.longname,
+            common: value.common,
             detector_type: None.into(),
             detector_voltage: None.into(),
             filter: None.into(),
             percent_emitted: None.into(),
             power: None.into(),
-            nonstandard_keywords: value.nonstandard_keywords,
             specific: value.specific.into(),
         }
     }
@@ -1640,8 +1629,8 @@ where
     ) -> Option<Vec<Option<String>>> {
         self.measurements.alter_values_zip(
             xs,
-            |x, (k, v)| x.value.nonstandard_keywords.insert(k, v),
-            |x, (k, v)| x.value.nonstandard_keywords.insert(k, v),
+            |x, (k, v)| x.value.common.nonstandard_keywords.insert(k, v),
+            |x, (k, v)| x.value.common.nonstandard_keywords.insert(k, v),
         )
     }
 
@@ -1653,8 +1642,8 @@ where
     pub fn remove_meas_nonstandard(&mut self, xs: Vec<&NonStdKey>) -> Option<Vec<Option<String>>> {
         self.measurements.alter_values_zip(
             xs,
-            |x, k| x.value.nonstandard_keywords.remove(k),
-            |x, k| x.value.nonstandard_keywords.remove(k),
+            |x, k| x.value.common.nonstandard_keywords.remove(k),
+            |x, k| x.value.common.nonstandard_keywords.remove(k),
         )
     }
 
@@ -1674,8 +1663,8 @@ where
                 .zip(ks)
                 .map(|((_, x), k)| {
                     x.map_or_else(
-                        |t| t.value.nonstandard_keywords.get(k),
-                        |m| m.value.nonstandard_keywords.get(k),
+                        |t| t.value.common.nonstandard_keywords.get(k),
+                        |m| m.value.common.nonstandard_keywords.get(k),
                     )
                 })
                 .collect();
@@ -1751,8 +1740,8 @@ where
             .iter()
             .map(|x| {
                 x.1.map_or_else(
-                    |t| t.value.longname.as_ref_opt(),
-                    |m| m.value.longname.as_ref_opt(),
+                    |t| t.value.common.longname.as_ref_opt(),
+                    |m| m.value.common.longname.as_ref_opt(),
                 )
             })
             .collect()
@@ -1768,8 +1757,8 @@ where
         self.measurements
             .alter_values_zip(
                 ns,
-                |x, n| x.value.longname = n.map(Longname).into(),
-                |x, n| x.value.longname = n.map(Longname).into(),
+                |x, n| x.value.common.longname = n.map(Longname).into(),
+                |x, n| x.value.common.longname = n.map(Longname).into(),
             )
             .is_some()
     }
@@ -1802,7 +1791,7 @@ where
     pub fn widths(&self) -> Vec<Width> {
         self.measurements
             .iter()
-            .map(|(_, x)| x.map_or_else(|p| p.value.width, |p| p.value.width))
+            .map(|(_, x)| x.map_or_else(|p| p.value.common.width, |p| p.value.common.width))
             .collect()
     }
 
@@ -1810,7 +1799,7 @@ where
     pub fn ranges(&self) -> Vec<&Range> {
         self.measurements
             .iter()
-            .map(|(_, x)| x.map_or_else(|p| &p.value.range, |p| &p.value.range))
+            .map(|(_, x)| x.map_or_else(|p| &p.value.common.range, |p| &p.value.common.range))
             .collect()
     }
 
@@ -2224,12 +2213,12 @@ where
             .alter_values_zip(
                 xs,
                 |x, (b, r)| {
-                    x.value.width = b;
-                    x.value.range = r;
+                    x.value.common.width = b;
+                    x.value.common.range = r;
                 },
                 |x, (b, r)| {
-                    x.value.width = b;
-                    x.value.range = r;
+                    x.value.common.width = b;
+                    x.value.common.range = r;
                 },
             )
             .is_some()
@@ -3046,15 +3035,15 @@ impl<A, D> Core3_2<A, D> {
                     |x, y| {
                         let (b, r, pndt) = go(y);
                         let m = x.value;
-                        m.width = b;
-                        m.range = r;
+                        m.common.width = b;
+                        m.common.range = r;
                         m.specific.datatype = pndt.into();
                     },
                     |x, y| {
                         let (b, r, pndt) = go(y);
                         let t = x.value;
-                        t.width = b;
-                        t.range = r;
+                        t.common.width = b;
+                        t.common.range = r;
                         t.specific.datatype = pndt.into();
                     },
                 )

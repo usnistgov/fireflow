@@ -2382,11 +2382,6 @@ impl PyOptical2_0 {
     fn new(range: Bound<'_, PyAny>, width: Option<u8>) -> PyResult<Self> {
         any_to_range(range).map(|r| api::Optical2_0::new(width.into(), r).into())
     }
-
-    // #[getter]
-    // fn width(&self) -> Option<u8> {
-    //     self.0.bytes().into()
-    // }
 }
 
 #[pymethods]
@@ -2415,6 +2410,46 @@ impl PyOptical3_2 {
         any_to_range(range).map(|r| api::Optical3_2::new(width.into(), r, scale.into()).into())
     }
 }
+
+macro_rules! shared_meas_get_set {
+    ($($pytype:ident),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                #[getter]
+                fn width(&self) -> Option<u8> {
+                    self.0.common.width.into()
+                }
+
+                #[setter]
+                fn set_width(&mut self, x: Option<u8>) {
+                    self.0.common.width = x.into();
+                }
+
+                #[getter]
+                fn longname(&self) -> Option<String> {
+                    self.0.common.longname.as_ref_opt().map(|x| x.clone().into())
+                }
+
+                #[setter]
+                fn set_longname(&mut self, x: Option<String>) {
+                    self.0.common.longname = x.map(|y| y.into()).into();
+                }
+            }
+        )*
+    };
+}
+
+shared_meas_get_set!(
+    PyOptical2_0,
+    PyOptical3_0,
+    PyOptical3_1,
+    PyOptical3_2,
+    PyTemporal2_0,
+    PyTemporal3_0,
+    PyTemporal3_1,
+    PyTemporal3_2
+);
 
 macro_rules! column_to_buf {
     ($col:expr, $prim:ident) => {

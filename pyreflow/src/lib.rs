@@ -4,6 +4,7 @@ use fireflow_core::config::Strict;
 use fireflow_core::config::{self, OffsetCorrection};
 use fireflow_core::error;
 use fireflow_core::text::byteord::*;
+use fireflow_core::text::optionalkw::*;
 use fireflow_core::text::ranged_float::*;
 use fireflow_core::text::scale::*;
 use fireflow_core::text::spillover::*;
@@ -28,7 +29,7 @@ use pyo3::type_object::PyTypeInfo;
 use pyo3::types::IntoPyDict;
 use pyo3::types::PyDict;
 use pyo3::IntoPyObjectExt;
-use pyo3_polars::PyDataFrame;
+use pyo3_polars::{PyDataFrame, PySeries};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::ffi::CString;
@@ -1142,41 +1143,6 @@ impl PyCoreTEXT3_2 {
     }
 }
 
-// TODO make this common
-#[pymethods]
-impl PyCoreDataset3_2 {
-    #[getter]
-    fn data(&self) -> PyDataFrame {
-        let ns = self.0.all_shortnames();
-        let columns = self
-            .0
-            .data()
-            .iter_columns()
-            .zip(ns)
-            .map(|(c, n)| {
-                // ASSUME this will not fail because the we know the types and
-                // we don't have a validity array
-                Series::from_arrow(n.as_ref().into(), c.as_array())
-                    .unwrap()
-                    .into()
-            })
-            .collect();
-        // ASSUME this will not fail because all columns should have unique
-        // names and the same length
-        PyDataFrame(DataFrame::new(columns).unwrap())
-    }
-
-    #[getter]
-    fn analysis(&self) -> Vec<u8> {
-        self.0.analysis.0.clone()
-    }
-
-    #[setter]
-    fn set_analysis(&mut self, xs: Vec<u8>) {
-        self.0.analysis = xs.into();
-    }
-}
-
 // Get/set methods for all versions
 macro_rules! common_methods {
     ($pytype:ident, $($rest:ident),*) => {
@@ -1440,7 +1406,400 @@ macro_rules! common_meas_get_set {
 
     };
 }
-common_meas_get_set!([PyCoreTEXT2_0, PyMeasurement2_0, PyTimeChannel2_0]);
+
+common_meas_get_set!(
+    [PyCoreTEXT2_0, PyMeasurement2_0, PyTimeChannel2_0],
+    [PyCoreTEXT3_0, PyMeasurement3_0, PyTimeChannel3_0],
+    [PyCoreTEXT3_1, PyMeasurement3_1, PyTimeChannel3_1],
+    [PyCoreTEXT3_2, PyMeasurement3_2, PyTimeChannel3_2],
+    [PyCoreDataset2_0, PyMeasurement2_0, PyTimeChannel2_0],
+    [PyCoreDataset3_0, PyMeasurement3_0, PyTimeChannel3_0],
+    [PyCoreDataset3_1, PyMeasurement3_1, PyTimeChannel3_1],
+    [PyCoreDataset3_2, PyMeasurement3_2, PyTimeChannel3_2]
+);
+
+macro_rules! common_coretext_meas_get_set {
+    ($([$pytype:ident, $meastype:ident, $timetype:ident]),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                fn push_time_channel(
+                    &mut self,
+                    n: PyShortname,
+                    t: $timetype,
+                ) -> PyResult<()> {
+                    self.0
+                        .push_time_channel(n.into(), t.into())
+                        .map_err(PyreflowException::new_err)
+                }
+
+                fn insert_time_channel(
+                    &mut self,
+                    i: usize,
+                    n: PyShortname,
+                    t: $timetype,
+                ) -> PyResult<()> {
+                    self.0
+                        .insert_time_channel(i.into(), n.into(), t.into())
+                        .map_err(PyreflowException::new_err)
+                }
+
+                fn unset_measurements(
+                    &mut self,
+                ) -> PyResult<()> {
+                    self.0.unset_measurements()
+                        .map_err(PyreflowException::new_err)
+                }
+            }
+        )*
+
+    };
+}
+
+common_coretext_meas_get_set!(
+    [PyCoreTEXT2_0, PyMeasurement2_0, PyTimeChannel2_0],
+    [PyCoreTEXT3_0, PyMeasurement3_0, PyTimeChannel3_0]
+);
+
+macro_rules! coredata_meas_get_set {
+    ($([$pytype:ident, $meastype:ident, $timetype:ident]),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                fn push_time_channel(
+                    &mut self,
+                    n: PyShortname,
+                    t: $timetype,
+                    xs: PySeries,
+                ) -> PyResult<()> {
+                    let col = series_to_fcs(xs.into()).map_err(PyreflowException::new_err)?;
+                    self.0
+                        .push_time_channel(n.into(), t.into(), col)
+                        .map_err(PyreflowException::new_err)
+                }
+
+                fn insert_time_channel(
+                    &mut self,
+                    i: usize,
+                    n: PyShortname,
+                    t: $timetype,
+                    xs: PySeries,
+                ) -> PyResult<()> {
+                    let col = series_to_fcs(xs.into()).map_err(PyreflowException::new_err)?;
+                    self.0
+                        .insert_time_channel(i.into(), n.into(), t.into(), col)
+                        .map_err(PyreflowException::new_err)
+                }
+
+                fn unset_data(
+                    &mut self,
+                ) -> PyResult<()> {
+                    self.0.unset_data()
+                        .map_err(PyreflowException::new_err)
+                }
+
+                #[getter]
+                fn data(&self) -> PyDataFrame {
+                    let ns = self.0.all_shortnames();
+                    let columns = self
+                        .0
+                        .data()
+                        .iter_columns()
+                        .zip(ns)
+                        .map(|(c, n)| {
+                            // ASSUME this will not fail because the we know the types and
+                            // we don't have a validity array
+                            Series::from_arrow(n.as_ref().into(), c.as_array())
+                                .unwrap()
+                                .into()
+                        })
+                        .collect();
+                    // ASSUME this will not fail because all columns should have unique
+                    // names and the same length
+                    PyDataFrame(DataFrame::new(columns).unwrap())
+                }
+
+                #[getter]
+                fn analysis(&self) -> Vec<u8> {
+                    self.0.analysis.0.clone()
+                }
+
+                #[setter]
+                fn set_analysis(&mut self, xs: Vec<u8>) {
+                    self.0.analysis = xs.into();
+                }
+            }
+        )*
+
+    };
+}
+
+coredata_meas_get_set!(
+    [PyCoreDataset2_0, PyMeasurement2_0, PyTimeChannel2_0],
+    [PyCoreDataset3_0, PyMeasurement3_0, PyTimeChannel3_0],
+    [PyCoreDataset3_1, PyMeasurement3_1, PyTimeChannel3_1],
+    [PyCoreDataset3_2, PyMeasurement3_2, PyTimeChannel3_2]
+);
+
+macro_rules! coretext2_0_meas_methods {
+    ($([$pytype:ident, $meastype:ident, $timetype:ident]),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                fn remove_measurement_by_index<'py>(
+                    &mut self,
+                    index: usize,
+                    py: Python<'py>,
+                ) -> PyResult<Option<(Option<PyShortname>, Bound<'py, PyAny>)>> {
+                    self.0
+                        .remove_measurement_by_index(index.into())
+                        .map(|r| {
+                            r.map_or_else(
+                                |p| {
+                                    let a = $timetype::from(p.value).into_bound_py_any(py)?;
+                                    Ok((Some(p.key.into()), a))
+                                },
+                                |p| {
+                                    let a = $meastype::from(p.value).into_bound_py_any(py)?;
+                                    Ok((p.key.0.map(|n| n.into()), a))
+                                },
+                            )
+                        })
+                        .transpose()
+                }
+
+                #[pyo3(signature = (m, n=None))]
+                fn push_measurement(
+                    &mut self,
+                    m: $meastype,
+                    n: Option<PyShortname>,
+                ) -> PyResult<PyShortname> {
+                    self.0
+                        .push_measurement(n.map(|x| x.into()).into(), m.into())
+                        .map(|x| x.into())
+                        .map_err(PyreflowException::new_err)
+                }
+
+                #[pyo3(signature = (i, m, n=None))]
+                fn insert_measurement(
+                    &mut self,
+                    i: usize,
+                    m: $meastype,
+                    n: Option<PyShortname>,
+                ) -> PyResult<PyShortname> {
+                    self.0
+                        .insert_measurement(i.into(), n.map(|x| x.into()).into(), m.into())
+                        .map(|x| x.into())
+                        .map_err(PyreflowException::new_err)
+                }
+            }
+        )*
+    }
+}
+
+coretext2_0_meas_methods!(
+    [PyCoreTEXT2_0, PyMeasurement2_0, PyTimeChannel2_0],
+    [PyCoreTEXT3_0, PyMeasurement3_0, PyTimeChannel3_0]
+);
+
+macro_rules! coretext3_1_meas_methods {
+    ($([$pytype:ident, $meastype:ident, $timetype:ident]),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                fn remove_measurement_by_index<'py>(
+                    &mut self,
+                    index: usize,
+                    py: Python<'py>,
+                ) -> PyResult<Option<(PyShortname, Bound<'py, PyAny>)>> {
+                    self.0
+                        .remove_measurement_by_index(index.into())
+                        .map(|r| {
+                            r.map_or_else(
+                                |p| {
+                                    let a = $timetype::from(p.value).into_bound_py_any(py)?;
+                                    Ok((p.key.into(), a))
+                                },
+                                |p| {
+                                    let a = $meastype::from(p.value).into_bound_py_any(py)?;
+                                    Ok((p.key.0.into(), a))
+                                },
+                            )
+                        })
+                        .transpose()
+                }
+
+                fn push_measurement(&mut self, m: $meastype, n: PyShortname) -> PyResult<()> {
+                    self.0
+                        .push_measurement(Identity(n.into()), m.into())
+                        .map(|_| ())
+                        .map_err(PyreflowException::new_err)
+                }
+
+                fn insert_measurement(
+                    &mut self,
+                    i: usize,
+                    m: $meastype,
+                    n: PyShortname,
+                ) -> PyResult<()> {
+                    self.0
+                        .insert_measurement(i.into(), Identity(n.into()), m.into())
+                        .map(|_| ())
+                        .map_err(PyreflowException::new_err)
+                }
+            }
+        )*
+    };
+}
+
+coretext3_1_meas_methods!(
+    [PyCoreTEXT3_1, PyMeasurement3_1, PyTimeChannel3_1],
+    [PyCoreTEXT3_2, PyMeasurement3_2, PyTimeChannel3_2]
+);
+
+macro_rules! set_measurements2_0 {
+    ($([$pytype:ident, $meastype:ident, $timetype:ident]),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                pub fn set_measurements(
+                    &mut self,
+                    xs: Vec<Bound<'_, PyAny>>,
+                    prefix: PyShortnamePrefix,
+                ) -> PyResult<()> {
+                    let mut ys = vec![];
+                    for x in xs {
+                        let y = if let Ok((n, m)) = any_to_opt_named_pair::<$meastype>(x.clone()) {
+                            Ok((n, m.into()))
+                        } else {
+                            let (n, t) = any_to_named_pair::<$timetype>(x)?;
+                            Err((n, t.into()))
+                        };
+                        ys.push(y);
+                    }
+                    self.0
+                        .set_measurements(ys, prefix.into())
+                        .map_err(PyreflowException::new_err)
+                }
+            }
+        )*
+    }
+}
+
+set_measurements2_0!(
+    [PyCoreTEXT2_0, PyMeasurement2_0, PyTimeChannel2_0],
+    [PyCoreTEXT3_0, PyMeasurement3_0, PyTimeChannel3_0],
+    [PyCoreDataset2_0, PyMeasurement2_0, PyTimeChannel2_0],
+    [PyCoreDataset3_0, PyMeasurement3_0, PyTimeChannel3_0]
+);
+
+macro_rules! set_measurements3_1 {
+    ($([$pytype:ident, $meastype:ident, $timetype:ident]),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                pub fn set_measurements(
+                    &mut self,
+                    xs: Vec<Bound<'_, PyAny>>,
+                ) -> PyResult<()> {
+                    let mut ys = vec![];
+                    for x in xs {
+                        let y = if let Ok((n, m)) = any_to_named_pair::<$meastype>(x.clone()) {
+                            Ok((Identity(n), m.into()))
+                        } else {
+                            let (n, t) = any_to_named_pair::<$timetype>(x)?;
+                            Err((n, t.into()))
+                        };
+                        ys.push(y);
+                    }
+                    self.0
+                        .set_measurements(ys)
+                        .map_err(PyreflowException::new_err)
+                }
+            }
+        )*
+    }
+}
+
+set_measurements3_1!(
+    [PyCoreTEXT3_1, PyMeasurement3_1, PyTimeChannel3_1],
+    [PyCoreTEXT3_2, PyMeasurement3_2, PyTimeChannel3_2],
+    [PyCoreDataset3_1, PyMeasurement3_1, PyTimeChannel3_1],
+    [PyCoreDataset3_2, PyMeasurement3_2, PyTimeChannel3_2]
+);
+
+macro_rules! coredata2_0_meas_methods {
+    ($([$pytype:ident, $meastype:ident, $timetype:ident]),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                fn set_measurements_and_data(
+                    &mut self,
+                    xs: Vec<Bound<'_, PyAny>>,
+                    df: PyDataFrame,
+                    prefix: PyShortnamePrefix,
+                ) -> PyResult<()> {
+                    let mut ys = vec![];
+                    for x in xs {
+                        let y = if let Ok((n, m)) = any_to_opt_named_pair::<$meastype>(x.clone()) {
+                            Ok((n, m.into()))
+                        } else {
+                            let (n, t) = any_to_named_pair::<$timetype>(x)?;
+                            Err((n, t.into()))
+                        };
+                        ys.push(y);
+                    };
+                    let go = || {
+                        let cols = dataframe_to_fcs(df.into())?;
+                        self.0.set_measurements_and_data(ys, cols, prefix.into())
+                    };
+                    go().map_err(PyreflowException::new_err)
+                }
+            }
+        )*
+    }
+}
+
+coredata2_0_meas_methods!(
+    [PyCoreDataset2_0, PyMeasurement2_0, PyTimeChannel2_0],
+    [PyCoreDataset3_0, PyMeasurement3_0, PyTimeChannel3_0]
+);
+
+macro_rules! coredata3_1_meas_methods {
+    ($([$pytype:ident, $meastype:ident, $timetype:ident]),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                fn set_measurements_and_data(
+                    &mut self,
+                    xs: Vec<Bound<'_, PyAny>>,
+                    df: PyDataFrame,
+                ) -> PyResult<()> {
+                    let mut ys = vec![];
+                    for x in xs {
+                        let y = if let Ok((n, m)) = any_to_named_pair::<$meastype>(x.clone()) {
+                            Ok((Identity(n), m.into()))
+                        } else {
+                            let (n, t) = any_to_named_pair::<$timetype>(x)?;
+                            Err((n, t.into()))
+                        };
+                        ys.push(y);
+                    };
+                    let go = || {
+                        let cols = dataframe_to_fcs(df.into())?;
+                        self.0.set_measurements_and_data(ys, cols)
+                    };
+                    go().map_err(PyreflowException::new_err)
+                }
+            }
+        )*
+    }
+}
+
+coredata3_1_meas_methods!(
+    [PyCoreDataset3_1, PyMeasurement3_1, PyTimeChannel3_1],
+    [PyCoreDataset3_2, PyMeasurement3_2, PyTimeChannel3_2]
+);
 
 // Get/set methods for setting $PnN (2.0-3.0)
 macro_rules! shortnames_methods {
@@ -1929,7 +2288,7 @@ macro_rules! to_dataset_method {
         #[pymethods]
         impl $from {
             fn to_dataset(&self, df: PyDataFrame, analysis: Vec<u8>) -> PyResult<$to> {
-                let cols = polars_to_fcs(df.into())
+                let cols = dataframe_to_fcs(df.into())
                     .map_err(|e| PyreflowException::new_err(e.to_string()))?;
                 api::CoreDataset::from_coretext(self.0.clone(), cols, analysis.into())
                     .map_err(|e| PyreflowException::new_err(e.to_string()))
@@ -2010,7 +2369,7 @@ create_exception!(
 );
 
 macro_rules! column_to_buf {
-    ($cols:expr, $col:expr, $prim:ident) => {
+    ($col:expr, $prim:ident) => {
         let ca = $col.$prim().unwrap();
         if ca.first_non_null().is_some() {
             return Err(format!("column {} has null values", $col.name()));
@@ -2021,36 +2380,65 @@ macro_rules! column_to_buf {
             .unwrap()
             .values()
             .clone();
-        $cols.push(FCSColumn(buf).into());
+        return Ok(FCSColumn(buf).into());
     };
 }
 
-fn polars_to_fcs(mut df: DataFrame) -> Result<Vec<AnyFCSColumn>, String> {
+fn series_to_fcs(ser: Series) -> Result<AnyFCSColumn, String> {
+    match ser.dtype() {
+        DataType::UInt8 => {
+            column_to_buf!(ser, u8);
+        }
+        DataType::UInt16 => {
+            column_to_buf!(ser, u16);
+        }
+        DataType::UInt32 => {
+            column_to_buf!(ser, u32);
+        }
+        DataType::UInt64 => {
+            column_to_buf!(ser, u64);
+        }
+        DataType::Float32 => {
+            column_to_buf!(ser, f32);
+        }
+        DataType::Float64 => {
+            column_to_buf!(ser, f64);
+        }
+        t => Err(format!("invalid datatype: {t}")),
+    }
+}
+
+fn dataframe_to_fcs(mut df: DataFrame) -> Result<Vec<AnyFCSColumn>, String> {
     // make sure data is contiguous
     df.rechunk_mut();
     let mut cols = Vec::with_capacity(df.width());
-    for c in df.get_columns() {
-        match c.dtype() {
-            DataType::UInt8 => {
-                column_to_buf!(cols, c, u8);
-            }
-            DataType::UInt16 => {
-                column_to_buf!(cols, c, u16);
-            }
-            DataType::UInt32 => {
-                column_to_buf!(cols, c, u32);
-            }
-            DataType::UInt64 => {
-                column_to_buf!(cols, c, u64);
-            }
-            DataType::Float32 => {
-                column_to_buf!(cols, c, f32);
-            }
-            DataType::Float64 => {
-                column_to_buf!(cols, c, f64);
-            }
-            t => return Err(format!("invalid datatype: {t}")),
-        }
+    for c in df.iter() {
+        cols.push(series_to_fcs(c.clone())?);
     }
     Ok(cols)
+}
+
+fn any_to_opt_named_pair<'py, X>(a: Bound<'py, PyAny>) -> PyResult<(OptionalKw<Shortname>, X)>
+where
+    X: FromPyObject<'py>,
+{
+    let tup: (Bound<'py, PyAny>, Bound<'py, PyAny>) = a.extract()?;
+    let n_maybe: Option<Bound<'py, PyAny>> = tup.0.extract()?;
+    let n: Option<PyShortname> = if let Some(nn) = n_maybe {
+        Some(nn.extract()?)
+    } else {
+        None
+    };
+    let m: X = tup.1.extract()?;
+    Ok((n.map(|x| x.into()).into(), m))
+}
+
+fn any_to_named_pair<'py, X>(a: Bound<'py, PyAny>) -> PyResult<(Shortname, X)>
+where
+    X: FromPyObject<'py>,
+{
+    let tup: (Bound<'py, PyAny>, Bound<'py, PyAny>) = a.extract()?;
+    let n: PyShortname = tup.0.extract()?;
+    let m: X = tup.1.extract()?;
+    Ok((n.into(), m))
 }

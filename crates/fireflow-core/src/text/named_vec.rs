@@ -676,7 +676,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
 
     /// Remove non-center key/value pair by name of key.
     ///
-    /// Return None if name is not found.
+    /// Return None if index is not found.
     pub fn remove_index(&mut self, index: MeasIdx) -> Option<EitherPair<K, V, U>> {
         let i: usize = index.into();
         let (newself, ret) = match mem::replace(self, dummy()) {

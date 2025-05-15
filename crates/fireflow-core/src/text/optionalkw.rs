@@ -8,6 +8,10 @@ use std::mem;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OptionalKw<T>(pub Option<T>);
 
+/// A wrapper to contrast OptionalKw at the same abstraction level.
+#[derive(Clone, Serialize)]
+pub struct Identity<T>(pub T);
+
 impl<T> From<Option<T>> for OptionalKw<T> {
     fn from(value: Option<T>) -> Self {
         OptionalKw(value)

@@ -736,6 +736,11 @@ pub type Core3_2<A, D> = Core<
     Identity<Shortname>,
 >;
 
+type RawInput2_0 = RawInput<OptionalKwFamily, TimeChannel2_0, Measurement2_0>;
+type RawInput3_0 = RawInput<OptionalKwFamily, TimeChannel3_0, Measurement3_0>;
+type RawInput3_1 = RawInput<IdentityFamily, TimeChannel3_1, Measurement3_1>;
+type RawInput3_2 = RawInput<IdentityFamily, TimeChannel3_2, Measurement3_2>;
+
 pub trait Versioned {
     fn fcs_version() -> Version;
 }
@@ -1909,16 +1914,16 @@ where
     fn remove_measurement_by_index_inner(
         &mut self,
         index: MeasIdx,
-    ) -> Result<Option<EitherPair<M::N, Measurement<M::P>, TimeChannel<M::T>>>, String> {
+    ) -> Option<EitherPair<M::N, Measurement<M::P>, TimeChannel<M::T>>> {
         if let Some(e) = self.measurements.remove_index(index) {
             if let Ok(left) = &e {
                 if let Some(n) = M::N::as_opt(&left.key) {
                     self.metadata.remove_name_index(n, index);
                 }
             }
-            Ok(Some(e))
+            Some(e)
         } else {
-            Ok(None)
+            None
         }
     }
 
@@ -2377,7 +2382,7 @@ where
     pub fn remove_measurement_by_index(
         &mut self,
         index: MeasIdx,
-    ) -> Result<Option<EitherPair<M::N, Measurement<M::P>, TimeChannel<M::T>>>, String> {
+    ) -> Option<EitherPair<M::N, Measurement<M::P>, TimeChannel<M::T>>> {
         self.remove_measurement_by_index_inner(index)
     }
 
@@ -2422,18 +2427,6 @@ where
         m: Measurement<M::P>,
     ) -> Result<Shortname, String> {
         self.insert_measurement_inner(i, n, m)
-    }
-
-    /// Set measurements.
-    ///
-    /// Return error if names are not unique or there is more than one
-    /// time channel.
-    pub fn set_measurements(
-        &mut self,
-        xs: RawInput<M::N, TimeChannel<M::T>, Measurement<M::P>>,
-        prefix: ShortnamePrefix,
-    ) -> Result<(), String> {
-        self.set_measurements_inner(xs, prefix)
     }
 
     /// Remove measurements
@@ -2500,40 +2493,6 @@ where
         Ok(())
     }
 
-    /// Set measurements.
-    ///
-    /// Length of measurements must match the current width of the dataframe.
-    pub fn set_measurements(
-        &mut self,
-        xs: RawInput<M::N, TimeChannel<M::T>, Measurement<M::P>>,
-        prefix: ShortnamePrefix,
-    ) -> Result<(), String> {
-        if xs.len() != self.par().0 {
-            let msg = "measurement number does not match dataframe column number";
-            return Err(msg.into());
-        }
-        self.set_measurements_inner(xs, prefix)
-    }
-
-    /// Set measurements and dataframe together
-    ///
-    /// Length of measurements must match the width of the input dataframe.
-    pub fn set_measurements_and_data(
-        &mut self,
-        xs: RawInput<M::N, TimeChannel<M::T>, Measurement<M::P>>,
-        cs: Vec<AnyFCSColumn>,
-        prefix: ShortnamePrefix,
-    ) -> Result<(), String> {
-        if xs.len() != cs.len() {
-            let msg = "measurement number does not match dataframe column number";
-            return Err(msg.into());
-        }
-        let df = FCSDataFrame::try_new(cs).ok_or("columns lengths to not match".to_string())?;
-        self.set_measurements_inner(xs, prefix)?;
-        self.data = df;
-        Ok(())
-    }
-
     /// Remove a measurement matching the given name.
     ///
     /// Return removed measurement and its index if found.
@@ -2555,11 +2514,10 @@ where
     pub fn remove_measurement_by_index(
         &mut self,
         index: MeasIdx,
-    ) -> Result<Option<EitherPair<M::N, Measurement<M::P>, TimeChannel<M::T>>>, String> {
-        let res = self.remove_measurement_by_index_inner(index)?.inspect(|_| {
+    ) -> Option<EitherPair<M::N, Measurement<M::P>, TimeChannel<M::T>>> {
+        self.remove_measurement_by_index_inner(index).inspect(|_| {
             self.data.drop_in_place(index.into()).unwrap();
-        });
-        Ok(res)
+        })
     }
 
     /// Add time channel to the end of the measurement vector.
@@ -3266,12 +3224,42 @@ impl<A, D> Core3_2<A, D> {
     }
 }
 
+macro_rules! coretext_set_measurements2_0 {
+    ($rawinput:path) => {
+        /// Set measurements.
+        ///
+        /// Return error if names are not unique or there is more than one
+        /// time channel.
+        pub fn set_measurements(
+            &mut self,
+            xs: $rawinput,
+            prefix: ShortnamePrefix,
+        ) -> Result<(), String> {
+            self.set_measurements_inner(xs, prefix)
+        }
+    };
+}
+
+macro_rules! coretext_set_measurements3_1 {
+    ($rawinput:path) => {
+        /// Set measurements.
+        ///
+        /// Return error if names are not unique or there is more than one
+        /// time channel.
+        pub fn set_measurements(&mut self, xs: $rawinput) -> Result<(), String> {
+            self.set_measurements_inner(xs, ShortnamePrefix::default())
+        }
+    };
+}
+
 impl CoreTEXT2_0 {
     pub fn new(datatype: AlphaNumType, byteord: ByteOrd, mode: Mode) -> Self {
         let specific = InnerMetadata2_0::new(mode, byteord);
         let metadata = Metadata::new(datatype, specific);
         CoreTEXT::new_nomeas(metadata)
     }
+
+    coretext_set_measurements2_0!(RawInput2_0);
 }
 
 impl CoreTEXT3_0 {
@@ -3280,6 +3268,8 @@ impl CoreTEXT3_0 {
         let metadata = Metadata::new(datatype, specific);
         CoreTEXT::new_nomeas(metadata)
     }
+
+    coretext_set_measurements2_0!(RawInput3_0);
 }
 
 impl CoreTEXT3_1 {
@@ -3288,6 +3278,8 @@ impl CoreTEXT3_1 {
         let metadata = Metadata::new(datatype, specific);
         CoreTEXT::new_nomeas(metadata)
     }
+
+    coretext_set_measurements3_1!(RawInput3_1);
 }
 
 impl CoreTEXT3_2 {
@@ -3296,6 +3288,95 @@ impl CoreTEXT3_2 {
         let metadata = Metadata::new(datatype, specific);
         CoreTEXT::new_nomeas(metadata)
     }
+
+    coretext_set_measurements3_1!(RawInput3_2);
+}
+
+macro_rules! coredataset_set_measurements2_0 {
+    ($rawinput:path) => {
+        /// Set measurements and dataframe together
+        ///
+        /// Length of measurements must match the width of the input dataframe.
+        pub fn set_measurements_and_data(
+            &mut self,
+            xs: $rawinput,
+            cs: Vec<AnyFCSColumn>,
+            prefix: ShortnamePrefix,
+        ) -> Result<(), String> {
+            if xs.len() != cs.len() {
+                let msg = "measurement number does not match dataframe column number";
+                return Err(msg.into());
+            }
+            let df = FCSDataFrame::try_new(cs).ok_or("columns lengths to not match".to_string())?;
+            self.set_measurements_inner(xs, prefix)?;
+            self.data = df;
+            Ok(())
+        }
+
+        /// Set measurements.
+        ///
+        /// Length of measurements must match the current width of the dataframe.
+        pub fn set_measurements(
+            &mut self,
+            xs: $rawinput,
+            prefix: ShortnamePrefix,
+        ) -> Result<(), String> {
+            if xs.len() != self.par().0 {
+                let msg = "measurement number does not match dataframe column number";
+                return Err(msg.into());
+            }
+            self.set_measurements_inner(xs, prefix)
+        }
+    };
+}
+
+macro_rules! coredataset_set_measurements3_1 {
+    ($rawinput:path) => {
+        /// Set measurements and dataframe together
+        ///
+        /// Length of measurements must match the width of the input dataframe.
+        pub fn set_measurements_and_data(
+            &mut self,
+            xs: $rawinput,
+            cs: Vec<AnyFCSColumn>,
+        ) -> Result<(), String> {
+            if xs.len() != cs.len() {
+                let msg = "measurement number does not match dataframe column number";
+                return Err(msg.into());
+            }
+            let df = FCSDataFrame::try_new(cs).ok_or("columns lengths to not match".to_string())?;
+            self.set_measurements_inner(xs, ShortnamePrefix::default())?;
+            self.data = df;
+            Ok(())
+        }
+
+        /// Set measurements.
+        ///
+        /// Length of measurements must match the current width of the dataframe.
+        pub fn set_measurements(&mut self, xs: $rawinput) -> Result<(), String> {
+            if xs.len() != self.par().0 {
+                let msg = "measurement number does not match dataframe column number";
+                return Err(msg.into());
+            }
+            self.set_measurements_inner(xs, ShortnamePrefix::default())
+        }
+    };
+}
+
+impl CoreDataset2_0 {
+    coredataset_set_measurements2_0!(RawInput2_0);
+}
+
+impl CoreDataset3_0 {
+    coredataset_set_measurements2_0!(RawInput3_0);
+}
+
+impl CoreDataset3_1 {
+    coredataset_set_measurements3_1!(RawInput3_1);
+}
+
+impl CoreDataset3_2 {
+    coredataset_set_measurements3_1!(RawInput3_2);
 }
 
 impl UnstainedData {
@@ -3312,9 +3393,6 @@ impl UnstainedData {
 
 #[derive(Clone, Serialize)]
 pub struct OptionalKwFamily;
-
-#[derive(Clone, Serialize)]
-pub struct Identity<T>(pub T);
 
 impl MightHave for OptionalKwFamily {
     type Wrapper<T> = OptionalKw<T>;

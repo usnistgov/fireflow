@@ -511,7 +511,10 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     }
 
     /// Get reference at position.
-    pub fn get(&self, index: MeasIdx) -> Option<Result<&V, &U>> {
+    pub fn get(
+        &self,
+        index: MeasIdx,
+    ) -> Option<Result<(&K::Wrapper<Shortname>, &V), (&Shortname, &U)>> {
         let i: usize = index.into();
         match self {
             NamedVec::Split(s, _) => {
@@ -524,11 +527,18 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
             }
             NamedVec::Unsplit(u) => Ok(u.members.get(i)).transpose(),
         }
-        .map(|x| x.map(|p| &p.value).map_err(|p| &p.value))
+        .map(|x| {
+            x.map(|p| (&p.key, &p.value))
+                .map_err(|p| (&p.key, &p.value))
+        })
     }
 
     /// Get mutable reference at position.
-    pub fn get_mut(&mut self, index: MeasIdx) -> Option<Result<&mut V, &mut U>> {
+    #[allow(clippy::type_complexity)]
+    pub fn get_mut(
+        &mut self,
+        index: MeasIdx,
+    ) -> Option<Result<(&K::Wrapper<Shortname>, &mut V), (&Shortname, &mut U)>> {
         let i: usize = index.into();
         match self {
             NamedVec::Split(s, _) => {
@@ -541,28 +551,43 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
             }
             NamedVec::Unsplit(u) => Ok(u.members.get_mut(i)).transpose(),
         }
-        .map(|x| x.map(|p| &mut p.value).map_err(|p| &mut p.value))
+        .map(|x| {
+            x.map(|p| (&p.key, &mut p.value))
+                .map_err(|p| (&p.key, &mut p.value))
+        })
     }
 
     /// Get reference to value with name.
-    ///
-    /// The center element can never be returned.
-    pub fn get_name(&self, n: &Shortname) -> Option<&V> {
+    pub fn get_name(&self, n: &Shortname) -> Option<(MeasIdx, Result<&V, &U>)> {
+        if let Some(c) = self.as_center() {
+            if c.key == n {
+                return Some((c.index, Err(c.value)));
+            }
+        }
         self.iter()
-            .flat_map(|(_, r)| r.ok())
-            .find(|p| K::as_opt(&p.key).is_some_and(|kn| kn == n))
-            .map(|p| &p.value)
+            .flat_map(|(i, r)| r.ok().map(|x| (i, x)))
+            .find(|(_, p)| K::as_opt(&p.key).is_some_and(|kn| kn == n))
+            .map(|(i, p)| (i, Ok(&p.value)))
     }
 
     /// Get mutable reference to value with name.
-    ///
-    /// The center element can never be returned.
-    pub fn get_name_mut(&mut self, n: &Shortname) -> Option<&mut V> {
+    pub fn get_name_mut(&mut self, n: &Shortname) -> Option<(MeasIdx, Result<&mut V, &mut U>)> {
         match self {
             NamedVec::Split(s, _) => {
-                Self::value_by_name_mut(&mut s.left, n).or(Self::value_by_name_mut(&mut s.right, n))
+                let nleft = s.left.len();
+                Self::value_by_name_mut(&mut s.left, n)
+                    .map(|(i, p)| (i.into(), Ok(p)))
+                    .or(if &s.center.key == n {
+                        Some((nleft.into(), Err(&mut s.center.value)))
+                    } else {
+                        None
+                    })
+                    .or(Self::value_by_name_mut(&mut s.right, n)
+                        .map(|(i, p)| ((i + nleft + 1).into(), Ok(p))))
             }
-            NamedVec::Unsplit(u) => Self::value_by_name_mut(&mut u.members, n),
+            NamedVec::Unsplit(u) => {
+                Self::value_by_name_mut(&mut u.members, n).map(|(i, p)| (i.into(), Ok(p)))
+            }
         }
     }
 
@@ -1014,10 +1039,11 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     fn value_by_name_mut<'a>(
         xs: &'a mut WrappedPairedVec<K, V>,
         n: &Shortname,
-    ) -> Option<&'a mut V> {
+    ) -> Option<(usize, &'a mut V)> {
         xs.iter_mut()
-            .find(|p| K::as_opt(&p.key).is_some_and(|kn| kn == n))
-            .map(|p| &mut p.value)
+            .enumerate()
+            .find(|(_, p)| K::as_opt(&p.key).is_some_and(|kn| kn == n))
+            .map(|(i, p)| (i, &mut p.value))
     }
 
     // fn iter_dpairs(&self) -> impl Iterator<Item = &Pair<K::Wrapper<Shortname>, V>> + '_ {

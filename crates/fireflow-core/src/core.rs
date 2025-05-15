@@ -141,10 +141,10 @@ pub struct Metadata<X> {
 #[derive(Clone, Serialize)]
 pub struct CommonMeasurement {
     /// Value for $PnB
-    width: Width,
+    pub width: Width,
 
     /// Value for $PnR
-    range: Range,
+    pub range: Range,
 
     /// Value for $PnS
     pub longname: OptionalKw<Longname>,

@@ -319,6 +319,15 @@ impl From<Option<u8>> for Width {
     }
 }
 
+impl From<Width> for Option<u8> {
+    fn from(value: Width) -> Self {
+        match value {
+            Width::Variable => None,
+            Width::Fixed(x) => Some(x.0),
+        }
+    }
+}
+
 impl From<Chars> for Width {
     fn from(value: Chars) -> Self {
         Width::Fixed(BitsOrChars(value.0))

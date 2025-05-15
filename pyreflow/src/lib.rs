@@ -1368,6 +1368,12 @@ macro_rules! common_methods {
             fn set_data_delimited(&mut self, ranges: Vec<u64>) -> bool {
                 self.0.set_data_delimited(ranges)
             }
+
+            // TODO add measurements_named_vec
+            // TODO add alter_measurements
+            // TODO add alter_measurements_zip
+            // TODO add time_channel_mut
+            // TODO add methods to get/modify single measurements
         }
     };
 }
@@ -1956,7 +1962,7 @@ macro_rules! timestep_methods {
                 #[setter]
                 fn set_timestep(&mut self, x: PyPositiveFloat) -> bool {
                     self.0
-                        .as_center_mut()
+                        .time_channel_mut()
                         .map(|y| y.value.specific.set_timestep(api::Timestep(x.into())))
                         .is_some()
                 }
@@ -2376,6 +2382,11 @@ impl PyMeasurement2_0 {
     fn new(range: Bound<'_, PyAny>, width: Option<u8>) -> PyResult<Self> {
         any_to_range(range).map(|r| api::Measurement2_0::new(width.into(), r).into())
     }
+
+    // #[getter]
+    // fn width(&self) -> Option<u8> {
+    //     self.0.bytes().into()
+    // }
 }
 
 #[pymethods]

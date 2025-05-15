@@ -1723,7 +1723,7 @@ where
     }
 
     /// Return mutable reference to time channel as a name/value pair.
-    pub fn as_center_mut(
+    pub fn time_channel_mut(
         &mut self,
     ) -> Option<IndexedElement<&mut Shortname, &mut TimeChannel<M::T>>> {
         self.measurements.as_center_mut()
@@ -2127,7 +2127,7 @@ where
     {
         let ms = &self.measurements;
         if let Some(m0) = ms.get(0.into()).and_then(|x| x.ok()) {
-            let header = m0.table_header();
+            let header = m0.1.table_header();
             let rows = self.measurements.iter().map(|(i, r)| {
                 r.map_or_else(
                     |c| Measurement::<M::P>::from(c.value.clone()).table_row(i, Some(&c.key)),

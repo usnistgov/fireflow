@@ -2518,12 +2518,30 @@ shared_meas_get_set!(
 macro_rules! optical_common {
     ($($pytype:ident),*) => {
         get_set_copied!($($pytype,)* [], get_power, set_power, power, u32);
-        // TODO voltage
-        // get_set_copied!($($pytype,)* [], get_detector_voltage, set_detector_voltage, detector_voltage, f32);
 
         get_set_str!($($pytype,)* [], get_filter,    set_filter,    filter);
         get_set_str!($($pytype,)* [], get_detector_type,    set_detector_type,    detector_type);
         get_set_str!($($pytype,)* [], get_percent_emitted,    set_percent_emitted,    percent_emitted);
+
+        $(
+            #[pymethods]
+            impl $pytype {
+                #[getter]
+                fn get_detector_voltage(&self) -> Option<f32> {
+                    self.0.detector_voltage.as_ref_opt().map(|x| x.0.into())
+                }
+
+                #[setter]
+                fn set_detector_voltage(&mut self, x: Option<f32>) -> PyResult<()> {
+                    let y = x.map(|y| NonNegFloat::try_from(y))
+                        .transpose()
+                        .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+                    self.0.detector_voltage = y.map(|z| z.into()).into();
+                    Ok(())
+                }
+            }
+        )*
+
     };
 }
 

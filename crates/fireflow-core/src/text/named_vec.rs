@@ -683,6 +683,52 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         }
     }
 
+    /// Replace a non-center value with a new value at given position.
+    ///
+    /// Return value that was replaced.
+    ///
+    /// Return none if index is out of bounds. If index points to the center,
+    /// convert it to a non-center value.
+    pub fn replace_index(&mut self, index: MeasIdx, value: V) -> Option<Result<V, U>> {
+        let len = self.len();
+        let i = usize::from(index);
+        if i > len {
+            None
+        } else {
+            let (newself, ret) = match mem::replace(self, dummy()) {
+                NamedVec::Split(mut s, p) => {
+                    let ln = s.left.len();
+                    if i <= ln {
+                        let ret = mem::replace(&mut s.left[i].value, value);
+                        (NamedVec::Split(s, p), Ok(ret))
+                    } else if i == ln {
+                        let ret = s.center.value;
+                        let key = s.center.key;
+                        let members = s
+                            .left
+                            .into_iter()
+                            .chain([Pair {
+                                key: K::into_wrapped(key),
+                                value,
+                            }])
+                            .chain(s.right)
+                            .collect();
+                        (Self::new_unsplit(members, s.prefix), Err(ret))
+                    } else {
+                        let ret = mem::replace(&mut s.left[i - ln - 1].value, value);
+                        (NamedVec::Split(s, p), Ok(ret))
+                    }
+                }
+                NamedVec::Unsplit(mut u) => {
+                    let ret = mem::replace(&mut u.members[i].value, value);
+                    (NamedVec::Unsplit(u), Ok(ret))
+                }
+            };
+            *self = newself;
+            Some(ret)
+        }
+    }
+
     /// Push a new center element to the end of the vector
     ///
     /// Return error if center already exists.

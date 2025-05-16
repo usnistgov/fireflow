@@ -659,7 +659,6 @@ pywrap!(PyTEXTDelim, TEXTDelim, "TEXTDelim");
 pywrap!(PyCytSetter, MetaKwSetter<api::Cyt>, "CytSetter");
 pywrap!(PyCalibration3_1, api::Calibration3_1, "Calibration3_1");
 pywrap!(PyCalibration3_2, api::Calibration3_2, "Calibration3_2");
-pywrap!(PyOpticalType, api::OpticalType, "OpticalType");
 pywrap!(PyFeature, api::Feature, "Feature");
 pywrap!(PyPositiveFloat, PositiveFloat, "PositiveFloat");
 pywrap!(PyNonNegFloat, NonNegFloat, "NonNegFloat");
@@ -705,7 +704,10 @@ pywrap!(PyByteOrd, ByteOrd, "ByteOrd");
 pywrap!(PyMode, api::Mode, "Mode");
 pywrap!(PyOriginality, api::Originality, "Originality");
 pywrap!(PyAlphaNumType, api::AlphaNumType, "AlphaNumType");
+pywrap!(PyNumType, api::NumType, "NumType");
+pywrap!(PyOpticalType, api::OpticalType, "OpticalType");
 pywrap!(PyScale, Scale, "Scale");
+pywrap!(PyDisplay, api::Display, "Display");
 pywrap!(PySpillover, Spillover, "Spillover");
 
 py_parse!(PyDatePattern, DatePattern);
@@ -828,42 +830,31 @@ impl PyOffsets {
     }
 }
 
-macro_rules! get_set_str {
-    ($pytype:ident, $($rest:ident,)+ [$($root:ident),*], $get:ident, $set:ident, $field:ident) => {
-        get_set_str!($pytype, [$($root),*], $get, $set, $field);
-        get_set_str!($($rest,)+ [$($root),*], $get, $set, $field);
+macro_rules! get_set_cloned {
+    ($pytype:ident, $($rest:ident,)+ [$($root:ident),*], $get:ident, $set:ident, $field:ident, $out:path) => {
+        get_set_cloned!($pytype, [$($root),*], $get, $set, $field, $out);
+        get_set_cloned!($($rest,)+ [$($root),*], $get, $set, $field, $out);
     };
 
-    ($pytype:ident, [$($root:ident),*], $get:ident, $set:ident, $field:ident) => {
+    ($pytype:ident, [$($root:ident),*], $get:ident, $set:ident, $field:ident, $out:path) => {
         #[pymethods]
         impl $pytype {
             #[getter]
-            fn $get(&self) -> Option<String> {
+            fn $get(&self) -> Option<$out> {
                 self.0.$($root.)*$field.as_ref_opt().map(|x| x.clone().into())
             }
 
             #[setter]
-            fn $set(&mut self, s: Option<String>) {
+            fn $set(&mut self, s: Option<$out>) {
                 self.0.$($root.)*$field = s.map(|x| x.into()).into()
             }
         }
     };
+}
 
-    ($($pytype:ident),*; $get:ident, $set:ident) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                #[getter]
-                fn $get(&self) -> Option<String> {
-                    self.0.$get().map(|x| x.clone().into())
-                }
-
-                #[setter]
-                fn $set(&mut self, s: Option<String>) {
-                    self.0.$set(s.map(|x| x.into()))
-                }
-            }
-        )*
+macro_rules! get_set_str {
+    ($($pytype:ident,)* [$($root:ident),*], $get:ident, $set:ident, $field:ident) => {
+        get_set_cloned!($($pytype,)* [$($root),*], $get, $set, $field, String);
     };
 }
 
@@ -2041,6 +2032,7 @@ macro_rules! wavelengths_methods {
 
                 #[setter]
                 fn set_wavelengths(&mut self, xs: Vec<Vec<u32>>) -> bool {
+                    // TODO throw error here if not empty
                     self.0
                         .set_wavelengths(
                             xs.into_iter()
@@ -2417,11 +2409,6 @@ impl PyOptical3_2 {
     fn new(range: Bound<'_, PyAny>, scale: PyScale, width: Option<u8>) -> PyResult<Self> {
         any_to_range(range).map(|r| api::Optical3_2::new(width.into(), r, scale.into()).into())
     }
-
-    #[getter]
-    fn filter(&self) -> Option<String> {
-        self.0.filter.as_ref_opt().map(|x| x.clone().into())
-    }
 }
 
 macro_rules! shared_meas_get_set {
@@ -2546,6 +2533,181 @@ macro_rules! optical_common {
 }
 
 optical_common!(PyOptical2_0, PyOptical3_0, PyOptical3_1, PyOptical3_2);
+
+// $PnL (2.0-3.0)
+get_set_copied!(
+    PyOptical2_0,
+    PyOptical3_0,
+    [specific],
+    get_wavelength,
+    set_wavelength,
+    wavelength,
+    u32
+);
+
+// $PnE (2.0)
+get_set_copied!(
+    PyOptical2_0,
+    [specific],
+    get_scale,
+    set_scale,
+    scale,
+    PyScale
+);
+
+macro_rules! meas_get_set_gain {
+    ($($pytype:ident),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                #[getter]
+                fn get_gain(&self) -> Option<f32> {
+                    self.0.specific.gain.as_ref_opt().map(|x| x.0.into())
+                }
+
+                // TODO not DRY
+                #[setter]
+                fn set_gain(&mut self, x: Option<f32>) -> PyResult<()> {
+                    let y = x.map(|y| PositiveFloat::try_from(y))
+                        .transpose()
+                        .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+                    self.0.specific.gain = y.map(|z| z.into()).into();
+                    Ok(())
+                }
+            }
+        )*
+    };
+}
+
+meas_get_set_gain!(PyOptical3_0, PyOptical3_1, PyOptical3_2);
+
+macro_rules! meas_get_set_scale {
+    ($($pytype:ident),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                #[getter]
+                fn get_scale(&self) -> PyScale {
+                    self.0.specific.scale.into()
+                }
+
+                #[setter]
+                fn set_scale(&mut self, x: PyScale) {
+                    self.0.specific.scale = x.into();
+                }
+            }
+        )*
+    };
+}
+
+meas_get_set_scale!(PyOptical3_0, PyOptical3_1, PyOptical3_2);
+
+macro_rules! meas_get_set_wavelengths {
+    ($($pytype:ident),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                #[getter]
+                fn get_wavelengths(&self) -> Vec<u32> {
+                    self.0
+                        .specific
+                        .wavelengths
+                        .as_ref_opt()
+                        .map(|ws| ws.0.iter().copied().collect())
+                        .unwrap_or_default()
+                }
+
+                #[setter]
+                fn set_wavelengths(&mut self, xs: Vec<u32>) {
+                    if xs.is_empty() {
+                        self.0.specific.wavelengths = None.into();
+                    } else {
+                        let ws = Some(NonEmpty::from_vec(xs).unwrap().into()).into();
+                        self.0.specific.wavelengths = ws;
+                    }
+                }
+            }
+        )*
+    };
+}
+
+meas_get_set_wavelengths!(PyOptical3_1, PyOptical3_2);
+
+// $PnCalibration (3.1)
+get_set_cloned!(
+    PyOptical3_1,
+    [specific],
+    get_calibration,
+    set_calibration,
+    calibration,
+    PyCalibration3_1
+);
+
+// $PnD (3.1-3.2)
+get_set_copied!(
+    PyOptical3_1,
+    PyOptical3_2,
+    [specific],
+    get_display,
+    set_display,
+    display,
+    PyDisplay
+);
+
+// $PnDATATYPE (3.2)
+get_set_copied!(
+    PyOptical3_2,
+    [specific],
+    get_datatype,
+    set_datatype,
+    datatype,
+    PyNumType
+);
+
+// $PnDET (3.2)
+get_set_str!(
+    PyOptical3_2,
+    [specific],
+    get_detector_name,
+    set_detector_name,
+    detector_name
+);
+
+// $PnTAG (3.2)
+get_set_str!(PyOptical3_2, [specific], get_tag, set_tag, tag);
+
+// $PnTYPE (3.2)
+get_set_cloned!(
+    PyOptical3_2,
+    [specific],
+    get_measurement_type,
+    set_measurement_type,
+    measurement_type,
+    PyOpticalType
+);
+
+// $PnTYPE (3.2)
+get_set_copied!(
+    PyOptical3_2,
+    [specific],
+    get_feature,
+    set_feature,
+    feature,
+    PyFeature
+);
+
+// $PnTYPE (3.2)
+get_set_str!(PyOptical3_2, [specific], get_analyte, set_analyte, analyte);
+
+// $PnCalibration (3.2)
+get_set_cloned!(
+    PyOptical3_2,
+    [specific],
+    get_calibration,
+    set_calibration,
+    calibration,
+    PyCalibration3_2
+);
 
 macro_rules! column_to_buf {
     ($col:expr, $prim:ident) => {

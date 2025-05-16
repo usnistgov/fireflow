@@ -185,7 +185,7 @@ impl fmt::Display for Mode3_2Error {
 }
 
 /// The value for the $PnDISPLAY key (3.1+)
-#[derive(Clone, Serialize)]
+#[derive(Clone, Copy, Serialize)]
 pub enum Display {
     /// Linear display (value like 'Linear,<lower>,<upper>')
     Lin { lower: f32, upper: f32 },
@@ -703,7 +703,7 @@ impl fmt::Display for TemporalTypeError {
 }
 
 /// The value of the $PnFEATURE key (3.2+)
-#[derive(Clone, Serialize)]
+#[derive(Clone, Copy, Serialize)]
 pub enum Feature {
     Area,
     Width,

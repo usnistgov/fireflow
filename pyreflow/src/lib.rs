@@ -839,12 +839,12 @@ macro_rules! get_set_str {
         impl $pytype {
             #[getter]
             fn $get(&self) -> Option<String> {
-                self.0.metadata.$($root.)*$field.as_ref_opt().map(|x| x.clone().into())
+                self.0.$($root.)*$field.as_ref_opt().map(|x| x.clone().into())
             }
 
             #[setter]
             fn $set(&mut self, s: Option<String>) {
-                self.0.metadata.$($root.)*$field = s.map(|x| x.into()).into()
+                self.0.$($root.)*$field = s.map(|x| x.into()).into()
             }
         }
     };
@@ -878,12 +878,12 @@ macro_rules! get_set_copied {
         impl $pytype {
             #[getter]
             fn $get(&self) -> Option<$out> {
-                self.0.metadata.$($root.)*$field.0.map(|x| x.into())
+                self.0.$($root.)*$field.0.map(|x| x.into())
             }
 
             #[setter]
             fn $set(&mut self, s: Option<$out>) {
-                self.0.metadata.$($root.)*$field = s.map(|x| x.into()).into()
+                self.0.$($root.)*$field = s.map(|x| x.into()).into()
             }
         }
     };
@@ -1160,19 +1160,19 @@ macro_rules! common_methods {
         meas_get_set!(percents_emitted,  set_percents_emitted,  String,        $pytype);
         meas_get_set!(detector_voltages, set_detector_voltages, PyNonNegFloat, $pytype);
 
-        get_set_copied!($pytype, [], get_abrt, set_abrt, abrt, u32);
-        get_set_copied!($pytype, [], get_lost, set_lost, lost, u32);
+        get_set_copied!($pytype, [metadata], get_abrt, set_abrt, abrt, u32);
+        get_set_copied!($pytype, [metadata], get_lost, set_lost, lost, u32);
 
-        get_set_str!($pytype, [], get_cells, set_cells, cells);
-        get_set_str!($pytype, [], get_com,   set_com,   com);
-        get_set_str!($pytype, [], get_exp,   set_exp,   exp);
-        get_set_str!($pytype, [], get_fil,   set_fil,   fil);
-        get_set_str!($pytype, [], get_inst,  set_inst,  inst);
-        get_set_str!($pytype, [], get_op,    set_op,    op);
-        get_set_str!($pytype, [], get_proj,  set_proj,  proj);
-        get_set_str!($pytype, [], get_smno,  set_smno,  smno);
-        get_set_str!($pytype, [], get_src,   set_src,   src);
-        get_set_str!($pytype, [], get_sys,   set_sys,   sys);
+        get_set_str!($pytype, [metadata], get_cells, set_cells, cells);
+        get_set_str!($pytype, [metadata], get_com,   set_com,   com);
+        get_set_str!($pytype, [metadata], get_exp,   set_exp,   exp);
+        get_set_str!($pytype, [metadata], get_fil,   set_fil,   fil);
+        get_set_str!($pytype, [metadata], get_inst,  set_inst,  inst);
+        get_set_str!($pytype, [metadata], get_op,    set_op,    op);
+        get_set_str!($pytype, [metadata], get_proj,  set_proj,  proj);
+        get_set_str!($pytype, [metadata], get_smno,  set_smno,  smno);
+        get_set_str!($pytype, [metadata], get_src,   set_src,   src);
+        get_set_str!($pytype, [metadata], get_sys,   set_sys,   sys);
 
         #[pymethods]
         impl $pytype {
@@ -2065,7 +2065,7 @@ macro_rules! modification_methods {
     ($($pytype:ident),+) => {
         get_set_copied!(
             $($pytype,)*
-            [specific, modification],
+            [metadata, specific, modification],
             get_originality,
             set_originality,
             originality,
@@ -2074,7 +2074,7 @@ macro_rules! modification_methods {
 
         get_set_copied!(
             $($pytype,)*
-            [specific, modification],
+            [metadata, specific, modification],
             get_last_modified,
             set_last_modified,
             last_modified,
@@ -2083,7 +2083,7 @@ macro_rules! modification_methods {
 
         get_set_str!(
             $($pytype,)*
-            [specific, modification],
+            [metadata, specific, modification],
             get_last_modifier,
             set_last_modifier,
             last_modifier
@@ -2101,9 +2101,9 @@ modification_methods!(
 // Get/set methods for $CARRIERID/$CARRIERTYPE/$LOCATIONID (3.2)
 macro_rules! carrier_methods {
     ($($pytype:ident),*) => {
-        get_set_str!($($pytype,)* [specific, carrier], get_carriertype, set_carriertype, carriertype);
-        get_set_str!($($pytype,)* [specific, carrier], get_carrierid,   set_carrierid,   carrierid);
-        get_set_str!($($pytype,)* [specific, carrier], get_locationid,  set_locationid,  locationid);
+        get_set_str!($($pytype,)* [metadata, specific, carrier], get_carriertype, set_carriertype, carriertype);
+        get_set_str!($($pytype,)* [metadata, specific, carrier], get_carrierid,   set_carrierid,   carrierid);
+        get_set_str!($($pytype,)* [metadata, specific, carrier], get_locationid,  set_locationid,  locationid);
     };
 }
 
@@ -2112,9 +2112,9 @@ carrier_methods!(PyCoreTEXT3_2, PyCoreDataset3_2);
 // Get/set methods for $PLATEID/$WELLID/$PLATENAME (3.1-3.2)
 macro_rules! plate_methods {
     ($($pytype:ident),*) => {
-        get_set_str!($($pytype,)* [specific, plate], get_wellid,    set_wellid,    wellid);
-        get_set_str!($($pytype,)* [specific, plate], get_plateid,   set_plateid,   plateid);
-        get_set_str!($($pytype,)* [specific, plate], get_platename, set_platename, platename);
+        get_set_str!($($pytype,)* [metadata, specific, plate], get_wellid,    set_wellid,    wellid);
+        get_set_str!($($pytype,)* [metadata, specific, plate], get_plateid,   set_plateid,   plateid);
+        get_set_str!($($pytype,)* [metadata, specific, plate], get_platename, set_platename, platename);
     };
 }
 
@@ -2183,7 +2183,7 @@ get_set_str!(
     PyCoreDataset2_0,
     PyCoreDataset3_0,
     PyCoreDataset3_1,
-    [specific],
+    [metadata, specific],
     get_cyt,
     set_cyt,
     cyt
@@ -2193,7 +2193,7 @@ get_set_str!(
 get_set_str!(
     PyCoreTEXT3_2,
     PyCoreDataset3_2,
-    [specific],
+    [metadata, specific],
     get_flowrate,
     set_flowrate,
     flowrate
@@ -2205,7 +2205,7 @@ get_set_copied!(
     PyCoreTEXT3_2,
     PyCoreDataset3_1,
     PyCoreDataset3_2,
-    [specific],
+    [metadata, specific],
     get_vol,
     set_vol,
     vol,
@@ -2220,7 +2220,7 @@ get_set_str!(
     PyCoreDataset3_0,
     PyCoreDataset3_1,
     PyCoreDataset3_2,
-    [specific],
+    [metadata, specific],
     get_cytsn,
     set_cytsn,
     cytsn
@@ -2417,6 +2417,11 @@ impl PyOptical3_2 {
     fn new(range: Bound<'_, PyAny>, scale: PyScale, width: Option<u8>) -> PyResult<Self> {
         any_to_range(range).map(|r| api::Optical3_2::new(width.into(), r, scale.into()).into())
     }
+
+    #[getter]
+    fn filter(&self) -> Option<String> {
+        self.0.filter.as_ref_opt().map(|x| x.clone().into())
+    }
 }
 
 macro_rules! shared_meas_get_set {
@@ -2509,6 +2514,20 @@ shared_meas_get_set!(
     PyTemporal3_1,
     PyTemporal3_2
 );
+
+macro_rules! optical_common {
+    ($($pytype:ident),*) => {
+        get_set_copied!($($pytype,)* [], get_power, set_power, power, u32);
+        // TODO voltage
+        // get_set_copied!($($pytype,)* [], get_detector_voltage, set_detector_voltage, detector_voltage, f32);
+
+        get_set_str!($($pytype,)* [], get_filter,    set_filter,    filter);
+        get_set_str!($($pytype,)* [], get_detector_type,    set_detector_type,    detector_type);
+        get_set_str!($($pytype,)* [], get_percent_emitted,    set_percent_emitted,    percent_emitted);
+    };
+}
+
+optical_common!(PyOptical2_0, PyOptical3_0, PyOptical3_1, PyOptical3_2);
 
 macro_rules! column_to_buf {
     ($col:expr, $prim:ident) => {

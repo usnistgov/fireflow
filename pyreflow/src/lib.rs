@@ -1406,6 +1406,22 @@ macro_rules! common_meas_get_set {
                             ).map(|x| (usize::from(i), x))
                         }).transpose()
                 }
+
+                #[getter]
+                fn measurements<'py>(&self, py: Python<'py>) -> PyResult<Vec<Bound<'py, PyAny>>> {
+                    let mut ret = vec![];
+                    for x in self.0
+                        .measurements_named_vec()
+                        .iter()
+                        .map(|(_, x)| x.map_or_else(
+                            |l| $timetype::from(l.value.clone()).into_bound_py_any(py),
+                            |r| $meastype::from(r.value.clone()).into_bound_py_any(py)
+                        ))
+                    {
+                        ret.push(x?);
+                    }
+                    Ok(ret)
+                }
             }
         )*
 
@@ -1662,201 +1678,12 @@ coretext3_1_meas_methods!(
     [PyCoreTEXT3_2, PyOptical3_2, PyTemporal3_2]
 );
 
-macro_rules! core_meas_methods_2_0 {
-    ($([$pytype:ident, $meastype:ident, $timetype:ident]),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                fn alter_measurements<'py>(
-                    &mut self,
-                    f: Bound<'py, PyAny>,
-                    g: Bound<'py, PyAny>
-                ) -> PyResult<Vec<Bound<'py, PyAny>>> {
-                    let xs = self.0.alter_measurements(
-                        |e| {
-                            let args = (
-                                usize::from(e.index),
-                                e.key.as_ref_opt().map(|x| PyShortname::from(x.clone())),
-                                $meastype::from(e.value.clone())
-                            );
-                            f.call1(args).and_then(|ret| {
-                                *e.value = ret.extract::<$meastype>()?.into();
-                                Ok(ret)
-                            })
-                        },
-                        |e| {
-                            let args = (
-                                usize::from(e.index),
-                                PyShortname::from(e.key.clone()),
-                                $timetype::from(e.value.clone()),
-                            );
-                            g.call1(args).and_then(|ret| {
-                                *e.value = ret.extract::<$timetype>()?.into();
-                                Ok(ret)
-                            })
-                        },
-                    );
-                    let mut ys = vec![];
-                    for x in xs {
-                        ys.push(x?);
-                    }
-                    Ok(ys)
-                }
-
-                fn alter_measurements_zip<'py>(
-                    &mut self,
-                    xs: Vec<Bound<'py, PyAny>>,
-                    f: Bound<'py, PyAny>,
-                    g: Bound<'py, PyAny>
-                ) -> PyResult<Vec<Bound<'py, PyAny>>> {
-                    if let Some(xs) = self.0.alter_measurements_zip(
-                        xs,
-                        |e, x| {
-                            let args = (
-                                usize::from(e.index),
-                                e.key.as_ref_opt().map(|x| PyShortname::from(x.clone())),
-                                $meastype::from(e.value.clone()),
-                                x
-                            );
-                            f.call1(args).and_then(|ret| {
-                                *e.value = ret.extract::<$meastype>()?.into();
-                                Ok(ret)
-                            })
-                        },
-                        |e, x| {
-                            let args = (
-                                usize::from(e.index),
-                                PyShortname::from(e.key.clone()),
-                                $timetype::from(e.value.clone()),
-                                x,
-                            );
-                            g.call1(args).and_then(|ret| {
-                                *e.value = ret.extract::<$timetype>()?.into();
-                                Ok(ret)
-                            })
-                        },
-                    ) {
-                        let mut ys = vec![];
-                        for x in xs {
-                            ys.push(x?);
-                        }
-                        Ok(ys)
-                    } else {
-                        let msg = "input list must be same length as measurements".to_string();
-                        Err(PyreflowException::new_err(msg))
-                    }
-                }
-            }
-        )*
-    };
-}
-
-core_meas_methods_2_0!(
-    [PyCoreTEXT2_0, PyOptical2_0, PyTemporal2_0],
-    [PyCoreTEXT3_0, PyOptical3_0, PyTemporal3_0]
-);
-
-// TODO very wet code
-macro_rules! core_meas_methods_3_1 {
-    ($([$pytype:ident, $meastype:ident, $timetype:ident]),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                fn alter_measurements<'py>(
-                    &mut self,
-                    f: Bound<'py, PyAny>,
-                    g: Bound<'py, PyAny>
-                ) -> PyResult<Vec<Bound<'py, PyAny>>> {
-                    let xs = self.0.alter_measurements(
-                        |e| {
-                            let args = (
-                                usize::from(e.index),
-                                PyShortname::from(e.key.0.clone()),
-                                $meastype::from(e.value.clone())
-                            );
-                            f.call1(args).and_then(|ret| {
-                                *e.value = ret.extract::<$meastype>()?.into();
-                                Ok(ret)
-                            })
-                        },
-                        |e| {
-                            let args = (
-                                usize::from(e.index),
-                                PyShortname::from(e.key.clone()),
-                                $timetype::from(e.value.clone()),
-                            );
-                            g.call1(args).and_then(|ret| {
-                                *e.value = ret.extract::<$timetype>()?.into();
-                                Ok(ret)
-                            })
-                        },
-                    );
-                    let mut ys = vec![];
-                    for x in xs {
-                        ys.push(x?);
-                    }
-                    Ok(ys)
-                }
-
-                fn alter_measurements_zip<'py>(
-                    &mut self,
-                    xs: Vec<Bound<'py, PyAny>>,
-                    f: Bound<'py, PyAny>,
-                    g: Bound<'py, PyAny>
-                ) -> PyResult<Vec<Bound<'py, PyAny>>> {
-                    if let Some(xs) = self.0.alter_measurements_zip(
-                        xs,
-                        |e, x| {
-                            let args = (
-                                usize::from(e.index),
-                                PyShortname::from(e.key.0.clone()),
-                                $meastype::from(e.value.clone()),
-                                x
-                            );
-                            f.call1(args).and_then(|ret| {
-                                *e.value = ret.extract::<$meastype>()?.into();
-                                Ok(ret)
-                            })
-                        },
-                        |e, x| {
-                            let args = (
-                                usize::from(e.index),
-                                PyShortname::from(e.key.clone()),
-                                $timetype::from(e.value.clone()),
-                                x,
-                            );
-                            g.call1(args).and_then(|ret| {
-                                *e.value = ret.extract::<$timetype>()?.into();
-                                Ok(ret)
-                            })
-                        },
-                    ) {
-                        let mut ys = vec![];
-                        for x in xs {
-                            ys.push(x?);
-                        }
-                        Ok(ys)
-                    } else {
-                        let msg = "input list must be same length as measurements".to_string();
-                        Err(PyreflowException::new_err(msg))
-                    }
-                }
-            }
-        )*
-    };
-}
-
-core_meas_methods_3_1!(
-    [PyCoreTEXT3_1, PyOptical3_1, PyTemporal3_1],
-    [PyCoreTEXT3_2, PyOptical3_2, PyTemporal3_2]
-);
-
 macro_rules! set_measurements2_0 {
     ($([$pytype:ident, $meastype:ident, $timetype:ident]),*) => {
         $(
             #[pymethods]
             impl $pytype {
-                pub fn set_measurements(
+                fn set_measurements(
                     &mut self,
                     xs: Vec<Bound<'_, PyAny>>,
                     prefix: PyShortnamePrefix,

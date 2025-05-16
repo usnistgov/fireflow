@@ -473,14 +473,14 @@ pub struct InnerTemporal2_0;
 #[derive(Clone, Serialize)]
 pub struct InnerTemporal3_0 {
     /// Value for $TIMESTEP
-    timestep: Timestep,
+    pub timestep: Timestep,
 }
 
 /// Temporal measurement fields specific to version 3.1
 #[derive(Clone, Serialize)]
 pub struct InnerTemporal3_1 {
     /// Value for $TIMESTEP
-    timestep: Timestep,
+    pub timestep: Timestep,
 
     /// Value for $PnDISPLAY
     pub display: OptionalKw<Display>,
@@ -490,7 +490,7 @@ pub struct InnerTemporal3_1 {
 #[derive(Clone, Serialize)]
 pub struct InnerTemporal3_2 {
     /// Value for $TIMESTEP
-    timestep: Timestep,
+    pub timestep: Timestep,
 
     /// Value for $PnDISPLAY
     pub display: OptionalKw<Display>,

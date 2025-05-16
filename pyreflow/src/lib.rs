@@ -2374,7 +2374,6 @@ create_exception!(
     "Warning created by internal pyreflow."
 );
 
-// TODO add optional keywords here to set/construct in one step if user wants
 #[pymethods]
 impl PyOptical2_0 {
     #[new]
@@ -2408,6 +2407,58 @@ impl PyOptical3_2 {
     #[pyo3(signature = (range, scale, width=None))]
     fn new(range: Bound<'_, PyAny>, scale: PyScale, width: Option<u8>) -> PyResult<Self> {
         any_to_range(range).map(|r| api::Optical3_2::new(width.into(), r, scale.into()).into())
+    }
+}
+
+#[pymethods]
+impl PyTemporal2_0 {
+    #[new]
+    #[pyo3(signature = (range, width=None))]
+    fn new(range: Bound<'_, PyAny>, width: Option<u8>) -> PyResult<Self> {
+        any_to_range(range).map(|r| api::Temporal2_0::new(width.into(), r).into())
+    }
+}
+
+#[pymethods]
+impl PyTemporal3_0 {
+    #[new]
+    #[pyo3(signature = (range, timestep, width=None))]
+    fn new(range: Bound<'_, PyAny>, timestep: f32, width: Option<u8>) -> PyResult<Self> {
+        let ts = to_positive_float(timestep)?;
+        let r = any_to_range(range)?;
+        Ok(api::Temporal3_0::new(width.into(), r, ts.into()).into())
+    }
+}
+
+#[pymethods]
+impl PyTemporal3_1 {
+    #[new]
+    #[pyo3(signature = (range, timestep, width=None))]
+    fn new(range: Bound<'_, PyAny>, timestep: f32, width: Option<u8>) -> PyResult<Self> {
+        let ts = to_positive_float(timestep)?;
+        let r = any_to_range(range)?;
+        Ok(api::Temporal3_1::new(width.into(), r, ts.into()).into())
+    }
+}
+
+#[pymethods]
+impl PyTemporal3_2 {
+    #[new]
+    #[pyo3(signature = (range, timestep, width=None))]
+    fn new(range: Bound<'_, PyAny>, timestep: f32, width: Option<u8>) -> PyResult<Self> {
+        let ts = to_positive_float(timestep)?;
+        let r = any_to_range(range)?;
+        Ok(api::Temporal3_2::new(width.into(), r, ts.into()).into())
+    }
+
+    #[getter]
+    fn get_measurement_type(&self) -> bool {
+        self.0.specific.measurement_type.0.is_some()
+    }
+
+    #[setter]
+    fn set_measurement_type(&mut self, x: bool) {
+        self.0.specific.measurement_type = if x { Some(api::TemporalType) } else { None }.into();
     }
 }
 
@@ -2520,9 +2571,7 @@ macro_rules! optical_common {
 
                 #[setter]
                 fn set_detector_voltage(&mut self, x: Option<f32>) -> PyResult<()> {
-                    let y = x.map(|y| NonNegFloat::try_from(y))
-                        .transpose()
-                        .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+                    let y = x.map(to_non_neg_float).transpose()?;
                     self.0.detector_voltage = y.map(|z| z.into()).into();
                     Ok(())
                 }
@@ -2555,6 +2604,7 @@ get_set_copied!(
     PyScale
 );
 
+// $PnG (3.0-3.2)
 macro_rules! meas_get_set_gain {
     ($($pytype:ident),*) => {
         $(
@@ -2565,12 +2615,9 @@ macro_rules! meas_get_set_gain {
                     self.0.specific.gain.as_ref_opt().map(|x| x.0.into())
                 }
 
-                // TODO not DRY
                 #[setter]
                 fn set_gain(&mut self, x: Option<f32>) -> PyResult<()> {
-                    let y = x.map(|y| PositiveFloat::try_from(y))
-                        .transpose()
-                        .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+                    let y = x.map(to_positive_float).transpose()?;
                     self.0.specific.gain = y.map(|z| z.into()).into();
                     Ok(())
                 }
@@ -2581,6 +2628,7 @@ macro_rules! meas_get_set_gain {
 
 meas_get_set_gain!(PyOptical3_0, PyOptical3_1, PyOptical3_2);
 
+// $PnE (3.0-3.2)
 macro_rules! meas_get_set_scale {
     ($($pytype:ident),*) => {
         $(
@@ -2602,6 +2650,7 @@ macro_rules! meas_get_set_scale {
 
 meas_get_set_scale!(PyOptical3_0, PyOptical3_1, PyOptical3_2);
 
+// #PnL (3.1-3.2)
 macro_rules! meas_get_set_wavelengths {
     ($($pytype:ident),*) => {
         $(
@@ -2633,6 +2682,29 @@ macro_rules! meas_get_set_wavelengths {
 
 meas_get_set_wavelengths!(PyOptical3_1, PyOptical3_2);
 
+// #TIMESTEP (3.0-3.2)
+macro_rules! meas_get_set_timestep {
+    ($($pytype:ident),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                #[getter]
+                fn get_timestep(&self) -> f32 {
+                    self.0.specific.timestep.0.into()
+                }
+
+                #[setter]
+                fn set_timestep(&mut self, x: f32) -> PyResult<()> {
+                    self.0.specific.timestep = to_positive_float(x)?.into();
+                    Ok(())
+                }
+            }
+        )*
+    };
+}
+
+meas_get_set_timestep!(PyTemporal3_0, PyTemporal3_1, PyTemporal3_2);
+
 // $PnCalibration (3.1)
 get_set_cloned!(
     PyOptical3_1,
@@ -2647,6 +2719,8 @@ get_set_cloned!(
 get_set_copied!(
     PyOptical3_1,
     PyOptical3_2,
+    PyTemporal3_1,
+    PyTemporal3_2,
     [specific],
     get_display,
     set_display,
@@ -2657,6 +2731,7 @@ get_set_copied!(
 // $PnDATATYPE (3.2)
 get_set_copied!(
     PyOptical3_2,
+    PyTemporal3_2,
     [specific],
     get_datatype,
     set_datatype,
@@ -2797,4 +2872,12 @@ fn range_to_any(r: Range, py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
         Range::Float(x) => x.into_bound_py_any(py),
         Range::Int(x) => x.into_bound_py_any(py),
     }
+}
+
+fn to_positive_float(x: f32) -> PyResult<PositiveFloat> {
+    PositiveFloat::try_from(x).map_err(|e| PyreflowException::new_err(e.to_string()))
+}
+
+fn to_non_neg_float(x: f32) -> PyResult<NonNegFloat> {
+    NonNegFloat::try_from(x).map_err(|e| PyreflowException::new_err(e.to_string()))
 }

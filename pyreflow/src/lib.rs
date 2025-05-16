@@ -1702,6 +1702,50 @@ macro_rules! core_meas_methods_2_0 {
                     }
                     Ok(ys)
                 }
+
+                fn alter_measurements_zip<'py>(
+                    &mut self,
+                    xs: Vec<Bound<'py, PyAny>>,
+                    f: Bound<'py, PyAny>,
+                    g: Bound<'py, PyAny>
+                ) -> PyResult<Vec<Bound<'py, PyAny>>> {
+                    if let Some(xs) = self.0.alter_measurements_zip(
+                        xs,
+                        |e, x| {
+                            let args = (
+                                usize::from(e.index),
+                                e.key.as_ref_opt().map(|x| PyShortname::from(x.clone())),
+                                $meastype::from(e.value.clone()),
+                                x
+                            );
+                            f.call1(args).and_then(|ret| {
+                                *e.value = ret.extract::<$meastype>()?.into();
+                                Ok(ret)
+                            })
+                        },
+                        |e, x| {
+                            let args = (
+                                usize::from(e.index),
+                                PyShortname::from(e.key.clone()),
+                                $timetype::from(e.value.clone()),
+                                x,
+                            );
+                            g.call1(args).and_then(|ret| {
+                                *e.value = ret.extract::<$timetype>()?.into();
+                                Ok(ret)
+                            })
+                        },
+                    ) {
+                        let mut ys = vec![];
+                        for x in xs {
+                            ys.push(x?);
+                        }
+                        Ok(ys)
+                    } else {
+                        let msg = "input list must be same length as measurements".to_string();
+                        Err(PyreflowException::new_err(msg))
+                    }
+                }
             }
         )*
     };
@@ -1712,6 +1756,7 @@ core_meas_methods_2_0!(
     [PyCoreTEXT3_0, PyOptical3_0, PyTemporal3_0]
 );
 
+// TODO very wet code
 macro_rules! core_meas_methods_3_1 {
     ($([$pytype:ident, $meastype:ident, $timetype:ident]),*) => {
         $(
@@ -1751,6 +1796,50 @@ macro_rules! core_meas_methods_3_1 {
                         ys.push(x?);
                     }
                     Ok(ys)
+                }
+
+                fn alter_measurements_zip<'py>(
+                    &mut self,
+                    xs: Vec<Bound<'py, PyAny>>,
+                    f: Bound<'py, PyAny>,
+                    g: Bound<'py, PyAny>
+                ) -> PyResult<Vec<Bound<'py, PyAny>>> {
+                    if let Some(xs) = self.0.alter_measurements_zip(
+                        xs,
+                        |e, x| {
+                            let args = (
+                                usize::from(e.index),
+                                PyShortname::from(e.key.0.clone()),
+                                $meastype::from(e.value.clone()),
+                                x
+                            );
+                            f.call1(args).and_then(|ret| {
+                                *e.value = ret.extract::<$meastype>()?.into();
+                                Ok(ret)
+                            })
+                        },
+                        |e, x| {
+                            let args = (
+                                usize::from(e.index),
+                                PyShortname::from(e.key.clone()),
+                                $timetype::from(e.value.clone()),
+                                x,
+                            );
+                            g.call1(args).and_then(|ret| {
+                                *e.value = ret.extract::<$timetype>()?.into();
+                                Ok(ret)
+                            })
+                        },
+                    ) {
+                        let mut ys = vec![];
+                        for x in xs {
+                            ys.push(x?);
+                        }
+                        Ok(ys)
+                    } else {
+                        let msg = "input list must be same length as measurements".to_string();
+                        Err(PyreflowException::new_err(msg))
+                    }
                 }
             }
         )*

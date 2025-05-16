@@ -1630,11 +1630,8 @@ where
         &mut self,
         xs: Vec<(NonStdKey, String)>,
     ) -> Option<Vec<Option<String>>> {
-        self.measurements.alter_values_zip(
-            xs,
-            |x, (k, v)| x.value.common.nonstandard_keywords.insert(k, v),
-            |x, (k, v)| x.value.common.nonstandard_keywords.insert(k, v),
-        )
+        self.measurements
+            .alter_common_values_zip(xs, |_, x, (k, v)| x.nonstandard_keywords.insert(k, v))
     }
 
     /// Remove a key from nonstandard key/value pairs for each measurement.
@@ -1643,11 +1640,8 @@ where
     ///
     /// This includes the time measurement if present.
     pub fn remove_meas_nonstandard(&mut self, xs: Vec<&NonStdKey>) -> Option<Vec<Option<String>>> {
-        self.measurements.alter_values_zip(
-            xs,
-            |x, k| x.value.common.nonstandard_keywords.remove(k),
-            |x, k| x.value.common.nonstandard_keywords.remove(k),
-        )
+        self.measurements
+            .alter_common_values_zip(xs, |_, x, k| x.nonstandard_keywords.remove(k))
     }
 
     /// Read a key from nonstandard key/value pairs for each measurement.
@@ -1758,11 +1752,7 @@ where
     /// keyword.
     pub fn set_longnames(&mut self, ns: Vec<Option<String>>) -> bool {
         self.measurements
-            .alter_values_zip(
-                ns,
-                |x, n| x.value.common.longname = n.map(Longname).into(),
-                |x, n| x.value.common.longname = n.map(Longname).into(),
-            )
+            .alter_common_values_zip(ns, |_, x, n| x.longname = n.map(Longname).into())
             .is_some()
     }
 
@@ -2213,17 +2203,10 @@ where
 
     fn set_data_width_range(&mut self, xs: Vec<(Width, Range)>) -> bool {
         self.measurements
-            .alter_values_zip(
-                xs,
-                |x, (b, r)| {
-                    x.value.common.width = b;
-                    x.value.common.range = r;
-                },
-                |x, (b, r)| {
-                    x.value.common.width = b;
-                    x.value.common.range = r;
-                },
-            )
+            .alter_common_values_zip(xs, |_, x, (b, r)| {
+                x.width = b;
+                x.range = r;
+            })
             .is_some()
     }
 
@@ -3087,10 +3070,7 @@ impl<A, D> Core3_2<A, D> {
 
     /// Set data layout to be 64-bit float for all measurements.
     pub fn set_data_f64(&mut self, rs: Vec<f64>) -> Result<bool, NanRange> {
-        let (pass, _): (Vec<_>, Vec<_>) = rs
-            .into_iter()
-            .map(|r| Range::try_from(r))
-            .partition_result();
+        let (pass, _): (Vec<_>, Vec<_>) = rs.into_iter().map(Range::try_from).partition_result();
         if pass.is_empty() {
             return Err(NanRange);
         }
@@ -5219,5 +5199,17 @@ impl Optical3_2 {
     pub fn new(width: Width, range: Range, scale: Scale) -> Self {
         let specific = InnerOptical3_2::new(scale);
         Optical::new_common(width, range, specific)
+    }
+}
+
+impl<X> AsMut<CommonMeasurement> for Optical<X> {
+    fn as_mut(&mut self) -> &mut CommonMeasurement {
+        &mut self.common
+    }
+}
+
+impl<X> AsMut<CommonMeasurement> for Temporal<X> {
+    fn as_mut(&mut self) -> &mut CommonMeasurement {
+        &mut self.common
     }
 }

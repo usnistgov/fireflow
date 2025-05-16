@@ -299,9 +299,36 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         })
     }
 
-    // TODO add a zip_with function that takes a vector of stuff and two
-    // functions to apply said stuff mutably to elements. Will be useful for
-    // setting $PnB, $PnR, etc
+    /// Alter values with a function and payload.
+    ///
+    /// Center and non-center values will be projected to a common type.
+    pub fn alter_common_values_zip<F, X, R, T>(&mut self, xs: Vec<X>, f: F) -> Option<Vec<R>>
+    where
+        F: Fn(MeasIdx, &mut T, X) -> R,
+        U: AsMut<T>,
+        V: AsMut<T>,
+    {
+        self.alter_values_zip(
+            xs,
+            |v, x| f(v.index, v.value.as_mut(), x),
+            |v, x| f(v.index, v.value.as_mut(), x),
+        )
+    }
+
+    /// Alter values with a function and payload.
+    ///
+    /// Center and non-center values will be projected to a common type.
+    pub fn alter_common_values<F, R, T>(&mut self, f: F) -> Vec<R>
+    where
+        F: Fn(MeasIdx, &mut T) -> R,
+        U: AsMut<T>,
+        V: AsMut<T>,
+    {
+        self.alter_values(
+            |v| f(v.index, v.value.as_mut()),
+            |v| f(v.index, v.value.as_mut()),
+        )
+    }
 
     /// Apply functions to values with payload, altering them in place.
     ///
@@ -319,8 +346,8 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
             return None;
         }
 
-        let go = |xs: &mut PairedVec<K::Wrapper<Shortname>, V>, ys: Vec<X>, offset: usize| {
-            xs.iter_mut()
+        let go = |zs: &mut PairedVec<K::Wrapper<Shortname>, V>, ys: Vec<X>, offset: usize| {
+            zs.iter_mut()
                 .zip(ys)
                 .enumerate()
                 .map(|(i, (y, x))| {

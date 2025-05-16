@@ -2382,6 +2382,7 @@ create_exception!(
     "Warning created by internal pyreflow."
 );
 
+// TODO add optional keywords here to set/construct in one step if user wants
 #[pymethods]
 impl PyOptical2_0 {
     #[new]
@@ -2452,6 +2453,18 @@ macro_rules! shared_meas_get_set {
                 #[setter]
                 fn set_longname(&mut self, x: Option<String>) {
                     self.0.common.longname = x.map(|y| y.into()).into();
+                }
+
+                fn nonstandard_insert(&mut self, key: PyNonStdKey, value: String) -> Option<String> {
+                    self.0.common.nonstandard_keywords.insert(key.into(), value)
+                }
+
+                fn nonstandard_get(&mut self, key: PyNonStdKey) -> Option<String> {
+                    self.0.common.nonstandard_keywords.get(&key.into()).map(|x| x.clone())
+                }
+
+                fn nonstandard_remove(&mut self, key: PyNonStdKey) -> Option<String> {
+                    self.0.common.nonstandard_keywords.remove(&key.into())
                 }
             }
         )*

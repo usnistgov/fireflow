@@ -2455,11 +2455,39 @@ macro_rules! shared_meas_get_set {
                     self.0.common.longname = x.map(|y| y.into()).into();
                 }
 
+                #[getter]
+                fn nonstandard_keywords(&self) -> HashMap<String, String> {
+                    self.0
+                        .common
+                        .nonstandard_keywords
+                        .iter()
+                        .map(|(k, v)| (k.as_ref().to_string(), v.clone()))
+                        .collect()
+                }
+
+                #[setter]
+                fn set_nonstandard_keywords(&mut self, xs: HashMap<String, String>) -> PyResult<()> {
+                    let mut ys = HashMap::new();
+                    for (k, v) in xs {
+                        let kk = k
+                            .parse::<NonStdKey>()
+                            .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+                        ys.insert(kk, v);
+                    }
+                    self.0.common.nonstandard_keywords = ys;
+                    Ok(())
+                }
+
+                // TODO not sure if I want to use these wrappers in python-land
+                // or not, it might be simpler for the user just to use strings
+                // and scream if they aren't formatted correctly, although would
+                // probably want to make the exception handling much more
+                // precise in that case
                 fn nonstandard_insert(&mut self, key: PyNonStdKey, value: String) -> Option<String> {
                     self.0.common.nonstandard_keywords.insert(key.into(), value)
                 }
 
-                fn nonstandard_get(&mut self, key: PyNonStdKey) -> Option<String> {
+                fn nonstandard_get(&self, key: PyNonStdKey) -> Option<String> {
                     self.0.common.nonstandard_keywords.get(&key.into()).map(|x| x.clone())
                 }
 

@@ -1409,6 +1409,11 @@ macro_rules! common_meas_get_set {
 
                 #[getter]
                 fn measurements<'py>(&self, py: Python<'py>) -> PyResult<Vec<Bound<'py, PyAny>>> {
+                    // This might seem inefficient since we are cloning
+                    // everything, but if we want to map a python lambda
+                    // function over the measurements we would need to to do
+                    // this anyways, so simply returnig a copied list doesn't
+                    // lose anything and keeps this API simpler.
                     let mut ret = vec![];
                     for x in self.0
                         .measurements_named_vec()

@@ -1407,6 +1407,25 @@ macro_rules! common_meas_get_set {
                         }).transpose()
                 }
 
+                fn measurement_at<'py>(
+                    &self,
+                    i: usize,
+                    py: Python<'py>
+                ) -> PyResult<Bound<'py, PyAny>> {
+                    if let Some(m) = self.0.measurements_named_vec().get(i.into()) {
+                        m.map_or_else(
+                            |(_, l)| $timetype::from(l.clone()).into_bound_py_any(py),
+                            |(_, r)| $meastype::from(r.clone()).into_bound_py_any(py)
+                        )
+                    } else {
+                        // TODO ...this sounds familiar, is it ok to reuse
+                        // pythons IndexError for things that aren't really
+                        // lists?
+                        let msg = "index out of range".to_string();
+                        Err(PyreflowException::new_err(msg))
+                    }
+                }
+
                 #[getter]
                 fn measurements<'py>(&self, py: Python<'py>) -> PyResult<Vec<Bound<'py, PyAny>>> {
                     // This might seem inefficient since we are cloning

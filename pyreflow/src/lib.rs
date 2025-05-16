@@ -2434,6 +2434,17 @@ macro_rules! shared_meas_get_set {
                 }
 
                 #[getter]
+                fn range<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+                    range_to_any(self.0.common.range, py)
+                }
+
+                #[setter]
+                fn set_range(&mut self, x: Bound<'_, PyAny>) -> PyResult<()> {
+                    self.0.common.range = any_to_range(x)?;
+                    Ok(())
+                }
+
+                #[getter]
                 fn longname(&self) -> Option<String> {
                     self.0.common.longname.as_ref_opt().map(|x| x.clone().into())
                 }

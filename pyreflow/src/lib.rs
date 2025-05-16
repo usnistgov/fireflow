@@ -1308,9 +1308,12 @@ macro_rules! common_methods {
             // }
 
             #[getter]
-            fn get_ranges(&self) -> Vec<String> {
-                // TODO strings, lame
-                self.0.ranges().iter().map(|r| r.as_ref().to_string()).collect()
+            fn get_ranges<'py>(&self, py: Python<'py>) -> PyResult<Vec<Bound<'py, PyAny>>> {
+                let mut rs = vec![];
+                for r in self.0.ranges() {
+                    rs.push(range_to_any(*r, py)?);
+                }
+                Ok(rs)
             }
 
             #[getter]
@@ -1353,12 +1356,16 @@ macro_rules! common_methods {
                     .map(|_| ())
             }
 
-            fn set_data_f32(&mut self, ranges: Vec<f32>) -> bool {
-                self.0.set_data_f32(ranges)
+            fn set_data_f32(&mut self, ranges: Vec<f32>) -> PyResult<bool> {
+                let msg = "float must not be NaN for range".to_string();
+                let err = PyreflowException::new_err(msg);
+                self.0.set_data_f32(ranges).map_err(|_| err)
             }
 
-            fn set_data_f64(&mut self, ranges: Vec<f64>) -> bool {
-                self.0.set_data_f64(ranges)
+            fn set_data_f64(&mut self, ranges: Vec<f64>) -> PyResult<bool> {
+                let msg = "float must not be NaN for range".to_string();
+                let err = PyreflowException::new_err(msg);
+                self.0.set_data_f64(ranges).map_err(|_| err)
             }
 
             fn set_data_ascii(&mut self, rs: Vec<PyAsciiRangeSetter>) -> bool {
@@ -2529,5 +2536,14 @@ where
 fn any_to_range(a: Bound<'_, PyAny>) -> PyResult<Range> {
     a.clone()
         .extract::<f64>()
-        .map_or(a.extract::<u64>().map(|x| x.into()), |x| Ok(x.into()))
+        .map_or(a.extract::<u64>().map(|x| x.into()), |x| {
+            Range::try_from(x).map_err(|e| PyreflowException::new_err(e.to_string()))
+        })
+}
+
+fn range_to_any(r: Range, py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
+    match r {
+        Range::Float(x) => x.into_bound_py_any(py),
+        Range::Int(x) => x.into_bound_py_any(py),
+    }
 }

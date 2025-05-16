@@ -445,7 +445,7 @@ impl<X, Y, const INTLEN: usize> IntColumnWriter<'_, X, Y, INTLEN> {
         X: Copy,
         Y: IntFromBytes<DTLEN, INTLEN>,
         <Y as FromStr>::Err: fmt::Display,
-        <Y as FromStr>::Err: IntErr,
+        // <Y as FromStr>::Err: IntErr,
         Y: Ord,
     {
         let x = self.data.next().unwrap();
@@ -771,31 +771,28 @@ impl FixedLayout<AnyUintType> {
     }
 }
 
-// hack to get bounds on error to work in IntMath trait
-trait IntErr: Sized {
-    fn err_kind(&self) -> &IntErrorKind;
-}
+// // hack to get bounds on error to work in IntMath trait
+// trait IntErr: Sized {
+//     fn err_kind(&self) -> &IntErrorKind;
+// }
 
-impl IntErr for ParseIntError {
-    fn err_kind(&self) -> &IntErrorKind {
-        self.kind()
-    }
-}
+// impl IntErr for ParseIntError {
+//     fn err_kind(&self) -> &IntErrorKind {
+//         self.kind()
+//     }
+// }
 
 trait IntMath: Sized
 where
     Self: fmt::Display,
     Self: FromStr,
-    <Self as FromStr>::Err: IntErr,
 {
     fn next_power_2(x: Self) -> Self;
 
-    fn int_from_str(s: &str) -> Result<Self, IntErrorKind> {
-        s.parse()
-            .map_err(|e| <Self as FromStr>::Err::err_kind(&e).clone())
-    }
-
-    fn maxval() -> Self;
+    // fn int_from_str(s: &str) -> Result<Self, IntErrorKind> {
+    //     s.parse()
+    //         .map_err(|e| <Self as FromStr>::Err::err_kind(&e).clone())
+    // }
 }
 
 // TODO clean this up with https://github.com/rust-lang/rust/issues/76560 once
@@ -809,6 +806,8 @@ trait NumProps<const DTLEN: usize>: Sized + Copy + Default {
     fn to_big(self) -> [u8; DTLEN];
 
     fn to_little(self) -> [u8; DTLEN];
+
+    fn maxval() -> Self;
 }
 
 trait OrderedFromBytes<const DTLEN: usize, const OLEN: usize>: NumProps<DTLEN> {
@@ -839,21 +838,20 @@ trait OrderedFromBytes<const DTLEN: usize, const OLEN: usize>: NumProps<DTLEN> {
 trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>
 where
     Self: OrderedFromBytes<DTLEN, INTLEN>,
-    Self: TryFrom<u64>,
+    Self: TryFrom<Range, Error = RangeToIntError<Self>>,
     Self: IntMath,
     <Self as FromStr>::Err: fmt::Display,
-    <Self as FromStr>::Err: IntErr,
 {
     fn range_to_bitmask(range: &Range) -> Result<Self, String> {
         // TODO add way to control this behavior, we may not always want to
         // truncate an overflowing number, and at the very least may wish to
         // warn the user that truncation happened
-        Self::int_from_str(range.as_ref())
-            .map(Self::next_power_2)
-            .or_else(|e| match e {
-                IntErrorKind::PosOverflow => Ok(Self::maxval()),
-                _ => Err(format!("could not convert to u{INTLEN}")),
-            })
+        (*range).try_into().or_else(|e| match e {
+            RangeToIntError::IntOverrange(_) => Ok(Self::maxval()),
+            RangeToIntError::FloatOverrange(_) => Ok(Self::maxval()),
+            RangeToIntError::FloatUnderrange(_) => Ok(Self::default()),
+            RangeToIntError::FloatPrecisionLoss(_, x) => Ok(x),
+        })
     }
 
     fn column_type_endian(range: &Range, endian: Endian) -> Result<UintType<Self, INTLEN>, String> {
@@ -953,27 +951,32 @@ where
     Self: NumProps<LEN>,
     Self: OrderedFromBytes<LEN, LEN>,
     Self: FromStr,
+    Self: TryFrom<Range, Error = RangeToFloatError<Self>>,
     <Self as FromStr>::Err: fmt::Display,
     Self: Clone,
 {
-    fn column_type_endian(o: Endian, r: &Range) -> Result<FloatType<LEN, Self>, String> {
-        r.as_ref()
-            .parse::<Self>()
-            .map(|range| FloatType {
-                order: o.into(),
-                range,
-            })
-            .map_err(|e| e.to_string())
+    fn range(r: &Range) -> Self {
+        // TODO control how this works and/or warn user if we truncate
+        (*r).try_into().unwrap_or_else(|e| match e {
+            RangeToFloatError::IntPrecisionLoss(_, x) => x,
+            RangeToFloatError::FloatOverrange(_) => Self::maxval(),
+            RangeToFloatError::FloatUnderrange(_) => Self::default(),
+        })
     }
 
-    fn column_type(o: &ByteOrd, r: &Range) -> Result<FloatType<LEN, Self>, Vec<String>> {
-        match (o.as_sized(), r.as_ref().parse::<Self>()) {
-            (Ok(order), Ok(range)) => Ok(FloatType { order, range }),
-            (a, b) => Err([a.err(), b.err().map(|s| s.to_string())]
-                .into_iter()
-                .flatten()
-                .collect()),
+    fn column_type_endian(o: Endian, r: &Range) -> FloatType<LEN, Self> {
+        let range = Self::range(r);
+        FloatType {
+            order: o.into(),
+            range,
         }
+    }
+
+    fn column_type(o: &ByteOrd, r: &Range) -> Result<FloatType<LEN, Self>, String> {
+        let range = Self::range(r);
+        o.as_sized()
+            .map_err(|e| e.to_string())
+            .map(|order| FloatType { order, range })
     }
 
     fn layout_endian<D>(
@@ -988,7 +991,7 @@ where
                     .and_then(|f| f.bytes())
                     .is_some_and(|b| u8::from(b) == 4)
                 {
-                    Self::column_type_endian(endian, &c.range)
+                    Ok(Self::column_type_endian(endian, &c.range))
                 } else {
                     // TODO which one?
                     Err(format!("$PnB is not {} bytes wide", 4))
@@ -1005,7 +1008,7 @@ where
     fn layout<D>(
         cs: Vec<ColumnLayoutData<D>>,
         byteord: &ByteOrd,
-    ) -> Result<FixedLayout<FloatType<LEN, Self>>, String> {
+    ) -> Result<FixedLayout<FloatType<LEN, Self>>, Vec<String>> {
         let (pass, fail): (Vec<_>, Vec<_>) = cs
             .into_iter()
             .map(|c| {
@@ -1017,14 +1020,14 @@ where
                     Self::column_type(byteord, &c.range)
                 } else {
                     // TODO which one?
-                    Err(vec![format!("$PnB is not {} bytes wide", 4)])
+                    Err(format!("$PnB is not {} bytes wide", 4))
                 }
             })
             .partition_result();
         if fail.is_empty() {
             Ok(FixedLayout { columns: pass })
         } else {
-            Err(fail.into_iter().flatten().collect())
+            Err(fail.into_iter().collect())
         }
     }
 
@@ -1083,6 +1086,10 @@ macro_rules! impl_num_props {
             fn from_little(buf: [u8; $size]) -> Self {
                 <$t>::from_le_bytes(buf)
             }
+
+            fn maxval() -> Self {
+                Self::MAX
+            }
         }
     };
 }
@@ -1103,10 +1110,6 @@ macro_rules! impl_int_math {
                 Self::checked_next_power_of_two(x)
                     .map(|x| x - 1)
                     .unwrap_or(Self::MAX)
-            }
-
-            fn maxval() -> Self {
-                Self::MAX
             }
         }
     };
@@ -1221,7 +1224,7 @@ impl MixedType {
                 AlphaNumType::Single => {
                     if let Some(bytes) = f.bytes() {
                         if u8::from(bytes) == 4 {
-                            f32::column_type_endian(endian, rng).map(Self::Float)
+                            Ok(Self::Float(f32::column_type_endian(endian, rng)))
                         } else {
                             Err(format!("$DATATYPE=F but $PnB={}", f.inner()))
                         }
@@ -1232,7 +1235,7 @@ impl MixedType {
                 AlphaNumType::Double => {
                     if let Some(bytes) = f.bytes() {
                         if u8::from(bytes) == 8 {
-                            f64::column_type_endian(endian, rng).map(Self::Double)
+                            Ok(Self::Double(f64::column_type_endian(endian, rng)))
                         } else {
                             Err(format!("$DATATYPE=D but $PnB={}", f.inner()))
                         }
@@ -1603,7 +1606,7 @@ impl<T, const INTLEN: usize> UintColumnReader<T, INTLEN> {
     where
         T: IntFromBytes<DTLEN, INTLEN>,
         <T as FromStr>::Err: fmt::Display,
-        <T as FromStr>::Err: IntErr,
+        // <T as FromStr>::Err: IntErr,
         T: Ord,
     {
         let x = T::h_read_int(h, &self.uint_type.byteord)?;
@@ -1913,12 +1916,12 @@ impl VersionedDataLayout for DataLayout2_0 {
             AlphaNumType::Integer => {
                 AnyUintLayout::try_new(columns, &byteord).map(DataLayout2_0::Integer)
             }
-            AlphaNumType::Single => f32::layout(columns, &byteord)
-                .map(|x| DataLayout2_0::Float(FloatLayout::F32(x)))
-                .map_err(|e| vec![e]),
-            AlphaNumType::Double => f64::layout(columns, &byteord)
-                .map(|x| DataLayout2_0::Float(FloatLayout::F64(x)))
-                .map_err(|e| vec![e]),
+            AlphaNumType::Single => {
+                f32::layout(columns, &byteord).map(|x| DataLayout2_0::Float(FloatLayout::F32(x)))
+            }
+            AlphaNumType::Double => {
+                f64::layout(columns, &byteord).map(|x| DataLayout2_0::Float(FloatLayout::F64(x)))
+            }
         }
     }
 
@@ -1992,12 +1995,12 @@ impl VersionedDataLayout for DataLayout3_0 {
             AlphaNumType::Integer => {
                 AnyUintLayout::try_new(columns, &byteord).map(DataLayout3_0::Integer)
             }
-            AlphaNumType::Single => f32::layout(columns, &byteord)
-                .map(|x| DataLayout3_0::Float(FloatLayout::F32(x)))
-                .map_err(|e| vec![e]),
-            AlphaNumType::Double => f64::layout(columns, &byteord)
-                .map(|x| DataLayout3_0::Float(FloatLayout::F64(x)))
-                .map_err(|e| vec![e]),
+            AlphaNumType::Single => {
+                f32::layout(columns, &byteord).map(|x| DataLayout3_0::Float(FloatLayout::F32(x)))
+            }
+            AlphaNumType::Double => {
+                f64::layout(columns, &byteord).map(|x| DataLayout3_0::Float(FloatLayout::F64(x)))
+            }
         }
     }
 

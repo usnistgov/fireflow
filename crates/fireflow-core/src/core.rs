@@ -2728,6 +2728,34 @@ macro_rules! scale_get_set {
     };
 }
 
+macro_rules! float_layout2_0 {
+    () => {
+        /// Set data layout to be 32-bit float for all measurements.
+        pub fn set_data_f32(&mut self, rs: Vec<f32>) -> Result<bool, NanRange> {
+            let (pass, _): (Vec<_>, Vec<_>) = rs
+                .into_iter()
+                .map(|r| Range::try_from(f64::from(r)))
+                .partition_result();
+            if pass.is_empty() {
+                return Err(NanRange);
+            }
+            Ok(self.set_to_floating_point(false, pass))
+        }
+
+        /// Set data layout to be 64-bit float for all measurements.
+        pub fn set_data_f64(&mut self, rs: Vec<f64>) -> Result<bool, NanRange> {
+            let (pass, _): (Vec<_>, Vec<_>) = rs
+                .into_iter()
+                .map(|r| Range::try_from(r))
+                .partition_result();
+            if pass.is_empty() {
+                return Err(NanRange);
+            }
+            Ok(self.set_to_floating_point(true, pass))
+        }
+    };
+}
+
 impl<A, D> Core2_0<A, D> {
     comp_methods!();
     scale_get_set!(Option<Scale>, Some(Scale::Linear));
@@ -2757,17 +2785,7 @@ impl<A, D> Core2_0<A, D> {
         res
     }
 
-    /// Set data layout to be 32-bit float for all measurements.
-    pub fn set_data_f32(&mut self, rs: Vec<f32>) -> bool {
-        let ys: Vec<_> = rs.into_iter().map(|r| r.into()).collect();
-        self.set_to_floating_point(false, ys)
-    }
-
-    /// Set data layout to be 64-bit float for all measurements.
-    pub fn set_data_f64(&mut self, rs: Vec<f64>) -> bool {
-        let ys: Vec<_> = rs.into_iter().map(|r| r.into()).collect();
-        self.set_to_floating_point(true, ys)
-    }
+    float_layout2_0!();
 
     /// Set data layout to be ASCII-delimited
     pub fn set_data_delimited(&mut self, xs: Vec<u64>) -> bool {
@@ -2821,17 +2839,7 @@ impl<A, D> Core3_0<A, D> {
         res
     }
 
-    /// Set data layout to be 32-bit float for all measurements.
-    pub fn set_data_f32(&mut self, rs: Vec<f32>) -> bool {
-        let ys: Vec<_> = rs.into_iter().map(|r| r.into()).collect();
-        self.set_to_floating_point(false, ys)
-    }
-
-    /// Set data layout to be 64-bit float for all measurements.
-    pub fn set_data_f64(&mut self, rs: Vec<f64>) -> bool {
-        let ys: Vec<_> = rs.into_iter().map(|r| r.into()).collect();
-        self.set_to_floating_point(true, ys)
-    }
+    float_layout2_0!();
 
     /// Set data layout to be ASCII-delimited
     pub fn set_data_delimited(&mut self, xs: Vec<u64>) -> bool {
@@ -2867,17 +2875,7 @@ impl<A, D> Core3_1<A, D> {
         self.set_data_integer_inner(xs)
     }
 
-    /// Set data layout to be 32-bit float for all measurements.
-    pub fn set_data_f32(&mut self, rs: Vec<f32>) -> bool {
-        let ys: Vec<_> = rs.into_iter().map(|r| r.into()).collect();
-        self.set_to_floating_point(false, ys)
-    }
-
-    /// Set data layout to be 64-bit float for all measurements.
-    pub fn set_data_f64(&mut self, rs: Vec<f64>) -> bool {
-        let ys: Vec<_> = rs.into_iter().map(|r| r.into()).collect();
-        self.set_to_floating_point(true, ys)
-    }
+    float_layout2_0!();
 
     /// Set data layout to be fixed-ASCII for all measurements
     pub fn set_data_ascii(&mut self, xs: Vec<AsciiRangeSetter>) -> bool {
@@ -3019,8 +3017,14 @@ impl<A, D> Core3_2<A, D> {
                     Some(this_dt.try_into().unwrap())
                 };
                 match x {
-                    MixedColumnSetter::Float(range) => (Width::new_f32(), range.into(), pndt),
-                    MixedColumnSetter::Double(range) => (Width::new_f64(), range.into(), pndt),
+                    // ASSUME f32/f64 won't fail to get range because NaN won't
+                    // be allowed inside
+                    MixedColumnSetter::Float(range) => {
+                        (Width::new_f32(), f64::from(range).try_into().unwrap(), pndt)
+                    }
+                    MixedColumnSetter::Double(range) => {
+                        (Width::new_f64(), range.try_into().unwrap(), pndt)
+                    }
                     MixedColumnSetter::Ascii(s) => {
                         let (b, r) = s.truncated();
                         (b, r, None)
@@ -3070,15 +3074,27 @@ impl<A, D> Core3_2<A, D> {
     }
 
     /// Set data layout to be 32-bit float for all measurements.
-    pub fn set_data_f32(&mut self, rs: Vec<f32>) -> bool {
-        let ys: Vec<_> = rs.into_iter().map(|r| r.into()).collect();
-        self.set_to_floating_point_3_2(false, ys)
+    pub fn set_data_f32(&mut self, rs: Vec<f32>) -> Result<bool, NanRange> {
+        let (pass, _): (Vec<_>, Vec<_>) = rs
+            .into_iter()
+            .map(|r| Range::try_from(f64::from(r)))
+            .partition_result();
+        if pass.is_empty() {
+            return Err(NanRange);
+        }
+        Ok(self.set_to_floating_point_3_2(false, pass))
     }
 
     /// Set data layout to be 64-bit float for all measurements.
-    pub fn set_data_f64(&mut self, rs: Vec<f64>) -> bool {
-        let ys: Vec<_> = rs.into_iter().map(|r| r.into()).collect();
-        self.set_to_floating_point_3_2(true, ys)
+    pub fn set_data_f64(&mut self, rs: Vec<f64>) -> Result<bool, NanRange> {
+        let (pass, _): (Vec<_>, Vec<_>) = rs
+            .into_iter()
+            .map(|r| Range::try_from(r))
+            .partition_result();
+        if pass.is_empty() {
+            return Err(NanRange);
+        }
+        Ok(self.set_to_floating_point_3_2(true, pass))
     }
 
     /// Set data layout to be fixed-ASCII for all measurements
@@ -4459,6 +4475,7 @@ impl VersionedTemporal for InnerTemporal3_2 {
 
 #[derive(Clone, Copy)]
 pub enum MixedColumnSetter {
+    // ASSUME this won't have NaNs
     Float(f32),
     Double(f64),
     Ascii(AsciiRangeSetter),

@@ -1302,7 +1302,7 @@ macro_rules! common_methods {
             fn get_ranges<'py>(&self, py: Python<'py>) -> PyResult<Vec<Bound<'py, PyAny>>> {
                 let mut rs = vec![];
                 for r in self.0.ranges() {
-                    rs.push(range_to_any(*r, py)?);
+                    rs.push(range_to_any(r, py)?);
                 }
                 Ok(rs)
             }

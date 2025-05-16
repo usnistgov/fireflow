@@ -851,6 +851,14 @@ impl CommonMeasurement {
             None
         }
     }
+
+    fn layout_data(&self) -> ColumnLayoutData<()> {
+        ColumnLayoutData {
+            width: self.width,
+            range: self.range,
+            datatype: (),
+        }
+    }
 }
 
 impl<T> Temporal<T>
@@ -904,14 +912,6 @@ where
             .flat_map(|(k, v)| v.map(|x| (k, x)))
             .collect()
     }
-
-    fn layout_data(&self) -> ColumnLayoutData<()> {
-        ColumnLayoutData {
-            width: self.common.width,
-            range: self.common.range.clone(),
-            datatype: (),
-        }
-    }
 }
 
 impl<P> Optical<P>
@@ -935,14 +935,6 @@ where
             filter: None.into(),
             percent_emitted: None.into(),
             power: None.into(),
-        }
-    }
-
-    fn layout_data(&self) -> ColumnLayoutData<()> {
-        ColumnLayoutData {
-            width: self.width(),
-            range: self.range().clone(),
-            datatype: (),
         }
     }
 
@@ -1069,10 +1061,8 @@ where
     P: VersionedOptical,
 {
     fn layout_data(&self) -> Vec<ColumnLayoutData<()>> {
-        self.iter()
-            .map(|x| {
-                x.1.map_or_else(|m| m.value.layout_data(), |t| t.value.layout_data())
-            })
+        self.iter_common_values()
+            .map(|(_, x)| x.layout_data())
             .collect()
     }
 }
@@ -1656,14 +1646,9 @@ where
             None
         } else {
             let res = ms
-                .iter()
+                .iter_common_values()
                 .zip(ks)
-                .map(|((_, x), k)| {
-                    x.map_or_else(
-                        |t| t.value.common.nonstandard_keywords.get(k),
-                        |m| m.value.common.nonstandard_keywords.get(k),
-                    )
-                })
+                .map(|((_, x), k)| x.nonstandard_keywords.get(k))
                 .collect();
             Some(res)
         }
@@ -1734,13 +1719,8 @@ where
     /// index starting at 1.
     pub fn longnames(&self) -> Vec<Option<&Longname>> {
         self.measurements
-            .iter()
-            .map(|x| {
-                x.1.map_or_else(
-                    |t| t.value.common.longname.as_ref_opt(),
-                    |m| m.value.common.longname.as_ref_opt(),
-                )
-            })
+            .iter_common_values()
+            .map(|(_, x)| x.longname.as_ref_opt())
             .collect()
     }
 
@@ -1783,16 +1763,16 @@ where
     /// Show $PnB for each measurement
     pub fn widths(&self) -> Vec<Width> {
         self.measurements
-            .iter()
-            .map(|(_, x)| x.map_or_else(|p| p.value.common.width, |p| p.value.common.width))
+            .iter_common_values()
+            .map(|(_, x)| x.width)
             .collect()
     }
 
     /// Show $PnR for each measurement
-    pub fn ranges(&self) -> Vec<&Range> {
+    pub fn ranges(&self) -> Vec<Range> {
         self.measurements
-            .iter()
-            .map(|(_, x)| x.map_or_else(|p| &p.value.common.range, |p| &p.value.common.range))
+            .iter_common_values()
+            .map(|(_, x)| x.range)
             .collect()
     }
 
@@ -5211,5 +5191,17 @@ impl<X> AsMut<CommonMeasurement> for Optical<X> {
 impl<X> AsMut<CommonMeasurement> for Temporal<X> {
     fn as_mut(&mut self) -> &mut CommonMeasurement {
         &mut self.common
+    }
+}
+
+impl<X> AsRef<CommonMeasurement> for Optical<X> {
+    fn as_ref(&self) -> &CommonMeasurement {
+        &self.common
+    }
+}
+
+impl<X> AsRef<CommonMeasurement> for Temporal<X> {
+    fn as_ref(&self) -> &CommonMeasurement {
+        &self.common
     }
 }

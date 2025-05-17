@@ -1378,10 +1378,10 @@ macro_rules! non_time_get_set {
         }
 
         /// Set $$kw value for for optical measurements
-        pub fn $set(&mut self, xs: Vec<Option<$ty>>) -> bool {
+        pub fn $set(&mut self, xs: Vec<Option<$ty>>) -> Result<(), KeyLengthError> {
             self.measurements.alter_non_center_values_zip(xs, |m, x| {
                 m.$($root.)*$field = x.into();
-            }).is_some()
+            }).map(|_| ())
         }
     };
 }
@@ -1558,10 +1558,7 @@ where
     /// keywords refering to the old names will be updated to reflect the new
     /// names. For 2.0 and 3.0 which have optional $PnN, all $PnN will end up
     /// being set.
-    pub fn set_all_shortnames(
-        &mut self,
-        ns: Vec<Shortname>,
-    ) -> Result<NameMapping, DistinctKeysError> {
+    pub fn set_all_shortnames(&mut self, ns: Vec<Shortname>) -> Result<NameMapping, SetKeysError> {
         let mapping = self.measurements.set_names(ns)?;
         // TODO reassign names in dataframe
         self.metadata.reassign_all(&mapping);
@@ -1572,11 +1569,14 @@ where
     ///
     /// Return error if time measurement already exists or if measurement cannot
     /// be converted to a time measurement.
-    pub fn set_temporal(&mut self, n: &Shortname) -> Result<(), OpticalToTemporalErrors>
+    pub fn set_temporal(&mut self, n: &Shortname) -> bool
     where
         Optical<M::P>: From<Temporal<M::T>>,
-        Temporal<M::T>: TryFrom<Optical<M::P>, Error = TryFromTemporalError<Optical<M::P>>>,
+        Temporal<M::T>: From<Optical<M::P>>,
     {
+        // TODO check if time channel can be converted here, and throw errors
+        // if certain keywords are set that would result in loss
+
         // This is tricky because $TIMESTEP will be filled with a dummy value
         // when a Temporal is converted from an Optical. This will get annoying
         // for cases where the time measurement already exists and we are simply
@@ -1587,16 +1587,15 @@ where
         // trait-level functions for this and wrap in Option.
         let ms = &mut self.measurements;
         let current_timestep = ms.as_center().and_then(|c| c.value.specific.timestep());
-        match ms.set_center_by_name(n) {
-            Ok(center) => {
-                // Technically this is a bit more work than necessary because
-                // we should know by this point if the center exists. Oh well..
-                if let (Some(ts), Some(c)) = (current_timestep, ms.as_center_mut()) {
-                    M::T::set_timestep(&mut c.value.specific, ts);
-                }
-                Ok(center)
+        if ms.set_center_by_name(n) {
+            // Technically this is a bit more work than necessary because
+            // we should know by this point if the center exists. Oh well..
+            if let (Some(ts), Some(c)) = (current_timestep, ms.as_center_mut()) {
+                M::T::set_timestep(&mut c.value.specific, ts);
             }
-            Err(e) => Err(e),
+            true
+        } else {
+            false
         }
     }
 
@@ -1619,7 +1618,7 @@ where
     pub fn insert_meas_nonstandard(
         &mut self,
         xs: Vec<(NonStdKey, String)>,
-    ) -> Option<Vec<Option<String>>> {
+    ) -> Result<Vec<Option<String>>, KeyLengthError> {
         self.measurements
             .alter_common_values_zip(xs, |_, x, (k, v)| x.nonstandard_keywords.insert(k, v))
     }
@@ -1629,7 +1628,10 @@ where
     /// Return a vector with removed values for each measurement if present.
     ///
     /// This includes the time measurement if present.
-    pub fn remove_meas_nonstandard(&mut self, xs: Vec<&NonStdKey>) -> Option<Vec<Option<String>>> {
+    pub fn remove_meas_nonstandard(
+        &mut self,
+        xs: Vec<&NonStdKey>,
+    ) -> Result<Vec<Option<String>>, KeyLengthError> {
         self.measurements
             .alter_common_values_zip(xs, |_, x, k| x.nonstandard_keywords.remove(k))
     }
@@ -1669,7 +1671,7 @@ where
         &mut self,
         index: MeasIdx,
         m: Optical<M::P>,
-    ) -> Option<Result<Optical<M::P>, Temporal<M::T>>> {
+    ) -> Result<Result<Optical<M::P>, Temporal<M::T>>, ElementIndexError> {
         self.measurements.replace_at(index, m)
     }
 
@@ -1697,7 +1699,7 @@ where
         &mut self,
         index: MeasIdx,
         key: <M::N as MightHave>::Wrapper<Shortname>,
-    ) -> Result<(Shortname, Shortname), DistinctError> {
+    ) -> Result<(Shortname, Shortname), RenameError> {
         self.measurements.rename(index, key).map(|(old, new)| {
             let mapping = [(old.clone(), new.clone())].into_iter().collect();
             self.metadata.reassign_all(&mapping);
@@ -1720,7 +1722,12 @@ where
     }
 
     /// Apply functions to measurement values with payload
-    pub fn alter_measurements_zip<F, G, X, R>(&mut self, xs: Vec<X>, f: F, g: G) -> Option<Vec<R>>
+    pub fn alter_measurements_zip<F, G, X, R>(
+        &mut self,
+        xs: Vec<X>,
+        f: F,
+        g: G,
+    ) -> Result<Vec<R>, KeyLengthError>
     where
         F: Fn(IndexedElement<&<M::N as MightHave>::Wrapper<Shortname>, &mut Optical<M::P>>, X) -> R,
         G: Fn(IndexedElement<&Shortname, &mut Temporal<M::T>>, X) -> R,
@@ -1781,10 +1788,10 @@ where
     /// of measurements; true otherwise. Since $PnS is an optional keyword for
     /// all versions, any name in the list may be None which will blank the
     /// keyword.
-    pub fn set_longnames(&mut self, ns: Vec<Option<String>>) -> bool {
+    pub fn set_longnames(&mut self, ns: Vec<Option<String>>) -> Result<(), KeyLengthError> {
         self.measurements
             .alter_common_values_zip(ns, |_, x, n| x.longname = n.map(Longname).into())
-            .is_some()
+            .map(|_| ())
     }
 
     // /// Show $PnB for each measurement
@@ -1905,17 +1912,14 @@ where
     fn remove_measurement_by_index_inner(
         &mut self,
         index: MeasIdx,
-    ) -> Option<EitherPair<M::N, Optical<M::P>, Temporal<M::T>>> {
-        if let Some(e) = self.measurements.remove_index(index) {
-            if let Ok(left) = &e {
-                if let Some(n) = M::N::as_opt(&left.key) {
-                    self.metadata.remove_name_index(n, index);
-                }
+    ) -> Result<EitherPair<M::N, Optical<M::P>, Temporal<M::T>>, ElementIndexError> {
+        let res = self.measurements.remove_index(index)?;
+        if let Ok(left) = &res {
+            if let Some(n) = M::N::as_opt(&left.key) {
+                self.metadata.remove_name_index(n, index);
             }
-            Some(e)
-        } else {
-            None
         }
+        Ok(res)
     }
 
     fn push_temporal_inner(&mut self, n: Shortname, m: Temporal<M::T>) -> Result<(), String> {
@@ -2113,7 +2117,7 @@ where
         M::P: From<M::T>,
     {
         let ms = &self.measurements;
-        if let Some(m0) = ms.get(0.into()).and_then(|x| x.ok()) {
+        if let Some(m0) = ms.get(0.into()).ok().and_then(|x| x.ok()) {
             let header = m0.1.table_header();
             let rows = self.measurements.iter().map(|(i, r)| {
                 r.map_or_else(
@@ -2232,16 +2236,16 @@ where
         PureSuccess { data: (), deferred }
     }
 
-    fn set_data_width_range(&mut self, xs: Vec<(Width, Range)>) -> bool {
+    fn set_data_width_range(&mut self, xs: Vec<(Width, Range)>) -> Result<(), KeyLengthError> {
         self.measurements
             .alter_common_values_zip(xs, |_, x, (b, r)| {
                 x.width = b;
                 x.range = r;
             })
-            .is_some()
+            .map(|_| ())
     }
 
-    fn set_data_delimited_inner(&mut self, xs: Vec<u64>) -> bool {
+    fn set_data_delimited_inner(&mut self, xs: Vec<u64>) -> Result<(), KeyLengthError> {
         let ys: Vec<_> = xs
             .into_iter()
             .map(|r| (Width::Variable, r.into()))
@@ -2249,7 +2253,11 @@ where
         self.set_data_width_range(ys)
     }
 
-    fn set_to_floating_point(&mut self, is_double: bool, rs: Vec<Range>) -> bool {
+    fn set_to_floating_point(
+        &mut self,
+        is_double: bool,
+        rs: Vec<Range>,
+    ) -> Result<(), KeyLengthError> {
         let (dt, b) = if is_double {
             (AlphaNumType::Double, Width::new_f64())
         } else {
@@ -2259,29 +2267,26 @@ where
         // ASSUME time measurement will always be set to linear since we do that
         // a few lines above, so the only error/warning we need to screen is
         // for the length of the input
-        let res = self.set_data_width_range(xs);
-        if res {
-            self.metadata.datatype = dt;
-        }
-        res
+        self.set_data_width_range(xs)?;
+        self.metadata.datatype = dt;
+        Ok(())
     }
 
-    fn set_data_ascii_inner(&mut self, xs: Vec<AsciiRangeSetter>) -> bool {
+    fn set_data_ascii_inner(&mut self, xs: Vec<AsciiRangeSetter>) -> Result<(), KeyLengthError> {
         let ys: Vec<_> = xs.into_iter().map(|s| s.truncated()).collect();
-        let res = self.set_data_width_range(ys);
-        if res {
-            self.metadata.datatype = AlphaNumType::Ascii;
-        }
-        res
+        self.set_data_width_range(ys)?;
+        self.metadata.datatype = AlphaNumType::Ascii;
+        Ok(())
     }
 
-    pub fn set_data_integer_inner(&mut self, xs: Vec<NumRangeSetter>) -> bool {
+    pub fn set_data_integer_inner(
+        &mut self,
+        xs: Vec<NumRangeSetter>,
+    ) -> Result<(), KeyLengthError> {
         let ys: Vec<_> = xs.into_iter().map(|s| s.truncated()).collect();
-        let res = self.set_data_width_range(ys);
-        if res {
-            self.metadata.datatype = AlphaNumType::Integer;
-        }
-        res
+        self.set_data_width_range(ys)?;
+        self.metadata.datatype = AlphaNumType::Integer;
+        Ok(())
     }
 
     pub(crate) fn as_column_layout(&self) -> Result<M::L, Vec<String>> {
@@ -2362,7 +2367,7 @@ where
     pub fn remove_measurement_by_index(
         &mut self,
         index: MeasIdx,
-    ) -> Option<EitherPair<M::N, Optical<M::P>, Temporal<M::T>>> {
+    ) -> Result<EitherPair<M::N, Optical<M::P>, Temporal<M::T>>, ElementIndexError> {
         self.remove_measurement_by_index_inner(index)
     }
 
@@ -2494,10 +2499,10 @@ where
     pub fn remove_measurement_by_index(
         &mut self,
         index: MeasIdx,
-    ) -> Option<EitherPair<M::N, Optical<M::P>, Temporal<M::T>>> {
-        self.remove_measurement_by_index_inner(index).inspect(|_| {
-            self.data.drop_in_place(index.into()).unwrap();
-        })
+    ) -> Result<EitherPair<M::N, Optical<M::P>, Temporal<M::T>>, ElementIndexError> {
+        let res = self.remove_measurement_by_index_inner(index)?;
+        self.data.drop_in_place(index.into()).unwrap();
+        Ok(res)
     }
 
     /// Add time measurement to the end of the measurement vector.
@@ -2701,14 +2706,14 @@ macro_rules! display_methods {
                 .collect()
         }
 
-        pub fn set_displays(&mut self, ns: Vec<Option<Display>>) -> bool {
+        pub fn set_displays(&mut self, ns: Vec<Option<Display>>) -> Result<(), KeyLengthError> {
             self.measurements
                 .alter_values_zip(
                     ns,
                     |x, n| x.value.specific.display = n.into(),
                     |x, n| x.value.specific.display = n.into(),
                 )
-                .is_some()
+                .map(|_| ())
         }
     };
 }
@@ -2732,12 +2737,12 @@ macro_rules! scale_get_set {
         }
 
         /// Set $PnE for for all optical measurements
-        pub fn set_scales(&mut self, xs: Vec<$t>) -> bool {
+        pub fn set_scales(&mut self, xs: Vec<$t>) -> Result<(), KeyLengthError> {
             self.measurements
                 .alter_non_center_values_zip(xs, |m, x| {
                     m.specific.scale = x.into();
                 })
-                .is_some()
+                .map(|_| ())
         }
     };
 }
@@ -2745,27 +2750,29 @@ macro_rules! scale_get_set {
 macro_rules! float_layout2_0 {
     () => {
         /// Set data layout to be 32-bit float for all measurements.
-        pub fn set_data_f32(&mut self, rs: Vec<f32>) -> Result<bool, NanRange> {
+        pub fn set_data_f32(&mut self, rs: Vec<f32>) -> Result<(), SetFloatError> {
             let (pass, _): (Vec<_>, Vec<_>) = rs
                 .into_iter()
                 .map(|r| Range::try_from(f64::from(r)))
                 .partition_result();
             if pass.is_empty() {
-                return Err(NanRange);
+                return Err(SetFloatError::Nan(NanRange));
             }
-            Ok(self.set_to_floating_point(false, pass))
+            self.set_to_floating_point(false, pass)
+                .map_err(SetFloatError::Length)
         }
 
         /// Set data layout to be 64-bit float for all measurements.
-        pub fn set_data_f64(&mut self, rs: Vec<f64>) -> Result<bool, NanRange> {
+        pub fn set_data_f64(&mut self, rs: Vec<f64>) -> Result<(), SetFloatError> {
             let (pass, _): (Vec<_>, Vec<_>) = rs
                 .into_iter()
                 .map(|r| Range::try_from(r))
                 .partition_result();
             if pass.is_empty() {
-                return Err(NanRange);
+                return Err(SetFloatError::Nan(NanRange));
             }
-            Ok(self.set_to_floating_point(true, pass))
+            self.set_to_floating_point(true, pass)
+                .map_err(SetFloatError::Length)
         }
     };
 }
@@ -2778,7 +2785,7 @@ impl<A, D> Core2_0<A, D> {
     pub fn set_measurement_shortnames_maybe(
         &mut self,
         ns: Vec<Option<Shortname>>,
-    ) -> Result<NameMapping, DistinctKeysError> {
+    ) -> Result<NameMapping, SetKeysError> {
         let ks = ns.into_iter().map(|n| n.into()).collect();
         let mapping = self.measurements.set_non_center_keys(ks)?;
         self.metadata.reassign_all(&mapping);
@@ -2786,28 +2793,30 @@ impl<A, D> Core2_0<A, D> {
     }
 
     /// Set data layout to be Integer for all measurements
-    pub fn set_data_integer(&mut self, rs: Vec<u64>, byteord: ByteOrd) -> bool {
+    pub fn set_data_integer(
+        &mut self,
+        rs: Vec<u64>,
+        byteord: ByteOrd,
+    ) -> Result<(), KeyLengthError> {
         let n = byteord.nbytes();
         let ys = rs
             .into_iter()
             .map(|r| RangeSetter { width: n, range: r })
             .collect();
-        let res = self.set_data_integer_inner(ys);
-        if res {
-            self.metadata.specific.byteord = byteord;
-        }
-        res
+        self.set_data_integer_inner(ys)?;
+        self.metadata.specific.byteord = byteord;
+        Ok(())
     }
 
     float_layout2_0!();
 
     /// Set data layout to be ASCII-delimited
-    pub fn set_data_delimited(&mut self, xs: Vec<u64>) -> bool {
+    pub fn set_data_delimited(&mut self, xs: Vec<u64>) -> Result<(), KeyLengthError> {
         self.set_data_delimited_inner(xs)
     }
 
     /// Set data layout to be ASCII-fixed for all measurements
-    pub fn set_data_ascii(&mut self, xs: Vec<AsciiRangeSetter>) -> bool {
+    pub fn set_data_ascii(&mut self, xs: Vec<AsciiRangeSetter>) -> Result<(), KeyLengthError> {
         self.set_data_ascii_inner(xs)
     }
 
@@ -2831,7 +2840,7 @@ impl<A, D> Core3_0<A, D> {
     pub fn set_measurement_shortnames_maybe(
         &mut self,
         ns: Vec<Option<Shortname>>,
-    ) -> Result<NameMapping, DistinctKeysError> {
+    ) -> Result<NameMapping, SetKeysError> {
         let ks = ns.into_iter().map(|n| n.into()).collect();
         let mapping = self.measurements.set_non_center_keys(ks)?;
         self.metadata.reassign_all(&mapping);
@@ -2840,28 +2849,30 @@ impl<A, D> Core3_0<A, D> {
 
     /// Set data layout to be Integer for all measurements
     // TODO not DRY
-    pub fn set_data_integer(&mut self, rs: Vec<u64>, byteord: ByteOrd) -> bool {
+    pub fn set_data_integer(
+        &mut self,
+        rs: Vec<u64>,
+        byteord: ByteOrd,
+    ) -> Result<(), KeyLengthError> {
         let n = byteord.nbytes();
         let ys = rs
             .into_iter()
             .map(|r| RangeSetter { width: n, range: r })
             .collect();
-        let res = self.set_data_integer_inner(ys);
-        if res {
-            self.metadata.specific.byteord = byteord;
-        }
-        res
+        self.set_data_integer_inner(ys)?;
+        self.metadata.specific.byteord = byteord;
+        Ok(())
     }
 
     float_layout2_0!();
 
     /// Set data layout to be ASCII-delimited
-    pub fn set_data_delimited(&mut self, xs: Vec<u64>) -> bool {
+    pub fn set_data_delimited(&mut self, xs: Vec<u64>) -> Result<(), KeyLengthError> {
         self.set_data_delimited_inner(xs)
     }
 
     /// Set data layout to be ASCII-fixed for all measurements
-    pub fn set_data_ascii(&mut self, xs: Vec<AsciiRangeSetter>) -> bool {
+    pub fn set_data_ascii(&mut self, xs: Vec<AsciiRangeSetter>) -> Result<(), KeyLengthError> {
         self.set_data_ascii_inner(xs)
     }
 
@@ -2885,19 +2896,19 @@ impl<A, D> Core3_1<A, D> {
 
     // TODO better input type here?
     /// Set data layout to be integers for all measurements.
-    pub fn set_data_integer(&mut self, xs: Vec<NumRangeSetter>) -> bool {
+    pub fn set_data_integer(&mut self, xs: Vec<NumRangeSetter>) -> Result<(), KeyLengthError> {
         self.set_data_integer_inner(xs)
     }
 
     float_layout2_0!();
 
     /// Set data layout to be fixed-ASCII for all measurements
-    pub fn set_data_ascii(&mut self, xs: Vec<AsciiRangeSetter>) -> bool {
+    pub fn set_data_ascii(&mut self, xs: Vec<AsciiRangeSetter>) -> Result<(), KeyLengthError> {
         self.set_data_ascii_inner(xs)
     }
 
     /// Set data layout to be ASCII-delimited
-    pub fn set_data_delimited(&mut self, xs: Vec<u64>) -> bool {
+    pub fn set_data_delimited(&mut self, xs: Vec<u64>) -> Result<(), KeyLengthError> {
         self.set_data_delimited_inner(xs)
     }
 
@@ -3004,7 +3015,7 @@ impl<A, D> Core3_2<A, D> {
     }
 
     /// Set data layout to be a mix of datatypes
-    pub fn set_data_mixed(&mut self, xs: Vec<MixedColumnSetter>) -> bool {
+    pub fn set_data_mixed(&mut self, xs: Vec<MixedColumnSetter>) -> Result<(), KeyLengthError> {
         // Figure out what $DATATYPE (the default) should be; count frequencies
         // of each type, and if ASCII is given at all, this must be $DATATYPE
         // since it can't be set to $PnDATATYPE; otherwise, use whatever is
@@ -3049,81 +3060,73 @@ impl<A, D> Core3_2<A, D> {
                     }
                 }
             };
-            let res = self
-                .measurements
-                .alter_values_zip(
-                    xs,
-                    |x, y| {
-                        let (b, r, pndt) = go(y);
-                        let m = x.value;
-                        m.common.width = b;
-                        m.common.range = r;
-                        m.specific.datatype = pndt.into();
-                    },
-                    |x, y| {
-                        let (b, r, pndt) = go(y);
-                        let t = x.value;
-                        t.common.width = b;
-                        t.common.range = r;
-                        t.specific.datatype = pndt.into();
-                    },
-                )
-                .is_some();
-            if res {
-                self.metadata.datatype = dt;
-            }
-            return res;
+            self.measurements.alter_values_zip(
+                xs,
+                |x, y| {
+                    let (b, r, pndt) = go(y);
+                    let m = x.value;
+                    m.common.width = b;
+                    m.common.range = r;
+                    m.specific.datatype = pndt.into();
+                },
+                |x, y| {
+                    let (b, r, pndt) = go(y);
+                    let t = x.value;
+                    t.common.width = b;
+                    t.common.range = r;
+                    t.specific.datatype = pndt.into();
+                },
+            )?;
+            self.metadata.datatype = dt;
+            Ok(())
+        } else {
+            // this will only happen if the input is empty
+            Err(KeyLengthError::empty(self.par().0))
         }
-        // this will only happen if the input is empty
-        false
     }
 
     /// Set data layout to be integer for all measurements
-    pub fn set_data_integer(&mut self, xs: Vec<NumRangeSetter>) -> bool {
-        let res = self.set_data_integer_inner(xs);
-        if res {
-            self.unset_meas_datatypes();
-        }
-        res
+    pub fn set_data_integer(&mut self, xs: Vec<NumRangeSetter>) -> Result<(), KeyLengthError> {
+        self.set_data_integer_inner(xs)?;
+        self.unset_meas_datatypes();
+        Ok(())
     }
 
     /// Set data layout to be 32-bit float for all measurements.
-    pub fn set_data_f32(&mut self, rs: Vec<f32>) -> Result<bool, NanRange> {
+    pub fn set_data_f32(&mut self, rs: Vec<f32>) -> Result<(), SetFloatError> {
         let (pass, _): (Vec<_>, Vec<_>) = rs
             .into_iter()
             .map(|r| Range::try_from(f64::from(r)))
             .partition_result();
         if pass.is_empty() {
-            return Err(NanRange);
+            return Err(SetFloatError::Nan(NanRange));
         }
-        Ok(self.set_to_floating_point_3_2(false, pass))
+        self.set_to_floating_point_3_2(false, pass)
+            .map_err(SetFloatError::Length)
     }
 
     /// Set data layout to be 64-bit float for all measurements.
-    pub fn set_data_f64(&mut self, rs: Vec<f64>) -> Result<bool, NanRange> {
+    pub fn set_data_f64(&mut self, rs: Vec<f64>) -> Result<(), SetFloatError> {
         let (pass, _): (Vec<_>, Vec<_>) = rs.into_iter().map(Range::try_from).partition_result();
         if pass.is_empty() {
-            return Err(NanRange);
+            return Err(SetFloatError::Nan(NanRange));
         }
-        Ok(self.set_to_floating_point_3_2(true, pass))
+        self.set_to_floating_point_3_2(true, pass)
+            .map_err(SetFloatError::Length)
     }
 
     /// Set data layout to be fixed-ASCII for all measurements
-    pub fn set_data_ascii(&mut self, xs: Vec<AsciiRangeSetter>) -> bool {
-        let res = self.set_data_ascii_inner(xs);
-        if res {
-            self.unset_meas_datatypes();
-        }
-        res
+    pub fn set_data_ascii(&mut self, xs: Vec<AsciiRangeSetter>) -> Result<(), KeyLengthError> {
+        self.set_data_ascii_inner(xs)?;
+        self.unset_meas_datatypes();
+        Ok(())
     }
 
     /// Set data layout to be ASCII-delimited for all measurements
-    pub fn set_data_delimited(&mut self, xs: Vec<u64>) -> bool {
-        let res = self.set_data_delimited_inner(xs);
-        if res {
-            self.unset_meas_datatypes();
-        }
-        res
+    pub fn set_data_delimited(&mut self, xs: Vec<u64>) -> Result<(), KeyLengthError> {
+        self.set_data_delimited_inner(xs)?;
+        self.unset_meas_datatypes();
+        Ok(())
     }
 
     pub fn get_big_endian(&self) -> bool {
@@ -3208,12 +3211,14 @@ impl<A, D> Core3_2<A, D> {
     }
 
     // TODO check that floating point types are linear
-    fn set_to_floating_point_3_2(&mut self, is_double: bool, rs: Vec<Range>) -> bool {
-        let res = self.set_to_floating_point(is_double, rs);
-        if res {
-            self.unset_meas_datatypes();
-        }
-        res
+    fn set_to_floating_point_3_2(
+        &mut self,
+        is_double: bool,
+        rs: Vec<Range>,
+    ) -> Result<(), KeyLengthError> {
+        self.set_to_floating_point(is_double, rs)?;
+        self.unset_meas_datatypes();
+        Ok(())
     }
 }
 
@@ -4092,86 +4097,120 @@ impl From<InnerTemporal3_2> for InnerOptical3_2 {
     }
 }
 
-impl TryFrom<InnerOptical2_0> for InnerTemporal2_0 {
-    type Error = TryFromTemporalError<InnerOptical2_0>;
-    fn try_from(value: InnerOptical2_0) -> Result<Self, Self::Error> {
-        if value.scale.0.as_ref().is_some_and(|s| *s == Scale::Linear) {
-            Ok(Self)
-        } else {
-            Err(TryFromTemporalError {
-                error: NonEmpty {
-                    head: OpticalToTemporalError::NonLinear,
-                    tail: vec![],
-                },
-                value,
-            })
+impl From<InnerOptical2_0> for InnerTemporal2_0 {
+    fn from(_: InnerOptical2_0) -> Self {
+        Self
+    }
+}
+
+impl From<InnerOptical3_0> for InnerTemporal3_0 {
+    fn from(_: InnerOptical3_0) -> Self {
+        Self {
+            timestep: Timestep::default(),
         }
     }
 }
 
-impl TryFrom<InnerOptical3_0> for InnerTemporal3_0 {
-    type Error = TryFromTemporalError<InnerOptical3_0>;
-    fn try_from(value: InnerOptical3_0) -> Result<Self, Self::Error> {
-        let mut es = vec![];
-        if value.scale != Scale::Linear {
-            es.push(OpticalToTemporalError::NonLinear);
-        }
-        if value.gain.0.is_some() {
-            es.push(OpticalToTemporalError::HasGain);
-        }
-        NonEmpty::from_vec(es).map_or(
-            Ok(Self {
-                timestep: Timestep::default(),
-            }),
-            |error| Err(TryFromTemporalError { error, value }),
-        )
-    }
-}
-
-impl TryFrom<InnerOptical3_1> for InnerTemporal3_1 {
-    type Error = TryFromTemporalError<InnerOptical3_1>;
-    fn try_from(value: InnerOptical3_1) -> Result<Self, Self::Error> {
-        let mut es = vec![];
-        if value.scale != Scale::Linear {
-            es.push(OpticalToTemporalError::NonLinear);
-        }
-        if value.gain.0.is_some() {
-            es.push(OpticalToTemporalError::HasGain);
-        }
-        match NonEmpty::from_vec(es) {
-            None => Ok(Self {
-                timestep: Timestep::default(),
-                display: value.display,
-            }),
-            Some(error) => Err(TryFromTemporalError { error, value }),
+impl From<InnerOptical3_1> for InnerTemporal3_1 {
+    fn from(value: InnerOptical3_1) -> Self {
+        Self {
+            timestep: Timestep::default(),
+            display: value.display,
         }
     }
 }
 
-impl TryFrom<InnerOptical3_2> for InnerTemporal3_2 {
-    type Error = TryFromTemporalError<InnerOptical3_2>;
-    fn try_from(value: InnerOptical3_2) -> Result<Self, Self::Error> {
-        let mut es = vec![];
-        if value.scale != Scale::Linear {
-            es.push(OpticalToTemporalError::NonLinear);
-        }
-        if value.gain.0.is_some() {
-            es.push(OpticalToTemporalError::HasGain);
-        }
-        if value.measurement_type.0.is_some() {
-            es.push(OpticalToTemporalError::NotTimeType);
-        }
-        match NonEmpty::from_vec(es) {
-            None => Ok(Self {
-                timestep: Timestep::default(),
-                display: value.display,
-                datatype: value.datatype,
-                measurement_type: None.into(),
-            }),
-            Some(error) => Err(TryFromTemporalError { error, value }),
+impl From<InnerOptical3_2> for InnerTemporal3_2 {
+    fn from(value: InnerOptical3_2) -> Self {
+        Self {
+            timestep: Timestep::default(),
+            display: value.display,
+            datatype: value.datatype,
+            measurement_type: None.into(),
         }
     }
 }
+
+// impl TryFrom<InnerOptical2_0> for InnerTemporal2_0 {
+//     type Error = TryFromTemporalError<InnerOptical2_0>;
+//     fn try_from(value: InnerOptical2_0) -> Result<Self, Self::Error> {
+//         if value.scale.0.as_ref().is_some_and(|s| *s == Scale::Linear) {
+//             Ok(Self)
+//         } else {
+//             Err(TryFromTemporalError {
+//                 error: NonEmpty {
+//                     head: OpticalToTemporalError::NonLinear,
+//                     tail: vec![],
+//                 },
+//                 value,
+//             })
+//         }
+//     }
+// }
+
+// impl TryFrom<InnerOptical3_0> for InnerTemporal3_0 {
+//     type Error = TryFromTemporalError<InnerOptical3_0>;
+//     fn try_from(value: InnerOptical3_0) -> Result<Self, Self::Error> {
+//         let mut es = vec![];
+//         if value.scale != Scale::Linear {
+//             es.push(OpticalToTemporalError::NonLinear);
+//         }
+//         if value.gain.0.is_some() {
+//             es.push(OpticalToTemporalError::HasGain);
+//         }
+//         NonEmpty::from_vec(es).map_or(
+//             Ok(Self {
+//                 timestep: Timestep::default(),
+//             }),
+//             |error| Err(TryFromTemporalError { error, value }),
+//         )
+//     }
+// }
+
+// impl TryFrom<InnerOptical3_1> for InnerTemporal3_1 {
+//     type Error = TryFromTemporalError<InnerOptical3_1>;
+//     fn try_from(value: InnerOptical3_1) -> Result<Self, Self::Error> {
+//         let mut es = vec![];
+//         if value.scale != Scale::Linear {
+//             es.push(OpticalToTemporalError::NonLinear);
+//         }
+//         if value.gain.0.is_some() {
+//             es.push(OpticalToTemporalError::HasGain);
+//         }
+//         match NonEmpty::from_vec(es) {
+//             None => Ok(Self {
+//                 timestep: Timestep::default(),
+//                 display: value.display,
+//             }),
+//             Some(error) => Err(TryFromTemporalError { error, value }),
+//         }
+//     }
+// }
+
+// impl TryFrom<InnerOptical3_2> for InnerTemporal3_2 {
+//     type Error = TryFromTemporalError<InnerOptical3_2>;
+//     fn try_from(value: InnerOptical3_2) -> Result<Self, Self::Error> {
+//         let mut es = vec![];
+//         if value.scale != Scale::Linear {
+//             es.push(OpticalToTemporalError::NonLinear);
+//         }
+//         if value.gain.0.is_some() {
+//             es.push(OpticalToTemporalError::HasGain);
+//         }
+//         if value.measurement_type.0.is_some() {
+//             es.push(OpticalToTemporalError::NotTimeType);
+//         }
+//         match NonEmpty::from_vec(es) {
+//             None => Ok(Self {
+//                 timestep: Timestep::default(),
+//                 display: value.display,
+//                 datatype: value.datatype,
+//                 measurement_type: None.into(),
+//             }),
+//             Some(error) => Err(TryFromTemporalError { error, value }),
+//         }
+//     }
+// }
 
 impl Versioned for InnerOptical2_0 {
     fn fcs_version() -> Version {
@@ -5254,5 +5293,19 @@ impl<X> AsRef<CommonMeasurement> for Optical<X> {
 impl<X> AsRef<CommonMeasurement> for Temporal<X> {
     fn as_ref(&self) -> &CommonMeasurement {
         &self.common
+    }
+}
+
+pub enum SetFloatError {
+    Nan(NanRange),
+    Length(KeyLengthError),
+}
+
+impl fmt::Display for SetFloatError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            SetFloatError::Nan(r) => r.fmt(f),
+            SetFloatError::Length(x) => x.fmt(f),
+        }
     }
 }

@@ -9,7 +9,7 @@ use std::str::FromStr;
 /// The value for the $PnN key (all versions).
 ///
 /// This cannot contain commas.
-#[derive(Clone, Serialize, Eq, PartialEq, Hash)]
+#[derive(Clone, Serialize, Eq, PartialEq, Hash, Debug)]
 pub struct Shortname(String);
 
 /// A prefix that can be made into a shortname by appending an index

@@ -17,7 +17,6 @@ use fireflow_core::validated::shortname::*;
 use fireflow_core::validated::textdelim::TEXTDelim;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
-use itertools::Itertools;
 use nonempty::NonEmpty;
 use numpy::{PyArray2, PyReadonlyArray2, ToPyArray};
 use polars::prelude::*;
@@ -912,9 +911,10 @@ macro_rules! meas_get_set {
                 }
 
                 #[setter]
-                fn $set(&mut self, xs: Vec<Option<$t>>) -> bool {
+                fn $set(&mut self, xs: Vec<Option<$t>>) -> PyResult<()> {
                     self.0
                         .$set(xs.into_iter().map(|x| x.map(|y| y.into())).collect())
+                        .map_err(|e| PyreflowException::new_err(e.to_string()))
                 }
             }
         )*
@@ -1129,9 +1129,10 @@ impl PyCoreTEXT3_2 {
         self.0.clear_unstained_centers()
     }
 
-    fn set_data_mixed(&mut self, cs: Vec<PyMixedColumnSetter>) -> bool {
+    fn set_data_mixed(&mut self, cs: Vec<PyMixedColumnSetter>) -> PyResult<()> {
         self.0
             .set_data_mixed(cs.into_iter().map(|x| x.into()).collect())
+            .map_err(|e| PyreflowException::new_err(e.to_string()))
     }
 }
 
@@ -1201,14 +1202,22 @@ macro_rules! common_methods {
             fn insert_meas_nonstandard(
                 &mut self,
                 xs: Vec<(PyNonStdKey, String)>,
-            ) -> Option<Vec<Option<String>>> {
+            ) -> PyResult<Vec<Option<String>>> {
                 let ys = xs.into_iter().map(|(k, v)| (k.into(), v)).collect();
-                self.0.insert_meas_nonstandard(ys)
+                self.0
+                    .insert_meas_nonstandard(ys)
+                    .map_err(|e| PyreflowException::new_err(e.to_string()))
+
             }
 
-            fn remove_meas_nonstandard(&mut self, ks: Vec<PyNonStdKey>) -> Option<Vec<Option<String>>> {
+            fn remove_meas_nonstandard(
+                &mut self,
+                ks: Vec<PyNonStdKey>
+            ) -> PyResult<Vec<Option<String>>> {
                 let ys: Vec<_> = ks.into_iter().map(|k| k.into()).collect();
-                self.0.remove_meas_nonstandard(ys.iter().collect())
+                self.0
+                    .remove_meas_nonstandard(ys.iter().collect())
+                    .map_err(|e| PyreflowException::new_err(e.to_string()))
             }
 
             fn get_meas_nonstandard(&mut self, ks: Vec<PyNonStdKey>) -> Option<Vec<Option<String>>> {
@@ -1281,13 +1290,13 @@ macro_rules! common_methods {
                 self.0.clear_trigger()
             }
 
-            fn set_temporal(&mut self, n: PyShortname) -> PyResult<()> {
-                self.0.set_temporal(&n.into()).map_err(|es| {
-                    let f = es.into_iter().map(|e| e.to_string()).join(", ");
-                    let s = format!("Error(s) when converting optical to temporal: {f}");
-                    PyreflowException::new_err(s)
-                })
-            }
+            // fn set_temporal(&mut self, n: PyShortname) -> PyResult<()> {
+            //     self.0.set_temporal(&n.into()).map_err(|es| {
+            //         let f = es.into_iter().map(|e| e.to_string()).join(", ");
+            //         let s = format!("Error(s) when converting optical to temporal: {f}");
+            //         PyreflowException::new_err(s)
+            //     })
+            // }
 
             fn unset_temporal(&mut self) -> bool {
                 self.0.unset_temporal()
@@ -1317,8 +1326,10 @@ macro_rules! common_methods {
             }
 
             #[setter]
-            fn set_longnames(&mut self, ns: Vec<Option<String>>) -> bool {
-                self.0.set_longnames(ns)
+            fn set_longnames(&mut self, ns: Vec<Option<String>>) -> PyResult<()> {
+                self.0
+                    .set_longnames(ns)
+                    .map_err(|e| PyreflowException::new_err(e.to_string()))
             }
 
             #[getter]
@@ -1347,24 +1358,28 @@ macro_rules! common_methods {
                     .map(|_| ())
             }
 
-            fn set_data_f32(&mut self, ranges: Vec<f32>) -> PyResult<bool> {
-                let msg = "float must not be NaN for range".to_string();
-                let err = PyreflowException::new_err(msg);
-                self.0.set_data_f32(ranges).map_err(|_| err)
+            fn set_data_f32(&mut self, ranges: Vec<f32>) -> PyResult<()> {
+                self.0
+                    .set_data_f32(ranges)
+                    .map_err(|e| PyreflowException::new_err(e.to_string()))
             }
 
-            fn set_data_f64(&mut self, ranges: Vec<f64>) -> PyResult<bool> {
-                let msg = "float must not be NaN for range".to_string();
-                let err = PyreflowException::new_err(msg);
-                self.0.set_data_f64(ranges).map_err(|_| err)
+            fn set_data_f64(&mut self, ranges: Vec<f64>) -> PyResult<()> {
+                self.0
+                    .set_data_f64(ranges)
+                    .map_err(|e| PyreflowException::new_err(e.to_string()))
             }
 
-            fn set_data_ascii(&mut self, rs: Vec<PyAsciiRangeSetter>) -> bool {
-                self.0.set_data_ascii(rs.into_iter().map(|x| x.into()).collect())
+            fn set_data_ascii(&mut self, rs: Vec<PyAsciiRangeSetter>) -> PyResult<()> {
+                self.0
+                    .set_data_ascii(rs.into_iter().map(|x| x.into()).collect())
+                    .map_err(|e| PyreflowException::new_err(e.to_string()))
             }
 
-            fn set_data_delimited(&mut self, ranges: Vec<u64>) -> bool {
-                self.0.set_data_delimited(ranges)
+            fn set_data_delimited(&mut self, ranges: Vec<u64>) -> PyResult<()> {
+                self.0
+                    .set_data_delimited(ranges)
+                    .map_err(|e| PyreflowException::new_err(e.to_string()))
             }
 
             // TODO add measurements_named_vec
@@ -1412,27 +1427,35 @@ macro_rules! common_meas_get_set {
                     i: usize,
                     py: Python<'py>
                 ) -> PyResult<Bound<'py, PyAny>> {
-                    if let Some(m) = self.0.measurements_named_vec().get(i.into()) {
-                        m.map_or_else(
-                            |(_, l)| $timetype::from(l.clone()).into_bound_py_any(py),
-                            |(_, r)| $meastype::from(r.clone()).into_bound_py_any(py)
-                        )
-                    } else {
-                        // TODO ...this sounds familiar, is it ok to reuse
-                        // pythons IndexError for things that aren't really
-                        // lists?
-                        let msg = "index out of range".to_string();
-                        Err(PyreflowException::new_err(msg))
-                    }
+                    // TODO this is basically going to emit an "index out of
+                    // bounds" error, which python already has
+                    let m = self.0
+                        .measurements_named_vec().get(i.into())
+                        .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+                    m.map_or_else(
+                        |(_, l)| $timetype::from(l.clone()).into_bound_py_any(py),
+                        |(_, r)| $meastype::from(r.clone()).into_bound_py_any(py)
+                    )
                 }
 
-                // fn replace_measurement_at<'py>(
-                //     &mut self,
-                //     i: usize,
-                //     m: Bound<'py, PyAny>,
-                //     py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-                //     self.measurements
-                // }
+                fn replace_measurement_at<'py>(
+                    &mut self,
+                    i: usize,
+                    m: $meastype,
+                    py: Python<'py>
+                ) -> PyResult<Bound<'py, PyAny>> {
+                    let r = self.0
+                        .replace_measurement_at(i.into(), m.into())
+                        .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+                    r.map_or_else(
+                        |l| $timetype::from(l).into_bound_py_any(py),
+                        |r| $meastype::from(r).into_bound_py_any(py),
+                    )
+                }
+
+                fn rename_temporal(&mut self, name: PyShortname) -> Option<PyShortname> {
+                    self.0.rename_temporal(name.into()).map(|n| n.into())
+                }
 
                 #[getter]
                 fn measurements<'py>(&self, py: Python<'py>) -> PyResult<Vec<Bound<'py, PyAny>>> {
@@ -1603,22 +1626,20 @@ macro_rules! coretext2_0_meas_methods {
                     &mut self,
                     index: usize,
                     py: Python<'py>,
-                ) -> PyResult<Option<(Option<PyShortname>, Bound<'py, PyAny>)>> {
-                    self.0
+                ) -> PyResult<(Option<PyShortname>, Bound<'py, PyAny>)> {
+                    let r = self.0
                         .remove_measurement_by_index(index.into())
-                        .map(|r| {
-                            r.map_or_else(
-                                |p| {
-                                    let a = $timetype::from(p.value).into_bound_py_any(py)?;
-                                    Ok((Some(p.key.into()), a))
-                                },
-                                |p| {
-                                    let a = $meastype::from(p.value).into_bound_py_any(py)?;
-                                    Ok((p.key.0.map(|n| n.into()), a))
-                                },
-                            )
-                        })
-                        .transpose()
+                        .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+                    r.map_or_else(
+                        |p| {
+                            let a = $timetype::from(p.value).into_bound_py_any(py)?;
+                            Ok((Some(p.key.into()), a))
+                        },
+                        |p| {
+                            let a = $meastype::from(p.value).into_bound_py_any(py)?;
+                            Ok((p.key.0.map(|n| n.into()), a))
+                        },
+                    )
                 }
 
                 #[pyo3(signature = (m, n=None))]
@@ -1664,22 +1685,20 @@ macro_rules! coretext3_1_meas_methods {
                     &mut self,
                     index: usize,
                     py: Python<'py>,
-                ) -> PyResult<Option<(PyShortname, Bound<'py, PyAny>)>> {
-                    self.0
+                ) -> PyResult<(PyShortname, Bound<'py, PyAny>)> {
+                    let r = self.0
                         .remove_measurement_by_index(index.into())
-                        .map(|r| {
-                            r.map_or_else(
-                                |p| {
-                                    let a = $timetype::from(p.value).into_bound_py_any(py)?;
-                                    Ok((p.key.into(), a))
-                                },
-                                |p| {
-                                    let a = $meastype::from(p.value).into_bound_py_any(py)?;
-                                    Ok((p.key.0.into(), a))
-                                },
-                            )
-                        })
-                        .transpose()
+                        .map_err(|e| PyreflowException::new_err(e.to_string()))?;
+                    r.map_or_else(
+                        |p| {
+                            let a = $timetype::from(p.value).into_bound_py_any(py)?;
+                            Ok((p.key.into(), a))
+                        },
+                        |p| {
+                            let a = $meastype::from(p.value).into_bound_py_any(py)?;
+                            Ok((p.key.0.into(), a))
+                        },
+                    )
                 }
 
                 fn push_optical(&mut self, m: $meastype, n: PyShortname) -> PyResult<()> {
@@ -1888,8 +1907,10 @@ macro_rules! integer_2_0_methods {
         $(
             #[pymethods]
             impl $pytype {
-                fn set_data_integer(&mut self, rs: Vec<u64>, byteord: PyByteOrd) -> bool {
-                    self.0.set_data_integer(rs, byteord.into())
+                fn set_data_integer(&mut self, rs: Vec<u64>, byteord: PyByteOrd) -> PyResult<()> {
+                    self.0
+                        .set_data_integer(rs, byteord.into())
+                        .map_err(|e| PyreflowException::new_err(e.to_string()))
                 }
             }
         )*
@@ -1909,9 +1930,10 @@ macro_rules! integer_methods {
         $(
             #[pymethods]
             impl $pytype {
-                fn set_data_integer(&mut self, rs: Vec<PyNumRangeSetter>) -> bool {
+                fn set_data_integer(&mut self, rs: Vec<PyNumRangeSetter>) -> PyResult<()> {
                     self.0
                         .set_data_integer(rs.into_iter().map(|x| x.into()).collect())
+                        .map_err(|e| PyreflowException::new_err(e.to_string()))
                 }
             }
         )*
@@ -1973,8 +1995,10 @@ macro_rules! scales_methods {
                 }
 
                 #[setter]
-                fn set_scales(&mut self, xs: Vec<PyScale>) -> bool {
-                    self.0.set_scales(xs.into_iter().map(|x| x.into()).collect())
+                fn set_scales(&mut self, xs: Vec<PyScale>) -> PyResult<()> {
+                    self.0
+                        .set_scales(xs.into_iter().map(|x| x.into()).collect())
+                        .map_err(|e| PyreflowException::new_err(e.to_string()))
                 }
             }
         )*
@@ -2042,9 +2066,10 @@ macro_rules! wavelength_methods {
                 }
 
                 #[setter]
-                fn set_wavelengths(&mut self, xs: Vec<Option<u32>>) -> bool {
+                fn set_wavelengths(&mut self, xs: Vec<Option<u32>>) -> PyResult<()> {
                     self.0
                         .set_wavelengths(xs.into_iter().map(|x| x.map(|y| y.into())).collect())
+                        .map_err(|e| PyreflowException::new_err(e.to_string()))
                 }
             }
         )*
@@ -2079,7 +2104,7 @@ macro_rules! wavelengths_methods {
                 }
 
                 #[setter]
-                fn set_wavelengths(&mut self, xs: Vec<Vec<u32>>) -> bool {
+                fn set_wavelengths(&mut self, xs: Vec<Vec<u32>>) -> PyResult<()> {
                     // TODO throw error here if not empty
                     self.0
                         .set_wavelengths(
@@ -2087,6 +2112,7 @@ macro_rules! wavelengths_methods {
                                 .map(|x| NonEmpty::from_vec(x).map(api::Wavelengths))
                                 .collect(),
                         )
+                        .map_err(|e| PyreflowException::new_err(e.to_string()))
                 }
             }
         )*

@@ -134,6 +134,7 @@ pub type EitherPair<K, V, U> =
 
 pub type RawInput<K, U, V> = Vec<Either<K, V, U>>;
 
+// TODO make shortnames inside borrowed
 pub type NameMapping = HashMap<Shortname, Shortname>;
 
 impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
@@ -756,12 +757,15 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// Rename an element at index.
     ///
     /// If index points to the center element and the wrapped name contains
-    /// nothing, the default name will be assigned.
+    /// nothing, the default name will be assigned. Return error if index is
+    /// out of bounds or name is not unique. Return pair of old and new name
+    /// on success.
     pub fn rename(
         &mut self,
         index: MeasIdx,
         key: K::Wrapper<Shortname>,
-    ) -> Result<K::Wrapper<Shortname>, DistinctError> {
+        // TODO return a pair of old/new here to help rename stuff later
+    ) -> Result<(Shortname, Shortname), DistinctError> {
         let k = self
             .as_prefix()
             .as_opt_or_indexed::<K>(K::as_ref(&key), index);
@@ -776,18 +780,21 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         {
             Err(DistinctError::Membership(k))
         } else {
-            let new = match self {
+            let old = match self {
                 NamedVec::Split(s, _) => {
                     let ln = s.left.len();
                     match i.cmp(&ln) {
                         Less => mem::replace(&mut s.left[i].key, key),
-                        Equal => K::into_wrapped(mem::replace(&mut s.center.key, k)),
+                        Equal => K::into_wrapped(mem::replace(&mut s.center.key, k.clone())),
                         Greater => mem::replace(&mut s.right[i - ln - 1].key, key),
                     }
                 }
                 NamedVec::Unsplit(u) => mem::replace(&mut u.members[i].key, key),
             };
-            Ok(new)
+            let old_k = self
+                .as_prefix()
+                .as_opt_or_indexed::<K>(K::as_ref(&old), index);
+            Ok((old_k, k))
         }
     }
 

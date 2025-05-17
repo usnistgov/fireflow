@@ -1659,6 +1659,57 @@ where
         &self.measurements
     }
 
+    /// Replace optical measurement at index.
+    ///
+    /// If index points to a temporal measurement, replace it with the given
+    /// optical measurement. In both cases the name is kept. Return the
+    /// measurement that was replaced if the index was in bounds.
+    #[allow(clippy::type_complexity)]
+    pub fn replace_measurement_at(
+        &mut self,
+        index: MeasIdx,
+        m: Optical<M::P>,
+    ) -> Option<Result<Optical<M::P>, Temporal<M::T>>> {
+        self.measurements.replace_at(index, m)
+    }
+
+    /// Replace optical measurement with name.
+    ///
+    /// If name refers to a temporal measurement, replace it with the given
+    /// optical measurement. Return the measurement that was replaced if the
+    /// index was in bounds.
+    #[allow(clippy::type_complexity)]
+    pub fn replace_measurement_named(
+        &mut self,
+        name: &Shortname,
+        m: Optical<M::P>,
+    ) -> Option<Result<Optical<M::P>, Temporal<M::T>>> {
+        self.measurements.replace_named(name, m)
+    }
+
+    /// Rename a measurement
+    ///
+    /// If index points to the center element and the wrapped name contains
+    /// nothing, the default name will be assigned. Return error if index is
+    /// out of bounds or name is not unique. Return pair of old and new name
+    /// on success.
+    pub fn rename_measurement(
+        &mut self,
+        index: MeasIdx,
+        key: <M::N as MightHave>::Wrapper<Shortname>,
+    ) -> Result<(Shortname, Shortname), DistinctError> {
+        self.measurements.rename(index, key).map(|(old, new)| {
+            let mapping = [(old.clone(), new.clone())].into_iter().collect();
+            self.metadata.reassign_all(&mapping);
+            (old, new)
+        })
+    }
+
+    /// Rename time measurement if it exists
+    pub fn rename_temporal(&mut self, name: Shortname) -> Option<Shortname> {
+        self.measurements.rename_center(name)
+    }
+
     /// Apply functions to measurement values
     pub fn alter_measurements<F, G, R>(&mut self, f: F, g: G) -> Vec<R>
     where

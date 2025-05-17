@@ -1426,6 +1426,14 @@ macro_rules! common_meas_get_set {
                     }
                 }
 
+                // fn replace_measurement_at<'py>(
+                //     &mut self,
+                //     i: usize,
+                //     m: Bound<'py, PyAny>,
+                //     py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+                //     self.measurements
+                // }
+
                 #[getter]
                 fn measurements<'py>(&self, py: Python<'py>) -> PyResult<Vec<Bound<'py, PyAny>>> {
                     // This might seem inefficient since we are cloning

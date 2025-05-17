@@ -1290,13 +1290,11 @@ macro_rules! common_methods {
                 self.0.clear_trigger()
             }
 
-            // fn set_temporal(&mut self, n: PyShortname) -> PyResult<()> {
-            //     self.0.set_temporal(&n.into()).map_err(|es| {
-            //         let f = es.into_iter().map(|e| e.to_string()).join(", ");
-            //         let s = format!("Error(s) when converting optical to temporal: {f}");
-            //         PyreflowException::new_err(s)
-            //     })
-            // }
+            fn set_temporal(&mut self, n: PyShortname) -> PyResult<bool> {
+                self.0
+                    .set_temporal(&n.into())
+                    .map_err(|e| PyreflowException::new_err(e.to_string()))
+            }
 
             fn unset_temporal(&mut self) -> bool {
                 self.0.unset_temporal()

@@ -807,6 +807,8 @@ pub trait VersionedOptical: Sized + Versioned {
     fn opt_suffixes_inner(&self, n: MeasIdx) -> RawOptTriples;
 
     fn datatype(&self) -> Option<NumType>;
+
+    fn can_convert_temporal(&self) -> Result<(), OpticalToTemporalError>;
 }
 
 pub(crate) trait LookupOptical: Sized + VersionedOptical {
@@ -1257,10 +1259,6 @@ impl OpticalConvertError {
     }
 }
 
-type TryFromTemporalError<T> = TryFromErrorReset<OpticalToTemporalErrors, T>;
-
-pub(crate) type OpticalToTemporalErrors = NonEmpty<OpticalToTemporalError>;
-
 pub enum OpticalToTemporalError {
     NonLinear,
     HasGain,
@@ -1299,24 +1297,14 @@ impl fmt::Display for MetaConvertError {
     }
 }
 
-impl<M, T> TryFrom<Optical<M>> for Temporal<T>
+impl<M, T> From<Optical<M>> for Temporal<T>
 where
-    T: TryFrom<M, Error = TryFromTemporalError<M>>,
+    T: From<M>,
 {
-    type Error = TryFromErrorReset<OpticalToTemporalErrors, Optical<M>>;
-    fn try_from(value: Optical<M>) -> Result<Self, Self::Error> {
-        match value.specific.try_into() {
-            Ok(specific) => Ok(Self {
-                common: value.common,
-                specific,
-            }),
-            Err(old) => Err(TryFromErrorReset {
-                error: old.error,
-                value: Optical {
-                    specific: old.value,
-                    ..value
-                },
-            }),
+    fn from(value: Optical<M>) -> Self {
+        Self {
+            common: value.common,
+            specific: value.specific.into(),
         }
     }
 }
@@ -1565,17 +1553,20 @@ where
         Ok(mapping)
     }
 
+    // TODO make indexed version of this
     /// Set the measurement matching given name to be the time measurement.
     ///
     /// Return error if time measurement already exists or if measurement cannot
     /// be converted to a time measurement.
-    pub fn set_temporal(&mut self, n: &Shortname) -> bool
+    pub fn set_temporal(&mut self, n: &Shortname) -> Result<bool, OpticalToTemporalError>
     where
         Optical<M::P>: From<Temporal<M::T>>,
         Temporal<M::T>: From<Optical<M::P>>,
     {
-        // TODO check if time channel can be converted here, and throw errors
-        // if certain keywords are set that would result in loss
+        // TODO make this toggleable
+        if let Some((_, Ok(o))) = self.measurements_named_vec().get_name(n) {
+            o.specific.can_convert_temporal()?;
+        }
 
         // This is tricky because $TIMESTEP will be filled with a dummy value
         // when a Temporal is converted from an Optical. This will get annoying
@@ -1587,16 +1578,15 @@ where
         // trait-level functions for this and wrap in Option.
         let ms = &mut self.measurements;
         let current_timestep = ms.as_center().and_then(|c| c.value.specific.timestep());
-        if ms.set_center_by_name(n) {
+        let res = ms.set_center_by_name(n);
+        if res {
             // Technically this is a bit more work than necessary because
             // we should know by this point if the center exists. Oh well..
             if let (Some(ts), Some(c)) = (current_timestep, ms.as_center_mut()) {
                 M::T::set_timestep(&mut c.value.specific, ts);
             }
-            true
-        } else {
-            false
         }
+        Ok(res)
     }
 
     /// Convert the current time measurement to an optical measurement.
@@ -4363,6 +4353,14 @@ impl VersionedOptical for InnerOptical2_0 {
         .into_iter()
         .collect()
     }
+
+    fn can_convert_temporal(&self) -> Result<(), OpticalToTemporalError> {
+        if !self.scale.as_ref_opt().is_some_and(|s| *s == Scale::Linear) {
+            Err(OpticalToTemporalError::NonLinear)
+        } else {
+            Ok(())
+        }
+    }
 }
 
 impl VersionedOptical for InnerOptical3_0 {
@@ -4381,6 +4379,16 @@ impl VersionedOptical for InnerOptical3_0 {
         ]
         .into_iter()
         .collect()
+    }
+
+    fn can_convert_temporal(&self) -> Result<(), OpticalToTemporalError> {
+        if self.scale != Scale::Linear {
+            Err(OpticalToTemporalError::NonLinear)
+        } else if self.gain.0.is_some() {
+            Err(OpticalToTemporalError::HasGain)
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -4402,6 +4410,16 @@ impl VersionedOptical for InnerOptical3_1 {
         ]
         .into_iter()
         .collect()
+    }
+
+    fn can_convert_temporal(&self) -> Result<(), OpticalToTemporalError> {
+        if self.scale != Scale::Linear {
+            Err(OpticalToTemporalError::NonLinear)
+        } else if self.gain.0.is_some() {
+            Err(OpticalToTemporalError::HasGain)
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -4429,6 +4447,18 @@ impl VersionedOptical for InnerOptical3_2 {
         ]
         .into_iter()
         .collect()
+    }
+
+    fn can_convert_temporal(&self) -> Result<(), OpticalToTemporalError> {
+        if self.scale != Scale::Linear {
+            Err(OpticalToTemporalError::NonLinear)
+        } else if self.gain.0.is_some() {
+            Err(OpticalToTemporalError::HasGain)
+        } else if self.measurement_type.0.is_some() {
+            Err(OpticalToTemporalError::NotTimeType)
+        } else {
+            Ok(())
+        }
     }
 }
 

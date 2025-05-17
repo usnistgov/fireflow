@@ -10,6 +10,8 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 use std::mem;
 
+use Ordering::*;
+
 /// A list of potentially named values with an optional "center value".
 ///
 /// Each element is a pair consisting of a key and a value. The key is a
@@ -556,9 +558,9 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
             NamedVec::Split(s, _) => {
                 let left_len = s.left.len();
                 match i.cmp(&left_len) {
-                    Ordering::Less => Ok(s.left.get(i)).transpose(),
-                    Ordering::Equal => Some(Err(&s.center)),
-                    Ordering::Greater => Ok(s.left.get(i - left_len - 1)).transpose(),
+                    Less => Ok(s.left.get(i)).transpose(),
+                    Equal => Some(Err(&s.center)),
+                    Greater => Ok(s.left.get(i - left_len - 1)).transpose(),
                 }
             }
             NamedVec::Unsplit(u) => Ok(u.members.get(i)).transpose(),
@@ -580,9 +582,9 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
             NamedVec::Split(s, _) => {
                 let left_len = s.left.len();
                 match i.cmp(&left_len) {
-                    Ordering::Less => Ok(s.left.get_mut(i)).transpose(),
-                    Ordering::Equal => Some(Err(&mut s.center)),
-                    Ordering::Greater => Ok(s.left.get_mut(i - left_len - 1)).transpose(),
+                    Less => Ok(s.left.get_mut(i)).transpose(),
+                    Equal => Some(Err(&mut s.center)),
+                    Greater => Ok(s.left.get_mut(i - left_len - 1)).transpose(),
                 }
             }
             NamedVec::Unsplit(u) => Ok(u.members.get_mut(i)).transpose(),
@@ -689,7 +691,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     ///
     /// Return none if index is out of bounds. If index points to the center,
     /// convert it to a non-center value.
-    pub fn replace_index(&mut self, index: MeasIdx, value: V) -> Option<Result<V, U>> {
+    pub fn replace_at(&mut self, index: MeasIdx, value: V) -> Option<Result<V, U>> {
         let len = self.len();
         let i = usize::from(index);
         if i > len {
@@ -698,25 +700,29 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
             let (newself, ret) = match mem::replace(self, dummy()) {
                 NamedVec::Split(mut s, p) => {
                     let ln = s.left.len();
-                    if i <= ln {
-                        let ret = mem::replace(&mut s.left[i].value, value);
-                        (NamedVec::Split(s, p), Ok(ret))
-                    } else if i == ln {
-                        let ret = s.center.value;
-                        let key = s.center.key;
-                        let members = s
-                            .left
-                            .into_iter()
-                            .chain([Pair {
-                                key: K::into_wrapped(key),
-                                value,
-                            }])
-                            .chain(s.right)
-                            .collect();
-                        (Self::new_unsplit(members, s.prefix), Err(ret))
-                    } else {
-                        let ret = mem::replace(&mut s.left[i - ln - 1].value, value);
-                        (NamedVec::Split(s, p), Ok(ret))
+                    match i.cmp(&ln) {
+                        Less => {
+                            let ret = mem::replace(&mut s.left[i].value, value);
+                            (NamedVec::Split(s, p), Ok(ret))
+                        }
+                        Equal => {
+                            let ret = s.center.value;
+                            let key = s.center.key;
+                            let members = s
+                                .left
+                                .into_iter()
+                                .chain([Pair {
+                                    key: K::into_wrapped(key),
+                                    value,
+                                }])
+                                .chain(s.right)
+                                .collect();
+                            (Self::new_unsplit(members, s.prefix), Err(ret))
+                        }
+                        Greater => {
+                            let ret = mem::replace(&mut s.left[i - ln - 1].value, value);
+                            (NamedVec::Split(s, p), Ok(ret))
+                        }
                     }
                 }
                 NamedVec::Unsplit(mut u) => {
@@ -726,6 +732,72 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
             };
             *self = newself;
             Some(ret)
+        }
+    }
+
+    /// Replace a non-center value with a new value with a given name.
+    ///
+    /// Return value that was replaced.
+    ///
+    /// Return none if name is not present.
+    pub fn replace_named(&mut self, name: &Shortname, value: V) -> Option<Result<V, U>> {
+        let x = self
+            .iter()
+            .find(|(_, x)| {
+                x.map_or_else(
+                    |l| &l.key == name,
+                    |r| K::as_opt(&r.key).is_some_and(|k| k == name),
+                )
+            })
+            .map(|(i, _)| i);
+        x.and_then(|i| self.replace_at(i, value))
+    }
+
+    /// Rename an element at index.
+    ///
+    /// If index points to the center element and the wrapped name contains
+    /// nothing, the default name will be assigned.
+    pub fn rename(
+        &mut self,
+        index: MeasIdx,
+        key: K::Wrapper<Shortname>,
+    ) -> Result<K::Wrapper<Shortname>, DistinctError> {
+        let k = self
+            .as_prefix()
+            .as_opt_or_indexed::<K>(K::as_ref(&key), index);
+        let i: usize = index.into();
+        let len = self.len();
+        if usize::from(index) > len {
+            Err(DistinctError::Index { index, len })
+        } else if self
+            .iter_all_names()
+            .enumerate()
+            .any(|(j, n)| j != i && n == k)
+        {
+            Err(DistinctError::Membership(k))
+        } else {
+            let new = match self {
+                NamedVec::Split(s, _) => {
+                    let ln = s.left.len();
+                    match i.cmp(&ln) {
+                        Less => mem::replace(&mut s.left[i].key, key),
+                        Equal => K::into_wrapped(mem::replace(&mut s.center.key, k)),
+                        Greater => mem::replace(&mut s.right[i - ln - 1].key, key),
+                    }
+                }
+                NamedVec::Unsplit(u) => mem::replace(&mut u.members[i].key, key),
+            };
+            Ok(new)
+        }
+    }
+
+    /// Rename center element.
+    ///
+    /// Return previous name if center exists.
+    pub fn rename_center(&mut self, name: Shortname) -> Option<Shortname> {
+        match self {
+            NamedVec::Split(s, _) => Some(mem::replace(&mut s.center.key, name)),
+            NamedVec::Unsplit(_) => None,
         }
     }
 

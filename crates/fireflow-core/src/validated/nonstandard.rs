@@ -71,7 +71,7 @@ pub struct MatrixSetter<T> {
 
 /// The index for a measurement
 // TODO this should start from 1?
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub struct MeasIdx(usize);
 
 impl From<usize> for MeasIdx {

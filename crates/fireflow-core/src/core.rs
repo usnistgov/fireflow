@@ -1558,14 +1558,19 @@ where
     ///
     /// Return error if time measurement already exists or if measurement cannot
     /// be converted to a time measurement.
-    pub fn set_temporal(&mut self, n: &Shortname) -> Result<bool, OpticalToTemporalError>
+    pub fn set_temporal(
+        &mut self,
+        n: &Shortname,
+        force: bool,
+    ) -> Result<bool, OpticalToTemporalError>
     where
         Optical<M::P>: From<Temporal<M::T>>,
         Temporal<M::T>: From<Optical<M::P>>,
     {
-        // TODO make this toggleable
         if let Some((_, Ok(o))) = self.measurements_named_vec().get_name(n) {
-            o.specific.can_convert_temporal()?;
+            if !force {
+                o.specific.can_convert_temporal()?;
+            }
         }
 
         // This is tricky because $TIMESTEP will be filled with a dummy value

@@ -1291,9 +1291,9 @@ macro_rules! common_methods {
                 self.0.clear_trigger()
             }
 
-            fn set_temporal(&mut self, n: PyShortname) -> PyResult<bool> {
+            fn set_temporal(&mut self, n: PyShortname, force: bool) -> PyResult<bool> {
                 self.0
-                    .set_temporal(&n.into())
+                    .set_temporal(&n.into(), force)
                     .map_err(|e| PyreflowException::new_err(e.to_string()))
             }
 

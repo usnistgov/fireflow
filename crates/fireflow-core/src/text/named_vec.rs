@@ -73,6 +73,11 @@ pub struct UnsplitVec<K, V> {
     prefix: ShortnamePrefix,
 }
 
+pub enum Element<U, V> {
+    Center(U),
+    NonCenter(V),
+}
+
 /// Encodes a type which might have something in it.
 ///
 /// Intended to be used as a "type family" pattern.
@@ -127,12 +132,12 @@ type WrappedPairedVec<K, V> = PairedVec<<K as MightHave>::Wrapper<Shortname>, V>
 
 type Center<U> = Pair<Shortname, U>;
 
-type Either<K, V, U> = Result<(<K as MightHave>::Wrapper<Shortname>, V), (Shortname, U)>;
+type Either<K, U, V> = Element<(Shortname, U), (<K as MightHave>::Wrapper<Shortname>, V)>;
 
-pub type EitherPair<K, V, U> =
-    Result<Pair<<K as MightHave>::Wrapper<Shortname>, V>, Pair<Shortname, U>>;
+pub type EitherPair<K, U, V> =
+    Element<Pair<Shortname, U>, Pair<<K as MightHave>::Wrapper<Shortname>, V>>;
 
-pub type RawInput<K, U, V> = Vec<Either<K, V, U>>;
+pub type RawInput<K, U, V> = Vec<Either<K, U, V>>;
 
 // TODO make shortnames inside borrowed
 pub type NameMapping = HashMap<Shortname, Shortname>;
@@ -150,7 +155,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
             .iter()
             .map(|x| {
                 x.as_ref()
-                    .map_or_else(|e| K::into_wrapped(&e.0), |o| K::as_ref(&o.0))
+                    .both(|e| K::into_wrapped(&e.0), |o| K::as_ref(&o.0))
             })
             .collect();
         if prefix.all_unique::<K>(names) {
@@ -159,7 +164,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
             let mut right = vec![];
             for x in xs {
                 match x {
-                    Ok(y) => {
+                    Element::NonCenter(y) => {
                         let p = Pair {
                             key: y.0,
                             value: y.1,
@@ -170,7 +175,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                             right.push(p);
                         }
                     }
-                    Err(y) => {
+                    Element::Center(y) => {
                         if center.is_none() {
                             center = Some(y);
                         } else {
@@ -911,7 +916,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     pub fn remove_index(
         &mut self,
         index: MeasIdx,
-    ) -> Result<EitherPair<K, V, U>, ElementIndexError> {
+    ) -> Result<EitherPair<K, U, V>, ElementIndexError> {
         let i = self.check_element_index(index, true)?;
         let (newself, ret) = match mem::replace(self, dummy()) {
             NamedVec::Split(mut s, p) => {
@@ -919,22 +924,22 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                 match i.cmp(&nleft) {
                     Less => {
                         let x = s.left.remove(i);
-                        (NamedVec::Split(s, p), Ok(Ok(x)))
+                        (NamedVec::Split(s, p), Ok(Element::NonCenter(x)))
                     }
                     Equal => {
                         let new = s.left.into_iter().chain(s.right).collect();
-                        let ret = Ok(Err(*s.center));
+                        let ret = Ok(Element::Center(*s.center));
                         (NamedVec::new_unsplit(new, s.prefix), ret)
                     }
                     Greater => {
                         let x = s.right.remove(i - nleft - 1);
-                        (NamedVec::Split(s, p), Ok(Ok(x)))
+                        (NamedVec::Split(s, p), Ok(Element::NonCenter(x)))
                     }
                 }
             }
             NamedVec::Unsplit(mut u) => {
                 let x = u.members.remove(i);
-                (NamedVec::Unsplit(u), Ok(Ok(x)))
+                (NamedVec::Unsplit(u), Ok(Element::NonCenter(x)))
             }
         };
         *self = newself;
@@ -1329,6 +1334,37 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
 
     fn new_unsplit(members: WrappedPairedVec<K, V>, prefix: ShortnamePrefix) -> Self {
         NamedVec::Unsplit(UnsplitVec { members, prefix })
+    }
+}
+
+impl<U, V> Element<U, V> {
+    pub fn bimap<F, G, X, Y>(self, f: F, g: G) -> Element<X, Y>
+    where
+        F: Fn(U) -> X,
+        G: Fn(V) -> Y,
+    {
+        match self {
+            Element::Center(u) => Element::Center(f(u)),
+            Element::NonCenter(n) => Element::NonCenter(g(n)),
+        }
+    }
+
+    pub fn both<F, G, X>(self, f: F, g: G) -> X
+    where
+        F: Fn(U) -> X,
+        G: Fn(V) -> X,
+    {
+        match self {
+            Element::Center(u) => f(u),
+            Element::NonCenter(n) => g(n),
+        }
+    }
+
+    pub fn as_ref(&self) -> Element<&U, &V> {
+        match self {
+            Element::Center(u) => Element::Center(u),
+            Element::NonCenter(n) => Element::NonCenter(n),
+        }
     }
 }
 

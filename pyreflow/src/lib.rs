@@ -4,6 +4,7 @@ use fireflow_core::config::Strict;
 use fireflow_core::config::{self, OffsetCorrection};
 use fireflow_core::error;
 use fireflow_core::text::byteord::*;
+use fireflow_core::text::named_vec::Element;
 use fireflow_core::text::optionalkw::*;
 use fireflow_core::text::range::*;
 use fireflow_core::text::ranged_float::*;
@@ -1628,7 +1629,7 @@ macro_rules! coretext2_0_meas_methods {
                     let r = self.0
                         .remove_measurement_by_index(index.into())
                         .map_err(|e| PyreflowException::new_err(e.to_string()))?;
-                    r.map_or_else(
+                    r.both(
                         |p| {
                             let a = $timetype::from(p.value).into_bound_py_any(py)?;
                             Ok((Some(p.key.into()), a))
@@ -1687,7 +1688,7 @@ macro_rules! coretext3_1_meas_methods {
                     let r = self.0
                         .remove_measurement_by_index(index.into())
                         .map_err(|e| PyreflowException::new_err(e.to_string()))?;
-                    r.map_or_else(
+                    r.both(
                         |p| {
                             let a = $timetype::from(p.value).into_bound_py_any(py)?;
                             Ok((p.key.into(), a))
@@ -1740,10 +1741,10 @@ macro_rules! set_measurements2_0 {
                     let mut ys = vec![];
                     for x in xs {
                         let y = if let Ok((n, m)) = any_to_opt_named_pair::<$meastype>(x.clone()) {
-                            Ok((n, m.into()))
+                            Element::NonCenter((n, m.into()))
                         } else {
                             let (n, t) = any_to_named_pair::<$timetype>(x)?;
-                            Err((n, t.into()))
+                            Element::Center((n, t.into()))
                         };
                         ys.push(y);
                     }
@@ -1775,10 +1776,10 @@ macro_rules! set_measurements3_1 {
                     let mut ys = vec![];
                     for x in xs {
                         let y = if let Ok((n, m)) = any_to_named_pair::<$meastype>(x.clone()) {
-                            Ok((Identity(n), m.into()))
+                            Element::NonCenter((Identity(n), m.into()))
                         } else {
                             let (n, t) = any_to_named_pair::<$timetype>(x)?;
-                            Err((n, t.into()))
+                            Element::Center((n, t.into()))
                         };
                         ys.push(y);
                     }
@@ -1812,10 +1813,10 @@ macro_rules! coredata2_0_meas_methods {
                     let mut ys = vec![];
                     for x in xs {
                         let y = if let Ok((n, m)) = any_to_opt_named_pair::<$meastype>(x.clone()) {
-                            Ok((n, m.into()))
+                            Element::NonCenter((n, m.into()))
                         } else {
                             let (n, t) = any_to_named_pair::<$timetype>(x)?;
-                            Err((n, t.into()))
+                            Element::Center((n, t.into()))
                         };
                         ys.push(y);
                     };
@@ -1848,10 +1849,10 @@ macro_rules! coredata3_1_meas_methods {
                     let mut ys = vec![];
                     for x in xs {
                         let y = if let Ok((n, m)) = any_to_named_pair::<$meastype>(x.clone()) {
-                            Ok((Identity(n), m.into()))
+                            Element::NonCenter((Identity(n), m.into()))
                         } else {
                             let (n, t) = any_to_named_pair::<$timetype>(x)?;
-                            Err((n, t.into()))
+                            Element::Center((n, t.into()))
                         };
                         ys.push(y);
                     };

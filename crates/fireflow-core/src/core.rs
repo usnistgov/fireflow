@@ -1904,9 +1904,9 @@ where
     fn remove_measurement_by_index_inner(
         &mut self,
         index: MeasIdx,
-    ) -> Result<EitherPair<M::N, Optical<M::P>, Temporal<M::T>>, ElementIndexError> {
+    ) -> Result<EitherPair<M::N, Temporal<M::T>, Optical<M::P>>, ElementIndexError> {
         let res = self.measurements.remove_index(index)?;
-        if let Ok(left) = &res {
+        if let Element::NonCenter(left) = &res {
             if let Some(n) = M::N::as_opt(&left.key) {
                 self.metadata.remove_name_index(n, index);
             }
@@ -2166,11 +2166,11 @@ where
                 let res = match key {
                     Ok(name) => {
                         let t = Temporal::lookup_temporal(st, i)?;
-                        Err((name, t))
+                        Element::Center((name, t))
                     }
                     Err(k) => {
                         let m = Optical::lookup_optical(st, i)?;
-                        Ok((k, m))
+                        Element::NonCenter((k, m))
                     }
                 };
                 Some(res)
@@ -2359,7 +2359,7 @@ where
     pub fn remove_measurement_by_index(
         &mut self,
         index: MeasIdx,
-    ) -> Result<EitherPair<M::N, Optical<M::P>, Temporal<M::T>>, ElementIndexError> {
+    ) -> Result<EitherPair<M::N, Temporal<M::T>, Optical<M::P>>, ElementIndexError> {
         self.remove_measurement_by_index_inner(index)
     }
 
@@ -2491,7 +2491,7 @@ where
     pub fn remove_measurement_by_index(
         &mut self,
         index: MeasIdx,
-    ) -> Result<EitherPair<M::N, Optical<M::P>, Temporal<M::T>>, ElementIndexError> {
+    ) -> Result<EitherPair<M::N, Temporal<M::T>, Optical<M::P>>, ElementIndexError> {
         let res = self.remove_measurement_by_index_inner(index)?;
         self.data.drop_in_place(index.into()).unwrap();
         Ok(res)

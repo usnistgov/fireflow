@@ -1596,6 +1596,8 @@ where
     where
         Optical<M::P>: From<Temporal<M::T>>,
     {
+        // TODO what if the temporal measurement has $PnTYPE set, we throw error
+        // when going optical->temporal, so why not here?
         self.measurements.unset_center()
     }
 
@@ -4120,87 +4122,6 @@ impl From<InnerOptical3_2> for InnerTemporal3_2 {
         }
     }
 }
-
-// impl TryFrom<InnerOptical2_0> for InnerTemporal2_0 {
-//     type Error = TryFromTemporalError<InnerOptical2_0>;
-//     fn try_from(value: InnerOptical2_0) -> Result<Self, Self::Error> {
-//         if value.scale.0.as_ref().is_some_and(|s| *s == Scale::Linear) {
-//             Ok(Self)
-//         } else {
-//             Err(TryFromTemporalError {
-//                 error: NonEmpty {
-//                     head: OpticalToTemporalError::NonLinear,
-//                     tail: vec![],
-//                 },
-//                 value,
-//             })
-//         }
-//     }
-// }
-
-// impl TryFrom<InnerOptical3_0> for InnerTemporal3_0 {
-//     type Error = TryFromTemporalError<InnerOptical3_0>;
-//     fn try_from(value: InnerOptical3_0) -> Result<Self, Self::Error> {
-//         let mut es = vec![];
-//         if value.scale != Scale::Linear {
-//             es.push(OpticalToTemporalError::NonLinear);
-//         }
-//         if value.gain.0.is_some() {
-//             es.push(OpticalToTemporalError::HasGain);
-//         }
-//         NonEmpty::from_vec(es).map_or(
-//             Ok(Self {
-//                 timestep: Timestep::default(),
-//             }),
-//             |error| Err(TryFromTemporalError { error, value }),
-//         )
-//     }
-// }
-
-// impl TryFrom<InnerOptical3_1> for InnerTemporal3_1 {
-//     type Error = TryFromTemporalError<InnerOptical3_1>;
-//     fn try_from(value: InnerOptical3_1) -> Result<Self, Self::Error> {
-//         let mut es = vec![];
-//         if value.scale != Scale::Linear {
-//             es.push(OpticalToTemporalError::NonLinear);
-//         }
-//         if value.gain.0.is_some() {
-//             es.push(OpticalToTemporalError::HasGain);
-//         }
-//         match NonEmpty::from_vec(es) {
-//             None => Ok(Self {
-//                 timestep: Timestep::default(),
-//                 display: value.display,
-//             }),
-//             Some(error) => Err(TryFromTemporalError { error, value }),
-//         }
-//     }
-// }
-
-// impl TryFrom<InnerOptical3_2> for InnerTemporal3_2 {
-//     type Error = TryFromTemporalError<InnerOptical3_2>;
-//     fn try_from(value: InnerOptical3_2) -> Result<Self, Self::Error> {
-//         let mut es = vec![];
-//         if value.scale != Scale::Linear {
-//             es.push(OpticalToTemporalError::NonLinear);
-//         }
-//         if value.gain.0.is_some() {
-//             es.push(OpticalToTemporalError::HasGain);
-//         }
-//         if value.measurement_type.0.is_some() {
-//             es.push(OpticalToTemporalError::NotTimeType);
-//         }
-//         match NonEmpty::from_vec(es) {
-//             None => Ok(Self {
-//                 timestep: Timestep::default(),
-//                 display: value.display,
-//                 datatype: value.datatype,
-//                 measurement_type: None.into(),
-//             }),
-//             Some(error) => Err(TryFromTemporalError { error, value }),
-//         }
-//     }
-// }
 
 impl Versioned for InnerOptical2_0 {
     fn fcs_version() -> Version {

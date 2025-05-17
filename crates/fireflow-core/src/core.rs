@@ -1265,12 +1265,26 @@ pub enum OpticalToTemporalError {
     NotTimeType,
 }
 
+pub enum SetTemporalIndexError {
+    Convert(OpticalToTemporalError),
+    Index(SetCenterError),
+}
+
 impl fmt::Display for OpticalToTemporalError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
             OpticalToTemporalError::NonLinear => write!(f, "$PnE must be '0,0'"),
             OpticalToTemporalError::HasGain => write!(f, "$PnG must not be set"),
             OpticalToTemporalError::NotTimeType => write!(f, "$PnTYPE must not be set"),
+        }
+    }
+}
+
+impl fmt::Display for SetTemporalIndexError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            SetTemporalIndexError::Convert(c) => c.fmt(f),
+            SetTemporalIndexError::Index(i) => i.fmt(f),
         }
     }
 }
@@ -1528,7 +1542,7 @@ where
     pub fn shortnames_maybe(&self) -> Vec<Option<&Shortname>> {
         self.measurements
             .iter()
-            .map(|(_, x)| x.map_or_else(|t| Some(&t.key), |m| M::N::as_opt(&m.key)))
+            .map(|(_, x)| x.both(|t| Some(&t.key), |m| M::N::as_opt(&m.key)))
             .collect()
     }
 
@@ -1553,11 +1567,7 @@ where
         Ok(mapping)
     }
 
-    // TODO make indexed version of this
     /// Set the measurement matching given name to be the time measurement.
-    ///
-    /// Return error if time measurement already exists or if measurement cannot
-    /// be converted to a time measurement.
     pub fn set_temporal(
         &mut self,
         n: &Shortname,
@@ -1567,7 +1577,7 @@ where
         Optical<M::P>: From<Temporal<M::T>>,
         Temporal<M::T>: From<Optical<M::P>>,
     {
-        if let Some((_, Ok(o))) = self.measurements_named_vec().get_name(n) {
+        if let Some((_, Element::NonCenter(o))) = self.measurements_named_vec().get_name(n) {
             if !force {
                 o.specific.can_convert_temporal()?;
             }
@@ -1587,6 +1597,38 @@ where
         if res {
             // Technically this is a bit more work than necessary because
             // we should know by this point if the center exists. Oh well..
+            if let (Some(ts), Some(c)) = (current_timestep, ms.as_center_mut()) {
+                M::T::set_timestep(&mut c.value.specific, ts);
+            }
+        }
+        Ok(res)
+    }
+
+    /// Set the measurement at given index to the time measurement.
+    pub fn set_temporal_at(
+        &mut self,
+        index: MeasIdx,
+        force: bool,
+    ) -> Result<bool, SetTemporalIndexError>
+    where
+        Optical<M::P>: From<Temporal<M::T>>,
+        Temporal<M::T>: From<Optical<M::P>>,
+    {
+        if let Some(Element::NonCenter((_, o))) = self.measurements_named_vec().get(index).ok() {
+            if !force {
+                o.specific
+                    .can_convert_temporal()
+                    .map_err(SetTemporalIndexError::Convert)?;
+            }
+        }
+
+        // TODO not DRY (ish, see above)
+        let ms = &mut self.measurements;
+        let current_timestep = ms.as_center().and_then(|c| c.value.specific.timestep());
+        let res = ms
+            .set_center_by_index(index)
+            .map_err(SetTemporalIndexError::Index)?;
+        if res {
             if let (Some(ts), Some(c)) = (current_timestep, ms.as_center_mut()) {
                 M::T::set_timestep(&mut c.value.specific, ts);
             }
@@ -1668,7 +1710,7 @@ where
         &mut self,
         index: MeasIdx,
         m: Optical<M::P>,
-    ) -> Result<Result<Optical<M::P>, Temporal<M::T>>, ElementIndexError> {
+    ) -> Result<Element<Temporal<M::T>, Optical<M::P>>, ElementIndexError> {
         self.measurements.replace_at(index, m)
     }
 
@@ -1682,7 +1724,7 @@ where
         &mut self,
         name: &Shortname,
         m: Optical<M::P>,
-    ) -> Option<Result<Optical<M::P>, Temporal<M::T>>> {
+    ) -> Option<Element<Temporal<M::T>, Optical<M::P>>> {
         self.measurements.replace_named(name, m)
     }
 
@@ -1896,7 +1938,7 @@ where
     fn remove_measurement_by_name_inner(
         &mut self,
         n: &Shortname,
-    ) -> Option<(MeasIdx, Result<Optical<M::P>, Temporal<M::T>>)> {
+    ) -> Option<(MeasIdx, Element<Temporal<M::T>, Optical<M::P>>)> {
         if let Some(e) = self.measurements.remove_name(n) {
             self.metadata.remove_name_index(n, e.0);
             Some(e)
@@ -2114,10 +2156,10 @@ where
         M::P: From<M::T>,
     {
         let ms = &self.measurements;
-        if let Some(m0) = ms.get(0.into()).ok().and_then(|x| x.ok()) {
+        if let Some(m0) = ms.get(0.into()).ok().and_then(|x| x.non_center()) {
             let header = m0.1.table_header();
             let rows = self.measurements.iter().map(|(i, r)| {
-                r.map_or_else(
+                r.both(
                     |c| Optical::<M::P>::from(c.value.clone()).table_row(i, Some(&c.key)),
                     |nc| nc.value.table_row(i, M::N::as_opt(&nc.key)),
                 )
@@ -2353,7 +2395,7 @@ where
     pub fn remove_measurement_by_name(
         &mut self,
         n: &Shortname,
-    ) -> Option<(MeasIdx, Result<Optical<M::P>, Temporal<M::T>>)> {
+    ) -> Option<(MeasIdx, Element<Temporal<M::T>, Optical<M::P>>)> {
         self.remove_measurement_by_name_inner(n)
     }
 
@@ -2482,7 +2524,7 @@ where
     pub fn remove_measurement_by_name(
         &mut self,
         n: &Shortname,
-    ) -> Option<(MeasIdx, Result<Optical<M::P>, Temporal<M::T>>)> {
+    ) -> Option<(MeasIdx, Element<Temporal<M::T>, Optical<M::P>>)> {
         self.remove_measurement_by_name_inner(n).map(|(i, x)| {
             self.data.drop_in_place(i.into()).unwrap();
             (i, x)
@@ -2695,7 +2737,7 @@ macro_rules! display_methods {
             self.measurements
                 .iter()
                 .map(|x| {
-                    x.1.map_or_else(
+                    x.1.both(
                         |t| t.value.specific.display.as_ref_opt(),
                         |m| m.value.specific.display.as_ref_opt(),
                     )
@@ -2721,7 +2763,7 @@ macro_rules! scale_get_set {
         pub fn all_scales(&self) -> Vec<$t> {
             self.measurements
                 .iter()
-                .map(|(_, x)| x.map_or($time_default, |p| p.value.specific.scale.into()))
+                .map(|(_, x)| x.both(|_| $time_default, |p| p.value.specific.scale.into()))
                 .collect()
         }
 
@@ -3001,7 +3043,7 @@ impl<A, D> Core3_2<A, D> {
         self.measurements
             .iter()
             .map(|(_, x)| {
-                x.map_or_else(
+                x.both(
                     |p| p.value.specific.datatype.as_ref_opt(),
                     |p| p.value.specific.datatype.as_ref_opt(),
                 )
@@ -5019,7 +5061,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
         let cs: Vec<_> = ms
             .iter()
             .map(|x| {
-                x.1.map_or_else(
+                x.1.both(
                     |m| (&m.value.specific.datatype),
                     |t| (&t.value.specific.datatype),
                 )

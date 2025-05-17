@@ -1297,6 +1297,12 @@ macro_rules! common_methods {
                     .map_err(|e| PyreflowException::new_err(e.to_string()))
             }
 
+            fn set_temporal_at(&mut self, index: usize, force: bool) -> PyResult<bool> {
+                self.0
+                    .set_temporal_at(index.into(), force)
+                    .map_err(|e| PyreflowException::new_err(e.to_string()))
+            }
+
             fn unset_temporal(&mut self) -> bool {
                 self.0.unset_temporal()
             }
@@ -1414,7 +1420,7 @@ macro_rules! common_meas_get_set {
                     self.0
                         .remove_measurement_by_name(&Shortname::from(n))
                         .map(|(i, x)| {
-                            x.map_or_else(
+                            x.both(
                                 |l| $timetype::from(l).into_bound_py_any(py),
                                 |r| $meastype::from(r).into_bound_py_any(py)
                             ).map(|x| (usize::from(i), x))
@@ -1431,7 +1437,7 @@ macro_rules! common_meas_get_set {
                     let m = self.0
                         .measurements_named_vec().get(i.into())
                         .map_err(|e| PyreflowException::new_err(e.to_string()))?;
-                    m.map_or_else(
+                    m.both(
                         |(_, l)| $timetype::from(l.clone()).into_bound_py_any(py),
                         |(_, r)| $meastype::from(r.clone()).into_bound_py_any(py)
                     )
@@ -1446,7 +1452,7 @@ macro_rules! common_meas_get_set {
                     let r = self.0
                         .replace_measurement_at(i.into(), m.into())
                         .map_err(|e| PyreflowException::new_err(e.to_string()))?;
-                    r.map_or_else(
+                    r.both(
                         |l| $timetype::from(l).into_bound_py_any(py),
                         |r| $meastype::from(r).into_bound_py_any(py),
                     )
@@ -1467,7 +1473,7 @@ macro_rules! common_meas_get_set {
                     for x in self.0
                         .measurements_named_vec()
                         .iter()
-                        .map(|(_, x)| x.map_or_else(
+                        .map(|(_, x)| x.both(
                             |l| $timetype::from(l.value.clone()).into_bound_py_any(py),
                             |r| $meastype::from(r.value.clone()).into_bound_py_any(py)
                         ))
@@ -1478,7 +1484,6 @@ macro_rules! common_meas_get_set {
                 }
             }
         )*
-
     };
 }
 

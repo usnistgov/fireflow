@@ -39,7 +39,7 @@ pub struct RawTEXT {
     pub version: Version,
 
     /// Keyword pairs from TEXT
-    pub keywords: AllKeywords,
+    pub keywords: ValidKeywords,
 
     /// Data used for parsing TEXT which might be used later to parse remainder.
     ///
@@ -50,8 +50,7 @@ pub struct RawTEXT {
     /// $NEXTDATA will also be included if found.
     ///
     /// The delimiter used to parse the keywords will also be included.
-    pub parse: ParseParameters,
-    // TODO also include the junk that couldn't be parsed in here somewhere
+    pub parse: ParseData,
 }
 
 /// Output of parsing the TEXT segment and standardizing keywords.
@@ -89,7 +88,7 @@ pub struct StandardizedTEXT {
     ///
     /// The is analogous to that of [`RawTEXT`] and is copied as-is when
     /// creating this.
-    pub parse: ParseParameters,
+    pub parse: ParseData,
 }
 
 /// Output of parsing one raw dataset (TEXT+DATA) from an FCS file.
@@ -102,7 +101,7 @@ pub struct RawDataset {
     pub version: Version,
 
     /// Keyword pairs from TEXT
-    pub keywords: AllKeywords,
+    pub keywords: ValidKeywords,
 
     /// DATA segment as a polars DataFrame
     ///
@@ -123,7 +122,7 @@ pub struct RawDataset {
     /// This will include all offsets, $NEXTDATA (if found) and the TEXT
     /// delimiter. The DATA and ANALYSIS offsets will reflect those actually
     /// used to parse these segments, which may or may not reflect the HEADER.
-    pub parse: ParseParameters,
+    pub parse: ParseData,
 }
 
 /// Output of parsing one standardized dataset (TEXT+DATA) from an FCS file.
@@ -145,14 +144,15 @@ pub struct StandardizedDataset {
     /// This will include all offsets, $NEXTDATA (if found) and the TEXT
     /// delimiter. The DATA and ANALYSIS offsets will reflect those actually
     /// used to parse these segments, which may or may not reflect the HEADER.
-    pub parse: ParseParameters,
+    pub parse: ParseData,
 }
 
-/// Parameters used to parse the FCS file.
+/// Data pertaining to parsing the TEXT segment.
 ///
-/// Includes offsets, TEXT delimiter, and $NEXTDATA (if present).
+/// Includes offsets, TEXT delimiter, $NEXTDATA (if present) and any
+/// non-conforming keywords.
 #[derive(Clone, Serialize)]
-pub struct ParseParameters {
+pub struct ParseData {
     /// Primary TEXT offsets
     ///
     /// The offsets that were used to parse the TEXT segment. Included here for
@@ -191,6 +191,18 @@ pub struct ParseParameters {
     ///
     /// Included here for informational purposes.
     pub delimiter: u8,
+
+    /// Keywords that were not in ASCII.
+    ///
+    /// Non-ASCII keywords are non-conferment but are included here in case the
+    /// user wants to fix them or know they are present
+    pub non_ascii: NonAsciiPairs,
+
+    /// Keywords that could not be parsed.
+    ///
+    /// These have either a key or value or both that is not a UTF-8 string.
+    /// Inluded here for debugging
+    pub byte_pairs: BytesPairs,
 }
 
 /// Return header in an FCS file.
@@ -308,7 +320,7 @@ fn h_read_raw_dataset<R: Read + Seek>(
                 keywords: raw.keywords,
                 data,
                 analysis,
-                parse: ParseParameters {
+                parse: ParseData {
                     data: data_seg,
                     analysis: analysis_seg,
                     ..raw.parse
@@ -341,7 +353,7 @@ fn h_read_std_dataset<R: Read + Seek>(
             let dataset =
                 AnyCoreDataset::from_coretext_unchecked(std.standardized, columns, analysis);
             Ok(PureSuccess::from(StandardizedDataset {
-                parse: ParseParameters {
+                parse: ParseData {
                     data: data_seg,
                     analysis: analysis_seg,
                     ..std.parse
@@ -439,11 +451,11 @@ fn verify_delim(xs: &[u8], conf: &RawTextReadConfig) -> PureSuccess<u8> {
 }
 
 fn split_raw_text_nodouble(
-    mut kws: AllKeywords,
+    mut kws: ParsedKeywords,
     xs: &[u8],
     delim: u8,
     conf: &RawTextReadConfig,
-) -> PureSuccess<AllKeywords> {
+) -> PureSuccess<ParsedKeywords> {
     let mut deferred = PureErrorBuf::default();
 
     // ASSUME input slice does not start or end with delim
@@ -498,11 +510,11 @@ fn split_raw_text_nodouble(
 }
 
 fn split_raw_text_double(
-    mut kws: AllKeywords,
+    mut kws: ParsedKeywords,
     xs: &[u8],
     delim: u8,
     conf: &RawTextReadConfig,
-) -> PureSuccess<AllKeywords> {
+) -> PureSuccess<ParsedKeywords> {
     let mut deferred = PureErrorBuf::default();
 
     // ASSUME input slice does not start with delim
@@ -582,11 +594,11 @@ fn split_raw_text_double(
 }
 
 fn split_raw_text(
-    mut kws: AllKeywords,
+    mut kws: ParsedKeywords,
     xs: &[u8],
     delim: u8,
     conf: &RawTextReadConfig,
-) -> PureSuccess<AllKeywords> {
+) -> PureSuccess<ParsedKeywords> {
     if let Some(start) = xs.iter().position(|x| *x == delim) {
         let ys = &xs[(start + 1)..];
         if ys.is_empty() {
@@ -643,7 +655,7 @@ fn pad_zeros(s: &str) -> String {
     ("0").repeat(len - newlen) + trimmed
 }
 
-fn repair_offsets(mut kws: AllKeywords, conf: &RawTextReadConfig) -> AllKeywords {
+fn repair_offsets(mut kws: ParsedKeywords, conf: &RawTextReadConfig) -> ParsedKeywords {
     if conf.repair_offset_spaces {
         for (key, v) in kws.std.iter_mut() {
             if key == &Begindata::std()
@@ -856,7 +868,7 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
     header.text.read(h, &mut buf)?;
 
     verify_delim(&buf, conf).try_map(|delimiter| {
-        let split_succ = split_raw_text(AllKeywords::default(), &buf, delimiter, conf)
+        let split_succ = split_raw_text(ParsedKeywords::default(), &buf, delimiter, conf)
             .map(|kws| repair_offsets(kws, conf));
         let stext_succ = split_succ.try_map(|mut kws| {
             lookup_stext_offsets(&mut kws.std, header.version, conf).try_map(|s| {
@@ -881,15 +893,20 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
             let enforce_nextdata = true;
             lookup_nextdata(&kws.std, enforce_nextdata).map(|nextdata| RawTEXT {
                 version: header.version,
-                parse: ParseParameters {
+                parse: ParseData {
                     prim_text: header.text,
                     supp_text: supp_text_seg,
                     data: header.data,
                     analysis: header.analysis,
                     nextdata,
                     delimiter,
+                    non_ascii: kws.non_ascii,
+                    byte_pairs: kws.byte_pairs,
                 },
-                keywords: kws,
+                keywords: ValidKeywords {
+                    std: kws.std,
+                    nonstd: kws.nonstd,
+                },
             })
         }))
     })

@@ -55,15 +55,21 @@ pub type NonStdPairs = Vec<(NonStdKey, String)>;
 pub type NonAsciiPairs = Vec<(String, String)>;
 pub type BytesPairs = Vec<(Vec<u8>, Vec<u8>)>;
 
-#[derive(Clone, Default, Serialize)]
-pub struct AllKeywords {
+#[derive(Default)]
+pub struct ParsedKeywords {
     pub std: StdKeywords,
     pub nonstd: NonStdKeywords,
     pub non_ascii: NonAsciiPairs,
-    pub raw: BytesPairs,
+    pub byte_pairs: BytesPairs,
 }
 
-impl AllKeywords {
+#[derive(Clone, Default, Serialize)]
+pub struct ValidKeywords {
+    pub std: StdKeywords,
+    pub nonstd: NonStdKeywords,
+}
+
+impl ParsedKeywords {
     pub(crate) fn insert(&mut self, k: &[u8], v: &[u8]) -> Result<(), KeywordInsertError> {
         let n = k.len();
         let vv = v.to_vec();
@@ -108,12 +114,12 @@ impl AllKeywords {
                     self.non_ascii.push((kk, vs));
                     Ok(())
                 } else {
-                    self.raw.push((k.to_vec(), vs.into()));
+                    self.byte_pairs.push((k.to_vec(), vs.into()));
                     Ok(())
                 }
             }
             Err(e) => {
-                self.raw.push((k.to_vec(), e.into_bytes()));
+                self.byte_pairs.push((k.to_vec(), e.into_bytes()));
                 Ok(())
             }
         }

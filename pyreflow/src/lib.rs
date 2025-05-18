@@ -27,8 +27,7 @@ use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyWarning};
 use pyo3::prelude::*;
 use pyo3::type_object::PyTypeInfo;
-use pyo3::types::IntoPyDict;
-use pyo3::types::PyDict;
+use pyo3::types::{IntoPyDict, PyDict};
 use pyo3::IntoPyObjectExt;
 use pyo3_polars::{PyDataFrame, PySeries};
 use std::cmp::Ordering;
@@ -116,6 +115,8 @@ fn read_fcs_header(
 fn read_fcs_raw_text(
     p: path::PathBuf,
 
+    py: Python<'_>,
+
     strict: bool,
 
     begin_text: i32,
@@ -139,7 +140,7 @@ fn read_fcs_raw_text(
     repair_offset_spaces: bool,
     date_pattern: Option<PyDatePattern>,
     version_override: Option<PyVersion>,
-) -> PyResult<PyRawTEXT> {
+) -> PyResult<(PyVersion, Bound<'_, PyDict>, Bound<'_, PyDict>, PyParseData)> {
     let header = config::HeaderConfig {
         version_override: version_override.map(|x| x.0),
         text: config::OffsetCorrection {
@@ -174,7 +175,20 @@ fn read_fcs_raw_text(
         repair_offset_spaces,
         date_pattern: date_pattern.map(|x| x.0),
     };
-    handle_errors(api::read_fcs_raw_text(&p, &conf.set_strict(strict)))
+    let raw: api::RawTEXT = handle_errors(api::read_fcs_raw_text(&p, &conf.set_strict(strict)))?;
+    let std = raw
+        .keywords
+        .std
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .into_py_dict(py)?;
+    let nonstd = raw
+        .keywords
+        .nonstd
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .into_py_dict(py)?;
+    Ok((raw.version.into(), std, nonstd, raw.parse.into()))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -259,7 +273,7 @@ fn read_fcs_std_text(
     time_pattern: Option<PyTimePattern>,
     date_pattern: Option<PyDatePattern>,
     version_override: Option<PyVersion>,
-) -> PyResult<(Bound<'_, PyAny>, PyParseParameters, Bound<'_, PyDict>)> {
+) -> PyResult<(Bound<'_, PyAny>, PyParseData, Bound<'_, PyDict>)> {
     let header = config::HeaderConfig {
         version_override: version_override.map(|x| x.0),
         text: config::OffsetCorrection {
@@ -430,7 +444,7 @@ fn read_fcs_file(
     time_pattern: Option<PyTimePattern>,
     date_pattern: Option<PyDatePattern>,
     version_override: Option<PyVersion>,
-) -> PyResult<(Bound<'_, PyAny>, PyParseParameters, Bound<'_, PyDict>)> {
+) -> PyResult<(Bound<'_, PyAny>, PyParseData, Bound<'_, PyDict>)> {
     let header = config::HeaderConfig {
         version_override: version_override.map(|x| x.0),
         text: config::OffsetCorrection {
@@ -626,8 +640,7 @@ pywrap!(PySegment, api::Segment, "Segment");
 pywrap!(PyVersion, api::Version, "Version");
 pywrap!(PyHeader, api::Header, "Header");
 pywrap!(PyRawTEXT, api::RawTEXT, "RawTEXT");
-pywrap!(PyOffsets, api::ParseParameters, "Offsets");
-pywrap!(PyParseParameters, api::ParseParameters, "ParseParameters");
+pywrap!(PyParseData, api::ParseData, "ParseData");
 
 pywrap!(PyCoreTEXT2_0, api::CoreTEXT2_0, "CoreTEXT2_0");
 pywrap!(PyCoreTEXT3_0, api::CoreTEXT3_0, "CoreTEXT3_0");
@@ -796,31 +809,7 @@ impl PyHeader {
 }
 
 #[pymethods]
-impl PyRawTEXT {
-    #[getter]
-    fn version(&self) -> PyVersion {
-        self.0.version.into()
-    }
-
-    #[getter]
-    fn offsets(&self) -> PyOffsets {
-        self.0.parse.clone().into()
-    }
-
-    // TODO this is a gotcha because if someone tries to modify a keyword like
-    // 'std.keywords.cells = "2112"' then it the modification will actually be
-    // done to a copy of 'keywords' rather than 'std'.
-    // #[getter]
-    // fn keywords<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
-    //     self.0
-    //         .keywords
-    //         .map(|(k, v)| (k.to_string(), v.clone()))
-    //         .into_py_dict(py)
-    // }
-}
-
-#[pymethods]
-impl PyOffsets {
+impl PyParseData {
     #[getter]
     fn prim_text(&self) -> PySegment {
         self.0.prim_text.into()
@@ -844,6 +833,21 @@ impl PyOffsets {
     #[getter]
     fn nextdata(&self) -> Option<u32> {
         self.0.nextdata
+    }
+
+    #[getter]
+    fn delimiter(&self) -> u8 {
+        self.0.delimiter
+    }
+
+    #[getter]
+    fn non_ascii_keywords(&self) -> Vec<(String, String)> {
+        self.0.non_ascii.clone()
+    }
+
+    #[getter]
+    fn byte_pairs(&self) -> Vec<(Vec<u8>, Vec<u8>)> {
+        self.0.byte_pairs.clone()
     }
 }
 

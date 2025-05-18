@@ -8,3 +8,5 @@
 *.so
 *.venv
 *.mypy_cache/
+
+*perf.data

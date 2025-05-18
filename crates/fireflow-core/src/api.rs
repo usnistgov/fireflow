@@ -439,234 +439,47 @@ fn verify_delim(xs: &[u8], conf: &RawTextReadConfig) -> PureSuccess<u8> {
     res
 }
 
-// TODO this might be optimized further by splitting into "double delim" and
-// non-double-delim versions, the former case can be done much more simply. In
-// either case, it will probably be possible to do more operations on raw bytes
-// rather than convert to strings.
-fn split_raw_text(xs: &[u8], delim: u8, conf: &RawTextReadConfig) -> PureSuccess<RawPairs> {
+fn split_raw_text_nodouble(
+    xs: &[u8],
+    delim: u8,
+    conf: &RawTextReadConfig,
+) -> PureSuccess<RawPairs> {
     let mut deferred = PureErrorBuf::default();
-    let textlen = xs.len();
 
-    // Record delim positions
-    let delim_positions: Vec<_> = xs
-        .iter()
-        .enumerate()
-        // TODO could check for non-unicode characters here, which might come
-        // in handy later
-        .filter_map(|(i, c)| if *c == delim { Some(i) } else { None })
-        .collect();
+    // ASSUME input slice does not start or end with delim
+    let mut it = xs.split(|x| *x == delim);
+    let mut pairs = vec![];
+    let mut is_empty = false;
 
-    // bail if we only have two positions
-    if delim_positions.len() <= 2 {
-        return PureSuccess::from(vec![]);
-    }
-
-    // Reduce position list to 'boundary list' which will be tuples of position
-    // of a given delim and length until next delim.
-    let mut raw_boundaries = delim_positions
-        .iter()
-        .tuple_windows()
-        .map(|(a, b)| (*a, b - a));
-
-    struct WordBound {
-        start: usize,
-        length: usize,
-        has_delim: bool,
-    }
-
-    // Compute word boundaries depending on if we want to "escape" delims or
-    // not. Technically all versions of the standard allow double delimiters to
-    // be used in a word to represented a single delimiter. However, this means
-    // we also can't have blank values. Many FCS files unfortunately use blank
-    // values, so we need to be able to toggle this behavior.
-    let boundaries = if conf.allow_double_delim {
-        raw_boundaries
-            .map(|(start, length)| WordBound {
-                start,
-                length,
-                has_delim: false,
-            })
-            .collect()
-    } else {
-        // Remove "escaped" delimiters from position vector. Because we disallow
-        // blank values and also disallow delimiters at the start/end of words,
-        // this implies that we should only see delimiters by themselves or in a
-        // consecutive sequence whose length is even. Any odd-length'ed runs will
-        // be treated as one delimiter if config permits
-
-        let mut filtered_boundaries = Vec::with_capacity(delim_positions.len());
-        let mut consec_delims = 0;
-        let mut has_delim = false;
-        if let Some((mut prev_start, mut prev_len)) = raw_boundaries.next() {
-            for (start, len) in raw_boundaries {
-                if len == 1 {
-                    consec_delims += 1;
-                } else {
-                    if consec_delims == 0 {
-                        // No delimiters encountered, this is a new word, and
-                        // the previous word can be added.
-                        filtered_boundaries.push(WordBound {
-                            start: prev_start,
-                            length: prev_len,
-                            has_delim,
-                        });
-                        prev_start = start;
-                        prev_len = len;
-                        has_delim = false;
-                    } else if consec_delims % 2 == 0 {
-                        // Previous consecutive delimiter sequence was even,
-                        // treat as an escape. The current bound is part of the
-                        // previous bound, so add the current length to the
-                        // previous, including whatever length the delimiters
-                        // have.
-                        prev_len = prev_len + consec_delims + len;
-                        has_delim = true;
-                    } else {
-                        // Previous consecutive delimiter sequence was odd,
-                        // treat the previous non-delim bound as a word and
-                        // the current bound as the next word. Push the previous
-                        // bound as-is, which treats the delimiter sequence as
-                        // one delimiter separating the two words
-                        filtered_boundaries.push(WordBound {
-                            start: prev_start,
-                            length: prev_len,
-                            has_delim,
-                        });
-                        prev_start = start;
-                        prev_len = len;
-                        has_delim = false;
-                        deferred.push_warning("delim at word boundary".to_string());
-                    }
-                    consec_delims = 0;
-                }
-            }
-            filtered_boundaries.push(WordBound {
-                start: prev_start,
-                length: prev_len,
-                has_delim,
-            });
-        };
-
-        // TODO these should be assertions I think? A user shouldn't ever see
-        // these, and if they do I screwed something up
-
-        // If all went well in the previous step, we should have the following:
-        // 1. at least one boundary
-        // 2. first entry coincides with start of TEXT
-        // 3. last entry coincides with end of TEXT
-        if let (Some(b0), Some(b1)) = (filtered_boundaries.first(), filtered_boundaries.last()) {
-            if b0.start > 0 {
-                let msg = format!("first key starts with a delim '{delim}'");
-                deferred.push_error(msg);
-            }
-            if b1.start + b1.length < textlen - 1 {
-                let msg = format!("final value ends with a delim '{delim}'");
-                deferred.push_error(msg);
-            }
-        } else {
-            return PureSuccess {
-                data: vec![],
-                deferred,
-            };
-        }
-        filtered_boundaries
-    };
-
-    // Check that the last char is also a delim, if not file probably sketchy
-    // ASSUME this will not fail since we have at least one delim by definition
-    if !delim_positions.last().unwrap() == xs.len() - 1 {
-        deferred.push_msg_leveled(
-            "Last char is not a delimiter".to_string(),
-            conf.enforce_final_delim,
-        );
-    }
-
-    let delim2 = [delim, delim];
-    let delim1 = [delim];
-    // ASSUME these won't fail as we checked the delimiter is an ASCII character
-    let escape_from = str::from_utf8(&delim2).unwrap();
-    let escape_to = str::from_utf8(&delim1).unwrap();
-
-    struct WordBoundFinal {
-        start: usize,
-        end: usize,
-        has_delim: bool,
-    }
-
-    let final_boundaries: Vec<_> = boundaries
-        .into_iter()
-        .map(|b| WordBoundFinal {
-            start: b.start + 1,
-            end: b.start + b.length,
-            has_delim: b.has_delim,
-        })
-        .collect();
-
-    let mut pairs = Vec::with_capacity(final_boundaries.len() / 2);
-
-    // TODO this loop takes 10-15% total execution time when reading a file
-    // from start to finish in standardized mode
-    for chunk in final_boundaries.chunks(2) {
-        if let [kb, vb] = chunk {
-            // TODO lots of optimization opportunities here:
-            // - I should know if the bytes at this point are valid, since I've
-            //   already scanned through them once
-            // - None of the standard keys should have non-ascii in them
-            //   so that check is useless
-            // - I can split the standard and non-standard kws into two hash
-            //   tables and deal with them separately (since they don't need to
-            //   mix except at the bounds of the program)
-            // - If I split the tables then I don't need to store the '$' which
-            //   lowers memory/hashing cost, esp for all those little PnX keys
-            // - I don't need to store strings for standard keys, I just need to
-            //   store ASCII characters
-            // - For standard keys I can probably just iterate through and
-            //   convert to uppercase myself without allocating a new string
-            if let (Ok(k), Ok(v)) = (
-                str::from_utf8(&xs[kb.start..kb.end]),
-                str::from_utf8(&xs[vb.start..vb.end]),
-            ) {
-                // test if keyword is ascii
-                if !k.is_ascii() {
-                    // TODO actually include keyword here
-                    deferred.push_msg_leveled(
-                        "keywords must be ASCII".to_string(),
-                        conf.enforce_keyword_ascii,
-                    )
-                }
-                let kupper = k.to_uppercase();
-                // if delimiters were escaped, replace them here
-                if conf.allow_double_delim {
-                    // Test for empty values if we don't allow delim escaping;
-                    // anything empty will either drop or produce an error
-                    // depending on user settings
-                    if v.is_empty() {
-                        // TODO tell the user that this key will be dropped
-                        let msg = format!("key {kupper} has a blank value");
-                        deferred.push_msg_leveled(msg, conf.enforce_nonempty);
-                    } else {
-                        pairs.push((kupper, v.to_string()));
-                    }
-                } else {
-                    let krep = if kb.has_delim {
-                        kupper.replace(escape_from, escape_to)
-                    } else {
-                        kupper
-                    };
-                    let vrep = if vb.has_delim {
-                        v.replace(escape_from, escape_to)
-                    } else {
-                        v.to_string()
-                    };
-                    pairs.push((krep, vrep))
-                };
+    while let Some(key) = it.next() {
+        if key.is_empty() {
+            is_empty = true;
+            // TODO warn that we just encountered a blank key
+            if let Some(value) = it.next() {
+                is_empty = value.is_empty();
             } else {
-                let msg = "invalid UTF-8 byte encountered when parsing TEXT".to_string();
-                deferred.push_msg_leveled(msg, conf.error_on_invalid_utf8)
+                break;
+            }
+        } else if let Some(value) = it.next() {
+            if value.is_empty() {
+                is_empty = true;
+                // TODO warn that value is blank
+                ()
+            } else if let (Ok(k), Ok(v)) = (str::from_utf8(key), str::from_utf8(value)) {
+                is_empty = false;
+                pairs.push((k.to_uppercase(), v.to_string()))
+            } else {
+                is_empty = false;
+                // TODO warn user that strings aren't utf8
+                ()
             }
         } else {
-            deferred.push_msg_leveled("number of words is not even".to_string(), conf.enforce_even)
+            break;
         }
+    }
+
+    if !is_empty {
+        // TODO warn, this will be true if delim was not at end
     }
 
     PureSuccess {
@@ -674,6 +487,324 @@ fn split_raw_text(xs: &[u8], delim: u8, conf: &RawTextReadConfig) -> PureSuccess
         deferred,
     }
 }
+
+fn split_raw_text_double(xs: &[u8], delim: u8, conf: &RawTextReadConfig) -> PureSuccess<RawPairs> {
+    let mut deferred = PureErrorBuf::default();
+
+    // ASSUME input slice does not start with delim
+    let mut pairs = vec![];
+    let mut consec_blanks = 0;
+    let mut keybuf: Vec<u8> = vec![];
+    let mut valuebuf: Vec<u8> = vec![];
+
+    let mut go = |kb: &Vec<_>, vb: &Vec<_>| {
+        if let (Ok(k), Ok(v)) = (str::from_utf8(&kb[..]), str::from_utf8(&vb[..])) {
+            pairs.push((k.to_uppercase(), v.to_string()))
+        } else {
+            // TODO warn
+            ()
+        }
+    };
+
+    for segment in xs.split(|x| *x == delim) {
+        if segment.is_empty() {
+            consec_blanks += 1;
+        } else {
+            if consec_blanks & 1 == 0 {
+                // Previous number of delimiters is odd, treat this as a word
+                // boundary
+                if !valuebuf.is_empty() {
+                    go(&keybuf, &valuebuf);
+                    keybuf.clear();
+                    valuebuf.clear();
+                    keybuf.extend_from_slice(segment);
+                } else if !keybuf.is_empty() {
+                    valuebuf.extend_from_slice(segment);
+                } else {
+                    // this should only be reached on first iteration
+                    keybuf.extend_from_slice(segment);
+                }
+                // TODO warn if number of delims was greater than 1 which is
+                // technically not allowed
+            } else {
+                // Previous consecutive delimiter sequence was even. Push n / 2
+                // delimiters to whatever the current word is.
+                let n = (consec_blanks + 1) / 2;
+                let buf = if valuebuf.is_empty() {
+                    &mut keybuf
+                } else {
+                    &mut valuebuf
+                };
+                for _ in 0..n {
+                    buf.push(delim);
+                }
+            }
+            consec_blanks = 0;
+        }
+    }
+
+    if valuebuf.is_empty() {
+        // TODO warn
+    } else {
+        go(&keybuf, &valuebuf);
+    }
+
+    PureSuccess {
+        data: pairs,
+        deferred,
+    }
+}
+
+fn split_raw_text(xs: &[u8], delim: u8, conf: &RawTextReadConfig) -> PureSuccess<RawPairs> {
+    if let Some(start) = xs.iter().position(|x| *x == delim) {
+        let ys = &xs[(start + 1)..];
+        // TODO warn if slice is empty
+        if conf.allow_double_delim {
+            split_raw_text_double(ys, delim, conf)
+        } else {
+            split_raw_text_nodouble(ys, delim, conf)
+        }
+    } else {
+        // TODO warn
+        PureSuccess::from(vec![])
+    }
+}
+
+// // TODO this might be optimized further by splitting into "double delim" and
+// // non-double-delim versions, the former case can be done much more simply. In
+// // either case, it will probably be possible to do more operations on raw bytes
+// // rather than convert to strings.
+// fn split_raw_text(xs: &[u8], delim: u8, conf: &RawTextReadConfig) -> PureSuccess<RawPairs> {
+//     let mut deferred = PureErrorBuf::default();
+//     let textlen = xs.len();
+
+//     // Record delim positions
+//     let delim_positions: Vec<_> = xs
+//         .iter()
+//         .enumerate()
+//         // TODO could check for non-unicode characters here, which might come
+//         // in handy later
+//         .filter_map(|(i, c)| if *c == delim { Some(i) } else { None })
+//         .collect();
+
+//     // bail if we only have two positions
+//     if delim_positions.len() <= 2 {
+//         return PureSuccess::from(vec![]);
+//     }
+
+//     // Reduce position list to 'boundary list' which will be tuples of position
+//     // of a given delim and length until next delim.
+//     let mut raw_boundaries = delim_positions
+//         .iter()
+//         .tuple_windows()
+//         .map(|(a, b)| (*a, b - a));
+
+//     struct WordBound {
+//         start: usize,
+//         length: usize,
+//         has_delim: bool,
+//     }
+
+//     // Compute word boundaries depending on if we want to "escape" delims or
+//     // not. Technically all versions of the standard allow double delimiters to
+//     // be used in a word to represented a single delimiter. However, this means
+//     // we also can't have blank values. Many FCS files unfortunately use blank
+//     // values, so we need to be able to toggle this behavior.
+//     let boundaries = if conf.allow_double_delim {
+//         raw_boundaries
+//             .map(|(start, length)| WordBound {
+//                 start,
+//                 length,
+//                 has_delim: false,
+//             })
+//             .collect()
+//     } else {
+//         // Remove "escaped" delimiters from position vector. Because we disallow
+//         // blank values and also disallow delimiters at the start/end of words,
+//         // this implies that we should only see delimiters by themselves or in a
+//         // consecutive sequence whose length is even. Any odd-length'ed runs will
+//         // be treated as one delimiter if config permits
+
+//         let mut filtered_boundaries = Vec::with_capacity(delim_positions.len());
+//         let mut consec_delims = 0;
+//         let mut has_delim = false;
+//         if let Some((mut prev_start, mut prev_len)) = raw_boundaries.next() {
+//             for (start, len) in raw_boundaries {
+//                 if len == 1 {
+//                     consec_delims += 1;
+//                 } else {
+//                     if consec_delims == 0 {
+//                         // No delimiters encountered, this is a new word, and
+//                         // the previous word can be added.
+//                         filtered_boundaries.push(WordBound {
+//                             start: prev_start,
+//                             length: prev_len,
+//                             has_delim,
+//                         });
+//                         prev_start = start;
+//                         prev_len = len;
+//                         has_delim = false;
+//                     } else if consec_delims % 2 == 0 {
+//                         // Previous consecutive delimiter sequence was even,
+//                         // treat as an escape. The current bound is part of the
+//                         // previous bound, so add the current length to the
+//                         // previous, including whatever length the delimiters
+//                         // have.
+//                         prev_len = prev_len + consec_delims + len;
+//                         has_delim = true;
+//                     } else {
+//                         // Previous consecutive delimiter sequence was odd,
+//                         // treat the previous non-delim bound as a word and
+//                         // the current bound as the next word. Push the previous
+//                         // bound as-is, which treats the delimiter sequence as
+//                         // one delimiter separating the two words
+//                         filtered_boundaries.push(WordBound {
+//                             start: prev_start,
+//                             length: prev_len,
+//                             has_delim,
+//                         });
+//                         prev_start = start;
+//                         prev_len = len;
+//                         has_delim = false;
+//                         deferred.push_warning("delim at word boundary".to_string());
+//                     }
+//                     consec_delims = 0;
+//                 }
+//             }
+//             filtered_boundaries.push(WordBound {
+//                 start: prev_start,
+//                 length: prev_len,
+//                 has_delim,
+//             });
+//         };
+
+//         // TODO these should be assertions I think? A user shouldn't ever see
+//         // these, and if they do I screwed something up
+
+//         // If all went well in the previous step, we should have the following:
+//         // 1. at least one boundary
+//         // 2. first entry coincides with start of TEXT
+//         // 3. last entry coincides with end of TEXT
+//         if let (Some(b0), Some(b1)) = (filtered_boundaries.first(), filtered_boundaries.last()) {
+//             if b0.start > 0 {
+//                 let msg = format!("first key starts with a delim '{delim}'");
+//                 deferred.push_error(msg);
+//             }
+//             if b1.start + b1.length < textlen - 1 {
+//                 let msg = format!("final value ends with a delim '{delim}'");
+//                 deferred.push_error(msg);
+//             }
+//         } else {
+//             return PureSuccess {
+//                 data: vec![],
+//                 deferred,
+//             };
+//         }
+//         filtered_boundaries
+//     };
+
+//     // Check that the last char is also a delim, if not file probably sketchy
+//     // ASSUME this will not fail since we have at least one delim by definition
+//     if !delim_positions.last().unwrap() == xs.len() - 1 {
+//         deferred.push_msg_leveled(
+//             "Last char is not a delimiter".to_string(),
+//             conf.enforce_final_delim,
+//         );
+//     }
+
+//     let delim2 = [delim, delim];
+//     let delim1 = [delim];
+//     // ASSUME these won't fail as we checked the delimiter is an ASCII character
+//     let escape_from = str::from_utf8(&delim2).unwrap();
+//     let escape_to = str::from_utf8(&delim1).unwrap();
+
+//     struct WordBoundFinal {
+//         start: usize,
+//         end: usize,
+//         has_delim: bool,
+//     }
+
+//     let final_boundaries: Vec<_> = boundaries
+//         .into_iter()
+//         .map(|b| WordBoundFinal {
+//             start: b.start + 1,
+//             end: b.start + b.length,
+//             has_delim: b.has_delim,
+//         })
+//         .collect();
+
+//     let mut pairs = Vec::with_capacity(final_boundaries.len() / 2);
+
+//     // TODO this loop takes 10-15% total execution time when reading a file
+//     // from start to finish in standardized mode
+//     for chunk in final_boundaries.chunks(2) {
+//         if let [kb, vb] = chunk {
+//             // TODO lots of optimization opportunities here:
+//             // - I should know if the bytes at this point are valid, since I've
+//             //   already scanned through them once
+//             // - None of the standard keys should have non-ascii in them
+//             //   so that check is useless
+//             // - I can split the standard and non-standard kws into two hash
+//             //   tables and deal with them separately (since they don't need to
+//             //   mix except at the bounds of the program)
+//             // - If I split the tables then I don't need to store the '$' which
+//             //   lowers memory/hashing cost, esp for all those little PnX keys
+//             // - I don't need to store strings for standard keys, I just need to
+//             //   store ASCII characters
+//             // - For standard keys I can probably just iterate through and
+//             //   convert to uppercase myself without allocating a new string
+//             if let (Ok(k), Ok(v)) = (
+//                 str::from_utf8(&xs[kb.start..kb.end]),
+//                 str::from_utf8(&xs[vb.start..vb.end]),
+//             ) {
+//                 // test if keyword is ascii
+//                 if !k.is_ascii() {
+//                     // TODO actually include keyword here
+//                     deferred.push_msg_leveled(
+//                         "keywords must be ASCII".to_string(),
+//                         conf.enforce_keyword_ascii,
+//                     )
+//                 }
+//                 let kupper = k.to_uppercase();
+//                 // if delimiters were escaped, replace them here
+//                 if conf.allow_double_delim {
+//                     // Test for empty values if we don't allow delim escaping;
+//                     // anything empty will either drop or produce an error
+//                     // depending on user settings
+//                     if v.is_empty() {
+//                         // TODO tell the user that this key will be dropped
+//                         let msg = format!("key {kupper} has a blank value");
+//                         deferred.push_msg_leveled(msg, conf.enforce_nonempty);
+//                     } else {
+//                         pairs.push((kupper, v.to_string()));
+//                     }
+//                 } else {
+//                     let krep = if kb.has_delim {
+//                         kupper.replace(escape_from, escape_to)
+//                     } else {
+//                         kupper
+//                     };
+//                     let vrep = if vb.has_delim {
+//                         v.replace(escape_from, escape_to)
+//                     } else {
+//                         v.to_string()
+//                     };
+//                     pairs.push((krep, vrep))
+//                 };
+//             } else {
+//                 let msg = "invalid UTF-8 byte encountered when parsing TEXT".to_string();
+//                 deferred.push_msg_leveled(msg, conf.error_on_invalid_utf8)
+//             }
+//         } else {
+//             deferred.push_msg_leveled("number of words is not even".to_string(), conf.enforce_even)
+//         }
+//     }
+
+//     PureSuccess {
+//         data: pairs,
+//         deferred,
+//     }
+// }
 
 fn repair_keywords(kws: &mut RawKeywords, conf: &RawTextReadConfig) {
     for (key, v) in kws.iter_mut() {

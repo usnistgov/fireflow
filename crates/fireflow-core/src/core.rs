@@ -2217,9 +2217,6 @@ where
         let mut meta_nonstd = vec![];
 
         if let Some(p) = &st.conf.nonstandard_measurement_pattern {
-            // TODO this is slower than dirt if we have lots of measurements, it
-            // will be much faster if we just check for a prefix which is likely
-            // what the user will want.
             let ps: Vec<_> = (0..par.0)
                 // TODO throw errors here if pattern is bad
                 .map(|n| p.from_index(n.into()).ok())

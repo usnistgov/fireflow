@@ -275,14 +275,23 @@ pub(crate) use match_anycoretext;
 impl AnyCoreTEXT {
     pub(crate) fn parse_raw(
         version: Version,
-        kws: &mut RawKeywords,
+        std: &mut StdKeywords,
+        nonstd: NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> PureResult<Self> {
         match version {
-            Version::FCS2_0 => CoreTEXT2_0::new_from_raw(kws, conf).map(|x| x.map(|y| y.into())),
-            Version::FCS3_0 => CoreTEXT3_0::new_from_raw(kws, conf).map(|x| x.map(|y| y.into())),
-            Version::FCS3_1 => CoreTEXT3_1::new_from_raw(kws, conf).map(|x| x.map(|y| y.into())),
-            Version::FCS3_2 => CoreTEXT3_2::new_from_raw(kws, conf).map(|x| x.map(|y| y.into())),
+            Version::FCS2_0 => {
+                CoreTEXT2_0::new_from_raw(std, nonstd, conf).map(|x| x.map(|y| y.into()))
+            }
+            Version::FCS3_0 => {
+                CoreTEXT3_0::new_from_raw(std, nonstd, conf).map(|x| x.map(|y| y.into()))
+            }
+            Version::FCS3_1 => {
+                CoreTEXT3_1::new_from_raw(std, nonstd, conf).map(|x| x.map(|y| y.into()))
+            }
+            Version::FCS3_2 => {
+                CoreTEXT3_2::new_from_raw(std, nonstd, conf).map(|x| x.map(|y| y.into()))
+            }
         }
     }
 
@@ -319,7 +328,7 @@ impl AnyCoreTEXT {
 
     pub(crate) fn as_data_reader(
         &self,
-        kws: &mut RawKeywords,
+        kws: &mut StdKeywords,
         conf: &DataReadConfig,
         data_seg: Segment,
     ) -> PureMaybe<DataReader> {
@@ -841,13 +850,13 @@ impl CommonMeasurement {
         }
     }
 
-    fn lookup(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
+    fn lookup(st: &mut KwParser, i: MeasIdx, nonstd: NonStdPairs) -> Option<Self> {
         if let (Some(width), Some(range)) = (st.lookup_meas_req(i), st.lookup_meas_req(i)) {
             Some(Self {
                 width,
                 range,
                 longname: st.lookup_meas_opt(i, false),
-                nonstandard_keywords: st.lookup_all_meas_nonstandard(i),
+                nonstandard_keywords: nonstd.into_iter().collect(),
             })
         } else {
             None
@@ -874,13 +883,14 @@ where
         }
     }
 
-    fn lookup_temporal(st: &mut KwParser, i: MeasIdx) -> Option<Self>
+    fn lookup_temporal(st: &mut KwParser, i: MeasIdx, nonstd: NonStdPairs) -> Option<Self>
     where
         T: LookupTemporal,
     {
-        if let (Some(common), Some(specific)) =
-            (CommonMeasurement::lookup(st, i), T::lookup_specific(st, i))
-        {
+        if let (Some(common), Some(specific)) = (
+            CommonMeasurement::lookup(st, i, nonstd),
+            T::lookup_specific(st, i),
+        ) {
             Some(Temporal { common, specific })
         } else {
             None
@@ -958,14 +968,15 @@ where
             })
     }
 
-    fn lookup_optical(st: &mut KwParser, i: MeasIdx) -> Option<Self>
+    fn lookup_optical(st: &mut KwParser, i: MeasIdx, nonstd: NonStdPairs) -> Option<Self>
     where
         P: LookupOptical,
     {
         let v = P::fcs_version();
-        if let (Some(common), Some(specific)) =
-            (CommonMeasurement::lookup(st, i), P::lookup_specific(st, i))
-        {
+        if let (Some(common), Some(specific)) = (
+            CommonMeasurement::lookup(st, i, nonstd),
+            P::lookup_specific(st, i),
+        ) {
             Some(Optical {
                 common,
                 filter: st.lookup_meas_opt(i, false),
@@ -1127,7 +1138,11 @@ where
             })
     }
 
-    fn lookup_metadata(st: &mut KwParser, ms: &Measurements<M::N, M::T, M::P>) -> Option<Self>
+    fn lookup_metadata(
+        st: &mut KwParser,
+        ms: &Measurements<M::N, M::T, M::P>,
+        nonstd: NonStdPairs,
+    ) -> Option<Self>
     where
         M: LookupMetadata,
     {
@@ -1149,7 +1164,7 @@ where
                 src: st.lookup_meta_opt(false),
                 sys: st.lookup_meta_opt(false),
                 tr: st.lookup_meta_opt(false),
-                nonstandard_keywords: st.lookup_all_nonstandard(),
+                nonstandard_keywords: nonstd.into_iter().collect(),
                 specific,
             })
     }
@@ -2190,14 +2205,38 @@ where
         par: Par,
         pat: Option<&TimePattern>,
         prefix: &ShortnamePrefix,
-    ) -> Option<Measurements<M::N, M::T, M::P>>
+        nonstd: NonStdPairs,
+    ) -> Option<(Measurements<M::N, M::T, M::P>, NonStdPairs)>
     where
         M: LookupMetadata,
         M::T: LookupTemporal,
         M::P: LookupOptical,
     {
+        let mut meas_nonstds: Vec<Vec<_>> = vec![vec![]; par.0];
+        let mut meta_nonstd = vec![];
+
+        if let Some(p) = &st.conf.nonstandard_measurement_pattern {
+            let ps: Vec<_> = (0..par.0)
+                .into_iter()
+                // TODO throw errors here if pattern is bad
+                .map(|n| p.from_index(n.into()).ok())
+                .collect();
+            for (k, v) in nonstd {
+                if let Some(j) = ps
+                    .iter()
+                    .position(|p| p.as_ref().is_some_and(|pp| pp.is_match(k.as_ref())))
+                {
+                    meas_nonstds[j].push((k, v));
+                } else {
+                    meta_nonstd.push((k, v));
+                }
+            }
+        } else {
+            meta_nonstd = nonstd;
+        }
         let ps: Vec<_> = (0..par.0)
-            .flat_map(|n| {
+            .zip(meas_nonstds)
+            .flat_map(|(n, nonstd)| {
                 let i = n.into();
                 let name_res = M::lookup_shortname(st, i)?;
                 let key = M::N::to_res(name_res).and_then(|name| {
@@ -2212,11 +2251,11 @@ where
                 // happens to match more than one measurement
                 let res = match key {
                     Ok(name) => {
-                        let t = Temporal::lookup_temporal(st, i)?;
+                        let t = Temporal::lookup_temporal(st, i, nonstd)?;
                         Element::Center((name, t))
                     }
                     Err(k) => {
-                        let m = Optical::lookup_optical(st, i)?;
+                        let m = Optical::lookup_optical(st, i, nonstd)?;
                         Element::NonCenter((k, m))
                     }
                 };
@@ -2229,7 +2268,7 @@ where
                     st.push_error(e);
                     None
                 },
-                Some,
+                |x| Some((x, meta_nonstd)),
             )
         } else {
             // ASSUME errors were capture elsewhere
@@ -2334,7 +2373,7 @@ where
 
     pub(crate) fn as_data_reader(
         &self,
-        kws: &mut RawKeywords,
+        kws: &mut StdKeywords,
         _: &DataReadConfig,
         data_seg: Segment,
     ) -> PureMaybe<DataReader> {
@@ -2360,21 +2399,28 @@ where
     ///
     /// Return any errors encountered, including messing required keywords,
     /// parse errors, and/or deprecation warnings.
-    pub(crate) fn new_from_raw(kws: &mut RawKeywords, conf: &StdTextReadConfig) -> PureResult<Self>
+    pub(crate) fn new_from_raw(
+        std: &mut StdKeywords,
+        nonstd: NonStdKeywords,
+        conf: &StdTextReadConfig,
+    ) -> PureResult<Self>
     where
         M: LookupMetadata,
         M::T: LookupTemporal,
         M::P: LookupOptical,
     {
         // Lookup $PAR first since we need this to get the measurements
-        let par = Failure::from_result(Par::remove_meta_req(kws))?;
+        let par = Failure::from_result(Par::remove_meta_req(std))?;
         let md_fail = "could not standardize TEXT".to_string();
         let tp = conf.time.pattern.as_ref();
-        let md_succ = KwParser::try_run(kws, conf, md_fail, |st| {
+        let md_succ = KwParser::try_run(std, conf, md_fail, |st| {
             // Lookup measurement keywords, return Some if no errors encountered
-            if let Some(ms) = Self::lookup_measurements(st, par, tp, &conf.shortname_prefix) {
+            let ns: Vec<_> = nonstd.into_iter().collect();
+            if let Some((ms, meta_ns)) =
+                Self::lookup_measurements(st, par, tp, &conf.shortname_prefix, ns)
+            {
                 // Lookup non-measurement keywords, build struct if this works
-                Metadata::lookup_metadata(st, &ms)
+                Metadata::lookup_metadata(st, &ms, meta_ns)
                     .map(|metadata| CoreTEXT::new_unchecked(metadata, ms))
             } else {
                 None

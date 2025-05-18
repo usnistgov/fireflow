@@ -114,6 +114,10 @@ impl NonStdKey {
     pub fn from_unchecked(s: &str) -> Self {
         Self(s.into())
     }
+
+    pub fn into_unchecked(s: String) -> Self {
+        Self(s)
+    }
 }
 
 impl NonStdMeasKey {
@@ -135,6 +139,10 @@ impl NonStdMeasRegex {
         } else {
             None
         }
+    }
+
+    pub fn is_match(&self, s: &str) -> bool {
+        self.0.is_match(s)
     }
 }
 

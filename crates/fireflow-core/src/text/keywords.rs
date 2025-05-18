@@ -19,11 +19,134 @@ use chrono::NaiveTime;
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use serde::Serialize;
+use std::borrow::Borrow;
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::fmt;
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::FromStr;
+
+#[derive(Clone, PartialEq, Eq, Hash, Serialize)]
+pub struct StdKey(String);
+
+impl StdKey {
+    pub(crate) fn new_unchecked(s: String) -> Self {
+        Self(s)
+    }
+}
+
+impl AsRef<str> for StdKey {
+    fn as_ref(&self) -> &str {
+        self.0.as_ref()
+    }
+}
+
+impl Borrow<str> for StdKey {
+    fn borrow(&self) -> &str {
+        self.0.borrow()
+    }
+}
+
+pub type StdKeywords = HashMap<StdKey, String>;
+
+pub type StdPairs = Vec<(StdKey, String)>;
+pub type NonStdPairs = Vec<(NonStdKey, String)>;
+pub type NonAsciiPairs = Vec<(String, String)>;
+pub type BytesPairs = Vec<(Vec<u8>, Vec<u8>)>;
+
+#[derive(Clone, Default, Serialize)]
+pub struct AllKeywords {
+    pub std: StdKeywords,
+    pub nonstd: NonStdKeywords,
+    pub non_ascii: NonAsciiPairs,
+    pub raw: BytesPairs,
+}
+
+impl AllKeywords {
+    pub(crate) fn insert(&mut self, k: &[u8], v: &[u8]) -> Result<(), KeywordInsertError> {
+        let n = k.len();
+        let vv = v.to_vec();
+        match String::from_utf8(vv) {
+            Ok(vs) => {
+                if n > 1 && k[0] == 36 && is_ascii(&k[1..]) {
+                    // Standard key: starts with '$', check remaining chars are
+                    // ASCII and convert lowercase to uppercase
+                    let xs = k[1..]
+                        .iter()
+                        .map(|x| if (97..=122).contains(x) { *x - 32 } else { *x })
+                        .collect();
+                    let kk = StdKey(unsafe { String::from_utf8_unchecked(xs) });
+                    match self.std.entry(kk) {
+                        Entry::Occupied(e) => {
+                            Err(KeywordInsertError::StdPresent(e.key().clone(), vs))
+                        }
+                        Entry::Vacant(e) => {
+                            e.insert(vs);
+                            Ok(())
+                        }
+                    }
+                } else if n > 0 && is_ascii(k) {
+                    // Non-standard key: does not start with '$' but is still
+                    // ASCII
+                    let kk = NonStdKey::into_unchecked(unsafe {
+                        String::from_utf8_unchecked(k.to_vec())
+                    });
+                    match self.nonstd.entry(kk) {
+                        Entry::Occupied(e) => {
+                            Err(KeywordInsertError::NonStdPresent(e.key().clone(), vs))
+                        }
+                        Entry::Vacant(e) => {
+                            e.insert(vs);
+                            Ok(())
+                        }
+                    }
+                } else if let Ok(kk) = String::from_utf8(k.to_vec()) {
+                    // Non-ascii key: these are technically not allowed but save
+                    // them anyways in case the user cares. If key isn't UTF-8
+                    // then give up.
+                    self.non_ascii.push((kk, vs));
+                    Ok(())
+                } else {
+                    self.raw.push((k.to_vec(), vs.into()));
+                    Ok(())
+                }
+            }
+            Err(e) => {
+                self.raw.push((k.to_vec(), e.into_bytes()));
+                Ok(())
+            }
+        }
+    }
+}
+
+pub(crate) enum KeywordInsertError {
+    StdPresent(StdKey, String),
+    NonStdPresent(NonStdKey, String),
+}
+
+impl fmt::Display for StdKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "${}", self.0)
+    }
+}
+
+impl fmt::Display for KeywordInsertError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            KeywordInsertError::StdPresent(k, v) => {
+                write!(f, "std key '{k}' already present, has value '{v}'")
+            }
+            KeywordInsertError::NonStdPresent(k, v) => {
+                write!(f, "non-std key '{k}' already present, has value '{v}'")
+            }
+        }
+    }
+}
+
+fn is_ascii(xs: &[u8]) -> bool {
+    xs.iter().all(|x| 36 <= *x && *x <= 126)
+}
 
 /// The value of the $PnG keyword
 #[derive(Clone, Copy, Serialize, PartialEq)]
@@ -752,13 +875,8 @@ newtype_fromstr!(DetectorVoltage, RangedFloatError);
 pub(crate) trait Key {
     const C: &'static str;
 
-    fn std() -> String {
-        let n = Self::C.len() + 1;
-        let mut s = String::new();
-        s.reserve_exact(n);
-        s.push('$');
-        s.push_str(Self::C);
-        s
+    fn std() -> StdKey {
+        StdKey(Self::C.to_string())
     }
 }
 
@@ -766,16 +884,14 @@ pub(crate) trait IndexedKey {
     const PREFIX: &'static str;
     const SUFFIX: &'static str;
 
-    fn std(i: MeasIdx) -> String {
-        // reserve enough space for '$', prefix, suffix, and a number with 3 digits
-        let n = Self::PREFIX.len() + 4 + Self::SUFFIX.len();
+    fn std(i: MeasIdx) -> StdKey {
+        // reserve enough space for prefix, suffix, and a number with 3 digits
+        let n = Self::PREFIX.len() + 3 + Self::SUFFIX.len();
         let mut s = String::with_capacity(n);
-        let j = i.to_string();
-        s.push('$');
         s.push_str(Self::PREFIX);
-        s.push_str(j.as_str());
+        s.push_str(i.to_string().as_str());
         s.push_str(Self::SUFFIX);
-        s
+        StdKey(s)
     }
 
     fn std_blank() -> String {
@@ -813,7 +929,7 @@ pub(crate) type RawKeywords = HashMap<String, String>;
 type ReqResult<T> = Result<T, String>;
 type OptResult<T> = Result<OptionalKw<T>, String>;
 
-pub(crate) fn get_req<T>(kws: &RawKeywords, k: &str) -> Result<T, String>
+pub(crate) fn get_req<T>(kws: &StdKeywords, k: &StdKey) -> Result<T, String>
 where
     T: FromStr,
     <T as FromStr>::Err: fmt::Display,
@@ -826,7 +942,7 @@ where
     }
 }
 
-pub(crate) fn get_opt<T>(kws: &RawKeywords, k: &str) -> Result<Option<T>, String>
+pub(crate) fn get_opt<T>(kws: &StdKeywords, k: &StdKey) -> Result<Option<T>, String>
 where
     T: FromStr,
     <T as FromStr>::Err: fmt::Display,
@@ -841,7 +957,7 @@ where
 }
 
 // TODO not DRY
-pub(crate) fn remove_req<T>(kws: &mut RawKeywords, k: &str) -> Result<T, String>
+pub(crate) fn remove_req<T>(kws: &mut StdKeywords, k: &StdKey) -> Result<T, String>
 where
     T: FromStr,
     <T as FromStr>::Err: fmt::Display,
@@ -854,7 +970,7 @@ where
     }
 }
 
-pub(crate) fn remove_opt<T>(kws: &mut RawKeywords, k: &str) -> Result<Option<T>, String>
+pub(crate) fn remove_opt<T>(kws: &mut StdKeywords, k: &StdKey) -> Result<Option<T>, String>
 where
     T: FromStr,
     <T as FromStr>::Err: fmt::Display,
@@ -869,7 +985,7 @@ where
 }
 
 pub(crate) trait Required {
-    fn get_req<V>(kws: &RawKeywords, k: &str) -> Result<V, String>
+    fn get_req<V>(kws: &StdKeywords, k: &StdKey) -> Result<V, String>
     where
         V: FromStr,
         <V as FromStr>::Err: fmt::Display,
@@ -877,7 +993,7 @@ pub(crate) trait Required {
         get_req(kws, k)
     }
 
-    fn remove_req<V>(kws: &mut RawKeywords, k: &str) -> Result<V, String>
+    fn remove_req<V>(kws: &mut StdKeywords, k: &StdKey) -> Result<V, String>
     where
         V: FromStr,
         <V as FromStr>::Err: fmt::Display,
@@ -887,7 +1003,7 @@ pub(crate) trait Required {
 }
 
 pub(crate) trait Optional {
-    fn get_opt<V>(kws: &RawKeywords, k: &str) -> Result<OptionalKw<V>, String>
+    fn get_opt<V>(kws: &StdKeywords, k: &StdKey) -> Result<OptionalKw<V>, String>
     where
         V: FromStr,
         <V as FromStr>::Err: fmt::Display,
@@ -895,7 +1011,7 @@ pub(crate) trait Optional {
         get_opt(kws, k).map(|x| x.into())
     }
 
-    fn remove_opt<V>(kws: &mut RawKeywords, k: &str) -> Result<OptionalKw<V>, String>
+    fn remove_opt<V>(kws: &mut StdKeywords, k: &StdKey) -> Result<OptionalKw<V>, String>
     where
         V: FromStr,
         <V as FromStr>::Err: fmt::Display,
@@ -912,16 +1028,16 @@ where
     Self: FromStr,
     <Self as FromStr>::Err: fmt::Display,
 {
-    fn get_meta_req(kws: &RawKeywords) -> ReqResult<Self> {
-        Self::get_req(kws, Self::std().as_str())
+    fn get_meta_req(kws: &StdKeywords) -> ReqResult<Self> {
+        Self::get_req(kws, &Self::std())
     }
 
-    fn remove_meta_req(kws: &mut RawKeywords) -> ReqResult<Self> {
-        Self::remove_req(kws, Self::std().as_str())
+    fn remove_meta_req(kws: &mut StdKeywords) -> ReqResult<Self> {
+        Self::remove_req(kws, &Self::std())
     }
 
     fn pair(&self) -> (String, String) {
-        (Self::std(), self.to_string())
+        (Self::std().to_string(), self.to_string())
     }
 }
 
@@ -933,16 +1049,20 @@ where
     Self: FromStr,
     <Self as FromStr>::Err: fmt::Display,
 {
-    fn get_meas_req(kws: &RawKeywords, n: MeasIdx) -> ReqResult<Self> {
-        Self::get_req(kws, Self::std(n).as_str())
+    fn get_meas_req(kws: &StdKeywords, n: MeasIdx) -> ReqResult<Self> {
+        Self::get_req(kws, &Self::std(n))
     }
 
-    fn remove_meas_req(kws: &mut RawKeywords, n: MeasIdx) -> ReqResult<Self> {
-        Self::remove_req(kws, Self::std(n).as_str())
+    fn remove_meas_req(kws: &mut StdKeywords, n: MeasIdx) -> ReqResult<Self> {
+        Self::remove_req(kws, &Self::std(n))
     }
 
     fn triple(&self, n: MeasIdx) -> (String, String, String) {
-        (Self::std_blank(), Self::std(n), self.to_string())
+        (
+            Self::std_blank(),
+            Self::std(n).to_string(),
+            self.to_string(),
+        )
     }
 
     fn pair(&self, n: MeasIdx) -> (String, String) {
@@ -959,16 +1079,19 @@ where
     Self: FromStr,
     <Self as FromStr>::Err: fmt::Display,
 {
-    fn get_meta_opt(kws: &RawKeywords) -> OptResult<Self> {
-        Self::get_opt(kws, Self::std().as_str())
+    fn get_meta_opt(kws: &StdKeywords) -> OptResult<Self> {
+        Self::get_opt(kws, &Self::std())
     }
 
-    fn remove_meta_opt(kws: &mut RawKeywords) -> OptResult<Self> {
-        Self::remove_opt(kws, Self::std().as_str())
+    fn remove_meta_opt(kws: &mut StdKeywords) -> OptResult<Self> {
+        Self::remove_opt(kws, &Self::std())
     }
 
     fn pair(opt: &OptionalKw<Self>) -> (String, Option<String>) {
-        (Self::std(), opt.0.as_ref().map(|s| s.to_string()))
+        (
+            Self::std().to_string(),
+            opt.0.as_ref().map(|s| s.to_string()),
+        )
     }
 }
 
@@ -980,18 +1103,18 @@ where
     Self: FromStr,
     <Self as FromStr>::Err: fmt::Display,
 {
-    fn get_meas_opt(kws: &RawKeywords, n: MeasIdx) -> OptResult<Self> {
-        Self::get_opt(kws, Self::std(n).as_str())
+    fn get_meas_opt(kws: &StdKeywords, n: MeasIdx) -> OptResult<Self> {
+        Self::get_opt(kws, &Self::std(n))
     }
 
-    fn remove_meas_opt(kws: &mut RawKeywords, n: MeasIdx) -> OptResult<Self> {
-        Self::remove_opt(kws, Self::std(n).as_str())
+    fn remove_meas_opt(kws: &mut StdKeywords, n: MeasIdx) -> OptResult<Self> {
+        Self::remove_opt(kws, &Self::std(n))
     }
 
     fn triple(opt: &OptionalKw<Self>, n: MeasIdx) -> (String, String, Option<String>) {
         (
             Self::std_blank(),
-            Self::std(n),
+            Self::std(n).to_string(),
             opt.0.as_ref().map(|s| s.to_string()),
         )
     }
@@ -1339,3 +1462,19 @@ kw_opt_meas!(Wavelengths, "L"); // vector in 3.1+
 
 kw_opt_meas!(Calibration3_1, "CALIBRATION"); // 3.1 doesn't have offset
 kw_opt_meas!(Calibration3_2, "CALIBRATION"); // 3.2+ includes offset
+
+pub struct Beginanalysis;
+pub struct Begindata;
+pub struct Beginstext;
+pub struct Endanalysis;
+pub struct Enddata;
+pub struct Endstext;
+pub struct Nextdata;
+
+kw_meta!(Beginanalysis, "BEGINANALYSIS");
+kw_meta!(Begindata, "BEGINDATA");
+kw_meta!(Beginstext, "BEGINSTEXT");
+kw_meta!(Endanalysis, "ENDANALYSIS");
+kw_meta!(Enddata, "ENDDATA");
+kw_meta!(Endstext, "ENDSTEXT");
+kw_meta!(Nextdata, "NEXTDATA");

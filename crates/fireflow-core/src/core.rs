@@ -1629,7 +1629,7 @@ where
         Optical<M::P>: From<Temporal<M::T>>,
         Temporal<M::T>: From<Optical<M::P>>,
     {
-        if let Some(Element::NonCenter((_, o))) = self.measurements_named_vec().get(index).ok() {
+        if let Ok(Element::NonCenter((_, o))) = self.measurements_named_vec().get(index) {
             if !force {
                 o.specific
                     .can_convert_temporal()
@@ -2200,6 +2200,7 @@ where
         }
     }
 
+    #[allow(clippy::type_complexity)]
     fn lookup_measurements(
         st: &mut KwParser,
         par: Par,
@@ -2216,15 +2217,17 @@ where
         let mut meta_nonstd = vec![];
 
         if let Some(p) = &st.conf.nonstandard_measurement_pattern {
+            // TODO this is slower than dirt if we have lots of measurements, it
+            // will be much faster if we just check for a prefix which is likely
+            // what the user will want.
             let ps: Vec<_> = (0..par.0)
-                .into_iter()
                 // TODO throw errors here if pattern is bad
                 .map(|n| p.from_index(n.into()).ok())
                 .collect();
             for (k, v) in nonstd {
                 if let Some(j) = ps
                     .iter()
-                    .position(|p| p.as_ref().is_some_and(|pp| pp.is_match(k.as_ref())))
+                    .position(|x| x.as_ref().is_some_and(|pp| pp.is_match(k.as_ref())))
                 {
                     meas_nonstds[j].push((k, v));
                 } else {
@@ -2236,7 +2239,7 @@ where
         }
         let ps: Vec<_> = (0..par.0)
             .zip(meas_nonstds)
-            .flat_map(|(n, nonstd)| {
+            .flat_map(|(n, meas_nonstd)| {
                 let i = n.into();
                 let name_res = M::lookup_shortname(st, i)?;
                 let key = M::N::to_res(name_res).and_then(|name| {
@@ -2251,11 +2254,11 @@ where
                 // happens to match more than one measurement
                 let res = match key {
                     Ok(name) => {
-                        let t = Temporal::lookup_temporal(st, i, nonstd)?;
+                        let t = Temporal::lookup_temporal(st, i, meas_nonstd)?;
                         Element::Center((name, t))
                     }
                     Err(k) => {
-                        let m = Optical::lookup_optical(st, i, nonstd)?;
+                        let m = Optical::lookup_optical(st, i, meas_nonstd)?;
                         Element::NonCenter((k, m))
                     }
                 };

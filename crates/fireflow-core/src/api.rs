@@ -449,46 +449,48 @@ fn split_raw_text_nodouble(
     // ASSUME input slice does not start or end with delim
     let mut it = xs.split(|x| *x == delim);
     let mut pairs = vec![];
-    let mut is_empty = false;
-    let mut has_uneven = false;
+    let mut prev_was_blank = false;
+    let mut prev_was_key = false;
 
     while let Some(key) = it.next() {
+        prev_was_key = true;
+        prev_was_blank = key.is_empty();
         if key.is_empty() {
-            is_empty = true;
-            let msg = "blank key in TEXT, skipping next value".to_string();
-            deferred.push_msg_leveled(msg, conf.enforce_nonempty);
             if let Some(value) = it.next() {
-                is_empty = value.is_empty();
+                prev_was_key = false;
+                prev_was_blank = value.is_empty();
+                let msg = "blank key in TEXT, skipping next value".to_string();
+                deferred.push_msg_leveled(msg, conf.enforce_nonempty);
             } else {
-                has_uneven = true;
+                // if everything is correct, we should exit here since the
+                // last word will be the blank slice after the final delim
                 break;
             }
         } else if let Some(value) = it.next() {
+            prev_was_key = false;
+            prev_was_blank = value.is_empty();
             if value.is_empty() {
-                is_empty = true;
                 let msg = "blank value in TEXT".to_string();
                 deferred.push_msg_leveled(msg, conf.enforce_nonempty)
             } else if let (Ok(k), Ok(v)) = (str::from_utf8(key), str::from_utf8(value)) {
-                is_empty = false;
                 pairs.push((k.to_uppercase(), v.to_string()))
             } else {
-                is_empty = false;
                 let msg = "invalid UTF-8 byte encountered when parsing TEXT".to_string();
                 deferred.push_msg_leveled(msg, conf.error_on_invalid_utf8)
             }
         } else {
-            has_uneven = true;
-            is_empty = false;
+            // exiting here means we found a key without a value and also didn't
+            // end with a delim
             break;
         }
     }
 
-    if has_uneven {
+    if !prev_was_key {
         let msg = "TEXT has uneven number of words".to_string();
         deferred.push_msg_leveled(msg, conf.enforce_even);
     }
 
-    if !is_empty {
+    if !prev_was_blank {
         let msg = "TEXT does not end with delim".to_string();
         deferred.push_msg_leveled(msg, conf.enforce_final_delim);
     }
@@ -853,10 +855,14 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
         let stext_succ = split_succ.try_map(|mut kws| {
             lookup_stext_offsets(&kws, header.version, conf).try_map(|s| {
                 let succ = if let Some(seg) = s {
-                    buf.clear();
-                    seg.read(h, &mut buf)?;
-                    split_raw_text(&buf, delimiter, conf)
-                        .and_then(|pairs| add_keywords(&mut kws, pairs, conf))
+                    if seg.is_unset() {
+                        PureSuccess::from(())
+                    } else {
+                        buf.clear();
+                        seg.read(h, &mut buf)?;
+                        split_raw_text(&buf, delimiter, conf)
+                            .and_then(|pairs| add_keywords(&mut kws, pairs, conf))
+                    }
                 } else {
                     PureSuccess::from(())
                 };

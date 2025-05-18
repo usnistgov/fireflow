@@ -6,7 +6,6 @@ use fireflow_core::validated::nonstandard::NonStdMeasPattern;
 use fireflow_core::validated::pattern::*;
 
 use clap::{arg, value_parser, ArgMatches, Command};
-use polars::prelude::*;
 use serde::ser::Serialize;
 use std::io;
 use std::path::PathBuf;

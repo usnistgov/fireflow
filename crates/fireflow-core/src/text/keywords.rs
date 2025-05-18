@@ -753,45 +753,42 @@ pub(crate) trait Key {
     const C: &'static str;
 
     fn std() -> String {
-        format!("${}", Self::C)
+        let n = Self::C.len() + 1;
+        let mut s = String::new();
+        s.reserve_exact(n);
+        s.push('$');
+        s.push_str(Self::C);
+        s
     }
-
-    // fn nonstd() -> NonStdKey {
-    //     NonStdKey::from_unchecked(Self::C)
-    // }
 }
 
 pub(crate) trait IndexedKey {
     const PREFIX: &'static str;
     const SUFFIX: &'static str;
 
-    fn fmt(i: MeasIdx) -> String {
-        format!("{}{i}{}", Self::PREFIX, Self::SUFFIX)
-    }
-
-    fn fmt_blank() -> String {
-        format!("{}n{}", Self::PREFIX, Self::SUFFIX)
-    }
-
-    // fn fmt_sub() -> String {
-    //     format!("{}%n{}", Self::PREFIX, Self::SUFFIX)
-    // }
-
     fn std(i: MeasIdx) -> String {
-        format!("${}", Self::fmt(i))
+        // reserve enough space for '$', prefix, suffix, and a number with 3 digits
+        let n = Self::PREFIX.len() + 4 + Self::SUFFIX.len();
+        let mut s = String::with_capacity(n);
+        let j = i.to_string();
+        s.push('$');
+        s.push_str(Self::PREFIX);
+        s.push_str(j.as_str());
+        s.push_str(Self::SUFFIX);
+        s
     }
 
     fn std_blank() -> String {
-        format!("${}", Self::fmt_blank())
+        // reserve enough space for '$', prefix, suffix, and 'n'
+        let n = Self::PREFIX.len() + 2 + Self::SUFFIX.len();
+        let mut s = String::new();
+        s.reserve_exact(n);
+        s.push('$');
+        s.push_str(Self::PREFIX);
+        s.push('n');
+        s.push_str(Self::SUFFIX);
+        s
     }
-
-    // fn nonstd(i: MeasIdx) -> NonStdKey {
-    //     NonStdKey::from_unchecked(Self::fmt(i).as_str())
-    // }
-
-    // fn nonstd_sub() -> NonStdMeasKey {
-    //     NonStdMeasKey::from_unchecked(Self::fmt_sub().as_str())
-    // }
 
     // /// Return true if a key matches the prefix/suffix.
     // ///

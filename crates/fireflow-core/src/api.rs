@@ -450,19 +450,17 @@ fn split_raw_text_nodouble(
     let mut it = xs.split(|x| *x == delim);
     let mut pairs = vec![];
     let mut is_empty = false;
+    let mut has_uneven = false;
 
-    // TODO clean up messages
     while let Some(key) = it.next() {
         if key.is_empty() {
             is_empty = true;
-            let msg = "blank key in TEXT".to_string();
+            let msg = "blank key in TEXT, skipping next value".to_string();
             deferred.push_msg_leveled(msg, conf.enforce_nonempty);
-            // TODO warn that we just encountered a blank key
             if let Some(value) = it.next() {
                 is_empty = value.is_empty();
             } else {
-                let msg0 = "TEXT has uneven number of words".to_string();
-                deferred.push_msg_leveled(msg0, conf.enforce_even);
+                has_uneven = true;
                 break;
             }
         } else if let Some(value) = it.next() {
@@ -479,10 +477,15 @@ fn split_raw_text_nodouble(
                 deferred.push_msg_leveled(msg, conf.error_on_invalid_utf8)
             }
         } else {
-            let msg = "TEXT has uneven number of words".to_string();
-            deferred.push_msg_leveled(msg, conf.enforce_even);
+            has_uneven = true;
+            is_empty = false;
             break;
         }
+    }
+
+    if has_uneven {
+        let msg = "TEXT has uneven number of words".to_string();
+        deferred.push_msg_leveled(msg, conf.enforce_even);
     }
 
     if !is_empty {

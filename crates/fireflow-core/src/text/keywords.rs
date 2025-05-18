@@ -929,6 +929,55 @@ pub(crate) trait IndexedKey {
     // }
 }
 
+pub(crate) trait BiIndexedKey {
+    const PREFIX: &'static str;
+    const MIDDLE: &'static str;
+    const SUFFIX: &'static str;
+
+    fn std(i: usize, j: usize) -> StdKey {
+        // reserve enough space for prefix, middle, suffix, and two numbers with
+        // 2 digits
+        let n = Self::PREFIX.len() + Self::MIDDLE.len() + Self::SUFFIX.len() + 4;
+        let mut s = String::with_capacity(n);
+        s.push_str(Self::PREFIX);
+        s.push_str(i.to_string().as_str());
+        s.push_str(Self::MIDDLE);
+        s.push_str(j.to_string().as_str());
+        s.push_str(Self::SUFFIX);
+        StdKey(s)
+    }
+
+    fn std_blank() -> String {
+        // reserve enough space for '$', prefix, middle, suffix, and 'n'/'m'
+        let n = Self::PREFIX.len() + 2 + Self::SUFFIX.len();
+        let mut s = String::new();
+        s.reserve_exact(n);
+        s.push('$');
+        s.push_str(Self::PREFIX);
+        s.push('m');
+        s.push_str(Self::MIDDLE);
+        s.push('n');
+        s.push_str(Self::SUFFIX);
+        s
+    }
+
+    // /// Return true if a key matches the prefix/suffix.
+    // ///
+    // /// Specifically, test if string is like <PREFIX><N><SUFFIX> where
+    // /// N is an integer greater than zero.
+    // fn matches(other: &str, std: bool) -> bool {
+    //     if std {
+    //         other.strip_prefix("$")
+    //     } else {
+    //         Some(other)
+    //     }
+    //     .and_then(|s| s.strip_prefix(Self::PREFIX))
+    //     .and_then(|s| s.strip_suffix(Self::SUFFIX))
+    //     .and_then(|s| s.parse::<u32>().ok())
+    //     .is_some_and(|x| x > 0)
+    // }
+}
+
 /// Raw TEXT key/value pairs
 pub(crate) type RawKeywords = HashMap<String, String>;
 
@@ -1484,3 +1533,11 @@ kw_meta!(Endanalysis, "ENDANALYSIS");
 kw_meta!(Enddata, "ENDDATA");
 kw_meta!(Endstext, "ENDSTEXT");
 kw_meta!(Nextdata, "NEXTDATA");
+
+pub struct Dfc;
+
+impl BiIndexedKey for Dfc {
+    const PREFIX: &'static str = "DFC";
+    const MIDDLE: &'static str = "TO";
+    const SUFFIX: &'static str = "";
+}

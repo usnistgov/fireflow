@@ -168,8 +168,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
         let mut matrix = DMatrix::<f32>::identity(n, n);
         for r in 0..n {
             for c in 0..n {
-                // TODO sketchy
-                let k = StdKey::new_unchecked(format!("DFC{c}TO{r}"));
+                let k = Dfc::std(c, r);
                 if let Some(x) = self.lookup_dfc(&k) {
                     matrix[(r, c)] = x;
                 } else {

@@ -9,4 +9,5 @@
 *.venv
 *.mypy_cache/
 
-*perf.data
+*perf.data*
+*.svg

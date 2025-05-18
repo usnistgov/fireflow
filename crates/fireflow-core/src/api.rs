@@ -451,35 +451,43 @@ fn split_raw_text_nodouble(
     let mut pairs = vec![];
     let mut is_empty = false;
 
+    // TODO clean up messages
     while let Some(key) = it.next() {
         if key.is_empty() {
             is_empty = true;
+            let msg = "blank key in TEXT".to_string();
+            deferred.push_msg_leveled(msg, conf.enforce_nonempty);
             // TODO warn that we just encountered a blank key
             if let Some(value) = it.next() {
                 is_empty = value.is_empty();
             } else {
+                let msg0 = "TEXT has uneven number of words".to_string();
+                deferred.push_msg_leveled(msg0, conf.enforce_even);
                 break;
             }
         } else if let Some(value) = it.next() {
             if value.is_empty() {
                 is_empty = true;
-                // TODO warn that value is blank
-                ()
+                let msg = "blank value in TEXT".to_string();
+                deferred.push_msg_leveled(msg, conf.enforce_nonempty)
             } else if let (Ok(k), Ok(v)) = (str::from_utf8(key), str::from_utf8(value)) {
                 is_empty = false;
                 pairs.push((k.to_uppercase(), v.to_string()))
             } else {
                 is_empty = false;
-                // TODO warn user that strings aren't utf8
-                ()
+                let msg = "invalid UTF-8 byte encountered when parsing TEXT".to_string();
+                deferred.push_msg_leveled(msg, conf.error_on_invalid_utf8)
             }
         } else {
+            let msg = "TEXT has uneven number of words".to_string();
+            deferred.push_msg_leveled(msg, conf.enforce_even);
             break;
         }
     }
 
     if !is_empty {
-        // TODO warn, this will be true if delim was not at end
+        let msg = "TEXT does not end with delim".to_string();
+        deferred.push_msg_leveled(msg, conf.enforce_final_delim);
     }
 
     PureSuccess {
@@ -497,12 +505,20 @@ fn split_raw_text_double(xs: &[u8], delim: u8, conf: &RawTextReadConfig) -> Pure
     let mut keybuf: Vec<u8> = vec![];
     let mut valuebuf: Vec<u8> = vec![];
 
-    let mut go = |kb: &Vec<_>, vb: &Vec<_>| {
+    let mut push_pair = |kb: &Vec<_>, vb: &Vec<_>, def: &mut PureErrorBuf| {
         if let (Ok(k), Ok(v)) = (str::from_utf8(&kb[..]), str::from_utf8(&vb[..])) {
             pairs.push((k.to_uppercase(), v.to_string()))
         } else {
-            // TODO warn
-            ()
+            let msg = "invalid UTF-8 byte encountered when parsing TEXT".to_string();
+            def.push_msg_leveled(msg, conf.error_on_invalid_utf8)
+        }
+    };
+
+    let push_delim = |kb: &mut Vec<_>, vb: &mut Vec<_>, k: usize| {
+        let n = (k + 1) / 2;
+        let buf = if vb.is_empty() { kb } else { vb };
+        for _ in 0..n {
+            buf.push(delim);
         }
     };
 
@@ -514,7 +530,7 @@ fn split_raw_text_double(xs: &[u8], delim: u8, conf: &RawTextReadConfig) -> Pure
                 // Previous number of delimiters is odd, treat this as a word
                 // boundary
                 if !valuebuf.is_empty() {
-                    go(&keybuf, &valuebuf);
+                    push_pair(&keybuf, &valuebuf, &mut deferred);
                     keybuf.clear();
                     valuebuf.clear();
                     keybuf.extend_from_slice(segment);
@@ -524,29 +540,37 @@ fn split_raw_text_double(xs: &[u8], delim: u8, conf: &RawTextReadConfig) -> Pure
                     // this should only be reached on first iteration
                     keybuf.extend_from_slice(segment);
                 }
-                // TODO warn if number of delims was greater than 1 which is
-                // technically not allowed
+                if consec_blanks > 0 {
+                    deferred.push_warning("delim at word boundary".to_string());
+                }
             } else {
                 // Previous consecutive delimiter sequence was even. Push n / 2
                 // delimiters to whatever the current word is.
-                let n = (consec_blanks + 1) / 2;
-                let buf = if valuebuf.is_empty() {
-                    &mut keybuf
-                } else {
-                    &mut valuebuf
-                };
-                for _ in 0..n {
-                    buf.push(delim);
-                }
+                push_delim(&mut keybuf, &mut valuebuf, consec_blanks);
             }
             consec_blanks = 0;
         }
     }
 
+    if consec_blanks == 0 {
+        let msg = "TEXT does not end with delim".to_string();
+        deferred.push_msg_leveled(msg, conf.enforce_final_delim)
+    } else if consec_blanks & 1 == 1 {
+        // technically this ends with a delim but it is part of a word so
+        // doesn't count
+        let msg = "TEXT does not end with delim".to_string();
+        deferred.push_msg_leveled(msg, conf.enforce_final_delim);
+        push_delim(&mut keybuf, &mut valuebuf, consec_blanks);
+    } else if consec_blanks > 1 {
+        // TODO toggleme
+        deferred.push_warning("delim at word boundary".to_string());
+    }
+
     if valuebuf.is_empty() {
-        // TODO warn
+        let msg = "TEXT has uneven number of words".to_string();
+        deferred.push_msg_leveled(msg, conf.enforce_even)
     } else {
-        go(&keybuf, &valuebuf);
+        push_pair(&keybuf, &valuebuf, &mut deferred);
     }
 
     PureSuccess {

@@ -683,7 +683,6 @@ pywrap!(PyCytSetter, MetaKwSetter<api::Cyt>, "CytSetter");
 pywrap!(PyCalibration3_1, api::Calibration3_1, "Calibration3_1");
 pywrap!(PyCalibration3_2, api::Calibration3_2, "Calibration3_2");
 pywrap!(PyFeature, api::Feature, "Feature");
-pywrap!(PyPositiveFloat, PositiveFloat, "PositiveFloat");
 pywrap!(PyNonNegFloat, NonNegFloat, "NonNegFloat");
 
 impl From<api::DetectorVoltage> for PyNonNegFloat {
@@ -694,18 +693,6 @@ impl From<api::DetectorVoltage> for PyNonNegFloat {
 
 impl From<PyNonNegFloat> for api::DetectorVoltage {
     fn from(value: PyNonNegFloat) -> Self {
-        value.0.into()
-    }
-}
-
-impl From<api::Gain> for PyPositiveFloat {
-    fn from(value: api::Gain) -> Self {
-        value.0.into()
-    }
-}
-
-impl From<PyPositiveFloat> for api::Gain {
-    fn from(value: PyPositiveFloat) -> Self {
         value.0.into()
     }
 }
@@ -2054,7 +2041,7 @@ macro_rules! timestep_methods {
             #[pymethods]
             impl $pytype {
                 #[getter]
-                fn get_timestep(&self) -> Option<PyPositiveFloat> {
+                fn get_timestep(&self) -> Option<f32> {
                     self.0
                         .measurements_named_vec()
                         .as_center()
@@ -2063,11 +2050,13 @@ macro_rules! timestep_methods {
                 }
 
                 #[setter]
-                fn set_timestep(&mut self, x: PyPositiveFloat) -> bool {
-                    self.0
+                fn set_timestep(&mut self, x: f32) -> PyResult<bool> {
+                    let ts = api::Timestep(f32_to_positive_float(x)?);
+                    let res = self.0
                         .temporal_mut()
-                        .map(|y| y.value.specific.set_timestep(api::Timestep(x.into())))
-                        .is_some()
+                        .map(|y| y.value.specific.set_timestep(ts))
+                        .is_some();
+                    Ok(res)
                 }
             }
         )*
@@ -2276,6 +2265,41 @@ spillover_methods!(
     PyCoreDataset3_2
 );
 
+// Get/set methods for $PnG (3.0-3.2)
+macro_rules! gain_methods {
+    ($($pytype:ident),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                #[getter]
+                fn get_gains(&self) -> Vec<(usize, Option<f32>)> {
+                    self.0
+                        .gains()
+                        .into_iter()
+                        .map(|(i, x)| (
+                            i.into(),
+                            x.as_ref().copied().map(|y| y.0.into())
+                        ))
+                        .collect()
+                }
+
+                #[setter]
+                fn set_gains(&mut self, xs: Vec<Option<f32>>) -> PyResult<()> {
+                    let mut ys = vec![];
+                    for x in xs {
+                        ys.push(x.map(f32_to_positive_float).transpose()?.map(api::Gain));
+                    }
+                    self.0
+                        .set_gains(ys)
+                        .map_err(|e| PyreflowException::new_err(e.to_string()))
+                }
+            }
+        )*
+    };
+}
+
+gain_methods!(PyCoreTEXT3_0);
+
 // Get/set methods for (optional) $CYT (2.0-3.1)
 //
 // 3.2 is required which is why it is not included here
@@ -2327,18 +2351,6 @@ get_set_str!(
     get_cytsn,
     set_cytsn,
     cytsn
-);
-
-// Get/set methods for $PnG (3.0-3.2)
-meas_get_set!(
-    gains,
-    set_gains,
-    PyPositiveFloat,
-    PyCoreTEXT3_0,
-    PyCoreTEXT3_1,
-    PyCoreTEXT3_2,
-    PyCoreDataset3_0,
-    PyCoreDataset3_1
 );
 
 // Get/set methods for $PnDET (3.2)
@@ -3025,4 +3037,8 @@ fn str_to_time_pat(s: String) -> PyResult<TimePattern> {
 fn str_to_date_pat(s: String) -> PyResult<DatePattern> {
     s.parse::<DatePattern>()
         .map_err(|e| PyreflowException::new_err(e.to_string()))
+}
+
+fn f32_to_positive_float(x: f32) -> PyResult<PositiveFloat> {
+    PositiveFloat::try_from(x).map_err(|e| PyreflowException::new_err(e.to_string()))
 }

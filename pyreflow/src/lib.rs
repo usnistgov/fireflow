@@ -266,7 +266,7 @@ fn read_fcs_std_text(
     disallow_deviant: bool,
     disallow_nonstandard: bool,
 
-    shortname_prefix: Option<PyShortnamePrefix>,
+    shortname_prefix: Option<String>,
     nonstandard_measurement_pattern: Option<PyNonStdMeasPattern>,
     time_pattern: Option<PyTimePattern>,
     date_pattern: Option<PyDatePattern>,
@@ -307,9 +307,11 @@ fn read_fcs_std_text(
         date_pattern: date_pattern.map(|x| x.0),
     };
 
+    let sp = shortname_prefix.map(str_to_shortname_prefix).transpose()?;
+
     let conf = config::StdTextReadConfig {
         raw,
-        shortname_prefix: shortname_prefix.map(|x| x.0).unwrap_or_default(),
+        shortname_prefix: sp.unwrap_or_default(),
         time: config::TimeConfig {
             pattern: time_pattern.map(|x| x.0),
             ensure: time_ensure,
@@ -437,7 +439,7 @@ fn read_fcs_file(
     enforce_data_width_divisibility: bool,
     enforce_matching_tot: bool,
 
-    shortname_prefix: Option<PyShortnamePrefix>,
+    shortname_prefix: Option<String>,
     nonstandard_measurement_pattern: Option<PyNonStdMeasPattern>,
     time_pattern: Option<PyTimePattern>,
     date_pattern: Option<PyDatePattern>,
@@ -478,9 +480,11 @@ fn read_fcs_file(
         date_pattern: date_pattern.map(|x| x.0),
     };
 
+    let sp = shortname_prefix.map(str_to_shortname_prefix).transpose()?;
+
     let standard = config::StdTextReadConfig {
         raw,
-        shortname_prefix: shortname_prefix.map(|x| x.0).unwrap_or_default(),
+        shortname_prefix: sp.unwrap_or_default(),
         time: config::TimeConfig {
             pattern: time_pattern.map(|x| x.0),
             ensure: time_ensure,
@@ -637,7 +641,6 @@ macro_rules! py_parse {
 pywrap!(PySegment, api::Segment, "Segment");
 pywrap!(PyVersion, api::Version, "Version");
 pywrap!(PyHeader, api::Header, "Header");
-pywrap!(PyRawTEXT, api::RawTEXT, "RawTEXT");
 pywrap!(PyParseData, api::ParseData, "ParseData");
 
 pywrap!(PyCoreTEXT2_0, api::CoreTEXT2_0, "CoreTEXT2_0");
@@ -675,7 +678,6 @@ pywrap!(
 );
 pywrap!(PyTimePattern, TimePattern, "TimePattern");
 pywrap!(PyUnicode, api::Unicode, "Unicode");
-pywrap!(PyShortnamePrefix, ShortnamePrefix, "ShortnamePrefix");
 pywrap!(PyNonStdMeasPattern, NonStdMeasPattern, "NonStdMeasPattern");
 pywrap!(PyNonStdMeasKey, NonStdMeasKey, "NonStdMeasKey");
 pywrap!(PyNonStdKey, NonStdKey, "NonStdKey");
@@ -1767,8 +1769,9 @@ macro_rules! set_measurements2_0 {
                 fn set_measurements(
                     &mut self,
                     xs: Vec<Bound<'_, PyAny>>,
-                    prefix: PyShortnamePrefix,
+                    prefix: String,
                 ) -> PyResult<()> {
+                    let sp = str_to_shortname_prefix(prefix)?;
                     let mut ys = vec![];
                     for x in xs {
                         let y = if let Ok((n, m)) = any_to_opt_named_pair::<$meastype>(x.clone()) {
@@ -1780,7 +1783,7 @@ macro_rules! set_measurements2_0 {
                         ys.push(y);
                     }
                     self.0
-                        .set_measurements(ys, prefix.into())
+                        .set_measurements(ys, sp)
                         .map_err(PyreflowException::new_err)
                 }
             }
@@ -1839,8 +1842,9 @@ macro_rules! coredata2_0_meas_methods {
                     &mut self,
                     xs: Vec<Bound<'_, PyAny>>,
                     df: PyDataFrame,
-                    prefix: PyShortnamePrefix,
+                    prefix: String,
                 ) -> PyResult<()> {
+                    let sp = str_to_shortname_prefix(prefix)?;
                     let mut ys = vec![];
                     for x in xs {
                         let y = if let Ok((n, m)) = any_to_opt_named_pair::<$meastype>(x.clone()) {
@@ -1853,7 +1857,7 @@ macro_rules! coredata2_0_meas_methods {
                     };
                     let go = || {
                         let cols = dataframe_to_fcs(df.into())?;
-                        self.0.set_measurements_and_data(ys, cols, prefix.into())
+                        self.0.set_measurements_and_data(ys, cols, sp)
                     };
                     go().map_err(PyreflowException::new_err)
                 }
@@ -2997,5 +3001,10 @@ fn to_non_neg_float(x: f32) -> PyResult<NonNegFloat> {
 
 fn str_to_shortname(s: String) -> PyResult<Shortname> {
     s.parse::<Shortname>()
+        .map_err(|e| PyreflowException::new_err(e.to_string()))
+}
+
+fn str_to_shortname_prefix(s: String) -> PyResult<ShortnamePrefix> {
+    s.parse::<ShortnamePrefix>()
         .map_err(|e| PyreflowException::new_err(e.to_string()))
 }

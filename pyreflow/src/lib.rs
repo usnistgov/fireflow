@@ -642,11 +642,13 @@ macro_rules! py_parse {
     };
 }
 
-pywrap!(PySegment, api::Segment, "Segment");
+// general parsed objects
 pywrap!(PyVersion, api::Version, "Version");
+pywrap!(PySegment, api::Segment, "Segment");
 pywrap!(PyHeader, api::Header, "Header");
 pywrap!(PyParseData, api::ParseData, "ParseData");
 
+// core* objects
 pywrap!(PyCoreTEXT2_0, api::CoreTEXT2_0, "CoreTEXT2_0");
 pywrap!(PyCoreTEXT3_0, api::CoreTEXT3_0, "CoreTEXT3_0");
 pywrap!(PyCoreTEXT3_1, api::CoreTEXT3_1, "CoreTEXT3_1");
@@ -667,6 +669,7 @@ pywrap!(PyTemporal3_0, api::Temporal3_0, "Temporal3_0");
 pywrap!(PyTemporal3_1, api::Temporal3_1, "Temporal3_1");
 pywrap!(PyTemporal3_2, api::Temporal3_2, "Temporal3_2");
 
+// data setters
 pywrap!(PyNumRangeSetter, api::NumRangeSetter, "NumRangeSetter");
 pywrap!(
     PyAsciiRangeSetter,
@@ -678,12 +681,13 @@ pywrap!(
     api::MixedColumnSetter,
     "MixedColumnSetter"
 );
-pywrap!(PyUnicode, api::Unicode, "Unicode");
+
+// keyword value objects
 pywrap!(PyCytSetter, MetaKwSetter<api::Cyt>, "CytSetter");
 pywrap!(PyCalibration3_1, api::Calibration3_1, "Calibration3_1");
 pywrap!(PyCalibration3_2, api::Calibration3_2, "Calibration3_2");
 pywrap!(PyFeature, api::Feature, "Feature");
-
+// TODO this could just be list[int] in python that then gets validated
 pywrap!(PyByteOrd, ByteOrd, "ByteOrd");
 pywrap!(PyMode, api::Mode, "Mode");
 pywrap!(PyOriginality, api::Originality, "Originality");
@@ -693,6 +697,7 @@ pywrap!(PyOpticalType, api::OpticalType, "OpticalType");
 pywrap!(PyScale, Scale, "Scale");
 pywrap!(PyDisplay, api::Display, "Display");
 pywrap!(PySpillover, Spillover, "Spillover");
+pywrap!(PyUnicode, api::Unicode, "Unicode");
 
 py_ord!(PyVersion);
 py_disp!(PyVersion);

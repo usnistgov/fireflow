@@ -677,7 +677,6 @@ pywrap!(
 pywrap!(PyTimePattern, TimePattern, "TimePattern");
 pywrap!(PyUnicode, api::Unicode, "Unicode");
 pywrap!(PyNonStdMeasPattern, NonStdMeasPattern, "NonStdMeasPattern");
-pywrap!(PyNonStdKey, NonStdKey, "NonStdKey");
 pywrap!(PyCytSetter, MetaKwSetter<api::Cyt>, "CytSetter");
 pywrap!(PyCalibration3_1, api::Calibration3_1, "Calibration3_1");
 pywrap!(PyCalibration3_2, api::Calibration3_2, "Calibration3_2");
@@ -1167,16 +1166,19 @@ macro_rules! common_methods {
 
         #[pymethods]
         impl $pytype {
-            fn insert_nonstandard(&mut self, k: PyNonStdKey, v: String) -> Option<String> {
-                self.0.metadata.nonstandard_keywords.insert(k.into(), v)
+            fn insert_nonstandard(&mut self, key: String, v: String) -> PyResult<Option<String>> {
+                let k = str_to_nonstd_key(key)?;
+                Ok(self.0.metadata.nonstandard_keywords.insert(k, v))
             }
 
-            fn remove_nonstandard(&mut self, k: PyNonStdKey) -> Option<String> {
-                self.0.metadata.nonstandard_keywords.remove(&k.into())
+            fn remove_nonstandard(&mut self, key: String) -> PyResult<Option<String>> {
+                let k = str_to_nonstd_key(key)?;
+                Ok(self.0.metadata.nonstandard_keywords.remove(&k.into()))
             }
 
-            fn get_nonstandard(&mut self, k: PyNonStdKey) -> Option<String> {
-                self.0.metadata.nonstandard_keywords.get(&k.into()).cloned()
+            fn get_nonstandard(&mut self, key: String) -> PyResult<Option<String>> {
+                let k = str_to_nonstd_key(key)?;
+                Ok(self.0.metadata.nonstandard_keywords.get(&k.into()).cloned())
             }
         }
 
@@ -1200,30 +1202,43 @@ macro_rules! common_methods {
 
             fn insert_meas_nonstandard(
                 &mut self,
-                xs: Vec<(PyNonStdKey, String)>,
+                keyvals: Vec<(String, String)>,
             ) -> PyResult<Vec<Option<String>>> {
-                let ys = xs.into_iter().map(|(k, v)| (k.into(), v)).collect();
+                let mut xs = vec![];
+                for (k, v) in keyvals {
+                    xs.push((str_to_nonstd_key(k)?, v));
+                }
                 self.0
-                    .insert_meas_nonstandard(ys)
+                    .insert_meas_nonstandard(xs)
                     .map_err(|e| PyreflowException::new_err(e.to_string()))
 
             }
 
             fn remove_meas_nonstandard(
                 &mut self,
-                ks: Vec<PyNonStdKey>
+                keys: Vec<String>
             ) -> PyResult<Vec<Option<String>>> {
-                let ys: Vec<_> = ks.into_iter().map(|k| k.into()).collect();
+                let mut xs = vec![];
+                for k in keys {
+                    xs.push(str_to_nonstd_key(k)?);
+                }
                 self.0
-                    .remove_meas_nonstandard(ys.iter().collect())
+                    .remove_meas_nonstandard(xs.iter().collect())
                     .map_err(|e| PyreflowException::new_err(e.to_string()))
             }
 
-            fn get_meas_nonstandard(&mut self, ks: Vec<PyNonStdKey>) -> Option<Vec<Option<String>>> {
-                let ys: Vec<_> = ks.into_iter().map(|k| k.into()).collect();
-                self.0
-                    .get_meas_nonstandard(ys.iter().collect())
-                    .map(|rs| rs.into_iter().map(|r| r.cloned()).collect())
+            fn get_meas_nonstandard(
+                &mut self,
+                keys: Vec<String>
+            ) -> PyResult<Option<Vec<Option<String>>>> {
+                let mut xs = vec![];
+                for k in keys {
+                    xs.push(str_to_nonstd_key(k)?);
+                }
+                let res = self.0
+                    .get_meas_nonstandard(xs.iter().collect())
+                    .map(|rs| rs.into_iter().map(|r| r.cloned()).collect());
+                Ok(res)
             }
 
             #[getter]
@@ -2622,21 +2637,23 @@ macro_rules! shared_meas_get_set {
                     Ok(())
                 }
 
-                // TODO not sure if I want to use these wrappers in python-land
-                // or not, it might be simpler for the user just to use strings
-                // and scream if they aren't formatted correctly, although would
-                // probably want to make the exception handling much more
-                // precise in that case
-                fn nonstandard_insert(&mut self, key: PyNonStdKey, value: String) -> Option<String> {
-                    self.0.common.nonstandard_keywords.insert(key.into(), value)
+                fn nonstandard_insert(
+                    &mut self,
+                    key: String,
+                    value: String
+                ) -> PyResult<Option<String>> {
+                    let k = str_to_nonstd_key(key)?;
+                    Ok(self.0.common.nonstandard_keywords.insert(k, value))
                 }
 
-                fn nonstandard_get(&self, key: PyNonStdKey) -> Option<String> {
-                    self.0.common.nonstandard_keywords.get(&key.into()).map(|x| x.clone())
+                fn nonstandard_get(&self, key: String) -> PyResult<Option<String>> {
+                    let k = str_to_nonstd_key(key)?;
+                    Ok(self.0.common.nonstandard_keywords.get(&k).map(|x| x.clone()))
                 }
 
-                fn nonstandard_remove(&mut self, key: PyNonStdKey) -> Option<String> {
-                    self.0.common.nonstandard_keywords.remove(&key.into())
+                fn nonstandard_remove(&mut self, key: String) -> PyResult<Option<String>> {
+                    let k = str_to_nonstd_key(key)?;
+                    Ok(self.0.common.nonstandard_keywords.remove(&k))
                 }
             }
         )*
@@ -2992,5 +3009,10 @@ fn str_to_shortname(s: String) -> PyResult<Shortname> {
 
 fn str_to_shortname_prefix(s: String) -> PyResult<ShortnamePrefix> {
     s.parse::<ShortnamePrefix>()
+        .map_err(|e| PyreflowException::new_err(e.to_string()))
+}
+
+fn str_to_nonstd_key(s: String) -> PyResult<NonStdKey> {
+    s.parse::<NonStdKey>()
         .map_err(|e| PyreflowException::new_err(e.to_string()))
 }

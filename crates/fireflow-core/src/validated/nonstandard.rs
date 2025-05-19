@@ -12,6 +12,7 @@ use std::str::FromStr;
 #[derive(Clone, PartialEq, Eq, Hash, Serialize)]
 pub struct NonStdKey(String);
 
+pub type NonStdPairs = Vec<(NonStdKey, String)>;
 pub type NonStdKeywords = HashMap<NonStdKey, String>;
 
 /// A String that matches a non-standard measurement keyword.

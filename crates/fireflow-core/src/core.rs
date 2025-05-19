@@ -22,6 +22,7 @@ use crate::validated::dataframe::*;
 use crate::validated::nonstandard::*;
 use crate::validated::pattern::*;
 use crate::validated::shortname::*;
+use crate::validated::standard::*;
 
 use chrono::Timelike;
 use itertools::Itertools;
@@ -4710,6 +4711,7 @@ impl VersionedMetadata for InnerMetadata2_0 {
     fn keywords_opt_inner(&self) -> RawPairs {
         [
             OptMetaKey::pair(&self.cyt),
+            // TODO this is wrong, need to expand this out into DFCmTOn keys
             OptMetaKey::pair(&self.comp),
             OptMetaKey::pair(&self.timestamps.btim()),
             OptMetaKey::pair(&self.timestamps.etim()),

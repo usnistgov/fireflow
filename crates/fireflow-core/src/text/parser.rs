@@ -2,6 +2,7 @@ use crate::config::StdTextReadConfig;
 use crate::core::{CarrierData, ModificationData, PlateData, UnstainedData};
 use crate::error::*;
 use crate::validated::nonstandard::*;
+use crate::validated::standard::*;
 
 use super::compensation::*;
 use super::datetimes::*;

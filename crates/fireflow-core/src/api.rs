@@ -8,6 +8,7 @@ pub use crate::segment::*;
 pub use crate::text::keywords::*;
 use crate::text::timestamps::*;
 use crate::validated::dataframe::FCSDataFrame;
+use crate::validated::standard::*;
 
 use chrono::NaiveDate;
 use itertools::Itertools;

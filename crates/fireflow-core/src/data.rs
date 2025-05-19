@@ -5,17 +5,15 @@ use crate::macros::match_many_to_one;
 use crate::segment::*;
 use crate::text::byteord::*;
 use crate::text::keywords::*;
-use crate::text::optionalkw::*;
 use crate::text::range::*;
 use crate::validated::dataframe::*;
-use crate::validated::shortname::*;
+use crate::validated::standard::*;
 
 use itertools::Itertools;
 use std::fmt;
 use std::io;
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::iter;
-use std::num::{IntErrorKind, ParseIntError};
 use std::str::FromStr;
 
 /// Read the analysis segment
@@ -847,6 +845,7 @@ where
         // truncate an overflowing number, and at the very least may wish to
         // warn the user that truncation happened
         (*range).try_into().or_else(|e| match e {
+            // TODO get next power, this is currently incorrect
             RangeToIntError::IntOverrange(_) => Ok(Self::maxval()),
             RangeToIntError::FloatOverrange(_) => Ok(Self::maxval()),
             RangeToIntError::FloatUnderrange(_) => Ok(Self::default()),

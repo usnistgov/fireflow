@@ -683,31 +683,6 @@ pywrap!(PyCytSetter, MetaKwSetter<api::Cyt>, "CytSetter");
 pywrap!(PyCalibration3_1, api::Calibration3_1, "Calibration3_1");
 pywrap!(PyCalibration3_2, api::Calibration3_2, "Calibration3_2");
 pywrap!(PyFeature, api::Feature, "Feature");
-pywrap!(PyNonNegFloat, NonNegFloat, "NonNegFloat");
-
-impl From<api::DetectorVoltage> for PyNonNegFloat {
-    fn from(value: api::DetectorVoltage) -> Self {
-        value.0.into()
-    }
-}
-
-impl From<PyNonNegFloat> for api::DetectorVoltage {
-    fn from(value: PyNonNegFloat) -> Self {
-        value.0.into()
-    }
-}
-
-impl From<api::Vol> for PyNonNegFloat {
-    fn from(value: api::Vol) -> Self {
-        value.0.into()
-    }
-}
-
-impl From<PyNonNegFloat> for api::Vol {
-    fn from(value: PyNonNegFloat) -> Self {
-        value.0.into()
-    }
-}
 
 pywrap!(PyByteOrd, ByteOrd, "ByteOrd");
 pywrap!(PyMode, api::Mode, "Mode");
@@ -1130,7 +1105,6 @@ macro_rules! common_methods {
         meas_get_set!(powers,            set_powers,            u32,           $pytype);
         meas_get_set!(detector_types,    set_detector_types,    String,        $pytype);
         meas_get_set!(percents_emitted,  set_percents_emitted,  String,        $pytype);
-        meas_get_set!(detector_voltages, set_detector_voltages, PyNonNegFloat, $pytype);
 
         get_set_copied!($pytype, [metadata], get_abrt, set_abrt, abrt, u32);
         get_set_copied!($pytype, [metadata], get_lost, set_lost, lost, u32);
@@ -1162,10 +1136,7 @@ macro_rules! common_methods {
                 let k = str_to_nonstd_key(key)?;
                 Ok(self.0.metadata.nonstandard_keywords.get(&k.into()).cloned())
             }
-        }
 
-        #[pymethods]
-        impl $pytype {
             // TODO add way to remove nonstandard
             #[pyo3(signature = (want_req=None, want_meta=None))]
             fn raw_keywords<'py>(
@@ -1385,6 +1356,33 @@ macro_rules! common_methods {
             fn set_data_delimited(&mut self, ranges: Vec<u64>) -> PyResult<()> {
                 self.0
                     .set_data_delimited(ranges)
+                    .map_err(|e| PyreflowException::new_err(e.to_string()))
+            }
+
+            #[getter]
+            fn get_detector_voltages(&self) -> Vec<(usize, Option<f32>)> {
+                self.0
+                    .detector_voltages()
+                    .into_iter()
+                    .map(|(i, x)| (
+                        i.into(),
+                        x.as_ref().copied().map(|y| y.0.into())
+                    ))
+                    .collect()
+            }
+
+            #[setter]
+            fn set_detector_voltages(&mut self, xs: Vec<Option<f32>>) -> PyResult<()> {
+                let mut ys = vec![];
+                for x in xs {
+                    ys.push(
+                        x.map(f32_to_nonneg_float)
+                            .transpose()?
+                            .map(api::DetectorVoltage)
+                    );
+                }
+                self.0
+                    .set_detector_voltages(ys)
                     .map_err(|e| PyreflowException::new_err(e.to_string()))
             }
 
@@ -2265,6 +2263,35 @@ spillover_methods!(
     PyCoreDataset3_2
 );
 
+// Get/set methods for $VOL (3.1-3.2)
+macro_rules! vol_methods {
+    ($($pytype:ident),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                #[getter]
+                fn get_vol(&self) -> Option<f32> {
+                    self.0.metadata.specific.vol.as_ref_opt().copied().map(|x| x.0.into())
+                }
+
+                #[setter]
+                fn set_vol(&mut self, vol: Option<f32>) -> PyResult<()> {
+                    let x = vol.map(f32_to_nonneg_float).transpose()?.map(api::Vol);
+                    self.0.metadata.specific.vol = x.into();
+                    Ok(())
+                }
+            }
+        )*
+    };
+}
+
+vol_methods!(
+    PyCoreTEXT3_1,
+    PyCoreTEXT3_2,
+    PyCoreDataset3_1,
+    PyCoreDataset3_2
+);
+
 // Get/set methods for $PnG (3.0-3.2)
 macro_rules! gain_methods {
     ($($pytype:ident),*) => {
@@ -2298,7 +2325,14 @@ macro_rules! gain_methods {
     };
 }
 
-gain_methods!(PyCoreTEXT3_0);
+gain_methods!(
+    PyCoreTEXT3_0,
+    PyCoreTEXT3_1,
+    PyCoreTEXT3_2,
+    PyCoreDataset3_0,
+    PyCoreDataset3_1,
+    PyCoreDataset3_2
+);
 
 // Get/set methods for (optional) $CYT (2.0-3.1)
 //
@@ -2324,19 +2358,6 @@ get_set_str!(
     get_flowrate,
     set_flowrate,
     flowrate
-);
-
-// Get/set methods for $VOL (3.1-3.2)
-get_set_copied!(
-    PyCoreTEXT3_1,
-    PyCoreTEXT3_2,
-    PyCoreDataset3_1,
-    PyCoreDataset3_2,
-    [metadata, specific],
-    get_vol,
-    set_vol,
-    vol,
-    PyNonNegFloat
 );
 
 // Get/set methods for $CYTSN (3.0-3.2)
@@ -3041,4 +3062,8 @@ fn str_to_date_pat(s: String) -> PyResult<DatePattern> {
 
 fn f32_to_positive_float(x: f32) -> PyResult<PositiveFloat> {
     PositiveFloat::try_from(x).map_err(|e| PyreflowException::new_err(e.to_string()))
+}
+
+fn f32_to_nonneg_float(x: f32) -> PyResult<NonNegFloat> {
+    NonNegFloat::try_from(x).map_err(|e| PyreflowException::new_err(e.to_string()))
 }

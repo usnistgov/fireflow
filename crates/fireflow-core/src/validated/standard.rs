@@ -8,8 +8,14 @@ use std::fmt;
 
 /// Represents a standard key.
 ///
-/// These are assumed to only contain ASCII and start with a dollar sign,
-/// although this is not actually stored here to make hashing slightly faster.
+/// These are assumed to only contain ASCII with uppercase letters and start
+/// with a dollar sign. The dollar sign is not actually stored but will be
+/// appended when converting to a raw string.
+///
+/// The only way to make such a key is to parse it from a bytestring (which
+/// can fail in numerous ways) or to make a type for the key and implement
+/// one of the 'Key', 'IndexedKey', or 'BiIndexedKey' traits which can create
+/// a key from thin-air.
 #[derive(Clone, PartialEq, Eq, Hash, Serialize)]
 pub struct StdKey(String);
 
@@ -37,6 +43,8 @@ pub struct ValidKeywords {
 }
 
 /// A standard key
+///
+/// The constant traits is assumed to only have uppercase ASCII.
 pub(crate) trait Key {
     const C: &'static str;
 
@@ -46,6 +54,8 @@ pub(crate) trait Key {
 }
 
 /// A standard key with on index
+///
+/// The constant traits are assumed to only have uppercase ASCII.
 pub(crate) trait IndexedKey {
     const PREFIX: &'static str;
     const SUFFIX: &'static str;
@@ -90,6 +100,8 @@ pub(crate) trait IndexedKey {
 }
 
 /// A standard key with two indices
+///
+/// The constant traits are assumed to only have uppercase ASCII.
 pub(crate) trait BiIndexedKey {
     const PREFIX: &'static str;
     const MIDDLE: &'static str;
@@ -108,19 +120,19 @@ pub(crate) trait BiIndexedKey {
         StdKey(s)
     }
 
-    fn std_blank() -> String {
-        // reserve enough space for '$', prefix, middle, suffix, and 'n'/'m'
-        let n = Self::PREFIX.len() + 2 + Self::SUFFIX.len();
-        let mut s = String::new();
-        s.reserve_exact(n);
-        s.push('$');
-        s.push_str(Self::PREFIX);
-        s.push('m');
-        s.push_str(Self::MIDDLE);
-        s.push('n');
-        s.push_str(Self::SUFFIX);
-        s
-    }
+    // fn std_blank() -> String {
+    //     // reserve enough space for '$', prefix, middle, suffix, and 'n'/'m'
+    //     let n = Self::PREFIX.len() + 2 + Self::SUFFIX.len();
+    //     let mut s = String::new();
+    //     s.reserve_exact(n);
+    //     s.push('$');
+    //     s.push_str(Self::PREFIX);
+    //     s.push('m');
+    //     s.push_str(Self::MIDDLE);
+    //     s.push('n');
+    //     s.push_str(Self::SUFFIX);
+    //     s
+    // }
 
     // /// Return true if a key matches the prefix/suffix.
     // ///

@@ -13,8 +13,6 @@ use crate::validated::standard::*;
 use chrono::NaiveDate;
 use itertools::Itertools;
 use serde::Serialize;
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
 use std::fs;
 use std::io::{BufReader, Read, Seek};
 use std::path;
@@ -595,7 +593,7 @@ fn split_raw_text_double(
 }
 
 fn split_raw_text(
-    mut kws: ParsedKeywords,
+    kws: ParsedKeywords,
     xs: &[u8],
     delim: u8,
     conf: &RawTextReadConfig,
@@ -629,24 +627,6 @@ fn repair_keywords(kws: &mut StdKeywords, conf: &RawTextReadConfig) {
             }
         }
     }
-}
-
-fn hash_raw_pairs(pairs: RawPairs, conf: &RawTextReadConfig) -> PureSuccess<RawKeywords> {
-    let standard: HashMap<_, _> = HashMap::new();
-    let mut res = PureSuccess::from(standard);
-    // TODO filter keywords based on pattern somewhere here
-    for (key, value) in pairs.into_iter() {
-        match res.data.entry(key) {
-            Entry::Occupied(e) => {
-                let msg = format!("Skipping already-inserted key: {}", e.key());
-                res.push_msg_leveled(msg, conf.enforce_unique);
-            }
-            Entry::Vacant(e) => {
-                e.insert(value);
-            }
-        }
-    }
-    res
 }
 
 fn pad_zeros(s: &str) -> String {
@@ -828,29 +808,6 @@ fn lookup_stext_offsets(
     }
 }
 
-fn add_keywords(
-    kws: &mut RawKeywords,
-    pairs: RawPairs,
-    conf: &RawTextReadConfig,
-) -> PureSuccess<()> {
-    let mut succ = PureSuccess::from(());
-    for (k, v) in pairs.into_iter() {
-        match kws.entry(k) {
-            Entry::Occupied(e) => {
-                let msg = format!(
-                    "Skipping already-inserted key from supplemental TEXT: {}",
-                    e.key()
-                );
-                succ.push_msg_leveled(msg, conf.enforce_unique);
-            }
-            Entry::Vacant(e) => {
-                e.insert(v);
-            }
-        }
-    }
-    succ
-}
-
 fn lookup_nextdata(kws: &StdKeywords, enforce: bool) -> PureMaybe<u32> {
     let k = &Nextdata::std();
     if enforce {
@@ -871,8 +828,8 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
     verify_delim(&buf, conf).try_map(|delimiter| {
         let split_succ = split_raw_text(ParsedKeywords::default(), &buf, delimiter, conf)
             .map(|kws| repair_offsets(kws, conf));
-        let stext_succ = split_succ.try_map(|mut kws| {
-            lookup_stext_offsets(&mut kws.std, header.version, conf).try_map(|s| {
+        let stext_succ = split_succ.try_map(|kws| {
+            lookup_stext_offsets(&kws.std, header.version, conf).try_map(|s| {
                 let succ = if let Some(seg) = s {
                     if seg.is_unset() {
                         PureSuccess::from(kws)

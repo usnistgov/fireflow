@@ -1,6 +1,6 @@
 use crate::macros::{newtype_disp, newtype_from_outer, newtype_fromstr};
 
-use regex::Regex;
+use regex::{Error, Regex};
 use std::fmt;
 use std::str::FromStr;
 
@@ -11,7 +11,7 @@ use std::str::FromStr;
 pub struct TimePattern(pub CheckedPattern);
 
 newtype_from_outer!(TimePattern, CheckedPattern);
-newtype_fromstr!(TimePattern, PatternError);
+newtype_fromstr!(TimePattern, Error);
 newtype_disp!(TimePattern);
 
 impl Default for TimePattern {
@@ -32,19 +32,9 @@ impl CheckedPattern {
 }
 
 impl FromStr for CheckedPattern {
-    type Err = PatternError;
+    type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Regex::new(s)
-            .map_err(|_| PatternError(s.to_string()))
-            .map(CheckedPattern)
-    }
-}
-
-pub struct PatternError(String);
-
-impl fmt::Display for PatternError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "Could not make pattern from {}", self.0)
+        Regex::new(s).map(CheckedPattern)
     }
 }

@@ -265,7 +265,7 @@ fn read_fcs_std_text(
 
     shortname_prefix: Option<String>,
     nonstandard_measurement_pattern: Option<String>,
-    time_pattern: Option<PyTimePattern>,
+    time_pattern: Option<String>,
     date_pattern: Option<PyDatePattern>,
     version_override: Option<PyVersion>,
 ) -> PyResult<(Bound<'_, PyAny>, PyParseData, Bound<'_, PyDict>)> {
@@ -308,12 +308,13 @@ fn read_fcs_std_text(
     let nsmp = nonstandard_measurement_pattern
         .map(str_to_nonstd_meas_pat)
         .transpose()?;
+    let tp = time_pattern.map(str_to_time_pat).transpose()?;
 
     let conf = config::StdTextReadConfig {
         raw,
         shortname_prefix: sp.unwrap_or_default(),
         time: config::TimeConfig {
-            pattern: time_pattern.map(|x| x.0),
+            pattern: tp,
             ensure: time_ensure,
             ensure_timestep: time_ensure_timestep,
             ensure_linear: time_ensure_linear,
@@ -441,7 +442,7 @@ fn read_fcs_file(
 
     shortname_prefix: Option<String>,
     nonstandard_measurement_pattern: Option<String>,
-    time_pattern: Option<PyTimePattern>,
+    time_pattern: Option<String>,
     date_pattern: Option<PyDatePattern>,
     version_override: Option<PyVersion>,
 ) -> PyResult<(Bound<'_, PyAny>, PyParseData, Bound<'_, PyDict>)> {
@@ -484,12 +485,13 @@ fn read_fcs_file(
     let nsmp = nonstandard_measurement_pattern
         .map(str_to_nonstd_meas_pat)
         .transpose()?;
+    let tp = time_pattern.map(str_to_time_pat).transpose()?;
 
     let standard = config::StdTextReadConfig {
         raw,
         shortname_prefix: sp.unwrap_or_default(),
         time: config::TimeConfig {
-            pattern: time_pattern.map(|x| x.0),
+            pattern: tp,
             ensure: time_ensure,
             ensure_timestep: time_ensure_timestep,
             ensure_linear: time_ensure_linear,
@@ -679,7 +681,6 @@ pywrap!(
     api::MixedColumnSetter,
     "MixedColumnSetter"
 );
-pywrap!(PyTimePattern, TimePattern, "TimePattern");
 pywrap!(PyUnicode, api::Unicode, "Unicode");
 pywrap!(PyCytSetter, MetaKwSetter<api::Cyt>, "CytSetter");
 pywrap!(PyCalibration3_1, api::Calibration3_1, "Calibration3_1");
@@ -724,7 +725,6 @@ impl From<PyNonNegFloat> for api::Vol {
     }
 }
 
-pywrap!(PyEndian, Endian, "Endian");
 pywrap!(PyByteOrd, ByteOrd, "ByteOrd");
 pywrap!(PyMode, api::Mode, "Mode");
 pywrap!(PyOriginality, api::Originality, "Originality");
@@ -3020,5 +3020,10 @@ fn str_to_nonstd_key(s: String) -> PyResult<NonStdKey> {
 
 fn str_to_nonstd_meas_pat(s: String) -> PyResult<NonStdMeasPattern> {
     s.parse::<NonStdMeasPattern>()
+        .map_err(|e| PyreflowException::new_err(e.to_string()))
+}
+
+fn str_to_time_pat(s: String) -> PyResult<TimePattern> {
+    s.parse::<TimePattern>()
         .map_err(|e| PyreflowException::new_err(e.to_string()))
 }

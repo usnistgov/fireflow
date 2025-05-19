@@ -594,6 +594,7 @@ impl FloatReader {
     }
 }
 
+// TODO clean this up
 impl DelimAsciiReader {
     fn h_read<R: Read>(self, h: &mut BufReader<R>) -> io::Result<FCSDataFrame> {
         let mut buf = Vec::new();
@@ -768,28 +769,12 @@ impl FixedLayout<AnyUintType> {
     }
 }
 
-// // hack to get bounds on error to work in IntMath trait
-// trait IntErr: Sized {
-//     fn err_kind(&self) -> &IntErrorKind;
-// }
-
-// impl IntErr for ParseIntError {
-//     fn err_kind(&self) -> &IntErrorKind {
-//         self.kind()
-//     }
-// }
-
 trait IntMath: Sized
 where
     Self: fmt::Display,
     Self: FromStr,
 {
     fn next_power_2(x: Self) -> Self;
-
-    // fn int_from_str(s: &str) -> Result<Self, IntErrorKind> {
-    //     s.parse()
-    //         .map_err(|e| <Self as FromStr>::Err::err_kind(&e).clone())
-    // }
 }
 
 // TODO clean this up with https://github.com/rust-lang/rust/issues/76560 once

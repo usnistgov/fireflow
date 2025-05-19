@@ -39,7 +39,6 @@ use std::path;
 fn pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("PyreflowException", py.get_type::<PyreflowException>())?;
     m.add("PyreflowWarning", py.get_type::<PyreflowWarning>())?;
-    m.add_class::<PyDatePattern>()?;
     m.add_function(wrap_pyfunction!(read_fcs_header, m)?)?;
     m.add_function(wrap_pyfunction!(read_fcs_raw_text, m)?)?;
     m.add_function(wrap_pyfunction!(read_fcs_std_text, m)?)?;
@@ -133,7 +132,7 @@ fn read_fcs_raw_text(
     enforce_keyword_ascii: bool,
     enforce_stext: bool,
     repair_offset_spaces: bool,
-    date_pattern: Option<PyDatePattern>,
+    date_pattern: Option<String>,
     version_override: Option<PyVersion>,
 ) -> PyResult<(PyVersion, Bound<'_, PyDict>, Bound<'_, PyDict>, PyParseData)> {
     let header = config::HeaderConfig {
@@ -168,7 +167,7 @@ fn read_fcs_raw_text(
         enforce_keyword_ascii,
         enforce_stext,
         repair_offset_spaces,
-        date_pattern: date_pattern.map(|x| x.0),
+        date_pattern: date_pattern.map(str_to_date_pat).transpose()?,
     };
     let raw: api::RawTEXT = handle_errors(api::read_fcs_raw_text(&p, &conf.set_strict(strict)))?;
     let std = raw
@@ -266,7 +265,7 @@ fn read_fcs_std_text(
     shortname_prefix: Option<String>,
     nonstandard_measurement_pattern: Option<String>,
     time_pattern: Option<String>,
-    date_pattern: Option<PyDatePattern>,
+    date_pattern: Option<String>,
     version_override: Option<PyVersion>,
 ) -> PyResult<(Bound<'_, PyAny>, PyParseData, Bound<'_, PyDict>)> {
     let header = config::HeaderConfig {
@@ -301,7 +300,7 @@ fn read_fcs_std_text(
         enforce_keyword_ascii,
         enforce_stext,
         repair_offset_spaces,
-        date_pattern: date_pattern.map(|x| x.0),
+        date_pattern: date_pattern.map(str_to_date_pat).transpose()?,
     };
 
     let sp = shortname_prefix.map(str_to_shortname_prefix).transpose()?;
@@ -443,7 +442,7 @@ fn read_fcs_file(
     shortname_prefix: Option<String>,
     nonstandard_measurement_pattern: Option<String>,
     time_pattern: Option<String>,
-    date_pattern: Option<PyDatePattern>,
+    date_pattern: Option<String>,
     version_override: Option<PyVersion>,
 ) -> PyResult<(Bound<'_, PyAny>, PyParseData, Bound<'_, PyDict>)> {
     let header = config::HeaderConfig {
@@ -478,7 +477,7 @@ fn read_fcs_file(
         enforce_keyword_ascii,
         enforce_stext,
         repair_offset_spaces,
-        date_pattern: date_pattern.map(|x| x.0),
+        date_pattern: date_pattern.map(str_to_date_pat).transpose()?,
     };
 
     let sp = shortname_prefix.map(str_to_shortname_prefix).transpose()?;
@@ -668,8 +667,6 @@ pywrap!(PyTemporal3_0, api::Temporal3_0, "Temporal3_0");
 pywrap!(PyTemporal3_1, api::Temporal3_1, "Temporal3_1");
 pywrap!(PyTemporal3_2, api::Temporal3_2, "Temporal3_2");
 
-pywrap!(PyDatePattern, DatePattern, "DatePattern");
-
 pywrap!(PyNumRangeSetter, api::NumRangeSetter, "NumRangeSetter");
 pywrap!(
     PyAsciiRangeSetter,
@@ -734,9 +731,6 @@ pywrap!(PyOpticalType, api::OpticalType, "OpticalType");
 pywrap!(PyScale, Scale, "Scale");
 pywrap!(PyDisplay, api::Display, "Display");
 pywrap!(PySpillover, Spillover, "Spillover");
-
-py_parse!(PyDatePattern, DatePattern);
-py_disp!(PyDatePattern);
 
 py_ord!(PyVersion);
 py_disp!(PyVersion);
@@ -3025,5 +3019,10 @@ fn str_to_nonstd_meas_pat(s: String) -> PyResult<NonStdMeasPattern> {
 
 fn str_to_time_pat(s: String) -> PyResult<TimePattern> {
     s.parse::<TimePattern>()
+        .map_err(|e| PyreflowException::new_err(e.to_string()))
+}
+
+fn str_to_date_pat(s: String) -> PyResult<DatePattern> {
+    s.parse::<DatePattern>()
         .map_err(|e| PyreflowException::new_err(e.to_string()))
 }

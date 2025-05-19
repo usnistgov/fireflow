@@ -39,7 +39,6 @@ use std::path;
 fn pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("PyreflowException", py.get_type::<PyreflowException>())?;
     m.add("PyreflowWarning", py.get_type::<PyreflowWarning>())?;
-    m.add_class::<PyNonStdMeasPattern>()?;
     m.add_class::<PyDatePattern>()?;
     m.add_function(wrap_pyfunction!(read_fcs_header, m)?)?;
     m.add_function(wrap_pyfunction!(read_fcs_raw_text, m)?)?;
@@ -265,7 +264,7 @@ fn read_fcs_std_text(
     disallow_nonstandard: bool,
 
     shortname_prefix: Option<String>,
-    nonstandard_measurement_pattern: Option<PyNonStdMeasPattern>,
+    nonstandard_measurement_pattern: Option<String>,
     time_pattern: Option<PyTimePattern>,
     date_pattern: Option<PyDatePattern>,
     version_override: Option<PyVersion>,
@@ -306,6 +305,9 @@ fn read_fcs_std_text(
     };
 
     let sp = shortname_prefix.map(str_to_shortname_prefix).transpose()?;
+    let nsmp = nonstandard_measurement_pattern
+        .map(str_to_nonstd_meas_pat)
+        .transpose()?;
 
     let conf = config::StdTextReadConfig {
         raw,
@@ -320,7 +322,7 @@ fn read_fcs_std_text(
         disallow_deviant,
         disallow_nonstandard,
         disallow_deprecated,
-        nonstandard_measurement_pattern: nonstandard_measurement_pattern.map(|x| x.0),
+        nonstandard_measurement_pattern: nsmp,
     };
 
     let out: api::StandardizedTEXT =
@@ -438,7 +440,7 @@ fn read_fcs_file(
     enforce_matching_tot: bool,
 
     shortname_prefix: Option<String>,
-    nonstandard_measurement_pattern: Option<PyNonStdMeasPattern>,
+    nonstandard_measurement_pattern: Option<String>,
     time_pattern: Option<PyTimePattern>,
     date_pattern: Option<PyDatePattern>,
     version_override: Option<PyVersion>,
@@ -479,6 +481,9 @@ fn read_fcs_file(
     };
 
     let sp = shortname_prefix.map(str_to_shortname_prefix).transpose()?;
+    let nsmp = nonstandard_measurement_pattern
+        .map(str_to_nonstd_meas_pat)
+        .transpose()?;
 
     let standard = config::StdTextReadConfig {
         raw,
@@ -493,7 +498,7 @@ fn read_fcs_file(
         disallow_deviant,
         disallow_deprecated,
         disallow_nonstandard,
-        nonstandard_measurement_pattern: nonstandard_measurement_pattern.map(|x| x.0),
+        nonstandard_measurement_pattern: nsmp,
     };
 
     let conf = config::DataReadConfig {
@@ -676,7 +681,6 @@ pywrap!(
 );
 pywrap!(PyTimePattern, TimePattern, "TimePattern");
 pywrap!(PyUnicode, api::Unicode, "Unicode");
-pywrap!(PyNonStdMeasPattern, NonStdMeasPattern, "NonStdMeasPattern");
 pywrap!(PyCytSetter, MetaKwSetter<api::Cyt>, "CytSetter");
 pywrap!(PyCalibration3_1, api::Calibration3_1, "Calibration3_1");
 pywrap!(PyCalibration3_2, api::Calibration3_2, "Calibration3_2");
@@ -733,9 +737,6 @@ pywrap!(PySpillover, Spillover, "Spillover");
 
 py_parse!(PyDatePattern, DatePattern);
 py_disp!(PyDatePattern);
-
-py_parse!(PyNonStdMeasPattern, NonStdMeasPattern);
-py_disp!(PyNonStdMeasPattern);
 
 py_ord!(PyVersion);
 py_disp!(PyVersion);
@@ -3014,5 +3015,10 @@ fn str_to_shortname_prefix(s: String) -> PyResult<ShortnamePrefix> {
 
 fn str_to_nonstd_key(s: String) -> PyResult<NonStdKey> {
     s.parse::<NonStdKey>()
+        .map_err(|e| PyreflowException::new_err(e.to_string()))
+}
+
+fn str_to_nonstd_meas_pat(s: String) -> PyResult<NonStdMeasPattern> {
+    s.parse::<NonStdMeasPattern>()
         .map_err(|e| PyreflowException::new_err(e.to_string()))
 }

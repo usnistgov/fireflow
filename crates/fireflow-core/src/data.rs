@@ -566,7 +566,6 @@ pub enum AnyUintColumnReader {
 }
 
 impl DataReader {
-    // TODO don't take ownership
     pub(crate) fn h_read<R>(self, h: &mut BufReader<R>) -> io::Result<FCSDataFrame>
     where
         R: Read + Seek,
@@ -1167,27 +1166,7 @@ impl AnyUintColumnReader {
     }
 }
 
-macro_rules! uint_reader_from_column {
-    ($x:ident, $t:expr, $($a:ident),+) => {
-        match $x {
-            $(
-                AnyUintType::$a(uint_type) => AnyUintColumnReader::$a(UintColumnReader {
-                    uint_type,
-                    column: vec![0; $t],
-                }),
-            )+
-        }
-    };
-}
-
 impl AnyUintColumnReader {
-    fn from_column(ut: AnyUintType, total_events: Tot) -> Self {
-        let t = total_events.0;
-        uint_reader_from_column!(
-            ut, t, Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64
-        )
-    }
-
     fn h_read_to_column<R: Read>(&mut self, h: &mut BufReader<R>, r: usize) -> io::Result<()> {
         match_many_to_one!(
             self,
@@ -2255,6 +2234,7 @@ impl VersionedDataLayout for DataLayout3_2 {
     }
 }
 
+#[allow(clippy::type_complexity)]
 fn kws_get_layout_2_0(
     kws: &StdKeywords,
 ) -> Result<(AlphaNumType, ByteOrd, Vec<ColumnLayoutData<()>>), Vec<String>> {

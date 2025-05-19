@@ -684,7 +684,80 @@ pywrap!(
 
 // keyword value objects
 pywrap!(PyCalibration3_1, api::Calibration3_1, "Calibration3_1");
+
+#[pymethods]
+impl PyCalibration3_1 {
+    #[new]
+    fn new(value: f32, unit: String) -> Self {
+        api::Calibration3_1 { value, unit }.into()
+    }
+
+    #[getter]
+    fn get_value(&self) -> f32 {
+        self.0.value
+    }
+
+    #[getter]
+    fn get_unit(&self) -> String {
+        self.0.unit.clone()
+    }
+
+    #[setter]
+    fn set_value(&mut self, value: f32) {
+        self.0.value = value;
+    }
+
+    #[setter]
+    fn set_unit(&mut self, unit: String) {
+        self.0.unit = unit;
+    }
+}
+
 pywrap!(PyCalibration3_2, api::Calibration3_2, "Calibration3_2");
+
+#[pymethods]
+impl PyCalibration3_2 {
+    #[new]
+    fn new(value: f32, offset: f32, unit: String) -> Self {
+        api::Calibration3_2 {
+            value,
+            offset,
+            unit,
+        }
+        .into()
+    }
+
+    #[getter]
+    fn get_value(&self) -> f32 {
+        self.0.value
+    }
+
+    #[getter]
+    fn get_offset(&self) -> f32 {
+        self.0.offset
+    }
+
+    #[getter]
+    fn get_unit(&self) -> String {
+        self.0.unit.clone()
+    }
+
+    #[setter]
+    fn set_value(&mut self, value: f32) {
+        self.0.value = value;
+    }
+
+    #[setter]
+    fn set_offset(&mut self, offset: f32) {
+        self.0.offset = offset;
+    }
+
+    #[setter]
+    fn set_unit(&mut self, unit: String) {
+        self.0.unit = unit;
+    }
+}
+
 pywrap!(PyFeature, api::Feature, "Feature");
 // TODO this could just be list[int] in python that then gets validated
 pywrap!(PyByteOrd, ByteOrd, "ByteOrd");

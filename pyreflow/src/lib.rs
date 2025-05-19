@@ -15,7 +15,6 @@ use fireflow_core::validated::datepattern::DatePattern;
 use fireflow_core::validated::nonstandard::*;
 use fireflow_core::validated::pattern::*;
 use fireflow_core::validated::shortname::*;
-use fireflow_core::validated::textdelim::TEXTDelim;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 use nonempty::NonEmpty;
@@ -40,7 +39,6 @@ use std::path;
 fn pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("PyreflowException", py.get_type::<PyreflowException>())?;
     m.add("PyreflowWarning", py.get_type::<PyreflowWarning>())?;
-    m.add_class::<PyTEXTDelim>()?;
     m.add_class::<PyNonStdMeasPattern>()?;
     m.add_class::<PyDatePattern>()?;
     m.add_function(wrap_pyfunction!(read_fcs_header, m)?)?;
@@ -681,7 +679,6 @@ pywrap!(PyUnicode, api::Unicode, "Unicode");
 pywrap!(PyNonStdMeasPattern, NonStdMeasPattern, "NonStdMeasPattern");
 pywrap!(PyNonStdMeasKey, NonStdMeasKey, "NonStdMeasKey");
 pywrap!(PyNonStdKey, NonStdKey, "NonStdKey");
-pywrap!(PyTEXTDelim, TEXTDelim, "TEXTDelim");
 pywrap!(PyCytSetter, MetaKwSetter<api::Cyt>, "CytSetter");
 pywrap!(PyCalibration3_1, api::Calibration3_1, "Calibration3_1");
 pywrap!(PyCalibration3_2, api::Calibration3_2, "Calibration3_2");
@@ -741,16 +738,6 @@ py_disp!(PyDatePattern);
 
 py_parse!(PyNonStdMeasPattern, NonStdMeasPattern);
 py_disp!(PyNonStdMeasPattern);
-
-#[pymethods]
-impl PyTEXTDelim {
-    #[new]
-    fn new(x: u8) -> PyResult<PyTEXTDelim> {
-        TEXTDelim::new(x)
-            .map(PyTEXTDelim::from)
-            .map_err(|e| PyreflowException::new_err(e.to_string()))
-    }
-}
 
 py_ord!(PyVersion);
 py_disp!(PyVersion);

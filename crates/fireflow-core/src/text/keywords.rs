@@ -26,6 +26,29 @@ use std::fmt;
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::FromStr;
 
+// these are only going to be used to impl standard keys so they don't need
+// to store anything
+/// $BEGINANALYSIS
+pub struct Beginanalysis;
+
+/// $BEGINDATA
+pub struct Begindata;
+
+/// $BEGINSTEXT
+pub struct Beginstext;
+
+/// $ENDANALYSIS
+pub struct Endanalysis;
+
+/// $ENDDATA
+pub struct Enddata;
+
+/// $ENDSTEXT
+pub struct Endstext;
+
+/// $NEXTDATA
+pub struct Nextdata;
+
 /// The value of the $PnG keyword
 #[derive(Clone, Copy, Serialize, PartialEq)]
 pub struct Gain(pub PositiveFloat);
@@ -1290,22 +1313,7 @@ kw_opt_meas!(Wavelengths, "L"); // vector in 3.1+
 kw_opt_meas!(Calibration3_1, "CALIBRATION"); // 3.1 doesn't have offset
 kw_opt_meas!(Calibration3_2, "CALIBRATION"); // 3.2+ includes offset
 
-pub struct Beginanalysis;
-pub struct Begindata;
-pub struct Beginstext;
-pub struct Endanalysis;
-pub struct Enddata;
-pub struct Endstext;
-pub struct Nextdata;
-
-kw_meta!(Beginanalysis, "BEGINANALYSIS");
-kw_meta!(Begindata, "BEGINDATA");
-kw_meta!(Beginstext, "BEGINSTEXT");
-kw_meta!(Endanalysis, "ENDANALYSIS");
-kw_meta!(Enddata, "ENDDATA");
-kw_meta!(Endstext, "ENDSTEXT");
-kw_meta!(Nextdata, "NEXTDATA");
-
+// 2.0 compensation matrix
 pub struct Dfc;
 
 impl BiIndexedKey for Dfc {
@@ -1313,3 +1321,12 @@ impl BiIndexedKey for Dfc {
     const MIDDLE: &'static str = "TO";
     const SUFFIX: &'static str = "";
 }
+
+// offsets for all versions
+kw_meta!(Beginanalysis, "BEGINANALYSIS");
+kw_meta!(Begindata, "BEGINDATA");
+kw_meta!(Beginstext, "BEGINSTEXT");
+kw_meta!(Endanalysis, "ENDANALYSIS");
+kw_meta!(Enddata, "ENDDATA");
+kw_meta!(Endstext, "ENDSTEXT");
+kw_meta!(Nextdata, "NEXTDATA");

@@ -45,11 +45,16 @@ pub struct ValidKeywords {
 /// A standard key
 ///
 /// The constant traits is assumed to only have uppercase ASCII.
+// TODO this will allow much cleaner code once const_trait_impl is stable
 pub(crate) trait Key {
     const C: &'static str;
 
     fn std() -> StdKey {
         StdKey(Self::C.to_string())
+    }
+
+    fn len() -> usize {
+        Self::C.len() + 1
     }
 }
 

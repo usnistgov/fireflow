@@ -3592,7 +3592,7 @@ impl From<Calibration3_1> for Calibration3_2 {
         Calibration3_2 {
             unit: value.unit,
             offset: 0.0,
-            value: value.value,
+            slope: value.slope,
         }
     }
 }
@@ -3601,7 +3601,7 @@ impl From<Calibration3_2> for Calibration3_1 {
     fn from(value: Calibration3_2) -> Self {
         Calibration3_1 {
             unit: value.unit,
-            value: value.value,
+            slope: value.slope,
         }
     }
 }

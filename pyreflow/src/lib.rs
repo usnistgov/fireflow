@@ -1,5 +1,4 @@
-use fireflow_core::api::VersionedTemporal;
-use fireflow_core::api::{self};
+use fireflow_core::api::*;
 use fireflow_core::config::Strict;
 use fireflow_core::config::{self, OffsetCorrection};
 use fireflow_core::error;
@@ -9,7 +8,6 @@ use fireflow_core::text::optionalkw::*;
 use fireflow_core::text::range::*;
 use fireflow_core::text::ranged_float::*;
 use fireflow_core::text::scale::*;
-use fireflow_core::text::spillover::*;
 use fireflow_core::validated::dataframe::*;
 use fireflow_core::validated::datepattern::DatePattern;
 use fireflow_core::validated::nonstandard::*;
@@ -26,7 +24,7 @@ use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyWarning};
 use pyo3::prelude::*;
 use pyo3::type_object::PyTypeInfo;
-use pyo3::types::{IntoPyDict, PyDict};
+use pyo3::types::{IntoPyDict, PyDict, PyType};
 use pyo3::IntoPyObjectExt;
 use pyo3_polars::{PyDataFrame, PySeries};
 use std::cmp::Ordering;
@@ -39,17 +37,17 @@ use std::path;
 fn pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("PyreflowException", py.get_type::<PyreflowException>())?;
     m.add("PyreflowWarning", py.get_type::<PyreflowWarning>())?;
-    m.add_function(wrap_pyfunction!(read_fcs_header, m)?)?;
-    m.add_function(wrap_pyfunction!(read_fcs_raw_text, m)?)?;
-    m.add_function(wrap_pyfunction!(read_fcs_std_text, m)?)?;
-    m.add_function(wrap_pyfunction!(read_fcs_file, m)?)
+    m.add_function(wrap_pyfunction!(py_read_fcs_header, m)?)?;
+    m.add_function(wrap_pyfunction!(py_read_fcs_raw_text, m)?)?;
+    m.add_function(wrap_pyfunction!(py_read_fcs_std_text, m)?)?;
+    m.add_function(wrap_pyfunction!(py_read_fcs_file, m)?)
 }
 
 #[allow(clippy::too_many_arguments)]
 #[pyfunction]
 #[pyo3(signature = (p, begin_text=0, end_text=0, begin_data=0, end_data=0,
                     begin_analysis=0, end_analysis=0, version_override=None))]
-fn read_fcs_header(
+fn py_read_fcs_header(
     p: path::PathBuf,
     begin_text: i32,
     end_text: i32,
@@ -74,7 +72,7 @@ fn read_fcs_header(
             end: end_analysis,
         },
     };
-    handle_errors(api::read_fcs_header(&p, &conf))
+    handle_errors(read_fcs_header(&p, &conf))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -106,7 +104,7 @@ fn read_fcs_header(
     date_pattern=None,
     version_override=None)
 )]
-fn read_fcs_raw_text(
+fn py_read_fcs_raw_text(
     p: path::PathBuf,
 
     py: Python<'_>,
@@ -169,7 +167,7 @@ fn read_fcs_raw_text(
         repair_offset_spaces,
         date_pattern: date_pattern.map(str_to_date_pat).transpose()?,
     };
-    let raw: api::RawTEXT = handle_errors(api::read_fcs_raw_text(&p, &conf.set_strict(strict)))?;
+    let raw: RawTEXT = handle_errors(read_fcs_raw_text(&p, &conf.set_strict(strict)))?;
     let std = raw
         .keywords
         .std
@@ -226,7 +224,7 @@ fn read_fcs_raw_text(
     date_pattern=None,
     version_override=None)
 )]
-fn read_fcs_std_text(
+fn py_read_fcs_std_text(
     py: Python<'_>,
 
     p: path::PathBuf,
@@ -325,17 +323,16 @@ fn read_fcs_std_text(
         nonstandard_measurement_pattern: nsmp,
     };
 
-    let out: api::StandardizedTEXT =
-        handle_errors(api::read_fcs_std_text(&p, &conf.set_strict(strict)))?;
+    let out: StandardizedTEXT = handle_errors(read_fcs_std_text(&p, &conf.set_strict(strict)))?;
 
     let text = match &out.standardized {
         // TODO this copies all data from the "union type" into a new
         // version-specific type. This might not be a big deal, but these
         // types might be rather large with lots of strings.
-        api::AnyCoreTEXT::FCS2_0(x) => PyCoreTEXT2_0::from((**x).clone()).into_bound_py_any(py),
-        api::AnyCoreTEXT::FCS3_0(x) => PyCoreTEXT3_0::from((**x).clone()).into_bound_py_any(py),
-        api::AnyCoreTEXT::FCS3_1(x) => PyCoreTEXT3_1::from((**x).clone()).into_bound_py_any(py),
-        api::AnyCoreTEXT::FCS3_2(x) => PyCoreTEXT3_2::from((**x).clone()).into_bound_py_any(py),
+        AnyCoreTEXT::FCS2_0(x) => PyCoreTEXT2_0::from((**x).clone()).into_bound_py_any(py),
+        AnyCoreTEXT::FCS3_0(x) => PyCoreTEXT3_0::from((**x).clone()).into_bound_py_any(py),
+        AnyCoreTEXT::FCS3_1(x) => PyCoreTEXT3_1::from((**x).clone()).into_bound_py_any(py),
+        AnyCoreTEXT::FCS3_2(x) => PyCoreTEXT3_2::from((**x).clone()).into_bound_py_any(py),
     }?;
 
     Ok((
@@ -396,7 +393,7 @@ fn read_fcs_std_text(
     date_pattern=None,
     version_override=None)
 )]
-fn read_fcs_file(
+fn py_read_fcs_file(
     py: Python<'_>,
 
     p: path::PathBuf,
@@ -516,17 +513,16 @@ fn read_fcs_file(
         enforce_matching_tot,
     };
 
-    let out: api::StandardizedDataset =
-        handle_errors(api::read_fcs_file(&p, &conf.set_strict(strict)))?;
+    let out: StandardizedDataset = handle_errors(read_fcs_file(&p, &conf.set_strict(strict)))?;
 
     let dataset = match &out.dataset {
         // TODO this copies all data from the "union type" into a new
         // version-specific type. This might not be a big deal, but these
         // types might be rather large with lots of strings.
-        api::AnyCoreDataset::FCS2_0(x) => PyCoreDataset2_0::from(x.clone()).into_bound_py_any(py),
-        api::AnyCoreDataset::FCS3_0(x) => PyCoreDataset3_0::from(x.clone()).into_bound_py_any(py),
-        api::AnyCoreDataset::FCS3_1(x) => PyCoreDataset3_1::from(x.clone()).into_bound_py_any(py),
-        api::AnyCoreDataset::FCS3_2(x) => PyCoreDataset3_2::from(x.clone()).into_bound_py_any(py),
+        AnyCoreDataset::FCS2_0(x) => PyCoreDataset2_0::from(x.clone()).into_bound_py_any(py),
+        AnyCoreDataset::FCS3_0(x) => PyCoreDataset3_0::from(x.clone()).into_bound_py_any(py),
+        AnyCoreDataset::FCS3_1(x) => PyCoreDataset3_1::from(x.clone()).into_bound_py_any(py),
+        AnyCoreDataset::FCS3_2(x) => PyCoreDataset3_2::from(x.clone()).into_bound_py_any(py),
     }?;
 
     Ok((
@@ -539,7 +535,7 @@ fn read_fcs_file(
     ))
 }
 
-macro_rules! pywrap {
+macro_rules! py_wrap {
     ($pytype:ident, $rstype:path, $name:expr) => {
         #[pyclass(name = $name)]
         #[derive(Clone)]
@@ -628,151 +624,90 @@ macro_rules! py_disp {
     };
 }
 
-macro_rules! py_parse {
-    ($pytype:ident, $from:ident) => {
+macro_rules! py_enum {
+    ($pytype:ident, $rstype:ident, $([$var:ident, $method:ident]),*) => {
         #[pymethods]
         impl $pytype {
-            #[new]
-            fn new(s: String) -> PyResult<$pytype> {
-                s.parse::<$from>()
-                    .map($pytype::from)
+            $(
+                #[allow(non_snake_case)]
+                #[classattr]
+                fn $method() -> Self {
+                    $rstype::$var.into()
+                }
+            )*
+
+        }
+    };
+}
+
+macro_rules! py_parse {
+    ($pytype:ident) => {
+        #[pymethods]
+        impl $pytype {
+            #[classmethod]
+            fn from_raw_string(_: &Bound<'_, PyType>, s: String) -> PyResult<Self> {
+                s.parse()
+                    .map(Self)
                     .map_err(|e| PyreflowException::new_err(e.to_string()))
             }
         }
     };
 }
 
-// general parsed objects
-pywrap!(PyVersion, api::Version, "Version");
-pywrap!(PySegment, api::Segment, "Segment");
-pywrap!(PyHeader, api::Header, "Header");
-pywrap!(PyParseData, api::ParseData, "ParseData");
+macro_rules! py_struct {
+    ($pytype:ident, $rstype:path, $([$field:ident: $type:ident; $get:ident, $set:ident]),*) => {
+        #[pymethods]
+        impl $pytype {
+            #[new]
+            fn new($($field: $type),*) -> Self {
+                $rstype { $($field),* }.into()
+            }
 
-// core* objects
-pywrap!(PyCoreTEXT2_0, api::CoreTEXT2_0, "CoreTEXT2_0");
-pywrap!(PyCoreTEXT3_0, api::CoreTEXT3_0, "CoreTEXT3_0");
-pywrap!(PyCoreTEXT3_1, api::CoreTEXT3_1, "CoreTEXT3_1");
-pywrap!(PyCoreTEXT3_2, api::CoreTEXT3_2, "CoreTEXT3_2");
+            $(
+                #[getter]
+                fn $get(&self) -> $type {
+                    self.0.$field.clone()
+                }
 
-pywrap!(PyCoreDataset2_0, api::CoreDataset2_0, "CoreDataset2_0");
-pywrap!(PyCoreDataset3_0, api::CoreDataset3_0, "CoreDataset3_0");
-pywrap!(PyCoreDataset3_1, api::CoreDataset3_1, "CoreDataset3_1");
-pywrap!(PyCoreDataset3_2, api::CoreDataset3_2, "CoreDataset3_2");
-
-pywrap!(PyOptical2_0, api::Optical2_0, "Optical2_0");
-pywrap!(PyOptical3_0, api::Optical3_0, "Optical3_0");
-pywrap!(PyOptical3_1, api::Optical3_1, "Optical3_1");
-pywrap!(PyOptical3_2, api::Optical3_2, "Optical3_2");
-
-pywrap!(PyTemporal2_0, api::Temporal2_0, "Temporal2_0");
-pywrap!(PyTemporal3_0, api::Temporal3_0, "Temporal3_0");
-pywrap!(PyTemporal3_1, api::Temporal3_1, "Temporal3_1");
-pywrap!(PyTemporal3_2, api::Temporal3_2, "Temporal3_2");
-
-// data setters
-pywrap!(PyNumRangeSetter, api::NumRangeSetter, "NumRangeSetter");
-pywrap!(
-    PyAsciiRangeSetter,
-    api::AsciiRangeSetter,
-    "AsciiRangeSetter"
-);
-pywrap!(
-    PyMixedColumnSetter,
-    api::MixedColumnSetter,
-    "MixedColumnSetter"
-);
-
-// keyword value objects
-pywrap!(PyCalibration3_1, api::Calibration3_1, "Calibration3_1");
-
-#[pymethods]
-impl PyCalibration3_1 {
-    #[new]
-    fn new(value: f32, unit: String) -> Self {
-        api::Calibration3_1 { value, unit }.into()
-    }
-
-    #[getter]
-    fn get_value(&self) -> f32 {
-        self.0.value
-    }
-
-    #[getter]
-    fn get_unit(&self) -> String {
-        self.0.unit.clone()
-    }
-
-    #[setter]
-    fn set_value(&mut self, value: f32) {
-        self.0.value = value;
-    }
-
-    #[setter]
-    fn set_unit(&mut self, unit: String) {
-        self.0.unit = unit;
-    }
-}
-
-pywrap!(PyCalibration3_2, api::Calibration3_2, "Calibration3_2");
-
-#[pymethods]
-impl PyCalibration3_2 {
-    #[new]
-    fn new(value: f32, offset: f32, unit: String) -> Self {
-        api::Calibration3_2 {
-            value,
-            offset,
-            unit,
+                #[setter]
+                fn $set(&mut self, $field: $type) {
+                    self.0.$field = $field;
+                }
+            )*
         }
-        .into()
-    }
+    };
 
-    #[getter]
-    fn get_value(&self) -> f32 {
-        self.0.value
-    }
+    ($pytype:ident, $rstype:path, $([$field:ident: $type:ident; $get:ident]),*) => {
+        #[pymethods]
+        impl $pytype {
+            #[new]
+            fn new($($field: $type),*) -> Self {
+                $rstype { $($field),* }.into()
+            }
 
-    #[getter]
-    fn get_offset(&self) -> f32 {
-        self.0.offset
-    }
-
-    #[getter]
-    fn get_unit(&self) -> String {
-        self.0.unit.clone()
-    }
-
-    #[setter]
-    fn set_value(&mut self, value: f32) {
-        self.0.value = value;
-    }
-
-    #[setter]
-    fn set_offset(&mut self, offset: f32) {
-        self.0.offset = offset;
-    }
-
-    #[setter]
-    fn set_unit(&mut self, unit: String) {
-        self.0.unit = unit;
-    }
+            $(
+                #[getter]
+                fn $get(&self) -> $type {
+                    self.0.$field.clone()
+                }
+            )*
+        }
+    };
 }
 
-pywrap!(PyFeature, api::Feature, "Feature");
-// TODO this could just be list[int] in python that then gets validated
-pywrap!(PyByteOrd, ByteOrd, "ByteOrd");
-pywrap!(PyMode, api::Mode, "Mode");
-pywrap!(PyOriginality, api::Originality, "Originality");
-pywrap!(PyAlphaNumType, api::AlphaNumType, "AlphaNumType");
-pywrap!(PyNumType, api::NumType, "NumType");
-pywrap!(PyOpticalType, api::OpticalType, "OpticalType");
-pywrap!(PyScale, Scale, "Scale");
-pywrap!(PyDisplay, api::Display, "Display");
-pywrap!(PySpillover, Spillover, "Spillover");
-pywrap!(PyUnicode, api::Unicode, "Unicode");
-
+py_wrap!(PyVersion, Version, "Version");
 py_ord!(PyVersion);
 py_disp!(PyVersion);
+py_enum!(
+    PyVersion,
+    Version,
+    [FCS2_0, FCS2_0],
+    [FCS3_0, FCS3_0],
+    [FCS3_1, FCS3_1],
+    [FCS3_2, FCS3_2]
+);
+
+py_wrap!(PySegment, Segment, "Segment");
 
 #[pymethods]
 impl PySegment {
@@ -792,6 +727,8 @@ impl PySegment {
         format!("({},{})", self.begin(), self.end())
     }
 }
+
+py_wrap!(PyHeader, Header, "Header");
 
 #[pymethods]
 impl PyHeader {
@@ -815,6 +752,8 @@ impl PyHeader {
         self.0.analysis.into()
     }
 }
+
+py_wrap!(PyParseData, ParseData, "ParseData");
 
 #[pymethods]
 impl PyParseData {
@@ -856,6 +795,213 @@ impl PyParseData {
     #[getter]
     fn byte_pairs(&self) -> Vec<(Vec<u8>, Vec<u8>)> {
         self.0.byte_pairs.clone()
+    }
+}
+
+// core* objects
+py_wrap!(PyCoreTEXT2_0, CoreTEXT2_0, "CoreTEXT2_0");
+py_wrap!(PyCoreTEXT3_0, CoreTEXT3_0, "CoreTEXT3_0");
+py_wrap!(PyCoreTEXT3_1, CoreTEXT3_1, "CoreTEXT3_1");
+py_wrap!(PyCoreTEXT3_2, CoreTEXT3_2, "CoreTEXT3_2");
+
+py_wrap!(PyCoreDataset2_0, CoreDataset2_0, "CoreDataset2_0");
+py_wrap!(PyCoreDataset3_0, CoreDataset3_0, "CoreDataset3_0");
+py_wrap!(PyCoreDataset3_1, CoreDataset3_1, "CoreDataset3_1");
+py_wrap!(PyCoreDataset3_2, CoreDataset3_2, "CoreDataset3_2");
+
+py_wrap!(PyOptical2_0, Optical2_0, "Optical2_0");
+py_wrap!(PyOptical3_0, Optical3_0, "Optical3_0");
+py_wrap!(PyOptical3_1, Optical3_1, "Optical3_1");
+py_wrap!(PyOptical3_2, Optical3_2, "Optical3_2");
+
+py_wrap!(PyTemporal2_0, Temporal2_0, "Temporal2_0");
+py_wrap!(PyTemporal3_0, Temporal3_0, "Temporal3_0");
+py_wrap!(PyTemporal3_1, Temporal3_1, "Temporal3_1");
+py_wrap!(PyTemporal3_2, Temporal3_2, "Temporal3_2");
+
+// data setters
+py_wrap!(PyNumRangeSetter, NumRangeSetter, "NumRangeSetter");
+py_wrap!(PyAsciiRangeSetter, AsciiRangeSetter, "AsciiRangeSetter");
+py_wrap!(PyMixedColumnSetter, MixedColumnSetter, "MixedColumnSetter");
+
+// PnCALIBRATION (3.1)
+py_wrap!(PyCalibration3_1, Calibration3_1, "Calibration3_1");
+py_eq!(PyCalibration3_1);
+py_disp!(PyCalibration3_1);
+py_parse!(PyCalibration3_1);
+py_struct!(
+    PyCalibration3_1, Calibration3_1,
+    [slope: f32; get_value, set_value],
+    [unit: String; get_unit, set_unit]
+);
+
+// PnCALIBRATION (3.2)
+py_wrap!(PyCalibration3_2, Calibration3_2, "Calibration3_2");
+py_eq!(PyCalibration3_2);
+py_disp!(PyCalibration3_2);
+py_parse!(PyCalibration3_2);
+py_struct!(
+    PyCalibration3_2, Calibration3_2,
+    [slope: f32; get_value, set_value],
+    [offset: f32; get_offset, set_offset],
+    [unit: String; get_unit, set_unit]
+);
+
+// $PnFEATURE (3.2)
+py_wrap!(PyFeature, Feature, "Feature");
+py_eq!(PyFeature);
+py_disp!(PyFeature);
+py_parse!(PyFeature);
+py_enum!(
+    PyFeature,
+    Feature,
+    [Area, AREA],
+    [Width, WIDTH],
+    [Height, HEIGHT]
+);
+
+// TODO this could just be list[int] in python that then gets validated
+py_wrap!(PyByteOrd, ByteOrd, "ByteOrd");
+
+// $MODE (2.0-3.0)
+py_wrap!(PyMode, Mode, "Mode");
+py_eq!(PyMode);
+py_disp!(PyMode);
+py_parse!(PyMode);
+py_enum!(
+    PyMode,
+    Mode,
+    [List, LIST],
+    [Uncorrelated, UNCORRELATED],
+    [Correlated, CORRELATED]
+);
+
+// $ORIGINALITY (3.1-3.2)
+py_wrap!(PyOriginality, Originality, "Originality");
+py_eq!(PyOriginality);
+py_disp!(PyOriginality);
+py_parse!(PyOriginality);
+py_enum!(
+    PyOriginality,
+    Originality,
+    [Original, ORIGINAL],
+    [NonDataModified, NON_DATA_MODIFIED],
+    [Appended, APPENDED],
+    [DataModified, DATA_MODIFIED]
+);
+
+// $DATATYPE (all versions)
+py_wrap!(PyAlphaNumType, AlphaNumType, "AlphaNumType");
+py_eq!(PyAlphaNumType);
+py_disp!(PyAlphaNumType);
+py_parse!(PyAlphaNumType);
+py_enum!(
+    PyAlphaNumType,
+    AlphaNumType,
+    [Ascii, ASCII],
+    [Integer, INTEGER],
+    [Single, SINGLE],
+    [Double, DOUBLE]
+);
+
+// $PnDATATYPE (3.2)
+py_wrap!(PyNumType, NumType, "NumType");
+py_eq!(PyNumType);
+py_disp!(PyNumType);
+py_parse!(PyNumType);
+py_enum!(
+    PyNumType,
+    NumType,
+    [Integer, INTEGER],
+    [Single, SINGLE],
+    [Double, DOUBLE]
+);
+
+// $PnTYPE (3.2)
+py_wrap!(PyOpticalType, OpticalType, "OpticalType");
+py_eq!(PyOpticalType);
+py_disp!(PyOpticalType);
+py_parse!(PyOpticalType);
+py_enum!(
+    PyOpticalType,
+    OpticalType,
+    [ForwardScatter, FORWARD_SCATTER],
+    [SideScatter, SIDE_SCATTER],
+    [RawFluorescence, RAW_FLUORESCENCE],
+    [UnmixedFluorescence, UNMIXED_FLUORESCENCE],
+    [Mass, MASS],
+    [ElectronicVolume, ELECTRONIC_VOLUME],
+    [Classification, CLASSIFICATION],
+    [Index, INDEX]
+);
+
+#[pymethods]
+impl PyOpticalType {
+    #[classmethod]
+    fn other(_: &Bound<'_, PyType>, s: String) -> Self {
+        OpticalType::Other(s).into()
+    }
+}
+
+// $PnE (all versions)
+py_wrap!(PyScale, Scale, "Scale");
+py_eq!(PyScale);
+py_disp!(PyScale);
+py_parse!(PyScale);
+
+#[pymethods]
+impl PyScale {
+    #[classattr]
+    #[allow(non_snake_case)]
+    fn LINEAR() -> Self {
+        Scale::Linear.into()
+    }
+
+    #[classmethod]
+    fn log(_: &Bound<'_, PyType>, decades: f32, offset: f32) -> PyResult<Self> {
+        Scale::try_new_log(decades, offset)
+            .map_err(|e| PyreflowException::new_err(e.to_string()))
+            .map(|x| x.into())
+    }
+
+    fn is_linear(&self) -> bool {
+        self.0 == Scale::Linear
+    }
+}
+
+py_wrap!(PyDisplay, Display, "Display");
+py_eq!(PyDisplay);
+py_disp!(PyDisplay);
+py_parse!(PyDisplay);
+
+#[pymethods]
+impl PyDisplay {
+    #[classmethod]
+    fn lin(_: &Bound<'_, PyType>, lower: f32, upper: f32) -> Self {
+        Display::Lin { lower, upper }.into()
+    }
+
+    #[classmethod]
+    fn log(_: &Bound<'_, PyType>, decades: f32, offset: f32) -> Self {
+        Display::Log { offset, decades }.into()
+    }
+
+    fn is_linear(&self) -> bool {
+        matches!(self.0, Display::Lin { lower: _, upper: _ })
+    }
+}
+
+// $UNICODE (3.0)
+py_wrap!(PyUnicode, Unicode, "Unicode");
+py_eq!(PyUnicode);
+py_disp!(PyUnicode);
+py_parse!(PyUnicode);
+
+#[pymethods]
+impl PyUnicode {
+    #[new]
+    fn new(page: u32, kws: Vec<String>) -> Self {
+        Unicode { page, kws }.into()
     }
 }
 
@@ -1033,7 +1179,7 @@ convert_methods!(
 impl PyCoreTEXT2_0 {
     #[new]
     fn new(datatype: PyAlphaNumType, byteord: PyByteOrd, mode: PyMode) -> Self {
-        api::CoreTEXT2_0::new(datatype.into(), byteord.into(), mode.into()).into()
+        CoreTEXT2_0::new(datatype.into(), byteord.into(), mode.into()).into()
     }
 }
 
@@ -1041,7 +1187,7 @@ impl PyCoreTEXT2_0 {
 impl PyCoreTEXT3_0 {
     #[new]
     fn new(datatype: PyAlphaNumType, byteord: PyByteOrd, mode: PyMode) -> Self {
-        api::CoreTEXT3_0::new(datatype.into(), byteord.into(), mode.into()).into()
+        CoreTEXT3_0::new(datatype.into(), byteord.into(), mode.into()).into()
     }
 
     #[getter]
@@ -1064,7 +1210,7 @@ impl PyCoreTEXT3_0 {
 impl PyCoreTEXT3_1 {
     #[new]
     fn new(datatype: PyAlphaNumType, is_big: bool, mode: PyMode) -> Self {
-        api::CoreTEXT3_1::new(datatype.into(), is_big, mode.into()).into()
+        CoreTEXT3_1::new(datatype.into(), is_big, mode.into()).into()
     }
 }
 
@@ -1072,7 +1218,7 @@ impl PyCoreTEXT3_1 {
 impl PyCoreTEXT3_2 {
     #[new]
     fn new(datatype: PyAlphaNumType, is_big: bool, cyt: String) -> Self {
-        api::CoreTEXT3_2::new(datatype.into(), is_big, cyt).into()
+        CoreTEXT3_2::new(datatype.into(), is_big, cyt).into()
     }
 
     #[getter]
@@ -1455,7 +1601,7 @@ macro_rules! common_methods {
                     ys.push(
                         x.map(f32_to_nonneg_float)
                             .transpose()?
-                            .map(api::DetectorVoltage)
+                            .map(DetectorVoltage)
                     );
                 }
                 self.0
@@ -2126,7 +2272,7 @@ macro_rules! timestep_methods {
 
                 #[setter]
                 fn set_timestep(&mut self, x: f32) -> PyResult<bool> {
-                    let ts = api::Timestep(f32_to_positive_float(x)?);
+                    let ts = Timestep(f32_to_positive_float(x)?);
                     let res = self.0
                         .temporal_mut()
                         .map(|y| y.value.specific.set_timestep(ts))
@@ -2206,7 +2352,7 @@ macro_rules! wavelengths_methods {
                     self.0
                         .set_wavelengths(
                             xs.into_iter()
-                                .map(|x| NonEmpty::from_vec(x).map(api::Wavelengths))
+                                .map(|x| NonEmpty::from_vec(x).map(Wavelengths))
                                 .collect(),
                         )
                         .map_err(|e| PyreflowException::new_err(e.to_string()))
@@ -2353,7 +2499,7 @@ macro_rules! vol_methods {
 
                 #[setter]
                 fn set_vol(&mut self, vol: Option<f32>) -> PyResult<()> {
-                    let x = vol.map(f32_to_nonneg_float).transpose()?.map(api::Vol);
+                    let x = vol.map(f32_to_nonneg_float).transpose()?.map(Vol);
                     self.0.metadata.specific.vol = x.into();
                     Ok(())
                 }
@@ -2391,7 +2537,7 @@ macro_rules! gain_methods {
                 fn set_gains(&mut self, xs: Vec<Option<f32>>) -> PyResult<()> {
                     let mut ys = vec![];
                     for x in xs {
-                        ys.push(x.map(f32_to_positive_float).transpose()?.map(api::Gain));
+                        ys.push(x.map(f32_to_positive_float).transpose()?.map(Gain));
                     }
                     self.0
                         .set_gains(ys)
@@ -2517,7 +2663,7 @@ macro_rules! to_dataset_method {
             fn to_dataset(&self, df: PyDataFrame, analysis: Vec<u8>) -> PyResult<$to> {
                 let cols = dataframe_to_fcs(df.into())
                     .map_err(|e| PyreflowException::new_err(e.to_string()))?;
-                api::CoreDataset::from_coretext(self.0.clone(), cols, analysis.into())
+                CoreDataset::from_coretext(self.0.clone(), cols, analysis.into())
                     .map_err(|e| PyreflowException::new_err(e.to_string()))
                     .map(|df| df.into())
             }
@@ -2600,7 +2746,7 @@ impl PyOptical2_0 {
     #[new]
     #[pyo3(signature = (range, width=None))]
     fn new(range: Bound<'_, PyAny>, width: Option<u8>) -> PyResult<Self> {
-        any_to_range(range).map(|r| api::Optical2_0::new(width.into(), r).into())
+        any_to_range(range).map(|r| Optical2_0::new(width.into(), r).into())
     }
 }
 
@@ -2609,7 +2755,7 @@ impl PyOptical3_0 {
     #[new]
     #[pyo3(signature = (range, scale, width=None))]
     fn new(range: Bound<'_, PyAny>, scale: PyScale, width: Option<u8>) -> PyResult<Self> {
-        any_to_range(range).map(|r| api::Optical3_0::new(width.into(), r, scale.into()).into())
+        any_to_range(range).map(|r| Optical3_0::new(width.into(), r, scale.into()).into())
     }
 }
 
@@ -2618,7 +2764,7 @@ impl PyOptical3_1 {
     #[new]
     #[pyo3(signature = (range, scale, width=None))]
     fn new(range: Bound<'_, PyAny>, scale: PyScale, width: Option<u8>) -> PyResult<Self> {
-        any_to_range(range).map(|r| api::Optical3_1::new(width.into(), r, scale.into()).into())
+        any_to_range(range).map(|r| Optical3_1::new(width.into(), r, scale.into()).into())
     }
 }
 
@@ -2627,7 +2773,7 @@ impl PyOptical3_2 {
     #[new]
     #[pyo3(signature = (range, scale, width=None))]
     fn new(range: Bound<'_, PyAny>, scale: PyScale, width: Option<u8>) -> PyResult<Self> {
-        any_to_range(range).map(|r| api::Optical3_2::new(width.into(), r, scale.into()).into())
+        any_to_range(range).map(|r| Optical3_2::new(width.into(), r, scale.into()).into())
     }
 }
 
@@ -2636,7 +2782,7 @@ impl PyTemporal2_0 {
     #[new]
     #[pyo3(signature = (range, width=None))]
     fn new(range: Bound<'_, PyAny>, width: Option<u8>) -> PyResult<Self> {
-        any_to_range(range).map(|r| api::Temporal2_0::new(width.into(), r).into())
+        any_to_range(range).map(|r| Temporal2_0::new(width.into(), r).into())
     }
 }
 
@@ -2647,7 +2793,7 @@ impl PyTemporal3_0 {
     fn new(range: Bound<'_, PyAny>, timestep: f32, width: Option<u8>) -> PyResult<Self> {
         let ts = to_positive_float(timestep)?;
         let r = any_to_range(range)?;
-        Ok(api::Temporal3_0::new(width.into(), r, ts.into()).into())
+        Ok(Temporal3_0::new(width.into(), r, ts.into()).into())
     }
 }
 
@@ -2658,7 +2804,7 @@ impl PyTemporal3_1 {
     fn new(range: Bound<'_, PyAny>, timestep: f32, width: Option<u8>) -> PyResult<Self> {
         let ts = to_positive_float(timestep)?;
         let r = any_to_range(range)?;
-        Ok(api::Temporal3_1::new(width.into(), r, ts.into()).into())
+        Ok(Temporal3_1::new(width.into(), r, ts.into()).into())
     }
 }
 
@@ -2669,7 +2815,7 @@ impl PyTemporal3_2 {
     fn new(range: Bound<'_, PyAny>, timestep: f32, width: Option<u8>) -> PyResult<Self> {
         let ts = to_positive_float(timestep)?;
         let r = any_to_range(range)?;
-        Ok(api::Temporal3_2::new(width.into(), r, ts.into()).into())
+        Ok(Temporal3_2::new(width.into(), r, ts.into()).into())
     }
 
     #[getter]
@@ -2679,7 +2825,7 @@ impl PyTemporal3_2 {
 
     #[setter]
     fn set_measurement_type(&mut self, x: bool) {
-        self.0.specific.measurement_type = if x { Some(api::TemporalType) } else { None }.into();
+        self.0.specific.measurement_type = if x { Some(TemporalType) } else { None }.into();
     }
 }
 

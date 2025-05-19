@@ -209,7 +209,7 @@ impl fmt::Display for Mode3_2Error {
 }
 
 /// The value for the $PnDISPLAY key (3.1+)
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Serialize, PartialEq)]
 pub enum Display {
     /// Linear display (value like 'Linear,<lower>,<upper>')
     Lin { lower: f32, upper: f32 },
@@ -270,7 +270,7 @@ impl fmt::Display for DisplayError {
 }
 
 /// The three values for the $PnDATATYPE keyword (3.2+)
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Serialize, PartialEq)]
 pub enum NumType {
     Integer,
     Single,
@@ -375,9 +375,9 @@ impl TryFrom<AlphaNumType> for NumType {
 /// The value for the $PnCALIBRATION key (3.1 only)
 ///
 /// This should be formatted like '<value>,<unit>'
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, PartialEq)]
 pub struct Calibration3_1 {
-    pub value: f32,
+    pub slope: f32,
     pub unit: String,
 }
 
@@ -390,7 +390,7 @@ impl FromStr for Calibration3_1 {
                 let value = svalue.parse().map_err(CalibrationError::Float)?;
                 if value >= 0.0 {
                     Ok(Calibration3_1 {
-                        value,
+                        slope: value,
                         unit: String::from(unit),
                     })
                 } else {
@@ -404,7 +404,7 @@ impl FromStr for Calibration3_1 {
 
 impl fmt::Display for Calibration3_1 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{},{}", self.value, self.unit)
+        write!(f, "{},{}", self.slope, self.unit)
     }
 }
 
@@ -436,9 +436,9 @@ impl<C: fmt::Display> fmt::Display for CalibrationError<C> {
 ///
 /// This should be formatted like '<value>,[<offset>,]<unit>' and differs from
 /// 3.1 with the optional inclusion of "offset" (assumed 0 if not included).
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, PartialEq)]
 pub struct Calibration3_2 {
-    pub value: f32,
+    pub slope: f32,
     pub offset: f32,
     pub unit: String,
 }
@@ -462,7 +462,7 @@ impl FromStr for Calibration3_2 {
         }?;
         if value >= 0.0 {
             Ok(Calibration3_2 {
-                value,
+                slope: value,
                 offset,
                 unit,
             })
@@ -474,7 +474,7 @@ impl FromStr for Calibration3_2 {
 
 impl fmt::Display for Calibration3_2 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{},{},{}", self.value, self.offset, self.unit)
+        write!(f, "{},{},{}", self.slope, self.offset, self.unit)
     }
 }
 
@@ -539,7 +539,7 @@ impl fmt::Display for WavelengthsError {
 }
 
 /// The value for the $ORIGINALITY key (3.1+)
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Serialize, PartialEq)]
 pub enum Originality {
     Original,
     NonDataModified,
@@ -591,11 +591,11 @@ impl fmt::Display for OriginalityError {
 /// in this library and is present to be complete. The original purpose was to
 /// indicate keywords which supported UTF-8, but these days it is hard to
 /// write a library that does NOT support UTF-8 ;)
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, PartialEq)]
 pub struct Unicode {
-    page: u32,
+    pub page: u32,
     // TODO check that these are valid keywords (probably not worth it)
-    kws: Vec<String>,
+    pub kws: Vec<String>,
 }
 
 impl FromStr for Unicode {
@@ -727,7 +727,7 @@ impl fmt::Display for TemporalTypeError {
 }
 
 /// The value of the $PnFEATURE key (3.2+)
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Serialize, PartialEq)]
 pub enum Feature {
     Area,
     Width,

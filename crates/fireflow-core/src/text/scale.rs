@@ -24,11 +24,11 @@ pub struct LogScale {
 }
 
 impl Scale {
-    pub fn try_new_log(decades: f32, offset: f32) -> Option<Self> {
+    pub fn try_new_log(decades: f32, offset: f32) -> Result<Self, LogRangeError> {
         if decades > 0.0 && offset > 0.0 {
-            Some(Scale::Log(LogScale { decades, offset }))
+            Ok(Scale::Log(LogScale { decades, offset }))
         } else {
-            None
+            Err(LogRangeError { decades, offset })
         }
     }
 }
@@ -43,8 +43,9 @@ impl FromStr for Scale {
                 let f2 = os.parse().map_err(ScaleError::FloatError)?;
                 match (f1, f2) {
                     (0.0, 0.0) => Ok(Scale::Linear),
-                    (decades, offset) => Scale::try_new_log(decades, offset)
-                        .ok_or(ScaleError::LogRange { decades, offset }),
+                    (decades, offset) => {
+                        Scale::try_new_log(decades, offset).map_err(ScaleError::LogRange)
+                    }
                 }
             }
             _ => Err(ScaleError::WrongFormat),
@@ -63,7 +64,7 @@ impl fmt::Display for Scale {
 
 pub enum ScaleError {
     FloatError(ParseFloatError),
-    LogRange { decades: f32, offset: f32 },
+    LogRange(LogRangeError),
     WrongFormat,
 }
 
@@ -72,10 +73,22 @@ impl fmt::Display for ScaleError {
         match self {
             ScaleError::FloatError(x) => write!(f, "{}", x),
             ScaleError::WrongFormat => write!(f, "must be like 'f1,f2'"),
-            ScaleError::LogRange { decades, offset } => write!(
-                f,
-                "decades/offset must both be positive, got '{decades},{offset}'"
-            ),
+            ScaleError::LogRange(r) => r.fmt(f),
         }
+    }
+}
+
+pub struct LogRangeError {
+    decades: f32,
+    offset: f32,
+}
+
+impl fmt::Display for LogRangeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "decades/offset must both be positive, got '{},{}'",
+            self.decades, self.offset,
+        )
     }
 }

@@ -677,7 +677,6 @@ pywrap!(
 pywrap!(PyTimePattern, TimePattern, "TimePattern");
 pywrap!(PyUnicode, api::Unicode, "Unicode");
 pywrap!(PyNonStdMeasPattern, NonStdMeasPattern, "NonStdMeasPattern");
-pywrap!(PyNonStdMeasKey, NonStdMeasKey, "NonStdMeasKey");
 pywrap!(PyNonStdKey, NonStdKey, "NonStdKey");
 pywrap!(PyCytSetter, MetaKwSetter<api::Cyt>, "CytSetter");
 pywrap!(PyCalibration3_1, api::Calibration3_1, "Calibration3_1");

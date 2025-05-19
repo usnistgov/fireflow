@@ -15,16 +15,6 @@ pub struct NonStdKey(String);
 pub type NonStdPairs = Vec<(NonStdKey, String)>;
 pub type NonStdKeywords = HashMap<NonStdKey, String>;
 
-/// A String that matches a non-standard measurement keyword.
-///
-/// This will have exactly one '%n' and not start with a '$'. The
-/// '%n' will be replaced by the measurement index which will be used
-/// to match keywords.
-///
-/// For example 'P%nFOO' for index 420 would be 'P420FOO'.
-#[derive(Clone)]
-pub struct NonStdMeasKey(String);
-
 /// A String that matches part of a non-standard measurement key.
 ///
 /// This will have exactly one '%n' and not start with a '$'. The
@@ -54,7 +44,6 @@ pub enum KwSetter<T, K> {
 }
 
 pub type MetaKwSetter<T> = KwSetter<T, NonStdKey>;
-pub type MeasKwSetter<T> = KwSetter<T, NonStdMeasKey>;
 
 /// Comp/spillover matrix that may be converted or for which a default may exist
 ///
@@ -99,18 +88,6 @@ impl FromStr for NonStdKey {
     }
 }
 
-impl FromStr for NonStdMeasKey {
-    type Err = NonStdMeasKeyError;
-
-    fn from_str(s: &str) -> Result<Self, NonStdMeasKeyError> {
-        if s.starts_with("$") || s.match_indices("%n").count() != 1 {
-            Err(NonStdMeasKeyError(s.to_string()))
-        } else {
-            Ok(NonStdMeasKey(s.to_string()))
-        }
-    }
-}
-
 impl NonStdKey {
     pub fn from_unchecked(s: &str) -> Self {
         Self(s.into())
@@ -118,16 +95,6 @@ impl NonStdKey {
 
     pub fn into_unchecked(s: String) -> Self {
         Self(s)
-    }
-}
-
-impl NonStdMeasKey {
-    pub fn from_index(&self, n: MeasIdx) -> NonStdKey {
-        NonStdKey(self.0.replace("%n", n.to_string().as_str()))
-    }
-
-    pub fn from_unchecked(s: &str) -> Self {
-        Self(s.into())
     }
 }
 
@@ -289,10 +256,8 @@ impl<T> Default for MatrixSetter<T> {
 }
 
 newtype_disp!(NonStdKey);
-newtype_disp!(NonStdMeasKey);
 newtype_disp!(NonStdMeasPattern);
 newtype_disp!(MeasIdx);
 
 newtype_asref!(NonStdKey, str);
-newtype_asref!(NonStdMeasKey, str);
 newtype_asref!(NonStdMeasPattern, str);

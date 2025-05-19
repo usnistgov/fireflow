@@ -23,42 +23,6 @@ pub type NonStdKeywords = HashMap<NonStdKey, String>;
 #[derive(Clone)]
 pub struct NonStdMeasPattern(String);
 
-/// Values that may be be used for an optional keyword when converting versions
-///
-/// For example, when converting 2.0 -> 3.1, the "$VOL" keyword needs to be
-/// filled with something. This will allow the user to specify a default for
-/// $VOL. Alternatively, the user can supply a keyword that will be used to
-/// lookup the value from the nonstandard keyword list (presumably in this case
-/// the key would be something like "VOL"). Both of these are optional. If
-/// neither is supplied, this keyword will be left unfilled. Obviously this only
-/// applies if the keyword is optional.
-#[derive(Clone)]
-pub enum KwSetter<T, K> {
-    /// Value to be used as a default
-    Default(T),
-
-    /// Key to use when looking in the nonstandard keyword hash table.
-    ///
-    /// This is assumed not to start with "$".
-    Key(Option<K>),
-}
-
-pub type MetaKwSetter<T> = KwSetter<T, NonStdKey>;
-
-/// Comp/spillover matrix that may be converted or for which a default may exist
-///
-/// This is similar to `DefaultOptional` in that it has a default and a key for
-/// which the default may be found. However, a conversion from a different key
-/// may be attempted before these.
-#[derive(Clone)]
-pub struct MatrixSetter<T> {
-    /// If true, try to convert from a different key.
-    ///
-    /// For now this applies to $COMP<->$SPILLOVER conversions.
-    pub try_convert: bool,
-    pub default: MetaKwSetter<T>,
-}
-
 /// The index for a measurement
 // TODO this should start from 1?
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
@@ -185,73 +149,6 @@ impl fmt::Display for NonStdMeasRegexError {
             "Could not make regexp using pattern '{}' for measurement {}",
             self.pattern, self.index,
         )
-    }
-}
-
-impl<T, K> Default for KwSetter<T, K> {
-    fn default() -> KwSetter<T, K> {
-        KwSetter::Key(None)
-    }
-}
-
-// impl<T> MetaKwSetter<T> {
-//     pub fn new(default: Option<T>, key: Option<String>) -> Result<Self, NonStdKeyError> {
-//         Ok(KwSetter {
-//             default,
-//             key: key.map_or(Ok(None), |s| s.parse().map(Some))?,
-//         })
-//     }
-
-//     pub fn init_unchecked(key: &'static str) -> Self {
-//         KwSetter {
-//             default: None,
-//             key: Some(NonStdKey(key.into())),
-//         }
-//     }
-// }
-
-// impl<T> MeasKwSetter<T> {
-//     pub fn new(default: Option<T>, key: Option<String>) -> Result<Self, NonStdMeasKeyError> {
-//         Ok(KwSetter {
-//             default,
-//             key: key.map_or(Ok(None), |s| s.parse().map(Some))?,
-//         })
-//     }
-
-//     pub fn init_unchecked(suffix: &'static str, n: usize) -> Self {
-//         KwSetter {
-//             default: None,
-//             key: Some(NonStdMeasKey(format!("P{n}{suffix}"))),
-//         }
-//     }
-// }
-
-// impl<T> MatrixSetter<T> {
-//     pub fn new(
-//         default: Option<T>,
-//         key: Option<String>,
-//         try_convert: bool,
-//     ) -> Result<Self, NonStdKeyError> {
-//         Ok(MatrixSetter {
-//             try_convert,
-//             default: MetaKwSetter::new(default, key)?,
-//         })
-//     }
-
-//     pub fn init_unchecked(key: &'static str) -> Self {
-//         MatrixSetter {
-//             try_convert: false,
-//             default: MetaKwSetter::init_unchecked(key),
-//         }
-//     }
-// }
-
-impl<T> Default for MatrixSetter<T> {
-    fn default() -> MatrixSetter<T> {
-        MatrixSetter {
-            try_convert: false,
-            default: MetaKwSetter::default(),
-        }
     }
 }
 

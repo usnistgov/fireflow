@@ -683,7 +683,6 @@ pywrap!(
 );
 
 // keyword value objects
-pywrap!(PyCytSetter, MetaKwSetter<api::Cyt>, "CytSetter");
 pywrap!(PyCalibration3_1, api::Calibration3_1, "Calibration3_1");
 pywrap!(PyCalibration3_2, api::Calibration3_2, "Calibration3_2");
 pywrap!(PyFeature, api::Feature, "Feature");

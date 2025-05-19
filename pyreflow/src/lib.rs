@@ -34,7 +34,6 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::fmt;
-use std::hash::{Hash, Hasher};
 use std::path;
 
 #[pymodule]
@@ -44,7 +43,6 @@ fn pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyTEXTDelim>()?;
     m.add_class::<PyNonStdMeasPattern>()?;
     m.add_class::<PyDatePattern>()?;
-    m.add_class::<PyShortname>()?;
     m.add_function(wrap_pyfunction!(read_fcs_header, m)?)?;
     m.add_function(wrap_pyfunction!(read_fcs_raw_text, m)?)?;
     m.add_function(wrap_pyfunction!(read_fcs_std_text, m)?)?;
@@ -664,7 +662,6 @@ pywrap!(PyTemporal3_2, api::Temporal3_2, "Temporal3_2");
 
 pywrap!(PyDatePattern, DatePattern, "DatePattern");
 
-pywrap!(PyShortname, Shortname, "Shortname");
 pywrap!(PyNumRangeSetter, api::NumRangeSetter, "NumRangeSetter");
 pywrap!(
     PyAsciiRangeSetter,
@@ -739,16 +736,6 @@ pywrap!(PySpillover, Spillover, "Spillover");
 
 py_parse!(PyDatePattern, DatePattern);
 py_disp!(PyDatePattern);
-
-py_parse!(PyShortname, Shortname);
-py_disp!(PyShortname);
-py_eq!(PyShortname);
-
-impl Hash for PyShortname {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.hash(state);
-    }
-}
 
 py_parse!(PyNonStdMeasPattern, NonStdMeasPattern);
 py_disp!(PyNonStdMeasPattern);
@@ -1130,21 +1117,23 @@ impl PyCoreTEXT3_2 {
     }
 
     #[getter]
-    fn get_unstained_centers(&self) -> Option<HashMap<PyShortname, f32>> {
+    fn get_unstained_centers(&self) -> Option<HashMap<String, f32>> {
         self.0.unstained_centers().map(|x| {
             <HashMap<Shortname, f32>>::from(x.clone())
                 .into_iter()
-                .map(|(k, v)| (k.into(), v))
+                .map(|(k, v)| (k.to_string(), v))
                 .collect()
         })
     }
 
-    fn insert_unstained_center(&mut self, k: PyShortname, v: f32) -> Option<f32> {
-        self.0.insert_unstained_center(k.into(), v)
+    fn insert_unstained_center(&mut self, k: String, v: f32) -> PyResult<Option<f32>> {
+        let n = str_to_shortname(k)?;
+        Ok(self.0.insert_unstained_center(n, v))
     }
 
-    fn remove_unstained_center(&mut self, k: PyShortname) -> Option<f32> {
-        self.0.remove_unstained_center(&k.into())
+    fn remove_unstained_center(&mut self, k: String) -> PyResult<Option<f32>> {
+        let n = str_to_shortname(k)?;
+        Ok(self.0.remove_unstained_center(&n))
     }
 
     fn clear_unstained_centers(&mut self) {
@@ -1289,8 +1278,8 @@ macro_rules! common_methods {
             }
 
             #[getter]
-            fn trigger_name(&self) -> Option<PyShortname> {
-                self.0.trigger_name().map(|x| x.clone().into())
+            fn trigger_name(&self) -> Option<String> {
+                self.0.trigger_name().map(|x| x.to_string())
             }
 
             #[getter]
@@ -1299,8 +1288,9 @@ macro_rules! common_methods {
             }
 
             #[setter]
-            fn set_trigger_name(&mut self, n: PyShortname) -> bool {
-                self.0.set_trigger_name(n.into())
+            fn set_trigger_name(&mut self, name: String) -> PyResult<bool> {
+                let n = str_to_shortname(name)?;
+                Ok(self.0.set_trigger_name(n))
             }
 
             #[setter]
@@ -1312,9 +1302,10 @@ macro_rules! common_methods {
                 self.0.clear_trigger()
             }
 
-            fn set_temporal(&mut self, n: PyShortname, force: bool) -> PyResult<bool> {
+            fn set_temporal(&mut self, name: String, force: bool) -> PyResult<bool> {
+                let n = str_to_shortname(name)?;
                 self.0
-                    .set_temporal(&n.into(), force)
+                    .set_temporal(&n, force)
                     .map_err(|e| PyreflowException::new_err(e.to_string()))
             }
 
@@ -1359,27 +1350,31 @@ macro_rules! common_methods {
             }
 
             #[getter]
-            fn shortnames_maybe(&self) -> Vec<Option<PyShortname>> {
+            fn shortnames_maybe(&self) -> Vec<Option<String>> {
                 self.0
                     .shortnames_maybe()
                     .into_iter()
-                    .map(|x| x.map(|y| y.clone().into()))
+                    .map(|x| x.map(|y| y.to_string()))
                     .collect()
             }
 
             #[getter]
-            fn all_shortnames(&self) -> Vec<PyShortname> {
+            fn all_shortnames(&self) -> Vec<String> {
                 self.0
                     .all_shortnames()
                     .into_iter()
-                    .map(|x| x.into())
+                    .map(|x| x.to_string())
                     .collect()
             }
 
             #[setter]
-            fn set_all_shortnames(&mut self, ns: Vec<PyShortname>) -> PyResult<()> {
+            fn set_all_shortnames(&mut self, names: Vec<String>) -> PyResult<()> {
+                let mut ns = vec![];
+                for x in names {
+                    ns.push(str_to_shortname(x)?);
+                }
                 self.0
-                    .set_all_shortnames(ns.into_iter().map(|x| x.into()).collect())
+                    .set_all_shortnames(ns)
                     .map_err(|e| PyreflowException::new_err(e.to_string()))
                     .map(|_| ())
             }
@@ -1435,11 +1430,12 @@ macro_rules! common_meas_get_set {
             impl $pytype {
                 fn remove_measurement_by_name<'py>(
                     &mut self,
-                    n: PyShortname,
+                    name: String,
                     py: Python<'py>,
                 ) -> PyResult<Option<(usize, Bound<'py, PyAny>)>> {
+                    let n = str_to_shortname(name)?;
                     self.0
-                        .remove_measurement_by_name(&Shortname::from(n))
+                        .remove_measurement_by_name(&n)
                         .map(|(i, x)| {
                             x.both(
                                 |l| $timetype::from(l).into_bound_py_any(py),
@@ -1479,8 +1475,9 @@ macro_rules! common_meas_get_set {
                     )
                 }
 
-                fn rename_temporal(&mut self, name: PyShortname) -> Option<PyShortname> {
-                    self.0.rename_temporal(name.into()).map(|n| n.into())
+                fn rename_temporal(&mut self, name: String) -> PyResult<Option<String>> {
+                    let n = str_to_shortname(name)?;
+                    Ok(self.0.rename_temporal(n).map(|n| n.to_string()))
                 }
 
                 #[getter]
@@ -1526,22 +1523,24 @@ macro_rules! common_coretext_meas_get_set {
             impl $pytype {
                 fn push_temporal(
                     &mut self,
-                    n: PyShortname,
+                    name: String,
                     t: $timetype,
                 ) -> PyResult<()> {
+                    let n = str_to_shortname(name)?;
                     self.0
-                        .push_temporal(n.into(), t.into())
+                        .push_temporal(n, t.into())
                         .map_err(PyreflowException::new_err)
                 }
 
                 fn insert_time_channel(
                     &mut self,
                     i: usize,
-                    n: PyShortname,
+                    name: String,
                     t: $timetype,
                 ) -> PyResult<()> {
+                    let n = str_to_shortname(name)?;
                     self.0
-                        .insert_temporal(i.into(), n.into(), t.into())
+                        .insert_temporal(i.into(), n, t.into())
                         .map_err(PyreflowException::new_err)
                 }
 
@@ -1569,26 +1568,28 @@ macro_rules! coredata_meas_get_set {
             impl $pytype {
                 fn push_temporal(
                     &mut self,
-                    n: PyShortname,
+                    name: String,
                     t: $timetype,
                     xs: PySeries,
                 ) -> PyResult<()> {
+                    let n = str_to_shortname(name)?;
                     let col = series_to_fcs(xs.into()).map_err(PyreflowException::new_err)?;
                     self.0
-                        .push_temporal(n.into(), t.into(), col)
+                        .push_temporal(n, t.into(), col)
                         .map_err(PyreflowException::new_err)
                 }
 
                 fn insert_time_channel(
                     &mut self,
                     i: usize,
-                    n: PyShortname,
+                    name: String,
                     t: $timetype,
                     xs: PySeries,
                 ) -> PyResult<()> {
+                    let n = str_to_shortname(name)?;
                     let col = series_to_fcs(xs.into()).map_err(PyreflowException::new_err)?;
                     self.0
-                        .insert_temporal(i.into(), n.into(), t.into(), col)
+                        .insert_temporal(i.into(), n, t.into(), col)
                         .map_err(PyreflowException::new_err)
                 }
 
@@ -1651,44 +1652,46 @@ macro_rules! coretext2_0_meas_methods {
                     &mut self,
                     index: usize,
                     py: Python<'py>,
-                ) -> PyResult<(Option<PyShortname>, Bound<'py, PyAny>)> {
+                ) -> PyResult<(Option<String>, Bound<'py, PyAny>)> {
                     let r = self.0
                         .remove_measurement_by_index(index.into())
                         .map_err(|e| PyreflowException::new_err(e.to_string()))?;
                     r.both(
                         |p| {
                             let a = $timetype::from(p.value).into_bound_py_any(py)?;
-                            Ok((Some(p.key.into()), a))
+                            Ok((Some(p.key.to_string()), a))
                         },
                         |p| {
                             let a = $meastype::from(p.value).into_bound_py_any(py)?;
-                            Ok((p.key.0.map(|n| n.into()), a))
+                            Ok((p.key.0.map(|n| n.to_string()), a))
                         },
                     )
                 }
 
-                #[pyo3(signature = (m, n=None))]
+                #[pyo3(signature = (m, name=None))]
                 fn push_measurement(
                     &mut self,
                     m: $meastype,
-                    n: Option<PyShortname>,
-                ) -> PyResult<PyShortname> {
+                    name: Option<String>,
+                ) -> PyResult<String> {
+                    let n = name.map(str_to_shortname).transpose()?;
                     self.0
-                        .push_optical(n.map(|x| x.into()).into(), m.into())
-                        .map(|x| x.into())
+                        .push_optical(n.into(), m.into())
+                        .map(|x| x.to_string())
                         .map_err(PyreflowException::new_err)
                 }
 
-                #[pyo3(signature = (i, m, n=None))]
+                #[pyo3(signature = (i, m, name=None))]
                 fn insert_optical(
                     &mut self,
                     i: usize,
                     m: $meastype,
-                    n: Option<PyShortname>,
-                ) -> PyResult<PyShortname> {
+                    name: Option<String>,
+                ) -> PyResult<String> {
+                    let n = name.map(str_to_shortname).transpose()?;
                     self.0
-                        .insert_optical(i.into(), n.map(|x| x.into()).into(), m.into())
-                        .map(|x| x.into())
+                        .insert_optical(i.into(), n.into(), m.into())
+                        .map(|x| x.to_string())
                         .map_err(PyreflowException::new_err)
                 }
             }
@@ -1710,25 +1713,26 @@ macro_rules! coretext3_1_meas_methods {
                     &mut self,
                     index: usize,
                     py: Python<'py>,
-                ) -> PyResult<(PyShortname, Bound<'py, PyAny>)> {
+                ) -> PyResult<(String, Bound<'py, PyAny>)> {
                     let r = self.0
                         .remove_measurement_by_index(index.into())
                         .map_err(|e| PyreflowException::new_err(e.to_string()))?;
                     r.both(
                         |p| {
                             let a = $timetype::from(p.value).into_bound_py_any(py)?;
-                            Ok((p.key.into(), a))
+                            Ok((p.key.to_string(), a))
                         },
                         |p| {
                             let a = $meastype::from(p.value).into_bound_py_any(py)?;
-                            Ok((p.key.0.into(), a))
+                            Ok((p.key.0.to_string(), a))
                         },
                     )
                 }
 
-                fn push_optical(&mut self, m: $meastype, n: PyShortname) -> PyResult<()> {
+                fn push_optical(&mut self, m: $meastype, name: String) -> PyResult<()> {
+                    let n = str_to_shortname(name)?;
                     self.0
-                        .push_optical(Identity(n.into()), m.into())
+                        .push_optical(Identity(n), m.into())
                         .map(|_| ())
                         .map_err(PyreflowException::new_err)
                 }
@@ -1737,10 +1741,11 @@ macro_rules! coretext3_1_meas_methods {
                     &mut self,
                     i: usize,
                     m: $meastype,
-                    n: PyShortname,
+                    name: String,
                 ) -> PyResult<()> {
+                    let n = str_to_shortname(name)?;
                     self.0
-                        .insert_optical(i.into(), Identity(n.into()), m.into())
+                        .insert_optical(i.into(), Identity(n), m.into())
                         .map(|_| ())
                         .map_err(PyreflowException::new_err)
                 }
@@ -1906,11 +1911,14 @@ macro_rules! shortnames_methods {
             impl $pytype {
                 fn set_measurement_shortnames_maybe(
                     &mut self,
-                    ns: Vec<Option<PyShortname>>,
+                    names: Vec<Option<String>>,
                 ) -> PyResult<()> {
-                    let xs = ns.into_iter().map(|n| n.map(|y| y.into())).collect();
+                    let mut ns = vec![];
+                    for x in names {
+                        ns.push(x.map(str_to_shortname).transpose()?);
+                    }
                     self.0
-                        .set_measurement_shortnames_maybe(xs)
+                        .set_measurement_shortnames_maybe(ns)
                         .map_err(|e| PyreflowException::new_err(e.to_string()))
                         .map(|_| ())
                 }
@@ -2240,12 +2248,16 @@ macro_rules! spillover_methods {
 
                 fn set_spillover(
                     &mut self,
-                    ns: Vec<PyShortname>,
+                    names: Vec<String>,
                     a: PyReadonlyArray2<f32>,
                 ) -> Result<(), PyErr> {
+                    let mut ns = vec![];
+                    for x in names {
+                        ns.push(str_to_shortname(x)?);
+                    }
                     let m = a.as_matrix().into_owned();
                     self.0
-                        .set_spillover(ns.into_iter().map(|x| x.into()).collect(), m)
+                        .set_spillover(ns, m)
                         .map_err(|e| PyreflowException::new_err(e.to_string()))
                 }
 
@@ -2939,13 +2951,14 @@ where
 {
     let tup: (Bound<'py, PyAny>, Bound<'py, PyAny>) = a.extract()?;
     let n_maybe: Option<Bound<'py, PyAny>> = tup.0.extract()?;
-    let n: Option<PyShortname> = if let Some(nn) = n_maybe {
+    let n: Option<String> = if let Some(nn) = n_maybe {
         Some(nn.extract()?)
     } else {
         None
     };
+    let sn = n.map(str_to_shortname).transpose()?;
     let m: X = tup.1.extract()?;
-    Ok((n.map(|x| x.into()).into(), m))
+    Ok((sn.into(), m))
 }
 
 fn any_to_named_pair<'py, X>(a: Bound<'py, PyAny>) -> PyResult<(Shortname, X)>
@@ -2953,9 +2966,10 @@ where
     X: FromPyObject<'py>,
 {
     let tup: (Bound<'py, PyAny>, Bound<'py, PyAny>) = a.extract()?;
-    let n: PyShortname = tup.0.extract()?;
+    let n: String = tup.0.extract()?;
     let m: X = tup.1.extract()?;
-    Ok((n.into(), m))
+    let sn = str_to_shortname(n)?;
+    Ok((sn, m))
 }
 
 fn any_to_range(a: Bound<'_, PyAny>) -> PyResult<Range> {
@@ -2979,4 +2993,9 @@ fn to_positive_float(x: f32) -> PyResult<PositiveFloat> {
 
 fn to_non_neg_float(x: f32) -> PyResult<NonNegFloat> {
     NonNegFloat::try_from(x).map_err(|e| PyreflowException::new_err(e.to_string()))
+}
+
+fn str_to_shortname(s: String) -> PyResult<Shortname> {
+    s.parse::<Shortname>()
+        .map_err(|e| PyreflowException::new_err(e.to_string()))
 }

@@ -8,6 +8,8 @@
 //! up to 99,999,999). This process also differs b/t FCS versions.
 
 use crate::header::HEADER_LEN;
+use crate::text::keywords::*;
+use crate::validated::standard::*;
 
 /// HEADER and TEXT offsets
 pub struct OffsetFormatResult {
@@ -34,7 +36,7 @@ pub fn make_data_offset_keywords_2_0(
 ) -> Option<OffsetFormatResult> {
     // compute rest of offsets
     let begin_prim_text = HEADER_LEN; // always starts after HEADER
-    let begin_data = begin_prim_text + NEXTDATA_LEN + nooffset_text_len + 1;
+    let begin_data = begin_prim_text + nextdata_len() + nooffset_text_len + 1;
     let begin_analysis = begin_data + data_len;
     let nextdata = begin_data + analysis_len;
     let end_prim_text = begin_data - 1;
@@ -64,7 +66,7 @@ pub fn make_data_offset_keywords_3_0(
     analysis_len: usize,
 ) -> Option<OffsetFormatResult> {
     // +1 at end accounts for first delimiter
-    let header_req_text_len = HEADER_LEN + OFFSETS_LEN_NO_VAL + nooffset_req_text_len + 1;
+    let header_req_text_len = HEADER_LEN + offsets_len_no_val() + nooffset_req_text_len + 1;
     let all_text_len = opt_text_len + header_req_text_len;
 
     // Find width of formatted offsets, which will depend on if TEXT+HEADER can
@@ -101,14 +103,25 @@ pub fn make_data_offset_keywords_3_0(
     let header_prim_text = offset_header_string(begin_prim_text, end_prim_text);
     let header_data = offset_header_string(begin_data, end_data);
     let header_analysis = offset_header_string(begin_analysis, end_analysis);
-    let text_supp_text =
-        offset_text_string(begin_supp_text, end_supp_text, BEGINSTEXT, ENDSTEXT, width);
-    let text_data = offset_text_string(begin_data, end_data, BEGINDATA, ENDDATA, width);
+    let text_supp_text = offset_text_string(
+        begin_supp_text,
+        end_supp_text,
+        Beginstext::std(),
+        Endstext::std(),
+        width,
+    );
+    let text_data = offset_text_string(
+        begin_data,
+        end_data,
+        Begindata::std(),
+        Enddata::std(),
+        width,
+    );
     let text_analysis = offset_text_string(
         begin_analysis,
         end_analysis,
-        BEGINANALYSIS,
-        ENDANALYSIS,
+        Beginanalysis::std(),
+        Endanalysis::std(),
         width,
     );
     let (real_nextdata, text_nextdata) = offset_nextdata_string(nextdata);
@@ -251,8 +264,8 @@ pub fn offset_header_string(begin: usize, end: usize) -> String {
 pub fn offset_text_string(
     begin: usize,
     end: usize,
-    begin_key: &'static str,
-    end_key: &'static str,
+    begin_key: StdKey,
+    end_key: StdKey,
     width: usize,
 ) -> [(String, String); 2] {
     let nbytes = end - begin + 1;
@@ -268,7 +281,7 @@ pub fn offset_text_string(
 pub fn offset_nextdata_string(nextdata: usize) -> (usize, (String, String)) {
     let n = if nextdata > 99999999 { 0 } else { nextdata };
     let s = format_zero_padded(n, NEXTDATA_VAL_LEN);
-    (n, (NEXTDATA.to_string(), s))
+    (n, (Nextdata::std().to_string(), s))
 }
 
 /// Compute the number of digits for a number.
@@ -296,26 +309,29 @@ fn format_zero_padded(x: usize, width: usize) -> String {
 const NEXTDATA_VAL_LEN: usize = 8;
 
 /// Number of bytes consumed by $NEXTDATA keyword + value + delimiters
-const NEXTDATA_LEN: usize = NEXTDATA.len() + NEXTDATA_VAL_LEN + 2;
+fn nextdata_len() -> usize {
+    Nextdata::len() + NEXTDATA_VAL_LEN + 2
+}
 
 /// The number of bytes each offset is expected to take (sans values).
 ///
 /// These are the length of each keyword + 2 since there should be two
 /// delimiters counting toward its byte real estate.
-const DATA_LEN_NO_VAL: usize = BEGINDATA.len() + ENDDATA.len() + 4;
-const ANALYSIS_LEN_NO_VAL: usize = BEGINANALYSIS.len() + ENDANALYSIS.len() + 4;
-const SUPP_TEXT_LEN_NO_VAL: usize = BEGINSTEXT.len() + ENDSTEXT.len() + 4;
+fn data_len_no_val() -> usize {
+    Begindata::len() + Enddata::len() + 4
+}
+
+fn analysis_len_no_val() -> usize {
+    Beginanalysis::len() + Endanalysis::len() + 4
+}
+
+fn supp_text_len_no_val() -> usize {
+    Beginstext::len() + Endstext::len() + 4
+}
 
 /// The total number of bytes offset keywords are expected to take (sans values).
 ///
 /// This only applies to 3.0+ since 2.0 only has NEXTDATA.
-const OFFSETS_LEN_NO_VAL: usize =
-    DATA_LEN_NO_VAL + ANALYSIS_LEN_NO_VAL + SUPP_TEXT_LEN_NO_VAL + NEXTDATA_LEN;
-
-pub(crate) const BEGINANALYSIS: &str = "$BEGINANALYSIS";
-pub(crate) const BEGINDATA: &str = "$BEGINDATA";
-pub(crate) const BEGINSTEXT: &str = "$BEGINSTEXT";
-pub(crate) const ENDANALYSIS: &str = "$ENDANALYSIS";
-pub(crate) const ENDDATA: &str = "$ENDDATA";
-pub(crate) const ENDSTEXT: &str = "$ENDSTEXT";
-pub(crate) const NEXTDATA: &str = "$NEXTDATA";
+fn offsets_len_no_val() -> usize {
+    data_len_no_val() + analysis_len_no_val() + supp_text_len_no_val() + nextdata_len()
+}

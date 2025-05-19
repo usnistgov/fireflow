@@ -12,6 +12,7 @@ use std::str::FromStr;
 #[derive(Clone, PartialEq, Eq, Hash, Serialize)]
 pub struct NonStdKey(String);
 
+pub type NonStdPairs = Vec<(NonStdKey, String)>;
 pub type NonStdKeywords = HashMap<NonStdKey, String>;
 
 /// A String that matches a non-standard measurement keyword.
@@ -114,6 +115,10 @@ impl NonStdKey {
     pub fn from_unchecked(s: &str) -> Self {
         Self(s.into())
     }
+
+    pub fn into_unchecked(s: String) -> Self {
+        Self(s)
+    }
 }
 
 impl NonStdMeasKey {
@@ -135,6 +140,10 @@ impl NonStdMeasRegex {
         } else {
             None
         }
+    }
+
+    pub fn is_match(&self, s: &str) -> bool {
+        self.0.is_match(s)
     }
 }
 

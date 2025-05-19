@@ -60,16 +60,17 @@ pub enum SizedByteOrd<const LEN: usize> {
 pub struct MixedOrder(Vec<u8>);
 
 impl ByteOrd {
-    pub fn new(xs: Vec<u8>) -> Option<Self> {
+    // TODO this is just try_from
+    pub fn try_new(xs: Vec<u8>) -> Result<Self, ByteOrdError> {
         let n = xs.len();
         if xs.iter().unique().count() == n
             && !(1..=8).contains(&n)
             && xs.iter().min().is_some_and(|x| *x == 1)
             && xs.iter().max().is_some_and(|x| usize::from(*x) == n)
         {
-            Some(ByteOrd(xs.iter().map(|x| x - 1).collect()))
+            Ok(ByteOrd(xs.iter().map(|x| x - 1).collect()))
         } else {
-            None
+            Err(ByteOrdError)
         }
     }
 
@@ -270,9 +271,9 @@ impl FromStr for ByteOrd {
         let (pass, fail): (Vec<_>, Vec<_>) =
             s.split(",").map(|x| x.parse::<u8>()).partition_result();
         if fail.is_empty() {
-            ByteOrd::new(pass).ok_or(ParseByteOrdError::InvalidOrder)
+            ByteOrd::try_new(pass).map_err(ParseByteOrdError::Order)
         } else {
-            Err(ParseByteOrdError::InvalidNumbers)
+            Err(ParseByteOrdError::Format)
         }
     }
 }
@@ -291,17 +292,25 @@ impl fmt::Display for EndianError {
     }
 }
 
+pub struct ByteOrdError;
+
 pub enum ParseByteOrdError {
-    InvalidOrder,
-    InvalidNumbers,
+    Order(ByteOrdError),
+    Format,
 }
 
 impl fmt::Display for ParseByteOrdError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            ParseByteOrdError::InvalidNumbers => write!(f, "Could not parse numbers in byte order"),
-            ParseByteOrdError::InvalidOrder => write!(f, "Byte order must include 1-n uniquely"),
+            ParseByteOrdError::Format => write!(f, "Could not parse numbers in byte order"),
+            ParseByteOrdError::Order(x) => x.fmt(f),
         }
+    }
+}
+
+impl fmt::Display for ByteOrdError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "Byte order must include 1-n uniquely")
     }
 }
 

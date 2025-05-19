@@ -860,9 +860,6 @@ py_enum!(
     [Height, HEIGHT]
 );
 
-// TODO this could just be list[int] in python that then gets validated
-py_wrap!(PyByteOrd, ByteOrd, "ByteOrd");
-
 // $MODE (2.0-3.0)
 py_wrap!(PyMode, Mode, "Mode");
 py_eq!(PyMode);
@@ -1178,16 +1175,18 @@ convert_methods!(
 #[pymethods]
 impl PyCoreTEXT2_0 {
     #[new]
-    fn new(datatype: PyAlphaNumType, byteord: PyByteOrd, mode: PyMode) -> Self {
-        CoreTEXT2_0::new(datatype.into(), byteord.into(), mode.into()).into()
+    fn new(datatype: PyAlphaNumType, byteord: Vec<u8>, mode: PyMode) -> PyResult<Self> {
+        let o = vec_to_byteord(byteord)?;
+        Ok(CoreTEXT2_0::new(datatype.into(), o, mode.into()).into())
     }
 }
 
 #[pymethods]
 impl PyCoreTEXT3_0 {
     #[new]
-    fn new(datatype: PyAlphaNumType, byteord: PyByteOrd, mode: PyMode) -> Self {
-        CoreTEXT3_0::new(datatype.into(), byteord.into(), mode.into()).into()
+    fn new(datatype: PyAlphaNumType, byteord: Vec<u8>, mode: PyMode) -> PyResult<Self> {
+        let o = vec_to_byteord(byteord)?;
+        Ok(CoreTEXT3_0::new(datatype.into(), o, mode.into()).into())
     }
 
     #[getter]
@@ -1498,11 +1497,6 @@ macro_rules! common_methods {
                 self.0.unset_temporal()
             }
 
-            // #[getter]
-            // fn get_bytes(&self) -> Option<Vec<u8>> {
-            //     self.0.bytes()
-            // }
-
             #[getter]
             fn get_ranges<'py>(&self, py: Python<'py>) -> PyResult<Vec<Bound<'py, PyAny>>> {
                 let mut rs = vec![];
@@ -1608,12 +1602,6 @@ macro_rules! common_methods {
                     .set_detector_voltages(ys)
                     .map_err(|e| PyreflowException::new_err(e.to_string()))
             }
-
-            // TODO add measurements_named_vec
-            // TODO add alter_measurements
-            // TODO add alter_measurements_zip
-            // TODO add temporal_mut
-            // TODO add methods to get/modify single measurements
         }
     };
 }
@@ -1758,7 +1746,6 @@ macro_rules! common_coretext_meas_get_set {
                 }
             }
         )*
-
     };
 }
 
@@ -2148,9 +2135,10 @@ macro_rules! integer_2_0_methods {
         $(
             #[pymethods]
             impl $pytype {
-                fn set_data_integer(&mut self, rs: Vec<u64>, byteord: PyByteOrd) -> PyResult<()> {
+                fn set_data_integer(&mut self, rs: Vec<u64>, byteord: Vec<u8>) -> PyResult<()> {
+                    let o = vec_to_byteord(byteord)?;
                     self.0
-                        .set_data_integer(rs, byteord.into())
+                        .set_data_integer(rs, o)
                         .map_err(|e| PyreflowException::new_err(e.to_string()))
                 }
             }
@@ -3153,56 +3141,6 @@ get_set_cloned!(
     PyCalibration3_2
 );
 
-macro_rules! column_to_buf {
-    ($col:expr, $prim:ident) => {
-        let ca = $col.$prim().unwrap();
-        if ca.first_non_null().is_some() {
-            return Err(format!("column {} has null values", $col.name()));
-        }
-        let buf = ca.chunks()[0]
-            .as_any()
-            .downcast_ref::<PrimitiveArray<$prim>>()
-            .unwrap()
-            .values()
-            .clone();
-        return Ok(FCSColumn(buf).into());
-    };
-}
-
-fn series_to_fcs(ser: Series) -> Result<AnyFCSColumn, String> {
-    match ser.dtype() {
-        DataType::UInt8 => {
-            column_to_buf!(ser, u8);
-        }
-        DataType::UInt16 => {
-            column_to_buf!(ser, u16);
-        }
-        DataType::UInt32 => {
-            column_to_buf!(ser, u32);
-        }
-        DataType::UInt64 => {
-            column_to_buf!(ser, u64);
-        }
-        DataType::Float32 => {
-            column_to_buf!(ser, f32);
-        }
-        DataType::Float64 => {
-            column_to_buf!(ser, f64);
-        }
-        t => Err(format!("invalid datatype: {t}")),
-    }
-}
-
-fn dataframe_to_fcs(mut df: DataFrame) -> Result<Vec<AnyFCSColumn>, String> {
-    // make sure data is contiguous
-    df.rechunk_mut();
-    let mut cols = Vec::with_capacity(df.width());
-    for c in df.iter() {
-        cols.push(series_to_fcs(c.clone())?);
-    }
-    Ok(cols)
-}
-
 fn any_to_opt_named_pair<'py, X>(a: Bound<'py, PyAny>) -> PyResult<(OptionalKw<Shortname>, X)>
 where
     X: FromPyObject<'py>,
@@ -3283,10 +3221,64 @@ fn str_to_date_pat(s: String) -> PyResult<DatePattern> {
         .map_err(|e| PyreflowException::new_err(e.to_string()))
 }
 
+fn vec_to_byteord(xs: Vec<u8>) -> PyResult<ByteOrd> {
+    ByteOrd::try_new(xs).map_err(|e| PyreflowException::new_err(e.to_string()))
+}
+
 fn f32_to_positive_float(x: f32) -> PyResult<PositiveFloat> {
     PositiveFloat::try_from(x).map_err(|e| PyreflowException::new_err(e.to_string()))
 }
 
 fn f32_to_nonneg_float(x: f32) -> PyResult<NonNegFloat> {
     NonNegFloat::try_from(x).map_err(|e| PyreflowException::new_err(e.to_string()))
+}
+
+macro_rules! column_to_buf {
+    ($col:expr, $prim:ident) => {
+        let ca = $col.$prim().unwrap();
+        if ca.first_non_null().is_some() {
+            return Err(format!("column {} has null values", $col.name()));
+        }
+        let buf = ca.chunks()[0]
+            .as_any()
+            .downcast_ref::<PrimitiveArray<$prim>>()
+            .unwrap()
+            .values()
+            .clone();
+        return Ok(FCSColumn(buf).into());
+    };
+}
+
+fn series_to_fcs(ser: Series) -> Result<AnyFCSColumn, String> {
+    match ser.dtype() {
+        DataType::UInt8 => {
+            column_to_buf!(ser, u8);
+        }
+        DataType::UInt16 => {
+            column_to_buf!(ser, u16);
+        }
+        DataType::UInt32 => {
+            column_to_buf!(ser, u32);
+        }
+        DataType::UInt64 => {
+            column_to_buf!(ser, u64);
+        }
+        DataType::Float32 => {
+            column_to_buf!(ser, f32);
+        }
+        DataType::Float64 => {
+            column_to_buf!(ser, f64);
+        }
+        t => Err(format!("invalid datatype: {t}")),
+    }
+}
+
+fn dataframe_to_fcs(mut df: DataFrame) -> Result<Vec<AnyFCSColumn>, String> {
+    // make sure data is contiguous
+    df.rechunk_mut();
+    let mut cols = Vec::with_capacity(df.width());
+    for c in df.iter() {
+        cols.push(series_to_fcs(c.clone())?);
+    }
+    Ok(cols)
 }

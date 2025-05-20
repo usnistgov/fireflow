@@ -3,7 +3,7 @@ use crate::data::*;
 use crate::error::*;
 use crate::header::*;
 use crate::header_text::*;
-use crate::macros::{enum_from, enum_from_disp, match_many_to_one, newtype_from};
+use crate::macros::{match_many_to_one, newtype_from};
 use crate::segment::*;
 use crate::text::byteord::*;
 use crate::text::compensation::*;
@@ -2283,54 +2283,21 @@ where
 
     // TODO add non-kw deprecation checker
 
-    fn validate(&self, conf: &TimeConfig) -> PureSuccess<()> {
-        // TODO also validate internal data configuration state, since many
-        // functions assume that it is "valid"
-        let mut deferred = PureErrorBuf::default();
-
-        // TODO move this to measurement lookup
-        if let Some(pat) = conf.pattern.as_ref() {
-            if conf.ensure && self.measurements.as_center().is_none() {
-                let msg = format!("Could not find time measurement matching {}", pat);
-                deferred.push_error(msg);
-            }
-        }
-
-        let names = self.measurement_names();
-
-        if let Err(msg) = self.metadata.check_trigger(&names) {
-            deferred.push_error(msg);
-        }
-
-        if let Err(msg) = self.metadata.check_unstainedcenters(&names) {
-            deferred.push_error(msg);
-        }
-
-        if let Err(msg) = self.metadata.check_spillover(&names) {
-            deferred.push_error(msg);
-        }
-
-        PureSuccess { data: (), deferred }
-    }
-
-    fn check_linked_names(self) -> Deferred<(), ShortnameLinkError> {
+    fn check_linked_names(&self) -> Deferred<(), LinkedNameError> {
         let mut errs = vec![];
         let names = self.measurement_names();
 
-        self.metadata
-            .check_trigger(&names)
-            .map_err(ShortnameLinkError::Trigger)
-            .map_err(|e| errs.push(e));
+        if let Err(e) = self.metadata.check_trigger(&names) {
+            errs.push(e);
+        }
 
-        self.metadata
-            .check_unstainedcenters(&names)
-            .map_err(ShortnameLinkError::Trigger)
-            .map_err(|e| errs.push(e));
+        if let Err(e) = self.metadata.check_unstainedcenters(&names) {
+            errs.push(e);
+        }
 
-        self.metadata
-            .check_spillover(&names)
-            .map_err(ShortnameLinkError::Trigger)
-            .map_err(|e| errs.push(e));
+        if let Err(e) = self.metadata.check_spillover(&names) {
+            errs.push(e);
+        }
 
         NonEmpty::from_vec(errs).map_or(Ok(()), Err)
     }
@@ -2440,6 +2407,12 @@ where
             if let Some((ms, meta_ns)) =
                 Self::lookup_measurements(st, par, tp, &conf.shortname_prefix, ns)
             {
+                // Check that the time measurement is present if we want it
+                if let Some(pat) = st.conf.time.pattern.as_ref() {
+                    if st.conf.time.ensure && ms.as_center().is_none() {
+                        st.push_error(MissingTime(pat.clone()));
+                    }
+                }
                 // Lookup non-measurement keywords, build struct if this works
                 Metadata::lookup_metadata(st, &ms, meta_ns)
                     .map(|metadata| CoreTEXT::new_unchecked(metadata, ms))
@@ -2452,7 +2425,19 @@ where
         //
         // TODO error handling here is confusing, since we are returning a result
         // that might have errors in the Ok var
-        Ok(md_succ.and_then(|core| core.validate(&conf.time).map(|_| core)))
+        md_succ.try_map(|core| {
+            if let Err(msgs) = core
+                .check_linked_names()
+                .map_err(|es| Vec::from(es.map(|e| e.to_string())))
+            {
+                Err(Failure::from_many_errors(
+                    "PnN refer to invalid names".into(),
+                    msgs,
+                ))
+            } else {
+                Ok(PureSuccess::from(core))
+            }
+        })
     }
 
     /// Remove a measurement matching the given name.
@@ -5375,10 +5360,4 @@ impl fmt::Display for SetFloatError {
             SetFloatError::Length(x) => x.fmt(f),
         }
     }
-}
-
-pub enum ShortnameLinkError {
-    Trigger(LinkedNameError),
-    Spillover(LinkedNameError),
-    UnstainedCenters(LinkedNameError),
 }

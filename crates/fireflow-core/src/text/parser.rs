@@ -3,6 +3,7 @@ use crate::core::{CarrierData, ModificationData, PlateData, UnstainedData};
 use crate::error::*;
 use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
 use crate::validated::nonstandard::*;
+use crate::validated::pattern::*;
 use crate::validated::shortname::*;
 use crate::validated::standard::*;
 
@@ -40,7 +41,8 @@ use std::str::FromStr;
 pub(crate) struct KwParser<'a, 'b> {
     raw_keywords: &'b mut StdKeywords,
     req_errors: Vec<LookupError>,
-    opt_errors: Vec<LookupError>,
+    opt_warnings: Vec<LookupError>,
+    other_errors: Vec<ParseError>,
     other_warnings: Vec<ParseWarning>,
     deprecated: Vec<DepKeyWarning>,
     pub(crate) conf: &'a StdTextReadConfig,
@@ -217,7 +219,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
                         key: k.clone(),
                         value: v.clone(),
                     };
-                    self.opt_errors.push(err.into());
+                    self.opt_warnings.push(err.into());
                 })
                 .ok()
         })
@@ -225,9 +227,9 @@ impl<'a, 'b> KwParser<'a, 'b> {
 
     pub fn push_error<E>(&mut self, e: E)
     where
-        LookupError: From<E>,
+        ParseError: From<E>,
     {
-        self.req_errors.push(e.into())
+        self.other_errors.push(e.into())
     }
 
     // auxiliary functions
@@ -238,7 +240,10 @@ impl<'a, 'b> KwParser<'a, 'b> {
             PureErrorLevel::Error,
         );
         let ws = PureErrorBuf::from_many(
-            self.opt_errors.into_iter().map(|e| e.to_string()).collect(),
+            self.opt_warnings
+                .into_iter()
+                .map(|e| e.to_string())
+                .collect(),
             PureErrorLevel::Warning,
         );
         let ows = PureErrorBuf::from_many(
@@ -270,7 +275,8 @@ impl<'a, 'b> KwParser<'a, 'b> {
         KwParser {
             raw_keywords: kws,
             req_errors: vec![],
-            opt_errors: vec![],
+            opt_warnings: vec![],
+            other_errors: vec![],
             other_warnings: vec![],
             deprecated: vec![],
             conf,
@@ -291,7 +297,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
                 self.deprecated.push(DepKeyWarning(k));
             }
         })
-        .map_err(|e| self.opt_errors.push(e))
+        .map_err(|e| self.opt_warnings.push(e))
         .unwrap_or(None.into())
     }
 }
@@ -350,6 +356,21 @@ pub struct DepKeyWarning(pub StdKey);
 impl fmt::Display for DepKeyWarning {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "deprecated key: {}", self.0)
+    }
+}
+
+enum_from_disp!(
+    pub ParseError,
+    [Temporal, TemporalError],
+    [NamedVec, NewNamedVecError],
+    [MissingTime, MissingTime]
+);
+
+pub struct MissingTime(pub TimePattern);
+
+impl fmt::Display for MissingTime {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "Could not find time measurement matching {}", self.0)
     }
 }
 

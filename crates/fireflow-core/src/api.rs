@@ -252,7 +252,8 @@ pub fn read_fcs_std_text(
     conf: &StdTextReadConfig,
 ) -> ImpureResult<StandardizedTEXT, String> {
     let raw_succ = read_fcs_raw_text(p, &conf.raw)?;
-    raw_succ.try_map(|raw| raw.into_std(conf))
+    unimplemented!()
+    // raw_succ.try_map(|raw| raw.into_std(conf))
 }
 
 /// Return header, raw metadata, and data in an FCS file.
@@ -297,9 +298,10 @@ pub fn read_fcs_file(
 ) -> ImpureResult<StandardizedDataset, String> {
     let file = fs::File::options().read(true).open(p)?;
     let mut h = BufReader::new(file);
-    RawTEXT::h_read(&mut h, &conf.standard.raw)?
-        .try_map(|raw| raw.into_std(&conf.standard))?
-        .try_map(|std| h_read_std_dataset(&mut h, std, conf))
+    unimplemented!()
+    // RawTEXT::h_read(&mut h, &conf.standard.raw)?
+    //     .try_map(|raw| raw.into_std(&conf.standard))?
+    //     .try_map(|std| h_read_std_dataset(&mut h, std, conf))
 }
 
 fn h_read_raw_dataset<R: Read + Seek>(

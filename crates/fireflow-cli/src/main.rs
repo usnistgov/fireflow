@@ -7,6 +7,7 @@ use fireflow_core::validated::pattern::*;
 
 use clap::{arg, value_parser, ArgMatches, Command};
 use serde::ser::Serialize;
+use std::fmt::Display;
 use std::io;
 use std::path::PathBuf;
 
@@ -37,7 +38,10 @@ pub fn print_parsed_data(s: &mut api::StandardizedDataset, _delim: &str) {
 }
 
 // TODO use warnings_are_errors flag
-fn handle_failure<X>(res: Result<X, ImpureFailure>) -> io::Result<X> {
+fn handle_failure<E, X>(res: Result<X, ImpureFailure<E>>) -> io::Result<X>
+where
+    E: Display,
+{
     res.map_err(|Failure { reason, deferred }| {
         for e in deferred.errors {
             match e.level {
@@ -52,7 +56,10 @@ fn handle_failure<X>(res: Result<X, ImpureFailure>) -> io::Result<X> {
     })
 }
 
-fn handle_result<X>(res: ImpureResult<X>) -> io::Result<X> {
+fn handle_result<E, X>(res: ImpureResult<X, E>) -> io::Result<X>
+where
+    E: Display,
+{
     handle_failure(res).and_then(|PureSuccess { data, deferred }| {
         if deferred.has_errors() {
             for e in deferred.errors {

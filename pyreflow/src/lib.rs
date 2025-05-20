@@ -2664,25 +2664,27 @@ to_dataset_method!(PyCoreTEXT3_0, PyCoreDataset3_0);
 to_dataset_method!(PyCoreTEXT3_1, PyCoreDataset3_1);
 to_dataset_method!(PyCoreTEXT3_2, PyCoreDataset3_2);
 
-struct PyImpureError(error::ImpureFailure);
+struct PyImpureError<E>(error::ImpureFailure<E>);
 
-fn handle_errors<X, Y>(res: error::ImpureResult<X>) -> PyResult<Y>
+fn handle_errors<E, X, Y>(res: error::ImpureResult<X, E>) -> PyResult<Y>
 where
+    E: fmt::Display,
     Y: From<X>,
 {
     handle_pure(res.map_err(PyImpureError)?)
 }
 
 // TODO use warnings_are_errors flag
-fn handle_pure<X, Y>(succ: error::PureSuccess<X>) -> PyResult<Y>
+fn handle_pure<E, X, Y>(succ: error::PureSuccess<X, E>) -> PyResult<Y>
 where
+    E: fmt::Display,
     Y: From<X>,
 {
     let (err, warn) = succ.deferred.split();
     Python::with_gil(|py| -> PyResult<()> {
         let wt = py.get_type::<PyreflowWarning>();
         for w in warn {
-            let s = CString::new(w)?;
+            let s = CString::new(w.to_string())?;
             PyErr::warn(py, &wt, &s, 0)?;
         }
         Ok(())
@@ -2690,26 +2692,36 @@ where
     if err.is_empty() {
         Ok(succ.data.into())
     } else {
-        let deferred = err.join("\n");
+        let es: Vec<_> = err.iter().map(|e| e.to_string()).collect();
+        let deferred = &es[..].join("\n");
         let msg = format!("Errors encountered:\n{deferred}");
         Err(PyreflowException::new_err(msg))
     }
 }
 
-impl From<error::ImpureFailure> for PyImpureError {
-    fn from(value: error::ImpureFailure) -> Self {
+impl<E> From<error::ImpureFailure<E>> for PyImpureError<E> {
+    fn from(value: error::ImpureFailure<E>) -> Self {
         Self(value)
     }
 }
 
-impl From<PyImpureError> for PyErr {
-    fn from(err: PyImpureError) -> Self {
+impl<E> From<PyImpureError<E>> for PyErr
+where
+    E: fmt::Display,
+{
+    fn from(err: PyImpureError<E>) -> Self {
         let inner = err.0;
         let reason = match inner.reason {
             error::ImpureError::IO(e) => format!("IO ERROR: {e}"),
             error::ImpureError::Pure(e) => format!("CRITICAL PYREFLOW ERROR: {e}"),
         };
-        let deferred = inner.deferred.into_errors().join("\n");
+        let es: Vec<_> = inner
+            .deferred
+            .into_errors()
+            .iter()
+            .map(|e| e.to_string())
+            .collect();
+        let deferred = &es[..].join("\n");
         let msg = format!("{reason}\n\nOther errors encountered:\n{deferred}");
         PyreflowException::new_err(msg)
     }

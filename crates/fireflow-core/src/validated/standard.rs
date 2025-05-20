@@ -328,9 +328,9 @@ impl fmt::Display for KeywordInsertError {
 }
 
 pub struct ParseKeyError<E> {
-    error: E,
-    key: StdKey,
-    value: String,
+    pub error: E,
+    pub key: StdKey,
+    pub value: String,
 }
 
 impl<E> fmt::Display for ParseKeyError<E>

@@ -400,19 +400,23 @@ impl RawTEXT {
             // TODO clean this up
             Version::FCS2_0 => {
                 let res = DataLayout2_0::try_new_from_raw(kws);
-                PureMaybe::from_result_errors(res).and_then_opt(|dl| dl.into_reader(kws, data_seg))
+                PureMaybe::from_result_errors(res.map_err(Vec::from))
+                    .and_then_opt(|dl| dl.into_reader(kws, data_seg))
             }
             Version::FCS3_0 => {
                 let res = DataLayout3_0::try_new_from_raw(kws);
-                PureMaybe::from_result_errors(res).and_then_opt(|dl| dl.into_reader(kws, data_seg))
+                PureMaybe::from_result_errors(res.map_err(Vec::from))
+                    .and_then_opt(|dl| dl.into_reader(kws, data_seg))
             }
             Version::FCS3_1 => {
                 let res = DataLayout3_1::try_new_from_raw(kws);
-                PureMaybe::from_result_errors(res).and_then_opt(|dl| dl.into_reader(kws, data_seg))
+                PureMaybe::from_result_errors(res.map_err(Vec::from))
+                    .and_then_opt(|dl| dl.into_reader(kws, data_seg))
             }
             Version::FCS3_2 => {
                 let res = DataLayout3_2::try_new_from_raw(kws);
-                PureMaybe::from_result_errors(res).and_then_opt(|dl| dl.into_reader(kws, data_seg))
+                PureMaybe::from_result_errors(res.map_err(Vec::from))
+                    .and_then_opt(|dl| dl.into_reader(kws, data_seg))
             }
         }
         .map(|x| {
@@ -663,8 +667,8 @@ fn lookup_req_segment(
     corr: OffsetCorrection,
     id: SegmentId,
 ) -> Deferred<Segment, String> {
-    let x0 = get_req(kws, bk);
-    let x1 = get_req(kws, ek);
+    let x0 = get_req(kws, bk).map_err(|e| e.to_string());
+    let x1 = get_req(kws, ek).map_err(|e| e.to_string());
     combine_results(x0, x1).and_then(|(begin, end)| {
         Segment::try_new(begin, end, corr, id)
             .map_err(|e| e.to_string())
@@ -679,8 +683,8 @@ fn lookup_opt_segment(
     corr: OffsetCorrection,
     id: SegmentId,
 ) -> Deferred<Option<Segment>, String> {
-    let x0 = get_opt(kws, bk);
-    let x1 = get_opt(kws, ek);
+    let x0 = get_opt(kws, bk).map_err(|e| e.to_string());
+    let x1 = get_opt(kws, ek).map_err(|e| e.to_string());
     combine_results(x0, x1).and_then(|(b, e)| {
         if let (Some(begin), Some(end)) = (b, e) {
             Segment::try_new(begin, end, corr, id)
@@ -812,9 +816,16 @@ fn lookup_stext_offsets(
 fn lookup_nextdata(kws: &StdKeywords, enforce: bool) -> PureMaybe<u32> {
     let k = &Nextdata::std();
     if enforce {
-        PureMaybe::from_result_1(get_req(kws, k), PureErrorLevel::Error)
+        PureMaybe::from_result_1(
+            get_req(kws, k).map_err(|e| e.to_string()),
+            PureErrorLevel::Error,
+        )
     } else {
-        PureMaybe::from_result_1(get_opt(kws, k), PureErrorLevel::Warning).map(|x| x.flatten())
+        PureMaybe::from_result_1(
+            get_opt(kws, k).map_err(|e| e.to_string()),
+            PureErrorLevel::Warning,
+        )
+        .map(|x| x.flatten())
     }
 }
 

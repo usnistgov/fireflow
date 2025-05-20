@@ -289,19 +289,16 @@ impl<'a, 'b> KwParser<'a, 'b> {
         res.inspect(|_| {
             if dep {
                 self.deprecated.push(DepKeyWarning(k));
-                // let msg = format!("deprecated key: {k}");
-                // self.deferred
-                //     .push_msg_leveled(msg, self.conf.disallow_deprecated);
             }
         })
-        .map_err(|e| self.opt_errors.push(e.into()))
+        .map_err(|e| self.opt_errors.push(e))
         .unwrap_or(None.into())
     }
 }
 
 macro_rules! enum_from {
-    ($outer:ident, $([$var:ident, $inner:path]),*) => {
-        enum $outer {
+    ($v:vis$outer:ident, $([$var:ident, $inner:path]),*) => {
+        $v enum $outer {
             $(
                 $var($inner),
             )*
@@ -318,8 +315,8 @@ macro_rules! enum_from {
 }
 
 macro_rules! enum_from_disp {
-    ($outer:ident, $([$var:ident, $inner:path]),*) => {
-        enum_from!($outer, $([$var, $inner]),*);
+    ($v:vis$outer:ident, $([$var:ident, $inner:path]),*) => {
+        enum_from!($v$outer, $([$var, $inner]),*);
 
         impl fmt::Display for $outer {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -331,7 +328,7 @@ macro_rules! enum_from_disp {
 }
 
 enum_from_disp!(
-    LookupError,
+    pub LookupError,
     [Width,            ReqKeyError<ParseBitsError>],
     [Range,            ReqKeyError<ParseRangeError>],
     [AlphaNumType,     ReqKeyError<AlphaNumTypeError>],

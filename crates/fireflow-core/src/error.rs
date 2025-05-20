@@ -1,3 +1,4 @@
+use nonempty::NonEmpty;
 use std::io;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -5,6 +6,71 @@ pub enum PureErrorLevel {
     Error,
     Warning,
     // TODO debug, info, etc
+}
+
+pub type Deferred<X, E> = Result<X, NonEmpty<E>>;
+
+pub fn combine_results<A, B, Z>(a: Result<A, Z>, b: Result<B, Z>) -> Result<(A, B), NonEmpty<Z>> {
+    match (a, b) {
+        (Ok(a), Ok(b)) => Ok((a, b)),
+        (ae, be) => {
+            Err(NonEmpty::from_vec([ae.err(), be.err()].into_iter().flatten().collect()).unwrap())
+        }
+    }
+}
+
+pub fn combine_results3<A, B, C, Z>(
+    a: Result<A, Z>,
+    b: Result<B, Z>,
+    c: Result<C, Z>,
+) -> Result<(A, B, C), NonEmpty<Z>> {
+    match (a, b, c) {
+        (Ok(a), Ok(b), Ok(c)) => Ok((a, b, c)),
+        (ae, be, ce) => Err(NonEmpty::from_vec(
+            [ae.err(), be.err(), ce.err()]
+                .into_iter()
+                .flatten()
+                .collect(),
+        )
+        .unwrap()),
+    }
+}
+
+pub fn combine_results4<A, B, C, D, Z>(
+    a: Result<A, Z>,
+    b: Result<B, Z>,
+    c: Result<C, Z>,
+    d: Result<D, Z>,
+) -> Result<(A, B, C, D), NonEmpty<Z>> {
+    match (a, b, c, d) {
+        (Ok(a), Ok(b), Ok(c), Ok(d)) => Ok((a, b, c, d)),
+        (ae, be, ce, de) => Err(NonEmpty::from_vec(
+            [ae.err(), be.err(), ce.err(), de.err()]
+                .into_iter()
+                .flatten()
+                .collect(),
+        )
+        .unwrap()),
+    }
+}
+
+pub fn combine_results5<A, B, C, D, E, Z>(
+    a: Result<A, Z>,
+    b: Result<B, Z>,
+    c: Result<C, Z>,
+    d: Result<D, Z>,
+    e: Result<E, Z>,
+) -> Result<(A, B, C, D, E), NonEmpty<Z>> {
+    match (a, b, c, d, e) {
+        (Ok(a), Ok(b), Ok(c), Ok(d), Ok(e)) => Ok((a, b, c, d, e)),
+        (ae, be, ce, de, ee) => Err(NonEmpty::from_vec(
+            [ae.err(), be.err(), ce.err(), de.err(), ee.err()]
+                .into_iter()
+                .flatten()
+                .collect(),
+        )
+        .unwrap()),
+    }
 }
 
 /// A pure error thrown during FCS file parsing.

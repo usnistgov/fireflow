@@ -12,6 +12,7 @@ use crate::validated::standard::*;
 
 use chrono::NaiveDate;
 use itertools::Itertools;
+use nonempty::NonEmpty;
 use serde::Serialize;
 use std::fs;
 use std::io::{BufReader, Read, Seek};
@@ -661,13 +662,14 @@ fn lookup_req_segment(
     ek: &StdKey,
     corr: OffsetCorrection,
     id: SegmentId,
-) -> Result<Segment, Vec<String>> {
+) -> Deferred<Segment, String> {
     let x0 = get_req(kws, bk);
     let x1 = get_req(kws, ek);
-    match (x0, x1) {
-        (Ok(begin), Ok(end)) => Segment::try_new(begin, end, corr, id).map_err(|x| vec![x]),
-        (a, b) => Err([a.err(), b.err()].into_iter().flatten().collect()),
-    }
+    combine_results(x0, x1).and_then(|(begin, end)| {
+        Segment::try_new(begin, end, corr, id)
+            .map_err(|e| e.to_string())
+            .map_err(NonEmpty::new)
+    })
 }
 
 fn lookup_opt_segment(
@@ -676,21 +678,19 @@ fn lookup_opt_segment(
     ek: &StdKey,
     corr: OffsetCorrection,
     id: SegmentId,
-) -> Result<Option<Segment>, Vec<String>> {
+) -> Deferred<Option<Segment>, String> {
     let x0 = get_opt(kws, bk);
     let x1 = get_opt(kws, ek);
-    match (x0, x1) {
-        (Ok(mb), Ok(me)) => {
-            if let (Some(begin), Some(end)) = (mb, me) {
-                Segment::try_new(begin, end, corr, id)
-                    .map_err(|x| vec![x])
-                    .map(Some)
-            } else {
-                Ok(None)
-            }
+    combine_results(x0, x1).and_then(|(b, e)| {
+        if let (Some(begin), Some(end)) = (b, e) {
+            Segment::try_new(begin, end, corr, id)
+                .map_err(|r| r.to_string())
+                .map_err(NonEmpty::new)
+                .map(Some)
+        } else {
+            Ok(None)
         }
-        (a, b) => Err([a.err(), b.err()].into_iter().flatten().collect()),
-    }
+    })
 }
 
 // TODO unclear if these next two functions should throw errors or warnings
@@ -714,7 +714,7 @@ fn lookup_data_offsets(
     .map_or_else(
         |es| {
             // TODO toggle this?
-            let mut def = PureErrorBuf::from_many(es, PureErrorLevel::Warning);
+            let mut def = PureErrorBuf::from_many(Vec::from(es), PureErrorLevel::Warning);
             let msg =
                 "could not use DATA offsets in TEXT, defaulting to HEADER offsets".to_string();
             def.push_warning(msg);
@@ -762,6 +762,7 @@ fn lookup_analysis_offsets(
             SegmentId::Analysis,
         ),
     }
+    .map_err(Vec::from)
     .map_or_else(default_succ, |mab_seg| {
         mab_seg.map_or_else(|| default_succ(vec![]), PureSuccess::from)
     })
@@ -789,7 +790,7 @@ fn lookup_stext_offsets(
             } else {
                 PureErrorLevel::Warning
             };
-            PureMaybe::from_result_strs(res, level)
+            PureMaybe::from_result_strs(res.map_err(Vec::from), level)
         }
         Version::FCS3_2 => lookup_opt_segment(
             kws,
@@ -801,7 +802,7 @@ fn lookup_stext_offsets(
         .map_or_else(
             |es| PureSuccess {
                 data: None,
-                deferred: PureErrorBuf::from_many(es, PureErrorLevel::Warning),
+                deferred: PureErrorBuf::from_many(Vec::from(es), PureErrorLevel::Warning),
             },
             PureSuccess::from,
         ),
@@ -823,7 +824,7 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
     conf: &RawTextReadConfig,
 ) -> ImpureResult<RawTEXT> {
     let mut buf = vec![];
-    header.text.read(h, &mut buf)?;
+    header.text.h_read(h, &mut buf)?;
 
     verify_delim(&buf, conf).try_map(|delimiter| {
         let split_succ = split_raw_text(ParsedKeywords::default(), &buf, delimiter, conf)
@@ -835,7 +836,7 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
                         PureSuccess::from(kws)
                     } else {
                         buf.clear();
-                        seg.read(h, &mut buf)?;
+                        seg.h_read(h, &mut buf)?;
                         split_raw_text(kws, &buf, delimiter, conf)
                     }
                 } else {

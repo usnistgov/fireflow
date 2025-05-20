@@ -87,3 +87,15 @@ pub(crate) use match_many_to_one;
 // }
 
 // pub(crate) use enum_from;
+
+macro_rules! nonempty {
+    ($one:expr) => {
+        NonEmpty::from(($one, vec![]))
+    };
+
+    ($one:expr, $($more:expr),*) => {
+        NonEmpty::from(($one, vec![$($more),*]))
+    };
+}
+
+pub(crate) use nonempty;

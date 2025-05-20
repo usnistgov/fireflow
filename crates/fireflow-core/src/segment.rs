@@ -14,16 +14,6 @@ pub struct Segment {
 }
 
 impl Segment {
-    /// Make new segment without checking bounds.
-    ///
-    /// Will panic if begin > end.
-    pub fn new_unchecked(begin: u32, end: u32) -> Segment {
-        Segment {
-            begin,
-            length: end - begin,
-        }
-    }
-
     /// Make new segment and check bounds to ensure validity
     ///
     /// Will return error explaining why bounds were invalid if failed.
@@ -32,7 +22,7 @@ impl Segment {
         end: u32,
         corr: OffsetCorrection,
         id: SegmentId,
-    ) -> Result<Segment, String> {
+    ) -> Result<Segment, SegmentError> {
         let x = i64::from(begin) + i64::from(corr.begin);
         let y = i64::from(end) + i64::from(corr.end);
         let err = |kind| {
@@ -42,8 +32,7 @@ impl Segment {
                 corr,
                 kind,
                 id,
-            }
-            .to_string())
+            })
         };
         match (u32::try_from(x), u32::try_from(y)) {
             (Ok(new_begin), Ok(new_end)) => {
@@ -61,7 +50,11 @@ impl Segment {
         self.begin == 0 && self.length == 0
     }
 
-    pub fn read<R: Read + Seek>(&self, h: &mut BufReader<R>, buf: &mut Vec<u8>) -> io::Result<()> {
+    pub fn h_read<R: Read + Seek>(
+        &self,
+        h: &mut BufReader<R>,
+        buf: &mut Vec<u8>,
+    ) -> io::Result<()> {
         let begin = u64::from(self.begin);
         let nbytes = u64::from(self.nbytes());
 
@@ -70,7 +63,11 @@ impl Segment {
         Ok(())
     }
 
-    pub fn try_adjust(self, corr: OffsetCorrection, id: SegmentId) -> Result<Segment, String> {
+    pub fn try_adjust(
+        self,
+        corr: OffsetCorrection,
+        id: SegmentId,
+    ) -> Result<Segment, SegmentError> {
         Self::try_new(self.begin, self.end(), corr, id)
     }
 
@@ -85,10 +82,17 @@ impl Segment {
     pub fn end(&self) -> u32 {
         self.begin + self.length
     }
+
+    fn new_unchecked(begin: u32, end: u32) -> Segment {
+        Segment {
+            begin,
+            length: end - begin,
+        }
+    }
 }
 
 /// The kind of segment in an FCS file.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum SegmentId {
     PrimaryText,
     SupplementalText,
@@ -98,12 +102,12 @@ pub enum SegmentId {
 }
 
 #[derive(Debug)]
-enum SegmentErrorKind {
+pub enum SegmentErrorKind {
     Range,
     Inverted,
 }
 
-struct SegmentError {
+pub struct SegmentError {
     begin: u32,
     end: u32,
     corr: OffsetCorrection,

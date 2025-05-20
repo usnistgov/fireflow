@@ -12,7 +12,7 @@ pub type Deferred<X, E> = Result<X, NonEmpty<E>>;
 
 pub fn combine_results<A, B, Z>(a: Result<A, Z>, b: Result<B, Z>) -> Deferred<(A, B), Z> {
     match (a, b) {
-        (Ok(a), Ok(b)) => Ok((a, b)),
+        (Ok(ax), Ok(bx)) => Ok((ax, bx)),
         (ae, be) => {
             Err(NonEmpty::from_vec([ae.err(), be.err()].into_iter().flatten().collect()).unwrap())
         }
@@ -25,7 +25,7 @@ pub fn combine_results3<A, B, C, Z>(
     c: Result<C, Z>,
 ) -> Deferred<(A, B, C), Z> {
     match (a, b, c) {
-        (Ok(a), Ok(b), Ok(c)) => Ok((a, b, c)),
+        (Ok(ax), Ok(bx), Ok(cx)) => Ok((ax, bx, cx)),
         (ae, be, ce) => Err(NonEmpty::from_vec(
             [ae.err(), be.err(), ce.err()]
                 .into_iter()
@@ -43,7 +43,7 @@ pub fn combine_results4<A, B, C, D, Z>(
     d: Result<D, Z>,
 ) -> Deferred<(A, B, C, D), Z> {
     match (a, b, c, d) {
-        (Ok(a), Ok(b), Ok(c), Ok(d)) => Ok((a, b, c, d)),
+        (Ok(ax), Ok(bx), Ok(cx), Ok(dx)) => Ok((ax, bx, cx, dx)),
         (ae, be, ce, de) => Err(NonEmpty::from_vec(
             [ae.err(), be.err(), ce.err(), de.err()]
                 .into_iter()
@@ -62,7 +62,7 @@ pub fn combine_results5<A, B, C, D, E, Z>(
     e: Result<E, Z>,
 ) -> Deferred<(A, B, C, D, E), Z> {
     match (a, b, c, d, e) {
-        (Ok(a), Ok(b), Ok(c), Ok(d), Ok(e)) => Ok((a, b, c, d, e)),
+        (Ok(ax), Ok(bx), Ok(cx), Ok(dx), Ok(ex)) => Ok((ax, bx, cx, dx, ex)),
         (ae, be, ce, de, ee) => Err(NonEmpty::from_vec(
             [ae.err(), be.err(), ce.err(), de.err(), ee.err()]
                 .into_iter()
@@ -137,8 +137,10 @@ pub type PureFailure = Failure<String>;
 /// Success or failure of a pure FCS computation.
 pub type PureResult<T> = Result<PureSuccess<T>, PureFailure>;
 
-/// Result of a computation which may have failed but does not require
-/// executation to be immediately terminated.
+/// Result which may have failed but does not imply immediate termination.
+///
+/// This is different from Result<T, E> because it would not be clear how
+/// warnings or other error types should be stored.
 pub type PureMaybe<T> = PureSuccess<Option<T>>;
 
 /// Error which may either be pure or impure (within IO context).

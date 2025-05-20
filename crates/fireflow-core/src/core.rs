@@ -279,7 +279,7 @@ impl AnyCoreTEXT {
         std: &mut StdKeywords,
         nonstd: NonStdKeywords,
         conf: &StdTextReadConfig,
-    ) -> PureResult<Self> {
+    ) -> PureResult<Self, AnyParserError> {
         match version {
             Version::FCS2_0 => {
                 CoreTEXT2_0::new_from_raw(std, nonstd, conf).map(|x| x.map(|y| y.into()))
@@ -332,7 +332,7 @@ impl AnyCoreTEXT {
         kws: &mut StdKeywords,
         conf: &DataReadConfig,
         data_seg: Segment,
-    ) -> PureMaybe<DataReader> {
+    ) -> PureMaybe<DataReader, String> {
         match_anycoretext!(self, x, { x.as_data_reader(kws, conf, data_seg) })
     }
 }
@@ -1898,7 +1898,7 @@ where
     ///
     /// Conversion may fail if some required keywords in the target version
     /// are not present in current version.
-    pub fn try_convert<ToM>(self) -> PureResult<VersionedCore<A, D, ToM>>
+    pub fn try_convert<ToM>(self) -> PureResult<VersionedCore<A, D, ToM>, String>
     where
         M::N: Clone,
         ToM: VersionedMetadata,
@@ -2364,7 +2364,7 @@ where
         kws: &mut StdKeywords,
         _: &DataReadConfig,
         data_seg: Segment,
-    ) -> PureMaybe<DataReader> {
+    ) -> PureMaybe<DataReader, String> {
         let l = M::as_column_layout(&self.metadata, &self.measurements).map_err(Vec::from);
         PureMaybe::from_result_strs(l, PureErrorLevel::Error)
             .and_then_opt(|dl| dl.into_reader(kws, data_seg))
@@ -2391,7 +2391,7 @@ where
         std: &mut StdKeywords,
         nonstd: NonStdKeywords,
         conf: &StdTextReadConfig,
-    ) -> PureResult<Self>
+    ) -> PureResult<Self, AnyParserError>
     where
         M: LookupMetadata,
         M::T: LookupTemporal,
@@ -2425,19 +2425,19 @@ where
         //
         // TODO error handling here is confusing, since we are returning a result
         // that might have errors in the Ok var
-        md_succ.try_map(|core| {
-            if let Err(msgs) = core
-                .check_linked_names()
-                .map_err(|es| Vec::from(es.map(|e| e.to_string())))
-            {
-                Err(Failure::from_many_errors(
-                    "PnN refer to invalid names".into(),
-                    msgs,
-                ))
-            } else {
-                Ok(PureSuccess::from(core))
+        let succ = md_succ.and_then(|core| {
+            let mut buf = PureErrorBuf::<_>::default();
+            if let Err(msgs) = core.check_linked_names() {
+                for msg in msgs {
+                    buf.push_error(msg.into());
+                }
             }
-        })
+            PureSuccess {
+                data: core,
+                deferred: buf,
+            }
+        });
+        Ok(succ)
     }
 
     /// Remove a measurement matching the given name.
@@ -2518,7 +2518,7 @@ where
     M::L: VersionedDataLayout,
 {
     /// Write this dataset (HEADER+TEXT+DATA+ANALYSIS) to a handle
-    pub fn h_write<W>(&self, h: &mut BufWriter<W>, conf: &WriteConfig) -> ImpureResult<()>
+    pub fn h_write<W>(&self, h: &mut BufWriter<W>, conf: &WriteConfig) -> ImpureResult<(), String>
     where
         W: Write,
     {

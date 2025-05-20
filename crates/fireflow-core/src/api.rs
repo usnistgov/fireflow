@@ -6,6 +6,7 @@ pub use crate::header::*;
 pub use crate::header_text::*;
 pub use crate::segment::*;
 pub use crate::text::keywords::*;
+use crate::text::parser::AnyParserError;
 use crate::text::timestamps::*;
 use crate::validated::dataframe::FCSDataFrame;
 use crate::validated::standard::*;
@@ -214,7 +215,7 @@ pub struct ParseData {
 ///
 /// Depending on the version, all of these except the TEXT offsets might be 0
 /// which indicates they are actually stored in TEXT due to size limitations.
-pub fn read_fcs_header(p: &path::PathBuf, conf: &HeaderConfig) -> ImpureResult<Header> {
+pub fn read_fcs_header(p: &path::PathBuf, conf: &HeaderConfig) -> ImpureResult<Header, String> {
     let file = fs::File::options().read(true).open(p)?;
     let mut reader = BufReader::new(file);
     h_read_header(&mut reader, conf)
@@ -228,7 +229,10 @@ pub fn read_fcs_header(p: &path::PathBuf, conf: &HeaderConfig) -> ImpureResult<H
 /// Next will use the offset information in the header to parse the TEXT segment
 /// for key/value pairs. On success will return these pairs as-is using Strings
 /// in a HashMap. No other processing will be performed.
-pub fn read_fcs_raw_text(p: &path::PathBuf, conf: &RawTextReadConfig) -> ImpureResult<RawTEXT> {
+pub fn read_fcs_raw_text(
+    p: &path::PathBuf,
+    conf: &RawTextReadConfig,
+) -> ImpureResult<RawTEXT, String> {
     let file = fs::File::options().read(true).open(p)?;
     let mut h = BufReader::new(file);
     RawTEXT::h_read(&mut h, conf)
@@ -246,10 +250,9 @@ pub fn read_fcs_raw_text(p: &path::PathBuf, conf: &RawTextReadConfig) -> ImpureR
 pub fn read_fcs_std_text(
     p: &path::PathBuf,
     conf: &StdTextReadConfig,
-) -> ImpureResult<StandardizedTEXT> {
+) -> ImpureResult<StandardizedTEXT, String> {
     let raw_succ = read_fcs_raw_text(p, &conf.raw)?;
-    let out = raw_succ.try_map(|raw| raw.into_std(conf))?;
-    Ok(out)
+    raw_succ.try_map(|raw| raw.into_std(conf))
 }
 
 /// Return header, raw metadata, and data in an FCS file.
@@ -265,7 +268,10 @@ pub fn read_fcs_std_text(
 /// too much about the degree to which the metadata conforms to standard.
 ///
 /// Other than this, behavior is identical to [`read_fcs_file`],
-pub fn read_fcs_raw_file(p: path::PathBuf, conf: &DataReadConfig) -> ImpureResult<RawDataset> {
+pub fn read_fcs_raw_file(
+    p: path::PathBuf,
+    conf: &DataReadConfig,
+) -> ImpureResult<RawDataset, String> {
     let file = fs::File::options().read(true).open(p)?;
     let mut h = BufReader::new(file);
     RawTEXT::h_read(&mut h, &conf.standard.raw)?
@@ -288,7 +294,7 @@ pub fn read_fcs_raw_file(p: path::PathBuf, conf: &DataReadConfig) -> ImpureResul
 pub fn read_fcs_file(
     p: &path::PathBuf,
     conf: &DataReadConfig,
-) -> ImpureResult<StandardizedDataset> {
+) -> ImpureResult<StandardizedDataset, String> {
     let file = fs::File::options().read(true).open(p)?;
     let mut h = BufReader::new(file);
     RawTEXT::h_read(&mut h, &conf.standard.raw)?
@@ -300,7 +306,7 @@ fn h_read_raw_dataset<R: Read + Seek>(
     h: &mut BufReader<R>,
     raw: RawTEXT,
     conf: &DataReadConfig,
-) -> ImpureResult<RawDataset> {
+) -> ImpureResult<RawDataset, String> {
     let anal_succ =
         lookup_analysis_offsets(&raw.keywords.std, conf, raw.version, &raw.parse.analysis);
     lookup_data_offsets(&raw.keywords.std, conf, raw.version, &raw.parse.data)
@@ -333,7 +339,7 @@ fn h_read_std_dataset<R: Read + Seek>(
     h: &mut BufReader<R>,
     std: StandardizedTEXT,
     conf: &DataReadConfig,
-) -> ImpureResult<StandardizedDataset> {
+) -> ImpureResult<StandardizedDataset, String> {
     let mut kws = std.remainder;
     let version = std.standardized.version();
     let anal_succ = lookup_analysis_offsets(&kws, conf, version, &std.parse.analysis);
@@ -372,12 +378,12 @@ impl RawTEXT {
     fn h_read<R: Read + Seek>(
         h: &mut BufReader<R>,
         conf: &RawTextReadConfig,
-    ) -> ImpureResult<Self> {
+    ) -> ImpureResult<Self, String> {
         h_read_header(h, &conf.header)?
             .try_map(|header| h_read_raw_text_from_header(h, &header, conf))
     }
 
-    fn into_std(self, conf: &StdTextReadConfig) -> PureResult<StandardizedTEXT> {
+    fn into_std(self, conf: &StdTextReadConfig) -> PureResult<StandardizedTEXT, AnyParserError> {
         let mut kws = self.keywords;
         AnyCoreTEXT::parse_raw(self.version, &mut kws.std, kws.nonstd, conf).map(|std_succ| {
             std_succ.map({
@@ -394,7 +400,7 @@ impl RawTEXT {
         })
     }
 
-    fn as_reader(&self, data_seg: Segment) -> PureMaybe<DataReader> {
+    fn as_reader(&self, data_seg: Segment) -> PureMaybe<DataReader, String> {
         let kws = &self.keywords.std;
         match self.version {
             // TODO clean this up
@@ -429,7 +435,7 @@ impl RawTEXT {
     }
 }
 
-fn verify_delim(xs: &[u8], conf: &RawTextReadConfig) -> PureSuccess<u8> {
+fn verify_delim(xs: &[u8], conf: &RawTextReadConfig) -> PureSuccess<u8, String> {
     // First character is the delimiter
     let delimiter: u8 = xs[0];
 
@@ -459,7 +465,7 @@ fn split_raw_text_nodouble(
     xs: &[u8],
     delim: u8,
     conf: &RawTextReadConfig,
-) -> PureSuccess<ParsedKeywords> {
+) -> PureSuccess<ParsedKeywords, String> {
     let mut deferred = PureErrorBuf::default();
 
     // ASSUME input slice does not start or end with delim
@@ -518,7 +524,7 @@ fn split_raw_text_double(
     xs: &[u8],
     delim: u8,
     conf: &RawTextReadConfig,
-) -> PureSuccess<ParsedKeywords> {
+) -> PureSuccess<ParsedKeywords, String> {
     let mut deferred = PureErrorBuf::default();
 
     // ASSUME input slice does not start with delim
@@ -526,7 +532,7 @@ fn split_raw_text_double(
     let mut keybuf: Vec<u8> = vec![];
     let mut valuebuf: Vec<u8> = vec![];
 
-    let mut push_pair = |kb: &Vec<_>, vb: &Vec<_>, def: &mut PureErrorBuf| {
+    let mut push_pair = |kb: &Vec<_>, vb: &Vec<_>, def: &mut PureErrorBuf<String>| {
         if let Err(e) = kws.insert(kb, vb) {
             def.push_msg_leveled(e.to_string(), conf.enforce_unique);
         }
@@ -602,7 +608,7 @@ fn split_raw_text(
     xs: &[u8],
     delim: u8,
     conf: &RawTextReadConfig,
-) -> PureSuccess<ParsedKeywords> {
+) -> PureSuccess<ParsedKeywords, String> {
     if let Some(start) = xs.iter().position(|x| *x == delim) {
         let ys = &xs[(start + 1)..];
         if ys.is_empty() {
@@ -704,7 +710,7 @@ fn lookup_data_offsets(
     conf: &DataReadConfig,
     version: Version,
     default: &Segment,
-) -> PureSuccess<Segment> {
+) -> PureSuccess<Segment, String> {
     match version {
         Version::FCS2_0 => Ok(*default),
         _ => lookup_req_segment(
@@ -736,7 +742,7 @@ fn lookup_analysis_offsets(
     conf: &DataReadConfig,
     version: Version,
     default: &Segment,
-) -> PureSuccess<Segment> {
+) -> PureSuccess<Segment, String> {
     let default_succ = |msgs| {
         // TODO toggle this?
         let mut def = PureErrorBuf::from_many(msgs, PureErrorLevel::Warning);
@@ -776,7 +782,7 @@ fn lookup_stext_offsets(
     kws: &StdKeywords,
     version: Version,
     conf: &RawTextReadConfig,
-) -> PureMaybe<Segment> {
+) -> PureMaybe<Segment, String> {
     // TODO add another msg explaining that the supp text won't be read if
     // offsets not found
     match version {
@@ -813,7 +819,7 @@ fn lookup_stext_offsets(
     }
 }
 
-fn lookup_nextdata(kws: &StdKeywords, enforce: bool) -> PureMaybe<u32> {
+fn lookup_nextdata(kws: &StdKeywords, enforce: bool) -> PureMaybe<u32, String> {
     let k = &Nextdata::std();
     if enforce {
         PureMaybe::from_result_1(
@@ -833,7 +839,7 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
     h: &mut BufReader<R>,
     header: &Header,
     conf: &RawTextReadConfig,
-) -> ImpureResult<RawTEXT> {
+) -> ImpureResult<RawTEXT, String> {
     let mut buf = vec![];
     header.text.h_read(h, &mut buf)?;
 

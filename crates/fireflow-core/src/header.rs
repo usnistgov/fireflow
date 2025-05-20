@@ -51,7 +51,10 @@ pub struct Header {
     pub analysis: Segment,
 }
 
-pub fn h_read_header<R: Read>(h: &mut BufReader<R>, conf: &HeaderConfig) -> ImpureResult<Header> {
+pub fn h_read_header<R: Read>(
+    h: &mut BufReader<R>,
+    conf: &HeaderConfig,
+) -> ImpureResult<Header, String> {
     let mut verbuf = [0; HEADER_LEN];
     h.read_exact(&mut verbuf)?;
     if let Ok(hs) = str::from_utf8(&verbuf) {

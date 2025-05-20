@@ -95,8 +95,8 @@ impl<I: Iterator<Item = Result<T, E>>, T, E> ErrorIter<T, E> for I {}
 /// message to show the user and an error level. The latter will dictate how the
 /// error(s) is/are handled when we finish parsing.
 #[derive(Eq, PartialEq)]
-pub struct PureError {
-    pub msg: String,
+pub struct PureError<E> {
+    pub msg: E,
     pub level: PureErrorLevel,
 }
 
@@ -106,9 +106,8 @@ pub struct PureError {
 /// all possible errors and show the user all at once so they know what issues
 /// in their files to fix. Therefore make an "error" type which is actually many
 /// errors.
-#[derive(Default)]
-pub struct PureErrorBuf {
-    pub errors: Vec<PureError>,
+pub struct PureErrorBuf<E> {
+    pub errors: Vec<PureError<E>>,
 }
 
 /// The result of a successful pure FCS computation which may have errors.
@@ -117,8 +116,8 @@ pub struct PureErrorBuf {
 /// process, "success" needs to include any errors that have been previously
 /// thrown (aka they are "deferred"). Decide later if these are a real issue and
 /// parsed data needs to be withheld from the user.
-pub struct PureSuccess<X> {
-    pub deferred: PureErrorBuf,
+pub struct PureSuccess<X, E> {
+    pub deferred: PureErrorBuf<E>,
     pub data: X,
 }
 
@@ -126,22 +125,23 @@ pub struct PureSuccess<X> {
 ///
 /// This includes the immediate reason for failure as well as any errors
 /// encountered previously which were deferred until now.
-pub struct Failure<E> {
+pub struct Failure<E, F> {
     pub reason: E,
-    pub deferred: PureErrorBuf,
+    pub deferred: PureErrorBuf<F>,
 }
 
 /// The result of a failed pure FCS computation.
-pub type PureFailure = Failure<String>;
+pub type PureFailure<E> = Failure<String, E>;
 
 /// Success or failure of a pure FCS computation.
-pub type PureResult<T> = Result<PureSuccess<T>, PureFailure>;
+// TODO shouldn't E be different on left and right?
+pub type PureResult<T, E> = Result<PureSuccess<T, E>, PureFailure<E>>;
 
 /// Result which may have failed but does not imply immediate termination.
 ///
 /// This is different from Result<T, E> because it would not be clear how
 /// warnings or other error types should be stored.
-pub type PureMaybe<T> = PureSuccess<Option<T>>;
+pub type PureMaybe<T, E> = PureSuccess<Option<T>, E>;
 
 /// Error which may either be pure or impure (within IO context).
 ///
@@ -159,27 +159,27 @@ pub enum ImpureError {
 }
 
 /// The result of either a failed pure or impure computation.
-pub type ImpureFailure = Failure<ImpureError>;
+pub type ImpureFailure<E> = Failure<ImpureError, E>;
 
 /// Success or failure of a pure or impure computation.
-pub type ImpureResult<T> = Result<PureSuccess<T>, ImpureFailure>;
+pub type ImpureResult<T, E> = Result<PureSuccess<T, E>, ImpureFailure<E>>;
 
-impl PureError {
-    pub fn new_error(msg: String) -> Self {
+impl<E> PureError<E> {
+    pub fn new_error(msg: E) -> Self {
         Self {
             msg,
             level: PureErrorLevel::Error,
         }
     }
 
-    pub fn new_warning(msg: String) -> Self {
+    pub fn new_warning(msg: E) -> Self {
         Self {
             msg,
             level: PureErrorLevel::Warning,
         }
     }
 
-    pub fn new(msg: String, is_error: bool) -> Self {
+    pub fn new(msg: E, is_error: bool) -> Self {
         if is_error {
             Self::new_error(msg)
         } else {
@@ -188,44 +188,50 @@ impl PureError {
     }
 }
 
-impl<E> Failure<E> {
-    pub fn new(reason: E) -> Failure<E> {
+impl<E> Default for PureErrorBuf<E> {
+    fn default() -> Self {
+        Self { errors: vec![] }
+    }
+}
+
+impl<R, E> Failure<R, E> {
+    pub fn new(reason: R) -> Failure<R, E> {
         Failure {
             reason,
             deferred: PureErrorBuf::default(),
         }
     }
 
-    pub fn from_many(reason: E, deferred: PureErrorBuf) -> Self {
+    pub fn from_many(reason: R, deferred: PureErrorBuf<E>) -> Self {
         Failure { reason, deferred }
     }
 
-    pub fn from_many_msgs(reason: E, msgs: Vec<String>, level: PureErrorLevel) -> Self {
+    pub fn from_many_msgs(reason: R, msgs: Vec<E>, level: PureErrorLevel) -> Self {
         Self::from_many(reason, PureErrorBuf::from_many(msgs, level))
     }
 
-    pub fn from_many_errors(reason: E, msgs: Vec<String>) -> Self {
+    pub fn from_many_errors(reason: R, msgs: Vec<E>) -> Self {
         Self::from_many_msgs(reason, msgs, PureErrorLevel::Error)
     }
 
-    pub fn map<X, F: Fn(E) -> X>(self, f: F) -> Failure<X> {
+    pub fn map<X, F: Fn(R) -> X>(self, f: F) -> Failure<X, E> {
         Failure {
             reason: f(self.reason),
             deferred: self.deferred,
         }
     }
 
-    pub fn from_result<X>(res: Result<X, E>) -> Result<X, Failure<E>> {
+    pub fn from_result<X>(res: Result<X, R>) -> Result<X, Failure<R, E>> {
         res.map_err(Failure::new)
     }
 
-    pub fn extend(&mut self, other: PureErrorBuf) {
+    pub fn extend(&mut self, other: PureErrorBuf<E>) {
         self.deferred.errors.extend(other.errors);
     }
 }
 
-impl PureErrorBuf {
-    pub fn from(msg: String, level: PureErrorLevel) -> Self {
+impl<E> PureErrorBuf<E> {
+    pub fn from(msg: E, level: PureErrorLevel) -> Self {
         PureErrorBuf {
             errors: vec![PureError { msg, level }],
         }
@@ -241,7 +247,7 @@ impl PureErrorBuf {
         }
     }
 
-    pub fn from_many(msgs: Vec<String>, level: PureErrorLevel) -> PureErrorBuf {
+    pub fn from_many(msgs: Vec<E>, level: PureErrorLevel) -> PureErrorBuf<E> {
         PureErrorBuf {
             errors: msgs
                 .into_iter()
@@ -250,16 +256,16 @@ impl PureErrorBuf {
         }
     }
 
-    pub fn push(&mut self, e: PureError) {
+    pub fn push(&mut self, e: PureError<E>) {
         self.errors.push(e)
     }
 
     // TODO not DRY
-    pub fn push_msg(&mut self, msg: String, level: PureErrorLevel) {
+    pub fn push_msg(&mut self, msg: E, level: PureErrorLevel) {
         self.push(PureError { msg, level })
     }
 
-    pub fn push_msg_leveled(&mut self, msg: String, is_error: bool) {
+    pub fn push_msg_leveled(&mut self, msg: E, is_error: bool) {
         if is_error {
             self.push_error(msg);
         } else {
@@ -267,11 +273,11 @@ impl PureErrorBuf {
         }
     }
 
-    pub fn push_error(&mut self, msg: String) {
+    pub fn push_error(&mut self, msg: E) {
         self.push_msg(msg, PureErrorLevel::Error)
     }
 
-    pub fn push_warning(&mut self, msg: String) {
+    pub fn push_warning(&mut self, msg: E) {
         self.push_msg(msg, PureErrorLevel::Warning)
     }
 
@@ -283,7 +289,7 @@ impl PureErrorBuf {
             > 0
     }
 
-    pub fn split(self) -> (Vec<String>, Vec<String>) {
+    pub fn split(self) -> (Vec<E>, Vec<E>) {
         let (err, warn): (Vec<_>, Vec<_>) = self
             .errors
             .into_iter()
@@ -294,15 +300,15 @@ impl PureErrorBuf {
         )
     }
 
-    pub fn into_errors(self) -> Vec<String> {
+    pub fn into_errors(self) -> Vec<E> {
         self.into_level(PureErrorLevel::Error)
     }
 
-    pub fn into_warnings(self) -> Vec<String> {
+    pub fn into_warnings(self) -> Vec<E> {
         self.into_level(PureErrorLevel::Warning)
     }
 
-    fn into_level(self, level: PureErrorLevel) -> Vec<String> {
+    fn into_level(self, level: PureErrorLevel) -> Vec<E> {
         self.errors
             .into_iter()
             .filter(|e| e.level == level)
@@ -319,7 +325,7 @@ impl PureErrorBuf {
     }
 }
 
-impl<X> From<X> for PureSuccess<X> {
+impl<X, E> From<X> for PureSuccess<X, E> {
     fn from(data: X) -> Self {
         PureSuccess {
             data,
@@ -328,16 +334,16 @@ impl<X> From<X> for PureSuccess<X> {
     }
 }
 
-impl<X> PureSuccess<X> {
-    pub fn push(&mut self, e: PureError) {
+impl<X, E> PureSuccess<X, E> {
+    pub fn push(&mut self, e: PureError<E>) {
         self.deferred.errors.push(e)
     }
 
-    pub fn push_msg(&mut self, msg: String, level: PureErrorLevel) {
+    pub fn push_msg(&mut self, msg: E, level: PureErrorLevel) {
         self.push(PureError { msg, level })
     }
 
-    pub fn push_msg_leveled(&mut self, msg: String, is_error: bool) {
+    pub fn push_msg_leveled(&mut self, msg: E, is_error: bool) {
         if is_error {
             self.push_error(msg);
         } else {
@@ -345,19 +351,19 @@ impl<X> PureSuccess<X> {
         }
     }
 
-    pub fn push_error(&mut self, msg: String) {
+    pub fn push_error(&mut self, msg: E) {
         self.push_msg(msg, PureErrorLevel::Error)
     }
 
-    pub fn push_warning(&mut self, msg: String) {
+    pub fn push_warning(&mut self, msg: E) {
         self.push_msg(msg, PureErrorLevel::Warning)
     }
 
-    pub fn extend(&mut self, es: PureErrorBuf) {
+    pub fn extend(&mut self, es: PureErrorBuf<E>) {
         self.deferred.errors.extend(es.errors)
     }
 
-    pub fn map<Y, F: FnOnce(X) -> Y>(self, f: F) -> PureSuccess<Y> {
+    pub fn map<Y, F: FnOnce(X) -> Y>(self, f: F) -> PureSuccess<Y, E> {
         let data = f(self.data);
         PureSuccess {
             data,
@@ -365,16 +371,16 @@ impl<X> PureSuccess<X> {
         }
     }
 
-    pub fn and_then<Y, F: FnOnce(X) -> PureSuccess<Y>>(self, f: F) -> PureSuccess<Y> {
+    pub fn and_then<Y, F: FnOnce(X) -> PureSuccess<Y, E>>(self, f: F) -> PureSuccess<Y, E> {
         let mut new = f(self.data);
         // TODO order?
         new.extend(self.deferred);
         new
     }
 
-    pub fn try_map<E, Y, F>(self, f: F) -> Result<PureSuccess<Y>, Failure<E>>
+    pub fn try_map<R, Y, F>(self, f: F) -> Result<PureSuccess<Y, E>, Failure<R, E>>
     where
-        F: FnOnce(X) -> Result<PureSuccess<Y>, Failure<E>>,
+        F: FnOnce(X) -> Result<PureSuccess<Y, E>, Failure<R, E>>,
     {
         match f(self.data) {
             Ok(mut new) => {
@@ -391,16 +397,16 @@ impl<X> PureSuccess<X> {
 
     pub fn combine<Y, Z, F: FnOnce(X, Y) -> Z>(
         self,
-        other: PureSuccess<Y>,
+        other: PureSuccess<Y, E>,
         f: F,
-    ) -> PureSuccess<Z> {
+    ) -> PureSuccess<Z, E> {
         PureSuccess {
             data: f(self.data, other.data),
             deferred: self.deferred.chain(other.deferred),
         }
     }
 
-    pub fn sequence(xs: Vec<PureSuccess<X>>) -> PureSuccess<Vec<X>> {
+    pub fn sequence(xs: Vec<PureSuccess<X, E>>) -> PureSuccess<Vec<X>, E> {
         let (data, es): (Vec<_>, Vec<_>) = xs.into_iter().map(|x| (x.data, x.deferred)).unzip();
         PureSuccess {
             data,
@@ -410,10 +416,10 @@ impl<X> PureSuccess<X> {
 
     pub fn combine3<A, B, Y, F: FnOnce(X, A, B) -> Y>(
         self,
-        a: PureSuccess<A>,
-        b: PureSuccess<B>,
+        a: PureSuccess<A, E>,
+        b: PureSuccess<B, E>,
         f: F,
-    ) -> PureSuccess<Y> {
+    ) -> PureSuccess<Y, E> {
         PureSuccess {
             data: f(self.data, a.data, b.data),
             deferred: self.deferred.chain(a.deferred).chain(b.deferred),
@@ -422,11 +428,11 @@ impl<X> PureSuccess<X> {
 
     pub fn combine4<A, B, C, Y, F: FnOnce(X, A, B, C) -> Y>(
         self,
-        a: PureSuccess<A>,
-        b: PureSuccess<B>,
-        c: PureSuccess<C>,
+        a: PureSuccess<A, E>,
+        b: PureSuccess<B, E>,
+        c: PureSuccess<C, E>,
         f: F,
-    ) -> PureSuccess<Y> {
+    ) -> PureSuccess<Y, E> {
         PureSuccess {
             data: f(self.data, a.data, b.data, c.data),
             deferred: self
@@ -437,11 +443,11 @@ impl<X> PureSuccess<X> {
         }
     }
 
-    pub fn combine_result<E, F, Y, Z>(
+    pub fn combine_result<R, F, Y, Z>(
         self,
-        other: Result<PureSuccess<Y>, Failure<E>>,
+        other: Result<PureSuccess<Y, E>, Failure<R, E>>,
         f: F,
-    ) -> Result<PureSuccess<Z>, Failure<E>>
+    ) -> Result<PureSuccess<Z, E>, Failure<R, E>>
     where
         F: FnOnce(X, Y) -> Z,
     {
@@ -454,11 +460,11 @@ impl<X> PureSuccess<X> {
         }
     }
 
-    pub fn combine_some_result<E, F, Y, Z>(
+    pub fn combine_some_result<R, F, Y, Z>(
         self,
-        other: Result<Y, Failure<E>>,
+        other: Result<Y, Failure<R, E>>,
         f: F,
-    ) -> Result<PureSuccess<Z>, Failure<E>>
+    ) -> Result<PureSuccess<Z, E>, Failure<R, E>>
     where
         F: FnOnce(X, Y) -> Z,
     {
@@ -475,16 +481,16 @@ impl<X> PureSuccess<X> {
     }
 }
 
-impl<X> PureMaybe<X> {
-    pub fn empty() -> PureMaybe<X> {
+impl<X, E> PureMaybe<X, E> {
+    pub fn empty() -> PureMaybe<X, E> {
         PureSuccess::from(None)
     }
 
-    pub fn map_maybe<Y, F: FnOnce(X) -> Y>(self, f: F) -> PureMaybe<Y> {
+    pub fn map_maybe<Y, F: FnOnce(X) -> Y>(self, f: F) -> PureMaybe<Y, E> {
         self.map(|x| x.map(f))
     }
 
-    pub fn into_result(self, reason: String) -> PureResult<X> {
+    pub fn into_result(self, reason: String) -> PureResult<X, E> {
         if let Some(d) = self.data {
             Ok(PureSuccess {
                 data: d,
@@ -498,7 +504,7 @@ impl<X> PureMaybe<X> {
         }
     }
 
-    pub fn from_result_1(res: Result<X, String>, level: PureErrorLevel) -> Self {
+    pub fn from_result_1(res: Result<X, E>, level: PureErrorLevel) -> Self {
         match res {
             Ok(data) => PureSuccess::from(Some(data)),
             Err(msg) => PureSuccess {
@@ -508,7 +514,7 @@ impl<X> PureMaybe<X> {
         }
     }
 
-    pub fn from_result(res: Result<X, PureErrorBuf>) -> Self {
+    pub fn from_result(res: Result<X, PureErrorBuf<E>>) -> Self {
         match res {
             Ok(data) => PureSuccess::from(Some(data)),
             Err(deferred) => PureSuccess {
@@ -518,7 +524,7 @@ impl<X> PureMaybe<X> {
         }
     }
 
-    pub fn from_result_strs(res: Result<X, Vec<String>>, level: PureErrorLevel) -> Self {
+    pub fn from_result_strs(res: Result<X, Vec<E>>, level: PureErrorLevel) -> Self {
         match res {
             Ok(data) => PureSuccess::from(Some(data)),
             Err(msgs) => PureSuccess {
@@ -528,11 +534,11 @@ impl<X> PureMaybe<X> {
         }
     }
 
-    pub fn from_result_errors(res: Result<X, Vec<String>>) -> Self {
+    pub fn from_result_errors(res: Result<X, Vec<E>>) -> Self {
         Self::from_result_strs(res, PureErrorLevel::Error)
     }
 
-    pub fn and_then_opt<Y, F: FnOnce(X) -> PureMaybe<Y>>(self, f: F) -> PureMaybe<Y> {
+    pub fn and_then_opt<Y, F: FnOnce(X) -> PureMaybe<Y, E>>(self, f: F) -> PureMaybe<Y, E> {
         match self.data {
             Some(d) => {
                 let mut new = f(d);
@@ -548,13 +554,13 @@ impl<X> PureMaybe<X> {
     }
 }
 
-impl From<PureFailure> for ImpureFailure {
-    fn from(value: PureFailure) -> Self {
+impl<E> From<PureFailure<E>> for ImpureFailure<E> {
+    fn from(value: PureFailure<E>) -> Self {
         value.map(ImpureError::Pure)
     }
 }
 
-impl From<io::Error> for ImpureFailure {
+impl<E> From<io::Error> for ImpureFailure<E> {
     fn from(value: io::Error) -> Self {
         Failure::new(ImpureError::IO(value))
     }

@@ -42,13 +42,13 @@ pub trait VersionedDataLayout: Sized {
 
     fn ncols(&self) -> usize;
 
-    fn into_reader(self, kws: &StdKeywords, data_seg: Segment) -> PureMaybe<ColumnReader>;
+    fn into_reader(self, kws: &StdKeywords, data_seg: Segment) -> PureMaybe<ColumnReader, String>;
 
     fn as_writer<'a>(
         &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
-    ) -> PureResult<DataWriter<'a>> {
+    ) -> PureResult<DataWriter<'a>, String> {
         // The dataframe should be encapsulated such that a) the column number
         // matches the number of measurements. If these are not true, the code
         // is wrong.
@@ -1227,7 +1227,11 @@ where
         self.columns.len()
     }
 
-    pub fn into_reader(self, seg: Segment, kw_tot: Option<Tot>) -> PureSuccess<AlphaNumReader> {
+    pub fn into_reader(
+        self,
+        seg: Segment,
+        kw_tot: Option<Tot>,
+    ) -> PureSuccess<AlphaNumReader, String> {
         let n = seg.nbytes() as usize;
         let w = self.event_width();
         let total_events = n / w;
@@ -1687,7 +1691,11 @@ impl AnyUintLayout {
         )
     }
 
-    fn into_reader(self, data_seg: Segment, tot: Option<Tot>) -> PureSuccess<AlphaNumReader> {
+    fn into_reader(
+        self,
+        data_seg: Segment,
+        tot: Option<Tot>,
+    ) -> PureSuccess<AlphaNumReader, String> {
         match_many_to_one!(
             self,
             AnyUintLayout,
@@ -1780,7 +1788,7 @@ impl AsciiLayout {
         }
     }
 
-    fn into_reader(self, seg: Segment, kw_tot: Option<Tot>) -> PureMaybe<ColumnReader> {
+    fn into_reader(self, seg: Segment, kw_tot: Option<Tot>) -> PureMaybe<ColumnReader, String> {
         let nbytes = seg.nbytes() as usize;
         match self {
             AsciiLayout::Delimited(l) => PureSuccess::from(kw_tot.map(|tot| {
@@ -1806,7 +1814,7 @@ impl FloatLayout {
         }
     }
 
-    fn into_reader(self, seg: Segment, kw_tot: Option<Tot>) -> PureSuccess<AlphaNumReader> {
+    fn into_reader(self, seg: Segment, kw_tot: Option<Tot>) -> PureSuccess<AlphaNumReader, String> {
         match self {
             FloatLayout::F32(l) => l.into_reader(seg, kw_tot),
             FloatLayout::F64(l) => l.into_reader(seg, kw_tot),
@@ -1876,7 +1884,7 @@ impl VersionedDataLayout for DataLayout2_0 {
         }
     }
 
-    fn into_reader(self, kws: &StdKeywords, data_seg: Segment) -> PureMaybe<ColumnReader> {
+    fn into_reader(self, kws: &StdKeywords, data_seg: Segment) -> PureMaybe<ColumnReader, String> {
         let res = Tot::get_meta_opt(kws)
             .map(|tot| tot.0)
             .map_err(|e| e.to_string());
@@ -1957,7 +1965,7 @@ impl VersionedDataLayout for DataLayout3_0 {
         }
     }
 
-    fn into_reader(self, kws: &StdKeywords, data_seg: Segment) -> PureMaybe<ColumnReader> {
+    fn into_reader(self, kws: &StdKeywords, data_seg: Segment) -> PureMaybe<ColumnReader, String> {
         let res = Tot::get_meta_req(kws).map_err(|e| e.to_string());
         PureMaybe::from_result_1(res, PureErrorLevel::Error).and_then(|tot| match self {
             DataLayout3_0::Ascii(a) => a.into_reader(data_seg, tot),
@@ -2031,7 +2039,7 @@ impl VersionedDataLayout for DataLayout3_1 {
         }
     }
 
-    fn into_reader(self, kws: &StdKeywords, data_seg: Segment) -> PureMaybe<ColumnReader> {
+    fn into_reader(self, kws: &StdKeywords, data_seg: Segment) -> PureMaybe<ColumnReader, String> {
         let res = Tot::get_meta_req(kws).map_err(|e| e.to_string());
         PureMaybe::from_result_1(res, PureErrorLevel::Error).and_then(|tot| match self {
             DataLayout3_1::Ascii(a) => a.into_reader(data_seg, tot),
@@ -2141,7 +2149,7 @@ impl VersionedDataLayout for DataLayout3_2 {
         }
     }
 
-    fn into_reader(self, kws: &StdKeywords, data_seg: Segment) -> PureMaybe<ColumnReader> {
+    fn into_reader(self, kws: &StdKeywords, data_seg: Segment) -> PureMaybe<ColumnReader, String> {
         let res = Tot::get_meta_req(kws).map_err(|e| e.to_string());
         PureMaybe::from_result_1(res, PureErrorLevel::Error).and_then(|tot| match self {
             DataLayout3_2::Ascii(a) => a.into_reader(data_seg, tot),

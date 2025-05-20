@@ -63,7 +63,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
         conf: &'a StdTextReadConfig,
         reason: String,
         f: F,
-    ) -> PureResult<X>
+    ) -> PureResult<X, AnyParserError>
     where
         F: FnOnce(&mut Self) -> Option<X>,
     {
@@ -234,37 +234,31 @@ impl<'a, 'b> KwParser<'a, 'b> {
 
     // auxiliary functions
 
-    fn collect(self) -> PureErrorBuf {
+    fn collect(self) -> PureErrorBuf<AnyParserError> {
         let rs = PureErrorBuf::from_many(
-            self.req_errors.into_iter().map(|e| e.to_string()).collect(),
+            self.req_errors.into_iter().map(|e| e.into()).collect(),
             PureErrorLevel::Error,
         );
         let ws = PureErrorBuf::from_many(
             self.opt_warnings
                 .into_iter()
-                .map(|e| e.to_string())
-                .collect(),
-            PureErrorLevel::Warning,
-        );
-        let ows = PureErrorBuf::from_many(
-            self.other_warnings
-                .into_iter()
-                .map(|e| e.to_string())
+                .map(|e| e.into())
+                .chain(self.other_warnings.into_iter().map(|e| e.into()))
                 .collect(),
             PureErrorLevel::Warning,
         );
         let ds = PureErrorBuf::from_many(
-            self.deprecated.into_iter().map(|e| e.to_string()).collect(),
+            self.deprecated.into_iter().map(|e| e.into()).collect(),
             if self.conf.disallow_deprecated {
                 PureErrorLevel::Error
             } else {
                 PureErrorLevel::Warning
             },
         );
-        PureErrorBuf::mconcat(vec![rs, ws, ows, ds])
+        PureErrorBuf::mconcat(vec![rs, ws, ds])
     }
 
-    fn into_failure(self, reason: String) -> PureFailure {
+    fn into_failure(self, reason: String) -> PureFailure<AnyParserError> {
         Failure {
             reason,
             deferred: self.collect(),
@@ -301,6 +295,16 @@ impl<'a, 'b> KwParser<'a, 'b> {
         .unwrap_or(None.into())
     }
 }
+
+enum_from_disp!(
+    pub AnyParserError,
+    [Lookup, LookupError],
+    [OtherWarning, ParseWarning],
+    [OtherError, ParseError],
+    [Deprecated, DepKeyWarning],
+    [Linked, LinkedNameError]
+
+);
 
 enum_from_disp!(
     pub LookupError,

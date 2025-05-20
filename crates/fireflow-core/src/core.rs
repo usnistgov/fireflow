@@ -2298,17 +2298,14 @@ where
         let names = self.measurement_names();
 
         if let Err(msg) = self.metadata.check_trigger(&names) {
-            // TODO toggle this
             deferred.push_error(msg);
         }
 
         if let Err(msg) = self.metadata.check_unstainedcenters(&names) {
-            // TODO toggle this
             deferred.push_error(msg);
         }
 
         if let Err(msg) = self.metadata.check_spillover(&names) {
-            // TODO toggle this
             deferred.push_error(msg);
         }
 

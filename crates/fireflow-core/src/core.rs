@@ -3,7 +3,7 @@ use crate::data::*;
 use crate::error::*;
 use crate::header::*;
 use crate::header_text::*;
-use crate::macros::{match_many_to_one, newtype_from};
+use crate::macros::{enum_from, enum_from_disp, match_many_to_one, newtype_from};
 use crate::segment::*;
 use crate::text::byteord::*;
 use crate::text::compensation::*;
@@ -1221,17 +1221,17 @@ where
         });
     }
 
-    fn check_trigger(&self, names: &HashSet<&Shortname>) -> Result<(), String> {
+    fn check_trigger(&self, names: &HashSet<&Shortname>) -> Result<(), LinkedNameError> {
         self.tr.0.as_ref().map_or(Ok(()), |tr| tr.check_link(names))
     }
 
-    fn check_unstainedcenters(&self, names: &HashSet<&Shortname>) -> Result<(), String> {
+    fn check_unstainedcenters(&self, names: &HashSet<&Shortname>) -> Result<(), LinkedNameError> {
         self.specific
             .as_unstainedcenters()
             .map_or(Ok(()), |x| x.check_link(names))
     }
 
-    fn check_spillover(&self, names: &HashSet<&Shortname>) -> Result<(), String> {
+    fn check_spillover(&self, names: &HashSet<&Shortname>) -> Result<(), LinkedNameError> {
         self.specific
             .as_spillover()
             .map_or(Ok(()), |x| x.check_link(names))
@@ -2288,6 +2288,7 @@ where
         // functions assume that it is "valid"
         let mut deferred = PureErrorBuf::default();
 
+        // TODO move this to measurement lookup
         if let Some(pat) = conf.pattern.as_ref() {
             if conf.ensure && self.measurements.as_center().is_none() {
                 let msg = format!("Could not find time measurement matching {}", pat);
@@ -2310,6 +2311,28 @@ where
         }
 
         PureSuccess { data: (), deferred }
+    }
+
+    fn check_linked_names(self) -> Deferred<(), ShortnameLinkError> {
+        let mut errs = vec![];
+        let names = self.measurement_names();
+
+        self.metadata
+            .check_trigger(&names)
+            .map_err(ShortnameLinkError::Trigger)
+            .map_err(|e| errs.push(e));
+
+        self.metadata
+            .check_unstainedcenters(&names)
+            .map_err(ShortnameLinkError::Trigger)
+            .map_err(|e| errs.push(e));
+
+        self.metadata
+            .check_spillover(&names)
+            .map_err(ShortnameLinkError::Trigger)
+            .map_err(|e| errs.push(e));
+
+        NonEmpty::from_vec(errs).map_or(Ok(()), Err)
     }
 
     fn set_data_width_range(&mut self, xs: Vec<(Width, Range)>) -> Result<(), KeyLengthError> {
@@ -5352,4 +5375,10 @@ impl fmt::Display for SetFloatError {
             SetFloatError::Length(x) => x.fmt(f),
         }
     }
+}
+
+pub enum ShortnameLinkError {
+    Trigger(LinkedNameError),
+    Spillover(LinkedNameError),
+    UnstainedCenters(LinkedNameError),
 }

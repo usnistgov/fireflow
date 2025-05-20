@@ -927,26 +927,36 @@ where
     Self: Key,
     Self: Sized,
 {
-    fn check_link(&self, names: &HashSet<&Shortname>) -> Result<(), String> {
-        let k = Self::std();
-        let bad_names: Vec<_> = self.names().difference(names).copied().collect();
-        let bad_names_str = bad_names.iter().join(", ");
-        if bad_names.is_empty() {
-            Ok(())
-        } else if bad_names.len() == 1 {
-            Err(format!(
-                "{k} references non-existent $PnN name: {bad_names_str}"
-            ))
-        } else {
-            Err(format!(
-                "{k} references non-existent $PnN names: {bad_names_str}"
-            ))
-        }
+    fn check_link(&self, names: &HashSet<&Shortname>) -> Result<(), LinkedNameError> {
+        NonEmpty::collect(self.names().difference(names).copied().cloned())
+            .map(|names| LinkedNameError {
+                names,
+                key: Self::std(),
+            })
+            .map(Err)
+            .unwrap_or(Ok(()))
     }
 
     fn reassign(&mut self, mapping: &NameMapping);
 
     fn names(&self) -> HashSet<&Shortname>;
+}
+
+pub struct LinkedNameError {
+    pub key: StdKey,
+    pub names: NonEmpty<Shortname>,
+}
+
+impl fmt::Display for LinkedNameError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let ns = if self.names.tail.is_empty() {
+            "name"
+        } else {
+            "names"
+        };
+        let bad = self.names.iter().join(", ");
+        write!(f, "{} references non-existent $PnN {ns}: {bad}", self.key)
+    }
 }
 
 macro_rules! newtype_string {

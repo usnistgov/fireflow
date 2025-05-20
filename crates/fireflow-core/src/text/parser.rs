@@ -1,7 +1,7 @@
 use crate::config::StdTextReadConfig;
 use crate::core::{CarrierData, ModificationData, PlateData, UnstainedData};
 use crate::error::*;
-use crate::macros::match_many_to_one;
+use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
 use crate::validated::nonstandard::*;
 use crate::validated::shortname::*;
 use crate::validated::standard::*;
@@ -296,37 +296,6 @@ impl<'a, 'b> KwParser<'a, 'b> {
     }
 }
 
-macro_rules! enum_from {
-    ($v:vis$outer:ident, $([$var:ident, $inner:path]),*) => {
-        $v enum $outer {
-            $(
-                $var($inner),
-            )*
-        }
-
-        $(
-            impl From<$inner> for $outer {
-                fn from(value: $inner) -> Self {
-                    $outer::$var(value)
-                }
-            }
-        )*
-    };
-}
-
-macro_rules! enum_from_disp {
-    ($v:vis$outer:ident, $([$var:ident, $inner:path]),*) => {
-        enum_from!($v$outer, $([$var, $inner]),*);
-
-        impl fmt::Display for $outer {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-                match_many_to_one!(self, $outer, [$($var),*], x, { x.fmt(f) })
-            }
-        }
-
-    };
-}
-
 enum_from_disp!(
     pub LookupError,
     [Width,            ReqKeyError<ParseBitsError>],
@@ -370,23 +339,11 @@ enum_from_disp!(
     [Temporal,         TemporalError]
 );
 
-// impl fmt::Display for LookupError {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-//         match_many_to_one!(self, LookupError, [Width, Range, ], x, { x.fmt(f) })
-//     }
-// }
-
-enum_from!(
-    ParseWarning,
+enum_from_disp!(
+    pub ParseWarning,
     [Timestamp, InvalidTimestamps],
     [Datetime, InvalidDatetimes]
 );
-
-impl fmt::Display for ParseWarning {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match_many_to_one!(self, ParseWarning, [Timestamp, Datetime], x, { x.fmt(f) })
-    }
-}
 
 pub struct DepKeyWarning(pub StdKey);
 

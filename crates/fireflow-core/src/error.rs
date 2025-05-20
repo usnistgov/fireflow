@@ -10,7 +10,7 @@ pub enum PureErrorLevel {
 
 pub type Deferred<X, E> = Result<X, NonEmpty<E>>;
 
-pub fn combine_results<A, B, Z>(a: Result<A, Z>, b: Result<B, Z>) -> Result<(A, B), NonEmpty<Z>> {
+pub fn combine_results<A, B, Z>(a: Result<A, Z>, b: Result<B, Z>) -> Deferred<(A, B), Z> {
     match (a, b) {
         (Ok(a), Ok(b)) => Ok((a, b)),
         (ae, be) => {
@@ -23,7 +23,7 @@ pub fn combine_results3<A, B, C, Z>(
     a: Result<A, Z>,
     b: Result<B, Z>,
     c: Result<C, Z>,
-) -> Result<(A, B, C), NonEmpty<Z>> {
+) -> Deferred<(A, B, C), Z> {
     match (a, b, c) {
         (Ok(a), Ok(b), Ok(c)) => Ok((a, b, c)),
         (ae, be, ce) => Err(NonEmpty::from_vec(
@@ -41,7 +41,7 @@ pub fn combine_results4<A, B, C, D, Z>(
     b: Result<B, Z>,
     c: Result<C, Z>,
     d: Result<D, Z>,
-) -> Result<(A, B, C, D), NonEmpty<Z>> {
+) -> Deferred<(A, B, C, D), Z> {
     match (a, b, c, d) {
         (Ok(a), Ok(b), Ok(c), Ok(d)) => Ok((a, b, c, d)),
         (ae, be, ce, de) => Err(NonEmpty::from_vec(
@@ -60,7 +60,7 @@ pub fn combine_results5<A, B, C, D, E, Z>(
     c: Result<C, Z>,
     d: Result<D, Z>,
     e: Result<E, Z>,
-) -> Result<(A, B, C, D, E), NonEmpty<Z>> {
+) -> Deferred<(A, B, C, D, E), Z> {
     match (a, b, c, d, e) {
         (Ok(a), Ok(b), Ok(c), Ok(d), Ok(e)) => Ok((a, b, c, d, e)),
         (ae, be, ce, de, ee) => Err(NonEmpty::from_vec(
@@ -72,6 +72,22 @@ pub fn combine_results5<A, B, C, D, E, Z>(
         .unwrap()),
     }
 }
+
+pub(crate) trait ErrorIter<T, E>: Iterator<Item = Result<T, E>> + Sized {
+    fn gather(self) -> Deferred<Vec<T>, E> {
+        let mut pass = vec![];
+        let mut fail = vec![];
+        for x in self {
+            match x {
+                Ok(y) => pass.push(y),
+                Err(y) => fail.push(y),
+            }
+        }
+        NonEmpty::from_vec(fail).map(Err).unwrap_or(Ok(pass))
+    }
+}
+
+impl<I: Iterator<Item = Result<T, E>>, T, E> ErrorIter<T, E> for I {}
 
 /// A pure error thrown during FCS file parsing.
 ///

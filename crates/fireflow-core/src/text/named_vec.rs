@@ -150,7 +150,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     pub fn new(
         xs: RawInput<K, U, V>,
         prefix: ShortnamePrefix,
-    ) -> Result<WrappedNamedVec<K, U, V>, String> {
+    ) -> Result<WrappedNamedVec<K, U, V>, NewNamedVecError> {
         let names: Vec<_> = xs
             .iter()
             .map(|x| {
@@ -158,45 +158,44 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                     .both(|e| K::into_wrapped(&e.0), |o| K::as_ref(&o.0))
             })
             .collect();
-        if prefix.all_unique::<K>(names) {
-            let mut left = vec![];
-            let mut center = None;
-            let mut right = vec![];
-            for x in xs {
-                match x {
-                    Element::NonCenter(y) => {
-                        let p = Pair {
+        if !prefix.all_unique::<K>(names) {
+            return Err(NewNamedVecError::NonUnique);
+        }
+        let mut left = vec![];
+        let mut center = None;
+        let mut right = vec![];
+        for x in xs {
+            match x {
+                Element::NonCenter(y) => {
+                    let p = Pair {
+                        key: y.0,
+                        value: y.1,
+                    };
+                    if center.is_none() {
+                        left.push(p);
+                    } else {
+                        right.push(p);
+                    }
+                }
+                Element::Center(y) => {
+                    if center.is_none() {
+                        let cp = Pair {
                             key: y.0,
                             value: y.1,
                         };
-                        if center.is_none() {
-                            left.push(p);
-                        } else {
-                            right.push(p);
-                        }
-                    }
-                    Element::Center(y) => {
-                        if center.is_none() {
-                            center = Some(y);
-                        } else {
-                            return Err("".to_string());
-                        }
+                        center = Some(cp);
+                    } else {
+                        return Err(NewNamedVecError::MultiCenter);
                     }
                 }
             }
-            let s = if let Some(c) = center {
-                let cp = Pair {
-                    key: c.0,
-                    value: c.1,
-                };
-                Self::new_split(left, cp, right, prefix)
-            } else {
-                Self::new_unsplit(left, prefix)
-            };
-            Ok(s)
-        } else {
-            Err("".to_string())
         }
+        let s = if let Some(c) = center {
+            Self::new_split(left, c, right, prefix)
+        } else {
+            Self::new_unsplit(left, prefix)
+        };
+        Ok(s)
     }
 
     /// Return reference to center
@@ -1467,6 +1466,21 @@ impl KeyLengthError {
             other_len: 0,
             include_center: true,
         }
+    }
+}
+
+pub enum NewNamedVecError {
+    NonUnique,
+    MultiCenter,
+}
+
+impl fmt::Display for NewNamedVecError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let s = match self {
+            NewNamedVecError::NonUnique => "names must be unique",
+            NewNamedVecError::MultiCenter => "only zero or one center values allowed",
+        };
+        write!(f, "{s}")
     }
 }
 

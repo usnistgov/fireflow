@@ -76,26 +76,26 @@ macro_rules! match_many_to_one {
 
 pub(crate) use match_many_to_one;
 
-// macro_rules! enum_from {
-//     ($inner:path, $enum_type:ident, $var:ident) => {
-//         impl From<$inner> for $enum_type {
-//             fn from(value: $inner) -> Self {
-//                 $enum_type::$var(value)
-//             }
-//         }
-//     };
-// }
-
-// pub(crate) use enum_from;
-
-macro_rules! nonempty {
-    ($one:expr) => {
-        NonEmpty::from(($one, vec![]))
-    };
-
-    ($one:expr, $($more:expr),*) => {
-        NonEmpty::from(($one, vec![$($more),*]))
+macro_rules! enum_from {
+    ($outer:ident, $var:ident, $inner:path) => {
+        impl From<$inner> for $outer {
+            fn from(value: $inner) -> Self {
+                $outer::$var(value)
+            }
+        }
     };
 }
+
+pub(crate) use enum_from;
+
+// macro_rules! nonempty {
+//     ($one:expr) => {
+//         NonEmpty::from(($one, vec![]))
+//     };
+
+//     ($one:expr, $($more:expr),*) => {
+//         NonEmpty::from(($one, vec![$($more),*]))
+//     };
+// }
 
 pub(crate) use nonempty;

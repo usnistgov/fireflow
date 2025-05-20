@@ -776,66 +776,10 @@ newtype_fromstr!(DetectorVoltage, RangedFloatError);
 /// Raw TEXT key/value pairs
 pub(crate) type RawKeywords = HashMap<String, String>;
 
-type ReqResult<T> = Result<T, String>;
-type OptResult<T> = Result<OptionalKw<T>, String>;
-
-pub(crate) fn get_req<T>(kws: &StdKeywords, k: &StdKey) -> Result<T, String>
-where
-    T: FromStr,
-    <T as FromStr>::Err: fmt::Display,
-{
-    match kws.get(k) {
-        Some(v) => v
-            .parse()
-            .map_err(|e| format!("{e} (key='{k}', value='{v}')")),
-        None => Err(format!("missing required key: {k}")),
-    }
-}
-
-pub(crate) fn get_opt<T>(kws: &StdKeywords, k: &StdKey) -> Result<Option<T>, String>
-where
-    T: FromStr,
-    <T as FromStr>::Err: fmt::Display,
-{
-    match kws.get(k) {
-        Some(v) => v
-            .parse()
-            .map(Some)
-            .map_err(|e| format!("{e} (key='{k}', value='{v}')")),
-        None => Ok(None),
-    }
-}
-
-// TODO not DRY
-pub(crate) fn remove_req<T>(kws: &mut StdKeywords, k: &StdKey) -> Result<T, String>
-where
-    T: FromStr,
-    <T as FromStr>::Err: fmt::Display,
-{
-    match kws.remove(k) {
-        Some(v) => v
-            .parse()
-            .map_err(|e| format!("{e} (key='{k}', value='{v}')")),
-        None => Err(format!("missing required key: {k}")),
-    }
-}
-
-pub(crate) fn remove_opt<T>(kws: &mut StdKeywords, k: &StdKey) -> Result<Option<T>, String>
-where
-    T: FromStr,
-    <T as FromStr>::Err: fmt::Display,
-{
-    match kws.remove(k) {
-        Some(v) => v
-            .parse()
-            .map(Some)
-            .map_err(|e| format!("{e} (key='{k}', value='{v}')")),
-        None => Ok(None),
-    }
-}
+pub(crate) type OptKwResult<T> = Result<OptionalKw<T>, ParseKeyError<<T as FromStr>::Err>>;
 
 pub(crate) trait Required {
-    fn get_req<V>(kws: &StdKeywords, k: &StdKey) -> Result<V, String>
+    fn get_req<V>(kws: &StdKeywords, k: &StdKey) -> ReqResult<V>
     where
         V: FromStr,
         <V as FromStr>::Err: fmt::Display,
@@ -843,7 +787,7 @@ pub(crate) trait Required {
         get_req(kws, k)
     }
 
-    fn remove_req<V>(kws: &mut StdKeywords, k: &StdKey) -> Result<V, String>
+    fn remove_req<V>(kws: &mut StdKeywords, k: &StdKey) -> ReqResult<V>
     where
         V: FromStr,
         <V as FromStr>::Err: fmt::Display,
@@ -853,7 +797,7 @@ pub(crate) trait Required {
 }
 
 pub(crate) trait Optional {
-    fn get_opt<V>(kws: &StdKeywords, k: &StdKey) -> Result<OptionalKw<V>, String>
+    fn get_opt<V>(kws: &StdKeywords, k: &StdKey) -> OptKwResult<V>
     where
         V: FromStr,
         <V as FromStr>::Err: fmt::Display,
@@ -861,7 +805,10 @@ pub(crate) trait Optional {
         get_opt(kws, k).map(|x| x.into())
     }
 
-    fn remove_opt<V>(kws: &mut StdKeywords, k: &StdKey) -> Result<OptionalKw<V>, String>
+    fn remove_opt<V>(
+        kws: &mut StdKeywords,
+        k: &StdKey,
+    ) -> Result<OptionalKw<V>, ParseKeyError<V::Err>>
     where
         V: FromStr,
         <V as FromStr>::Err: fmt::Display,
@@ -929,11 +876,11 @@ where
     Self: FromStr,
     <Self as FromStr>::Err: fmt::Display,
 {
-    fn get_meta_opt(kws: &StdKeywords) -> OptResult<Self> {
+    fn get_meta_opt(kws: &StdKeywords) -> OptKwResult<Self> {
         Self::get_opt(kws, &Self::std())
     }
 
-    fn remove_meta_opt(kws: &mut StdKeywords) -> OptResult<Self> {
+    fn remove_meta_opt(kws: &mut StdKeywords) -> OptKwResult<Self> {
         Self::remove_opt(kws, &Self::std())
     }
 
@@ -953,11 +900,11 @@ where
     Self: FromStr,
     <Self as FromStr>::Err: fmt::Display,
 {
-    fn get_meas_opt(kws: &StdKeywords, n: MeasIdx) -> OptResult<Self> {
+    fn get_meas_opt(kws: &StdKeywords, n: MeasIdx) -> OptKwResult<Self> {
         Self::get_opt(kws, &Self::std(n))
     }
 
-    fn remove_meas_opt(kws: &mut StdKeywords, n: MeasIdx) -> OptResult<Self> {
+    fn remove_meas_opt(kws: &mut StdKeywords, n: MeasIdx) -> OptKwResult<Self> {
         Self::remove_opt(kws, &Self::std(n))
     }
 

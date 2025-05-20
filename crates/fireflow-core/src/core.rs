@@ -808,7 +808,7 @@ pub trait VersionedMetadata: Sized {
     fn as_column_layout(
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
-    ) -> Result<Self::L, Vec<String>>;
+    ) -> Deferred<Self::L, String>;
 }
 
 pub trait VersionedOptical: Sized + Versioned {
@@ -2029,7 +2029,7 @@ where
         if s.as_compensation().is_some() || s.as_spillover().is_some() {
             return Err("$COMP/$SPILLOVER depends on existing measurements".into());
         }
-        let ms = NamedVec::new(xs, prefix)?;
+        let ms = NamedVec::new(xs, prefix).map_err(|e| e.to_string())?;
         self.measurements = ms;
         Ok(())
     }
@@ -2368,7 +2368,7 @@ where
         Ok(())
     }
 
-    pub(crate) fn as_column_layout(&self) -> Result<M::L, Vec<String>> {
+    pub(crate) fn as_column_layout(&self) -> Deferred<M::L, String> {
         M::as_column_layout(&self.metadata, &self.measurements)
     }
 
@@ -2378,7 +2378,7 @@ where
         _: &DataReadConfig,
         data_seg: Segment,
     ) -> PureMaybe<DataReader> {
-        let l = M::as_column_layout(&self.metadata, &self.measurements);
+        let l = M::as_column_layout(&self.metadata, &self.measurements).map_err(Vec::from);
         PureMaybe::from_result_strs(l, PureErrorLevel::Error)
             .and_then_opt(|dl| dl.into_reader(kws, data_seg))
             .map(|x| {
@@ -2411,7 +2411,7 @@ where
         M::P: LookupOptical,
     {
         // Lookup $PAR first since we need this to get the measurements
-        let par = Failure::from_result(Par::remove_meta_req(std))?;
+        let par = Failure::from_result(Par::remove_meta_req(std).map_err(|e| e.to_string()))?;
         let md_fail = "could not standardize TEXT".to_string();
         let tp = conf.time.pattern.as_ref();
         let md_succ = KwParser::try_run(std, conf, md_fail, |st| {
@@ -2520,7 +2520,7 @@ where
         // Get the layout, or bail if we can't
         let layout = self.as_column_layout().map_err(|es| Failure {
             reason: "could not create data layout".to_string(),
-            deferred: PureErrorBuf::from_many(es, PureErrorLevel::Error),
+            deferred: PureErrorBuf::from_many(Vec::from(es), PureErrorLevel::Error),
         })?;
 
         let df = &self.data;
@@ -4293,8 +4293,9 @@ impl LookupOptical for InnerOptical3_2 {
 impl LookupTemporal for InnerTemporal2_0 {
     fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
         let scale: OptionalKw<Scale> = st.lookup_meas_opt(i, false);
+        // TODO push meas index with error
         if scale.0.is_some_and(|x| x != Scale::Linear) {
-            st.push_error("$PnE for time measurement must be linear".into());
+            st.push_error(TemporalError::NonLinear);
         }
         Some(Self)
     }
@@ -4304,11 +4305,11 @@ impl LookupTemporal for InnerTemporal3_0 {
     fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
         let scale: Option<Scale> = st.lookup_meas_req(i);
         if scale.is_some_and(|x| x != Scale::Linear) {
-            st.push_error("$PnE for time measurement must be linear".into());
+            st.push_error(TemporalError::NonLinear);
         }
         let gain: OptionalKw<Gain> = st.lookup_meas_opt(i, false);
         if gain.0.is_some() {
-            st.push_error("$PnG for time measurement should not be set".into());
+            st.push_error(TemporalError::HasGain);
         }
         st.lookup_meta_req().map(|timestep| Self { timestep })
     }
@@ -4319,11 +4320,11 @@ impl LookupTemporal for InnerTemporal3_1 {
         // TODO not DRY
         let scale: Option<Scale> = st.lookup_meas_req(i);
         if scale.is_some_and(|x| x != Scale::Linear) {
-            st.push_error("$PnE for time measurement must be linear".into());
+            st.push_error(TemporalError::NonLinear);
         }
         let gain: OptionalKw<Gain> = st.lookup_meas_opt(i, false);
         if gain.0.is_some() {
-            st.push_error("$PnG for time measurement should not be set".into());
+            st.push_error(TemporalError::HasGain);
         }
         st.lookup_meta_req().map(|timestep| Self {
             timestep,
@@ -4336,11 +4337,11 @@ impl LookupTemporal for InnerTemporal3_2 {
     fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
         let scale: Option<Scale> = st.lookup_meas_req(i);
         if scale.is_some_and(|x| x != Scale::Linear) {
-            st.push_error("$PnE for time measurement must be linear".into());
+            st.push_error(TemporalError::NonLinear);
         }
         let gain: OptionalKw<Gain> = st.lookup_meas_opt(i, false);
         if gain.0.is_some() {
-            st.push_error("$PnG for time measurement should not be set".into());
+            st.push_error(TemporalError::HasGain);
         }
         st.lookup_meta_req().map(|timestep| Self {
             timestep,
@@ -4725,7 +4726,7 @@ impl VersionedMetadata for InnerMetadata2_0 {
     fn as_column_layout(
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
-    ) -> Result<Self::L, Vec<String>> {
+    ) -> Deferred<Self::L, String> {
         Self::L::try_new(
             metadata.datatype,
             metadata.specific.byteord.clone(),
@@ -4838,7 +4839,7 @@ impl VersionedMetadata for InnerMetadata3_0 {
     fn as_column_layout(
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
-    ) -> Result<Self::L, Vec<String>> {
+    ) -> Deferred<Self::L, String> {
         Self::L::try_new(
             metadata.datatype,
             metadata.specific.byteord.clone(),
@@ -4961,7 +4962,7 @@ impl VersionedMetadata for InnerMetadata3_1 {
     fn as_column_layout(
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
-    ) -> Result<Self::L, Vec<String>> {
+    ) -> Deferred<Self::L, String> {
         Self::L::try_new(
             metadata.datatype,
             metadata.specific.byteord,
@@ -5103,7 +5104,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
     fn as_column_layout(
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
-    ) -> Result<Self::L, Vec<String>> {
+    ) -> Deferred<Self::L, String> {
         let endian = metadata.specific.byteord;
         let blank_cs = ms.layout_data();
         let cs: Vec<_> = ms

@@ -1,17 +1,29 @@
 use crate::config::StdTextReadConfig;
 use crate::core::{CarrierData, ModificationData, PlateData, UnstainedData};
 use crate::error::*;
+use crate::macros::match_many_to_one;
 use crate::validated::nonstandard::*;
+use crate::validated::shortname::*;
 use crate::validated::standard::*;
 
+use super::byteord::*;
 use super::compensation::*;
 use super::datetimes::*;
 use super::keywords::*;
+use super::modified_date_time::*;
+use super::named_vec::*;
 use super::optionalkw::*;
+use super::range::*;
+use super::ranged_float::RangedFloatError;
+use super::scale::*;
+use super::spillover::*;
 use super::timestamps::*;
+use super::unstainedcenters::*;
 
 use nalgebra::DMatrix;
-use std::fmt::Display;
+use std::convert::Infallible;
+use std::fmt;
+use std::num::{ParseFloatError, ParseIntError};
 use std::str::FromStr;
 
 /// A structure to look up and parse keywords in the TEXT segment
@@ -27,7 +39,10 @@ use std::str::FromStr;
 /// or failure (if applicable).
 pub(crate) struct KwParser<'a, 'b> {
     raw_keywords: &'b mut StdKeywords,
-    deferred: PureErrorBuf,
+    req_errors: Vec<LookupError>,
+    opt_errors: Vec<LookupError>,
+    other_warnings: Vec<ParseWarning>,
+    deprecated: Vec<DepKeyWarning>,
     pub(crate) conf: &'a StdTextReadConfig,
 }
 
@@ -65,10 +80,11 @@ impl<'a, 'b> KwParser<'a, 'b> {
     where
         V: ReqMetaKey,
         V: FromStr,
-        <V as FromStr>::Err: Display,
+        <V as FromStr>::Err: fmt::Display,
+        LookupError: From<ReqKeyError<<V as FromStr>::Err>>,
     {
         V::remove_meta_req(self.raw_keywords)
-            .map_err(|e| self.deferred.push_error(e))
+            .map_err(|e| self.req_errors.push(e.into()))
             .ok()
     }
 
@@ -76,9 +92,10 @@ impl<'a, 'b> KwParser<'a, 'b> {
     where
         V: OptMetaKey,
         V: FromStr,
-        <V as FromStr>::Err: Display,
+        <V as FromStr>::Err: fmt::Display,
+        LookupError: From<ParseKeyError<<V as FromStr>::Err>>,
     {
-        let res = V::remove_meta_opt(self.raw_keywords);
+        let res = V::remove_meta_opt(self.raw_keywords).map_err(|e| e.into());
         self.process_opt(res, V::std(), dep)
     }
 
@@ -86,10 +103,11 @@ impl<'a, 'b> KwParser<'a, 'b> {
     where
         V: ReqMeasKey,
         V: FromStr,
-        <V as FromStr>::Err: Display,
+        <V as FromStr>::Err: fmt::Display,
+        LookupError: From<ReqKeyError<<V as FromStr>::Err>>,
     {
         V::remove_meas_req(self.raw_keywords, n)
-            .map_err(|e| self.deferred.push_error(e))
+            .map_err(|e| self.req_errors.push(e.into()))
             .ok()
     }
 
@@ -97,9 +115,10 @@ impl<'a, 'b> KwParser<'a, 'b> {
     where
         V: OptMeasKey,
         V: FromStr,
-        <V as FromStr>::Err: Display,
+        <V as FromStr>::Err: fmt::Display,
+        LookupError: From<ParseKeyError<<V as FromStr>::Err>>,
     {
-        let res = V::remove_meas_opt(self.raw_keywords, n);
+        let res = V::remove_meas_opt(self.raw_keywords, n).map_err(|e| e.into());
         self.process_opt(res, V::std(n), dep)
     }
 
@@ -108,9 +127,11 @@ impl<'a, 'b> KwParser<'a, 'b> {
         T: PartialOrd,
         T: Copy,
         Btim<T>: OptMetaKey,
-        <Btim<T> as FromStr>::Err: Display,
+        <Btim<T> as FromStr>::Err: fmt::Display,
         Etim<T>: OptMetaKey,
-        <Etim<T> as FromStr>::Err: Display,
+        <Etim<T> as FromStr>::Err: fmt::Display,
+        LookupError: From<ParseKeyError<<Btim<T> as FromStr>::Err>>,
+        LookupError: From<ParseKeyError<<Etim<T> as FromStr>::Err>>,
     {
         Timestamps::new(
             self.lookup_meta_opt(dep),
@@ -118,7 +139,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
             self.lookup_meta_opt(dep),
         )
         .unwrap_or_else(|e| {
-            self.deferred.push_warning(e.to_string());
+            self.other_warnings.push(e.into());
             Timestamps::default()
         })
     }
@@ -127,7 +148,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
         let b = self.lookup_meta_opt(false);
         let e = self.lookup_meta_opt(false);
         Datetimes::new(b, e).unwrap_or_else(|w| {
-            self.deferred.push_warning(w.to_string());
+            self.other_warnings.push(w.into());
             Datetimes::default()
         })
     }
@@ -190,60 +211,52 @@ impl<'a, 'b> KwParser<'a, 'b> {
     pub(crate) fn lookup_dfc(&mut self, k: &StdKey) -> Option<f32> {
         self.raw_keywords.remove(k).and_then(|v| {
             v.parse::<f32>()
-                .inspect_err(|e| {
-                    let msg = format!("{e} (key={k}, value='{v}'))");
-                    self.deferred.push_warning(msg);
+                .map_err(|e| {
+                    let err = ParseKeyError {
+                        error: e,
+                        key: k.clone(),
+                        value: v.clone(),
+                    };
+                    self.opt_errors.push(err.into());
                 })
                 .ok()
         })
     }
 
-    // pub(crate) fn lookup_all_nonstandard(&mut self) -> NonStdKeywords {
-    //     let mut ns = HashMap::new();
-    //     self.raw_keywords.retain(|k, v| {
-    //         if let Ok(nk) = k.parse::<NonStdKey>() {
-    //             ns.insert(nk, v.clone());
-    //             false
-    //         } else {
-    //             true
-    //         }
-    //     });
-    //     ns
-    // }
-
-    // // TODO I don't really need a hash table for this. It would be easier and
-    // // probably faster to just use a paired vector, although I would need to
-    // // ensure the keys are unique.
-    // pub(crate) fn lookup_all_meas_nonstandard(&mut self, n: MeasIdx) -> NonStdKeywords {
-    //     let mut ns = HashMap::new();
-    //     // ASSUME the pattern does not start with "$" and has a %n which will be
-    //     // subbed for the measurement index. The pattern will then be turned
-    //     // into a legit rust regular expression, which may fail depending on
-    //     // what %n does, so check it each time.
-    //     if let Some(p) = &self.conf.nonstandard_measurement_pattern {
-    //         match p.from_index(n) {
-    //             Ok(pattern) => self.raw_keywords.retain(|k, v| {
-    //                 if let Some(nk) = pattern.try_match(k.as_str()) {
-    //                     ns.insert(nk, v.clone());
-    //                     false
-    //                 } else {
-    //                     true
-    //                 }
-    //             }),
-    //             Err(err) => self.deferred.push_warning(err.to_string()),
-    //         }
-    //     }
-    //     ns
-    // }
-
-    pub fn push_error(&mut self, e: String) {
-        self.deferred.push_error(e)
+    pub fn push_error<E>(&mut self, e: E)
+    where
+        LookupError: From<E>,
+    {
+        self.req_errors.push(e.into())
     }
 
     // auxiliary functions
 
     fn collect(self) -> PureErrorBuf {
-        self.deferred
+        let rs = PureErrorBuf::from_many(
+            self.req_errors.into_iter().map(|e| e.to_string()).collect(),
+            PureErrorLevel::Error,
+        );
+        let ws = PureErrorBuf::from_many(
+            self.opt_errors.into_iter().map(|e| e.to_string()).collect(),
+            PureErrorLevel::Warning,
+        );
+        let ows = PureErrorBuf::from_many(
+            self.other_warnings
+                .into_iter()
+                .map(|e| e.to_string())
+                .collect(),
+            PureErrorLevel::Warning,
+        );
+        let ds = PureErrorBuf::from_many(
+            self.deprecated.into_iter().map(|e| e.to_string()).collect(),
+            if self.conf.disallow_deprecated {
+                PureErrorLevel::Error
+            } else {
+                PureErrorLevel::Warning
+            },
+        );
+        PureErrorBuf::mconcat(vec![rs, ws, ows, ds])
     }
 
     fn into_failure(self, reason: String) -> PureFailure {
@@ -256,25 +269,147 @@ impl<'a, 'b> KwParser<'a, 'b> {
     fn from(kws: &'b mut StdKeywords, conf: &'a StdTextReadConfig) -> Self {
         KwParser {
             raw_keywords: kws,
-            deferred: PureErrorBuf::default(),
+            req_errors: vec![],
+            opt_errors: vec![],
+            other_warnings: vec![],
+            deprecated: vec![],
             conf,
         }
     }
 
     fn process_opt<V>(
         &mut self,
-        res: Result<OptionalKw<V>, String>,
+        res: Result<OptionalKw<V>, LookupError>,
         k: StdKey,
         dep: bool,
-    ) -> OptionalKw<V> {
+    ) -> OptionalKw<V>
+    where
+        V: FromStr,
+    {
         res.inspect(|_| {
             if dep {
-                let msg = format!("deprecated key: {k}");
-                self.deferred
-                    .push_msg_leveled(msg, self.conf.disallow_deprecated);
+                self.deprecated.push(DepKeyWarning(k));
+                // let msg = format!("deprecated key: {k}");
+                // self.deferred
+                //     .push_msg_leveled(msg, self.conf.disallow_deprecated);
             }
         })
-        .map_err(|e| self.deferred.push_warning(e))
+        .map_err(|e| self.opt_errors.push(e.into()))
         .unwrap_or(None.into())
+    }
+}
+
+macro_rules! enum_from {
+    ($outer:ident, $([$var:ident, $inner:path]),*) => {
+        enum $outer {
+            $(
+                $var($inner),
+            )*
+        }
+
+        $(
+            impl From<$inner> for $outer {
+                fn from(value: $inner) -> Self {
+                    $outer::$var(value)
+                }
+            }
+        )*
+    };
+}
+
+macro_rules! enum_from_disp {
+    ($outer:ident, $([$var:ident, $inner:path]),*) => {
+        enum_from!($outer, $([$var, $inner]),*);
+
+        impl fmt::Display for $outer {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+                match_many_to_one!(self, $outer, [$($var),*], x, { x.fmt(f) })
+            }
+        }
+
+    };
+}
+
+enum_from_disp!(
+    LookupError,
+    [Width,            ReqKeyError<ParseBitsError>],
+    [Range,            ReqKeyError<ParseRangeError>],
+    [AlphaNumType,     ReqKeyError<AlphaNumTypeError>],
+    [NumType,          ParseKeyError<NumTypeError>],
+    [Trigger,          ParseKeyError<TriggerError>],
+    [ReqString,        ReqKeyError<Infallible>],
+    [ReqScale,         ReqKeyError<ScaleError>],
+    [OptScale,         ParseKeyError<ScaleError>],
+    [OptFloat,         ParseKeyError<ParseFloatError>],
+    [ReqRangedFloat,   ReqKeyError<RangedFloatError>],
+    [OptRangedFloat,   ParseKeyError<RangedFloatError>],
+    [Feature,          ParseKeyError<FeatureError>],
+    [Wavelengths,      ParseKeyError<WavelengthsError>],
+    [Calibration3_1,   ParseKeyError<CalibrationError<CalibrationFormat3_1>>],
+    [Calibration3_2,   ParseKeyError<CalibrationError<CalibrationFormat3_2>>],
+    [OptInt,           ParseKeyError<ParseIntError>],
+    [OptString,        ParseKeyError<Infallible>],
+    [FCSDate,          ParseKeyError<FCSDateError>],
+    [FCSTime,          ParseKeyError<FCSTimeError>],
+    [FCSTime60,        ParseKeyError<FCSTime60Error>],
+    [FCSTime100,       ParseKeyError<FCSTime100Error>],
+    [FCSDateTime,      ParseKeyError<FCSDateTimeError>],
+    [ModifiedDateTime, ParseKeyError<ModifiedDateTimeError>],
+    [Originality,      ParseKeyError<OriginalityError>],
+    [UnstainedCenter,  ParseKeyError<ParseUnstainedCenterError>],
+    [Mode,             ReqKeyError<ModeError>],
+    [ByteOrd,          ReqKeyError<ParseByteOrdError>],
+    [Mode3_2,          ParseKeyError<Mode3_2Error>],
+    [TemporalType,     ParseKeyError<TemporalTypeError>],
+    [OpticalType,      ParseKeyError<OpticalTypeError>],
+    [Endian,           ReqKeyError<EndianError>],
+    [ReqShortname,     ReqKeyError<ShortnameError>],
+    [OptShortname,     ParseKeyError<ShortnameError>],
+    [Display,          ParseKeyError<DisplayError>],
+    [Unicode,          ParseKeyError<UnicodeError>],
+    [Spillover,        ParseKeyError<ParseSpilloverError>],
+    [Compensation,     ParseKeyError<CompensationError>],
+    [NamedVec,         NewNamedVecError],
+    [Temporal,         TemporalError]
+);
+
+// impl fmt::Display for LookupError {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+//         match_many_to_one!(self, LookupError, [Width, Range, ], x, { x.fmt(f) })
+//     }
+// }
+
+enum_from!(
+    ParseWarning,
+    [Timestamp, InvalidTimestamps],
+    [Datetime, InvalidDatetimes]
+);
+
+impl fmt::Display for ParseWarning {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match_many_to_one!(self, ParseWarning, [Timestamp, Datetime], x, { x.fmt(f) })
+    }
+}
+
+pub struct DepKeyWarning(pub StdKey);
+
+impl fmt::Display for DepKeyWarning {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "deprecated key: {}", self.0)
+    }
+}
+
+pub enum TemporalError {
+    NonLinear,
+    HasGain,
+}
+
+impl fmt::Display for TemporalError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        // TODO include meas idx here
+        match self {
+            TemporalError::NonLinear => write!(f, "$PnE must be '0,0'"),
+            TemporalError::HasGain => write!(f, "$PnG must not be set"),
+        }
     }
 }

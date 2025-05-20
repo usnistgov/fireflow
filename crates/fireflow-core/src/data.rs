@@ -10,6 +10,7 @@ use crate::validated::dataframe::*;
 use crate::validated::standard::*;
 
 use itertools::Itertools;
+use nonempty::NonEmpty;
 use std::fmt;
 use std::io;
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
@@ -35,9 +36,9 @@ pub trait VersionedDataLayout: Sized {
         dt: AlphaNumType,
         size: Self::S,
         cs: Vec<ColumnLayoutData<Self::D>>,
-    ) -> Result<Self, Vec<String>>;
+    ) -> Deferred<Self, String>;
 
-    fn try_new_from_raw(kws: &StdKeywords) -> Result<Self, Vec<String>>;
+    fn try_new_from_raw(kws: &StdKeywords) -> Deferred<Self, String>;
 
     fn ncols(&self) -> usize;
 
@@ -57,7 +58,7 @@ pub trait VersionedDataLayout: Sized {
             panic!("datafame columns ({ncols}) unequal to number of measurements ({par})");
         }
 
-        let res = self.as_writer_inner(df, conf);
+        let res = self.as_writer_inner(df, conf).map_err(Vec::from);
         let level = if conf.disallow_lossy_conversions {
             PureErrorLevel::Error
         } else {
@@ -70,7 +71,7 @@ pub trait VersionedDataLayout: Sized {
         &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
-    ) -> Result<DataWriter<'a>, Vec<String>>;
+    ) -> Deferred<DataWriter<'a>, String>;
 }
 
 pub enum DataLayout2_0 {
@@ -745,27 +746,23 @@ fn make_uint_type(b: BitsOrChars, r: &Range, e: Endian) -> Result<AnyUintType, S
 }
 
 impl FixedLayout<AnyUintType> {
-    pub(crate) fn try_new<D>(cs: Vec<ColumnLayoutData<D>>, o: Endian) -> Result<Self, Vec<String>> {
+    pub(crate) fn try_new<D>(cs: Vec<ColumnLayoutData<D>>, o: Endian) -> Deferred<Self, String> {
         let ncols = cs.len();
         let (ws, rs): (Vec<_>, Vec<_>) = cs.into_iter().map(|c| (c.width, c.range)).unzip();
         let fixed: Vec<_> = ws.into_iter().flat_map(|w: Width| w.as_fixed()).collect();
         if fixed.len() < ncols {
-            return Err(vec!["not all fixed width".into()]);
+            return Err(NonEmpty::new("not all fixed width".to_string()));
         }
         let bytes: Vec<_> = fixed.into_iter().flat_map(|f| f.bytes()).collect();
         if bytes.len() < ncols {
-            return Err(vec!["bad stuff".into()]);
+            return Err(NonEmpty::new("bad stuff".to_string()));
         }
-        let (columns, fail): (Vec<_>, Vec<_>) = bytes
+        bytes
             .into_iter()
             .zip(rs)
             .map(|(b, r)| make_uint_type_inner(b, &r, o))
-            .partition_result();
-        if fail.is_empty() {
-            Ok(FixedLayout { columns })
-        } else {
-            Err(fail)
-        }
+            .gather()
+            .map(|columns| FixedLayout { columns })
     }
 }
 
@@ -849,32 +846,25 @@ where
         range: &Range,
         byteord: &ByteOrd,
         // index: MeasIdx,
-    ) -> Result<UintType<Self, INTLEN>, Vec<String>> {
+    ) -> Deferred<UintType<Self, INTLEN>, String> {
         // TODO be more specific, which means we need the measurement index
         let m = Self::range_to_bitmask(range);
         let s = byteord.as_sized();
-        match (m, s) {
-            (Ok(bitmask), Ok(size)) => Ok(UintType {
-                bitmask,
-                byteord: size,
-            }),
-            (a, b) => Err([a.err(), b.err()].into_iter().flatten().collect()),
-        }
+        combine_results(m, s).map(|(bitmask, size)| UintType {
+            bitmask,
+            byteord: size,
+        })
     }
 
     fn layout(
         rs: Vec<Range>,
         byteord: &ByteOrd,
-    ) -> Result<FixedLayout<UintType<Self, INTLEN>>, Vec<String>> {
-        let (columns, fail): (Vec<_>, Vec<_>) = rs
-            .into_iter()
+    ) -> Deferred<FixedLayout<UintType<Self, INTLEN>>, String> {
+        rs.into_iter()
             .map(|r| Self::column_type(&r, byteord))
-            .partition_result();
-        if fail.is_empty() {
-            Ok(FixedLayout { columns })
-        } else {
-            Err(fail.into_iter().flatten().collect())
-        }
+            .gather()
+            .map_err(NonEmpty::flatten)
+            .map(|columns| FixedLayout { columns })
     }
 
     fn h_read_int<R: Read>(
@@ -965,9 +955,8 @@ where
     fn layout_endian<D>(
         cs: Vec<ColumnLayoutData<D>>,
         endian: Endian,
-    ) -> Result<FixedLayout<FloatType<LEN, Self>>, Vec<String>> {
-        let (pass, fail): (Vec<_>, Vec<_>) = cs
-            .into_iter()
+    ) -> Deferred<FixedLayout<FloatType<LEN, Self>>, String> {
+        cs.into_iter()
             .map(|c| {
                 if c.width
                     .as_fixed()
@@ -980,20 +969,15 @@ where
                     Err(format!("$PnB is not {} bytes wide", 4))
                 }
             })
-            .partition_result();
-        if fail.is_empty() {
-            Ok(FixedLayout { columns: pass })
-        } else {
-            Err(fail)
-        }
+            .gather()
+            .map(|columns| FixedLayout { columns })
     }
 
     fn layout<D>(
         cs: Vec<ColumnLayoutData<D>>,
         byteord: &ByteOrd,
-    ) -> Result<FixedLayout<FloatType<LEN, Self>>, Vec<String>> {
-        let (pass, fail): (Vec<_>, Vec<_>) = cs
-            .into_iter()
+    ) -> Deferred<FixedLayout<FloatType<LEN, Self>>, String> {
+        cs.into_iter()
             .map(|c| {
                 if c.width
                     .as_fixed()
@@ -1006,12 +990,8 @@ where
                     Err(format!("$PnB is not {} bytes wide", 4))
                 }
             })
-            .partition_result();
-        if fail.is_empty() {
-            Ok(FixedLayout { columns: pass })
-        } else {
-            Err(fail.into_iter().collect())
-        }
+            .gather()
+            .map(|columns| FixedLayout { columns })
     }
 
     fn h_read_float<R: Read>(
@@ -1288,14 +1268,13 @@ where
         &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
-    ) -> Result<FixedWriter<'a>, Vec<String>>
+    ) -> Deferred<FixedWriter<'a>, String>
     where
         MixedType: From<C>,
         C: Copy,
     {
         let check = conf.check_conversion;
-        let (pass, fail): (Vec<_>, Vec<_>) = self
-            .columns
+        self.columns
             .iter()
             .map(|c| (*c).into())
             .zip(df.iter_columns())
@@ -1303,20 +1282,13 @@ where
             .map(|(i, (t, c)): (usize, (MixedType, &AnyFCSColumn))| {
                 t.into_writer(c, check).map_err(|e| (i, e))
             })
-            .partition_result();
-        let nbytes = self.event_width() * df.nrows();
-        if fail.is_empty() {
-            Ok(FixedWriter {
-                columns: pass,
+            .gather()
+            .map(|columns| FixedWriter {
+                columns,
                 nrows: df.nrows(),
-                nbytes,
+                nbytes: self.event_width() * df.nrows(),
             })
-        } else {
-            Err(fail
-                .into_iter()
-                .map(|(i, e)| format!("Conversion error in column {i}: {e}"))
-                .collect())
-        }
+            .map_err(|es| es.map(|(i, e)| format!("Conversion error in column {i}: {e}")))
     }
 }
 
@@ -1675,25 +1647,22 @@ impl IsFixed for MixedType {
 
 // TODO clean up errors here
 impl AnyUintLayout {
-    pub(crate) fn try_new<D>(
-        cs: Vec<ColumnLayoutData<D>>,
-        o: &ByteOrd,
-    ) -> Result<Self, Vec<String>> {
+    pub(crate) fn try_new<D>(cs: Vec<ColumnLayoutData<D>>, o: &ByteOrd) -> Deferred<Self, String> {
         let ncols = cs.len();
         let (ws, rs): (Vec<_>, Vec<_>) = cs.into_iter().map(|c| (c.width, c.range)).unzip();
         let fixed: Vec<_> = ws.into_iter().flat_map(|w: Width| w.as_fixed()).collect();
         if fixed.len() < ncols {
-            return Err(vec!["not all fixed width".into()]);
+            return Err(NonEmpty::new("not all fixed width".to_string()));
         }
         let bytes: Vec<_> = fixed.into_iter().flat_map(|f| f.bytes()).collect();
         if bytes.len() < ncols {
-            return Err(vec!["bad stuff".into()]);
+            return Err(NonEmpty::new("bad stuff".to_string()));
         }
         let mut fixed_unique = bytes.iter().unique();
         // ASSUME this won't fail
         let bytes1 = fixed_unique.next().unwrap();
         if fixed_unique.count() > 0 {
-            return Err(vec!["bad stuff".into()]);
+            return Err(NonEmpty::new("bad stuff".to_string()));
         }
         match u8::from(*bytes1) {
             1 => u8::layout(rs, o).map(AnyUintLayout::Uint08),
@@ -1732,7 +1701,7 @@ impl AnyUintLayout {
         &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
-    ) -> Result<FixedWriter<'a>, Vec<String>> {
+    ) -> Deferred<FixedWriter<'a>, String> {
         match_many_to_one!(
             self,
             AnyUintLayout,
@@ -1776,7 +1745,7 @@ impl AsciiLayout {
         &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
-    ) -> Result<DataWriter<'a>, Vec<String>> {
+    ) -> Deferred<DataWriter<'a>, String> {
         match self {
             AsciiLayout::Fixed(a) => a.as_writer(df, conf).map(DataWriter::Fixed),
             AsciiLayout::Delimited(_) => {
@@ -1795,24 +1764,18 @@ impl AsciiLayout {
                     AnyFCSColumn::F64(xs) => FCSDataType::into_writer(xs, (), ch, |_| None)
                         .map(AnyDelimColumnWriter::FromF64),
                 };
-                let (pass, fail): (Vec<_>, Vec<_>) = df
-                    .iter_columns()
+                df.iter_columns()
                     .enumerate()
                     .map(|(i, c)| go(c).map_err(|e: LossError| (i, e)))
-                    .partition_result();
-                let nbytes = df.ascii_nchars();
-                if fail.is_empty() {
-                    Ok(DataWriter::Delim(DelimWriter {
-                        columns: pass,
-                        nrows: df.nrows(),
-                        nbytes,
-                    }))
-                } else {
-                    Err(fail
-                        .into_iter()
-                        .map(|(i, e)| format!("Convertion error in column {i}: {e}"))
-                        .collect())
-                }
+                    .gather()
+                    .map(|columns| {
+                        DataWriter::Delim(DelimWriter {
+                            columns,
+                            nrows: df.nrows(),
+                            nbytes: df.ascii_nchars(),
+                        })
+                    })
+                    .map_err(|es| es.map(|(i, e)| format!("Convertion error in column {i}: {e}")))
             }
         }
     }
@@ -1855,7 +1818,7 @@ impl FloatLayout {
         &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
-    ) -> Result<FixedWriter<'a>, Vec<String>> {
+    ) -> Deferred<FixedWriter<'a>, String> {
         match self {
             FloatLayout::F32(l) => l.as_writer(df, conf),
             FloatLayout::F64(l) => l.as_writer(df, conf),
@@ -1871,11 +1834,11 @@ impl VersionedDataLayout for DataLayout2_0 {
         datatype: AlphaNumType,
         byteord: Self::S,
         columns: Vec<ColumnLayoutData<Self::D>>,
-    ) -> Result<Self, Vec<String>> {
+    ) -> Deferred<Self, String> {
         match datatype {
             AlphaNumType::Ascii => AsciiLayout::try_new(columns)
                 .map(DataLayout2_0::Ascii)
-                .map_err(|e| vec![e]),
+                .map_err(NonEmpty::new),
             AlphaNumType::Integer => {
                 AnyUintLayout::try_new(columns, &byteord).map(DataLayout2_0::Integer)
             }
@@ -1888,7 +1851,7 @@ impl VersionedDataLayout for DataLayout2_0 {
         }
     }
 
-    fn try_new_from_raw(kws: &StdKeywords) -> Result<Self, Vec<String>> {
+    fn try_new_from_raw(kws: &StdKeywords) -> Deferred<Self, String> {
         let (datatype, byteord, columns) = kws_get_layout_2_0(kws)?;
         Self::try_new(datatype, byteord, columns)
     }
@@ -1905,7 +1868,7 @@ impl VersionedDataLayout for DataLayout2_0 {
         &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
-    ) -> Result<DataWriter<'a>, Vec<String>> {
+    ) -> Deferred<DataWriter<'a>, String> {
         match self {
             DataLayout2_0::Ascii(a) => a.as_writer(df, conf),
             DataLayout2_0::Integer(i) => i.as_writer(df, conf).map(DataWriter::Fixed),
@@ -1914,7 +1877,9 @@ impl VersionedDataLayout for DataLayout2_0 {
     }
 
     fn into_reader(self, kws: &StdKeywords, data_seg: Segment) -> PureMaybe<ColumnReader> {
-        let res = Tot::get_meta_opt(kws).map(|tot| tot.0);
+        let res = Tot::get_meta_opt(kws)
+            .map(|tot| tot.0)
+            .map_err(|e| e.to_string());
         let nbytes = data_seg.nbytes() as usize;
         PureMaybe::from_result_1(res, PureErrorLevel::Error)
             .map(|tot| tot.flatten())
@@ -1950,11 +1915,11 @@ impl VersionedDataLayout for DataLayout3_0 {
         datatype: AlphaNumType,
         byteord: Self::S,
         columns: Vec<ColumnLayoutData<Self::D>>,
-    ) -> Result<Self, Vec<String>> {
+    ) -> Deferred<Self, String> {
         match datatype {
             AlphaNumType::Ascii => AsciiLayout::try_new(columns)
                 .map(DataLayout3_0::Ascii)
-                .map_err(|e| vec![e]),
+                .map_err(NonEmpty::new),
             AlphaNumType::Integer => {
                 AnyUintLayout::try_new(columns, &byteord).map(DataLayout3_0::Integer)
             }
@@ -1967,7 +1932,7 @@ impl VersionedDataLayout for DataLayout3_0 {
         }
     }
 
-    fn try_new_from_raw(kws: &StdKeywords) -> Result<Self, Vec<String>> {
+    fn try_new_from_raw(kws: &StdKeywords) -> Deferred<Self, String> {
         let (datatype, byteord, columns) = kws_get_layout_2_0(kws)?;
         Self::try_new(datatype, byteord, columns)
     }
@@ -1984,7 +1949,7 @@ impl VersionedDataLayout for DataLayout3_0 {
         &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
-    ) -> Result<DataWriter<'a>, Vec<String>> {
+    ) -> Deferred<DataWriter<'a>, String> {
         match self {
             DataLayout3_0::Ascii(a) => a.as_writer(df, conf),
             DataLayout3_0::Integer(i) => i.as_writer(df, conf).map(DataWriter::Fixed),
@@ -1993,7 +1958,7 @@ impl VersionedDataLayout for DataLayout3_0 {
     }
 
     fn into_reader(self, kws: &StdKeywords, data_seg: Segment) -> PureMaybe<ColumnReader> {
-        let res = Tot::get_meta_req(kws);
+        let res = Tot::get_meta_req(kws).map_err(|e| e.to_string());
         PureMaybe::from_result_1(res, PureErrorLevel::Error).and_then(|tot| match self {
             DataLayout3_0::Ascii(a) => a.into_reader(data_seg, tot),
             DataLayout3_0::Integer(fl) => fl
@@ -2014,10 +1979,10 @@ impl VersionedDataLayout for DataLayout3_1 {
         datatype: AlphaNumType,
         endian: Self::S,
         columns: Vec<ColumnLayoutData<Self::D>>,
-    ) -> Result<Self, Vec<String>> {
+    ) -> Deferred<Self, String> {
         match datatype {
             AlphaNumType::Ascii => {
-                let l = AsciiLayout::try_new(columns).map_err(|e| vec![e])?;
+                let l = AsciiLayout::try_new(columns).map_err(NonEmpty::new)?;
                 Ok(DataLayout3_1::Ascii(l))
             }
             AlphaNumType::Integer => {
@@ -2035,18 +2000,15 @@ impl VersionedDataLayout for DataLayout3_1 {
         }
     }
 
-    fn try_new_from_raw(kws: &StdKeywords) -> Result<Self, Vec<String>> {
+    fn try_new_from_raw(kws: &StdKeywords) -> Deferred<Self, String> {
         let cs = kws_get_columns(kws);
-        let d = AlphaNumType::get_meta_req(kws);
-        let e = Endian::get_meta_req(kws);
-        match (d, e, cs) {
-            (Ok(datatype), Ok(byteord), Ok(columns)) => Self::try_new(datatype, byteord, columns),
-            (a, b, xs) => Err([a.err(), b.err()]
-                .into_iter()
-                .flatten()
-                .chain(xs.err().unwrap_or_default())
-                .collect()),
-        }
+        let d = AlphaNumType::get_meta_req(kws).map_err(|e| NonEmpty::new(e.to_string()));
+        let e = Endian::get_meta_req(kws).map_err(|e| NonEmpty::new(e.to_string()));
+        combine_results3(d, e, cs)
+            .and_then(|(datatype, byteord, columns)| {
+                Self::try_new(datatype, byteord, columns).map_err(NonEmpty::new)
+            })
+            .map_err(NonEmpty::flatten)
     }
 
     fn ncols(&self) -> usize {
@@ -2061,7 +2023,7 @@ impl VersionedDataLayout for DataLayout3_1 {
         &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
-    ) -> Result<DataWriter<'a>, Vec<String>> {
+    ) -> Deferred<DataWriter<'a>, String> {
         match self {
             DataLayout3_1::Ascii(a) => a.as_writer(df, conf),
             DataLayout3_1::Integer(i) => i.as_writer(df, conf).map(DataWriter::Fixed),
@@ -2070,7 +2032,7 @@ impl VersionedDataLayout for DataLayout3_1 {
     }
 
     fn into_reader(self, kws: &StdKeywords, data_seg: Segment) -> PureMaybe<ColumnReader> {
-        let res = Tot::get_meta_req(kws);
+        let res = Tot::get_meta_req(kws).map_err(|e| e.to_string());
         PureMaybe::from_result_1(res, PureErrorLevel::Error).and_then(|tot| match self {
             DataLayout3_1::Ascii(a) => a.into_reader(data_seg, tot),
             DataLayout3_1::Integer(fl) => fl
@@ -2091,12 +2053,12 @@ impl VersionedDataLayout for DataLayout3_2 {
         _: AlphaNumType,
         endian: Self::S,
         columns: Vec<ColumnLayoutData<Self::D>>,
-    ) -> Result<Self, Vec<String>> {
+    ) -> Deferred<Self, String> {
         let unique_dt: Vec<_> = columns.iter().map(|c| c.datatype).unique().collect();
         match unique_dt[..] {
             [dt] => match dt {
                 AlphaNumType::Ascii => {
-                    let l = AsciiLayout::try_new(columns).map_err(|e| vec![e])?;
+                    let l = AsciiLayout::try_new(columns).map_err(NonEmpty::new)?;
                     Ok(DataLayout3_2::Ascii(l))
                 }
                 AlphaNumType::Integer => {
@@ -2114,70 +2076,47 @@ impl VersionedDataLayout for DataLayout3_2 {
             },
             _ => {
                 let ncols = columns.len();
-                let (pass, fail): (Vec<_>, Vec<_>) = columns
+                columns
                     .into_iter()
                     .map(|c| MixedType::try_new(c.width, c.datatype, endian, &c.range))
-                    .partition_result();
-                if fail.is_empty() {
-                    let cs: Vec<_> = pass.into_iter().flatten().collect();
-                    if cs.len() == ncols {
-                        Ok(DataLayout3_2::Mixed(FixedLayout { columns: cs }))
-                    } else {
-                        Err(vec![
-                            "columns contain mix of variable and fixed widths".into()
-                        ])
-                    }
-                } else {
-                    Err(fail)
-                }
+                    .gather()
+                    .and_then(|columns| {
+                        let cs: Vec<_> = columns.into_iter().flatten().collect();
+                        if cs.len() == ncols {
+                            Ok(DataLayout3_2::Mixed(FixedLayout { columns: cs }))
+                        } else {
+                            Err(NonEmpty::new(
+                                "columns contain mix of variable and fixed widths".to_string(),
+                            ))
+                        }
+                    })
             }
         }
     }
 
-    fn try_new_from_raw(kws: &StdKeywords) -> Result<Self, Vec<String>> {
-        let p = Par::get_meta_req(kws);
-        let d = AlphaNumType::get_meta_req(kws);
-        let (par, datatype) = match (p, d) {
-            (Ok(par), Ok(datatype)) => Ok((par, datatype)),
-            (x, y) => {
-                let es: Vec<_> = [x.err(), y.err()].into_iter().flatten().collect();
-                Err(es)
-            }
-        }?;
-        let cs = {
-            let (pass, fail): (Vec<_>, Vec<_>) = (0..par.0)
-                .map(|i| {
-                    let w = Width::get_meas_req(kws, i.into());
-                    let r = Range::get_meas_req(kws, i.into());
-                    let pnd = NumType::get_meas_opt(kws, i.into())
-                        .map(|x| x.0.map(|y| y.into()).unwrap_or(datatype));
-                    match (w, r, pnd) {
-                        (Ok(width), Ok(range), Ok(pndatatype)) => Ok(ColumnLayoutData {
-                            width,
-                            range,
-                            datatype: pndatatype,
-                        }),
-                        (x, y, z) => {
-                            Err([x.err(), y.err(), z.err()].into_iter().flatten().collect())
-                        }
-                    }
+    fn try_new_from_raw(kws: &StdKeywords) -> Deferred<Self, String> {
+        let p = Par::get_meta_req(kws).map_err(|e| e.to_string());
+        let d = AlphaNumType::get_meta_req(kws).map_err(|e| e.to_string());
+        let (par, datatype) = combine_results(p, d)?;
+        let cs = (0..par.0)
+            .map(|i| {
+                let w = Width::get_meas_req(kws, i.into()).map_err(|e| e.to_string());
+                let r = Range::get_meas_req(kws, i.into()).map_err(|e| e.to_string());
+                let pnd = NumType::get_meas_opt(kws, i.into())
+                    .map_err(|e| e.to_string())
+                    .map(|x| x.0.map(|y| y.into()).unwrap_or(datatype));
+                combine_results3(w, r, pnd).map(|(width, range, datatype)| ColumnLayoutData {
+                    width,
+                    range,
+                    datatype,
                 })
-                .partition_result();
-            if fail.is_empty() {
-                Ok(pass)
-            } else {
-                Err(fail)
-            }
-        };
-        let e = Endian::get_meta_req(kws);
-        match (e, cs) {
-            (Ok(endian), Ok(columns)) => Self::try_new(datatype, endian, columns),
-            (a, xs) => Err([a.err()]
-                .into_iter()
-                .flatten()
-                .chain(xs.err().unwrap_or_default())
-                .collect()),
-        }
+            })
+            .gather()
+            .map_err(NonEmpty::flatten);
+        let e = Endian::get_meta_req(kws).map_err(|e| NonEmpty::new(e.to_string()));
+        combine_results(e, cs)
+            .map_err(NonEmpty::flatten)
+            .and_then(|(endian, columns)| Self::try_new(datatype, endian, columns))
     }
 
     fn ncols(&self) -> usize {
@@ -2193,7 +2132,7 @@ impl VersionedDataLayout for DataLayout3_2 {
         &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
-    ) -> Result<DataWriter<'a>, Vec<String>> {
+    ) -> Deferred<DataWriter<'a>, String> {
         match self {
             DataLayout3_2::Ascii(a) => a.as_writer(df, conf),
             DataLayout3_2::Integer(i) => i.as_writer(df, conf).map(DataWriter::Fixed),
@@ -2203,7 +2142,7 @@ impl VersionedDataLayout for DataLayout3_2 {
     }
 
     fn into_reader(self, kws: &StdKeywords, data_seg: Segment) -> PureMaybe<ColumnReader> {
-        let res = Tot::get_meta_req(kws);
+        let res = Tot::get_meta_req(kws).map_err(|e| e.to_string());
         PureMaybe::from_result_1(res, PureErrorLevel::Error).and_then(|tot| match self {
             DataLayout3_2::Ascii(a) => a.into_reader(data_seg, tot),
             DataLayout3_2::Integer(fl) => fl
@@ -2222,40 +2161,28 @@ impl VersionedDataLayout for DataLayout3_2 {
 #[allow(clippy::type_complexity)]
 fn kws_get_layout_2_0(
     kws: &StdKeywords,
-) -> Result<(AlphaNumType, ByteOrd, Vec<ColumnLayoutData<()>>), Vec<String>> {
+) -> Deferred<(AlphaNumType, ByteOrd, Vec<ColumnLayoutData<()>>), String> {
     let cs = kws_get_columns(kws);
-    let d = AlphaNumType::get_meta_req(kws);
-    let b = ByteOrd::get_meta_req(kws);
-    match (d, b, cs) {
-        (Ok(datatype), Ok(byteord), Ok(columns)) => Ok((datatype, byteord, columns)),
-        (x, y, zs) => Err([x.err(), y.err()]
-            .into_iter()
-            .flatten()
-            .chain(zs.err().unwrap_or_default())
-            .collect()),
-    }
+    let d = AlphaNumType::get_meta_req(kws).map_err(|e| NonEmpty::new(e.to_string()));
+    let b = ByteOrd::get_meta_req(kws).map_err(|e| NonEmpty::new(e.to_string()));
+    combine_results3(d, b, cs).map_err(NonEmpty::flatten)
 }
 
-fn kws_get_columns(kws: &StdKeywords) -> Result<Vec<ColumnLayoutData<()>>, Vec<String>> {
-    Par::get_meta_req(kws).map_err(|e| vec![e]).and_then(|par| {
-        let (pass, fail): (Vec<_>, Vec<_>) = (0..par.0)
-            .map(|i| {
-                let w = Width::get_meas_req(kws, i.into());
-                let r = Range::get_meas_req(kws, i.into());
-                match (w, r) {
-                    (Ok(width), Ok(range)) => Ok(ColumnLayoutData {
+fn kws_get_columns(kws: &StdKeywords) -> Deferred<Vec<ColumnLayoutData<()>>, String> {
+    Par::get_meta_req(kws)
+        .map_err(|e| NonEmpty::new(e.to_string()))
+        .and_then(|par| {
+            (0..par.0)
+                .map(|i| {
+                    let w = Width::get_meas_req(kws, i.into()).map_err(|e| e.to_string());
+                    let r = Range::get_meas_req(kws, i.into()).map_err(|e| e.to_string());
+                    combine_results(w, r).map(|(width, range)| ColumnLayoutData {
                         width,
                         range,
                         datatype: (),
-                    }),
-                    (x, y) => Err([x.err(), y.err()].into_iter().flatten().collect()),
-                }
-            })
-            .partition_result();
-        if fail.is_empty() {
-            Ok(pass)
-        } else {
-            Err(fail)
-        }
-    })
+                    })
+                })
+                .gather()
+                .map_err(NonEmpty::flatten)
+        })
 }

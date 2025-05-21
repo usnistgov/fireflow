@@ -54,17 +54,51 @@ pub struct Header {
 pub fn h_read_header<R: Read>(
     h: &mut BufReader<R>,
     conf: &HeaderConfig,
-) -> ImpureResult<Header, String> {
+) -> TerminalResult<Header, (), HeaderError, ImpureError> {
     let mut verbuf = [0; HEADER_LEN];
     h.read_exact(&mut verbuf)?;
-    if let Ok(hs) = str::from_utf8(&verbuf) {
-        let res = parse_header(hs, conf).map_err(|es| Vec::from(es.map(|e| e.to_string())));
-        let succ = PureMaybe::from_result_strs(res, PureErrorLevel::Error);
-        let x = succ.into_result("error when parsing HEADER".to_string())?;
-        Ok(x)
+    if verbuf.is_ascii() {
+        let hs = unsafe { str::from_utf8_unchecked(&verbuf) };
+        parse_header(hs, conf)
     } else {
-        Err(Failure::new("HEADER is not valid text".to_string()))?
+        Err(NonEmpty::new(HeaderError::NotAscii))
     }
+    .map(Tentative::new)
+    .map_err(|es| {
+        let msg = ImpureError::Pure("error when parsing HEADER".to_string());
+        TerminalFailure::new_many(msg, es)
+    })
+}
+
+fn parse_header(s: &str, conf: &HeaderConfig) -> Deferred<Header, HeaderError> {
+    let v = &s[0..VERSION_END];
+    let spaces = &s[VERSION_END..SPACE_END];
+    let t0 = &s[SPACE_END..T0_END];
+    let t1 = &s[T0_END..T1_END];
+    let d0 = &s[T1_END..D0_END];
+    let d1 = &s[D0_END..D1_END];
+    let a0 = &s[D1_END..A0_END];
+    let a1 = &s[A0_END..A1_END];
+    let vers_res = v
+        .parse::<Version>()
+        .map_err(HeaderError::Version)
+        .map_err(NonEmpty::new);
+    let space_res = if !spaces.chars().all(|x| x == ' ') {
+        Err(NonEmpty::new(HeaderError::Space))
+    } else {
+        Ok(())
+    };
+    let text_res = parse_segment(t0, t1, false, SegmentId::PrimaryText, conf.text);
+    let data_res = parse_segment(d0, d1, false, SegmentId::Data, conf.data);
+    let anal_res = parse_segment(a0, a1, true, SegmentId::Analysis, conf.analysis);
+    combine_results5(vers_res, space_res, text_res, data_res, anal_res)
+        .map(|(version, _, text, data, analysis)| Header {
+            version: conf.version_override.unwrap_or(version),
+            text,
+            data,
+            analysis,
+        })
+        .map_err(NonEmpty::flatten)
 }
 
 fn parse_header_offset(
@@ -106,37 +140,6 @@ fn parse_segment(
         .map_err(|es| es.map(HeaderError::Segment))
 }
 
-fn parse_header(s: &str, conf: &HeaderConfig) -> Deferred<Header, HeaderError> {
-    let v = &s[0..VERSION_END];
-    let spaces = &s[VERSION_END..SPACE_END];
-    let t0 = &s[SPACE_END..T0_END];
-    let t1 = &s[T0_END..T1_END];
-    let d0 = &s[T1_END..D0_END];
-    let d1 = &s[D0_END..D1_END];
-    let a0 = &s[D1_END..A0_END];
-    let a1 = &s[A0_END..A1_END];
-    let vers_res = v
-        .parse::<Version>()
-        .map_err(HeaderError::Version)
-        .map_err(NonEmpty::new);
-    let space_res = if !spaces.chars().all(|x| x == ' ') {
-        Err(NonEmpty::new(HeaderError::Space))
-    } else {
-        Ok(())
-    };
-    let text_res = parse_segment(t0, t1, false, SegmentId::PrimaryText, conf.text);
-    let data_res = parse_segment(d0, d1, false, SegmentId::Data, conf.data);
-    let anal_res = parse_segment(a0, a1, true, SegmentId::Analysis, conf.analysis);
-    combine_results5(vers_res, space_res, text_res, data_res, anal_res)
-        .map(|(version, _, text, data, analysis)| Header {
-            version: conf.version_override.unwrap_or(version),
-            text,
-            data,
-            analysis,
-        })
-        .map_err(NonEmpty::flatten)
-}
-
 impl str::FromStr for Version {
     type Err = VersionError;
 
@@ -166,6 +169,7 @@ pub enum HeaderError {
     Segment(HeaderSegmentError),
     Space,
     Version(VersionError),
+    NotAscii,
 }
 
 impl fmt::Display for HeaderError {
@@ -174,6 +178,7 @@ impl fmt::Display for HeaderError {
             HeaderError::Segment(x) => x.fmt(f),
             HeaderError::Version(x) => x.fmt(f),
             HeaderError::Space => write!(f, "version must be followed by 4 spaces"),
+            HeaderError::NotAscii => write!(f, "HEADER must be ASCII"),
         }
     }
 }

@@ -22,6 +22,7 @@ use super::timestamps::*;
 use super::unstainedcenters::*;
 
 use nalgebra::DMatrix;
+use nonempty::NonEmpty;
 use std::convert::Infallible;
 use std::fmt;
 use std::num::{ParseFloatError, ParseIntError};
@@ -40,10 +41,10 @@ use std::str::FromStr;
 /// or failure (if applicable).
 pub(crate) struct KwParser<'a, 'b> {
     raw_keywords: &'b mut StdKeywords,
-    req_errors: Vec<LookupError>,
-    opt_warnings: Vec<LookupError>,
-    other_errors: Vec<ParseError>,
-    other_warnings: Vec<ParseWarning>,
+    req_errors: Vec<ParseReqKeyError>,
+    opt_warnings: Vec<ParseOptKeyWarning>,
+    other_errors: Vec<ParseOtherError>,
+    other_warnings: Vec<ParseOtherWarning>,
     deprecated: Vec<DepKeyWarning>,
     pub(crate) conf: &'a StdTextReadConfig,
 }
@@ -61,20 +62,29 @@ impl<'a, 'b> KwParser<'a, 'b> {
     pub(crate) fn try_run<X, F>(
         kws: &'b mut StdKeywords,
         conf: &'a StdTextReadConfig,
-        reason: String,
         f: F,
-    ) -> PureResult<X, AnyParserError>
+    ) -> DeferredResult<X, ParseKeysWarning, ParseKeysError>
     where
         F: FnOnce(&mut Self) -> Option<X>,
     {
         let mut st = Self::from(kws, conf);
-        if let Some(data) = f(&mut st) {
-            Ok(PureSuccess {
-                data,
-                deferred: st.collect(),
-            })
+        if let Some(value) = f(&mut st) {
+            let (errors, warnings) = st.collect();
+            let tent = Tentative {
+                value,
+                errors,
+                warnings,
+            };
+            Ok(tent)
         } else {
-            Err(st.into_failure(reason))
+            let (errors, warnings) = st.collect();
+            let fail = DeferredFailure {
+                // TODO I contradicted myself :( this entire struct is now
+                // useless. Oh well, it was bound to happen
+                errors: NonEmpty::from_vec(errors).unwrap(),
+                warnings,
+            };
+            Err(fail)
         }
     }
 
@@ -83,7 +93,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
         V: ReqMetaKey,
         V: FromStr,
         <V as FromStr>::Err: fmt::Display,
-        LookupError: From<ReqKeyError<<V as FromStr>::Err>>,
+        ParseReqKeyError: From<ReqKeyError<<V as FromStr>::Err>>,
     {
         V::remove_meta_req(self.raw_keywords)
             .map_err(|e| self.req_errors.push(e.into()))
@@ -95,7 +105,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
         V: OptMetaKey,
         V: FromStr,
         <V as FromStr>::Err: fmt::Display,
-        LookupError: From<ParseKeyError<<V as FromStr>::Err>>,
+        ParseOptKeyWarning: From<ParseKeyError<<V as FromStr>::Err>>,
     {
         let res = V::remove_meta_opt(self.raw_keywords).map_err(|e| e.into());
         self.process_opt(res, V::std(), dep)
@@ -106,7 +116,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
         V: ReqMeasKey,
         V: FromStr,
         <V as FromStr>::Err: fmt::Display,
-        LookupError: From<ReqKeyError<<V as FromStr>::Err>>,
+        ParseReqKeyError: From<ReqKeyError<<V as FromStr>::Err>>,
     {
         V::remove_meas_req(self.raw_keywords, n)
             .map_err(|e| self.req_errors.push(e.into()))
@@ -118,7 +128,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
         V: OptMeasKey,
         V: FromStr,
         <V as FromStr>::Err: fmt::Display,
-        LookupError: From<ParseKeyError<<V as FromStr>::Err>>,
+        ParseOptKeyWarning: From<ParseKeyError<<V as FromStr>::Err>>,
     {
         let res = V::remove_meas_opt(self.raw_keywords, n).map_err(|e| e.into());
         self.process_opt(res, V::std(n), dep)
@@ -132,8 +142,8 @@ impl<'a, 'b> KwParser<'a, 'b> {
         <Btim<T> as FromStr>::Err: fmt::Display,
         Etim<T>: OptMetaKey,
         <Etim<T> as FromStr>::Err: fmt::Display,
-        LookupError: From<ParseKeyError<<Btim<T> as FromStr>::Err>>,
-        LookupError: From<ParseKeyError<<Etim<T> as FromStr>::Err>>,
+        ParseOptKeyWarning: From<ParseKeyError<<Btim<T> as FromStr>::Err>>,
+        ParseOptKeyWarning: From<ParseKeyError<<Etim<T> as FromStr>::Err>>,
     {
         Timestamps::new(
             self.lookup_meta_opt(dep),
@@ -227,42 +237,64 @@ impl<'a, 'b> KwParser<'a, 'b> {
 
     pub fn push_error<E>(&mut self, e: E)
     where
-        ParseError: From<E>,
+        ParseOtherError: From<E>,
     {
         self.other_errors.push(e.into())
     }
 
     // auxiliary functions
 
-    fn collect(self) -> PureErrorBuf<AnyParserError> {
-        let rs = PureErrorBuf::from_many(
-            self.req_errors.into_iter().map(|e| e.into()).collect(),
-            PureErrorLevel::Error,
-        );
-        let ws = PureErrorBuf::from_many(
-            self.opt_warnings
-                .into_iter()
-                .map(|e| e.into())
-                .chain(self.other_warnings.into_iter().map(|e| e.into()))
-                .collect(),
-            PureErrorLevel::Warning,
-        );
-        let ds = PureErrorBuf::from_many(
-            self.deprecated.into_iter().map(|e| e.into()).collect(),
-            if self.conf.disallow_deprecated {
-                PureErrorLevel::Error
-            } else {
-                PureErrorLevel::Warning
-            },
-        );
-        PureErrorBuf::mconcat(vec![rs, ws, ds])
-    }
+    // fn collect(self) -> PureErrorBuf<AnyParserError> {
+    //     let rs = PureErrorBuf::from_many(
+    //         self.req_errors.into_iter().map(|e| e.into()).collect(),
+    //         PureErrorLevel::Error,
+    //     );
+    //     let ws = PureErrorBuf::from_many(
+    //         self.opt_warnings
+    //             .into_iter()
+    //             .map(|e| e.into())
+    //             .chain(self.other_warnings.into_iter().map(|e| e.into()))
+    //             .collect(),
+    //         PureErrorLevel::Warning,
+    //     );
+    //     let ds = PureErrorBuf::from_many(
+    //         self.deprecated.into_iter().map(|e| e.into()).collect(),
+    //         if self.conf.disallow_deprecated {
+    //             PureErrorLevel::Error
+    //         } else {
+    //             PureErrorLevel::Warning
+    //         },
+    //     );
+    //     PureErrorBuf::mconcat(vec![rs, ws, ds])
+    // }
 
-    fn into_failure(self, reason: String) -> PureFailure<AnyParserError> {
-        Failure {
-            reason,
-            deferred: self.collect(),
+    // fn into_failure(self, reason: String) -> PureFailure<AnyParserError> {
+    //     Failure {
+    //         reason,
+    //         deferred: self.collect(),
+    //     }
+    // }
+
+    fn collect(self) -> (Vec<ParseKeysError>, Vec<ParseKeysWarning>) {
+        let mut errors: Vec<ParseKeysError> = self
+            .req_errors
+            .into_iter()
+            .map(|x| x.into())
+            .chain(self.other_errors.into_iter().map(|x| x.into()))
+            .collect();
+        let mut warnings: Vec<ParseKeysWarning> = self
+            .opt_warnings
+            .into_iter()
+            .map(|x| x.into())
+            .chain(self.other_warnings.into_iter().map(|x| x.into()))
+            .collect();
+        let dep = self.deprecated.into_iter();
+        if self.conf.disallow_deprecated {
+            errors.extend(dep.map(|x| x.into()));
+        } else {
+            warnings.extend(dep.map(|x| x.into()));
         }
+        (errors, warnings)
     }
 
     fn from(kws: &'b mut StdKeywords, conf: &'a StdTextReadConfig) -> Self {
@@ -279,7 +311,7 @@ impl<'a, 'b> KwParser<'a, 'b> {
 
     fn process_opt<V>(
         &mut self,
-        res: Result<OptionalKw<V>, LookupError>,
+        res: Result<OptionalKw<V>, ParseOptKeyWarning>,
         k: StdKey,
         dep: bool,
     ) -> OptionalKw<V>
@@ -297,27 +329,41 @@ impl<'a, 'b> KwParser<'a, 'b> {
 }
 
 enum_from_disp!(
-    pub AnyParserError,
-    [Lookup, LookupError],
-    [OtherWarning, ParseWarning],
-    [OtherError, ParseError],
+    pub ParseKeysError,
+    [ReqKey,     ParseReqKeyError],
+    [Other,      ParseOtherError],
     [Deprecated, DepKeyWarning],
-    [Linked, LinkedNameError]
-
+    [Linked,     LinkedNameError]
 );
 
 enum_from_disp!(
-    pub LookupError,
-    [Width,            ReqKeyError<ParseBitsError>],
-    [Range,            ReqKeyError<ParseRangeError>],
-    [AlphaNumType,     ReqKeyError<AlphaNumTypeError>],
+    pub ParseKeysWarning,
+    [OptKey,       ParseOptKeyWarning],
+    [OtherWarning, ParseOtherWarning],
+    [Deprecated,   DepKeyWarning]
+);
+
+enum_from_disp!(
+    pub ParseReqKeyError,
+    [Width,          ReqKeyError<ParseBitsError>],
+    [Range,          ReqKeyError<ParseRangeError>],
+    [AlphaNumType,   ReqKeyError<AlphaNumTypeError>],
+    [String,         ReqKeyError<Infallible>],
+    [Int,            ReqKeyError<ParseIntError>],
+    [Scale,          ReqKeyError<ScaleError>],
+    [ReqRangedFloat, ReqKeyError<RangedFloatError>],
+    [Mode,           ReqKeyError<ModeError>],
+    [ByteOrd,        ReqKeyError<ParseByteOrdError>],
+    [Endian,         ReqKeyError<EndianError>],
+    [ReqShortname,   ReqKeyError<ShortnameError>]
+);
+
+enum_from_disp!(
+    pub ParseOptKeyWarning,
     [NumType,          ParseKeyError<NumTypeError>],
     [Trigger,          ParseKeyError<TriggerError>],
-    [ReqString,        ReqKeyError<Infallible>],
-    [ReqScale,         ReqKeyError<ScaleError>],
     [OptScale,         ParseKeyError<ScaleError>],
     [OptFloat,         ParseKeyError<ParseFloatError>],
-    [ReqRangedFloat,   ReqKeyError<RangedFloatError>],
     [OptRangedFloat,   ParseKeyError<RangedFloatError>],
     [Feature,          ParseKeyError<FeatureError>],
     [Wavelengths,      ParseKeyError<WavelengthsError>],
@@ -333,24 +379,32 @@ enum_from_disp!(
     [ModifiedDateTime, ParseKeyError<ModifiedDateTimeError>],
     [Originality,      ParseKeyError<OriginalityError>],
     [UnstainedCenter,  ParseKeyError<ParseUnstainedCenterError>],
-    [Mode,             ReqKeyError<ModeError>],
-    [ByteOrd,          ReqKeyError<ParseByteOrdError>],
     [Mode3_2,          ParseKeyError<Mode3_2Error>],
     [TemporalType,     ParseKeyError<TemporalTypeError>],
     [OpticalType,      ParseKeyError<OpticalTypeError>],
-    [Endian,           ReqKeyError<EndianError>],
-    [ReqShortname,     ReqKeyError<ShortnameError>],
     [OptShortname,     ParseKeyError<ShortnameError>],
     [Display,          ParseKeyError<DisplayError>],
     [Unicode,          ParseKeyError<UnicodeError>],
     [Spillover,        ParseKeyError<ParseSpilloverError>],
-    [Compensation,     ParseKeyError<CompensationError>],
-    [NamedVec,         NewNamedVecError],
-    [Temporal,         TemporalError]
+    [Compensation,     ParseKeyError<CompensationError>]
 );
 
 enum_from_disp!(
-    pub ParseWarning,
+    pub ParseOtherError,
+    [Temporal, TemporalError],
+    [NamedVec, NewNamedVecError],
+    [MissingTime, MissingTime]
+);
+
+pub struct MissingTime(pub TimePattern);
+
+pub enum TemporalError {
+    NonLinear,
+    HasGain,
+}
+
+enum_from_disp!(
+    pub ParseOtherWarning,
     [Timestamp, InvalidTimestamps],
     [Datetime, InvalidDatetimes]
 );
@@ -363,24 +417,10 @@ impl fmt::Display for DepKeyWarning {
     }
 }
 
-enum_from_disp!(
-    pub ParseError,
-    [Temporal, TemporalError],
-    [NamedVec, NewNamedVecError],
-    [MissingTime, MissingTime]
-);
-
-pub struct MissingTime(pub TimePattern);
-
 impl fmt::Display for MissingTime {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "Could not find time measurement matching {}", self.0)
     }
-}
-
-pub enum TemporalError {
-    NonLinear,
-    HasGain,
 }
 
 impl fmt::Display for TemporalError {
@@ -391,4 +431,10 @@ impl fmt::Display for TemporalError {
             TemporalError::HasGain => write!(f, "$PnG must not be set"),
         }
     }
+}
+
+pub enum CoreTEXTFailure {
+    NoPar(ReqKeyError<ParseIntError>),
+    Keywords,
+    Linked,
 }

@@ -215,7 +215,10 @@ pub struct ParseData {
 ///
 /// Depending on the version, all of these except the TEXT offsets might be 0
 /// which indicates they are actually stored in TEXT due to size limitations.
-pub fn read_fcs_header(p: &path::PathBuf, conf: &HeaderConfig) -> ImpureResult<Header, String> {
+pub fn read_fcs_header(
+    p: &path::PathBuf,
+    conf: &HeaderConfig,
+) -> TerminalResult<Header, (), HeaderError, ImpureError> {
     let file = fs::File::options().read(true).open(p)?;
     let mut reader = BufReader::new(file);
     h_read_header(&mut reader, conf)

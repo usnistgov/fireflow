@@ -89,6 +89,235 @@ pub(crate) trait ErrorIter<T, E>: Iterator<Item = Result<T, E>> + Sized {
 
 impl<I: Iterator<Item = Result<T, E>>, T, E> ErrorIter<T, E> for I {}
 
+pub type DeferredResult<V, W, E> = Result<Tentative<V, W, E>, DeferredFailure<W, E>>;
+
+pub type TerminalResult<V, W, E, T> = Result<Tentative<V, W, E>, TerminalFailure<W, E, T>>;
+
+pub struct Tentative<V, W, E> {
+    pub value: V,
+    pub warnings: Vec<W>,
+    pub errors: Vec<E>,
+}
+
+pub struct DeferredFailure<W, E> {
+    pub warnings: Vec<W>,
+    pub errors: NonEmpty<E>,
+}
+
+pub struct TerminalFailure<W, E, T> {
+    pub warnings: Vec<W>,
+    pub errors: TerminalFailureType<E, T>,
+}
+
+pub enum TerminalFailureType<E, T> {
+    Single(T),
+    Many(T, NonEmpty<E>),
+}
+
+impl<W, E, T> TerminalFailure<W, E, T> {
+    pub fn new(errors: TerminalFailureType<E, T>) -> Self {
+        TerminalFailure {
+            warnings: vec![],
+            errors,
+        }
+    }
+
+    pub fn new_single(t: T) -> Self {
+        Self::new(TerminalFailureType::Single(t))
+    }
+
+    pub fn new_many(t: T, es: NonEmpty<E>) -> Self {
+        Self::new(TerminalFailureType::Many(t, es))
+    }
+}
+
+impl<W, E> From<io::Error> for TerminalFailure<W, E, ImpureError> {
+    fn from(value: io::Error) -> Self {
+        TerminalFailure {
+            warnings: vec![],
+            errors: TerminalFailureType::Single(ImpureError::IO(value)),
+        }
+    }
+}
+
+impl<V, W, E> Tentative<V, W, E> {
+    pub fn new(value: V) -> Self {
+        Self {
+            value,
+            warnings: vec![],
+            errors: vec![],
+        }
+    }
+
+    pub fn map<F, X>(self, f: F) -> Tentative<X, W, E>
+    where
+        F: Fn(V) -> X,
+    {
+        Tentative {
+            value: f(self.value),
+            warnings: self.warnings,
+            errors: self.errors,
+        }
+    }
+
+    pub fn and_then<F, X>(mut self, f: F) -> DeferredResult<X, W, E>
+    where
+        F: Fn(V) -> DeferredResult<X, W, E>,
+    {
+        match f(self.value) {
+            Ok(s) => {
+                self.warnings.extend(s.warnings);
+                self.errors.extend(s.errors);
+                Ok(Tentative {
+                    value: s.value,
+                    warnings: self.warnings,
+                    errors: self.errors,
+                })
+            }
+            Err(e) => {
+                self.warnings.extend(e.warnings);
+                self.errors.extend(e.errors);
+                Err(DeferredFailure {
+                    warnings: self.warnings,
+                    errors: NonEmpty::from_vec(self.errors).unwrap(),
+                })
+            }
+        }
+    }
+
+    pub fn append_failure(mut self, other: DeferredFailure<W, E>) -> Self {
+        self.warnings.extend(other.warnings);
+        self.errors.extend(other.errors);
+        self
+    }
+
+    // pub fn append_result_warnings<U>(
+    //     mut self,
+    //     other: Deferred<U, W>,
+    // ) -> DeferredResult<(V, U), W, E> {
+    //     match other {
+    //         Ok(y) => Ok(self.map(|x| (x, y))),
+    //         Err(warnings) => {
+    //             self.warnings.extend(warnings);
+    //             Err(DeferredFailure {
+    //                 errors: self.errors,
+    //                 warnings: self.warnings,
+    //             })
+    //         }
+    //     }
+    // }
+
+    pub fn warnings_map<F, X>(self, f: F) -> Tentative<V, X, E>
+    where
+        F: Fn(W) -> X,
+    {
+        Tentative {
+            value: self.value,
+            warnings: self.warnings.into_iter().map(f).collect(),
+            errors: self.errors,
+        }
+    }
+
+    pub fn errors_map<F, X>(self, f: F) -> Tentative<V, W, X>
+    where
+        F: Fn(E) -> X,
+    {
+        Tentative {
+            value: self.value,
+            warnings: self.warnings,
+            errors: self.errors.into_iter().map(f).collect(),
+        }
+    }
+
+    pub fn warnings_into<X>(self) -> Tentative<V, X, E>
+    where
+        X: From<W>,
+    {
+        self.warnings_map(|w| w.into())
+    }
+
+    pub fn errors_into<X>(self) -> Tentative<V, W, X>
+    where
+        X: From<E>,
+    {
+        self.errors_map(|e| e.into())
+    }
+}
+
+impl<W, E> DeferredFailure<W, E> {
+    pub fn new(e: E) -> Self {
+        Self {
+            warnings: vec![],
+            errors: NonEmpty::new(e),
+        }
+    }
+
+    pub fn new_with_many(errors: NonEmpty<E>) -> Self {
+        Self {
+            warnings: vec![],
+            errors,
+        }
+    }
+
+    pub fn warnings_map<F, X>(self, f: F) -> DeferredFailure<X, E>
+    where
+        F: Fn(W) -> X,
+    {
+        DeferredFailure {
+            warnings: self.warnings.into_iter().map(f).collect(),
+            errors: self.errors,
+        }
+    }
+
+    pub fn errors_map<F, X>(self, f: F) -> DeferredFailure<W, X>
+    where
+        F: Fn(E) -> X,
+    {
+        DeferredFailure {
+            warnings: self.warnings,
+            errors: self.errors.map(f),
+        }
+    }
+
+    pub fn warnings_into<X>(self) -> DeferredFailure<X, E>
+    where
+        X: From<W>,
+    {
+        self.warnings_map(|w| w.into())
+    }
+
+    pub fn errors_into<X>(self) -> DeferredFailure<W, X>
+    where
+        X: From<E>,
+    {
+        self.errors_map(|e| e.into())
+    }
+
+    pub fn mconcat(mut self, other: Self) -> Self {
+        self.warnings.extend(other.warnings);
+        self.errors.extend(other.errors);
+        Self {
+            warnings: self.warnings,
+            errors: self.errors,
+        }
+    }
+
+    pub fn terminate<T>(self, reason: T) -> TerminalFailure<W, E, T> {
+        TerminalFailure {
+            warnings: self.warnings,
+            errors: TerminalFailureType::Many(reason, self.errors),
+        }
+    }
+}
+
+// pub fn result_to_deferred<V, E>(res: Deferred<V, E>) -> DeferredResult<V, E, E> {
+//     res.map_err(|errors| DeferredFailure {
+//         warnings: vec![],
+//         errors,
+//     })
+//     .map(Tentative::new)
+// }
+
 /// A pure error thrown during FCS file parsing.
 ///
 /// This is very basic, since the only functionality we need is capturing a
@@ -135,13 +364,17 @@ pub type PureFailure<E> = Failure<String, E>;
 
 /// Success or failure of a pure FCS computation.
 // TODO shouldn't E be different on left and right?
+// TODO the left side should have not errors, and the right side and have errors
+// and anything else
 pub type PureResult<T, E> = Result<PureSuccess<T, E>, PureFailure<E>>;
 
 /// Result which may have failed but does not imply immediate termination.
 ///
 /// This is different from Result<T, E> because it would not be clear how
 /// warnings or other error types should be stored.
-pub type PureMaybe<T, E> = PureSuccess<Option<T>, E>;
+// TODO this is ill-defined, since it is possible to have no result and also no
+// errors, which is nonsense
+// pub type PureMaybe<T, E> = PureSuccess<Option<T>, E>;
 
 /// Error which may either be pure or impure (within IO context).
 ///

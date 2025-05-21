@@ -279,7 +279,7 @@ impl AnyCoreTEXT {
         std: &mut StdKeywords,
         nonstd: NonStdKeywords,
         conf: &StdTextReadConfig,
-    ) -> PureResult<Self, AnyParserError> {
+    ) -> TerminalResult<Self, ParseKeysWarning, ParseKeysError, CoreTEXTFailure> {
         match version {
             Version::FCS2_0 => {
                 CoreTEXT2_0::new_from_raw(std, nonstd, conf).map(|x| x.map(|y| y.into()))
@@ -2391,17 +2391,17 @@ where
         std: &mut StdKeywords,
         nonstd: NonStdKeywords,
         conf: &StdTextReadConfig,
-    ) -> PureResult<Self, AnyParserError>
+    ) -> TerminalResult<Self, ParseKeysWarning, ParseKeysError, CoreTEXTFailure>
     where
         M: LookupMetadata,
         M::T: LookupTemporal,
         M::P: LookupOptical,
     {
         // Lookup $PAR first since we need this to get the measurements
-        let par = Failure::from_result(Par::remove_meta_req(std).map_err(|e| e.to_string()))?;
-        let md_fail = "could not standardize TEXT".to_string();
+        let par = Par::remove_meta_req(std)
+            .map_err(|e| TerminalFailure::new_single(CoreTEXTFailure::NoPar(e)))?;
         let tp = conf.time.pattern.as_ref();
-        let md_succ = KwParser::try_run(std, conf, md_fail, |st| {
+        let tnt_core = KwParser::try_run(std, conf, |st| {
             // Lookup measurement keywords, return Some if no errors encountered
             let ns: Vec<_> = nonstd.into_iter().collect();
             if let Some((ms, meta_ns)) =
@@ -2419,25 +2419,19 @@ where
             } else {
                 None
             }
-        })?;
-        // validate struct, still return Ok even if this "fails" as we can
-        // check for errors later.
-        //
-        // TODO error handling here is confusing, since we are returning a result
-        // that might have errors in the Ok var
-        let succ = md_succ.and_then(|core| {
-            let mut buf = PureErrorBuf::<_>::default();
-            if let Err(msgs) = core.check_linked_names() {
-                for msg in msgs {
-                    buf.push_error(msg.into());
-                }
-            }
-            PureSuccess {
-                data: core,
-                deferred: buf,
-            }
-        });
-        Ok(succ)
+        })
+        .map_err(|e| e.terminate(CoreTEXTFailure::Keywords))?;
+        // make sure keywords which refer to $PnN are valid, if not then this
+        // fails because the API assumes these are valid and provides no way
+        // to fix otherwise.
+        tnt_core
+            .and_then(|core| {
+                core.check_linked_names()
+                    .map(|_| Tentative::new(core))
+                    .map_err(|es| es.map(|x| x.into()))
+                    .map_err(DeferredFailure::new_with_many)
+            })
+            .map_err(|e| e.terminate(CoreTEXTFailure::Linked))
     }
 
     /// Remove a measurement matching the given name.

@@ -354,7 +354,7 @@ enum_from_disp!(
     [ReqRangedFloat, ReqKeyError<RangedFloatError>],
     [Mode,           ReqKeyError<ModeError>],
     [ByteOrd,        ReqKeyError<ParseByteOrdError>],
-    [Endian,         ReqKeyError<EndianError>],
+    [Endian,         ReqKeyError<NewEndianError>],
     [ReqShortname,   ReqKeyError<ShortnameError>]
 );
 

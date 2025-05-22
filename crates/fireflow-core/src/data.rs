@@ -1,20 +1,24 @@
 use crate::config::WriteConfig;
 use crate::core::*;
 use crate::error::*;
-use crate::macros::match_many_to_one;
+use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
 use crate::segment::*;
 use crate::text::byteord::*;
 use crate::text::keywords::*;
 use crate::text::range::*;
 use crate::validated::dataframe::*;
+use crate::validated::nonstandard::*;
 use crate::validated::standard::*;
 
+use itertools::repeat_n;
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use std::fmt;
 use std::io;
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::iter;
+use std::num::ParseIntError;
+use std::str;
 use std::str::FromStr;
 
 /// Read the analysis segment
@@ -36,19 +40,15 @@ pub trait VersionedDataLayout: Sized {
         dt: AlphaNumType,
         size: Self::S,
         cs: Vec<ColumnLayoutData<Self::D>>,
-    ) -> Deferred<Self, String>;
+    ) -> Deferred<Self, NewDataLayoutError>;
 
     fn try_new_from_raw(kws: &StdKeywords) -> Deferred<Self, String>;
 
     fn ncols(&self) -> usize;
 
-    fn into_reader(self, kws: &StdKeywords, data_seg: Segment) -> PureMaybe<ColumnReader, String>;
+    fn into_reader(self, kws: &StdKeywords, data_seg: Segment) -> ReaderResult;
 
-    fn as_writer<'a>(
-        &self,
-        df: &'a FCSDataFrame,
-        conf: &WriteConfig,
-    ) -> PureResult<DataWriter<'a>, String> {
+    fn as_writer<'a>(&self, df: &'a FCSDataFrame, conf: &WriteConfig) -> WriterResult<'a> {
         // The dataframe should be encapsulated such that a) the column number
         // matches the number of measurements. If these are not true, the code
         // is wrong.
@@ -71,25 +71,28 @@ pub trait VersionedDataLayout: Sized {
         &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
-    ) -> Deferred<DataWriter<'a>, String>;
+    ) -> Deferred<DataWriter<'a>, NewWriterError>;
 }
 
 pub enum DataLayout2_0 {
     Ascii(AsciiLayout),
     Integer(AnyUintLayout),
     Float(FloatLayout),
+    Empty,
 }
 
 pub enum DataLayout3_0 {
     Ascii(AsciiLayout),
     Integer(AnyUintLayout),
     Float(FloatLayout),
+    Empty,
 }
 
 pub enum DataLayout3_1 {
     Ascii(AsciiLayout),
     Integer(FixedLayout<AnyUintType>),
     Float(FloatLayout),
+    Empty,
 }
 
 pub enum DataLayout3_2 {
@@ -98,6 +101,7 @@ pub enum DataLayout3_2 {
     Integer(FixedLayout<AnyUintType>),
     Float(FloatLayout),
     Mixed(FixedLayout<MixedType>),
+    Empty,
 }
 
 pub enum AsciiLayout {
@@ -115,7 +119,7 @@ pub struct DelimitedLayout {
 }
 
 pub struct FixedLayout<C> {
-    pub columns: Vec<C>,
+    pub columns: NonEmpty<C>,
 }
 
 pub enum AnyUintLayout {
@@ -252,13 +256,15 @@ pub struct UintType<T, const LEN: usize> {
 pub enum DataWriter<'a> {
     Delim(DelimWriter<'a>),
     Fixed(FixedWriter<'a>),
+    Empty,
 }
 
 pub type DelimWriter<'a> = DataWriterInner<AnyDelimColumnWriter<'a>>;
 pub type FixedWriter<'a> = DataWriterInner<AnyFixedColumnWriter<'a>>;
 
 pub struct DataWriterInner<C> {
-    columns: Vec<C>,
+    columns: NonEmpty<C>,
+    // TODO this won't be needed if we have a nonempty column vector
     nrows: usize,
     nbytes: usize,
 }
@@ -332,16 +338,28 @@ pub struct ColumnWriter<'a, X, Y, S> {
 impl DataWriter<'_> {
     pub(crate) fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()> {
         match self {
-            DataWriter::Delim(d) => d.h_write(h),
-            DataWriter::Fixed(f) => f.h_write(h),
+            Self::Delim(d) => d.h_write(h),
+            Self::Fixed(f) => f.h_write(h),
+            Self::Empty => Ok(()),
         }
     }
 
     pub(crate) fn nbytes(&self) -> usize {
         match self {
-            DataWriter::Delim(d) => d.nbytes,
-            DataWriter::Fixed(f) => f.nbytes,
+            Self::Delim(d) => d.nbytes,
+            Self::Fixed(f) => f.nbytes,
+            Self::Empty => 0,
         }
+    }
+}
+
+impl<C> DataWriterInner<C> {
+    fn try_new(cs: Vec<C>, nrows: usize, nbytes: usize) -> Option<Self> {
+        NonEmpty::from_vec(cs).map(|columns| Self {
+            columns,
+            nrows,
+            nbytes,
+        })
     }
 }
 
@@ -514,19 +532,26 @@ pub(crate) struct DataReader {
 /// rows to make reading faster. Each column has other information necessary to
 /// read the column (bitmask, width, etc).
 pub enum ColumnReader {
+    DelimitedAsciiNoRows(DelimAsciiReaderNoRows),
     DelimitedAscii(DelimAsciiReader),
     AlphaNum(AlphaNumReader),
+    Empty,
 }
 
-pub struct DelimAsciiReader {
-    pub ncols: usize,
-    pub nrows: Option<Tot>,
+// The only difference b/t these two is that the no-rows version will be
+// initialized with zero-length vectors, and the rows version will be
+// initialized with row-length vectors. The only purpose of the former is the
+// deal with the case in 2.0 where $TOT isn't given
+pub struct DelimAsciiReaderNoRows(DelimAsciiReaderInner);
+pub struct DelimAsciiReader(DelimAsciiReaderInner);
+
+pub struct DelimAsciiReaderInner {
+    pub columns: NonEmpty<Vec<u64>>,
     pub nbytes: usize,
 }
 
 pub struct AlphaNumReader {
-    pub nrows: Tot,
-    pub columns: Vec<AlphaNumColumnReader>,
+    pub columns: NonEmpty<AlphaNumColumnReader>,
 }
 
 pub enum AlphaNumColumnReader {
@@ -566,15 +591,27 @@ pub enum AnyUintColumnReader {
     Uint64(UintColumnReader<u64, 8>),
 }
 
+enum_from_disp!(
+    pub ReadDataError,
+    [Delim, ReadDelimAsciiError],
+    [DelimNoRows, ReadDelimAsciiNoRowsError],
+    [AlphaNum, AsciiToUintError]
+);
+
 impl DataReader {
-    pub(crate) fn h_read<R>(self, h: &mut BufReader<R>) -> io::Result<FCSDataFrame>
+    pub(crate) fn h_read<R>(
+        self,
+        h: &mut BufReader<R>,
+    ) -> Result<FCSDataFrame, ImpureErrorInner<ReadDataError>>
     where
         R: Read + Seek,
     {
         h.seek(SeekFrom::Start(self.begin))?;
         match self.column_reader {
-            ColumnReader::DelimitedAscii(p) => p.h_read(h),
-            ColumnReader::AlphaNum(p) => p.h_read(h),
+            ColumnReader::DelimitedAscii(p) => p.h_read(h).map_err(|e| e.inner_into()),
+            ColumnReader::DelimitedAsciiNoRows(p) => p.h_read(h).map_err(|e| e.inner_into()),
+            ColumnReader::AlphaNum(p) => p.h_read(h).map_err(|e| e.inner_into()),
+            ColumnReader::Empty => Ok(FCSDataFrame::default()),
         }
     }
 }
@@ -582,108 +619,154 @@ impl DataReader {
 impl FloatReader {
     fn h_read<R: Read>(&mut self, h: &mut BufReader<R>, r: usize) -> io::Result<()> {
         match self {
-            FloatReader::F32(t) => t.h_read(h, r),
-            FloatReader::F64(t) => t.h_read(h, r),
+            Self::F32(t) => t.h_read(h, r),
+            Self::F64(t) => t.h_read(h, r),
         }
     }
 
     fn into_fcs_column(self) -> AnyFCSColumn {
         match self {
-            FloatReader::F32(x) => F32Column::from(x.column).into(),
-            FloatReader::F64(x) => F64Column::from(x.column).into(),
+            Self::F32(x) => F32Column::from(x.column).into(),
+            Self::F64(x) => F64Column::from(x.column).into(),
+        }
+    }
+
+    fn len(&self) -> usize {
+        match self {
+            Self::F32(x) => x.column.len(),
+            Self::F64(x) => x.column.len(),
         }
     }
 }
 
-// TODO clean this up
+pub enum ReadDelimAsciiError {
+    RowsExceeded(usize),
+    Incomplete(DelimIncompleteError),
+    Parse(AsciiToUintError),
+}
+
+// signify that a parsing ended in the middle of a row
+pub struct DelimIncompleteError {
+    col: usize,
+    row: usize,
+    nrows: usize,
+}
+
 impl DelimAsciiReader {
-    fn h_read<R: Read>(self, h: &mut BufReader<R>) -> io::Result<FCSDataFrame> {
+    fn h_read<R: Read>(
+        mut self,
+        h: &mut BufReader<R>,
+    ) -> Result<FCSDataFrame, ImpureErrorInner<ReadDelimAsciiError>> {
+        // FCS 2.0 files have an optional $TOT field, which complicates this a
+        // bit. If in this case we have $TOT so the columns have been
+        // initialized to the number of rows.
         let mut buf = Vec::new();
+        let mut last_was_delim = false;
+        let data = self.0.columns;
+        let nrows = data.head.len();
+        let ncols = data.len();
+        let row = 0;
+        let col = 0;
+        // Delimiters are tab, newline, carriage return, space, or comma. Any
+        // consecutive delimiter counts as one, and delimiters can be mixed.
+        for b in h.bytes().take(self.0.nbytes) {
+            let byte = b?;
+            // exit if we encounter more rows than expected.
+            if row == nrows {
+                let e = ReadDelimAsciiError::RowsExceeded(nrows);
+                return Err(ImpureErrorInner::Pure(e));
+            }
+            if is_ascii_delim(byte) {
+                if !last_was_delim {
+                    last_was_delim = true;
+                    data[col][row] = ascii_to_uint(&buf).map_err(|e| e.into())?;
+                    buf.clear();
+                    if col == ncols - 1 {
+                        col = 0;
+                        row += 1;
+                    } else {
+                        col += 1;
+                    }
+                }
+            } else {
+                buf.push(byte);
+                last_was_delim = false;
+            }
+        }
+        if !(col == 0 && row == nrows) {
+            let e = DelimIncompleteError { col, row, nrows };
+            return Err(ImpureErrorInner::Pure(ReadDelimAsciiError::Incomplete(e)));
+        }
+        // The spec isn't clear if the last value should be a delim or
+        // not, so flush the buffer if it has anything in it since we
+        // only try to parse if we hit a delim above.
+        if !buf.is_empty() {
+            data[col][row] = ascii_to_uint(&buf).map_err(|e| e.into())?;
+        }
+        let cs: Vec<_> = data
+            .into_iter()
+            .map(FCSColumn::from)
+            .map(AnyFCSColumn::from)
+            .collect();
+        // ASSUME this will never fail because all columns should be the same
+        // length
+        Ok(FCSDataFrame::try_new(cs).unwrap())
+    }
+}
+
+fn is_ascii_delim(x: u8) -> bool {
+    // tab, newline, carriage return, space, or comma
+    x == 9 || x == 10 || x == 13 || x == 32 || x == 44
+}
+
+pub enum ReadDelimAsciiNoRowsError {
+    Unequal,
+    Parse(AsciiToUintError),
+}
+
+impl DelimAsciiReaderNoRows {
+    fn h_read<R: Read>(
+        self,
+        h: &mut BufReader<R>,
+    ) -> Result<FCSDataFrame, ImpureErrorInner<ReadDelimAsciiNoRowsError>> {
+        let mut buf = Vec::new();
+        let data = self.0.columns;
+        let ncols = data.len();
         let mut row = 0;
         let mut col = 0;
         let mut last_was_delim = false;
         // Delimiters are tab, newline, carriage return, space, or comma. Any
         // consecutive delimiter counts as one, and delimiters can be mixed.
-        let is_delim = |byte| byte == 9 || byte == 10 || byte == 13 || byte == 32 || byte == 44;
-        let mut data = if let Some(nrows) = self.nrows {
-            // FCS 2.0 files have an optional $TOT field, which complicates this a
-            // bit. If we know the number of rows, initialize a bunch of zero-ed
-            // vectors and fill them sequentially.
-            let mut data: Vec<_> = iter::repeat_with(|| vec![0; nrows.0])
-                .take(self.ncols)
-                .collect();
-            for b in h.bytes().take(self.nbytes) {
-                let byte = b?;
-                // exit if we encounter more rows than expected.
-                if row == nrows.0 {
-                    let msg = format!("Exceeded expected number of rows: {nrows}");
-                    return Err(io::Error::new(io::ErrorKind::InvalidData, msg));
-                }
-                if is_delim(byte) {
-                    if !last_was_delim {
-                        last_was_delim = true;
-                        // TODO this will spaz out if we end up reading more
-                        // rows than expected
-                        data[col][row] = ascii_to_uint_io(buf.clone())?;
-                        buf.clear();
-                        if col == self.ncols - 1 {
-                            col = 0;
-                            row += 1;
-                        } else {
-                            col += 1;
-                        }
+        // If we don't know the number of rows, the only choice is to push onto
+        // the column vectors one at a time. This leads to the possibility that
+        // the vectors may not be the same length in the end, in which case,
+        // scream loudly and bail.
+        for b in h.bytes().take(self.0.nbytes) {
+            let byte = b?;
+            if is_ascii_delim(byte) {
+                if !last_was_delim {
+                    last_was_delim = true;
+                    data[col].push(ascii_to_uint(&buf).map_err(|e| e.into())?);
+                    buf.clear();
+                    if col == ncols - 1 {
+                        col = 0;
+                    } else {
+                        col += 1;
                     }
-                } else {
-                    buf.push(byte);
-                    last_was_delim = false;
                 }
+            } else {
+                buf.push(byte);
+                last_was_delim = false;
             }
-            if !(col == 0 && row == nrows.0) {
-                let msg = format!(
-                    "Parsing ended in column {col} and row {row}, \
-                               where expected number of rows is {nrows}"
-                );
-                return Err(io::Error::new(io::ErrorKind::InvalidData, msg));
-            }
-            data
-        } else {
-            // If we don't know the number of rows, the only choice is to push onto
-            // the column vectors one at a time. This leads to the possibility that
-            // the vectors may not be the same length in the end, in which case,
-            // scream loudly and bail.
-            let mut data: Vec<_> = iter::repeat_with(Vec::new).take(self.ncols).collect();
-            for b in h.bytes().take(self.nbytes) {
-                let byte = b?;
-                // Delimiters are tab, newline, carriage return, space, or
-                // comma. Any consecutive delimiter counts as one, and
-                // delimiters can be mixed.
-                if is_delim(byte) {
-                    if !last_was_delim {
-                        last_was_delim = true;
-                        data[col].push(ascii_to_uint_io(buf.clone())?);
-                        buf.clear();
-                        if col == self.ncols - 1 {
-                            col = 0;
-                        } else {
-                            col += 1;
-                        }
-                    }
-                } else {
-                    buf.push(byte);
-                    last_was_delim = false;
-                }
-            }
-            if data.iter().map(|c| c.len()).unique().count() > 1 {
-                let msg = "Not all columns are equal length";
-                return Err(io::Error::new(io::ErrorKind::InvalidData, msg));
-            }
-            data
-        };
+        }
+        if data.iter().map(|c| c.len()).unique().count() > 1 {
+            return Err(ImpureErrorInner::Pure(ReadDelimAsciiNoRowsError::Unequal));
+        }
         // The spec isn't clear if the last value should be a delim or
         // not, so flush the buffer if it has anything in it since we
         // only try to parse if we hit a delim above.
         if !buf.is_empty() {
-            data[col][row] = ascii_to_uint_io(buf.clone())?;
+            data[col][row] = ascii_to_uint(&buf).map_err(|e| e.into())?;
         }
         let cs: Vec<_> = data
             .into_iter()
@@ -697,18 +780,21 @@ impl DelimAsciiReader {
 }
 
 impl AlphaNumReader {
-    fn h_read<R: Read>(mut self, h: &mut BufReader<R>) -> io::Result<FCSDataFrame> {
-        let mut strbuf = String::new();
-        for r in 0..self.nrows.0 {
+    fn h_read<R: Read>(
+        mut self,
+        h: &mut BufReader<R>,
+    ) -> Result<FCSDataFrame, ImpureErrorInner<AsciiToUintError>> {
+        let mut buf: Vec<u8> = vec![];
+        let nrows = self.columns.head.len();
+        for r in 0..nrows {
             for c in self.columns.iter_mut() {
                 match c {
                     AlphaNumColumnReader::Float(f) => f.h_read(h, r)?,
-                    AlphaNumColumnReader::Uint(u) => u.h_read_to_column(h, r)?,
+                    AlphaNumColumnReader::Uint(u) => u.h_read(h, r)?,
                     AlphaNumColumnReader::Ascii(d) => {
-                        strbuf.clear();
-                        h.take(u64::from(u8::from(d.width)))
-                            .read_to_string(&mut strbuf)?;
-                        d.column[r] = parse_u64_io(&strbuf)?;
+                        buf.clear();
+                        h.take(u8::from(d.width).into()).read_to_end(&mut buf)?;
+                        d.column[r] = ascii_to_uint(&buf).map_err(|e| e.into())?;
                     }
                 }
             }
@@ -722,7 +808,7 @@ impl AlphaNumReader {
     }
 }
 
-fn make_uint_type_inner(bytes: Bytes, r: &Range, e: Endian) -> Result<AnyUintType, String> {
+fn make_uint_type_inner(bytes: Bytes, r: Range, e: Endian) -> Result<AnyUintType, BitmaskError> {
     // ASSUME this can only be 1-8
     match u8::from(bytes) {
         1 => u8::column_type_endian(r, e).map(AnyUintType::Uint08),
@@ -737,32 +823,28 @@ fn make_uint_type_inner(bytes: Bytes, r: &Range, e: Endian) -> Result<AnyUintTyp
     }
 }
 
-fn make_uint_type(b: BitsOrChars, r: &Range, e: Endian) -> Result<AnyUintType, String> {
-    if let Some(bytes) = b.bytes() {
-        make_uint_type_inner(bytes, r, e)
-    } else {
-        Err("$PnB is not an octet".to_string())
-    }
+fn make_uint_type(w: Width, r: Range, e: Endian) -> Result<AnyUintType, UintTypeError> {
+    let bytes = w.as_bytes().map_err(UintTypeError::Bytes)?;
+    make_uint_type_inner(bytes, r, e).map_err(|e| e.into())
 }
 
 impl FixedLayout<AnyUintType> {
-    pub(crate) fn try_new<D>(cs: Vec<ColumnLayoutData<D>>, o: Endian) -> Deferred<Self, String> {
-        let ncols = cs.len();
-        let (ws, rs): (Vec<_>, Vec<_>) = cs.into_iter().map(|c| (c.width, c.range)).unzip();
-        let fixed: Vec<_> = ws.into_iter().flat_map(|w: Width| w.as_fixed()).collect();
-        if fixed.len() < ncols {
-            return Err(NonEmpty::new("not all fixed width".to_string()));
-        }
-        let bytes: Vec<_> = fixed.into_iter().flat_map(|f| f.bytes()).collect();
-        if bytes.len() < ncols {
-            return Err(NonEmpty::new("bad stuff".to_string()));
-        }
-        bytes
-            .into_iter()
-            .zip(rs)
-            .map(|(b, r)| make_uint_type_inner(b, &r, o))
+    pub(crate) fn try_new<D>(
+        cs: Vec<ColumnLayoutData<D>>,
+        e: Endian,
+    ) -> Deferred<Option<Self>, NewVariableIntLayoutError> {
+        cs.into_iter()
+            .enumerate()
+            .map(|(i, c)| {
+                make_uint_type(c.width, c.range, e)
+                    .map_err(|error| ColumnError {
+                        error,
+                        index: i.into(),
+                    })
+                    .map_err(NewVariableIntLayoutError)
+            })
             .gather()
-            .map(|columns| FixedLayout { columns })
+            .map(FixedLayout::from_vec)
     }
 }
 
@@ -821,11 +903,11 @@ where
     Self: IntMath,
     <Self as FromStr>::Err: fmt::Display,
 {
-    fn range_to_bitmask(range: &Range) -> Result<Self, String> {
+    fn range_to_bitmask(r: Range) -> Result<Self, BitmaskError> {
         // TODO add way to control this behavior, we may not always want to
         // truncate an overflowing number, and at the very least may wish to
         // warn the user that truncation happened
-        (*range).try_into().or_else(|e| match e {
+        r.try_into().or_else(|e| match e {
             // TODO get next power, this is currently incorrect
             RangeToIntError::IntOverrange(_) => Ok(Self::maxval()),
             RangeToIntError::FloatOverrange(_) => Ok(Self::maxval()),
@@ -834,37 +916,37 @@ where
         })
     }
 
-    fn column_type_endian(range: &Range, endian: Endian) -> Result<UintType<Self, INTLEN>, String> {
+    fn column_type_endian(r: Range, e: Endian) -> Result<UintType<Self, INTLEN>, BitmaskError> {
         // TODO be more specific, which means we need the measurement index
-        Self::range_to_bitmask(range).map(|bitmask| UintType {
+        Self::range_to_bitmask(r).map(|bitmask| UintType {
             bitmask,
-            byteord: endian.into(),
+            byteord: e.into(),
         })
     }
 
-    fn column_type(
-        range: &Range,
-        byteord: &ByteOrd,
+    fn column_type_ordered(
+        r: Range,
+        o: &ByteOrd,
         // index: MeasIdx,
-    ) -> Deferred<UintType<Self, INTLEN>, String> {
+    ) -> Deferred<UintType<Self, INTLEN>, IntOrderedColumnError> {
         // TODO be more specific, which means we need the measurement index
-        let m = Self::range_to_bitmask(range);
-        let s = byteord.as_sized();
+        let m = Self::range_to_bitmask(r).map_err(|e| e.into());
+        let s = o.as_sized().map_err(|e| e.into());
         combine_results(m, s).map(|(bitmask, size)| UintType {
             bitmask,
             byteord: size,
         })
     }
 
-    fn layout(
+    fn layout_ordered(
         rs: Vec<Range>,
         byteord: &ByteOrd,
-    ) -> Deferred<FixedLayout<UintType<Self, INTLEN>>, String> {
+    ) -> Deferred<Option<FixedLayout<UintType<Self, INTLEN>>>, IntOrderedColumnError> {
         rs.into_iter()
-            .map(|r| Self::column_type(&r, byteord))
+            .map(|r| Self::column_type_ordered(r, byteord))
             .gather()
             .map_err(NonEmpty::flatten)
-            .map(|columns| FixedLayout { columns })
+            .map(FixedLayout::from_vec)
     }
 
     fn h_read_int<R: Read>(
@@ -928,70 +1010,92 @@ where
     <Self as FromStr>::Err: fmt::Display,
     Self: Clone,
 {
-    fn range(r: &Range) -> Self {
+    fn range(r: Range) -> Self {
         // TODO control how this works and/or warn user if we truncate
-        (*r).try_into().unwrap_or_else(|e| match e {
+        r.try_into().unwrap_or_else(|e| match e {
             RangeToFloatError::IntPrecisionLoss(_, x) => x,
             RangeToFloatError::FloatOverrange(_) => Self::maxval(),
             RangeToFloatError::FloatUnderrange(_) => Self::default(),
         })
     }
 
-    fn column_type_endian(o: Endian, r: &Range) -> FloatType<LEN, Self> {
-        let range = Self::range(r);
-        FloatType {
-            order: o.into(),
-            range,
-        }
+    fn column_type_endian(
+        w: Width,
+        e: Endian,
+        r: Range,
+    ) -> Result<FloatType<LEN, Self>, FloatWidthError> {
+        w.as_bytes().map_err(|e| e.into()).and_then(|bytes| {
+            if usize::from(u8::from(bytes)) == LEN {
+                let range = Self::range(r);
+                Ok(FloatType {
+                    order: e.into(),
+                    range,
+                })
+            } else {
+                Err(FloatWidthError::WrongWidth(WrongFloatWidth {
+                    expected: LEN,
+                    width: bytes,
+                }))
+            }
+        })
     }
 
-    fn column_type(o: &ByteOrd, r: &Range) -> Result<FloatType<LEN, Self>, String> {
-        let range = Self::range(r);
-        o.as_sized()
-            .map_err(|e| e.to_string())
-            .map(|order| FloatType { order, range })
+    fn column_type_ordered(
+        w: Width,
+        o: &ByteOrd,
+        r: Range,
+    ) -> Result<FloatType<LEN, Self>, OrderedFloatError> {
+        w.as_bytes()
+            .map_err(|e| e.into())
+            .map_err(OrderedFloatError::WrongWidth)
+            .and_then(|bytes| {
+                if usize::from(u8::from(bytes)) == LEN {
+                    let range = Self::range(r);
+                    o.as_sized()
+                        .map(|order| FloatType { order, range })
+                        .map_err(OrderedFloatError::Order)
+                } else {
+                    Err(FloatWidthError::WrongWidth(WrongFloatWidth {
+                        expected: LEN,
+                        width: bytes,
+                    })
+                    .into())
+                }
+            })
     }
 
     fn layout_endian<D>(
         cs: Vec<ColumnLayoutData<D>>,
         endian: Endian,
-    ) -> Deferred<FixedLayout<FloatType<LEN, Self>>, String> {
+    ) -> Deferred<Option<FixedLayout<FloatType<LEN, Self>>>, EndianFloatColumnError> {
         cs.into_iter()
-            .map(|c| {
-                if c.width
-                    .as_fixed()
-                    .and_then(|f| f.bytes())
-                    .is_some_and(|b| u8::from(b) == 4)
-                {
-                    Ok(Self::column_type_endian(endian, &c.range))
-                } else {
-                    // TODO which one?
-                    Err(format!("$PnB is not {} bytes wide", 4))
-                }
+            .enumerate()
+            .map(|(i, c)| {
+                Self::column_type_endian(c.width, endian, c.range).map_err(|error| ColumnError {
+                    error,
+                    index: i.into(),
+                })
             })
             .gather()
-            .map(|columns| FixedLayout { columns })
+            .map_err(|es| es.map(EndianFloatColumnError))
+            .map(FixedLayout::from_vec)
     }
 
     fn layout<D>(
         cs: Vec<ColumnLayoutData<D>>,
         byteord: &ByteOrd,
-    ) -> Deferred<FixedLayout<FloatType<LEN, Self>>, String> {
+    ) -> Deferred<Option<FixedLayout<FloatType<LEN, Self>>>, OrderedFloatColumnError> {
         cs.into_iter()
-            .map(|c| {
-                if c.width
-                    .as_fixed()
-                    .and_then(|f| f.bytes())
-                    .is_some_and(|b| u8::from(b) == 4)
-                {
-                    Self::column_type(byteord, &c.range)
-                } else {
-                    // TODO which one?
-                    Err(format!("$PnB is not {} bytes wide", 4))
-                }
+            .enumerate()
+            .map(|(i, c)| {
+                Self::column_type_ordered(c.width, byteord, c.range).map_err(|error| ColumnError {
+                    error,
+                    index: i.into(),
+                })
             })
             .gather()
-            .map(|columns| FixedLayout { columns })
+            .map_err(|es| es.map(OrderedFloatColumnError))
+            .map(FixedLayout::from_vec)
     }
 
     fn h_read_float<R: Read>(
@@ -1109,9 +1213,17 @@ impl IntFromBytes<8, 8> for u64 {}
 impl AlphaNumColumnReader {
     fn into_fcs_column(self) -> AnyFCSColumn {
         match self {
-            AlphaNumColumnReader::Ascii(x) => U64Column::from(x.column).into(),
-            AlphaNumColumnReader::Float(x) => x.into_fcs_column(),
-            AlphaNumColumnReader::Uint(x) => x.into_fcs_column(),
+            Self::Ascii(x) => U64Column::from(x.column).into(),
+            Self::Float(x) => x.into_fcs_column(),
+            Self::Uint(x) => x.into_fcs_column(),
+        }
+    }
+
+    fn len(&self) -> usize {
+        match self {
+            Self::Ascii(x) => x.column.len(),
+            Self::Float(x) => x.len(),
+            Self::Uint(x) => x.len(),
         }
     }
 }
@@ -1129,10 +1241,20 @@ impl AnyUintColumnReader {
             AnyUintColumnReader::Uint64(x) => U64Column::from(x.column).into(),
         }
     }
+
+    fn len(&self) -> usize {
+        match_many_to_one!(
+            self,
+            Self,
+            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+            x,
+            { x.column.len() }
+        )
+    }
 }
 
 impl AnyUintColumnReader {
-    fn h_read_to_column<R: Read>(&mut self, h: &mut BufReader<R>, r: usize) -> io::Result<()> {
+    fn h_read<R: Read>(&mut self, h: &mut BufReader<R>, r: usize) -> io::Result<()> {
         match_many_to_one!(
             self,
             AnyUintColumnReader,
@@ -1144,75 +1266,119 @@ impl AnyUintColumnReader {
     }
 }
 
+enum_from_disp!(
+    pub MixedTypeError,
+    [Ascii, CharsError],
+    [Uint,  UintTypeError],
+    [F32,   FloatWidthError],
+    // TODO this shouldn't work, from should map to two types
+    [F64,   FloatWidthError]
+);
+
 // TODO also check scale here?
 impl MixedType {
     pub(crate) fn try_new(
-        b: Width,
+        w: Width,
         dt: AlphaNumType,
-        // TODO this should only take an endian since it only applies to 3.2
-        // and has no chance in hogwarts of being in anything earlier
-        endian: Endian,
-        rng: &Range,
-    ) -> Result<Option<Self>, String> {
-        match b {
-            Width::Fixed(f) => match dt {
-                AlphaNumType::Ascii => {
-                    if let Some(chars) = f.chars() {
-                        Ok(Self::Ascii(AsciiType { chars }))
-                    } else {
-                        Err("$DATATYPE=A but $PnB greater than 20 chars".to_string())
-                    }
-                }
-                AlphaNumType::Integer => make_uint_type(f, rng, endian).map(Self::Integer),
-                AlphaNumType::Single => {
-                    if let Some(bytes) = f.bytes() {
-                        if u8::from(bytes) == 4 {
-                            Ok(Self::Float(f32::column_type_endian(endian, rng)))
-                        } else {
-                            Err(format!("$DATATYPE=F but $PnB={}", f.inner()))
-                        }
-                    } else {
-                        Err(format!("$PnB is not an octet, got {}", f.inner()))
-                    }
-                }
-                AlphaNumType::Double => {
-                    if let Some(bytes) = f.bytes() {
-                        if u8::from(bytes) == 8 {
-                            Ok(Self::Double(f64::column_type_endian(endian, rng)))
-                        } else {
-                            Err(format!("$DATATYPE=D but $PnB={}", f.inner()))
-                        }
-                    } else {
-                        Err(format!("$PnB is not an octet, got {}", f.inner()))
-                    }
-                }
-            }
-            .map(Some),
-            Width::Variable => match dt {
-                // ASSUME the only way this can happen is if $DATATYPE=A since
-                // Ascii is not allowed in $PnDATATYPE.
-                AlphaNumType::Ascii => Ok(None),
-                _ => Err(format!("variable $PnB not allowed for {dt}")),
-            },
+        e: Endian,
+        r: Range,
+    ) -> Result<Option<Self>, MixedTypeError> {
+        match dt {
+            AlphaNumType::Ascii => w
+                .as_fixed()
+                .map(|bits| {
+                    bits.chars()
+                        .map_err(|e| e.into())
+                        .map(|chars| Self::Ascii(AsciiType { chars }))
+                })
+                .transpose(),
+            AlphaNumType::Integer => make_uint_type(w, r, e)
+                .map(Self::Integer)
+                .map(Some)
+                .map_err(|e| e.into()),
+            AlphaNumType::Single => f32::column_type_endian(w, e, r)
+                .map(Self::Float)
+                .map(Some)
+                .map_err(|e| e.into()),
+            AlphaNumType::Single => f64::column_type_endian(w, e, r)
+                .map(Self::Double)
+                .map(Some)
+                .map_err(|e| e.into()),
         }
     }
 }
 
-fn ascii_to_uint_io(buf: Vec<u8>) -> io::Result<u64> {
-    String::from_utf8(buf)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
-        .and_then(|s| parse_u64_io(&s))
+pub struct NotAsciiError(Vec<u8>);
+
+enum_from_disp!(
+    pub AsciiToUintError,
+    [NotAscii, NotAsciiError],
+    [Int, ParseIntError]
+);
+
+fn ascii_to_uint(buf: &[u8]) -> Result<u64, AsciiToUintError> {
+    if buf.is_ascii() {
+        let s = unsafe { str::from_utf8_unchecked(buf) };
+        s.parse().map_err(AsciiToUintError::from)
+    } else {
+        Err(NotAsciiError(buf.to_vec()).into())
+    }
 }
 
-fn parse_u64_io(s: &str) -> io::Result<u64> {
-    s.parse::<u64>()
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
-}
+// fn parse_u64_io(s: &str) -> io::Result<u64> {
+//     s.parse::<u64>()
+//         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+// }
 
 pub struct ColumnLayoutData<D> {
     pub width: Width,
     pub range: Range,
     pub datatype: D,
+}
+
+impl<C> FixedLayout<C> {
+    fn from_vec(xs: Vec<C>) -> Option<Self> {
+        NonEmpty::from_vec(xs).map(|columns| FixedLayout { columns })
+    }
+}
+
+struct TotEventMismatch {
+    tot: Tot,
+    total_events: usize,
+}
+
+struct UnevenEventWidth {
+    event_width: usize,
+    nbytes: usize,
+}
+
+enum_from_disp!(
+    pub NewFixedReaderIssue,
+    [Mismatch, TotEventMismatch],
+    [Uneven, UnevenEventWidth]
+);
+
+impl DelimitedLayout {
+    fn into_reader(self, nbytes: usize, kw_tot: Option<Tot>) -> ColumnReader {
+        if self.ncols == 0 {
+            ColumnReader::Empty
+        } else {
+            match kw_tot {
+                Some(tot) => {
+                    ColumnReader::DelimitedAscii(DelimAsciiReader(DelimAsciiReaderInner {
+                        columns: NonEmpty::collect(repeat_n(vec![0; tot.0], self.ncols)).unwrap(),
+                        nbytes,
+                    }))
+                }
+                None => ColumnReader::DelimitedAsciiNoRows(DelimAsciiReaderNoRows(
+                    DelimAsciiReaderInner {
+                        columns: NonEmpty::collect(repeat_n(vec![], self.ncols)).unwrap(),
+                        nbytes,
+                    },
+                )),
+            }
+        }
+    }
 }
 
 impl<C> FixedLayout<C>
@@ -1231,48 +1397,37 @@ where
         self,
         seg: Segment,
         kw_tot: Option<Tot>,
-    ) -> PureSuccess<AlphaNumReader, String> {
+    ) -> Tentative<AlphaNumReader, NewFixedReaderIssue, NewFixedReaderIssue> {
         let n = seg.nbytes() as usize;
         let w = self.event_width();
         let total_events = n / w;
         let remainder = n % w;
-        let mut deferred = PureErrorBuf::default();
-        if let Some(t) = kw_tot {
-            if t.0 != total_events {
-                let msg = format!(
-                    "$TOT field is {t} but number of events \
-                     that evenly fit into DATA is {total_events}",
-                );
+        let columns = self.columns.map(|c| c.into_reader(total_events));
+        let mut tnt = Tentative::new(AlphaNumReader { columns });
+
+        if let Some(tot) = kw_tot {
+            if tot.0 != total_events {
+                let i = TotEventMismatch { tot, total_events };
                 // TODO toggle
-                deferred.push_warning(msg);
+                tnt.warnings.push(i.into());
             }
         }
         if remainder > 0 {
-            let msg = format!(
-                "Events are {w} bytes wide, but this does not evenly \
-                     divide DATA segment which is {n} bytes long \
-                     (remainder of {remainder})",
-            );
+            let i = UnevenEventWidth {
+                event_width: w,
+                nbytes: n,
+            };
             // TODO toggle
-            deferred.push_warning(msg);
+            tnt.warnings.push(i.into());
         }
-        let columns = self
-            .columns
-            .into_iter()
-            .map(|c| c.into_reader(total_events))
-            .collect();
-        let r = AlphaNumReader {
-            columns,
-            nrows: Tot(total_events),
-        };
-        PureSuccess { data: r, deferred }
+        tnt
     }
 
     fn as_writer<'a>(
         &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
-    ) -> Deferred<FixedWriter<'a>, String>
+    ) -> Deferred<Option<FixedWriter<'a>>, String>
     where
         MixedType: From<C>,
         C: Copy,
@@ -1287,10 +1442,8 @@ where
                 t.into_writer(c, check).map_err(|e| (i, e))
             })
             .gather()
-            .map(|columns| FixedWriter {
-                columns,
-                nrows: df.nrows(),
-                nbytes: self.event_width() * df.nrows(),
+            .map(|columns| {
+                FixedWriter::try_new(columns, df.nrows(), self.event_width() * df.nrows())
             })
             .map_err(|es| es.map(|(i, e)| format!("Conversion error in column {i}: {e}")))
     }
@@ -1545,7 +1698,6 @@ impl<T, const INTLEN: usize> UintColumnReader<T, INTLEN> {
     where
         T: IntFromBytes<DTLEN, INTLEN>,
         <T as FromStr>::Err: fmt::Display,
-        // <T as FromStr>::Err: IntErr,
         T: Ord,
     {
         let x = T::h_read_int(h, &self.uint_type.byteord)?;
@@ -1649,35 +1801,48 @@ impl IsFixed for MixedType {
     }
 }
 
-// TODO clean up errors here
+fn widths_to_single_fixed_bytes(ws: &[Width]) -> Deferred<Option<Bytes>, SingleFixedWidthError> {
+    let bs = ws
+        .iter()
+        .map(|w| w.as_bytes())
+        .gather()
+        .map_err(|es| es.map(SingleFixedWidthError::Bytes))?;
+    NonEmpty::collect(bs.into_iter().unique()).map_or(Ok(None), |us| {
+        if us.tail.is_empty() {
+            Ok(Some(us.head))
+        } else {
+            Err(NonEmpty::new(SingleFixedWidthError::Multi(us)))
+        }
+    })
+}
+
 impl AnyUintLayout {
-    pub(crate) fn try_new<D>(cs: Vec<ColumnLayoutData<D>>, o: &ByteOrd) -> Deferred<Self, String> {
-        let ncols = cs.len();
+    pub(crate) fn try_new<D>(
+        cs: Vec<ColumnLayoutData<D>>,
+        o: &ByteOrd,
+    ) -> Deferred<Option<Self>, NewFixedIntLayoutError> {
         let (ws, rs): (Vec<_>, Vec<_>) = cs.into_iter().map(|c| (c.width, c.range)).unzip();
-        let fixed: Vec<_> = ws.into_iter().flat_map(|w: Width| w.as_fixed()).collect();
-        if fixed.len() < ncols {
-            return Err(NonEmpty::new("not all fixed width".to_string()));
-        }
-        let bytes: Vec<_> = fixed.into_iter().flat_map(|f| f.bytes()).collect();
-        if bytes.len() < ncols {
-            return Err(NonEmpty::new("bad stuff".to_string()));
-        }
-        let mut fixed_unique = bytes.iter().unique();
-        // ASSUME this won't fail
-        let bytes1 = fixed_unique.next().unwrap();
-        if fixed_unique.count() > 0 {
-            return Err(NonEmpty::new("bad stuff".to_string()));
-        }
-        match u8::from(*bytes1) {
-            1 => u8::layout(rs, o).map(AnyUintLayout::Uint08),
-            2 => u16::layout(rs, o).map(AnyUintLayout::Uint16),
-            3 => <u32 as IntFromBytes<4, 3>>::layout(rs, o).map(AnyUintLayout::Uint24),
-            4 => <u32 as IntFromBytes<4, 4>>::layout(rs, o).map(AnyUintLayout::Uint32),
-            5 => <u64 as IntFromBytes<8, 5>>::layout(rs, o).map(AnyUintLayout::Uint40),
-            6 => <u64 as IntFromBytes<8, 6>>::layout(rs, o).map(AnyUintLayout::Uint48),
-            7 => <u64 as IntFromBytes<8, 7>>::layout(rs, o).map(AnyUintLayout::Uint56),
-            8 => <u64 as IntFromBytes<8, 8>>::layout(rs, o).map(AnyUintLayout::Uint64),
-            _ => unreachable!(),
+        if let Some(bytes) = widths_to_single_fixed_bytes(&ws[..]).map_err(|e| e.into())? {
+            match u8::from(bytes) {
+                1 => u8::layout_ordered(rs, o).map(|x| x.map(AnyUintLayout::Uint08)),
+                2 => u16::layout_ordered(rs, o).map(|x| x.map(AnyUintLayout::Uint16)),
+                3 => <u32 as IntFromBytes<4, 3>>::layout_ordered(rs, o)
+                    .map(|x| x.map(AnyUintLayout::Uint24)),
+                4 => <u32 as IntFromBytes<4, 4>>::layout_ordered(rs, o)
+                    .map(|x| x.map(AnyUintLayout::Uint32)),
+                5 => <u64 as IntFromBytes<8, 5>>::layout_ordered(rs, o)
+                    .map(|x| x.map(AnyUintLayout::Uint40)),
+                6 => <u64 as IntFromBytes<8, 6>>::layout_ordered(rs, o)
+                    .map(|x| x.map(AnyUintLayout::Uint48)),
+                7 => <u64 as IntFromBytes<8, 7>>::layout_ordered(rs, o)
+                    .map(|x| x.map(AnyUintLayout::Uint56)),
+                8 => <u64 as IntFromBytes<8, 8>>::layout_ordered(rs, o)
+                    .map(|x| x.map(AnyUintLayout::Uint64)),
+                _ => unreachable!(),
+            }
+            .map_err(|es| es.map(|e| e.into()))
+        } else {
+            Ok(None)
         }
     }
 
@@ -1695,7 +1860,7 @@ impl AnyUintLayout {
         self,
         data_seg: Segment,
         tot: Option<Tot>,
-    ) -> PureSuccess<AlphaNumReader, String> {
+    ) -> Tentative<AlphaNumReader, NewFixedReaderIssue, NewFixedReaderIssue> {
         match_many_to_one!(
             self,
             AnyUintLayout,
@@ -1709,7 +1874,7 @@ impl AnyUintLayout {
         &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
-    ) -> Deferred<FixedWriter<'a>, String> {
+    ) -> Deferred<Option<FixedWriter<'a>>, String> {
         match_many_to_one!(
             self,
             AnyUintLayout,
@@ -1721,11 +1886,13 @@ impl AnyUintLayout {
 }
 
 impl AsciiLayout {
-    pub(crate) fn try_new<D>(cs: Vec<ColumnLayoutData<D>>) -> Result<Self, String> {
+    pub(crate) fn try_new<D>(
+        cs: Vec<ColumnLayoutData<D>>,
+    ) -> Result<Option<Self>, NewAsciiLayoutError> {
         let ncols = cs.len();
         let fixed: Vec<_> = cs.into_iter().flat_map(|c| c.width.as_fixed()).collect();
         if fixed.len() == ncols {
-            Ok(AsciiLayout::Delimited(DelimitedLayout { ncols }))
+            Ok(Some(AsciiLayout::Delimited(DelimitedLayout { ncols })))
         } else if fixed.len() == ncols {
             let columns: Vec<_> = fixed
                 .into_iter()
@@ -1733,12 +1900,12 @@ impl AsciiLayout {
                 .map(|chars| AsciiType { chars })
                 .collect();
             if columns.len() == ncols {
-                Ok(AsciiLayout::Fixed(FixedLayout { columns }))
+                Ok(FixedLayout::from_vec(columns).map(AsciiLayout::Fixed))
             } else {
-                Err("some columns greater than 20 chars wide".into())
+                Err(NewAsciiLayoutError::TooWide)
             }
         } else {
-            Err("mixed of variable and fixed column widths".into())
+            Err(NewAsciiLayoutError::Mixed)
         }
     }
 
@@ -1755,7 +1922,9 @@ impl AsciiLayout {
         conf: &WriteConfig,
     ) -> Deferred<DataWriter<'a>, String> {
         match self {
-            AsciiLayout::Fixed(a) => a.as_writer(df, conf).map(DataWriter::Fixed),
+            AsciiLayout::Fixed(a) => a
+                .as_writer(df, conf)
+                .map(|x| x.map_or(DataWriter::Empty, DataWriter::Fixed)),
             AsciiLayout::Delimited(_) => {
                 let ch = conf.check_conversion;
                 let go = |c: &'a AnyFCSColumn| match c {
@@ -1777,31 +1946,23 @@ impl AsciiLayout {
                     .map(|(i, c)| go(c).map_err(|e: LossError| (i, e)))
                     .gather()
                     .map(|columns| {
-                        DataWriter::Delim(DelimWriter {
-                            columns,
-                            nrows: df.nrows(),
-                            nbytes: df.ascii_nchars(),
-                        })
+                        DelimWriter::try_new(columns, df.nrows(), df.ascii_nchars())
+                            .map_or(DataWriter::Empty, DataWriter::Delim)
                     })
                     .map_err(|es| es.map(|(i, e)| format!("Convertion error in column {i}: {e}")))
             }
         }
     }
 
-    fn into_reader(self, seg: Segment, kw_tot: Option<Tot>) -> PureMaybe<ColumnReader, String> {
+    fn into_reader(
+        self,
+        seg: Segment,
+        kw_tot: Option<Tot>,
+    ) -> Tentative<ColumnReader, NewFixedReaderIssue, NewFixedReaderIssue> {
         let nbytes = seg.nbytes() as usize;
         match self {
-            AsciiLayout::Delimited(l) => PureSuccess::from(kw_tot.map(|tot| {
-                ColumnReader::DelimitedAscii(DelimAsciiReader {
-                    ncols: l.ncols,
-                    // TODO wut???
-                    nrows: Some(tot),
-                    nbytes,
-                })
-            })),
-            AsciiLayout::Fixed(fl) => fl
-                .into_reader(seg, kw_tot)
-                .map(|x| Some(ColumnReader::AlphaNum(x))),
+            AsciiLayout::Delimited(dl) => Tentative::new(dl.into_reader(nbytes, kw_tot)),
+            AsciiLayout::Fixed(fl) => fl.into_reader(seg, kw_tot).map(ColumnReader::AlphaNum),
         }
     }
 }
@@ -1814,7 +1975,11 @@ impl FloatLayout {
         }
     }
 
-    fn into_reader(self, seg: Segment, kw_tot: Option<Tot>) -> PureSuccess<AlphaNumReader, String> {
+    fn into_reader(
+        self,
+        seg: Segment,
+        kw_tot: Option<Tot>,
+    ) -> Tentative<AlphaNumReader, NewFixedReaderIssue, NewFixedReaderIssue> {
         match self {
             FloatLayout::F32(l) => l.into_reader(seg, kw_tot),
             FloatLayout::F64(l) => l.into_reader(seg, kw_tot),
@@ -1826,7 +1991,7 @@ impl FloatLayout {
         &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
-    ) -> Deferred<FixedWriter<'a>, String> {
+    ) -> Deferred<Option<FixedWriter<'a>>, String> {
         match self {
             FloatLayout::F32(l) => l.as_writer(df, conf),
             FloatLayout::F64(l) => l.as_writer(df, conf),
@@ -1842,20 +2007,20 @@ impl VersionedDataLayout for DataLayout2_0 {
         datatype: AlphaNumType,
         byteord: Self::S,
         columns: Vec<ColumnLayoutData<Self::D>>,
-    ) -> Deferred<Self, String> {
+    ) -> Deferred<Self, NewDataLayoutError> {
         match datatype {
             AlphaNumType::Ascii => AsciiLayout::try_new(columns)
-                .map(DataLayout2_0::Ascii)
-                .map_err(NonEmpty::new),
-            AlphaNumType::Integer => {
-                AnyUintLayout::try_new(columns, &byteord).map(DataLayout2_0::Integer)
-            }
-            AlphaNumType::Single => {
-                f32::layout(columns, &byteord).map(|x| DataLayout2_0::Float(FloatLayout::F32(x)))
-            }
-            AlphaNumType::Double => {
-                f64::layout(columns, &byteord).map(|x| DataLayout2_0::Float(FloatLayout::F64(x)))
-            }
+                .map(|x| x.map_or(Self::Empty, Self::Ascii))
+                .map_err(|e| NonEmpty::new(NewDataLayoutError::Ascii(e))),
+            AlphaNumType::Integer => AnyUintLayout::try_new(columns, &byteord)
+                .map(|x| x.map_or(Self::Empty, Self::Integer))
+                .map_err(|es| es.map(|e| e.into())),
+            AlphaNumType::Single => f32::layout(columns, &byteord)
+                .map(|x| x.map_or(Self::Empty, |y| Self::Float(FloatLayout::F32(y))))
+                .map_err(|es| es.map(|e| e.into())),
+            AlphaNumType::Double => f64::layout(columns, &byteord)
+                .map(|x| x.map_or(Self::Empty, |y| Self::Float(FloatLayout::F64(y))))
+                .map_err(|es| es.map(|e| e.into())),
         }
     }
 
@@ -1866,9 +2031,10 @@ impl VersionedDataLayout for DataLayout2_0 {
 
     fn ncols(&self) -> usize {
         match self {
-            DataLayout2_0::Ascii(a) => a.ncols(),
-            DataLayout2_0::Integer(i) => i.ncols(),
-            DataLayout2_0::Float(f) => f.ncols(),
+            Self::Ascii(a) => a.ncols(),
+            Self::Integer(i) => i.ncols(),
+            Self::Float(f) => f.ncols(),
+            Self::Empty => 0,
         }
     }
 
@@ -1878,40 +2044,37 @@ impl VersionedDataLayout for DataLayout2_0 {
         conf: &WriteConfig,
     ) -> Deferred<DataWriter<'a>, String> {
         match self {
-            DataLayout2_0::Ascii(a) => a.as_writer(df, conf),
-            DataLayout2_0::Integer(i) => i.as_writer(df, conf).map(DataWriter::Fixed),
-            DataLayout2_0::Float(f) => f.as_writer(df, conf).map(DataWriter::Fixed),
+            Self::Ascii(a) => a.as_writer(df, conf),
+            Self::Integer(i) => i
+                .as_writer(df, conf)
+                .map(|x| x.map_or(DataWriter::Empty, DataWriter::Fixed)),
+            Self::Float(f) => f
+                .as_writer(df, conf)
+                .map(|x| x.map_or(DataWriter::Empty, DataWriter::Fixed)),
+            Self::Empty => Ok(DataWriter::Empty),
         }
     }
 
-    fn into_reader(self, kws: &StdKeywords, data_seg: Segment) -> PureMaybe<ColumnReader, String> {
-        let res = Tot::get_meta_opt(kws)
-            .map(|tot| tot.0)
-            .map_err(|e| e.to_string());
-        let nbytes = data_seg.nbytes() as usize;
-        PureMaybe::from_result_1(res, PureErrorLevel::Error)
-            .map(|tot| tot.flatten())
-            .and_then(|tot| match self {
-                DataLayout2_0::Ascii(a) => match a {
-                    AsciiLayout::Delimited(dl) => {
-                        PureSuccess::from(ColumnReader::DelimitedAscii(DelimAsciiReader {
-                            nbytes,
-                            nrows: tot,
-                            ncols: dl.ncols,
-                        }))
-                    }
-                    AsciiLayout::Fixed(fl) => {
-                        fl.into_reader(data_seg, tot).map(ColumnReader::AlphaNum)
-                    }
-                },
-                DataLayout2_0::Integer(fl) => {
-                    fl.into_reader(data_seg, tot).map(ColumnReader::AlphaNum)
-                }
-                DataLayout2_0::Float(fl) => {
-                    fl.into_reader(data_seg, tot).map(ColumnReader::AlphaNum)
-                }
-            })
-            .map(Some)
+    fn into_reader(self, kws: &StdKeywords, data_seg: Segment) -> ReaderResult {
+        let r = match Tot::get_meta_opt(kws).map(|x| x.0) {
+            Ok(value) => Tentative::new((value, self)),
+            Err(w) => Tentative {
+                value: (None, self),
+                warnings: vec![w.into()],
+                errors: vec![],
+            },
+        }
+        .and_tentatively(|(tot, s)| {
+            match s {
+                Self::Ascii(a) => a.into_reader(data_seg, tot),
+                Self::Integer(fl) => fl.into_reader(data_seg, tot).map(ColumnReader::AlphaNum),
+                Self::Float(fl) => fl.into_reader(data_seg, tot).map(ColumnReader::AlphaNum),
+                Self::Empty => Tentative::new(ColumnReader::Empty),
+            }
+            .warnings_into()
+            .errors_into()
+        });
+        Ok(r)
     }
 }
 
@@ -1923,20 +2086,20 @@ impl VersionedDataLayout for DataLayout3_0 {
         datatype: AlphaNumType,
         byteord: Self::S,
         columns: Vec<ColumnLayoutData<Self::D>>,
-    ) -> Deferred<Self, String> {
+    ) -> Deferred<Self, NewDataLayoutError> {
         match datatype {
             AlphaNumType::Ascii => AsciiLayout::try_new(columns)
-                .map(DataLayout3_0::Ascii)
-                .map_err(NonEmpty::new),
-            AlphaNumType::Integer => {
-                AnyUintLayout::try_new(columns, &byteord).map(DataLayout3_0::Integer)
-            }
-            AlphaNumType::Single => {
-                f32::layout(columns, &byteord).map(|x| DataLayout3_0::Float(FloatLayout::F32(x)))
-            }
-            AlphaNumType::Double => {
-                f64::layout(columns, &byteord).map(|x| DataLayout3_0::Float(FloatLayout::F64(x)))
-            }
+                .map(|x| x.map_or(Self::Empty, Self::Ascii))
+                .map_err(|e| NonEmpty::new(NewDataLayoutError::Ascii(e))),
+            AlphaNumType::Integer => AnyUintLayout::try_new(columns, &byteord)
+                .map(|x| x.map_or(Self::Empty, Self::Integer))
+                .map_err(|es| es.map(|e| e.into())),
+            AlphaNumType::Single => f32::layout(columns, &byteord)
+                .map(|x| x.map_or(Self::Empty, |y| Self::Float(FloatLayout::F32(y))))
+                .map_err(|es| es.map(|e| e.into())),
+            AlphaNumType::Double => f64::layout(columns, &byteord)
+                .map(|x| x.map_or(Self::Empty, |y| Self::Float(FloatLayout::F64(y))))
+                .map_err(|es| es.map(|e| e.into())),
         }
     }
 
@@ -1947,9 +2110,10 @@ impl VersionedDataLayout for DataLayout3_0 {
 
     fn ncols(&self) -> usize {
         match self {
-            DataLayout3_0::Ascii(a) => a.ncols(),
-            DataLayout3_0::Integer(i) => i.ncols(),
-            DataLayout3_0::Float(f) => f.ncols(),
+            Self::Ascii(a) => a.ncols(),
+            Self::Integer(i) => i.ncols(),
+            Self::Float(f) => f.ncols(),
+            Self::Empty => 0,
         }
     }
 
@@ -1959,23 +2123,30 @@ impl VersionedDataLayout for DataLayout3_0 {
         conf: &WriteConfig,
     ) -> Deferred<DataWriter<'a>, String> {
         match self {
-            DataLayout3_0::Ascii(a) => a.as_writer(df, conf),
-            DataLayout3_0::Integer(i) => i.as_writer(df, conf).map(DataWriter::Fixed),
-            DataLayout3_0::Float(f) => f.as_writer(df, conf).map(DataWriter::Fixed),
+            Self::Ascii(a) => a.as_writer(df, conf),
+            Self::Integer(i) => i
+                .as_writer(df, conf)
+                .map(|x| x.map_or(DataWriter::Empty, DataWriter::Fixed)),
+            Self::Float(f) => f
+                .as_writer(df, conf)
+                .map(|x| x.map_or(DataWriter::Empty, DataWriter::Fixed)),
+            Self::Empty => Ok(DataWriter::Empty),
         }
     }
 
-    fn into_reader(self, kws: &StdKeywords, data_seg: Segment) -> PureMaybe<ColumnReader, String> {
-        let res = Tot::get_meta_req(kws).map_err(|e| e.to_string());
-        PureMaybe::from_result_1(res, PureErrorLevel::Error).and_then(|tot| match self {
-            DataLayout3_0::Ascii(a) => a.into_reader(data_seg, tot),
-            DataLayout3_0::Integer(fl) => fl
-                .into_reader(data_seg, tot)
-                .map(|x| Some(ColumnReader::AlphaNum(x))),
-            DataLayout3_0::Float(fl) => fl
-                .into_reader(data_seg, tot)
-                .map(|x| Some(ColumnReader::AlphaNum(x))),
-        })
+    fn into_reader(self, kws: &StdKeywords, data_seg: Segment) -> ReaderResult {
+        let tot = Tot::get_meta_req(kws)
+            .map(Some)
+            .map_err(|e| DeferredFailure::new(e.into()))?;
+        let r = match self {
+            Self::Ascii(a) => a.into_reader(data_seg, tot),
+            Self::Integer(fl) => fl.into_reader(data_seg, tot).map(ColumnReader::AlphaNum),
+            Self::Float(fl) => fl.into_reader(data_seg, tot).map(ColumnReader::AlphaNum),
+            Self::Empty => Tentative::new(ColumnReader::Empty),
+        }
+        .warnings_into()
+        .errors_into();
+        Ok(r)
     }
 }
 
@@ -1987,24 +2158,20 @@ impl VersionedDataLayout for DataLayout3_1 {
         datatype: AlphaNumType,
         endian: Self::S,
         columns: Vec<ColumnLayoutData<Self::D>>,
-    ) -> Deferred<Self, String> {
+    ) -> Deferred<Self, NewDataLayoutError> {
         match datatype {
-            AlphaNumType::Ascii => {
-                let l = AsciiLayout::try_new(columns).map_err(NonEmpty::new)?;
-                Ok(DataLayout3_1::Ascii(l))
-            }
-            AlphaNumType::Integer => {
-                let l = FixedLayout::try_new(columns, endian)?;
-                Ok(DataLayout3_1::Integer(l))
-            }
-            AlphaNumType::Single => {
-                let l = f32::layout_endian(columns, endian)?;
-                Ok(DataLayout3_1::Float(FloatLayout::F32(l)))
-            }
-            AlphaNumType::Double => {
-                let l = f64::layout_endian(columns, endian)?;
-                Ok(DataLayout3_1::Float(FloatLayout::F64(l)))
-            }
+            AlphaNumType::Ascii => AsciiLayout::try_new(columns)
+                .map(|x| x.map_or(Self::Empty, Self::Ascii))
+                .map_err(|e| NonEmpty::new(NewDataLayoutError::Ascii(e))),
+            AlphaNumType::Integer => FixedLayout::try_new(columns, endian)
+                .map(|x| x.map_or(Self::Empty, Self::Integer))
+                .map_err(|es| es.map(|e| e.into())),
+            AlphaNumType::Single => f32::layout_endian(columns, endian)
+                .map(|x| x.map_or(Self::Empty, |y| Self::Float(FloatLayout::F32(y))))
+                .map_err(|es| es.map(|e| e.into())),
+            AlphaNumType::Double => f64::layout_endian(columns, endian)
+                .map(|x| x.map_or(Self::Empty, |y| Self::Float(FloatLayout::F64(y))))
+                .map_err(|es| es.map(|e| e.into())),
         }
     }
 
@@ -2021,9 +2188,10 @@ impl VersionedDataLayout for DataLayout3_1 {
 
     fn ncols(&self) -> usize {
         match self {
-            DataLayout3_1::Ascii(a) => a.ncols(),
-            DataLayout3_1::Integer(i) => i.ncols(),
-            DataLayout3_1::Float(f) => f.ncols(),
+            Self::Ascii(a) => a.ncols(),
+            Self::Integer(i) => i.ncols(),
+            Self::Float(f) => f.ncols(),
+            Self::Empty => 0,
         }
     }
 
@@ -2033,23 +2201,30 @@ impl VersionedDataLayout for DataLayout3_1 {
         conf: &WriteConfig,
     ) -> Deferred<DataWriter<'a>, String> {
         match self {
-            DataLayout3_1::Ascii(a) => a.as_writer(df, conf),
-            DataLayout3_1::Integer(i) => i.as_writer(df, conf).map(DataWriter::Fixed),
-            DataLayout3_1::Float(f) => f.as_writer(df, conf).map(DataWriter::Fixed),
+            Self::Ascii(a) => a.as_writer(df, conf),
+            Self::Integer(i) => i
+                .as_writer(df, conf)
+                .map(|x| x.map_or(DataWriter::Empty, DataWriter::Fixed)),
+            Self::Float(f) => f
+                .as_writer(df, conf)
+                .map(|x| x.map_or(DataWriter::Empty, DataWriter::Fixed)),
+            Self::Empty => Ok(DataWriter::Empty),
         }
     }
 
-    fn into_reader(self, kws: &StdKeywords, data_seg: Segment) -> PureMaybe<ColumnReader, String> {
-        let res = Tot::get_meta_req(kws).map_err(|e| e.to_string());
-        PureMaybe::from_result_1(res, PureErrorLevel::Error).and_then(|tot| match self {
-            DataLayout3_1::Ascii(a) => a.into_reader(data_seg, tot),
-            DataLayout3_1::Integer(fl) => fl
-                .into_reader(data_seg, tot)
-                .map(|x| Some(ColumnReader::AlphaNum(x))),
-            DataLayout3_1::Float(fl) => fl
-                .into_reader(data_seg, tot)
-                .map(|x| Some(ColumnReader::AlphaNum(x))),
-        })
+    fn into_reader(self, kws: &StdKeywords, data_seg: Segment) -> ReaderResult {
+        let tot = Tot::get_meta_req(kws)
+            .map(Some)
+            .map_err(|e| DeferredFailure::new(e.into()))?;
+        let r = match self {
+            Self::Ascii(a) => a.into_reader(data_seg, tot),
+            Self::Integer(fl) => fl.into_reader(data_seg, tot).map(ColumnReader::AlphaNum),
+            Self::Float(fl) => fl.into_reader(data_seg, tot).map(ColumnReader::AlphaNum),
+            Self::Empty => Tentative::new(ColumnReader::Empty),
+        }
+        .warnings_into()
+        .errors_into();
+        Ok(r)
     }
 }
 
@@ -2061,43 +2236,47 @@ impl VersionedDataLayout for DataLayout3_2 {
         _: AlphaNumType,
         endian: Self::S,
         columns: Vec<ColumnLayoutData<Self::D>>,
-    ) -> Deferred<Self, String> {
+    ) -> Deferred<Self, NewDataLayoutError> {
         let unique_dt: Vec<_> = columns.iter().map(|c| c.datatype).unique().collect();
         match unique_dt[..] {
             [dt] => match dt {
-                AlphaNumType::Ascii => {
-                    let l = AsciiLayout::try_new(columns).map_err(NonEmpty::new)?;
-                    Ok(DataLayout3_2::Ascii(l))
-                }
-                AlphaNumType::Integer => {
-                    let l = FixedLayout::try_new(columns, endian)?;
-                    Ok(DataLayout3_2::Integer(l))
-                }
-                AlphaNumType::Single => {
-                    let l = f32::layout_endian(columns, endian)?;
-                    Ok(DataLayout3_2::Float(FloatLayout::F32(l)))
-                }
-                AlphaNumType::Double => {
-                    let l = f64::layout_endian(columns, endian)?;
-                    Ok(DataLayout3_2::Float(FloatLayout::F64(l)))
-                }
+                AlphaNumType::Ascii => AsciiLayout::try_new(columns)
+                    .map(|x| x.map_or(Self::Empty, Self::Ascii))
+                    .map_err(|e| NonEmpty::new(NewDataLayoutError::Ascii(e))),
+                AlphaNumType::Integer => FixedLayout::try_new(columns, endian)
+                    .map(|x| x.map_or(Self::Empty, Self::Integer))
+                    .map_err(|es| es.map(|e| e.into())),
+                AlphaNumType::Single => f32::layout_endian(columns, endian)
+                    .map(|x| x.map_or(Self::Empty, |y| Self::Float(FloatLayout::F32(y))))
+                    .map_err(|es| es.map(|e| e.into())),
+                AlphaNumType::Double => f64::layout_endian(columns, endian)
+                    .map(|x| x.map_or(Self::Empty, |y| Self::Float(FloatLayout::F64(y))))
+                    .map_err(|es| es.map(|e| e.into())),
             },
             _ => {
-                let ncols = columns.len();
-                columns
+                let mcs = columns
                     .into_iter()
-                    .map(|c| MixedType::try_new(c.width, c.datatype, endian, &c.range))
-                    .gather()
-                    .and_then(|columns| {
-                        let cs: Vec<_> = columns.into_iter().flatten().collect();
-                        if cs.len() == ncols {
-                            Ok(DataLayout3_2::Mixed(FixedLayout { columns: cs }))
-                        } else {
-                            Err(NonEmpty::new(
-                                "columns contain mix of variable and fixed widths".to_string(),
-                            ))
-                        }
+                    .enumerate()
+                    .map(|(i, c)| {
+                        MixedType::try_new(c.width, c.datatype, endian, c.range)
+                            .map_err(|error| ColumnError {
+                                error,
+                                index: i.into(),
+                            })
+                            .map_err(MixedColumnError)
+                            .map_err(NewDataLayoutError::Mixed)
                     })
+                    .gather()?;
+                let ncols = mcs.len();
+                if let Some(cs) = NonEmpty::collect(mcs.into_iter().flatten()) {
+                    if cs.len() == ncols {
+                        Ok(Self::Mixed(FixedLayout { columns: cs }))
+                    } else {
+                        Err(NonEmpty::new(NewAsciiLayoutError::Mixed.into()))
+                    }
+                } else {
+                    Ok(Self::Empty)
+                }
             }
         }
     }
@@ -2129,10 +2308,11 @@ impl VersionedDataLayout for DataLayout3_2 {
 
     fn ncols(&self) -> usize {
         match self {
-            DataLayout3_2::Ascii(a) => a.ncols(),
-            DataLayout3_2::Integer(i) => i.ncols(),
-            DataLayout3_2::Float(f) => f.ncols(),
-            DataLayout3_2::Mixed(m) => m.ncols(),
+            Self::Ascii(a) => a.ncols(),
+            Self::Integer(i) => i.ncols(),
+            Self::Float(f) => f.ncols(),
+            Self::Mixed(m) => m.ncols(),
+            Self::Empty => 0,
         }
     }
 
@@ -2142,27 +2322,34 @@ impl VersionedDataLayout for DataLayout3_2 {
         conf: &WriteConfig,
     ) -> Deferred<DataWriter<'a>, String> {
         match self {
-            DataLayout3_2::Ascii(a) => a.as_writer(df, conf),
-            DataLayout3_2::Integer(i) => i.as_writer(df, conf).map(DataWriter::Fixed),
-            DataLayout3_2::Float(f) => f.as_writer(df, conf).map(DataWriter::Fixed),
-            DataLayout3_2::Mixed(m) => m.as_writer(df, conf).map(DataWriter::Fixed),
+            Self::Ascii(a) => a.as_writer(df, conf),
+            Self::Integer(i) => i
+                .as_writer(df, conf)
+                .map(|x| x.map_or(DataWriter::Empty, DataWriter::Fixed)),
+            Self::Float(f) => f
+                .as_writer(df, conf)
+                .map(|x| x.map_or(DataWriter::Empty, DataWriter::Fixed)),
+            Self::Mixed(m) => m
+                .as_writer(df, conf)
+                .map(|x| x.map_or(DataWriter::Empty, DataWriter::Fixed)),
+            Self::Empty => Ok(DataWriter::Empty),
         }
     }
 
-    fn into_reader(self, kws: &StdKeywords, data_seg: Segment) -> PureMaybe<ColumnReader, String> {
-        let res = Tot::get_meta_req(kws).map_err(|e| e.to_string());
-        PureMaybe::from_result_1(res, PureErrorLevel::Error).and_then(|tot| match self {
-            DataLayout3_2::Ascii(a) => a.into_reader(data_seg, tot),
-            DataLayout3_2::Integer(fl) => fl
-                .into_reader(data_seg, tot)
-                .map(|x| Some(ColumnReader::AlphaNum(x))),
-            DataLayout3_2::Float(fl) => fl
-                .into_reader(data_seg, tot)
-                .map(|x| Some(ColumnReader::AlphaNum(x))),
-            DataLayout3_2::Mixed(fl) => fl
-                .into_reader(data_seg, tot)
-                .map(|x| Some(ColumnReader::AlphaNum(x))),
-        })
+    fn into_reader(self, kws: &StdKeywords, data_seg: Segment) -> ReaderResult {
+        let tot = Tot::get_meta_req(kws)
+            .map(Some)
+            .map_err(|e| DeferredFailure::new(e.into()))?;
+        let r = match self {
+            Self::Ascii(a) => a.into_reader(data_seg, tot),
+            Self::Integer(fl) => fl.into_reader(data_seg, tot).map(ColumnReader::AlphaNum),
+            Self::Float(fl) => fl.into_reader(data_seg, tot).map(ColumnReader::AlphaNum),
+            Self::Mixed(fl) => fl.into_reader(data_seg, tot).map(ColumnReader::AlphaNum),
+            Self::Empty => Tentative::new(ColumnReader::Empty),
+        }
+        .warnings_into()
+        .errors_into();
+        Ok(r)
     }
 }
 
@@ -2194,3 +2381,134 @@ fn kws_get_columns(kws: &StdKeywords) -> Deferred<Vec<ColumnLayoutData<()>>, Str
                 .map_err(NonEmpty::flatten)
         })
 }
+
+enum_from_disp!(
+    pub NewDataLayoutError,
+    [Ascii,        NewAsciiLayoutError],
+    [FixedInt,     NewFixedIntLayoutError],
+    [OrderedFloat, OrderedFloatColumnError],
+    [EndianFloat,  EndianFloatColumnError],
+    [VariableInt,  NewVariableIntLayoutError],
+    [EndianFloat,  FloatWidthError],
+    [Mixed,        MixedColumnError]
+);
+
+pub enum NewAsciiLayoutError {
+    // when PnB is >20 for some columns
+    // TODO which columns?
+    TooWide,
+    // when PnB is mix of '*' and N in same file
+    Mixed,
+}
+
+// TODO enum wrap?
+pub enum NewFixedIntLayoutError {
+    Width(SingleFixedWidthError),
+    // some error when computing stuff for the column
+    Column(IntOrderedColumnError),
+}
+
+pub struct NewVariableIntLayoutError(ColumnError<UintTypeError>);
+
+enum_from_disp!(
+    pub IntOrderedColumnError,
+    [Order, ByteOrdToSizedError],
+    [Size,  BitmaskError]
+);
+
+pub struct WrongFloatWidth {
+    width: Bytes,
+    expected: usize,
+}
+
+pub struct BitmaskError;
+
+enum_from_disp!(
+    pub UintTypeError,
+    [Bitmask, BitmaskError],
+    [Bytes, WidthToBytesError]
+);
+
+enum_from_disp!(
+    pub FloatWidthError,
+    [Bytes,      WidthToBytesError],
+    [WrongWidth, WrongFloatWidth]
+);
+
+pub enum SingleFixedWidthError {
+    Bytes(WidthToBytesError),
+    Multi(NonEmpty<Bytes>),
+}
+
+enum_from_disp!(
+    pub OrderedFloatError,
+    [Order,      ByteOrdToSizedError],
+    [WrongWidth, FloatWidthError]
+);
+
+pub struct MixedColumnError(ColumnError<MixedTypeError>);
+
+pub struct EndianFloatColumnError(ColumnError<FloatWidthError>);
+
+pub struct OrderedFloatColumnError(ColumnError<OrderedFloatError>);
+
+pub struct ColumnError<E> {
+    index: MeasIdx,
+    error: E,
+}
+
+impl fmt::Display for FloatWidthError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "TODO")
+    }
+}
+
+impl fmt::Display for OrderedFloatError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "TODO")
+    }
+}
+
+impl From<IntOrderedColumnError> for NewFixedIntLayoutError {
+    fn from(value: IntOrderedColumnError) -> Self {
+        NewFixedIntLayoutError::Column(value)
+    }
+}
+
+impl fmt::Display for NewFixedIntLayoutError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "TODO")
+    }
+}
+
+impl fmt::Display for NewAsciiLayoutError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "TODO")
+    }
+}
+
+impl fmt::Display for BitmaskError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "TODO")
+    }
+}
+
+enum_from_disp!(
+    pub NewReaderError,
+    [Fixed, NewFixedReaderIssue],
+    [ParseTot, ReqKeyError<ParseIntError>]
+);
+
+enum_from_disp!(
+    pub NewReaderWarning,
+    [Fixed, NewFixedReaderIssue],
+    [ParseTot, ParseKeyError<ParseIntError>]
+);
+
+pub enum NewWriterError {}
+
+pub enum NewWriterWarning {}
+
+type ReaderResult = DeferredResult<ColumnReader, NewReaderWarning, NewReaderError>;
+
+type WriterResult<'a> = DeferredResult<DataWriter<'a>, NewWriterWarning, NewWriterError>;

@@ -61,7 +61,7 @@ pub struct MixedOrder(Vec<u8>);
 
 impl ByteOrd {
     // TODO this is just try_from
-    pub fn try_new(xs: Vec<u8>) -> Result<Self, ByteOrdError> {
+    pub fn try_new(xs: Vec<u8>) -> Result<Self, NewByteOrdError> {
         let n = xs.len();
         if xs.iter().unique().count() == n
             && !(1..=8).contains(&n)
@@ -70,7 +70,7 @@ impl ByteOrd {
         {
             Ok(ByteOrd(xs.iter().map(|x| x - 1).collect()))
         } else {
-            Err(ByteOrdError)
+            Err(NewByteOrdError)
         }
     }
 
@@ -94,11 +94,14 @@ impl ByteOrd {
         }
     }
 
-    pub fn as_sized<const LEN: usize>(&self) -> Result<SizedByteOrd<LEN>, String> {
+    pub fn as_sized<const LEN: usize>(&self) -> Result<SizedByteOrd<LEN>, ByteOrdToSizedError> {
         let xs = &self.0;
         let n = xs.len();
         if n != LEN {
-            Err(format!("$BYTEORD is {n} bytes, expected {LEN}"))
+            Err(ByteOrdToSizedError {
+                bytes: n,
+                length: LEN,
+            })
         } else if let Some(e) = self.as_endian() {
             Ok(SizedByteOrd::Endian(e))
         } else {
@@ -162,6 +165,11 @@ impl Width {
         }
     }
 
+    pub(crate) fn as_bytes(&self) -> Result<Bytes, WidthToBytesError> {
+        let fixed = self.as_fixed().ok_or(WidthToBytesError::Variable)?;
+        fixed.bytes().map_err(WidthToBytesError::Bytes)
+    }
+
     /// Given a list of widths and a type, return the byte-width for a matrix.
     ///
     /// That is, only return Some if the widths are all the same and they
@@ -175,9 +183,10 @@ impl Width {
     ///
     /// If type is Float or Double, return number must be 4 or 8 respectively.
     pub(crate) fn matrix_bytes(ms: &[Self], t: AlphaNumType) -> Option<Bytes> {
+        // TODO handle errors better here?
         let sizes: Vec<_> = ms
             .iter()
-            .map(|w| w.as_fixed().and_then(|x| x.bytes()))
+            .map(|w| w.as_fixed().and_then(|x| x.bytes().ok()))
             .unique()
             .collect();
         match t {
@@ -217,11 +226,11 @@ impl BitsOrChars {
     /// parse time if this is for an ASCII column or a numeric column, so
     /// need to check that the number is less then 20, which is the maximum
     /// number of digits that can be stored in a u64.
-    pub fn chars(&self) -> Option<Chars> {
+    pub fn chars(&self) -> Result<Chars, CharsError> {
         if self.0 > 20 {
-            None
+            Err(CharsError(self.0))
         } else {
-            Some(Chars(self.0))
+            Ok(Chars(self.0))
         }
     }
 
@@ -229,11 +238,11 @@ impl BitsOrChars {
     ///
     /// Return None if not divisible by 8. This should only return a number
     /// in [1, 8] because we check that Self is within [1,64]
-    pub fn bytes(&self) -> Option<Bytes> {
+    pub fn bytes(&self) -> Result<Bytes, BytesError> {
         if self.0 % 8 == 0 {
-            Some(Bytes(self.0 / 8))
+            Ok(Bytes(self.0 / 8))
         } else {
-            None
+            Err(BytesError(self.0))
         }
     }
 
@@ -243,13 +252,13 @@ impl BitsOrChars {
 }
 
 impl FromStr for Endian {
-    type Err = EndianError;
+    type Err = NewEndianError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "1,2,3,4" => Ok(Endian::Little),
             "4,3,2,1" => Ok(Endian::Big),
-            _ => Err(EndianError),
+            _ => Err(NewEndianError),
         }
     }
 }
@@ -281,36 +290,6 @@ impl FromStr for ByteOrd {
 impl fmt::Display for ByteOrd {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "{}", self.0.iter().join(","))
-    }
-}
-
-pub struct EndianError;
-
-impl fmt::Display for EndianError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "Endian must be either 1,2,3,4 or 4,3,2,1")
-    }
-}
-
-pub struct ByteOrdError;
-
-pub enum ParseByteOrdError {
-    Order(ByteOrdError),
-    Format,
-}
-
-impl fmt::Display for ParseByteOrdError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            ParseByteOrdError::Format => write!(f, "Could not parse numbers in byte order"),
-            ParseByteOrdError::Order(x) => x.fmt(f),
-        }
-    }
-}
-
-impl fmt::Display for ByteOrdError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "Byte order must include 1-n uniquely")
     }
 }
 
@@ -369,7 +348,7 @@ impl FromStr for Width {
                 // TODO this isn't necessary, we can check this when converting
                 // to bytes or chars later
                 if !(1..=64).contains(&x) {
-                    Err(ParseBitsError::Inner(BitsError))
+                    Err(ParseBitsError::Inner(BitsError(x)))
                 } else {
                     Ok(Width::Fixed(BitsOrChars(x)))
                 }
@@ -387,12 +366,98 @@ impl fmt::Display for Width {
     }
 }
 
+impl<const LEN: usize> From<Endian> for SizedByteOrd<LEN> {
+    fn from(value: Endian) -> Self {
+        SizedByteOrd::Endian(value)
+    }
+}
+
+impl TryFrom<ByteOrd> for Endian {
+    type Error = EndianToByteOrdError;
+
+    fn try_from(value: ByteOrd) -> Result<Self, Self::Error> {
+        value.as_endian().ok_or(EndianToByteOrdError)
+    }
+}
+
 pub enum ParseBitsError {
     Int(ParseIntError),
     Inner(BitsError),
 }
 
-pub struct BitsError;
+pub struct BitsError(u8);
+
+pub enum ParseByteOrdError {
+    Order(NewByteOrdError),
+    Format,
+}
+
+pub struct NewByteOrdError;
+
+pub struct NewEndianError;
+
+pub struct CharsError(u8);
+
+pub struct BytesError(u8);
+
+pub struct EndianToByteOrdError;
+
+pub struct ByteOrdToEndianError(Vec<u8>);
+
+pub struct ByteOrdToSizedError {
+    bytes: usize,
+    length: usize,
+}
+
+pub enum WidthToBytesError {
+    Variable,
+    Bytes(BytesError),
+}
+
+impl fmt::Display for ParseByteOrdError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            ParseByteOrdError::Format => write!(f, "Could not parse numbers in byte order"),
+            ParseByteOrdError::Order(x) => x.fmt(f),
+        }
+    }
+}
+
+impl fmt::Display for NewByteOrdError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "Byte order must include 1-n uniquely")
+    }
+}
+
+impl fmt::Display for ByteOrdToEndianError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "Byte order must be in order (ascending or descending) to convert \
+             to endian, got {}",
+            self.0.iter().join(",")
+        )
+    }
+}
+
+impl fmt::Display for EndianToByteOrdError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "could not convert ByteOrd, must be either '1,2,3,4' or '4,3,2,1'",
+        )
+    }
+}
+
+impl fmt::Display for ByteOrdToSizedError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "$BYTEORD is {} bytes, expected {}",
+            self.bytes, self.length
+        )
+    }
+}
 
 impl fmt::Display for ParseBitsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -405,31 +470,33 @@ impl fmt::Display for ParseBitsError {
 
 impl fmt::Display for BitsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "bits must be between 8 and 64")
+        write!(f, "bits must be between 1 and 64, got {}", self.0)
     }
 }
 
-impl<const LEN: usize> From<Endian> for SizedByteOrd<LEN> {
-    fn from(value: Endian) -> Self {
-        SizedByteOrd::Endian(value)
-    }
-}
-
-impl TryFrom<ByteOrd> for Endian {
-    type Error = FromByteOrdError;
-
-    fn try_from(value: ByteOrd) -> Result<Self, Self::Error> {
-        value.as_endian().ok_or(FromByteOrdError)
-    }
-}
-
-pub struct FromByteOrdError;
-
-impl fmt::Display for FromByteOrdError {
+impl fmt::Display for CharsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             f,
-            "could not convert ByteOrd, must be either '1,2,3,4' or '4,3,2,1'",
+            "bits must be <= 20 to use as number of characters, got {}",
+            self.0
         )
+    }
+}
+
+impl fmt::Display for BytesError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "bits must be multiple of 8 and between 8 and 64 \
+             to used as byte width, got {}",
+            self.0
+        )
+    }
+}
+
+impl fmt::Display for NewEndianError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "Endian must be either 1,2,3,4 or 4,3,2,1")
     }
 }

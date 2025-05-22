@@ -24,7 +24,7 @@ pub type NonStdKeywords = HashMap<NonStdKey, String>;
 pub struct NonStdMeasPattern(String);
 
 /// The index for a measurement
-// TODO this should start from 1?
+// TODO why is this here?
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
 pub struct MeasIdx(usize);
 

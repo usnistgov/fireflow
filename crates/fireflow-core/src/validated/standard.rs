@@ -87,14 +87,15 @@ where
     T: FromStr,
     <T as FromStr>::Err: fmt::Display,
 {
-    match kws.get(k) {
-        Some(v) => v.parse().map(Some).map_err(|error| ParseKeyError {
-            error,
-            key: k.clone(),
-            value: v.clone(),
-        }),
-        None => Ok(None),
-    }
+    kws.get(k)
+        .map(|v| {
+            v.parse().map_err(|error| ParseKeyError {
+                error,
+                key: k.clone(),
+                value: v.clone(),
+            })
+        })
+        .transpose()
 }
 
 /// Find a required standard key in a hash table and remove it
@@ -122,14 +123,15 @@ where
     T: FromStr,
     <T as FromStr>::Err: fmt::Display,
 {
-    match kws.remove(k) {
-        Some(v) => v.parse().map(Some).map_err(|error| ParseKeyError {
-            error,
-            key: k.clone(),
-            value: v,
-        }),
-        None => Ok(None),
-    }
+    kws.remove(k)
+        .map(|v| {
+            v.parse().map_err(|error| ParseKeyError {
+                error,
+                key: k.clone(),
+                value: v,
+            })
+        })
+        .transpose()
 }
 
 /// A standard key with on index

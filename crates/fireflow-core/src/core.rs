@@ -1309,7 +1309,7 @@ pub(crate) type MetaConvertErrors = Vec<MetaConvertError>;
 
 pub enum MetaConvertError {
     NoCyt,
-    FromByteOrd(FromByteOrdError),
+    FromByteOrd(EndianToByteOrdError),
     FromEndian,
 }
 
@@ -2425,7 +2425,7 @@ where
         // fails because the API assumes these are valid and provides no way
         // to fix otherwise.
         tnt_core
-            .and_then(|core| {
+            .and_maybe(|core| {
                 core.check_linked_names()
                     .map(|_| Tentative::new(core))
                     .map_err(|es| es.map(|x| x.into()))
@@ -2505,6 +2505,8 @@ where
     }
 }
 
+// TODO what is the point of having the dataframe and measurements be empty?
+// Does this make sense to allow?
 impl<M> VersionedCoreDataset<M>
 where
     M: VersionedMetadata,
@@ -2551,6 +2553,7 @@ where
     ///
     /// Return error if columns are not all the same length or number of columns
     /// doesn't match the number of measurement.
+    // TODO if this is empty this will clear the dataset, so what is 'unset' for?
     pub fn set_data(&mut self, cols: Vec<AnyFCSColumn>) -> Result<(), String> {
         self.data = self.try_cols_to_dataframe(cols)?;
         Ok(())

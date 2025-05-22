@@ -285,7 +285,9 @@ where
     Self: Copy,
     [Self]: ToOwned,
 {
-    fn iter_native(c: &FCSColumn<Self>) -> iter::Copied<Iter<'_, Self>>;
+    fn iter_native(c: &FCSColumn<Self>) -> iter::Copied<Iter<'_, Self>> {
+        c.0.iter().copied()
+    }
 
     fn iter_converted<ToType>(c: &FCSColumn<Self>) -> FCSColIter<'_, Self, ToType>
     where
@@ -322,22 +324,12 @@ where
     }
 }
 
-macro_rules! impl_col_iter {
-    ($pltype:ident) => {
-        impl FCSDataType for $pltype {
-            fn iter_native(c: &FCSColumn<Self>) -> iter::Copied<Iter<'_, Self>> {
-                c.0.iter().copied()
-            }
-        }
-    };
-}
-
-impl_col_iter!(u8);
-impl_col_iter!(u16);
-impl_col_iter!(u32);
-impl_col_iter!(u64);
-impl_col_iter!(f32);
-impl_col_iter!(f64);
+impl FCSDataType for u8 {}
+impl FCSDataType for u16 {}
+impl FCSDataType for u32 {}
+impl FCSDataType for u64 {}
+impl FCSDataType for f32 {}
+impl FCSDataType for f64 {}
 
 pub(crate) struct CastResult<T> {
     pub(crate) new: T,

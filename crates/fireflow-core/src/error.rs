@@ -91,6 +91,7 @@ impl<I: Iterator<Item = Result<T, E>>, T, E> ErrorIter<T, E> for I {}
 
 pub type DeferredResult<V, W, E> = Result<Tentative<V, W, E>, DeferredFailure<W, E>>;
 
+// TODO tentative shouldn't be in Ok, that's the point
 pub type TerminalResult<V, W, E, T> = Result<Tentative<V, W, E>, TerminalFailure<W, E, T>>;
 
 pub struct Tentative<V, W, E> {
@@ -267,6 +268,15 @@ impl<V, W, E> Tentative<V, W, E> {
     {
         self.errors_map(|e| e.into())
     }
+
+    pub fn mconcat(xs: Vec<Self>) -> Tentative<Vec<V>, W, E> {
+        let mut ret = Tentative::new(vec![]);
+        for x in xs {
+            ret.warnings.extend(x.warnings);
+            ret.errors.extend(x.errors);
+        }
+        ret
+    }
 }
 
 impl<W, E> DeferredFailure<W, E> {
@@ -318,13 +328,17 @@ impl<W, E> DeferredFailure<W, E> {
         self.errors_map(|e| e.into())
     }
 
-    pub fn mconcat(mut self, other: Self) -> Self {
+    pub fn mappend(mut self, other: Self) -> Self {
         self.warnings.extend(other.warnings);
         self.errors.extend(other.errors);
         Self {
             warnings: self.warnings,
             errors: self.errors,
         }
+    }
+
+    pub fn fold(es: NonEmpty<Self>) -> Self {
+        es.tail.into_iter().fold(es.head, |acc, x| acc.mappend(x))
     }
 
     pub fn terminate<T>(self, reason: T) -> TerminalFailure<W, E, T> {

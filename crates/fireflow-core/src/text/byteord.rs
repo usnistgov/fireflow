@@ -165,9 +165,14 @@ impl Width {
         }
     }
 
+    pub(crate) fn as_chars(&self) -> Result<Chars, WidthToCharsError> {
+        let fixed = self.as_fixed().ok_or(WidthToFixedError::Variable)?;
+        fixed.chars().map_err(WidthToFixedError::Fixed)
+    }
+
     pub(crate) fn as_bytes(&self) -> Result<Bytes, WidthToBytesError> {
-        let fixed = self.as_fixed().ok_or(WidthToBytesError::Variable)?;
-        fixed.bytes().map_err(WidthToBytesError::Bytes)
+        let fixed = self.as_fixed().ok_or(WidthToFixedError::Variable)?;
+        fixed.bytes().map_err(WidthToFixedError::Fixed)
     }
 
     /// Given a list of widths and a type, return the byte-width for a matrix.
@@ -409,9 +414,13 @@ pub struct ByteOrdToSizedError {
     length: usize,
 }
 
-pub enum WidthToBytesError {
+pub type WidthToCharsError = WidthToFixedError<CharsError>;
+
+pub type WidthToBytesError = WidthToFixedError<BytesError>;
+
+pub enum WidthToFixedError<X> {
     Variable,
-    Bytes(BytesError),
+    Fixed(X),
 }
 
 impl fmt::Display for ParseByteOrdError {
@@ -498,5 +507,17 @@ impl fmt::Display for BytesError {
 impl fmt::Display for NewEndianError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "Endian must be either 1,2,3,4 or 4,3,2,1")
+    }
+}
+
+impl<E> fmt::Display for WidthToFixedError<E>
+where
+    E: fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::Variable => write!(f, "width is variable were fixed is needed"),
+            Self::Fixed(e) => write!(f, "error when converting fixed bits: {e}"),
+        }
     }
 }

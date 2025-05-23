@@ -2495,7 +2495,9 @@ struct UnevenEventWidth {
     remainder: usize,
 }
 
-struct ColumnWriterError(ColumnError<LossError>);
+pub struct ColumnWriterError(ColumnError<LossError>);
+
+newtype_disp!(ColumnWriterError);
 
 #[derive(Default)]
 pub enum LossError {

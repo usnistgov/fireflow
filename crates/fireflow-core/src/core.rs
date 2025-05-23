@@ -3,7 +3,6 @@ use crate::data::*;
 use crate::error::*;
 use crate::header::*;
 use crate::header_text::*;
-use crate::macros::enum_from_disp;
 use crate::macros::{enum_from, enum_from_disp, match_many_to_one, newtype_from};
 use crate::segment::*;
 use crate::text::byteord::*;
@@ -34,7 +33,6 @@ use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::fmt;
-use std::io;
 use std::io::{BufWriter, Write};
 
 /// Represents the minimal data required to write an FCS file.
@@ -283,18 +281,10 @@ impl AnyCoreTEXT {
         conf: &StdTextReadConfig,
     ) -> TerminalResult<Self, ParseKeysWarning, ParseKeysError, CoreTEXTFailure> {
         match version {
-            Version::FCS2_0 => {
-                CoreTEXT2_0::new_from_raw(std, nonstd, conf).map(|x| x.map(|y| y.into()))
-            }
-            Version::FCS3_0 => {
-                CoreTEXT3_0::new_from_raw(std, nonstd, conf).map(|x| x.map(|y| y.into()))
-            }
-            Version::FCS3_1 => {
-                CoreTEXT3_1::new_from_raw(std, nonstd, conf).map(|x| x.map(|y| y.into()))
-            }
-            Version::FCS3_2 => {
-                CoreTEXT3_2::new_from_raw(std, nonstd, conf).map(|x| x.map(|y| y.into()))
-            }
+            Version::FCS2_0 => CoreTEXT2_0::new_from_raw(std, nonstd, conf).map(|x| x.value_into()),
+            Version::FCS3_0 => CoreTEXT3_0::new_from_raw(std, nonstd, conf).map(|x| x.value_into()),
+            Version::FCS3_1 => CoreTEXT3_1::new_from_raw(std, nonstd, conf).map(|x| x.value_into()),
+            Version::FCS3_2 => CoreTEXT3_2::new_from_raw(std, nonstd, conf).map(|x| x.value_into()),
         }
     }
 
@@ -334,7 +324,7 @@ impl AnyCoreTEXT {
         kws: &mut StdKeywords,
         conf: &DataReadConfig,
         data_seg: Segment,
-    ) -> ReaderResult {
+    ) -> DeferredResult<DataReader, NewReaderWarning, StdReaderError> {
         match_anycoretext!(self, x, { x.as_data_reader(kws, conf, data_seg) })
     }
 }
@@ -955,20 +945,16 @@ where
 
     fn try_convert<ToP: TryFrom<P, Error = OpticalConvertError>>(
         self,
-        n: MeasIdx,
-    ) -> Result<Optical<ToP>, String> {
-        self.specific
-            .try_into()
-            .map_err(|e: OpticalConvertError| e.fmt(n))
-            .map(|specific| Optical {
-                common: self.common,
-                detector_type: self.detector_type,
-                detector_voltage: self.detector_voltage,
-                filter: self.filter,
-                power: self.power,
-                percent_emitted: self.percent_emitted,
-                specific,
-            })
+    ) -> Result<Optical<ToP>, OpticalConvertError> {
+        self.specific.try_into().map(|specific| Optical {
+            common: self.common,
+            detector_type: self.detector_type,
+            detector_voltage: self.detector_voltage,
+            filter: self.filter,
+            power: self.power,
+            percent_emitted: self.percent_emitted,
+            specific,
+        })
     }
 
     fn lookup_optical(st: &mut KwParser, i: MeasIdx, nonstd: NonStdPairs) -> Option<Self>
@@ -1262,6 +1248,7 @@ pub(crate) type RawOptTriples = Vec<(String, String, Option<String>)>;
 
 // TODO generalize this
 pub enum OpticalConvertError {
+    // ASSUME index is included in the encapsulating error type
     NoScale,
 }
 
@@ -1420,16 +1407,17 @@ where
         data_len: usize,
         analysis_len: usize,
         conf: &WriteConfig,
-    ) -> io::Result<bool> {
+    ) -> Result<(), ImpureErrorInner<TEXTOverflowError>> {
         // TODO newtypes for data and analysis lenth to make them more obvious
         if let Some(ts) = self.text_segment(tot, data_len, analysis_len) {
             for t in ts {
                 h.write_all(t.as_bytes())?;
                 h.write_all(&[conf.delim.inner()])?;
             }
-            Ok(true)
+            Ok(())
         } else {
-            Ok(false)
+            let te = ImpureErrorInner::Pure(TEXTOverflowError);
+            Err(te)
         }
     }
 
@@ -1898,7 +1886,16 @@ where
     ///
     /// Conversion may fail if some required keywords in the target version
     /// are not present in current version.
-    pub fn try_convert<ToM>(self) -> DeferredResult<VersionedCore<A, D, ToM>, (), String>
+    pub fn try_convert<ToM>(
+        self,
+    ) -> Deferred<
+        VersionedCore<A, D, ToM>,
+        ConvertError<
+            <<ToM::N as MightHave>::Wrapper<Shortname> as TryFrom<
+                <M::N as MightHave>::Wrapper<Shortname>,
+            >>::Error,
+        >,
+    >
     where
         M::N: Clone,
         ToM: VersionedMetadata,
@@ -1912,41 +1909,33 @@ where
         <ToM::N as MightHave>::Wrapper<Shortname>: TryFrom<<M::N as MightHave>::Wrapper<Shortname>>,
     {
         let widths = self.widths();
-        let ps = self
-            .measurements
-            .map_center_value(|y| y.value.convert())
-            .map_non_center_values(|i, v| v.try_convert(i.into()));
         let convert = SizeConvert {
             widths,
             datatype: self.metadata.datatype,
             size: self.metadata.specific.byteord(),
         };
-        let m = self.metadata.try_convert(convert);
-        let res = match (m, ps) {
-            (Ok(metadata), Ok(old_ps)) => {
-                if let Some(measurements) = old_ps.try_rewrapped() {
-                    Ok(Core {
-                        metadata,
-                        measurements,
-                        data: self.data,
-                        analysis: self.analysis,
-                    })
-                } else {
-                    Err(vec![BlankShortnames])
-                }
-            }
-            (a, b) => Err(b
-                .err()
-                .unwrap_or_default()
-                .into_iter()
-                .chain(a.err().unwrap_or_default())
-                .collect()),
-        };
-        let e = VersionConvertError {
-            from: M::P::fcs_version(),
-            to: ToM::P::fcs_version(),
-        };
-        PureMaybe::from_result_strs(res, PureErrorLevel::Error).into_result(msg)
+        let m = self
+            .metadata
+            .try_convert(convert)
+            .map_err(|es| es.map(ConvertError::Meta));
+        let ps = self
+            .measurements
+            .map_center_value(|y| y.value.convert())
+            .map_non_center_values(|_, v| v.try_convert())
+            .map_err(|es| es.map(ConvertError::Optical))
+            .and_then(|x| x.try_rewrapped().map_err(|es| es.map(ConvertError::Rewrap)));
+        let (metadata, measurements) = combine_results(m, ps).map_err(NonEmpty::flatten)?;
+        Ok(Core {
+            metadata,
+            measurements,
+            data: self.data,
+            analysis: self.analysis,
+        })
+        // let e = VersionConvertError {
+        //     from: M::P::fcs_version(),
+        //     to: ToM::P::fcs_version(),
+        // };
+        // PureMaybe::from_result_strs(res, PureErrorLevel::Error).into_result(msg)
     }
 
     #[allow(clippy::type_complexity)]
@@ -2432,7 +2421,9 @@ where
                     .map_err(|es| es.map(|x| x.into()))
                     .map_err(DeferredFailure::new_with_many)
             })
+            // TODO this seems a bit wet
             .map_err(|e| e.terminate(CoreTEXTFailure::Linked))
+            .and_then(|t| t.terminate(CoreTEXTFailure::Linked))
     }
 
     /// Remove a measurement matching the given name.
@@ -2515,34 +2506,43 @@ where
     M::L: VersionedDataLayout,
 {
     /// Write this dataset (HEADER+TEXT+DATA+ANALYSIS) to a handle
-    pub fn h_write<W>(&self, h: &mut BufWriter<W>, conf: &WriteConfig) -> ImpureResult<(), String>
+    pub fn h_write<W>(
+        &self,
+        h: &mut BufWriter<W>,
+        conf: &WriteConfig,
+    ) -> TerminalResult<(), (), StdWriterError, ImpureErrorInner<StdReaderTermination>>
     where
         W: Write,
     {
-        // Get the layout, or bail if we can't
-        let layout = self.as_column_layout().map_err(|es| Failure {
-            reason: "could not create data layout".to_string(),
-            deferred: PureErrorBuf::from_many(Vec::from(es), PureErrorLevel::Error),
-        })?;
-
+        // Get the layout/writer, bail if we can't
         let df = &self.data;
+        let mut writer = self
+            .as_column_layout()
+            .map_err(|es| es.map(|e| e.into()))
+            .and_then(|layout| {
+                layout
+                    .as_writer(df, conf)
+                    .map_err(|es| es.map(|e| e.into()))
+            })
+            .map_err(|es| {
+                let te = ImpureErrorInner::Pure(TerminalDataLayoutFailure.into());
+                DeferredFailure::new_with_many(es)
+                    .terminate(te)
+                    .terminal_into()
+            })?;
+
         let tot = Tot(df.nrows());
         let analysis_len = self.analysis.0.len();
-        let writer = layout.as_writer(df, conf)?;
-        writer.try_map(|mut w| {
-            // write HEADER+TEXT first
-            if self.h_write_text(h, tot, w.nbytes(), analysis_len, conf)? {
-                // write DATA
-                w.h_write(h)?;
-                // write ANALYSIS
-                h.write_all(&self.analysis.0)?;
-                Ok(PureSuccess::from(()))
-            } else {
-                Err(Failure::new(
-                    "primary TEXT does not fit into first 99,999,999 bytes".to_string(),
-                ))?
-            }
-        })
+        // write HEADER+TEXT first
+        self.h_write_text(h, tot, writer.nbytes(), analysis_len, conf)
+            .map(Terminal::<(), ()>::new)
+            .map_err(|t| t.inner_into())
+            .map_err(TerminalFailure::new_single)?;
+        // write DATA
+        writer.h_write(h)?;
+        // write ANALYSIS
+        h.write_all(&self.analysis.0)?;
+        Ok(Terminal::new(()))
     }
 
     /// Return reference to dataframe representing DATA
@@ -5354,6 +5354,13 @@ impl fmt::Display for SetFloatError {
     }
 }
 
+// TODO somehow include version in this error
+pub enum ConvertError<E> {
+    Rewrap(IndexedElementError<E>),
+    Meta(MetaConvertError),
+    Optical(IndexedElementError<OpticalConvertError>),
+}
+
 pub struct VersionConvertError {
     from: Version,
     to: Version,
@@ -5379,4 +5386,21 @@ enum_from_disp!(
     pub StdReaderError,
     [Layout, NewDataLayoutError],
     [Reader, NewReaderError]
+);
+
+enum_from_disp!(
+    pub StdReaderTermination,
+    [Layout, TerminalDataLayoutFailure],
+    [TEXT, TEXTOverflowError]
+);
+
+pub struct TerminalDataLayoutFailure;
+
+// primary TEXT does not fit into first 99,999,999 bytes
+pub struct TEXTOverflowError;
+
+enum_from_disp!(
+    pub StdWriterError,
+    [Layout, NewDataLayoutError],
+    [Writer, ColumnWriterError]
 );

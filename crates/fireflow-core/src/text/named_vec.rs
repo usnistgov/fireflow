@@ -514,14 +514,25 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     }
 
     /// Apply function over non-center values, possibly changing their type
-    pub fn map_non_center_values<E, F, W>(self, f: F) -> Deferred<WrappedNamedVec<K, U, W>, E>
+    pub fn map_non_center_values<E, F, W>(
+        self,
+        f: F,
+    ) -> Deferred<WrappedNamedVec<K, U, W>, IndexedElementError<E>>
     where
         F: Fn(usize, V) -> Result<W, E>,
     {
         let go = |xs: WrappedPairedVec<K, V>, offset: usize| {
             xs.into_iter()
                 .enumerate()
-                .map(|(i, p)| f(i + offset, p.value).map(|value| Pair { key: p.key, value }))
+                .map(|(i, p)| {
+                    let j = i + offset;
+                    f(j, p.value)
+                        .map(|value| Pair { key: p.key, value })
+                        .map_err(|error| IndexedElementError {
+                            index: j.into(),
+                            error,
+                        })
+                })
                 .gather()
         };
         match self {
@@ -1158,7 +1169,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         self,
     ) -> Deferred<
         WrappedNamedVec<J, U, V>,
-        RewrapError<<J::Wrapper<Shortname> as TryFrom<K::Wrapper<Shortname>>>::Error>,
+        IndexedElementError<<J::Wrapper<Shortname> as TryFrom<K::Wrapper<Shortname>>>::Error>,
     >
     where
         J: MightHave,
@@ -1168,7 +1179,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
             xs.into_iter()
                 .enumerate()
                 .map(|(i, p)| {
-                    Self::try_into_wrapper::<J>(p).map_err(|error| RewrapError {
+                    Self::try_into_wrapper::<J>(p).map_err(|error| IndexedElementError {
                         error,
                         index: (i + offset).into(),
                     })
@@ -1571,21 +1582,22 @@ pub enum NewNamedVecError {
     MultiCenter,
 }
 
-pub struct RewrapError<E> {
+// pub struct RewrapError<E> {
+//     error: E,
+//     index: MeasIdx,
+// }
+
+pub struct IndexedElementError<E> {
     error: E,
     index: MeasIdx,
 }
 
-impl<E> fmt::Display for RewrapError<E>
+impl<E> fmt::Display for IndexedElementError<E>
 where
     E: fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "error converting name for element {}: {}",
-            self.index, self.error
-        )
+        write!(f, "error for element {}: {}", self.index, self.error)
     }
 }
 

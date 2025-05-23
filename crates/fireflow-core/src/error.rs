@@ -91,8 +91,7 @@ impl<I: Iterator<Item = Result<T, E>>, T, E> ErrorIter<T, E> for I {}
 
 pub type DeferredResult<V, W, E> = Result<Tentative<V, W, E>, DeferredFailure<W, E>>;
 
-// TODO tentative shouldn't be in Ok, that's the point
-pub type TerminalResult<V, W, E, T> = Result<Tentative<V, W, E>, TerminalFailure<W, E, T>>;
+pub type TerminalResult<V, W, E, T> = Result<Terminal<V, W>, TerminalFailure<W, E, T>>;
 
 pub struct Tentative<V, W, E> {
     pub value: V,
@@ -110,9 +109,62 @@ pub struct TerminalFailure<W, E, T> {
     pub errors: TerminalFailureType<E, T>,
 }
 
+pub struct Terminal<V, W> {
+    value: V,
+    warnings: Vec<W>,
+}
+
+impl<V, W> Terminal<V, W> {
+    pub fn new(value: V) -> Self {
+        Self {
+            value,
+            warnings: vec![],
+        }
+    }
+
+    pub fn value_into<U>(self) -> Terminal<U, W>
+    where
+        U: From<V>,
+    {
+        self.map(|v| v.into())
+    }
+
+    pub fn map<F, X>(self, f: F) -> Terminal<X, W>
+    where
+        F: Fn(V) -> X,
+    {
+        Terminal {
+            value: f(self.value),
+            warnings: self.warnings,
+        }
+    }
+}
+
 pub enum TerminalFailureType<E, T> {
     Single(T),
     Many(T, NonEmpty<E>),
+}
+
+impl<E, T> TerminalFailureType<E, T> {
+    pub fn map_errors<F, X>(self, f: F) -> TerminalFailureType<X, T>
+    where
+        F: Fn(E) -> X,
+    {
+        match self {
+            TerminalFailureType::Many(t, es) => TerminalFailureType::Many(t, es.map(f)),
+            TerminalFailureType::Single(t) => TerminalFailureType::Single(t),
+        }
+    }
+
+    pub fn map_terminal<F, X>(self, f: F) -> TerminalFailureType<E, X>
+    where
+        F: Fn(T) -> X,
+    {
+        match self {
+            TerminalFailureType::Many(t, es) => TerminalFailureType::Many(f(t), es),
+            TerminalFailureType::Single(t) => TerminalFailureType::Single(f(t)),
+        }
+    }
 }
 
 impl<W, E, T> TerminalFailure<W, E, T> {
@@ -130,14 +182,56 @@ impl<W, E, T> TerminalFailure<W, E, T> {
     pub fn new_many(t: T, es: NonEmpty<E>) -> Self {
         Self::new(TerminalFailureType::Many(t, es))
     }
-}
 
-impl<W, E> From<io::Error> for TerminalFailure<W, E, ImpureError> {
-    fn from(value: io::Error) -> Self {
+    pub fn warnings_map<F, X>(self, f: F) -> TerminalFailure<X, E, T>
+    where
+        F: Fn(W) -> X,
+    {
         TerminalFailure {
-            warnings: vec![],
-            errors: TerminalFailureType::Single(ImpureError::IO(value)),
+            warnings: self.warnings.into_iter().map(f).collect(),
+            errors: self.errors,
         }
+    }
+
+    pub fn errors_map<F, X>(self, f: F) -> TerminalFailure<W, X, T>
+    where
+        F: Fn(E) -> X,
+    {
+        TerminalFailure {
+            warnings: self.warnings,
+            errors: self.errors.map_errors(f),
+        }
+    }
+
+    pub fn terminal_map<F, X>(self, f: F) -> TerminalFailure<W, E, X>
+    where
+        F: Fn(T) -> X,
+    {
+        TerminalFailure {
+            warnings: self.warnings,
+            errors: self.errors.map_terminal(f),
+        }
+    }
+
+    pub fn warnings_into<X>(self) -> TerminalFailure<X, E, T>
+    where
+        X: From<W>,
+    {
+        self.warnings_map(|w| w.into())
+    }
+
+    pub fn errors_into<X>(self) -> TerminalFailure<W, X, T>
+    where
+        X: From<E>,
+    {
+        self.errors_map(|e| e.into())
+    }
+
+    pub fn terminal_into<X>(self) -> TerminalFailure<W, E, X>
+    where
+        X: From<T>,
+    {
+        self.terminal_map(|e| e.into())
     }
 }
 
@@ -276,6 +370,19 @@ impl<V, W, E> Tentative<V, W, E> {
             ret.errors.extend(x.errors);
         }
         ret
+    }
+
+    pub fn terminate<T>(self, reason: T) -> TerminalResult<V, W, E, T> {
+        match NonEmpty::from_vec(self.errors) {
+            Some(errors) => Err(TerminalFailure {
+                warnings: self.warnings,
+                errors: TerminalFailureType::Many(reason, errors),
+            }),
+            None => Ok(Terminal {
+                value: self.value,
+                warnings: self.warnings,
+            }),
+        }
     }
 }
 
@@ -853,14 +960,29 @@ impl<E> From<PureFailure<E>> for ImpureFailure<E> {
     }
 }
 
-impl<E> From<io::Error> for ImpureFailure<E> {
-    fn from(value: io::Error) -> Self {
-        Failure::new(ImpureError::IO(value))
-    }
-}
-
 impl<E> From<io::Error> for ImpureErrorInner<E> {
     fn from(value: io::Error) -> Self {
         ImpureErrorInner::IO(value)
     }
 }
+
+impl<E> From<io::Error> for ImpureFailure<E> {
+    fn from(value: io::Error) -> Self {
+        Failure::new(value.into())
+    }
+}
+
+impl<W, E, T> From<io::Error> for TerminalFailure<W, E, ImpureErrorInner<T>> {
+    fn from(value: io::Error) -> Self {
+        TerminalFailure::new_single(value.into())
+    }
+}
+
+// impl<W, E> From<io::Error> for TerminalFailure<W, E, ImpureError> {
+//     fn from(value: io::Error) -> Self {
+//         TerminalFailure {
+//             warnings: vec![],
+//             errors: TerminalFailureType::Single(ImpureError::IO(value)),
+//         }
+//     }
+// }

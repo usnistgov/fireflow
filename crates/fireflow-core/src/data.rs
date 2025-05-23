@@ -2464,7 +2464,7 @@ pub struct WrongFloatWidth {
     expected: usize,
 }
 
-type ReaderResult = DeferredResult<ColumnReader, NewReaderWarning, NewReaderError>;
+pub(crate) type ReaderResult = DeferredResult<ColumnReader, NewReaderWarning, NewReaderError>;
 
 enum_from_disp!(
     pub NewReaderError,

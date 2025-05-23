@@ -3,7 +3,8 @@ use crate::data::*;
 use crate::error::*;
 use crate::header::*;
 use crate::header_text::*;
-use crate::macros::{match_many_to_one, newtype_from};
+use crate::macros::enum_from_disp;
+use crate::macros::{enum_from, enum_from_disp, match_many_to_one, newtype_from};
 use crate::segment::*;
 use crate::text::byteord::*;
 use crate::text::compensation::*;
@@ -31,6 +32,7 @@ use nonempty::NonEmpty;
 use serde::ser::SerializeStruct;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
+use std::convert::Infallible;
 use std::fmt;
 use std::io;
 use std::io::{BufWriter, Write};
@@ -332,7 +334,7 @@ impl AnyCoreTEXT {
         kws: &mut StdKeywords,
         conf: &DataReadConfig,
         data_seg: Segment,
-    ) -> PureMaybe<DataReader, String> {
+    ) -> ReaderResult {
         match_anycoretext!(self, x, { x.as_data_reader(kws, conf, data_seg) })
     }
 }
@@ -808,7 +810,7 @@ pub trait VersionedMetadata: Sized {
     fn as_column_layout(
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
-    ) -> Deferred<Self::L, String>;
+    ) -> Deferred<Self::L, NewDataLayoutError>;
 }
 
 pub trait VersionedOptical: Sized + Versioned {
@@ -1115,28 +1117,26 @@ where
     fn try_convert<ToM: TryFromMetadata<M>>(
         self,
         convert: SizeConvert<M::D>,
-    ) -> Result<Metadata<ToM>, Vec<String>> {
+    ) -> Deferred<Metadata<ToM>, MetaConvertError> {
         // TODO this seems silly, break struct up into common bits
-        ToM::try_from_meta(self.specific, convert)
-            .map_err(|es: MetaConvertErrors| es.into_iter().map(|s| s.to_string()).collect())
-            .map(|specific| Metadata {
-                abrt: self.abrt,
-                cells: self.cells,
-                com: self.com,
-                datatype: self.datatype,
-                exp: self.exp,
-                fil: self.fil,
-                inst: self.inst,
-                lost: self.lost,
-                op: self.op,
-                proj: self.proj,
-                smno: self.smno,
-                sys: self.sys,
-                src: self.src,
-                tr: self.tr,
-                nonstandard_keywords: self.nonstandard_keywords,
-                specific,
-            })
+        ToM::try_from_meta(self.specific, convert).map(|specific| Metadata {
+            abrt: self.abrt,
+            cells: self.cells,
+            com: self.com,
+            datatype: self.datatype,
+            exp: self.exp,
+            fil: self.fil,
+            inst: self.inst,
+            lost: self.lost,
+            op: self.op,
+            proj: self.proj,
+            smno: self.smno,
+            sys: self.sys,
+            src: self.src,
+            tr: self.tr,
+            nonstandard_keywords: self.nonstandard_keywords,
+            specific,
+        })
     }
 
     fn lookup_metadata(
@@ -1305,7 +1305,7 @@ impl fmt::Display for SetTemporalIndexError {
     }
 }
 
-pub(crate) type MetaConvertErrors = Vec<MetaConvertError>;
+pub(crate) type MetaConvertErrors = NonEmpty<MetaConvertError>;
 
 pub enum MetaConvertError {
     NoCyt,
@@ -1898,7 +1898,7 @@ where
     ///
     /// Conversion may fail if some required keywords in the target version
     /// are not present in current version.
-    pub fn try_convert<ToM>(self) -> PureResult<VersionedCore<A, D, ToM>, String>
+    pub fn try_convert<ToM>(self) -> DeferredResult<VersionedCore<A, D, ToM>, (), String>
     where
         M::N: Clone,
         ToM: VersionedMetadata,
@@ -1914,8 +1914,8 @@ where
         let widths = self.widths();
         let ps = self
             .measurements
-            .map_non_center_values(|i, v| v.try_convert(i.into()))
-            .map(|x| x.map_center_value(|y| y.value.convert()));
+            .map_center_value(|y| y.value.convert())
+            .map_non_center_values(|i, v| v.try_convert(i.into()));
         let convert = SizeConvert {
             widths,
             datatype: self.metadata.datatype,
@@ -1932,7 +1932,7 @@ where
                         analysis: self.analysis,
                     })
                 } else {
-                    Err(vec!["Some $PnN are blank and could not be converted".into()])
+                    Err(vec![BlankShortnames])
                 }
             }
             (a, b) => Err(b
@@ -1942,11 +1942,10 @@ where
                 .chain(a.err().unwrap_or_default())
                 .collect()),
         };
-        let msg = format!(
-            "could not convert from {} to {}",
-            M::P::fcs_version(),
-            ToM::P::fcs_version()
-        );
+        let e = VersionConvertError {
+            from: M::P::fcs_version(),
+            to: ToM::P::fcs_version(),
+        };
         PureMaybe::from_result_strs(res, PureErrorLevel::Error).into_result(msg)
     }
 
@@ -2355,7 +2354,7 @@ where
         Ok(())
     }
 
-    pub(crate) fn as_column_layout(&self) -> Deferred<M::L, String> {
+    pub(crate) fn as_column_layout(&self) -> Deferred<M::L, NewDataLayoutError> {
         M::as_column_layout(&self.metadata, &self.measurements)
     }
 
@@ -2364,16 +2363,18 @@ where
         kws: &mut StdKeywords,
         _: &DataReadConfig,
         data_seg: Segment,
-    ) -> PureMaybe<DataReader, String> {
-        let l = M::as_column_layout(&self.metadata, &self.measurements).map_err(Vec::from);
-        PureMaybe::from_result_strs(l, PureErrorLevel::Error)
-            .and_then_opt(|dl| dl.into_reader(kws, data_seg))
+    ) -> DeferredResult<DataReader, NewReaderWarning, StdReaderError> {
+        let dl = M::as_column_layout(&self.metadata, &self.measurements)
+            .map_err(|es| DeferredFailure::new_with_many(es).errors_into())?;
+        dl.into_reader(kws, data_seg)
+            .map_err(|e| e.errors_into())
             .map(|x| {
                 x.map(|column_reader| DataReader {
                     column_reader,
                     // TODO fix cast
                     begin: data_seg.begin() as u64,
                 })
+                .errors_into()
             })
     }
 }
@@ -3522,16 +3523,16 @@ impl<T> From<T> for OptionalKw<T> {
 }
 
 impl<T> TryFrom<OptionalKw<T>> for Identity<T> {
-    type Error = ();
-    fn try_from(value: OptionalKw<T>) -> Result<Self, ()> {
-        value.0.ok_or(()).map(Identity)
+    type Error = OptionalKwToIdentityError;
+    fn try_from(value: OptionalKw<T>) -> Result<Self, Self::Error> {
+        value.0.ok_or(OptionalKwToIdentityError).map(Identity)
     }
 }
 
 // This will never really fail but is implemented for symmetry with its inverse
 impl<T> TryFrom<Identity<T>> for OptionalKw<T> {
-    type Error = ();
-    fn try_from(value: Identity<T>) -> Result<Self, ()> {
+    type Error = Infallible;
+    fn try_from(value: Identity<T>) -> Result<Self, Infallible> {
         Ok(Some(value.0).into())
     }
 }
@@ -3791,7 +3792,7 @@ impl TryFrom<InnerOptical3_1> for InnerOptical3_2 {
     }
 }
 
-type MetaConvertResult<M> = Result<M, MetaConvertErrors>;
+type MetaConvertResult<M> = Deferred<M, MetaConvertError>;
 
 pub struct SizeConvert<O> {
     size: O,
@@ -3824,7 +3825,7 @@ impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata2_0 {
     fn try_from_meta(value: InnerMetadata3_1, endian: EndianConvert) -> MetaConvertResult<Self> {
         let byteord = endian
             .try_as_byteord()
-            .ok_or(vec![MetaConvertError::FromEndian])?;
+            .ok_or(NonEmpty::new(MetaConvertError::FromEndian))?;
         Ok(InnerMetadata2_0 {
             mode: value.mode,
             byteord,
@@ -3839,7 +3840,7 @@ impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata2_0 {
     fn try_from_meta(value: InnerMetadata3_2, endian: EndianConvert) -> MetaConvertResult<Self> {
         let byteord = endian
             .try_as_byteord()
-            .ok_or(vec![MetaConvertError::FromEndian])?;
+            .ok_or(NonEmpty::new(MetaConvertError::FromEndian))?;
         Ok(InnerMetadata2_0 {
             mode: Mode::List,
             byteord,
@@ -3868,7 +3869,7 @@ impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata3_0 {
     fn try_from_meta(value: InnerMetadata3_1, endian: EndianConvert) -> MetaConvertResult<Self> {
         let byteord = endian
             .try_as_byteord()
-            .ok_or(vec![MetaConvertError::FromEndian])?;
+            .ok_or(NonEmpty::new(MetaConvertError::FromEndian))?;
         Ok(InnerMetadata3_0 {
             mode: value.mode,
             byteord,
@@ -3885,7 +3886,7 @@ impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata3_0 {
     fn try_from_meta(value: InnerMetadata3_2, endian: EndianConvert) -> MetaConvertResult<Self> {
         let byteord = endian
             .try_as_byteord()
-            .ok_or(vec![MetaConvertError::FromEndian])?;
+            .ok_or(NonEmpty::new(MetaConvertError::FromEndian))?;
         Ok(InnerMetadata3_0 {
             mode: Mode::List,
             byteord,
@@ -3903,7 +3904,7 @@ impl TryFromMetadata<InnerMetadata2_0> for InnerMetadata3_1 {
         value
             .byteord
             .try_into()
-            .map_err(|e| vec![MetaConvertError::FromByteOrd(e)])
+            .map_err(|e| NonEmpty::new(MetaConvertError::FromByteOrd(e)))
             .map(|byteord| InnerMetadata3_1 {
                 mode: value.mode,
                 byteord,
@@ -3923,7 +3924,7 @@ impl TryFromMetadata<InnerMetadata3_0> for InnerMetadata3_1 {
         value
             .byteord
             .try_into()
-            .map_err(|e| vec![MetaConvertError::FromByteOrd(e)])
+            .map_err(|e| NonEmpty::new(MetaConvertError::FromByteOrd(e)))
             .map(|byteord| InnerMetadata3_1 {
                 byteord,
                 mode: value.mode,
@@ -3962,23 +3963,21 @@ impl TryFromMetadata<InnerMetadata2_0> for InnerMetadata3_2 {
             .try_into()
             .map_err(MetaConvertError::FromByteOrd);
         let c = value.cyt.0.ok_or(MetaConvertError::NoCyt);
-        match (bord, c) {
-            (Ok(byteord), Ok(cyt)) => Ok(InnerMetadata3_2 {
-                byteord,
-                cyt,
-                timestamps: value.timestamps.map(|d| d.into()),
-                cytsn: None.into(),
-                modification: ModificationData::default(),
-                spillover: None.into(),
-                plate: PlateData::default(),
-                vol: None.into(),
-                flowrate: None.into(),
-                carrier: CarrierData::default(),
-                unstained: UnstainedData::default(),
-                datetimes: Datetimes::default(),
-            }),
-            (a, b) => Err([a.err(), b.err()].into_iter().flatten().collect()),
-        }
+        let (byteord, cyt) = combine_results(bord, c)?;
+        Ok(InnerMetadata3_2 {
+            byteord,
+            cyt,
+            timestamps: value.timestamps.map(|d| d.into()),
+            cytsn: None.into(),
+            modification: ModificationData::default(),
+            spillover: None.into(),
+            plate: PlateData::default(),
+            vol: None.into(),
+            flowrate: None.into(),
+            carrier: CarrierData::default(),
+            unstained: UnstainedData::default(),
+            datetimes: Datetimes::default(),
+        })
     }
 }
 
@@ -3989,25 +3988,21 @@ impl TryFromMetadata<InnerMetadata3_0> for InnerMetadata3_2 {
             .try_into()
             .map_err(MetaConvertError::FromByteOrd);
         let c = value.cyt.0.ok_or(MetaConvertError::NoCyt);
-        match (bord, c) {
-            (Ok(byteord), Ok(cyt)) => Ok({
-                InnerMetadata3_2 {
-                    byteord,
-                    cyt,
-                    cytsn: value.cytsn,
-                    timestamps: value.timestamps.map(|d| d.into()),
-                    modification: ModificationData::default(),
-                    spillover: None.into(),
-                    plate: PlateData::default(),
-                    vol: None.into(),
-                    flowrate: None.into(),
-                    carrier: CarrierData::default(),
-                    unstained: UnstainedData::default(),
-                    datetimes: Datetimes::default(),
-                }
-            }),
-            (a, b) => Err([a.err(), b.err()].into_iter().flatten().collect()),
-        }
+        let (byteord, cyt) = combine_results(bord, c)?;
+        Ok(InnerMetadata3_2 {
+            byteord,
+            cyt,
+            cytsn: value.cytsn,
+            timestamps: value.timestamps.map(|d| d.into()),
+            modification: ModificationData::default(),
+            spillover: None.into(),
+            plate: PlateData::default(),
+            vol: None.into(),
+            flowrate: None.into(),
+            carrier: CarrierData::default(),
+            unstained: UnstainedData::default(),
+            datetimes: Datetimes::default(),
+        })
     }
 }
 
@@ -4016,7 +4011,7 @@ impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata3_2 {
         value
             .cyt
             .0
-            .ok_or(vec![MetaConvertError::NoCyt])
+            .ok_or(NonEmpty::new(MetaConvertError::NoCyt))
             .map(|cyt| InnerMetadata3_2 {
                 byteord: value.byteord,
                 cyt,
@@ -4728,7 +4723,7 @@ impl VersionedMetadata for InnerMetadata2_0 {
     fn as_column_layout(
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
-    ) -> Deferred<Self::L, String> {
+    ) -> Deferred<Self::L, NewDataLayoutError> {
         Self::L::try_new(
             metadata.datatype,
             metadata.specific.byteord.clone(),
@@ -4841,7 +4836,7 @@ impl VersionedMetadata for InnerMetadata3_0 {
     fn as_column_layout(
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
-    ) -> Deferred<Self::L, String> {
+    ) -> Deferred<Self::L, NewDataLayoutError> {
         Self::L::try_new(
             metadata.datatype,
             metadata.specific.byteord.clone(),
@@ -4964,7 +4959,7 @@ impl VersionedMetadata for InnerMetadata3_1 {
     fn as_column_layout(
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
-    ) -> Deferred<Self::L, String> {
+    ) -> Deferred<Self::L, NewDataLayoutError> {
         Self::L::try_new(
             metadata.datatype,
             metadata.specific.byteord,
@@ -5106,7 +5101,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
     fn as_column_layout(
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
-    ) -> Deferred<Self::L, String> {
+    ) -> Deferred<Self::L, NewDataLayoutError> {
         let endian = metadata.specific.byteord;
         let blank_cs = ms.layout_data();
         let cs: Vec<_> = ms
@@ -5117,7 +5112,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
                     |t| (&t.value.specific.datatype),
                 )
             })
-            .map(|dt| dt.0.map(|d| d.into()).unwrap_or(metadata.datatype))
+            .map(|dt| dt.as_ref_opt().copied())
             .zip(blank_cs)
             .map(|(datatype, c)| ColumnLayoutData {
                 width: c.width,
@@ -5358,3 +5353,30 @@ impl fmt::Display for SetFloatError {
         }
     }
 }
+
+pub struct VersionConvertError {
+    from: Version,
+    to: Version,
+}
+
+pub struct BlankShortnames;
+
+impl fmt::Display for BlankShortnames {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "Some $PnN are blank and could not be converted",)
+    }
+}
+
+pub struct OptionalKwToIdentityError;
+
+impl fmt::Display for OptionalKwToIdentityError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "optional keyword value is blank",)
+    }
+}
+
+enum_from_disp!(
+    pub StdReaderError,
+    [Layout, NewDataLayoutError],
+    [Reader, NewReaderError]
+);

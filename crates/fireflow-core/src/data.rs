@@ -2515,6 +2515,18 @@ pub struct ColumnError<E> {
 type FromRawResult<T> = DeferredResult<T, ParseKeyError<NumTypeError>, RawToLayoutError>;
 
 enum_from_disp!(
+    pub RawToReaderError,
+    [Layout, RawToLayoutError],
+    [Reader, NewReaderError]
+);
+
+enum_from_disp!(
+    pub RawToReaderWarning,
+    [Layout, ParseKeyError<NumTypeError>],
+    [Reader, NewReaderWarning]
+);
+
+enum_from_disp!(
     pub RawToLayoutError,
     [New, NewDataLayoutError],
     [Raw, RawParsedError]

@@ -1,6 +1,15 @@
 use nonempty::NonEmpty;
 use std::io;
 
+pub fn deferred_res_into<V, W, E, X, Y>(res: DeferredResult<V, W, E>) -> DeferredResult<V, X, Y>
+where
+    X: From<W>,
+    Y: From<E>,
+{
+    res.map_err(|e| e.errors_into().warnings_into())
+        .map(|t| t.errors_into().warnings_into())
+}
+
 #[derive(Copy, Clone, Eq, PartialEq)]
 pub enum PureErrorLevel {
     Error,

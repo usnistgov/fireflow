@@ -4,6 +4,7 @@ pub use crate::data::*;
 use crate::error::*;
 pub use crate::header::*;
 pub use crate::header_text::*;
+use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
 pub use crate::segment::*;
 pub use crate::text::keywords::*;
 use crate::text::parser::AnyParserError;
@@ -15,8 +16,10 @@ use chrono::NaiveDate;
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use serde::Serialize;
+use std::fmt;
 use std::fs;
 use std::io::{BufReader, Read, Seek};
+use std::num::ParseIntError;
 use std::path;
 use std::str;
 
@@ -218,7 +221,7 @@ pub struct ParseData {
 pub fn read_fcs_header(
     p: &path::PathBuf,
     conf: &HeaderConfig,
-) -> TerminalResult<Header, (), HeaderError, ImpureError> {
+) -> TerminalResult<Header, (), HeaderError, ImpureErrorInner<HeaderFailure>> {
     let file = fs::File::options().read(true).open(p)?;
     let mut reader = BufReader::new(file);
     h_read_header(&mut reader, conf)
@@ -405,29 +408,35 @@ impl RawTEXT {
         })
     }
 
-    fn as_reader(&self, data_seg: Segment) -> PureMaybe<DataReader, String> {
+    fn as_reader(
+        &self,
+        data_seg: Segment,
+    ) -> DeferredResult<DataReader, RawToReaderWarning, RawToReaderError> {
         let kws = &self.keywords.std;
         match self.version {
-            // TODO clean this up
             Version::FCS2_0 => {
-                let res = DataLayout2_0::try_new_from_raw(kws);
-                PureMaybe::from_result_errors(res.map_err(Vec::from))
-                    .and_then_opt(|dl| dl.into_reader(kws, data_seg))
+                let layout_res = DataLayout2_0::try_new_from_raw(kws);
+                deferred_res_into(layout_res).and_then(|tnt| {
+                    tnt.and_maybe(|dl| deferred_res_into(dl.into_reader(kws, data_seg)))
+                })
             }
             Version::FCS3_0 => {
-                let res = DataLayout3_0::try_new_from_raw(kws);
-                PureMaybe::from_result_errors(res.map_err(Vec::from))
-                    .and_then_opt(|dl| dl.into_reader(kws, data_seg))
+                let layout_res = DataLayout3_0::try_new_from_raw(kws);
+                deferred_res_into(layout_res).and_then(|tnt| {
+                    tnt.and_maybe(|dl| deferred_res_into(dl.into_reader(kws, data_seg)))
+                })
             }
             Version::FCS3_1 => {
-                let res = DataLayout3_1::try_new_from_raw(kws);
-                PureMaybe::from_result_errors(res.map_err(Vec::from))
-                    .and_then_opt(|dl| dl.into_reader(kws, data_seg))
+                let layout_res = DataLayout3_1::try_new_from_raw(kws);
+                deferred_res_into(layout_res).and_then(|tnt| {
+                    tnt.and_maybe(|dl| deferred_res_into(dl.into_reader(kws, data_seg)))
+                })
             }
             Version::FCS3_2 => {
-                let res = DataLayout3_2::try_new_from_raw(kws);
-                PureMaybe::from_result_errors(res.map_err(Vec::from))
-                    .and_then_opt(|dl| dl.into_reader(kws, data_seg))
+                let layout_res = DataLayout3_2::try_new_from_raw(kws);
+                deferred_res_into(layout_res).and_then(|tnt| {
+                    tnt.and_maybe(|dl| deferred_res_into(dl.into_reader(kws, data_seg)))
+                })
             }
         }
         .map(|x| {
@@ -670,20 +679,17 @@ fn repair_offsets(mut kws: ParsedKeywords, conf: &RawTextReadConfig) -> ParsedKe
     kws
 }
 
-// TODO use non-empty here (and everywhere else we return multiple errors)
 fn lookup_req_segment(
     kws: &StdKeywords,
     bk: &StdKey,
     ek: &StdKey,
     corr: OffsetCorrection,
     id: SegmentId,
-) -> Deferred<Segment, String> {
-    let x0 = get_req(kws, bk).map_err(|e| e.to_string());
-    let x1 = get_req(kws, ek).map_err(|e| e.to_string());
+) -> Deferred<Segment, ReqSegmentError> {
+    let x0 = get_req(kws, bk).map_err(|e| e.into());
+    let x1 = get_req(kws, ek).map_err(|e| e.into());
     combine_results(x0, x1).and_then(|(begin, end)| {
-        Segment::try_new(begin, end, corr, id)
-            .map_err(|e| e.to_string())
-            .map_err(NonEmpty::new)
+        Segment::try_new(begin, end, corr, id).map_err(|e| NonEmpty::new(e.into()))
     })
 }
 
@@ -693,18 +699,17 @@ fn lookup_opt_segment(
     ek: &StdKey,
     corr: OffsetCorrection,
     id: SegmentId,
-) -> Deferred<Option<Segment>, String> {
-    let x0 = get_opt(kws, bk).map_err(|e| e.to_string());
-    let x1 = get_opt(kws, ek).map_err(|e| e.to_string());
+) -> Deferred<Option<Segment>, OptSegmentError> {
+    let x0 = get_opt(kws, bk).map_err(|e| e.into());
+    let x1 = get_opt(kws, ek).map_err(|e| e.into());
     combine_results(x0, x1).and_then(|(b, e)| {
-        if let (Some(begin), Some(end)) = (b, e) {
-            Segment::try_new(begin, end, corr, id)
-                .map_err(|r| r.to_string())
-                .map_err(NonEmpty::new)
-                .map(Some)
-        } else {
-            Ok(None)
-        }
+        b.zip(e)
+            .map(|(begin, end)| {
+                Segment::try_new(begin, end, corr, id)
+                    .map_err(|r| r.into())
+                    .map_err(NonEmpty::new)
+            })
+            .transpose()
     })
 }
 
@@ -715,7 +720,7 @@ fn lookup_data_offsets(
     conf: &DataReadConfig,
     version: Version,
     default: &Segment,
-) -> PureSuccess<Segment, String> {
+) -> DeferredResult<Segment, DataSegmentWarning, ReqSegmentError> {
     match version {
         Version::FCS2_0 => Ok(*default),
         _ => lookup_req_segment(
@@ -728,17 +733,14 @@ fn lookup_data_offsets(
     }
     .map_or_else(
         |es| {
-            // TODO toggle this?
-            let mut def = PureErrorBuf::from_many(Vec::from(es), PureErrorLevel::Warning);
-            let msg =
-                "could not use DATA offsets in TEXT, defaulting to HEADER offsets".to_string();
-            def.push_warning(msg);
-            PureSuccess {
-                data: *default,
-                deferred: def,
-            }
+            // TODO toggle this
+            let mut tnt = Tentative::new(*default);
+            tnt.warnings.push(DataSegmentDefaultWarning.into());
+            tnt.warnings.extend(es.map(|e| e.into()));
+            Ok(tnt)
         },
-        PureSuccess::from,
+        // TODO what if the default is different?
+        |t| Ok(Tentative::new(t)),
     )
 }
 
@@ -747,20 +749,9 @@ fn lookup_analysis_offsets(
     conf: &DataReadConfig,
     version: Version,
     default: &Segment,
-) -> PureSuccess<Segment, String> {
-    let default_succ = |msgs| {
-        // TODO toggle this?
-        let mut def = PureErrorBuf::from_many(msgs, PureErrorLevel::Warning);
-        let msg =
-            "could not use ANALYSIS offsets in TEXT, defaulting to HEADER offsets".to_string();
-        def.push_warning(msg);
-        PureSuccess {
-            data: *default,
-            deferred: def,
-        }
-    };
+) -> DeferredResult<Segment, AnalysisSegmentWarning, ReqSegmentError> {
     match version {
-        Version::FCS2_0 => Ok(Some(*default)),
+        Version::FCS2_0 => Ok(Tentative::new(*default)),
         Version::FCS3_0 | Version::FCS3_1 => lookup_req_segment(
             kws,
             &Beginanalysis::std(),
@@ -768,45 +759,63 @@ fn lookup_analysis_offsets(
             conf.analysis,
             SegmentId::Analysis,
         )
-        .map(Some),
+        .map_or_else(
+            |es| {
+                // TODO toggle this
+                let mut tnt = Tentative::new(*default);
+                tnt.warnings.push(AnalysisSegmentDefaultWarning.into());
+                tnt.warnings.extend(es.map(|e| e.into()));
+                Ok(tnt)
+            },
+            |t| Ok(Tentative::new(t)),
+        ),
         Version::FCS3_2 => lookup_opt_segment(
             kws,
             &Beginanalysis::std(),
             &Endanalysis::std(),
             conf.analysis,
             SegmentId::Analysis,
+        )
+        .map_or_else(
+            |es| {
+                // unlike the above, this can never error because the keywords
+                // are optional
+                let mut tnt = Tentative::new(*default);
+                tnt.warnings.push(AnalysisSegmentDefaultWarning.into());
+                tnt.warnings.extend(es.map(|e| e.into()));
+                Ok(tnt)
+            },
+            |t| Ok(Tentative::new(t.unwrap_or(*default))),
         ),
     }
-    .map_err(Vec::from)
-    .map_or_else(default_succ, |mab_seg| {
-        mab_seg.map_or_else(|| default_succ(vec![]), PureSuccess::from)
-    })
 }
 
 fn lookup_stext_offsets(
     kws: &StdKeywords,
     version: Version,
     conf: &RawTextReadConfig,
-) -> PureMaybe<Segment, String> {
-    // TODO add another msg explaining that the supp text won't be read if
-    // offsets not found
+) -> Tentative<Option<Segment>, STextSegmentWarning, ReqSegmentError> {
     match version {
-        Version::FCS2_0 => PureSuccess::from(None),
-        Version::FCS3_0 | Version::FCS3_1 => {
-            let res = lookup_req_segment(
-                kws,
-                &Beginstext::std(),
-                &Endstext::std(),
-                conf.stext,
-                SegmentId::SupplementalText,
-            );
-            let level = if conf.enforce_stext {
-                PureErrorLevel::Error
-            } else {
-                PureErrorLevel::Warning
-            };
-            PureMaybe::from_result_strs(res.map_err(Vec::from), level)
-        }
+        Version::FCS2_0 => Tentative::new(None),
+        Version::FCS3_0 | Version::FCS3_1 => lookup_req_segment(
+            kws,
+            &Beginstext::std(),
+            &Endstext::std(),
+            conf.stext,
+            SegmentId::SupplementalText,
+        )
+        .map_or_else(
+            |es| {
+                let mut tnt = Tentative::new(None);
+                if conf.enforce_stext {
+                    tnt.errors.extend(es);
+                } else {
+                    tnt.warnings.extend(es.map(|e| e.into()));
+                }
+                tnt
+            },
+            |t| Tentative::new(Some(t)),
+        ),
         Version::FCS3_2 => lookup_opt_segment(
             kws,
             &Beginstext::std(),
@@ -815,28 +824,39 @@ fn lookup_stext_offsets(
             SegmentId::SupplementalText,
         )
         .map_or_else(
-            |es| PureSuccess {
-                data: None,
-                deferred: PureErrorBuf::from_many(Vec::from(es), PureErrorLevel::Warning),
+            |es| {
+                let mut tnt = Tentative::new(None);
+                tnt.warnings.extend(es.map(|e| e.into()));
+                tnt
             },
-            PureSuccess::from,
+            Tentative::new,
         ),
     }
 }
 
-fn lookup_nextdata(kws: &StdKeywords, enforce: bool) -> PureMaybe<u32, String> {
+fn lookup_nextdata(
+    kws: &StdKeywords,
+    enforce: bool,
+) -> Tentative<Option<u32>, ParseKeyError<ParseIntError>, ReqKeyError<ParseIntError>> {
     let k = &Nextdata::std();
     if enforce {
-        PureMaybe::from_result_1(
-            get_req(kws, k).map_err(|e| e.to_string()),
-            PureErrorLevel::Error,
+        get_req(kws, k).map_or_else(
+            |e| Tentative {
+                value: None,
+                warnings: vec![],
+                errors: vec![e],
+            },
+            |t| Tentative::new(Some(t)),
         )
     } else {
-        PureMaybe::from_result_1(
-            get_opt(kws, k).map_err(|e| e.to_string()),
-            PureErrorLevel::Warning,
+        get_opt(kws, k).map_or_else(
+            |w| Tentative {
+                value: None,
+                warnings: vec![w],
+                errors: vec![],
+            },
+            Tentative::new,
         )
-        .map(|x| x.flatten())
     }
 }
 
@@ -948,3 +968,44 @@ fn split_remainder(xs: StdKeywords) -> (StdKeywords, StdKeywords) {
 //         .try_inverse()
 //         .map(|matrix| Compensation { matrix })
 // }
+
+enum_from_disp!(
+    pub ReqSegmentError,
+    [Key, ReqKeyError<ParseIntError>],
+    [Segment, SegmentError]
+);
+
+enum_from_disp!(
+    pub OptSegmentError,
+    [Key, ParseKeyError<ParseIntError>],
+    [Segment, SegmentError]
+);
+
+enum_from_disp!(
+    pub DataSegmentWarning,
+    [Segment, ReqSegmentError],
+    [Default, DataSegmentDefaultWarning]
+);
+
+pub struct DataSegmentDefaultWarning;
+
+// enum_from_disp!(
+//     pub AnalysisSegmentError,
+//     [Req, ReqSegmentError],
+//     [Opt, OptSegmentError]
+// );
+
+enum_from_disp!(
+    pub AnalysisSegmentWarning,
+    [ReqSegment, ReqSegmentError],
+    [OptSegment, OptSegmentError],
+    [Default, AnalysisSegmentDefaultWarning]
+);
+
+pub struct AnalysisSegmentDefaultWarning;
+
+enum_from_disp!(
+    pub STextSegmentWarning,
+    [ReqSegment, ReqSegmentError],
+    [OptSegment, OptSegmentError]
+);

@@ -7,7 +7,7 @@ pub use crate::header_text::*;
 use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
 pub use crate::segment::*;
 pub use crate::text::keywords::*;
-use crate::text::parser::AnyParserError;
+use crate::text::parser::*;
 use crate::text::timestamps::*;
 use crate::validated::dataframe::FCSDataFrame;
 use crate::validated::standard::*;
@@ -238,7 +238,12 @@ pub fn read_fcs_header(
 pub fn read_fcs_raw_text(
     p: &path::PathBuf,
     conf: &RawTextReadConfig,
-) -> ImpureResult<RawTEXT, String> {
+) -> TerminalResult<
+    RawTEXT,
+    ParseRawTEXTWarning,
+    ParseRawTEXTError,
+    ImpureErrorInner<ParseRawTEXTFailure>,
+> {
     let file = fs::File::options().read(true).open(p)?;
     let mut h = BufReader::new(file);
     RawTEXT::h_read(&mut h, conf)
@@ -256,10 +261,14 @@ pub fn read_fcs_raw_text(
 pub fn read_fcs_std_text(
     p: &path::PathBuf,
     conf: &StdTextReadConfig,
-) -> ImpureResult<StandardizedTEXT, String> {
+) -> TerminalResult<
+    RawTEXT,
+    ParseRawTEXTWarning,
+    ParseRawTEXTError,
+    ImpureErrorInner<ParseRawTEXTFailure>,
+> {
     let raw_succ = read_fcs_raw_text(p, &conf.raw)?;
-    unimplemented!()
-    // raw_succ.try_map(|raw| raw.into_std(conf))
+    raw_succ.try_map(|raw| raw.into_std(conf))
 }
 
 /// Return header, raw metadata, and data in an FCS file.
@@ -391,7 +400,10 @@ impl RawTEXT {
             .try_map(|header| h_read_raw_text_from_header(h, &header, conf))
     }
 
-    fn into_std(self, conf: &StdTextReadConfig) -> PureResult<StandardizedTEXT, AnyParserError> {
+    fn into_std(
+        self,
+        conf: &StdTextReadConfig,
+    ) -> TerminalResult<StandardizedTEXT, ParseKeysWarning, ParseKeysError, CoreTEXTFailure> {
         let mut kws = self.keywords;
         AnyCoreTEXT::parse_raw(self.version, &mut kws.std, kws.nonstd, conf).map(|std_succ| {
             std_succ.map({
@@ -449,41 +461,46 @@ impl RawTEXT {
     }
 }
 
-fn verify_delim(xs: &[u8], conf: &RawTextReadConfig) -> PureSuccess<u8, String> {
-    // First character is the delimiter
-    let delimiter: u8 = xs[0];
-
-    // Check that it is a valid UTF8 character
-    //
-    // TODO we technically don't need this to be true in the case of double
-    // delimiters, but this is non-standard anyways and probably rare
-    let mut res = PureSuccess::from(delimiter);
-    if String::from_utf8(vec![delimiter]).is_err() {
-        res.push_error(format!(
-            "Delimiter {delimiter} is not a valid utf8 character"
-        ));
+fn split_first_delim<'a>(
+    bytes: &'a [u8],
+    conf: &RawTextReadConfig,
+) -> DeferredResult<(u8, &'a [u8]), DelimCharError, DelimVerifyError> {
+    if let Some(delim) = bytes.first() {
+        let mut tnt = Tentative::new((*delim, &bytes[1..]));
+        if (1..=126).contains(delim) {
+            Ok(tnt)
+        } else {
+            let e = DelimCharError(*delim);
+            if conf.force_ascii_delim {
+                Err(DeferredFailure::new(e.into()))
+            } else {
+                tnt.warnings.push(e);
+                Ok(tnt)
+            }
+        }
+    } else {
+        Err(DeferredFailure::new(EmptyTEXTError.into()))
     }
-
-    // Check that the delim is valid; this is technically only written in the
-    // spec for 3.1+ but for older versions this should still be true since
-    // these were ASCII-everywhere
-    if !(1..=126).contains(&delimiter) {
-        let msg = format!("Delimiter {delimiter} is not an ASCII character b/t 1-126");
-        res.push_msg_leveled(msg, conf.force_ascii_delim);
-    }
-    res
 }
 
 fn split_raw_text_nodouble(
-    mut kws: ParsedKeywords,
-    xs: &[u8],
+    kws: ParsedKeywords,
     delim: u8,
+    bytes: &[u8],
     conf: &RawTextReadConfig,
-) -> PureSuccess<ParsedKeywords, String> {
-    let mut deferred = PureErrorBuf::default();
+) -> Tentative<ParsedKeywords, ParseKeywordsIssue, ParseKeywordsIssue> {
+    let mut tnt = Tentative::new(kws);
 
-    // ASSUME input slice does not start or end with delim
-    let mut it = xs.split(|x| *x == delim);
+    let mut push_issue = |test, error| {
+        if test {
+            tnt.errors.push(error);
+        } else {
+            tnt.warnings.push(error);
+        }
+    };
+
+    // ASSUME input slice does not start with delim
+    let mut it = bytes.split(|x| *x == delim);
     let mut prev_was_blank = false;
     let mut prev_was_key = false;
 
@@ -494,8 +511,7 @@ fn split_raw_text_nodouble(
             if let Some(value) = it.next() {
                 prev_was_key = false;
                 prev_was_blank = value.is_empty();
-                let msg = "blank key in TEXT, skipping next value".to_string();
-                deferred.push_msg_leveled(msg, conf.enforce_nonempty);
+                push_issue(conf.enforce_nonempty, BlankKeyError.into());
             } else {
                 // if everything is correct, we should exit here since the
                 // last word will be the blank slice after the final delim
@@ -505,10 +521,9 @@ fn split_raw_text_nodouble(
             prev_was_key = false;
             prev_was_blank = value.is_empty();
             if value.is_empty() {
-                let msg = "blank value in TEXT".to_string();
-                deferred.push_msg_leveled(msg, conf.enforce_nonempty)
-            } else if let Err(e) = kws.insert(key, value) {
-                deferred.push_msg_leveled(e.to_string(), conf.enforce_unique);
+                push_issue(conf.enforce_nonempty, BlankValueError(key.to_vec()).into());
+            } else if let Err(e) = tnt.value.insert(key, value) {
+                push_issue(conf.enforce_unique, e.into());
             }
         } else {
             // exiting here means we found a key without a value and also didn't
@@ -518,37 +533,40 @@ fn split_raw_text_nodouble(
     }
 
     if !prev_was_key {
-        let msg = "TEXT has uneven number of words".to_string();
-        deferred.push_msg_leveled(msg, conf.enforce_even);
+        push_issue(conf.enforce_even, UnevenWordsError.into());
     }
 
     if !prev_was_blank {
-        let msg = "TEXT does not end with delim".to_string();
-        deferred.push_msg_leveled(msg, conf.enforce_final_delim);
+        push_issue(conf.enforce_final_delim, FinalDelimError.into());
     }
 
-    PureSuccess {
-        data: kws,
-        deferred,
-    }
+    tnt
 }
 
 fn split_raw_text_double(
-    mut kws: ParsedKeywords,
-    xs: &[u8],
+    kws: ParsedKeywords,
     delim: u8,
+    bytes: &[u8],
     conf: &RawTextReadConfig,
-) -> PureSuccess<ParsedKeywords, String> {
-    let mut deferred = PureErrorBuf::default();
+) -> Tentative<ParsedKeywords, ParseKeywordsIssue, ParseKeywordsIssue> {
+    let mut tnt = Tentative::new(kws);
+
+    let push_issue = |tnt: &mut Tentative<_, _, _>, test, error| {
+        if test {
+            tnt.errors.push(error);
+        } else {
+            tnt.warnings.push(error);
+        }
+    };
 
     // ASSUME input slice does not start with delim
     let mut consec_blanks = 0;
     let mut keybuf: Vec<u8> = vec![];
     let mut valuebuf: Vec<u8> = vec![];
 
-    let mut push_pair = |kb: &Vec<_>, vb: &Vec<_>, def: &mut PureErrorBuf<String>| {
-        if let Err(e) = kws.insert(kb, vb) {
-            def.push_msg_leveled(e.to_string(), conf.enforce_unique);
+    let push_pair = |tnt: &mut Tentative<ParsedKeywords, _, _>, kb: &Vec<_>, vb: &Vec<_>| {
+        if let Err(e) = tnt.value.insert(kb, vb) {
+            push_issue(tnt, conf.enforce_unique, e.into())
         }
     };
 
@@ -560,7 +578,7 @@ fn split_raw_text_double(
         }
     };
 
-    for segment in xs.split(|x| *x == delim) {
+    for segment in bytes.split(|x| *x == delim) {
         if segment.is_empty() {
             consec_blanks += 1;
         } else {
@@ -568,7 +586,7 @@ fn split_raw_text_double(
                 // Previous number of delimiters is odd, treat this as a word
                 // boundary
                 if !valuebuf.is_empty() {
-                    push_pair(&keybuf, &valuebuf, &mut deferred);
+                    push_pair(&mut tnt, &keybuf, &valuebuf);
                     keybuf.clear();
                     valuebuf.clear();
                     keybuf.extend_from_slice(segment);
@@ -579,7 +597,7 @@ fn split_raw_text_double(
                     keybuf.extend_from_slice(segment);
                 }
                 if consec_blanks > 0 {
-                    deferred.push_warning("delim at word boundary".to_string());
+                    push_issue(&mut tnt, false, DelimBoundError.into());
                 }
             } else {
                 // Previous consecutive delimiter sequence was even. Push n / 2
@@ -591,53 +609,39 @@ fn split_raw_text_double(
     }
 
     if consec_blanks == 0 {
-        let msg = "TEXT does not end with delim".to_string();
-        deferred.push_msg_leveled(msg, conf.enforce_final_delim)
+        push_issue(&mut tnt, conf.enforce_final_delim, FinalDelimError.into());
     } else if consec_blanks & 1 == 1 {
         // technically this ends with a delim but it is part of a word so
         // doesn't count
-        let msg = "TEXT does not end with delim".to_string();
-        deferred.push_msg_leveled(msg, conf.enforce_final_delim);
+        push_issue(&mut tnt, conf.enforce_final_delim, FinalDelimError.into());
+        push_issue(&mut tnt, false, DelimBoundError.into());
         push_delim(&mut keybuf, &mut valuebuf, consec_blanks);
     } else if consec_blanks > 1 {
         // TODO toggleme
-        deferred.push_warning("delim at word boundary".to_string());
+        push_issue(&mut tnt, false, DelimBoundError.into());
     }
 
     if valuebuf.is_empty() {
-        let msg = "TEXT has uneven number of words".to_string();
-        deferred.push_msg_leveled(msg, conf.enforce_even)
+        push_issue(&mut tnt, conf.enforce_even, UnevenWordsError.into());
     } else {
-        push_pair(&keybuf, &valuebuf, &mut deferred);
+        push_pair(&mut tnt, &keybuf, &valuebuf);
     }
 
-    PureSuccess {
-        data: kws,
-        deferred,
-    }
+    tnt
 }
 
-fn split_raw_text(
+fn split_raw_primary_text(
     kws: ParsedKeywords,
-    xs: &[u8],
     delim: u8,
+    bytes: &[u8],
     conf: &RawTextReadConfig,
-) -> PureSuccess<ParsedKeywords, String> {
-    if let Some(start) = xs.iter().position(|x| *x == delim) {
-        let ys = &xs[(start + 1)..];
-        if ys.is_empty() {
-            let mut succ = PureSuccess::from(kws);
-            succ.push_error("TEXT is empty".into());
-            succ
-        } else if conf.allow_double_delim {
-            split_raw_text_double(kws, ys, delim, conf)
-        } else {
-            split_raw_text_nodouble(kws, ys, delim, conf)
-        }
+) -> DeferredResult<ParsedKeywords, ParseKeywordsIssue, ParsePrimaryTEXTError> {
+    if bytes.is_empty() {
+        Err(DeferredFailure::new(NoTEXTWordsError.into()))
+    } else if conf.allow_double_delim {
+        Ok(split_raw_text_double(kws, delim, bytes, conf).errors_into())
     } else {
-        let mut succ = PureSuccess::from(kws);
-        succ.push_error("delimiter not found, cannot parse TEXT".into());
-        succ
+        Ok(split_raw_text_nodouble(kws, delim, bytes, conf).errors_into())
     }
 }
 
@@ -864,53 +868,79 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
     h: &mut BufReader<R>,
     header: &Header,
     conf: &RawTextReadConfig,
-) -> ImpureResult<RawTEXT, String> {
+) -> TerminalResult<
+    RawTEXT,
+    ParseRawTEXTWarning,
+    ParseRawTEXTError,
+    ImpureErrorInner<ParseRawTEXTFailure>,
+> {
     let mut buf = vec![];
     header.text.h_read(h, &mut buf)?;
 
-    verify_delim(&buf, conf).try_map(|delimiter| {
-        let split_succ = split_raw_text(ParsedKeywords::default(), &buf, delimiter, conf)
-            .map(|kws| repair_offsets(kws, conf));
-        let stext_succ = split_succ.try_map(|kws| {
-            lookup_stext_offsets(&kws.std, header.version, conf).try_map(|s| {
-                let succ = if let Some(seg) = s {
-                    if seg.is_unset() {
-                        PureSuccess::from(kws)
-                    } else {
-                        buf.clear();
-                        seg.h_read(h, &mut buf)?;
-                        split_raw_text(kws, &buf, delimiter, conf)
-                    }
+    let term_delim = deferred_res_into(split_first_delim(&buf, conf)).map_or_else(
+        |e| Err(e.terminate(ImpureErrorInner::Pure(ParseRawTEXTFailure))),
+        |t| t.terminate(ImpureErrorInner::Pure(ParseRawTEXTFailure)),
+    )?;
+
+    let term_primary = term_delim.and_maybe(
+        ImpureErrorInner::Pure(ParseRawTEXTFailure),
+        |(delim, bytes)| {
+            let kws = ParsedKeywords::default();
+            deferred_res_into(split_raw_primary_text(kws, delim, &bytes, conf))
+                .map(|tnt| tnt.map(|kws| repair_offsets(kws, conf)))
+                .map(|tnt| tnt.map(|kws| (delim, kws)))
+        },
+    )?;
+
+    let term_all_kws = term_primary.and_finally(|(delim, kws)| {
+        lookup_stext_offsets(&kws.std, header.version, conf)
+            .errors_into()
+            .warnings_into()
+            .map(|s| (s, kws))
+            .and_finally(|(maybe_supp_seg, kws)| {
+                let term_supp_kws = if let Some(seg) = maybe_supp_seg {
+                    buf.clear();
+                    seg.h_read(h, &mut buf)?;
+                    deferred_res_into(split_raw_primary_text(kws, delim, &buf, conf)).map_or_else(
+                        |e| Err(e.terminate(ImpureErrorInner::Pure(ParseRawTEXTFailure))),
+                        |t| t.terminate(ImpureErrorInner::Pure(ParseRawTEXTFailure)),
+                    )?
                 } else {
-                    PureSuccess::from(kws)
+                    Terminal::new(kws)
                 };
-                Ok(succ.map(|k| (k, s)))
+                Ok(term_supp_kws.map(|k| (delim, k, maybe_supp_seg)))
             })
-        })?;
-        Ok(stext_succ.and_then(|(mut kws, supp_text_seg)| {
+    })?;
+
+    term_all_kws.and_tentatively(
+        ImpureErrorInner::Pure(ParseRawTEXTFailure),
+        |(delimiter, mut kws, supp_text_seg)| {
             repair_keywords(&mut kws.std, conf);
             // TODO this will throw an error if not present, but we may not care
             // so toggle b/t error and warning
             let enforce_nextdata = true;
-            lookup_nextdata(&kws.std, enforce_nextdata).map(|nextdata| RawTEXT {
-                version: header.version,
-                parse: ParseData {
-                    prim_text: header.text,
-                    supp_text: supp_text_seg,
-                    data: header.data,
-                    analysis: header.analysis,
-                    nextdata,
-                    delimiter,
-                    non_ascii: kws.non_ascii,
-                    byte_pairs: kws.byte_pairs,
-                },
-                keywords: ValidKeywords {
-                    std: kws.std,
-                    nonstd: kws.nonstd,
-                },
-            })
-        }))
-    })
+            lookup_nextdata(&kws.std, enforce_nextdata)
+                .map(|nextdata| RawTEXT {
+                    version: header.version,
+                    parse: ParseData {
+                        prim_text: header.text,
+                        supp_text: supp_text_seg,
+                        data: header.data,
+                        analysis: header.analysis,
+                        nextdata,
+                        delimiter,
+                        non_ascii: kws.non_ascii,
+                        byte_pairs: kws.byte_pairs,
+                    },
+                    keywords: ValidKeywords {
+                        std: kws.std,
+                        nonstd: kws.nonstd,
+                    },
+                })
+                .errors_into()
+                .warnings_into()
+        },
+    )
 }
 
 fn split_remainder(xs: StdKeywords) -> (StdKeywords, StdKeywords) {
@@ -1009,3 +1039,65 @@ enum_from_disp!(
     [ReqSegment, ReqSegmentError],
     [OptSegment, OptSegmentError]
 );
+
+// should be 1-126
+pub struct DelimCharError(u8);
+
+pub struct EmptyTEXTError;
+
+enum_from_disp!(
+    pub DelimVerifyError,
+    [Empty, EmptyTEXTError],
+    [Char, DelimCharError]
+);
+
+// blank key in TEXT, skipping next value
+pub struct BlankKeyError;
+
+// key has a blank value, dropping
+pub struct BlankValueError(Vec<u8>);
+
+// "TEXT has uneven number of words"
+pub struct UnevenWordsError;
+
+// TEXT does not end with delim
+pub struct FinalDelimError;
+
+// delim at word boundary
+pub struct DelimBoundError;
+
+enum_from_disp!(
+    pub ParseKeywordsIssue,
+    [BlankKey, BlankKeyError],
+    [BlankValue, BlankValueError],
+    [Uneven, UnevenWordsError],
+    [Final, FinalDelimError],
+    [Unique, KeywordInsertError],
+    [Bound, DelimBoundError]
+);
+
+pub struct NoTEXTWordsError;
+
+enum_from_disp!(
+    pub ParsePrimaryTEXTError,
+    [Keywords, ParseKeywordsIssue],
+    [Empty, NoTEXTWordsError]
+);
+
+enum_from_disp!(
+    pub ParseRawTEXTError,
+    [Delim, DelimVerifyError],
+    [Primary, ParsePrimaryTEXTError],
+    [SuppOffsets, ReqSegmentError],
+    [Nextdata, ReqKeyError]
+);
+
+enum_from_disp!(
+    pub ParseRawTEXTWarning,
+    [Char, DelimCharError],
+    [Keywords, ParseKeywordsIssue],
+    [SuppOffsets, STextSegmentWarning],
+    [Nextdata, ParseKeyError<ParseIntError>]
+);
+
+pub struct ParseRawTEXTFailure;

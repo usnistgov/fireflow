@@ -238,6 +238,13 @@ impl<V, W> Terminal<V, W> {
         }
         .terminate(reason)
     }
+
+    pub fn resolve<F, X>(self, f: F) -> (V, X)
+    where
+        F: FnOnce(Vec<W>) -> X,
+    {
+        (self.value, f(self.warnings))
+    }
 }
 
 pub enum TerminalFailureType<E, T> {
@@ -332,6 +339,14 @@ impl<W, E, T> TerminalFailure<W, E, T> {
         X: From<T>,
     {
         self.terminal_map(|e| e.into())
+    }
+
+    pub fn resolve<F, G, X, Y>(self, f: F, g: G) -> (X, Y)
+    where
+        F: FnOnce(Vec<W>) -> X,
+        G: FnOnce(TerminalFailureType<E, T>) -> Y,
+    {
+        (f(self.warnings), g(self.errors))
     }
 }
 

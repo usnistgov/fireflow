@@ -324,33 +324,61 @@ fn h_read_raw_dataset<R: Read + Seek>(
     h: &mut BufReader<R>,
     raw: RawTEXT,
     conf: &DataReadConfig,
-) -> ImpureResult<RawDataset, String> {
-    let anal_succ =
-        lookup_analysis_offsets(&raw.keywords.std, conf, raw.version, &raw.parse.analysis);
-    lookup_data_offsets(&raw.keywords.std, conf, raw.version, &raw.parse.data)
-        .and_then(|data_seg| {
-            raw.as_reader(data_seg)
-                .combine(anal_succ, |reader, analysis_seg| {
-                    (reader, data_seg, analysis_seg)
-                })
-        })
-        .try_map(|(reader_maybe, data_seg, analysis_seg)| {
-            let dmsg = "could not create data parser".to_string();
-            let data_parser = reader_maybe.ok_or(Failure::new(dmsg))?;
-            let data = data_parser.h_read(h)?;
-            let analysis = h_read_analysis(h, &analysis_seg)?;
-            Ok(PureSuccess::from(RawDataset {
-                version: raw.version,
-                keywords: raw.keywords,
-                data,
-                analysis,
-                parse: ParseData {
-                    data: data_seg,
-                    analysis: analysis_seg,
-                    ..raw.parse
+) -> DeferredResult<RawDataset, ReadRawDatasetWarning, ReadRawDatasetError> {
+    let std = &raw.keywords.std;
+    let version = raw.version;
+    let def_anal_seg = &raw.parse.analysis;
+    let def_data_seg = &raw.parse.data;
+
+    let anal_res = lookup_analysis_offsets(std, conf, version, def_anal_seg)
+        .map(|t| t.warnings_into().errors_into())
+        .map_err(|e| e.warnings_into().errors_into());
+
+    let reader_res = lookup_data_offsets(std, conf, version, def_data_seg)
+        .map(|t| t.warnings_into().errors_into())
+        .map_err(|e| e.warnings_into().errors_into())
+        .and_then(|tnt| {
+            tnt.and_maybe(|data_seg| {
+                raw.as_reader(data_seg)
+                    .map(|t| t.warnings_into().errors_into())
+                    .map_err(|e| e.warnings_into().errors_into())
+                    .map(|t| t.map(|reader| (raw.keywords, raw.parse, reader, data_seg)))
+            })
+        });
+
+    let reader_tnt = combine_results(reader_res, anal_res)
+        .map(|(reader_tnt, anal_tnt)| {
+            reader_tnt.zip_with(
+                anal_tnt,
+                |(keywords, parse, reader, data_seg), analysis_seg| {
+                    (
+                        keywords,
+                        ParseData {
+                            data: data_seg,
+                            analysis: analysis_seg,
+                            ..parse
+                        },
+                        reader,
+                    )
                 },
-            }))
+            )
         })
+        .map_err(DeferredFailure::fold)?;
+
+    reader_tnt.and_maybe(|(keywords, parse, reader)| {
+        let data = reader
+            .h_read(h)
+            .map_err(|e| DeferredFailure::new(e.into()))?;
+        let analysis =
+            h_read_analysis(h, &parse.analysis).map_err(|e| DeferredFailure::new(e.into()))?;
+        Ok(Tentative::new(RawDataset {
+            version,
+            keywords,
+            data,
+            analysis,
+            parse,
+        }))
+    })
 }
 
 fn h_read_std_dataset<R: Read + Seek>(
@@ -1173,4 +1201,19 @@ enum_from!(
     [File, io::Error],
     [Raw, HeaderOrRawFailure],
     [Std, TerminalFailure<AnyStdTEXTWarning, ParseKeysError, CoreTEXTFailure>]
+);
+
+enum_from_disp!(
+    pub ReadRawDatasetError,
+    [Segment, ReqSegmentError],
+    [ToReader, RawToReaderError],
+    [ReadData, ImpureError<ReadDataError>],
+    [ReadAnalysis, io::Error]
+);
+
+enum_from_disp!(
+    pub ReadRawDatasetWarning,
+    [DataSeg, DataSegmentWarning],
+    [AnalysisSeg, AnalysisSegmentWarning],
+    [ToReader, RawToReaderWarning]
 );

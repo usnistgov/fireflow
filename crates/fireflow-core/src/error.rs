@@ -494,6 +494,19 @@ impl<V, W, E> Tentative<V, W, E> {
             }),
         }
     }
+
+    pub fn zip_with<F, X, Y>(mut self, other: Tentative<X, W, E>, f: F) -> Tentative<Y, W, E>
+    where
+        F: Fn(V, X) -> Y,
+    {
+        self.warnings.extend(other.warnings);
+        self.errors.extend(other.errors);
+        Tentative {
+            value: f(self.value, other.value),
+            warnings: self.warnings,
+            errors: self.errors,
+        }
+    }
 }
 
 impl<W, E> DeferredFailure<W, E> {

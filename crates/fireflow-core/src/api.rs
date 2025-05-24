@@ -785,7 +785,7 @@ fn lookup_req_segment(
     ek: &StdKey,
     corr: OffsetCorrection,
     id: SegmentId,
-) -> Deferred<Segment, ReqSegmentError> {
+) -> MultiResult<Segment, ReqSegmentError> {
     let x0 = get_req(kws, bk).map_err(|e| e.into());
     let x1 = get_req(kws, ek).map_err(|e| e.into());
     combine_results(x0, x1).and_then(|(begin, end)| {
@@ -799,7 +799,7 @@ fn lookup_opt_segment(
     ek: &StdKey,
     corr: OffsetCorrection,
     id: SegmentId,
-) -> Deferred<Option<Segment>, OptSegmentError> {
+) -> MultiResult<Option<Segment>, OptSegmentError> {
     let x0 = get_opt(kws, bk).map_err(|e| e.into());
     let x1 = get_opt(kws, ek).map_err(|e| e.into());
     combine_results(x0, x1).and_then(|(b, e)| {

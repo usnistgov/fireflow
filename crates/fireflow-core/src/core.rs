@@ -800,7 +800,7 @@ pub trait VersionedMetadata: Sized {
     fn as_column_layout(
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
-    ) -> Deferred<Self::L, NewDataLayoutError>;
+    ) -> MultiResult<Self::L, NewDataLayoutError>;
 }
 
 pub trait VersionedOptical: Sized + Versioned {
@@ -1107,7 +1107,7 @@ where
     fn try_convert<ToM: TryFromMetadata<M>>(
         self,
         convert: SizeConvert<M::D>,
-    ) -> Deferred<Metadata<ToM>, MetaConvertError> {
+    ) -> MultiResult<Metadata<ToM>, MetaConvertError> {
         // TODO this seems silly, break struct up into common bits
         ToM::try_from_meta(self.specific, convert).map(|specific| Metadata {
             abrt: self.abrt,
@@ -1914,7 +1914,7 @@ where
     /// are not present in current version.
     pub fn try_convert<ToM>(
         self,
-    ) -> Deferred<
+    ) -> MultiResult<
         VersionedCore<A, D, ToM>,
         ConvertError<
             <<ToM::N as MightHave>::Wrapper<Shortname> as TryFrom<
@@ -2294,7 +2294,7 @@ where
 
     // TODO add non-kw deprecation checker
 
-    fn check_linked_names(&self) -> Deferred<(), LinkedNameError> {
+    fn check_linked_names(&self) -> MultiResult<(), LinkedNameError> {
         let mut errs = vec![];
         let names = self.measurement_names();
 
@@ -2366,7 +2366,7 @@ where
         Ok(())
     }
 
-    pub(crate) fn as_column_layout(&self) -> Deferred<M::L, NewDataLayoutError> {
+    pub(crate) fn as_column_layout(&self) -> MultiResult<M::L, NewDataLayoutError> {
         M::as_column_layout(&self.metadata, &self.measurements)
     }
 
@@ -2537,7 +2537,7 @@ where
         &self,
         h: &mut BufWriter<W>,
         conf: &WriteConfig,
-    ) -> Deferred<(), ImpureError<StdWriterError>>
+    ) -> MultiResult<(), ImpureError<StdWriterError>>
     where
         W: Write,
     {
@@ -3817,7 +3817,7 @@ impl TryFrom<InnerOptical3_1> for InnerOptical3_2 {
     }
 }
 
-type MetaConvertResult<M> = Deferred<M, MetaConvertError>;
+type MetaConvertResult<M> = MultiResult<M, MetaConvertError>;
 
 pub struct SizeConvert<O> {
     size: O,
@@ -4980,7 +4980,7 @@ impl VersionedMetadata for InnerMetadata2_0 {
     fn as_column_layout(
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
-    ) -> Deferred<Self::L, NewDataLayoutError> {
+    ) -> MultiResult<Self::L, NewDataLayoutError> {
         Self::L::try_new(
             metadata.datatype,
             metadata.specific.byteord.clone(),
@@ -5066,7 +5066,7 @@ impl VersionedMetadata for InnerMetadata3_0 {
     fn as_column_layout(
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
-    ) -> Deferred<Self::L, NewDataLayoutError> {
+    ) -> MultiResult<Self::L, NewDataLayoutError> {
         Self::L::try_new(
             metadata.datatype,
             metadata.specific.byteord.clone(),
@@ -5160,7 +5160,7 @@ impl VersionedMetadata for InnerMetadata3_1 {
     fn as_column_layout(
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
-    ) -> Deferred<Self::L, NewDataLayoutError> {
+    ) -> MultiResult<Self::L, NewDataLayoutError> {
         Self::L::try_new(
             metadata.datatype,
             metadata.specific.byteord,
@@ -5266,7 +5266,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
     fn as_column_layout(
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
-    ) -> Deferred<Self::L, NewDataLayoutError> {
+    ) -> MultiResult<Self::L, NewDataLayoutError> {
         let endian = metadata.specific.byteord;
         let blank_cs = ms.layout_data();
         let cs: Vec<_> = ms

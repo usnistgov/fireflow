@@ -517,7 +517,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     pub fn map_non_center_values<E, F, W>(
         self,
         f: F,
-    ) -> Deferred<WrappedNamedVec<K, U, W>, IndexedElementError<E>>
+    ) -> MultiResult<WrappedNamedVec<K, U, W>, IndexedElementError<E>>
     where
         F: Fn(usize, V) -> Result<W, E>,
     {
@@ -1167,7 +1167,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// This may fail if the original wrapped name cannot be converted.
     pub fn try_rewrapped<J>(
         self,
-    ) -> Deferred<
+    ) -> MultiResult<
         WrappedNamedVec<J, U, V>,
         IndexedElementError<<J::Wrapper<Shortname> as TryFrom<K::Wrapper<Shortname>>>::Error>,
     >

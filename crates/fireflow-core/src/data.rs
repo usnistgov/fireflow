@@ -39,7 +39,7 @@ pub trait VersionedDataLayout: Sized {
         dt: AlphaNumType,
         size: Self::S,
         cs: Vec<ColumnLayoutData<Self::D>>,
-    ) -> Deferred<Self, NewDataLayoutError>;
+    ) -> MultiResult<Self, NewDataLayoutError>;
 
     fn try_new_from_raw(kws: &StdKeywords) -> FromRawResult<Self>;
 
@@ -51,7 +51,7 @@ pub trait VersionedDataLayout: Sized {
         &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
-    ) -> Deferred<DataWriter<'a>, ColumnWriterError> {
+    ) -> MultiResult<DataWriter<'a>, ColumnWriterError> {
         // The dataframe should be encapsulated such that a) the column number
         // matches the number of measurements. If these are not true, the code
         // is wrong.
@@ -67,7 +67,7 @@ pub trait VersionedDataLayout: Sized {
         &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
-    ) -> Deferred<DataWriter<'a>, ColumnWriterError>;
+    ) -> MultiResult<DataWriter<'a>, ColumnWriterError>;
 }
 
 pub enum DataLayout2_0 {
@@ -793,7 +793,7 @@ impl FixedLayout<AnyUintType> {
     pub(crate) fn try_new<D>(
         cs: Vec<ColumnLayoutData<D>>,
         e: Endian,
-    ) -> Deferred<Option<Self>, NewVariableIntLayoutError> {
+    ) -> MultiResult<Option<Self>, NewVariableIntLayoutError> {
         cs.into_iter()
             .enumerate()
             .map(|(i, c)| {
@@ -889,7 +889,7 @@ where
         r: Range,
         o: &ByteOrd,
         // index: MeasIdx,
-    ) -> Deferred<UintType<Self, INTLEN>, IntOrderedColumnError> {
+    ) -> MultiResult<UintType<Self, INTLEN>, IntOrderedColumnError> {
         // TODO be more specific, which means we need the measurement index
         let m = Self::range_to_bitmask(r).map_err(|e| e.into());
         let s = o.as_sized().map_err(|e| e.into());
@@ -902,7 +902,7 @@ where
     fn layout_ordered(
         rs: Vec<Range>,
         byteord: &ByteOrd,
-    ) -> Deferred<Option<FixedLayout<UintType<Self, INTLEN>>>, IntOrderedColumnError> {
+    ) -> MultiResult<Option<FixedLayout<UintType<Self, INTLEN>>>, IntOrderedColumnError> {
         rs.into_iter()
             .map(|r| Self::column_type_ordered(r, byteord))
             .gather()
@@ -1028,7 +1028,7 @@ where
     fn layout_endian<D>(
         cs: Vec<ColumnLayoutData<D>>,
         endian: Endian,
-    ) -> Deferred<Option<FixedLayout<FloatType<LEN, Self>>>, EndianFloatColumnError> {
+    ) -> MultiResult<Option<FixedLayout<FloatType<LEN, Self>>>, EndianFloatColumnError> {
         cs.into_iter()
             .enumerate()
             .map(|(i, c)| {
@@ -1045,7 +1045,7 @@ where
     fn layout<D>(
         cs: Vec<ColumnLayoutData<D>>,
         byteord: &ByteOrd,
-    ) -> Deferred<Option<FixedLayout<FloatType<LEN, Self>>>, OrderedFloatColumnError> {
+    ) -> MultiResult<Option<FixedLayout<FloatType<LEN, Self>>>, OrderedFloatColumnError> {
         cs.into_iter()
             .enumerate()
             .map(|(i, c)| {
@@ -1349,7 +1349,7 @@ where
         &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
-    ) -> Deferred<Option<FixedWriter<'a>>, ColumnWriterError>
+    ) -> MultiResult<Option<FixedWriter<'a>>, ColumnWriterError>
     where
         MixedType: From<C>,
         C: Copy,
@@ -1727,7 +1727,7 @@ impl IsFixed for MixedType {
     }
 }
 
-fn widths_to_single_fixed_bytes(ws: &[Width]) -> Deferred<Option<Bytes>, SingleFixedWidthError> {
+fn widths_to_single_fixed_bytes(ws: &[Width]) -> MultiResult<Option<Bytes>, SingleFixedWidthError> {
     let bs = ws
         .iter()
         .map(|w| w.as_bytes())
@@ -1748,7 +1748,7 @@ impl AnyUintLayout {
     pub(crate) fn try_new<D>(
         cs: Vec<ColumnLayoutData<D>>,
         o: &ByteOrd,
-    ) -> Deferred<Option<Self>, NewFixedIntLayoutError> {
+    ) -> MultiResult<Option<Self>, NewFixedIntLayoutError> {
         let (ws, rs): (Vec<_>, Vec<_>) = cs.into_iter().map(|c| (c.width, c.range)).unzip();
         if let Some(bytes) =
             widths_to_single_fixed_bytes(&ws[..]).map_err(|es| es.map(|e| e.into()))?
@@ -1804,7 +1804,7 @@ impl AnyUintLayout {
         &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
-    ) -> Deferred<Option<FixedWriter<'a>>, ColumnWriterError> {
+    ) -> MultiResult<Option<FixedWriter<'a>>, ColumnWriterError> {
         match_many_to_one!(
             self,
             AnyUintLayout,
@@ -1818,7 +1818,7 @@ impl AnyUintLayout {
 impl AsciiLayout {
     pub(crate) fn try_new<D>(
         cs: Vec<ColumnLayoutData<D>>,
-    ) -> Deferred<Option<Self>, NewAsciiLayoutError> {
+    ) -> MultiResult<Option<Self>, NewAsciiLayoutError> {
         let ncols = cs.len();
         if cs.iter().all(|c| c.width == Width::Variable) {
             Ok(Some(AsciiLayout::Delimited(DelimitedLayout { ncols })))
@@ -1853,7 +1853,7 @@ impl AsciiLayout {
         &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
-    ) -> Deferred<DataWriter<'a>, ColumnWriterError> {
+    ) -> MultiResult<DataWriter<'a>, ColumnWriterError> {
         match self {
             AsciiLayout::Fixed(a) => a
                 .as_writer(df, conf)
@@ -1930,7 +1930,7 @@ impl FloatLayout {
         &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
-    ) -> Deferred<Option<FixedWriter<'a>>, ColumnWriterError> {
+    ) -> MultiResult<Option<FixedWriter<'a>>, ColumnWriterError> {
         match self {
             FloatLayout::F32(l) => l.as_writer(df, conf),
             FloatLayout::F64(l) => l.as_writer(df, conf),
@@ -1946,7 +1946,7 @@ impl VersionedDataLayout for DataLayout2_0 {
         datatype: AlphaNumType,
         byteord: Self::S,
         columns: Vec<ColumnLayoutData<Self::D>>,
-    ) -> Deferred<Self, NewDataLayoutError> {
+    ) -> MultiResult<Self, NewDataLayoutError> {
         match datatype {
             AlphaNumType::Ascii => AsciiLayout::try_new(columns)
                 .map(|x| x.map_or(Self::Empty, Self::Ascii))
@@ -1987,7 +1987,7 @@ impl VersionedDataLayout for DataLayout2_0 {
         &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
-    ) -> Deferred<DataWriter<'a>, ColumnWriterError> {
+    ) -> MultiResult<DataWriter<'a>, ColumnWriterError> {
         match self {
             Self::Ascii(a) => a.as_writer(df, conf),
             Self::Integer(i) => i
@@ -2027,7 +2027,7 @@ impl VersionedDataLayout for DataLayout3_0 {
         datatype: AlphaNumType,
         byteord: Self::S,
         columns: Vec<ColumnLayoutData<Self::D>>,
-    ) -> Deferred<Self, NewDataLayoutError> {
+    ) -> MultiResult<Self, NewDataLayoutError> {
         match datatype {
             AlphaNumType::Ascii => AsciiLayout::try_new(columns)
                 .map(|x| x.map_or(Self::Empty, Self::Ascii))
@@ -2068,7 +2068,7 @@ impl VersionedDataLayout for DataLayout3_0 {
         &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
-    ) -> Deferred<DataWriter<'a>, ColumnWriterError> {
+    ) -> MultiResult<DataWriter<'a>, ColumnWriterError> {
         match self {
             Self::Ascii(a) => a.as_writer(df, conf),
             Self::Integer(i) => i
@@ -2105,7 +2105,7 @@ impl VersionedDataLayout for DataLayout3_1 {
         datatype: AlphaNumType,
         endian: Self::S,
         columns: Vec<ColumnLayoutData<Self::D>>,
-    ) -> Deferred<Self, NewDataLayoutError> {
+    ) -> MultiResult<Self, NewDataLayoutError> {
         match datatype {
             AlphaNumType::Ascii => AsciiLayout::try_new(columns)
                 .map(|x| x.map_or(Self::Empty, Self::Ascii))
@@ -2151,7 +2151,7 @@ impl VersionedDataLayout for DataLayout3_1 {
         &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
-    ) -> Deferred<DataWriter<'a>, ColumnWriterError> {
+    ) -> MultiResult<DataWriter<'a>, ColumnWriterError> {
         match self {
             Self::Ascii(a) => a.as_writer(df, conf),
             Self::Integer(i) => i
@@ -2188,7 +2188,7 @@ impl VersionedDataLayout for DataLayout3_2 {
         datatype: AlphaNumType,
         endian: Self::S,
         columns: Vec<ColumnLayoutData<Self::D>>,
-    ) -> Deferred<Self, NewDataLayoutError> {
+    ) -> MultiResult<Self, NewDataLayoutError> {
         let dt_columns: Vec<_> = columns
             .into_iter()
             .map(|c| ColumnLayoutData {
@@ -2270,7 +2270,7 @@ impl VersionedDataLayout for DataLayout3_2 {
         &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
-    ) -> Deferred<DataWriter<'a>, ColumnWriterError> {
+    ) -> MultiResult<DataWriter<'a>, ColumnWriterError> {
         match self {
             Self::Ascii(a) => a.as_writer(df, conf),
             Self::Integer(i) => i
@@ -2306,14 +2306,14 @@ impl VersionedDataLayout for DataLayout3_2 {
 #[allow(clippy::type_complexity)]
 fn kws_get_layout_2_0(
     kws: &StdKeywords,
-) -> Deferred<(AlphaNumType, ByteOrd, Vec<ColumnLayoutData<()>>), RawParsedError> {
+) -> MultiResult<(AlphaNumType, ByteOrd, Vec<ColumnLayoutData<()>>), RawParsedError> {
     let cs = kws_get_columns(kws).map_err(|es| es.map(|e| e.into()));
     let d = AlphaNumType::get_meta_req(kws).map_err(|e| NonEmpty::new(e.into()));
     let b = ByteOrd::get_meta_req(kws).map_err(|e| NonEmpty::new(e.into()));
     combine_results3(d, b, cs).map_err(NonEmpty::flatten)
 }
 
-fn kws_get_columns(kws: &StdKeywords) -> Deferred<Vec<ColumnLayoutData<()>>, RawParsedError> {
+fn kws_get_columns(kws: &StdKeywords) -> MultiResult<Vec<ColumnLayoutData<()>>, RawParsedError> {
     let par = Par::get_meta_req(kws).map_err(|e| NonEmpty::new(e.into()))?;
     (0..par.0)
         .map(|i| {

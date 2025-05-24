@@ -1,4 +1,4 @@
-use fireflow_core::api;
+use fireflow_core::api::*;
 use fireflow_core::config;
 use fireflow_core::error::*;
 use fireflow_core::validated::datepattern::DatePattern;
@@ -15,7 +15,7 @@ fn print_json<T: Serialize>(j: &T) {
     println!("{}", serde_json::to_string(j).unwrap());
 }
 
-pub fn print_parsed_data(s: &mut api::StandardizedDataset, _delim: &str) {
+pub fn print_parsed_data(s: &mut StandardizedDataset, _delim: &str) {
     let df = s.dataset.as_data();
     let nrows = df.nrows();
     let cols: Vec<_> = df.iter_columns().collect();
@@ -38,48 +38,93 @@ pub fn print_parsed_data(s: &mut api::StandardizedDataset, _delim: &str) {
 }
 
 // TODO use warnings_are_errors flag
-fn handle_failure<E, X>(res: Result<X, ImpureFailure<E>>) -> io::Result<X>
+fn handle_warnings<X, W>(t: Terminal<X, W>) -> X
 where
-    E: Display,
+    W: Display,
 {
-    res.map_err(|Failure { reason, deferred }| {
-        for e in deferred.errors {
-            match e.level {
-                PureErrorLevel::Error => eprintln!("ERROR: {}", e.msg),
-                PureErrorLevel::Warning => eprintln!("WARNING: {}", e.msg),
-            };
+    let print_warnings = |ws| {
+        for w in ws {
+            eprintln!("WARNING: {}", w)
         }
-        match reason {
-            ImpureError::Pure(e) => io::Error::other(format!("CRITICAL FCS ERROR: {}", e)),
-            ImpureError::IO(e) => io::Error::other(format!("IO ERROR: {}", e)),
-        }
-    })
+    };
+    t.resolve(print_warnings).0
 }
 
-fn handle_result<E, X>(res: ImpureResult<X, E>) -> io::Result<X>
+// TODO use warnings_are_errors flag
+fn handle_failure<W, E, T>(f: TerminalFailure<W, E, T>)
 where
     E: Display,
+    T: Display,
+    W: Display,
 {
-    handle_failure(res).and_then(|PureSuccess { data, deferred }| {
-        if deferred.has_errors() {
-            for e in deferred.errors {
-                match e.level {
-                    PureErrorLevel::Error => eprintln!("ERROR: {}", e.msg),
-                    PureErrorLevel::Warning => eprintln!("WARNING: {}", e.msg),
-                };
-            }
-            Err(io::Error::other(
-                "encountered at least one error".to_string(),
-            ))
-        } else {
-            // these are all warnings by definition since we checked above
-            for e in deferred.errors {
-                eprintln!("WARNING: {}", e.msg);
-            }
-            Ok(data)
+    let print_warnings = |ws| {
+        for w in ws {
+            eprintln!("WARNING: {}", w)
         }
-    })
+    };
+    f.resolve(print_warnings, |e| match e {
+        Failure::Single(t) => eprintln!("ERROR: {t}"),
+        Failure::Many(t, es) => {
+            eprintln!("TOPLEVEL ERROR: {t}");
+            for e in es {
+                eprintln!("  ERROR: {e}");
+            }
+        }
+    });
 }
+
+fn handle_result<X, W, E, T>(res: TerminalResult<X, W, E, T>) -> Option<X>
+where
+    E: Display,
+    T: Display,
+    W: Display,
+{
+    let print_warnings = |ws| {
+        for w in ws {
+            eprintln!("WARNING: {}", w)
+        }
+    };
+    match res {
+        Ok(t) => Some(t.resolve(print_warnings).0),
+        Err(f) => {
+            f.resolve(print_warnings, |e| match e {
+                Failure::Single(t) => eprintln!("ERROR: {t}"),
+                Failure::Many(t, es) => {
+                    eprintln!("TOPLEVEL ERROR: {t}");
+                    for e in es {
+                        eprintln!("  ERROR: {e}");
+                    }
+                }
+            });
+            None
+        }
+    }
+}
+
+// fn handle_result<E, X>(res: ImpureResult<X, E>) -> io::Result<X>
+// where
+//     E: Display,
+// {
+//     handle_failure(res).and_then(|PureSuccess { data, deferred }| {
+//         if deferred.has_errors() {
+//             for e in deferred.errors {
+//                 match e.level {
+//                     PureErrorLevel::Error => eprintln!("ERROR: {}", e.msg),
+//                     PureErrorLevel::Warning => eprintln!("WARNING: {}", e.msg),
+//                 };
+//             }
+//             Err(io::Error::other(
+//                 "encountered at least one error".to_string(),
+//             ))
+//         } else {
+//             // these are all warnings by definition since we checked above
+//             for e in deferred.errors {
+//                 eprintln!("WARNING: {}", e.msg);
+//             }
+//             Ok(data)
+//         }
+//     })
+// }
 
 fn main() -> io::Result<()> {
     let begintext_arg = arg!(--"begintext-delta" [OFFSET] "adjustment for begin TEXT offset")
@@ -189,15 +234,20 @@ fn main() -> io::Result<()> {
     match args.subcommand() {
         Some(("header", _)) => {
             let conf = config::HeaderConfig::default();
-            let header = handle_result(api::read_fcs_header(filepath, &conf))?;
-            print_json(&header);
+            match read_fcs_header(filepath, &conf) {
+                Ok(header) => print_json(&header),
+                Err(e) => match e {
+                    AnyParseHeaderFailure::File(e) => eprintln!("ERROR: {e}"),
+                    AnyParseHeaderFailure::Header(f) => handle_failure(f),
+                },
+            }
         }
 
         Some(("raw", sargs)) => {
             let mut conf = config::RawTextReadConfig::default();
             get_text_delta(sargs);
             conf.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
-            let raw = handle_result(api::read_fcs_raw_text(filepath, &conf))?;
+            let raw = handle_result(read_fcs_raw_text(filepath, &conf))?;
             // if sargs.get_flag("header") {
             //     print_json(&header);
             // }
@@ -210,7 +260,7 @@ fn main() -> io::Result<()> {
             conf.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
             let delim = sargs.get_one::<String>("delimiter").unwrap();
 
-            let res = handle_result(api::read_fcs_std_text(filepath, &conf))?;
+            let res = handle_result(read_fcs_std_text(filepath, &conf))?;
             res.standardized.print_spillover_table(delim)
         }
 
@@ -220,7 +270,7 @@ fn main() -> io::Result<()> {
             conf.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
             let delim = sargs.get_one::<String>("delimiter").unwrap();
 
-            let res = handle_result(api::read_fcs_std_text(filepath, &conf))?;
+            let res = handle_result(read_fcs_std_text(filepath, &conf))?;
             res.standardized.print_meas_table(delim)
         }
 
@@ -267,7 +317,7 @@ fn main() -> io::Result<()> {
             conf.disallow_deprecated = sargs.get_flag("disallow-deprecated");
             conf.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
 
-            let res = handle_result(api::read_fcs_std_text(filepath, &conf))?;
+            let res = handle_result(read_fcs_std_text(filepath, &conf))?;
             if sargs.get_flag("header") {
                 print_json(&res.parse);
             }
@@ -286,7 +336,7 @@ fn main() -> io::Result<()> {
             conf.standard.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
             let delim = sargs.get_one::<String>("delimiter").unwrap();
 
-            let mut res = handle_result(api::read_fcs_file(filepath, &conf))?;
+            let mut res = handle_result(read_fcs_file(filepath, &conf))?;
             print_parsed_data(&mut res, delim);
         }
 

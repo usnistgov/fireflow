@@ -67,7 +67,7 @@ pub fn h_read_header<R: Read>(
     .map_err(|es| TerminalFailure::new_many(HeaderFailure, es.map(ImpureError::Pure)))
 }
 
-fn parse_header(s: &str, conf: &HeaderConfig) -> Deferred<Header, HeaderError> {
+fn parse_header(s: &str, conf: &HeaderConfig) -> MultiResult<Header, HeaderError> {
     let v = &s[0..VERSION_END];
     let spaces = &s[VERSION_END..SPACE_END];
     let t0 = &s[SPACE_END..T0_END];
@@ -122,7 +122,7 @@ fn parse_segment(
     allow_blank: bool,
     id: SegmentId,
     corr: OffsetCorrection,
-) -> Deferred<Segment, HeaderError> {
+) -> MultiResult<Segment, HeaderError> {
     let parse_one = |s, is_begin| {
         parse_header_offset(s, allow_blank, is_begin, id).map_err(HeaderSegmentError::Parse)
     };

@@ -149,6 +149,23 @@ impl<V, W> Terminal<V, W> {
         }
     }
 
+    pub fn warnings_map<F, X>(self, f: F) -> Terminal<V, X>
+    where
+        F: Fn(W) -> X,
+    {
+        Terminal {
+            value: self.value,
+            warnings: self.warnings.into_iter().map(f).collect(),
+        }
+    }
+
+    pub fn warnings_into<X>(self) -> Terminal<V, X>
+    where
+        X: From<W>,
+    {
+        self.warnings_map(|w| w.into())
+    }
+
     pub fn and_finally<E, T, F, X>(mut self, f: F) -> TerminalResult<X, W, E, T>
     where
         F: FnOnce(V) -> TerminalResult<X, W, E, T>,
@@ -625,26 +642,26 @@ impl<W, E> DeferredFailure<W, E> {
 ///
 /// The impure case is always "critical" as usually this indicates something
 /// went wrong with file IO, which is usually an OS issue.
-pub enum ImpureErrorInner<E> {
+pub enum ImpureError<E> {
     IO(io::Error),
     Pure(E),
 }
 
-impl<E> ImpureErrorInner<E> {
-    pub fn inner_into<F>(self) -> ImpureErrorInner<F>
+impl<E> ImpureError<E> {
+    pub fn inner_into<F>(self) -> ImpureError<F>
     where
         F: From<E>,
     {
         self.map_inner(|e| e.into())
     }
 
-    pub fn map_inner<F, X>(self, f: F) -> ImpureErrorInner<X>
+    pub fn map_inner<F, X>(self, f: F) -> ImpureError<X>
     where
         F: Fn(E) -> X,
     {
         match self {
-            Self::IO(x) => ImpureErrorInner::IO(x),
-            Self::Pure(e) => ImpureErrorInner::Pure(f(e)),
+            Self::IO(x) => ImpureError::IO(x),
+            Self::Pure(e) => ImpureError::Pure(f(e)),
         }
     }
 }
@@ -1053,9 +1070,9 @@ impl<E> ImpureErrorInner<E> {
 //     }
 // }
 
-impl<E> From<io::Error> for ImpureErrorInner<E> {
+impl<E> From<io::Error> for ImpureError<E> {
     fn from(value: io::Error) -> Self {
-        ImpureErrorInner::IO(value)
+        ImpureError::IO(value)
     }
 }
 
@@ -1065,11 +1082,11 @@ impl<E> From<io::Error> for ImpureErrorInner<E> {
 //     }
 // }
 
-impl<W, E, T> From<io::Error> for TerminalFailure<W, E, ImpureErrorInner<T>> {
-    fn from(value: io::Error) -> Self {
-        TerminalFailure::new_single(value.into())
-    }
-}
+// impl<W, E, T> From<io::Error> for TerminalFailure<W, E, ImpureErrorInner<T>> {
+//     fn from(value: io::Error) -> Self {
+//         TerminalFailure::new_single(value.into())
+//     }
+// }
 
 // impl<W, E> From<io::Error> for TerminalFailure<W, E, ImpureError> {
 //     fn from(value: io::Error) -> Self {

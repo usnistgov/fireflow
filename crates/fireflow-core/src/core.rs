@@ -1407,7 +1407,7 @@ where
         data_len: usize,
         analysis_len: usize,
         conf: &WriteConfig,
-    ) -> Result<(), ImpureErrorInner<TEXTOverflowError>> {
+    ) -> Result<(), ImpureError<TEXTOverflowError>> {
         // TODO newtypes for data and analysis lenth to make them more obvious
         if let Some(ts) = self.text_segment(tot, data_len, analysis_len) {
             for t in ts {
@@ -1416,7 +1416,7 @@ where
             }
             Ok(())
         } else {
-            let te = ImpureErrorInner::Pure(TEXTOverflowError);
+            let te = ImpureError::Pure(TEXTOverflowError);
             Err(te)
         }
     }
@@ -2510,7 +2510,7 @@ where
         &self,
         h: &mut BufWriter<W>,
         conf: &WriteConfig,
-    ) -> TerminalResult<(), (), StdWriterError, ImpureErrorInner<StdReaderTermination>>
+    ) -> Deferred<(), ImpureError<StdWriterError>>
     where
         W: Write,
     {
@@ -2524,25 +2524,23 @@ where
                     .as_writer(df, conf)
                     .map_err(|es| es.map(|e| e.into()))
             })
-            .map_err(|es| {
-                let te = ImpureErrorInner::Pure(TerminalDataLayoutFailure.into());
-                DeferredFailure::new_with_many(es)
-                    .terminate(te)
-                    .terminal_into()
-            })?;
+            .map_err(|es| es.map(ImpureError::Pure))?;
 
         let tot = Tot(df.nrows());
         let analysis_len = self.analysis.0.len();
         // write HEADER+TEXT first
         self.h_write_text(h, tot, writer.nbytes(), analysis_len, conf)
-            .map(Terminal::<(), ()>::new)
-            .map_err(|t| t.inner_into())
-            .map_err(TerminalFailure::new_single)?;
+            .map_err(|e| NonEmpty::new(e.inner_into()))?;
         // write DATA
-        writer.h_write(h)?;
+        writer
+            .h_write(h)
+            .map_err(|e| e.into())
+            .map_err(NonEmpty::new)?;
         // write ANALYSIS
-        h.write_all(&self.analysis.0)?;
-        Ok(Terminal::new(()))
+        h.write_all(&self.analysis.0)
+            .map_err(|e| e.into())
+            .map_err(NonEmpty::new)?;
+        Ok(())
     }
 
     /// Return reference to dataframe representing DATA
@@ -5388,11 +5386,11 @@ enum_from_disp!(
     [Reader, NewReaderError]
 );
 
-enum_from_disp!(
-    pub StdReaderTermination,
-    [Layout, TerminalDataLayoutFailure],
-    [TEXT, TEXTOverflowError]
-);
+// enum_from_disp!(
+//     pub StdReaderTermination,
+//     [Layout, TerminalDataLayoutFailure],
+//     [TEXT, TEXTOverflowError]
+// );
 
 pub struct TerminalDataLayoutFailure;
 
@@ -5402,5 +5400,6 @@ pub struct TEXTOverflowError;
 enum_from_disp!(
     pub StdWriterError,
     [Layout, NewDataLayoutError],
-    [Writer, ColumnWriterError]
+    [Writer, ColumnWriterError],
+    [TEXT, TEXTOverflowError]
 );

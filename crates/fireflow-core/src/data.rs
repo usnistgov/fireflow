@@ -590,7 +590,7 @@ impl DataReader {
     pub(crate) fn h_read<R>(
         self,
         h: &mut BufReader<R>,
-    ) -> Result<FCSDataFrame, ImpureErrorInner<ReadDataError>>
+    ) -> Result<FCSDataFrame, ImpureError<ReadDataError>>
     where
         R: Read + Seek,
     {
@@ -631,7 +631,7 @@ impl DelimAsciiReader {
     fn h_read<R: Read>(
         self,
         h: &mut BufReader<R>,
-    ) -> Result<FCSDataFrame, ImpureErrorInner<ReadDelimAsciiError>> {
+    ) -> Result<FCSDataFrame, ImpureError<ReadDelimAsciiError>> {
         // FCS 2.0 files have an optional $TOT field, which complicates this a
         // bit. If in this case we have $TOT so the columns have been
         // initialized to the number of rows.
@@ -649,14 +649,14 @@ impl DelimAsciiReader {
             // exit if we encounter more rows than expected.
             if row == nrows {
                 let e = ReadDelimAsciiError::RowsExceeded(RowsExceededError(nrows));
-                return Err(ImpureErrorInner::Pure(e));
+                return Err(ImpureError::Pure(e));
             }
             if is_ascii_delim(byte) {
                 if !last_was_delim {
                     last_was_delim = true;
                     data[col][row] = ascii_to_uint(&buf)
                         .map_err(ReadDelimAsciiError::Parse)
-                        .map_err(ImpureErrorInner::Pure)?;
+                        .map_err(ImpureError::Pure)?;
                     buf.clear();
                     if col == ncols - 1 {
                         col = 0;
@@ -672,7 +672,7 @@ impl DelimAsciiReader {
         }
         if !(col == 0 && row == nrows) {
             let e = DelimIncompleteError { col, row, nrows };
-            return Err(ImpureErrorInner::Pure(ReadDelimAsciiError::Incomplete(e)));
+            return Err(ImpureError::Pure(ReadDelimAsciiError::Incomplete(e)));
         }
         // The spec isn't clear if the last value should be a delim or
         // not, so flush the buffer if it has anything in it since we
@@ -680,7 +680,7 @@ impl DelimAsciiReader {
         if !buf.is_empty() {
             data[col][row] = ascii_to_uint(&buf)
                 .map_err(ReadDelimAsciiError::Parse)
-                .map_err(ImpureErrorInner::Pure)?;
+                .map_err(ImpureError::Pure)?;
         }
         let cs: Vec<_> = data
             .into_iter()
@@ -702,7 +702,7 @@ impl DelimAsciiReaderNoRows {
     fn h_read<R: Read>(
         self,
         h: &mut BufReader<R>,
-    ) -> Result<FCSDataFrame, ImpureErrorInner<ReadDelimAsciiNoRowsError>> {
+    ) -> Result<FCSDataFrame, ImpureError<ReadDelimAsciiNoRowsError>> {
         let mut buf = Vec::new();
         let mut data = self.0.columns;
         let ncols = data.len();
@@ -711,7 +711,7 @@ impl DelimAsciiReaderNoRows {
         let go = |data: &mut NonEmpty<Vec<u64>>, col, buf: &[u8]| {
             ascii_to_uint(buf)
                 .map_err(ReadDelimAsciiNoRowsError::Parse)
-                .map_err(ImpureErrorInner::Pure)
+                .map_err(ImpureError::Pure)
                 .map(|x| data[col].push(x))
         };
         // Delimiters are tab, newline, carriage return, space, or comma. Any
@@ -739,7 +739,7 @@ impl DelimAsciiReaderNoRows {
             }
         }
         if data.iter().map(|c| c.len()).unique().count() > 1 {
-            return Err(ImpureErrorInner::Pure(ReadDelimAsciiNoRowsError::Unequal));
+            return Err(ImpureError::Pure(ReadDelimAsciiNoRowsError::Unequal));
         }
         // The spec isn't clear if the last value should be a delim or
         // not, so flush the buffer if it has anything in it since we
@@ -762,7 +762,7 @@ impl AlphaNumReader {
     fn h_read<R: Read>(
         mut self,
         h: &mut BufReader<R>,
-    ) -> Result<FCSDataFrame, ImpureErrorInner<AsciiToUintError>> {
+    ) -> Result<FCSDataFrame, ImpureError<AsciiToUintError>> {
         let mut buf: Vec<u8> = vec![];
         let nrows = self.columns.head.len();
         for r in 0..nrows {
@@ -775,7 +775,7 @@ impl AlphaNumReader {
                         h.take(u8::from(d.width).into()).read_to_end(&mut buf)?;
                         d.column[r] = ascii_to_uint(&buf)
                             .map_err(|e| e.into())
-                            .map_err(ImpureErrorInner::Pure)?;
+                            .map_err(ImpureError::Pure)?;
                     }
                 }
             }

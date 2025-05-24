@@ -54,17 +54,17 @@ pub struct Header {
 pub fn h_read_header<R: Read>(
     h: &mut BufReader<R>,
     conf: &HeaderConfig,
-) -> TerminalResult<Header, (), HeaderError, ImpureErrorInner<HeaderFailure>> {
+) -> Result<Header, TerminalFailure<(), ImpureError<HeaderError>, HeaderFailure>> {
     let mut verbuf = [0; HEADER_LEN];
-    h.read_exact(&mut verbuf)?;
+    h.read_exact(&mut verbuf)
+        .map_err(|e| DeferredFailure::new(e.into()).terminate(HeaderFailure))?;
     if verbuf.is_ascii() {
         let hs = unsafe { str::from_utf8_unchecked(&verbuf) };
         parse_header(hs, conf)
     } else {
         Err(NonEmpty::new(HeaderError::NotAscii))
     }
-    .map(Terminal::new)
-    .map_err(|es| TerminalFailure::new_many(ImpureErrorInner::Pure(HeaderFailure), es))
+    .map_err(|es| TerminalFailure::new_many(HeaderFailure, es.map(ImpureError::Pure)))
 }
 
 fn parse_header(s: &str, conf: &HeaderConfig) -> Deferred<Header, HeaderError> {

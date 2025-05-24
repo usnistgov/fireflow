@@ -18,6 +18,7 @@ use nonempty::NonEmpty;
 use serde::Serialize;
 use std::fmt;
 use std::fs;
+use std::io;
 use std::io::{BufReader, Read, Seek};
 use std::num::ParseIntError;
 use std::path;
@@ -221,10 +222,11 @@ pub struct ParseData {
 pub fn read_fcs_header(
     p: &path::PathBuf,
     conf: &HeaderConfig,
-) -> TerminalResult<Header, (), HeaderError, ImpureErrorInner<HeaderFailure>> {
+) -> Result<Header, AnyParseHeaderFailure> {
     let file = fs::File::options().read(true).open(p)?;
     let mut reader = BufReader::new(file);
-    h_read_header(&mut reader, conf)
+    let header = h_read_header(&mut reader, conf)?;
+    Ok(header)
 }
 
 /// Return header and raw key/value metadata pairs in an FCS file.
@@ -238,15 +240,11 @@ pub fn read_fcs_header(
 pub fn read_fcs_raw_text(
     p: &path::PathBuf,
     conf: &RawTextReadConfig,
-) -> TerminalResult<
-    RawTEXT,
-    ParseRawTEXTWarning,
-    ParseRawTEXTError,
-    ImpureErrorInner<ParseRawTEXTFailure>,
-> {
+) -> Result<Terminal<RawTEXT, ParseRawTEXTWarning>, AnyRawTEXTFailure> {
     let file = fs::File::options().read(true).open(p)?;
     let mut h = BufReader::new(file);
-    RawTEXT::h_read(&mut h, conf)
+    let raw = RawTEXT::h_read(&mut h, conf)?;
+    Ok(raw)
 }
 
 /// Return header and standardized metadata in an FCS file.
@@ -261,14 +259,16 @@ pub fn read_fcs_raw_text(
 pub fn read_fcs_std_text(
     p: &path::PathBuf,
     conf: &StdTextReadConfig,
-) -> TerminalResult<
-    RawTEXT,
-    ParseRawTEXTWarning,
-    ParseRawTEXTError,
-    ImpureErrorInner<ParseRawTEXTFailure>,
-> {
-    let raw_succ = read_fcs_raw_text(p, &conf.raw)?;
-    raw_succ.try_map(|raw| raw.into_std(conf))
+) -> Result<Terminal<StandardizedTEXT, AnyStdTEXTWarning>, AnyStdTEXTFailure> {
+    let term_raw = read_fcs_raw_text(p, &conf.raw)?;
+    let std = term_raw
+        .warnings_map(AnyStdTEXTWarning::from)
+        .and_finally(|raw| {
+            raw.into_std(conf)
+                .map(|t| t.warnings_into())
+                .map_err(|e| e.warnings_into())
+        })?;
+    Ok(std)
 }
 
 /// Return header, raw metadata, and data in an FCS file.
@@ -287,11 +287,12 @@ pub fn read_fcs_std_text(
 pub fn read_fcs_raw_file(
     p: path::PathBuf,
     conf: &DataReadConfig,
-) -> ImpureResult<RawDataset, String> {
+) -> Result<Terminal<RawDataset, ParseRawTEXTWarning>, AnyRawDatasetFailure> {
     let file = fs::File::options().read(true).open(p)?;
     let mut h = BufReader::new(file);
-    RawTEXT::h_read(&mut h, &conf.standard.raw)?
-        .try_map(|raw| h_read_raw_dataset(&mut h, raw, conf))
+    let term_raw = RawTEXT::h_read(&mut h, &conf.standard.raw)?;
+    let dataset = term_raw.and_finally(|raw| h_read_raw_dataset(&mut h, raw, conf))?;
+    Ok(dataset)
 }
 
 /// Return header, structured metadata, and data in an FCS file.
@@ -395,9 +396,10 @@ impl RawTEXT {
     fn h_read<R: Read + Seek>(
         h: &mut BufReader<R>,
         conf: &RawTextReadConfig,
-    ) -> ImpureResult<Self, String> {
-        h_read_header(h, &conf.header)?
-            .try_map(|header| h_read_raw_text_from_header(h, &header, conf))
+    ) -> Result<Terminal<Self, ParseRawTEXTWarning>, HeaderOrRawFailure> {
+        let header = h_read_header(h, &conf.header)?;
+        let raw = h_read_raw_text_from_header(h, &header, conf)?;
+        Ok(raw)
     }
 
     fn into_std(
@@ -868,42 +870,75 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
     h: &mut BufReader<R>,
     header: &Header,
     conf: &RawTextReadConfig,
-) -> TerminalResult<
-    RawTEXT,
-    ParseRawTEXTWarning,
-    ParseRawTEXTError,
-    ImpureErrorInner<ParseRawTEXTFailure>,
-> {
+) -> TerminalResult<RawTEXT, ParseRawTEXTWarning, ImpureError<ParseRawTEXTError>, ParseRawTEXTFailure>
+{
     let mut buf = vec![];
-    header.text.h_read(h, &mut buf)?;
+    header
+        .text
+        .h_read(h, &mut buf)
+        .map_err(|e| DeferredFailure::new(e.into()).terminate(ParseRawTEXTFailure))?;
 
-    let term_delim = deferred_res_into(split_first_delim(&buf, conf)).map_or_else(
-        |e| Err(e.terminate(ImpureErrorInner::Pure(ParseRawTEXTFailure))),
-        |t| t.terminate(ImpureErrorInner::Pure(ParseRawTEXTFailure)),
-    )?;
-
-    let term_primary = term_delim.and_maybe(
-        ImpureErrorInner::Pure(ParseRawTEXTFailure),
-        |(delim, bytes)| {
-            let kws = ParsedKeywords::default();
-            deferred_res_into(split_raw_primary_text(kws, delim, &bytes, conf))
-                .map(|tnt| tnt.map(|kws| repair_offsets(kws, conf)))
-                .map(|tnt| tnt.map(|kws| (delim, kws)))
+    // TODO all this lifting probably isn't necessary here
+    let term_delim = split_first_delim(&buf, conf).map_or_else(
+        |e| {
+            Err(e
+                .errors_into()
+                .errors_map(ImpureError::Pure)
+                .warnings_into()
+                .terminate(ParseRawTEXTFailure))
+        },
+        |t| {
+            t.errors_into()
+                .errors_map(ImpureError::Pure)
+                .warnings_into()
+                .terminate(ParseRawTEXTFailure)
         },
     )?;
+
+    let term_primary = term_delim.and_maybe(ParseRawTEXTFailure, |(delim, bytes)| {
+        let kws = ParsedKeywords::default();
+        split_raw_primary_text(kws, delim, &bytes, conf)
+            .map_err(|e| {
+                e.errors_into()
+                    .errors_map(ImpureError::Pure)
+                    .warnings_into()
+            })
+            .map(|e| {
+                e.errors_into()
+                    .errors_map(ImpureError::Pure)
+                    .warnings_into()
+            })
+            .map(|tnt| tnt.map(|kws| repair_offsets(kws, conf)))
+            .map(|tnt| tnt.map(|kws| (delim, kws)))
+    })?;
 
     let term_all_kws = term_primary.and_finally(|(delim, kws)| {
         lookup_stext_offsets(&kws.std, header.version, conf)
             .errors_into()
+            .errors_map(ImpureError::Pure)
             .warnings_into()
             .map(|s| (s, kws))
             .and_finally(|(maybe_supp_seg, kws)| {
                 let term_supp_kws = if let Some(seg) = maybe_supp_seg {
                     buf.clear();
-                    seg.h_read(h, &mut buf)?;
-                    deferred_res_into(split_raw_primary_text(kws, delim, &buf, conf)).map_or_else(
-                        |e| Err(e.terminate(ImpureErrorInner::Pure(ParseRawTEXTFailure))),
-                        |t| t.terminate(ImpureErrorInner::Pure(ParseRawTEXTFailure)),
+                    seg.h_read(h, &mut buf).map_err(|e| {
+                        DeferredFailure::new(e.into()).terminate(ParseRawTEXTFailure)
+                    })?;
+                    // TODO fixme
+                    split_raw_primary_text(kws, delim, &buf, conf).map_or_else(
+                        |e| {
+                            Err(e
+                                .errors_into()
+                                .errors_map(ImpureError::Pure)
+                                .warnings_into()
+                                .terminate(ParseRawTEXTFailure))
+                        },
+                        |t| {
+                            t.errors_into()
+                                .errors_map(ImpureError::Pure)
+                                .warnings_into()
+                                .terminate(ParseRawTEXTFailure)
+                        },
                     )?
                 } else {
                     Terminal::new(kws)
@@ -913,7 +948,7 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
     })?;
 
     term_all_kws.and_tentatively(
-        ImpureErrorInner::Pure(ParseRawTEXTFailure),
+        ParseRawTEXTFailure,
         |(delimiter, mut kws, supp_text_seg)| {
             repair_keywords(&mut kws.std, conf);
             // TODO this will throw an error if not present, but we may not care
@@ -938,6 +973,7 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
                     },
                 })
                 .errors_into()
+                .errors_map(ImpureError::Pure)
                 .warnings_into()
         },
     )
@@ -1089,7 +1125,7 @@ enum_from_disp!(
     [Delim, DelimVerifyError],
     [Primary, ParsePrimaryTEXTError],
     [SuppOffsets, ReqSegmentError],
-    [Nextdata, ReqKeyError]
+    [Nextdata, ReqKeyError<ParseIntError>]
 );
 
 enum_from_disp!(
@@ -1101,3 +1137,40 @@ enum_from_disp!(
 );
 
 pub struct ParseRawTEXTFailure;
+
+enum_from!(
+    pub AnyParseHeaderFailure,
+    [File, io::Error],
+    [Header, TerminalFailure<(), ImpureError<HeaderError>, HeaderFailure>]
+);
+
+enum_from!(
+    pub AnyRawTEXTFailure,
+    [File, io::Error],
+    [Parse, HeaderOrRawFailure]
+);
+
+enum_from!(
+    pub HeaderOrRawFailure,
+    [Header, TerminalFailure<(), ImpureError<HeaderError>, HeaderFailure>],
+    [RawTEXT, TerminalFailure<ParseRawTEXTWarning, ImpureError<ParseRawTEXTError>, ParseRawTEXTFailure>]
+);
+
+enum_from!(
+    pub AnyStdTEXTFailure,
+    [Raw, AnyRawTEXTFailure],
+    [Std, TerminalFailure<AnyStdTEXTWarning, ParseKeysError, CoreTEXTFailure>]
+);
+
+enum_from_disp!(
+    pub AnyStdTEXTWarning,
+    [Raw, ParseRawTEXTWarning],
+    [Std, ParseKeysWarning]
+);
+
+enum_from!(
+    pub AnyRawDatasetFailure,
+    [File, io::Error],
+    [Raw, HeaderOrRawFailure],
+    [Std, TerminalFailure<AnyStdTEXTWarning, ParseKeysError, CoreTEXTFailure>]
+);

@@ -70,20 +70,15 @@ impl<'a, 'b> KwParser<'a, 'b> {
         let mut st = Self::from(kws, conf);
         if let Some(value) = f(&mut st) {
             let (errors, warnings) = st.collect();
-            let tent = Tentative {
-                value,
-                errors,
-                warnings,
-            };
-            Ok(tent)
+            Ok(Tentative::new(value, warnings, errors))
         } else {
             let (errors, warnings) = st.collect();
-            let fail = DeferredFailure {
+            let fail = DeferredFailure::new(
                 // TODO I contradicted myself :( this entire struct is now
                 // useless. Oh well, it was bound to happen
-                errors: NonEmpty::from_vec(errors).unwrap(),
                 warnings,
-            };
+                NonEmpty::from_vec(errors).unwrap(),
+            );
             Err(fail)
         }
     }

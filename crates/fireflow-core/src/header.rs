@@ -57,7 +57,7 @@ pub fn h_read_header<R: Read>(
 ) -> Result<Header, TerminalFailure<(), ImpureError<HeaderError>, HeaderFailure>> {
     let mut verbuf = [0; HEADER_LEN];
     h.read_exact(&mut verbuf)
-        .map_err(|e| DeferredFailure::new(e.into()).terminate(HeaderFailure))?;
+        .map_err(|e| DeferredFailure::new1(e.into()).terminate(HeaderFailure))?;
     if verbuf.is_ascii() {
         let hs = unsafe { str::from_utf8_unchecked(&verbuf) };
         parse_header(hs, conf)

@@ -1324,13 +1324,13 @@ where
         let total_events = n / w;
         let remainder = n % w;
         let columns = self.columns.map(|c| c.into_reader(total_events));
-        let mut tnt = Tentative::new(AlphaNumReader { columns });
+        let mut tnt = Tentative::new1(AlphaNumReader { columns });
 
         if let Some(tot) = kw_tot {
             if tot.0 != total_events {
                 let i = TotEventMismatch { tot, total_events };
                 // TODO toggle
-                tnt.warnings.push(i.into());
+                tnt.push_warning(i.into());
             }
         }
         if remainder > 0 {
@@ -1340,7 +1340,7 @@ where
                 remainder,
             };
             // TODO toggle
-            tnt.warnings.push(i.into());
+            tnt.push_warning(i.into());
         }
         tnt
     }
@@ -1901,7 +1901,7 @@ impl AsciiLayout {
     ) -> Tentative<ColumnReader, NewFixedReaderIssue, NewFixedReaderIssue> {
         let nbytes = seg.nbytes() as usize;
         match self {
-            AsciiLayout::Delimited(dl) => Tentative::new(dl.into_reader(nbytes, kw_tot)),
+            AsciiLayout::Delimited(dl) => Tentative::new1(dl.into_reader(nbytes, kw_tot)),
             AsciiLayout::Fixed(fl) => fl.into_reader(seg, kw_tot).map(ColumnReader::AlphaNum),
         }
     }
@@ -1969,9 +1969,9 @@ impl VersionedDataLayout for DataLayout2_0 {
             .and_then(|(datatype, byteord, columns)| {
                 Self::try_new(datatype, byteord, columns)
                     .map_err(|es| es.map(|e| e.into()))
-                    .map(Tentative::new)
+                    .map(Tentative::new1)
             })
-            .map_err(DeferredFailure::new_with_many)
+            .map_err(DeferredFailure::new2)
     }
 
     fn ncols(&self) -> usize {
@@ -2002,19 +2002,15 @@ impl VersionedDataLayout for DataLayout2_0 {
 
     fn into_reader(self, kws: &StdKeywords, data_seg: Segment) -> ReaderResult {
         let r = match Tot::get_meta_opt(kws).map(|x| x.0) {
-            Ok(value) => Tentative::new((value, self)),
-            Err(w) => Tentative {
-                value: (None, self),
-                warnings: vec![w.into()],
-                errors: vec![],
-            },
+            Ok(value) => Tentative::new1((value, self)),
+            Err(w) => Tentative::new((None, self), vec![w.into()], vec![]),
         }
         .and_tentatively(|(tot, s)| {
             match s {
                 Self::Ascii(a) => a.into_reader(data_seg, tot),
                 Self::Integer(fl) => fl.into_reader(data_seg, tot).map(ColumnReader::AlphaNum),
                 Self::Float(fl) => fl.into_reader(data_seg, tot).map(ColumnReader::AlphaNum),
-                Self::Empty => Tentative::new(ColumnReader::Empty),
+                Self::Empty => Tentative::new1(ColumnReader::Empty),
             }
             .warnings_into()
             .errors_into()
@@ -2054,9 +2050,9 @@ impl VersionedDataLayout for DataLayout3_0 {
             .and_then(|(datatype, byteord, columns)| {
                 Self::try_new(datatype, byteord, columns)
                     .map_err(|es| es.map(|e| e.into()))
-                    .map(Tentative::new)
+                    .map(Tentative::new1)
             })
-            .map_err(DeferredFailure::new_with_many)
+            .map_err(DeferredFailure::new2)
     }
 
     fn ncols(&self) -> usize {
@@ -2088,12 +2084,12 @@ impl VersionedDataLayout for DataLayout3_0 {
     fn into_reader(self, kws: &StdKeywords, data_seg: Segment) -> ReaderResult {
         let tot = Tot::get_meta_req(kws)
             .map(Some)
-            .map_err(|e| DeferredFailure::new(e.into()))?;
+            .map_err(|e| DeferredFailure::new1(e.into()))?;
         let r = match self {
             Self::Ascii(a) => a.into_reader(data_seg, tot),
             Self::Integer(fl) => fl.into_reader(data_seg, tot).map(ColumnReader::AlphaNum),
             Self::Float(fl) => fl.into_reader(data_seg, tot).map(ColumnReader::AlphaNum),
-            Self::Empty => Tentative::new(ColumnReader::Empty),
+            Self::Empty => Tentative::new1(ColumnReader::Empty),
         }
         .warnings_into()
         .errors_into();
@@ -2138,8 +2134,8 @@ impl VersionedDataLayout for DataLayout3_1 {
             .and_then(|(datatype, byteord, columns)| {
                 Self::try_new(datatype, byteord, columns).map_err(|es| es.map(|e| e.into()))
             })
-            .map(Tentative::new)
-            .map_err(DeferredFailure::new_with_many)
+            .map(Tentative::new1)
+            .map_err(DeferredFailure::new2)
     }
 
     fn ncols(&self) -> usize {
@@ -2171,12 +2167,12 @@ impl VersionedDataLayout for DataLayout3_1 {
     fn into_reader(self, kws: &StdKeywords, data_seg: Segment) -> ReaderResult {
         let tot = Tot::get_meta_req(kws)
             .map(Some)
-            .map_err(|e| DeferredFailure::new(e.into()))?;
+            .map_err(|e| DeferredFailure::new1(e.into()))?;
         let r = match self {
             Self::Ascii(a) => a.into_reader(data_seg, tot),
             Self::Integer(fl) => fl.into_reader(data_seg, tot).map(ColumnReader::AlphaNum),
             Self::Float(fl) => fl.into_reader(data_seg, tot).map(ColumnReader::AlphaNum),
-            Self::Empty => Tentative::new(ColumnReader::Empty),
+            Self::Empty => Tentative::new1(ColumnReader::Empty),
         }
         .warnings_into()
         .errors_into();
@@ -2241,10 +2237,10 @@ impl VersionedDataLayout for DataLayout3_2 {
     fn try_new_from_raw(kws: &StdKeywords) -> FromRawResult<Self> {
         let d = AlphaNumType::get_meta_req(kws)
             .map_err(RawParsedError::from)
-            .map_err(DeferredFailure::new);
+            .map_err(DeferredFailure::new1);
         let e = Endian::get_meta_req(kws)
             .map_err(RawParsedError::from)
-            .map_err(DeferredFailure::new);
+            .map_err(DeferredFailure::new1);
         let cs = kws_get_columns_3_2(kws);
         let (datatype, endian, tnt_columns) = combine_results3(d, e, cs)
             .map_err(DeferredFailure::fold)
@@ -2253,8 +2249,8 @@ impl VersionedDataLayout for DataLayout3_2 {
             .errors_into()
             .and_maybe(|columns| {
                 Self::try_new(datatype, endian, columns)
-                    .map_err(DeferredFailure::new_with_many)
-                    .map(Tentative::new)
+                    .map_err(DeferredFailure::new2)
+                    .map(Tentative::new1)
                     .map_err(|es| es.errors_into())
             })
             .map_err(|e| e.into())
@@ -2293,13 +2289,13 @@ impl VersionedDataLayout for DataLayout3_2 {
     fn into_reader(self, kws: &StdKeywords, data_seg: Segment) -> ReaderResult {
         let tot = Tot::get_meta_req(kws)
             .map(Some)
-            .map_err(|e| DeferredFailure::new(e.into()))?;
+            .map_err(|e| DeferredFailure::new1(e.into()))?;
         let r = match self {
             Self::Ascii(a) => a.into_reader(data_seg, tot),
             Self::Integer(fl) => fl.into_reader(data_seg, tot).map(ColumnReader::AlphaNum),
             Self::Float(fl) => fl.into_reader(data_seg, tot).map(ColumnReader::AlphaNum),
             Self::Mixed(fl) => fl.into_reader(data_seg, tot).map(ColumnReader::AlphaNum),
-            Self::Empty => Tentative::new(ColumnReader::Empty),
+            Self::Empty => Tentative::new1(ColumnReader::Empty),
         }
         .warnings_into()
         .errors_into();
@@ -2342,17 +2338,13 @@ fn kws_get_columns_3_2(
 > {
     let par = Par::get_meta_req(kws)
         .map_err(|e| e.into())
-        .map_err(DeferredFailure::new)?;
+        .map_err(DeferredFailure::new1)?;
     (0..par.0)
         .map(|i| {
             let index = i.into();
             match NumType::get_meas_opt(kws, index) {
-                Ok(x) => Tentative::new(x.0),
-                Err(e) => Tentative {
-                    value: None,
-                    warnings: vec![e.into()],
-                    errors: vec![],
-                },
+                Ok(x) => Tentative::new1(x.0),
+                Err(e) => Tentative::new(None, vec![e.into()], vec![]),
             }
             .and_maybe(|pn_datatype| {
                 let w = Width::get_meas_req(kws, index).map_err(|e| e.into());
@@ -2363,8 +2355,8 @@ fn kws_get_columns_3_2(
                         range,
                         datatype: pn_datatype,
                     })
-                    .map_err(DeferredFailure::new_with_many)
-                    .map(Tentative::new)
+                    .map_err(DeferredFailure::new2)
+                    .map(Tentative::new1)
             })
         })
         .gather()

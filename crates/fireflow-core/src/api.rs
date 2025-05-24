@@ -380,10 +380,10 @@ fn h_read_raw_dataset<R: Read + Seek>(
             tnt.and_maybe(|(keywords, parse, reader)| {
                 let data = reader
                     .h_read(h)
-                    .map_err(|e| DeferredFailure::new(e.into()))?;
+                    .map_err(|e| DeferredFailure::new1(e.into()))?;
                 let analysis = h_read_analysis(h, &parse.analysis)
-                    .map_err(|e| DeferredFailure::new(e.into()))?;
-                Ok(Tentative::new(RawDataset {
+                    .map_err(|e| DeferredFailure::new1(e.into()))?;
+                Ok(Tentative::new1(RawDataset {
                     version,
                     keywords,
                     data,
@@ -449,12 +449,12 @@ fn h_read_std_dataset<R: Read + Seek>(
             tnt.and_maybe(|(parse, reader)| {
                 let columns = reader
                     .h_read(h)
-                    .map_err(|e| DeferredFailure::new(e.into()))?;
+                    .map_err(|e| DeferredFailure::new1(e.into()))?;
                 let analysis = h_read_analysis(h, &parse.analysis)
-                    .map_err(|e| DeferredFailure::new(e.into()))?;
+                    .map_err(|e| DeferredFailure::new1(e.into()))?;
                 let dataset =
                     AnyCoreDataset::from_coretext_unchecked(std.standardized, columns, analysis);
-                Ok(Tentative::new(StandardizedDataset {
+                Ok(Tentative::new1(StandardizedDataset {
                     remainder: kws,
                     deviant: std.deviant,
                     dataset,
@@ -544,36 +544,37 @@ fn split_first_delim<'a>(
     conf: &RawTextReadConfig,
 ) -> DeferredResult<(u8, &'a [u8]), DelimCharError, DelimVerifyError> {
     if let Some(delim) = bytes.first() {
-        let mut tnt = Tentative::new((*delim, &bytes[1..]));
+        let mut tnt = Tentative::new1((*delim, &bytes[1..]));
         if (1..=126).contains(delim) {
             Ok(tnt)
         } else {
             let e = DelimCharError(*delim);
             if conf.force_ascii_delim {
-                Err(DeferredFailure::new(e.into()))
+                Err(DeferredFailure::new1(e.into()))
             } else {
-                tnt.warnings.push(e);
+                tnt.push_warning(e);
                 Ok(tnt)
             }
         }
     } else {
-        Err(DeferredFailure::new(EmptyTEXTError.into()))
+        Err(DeferredFailure::new1(EmptyTEXTError.into()))
     }
 }
 
 fn split_raw_text_nodouble(
-    kws: ParsedKeywords,
+    mut kws: ParsedKeywords,
     delim: u8,
     bytes: &[u8],
     conf: &RawTextReadConfig,
 ) -> Tentative<ParsedKeywords, ParseKeywordsIssue, ParseKeywordsIssue> {
-    let mut tnt = Tentative::new(kws);
+    let mut errors = vec![];
+    let mut warnings = vec![];
 
     let mut push_issue = |test, error| {
         if test {
-            tnt.errors.push(error);
+            errors.push(error);
         } else {
-            tnt.warnings.push(error);
+            warnings.push(error);
         }
     };
 
@@ -600,7 +601,7 @@ fn split_raw_text_nodouble(
             prev_was_blank = value.is_empty();
             if value.is_empty() {
                 push_issue(conf.enforce_nonempty, BlankValueError(key.to_vec()).into());
-            } else if let Err(e) = tnt.value.insert(key, value) {
+            } else if let Err(e) = kws.insert(key, value) {
                 push_issue(conf.enforce_unique, e.into());
             }
         } else {
@@ -618,33 +619,29 @@ fn split_raw_text_nodouble(
         push_issue(conf.enforce_final_delim, FinalDelimError.into());
     }
 
-    tnt
+    Tentative::new(kws, warnings, errors)
 }
 
 fn split_raw_text_double(
-    kws: ParsedKeywords,
+    mut kws: ParsedKeywords,
     delim: u8,
     bytes: &[u8],
     conf: &RawTextReadConfig,
 ) -> Tentative<ParsedKeywords, ParseKeywordsIssue, ParseKeywordsIssue> {
-    let mut tnt = Tentative::new(kws);
+    let mut errors = vec![];
+    let mut warnings = vec![];
 
-    let push_issue = |tnt: &mut Tentative<_, _, _>, test, error| {
+    let push_issue = |es: &mut Vec<_>, ws: &mut Vec<_>, test, error| {
         if test {
-            tnt.errors.push(error);
+            es.push(error);
         } else {
-            tnt.warnings.push(error);
+            ws.push(error);
         }
     };
 
-    // ASSUME input slice does not start with delim
-    let mut consec_blanks = 0;
-    let mut keybuf: Vec<u8> = vec![];
-    let mut valuebuf: Vec<u8> = vec![];
-
-    let push_pair = |tnt: &mut Tentative<ParsedKeywords, _, _>, kb: &Vec<_>, vb: &Vec<_>| {
-        if let Err(e) = tnt.value.insert(kb, vb) {
-            push_issue(tnt, conf.enforce_unique, e.into())
+    let mut push_pair = |es: &mut Vec<_>, ws: &mut Vec<_>, kb: &Vec<_>, vb: &Vec<_>| {
+        if let Err(e) = kws.insert(kb, vb) {
+            push_issue(es, ws, conf.enforce_unique, e.into())
         }
     };
 
@@ -656,6 +653,11 @@ fn split_raw_text_double(
         }
     };
 
+    // ASSUME input slice does not start with delim
+    let mut consec_blanks = 0;
+    let mut keybuf: Vec<u8> = vec![];
+    let mut valuebuf: Vec<u8> = vec![];
+
     for segment in bytes.split(|x| *x == delim) {
         if segment.is_empty() {
             consec_blanks += 1;
@@ -664,7 +666,7 @@ fn split_raw_text_double(
                 // Previous number of delimiters is odd, treat this as a word
                 // boundary
                 if !valuebuf.is_empty() {
-                    push_pair(&mut tnt, &keybuf, &valuebuf);
+                    push_pair(&mut errors, &mut warnings, &keybuf, &valuebuf);
                     keybuf.clear();
                     valuebuf.clear();
                     keybuf.extend_from_slice(segment);
@@ -675,7 +677,7 @@ fn split_raw_text_double(
                     keybuf.extend_from_slice(segment);
                 }
                 if consec_blanks > 0 {
-                    push_issue(&mut tnt, false, DelimBoundError.into());
+                    push_issue(&mut errors, &mut warnings, false, DelimBoundError.into());
                 }
             } else {
                 // Previous consecutive delimiter sequence was even. Push n / 2
@@ -687,25 +689,41 @@ fn split_raw_text_double(
     }
 
     if consec_blanks == 0 {
-        push_issue(&mut tnt, conf.enforce_final_delim, FinalDelimError.into());
+        push_issue(
+            &mut errors,
+            &mut warnings,
+            conf.enforce_final_delim,
+            FinalDelimError.into(),
+        );
     } else if consec_blanks & 1 == 1 {
         // technically this ends with a delim but it is part of a word so
         // doesn't count
-        push_issue(&mut tnt, conf.enforce_final_delim, FinalDelimError.into());
-        push_issue(&mut tnt, false, DelimBoundError.into());
+        push_issue(
+            &mut errors,
+            &mut warnings,
+            conf.enforce_final_delim,
+            FinalDelimError.into(),
+        );
+        // TODO toggleme
+        push_issue(&mut errors, &mut warnings, false, DelimBoundError.into());
         push_delim(&mut keybuf, &mut valuebuf, consec_blanks);
     } else if consec_blanks > 1 {
         // TODO toggleme
-        push_issue(&mut tnt, false, DelimBoundError.into());
+        push_issue(&mut errors, &mut warnings, false, DelimBoundError.into());
     }
 
     if valuebuf.is_empty() {
-        push_issue(&mut tnt, conf.enforce_even, UnevenWordsError.into());
+        push_issue(
+            &mut errors,
+            &mut warnings,
+            conf.enforce_even,
+            UnevenWordsError.into(),
+        );
     } else {
-        push_pair(&mut tnt, &keybuf, &valuebuf);
+        push_pair(&mut errors, &mut warnings, &keybuf, &valuebuf);
     }
 
-    tnt
+    Tentative::new(kws, warnings, errors)
 }
 
 fn split_raw_primary_text(
@@ -715,7 +733,7 @@ fn split_raw_primary_text(
     conf: &RawTextReadConfig,
 ) -> DeferredResult<ParsedKeywords, ParseKeywordsIssue, ParsePrimaryTEXTError> {
     if bytes.is_empty() {
-        Err(DeferredFailure::new(NoTEXTWordsError.into()))
+        Err(DeferredFailure::new1(NoTEXTWordsError.into()))
     } else if conf.allow_double_delim {
         Ok(split_raw_text_double(kws, delim, bytes, conf).errors_into())
     } else {
@@ -816,13 +834,15 @@ fn lookup_data_offsets(
     .map_or_else(
         |es| {
             // TODO toggle this
-            let mut tnt = Tentative::new(*default);
-            tnt.warnings.push(DataSegmentDefaultWarning.into());
-            tnt.warnings.extend(es.map(|e| e.into()));
-            Ok(tnt)
+            let ws = es
+                .map(|e| e.into())
+                .into_iter()
+                .chain([DataSegmentDefaultWarning.into()])
+                .collect();
+            Ok(Tentative::new(*default, ws, vec![]))
         },
         // TODO what if the default is different?
-        |t| Ok(Tentative::new(t)),
+        |t| Ok(Tentative::new1(t)),
     )
 }
 
@@ -833,7 +853,7 @@ fn lookup_analysis_offsets(
     default: &Segment,
 ) -> DeferredResult<Segment, AnalysisSegmentWarning, ReqSegmentError> {
     match version {
-        Version::FCS2_0 => Ok(Tentative::new(*default)),
+        Version::FCS2_0 => Ok(Tentative::new1(*default)),
         Version::FCS3_0 | Version::FCS3_1 => lookup_req_segment(
             kws,
             &Beginanalysis::std(),
@@ -844,12 +864,14 @@ fn lookup_analysis_offsets(
         .map_or_else(
             |es| {
                 // TODO toggle this
-                let mut tnt = Tentative::new(*default);
-                tnt.warnings.push(AnalysisSegmentDefaultWarning.into());
-                tnt.warnings.extend(es.map(|e| e.into()));
-                Ok(tnt)
+                let ws = es
+                    .map(|e| e.into())
+                    .into_iter()
+                    .chain([AnalysisSegmentDefaultWarning.into()])
+                    .collect();
+                Ok(Tentative::new(*default, ws, vec![]))
             },
-            |t| Ok(Tentative::new(t)),
+            |t| Ok(Tentative::new1(t)),
         ),
         Version::FCS3_2 => lookup_opt_segment(
             kws,
@@ -862,12 +884,14 @@ fn lookup_analysis_offsets(
             |es| {
                 // unlike the above, this can never error because the keywords
                 // are optional
-                let mut tnt = Tentative::new(*default);
-                tnt.warnings.push(AnalysisSegmentDefaultWarning.into());
-                tnt.warnings.extend(es.map(|e| e.into()));
-                Ok(tnt)
+                let ws = es
+                    .map(|e| e.into())
+                    .into_iter()
+                    .chain([AnalysisSegmentDefaultWarning.into()])
+                    .collect();
+                Ok(Tentative::new(*default, ws, vec![]))
             },
-            |t| Ok(Tentative::new(t.unwrap_or(*default))),
+            |t| Ok(Tentative::new1(t.unwrap_or(*default))),
         ),
     }
 }
@@ -878,7 +902,7 @@ fn lookup_stext_offsets(
     conf: &RawTextReadConfig,
 ) -> Tentative<Option<Segment>, STextSegmentWarning, ReqSegmentError> {
     match version {
-        Version::FCS2_0 => Tentative::new(None),
+        Version::FCS2_0 => Tentative::new1(None),
         Version::FCS3_0 | Version::FCS3_1 => lookup_req_segment(
             kws,
             &Beginstext::std(),
@@ -888,15 +912,13 @@ fn lookup_stext_offsets(
         )
         .map_or_else(
             |es| {
-                let mut tnt = Tentative::new(None);
                 if conf.enforce_stext {
-                    tnt.errors.extend(es);
+                    Tentative::new(None, vec![], es.into())
                 } else {
-                    tnt.warnings.extend(es.map(|e| e.into()));
+                    Tentative::new(None, es.map(|e| e.into()).into(), vec![])
                 }
-                tnt
             },
-            |t| Tentative::new(Some(t)),
+            |t| Tentative::new1(Some(t)),
         ),
         Version::FCS3_2 => lookup_opt_segment(
             kws,
@@ -906,12 +928,8 @@ fn lookup_stext_offsets(
             SegmentId::SupplementalText,
         )
         .map_or_else(
-            |es| {
-                let mut tnt = Tentative::new(None);
-                tnt.warnings.extend(es.map(|e| e.into()));
-                tnt
-            },
-            Tentative::new,
+            |es| Tentative::new(None, es.map(|e| e.into()).into(), vec![]),
+            Tentative::new1,
         ),
     }
 }
@@ -923,22 +941,11 @@ fn lookup_nextdata(
     let k = &Nextdata::std();
     if enforce {
         get_req(kws, k).map_or_else(
-            |e| Tentative {
-                value: None,
-                warnings: vec![],
-                errors: vec![e],
-            },
-            |t| Tentative::new(Some(t)),
+            |e| Tentative::new(None, vec![], vec![e]),
+            |t| Tentative::new1(Some(t)),
         )
     } else {
-        get_opt(kws, k).map_or_else(
-            |w| Tentative {
-                value: None,
-                warnings: vec![w],
-                errors: vec![],
-            },
-            Tentative::new,
-        )
+        get_opt(kws, k).map_or_else(|w| Tentative::new(None, vec![w], vec![]), Tentative::new1)
     }
 }
 
@@ -952,7 +959,7 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
     header
         .text
         .h_read(h, &mut buf)
-        .map_err(|e| DeferredFailure::new(e.into()).terminate(ParseRawTEXTFailure))?;
+        .map_err(|e| DeferredFailure::new1(e.into()).terminate(ParseRawTEXTFailure))?;
 
     // TODO all this lifting probably isn't necessary here
     let term_delim = split_first_delim(&buf, conf).map_or_else(
@@ -998,7 +1005,7 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
                 let term_supp_kws = if let Some(seg) = maybe_supp_seg {
                     buf.clear();
                     seg.h_read(h, &mut buf).map_err(|e| {
-                        DeferredFailure::new(e.into()).terminate(ParseRawTEXTFailure)
+                        DeferredFailure::new1(e.into()).terminate(ParseRawTEXTFailure)
                     })?;
                     // TODO fixme
                     split_raw_primary_text(kws, delim, &buf, conf).map_or_else(

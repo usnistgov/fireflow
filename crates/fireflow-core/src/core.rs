@@ -2354,7 +2354,7 @@ where
         data_seg: Segment,
     ) -> DeferredResult<DataReader, NewReaderWarning, StdReaderError> {
         let dl = M::as_column_layout(&self.metadata, &self.measurements)
-            .map_err(|es| DeferredFailure::new_with_many(es).errors_into())?;
+            .map_err(|es| DeferredFailure::new2(es).errors_into())?;
         dl.into_reader(kws, data_seg)
             .map_err(|e| e.errors_into())
             .map(|x| {
@@ -2417,9 +2417,9 @@ where
         tnt_core
             .and_maybe(|core| {
                 core.check_linked_names()
-                    .map(|_| Tentative::new(core))
+                    .map(|_| Tentative::new1(core))
                     .map_err(|es| es.map(|x| x.into()))
-                    .map_err(DeferredFailure::new_with_many)
+                    .map_err(DeferredFailure::new2)
             })
             // TODO this seems a bit wet
             .map_err(|e| e.terminate(CoreTEXTFailure::Linked))

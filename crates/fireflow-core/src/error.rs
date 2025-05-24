@@ -2,6 +2,28 @@ use nonempty::NonEmpty;
 use std::fmt;
 use std::io;
 
+// TODO encapsulate
+pub struct Tentative<V, W, E> {
+    value: V,
+    warnings: Vec<W>,
+    errors: Vec<E>,
+}
+
+pub struct DeferredFailure<W, E> {
+    warnings: Vec<W>,
+    errors: NonEmpty<E>,
+}
+
+pub struct TerminalFailure<W, E, T> {
+    warnings: Vec<W>,
+    errors: TerminalFailureType<E, T>,
+}
+
+pub struct Terminal<V, W> {
+    value: V,
+    warnings: Vec<W>,
+}
+
 pub fn deferred_res_into<V, W, E, X, Y>(res: DeferredResult<V, W, E>) -> DeferredResult<V, X, Y>
 where
     X: From<W>,
@@ -9,13 +31,6 @@ where
 {
     res.map_err(|e| e.errors_into().warnings_into())
         .map(|t| t.errors_into().warnings_into())
-}
-
-#[derive(Copy, Clone, Eq, PartialEq)]
-pub enum PureErrorLevel {
-    Error,
-    Warning,
-    // TODO debug, info, etc
 }
 
 pub type Deferred<X, E> = Result<X, NonEmpty<E>>;
@@ -102,28 +117,6 @@ impl<I: Iterator<Item = Result<T, E>>, T, E> ErrorIter<T, E> for I {}
 pub type DeferredResult<V, W, E> = Result<Tentative<V, W, E>, DeferredFailure<W, E>>;
 
 pub type TerminalResult<V, W, E, T> = Result<Terminal<V, W>, TerminalFailure<W, E, T>>;
-
-// TODO encapsulate
-pub struct Tentative<V, W, E> {
-    pub value: V,
-    pub warnings: Vec<W>,
-    pub errors: Vec<E>,
-}
-
-pub struct DeferredFailure<W, E> {
-    pub warnings: Vec<W>,
-    pub errors: NonEmpty<E>,
-}
-
-pub struct TerminalFailure<W, E, T> {
-    pub warnings: Vec<W>,
-    pub errors: TerminalFailureType<E, T>,
-}
-
-pub struct Terminal<V, W> {
-    value: V,
-    warnings: Vec<W>,
-}
 
 impl<V, W> Terminal<V, W> {
     pub fn new(value: V) -> Self {
@@ -325,12 +318,32 @@ impl<W, E, T> TerminalFailure<W, E, T> {
 }
 
 impl<V, W, E> Tentative<V, W, E> {
-    pub fn new(value: V) -> Self {
+    pub fn new(value: V, warnings: Vec<W>, errors: Vec<E>) -> Self {
         Self {
             value,
-            warnings: vec![],
-            errors: vec![],
+            warnings,
+            errors,
         }
+    }
+
+    pub fn new1(value: V) -> Self {
+        Self::new(value, vec![], vec![])
+    }
+
+    pub fn push_warning(&mut self, x: W) {
+        self.warnings.push(x)
+    }
+
+    pub fn push_error(&mut self, x: E) {
+        self.errors.push(x)
+    }
+
+    pub fn extend_warnings(&mut self, xs: Vec<W>) {
+        self.warnings.extend(xs)
+    }
+
+    pub fn extend_errors(&mut self, xs: Vec<E>) {
+        self.errors.extend(xs)
     }
 
     pub fn map<F, X>(self, f: F) -> Tentative<X, W, E>
@@ -412,7 +425,7 @@ impl<V, W, E> Tentative<V, W, E> {
                 warnings: vec![w],
                 errors: vec![],
             },
-            Tentative::new,
+            Tentative::new1,
         )
     }
 
@@ -475,7 +488,7 @@ impl<V, W, E> Tentative<V, W, E> {
     }
 
     pub fn mconcat(xs: Vec<Self>) -> Tentative<Vec<V>, W, E> {
-        let mut ret = Tentative::new(vec![]);
+        let mut ret = Tentative::new1(vec![]);
         for x in xs {
             ret.warnings.extend(x.warnings);
             ret.errors.extend(x.errors);
@@ -511,18 +524,16 @@ impl<V, W, E> Tentative<V, W, E> {
 }
 
 impl<W, E> DeferredFailure<W, E> {
-    pub fn new(e: E) -> Self {
-        Self {
-            warnings: vec![],
-            errors: NonEmpty::new(e),
-        }
+    pub fn new(warnings: Vec<W>, errors: NonEmpty<E>) -> Self {
+        Self { warnings, errors }
     }
 
-    pub fn new_with_many(errors: NonEmpty<E>) -> Self {
-        Self {
-            warnings: vec![],
-            errors,
-        }
+    pub fn new1(e: E) -> Self {
+        Self::new(vec![], NonEmpty::new(e))
+    }
+
+    pub fn new2(errors: NonEmpty<E>) -> Self {
+        Self::new(vec![], errors)
     }
 
     pub fn warnings_map<F, X>(self, f: F) -> DeferredFailure<X, E>

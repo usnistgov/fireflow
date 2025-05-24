@@ -1,4 +1,5 @@
 use nonempty::NonEmpty;
+use std::fmt;
 use std::io;
 
 pub fn deferred_res_into<V, W, E, X, Y>(res: DeferredResult<V, W, E>) -> DeferredResult<V, X, Y>
@@ -658,6 +659,18 @@ impl<W, E> DeferredFailure<W, E> {
 pub enum ImpureError<E> {
     IO(io::Error),
     Pure(E),
+}
+
+impl<E> fmt::Display for ImpureError<E>
+where
+    E: fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::IO(i) => write!(f, "IO error: {i}"),
+            Self::Pure(e) => e.fmt(f),
+        }
+    }
 }
 
 impl<E> ImpureError<E> {

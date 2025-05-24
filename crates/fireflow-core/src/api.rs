@@ -287,11 +287,15 @@ pub fn read_fcs_std_text(
 pub fn read_fcs_raw_file(
     p: path::PathBuf,
     conf: &DataReadConfig,
-) -> Result<Terminal<RawDataset, ParseRawTEXTWarning>, AnyRawDatasetFailure> {
+) -> Result<Terminal<RawDataset, AnyRawDatasetWarning>, AnyRawDatasetFailure> {
     let file = fs::File::options().read(true).open(p)?;
     let mut h = BufReader::new(file);
     let term_raw = RawTEXT::h_read(&mut h, &conf.standard.raw)?;
-    let dataset = term_raw.and_finally(|raw| h_read_raw_dataset(&mut h, raw, conf))?;
+    let dataset = term_raw.warnings_into().and_finally(|raw| {
+        h_read_raw_dataset(&mut h, raw, conf)
+            .map_err(|e| e.warnings_into())
+            .map(|t| t.warnings_into())
+    })?;
     Ok(dataset)
 }
 
@@ -311,20 +315,28 @@ pub fn read_fcs_raw_file(
 pub fn read_fcs_file(
     p: &path::PathBuf,
     conf: &DataReadConfig,
-) -> ImpureResult<StandardizedDataset, String> {
+) -> Result<Terminal<StandardizedDataset, AnyStdDatasetWarning>, AnyStdDatasetFailure> {
     let file = fs::File::options().read(true).open(p)?;
     let mut h = BufReader::new(file);
-    unimplemented!()
-    // RawTEXT::h_read(&mut h, &conf.standard.raw)?
-    //     .try_map(|raw| raw.into_std(&conf.standard))?
-    //     .try_map(|std| h_read_std_dataset(&mut h, std, conf))
+    let term_raw = RawTEXT::h_read(&mut h, &conf.standard.raw)?;
+    let term_std = term_raw.warnings_into().and_finally(|raw| {
+        raw.into_std(&conf.standard)
+            .map(|t| t.warnings_into())
+            .map_err(|e| e.warnings_into())
+    })?;
+    let dataset = term_std.warnings_into().and_finally(|std| {
+        h_read_std_dataset(&mut h, std, conf)
+            .map(|t| t.warnings_into())
+            .map_err(|e| e.warnings_into())
+    })?;
+    Ok(dataset)
 }
 
 fn h_read_raw_dataset<R: Read + Seek>(
     h: &mut BufReader<R>,
     raw: RawTEXT,
     conf: &DataReadConfig,
-) -> DeferredResult<RawDataset, ReadRawDatasetWarning, ReadRawDatasetError> {
+) -> TerminalResult<RawDataset, ReadRawDatasetWarning, ReadRawDatasetError, ReadRawDatasetFailure> {
     let std = &raw.keywords.std;
     let version = raw.version;
     let def_anal_seg = &raw.parse.analysis;
@@ -346,7 +358,7 @@ fn h_read_raw_dataset<R: Read + Seek>(
             })
         });
 
-    let reader_tnt = combine_results(reader_res, anal_res)
+    combine_results(reader_res, anal_res)
         .map(|(reader_tnt, anal_tnt)| {
             reader_tnt.zip_with(
                 anal_tnt,
@@ -363,61 +375,97 @@ fn h_read_raw_dataset<R: Read + Seek>(
                 },
             )
         })
-        .map_err(DeferredFailure::fold)?;
-
-    reader_tnt.and_maybe(|(keywords, parse, reader)| {
-        let data = reader
-            .h_read(h)
-            .map_err(|e| DeferredFailure::new(e.into()))?;
-        let analysis =
-            h_read_analysis(h, &parse.analysis).map_err(|e| DeferredFailure::new(e.into()))?;
-        Ok(Tentative::new(RawDataset {
-            version,
-            keywords,
-            data,
-            analysis,
-            parse,
-        }))
-    })
+        .map_err(DeferredFailure::fold)
+        .and_then(|tnt| {
+            tnt.and_maybe(|(keywords, parse, reader)| {
+                let data = reader
+                    .h_read(h)
+                    .map_err(|e| DeferredFailure::new(e.into()))?;
+                let analysis = h_read_analysis(h, &parse.analysis)
+                    .map_err(|e| DeferredFailure::new(e.into()))?;
+                Ok(Tentative::new(RawDataset {
+                    version,
+                    keywords,
+                    data,
+                    analysis,
+                    parse,
+                }))
+            })
+        })
+        .map_or_else(
+            |e| Err(e.terminate(ReadRawDatasetFailure)),
+            |t| t.terminate(ReadRawDatasetFailure),
+        )
 }
 
 fn h_read_std_dataset<R: Read + Seek>(
     h: &mut BufReader<R>,
     std: StandardizedTEXT,
     conf: &DataReadConfig,
-) -> ImpureResult<StandardizedDataset, String> {
+) -> TerminalResult<
+    StandardizedDataset,
+    ReadStdDatasetWarning,
+    ReadStdDatasetError,
+    ReadStdDatasetFailure,
+> {
     let mut kws = std.remainder;
     let version = std.standardized.version();
-    let anal_succ = lookup_analysis_offsets(&kws, conf, version, &std.parse.analysis);
-    lookup_data_offsets(&kws, conf, version, &std.parse.data)
-        .and_then(|data_seg| {
-            std.standardized
-                .as_data_reader(&mut kws, conf, data_seg)
-                .combine(anal_succ, |data_parser, analysis_seg| {
-                    (data_parser, data_seg, analysis_seg)
-                })
+    let def_anal_seg = &std.parse.analysis;
+    let def_data_seg = &std.parse.data;
+
+    // TODO why are kws not mut here?
+    let anal_res = lookup_analysis_offsets(&kws, conf, version, def_anal_seg)
+        .map(|t| t.warnings_into().errors_into())
+        .map_err(|e| e.warnings_into().errors_into());
+
+    let reader_res = lookup_data_offsets(&kws, conf, version, def_data_seg)
+        .map(|t| t.warnings_into().errors_into())
+        .map_err(|e| e.warnings_into().errors_into())
+        .and_then(|tnt| {
+            tnt.and_maybe(|data_seg| {
+                std.standardized
+                    .as_data_reader(&mut kws, conf, data_seg)
+                    .map(|t| t.warnings_into().errors_into())
+                    .map_err(|e| e.warnings_into().errors_into())
+                    .map(|t| t.map(|reader| (std.parse, reader, data_seg)))
+            })
+        });
+
+    combine_results(reader_res, anal_res)
+        .map(|(reader_tnt, anal_tnt)| {
+            reader_tnt.zip_with(anal_tnt, |(parse, reader, data_seg), analysis_seg| {
+                (
+                    ParseData {
+                        data: data_seg,
+                        analysis: analysis_seg,
+                        ..parse
+                    },
+                    reader,
+                )
+            })
         })
-        .try_map(|(reader_maybe, data_seg, analysis_seg)| {
-            let dmsg = "could not create data reader".to_string();
-            let reader = reader_maybe.ok_or(Failure::new(dmsg))?;
-            let columns = reader.h_read(h)?;
-            let analysis = h_read_analysis(h, &analysis_seg)?;
-            let dataset =
-                AnyCoreDataset::from_coretext_unchecked(std.standardized, columns, analysis);
-            Ok(PureSuccess::from(StandardizedDataset {
-                parse: ParseData {
-                    data: data_seg,
-                    analysis: analysis_seg,
-                    ..std.parse
-                },
-                remainder: kws,
-                // ASSUME we have checked that the dataframe has the same number
-                // of columns as number of measurements; therefore, this should
-                // not fail.
-                dataset,
-                deviant: std.deviant,
-            }))
+        .map_err(DeferredFailure::fold)
+        .and_then(|tnt| {
+            tnt.and_maybe(|(parse, reader)| {
+                let columns = reader
+                    .h_read(h)
+                    .map_err(|e| DeferredFailure::new(e.into()))?;
+                let analysis = h_read_analysis(h, &parse.analysis)
+                    .map_err(|e| DeferredFailure::new(e.into()))?;
+                let dataset =
+                    AnyCoreDataset::from_coretext_unchecked(std.standardized, columns, analysis);
+                Ok(Tentative::new(StandardizedDataset {
+                    remainder: kws,
+                    deviant: std.deviant,
+                    dataset,
+                    parse,
+                }))
+            })
         })
+        .map_or_else(
+            |e| Err(e.terminate(ReadStdDatasetFailure)),
+            |t| t.terminate(ReadStdDatasetFailure),
+        )
 }
 
 impl RawTEXT {
@@ -1083,11 +1131,15 @@ enum_from_disp!(
 
 pub struct DataSegmentDefaultWarning;
 
-// enum_from_disp!(
-//     pub AnalysisSegmentError,
-//     [Req, ReqSegmentError],
-//     [Opt, OptSegmentError]
-// );
+impl fmt::Display for DataSegmentDefaultWarning {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "could not obtain DATA segment offset from TEXT, \
+             using offsets from HEADER",
+        )
+    }
+}
 
 enum_from_disp!(
     pub AnalysisSegmentWarning,
@@ -1098,16 +1150,37 @@ enum_from_disp!(
 
 pub struct AnalysisSegmentDefaultWarning;
 
+impl fmt::Display for AnalysisSegmentDefaultWarning {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "could not obtain ANALYSIS segment offset from TEXT, \
+             using offsets from HEADER",
+        )
+    }
+}
+
 enum_from_disp!(
     pub STextSegmentWarning,
     [ReqSegment, ReqSegmentError],
     [OptSegment, OptSegmentError]
 );
 
-// should be 1-126
 pub struct DelimCharError(u8);
 
+impl fmt::Display for DelimCharError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "delimiter must be ASCII character 1-126 inclusive")
+    }
+}
+
 pub struct EmptyTEXTError;
+
+impl fmt::Display for EmptyTEXTError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "TEXT segment is empty")
+    }
+}
 
 enum_from_disp!(
     pub DelimVerifyError,
@@ -1115,20 +1188,49 @@ enum_from_disp!(
     [Char, DelimCharError]
 );
 
-// blank key in TEXT, skipping next value
 pub struct BlankKeyError;
 
-// key has a blank value, dropping
+impl fmt::Display for BlankKeyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "encountered blank key, skipping key and its value")
+    }
+}
+
 pub struct BlankValueError(Vec<u8>);
 
-// "TEXT has uneven number of words"
+impl fmt::Display for BlankValueError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "skipping key with blank value, keys bytes were {}",
+            self.0.iter().join(",")
+        )
+    }
+}
+
 pub struct UnevenWordsError;
 
-// TEXT does not end with delim
+impl fmt::Display for UnevenWordsError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "TEXT segment has uneven number of words",)
+    }
+}
+
 pub struct FinalDelimError;
 
-// delim at word boundary
+impl fmt::Display for FinalDelimError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "TEXT does not end with delim",)
+    }
+}
+
 pub struct DelimBoundError;
+
+impl fmt::Display for DelimBoundError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "delimiter encountered at word boundary",)
+    }
+}
 
 enum_from_disp!(
     pub ParseKeywordsIssue,
@@ -1141,6 +1243,12 @@ enum_from_disp!(
 );
 
 pub struct NoTEXTWordsError;
+
+impl fmt::Display for NoTEXTWordsError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "TEXT has a delimiter and no words",)
+    }
+}
 
 enum_from_disp!(
     pub ParsePrimaryTEXTError,
@@ -1200,7 +1308,13 @@ enum_from!(
     pub AnyRawDatasetFailure,
     [File, io::Error],
     [Raw, HeaderOrRawFailure],
-    [Std, TerminalFailure<AnyStdTEXTWarning, ParseKeysError, CoreTEXTFailure>]
+    [Read, TerminalFailure<AnyRawDatasetWarning, ReadRawDatasetError, ReadRawDatasetFailure>]
+);
+
+enum_from!(
+    pub AnyRawDatasetWarning,
+    [Raw, ParseRawTEXTWarning],
+    [Read, ReadRawDatasetWarning]
 );
 
 enum_from_disp!(
@@ -1216,4 +1330,43 @@ enum_from_disp!(
     [DataSeg, DataSegmentWarning],
     [AnalysisSeg, AnalysisSegmentWarning],
     [ToReader, RawToReaderWarning]
+);
+
+enum_from_disp!(
+    pub ReadStdDatasetError,
+    [Segment, ReqSegmentError],
+    [ToReader, StdReaderError],
+    [ReadData, ImpureError<ReadDataError>],
+    [ReadAnalysis, io::Error]
+);
+
+enum_from_disp!(
+    pub ReadStdDatasetWarning,
+    [DataSeg, DataSegmentWarning],
+    [AnalysisSeg, AnalysisSegmentWarning],
+    [ToReader, NewReaderWarning]
+);
+
+struct ReadRawDatasetFailure;
+
+struct ReadStdDatasetFailure;
+
+enum_from!(
+    pub AnyStdDatasetFailure,
+    [File, io::Error],
+    [Raw, HeaderOrRawFailure],
+    [Std, TerminalFailure<ReadRawOrStdWarning, ParseKeysError, CoreTEXTFailure>],
+    [Read, TerminalFailure<AnyStdDatasetWarning, ReadStdDatasetError, ReadStdDatasetFailure>]
+);
+
+enum_from_disp!(
+    pub ReadRawOrStdWarning,
+    [Raw, ParseRawTEXTWarning],
+    [Std, ParseKeysWarning]
+);
+
+enum_from_disp!(
+    pub AnyStdDatasetWarning,
+    [Raw, ReadRawOrStdWarning],
+    [Std, ReadStdDatasetWarning]
 );

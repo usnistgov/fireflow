@@ -5394,8 +5394,13 @@ enum_from_disp!(
 
 pub struct TerminalDataLayoutFailure;
 
-// primary TEXT does not fit into first 99,999,999 bytes
 pub struct TEXTOverflowError;
+
+impl fmt::Display for TEXTOverflowError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "primary TEXT does not fit into first 99,999,999 bytes")
+    }
+}
 
 enum_from_disp!(
     pub StdWriterError,

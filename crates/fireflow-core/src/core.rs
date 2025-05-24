@@ -746,11 +746,11 @@ pub trait Versioned {
 
 pub(crate) trait LookupMetadata: Sized + VersionedMetadata {
     fn lookup_shortname(
-        st: &mut KwParser,
+        kws: &mut StdKeywords,
         n: MeasIdx,
-    ) -> Option<<Self::N as MightHave>::Wrapper<Shortname>>;
+    ) -> LookupResult<<Self::N as MightHave>::Wrapper<Shortname>>;
 
-    fn lookup_specific(st: &mut KwParser, par: Par) -> Option<Self>;
+    fn lookup_specific(st: &mut StdKeywords, par: Par) -> LookupResult<Self>;
 }
 
 pub trait TryFromMetadata<M>: Sized
@@ -814,7 +814,7 @@ pub trait VersionedOptical: Sized + Versioned {
 }
 
 pub(crate) trait LookupOptical: Sized + VersionedOptical {
-    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self>;
+    fn lookup_specific(kws: &mut StdKeywords, n: MeasIdx) -> LookupResult<Self>;
 }
 
 pub trait VersionedTemporal: Sized {
@@ -830,7 +830,7 @@ pub trait VersionedTemporal: Sized {
 }
 
 pub(crate) trait LookupTemporal: VersionedTemporal {
-    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self>;
+    fn lookup_specific(kws: &mut StdKeywords, n: MeasIdx) -> LookupResult<Self>;
 }
 
 impl CommonMeasurement {
@@ -843,17 +843,19 @@ impl CommonMeasurement {
         }
     }
 
-    fn lookup(st: &mut KwParser, i: MeasIdx, nonstd: NonStdPairs) -> Option<Self> {
-        if let (Some(width), Some(range)) = (st.lookup_meas_req(i), st.lookup_meas_req(i)) {
-            Some(Self {
-                width,
-                range,
-                longname: st.lookup_meas_opt(i, false),
-                nonstandard_keywords: nonstd.into_iter().collect(),
+    fn lookup(kws: &mut StdKeywords, i: MeasIdx, nonstd: NonStdPairs) -> LookupResult<Self> {
+        lookup_meas_opt(kws, i, false).and_maybe(|longname| {
+            let w = lookup_meas_req(kws, i);
+            let r = lookup_meas_req(kws, i);
+            combine_def_results(w, r).map(|tnt| {
+                tnt.map(|(width, range)| Self {
+                    width,
+                    range,
+                    longname,
+                    nonstandard_keywords: nonstd.into_iter().collect(),
+                })
             })
-        } else {
-            None
-        }
+        })
     }
 
     fn layout_data(&self) -> ColumnLayoutData<()> {
@@ -876,18 +878,14 @@ where
         }
     }
 
-    fn lookup_temporal(st: &mut KwParser, i: MeasIdx, nonstd: NonStdPairs) -> Option<Self>
+    fn lookup_temporal(kws: &mut StdKeywords, i: MeasIdx, nonstd: NonStdPairs) -> LookupResult<Self>
     where
         T: LookupTemporal,
     {
-        if let (Some(common), Some(specific)) = (
-            CommonMeasurement::lookup(st, i, nonstd),
-            T::lookup_specific(st, i),
-        ) {
-            Some(Temporal { common, specific })
-        } else {
-            None
-        }
+        let c = CommonMeasurement::lookup(kws, i, nonstd);
+        let t = T::lookup_specific(kws, i);
+        combine_def_results(c, t)
+            .map(|tnt| tnt.map(|(common, specific)| Temporal { common, specific }))
     }
 
     fn convert<ToT>(self) -> Temporal<ToT>
@@ -957,27 +955,33 @@ where
         })
     }
 
-    fn lookup_optical(st: &mut KwParser, i: MeasIdx, nonstd: NonStdPairs) -> Option<Self>
+    fn lookup_optical(kws: &mut StdKeywords, i: MeasIdx, nonstd: NonStdPairs) -> LookupResult<Self>
     where
         P: LookupOptical,
     {
-        let v = P::fcs_version();
-        if let (Some(common), Some(specific)) = (
-            CommonMeasurement::lookup(st, i, nonstd),
-            P::lookup_specific(st, i),
-        ) {
-            Some(Optical {
-                common,
-                filter: st.lookup_meas_opt(i, false),
-                power: st.lookup_meas_opt(i, false),
-                detector_type: st.lookup_meas_opt(i, false),
-                percent_emitted: st.lookup_meas_opt(i, v == Version::FCS3_2),
-                detector_voltage: st.lookup_meas_opt(i, false),
-                specific,
-            })
-        } else {
-            None
-        }
+        let version = P::fcs_version();
+        let f = lookup_meas_opt(kws, i, false);
+        let p = lookup_meas_opt(kws, i, false);
+        let d = lookup_meas_opt(kws, i, false);
+        let e = lookup_meas_opt(kws, i, version == Version::FCS3_2);
+        let v = lookup_meas_opt(kws, i, false);
+        f.zip5(p, d, e, v).and_maybe(
+            |(filter, power, detector_type, percent_emitted, detector_voltage)| {
+                let c = CommonMeasurement::lookup(kws, i, nonstd);
+                let s = P::lookup_specific(kws, i);
+                combine_def_results(c, s).map(|tnt| {
+                    tnt.map(|(common, specific)| Optical {
+                        common,
+                        filter,
+                        power,
+                        detector_type,
+                        percent_emitted,
+                        detector_voltage,
+                        specific,
+                    })
+                })
+            },
+        )
     }
 
     fn req_keywords(&self, n: MeasIdx) -> RawTriples {
@@ -1126,34 +1130,56 @@ where
     }
 
     fn lookup_metadata(
-        st: &mut KwParser,
+        kws: &mut StdKeywords,
         ms: &Measurements<M::N, M::T, M::P>,
         nonstd: NonStdPairs,
-    ) -> Option<Self>
+    ) -> LookupResult<Self>
     where
         M: LookupMetadata,
     {
         let par = Par(ms.len());
-        st.lookup_meta_req()
-            .zip(M::lookup_specific(st, par))
-            .map(|(datatype, specific)| Metadata {
-                datatype,
-                abrt: st.lookup_meta_opt(false),
-                com: st.lookup_meta_opt(false),
-                cells: st.lookup_meta_opt(false),
-                exp: st.lookup_meta_opt(false),
-                fil: st.lookup_meta_opt(false),
-                inst: st.lookup_meta_opt(false),
-                lost: st.lookup_meta_opt(false),
-                op: st.lookup_meta_opt(false),
-                proj: st.lookup_meta_opt(false),
-                smno: st.lookup_meta_opt(false),
-                src: st.lookup_meta_opt(false),
-                sys: st.lookup_meta_opt(false),
-                tr: st.lookup_meta_opt(false),
-                nonstandard_keywords: nonstd.into_iter().collect(),
-                specific,
-            })
+        let a = lookup_meta_opt(kws, false);
+        let ce = lookup_meta_opt(kws, false);
+        let co = lookup_meta_opt(kws, false);
+        let e = lookup_meta_opt(kws, false);
+        let f = lookup_meta_opt(kws, false);
+        let i = lookup_meta_opt(kws, false);
+        let l = lookup_meta_opt(kws, false);
+        let o = lookup_meta_opt(kws, false);
+        let p = lookup_meta_opt(kws, false);
+        let sm = lookup_meta_opt(kws, false);
+        let sr = lookup_meta_opt(kws, false);
+        let sy = lookup_meta_opt(kws, false);
+        let t = lookup_meta_opt(kws, false);
+        a.zip5(ce, co, e, f)
+            .zip5(i, l, o, p)
+            .zip5(sm, sr, sy, t)
+            .and_maybe(
+                |(((abrt, com, cells, exp, fil), inst, lost, op, proj), smno, src, sys, tr)| {
+                    let dt = lookup_meta_req(kws);
+                    let s = M::lookup_specific(kws, par);
+                    combine_def_results(dt, s).map(|tnt| {
+                        tnt.map(|(datatype, specific)| Metadata {
+                            datatype,
+                            abrt,
+                            com,
+                            cells,
+                            exp,
+                            fil,
+                            inst,
+                            lost,
+                            op,
+                            proj,
+                            smno,
+                            src,
+                            sys,
+                            tr,
+                            nonstandard_keywords: nonstd.into_iter().collect(),
+                            specific,
+                        })
+                    })
+                },
+            )
     }
 
     fn all_req_keywords(&self, par: Par) -> RawPairs {
@@ -2017,7 +2043,7 @@ where
         if s.as_compensation().is_some() || s.as_spillover().is_some() {
             return Err("$COMP/$SPILLOVER depends on existing measurements".into());
         }
-        let ms = NamedVec::new(xs, prefix).map_err(|e| e.to_string())?;
+        let ms = NamedVec::try_new(xs, prefix).map_err(|e| e.to_string())?;
         self.measurements = ms;
         Ok(())
     }
@@ -2191,12 +2217,13 @@ where
 
     #[allow(clippy::type_complexity)]
     fn lookup_measurements(
-        st: &mut KwParser,
+        kws: &mut StdKeywords,
         par: Par,
-        pat: Option<&TimePattern>,
+        time_pat: Option<&TimePattern>,
         prefix: &ShortnamePrefix,
+        ns_pat: Option<&NonStdMeasPattern>,
         nonstd: NonStdPairs,
-    ) -> Option<(Measurements<M::N, M::T, M::P>, NonStdPairs)>
+    ) -> LookupResult<(Measurements<M::N, M::T, M::P>, NonStdPairs)>
     where
         M: LookupMetadata,
         M::T: LookupTemporal,
@@ -2205,7 +2232,7 @@ where
         let mut meas_nonstds: Vec<Vec<_>> = vec![vec![]; par.0];
         let mut meta_nonstd = vec![];
 
-        if let Some(p) = &st.conf.nonstandard_measurement_pattern {
+        if let Some(p) = ns_pat {
             let ps: Vec<_> = (0..par.0)
                 // TODO throw errors here if pattern is bad
                 .map(|n| p.from_index(n.into()).ok())
@@ -2223,46 +2250,42 @@ where
         } else {
             meta_nonstd = nonstd;
         }
-        let ps: Vec<_> = (0..par.0)
+        (0..par.0)
             .zip(meas_nonstds)
-            .flat_map(|(n, meas_nonstd)| {
+            .map(|(n, meas_nonstd)| {
                 let i = n.into();
-                let name_res = M::lookup_shortname(st, i)?;
-                let key = M::N::to_res(name_res).and_then(|name| {
-                    if let Some(tp) = pat {
-                        if tp.0.as_inner().is_match(name.as_ref()) {
-                            return Ok(name);
+                let tnt_name = M::lookup_shortname(kws, i)?;
+                tnt_name.and_maybe(|name| {
+                    let key = M::N::to_res(name).and_then(|name| {
+                        if let Some(tp) = time_pat {
+                            if tp.0.as_inner().is_match(name.as_ref()) {
+                                return Ok(name);
+                            }
                         }
+                        Err(M::N::into_wrapped(name))
+                    });
+                    // TODO this will make cryptic errors if the time pattern
+                    // happens to match more than one measurement
+                    match key {
+                        Ok(name) => Temporal::lookup_temporal(kws, i, meas_nonstd)
+                            .map(|tnt| tnt.map(|t| Element::Center((name, t)))),
+                        Err(k) => Optical::lookup_optical(kws, i, meas_nonstd)
+                            .map(|tnt| tnt.map(|m| Element::NonCenter((k, m)))),
                     }
-                    Err(M::N::into_wrapped(name))
-                });
-                // TODO this will make cryptic errors if the time pattern
-                // happens to match more than one measurement
-                let res = match key {
-                    Ok(name) => {
-                        let t = Temporal::lookup_temporal(st, i, meas_nonstd)?;
-                        Element::Center((name, t))
-                    }
-                    Err(k) => {
-                        let m = Optical::lookup_optical(st, i, meas_nonstd)?;
-                        Element::NonCenter((k, m))
-                    }
-                };
-                Some(res)
+                })
             })
-            .collect();
-        if ps.len() == par.0 {
-            NamedVec::new(ps, prefix.clone()).map_or_else(
-                |e| {
-                    st.push_error(e);
-                    None
-                },
-                |x| Some((x, meta_nonstd)),
-            )
-        } else {
-            // ASSUME errors were capture elsewhere
-            None
-        }
+            .gather()
+            .map_err(DeferredFailure::fold)
+            .map(Tentative::mconcat)
+            .and_then(|tnt| {
+                tnt.and_maybe(|ms| {
+                    NamedVec::try_new(ms, prefix.clone())
+                        .map(|ms| (ms, meta_nonstd))
+                        .map(Tentative::new1)
+                        .map_err(|e| ParseKeysError::Other(e.into()))
+                        .map_err(DeferredFailure::new1)
+                })
+            })
     }
 
     fn measurement_names(&self) -> HashSet<&Shortname> {
@@ -2378,7 +2401,7 @@ where
     /// Return any errors encountered, including messing required keywords,
     /// parse errors, and/or deprecation warnings.
     pub(crate) fn new_from_raw(
-        std: &mut StdKeywords,
+        kws: &mut StdKeywords,
         nonstd: NonStdKeywords,
         conf: &StdTextReadConfig,
     ) -> TerminalResult<Self, ParseKeysWarning, ParseKeysError, CoreTEXTFailure>
@@ -2388,29 +2411,33 @@ where
         M::P: LookupOptical,
     {
         // Lookup $PAR first since we need this to get the measurements
-        let par = Par::remove_meta_req(std)
+        let par = Par::remove_meta_req(kws)
             .map_err(|e| TerminalFailure::new_single(CoreTEXTFailure::NoPar(e)))?;
+
+        // Lookup measurements and metadata with $PAR
         let tp = conf.time.pattern.as_ref();
-        let tnt_core = KwParser::try_run(std, conf, |st| {
-            // Lookup measurement keywords, return Some if no errors encountered
-            let ns: Vec<_> = nonstd.into_iter().collect();
-            if let Some((ms, meta_ns)) =
-                Self::lookup_measurements(st, par, tp, &conf.shortname_prefix, ns)
-            {
-                // Check that the time measurement is present if we want it
-                if let Some(pat) = st.conf.time.pattern.as_ref() {
-                    if st.conf.time.ensure && ms.as_center().is_none() {
-                        st.push_error(MissingTime(pat.clone()));
-                    }
+        let sp = &conf.shortname_prefix;
+        let nsp = conf.nonstandard_measurement_pattern.as_ref();
+        let ns: Vec<_> = nonstd.into_iter().collect();
+        let mut tnt_core = Self::lookup_measurements(kws, par, tp, sp, nsp, ns)
+            .and_then(|tnt| {
+                tnt.and_maybe(|(ms, meta_ns)| {
+                    Metadata::lookup_metadata(kws, &ms, meta_ns)
+                        .map(|tnt| tnt.map(|metadata| CoreTEXT::new_unchecked(metadata, ms)))
+                })
+            })
+            .map_err(|e| e.terminate(CoreTEXTFailure::Keywords))?;
+
+        // Check that the time measurement is present if we want it
+        tnt_core.eval_error(|core| {
+            if let Some(pat) = tp {
+                if conf.time.ensure && core.measurements.as_center().is_none() {
+                    return Some(ParseKeysError::Other(MissingTime(pat.clone()).into()));
                 }
-                // Lookup non-measurement keywords, build struct if this works
-                Metadata::lookup_metadata(st, &ms, meta_ns)
-                    .map(|metadata| CoreTEXT::new_unchecked(metadata, ms))
-            } else {
-                None
             }
-        })
-        .map_err(|e| e.terminate(CoreTEXTFailure::Keywords))?;
+            None
+        });
+
         // make sure keywords which refer to $PnN are valid, if not then this
         // fails because the API assumes these are valid and provides no way
         // to fix otherwise.
@@ -2723,7 +2750,7 @@ macro_rules! comp_methods {
         pub fn set_compensation(&mut self, matrix: DMatrix<f32>) -> bool {
             if !matrix.is_square() && matrix.ncols() != self.par().0 {
                 // TODO None here is actually an error
-                self.metadata.specific.comp = Compensation::new(matrix).into();
+                self.metadata.specific.comp = Compensation::try_new(matrix).into();
                 true
             } else {
                 false
@@ -4237,113 +4264,216 @@ impl Versioned for InnerOptical3_2 {
 }
 
 impl LookupOptical for InnerOptical2_0 {
-    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self> {
-        Some(Self {
-            scale: st.lookup_meas_opt(n, false),
-            wavelength: st.lookup_meas_opt(n, false),
-        })
+    fn lookup_specific(kws: &mut StdKeywords, n: MeasIdx) -> LookupResult<Self> {
+        let s = lookup_meas_opt(kws, n, false);
+        let w = lookup_meas_opt(kws, n, false);
+        Ok(s.zip(w)
+            .map(|(scale, wavelength)| Self { scale, wavelength }))
     }
 }
 
 impl LookupOptical for InnerOptical3_0 {
-    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self> {
-        Some(Self {
-            scale: st.lookup_meas_req(n)?,
-            gain: st.lookup_meas_opt(n, false),
-            wavelength: st.lookup_meas_opt(n, false),
+    fn lookup_specific(kws: &mut StdKeywords, n: MeasIdx) -> LookupResult<Self> {
+        let g = lookup_meas_opt(kws, n, false);
+        let w = lookup_meas_opt(kws, n, false);
+        g.zip(w).and_maybe(|(gain, wavelength)| {
+            lookup_meas_req(kws, n).map(|tnt| {
+                tnt.map(|scale| Self {
+                    scale,
+                    gain,
+                    wavelength,
+                })
+            })
         })
     }
 }
 
 impl LookupOptical for InnerOptical3_1 {
-    fn lookup_specific(st: &mut KwParser, n: MeasIdx) -> Option<Self> {
-        Some(Self {
-            scale: st.lookup_meas_req(n)?,
-            gain: st.lookup_meas_opt(n, false),
-            wavelengths: st.lookup_meas_opt(n, false),
-            calibration: st.lookup_meas_opt(n, false),
-            display: st.lookup_meas_opt(n, false),
-        })
+    fn lookup_specific(kws: &mut StdKeywords, n: MeasIdx) -> LookupResult<Self> {
+        let g = lookup_meas_opt(kws, n, false);
+        let w = lookup_meas_opt(kws, n, false);
+        let c = lookup_meas_opt(kws, n, false);
+        let d = lookup_meas_opt(kws, n, false);
+        g.zip4(w, c, d)
+            .and_maybe(|(gain, wavelengths, calibration, display)| {
+                lookup_meas_req(kws, n).map(|tnt| {
+                    tnt.map(|scale| Self {
+                        scale,
+                        gain,
+                        wavelengths,
+                        calibration,
+                        display,
+                    })
+                })
+            })
     }
 }
 
 impl LookupOptical for InnerOptical3_2 {
-    fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
-        Some(Self {
-            scale: st.lookup_meas_req(i)?,
-            gain: st.lookup_meas_opt(i, false),
-            wavelengths: st.lookup_meas_opt(i, false),
-            calibration: st.lookup_meas_opt(i, false),
-            display: st.lookup_meas_opt(i, false),
-            detector_name: st.lookup_meas_opt(i, false),
-            tag: st.lookup_meas_opt(i, false),
-            measurement_type: st.lookup_meas_opt(i, false),
-            feature: st.lookup_meas_opt(i, false),
-            analyte: st.lookup_meas_opt(i, false),
-            datatype: st.lookup_meas_opt(i, false),
-        })
+    fn lookup_specific(kws: &mut StdKeywords, n: MeasIdx) -> LookupResult<Self> {
+        let g = lookup_meas_opt(kws, n, false);
+        let w = lookup_meas_opt(kws, n, false);
+        let c = lookup_meas_opt(kws, n, false);
+        let d = lookup_meas_opt(kws, n, false);
+        let de = lookup_meas_opt(kws, n, false);
+        let ta = lookup_meas_opt(kws, n, false);
+        let m = lookup_meas_opt(kws, n, false);
+        let f = lookup_meas_opt(kws, n, false);
+        let a = lookup_meas_opt(kws, n, false);
+        let da = lookup_meas_opt(kws, n, false);
+        g.zip5(w, c, d, de).zip5(ta, m, f, a).zip(da).and_maybe(
+            |(
+                (
+                    (gain, wavelengths, calibration, display, detector_name),
+                    tag,
+                    measurement_type,
+                    feature,
+                    analyte,
+                ),
+                datatype,
+            )| {
+                lookup_meas_req(kws, n).map(|tnt| {
+                    tnt.map(|scale| Self {
+                        scale,
+                        gain,
+                        wavelengths,
+                        calibration,
+                        display,
+                        detector_name,
+                        tag,
+                        measurement_type,
+                        feature,
+                        analyte,
+                        datatype,
+                    })
+                })
+            },
+        )
     }
 }
 
 impl LookupTemporal for InnerTemporal2_0 {
-    fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
-        let scale: OptionalKw<Scale> = st.lookup_meas_opt(i, false);
+    fn lookup_specific(kws: &mut StdKeywords, i: MeasIdx) -> LookupResult<Self> {
         // TODO push meas index with error
-        if scale.0.is_some_and(|x| x != Scale::Linear) {
-            st.push_error(TemporalError::NonLinear);
-        }
-        Some(Self)
+        let mut tnt = lookup_meas_opt::<Scale>(kws, i, false);
+        tnt.eval_error(|scale| {
+            if scale.0.is_some_and(|x| x != Scale::Linear) {
+                Some(ParseKeysError::Other(TemporalError::NonLinear.into()))
+            } else {
+                None
+            }
+        });
+        Ok(tnt.map(|_| Self))
     }
 }
 
 impl LookupTemporal for InnerTemporal3_0 {
-    fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
-        let scale: Option<Scale> = st.lookup_meas_req(i);
-        if scale.is_some_and(|x| x != Scale::Linear) {
-            st.push_error(TemporalError::NonLinear);
-        }
-        let gain: OptionalKw<Gain> = st.lookup_meas_opt(i, false);
-        if gain.0.is_some() {
-            st.push_error(TemporalError::HasGain);
-        }
-        st.lookup_meta_req().map(|timestep| Self { timestep })
+    fn lookup_specific(kws: &mut StdKeywords, i: MeasIdx) -> LookupResult<Self> {
+        // TODO if time channel can't be found then downgrade this channel to
+        // an optical channel, probably easier said than done
+        let mut tnt_gain = lookup_meas_opt::<Gain>(kws, i, false);
+        tnt_gain.eval_error(|gain| {
+            if gain.0.is_some() {
+                Some(ParseKeysError::Other(TemporalError::HasGain.into()))
+            } else {
+                None
+            }
+        });
+        tnt_gain.and_maybe(|_| {
+            let s = lookup_meas_req::<Scale>(kws, i);
+            let t = lookup_meta_req(kws);
+            combine_results(s, t)
+                .map_err(DeferredFailure::fold)
+                .map(|(s, t)| {
+                    s.zip(t).and_tentatively(|(scale, timestep)| {
+                        let mut tnt = Tentative::new1(Self { timestep });
+                        tnt.eval_error(|_| {
+                            if scale != Scale::Linear {
+                                Some(ParseKeysError::Other(TemporalError::NonLinear.into()))
+                            } else {
+                                None
+                            }
+                        });
+                        tnt
+                    })
+                })
+        })
     }
 }
 
 impl LookupTemporal for InnerTemporal3_1 {
-    fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
+    fn lookup_specific(kws: &mut StdKeywords, i: MeasIdx) -> LookupResult<Self> {
         // TODO not DRY
-        let scale: Option<Scale> = st.lookup_meas_req(i);
-        if scale.is_some_and(|x| x != Scale::Linear) {
-            st.push_error(TemporalError::NonLinear);
-        }
-        let gain: OptionalKw<Gain> = st.lookup_meas_opt(i, false);
-        if gain.0.is_some() {
-            st.push_error(TemporalError::HasGain);
-        }
-        st.lookup_meta_req().map(|timestep| Self {
-            timestep,
-            display: st.lookup_meas_opt(i, false),
+        let mut tnt_gain = lookup_meas_opt::<Gain>(kws, i, false);
+        tnt_gain.eval_error(|gain| {
+            if gain.0.is_some() {
+                Some(ParseKeysError::Other(TemporalError::HasGain.into()))
+            } else {
+                None
+            }
+        });
+        let tnt_disp = lookup_meas_opt(kws, i, false);
+        tnt_gain.zip(tnt_disp).and_maybe(|(_, display)| {
+            let s = lookup_meas_req::<Scale>(kws, i);
+            let t = lookup_meta_req(kws);
+            combine_results(s, t)
+                .map_err(DeferredFailure::fold)
+                .map(|(s, t)| {
+                    s.zip(t).and_tentatively(|(scale, timestep)| {
+                        let mut tnt = Tentative::new1(Self { timestep, display });
+                        tnt.eval_error(|_| {
+                            if scale != Scale::Linear {
+                                Some(ParseKeysError::Other(TemporalError::NonLinear.into()))
+                            } else {
+                                None
+                            }
+                        });
+                        tnt
+                    })
+                })
         })
     }
 }
 
 impl LookupTemporal for InnerTemporal3_2 {
-    fn lookup_specific(st: &mut KwParser, i: MeasIdx) -> Option<Self> {
-        let scale: Option<Scale> = st.lookup_meas_req(i);
-        if scale.is_some_and(|x| x != Scale::Linear) {
-            st.push_error(TemporalError::NonLinear);
-        }
-        let gain: OptionalKw<Gain> = st.lookup_meas_opt(i, false);
-        if gain.0.is_some() {
-            st.push_error(TemporalError::HasGain);
-        }
-        st.lookup_meta_req().map(|timestep| Self {
-            timestep,
-            display: st.lookup_meas_opt(i, false),
-            datatype: st.lookup_meas_opt(i, false),
-            measurement_type: st.lookup_meas_opt(i, false),
-        })
+    fn lookup_specific(kws: &mut StdKeywords, i: MeasIdx) -> LookupResult<Self> {
+        let mut tnt_gain = lookup_meas_opt::<Gain>(kws, i, false);
+        tnt_gain.eval_error(|gain| {
+            if gain.0.is_some() {
+                Some(ParseKeysError::Other(TemporalError::HasGain.into()))
+            } else {
+                None
+            }
+        });
+        let tnt_disp = lookup_meas_opt(kws, i, false);
+        let tnt_mt = lookup_meas_opt(kws, i, false);
+        let tnt_dt = lookup_meas_opt(kws, i, false);
+        tnt_gain.zip4(tnt_disp, tnt_mt, tnt_dt).and_maybe(
+            |(_, display, measurement_type, datatype)| {
+                let s = lookup_meas_req::<Scale>(kws, i);
+                let t = lookup_meta_req(kws);
+                combine_results(s, t)
+                    .map_err(DeferredFailure::fold)
+                    .map(|(s, t)| {
+                        s.zip(t).and_tentatively(|(scale, timestep)| {
+                            let mut tnt = Tentative::new1(Self {
+                                timestep,
+                                display,
+                                measurement_type,
+                                datatype,
+                            });
+                            tnt.eval_error(|_| {
+                                if scale != Scale::Linear {
+                                    Some(ParseKeysError::Other(TemporalError::NonLinear.into()))
+                                } else {
+                                    None
+                                }
+                            });
+                            tnt
+                        })
+                    })
+            },
+        )
     }
 }
 
@@ -4623,26 +4753,155 @@ type Timestamps3_1 = Timestamps<FCSTime100>;
 
 impl LookupMetadata for InnerMetadata2_0 {
     fn lookup_shortname(
-        st: &mut KwParser,
+        kws: &mut StdKeywords,
         n: MeasIdx,
-    ) -> Option<<Self::N as MightHave>::Wrapper<Shortname>> {
-        Some(st.lookup_meas_opt(n, false))
+    ) -> LookupResult<<Self::N as MightHave>::Wrapper<Shortname>> {
+        Ok(lookup_meas_opt(kws, n, false))
     }
 
-    fn lookup_specific(st: &mut KwParser, par: Par) -> Option<InnerMetadata2_0> {
-        let maybe_mode = st.lookup_meta_req();
-        let maybe_byteord = st.lookup_meta_req();
-        if let (Some(mode), Some(byteord)) = (maybe_mode, maybe_byteord) {
-            Some(InnerMetadata2_0 {
-                mode,
-                byteord,
-                cyt: st.lookup_meta_opt(false),
-                comp: st.lookup_compensation_2_0(par),
-                timestamps: st.lookup_timestamps(false),
+    fn lookup_specific(kws: &mut StdKeywords, par: Par) -> LookupResult<Self> {
+        let co = lookup_compensation_2_0(kws, par);
+        let cy = lookup_meta_opt(kws, false);
+        let t = lookup_timestamps(kws, false);
+        co.zip3(cy, t).and_maybe(|(comp, cyt, timestamps)| {
+            let b = lookup_meta_req(kws);
+            let m = lookup_meta_req(kws);
+            combine_def_results(b, m).map(|tnt| {
+                tnt.map(|(byteord, mode)| Self {
+                    mode,
+                    byteord,
+                    cyt,
+                    comp,
+                    timestamps,
+                })
             })
-        } else {
-            None
-        }
+        })
+    }
+}
+
+impl LookupMetadata for InnerMetadata3_0 {
+    fn lookup_shortname(
+        kws: &mut StdKeywords,
+        n: MeasIdx,
+    ) -> LookupResult<<Self::N as MightHave>::Wrapper<Shortname>> {
+        Ok(lookup_meas_opt(kws, n, false))
+    }
+
+    fn lookup_specific(kws: &mut StdKeywords, _: Par) -> LookupResult<Self> {
+        let co = lookup_meta_opt(kws, false);
+        let cy = lookup_meta_opt(kws, false);
+        let sn = lookup_meta_opt(kws, false);
+        let t = lookup_timestamps(kws, false);
+        let u = lookup_meta_opt(kws, false);
+        co.zip5(cy, sn, t, u)
+            .and_maybe(|(comp, cyt, cytsn, timestamps, unicode)| {
+                let b = lookup_meta_req(kws);
+                let m = lookup_meta_req(kws);
+                combine_def_results(b, m).map(|tnt| {
+                    tnt.map(|(byteord, mode)| Self {
+                        mode,
+                        byteord,
+                        cyt,
+                        cytsn,
+                        comp,
+                        timestamps,
+                        unicode,
+                    })
+                })
+            })
+    }
+}
+
+impl LookupMetadata for InnerMetadata3_1 {
+    fn lookup_shortname(
+        kws: &mut StdKeywords,
+        n: MeasIdx,
+    ) -> LookupResult<<Self::N as MightHave>::Wrapper<Shortname>> {
+        lookup_meas_req(kws, n).map(|x| x.map(Identity))
+    }
+
+    fn lookup_specific(kws: &mut StdKeywords, _: Par) -> LookupResult<Self> {
+        let cy = lookup_meta_opt(kws, false);
+        let sp = lookup_meta_opt(kws, false);
+        let sn = lookup_meta_opt(kws, false);
+        let m = lookup_modification(kws);
+        let p = lookup_plate(kws, false);
+        let t = lookup_timestamps(kws, false);
+        let v = lookup_meta_opt(kws, false);
+        cy.zip4(sp, sn, m).zip4(p, t, v).and_maybe(
+            |((cyt, spillover, cytsn, modification), plate, timestamps, vol)| {
+                let b = lookup_meta_req(kws);
+                let m = lookup_meta_req(kws);
+                combine_def_results(b, m).map(|tnt| {
+                    tnt.map(|(byteord, mode)| Self {
+                        mode,
+                        byteord,
+                        cyt,
+                        cytsn,
+                        vol,
+                        spillover,
+                        modification,
+                        timestamps,
+                        plate,
+                    })
+                })
+            },
+        )
+    }
+}
+
+impl LookupMetadata for InnerMetadata3_2 {
+    fn lookup_shortname(
+        kws: &mut StdKeywords,
+        n: MeasIdx,
+    ) -> LookupResult<<Self::N as MightHave>::Wrapper<Shortname>> {
+        lookup_meas_req(kws, n).map(|x| x.map(Identity))
+    }
+
+    fn lookup_specific(kws: &mut StdKeywords, _: Par) -> LookupResult<Self> {
+        let ca = lookup_carrier(kws);
+        let d = lookup_datetimes(kws);
+        let f = lookup_meta_opt(kws, false);
+        let md = lookup_modification(kws);
+        // Only L is allowed as of 3.2, so pull the value and check it if given.
+        // The only thing we care about is that the value is valid, since we
+        // don't need to use it anywhere.
+        let mo = lookup_meta_opt::<Mode3_2>(kws, true);
+        let sp = lookup_meta_opt(kws, false);
+        let sn = lookup_meta_opt(kws, false);
+        let p = lookup_plate(kws, true);
+        let t = lookup_timestamps(kws, false);
+        let u = lookup_unstained(kws);
+        let v = lookup_meta_opt(kws, false);
+        ca.zip6(d, f, md, mo, sp).zip6(sn, p, t, u, v).and_maybe(
+            |(
+                (carrier, datetimes, flowrate, modification, _, spillover),
+                cytsn,
+                plate,
+                timestamps,
+                unstained,
+                vol,
+            )| {
+                let b = lookup_meta_req(kws);
+                let c = lookup_meta_req(kws);
+                combine_def_results(b, c).map(|tnt| {
+                    tnt.map(|(byteord, cyt)| Self {
+                        byteord,
+                        cyt,
+                        cytsn,
+                        vol,
+                        spillover,
+                        modification,
+                        timestamps,
+                        plate,
+                        carrier,
+                        datetimes,
+                        flowrate,
+                        unstained,
+                    })
+                })
+            },
+        )
     }
 }
 
@@ -4730,33 +4989,6 @@ impl VersionedMetadata for InnerMetadata2_0 {
     }
 }
 
-impl LookupMetadata for InnerMetadata3_0 {
-    fn lookup_shortname(
-        st: &mut KwParser,
-        n: MeasIdx,
-    ) -> Option<<Self::N as MightHave>::Wrapper<Shortname>> {
-        Some(st.lookup_meas_opt(n, false))
-    }
-
-    fn lookup_specific(st: &mut KwParser, _: Par) -> Option<InnerMetadata3_0> {
-        let maybe_mode = st.lookup_meta_req();
-        let maybe_byteord = st.lookup_meta_req();
-        if let (Some(mode), Some(byteord)) = (maybe_mode, maybe_byteord) {
-            Some(InnerMetadata3_0 {
-                mode,
-                byteord,
-                cyt: st.lookup_meta_opt(false),
-                comp: st.lookup_meta_opt(false),
-                cytsn: st.lookup_meta_opt(false),
-                unicode: st.lookup_meta_opt(false),
-                timestamps: st.lookup_timestamps(false),
-            })
-        } else {
-            None
-        }
-    }
-}
-
 impl VersionedMetadata for InnerMetadata3_0 {
     type P = InnerOptical3_0;
     type T = InnerTemporal3_0;
@@ -4840,35 +5072,6 @@ impl VersionedMetadata for InnerMetadata3_0 {
             metadata.specific.byteord.clone(),
             ms.layout_data(),
         )
-    }
-}
-
-impl LookupMetadata for InnerMetadata3_1 {
-    fn lookup_shortname(
-        st: &mut KwParser,
-        n: MeasIdx,
-    ) -> Option<<Self::N as MightHave>::Wrapper<Shortname>> {
-        st.lookup_meas_req(n).map(Identity)
-    }
-
-    fn lookup_specific(st: &mut KwParser, _: Par) -> Option<InnerMetadata3_1> {
-        let maybe_mode = st.lookup_meta_req();
-        let maybe_byteord = st.lookup_meta_req();
-        if let (Some(mode), Some(byteord)) = (maybe_mode, maybe_byteord) {
-            Some(InnerMetadata3_1 {
-                mode,
-                byteord,
-                cyt: st.lookup_meta_opt(false),
-                spillover: st.lookup_meta_opt(false),
-                cytsn: st.lookup_meta_opt(false),
-                vol: st.lookup_meta_opt(false),
-                modification: st.lookup_modification(),
-                timestamps: st.lookup_timestamps(false),
-                plate: st.lookup_plate(false),
-            })
-        } else {
-            None
-        }
     }
 }
 
@@ -4963,42 +5166,6 @@ impl VersionedMetadata for InnerMetadata3_1 {
             metadata.specific.byteord,
             ms.layout_data(),
         )
-    }
-}
-
-impl LookupMetadata for InnerMetadata3_2 {
-    fn lookup_shortname(
-        st: &mut KwParser,
-        n: MeasIdx,
-    ) -> Option<<Self::N as MightHave>::Wrapper<Shortname>> {
-        st.lookup_meas_req(n).map(Identity)
-    }
-
-    fn lookup_specific(st: &mut KwParser, _: Par) -> Option<InnerMetadata3_2> {
-        // Only L is allowed as of 3.2, so pull the value and check it if given.
-        // The only thing we care about is that the value is valid, since we
-        // don't need to use it anywhere.
-        let _: OptionalKw<Mode3_2> = st.lookup_meta_opt(true);
-        let maybe_byteord = st.lookup_meta_req();
-        let maybe_cyt = st.lookup_meta_req();
-        if let (Some(byteord), Some(cyt)) = (maybe_byteord, maybe_cyt) {
-            Some(InnerMetadata3_2 {
-                byteord,
-                cyt,
-                spillover: st.lookup_meta_opt(false),
-                cytsn: st.lookup_meta_opt(false),
-                vol: st.lookup_meta_opt(false),
-                flowrate: st.lookup_meta_opt(false),
-                modification: st.lookup_modification(),
-                plate: st.lookup_plate(true),
-                timestamps: st.lookup_timestamps(true),
-                carrier: st.lookup_carrier(),
-                datetimes: st.lookup_datetimes(),
-                unstained: st.lookup_unstained(),
-            })
-        } else {
-            None
-        }
     }
 }
 

@@ -148,7 +148,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     ///
     /// Must contain either one or zero center values, otherwise return error.
     /// All names within keys (including center) must be unique.
-    pub fn new(
+    pub fn try_new(
         xs: RawInput<K, U, V>,
         prefix: ShortnamePrefix,
     ) -> Result<WrappedNamedVec<K, U, V>, NewNamedVecError> {

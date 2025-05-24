@@ -2,7 +2,6 @@ use nonempty::NonEmpty;
 use std::fmt;
 use std::io;
 
-// TODO encapsulate
 pub struct Tentative<V, W, E> {
     value: V,
     warnings: Vec<W>,
@@ -96,6 +95,25 @@ pub fn combine_results5<A, B, C, D, E, Z>(
         )
         .unwrap()),
     }
+}
+
+pub fn combine_def_results<A, B, Y, Z>(
+    a: DeferredResult<A, Y, Z>,
+    b: DeferredResult<B, Y, Z>,
+) -> DeferredResult<(A, B), Y, Z> {
+    combine_results(a, b)
+        .map_err(DeferredFailure::fold)
+        .map(|(ax, bx)| ax.zip(bx))
+}
+
+pub fn combine_def_results3<A, B, C, Y, Z>(
+    a: DeferredResult<A, Y, Z>,
+    b: DeferredResult<B, Y, Z>,
+    c: DeferredResult<C, Y, Z>,
+) -> DeferredResult<(A, B, C), Y, Z> {
+    combine_results3(a, b, c)
+        .map_err(DeferredFailure::fold)
+        .map(|(ax, bx, cx)| ax.zip3(bx, cx))
 }
 
 pub(crate) trait ErrorIter<T, E>: Iterator<Item = Result<T, E>> + Sized {
@@ -435,6 +453,16 @@ impl<V, W, E> Tentative<V, W, E> {
         self
     }
 
+    // TODO make warning version
+    pub fn eval_error<F>(&mut self, f: F)
+    where
+        F: Fn(&V) -> Option<E>,
+    {
+        if let Some(e) = f(&self.value) {
+            self.errors.push(e);
+        }
+    }
+
     // pub fn append_result_warnings<U>(
     //     mut self,
     //     other: Deferred<U, W>,
@@ -490,6 +518,7 @@ impl<V, W, E> Tentative<V, W, E> {
     pub fn mconcat(xs: Vec<Self>) -> Tentative<Vec<V>, W, E> {
         let mut ret = Tentative::new1(vec![]);
         for x in xs {
+            ret.value.push(x.value);
             ret.warnings.extend(x.warnings);
             ret.errors.extend(x.errors);
         }
@@ -507,6 +536,52 @@ impl<V, W, E> Tentative<V, W, E> {
                 warnings: self.warnings,
             }),
         }
+    }
+
+    pub fn zip<A>(self, a: Tentative<A, W, E>) -> Tentative<(V, A), W, E> {
+        self.zip_with(a, |x, y| (x, y))
+    }
+
+    pub fn zip3<A, B>(
+        self,
+        a: Tentative<A, W, E>,
+        b: Tentative<B, W, E>,
+    ) -> Tentative<(V, A, B), W, E> {
+        self.zip(a).zip(b).map(|((x, a), b)| (x, a, b))
+    }
+
+    pub fn zip4<A, B, C>(
+        self,
+        a: Tentative<A, W, E>,
+        b: Tentative<B, W, E>,
+        c: Tentative<C, W, E>,
+    ) -> Tentative<(V, A, B, C), W, E> {
+        self.zip3(a, b).zip(c).map(|((x, a, b), c)| (x, a, b, c))
+    }
+
+    pub fn zip5<A, B, C, D>(
+        self,
+        a: Tentative<A, W, E>,
+        b: Tentative<B, W, E>,
+        c: Tentative<C, W, E>,
+        d: Tentative<D, W, E>,
+    ) -> Tentative<(V, A, B, C, D), W, E> {
+        self.zip4(a, b, c)
+            .zip(d)
+            .map(|((x, a, b, c), d)| (x, a, b, c, d))
+    }
+
+    pub fn zip6<A, B, C, D, F>(
+        self,
+        a: Tentative<A, W, E>,
+        b: Tentative<B, W, E>,
+        c: Tentative<C, W, E>,
+        d: Tentative<D, W, E>,
+        e: Tentative<F, W, E>,
+    ) -> Tentative<(V, A, B, C, D, F), W, E> {
+        self.zip5(a, b, c, d)
+            .zip(e)
+            .map(|((x, a, b, c, d), e)| (x, a, b, c, d, e))
     }
 
     pub fn zip_with<F, X, Y>(mut self, other: Tentative<X, W, E>, f: F) -> Tentative<Y, W, E>

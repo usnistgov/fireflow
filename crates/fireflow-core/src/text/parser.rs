@@ -1,3 +1,4 @@
+use crate::api::ParseKeywordsIssue;
 use crate::config::StdTextReadConfig;
 use crate::core::{CarrierData, ModificationData, PlateData, UnstainedData};
 use crate::error::*;
@@ -28,300 +29,508 @@ use std::fmt;
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::FromStr;
 
-/// A structure to look up and parse keywords in the TEXT segment
-///
-/// Given a hash table of keywords (as String pairs) and a configuration, this
-/// provides an interface to extract keywords. If found, the keyword will be
-/// removed from the table and parsed to its native type (number, list, matrix,
-/// etc). If lookup or parsing fails, an error/warning will be logged within the
-/// state depending on if the key is required or optional.
-///
-/// Errors in all cases are deferred until the end of the state's lifetime, at
-/// which point the errors are returned along with the result of the computation
-/// or failure (if applicable).
-pub(crate) struct KwParser<'a, 'b> {
-    raw_keywords: &'b mut StdKeywords,
-    req_errors: Vec<ParseReqKeyError>,
-    opt_warnings: Vec<ParseOptKeyWarning>,
-    other_errors: Vec<ParseOtherError>,
-    other_warnings: Vec<ParseOtherWarning>,
-    deprecated: Vec<DepKeyWarning>,
-    pub(crate) conf: &'a StdTextReadConfig,
+// /// A structure to look up and parse keywords in the TEXT segment
+// ///
+// /// Given a hash table of keywords (as String pairs) and a configuration, this
+// /// provides an interface to extract keywords. If found, the keyword will be
+// /// removed from the table and parsed to its native type (number, list, matrix,
+// /// etc). If lookup or parsing fails, an error/warning will be logged within the
+// /// state depending on if the key is required or optional.
+// ///
+// /// Errors in all cases are deferred until the end of the state's lifetime, at
+// /// which point the errors are returned along with the result of the computation
+// /// or failure (if applicable).
+// pub(crate) struct KwParser<'a, 'b> {
+//     raw_keywords: &'b mut StdKeywords,
+//     req_errors: Vec<ParseReqKeyError>,
+//     opt_warnings: Vec<ParseOptKeyWarning>,
+//     other_errors: Vec<ParseOtherError>,
+//     other_warnings: Vec<ParseOtherWarning>,
+//     deprecated: Vec<DepKeyWarning>,
+//     pub(crate) conf: &'a StdTextReadConfig,
+// }
+
+pub(crate) type LookupResult<V> = DeferredResult<V, ParseKeysWarning, ParseKeysError>;
+
+pub(crate) type LookupTentative<V> = Tentative<V, ParseKeysWarning, ParseKeysError>;
+
+pub(crate) fn lookup_meta_req<V>(kws: &mut StdKeywords) -> LookupResult<V>
+where
+    V: ReqMetaKey,
+    V: FromStr,
+    <V as FromStr>::Err: fmt::Display,
+    ParseReqKeyError: From<ReqKeyError<<V as FromStr>::Err>>,
+{
+    V::remove_meta_req(kws)
+        .map(Tentative::new1)
+        .map_err(|e| DeferredFailure::new1(ParseReqKeyError::from(e).into()))
 }
 
-impl<'a, 'b> KwParser<'a, 'b> {
-    /// Run a computation within a keyword lookup context which may fail.
-    ///
-    /// This is like 'run' except the computation may not return anything (None)
-    /// in which case Err(Failure(...)) will be returned along with the reason
-    /// for failure which must be given a priori.
-    ///
-    /// Any errors which are logged must be pushed into the state's error buffer
-    /// directly, as errors are not allowed to be returned by the inner
-    /// computation.
-    pub(crate) fn try_run<X, F>(
-        kws: &'b mut StdKeywords,
-        conf: &'a StdTextReadConfig,
-        f: F,
-    ) -> DeferredResult<X, ParseKeysWarning, ParseKeysError>
-    where
-        F: FnOnce(&mut Self) -> Option<X>,
-    {
-        let mut st = Self::from(kws, conf);
-        if let Some(value) = f(&mut st) {
-            let (errors, warnings) = st.collect();
-            Ok(Tentative::new(value, warnings, errors))
-        } else {
-            let (errors, warnings) = st.collect();
-            let fail = DeferredFailure::new(
-                // TODO I contradicted myself :( this entire struct is now
-                // useless. Oh well, it was bound to happen
-                warnings,
-                NonEmpty::from_vec(errors).unwrap(),
-            );
-            Err(fail)
-        }
-    }
+pub(crate) fn lookup_meas_req<V>(kws: &mut StdKeywords, n: MeasIdx) -> LookupResult<V>
+where
+    V: ReqMeasKey,
+    V: FromStr,
+    <V as FromStr>::Err: fmt::Display,
+    ParseReqKeyError: From<ReqKeyError<<V as FromStr>::Err>>,
+{
+    V::remove_meas_req(kws, n)
+        .map(Tentative::new1)
+        .map_err(|e| DeferredFailure::new1(ParseReqKeyError::from(e).into()))
+}
 
-    pub(crate) fn lookup_meta_req<V>(&mut self) -> Option<V>
-    where
-        V: ReqMetaKey,
-        V: FromStr,
-        <V as FromStr>::Err: fmt::Display,
-        ParseReqKeyError: From<ReqKeyError<<V as FromStr>::Err>>,
-    {
-        V::remove_meta_req(self.raw_keywords)
-            .map_err(|e| self.req_errors.push(e.into()))
-            .ok()
+pub(crate) fn lookup_meta_opt<V>(kws: &mut StdKeywords, dep: bool) -> LookupTentative<OptionalKw<V>>
+where
+    V: OptMetaKey,
+    V: FromStr,
+    <V as FromStr>::Err: fmt::Display,
+    ParseOptKeyWarning: From<ParseKeyError<<V as FromStr>::Err>>,
+{
+    let mut x = process_opt(V::remove_meta_opt(kws));
+    if dep {
+        x.push_warning(DepKeyWarning(V::std()).into());
     }
+    x
+}
 
-    pub(crate) fn lookup_meta_opt<V>(&mut self, dep: bool) -> OptionalKw<V>
-    where
-        V: OptMetaKey,
-        V: FromStr,
-        <V as FromStr>::Err: fmt::Display,
-        ParseOptKeyWarning: From<ParseKeyError<<V as FromStr>::Err>>,
-    {
-        let res = V::remove_meta_opt(self.raw_keywords).map_err(|e| e.into());
-        self.process_opt(res, V::std(), dep)
+pub(crate) fn lookup_meas_opt<V>(
+    kws: &mut StdKeywords,
+    n: MeasIdx,
+    dep: bool,
+) -> LookupTentative<OptionalKw<V>>
+where
+    V: OptMeasKey,
+    V: FromStr,
+    <V as FromStr>::Err: fmt::Display,
+    ParseOptKeyWarning: From<ParseKeyError<<V as FromStr>::Err>>,
+{
+    let mut x = process_opt(V::remove_meas_opt(kws, n));
+    if dep {
+        x.push_warning(DepKeyWarning(V::std(n)).into());
     }
+    x
+}
 
-    pub(crate) fn lookup_meas_req<V>(&mut self, n: MeasIdx) -> Option<V>
-    where
-        V: ReqMeasKey,
-        V: FromStr,
-        <V as FromStr>::Err: fmt::Display,
-        ParseReqKeyError: From<ReqKeyError<<V as FromStr>::Err>>,
-    {
-        V::remove_meas_req(self.raw_keywords, n)
-            .map_err(|e| self.req_errors.push(e.into()))
-            .ok()
-    }
+pub(crate) fn lookup_timestamps<T>(
+    kws: &mut StdKeywords,
+    dep: bool,
+) -> LookupTentative<Timestamps<T>>
+where
+    T: PartialOrd,
+    T: Copy,
+    Btim<T>: OptMetaKey,
+    <Btim<T> as FromStr>::Err: fmt::Display,
+    Etim<T>: OptMetaKey,
+    <Etim<T> as FromStr>::Err: fmt::Display,
+    ParseOptKeyWarning: From<ParseKeyError<<Btim<T> as FromStr>::Err>>,
+    ParseOptKeyWarning: From<ParseKeyError<<Etim<T> as FromStr>::Err>>,
+{
+    let b = lookup_meta_opt(kws, dep);
+    let e = lookup_meta_opt(kws, dep);
+    let d = lookup_meta_opt(kws, dep);
+    b.zip3(e, d).and_tentatively(|(btim, etim, date)| {
+        Timestamps::new(btim, etim, date)
+            .map(Tentative::new1)
+            .unwrap_or_else(|e| {
+                let w = ParseKeysWarning::OtherWarning(e.into());
+                Tentative::new(Timestamps::default(), vec![w], vec![])
+            })
+    })
+}
 
-    pub(crate) fn lookup_meas_opt<V>(&mut self, n: MeasIdx, dep: bool) -> OptionalKw<V>
-    where
-        V: OptMeasKey,
-        V: FromStr,
-        <V as FromStr>::Err: fmt::Display,
-        ParseOptKeyWarning: From<ParseKeyError<<V as FromStr>::Err>>,
-    {
-        let res = V::remove_meas_opt(self.raw_keywords, n).map_err(|e| e.into());
-        self.process_opt(res, V::std(n), dep)
-    }
+pub(crate) fn lookup_datetimes(kws: &mut StdKeywords) -> LookupTentative<Datetimes> {
+    let b = lookup_meta_opt(kws, false);
+    let e = lookup_meta_opt(kws, false);
+    b.zip(e).and_tentatively(|(begin, end)| {
+        Datetimes::try_new(begin, end)
+            .map(Tentative::new1)
+            .unwrap_or_else(|e| {
+                let w = ParseKeysWarning::OtherWarning(e.into());
+                Tentative::new(Datetimes::default(), vec![w], vec![])
+            })
+    })
+}
 
-    pub(crate) fn lookup_timestamps<T>(&mut self, dep: bool) -> Timestamps<T>
-    where
-        T: PartialOrd,
-        T: Copy,
-        Btim<T>: OptMetaKey,
-        <Btim<T> as FromStr>::Err: fmt::Display,
-        Etim<T>: OptMetaKey,
-        <Etim<T> as FromStr>::Err: fmt::Display,
-        ParseOptKeyWarning: From<ParseKeyError<<Btim<T> as FromStr>::Err>>,
-        ParseOptKeyWarning: From<ParseKeyError<<Etim<T> as FromStr>::Err>>,
-    {
-        Timestamps::new(
-            self.lookup_meta_opt(dep),
-            self.lookup_meta_opt(dep),
-            self.lookup_meta_opt(dep),
-        )
-        .unwrap_or_else(|e| {
-            self.other_warnings.push(e.into());
-            Timestamps::default()
+pub(crate) fn lookup_modification(kws: &mut StdKeywords) -> LookupTentative<ModificationData> {
+    let lmr = lookup_meta_opt(kws, false);
+    let lmd = lookup_meta_opt(kws, false);
+    let ori = lookup_meta_opt(kws, false);
+    lmr.zip3(lmd, ori).map(
+        |(last_modifier, last_modified, originality)| ModificationData {
+            last_modifier,
+            last_modified,
+            originality,
+        },
+    )
+}
+
+pub(crate) fn lookup_plate(kws: &mut StdKeywords, dep: bool) -> LookupTentative<PlateData> {
+    let w = lookup_meta_opt(kws, dep);
+    let n = lookup_meta_opt(kws, dep);
+    let i = lookup_meta_opt(kws, dep);
+    w.zip3(n, i).map(|(wellid, platename, plateid)| PlateData {
+        wellid,
+        platename,
+        plateid,
+    })
+}
+
+pub(crate) fn lookup_carrier(kws: &mut StdKeywords) -> LookupTentative<CarrierData> {
+    let l = lookup_meta_opt(kws, false);
+    let i = lookup_meta_opt(kws, false);
+    let t = lookup_meta_opt(kws, false);
+    l.zip3(i, t)
+        .map(|(locationid, carrierid, carriertype)| CarrierData {
+            locationid,
+            carrierid,
+            carriertype,
         })
-    }
+}
 
-    pub(crate) fn lookup_datetimes(&mut self) -> Datetimes {
-        let b = self.lookup_meta_opt(false);
-        let e = self.lookup_meta_opt(false);
-        Datetimes::new(b, e).unwrap_or_else(|w| {
-            self.other_warnings.push(w.into());
-            Datetimes::default()
-        })
-    }
+pub(crate) fn lookup_unstained(kws: &mut StdKeywords) -> LookupTentative<UnstainedData> {
+    let c = lookup_meta_opt(kws, false);
+    let i = lookup_meta_opt(kws, false);
+    c.zip(i)
+        .map(|(centers, info)| UnstainedData::new_unchecked(centers, info))
+}
 
-    pub(crate) fn lookup_modification(&mut self) -> ModificationData {
-        ModificationData {
-            last_modifier: self.lookup_meta_opt(false),
-            last_modified: self.lookup_meta_opt(false),
-            originality: self.lookup_meta_opt(false),
-        }
-    }
-
-    pub(crate) fn lookup_plate(&mut self, dep: bool) -> PlateData {
-        PlateData {
-            wellid: self.lookup_meta_opt(dep),
-            platename: self.lookup_meta_opt(dep),
-            plateid: self.lookup_meta_opt(dep),
-        }
-    }
-
-    pub(crate) fn lookup_carrier(&mut self) -> CarrierData {
-        CarrierData {
-            locationid: self.lookup_meta_opt(false),
-            carrierid: self.lookup_meta_opt(false),
-            carriertype: self.lookup_meta_opt(false),
-        }
-    }
-
-    pub(crate) fn lookup_unstained(&mut self) -> UnstainedData {
-        UnstainedData::new_unchecked(self.lookup_meta_opt(false), self.lookup_meta_opt(false))
-    }
-
-    pub(crate) fn lookup_compensation_2_0(&mut self, par: Par) -> OptionalKw<Compensation> {
-        // column = src measurement
-        // row = target measurement
-        // These are "flipped" in 2.0, where "column" goes TO the "row"
-        let n = par.0;
-        let mut any_error = false;
-        let mut matrix = DMatrix::<f32>::identity(n, n);
-        for r in 0..n {
-            for c in 0..n {
-                let k = Dfc::std(c, r);
-                if let Some(x) = self.lookup_dfc(&k) {
+pub(crate) fn lookup_compensation_2_0(
+    kws: &mut StdKeywords,
+    par: Par,
+) -> LookupTentative<OptionalKw<Compensation>> {
+    // column = src measurement
+    // row = target measurement
+    // These are "flipped" in 2.0, where "column" goes TO the "row"
+    let n = par.0;
+    let mut matrix = DMatrix::<f32>::identity(n, n);
+    let mut warnings = vec![];
+    for r in 0..n {
+        for c in 0..n {
+            let k = Dfc::std(c, r);
+            match lookup_dfc(kws, &k) {
+                Ok(Some(x)) => {
                     matrix[(r, c)] = x;
-                } else {
-                    any_error = true;
                 }
+                Ok(None) => (),
+                Err(w) => warnings.push(ParseKeysWarning::OptKey(w.into())),
             }
         }
-        if any_error {
-            None
-        } else {
-            // TODO will return none if matrix is less than 2x2, which is a
-            // warning
-            Compensation::new(matrix)
-        }
-        .into()
     }
-
-    pub(crate) fn lookup_dfc(&mut self, k: &StdKey) -> Option<f32> {
-        self.raw_keywords.remove(k).and_then(|v| {
-            v.parse::<f32>()
-                .map_err(|e| {
-                    let err = ParseKeyError {
-                        error: e,
-                        key: k.clone(),
-                        value: v.clone(),
-                    };
-                    self.opt_warnings.push(err.into());
-                })
-                .ok()
-        })
-    }
-
-    pub fn push_error<E>(&mut self, e: E)
-    where
-        ParseOtherError: From<E>,
-    {
-        self.other_errors.push(e.into())
-    }
-
-    // auxiliary functions
-
-    // fn collect(self) -> PureErrorBuf<AnyParserError> {
-    //     let rs = PureErrorBuf::from_many(
-    //         self.req_errors.into_iter().map(|e| e.into()).collect(),
-    //         PureErrorLevel::Error,
-    //     );
-    //     let ws = PureErrorBuf::from_many(
-    //         self.opt_warnings
-    //             .into_iter()
-    //             .map(|e| e.into())
-    //             .chain(self.other_warnings.into_iter().map(|e| e.into()))
-    //             .collect(),
-    //         PureErrorLevel::Warning,
-    //     );
-    //     let ds = PureErrorBuf::from_many(
-    //         self.deprecated.into_iter().map(|e| e.into()).collect(),
-    //         if self.conf.disallow_deprecated {
-    //             PureErrorLevel::Error
-    //         } else {
-    //             PureErrorLevel::Warning
-    //         },
-    //     );
-    //     PureErrorBuf::mconcat(vec![rs, ws, ds])
-    // }
-
-    // fn into_failure(self, reason: String) -> PureFailure<AnyParserError> {
-    //     Failure {
-    //         reason,
-    //         deferred: self.collect(),
-    //     }
-    // }
-
-    fn collect(self) -> (Vec<ParseKeysError>, Vec<ParseKeysWarning>) {
-        let mut errors: Vec<ParseKeysError> = self
-            .req_errors
-            .into_iter()
-            .map(|x| x.into())
-            .chain(self.other_errors.into_iter().map(|x| x.into()))
-            .collect();
-        let mut warnings: Vec<ParseKeysWarning> = self
-            .opt_warnings
-            .into_iter()
-            .map(|x| x.into())
-            .chain(self.other_warnings.into_iter().map(|x| x.into()))
-            .collect();
-        let dep = self.deprecated.into_iter();
-        if self.conf.disallow_deprecated {
-            errors.extend(dep.map(|x| x.into()));
-        } else {
-            warnings.extend(dep.map(|x| x.into()));
-        }
-        (errors, warnings)
-    }
-
-    fn from(kws: &'b mut StdKeywords, conf: &'a StdTextReadConfig) -> Self {
-        KwParser {
-            raw_keywords: kws,
-            req_errors: vec![],
-            opt_warnings: vec![],
-            other_errors: vec![],
-            other_warnings: vec![],
-            deprecated: vec![],
-            conf,
-        }
-    }
-
-    fn process_opt<V>(
-        &mut self,
-        res: Result<OptionalKw<V>, ParseOptKeyWarning>,
-        k: StdKey,
-        dep: bool,
-    ) -> OptionalKw<V>
-    where
-        V: FromStr,
-    {
-        res.inspect(|_| {
-            if dep {
-                self.deprecated.push(DepKeyWarning(k));
-            }
-        })
-        .map_err(|e| self.opt_warnings.push(e))
-        .unwrap_or(None.into())
+    if warnings.is_empty() {
+        // TODO will return none if matrix is less than 2x2, which is a
+        // warning
+        Tentative::new1(Compensation::try_new(matrix).into())
+    } else {
+        Tentative::new(None.into(), warnings, vec![])
     }
 }
+
+pub(crate) fn lookup_dfc(
+    kws: &mut StdKeywords,
+    k: &StdKey,
+) -> Result<Option<f32>, ParseKeyError<ParseFloatError>> {
+    kws.remove(k).map_or(Ok(None), |v| {
+        v.parse::<f32>()
+            .map_err(|e| ParseKeyError {
+                error: e,
+                key: k.clone(),
+                value: v.clone(),
+            })
+            .map(Some)
+    })
+}
+
+fn process_opt<V>(
+    res: Result<OptionalKw<V>, ParseKeyError<<V as FromStr>::Err>>,
+) -> Tentative<OptionalKw<V>, ParseKeysWarning, ParseKeysError>
+where
+    V: FromStr,
+    ParseOptKeyWarning: From<ParseKeyError<<V as FromStr>::Err>>,
+{
+    res.map_or_else(
+        |e| {
+            Tentative::new(
+                None.into(),
+                vec![ParseKeysWarning::OptKey(e.into())],
+                vec![],
+            )
+        },
+        Tentative::new1,
+    )
+}
+
+// impl<'a, 'b> KwParser<'a, 'b> {
+//     /// Run a computation within a keyword lookup context which may fail.
+//     ///
+//     /// This is like 'run' except the computation may not return anything (None)
+//     /// in which case Err(Failure(...)) will be returned along with the reason
+//     /// for failure which must be given a priori.
+//     ///
+//     /// Any errors which are logged must be pushed into the state's error buffer
+//     /// directly, as errors are not allowed to be returned by the inner
+//     /// computation.
+//     // pub(crate) fn try_run<X, F>(
+//     //     kws: &'b mut StdKeywords,
+//     //     conf: &'a StdTextReadConfig,
+//     //     f: F,
+//     // ) -> DeferredResult<X, ParseKeysWarning, ParseKeysError>
+//     // where
+//     //     F: FnOnce(&mut Self) -> Option<X>,
+//     // {
+//     //     let mut st = Self::from(kws, conf);
+//     //     if let Some(value) = f(&mut st) {
+//     //         let (errors, warnings) = st.collect();
+//     //         Ok(Tentative::new(value, warnings, errors))
+//     //     } else {
+//     //         let (errors, warnings) = st.collect();
+//     //         let fail = DeferredFailure::new(
+//     //             // TODO I contradicted myself :( this entire struct is now
+//     //             // useless. Oh well, it was bound to happen
+//     //             warnings,
+//     //             NonEmpty::from_vec(errors).unwrap(),
+//     //         );
+//     //         Err(fail)
+//     //     }
+//     // }
+
+//     pub(crate) fn lookup_meta_req<V>(&mut self) -> Option<V>
+//     where
+//         V: ReqMetaKey,
+//         V: FromStr,
+//         <V as FromStr>::Err: fmt::Display,
+//         ParseReqKeyError: From<ReqKeyError<<V as FromStr>::Err>>,
+//     {
+//         V::remove_meta_req(self.raw_keywords)
+//             .map_err(|e| self.req_errors.push(e.into()))
+//             .ok()
+//     }
+
+//     pub(crate) fn lookup_meta_opt<V>(&mut self, dep: bool) -> OptionalKw<V>
+//     where
+//         V: OptMetaKey,
+//         V: FromStr,
+//         <V as FromStr>::Err: fmt::Display,
+//         ParseOptKeyWarning: From<ParseKeyError<<V as FromStr>::Err>>,
+//     {
+//         let res = V::remove_meta_opt(self.raw_keywords).map_err(|e| e.into());
+//         self.process_opt(res, V::std(), dep)
+//     }
+
+//     pub(crate) fn lookup_meas_req<V>(&mut self, n: MeasIdx) -> Option<V>
+//     where
+//         V: ReqMeasKey,
+//         V: FromStr,
+//         <V as FromStr>::Err: fmt::Display,
+//         ParseReqKeyError: From<ReqKeyError<<V as FromStr>::Err>>,
+//     {
+//         V::remove_meas_req(self.raw_keywords, n)
+//             .map_err(|e| self.req_errors.push(e.into()))
+//             .ok()
+//     }
+
+//     pub(crate) fn lookup_meas_opt<V>(&mut self, n: MeasIdx, dep: bool) -> OptionalKw<V>
+//     where
+//         V: OptMeasKey,
+//         V: FromStr,
+//         <V as FromStr>::Err: fmt::Display,
+//         ParseOptKeyWarning: From<ParseKeyError<<V as FromStr>::Err>>,
+//     {
+//         let res = V::remove_meas_opt(self.raw_keywords, n).map_err(|e| e.into());
+//         self.process_opt(res, V::std(n), dep)
+//     }
+
+//     pub(crate) fn lookup_timestamps<T>(&mut self, dep: bool) -> Timestamps<T>
+//     where
+//         T: PartialOrd,
+//         T: Copy,
+//         Btim<T>: OptMetaKey,
+//         <Btim<T> as FromStr>::Err: fmt::Display,
+//         Etim<T>: OptMetaKey,
+//         <Etim<T> as FromStr>::Err: fmt::Display,
+//         ParseOptKeyWarning: From<ParseKeyError<<Btim<T> as FromStr>::Err>>,
+//         ParseOptKeyWarning: From<ParseKeyError<<Etim<T> as FromStr>::Err>>,
+//     {
+//         Timestamps::new(
+//             self.lookup_meta_opt(dep),
+//             self.lookup_meta_opt(dep),
+//             self.lookup_meta_opt(dep),
+//         )
+//         .unwrap_or_else(|e| {
+//             self.other_warnings.push(e.into());
+//             Timestamps::default()
+//         })
+//     }
+
+//     pub(crate) fn lookup_datetimes(&mut self) -> Datetimes {
+//         let b = self.lookup_meta_opt(false);
+//         let e = self.lookup_meta_opt(false);
+//         Datetimes::try_new(b, e).unwrap_or_else(|w| {
+//             self.other_warnings.push(w.into());
+//             Datetimes::default()
+//         })
+//     }
+
+//     pub(crate) fn lookup_modification(&mut self) -> ModificationData {
+//         ModificationData {
+//             last_modifier: self.lookup_meta_opt(false),
+//             last_modified: self.lookup_meta_opt(false),
+//             originality: self.lookup_meta_opt(false),
+//         }
+//     }
+
+//     pub(crate) fn lookup_plate(&mut self, dep: bool) -> PlateData {
+//         PlateData {
+//             wellid: self.lookup_meta_opt(dep),
+//             platename: self.lookup_meta_opt(dep),
+//             plateid: self.lookup_meta_opt(dep),
+//         }
+//     }
+
+//     pub(crate) fn lookup_carrier(&mut self) -> CarrierData {
+//         CarrierData {
+//             locationid: self.lookup_meta_opt(false),
+//             carrierid: self.lookup_meta_opt(false),
+//             carriertype: self.lookup_meta_opt(false),
+//         }
+//     }
+
+//     pub(crate) fn lookup_unstained(&mut self) -> UnstainedData {
+//         UnstainedData::new_unchecked(self.lookup_meta_opt(false), self.lookup_meta_opt(false))
+//     }
+
+//     pub(crate) fn lookup_compensation_2_0(&mut self, par: Par) -> OptionalKw<Compensation> {
+//         // column = src measurement
+//         // row = target measurement
+//         // These are "flipped" in 2.0, where "column" goes TO the "row"
+//         let n = par.0;
+//         let mut any_error = false;
+//         let mut matrix = DMatrix::<f32>::identity(n, n);
+//         for r in 0..n {
+//             for c in 0..n {
+//                 let k = Dfc::std(c, r);
+//                 if let Some(x) = self.lookup_dfc(&k) {
+//                     matrix[(r, c)] = x;
+//                 } else {
+//                     any_error = true;
+//                 }
+//             }
+//         }
+//         if any_error {
+//             None
+//         } else {
+//             // TODO will return none if matrix is less than 2x2, which is a
+//             // warning
+//             Compensation::try_new(matrix)
+//         }
+//         .into()
+//     }
+
+//     pub(crate) fn lookup_dfc(&mut self, k: &StdKey) -> Option<f32> {
+//         self.raw_keywords.remove(k).and_then(|v| {
+//             v.parse::<f32>()
+//                 .map_err(|e| {
+//                     let err = ParseKeyError {
+//                         error: e,
+//                         key: k.clone(),
+//                         value: v.clone(),
+//                     };
+//                     self.opt_warnings.push(err.into());
+//                 })
+//                 .ok()
+//         })
+//     }
+
+//     pub fn push_error<E>(&mut self, e: E)
+//     where
+//         ParseOtherError: From<E>,
+//     {
+//         self.other_errors.push(e.into())
+//     }
+
+//     // auxiliary functions
+
+//     // fn collect(self) -> PureErrorBuf<AnyParserError> {
+//     //     let rs = PureErrorBuf::from_many(
+//     //         self.req_errors.into_iter().map(|e| e.into()).collect(),
+//     //         PureErrorLevel::Error,
+//     //     );
+//     //     let ws = PureErrorBuf::from_many(
+//     //         self.opt_warnings
+//     //             .into_iter()
+//     //             .map(|e| e.into())
+//     //             .chain(self.other_warnings.into_iter().map(|e| e.into()))
+//     //             .collect(),
+//     //         PureErrorLevel::Warning,
+//     //     );
+//     //     let ds = PureErrorBuf::from_many(
+//     //         self.deprecated.into_iter().map(|e| e.into()).collect(),
+//     //         if self.conf.disallow_deprecated {
+//     //             PureErrorLevel::Error
+//     //         } else {
+//     //             PureErrorLevel::Warning
+//     //         },
+//     //     );
+//     //     PureErrorBuf::mconcat(vec![rs, ws, ds])
+//     // }
+
+//     // fn into_failure(self, reason: String) -> PureFailure<AnyParserError> {
+//     //     Failure {
+//     //         reason,
+//     //         deferred: self.collect(),
+//     //     }
+//     // }
+
+//     fn collect(self) -> (Vec<ParseKeysError>, Vec<ParseKeysWarning>) {
+//         let mut errors: Vec<ParseKeysError> = self
+//             .req_errors
+//             .into_iter()
+//             .map(|x| x.into())
+//             .chain(self.other_errors.into_iter().map(|x| x.into()))
+//             .collect();
+//         let mut warnings: Vec<ParseKeysWarning> = self
+//             .opt_warnings
+//             .into_iter()
+//             .map(|x| x.into())
+//             .chain(self.other_warnings.into_iter().map(|x| x.into()))
+//             .collect();
+//         let dep = self.deprecated.into_iter();
+//         if self.conf.disallow_deprecated {
+//             errors.extend(dep.map(|x| x.into()));
+//         } else {
+//             warnings.extend(dep.map(|x| x.into()));
+//         }
+//         (errors, warnings)
+//     }
+
+//     fn from(kws: &'b mut StdKeywords, conf: &'a StdTextReadConfig) -> Self {
+//         KwParser {
+//             raw_keywords: kws,
+//             req_errors: vec![],
+//             opt_warnings: vec![],
+//             other_errors: vec![],
+//             other_warnings: vec![],
+//             deprecated: vec![],
+//             conf,
+//         }
+//     }
+
+//     fn process_opt<V>(
+//         &mut self,
+//         res: Result<OptionalKw<V>, ParseOptKeyWarning>,
+//         k: StdKey,
+//         dep: bool,
+//     ) -> OptionalKw<V>
+//     where
+//         V: FromStr,
+//     {
+//         res.inspect(|_| {
+//             if dep {
+//                 self.deprecated.push(DepKeyWarning(k));
+//             }
+//         })
+//         .map_err(|e| self.opt_warnings.push(e))
+//         .unwrap_or(None.into())
+//     }
+// }
 
 enum_from_disp!(
     pub ParseKeysError,

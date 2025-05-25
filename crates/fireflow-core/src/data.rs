@@ -2627,7 +2627,33 @@ pub enum ReadDelimAsciiNoRowsError {
 
 impl fmt::Display for BitmaskError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "TODO")
+        match self {
+            Self::IntOverrange(x) => {
+                write!(
+                    f,
+                    "integer range {x} is larger than target unsigned integer can hold"
+                )
+            }
+            Self::FloatOverrange(x) => {
+                write!(
+                    f,
+                    "float range {x} is larger than target unsigned integer can hold"
+                )
+            }
+            Self::FloatUnderrange(x) => {
+                write!(
+                    f,
+                    "float range {x} is less than zero and \
+                     could not be converted to unsigned integer"
+                )
+            }
+            Self::FloatPrecisionLoss(x) => {
+                write!(
+                    f,
+                    "float range {x} lost precision when converting to unsigned integer"
+                )
+            }
+        }
     }
 }
 

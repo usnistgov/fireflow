@@ -1266,19 +1266,12 @@ pub(crate) type RawTriples = Vec<(String, String, String)>;
 pub(crate) type RawOptPairs = Vec<(String, Option<String>)>;
 pub(crate) type RawOptTriples = Vec<(String, String, Option<String>)>;
 
-// TODO generalize this
-pub enum OpticalConvertError {
-    // ASSUME index is included in the encapsulating error type
-    NoScale,
-}
+// for not this just means $PnE isn't set and should be to convert
+pub struct OpticalConvertError;
 
-impl OpticalConvertError {
-    fn fmt(&self, n: MeasIdx) -> String {
-        match self {
-            OpticalConvertError::NoScale => {
-                format!("$PnE not found when converting optical measurement {n}")
-            }
-        }
+impl fmt::Display for OpticalConvertError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "scale must be set before converting measurement",)
     }
 }
 
@@ -3552,45 +3545,45 @@ impl<T> TryFrom<Identity<T>> for OptionalKw<T> {
 
 impl From<FCSTime> for FCSTime60 {
     fn from(value: FCSTime) -> Self {
-        FCSTime60(value.0)
+        Self(value.0)
     }
 }
 
 impl From<FCSTime> for FCSTime100 {
     fn from(value: FCSTime) -> Self {
-        FCSTime100(value.0)
+        Self(value.0)
     }
 }
 
 impl From<FCSTime60> for FCSTime {
     fn from(value: FCSTime60) -> Self {
         // ASSUME this will never fail, we are just removing nanoseconds
-        FCSTime(value.0.with_nanosecond(0).unwrap())
+        Self(value.0.with_nanosecond(0).unwrap())
     }
 }
 
 impl From<FCSTime100> for FCSTime {
     fn from(value: FCSTime100) -> Self {
         // ASSUME this will never fail, we are just removing nanoseconds
-        FCSTime(value.0.with_nanosecond(0).unwrap())
+        Self(value.0.with_nanosecond(0).unwrap())
     }
 }
 
 impl From<FCSTime60> for FCSTime100 {
     fn from(value: FCSTime60) -> Self {
-        FCSTime100(value.0)
+        Self(value.0)
     }
 }
 
 impl From<FCSTime100> for FCSTime60 {
     fn from(value: FCSTime100) -> Self {
-        FCSTime60(value.0)
+        Self(value.0)
     }
 }
 
 impl From<Wavelength> for Wavelengths {
     fn from(value: Wavelength) -> Self {
-        Wavelengths(NonEmpty {
+        Self(NonEmpty {
             head: value.0,
             tail: vec![],
         })
@@ -3605,7 +3598,7 @@ impl From<OptionalKw<Wavelengths>> for OptionalKw<Wavelength> {
 
 impl From<Calibration3_1> for Calibration3_2 {
     fn from(value: Calibration3_1) -> Self {
-        Calibration3_2 {
+        Self {
             unit: value.unit,
             offset: 0.0,
             slope: value.slope,
@@ -3615,7 +3608,7 @@ impl From<Calibration3_1> for Calibration3_2 {
 
 impl From<Calibration3_2> for Calibration3_1 {
     fn from(value: Calibration3_2) -> Self {
-        Calibration3_1 {
+        Self {
             unit: value.unit,
             slope: value.slope,
         }
@@ -3626,7 +3619,7 @@ impl TryFrom<InnerOptical3_0> for InnerOptical2_0 {
     type Error = OpticalConvertError;
 
     fn try_from(value: InnerOptical3_0) -> Result<Self, Self::Error> {
-        Ok(InnerOptical2_0 {
+        Ok(Self {
             scale: Some(value.scale).into(),
             wavelength: value.wavelength,
         })
@@ -3637,7 +3630,7 @@ impl TryFrom<InnerOptical3_1> for InnerOptical2_0 {
     type Error = OpticalConvertError;
 
     fn try_from(value: InnerOptical3_1) -> Result<Self, Self::Error> {
-        Ok(InnerOptical2_0 {
+        Ok(Self {
             scale: Some(value.scale).into(),
             wavelength: value.wavelengths.into(),
         })
@@ -3648,7 +3641,7 @@ impl TryFrom<InnerOptical3_2> for InnerOptical2_0 {
     type Error = OpticalConvertError;
 
     fn try_from(value: InnerOptical3_2) -> Result<Self, Self::Error> {
-        Ok(InnerOptical2_0 {
+        Ok(Self {
             scale: Some(value.scale).into(),
             wavelength: value.wavelengths.into(),
         })
@@ -3659,15 +3652,11 @@ impl TryFrom<InnerOptical2_0> for InnerOptical3_0 {
     type Error = OpticalConvertError;
 
     fn try_from(value: InnerOptical2_0) -> Result<Self, Self::Error> {
-        value
-            .scale
-            .0
-            .ok_or(OpticalConvertError::NoScale)
-            .map(|scale| InnerOptical3_0 {
-                scale,
-                wavelength: value.wavelength,
-                gain: None.into(),
-            })
+        value.scale.0.ok_or(OpticalConvertError).map(|scale| Self {
+            scale,
+            wavelength: value.wavelength,
+            gain: None.into(),
+        })
     }
 }
 
@@ -3675,7 +3664,7 @@ impl TryFrom<InnerOptical3_1> for InnerOptical3_0 {
     type Error = OpticalConvertError;
 
     fn try_from(value: InnerOptical3_1) -> Result<Self, Self::Error> {
-        Ok(InnerOptical3_0 {
+        Ok(Self {
             scale: value.scale,
             gain: value.gain,
             wavelength: value.wavelengths.into(),
@@ -3687,7 +3676,7 @@ impl TryFrom<InnerOptical3_2> for InnerOptical3_0 {
     type Error = OpticalConvertError;
 
     fn try_from(value: InnerOptical3_2) -> Result<Self, Self::Error> {
-        Ok(InnerOptical3_0 {
+        Ok(Self {
             scale: value.scale,
             gain: value.gain,
             wavelength: value.wavelengths.into(),
@@ -3699,17 +3688,13 @@ impl TryFrom<InnerOptical2_0> for InnerOptical3_1 {
     type Error = OpticalConvertError;
 
     fn try_from(value: InnerOptical2_0) -> Result<Self, Self::Error> {
-        value
-            .scale
-            .0
-            .ok_or(OpticalConvertError::NoScale)
-            .map(|scale| InnerOptical3_1 {
-                scale,
-                wavelengths: value.wavelength.map(|x| x.into()),
-                gain: None.into(),
-                calibration: None.into(),
-                display: None.into(),
-            })
+        value.scale.0.ok_or(OpticalConvertError).map(|scale| Self {
+            scale,
+            wavelengths: value.wavelength.map(|x| x.into()),
+            gain: None.into(),
+            calibration: None.into(),
+            display: None.into(),
+        })
     }
 }
 
@@ -3717,7 +3702,7 @@ impl TryFrom<InnerOptical3_0> for InnerOptical3_1 {
     type Error = OpticalConvertError;
 
     fn try_from(value: InnerOptical3_0) -> Result<Self, Self::Error> {
-        Ok(InnerOptical3_1 {
+        Ok(Self {
             scale: value.scale,
             gain: value.gain,
             wavelengths: None.into(),
@@ -3731,7 +3716,7 @@ impl TryFrom<InnerOptical3_2> for InnerOptical3_1 {
     type Error = OpticalConvertError;
 
     fn try_from(value: InnerOptical3_2) -> Result<Self, Self::Error> {
-        Ok(InnerOptical3_1 {
+        Ok(Self {
             scale: value.scale,
             gain: value.gain,
             wavelengths: value.wavelengths,
@@ -3745,23 +3730,19 @@ impl TryFrom<InnerOptical2_0> for InnerOptical3_2 {
     type Error = OpticalConvertError;
 
     fn try_from(value: InnerOptical2_0) -> Result<Self, Self::Error> {
-        value
-            .scale
-            .0
-            .ok_or(OpticalConvertError::NoScale)
-            .map(|scale| InnerOptical3_2 {
-                scale,
-                wavelengths: None.into(),
-                gain: None.into(),
-                calibration: None.into(),
-                display: None.into(),
-                analyte: None.into(),
-                feature: None.into(),
-                tag: None.into(),
-                detector_name: None.into(),
-                datatype: None.into(),
-                measurement_type: None.into(),
-            })
+        value.scale.0.ok_or(OpticalConvertError).map(|scale| Self {
+            scale,
+            wavelengths: None.into(),
+            gain: None.into(),
+            calibration: None.into(),
+            display: None.into(),
+            analyte: None.into(),
+            feature: None.into(),
+            tag: None.into(),
+            detector_name: None.into(),
+            datatype: None.into(),
+            measurement_type: None.into(),
+        })
     }
 }
 
@@ -3769,7 +3750,7 @@ impl TryFrom<InnerOptical3_0> for InnerOptical3_2 {
     type Error = OpticalConvertError;
 
     fn try_from(value: InnerOptical3_0) -> Result<Self, Self::Error> {
-        Ok(InnerOptical3_2 {
+        Ok(Self {
             scale: value.scale,
             wavelengths: value.wavelength.map(|x| x.into()),
             gain: value.gain,
@@ -3789,7 +3770,7 @@ impl TryFrom<InnerOptical3_1> for InnerOptical3_2 {
     type Error = OpticalConvertError;
 
     fn try_from(value: InnerOptical3_1) -> Result<Self, Self::Error> {
-        Ok(InnerOptical3_2 {
+        Ok(Self {
             scale: value.scale,
             wavelengths: value.wavelengths,
             gain: value.gain,
@@ -5484,6 +5465,19 @@ pub enum ConvertError<E> {
     Rewrap(IndexedElementError<E>),
     Meta(MetaConvertError),
     Optical(IndexedElementError<OpticalConvertError>),
+}
+
+impl<E> fmt::Display for ConvertError<E>
+where
+    E: fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::Rewrap(e) => e.fmt(f),
+            Self::Meta(e) => e.fmt(f),
+            Self::Optical(e) => e.fmt(f),
+        }
+    }
 }
 
 pub struct VersionConvertError {

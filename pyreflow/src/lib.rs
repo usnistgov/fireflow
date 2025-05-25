@@ -1,7 +1,7 @@
 use fireflow_core::api::*;
 use fireflow_core::config::Strict;
 use fireflow_core::config::{self, OffsetCorrection};
-use fireflow_core::error;
+use fireflow_core::error::*;
 use fireflow_core::text::byteord::*;
 use fireflow_core::text::named_vec::Element;
 use fireflow_core::text::optionalkw::*;
@@ -72,7 +72,9 @@ fn py_read_fcs_header(
             end: end_analysis,
         },
     };
-    handle_errors(read_fcs_header(&p, &conf))
+    read_fcs_header(&p, &conf)
+        .map_err(handle_fail_header)
+        .map(|x| x.into())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -167,7 +169,8 @@ fn py_read_fcs_raw_text(
         repair_offset_spaces,
         date_pattern: date_pattern.map(str_to_date_pat).transpose()?,
     };
-    let raw: RawTEXT = handle_errors(read_fcs_raw_text(&p, &conf.set_strict(strict)))?;
+    let raw: RawTEXT = read_fcs_raw_text(&p, &conf.set_strict(strict))
+        .map_or_else(|e| Err(handle_fail_raw_text(e)), handle_warnings)?;
     let std = raw
         .keywords
         .std
@@ -323,7 +326,8 @@ fn py_read_fcs_std_text(
         nonstandard_measurement_pattern: nsmp,
     };
 
-    let out: StandardizedTEXT = handle_errors(read_fcs_std_text(&p, &conf.set_strict(strict)))?;
+    let out: StandardizedTEXT = read_fcs_std_text(&p, &conf.set_strict(strict))
+        .map_or_else(|e| Err(handle_fail_std_text(e)), handle_warnings)?;
 
     let text = match &out.standardized {
         // TODO this copies all data from the "union type" into a new
@@ -513,7 +517,8 @@ fn py_read_fcs_file(
         enforce_matching_tot,
     };
 
-    let out: StandardizedDataset = handle_errors(read_fcs_file(&p, &conf.set_strict(strict)))?;
+    let out: StandardizedDataset = read_fcs_file(&p, &conf.set_strict(strict))
+        .map_or_else(|e| Err(handle_fail_std_dataset(e)), handle_warnings)?;
 
     let dataset = match &out.dataset {
         // TODO this copies all data from the "union type" into a new
@@ -1101,11 +1106,23 @@ macro_rules! convert_methods {
             $(
                 fn $fn(&self) -> PyResult<$to> {
                     let new = self.0.clone().$inner();
-                    handle_errors(new.map_err(|e| e.into()))
+                    new.map(Tentative::new1)
+                        .map_err(DeferredFailure::new2)
+                        .terminate(ConvertFailure)
+                        .map(|x| x.inner().into())
+                        .map_err(handle_failure_nowarn)
                 }
             )*
         }
     };
+}
+
+struct ConvertFailure;
+
+impl fmt::Display for ConvertFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "could not change FCS version")
+    }
 }
 
 convert_methods!(
@@ -2664,68 +2681,129 @@ to_dataset_method!(PyCoreTEXT3_0, PyCoreDataset3_0);
 to_dataset_method!(PyCoreTEXT3_1, PyCoreDataset3_1);
 to_dataset_method!(PyCoreTEXT3_2, PyCoreDataset3_2);
 
-struct PyImpureError<E>(error::ImpureFailure<E>);
-
-fn handle_errors<E, X, Y>(res: error::ImpureResult<X, E>) -> PyResult<Y>
+fn handle_warnings<X, W>(t: Terminal<X, W>) -> PyResult<X>
 where
-    E: fmt::Display,
-    Y: From<X>,
+    W: fmt::Display,
 {
-    handle_pure(res.map_err(PyImpureError)?)
+    let (x, warn_res) = t.resolve(emit_warnings);
+    warn_res?;
+    Ok(x)
 }
 
-// TODO use warnings_are_errors flag
-fn handle_pure<E, X, Y>(succ: error::PureSuccess<X, E>) -> PyResult<Y>
+fn emit_warnings<W>(ws: Vec<W>) -> PyResult<()>
 where
-    E: fmt::Display,
-    Y: From<X>,
+    W: fmt::Display,
 {
-    let (err, warn) = succ.deferred.split();
     Python::with_gil(|py| -> PyResult<()> {
         let wt = py.get_type::<PyreflowWarning>();
-        for w in warn {
+        for w in ws {
             let s = CString::new(w.to_string())?;
             PyErr::warn(py, &wt, &s, 0)?;
         }
         Ok(())
-    })?;
-    if err.is_empty() {
-        Ok(succ.data.into())
-    } else {
-        let es: Vec<_> = err.iter().map(|e| e.to_string()).collect();
-        let deferred = &es[..].join("\n");
-        let msg = format!("Errors encountered:\n{deferred}");
-        Err(PyreflowException::new_err(msg))
-    }
+    })
 }
 
-impl<E> From<error::ImpureFailure<E>> for PyImpureError<E> {
-    fn from(value: error::ImpureFailure<E>) -> Self {
-        Self(value)
-    }
-}
-
-impl<E> From<PyImpureError<E>> for PyErr
+// TODO use warnings_are_errors flag
+fn handle_failure<W, E, T>(f: TerminalFailure<W, E, T>) -> PyErr
 where
     E: fmt::Display,
+    T: fmt::Display,
+    W: fmt::Display,
 {
-    fn from(err: PyImpureError<E>) -> Self {
-        let inner = err.0;
-        let reason = match inner.reason {
-            error::ImpureError::IO(e) => format!("IO ERROR: {e}"),
-            error::ImpureError::Pure(e) => format!("CRITICAL PYREFLOW ERROR: {e}"),
-        };
-        let es: Vec<_> = inner
-            .deferred
-            .into_errors()
-            .iter()
-            .map(|e| e.to_string())
-            .collect();
-        let deferred = &es[..].join("\n");
-        let msg = format!("{reason}\n\nOther errors encountered:\n{deferred}");
-        PyreflowException::new_err(msg)
+    let (warn_res, e) = f.resolve(emit_warnings, emit_failure);
+    if let Err(w) = warn_res {
+        w
+    } else {
+        e
     }
 }
+
+fn handle_failure_nowarn<E, T>(f: TerminalFailure<(), E, T>) -> PyErr
+where
+    E: fmt::Display,
+    T: fmt::Display,
+{
+    f.resolve(|_| (), emit_failure).1
+}
+
+fn emit_failure<E, T>(e: Failure<E, T>) -> PyErr
+where
+    E: fmt::Display,
+    T: fmt::Display,
+{
+    let s = match e {
+        Failure::Single(t) => t.to_string(),
+        Failure::Many(t, es) => {
+            let xs: Vec<_> = [format!("Toplevel Error: {t}")]
+                .into_iter()
+                .chain(es.into_iter().map(|x| x.to_string()))
+                .collect();
+            xs[..].join("\n").to_string()
+        }
+    };
+    PyreflowException::new_err(s)
+}
+
+// fn handle_errors<E, X, Y>(res: error::ImpureResult<X, E>) -> PyResult<Y>
+// where
+//     E: fmt::Display,
+//     Y: From<X>,
+// {
+//     handle_pure(res.map_err(PyImpureError)?)
+// }
+
+// fn handle_pure<E, X, Y>(succ: error::PureSuccess<X, E>) -> PyResult<Y>
+// where
+//     E: fmt::Display,
+//     Y: From<X>,
+// {
+//     let (err, warn) = succ.deferred.split();
+//     Python::with_gil(|py| -> PyResult<()> {
+//         let wt = py.get_type::<PyreflowWarning>();
+//         for w in warn {
+//             let s = CString::new(w.to_string())?;
+//             PyErr::warn(py, &wt, &s, 0)?;
+//         }
+//         Ok(())
+//     })?;
+//     if err.is_empty() {
+//         Ok(succ.data.into())
+//     } else {
+//         let es: Vec<_> = err.iter().map(|e| e.to_string()).collect();
+//         let deferred = &es[..].join("\n");
+//         let msg = format!("Errors encountered:\n{deferred}");
+//         Err(PyreflowException::new_err(msg))
+//     }
+// }
+
+// impl<E> From<error::ImpureFailure<E>> for PyImpureError<E> {
+//     fn from(value: error::ImpureFailure<E>) -> Self {
+//         Self(value)
+//     }
+// }
+
+// impl<E> From<PyImpureError<E>> for PyErr
+// where
+//     E: fmt::Display,
+// {
+//     fn from(err: PyImpureError<E>) -> Self {
+//         let inner = err.0;
+//         let reason = match inner.reason {
+//             error::ImpureError::IO(e) => format!("IO ERROR: {e}"),
+//             error::ImpureError::Pure(e) => format!("CRITICAL PYREFLOW ERROR: {e}"),
+//         };
+//         let es: Vec<_> = inner
+//             .deferred
+//             .into_errors()
+//             .iter()
+//             .map(|e| e.to_string())
+//             .collect();
+//         let deferred = &es[..].join("\n");
+//         let msg = format!("{reason}\n\nOther errors encountered:\n{deferred}");
+//         PyreflowException::new_err(msg)
+//     }
+// }
 
 create_exception!(
     pyreflow,
@@ -2740,6 +2818,43 @@ create_exception!(
     PyWarning,
     "Warning created by internal pyreflow."
 );
+
+fn handle_fail_header(e: AnyParseHeaderFailure) -> PyErr {
+    match e {
+        AnyParseHeaderFailure::File(x) => x.into(),
+        AnyParseHeaderFailure::Header(x) => handle_failure_nowarn(x),
+    }
+}
+
+fn handle_fail_raw_text(e: AnyRawTEXTFailure) -> PyErr {
+    match e {
+        AnyRawTEXTFailure::File(x) => x.into(),
+        AnyRawTEXTFailure::Parse(x) => handle_fail_header_or_raw(x),
+    }
+}
+
+fn handle_fail_std_text(e: AnyStdTEXTFailure) -> PyErr {
+    match e {
+        AnyStdTEXTFailure::Raw(x) => handle_fail_raw_text(x),
+        AnyStdTEXTFailure::Std(x) => handle_failure(x),
+    }
+}
+
+fn handle_fail_header_or_raw(e: HeaderOrRawFailure) -> PyErr {
+    match e {
+        HeaderOrRawFailure::Header(y) => handle_failure_nowarn(y),
+        HeaderOrRawFailure::RawTEXT(y) => handle_failure(y),
+    }
+}
+
+fn handle_fail_std_dataset(e: AnyStdDatasetFailure) -> PyErr {
+    match e {
+        AnyStdDatasetFailure::File(i) => i.into(),
+        AnyStdDatasetFailure::Raw(x) => handle_fail_header_or_raw(x),
+        AnyStdDatasetFailure::Std(x) => handle_failure(x),
+        AnyStdDatasetFailure::Read(x) => handle_failure(x),
+    }
+}
 
 #[pymethods]
 impl PyOptical2_0 {

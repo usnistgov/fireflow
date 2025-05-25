@@ -1289,9 +1289,9 @@ enum_from_disp!(
     [ToReader, NewReaderWarning]
 );
 
-struct ReadRawDatasetFailure;
+pub struct ReadRawDatasetFailure;
 
-struct ReadStdDatasetFailure;
+pub struct ReadStdDatasetFailure;
 
 enum_from!(
     pub AnyStdDatasetFailure,
@@ -1300,6 +1300,12 @@ enum_from!(
     [Std, TerminalFailure<ReadRawOrStdWarning, ParseKeysError, CoreTEXTFailure>],
     [Read, TerminalFailure<AnyStdDatasetWarning, ReadStdDatasetError, ReadStdDatasetFailure>]
 );
+
+impl fmt::Display for ReadStdDatasetFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "could not read DATA segment")
+    }
+}
 
 enum_from_disp!(
     pub ReadRawOrStdWarning,

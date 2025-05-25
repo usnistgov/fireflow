@@ -178,6 +178,12 @@ impl<V, W> Terminal<V, W> {
     }
 }
 
+impl<V> Terminal<V, ()> {
+    pub fn inner(self) -> V {
+        self.value
+    }
+}
+
 impl<E, T> Failure<E, T> {
     pub fn map_errors<F, X>(self, f: F) -> Failure<X, T>
     where

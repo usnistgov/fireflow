@@ -8,38 +8,13 @@ use fireflow_core::validated::pattern::*;
 use clap::{arg, value_parser, ArgMatches, Command};
 use serde::ser::Serialize;
 use std::fmt::Display;
-use std::io;
 use std::path::PathBuf;
-
-fn handle_fail_header(e: AnyParseHeaderFailure) {
-    match e {
-        AnyParseHeaderFailure::File(x) => eprintln!("IO ERROR: {x}"),
-        AnyParseHeaderFailure::Header(x) => handle_failure_nowarn(x),
-    }
-}
-
-fn handle_fail_raw_text(e: AnyRawTEXTFailure) {
-    match e {
-        AnyRawTEXTFailure::File(x) => eprintln!("IO ERROR: {x}"),
-        AnyRawTEXTFailure::Parse(x) => match x {
-            HeaderOrRawFailure::Header(y) => handle_failure_nowarn(y),
-            HeaderOrRawFailure::RawTEXT(y) => handle_failure(y),
-        },
-    }
-}
-
-fn handle_fail_std_text(e: AnyStdTEXTFailure) {
-    match e {
-        AnyStdTEXTFailure::Raw(x) => handle_fail_raw_text(x),
-        AnyStdTEXTFailure::Std(x) => handle_failure(x),
-    }
-}
 
 fn print_json<T: Serialize>(j: &T) {
     println!("{}", serde_json::to_string(j).unwrap());
 }
 
-pub fn print_parsed_data(s: &mut StandardizedDataset, _delim: &str) {
+pub fn print_parsed_data(s: &StandardizedDataset, _delim: &str) {
     let df = s.dataset.as_data();
     let nrows = df.nrows();
     let cols: Vec<_> = df.iter_columns().collect();
@@ -58,6 +33,43 @@ pub fn print_parsed_data(s: &mut StandardizedDataset, _delim: &str) {
         for c in 1..ncols {
             print!("\t{}", cols[c].pos_to_string(r));
         }
+    }
+}
+
+fn handle_fail_header(e: AnyParseHeaderFailure) {
+    match e {
+        AnyParseHeaderFailure::File(x) => eprintln!("IO ERROR: {x}"),
+        AnyParseHeaderFailure::Header(x) => handle_failure_nowarn(x),
+    }
+}
+
+fn handle_fail_raw_text(e: AnyRawTEXTFailure) {
+    match e {
+        AnyRawTEXTFailure::File(x) => eprintln!("IO ERROR: {x}"),
+        AnyRawTEXTFailure::Parse(x) => handle_fail_header_or_raw(x),
+    }
+}
+
+fn handle_fail_header_or_raw(e: HeaderOrRawFailure) {
+    match e {
+        HeaderOrRawFailure::Header(y) => handle_failure_nowarn(y),
+        HeaderOrRawFailure::RawTEXT(y) => handle_failure(y),
+    }
+}
+
+fn handle_fail_std_text(e: AnyStdTEXTFailure) {
+    match e {
+        AnyStdTEXTFailure::Raw(x) => handle_fail_raw_text(x),
+        AnyStdTEXTFailure::Std(x) => handle_failure(x),
+    }
+}
+
+fn handle_fail_std_dataset(e: AnyStdDatasetFailure) {
+    match e {
+        AnyStdDatasetFailure::File(i) => eprintln!("IO ERROR: {i}"),
+        AnyStdDatasetFailure::Raw(x) => handle_fail_header_or_raw(x),
+        AnyStdDatasetFailure::Std(x) => handle_failure(x),
+        AnyStdDatasetFailure::Read(x) => handle_failure(x),
     }
 }
 
@@ -114,34 +126,6 @@ where
             }
         },
     );
-}
-
-fn handle_result<X, W, E, T>(res: TerminalResult<X, W, E, T>) -> Option<X>
-where
-    E: Display,
-    T: Display,
-    W: Display,
-{
-    let print_warnings = |ws| {
-        for w in ws {
-            eprintln!("WARNING: {}", w)
-        }
-    };
-    match res {
-        Ok(t) => Some(t.resolve(print_warnings).0),
-        Err(f) => {
-            f.resolve(print_warnings, |e| match e {
-                Failure::Single(t) => eprintln!("ERROR: {t}"),
-                Failure::Many(t, es) => {
-                    eprintln!("TOPLEVEL ERROR: {t}");
-                    for e in es {
-                        eprintln!("  ERROR: {e}");
-                    }
-                }
-            });
-            None
-        }
-    }
 }
 
 fn main() -> Result<(), ()> {
@@ -325,17 +309,20 @@ fn main() -> Result<(), ()> {
                 .map_err(handle_fail_std_text)
         }
 
-        // Some(("data", sargs)) => {
-        //     let mut conf = config::DataReadConfig::default();
+        Some(("data", sargs)) => {
+            let mut conf = config::DataReadConfig::default();
 
-        //     get_text_delta(sargs);
-        //     // TODO add DATA delta adjust
-        //     conf.standard.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
-        //     let delim = sargs.get_one::<String>("delimiter").unwrap();
+            get_text_delta(sargs);
+            // TODO add DATA delta adjust
+            conf.standard.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
+            let delim = sargs.get_one::<String>("delimiter").unwrap();
 
-        //     let mut res = handle_result(read_fcs_file(filepath, &conf))?;
-        //     print_parsed_data(&mut res, delim);
-        // }
+            read_fcs_file(filepath, &conf)
+                .map(handle_warnings)
+                .map(|res| print_parsed_data(&res, delim))
+                .map_err(handle_fail_std_dataset)
+        }
+
         _ => Ok(()),
     }
 }

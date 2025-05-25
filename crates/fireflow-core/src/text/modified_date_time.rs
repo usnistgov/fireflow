@@ -5,6 +5,8 @@ use serde::Serialize;
 use std::fmt;
 use std::str::FromStr;
 
+// TODO this doesn't need to be encapsulated
+
 /// A datetime as used in the $LAST_MODIFIED key (3.1+ only)
 ///
 /// Inner value is private to ensure it always gets parsed/printed using the

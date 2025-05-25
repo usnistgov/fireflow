@@ -5,6 +5,7 @@ use std::borrow::Borrow;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt;
+use std::str::FromStr;
 
 /// Represents a standard key.
 ///
@@ -56,6 +57,81 @@ pub(crate) trait Key {
     fn len() -> usize {
         Self::C.len() + 1
     }
+}
+
+pub type ReqResult<T> = Result<T, ReqKeyError<<T as FromStr>::Err>>;
+pub type OptResult<T> = Result<Option<T>, ParseKeyError<<T as FromStr>::Err>>;
+
+/// Find a required standard key in a hash table
+pub(crate) fn get_req<T>(kws: &StdKeywords, k: &StdKey) -> ReqResult<T>
+where
+    T: FromStr,
+    <T as FromStr>::Err: fmt::Display,
+{
+    match kws.get(k) {
+        Some(v) => v
+            .parse()
+            .map_err(|error| ParseKeyError {
+                error,
+                key: k.clone(),
+                value: v.clone(),
+            })
+            .map_err(ReqKeyError::Parse),
+        None => Err(ReqKeyError::Missing(k.clone())),
+    }
+}
+
+/// Find an optional standard key in a hash table
+pub(crate) fn get_opt<T>(kws: &StdKeywords, k: &StdKey) -> OptResult<T>
+where
+    T: FromStr,
+    <T as FromStr>::Err: fmt::Display,
+{
+    kws.get(k)
+        .map(|v| {
+            v.parse().map_err(|error| ParseKeyError {
+                error,
+                key: k.clone(),
+                value: v.clone(),
+            })
+        })
+        .transpose()
+}
+
+/// Find a required standard key in a hash table and remove it
+pub(crate) fn remove_req<T>(kws: &mut StdKeywords, k: &StdKey) -> ReqResult<T>
+where
+    T: FromStr,
+    <T as FromStr>::Err: fmt::Display,
+{
+    match kws.remove(k) {
+        Some(v) => v
+            .parse()
+            .map_err(|error| ParseKeyError {
+                error,
+                key: k.clone(),
+                value: v,
+            })
+            .map_err(ReqKeyError::Parse),
+        None => Err(ReqKeyError::Missing(k.clone())),
+    }
+}
+
+/// Find an optional standard key in a hash table and remove it
+pub(crate) fn remove_opt<T>(kws: &mut StdKeywords, k: &StdKey) -> OptResult<T>
+where
+    T: FromStr,
+    <T as FromStr>::Err: fmt::Display,
+{
+    kws.remove(k)
+        .map(|v| {
+            v.parse().map_err(|error| ParseKeyError {
+                error,
+                key: k.clone(),
+                value: v,
+            })
+        })
+        .transpose()
 }
 
 /// A standard key with on index
@@ -235,7 +311,7 @@ impl ParsedKeywords {
     }
 }
 
-pub(crate) enum KeywordInsertError {
+pub enum KeywordInsertError {
     StdPresent(StdKey, String),
     NonStdPresent(NonStdKey, String),
 }
@@ -249,6 +325,42 @@ impl fmt::Display for KeywordInsertError {
             KeywordInsertError::NonStdPresent(k, v) => {
                 write!(f, "non-std key '{k}' already present, has value '{v}'")
             }
+        }
+    }
+}
+
+pub struct ParseKeyError<E> {
+    pub error: E,
+    pub key: StdKey,
+    pub value: String,
+}
+
+impl<E> fmt::Display for ParseKeyError<E>
+where
+    E: fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "{} (key='{}', value='{}')",
+            self.error, self.key, self.value
+        )
+    }
+}
+
+pub enum ReqKeyError<E> {
+    Parse(ParseKeyError<E>),
+    Missing(StdKey),
+}
+
+impl<E> fmt::Display for ReqKeyError<E>
+where
+    E: fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            ReqKeyError::Parse(x) => x.fmt(f),
+            ReqKeyError::Missing(k) => write!(f, "missing required key: {k}"),
         }
     }
 }

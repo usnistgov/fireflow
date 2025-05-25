@@ -68,7 +68,7 @@ macro_rules! get_set {
 }
 
 impl Datetimes {
-    pub fn new(
+    pub fn try_new(
         begin: OptionalKw<BeginDateTime>,
         end: OptionalKw<EndDateTime>,
     ) -> DatetimesResult<Self> {

@@ -76,14 +76,49 @@ macro_rules! match_many_to_one {
 
 pub(crate) use match_many_to_one;
 
-// macro_rules! enum_from {
-//     ($inner:path, $enum_type:ident, $var:ident) => {
-//         impl From<$inner> for $enum_type {
-//             fn from(value: $inner) -> Self {
-//                 $enum_type::$var(value)
-//             }
-//         }
+macro_rules! enum_from {
+    ($v:vis$outer:ident, $([$var:ident, $inner:path]),*) => {
+        $v enum $outer {
+            $(
+                $var($inner),
+            )*
+        }
+
+        $(
+            impl From<$inner> for $outer {
+                fn from(value: $inner) -> Self {
+                    $outer::$var(value)
+                }
+            }
+        )*
+    };
+}
+
+pub(crate) use enum_from;
+
+macro_rules! enum_from_disp {
+    ($v:vis$outer:ident, $([$var:ident, $inner:path]),*) => {
+        enum_from!($v$outer, $([$var, $inner]),*);
+
+        impl fmt::Display for $outer {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+                match_many_to_one!(self, $outer, [$($var),*], x, { x.fmt(f) })
+            }
+        }
+
+    };
+}
+
+pub(crate) use enum_from_disp;
+
+// macro_rules! nonempty {
+//     ($one:expr) => {
+//         NonEmpty::from(($one, vec![]))
+//     };
+
+//     ($one:expr, $($more:expr),*) => {
+//         NonEmpty::from(($one, vec![$($more),*]))
 //     };
 // }
 
-// pub(crate) use enum_from;
+pub(crate) use nonempty;

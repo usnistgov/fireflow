@@ -4,7 +4,7 @@ use std::fmt;
 use std::str::FromStr;
 
 /// A String that matches a date.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DatePattern(String);
 
 newtype_asref!(DatePattern, str);
@@ -35,6 +35,7 @@ impl FromStr for DatePattern {
     }
 }
 
+#[derive(Debug)]
 pub struct DatePatternError(String);
 
 impl fmt::Display for DatePatternError {

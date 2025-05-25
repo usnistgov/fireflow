@@ -15,8 +15,6 @@ pub enum Range {
     Int(u64),
 }
 
-const RANGEPAT: &str = "^(-|\\+)?([0-9]+|[0-9]+\\.[0-9]+)$";
-
 impl FromStr for Range {
     type Err = ParseRangeError;
 

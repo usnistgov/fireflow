@@ -24,7 +24,7 @@ pub type NonStdKeywords = HashMap<NonStdKey, String>;
 pub struct NonStdMeasPattern(String);
 
 /// The index for a measurement
-// TODO this should start from 1?
+// TODO why is this here?
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
 pub struct MeasIdx(usize);
 
@@ -124,6 +124,7 @@ impl fmt::Display for NonStdMeasKeyError {
     }
 }
 
+#[derive(Debug)]
 pub struct NonStdMeasPatternError(String);
 
 impl fmt::Display for NonStdMeasPatternError {

@@ -1,10 +1,13 @@
 use crate::config::{HeaderConfig, OffsetCorrection};
 use crate::error::*;
+use crate::macros::{enum_from, enum_from_disp, match_many_to_one, nonempty};
 use crate::segment::*;
 
+use nonempty::NonEmpty;
 use serde::Serialize;
 use std::fmt;
 use std::io::{BufReader, Read};
+use std::num::ParseIntError;
 use std::str;
 
 /// The length of the HEADER.
@@ -33,8 +36,6 @@ pub enum Version {
     FCS3_2,
 }
 
-pub struct VersionError;
-
 /// Output from parsing the FCS header.
 ///
 /// Includes version and the three main segments (TEXT, DATA, ANALYSIS). For
@@ -50,57 +51,23 @@ pub struct Header {
     pub analysis: Segment,
 }
 
-pub fn h_read_header<R: Read>(h: &mut BufReader<R>, conf: &HeaderConfig) -> ImpureResult<Header> {
+pub fn h_read_header<R: Read>(
+    h: &mut BufReader<R>,
+    conf: &HeaderConfig,
+) -> Result<Header, TerminalFailure<(), ImpureError<HeaderError>, HeaderFailure>> {
     let mut verbuf = [0; HEADER_LEN];
-    h.read_exact(&mut verbuf)?;
-    if let Ok(hs) = str::from_utf8(&verbuf) {
-        let succ = parse_header(hs, conf)?;
-        Ok(succ)
+    h.read_exact(&mut verbuf)
+        .map_err(|e| DeferredFailure::new1(e.into()).terminate(HeaderFailure))?;
+    if verbuf.is_ascii() {
+        let hs = unsafe { str::from_utf8_unchecked(&verbuf) };
+        parse_header(hs, conf)
     } else {
-        Err(Failure::new("HEADER is not valid text".to_string()))?
+        Err(NonEmpty::new(HeaderError::NotAscii))
     }
+    .map_err(|es| TerminalFailure::new_many(HeaderFailure, es.map(ImpureError::Pure)))
 }
 
-fn parse_header_offset(s: &str, allow_blank: bool) -> Option<u32> {
-    let trimmed = s.trim_start();
-    if allow_blank && trimmed.is_empty() {
-        return Some(0);
-    }
-    trimmed.parse().ok()
-}
-
-fn parse_bounds(
-    s0: &str,
-    s1: &str,
-    allow_blank: bool,
-    id: SegmentId,
-    corr: OffsetCorrection,
-) -> PureMaybe<Segment> {
-    let parse_one = |s, which| {
-        PureMaybe::from_result_1(
-            parse_header_offset(s, allow_blank).ok_or(format!(
-                "could not parse {which} offset for {id} segment; value was '{s}'"
-            )),
-            PureErrorLevel::Error,
-        )
-    };
-    let begin_res = parse_one(s0, "begin");
-    let end_res = parse_one(s1, "end");
-    begin_res
-        .combine(end_res, |b, e| (b, e))
-        .and_then(|(b, e)| {
-            if let (Some(begin), Some(end)) = (b, e) {
-                PureMaybe::from_result_1(
-                    Segment::try_new(begin, end, corr, id),
-                    PureErrorLevel::Error,
-                )
-            } else {
-                PureMaybe::empty()
-            }
-        })
-}
-
-fn parse_header(s: &str, conf: &HeaderConfig) -> PureResult<Header> {
+fn parse_header(s: &str, conf: &HeaderConfig) -> MultiResult<Header, HeaderError> {
     let v = &s[0..VERSION_END];
     let spaces = &s[VERSION_END..SPACE_END];
     let t0 = &s[SPACE_END..T0_END];
@@ -109,29 +76,67 @@ fn parse_header(s: &str, conf: &HeaderConfig) -> PureResult<Header> {
     let d1 = &s[D0_END..D1_END];
     let a0 = &s[D1_END..A0_END];
     let a1 = &s[A0_END..A1_END];
-    let vers_succ = PureMaybe::from_result_1(
-        v.parse::<Version>().map_err(|e| e.to_string()),
-        PureErrorLevel::Error,
-    );
-    let text_succ = parse_bounds(t0, t1, false, SegmentId::PrimaryText, conf.text);
-    let data_succ = parse_bounds(d0, d1, false, SegmentId::Data, conf.data);
-    let anal_succ = parse_bounds(a0, a1, true, SegmentId::Analysis, conf.analysis);
-    let mut succ = vers_succ.combine4(text_succ, data_succ, anal_succ, |ver, t, d, a| {
-        if let (Some(version), Some(text), Some(data), Some(analysis)) = (ver, t, d, a) {
-            Some(Header {
-                version: conf.version_override.unwrap_or(version),
-                text,
-                data,
-                analysis,
-            })
-        } else {
-            None
-        }
-    });
-    if !spaces.chars().all(|x| x == ' ') {
-        succ.push_error("version must be followed by 4 spaces".into());
+    let vers_res = v
+        .parse::<Version>()
+        .map_err(HeaderError::Version)
+        .into_mult();
+    let space_res = if !spaces.chars().all(|x| x == ' ') {
+        Err(NonEmpty::new(HeaderError::Space))
+    } else {
+        Ok(())
+    };
+    let text_res = parse_segment(t0, t1, false, SegmentId::PrimaryText, conf.text);
+    let data_res = parse_segment(d0, d1, false, SegmentId::Data, conf.data);
+    let anal_res = parse_segment(a0, a1, true, SegmentId::Analysis, conf.analysis);
+    vers_res
+        .zip_mult3(space_res, text_res)
+        .zip_mult3(data_res, anal_res)
+        .map(|((version, _, text), data, analysis)| Header {
+            version: conf.version_override.unwrap_or(version),
+            text,
+            data,
+            analysis,
+        })
+}
+
+fn parse_header_offset(
+    s: &str,
+    allow_blank: bool,
+    is_begin: bool,
+    id: SegmentId,
+) -> Result<u32, ParseOffsetError> {
+    let trimmed = s.trim_start();
+    if allow_blank && trimmed.is_empty() {
+        return Ok(0);
     }
-    PureMaybe::into_result(succ, "could not parse HEADER fields".to_string())
+    trimmed.parse().map_err(|error| ParseOffsetError {
+        error,
+        is_begin,
+        id,
+        source: s.to_string(),
+    })
+}
+
+fn parse_segment(
+    s0: &str,
+    s1: &str,
+    allow_blank: bool,
+    id: SegmentId,
+    corr: OffsetCorrection,
+) -> MultiResult<Segment, HeaderError> {
+    let parse_one = |s, is_begin| {
+        parse_header_offset(s, allow_blank, is_begin, id).map_err(HeaderSegmentError::Parse)
+    };
+    let begin_res = parse_one(s0, true);
+    let end_res = parse_one(s1, false);
+    begin_res
+        .zip(end_res)
+        .and_then(|(begin, end)| {
+            Segment::try_new(begin, end, corr, id)
+                .map_err(HeaderSegmentError::Segment)
+                .map_err(NonEmpty::new)
+        })
+        .map_err(|es| es.map(HeaderError::Segment))
 }
 
 impl str::FromStr for Version {
@@ -159,8 +164,60 @@ impl fmt::Display for Version {
     }
 }
 
+pub enum HeaderError {
+    Segment(HeaderSegmentError),
+    Space,
+    Version(VersionError),
+    NotAscii,
+}
+
+impl fmt::Display for HeaderError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            HeaderError::Segment(x) => x.fmt(f),
+            HeaderError::Version(x) => x.fmt(f),
+            HeaderError::Space => write!(f, "version must be followed by 4 spaces"),
+            HeaderError::NotAscii => write!(f, "HEADER must be ASCII"),
+        }
+    }
+}
+
+enum_from_disp!(
+    pub HeaderSegmentError,
+    [Segment, SegmentError],
+    [Parse, ParseOffsetError]
+);
+
+pub struct ParseOffsetError {
+    error: ParseIntError,
+    is_begin: bool,
+    id: SegmentId,
+    source: String,
+}
+
+impl fmt::Display for ParseOffsetError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let which = if self.is_begin { "begin" } else { "end" };
+        write!(
+            f,
+            "parse error for {which} offset in {} segment from source '{}': {}",
+            self.id, self.source, self.error
+        )
+    }
+}
+
+pub struct VersionError;
+
 impl fmt::Display for VersionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "could not parse FCS Version")
+    }
+}
+
+pub struct HeaderFailure;
+
+impl fmt::Display for HeaderFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "could not parse HEADER")
     }
 }

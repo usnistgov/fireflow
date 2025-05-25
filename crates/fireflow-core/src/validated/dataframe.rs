@@ -285,7 +285,9 @@ where
     Self: Copy,
     [Self]: ToOwned,
 {
-    fn iter_native(c: &FCSColumn<Self>) -> iter::Copied<Iter<'_, Self>>;
+    fn iter_native(c: &FCSColumn<Self>) -> iter::Copied<Iter<'_, Self>> {
+        c.0.iter().copied()
+    }
 
     fn iter_converted<ToType>(c: &FCSColumn<Self>) -> FCSColIter<'_, Self, ToType>
     where
@@ -294,6 +296,20 @@ where
         Self::iter_native(c).map(ToType::from_truncated)
     }
 
+    /// Convert column to an iterator with possibly lossy conversion
+    ///
+    /// Iterate through the column and check if loss will occur, if so return
+    /// err. On success, return an iterator which will yield a converted value
+    /// with a flag indicating if loss occurred when converting. This way we
+    /// can also warn user if loss occurred.
+    ///
+    /// The error/warning split is such because if we can't tolerate any loss,
+    /// the only way to find it is while we are using the iterator to write a
+    /// file, which opens the possibility of a partially-written file (not
+    /// good). Therefore we need to check this before making the iterator at
+    /// all, which ironically can only be found by iterating the entire vector
+    /// once. However, if we only want to warn the user, we don't need this
+    /// extra scan step and can simply log lossy values when writing.
     fn into_writer<E, F, S, T>(
         c: &FCSColumn<Self>,
         s: S,
@@ -322,22 +338,12 @@ where
     }
 }
 
-macro_rules! impl_col_iter {
-    ($pltype:ident) => {
-        impl FCSDataType for $pltype {
-            fn iter_native(c: &FCSColumn<Self>) -> iter::Copied<Iter<'_, Self>> {
-                c.0.iter().copied()
-            }
-        }
-    };
-}
-
-impl_col_iter!(u8);
-impl_col_iter!(u16);
-impl_col_iter!(u32);
-impl_col_iter!(u64);
-impl_col_iter!(f32);
-impl_col_iter!(f64);
+impl FCSDataType for u8 {}
+impl FCSDataType for u16 {}
+impl FCSDataType for u32 {}
+impl FCSDataType for u64 {}
+impl FCSDataType for f32 {}
+impl FCSDataType for f64 {}
 
 pub(crate) struct CastResult<T> {
     pub(crate) new: T,

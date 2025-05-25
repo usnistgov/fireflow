@@ -19,7 +19,7 @@ pub struct Compensation {
 }
 
 impl Compensation {
-    pub fn new(matrix: DMatrix<f32>) -> Option<Self> {
+    pub fn try_new(matrix: DMatrix<f32>) -> Option<Self> {
         if matrix.ncols() > 2 {
             Some(Self { matrix })
         } else {

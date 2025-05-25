@@ -730,6 +730,8 @@ pub trait TentativeExt {
     fn and_maybe<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
     where
         F: FnOnce(Self::V) -> DeferredResult<X, Self::W, Self::E>;
+
+    fn terminate<T>(self, reason: T) -> TerminalResult<Self::V, Self::W, Self::E, T>;
 }
 
 impl<V, W, E> TentativeExt for DeferredResult<V, W, E> {
@@ -804,6 +806,13 @@ impl<V, W, E> TentativeExt for DeferredResult<V, W, E> {
         F: FnOnce(Self::V) -> DeferredResult<X, Self::W, Self::E>,
     {
         self.and_then(|x| x.and_maybe(f))
+    }
+
+    fn terminate<T>(self, reason: T) -> TerminalResult<Self::V, Self::W, Self::E, T> {
+        match self {
+            Ok(t) => t.terminate(reason),
+            Err(e) => Err(e.terminate(reason)),
+        }
     }
 }
 

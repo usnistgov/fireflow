@@ -379,10 +379,7 @@ fn h_read_raw_dataset<R: Read + Seek>(
                 parse,
             }))
         })
-        .map_or_else(
-            |e| Err(e.terminate(ReadRawDatasetFailure)),
-            |t| t.terminate(ReadRawDatasetFailure),
-        )
+        .terminate(ReadRawDatasetFailure)
 }
 
 fn h_read_std_dataset<R: Read + Seek>(
@@ -439,10 +436,7 @@ fn h_read_std_dataset<R: Read + Seek>(
                 parse,
             }))
         })
-        .map_or_else(
-            |e| Err(e.terminate(ReadStdDatasetFailure)),
-            |t| t.terminate(ReadStdDatasetFailure),
-        )
+        .terminate(ReadStdDatasetFailure)
 }
 
 impl RawTEXT {
@@ -712,7 +706,7 @@ fn repair_keywords(kws: &mut StdKeywords, conf: &RawTextReadConfig) {
         if key == &FCSDate::std() {
             if let Some(pattern) = &conf.date_pattern {
                 if let Ok(d) = NaiveDate::parse_from_str(v, pattern.as_ref()) {
-                    *v = format!("{}", FCSDate(d))
+                    *v = FCSDate(d).to_string();
                 }
             }
         }
@@ -753,9 +747,8 @@ fn lookup_req_segment(
 ) -> MultiResult<Segment, ReqSegmentError> {
     let x0 = get_req(kws, bk).map_err(|e| e.into());
     let x1 = get_req(kws, ek).map_err(|e| e.into());
-    x0.zip(x1).and_then(|(begin, end)| {
-        Segment::try_new(begin, end, corr, id).map_err(|e| NonEmpty::new(e.into()))
-    })
+    x0.zip(x1)
+        .and_then(|(begin, end)| Segment::try_new(begin, end, corr, id).into_mult())
 }
 
 fn lookup_opt_segment(
@@ -769,11 +762,7 @@ fn lookup_opt_segment(
     let x1 = get_opt(kws, ek).map_err(|e| e.into());
     x0.zip(x1).and_then(|(b, e)| {
         b.zip(e)
-            .map(|(begin, end)| {
-                Segment::try_new(begin, end, corr, id)
-                    .map_err(|r| r.into())
-                    .map_err(NonEmpty::new)
-            })
+            .map(|(begin, end)| Segment::try_new(begin, end, corr, id).into_mult())
             .transpose()
     })
 }
@@ -929,10 +918,7 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
     let term_delim = split_first_delim(&buf, conf)
         .inner_into()
         .error_impure()
-        .map_or_else(
-            |e| Err(e.terminate(ParseRawTEXTFailure)),
-            |t| t.terminate(ParseRawTEXTFailure),
-        )?;
+        .terminate(ParseRawTEXTFailure)?;
 
     let term_primary = term_delim.and_maybe(ParseRawTEXTFailure, |(delim, bytes)| {
         let kws = ParsedKeywords::default();
@@ -959,10 +945,7 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
                     split_raw_primary_text(kws, delim, &buf, conf)
                         .inner_into()
                         .error_impure()
-                        .map_or_else(
-                            |e| Err(e.terminate(ParseRawTEXTFailure)),
-                            |t| t.terminate(ParseRawTEXTFailure),
-                        )?
+                        .terminate(ParseRawTEXTFailure)?
                 } else {
                     Terminal::new(kws)
                 };

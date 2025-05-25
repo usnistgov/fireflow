@@ -773,9 +773,7 @@ impl AlphaNumReader {
                     AlphaNumColumnReader::Ascii(d) => {
                         buf.clear();
                         h.take(u8::from(d.width).into()).read_to_end(&mut buf)?;
-                        d.column[r] = ascii_to_uint(&buf)
-                            .map_err(|e| e.into())
-                            .map_err(ImpureError::Pure)?;
+                        d.column[r] = ascii_to_uint(&buf).map_err(ImpureError::Pure)?;
                     }
                 }
             }
@@ -893,7 +891,7 @@ where
         // TODO be more specific, which means we need the measurement index
         let m = Self::range_to_bitmask(r).map_err(|e| e.into());
         let s = o.as_sized().map_err(|e| e.into());
-        combine_results(m, s).map(|(bitmask, size)| UintType {
+        m.zip(s).map(|(bitmask, size)| UintType {
             bitmask,
             byteord: size,
         })
@@ -2123,18 +2121,15 @@ impl VersionedDataLayout for DataLayout3_1 {
     }
 
     fn try_new_from_raw(kws: &StdKeywords) -> FromRawResult<Self> {
-        let cs = kws_get_columns(kws).map_err(|es| es.map(|e| e.into()));
-        let d = AlphaNumType::get_meta_req(kws)
-            .map_err(RawParsedError::AlphaNumType)
-            .map_err(NonEmpty::new);
-        let e = Endian::get_meta_req(kws).map_err(|e| NonEmpty::new(e.into()));
-        let res = combine_results3(d, e, cs)
-            .map_err(NonEmpty::flatten)
+        let cs = kws_get_columns(kws);
+        let d = AlphaNumType::get_meta_req(kws).into_mult::<RawParsedError>();
+        let e = Endian::get_meta_req(kws).into_mult();
+        d.zip_mult3(e, cs)
             .map_err(|es| es.map(RawToLayoutError::from))
             .and_then(|(datatype, byteord, columns)| {
                 Self::try_new(datatype, byteord, columns).map_err(|es| es.map(|e| e.into()))
-            });
-        DeferredResult::from_multires(res)
+            })
+            .into_deferred1()
     }
 
     fn ncols(&self) -> usize {
@@ -2234,16 +2229,15 @@ impl VersionedDataLayout for DataLayout3_2 {
     }
 
     fn try_new_from_raw(kws: &StdKeywords) -> FromRawResult<Self> {
-        let d = DeferredResult::from_res(AlphaNumType::get_meta_req(kws))
-            .error_into::<RawParsedError>()
-            .inner_into();
-        let e = DeferredResult::from_res(Endian::get_meta_req(kws))
-            .error_into::<RawParsedError>()
-            .inner_into();
+        let d = AlphaNumType::get_meta_req(kws)
+            .map_err(RawParsedError::from)
+            .into_deferred0();
+        let e = Endian::get_meta_req(kws)
+            .map_err(RawParsedError::from)
+            .into_deferred0();
         let cs = kws_get_columns_3_2(kws).inner_into();
-        d.zip3(e, cs).and_maybe(|(datatype, endian, columns)| {
-            let res = Self::try_new(datatype, endian, columns);
-            DeferredResult::from_multires(res).inner_into()
+        d.zip_def3(e, cs).and_maybe(|(datatype, endian, columns)| {
+            Self::try_new(datatype, endian, columns).into_deferred1()
         })
     }
 
@@ -2298,19 +2292,19 @@ impl VersionedDataLayout for DataLayout3_2 {
 fn kws_get_layout_2_0(
     kws: &StdKeywords,
 ) -> MultiResult<(AlphaNumType, ByteOrd, Vec<ColumnLayoutData<()>>), RawParsedError> {
-    let cs = kws_get_columns(kws).map_err(|es| es.map(|e| e.into()));
-    let d = AlphaNumType::get_meta_req(kws).map_err(|e| NonEmpty::new(e.into()));
-    let b = ByteOrd::get_meta_req(kws).map_err(|e| NonEmpty::new(e.into()));
-    combine_results3(d, b, cs).map_err(NonEmpty::flatten)
+    let cs = kws_get_columns(kws);
+    let d = AlphaNumType::get_meta_req(kws).into_mult();
+    let b = ByteOrd::get_meta_req(kws).into_mult();
+    d.zip_mult3(b, cs)
 }
 
 fn kws_get_columns(kws: &StdKeywords) -> MultiResult<Vec<ColumnLayoutData<()>>, RawParsedError> {
-    let par = Par::get_meta_req(kws).map_err(|e| NonEmpty::new(e.into()))?;
+    let par = Par::get_meta_req(kws).into_mult()?;
     (0..par.0)
         .map(|i| {
             let w = Width::get_meas_req(kws, i.into()).map_err(|e| e.into());
             let r = Range::get_meas_req(kws, i.into()).map_err(|e| e.into());
-            combine_results(w, r).map(|(width, range)| ColumnLayoutData {
+            w.zip(r).map(|(width, range)| ColumnLayoutData {
                 width,
                 range,
                 datatype: (),
@@ -2335,22 +2329,22 @@ fn kws_get_columns_3_2(
             let index = i.into();
             match NumType::get_meas_opt(kws, index) {
                 Ok(x) => Tentative::new1(x.0),
-                Err(e) => Tentative::new(None, vec![e.into()], vec![]),
+                Err(e) => Tentative::new(None, vec![e], vec![]),
             }
             .and_maybe(|pn_datatype| {
-                let w = Width::get_meas_req(kws, index).map_err(|e| e.into());
+                let w = Width::get_meas_req(kws, index).map_err(RawParsedError::from);
                 let r = Range::get_meas_req(kws, index).map_err(|e| e.into());
-                let res = combine_results(w, r).map(|(width, range)| ColumnLayoutData {
-                    width,
-                    range,
-                    datatype: pn_datatype,
-                });
-                DeferredResult::from_multires(res)
+                w.zip(r)
+                    .map(|(width, range)| ColumnLayoutData {
+                        width,
+                        range,
+                        datatype: pn_datatype,
+                    })
+                    .into_deferred1()
             })
         })
         .gather()
         .map_err(DeferredFailure::fold)
-        .map_err(|e| e.into())
         .map(Tentative::mconcat)
 }
 

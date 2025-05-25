@@ -353,7 +353,7 @@ fn h_read_raw_dataset<R: Read + Seek>(
         });
 
     reader_res
-        .zip(anal_res)
+        .zip_def(anal_res)
         .map_value(|((keywords, parse, reader, data_seg), analysis_seg)| {
             (
                 keywords,
@@ -413,7 +413,7 @@ fn h_read_std_dataset<R: Read + Seek>(
         });
 
     reader_res
-        .zip(anal_res)
+        .zip_def(anal_res)
         .map_value(|((parse, reader, data_seg), analysis_seg)| {
             (
                 ParseData {
@@ -481,30 +481,18 @@ impl RawTEXT {
     ) -> DeferredResult<DataReader, RawToReaderWarning, RawToReaderError> {
         let kws = &self.keywords.std;
         match self.version {
-            Version::FCS2_0 => {
-                let layout_res = DataLayout2_0::try_new_from_raw(kws);
-                deferred_res_into(layout_res).and_then(|tnt| {
-                    tnt.and_maybe(|dl| deferred_res_into(dl.into_reader(kws, data_seg)))
-                })
-            }
-            Version::FCS3_0 => {
-                let layout_res = DataLayout3_0::try_new_from_raw(kws);
-                deferred_res_into(layout_res).and_then(|tnt| {
-                    tnt.and_maybe(|dl| deferred_res_into(dl.into_reader(kws, data_seg)))
-                })
-            }
-            Version::FCS3_1 => {
-                let layout_res = DataLayout3_1::try_new_from_raw(kws);
-                deferred_res_into(layout_res).and_then(|tnt| {
-                    tnt.and_maybe(|dl| deferred_res_into(dl.into_reader(kws, data_seg)))
-                })
-            }
-            Version::FCS3_2 => {
-                let layout_res = DataLayout3_2::try_new_from_raw(kws);
-                deferred_res_into(layout_res).and_then(|tnt| {
-                    tnt.and_maybe(|dl| deferred_res_into(dl.into_reader(kws, data_seg)))
-                })
-            }
+            Version::FCS2_0 => DataLayout2_0::try_new_from_raw(kws)
+                .inner_into()
+                .and_maybe(|dl| dl.into_reader(kws, data_seg).inner_into()),
+            Version::FCS3_0 => DataLayout3_0::try_new_from_raw(kws)
+                .inner_into()
+                .and_maybe(|dl| dl.into_reader(kws, data_seg).inner_into()),
+            Version::FCS3_1 => DataLayout3_1::try_new_from_raw(kws)
+                .inner_into()
+                .and_maybe(|dl| dl.into_reader(kws, data_seg).inner_into()),
+            Version::FCS3_2 => DataLayout3_2::try_new_from_raw(kws)
+                .inner_into()
+                .and_maybe(|dl| dl.into_reader(kws, data_seg).inner_into()),
         }
         .map(|x| {
             x.map(|column_reader| DataReader {
@@ -765,7 +753,7 @@ fn lookup_req_segment(
 ) -> MultiResult<Segment, ReqSegmentError> {
     let x0 = get_req(kws, bk).map_err(|e| e.into());
     let x1 = get_req(kws, ek).map_err(|e| e.into());
-    combine_results(x0, x1).and_then(|(begin, end)| {
+    x0.zip(x1).and_then(|(begin, end)| {
         Segment::try_new(begin, end, corr, id).map_err(|e| NonEmpty::new(e.into()))
     })
 }
@@ -779,7 +767,7 @@ fn lookup_opt_segment(
 ) -> MultiResult<Option<Segment>, OptSegmentError> {
     let x0 = get_opt(kws, bk).map_err(|e| e.into());
     let x1 = get_opt(kws, ek).map_err(|e| e.into());
-    combine_results(x0, x1).and_then(|(b, e)| {
+    x0.zip(x1).and_then(|(b, e)| {
         b.zip(e)
             .map(|(begin, end)| {
                 Segment::try_new(begin, end, corr, id)

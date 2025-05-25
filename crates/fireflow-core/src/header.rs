@@ -1,6 +1,6 @@
 use crate::config::{HeaderConfig, OffsetCorrection};
 use crate::error::*;
-use crate::macros::nonempty;
+use crate::macros::{enum_from, enum_from_disp, match_many_to_one, nonempty};
 use crate::segment::*;
 
 use nonempty::NonEmpty;
@@ -79,7 +79,7 @@ fn parse_header(s: &str, conf: &HeaderConfig) -> MultiResult<Header, HeaderError
     let vers_res = v
         .parse::<Version>()
         .map_err(HeaderError::Version)
-        .map_err(NonEmpty::new);
+        .into_mult();
     let space_res = if !spaces.chars().all(|x| x == ' ') {
         Err(NonEmpty::new(HeaderError::Space))
     } else {
@@ -88,14 +88,15 @@ fn parse_header(s: &str, conf: &HeaderConfig) -> MultiResult<Header, HeaderError
     let text_res = parse_segment(t0, t1, false, SegmentId::PrimaryText, conf.text);
     let data_res = parse_segment(d0, d1, false, SegmentId::Data, conf.data);
     let anal_res = parse_segment(a0, a1, true, SegmentId::Analysis, conf.analysis);
-    combine_results5(vers_res, space_res, text_res, data_res, anal_res)
-        .map(|(version, _, text, data, analysis)| Header {
+    vers_res
+        .zip_mult3(space_res, text_res)
+        .zip_mult3(data_res, anal_res)
+        .map(|((version, _, text), data, analysis)| Header {
             version: conf.version_override.unwrap_or(version),
             text,
             data,
             analysis,
         })
-        .map_err(NonEmpty::flatten)
 }
 
 fn parse_header_offset(
@@ -128,7 +129,8 @@ fn parse_segment(
     };
     let begin_res = parse_one(s0, true);
     let end_res = parse_one(s1, false);
-    combine_results(begin_res, end_res)
+    begin_res
+        .zip(end_res)
         .and_then(|(begin, end)| {
             Segment::try_new(begin, end, corr, id)
                 .map_err(HeaderSegmentError::Segment)
@@ -180,19 +182,11 @@ impl fmt::Display for HeaderError {
     }
 }
 
-pub enum HeaderSegmentError {
-    Segment(SegmentError),
-    Parse(ParseOffsetError),
-}
-
-impl fmt::Display for HeaderSegmentError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            HeaderSegmentError::Segment(x) => x.fmt(f),
-            HeaderSegmentError::Parse(x) => x.fmt(f),
-        }
-    }
-}
+enum_from_disp!(
+    pub HeaderSegmentError,
+    [Segment, SegmentError],
+    [Parse, ParseOffsetError]
+);
 
 pub struct ParseOffsetError {
     error: ParseIntError,

@@ -540,7 +540,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                 let nleft = s.left.len();
                 let lres = go(s.left, 0);
                 let rres = go(s.right, nleft + 1);
-                let (left, right) = combine_results(lres, rres).map_err(NonEmpty::flatten)?;
+                let (left, right) = lres.zip_mult(rres)?;
                 Ok(NamedVec::new_split(left, *s.center, right, s.prefix))
             }
             NamedVec::Unsplit(u) => {
@@ -1191,7 +1191,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                 let offset = s.left.len() + 1;
                 let lres = go(s.left, 0);
                 let rres = go(s.right, offset);
-                let (left, right) = combine_results(lres, rres).map_err(NonEmpty::flatten)?;
+                let (left, right) = lres.zip_mult(rres)?;
                 NamedVec::new_split(left, *s.center, right, s.prefix)
             }
             NamedVec::Unsplit(u) => NamedVec::new_unsplit(go(u.members, 0)?, u.prefix),

@@ -847,7 +847,7 @@ impl CommonMeasurement {
         lookup_meas_opt(kws, i, false).and_maybe(|longname| {
             let w = lookup_meas_req(kws, i);
             let r = lookup_meas_req(kws, i);
-            w.zip(r).map_value(|(width, range)| Self {
+            w.zip_def(r).map_value(|(width, range)| Self {
                 width,
                 range,
                 longname,
@@ -882,7 +882,7 @@ where
     {
         let c = CommonMeasurement::lookup(kws, i, nonstd);
         let t = T::lookup_specific(kws, i);
-        c.zip(t)
+        c.zip_def(t)
             .map_value(|(common, specific)| Temporal { common, specific })
     }
 
@@ -967,7 +967,7 @@ where
             |(filter, power, detector_type, percent_emitted, detector_voltage)| {
                 let c = CommonMeasurement::lookup(kws, i, nonstd);
                 let s = P::lookup_specific(kws, i);
-                c.zip(s).map_value(|(common, specific)| Optical {
+                c.zip_def(s).map_value(|(common, specific)| Optical {
                     common,
                     filter,
                     power,
@@ -1154,7 +1154,7 @@ where
                 |(((abrt, com, cells, exp, fil), inst, lost, op, proj), smno, src, sys, tr)| {
                     let dt = lookup_meta_req(kws);
                     let s = M::lookup_specific(kws, par);
-                    dt.zip(s).map_value(|(datatype, specific)| Metadata {
+                    dt.zip_def(s).map_value(|(datatype, specific)| Metadata {
                         datatype,
                         abrt,
                         com,
@@ -1944,8 +1944,7 @@ where
             .map_non_center_values(|_, v| v.try_convert())
             .map_err(|es| es.map(ConvertError::Optical))
             .and_then(|x| x.try_rewrapped().map_err(|es| es.map(ConvertError::Rewrap)));
-        let (metadata, measurements) = combine_results(m, ps).map_err(NonEmpty::flatten)?;
-        Ok(Core {
+        m.zip_mult(ps).map(|(metadata, measurements)| Core {
             metadata,
             measurements,
             data: self.data,
@@ -1955,7 +1954,6 @@ where
         //     from: M::P::fcs_version(),
         //     to: ToM::P::fcs_version(),
         // };
-        // PureMaybe::from_result_strs(res, PureErrorLevel::Error).into_result(msg)
     }
 
     #[allow(clippy::type_complexity)]
@@ -2553,14 +2551,9 @@ where
         self.h_write_text(h, tot, writer.nbytes(), analysis_len, conf)
             .map_err(|e| NonEmpty::new(e.inner_into()))?;
         // write DATA
-        writer
-            .h_write(h)
-            .map_err(|e| e.into())
-            .map_err(NonEmpty::new)?;
+        writer.h_write(h).into_mult()?;
         // write ANALYSIS
-        h.write_all(&self.analysis.0)
-            .map_err(|e| e.into())
-            .map_err(NonEmpty::new)?;
+        h.write_all(&self.analysis.0).into_mult()?;
         Ok(())
     }
 
@@ -2859,6 +2852,7 @@ macro_rules! float_layout2_0 {
     () => {
         /// Set data layout to be 32-bit float for all measurements.
         pub fn set_data_f32(&mut self, rs: Vec<f32>) -> Result<(), SetFloatError> {
+            // TODO use gather here
             let (pass, _): (Vec<_>, Vec<_>) = rs
                 .into_iter()
                 .map(|r| Range::try_from(f64::from(r)))
@@ -3830,7 +3824,7 @@ impl EndianConvert {
 
 impl TryFromMetadata<InnerMetadata3_0> for InnerMetadata2_0 {
     fn try_from_meta(value: InnerMetadata3_0, _: ByteOrdConvert) -> MetaConvertResult<Self> {
-        Ok(InnerMetadata2_0 {
+        Ok(Self {
             mode: value.mode,
             byteord: value.byteord,
             cyt: value.cyt,
@@ -3845,7 +3839,7 @@ impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata2_0 {
         let byteord = endian
             .try_as_byteord()
             .ok_or(NonEmpty::new(MetaConvertError::FromEndian))?;
-        Ok(InnerMetadata2_0 {
+        Ok(Self {
             mode: value.mode,
             byteord,
             cyt: value.cyt,
@@ -3860,7 +3854,7 @@ impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata2_0 {
         let byteord = endian
             .try_as_byteord()
             .ok_or(NonEmpty::new(MetaConvertError::FromEndian))?;
-        Ok(InnerMetadata2_0 {
+        Ok(Self {
             mode: Mode::List,
             byteord,
             cyt: Some(value.cyt).into(),
@@ -3872,7 +3866,7 @@ impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata2_0 {
 
 impl TryFromMetadata<InnerMetadata2_0> for InnerMetadata3_0 {
     fn try_from_meta(value: InnerMetadata2_0, _: ByteOrdConvert) -> MetaConvertResult<Self> {
-        Ok(InnerMetadata3_0 {
+        Ok(Self {
             mode: value.mode,
             byteord: value.byteord,
             cyt: value.cyt,
@@ -3889,7 +3883,7 @@ impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata3_0 {
         let byteord = endian
             .try_as_byteord()
             .ok_or(NonEmpty::new(MetaConvertError::FromEndian))?;
-        Ok(InnerMetadata3_0 {
+        Ok(Self {
             mode: value.mode,
             byteord,
             cyt: value.cyt,
@@ -3906,7 +3900,7 @@ impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata3_0 {
         let byteord = endian
             .try_as_byteord()
             .ok_or(NonEmpty::new(MetaConvertError::FromEndian))?;
-        Ok(InnerMetadata3_0 {
+        Ok(Self {
             mode: Mode::List,
             byteord,
             cyt: Some(value.cyt).into(),
@@ -3924,7 +3918,7 @@ impl TryFromMetadata<InnerMetadata2_0> for InnerMetadata3_1 {
             .byteord
             .try_into()
             .map_err(|e| NonEmpty::new(MetaConvertError::FromByteOrd(e)))
-            .map(|byteord| InnerMetadata3_1 {
+            .map(|byteord| Self {
                 mode: value.mode,
                 byteord,
                 cyt: value.cyt,
@@ -3944,7 +3938,7 @@ impl TryFromMetadata<InnerMetadata3_0> for InnerMetadata3_1 {
             .byteord
             .try_into()
             .map_err(|e| NonEmpty::new(MetaConvertError::FromByteOrd(e)))
-            .map(|byteord| InnerMetadata3_1 {
+            .map(|byteord| Self {
                 byteord,
                 mode: value.mode,
                 cyt: value.cyt,
@@ -3960,7 +3954,7 @@ impl TryFromMetadata<InnerMetadata3_0> for InnerMetadata3_1 {
 
 impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata3_1 {
     fn try_from_meta(value: InnerMetadata3_2, _: EndianConvert) -> MetaConvertResult<Self> {
-        Ok(InnerMetadata3_1 {
+        Ok(Self {
             mode: Mode::List,
             byteord: value.byteord,
             cyt: Some(value.cyt).into(),
@@ -3982,8 +3976,7 @@ impl TryFromMetadata<InnerMetadata2_0> for InnerMetadata3_2 {
             .try_into()
             .map_err(MetaConvertError::FromByteOrd);
         let c = value.cyt.0.ok_or(MetaConvertError::NoCyt);
-        let (byteord, cyt) = combine_results(bord, c)?;
-        Ok(InnerMetadata3_2 {
+        bord.zip(c).map(|(byteord, cyt)| Self {
             byteord,
             cyt,
             timestamps: value.timestamps.map(|d| d.into()),
@@ -4007,8 +4000,7 @@ impl TryFromMetadata<InnerMetadata3_0> for InnerMetadata3_2 {
             .try_into()
             .map_err(MetaConvertError::FromByteOrd);
         let c = value.cyt.0.ok_or(MetaConvertError::NoCyt);
-        let (byteord, cyt) = combine_results(bord, c)?;
-        Ok(InnerMetadata3_2 {
+        bord.zip(c).map(|(byteord, cyt)| Self {
             byteord,
             cyt,
             cytsn: value.cytsn,
@@ -4031,7 +4023,7 @@ impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata3_2 {
             .cyt
             .0
             .ok_or(NonEmpty::new(MetaConvertError::NoCyt))
-            .map(|cyt| InnerMetadata3_2 {
+            .map(|cyt| Self {
                 byteord: value.byteord,
                 cyt,
                 cytsn: value.cytsn,
@@ -4370,7 +4362,7 @@ impl LookupTemporal for InnerTemporal3_0 {
         tnt_gain.and_maybe(|_| {
             let s = lookup_meas_req::<Scale>(kws, i);
             let t = lookup_meta_req(kws);
-            s.zip(t).and_tentatively(|(scale, timestep)| {
+            s.zip_def(t).and_tentatively(|(scale, timestep)| {
                 let mut tnt = Tentative::new1(Self { timestep });
                 tnt.eval_error(|_| {
                     if scale != Scale::Linear {
@@ -4400,7 +4392,7 @@ impl LookupTemporal for InnerTemporal3_1 {
         tnt_gain.zip(tnt_disp).and_maybe(|(_, display)| {
             let s = lookup_meas_req::<Scale>(kws, i);
             let t = lookup_meta_req(kws);
-            s.zip(t).and_tentatively(|(scale, timestep)| {
+            s.zip_def(t).and_tentatively(|(scale, timestep)| {
                 let mut tnt = Tentative::new1(Self { timestep, display });
                 tnt.eval_error(|_| {
                     if scale != Scale::Linear {
@@ -4432,7 +4424,7 @@ impl LookupTemporal for InnerTemporal3_2 {
             |(_, display, measurement_type, datatype)| {
                 let s = lookup_meas_req::<Scale>(kws, i);
                 let t = lookup_meta_req(kws);
-                s.zip(t).and_tentatively(|(scale, timestep)| {
+                s.zip_def(t).and_tentatively(|(scale, timestep)| {
                     let mut tnt = Tentative::new1(Self {
                         timestep,
                         display,
@@ -4742,7 +4734,7 @@ impl LookupMetadata for InnerMetadata2_0 {
         co.zip3(cy, t).and_maybe(|(comp, cyt, timestamps)| {
             let b = lookup_meta_req(kws);
             let m = lookup_meta_req(kws);
-            b.zip(m).map_value(|(byteord, mode)| Self {
+            b.zip_def(m).map_value(|(byteord, mode)| Self {
                 mode,
                 byteord,
                 cyt,
@@ -4771,7 +4763,7 @@ impl LookupMetadata for InnerMetadata3_0 {
             .and_maybe(|(comp, cyt, cytsn, timestamps, unicode)| {
                 let b = lookup_meta_req(kws);
                 let m = lookup_meta_req(kws);
-                b.zip(m).map_value(|(byteord, mode)| Self {
+                b.zip_def(m).map_value(|(byteord, mode)| Self {
                     mode,
                     byteord,
                     cyt,
@@ -4804,7 +4796,7 @@ impl LookupMetadata for InnerMetadata3_1 {
             |((cyt, spillover, cytsn, modification), plate, timestamps, vol)| {
                 let b = lookup_meta_req(kws);
                 let m = lookup_meta_req(kws);
-                b.zip(m).map_value(|(byteord, mode)| Self {
+                b.zip_def(m).map_value(|(byteord, mode)| Self {
                     mode,
                     byteord,
                     cyt,
@@ -4854,7 +4846,7 @@ impl LookupMetadata for InnerMetadata3_2 {
             )| {
                 let b = lookup_meta_req(kws);
                 let c = lookup_meta_req(kws);
-                b.zip(c).map_value(|(byteord, cyt)| Self {
+                b.zip_def(c).map_value(|(byteord, cyt)| Self {
                     byteord,
                     cyt,
                     cytsn,

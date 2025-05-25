@@ -4,137 +4,6 @@ use std::io;
 
 pub type DeferredResult<V, W, E> = Result<Tentative<V, W, E>, DeferredFailure<W, E>>;
 
-pub trait TentativeExt {
-    type V;
-    type E;
-    type W;
-
-    fn inner_into<ToW, ToE>(self) -> DeferredResult<Self::V, ToW, ToE>
-    where
-        ToW: From<Self::W>,
-        ToE: From<Self::E>;
-
-    fn error_into<ToE>(self) -> DeferredResult<Self::V, Self::W, ToE>
-    where
-        ToE: From<Self::E>;
-
-    fn error_impure(self) -> DeferredResult<Self::V, Self::W, ImpureError<Self::E>>;
-
-    fn warning_into<ToW>(self) -> DeferredResult<Self::V, ToW, Self::E>
-    where
-        ToW: From<Self::W>;
-
-    fn from_res(res: Result<Self::V, Self::E>) -> Self;
-
-    fn from_multires(res: MultiResult<Self::V, Self::E>) -> Self;
-
-    fn map_value<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
-    where
-        F: FnOnce(Self::V) -> X;
-
-    fn zip<A>(
-        self,
-        a: DeferredResult<A, Self::W, Self::E>,
-    ) -> DeferredResult<(Self::V, A), Self::W, Self::E>;
-
-    fn zip3<A, B>(
-        self,
-        a: DeferredResult<A, Self::W, Self::E>,
-        b: DeferredResult<B, Self::W, Self::E>,
-    ) -> DeferredResult<(Self::V, A, B), Self::W, Self::E>;
-
-    fn and_tentatively<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
-    where
-        F: FnOnce(Self::V) -> Tentative<X, Self::W, Self::E>;
-
-    fn and_maybe<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
-    where
-        F: FnOnce(Self::V) -> DeferredResult<X, Self::W, Self::E>;
-}
-
-impl<V, W, E> TentativeExt for DeferredResult<V, W, E> {
-    type V = V;
-    type W = W;
-    type E = E;
-
-    fn inner_into<ToW, ToE>(self) -> DeferredResult<Self::V, ToW, ToE>
-    where
-        ToW: From<Self::W>,
-        ToE: From<Self::E>,
-    {
-        self.map_err(|e| e.errors_into().warnings_into())
-            .map(|t| t.errors_into().warnings_into())
-    }
-
-    fn error_into<ToE>(self) -> DeferredResult<Self::V, Self::W, ToE>
-    where
-        ToE: From<Self::E>,
-    {
-        self.map_err(|e| e.errors_into()).map(|t| t.errors_into())
-    }
-
-    fn error_impure(self) -> DeferredResult<Self::V, Self::W, ImpureError<E>> {
-        self.map(|t| t.errors_map(ImpureError::Pure))
-            .map_err(|e| e.errors_map(ImpureError::Pure))
-    }
-
-    fn warning_into<ToW>(self) -> DeferredResult<Self::V, ToW, Self::E>
-    where
-        ToW: From<Self::W>,
-    {
-        self.map_err(|e| e.warnings_into())
-            .map(|t| t.warnings_into())
-    }
-
-    fn from_res(res: Result<Self::V, Self::E>) -> Self {
-        res.map(Tentative::new1).map_err(DeferredFailure::new1)
-    }
-
-    fn from_multires(res: MultiResult<Self::V, Self::E>) -> Self {
-        res.map(Tentative::new1).map_err(DeferredFailure::new2)
-    }
-
-    fn map_value<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
-    where
-        F: FnOnce(Self::V) -> X,
-    {
-        self.map(|x| x.map(f))
-    }
-
-    fn zip<A>(
-        self,
-        a: DeferredResult<A, Self::W, Self::E>,
-    ) -> DeferredResult<(Self::V, A), Self::W, Self::E> {
-        combine_results(self, a)
-            .map_err(DeferredFailure::fold)
-            .map(|(ax, bx)| ax.zip(bx))
-    }
-
-    fn zip3<A, B>(
-        self,
-        a: DeferredResult<A, Self::W, Self::E>,
-        b: DeferredResult<B, Self::W, Self::E>,
-    ) -> DeferredResult<(Self::V, A, B), Self::W, Self::E> {
-        combine_results3(self, a, b)
-            .map_err(DeferredFailure::fold)
-            .map(|(ax, bx, cx)| ax.zip3(bx, cx))
-    }
-
-    fn and_tentatively<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
-    where
-        F: FnOnce(Self::V) -> Tentative<X, Self::W, Self::E>,
-    {
-        self.map(|x| x.and_tentatively(f))
-    }
-
-    fn and_maybe<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
-    where
-        F: FnOnce(Self::V) -> DeferredResult<X, Self::W, Self::E>,
-    {
-        self.and_then(|x| x.and_maybe(f))
-    }
-}
-
 pub struct Tentative<V, W, E> {
     value: V,
     warnings: Vec<W>,
@@ -698,7 +567,7 @@ impl<V, W, E> Tentative<V, W, E> {
         a: Tentative<A, W, E>,
         b: Tentative<B, W, E>,
     ) -> Tentative<(V, A, B), W, E> {
-        self.zip(a).zip(b).map(|((x, a), b)| (x, a, b))
+        self.zip(a).zip(b).map(|((x, ax), bx)| (x, ax, bx))
     }
 
     pub fn zip4<A, B, C>(
@@ -707,7 +576,9 @@ impl<V, W, E> Tentative<V, W, E> {
         b: Tentative<B, W, E>,
         c: Tentative<C, W, E>,
     ) -> Tentative<(V, A, B, C), W, E> {
-        self.zip3(a, b).zip(c).map(|((x, a, b), c)| (x, a, b, c))
+        self.zip3(a, b)
+            .zip(c)
+            .map(|((x, ax, bx), cx)| (x, ax, bx, cx))
     }
 
     pub fn zip5<A, B, C, D>(
@@ -719,7 +590,7 @@ impl<V, W, E> Tentative<V, W, E> {
     ) -> Tentative<(V, A, B, C, D), W, E> {
         self.zip4(a, b, c)
             .zip(d)
-            .map(|((x, a, b, c), d)| (x, a, b, c, d))
+            .map(|((x, ax, bx, cx), dx)| (x, ax, bx, cx, dx))
     }
 
     pub fn zip6<A, B, C, D, F>(
@@ -732,7 +603,7 @@ impl<V, W, E> Tentative<V, W, E> {
     ) -> Tentative<(V, A, B, C, D, F), W, E> {
         self.zip5(a, b, c, d)
             .zip(e)
-            .map(|((x, a, b, c, d), e)| (x, a, b, c, d, e))
+            .map(|((x, ax, bx, cx, dx), ex)| (x, ax, bx, cx, dx, ex))
     }
 
     pub fn zip_with<F, X, Y>(mut self, other: Tentative<X, W, E>, f: F) -> Tentative<Y, W, E>
@@ -814,6 +685,138 @@ impl<W, E> DeferredFailure<W, E> {
             warnings: self.warnings,
             failure: Failure::Many(reason, self.errors),
         }
+    }
+}
+
+pub trait TentativeExt {
+    type V;
+    type E;
+    type W;
+
+    fn inner_into<ToW, ToE>(self) -> DeferredResult<Self::V, ToW, ToE>
+    where
+        ToW: From<Self::W>,
+        ToE: From<Self::E>;
+
+    fn error_into<ToE>(self) -> DeferredResult<Self::V, Self::W, ToE>
+    where
+        ToE: From<Self::E>;
+
+    fn error_impure(self) -> DeferredResult<Self::V, Self::W, ImpureError<Self::E>>;
+
+    fn warning_into<ToW>(self) -> DeferredResult<Self::V, ToW, Self::E>
+    where
+        ToW: From<Self::W>;
+
+    fn from_res(res: Result<Self::V, Self::E>) -> Self;
+
+    fn from_multires(res: MultiResult<Self::V, Self::E>) -> Self;
+
+    fn map_value<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
+    where
+        F: FnOnce(Self::V) -> X;
+
+    fn zip<A>(
+        self,
+        a: DeferredResult<A, Self::W, Self::E>,
+    ) -> DeferredResult<(Self::V, A), Self::W, Self::E>;
+
+    #[allow(clippy::type_complexity)]
+    fn zip3<A, B>(
+        self,
+        a: DeferredResult<A, Self::W, Self::E>,
+        b: DeferredResult<B, Self::W, Self::E>,
+    ) -> DeferredResult<(Self::V, A, B), Self::W, Self::E>;
+
+    fn and_tentatively<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
+    where
+        F: FnOnce(Self::V) -> Tentative<X, Self::W, Self::E>;
+
+    fn and_maybe<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
+    where
+        F: FnOnce(Self::V) -> DeferredResult<X, Self::W, Self::E>;
+}
+
+impl<V, W, E> TentativeExt for DeferredResult<V, W, E> {
+    type V = V;
+    type W = W;
+    type E = E;
+
+    fn inner_into<ToW, ToE>(self) -> DeferredResult<Self::V, ToW, ToE>
+    where
+        ToW: From<Self::W>,
+        ToE: From<Self::E>,
+    {
+        self.map_err(|e| e.errors_into().warnings_into())
+            .map(|t| t.errors_into().warnings_into())
+    }
+
+    fn error_into<ToE>(self) -> DeferredResult<Self::V, Self::W, ToE>
+    where
+        ToE: From<Self::E>,
+    {
+        self.map_err(|e| e.errors_into()).map(|t| t.errors_into())
+    }
+
+    fn error_impure(self) -> DeferredResult<Self::V, Self::W, ImpureError<E>> {
+        self.map(|t| t.errors_map(ImpureError::Pure))
+            .map_err(|e| e.errors_map(ImpureError::Pure))
+    }
+
+    fn warning_into<ToW>(self) -> DeferredResult<Self::V, ToW, Self::E>
+    where
+        ToW: From<Self::W>,
+    {
+        self.map_err(|e| e.warnings_into())
+            .map(|t| t.warnings_into())
+    }
+
+    fn from_res(res: Result<Self::V, Self::E>) -> Self {
+        res.map(Tentative::new1).map_err(DeferredFailure::new1)
+    }
+
+    fn from_multires(res: MultiResult<Self::V, Self::E>) -> Self {
+        res.map(Tentative::new1).map_err(DeferredFailure::new2)
+    }
+
+    fn map_value<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
+    where
+        F: FnOnce(Self::V) -> X,
+    {
+        self.map(|x| x.map(f))
+    }
+
+    fn zip<A>(
+        self,
+        a: DeferredResult<A, Self::W, Self::E>,
+    ) -> DeferredResult<(Self::V, A), Self::W, Self::E> {
+        combine_results(self, a)
+            .map_err(DeferredFailure::fold)
+            .map(|(ax, bx)| ax.zip(bx))
+    }
+
+    fn zip3<A, B>(
+        self,
+        a: DeferredResult<A, Self::W, Self::E>,
+        b: DeferredResult<B, Self::W, Self::E>,
+    ) -> DeferredResult<(Self::V, A, B), Self::W, Self::E> {
+        combine_results3(self, a, b)
+            .map_err(DeferredFailure::fold)
+            .map(|(ax, bx, cx)| ax.zip3(bx, cx))
+    }
+
+    fn and_tentatively<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
+    where
+        F: FnOnce(Self::V) -> Tentative<X, Self::W, Self::E>,
+    {
+        self.map(|x| x.and_tentatively(f))
+    }
+
+    fn and_maybe<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
+    where
+        F: FnOnce(Self::V) -> DeferredResult<X, Self::W, Self::E>,
+    {
+        self.and_then(|x| x.and_maybe(f))
     }
 }
 

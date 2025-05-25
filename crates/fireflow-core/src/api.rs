@@ -338,8 +338,8 @@ fn h_read_raw_dataset<R: Read + Seek>(
 ) -> TerminalResult<RawDataset, ReadRawDatasetWarning, ReadRawDatasetError, ReadRawDatasetFailure> {
     let std = &raw.keywords.std;
     let version = raw.version;
-    let def_anal_seg = &raw.parse.analysis;
-    let def_data_seg = &raw.parse.data;
+    let def_anal_seg = raw.parse.analysis;
+    let def_data_seg = raw.parse.data;
 
     let anal_res = lookup_analysis_offsets(std, conf, version, def_anal_seg).inner_into();
 
@@ -393,8 +393,8 @@ fn h_read_std_dataset<R: Read + Seek>(
 > {
     let mut kws = std.remainder;
     let version = std.standardized.version();
-    let def_anal_seg = &std.parse.analysis;
-    let def_data_seg = &std.parse.data;
+    let def_anal_seg = std.parse.analysis;
+    let def_data_seg = std.parse.data;
 
     // TODO why are kws not mut here?
     let anal_res = lookup_analysis_offsets(&kws, conf, version, def_anal_seg).inner_into();
@@ -491,7 +491,7 @@ impl RawTEXT {
             x.map(|column_reader| DataReader {
                 column_reader,
                 // TODO fix cast
-                begin: data_seg.begin() as u64,
+                begin: data_seg.begin().into(),
             })
         })
     }
@@ -798,10 +798,10 @@ fn lookup_data_offsets(
     kws: &StdKeywords,
     conf: &DataReadConfig,
     version: Version,
-    default: &Segment,
+    default: Segment,
 ) -> DeferredResult<Segment, DataSegmentWarning, ReqSegmentError> {
     match version {
-        Version::FCS2_0 => Ok(*default),
+        Version::FCS2_0 => Ok(default),
         _ => lookup_req_segment(
             kws,
             &Begindata::std(),
@@ -818,7 +818,7 @@ fn lookup_data_offsets(
                 .into_iter()
                 .chain([DataSegmentDefaultWarning.into()])
                 .collect();
-            Ok(Tentative::new(*default, ws, vec![]))
+            Ok(Tentative::new(default, ws, vec![]))
         },
         // TODO what if the default is different?
         |t| Ok(Tentative::new1(t)),
@@ -829,10 +829,10 @@ fn lookup_analysis_offsets(
     kws: &StdKeywords,
     conf: &DataReadConfig,
     version: Version,
-    default: &Segment,
+    default: Segment,
 ) -> DeferredResult<Segment, AnalysisSegmentWarning, ReqSegmentError> {
     match version {
-        Version::FCS2_0 => Ok(Tentative::new1(*default)),
+        Version::FCS2_0 => Ok(Tentative::new1(default)),
         Version::FCS3_0 | Version::FCS3_1 => lookup_req_segment(
             kws,
             &Beginanalysis::std(),
@@ -848,7 +848,7 @@ fn lookup_analysis_offsets(
                     .into_iter()
                     .chain([AnalysisSegmentDefaultWarning.into()])
                     .collect();
-                Ok(Tentative::new(*default, ws, vec![]))
+                Ok(Tentative::new(default, ws, vec![]))
             },
             |t| Ok(Tentative::new1(t)),
         ),
@@ -868,9 +868,9 @@ fn lookup_analysis_offsets(
                     .into_iter()
                     .chain([AnalysisSegmentDefaultWarning.into()])
                     .collect();
-                Ok(Tentative::new(*default, ws, vec![]))
+                Ok(Tentative::new(default, ws, vec![]))
             },
-            |t| Ok(Tentative::new1(t.unwrap_or(*default))),
+            |t| Ok(Tentative::new1(t.unwrap_or(default))),
         ),
     }
 }

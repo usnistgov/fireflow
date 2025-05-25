@@ -725,7 +725,7 @@ impl PySegment {
     }
 
     fn nbytes(&self) -> u32 {
-        self.0.nbytes()
+        self.0.len()
     }
 
     fn __repr__(&self) -> String {

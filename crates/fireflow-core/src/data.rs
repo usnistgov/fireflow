@@ -27,7 +27,7 @@ pub(crate) fn h_read_analysis<R: Read + Seek>(
 ) -> io::Result<Analysis> {
     let mut buf = vec![];
     h.seek(SeekFrom::Start(u64::from(seg.begin())))?;
-    h.take(u64::from(seg.nbytes())).read_to_end(&mut buf)?;
+    h.take(u64::from(seg.len())).read_to_end(&mut buf)?;
     Ok(buf.into())
 }
 
@@ -1365,7 +1365,7 @@ where
         seg: Segment,
         kw_tot: Option<Tot>,
     ) -> Tentative<AlphaNumReader, NewFixedReaderIssue, NewFixedReaderIssue> {
-        let n = seg.nbytes() as usize;
+        let n = seg.len() as usize;
         let w = self.event_width();
         let total_events = n / w;
         let remainder = n % w;
@@ -1946,7 +1946,7 @@ impl AsciiLayout {
         seg: Segment,
         kw_tot: Option<Tot>,
     ) -> Tentative<ColumnReader, NewFixedReaderIssue, NewFixedReaderIssue> {
-        let nbytes = seg.nbytes() as usize;
+        let nbytes = seg.len() as usize;
         match self {
             AsciiLayout::Delimited(dl) => Tentative::new1(dl.into_reader(nbytes, kw_tot)),
             AsciiLayout::Fixed(fl) => fl.into_reader(seg, kw_tot).map(ColumnReader::AlphaNum),

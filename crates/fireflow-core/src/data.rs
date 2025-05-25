@@ -39,7 +39,7 @@ pub trait VersionedDataLayout: Sized {
         dt: AlphaNumType,
         size: Self::S,
         cs: Vec<ColumnLayoutData<Self::D>>,
-    ) -> MultiResult<Self, NewDataLayoutError>;
+    ) -> DeferredResult<Self, NewDataLayoutWarning, NewDataLayoutError>;
 
     fn try_new_from_raw(kws: &StdKeywords) -> FromRawResult<Self>;
 
@@ -189,21 +189,26 @@ pub enum AnyUintType {
 }
 
 impl AnyUintType {
-    fn try_new(w: Width, r: Range, n: Endian) -> Result<Self, NewUintTypeError> {
-        let bytes = w.as_bytes().map_err(NewUintTypeError::Bytes)?;
-        // ASSUME this can only be 1-8
-        match u8::from(bytes) {
-            1 => u8::column_type_endian(r, n).map(AnyUintType::Uint08),
-            2 => u16::column_type_endian(r, n).map(AnyUintType::Uint16),
-            3 => <u32 as IntFromBytes<4, 3>>::column_type_endian(r, n).map(AnyUintType::Uint24),
-            4 => <u32 as IntFromBytes<4, 4>>::column_type_endian(r, n).map(AnyUintType::Uint32),
-            5 => <u64 as IntFromBytes<8, 5>>::column_type_endian(r, n).map(AnyUintType::Uint40),
-            6 => <u64 as IntFromBytes<8, 6>>::column_type_endian(r, n).map(AnyUintType::Uint48),
-            7 => <u64 as IntFromBytes<8, 7>>::column_type_endian(r, n).map(AnyUintType::Uint56),
-            8 => <u64 as IntFromBytes<8, 8>>::column_type_endian(r, n).map(AnyUintType::Uint64),
-            _ => unreachable!(),
-        }
-        .map_err(|e| e.into())
+    fn try_new(
+        w: Width,
+        r: Range,
+        n: Endian,
+    ) -> DeferredResult<Self, BitmaskError, NewUintTypeError> {
+        w.as_bytes().into_deferred0().and_tentatively(|bytes| {
+            // ASSUME this can only be 1-8
+            match u8::from(bytes) {
+                1 => u8::column_type_endian(r, n).map(AnyUintType::Uint08),
+                2 => u16::column_type_endian(r, n).map(AnyUintType::Uint16),
+                3 => <u32 as IntFromBytes<4, 3>>::column_type_endian(r, n).map(AnyUintType::Uint24),
+                4 => <u32 as IntFromBytes<4, 4>>::column_type_endian(r, n).map(AnyUintType::Uint32),
+                5 => <u64 as IntFromBytes<8, 5>>::column_type_endian(r, n).map(AnyUintType::Uint40),
+                6 => <u64 as IntFromBytes<8, 6>>::column_type_endian(r, n).map(AnyUintType::Uint48),
+                7 => <u64 as IntFromBytes<8, 7>>::column_type_endian(r, n).map(AnyUintType::Uint56),
+                8 => <u64 as IntFromBytes<8, 8>>::column_type_endian(r, n).map(AnyUintType::Uint64),
+                _ => unreachable!(),
+            }
+            .errors_into()
+        })
     }
 }
 
@@ -791,19 +796,30 @@ impl FixedLayout<AnyUintType> {
     pub(crate) fn try_new<D>(
         cs: Vec<ColumnLayoutData<D>>,
         e: Endian,
-    ) -> MultiResult<Option<Self>, NewVariableIntLayoutError> {
+    ) -> DeferredResult<Option<Self>, UintColumnWarning, UintColumnError> {
         cs.into_iter()
             .enumerate()
             .map(|(i, c)| {
                 AnyUintType::try_new(c.width, c.range, e)
-                    .map_err(|error| ColumnError {
-                        error,
-                        index: i.into(),
+                    .errors_map(|error| {
+                        ColumnError {
+                            error,
+                            index: i.into(),
+                        }
+                        .into()
                     })
-                    .map_err(NewVariableIntLayoutError)
+                    .warnings_map(|error| {
+                        ColumnError {
+                            error,
+                            index: i.into(),
+                        }
+                        .into()
+                    })
             })
             .gather()
-            .map(FixedLayout::from_vec)
+            .map_err(DeferredFailure::fold)
+            .map(Tentative::mconcat)
+            .map_value(FixedLayout::from_vec)
     }
 }
 
@@ -862,20 +878,42 @@ where
     Self: IntMath,
     <Self as FromStr>::Err: fmt::Display,
 {
-    fn range_to_bitmask(r: Range) -> Result<Self, BitmaskError> {
+    fn range_to_bitmask(r: Range) -> Tentative<Self, BitmaskError, BitmaskError> {
         // TODO add way to control this behavior, we may not always want to
         // truncate an overflowing number, and at the very least may wish to
         // warn the user that truncation happened
-        r.try_into().or_else(|e| match e {
-            // TODO get next power, this is currently incorrect
-            RangeToIntError::IntOverrange(_) => Ok(Self::maxval()),
-            RangeToIntError::FloatOverrange(_) => Ok(Self::maxval()),
-            RangeToIntError::FloatUnderrange(_) => Ok(Self::default()),
-            RangeToIntError::FloatPrecisionLoss(_, x) => Ok(x),
-        })
+        let force = true;
+        let go = |x, e| {
+            let y = Self::next_power_2(x);
+            if force {
+                Tentative::new(y, vec![e], vec![])
+            } else {
+                Tentative::new(y, vec![], vec![e])
+            }
+        };
+        r.try_into().map_or_else(
+            |e| match e {
+                RangeToIntError::IntOverrange(x) => {
+                    go(Self::maxval(), BitmaskError::IntOverrange(x))
+                }
+                RangeToIntError::FloatOverrange(x) => {
+                    go(Self::maxval(), BitmaskError::FloatOverrange(x))
+                }
+                RangeToIntError::FloatUnderrange(x) => {
+                    go(Self::default(), BitmaskError::FloatUnderrange(x))
+                }
+                RangeToIntError::FloatPrecisionLoss(x, y) => {
+                    go(y, BitmaskError::FloatPrecisionLoss(x))
+                }
+            },
+            Tentative::new1,
+        )
     }
 
-    fn column_type_endian(r: Range, e: Endian) -> Result<UintType<Self, INTLEN>, BitmaskError> {
+    fn column_type_endian(
+        r: Range,
+        e: Endian,
+    ) -> Tentative<UintType<Self, INTLEN>, BitmaskError, BitmaskError> {
         // TODO be more specific, which means we need the measurement index
         Self::range_to_bitmask(r).map(|bitmask| UintType {
             bitmask,
@@ -887,25 +925,35 @@ where
         r: Range,
         o: &ByteOrd,
         // index: MeasIdx,
-    ) -> MultiResult<UintType<Self, INTLEN>, IntOrderedColumnError> {
+    ) -> DeferredResult<UintType<Self, INTLEN>, BitmaskError, IntOrderedColumnError> {
         // TODO be more specific, which means we need the measurement index
-        let m = Self::range_to_bitmask(r).map_err(|e| e.into());
-        let s = o.as_sized().map_err(|e| e.into());
-        m.zip(s).map(|(bitmask, size)| UintType {
-            bitmask,
-            byteord: size,
-        })
+        Self::range_to_bitmask(r)
+            .errors_into()
+            .and_maybe(|bitmask| {
+                o.as_sized()
+                    .map(|size| UintType {
+                        bitmask,
+                        byteord: size,
+                    })
+                    .into_deferred0()
+            })
     }
 
     fn layout_ordered(
         rs: Vec<Range>,
         byteord: &ByteOrd,
-    ) -> MultiResult<Option<FixedLayout<UintType<Self, INTLEN>>>, IntOrderedColumnError> {
+    ) -> DeferredResult<
+        Option<FixedLayout<UintType<Self, INTLEN>>>,
+        BitmaskError,
+        IntOrderedColumnError,
+    > {
+        // TODO add index to bitmask warning output
         rs.into_iter()
             .map(|r| Self::column_type_ordered(r, byteord))
             .gather()
-            .map_err(NonEmpty::flatten)
-            .map(FixedLayout::from_vec)
+            .map_err(DeferredFailure::fold)
+            .map(Tentative::mconcat)
+            .map_value(FixedLayout::from_vec)
     }
 
     fn h_read_int<R: Read>(
@@ -1232,21 +1280,21 @@ impl MixedType {
         dt: AlphaNumType,
         n: Endian,
         r: Range,
-    ) -> Result<Self, NewMixedTypeError> {
+    ) -> DeferredResult<Self, BitmaskError, NewMixedTypeError> {
         match dt {
             AlphaNumType::Ascii => w
                 .as_chars()
                 .map(|chars| Self::Ascii(AsciiType { chars }))
-                .map_err(|e| e.into()),
+                .into_deferred0(),
             AlphaNumType::Integer => AnyUintType::try_new(w, r, n)
-                .map(Self::Integer)
-                .map_err(|e| e.into()),
+                .map_value(Self::Integer)
+                .error_into(),
             AlphaNumType::Single => f32::column_type_endian(w, n, r)
                 .map(Self::Float)
-                .map_err(|e| e.into()),
+                .into_deferred0(),
             AlphaNumType::Double => f64::column_type_endian(w, n, r)
                 .map(Self::Double)
-                .map_err(|e| e.into()),
+                .into_deferred0(),
         }
     }
 }
@@ -1746,32 +1794,34 @@ impl AnyUintLayout {
     pub(crate) fn try_new<D>(
         cs: Vec<ColumnLayoutData<D>>,
         o: &ByteOrd,
-    ) -> MultiResult<Option<Self>, NewFixedIntLayoutError> {
+    ) -> DeferredResult<Option<Self>, BitmaskError, NewFixedIntLayoutError> {
         let (ws, rs): (Vec<_>, Vec<_>) = cs.into_iter().map(|c| (c.width, c.range)).unzip();
-        if let Some(bytes) =
-            widths_to_single_fixed_bytes(&ws[..]).map_err(|es| es.map(|e| e.into()))?
-        {
-            match u8::from(bytes) {
-                1 => u8::layout_ordered(rs, o).map(|x| x.map(AnyUintLayout::Uint08)),
-                2 => u16::layout_ordered(rs, o).map(|x| x.map(AnyUintLayout::Uint16)),
-                3 => <u32 as IntFromBytes<4, 3>>::layout_ordered(rs, o)
-                    .map(|x| x.map(AnyUintLayout::Uint24)),
-                4 => <u32 as IntFromBytes<4, 4>>::layout_ordered(rs, o)
-                    .map(|x| x.map(AnyUintLayout::Uint32)),
-                5 => <u64 as IntFromBytes<8, 5>>::layout_ordered(rs, o)
-                    .map(|x| x.map(AnyUintLayout::Uint40)),
-                6 => <u64 as IntFromBytes<8, 6>>::layout_ordered(rs, o)
-                    .map(|x| x.map(AnyUintLayout::Uint48)),
-                7 => <u64 as IntFromBytes<8, 7>>::layout_ordered(rs, o)
-                    .map(|x| x.map(AnyUintLayout::Uint56)),
-                8 => <u64 as IntFromBytes<8, 8>>::layout_ordered(rs, o)
-                    .map(|x| x.map(AnyUintLayout::Uint64)),
-                _ => unreachable!(),
-            }
-            .map_err(|es| es.map(|e| e.into()))
-        } else {
-            Ok(None)
-        }
+        widths_to_single_fixed_bytes(&ws[..])
+            .into_deferred1()
+            .and_maybe(|b| {
+                if let Some(bytes) = b {
+                    match u8::from(bytes) {
+                        1 => u8::layout_ordered(rs, o).map_value(|x| x.map(AnyUintLayout::Uint08)),
+                        2 => u16::layout_ordered(rs, o).map_value(|x| x.map(AnyUintLayout::Uint16)),
+                        3 => <u32 as IntFromBytes<4, 3>>::layout_ordered(rs, o)
+                            .map_value(|x| x.map(AnyUintLayout::Uint24)),
+                        4 => <u32 as IntFromBytes<4, 4>>::layout_ordered(rs, o)
+                            .map_value(|x| x.map(AnyUintLayout::Uint32)),
+                        5 => <u64 as IntFromBytes<8, 5>>::layout_ordered(rs, o)
+                            .map_value(|x| x.map(AnyUintLayout::Uint40)),
+                        6 => <u64 as IntFromBytes<8, 6>>::layout_ordered(rs, o)
+                            .map_value(|x| x.map(AnyUintLayout::Uint48)),
+                        7 => <u64 as IntFromBytes<8, 7>>::layout_ordered(rs, o)
+                            .map_value(|x| x.map(AnyUintLayout::Uint56)),
+                        8 => <u64 as IntFromBytes<8, 8>>::layout_ordered(rs, o)
+                            .map_value(|x| x.map(AnyUintLayout::Uint64)),
+                        _ => unreachable!(),
+                    }
+                    .error_into()
+                } else {
+                    Ok(Tentative::new1(None))
+                }
+            })
     }
 
     fn ncols(&self) -> usize {
@@ -1943,32 +1993,29 @@ impl VersionedDataLayout for DataLayout2_0 {
         datatype: AlphaNumType,
         byteord: Self::S,
         columns: Vec<ColumnLayoutData<Self::D>>,
-    ) -> MultiResult<Self, NewDataLayoutError> {
+    ) -> DeferredResult<Self, NewDataLayoutWarning, NewDataLayoutError> {
         match datatype {
             AlphaNumType::Ascii => AsciiLayout::try_new(columns)
                 .map(|x| x.map_or(Self::Empty, Self::Ascii))
-                .map_err(|es| es.map(|e| e.into())),
+                .into_deferred1(),
             AlphaNumType::Integer => AnyUintLayout::try_new(columns, &byteord)
-                .map(|x| x.map_or(Self::Empty, Self::Integer))
-                .map_err(|es| es.map(|e| e.into())),
+                .map_value(|x| x.map_or(Self::Empty, Self::Integer))
+                .inner_into(),
             AlphaNumType::Single => f32::layout(columns, &byteord)
                 .map(|x| x.map_or(Self::Empty, |y| Self::Float(FloatLayout::F32(y))))
-                .map_err(|es| es.map(|e| e.into())),
+                .into_deferred1(),
             AlphaNumType::Double => f64::layout(columns, &byteord)
                 .map(|x| x.map_or(Self::Empty, |y| Self::Float(FloatLayout::F64(y))))
-                .map_err(|es| es.map(|e| e.into())),
+                .into_deferred1(),
         }
     }
 
     fn try_new_from_raw(kws: &StdKeywords) -> FromRawResult<Self> {
         kws_get_layout_2_0(kws)
-            .map_err(|es| es.map(|e| e.into()))
-            .and_then(|(datatype, byteord, columns)| {
-                Self::try_new(datatype, byteord, columns)
-                    .map_err(|es| es.map(|e| e.into()))
-                    .map(Tentative::new1)
+            .into_deferred1()
+            .and_maybe(|(datatype, byteord, columns)| {
+                Self::try_new(datatype, byteord, columns).inner_into()
             })
-            .map_err(DeferredFailure::new2)
     }
 
     fn ncols(&self) -> usize {
@@ -2024,32 +2071,29 @@ impl VersionedDataLayout for DataLayout3_0 {
         datatype: AlphaNumType,
         byteord: Self::S,
         columns: Vec<ColumnLayoutData<Self::D>>,
-    ) -> MultiResult<Self, NewDataLayoutError> {
+    ) -> DeferredResult<Self, NewDataLayoutWarning, NewDataLayoutError> {
         match datatype {
             AlphaNumType::Ascii => AsciiLayout::try_new(columns)
                 .map(|x| x.map_or(Self::Empty, Self::Ascii))
-                .map_err(|es| es.map(|e| e.into())),
+                .into_deferred1(),
             AlphaNumType::Integer => AnyUintLayout::try_new(columns, &byteord)
-                .map(|x| x.map_or(Self::Empty, Self::Integer))
-                .map_err(|es| es.map(|e| e.into())),
+                .map_value(|x| x.map_or(Self::Empty, Self::Integer))
+                .inner_into(),
             AlphaNumType::Single => f32::layout(columns, &byteord)
                 .map(|x| x.map_or(Self::Empty, |y| Self::Float(FloatLayout::F32(y))))
-                .map_err(|es| es.map(|e| e.into())),
+                .into_deferred1(),
             AlphaNumType::Double => f64::layout(columns, &byteord)
                 .map(|x| x.map_or(Self::Empty, |y| Self::Float(FloatLayout::F64(y))))
-                .map_err(|es| es.map(|e| e.into())),
+                .into_deferred1(),
         }
     }
 
     fn try_new_from_raw(kws: &StdKeywords) -> FromRawResult<Self> {
         kws_get_layout_2_0(kws)
-            .map_err(|es| es.map(|e| e.into()))
-            .and_then(|(datatype, byteord, columns)| {
-                Self::try_new(datatype, byteord, columns)
-                    .map_err(|es| es.map(|e| e.into()))
-                    .map(Tentative::new1)
+            .into_deferred1()
+            .and_maybe(|(datatype, byteord, columns)| {
+                Self::try_new(datatype, byteord, columns).inner_into()
             })
-            .map_err(DeferredFailure::new2)
     }
 
     fn ncols(&self) -> usize {
@@ -2102,20 +2146,20 @@ impl VersionedDataLayout for DataLayout3_1 {
         datatype: AlphaNumType,
         endian: Self::S,
         columns: Vec<ColumnLayoutData<Self::D>>,
-    ) -> MultiResult<Self, NewDataLayoutError> {
+    ) -> DeferredResult<Self, NewDataLayoutWarning, NewDataLayoutError> {
         match datatype {
             AlphaNumType::Ascii => AsciiLayout::try_new(columns)
                 .map(|x| x.map_or(Self::Empty, Self::Ascii))
-                .map_err(|es| es.map(|e| e.into())),
+                .into_deferred1(),
             AlphaNumType::Integer => FixedLayout::try_new(columns, endian)
-                .map(|x| x.map_or(Self::Empty, Self::Integer))
-                .map_err(|es| es.map(|e| e.into())),
+                .map_value(|x| x.map_or(Self::Empty, Self::Integer))
+                .inner_into(),
             AlphaNumType::Single => f32::layout_endian(columns, endian)
                 .map(|x| x.map_or(Self::Empty, |y| Self::Float(FloatLayout::F32(y))))
-                .map_err(|es| es.map(|e| e.into())),
+                .into_deferred1(),
             AlphaNumType::Double => f64::layout_endian(columns, endian)
                 .map(|x| x.map_or(Self::Empty, |y| Self::Float(FloatLayout::F64(y))))
-                .map_err(|es| es.map(|e| e.into())),
+                .into_deferred1(),
         }
     }
 
@@ -2124,11 +2168,10 @@ impl VersionedDataLayout for DataLayout3_1 {
         let d = AlphaNumType::get_meta_req(kws).into_mult::<RawParsedError>();
         let n = Endian::get_meta_req(kws).into_mult();
         d.zip_mult3(n, cs)
-            .map_err(|es| es.map(RawToLayoutError::from))
-            .and_then(|(datatype, byteord, columns)| {
-                Self::try_new(datatype, byteord, columns).map_err(|es| es.map(|e| e.into()))
-            })
             .into_deferred1()
+            .and_maybe(|(datatype, byteord, columns)| {
+                Self::try_new(datatype, byteord, columns).inner_into()
+            })
     }
 
     fn ncols(&self) -> usize {
@@ -2181,8 +2224,8 @@ impl VersionedDataLayout for DataLayout3_2 {
         datatype: AlphaNumType,
         endian: Self::S,
         clayouts: Vec<ColumnLayoutData<Self::D>>,
-    ) -> MultiResult<Self, NewDataLayoutError> {
-        let dt_clayouts: Vec<_> = clayouts
+    ) -> DeferredResult<Self, NewDataLayoutWarning, NewDataLayoutError> {
+        let dt_columns: Vec<_> = clayouts
             .into_iter()
             .map(|c| ColumnLayoutData {
                 width: c.width,
@@ -2190,40 +2233,51 @@ impl VersionedDataLayout for DataLayout3_2 {
                 datatype: c.datatype.map(|x| x.into()).unwrap_or(datatype),
             })
             .collect();
-        let unique_dt: Vec<_> = dt_clayouts.iter().map(|c| c.datatype).unique().collect();
+        let unique_dt: Vec<_> = dt_columns.iter().map(|c| c.datatype).unique().collect();
         match unique_dt[..] {
             [dt] => match dt {
-                AlphaNumType::Ascii => AsciiLayout::try_new(dt_clayouts)
+                AlphaNumType::Ascii => AsciiLayout::try_new(dt_columns)
                     .map(|x| x.map_or(Self::Empty, Self::Ascii))
-                    .map_err(|es| es.map(|e| e.into())),
-                AlphaNumType::Integer => FixedLayout::try_new(dt_clayouts, endian)
-                    .map(|x| x.map_or(Self::Empty, Self::Integer))
-                    .map_err(|es| es.map(|e| e.into())),
-                AlphaNumType::Single => f32::layout_endian(dt_clayouts, endian)
+                    .into_deferred1(),
+                AlphaNumType::Integer => FixedLayout::try_new(dt_columns, endian)
+                    .map_value(|x| x.map_or(Self::Empty, Self::Integer))
+                    .inner_into(),
+                AlphaNumType::Single => f32::layout_endian(dt_columns, endian)
                     .map(|x| x.map_or(Self::Empty, |y| Self::Float(FloatLayout::F32(y))))
-                    .map_err(|es| es.map(|e| e.into())),
-                AlphaNumType::Double => f64::layout_endian(dt_clayouts, endian)
+                    .into_deferred1(),
+                AlphaNumType::Double => f64::layout_endian(dt_columns, endian)
                     .map(|x| x.map_or(Self::Empty, |y| Self::Float(FloatLayout::F64(y))))
-                    .map_err(|es| es.map(|e| e.into())),
+                    .into_deferred1(),
             },
-            _ => {
-                let mcs = dt_clayouts
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, c)| {
-                        MixedType::try_new(c.width, c.datatype, endian, c.range)
-                            .map_err(|error| ColumnError {
+            _ => dt_columns
+                .into_iter()
+                .enumerate()
+                .map(|(i, c)| {
+                    MixedType::try_new(c.width, c.datatype, endian, c.range)
+                        .errors_map(|error| {
+                            ColumnError {
                                 error,
                                 index: i.into(),
-                            })
-                            .map_err(MixedColumnError)
-                            .map_err(NewDataLayoutError::Mixed)
-                    })
-                    .gather()?;
-                let dl = NonEmpty::from_vec(mcs)
-                    .map_or(Self::Empty, |columns| Self::Mixed(FixedLayout { columns }));
-                Ok(dl)
-            }
+                            }
+                            .into()
+                        })
+                        .errors_map(NewDataLayoutError::Mixed)
+                        .warnings_map(|error| {
+                            ColumnError {
+                                error,
+                                index: i.into(),
+                            }
+                            .into()
+                        })
+                        .warnings_map(NewDataLayoutWarning::VariableInt)
+                })
+                .gather()
+                .map(Tentative::mconcat)
+                .map_err(DeferredFailure::fold)
+                .map_value(|mcs| {
+                    NonEmpty::from_vec(mcs)
+                        .map_or(Self::Empty, |columns| Self::Mixed(FixedLayout { columns }))
+                }),
         }
     }
 
@@ -2236,7 +2290,7 @@ impl VersionedDataLayout for DataLayout3_2 {
             .into_deferred0();
         let cs = kws_get_columns_3_2(kws).inner_into();
         d.zip_def3(e, cs).and_maybe(|(datatype, endian, columns)| {
-            Self::try_new(datatype, endian, columns).into_deferred1()
+            Self::try_new(datatype, endian, columns).inner_into()
         })
     }
 
@@ -2361,8 +2415,14 @@ enum_from_disp!(
     [FixedInt,     NewFixedIntLayoutError],
     [OrderedFloat, OrderedFloatColumnError],
     [EndianFloat,  EndianFloatColumnError],
-    [VariableInt,  NewVariableIntLayoutError],
+    [VariableInt,  UintColumnError],
     [Mixed,        MixedColumnError]
+);
+
+enum_from_disp!(
+    pub NewDataLayoutWarning,
+    [FixedInt,     BitmaskError],
+    [VariableInt,  UintColumnWarning]
 );
 
 pub struct NewAsciiLayoutError(ColumnError<WidthToCharsError>);
@@ -2376,9 +2436,16 @@ enum_from_disp!(
     [Column, IntOrderedColumnError]
 );
 
-pub struct NewVariableIntLayoutError(ColumnError<NewUintTypeError>);
+pub struct UintColumnError(ColumnError<NewUintTypeError>);
 
-newtype_disp!(NewVariableIntLayoutError);
+newtype_disp!(UintColumnError);
+newtype_from!(UintColumnError, ColumnError<NewUintTypeError>);
+
+// TODO this will make the warning look like an error
+pub struct UintColumnWarning(ColumnError<BitmaskError>);
+
+newtype_disp!(UintColumnWarning);
+newtype_from!(UintColumnWarning, ColumnError<BitmaskError>);
 
 enum_from_disp!(
     pub IntOrderedColumnError,
@@ -2386,7 +2453,12 @@ enum_from_disp!(
     [Size,  BitmaskError]
 );
 
-pub struct BitmaskError;
+pub enum BitmaskError {
+    IntOverrange(u64),
+    FloatOverrange(f64),
+    FloatUnderrange(f64),
+    FloatPrecisionLoss(f64),
+}
 
 enum_from_disp!(
     pub SingleFixedWidthError,
@@ -2397,6 +2469,9 @@ enum_from_disp!(
 pub struct MultiWidthsError(NonEmpty<Bytes>);
 
 pub struct MixedColumnError(ColumnError<NewMixedTypeError>);
+
+newtype_from!(MixedColumnError, ColumnError<NewMixedTypeError>);
+newtype_disp!(MixedColumnError);
 
 enum_from_disp!(
     pub NewMixedTypeError,
@@ -2410,8 +2485,6 @@ enum_from_disp!(
     [Bitmask, BitmaskError],
     [Bytes, WidthToBytesError]
 );
-
-newtype_disp!(MixedColumnError);
 
 pub struct EndianFloatColumnError(ColumnError<FloatWidthError>);
 
@@ -2449,7 +2522,8 @@ enum_from_disp!(
 enum_from_disp!(
     pub NewReaderWarning,
     [Fixed, NewFixedReaderIssue],
-    [ParseTot, ParseKeyError<ParseIntError>]
+    [ParseTot, ParseKeyError<ParseIntError>],
+    [Layout, NewDataLayoutWarning]
 );
 
 enum_from_disp!(
@@ -2486,7 +2560,7 @@ pub struct ColumnError<E> {
     error: E,
 }
 
-type FromRawResult<T> = DeferredResult<T, ParseKeyError<NumTypeError>, RawToLayoutError>;
+type FromRawResult<T> = DeferredResult<T, RawToLayoutWarning, RawToLayoutError>;
 
 enum_from_disp!(
     pub RawToReaderError,
@@ -2496,7 +2570,7 @@ enum_from_disp!(
 
 enum_from_disp!(
     pub RawToReaderWarning,
-    [Layout, ParseKeyError<NumTypeError>],
+    [Layout, RawToLayoutWarning],
     [Reader, NewReaderWarning]
 );
 
@@ -2504,6 +2578,12 @@ enum_from_disp!(
     pub RawToLayoutError,
     [New, NewDataLayoutError],
     [Raw, RawParsedError]
+);
+
+enum_from_disp!(
+    pub RawToLayoutWarning,
+    [New, NewDataLayoutWarning],
+    [Raw, ParseKeyError<NumTypeError>]
 );
 
 enum_from_disp!(

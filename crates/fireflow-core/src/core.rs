@@ -800,7 +800,7 @@ pub trait VersionedMetadata: Sized {
     fn as_column_layout(
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
-    ) -> MultiResult<Self::L, NewDataLayoutError>;
+    ) -> DeferredResult<Self::L, NewDataLayoutWarning, NewDataLayoutError>;
 }
 
 pub trait VersionedOptical: Sized + Versioned {
@@ -2347,7 +2347,9 @@ where
         Ok(())
     }
 
-    pub(crate) fn as_column_layout(&self) -> MultiResult<M::L, NewDataLayoutError> {
+    pub(crate) fn as_column_layout(
+        &self,
+    ) -> DeferredResult<M::L, NewDataLayoutWarning, NewDataLayoutError> {
         M::as_column_layout(&self.metadata, &self.measurements)
     }
 
@@ -2357,17 +2359,19 @@ where
         _: &DataReadConfig,
         data_seg: Segment,
     ) -> DeferredResult<DataReader, NewReaderWarning, StdReaderError> {
-        let dl = M::as_column_layout(&self.metadata, &self.measurements)
-            .map_err(|es| DeferredFailure::new2(es).errors_into())?;
-        dl.into_reader(kws, data_seg)
-            .map_err(|e| e.errors_into())
-            .map(|x| {
-                x.map(|column_reader| DataReader {
-                    column_reader,
-                    // TODO fix cast
-                    begin: data_seg.begin() as u64,
-                })
-                .errors_into()
+        M::as_column_layout(&self.metadata, &self.measurements)
+            .inner_into()
+            .and_maybe(|dl| {
+                dl.into_reader(kws, data_seg)
+                    .map_err(|e| e.errors_into())
+                    .map(|x| {
+                        x.map(|column_reader| DataReader {
+                            column_reader,
+                            // TODO fix cast
+                            begin: data_seg.begin() as u64,
+                        })
+                        .errors_into()
+                    })
             })
     }
 }
@@ -2518,32 +2522,27 @@ where
         &self,
         h: &mut BufWriter<W>,
         conf: &WriteConfig,
-    ) -> MultiResult<(), ImpureError<StdWriterError>>
+    ) -> DeferredResult<(), NewDataLayoutWarning, ImpureError<StdWriterError>>
     where
         W: Write,
     {
-        // Get the layout/writer, bail if we can't
         let df = &self.data;
-        let mut writer = self
-            .as_column_layout()
-            .map_err(|es| es.map(|e| e.into()))
-            .and_then(|layout| {
-                layout
-                    .as_writer(df, conf)
-                    .map_err(|es| es.map(|e| e.into()))
+        self.as_column_layout()
+            .error_into()
+            .error_impure()
+            .and_maybe(|layout| layout.as_writer(df, conf).into_deferred1().error_impure())
+            .and_maybe(|mut writer| {
+                let tot = Tot(df.nrows());
+                let analysis_len = self.analysis.0.len();
+                // write HEADER+TEXT first
+                self.h_write_text(h, tot, writer.nbytes(), analysis_len, conf)
+                    .map_err(|e| e.inner_into())
+                    .into_deferred0()?;
+                // write DATA
+                writer.h_write(h).into_deferred0()?;
+                // write ANALYSIS
+                h.write_all(&self.analysis.0).into_deferred0()
             })
-            .map_err(|es| es.map(ImpureError::Pure))?;
-
-        let tot = Tot(df.nrows());
-        let analysis_len = self.analysis.0.len();
-        // write HEADER+TEXT first
-        self.h_write_text(h, tot, writer.nbytes(), analysis_len, conf)
-            .map_err(|e| NonEmpty::new(e.inner_into()))?;
-        // write DATA
-        writer.h_write(h).into_mult()?;
-        // write ANALYSIS
-        h.write_all(&self.analysis.0).into_mult()?;
-        Ok(())
     }
 
     /// Return reference to dataframe representing DATA
@@ -4917,7 +4916,7 @@ impl VersionedMetadata for InnerMetadata2_0 {
     fn as_column_layout(
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
-    ) -> MultiResult<Self::L, NewDataLayoutError> {
+    ) -> DeferredResult<Self::L, NewDataLayoutWarning, NewDataLayoutError> {
         Self::L::try_new(
             metadata.datatype,
             metadata.specific.byteord.clone(),
@@ -5003,7 +5002,7 @@ impl VersionedMetadata for InnerMetadata3_0 {
     fn as_column_layout(
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
-    ) -> MultiResult<Self::L, NewDataLayoutError> {
+    ) -> DeferredResult<Self::L, NewDataLayoutWarning, NewDataLayoutError> {
         Self::L::try_new(
             metadata.datatype,
             metadata.specific.byteord.clone(),
@@ -5097,7 +5096,7 @@ impl VersionedMetadata for InnerMetadata3_1 {
     fn as_column_layout(
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
-    ) -> MultiResult<Self::L, NewDataLayoutError> {
+    ) -> DeferredResult<Self::L, NewDataLayoutWarning, NewDataLayoutError> {
         Self::L::try_new(
             metadata.datatype,
             metadata.specific.byteord,
@@ -5203,7 +5202,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
     fn as_column_layout(
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
-    ) -> MultiResult<Self::L, NewDataLayoutError> {
+    ) -> DeferredResult<Self::L, NewDataLayoutWarning, NewDataLayoutError> {
         let endian = metadata.specific.byteord;
         let blank_cs = ms.layout_data();
         let cs: Vec<_> = ms

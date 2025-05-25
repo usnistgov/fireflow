@@ -2,6 +2,9 @@ use nonempty::NonEmpty;
 use std::fmt;
 use std::io;
 
+// TODO add a cap to the error buffer so the user doesn't DOS themselves if
+// their file is particularly screwed up
+
 pub type DeferredResult<V, W, E> = Result<Tentative<V, W, E>, DeferredFailure<W, E>>;
 
 pub struct Tentative<V, W, E> {
@@ -693,7 +696,7 @@ impl<V, E> MultiResultExt for MultiResult<V, E> {
     }
 }
 
-pub trait TentativeExt {
+pub trait DeferredExt {
     type V;
     type E;
     type W;
@@ -716,6 +719,14 @@ pub trait TentativeExt {
     fn map_value<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
     where
         F: FnOnce(Self::V) -> X;
+
+    fn warnings_map<F, X>(self, f: F) -> DeferredResult<Self::V, X, Self::E>
+    where
+        F: Fn(Self::W) -> X;
+
+    fn errors_map<F, X>(self, f: F) -> DeferredResult<Self::V, Self::W, X>
+    where
+        F: Fn(Self::E) -> X;
 
     fn zip_def<A>(
         self,
@@ -740,7 +751,7 @@ pub trait TentativeExt {
     fn terminate<T>(self, reason: T) -> TerminalResult<Self::V, Self::W, Self::E, T>;
 }
 
-impl<V, W, E> TentativeExt for DeferredResult<V, W, E> {
+impl<V, W, E> DeferredExt for DeferredResult<V, W, E> {
     type V = V;
     type W = W;
     type E = E;
@@ -779,6 +790,26 @@ impl<V, W, E> TentativeExt for DeferredResult<V, W, E> {
         F: FnOnce(Self::V) -> X,
     {
         self.map(|x| x.map(f))
+    }
+
+    fn warnings_map<F, X>(self, f: F) -> DeferredResult<Self::V, X, Self::E>
+    where
+        F: Fn(Self::W) -> X,
+    {
+        match self {
+            Ok(x) => Ok(x.warnings_map(f)),
+            Err(x) => Err(x.warnings_map(f)),
+        }
+    }
+
+    fn errors_map<F, X>(self, f: F) -> DeferredResult<Self::V, Self::W, X>
+    where
+        F: Fn(Self::E) -> X,
+    {
+        match self {
+            Ok(x) => Ok(x.errors_map(f)),
+            Err(x) => Err(x.errors_map(f)),
+        }
     }
 
     fn zip_def<A>(

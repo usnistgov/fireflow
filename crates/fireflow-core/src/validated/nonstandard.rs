@@ -124,6 +124,7 @@ impl fmt::Display for NonStdMeasKeyError {
     }
 }
 
+#[derive(Debug)]
 pub struct NonStdMeasPatternError(String);
 
 impl fmt::Display for NonStdMeasPatternError {

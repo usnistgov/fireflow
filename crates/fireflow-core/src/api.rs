@@ -14,7 +14,6 @@ use crate::validated::standard::*;
 
 use chrono::NaiveDate;
 use itertools::Itertools;
-use nonempty::NonEmpty;
 use serde::Serialize;
 use std::fmt;
 use std::fs;
@@ -1216,17 +1215,30 @@ enum_from!(
     [Parse, HeaderOrRawFailure]
 );
 
+// TODO could nest the header bits better here
 enum_from!(
     pub HeaderOrRawFailure,
     [Header, TerminalFailure<(), ImpureError<HeaderError>, HeaderFailure>],
     [RawTEXT, TerminalFailure<ParseRawTEXTWarning, ImpureError<ParseRawTEXTError>, ParseRawTEXTFailure>]
 );
 
+impl fmt::Display for ParseRawTEXTFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "could not parse TEXT segment")
+    }
+}
+
 enum_from!(
     pub AnyStdTEXTFailure,
     [Raw, AnyRawTEXTFailure],
     [Std, TerminalFailure<AnyStdTEXTWarning, ParseKeysError, CoreTEXTFailure>]
 );
+
+impl fmt::Display for CoreTEXTFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "could not standardize TEXT segment")
+    }
+}
 
 enum_from_disp!(
     pub AnyStdTEXTWarning,

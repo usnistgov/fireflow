@@ -921,11 +921,11 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
 
     let term_primary = term_delim.and_maybe(ParseRawTEXTFailure, |(delim, bytes)| {
         let kws = ParsedKeywords::default();
-        split_raw_primary_text(kws, delim, &bytes, conf)
+        split_raw_primary_text(kws, delim, bytes, conf)
             .inner_into()
             .error_impure()
-            .map_value(|kws| repair_offsets(kws, conf))
-            .map_value(|kws| (delim, kws))
+            .map_value(|_kws| repair_offsets(_kws, conf))
+            .map_value(|_kws| (delim, _kws))
     })?;
 
     let term_all_kws = term_primary.and_finally(|(delim, kws)| {
@@ -934,19 +934,19 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
             .errors_map(ImpureError::Pure)
             .warnings_into()
             .map(|s| (s, kws))
-            .and_finally(|(maybe_supp_seg, kws)| {
+            .and_finally(|(maybe_supp_seg, _kws)| {
                 let term_supp_kws = if let Some(seg) = maybe_supp_seg {
                     buf.clear();
                     seg.h_read(h, &mut buf).map_err(|e| {
                         DeferredFailure::new1(e.into()).terminate(ParseRawTEXTFailure)
                     })?;
                     // TODO fixme
-                    split_raw_primary_text(kws, delim, &buf, conf)
+                    split_raw_primary_text(_kws, delim, &buf, conf)
                         .inner_into()
                         .error_impure()
                         .terminate(ParseRawTEXTFailure)?
                 } else {
-                    Terminal::new(kws)
+                    Terminal::new(_kws)
                 };
                 Ok(term_supp_kws.map(|k| (delim, k, maybe_supp_seg)))
             })
@@ -1099,7 +1099,11 @@ pub struct DelimCharError(u8);
 
 impl fmt::Display for DelimCharError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "delimiter must be ASCII character 1-126 inclusive")
+        write!(
+            f,
+            "delimiter must be ASCII character 1-126 inclusive, got {}",
+            self.0
+        )
     }
 }
 

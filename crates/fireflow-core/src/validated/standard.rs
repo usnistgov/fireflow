@@ -311,7 +311,7 @@ impl ParsedKeywords {
     }
 }
 
-pub(crate) enum KeywordInsertError {
+pub enum KeywordInsertError {
     StdPresent(StdKey, String),
     NonStdPresent(NonStdKey, String),
 }

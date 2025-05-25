@@ -2,7 +2,6 @@ use crate::error::*;
 use crate::validated::nonstandard::MeasIdx;
 use crate::validated::shortname::{Shortname, ShortnamePrefix};
 
-use nonempty::NonEmpty;
 use serde::Serialize;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
@@ -92,28 +91,28 @@ pub trait MightHave {
     /// meaning of Wrapper<T>.
     const INFALLABLE: bool;
 
+    /// Consume a value and return it as a wrapped value
+    fn wrap<T>(n: T) -> Self::Wrapper<T> {
+        n.into()
+    }
+
     /// Consume a wrapped value and possibly return its contents.
     ///
     /// If no contents exist, return the original input so the caller can
     /// take back ownership.
-    fn to_res<T>(x: Self::Wrapper<T>) -> Result<T, Self::Wrapper<T>>;
+    fn unwrap<T>(x: Self::Wrapper<T>) -> Result<T, Self::Wrapper<T>>;
 
     /// Borrow a wrapped value and return a new wrapper with borrowed contents.
     fn as_ref<T>(x: &Self::Wrapper<T>) -> Self::Wrapper<&T>;
 
     /// Consume a wrapped value and possibly return its contents.
     fn to_opt<T>(x: Self::Wrapper<T>) -> Option<T> {
-        Self::to_res(x).ok()
+        Self::unwrap(x).ok()
     }
 
     /// Borrow a wrapped value and possibly return borrowed contents.
     fn as_opt<T>(x: &Self::Wrapper<T>) -> Option<&T> {
         Self::to_opt(Self::as_ref(x))
-    }
-
-    /// Consume a value and return it as a wrapped value
-    fn into_wrapped<T>(n: T) -> Self::Wrapper<T> {
-        n.into()
     }
 }
 
@@ -154,10 +153,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     ) -> Result<WrappedNamedVec<K, U, V>, NewNamedVecError> {
         let names: Vec<_> = xs
             .iter()
-            .map(|x| {
-                x.as_ref()
-                    .both(|e| K::into_wrapped(&e.0), |o| K::as_ref(&o.0))
-            })
+            .map(|x| x.as_ref().both(|e| K::wrap(&e.0), |o| K::as_ref(&o.0)))
             .collect();
         if !prefix.all_unique::<K>(names) {
             return Err(NewNamedVecError::NonUnique);
@@ -704,7 +700,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                         (NamedVec::Split(s, p), Element::NonCenter(ret))
                     }
                     Equal => {
-                        let key = K::into_wrapped(s.center.key);
+                        let key = K::wrap(s.center.key);
                         let members = s
                             .left
                             .into_iter()
@@ -847,7 +843,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                     let ln = s.left.len();
                     match i.cmp(&ln) {
                         Less => mem::replace(&mut s.left[i].key, key),
-                        Equal => K::into_wrapped(mem::replace(&mut s.center.key, k.clone())),
+                        Equal => K::wrap(mem::replace(&mut s.center.key, k.clone())),
                         Greater => mem::replace(&mut s.right[i - ln - 1].key, key),
                     }
                 }
@@ -1005,7 +1001,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     ) -> Result<NameMapping, SetKeysError> {
         self.check_keys_length(&ks[..], false)
             .map_err(SetKeysError::Length)?;
-        let center = self.as_center().map(|x| K::into_wrapped(x.key));
+        let center = self.as_center().map(|x| K::wrap(x.key));
         let all_keys = ks.iter().map(K::as_ref).chain(center).collect();
         if !self.as_prefix().all_unique::<K>(all_keys) {
             return Err(SetKeysError::NonUnique);
@@ -1050,7 +1046,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                 if let Some(old) = K::as_opt(&p.key) {
                     mapping.insert(old.clone(), n.clone());
                 }
-                p.key = K::into_wrapped(n);
+                p.key = K::wrap(n);
             }
         };
         match self {
@@ -1165,6 +1161,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// Unwrap and rewrap the non-center names of vector.
     ///
     /// This may fail if the original wrapped name cannot be converted.
+    #[allow(clippy::type_complexity)]
     pub fn try_rewrapped<J>(
         self,
     ) -> MultiResult<
@@ -1199,6 +1196,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         Ok(x)
     }
 
+    #[allow(clippy::type_complexity)]
     fn try_into_wrapper<J>(
         p: WrappedPair<K, V>,
     ) -> Result<WrappedPair<J, V>, <J::Wrapper<Shortname> as TryFrom<K::Wrapper<Shortname>>>::Error>
@@ -1217,7 +1215,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         V: From<U>,
     {
         Pair {
-            key: K::into_wrapped(p.key),
+            key: K::wrap(p.key),
             value: p.value.into(),
         }
     }
@@ -1337,7 +1335,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     where
         V: From<U>,
     {
-        let key = K::into_wrapped(p.key);
+        let key = K::wrap(p.key);
         let value = p.value.into();
         Pair { key, value }
     }

@@ -189,18 +189,18 @@ pub enum AnyUintType {
 }
 
 impl AnyUintType {
-    fn try_new(w: Width, r: Range, e: Endian) -> Result<Self, NewUintTypeError> {
+    fn try_new(w: Width, r: Range, n: Endian) -> Result<Self, NewUintTypeError> {
         let bytes = w.as_bytes().map_err(NewUintTypeError::Bytes)?;
         // ASSUME this can only be 1-8
         match u8::from(bytes) {
-            1 => u8::column_type_endian(r, e).map(AnyUintType::Uint08),
-            2 => u16::column_type_endian(r, e).map(AnyUintType::Uint16),
-            3 => <u32 as IntFromBytes<4, 3>>::column_type_endian(r, e).map(AnyUintType::Uint24),
-            4 => <u32 as IntFromBytes<4, 4>>::column_type_endian(r, e).map(AnyUintType::Uint32),
-            5 => <u64 as IntFromBytes<8, 5>>::column_type_endian(r, e).map(AnyUintType::Uint40),
-            6 => <u64 as IntFromBytes<8, 6>>::column_type_endian(r, e).map(AnyUintType::Uint48),
-            7 => <u64 as IntFromBytes<8, 7>>::column_type_endian(r, e).map(AnyUintType::Uint56),
-            8 => <u64 as IntFromBytes<8, 8>>::column_type_endian(r, e).map(AnyUintType::Uint64),
+            1 => u8::column_type_endian(r, n).map(AnyUintType::Uint08),
+            2 => u16::column_type_endian(r, n).map(AnyUintType::Uint16),
+            3 => <u32 as IntFromBytes<4, 3>>::column_type_endian(r, n).map(AnyUintType::Uint24),
+            4 => <u32 as IntFromBytes<4, 4>>::column_type_endian(r, n).map(AnyUintType::Uint32),
+            5 => <u64 as IntFromBytes<8, 5>>::column_type_endian(r, n).map(AnyUintType::Uint40),
+            6 => <u64 as IntFromBytes<8, 6>>::column_type_endian(r, n).map(AnyUintType::Uint48),
+            7 => <u64 as IntFromBytes<8, 7>>::column_type_endian(r, n).map(AnyUintType::Uint56),
+            8 => <u64 as IntFromBytes<8, 8>>::column_type_endian(r, n).map(AnyUintType::Uint64),
             _ => unreachable!(),
         }
         .map_err(|e| e.into())
@@ -708,11 +708,11 @@ impl DelimAsciiReaderNoRows {
         let ncols = data.len();
         let mut col = 0;
         let mut last_was_delim = false;
-        let go = |data: &mut NonEmpty<Vec<u64>>, col, buf: &[u8]| {
-            ascii_to_uint(buf)
+        let go = |_data: &mut NonEmpty<Vec<u64>>, _col, _buf: &[u8]| {
+            ascii_to_uint(_buf)
                 .map_err(ReadDelimAsciiNoRowsError::Parse)
                 .map_err(ImpureError::Pure)
-                .map(|x| data[col].push(x))
+                .map(|x| _data[_col].push(x))
         };
         // Delimiters are tab, newline, carriage return, space, or comma. Any
         // consecutive delimiter counts as one, and delimiters can be mixed.
@@ -980,14 +980,14 @@ where
 
     fn column_type_endian(
         w: Width,
-        e: Endian,
+        n: Endian,
         r: Range,
     ) -> Result<FloatType<LEN, Self>, FloatWidthError> {
         w.as_bytes().map_err(|e| e.into()).and_then(|bytes| {
             if usize::from(u8::from(bytes)) == LEN {
                 let range = Self::range(r);
                 Ok(FloatType {
-                    order: e.into(),
+                    order: n.into(),
                     range,
                 })
             } else {
@@ -1230,7 +1230,7 @@ impl MixedType {
     pub(crate) fn try_new(
         w: Width,
         dt: AlphaNumType,
-        e: Endian,
+        n: Endian,
         r: Range,
     ) -> Result<Self, NewMixedTypeError> {
         match dt {
@@ -1238,13 +1238,13 @@ impl MixedType {
                 .as_chars()
                 .map(|chars| Self::Ascii(AsciiType { chars }))
                 .map_err(|e| e.into()),
-            AlphaNumType::Integer => AnyUintType::try_new(w, r, e)
+            AlphaNumType::Integer => AnyUintType::try_new(w, r, n)
                 .map(Self::Integer)
                 .map_err(|e| e.into()),
-            AlphaNumType::Single => f32::column_type_endian(w, e, r)
+            AlphaNumType::Single => f32::column_type_endian(w, n, r)
                 .map(Self::Float)
                 .map_err(|e| e.into()),
-            AlphaNumType::Double => f64::column_type_endian(w, e, r)
+            AlphaNumType::Double => f64::column_type_endian(w, n, r)
                 .map(Self::Double)
                 .map_err(|e| e.into()),
         }
@@ -1855,7 +1855,6 @@ impl AsciiLayout {
         match self {
             AsciiLayout::Fixed(a) => a
                 .as_writer(df, conf)
-                .map_err(|es| es.map(|e| e.into()))
                 .map(|x| x.map_or(DataWriter::Empty, DataWriter::Fixed)),
             AsciiLayout::Delimited(_) => {
                 let ch = conf.check_conversion;
@@ -2123,8 +2122,8 @@ impl VersionedDataLayout for DataLayout3_1 {
     fn try_new_from_raw(kws: &StdKeywords) -> FromRawResult<Self> {
         let cs = kws_get_columns(kws);
         let d = AlphaNumType::get_meta_req(kws).into_mult::<RawParsedError>();
-        let e = Endian::get_meta_req(kws).into_mult();
-        d.zip_mult3(e, cs)
+        let n = Endian::get_meta_req(kws).into_mult();
+        d.zip_mult3(n, cs)
             .map_err(|es| es.map(RawToLayoutError::from))
             .and_then(|(datatype, byteord, columns)| {
                 Self::try_new(datatype, byteord, columns).map_err(|es| es.map(|e| e.into()))
@@ -2181,9 +2180,9 @@ impl VersionedDataLayout for DataLayout3_2 {
     fn try_new(
         datatype: AlphaNumType,
         endian: Self::S,
-        columns: Vec<ColumnLayoutData<Self::D>>,
+        clayouts: Vec<ColumnLayoutData<Self::D>>,
     ) -> MultiResult<Self, NewDataLayoutError> {
-        let dt_columns: Vec<_> = columns
+        let dt_clayouts: Vec<_> = clayouts
             .into_iter()
             .map(|c| ColumnLayoutData {
                 width: c.width,
@@ -2191,24 +2190,24 @@ impl VersionedDataLayout for DataLayout3_2 {
                 datatype: c.datatype.map(|x| x.into()).unwrap_or(datatype),
             })
             .collect();
-        let unique_dt: Vec<_> = dt_columns.iter().map(|c| c.datatype).unique().collect();
+        let unique_dt: Vec<_> = dt_clayouts.iter().map(|c| c.datatype).unique().collect();
         match unique_dt[..] {
             [dt] => match dt {
-                AlphaNumType::Ascii => AsciiLayout::try_new(dt_columns)
+                AlphaNumType::Ascii => AsciiLayout::try_new(dt_clayouts)
                     .map(|x| x.map_or(Self::Empty, Self::Ascii))
                     .map_err(|es| es.map(|e| e.into())),
-                AlphaNumType::Integer => FixedLayout::try_new(dt_columns, endian)
+                AlphaNumType::Integer => FixedLayout::try_new(dt_clayouts, endian)
                     .map(|x| x.map_or(Self::Empty, Self::Integer))
                     .map_err(|es| es.map(|e| e.into())),
-                AlphaNumType::Single => f32::layout_endian(dt_columns, endian)
+                AlphaNumType::Single => f32::layout_endian(dt_clayouts, endian)
                     .map(|x| x.map_or(Self::Empty, |y| Self::Float(FloatLayout::F32(y))))
                     .map_err(|es| es.map(|e| e.into())),
-                AlphaNumType::Double => f64::layout_endian(dt_columns, endian)
+                AlphaNumType::Double => f64::layout_endian(dt_clayouts, endian)
                     .map(|x| x.map_or(Self::Empty, |y| Self::Float(FloatLayout::F64(y))))
                     .map_err(|es| es.map(|e| e.into())),
             },
             _ => {
-                let mcs = dt_columns
+                let mcs = dt_clayouts
                     .into_iter()
                     .enumerate()
                     .map(|(i, c)| {
@@ -2459,12 +2458,12 @@ enum_from_disp!(
     [Uneven, UnevenEventWidth]
 );
 
-struct TotEventMismatch {
+pub struct TotEventMismatch {
     tot: Tot,
     total_events: usize,
 }
 
-struct UnevenEventWidth {
+pub struct UnevenEventWidth {
     event_width: usize,
     nbytes: usize,
     remainder: usize,

@@ -1385,6 +1385,12 @@ pub(crate) type VersionedCore<A, D, M> = Core<
     <<M as VersionedMetadata>::N as MightHave>::Wrapper<Shortname>,
 >;
 
+pub(crate) type VersionedConvertError<N, ToN> = ConvertError<
+    <<ToN as MightHave>::Wrapper<Shortname> as TryFrom<
+        <N as MightHave>::Wrapper<Shortname>,
+    >>::Error,
+>;
+
 macro_rules! non_time_get_set {
     ($get:ident, $set:ident, $ty:ident, [$($root:ident)*], $field:ident, $kw:ident) => {
         /// Get $$kw value for optical measurements
@@ -1899,16 +1905,10 @@ where
     ///
     /// Conversion may fail if some required keywords in the target version
     /// are not present in current version.
+    #[allow(clippy::type_complexity)]
     pub fn try_convert<ToM>(
         self,
-    ) -> MultiResult<
-        VersionedCore<A, D, ToM>,
-        ConvertError<
-            <<ToM::N as MightHave>::Wrapper<Shortname> as TryFrom<
-                <M::N as MightHave>::Wrapper<Shortname>,
-            >>::Error,
-        >,
-    >
+    ) -> MultiResult<VersionedCore<A, D, ToM>, VersionedConvertError<M::N, ToM::N>>
     where
         M::N: Clone,
         ToM: VersionedMetadata,
@@ -2239,15 +2239,14 @@ where
             .zip(meas_nonstds)
             .map(|(n, meas_nonstd)| {
                 let i = n.into();
-                let tnt_name = M::lookup_shortname(kws, i)?;
-                tnt_name.and_maybe(|name| {
-                    let key = M::N::to_res(name).and_then(|name| {
+                M::lookup_shortname(kws, i).and_maybe(|wrapped| {
+                    let key = M::N::unwrap(wrapped).and_then(|name| {
                         if let Some(tp) = time_pat {
                             if tp.0.as_inner().is_match(name.as_ref()) {
                                 return Ok(name);
                             }
                         }
-                        Err(M::N::into_wrapped(name))
+                        Err(M::N::wrap(name))
                     });
                     // TODO this will make cryptic errors if the time pattern
                     // happens to match more than one measurement
@@ -2262,14 +2261,11 @@ where
             .gather()
             .map_err(DeferredFailure::fold)
             .map(Tentative::mconcat)
-            .and_then(|tnt| {
-                tnt.and_maybe(|ms| {
-                    NamedVec::try_new(ms, prefix.clone())
-                        .map(|ms| (ms, meta_nonstd))
-                        .map(Tentative::new1)
-                        .map_err(|e| ParseKeysError::Other(e.into()))
-                        .map_err(DeferredFailure::new1)
-                })
+            .and_maybe(|xs| {
+                NamedVec::try_new(xs, prefix.clone())
+                    .map(|ms| (ms, meta_nonstd))
+                    .map_err(|e| ParseKeysError::Other(e.into()))
+                    .into_deferred0()
             })
     }
 
@@ -3491,7 +3487,7 @@ impl MightHave for OptionalKwFamily {
     type Wrapper<T> = OptionalKw<T>;
     const INFALLABLE: bool = false;
 
-    fn to_res<T>(x: Self::Wrapper<T>) -> Result<T, Self::Wrapper<T>> {
+    fn unwrap<T>(x: Self::Wrapper<T>) -> Result<T, Self::Wrapper<T>> {
         x.0.ok_or(None.into())
     }
 
@@ -3507,7 +3503,7 @@ impl MightHave for IdentityFamily {
     type Wrapper<T> = Identity<T>;
     const INFALLABLE: bool = true;
 
-    fn to_res<T>(x: Self::Wrapper<T>) -> Result<T, Self::Wrapper<T>> {
+    fn unwrap<T>(x: Self::Wrapper<T>) -> Result<T, Self::Wrapper<T>> {
         Ok(x.0)
     }
 
@@ -4769,15 +4765,15 @@ impl LookupMetadata for InnerMetadata3_1 {
         let cy = lookup_meta_opt(kws, false);
         let sp = lookup_meta_opt(kws, false);
         let sn = lookup_meta_opt(kws, false);
-        let m = lookup_modification(kws);
+        let md = lookup_modification(kws);
         let p = lookup_plate(kws, false);
         let t = lookup_timestamps(kws, false);
         let v = lookup_meta_opt(kws, false);
-        cy.zip4(sp, sn, m).zip4(p, t, v).and_maybe(
+        cy.zip4(sp, sn, md).zip4(p, t, v).and_maybe(
             |((cyt, spillover, cytsn, modification), plate, timestamps, vol)| {
                 let b = lookup_meta_req(kws);
-                let m = lookup_meta_req(kws);
-                b.zip_def(m).map_value(|(byteord, mode)| Self {
+                let mo = lookup_meta_req(kws);
+                b.zip_def(mo).map_value(|(byteord, mode)| Self {
                     mode,
                     byteord,
                     cyt,
@@ -5480,10 +5476,10 @@ where
     }
 }
 
-pub struct VersionConvertError {
-    from: Version,
-    to: Version,
-}
+// pub struct VersionConvertError {
+//     from: Version,
+//     to: Version,
+// }
 
 pub struct BlankShortnames;
 

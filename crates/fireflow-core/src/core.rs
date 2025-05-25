@@ -847,13 +847,11 @@ impl CommonMeasurement {
         lookup_meas_opt(kws, i, false).and_maybe(|longname| {
             let w = lookup_meas_req(kws, i);
             let r = lookup_meas_req(kws, i);
-            combine_def_results(w, r).map(|tnt| {
-                tnt.map(|(width, range)| Self {
-                    width,
-                    range,
-                    longname,
-                    nonstandard_keywords: nonstd.into_iter().collect(),
-                })
+            w.zip(r).map_value(|(width, range)| Self {
+                width,
+                range,
+                longname,
+                nonstandard_keywords: nonstd.into_iter().collect(),
             })
         })
     }
@@ -884,8 +882,8 @@ where
     {
         let c = CommonMeasurement::lookup(kws, i, nonstd);
         let t = T::lookup_specific(kws, i);
-        combine_def_results(c, t)
-            .map(|tnt| tnt.map(|(common, specific)| Temporal { common, specific }))
+        c.zip(t)
+            .map_value(|(common, specific)| Temporal { common, specific })
     }
 
     fn convert<ToT>(self) -> Temporal<ToT>
@@ -969,16 +967,14 @@ where
             |(filter, power, detector_type, percent_emitted, detector_voltage)| {
                 let c = CommonMeasurement::lookup(kws, i, nonstd);
                 let s = P::lookup_specific(kws, i);
-                combine_def_results(c, s).map(|tnt| {
-                    tnt.map(|(common, specific)| Optical {
-                        common,
-                        filter,
-                        power,
-                        detector_type,
-                        percent_emitted,
-                        detector_voltage,
-                        specific,
-                    })
+                c.zip(s).map_value(|(common, specific)| Optical {
+                    common,
+                    filter,
+                    power,
+                    detector_type,
+                    percent_emitted,
+                    detector_voltage,
+                    specific,
                 })
             },
         )
@@ -1158,25 +1154,23 @@ where
                 |(((abrt, com, cells, exp, fil), inst, lost, op, proj), smno, src, sys, tr)| {
                     let dt = lookup_meta_req(kws);
                     let s = M::lookup_specific(kws, par);
-                    combine_def_results(dt, s).map(|tnt| {
-                        tnt.map(|(datatype, specific)| Metadata {
-                            datatype,
-                            abrt,
-                            com,
-                            cells,
-                            exp,
-                            fil,
-                            inst,
-                            lost,
-                            op,
-                            proj,
-                            smno,
-                            src,
-                            sys,
-                            tr,
-                            nonstandard_keywords: nonstd.into_iter().collect(),
-                            specific,
-                        })
+                    dt.zip(s).map_value(|(datatype, specific)| Metadata {
+                        datatype,
+                        abrt,
+                        com,
+                        cells,
+                        exp,
+                        fil,
+                        inst,
+                        lost,
+                        op,
+                        proj,
+                        smno,
+                        src,
+                        sys,
+                        tr,
+                        nonstandard_keywords: nonstd.into_iter().collect(),
+                        specific,
                     })
                 },
             )
@@ -2268,9 +2262,9 @@ where
                     // happens to match more than one measurement
                     match key {
                         Ok(name) => Temporal::lookup_temporal(kws, i, meas_nonstd)
-                            .map(|tnt| tnt.map(|t| Element::Center((name, t)))),
+                            .map_value(|t| Element::Center((name, t))),
                         Err(k) => Optical::lookup_optical(kws, i, meas_nonstd)
-                            .map(|tnt| tnt.map(|m| Element::NonCenter((k, m)))),
+                            .map_value(|m| Element::NonCenter((k, m))),
                     }
                 })
             })
@@ -2423,7 +2417,7 @@ where
             .and_then(|tnt| {
                 tnt.and_maybe(|(ms, meta_ns)| {
                     Metadata::lookup_metadata(kws, &ms, meta_ns)
-                        .map(|tnt| tnt.map(|metadata| CoreTEXT::new_unchecked(metadata, ms)))
+                        .map_value(|metadata| CoreTEXT::new_unchecked(metadata, ms))
                 })
             })
             .map_err(|e| e.terminate(CoreTEXTFailure::Keywords))?;
@@ -4277,12 +4271,10 @@ impl LookupOptical for InnerOptical3_0 {
         let g = lookup_meas_opt(kws, n, false);
         let w = lookup_meas_opt(kws, n, false);
         g.zip(w).and_maybe(|(gain, wavelength)| {
-            lookup_meas_req(kws, n).map(|tnt| {
-                tnt.map(|scale| Self {
-                    scale,
-                    gain,
-                    wavelength,
-                })
+            lookup_meas_req(kws, n).map_value(|scale| Self {
+                scale,
+                gain,
+                wavelength,
             })
         })
     }
@@ -4296,14 +4288,12 @@ impl LookupOptical for InnerOptical3_1 {
         let d = lookup_meas_opt(kws, n, false);
         g.zip4(w, c, d)
             .and_maybe(|(gain, wavelengths, calibration, display)| {
-                lookup_meas_req(kws, n).map(|tnt| {
-                    tnt.map(|scale| Self {
-                        scale,
-                        gain,
-                        wavelengths,
-                        calibration,
-                        display,
-                    })
+                lookup_meas_req(kws, n).map_value(|scale| Self {
+                    scale,
+                    gain,
+                    wavelengths,
+                    calibration,
+                    display,
                 })
             })
     }
@@ -4332,20 +4322,18 @@ impl LookupOptical for InnerOptical3_2 {
                 ),
                 datatype,
             )| {
-                lookup_meas_req(kws, n).map(|tnt| {
-                    tnt.map(|scale| Self {
-                        scale,
-                        gain,
-                        wavelengths,
-                        calibration,
-                        display,
-                        detector_name,
-                        tag,
-                        measurement_type,
-                        feature,
-                        analyte,
-                        datatype,
-                    })
+                lookup_meas_req(kws, n).map_value(|scale| Self {
+                    scale,
+                    gain,
+                    wavelengths,
+                    calibration,
+                    display,
+                    detector_name,
+                    tag,
+                    measurement_type,
+                    feature,
+                    analyte,
+                    datatype,
                 })
             },
         )
@@ -4382,21 +4370,17 @@ impl LookupTemporal for InnerTemporal3_0 {
         tnt_gain.and_maybe(|_| {
             let s = lookup_meas_req::<Scale>(kws, i);
             let t = lookup_meta_req(kws);
-            combine_results(s, t)
-                .map_err(DeferredFailure::fold)
-                .map(|(s, t)| {
-                    s.zip(t).and_tentatively(|(scale, timestep)| {
-                        let mut tnt = Tentative::new1(Self { timestep });
-                        tnt.eval_error(|_| {
-                            if scale != Scale::Linear {
-                                Some(ParseKeysError::Other(TemporalError::NonLinear.into()))
-                            } else {
-                                None
-                            }
-                        });
-                        tnt
-                    })
-                })
+            s.zip(t).and_tentatively(|(scale, timestep)| {
+                let mut tnt = Tentative::new1(Self { timestep });
+                tnt.eval_error(|_| {
+                    if scale != Scale::Linear {
+                        Some(ParseKeysError::Other(TemporalError::NonLinear.into()))
+                    } else {
+                        None
+                    }
+                });
+                tnt
+            })
         })
     }
 }
@@ -4416,21 +4400,17 @@ impl LookupTemporal for InnerTemporal3_1 {
         tnt_gain.zip(tnt_disp).and_maybe(|(_, display)| {
             let s = lookup_meas_req::<Scale>(kws, i);
             let t = lookup_meta_req(kws);
-            combine_results(s, t)
-                .map_err(DeferredFailure::fold)
-                .map(|(s, t)| {
-                    s.zip(t).and_tentatively(|(scale, timestep)| {
-                        let mut tnt = Tentative::new1(Self { timestep, display });
-                        tnt.eval_error(|_| {
-                            if scale != Scale::Linear {
-                                Some(ParseKeysError::Other(TemporalError::NonLinear.into()))
-                            } else {
-                                None
-                            }
-                        });
-                        tnt
-                    })
-                })
+            s.zip(t).and_tentatively(|(scale, timestep)| {
+                let mut tnt = Tentative::new1(Self { timestep, display });
+                tnt.eval_error(|_| {
+                    if scale != Scale::Linear {
+                        Some(ParseKeysError::Other(TemporalError::NonLinear.into()))
+                    } else {
+                        None
+                    }
+                });
+                tnt
+            })
         })
     }
 }
@@ -4452,26 +4432,22 @@ impl LookupTemporal for InnerTemporal3_2 {
             |(_, display, measurement_type, datatype)| {
                 let s = lookup_meas_req::<Scale>(kws, i);
                 let t = lookup_meta_req(kws);
-                combine_results(s, t)
-                    .map_err(DeferredFailure::fold)
-                    .map(|(s, t)| {
-                        s.zip(t).and_tentatively(|(scale, timestep)| {
-                            let mut tnt = Tentative::new1(Self {
-                                timestep,
-                                display,
-                                measurement_type,
-                                datatype,
-                            });
-                            tnt.eval_error(|_| {
-                                if scale != Scale::Linear {
-                                    Some(ParseKeysError::Other(TemporalError::NonLinear.into()))
-                                } else {
-                                    None
-                                }
-                            });
-                            tnt
-                        })
-                    })
+                s.zip(t).and_tentatively(|(scale, timestep)| {
+                    let mut tnt = Tentative::new1(Self {
+                        timestep,
+                        display,
+                        measurement_type,
+                        datatype,
+                    });
+                    tnt.eval_error(|_| {
+                        if scale != Scale::Linear {
+                            Some(ParseKeysError::Other(TemporalError::NonLinear.into()))
+                        } else {
+                            None
+                        }
+                    });
+                    tnt
+                })
             },
         )
     }
@@ -4766,14 +4742,12 @@ impl LookupMetadata for InnerMetadata2_0 {
         co.zip3(cy, t).and_maybe(|(comp, cyt, timestamps)| {
             let b = lookup_meta_req(kws);
             let m = lookup_meta_req(kws);
-            combine_def_results(b, m).map(|tnt| {
-                tnt.map(|(byteord, mode)| Self {
-                    mode,
-                    byteord,
-                    cyt,
-                    comp,
-                    timestamps,
-                })
+            b.zip(m).map_value(|(byteord, mode)| Self {
+                mode,
+                byteord,
+                cyt,
+                comp,
+                timestamps,
             })
         })
     }
@@ -4797,16 +4771,14 @@ impl LookupMetadata for InnerMetadata3_0 {
             .and_maybe(|(comp, cyt, cytsn, timestamps, unicode)| {
                 let b = lookup_meta_req(kws);
                 let m = lookup_meta_req(kws);
-                combine_def_results(b, m).map(|tnt| {
-                    tnt.map(|(byteord, mode)| Self {
-                        mode,
-                        byteord,
-                        cyt,
-                        cytsn,
-                        comp,
-                        timestamps,
-                        unicode,
-                    })
+                b.zip(m).map_value(|(byteord, mode)| Self {
+                    mode,
+                    byteord,
+                    cyt,
+                    cytsn,
+                    comp,
+                    timestamps,
+                    unicode,
                 })
             })
     }
@@ -4832,18 +4804,16 @@ impl LookupMetadata for InnerMetadata3_1 {
             |((cyt, spillover, cytsn, modification), plate, timestamps, vol)| {
                 let b = lookup_meta_req(kws);
                 let m = lookup_meta_req(kws);
-                combine_def_results(b, m).map(|tnt| {
-                    tnt.map(|(byteord, mode)| Self {
-                        mode,
-                        byteord,
-                        cyt,
-                        cytsn,
-                        vol,
-                        spillover,
-                        modification,
-                        timestamps,
-                        plate,
-                    })
+                b.zip(m).map_value(|(byteord, mode)| Self {
+                    mode,
+                    byteord,
+                    cyt,
+                    cytsn,
+                    vol,
+                    spillover,
+                    modification,
+                    timestamps,
+                    plate,
                 })
             },
         )
@@ -4884,21 +4854,19 @@ impl LookupMetadata for InnerMetadata3_2 {
             )| {
                 let b = lookup_meta_req(kws);
                 let c = lookup_meta_req(kws);
-                combine_def_results(b, c).map(|tnt| {
-                    tnt.map(|(byteord, cyt)| Self {
-                        byteord,
-                        cyt,
-                        cytsn,
-                        vol,
-                        spillover,
-                        modification,
-                        timestamps,
-                        plate,
-                        carrier,
-                        datetimes,
-                        flowrate,
-                        unstained,
-                    })
+                b.zip(c).map_value(|(byteord, cyt)| Self {
+                    byteord,
+                    cyt,
+                    cytsn,
+                    vol,
+                    spillover,
+                    modification,
+                    timestamps,
+                    plate,
+                    carrier,
+                    datetimes,
+                    flowrate,
+                    unstained,
                 })
             },
         )

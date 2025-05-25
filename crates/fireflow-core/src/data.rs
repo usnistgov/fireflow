@@ -2128,14 +2128,13 @@ impl VersionedDataLayout for DataLayout3_1 {
             .map_err(RawParsedError::AlphaNumType)
             .map_err(NonEmpty::new);
         let e = Endian::get_meta_req(kws).map_err(|e| NonEmpty::new(e.into()));
-        combine_results3(d, e, cs)
+        let res = combine_results3(d, e, cs)
             .map_err(NonEmpty::flatten)
             .map_err(|es| es.map(RawToLayoutError::from))
             .and_then(|(datatype, byteord, columns)| {
                 Self::try_new(datatype, byteord, columns).map_err(|es| es.map(|e| e.into()))
-            })
-            .map(Tentative::new1)
-            .map_err(DeferredFailure::new2)
+            });
+        DeferredResult::from_multires(res)
     }
 
     fn ncols(&self) -> usize {
@@ -2235,25 +2234,17 @@ impl VersionedDataLayout for DataLayout3_2 {
     }
 
     fn try_new_from_raw(kws: &StdKeywords) -> FromRawResult<Self> {
-        let d = AlphaNumType::get_meta_req(kws)
-            .map_err(RawParsedError::from)
-            .map_err(DeferredFailure::new1);
-        let e = Endian::get_meta_req(kws)
-            .map_err(RawParsedError::from)
-            .map_err(DeferredFailure::new1);
-        let cs = kws_get_columns_3_2(kws);
-        let (datatype, endian, tnt_columns) = combine_results3(d, e, cs)
-            .map_err(DeferredFailure::fold)
-            .map_err(|es| es.errors_into())?;
-        tnt_columns
-            .errors_into()
-            .and_maybe(|columns| {
-                Self::try_new(datatype, endian, columns)
-                    .map_err(DeferredFailure::new2)
-                    .map(Tentative::new1)
-                    .map_err(|es| es.errors_into())
-            })
-            .map_err(|e| e.into())
+        let d = DeferredResult::from_res(AlphaNumType::get_meta_req(kws))
+            .error_into::<RawParsedError>()
+            .inner_into();
+        let e = DeferredResult::from_res(Endian::get_meta_req(kws))
+            .error_into::<RawParsedError>()
+            .inner_into();
+        let cs = kws_get_columns_3_2(kws).inner_into();
+        d.zip3(e, cs).and_maybe(|(datatype, endian, columns)| {
+            let res = Self::try_new(datatype, endian, columns);
+            DeferredResult::from_multires(res).inner_into()
+        })
     }
 
     fn ncols(&self) -> usize {
@@ -2349,14 +2340,12 @@ fn kws_get_columns_3_2(
             .and_maybe(|pn_datatype| {
                 let w = Width::get_meas_req(kws, index).map_err(|e| e.into());
                 let r = Range::get_meas_req(kws, index).map_err(|e| e.into());
-                combine_results(w, r)
-                    .map(|(width, range)| ColumnLayoutData {
-                        width,
-                        range,
-                        datatype: pn_datatype,
-                    })
-                    .map_err(DeferredFailure::new2)
-                    .map(Tentative::new1)
+                let res = combine_results(w, r).map(|(width, range)| ColumnLayoutData {
+                    width,
+                    range,
+                    datatype: pn_datatype,
+                });
+                DeferredResult::from_multires(res)
             })
         })
         .gather()

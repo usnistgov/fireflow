@@ -37,9 +37,7 @@ where
     <V as FromStr>::Err: fmt::Display,
     ParseReqKeyError: From<ReqKeyError<<V as FromStr>::Err>>,
 {
-    V::remove_meta_req(kws)
-        .map(Tentative::new1)
-        .map_err(|e| DeferredFailure::new1(ParseReqKeyError::from(e).into()))
+    DeferredResult::from_res(V::remove_meta_req(kws).map_err(|e| ParseReqKeyError::from(e).into()))
 }
 
 pub(crate) fn lookup_meas_req<V>(kws: &mut StdKeywords, n: MeasIdx) -> LookupResult<V>
@@ -49,9 +47,9 @@ where
     <V as FromStr>::Err: fmt::Display,
     ParseReqKeyError: From<ReqKeyError<<V as FromStr>::Err>>,
 {
-    V::remove_meas_req(kws, n)
-        .map(Tentative::new1)
-        .map_err(|e| DeferredFailure::new1(ParseReqKeyError::from(e).into()))
+    DeferredResult::from_res(
+        V::remove_meas_req(kws, n).map_err(|e| ParseReqKeyError::from(e).into()),
+    )
 }
 
 pub(crate) fn lookup_meta_opt<V>(kws: &mut StdKeywords, dep: bool) -> LookupTentative<OptionalKw<V>>

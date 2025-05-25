@@ -342,55 +342,42 @@ fn h_read_raw_dataset<R: Read + Seek>(
     let def_anal_seg = &raw.parse.analysis;
     let def_data_seg = &raw.parse.data;
 
-    let anal_res = lookup_analysis_offsets(std, conf, version, def_anal_seg)
-        .map(|t| t.warnings_into().errors_into())
-        .map_err(|e| e.warnings_into().errors_into());
+    let anal_res = lookup_analysis_offsets(std, conf, version, def_anal_seg).inner_into();
 
     let reader_res = lookup_data_offsets(std, conf, version, def_data_seg)
-        .map(|t| t.warnings_into().errors_into())
-        .map_err(|e| e.warnings_into().errors_into())
-        .and_then(|tnt| {
-            tnt.and_maybe(|data_seg| {
-                raw.as_reader(data_seg)
-                    .map(|t| t.warnings_into().errors_into())
-                    .map_err(|e| e.warnings_into().errors_into())
-                    .map(|t| t.map(|reader| (raw.keywords, raw.parse, reader, data_seg)))
-            })
+        .inner_into()
+        .and_maybe(|data_seg| {
+            raw.as_reader(data_seg)
+                .inner_into()
+                .map_value(|reader| (raw.keywords, raw.parse, reader, data_seg))
         });
 
-    combine_results(reader_res, anal_res)
-        .map(|(reader_tnt, anal_tnt)| {
-            reader_tnt.zip_with(
-                anal_tnt,
-                |(keywords, parse, reader, data_seg), analysis_seg| {
-                    (
-                        keywords,
-                        ParseData {
-                            data: data_seg,
-                            analysis: analysis_seg,
-                            ..parse
-                        },
-                        reader,
-                    )
+    reader_res
+        .zip(anal_res)
+        .map_value(|((keywords, parse, reader, data_seg), analysis_seg)| {
+            (
+                keywords,
+                ParseData {
+                    data: data_seg,
+                    analysis: analysis_seg,
+                    ..parse
                 },
+                reader,
             )
         })
-        .map_err(DeferredFailure::fold)
-        .and_then(|tnt| {
-            tnt.and_maybe(|(keywords, parse, reader)| {
-                let data = reader
-                    .h_read(h)
-                    .map_err(|e| DeferredFailure::new1(e.into()))?;
-                let analysis = h_read_analysis(h, &parse.analysis)
-                    .map_err(|e| DeferredFailure::new1(e.into()))?;
-                Ok(Tentative::new1(RawDataset {
-                    version,
-                    keywords,
-                    data,
-                    analysis,
-                    parse,
-                }))
-            })
+        .and_maybe(|(keywords, parse, reader)| {
+            let data = reader
+                .h_read(h)
+                .map_err(|e| DeferredFailure::new1(e.into()))?;
+            let analysis =
+                h_read_analysis(h, &parse.analysis).map_err(|e| DeferredFailure::new1(e.into()))?;
+            Ok(Tentative::new1(RawDataset {
+                version,
+                keywords,
+                data,
+                analysis,
+                parse,
+            }))
         })
         .map_or_else(
             |e| Err(e.terminate(ReadRawDatasetFailure)),
@@ -414,53 +401,43 @@ fn h_read_std_dataset<R: Read + Seek>(
     let def_data_seg = &std.parse.data;
 
     // TODO why are kws not mut here?
-    let anal_res = lookup_analysis_offsets(&kws, conf, version, def_anal_seg)
-        .map(|t| t.warnings_into().errors_into())
-        .map_err(|e| e.warnings_into().errors_into());
+    let anal_res = lookup_analysis_offsets(&kws, conf, version, def_anal_seg).inner_into();
 
     let reader_res = lookup_data_offsets(&kws, conf, version, def_data_seg)
-        .map(|t| t.warnings_into().errors_into())
-        .map_err(|e| e.warnings_into().errors_into())
-        .and_then(|tnt| {
-            tnt.and_maybe(|data_seg| {
-                std.standardized
-                    .as_data_reader(&mut kws, conf, data_seg)
-                    .map(|t| t.warnings_into().errors_into())
-                    .map_err(|e| e.warnings_into().errors_into())
-                    .map(|t| t.map(|reader| (std.parse, reader, data_seg)))
-            })
+        .inner_into()
+        .and_maybe(|data_seg| {
+            std.standardized
+                .as_data_reader(&mut kws, conf, data_seg)
+                .inner_into()
+                .map_value(|reader| (std.parse, reader, data_seg))
         });
 
-    combine_results(reader_res, anal_res)
-        .map(|(reader_tnt, anal_tnt)| {
-            reader_tnt.zip_with(anal_tnt, |(parse, reader, data_seg), analysis_seg| {
-                (
-                    ParseData {
-                        data: data_seg,
-                        analysis: analysis_seg,
-                        ..parse
-                    },
-                    reader,
-                )
-            })
+    reader_res
+        .zip(anal_res)
+        .map_value(|((parse, reader, data_seg), analysis_seg)| {
+            (
+                ParseData {
+                    data: data_seg,
+                    analysis: analysis_seg,
+                    ..parse
+                },
+                reader,
+            )
         })
-        .map_err(DeferredFailure::fold)
-        .and_then(|tnt| {
-            tnt.and_maybe(|(parse, reader)| {
-                let columns = reader
-                    .h_read(h)
-                    .map_err(|e| DeferredFailure::new1(e.into()))?;
-                let analysis = h_read_analysis(h, &parse.analysis)
-                    .map_err(|e| DeferredFailure::new1(e.into()))?;
-                let dataset =
-                    AnyCoreDataset::from_coretext_unchecked(std.standardized, columns, analysis);
-                Ok(Tentative::new1(StandardizedDataset {
-                    remainder: kws,
-                    deviant: std.deviant,
-                    dataset,
-                    parse,
-                }))
-            })
+        .and_maybe(|(parse, reader)| {
+            let columns = reader
+                .h_read(h)
+                .map_err(|e| DeferredFailure::new1(e.into()))?;
+            let analysis =
+                h_read_analysis(h, &parse.analysis).map_err(|e| DeferredFailure::new1(e.into()))?;
+            let dataset =
+                AnyCoreDataset::from_coretext_unchecked(std.standardized, columns, analysis);
+            Ok(Tentative::new1(StandardizedDataset {
+                remainder: kws,
+                deviant: std.deviant,
+                dataset,
+                parse,
+            }))
         })
         .map_or_else(
             |e| Err(e.terminate(ReadStdDatasetFailure)),
@@ -961,38 +938,21 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
         .h_read(h, &mut buf)
         .map_err(|e| DeferredFailure::new1(e.into()).terminate(ParseRawTEXTFailure))?;
 
-    // TODO all this lifting probably isn't necessary here
-    let term_delim = split_first_delim(&buf, conf).map_or_else(
-        |e| {
-            Err(e
-                .errors_into()
-                .errors_map(ImpureError::Pure)
-                .warnings_into()
-                .terminate(ParseRawTEXTFailure))
-        },
-        |t| {
-            t.errors_into()
-                .errors_map(ImpureError::Pure)
-                .warnings_into()
-                .terminate(ParseRawTEXTFailure)
-        },
-    )?;
+    let term_delim = split_first_delim(&buf, conf)
+        .inner_into()
+        .error_impure()
+        .map_or_else(
+            |e| Err(e.terminate(ParseRawTEXTFailure)),
+            |t| t.terminate(ParseRawTEXTFailure),
+        )?;
 
     let term_primary = term_delim.and_maybe(ParseRawTEXTFailure, |(delim, bytes)| {
         let kws = ParsedKeywords::default();
         split_raw_primary_text(kws, delim, &bytes, conf)
-            .map_err(|e| {
-                e.errors_into()
-                    .errors_map(ImpureError::Pure)
-                    .warnings_into()
-            })
-            .map(|e| {
-                e.errors_into()
-                    .errors_map(ImpureError::Pure)
-                    .warnings_into()
-            })
-            .map(|tnt| tnt.map(|kws| repair_offsets(kws, conf)))
-            .map(|tnt| tnt.map(|kws| (delim, kws)))
+            .inner_into()
+            .error_impure()
+            .map_value(|kws| repair_offsets(kws, conf))
+            .map_value(|kws| (delim, kws))
     })?;
 
     let term_all_kws = term_primary.and_finally(|(delim, kws)| {
@@ -1008,21 +968,13 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
                         DeferredFailure::new1(e.into()).terminate(ParseRawTEXTFailure)
                     })?;
                     // TODO fixme
-                    split_raw_primary_text(kws, delim, &buf, conf).map_or_else(
-                        |e| {
-                            Err(e
-                                .errors_into()
-                                .errors_map(ImpureError::Pure)
-                                .warnings_into()
-                                .terminate(ParseRawTEXTFailure))
-                        },
-                        |t| {
-                            t.errors_into()
-                                .errors_map(ImpureError::Pure)
-                                .warnings_into()
-                                .terminate(ParseRawTEXTFailure)
-                        },
-                    )?
+                    split_raw_primary_text(kws, delim, &buf, conf)
+                        .inner_into()
+                        .error_impure()
+                        .map_or_else(
+                            |e| Err(e.terminate(ParseRawTEXTFailure)),
+                            |t| t.terminate(ParseRawTEXTFailure),
+                        )?
                 } else {
                     Terminal::new(kws)
                 };

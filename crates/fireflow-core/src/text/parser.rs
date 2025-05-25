@@ -39,6 +39,7 @@ where
 {
     V::remove_meta_req(kws)
         .map_err(ParseReqKeyError::from)
+        .map_err(Box::new)
         .into_deferred0()
 }
 
@@ -51,6 +52,7 @@ where
 {
     V::remove_meas_req(kws, n)
         .map_err(ParseReqKeyError::from)
+        .map_err(Box::new)
         .into_deferred0()
 }
 
@@ -106,9 +108,9 @@ where
     b.zip3(e, d).and_tentatively(|(btim, etim, date)| {
         Timestamps::new(btim, etim, date)
             .map(Tentative::new1)
-            .unwrap_or_else(|e| {
-                let w = ParseKeysWarning::OtherWarning(e.into());
-                Tentative::new(Timestamps::default(), vec![w], vec![])
+            .unwrap_or_else(|w| {
+                let ow = ParseKeysWarning::OtherWarning(w.into());
+                Tentative::new(Timestamps::default(), vec![ow], vec![])
             })
     })
 }
@@ -119,9 +121,9 @@ pub(crate) fn lookup_datetimes(kws: &mut StdKeywords) -> LookupTentative<Datetim
     b.zip(e).and_tentatively(|(begin, end)| {
         Datetimes::try_new(begin, end)
             .map(Tentative::new1)
-            .unwrap_or_else(|e| {
-                let w = ParseKeysWarning::OtherWarning(e.into());
-                Tentative::new(Datetimes::default(), vec![w], vec![])
+            .unwrap_or_else(|w| {
+                let ow = ParseKeysWarning::OtherWarning(w.into());
+                Tentative::new(Datetimes::default(), vec![ow], vec![])
             })
     })
 }
@@ -236,7 +238,7 @@ where
 
 enum_from_disp!(
     pub ParseKeysError,
-    [ReqKey,     ParseReqKeyError],
+    [ReqKey,     Box<ParseReqKeyError>],
     [Other,      ParseOtherError],
     [Deprecated, DepKeyWarning],
     [Linked,     LinkedNameError]

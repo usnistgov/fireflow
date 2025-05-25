@@ -929,8 +929,8 @@ where
 {
     fn check_link(&self, names: &HashSet<&Shortname>) -> Result<(), LinkedNameError> {
         NonEmpty::collect(self.names().difference(names).copied().cloned())
-            .map(|names| LinkedNameError {
-                names,
+            .map(|common_names| LinkedNameError {
+                names: common_names,
                 key: Self::std(),
             })
             .map(Err)

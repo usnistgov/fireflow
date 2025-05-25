@@ -32,7 +32,7 @@ pub struct TerminalFailure<W, E, T> {
 
 pub enum Failure<E, T> {
     Single(T),
-    Many(T, NonEmpty<E>),
+    Many(T, Box<NonEmpty<E>>),
 }
 
 pub enum ImpureError<E> {
@@ -193,7 +193,7 @@ impl<E, T> Failure<E, T> {
         F: Fn(E) -> X,
     {
         match self {
-            Failure::Many(t, es) => Failure::Many(t, es.map(f)),
+            Failure::Many(t, es) => Failure::Many(t, Box::new(es.map(f))),
             Failure::Single(t) => Failure::Single(t),
         }
     }
@@ -222,7 +222,7 @@ impl<W, E, T> TerminalFailure<W, E, T> {
     }
 
     pub fn new_many(t: T, es: NonEmpty<E>) -> Self {
-        Self::new(Failure::Many(t, es))
+        Self::new(Failure::Many(t, Box::new(es)))
     }
 
     pub fn warnings_map<F, X>(self, f: F) -> TerminalFailure<X, E, T>
@@ -446,7 +446,7 @@ impl<V, W, E> Tentative<V, W, E> {
         match NonEmpty::from_vec(self.errors) {
             Some(errors) => Err(TerminalFailure {
                 warnings: self.warnings,
-                failure: Failure::Many(reason, errors),
+                failure: Failure::Many(reason, Box::new(errors)),
             }),
             None => Ok(Terminal {
                 value: self.value,
@@ -580,7 +580,7 @@ impl<W, E> DeferredFailure<W, E> {
     pub fn terminate<T>(self, reason: T) -> TerminalFailure<W, E, T> {
         TerminalFailure {
             warnings: self.warnings,
-            failure: Failure::Many(reason, self.errors),
+            failure: Failure::Many(reason, Box::new(self.errors)),
         }
     }
 }

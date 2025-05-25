@@ -28,11 +28,11 @@ pub fn print_parsed_data(s: &StandardizedDataset, _delim: &str) {
         print!("\t{n}");
     }
     for r in 0..nrows {
-        print!("\n");
+        println!();
         print!("{}", cols[0].pos_to_string(r));
-        for c in 1..ncols {
-            print!("\t{}", cols[c].pos_to_string(r));
-        }
+        (1..ncols)
+            .map(|c| print!("\t{}", cols[c].pos_to_string(r)))
+            .collect()
     }
 }
 
@@ -101,7 +101,7 @@ where
         Failure::Single(t) => eprintln!("ERROR: {t}"),
         Failure::Many(t, es) => {
             eprintln!("TOPLEVEL ERROR: {t}");
-            for e in es {
+            for e in *es {
                 eprintln!("  ERROR: {e}");
             }
         }
@@ -120,7 +120,7 @@ where
             Failure::Single(t) => eprintln!("ERROR: {t}"),
             Failure::Many(t, es) => {
                 eprintln!("TOPLEVEL ERROR: {t}");
-                for e in es {
+                for e in *es {
                     eprintln!("  ERROR: {e}");
                 }
             }

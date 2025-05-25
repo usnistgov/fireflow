@@ -110,15 +110,3 @@ macro_rules! enum_from_disp {
 }
 
 pub(crate) use enum_from_disp;
-
-// macro_rules! nonempty {
-//     ($one:expr) => {
-//         NonEmpty::from(($one, vec![]))
-//     };
-
-//     ($one:expr, $($more:expr),*) => {
-//         NonEmpty::from(($one, vec![$($more),*]))
-//     };
-// }
-
-pub(crate) use nonempty;

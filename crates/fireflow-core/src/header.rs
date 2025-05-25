@@ -1,6 +1,6 @@
 use crate::config::{HeaderConfig, OffsetCorrection};
 use crate::error::*;
-use crate::macros::{enum_from, enum_from_disp, match_many_to_one, nonempty};
+use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
 use crate::segment::*;
 
 use nonempty::NonEmpty;

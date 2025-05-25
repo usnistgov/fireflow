@@ -132,6 +132,10 @@ impl AnyFCSColumn {
         })
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn pos_to_string(&self, i: usize) -> String {
         match_many_to_one!(self, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], x, {
             x.0[i].to_string()

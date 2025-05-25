@@ -2628,6 +2628,7 @@ pub enum ReadDelimAsciiNoRowsError {
 impl fmt::Display for BitmaskError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
+            // TODO what is the target type?
             Self::IntOverrange(x) => {
                 write!(
                     f,

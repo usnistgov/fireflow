@@ -8,15 +8,23 @@ use std::io::{BufReader, Read, Seek, SeekFrom};
 /// A segment in an FCS file which is denoted by a pair of offsets
 #[derive(Debug, Clone, Copy, Serialize, PartialEq)]
 pub struct Segment {
-    // TODO usize?
     begin: u32,
-    length: u32,
+    pseudo_length: u32,
 }
 
 impl Segment {
     /// Make new segment and check bounds to ensure validity
     ///
     /// Will return error explaining why bounds were invalid if failed.
+    ///
+    /// Begin and End are treated as they are in an FCS file, where Begin points
+    /// to first byte and End points to last byte. As such, the only way to
+    /// make a zero-length segment is to have (b, b-1) since the real ending
+    /// *offset* will be one after End.
+    ///
+    /// As a consequence of the above, "unset segments" given as (0,0) are
+    /// actually 1 byte long. There is no way to represent a zero-length segment
+    /// starting at 0 unless we use signed ints.
     pub fn try_new(
         begin: u32,
         end: u32,
@@ -46,17 +54,13 @@ impl Segment {
         }
     }
 
-    pub fn is_unset(&self) -> bool {
-        self.begin == 0 && self.length == 0
-    }
-
     pub fn h_read<R: Read + Seek>(
         &self,
         h: &mut BufReader<R>,
         buf: &mut Vec<u8>,
     ) -> io::Result<()> {
         let begin = u64::from(self.begin);
-        let nbytes = u64::from(self.nbytes());
+        let nbytes = u64::from(self.len());
 
         h.seek(SeekFrom::Start(begin))?;
         h.take(nbytes).read_to_end(buf)?;
@@ -71,8 +75,21 @@ impl Segment {
         Self::try_new(self.begin, self.end(), corr, id)
     }
 
-    pub fn nbytes(&self) -> u32 {
-        self.length + 1
+    pub fn len(&self) -> u32 {
+        // NOTE In FCS a 0,0 means "empty" but this also means one byte
+        // according to the spec's on definitions. The first number points to
+        // the first byte in a segment, and the second number points to the last
+        // byte, therefore 0,0 means "0 is both the first and last byte, which
+        // also means there is one byte".
+        if self.is_empty() {
+            0
+        } else {
+            self.pseudo_length + 1
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.begin == 0 && self.pseudo_length == 0
     }
 
     pub fn begin(&self) -> u32 {
@@ -80,13 +97,13 @@ impl Segment {
     }
 
     pub fn end(&self) -> u32 {
-        self.begin + self.length
+        self.begin + self.pseudo_length
     }
 
     fn new_unchecked(begin: u32, end: u32) -> Segment {
         Segment {
             begin,
-            length: end - begin,
+            pseudo_length: end - begin,
         }
     }
 }

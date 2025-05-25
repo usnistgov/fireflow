@@ -501,8 +501,8 @@ fn split_first_delim<'a>(
     bytes: &'a [u8],
     conf: &RawTextReadConfig,
 ) -> DeferredResult<(u8, &'a [u8]), DelimCharError, DelimVerifyError> {
-    if let Some(delim) = bytes.first() {
-        let mut tnt = Tentative::new1((*delim, &bytes[1..]));
+    if let Some((delim, rest)) = bytes.split_first() {
+        let mut tnt = Tentative::new1((*delim, rest));
         if (1..=126).contains(delim) {
             Ok(tnt)
         } else {
@@ -696,6 +696,32 @@ fn split_raw_primary_text(
         Ok(split_raw_text_double(kws, delim, bytes, conf).errors_into())
     } else {
         Ok(split_raw_text_nodouble(kws, delim, bytes, conf).errors_into())
+    }
+}
+
+fn split_raw_supp_text(
+    kws: ParsedKeywords,
+    delim: u8,
+    bytes: &[u8],
+    conf: &RawTextReadConfig,
+) -> DeferredResult<ParsedKeywords, ParseKeywordsIssue, ParseSupplementalTEXTError> {
+    if let Some((byte0, rest)) = bytes.split_first() {
+        if *byte0 != delim {
+            // TODO toggleme
+            let w = DelimMismatch {
+                delim,
+                supp: *byte0,
+            }
+            .into();
+            Ok(Tentative::new(kws, vec![w], vec![]))
+        } else if conf.allow_double_delim {
+            Ok(split_raw_text_double(kws, delim, rest, conf).errors_into())
+        } else {
+            Ok(split_raw_text_nodouble(kws, delim, rest, conf).errors_into())
+        }
+    } else {
+        // if empty do nothing, this is expected for most files
+        Ok(Tentative::new1(kws))
     }
 }
 
@@ -940,8 +966,7 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
                     seg.h_read(h, &mut buf).map_err(|e| {
                         DeferredFailure::new1(e.into()).terminate(ParseRawTEXTFailure)
                     })?;
-                    // TODO fixme
-                    split_raw_primary_text(_kws, delim, &buf, conf)
+                    split_raw_supp_text(_kws, delim, &buf, conf)
                         .inner_into()
                         .error_impure()
                         .terminate(ParseRawTEXTFailure)?
@@ -1172,7 +1197,10 @@ enum_from_disp!(
     [Uneven, UnevenWordsError],
     [Final, FinalDelimError],
     [Unique, KeywordInsertError],
-    [Bound, DelimBoundError]
+    [Bound, DelimBoundError],
+    // this is only for supp TEXT but seems less wasteful/convoluted to put here
+    [Mismatch, DelimMismatch]
+
 );
 
 pub struct NoTEXTWordsError;
@@ -1190,9 +1218,31 @@ enum_from_disp!(
 );
 
 enum_from_disp!(
+    pub ParseSupplementalTEXTError,
+    [Keywords, ParseKeywordsIssue],
+    [Mismatch, DelimMismatch]
+);
+
+pub struct DelimMismatch {
+    supp: u8,
+    delim: u8,
+}
+
+impl fmt::Display for DelimMismatch {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "first byte of supplemental TEXT ({}) does not match delimiter of primary TEXT ({})",
+            self.supp, self.delim
+        )
+    }
+}
+
+enum_from_disp!(
     pub ParseRawTEXTError,
     [Delim, DelimVerifyError],
     [Primary, ParsePrimaryTEXTError],
+    [Supplemental, ParseSupplementalTEXTError],
     [SuppOffsets, ReqSegmentError],
     [Nextdata, ReqKeyError<ParseIntError>]
 );

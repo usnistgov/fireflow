@@ -426,8 +426,9 @@ fn h_read_std_dataset<R: Read + Seek>(
                 .map_err(|e| DeferredFailure::new1(e.into()))?;
             let analysis =
                 h_read_analysis(h, &parse.analysis).map_err(|e| DeferredFailure::new1(e.into()))?;
-            let dataset =
-                AnyCoreDataset::from_coretext_unchecked(std.standardized, columns, analysis);
+            let dataset = std
+                .standardized
+                .into_coredataset_unchecked(columns, analysis);
             Ok(Tentative::new1(StandardizedDataset {
                 remainder: kws,
                 deviant: std.deviant,

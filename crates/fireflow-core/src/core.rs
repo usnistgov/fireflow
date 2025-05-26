@@ -327,30 +327,19 @@ impl AnyCoreTEXT {
             Version::FCS3_2 => CoreTEXT3_2::new_from_raw(std, nonstd, conf).map(|x| x.value_into()),
         }
     }
+
+    pub(crate) fn into_coredataset_unchecked(
+        self,
+        df: FCSDataFrame,
+        a: Analysis,
+    ) -> AnyCoreDataset {
+        match_anycore!(self, x, { x.into_coredataset_unchecked(df, a).into() })
+    }
 }
 
 impl AnyCoreDataset {
     pub fn as_data(&self) -> &FCSDataFrame {
-        match_many_to_one!(self, AnyCoreDataset, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
-            &x.data
-        })
-    }
-
-    pub(crate) fn from_coretext_unchecked(c: AnyCoreTEXT, df: FCSDataFrame, a: Analysis) -> Self {
-        match c {
-            AnyCoreTEXT::FCS2_0(x) => {
-                Self::FCS2_0(Box::new(CoreDataset::from_coretext_unchecked(*x, df, a)))
-            }
-            AnyCoreTEXT::FCS3_0(x) => {
-                Self::FCS3_0(Box::new(CoreDataset::from_coretext_unchecked(*x, df, a)))
-            }
-            AnyCoreTEXT::FCS3_1(x) => {
-                Self::FCS3_1(Box::new(CoreDataset::from_coretext_unchecked(*x, df, a)))
-            }
-            AnyCoreTEXT::FCS3_2(x) => {
-                Self::FCS3_2(Box::new(CoreDataset::from_coretext_unchecked(*x, df, a)))
-            }
-        }
+        match_anycore!(self, x, { &x.data })
     }
 }
 
@@ -2507,6 +2496,32 @@ where
     pub fn unset_measurements(&mut self) -> Result<(), String> {
         self.unset_measurements_inner()
     }
+
+    /// Make new CoreDataset from CoreTEXT with supplied DATA and ANALYSIS
+    ///
+    /// Number of columns must match number of measurements and must all be the
+    /// same length.
+    pub fn into_coredataset(
+        self,
+        columns: Vec<AnyFCSColumn>,
+        analysis: Analysis,
+    ) -> Result<VersionedCoreDataset<M>, String> {
+        let data = self.try_cols_to_dataframe(columns)?;
+        Ok(self.into_coredataset_unchecked(data, analysis))
+    }
+
+    pub(crate) fn into_coredataset_unchecked(
+        self,
+        data: FCSDataFrame,
+        analysis: Analysis,
+    ) -> VersionedCoreDataset<M> {
+        CoreDataset {
+            metadata: self.metadata,
+            measurements: self.measurements,
+            data,
+            analysis,
+        }
+    }
 }
 
 // TODO what is the point of having the dataframe and measurements be empty?
@@ -2661,31 +2676,31 @@ where
         CoreTEXT::new_unchecked(self.metadata, self.measurements)
     }
 
-    /// Make new CoreDataset from CoreTEXT with supplied DATA and ANALYSIS
-    ///
-    /// Number of columns must match number of measurements and must all be the
-    /// same length.
-    pub fn from_coretext(
-        c: VersionedCoreTEXT<M>,
-        columns: Vec<AnyFCSColumn>,
-        analysis: Analysis,
-    ) -> Result<Self, String> {
-        let data = c.try_cols_to_dataframe(columns)?;
-        Ok(Self::from_coretext_unchecked(c, data, analysis))
-    }
+    // /// Make new CoreDataset from CoreTEXT with supplied DATA and ANALYSIS
+    // ///
+    // /// Number of columns must match number of measurements and must all be the
+    // /// same length.
+    // pub fn from_coretext(
+    //     c: VersionedCoreTEXT<M>,
+    //     columns: Vec<AnyFCSColumn>,
+    //     analysis: Analysis,
+    // ) -> Result<Self, String> {
+    //     let data = c.try_cols_to_dataframe(columns)?;
+    //     Ok(Self::from_coretext_unchecked(c, data, analysis))
+    // }
 
-    pub(crate) fn from_coretext_unchecked(
-        c: VersionedCoreTEXT<M>,
-        data: FCSDataFrame,
-        analysis: Analysis,
-    ) -> Self {
-        CoreDataset {
-            metadata: c.metadata,
-            measurements: c.measurements,
-            data,
-            analysis,
-        }
-    }
+    // pub(crate) fn from_coretext_unchecked(
+    //     c: VersionedCoreTEXT<M>,
+    //     data: FCSDataFrame,
+    //     analysis: Analysis,
+    // ) -> Self {
+    //     CoreDataset {
+    //         metadata: c.metadata,
+    //         measurements: c.measurements,
+    //         data,
+    //         analysis,
+    //     }
+    // }
 }
 
 impl<M, T, P, N, W> CoreTEXT<M, T, P, N, W> {

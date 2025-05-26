@@ -4822,14 +4822,13 @@ impl VersionedMetadata for InnerMetadata2_0 {
     fn keywords_opt_inner(&self) -> RawPairs {
         [
             OptMetaKey::pair(&self.cyt),
-            // TODO this is wrong, need to expand this out into DFCmTOn keys
-            OptMetaKey::pair(&self.comp),
             OptMetaKey::pair(&self.timestamps.btim()),
             OptMetaKey::pair(&self.timestamps.etim()),
             OptMetaKey::pair(&self.timestamps.date()),
         ]
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))
+        .chain(self.comp.as_ref_opt().map_or(vec![], |c| c.as_dfc_keys()))
         .collect()
     }
 

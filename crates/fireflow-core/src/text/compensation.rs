@@ -1,5 +1,7 @@
 use crate::validated::nonstandard::*;
+use crate::validated::standard::BiIndexedKey;
 
+use super::keywords::Dfc;
 use super::optionalkw::*;
 
 use itertools::Itertools;
@@ -46,6 +48,23 @@ impl Compensation {
 
     pub fn matrix(&self) -> &DMatrix<f32> {
         &self.matrix
+    }
+
+    pub fn as_dfc_keys(&self) -> Vec<(String, String)> {
+        let n = self.matrix.ncols();
+        self.matrix
+            .iter()
+            .enumerate()
+            .flat_map(|(i, x)| {
+                if *x != 0.0 {
+                    let row = i / n + 1;
+                    let col = i % n + 1;
+                    Some((Dfc::std(row, col).to_string(), x.to_string()))
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 }
 

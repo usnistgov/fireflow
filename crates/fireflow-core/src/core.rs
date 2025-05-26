@@ -1443,19 +1443,14 @@ where
     pub(crate) fn try_cols_to_dataframe(
         &self,
         cols: Vec<AnyFCSColumn>,
-    ) -> Result<FCSDataFrame, String> {
-        let n = &cols.len();
-        let p = self.par();
-        if *n != p.0 {
-            return Err(format!(
-                "DATA has {n} columns but TEXT has {p} measurements",
-            ));
+    ) -> Result<FCSDataFrame, ColumsnToDataframeError> {
+        let data_n = cols.len();
+        let meas_n = self.par().0;
+        if data_n != meas_n {
+            return Err(MeasDataMismatchError { meas_n, data_n }.into());
         }
-        if let Some(df) = FCSDataFrame::try_new(cols) {
-            Ok(df)
-        } else {
-            Err("columns have different lengths".into())
-        }
+        let df = FCSDataFrame::try_new(cols)?;
+        Ok(df)
     }
 
     /// Return HEADER+TEXT as a list of strings
@@ -1992,40 +1987,37 @@ where
         self.measurements.insert(i, n, m).map_err(|e| e.to_string())
     }
 
+    fn check_existing_links(&mut self) -> Result<(), ExistingLinkError> {
+        if self.trigger_name().is_some() {
+            return Err(ExistingLinkError::Trigger);
+        }
+        let m = &self.metadata;
+        let s = &m.specific;
+        if s.as_unstainedcenters().is_some() {
+            return Err(ExistingLinkError::UnstainedCenters);
+        }
+        if s.as_compensation().is_some() {
+            return Err(ExistingLinkError::Comp);
+        }
+        if s.as_spillover().is_some() {
+            return Err(ExistingLinkError::Spillover);
+        }
+        Ok(())
+    }
+
     fn set_measurements_inner(
         &mut self,
         xs: RawInput<M::N, Temporal<M::T>, Optical<M::P>>,
         prefix: ShortnamePrefix,
-    ) -> Result<(), String> {
-        if self.trigger_name().is_some() {
-            return Err("$TR depends on existing measurements".into());
-        }
-        let m = &self.metadata;
-        let s = &m.specific;
-        if s.as_unstainedcenters().is_some() {
-            return Err("$UNSTAINEDCENTERS depends on existing measurements".into());
-        }
-        if s.as_compensation().is_some() || s.as_spillover().is_some() {
-            return Err("$COMP/$SPILLOVER depends on existing measurements".into());
-        }
-        let ms = NamedVec::try_new(xs, prefix).map_err(|e| e.to_string())?;
+    ) -> Result<(), SetMeasurementsError> {
+        self.check_existing_links()?;
+        let ms = NamedVec::try_new(xs, prefix)?;
         self.measurements = ms;
         Ok(())
     }
 
-    fn unset_measurements_inner(&mut self) -> Result<(), String> {
-        // TODO not DRY
-        if self.trigger_name().is_some() {
-            return Err("$TR depends on existing measurements".into());
-        }
-        let m = &self.metadata;
-        let s = &m.specific;
-        if s.as_unstainedcenters().is_some() {
-            return Err("$UNSTAINEDCENTERS depends on existing measurements".into());
-        }
-        if s.as_compensation().is_some() || s.as_spillover().is_some() {
-            return Err("$COMP/$SPILLOVER depends on existing measurements".into());
-        }
+    fn unset_measurements_inner(&mut self) -> Result<(), ExistingLinkError> {
+        self.check_existing_links()?;
         self.measurements = NamedVec::default();
         Ok(())
     }
@@ -2512,7 +2504,7 @@ where
     }
 
     /// Remove measurements
-    pub fn unset_measurements(&mut self) -> Result<(), String> {
+    pub fn unset_measurements(&mut self) -> Result<(), ExistingLinkError> {
         self.unset_measurements_inner()
     }
 
@@ -2524,7 +2516,7 @@ where
         self,
         columns: Vec<AnyFCSColumn>,
         analysis: Analysis,
-    ) -> Result<VersionedCoreDataset<M>, String> {
+    ) -> Result<VersionedCoreDataset<M>, ColumsnToDataframeError> {
         let data = self.try_cols_to_dataframe(columns)?;
         Ok(self.into_coredataset_unchecked(data, analysis))
     }
@@ -2588,14 +2580,13 @@ where
     ///
     /// Return error if columns are not all the same length or number of columns
     /// doesn't match the number of measurement.
-    // TODO if this is empty this will clear the dataset, so what is 'unset' for?
-    pub fn set_data(&mut self, cols: Vec<AnyFCSColumn>) -> Result<(), String> {
+    pub fn set_data(&mut self, cols: Vec<AnyFCSColumn>) -> Result<(), ColumsnToDataframeError> {
         self.data = self.try_cols_to_dataframe(cols)?;
         Ok(())
     }
 
     /// Remove all measurements and data
-    pub fn unset_data(&mut self) -> Result<(), String> {
+    pub fn unset_data(&mut self) -> Result<(), ExistingLinkError> {
         self.unset_measurements_inner()?;
         self.data.clear();
         Ok(())
@@ -3356,7 +3347,7 @@ macro_rules! coretext_set_measurements2_0 {
             &mut self,
             xs: $rawinput,
             prefix: ShortnamePrefix,
-        ) -> Result<(), String> {
+        ) -> Result<(), SetMeasurementsError> {
             self.set_measurements_inner(xs, prefix)
         }
     };
@@ -3368,7 +3359,7 @@ macro_rules! coretext_set_measurements3_1 {
         ///
         /// Return error if names are not unique or there is more than one
         /// time measurement.
-        pub fn set_measurements(&mut self, xs: $rawinput) -> Result<(), String> {
+        pub fn set_measurements(&mut self, xs: $rawinput) -> Result<(), SetMeasurementsError> {
             self.set_measurements_inner(xs, ShortnamePrefix::default())
         }
     };
@@ -3424,12 +3415,13 @@ macro_rules! coredataset_set_measurements2_0 {
             xs: $rawinput,
             cs: Vec<AnyFCSColumn>,
             prefix: ShortnamePrefix,
-        ) -> Result<(), String> {
-            if xs.len() != cs.len() {
-                let msg = "measurement number does not match dataframe column number";
-                return Err(msg.into());
+        ) -> Result<(), SetMeasurementsAndDataError> {
+            let meas_n = xs.len();
+            let data_n = cs.len();
+            if meas_n != data_n {
+                return Err(MeasDataMismatchError { meas_n, data_n }.into());
             }
-            let df = FCSDataFrame::try_new(cs).ok_or("columns lengths to not match".to_string())?;
+            let df = FCSDataFrame::try_new(cs)?;
             self.set_measurements_inner(xs, prefix)?;
             self.data = df;
             Ok(())
@@ -3442,12 +3434,14 @@ macro_rules! coredataset_set_measurements2_0 {
             &mut self,
             xs: $rawinput,
             prefix: ShortnamePrefix,
-        ) -> Result<(), String> {
-            if xs.len() != self.par().0 {
-                let msg = "measurement number does not match dataframe column number";
-                return Err(msg.into());
+        ) -> Result<(), SetMeasurementsOnlyError> {
+            let meas_n = xs.len();
+            let data_n = self.par().0;
+            if meas_n != data_n {
+                return Err(MeasDataMismatchError { meas_n, data_n }.into());
             }
-            self.set_measurements_inner(xs, prefix)
+            self.set_measurements_inner(xs, prefix)?;
+            Ok(())
         }
     };
 }
@@ -3461,12 +3455,13 @@ macro_rules! coredataset_set_measurements3_1 {
             &mut self,
             xs: $rawinput,
             cs: Vec<AnyFCSColumn>,
-        ) -> Result<(), String> {
-            if xs.len() != cs.len() {
-                let msg = "measurement number does not match dataframe column number";
-                return Err(msg.into());
+        ) -> Result<(), SetMeasurementsAndDataError> {
+            let meas_n = xs.len();
+            let data_n = cs.len();
+            if meas_n != data_n {
+                return Err(MeasDataMismatchError { meas_n, data_n }.into());
             }
-            let df = FCSDataFrame::try_new(cs).ok_or("columns lengths to not match".to_string())?;
+            let df = FCSDataFrame::try_new(cs)?;
             self.set_measurements_inner(xs, ShortnamePrefix::default())?;
             self.data = df;
             Ok(())
@@ -3475,12 +3470,14 @@ macro_rules! coredataset_set_measurements3_1 {
         /// Set measurements.
         ///
         /// Length of measurements must match the current width of the dataframe.
-        pub fn set_measurements(&mut self, xs: $rawinput) -> Result<(), String> {
-            if xs.len() != self.par().0 {
-                let msg = "measurement number does not match dataframe column number";
-                return Err(msg.into());
+        pub fn set_measurements(&mut self, xs: $rawinput) -> Result<(), SetMeasurementsOnlyError> {
+            let meas_n = xs.len();
+            let data_n = self.par().0;
+            if meas_n != data_n {
+                return Err(MeasDataMismatchError { meas_n, data_n }.into());
             }
-            self.set_measurements_inner(xs, ShortnamePrefix::default())
+            self.set_measurements_inner(xs, ShortnamePrefix::default())?;
+            Ok(())
         }
     };
 }
@@ -5570,3 +5567,62 @@ enum_from_disp!(
     [Writer, ColumnWriterError],
     [TEXT, TEXTOverflowError]
 );
+
+pub enum ExistingLinkError {
+    Trigger,
+    UnstainedCenters,
+    Comp,
+    Spillover,
+}
+
+impl fmt::Display for ExistingLinkError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let s = match self {
+            Self::Trigger => "$TR",
+            Self::UnstainedCenters => "$UNSTAINEDCENTERS",
+            Self::Comp => "$COMP",
+            Self::Spillover => "$SPILLOVER",
+        };
+        write!(f, "{s} depends on existing $PnN")
+    }
+}
+
+enum_from_disp!(
+    pub SetMeasurementsError,
+    [New, NewNamedVecError],
+    [Link, ExistingLinkError]
+);
+
+enum_from_disp!(
+    pub SetMeasurementsAndDataError,
+    [Meas, SetMeasurementsError],
+    [New, NewDataframeError],
+    [Mismatch, MeasDataMismatchError]
+);
+
+enum_from_disp!(
+    pub ColumsnToDataframeError,
+    [New, NewDataframeError],
+    [Mismatch, MeasDataMismatchError]
+);
+
+enum_from_disp!(
+    pub SetMeasurementsOnlyError,
+    [Meas, SetMeasurementsError],
+    [Mismatch, MeasDataMismatchError]
+);
+
+pub struct MeasDataMismatchError {
+    meas_n: usize,
+    data_n: usize,
+}
+
+impl fmt::Display for MeasDataMismatchError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "measurement number ({}) does not match dataframe column number ({})",
+            self.meas_n, self.data_n
+        )
+    }
+}

@@ -1813,7 +1813,7 @@ macro_rules! common_coretext_meas_get_set {
                     &mut self,
                 ) -> PyResult<()> {
                     self.0.unset_measurements()
-                        .map_err(PyreflowException::new_err)
+                        .map_err(|e| PyreflowException::new_err(e.to_string()))
                 }
             }
         )*
@@ -1861,7 +1861,7 @@ macro_rules! coredata_meas_get_set {
                     &mut self,
                 ) -> PyResult<()> {
                     self.0.unset_data()
-                        .map_err(PyreflowException::new_err)
+                        .map_err(|e| PyreflowException::new_err(e.to_string()))
                 }
 
                 #[getter]
@@ -2046,7 +2046,7 @@ macro_rules! set_measurements2_0 {
                     }
                     self.0
                         .set_measurements(ys, sp)
-                        .map_err(PyreflowException::new_err)
+                        .map_err(|e| PyreflowException::new_err(e.to_string()))
                 }
             }
         )*
@@ -2081,7 +2081,7 @@ macro_rules! set_measurements3_1 {
                     }
                     self.0
                         .set_measurements(ys)
-                        .map_err(PyreflowException::new_err)
+                        .map_err(|e| PyreflowException::new_err(e.to_string()))
                 }
             }
         )*
@@ -2118,8 +2118,10 @@ macro_rules! coredata2_0_meas_methods {
                         ys.push(y);
                     };
                     let go = || {
-                        let cols = dataframe_to_fcs(df.into())?;
+                        let cols = dataframe_to_fcs(df.into())
+                            .map_err(|e| e.to_string())?;
                         self.0.set_measurements_and_data(ys, cols, sp)
+                            .map_err(|e| e.to_string())
                     };
                     go().map_err(PyreflowException::new_err)
                 }
@@ -2154,8 +2156,10 @@ macro_rules! coredata3_1_meas_methods {
                         ys.push(y);
                     };
                     let go = || {
-                        let cols = dataframe_to_fcs(df.into())?;
+                        let cols = dataframe_to_fcs(df.into())
+                        .map_err(|e| e.to_string())?;
                         self.0.set_measurements_and_data(ys, cols)
+                        .map_err(|e| e.to_string())
                     };
                     go().map_err(PyreflowException::new_err)
                 }

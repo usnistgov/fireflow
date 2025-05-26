@@ -4,6 +4,7 @@ use crate::macros::match_many_to_one;
 use polars_arrow::array::{Array, PrimitiveArray};
 use polars_arrow::buffer::Buffer;
 use polars_arrow::datatypes::ArrowDataType;
+use std::fmt;
 use std::iter;
 use std::slice::Iter;
 
@@ -166,16 +167,25 @@ impl AnyFCSColumn {
     }
 }
 
+#[derive(Debug)]
+pub struct NewDataframeError;
+
+impl fmt::Display for NewDataframeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "column lengths to not match")
+    }
+}
+
 impl FCSDataFrame {
-    pub(crate) fn try_new(columns: Vec<AnyFCSColumn>) -> Option<Self> {
+    pub(crate) fn try_new(columns: Vec<AnyFCSColumn>) -> Result<Self, NewDataframeError> {
         if let Some(nrows) = columns.first().map(|c| c.len()) {
             if columns.iter().all(|c| c.len() == nrows) {
-                Some(Self { columns, nrows })
+                Ok(Self { columns, nrows })
             } else {
-                None
+                Err(NewDataframeError)
             }
         } else {
-            Some(Self::default())
+            Ok(Self::default())
         }
     }
 

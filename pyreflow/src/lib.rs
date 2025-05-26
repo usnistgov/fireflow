@@ -1365,7 +1365,9 @@ impl PyCoreTEXT3_2 {
 
     fn insert_unstained_center(&mut self, k: String, v: f32) -> PyResult<Option<f32>> {
         let n = str_to_shortname(k)?;
-        Ok(self.0.insert_unstained_center(n, v))
+        self.0
+            .insert_unstained_center(n, v)
+            .map_err(|e| PyreflowException::new_err(e.to_string()))
     }
 
     fn remove_unstained_center(&mut self, k: String) -> PyResult<Option<f32>> {

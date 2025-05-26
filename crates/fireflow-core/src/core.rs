@@ -2986,18 +2986,22 @@ impl<A, D> Core3_2<A, D> {
     }
 
     /// Insert an unstained center
-    pub fn insert_unstained_center(&mut self, k: Shortname, v: f32) -> Option<f32> {
+    pub fn insert_unstained_center(
+        &mut self,
+        k: Shortname,
+        v: f32,
+    ) -> Result<Option<f32>, MissingMeasurementNameError> {
         if !self.measurement_names().contains(&k) {
-            // TODO this is ambiguous, user has no idea why their value was
-            // rejected
-            return None;
-        }
-        let us = &mut self.metadata.specific.unstained;
-        if let Some(u) = us.unstainedcenters.0.as_mut() {
-            u.insert(k, v)
+            Err(MissingMeasurementNameError(k))
         } else {
-            us.unstainedcenters = Some(UnstainedCenters::new_1(k, v)).into();
-            None
+            let us = &mut self.metadata.specific.unstained;
+            let ret = if let Some(u) = us.unstainedcenters.0.as_mut() {
+                u.insert(k, v)
+            } else {
+                us.unstainedcenters = Some(UnstainedCenters::new_1(k, v)).into();
+                None
+            };
+            Ok(ret)
         }
     }
 
@@ -5542,5 +5546,13 @@ impl fmt::Display for MeasDataMismatchError {
             "measurement number ({}) does not match dataframe column number ({})",
             self.meas_n, self.data_n
         )
+    }
+}
+
+pub struct MissingMeasurementNameError(Shortname);
+
+impl fmt::Display for MissingMeasurementNameError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "name {} does not exist in measurements", self.0)
     }
 }

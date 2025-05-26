@@ -2502,8 +2502,6 @@ where
     }
 }
 
-// TODO what is the point of having the dataframe and measurements be empty?
-// Does this make sense to allow?
 impl<M> VersionedCoreDataset<M>
 where
     M: VersionedMetadata,

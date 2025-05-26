@@ -2367,7 +2367,7 @@ where
         M::as_column_layout(&self.metadata, &self.measurements, &conf.shared)
             .inner_into()
             .and_maybe(|dl| {
-                dl.into_reader(kws, data_seg)
+                dl.into_reader(kws, data_seg, conf)
                     .map_err(|e| e.errors_into())
                     .map(|x| {
                         x.map(|column_reader| DataReader {

@@ -800,7 +800,7 @@ pub trait VersionedMetadata: Sized {
 
     fn keywords_opt_inner(&self) -> RawPairs;
 
-    fn as_column_layout(
+    fn as_data_layout(
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
         conf: &SharedConfig,
@@ -2351,11 +2351,11 @@ where
         Ok(())
     }
 
-    pub(crate) fn as_column_layout(
+    pub(crate) fn as_data_layout(
         &self,
         conf: &SharedConfig,
     ) -> DeferredResult<M::L, NewDataLayoutWarning, NewDataLayoutError> {
-        M::as_column_layout(&self.metadata, &self.measurements, conf)
+        M::as_data_layout(&self.metadata, &self.measurements, conf)
     }
 
     pub(crate) fn as_data_reader(
@@ -2364,7 +2364,7 @@ where
         conf: &DataReadConfig,
         data_seg: Segment,
     ) -> DeferredResult<DataReader, NewReaderWarning, StdReaderError> {
-        M::as_column_layout(&self.metadata, &self.measurements, &conf.shared)
+        M::as_data_layout(&self.metadata, &self.measurements, &conf.shared)
             .inner_into()
             .and_maybe(|dl| {
                 dl.into_reader(kws, data_seg, conf)
@@ -2532,7 +2532,7 @@ where
         W: Write,
     {
         let df = &self.data;
-        self.as_column_layout(&conf.shared)
+        self.as_data_layout(&conf.shared)
             .error_into()
             .error_impure()
             .and_maybe(|layout| layout.as_writer(df, conf).into_deferred1().error_impure())
@@ -4918,7 +4918,7 @@ impl VersionedMetadata for InnerMetadata2_0 {
         .collect()
     }
 
-    fn as_column_layout(
+    fn as_data_layout(
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
         conf: &SharedConfig,
@@ -5006,7 +5006,7 @@ impl VersionedMetadata for InnerMetadata3_0 {
         .collect()
     }
 
-    fn as_column_layout(
+    fn as_data_layout(
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
         conf: &SharedConfig,
@@ -5102,7 +5102,7 @@ impl VersionedMetadata for InnerMetadata3_1 {
         .collect()
     }
 
-    fn as_column_layout(
+    fn as_data_layout(
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
         conf: &SharedConfig,
@@ -5210,7 +5210,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
         .collect()
     }
 
-    fn as_column_layout(
+    fn as_data_layout(
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
         conf: &SharedConfig,

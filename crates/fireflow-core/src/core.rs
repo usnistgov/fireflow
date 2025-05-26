@@ -2372,8 +2372,7 @@ where
                     .map(|x| {
                         x.map(|column_reader| DataReader {
                             column_reader,
-                            // TODO fix cast
-                            begin: data_seg.begin() as u64,
+                            begin: u64::from(data_seg.begin()),
                         })
                         .errors_into()
                     })

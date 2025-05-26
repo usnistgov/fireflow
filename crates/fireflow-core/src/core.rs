@@ -2395,13 +2395,10 @@ where
         tnt_core
             .and_maybe(|core| {
                 core.check_linked_names()
-                    .map(|_| Tentative::new1(core))
-                    .map_err(|es| es.map(|x| x.into()))
-                    .map_err(DeferredFailure::new2)
+                    .into_deferred1()
+                    .map_value(|_| core)
             })
-            // TODO this seems a bit wet
-            .map_err(|e| e.terminate(CoreTEXTFailure::Linked))
-            .and_then(|t| t.terminate(CoreTEXTFailure::Linked))
+            .terminate(CoreTEXTFailure::Linked)
     }
 
     /// Remove a measurement matching the given name.

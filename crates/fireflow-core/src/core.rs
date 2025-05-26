@@ -1592,7 +1592,6 @@ where
     /// being set.
     pub fn set_all_shortnames(&mut self, ns: Vec<Shortname>) -> Result<NameMapping, SetKeysError> {
         let mapping = self.measurements.set_names(ns)?;
-        // TODO reassign names in dataframe
         self.metadata.reassign_all(&mapping);
         Ok(mapping)
     }

@@ -578,10 +578,10 @@ fn py_read_fcs_file(
         // TODO this copies all data from the "union type" into a new
         // version-specific type. This might not be a big deal, but these
         // types might be rather large with lots of strings.
-        AnyCoreDataset::FCS2_0(x) => PyCoreDataset2_0::from(x.clone()).into_bound_py_any(py),
-        AnyCoreDataset::FCS3_0(x) => PyCoreDataset3_0::from(x.clone()).into_bound_py_any(py),
-        AnyCoreDataset::FCS3_1(x) => PyCoreDataset3_1::from(x.clone()).into_bound_py_any(py),
-        AnyCoreDataset::FCS3_2(x) => PyCoreDataset3_2::from(x.clone()).into_bound_py_any(py),
+        AnyCoreDataset::FCS2_0(x) => PyCoreDataset2_0::from((**x).clone()).into_bound_py_any(py),
+        AnyCoreDataset::FCS3_0(x) => PyCoreDataset3_0::from((**x).clone()).into_bound_py_any(py),
+        AnyCoreDataset::FCS3_1(x) => PyCoreDataset3_1::from((**x).clone()).into_bound_py_any(py),
+        AnyCoreDataset::FCS3_2(x) => PyCoreDataset3_2::from((**x).clone()).into_bound_py_any(py),
     }?;
 
     Ok((

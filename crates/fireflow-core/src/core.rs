@@ -201,59 +201,56 @@ pub struct Optical<X> {
 }
 
 /// Minimal TEXT data for any supported FCS version
-// TODO make this generic?
 #[derive(Clone)]
-pub enum AnyCoreTEXT {
-    FCS2_0(Box<CoreTEXT2_0>),
-    FCS3_0(Box<CoreTEXT3_0>),
-    FCS3_1(Box<CoreTEXT3_1>),
-    FCS3_2(Box<CoreTEXT3_2>),
+pub enum AnyCore<A, D> {
+    FCS2_0(Box<Core2_0<A, D>>),
+    FCS3_0(Box<Core3_0<A, D>>),
+    FCS3_1(Box<Core3_1<A, D>>),
+    FCS3_2(Box<Core3_2<A, D>>),
 }
 
-/// Minimal TEXT/DATA/ANALYSIS for any supported FCS version
-#[derive(Clone)]
-pub enum AnyCoreDataset {
-    FCS2_0(CoreDataset2_0),
-    FCS3_0(CoreDataset3_0),
-    FCS3_1(CoreDataset3_1),
-    FCS3_2(CoreDataset3_2),
-}
+pub type AnyCoreTEXT = AnyCore<(), ()>;
+pub type AnyCoreDataset = AnyCore<Analysis, FCSDataFrame>;
 
 macro_rules! from_anycoretext {
     ($anyvar:ident, $coretype:ident) => {
-        impl From<$coretype> for AnyCoreTEXT {
-            fn from(value: $coretype) -> Self {
+        impl<A, D> From<$coretype<A, D>> for AnyCore<A, D> {
+            fn from(value: $coretype<A, D>) -> Self {
                 Self::$anyvar(Box::new(value))
             }
         }
     };
 }
 
-from_anycoretext!(FCS2_0, CoreTEXT2_0);
-from_anycoretext!(FCS3_0, CoreTEXT3_0);
-from_anycoretext!(FCS3_1, CoreTEXT3_1);
-from_anycoretext!(FCS3_2, CoreTEXT3_2);
+from_anycoretext!(FCS2_0, Core2_0);
+from_anycoretext!(FCS3_0, Core3_0);
+from_anycoretext!(FCS3_1, Core3_1);
+from_anycoretext!(FCS3_2, Core3_2);
 
-impl Serialize for AnyCoreTEXT {
+impl<A, D> Serialize for AnyCore<A, D>
+where
+    A: Serialize,
+    D: Serialize,
+{
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        let mut state = serializer.serialize_struct("AnyStdTEXT", 2)?;
+        let mut state = serializer.serialize_struct("AnyCore", 2)?;
         match self {
-            AnyCoreTEXT::FCS2_0(x) => {
+            Self::FCS2_0(x) => {
                 state.serialize_field("version", &Version::FCS2_0)?;
                 state.serialize_field("data", &x)?;
             }
-            AnyCoreTEXT::FCS3_0(x) => {
+            Self::FCS3_0(x) => {
                 state.serialize_field("version", &Version::FCS3_0)?;
                 state.serialize_field("data", &x)?;
             }
-            AnyCoreTEXT::FCS3_1(x) => {
+            Self::FCS3_1(x) => {
                 state.serialize_field("version", &Version::FCS3_1)?;
                 state.serialize_field("data", &x)?;
             }
-            AnyCoreTEXT::FCS3_2(x) => {
+            Self::FCS3_2(x) => {
                 state.serialize_field("version", &Version::FCS3_2)?;
                 state.serialize_field("data", &x)?;
             }
@@ -262,19 +259,59 @@ impl Serialize for AnyCoreTEXT {
     }
 }
 
-macro_rules! match_anycoretext {
+macro_rules! match_anycore {
     ($self:expr, $bind:ident, $stuff:block) => {
-        match_many_to_one!(
-            $self,
-            AnyCoreTEXT,
-            [FCS2_0, FCS3_0, FCS3_1, FCS3_2],
-            $bind,
-            $stuff
-        )
+        match_many_to_one!($self, Self, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], $bind, $stuff)
     };
 }
 
-pub(crate) use match_anycoretext;
+pub(crate) use match_anycore;
+
+impl<A, D> AnyCore<A, D> {
+    pub fn version(&self) -> Version {
+        match self {
+            Self::FCS2_0(_) => Version::FCS2_0,
+            Self::FCS3_0(_) => Version::FCS3_0,
+            Self::FCS3_1(_) => Version::FCS3_1,
+            Self::FCS3_2(_) => Version::FCS3_2,
+        }
+    }
+
+    pub fn shortnames(&self) -> Vec<Shortname> {
+        match_anycore!(self, x, { x.all_shortnames() })
+    }
+
+    pub fn text_segment(
+        &self,
+        tot: Tot,
+        data_len: usize,
+        analysis_len: usize,
+    ) -> Option<Vec<String>> {
+        match_anycore!(self, x, { x.text_segment(tot, data_len, analysis_len) })
+    }
+
+    pub fn print_meas_table(&self, delim: &str) {
+        match_anycore!(self, x, { x.print_meas_table(delim) })
+    }
+
+    pub fn print_spillover_table(&self, delim: &str) {
+        let res = match_anycore!(self, x, { x.metadata.specific.as_spillover() })
+            .as_ref()
+            .map(|s| s.print_table(delim));
+        if res.is_none() {
+            println!("None")
+        }
+    }
+
+    pub(crate) fn as_data_reader(
+        &self,
+        kws: &mut StdKeywords,
+        conf: &DataReadConfig,
+        data_seg: Segment,
+    ) -> DeferredResult<DataReader, NewReaderWarning, StdReaderError> {
+        match_anycore!(self, x, { x.as_data_reader(kws, conf, data_seg) })
+    }
+}
 
 impl AnyCoreTEXT {
     pub(crate) fn parse_raw(
@@ -290,55 +327,9 @@ impl AnyCoreTEXT {
             Version::FCS3_2 => CoreTEXT3_2::new_from_raw(std, nonstd, conf).map(|x| x.value_into()),
         }
     }
-
-    pub fn version(&self) -> Version {
-        match self {
-            AnyCoreTEXT::FCS2_0(_) => Version::FCS2_0,
-            AnyCoreTEXT::FCS3_0(_) => Version::FCS3_0,
-            AnyCoreTEXT::FCS3_1(_) => Version::FCS3_1,
-            AnyCoreTEXT::FCS3_2(_) => Version::FCS3_2,
-        }
-    }
-
-    pub fn text_segment(
-        &self,
-        tot: Tot,
-        data_len: usize,
-        analysis_len: usize,
-    ) -> Option<Vec<String>> {
-        match_anycoretext!(self, x, { x.text_segment(tot, data_len, analysis_len) })
-    }
-
-    pub fn print_meas_table(&self, delim: &str) {
-        match_anycoretext!(self, x, { x.print_meas_table(delim) })
-    }
-
-    pub fn print_spillover_table(&self, delim: &str) {
-        let res = match_anycoretext!(self, x, { x.metadata.specific.as_spillover() })
-            .as_ref()
-            .map(|s| s.print_table(delim));
-        if res.is_none() {
-            println!("None")
-        }
-    }
-
-    pub(crate) fn as_data_reader(
-        &self,
-        kws: &mut StdKeywords,
-        conf: &DataReadConfig,
-        data_seg: Segment,
-    ) -> DeferredResult<DataReader, NewReaderWarning, StdReaderError> {
-        match_anycoretext!(self, x, { x.as_data_reader(kws, conf, data_seg) })
-    }
 }
 
 impl AnyCoreDataset {
-    pub fn shortnames(&self) -> Vec<Shortname> {
-        match_many_to_one!(self, AnyCoreDataset, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
-            x.all_shortnames()
-        })
-    }
-
     pub fn as_data(&self) -> &FCSDataFrame {
         match_many_to_one!(self, AnyCoreDataset, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
             &x.data
@@ -347,10 +338,18 @@ impl AnyCoreDataset {
 
     pub(crate) fn from_coretext_unchecked(c: AnyCoreTEXT, df: FCSDataFrame, a: Analysis) -> Self {
         match c {
-            AnyCoreTEXT::FCS2_0(x) => Self::FCS2_0(CoreDataset::from_coretext_unchecked(*x, df, a)),
-            AnyCoreTEXT::FCS3_0(x) => Self::FCS3_0(CoreDataset::from_coretext_unchecked(*x, df, a)),
-            AnyCoreTEXT::FCS3_1(x) => Self::FCS3_1(CoreDataset::from_coretext_unchecked(*x, df, a)),
-            AnyCoreTEXT::FCS3_2(x) => Self::FCS3_2(CoreDataset::from_coretext_unchecked(*x, df, a)),
+            AnyCoreTEXT::FCS2_0(x) => {
+                Self::FCS2_0(Box::new(CoreDataset::from_coretext_unchecked(*x, df, a)))
+            }
+            AnyCoreTEXT::FCS3_0(x) => {
+                Self::FCS3_0(Box::new(CoreDataset::from_coretext_unchecked(*x, df, a)))
+            }
+            AnyCoreTEXT::FCS3_1(x) => {
+                Self::FCS3_1(Box::new(CoreDataset::from_coretext_unchecked(*x, df, a)))
+            }
+            AnyCoreTEXT::FCS3_2(x) => {
+                Self::FCS3_2(Box::new(CoreDataset::from_coretext_unchecked(*x, df, a)))
+            }
         }
     }
 }

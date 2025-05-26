@@ -585,20 +585,21 @@ fn split_raw_text_double(
     bytes: &[u8],
     conf: &RawTextReadConfig,
 ) -> Tentative<ParsedKeywords, ParseKeywordsIssue, ParseKeywordsIssue> {
-    let mut errors = vec![];
-    let mut warnings = vec![];
+    let mut ews = (vec![], vec![]);
 
-    let push_issue = |es: &mut Vec<_>, ws: &mut Vec<_>, test, error| {
+    let push_issue = |_ews: &mut (Vec<_>, Vec<_>), test, error| {
+        let warnings = &mut _ews.0;
+        let errors = &mut _ews.1;
         if test {
-            es.push(error);
+            errors.push(error);
         } else {
-            ws.push(error);
+            warnings.push(error);
         }
     };
 
-    let mut push_pair = |es: &mut Vec<_>, ws: &mut Vec<_>, kb: &Vec<_>, vb: &Vec<_>| {
+    let mut push_pair = |_ews: &mut (Vec<_>, Vec<_>), kb: &Vec<_>, vb: &Vec<_>| {
         if let Err(e) = kws.insert(kb, vb) {
-            push_issue(es, ws, conf.enforce_unique, e.into())
+            push_issue(_ews, conf.enforce_unique, e.into())
         }
     };
 
@@ -623,7 +624,7 @@ fn split_raw_text_double(
                 // Previous number of delimiters is odd, treat this as a word
                 // boundary
                 if !valuebuf.is_empty() {
-                    push_pair(&mut errors, &mut warnings, &keybuf, &valuebuf);
+                    push_pair(&mut ews, &keybuf, &valuebuf);
                     keybuf.clear();
                     valuebuf.clear();
                     keybuf.extend_from_slice(segment);
@@ -634,12 +635,7 @@ fn split_raw_text_double(
                     keybuf.extend_from_slice(segment);
                 }
                 if consec_blanks > 0 {
-                    push_issue(
-                        &mut errors,
-                        &mut warnings,
-                        conf.enforce_delim_nobound,
-                        DelimBoundError.into(),
-                    );
+                    push_issue(&mut ews, conf.enforce_delim_nobound, DelimBoundError.into());
                 }
             } else {
                 // Previous consecutive delimiter sequence was even. Push n / 2
@@ -651,51 +647,24 @@ fn split_raw_text_double(
     }
 
     if consec_blanks == 0 {
-        push_issue(
-            &mut errors,
-            &mut warnings,
-            conf.enforce_final_delim,
-            FinalDelimError.into(),
-        );
+        push_issue(&mut ews, conf.enforce_final_delim, FinalDelimError.into());
     } else if consec_blanks & 1 == 1 {
         // technically this ends with a delim but it is part of a word so
         // doesn't count
-        push_issue(
-            &mut errors,
-            &mut warnings,
-            conf.enforce_final_delim,
-            FinalDelimError.into(),
-        );
-        // TODO toggleme
-        push_issue(
-            &mut errors,
-            &mut warnings,
-            conf.enforce_delim_nobound,
-            DelimBoundError.into(),
-        );
+        push_issue(&mut ews, conf.enforce_final_delim, FinalDelimError.into());
+        push_issue(&mut ews, conf.enforce_delim_nobound, DelimBoundError.into());
         push_delim(&mut keybuf, &mut valuebuf, consec_blanks);
     } else if consec_blanks > 1 {
-        // TODO toggleme
-        push_issue(
-            &mut errors,
-            &mut warnings,
-            conf.enforce_delim_nobound,
-            DelimBoundError.into(),
-        );
+        push_issue(&mut ews, conf.enforce_delim_nobound, DelimBoundError.into());
     }
 
     if valuebuf.is_empty() {
-        push_issue(
-            &mut errors,
-            &mut warnings,
-            conf.enforce_even,
-            UnevenWordsError.into(),
-        );
+        push_issue(&mut ews, conf.enforce_even, UnevenWordsError.into());
     } else {
-        push_pair(&mut errors, &mut warnings, &keybuf, &valuebuf);
+        push_pair(&mut ews, &keybuf, &valuebuf);
     }
 
-    Tentative::new(kws, warnings, errors)
+    Tentative::new(kws, ews.0, ews.1)
 }
 
 fn split_raw_primary_text(

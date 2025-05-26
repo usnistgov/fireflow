@@ -2497,6 +2497,43 @@ plate_methods!(
     PyCoreDataset3_2
 );
 
+// get/set methods for $COMP (2.0-3.0)
+macro_rules! comp_methods {
+    ($($pytype:ident),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                #[getter]
+                fn get_compensation<'a>(&self, py: Python<'a>) -> Option<Bound<'a, PyArray2<f32>>> {
+                    self.0.compensation().map(|x| x.matrix().to_pyarray(py))
+                }
+
+
+                fn set_compensation(
+                    &mut self,
+                    a: PyReadonlyArray2<f32>,
+                ) -> Result<(), PyErr> {
+                    let m = a.as_matrix().into_owned();
+                    self.0
+                        .set_compensation(m)
+                        .map_err(|e| PyreflowException::new_err(e.to_string()))
+                }
+
+                fn unset_compensation(&mut self) {
+                    self.0.unset_compensation()
+                }
+            }
+        )*
+    };
+}
+
+comp_methods!(
+    PyCoreTEXT2_0,
+    PyCoreTEXT3_0,
+    PyCoreDataset2_0,
+    PyCoreDataset3_0
+);
+
 // Get/set methods for $SPILLOVER (3.1-3.2)
 macro_rules! spillover_methods {
     ($($pytype:ident),*) => {

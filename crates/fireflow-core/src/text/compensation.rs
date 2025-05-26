@@ -19,11 +19,13 @@ pub struct Compensation {
 }
 
 impl Compensation {
-    pub fn try_new(matrix: DMatrix<f32>) -> Option<Self> {
-        if matrix.ncols() > 2 {
-            Some(Self { matrix })
+    pub fn try_new(matrix: DMatrix<f32>) -> Result<Self, NewCompError> {
+        if !matrix.is_square() {
+            Err(NewCompError::NotSquare)
+        } else if matrix.ncols() < 2 {
+            Err(NewCompError::TooSmall)
         } else {
-            None
+            Ok(Self { matrix })
         }
     }
 
@@ -41,10 +43,14 @@ impl Compensation {
             Ok(false)
         }
     }
+
+    pub fn matrix(&self) -> &DMatrix<f32> {
+        &self.matrix
+    }
 }
 
 impl FromStr for Compensation {
-    type Err = CompensationError;
+    type Err = ParseCompError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut xs = s.split(",");
@@ -55,7 +61,7 @@ impl FromStr for Compensation {
             let remainder = xs.by_ref().count();
             let total = values.len() + remainder;
             if total != nn {
-                Err(CompensationError::WrongLength {
+                Err(ParseCompError::WrongLength {
                     expected: nn,
                     total,
                 })
@@ -65,22 +71,37 @@ impl FromStr for Compensation {
                     .filter_map(|x| x.parse::<f32>().ok())
                     .collect();
                 if fvalues.len() != nn {
-                    Err(CompensationError::BadFloat)
+                    Err(ParseCompError::BadFloat)
                 } else {
                     let matrix = DMatrix::from_row_iterator(n, n, fvalues);
                     Ok(Compensation { matrix })
                 }
             }
         } else {
-            Err(CompensationError::BadLength)
+            Err(ParseCompError::BadLength)
         }
     }
 }
 
-pub enum CompensationError {
+pub enum ParseCompError {
     WrongLength { total: usize, expected: usize },
     BadLength,
     BadFloat,
+}
+
+pub enum NewCompError {
+    NotSquare,
+    TooSmall,
+}
+
+impl fmt::Display for NewCompError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let s = match self {
+            Self::NotSquare => "compensation matrix must be square",
+            Self::TooSmall => "compensation matrix must be 2x2 or bigger",
+        };
+        write!(f, "{s}")
+    }
 }
 
 impl fmt::Display for Compensation {
@@ -93,14 +114,14 @@ impl fmt::Display for Compensation {
     }
 }
 
-impl fmt::Display for CompensationError {
+impl fmt::Display for ParseCompError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            CompensationError::BadFloat => write!(f, "Float could not be parsed"),
-            CompensationError::WrongLength { total, expected } => {
+            ParseCompError::BadFloat => write!(f, "Float could not be parsed"),
+            ParseCompError::WrongLength { total, expected } => {
                 write!(f, "Expected {expected} entries, found {total}")
             }
-            CompensationError::BadLength => write!(f, "Could not determine length"),
+            ParseCompError::BadLength => write!(f, "Could not determine length"),
         }
     }
 }

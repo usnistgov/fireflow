@@ -2686,14 +2686,10 @@ macro_rules! comp_methods {
         ///
         /// Return true if successfully set. Return false if matrix is either not
         /// square or rows/columns are not the same length as $PAR.
-        pub fn set_compensation(&mut self, matrix: DMatrix<f32>) -> bool {
-            if !matrix.is_square() && matrix.ncols() != self.par().0 {
-                // TODO None here is actually an error
-                self.metadata.specific.comp = Compensation::try_new(matrix).into();
-                true
-            } else {
-                false
-            }
+        pub fn set_compensation(&mut self, matrix: DMatrix<f32>) -> Result<(), NewCompError> {
+            Compensation::try_new(matrix).map(|comp| {
+                self.metadata.specific.comp = Some(comp).into();
+            })
         }
 
         /// Clear $COMP

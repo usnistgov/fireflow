@@ -194,9 +194,16 @@ pub(crate) fn lookup_compensation_2_0(
         }
     }
     if warnings.is_empty() {
-        // TODO will return none if matrix is less than 2x2, which is a
-        // warning
-        Tentative::new1(Compensation::try_new(matrix).into())
+        Compensation::try_new(matrix).map_or_else(
+            |w| {
+                Tentative::new(
+                    None.into(),
+                    vec![ParseKeysWarning::OptKey(w.into())],
+                    vec![],
+                )
+            },
+            |x| Tentative::new1(Some(x).into()),
+        )
     } else {
         Tentative::new(None.into(), warnings, vec![])
     }
@@ -301,7 +308,8 @@ enum_from_disp!(
     [Display,          ParseKeyError<DisplayError>],
     [Unicode,          ParseKeyError<UnicodeError>],
     [Spillover,        ParseKeyError<ParseSpilloverError>],
-    [Compensation,     ParseKeyError<CompensationError>]
+    [Compensation,     ParseKeyError<ParseCompError>],
+    [CompShape,        NewCompError]
 );
 
 enum_from_disp!(

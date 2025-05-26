@@ -52,9 +52,14 @@ pub struct Bytes(u8);
 #[derive(Clone, Copy, Serialize, PartialEq, Eq, Hash)]
 pub struct Chars(u8);
 
+/// The value of $PnB if it is fixed.
+///
+/// Subsequent operations can be used to use it as "bytes" or "characters"
+/// depending on what is needed by the column.
 #[derive(Clone, Copy, Serialize, PartialEq, Eq, Hash)]
 pub struct BitsOrChars(u8);
 
+/// $BYTEORD with known size in bytes
 #[derive(PartialEq, Eq, Hash, Copy, Clone)]
 pub enum SizedByteOrd<const LEN: usize> {
     Endian(Endian),
@@ -136,26 +141,6 @@ impl Endian {
     }
 }
 
-impl Bytes {
-    pub fn try_new(x: u8) -> Option<Self> {
-        if 0 < x && x <= 64 {
-            Some(Self(x))
-        } else {
-            None
-        }
-    }
-}
-
-impl Chars {
-    pub fn try_new(x: u8) -> Option<Self> {
-        if 0 < x && x <= 20 {
-            Some(Self(x))
-        } else {
-            None
-        }
-    }
-}
-
 impl TryFrom<Width> for Chars {
     type Error = WidthToCharsError;
     fn try_from(value: Width) -> Result<Self, Self::Error> {
@@ -183,6 +168,90 @@ impl TryFrom<Width> for BitsOrChars {
             Width::Fixed(x) => Ok(x),
             _ => Err(()),
         }
+    }
+}
+
+impl TryFrom<BitsOrChars> for Chars {
+    type Error = CharsError;
+    /// Return the number of chars represented by this if 20 or less.
+    ///
+    /// 20 is the maximum number of digits representable by an unsigned integer,
+    /// which is the numeric type used to back ASCII data.
+    fn try_from(value: BitsOrChars) -> Result<Self, Self::Error> {
+        let x = value.0;
+        if !(1..=20).contains(&x) {
+            Err(CharsError(x))
+        } else {
+            Ok(Chars(x))
+        }
+    }
+}
+
+impl TryFrom<BitsOrChars> for Bytes {
+    type Error = BytesError;
+    /// Return number of bytes represented by this.
+    ///
+    /// Return error if bits is not divisible by 8 and within [1,64].
+    fn try_from(value: BitsOrChars) -> Result<Self, Self::Error> {
+        let x = value.0;
+        if !(1..=64).contains(&x) && x % 8 == 0 {
+            Ok(Bytes(x / 8))
+        } else {
+            Err(BytesError(x))
+        }
+    }
+}
+
+impl From<Option<u8>> for Width {
+    fn from(value: Option<u8>) -> Self {
+        value
+            .map(|x| Width::Fixed(BitsOrChars(x)))
+            .unwrap_or(Width::Variable)
+    }
+}
+
+impl From<Width> for Option<u8> {
+    fn from(value: Width) -> Self {
+        match value {
+            Width::Variable => None,
+            Width::Fixed(x) => Some(x.0),
+        }
+    }
+}
+
+impl From<Chars> for Width {
+    fn from(value: Chars) -> Self {
+        Width::Fixed(BitsOrChars(value.0))
+    }
+}
+
+impl From<Bytes> for Width {
+    fn from(value: Bytes) -> Self {
+        Width::Fixed(BitsOrChars(value.0 * 8))
+    }
+}
+
+impl TryFrom<Width> for u8 {
+    type Error = ();
+    fn try_from(value: Width) -> Result<Self, Self::Error> {
+        match value {
+            Width::Fixed(x) => Ok(x.0),
+            _ => Err(()),
+        }
+    }
+}
+
+impl<const LEN: usize> From<Endian> for SizedByteOrd<LEN> {
+    fn from(value: Endian) -> Self {
+        SizedByteOrd::Endian(value)
+    }
+}
+
+impl TryFrom<ByteOrd> for Endian {
+    type Error = EndianToByteOrdError;
+
+    fn try_from(value: ByteOrd) -> Result<Self, Self::Error> {
+        value.as_endian().ok_or(EndianToByteOrdError)
     }
 }
 
@@ -254,37 +323,6 @@ impl Width {
     }
 }
 
-impl TryFrom<BitsOrChars> for Chars {
-    type Error = CharsError;
-    /// Return the number of chars represented by this if 20 or less.
-    ///
-    /// 20 is the maximum number of digits representable by an unsigned integer,
-    /// which is the numeric type used to back ASCII data.
-    fn try_from(value: BitsOrChars) -> Result<Self, Self::Error> {
-        let x = value.0;
-        if !(1..=20).contains(&x) {
-            Err(CharsError(x))
-        } else {
-            Ok(Chars(x))
-        }
-    }
-}
-
-impl TryFrom<BitsOrChars> for Bytes {
-    type Error = BytesError;
-    /// Return number of bytes represented by this.
-    ///
-    /// Return error if bits is not divisible by 8 and within [1,64].
-    fn try_from(value: BitsOrChars) -> Result<Self, Self::Error> {
-        let x = value.0;
-        if !(1..=64).contains(&x) && x % 8 == 0 {
-            Ok(Bytes(x / 8))
-        } else {
-            Err(BytesError(x))
-        }
-    }
-}
-
 impl FromStr for Endian {
     type Err = NewEndianError;
 
@@ -327,51 +365,6 @@ impl fmt::Display for ByteOrd {
     }
 }
 
-newtype_disp!(Bytes);
-newtype_disp!(Chars);
-newtype_from_outer!(Bytes, u8);
-newtype_from_outer!(Chars, u8);
-newtype_from_outer!(BitsOrChars, u8);
-
-impl From<Option<u8>> for Width {
-    fn from(value: Option<u8>) -> Self {
-        value
-            .map(|x| Width::Fixed(BitsOrChars(x)))
-            .unwrap_or(Width::Variable)
-    }
-}
-
-impl From<Width> for Option<u8> {
-    fn from(value: Width) -> Self {
-        match value {
-            Width::Variable => None,
-            Width::Fixed(x) => Some(x.0),
-        }
-    }
-}
-
-impl From<Chars> for Width {
-    fn from(value: Chars) -> Self {
-        Width::Fixed(BitsOrChars(value.0))
-    }
-}
-
-impl From<Bytes> for Width {
-    fn from(value: Bytes) -> Self {
-        Width::Fixed(BitsOrChars(value.0 * 8))
-    }
-}
-
-impl TryFrom<Width> for u8 {
-    type Error = ();
-    fn try_from(value: Width) -> Result<Self, Self::Error> {
-        match value {
-            Width::Fixed(x) => Ok(x.0),
-            _ => Err(()),
-        }
-    }
-}
-
 impl FromStr for Width {
     type Err = ParseIntError;
 
@@ -392,19 +385,11 @@ impl fmt::Display for Width {
     }
 }
 
-impl<const LEN: usize> From<Endian> for SizedByteOrd<LEN> {
-    fn from(value: Endian) -> Self {
-        SizedByteOrd::Endian(value)
-    }
-}
-
-impl TryFrom<ByteOrd> for Endian {
-    type Error = EndianToByteOrdError;
-
-    fn try_from(value: ByteOrd) -> Result<Self, Self::Error> {
-        value.as_endian().ok_or(EndianToByteOrdError)
-    }
-}
+newtype_disp!(Bytes);
+newtype_disp!(Chars);
+newtype_from_outer!(Bytes, u8);
+newtype_from_outer!(Chars, u8);
+newtype_from_outer!(BitsOrChars, u8);
 
 pub struct BitsError(u8);
 

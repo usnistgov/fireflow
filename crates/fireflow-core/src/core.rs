@@ -2368,13 +2368,10 @@ where
             .inner_into()
             .and_maybe(|dl| {
                 dl.into_reader(kws, data_seg, conf)
-                    .map_err(|e| e.errors_into())
-                    .map(|x| {
-                        x.map(|column_reader| DataReader {
-                            column_reader,
-                            begin: u64::from(data_seg.begin()),
-                        })
-                        .errors_into()
+                    .error_into()
+                    .map_value(|column_reader| DataReader {
+                        column_reader,
+                        begin: u64::from(data_seg.begin()),
                     })
             })
     }

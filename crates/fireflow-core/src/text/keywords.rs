@@ -578,7 +578,6 @@ impl fmt::Display for OriginalityError {
 #[derive(Clone, Serialize, PartialEq)]
 pub struct Unicode {
     pub page: u32,
-    // TODO check that these are valid keywords (probably not worth it)
     pub kws: Vec<String>,
 }
 

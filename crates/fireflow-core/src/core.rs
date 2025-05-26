@@ -1975,8 +1975,6 @@ where
             .map_err(|e| e.to_string())
     }
 
-    // TODO this doesn't buy much since it will ulimately be easier to use
-    // the type specific wrapper in practice
     fn push_optical_inner(
         &mut self,
         n: <M::N as MightHave>::Wrapper<Shortname>,

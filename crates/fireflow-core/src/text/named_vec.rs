@@ -43,16 +43,6 @@ impl<K, W, U, V> Default for NamedVec<K, W, U, V> {
     }
 }
 
-/// An error that allows returning of the original value
-///
-/// This is useful in TryFrom impl's where one wants to try a conversion but
-/// re-use the input on failure.
-// TODO this probably belongs somewhere else, more general than just this mod
-pub struct TryFromErrorReset<E, T> {
-    pub error: E,
-    pub value: T,
-}
-
 pub struct IndexedElement<K, V> {
     pub index: MeasIdx,
     pub key: K,

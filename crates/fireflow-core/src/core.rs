@@ -2232,8 +2232,13 @@ where
                     // does exist, also check if it matches the time pattern and
                     // use it as the time measurement if it does.
                     M::lookup_shortname(kws, i).and_maybe(|wrapped| {
-                        // TODO this will make cryptic errors if the time
-                        // pattern happens to match more than one measurement
+                        // TODO if more than one name matches the time pattern
+                        // this will give a cryptic "cannot find $TIMESTEP" for
+                        // each subsequent match, which is not helpful. Probably
+                        // the best way around this is to add measurement index
+                        // and possibly key to the error, so at least the user
+                        // will know it is trying to find $TIMESTEP in a
+                        // nonsense measurement.
                         let key = M::N::unwrap(wrapped).and_then(|name| {
                             if let Some(tp) = time_pat {
                                 if tp.0.as_inner().is_match(name.as_ref()) {

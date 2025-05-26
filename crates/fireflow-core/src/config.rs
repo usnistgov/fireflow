@@ -81,6 +81,9 @@ pub struct RawTextReadConfig {
     /// Does not affect 3.2 since these are optional there.
     pub enforce_stext: bool,
 
+    /// If true, error if delim differs between primary and supplemental TEXT.
+    pub enforce_stext_delim: bool,
+
     /// If true, throw error if $NEXTDATA is missing.
     ///
     /// For now only reading the first dataset is supported, so this keyword
@@ -260,6 +263,7 @@ impl Strict for RawTextReadConfig {
             enforce_utf8: true,
             enforce_keyword_ascii: true,
             enforce_stext: true,
+            enforce_stext_delim: true,
             enforce_nextdata: true,
             ..self
         }

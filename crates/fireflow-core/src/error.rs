@@ -386,19 +386,27 @@ impl<V, W, E> Tentative<V, W, E> {
         }
     }
 
-    // TODO make warning version
     pub fn eval_error<F>(&mut self, f: F)
     where
-        F: Fn(&V) -> Option<E>,
+        F: FnOnce(&V) -> Option<E>,
     {
         if let Some(e) = f(&self.value) {
             self.errors.push(e);
         }
     }
 
+    pub fn eval_warning<F>(&mut self, f: F)
+    where
+        F: FnOnce(&V) -> Option<W>,
+    {
+        if let Some(e) = f(&self.value) {
+            self.warnings.push(e);
+        }
+    }
+
     pub fn eval_errors<F>(&mut self, f: F)
     where
-        F: Fn(&V) -> Vec<E>,
+        F: FnOnce(&V) -> Vec<E>,
     {
         self.errors.extend(f(&self.value));
     }
@@ -445,6 +453,10 @@ impl<V, W, E> Tentative<V, W, E> {
         Y: From<E>,
     {
         self.errors_into().warnings_into()
+    }
+
+    pub fn error_impure(self) -> Tentative<V, W, ImpureError<E>> {
+        self.errors_map(ImpureError::Pure)
     }
 
     pub fn mconcat(xs: Vec<Self>) -> Tentative<Vec<V>, W, E> {

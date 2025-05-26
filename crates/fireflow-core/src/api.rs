@@ -687,24 +687,28 @@ fn split_raw_supp_text(
     delim: u8,
     bytes: &[u8],
     conf: &RawTextReadConfig,
-) -> DeferredResult<ParsedKeywords, ParseKeywordsIssue, ParseSupplementalTEXTError> {
+) -> Tentative<ParsedKeywords, ParseKeywordsIssue, ParseSupplementalTEXTError> {
     if let Some((byte0, rest)) = bytes.split_first() {
+        let mut tnt = if conf.allow_double_delim {
+            split_raw_text_double(kws, *byte0, rest, conf).errors_into()
+        } else {
+            split_raw_text_nodouble(kws, *byte0, rest, conf).errors_into()
+        };
         if *byte0 != delim {
-            // TODO toggleme
-            let w = DelimMismatch {
+            let x = DelimMismatch {
                 delim,
                 supp: *byte0,
+            };
+            if conf.enforce_stext_delim {
+                tnt.push_error(x.into());
+            } else {
+                tnt.push_warning(x.into());
             }
-            .into();
-            Ok(Tentative::new(kws, vec![w], vec![]))
-        } else if conf.allow_double_delim {
-            Ok(split_raw_text_double(kws, delim, rest, conf).errors_into())
-        } else {
-            Ok(split_raw_text_nodouble(kws, delim, rest, conf).errors_into())
         }
+        tnt
     } else {
         // if empty do nothing, this is expected for most files
-        Ok(Tentative::new1(kws))
+        Tentative::new1(kws)
     }
 }
 

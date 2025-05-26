@@ -213,6 +213,7 @@ fn py_read_fcs_raw_text(
     enforce_final_delim=false,
     enforce_unique=false,
     enforce_even=false,
+    enforce_delim_nobound=false,
     enforce_nonempty=false,
     enforce_utf8=false,
     enforce_keyword_ascii=false,

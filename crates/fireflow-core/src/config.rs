@@ -91,6 +91,11 @@ pub struct RawTextReadConfig {
     /// standard.
     pub enforce_nextdata: bool,
 
+    /// If true, throw error if offsets in HEADER and TEXT differ.
+    ///
+    /// Only applies to DATA and ANALYSIS offsets
+    pub enforce_offset_match: bool,
+
     /// If true, replace leading spaces in offset keywords with 0.
     ///
     ///These often need to be padded to make the DATA segment appear at a
@@ -265,6 +270,7 @@ impl Strict for RawTextReadConfig {
             enforce_stext: true,
             enforce_stext_delim: true,
             enforce_nextdata: true,
+            enforce_offset_match: true,
             ..self
         }
     }

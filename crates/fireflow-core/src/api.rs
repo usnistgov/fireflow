@@ -806,21 +806,23 @@ fn lookup_data_offsets(
                     .collect();
                 Tentative::new(default, ws, vec![])
             },
-            // TODO toggle this
             |t| {
                 let w = if t != default && !default.is_empty() {
-                    Some(
-                        SegmentMismatchWarning {
-                            header: default,
-                            text: t,
-                            id: SegmentId::Data,
-                        }
-                        .into(),
-                    )
+                    Some(SegmentMismatchWarning {
+                        header: default,
+                        text: t,
+                        id: SegmentId::Data,
+                    })
                 } else {
                     None
                 };
-                Tentative::new(t, w.into_iter().collect(), vec![])
+                if conf.standard.raw.enforce_offset_match {
+                    let xs = w.map(|x| x.into()).into_iter().collect();
+                    Tentative::new(t, vec![], xs)
+                } else {
+                    let xs = w.map(|x| x.into()).into_iter().collect();
+                    Tentative::new(t, xs, vec![])
+                }
             },
         ),
     }
@@ -872,21 +874,23 @@ fn lookup_analysis_offsets(
                 Tentative::new(default, ws, vec![])
             },
             |t| {
-                // TODO toggle
                 if let Some(this_seg) = t {
                     let w = if this_seg != default && !default.is_empty() {
-                        Some(
-                            SegmentMismatchWarning {
-                                header: default,
-                                text: this_seg,
-                                id: SegmentId::Analysis,
-                            }
-                            .into(),
-                        )
+                        Some(SegmentMismatchWarning {
+                            header: default,
+                            text: this_seg,
+                            id: SegmentId::Analysis,
+                        })
                     } else {
                         None
                     };
-                    Tentative::new(this_seg, w.into_iter().collect(), vec![])
+                    if conf.standard.raw.enforce_offset_match {
+                        let xs = w.map(|x| x.into()).into_iter().collect();
+                        Tentative::new(this_seg, vec![], xs)
+                    } else {
+                        let xs = w.map(|x| x.into()).into_iter().collect();
+                        Tentative::new(this_seg, xs, vec![])
+                    }
                 } else {
                     Tentative::new1(t.unwrap_or(default))
                 }
@@ -1075,7 +1079,9 @@ fn split_remainder(xs: StdKeywords) -> (StdKeywords, StdKeywords) {
 enum_from_disp!(
     pub ReqSegmentError,
     [Key, ReqKeyError<ParseIntError>],
-    [Segment, SegmentError]
+    [Segment, SegmentError],
+    // TODO this only applies to ANALYSIS and DATA segments
+    [Mismatch, SegmentMismatchWarning]
 );
 
 enum_from_disp!(

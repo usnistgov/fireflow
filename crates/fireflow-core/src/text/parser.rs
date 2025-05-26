@@ -294,7 +294,6 @@ enum_from_disp!(
 
 enum_from_disp!(
     pub ParseReqKeyError,
-    [Width,          ReqKeyError<ParseBitsError>],
     [Range,          ReqKeyError<ParseRangeError>],
     [AlphaNumType,   ReqKeyError<AlphaNumTypeError>],
     [String,         ReqKeyError<Infallible>],

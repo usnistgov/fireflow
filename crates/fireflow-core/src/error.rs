@@ -68,6 +68,17 @@ pub(crate) trait ErrorIter<T, E>: Iterator<Item = Result<T, E>> + Sized {
     }
 }
 
+// why isn't this on the real NonEmpty? too useful...
+pub fn ne_map_results<F, E, X, Y>(xs: NonEmpty<X>, f: F) -> MultiResult<NonEmpty<Y>, E>
+where
+    F: Fn(X) -> Result<Y, E>,
+{
+    xs.map(f)
+        .into_iter()
+        .gather()
+        .map(|ys| NonEmpty::from_vec(ys).unwrap())
+}
+
 impl<I: Iterator<Item = Result<T, E>>, T, E> ErrorIter<T, E> for I {}
 
 impl<V, W> Terminal<V, W> {
@@ -610,6 +621,10 @@ impl<W, E> DeferredFailure<W, E> {
             failure: Failure::Many(reason, Box::new(self.errors)),
         }
     }
+
+    pub fn into_tentative<V>(self, value: V) -> Tentative<V, W, E> {
+        Tentative::new(value, self.warnings, self.errors.into_iter().collect())
+    }
 }
 
 pub trait ResultExt {
@@ -767,6 +782,10 @@ pub trait DeferredExt {
         b: DeferredResult<B, Self::W, Self::E>,
     ) -> DeferredResult<(Self::V, A, B), Self::W, Self::E>;
 
+    fn and_then_def<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
+    where
+        F: FnOnce(Self::V) -> Result<X, Self::E>;
+
     fn and_tentatively<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
     where
         F: FnOnce(Self::V) -> Tentative<X, Self::W, Self::E>;
@@ -864,6 +883,13 @@ impl<V, W, E> DeferredExt for DeferredResult<V, W, E> {
         self.zip3(a, b)
             .map_err(DeferredFailure::fold)
             .map(|(ax, bx, cx)| ax.zip3(bx, cx))
+    }
+
+    fn and_then_def<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
+    where
+        F: FnOnce(Self::V) -> Result<X, Self::E>,
+    {
+        self.and_maybe(|x| f(x).map(Tentative::new1).map_err(DeferredFailure::new1))
     }
 
     fn and_tentatively<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>

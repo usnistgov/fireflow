@@ -749,7 +749,7 @@ where
     Self: VersionedMetadata,
     M: VersionedMetadata,
 {
-    fn try_from_meta(value: M, byteord: SizeConvert<M::D>) -> Result<Self, MetaConvertErrors>;
+    fn try_from_meta(value: M, byteord: SizeConvert<M::D>) -> MetaConvertResult<Self>;
 }
 
 pub trait VersionedMetadata: Sized {
@@ -1094,9 +1094,9 @@ where
     fn try_convert<ToM: TryFromMetadata<M>>(
         self,
         convert: SizeConvert<M::D>,
-    ) -> MultiResult<Metadata<ToM>, MetaConvertError> {
+    ) -> DeferredResult<Metadata<ToM>, WidthToBytesError, MetaConvertError> {
         // TODO this seems silly, break struct up into common bits
-        ToM::try_from_meta(self.specific, convert).map(|specific| Metadata {
+        ToM::try_from_meta(self.specific, convert).map_value(|specific| Metadata {
             abrt: self.abrt,
             cells: self.cells,
             com: self.com,
@@ -1307,25 +1307,27 @@ impl fmt::Display for SetTemporalIndexError {
 
 pub(crate) type MetaConvertErrors = NonEmpty<MetaConvertError>;
 
-pub enum MetaConvertError {
-    NoCyt,
-    FromByteOrd(EndianToByteOrdError),
-    FromEndian,
-    ModeNotList,
+enum_from_disp!(
+    pub MetaConvertError,
+    [NoCyt, NoCytError],
+    [Byteord, EndianToByteOrdError],
+    [Endian, SingleWidthError],
+    [Mode, ModeNotListError]
+);
+
+pub struct NoCytError;
+
+impl fmt::Display for NoCytError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "$CYT is missing")
+    }
 }
 
-impl fmt::Display for MetaConvertError {
+pub struct ModeNotListError;
+
+impl fmt::Display for ModeNotListError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            MetaConvertError::NoCyt => write!(f, "$CYT is missing"),
-            MetaConvertError::ModeNotList => write!(f, "$MODE is not L"),
-            MetaConvertError::FromEndian => write!(
-                f,
-                "Could not convert Endian to ByteOrd since measurement widths \
-                 are not all the same size or are different from $DATATYPE",
-            ),
-            MetaConvertError::FromByteOrd(e) => e.fmt(f),
-        }
+        write!(f, "$MODE is not L")
     }
 }
 
@@ -1887,7 +1889,11 @@ where
     #[allow(clippy::type_complexity)]
     pub fn try_convert<ToM>(
         self,
-    ) -> MultiResult<VersionedCore<A, D, ToM>, VersionedConvertError<M::N, ToM::N>>
+    ) -> DeferredResult<
+        VersionedCore<A, D, ToM>,
+        WidthToBytesError,
+        VersionedConvertError<M::N, ToM::N>,
+    >
     where
         M::N: Clone,
         ToM: VersionedMetadata,
@@ -1909,7 +1915,7 @@ where
         let m = self
             .metadata
             .try_convert(convert)
-            .map_err(|es| es.map(ConvertErrorInner::Meta));
+            .errors_map(ConvertErrorInner::Meta);
         let ps = self
             .measurements
             .map_center_value(|y| y.value.convert())
@@ -1918,20 +1924,19 @@ where
             .and_then(|x| {
                 x.try_rewrapped()
                     .map_err(|es| es.map(ConvertErrorInner::Rewrap))
-            });
-        m.zip_mult(ps)
-            .map(|(metadata, measurements)| Core {
+            })
+            .into_deferred1();
+        m.zip_def(ps)
+            .map_value(|(metadata, measurements)| Core {
                 metadata,
                 measurements,
                 data: self.data,
                 analysis: self.analysis,
             })
-            .map_err(|es| {
-                es.map(|e| ConvertError {
-                    from: M::P::fcs_version(),
-                    to: ToM::P::fcs_version(),
-                    inner: e,
-                })
+            .errors_map(|error| ConvertError {
+                from: M::P::fcs_version(),
+                to: ToM::P::fcs_version(),
+                inner: error,
             })
     }
 
@@ -3741,7 +3746,7 @@ impl TryFrom<InnerOptical3_1> for InnerOptical3_2 {
     }
 }
 
-type MetaConvertResult<M> = MultiResult<M, MetaConvertError>;
+type MetaConvertResult<M> = DeferredResult<M, WidthToBytesError, MetaConvertError>;
 
 pub struct SizeConvert<O> {
     size: O,
@@ -3753,56 +3758,57 @@ type ByteOrdConvert = SizeConvert<ByteOrd>;
 type EndianConvert = SizeConvert<Endian>;
 
 impl EndianConvert {
-    fn try_as_byteord(&self) -> Option<ByteOrd> {
-        Width::matrix_bytes(&self.widths, self.datatype).map(|bytes| self.size.as_bytord(bytes))
+    fn try_as_byteord(self) -> DeferredResult<ByteOrd, WidthToBytesError, SingleWidthError> {
+        Width::matrix_bytes(&self.widths[..], self.datatype)
+            .map_value(|bytes| self.size.as_bytord(bytes))
     }
 }
 
 impl TryFromMetadata<InnerMetadata3_0> for InnerMetadata2_0 {
     fn try_from_meta(value: InnerMetadata3_0, _: ByteOrdConvert) -> MetaConvertResult<Self> {
-        Ok(Self {
+        Ok(Tentative::new1(Self {
             mode: value.mode,
             byteord: value.byteord,
             cyt: value.cyt,
             comp: value.comp,
             timestamps: value.timestamps.map(|d| d.into()),
-        })
+        }))
     }
 }
 
 impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata2_0 {
     fn try_from_meta(value: InnerMetadata3_1, endian: EndianConvert) -> MetaConvertResult<Self> {
-        let byteord = endian
+        endian
             .try_as_byteord()
-            .ok_or(NonEmpty::new(MetaConvertError::FromEndian))?;
-        Ok(Self {
-            mode: value.mode,
-            byteord,
-            cyt: value.cyt,
-            comp: None.into(),
-            timestamps: value.timestamps.map(|d| d.into()),
-        })
+            .error_into()
+            .map_value(|byteord| Self {
+                mode: value.mode,
+                byteord,
+                cyt: value.cyt,
+                comp: None.into(),
+                timestamps: value.timestamps.map(|d| d.into()),
+            })
     }
 }
 
 impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata2_0 {
     fn try_from_meta(value: InnerMetadata3_2, endian: EndianConvert) -> MetaConvertResult<Self> {
-        let byteord = endian
+        endian
             .try_as_byteord()
-            .ok_or(NonEmpty::new(MetaConvertError::FromEndian))?;
-        Ok(Self {
-            mode: Mode::List,
-            byteord,
-            cyt: Some(value.cyt).into(),
-            comp: None.into(),
-            timestamps: value.timestamps.map(|d| d.into()),
-        })
+            .error_into()
+            .map_value(|byteord| Self {
+                mode: Mode::List,
+                byteord,
+                cyt: Some(value.cyt).into(),
+                comp: None.into(),
+                timestamps: value.timestamps.map(|d| d.into()),
+            })
     }
 }
 
 impl TryFromMetadata<InnerMetadata2_0> for InnerMetadata3_0 {
     fn try_from_meta(value: InnerMetadata2_0, _: ByteOrdConvert) -> MetaConvertResult<Self> {
-        Ok(Self {
+        Ok(Tentative::new1(Self {
             mode: value.mode,
             byteord: value.byteord,
             cyt: value.cyt,
@@ -3810,41 +3816,41 @@ impl TryFromMetadata<InnerMetadata2_0> for InnerMetadata3_0 {
             timestamps: value.timestamps.map(|d| d.into()),
             cytsn: None.into(),
             unicode: None.into(),
-        })
+        }))
     }
 }
 
 impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata3_0 {
     fn try_from_meta(value: InnerMetadata3_1, endian: EndianConvert) -> MetaConvertResult<Self> {
-        let byteord = endian
+        endian
             .try_as_byteord()
-            .ok_or(NonEmpty::new(MetaConvertError::FromEndian))?;
-        Ok(Self {
-            mode: value.mode,
-            byteord,
-            cyt: value.cyt,
-            cytsn: value.cytsn,
-            timestamps: value.timestamps.map(|d| d.into()),
-            comp: None.into(),
-            unicode: None.into(),
-        })
+            .error_into()
+            .map_value(|byteord| Self {
+                mode: value.mode,
+                byteord,
+                cyt: value.cyt,
+                cytsn: value.cytsn,
+                timestamps: value.timestamps.map(|d| d.into()),
+                comp: None.into(),
+                unicode: None.into(),
+            })
     }
 }
 
 impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata3_0 {
     fn try_from_meta(value: InnerMetadata3_2, endian: EndianConvert) -> MetaConvertResult<Self> {
-        let byteord = endian
+        endian
             .try_as_byteord()
-            .ok_or(NonEmpty::new(MetaConvertError::FromEndian))?;
-        Ok(Self {
-            mode: Mode::List,
-            byteord,
-            cyt: Some(value.cyt).into(),
-            cytsn: value.cytsn,
-            timestamps: value.timestamps.map(|d| d.into()),
-            comp: None.into(),
-            unicode: None.into(),
-        })
+            .error_into()
+            .map_value(|byteord| Self {
+                mode: Mode::List,
+                byteord,
+                cyt: Some(value.cyt).into(),
+                cytsn: value.cytsn,
+                timestamps: value.timestamps.map(|d| d.into()),
+                comp: None.into(),
+                unicode: None.into(),
+            })
     }
 }
 
@@ -3853,8 +3859,8 @@ impl TryFromMetadata<InnerMetadata2_0> for InnerMetadata3_1 {
         value
             .byteord
             .try_into()
-            .map_err(|e| NonEmpty::new(MetaConvertError::FromByteOrd(e)))
-            .map(|byteord| Self {
+            .into_deferred0()
+            .map_value(|byteord| Self {
                 mode: value.mode,
                 byteord,
                 cyt: value.cyt,
@@ -3873,8 +3879,8 @@ impl TryFromMetadata<InnerMetadata3_0> for InnerMetadata3_1 {
         value
             .byteord
             .try_into()
-            .map_err(|e| NonEmpty::new(MetaConvertError::FromByteOrd(e)))
-            .map(|byteord| Self {
+            .into_deferred0()
+            .map_value(|byteord| Self {
                 byteord,
                 mode: value.mode,
                 cyt: value.cyt,
@@ -3890,7 +3896,7 @@ impl TryFromMetadata<InnerMetadata3_0> for InnerMetadata3_1 {
 
 impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata3_1 {
     fn try_from_meta(value: InnerMetadata3_2, _: EndianConvert) -> MetaConvertResult<Self> {
-        Ok(Self {
+        Ok(Tentative::new1(Self {
             mode: Mode::List,
             byteord: value.byteord,
             cyt: Some(value.cyt).into(),
@@ -3900,23 +3906,21 @@ impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata3_1 {
             plate: value.plate,
             modification: value.modification,
             vol: value.vol,
-        })
+        }))
     }
 }
 
 impl TryFromMetadata<InnerMetadata2_0> for InnerMetadata3_2 {
     fn try_from_meta(value: InnerMetadata2_0, _: ByteOrdConvert) -> MetaConvertResult<Self> {
-        let b = value
-            .byteord
-            .try_into()
-            .map_err(MetaConvertError::FromByteOrd);
-        let c = value.cyt.0.ok_or(MetaConvertError::NoCyt);
+        let b = value.byteord.try_into().into_deferred0();
+        let c = value.cyt.0.ok_or(NoCytError).into_deferred0();
         let m = if value.mode != Mode::List {
-            Err(MetaConvertError::ModeNotList)
+            Err(ModeNotListError)
         } else {
             Ok(())
-        };
-        b.zip3(c, m).map(|(byteord, cyt, _)| Self {
+        }
+        .into_deferred0();
+        b.zip_def3(c, m).map_value(|(byteord, cyt, _)| Self {
             byteord,
             cyt,
             timestamps: value.timestamps.map(|d| d.into()),
@@ -3935,17 +3939,15 @@ impl TryFromMetadata<InnerMetadata2_0> for InnerMetadata3_2 {
 
 impl TryFromMetadata<InnerMetadata3_0> for InnerMetadata3_2 {
     fn try_from_meta(value: InnerMetadata3_0, _: ByteOrdConvert) -> MetaConvertResult<Self> {
-        let b = value
-            .byteord
-            .try_into()
-            .map_err(MetaConvertError::FromByteOrd);
-        let c = value.cyt.0.ok_or(MetaConvertError::NoCyt);
+        let b = value.byteord.try_into().into_deferred0();
+        let c = value.cyt.0.ok_or(NoCytError).into_deferred0();
         let m = if value.mode != Mode::List {
-            Err(MetaConvertError::ModeNotList)
+            Err(ModeNotListError)
         } else {
             Ok(())
-        };
-        b.zip3(c, m).map(|(byteord, cyt, _)| Self {
+        }
+        .into_deferred0();
+        b.zip_def3(c, m).map_value(|(byteord, cyt, _)| Self {
             byteord,
             cyt,
             cytsn: value.cytsn,
@@ -3965,12 +3967,13 @@ impl TryFromMetadata<InnerMetadata3_0> for InnerMetadata3_2 {
 impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata3_2 {
     fn try_from_meta(value: InnerMetadata3_1, _: EndianConvert) -> MetaConvertResult<Self> {
         let m = if value.mode != Mode::List {
-            Err(MetaConvertError::ModeNotList)
+            Err(ModeNotListError)
         } else {
             Ok(())
-        };
-        let c = value.cyt.0.ok_or(MetaConvertError::NoCyt);
-        m.zip(c).map(|(_, cyt)| Self {
+        }
+        .into_deferred0();
+        let c = value.cyt.0.ok_or(NoCytError).into_deferred0();
+        m.zip_def(c).map_value(|(_, cyt)| Self {
             byteord: value.byteord,
             cyt,
             cytsn: value.cytsn,

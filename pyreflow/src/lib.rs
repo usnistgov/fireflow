@@ -1160,11 +1160,9 @@ macro_rules! convert_methods {
             $(
                 fn $fn(&self) -> PyResult<$to> {
                     let new = self.0.clone().$inner();
-                    new.map(Tentative::new1)
-                        .map_err(DeferredFailure::new2)
+                    new.map_value(|x| x.into())
                         .terminate(ConvertFailure)
-                        .map(|x| x.inner().into())
-                        .map_err(handle_failure_nowarn)
+                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
                 }
             )*
         }
@@ -3448,7 +3446,7 @@ fn str_to_date_pat(s: String) -> PyResult<DatePattern> {
 }
 
 fn vec_to_byteord(xs: Vec<u8>) -> PyResult<ByteOrd> {
-    ByteOrd::try_new(xs).map_err(|e| PyreflowException::new_err(e.to_string()))
+    ByteOrd::try_from(xs).map_err(|e| PyreflowException::new_err(e.to_string()))
 }
 
 fn f32_to_positive_float(x: f32) -> PyResult<PositiveFloat> {

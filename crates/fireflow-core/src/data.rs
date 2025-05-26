@@ -202,21 +202,23 @@ impl AnyUintType {
         n: Endian,
         notrunc: bool,
     ) -> DeferredResult<Self, BitmaskError, NewUintTypeError> {
-        w.as_bytes().into_deferred0().and_tentatively(|bytes| {
-            // ASSUME this can only be 1-8
-            match u8::from(bytes) {
-                1 => u8::column_type_endian(r, n, notrunc).map(Self::Uint08),
-                2 => u16::column_type_endian(r, n, notrunc).map(Self::Uint16),
-                3 => u32::column_type_endian(r, n, notrunc).map(Self::Uint24),
-                4 => u32::column_type_endian(r, n, notrunc).map(Self::Uint32),
-                5 => u64::column_type_endian(r, n, notrunc).map(Self::Uint40),
-                6 => u64::column_type_endian(r, n, notrunc).map(Self::Uint48),
-                7 => u64::column_type_endian(r, n, notrunc).map(Self::Uint56),
-                8 => u64::column_type_endian(r, n, notrunc).map(Self::Uint64),
-                _ => unreachable!(),
-            }
-            .errors_into()
-        })
+        w.try_into()
+            .into_deferred0()
+            .and_tentatively(|bytes: Bytes| {
+                // ASSUME this can only be 1-8
+                match u8::from(bytes) {
+                    1 => u8::column_type_endian(r, n, notrunc).map(Self::Uint08),
+                    2 => u16::column_type_endian(r, n, notrunc).map(Self::Uint16),
+                    3 => u32::column_type_endian(r, n, notrunc).map(Self::Uint24),
+                    4 => u32::column_type_endian(r, n, notrunc).map(Self::Uint32),
+                    5 => u64::column_type_endian(r, n, notrunc).map(Self::Uint40),
+                    6 => u64::column_type_endian(r, n, notrunc).map(Self::Uint48),
+                    7 => u64::column_type_endian(r, n, notrunc).map(Self::Uint56),
+                    8 => u64::column_type_endian(r, n, notrunc).map(Self::Uint64),
+                    _ => unreachable!(),
+                }
+                .errors_into()
+            })
     }
 }
 
@@ -1036,7 +1038,7 @@ where
         n: Endian,
         r: Range,
     ) -> Result<FloatType<LEN, Self>, FloatWidthError> {
-        w.as_bytes().map_err(|e| e.into()).and_then(|bytes| {
+        Bytes::try_from(w).map_err(|e| e.into()).and_then(|bytes| {
             if usize::from(u8::from(bytes)) == LEN {
                 let range = Self::range(r);
                 Ok(FloatType {
@@ -1057,7 +1059,7 @@ where
         o: &ByteOrd,
         r: Range,
     ) -> Result<FloatType<LEN, Self>, OrderedFloatError> {
-        w.as_bytes()
+        Bytes::try_from(w)
             .map_err(|e| e.into())
             .map_err(OrderedFloatError::WrongWidth)
             .and_then(|bytes| {
@@ -1289,7 +1291,7 @@ impl MixedType {
     ) -> DeferredResult<Self, BitmaskError, NewMixedTypeError> {
         match dt {
             AlphaNumType::Ascii => w
-                .as_chars()
+                .try_into()
                 .map(|chars| Self::Ascii(AsciiType { chars }))
                 .into_deferred0(),
             AlphaNumType::Integer => AnyUintType::try_new(w, r, n, notrunc)
@@ -1814,7 +1816,8 @@ impl IsFixed for MixedType {
 fn widths_to_single_fixed_bytes(ws: &[Width]) -> MultiResult<Option<Bytes>, SingleFixedWidthError> {
     let bs = ws
         .iter()
-        .map(|w| w.as_bytes())
+        .copied()
+        .map(Bytes::try_from)
         .gather()
         .map_err(|es| es.map(SingleFixedWidthError::Bytes))?;
     NonEmpty::collect(bs.into_iter().unique()).map_or(Ok(None), |us| {
@@ -1909,7 +1912,7 @@ impl AsciiLayout {
                 .enumerate()
                 .map(|(i, c)| {
                     c.width
-                        .as_chars()
+                        .try_into()
                         .map(|chars| AsciiType { chars })
                         .map_err(|error| {
                             ColumnError {
@@ -2558,7 +2561,7 @@ enum_from_disp!(
     [Multi, MultiWidthsError]
 );
 
-pub struct MultiWidthsError(NonEmpty<Bytes>);
+pub struct MultiWidthsError(pub NonEmpty<Bytes>);
 
 pub struct MixedColumnError(ColumnError<NewMixedTypeError>);
 
@@ -2599,8 +2602,8 @@ enum_from_disp!(
 );
 
 pub struct WrongFloatWidth {
-    width: Bytes,
-    expected: usize,
+    pub width: Bytes,
+    pub expected: usize,
 }
 
 pub(crate) type ReaderResult = DeferredResult<ColumnReader, NewReaderWarning, NewReaderError>;
@@ -2706,8 +2709,7 @@ enum_from_disp!(
     [AlphaNumType, ReqKeyError<AlphaNumTypeError>],
     [Endian, ReqKeyError<NewEndianError>],
     [ByteOrd, ReqKeyError<ParseByteOrdError>],
-    [Par, ReqKeyError<ParseIntError>],
-    [Width, ReqKeyError<ParseBitsError>],
+    [Int, ReqKeyError<ParseIntError>],
     [Range, ReqKeyError<ParseRangeError>]
 );
 

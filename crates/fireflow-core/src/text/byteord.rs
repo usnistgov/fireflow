@@ -1,8 +1,13 @@
-use crate::macros::{newtype_disp, newtype_from_outer};
+use crate::data::{MultiWidthsError, WrongFloatWidth};
+use crate::error::*;
+use crate::macros::{
+    enum_from, enum_from_disp, match_many_to_one, newtype_disp, newtype_from_outer,
+};
 
 use super::keywords::AlphaNumType;
 
 use itertools::Itertools;
+use nonempty::NonEmpty;
 use serde::Serialize;
 use std::fmt;
 use std::num::ParseIntError;
@@ -59,9 +64,9 @@ pub enum SizedByteOrd<const LEN: usize> {
 #[derive(Clone, Serialize)]
 pub struct MixedOrder(Vec<u8>);
 
-impl ByteOrd {
-    // TODO this is just try_from
-    pub fn try_new(xs: Vec<u8>) -> Result<Self, NewByteOrdError> {
+impl TryFrom<Vec<u8>> for ByteOrd {
+    type Error = NewByteOrdError;
+    fn try_from(xs: Vec<u8>) -> Result<Self, Self::Error> {
         let n = xs.len();
         if xs.iter().unique().count() == n
             && !(1..=8).contains(&n)
@@ -73,7 +78,9 @@ impl ByteOrd {
             Err(NewByteOrdError)
         }
     }
+}
 
+impl ByteOrd {
     pub fn new_little4() -> Self {
         ByteOrd((0..4).collect())
     }
@@ -149,6 +156,36 @@ impl Chars {
     }
 }
 
+impl TryFrom<Width> for Chars {
+    type Error = WidthToCharsError;
+    fn try_from(value: Width) -> Result<Self, Self::Error> {
+        let fixed = BitsOrChars::try_from(value)
+            .ok()
+            .ok_or(WidthToFixedError::Variable)?;
+        fixed.try_into().map_err(WidthToFixedError::Fixed)
+    }
+}
+
+impl TryFrom<Width> for Bytes {
+    type Error = WidthToBytesError;
+    fn try_from(value: Width) -> Result<Self, Self::Error> {
+        let fixed = BitsOrChars::try_from(value)
+            .ok()
+            .ok_or(WidthToFixedError::Variable)?;
+        fixed.try_into().map_err(WidthToFixedError::Fixed)
+    }
+}
+
+impl TryFrom<Width> for BitsOrChars {
+    type Error = ();
+    fn try_from(value: Width) -> Result<Self, Self::Error> {
+        match value {
+            Width::Fixed(x) => Ok(x),
+            _ => Err(()),
+        }
+    }
+}
+
 impl Width {
     pub fn new_f32() -> Self {
         Width::Fixed(BitsOrChars(32))
@@ -158,26 +195,9 @@ impl Width {
         Width::Fixed(BitsOrChars(64))
     }
 
-    pub(crate) fn as_fixed(&self) -> Option<BitsOrChars> {
-        match self {
-            Width::Fixed(x) => Some(*x),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn as_chars(&self) -> Result<Chars, WidthToCharsError> {
-        let fixed = self.as_fixed().ok_or(WidthToFixedError::Variable)?;
-        fixed.chars().map_err(WidthToFixedError::Fixed)
-    }
-
-    pub(crate) fn as_bytes(&self) -> Result<Bytes, WidthToBytesError> {
-        let fixed = self.as_fixed().ok_or(WidthToFixedError::Variable)?;
-        fixed.bytes().map_err(WidthToFixedError::Fixed)
-    }
-
     /// Given a list of widths and a type, return the byte-width for a matrix.
     ///
-    /// That is, only return Some if the widths are all the same and they
+    /// That is, only return Ok if the widths are all the same and they
     /// match the given type.
     ///
     /// If type is Ascii, automatically return 4 bytes,
@@ -187,72 +207,81 @@ impl Width {
     /// If type is Integer, returned number can be 1-8.
     ///
     /// If type is Float or Double, return number must be 4 or 8 respectively.
-    pub(crate) fn matrix_bytes(ms: &[Self], t: AlphaNumType) -> Option<Bytes> {
-        // TODO handle errors better here?
-        let sizes: Vec<_> = ms
-            .iter()
-            .map(|w| w.as_fixed().and_then(|x| x.bytes().ok()))
-            .unique()
-            .collect();
-        match t {
-            AlphaNumType::Ascii => Some(Bytes(4)),
-            AlphaNumType::Integer => match sizes[..] {
-                [Some(bytes)] => Some(bytes),
-                _ => None,
-            },
-            AlphaNumType::Single => match sizes[..] {
-                [Some(bytes)] => {
-                    if u8::from(bytes) == 4 {
-                        Some(bytes)
+    pub(crate) fn matrix_bytes(
+        widths: &[Self],
+        t: AlphaNumType,
+    ) -> DeferredResult<Bytes, WidthToBytesError, SingleWidthError> {
+        if let Some(ws) = NonEmpty::collect(widths.iter().copied()) {
+            let bs = ne_map_results(ws, Bytes::try_from).into_deferred1();
+
+            let go = |sizes: NonEmpty<_>, expected: usize| {
+                if sizes.tail.is_empty() {
+                    let bytes = sizes.head;
+                    if usize::from(u8::from(bytes)) == expected {
+                        Ok(bytes)
                     } else {
-                        None
+                        Err(WrongFloatWidth {
+                            width: bytes,
+                            expected,
+                        }
+                        .into())
                     }
+                } else {
+                    Err(MultiWidthsError(sizes).into())
                 }
-                _ => None,
-            },
-            AlphaNumType::Double => match sizes[..] {
-                [Some(bytes)] => {
-                    if u8::from(bytes) == 8 {
-                        Some(bytes)
+            };
+
+            match t {
+                AlphaNumType::Ascii => {
+                    let bytes = Bytes(4);
+                    let ret =
+                        bs.map_or_else(|e| e.into_tentative(bytes), |_| Tentative::new1(bytes));
+                    Ok(ret)
+                }
+                AlphaNumType::Integer => bs.and_then_def(|sizes| {
+                    if sizes.tail.is_empty() {
+                        Ok(sizes.head)
                     } else {
-                        None
+                        Err(MultiWidthsError(sizes).into())
                     }
-                }
-                _ => None,
-            },
+                }),
+                AlphaNumType::Single => bs.and_then_def(|sizes| go(sizes, 4)),
+                AlphaNumType::Double => bs.and_then_def(|sizes| go(sizes, 8)),
+            }
+        } else {
+            Err(DeferredFailure::new1(EmptyWidthError.into()))
         }
     }
 }
 
-impl BitsOrChars {
+impl TryFrom<BitsOrChars> for Chars {
+    type Error = CharsError;
     /// Return the number of chars represented by this if 20 or less.
     ///
-    /// We can only check if the inner value is <=64 since we don't know at
-    /// parse time if this is for an ASCII column or a numeric column, so
-    /// need to check that the number is less then 20, which is the maximum
-    /// number of digits that can be stored in a u64.
-    pub fn chars(&self) -> Result<Chars, CharsError> {
-        if self.0 > 20 {
-            Err(CharsError(self.0))
+    /// 20 is the maximum number of digits representable by an unsigned integer,
+    /// which is the numeric type used to back ASCII data.
+    fn try_from(value: BitsOrChars) -> Result<Self, Self::Error> {
+        let x = value.0;
+        if !(1..=20).contains(&x) {
+            Err(CharsError(x))
         } else {
-            Ok(Chars(self.0))
+            Ok(Chars(x))
         }
     }
+}
 
+impl TryFrom<BitsOrChars> for Bytes {
+    type Error = BytesError;
     /// Return number of bytes represented by this.
     ///
-    /// Return None if not divisible by 8. This should only return a number
-    /// in [1, 8] because we check that Self is within [1,64]
-    pub fn bytes(&self) -> Result<Bytes, BytesError> {
-        if self.0 % 8 == 0 {
-            Ok(Bytes(self.0 / 8))
+    /// Return error if bits is not divisible by 8 and within [1,64].
+    fn try_from(value: BitsOrChars) -> Result<Self, Self::Error> {
+        let x = value.0;
+        if !(1..=64).contains(&x) && x % 8 == 0 {
+            Ok(Bytes(x / 8))
         } else {
-            Err(BytesError(self.0))
+            Err(BytesError(x))
         }
-    }
-
-    pub fn inner(&self) -> u8 {
-        self.0
     }
 }
 
@@ -285,7 +314,7 @@ impl FromStr for ByteOrd {
         let (pass, fail): (Vec<_>, Vec<_>) =
             s.split(",").map(|x| x.parse::<u8>()).partition_result();
         if fail.is_empty() {
-            ByteOrd::try_new(pass).map_err(ParseByteOrdError::Order)
+            ByteOrd::try_from(pass).map_err(ParseByteOrdError::Order)
         } else {
             Err(ParseByteOrdError::Format)
         }
@@ -344,20 +373,12 @@ impl TryFrom<Width> for u8 {
 }
 
 impl FromStr for Width {
-    type Err = ParseBitsError;
+    type Err = ParseIntError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "*" => Ok(Width::Variable),
-            _ => s.parse::<u8>().map_err(ParseBitsError::Int).and_then(|x| {
-                // TODO this isn't necessary, we can check this when converting
-                // to bytes or chars later
-                if !(1..=64).contains(&x) {
-                    Err(ParseBitsError::Inner(BitsError(x)))
-                } else {
-                    Ok(Width::Fixed(BitsOrChars(x)))
-                }
-            }),
+            _ => s.parse::<u8>().map(|x| Width::Fixed(BitsOrChars(x))),
         }
     }
 }
@@ -383,11 +404,6 @@ impl TryFrom<ByteOrd> for Endian {
     fn try_from(value: ByteOrd) -> Result<Self, Self::Error> {
         value.as_endian().ok_or(EndianToByteOrdError)
     }
-}
-
-pub enum ParseBitsError {
-    Int(ParseIntError),
-    Inner(BitsError),
 }
 
 pub struct BitsError(u8);
@@ -468,15 +484,6 @@ impl fmt::Display for ByteOrdToSizedError {
     }
 }
 
-impl fmt::Display for ParseBitsError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            ParseBitsError::Int(i) => write!(f, "{}", i),
-            ParseBitsError::Inner(i) => i.fmt(f),
-        }
-    }
-}
-
 impl fmt::Display for BitsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "bits must be between 1 and 64, got {}", self.0)
@@ -519,5 +526,23 @@ where
             Self::Variable => write!(f, "width is variable were fixed is needed"),
             Self::Fixed(e) => write!(f, "error when converting fixed bits: {e}"),
         }
+    }
+}
+
+enum_from_disp!(
+    pub SingleWidthError,
+    // TODO put this error somewhere more obvious
+    [Multi, MultiWidthsError],
+    [Float, WrongFloatWidth],
+    [Width, WidthToBytesError],
+    [Empty, EmptyWidthError]
+
+);
+
+pub struct EmptyWidthError;
+
+impl fmt::Display for EmptyWidthError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "could not determine width, no measurements available")
     }
 }

@@ -5,6 +5,7 @@ use crate::text::named_vec::BoundaryIndexError;
 use polars_arrow::array::{Array, PrimitiveArray};
 use polars_arrow::buffer::Buffer;
 use polars_arrow::datatypes::ArrowDataType;
+use std::any::type_name;
 use std::fmt;
 use std::iter;
 use std::slice::Iter;
@@ -283,19 +284,22 @@ where
         s: S,
         check: bool,
         f: F,
-    ) -> Result<ColumnWriter<'_, Self, T, S>, E>
+    ) -> Result<ColumnWriter<'_, Self, T, S>, LossError<E>>
     where
-        E: Default,
         F: Fn(T) -> Option<E>,
         T: NumCast<Self>,
     {
         if check {
             for x in Self::iter_converted::<T>(c) {
                 if x.lossy {
-                    return Err(E::default());
+                    let d = CastError {
+                        from: type_name::<Self>(),
+                        to: type_name::<T>(),
+                    };
+                    return Err(LossError::Cast(d));
                 }
                 if let Some(err) = f(x.new) {
-                    return Err(err);
+                    return Err(LossError::Other(err));
                 }
             }
         }
@@ -303,6 +307,38 @@ where
             data: Self::iter_converted(c),
             size: s,
         })
+    }
+}
+
+pub enum LossError<E> {
+    Cast(CastError),
+    Other(E),
+}
+
+pub struct CastError {
+    from: &'static str,
+    to: &'static str,
+}
+
+impl fmt::Display for CastError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "data loss occurred when converting from {} to {}",
+            self.from, self.to
+        )
+    }
+}
+
+impl<E> fmt::Display for LossError<E>
+where
+    E: fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::Cast(e) => e.fmt(f),
+            Self::Other(e) => e.fmt(f),
+        }
     }
 }
 

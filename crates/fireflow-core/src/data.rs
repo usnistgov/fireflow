@@ -13,6 +13,7 @@ use crate::validated::standard::*;
 use itertools::repeat_n;
 use itertools::Itertools;
 use nonempty::NonEmpty;
+use std::convert::Infallible;
 use std::fmt;
 use std::io;
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
@@ -1438,7 +1439,11 @@ pub trait IsFixed {
 
     fn into_reader(self, nrows: usize) -> AlphaNumColumnReader;
 
-    fn into_writer(self, c: &AnyFCSColumn, check: bool) -> Result<AnyFixedColumnWriter, LossError>;
+    fn into_writer(
+        self,
+        c: &AnyFCSColumn,
+        check: bool,
+    ) -> Result<AnyFixedColumnWriter, AnyLossError>;
 }
 
 impl<T, const LEN: usize> IsFixed for UintType<T, LEN>
@@ -1454,6 +1459,7 @@ where
     T: NumCast<u64>,
     T: NumCast<f32>,
     T: NumCast<f64>,
+    u64: From<T>,
     for<'b> AnyFixedColumnWriter<'b>: From<IntColumnWriter<'b, u8, T, LEN>>,
     for<'b> AnyFixedColumnWriter<'b>: From<IntColumnWriter<'b, u16, T, LEN>>,
     for<'b> AnyFixedColumnWriter<'b>: From<IntColumnWriter<'b, u32, T, LEN>>,
@@ -1473,17 +1479,22 @@ where
         .into()
     }
 
-    fn into_writer(self, c: &AnyFCSColumn, check: bool) -> Result<AnyFixedColumnWriter, LossError> {
+    fn into_writer(
+        self,
+        c: &AnyFCSColumn,
+        check: bool,
+    ) -> Result<AnyFixedColumnWriter, AnyLossError> {
         let bitmask = self.bitmask;
         match_many_to_one!(c, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], xs, {
             FCSDataType::into_writer(xs, self, check, |x: T| {
                 if x > bitmask {
-                    Some(LossError::Bitmask)
+                    Some(BitmaskLossError(u64::from(bitmask)))
                 } else {
                     None
                 }
             })
             .map(|w| w.into())
+            .map_err(|e| e.into())
         })
     }
 }
@@ -1509,7 +1520,11 @@ impl IsFixed for AnyUintType {
         )
     }
 
-    fn into_writer(self, c: &AnyFCSColumn, check: bool) -> Result<AnyFixedColumnWriter, LossError> {
+    fn into_writer(
+        self,
+        c: &AnyFCSColumn,
+        check: bool,
+    ) -> Result<AnyFixedColumnWriter, AnyLossError> {
         match_many_to_one!(
             self,
             AnyUintType,
@@ -1666,9 +1681,15 @@ where
         .into()
     }
 
-    fn into_writer(self, c: &AnyFCSColumn, check: bool) -> Result<AnyFixedColumnWriter, LossError> {
+    fn into_writer(
+        self,
+        c: &AnyFCSColumn,
+        check: bool,
+    ) -> Result<AnyFixedColumnWriter, AnyLossError> {
         match_many_to_one!(c, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], xs, {
-            FCSDataType::into_writer(xs, self.order, check, |_| None).map(|w| w.into())
+            FCSDataType::into_writer(xs, self.order, check, |_| None)
+                .map(|w| w.into())
+                .map_err(AnyLossError::Int)
         })
     }
 }
@@ -1729,12 +1750,12 @@ impl IsFixed for AsciiType {
         self,
         col: &AnyFCSColumn,
         check: bool,
-    ) -> Result<AnyFixedColumnWriter, LossError> {
+    ) -> Result<AnyFixedColumnWriter, AnyLossError> {
         let c = self.chars;
-        let width = u8::from(c).into();
+        let width = u8::from(c);
         let go = |x: u64| {
-            if ascii_nbytes(x) > width {
-                Some(LossError::Chars)
+            if ascii_nbytes(x) > width.into() {
+                Some(AsciiLossError(width))
             } else {
                 None
             }
@@ -1753,6 +1774,7 @@ impl IsFixed for AsciiType {
             AnyFCSColumn::F64(xs) => FCSDataType::into_writer(xs, c, check, go)
                 .map(|w| AnyFixedColumnWriter::FromF64(AnyColumnWriter::Ascii(w))),
         }
+        .map_err(|e| e.into())
     }
 }
 
@@ -1775,7 +1797,11 @@ impl IsFixed for MixedType {
         }
     }
 
-    fn into_writer(self, c: &AnyFCSColumn, check: bool) -> Result<AnyFixedColumnWriter, LossError> {
+    fn into_writer(
+        self,
+        c: &AnyFCSColumn,
+        check: bool,
+    ) -> Result<AnyFixedColumnWriter, AnyLossError> {
         match self {
             MixedType::Ascii(a) => a.into_writer(c, check),
             MixedType::Integer(i) => i.into_writer(c, check),
@@ -1936,7 +1962,7 @@ impl AsciiLayout {
                         go(c).map_err(|error| {
                             ColumnWriterError(ColumnError {
                                 index: i.into(),
-                                error,
+                                error: AnyLossError::Int(error),
                             })
                         })
                     })
@@ -2609,16 +2635,39 @@ pub struct UnevenEventWidth {
     remainder: usize,
 }
 
-pub struct ColumnWriterError(ColumnError<LossError>);
+pub struct ColumnWriterError(ColumnError<AnyLossError>);
 
 newtype_disp!(ColumnWriterError);
 
-#[derive(Default)]
-pub enum LossError {
-    #[default]
-    DataType,
-    Chars,
-    Bitmask,
+enum_from_disp!(
+    pub AnyLossError,
+    [Int, LossError<BitmaskLossError>],
+    [Float, LossError<Infallible>],
+    [Ascii, LossError<AsciiLossError>]
+);
+
+pub struct AsciiLossError(u8);
+
+impl fmt::Display for AsciiLossError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "ASCII data was too big and truncated into {} chars",
+            self.0
+        )
+    }
+}
+
+pub struct BitmaskLossError(u64);
+
+impl fmt::Display for BitmaskLossError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "integer data was too big and truncated to bitmask {}",
+            self.0
+        )
+    }
 }
 
 pub struct ColumnError<E> {
@@ -2724,17 +2773,17 @@ impl fmt::Display for BitmaskError {
     }
 }
 
-impl fmt::Display for LossError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let s = match self {
-            // TODO this error is basically meaningless
-            LossError::DataType => "loss occurred when converting to different type",
-            LossError::Chars => "loss occurred when truncating ASCII string to required width",
-            LossError::Bitmask => "loss occurred when applying bitmask to integer",
-        };
-        write!(f, "{}", s)
-    }
-}
+// impl fmt::Display for AnyLossError {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+//         let s = match self {
+//             // TODO this error is basically meaningless
+//             AnyLossError::DataType => "loss occurred when converting to different type",
+//             AnyLossError::Chars => "loss occurred when truncating ASCII string to required width",
+//             AnyLossError::Bitmask => "loss occurred when applying bitmask to integer",
+//         };
+//         write!(f, "{}", s)
+//     }
+// }
 
 impl fmt::Display for RowsExceededError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {

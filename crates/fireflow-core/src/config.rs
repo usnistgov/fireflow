@@ -70,6 +70,13 @@ pub struct RawTextReadConfig {
     /// Does not affect 3.2 since these are optional there.
     pub enforce_stext: bool,
 
+    /// If true, throw error if $NEXTDATA is missing.
+    ///
+    /// For now only reading the first dataset is supported, so this keyword
+    /// does nothing. However, it is supposed to be present according to the
+    /// standard.
+    pub enforce_nextdata: bool,
+
     /// If true, replace leading spaces in offset keywords with 0.
     ///
     ///These often need to be padded to make the DATA segment appear at a
@@ -241,6 +248,7 @@ impl Strict for RawTextReadConfig {
             enforce_utf8: true,
             enforce_keyword_ascii: true,
             enforce_stext: true,
+            enforce_nextdata: true,
             ..self
         }
     }

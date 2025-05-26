@@ -1013,10 +1013,7 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
         ParseRawTEXTFailure,
         |(delimiter, mut kws, supp_text_seg)| {
             repair_keywords(&mut kws.std, conf);
-            // TODO this will throw an error if not present, but we may not care
-            // so toggle b/t error and warning
-            let enforce_nextdata = true;
-            let mut tnt_parse = lookup_nextdata(&kws.std, enforce_nextdata)
+            let mut tnt_parse = lookup_nextdata(&kws.std, conf.enforce_nextdata)
                 .errors_into()
                 .map(|nextdata| ParseData {
                     prim_text: header.text,

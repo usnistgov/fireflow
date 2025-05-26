@@ -102,6 +102,7 @@ fn py_read_fcs_header(
     enforce_utf8=false,
     enforce_keyword_ascii=false,
     enforce_stext=false,
+    enforce_nextdata=false,
     repair_offset_spaces=false,
     date_pattern=None,
     version_override=None)
@@ -131,6 +132,7 @@ fn py_read_fcs_raw_text(
     enforce_utf8: bool,
     enforce_keyword_ascii: bool,
     enforce_stext: bool,
+    enforce_nextdata: bool,
     repair_offset_spaces: bool,
     date_pattern: Option<String>,
     version_override: Option<PyVersion>,
@@ -166,6 +168,7 @@ fn py_read_fcs_raw_text(
         enforce_utf8,
         enforce_keyword_ascii,
         enforce_stext,
+        enforce_nextdata,
         repair_offset_spaces,
         date_pattern: date_pattern.map(str_to_date_pat).transpose()?,
     };
@@ -211,6 +214,7 @@ fn py_read_fcs_raw_text(
     enforce_utf8=false,
     enforce_keyword_ascii=false,
     enforce_stext=false,
+    enforce_nextdata=false,
     repair_offset_spaces=false,
     disallow_deprecated=false,
 
@@ -252,6 +256,7 @@ fn py_read_fcs_std_text(
     enforce_utf8: bool,
     enforce_keyword_ascii: bool,
     enforce_stext: bool,
+    enforce_nextdata: bool,
     repair_offset_spaces: bool,
     disallow_deprecated: bool,
 
@@ -300,6 +305,7 @@ fn py_read_fcs_std_text(
         enforce_utf8,
         enforce_keyword_ascii,
         enforce_stext,
+        enforce_nextdata,
         repair_offset_spaces,
         date_pattern: date_pattern.map(str_to_date_pat).transpose()?,
     };
@@ -378,6 +384,7 @@ fn py_read_fcs_std_text(
     enforce_utf8=false,
     enforce_keyword_ascii=false,
     enforce_stext=false,
+    enforce_nextdata=false,
     repair_offset_spaces=false,
     disallow_deprecated=false,
 
@@ -427,6 +434,7 @@ fn py_read_fcs_file(
     enforce_utf8: bool,
     enforce_keyword_ascii: bool,
     enforce_stext: bool,
+    enforce_nextdata: bool,
     repair_offset_spaces: bool,
     disallow_deprecated: bool,
 
@@ -477,6 +485,7 @@ fn py_read_fcs_file(
         enforce_utf8,
         enforce_keyword_ascii,
         enforce_stext,
+        enforce_nextdata,
         repair_offset_spaces,
         date_pattern: date_pattern.map(str_to_date_pat).transpose()?,
     };

@@ -14,9 +14,9 @@ use std::str::FromStr;
 /// The spillover matrix from the $SPILLOVER keyword (3.1+)
 #[derive(Clone, Serialize)]
 pub struct Spillover {
-    /// The measurements in the spillover matrix. Assumed to be a subset of the
-    /// values in the $PnN keys.
-    // TODO use BTreeSet to enforce uniqueness
+    /// The measurements in the spillover matrix.
+    ///
+    /// Assumed to be a subset of the values in the $PnN keys and unique.
     measurements: Vec<Shortname>,
 
     /// Numeric values in the spillover matrix in row-major order.
@@ -60,7 +60,7 @@ impl Spillover {
             if self.measurements.len() < 3 {
                 Err(ClearOptional)
             } else {
-                // TODO this looks expensive; it copies basically everything 3x;
+                // TODO this looks expensive; it copies almost everything 3x;
                 // good thing these matrices aren't that big (usually). The
                 // alternative is to iterate over the matrix and populate a new
                 // one while skipping certain elements.
@@ -83,7 +83,6 @@ impl Spillover {
         lines.into_iter().chain(rows).collect()
     }
 
-    // TODO move this to CLI since this pertains to printing
     pub(crate) fn print_table(&self, delim: &str) {
         for e in self.table(delim) {
             println!("{}", e);

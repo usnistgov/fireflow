@@ -2603,9 +2603,9 @@ where
         n: Shortname,
         m: Temporal<M::T>,
         col: AnyFCSColumn,
-    ) -> Result<(), InsertCenterError> {
+    ) -> Result<(), PushTemporalError> {
         self.measurements.push_center(n, m)?;
-        self.data.push_column(col);
+        self.data.push_column(col)?;
         Ok(())
     }
 
@@ -2619,9 +2619,10 @@ where
         n: Shortname,
         m: Temporal<M::T>,
         col: AnyFCSColumn,
-    ) -> Result<(), InsertCenterError> {
+    ) -> Result<(), PushTemporalError> {
         self.measurements.insert_center(i, n, m)?;
-        self.data.insert_column(i.into(), col);
+        // ASSUME index is within bounds here since it was checked above
+        self.data.insert_column_nocheck(i.into(), col)?;
         Ok(())
     }
 
@@ -2633,9 +2634,9 @@ where
         n: <M::N as MightHave>::Wrapper<Shortname>,
         m: Optical<M::P>,
         col: AnyFCSColumn,
-    ) -> Result<Shortname, NonUniqueKeyError> {
+    ) -> Result<Shortname, PushOpticalError> {
         let k = self.measurements.push(n, m)?;
-        self.data.push_column(col);
+        self.data.push_column(col)?;
         Ok(k)
     }
 
@@ -2648,9 +2649,10 @@ where
         n: <M::N as MightHave>::Wrapper<Shortname>,
         m: Optical<M::P>,
         col: AnyFCSColumn,
-    ) -> Result<Shortname, InsertError> {
+    ) -> Result<Shortname, InsertOpticalError> {
         let k = self.measurements.insert(i, n, m)?;
-        self.data.insert_column(i.into(), col);
+        // ASSUME index is within bounds here since it was checked above
+        self.data.insert_column_nocheck(i.into(), col)?;
         Ok(k)
     }
 
@@ -5520,6 +5522,24 @@ enum_from_disp!(
     pub SetMeasurementsOnlyError,
     [Meas, SetMeasurementsError],
     [Mismatch, MeasDataMismatchError]
+);
+
+enum_from_disp!(
+    pub PushTemporalError,
+    [Center, InsertCenterError],
+    [Column, ColumnLengthError]
+);
+
+enum_from_disp!(
+    pub PushOpticalError,
+    [NonUnique, NonUniqueKeyError],
+    [Column, ColumnLengthError]
+);
+
+enum_from_disp!(
+    pub InsertOpticalError,
+    [Insert, InsertError],
+    [Column, ColumnLengthError]
 );
 
 pub struct MeasDataMismatchError {

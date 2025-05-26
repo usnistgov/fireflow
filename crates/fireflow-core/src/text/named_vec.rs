@@ -1554,8 +1554,8 @@ pub struct ElementIndexError {
 
 #[derive(Debug)]
 pub struct BoundaryIndexError {
-    index: MeasIdx, // refers to index between elements
-    len: usize,
+    pub index: MeasIdx, // refers to index between elements
+    pub len: usize,
 }
 
 #[derive(Debug)]

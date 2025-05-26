@@ -1,5 +1,6 @@
 use crate::data::ColumnWriter;
-use crate::macros::match_many_to_one;
+use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
+use crate::text::named_vec::BoundaryIndexError;
 
 use polars_arrow::array::{Array, PrimitiveArray};
 use polars_arrow::buffer::Buffer;
@@ -109,6 +110,27 @@ impl fmt::Display for NewDataframeError {
     }
 }
 
+pub struct ColumnLengthError {
+    df_len: usize,
+    col_len: usize,
+}
+
+enum_from_disp!(
+    pub InsertColumnError,
+    [Index, BoundaryIndexError],
+    [Column, ColumnLengthError]
+);
+
+impl fmt::Display for ColumnLengthError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "column length ({}) is different from number of rows in dataframe ({})",
+            self.df_len, self.col_len
+        )
+    }
+}
+
 impl FCSDataFrame {
     pub(crate) fn try_new(columns: Vec<AnyFCSColumn>) -> Result<Self, NewDataframeError> {
         if let Some(nrows) = columns.first().map(|c| c.len()) {
@@ -159,25 +181,55 @@ impl FCSDataFrame {
         }
     }
 
-    // TODO return real error message from here
-    pub(crate) fn push_column(&mut self, col: AnyFCSColumn) -> Option<()> {
-        if col.len() == self.nrows() || self.is_empty() {
+    pub(crate) fn push_column(&mut self, col: AnyFCSColumn) -> Result<(), ColumnLengthError> {
+        let df_len = self.nrows();
+        let col_len = col.len();
+        if col_len == df_len {
             self.columns.push(col);
-            Some(())
+            Ok(())
         } else {
-            None
+            Err(ColumnLengthError { df_len, col_len })
         }
     }
 
-    // TODO return real error message from here
-    pub(crate) fn insert_column(&mut self, i: usize, col: AnyFCSColumn) -> Option<()> {
-        if (col.len() == self.nrows() || self.is_empty()) && i > self.columns.len() {
-            self.columns.insert(i, col);
-            Some(())
+    // will panic if index is out of bounds
+    pub(crate) fn insert_column_nocheck(
+        &mut self,
+        i: usize,
+        col: AnyFCSColumn,
+    ) -> Result<(), ColumnLengthError> {
+        let df_len = self.nrows();
+        let col_len = col.len();
+        if col_len != df_len {
+            Err(ColumnLengthError { df_len, col_len })
         } else {
-            None
+            self.columns.insert(i, col);
+            Ok(())
         }
     }
+
+    // pub(crate) fn insert_column(
+    //     &mut self,
+    //     i: usize,
+    //     col: AnyFCSColumn,
+    // ) -> Result<(), InsertColumnError> {
+    //     let ncol = self.columns.len();
+    //     let df_len = self.nrows();
+    //     let col_len = col.len();
+    //     if i > ncol {
+    //         // TODO this error is more general than just named_vec
+    //         Err(BoundaryIndexError {
+    //             index: i.into(),
+    //             len: ncol,
+    //         }
+    //         .into())
+    //     } else if col_len != df_len {
+    //         Err(ColumnLengthError { df_len, col_len }.into())
+    //     } else {
+    //         self.columns.insert(i, col);
+    //         Ok(())
+    //     }
+    // }
 
     // /// Return number of bytes this will occupy if written as delimited ASCII
     pub(crate) fn ascii_nchars(&self) -> usize {
@@ -224,8 +276,6 @@ impl FCSDataFrame {
         (ndigits as usize) + ndelim
     }
 }
-
-// type FCSColIterInner<'a, T> = iter::Flatten<Box<dyn PolarsIterator<Item = Option<T>> + 'a>>;
 
 pub(crate) type FCSColIter<'a, FromType, ToType> =
     iter::Map<iter::Copied<Iter<'a, FromType>>, fn(FromType) -> CastResult<ToType>>;

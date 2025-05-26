@@ -777,6 +777,10 @@ pub trait DeferredExt {
 
     fn terminate<T>(self, reason: T) -> TerminalResult<Self::V, Self::W, Self::E, T>;
 
+    fn eval_error<F>(&mut self, f: F)
+    where
+        F: FnOnce(&Self::V) -> Option<Self::E>;
+
     fn eval_warning<F>(&mut self, f: F)
     where
         F: FnOnce(&Self::V) -> Option<Self::W>;
@@ -883,14 +887,21 @@ impl<V, W, E> DeferredExt for DeferredResult<V, W, E> {
         }
     }
 
+    fn eval_error<F>(&mut self, f: F)
+    where
+        F: FnOnce(&Self::V) -> Option<Self::E>,
+    {
+        if let Ok(tnt) = self.as_mut() {
+            tnt.eval_error(f)
+        }
+    }
+
     fn eval_warning<F>(&mut self, f: F)
     where
         F: FnOnce(&Self::V) -> Option<Self::W>,
     {
         if let Ok(tnt) = self.as_mut() {
-            if let Some(e) = f(&tnt.value) {
-                tnt.warnings.push(e);
-            }
+            tnt.eval_warning(f)
         }
     }
 }

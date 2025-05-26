@@ -819,8 +819,22 @@ fn lookup_data_offsets(
                 .collect();
             Ok(Tentative::new(default, ws, vec![]))
         },
-        // TODO what if the default is different?
-        |t| Ok(Tentative::new1(t)),
+        // TODO toggle this
+        |t| {
+            let w = if t != default && !default.is_empty() {
+                Some(
+                    SegmentMismatchWarning {
+                        header: default,
+                        text: t,
+                        id: SegmentId::Data,
+                    }
+                    .into(),
+                )
+            } else {
+                None
+            };
+            Ok(Tentative::new(t, w.into_iter().collect(), vec![]))
+        },
     )
 }
 
@@ -869,7 +883,27 @@ fn lookup_analysis_offsets(
                     .collect();
                 Ok(Tentative::new(default, ws, vec![]))
             },
-            |t| Ok(Tentative::new1(t.unwrap_or(default))),
+            |t| {
+                // TODO toggle
+                let x = if let Some(this_seg) = t {
+                    let w = if this_seg != default && !default.is_empty() {
+                        Some(
+                            SegmentMismatchWarning {
+                                header: default,
+                                text: this_seg,
+                                id: SegmentId::Analysis,
+                            }
+                            .into(),
+                        )
+                    } else {
+                        None
+                    };
+                    Tentative::new(this_seg, w.into_iter().collect(), vec![])
+                } else {
+                    Tentative::new1(t.unwrap_or(default))
+                };
+                Ok(x)
+            },
         ),
     }
 }
@@ -1108,8 +1142,28 @@ enum_from_disp!(
 enum_from_disp!(
     pub DataSegmentWarning,
     [Segment, ReqSegmentError],
-    [Default, DataSegmentDefaultWarning]
+    [Default, DataSegmentDefaultWarning],
+    [Mismatch, SegmentMismatchWarning]
 );
+
+pub struct SegmentMismatchWarning {
+    header: Segment,
+    text: Segment,
+    // TODO this can be screwed up unnecessarily
+    id: SegmentId,
+}
+
+impl fmt::Display for SegmentMismatchWarning {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "segments differ in HEADER ({}) and TEXT ({}) for {}, using TEXT",
+            self.header.fmt_pair(),
+            self.text.fmt_pair(),
+            self.id
+        )
+    }
+}
 
 pub struct DataSegmentDefaultWarning;
 
@@ -1127,7 +1181,8 @@ enum_from_disp!(
     pub AnalysisSegmentWarning,
     [ReqSegment, ReqSegmentError],
     [OptSegment, OptSegmentError],
-    [Default, AnalysisSegmentDefaultWarning]
+    [Default, AnalysisSegmentDefaultWarning],
+    [Mismatch, SegmentMismatchWarning]
 );
 
 pub struct AnalysisSegmentDefaultWarning;

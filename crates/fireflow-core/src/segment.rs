@@ -100,6 +100,10 @@ impl Segment {
         self.begin + self.pseudo_length
     }
 
+    pub fn fmt_pair(&self) -> String {
+        format!("{},{}", self.begin(), self.end())
+    }
+
     fn new_unchecked(begin: u32, end: u32) -> Segment {
         Segment {
             begin,

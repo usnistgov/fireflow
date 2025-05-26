@@ -2219,6 +2219,8 @@ where
                         // trigger a warning. Either can generate an
                         // error/warning if they fail to be parsed to their type
                         match key {
+                            // TODO add switch to "downgrade" failed time
+                            // channel to optical channel, which is more general
                             Ok(name) => Temporal::lookup_temporal(kws, i, meas_nonstd)
                                 .map_value(|t| Element::Center((name, t))),
                             Err(k) => Optical::lookup_optical(kws, i, meas_nonstd)
@@ -4285,8 +4287,6 @@ impl LookupTemporal for InnerTemporal2_0 {
 
 impl LookupTemporal for InnerTemporal3_0 {
     fn lookup_specific(kws: &mut StdKeywords, i: MeasIdx) -> LookupResult<Self> {
-        // TODO if time channel can't be found then downgrade this channel to
-        // an optical channel, probably easier said than done
         let mut tnt_gain = lookup_meas_opt::<Gain>(kws, i, false);
         tnt_gain.eval_error(|gain| {
             if gain.0.is_some() {
@@ -4296,88 +4296,43 @@ impl LookupTemporal for InnerTemporal3_0 {
             }
         });
         tnt_gain.and_maybe(|_| {
-            let s = lookup_meas_req::<Scale>(kws, i);
+            let s = lookup_temporal_scale_3_0(kws, i);
             let t = lookup_meta_req(kws);
-            s.zip_def(t).and_tentatively(|(scale, timestep)| {
-                let mut tnt = Tentative::new1(Self { timestep });
-                tnt.eval_error(|_| {
-                    if scale != Scale::Linear {
-                        Some(ParseKeysError::Other(TemporalError::NonLinear.into()))
-                    } else {
-                        None
-                    }
-                });
-                tnt
-            })
+            s.zip_def(t).map_value(|(_, timestep)| Self { timestep })
         })
     }
 }
 
 impl LookupTemporal for InnerTemporal3_1 {
     fn lookup_specific(kws: &mut StdKeywords, i: MeasIdx) -> LookupResult<Self> {
-        // TODO not DRY
-        let mut tnt_gain = lookup_meas_opt::<Gain>(kws, i, false);
-        tnt_gain.eval_error(|gain| {
-            if gain.0.is_some() {
-                Some(ParseKeysError::Other(TemporalError::HasGain.into()))
-            } else {
-                None
-            }
-        });
-        let tnt_disp = lookup_meas_opt(kws, i, false);
-        tnt_gain.zip(tnt_disp).and_maybe(|(_, display)| {
-            let s = lookup_meas_req::<Scale>(kws, i);
+        let g = lookup_temporal_gain_3_0(kws, i);
+        let d = lookup_meas_opt(kws, i, false);
+        g.zip(d).and_maybe(|(_, display)| {
+            let s = lookup_temporal_scale_3_0(kws, i);
             let t = lookup_meta_req(kws);
-            s.zip_def(t).and_tentatively(|(scale, timestep)| {
-                let mut tnt = Tentative::new1(Self { timestep, display });
-                tnt.eval_error(|_| {
-                    if scale != Scale::Linear {
-                        Some(ParseKeysError::Other(TemporalError::NonLinear.into()))
-                    } else {
-                        None
-                    }
-                });
-                tnt
-            })
+            s.zip_def(t)
+                .map_value(|(_, timestep)| Self { timestep, display })
         })
     }
 }
 
 impl LookupTemporal for InnerTemporal3_2 {
     fn lookup_specific(kws: &mut StdKeywords, i: MeasIdx) -> LookupResult<Self> {
-        let mut tnt_gain = lookup_meas_opt::<Gain>(kws, i, false);
-        tnt_gain.eval_error(|gain| {
-            if gain.0.is_some() {
-                Some(ParseKeysError::Other(TemporalError::HasGain.into()))
-            } else {
-                None
-            }
-        });
-        let tnt_disp = lookup_meas_opt(kws, i, false);
-        let tnt_mt = lookup_meas_opt(kws, i, false);
-        let tnt_dt = lookup_meas_opt(kws, i, false);
-        tnt_gain.zip4(tnt_disp, tnt_mt, tnt_dt).and_maybe(
-            |(_, display, measurement_type, datatype)| {
-                let s = lookup_meas_req::<Scale>(kws, i);
+        let g = lookup_temporal_gain_3_0(kws, i);
+        let di = lookup_meas_opt(kws, i, false);
+        let m = lookup_meas_opt(kws, i, false);
+        let da = lookup_meas_opt(kws, i, false);
+        g.zip4(di, m, da)
+            .and_maybe(|(_, display, measurement_type, datatype)| {
+                let s = lookup_temporal_scale_3_0(kws, i);
                 let t = lookup_meta_req(kws);
-                s.zip_def(t).and_tentatively(|(scale, timestep)| {
-                    let mut tnt = Tentative::new1(Self {
-                        timestep,
-                        display,
-                        measurement_type,
-                        datatype,
-                    });
-                    tnt.eval_error(|_| {
-                        if scale != Scale::Linear {
-                            Some(ParseKeysError::Other(TemporalError::NonLinear.into()))
-                        } else {
-                            None
-                        }
-                    });
-                    tnt
+                s.zip_def(t).map_value(|(_, timestep)| Self {
+                    timestep,
+                    display,
+                    measurement_type,
+                    datatype,
                 })
-            },
-        )
+            })
     }
 }
 

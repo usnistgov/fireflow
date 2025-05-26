@@ -224,6 +224,33 @@ pub(crate) fn lookup_dfc(
     })
 }
 
+pub(crate) fn lookup_temporal_gain_3_0(
+    kws: &mut StdKeywords,
+    i: MeasIdx,
+) -> LookupTentative<OptionalKw<Gain>> {
+    let mut tnt_gain = lookup_meas_opt::<Gain>(kws, i, false);
+    tnt_gain.eval_error(|gain| {
+        if gain.0.is_some() {
+            Some(ParseKeysError::Other(TemporalError::HasGain.into()))
+        } else {
+            None
+        }
+    });
+    tnt_gain
+}
+
+pub(crate) fn lookup_temporal_scale_3_0(kws: &mut StdKeywords, i: MeasIdx) -> LookupResult<Scale> {
+    let mut res = lookup_meas_req(kws, i);
+    res.eval_error(|scale| {
+        if *scale != Scale::Linear {
+            Some(ParseKeysError::Other(TemporalError::NonLinear.into()))
+        } else {
+            None
+        }
+    });
+    res
+}
+
 fn process_opt<V>(
     res: Result<OptionalKw<V>, ParseKeyError<<V as FromStr>::Err>>,
 ) -> Tentative<OptionalKw<V>, ParseKeysWarning, ParseKeysError>

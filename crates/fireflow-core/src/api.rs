@@ -196,16 +196,16 @@ pub struct ParseData {
     /// Included here for informational purposes.
     pub delimiter: u8,
 
-    /// Keywords that were not in ASCII.
+    /// Keywords with a non-ASCII but still valid UTF-8 key.
     ///
-    /// Non-ASCII keywords are non-conferment but are included here in case the
-    /// user wants to fix them or know they are present
+    /// Non-ASCII keys are non-conforment but are included here in case the user
+    /// wants to fix them or know they are present
     pub non_ascii: NonAsciiPairs,
 
     /// Keywords that could not be parsed.
     ///
     /// These have either a key or value or both that is not a UTF-8 string.
-    /// Inluded here for debugging
+    /// Included here for debugging
     pub byte_pairs: BytesPairs,
 }
 
@@ -490,7 +490,6 @@ impl RawTEXT {
         .map(|x| {
             x.map(|column_reader| DataReader {
                 column_reader,
-                // TODO fix cast
                 begin: data_seg.begin().into(),
             })
         })
@@ -984,19 +983,48 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
             // TODO this will throw an error if not present, but we may not care
             // so toggle b/t error and warning
             let enforce_nextdata = true;
-            lookup_nextdata(&kws.std, enforce_nextdata)
-                .map(|nextdata| RawTEXT {
+            let mut tnt_parse = lookup_nextdata(&kws.std, enforce_nextdata)
+                .errors_into()
+                .map(|nextdata| ParseData {
+                    prim_text: header.text,
+                    supp_text: supp_text_seg,
+                    data: header.data,
+                    analysis: header.analysis,
+                    nextdata,
+                    delimiter,
+                    non_ascii: kws.non_ascii,
+                    byte_pairs: kws.byte_pairs,
+                });
+            tnt_parse.eval_errors(|pd| {
+                if conf.enforce_keyword_ascii {
+                    pd.non_ascii
+                        .iter()
+                        .map(|(k, _)| ParseRawTEXTError::NonAscii(NonAsciiKeyError(k.clone())))
+                        .collect()
+                } else {
+                    vec![]
+                }
+            });
+            tnt_parse.eval_errors(|pd| {
+                if conf.enforce_utf8 {
+                    pd.byte_pairs
+                        .iter()
+                        .map(|(k, v)| {
+                            ParseRawTEXTError::NonUtf8(NonUtf8KeywordError {
+                                key: k.clone(),
+                                value: v.clone(),
+                            })
+                        })
+                        .collect()
+                } else {
+                    vec![]
+                }
+            });
+
+            tnt_parse
+                .map(|parse| RawTEXT {
                     version: header.version,
-                    parse: ParseData {
-                        prim_text: header.text,
-                        supp_text: supp_text_seg,
-                        data: header.data,
-                        analysis: header.analysis,
-                        nextdata,
-                        delimiter,
-                        non_ascii: kws.non_ascii,
-                        byte_pairs: kws.byte_pairs,
-                    },
+                    parse,
                     keywords: ValidKeywords {
                         std: kws.std,
                         nonstd: kws.nonstd,
@@ -1244,8 +1272,36 @@ enum_from_disp!(
     [Primary, ParsePrimaryTEXTError],
     [Supplemental, ParseSupplementalTEXTError],
     [SuppOffsets, ReqSegmentError],
-    [Nextdata, ReqKeyError<ParseIntError>]
+    [Nextdata, ReqKeyError<ParseIntError>],
+    [NonAscii, NonAsciiKeyError],
+    [NonUtf8, NonUtf8KeywordError]
 );
+
+pub struct NonAsciiKeyError(String);
+
+impl fmt::Display for NonAsciiKeyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "non-ASCII key encountered and dropped: {}", self.0)
+    }
+}
+
+pub struct NonUtf8KeywordError {
+    key: Vec<u8>,
+    value: Vec<u8>,
+}
+
+impl fmt::Display for NonUtf8KeywordError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let n = 10;
+        write!(
+            f,
+            "non UTF-8 key/value pair encountered and dropped, \
+             first 10 bytes of both are ({})/({})",
+            self.key.iter().take(n).join(","),
+            self.value.iter().take(n).join(",")
+        )
+    }
+}
 
 enum_from_disp!(
     pub ParseRawTEXTWarning,

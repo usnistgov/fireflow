@@ -60,9 +60,9 @@ pub struct RawTextReadConfig {
 
     /// If true, throw an error if the parser encounters a bad UTF-8 byte when
     /// creating the key/value list. If false, merely drop the bad pair.
-    pub error_on_invalid_utf8: bool,
+    pub enforce_utf8: bool,
 
-    /// If true, throw error when encountering keyword with non-ASCII characters
+    /// If true, throw error when encountering key with non-ASCII characters
     pub enforce_keyword_ascii: bool,
 
     /// If true, throw error if supplemental TEXT offsets are missing.
@@ -238,7 +238,7 @@ impl Strict for RawTextReadConfig {
             enforce_final_delim: true,
             enforce_unique: true,
             enforce_even: true,
-            error_on_invalid_utf8: true,
+            enforce_utf8: true,
             enforce_keyword_ascii: true,
             enforce_stext: true,
             ..self

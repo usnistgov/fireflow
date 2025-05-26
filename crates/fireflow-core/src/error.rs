@@ -396,6 +396,13 @@ impl<V, W, E> Tentative<V, W, E> {
         }
     }
 
+    pub fn eval_errors<F>(&mut self, f: F)
+    where
+        F: Fn(&V) -> Vec<E>,
+    {
+        self.errors.extend(f(&self.value));
+    }
+
     pub fn warnings_map<F, X>(self, f: F) -> Tentative<V, X, E>
     where
         F: Fn(W) -> X,

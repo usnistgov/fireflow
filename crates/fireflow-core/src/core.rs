@@ -68,6 +68,9 @@ pub struct Core<A, D, M, T, P, N, W> {
 
     /// ANALYSIS segment (if applicable)
     pub analysis: A,
+    // TODO add CRC
+
+    // TODO add OTHER
 }
 
 /// The ANALYSIS segment, which is just a string of bytes

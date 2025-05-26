@@ -215,6 +215,9 @@ pub struct DataReadConfig {
 pub struct MiscReadConfig {
     /// If true, all warnings are considered to be fatal errors.
     pub warnings_are_errors: bool,
+
+    /// If true, don't truncate the bitmask to whatever type it needs to be.
+    pub bitmask_notruncate: bool,
 }
 
 /// Configuration for writing an FCS file

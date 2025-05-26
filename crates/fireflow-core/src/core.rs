@@ -1710,7 +1710,6 @@ where
     /// Return a vector with each successfully found value.
     ///
     /// This includes the time measurement if present.
-    // TODO generlize this to take slices
     pub fn get_meas_nonstandard(&self, ks: &[NonStdKey]) -> Option<Vec<Option<&String>>> {
         let ms = &self.measurements;
         if ks.len() != ms.len() {

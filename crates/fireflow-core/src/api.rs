@@ -452,7 +452,7 @@ impl RawTEXT {
     fn into_std(
         self,
         conf: &StdTextReadConfig,
-    ) -> TerminalResult<StandardizedTEXT, ParseKeysWarning, ParseKeysError, CoreTEXTFailure> {
+    ) -> TerminalResult<StandardizedTEXT, LookupMeasWarning, ParseKeysError, CoreTEXTFailure> {
         let mut kws = self.keywords;
         AnyCoreTEXT::parse_raw(self.version, &mut kws.std, kws.nonstd, conf).map(|std_succ| {
             std_succ.map({
@@ -1372,7 +1372,7 @@ impl fmt::Display for CoreTEXTFailure {
 enum_from_disp!(
     pub AnyStdTEXTWarning,
     [Raw, ParseRawTEXTWarning],
-    [Std, ParseKeysWarning]
+    [Std, LookupMeasWarning]
 );
 
 enum_from!(
@@ -1441,7 +1441,7 @@ impl fmt::Display for ReadStdDatasetFailure {
 enum_from_disp!(
     pub ReadRawOrStdWarning,
     [Raw, ParseRawTEXTWarning],
-    [Std, ParseKeysWarning]
+    [Std, LookupMeasWarning]
 );
 
 enum_from_disp!(

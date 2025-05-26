@@ -245,6 +245,12 @@ enum_from_disp!(
 );
 
 enum_from_disp!(
+    pub LookupMeasWarning,
+    [Parse, ParseKeysWarning],
+    [Pattern, NonStdMeasRegexError]
+);
+
+enum_from_disp!(
     pub ParseKeysWarning,
     [OptKey,       ParseOptKeyWarning],
     [OtherWarning, ParseOtherWarning],

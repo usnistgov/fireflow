@@ -319,7 +319,7 @@ impl AnyCoreTEXT {
         std: &mut StdKeywords,
         nonstd: NonStdKeywords,
         conf: &StdTextReadConfig,
-    ) -> TerminalResult<Self, ParseKeysWarning, ParseKeysError, CoreTEXTFailure> {
+    ) -> TerminalResult<Self, LookupMeasWarning, ParseKeysError, CoreTEXTFailure> {
         match version {
             Version::FCS2_0 => CoreTEXT2_0::new_from_raw(std, nonstd, conf).map(|x| x.value_into()),
             Version::FCS3_0 => CoreTEXT3_0::new_from_raw(std, nonstd, conf).map(|x| x.value_into()),
@@ -2183,65 +2183,94 @@ where
         prefix: &ShortnamePrefix,
         ns_pat: Option<&NonStdMeasPattern>,
         nonstd: NonStdPairs,
-    ) -> LookupResult<(Measurements<M::N, M::T, M::P>, NonStdPairs)>
+    ) -> DeferredResult<
+        (Measurements<M::N, M::T, M::P>, NonStdPairs),
+        LookupMeasWarning,
+        ParseKeysError,
+    >
     where
         M: LookupMetadata,
         M::T: LookupTemporal,
         M::P: LookupOptical,
     {
-        let mut meas_nonstds: Vec<Vec<_>> = vec![vec![]; par.0];
-        let mut meta_nonstd = vec![];
-
-        if let Some(p) = ns_pat {
-            let ps: Vec<_> = (0..par.0)
-                // TODO throw errors here if pattern is bad
-                .map(|n| p.from_index(n.into()).ok())
-                .collect();
-            for (k, v) in nonstd {
-                if let Some(j) = ps
-                    .iter()
-                    .position(|x| x.as_ref().is_some_and(|pp| pp.is_match(k.as_ref())))
-                {
-                    meas_nonstds[j].push((k, v));
-                } else {
-                    meta_nonstd.push((k, v));
+        // Use nonstandard measurement pattern to assign keyvals to their
+        // measurement if they match. Only capture one warning because if the
+        // pattern is wrong for one measurement it is probably wrong for all of
+        // them.
+        let tnt = if let Some(pat) = ns_pat {
+            let res = (0..par.0)
+                .map(|n| pat.from_index(n.into()))
+                .collect::<Result<Vec<_>, _>>();
+            match res {
+                Ok(ps) => {
+                    let mut meta_nonstd = vec![];
+                    let mut meas_nonstds = vec![vec![]; par.0];
+                    for (k, v) in nonstd {
+                        if let Some(j) = ps.iter().position(|p| p.is_match(k.as_ref())) {
+                            meas_nonstds[j].push((k, v));
+                        } else {
+                            meta_nonstd.push((k, v));
+                        }
+                    }
+                    Tentative::new1((meta_nonstd, meas_nonstds))
                 }
+                Err(w) => Tentative::new((nonstd, vec![vec![]; par.0]), vec![w.into()], vec![]),
             }
         } else {
-            meta_nonstd = nonstd;
-        }
-        (0..par.0)
-            .zip(meas_nonstds)
-            .map(|(n, meas_nonstd)| {
-                let i = n.into();
-                M::lookup_shortname(kws, i).and_maybe(|wrapped| {
-                    let key = M::N::unwrap(wrapped).and_then(|name| {
-                        if let Some(tp) = time_pat {
-                            if tp.0.as_inner().is_match(name.as_ref()) {
-                                return Ok(name);
+            Tentative::new1((nonstd, vec![vec![]; par.0]))
+        };
+
+        // then iterate over each measurement and look for standardized keys
+        tnt.and_maybe(|(meta_nonstd, meas_nonstds)| {
+            meas_nonstds
+                .into_iter()
+                .enumerate()
+                .map(|(n, meas_nonstd)| {
+                    let i = n.into();
+                    // Try to find $PnN first, for later versions this will
+                    // totally fail if not found since this is required. If it
+                    // does exist, also check if it matches the time pattern and
+                    // use it as the time measurement if it does.
+                    M::lookup_shortname(kws, i).and_maybe(|wrapped| {
+                        // TODO this will make cryptic errors if the time
+                        // pattern happens to match more than one measurement
+                        let key = M::N::unwrap(wrapped).and_then(|name| {
+                            if let Some(tp) = time_pat {
+                                if tp.0.as_inner().is_match(name.as_ref()) {
+                                    return Ok(name);
+                                }
                             }
+                            Err(M::N::wrap(name))
+                        });
+                        // Once we checked $PnN, pull all the rest of the
+                        // standardized keywords from the hashtable and collect
+                        // errors. In general, required keywords will trigger an
+                        // error if they are missing and optional keywords will
+                        // trigger a warning. Either can generate an
+                        // error/warning if they fail to be parsed to their type
+                        match key {
+                            Ok(name) => Temporal::lookup_temporal(kws, i, meas_nonstd)
+                                .map_value(|t| Element::Center((name, t))),
+                            Err(k) => Optical::lookup_optical(kws, i, meas_nonstd)
+                                .map_value(|m| Element::NonCenter((k, m))),
                         }
-                        Err(M::N::wrap(name))
-                    });
-                    // TODO this will make cryptic errors if the time pattern
-                    // happens to match more than one measurement
-                    match key {
-                        Ok(name) => Temporal::lookup_temporal(kws, i, meas_nonstd)
-                            .map_value(|t| Element::Center((name, t))),
-                        Err(k) => Optical::lookup_optical(kws, i, meas_nonstd)
-                            .map_value(|m| Element::NonCenter((k, m))),
-                    }
+                    })
                 })
-            })
-            .gather()
-            .map_err(DeferredFailure::fold)
-            .map(Tentative::mconcat)
-            .and_maybe(|xs| {
-                NamedVec::try_new(xs, prefix.clone())
-                    .map(|ms| (ms, meta_nonstd))
-                    .map_err(|e| ParseKeysError::Other(e.into()))
-                    .into_deferred0()
-            })
+                .gather()
+                .map_err(DeferredFailure::fold)
+                .map(Tentative::mconcat)
+                .and_maybe(|xs| {
+                    // Finally, attempt to put our proto-measurement binary soup
+                    // into a named vector, which will have a special element
+                    // for the time measurement if it exists, and will scream if
+                    // we have more than one time measurement.
+                    NamedVec::try_new(xs, prefix.clone())
+                        .map(|ms| (ms, meta_nonstd))
+                        .map_err(|e| ParseKeysError::Other(e.into()))
+                        .into_deferred0()
+                })
+                .warning_into()
+        })
     }
 
     fn measurement_names(&self) -> HashSet<&Shortname> {
@@ -2361,7 +2390,7 @@ where
         kws: &mut StdKeywords,
         nonstd: NonStdKeywords,
         conf: &StdTextReadConfig,
-    ) -> TerminalResult<Self, ParseKeysWarning, ParseKeysError, CoreTEXTFailure>
+    ) -> TerminalResult<Self, LookupMeasWarning, ParseKeysError, CoreTEXTFailure>
     where
         M: LookupMetadata,
         M::T: LookupTemporal,
@@ -2377,11 +2406,10 @@ where
         let nsp = conf.nonstandard_measurement_pattern.as_ref();
         let ns: Vec<_> = nonstd.into_iter().collect();
         let mut tnt_core = Self::lookup_measurements(kws, par, tp, sp, nsp, ns)
-            .and_then(|tnt| {
-                tnt.and_maybe(|(ms, meta_ns)| {
-                    Metadata::lookup_metadata(kws, &ms, meta_ns)
-                        .map_value(|metadata| CoreTEXT::new_unchecked(metadata, ms))
-                })
+            .and_maybe(|(ms, meta_ns)| {
+                Metadata::lookup_metadata(kws, &ms, meta_ns)
+                    .map_value(|metadata| CoreTEXT::new_unchecked(metadata, ms))
+                    .warning_into()
             })
             .map_err(|e| e.terminate(CoreTEXTFailure::Keywords))?;
 

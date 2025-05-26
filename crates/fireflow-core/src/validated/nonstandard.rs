@@ -91,6 +91,10 @@ impl FromStr for NonStdMeasPattern {
 }
 
 impl NonStdMeasPattern {
+    // pub fn with_par(&self, par: Par) -> MultiResult<Vec<NonStdMeasRegex, NonStdMeasRegexError>> {
+    //     (0..par.0).map(|n| self.from_index(n.into())).gather()
+    // }
+
     pub fn from_index(&self, n: MeasIdx) -> Result<NonStdMeasRegex, NonStdMeasRegexError> {
         let pattern = self.0.replace("%n", n.to_string().as_str());
         Regex::new(pattern.as_str())

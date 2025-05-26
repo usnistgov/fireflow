@@ -713,46 +713,46 @@ macro_rules! py_parse {
     };
 }
 
-macro_rules! py_struct {
-    ($pytype:ident, $rstype:path, $([$field:ident: $type:ident; $get:ident, $set:ident]),*) => {
-        #[pymethods]
-        impl $pytype {
-            #[new]
-            fn new($($field: $type),*) -> Self {
-                $rstype { $($field),* }.into()
-            }
+// macro_rules! py_struct {
+//     ($pytype:ident, $rstype:path, $([$field:ident: $type:ident; $get:ident, $set:ident]),*) => {
+//         #[pymethods]
+//         impl $pytype {
+//             #[new]
+//             fn new($($field: $type),*) -> Self {
+//                 $rstype { $($field),* }.into()
+//             }
 
-            $(
-                #[getter]
-                fn $get(&self) -> $type {
-                    self.0.$field.clone()
-                }
+//             $(
+//                 #[getter]
+//                 fn $get(&self) -> $type {
+//                     self.0.$field.clone().into()
+//                 }
 
-                #[setter]
-                fn $set(&mut self, $field: $type) {
-                    self.0.$field = $field;
-                }
-            )*
-        }
-    };
+//                 #[setter]
+//                 fn $set(&mut self, $field: $type) {
+//                     self.0.$field = $field;
+//                 }
+//             )*
+//         }
+//     };
 
-    ($pytype:ident, $rstype:path, $([$field:ident: $type:ident; $get:ident]),*) => {
-        #[pymethods]
-        impl $pytype {
-            #[new]
-            fn new($($field: $type),*) -> Self {
-                $rstype { $($field),* }.into()
-            }
+//     ($pytype:ident, $rstype:path, $([$field:ident: $type:ident; $get:ident]),*) => {
+//         #[pymethods]
+//         impl $pytype {
+//             #[new]
+//             fn new($($field: $type),*) -> Self {
+//                 $rstype { $($field),* }.into()
+//             }
 
-            $(
-                #[getter]
-                fn $get(&self) -> $type {
-                    self.0.$field.clone()
-                }
-            )*
-        }
-    };
-}
+//             $(
+//                 #[getter]
+//                 fn $get(&self) -> $type {
+//                     self.0.$field.clone()
+//                 }
+//             )*
+//         }
+//     };
+// }
 
 py_wrap!(PyVersion, Version, "Version");
 py_ord!(PyVersion);
@@ -888,23 +888,89 @@ py_wrap!(PyCalibration3_1, Calibration3_1, "Calibration3_1");
 py_eq!(PyCalibration3_1);
 py_disp!(PyCalibration3_1);
 py_parse!(PyCalibration3_1);
-py_struct!(
-    PyCalibration3_1, Calibration3_1,
-    [slope: f32; get_value, set_value],
-    [unit: String; get_unit, set_unit]
-);
+
+#[pymethods]
+impl PyCalibration3_1 {
+    #[new]
+    fn new(slope: f32, unit: String) -> PyResult<Self> {
+        let ret = Calibration3_1 {
+            slope: f32_to_positive_float(slope)?,
+            unit,
+        };
+        Ok(ret.into())
+    }
+
+    #[getter]
+    fn get_slope(&self) -> f32 {
+        self.0.slope.into()
+    }
+
+    #[getter]
+    fn get_unit(&self) -> String {
+        self.0.unit.clone()
+    }
+
+    #[setter]
+    fn set_slope(&mut self, slope: f32) -> PyResult<()> {
+        self.0.slope = f32_to_positive_float(slope)?;
+        Ok(())
+    }
+
+    #[setter]
+    fn set_unit(&mut self, unit: String) {
+        self.0.unit = unit;
+    }
+}
 
 // PnCALIBRATION (3.2)
 py_wrap!(PyCalibration3_2, Calibration3_2, "Calibration3_2");
 py_eq!(PyCalibration3_2);
 py_disp!(PyCalibration3_2);
 py_parse!(PyCalibration3_2);
-py_struct!(
-    PyCalibration3_2, Calibration3_2,
-    [slope: f32; get_value, set_value],
-    [offset: f32; get_offset, set_offset],
-    [unit: String; get_unit, set_unit]
-);
+
+#[pymethods]
+impl PyCalibration3_2 {
+    #[new]
+    fn new(slope: f32, offset: f32, unit: String) -> PyResult<Self> {
+        let ret = Calibration3_2 {
+            slope: f32_to_positive_float(slope)?,
+            offset,
+            unit,
+        };
+        Ok(ret.into())
+    }
+
+    #[getter]
+    fn get_slope(&self) -> f32 {
+        self.0.slope.into()
+    }
+
+    #[getter]
+    fn get_offset(&self) -> f32 {
+        self.0.offset
+    }
+
+    #[getter]
+    fn get_unit(&self) -> String {
+        self.0.unit.clone()
+    }
+
+    #[setter]
+    fn set_slope(&mut self, slope: f32) -> PyResult<()> {
+        self.0.slope = f32_to_positive_float(slope)?;
+        Ok(())
+    }
+
+    #[setter]
+    fn set_offset(&mut self, offset: f32) {
+        self.0.offset = offset;
+    }
+
+    #[setter]
+    fn set_unit(&mut self, unit: String) {
+        self.0.unit = unit;
+    }
+}
 
 // $PnFEATURE (3.2)
 py_wrap!(PyFeature, Feature, "Feature");

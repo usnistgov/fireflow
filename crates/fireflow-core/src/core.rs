@@ -1305,8 +1305,6 @@ impl fmt::Display for SetTemporalIndexError {
     }
 }
 
-pub(crate) type MetaConvertErrors = NonEmpty<MetaConvertError>;
-
 enum_from_disp!(
     pub MetaConvertError,
     [NoCyt, NoCytError],

@@ -377,7 +377,7 @@ impl TryFrom<AlphaNumType> for NumType {
 /// This should be formatted like '<value>,<unit>'
 #[derive(Clone, Serialize, PartialEq)]
 pub struct Calibration3_1 {
-    pub slope: f32,
+    pub slope: PositiveFloat,
     pub unit: String,
 }
 
@@ -386,17 +386,10 @@ impl FromStr for Calibration3_1 {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.split(",").collect::<Vec<_>>()[..] {
-            [svalue, unit] => {
-                let value = svalue.parse().map_err(CalibrationError::Float)?;
-                if value >= 0.0 {
-                    Ok(Calibration3_1 {
-                        slope: value,
-                        unit: String::from(unit),
-                    })
-                } else {
-                    Err(CalibrationError::Range)
-                }
-            }
+            [value, unit] => Ok(Calibration3_1 {
+                slope: value.parse().map_err(CalibrationError::Range)?,
+                unit: String::from(unit),
+            }),
             _ => Err(CalibrationError::Format(CalibrationFormat3_1)),
         }
     }
@@ -418,16 +411,16 @@ impl fmt::Display for CalibrationFormat3_1 {
 
 pub enum CalibrationError<C> {
     Float(ParseFloatError),
-    Range,
+    Range(RangedFloatError),
     Format(C),
 }
 
 impl<C: fmt::Display> fmt::Display for CalibrationError<C> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            CalibrationError::Float(x) => write!(f, "{}", x),
-            CalibrationError::Range => write!(f, "must be a positive float"),
-            CalibrationError::Format(x) => write!(f, "{}", x),
+            CalibrationError::Float(x) => x.fmt(f),
+            CalibrationError::Range(x) => x.fmt(f),
+            CalibrationError::Format(x) => x.fmt(f),
         }
     }
 }
@@ -438,7 +431,7 @@ impl<C: fmt::Display> fmt::Display for CalibrationError<C> {
 /// 3.1 with the optional inclusion of "offset" (assumed 0 if not included).
 #[derive(Clone, Serialize, PartialEq)]
 pub struct Calibration3_2 {
-    pub slope: f32,
+    pub slope: PositiveFloat,
     pub offset: f32,
     pub unit: String,
 }
@@ -446,29 +439,20 @@ pub struct Calibration3_2 {
 impl FromStr for Calibration3_2 {
     type Err = CalibrationError<CalibrationFormat3_2>;
 
-    // TODO not dry
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let (value, offset, unit) = match s.split(",").collect::<Vec<_>>()[..] {
-            [svalue, unit] => {
-                let f1 = svalue.parse().map_err(CalibrationError::Float)?;
-                Ok((f1, 0.0, String::from(unit)))
-            }
-            [svalue, soffset, unit] => {
-                let f1 = svalue.parse().map_err(CalibrationError::Float)?;
+        let (slope, offset, unit) = match s.split(",").collect::<Vec<_>>()[..] {
+            [slope, unit] => Ok((slope, 0.0, unit)),
+            [slope, soffset, unit] => {
                 let f2 = soffset.parse().map_err(CalibrationError::Float)?;
-                Ok((f1, f2, String::from(unit)))
+                Ok((slope, f2, unit))
             }
             _ => Err(CalibrationError::Format(CalibrationFormat3_2)),
         }?;
-        if value >= 0.0 {
-            Ok(Calibration3_2 {
-                slope: value,
-                offset,
-                unit,
-            })
-        } else {
-            Err(CalibrationError::Range)
-        }
+        Ok(Calibration3_2 {
+            slope: slope.parse().map_err(CalibrationError::Range)?,
+            offset,
+            unit: unit.into(),
+        })
     }
 }
 

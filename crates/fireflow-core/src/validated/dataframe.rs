@@ -132,7 +132,11 @@ impl FCSDataFrame {
     }
 
     pub fn nrows(&self) -> usize {
-        self.nrows
+        if self.is_empty() {
+            0
+        } else {
+            self.nrows
+        }
     }
 
     pub fn ncols(&self) -> usize {

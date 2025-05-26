@@ -77,26 +77,26 @@ impl AnyFCSColumn {
         })
     }
 
+    /// The number of bytes occupied by the column if written as ASCII
+    pub fn ascii_nbytes(&self) -> u32 {
+        match self {
+            Self::U08(xs) => u8::iter_converted::<u64>(xs).map(cast_nbytes).sum(),
+            Self::U16(xs) => u16::iter_converted::<u64>(xs).map(cast_nbytes).sum(),
+            Self::U32(xs) => u32::iter_converted::<u64>(xs).map(cast_nbytes).sum(),
+            Self::U64(xs) => u64::iter_converted::<u64>(xs).map(cast_nbytes).sum(),
+            Self::F32(xs) => f32::iter_converted::<u64>(xs).map(cast_nbytes).sum(),
+            Self::F64(xs) => f64::iter_converted::<u64>(xs).map(cast_nbytes).sum(),
+        }
+    }
+
     pub fn as_array(&self) -> Box<dyn Array> {
         match self.clone() {
-            AnyFCSColumn::U08(xs) => {
-                Box::new(PrimitiveArray::new(ArrowDataType::UInt8, xs.0, None))
-            }
-            AnyFCSColumn::U16(xs) => {
-                Box::new(PrimitiveArray::new(ArrowDataType::UInt16, xs.0, None))
-            }
-            AnyFCSColumn::U32(xs) => {
-                Box::new(PrimitiveArray::new(ArrowDataType::UInt32, xs.0, None))
-            }
-            AnyFCSColumn::U64(xs) => {
-                Box::new(PrimitiveArray::new(ArrowDataType::UInt64, xs.0, None))
-            }
-            AnyFCSColumn::F32(xs) => {
-                Box::new(PrimitiveArray::new(ArrowDataType::Float32, xs.0, None))
-            }
-            AnyFCSColumn::F64(xs) => {
-                Box::new(PrimitiveArray::new(ArrowDataType::Float64, xs.0, None))
-            }
+            Self::U08(xs) => Box::new(PrimitiveArray::new(ArrowDataType::UInt8, xs.0, None)),
+            Self::U16(xs) => Box::new(PrimitiveArray::new(ArrowDataType::UInt16, xs.0, None)),
+            Self::U32(xs) => Box::new(PrimitiveArray::new(ArrowDataType::UInt32, xs.0, None)),
+            Self::U64(xs) => Box::new(PrimitiveArray::new(ArrowDataType::UInt64, xs.0, None)),
+            Self::F32(xs) => Box::new(PrimitiveArray::new(ArrowDataType::Float32, xs.0, None)),
+            Self::F64(xs) => Box::new(PrimitiveArray::new(ArrowDataType::Float64, xs.0, None)),
         }
     }
 }
@@ -231,48 +231,14 @@ impl FCSDataFrame {
     //     }
     // }
 
-    // /// Return number of bytes this will occupy if written as delimited ASCII
-    pub(crate) fn ascii_nchars(&self) -> usize {
+    /// Return number of bytes this will occupy if written as delimited ASCII
+    pub(crate) fn ascii_nbytes(&self) -> usize {
         let n = self.size();
         if n == 0 {
             return 0;
         }
         let ndelim = n - 1;
-        let ndigits: u32 = self
-            .iter_columns()
-            .map(|c| match c {
-                AnyFCSColumn::U08(xs) => {
-                    xs.0.iter()
-                        .map(|x| x.checked_ilog10().unwrap_or(0) + 1)
-                        .sum::<u32>()
-                }
-                AnyFCSColumn::U16(xs) => {
-                    xs.0.iter()
-                        .map(|x| x.checked_ilog10().unwrap_or(0) + 1)
-                        .sum()
-                }
-                AnyFCSColumn::U32(xs) => {
-                    xs.0.iter()
-                        .map(|x| x.checked_ilog10().unwrap_or(0) + 1)
-                        .sum()
-                }
-                AnyFCSColumn::U64(xs) => {
-                    xs.0.iter()
-                        .map(|x| x.checked_ilog10().unwrap_or(0) + 1)
-                        .sum()
-                }
-                AnyFCSColumn::F32(xs) => {
-                    xs.0.iter()
-                        .map(|x| (*x as u64).checked_ilog10().unwrap_or(0) + 1)
-                        .sum()
-                }
-                AnyFCSColumn::F64(xs) => {
-                    xs.0.iter()
-                        .map(|x| (*x as u64).checked_ilog10().unwrap_or(0) + 1)
-                        .sum()
-                }
-            })
-            .sum();
+        let ndigits: u32 = self.iter_columns().map(|c| c.ascii_nbytes()).sum();
         (ndigits as usize) + ndelim
     }
 }
@@ -461,3 +427,11 @@ impl NumCast<f64> for f32 {
 }
 
 impl_cast_noloss!(f64, f64);
+
+pub(crate) fn cast_nbytes(x: CastResult<u64>) -> u32 {
+    ascii_nbytes(x.new)
+}
+
+pub(crate) fn ascii_nbytes(x: u64) -> u32 {
+    x.checked_ilog10().map(|y| y + 1).unwrap_or(1)
+}

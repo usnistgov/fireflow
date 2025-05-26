@@ -1733,7 +1733,7 @@ impl IsFixed for AsciiType {
         let c = self.chars;
         let width = u8::from(c).into();
         let go = |x: u64| {
-            if x.checked_ilog10().map(|y| y + 1).unwrap_or(1) > width {
+            if ascii_nbytes(x) > width {
                 Some(LossError::Chars)
             } else {
                 None
@@ -1942,7 +1942,7 @@ impl AsciiLayout {
                     })
                     .gather()
                     .map(|columns| {
-                        DelimWriter::try_new(columns, df.nrows(), df.ascii_nchars())
+                        DelimWriter::try_new(columns, df.nrows(), df.ascii_nbytes())
                             .map_or(DataWriter::Empty, DataWriter::Delim)
                     })
             }

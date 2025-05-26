@@ -55,8 +55,19 @@ pub struct RawTextReadConfig {
     pub enforce_even: bool,
 
     /// If true, throw an error if we encounter a key with a blank value.
+    ///
     /// Only relevant if [`allow_double_delim`] is also true.
     pub enforce_nonempty: bool,
+
+    /// If true, throw an error if we encounter a delimiter at a word boundary.
+    ///
+    /// Only relevant if [`allow_double_delim`] is also true. While delimiters
+    /// may be escaped and included in keys or values, it is impossible to tell
+    /// within which word they are belong when the are next to a real delimiter,
+    /// which is why they are "not allowed".
+    ///
+    /// When set to false, these delimiters are simply not included in word.
+    pub enforce_delim_nobound: bool,
 
     /// If true, throw an error if the parser encounters a bad UTF-8 byte when
     /// creating the key/value list. If false, merely drop the bad pair.
@@ -245,6 +256,7 @@ impl Strict for RawTextReadConfig {
             enforce_final_delim: true,
             enforce_unique: true,
             enforce_even: true,
+            enforce_delim_nobound: true,
             enforce_utf8: true,
             enforce_keyword_ascii: true,
             enforce_stext: true,

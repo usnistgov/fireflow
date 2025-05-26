@@ -634,7 +634,12 @@ fn split_raw_text_double(
                     keybuf.extend_from_slice(segment);
                 }
                 if consec_blanks > 0 {
-                    push_issue(&mut errors, &mut warnings, false, DelimBoundError.into());
+                    push_issue(
+                        &mut errors,
+                        &mut warnings,
+                        conf.enforce_delim_nobound,
+                        DelimBoundError.into(),
+                    );
                 }
             } else {
                 // Previous consecutive delimiter sequence was even. Push n / 2
@@ -662,11 +667,21 @@ fn split_raw_text_double(
             FinalDelimError.into(),
         );
         // TODO toggleme
-        push_issue(&mut errors, &mut warnings, false, DelimBoundError.into());
+        push_issue(
+            &mut errors,
+            &mut warnings,
+            conf.enforce_delim_nobound,
+            DelimBoundError.into(),
+        );
         push_delim(&mut keybuf, &mut valuebuf, consec_blanks);
     } else if consec_blanks > 1 {
         // TODO toggleme
-        push_issue(&mut errors, &mut warnings, false, DelimBoundError.into());
+        push_issue(
+            &mut errors,
+            &mut warnings,
+            conf.enforce_delim_nobound,
+            DelimBoundError.into(),
+        );
     }
 
     if valuebuf.is_empty() {

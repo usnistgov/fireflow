@@ -1482,7 +1482,7 @@ macro_rules! common_methods {
                     xs.push(str_to_nonstd_key(k)?);
                 }
                 let res = self.0
-                    .get_meas_nonstandard(xs.iter().collect())
+                    .get_meas_nonstandard(&xs[..])
                     .map(|rs| rs.into_iter().map(|r| r.cloned()).collect());
                 Ok(res)
             }
@@ -1547,7 +1547,7 @@ macro_rules! common_methods {
                 self.0.set_trigger_threshold(x)
             }
 
-            fn clear_trigger(&mut self) {
+            fn clear_trigger(&mut self) -> bool {
                 self.0.clear_trigger()
             }
 

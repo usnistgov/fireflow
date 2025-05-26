@@ -781,7 +781,6 @@ pub trait VersionedMetadata: Sized {
 
     fn datetimes_valid(&self) -> bool;
 
-    // TODO borrow?
     fn byteord(&self) -> Self::D;
 
     fn keywords_req_inner(&self) -> RawPairs;
@@ -1258,7 +1257,7 @@ pub(crate) type RawTriples = Vec<(String, String, String)>;
 pub(crate) type RawOptPairs = Vec<(String, Option<String>)>;
 pub(crate) type RawOptTriples = Vec<(String, String, Option<String>)>;
 
-// for not this just means $PnE isn't set and should be to convert
+// for now this just means $PnE isn't set and should be to convert
 pub struct OpticalConvertError;
 
 impl fmt::Display for OpticalConvertError {

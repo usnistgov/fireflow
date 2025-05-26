@@ -264,8 +264,7 @@ pub struct UintType<T, const LEN: usize> {
 ///
 /// This structure can be used with all FCS versions, as each column is treated
 /// as it's own separate type. This is in contrast to some FCS versions where
-/// we could think of the DATA as a matrix of one uniform type, which doesn't
-/// work well with polars which is heavily optimized for column operations.
+/// we could think of the DATA as a matrix of one uniform type.
 ///
 /// This doesn't store data, but rather stores an iterator pointing to a column
 /// which is then called with 'next()' for each row/event. The dataframe is

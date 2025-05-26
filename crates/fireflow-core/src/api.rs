@@ -341,7 +341,7 @@ fn h_read_raw_dataset<R: Read + Seek>(
     let def_anal_seg = raw.parse.analysis;
     let def_data_seg = raw.parse.data;
 
-    let anal_res = lookup_analysis_offsets(std, conf, version, def_anal_seg).inner_into();
+    let tnt_anal = lookup_analysis_offsets(std, conf, version, def_anal_seg).inner_into();
 
     let reader_res = lookup_data_offsets(std, conf, version, def_data_seg)
         .inner_into()
@@ -352,7 +352,7 @@ fn h_read_raw_dataset<R: Read + Seek>(
         });
 
     reader_res
-        .zip_def(anal_res)
+        .and_tentatively(|x| tnt_anal.map(|y| (x, y)))
         .map_value(|((keywords, parse, reader, data_seg), analysis_seg)| {
             (
                 keywords,
@@ -397,7 +397,7 @@ fn h_read_std_dataset<R: Read + Seek>(
     let def_data_seg = std.parse.data;
 
     // TODO why are kws not mut here?
-    let anal_res = lookup_analysis_offsets(&kws, conf, version, def_anal_seg).inner_into();
+    let tnt_anal = lookup_analysis_offsets(&kws, conf, version, def_anal_seg).inner_into();
 
     let reader_res = lookup_data_offsets(&kws, conf, version, def_data_seg)
         .inner_into()
@@ -409,7 +409,7 @@ fn h_read_std_dataset<R: Read + Seek>(
         });
 
     reader_res
-        .zip_def(anal_res)
+        .and_tentatively(|x| tnt_anal.map(|y| (x, y)))
         .map_value(|((parse, reader, data_seg), analysis_seg)| {
             (
                 ParseData {
@@ -798,44 +798,44 @@ fn lookup_data_offsets(
     conf: &DataReadConfig,
     version: Version,
     default: Segment,
-) -> DeferredResult<Segment, DataSegmentWarning, ReqSegmentError> {
+) -> Tentative<Segment, DataSegmentWarning, ReqSegmentError> {
     match version {
-        Version::FCS2_0 => Ok(default),
+        Version::FCS2_0 => Tentative::new1(default),
         _ => lookup_req_segment(
             kws,
             &Begindata::std(),
             &Enddata::std(),
             conf.data,
             SegmentId::Data,
+        )
+        .map_or_else(
+            |es| {
+                // TODO toggle this
+                let ws = es
+                    .map(|e| e.into())
+                    .into_iter()
+                    .chain([DataSegmentDefaultWarning.into()])
+                    .collect();
+                Tentative::new(default, ws, vec![])
+            },
+            // TODO toggle this
+            |t| {
+                let w = if t != default && !default.is_empty() {
+                    Some(
+                        SegmentMismatchWarning {
+                            header: default,
+                            text: t,
+                            id: SegmentId::Data,
+                        }
+                        .into(),
+                    )
+                } else {
+                    None
+                };
+                Tentative::new(t, w.into_iter().collect(), vec![])
+            },
         ),
     }
-    .map_or_else(
-        |es| {
-            // TODO toggle this
-            let ws = es
-                .map(|e| e.into())
-                .into_iter()
-                .chain([DataSegmentDefaultWarning.into()])
-                .collect();
-            Ok(Tentative::new(default, ws, vec![]))
-        },
-        // TODO toggle this
-        |t| {
-            let w = if t != default && !default.is_empty() {
-                Some(
-                    SegmentMismatchWarning {
-                        header: default,
-                        text: t,
-                        id: SegmentId::Data,
-                    }
-                    .into(),
-                )
-            } else {
-                None
-            };
-            Ok(Tentative::new(t, w.into_iter().collect(), vec![]))
-        },
-    )
 }
 
 fn lookup_analysis_offsets(
@@ -843,9 +843,9 @@ fn lookup_analysis_offsets(
     conf: &DataReadConfig,
     version: Version,
     default: Segment,
-) -> DeferredResult<Segment, AnalysisSegmentWarning, ReqSegmentError> {
+) -> Tentative<Segment, AnalysisSegmentWarning, ReqSegmentError> {
     match version {
-        Version::FCS2_0 => Ok(Tentative::new1(default)),
+        Version::FCS2_0 => Tentative::new1(default),
         Version::FCS3_0 | Version::FCS3_1 => lookup_req_segment(
             kws,
             &Beginanalysis::std(),
@@ -861,9 +861,9 @@ fn lookup_analysis_offsets(
                     .into_iter()
                     .chain([AnalysisSegmentDefaultWarning.into()])
                     .collect();
-                Ok(Tentative::new(default, ws, vec![]))
+                Tentative::new(default, ws, vec![])
             },
-            |t| Ok(Tentative::new1(t)),
+            Tentative::new1,
         ),
         Version::FCS3_2 => lookup_opt_segment(
             kws,
@@ -881,11 +881,11 @@ fn lookup_analysis_offsets(
                     .into_iter()
                     .chain([AnalysisSegmentDefaultWarning.into()])
                     .collect();
-                Ok(Tentative::new(default, ws, vec![]))
+                Tentative::new(default, ws, vec![])
             },
             |t| {
                 // TODO toggle
-                let x = if let Some(this_seg) = t {
+                if let Some(this_seg) = t {
                     let w = if this_seg != default && !default.is_empty() {
                         Some(
                             SegmentMismatchWarning {
@@ -901,8 +901,7 @@ fn lookup_analysis_offsets(
                     Tentative::new(this_seg, w.into_iter().collect(), vec![])
                 } else {
                     Tentative::new1(t.unwrap_or(default))
-                };
-                Ok(x)
+                }
             },
         ),
     }

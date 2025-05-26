@@ -439,6 +439,14 @@ impl<V, W, E> Tentative<V, W, E> {
         self.errors_map(|e| e.into())
     }
 
+    pub fn inner_into<X, Y>(self) -> Tentative<V, X, Y>
+    where
+        X: From<W>,
+        Y: From<E>,
+    {
+        self.errors_into().warnings_into()
+    }
+
     pub fn mconcat(xs: Vec<Self>) -> Tentative<Vec<V>, W, E> {
         let mut ret = Tentative::new1(vec![]);
         for x in xs {

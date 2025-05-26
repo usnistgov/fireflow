@@ -29,11 +29,7 @@ pub enum AnyFCSColumn {
 #[derive(Clone)]
 pub struct FCSColumn<T>(pub Buffer<T>);
 
-impl<T> From<Vec<T>> for FCSColumn<T>
-// where
-//     [T]: ToOwned,
-//     T: Clone,
-{
+impl<T> From<Vec<T>> for FCSColumn<T> {
     fn from(value: Vec<T>) -> Self {
         FCSColumn(value.into())
     }
@@ -56,75 +52,12 @@ anycolumn_from!(U64Column, U64);
 anycolumn_from!(F32Column, F32);
 anycolumn_from!(F64Column, F64);
 
-// impl<'a> From<U08Column<'a>> for AnyFCSColumn<'a> {
-//     fn from(value: U08Column<'a>) -> Self {
-//         AnyFCSColumn::U08(value)
-//     }
-// }
-
-// TODO the data is behind an Arc right? so cloning these and taking ownership
-// will be cheap?
 pub type U08Column = FCSColumn<u8>;
 pub type U16Column = FCSColumn<u16>;
 pub type U32Column = FCSColumn<u32>;
 pub type U64Column = FCSColumn<u64>;
 pub type F32Column = FCSColumn<f32>;
 pub type F64Column = FCSColumn<f64>;
-
-// newtype_from_outer!(FCSDataFrame, DataFrame);
-
-// impl AsRef<DataFrame> for FCSDataFrame {
-//     fn as_ref(&self) -> &DataFrame {
-//         &self.0
-//     }
-// }
-
-// impl Deref<FCSDataFrame> for DataFrame {
-//     fn deref(&self) -> &FCSDataFrame {
-//         &FCSDataFrame(&self)
-//     }
-// }
-
-// macro_rules! newtype_from_column {
-//     ($($col:ident),*) => {
-//         $(
-//             impl<'a> From<$col<'a>> for &'a Column {
-//                 fn from(value: $col<'a>) -> Self {
-//                     value.0
-//                 }
-//             }
-
-//             impl AsRef<Column> for $col<'_> {
-//                 fn as_ref(&self) ->  &Column {
-//                     self.0
-//                 }
-//             }
-//         )*
-//     };
-// }
-
-// newtype_from_column!(U08Column, U16Column, U32Column, U64Column, F32Column, F64Column);
-
-// impl TryFrom<DataFrame> for FCSDataFrame {
-//     type Error = ();
-//     fn try_from(value: DataFrame) -> Result<Self, Self::Error> {
-//         if value.get_columns().iter().all(|c| {
-//             matches!(
-//                 c.dtype(),
-//                 DataType::UInt8
-//                     | DataType::UInt16
-//                     | DataType::UInt32
-//                     | DataType::UInt64
-//                     | DataType::Float32
-//                     | DataType::Float64
-//             ) && !c.has_nulls()
-//         }) {
-//             Ok(FCSDataFrame(value))
-//         } else {
-//             Err(())
-//         }
-//     }
-// }
 
 impl AnyFCSColumn {
     pub fn len(&self) -> usize {
@@ -474,29 +407,3 @@ impl NumCast<f64> for f32 {
 }
 
 impl_cast_noloss!(f64, f64);
-
-// macro_rules! impl_numcast {
-//     ($($numtype:ty),*) => {
-//         impl_numcast!($($numtype,)* @inner $($numtype),*);
-//     };
-
-//     ($first:ty, $($rest:ty),+, @inner $($to:ty),*) => {
-//         impl_numcast!($first, @inner $($to),+);
-//         impl_numcast!($($rest,)+ @inner $($to),+);
-//     };
-
-//     ($from:ty, @inner $($to:ty),*) => {
-//         $(
-//             impl NumCast<$from> for $to {
-//                 fn from_truncated(x: $from) -> CastResult<Self> {
-//                     CastResult {
-//                         lossy: false,
-//                         new: x as $to,
-//                     }
-//                 }
-//             }
-//         )*
-//     };
-// }
-
-// impl_numcast!(u8, u16, u32, u64, f32, f64);

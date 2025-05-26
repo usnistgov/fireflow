@@ -1953,40 +1953,6 @@ where
         Ok(res)
     }
 
-    fn push_temporal_inner(&mut self, n: Shortname, m: Temporal<M::T>) -> Result<(), String> {
-        self.measurements
-            .push_center(n, m)
-            .map_err(|e| e.to_string())
-    }
-
-    fn insert_temporal_inner(
-        &mut self,
-        i: MeasIdx,
-        n: Shortname,
-        m: Temporal<M::T>,
-    ) -> Result<(), String> {
-        self.measurements
-            .insert_center(i, n, m)
-            .map_err(|e| e.to_string())
-    }
-
-    fn push_optical_inner(
-        &mut self,
-        n: <M::N as MightHave>::Wrapper<Shortname>,
-        m: Optical<M::P>,
-    ) -> Result<Shortname, String> {
-        self.measurements.push(n, m).map_err(|e| e.to_string())
-    }
-
-    fn insert_optical_inner(
-        &mut self,
-        i: MeasIdx,
-        n: <M::N as MightHave>::Wrapper<Shortname>,
-        m: Optical<M::P>,
-    ) -> Result<Shortname, String> {
-        self.measurements.insert(i, n, m).map_err(|e| e.to_string())
-    }
-
     fn check_existing_links(&mut self) -> Result<(), ExistingLinkError> {
         if self.trigger_name().is_some() {
             return Err(ExistingLinkError::Trigger);
@@ -2463,8 +2429,12 @@ where
     /// Add time measurement to the end of the measurement vector.
     ///
     /// Return error if time measurement already exists or name is non-unique.
-    pub fn push_temporal(&mut self, n: Shortname, m: Temporal<M::T>) -> Result<(), String> {
-        self.push_temporal_inner(n, m)
+    pub fn push_temporal(
+        &mut self,
+        n: Shortname,
+        m: Temporal<M::T>,
+    ) -> Result<(), InsertCenterError> {
+        self.measurements.push_center(n, m)
     }
 
     /// Add time measurement at the given position
@@ -2476,8 +2446,8 @@ where
         i: MeasIdx,
         n: Shortname,
         m: Temporal<M::T>,
-    ) -> Result<(), String> {
-        self.insert_temporal_inner(i, n, m)
+    ) -> Result<(), InsertCenterError> {
+        self.measurements.insert_center(i, n, m)
     }
 
     /// Add optical measurement to the end of the measurement vector
@@ -2487,8 +2457,8 @@ where
         &mut self,
         n: <M::N as MightHave>::Wrapper<Shortname>,
         m: Optical<M::P>,
-    ) -> Result<Shortname, String> {
-        self.push_optical_inner(n, m)
+    ) -> Result<Shortname, NonUniqueKeyError> {
+        self.measurements.push(n, m)
     }
 
     /// Add optical measurement at a given position
@@ -2499,8 +2469,8 @@ where
         i: MeasIdx,
         n: <M::N as MightHave>::Wrapper<Shortname>,
         m: Optical<M::P>,
-    ) -> Result<Shortname, String> {
-        self.insert_optical_inner(i, n, m)
+    ) -> Result<Shortname, InsertError> {
+        self.measurements.insert(i, n, m)
     }
 
     /// Remove measurements
@@ -2627,8 +2597,8 @@ where
         n: Shortname,
         m: Temporal<M::T>,
         col: AnyFCSColumn,
-    ) -> Result<(), String> {
-        self.push_temporal_inner(n, m)?;
+    ) -> Result<(), InsertCenterError> {
+        self.measurements.push_center(n, m)?;
         self.data.push_column(col);
         Ok(())
     }
@@ -2643,8 +2613,8 @@ where
         n: Shortname,
         m: Temporal<M::T>,
         col: AnyFCSColumn,
-    ) -> Result<(), String> {
-        self.insert_temporal_inner(i, n, m)?;
+    ) -> Result<(), InsertCenterError> {
+        self.measurements.insert_center(i, n, m)?;
         self.data.insert_column(i.into(), col);
         Ok(())
     }
@@ -2657,8 +2627,8 @@ where
         n: <M::N as MightHave>::Wrapper<Shortname>,
         m: Optical<M::P>,
         col: AnyFCSColumn,
-    ) -> Result<Shortname, String> {
-        let k = self.push_optical_inner(n, m)?;
+    ) -> Result<Shortname, NonUniqueKeyError> {
+        let k = self.measurements.push(n, m)?;
         self.data.push_column(col);
         Ok(k)
     }
@@ -2672,8 +2642,8 @@ where
         n: <M::N as MightHave>::Wrapper<Shortname>,
         m: Optical<M::P>,
         col: AnyFCSColumn,
-    ) -> Result<Shortname, String> {
-        let k = self.insert_optical_inner(i, n, m)?;
+    ) -> Result<Shortname, InsertError> {
+        let k = self.measurements.insert(i, n, m)?;
         self.data.insert_column(i.into(), col);
         Ok(k)
     }
@@ -2685,32 +2655,6 @@ where
     pub fn into_coretext(self) -> VersionedCoreTEXT<M> {
         CoreTEXT::new_unchecked(self.metadata, self.measurements)
     }
-
-    // /// Make new CoreDataset from CoreTEXT with supplied DATA and ANALYSIS
-    // ///
-    // /// Number of columns must match number of measurements and must all be the
-    // /// same length.
-    // pub fn from_coretext(
-    //     c: VersionedCoreTEXT<M>,
-    //     columns: Vec<AnyFCSColumn>,
-    //     analysis: Analysis,
-    // ) -> Result<Self, String> {
-    //     let data = c.try_cols_to_dataframe(columns)?;
-    //     Ok(Self::from_coretext_unchecked(c, data, analysis))
-    // }
-
-    // pub(crate) fn from_coretext_unchecked(
-    //     c: VersionedCoreTEXT<M>,
-    //     data: FCSDataFrame,
-    //     analysis: Analysis,
-    // ) -> Self {
-    //     CoreDataset {
-    //         metadata: c.metadata,
-    //         measurements: c.measurements,
-    //         data,
-    //         analysis,
-    //     }
-    // }
 }
 
 impl<M, T, P, N, W> CoreTEXT<M, T, P, N, W> {
@@ -2788,6 +2732,7 @@ macro_rules! spillover_methods {
         /// Names must match number of rows/columns in matrix and also must be a
         /// subset of the measurement names (ie $PnN). Matrix must be square and
         /// at least 2x2.
+        // TODO don't return string here
         pub fn set_spillover(&mut self, ns: Vec<Shortname>, m: DMatrix<f32>) -> Result<(), String> {
             let current = self.all_shortnames();
             let new: HashSet<_> = ns.iter().collect();

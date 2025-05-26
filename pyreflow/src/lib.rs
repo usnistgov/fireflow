@@ -1794,7 +1794,7 @@ macro_rules! common_coretext_meas_get_set {
                     let n = str_to_shortname(name)?;
                     self.0
                         .push_temporal(n, t.into())
-                        .map_err(PyreflowException::new_err)
+                        .map_err(|e| PyreflowException::new_err(e.to_string()))
                 }
 
                 fn insert_time_channel(
@@ -1806,7 +1806,7 @@ macro_rules! common_coretext_meas_get_set {
                     let n = str_to_shortname(name)?;
                     self.0
                         .insert_temporal(i.into(), n, t.into())
-                        .map_err(PyreflowException::new_err)
+                        .map_err(|e| PyreflowException::new_err(e.to_string()))
                 }
 
                 fn unset_measurements(
@@ -1840,7 +1840,7 @@ macro_rules! coredata_meas_get_set {
                     let col = series_to_fcs(xs.into()).map_err(PyreflowException::new_err)?;
                     self.0
                         .push_temporal(n, t.into(), col)
-                        .map_err(PyreflowException::new_err)
+                        .map_err(|e| PyreflowException::new_err(e.to_string()))
                 }
 
                 fn insert_time_channel(
@@ -1854,7 +1854,7 @@ macro_rules! coredata_meas_get_set {
                     let col = series_to_fcs(xs.into()).map_err(PyreflowException::new_err)?;
                     self.0
                         .insert_temporal(i.into(), n, t.into(), col)
-                        .map_err(PyreflowException::new_err)
+                        .map_err(|e| PyreflowException::new_err(e.to_string()))
                 }
 
                 fn unset_data(
@@ -1942,7 +1942,7 @@ macro_rules! coretext2_0_meas_methods {
                     self.0
                         .push_optical(n.into(), m.into())
                         .map(|x| x.to_string())
-                        .map_err(PyreflowException::new_err)
+                        .map_err(|e| PyreflowException::new_err(e.to_string()))
                 }
 
                 #[pyo3(signature = (i, m, name=None))]
@@ -1956,7 +1956,7 @@ macro_rules! coretext2_0_meas_methods {
                     self.0
                         .insert_optical(i.into(), n.into(), m.into())
                         .map(|x| x.to_string())
-                        .map_err(PyreflowException::new_err)
+                        .map_err(|e| PyreflowException::new_err(e.to_string()))
                 }
             }
         )*
@@ -1998,7 +1998,7 @@ macro_rules! coretext3_1_meas_methods {
                     self.0
                         .push_optical(Identity(n), m.into())
                         .map(|_| ())
-                        .map_err(PyreflowException::new_err)
+                        .map_err(|e| PyreflowException::new_err(e.to_string()))
                 }
 
                 fn insert_optical(
@@ -2011,7 +2011,7 @@ macro_rules! coretext3_1_meas_methods {
                     self.0
                         .insert_optical(i.into(), Identity(n), m.into())
                         .map(|_| ())
-                        .map_err(PyreflowException::new_err)
+                        .map_err(|e| PyreflowException::new_err(e.to_string()))
                 }
             }
         )*

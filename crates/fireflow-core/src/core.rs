@@ -1855,30 +1855,6 @@ where
             .map(|_| ())
     }
 
-    // /// Show $PnB for each measurement
-    // ///
-    // /// Will be None if all $PnB are variable, and a vector of u8 showing the
-    // /// width of each measurement otherwise.
-    // // TODO misleading name
-    // pub fn bytes(&self) -> Option<Vec<u8>> {
-    //     let xs: Vec<_> = self
-    //         .measurements
-    //         .iter()
-    //         .flat_map(|(_, x)| {
-    //             x.map_or_else(|p| p.value.width, |p| p.value.width)
-    //                 .try_into()
-    //                 .ok()
-    //         })
-    //         .collect();
-    //     // ASSUME internal state is controlled such that no "partially variable"
-    //     // configurations are possible
-    //     if xs.len() != self.par().0 {
-    //         None
-    //     } else {
-    //         Some(xs)
-    //     }
-    // }
-
     /// Show $PnB for each measurement
     pub fn widths(&self) -> Vec<Width> {
         self.measurements

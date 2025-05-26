@@ -1518,9 +1518,9 @@ where
         self.metadata.tr.as_ref_opt().map(|x| x.threshold)
     }
 
-    // TODO return an error for these since returning false is less obvious
-    // and doesn't impl try
     /// Set measurement name for $TR keyword.
+    ///
+    /// Return true if trigger exists and was renamed, false otherwise.
     pub fn set_trigger_name(&mut self, n: Shortname) -> bool {
         if !self.measurement_names().contains(&n) {
             return false;
@@ -1538,6 +1538,8 @@ where
     }
 
     /// Set threshold for $TR keyword
+    ///
+    /// Return true if trigger exists, false otherwise.
     pub fn set_trigger_threshold(&mut self, x: u32) -> bool {
         if let Some(tr) = self.metadata.tr.0.as_mut() {
             tr.threshold = x;
@@ -1548,8 +1550,13 @@ where
     }
 
     /// Remove $TR keyword
-    pub fn clear_trigger(&mut self) {
+    ///
+    /// Return true if trigger existed and was removed, false if it did not
+    /// already exist.
+    pub fn clear_trigger(&mut self) -> bool {
+        let ret = self.metadata.tr.0.is_some();
         self.metadata.tr = None.into();
+        ret
     }
 
     /// Return a list of measurement names as stored in $PnN.
@@ -1650,9 +1657,10 @@ where
         Ok(res)
     }
 
-    /// Convert the current time measurement to an optical measurement.
+    /// Convert time measurement to optical measurement.
     ///
-    /// Return false if there was no time measurement to convert.
+    /// Return true if a time measurement existed and was converted, false
+    /// otherwise.
     pub fn unset_temporal(&mut self) -> bool
     where
         Optical<M::P>: From<Temporal<M::T>>,

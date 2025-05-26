@@ -2804,29 +2804,22 @@ macro_rules! float_layout2_0 {
     () => {
         /// Set data layout to be 32-bit float for all measurements.
         pub fn set_data_f32(&mut self, rs: Vec<f32>) -> Result<(), SetFloatError> {
-            // TODO use gather here
-            let (pass, _): (Vec<_>, Vec<_>) = rs
+            let xs = rs
                 .into_iter()
                 .map(|r| Range::try_from(f64::from(r)))
-                .partition_result();
-            if pass.is_empty() {
-                return Err(SetFloatError::Nan(NanRange));
-            }
-            self.set_to_floating_point(false, pass)
-                .map_err(SetFloatError::Length)
+                .collect::<Result<Vec<Range>, NanRange>>()?;
+            self.set_to_floating_point(false, xs)?;
+            Ok(())
         }
 
         /// Set data layout to be 64-bit float for all measurements.
         pub fn set_data_f64(&mut self, rs: Vec<f64>) -> Result<(), SetFloatError> {
-            let (pass, _): (Vec<_>, Vec<_>) = rs
+            let xs = rs
                 .into_iter()
-                .map(|r| Range::try_from(r))
-                .partition_result();
-            if pass.is_empty() {
-                return Err(SetFloatError::Nan(NanRange));
-            }
-            self.set_to_floating_point(true, pass)
-                .map_err(SetFloatError::Length)
+                .map(Range::try_from)
+                .collect::<Result<Vec<Range>, NanRange>>()?;
+            self.set_to_floating_point(true, xs)?;
+            Ok(())
         }
     };
 }
@@ -3148,25 +3141,22 @@ impl<A, D> Core3_2<A, D> {
 
     /// Set data layout to be 32-bit float for all measurements.
     pub fn set_data_f32(&mut self, rs: Vec<f32>) -> Result<(), SetFloatError> {
-        let (pass, _): (Vec<_>, Vec<_>) = rs
+        let xs = rs
             .into_iter()
             .map(|r| Range::try_from(f64::from(r)))
-            .partition_result();
-        if pass.is_empty() {
-            return Err(SetFloatError::Nan(NanRange));
-        }
-        self.set_to_floating_point_3_2(false, pass)
-            .map_err(SetFloatError::Length)
+            .collect::<Result<Vec<Range>, NanRange>>()?;
+        self.set_to_floating_point_3_2(false, xs)?;
+        Ok(())
     }
 
     /// Set data layout to be 64-bit float for all measurements.
     pub fn set_data_f64(&mut self, rs: Vec<f64>) -> Result<(), SetFloatError> {
-        let (pass, _): (Vec<_>, Vec<_>) = rs.into_iter().map(Range::try_from).partition_result();
-        if pass.is_empty() {
-            return Err(SetFloatError::Nan(NanRange));
-        }
-        self.set_to_floating_point_3_2(true, pass)
-            .map_err(SetFloatError::Length)
+        let xs = rs
+            .into_iter()
+            .map(Range::try_from)
+            .collect::<Result<Vec<Range>, NanRange>>()?;
+        self.set_to_floating_point_3_2(true, xs)?;
+        Ok(())
     }
 
     /// Set data layout to be fixed-ASCII for all measurements
@@ -5423,19 +5413,11 @@ impl<X> AsRef<CommonMeasurement> for Temporal<X> {
     }
 }
 
-pub enum SetFloatError {
-    Nan(NanRange),
-    Length(KeyLengthError),
-}
-
-impl fmt::Display for SetFloatError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            SetFloatError::Nan(r) => r.fmt(f),
-            SetFloatError::Length(x) => x.fmt(f),
-        }
-    }
-}
+enum_from_disp!(
+    pub SetFloatError,
+    [Nan, NanRange],
+    [Length, KeyLengthError]
+);
 
 // TODO somehow include version in this error
 pub enum ConvertError<E> {

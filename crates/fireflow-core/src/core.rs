@@ -1909,23 +1909,30 @@ where
         let m = self
             .metadata
             .try_convert(convert)
-            .map_err(|es| es.map(ConvertError::Meta));
+            .map_err(|es| es.map(ConvertErrorInner::Meta));
         let ps = self
             .measurements
             .map_center_value(|y| y.value.convert())
             .map_non_center_values(|_, v| v.try_convert())
-            .map_err(|es| es.map(ConvertError::Optical))
-            .and_then(|x| x.try_rewrapped().map_err(|es| es.map(ConvertError::Rewrap)));
-        m.zip_mult(ps).map(|(metadata, measurements)| Core {
-            metadata,
-            measurements,
-            data: self.data,
-            analysis: self.analysis,
-        })
-        // let e = VersionConvertError {
-        //     from: M::P::fcs_version(),
-        //     to: ToM::P::fcs_version(),
-        // };
+            .map_err(|es| es.map(ConvertErrorInner::Optical))
+            .and_then(|x| {
+                x.try_rewrapped()
+                    .map_err(|es| es.map(ConvertErrorInner::Rewrap))
+            });
+        m.zip_mult(ps)
+            .map(|(metadata, measurements)| Core {
+                metadata,
+                measurements,
+                data: self.data,
+                analysis: self.analysis,
+            })
+            .map_err(|es| {
+                es.map(|e| ConvertError {
+                    from: M::P::fcs_version(),
+                    to: ToM::P::fcs_version(),
+                    inner: e,
+                })
+            })
     }
 
     #[allow(clippy::type_complexity)]
@@ -4819,6 +4826,7 @@ impl VersionedMetadata for InnerMetadata2_0 {
             .collect()
     }
 
+    // TODO use iterators for all this string stuff
     fn keywords_opt_inner(&self) -> RawPairs {
         [
             OptMetaKey::pair(&self.cyt),
@@ -5373,14 +5381,32 @@ enum_from_disp!(
     [Length, KeyLengthError]
 );
 
-// TODO somehow include version in this error
-pub enum ConvertError<E> {
+pub struct ConvertError<E> {
+    from: Version,
+    to: Version,
+    inner: ConvertErrorInner<E>,
+}
+
+impl<E> fmt::Display for ConvertError<E>
+where
+    E: fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "could not convert from {} to {}: {}",
+            self.from, self.to, self.inner
+        )
+    }
+}
+
+pub enum ConvertErrorInner<E> {
     Rewrap(IndexedElementError<E>),
     Meta(MetaConvertError),
     Optical(IndexedElementError<OpticalConvertError>),
 }
 
-impl<E> fmt::Display for ConvertError<E>
+impl<E> fmt::Display for ConvertErrorInner<E>
 where
     E: fmt::Display,
 {
@@ -5392,11 +5418,6 @@ where
         }
     }
 }
-
-// pub struct VersionConvertError {
-//     from: Version,
-//     to: Version,
-// }
 
 pub struct BlankShortnames;
 

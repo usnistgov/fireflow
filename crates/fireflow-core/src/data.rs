@@ -194,19 +194,19 @@ impl AnyUintType {
         w: Width,
         r: Range,
         n: Endian,
-        force: bool,
+        notrunc: bool,
     ) -> DeferredResult<Self, BitmaskError, NewUintTypeError> {
         w.as_bytes().into_deferred0().and_tentatively(|bytes| {
             // ASSUME this can only be 1-8
             match u8::from(bytes) {
-                1 => u8::column_type_endian(r, n, force).map(Self::Uint08),
-                2 => u16::column_type_endian(r, n, force).map(Self::Uint16),
-                3 => u32::column_type_endian(r, n, force).map(Self::Uint24),
-                4 => u32::column_type_endian(r, n, force).map(Self::Uint32),
-                5 => u64::column_type_endian(r, n, force).map(Self::Uint40),
-                6 => u64::column_type_endian(r, n, force).map(Self::Uint48),
-                7 => u64::column_type_endian(r, n, force).map(Self::Uint56),
-                8 => u64::column_type_endian(r, n, force).map(Self::Uint64),
+                1 => u8::column_type_endian(r, n, notrunc).map(Self::Uint08),
+                2 => u16::column_type_endian(r, n, notrunc).map(Self::Uint16),
+                3 => u32::column_type_endian(r, n, notrunc).map(Self::Uint24),
+                4 => u32::column_type_endian(r, n, notrunc).map(Self::Uint32),
+                5 => u64::column_type_endian(r, n, notrunc).map(Self::Uint40),
+                6 => u64::column_type_endian(r, n, notrunc).map(Self::Uint48),
+                7 => u64::column_type_endian(r, n, notrunc).map(Self::Uint56),
+                8 => u64::column_type_endian(r, n, notrunc).map(Self::Uint64),
                 _ => unreachable!(),
             }
             .errors_into()
@@ -797,12 +797,12 @@ impl FixedLayout<AnyUintType> {
     pub(crate) fn try_new<D>(
         cs: Vec<ColumnLayoutData<D>>,
         e: Endian,
-        force: bool,
+        notrunc: bool,
     ) -> DeferredResult<Option<Self>, UintColumnWarning, UintColumnError> {
         cs.into_iter()
             .enumerate()
             .map(|(i, c)| {
-                AnyUintType::try_new(c.width, c.range, e, force)
+                AnyUintType::try_new(c.width, c.range, e, notrunc)
                     .errors_map(|error| {
                         ColumnError {
                             error,
@@ -880,13 +880,13 @@ where
     Self: IntMath,
     <Self as FromStr>::Err: fmt::Display,
 {
-    fn range_to_bitmask(r: Range, force: bool) -> Tentative<Self, BitmaskError, BitmaskError> {
+    fn range_to_bitmask(r: Range, notrunc: bool) -> Tentative<Self, BitmaskError, BitmaskError> {
         let go = |x, e| {
             let y = Self::next_power_2(x);
-            if force {
-                Tentative::new(y, vec![e], vec![])
-            } else {
+            if notrunc {
                 Tentative::new(y, vec![], vec![e])
+            } else {
+                Tentative::new(y, vec![e], vec![])
             }
         };
         r.try_into().map_or_else(
@@ -911,10 +911,10 @@ where
     fn column_type_endian(
         r: Range,
         e: Endian,
-        force: bool,
+        notrunc: bool,
     ) -> Tentative<UintType<Self, INTLEN>, BitmaskError, BitmaskError> {
         // TODO be more specific, which means we need the measurement index
-        Self::range_to_bitmask(r, force).map(|bitmask| UintType {
+        Self::range_to_bitmask(r, notrunc).map(|bitmask| UintType {
             bitmask,
             byteord: e.into(),
         })
@@ -923,10 +923,10 @@ where
     fn column_type_ordered(
         r: Range,
         o: &ByteOrd,
-        force: bool,
+        notrunc: bool,
     ) -> DeferredResult<UintType<Self, INTLEN>, BitmaskError, IntOrderedColumnError> {
         // TODO be more specific, which means we need the measurement index
-        Self::range_to_bitmask(r, force)
+        Self::range_to_bitmask(r, notrunc)
             .errors_into()
             .and_maybe(|bitmask| {
                 o.as_sized()
@@ -941,7 +941,7 @@ where
     fn layout_ordered(
         rs: Vec<Range>,
         byteord: &ByteOrd,
-        force: bool,
+        notrunc: bool,
     ) -> DeferredResult<
         Option<FixedLayout<UintType<Self, INTLEN>>>,
         BitmaskError,
@@ -949,7 +949,7 @@ where
     > {
         // TODO add index to bitmask warning output
         rs.into_iter()
-            .map(|r| Self::column_type_ordered(r, byteord, force))
+            .map(|r| Self::column_type_ordered(r, byteord, notrunc))
             .gather()
             .map_err(DeferredFailure::fold)
             .map(Tentative::mconcat)
@@ -1280,14 +1280,14 @@ impl MixedType {
         dt: AlphaNumType,
         n: Endian,
         r: Range,
-        force: bool,
+        notrunc: bool,
     ) -> DeferredResult<Self, BitmaskError, NewMixedTypeError> {
         match dt {
             AlphaNumType::Ascii => w
                 .as_chars()
                 .map(|chars| Self::Ascii(AsciiType { chars }))
                 .into_deferred0(),
-            AlphaNumType::Integer => AnyUintType::try_new(w, r, n, force)
+            AlphaNumType::Integer => AnyUintType::try_new(w, r, n, notrunc)
                 .map_value(Self::Integer)
                 .error_into(),
             AlphaNumType::Single => f32::column_type_endian(w, n, r)
@@ -1795,7 +1795,7 @@ impl AnyUintLayout {
     pub(crate) fn try_new<D>(
         cs: Vec<ColumnLayoutData<D>>,
         o: &ByteOrd,
-        force: bool,
+        notrunc: bool,
     ) -> DeferredResult<Option<Self>, BitmaskError, NewFixedIntLayoutError> {
         let (ws, rs): (Vec<_>, Vec<_>) = cs.into_iter().map(|c| (c.width, c.range)).unzip();
         widths_to_single_fixed_bytes(&ws[..])
@@ -1803,14 +1803,14 @@ impl AnyUintLayout {
             .and_maybe(|b| {
                 if let Some(bytes) = b {
                     match u8::from(bytes) {
-                        1 => u8::layout_ordered(rs, o, force).map_value(|x| x.map(Self::Uint08)),
-                        2 => u16::layout_ordered(rs, o, force).map_value(|x| x.map(Self::Uint16)),
-                        3 => u32::layout_ordered(rs, o, force).map_value(|x| x.map(Self::Uint24)),
-                        4 => u32::layout_ordered(rs, o, force).map_value(|x| x.map(Self::Uint32)),
-                        5 => u64::layout_ordered(rs, o, force).map_value(|x| x.map(Self::Uint40)),
-                        6 => u64::layout_ordered(rs, o, force).map_value(|x| x.map(Self::Uint48)),
-                        7 => u64::layout_ordered(rs, o, force).map_value(|x| x.map(Self::Uint56)),
-                        8 => u64::layout_ordered(rs, o, force).map_value(|x| x.map(Self::Uint64)),
+                        1 => u8::layout_ordered(rs, o, notrunc).map_value(|x| x.map(Self::Uint08)),
+                        2 => u16::layout_ordered(rs, o, notrunc).map_value(|x| x.map(Self::Uint16)),
+                        3 => u32::layout_ordered(rs, o, notrunc).map_value(|x| x.map(Self::Uint24)),
+                        4 => u32::layout_ordered(rs, o, notrunc).map_value(|x| x.map(Self::Uint32)),
+                        5 => u64::layout_ordered(rs, o, notrunc).map_value(|x| x.map(Self::Uint40)),
+                        6 => u64::layout_ordered(rs, o, notrunc).map_value(|x| x.map(Self::Uint48)),
+                        7 => u64::layout_ordered(rs, o, notrunc).map_value(|x| x.map(Self::Uint56)),
+                        8 => u64::layout_ordered(rs, o, notrunc).map_value(|x| x.map(Self::Uint64)),
                         _ => unreachable!(),
                     }
                     .error_into()

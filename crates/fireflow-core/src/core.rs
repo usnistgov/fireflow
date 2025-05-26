@@ -2723,14 +2723,17 @@ macro_rules! spillover_methods {
         /// Names must match number of rows/columns in matrix and also must be a
         /// subset of the measurement names (ie $PnN). Matrix must be square and
         /// at least 2x2.
-        // TODO don't return string here
-        pub fn set_spillover(&mut self, ns: Vec<Shortname>, m: DMatrix<f32>) -> Result<(), String> {
+        pub fn set_spillover(
+            &mut self,
+            ns: Vec<Shortname>,
+            m: DMatrix<f32>,
+        ) -> Result<(), SetSpilloverError> {
             let current = self.all_shortnames();
             let new: HashSet<_> = ns.iter().collect();
             if !new.is_subset(&current.iter().collect()) {
-                return Err("all $SPILLOVER names must match a $PnN".into());
+                return Err(SpilloverLinkError.into());
             }
-            let m = Spillover::try_new(ns, m).map_err(|e| e.to_string())?;
+            let m = Spillover::try_new(ns, m)?;
             self.metadata.specific.spillover = Some(m).into();
             Ok(())
         }
@@ -5520,6 +5523,20 @@ impl fmt::Display for ExistingLinkError {
             Self::Spillover => "$SPILLOVER",
         };
         write!(f, "{s} depends on existing $PnN")
+    }
+}
+
+enum_from_disp!(
+    pub SetSpilloverError,
+    [New, SpilloverError],
+    [Link, SpilloverLinkError]
+);
+
+pub struct SpilloverLinkError;
+
+impl fmt::Display for SpilloverLinkError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "all $SPILLOVER names must match a $PnN")
     }
 }
 

@@ -6,7 +6,6 @@ use crate::validated::standard::*;
 use super::byteord::*;
 use super::compensation::*;
 use super::datetimes::*;
-use super::modified_date_time::*;
 use super::named_vec::NameMapping;
 use super::optionalkw::*;
 use super::range::*;
@@ -16,7 +15,7 @@ use super::spillover::*;
 use super::timestamps::*;
 use super::unstainedcenters::*;
 
-use chrono::NaiveTime;
+use chrono::{NaiveDateTime, NaiveTime, Timelike};
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use serde::Serialize;
@@ -519,6 +518,53 @@ impl fmt::Display for WavelengthsError {
             WavelengthsError::Int(i) => write!(f, "{}", i),
             WavelengthsError::Empty => write!(f, "list must not be empty"),
         }
+    }
+}
+
+/// A datetime as used in the $LAST_MODIFIED key (3.1+ only)
+///
+/// Inner value is private to ensure it always gets parsed/printed using the
+/// correct format
+#[derive(Clone, Copy, Serialize)]
+pub struct ModifiedDateTime(pub NaiveDateTime);
+
+newtype_from!(ModifiedDateTime, NaiveDateTime);
+newtype_from_outer!(ModifiedDateTime, NaiveDateTime);
+
+const DATETIME_FMT: &str = "%d-%b-%Y %H:%M:%S";
+
+impl FromStr for ModifiedDateTime {
+    type Err = ModifiedDateTimeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (dt, cc) =
+            NaiveDateTime::parse_and_remainder(s, DATETIME_FMT).or(Err(ModifiedDateTimeError))?;
+        if cc.is_empty() {
+            Ok(ModifiedDateTime(dt))
+        } else if cc.len() == 3 && cc.starts_with(".") {
+            let tt: u32 = cc[1..3].parse().or(Err(ModifiedDateTimeError))?;
+            dt.with_nanosecond(tt * 10000000)
+                .map(ModifiedDateTime)
+                .ok_or(ModifiedDateTimeError)
+        } else {
+            Err(ModifiedDateTimeError)
+        }
+    }
+}
+
+impl fmt::Display for ModifiedDateTime {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let dt = self.0.format(DATETIME_FMT);
+        let cc = self.0.nanosecond() / 10000000;
+        write!(f, "{dt}.{cc}")
+    }
+}
+
+pub struct ModifiedDateTimeError;
+
+impl fmt::Display for ModifiedDateTimeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "must be like 'dd-mmm-yyyy hh:mm:ss[.cc]'")
     }
 }
 

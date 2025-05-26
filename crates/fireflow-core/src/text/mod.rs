@@ -2,7 +2,6 @@ pub mod byteord;
 pub mod compensation;
 pub mod datetimes;
 pub mod keywords;
-pub mod modified_date_time;
 pub mod named_vec;
 pub mod optionalkw;
 pub mod parser;

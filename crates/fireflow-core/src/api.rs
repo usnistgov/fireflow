@@ -1087,45 +1087,6 @@ fn split_remainder(xs: StdKeywords) -> (StdKeywords, StdKeywords) {
         .partition_result()
 }
 
-// fn comp_to_spillover(comp: Compensation, ns: &[Shortname]) -> Option<Spillover> {
-//     // Matrix should be square, so if inverse fails that means that somehow it
-//     // isn't full rank
-//     comp.matrix.try_inverse().map(|matrix| Spillover {
-//         measurements: ns.to_vec(),
-//         matrix,
-//     })
-// }
-
-// // TODO doesn't this need to be transposed also?
-// fn spillover_to_comp(spillover: Spillover, ns: &[Shortname]) -> Option<Compensation> {
-//     // Start by making a new square matrix for all measurements, since the older
-//     // $COMP keyword couldn't specify measurements and thus covered all of them.
-//     // Then assign the spillover matrix to the bigger full matrix, using the
-//     // index of the measurement names. This will be a spillover matrix defined
-//     // for all measurements. Anything absent from the original will have 0 in
-//     // it's row/column except for the diagonal. Finally, invert this result to
-//     // get the compensation matrix.
-//     let n = ns.len();
-//     let mut full_matrix = DMatrix::<f32>::identity(n, n);
-//     // ASSUME spillover measurements are a subset of names supplied to function
-//     let positions: Vec<_> = spillover
-//         .measurements
-//         .into_iter()
-//         .enumerate()
-//         .flat_map(|(i, m)| ns.iter().position(|x| *x == m).map(|x| (i, x)))
-//         .collect();
-//     for r in positions.iter() {
-//         for c in positions.iter() {
-//             full_matrix[(r.1, c.1)] = spillover.matrix[(r.0, c.0)]
-//         }
-//     }
-//     // Matrix should be square, so if inverse fails that means that somehow it
-//     // isn't full rank
-//     full_matrix
-//         .try_inverse()
-//         .map(|matrix| Compensation { matrix })
-// }
-
 enum_from_disp!(
     pub ReqSegmentError,
     [Key, ReqKeyError<ParseIntError>],

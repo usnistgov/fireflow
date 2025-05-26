@@ -2824,37 +2824,47 @@ macro_rules! float_layout2_0 {
     };
 }
 
+macro_rules! int_layout_2_0 {
+    () => {
+        /// Set data layout to be Integer for all measurements
+        pub fn set_data_integer(
+            &mut self,
+            rs: Vec<u64>,
+            byteord: ByteOrd,
+        ) -> Result<(), KeyLengthError> {
+            let n = byteord.nbytes();
+            let ys = rs
+                .into_iter()
+                .map(|r| RangeSetter { width: n, range: r })
+                .collect();
+            self.set_data_integer_inner(ys)?;
+            self.metadata.specific.byteord = byteord;
+            Ok(())
+        }
+    };
+}
+
+macro_rules! set_shortnames_2_0 {
+    () => {
+        /// Set all optical $PnN keywords to list of names.
+        pub fn set_measurement_shortnames_maybe(
+            &mut self,
+            ns: Vec<Option<Shortname>>,
+        ) -> Result<NameMapping, SetKeysError> {
+            let ks = ns.into_iter().map(|n| n.into()).collect();
+            let mapping = self.measurements.set_non_center_keys(ks)?;
+            self.metadata.reassign_all(&mapping);
+            Ok(mapping)
+        }
+    };
+}
+
 impl<A, D> Core2_0<A, D> {
     comp_methods!();
     scale_get_set!(Option<Scale>, Some(Scale::Linear));
 
-    /// Set all optical $PnN keywords to list of names.
-    pub fn set_measurement_shortnames_maybe(
-        &mut self,
-        ns: Vec<Option<Shortname>>,
-    ) -> Result<NameMapping, SetKeysError> {
-        let ks = ns.into_iter().map(|n| n.into()).collect();
-        let mapping = self.measurements.set_non_center_keys(ks)?;
-        self.metadata.reassign_all(&mapping);
-        Ok(mapping)
-    }
-
-    /// Set data layout to be Integer for all measurements
-    pub fn set_data_integer(
-        &mut self,
-        rs: Vec<u64>,
-        byteord: ByteOrd,
-    ) -> Result<(), KeyLengthError> {
-        let n = byteord.nbytes();
-        let ys = rs
-            .into_iter()
-            .map(|r| RangeSetter { width: n, range: r })
-            .collect();
-        self.set_data_integer_inner(ys)?;
-        self.metadata.specific.byteord = byteord;
-        Ok(())
-    }
-
+    set_shortnames_2_0!();
+    int_layout_2_0!();
     float_layout2_0!();
 
     /// Set data layout to be ASCII-delimited
@@ -2883,34 +2893,8 @@ impl<A, D> Core3_0<A, D> {
     comp_methods!();
     scale_get_set!(Scale, Scale::Linear);
 
-    /// Set all optical $PnN keywords to list of names.
-    pub fn set_measurement_shortnames_maybe(
-        &mut self,
-        ns: Vec<Option<Shortname>>,
-    ) -> Result<NameMapping, SetKeysError> {
-        let ks = ns.into_iter().map(|n| n.into()).collect();
-        let mapping = self.measurements.set_non_center_keys(ks)?;
-        self.metadata.reassign_all(&mapping);
-        Ok(mapping)
-    }
-
-    /// Set data layout to be Integer for all measurements
-    // TODO not DRY
-    pub fn set_data_integer(
-        &mut self,
-        rs: Vec<u64>,
-        byteord: ByteOrd,
-    ) -> Result<(), KeyLengthError> {
-        let n = byteord.nbytes();
-        let ys = rs
-            .into_iter()
-            .map(|r| RangeSetter { width: n, range: r })
-            .collect();
-        self.set_data_integer_inner(ys)?;
-        self.metadata.specific.byteord = byteord;
-        Ok(())
-    }
-
+    set_shortnames_2_0!();
+    int_layout_2_0!();
     float_layout2_0!();
 
     /// Set data layout to be ASCII-delimited

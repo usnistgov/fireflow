@@ -2925,7 +2925,6 @@ impl<A, D> Core3_1<A, D> {
     scale_get_set!(Scale, Scale::Linear);
     spillover_methods!();
 
-    // TODO better input type here?
     /// Set data layout to be integers for all measurements.
     pub fn set_data_integer(&mut self, xs: Vec<NumRangeSetter>) -> Result<(), KeyLengthError> {
         self.set_data_integer_inner(xs)

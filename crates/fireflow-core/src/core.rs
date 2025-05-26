@@ -1143,8 +1143,17 @@ where
             .zip5(sm, sr, sy, t)
             .and_maybe(
                 |(((abrt, com, cells, exp, fil), inst, lost, op, proj), smno, src, sys, tr)| {
-                    let dt = lookup_meta_req(kws);
+                    let mut dt = lookup_meta_req(kws);
                     let s = M::lookup_specific(kws, par);
+                    dt.eval_warning(|datatype| {
+                        if *datatype == AlphaNumType::Ascii
+                            && M::P::fcs_version() >= Version::FCS3_1
+                        {
+                            Some(DepFeatureWarning::DatatypeASCII.into())
+                        } else {
+                            None
+                        }
+                    });
                     dt.zip_def(s).map_value(|(datatype, specific)| Metadata {
                         datatype,
                         abrt,
@@ -2281,8 +2290,6 @@ where
     fn measurement_names(&self) -> HashSet<&Shortname> {
         self.measurements.indexed_names().map(|(_, x)| x).collect()
     }
-
-    // TODO add non-kw deprecation checker
 
     fn check_linked_names(&self) -> MultiResult<(), LinkedNameError> {
         let mut errs = vec![];
@@ -4802,7 +4809,12 @@ impl LookupMetadata for InnerMetadata3_1 {
         cy.zip4(sp, sn, md).zip4(p, t, v).and_maybe(
             |((cyt, spillover, cytsn, modification), plate, timestamps, vol)| {
                 let b = lookup_meta_req(kws);
-                let mo = lookup_meta_req(kws);
+                let mut mo = lookup_meta_req(kws);
+                mo.eval_warning(|mode| match mode {
+                    Mode::Correlated => Some(DepFeatureWarning::ModeCorrelated.into()),
+                    Mode::Uncorrelated => Some(DepFeatureWarning::ModeUncorrelated.into()),
+                    Mode::List => None,
+                });
                 b.zip_def(mo).map_value(|(byteord, mode)| Self {
                     mode,
                     byteord,

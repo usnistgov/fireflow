@@ -254,7 +254,8 @@ enum_from_disp!(
     pub ParseKeysWarning,
     [OptKey,       ParseOptKeyWarning],
     [OtherWarning, ParseOtherWarning],
-    [Deprecated,   DepKeyWarning]
+    [DepKey,   DepKeyWarning],
+    [OtherDep, DepFeatureWarning]
 );
 
 enum_from_disp!(
@@ -324,6 +325,23 @@ enum_from_disp!(
 );
 
 pub struct DepKeyWarning(pub StdKey);
+
+pub enum DepFeatureWarning {
+    DatatypeASCII,
+    ModeCorrelated,
+    ModeUncorrelated,
+}
+
+impl fmt::Display for DepFeatureWarning {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let s = match self {
+            Self::DatatypeASCII => "$DATATYPE=A is deprecated",
+            Self::ModeCorrelated => "$MODE=C is deprecated",
+            Self::ModeUncorrelated => "$MODE=U is deprecated",
+        };
+        write!(f, "{s}")
+    }
+}
 
 impl fmt::Display for DepKeyWarning {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {

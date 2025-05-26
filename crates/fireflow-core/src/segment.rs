@@ -122,6 +122,53 @@ pub enum SegmentId {
     // TODO add Other (which will be indexed I think)
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct PrimaryTextSegment;
+
+impl fmt::Display for PrimaryTextSegment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "TEXT")
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SupplementalTextSegment;
+
+impl fmt::Display for SupplementalTextSegment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "STEXT")
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct AnalysisSegment;
+
+impl fmt::Display for AnalysisSegment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "ANALYSIS")
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct DataSegment;
+
+impl fmt::Display for DataSegment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "DATA")
+    }
+}
+
+impl fmt::Display for SegmentId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::PrimaryText => PrimaryTextSegment.fmt(f),
+            Self::SupplementalText => SupplementalTextSegment.fmt(f),
+            Self::Analysis => AnalysisSegment.fmt(f),
+            Self::Data => DataSegment.fmt(f),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum SegmentErrorKind {
     Range,
@@ -134,18 +181,6 @@ pub struct SegmentError {
     corr: OffsetCorrection,
     kind: SegmentErrorKind,
     id: SegmentId,
-}
-
-impl fmt::Display for SegmentId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let x = match self {
-            SegmentId::PrimaryText => "TEXT",
-            SegmentId::SupplementalText => "STEXT",
-            SegmentId::Analysis => "ANALYSIS",
-            SegmentId::Data => "DATA",
-        };
-        write!(f, "{x}")
-    }
 }
 
 impl fmt::Display for SegmentError {

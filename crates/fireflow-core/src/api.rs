@@ -786,7 +786,8 @@ fn lookup_data_offsets(
     conf: &DataReadConfig,
     version: Version,
     default: Segment,
-) -> Tentative<Segment, DataSegmentWarning, ReqSegmentError> {
+) -> Tentative<Segment, DataSegmentWarning, DataSegmentError> {
+    let d = SegmentDefaultWarning(DataSegment);
     match version {
         Version::FCS2_0 => Tentative::new1(default),
         _ => lookup_req_segment(
@@ -798,20 +799,20 @@ fn lookup_data_offsets(
         )
         .map_or_else(
             |es| {
-                // TODO toggle this
-                let ws = es
-                    .map(|e| e.into())
-                    .into_iter()
-                    .chain([DataSegmentDefaultWarning.into()])
-                    .collect();
-                Tentative::new(default, ws, vec![])
+                if conf.standard.raw.enforce_required_offsets {
+                    let ws = es.map(|e| e.into()).into_iter().chain([d.into()]).collect();
+                    Tentative::new(default, vec![], ws)
+                } else {
+                    let ws = es.map(|e| e.into()).into_iter().chain([d.into()]).collect();
+                    Tentative::new(default, ws, vec![])
+                }
             },
             |t| {
                 let w = if t != default && !default.is_empty() {
                     Some(SegmentMismatchWarning {
                         header: default,
                         text: t,
-                        id: SegmentId::Data,
+                        id: DataSegment,
                     })
                 } else {
                     None
@@ -833,9 +834,11 @@ fn lookup_analysis_offsets(
     conf: &DataReadConfig,
     version: Version,
     default: Segment,
-) -> Tentative<Segment, AnalysisSegmentWarning, ReqSegmentError> {
+) -> Tentative<Segment, AnalysisSegmentWarning, AnalysisSegmentError> {
+    let d = SegmentDefaultWarning(AnalysisSegment);
     match version {
         Version::FCS2_0 => Tentative::new1(default),
+
         Version::FCS3_0 | Version::FCS3_1 => lookup_req_segment(
             kws,
             &Beginanalysis::std(),
@@ -845,16 +848,17 @@ fn lookup_analysis_offsets(
         )
         .map_or_else(
             |es| {
-                // TODO toggle this
-                let ws = es
-                    .map(|e| e.into())
-                    .into_iter()
-                    .chain([AnalysisSegmentDefaultWarning.into()])
-                    .collect();
-                Tentative::new(default, ws, vec![])
+                if conf.standard.raw.enforce_required_offsets {
+                    let ws = es.map(|e| e.into()).into_iter().chain([d.into()]).collect();
+                    Tentative::new(default, vec![], ws)
+                } else {
+                    let ws = es.map(|e| e.into()).into_iter().chain([d.into()]).collect();
+                    Tentative::new(default, ws, vec![])
+                }
             },
             Tentative::new1,
         ),
+
         Version::FCS3_2 => lookup_opt_segment(
             kws,
             &Beginanalysis::std(),
@@ -869,7 +873,7 @@ fn lookup_analysis_offsets(
                 let ws = es
                     .map(|e| e.into())
                     .into_iter()
-                    .chain([AnalysisSegmentDefaultWarning.into()])
+                    .chain([SegmentDefaultWarning(AnalysisSegment).into()])
                     .collect();
                 Tentative::new(default, ws, vec![])
             },
@@ -879,7 +883,7 @@ fn lookup_analysis_offsets(
                         Some(SegmentMismatchWarning {
                             header: default,
                             text: this_seg,
-                            id: SegmentId::Analysis,
+                            id: AnalysisSegment,
                         })
                     } else {
                         None
@@ -1079,9 +1083,36 @@ fn split_remainder(xs: StdKeywords) -> (StdKeywords, StdKeywords) {
 enum_from_disp!(
     pub ReqSegmentError,
     [Key, ReqKeyError<ParseIntError>],
-    [Segment, SegmentError],
-    // TODO this only applies to ANALYSIS and DATA segments
-    [Mismatch, SegmentMismatchWarning]
+    [Segment, SegmentError]
+);
+
+enum_from_disp!(
+    pub DataSegmentError,
+    [Req, ReqSegmentError],
+    [Mismatch, SegmentMismatchWarning<DataSegment>],
+    [Default, SegmentDefaultWarning<DataSegment>]
+);
+
+enum_from_disp!(
+    pub DataSegmentWarning,
+    [Segment, ReqSegmentError],
+    [Default, SegmentDefaultWarning<DataSegment>],
+    [Mismatch, SegmentMismatchWarning<DataSegment>]
+);
+
+enum_from_disp!(
+    pub AnalysisSegmentWarning,
+    [ReqSegment, ReqSegmentError],
+    [OptSegment, OptSegmentError],
+    [Default, SegmentDefaultWarning<AnalysisSegment>],
+    [Mismatch, SegmentMismatchWarning<AnalysisSegment>]
+);
+
+enum_from_disp!(
+    pub AnalysisSegmentError,
+    [Req, ReqSegmentError],
+    [Mismatch, SegmentMismatchWarning<AnalysisSegment>],
+    [Default, SegmentDefaultWarning<AnalysisSegment>]
 );
 
 enum_from_disp!(
@@ -1090,21 +1121,16 @@ enum_from_disp!(
     [Segment, SegmentError]
 );
 
-enum_from_disp!(
-    pub DataSegmentWarning,
-    [Segment, ReqSegmentError],
-    [Default, DataSegmentDefaultWarning],
-    [Mismatch, SegmentMismatchWarning]
-);
-
-pub struct SegmentMismatchWarning {
+pub struct SegmentMismatchWarning<S> {
     header: Segment,
     text: Segment,
-    // TODO this can be screwed up unnecessarily
-    id: SegmentId,
+    id: S,
 }
 
-impl fmt::Display for SegmentMismatchWarning {
+impl<S> fmt::Display for SegmentMismatchWarning<S>
+where
+    S: fmt::Display,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             f,
@@ -1116,34 +1142,18 @@ impl fmt::Display for SegmentMismatchWarning {
     }
 }
 
-pub struct DataSegmentDefaultWarning;
+pub struct SegmentDefaultWarning<S>(S);
 
-impl fmt::Display for DataSegmentDefaultWarning {
+impl<S> fmt::Display for SegmentDefaultWarning<S>
+where
+    S: fmt::Display,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             f,
-            "could not obtain DATA segment offset from TEXT, \
+            "could not obtain {} segment offset from TEXT, \
              using offsets from HEADER",
-        )
-    }
-}
-
-enum_from_disp!(
-    pub AnalysisSegmentWarning,
-    [ReqSegment, ReqSegmentError],
-    [OptSegment, OptSegmentError],
-    [Default, AnalysisSegmentDefaultWarning],
-    [Mismatch, SegmentMismatchWarning]
-);
-
-pub struct AnalysisSegmentDefaultWarning;
-
-impl fmt::Display for AnalysisSegmentDefaultWarning {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "could not obtain ANALYSIS segment offset from TEXT, \
-             using offsets from HEADER",
+            self.0
         )
     }
 }
@@ -1377,7 +1387,8 @@ enum_from!(
 
 enum_from_disp!(
     pub ReadRawDatasetError,
-    [Segment, ReqSegmentError],
+    [DataSegment, DataSegmentError],
+    [AnalysisSegment, AnalysisSegmentError],
     [ToReader, RawToReaderError],
     [ReadData, ImpureError<ReadDataError>],
     [ReadAnalysis, io::Error]
@@ -1392,7 +1403,8 @@ enum_from_disp!(
 
 enum_from_disp!(
     pub ReadStdDatasetError,
-    [Segment, ReqSegmentError],
+    [DataSegment, DataSegmentError],
+    [AnalysisSegment, AnalysisSegmentError],
     [ToReader, StdReaderError],
     [ReadData, ImpureError<ReadDataError>],
     [ReadAnalysis, io::Error]

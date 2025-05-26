@@ -96,6 +96,12 @@ pub struct RawTextReadConfig {
     /// Only applies to DATA and ANALYSIS offsets
     pub enforce_offset_match: bool,
 
+    /// If true, throw error if required TEXT offsets are missing.
+    ///
+    /// Only applies to DATA and ANALYSIS offsets in versions 3.0 and 3.1. If
+    /// missing these will be taken from HEADER.
+    pub enforce_required_offsets: bool,
+
     /// If true, replace leading spaces in offset keywords with 0.
     ///
     ///These often need to be padded to make the DATA segment appear at a
@@ -271,6 +277,7 @@ impl Strict for RawTextReadConfig {
             enforce_stext_delim: true,
             enforce_nextdata: true,
             enforce_offset_match: true,
+            enforce_required_offsets: true,
             ..self
         }
     }

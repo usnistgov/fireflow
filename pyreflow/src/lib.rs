@@ -1,6 +1,5 @@
 use fireflow_core::api::*;
-use fireflow_core::config::Strict;
-use fireflow_core::config::{self, OffsetCorrection};
+use fireflow_core::config::*;
 use fireflow_core::error::*;
 use fireflow_core::text::byteord::*;
 use fireflow_core::text::named_vec::Element;
@@ -57,17 +56,17 @@ fn py_read_fcs_header(
     end_analysis: i32,
     version_override: Option<PyVersion>,
 ) -> PyResult<PyHeader> {
-    let conf = config::HeaderConfig {
+    let conf = HeaderConfig {
         version_override: version_override.map(|x| x.0),
-        text: config::OffsetCorrection {
+        text: OffsetCorrection {
             begin: begin_text,
             end: end_text,
         },
-        data: config::OffsetCorrection {
+        data: OffsetCorrection {
             begin: begin_data,
             end: end_data,
         },
-        analysis: config::OffsetCorrection {
+        analysis: OffsetCorrection {
             begin: begin_analysis,
             end: end_analysis,
         },
@@ -145,25 +144,25 @@ fn py_read_fcs_raw_text(
     date_pattern: Option<String>,
     version_override: Option<PyVersion>,
 ) -> PyResult<(PyVersion, Bound<'_, PyDict>, Bound<'_, PyDict>, PyParseData)> {
-    let header = config::HeaderConfig {
+    let header = HeaderConfig {
         version_override: version_override.map(|x| x.0),
-        text: config::OffsetCorrection {
+        text: OffsetCorrection {
             begin: begin_text,
             end: end_text,
         },
-        data: config::OffsetCorrection {
+        data: OffsetCorrection {
             begin: begin_data,
             end: end_data,
         },
-        analysis: config::OffsetCorrection {
+        analysis: OffsetCorrection {
             begin: begin_analysis,
             end: end_analysis,
         },
     };
 
-    let conf = config::RawTextReadConfig {
+    let conf = RawTextReadConfig {
         header,
-        stext: config::OffsetCorrection {
+        stext: OffsetCorrection {
             begin: text_begin_stext,
             end: text_end_stext,
         },
@@ -294,25 +293,25 @@ fn py_read_fcs_std_text(
     date_pattern: Option<String>,
     version_override: Option<PyVersion>,
 ) -> PyResult<(Bound<'_, PyAny>, PyParseData, Bound<'_, PyDict>)> {
-    let header = config::HeaderConfig {
+    let header = HeaderConfig {
         version_override: version_override.map(|x| x.0),
-        text: config::OffsetCorrection {
+        text: OffsetCorrection {
             begin: begin_text,
             end: end_text,
         },
-        data: config::OffsetCorrection {
+        data: OffsetCorrection {
             begin: begin_data,
             end: end_data,
         },
-        analysis: config::OffsetCorrection {
+        analysis: OffsetCorrection {
             begin: begin_analysis,
             end: end_analysis,
         },
     };
 
-    let raw = config::RawTextReadConfig {
+    let raw = RawTextReadConfig {
         header,
-        stext: config::OffsetCorrection {
+        stext: OffsetCorrection {
             begin: text_begin_stext,
             end: text_end_stext,
         },
@@ -340,10 +339,10 @@ fn py_read_fcs_std_text(
         .transpose()?;
     let tp = time_pattern.map(str_to_time_pat).transpose()?;
 
-    let conf = config::StdTextReadConfig {
+    let conf = StdTextReadConfig {
         raw,
         shortname_prefix: sp.unwrap_or_default(),
-        time: config::TimeConfig {
+        time: TimeConfig {
             pattern: tp,
             ensure: time_ensure,
             ensure_timestep: time_ensure_timestep,
@@ -426,6 +425,9 @@ fn py_read_fcs_std_text(
     enforce_data_width_divisibility=false,
     enforce_matching_tot=false,
 
+    bitmask_notruncate=false,
+    warnings_are_errors=false,
+
     shortname_prefix=None,
     nonstandard_measurement_pattern=None,
     time_pattern=None,
@@ -480,31 +482,34 @@ fn py_read_fcs_file(
     enforce_data_width_divisibility: bool,
     enforce_matching_tot: bool,
 
+    bitmask_notruncate: bool,
+    warnings_are_errors: bool,
+
     shortname_prefix: Option<String>,
     nonstandard_measurement_pattern: Option<String>,
     time_pattern: Option<String>,
     date_pattern: Option<String>,
     version_override: Option<PyVersion>,
 ) -> PyResult<(Bound<'_, PyAny>, PyParseData, Bound<'_, PyDict>)> {
-    let header = config::HeaderConfig {
+    let header = HeaderConfig {
         version_override: version_override.map(|x| x.0),
-        text: config::OffsetCorrection {
+        text: OffsetCorrection {
             begin: header_begin_text,
             end: header_end_text,
         },
-        data: config::OffsetCorrection {
+        data: OffsetCorrection {
             begin: header_begin_data,
             end: header_end_data,
         },
-        analysis: config::OffsetCorrection {
+        analysis: OffsetCorrection {
             begin: header_begin_analysis,
             end: header_end_analysis,
         },
     };
 
-    let raw = config::RawTextReadConfig {
+    let raw = RawTextReadConfig {
         header,
-        stext: config::OffsetCorrection {
+        stext: OffsetCorrection {
             begin: text_begin_stext,
             end: text_end_stext,
         },
@@ -532,10 +537,10 @@ fn py_read_fcs_file(
         .transpose()?;
     let tp = time_pattern.map(str_to_time_pat).transpose()?;
 
-    let standard = config::StdTextReadConfig {
+    let standard = StdTextReadConfig {
         raw,
         shortname_prefix: sp.unwrap_or_default(),
-        time: config::TimeConfig {
+        time: TimeConfig {
             pattern: tp,
             ensure: time_ensure,
             ensure_timestep: time_ensure_timestep,
@@ -548,11 +553,15 @@ fn py_read_fcs_file(
         nonstandard_measurement_pattern: nsmp,
     };
 
-    let conf = config::DataReadConfig {
+    let conf = DataReadConfig {
         standard,
         data: OffsetCorrection {
             begin: text_begin_data,
             end: text_end_data,
+        },
+        shared: SharedConfig {
+            bitmask_notruncate,
+            warnings_are_errors,
         },
         analysis: OffsetCorrection {
             begin: text_begin_analysis,

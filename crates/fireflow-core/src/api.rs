@@ -346,7 +346,7 @@ fn h_read_raw_dataset<R: Read + Seek>(
     let reader_res = lookup_data_offsets(std, conf, version, def_data_seg)
         .inner_into()
         .and_maybe(|data_seg| {
-            raw.as_reader(data_seg)
+            raw.as_reader(data_seg, &conf.shared)
                 .inner_into()
                 .map_value(|reader| (raw.keywords, raw.parse, reader, data_seg))
         });
@@ -471,19 +471,20 @@ impl RawTEXT {
     fn as_reader(
         &self,
         data_seg: Segment,
+        conf: &SharedConfig,
     ) -> DeferredResult<DataReader, RawToReaderWarning, RawToReaderError> {
         let kws = &self.keywords.std;
         match self.version {
-            Version::FCS2_0 => DataLayout2_0::try_new_from_raw(kws)
+            Version::FCS2_0 => DataLayout2_0::try_new_from_raw(kws, conf)
                 .inner_into()
                 .and_maybe(|dl| dl.into_reader(kws, data_seg).inner_into()),
-            Version::FCS3_0 => DataLayout3_0::try_new_from_raw(kws)
+            Version::FCS3_0 => DataLayout3_0::try_new_from_raw(kws, conf)
                 .inner_into()
                 .and_maybe(|dl| dl.into_reader(kws, data_seg).inner_into()),
-            Version::FCS3_1 => DataLayout3_1::try_new_from_raw(kws)
+            Version::FCS3_1 => DataLayout3_1::try_new_from_raw(kws, conf)
                 .inner_into()
                 .and_maybe(|dl| dl.into_reader(kws, data_seg).inner_into()),
-            Version::FCS3_2 => DataLayout3_2::try_new_from_raw(kws)
+            Version::FCS3_2 => DataLayout3_2::try_new_from_raw(kws, conf)
                 .inner_into()
                 .and_maybe(|dl| dl.into_reader(kws, data_seg).inner_into()),
         }

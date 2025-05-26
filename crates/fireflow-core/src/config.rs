@@ -5,6 +5,68 @@ use crate::validated::pattern::TimePattern;
 use crate::validated::shortname::*;
 use crate::validated::textdelim::TEXTDelim;
 
+/// Instructions for reading the DATA segment.
+#[derive(Default, Clone)]
+pub struct DataReadConfig {
+    /// Instructions to read and standardize TEXT.
+    pub standard: StdTextReadConfig,
+
+    /// Corrections for DATA offsets in TEXT segment
+    pub data: OffsetCorrection,
+
+    /// Corrections for ANALYSIS offsets in TEXT segment
+    pub analysis: OffsetCorrection,
+
+    /// Shared configuration options
+    pub shared: SharedConfig,
+
+    /// If true, throw error when total event width does not evenly divide
+    /// the DATA segment. Meaningless for delimited ASCII data.
+    pub enforce_data_width_divisibility: bool,
+
+    /// If true, throw error if the total number of events as computed by
+    /// dividing DATA segment length event width doesn't match $TOT. Does
+    /// nothing if $TOT not given, which may be the case in version 2.0.
+    pub enforce_matching_tot: bool,
+}
+
+/// Configuration for writing an FCS file
+#[derive(Clone, Default)]
+pub struct WriteConfig {
+    /// Delimiter for TEXT segment
+    ///
+    /// This should be an ASCII character in [1, 126]. Unlike the standard
+    /// (which calls for newline), this will default to the record separator
+    /// (character 30).
+    pub delim: TEXTDelim,
+
+    /// If true, check for conversion losses before writing data.
+    ///
+    /// Data in each column may be stored in several different types which may
+    /// or may not totally coincide with the measurement type. For example, a
+    /// measurement may be an 8-bit unsigned integer with a 4-bit bitmask, and
+    /// the column may be stored as 32-bit floats within the polars dataframe.
+    /// However, as long as the floats are only 0 to 2^4 - 1, no conversion
+    /// losses will result. This allows the user more flexibility when
+    /// manipulating the data for each measurement.
+    ///
+    /// Skipping this will result in slightly faster writing, as the data need
+    /// to be enumerated once prior to writing in order to perform this check.
+    /// Lossy conversion will be performed regardless, but warnings will be
+    /// emitted if this is true.
+    pub check_conversion: bool,
+
+    /// If true, disallow lossy data conversions
+    ///
+    /// Only has an effect if `check_conversion` is true. If this is also true,
+    /// any lossy conversion will halt immediately and return an error to the
+    /// user.
+    pub disallow_lossy_conversions: bool,
+
+    /// Shared configuration options
+    pub shared: SharedConfig,
+}
+
 #[derive(Default, Clone)]
 pub struct HeaderConfig {
     /// Override the version
@@ -188,70 +250,14 @@ pub struct StdTextReadConfig {
     // TODO add repair stuff
 }
 
-/// Instructions for reading the DATA segment.
+/// Configuration options for both reading and writing
 #[derive(Default, Clone)]
-pub struct DataReadConfig {
-    /// Instructions to read and standardize TEXT.
-    pub standard: StdTextReadConfig,
-
-    /// Corrections for DATA offsets in TEXT segment
-    pub data: OffsetCorrection,
-
-    /// Corrections for ANALYSIS offsets in TEXT segment
-    pub analysis: OffsetCorrection,
-
-    /// If true, throw error when total event width does not evenly divide
-    /// the DATA segment. Meaningless for delimited ASCII data.
-    pub enforce_data_width_divisibility: bool,
-
-    /// If true, throw error if the total number of events as computed by
-    /// dividing DATA segment length event width doesn't match $TOT. Does
-    /// nothing if $TOT not given, which may be the case in version 2.0.
-    pub enforce_matching_tot: bool,
-}
-
-/// Configuration options that do not fit anywhere else
-#[derive(Default, Clone)]
-pub struct MiscReadConfig {
+pub struct SharedConfig {
     /// If true, all warnings are considered to be fatal errors.
     pub warnings_are_errors: bool,
 
     /// If true, don't truncate the bitmask to whatever type it needs to be.
     pub bitmask_notruncate: bool,
-}
-
-/// Configuration for writing an FCS file
-#[derive(Clone, Default)]
-pub struct WriteConfig {
-    /// Delimiter for TEXT segment
-    ///
-    /// This should be an ASCII character in [1, 126]. Unlike the standard
-    /// (which calls for newline), this will default to the record separator
-    /// (character 30).
-    pub delim: TEXTDelim,
-
-    /// If true, check for conversion losses before writing data.
-    ///
-    /// Data in each column may be stored in several different types which may
-    /// or may not totally coincide with the measurement type. For example, a
-    /// measurement may be an 8-bit unsigned integer with a 4-bit bitmask, and
-    /// the column may be stored as 32-bit floats within the polars dataframe.
-    /// However, as long as the floats are only 0 to 2^4 - 1, no conversion
-    /// losses will result. This allows the user more flexibility when
-    /// manipulating the data for each measurement.
-    ///
-    /// Skipping this will result in slightly faster writing, as the data need
-    /// to be enumerated once prior to writing in order to perform this check.
-    /// Lossy conversion will be performed regardless, but warnings will be
-    /// emitted if this is true.
-    pub check_conversion: bool,
-
-    /// If true, disallow lossy data conversions
-    ///
-    /// Only has an effect if `check_conversion` is true. If this is also true,
-    /// any lossy conversion will halt immediately and return an error to the
-    /// user.
-    pub disallow_lossy_conversions: bool,
 }
 
 pub trait Strict: Default {
@@ -264,6 +270,18 @@ pub trait Strict: Default {
     }
 
     fn set_strict_inner(self) -> Self;
+}
+
+impl Strict for DataReadConfig {
+    fn set_strict_inner(self) -> Self {
+        Self {
+            standard: StdTextReadConfig::set_strict_inner(self.standard),
+            shared: SharedConfig::set_strict_inner(self.shared),
+            enforce_data_width_divisibility: true,
+            enforce_matching_tot: true,
+            ..self
+        }
+    }
 }
 
 impl Strict for RawTextReadConfig {
@@ -310,12 +328,10 @@ impl Strict for TimeConfig {
     }
 }
 
-impl Strict for DataReadConfig {
+impl Strict for SharedConfig {
     fn set_strict_inner(self) -> Self {
         Self {
-            standard: StdTextReadConfig::set_strict_inner(self.standard),
-            enforce_data_width_divisibility: true,
-            enforce_matching_tot: true,
+            bitmask_notruncate: true,
             ..self
         }
     }

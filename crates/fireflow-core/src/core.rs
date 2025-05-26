@@ -803,6 +803,7 @@ pub trait VersionedMetadata: Sized {
     fn as_column_layout(
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
+        conf: &SharedConfig,
     ) -> DeferredResult<Self::L, NewDataLayoutWarning, NewDataLayoutError>;
 }
 
@@ -2352,17 +2353,18 @@ where
 
     pub(crate) fn as_column_layout(
         &self,
+        conf: &SharedConfig,
     ) -> DeferredResult<M::L, NewDataLayoutWarning, NewDataLayoutError> {
-        M::as_column_layout(&self.metadata, &self.measurements)
+        M::as_column_layout(&self.metadata, &self.measurements, conf)
     }
 
     pub(crate) fn as_data_reader(
         &self,
         kws: &mut StdKeywords,
-        _: &DataReadConfig,
+        conf: &DataReadConfig,
         data_seg: Segment,
     ) -> DeferredResult<DataReader, NewReaderWarning, StdReaderError> {
-        M::as_column_layout(&self.metadata, &self.measurements)
+        M::as_column_layout(&self.metadata, &self.measurements, &conf.shared)
             .inner_into()
             .and_maybe(|dl| {
                 dl.into_reader(kws, data_seg)
@@ -2530,7 +2532,7 @@ where
         W: Write,
     {
         let df = &self.data;
-        self.as_column_layout()
+        self.as_column_layout(&conf.shared)
             .error_into()
             .error_impure()
             .and_maybe(|layout| layout.as_writer(df, conf).into_deferred1().error_impure())
@@ -4919,11 +4921,13 @@ impl VersionedMetadata for InnerMetadata2_0 {
     fn as_column_layout(
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
+        conf: &SharedConfig,
     ) -> DeferredResult<Self::L, NewDataLayoutWarning, NewDataLayoutError> {
         Self::L::try_new(
             metadata.datatype,
             metadata.specific.byteord.clone(),
             ms.layout_data(),
+            conf,
         )
     }
 }
@@ -5005,11 +5009,13 @@ impl VersionedMetadata for InnerMetadata3_0 {
     fn as_column_layout(
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
+        conf: &SharedConfig,
     ) -> DeferredResult<Self::L, NewDataLayoutWarning, NewDataLayoutError> {
         Self::L::try_new(
             metadata.datatype,
             metadata.specific.byteord.clone(),
             ms.layout_data(),
+            conf,
         )
     }
 }
@@ -5099,11 +5105,13 @@ impl VersionedMetadata for InnerMetadata3_1 {
     fn as_column_layout(
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
+        conf: &SharedConfig,
     ) -> DeferredResult<Self::L, NewDataLayoutWarning, NewDataLayoutError> {
         Self::L::try_new(
             metadata.datatype,
             metadata.specific.byteord,
             ms.layout_data(),
+            conf,
         )
     }
 }
@@ -5205,6 +5213,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
     fn as_column_layout(
         metadata: &Metadata<Self>,
         ms: &Measurements<Self::N, Self::T, Self::P>,
+        conf: &SharedConfig,
     ) -> DeferredResult<Self::L, NewDataLayoutWarning, NewDataLayoutError> {
         let endian = metadata.specific.byteord;
         let blank_cs = ms.layout_data();
@@ -5224,7 +5233,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
                 datatype,
             })
             .collect();
-        Self::L::try_new(metadata.datatype, endian, cs)
+        Self::L::try_new(metadata.datatype, endian, cs, conf)
     }
 }
 

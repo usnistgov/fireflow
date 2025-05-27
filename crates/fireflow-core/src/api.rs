@@ -323,7 +323,6 @@ pub fn read_fcs_std_file(
         .map_err(|e| e.into())
 }
 
-// TODO return remainder from this
 pub fn read_fcs_std_file_from_raw(
     p: &path::PathBuf,
     version: Version,
@@ -332,7 +331,7 @@ pub fn read_fcs_std_file_from_raw(
     conf: &DataReadConfig,
     data_seg: HeaderDataSegment,
     analysis_seg: HeaderAnalysisSegment,
-) -> Result<Terminal<ParsedDataset, AnyStdDatasetFromRawWarning>, AnyStdDatasetFromRawFailure> {
+) -> Result<Terminal<StdDatasetFromRaw, AnyStdDatasetFromRawWarning>, AnyStdDatasetFromRawFailure> {
     let file = fs::File::options().read(true).open(p)?;
     let mut h = BufReader::new(file);
     let term_core =
@@ -343,7 +342,22 @@ pub fn read_fcs_std_file_from_raw(
             h_read_std_dataset_from_core(&mut h, core, &std, data_seg, analysis_seg, conf)
                 .term_warnings_into()
         })
+        .term_map_value(|parsed| {
+            let (remainder, deviant) = split_remainder(std);
+            StdDatasetFromRaw {
+                parsed,
+                deviant,
+                remainder,
+            }
+        })
         .map_err(|e| e.into())
+}
+
+pub struct StdDatasetFromRaw {
+    pub parsed: ParsedDataset,
+    pub deviant: StdKeywords,
+    // TODO this is confusing
+    pub remainder: StdKeywords,
 }
 
 pub struct ParsedDataset {

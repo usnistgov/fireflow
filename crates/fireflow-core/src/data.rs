@@ -156,10 +156,10 @@ impl From<AsciiType> for MixedType {
 }
 
 /// An f32 column
-type F32Type = FloatType<4, f32>;
+type F32Type = FloatType<f32, 4>;
 
 /// An f64 column
-type F64Type = FloatType<8, f64>;
+type F64Type = FloatType<f64, 8>;
 
 impl From<F32Type> for MixedType {
     fn from(value: F32Type) -> Self {
@@ -175,7 +175,7 @@ impl From<F64Type> for MixedType {
 
 /// A floating point column (to be further constained)
 #[derive(PartialEq, Clone, Copy)]
-pub struct FloatType<const LEN: usize, T> {
+pub struct FloatType<T, const LEN: usize> {
     pub order: SizedByteOrd<LEN>,
     // TODO why is this here?
     pub range: T,
@@ -1036,7 +1036,7 @@ where
         w: Width,
         n: Endian,
         r: Range,
-    ) -> Result<FloatType<LEN, Self>, FloatWidthError> {
+    ) -> Result<FloatType<Self, LEN>, FloatWidthError> {
         Bytes::try_from(w).map_err(|e| e.into()).and_then(|bytes| {
             if usize::from(u8::from(bytes)) == LEN {
                 let range = Self::range(r);
@@ -1057,7 +1057,7 @@ where
         w: Width,
         o: &ByteOrd,
         r: Range,
-    ) -> Result<FloatType<LEN, Self>, OrderedFloatError> {
+    ) -> Result<FloatType<Self, LEN>, OrderedFloatError> {
         Bytes::try_from(w)
             .map_err(|e| e.into())
             .map_err(OrderedFloatError::WrongWidth)
@@ -1080,7 +1080,7 @@ where
     fn layout_endian<D>(
         cs: Vec<ColumnLayoutData<D>>,
         endian: Endian,
-    ) -> MultiResult<Option<FixedLayout<FloatType<LEN, Self>>>, EndianFloatColumnError> {
+    ) -> MultiResult<Option<FixedLayout<FloatType<Self, LEN>>>, EndianFloatColumnError> {
         cs.into_iter()
             .enumerate()
             .map(|(i, c)| {
@@ -1097,7 +1097,7 @@ where
     fn layout<D>(
         cs: Vec<ColumnLayoutData<D>>,
         byteord: &ByteOrd,
-    ) -> MultiResult<Option<FixedLayout<FloatType<LEN, Self>>>, OrderedFloatColumnError> {
+    ) -> MultiResult<Option<FixedLayout<FloatType<Self, LEN>>>, OrderedFloatColumnError> {
         cs.into_iter()
             .enumerate()
             .map(|(i, c)| {
@@ -1184,8 +1184,6 @@ impl_num_props!(8, f64);
 macro_rules! impl_int_math {
     ($t:ty) => {
         impl IntMath for $t {
-            // TODO this name is deceptive because it actually returns one less
-            // the next power of 2
             fn next_bitmask(x: Self) -> Self {
                 Self::checked_next_power_of_two(x)
                     .map(|x| x - 1)
@@ -1565,7 +1563,6 @@ macro_rules! uint_from_writer {
     };
 }
 
-// TODO ...
 uint_from_writer!(u8, u8, 1, FromU08, U08);
 uint_from_writer!(u8, u16, 2, FromU08, U16);
 uint_from_writer!(u8, u32, 3, FromU08, U24);
@@ -1632,7 +1629,6 @@ macro_rules! float_from_writer {
     };
 }
 
-// TODO ...
 float_from_writer!(u8, f32, 4, FromU08, F32);
 float_from_writer!(u8, f64, 8, FromU08, F64);
 
@@ -1651,8 +1647,7 @@ float_from_writer!(f32, f64, 8, FromF32, F64);
 float_from_writer!(f64, f32, 4, FromF64, F32);
 float_from_writer!(f64, f64, 8, FromF64, F64);
 
-// TODO flip args to make more consistent
-impl<T, const LEN: usize> IsFixed for FloatType<LEN, T>
+impl<T, const LEN: usize> IsFixed for FloatType<T, LEN>
 where
     T: Clone,
     T: Default,

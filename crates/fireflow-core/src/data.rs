@@ -99,7 +99,6 @@ pub enum DataLayout3_1 {
 }
 
 pub enum DataLayout3_2 {
-    // TODO we could just use delimited and mixed for this
     Ascii(AsciiLayout),
     Integer(FixedLayout<AnyUintType>),
     Float(FloatLayout),
@@ -837,7 +836,7 @@ where
     Self: fmt::Display,
     Self: FromStr,
 {
-    fn next_power_2(x: Self) -> Self;
+    fn next_bitmask(x: Self) -> Self;
 }
 
 // TODO clean this up with https://github.com/rust-lang/rust/issues/76560 once
@@ -889,7 +888,7 @@ where
 {
     fn range_to_bitmask(r: Range, notrunc: bool) -> Tentative<Self, BitmaskError, BitmaskError> {
         let go = |x, e| {
-            let y = Self::next_power_2(x);
+            let y = Self::next_bitmask(x);
             if notrunc {
                 Tentative::new(y, vec![], vec![e])
             } else {
@@ -1187,7 +1186,7 @@ macro_rules! impl_int_math {
         impl IntMath for $t {
             // TODO this name is deceptive because it actually returns one less
             // the next power of 2
-            fn next_power_2(x: Self) -> Self {
+            fn next_bitmask(x: Self) -> Self {
                 Self::checked_next_power_of_two(x)
                     .map(|x| x - 1)
                     .unwrap_or(Self::MAX)

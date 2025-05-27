@@ -571,7 +571,7 @@ fn py_read_fcs_file(
         enforce_matching_tot,
     };
 
-    let out: StandardizedDataset = read_fcs_file(&p, &conf.set_strict(strict))
+    let out: StandardizedDataset = read_fcs_std_file(&p, &conf.set_strict(strict))
         .map_or_else(|e| Err(handle_fail_std_dataset(e)), handle_warnings)?;
 
     let dataset = match &out.dataset {

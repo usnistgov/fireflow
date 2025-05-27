@@ -24,7 +24,7 @@ use std::str::FromStr;
 /// Read the analysis segment
 pub(crate) fn h_read_analysis<R: Read + Seek>(
     h: &mut BufReader<R>,
-    seg: &Segment,
+    seg: Segment,
 ) -> io::Result<Analysis> {
     let mut buf = vec![];
     h.seek(SeekFrom::Start(u64::from(seg.begin())))?;

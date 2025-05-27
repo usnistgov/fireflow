@@ -932,6 +932,108 @@ impl<V, W, E> DeferredExt for DeferredResult<V, W, E> {
     }
 }
 
+pub trait TerminalExt {
+    type V;
+    type E;
+    type W;
+    type T;
+
+    fn term_inner_into<ToW, ToE>(self) -> TerminalResult<Self::V, ToW, ToE, Self::T>
+    where
+        ToW: From<Self::W>,
+        ToE: From<Self::E>;
+
+    fn term_errors_into<ToE>(self) -> TerminalResult<Self::V, Self::W, ToE, Self::T>
+    where
+        ToE: From<Self::E>;
+
+    fn term_warnings_into<ToW>(self) -> TerminalResult<Self::V, ToW, Self::E, Self::T>
+    where
+        ToW: From<Self::W>;
+
+    fn term_map_value<F, ToV>(self, f: F) -> TerminalResult<ToV, Self::W, Self::E, Self::T>
+    where
+        F: FnOnce(Self::V) -> ToV;
+
+    // fn error_impure(self) -> DeferredResult<Self::V, Self::W, ImpureError<Self::E>>;
+
+    // fn warning_into<ToW>(self) -> DeferredResult<Self::V, ToW, Self::E>
+    // where
+    //     ToW: From<Self::W>;
+
+    // fn map_value<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
+    // where
+    //     F: FnOnce(Self::V) -> X;
+
+    // fn warnings_map<F, X>(self, f: F) -> DeferredResult<Self::V, X, Self::E>
+    // where
+    //     F: Fn(Self::W) -> X;
+
+    // fn errors_map<F, X>(self, f: F) -> DeferredResult<Self::V, Self::W, X>
+    // where
+    //     F: Fn(Self::E) -> X;
+}
+
+impl<V, W, E, T> TerminalExt for TerminalResult<V, W, E, T> {
+    type V = V;
+    type E = E;
+    type W = W;
+    type T = T;
+
+    // fn inner_into<ToW, ToE>(self) -> DeferredResult<Self::V, ToW, ToE>
+    // where
+    //     ToW: From<Self::W>,
+    //     ToE: From<Self::E>;
+
+    fn term_inner_into<ToW, ToE>(self) -> TerminalResult<Self::V, ToW, ToE, Self::T>
+    where
+        ToW: From<Self::W>,
+        ToE: From<Self::E>,
+    {
+        self.term_errors_into().term_warnings_into()
+    }
+
+    fn term_errors_into<ToE>(self) -> TerminalResult<Self::V, Self::W, ToE, Self::T>
+    where
+        ToE: From<Self::E>,
+    {
+        self.map_err(|e| e.errors_into())
+    }
+
+    fn term_warnings_into<ToW>(self) -> TerminalResult<Self::V, ToW, Self::E, Self::T>
+    where
+        ToW: From<Self::W>,
+    {
+        self.map(|t| t.warnings_into())
+            .map_err(|e| e.warnings_into())
+    }
+
+    fn term_map_value<F, ToV>(self, f: F) -> TerminalResult<ToV, Self::W, Self::E, Self::T>
+    where
+        F: FnOnce(Self::V) -> ToV,
+    {
+        self.map(|t| t.map(f))
+    }
+
+    // fn error_impure(self) -> DeferredResult<Self::V, Self::W, ImpureError<Self::E>>;
+
+    // fn warning_into<ToW>(self) -> DeferredResult<Self::V, ToW, Self::E>
+    // where
+    //     ToW: From<Self::W>;
+
+    // fn map_value<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
+    // where
+    //     F: FnOnce(Self::V) -> X;
+
+    // fn warnings_map<F, X>(self, f: F) -> DeferredResult<Self::V, X, Self::E>
+    // where
+    //     F: Fn(Self::W) -> X;
+
+    // fn errors_map<F, X>(self, f: F) -> DeferredResult<Self::V, Self::W, X>
+    // where
+    //     F: Fn(Self::E) -> X;
+}
+
 impl<E> fmt::Display for ImpureError<E>
 where
     E: fmt::Display,

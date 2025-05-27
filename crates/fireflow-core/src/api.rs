@@ -10,6 +10,7 @@ pub use crate::text::keywords::*;
 use crate::text::parser::*;
 use crate::text::timestamps::*;
 use crate::validated::dataframe::FCSDataFrame;
+use crate::validated::nonstandard::NonStdKeywords;
 use crate::validated::standard::*;
 
 use chrono::NaiveDate;
@@ -272,8 +273,8 @@ pub fn read_fcs_std_text(
 
 /// Return header, raw metadata, and data in an FCS file.
 ///
-/// In contrast to [`read_fcs_file`], this will return the keywords as a flat
-/// list of key/value pairs. Only the bare minimum of these will be read in
+/// In contrast to [`read_fcs_std_file`], this will return the keywords as a
+/// flat list of key/value pairs. Only the bare minimum of these will be read in
 /// order to determine how to parse the DATA segment (including $DATATYPE,
 /// $BYTEORD, etc). No other checks will be performed to ensure the metadata
 /// conforms to the FCS standard version indicated in the header.
@@ -282,7 +283,7 @@ pub fn read_fcs_std_text(
 /// the strict structure of the standardized metadata, or if one does not care
 /// too much about the degree to which the metadata conforms to standard.
 ///
-/// Other than this, behavior is identical to [`read_fcs_file`],
+/// Other than this, behavior is identical to [`read_fcs_std_file`],
 pub fn read_fcs_raw_file(
     p: path::PathBuf,
     conf: &DataReadConfig,
@@ -311,7 +312,7 @@ pub fn read_fcs_raw_file(
 ///
 /// The [`conf`] argument can be used to control the behavior of each reading
 /// step, including the repair of non-conforming files.
-pub fn read_fcs_file(
+pub fn read_fcs_std_file(
     p: &path::PathBuf,
     conf: &DataReadConfig,
 ) -> Result<Terminal<StandardizedDataset, AnyStdDatasetWarning>, AnyStdDatasetFailure> {
@@ -327,6 +328,29 @@ pub fn read_fcs_file(
         h_read_std_dataset(&mut h, std, conf)
             .map(|t| t.warnings_into())
             .map_err(|e| e.warnings_into())
+    })?;
+    Ok(dataset)
+}
+
+pub fn read_fcs_std_file_from_raw(
+    p: &path::PathBuf,
+    version: Version,
+    mut std: StdKeywords,
+    nonstd: NonStdKeywords,
+    conf: &DataReadConfig,
+    data_seg: Segment,
+    analysis_seg: Segment,
+) -> Result<
+    Terminal<(AnyCoreDataset, StdKeywords, Segment, Segment), AnyStdDatasetFromRawWarning>,
+    AnyStdDatasetFromRawFailure,
+> {
+    let file = fs::File::options().read(true).open(p)?;
+    let mut h = BufReader::new(file);
+    let term_core =
+        AnyCoreTEXT::parse_raw(version, &mut std, nonstd, &conf.standard).term_inner_into()?;
+    let dataset = term_core.warnings_into().and_finally(|core| {
+        h_read_std_dataset_from_core(&mut h, core, std, data_seg, analysis_seg, conf)
+            .term_inner_into()
     })?;
     Ok(dataset)
 }
@@ -369,7 +393,7 @@ fn h_read_raw_dataset<R: Read + Seek>(
                 .h_read(h)
                 .map_err(|e| DeferredFailure::new1(e.into()))?;
             let analysis =
-                h_read_analysis(h, &parse.analysis).map_err(|e| DeferredFailure::new1(e.into()))?;
+                h_read_analysis(h, parse.analysis).map_err(|e| DeferredFailure::new1(e.into()))?;
             Ok(Tentative::new1(RawDataset {
                 version,
                 keywords,
@@ -425,7 +449,7 @@ fn h_read_std_dataset<R: Read + Seek>(
                 .h_read(h)
                 .map_err(|e| DeferredFailure::new1(e.into()))?;
             let analysis =
-                h_read_analysis(h, &parse.analysis).map_err(|e| DeferredFailure::new1(e.into()))?;
+                h_read_analysis(h, parse.analysis).map_err(|e| DeferredFailure::new1(e.into()))?;
             let dataset = std
                 .standardized
                 .into_coredataset_unchecked(columns, analysis);
@@ -435,6 +459,46 @@ fn h_read_std_dataset<R: Read + Seek>(
                 dataset,
                 parse,
             }))
+        })
+        .terminate(ReadStdDatasetFailure)
+}
+
+fn h_read_std_dataset_from_core<R: Read + Seek>(
+    h: &mut BufReader<R>,
+    core: AnyCoreTEXT,
+    mut kws: StdKeywords,
+    def_data_seg: Segment,
+    def_anal_seg: Segment,
+    conf: &DataReadConfig,
+) -> TerminalResult<
+    // TODO struct for this
+    (AnyCoreDataset, StdKeywords, Segment, Segment),
+    ReadStdDatasetWarning,
+    ReadStdDatasetError,
+    ReadStdDatasetFailure,
+> {
+    let version = core.version();
+
+    let tnt_anal = lookup_analysis_offsets(&kws, conf, version, def_anal_seg).inner_into();
+
+    let reader_res = lookup_data_offsets(&kws, conf, version, def_data_seg)
+        .inner_into()
+        .and_maybe(|data_seg| {
+            core.as_data_reader(&mut kws, conf, data_seg)
+                .inner_into()
+                .map_value(|reader| (reader, data_seg))
+        });
+
+    reader_res
+        .and_tentatively(|x| tnt_anal.map(|y| (x, y)))
+        .and_maybe(|((reader, data_seg), anal_seg)| {
+            let columns = reader
+                .h_read(h)
+                .map_err(|e| DeferredFailure::new1(e.into()))?;
+            let analysis =
+                h_read_analysis(h, anal_seg).map_err(|e| DeferredFailure::new1(e.into()))?;
+            let core_ds = core.into_coredataset_unchecked(columns, analysis);
+            Ok(Tentative::new1((core_ds, kws, data_seg, anal_seg)))
         })
         .terminate(ReadStdDatasetFailure)
 }
@@ -454,19 +518,17 @@ impl RawTEXT {
         conf: &StdTextReadConfig,
     ) -> TerminalResult<StandardizedTEXT, LookupMeasWarning, ParseKeysError, CoreTEXTFailure> {
         let mut kws = self.keywords;
-        AnyCoreTEXT::parse_raw(self.version, &mut kws.std, kws.nonstd, conf).map(|std_succ| {
-            std_succ.map({
-                |standardized| {
-                    let (remainder, deviant) = split_remainder(kws.std);
-                    StandardizedTEXT {
-                        parse: self.parse,
-                        standardized,
-                        remainder,
-                        deviant,
-                    }
+        AnyCoreTEXT::parse_raw(self.version, &mut kws.std, kws.nonstd, conf).term_map_value(
+            |standardized| {
+                let (remainder, deviant) = split_remainder(kws.std);
+                StandardizedTEXT {
+                    parse: self.parse,
+                    standardized,
+                    remainder,
+                    deviant,
                 }
-            })
-        })
+            },
+        )
     }
 
     fn as_reader(
@@ -1432,6 +1494,13 @@ enum_from!(
     [Read, TerminalFailure<AnyStdDatasetWarning, ReadStdDatasetError, ReadStdDatasetFailure>]
 );
 
+enum_from!(
+    pub AnyStdDatasetFromRawFailure,
+    [File, io::Error],
+    [Std, TerminalFailure<LookupMeasWarning, ParseKeysError, CoreTEXTFailure>],
+    [Read, TerminalFailure<AnyStdDatasetFromRawWarning, ReadStdDatasetError, ReadStdDatasetFailure>]
+);
+
 impl fmt::Display for ReadStdDatasetFailure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "could not read DATA segment")
@@ -1448,4 +1517,10 @@ enum_from_disp!(
     pub AnyStdDatasetWarning,
     [Raw, ReadRawOrStdWarning],
     [Std, ReadStdDatasetWarning]
+);
+
+enum_from_disp!(
+    pub AnyStdDatasetFromRawWarning,
+    [Text, LookupMeasWarning],
+    [Dataset, ReadStdDatasetWarning]
 );

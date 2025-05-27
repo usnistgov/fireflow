@@ -317,7 +317,7 @@ fn main() -> Result<(), ()> {
             conf.standard.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
             let delim = sargs.get_one::<String>("delimiter").unwrap();
 
-            read_fcs_file(filepath, &conf)
+            read_fcs_std_file(filepath, &conf)
                 .map(handle_warnings)
                 .map(|res| print_parsed_data(&res, delim))
                 .map_err(handle_fail_std_dataset)

@@ -299,6 +299,25 @@ pub fn read_fcs_raw_file(
     Ok(dataset)
 }
 
+pub fn read_fcs_raw_file_from_raw(
+    p: path::PathBuf,
+    version: Version,
+    std: &StdKeywords,
+    conf: &DataReadConfig,
+    data_seg: Segment,
+    analysis_seg: Segment,
+) -> Result<
+    Terminal<(FCSDataFrame, Analysis, Segment, Segment), AnyRawDatasetWarning>,
+    AnyRawDatasetFailure,
+> {
+    let file = fs::File::options().read(true).open(p)?;
+    let mut h = BufReader::new(file);
+    let dataset = h_read_raw_dataset_from_raw(&mut h, version, std, data_seg, analysis_seg, conf)
+        .map_err(|e| e.warnings_into())
+        .map(|t| t.warnings_into())?;
+    Ok(dataset)
+}
+
 /// Return header, structured metadata, and data in an FCS file.
 ///
 /// Begins by parsing header and raw keywords according to [`read_fcs_text`]
@@ -463,6 +482,42 @@ fn h_read_std_dataset<R: Read + Seek>(
         .terminate(ReadStdDatasetFailure)
 }
 
+fn h_read_raw_dataset_from_raw<R: Read + Seek>(
+    h: &mut BufReader<R>,
+    version: Version,
+    std: &StdKeywords,
+    def_data_seg: Segment,
+    def_anal_seg: Segment,
+    conf: &DataReadConfig,
+) -> TerminalResult<
+    (FCSDataFrame, Analysis, Segment, Segment),
+    ReadRawDatasetWarning,
+    ReadRawDatasetError,
+    ReadRawDatasetFailure,
+> {
+    let tnt_anal = lookup_analysis_offsets(std, conf, version, def_anal_seg).inner_into();
+
+    let reader_res = lookup_data_offsets(std, conf, version, def_data_seg)
+        .inner_into()
+        .and_maybe(|data_seg| {
+            kws_to_reader(version, std, data_seg, conf)
+                .inner_into()
+                .map_value(|reader| (reader, data_seg))
+        });
+
+    reader_res
+        .and_tentatively(|x| tnt_anal.map(|y| (x, y)))
+        .and_maybe(|((reader, data_seg), analysis_seg)| {
+            let data = reader
+                .h_read(h)
+                .map_err(|e| DeferredFailure::new1(e.into()))?;
+            let analysis =
+                h_read_analysis(h, analysis_seg).map_err(|e| DeferredFailure::new1(e.into()))?;
+            Ok(Tentative::new1((data, analysis, data_seg, analysis_seg)))
+        })
+        .terminate(ReadRawDatasetFailure)
+}
+
 fn h_read_std_dataset_from_core<R: Read + Seek>(
     h: &mut BufReader<R>,
     core: AnyCoreTEXT,
@@ -536,29 +591,37 @@ impl RawTEXT {
         data_seg: Segment,
         conf: &DataReadConfig,
     ) -> DeferredResult<DataReader, RawToReaderWarning, RawToReaderError> {
-        let kws = &self.keywords.std;
-        let sc = &conf.shared;
-        match self.version {
-            Version::FCS2_0 => DataLayout2_0::try_new_from_raw(kws, sc)
-                .inner_into()
-                .and_maybe(|dl| dl.into_reader(kws, data_seg, conf).inner_into()),
-            Version::FCS3_0 => DataLayout3_0::try_new_from_raw(kws, sc)
-                .inner_into()
-                .and_maybe(|dl| dl.into_reader(kws, data_seg, conf).inner_into()),
-            Version::FCS3_1 => DataLayout3_1::try_new_from_raw(kws, sc)
-                .inner_into()
-                .and_maybe(|dl| dl.into_reader(kws, data_seg, conf).inner_into()),
-            Version::FCS3_2 => DataLayout3_2::try_new_from_raw(kws, sc)
-                .inner_into()
-                .and_maybe(|dl| dl.into_reader(kws, data_seg, conf).inner_into()),
-        }
-        .map(|x| {
-            x.map(|column_reader| DataReader {
-                column_reader,
-                begin: data_seg.begin().into(),
-            })
-        })
+        kws_to_reader(self.version, &self.keywords.std, data_seg, conf)
     }
+}
+
+fn kws_to_reader(
+    version: Version,
+    kws: &StdKeywords,
+    data_seg: Segment,
+    conf: &DataReadConfig,
+) -> DeferredResult<DataReader, RawToReaderWarning, RawToReaderError> {
+    let sc = &conf.shared;
+    match version {
+        Version::FCS2_0 => DataLayout2_0::try_new_from_raw(kws, sc)
+            .inner_into()
+            .and_maybe(|dl| dl.into_reader(kws, data_seg, conf).inner_into()),
+        Version::FCS3_0 => DataLayout3_0::try_new_from_raw(kws, sc)
+            .inner_into()
+            .and_maybe(|dl| dl.into_reader(kws, data_seg, conf).inner_into()),
+        Version::FCS3_1 => DataLayout3_1::try_new_from_raw(kws, sc)
+            .inner_into()
+            .and_maybe(|dl| dl.into_reader(kws, data_seg, conf).inner_into()),
+        Version::FCS3_2 => DataLayout3_2::try_new_from_raw(kws, sc)
+            .inner_into()
+            .and_maybe(|dl| dl.into_reader(kws, data_seg, conf).inner_into()),
+    }
+    .map(|x| {
+        x.map(|column_reader| DataReader {
+            column_reader,
+            begin: data_seg.begin().into(),
+        })
+    })
 }
 
 fn split_first_delim<'a>(

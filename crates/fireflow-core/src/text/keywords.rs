@@ -802,9 +802,55 @@ newtype_from!(DetectorVoltage, NonNegFloat);
 newtype_disp!(DetectorVoltage);
 newtype_fromstr!(DetectorVoltage, RangedFloatError);
 
-/// Raw TEXT key/value pairs
-pub(crate) type RawKeywords = HashMap<String, String>;
+/// Important keywords for parsing DATA segment
+pub(crate) struct DataKeywords {
+    pub(crate) tot: Option<String>,
+    pub(crate) begin_data: Option<String>,
+    pub(crate) begin_analysis: Option<String>,
+    pub(crate) end_data: Option<String>,
+    pub(crate) end_analysis: Option<String>,
+}
 
+impl DataKeywords {
+    pub(crate) fn new(kws: &mut StdKeywords) -> Self {
+        Self {
+            tot: kws.remove(&Tot::std()),
+            begin_data: kws.remove(&Begindata::std()),
+            begin_analysis: kws.remove(&Beginanalysis::std()),
+            end_data: kws.remove(&Enddata::std()),
+            end_analysis: kws.remove(&Endanalysis::std()),
+        }
+    }
+
+    pub(crate) fn tot_req(&mut self) -> ReqResult<Tot> {
+        if let Some(tot) = Option::take(&mut self.tot) {
+            // TODO not dry
+            tot.parse()
+                .map_err(|error| ParseKeyError {
+                    error,
+                    key: Tot::std(),
+                    value: tot,
+                })
+                .map_err(ReqKeyError::Parse)
+        } else {
+            Err(ReqKeyError::Missing(Tot::std()))
+        }
+    }
+
+    pub(crate) fn tot_opt(&mut self) -> OptResult<Tot> {
+        Option::take(&mut self.tot)
+            .map(|v|
+            // TODO not dry
+            v.parse().map_err(|error| ParseKeyError {
+                error,
+                key: Tot::std(),
+                value: v,
+            }))
+            .transpose()
+    }
+}
+
+pub(crate) type RawKeywords = HashMap<String, String>;
 pub(crate) type OptKwResult<T> = Result<OptionalKw<T>, ParseKeyError<<T as FromStr>::Err>>;
 
 pub(crate) trait Required {

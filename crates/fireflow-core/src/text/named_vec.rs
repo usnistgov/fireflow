@@ -129,7 +129,6 @@ pub type EitherPair<K, U, V> =
 
 pub type RawInput<K, U, V> = Vec<Either<K, U, V>>;
 
-// TODO make shortnames inside borrowed
 pub type NameMapping = HashMap<Shortname, Shortname>;
 
 impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
@@ -988,7 +987,10 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     pub fn set_non_center_keys(
         &mut self,
         ks: Vec<K::Wrapper<Shortname>>,
-    ) -> Result<NameMapping, SetKeysError> {
+    ) -> Result<NameMapping, SetKeysError>
+    where
+        K::Wrapper<Shortname>: Clone,
+    {
         self.check_keys_length(&ks[..], false)
             .map_err(SetKeysError::Length)?;
         let center = self.as_center().map(|x| K::wrap(x.key));
@@ -999,10 +1001,10 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         let mut mapping = HashMap::new();
         let mut go = |side: &mut WrappedPairedVec<K, V>, ks_side: Vec<K::Wrapper<Shortname>>| {
             for (p, k) in side.iter_mut().zip(ks_side) {
-                if let (Some(old), Some(new)) = (K::as_opt(&p.key), K::as_opt(&k)) {
-                    mapping.insert(old.clone(), new.clone());
+                let old = mem::replace(&mut p.key, k.clone());
+                if let (Some(old_name), Some(new_name)) = (K::to_opt(old), K::to_opt(k)) {
+                    mapping.insert(old_name, new_name);
                 }
-                p.key = k;
             }
         };
         match self {
@@ -1033,10 +1035,10 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         let mut mapping = HashMap::new();
         let mut go = |side: &mut WrappedPairedVec<K, V>, ns_side: Vec<Shortname>| {
             for (p, n) in side.iter_mut().zip(ns_side) {
-                if let Some(old) = K::as_opt(&p.key) {
-                    mapping.insert(old.clone(), n.clone());
+                let old = mem::replace(&mut p.key, K::wrap(n.clone()));
+                if let Some(old_name) = K::to_opt(old) {
+                    mapping.insert(old_name, n);
                 }
-                p.key = K::wrap(n);
             }
         };
         match self {
@@ -1047,8 +1049,8 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                 let n_center = ns_right.pop().unwrap();
                 go(&mut s.left, ns_left);
                 go(&mut s.right, ns_right);
-                mapping.insert(s.center.key.clone(), n_center.clone());
-                s.center.key = n_center;
+                let old = mem::replace(&mut s.center.key, n_center.clone());
+                mapping.insert(old, n_center);
             }
             NamedVec::Unsplit(u) => go(&mut u.members, ns),
         }

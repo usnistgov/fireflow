@@ -313,8 +313,7 @@ pub fn read_fcs_raw_file_from_raw(
     let file = fs::File::options().read(true).open(p)?;
     let mut h = BufReader::new(file);
     let dataset = h_read_raw_dataset_from_raw(&mut h, version, std, data_seg, analysis_seg, conf)
-        .map_err(|e| e.warnings_into())
-        .map(|t| t.warnings_into())?;
+        .term_warnings_into()?;
     Ok(dataset)
 }
 
@@ -351,6 +350,7 @@ pub fn read_fcs_std_file(
     Ok(dataset)
 }
 
+// TODO return remainder from this
 pub fn read_fcs_std_file_from_raw(
     p: &path::PathBuf,
     version: Version,
@@ -360,7 +360,7 @@ pub fn read_fcs_std_file_from_raw(
     data_seg: Segment,
     analysis_seg: Segment,
 ) -> Result<
-    Terminal<(AnyCoreDataset, StdKeywords, Segment, Segment), AnyStdDatasetFromRawWarning>,
+    Terminal<(AnyCoreDataset, Segment, Segment), AnyStdDatasetFromRawWarning>,
     AnyStdDatasetFromRawFailure,
 > {
     let file = fs::File::options().read(true).open(p)?;
@@ -368,7 +368,7 @@ pub fn read_fcs_std_file_from_raw(
     let term_core =
         AnyCoreTEXT::parse_raw(version, &mut std, nonstd, &conf.standard).term_inner_into()?;
     let dataset = term_core.warnings_into().and_finally(|core| {
-        h_read_std_dataset_from_core(&mut h, core, std, data_seg, analysis_seg, conf)
+        h_read_std_dataset_from_core(&mut h, core, &std, data_seg, analysis_seg, conf)
             .term_inner_into()
     })?;
     Ok(dataset)
@@ -379,49 +379,27 @@ fn h_read_raw_dataset<R: Read + Seek>(
     raw: RawTEXT,
     conf: &DataReadConfig,
 ) -> TerminalResult<RawDataset, ReadRawDatasetWarning, ReadRawDatasetError, ReadRawDatasetFailure> {
-    let std = &raw.keywords.std;
     let version = raw.version;
-    let def_anal_seg = raw.parse.analysis;
-    let def_data_seg = raw.parse.data;
 
-    let tnt_anal = lookup_analysis_offsets(std, conf, version, def_anal_seg).inner_into();
-
-    let reader_res = lookup_data_offsets(std, conf, version, def_data_seg)
-        .inner_into()
-        .and_maybe(|data_seg| {
-            raw.as_reader(data_seg, conf)
-                .inner_into()
-                .map_value(|reader| (raw.keywords, raw.parse, reader, data_seg))
-        });
-
-    reader_res
-        .and_tentatively(|x| tnt_anal.map(|y| (x, y)))
-        .map_value(|((keywords, parse, reader, data_seg), analysis_seg)| {
-            (
-                keywords,
-                ParseData {
-                    data: data_seg,
-                    analysis: analysis_seg,
-                    ..parse
-                },
-                reader,
-            )
-        })
-        .and_maybe(|(keywords, parse, reader)| {
-            let data = reader
-                .h_read(h)
-                .map_err(|e| DeferredFailure::new1(e.into()))?;
-            let analysis =
-                h_read_analysis(h, parse.analysis).map_err(|e| DeferredFailure::new1(e.into()))?;
-            Ok(Tentative::new1(RawDataset {
-                version,
-                keywords,
-                data,
-                analysis,
-                parse,
-            }))
-        })
-        .terminate(ReadRawDatasetFailure)
+    h_read_raw_dataset_from_raw(
+        h,
+        version,
+        &raw.keywords.std,
+        raw.parse.data,
+        raw.parse.analysis,
+        conf,
+    )
+    .term_map_value(|(data, analysis, data_seg, analysis_seg)| RawDataset {
+        version,
+        keywords: raw.keywords,
+        data,
+        analysis,
+        parse: ParseData {
+            data: data_seg,
+            analysis: analysis_seg,
+            ..raw.parse
+        },
+    })
 }
 
 fn h_read_std_dataset<R: Read + Seek>(
@@ -434,52 +412,24 @@ fn h_read_std_dataset<R: Read + Seek>(
     ReadStdDatasetError,
     ReadStdDatasetFailure,
 > {
-    let mut kws = std.remainder;
-    let version = std.standardized.version();
-    let def_anal_seg = std.parse.analysis;
-    let def_data_seg = std.parse.data;
-
-    // TODO why are kws not mut here?
-    let tnt_anal = lookup_analysis_offsets(&kws, conf, version, def_anal_seg).inner_into();
-
-    let reader_res = lookup_data_offsets(&kws, conf, version, def_data_seg)
-        .inner_into()
-        .and_maybe(|data_seg| {
-            std.standardized
-                .as_data_reader(&mut kws, conf, data_seg)
-                .inner_into()
-                .map_value(|reader| (std.parse, reader, data_seg))
-        });
-
-    reader_res
-        .and_tentatively(|x| tnt_anal.map(|y| (x, y)))
-        .map_value(|((parse, reader, data_seg), analysis_seg)| {
-            (
-                ParseData {
-                    data: data_seg,
-                    analysis: analysis_seg,
-                    ..parse
-                },
-                reader,
-            )
-        })
-        .and_maybe(|(parse, reader)| {
-            let columns = reader
-                .h_read(h)
-                .map_err(|e| DeferredFailure::new1(e.into()))?;
-            let analysis =
-                h_read_analysis(h, parse.analysis).map_err(|e| DeferredFailure::new1(e.into()))?;
-            let dataset = std
-                .standardized
-                .into_coredataset_unchecked(columns, analysis);
-            Ok(Tentative::new1(StandardizedDataset {
-                remainder: kws,
-                deviant: std.deviant,
-                dataset,
-                parse,
-            }))
-        })
-        .terminate(ReadStdDatasetFailure)
+    h_read_std_dataset_from_core(
+        h,
+        std.standardized,
+        &std.remainder,
+        std.parse.analysis,
+        std.parse.data,
+        conf,
+    )
+    .term_map_value(|(dataset, data_seg, analysis_seg)| StandardizedDataset {
+        remainder: std.remainder,
+        deviant: std.deviant,
+        dataset,
+        parse: ParseData {
+            data: data_seg,
+            analysis: analysis_seg,
+            ..std.parse
+        },
+    })
 }
 
 fn h_read_raw_dataset_from_raw<R: Read + Seek>(
@@ -521,25 +471,25 @@ fn h_read_raw_dataset_from_raw<R: Read + Seek>(
 fn h_read_std_dataset_from_core<R: Read + Seek>(
     h: &mut BufReader<R>,
     core: AnyCoreTEXT,
-    mut kws: StdKeywords,
+    kws: &StdKeywords,
     def_data_seg: Segment,
     def_anal_seg: Segment,
     conf: &DataReadConfig,
 ) -> TerminalResult<
     // TODO struct for this
-    (AnyCoreDataset, StdKeywords, Segment, Segment),
+    (AnyCoreDataset, Segment, Segment),
     ReadStdDatasetWarning,
     ReadStdDatasetError,
     ReadStdDatasetFailure,
 > {
     let version = core.version();
 
-    let tnt_anal = lookup_analysis_offsets(&kws, conf, version, def_anal_seg).inner_into();
+    let tnt_anal = lookup_analysis_offsets(kws, conf, version, def_anal_seg).inner_into();
 
-    let reader_res = lookup_data_offsets(&kws, conf, version, def_data_seg)
+    let reader_res = lookup_data_offsets(kws, conf, version, def_data_seg)
         .inner_into()
         .and_maybe(|data_seg| {
-            core.as_data_reader(&mut kws, conf, data_seg)
+            core.as_data_reader(kws, conf, data_seg)
                 .inner_into()
                 .map_value(|reader| (reader, data_seg))
         });
@@ -553,7 +503,7 @@ fn h_read_std_dataset_from_core<R: Read + Seek>(
             let analysis =
                 h_read_analysis(h, anal_seg).map_err(|e| DeferredFailure::new1(e.into()))?;
             let core_ds = core.into_coredataset_unchecked(columns, analysis);
-            Ok(Tentative::new1((core_ds, kws, data_seg, anal_seg)))
+            Ok(Tentative::new1((core_ds, data_seg, anal_seg)))
         })
         .terminate(ReadStdDatasetFailure)
 }
@@ -584,14 +534,6 @@ impl RawTEXT {
                 }
             },
         )
-    }
-
-    fn as_reader(
-        &self,
-        data_seg: Segment,
-        conf: &DataReadConfig,
-    ) -> DeferredResult<DataReader, RawToReaderWarning, RawToReaderError> {
-        kws_to_reader(self.version, &self.keywords.std, data_seg, conf)
     }
 }
 

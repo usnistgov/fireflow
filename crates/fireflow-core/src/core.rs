@@ -304,7 +304,7 @@ impl<A, D> AnyCore<A, D> {
 
     pub(crate) fn as_data_reader(
         &self,
-        kws: &mut StdKeywords,
+        kws: &StdKeywords,
         conf: &DataReadConfig,
         data_seg: Segment,
     ) -> DeferredResult<DataReader, NewReaderWarning, StdReaderError> {
@@ -2339,7 +2339,7 @@ where
 
     pub(crate) fn as_data_reader(
         &self,
-        kws: &mut StdKeywords,
+        kws: &StdKeywords,
         conf: &DataReadConfig,
         data_seg: Segment,
     ) -> DeferredResult<DataReader, NewReaderWarning, StdReaderError> {

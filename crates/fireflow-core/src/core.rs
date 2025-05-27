@@ -306,7 +306,7 @@ impl<A, D> AnyCore<A, D> {
         &self,
         kws: &StdKeywords,
         conf: &DataReadConfig,
-        data_seg: Segment,
+        data_seg: AnyDataSegment,
     ) -> DeferredResult<DataReader, NewReaderWarning, StdReaderError> {
         match_anycore!(self, x, { x.as_data_reader(kws, conf, data_seg) })
     }
@@ -2341,7 +2341,7 @@ where
         &self,
         kws: &StdKeywords,
         conf: &DataReadConfig,
-        data_seg: Segment,
+        data_seg: AnyDataSegment,
     ) -> DeferredResult<DataReader, NewReaderWarning, StdReaderError> {
         M::as_data_layout(&self.metadata, &self.measurements, &conf.shared)
             .inner_into()
@@ -2350,7 +2350,7 @@ where
                     .error_into()
                     .map_value(|column_reader| DataReader {
                         column_reader,
-                        begin: u64::from(data_seg.begin()),
+                        begin: u64::from(data_seg.inner.begin()),
                     })
             })
     }

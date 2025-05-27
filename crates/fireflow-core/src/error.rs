@@ -938,10 +938,11 @@ pub trait TerminalExt {
     type W;
     type T;
 
-    fn term_inner_into<ToW, ToE>(self) -> TerminalResult<Self::V, ToW, ToE, Self::T>
+    fn term_inner_into<ToW, ToE, ToT>(self) -> TerminalResult<Self::V, ToW, ToE, ToT>
     where
         ToW: From<Self::W>,
-        ToE: From<Self::E>;
+        ToE: From<Self::E>,
+        ToT: From<Self::T>;
 
     fn term_errors_into<ToE>(self) -> TerminalResult<Self::V, Self::W, ToE, Self::T>
     where
@@ -950,6 +951,10 @@ pub trait TerminalExt {
     fn term_warnings_into<ToW>(self) -> TerminalResult<Self::V, ToW, Self::E, Self::T>
     where
         ToW: From<Self::W>;
+
+    fn term_summary_into<ToT>(self) -> TerminalResult<Self::V, Self::W, Self::E, ToT>
+    where
+        ToT: From<Self::T>;
 
     fn term_map_value<F, ToV>(self, f: F) -> TerminalResult<ToV, Self::W, Self::E, Self::T>
     where
@@ -985,12 +990,15 @@ impl<V, W, E, T> TerminalExt for TerminalResult<V, W, E, T> {
     //     ToW: From<Self::W>,
     //     ToE: From<Self::E>;
 
-    fn term_inner_into<ToW, ToE>(self) -> TerminalResult<Self::V, ToW, ToE, Self::T>
+    fn term_inner_into<ToW, ToE, ToT>(self) -> TerminalResult<Self::V, ToW, ToE, ToT>
     where
         ToW: From<Self::W>,
         ToE: From<Self::E>,
+        ToT: From<Self::T>,
     {
-        self.term_errors_into().term_warnings_into()
+        self.term_errors_into()
+            .term_warnings_into()
+            .term_summary_into()
     }
 
     fn term_errors_into<ToE>(self) -> TerminalResult<Self::V, Self::W, ToE, Self::T>
@@ -1006,6 +1014,13 @@ impl<V, W, E, T> TerminalExt for TerminalResult<V, W, E, T> {
     {
         self.map(|t| t.warnings_into())
             .map_err(|e| e.warnings_into())
+    }
+
+    fn term_summary_into<ToT>(self) -> TerminalResult<Self::V, Self::W, Self::E, ToT>
+    where
+        ToT: From<Self::T>,
+    {
+        self.map_err(|e| e.terminal_into())
     }
 
     fn term_map_value<F, ToV>(self, f: F) -> TerminalResult<ToV, Self::W, Self::E, Self::T>

@@ -1,4 +1,5 @@
 use crate::config::OffsetCorrection;
+use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
 
 use serde::Serialize;
 use std::fmt;
@@ -10,6 +11,98 @@ use std::io::{BufReader, Read, Seek, SeekFrom};
 pub struct Segment {
     begin: u32,
     pseudo_length: u32,
+}
+
+/// A segment that is specific to a region in the FCS file.
+#[derive(Clone, Copy, Serialize)]
+pub struct SpecificSegment<I, S> {
+    pub inner: Segment,
+    id: I,
+    src: S,
+}
+
+enum_from!(
+    /// Denotes a segment came from either HEADER or TEXT
+    #[derive(Clone, Copy)]
+    pub SegmentFromAnywhere,
+    [Header, SegmentFromHeader],
+    [TEXT, SegmentFromTEXT]
+);
+
+/// Denotes a segment came from either HEADER
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct SegmentFromHeader;
+
+/// Denotes a segment came from either TEXT
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct SegmentFromTEXT;
+
+enum_from_disp!(
+    /// Denotes the segment pertains to any region in the FCS file
+    pub SegmentId,
+    [PrimaryText, PrimaryTextSegmentId],
+    [SupplementalText, SupplementalTextSegmentId],
+    [Analysis, AnalysisSegmentId],
+    [Data, DataSegmentId]
+);
+
+/// Denotes the segment pertains to primary TEXT
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct PrimaryTextSegmentId;
+
+/// Denotes the segment pertains to supplemental TEXT
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct SupplementalTextSegmentId;
+
+/// Denotes the segment pertains to DATA
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct DataSegmentId;
+
+/// Denotes the segment pertains to ANALYSIS
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct AnalysisSegmentId;
+
+pub type PrimaryTextSegment = SpecificSegment<PrimaryTextSegmentId, SegmentFromHeader>;
+pub type SupplementalTextSegment = SpecificSegment<SupplementalTextSegmentId, SegmentFromTEXT>;
+
+type DataSegment<S> = SpecificSegment<DataSegmentId, S>;
+pub type AnyDataSegment = DataSegment<SegmentFromAnywhere>;
+pub type HeaderDataSegment = DataSegment<SegmentFromHeader>;
+pub type TEXTDataSegment = DataSegment<SegmentFromTEXT>;
+
+type AnalysisSegment<S> = SpecificSegment<AnalysisSegmentId, S>;
+pub type AnyAnalysisSegment = AnalysisSegment<SegmentFromAnywhere>;
+pub type HeaderAnalysisSegment = AnalysisSegment<SegmentFromHeader>;
+pub type TEXTAnalysisSegment = AnalysisSegment<SegmentFromTEXT>;
+
+impl<I, S> SpecificSegment<I, S> {
+    pub fn try_new(
+        begin: u32,
+        end: u32,
+        corr: OffsetCorrection,
+        id: I,
+        src: S,
+    ) -> Result<Self, SegmentError>
+    where
+        I: Into<SegmentId> + Copy + Clone,
+    {
+        Segment::try_new(begin, end, corr, id).map(|inner| Self { inner, id, src })
+    }
+
+    pub fn into_any(self) -> SpecificSegment<I, SegmentFromAnywhere>
+    where
+        SegmentFromAnywhere: From<S>,
+    {
+        SpecificSegment {
+            inner: self.inner,
+            id: self.id,
+            src: self.src.into(),
+        }
+    }
+
+    pub fn id(&self) -> &I {
+        &self.id
+    }
 }
 
 impl Segment {
@@ -25,12 +118,12 @@ impl Segment {
     /// As a consequence of the above, "unset segments" given as (0,0) are
     /// actually 1 byte long. There is no way to represent a zero-length segment
     /// starting at 0 unless we use signed ints.
-    pub fn try_new(
+    pub fn try_new<I: Into<SegmentId>>(
         begin: u32,
         end: u32,
         corr: OffsetCorrection,
-        id: SegmentId,
-    ) -> Result<Segment, SegmentError> {
+        id: I,
+    ) -> Result<Self, SegmentError> {
         let x = i64::from(begin) + i64::from(corr.begin);
         let y = i64::from(end) + i64::from(corr.end);
         let err = |kind| {
@@ -39,7 +132,7 @@ impl Segment {
                 end,
                 corr,
                 kind,
-                id,
+                id: id.into(),
             })
         };
         match (u32::try_from(x), u32::try_from(y)) {
@@ -47,7 +140,7 @@ impl Segment {
                 if new_begin > new_end {
                     err(SegmentErrorKind::Inverted)
                 } else {
-                    Ok(Segment::new_unchecked(new_begin, new_end))
+                    Ok(Self::new_unchecked(new_begin, new_end))
                 }
             }
             (_, _) => err(SegmentErrorKind::Range),
@@ -67,11 +160,7 @@ impl Segment {
         Ok(())
     }
 
-    pub fn try_adjust(
-        self,
-        corr: OffsetCorrection,
-        id: SegmentId,
-    ) -> Result<Segment, SegmentError> {
+    pub fn try_adjust(self, corr: OffsetCorrection, id: SegmentId) -> Result<Self, SegmentError> {
         Self::try_new(self.begin, self.end(), corr, id)
     }
 
@@ -112,60 +201,27 @@ impl Segment {
     }
 }
 
-/// The kind of segment in an FCS file.
-#[derive(Debug, Clone, Copy)]
-pub enum SegmentId {
-    PrimaryText,
-    SupplementalText,
-    Analysis,
-    Data,
-    // TODO add Other (which will be indexed I think)
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct PrimaryTextSegment;
-
-impl fmt::Display for PrimaryTextSegment {
+impl fmt::Display for PrimaryTextSegmentId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "TEXT")
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct SupplementalTextSegment;
-
-impl fmt::Display for SupplementalTextSegment {
+impl fmt::Display for SupplementalTextSegmentId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "STEXT")
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct AnalysisSegment;
-
-impl fmt::Display for AnalysisSegment {
+impl fmt::Display for AnalysisSegmentId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "ANALYSIS")
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct DataSegment;
-
-impl fmt::Display for DataSegment {
+impl fmt::Display for DataSegmentId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "DATA")
-    }
-}
-
-impl fmt::Display for SegmentId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::PrimaryText => PrimaryTextSegment.fmt(f),
-            Self::SupplementalText => SupplementalTextSegment.fmt(f),
-            Self::Analysis => AnalysisSegment.fmt(f),
-            Self::Data => DataSegment.fmt(f),
-        }
     }
 }
 

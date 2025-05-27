@@ -574,7 +574,7 @@ fn py_read_fcs_file(
     let out: StandardizedDataset = read_fcs_std_file(&p, &conf.set_strict(strict))
         .map_or_else(|e| Err(handle_fail_std_dataset(e)), handle_warnings)?;
 
-    let dataset = match &out.dataset {
+    let dataset = match &out.dataset.core {
         // TODO this copies all data from the "union type" into a new
         // version-specific type. This might not be a big deal, but these
         // types might be rather large with lots of strings.
@@ -798,17 +798,17 @@ impl PyHeader {
 
     #[getter]
     fn text(&self) -> PySegment {
-        self.0.text.into()
+        self.0.text.inner.into()
     }
 
     #[getter]
     fn data(&self) -> PySegment {
-        self.0.data.into()
+        self.0.data.inner.into()
     }
 
     #[getter]
     fn analysis(&self) -> PySegment {
-        self.0.analysis.into()
+        self.0.analysis.inner.into()
     }
 }
 
@@ -818,22 +818,22 @@ py_wrap!(PyParseData, ParseData, "ParseData");
 impl PyParseData {
     #[getter]
     fn prim_text(&self) -> PySegment {
-        self.0.prim_text.into()
+        self.0.prim_text.inner.into()
     }
 
     #[getter]
     fn supp_text(&self) -> Option<PySegment> {
-        self.0.supp_text.map(|x| x.into())
+        self.0.supp_text.map(|x| x.inner.into())
     }
 
     #[getter]
     fn data(&self) -> PySegment {
-        self.0.data.into()
+        self.0.data.inner.into()
     }
 
     #[getter]
     fn analysis(&self) -> PySegment {
-        self.0.analysis.into()
+        self.0.analysis.inner.into()
     }
 
     #[getter]

@@ -28,7 +28,7 @@ const A1_END: usize = A0_END + 8;
 /// All FCS versions this library supports.
 ///
 /// This appears as the first 6 bytes of any valid FCS file.
-#[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Serialize)]
+#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Serialize)]
 pub enum Version {
     FCS2_0,
     FCS3_0,
@@ -43,12 +43,12 @@ pub enum Version {
 /// or may not be adjusted using configuration parameters to correct for errors.
 ///
 /// Only valid segments are to be put in this struct (ie begin <= end).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct Header {
     pub version: Version,
-    pub text: Segment,
-    pub data: Segment,
-    pub analysis: Segment,
+    pub text: PrimaryTextSegment,
+    pub data: HeaderDataSegment,
+    pub analysis: HeaderAnalysisSegment,
 }
 
 pub fn h_read_header<R: Read>(
@@ -85,9 +85,9 @@ fn parse_header(s: &str, conf: &HeaderConfig) -> MultiResult<Header, HeaderError
     } else {
         Ok(())
     };
-    let text_res = parse_segment(t0, t1, false, SegmentId::PrimaryText, conf.text);
-    let data_res = parse_segment(d0, d1, false, SegmentId::Data, conf.data);
-    let anal_res = parse_segment(a0, a1, true, SegmentId::Analysis, conf.analysis);
+    let text_res = parse_segment(t0, t1, false, PrimaryTextSegmentId, conf.text);
+    let data_res = parse_segment(d0, d1, false, DataSegmentId, conf.data);
+    let anal_res = parse_segment(a0, a1, true, AnalysisSegmentId, conf.analysis);
     vers_res
         .zip_mult3(space_res, text_res)
         .zip_mult3(data_res, anal_res)
@@ -99,11 +99,11 @@ fn parse_header(s: &str, conf: &HeaderConfig) -> MultiResult<Header, HeaderError
         })
 }
 
-fn parse_header_offset(
+fn parse_header_offset<I: Clone + Copy + Into<SegmentId>>(
     s: &str,
     allow_blank: bool,
     is_begin: bool,
-    id: SegmentId,
+    id: I,
 ) -> Result<u32, ParseOffsetError> {
     let trimmed = s.trim_start();
     if allow_blank && trimmed.is_empty() {
@@ -112,18 +112,18 @@ fn parse_header_offset(
     trimmed.parse().map_err(|error| ParseOffsetError {
         error,
         is_begin,
-        id,
+        id: id.into(),
         source: s.to_string(),
     })
 }
 
-fn parse_segment(
+fn parse_segment<I: Clone + Copy + Into<SegmentId>>(
     s0: &str,
     s1: &str,
     allow_blank: bool,
-    id: SegmentId,
+    id: I,
     corr: OffsetCorrection,
-) -> MultiResult<Segment, HeaderError> {
+) -> MultiResult<SpecificSegment<I, SegmentFromHeader>, HeaderError> {
     let parse_one = |s, is_begin| {
         parse_header_offset(s, allow_blank, is_begin, id).map_err(HeaderSegmentError::Parse)
     };
@@ -132,7 +132,7 @@ fn parse_segment(
     begin_res
         .zip(end_res)
         .and_then(|(begin, end)| {
-            Segment::try_new(begin, end, corr, id)
+            SpecificSegment::try_new(begin, end, corr, id, SegmentFromHeader)
                 .map_err(HeaderSegmentError::Segment)
                 .map_err(NonEmpty::new)
         })

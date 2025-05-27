@@ -15,14 +15,14 @@ fn print_json<T: Serialize>(j: &T) {
 }
 
 pub fn print_parsed_data(s: &StandardizedDataset, _delim: &str) {
-    let df = s.dataset.as_data();
+    let df = s.dataset.core.as_data();
     let nrows = df.nrows();
     let cols: Vec<_> = df.iter_columns().collect();
     let ncols = cols.len();
     if ncols == 0 {
         return;
     }
-    let mut ns = s.dataset.shortnames().into_iter();
+    let mut ns = s.dataset.core.shortnames().into_iter();
     print!("{}", ns.next().unwrap());
     for n in ns {
         print!("\t{n}");

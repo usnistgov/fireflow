@@ -77,7 +77,8 @@ macro_rules! match_many_to_one {
 pub(crate) use match_many_to_one;
 
 macro_rules! enum_from {
-    ($v:vis$outer:ident, $([$var:ident, $inner:path]),*) => {
+    ($(#[$attr:meta])* $v:vis$outer:ident, $([$var:ident, $inner:path]),*) => {
+        $(#[$attr])*
         $v enum $outer {
             $(
                 $var($inner),
@@ -97,8 +98,8 @@ macro_rules! enum_from {
 pub(crate) use enum_from;
 
 macro_rules! enum_from_disp {
-    ($v:vis$outer:ident, $([$var:ident, $inner:path]),*) => {
-        enum_from!($v$outer, $([$var, $inner]),*);
+    ($(#[$attr:meta])* $v:vis$outer:ident, $([$var:ident, $inner:path]),*) => {
+        enum_from!($(#[$attr])* $v$outer, $([$var, $inner]),*);
 
         impl fmt::Display for $outer {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {

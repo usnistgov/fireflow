@@ -116,7 +116,6 @@ where
         corr: OffsetCorrection,
     ) -> MultiResult<SpecificSegment<Self, SegmentFromTEXT>, ReqSegmentError>
     where
-        Self: Copy,
         Self::B: ReqMetaKey,
         Self::E: ReqMetaKey,
     {
@@ -132,7 +131,6 @@ where
         corr: OffsetCorrection,
     ) -> MultiResult<Option<SpecificSegment<Self, SegmentFromTEXT>>, OptSegmentError>
     where
-        Self: Copy,
         Self::B: OptMetaKey,
         Self::E: OptMetaKey,
     {
@@ -204,7 +202,7 @@ impl<I, S> SpecificSegment<I, S> {
         src: S,
     ) -> Result<Self, SegmentError>
     where
-        I: SegmentHasLocation + Copy,
+        I: SegmentHasLocation,
     {
         Segment::try_new::<I>(begin, end, corr).map(|inner| Self {
             inner,

@@ -1,10 +1,15 @@
 use crate::config::OffsetCorrection;
+use crate::error::*;
 use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
+use crate::text::keywords::*;
+use crate::validated::standard::*;
 
 use serde::Serialize;
 use std::fmt;
 use std::io;
 use std::io::{BufReader, Read, Seek, SeekFrom};
+use std::num::ParseIntError;
+use std::str::FromStr;
 
 /// A segment in an FCS file which is denoted by a pair of offsets
 #[derive(Debug, Clone, Copy, Serialize, PartialEq)]
@@ -17,7 +22,7 @@ pub struct Segment {
 #[derive(Clone, Copy, Serialize)]
 pub struct SpecificSegment<I, S> {
     pub inner: Segment,
-    id: I,
+    id: I, // TODO it seems like this could just be phantom
     src: S,
 }
 
@@ -75,6 +80,109 @@ pub type AnyAnalysisSegment = AnalysisSegment<SegmentFromAnywhere>;
 pub type HeaderAnalysisSegment = AnalysisSegment<SegmentFromHeader>;
 pub type TEXTAnalysisSegment = AnalysisSegment<SegmentFromTEXT>;
 
+/// Intermediate store for TEXT keywords that might be parsed as a segment
+pub(crate) struct SegmentKeywords<I> {
+    pub(crate) begin: Option<String>,
+    pub(crate) end: Option<String>,
+    id: I,
+}
+
+pub(crate) trait TEXTSegment: Into<SegmentId>
+where
+    Self::B: Into<u32>,
+    Self::E: Into<u32>,
+    Self::B: Key,
+    Self::E: Key,
+    Self::B: FromStr<Err = ParseIntError>,
+    Self::E: FromStr<Err = ParseIntError>,
+    <Self::B as FromStr>::Err: fmt::Display,
+    <Self::E as FromStr>::Err: fmt::Display,
+{
+    type B;
+    type E;
+
+    fn lookup(kws: &mut StdKeywords, id: Self) -> SegmentKeywords<Self> {
+        SegmentKeywords {
+            begin: kws.remove(&Self::B::std()),
+            end: kws.remove(&Self::E::std()),
+            id,
+        }
+    }
+
+    fn lookup_cloned(kws: &StdKeywords, id: Self) -> SegmentKeywords<Self> {
+        SegmentKeywords {
+            begin: kws.get(&Self::B::std()).cloned(),
+            end: kws.get(&Self::E::std()).cloned(),
+            id,
+        }
+    }
+
+    fn req(
+        mut kws: SegmentKeywords<Self>,
+        corr: OffsetCorrection,
+    ) -> MultiResult<SpecificSegment<Self, SegmentFromTEXT>, ReqSegmentError>
+    where
+        Self: Copy,
+        Self::B: ReqMetaKey,
+        Self::E: ReqMetaKey,
+    {
+        let x0 = parse_req::<Self::B>(&mut kws.begin).map_err(|e| e.into());
+        let x1 = parse_req::<Self::E>(&mut kws.end).map_err(|e| e.into());
+        x0.zip(x1).and_then(|(y0, y1)| {
+            SpecificSegment::try_new(y0.into(), y1.into(), corr, kws.id, SegmentFromTEXT)
+                .into_mult()
+        })
+    }
+
+    fn opt(
+        mut kws: SegmentKeywords<Self>,
+        corr: OffsetCorrection,
+    ) -> MultiResult<Option<SpecificSegment<Self, SegmentFromTEXT>>, OptSegmentError>
+    where
+        Self: Copy,
+        Self::B: OptMetaKey,
+        Self::E: OptMetaKey,
+    {
+        let x0 = parse_opt::<Self::B>(&mut kws.begin).map_err(|e| e.into());
+        let x1 = parse_opt::<Self::E>(&mut kws.end).map_err(|e| e.into());
+        x0.zip(x1).and_then(|(y0, y1)| {
+            y0.zip(y1)
+                .map(|(z0, z1)| {
+                    SpecificSegment::try_new(z0.into(), z1.into(), corr, kws.id, SegmentFromTEXT)
+                        .into_mult()
+                })
+                .transpose()
+        })
+    }
+}
+
+impl TEXTSegment for AnalysisSegmentId {
+    type B = Beginanalysis;
+    type E = Endanalysis;
+}
+
+impl TEXTSegment for DataSegmentId {
+    type B = Begindata;
+    type E = Enddata;
+}
+
+impl TEXTSegment for SupplementalTextSegmentId {
+    type B = Beginstext;
+    type E = Endstext;
+}
+
+enum_from_disp!(
+    pub ReqSegmentError,
+    [Key, ReqKeyError<ParseIntError>],
+    [Segment, SegmentError]
+);
+
+enum_from_disp!(
+    pub OptSegmentError,
+    [Key, ParseKeyError<ParseIntError>],
+    [Segment, SegmentError]
+);
+
 impl<I, S> SpecificSegment<I, S> {
     pub fn try_new(
         begin: u32,
@@ -84,7 +192,7 @@ impl<I, S> SpecificSegment<I, S> {
         src: S,
     ) -> Result<Self, SegmentError>
     where
-        I: Into<SegmentId> + Copy + Clone,
+        I: Into<SegmentId> + Copy,
     {
         Segment::try_new(begin, end, corr, id).map(|inner| Self { inner, id, src })
     }

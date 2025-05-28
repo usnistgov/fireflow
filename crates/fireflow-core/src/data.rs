@@ -49,7 +49,7 @@ pub trait VersionedDataLayout: Sized {
 
     fn into_reader(
         self,
-        kws: &StdKeywords,
+        kws: &TotValue,
         seg: AnyDataSegment,
         conf: &DataReadConfig,
     ) -> ReaderResult;
@@ -2084,11 +2084,11 @@ impl VersionedDataLayout for DataLayout2_0 {
 
     fn into_reader(
         self,
-        kws: &StdKeywords,
+        kws: &TotValue,
         seg: AnyDataSegment,
         conf: &DataReadConfig,
     ) -> ReaderResult {
-        let r = match Tot::get_meta_opt(kws).map(|x| x.0) {
+        let r = match tot_opt(kws) {
             Ok(value) => Tentative::new1((value, self)),
             Err(w) => Tentative::new((None, self), vec![w.into()], vec![]),
         }
@@ -2170,11 +2170,11 @@ impl VersionedDataLayout for DataLayout3_0 {
 
     fn into_reader(
         self,
-        kws: &StdKeywords,
+        kws: &TotValue,
         seg: AnyDataSegment,
         conf: &DataReadConfig,
     ) -> ReaderResult {
-        let tot = Tot::get_meta_req(kws)
+        let tot = tot_req(kws)
             .map(Some)
             .map_err(|e| DeferredFailure::new1(e.into()))?;
         let r = match self {
@@ -2254,11 +2254,11 @@ impl VersionedDataLayout for DataLayout3_1 {
 
     fn into_reader(
         self,
-        kws: &StdKeywords,
+        kws: &TotValue,
         seg: AnyDataSegment,
         conf: &DataReadConfig,
     ) -> ReaderResult {
-        let tot = Tot::get_meta_req(kws)
+        let tot = tot_req(kws)
             .map(Some)
             .map_err(|e| DeferredFailure::new1(e.into()))?;
         let r = match self {
@@ -2392,11 +2392,11 @@ impl VersionedDataLayout for DataLayout3_2 {
 
     fn into_reader(
         self,
-        kws: &StdKeywords,
+        kws: &TotValue,
         seg: AnyDataSegment,
         conf: &DataReadConfig,
     ) -> ReaderResult {
-        let tot = Tot::get_meta_req(kws)
+        let tot = tot_req(kws)
             .map(Some)
             .map_err(|e| DeferredFailure::new1(e.into()))?;
         let r = match self {

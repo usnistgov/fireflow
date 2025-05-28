@@ -99,7 +99,7 @@ fn parse_header(s: &str, conf: &HeaderConfig) -> MultiResult<Header, HeaderError
         })
 }
 
-fn parse_header_offset<I: Clone + Copy + Into<SegmentId>>(
+fn parse_header_offset<I: Copy + Into<SegmentId>>(
     s: &str,
     allow_blank: bool,
     is_begin: bool,
@@ -117,7 +117,7 @@ fn parse_header_offset<I: Clone + Copy + Into<SegmentId>>(
     })
 }
 
-fn parse_segment<I: Clone + Copy + Into<SegmentId>>(
+fn parse_segment<I: Copy + Into<SegmentId>>(
     s0: &str,
     s1: &str,
     allow_blank: bool,

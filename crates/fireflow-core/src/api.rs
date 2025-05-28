@@ -78,12 +78,9 @@ pub struct StandardizedTEXT {
     /// be strings.
     pub standardized: AnyCoreTEXT,
 
-    /// Raw standard keywords remaining after the standardization process
-    ///
-    /// This only should include $TOT, $BEGINDATA, $ENDDATA, $BEGINANALISYS, and
-    /// $ENDANALYSIS. These are only needed to process the data segment and are
-    /// not necessary to create the CoreTEXT, and thus are not included.
-    pub remainder: StdKeywords,
+    pub tot: Option<String>,
+    pub data: SegmentKeywords<DataSegmentId>,
+    pub analysis: SegmentKeywords<AnalysisSegmentId>,
 
     /// Raw keywords that are not standard but start with '$'
     pub deviant: StdKeywords,
@@ -121,11 +118,6 @@ pub struct RawDataset {
 pub struct StandardizedDataset {
     /// Structured data derived from TEXT specific to the indicated FCS version.
     pub dataset: ParsedDataset,
-
-    /// Raw standard keywords remaining after processing.
-    ///
-    /// This should be empty if everything worked. Here for debugging.
-    pub remainder: StdKeywords,
 
     /// Non-standard keywords that start with '$'.
     pub deviant: StdKeywords,
@@ -339,16 +331,24 @@ pub fn read_fcs_std_file_from_raw(
     term_core
         .warnings_into()
         .and_finally(|core| {
-            h_read_std_dataset_from_core(&mut h, core, &std, data_seg, analysis_seg, conf)
-                .term_warnings_into()
+            let tot = std.remove(&Tot::std());
+            let kw_data_seg = TEXTSegment::lookup(&mut std, DataSegmentId);
+            let kw_anal_seg = TEXTSegment::lookup(&mut std, AnalysisSegmentId);
+            h_read_std_dataset_from_core(
+                &mut h,
+                core,
+                TotValue(tot.as_deref()),
+                kw_data_seg,
+                kw_anal_seg,
+                data_seg,
+                analysis_seg,
+                conf,
+            )
+            .term_warnings_into()
         })
-        .term_map_value(|parsed| {
-            let (remainder, deviant) = split_remainder(std);
-            StdDatasetFromRaw {
-                parsed,
-                deviant,
-                remainder,
-            }
+        .term_map_value(|parsed| StdDatasetFromRaw {
+            parsed,
+            deviant: std,
         })
         .map_err(|e| e.into())
 }
@@ -356,8 +356,6 @@ pub fn read_fcs_std_file_from_raw(
 pub struct StdDatasetFromRaw {
     pub parsed: ParsedDataset,
     pub deviant: StdKeywords,
-    // TODO this is confusing
-    pub remainder: StdKeywords,
 }
 
 pub struct ParsedDataset {
@@ -372,12 +370,6 @@ pub struct RawParsedDataset {
     pub data_seg: AnyDataSegment,
     pub analysis_seg: AnyAnalysisSegment,
 }
-
-// pub struct DatasetFromRaw {
-//     remainder: StdKeywords,
-//     deviant: StdKeywords,
-//     dataset: AnyCoreDataset,
-// }
 
 fn h_read_raw_dataset<R: Read + Seek>(
     h: &mut BufReader<R>,
@@ -415,13 +407,14 @@ fn h_read_std_dataset<R: Read + Seek>(
     h_read_std_dataset_from_core(
         h,
         std.standardized,
-        &std.remainder,
+        TotValue(std.tot.as_deref()),
+        std.data,
+        std.analysis,
         std.parse.data,
         std.parse.analysis,
         conf,
     )
     .term_map_value(|dataset| StandardizedDataset {
-        remainder: std.remainder,
         deviant: std.deviant,
         dataset,
         parse: std.parse,
@@ -441,9 +434,11 @@ fn h_read_raw_dataset_from_raw<R: Read + Seek>(
     ReadRawDatasetError,
     ReadRawDatasetFailure,
 > {
-    let tnt_anal = lookup_analysis_offsets(std, conf, version, def_analysis_seg).inner_into();
+    let data_seg = TEXTSegment::lookup_cloned(std, DataSegmentId);
+    let anal_seg = TEXTSegment::lookup_cloned(std, AnalysisSegmentId);
+    let tnt_anal = lookup_analysis_offsets(anal_seg, conf, version, def_analysis_seg).inner_into();
 
-    let reader_res = lookup_data_offsets(std, conf, version, def_data_seg)
+    let reader_res = lookup_data_offsets(data_seg, conf, version, def_data_seg)
         .inner_into()
         .and_maybe(|data_seg| {
             kws_to_reader(version, std, data_seg, conf)
@@ -473,7 +468,9 @@ fn h_read_raw_dataset_from_raw<R: Read + Seek>(
 fn h_read_std_dataset_from_core<R: Read + Seek>(
     h: &mut BufReader<R>,
     core: AnyCoreTEXT,
-    kws: &StdKeywords,
+    tot: TotValue,
+    data_seg: SegmentKeywords<DataSegmentId>,
+    anal_seg: SegmentKeywords<AnalysisSegmentId>,
     def_data_seg: HeaderDataSegment,
     def_anal_seg: HeaderAnalysisSegment,
     conf: &DataReadConfig,
@@ -481,12 +478,12 @@ fn h_read_std_dataset_from_core<R: Read + Seek>(
 {
     let version = core.version();
 
-    let tnt_anal = lookup_analysis_offsets(kws, conf, version, def_anal_seg).inner_into();
+    let tnt_anal = lookup_analysis_offsets(anal_seg, conf, version, def_anal_seg).inner_into();
 
-    let reader_res = lookup_data_offsets(kws, conf, version, def_data_seg)
+    let reader_res = lookup_data_offsets(data_seg, conf, version, def_data_seg)
         .inner_into()
         .and_maybe(|data_seg| {
-            core.as_data_reader(kws, conf, data_seg)
+            core.as_data_reader(&tot, conf, data_seg)
                 .inner_into()
                 .map_value(|reader| (reader, data_seg))
         });
@@ -526,12 +523,16 @@ impl RawTEXT {
         let mut kws = self.keywords;
         AnyCoreTEXT::parse_raw(self.version, &mut kws.std, kws.nonstd, conf).term_map_value(
             |standardized| {
-                let (remainder, deviant) = split_remainder(kws.std);
+                let tot = kws.std.remove(&Tot::std());
+                let kw_data_seg = TEXTSegment::lookup(&mut kws.std, DataSegmentId);
+                let kw_anal_seg = TEXTSegment::lookup(&mut kws.std, AnalysisSegmentId);
                 StandardizedTEXT {
                     parse: self.parse,
                     standardized,
-                    remainder,
-                    deviant,
+                    tot,
+                    data: kw_data_seg,
+                    analysis: kw_anal_seg,
+                    deviant: kws.std,
                 }
             },
         )
@@ -545,19 +546,20 @@ fn kws_to_reader(
     conf: &DataReadConfig,
 ) -> DeferredResult<DataReader, RawToReaderWarning, RawToReaderError> {
     let sc = &conf.shared;
+    let tot = TotValue(kws.get(&Tot::std()).map(|x| x.as_ref()));
     match version {
         Version::FCS2_0 => DataLayout2_0::try_new_from_raw(kws, sc)
             .inner_into()
-            .and_maybe(|dl| dl.into_reader(kws, data_seg, conf).inner_into()),
+            .and_maybe(|dl| dl.into_reader(&tot, data_seg, conf).inner_into()),
         Version::FCS3_0 => DataLayout3_0::try_new_from_raw(kws, sc)
             .inner_into()
-            .and_maybe(|dl| dl.into_reader(kws, data_seg, conf).inner_into()),
+            .and_maybe(|dl| dl.into_reader(&tot, data_seg, conf).inner_into()),
         Version::FCS3_1 => DataLayout3_1::try_new_from_raw(kws, sc)
             .inner_into()
-            .and_maybe(|dl| dl.into_reader(kws, data_seg, conf).inner_into()),
+            .and_maybe(|dl| dl.into_reader(&tot, data_seg, conf).inner_into()),
         Version::FCS3_2 => DataLayout3_2::try_new_from_raw(kws, sc)
             .inner_into()
-            .and_maybe(|dl| dl.into_reader(kws, data_seg, conf).inner_into()),
+            .and_maybe(|dl| dl.into_reader(&tot, data_seg, conf).inner_into()),
     }
     .map(|x| {
         x.map(|column_reader| DataReader {
@@ -821,42 +823,40 @@ fn repair_offsets(mut kws: ParsedKeywords, conf: &RawTextReadConfig) -> ParsedKe
     kws
 }
 
-fn lookup_req_segment<I: Into<SegmentId> + Clone + Copy>(
-    kws: &StdKeywords,
-    bk: &StdKey,
-    ek: &StdKey,
-    corr: OffsetCorrection,
-    id: I,
-) -> MultiResult<SpecificSegment<I, SegmentFromTEXT>, ReqSegmentError> {
-    let x0 = get_req(kws, bk).map_err(|e| e.into());
-    let x1 = get_req(kws, ek).map_err(|e| e.into());
-    x0.zip(x1).and_then(|(begin, end)| {
-        SpecificSegment::try_new(begin, end, corr, id, SegmentFromTEXT).into_mult()
-    })
-}
+// fn lookup_req_segment<I: Into<SegmentId> + Clone + Copy>(
+//     kws: &StdKeywords,
+//     bk: &StdKey,
+//     ek: &StdKey,
+//     corr: OffsetCorrection,
+//     id: I,
+// ) -> MultiResult<SpecificSegment<I, SegmentFromTEXT>, ReqSegmentError> {
+//     let x0 = get_req(kws, bk).map_err(|e| e.into());
+//     let x1 = get_req(kws, ek).map_err(|e| e.into());
+//     x0.zip(x1).and_then(|(begin, end)| {
+//         SpecificSegment::try_new(begin, end, corr, id, SegmentFromTEXT).into_mult()
+//     })
+// }
 
-fn lookup_opt_segment<I: Into<SegmentId> + Clone + Copy>(
-    kws: &StdKeywords,
-    bk: &StdKey,
-    ek: &StdKey,
-    corr: OffsetCorrection,
-    id: I,
-) -> MultiResult<Option<SpecificSegment<I, SegmentFromTEXT>>, OptSegmentError> {
-    let x0 = get_opt(kws, bk).map_err(|e| e.into());
-    let x1 = get_opt(kws, ek).map_err(|e| e.into());
-    x0.zip(x1).and_then(|(b, e)| {
-        b.zip(e)
-            .map(|(begin, end)| {
-                SpecificSegment::try_new(begin, end, corr, id, SegmentFromTEXT).into_mult()
-            })
-            .transpose()
-    })
-}
+// fn lookup_opt_segment<I: Into<SegmentId> + Clone + Copy>(
+//     kws: &StdKeywords,
+//     bk: &StdKey,
+//     ek: &StdKey,
+//     corr: OffsetCorrection,
+//     id: I,
+// ) -> MultiResult<Option<SpecificSegment<I, SegmentFromTEXT>>, OptSegmentError> {
+//     let x0 = get_opt(kws, bk).map_err(|e| e.into());
+//     let x1 = get_opt(kws, ek).map_err(|e| e.into());
+//     x0.zip(x1).and_then(|(b, e)| {
+//         b.zip(e)
+//             .map(|(begin, end)| {
+//                 SpecificSegment::try_new(begin, end, corr, id, SegmentFromTEXT).into_mult()
+//             })
+//             .transpose()
+//     })
+// }
 
-// TODO unclear if these next two functions should throw errors or warnings
-// on failure
 fn lookup_data_offsets(
-    kws: &StdKeywords,
+    kws: SegmentKeywords<DataSegmentId>,
     conf: &DataReadConfig,
     version: Version,
     default: HeaderDataSegment,
@@ -864,14 +864,7 @@ fn lookup_data_offsets(
     let d = SegmentDefaultWarning(DataSegmentId);
     match version {
         Version::FCS2_0 => Tentative::new1(default.into_any()),
-        _ => lookup_req_segment(
-            kws,
-            &Begindata::std(),
-            &Enddata::std(),
-            conf.data,
-            DataSegmentId,
-        )
-        .map_or_else(
+        _ => TEXTSegment::req(kws, conf.data).map_or_else(
             |es| {
                 if conf.standard.raw.enforce_required_offsets {
                     let ws = es.map(|e| e.into()).into_iter().chain([d.into()]).collect();
@@ -903,7 +896,7 @@ fn lookup_data_offsets(
 }
 
 fn lookup_analysis_offsets(
-    kws: &StdKeywords,
+    kws: SegmentKeywords<AnalysisSegmentId>,
     conf: &DataReadConfig,
     version: Version,
     default: HeaderAnalysisSegment,
@@ -913,14 +906,7 @@ fn lookup_analysis_offsets(
     match version {
         Version::FCS2_0 => Tentative::new1(def_any),
 
-        Version::FCS3_0 | Version::FCS3_1 => lookup_req_segment(
-            kws,
-            &Beginanalysis::std(),
-            &Endanalysis::std(),
-            conf.analysis,
-            AnalysisSegmentId,
-        )
-        .map_or_else(
+        Version::FCS3_0 | Version::FCS3_1 => TEXTSegment::req(kws, conf.analysis).map_or_else(
             |es| {
                 if conf.standard.raw.enforce_required_offsets {
                     let ws = es.map(|e| e.into()).into_iter().chain([d.into()]).collect();
@@ -933,14 +919,7 @@ fn lookup_analysis_offsets(
             |t| Tentative::new1(t.into_any()),
         ),
 
-        Version::FCS3_2 => lookup_opt_segment(
-            kws,
-            &Beginanalysis::std(),
-            &Endanalysis::std(),
-            conf.analysis,
-            AnalysisSegmentId,
-        )
-        .map_or_else(
+        Version::FCS3_2 => TEXTSegment::opt(kws, conf.analysis).map_or_else(
             |es| {
                 // unlike the above, this can never error because the keywords
                 // are optional
@@ -978,20 +957,14 @@ fn lookup_analysis_offsets(
 }
 
 fn lookup_stext_offsets(
-    kws: &StdKeywords,
+    kws: &mut StdKeywords,
     version: Version,
     conf: &RawTextReadConfig,
 ) -> Tentative<Option<SupplementalTextSegment>, STextSegmentWarning, ReqSegmentError> {
+    let dws = TEXTSegment::lookup(kws, SupplementalTextSegmentId);
     match version {
         Version::FCS2_0 => Tentative::new1(None),
-        Version::FCS3_0 | Version::FCS3_1 => lookup_req_segment(
-            kws,
-            &Beginstext::std(),
-            &Endstext::std(),
-            conf.stext,
-            SupplementalTextSegmentId,
-        )
-        .map_or_else(
+        Version::FCS3_0 | Version::FCS3_1 => TEXTSegment::req(dws, conf.stext).map_or_else(
             |es| {
                 if conf.enforce_stext {
                     Tentative::new(None, vec![], es.into())
@@ -1001,14 +974,7 @@ fn lookup_stext_offsets(
             },
             |t| Tentative::new1(Some(t)),
         ),
-        Version::FCS3_2 => lookup_opt_segment(
-            kws,
-            &Beginstext::std(),
-            &Endstext::std(),
-            conf.stext,
-            SupplementalTextSegmentId,
-        )
-        .map_or_else(
+        Version::FCS3_2 => TEXTSegment::opt(dws, conf.stext).map_or_else(
             |es| Tentative::new(None, es.map(|e| e.into()).into(), vec![]),
             Tentative::new1,
         ),
@@ -1057,8 +1023,8 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
             .map_value(|_kws| (delim, _kws))
     })?;
 
-    let term_all_kws = term_primary.and_finally(|(delim, kws)| {
-        lookup_stext_offsets(&kws.std, header.version, conf)
+    let term_all_kws = term_primary.and_finally(|(delim, mut kws)| {
+        lookup_stext_offsets(&mut kws.std, header.version, conf)
             .errors_into()
             .errors_map(ImpureError::Pure)
             .warnings_into()
@@ -1156,12 +1122,6 @@ fn split_remainder(xs: StdKeywords) -> (StdKeywords, StdKeywords) {
 }
 
 enum_from_disp!(
-    pub ReqSegmentError,
-    [Key, ReqKeyError<ParseIntError>],
-    [Segment, SegmentError]
-);
-
-enum_from_disp!(
     pub DataSegmentError,
     [Req, ReqSegmentError],
     [Mismatch, SegmentMismatchWarning<DataSegmentId>],
@@ -1188,12 +1148,6 @@ enum_from_disp!(
     [Req, ReqSegmentError],
     [Mismatch, SegmentMismatchWarning<AnalysisSegmentId>],
     [Default, SegmentDefaultWarning<AnalysisSegmentId>]
-);
-
-enum_from_disp!(
-    pub OptSegmentError,
-    [Key, ParseKeyError<ParseIntError>],
-    [Segment, SegmentError]
 );
 
 pub struct SegmentMismatchWarning<S> {

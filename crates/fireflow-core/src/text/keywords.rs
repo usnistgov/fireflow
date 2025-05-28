@@ -1,4 +1,10 @@
-use crate::macros::{newtype_disp, newtype_from, newtype_from_outer, newtype_fromstr};
+use crate::config::OffsetCorrection;
+use crate::error::*;
+use crate::macros::{
+    enum_from, enum_from_disp, match_many_to_one, newtype_disp, newtype_from, newtype_from_outer,
+    newtype_fromstr,
+};
+use crate::segment::*;
 use crate::validated::nonstandard::*;
 use crate::validated::shortname::*;
 use crate::validated::standard::*;
@@ -25,28 +31,28 @@ use std::fmt;
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::FromStr;
 
-// these are only going to be used to impl standard keys so they don't need
-// to store anything
-/// $BEGINANALYSIS
-pub struct Beginanalysis;
+// // these are only going to be used to impl standard keys so they don't need
+// // to store anything
+// /// $BEGINANALYSIS
+// pub struct Beginanalysis;
 
-/// $BEGINDATA
-pub struct Begindata;
+// /// $BEGINDATA
+// pub struct Begindata;
 
-/// $BEGINSTEXT
-pub struct Beginstext;
+// /// $BEGINSTEXT
+// pub struct Beginstext;
 
-/// $ENDANALYSIS
-pub struct Endanalysis;
+// /// $ENDANALYSIS
+// pub struct Endanalysis;
 
-/// $ENDDATA
-pub struct Enddata;
+// /// $ENDDATA
+// pub struct Enddata;
 
-/// $ENDSTEXT
-pub struct Endstext;
+// /// $ENDSTEXT
+// pub struct Endstext;
 
-/// $NEXTDATA
-pub struct Nextdata;
+// /// $NEXTDATA
+// pub struct Nextdata;
 
 /// The value of the $PnG keyword
 #[derive(Clone, Copy, Serialize, PartialEq)]
@@ -802,52 +808,60 @@ newtype_from!(DetectorVoltage, NonNegFloat);
 newtype_disp!(DetectorVoltage);
 newtype_fromstr!(DetectorVoltage, RangedFloatError);
 
-/// Important keywords for parsing DATA segment
-pub(crate) struct DataKeywords {
-    pub(crate) tot: Option<String>,
-    pub(crate) begin_data: Option<String>,
-    pub(crate) begin_analysis: Option<String>,
-    pub(crate) end_data: Option<String>,
-    pub(crate) end_analysis: Option<String>,
-}
+pub(crate) struct TotValue<'a>(pub(crate) Option<&'a str>);
 
-impl DataKeywords {
-    pub(crate) fn new(kws: &mut StdKeywords) -> Self {
-        Self {
-            tot: kws.remove(&Tot::std()),
-            begin_data: kws.remove(&Begindata::std()),
-            begin_analysis: kws.remove(&Beginanalysis::std()),
-            end_data: kws.remove(&Enddata::std()),
-            end_analysis: kws.remove(&Endanalysis::std()),
-        }
-    }
-
-    pub(crate) fn tot_req(&mut self) -> ReqResult<Tot> {
-        if let Some(tot) = Option::take(&mut self.tot) {
-            // TODO not dry
-            tot.parse()
-                .map_err(|error| ParseKeyError {
-                    error,
-                    key: Tot::std(),
-                    value: tot,
-                })
-                .map_err(ReqKeyError::Parse)
-        } else {
-            Err(ReqKeyError::Missing(Tot::std()))
-        }
-    }
-
-    pub(crate) fn tot_opt(&mut self) -> OptResult<Tot> {
-        Option::take(&mut self.tot)
-            .map(|v|
-            // TODO not dry
-            v.parse().map_err(|error| ParseKeyError {
+pub(crate) fn tot_req(s: &TotValue) -> ReqResult<Tot> {
+    s.0.map_or(Err(ReqKeyError::Missing(Tot::std())), |v| {
+        v.parse()
+            .map_err(|error| ParseKeyError {
                 error,
                 key: Tot::std(),
-                value: v,
-            }))
-            .transpose()
-    }
+                value: v.to_string(),
+            })
+            .map_err(ReqKeyError::Parse)
+    })
+}
+
+pub(crate) fn tot_opt(s: &TotValue) -> OptResult<Tot> {
+    s.0.map(|v| {
+        v.parse().map_err(|error| ParseKeyError {
+            error,
+            key: Tot::std(),
+            value: v.to_string(),
+        })
+    })
+    .transpose()
+}
+
+pub(crate) fn parse_req<T>(s: &mut Option<String>) -> ReqResult<T>
+where
+    T: ReqMetaKey,
+    <T as FromStr>::Err: fmt::Display,
+{
+    Option::take(s).map_or(Err(ReqKeyError::Missing(Tot::std())), |v| {
+        parse_kw::<T>(v).map_err(ReqKeyError::Parse)
+    })
+}
+
+pub(crate) fn parse_opt<T>(s: &mut Option<String>) -> OptResult<T>
+where
+    T: OptMetaKey,
+    <T as FromStr>::Err: fmt::Display,
+{
+    Option::take(s).map(parse_kw).transpose()
+}
+
+pub(crate) fn parse_kw<T>(v: String) -> Result<T, ParseKeyError<<T as FromStr>::Err>>
+where
+    T: Key,
+    T: FromStr,
+    <T as FromStr>::Err: fmt::Display,
+{
+    v.parse().map_err(|error| ParseKeyError {
+        error,
+        key: T::std(),
+        value: v,
+    })
 }
 
 pub(crate) type RawKeywords = HashMap<String, String>;
@@ -1355,10 +1369,15 @@ impl BiIndexedKey for Dfc {
 }
 
 // offsets for all versions
-kw_meta!(Beginanalysis, "BEGINANALYSIS");
-kw_meta!(Begindata, "BEGINDATA");
-kw_meta!(Beginstext, "BEGINSTEXT");
-kw_meta!(Endanalysis, "ENDANALYSIS");
-kw_meta!(Enddata, "ENDDATA");
-kw_meta!(Endstext, "ENDSTEXT");
-kw_meta!(Nextdata, "NEXTDATA");
+kw_req_meta_int!(Beginanalysis, u32, "BEGINANALYSIS");
+kw_req_meta_int!(Begindata, u32, "BEGINDATA");
+kw_req_meta_int!(Beginstext, u32, "BEGINSTEXT");
+kw_req_meta_int!(Endanalysis, u32, "ENDANALYSIS");
+kw_req_meta_int!(Enddata, u32, "ENDDATA");
+kw_req_meta_int!(Endstext, u32, "ENDSTEXT");
+kw_req_meta_int!(Nextdata, u32, "NEXTDATA");
+
+opt_meta!(Beginanalysis);
+opt_meta!(Endanalysis);
+opt_meta!(Beginstext);
+opt_meta!(Endstext);

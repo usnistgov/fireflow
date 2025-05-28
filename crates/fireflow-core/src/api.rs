@@ -263,8 +263,8 @@ pub fn read_fcs_std_file_from_raw(
         .warnings_into()
         .and_finally(|core| {
             let tot = std.remove(&Tot::std());
-            let kw_data_seg = TEXTSegment::lookup(&mut std);
-            let kw_anal_seg = TEXTSegment::lookup(&mut std);
+            let kw_data_seg = SegmentFromTEXT::lookup(&mut std);
+            let kw_anal_seg = SegmentFromTEXT::lookup(&mut std);
             h_read_std_dataset_from_core(
                 &mut h,
                 core,
@@ -352,8 +352,8 @@ fn h_read_raw_dataset_from_raw<R: Read + Seek>(
     ReadRawDatasetError,
     ReadRawDatasetFailure,
 > {
-    let data_seg = TEXTSegment::lookup_cloned(std);
-    let anal_seg = TEXTSegment::lookup_cloned(std);
+    let data_seg = SegmentFromTEXT::lookup_cloned(std);
+    let anal_seg = SegmentFromTEXT::lookup_cloned(std);
     let tnt_anal = lookup_analysis_offsets(anal_seg, conf, version, def_analysis_seg).inner_into();
 
     let reader_res = lookup_data_offsets(data_seg, conf, version, def_data_seg)
@@ -444,8 +444,8 @@ impl RawTEXTOutput {
         AnyCoreTEXT::parse_raw(self.version, &mut kws.std, kws.nonstd, conf).term_map_value(
             |standardized| {
                 let tot = kws.std.remove(&Tot::std());
-                let kw_data_seg = TEXTSegment::lookup(&mut kws.std);
-                let kw_anal_seg = TEXTSegment::lookup(&mut kws.std);
+                let kw_data_seg = SegmentFromTEXT::lookup(&mut kws.std);
+                let kw_anal_seg = SegmentFromTEXT::lookup(&mut kws.std);
                 StandardizedTEXTOutput {
                     parse: self.parse,
                     standardized,
@@ -762,7 +762,7 @@ fn lookup_data_offsets(
     let d = SegmentDefaultWarning::default();
     match version {
         Version::FCS2_0 => Tentative::new1(default.into_any()),
-        _ => TEXTSegment::req(kws, conf.data).map_or_else(
+        _ => SegmentFromTEXT::req(kws, conf.data).map_or_else(
             |es| {
                 if conf.standard.raw.enforce_required_offsets {
                     let ws = es.map(|e| e.into()).into_iter().chain([d.into()]).collect();
@@ -799,7 +799,7 @@ fn lookup_analysis_offsets(
     match version {
         Version::FCS2_0 => Tentative::new1(def_any),
 
-        Version::FCS3_0 | Version::FCS3_1 => TEXTSegment::req(kws, conf.analysis).map_or_else(
+        Version::FCS3_0 | Version::FCS3_1 => SegmentFromTEXT::req(kws, conf.analysis).map_or_else(
             |es| {
                 // TODO clean this up
                 if conf.standard.raw.enforce_required_offsets {
@@ -813,7 +813,7 @@ fn lookup_analysis_offsets(
             |t| Tentative::new1(t.into_any()),
         ),
 
-        Version::FCS3_2 => TEXTSegment::opt(kws, conf.analysis).map_or_else(
+        Version::FCS3_2 => SegmentFromTEXT::opt(kws, conf.analysis).map_or_else(
             |es| {
                 // unlike the above, this can never error because the keywords
                 // are optional
@@ -846,14 +846,14 @@ fn lookup_stext_offsets(
     version: Version,
     conf: &RawTextReadConfig,
 ) -> Tentative<Option<SupplementalTextSegment>, STextSegmentWarning, ReqSegmentError> {
-    let dws = TEXTSegment::lookup(kws);
+    let dws = SegmentFromTEXT::lookup(kws);
     match version {
         Version::FCS2_0 => Tentative::new1(None),
-        Version::FCS3_0 | Version::FCS3_1 => TEXTSegment::req(dws, conf.stext).map_or_else(
+        Version::FCS3_0 | Version::FCS3_1 => SegmentFromTEXT::req(dws, conf.stext).map_or_else(
             |es| Tentative::new_either(None, es.into(), conf.enforce_stext),
             |t| Tentative::new1(Some(t)),
         ),
-        Version::FCS3_2 => TEXTSegment::opt(dws, conf.stext).map_or_else(
+        Version::FCS3_2 => SegmentFromTEXT::opt(dws, conf.stext).map_or_else(
             |es| Tentative::new(None, es.map(|e| e.into()).into(), vec![]),
             Tentative::new1,
         ),
@@ -1014,48 +1014,6 @@ enum_from_disp!(
     [Mismatch, SegmentMismatchWarning<AnalysisSegmentId>],
     [Default, SegmentDefaultWarning<AnalysisSegmentId>]
 );
-
-pub struct SegmentMismatchWarning<S> {
-    header: SpecificSegment<S, SegmentFromHeader>,
-    text: SpecificSegment<S, SegmentFromTEXT>,
-}
-
-impl<I> fmt::Display for SegmentMismatchWarning<I>
-where
-    I: HasRegion,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "segments differ in HEADER ({}) and TEXT ({}) for {}, using TEXT",
-            self.header.inner.fmt_pair(),
-            self.text.inner.fmt_pair(),
-            I::REGION,
-        )
-    }
-}
-
-pub struct SegmentDefaultWarning<I>(PhantomData<I>);
-
-impl<I> Default for SegmentDefaultWarning<I> {
-    fn default() -> Self {
-        SegmentDefaultWarning(PhantomData)
-    }
-}
-
-impl<I> fmt::Display for SegmentDefaultWarning<I>
-where
-    I: HasRegion,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "could not obtain {} segment offset from TEXT, \
-             using offsets from HEADER",
-            I::REGION,
-        )
-    }
-}
 
 enum_from_disp!(
     pub STextSegmentWarning,

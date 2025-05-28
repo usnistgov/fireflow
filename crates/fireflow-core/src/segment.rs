@@ -87,20 +87,18 @@ type AnalysisSegment<S> = SpecificSegment<AnalysisSegmentId, S>;
 pub type HeaderAnalysisSegment = AnalysisSegment<SegmentFromHeader>;
 pub type TEXTAnalysisSegment = AnalysisSegment<SegmentFromTEXT>;
 
+pub type HeaderSegment<I> = SpecificSegment<I, SegmentFromHeader>;
+pub type TEXTSegment<I> = SpecificSegment<I, SegmentFromTEXT>;
+pub type AnySegment<I> = SpecificSegment<I, SegmentFromAnywhere>;
+
 #[derive(Clone, Copy)]
 pub struct SegmentFromAnywhere;
-
-// /// A segment either from HEADER or TEXT.
-// pub enum HeaderOrTEXTSegment<I> {
-//     Header(SpecificSegment<I, SegmentFromHeader>),
-//     TEXT(SpecificSegment<I, SegmentFromTEXT>),
-// }
 
 pub type AnyDataSegment = DataSegment<SegmentFromAnywhere>;
 pub type AnyAnalysisSegment = AnalysisSegment<SegmentFromAnywhere>;
 
 /// Operations to obtain segment from TEXT keywords
-pub(crate) trait TEXTSegment
+pub(crate) trait LookupSegment
 where
     Self: Sized,
     Self: HasRegion,
@@ -132,25 +130,28 @@ where
         }
     }
 
-    fn remove_req(
+    fn remove_req<W>(
         kws: &mut StdKeywords,
         corr: OffsetCorrection<Self, SegmentFromTEXT>,
-    ) -> MultiResult<SpecificSegment<Self, SegmentFromTEXT>, ReqSegmentError>
+    ) -> DeferredResult<TEXTSegment<Self>, W, ReqSegmentError>
     where
         Self::B: ReqMetaKey,
         Self::E: ReqMetaKey,
     {
         let x0 = Self::B::remove_meta_req(kws).map_err(|e| e.into());
         let x1 = Self::E::remove_meta_req(kws).map_err(|e| e.into());
-        x0.zip(x1).and_then(|(y0, y1)| {
-            SpecificSegment::try_new(y0.into(), y1.into(), corr, SegmentFromTEXT).into_mult()
-        })
+        x0.zip(x1)
+            .and_then(|(y0, y1)| {
+                SpecificSegment::try_new(y0.into(), y1.into(), corr, SegmentFromTEXT)
+                    .into_mult::<ReqSegmentError>()
+            })
+            .into_deferred1()
     }
 
-    fn remove_opt(
+    fn remove_opt<E>(
         kws: &mut StdKeywords,
         corr: OffsetCorrection<Self, SegmentFromTEXT>,
-    ) -> MultiResult<Option<SpecificSegment<Self, SegmentFromTEXT>>, OptSegmentError>
+    ) -> Tentative<Option<TEXTSegment<Self>>, OptSegmentError, E>
     where
         Self::B: OptMetaKey,
         Self::E: OptMetaKey,
@@ -158,14 +159,19 @@ where
         let x0 = Self::B::remove_meta_opt(kws).map_err(|e| e.into());
         let x1 = Self::E::remove_meta_opt(kws).map_err(|e| e.into());
         // TODO this unwrap thing isn't totally necessary
-        x0.zip(x1).and_then(|(y0, y1)| {
-            y0.0.zip(y1.0)
-                .map(|(z0, z1)| {
-                    SpecificSegment::try_new(z0.into(), z1.into(), corr, SegmentFromTEXT)
-                        .into_mult()
-                })
-                .transpose()
-        })
+        x0.zip(x1)
+            .and_then(|(y0, y1)| {
+                y0.0.zip(y1.0)
+                    .map(|(z0, z1)| {
+                        SpecificSegment::try_new(z0.into(), z1.into(), corr, SegmentFromTEXT)
+                            .into_mult()
+                    })
+                    .transpose()
+            })
+            .map_or_else(
+                |ws| Tentative::new(None.into(), ws.into(), vec![]),
+                Tentative::new1,
+            )
     }
 
     fn req(
@@ -214,17 +220,17 @@ pub trait HasRegion {
     const REGION: &'static str;
 }
 
-impl TEXTSegment for AnalysisSegmentId {
+impl LookupSegment for AnalysisSegmentId {
     type B = Beginanalysis;
     type E = Endanalysis;
 }
 
-impl TEXTSegment for DataSegmentId {
+impl LookupSegment for DataSegmentId {
     type B = Begindata;
     type E = Enddata;
 }
 
-impl TEXTSegment for SupplementalTextSegmentId {
+impl LookupSegment for SupplementalTextSegmentId {
     type B = Beginstext;
     type E = Endstext;
 }
@@ -293,11 +299,31 @@ impl<I, S> SpecificSegment<I, S> {
             src,
         })
     }
+}
 
-    pub fn into_any(self) -> SpecificSegment<I, SegmentFromAnywhere>
-// where
-    //     SegmentFromAnywhere: From<S>,
-    {
+impl<I: Copy> HeaderSegment<I> {
+    pub fn or(
+        self,
+        other: TEXTSegment<I>,
+    ) -> Result<AnySegment<I>, (AnySegment<I>, SegmentMismatchWarning<I>)> {
+        if other.inner != self.inner && !self.inner.is_empty() {
+            Err((
+                self.into_any(),
+                SegmentMismatchWarning {
+                    header: self,
+                    text: other,
+                },
+            ))
+        } else {
+            Ok(SpecificSegment {
+                inner: other.inner,
+                _id: PhantomData,
+                src: SegmentFromAnywhere,
+            })
+        }
+    }
+
+    pub fn into_any(self) -> AnySegment<I> {
         SpecificSegment {
             inner: self.inner,
             _id: PhantomData,
@@ -442,6 +468,48 @@ impl fmt::Display for SegmentError {
             f,
             "{kind_text} for {} segment from {}; begin={begin_text}, end={end_text}",
             self.location, self.src,
+        )
+    }
+}
+
+pub struct SegmentDefaultWarning<I>(PhantomData<I>);
+
+impl<I> Default for SegmentDefaultWarning<I> {
+    fn default() -> Self {
+        SegmentDefaultWarning(PhantomData)
+    }
+}
+
+impl<I> fmt::Display for SegmentDefaultWarning<I>
+where
+    I: HasRegion,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "could not obtain {} segment offset from TEXT, \
+             using offsets from HEADER",
+            I::REGION,
+        )
+    }
+}
+
+pub struct SegmentMismatchWarning<S> {
+    header: SpecificSegment<S, SegmentFromHeader>,
+    text: SpecificSegment<S, SegmentFromTEXT>,
+}
+
+impl<I> fmt::Display for SegmentMismatchWarning<I>
+where
+    I: HasRegion,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "segments differ in HEADER ({}) and TEXT ({}) for {}, using TEXT",
+            self.header.inner.fmt_pair(),
+            self.text.inner.fmt_pair(),
+            I::REGION,
         )
     }
 }

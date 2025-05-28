@@ -27,7 +27,7 @@ use std::str::FromStr;
 
 pub(crate) type LookupResult<V> = DeferredResult<V, ParseKeysWarning, ParseKeysError>;
 
-pub(crate) type LookupTentative<V> = Tentative<V, ParseKeysWarning, ParseKeysError>;
+pub(crate) type LookupTentative<V, E> = Tentative<V, ParseKeysWarning, E>;
 
 pub(crate) fn lookup_meta_req<V>(kws: &mut StdKeywords) -> LookupResult<V>
 where
@@ -55,7 +55,10 @@ where
         .into_deferred0()
 }
 
-pub(crate) fn lookup_meta_opt<V>(kws: &mut StdKeywords, dep: bool) -> LookupTentative<OptionalKw<V>>
+pub(crate) fn lookup_meta_opt<V, E>(
+    kws: &mut StdKeywords,
+    dep: bool,
+) -> LookupTentative<OptionalKw<V>, E>
 where
     V: OptMetaKey,
     V: FromStr,
@@ -69,11 +72,11 @@ where
     x
 }
 
-pub(crate) fn lookup_meas_opt<V>(
+pub(crate) fn lookup_meas_opt<V, E>(
     kws: &mut StdKeywords,
     n: MeasIdx,
     dep: bool,
-) -> LookupTentative<OptionalKw<V>>
+) -> LookupTentative<OptionalKw<V>, E>
 where
     V: OptMeasKey,
     V: FromStr,
@@ -87,10 +90,10 @@ where
     x
 }
 
-pub(crate) fn lookup_timestamps<T>(
+pub(crate) fn lookup_timestamps<T, E>(
     kws: &mut StdKeywords,
     dep: bool,
-) -> LookupTentative<Timestamps<T>>
+) -> LookupTentative<Timestamps<T>, E>
 where
     T: PartialOrd,
     T: Copy,
@@ -114,7 +117,7 @@ where
     })
 }
 
-pub(crate) fn lookup_datetimes(kws: &mut StdKeywords) -> LookupTentative<Datetimes> {
+pub(crate) fn lookup_datetimes<E>(kws: &mut StdKeywords) -> LookupTentative<Datetimes, E> {
     let b = lookup_meta_opt(kws, false);
     let e = lookup_meta_opt(kws, false);
     b.zip(e).and_tentatively(|(begin, end)| {
@@ -127,7 +130,9 @@ pub(crate) fn lookup_datetimes(kws: &mut StdKeywords) -> LookupTentative<Datetim
     })
 }
 
-pub(crate) fn lookup_modification(kws: &mut StdKeywords) -> LookupTentative<ModificationData> {
+pub(crate) fn lookup_modification<E>(
+    kws: &mut StdKeywords,
+) -> LookupTentative<ModificationData, E> {
     let lmr = lookup_meta_opt(kws, false);
     let lmd = lookup_meta_opt(kws, false);
     let ori = lookup_meta_opt(kws, false);
@@ -140,7 +145,7 @@ pub(crate) fn lookup_modification(kws: &mut StdKeywords) -> LookupTentative<Modi
     )
 }
 
-pub(crate) fn lookup_plate(kws: &mut StdKeywords, dep: bool) -> LookupTentative<PlateData> {
+pub(crate) fn lookup_plate<E>(kws: &mut StdKeywords, dep: bool) -> LookupTentative<PlateData, E> {
     let w = lookup_meta_opt(kws, dep);
     let n = lookup_meta_opt(kws, dep);
     let i = lookup_meta_opt(kws, dep);
@@ -151,7 +156,7 @@ pub(crate) fn lookup_plate(kws: &mut StdKeywords, dep: bool) -> LookupTentative<
     })
 }
 
-pub(crate) fn lookup_carrier(kws: &mut StdKeywords) -> LookupTentative<CarrierData> {
+pub(crate) fn lookup_carrier<E>(kws: &mut StdKeywords) -> LookupTentative<CarrierData, E> {
     let l = lookup_meta_opt(kws, false);
     let i = lookup_meta_opt(kws, false);
     let t = lookup_meta_opt(kws, false);
@@ -163,17 +168,17 @@ pub(crate) fn lookup_carrier(kws: &mut StdKeywords) -> LookupTentative<CarrierDa
         })
 }
 
-pub(crate) fn lookup_unstained(kws: &mut StdKeywords) -> LookupTentative<UnstainedData> {
+pub(crate) fn lookup_unstained<E>(kws: &mut StdKeywords) -> LookupTentative<UnstainedData, E> {
     let c = lookup_meta_opt(kws, false);
     let i = lookup_meta_opt(kws, false);
     c.zip(i)
         .map(|(centers, info)| UnstainedData::new_unchecked(centers, info))
 }
 
-pub(crate) fn lookup_compensation_2_0(
+pub(crate) fn lookup_compensation_2_0<E>(
     kws: &mut StdKeywords,
     par: Par,
-) -> LookupTentative<OptionalKw<Compensation>> {
+) -> LookupTentative<OptionalKw<Compensation>, E> {
     // column = src measurement
     // row = target measurement
     // These are "flipped" in 2.0, where "column" goes TO the "row"
@@ -226,8 +231,8 @@ pub(crate) fn lookup_dfc(
 pub(crate) fn lookup_temporal_gain_3_0(
     kws: &mut StdKeywords,
     i: MeasIdx,
-) -> LookupTentative<OptionalKw<Gain>> {
-    let mut tnt_gain = lookup_meas_opt::<Gain>(kws, i, false);
+) -> LookupTentative<OptionalKw<Gain>, ParseKeysError> {
+    let mut tnt_gain = lookup_meas_opt(kws, i, false);
     tnt_gain.eval_error(|gain| {
         if gain.0.is_some() {
             Some(ParseKeysError::Other(TemporalError::HasGain.into()))
@@ -250,9 +255,9 @@ pub(crate) fn lookup_temporal_scale_3_0(kws: &mut StdKeywords, i: MeasIdx) -> Lo
     res
 }
 
-fn process_opt<V>(
+fn process_opt<V, E>(
     res: Result<OptionalKw<V>, ParseKeyError<<V as FromStr>::Err>>,
-) -> Tentative<OptionalKw<V>, ParseKeysWarning, ParseKeysError>
+) -> Tentative<OptionalKw<V>, ParseKeysWarning, E>
 where
     V: FromStr,
     ParseOptKeyWarning: From<ParseKeyError<<V as FromStr>::Err>>,

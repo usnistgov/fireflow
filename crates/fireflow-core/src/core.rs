@@ -302,14 +302,14 @@ impl<A, D> AnyCore<A, D> {
         }
     }
 
-    pub(crate) fn as_data_reader(
-        &self,
-        kws: &TotValue,
-        conf: &DataReadConfig,
-        data_seg: AnyDataSegment,
-    ) -> DeferredResult<DataReader, NewReaderWarning, StdReaderError> {
-        match_anycore!(self, x, { x.as_data_reader(kws, conf, data_seg) })
-    }
+    // pub(crate) fn as_data_reader(
+    //     &self,
+    //     kws: &TotValue,
+    //     conf: &DataReadConfig,
+    //     data_seg: AnyDataSegment,
+    // ) -> DeferredResult<DataReader, NewReaderWarning, StdReaderError> {
+    //     match_anycore!(self, x, { x.as_data_reader(kws, conf, data_seg) })
+    // }
 }
 
 impl AnyCoreTEXT {
@@ -320,10 +320,18 @@ impl AnyCoreTEXT {
         conf: &StdTextReadConfig,
     ) -> TerminalResult<Self, LookupMeasWarning, ParseKeysError, CoreTEXTFailure> {
         match version {
-            Version::FCS2_0 => CoreTEXT2_0::new_from_raw(std, nonstd, conf).map(|x| x.value_into()),
-            Version::FCS3_0 => CoreTEXT3_0::new_from_raw(std, nonstd, conf).map(|x| x.value_into()),
-            Version::FCS3_1 => CoreTEXT3_1::new_from_raw(std, nonstd, conf).map(|x| x.value_into()),
-            Version::FCS3_2 => CoreTEXT3_2::new_from_raw(std, nonstd, conf).map(|x| x.value_into()),
+            Version::FCS2_0 => {
+                CoreTEXT2_0::new_text_from_raw(std, nonstd, conf).map(|x| x.value_into())
+            }
+            Version::FCS3_0 => {
+                CoreTEXT3_0::new_text_from_raw(std, nonstd, conf).map(|x| x.value_into())
+            }
+            Version::FCS3_1 => {
+                CoreTEXT3_1::new_text_from_raw(std, nonstd, conf).map(|x| x.value_into())
+            }
+            Version::FCS3_2 => {
+                CoreTEXT3_2::new_text_from_raw(std, nonstd, conf).map(|x| x.value_into())
+            }
         }
     }
 
@@ -339,6 +347,28 @@ impl AnyCoreTEXT {
 impl AnyCoreDataset {
     pub fn as_data(&self) -> &FCSDataFrame {
         match_anycore!(self, x, { &x.data })
+    }
+
+    pub(crate) fn parse_raw(
+        version: Version,
+        std: &mut StdKeywords,
+        nonstd: NonStdKeywords,
+        conf: &DataReadConfig,
+    ) -> TerminalResult<Self, LookupMeasWarning, ParseKeysError, CoreTEXTFailure> {
+        match version {
+            Version::FCS2_0 => {
+                CoreDataset2_0::new_from_raw(std, nonstd, conf).map(|x| x.value_into())
+            }
+            Version::FCS3_0 => {
+                CoreDataset3_0::new_from_raw(std, nonstd, conf).map(|x| x.value_into())
+            }
+            Version::FCS3_1 => {
+                CoreDataset3_1::new_from_raw(std, nonstd, conf).map(|x| x.value_into())
+            }
+            Version::FCS3_2 => {
+                CoreDataset3_2::new_from_raw(std, nonstd, conf).map(|x| x.value_into())
+            }
+        }
     }
 }
 
@@ -2337,23 +2367,23 @@ where
         M::as_data_layout(&self.metadata, &self.measurements, conf)
     }
 
-    pub(crate) fn as_data_reader(
-        &self,
-        kws: &TotValue,
-        conf: &DataReadConfig,
-        data_seg: AnyDataSegment,
-    ) -> DeferredResult<DataReader, NewReaderWarning, StdReaderError> {
-        M::as_data_layout(&self.metadata, &self.measurements, &conf.shared)
-            .inner_into()
-            .and_maybe(|dl| {
-                dl.into_reader(kws, data_seg, conf)
-                    .error_into()
-                    .map_value(|column_reader| DataReader {
-                        column_reader,
-                        begin: u64::from(data_seg.inner.begin()),
-                    })
-            })
-    }
+    // pub(crate) fn as_data_reader(
+    //     &self,
+    //     kws: &TotValue,
+    //     conf: &DataReadConfig,
+    //     data_seg: AnyDataSegment,
+    // ) -> DeferredResult<DataReader, NewReaderWarning, StdReaderError> {
+    //     M::as_data_layout(&self.metadata, &self.measurements, &conf.shared)
+    //         .inner_into()
+    //         .and_maybe(|dl| {
+    //             dl.into_data_reader(kws, data_seg, conf)
+    //                 .error_into()
+    //                 .map_value(|column_reader| DataReader {
+    //                     column_reader,
+    //                     begin: u64::from(data_seg.inner.begin()),
+    //                 })
+    //         })
+    // }
 }
 
 impl<M> VersionedCoreTEXT<M>
@@ -2365,7 +2395,7 @@ where
     ///
     /// Return any errors encountered, including messing required keywords,
     /// parse errors, and/or deprecation warnings.
-    pub(crate) fn new_from_raw(
+    pub(crate) fn new_text_from_raw(
         kws: &mut StdKeywords,
         nonstd: NonStdKeywords,
         conf: &StdTextReadConfig,
@@ -2521,6 +2551,22 @@ where
     M::N: Clone,
     M::L: VersionedDataLayout,
 {
+    pub(crate) fn new_dataset_from_raw(
+        kws: &mut StdKeywords,
+        nonstd: NonStdKeywords,
+        conf: &StdTextReadConfig,
+    ) -> TerminalResult<(), LookupMeasWarning, ParseKeysError, CoreTEXTFailure>
+    where
+        M: LookupMetadata,
+        M::T: LookupTemporal,
+        M::P: LookupOptical,
+    {
+        let text = CoreTEXT::new_text_from_raw(&mut kws, nonstd, conf);
+        // get offsets
+        // get TOT
+        Ok(Terminal::new(()))
+    }
+
     /// Write this dataset (HEADER+TEXT+DATA+ANALYSIS) to a handle
     pub fn h_write<W>(
         &self,

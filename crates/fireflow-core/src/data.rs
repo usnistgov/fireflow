@@ -47,10 +47,10 @@ pub trait VersionedDataLayout: Sized {
 
     fn ncols(&self) -> usize;
 
-    fn into_reader(
+    fn into_data_reader(
         self,
-        kws: &TotValue,
-        seg: AnyDataSegment,
+        kws: &mut StdKeywords,
+        seg: HeaderDataSegment,
         conf: &DataReadConfig,
     ) -> ReaderResult;
 
@@ -1331,7 +1331,7 @@ impl<C> FixedLayout<C> {
 }
 
 impl DelimitedLayout {
-    fn into_reader(self, nbytes: usize, kw_tot: Option<Tot>) -> ColumnReader {
+    fn into_col_reader(self, nbytes: usize, kw_tot: Option<Tot>) -> ColumnReader {
         if self.ncols == 0 {
             ColumnReader::Empty
         } else {
@@ -1365,17 +1365,18 @@ where
         self.columns.len()
     }
 
-    pub fn into_reader(
+    pub fn into_col_reader(
         self,
         seg: AnyDataSegment,
         kw_tot: Option<Tot>,
         conf: &DataReadConfig,
     ) -> Tentative<AlphaNumReader, NewFixedReaderIssue, NewFixedReaderIssue> {
+        // TODO choose data segment here
         let n = seg.inner.len() as usize;
         let w = self.event_width();
         let total_events = n / w;
         let remainder = n % w;
-        let columns = self.columns.map(|c| c.into_reader(total_events));
+        let columns = self.columns.map(|c| c.into_col_reader(total_events));
         let mut tnt = Tentative::new1(AlphaNumReader { columns });
 
         if let Some(tot) = kw_tot {
@@ -1436,7 +1437,7 @@ where
 pub trait IsFixed {
     fn width(&self) -> usize;
 
-    fn into_reader(self, nrows: usize) -> AlphaNumColumnReader;
+    fn into_col_reader(self, nrows: usize) -> AlphaNumColumnReader;
 
     fn into_writer(
         self,
@@ -1470,7 +1471,7 @@ where
         LEN
     }
 
-    fn into_reader(self, nrows: usize) -> AlphaNumColumnReader {
+    fn into_col_reader(self, nrows: usize) -> AlphaNumColumnReader {
         UintColumnReader {
             column: vec![T::default(); nrows],
             uint_type: self,
@@ -1509,13 +1510,13 @@ impl IsFixed for AnyUintType {
         )
     }
 
-    fn into_reader(self, nrows: usize) -> AlphaNumColumnReader {
+    fn into_col_reader(self, nrows: usize) -> AlphaNumColumnReader {
         match_many_to_one!(
             self,
             AnyUintType,
             [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
             x,
-            { x.into_reader(nrows) }
+            { x.into_col_reader(nrows) }
         )
     }
 
@@ -1669,7 +1670,7 @@ where
         LEN
     }
 
-    fn into_reader(self, nrows: usize) -> AlphaNumColumnReader {
+    fn into_col_reader(self, nrows: usize) -> AlphaNumColumnReader {
         FloatColumnReader {
             column: vec![T::default(); nrows],
             size: self.order,
@@ -1735,7 +1736,7 @@ impl IsFixed for AsciiType {
         u8::from(self.chars).into()
     }
 
-    fn into_reader(self, nrows: usize) -> AlphaNumColumnReader {
+    fn into_col_reader(self, nrows: usize) -> AlphaNumColumnReader {
         AlphaNumColumnReader::Ascii(AsciiColumnReader {
             column: vec![0; nrows],
             width: self.chars,
@@ -1784,12 +1785,12 @@ impl IsFixed for MixedType {
         }
     }
 
-    fn into_reader(self, nrows: usize) -> AlphaNumColumnReader {
+    fn into_col_reader(self, nrows: usize) -> AlphaNumColumnReader {
         match self {
-            MixedType::Ascii(a) => a.into_reader(nrows),
-            MixedType::Integer(i) => i.into_reader(nrows),
-            MixedType::Float(f) => f.into_reader(nrows),
-            MixedType::Double(d) => d.into_reader(nrows),
+            MixedType::Ascii(a) => a.into_col_reader(nrows),
+            MixedType::Integer(i) => i.into_col_reader(nrows),
+            MixedType::Float(f) => f.into_col_reader(nrows),
+            MixedType::Double(d) => d.into_col_reader(nrows),
         }
     }
 
@@ -1864,7 +1865,7 @@ impl AnyUintLayout {
         )
     }
 
-    fn into_reader(
+    fn into_col_reader(
         self,
         seg: AnyDataSegment,
         tot: Option<Tot>,
@@ -1875,7 +1876,7 @@ impl AnyUintLayout {
             Self,
             [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
             l,
-            { l.into_reader(seg, tot, conf) }
+            { l.into_col_reader(seg, tot, conf) }
         )
     }
 
@@ -1972,7 +1973,7 @@ impl AsciiLayout {
         }
     }
 
-    fn into_reader(
+    fn into_col_reader(
         self,
         seg: AnyDataSegment,
         kw_tot: Option<Tot>,
@@ -1980,9 +1981,9 @@ impl AsciiLayout {
     ) -> Tentative<ColumnReader, NewFixedReaderIssue, NewFixedReaderIssue> {
         let nbytes = seg.inner.len() as usize;
         match self {
-            AsciiLayout::Delimited(dl) => Tentative::new1(dl.into_reader(nbytes, kw_tot)),
+            AsciiLayout::Delimited(dl) => Tentative::new1(dl.into_col_reader(nbytes, kw_tot)),
             AsciiLayout::Fixed(fl) => fl
-                .into_reader(seg, kw_tot, conf)
+                .into_col_reader(seg, kw_tot, conf)
                 .map(ColumnReader::AlphaNum),
         }
     }
@@ -1996,15 +1997,15 @@ impl FloatLayout {
         }
     }
 
-    fn into_reader(
+    fn into_col_reader(
         self,
         seg: AnyDataSegment,
         kw_tot: Option<Tot>,
         conf: &DataReadConfig,
     ) -> Tentative<AlphaNumReader, NewFixedReaderIssue, NewFixedReaderIssue> {
         match self {
-            FloatLayout::F32(l) => l.into_reader(seg, kw_tot, conf),
-            FloatLayout::F64(l) => l.into_reader(seg, kw_tot, conf),
+            FloatLayout::F32(l) => l.into_col_reader(seg, kw_tot, conf),
+            FloatLayout::F64(l) => l.into_col_reader(seg, kw_tot, conf),
         }
     }
 
@@ -2082,27 +2083,35 @@ impl VersionedDataLayout for DataLayout2_0 {
         }
     }
 
-    fn into_reader(
+    fn into_data_reader(
         self,
-        kws: &TotValue,
-        seg: AnyDataSegment,
+        kws: &mut StdKeywords,
+        seg: HeaderDataSegment,
         conf: &DataReadConfig,
     ) -> ReaderResult {
-        let r = match tot_opt(kws) {
+        let any_seg = seg.into_any();
+        let r = match Tot::remove_meta_opt(kws).map(|x| x.0) {
             Ok(value) => Tentative::new1((value, self)),
             Err(w) => Tentative::new((None, self), vec![w.into()], vec![]),
         }
         .and_tentatively(|(tot, s)| {
             match s {
-                Self::Ascii(a) => a.into_reader(seg, tot, conf),
-                Self::Integer(fl) => fl.into_reader(seg, tot, conf).map(ColumnReader::AlphaNum),
-                Self::Float(fl) => fl.into_reader(seg, tot, conf).map(ColumnReader::AlphaNum),
+                Self::Ascii(a) => a.into_col_reader(any_seg, tot, conf),
+                Self::Integer(fl) => fl
+                    .into_col_reader(any_seg, tot, conf)
+                    .map(ColumnReader::AlphaNum),
+                Self::Float(fl) => fl
+                    .into_col_reader(any_seg, tot, conf)
+                    .map(ColumnReader::AlphaNum),
                 Self::Empty => Tentative::new1(ColumnReader::Empty),
             }
             .warnings_into()
             .errors_into()
         });
-        Ok(r)
+        Ok(r.map(|column_reader| DataReader {
+            column_reader,
+            begin: u64::from(any_seg.inner.begin()),
+        }))
     }
 }
 
@@ -2168,7 +2177,7 @@ impl VersionedDataLayout for DataLayout3_0 {
         }
     }
 
-    fn into_reader(
+    fn into_data_reader(
         self,
         kws: &TotValue,
         seg: AnyDataSegment,
@@ -2178,9 +2187,13 @@ impl VersionedDataLayout for DataLayout3_0 {
             .map(Some)
             .map_err(|e| DeferredFailure::new1(e.into()))?;
         let r = match self {
-            Self::Ascii(a) => a.into_reader(seg, tot, conf),
-            Self::Integer(fl) => fl.into_reader(seg, tot, conf).map(ColumnReader::AlphaNum),
-            Self::Float(fl) => fl.into_reader(seg, tot, conf).map(ColumnReader::AlphaNum),
+            Self::Ascii(a) => a.into_col_reader(seg, tot, conf),
+            Self::Integer(fl) => fl
+                .into_col_reader(seg, tot, conf)
+                .map(ColumnReader::AlphaNum),
+            Self::Float(fl) => fl
+                .into_col_reader(seg, tot, conf)
+                .map(ColumnReader::AlphaNum),
             Self::Empty => Tentative::new1(ColumnReader::Empty),
         }
         .warnings_into()
@@ -2252,7 +2265,7 @@ impl VersionedDataLayout for DataLayout3_1 {
         }
     }
 
-    fn into_reader(
+    fn into_data_reader(
         self,
         kws: &TotValue,
         seg: AnyDataSegment,
@@ -2262,9 +2275,13 @@ impl VersionedDataLayout for DataLayout3_1 {
             .map(Some)
             .map_err(|e| DeferredFailure::new1(e.into()))?;
         let r = match self {
-            Self::Ascii(a) => a.into_reader(seg, tot, conf),
-            Self::Integer(fl) => fl.into_reader(seg, tot, conf).map(ColumnReader::AlphaNum),
-            Self::Float(fl) => fl.into_reader(seg, tot, conf).map(ColumnReader::AlphaNum),
+            Self::Ascii(a) => a.into_col_reader(seg, tot, conf),
+            Self::Integer(fl) => fl
+                .into_col_reader(seg, tot, conf)
+                .map(ColumnReader::AlphaNum),
+            Self::Float(fl) => fl
+                .into_col_reader(seg, tot, conf)
+                .map(ColumnReader::AlphaNum),
             Self::Empty => Tentative::new1(ColumnReader::Empty),
         }
         .warnings_into()
@@ -2390,7 +2407,7 @@ impl VersionedDataLayout for DataLayout3_2 {
         }
     }
 
-    fn into_reader(
+    fn into_data_reader(
         self,
         kws: &TotValue,
         seg: AnyDataSegment,
@@ -2400,10 +2417,16 @@ impl VersionedDataLayout for DataLayout3_2 {
             .map(Some)
             .map_err(|e| DeferredFailure::new1(e.into()))?;
         let r = match self {
-            Self::Ascii(a) => a.into_reader(seg, tot, conf),
-            Self::Integer(fl) => fl.into_reader(seg, tot, conf).map(ColumnReader::AlphaNum),
-            Self::Float(fl) => fl.into_reader(seg, tot, conf).map(ColumnReader::AlphaNum),
-            Self::Mixed(fl) => fl.into_reader(seg, tot, conf).map(ColumnReader::AlphaNum),
+            Self::Ascii(a) => a.into_col_reader(seg, tot, conf),
+            Self::Integer(fl) => fl
+                .into_col_reader(seg, tot, conf)
+                .map(ColumnReader::AlphaNum),
+            Self::Float(fl) => fl
+                .into_col_reader(seg, tot, conf)
+                .map(ColumnReader::AlphaNum),
+            Self::Mixed(fl) => fl
+                .into_col_reader(seg, tot, conf)
+                .map(ColumnReader::AlphaNum),
             Self::Empty => Tentative::new1(ColumnReader::Empty),
         }
         .warnings_into()
@@ -2582,7 +2605,7 @@ pub struct WrongFloatWidth {
     pub expected: usize,
 }
 
-pub(crate) type ReaderResult = DeferredResult<ColumnReader, NewReaderWarning, NewReaderError>;
+pub(crate) type ReaderResult = DeferredResult<DataReader, NewReaderWarning, NewReaderError>;
 
 enum_from_disp!(
     pub NewReaderError,

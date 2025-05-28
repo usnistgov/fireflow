@@ -37,13 +37,13 @@ pub struct OffsetCorrection<I, S> {
     _src: PhantomData<S>,
 }
 
-enum_from!(
-    /// Denotes a segment came from either HEADER or TEXT
-    #[derive(Clone, Copy)]
-    pub SegmentFromAnywhere,
-    [Header, SegmentFromHeader],
-    [TEXT, SegmentFromTEXT]
-);
+// enum_from!(
+//     /// Denotes a segment came from either HEADER or TEXT
+//     #[derive(Clone, Copy)]
+//     pub SegmentFromAnywhere,
+//     [Header, SegmentFromHeader],
+//     [TEXT, SegmentFromTEXT]
+// );
 
 /// Denotes a segment came from either HEADER
 #[derive(Default, Debug, Clone, Copy, Serialize)]
@@ -80,14 +80,24 @@ pub type PrimaryTextSegment = SpecificSegment<PrimaryTextSegmentId, SegmentFromH
 pub type SupplementalTextSegment = SpecificSegment<SupplementalTextSegmentId, SegmentFromTEXT>;
 
 type DataSegment<S> = SpecificSegment<DataSegmentId, S>;
-pub type AnyDataSegment = DataSegment<SegmentFromAnywhere>;
 pub type HeaderDataSegment = DataSegment<SegmentFromHeader>;
 pub type TEXTDataSegment = DataSegment<SegmentFromTEXT>;
 
 type AnalysisSegment<S> = SpecificSegment<AnalysisSegmentId, S>;
-pub type AnyAnalysisSegment = AnalysisSegment<SegmentFromAnywhere>;
 pub type HeaderAnalysisSegment = AnalysisSegment<SegmentFromHeader>;
 pub type TEXTAnalysisSegment = AnalysisSegment<SegmentFromTEXT>;
+
+#[derive(Clone, Copy)]
+pub struct SegmentFromAnywhere;
+
+// /// A segment either from HEADER or TEXT.
+// pub enum HeaderOrTEXTSegment<I> {
+//     Header(SpecificSegment<I, SegmentFromHeader>),
+//     TEXT(SpecificSegment<I, SegmentFromTEXT>),
+// }
+
+pub type AnyDataSegment = DataSegment<SegmentFromAnywhere>;
+pub type AnyAnalysisSegment = AnalysisSegment<SegmentFromAnywhere>;
 
 /// Operations to obtain segment from TEXT keywords
 pub(crate) trait TEXTSegment
@@ -120,6 +130,42 @@ where
             end: kws.get(&Self::E::std()).cloned(),
             _id: PhantomData,
         }
+    }
+
+    fn remove_req(
+        kws: &mut StdKeywords,
+        corr: OffsetCorrection<Self, SegmentFromTEXT>,
+    ) -> MultiResult<SpecificSegment<Self, SegmentFromTEXT>, ReqSegmentError>
+    where
+        Self::B: ReqMetaKey,
+        Self::E: ReqMetaKey,
+    {
+        let x0 = Self::B::remove_meta_req(kws).map_err(|e| e.into());
+        let x1 = Self::E::remove_meta_req(kws).map_err(|e| e.into());
+        x0.zip(x1).and_then(|(y0, y1)| {
+            SpecificSegment::try_new(y0.into(), y1.into(), corr, SegmentFromTEXT).into_mult()
+        })
+    }
+
+    fn remove_opt(
+        kws: &mut StdKeywords,
+        corr: OffsetCorrection<Self, SegmentFromTEXT>,
+    ) -> MultiResult<Option<SpecificSegment<Self, SegmentFromTEXT>>, OptSegmentError>
+    where
+        Self::B: OptMetaKey,
+        Self::E: OptMetaKey,
+    {
+        let x0 = Self::B::remove_meta_opt(kws).map_err(|e| e.into());
+        let x1 = Self::E::remove_meta_opt(kws).map_err(|e| e.into());
+        // TODO this unwrap thing isn't totally necessary
+        x0.zip(x1).and_then(|(y0, y1)| {
+            y0.0.zip(y1.0)
+                .map(|(z0, z1)| {
+                    SpecificSegment::try_new(z0.into(), z1.into(), corr, SegmentFromTEXT)
+                        .into_mult()
+                })
+                .transpose()
+        })
     }
 
     fn req(
@@ -249,13 +295,13 @@ impl<I, S> SpecificSegment<I, S> {
     }
 
     pub fn into_any(self) -> SpecificSegment<I, SegmentFromAnywhere>
-    where
-        SegmentFromAnywhere: From<S>,
+// where
+    //     SegmentFromAnywhere: From<S>,
     {
         SpecificSegment {
             inner: self.inner,
             _id: PhantomData,
-            src: self.src.into(),
+            src: SegmentFromAnywhere,
         }
     }
 }

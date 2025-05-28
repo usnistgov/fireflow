@@ -305,6 +305,18 @@ impl<V, W, E> Tentative<V, W, E> {
         }
     }
 
+    pub fn new_either<M>(value: V, msgs: Vec<M>, are_errors: bool) -> Tentative<V, W, E>
+    where
+        E: From<M>,
+        W: From<M>,
+    {
+        if are_errors {
+            Self::new(value, vec![], msgs.into_iter().map(|m| m.into()).collect())
+        } else {
+            Self::new(value, msgs.into_iter().map(|m| m.into()).collect(), vec![])
+        }
+    }
+
     pub fn new1(value: V) -> Self {
         Self::new(value, vec![], vec![])
     }

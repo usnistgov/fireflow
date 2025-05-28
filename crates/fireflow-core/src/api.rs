@@ -20,6 +20,7 @@ use std::fmt;
 use std::fs;
 use std::io;
 use std::io::{BufReader, Read, Seek};
+use std::marker::PhantomData;
 use std::num::ParseIntError;
 use std::path;
 use std::str;
@@ -824,45 +825,13 @@ fn repair_offsets(mut kws: ParsedKeywords, conf: &RawTextReadConfig) -> ParsedKe
     kws
 }
 
-// fn lookup_req_segment<I: Into<SegmentId> + Clone + Copy>(
-//     kws: &StdKeywords,
-//     bk: &StdKey,
-//     ek: &StdKey,
-//     corr: OffsetCorrection,
-//     id: I,
-// ) -> MultiResult<SpecificSegment<I, SegmentFromTEXT>, ReqSegmentError> {
-//     let x0 = get_req(kws, bk).map_err(|e| e.into());
-//     let x1 = get_req(kws, ek).map_err(|e| e.into());
-//     x0.zip(x1).and_then(|(begin, end)| {
-//         SpecificSegment::try_new(begin, end, corr, id, SegmentFromTEXT).into_mult()
-//     })
-// }
-
-// fn lookup_opt_segment<I: Into<SegmentId> + Clone + Copy>(
-//     kws: &StdKeywords,
-//     bk: &StdKey,
-//     ek: &StdKey,
-//     corr: OffsetCorrection,
-//     id: I,
-// ) -> MultiResult<Option<SpecificSegment<I, SegmentFromTEXT>>, OptSegmentError> {
-//     let x0 = get_opt(kws, bk).map_err(|e| e.into());
-//     let x1 = get_opt(kws, ek).map_err(|e| e.into());
-//     x0.zip(x1).and_then(|(b, e)| {
-//         b.zip(e)
-//             .map(|(begin, end)| {
-//                 SpecificSegment::try_new(begin, end, corr, id, SegmentFromTEXT).into_mult()
-//             })
-//             .transpose()
-//     })
-// }
-
 fn lookup_data_offsets(
     kws: SegmentKeywords<DataSegmentId>,
     conf: &DataReadConfig,
     version: Version,
     default: HeaderDataSegment,
 ) -> Tentative<AnyDataSegment, DataSegmentWarning, DataSegmentError> {
-    let d = SegmentDefaultWarning(DataSegmentId);
+    let d = SegmentDefaultWarning::default();
     match version {
         Version::FCS2_0 => Tentative::new1(default.into_any()),
         _ => TEXTSegment::req(kws, conf.data).map_or_else(
@@ -884,13 +853,8 @@ fn lookup_data_offsets(
                 } else {
                     None
                 };
-                if conf.standard.raw.enforce_offset_match {
-                    let xs = w.map(|x| x.into()).into_iter().collect();
-                    Tentative::new(t.into_any(), vec![], xs)
-                } else {
-                    let xs = w.map(|x| x.into()).into_iter().collect();
-                    Tentative::new(t.into_any(), xs, vec![])
-                }
+                let xs = w.into_iter().collect();
+                Tentative::new_either(t.into_any(), xs, conf.standard.raw.enforce_offset_match)
             },
         ),
     }
@@ -902,13 +866,14 @@ fn lookup_analysis_offsets(
     version: Version,
     default: HeaderAnalysisSegment,
 ) -> Tentative<AnyAnalysisSegment, AnalysisSegmentWarning, AnalysisSegmentError> {
-    let d = SegmentDefaultWarning(AnalysisSegmentId);
+    let d = SegmentDefaultWarning::default();
     let def_any = default.into_any();
     match version {
         Version::FCS2_0 => Tentative::new1(def_any),
 
         Version::FCS3_0 | Version::FCS3_1 => TEXTSegment::req(kws, conf.analysis).map_or_else(
             |es| {
+                // TODO clean this up
                 if conf.standard.raw.enforce_required_offsets {
                     let ws = es.map(|e| e.into()).into_iter().chain([d.into()]).collect();
                     Tentative::new(def_any, vec![], ws)
@@ -924,11 +889,7 @@ fn lookup_analysis_offsets(
             |es| {
                 // unlike the above, this can never error because the keywords
                 // are optional
-                let ws = es
-                    .map(|e| e.into())
-                    .into_iter()
-                    .chain([SegmentDefaultWarning(AnalysisSegmentId).into()])
-                    .collect();
+                let ws = es.map(|e| e.into()).into_iter().chain([d.into()]).collect();
                 Tentative::new(def_any, ws, vec![])
             },
             |t| {
@@ -942,13 +903,8 @@ fn lookup_analysis_offsets(
                         None
                     };
                     let this_any = this_seg.into_any();
-                    if conf.standard.raw.enforce_offset_match {
-                        let xs = w.map(|x| x.into()).into_iter().collect();
-                        Tentative::new(this_any, vec![], xs)
-                    } else {
-                        let xs = w.map(|x| x.into()).into_iter().collect();
-                        Tentative::new(this_any, xs, vec![])
-                    }
+                    let xs: Vec<_> = w.into_iter().collect();
+                    Tentative::new_either(this_any, xs, conf.standard.raw.enforce_offset_match)
                 } else {
                     Tentative::new1(t.map(|x| x.into_any()).unwrap_or(def_any))
                 }
@@ -966,13 +922,7 @@ fn lookup_stext_offsets(
     match version {
         Version::FCS2_0 => Tentative::new1(None),
         Version::FCS3_0 | Version::FCS3_1 => TEXTSegment::req(dws, conf.stext).map_or_else(
-            |es| {
-                if conf.enforce_stext {
-                    Tentative::new(None, vec![], es.into())
-                } else {
-                    Tentative::new(None, es.map(|e| e.into()).into(), vec![])
-                }
-            },
+            |es| Tentative::new_either(None, es.into(), conf.enforce_stext),
             |t| Tentative::new1(Some(t)),
         ),
         Version::FCS3_2 => TEXTSegment::opt(dws, conf.stext).map_or_else(
@@ -1154,7 +1104,13 @@ where
     }
 }
 
-pub struct SegmentDefaultWarning<S>(S);
+pub struct SegmentDefaultWarning<I>(PhantomData<I>);
+
+impl<I> Default for SegmentDefaultWarning<I> {
+    fn default() -> Self {
+        SegmentDefaultWarning(PhantomData)
+    }
+}
 
 impl<I> fmt::Display for SegmentDefaultWarning<I>
 where

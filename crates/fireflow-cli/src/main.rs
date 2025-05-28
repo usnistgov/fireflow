@@ -14,7 +14,7 @@ fn print_json<T: Serialize>(j: &T) {
     println!("{}", serde_json::to_string(j).unwrap());
 }
 
-pub fn print_parsed_data(s: &StandardizedDataset, _delim: &str) {
+pub fn print_parsed_data(s: &StandardizedDatasetOutput, _delim: &str) {
     let df = s.dataset.core.as_data();
     let nrows = df.nrows();
     let cols: Vec<_> = df.iter_columns().collect();

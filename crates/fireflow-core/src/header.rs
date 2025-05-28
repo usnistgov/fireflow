@@ -36,6 +36,15 @@ pub enum Version {
     FCS3_2,
 }
 
+/// The three segments from the HEADER
+#[derive(Clone, Serialize)]
+pub struct HeaderSegments {
+    pub text: PrimaryTextSegment,
+    pub data: HeaderDataSegment,
+    pub analysis: HeaderAnalysisSegment,
+    // TODO add OTHER
+}
+
 /// Output from parsing the FCS header.
 ///
 /// Includes version and the three main segments (TEXT, DATA, ANALYSIS). For
@@ -46,9 +55,7 @@ pub enum Version {
 #[derive(Clone, Serialize)]
 pub struct Header {
     pub version: Version,
-    pub text: PrimaryTextSegment,
-    pub data: HeaderDataSegment,
-    pub analysis: HeaderAnalysisSegment,
+    pub segments: HeaderSegments,
 }
 
 pub fn h_read_header<R: Read>(
@@ -93,9 +100,11 @@ fn parse_header(s: &str, conf: &HeaderConfig) -> MultiResult<Header, HeaderError
         .zip_mult3(data_res, anal_res)
         .map(|((version, _, text), data, analysis)| Header {
             version: conf.version_override.unwrap_or(version),
-            text,
-            data,
-            analysis,
+            segments: HeaderSegments {
+                text,
+                data,
+                analysis,
+            },
         })
 }
 

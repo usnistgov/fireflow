@@ -28,142 +28,72 @@ use std::str;
 // TODO gating parameters not added (yet)
 
 /// Output from parsing the TEXT segment.
-///
-/// This is derived from the HEADER which should be parsed in order to obtain
-/// this.
-///
-/// The purpose of this is to obtain the TEXT keywords (primary and
-/// supplemental) using the least amount of processing, which should increase
-/// performance and minimize potential errors thrown if this is what the user
-/// desires.
-///
-/// This will also be used as input downstream to 'standardize' the TEXT segment
-/// according to version, and also to parse DATA if either is desired.
 #[derive(Serialize)]
-pub struct RawTEXT {
-    /// FCS Version from HEADER
+pub struct RawTEXTOutput {
     pub version: Version,
-
-    /// Keyword pairs from TEXT
     pub keywords: ValidKeywords,
-
-    /// Data used for parsing TEXT which might be used later to parse remainder.
-    ///
-    /// This will include primary TEXT, DATA, and ANALYSIS offsets as seen in
-    /// HEADER. It will also include $BEGIN/ENDSTEXT as found in TEXT (if found)
-    /// which will be used to parse the supplemental TEXT segment if it exists.
-    ///
-    /// $NEXTDATA will also be included if found.
-    ///
-    /// The delimiter used to parse the keywords will also be included.
-    pub parse: ParseData,
+    pub parse: RawTEXTSupplementalData,
 }
 
 /// Output of parsing the TEXT segment and standardizing keywords.
-///
-/// This is derived from ['RawTEXT'].
-///
-/// The process of "standardization" involves gathering version specific
-/// keywords in the TEXT segment and parsing their values such that they
-/// conform to the types specified in the standard.
-///
-/// Version is not included since this is implied by the standardized structs
-/// used.
-pub struct StandardizedTEXT {
-    /// Structured data derived from TEXT specific to the indicated FCS version.
-    ///
-    /// All keywords that were included in the ['RawTEXT'] used to create this
-    /// will be included here. Anything standardized will be put into a field
-    /// that can be readily accessed directly and returned with the proper type.
-    /// Anything nonstandard will be kept in a hash table whose values will
-    /// be strings.
+pub struct StandardizedTEXTOutput {
     pub standardized: AnyCoreTEXT,
-
     pub tot: Option<String>,
     pub data: SegmentKeywords<DataSegmentId>,
     pub analysis: SegmentKeywords<AnalysisSegmentId>,
-
-    /// Raw keywords that are not standard but start with '$'
     pub deviant: StdKeywords,
-
-    /// Data used for parsing TEXT which might be used later to parse remainder.
-    ///
-    /// The is analogous to that of [`RawTEXT`] and is copied as-is when
-    /// creating this.
-    pub parse: ParseData,
+    pub parse: RawTEXTSupplementalData,
 }
 
 /// Output of parsing one raw dataset (TEXT+DATA) from an FCS file.
-///
-/// Computationally this will be created by skipping (most of) the
-/// standardization step and instead parsing the minimal-required keywords
-/// to parse DATA (BYTEORD, DATATYPE, etc).
-pub struct RawDataset {
-    /// FCS Version from HEADER
+pub struct RawDatasetOutput {
     pub version: Version,
-
-    /// Keyword pairs from TEXT
     pub keywords: ValidKeywords,
-
     pub dataset: RawParsedDataset,
-
-    /// Data used for parsing the FCS file.
-    ///
-    /// This will include all offsets, $NEXTDATA (if found) and the TEXT
-    /// delimiter. The DATA and ANALYSIS offsets will reflect those actually
-    /// used to parse these segments, which may or may not reflect the HEADER.
-    pub parse: ParseData,
+    pub parse: RawTEXTSupplementalData,
+    // TODO where are TEXT DATA/ANALYSIS offsets?
 }
 
 /// Output of parsing one standardized dataset (TEXT+DATA) from an FCS file.
-pub struct StandardizedDataset {
-    /// Structured data derived from TEXT specific to the indicated FCS version.
+pub struct StandardizedDatasetOutput {
     pub dataset: ParsedDataset,
-
-    /// Non-standard keywords that start with '$'.
     pub deviant: StdKeywords,
+    pub supp: RawTEXTSupplementalData,
+}
 
-    /// Data used for parsing the FCS file.
-    ///
-    /// This will include all offsets, $NEXTDATA (if found) and the TEXT
-    /// delimiter. The DATA and ANALYSIS offsets will reflect those actually
-    /// used to parse these segments, which may or may not reflect the HEADER.
-    pub parse: ParseData,
+// pub struct TEXTOffsets {
+//     pub data_seg: AnyDataSegment,
+//     pub analysis_seg: AnyAnalysisSegment,
+// }
+
+pub struct StdDatasetFromRaw {
+    pub parsed: ParsedDataset,
+    pub deviant: StdKeywords,
+}
+
+pub struct ParsedDataset {
+    pub core: AnyCoreDataset,
+    pub data_seg: AnyDataSegment,
+    pub analysis_seg: AnyAnalysisSegment,
+}
+
+pub struct RawParsedDataset {
+    pub data: FCSDataFrame,
+    pub analysis: Analysis,
+    pub data_seg: AnyDataSegment,
+    pub analysis_seg: AnyAnalysisSegment,
 }
 
 /// Data pertaining to parsing the TEXT segment.
-///
-/// Includes offsets, TEXT delimiter, $NEXTDATA (if present) and any
-/// non-conforming keywords.
 #[derive(Clone, Serialize)]
-pub struct ParseData {
-    /// Primary TEXT offsets
-    ///
-    /// The offsets that were used to parse the TEXT segment. Included here for
-    /// informational purposes.
-    pub prim_text: PrimaryTextSegment,
+pub struct RawTEXTSupplementalData {
+    pub header_segments: HeaderSegments,
 
     /// Supplemental TEXT offsets
     ///
     /// This is not needed downstream and included here for informational
     /// purposes. It will always be None for 2.0 which does not include this.
     pub supp_text: Option<SupplementalTextSegment>,
-
-    /// DATA offsets
-    ///
-    /// The offsets pointing to the DATA segment. When this struct is present
-    /// in [RawTEXT] or [StandardizedTEXT], this will reflect what is in the
-    /// HEADER. In [StandardizedDataset], this will reflect the values from
-    /// $BEGIN/ENDDATA if applicable.
-    ///
-    /// This will be 0,0 if DATA has no data or if there was an error acquiring
-    /// the offsets.
-    pub data: HeaderDataSegment,
-
-    /// ANALYSIS offsets.
-    ///
-    /// The meaning of this is analogous to [data] above.
-    pub analysis: HeaderAnalysisSegment,
 
     /// NEXTDATA offset
     ///
@@ -219,10 +149,10 @@ pub fn read_fcs_header(
 pub fn read_fcs_raw_text(
     p: &path::PathBuf,
     conf: &RawTextReadConfig,
-) -> Result<Terminal<RawTEXT, ParseRawTEXTWarning>, AnyRawTEXTFailure> {
+) -> Result<Terminal<RawTEXTOutput, ParseRawTEXTWarning>, AnyRawTEXTFailure> {
     let file = fs::File::options().read(true).open(p)?;
     let mut h = BufReader::new(file);
-    let raw = RawTEXT::h_read(&mut h, conf)?;
+    let raw = RawTEXTOutput::h_read(&mut h, conf)?;
     Ok(raw)
 }
 
@@ -238,7 +168,7 @@ pub fn read_fcs_raw_text(
 pub fn read_fcs_std_text(
     p: &path::PathBuf,
     conf: &StdTextReadConfig,
-) -> Result<Terminal<StandardizedTEXT, AnyStdTEXTWarning>, AnyStdTEXTFailure> {
+) -> Result<Terminal<StandardizedTEXTOutput, AnyStdTEXTWarning>, AnyStdTEXTFailure> {
     let term_raw = read_fcs_raw_text(p, &conf.raw)?;
     term_raw
         .warnings_into()
@@ -262,10 +192,10 @@ pub fn read_fcs_std_text(
 pub fn read_fcs_raw_file(
     p: path::PathBuf,
     conf: &DataReadConfig,
-) -> Result<Terminal<RawDataset, AnyRawDatasetWarning>, AnyRawDatasetFailure> {
+) -> Result<Terminal<RawDatasetOutput, AnyRawDatasetWarning>, AnyRawDatasetFailure> {
     let file = fs::File::options().read(true).open(p)?;
     let mut h = BufReader::new(file);
-    let term_raw = RawTEXT::h_read(&mut h, &conf.standard.raw)?;
+    let term_raw = RawTEXTOutput::h_read(&mut h, &conf.standard.raw)?;
     term_raw
         .warnings_into()
         .and_finally(|raw| h_read_raw_dataset(&mut h, raw, conf).term_warnings_into())
@@ -303,10 +233,10 @@ pub fn read_fcs_raw_file_from_raw(
 pub fn read_fcs_std_file(
     p: &path::PathBuf,
     conf: &DataReadConfig,
-) -> Result<Terminal<StandardizedDataset, AnyStdDatasetWarning>, AnyStdDatasetFailure> {
+) -> Result<Terminal<StandardizedDatasetOutput, AnyStdDatasetWarning>, AnyStdDatasetFailure> {
     let file = fs::File::options().read(true).open(p)?;
     let mut h = BufReader::new(file);
-    let term_raw = RawTEXT::h_read(&mut h, &conf.standard.raw)?;
+    let term_raw = RawTEXTOutput::h_read(&mut h, &conf.standard.raw)?;
     let term_std = term_raw
         .warnings_into()
         .and_finally(|raw| raw.into_std(&conf.standard).term_warnings_into())?;
@@ -354,40 +284,27 @@ pub fn read_fcs_std_file_from_raw(
         .map_err(|e| e.into())
 }
 
-pub struct StdDatasetFromRaw {
-    pub parsed: ParsedDataset,
-    pub deviant: StdKeywords,
-}
-
-pub struct ParsedDataset {
-    pub core: AnyCoreDataset,
-    pub data_seg: AnyDataSegment,
-    pub analysis_seg: AnyAnalysisSegment,
-}
-
-pub struct RawParsedDataset {
-    pub data: FCSDataFrame,
-    pub analysis: Analysis,
-    pub data_seg: AnyDataSegment,
-    pub analysis_seg: AnyAnalysisSegment,
-}
-
 fn h_read_raw_dataset<R: Read + Seek>(
     h: &mut BufReader<R>,
-    raw: RawTEXT,
+    raw: RawTEXTOutput,
     conf: &DataReadConfig,
-) -> TerminalResult<RawDataset, ReadRawDatasetWarning, ReadRawDatasetError, ReadRawDatasetFailure> {
+) -> TerminalResult<
+    RawDatasetOutput,
+    ReadRawDatasetWarning,
+    ReadRawDatasetError,
+    ReadRawDatasetFailure,
+> {
     let version = raw.version;
 
     h_read_raw_dataset_from_raw(
         h,
         version,
         &raw.keywords.std,
-        raw.parse.data,
-        raw.parse.analysis,
+        raw.parse.header_segments.data,
+        raw.parse.header_segments.analysis,
         conf,
     )
-    .term_map_value(|dataset| RawDataset {
+    .term_map_value(|dataset| RawDatasetOutput {
         version,
         keywords: raw.keywords,
         dataset,
@@ -397,10 +314,10 @@ fn h_read_raw_dataset<R: Read + Seek>(
 
 fn h_read_std_dataset<R: Read + Seek>(
     h: &mut BufReader<R>,
-    std: StandardizedTEXT,
+    std: StandardizedTEXTOutput,
     conf: &DataReadConfig,
 ) -> TerminalResult<
-    StandardizedDataset,
+    StandardizedDatasetOutput,
     ReadStdDatasetWarning,
     ReadStdDatasetError,
     ReadStdDatasetFailure,
@@ -411,14 +328,14 @@ fn h_read_std_dataset<R: Read + Seek>(
         TotValue(std.tot.as_deref()),
         std.data,
         std.analysis,
-        std.parse.data,
-        std.parse.analysis,
+        std.parse.header_segments.data,
+        std.parse.header_segments.analysis,
         conf,
     )
-    .term_map_value(|dataset| StandardizedDataset {
+    .term_map_value(|dataset| StandardizedDatasetOutput {
         deviant: std.deviant,
         dataset,
-        parse: std.parse,
+        supp: std.parse,
     })
 }
 
@@ -508,27 +425,28 @@ fn h_read_std_dataset_from_core<R: Read + Seek>(
         .terminate(ReadStdDatasetFailure)
 }
 
-impl RawTEXT {
+impl RawTEXTOutput {
     fn h_read<R: Read + Seek>(
         h: &mut BufReader<R>,
         conf: &RawTextReadConfig,
     ) -> Result<Terminal<Self, ParseRawTEXTWarning>, HeaderOrRawFailure> {
         let header = h_read_header(h, &conf.header)?;
-        let raw = h_read_raw_text_from_header(h, &header, conf)?;
+        let raw = h_read_raw_text_from_header(h, header, conf)?;
         Ok(raw)
     }
 
     fn into_std(
         self,
         conf: &StdTextReadConfig,
-    ) -> TerminalResult<StandardizedTEXT, LookupMeasWarning, ParseKeysError, CoreTEXTFailure> {
+    ) -> TerminalResult<StandardizedTEXTOutput, LookupMeasWarning, ParseKeysError, CoreTEXTFailure>
+    {
         let mut kws = self.keywords;
         AnyCoreTEXT::parse_raw(self.version, &mut kws.std, kws.nonstd, conf).term_map_value(
             |standardized| {
                 let tot = kws.std.remove(&Tot::std());
                 let kw_data_seg = TEXTSegment::lookup(&mut kws.std);
                 let kw_anal_seg = TEXTSegment::lookup(&mut kws.std);
-                StandardizedTEXT {
+                StandardizedTEXTOutput {
                     parse: self.parse,
                     standardized,
                     tot,
@@ -949,12 +867,17 @@ fn lookup_nextdata(
 
 fn h_read_raw_text_from_header<R: Read + Seek>(
     h: &mut BufReader<R>,
-    header: &Header,
+    header: Header,
     conf: &RawTextReadConfig,
-) -> TerminalResult<RawTEXT, ParseRawTEXTWarning, ImpureError<ParseRawTEXTError>, ParseRawTEXTFailure>
-{
+) -> TerminalResult<
+    RawTEXTOutput,
+    ParseRawTEXTWarning,
+    ImpureError<ParseRawTEXTError>,
+    ParseRawTEXTFailure,
+> {
     let mut buf = vec![];
     header
+        .segments
         .text
         .inner
         .h_read(h, &mut buf)
@@ -1003,11 +926,9 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
             repair_keywords(&mut kws.std, conf);
             let mut tnt_parse = lookup_nextdata(&kws.std, conf.enforce_nextdata)
                 .errors_into()
-                .map(|nextdata| ParseData {
-                    prim_text: header.text,
+                .map(|nextdata| RawTEXTSupplementalData {
+                    header_segments: header.segments,
                     supp_text: supp_text_seg,
-                    data: header.data,
-                    analysis: header.analysis,
                     nextdata,
                     delimiter,
                     non_ascii: kws.non_ascii,
@@ -1040,7 +961,7 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
             });
 
             tnt_parse
-                .map(|parse| RawTEXT {
+                .map(|parse| RawTEXTOutput {
                     version: header.version,
                     parse,
                     keywords: ValidKeywords {

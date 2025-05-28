@@ -162,7 +162,7 @@ fn py_read_fcs_raw_text(
         repair_offset_spaces,
         date_pattern: date_pattern.map(str_to_date_pat).transpose()?,
     };
-    let raw: RawTEXT = read_fcs_raw_text(&p, &conf.set_strict(strict))
+    let raw: RawTEXTOutput = read_fcs_raw_text(&p, &conf.set_strict(strict))
         .map_or_else(|e| Err(handle_fail_raw_text(e)), handle_warnings)?;
     let std = raw
         .keywords
@@ -322,7 +322,7 @@ fn py_read_fcs_std_text(
         nonstandard_measurement_pattern: nsmp,
     };
 
-    let out: StandardizedTEXT = read_fcs_std_text(&p, &conf.set_strict(strict))
+    let out: StandardizedTEXTOutput = read_fcs_std_text(&p, &conf.set_strict(strict))
         .map_or_else(|e| Err(handle_fail_std_text(e)), handle_warnings)?;
 
     let text = match &out.standardized {
@@ -520,7 +520,7 @@ fn py_read_fcs_file(
         enforce_matching_tot,
     };
 
-    let out: StandardizedDataset = read_fcs_std_file(&p, &conf.set_strict(strict))
+    let out: StandardizedDatasetOutput = read_fcs_std_file(&p, &conf.set_strict(strict))
         .map_or_else(|e| Err(handle_fail_std_dataset(e)), handle_warnings)?;
 
     let dataset = match &out.dataset.core {
@@ -535,7 +535,7 @@ fn py_read_fcs_file(
 
     Ok((
         dataset,
-        out.parse.into(),
+        out.supp.into(),
         out.deviant
             .into_iter()
             .map(|(k, v)| (k.to_string(), v.clone()))
@@ -747,27 +747,27 @@ impl PyHeader {
 
     #[getter]
     fn text(&self) -> PySegment {
-        self.0.text.inner.into()
+        self.0.segments.text.inner.into()
     }
 
     #[getter]
     fn data(&self) -> PySegment {
-        self.0.data.inner.into()
+        self.0.segments.data.inner.into()
     }
 
     #[getter]
     fn analysis(&self) -> PySegment {
-        self.0.analysis.inner.into()
+        self.0.segments.analysis.inner.into()
     }
 }
 
-py_wrap!(PyParseData, ParseData, "ParseData");
+py_wrap!(PyParseData, RawTEXTSupplementalData, "ParseData");
 
 #[pymethods]
 impl PyParseData {
     #[getter]
     fn prim_text(&self) -> PySegment {
-        self.0.prim_text.inner.into()
+        self.0.header_segments.text.inner.into()
     }
 
     #[getter]
@@ -777,12 +777,12 @@ impl PyParseData {
 
     #[getter]
     fn data(&self) -> PySegment {
-        self.0.data.inner.into()
+        self.0.header_segments.data.inner.into()
     }
 
     #[getter]
     fn analysis(&self) -> PySegment {
-        self.0.analysis.inner.into()
+        self.0.header_segments.analysis.inner.into()
     }
 
     #[getter]

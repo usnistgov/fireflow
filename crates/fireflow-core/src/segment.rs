@@ -1,4 +1,3 @@
-use crate::config::OffsetCorrection;
 use crate::error::*;
 use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
 use crate::text::keywords::*;
@@ -24,7 +23,18 @@ pub struct Segment {
 pub struct SpecificSegment<I, S> {
     pub inner: Segment,
     _id: PhantomData<I>,
+    // this isn't phantom because some functions return segments from either
+    // HEADER or TEXT and we want to allow either, which requires an enum
     src: S,
+}
+
+/// Denotes a correction for a segment
+#[derive(Default, Clone, Copy)]
+pub struct OffsetCorrection<I, S> {
+    pub begin: i32,
+    pub end: i32,
+    _id: PhantomData<I>,
+    _src: PhantomData<S>,
 }
 
 enum_from!(
@@ -36,28 +46,35 @@ enum_from!(
 );
 
 /// Denotes a segment came from either HEADER
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Default, Debug, Clone, Copy, Serialize)]
 pub struct SegmentFromHeader;
 
 /// Denotes a segment came from either TEXT
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Default, Debug, Clone, Copy, Serialize)]
 pub struct SegmentFromTEXT;
 
 /// Denotes the segment pertains to primary TEXT
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Default, Debug, Clone, Copy, Serialize)]
 pub struct PrimaryTextSegmentId;
 
 /// Denotes the segment pertains to supplemental TEXT
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Default, Debug, Clone, Copy, Serialize)]
 pub struct SupplementalTextSegmentId;
 
 /// Denotes the segment pertains to DATA
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Default, Debug, Clone, Copy, Serialize)]
 pub struct DataSegmentId;
 
 /// Denotes the segment pertains to ANALYSIS
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Default, Debug, Clone, Copy, Serialize)]
 pub struct AnalysisSegmentId;
+
+/// Intermediate store for TEXT keywords that might be parsed as a segment
+pub struct SegmentKeywords<I> {
+    pub begin: Option<String>,
+    pub end: Option<String>,
+    _id: PhantomData<I>,
+}
 
 pub type PrimaryTextSegment = SpecificSegment<PrimaryTextSegmentId, SegmentFromHeader>;
 pub type SupplementalTextSegment = SpecificSegment<SupplementalTextSegmentId, SegmentFromTEXT>;
@@ -72,17 +89,11 @@ pub type AnyAnalysisSegment = AnalysisSegment<SegmentFromAnywhere>;
 pub type HeaderAnalysisSegment = AnalysisSegment<SegmentFromHeader>;
 pub type TEXTAnalysisSegment = AnalysisSegment<SegmentFromTEXT>;
 
-/// Intermediate store for TEXT keywords that might be parsed as a segment
-pub struct SegmentKeywords<I> {
-    pub begin: Option<String>,
-    pub end: Option<String>,
-    _id: PhantomData<I>,
-}
-
+/// Operations to obtain segment from TEXT keywords
 pub(crate) trait TEXTSegment
 where
     Self: Sized,
-    Self: SegmentHasLocation,
+    Self: HasRegion,
     Self::B: Into<u32>,
     Self::E: Into<u32>,
     Self::B: Key,
@@ -113,7 +124,7 @@ where
 
     fn req(
         mut kws: SegmentKeywords<Self>,
-        corr: OffsetCorrection,
+        corr: OffsetCorrection<Self, SegmentFromTEXT>,
     ) -> MultiResult<SpecificSegment<Self, SegmentFromTEXT>, ReqSegmentError>
     where
         Self::B: ReqMetaKey,
@@ -128,7 +139,7 @@ where
 
     fn opt(
         mut kws: SegmentKeywords<Self>,
-        corr: OffsetCorrection,
+        corr: OffsetCorrection<Self, SegmentFromTEXT>,
     ) -> MultiResult<Option<SpecificSegment<Self, SegmentFromTEXT>>, OptSegmentError>
     where
         Self::B: OptMetaKey,
@@ -147,6 +158,16 @@ where
     }
 }
 
+/// Denotes that a type comes from a specific part of the FCS file
+pub trait HasSource {
+    const SRC: &'static str;
+}
+
+/// Denotes that a type pertains to a region of the FCS file
+pub trait HasRegion {
+    const REGION: &'static str;
+}
+
 impl TEXTSegment for AnalysisSegmentId {
     type B = Beginanalysis;
     type E = Endanalysis;
@@ -162,24 +183,28 @@ impl TEXTSegment for SupplementalTextSegmentId {
     type E = Endstext;
 }
 
-pub trait SegmentHasLocation {
-    const NAME: &'static str;
+impl HasSource for SegmentFromHeader {
+    const SRC: &'static str = "HEADER";
 }
 
-impl SegmentHasLocation for AnalysisSegmentId {
-    const NAME: &'static str = "ANALYSIS";
+impl HasSource for SegmentFromTEXT {
+    const SRC: &'static str = "TEXT";
 }
 
-impl SegmentHasLocation for DataSegmentId {
-    const NAME: &'static str = "DATA";
+impl HasRegion for AnalysisSegmentId {
+    const REGION: &'static str = "ANALYSIS";
 }
 
-impl SegmentHasLocation for SupplementalTextSegmentId {
-    const NAME: &'static str = "STEXT";
+impl HasRegion for DataSegmentId {
+    const REGION: &'static str = "DATA";
 }
 
-impl SegmentHasLocation for PrimaryTextSegmentId {
-    const NAME: &'static str = "TEXT";
+impl HasRegion for SupplementalTextSegmentId {
+    const REGION: &'static str = "STEXT";
+}
+
+impl HasRegion for PrimaryTextSegmentId {
+    const REGION: &'static str = "TEXT";
 }
 
 enum_from_disp!(
@@ -194,17 +219,29 @@ enum_from_disp!(
     [Segment, SegmentError]
 );
 
+impl<I, S> OffsetCorrection<I, S> {
+    pub fn new(begin: i32, end: i32) -> Self {
+        Self {
+            begin,
+            end,
+            _id: PhantomData,
+            _src: PhantomData,
+        }
+    }
+}
+
 impl<I, S> SpecificSegment<I, S> {
     pub fn try_new(
         begin: u32,
         end: u32,
-        corr: OffsetCorrection,
+        corr: OffsetCorrection<I, S>,
         src: S,
     ) -> Result<Self, SegmentError>
     where
-        I: SegmentHasLocation,
+        I: HasRegion,
+        S: HasSource,
     {
-        Segment::try_new::<I>(begin, end, corr).map(|inner| Self {
+        Segment::try_new::<I, S>(begin, end, corr).map(|inner| Self {
             inner,
             _id: PhantomData,
             src,
@@ -236,10 +273,10 @@ impl Segment {
     /// As a consequence of the above, "unset segments" given as (0,0) are
     /// actually 1 byte long. There is no way to represent a zero-length segment
     /// starting at 0 unless we use signed ints.
-    pub fn try_new<I: SegmentHasLocation>(
+    pub fn try_new<I: HasRegion, S: HasSource>(
         begin: u32,
         end: u32,
-        corr: OffsetCorrection,
+        corr: OffsetCorrection<I, S>,
     ) -> Result<Self, SegmentError> {
         let x = i64::from(begin) + i64::from(corr.begin);
         let y = i64::from(end) + i64::from(corr.end);
@@ -247,9 +284,11 @@ impl Segment {
             Err(SegmentError {
                 begin,
                 end,
-                corr,
+                corr_begin: corr.begin,
+                corr_end: corr.end,
                 kind,
-                location: I::NAME,
+                location: I::REGION,
+                src: S::SRC,
             })
         };
         match (u32::try_from(x), u32::try_from(y)) {
@@ -277,11 +316,12 @@ impl Segment {
         Ok(())
     }
 
-    pub fn try_adjust<I: SegmentHasLocation>(
-        self,
-        corr: OffsetCorrection,
-    ) -> Result<Self, SegmentError> {
-        Self::try_new::<I>(self.begin, self.end(), corr)
+    pub fn try_adjust<I, S>(self, corr: OffsetCorrection<I, S>) -> Result<Self, SegmentError>
+    where
+        I: HasRegion,
+        S: HasSource,
+    {
+        Self::try_new::<I, S>(self.begin, self.end(), corr)
     }
 
     pub fn len(&self) -> u32 {
@@ -330,9 +370,11 @@ pub enum SegmentErrorKind {
 pub struct SegmentError {
     begin: u32,
     end: u32,
-    corr: OffsetCorrection,
+    corr_begin: i32,
+    corr_end: i32,
     kind: SegmentErrorKind,
     location: &'static str,
+    src: &'static str,
 }
 
 impl fmt::Display for SegmentError {
@@ -344,16 +386,16 @@ impl fmt::Display for SegmentError {
                 format!("{} ({}))", x, delta)
             }
         };
-        let begin_text = offset_text(self.begin, self.corr.begin);
-        let end_text = offset_text(self.end, self.corr.end);
+        let begin_text = offset_text(self.begin, self.corr_begin);
+        let end_text = offset_text(self.end, self.corr_end);
         let kind_text = match &self.kind {
             SegmentErrorKind::Range => "Offset out of range",
             SegmentErrorKind::Inverted => "Begin after end",
         };
         write!(
             f,
-            "{kind_text} for {} segment; begin={begin_text}, end={end_text}",
-            self.location,
+            "{kind_text} for {} segment from {}; begin={begin_text}, end={end_text}",
+            self.location, self.src,
         )
     }
 }

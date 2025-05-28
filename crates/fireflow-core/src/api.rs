@@ -1141,7 +1141,7 @@ pub struct SegmentMismatchWarning<S> {
 
 impl<I> fmt::Display for SegmentMismatchWarning<I>
 where
-    I: SegmentHasLocation,
+    I: HasRegion,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
@@ -1149,7 +1149,7 @@ where
             "segments differ in HEADER ({}) and TEXT ({}) for {}, using TEXT",
             self.header.inner.fmt_pair(),
             self.text.inner.fmt_pair(),
-            I::NAME,
+            I::REGION,
         )
     }
 }
@@ -1158,14 +1158,14 @@ pub struct SegmentDefaultWarning<S>(S);
 
 impl<I> fmt::Display for SegmentDefaultWarning<I>
 where
-    I: SegmentHasLocation,
+    I: HasRegion,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             f,
             "could not obtain {} segment offset from TEXT, \
              using offsets from HEADER",
-            I::NAME,
+            I::REGION,
         )
     }
 }

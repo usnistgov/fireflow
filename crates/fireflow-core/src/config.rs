@@ -1,4 +1,5 @@
 use crate::header::Version;
+use crate::segment::*;
 use crate::validated::datepattern::DatePattern;
 use crate::validated::nonstandard::NonStdMeasPattern;
 use crate::validated::pattern::TimePattern;
@@ -12,10 +13,10 @@ pub struct DataReadConfig {
     pub standard: StdTextReadConfig,
 
     /// Corrections for DATA offsets in TEXT segment
-    pub data: OffsetCorrection,
+    pub data: OffsetCorrection<DataSegmentId, SegmentFromTEXT>,
 
     /// Corrections for ANALYSIS offsets in TEXT segment
-    pub analysis: OffsetCorrection,
+    pub analysis: OffsetCorrection<AnalysisSegmentId, SegmentFromTEXT>,
 
     /// Shared configuration options
     pub shared: SharedConfig,
@@ -73,19 +74,13 @@ pub struct HeaderConfig {
     pub version_override: Option<Version>,
 
     /// Corrections for primary TEXT segment
-    pub text: OffsetCorrection,
+    pub text: OffsetCorrection<PrimaryTextSegmentId, SegmentFromHeader>,
 
     /// Corrections for DATA segment
-    pub data: OffsetCorrection,
+    pub data: OffsetCorrection<DataSegmentId, SegmentFromHeader>,
 
     /// Corrections for ANALYSIS segment
-    pub analysis: OffsetCorrection,
-}
-
-#[derive(Default, Clone, Copy)]
-pub struct OffsetCorrection {
-    pub begin: i32,
-    pub end: i32,
+    pub analysis: OffsetCorrection<AnalysisSegmentId, SegmentFromHeader>,
 }
 
 /// Instructions for reading the TEXT segment as raw key/value pairs.
@@ -96,7 +91,7 @@ pub struct RawTextReadConfig {
     pub header: HeaderConfig,
 
     /// Corrections for supplemental TEXT segment
-    pub stext: OffsetCorrection,
+    pub stext: OffsetCorrection<SupplementalTextSegmentId, SegmentFromTEXT>,
 
     /// Will treat every delimiter as a literal delimiter rather than "escaping"
     /// double delimiters

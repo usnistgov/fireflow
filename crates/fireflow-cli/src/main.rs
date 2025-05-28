@@ -5,7 +5,7 @@ use fireflow_core::validated::datepattern::DatePattern;
 use fireflow_core::validated::nonstandard::NonStdMeasPattern;
 use fireflow_core::validated::pattern::*;
 
-use clap::{arg, value_parser, ArgMatches, Command};
+use clap::{arg, value_parser, Command};
 use serde::ser::Serialize;
 use std::fmt::Display;
 use std::path::PathBuf;
@@ -221,17 +221,17 @@ fn main() -> Result<(), ()> {
 
     let filepath = args.get_one::<PathBuf>("INPUT_PATH").unwrap();
 
-    let get_text_delta = |args: &ArgMatches| {
-        let mut begin = 0;
-        let mut end = 0;
-        if let Some(x) = args.get_one("begintext-delta") {
-            begin = *x
-        }
-        if let Some(x) = args.get_one("endtext-delta") {
-            end = *x
-        }
-        config::OffsetCorrection { begin, end }
-    };
+    // let get_text_delta = |args: &ArgMatches| {
+    //     let mut begin = 0;
+    //     let mut end = 0;
+    //     if let Some(x) = args.get_one("begintext-delta") {
+    //         begin = *x
+    //     }
+    //     if let Some(x) = args.get_one("endtext-delta") {
+    //         end = *x
+    //     }
+    //     config::OffsetCorrection::new(begin, end)
+    // };
 
     match args.subcommand() {
         Some(("header", _)) => {
@@ -243,8 +243,11 @@ fn main() -> Result<(), ()> {
 
         Some(("raw", sargs)) => {
             let mut conf = config::RawTextReadConfig::default();
-            get_text_delta(sargs);
-            conf.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
+            // get_text_delta(sargs);
+            conf = config::RawTextReadConfig {
+                repair_offset_spaces: sargs.get_flag("repair-offset-spaces"),
+                ..conf
+            };
             read_fcs_raw_text(filepath, &conf)
                 .map(handle_warnings)
                 .map(|raw| print_json(&raw))
@@ -253,7 +256,7 @@ fn main() -> Result<(), ()> {
 
         Some(("spillover", sargs)) => {
             let mut conf = config::StdTextReadConfig::default();
-            get_text_delta(sargs);
+            // get_text_delta(sargs);
             conf.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
             let delim = sargs.get_one::<String>("delimiter").unwrap();
 
@@ -265,7 +268,7 @@ fn main() -> Result<(), ()> {
 
         Some(("measurements", sargs)) => {
             let mut conf = config::StdTextReadConfig::default();
-            get_text_delta(sargs);
+            // get_text_delta(sargs);
             conf.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
             let delim = sargs.get_one::<String>("delimiter").unwrap();
 
@@ -277,7 +280,7 @@ fn main() -> Result<(), ()> {
 
         Some(("std", sargs)) => {
             let mut conf = config::StdTextReadConfig::default();
-            get_text_delta(sargs);
+            // get_text_delta(sargs);
 
             // TODO refactor
             if let Some(d) = sargs.get_one::<String>("date-pattern").cloned() {
@@ -312,7 +315,7 @@ fn main() -> Result<(), ()> {
         Some(("data", sargs)) => {
             let mut conf = config::DataReadConfig::default();
 
-            get_text_delta(sargs);
+            // get_text_delta(sargs);
             // TODO add DATA delta adjust
             conf.standard.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
             let delim = sargs.get_one::<String>("delimiter").unwrap();

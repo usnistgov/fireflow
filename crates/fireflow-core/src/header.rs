@@ -1,4 +1,4 @@
-use crate::config::{HeaderConfig, OffsetCorrection};
+use crate::config::HeaderConfig;
 use crate::error::*;
 use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
 use crate::segment::*;
@@ -99,7 +99,7 @@ fn parse_header(s: &str, conf: &HeaderConfig) -> MultiResult<Header, HeaderError
         })
 }
 
-fn parse_header_offset<I: SegmentHasLocation>(
+fn parse_header_offset<I: HasRegion>(
     s: &str,
     allow_blank: bool,
     is_begin: bool,
@@ -111,16 +111,16 @@ fn parse_header_offset<I: SegmentHasLocation>(
     trimmed.parse().map_err(|error| ParseOffsetError {
         error,
         is_begin,
-        location: I::NAME,
+        location: I::REGION,
         source: s.to_string(),
     })
 }
 
-fn parse_segment<I: SegmentHasLocation>(
+fn parse_segment<I: HasRegion>(
     s0: &str,
     s1: &str,
     allow_blank: bool,
-    corr: OffsetCorrection,
+    corr: OffsetCorrection<I, SegmentFromHeader>,
 ) -> MultiResult<SpecificSegment<I, SegmentFromHeader>, HeaderError> {
     let parse_one = |s, is_begin| {
         parse_header_offset::<I>(s, allow_blank, is_begin).map_err(HeaderSegmentError::Parse)

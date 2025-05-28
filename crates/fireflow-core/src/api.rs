@@ -332,8 +332,8 @@ pub fn read_fcs_std_file_from_raw(
         .warnings_into()
         .and_finally(|core| {
             let tot = std.remove(&Tot::std());
-            let kw_data_seg = TEXTSegment::lookup(&mut std, DataSegmentId);
-            let kw_anal_seg = TEXTSegment::lookup(&mut std, AnalysisSegmentId);
+            let kw_data_seg = TEXTSegment::lookup(&mut std);
+            let kw_anal_seg = TEXTSegment::lookup(&mut std);
             h_read_std_dataset_from_core(
                 &mut h,
                 core,
@@ -434,21 +434,21 @@ fn h_read_raw_dataset_from_raw<R: Read + Seek>(
     ReadRawDatasetError,
     ReadRawDatasetFailure,
 > {
-    let data_seg = TEXTSegment::lookup_cloned(std, DataSegmentId);
-    let anal_seg = TEXTSegment::lookup_cloned(std, AnalysisSegmentId);
+    let data_seg = TEXTSegment::lookup_cloned(std);
+    let anal_seg = TEXTSegment::lookup_cloned(std);
     let tnt_anal = lookup_analysis_offsets(anal_seg, conf, version, def_analysis_seg).inner_into();
 
     let reader_res = lookup_data_offsets(data_seg, conf, version, def_data_seg)
         .inner_into()
-        .and_maybe(|data_seg| {
-            kws_to_reader(version, std, data_seg, conf)
+        .and_maybe(|_data_seg| {
+            kws_to_reader(version, std, _data_seg, conf)
                 .inner_into()
-                .map_value(|reader| (reader, data_seg))
+                .map_value(|reader| (reader, _data_seg))
         });
 
     reader_res
         .and_tentatively(|x| tnt_anal.map(|y| (x, y)))
-        .and_maybe(|((reader, data_seg), analysis_seg)| {
+        .and_maybe(|((reader, _data_seg), analysis_seg)| {
             let data = reader
                 .h_read(h)
                 .map_err(|e| DeferredFailure::new1(e.into()))?;
@@ -457,7 +457,7 @@ fn h_read_raw_dataset_from_raw<R: Read + Seek>(
             let ret = RawParsedDataset {
                 data,
                 analysis,
-                data_seg,
+                data_seg: _data_seg,
                 analysis_seg,
             };
             Ok(Tentative::new1(ret))
@@ -465,6 +465,7 @@ fn h_read_raw_dataset_from_raw<R: Read + Seek>(
         .terminate(ReadRawDatasetFailure)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn h_read_std_dataset_from_core<R: Read + Seek>(
     h: &mut BufReader<R>,
     core: AnyCoreTEXT,
@@ -482,15 +483,15 @@ fn h_read_std_dataset_from_core<R: Read + Seek>(
 
     let reader_res = lookup_data_offsets(data_seg, conf, version, def_data_seg)
         .inner_into()
-        .and_maybe(|data_seg| {
-            core.as_data_reader(&tot, conf, data_seg)
+        .and_maybe(|_data_seg| {
+            core.as_data_reader(&tot, conf, _data_seg)
                 .inner_into()
-                .map_value(|reader| (reader, data_seg))
+                .map_value(|reader| (reader, _data_seg))
         });
 
     reader_res
         .and_tentatively(|x| tnt_anal.map(|y| (x, y)))
-        .and_maybe(|((reader, data_seg), analysis_seg)| {
+        .and_maybe(|((reader, _data_seg), analysis_seg)| {
             let columns = reader
                 .h_read(h)
                 .map_err(|e| DeferredFailure::new1(e.into()))?;
@@ -498,7 +499,7 @@ fn h_read_std_dataset_from_core<R: Read + Seek>(
                 h_read_analysis(h, analysis_seg).map_err(|e| DeferredFailure::new1(e.into()))?;
             let pd = ParsedDataset {
                 core: core.into_coredataset_unchecked(columns, analysis),
-                data_seg,
+                data_seg: _data_seg,
                 analysis_seg,
             };
             Ok(Tentative::new1(pd))
@@ -524,8 +525,8 @@ impl RawTEXT {
         AnyCoreTEXT::parse_raw(self.version, &mut kws.std, kws.nonstd, conf).term_map_value(
             |standardized| {
                 let tot = kws.std.remove(&Tot::std());
-                let kw_data_seg = TEXTSegment::lookup(&mut kws.std, DataSegmentId);
-                let kw_anal_seg = TEXTSegment::lookup(&mut kws.std, AnalysisSegmentId);
+                let kw_data_seg = TEXTSegment::lookup(&mut kws.std);
+                let kw_anal_seg = TEXTSegment::lookup(&mut kws.std);
                 StandardizedTEXT {
                     parse: self.parse,
                     standardized,
@@ -961,7 +962,7 @@ fn lookup_stext_offsets(
     version: Version,
     conf: &RawTextReadConfig,
 ) -> Tentative<Option<SupplementalTextSegment>, STextSegmentWarning, ReqSegmentError> {
-    let dws = TEXTSegment::lookup(kws, SupplementalTextSegmentId);
+    let dws = TEXTSegment::lookup(kws);
     match version {
         Version::FCS2_0 => Tentative::new1(None),
         Version::FCS3_0 | Version::FCS3_1 => TEXTSegment::req(dws, conf.stext).map_or_else(
@@ -1104,23 +1105,6 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
     )
 }
 
-fn split_remainder(xs: StdKeywords) -> (StdKeywords, StdKeywords) {
-    xs.into_iter()
-        .map(|(k, v)| {
-            if k == Tot::std()
-                || k == Begindata::std()
-                || k == Enddata::std()
-                || k == Beginanalysis::std()
-                || k == Endanalysis::std()
-            {
-                Ok((k, v))
-            } else {
-                Err((k, v))
-            }
-        })
-        .partition_result()
-}
-
 enum_from_disp!(
     pub DataSegmentError,
     [Req, ReqSegmentError],
@@ -1155,9 +1139,9 @@ pub struct SegmentMismatchWarning<S> {
     text: SpecificSegment<S, SegmentFromTEXT>,
 }
 
-impl<S> fmt::Display for SegmentMismatchWarning<S>
+impl<I> fmt::Display for SegmentMismatchWarning<I>
 where
-    S: fmt::Display,
+    I: SegmentHasLocation,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
@@ -1165,23 +1149,23 @@ where
             "segments differ in HEADER ({}) and TEXT ({}) for {}, using TEXT",
             self.header.inner.fmt_pair(),
             self.text.inner.fmt_pair(),
-            self.header.id(),
+            I::NAME,
         )
     }
 }
 
 pub struct SegmentDefaultWarning<S>(S);
 
-impl<S> fmt::Display for SegmentDefaultWarning<S>
+impl<I> fmt::Display for SegmentDefaultWarning<I>
 where
-    S: fmt::Display,
+    I: SegmentHasLocation,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             f,
             "could not obtain {} segment offset from TEXT, \
              using offsets from HEADER",
-            self.0
+            I::NAME,
         )
     }
 }

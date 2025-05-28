@@ -8,6 +8,7 @@ use serde::Serialize;
 use std::fmt;
 use std::io;
 use std::io::{BufReader, Read, Seek, SeekFrom};
+use std::marker::PhantomData;
 use std::num::ParseIntError;
 use std::str::FromStr;
 
@@ -22,7 +23,7 @@ pub struct Segment {
 #[derive(Clone, Copy, Serialize)]
 pub struct SpecificSegment<I, S> {
     pub inner: Segment,
-    id: I, // TODO it seems like this could just be phantom
+    _id: PhantomData<I>,
     src: S,
 }
 
@@ -41,15 +42,6 @@ pub struct SegmentFromHeader;
 /// Denotes a segment came from either TEXT
 #[derive(Debug, Clone, Copy, Serialize)]
 pub struct SegmentFromTEXT;
-
-enum_from_disp!(
-    /// Denotes the segment pertains to any region in the FCS file
-    pub SegmentId,
-    [PrimaryText, PrimaryTextSegmentId],
-    [SupplementalText, SupplementalTextSegmentId],
-    [Analysis, AnalysisSegmentId],
-    [Data, DataSegmentId]
-);
 
 /// Denotes the segment pertains to primary TEXT
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -81,14 +73,16 @@ pub type HeaderAnalysisSegment = AnalysisSegment<SegmentFromHeader>;
 pub type TEXTAnalysisSegment = AnalysisSegment<SegmentFromTEXT>;
 
 /// Intermediate store for TEXT keywords that might be parsed as a segment
-pub(crate) struct SegmentKeywords<I> {
-    pub(crate) begin: Option<String>,
-    pub(crate) end: Option<String>,
-    id: I,
+pub struct SegmentKeywords<I> {
+    pub begin: Option<String>,
+    pub end: Option<String>,
+    _id: PhantomData<I>,
 }
 
-pub(crate) trait TEXTSegment: Into<SegmentId>
+pub(crate) trait TEXTSegment
 where
+    Self: Sized,
+    Self: SegmentHasLocation,
     Self::B: Into<u32>,
     Self::E: Into<u32>,
     Self::B: Key,
@@ -101,19 +95,19 @@ where
     type B;
     type E;
 
-    fn lookup(kws: &mut StdKeywords, id: Self) -> SegmentKeywords<Self> {
+    fn lookup(kws: &mut StdKeywords) -> SegmentKeywords<Self> {
         SegmentKeywords {
             begin: kws.remove(&Self::B::std()),
             end: kws.remove(&Self::E::std()),
-            id,
+            _id: PhantomData,
         }
     }
 
-    fn lookup_cloned(kws: &StdKeywords, id: Self) -> SegmentKeywords<Self> {
+    fn lookup_cloned(kws: &StdKeywords) -> SegmentKeywords<Self> {
         SegmentKeywords {
             begin: kws.get(&Self::B::std()).cloned(),
             end: kws.get(&Self::E::std()).cloned(),
-            id,
+            _id: PhantomData,
         }
     }
 
@@ -129,8 +123,7 @@ where
         let x0 = parse_req::<Self::B>(&mut kws.begin).map_err(|e| e.into());
         let x1 = parse_req::<Self::E>(&mut kws.end).map_err(|e| e.into());
         x0.zip(x1).and_then(|(y0, y1)| {
-            SpecificSegment::try_new(y0.into(), y1.into(), corr, kws.id, SegmentFromTEXT)
-                .into_mult()
+            SpecificSegment::try_new(y0.into(), y1.into(), corr, SegmentFromTEXT).into_mult()
         })
     }
 
@@ -148,7 +141,7 @@ where
         x0.zip(x1).and_then(|(y0, y1)| {
             y0.zip(y1)
                 .map(|(z0, z1)| {
-                    SpecificSegment::try_new(z0.into(), z1.into(), corr, kws.id, SegmentFromTEXT)
+                    SpecificSegment::try_new(z0.into(), z1.into(), corr, SegmentFromTEXT)
                         .into_mult()
                 })
                 .transpose()
@@ -171,6 +164,26 @@ impl TEXTSegment for SupplementalTextSegmentId {
     type E = Endstext;
 }
 
+pub trait SegmentHasLocation {
+    const NAME: &'static str;
+}
+
+impl SegmentHasLocation for AnalysisSegmentId {
+    const NAME: &'static str = "ANALYSIS";
+}
+
+impl SegmentHasLocation for DataSegmentId {
+    const NAME: &'static str = "DATA";
+}
+
+impl SegmentHasLocation for SupplementalTextSegmentId {
+    const NAME: &'static str = "STEXT";
+}
+
+impl SegmentHasLocation for PrimaryTextSegmentId {
+    const NAME: &'static str = "TEXT";
+}
+
 enum_from_disp!(
     pub ReqSegmentError,
     [Key, ReqKeyError<ParseIntError>],
@@ -188,13 +201,16 @@ impl<I, S> SpecificSegment<I, S> {
         begin: u32,
         end: u32,
         corr: OffsetCorrection,
-        id: I,
         src: S,
     ) -> Result<Self, SegmentError>
     where
-        I: Into<SegmentId> + Copy,
+        I: SegmentHasLocation + Copy,
     {
-        Segment::try_new(begin, end, corr, id).map(|inner| Self { inner, id, src })
+        Segment::try_new::<I>(begin, end, corr).map(|inner| Self {
+            inner,
+            _id: PhantomData,
+            src,
+        })
     }
 
     pub fn into_any(self) -> SpecificSegment<I, SegmentFromAnywhere>
@@ -203,13 +219,9 @@ impl<I, S> SpecificSegment<I, S> {
     {
         SpecificSegment {
             inner: self.inner,
-            id: self.id,
+            _id: PhantomData,
             src: self.src.into(),
         }
-    }
-
-    pub fn id(&self) -> &I {
-        &self.id
     }
 }
 
@@ -226,11 +238,10 @@ impl Segment {
     /// As a consequence of the above, "unset segments" given as (0,0) are
     /// actually 1 byte long. There is no way to represent a zero-length segment
     /// starting at 0 unless we use signed ints.
-    pub fn try_new<I: Into<SegmentId>>(
+    pub fn try_new<I: SegmentHasLocation>(
         begin: u32,
         end: u32,
         corr: OffsetCorrection,
-        id: I,
     ) -> Result<Self, SegmentError> {
         let x = i64::from(begin) + i64::from(corr.begin);
         let y = i64::from(end) + i64::from(corr.end);
@@ -240,7 +251,7 @@ impl Segment {
                 end,
                 corr,
                 kind,
-                id: id.into(),
+                location: I::NAME,
             })
         };
         match (u32::try_from(x), u32::try_from(y)) {
@@ -268,8 +279,11 @@ impl Segment {
         Ok(())
     }
 
-    pub fn try_adjust(self, corr: OffsetCorrection, id: SegmentId) -> Result<Self, SegmentError> {
-        Self::try_new(self.begin, self.end(), corr, id)
+    pub fn try_adjust<I: SegmentHasLocation>(
+        self,
+        corr: OffsetCorrection,
+    ) -> Result<Self, SegmentError> {
+        Self::try_new::<I>(self.begin, self.end(), corr)
     }
 
     pub fn len(&self) -> u32 {
@@ -309,30 +323,6 @@ impl Segment {
     }
 }
 
-impl fmt::Display for PrimaryTextSegmentId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "TEXT")
-    }
-}
-
-impl fmt::Display for SupplementalTextSegmentId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "STEXT")
-    }
-}
-
-impl fmt::Display for AnalysisSegmentId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "ANALYSIS")
-    }
-}
-
-impl fmt::Display for DataSegmentId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "DATA")
-    }
-}
-
 #[derive(Debug)]
 pub enum SegmentErrorKind {
     Range,
@@ -344,7 +334,7 @@ pub struct SegmentError {
     end: u32,
     corr: OffsetCorrection,
     kind: SegmentErrorKind,
-    id: SegmentId,
+    location: &'static str,
 }
 
 impl fmt::Display for SegmentError {
@@ -365,7 +355,7 @@ impl fmt::Display for SegmentError {
         write!(
             f,
             "{kind_text} for {} segment; begin={begin_text}, end={end_text}",
-            self.id,
+            self.location,
         )
     }
 }

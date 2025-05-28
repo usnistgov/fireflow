@@ -85,9 +85,9 @@ fn parse_header(s: &str, conf: &HeaderConfig) -> MultiResult<Header, HeaderError
     } else {
         Ok(())
     };
-    let text_res = parse_segment(t0, t1, false, PrimaryTextSegmentId, conf.text);
-    let data_res = parse_segment(d0, d1, false, DataSegmentId, conf.data);
-    let anal_res = parse_segment(a0, a1, true, AnalysisSegmentId, conf.analysis);
+    let text_res = parse_segment(t0, t1, false, conf.text);
+    let data_res = parse_segment(d0, d1, false, conf.data);
+    let anal_res = parse_segment(a0, a1, true, conf.analysis);
     vers_res
         .zip_mult3(space_res, text_res)
         .zip_mult3(data_res, anal_res)
@@ -99,11 +99,10 @@ fn parse_header(s: &str, conf: &HeaderConfig) -> MultiResult<Header, HeaderError
         })
 }
 
-fn parse_header_offset<I: Copy + Into<SegmentId>>(
+fn parse_header_offset<I: Copy + SegmentHasLocation>(
     s: &str,
     allow_blank: bool,
     is_begin: bool,
-    id: I,
 ) -> Result<u32, ParseOffsetError> {
     let trimmed = s.trim_start();
     if allow_blank && trimmed.is_empty() {
@@ -112,27 +111,26 @@ fn parse_header_offset<I: Copy + Into<SegmentId>>(
     trimmed.parse().map_err(|error| ParseOffsetError {
         error,
         is_begin,
-        id: id.into(),
+        location: I::NAME,
         source: s.to_string(),
     })
 }
 
-fn parse_segment<I: Copy + Into<SegmentId>>(
+fn parse_segment<I: Copy + SegmentHasLocation>(
     s0: &str,
     s1: &str,
     allow_blank: bool,
-    id: I,
     corr: OffsetCorrection,
 ) -> MultiResult<SpecificSegment<I, SegmentFromHeader>, HeaderError> {
     let parse_one = |s, is_begin| {
-        parse_header_offset(s, allow_blank, is_begin, id).map_err(HeaderSegmentError::Parse)
+        parse_header_offset::<I>(s, allow_blank, is_begin).map_err(HeaderSegmentError::Parse)
     };
     let begin_res = parse_one(s0, true);
     let end_res = parse_one(s1, false);
     begin_res
         .zip(end_res)
         .and_then(|(begin, end)| {
-            SpecificSegment::try_new(begin, end, corr, id, SegmentFromHeader)
+            SpecificSegment::try_new(begin, end, corr, SegmentFromHeader)
                 .map_err(HeaderSegmentError::Segment)
                 .map_err(NonEmpty::new)
         })
@@ -191,7 +189,7 @@ enum_from_disp!(
 pub struct ParseOffsetError {
     error: ParseIntError,
     is_begin: bool,
-    id: SegmentId,
+    location: &'static str,
     source: String,
 }
 
@@ -201,7 +199,7 @@ impl fmt::Display for ParseOffsetError {
         write!(
             f,
             "parse error for {which} offset in {} segment from source '{}': {}",
-            self.id, self.source, self.error
+            self.location, self.source, self.error
         )
     }
 }

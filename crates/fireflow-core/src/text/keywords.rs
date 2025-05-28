@@ -1,10 +1,4 @@
-use crate::config::OffsetCorrection;
-use crate::error::*;
-use crate::macros::{
-    enum_from, enum_from_disp, match_many_to_one, newtype_disp, newtype_from, newtype_from_outer,
-    newtype_fromstr,
-};
-use crate::segment::*;
+use crate::macros::{newtype_disp, newtype_from, newtype_from_outer, newtype_fromstr};
 use crate::validated::nonstandard::*;
 use crate::validated::shortname::*;
 use crate::validated::standard::*;
@@ -30,29 +24,6 @@ use std::convert::Infallible;
 use std::fmt;
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::FromStr;
-
-// // these are only going to be used to impl standard keys so they don't need
-// // to store anything
-// /// $BEGINANALYSIS
-// pub struct Beginanalysis;
-
-// /// $BEGINDATA
-// pub struct Begindata;
-
-// /// $BEGINSTEXT
-// pub struct Beginstext;
-
-// /// $ENDANALYSIS
-// pub struct Endanalysis;
-
-// /// $ENDDATA
-// pub struct Enddata;
-
-// /// $ENDSTEXT
-// pub struct Endstext;
-
-// /// $NEXTDATA
-// pub struct Nextdata;
 
 /// The value of the $PnG keyword
 #[derive(Clone, Copy, Serialize, PartialEq)]
@@ -808,7 +779,7 @@ newtype_from!(DetectorVoltage, NonNegFloat);
 newtype_disp!(DetectorVoltage);
 newtype_fromstr!(DetectorVoltage, RangedFloatError);
 
-pub(crate) struct TotValue<'a>(pub(crate) Option<&'a str>);
+pub struct TotValue<'a>(pub Option<&'a str>);
 
 pub(crate) fn tot_req(s: &TotValue) -> ReqResult<Tot> {
     s.0.map_or(Err(ReqKeyError::Missing(Tot::std())), |v| {
@@ -965,9 +936,9 @@ where
     Self: FromStr,
     <Self as FromStr>::Err: fmt::Display,
 {
-    fn get_meta_opt(kws: &StdKeywords) -> OptKwResult<Self> {
-        Self::get_opt(kws, &Self::std())
-    }
+    // fn get_meta_opt(kws: &StdKeywords) -> OptKwResult<Self> {
+    //     Self::get_opt(kws, &Self::std())
+    // }
 
     fn remove_meta_opt(kws: &mut StdKeywords) -> OptKwResult<Self> {
         Self::remove_opt(kws, &Self::std())

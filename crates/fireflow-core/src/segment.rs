@@ -76,11 +76,20 @@ pub type HeaderSegment<I> = SpecificSegment<I, SegmentFromHeader>;
 pub type TEXTSegment<I> = SpecificSegment<I, SegmentFromTEXT>;
 pub type AnySegment<I> = SpecificSegment<I, SegmentFromAnywhere>;
 
+pub type HeaderCorrection<I> = OffsetCorrection<I, SegmentFromHeader>;
+pub type TEXTCorrection<I> = OffsetCorrection<I, SegmentFromTEXT>;
+
 #[derive(Clone, Copy)]
 pub struct SegmentFromAnywhere;
 
 pub type AnyDataSegment = DataSegment<SegmentFromAnywhere>;
 pub type AnyAnalysisSegment = AnalysisSegment<SegmentFromAnywhere>;
+
+pub(crate) type ReqSegResult<T> =
+    DeferredResult<AnySegment<T>, ReqSegmentWithDefaultWarning<T>, ReqSegmentWithDefaultError<T>>;
+
+pub(crate) type OptSegTentative<T> =
+    Tentative<AnySegment<T>, OptSegmentWithDefaultWarning<T>, SegmentMismatchWarning<T>>;
 
 /// Operations to obtain segment from TEXT keywords
 pub(crate) trait LookupSegment
@@ -101,78 +110,45 @@ where
 
     fn get_req_or(
         kws: &StdKeywords,
-        corr: OffsetCorrection<Self, SegmentFromTEXT>,
+        corr: TEXTCorrection<Self>,
         default: HeaderSegment<Self>,
         enforce_match: bool,
         enforce_lookup: bool,
-    ) -> DeferredResult<
-        AnySegment<Self>,
-        ReqSegmentWithDefaultWarning<Self>,
-        ReqSegmentWithDefaultError<Self>,
-    >
+    ) -> ReqSegResult<Self>
     where
         Self: Copy,
         Self::B: ReqMetaKey,
         Self::E: ReqMetaKey,
     {
-        Self::get_req(kws, corr)
-            .def_map_errors(ReqSegmentWithDefaultError::Req)
-            .map_or_else(
-                |f| {
-                    if enforce_lookup {
-                        Err(f)
-                    } else {
-                        let mut tnt = f.into_tentative(default.into_any());
-                        tnt.push_warning(SegmentDefaultWarning::default().into());
-                        Ok(tnt)
-                    }
-                },
-                |tnt| {
-                    Ok(tnt.and_tentatively(|other| {
-                        default.unless(other).map_or_else(
-                            |(s, w)| Tentative::new_either(s, vec![w], enforce_match),
-                            Tentative::new1,
-                        )
-                    }))
-                },
-            )
+        let res = Self::get_req(kws, corr).def_map_errors(ReqSegmentWithDefaultError::Req);
+        Self::req_default_or(res, default, enforce_lookup, enforce_match)
     }
 
     fn get_opt_or(
         kws: &StdKeywords,
-        corr: OffsetCorrection<Self, SegmentFromTEXT>,
+        corr: TEXTCorrection<Self>,
         default: HeaderSegment<Self>,
         enforce: bool,
-    ) -> Tentative<AnySegment<Self>, OptSegmentWithDefaultWarning<Self>, SegmentMismatchWarning<Self>>
+    ) -> OptSegTentative<Self>
     where
         Self: Copy,
         Self::B: OptMetaKey,
         Self::E: OptMetaKey,
     {
-        Self::get_opt(kws, corr)
-            .map_warnings(OptSegmentWithDefaultWarning::Opt)
-            .and_tentatively(|other| {
-                other.map_or(Tentative::new1(default.into_any()), |o| {
-                    default.unless(o).map_or_else(
-                        |(s, w)| Tentative::new_either(s, vec![w], enforce),
-                        Tentative::new1,
-                    )
-                })
-            })
+        let res = Self::get_opt(kws, corr).map_warnings(OptSegmentWithDefaultWarning::Opt);
+        Self::opt_default_or(res, default, enforce)
     }
 
     fn get_req<W>(
         kws: &StdKeywords,
-        corr: OffsetCorrection<Self, SegmentFromTEXT>,
+        corr: TEXTCorrection<Self>,
     ) -> DeferredResult<TEXTSegment<Self>, W, ReqSegmentError>
     where
         Self::B: ReqMetaKey,
         Self::E: ReqMetaKey,
     {
-        let x0 = Self::B::get_meta_req(kws).map_err(|e| e.into());
-        let x1 = Self::E::get_meta_req(kws).map_err(|e| e.into());
-        // TODO not DRY
-        x0.zip(x1)
+        Self::get_req_pair(kws)
+            .map_err(|es| es.map(|e| e.into()))
             .and_then(|(y0, y1)| {
                 SpecificSegment::try_new(y0.into(), y1.into(), corr, SegmentFromTEXT)
                     .into_mult::<ReqSegmentError>()
@@ -182,23 +158,20 @@ where
 
     fn get_opt<E>(
         kws: &StdKeywords,
-        corr: OffsetCorrection<Self, SegmentFromTEXT>,
+        corr: TEXTCorrection<Self>,
     ) -> Tentative<Option<TEXTSegment<Self>>, OptSegmentError, E>
     where
         Self::B: OptMetaKey,
         Self::E: OptMetaKey,
     {
-        let x0 = Self::B::get_meta_opt(kws).map_err(|e| e.into());
-        let x1 = Self::E::get_meta_opt(kws).map_err(|e| e.into());
-        // TODO this unwrap thing isn't totally necessary
-        x0.zip(x1)
-            .and_then(|(y0, y1)| {
-                y0.0.zip(y1.0)
-                    .map(|(z0, z1)| {
-                        SpecificSegment::try_new(z0.into(), z1.into(), corr, SegmentFromTEXT)
-                            .into_mult()
-                    })
-                    .transpose()
+        Self::get_opt_pair(kws)
+            .map_err(|es| es.map(|e| e.into()))
+            .and_then(|x| {
+                x.map(|(z0, z1)| {
+                    SpecificSegment::try_new(z0.into(), z1.into(), corr, SegmentFromTEXT)
+                        .into_mult()
+                })
+                .transpose()
             })
             .map_or_else(
                 |ws| Tentative::new(None, ws.into(), vec![]),
@@ -208,124 +181,189 @@ where
 
     fn remove_req_or(
         kws: &mut StdKeywords,
-        corr: OffsetCorrection<Self, SegmentFromTEXT>,
+        corr: TEXTCorrection<Self>,
         default: HeaderSegment<Self>,
         enforce_match: bool,
         enforce_lookup: bool,
-    ) -> DeferredResult<
-        AnySegment<Self>,
-        ReqSegmentWithDefaultWarning<Self>,
-        ReqSegmentWithDefaultError<Self>,
-    >
+    ) -> ReqSegResult<Self>
     where
         Self: Copy,
         Self::B: ReqMetaKey,
         Self::E: ReqMetaKey,
     {
-        Self::remove_req(kws, corr)
-            .def_map_errors(ReqSegmentWithDefaultError::Req)
-            .map_or_else(
-                |f| {
-                    if enforce_lookup {
-                        Err(f)
-                    } else {
-                        let mut tnt = f.into_tentative(default.into_any());
-                        tnt.push_warning(SegmentDefaultWarning::default().into());
-                        Ok(tnt)
-                    }
-                },
-                |tnt| {
-                    Ok(tnt.and_tentatively(|other| {
-                        default.unless(other).map_or_else(
-                            |(s, w)| Tentative::new_either(s, vec![w], enforce_match),
-                            Tentative::new1,
-                        )
-                    }))
-                },
-            )
+        let res = Self::remove_req(kws, corr).def_map_errors(ReqSegmentWithDefaultError::Req);
+        Self::req_default_or(res, default, enforce_lookup, enforce_match)
     }
 
     fn remove_opt_or(
         kws: &mut StdKeywords,
-        corr: OffsetCorrection<Self, SegmentFromTEXT>,
+        corr: TEXTCorrection<Self>,
         default: HeaderSegment<Self>,
         enforce: bool,
-    ) -> Tentative<AnySegment<Self>, OptSegmentWithDefaultWarning<Self>, SegmentMismatchWarning<Self>>
+    ) -> OptSegTentative<Self>
     where
         Self: Copy,
         Self::B: OptMetaKey,
         Self::E: OptMetaKey,
     {
-        Self::remove_opt(kws, corr)
-            .map_warnings(OptSegmentWithDefaultWarning::Opt)
-            .and_tentatively(|other| {
-                other.map_or(Tentative::new1(default.into_any()), |o| {
-                    default.unless(o).map_or_else(
-                        |(s, w)| Tentative::new_either(s, vec![w], enforce),
-                        Tentative::new1,
-                    )
-                })
-            })
+        let res = Self::remove_opt(kws, corr).map_warnings(OptSegmentWithDefaultWarning::Opt);
+        Self::opt_default_or(res, default, enforce)
     }
 
     fn remove_req<W>(
         kws: &mut StdKeywords,
-        corr: OffsetCorrection<Self, SegmentFromTEXT>,
+        corr: TEXTCorrection<Self>,
     ) -> DeferredResult<TEXTSegment<Self>, W, ReqSegmentError>
     where
         Self::B: ReqMetaKey,
         Self::E: ReqMetaKey,
     {
-        let x0 = Self::B::remove_meta_req(kws).map_err(|e| e.into());
-        let x1 = Self::E::remove_meta_req(kws).map_err(|e| e.into());
-        x0.zip(x1)
-            .and_then(|(y0, y1)| {
-                SpecificSegment::try_new(y0.into(), y1.into(), corr, SegmentFromTEXT)
-                    .into_mult::<ReqSegmentError>()
-            })
-            .mult_to_deferred()
+        Self::remove_req_mult(kws, corr).mult_to_deferred()
     }
 
     fn remove_req_mult(
         kws: &mut StdKeywords,
-        corr: OffsetCorrection<Self, SegmentFromTEXT>,
+        corr: TEXTCorrection<Self>,
     ) -> MultiResult<TEXTSegment<Self>, ReqSegmentError>
     where
         Self::B: ReqMetaKey,
         Self::E: ReqMetaKey,
     {
-        let x0 = Self::B::remove_meta_req(kws).map_err(|e| e.into());
-        let x1 = Self::E::remove_meta_req(kws).map_err(|e| e.into());
-        x0.zip(x1).and_then(|(y0, y1)| {
-            SpecificSegment::try_new(y0.into(), y1.into(), corr, SegmentFromTEXT)
-                .into_mult::<ReqSegmentError>()
-        })
+        Self::remove_req_pair(kws)
+            .map_err(|es| es.map(|e| e.into()))
+            .and_then(|(y0, y1)| {
+                SpecificSegment::try_new(y0.into(), y1.into(), corr, SegmentFromTEXT)
+                    .into_mult::<ReqSegmentError>()
+            })
     }
 
     fn remove_opt<E>(
         kws: &mut StdKeywords,
-        corr: OffsetCorrection<Self, SegmentFromTEXT>,
+        corr: TEXTCorrection<Self>,
     ) -> Tentative<Option<TEXTSegment<Self>>, OptSegmentError, E>
     where
         Self::B: OptMetaKey,
         Self::E: OptMetaKey,
     {
-        let x0 = Self::B::remove_meta_opt(kws).map_err(|e| e.into());
-        let x1 = Self::E::remove_meta_opt(kws).map_err(|e| e.into());
-        // TODO this unwrap thing isn't totally necessary
-        x0.zip(x1)
-            .and_then(|(y0, y1)| {
-                y0.0.zip(y1.0)
-                    .map(|(z0, z1)| {
-                        SpecificSegment::try_new(z0.into(), z1.into(), corr, SegmentFromTEXT)
-                            .into_mult()
-                    })
-                    .transpose()
+        Self::remove_opt_pair(kws)
+            .map_err(|es| es.map(|e| e.into()))
+            .and_then(|x| {
+                x.map(|(z0, z1)| {
+                    SpecificSegment::try_new(z0.into(), z1.into(), corr, SegmentFromTEXT)
+                        .into_mult()
+                })
+                .transpose()
             })
             .map_or_else(
                 |ws| Tentative::new(None, ws.into(), vec![]),
                 Tentative::new1,
             )
+    }
+
+    fn req_default_or(
+        res: DeferredResult<
+            TEXTSegment<Self>,
+            ReqSegmentWithDefaultWarning<Self>,
+            ReqSegmentWithDefaultError<Self>,
+        >,
+        default: HeaderSegment<Self>,
+        enforce_lookup: bool,
+        enforce_match: bool,
+    ) -> ReqSegResult<Self>
+    where
+        Self: Copy,
+    {
+        res.map_or_else(
+            |f| {
+                if enforce_lookup {
+                    Err(f)
+                } else {
+                    let mut tnt = f.into_tentative(default.into_any());
+                    tnt.push_warning(SegmentDefaultWarning::default().into());
+                    Ok(tnt)
+                }
+            },
+            |tnt| {
+                Ok(tnt.and_tentatively(|other| {
+                    default.unless(other).map_or_else(
+                        |(s, w)| Tentative::new_either(s, vec![w], enforce_match),
+                        Tentative::new1,
+                    )
+                }))
+            },
+        )
+    }
+
+    fn opt_default_or(
+        res: Tentative<
+            Option<TEXTSegment<Self>>,
+            OptSegmentWithDefaultWarning<Self>,
+            SegmentMismatchWarning<Self>,
+        >,
+        default: HeaderSegment<Self>,
+        enforce: bool,
+    ) -> OptSegTentative<Self>
+    where
+        Self: Copy,
+    {
+        res.and_tentatively(|other| {
+            other.map_or(Tentative::new1(default.into_any()), |o| {
+                default.unless(o).map_or_else(
+                    |(s, w)| Tentative::new_either(s, vec![w], enforce),
+                    Tentative::new1,
+                )
+            })
+        })
+    }
+
+    fn get_req_pair(
+        kws: &StdKeywords,
+    ) -> MultiResult<(Self::B, Self::E), ReqKeyError<ParseIntError>>
+    where
+        Self::B: ReqMetaKey,
+        Self::E: ReqMetaKey,
+    {
+        let x0 = Self::B::get_meta_req(kws);
+        let x1 = Self::E::get_meta_req(kws);
+        x0.zip(x1)
+    }
+
+    fn remove_req_pair(
+        kws: &mut StdKeywords,
+    ) -> MultiResult<(Self::B, Self::E), ReqKeyError<ParseIntError>>
+    where
+        Self::B: ReqMetaKey,
+        Self::E: ReqMetaKey,
+    {
+        let x0 = Self::B::remove_meta_req(kws);
+        let x1 = Self::E::remove_meta_req(kws);
+        x0.zip(x1)
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn get_opt_pair(
+        kws: &StdKeywords,
+    ) -> MultiResult<Option<(Self::B, Self::E)>, ParseKeyError<ParseIntError>>
+    where
+        Self::B: OptMetaKey,
+        Self::E: OptMetaKey,
+    {
+        let x0 = Self::B::get_meta_opt(kws).map(|x| x.0);
+        let x1 = Self::E::get_meta_opt(kws).map(|x| x.0);
+        x0.zip(x1).map(|(x, y)| x.zip(y))
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn remove_opt_pair(
+        kws: &mut StdKeywords,
+    ) -> MultiResult<Option<(Self::B, Self::E)>, ParseKeyError<ParseIntError>>
+    where
+        Self::B: OptMetaKey,
+        Self::E: OptMetaKey,
+    {
+        let x0 = Self::B::remove_meta_opt(kws).map(|x| x.0);
+        let x1 = Self::E::remove_meta_opt(kws).map(|x| x.0);
+        x0.zip(x1).map(|(x, y)| x.zip(y))
     }
 }
 

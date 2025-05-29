@@ -43,10 +43,10 @@ pub struct ReaderConfig {
     pub enforce_required_offsets: bool,
 
     /// Corrections for DATA offsets in TEXT segment
-    pub data: OffsetCorrection<DataSegmentId, SegmentFromTEXT>,
+    pub data: TEXTCorrection<DataSegmentId>,
 
     /// Corrections for ANALYSIS offsets in TEXT segment
-    pub analysis: OffsetCorrection<AnalysisSegmentId, SegmentFromTEXT>,
+    pub analysis: TEXTCorrection<AnalysisSegmentId>,
 }
 
 /// Configuration for writing an FCS file
@@ -92,13 +92,13 @@ pub struct HeaderConfig {
     pub version_override: Option<Version>,
 
     /// Corrections for primary TEXT segment
-    pub text: OffsetCorrection<PrimaryTextSegmentId, SegmentFromHeader>,
+    pub text: HeaderCorrection<PrimaryTextSegmentId>,
 
     /// Corrections for DATA segment
-    pub data: OffsetCorrection<DataSegmentId, SegmentFromHeader>,
+    pub data: HeaderCorrection<DataSegmentId>,
 
     /// Corrections for ANALYSIS segment
-    pub analysis: OffsetCorrection<AnalysisSegmentId, SegmentFromHeader>,
+    pub analysis: HeaderCorrection<AnalysisSegmentId>,
 }
 
 /// Instructions for reading the TEXT segment as raw key/value pairs.
@@ -109,7 +109,7 @@ pub struct RawTextReadConfig {
     pub header: HeaderConfig,
 
     /// Corrections for supplemental TEXT segment
-    pub stext: OffsetCorrection<SupplementalTextSegmentId, SegmentFromTEXT>,
+    pub stext: TEXTCorrection<SupplementalTextSegmentId>,
 
     /// Will treat every delimiter as a literal delimiter rather than "escaping"
     /// double delimiters
@@ -280,7 +280,6 @@ impl Strict for DataReadConfig {
             standard: StdTextReadConfig::set_strict_inner(self.standard),
             shared: SharedConfig::set_strict_inner(self.shared),
             reader: ReaderConfig::set_strict_inner(self.reader),
-            ..self
         }
     }
 }

@@ -12,15 +12,16 @@ pub struct DataReadConfig {
     /// Instructions to read and standardize TEXT.
     pub standard: StdTextReadConfig,
 
-    /// Corrections for DATA offsets in TEXT segment
-    pub data: OffsetCorrection<DataSegmentId, SegmentFromTEXT>,
-
-    /// Corrections for ANALYSIS offsets in TEXT segment
-    pub analysis: OffsetCorrection<AnalysisSegmentId, SegmentFromTEXT>,
-
     /// Shared configuration options
     pub shared: SharedConfig,
 
+    /// Configuration to make reader for DATA and ANALYSIS
+    pub reader: ReaderConfig,
+}
+
+/// Instructions for reading the DATA/ANALYSIS segments
+#[derive(Default, Clone)]
+pub struct ReaderConfig {
     /// If true, throw error when total event width does not evenly divide
     /// the DATA segment. Meaningless for delimited ASCII data.
     pub enforce_data_width_divisibility: bool,
@@ -40,6 +41,12 @@ pub struct DataReadConfig {
     /// Only applies to DATA and ANALYSIS offsets in versions 3.0 and 3.1. If
     /// missing these will be taken from HEADER.
     pub enforce_required_offsets: bool,
+
+    /// Corrections for DATA offsets in TEXT segment
+    pub data: OffsetCorrection<DataSegmentId, SegmentFromTEXT>,
+
+    /// Corrections for ANALYSIS offsets in TEXT segment
+    pub analysis: OffsetCorrection<AnalysisSegmentId, SegmentFromTEXT>,
 }
 
 /// Configuration for writing an FCS file
@@ -272,6 +279,15 @@ impl Strict for DataReadConfig {
         Self {
             standard: StdTextReadConfig::set_strict_inner(self.standard),
             shared: SharedConfig::set_strict_inner(self.shared),
+            reader: ReaderConfig::set_strict_inner(self.reader),
+            ..self
+        }
+    }
+}
+
+impl Strict for ReaderConfig {
+    fn set_strict_inner(self) -> Self {
+        Self {
             enforce_data_width_divisibility: true,
             enforce_matching_tot: true,
             enforce_offset_match: true,

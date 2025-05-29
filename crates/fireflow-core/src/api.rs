@@ -488,7 +488,7 @@ fn h_read_dataset_from_kws<R: Read + Seek>(
     let data_res = kws_to_data_reader(version, kws, data_seg, conf)
         .def_inner_into()
         .def_errors_liftio();
-    let analysis_res = kws_to_analysis_reader(version, kws, analysis_seg, conf)
+    let analysis_res = kws_to_analysis_reader(version, kws, analysis_seg, &conf.reader)
         .def_inner_into()
         .def_errors_liftio();
     data_res.def_zip(analysis_res).def_and_maybe(|(dr, ar)| {
@@ -585,20 +585,21 @@ fn kws_to_data_reader(
     seg: HeaderDataSegment,
     conf: &DataReadConfig,
 ) -> DeferredResult<DataReader, RawToReaderWarning, RawToReaderError> {
-    let sc = &conf.shared;
+    let cs = &conf.shared;
+    let cr = &conf.reader;
     match version {
-        Version::FCS2_0 => DataLayout2_0::try_new_from_raw(kws, sc)
+        Version::FCS2_0 => DataLayout2_0::try_new_from_raw(kws, cs)
             .def_inner_into()
-            .def_and_maybe(|dl| dl.into_data_reader_raw(kws, seg, conf).def_inner_into()),
-        Version::FCS3_0 => DataLayout3_0::try_new_from_raw(kws, sc)
+            .def_and_maybe(|dl| dl.into_data_reader_raw(kws, seg, cr).def_inner_into()),
+        Version::FCS3_0 => DataLayout3_0::try_new_from_raw(kws, cs)
             .def_inner_into()
-            .def_and_maybe(|dl| dl.into_data_reader_raw(kws, seg, conf).def_inner_into()),
-        Version::FCS3_1 => DataLayout3_1::try_new_from_raw(kws, sc)
+            .def_and_maybe(|dl| dl.into_data_reader_raw(kws, seg, cr).def_inner_into()),
+        Version::FCS3_1 => DataLayout3_1::try_new_from_raw(kws, cs)
             .def_inner_into()
-            .def_and_maybe(|dl| dl.into_data_reader_raw(kws, seg, conf).def_inner_into()),
-        Version::FCS3_2 => DataLayout3_2::try_new_from_raw(kws, sc)
+            .def_and_maybe(|dl| dl.into_data_reader_raw(kws, seg, cr).def_inner_into()),
+        Version::FCS3_2 => DataLayout3_2::try_new_from_raw(kws, cs)
             .def_inner_into()
-            .def_and_maybe(|dl| dl.into_data_reader_raw(kws, seg, conf).def_inner_into()),
+            .def_and_maybe(|dl| dl.into_data_reader_raw(kws, seg, cr).def_inner_into()),
     }
 }
 
@@ -606,7 +607,7 @@ fn kws_to_analysis_reader(
     version: Version,
     kws: &StdKeywords,
     seg: HeaderAnalysisSegment,
-    conf: &DataReadConfig,
+    conf: &ReaderConfig,
 ) -> AnalysisReaderResult {
     match version {
         Version::FCS2_0 => DataLayout2_0::as_analysis_reader_raw(kws, seg, conf).def_inner_into(),

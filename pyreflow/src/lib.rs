@@ -500,16 +500,18 @@ fn py_read_fcs_file(
 
     let conf = DataReadConfig {
         standard,
-        data: OffsetCorrection::new(text_begin_data, text_end_data),
         shared: SharedConfig {
             bitmask_notruncate,
             warnings_are_errors,
         },
-        analysis: OffsetCorrection::new(text_begin_analysis, text_end_analysis),
-        enforce_data_width_divisibility,
-        enforce_matching_tot,
-        enforce_offset_match,
-        enforce_required_offsets,
+        reader: ReaderConfig {
+            enforce_data_width_divisibility,
+            enforce_matching_tot,
+            enforce_offset_match,
+            enforce_required_offsets,
+            data: OffsetCorrection::new(text_begin_data, text_end_data),
+            analysis: OffsetCorrection::new(text_begin_analysis, text_end_analysis),
+        },
     };
 
     let out: StdDatasetOutput = fcs_read_std_dataset(&p, &conf.set_strict(strict))

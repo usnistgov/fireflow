@@ -1,4 +1,4 @@
-use crate::config::{DataReadConfig, SharedConfig, WriteConfig};
+use crate::config::{ReaderConfig, SharedConfig, WriteConfig};
 use crate::core::*;
 use crate::error::*;
 use crate::macros::{enum_from, enum_from_disp, match_many_to_one, newtype_disp, newtype_from};
@@ -54,26 +54,26 @@ pub trait VersionedDataLayout: Sized {
         self,
         kws: &mut StdKeywords,
         seg: HeaderDataSegment,
-        conf: &DataReadConfig,
+        conf: &ReaderConfig,
     ) -> DataReaderResult;
 
     fn into_data_reader_raw(
         self,
         kws: &StdKeywords,
         seg: HeaderDataSegment,
-        conf: &DataReadConfig,
+        conf: &ReaderConfig,
     ) -> DataReaderResult;
 
     fn as_analysis_reader(
         kws: &mut StdKeywords,
         seg: HeaderAnalysisSegment,
-        conf: &DataReadConfig,
+        conf: &ReaderConfig,
     ) -> AnalysisReaderResult;
 
     fn as_analysis_reader_raw(
         kws: &StdKeywords,
         seg: HeaderAnalysisSegment,
-        conf: &DataReadConfig,
+        conf: &ReaderConfig,
     ) -> AnalysisReaderResult;
 
     fn as_writer<'a>(
@@ -1417,7 +1417,7 @@ where
     pub fn into_col_reader_inner(
         self,
         seg: AnyDataSegment,
-        conf: &DataReadConfig,
+        conf: &ReaderConfig,
     ) -> Tentative<AlphaNumReader, UnevenEventWidth, UnevenEventWidth> {
         let n = seg.inner.len() as usize;
         let w = self.event_width();
@@ -1441,7 +1441,7 @@ where
         self,
         seg: AnyDataSegment,
         tot: Tot,
-        conf: &DataReadConfig,
+        conf: &ReaderConfig,
     ) -> Tentative<ColumnReader, W, E>
     where
         W: From<UnevenEventWidth>,
@@ -1932,7 +1932,7 @@ impl AnyUintLayout {
     fn into_col_reader_inner(
         self,
         seg: AnyDataSegment,
-        conf: &DataReadConfig,
+        conf: &ReaderConfig,
     ) -> Tentative<AlphaNumReader, UnevenEventWidth, UnevenEventWidth> {
         match_many_to_one!(
             self,
@@ -1947,7 +1947,7 @@ impl AnyUintLayout {
         self,
         seg: AnyDataSegment,
         tot: Tot,
-        conf: &DataReadConfig,
+        conf: &ReaderConfig,
     ) -> Tentative<ColumnReader, W, E>
     where
         W: From<UnevenEventWidth>,
@@ -2061,7 +2061,7 @@ impl AsciiLayout {
         self,
         seg: AnyDataSegment,
         kw_tot: Option<Tot>,
-        conf: &DataReadConfig,
+        conf: &ReaderConfig,
     ) -> Tentative<ColumnReader, UnevenEventWidth, UnevenEventWidth> {
         let nbytes = seg.inner.len() as usize;
         match self {
@@ -2078,7 +2078,7 @@ impl AsciiLayout {
         self,
         seg: AnyDataSegment,
         tot: Tot,
-        conf: &DataReadConfig,
+        conf: &ReaderConfig,
     ) -> Tentative<ColumnReader, W, E>
     where
         W: From<UnevenEventWidth>,
@@ -2105,7 +2105,7 @@ impl FloatLayout {
     fn into_col_reader_inner(
         self,
         seg: AnyDataSegment,
-        conf: &DataReadConfig,
+        conf: &ReaderConfig,
     ) -> Tentative<AlphaNumReader, UnevenEventWidth, UnevenEventWidth> {
         match_many_to_one!(self, Self, [F32, F64], l, {
             l.into_col_reader_inner(seg, conf)
@@ -2116,7 +2116,7 @@ impl FloatLayout {
         self,
         seg: AnyDataSegment,
         tot: Tot,
-        conf: &DataReadConfig,
+        conf: &ReaderConfig,
     ) -> Tentative<ColumnReader, W, E>
     where
         W: From<UnevenEventWidth>,
@@ -2207,7 +2207,7 @@ impl VersionedDataLayout for DataLayout2_0 {
         self,
         kws: &mut StdKeywords,
         seg: HeaderDataSegment,
-        conf: &DataReadConfig,
+        conf: &ReaderConfig,
     ) -> DataReaderResult {
         let any_seg = seg.into_any();
         let go = |tnt: Tentative<AlphaNumReader, _, _>, maybe_tot| {
@@ -2244,7 +2244,7 @@ impl VersionedDataLayout for DataLayout2_0 {
         self,
         kws: &StdKeywords,
         seg: HeaderDataSegment,
-        conf: &DataReadConfig,
+        conf: &ReaderConfig,
     ) -> DataReaderResult {
         let any_seg = seg.into_any();
         let go = |tnt: Tentative<AlphaNumReader, _, _>, maybe_tot| {
@@ -2280,7 +2280,7 @@ impl VersionedDataLayout for DataLayout2_0 {
     fn as_analysis_reader(
         _: &mut StdKeywords,
         seg: HeaderAnalysisSegment,
-        _: &DataReadConfig,
+        _: &ReaderConfig,
     ) -> AnalysisReaderResult {
         Ok(Tentative::new1(AnalysisReader {
             seg: seg.into_any(),
@@ -2290,7 +2290,7 @@ impl VersionedDataLayout for DataLayout2_0 {
     fn as_analysis_reader_raw(
         _: &StdKeywords,
         seg: HeaderAnalysisSegment,
-        _: &DataReadConfig,
+        _: &ReaderConfig,
     ) -> AnalysisReaderResult {
         Ok(Tentative::new1(AnalysisReader {
             seg: seg.into_any(),
@@ -2364,7 +2364,7 @@ impl VersionedDataLayout for DataLayout3_0 {
         self,
         kws: &mut StdKeywords,
         seg: HeaderDataSegment,
-        conf: &DataReadConfig,
+        conf: &ReaderConfig,
     ) -> DataReaderResult {
         let tot = Tot::remove_meta_req(kws).map_err(|e| DeferredFailure::new1(e.into()))?;
         LookupSegment::remove_req_or(
@@ -2390,7 +2390,7 @@ impl VersionedDataLayout for DataLayout3_0 {
         self,
         kws: &StdKeywords,
         seg: HeaderDataSegment,
-        conf: &DataReadConfig,
+        conf: &ReaderConfig,
     ) -> DataReaderResult {
         let tot = Tot::get_meta_req(kws).map_err(|e| DeferredFailure::new1(e.into()))?;
         LookupSegment::get_req_or(
@@ -2415,7 +2415,7 @@ impl VersionedDataLayout for DataLayout3_0 {
     fn as_analysis_reader(
         kws: &mut StdKeywords,
         seg: HeaderAnalysisSegment,
-        conf: &DataReadConfig,
+        conf: &ReaderConfig,
     ) -> AnalysisReaderResult {
         LookupSegment::remove_req_or(
             kws,
@@ -2431,7 +2431,7 @@ impl VersionedDataLayout for DataLayout3_0 {
     fn as_analysis_reader_raw(
         kws: &StdKeywords,
         seg: HeaderAnalysisSegment,
-        conf: &DataReadConfig,
+        conf: &ReaderConfig,
     ) -> AnalysisReaderResult {
         LookupSegment::get_req_or(
             kws,
@@ -2512,7 +2512,7 @@ impl VersionedDataLayout for DataLayout3_1 {
         self,
         kws: &mut StdKeywords,
         seg: HeaderDataSegment,
-        conf: &DataReadConfig,
+        conf: &ReaderConfig,
     ) -> DataReaderResult {
         let tot = Tot::remove_meta_req(kws).map_err(|e| DeferredFailure::new1(e.into()))?;
         LookupSegment::remove_req_or(
@@ -2538,7 +2538,7 @@ impl VersionedDataLayout for DataLayout3_1 {
         self,
         kws: &StdKeywords,
         seg: HeaderDataSegment,
-        conf: &DataReadConfig,
+        conf: &ReaderConfig,
     ) -> DataReaderResult {
         let tot = Tot::get_meta_req(kws).map_err(|e| DeferredFailure::new1(e.into()))?;
         LookupSegment::get_req_or(
@@ -2563,7 +2563,7 @@ impl VersionedDataLayout for DataLayout3_1 {
     fn as_analysis_reader(
         kws: &mut StdKeywords,
         seg: HeaderAnalysisSegment,
-        conf: &DataReadConfig,
+        conf: &ReaderConfig,
     ) -> AnalysisReaderResult {
         LookupSegment::remove_req_or(
             kws,
@@ -2579,7 +2579,7 @@ impl VersionedDataLayout for DataLayout3_1 {
     fn as_analysis_reader_raw(
         kws: &StdKeywords,
         seg: HeaderAnalysisSegment,
-        conf: &DataReadConfig,
+        conf: &ReaderConfig,
     ) -> AnalysisReaderResult {
         LookupSegment::get_req_or(
             kws,
@@ -2715,7 +2715,7 @@ impl VersionedDataLayout for DataLayout3_2 {
         self,
         kws: &mut StdKeywords,
         seg: HeaderDataSegment,
-        conf: &DataReadConfig,
+        conf: &ReaderConfig,
     ) -> DataReaderResult {
         let tot = Tot::remove_meta_req(kws).map_err(|e| DeferredFailure::new1(e.into()))?;
         LookupSegment::remove_req_or(
@@ -2742,7 +2742,7 @@ impl VersionedDataLayout for DataLayout3_2 {
         self,
         kws: &StdKeywords,
         seg: HeaderDataSegment,
-        conf: &DataReadConfig,
+        conf: &ReaderConfig,
     ) -> DataReaderResult {
         let tot = Tot::get_meta_req(kws).map_err(|e| DeferredFailure::new1(e.into()))?;
         LookupSegment::get_req_or(
@@ -2768,7 +2768,7 @@ impl VersionedDataLayout for DataLayout3_2 {
     fn as_analysis_reader(
         kws: &mut StdKeywords,
         seg: HeaderAnalysisSegment,
-        conf: &DataReadConfig,
+        conf: &ReaderConfig,
     ) -> AnalysisReaderResult {
         let ret = LookupSegment::remove_opt_or(kws, conf.analysis, seg, conf.enforce_offset_match)
             .map(|s| AnalysisReader { seg: s })
@@ -2779,7 +2779,7 @@ impl VersionedDataLayout for DataLayout3_2 {
     fn as_analysis_reader_raw(
         kws: &StdKeywords,
         seg: HeaderAnalysisSegment,
-        conf: &DataReadConfig,
+        conf: &ReaderConfig,
     ) -> AnalysisReaderResult {
         let ret = LookupSegment::get_opt_or(kws, conf.analysis, seg, conf.enforce_offset_match)
             .map(|s| AnalysisReader { seg: s })

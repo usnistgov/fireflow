@@ -2583,12 +2583,13 @@ where
                     .def_errors_liftio()
                     .def_and_maybe(|layout: M::L| {
                         let data_res = layout
-                            .into_data_reader(kws, data_seg, conf)
+                            .into_data_reader(kws, data_seg, &conf.reader)
                             .def_inner_into()
                             .def_errors_liftio();
-                        let analysis_res = M::L::as_analysis_reader(kws, analysis_seg, conf)
-                            .def_inner_into()
-                            .def_errors_liftio();
+                        let analysis_res =
+                            M::L::as_analysis_reader(kws, analysis_seg, &conf.reader)
+                                .def_inner_into()
+                                .def_errors_liftio();
                         data_res.def_zip(analysis_res).def_and_maybe(|(dr, ar)| {
                             h_read_data_and_analysis(h, dr, ar)
                                 .map(|(data, analysis, d_seg, a_seg)| {

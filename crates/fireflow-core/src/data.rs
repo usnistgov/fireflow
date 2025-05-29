@@ -2807,22 +2807,6 @@ impl VersionedDataLayout for DataLayout3_2 {
     }
 }
 
-// fn lookup_data_segment(
-//     kws: &mut StdKeywords,
-//     other: HeaderDataSegment,
-//     corr: OffsetCorrection<DataSegmentId, SegmentFromTEXT>,
-//     enforce: bool,
-// ) -> DeferredResult<AnyDataSegment, NewDataReaderWarning, NewDataReaderError> {
-//     LookupSegment::remove_req(kws, corr)
-//         .error_into()
-//         .and_tentatively(|text_seg| {
-//             other.unless(text_seg).map_or_else(
-//                 |(s, w)| Tentative::new_either(s, vec![w], enforce),
-//                 Tentative::new1,
-//             )
-//         })
-// }
-
 #[allow(clippy::type_complexity)]
 fn kws_get_layout_2_0(
     kws: &StdKeywords,
@@ -3039,11 +3023,6 @@ enum_from_disp!(
     [Req, ReqSegmentWithDefaultWarning<AnalysisSegmentId>]
 );
 
-// enum_from_disp!(
-//     pub NewFixedReaderIssue,
-//     [Uneven, UnevenEventWidth]
-// );
-
 pub struct TotEventMismatch {
     tot: Tot,
     total_events: usize,
@@ -3096,18 +3075,6 @@ pub struct ColumnError<E> {
 }
 
 type FromRawResult<T> = DeferredResult<T, RawToLayoutWarning, RawToLayoutError>;
-
-enum_from_disp!(
-    pub RawToReaderError,
-    [Layout, RawToLayoutError],
-    [Reader, NewDataReaderError]
-);
-
-enum_from_disp!(
-    pub RawToReaderWarning,
-    [Layout, RawToLayoutWarning],
-    [Reader, NewDataReaderWarning]
-);
 
 enum_from_disp!(
     pub RawToLayoutError,

@@ -372,6 +372,18 @@ enum_from_disp!(
 );
 
 enum_from_disp!(
+    pub RawToReaderError,
+    [Layout, RawToLayoutError],
+    [Reader, NewDataReaderError]
+);
+
+enum_from_disp!(
+    pub RawToReaderWarning,
+    [Layout, RawToLayoutWarning],
+    [Reader, NewDataReaderWarning]
+);
+
+enum_from_disp!(
     pub STextSegmentWarning,
     [ReqSegment, ReqSegmentError],
     [OptSegment, OptSegmentError]

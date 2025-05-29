@@ -781,60 +781,6 @@ newtype_fromstr!(DetectorVoltage, RangedFloatError);
 
 pub struct TotValue<'a>(pub Option<&'a str>);
 
-pub(crate) fn tot_req(s: &TotValue) -> ReqResult<Tot> {
-    s.0.map_or(Err(ReqKeyError::Missing(Tot::std())), |v| {
-        v.parse()
-            .map_err(|error| ParseKeyError {
-                error,
-                key: Tot::std(),
-                value: v.to_string(),
-            })
-            .map_err(ReqKeyError::Parse)
-    })
-}
-
-pub(crate) fn tot_opt(s: &TotValue) -> OptResult<Tot> {
-    s.0.map(|v| {
-        v.parse().map_err(|error| ParseKeyError {
-            error,
-            key: Tot::std(),
-            value: v.to_string(),
-        })
-    })
-    .transpose()
-}
-
-pub(crate) fn parse_req<T>(s: &mut Option<String>) -> ReqResult<T>
-where
-    T: ReqMetaKey,
-    <T as FromStr>::Err: fmt::Display,
-{
-    Option::take(s).map_or(Err(ReqKeyError::Missing(Tot::std())), |v| {
-        parse_kw::<T>(v).map_err(ReqKeyError::Parse)
-    })
-}
-
-pub(crate) fn parse_opt<T>(s: &mut Option<String>) -> OptResult<T>
-where
-    T: OptMetaKey,
-    <T as FromStr>::Err: fmt::Display,
-{
-    Option::take(s).map(parse_kw).transpose()
-}
-
-pub(crate) fn parse_kw<T>(v: String) -> Result<T, ParseKeyError<<T as FromStr>::Err>>
-where
-    T: Key,
-    T: FromStr,
-    <T as FromStr>::Err: fmt::Display,
-{
-    v.parse().map_err(|error| ParseKeyError {
-        error,
-        key: T::std(),
-        value: v,
-    })
-}
-
 pub(crate) type RawKeywords = HashMap<String, String>;
 pub(crate) type OptKwResult<T> = Result<OptionalKw<T>, ParseKeyError<<T as FromStr>::Err>>;
 

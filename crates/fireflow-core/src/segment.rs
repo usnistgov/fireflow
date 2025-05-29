@@ -201,7 +201,7 @@ where
                     .transpose()
             })
             .map_or_else(
-                |ws| Tentative::new(None.into(), ws.into(), vec![]),
+                |ws| Tentative::new(None, ws.into(), vec![]),
                 Tentative::new1,
             )
     }
@@ -323,7 +323,7 @@ where
                     .transpose()
             })
             .map_or_else(
-                |ws| Tentative::new(None.into(), ws.into(), vec![]),
+                |ws| Tentative::new(None, ws.into(), vec![]),
                 Tentative::new1,
             )
     }

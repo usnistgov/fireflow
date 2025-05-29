@@ -1503,7 +1503,8 @@ where
     /// Return None if primary TEXT does not fit into first 99,999,999 bytes.
     fn text_segment(&self, tot: Tot, data_len: usize, analysis_len: usize) -> Option<Vec<String>> {
         self.header_and_raw_keywords(tot, data_len, analysis_len)
-            .map(|(header, kws)| {
+            // TODO do something useful with nextdata offset (the "_" thing)
+            .map(|(header, kws, _)| {
                 let version = M::P::fcs_version();
                 let flat: Vec<_> = kws.into_iter().flat_map(|(k, v)| [k, v]).collect();
                 [format!("{version}{header}")]
@@ -2038,7 +2039,7 @@ where
         tot: Tot,
         data_len: usize,
         analysis_len: usize,
-    ) -> Option<(String, RawKeywords)> {
+    ) -> Option<(String, RawKeywords, usize)> {
         let version = M::P::fcs_version();
         let tot_pair = (Tot::std().to_string(), tot.to_string());
 
@@ -2068,6 +2069,7 @@ where
                 .into_iter()
                 .chain(req_opt_kws)
                 .collect(),
+            offset_result.real_nextdata,
         ))
     }
 

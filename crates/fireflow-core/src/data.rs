@@ -549,9 +549,9 @@ impl<X> DelimColumnWriter<'_, X> {
 }
 
 /// Instructions and buffers to read the DATA segment
-pub(crate) struct DataReader {
-    pub(crate) column_reader: ColumnReader,
-    pub(crate) seg: AnyDataSegment,
+pub struct DataReader {
+    pub column_reader: ColumnReader,
+    pub seg: AnyDataSegment,
 }
 
 /// Instructions to read one column in the DATA segment.
@@ -1430,8 +1430,7 @@ where
                 event_width: w,
                 nbytes: n,
                 remainder,
-            }
-            .into();
+            };
             Tentative::new_either(r, vec![i], conf.enforce_data_width_divisibility)
         } else {
             Tentative::new1(r)
@@ -2385,14 +2384,14 @@ impl VersionedDataLayout for DataLayout3_0 {
             conf.standard.raw.enforce_required_offsets,
         )
         .def_inner_into()
-        .def_and_tentatively(|seg| {
+        .def_and_tentatively(|_seg| {
             match self {
-                Self::Ascii(a) => a.into_col_reader(seg, tot, conf),
-                Self::Integer(fl) => fl.into_col_reader(seg, tot, conf),
-                Self::Float(fl) => fl.into_col_reader(seg, tot, conf),
+                Self::Ascii(a) => a.into_col_reader(_seg, tot, conf),
+                Self::Integer(fl) => fl.into_col_reader(_seg, tot, conf),
+                Self::Float(fl) => fl.into_col_reader(_seg, tot, conf),
                 Self::Empty => Tentative::new1(ColumnReader::Empty),
             }
-            .map(|r| r.into_data_reader(seg))
+            .map(|r| r.into_data_reader(_seg))
         })
     }
 
@@ -2411,14 +2410,14 @@ impl VersionedDataLayout for DataLayout3_0 {
             conf.standard.raw.enforce_required_offsets,
         )
         .def_inner_into()
-        .def_and_tentatively(|seg| {
+        .def_and_tentatively(|_seg| {
             match self {
-                Self::Ascii(a) => a.into_col_reader(seg, tot, conf),
-                Self::Integer(fl) => fl.into_col_reader(seg, tot, conf),
-                Self::Float(fl) => fl.into_col_reader(seg, tot, conf),
+                Self::Ascii(a) => a.into_col_reader(_seg, tot, conf),
+                Self::Integer(fl) => fl.into_col_reader(_seg, tot, conf),
+                Self::Float(fl) => fl.into_col_reader(_seg, tot, conf),
                 Self::Empty => Tentative::new1(ColumnReader::Empty),
             }
-            .map(|r| r.into_data_reader(seg))
+            .map(|r| r.into_data_reader(_seg))
         })
     }
 
@@ -2533,14 +2532,14 @@ impl VersionedDataLayout for DataLayout3_1 {
             conf.standard.raw.enforce_required_offsets,
         )
         .def_inner_into()
-        .def_and_tentatively(|seg| {
+        .def_and_tentatively(|_seg| {
             match self {
-                Self::Ascii(a) => a.into_col_reader(seg, tot, conf),
-                Self::Integer(fl) => fl.into_col_reader(seg, tot, conf),
-                Self::Float(fl) => fl.into_col_reader(seg, tot, conf),
+                Self::Ascii(a) => a.into_col_reader(_seg, tot, conf),
+                Self::Integer(fl) => fl.into_col_reader(_seg, tot, conf),
+                Self::Float(fl) => fl.into_col_reader(_seg, tot, conf),
                 Self::Empty => Tentative::new1(ColumnReader::Empty),
             }
-            .map(|r| r.into_data_reader(seg))
+            .map(|r| r.into_data_reader(_seg))
         })
     }
 
@@ -2559,14 +2558,14 @@ impl VersionedDataLayout for DataLayout3_1 {
             conf.standard.raw.enforce_required_offsets,
         )
         .def_inner_into()
-        .def_and_tentatively(|seg| {
+        .def_and_tentatively(|_seg| {
             match self {
-                Self::Ascii(a) => a.into_col_reader(seg, tot, conf),
-                Self::Integer(fl) => fl.into_col_reader(seg, tot, conf),
-                Self::Float(fl) => fl.into_col_reader(seg, tot, conf),
+                Self::Ascii(a) => a.into_col_reader(_seg, tot, conf),
+                Self::Integer(fl) => fl.into_col_reader(_seg, tot, conf),
+                Self::Float(fl) => fl.into_col_reader(_seg, tot, conf),
                 Self::Empty => Tentative::new1(ColumnReader::Empty),
             }
-            .map(|r| r.into_data_reader(seg))
+            .map(|r| r.into_data_reader(_seg))
         })
     }
 
@@ -2736,15 +2735,15 @@ impl VersionedDataLayout for DataLayout3_2 {
             conf.standard.raw.enforce_required_offsets,
         )
         .def_inner_into()
-        .def_and_tentatively(|seg| {
+        .def_and_tentatively(|_seg| {
             match self {
-                Self::Ascii(a) => a.into_col_reader(seg, tot, conf),
-                Self::Integer(fl) => fl.into_col_reader(seg, tot, conf),
-                Self::Float(fl) => fl.into_col_reader(seg, tot, conf),
-                Self::Mixed(fl) => fl.into_col_reader(seg, tot, conf),
+                Self::Ascii(a) => a.into_col_reader(_seg, tot, conf),
+                Self::Integer(fl) => fl.into_col_reader(_seg, tot, conf),
+                Self::Float(fl) => fl.into_col_reader(_seg, tot, conf),
+                Self::Mixed(fl) => fl.into_col_reader(_seg, tot, conf),
                 Self::Empty => Tentative::new1(ColumnReader::Empty),
             }
-            .map(|r| r.into_data_reader(seg))
+            .map(|r| r.into_data_reader(_seg))
         })
     }
 
@@ -2763,15 +2762,15 @@ impl VersionedDataLayout for DataLayout3_2 {
             conf.standard.raw.enforce_required_offsets,
         )
         .def_inner_into()
-        .def_and_tentatively(|seg| {
+        .def_and_tentatively(|_seg| {
             match self {
-                Self::Ascii(a) => a.into_col_reader(seg, tot, conf),
-                Self::Integer(fl) => fl.into_col_reader(seg, tot, conf),
-                Self::Float(fl) => fl.into_col_reader(seg, tot, conf),
-                Self::Mixed(fl) => fl.into_col_reader(seg, tot, conf),
+                Self::Ascii(a) => a.into_col_reader(_seg, tot, conf),
+                Self::Integer(fl) => fl.into_col_reader(_seg, tot, conf),
+                Self::Float(fl) => fl.into_col_reader(_seg, tot, conf),
+                Self::Mixed(fl) => fl.into_col_reader(_seg, tot, conf),
                 Self::Empty => Tentative::new1(ColumnReader::Empty),
             }
-            .map(|r| r.into_data_reader(seg))
+            .map(|r| r.into_data_reader(_seg))
         })
     }
 
@@ -3005,8 +3004,7 @@ pub struct WrongFloatWidth {
     pub expected: usize,
 }
 
-pub(crate) type DataReaderResult =
-    DeferredResult<DataReader, NewDataReaderWarning, NewDataReaderError>;
+pub type DataReaderResult = DeferredResult<DataReader, NewDataReaderWarning, NewDataReaderError>;
 
 enum_from_disp!(
     pub NewDataReaderError,
@@ -3193,18 +3191,6 @@ impl fmt::Display for BitmaskError {
         }
     }
 }
-
-// impl fmt::Display for AnyLossError {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-//         let s = match self {
-//             // TODO this error is basically meaningless
-//             AnyLossError::DataType => "loss occurred when converting to different type",
-//             AnyLossError::Chars => "loss occurred when truncating ASCII string to required width",
-//             AnyLossError::Bitmask => "loss occurred when applying bitmask to integer",
-//         };
-//         write!(f, "{}", s)
-//     }
-// }
 
 impl fmt::Display for RowsExceededError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {

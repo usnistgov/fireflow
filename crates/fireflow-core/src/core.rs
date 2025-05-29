@@ -334,14 +334,6 @@ impl AnyCoreTEXT {
             }
         }
     }
-
-    pub(crate) fn into_coredataset_unchecked(
-        self,
-        df: FCSDataFrame,
-        a: Analysis,
-    ) -> AnyCoreDataset {
-        match_anycore!(self, x, { x.into_coredataset_unchecked(df, a).into() })
-    }
 }
 
 impl AnyCoreDataset {
@@ -2407,55 +2399,6 @@ where
     ///
     /// Return any errors encountered, including messing required keywords,
     /// parse errors, and/or deprecation warnings.
-    // pub(crate) fn new_text_from_raw(
-    //     kws: &mut StdKeywords,
-    //     nonstd: NonStdKeywords,
-    //     conf: &StdTextReadConfig,
-    // ) -> TerminalResult<Self, LookupMeasWarning, ParseKeysError, CoreTEXTFailure>
-    // where
-    //     M: LookupMetadata,
-    //     M::T: LookupTemporal,
-    //     M::P: LookupOptical,
-    // {
-    //     // Lookup $PAR first since we need this to get the measurements
-    //     let par = Par::remove_meta_req(kws)
-    //         .map_err(|e| TerminalFailure::new_single(CoreTEXTFailure::NoPar(e)))?;
-
-    //     // Lookup measurements and metadata with $PAR
-    //     let tp = conf.time.pattern.as_ref();
-    //     let sp = &conf.shortname_prefix;
-    //     let nsp = conf.nonstandard_measurement_pattern.as_ref();
-    //     let ns: Vec<_> = nonstd.into_iter().collect();
-    //     let mut tnt_core = Self::lookup_measurements(kws, par, tp, sp, nsp, ns)
-    //         .and_maybe(|(ms, meta_ns)| {
-    //             Metadata::lookup_metadata(kws, &ms, meta_ns)
-    //                 .map_value(|metadata| CoreTEXT::new_unchecked(metadata, ms))
-    //                 .warning_into()
-    //         })
-    //         .map_err(|e| e.terminate(CoreTEXTFailure::Keywords))?;
-
-    //     // Check that the time measurement is present if we want it
-    //     tnt_core.eval_error(|core| {
-    //         if let Some(pat) = tp {
-    //             if conf.time.ensure && core.measurements.as_center().is_none() {
-    //                 return Some(ParseKeysError::Other(MissingTime(pat.clone()).into()));
-    //             }
-    //         }
-    //         None
-    //     });
-
-    //     // make sure keywords which refer to $PnN are valid, if not then this
-    //     // fails because the API assumes these are valid and provides no way
-    //     // to fix otherwise.
-    //     tnt_core
-    //         .and_maybe(|core| {
-    //             core.check_linked_names()
-    //                 .into_deferred1()
-    //                 .map_value(|_| core)
-    //         })
-    //         .terminate(CoreTEXTFailure::Linked)
-    // }
-
     pub(crate) fn new_text_from_raw(
         kws: &mut StdKeywords,
         nonstd: NonStdKeywords,
@@ -2645,19 +2588,18 @@ where
                             .def_inner_into()
                             .def_errors_liftio();
                         data_res.def_zip(analysis_res).def_and_maybe(|(dr, ar)| {
-                            let d_seg = dr.seg;
-                            let data = dr
-                                .h_read(h)
-                                .map_err(|e| DeferredFailure::new1(e.inner_into()))?;
-                            let analysis =
-                                ar.h_read(h).map_err(|e| DeferredFailure::new1(e.into()))?;
-                            let dataset = Core {
-                                metadata: text.metadata,
-                                measurements: text.measurements,
-                                data,
-                                analysis,
-                            };
-                            Ok(Tentative::new1((dataset, d_seg, ar.seg)))
+                            h_read_data_and_analysis(h, dr, ar)
+                                .map(|(data, analysis, d_seg, a_seg)| {
+                                    let c = Core {
+                                        metadata: text.metadata,
+                                        measurements: text.measurements,
+                                        data,
+                                        analysis,
+                                    };
+                                    (c, d_seg, a_seg)
+                                })
+                                .into_deferred::<_, StdDatasetFromRawWarning>()
+                                .def_io_into()
                         })
                     })
             })

@@ -1904,14 +1904,22 @@ impl AnyUintLayout {
             .def_and_maybe(|b| {
                 if let Some(bytes) = b {
                     match u8::from(bytes) {
-                        1 => u8::layout_ordered(rs, o, notrunc).def_map_value(|x| x.map(Self::Uint08)),
-                        2 => u16::layout_ordered(rs, o, notrunc).def_map_value(|x| x.map(Self::Uint16)),
-                        3 => u32::layout_ordered(rs, o, notrunc).def_map_value(|x| x.map(Self::Uint24)),
-                        4 => u32::layout_ordered(rs, o, notrunc).def_map_value(|x| x.map(Self::Uint32)),
-                        5 => u64::layout_ordered(rs, o, notrunc).def_map_value(|x| x.map(Self::Uint40)),
-                        6 => u64::layout_ordered(rs, o, notrunc).def_map_value(|x| x.map(Self::Uint48)),
-                        7 => u64::layout_ordered(rs, o, notrunc).def_map_value(|x| x.map(Self::Uint56)),
-                        8 => u64::layout_ordered(rs, o, notrunc).def_map_value(|x| x.map(Self::Uint64)),
+                        1 => u8::layout_ordered(rs, o, notrunc)
+                            .def_map_value(|x| x.map(Self::Uint08)),
+                        2 => u16::layout_ordered(rs, o, notrunc)
+                            .def_map_value(|x| x.map(Self::Uint16)),
+                        3 => u32::layout_ordered(rs, o, notrunc)
+                            .def_map_value(|x| x.map(Self::Uint24)),
+                        4 => u32::layout_ordered(rs, o, notrunc)
+                            .def_map_value(|x| x.map(Self::Uint32)),
+                        5 => u64::layout_ordered(rs, o, notrunc)
+                            .def_map_value(|x| x.map(Self::Uint40)),
+                        6 => u64::layout_ordered(rs, o, notrunc)
+                            .def_map_value(|x| x.map(Self::Uint48)),
+                        7 => u64::layout_ordered(rs, o, notrunc)
+                            .def_map_value(|x| x.map(Self::Uint56)),
+                        8 => u64::layout_ordered(rs, o, notrunc)
+                            .def_map_value(|x| x.map(Self::Uint64)),
                         _ => unreachable!(),
                     }
                     .def_errors_into()
@@ -2686,9 +2694,10 @@ impl VersionedDataLayout for DataLayout3_2 {
             .map_err(RawParsedError::from)
             .into_deferred();
         let cs = kws_get_columns_3_2(kws).def_inner_into();
-        d.def_zip3(e, cs).def_and_maybe(|(datatype, endian, columns)| {
-            Self::try_new(datatype, endian, columns, conf).def_inner_into()
-        })
+        d.def_zip3(e, cs)
+            .def_and_maybe(|(datatype, endian, columns)| {
+                Self::try_new(datatype, endian, columns, conf).def_inner_into()
+            })
     }
 
     fn ncols(&self) -> usize {
@@ -2882,6 +2891,18 @@ fn kws_get_columns_3_2(
         .gather()
         .map_err(DeferredFailure::mconcat)
         .map(Tentative::mconcat)
+}
+
+pub(crate) fn h_read_data_and_analysis<R: Read + Seek>(
+    h: &mut BufReader<R>,
+    data_reader: DataReader,
+    analysis_reader: AnalysisReader,
+) -> Result<(FCSDataFrame, Analysis, AnyDataSegment, AnyAnalysisSegment), ImpureError<ReadDataError>>
+{
+    let dseg = data_reader.seg;
+    let data = data_reader.h_read(h)?;
+    let analysis = analysis_reader.h_read(h)?;
+    Ok((data, analysis, dseg, analysis_reader.seg))
 }
 
 enum_from_disp!(

@@ -472,8 +472,7 @@ fn h_read_dataset_from_kws<R: Read + Seek>(
     data_seg: HeaderDataSegment,
     analysis_seg: HeaderAnalysisSegment,
     conf: &DataReadConfig,
-) -> DeferredResult<RawDatasetWithKwsOutput, ReadRawDatasetWarning, ImpureError<DatasetWithKwsError>>
-{
+) -> IODeferredResult<RawDatasetWithKwsOutput, ReadRawDatasetWarning, DatasetWithKwsError> {
     let data_res = kws_to_data_reader(version, kws, data_seg, conf)
         .def_inner_into()
         .def_errors_liftio();
@@ -491,18 +490,6 @@ fn h_read_dataset_from_kws<R: Read + Seek>(
             .into_deferred()
             .def_map_errors(|e: ImpureError<ReadDataError>| e.inner_into())
     })
-}
-
-fn h_read_data_and_analysis<R: Read + Seek>(
-    h: &mut BufReader<R>,
-    data_reader: DataReader,
-    analysis_reader: AnalysisReader,
-) -> Result<(FCSDataFrame, Analysis, AnyDataSegment, AnyAnalysisSegment), ImpureError<ReadDataError>>
-{
-    let dseg = data_reader.seg;
-    let data = data_reader.h_read(h)?;
-    let analysis = analysis_reader.h_read(h)?;
-    Ok((data, analysis, dseg, analysis_reader.seg))
 }
 
 impl RawTEXTOutput {

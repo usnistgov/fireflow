@@ -1955,15 +1955,13 @@ impl AnyUintLayout {
         W: From<TotEventMismatch>,
         E: From<TotEventMismatch>,
     {
-        self.into_col_reader_inner(seg, conf)
-            .inner_into()
-            .and_tentatively(|reader| {
-                reader
-                    .check_tot(tot, conf.enforce_matching_tot)
-                    .map(|_| reader)
-                    .inner_into()
-            })
-            .map(ColumnReader::AlphaNum)
+        match_many_to_one!(
+            self,
+            Self,
+            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+            l,
+            { l.into_col_reader(seg, tot, conf) }
+        )
     }
 
     fn as_writer<'a>(
@@ -2109,10 +2107,9 @@ impl FloatLayout {
         seg: AnyDataSegment,
         conf: &DataReadConfig,
     ) -> Tentative<AlphaNumReader, UnevenEventWidth, UnevenEventWidth> {
-        match self {
-            FloatLayout::F32(l) => l.into_col_reader_inner(seg, conf),
-            FloatLayout::F64(l) => l.into_col_reader_inner(seg, conf),
-        }
+        match_many_to_one!(self, Self, [F32, F64], l, {
+            l.into_col_reader_inner(seg, conf)
+        })
     }
 
     fn into_col_reader<W, E>(
@@ -2127,15 +2124,9 @@ impl FloatLayout {
         W: From<TotEventMismatch>,
         E: From<TotEventMismatch>,
     {
-        self.into_col_reader_inner(seg, conf)
-            .inner_into()
-            .and_tentatively(|reader| {
-                reader
-                    .check_tot(tot, conf.enforce_matching_tot)
-                    .map(|_| reader)
-                    .inner_into()
-            })
-            .map(ColumnReader::AlphaNum)
+        match_many_to_one!(self, Self, [F32, F64], l, {
+            l.into_col_reader(seg, tot, conf)
+        })
     }
 
     fn as_writer<'a>(

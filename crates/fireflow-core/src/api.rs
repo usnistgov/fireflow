@@ -608,7 +608,7 @@ fn kws_to_analysis_reader(
     kws: &StdKeywords,
     seg: HeaderAnalysisSegment,
     conf: &ReaderConfig,
-) -> AnalysisReaderResult {
+) -> AnalysisReaderResult<AnalysisReader> {
     match version {
         Version::FCS2_0 => DataLayout2_0::as_analysis_reader_raw(kws, seg, conf).def_inner_into(),
         Version::FCS3_0 => DataLayout3_0::as_analysis_reader_raw(kws, seg, conf).def_inner_into(),

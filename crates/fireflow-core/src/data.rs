@@ -55,26 +55,26 @@ pub trait VersionedDataLayout: Sized {
         kws: &mut StdKeywords,
         seg: HeaderDataSegment,
         conf: &ReaderConfig,
-    ) -> DataReaderResult;
+    ) -> DataReaderResult<DataReader>;
 
     fn into_data_reader_raw(
         self,
         kws: &StdKeywords,
         seg: HeaderDataSegment,
         conf: &ReaderConfig,
-    ) -> DataReaderResult;
+    ) -> DataReaderResult<DataReader>;
 
     fn as_analysis_reader(
         kws: &mut StdKeywords,
         seg: HeaderAnalysisSegment,
         conf: &ReaderConfig,
-    ) -> AnalysisReaderResult;
+    ) -> AnalysisReaderResult<AnalysisReader>;
 
     fn as_analysis_reader_raw(
         kws: &StdKeywords,
         seg: HeaderAnalysisSegment,
         conf: &ReaderConfig,
-    ) -> AnalysisReaderResult;
+    ) -> AnalysisReaderResult<AnalysisReader>;
 
     fn as_writer<'a>(
         &self,
@@ -2208,36 +2208,15 @@ impl VersionedDataLayout for DataLayout2_0 {
         kws: &mut StdKeywords,
         seg: HeaderDataSegment,
         conf: &ReaderConfig,
-    ) -> DataReaderResult {
-        let any_seg = seg.into_any();
-        let go = |tnt: Tentative<AlphaNumReader, _, _>, maybe_tot| {
-            tnt.inner_into()
-                .and_tentatively(|reader| {
-                    if let Some(tot) = maybe_tot {
-                        reader
-                            .check_tot(tot, conf.enforce_matching_tot)
-                            .inner_into()
-                            .map(|_| reader)
-                    } else {
-                        Tentative::new1(reader)
-                    }
-                })
-                .map(ColumnReader::AlphaNum)
-        };
-        let tnt_reader = match Tot::remove_meta_opt(kws).map(|x| x.0) {
-            Ok(value) => Tentative::new1(value),
-            Err(w) => Tentative::new(None, vec![w.into()], vec![]),
-        }
-        .and_tentatively(|maybe_tot| match self {
-            Self::Ascii(a) => a
-                .into_col_reader_maybe_rows(any_seg, maybe_tot, conf)
-                .inner_into(),
-            Self::Integer(fl) => go(fl.into_col_reader_inner(any_seg, conf), maybe_tot),
-            Self::Float(fl) => go(fl.into_col_reader_inner(any_seg, conf), maybe_tot),
-            Self::Empty => Tentative::new1(ColumnReader::Empty),
-        })
-        .map(|r| r.into_data_reader(any_seg));
-        Ok(tnt_reader)
+    ) -> DataReaderResult<DataReader> {
+        let out = Tot::remove_meta_opt(kws)
+            .map(|x| x.0)
+            .map_or_else(
+                |w| Tentative::new(None, vec![w.into()], vec![]),
+                Tentative::new1,
+            )
+            .and_tentatively(|maybe_tot| self.into_reader(maybe_tot, seg.into_any(), conf));
+        Ok(out)
     }
 
     fn into_data_reader_raw(
@@ -2245,43 +2224,22 @@ impl VersionedDataLayout for DataLayout2_0 {
         kws: &StdKeywords,
         seg: HeaderDataSegment,
         conf: &ReaderConfig,
-    ) -> DataReaderResult {
-        let any_seg = seg.into_any();
-        let go = |tnt: Tentative<AlphaNumReader, _, _>, maybe_tot| {
-            tnt.inner_into()
-                .and_tentatively(|reader| {
-                    if let Some(tot) = maybe_tot {
-                        reader
-                            .check_tot(tot, conf.enforce_matching_tot)
-                            .inner_into()
-                            .map(|_| reader)
-                    } else {
-                        Tentative::new1(reader)
-                    }
-                })
-                .map(ColumnReader::AlphaNum)
-        };
-        let tnt_reader = match Tot::get_meta_opt(kws).map(|x| x.0) {
-            Ok(value) => Tentative::new1(value),
-            Err(w) => Tentative::new(None, vec![w.into()], vec![]),
-        }
-        .and_tentatively(|maybe_tot| match self {
-            Self::Ascii(a) => a
-                .into_col_reader_maybe_rows(any_seg, maybe_tot, conf)
-                .inner_into(),
-            Self::Integer(fl) => go(fl.into_col_reader_inner(any_seg, conf), maybe_tot),
-            Self::Float(fl) => go(fl.into_col_reader_inner(any_seg, conf), maybe_tot),
-            Self::Empty => Tentative::new1(ColumnReader::Empty),
-        })
-        .map(|r| r.into_data_reader(any_seg));
-        Ok(tnt_reader)
+    ) -> DataReaderResult<DataReader> {
+        let out = Tot::get_meta_opt(kws)
+            .map(|x| x.0)
+            .map_or_else(
+                |w| Tentative::new(None, vec![w.into()], vec![]),
+                Tentative::new1,
+            )
+            .and_tentatively(|maybe_tot| self.into_reader(maybe_tot, seg.into_any(), conf));
+        Ok(out)
     }
 
     fn as_analysis_reader(
         _: &mut StdKeywords,
         seg: HeaderAnalysisSegment,
         _: &ReaderConfig,
-    ) -> AnalysisReaderResult {
+    ) -> AnalysisReaderResult<AnalysisReader> {
         Ok(Tentative::new1(AnalysisReader {
             seg: seg.into_any(),
         }))
@@ -2291,7 +2249,7 @@ impl VersionedDataLayout for DataLayout2_0 {
         _: &StdKeywords,
         seg: HeaderAnalysisSegment,
         _: &ReaderConfig,
-    ) -> AnalysisReaderResult {
+    ) -> AnalysisReaderResult<AnalysisReader> {
         Ok(Tentative::new1(AnalysisReader {
             seg: seg.into_any(),
         }))
@@ -2365,16 +2323,9 @@ impl VersionedDataLayout for DataLayout3_0 {
         kws: &mut StdKeywords,
         seg: HeaderDataSegment,
         conf: &ReaderConfig,
-    ) -> DataReaderResult {
-        remove_tot_data_seg(kws, seg, conf).def_and_tentatively(|(tot, _seg)| {
-            match self {
-                Self::Ascii(a) => a.into_col_reader(_seg, tot, conf),
-                Self::Integer(fl) => fl.into_col_reader(_seg, tot, conf),
-                Self::Float(fl) => fl.into_col_reader(_seg, tot, conf),
-                Self::Empty => Tentative::new1(ColumnReader::Empty),
-            }
-            .map(|r| r.into_data_reader(_seg))
-        })
+    ) -> DataReaderResult<DataReader> {
+        remove_tot_data_seg(kws, seg, conf)
+            .def_and_tentatively(|(tot, any_seg)| self.into_reader(tot, any_seg, conf))
     }
 
     fn into_data_reader_raw(
@@ -2382,48 +2333,25 @@ impl VersionedDataLayout for DataLayout3_0 {
         kws: &StdKeywords,
         seg: HeaderDataSegment,
         conf: &ReaderConfig,
-    ) -> DataReaderResult {
-        get_tot_data_seg(kws, seg, conf).def_and_tentatively(|(tot, _seg)| {
-            match self {
-                Self::Ascii(a) => a.into_col_reader(_seg, tot, conf),
-                Self::Integer(fl) => fl.into_col_reader(_seg, tot, conf),
-                Self::Float(fl) => fl.into_col_reader(_seg, tot, conf),
-                Self::Empty => Tentative::new1(ColumnReader::Empty),
-            }
-            .map(|r| r.into_data_reader(_seg))
-        })
+    ) -> DataReaderResult<DataReader> {
+        get_tot_data_seg(kws, seg, conf)
+            .def_and_tentatively(|(tot, any_seg)| self.into_reader(tot, any_seg, conf))
     }
 
     fn as_analysis_reader(
         kws: &mut StdKeywords,
         seg: HeaderAnalysisSegment,
         conf: &ReaderConfig,
-    ) -> AnalysisReaderResult {
-        LookupSegment::remove_req_or(
-            kws,
-            conf.analysis,
-            seg,
-            conf.enforce_offset_match,
-            conf.enforce_required_offsets,
-        )
-        .def_inner_into()
-        .def_map_value(|s| AnalysisReader { seg: s })
+    ) -> AnalysisReaderResult<AnalysisReader> {
+        remove_analysis_seg_req(kws, seg, conf)
     }
 
     fn as_analysis_reader_raw(
         kws: &StdKeywords,
         seg: HeaderAnalysisSegment,
         conf: &ReaderConfig,
-    ) -> AnalysisReaderResult {
-        LookupSegment::get_req_or(
-            kws,
-            conf.analysis,
-            seg,
-            conf.enforce_offset_match,
-            conf.enforce_required_offsets,
-        )
-        .def_inner_into()
-        .def_map_value(|s| AnalysisReader { seg: s })
+    ) -> AnalysisReaderResult<AnalysisReader> {
+        get_analysis_seg_req(kws, seg, conf)
     }
 }
 
@@ -2495,16 +2423,9 @@ impl VersionedDataLayout for DataLayout3_1 {
         kws: &mut StdKeywords,
         seg: HeaderDataSegment,
         conf: &ReaderConfig,
-    ) -> DataReaderResult {
-        remove_tot_data_seg(kws, seg, conf).def_and_tentatively(|(tot, _seg)| {
-            match self {
-                Self::Ascii(a) => a.into_col_reader(_seg, tot, conf),
-                Self::Integer(fl) => fl.into_col_reader(_seg, tot, conf),
-                Self::Float(fl) => fl.into_col_reader(_seg, tot, conf),
-                Self::Empty => Tentative::new1(ColumnReader::Empty),
-            }
-            .map(|r| r.into_data_reader(_seg))
-        })
+    ) -> DataReaderResult<DataReader> {
+        remove_tot_data_seg(kws, seg, conf)
+            .def_and_tentatively(|(tot, any_seg)| self.into_reader(tot, any_seg, conf))
     }
 
     fn into_data_reader_raw(
@@ -2512,48 +2433,25 @@ impl VersionedDataLayout for DataLayout3_1 {
         kws: &StdKeywords,
         seg: HeaderDataSegment,
         conf: &ReaderConfig,
-    ) -> DataReaderResult {
-        get_tot_data_seg(kws, seg, conf).def_and_tentatively(|(tot, _seg)| {
-            match self {
-                Self::Ascii(a) => a.into_col_reader(_seg, tot, conf),
-                Self::Integer(fl) => fl.into_col_reader(_seg, tot, conf),
-                Self::Float(fl) => fl.into_col_reader(_seg, tot, conf),
-                Self::Empty => Tentative::new1(ColumnReader::Empty),
-            }
-            .map(|r| r.into_data_reader(_seg))
-        })
+    ) -> DataReaderResult<DataReader> {
+        get_tot_data_seg(kws, seg, conf)
+            .def_and_tentatively(|(tot, any_seg)| self.into_reader(tot, any_seg, conf))
     }
 
     fn as_analysis_reader(
         kws: &mut StdKeywords,
         seg: HeaderAnalysisSegment,
         conf: &ReaderConfig,
-    ) -> AnalysisReaderResult {
-        LookupSegment::remove_req_or(
-            kws,
-            conf.analysis,
-            seg,
-            conf.enforce_offset_match,
-            conf.enforce_required_offsets,
-        )
-        .def_inner_into()
-        .def_map_value(|s| AnalysisReader { seg: s })
+    ) -> AnalysisReaderResult<AnalysisReader> {
+        remove_analysis_seg_req(kws, seg, conf)
     }
 
     fn as_analysis_reader_raw(
         kws: &StdKeywords,
         seg: HeaderAnalysisSegment,
         conf: &ReaderConfig,
-    ) -> AnalysisReaderResult {
-        LookupSegment::get_req_or(
-            kws,
-            conf.analysis,
-            seg,
-            conf.enforce_offset_match,
-            conf.enforce_required_offsets,
-        )
-        .def_inner_into()
-        .def_map_value(|s| AnalysisReader { seg: s })
+    ) -> AnalysisReaderResult<AnalysisReader> {
+        get_analysis_seg_req(kws, seg, conf)
     }
 }
 
@@ -2680,17 +2578,9 @@ impl VersionedDataLayout for DataLayout3_2 {
         kws: &mut StdKeywords,
         seg: HeaderDataSegment,
         conf: &ReaderConfig,
-    ) -> DataReaderResult {
-        remove_tot_data_seg(kws, seg, conf).def_and_tentatively(|(tot, _seg)| {
-            match self {
-                Self::Ascii(a) => a.into_col_reader(_seg, tot, conf),
-                Self::Integer(fl) => fl.into_col_reader(_seg, tot, conf),
-                Self::Float(fl) => fl.into_col_reader(_seg, tot, conf),
-                Self::Mixed(fl) => fl.into_col_reader(_seg, tot, conf),
-                Self::Empty => Tentative::new1(ColumnReader::Empty),
-            }
-            .map(|r| r.into_data_reader(_seg))
-        })
+    ) -> DataReaderResult<DataReader> {
+        remove_tot_data_seg(kws, seg, conf)
+            .def_and_tentatively(|(tot, any_seg)| self.into_reader(tot, any_seg, conf))
     }
 
     fn into_data_reader_raw(
@@ -2698,24 +2588,16 @@ impl VersionedDataLayout for DataLayout3_2 {
         kws: &StdKeywords,
         seg: HeaderDataSegment,
         conf: &ReaderConfig,
-    ) -> DataReaderResult {
-        get_tot_data_seg(kws, seg, conf).def_and_tentatively(|(tot, _seg)| {
-            match self {
-                Self::Ascii(a) => a.into_col_reader(_seg, tot, conf),
-                Self::Integer(fl) => fl.into_col_reader(_seg, tot, conf),
-                Self::Float(fl) => fl.into_col_reader(_seg, tot, conf),
-                Self::Mixed(fl) => fl.into_col_reader(_seg, tot, conf),
-                Self::Empty => Tentative::new1(ColumnReader::Empty),
-            }
-            .map(|r| r.into_data_reader(_seg))
-        })
+    ) -> DataReaderResult<DataReader> {
+        get_tot_data_seg(kws, seg, conf)
+            .def_and_tentatively(|(tot, any_seg)| self.into_reader(tot, any_seg, conf))
     }
 
     fn as_analysis_reader(
         kws: &mut StdKeywords,
         seg: HeaderAnalysisSegment,
         conf: &ReaderConfig,
-    ) -> AnalysisReaderResult {
+    ) -> AnalysisReaderResult<AnalysisReader> {
         let ret = LookupSegment::remove_opt_or(kws, conf.analysis, seg, conf.enforce_offset_match)
             .map(|s| AnalysisReader { seg: s })
             .inner_into();
@@ -2726,7 +2608,7 @@ impl VersionedDataLayout for DataLayout3_2 {
         kws: &StdKeywords,
         seg: HeaderAnalysisSegment,
         conf: &ReaderConfig,
-    ) -> AnalysisReaderResult {
+    ) -> AnalysisReaderResult<AnalysisReader> {
         let ret = LookupSegment::get_opt_or(kws, conf.analysis, seg, conf.enforce_offset_match)
             .map(|s| AnalysisReader { seg: s })
             .inner_into();
@@ -2734,11 +2616,43 @@ impl VersionedDataLayout for DataLayout3_2 {
     }
 }
 
+fn remove_analysis_seg_req(
+    kws: &mut StdKeywords,
+    seg: HeaderAnalysisSegment,
+    conf: &ReaderConfig,
+) -> AnalysisReaderResult<AnalysisReader> {
+    LookupSegment::remove_req_or(
+        kws,
+        conf.analysis,
+        seg,
+        conf.enforce_offset_match,
+        conf.enforce_required_offsets,
+    )
+    .def_inner_into()
+    .def_map_value(|s| AnalysisReader { seg: s })
+}
+
+fn get_analysis_seg_req(
+    kws: &StdKeywords,
+    seg: HeaderAnalysisSegment,
+    conf: &ReaderConfig,
+) -> AnalysisReaderResult<AnalysisReader> {
+    LookupSegment::get_req_or(
+        kws,
+        conf.analysis,
+        seg,
+        conf.enforce_offset_match,
+        conf.enforce_required_offsets,
+    )
+    .def_inner_into()
+    .def_map_value(|s| AnalysisReader { seg: s })
+}
+
 fn remove_tot_data_seg(
     kws: &mut StdKeywords,
     seg: HeaderDataSegment,
     conf: &ReaderConfig,
-) -> DeferredResult<(Tot, AnyDataSegment), NewDataReaderWarning, NewDataReaderError> {
+) -> DataReaderResult<(Tot, AnyDataSegment)> {
     let tot_res = Tot::remove_meta_req(kws).into_deferred();
     let seg_res = LookupSegment::remove_req_or(
         kws,
@@ -2751,11 +2665,118 @@ fn remove_tot_data_seg(
     tot_res.def_zip(seg_res)
 }
 
+impl DataLayout2_0 {
+    fn into_reader<W, E>(
+        self,
+        tot: Option<Tot>,
+        seg: AnyDataSegment,
+        conf: &ReaderConfig,
+    ) -> Tentative<DataReader, W, E>
+    where
+        W: From<UnevenEventWidth>,
+        E: From<UnevenEventWidth>,
+        W: From<TotEventMismatch>,
+        E: From<TotEventMismatch>,
+    {
+        let go = |tnt: Tentative<AlphaNumReader, _, _>, maybe_tot| {
+            tnt.inner_into()
+                .and_tentatively(|reader| {
+                    if let Some(_tot) = maybe_tot {
+                        reader
+                            .check_tot(_tot, conf.enforce_matching_tot)
+                            .inner_into()
+                            .map(|_| reader)
+                    } else {
+                        Tentative::new1(reader)
+                    }
+                })
+                .map(ColumnReader::AlphaNum)
+        };
+        match self {
+            Self::Ascii(a) => a.into_col_reader_maybe_rows(seg, tot, conf).inner_into(),
+            Self::Integer(fl) => go(fl.into_col_reader_inner(seg, conf), tot),
+            Self::Float(fl) => go(fl.into_col_reader_inner(seg, conf), tot),
+            Self::Empty => Tentative::new1(ColumnReader::Empty),
+        }
+        .map(|r| r.into_data_reader(seg))
+    }
+}
+
+impl DataLayout3_0 {
+    fn into_reader<W, E>(
+        self,
+        tot: Tot,
+        seg: AnyDataSegment,
+        conf: &ReaderConfig,
+    ) -> Tentative<DataReader, W, E>
+    where
+        W: From<UnevenEventWidth>,
+        E: From<UnevenEventWidth>,
+        W: From<TotEventMismatch>,
+        E: From<TotEventMismatch>,
+    {
+        match self {
+            Self::Ascii(a) => a.into_col_reader(seg, tot, conf),
+            Self::Integer(fl) => fl.into_col_reader(seg, tot, conf),
+            Self::Float(fl) => fl.into_col_reader(seg, tot, conf),
+            Self::Empty => Tentative::new1(ColumnReader::Empty),
+        }
+        .map(|r| r.into_data_reader(seg))
+    }
+}
+
+impl DataLayout3_1 {
+    fn into_reader<W, E>(
+        self,
+        tot: Tot,
+        seg: AnyDataSegment,
+        conf: &ReaderConfig,
+    ) -> Tentative<DataReader, W, E>
+    where
+        W: From<UnevenEventWidth>,
+        E: From<UnevenEventWidth>,
+        W: From<TotEventMismatch>,
+        E: From<TotEventMismatch>,
+    {
+        match self {
+            Self::Ascii(a) => a.into_col_reader(seg, tot, conf),
+            Self::Integer(fl) => fl.into_col_reader(seg, tot, conf),
+            Self::Float(fl) => fl.into_col_reader(seg, tot, conf),
+            Self::Empty => Tentative::new1(ColumnReader::Empty),
+        }
+        .map(|r| r.into_data_reader(seg))
+    }
+}
+
+impl DataLayout3_2 {
+    fn into_reader<W, E>(
+        self,
+        tot: Tot,
+        seg: AnyDataSegment,
+        conf: &ReaderConfig,
+    ) -> Tentative<DataReader, W, E>
+    where
+        W: From<UnevenEventWidth>,
+        E: From<UnevenEventWidth>,
+        W: From<TotEventMismatch>,
+        E: From<TotEventMismatch>,
+    {
+        match self {
+            Self::Ascii(a) => a.into_col_reader(seg, tot, conf),
+            Self::Integer(fl) => fl.into_col_reader(seg, tot, conf),
+            Self::Float(fl) => fl.into_col_reader(seg, tot, conf),
+            Self::Mixed(fl) => fl.into_col_reader(seg, tot, conf),
+            Self::Empty => Tentative::new1(ColumnReader::Empty),
+        }
+        .map(|r| r.into_data_reader(seg))
+    }
+}
+
 fn get_tot_data_seg(
     kws: &StdKeywords,
     seg: HeaderDataSegment,
     conf: &ReaderConfig,
-) -> DeferredResult<(Tot, AnyDataSegment), NewDataReaderWarning, NewDataReaderError> {
+) -> DataReaderResult<(Tot, AnyDataSegment)> {
     let tot_res = Tot::get_meta_req(kws).into_deferred();
     let seg_res = LookupSegment::get_req_or(
         kws,
@@ -2949,7 +2970,7 @@ pub struct WrongFloatWidth {
     pub expected: usize,
 }
 
-pub type DataReaderResult = DeferredResult<DataReader, NewDataReaderWarning, NewDataReaderError>;
+pub type DataReaderResult<T> = DeferredResult<T, NewDataReaderWarning, NewDataReaderError>;
 
 enum_from_disp!(
     pub NewDataReaderError,
@@ -2969,8 +2990,8 @@ enum_from_disp!(
     [Segment, ReqSegmentWithDefaultWarning<DataSegmentId>]
 );
 
-pub(crate) type AnalysisReaderResult =
-    DeferredResult<AnalysisReader, NewAnalysisReaderWarning, NewAnalysisReaderError>;
+pub(crate) type AnalysisReaderResult<T> =
+    DeferredResult<T, NewAnalysisReaderWarning, NewAnalysisReaderError>;
 
 enum_from_disp!(
     pub NewAnalysisReaderError,

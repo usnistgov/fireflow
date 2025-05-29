@@ -1350,11 +1350,6 @@ fn ascii_to_uint(buf: &[u8]) -> Result<u64, AsciiToUintError> {
     }
 }
 
-// fn parse_u64_io(s: &str) -> io::Result<u64> {
-//     s.parse::<u64>()
-//         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
-// }
-
 pub struct ColumnLayoutData<D> {
     pub width: Width,
     pub range: Range,

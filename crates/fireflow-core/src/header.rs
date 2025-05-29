@@ -137,7 +137,7 @@ fn parse_segment<I: HasRegion>(
     begin_res
         .zip(end_res)
         .and_then(|(begin, end)| {
-            SpecificSegment::try_new(begin, end, corr, SegmentFromHeader)
+            SpecificSegment::try_new(begin, end, corr)
                 .map_err(HeaderSegmentError::Segment)
                 .map_err(NonEmpty::new)
         })

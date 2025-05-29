@@ -23,9 +23,7 @@ pub struct Segment {
 pub struct SpecificSegment<I, S> {
     pub inner: Segment,
     _id: PhantomData<I>,
-    // this isn't phantom because some functions return segments from either
-    // HEADER or TEXT and we want to allow either, which requires an enum
-    src: S,
+    _src: PhantomData<S>,
 }
 
 /// Denotes a correction for a segment
@@ -150,8 +148,7 @@ where
         Self::get_req_pair(kws)
             .map_err(|es| es.map(|e| e.into()))
             .and_then(|(y0, y1)| {
-                SpecificSegment::try_new(y0.into(), y1.into(), corr, SegmentFromTEXT)
-                    .into_mult::<ReqSegmentError>()
+                SpecificSegment::try_new(y0.into(), y1.into(), corr).into_mult::<ReqSegmentError>()
             })
             .mult_to_deferred()
     }
@@ -167,11 +164,8 @@ where
         Self::get_opt_pair(kws)
             .map_err(|es| es.map(|e| e.into()))
             .and_then(|x| {
-                x.map(|(z0, z1)| {
-                    SpecificSegment::try_new(z0.into(), z1.into(), corr, SegmentFromTEXT)
-                        .into_mult()
-                })
-                .transpose()
+                x.map(|(z0, z1)| SpecificSegment::try_new(z0.into(), z1.into(), corr).into_mult())
+                    .transpose()
             })
             .map_or_else(
                 |ws| Tentative::new(None, ws.into(), vec![]),
@@ -232,8 +226,7 @@ where
         Self::remove_req_pair(kws)
             .map_err(|es| es.map(|e| e.into()))
             .and_then(|(y0, y1)| {
-                SpecificSegment::try_new(y0.into(), y1.into(), corr, SegmentFromTEXT)
-                    .into_mult::<ReqSegmentError>()
+                SpecificSegment::try_new(y0.into(), y1.into(), corr).into_mult::<ReqSegmentError>()
             })
     }
 
@@ -248,11 +241,8 @@ where
         Self::remove_opt_pair(kws)
             .map_err(|es| es.map(|e| e.into()))
             .and_then(|x| {
-                x.map(|(z0, z1)| {
-                    SpecificSegment::try_new(z0.into(), z1.into(), corr, SegmentFromTEXT)
-                        .into_mult()
-                })
-                .transpose()
+                x.map(|(z0, z1)| SpecificSegment::try_new(z0.into(), z1.into(), corr).into_mult())
+                    .transpose()
             })
             .map_or_else(
                 |ws| Tentative::new(None, ws.into(), vec![]),
@@ -440,12 +430,7 @@ impl<I, S> OffsetCorrection<I, S> {
 }
 
 impl<I, S> SpecificSegment<I, S> {
-    pub fn try_new(
-        begin: u32,
-        end: u32,
-        corr: OffsetCorrection<I, S>,
-        src: S,
-    ) -> Result<Self, SegmentError>
+    pub fn try_new(begin: u32, end: u32, corr: OffsetCorrection<I, S>) -> Result<Self, SegmentError>
     where
         I: HasRegion,
         S: HasSource,
@@ -453,7 +438,7 @@ impl<I, S> SpecificSegment<I, S> {
         Segment::try_new::<I, S>(begin, end, corr).map(|inner| Self {
             inner,
             _id: PhantomData,
-            src,
+            _src: PhantomData,
         })
     }
 }
@@ -475,7 +460,7 @@ impl<I: Copy> HeaderSegment<I> {
             Ok(SpecificSegment {
                 inner: other.inner,
                 _id: PhantomData,
-                src: SegmentFromAnywhere,
+                _src: PhantomData,
             })
         }
     }
@@ -484,7 +469,7 @@ impl<I: Copy> HeaderSegment<I> {
         SpecificSegment {
             inner: self.inner,
             _id: PhantomData,
-            src: SegmentFromAnywhere,
+            _src: PhantomData,
         }
     }
 }

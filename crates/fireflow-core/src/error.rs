@@ -580,6 +580,14 @@ impl<W, E> DeferredFailure<W, E> {
         Self::new(vec![], errors)
     }
 
+    pub fn push_warning(&mut self, x: W) {
+        self.warnings.push(x)
+    }
+
+    pub fn push_error(&mut self, x: E) {
+        self.errors.push(x)
+    }
+
     pub fn warnings_map<F, X>(self, f: F) -> DeferredFailure<X, E>
     where
         F: Fn(W) -> X,

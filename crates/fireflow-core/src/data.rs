@@ -21,15 +21,18 @@ use std::num::ParseIntError;
 use std::str;
 use std::str::FromStr;
 
-/// Read the analysis segment
-pub(crate) fn h_read_analysis<R: Read + Seek>(
-    h: &mut BufReader<R>,
-    seg: AnyAnalysisSegment,
-) -> io::Result<Analysis> {
-    let mut buf = vec![];
-    h.seek(SeekFrom::Start(u64::from(seg.inner.begin())))?;
-    h.take(u64::from(seg.inner.len())).read_to_end(&mut buf)?;
-    Ok(buf.into())
+pub struct AnalysisReader {
+    pub seg: AnyAnalysisSegment,
+}
+
+impl AnalysisReader {
+    pub(crate) fn h_read<R: Read + Seek>(&self, h: &mut BufReader<R>) -> io::Result<Analysis> {
+        let mut buf = vec![];
+        h.seek(SeekFrom::Start(u64::from(self.seg.inner.begin())))?;
+        h.take(u64::from(self.seg.inner.len()))
+            .read_to_end(&mut buf)?;
+        Ok(buf.into())
+    }
 }
 
 pub trait VersionedDataLayout: Sized {
@@ -52,7 +55,13 @@ pub trait VersionedDataLayout: Sized {
         kws: &mut StdKeywords,
         seg: HeaderDataSegment,
         conf: &DataReadConfig,
-    ) -> ReaderResult;
+    ) -> DataReaderResult;
+
+    fn as_analysis_reader(
+        kws: &mut StdKeywords,
+        seg: HeaderAnalysisSegment,
+        conf: &DataReadConfig,
+    ) -> AnalysisReaderResult;
 
     fn as_writer<'a>(
         &self,
@@ -529,7 +538,7 @@ impl<X> DelimColumnWriter<'_, X> {
 /// Instructions and buffers to read the DATA segment
 pub(crate) struct DataReader {
     pub(crate) column_reader: ColumnReader,
-    pub(crate) begin: u64,
+    pub(crate) seg: AnyDataSegment,
 }
 
 /// Instructions to read one column in the DATA segment.
@@ -607,7 +616,7 @@ impl DataReader {
     where
         R: Read + Seek,
     {
-        h.seek(SeekFrom::Start(self.begin))?;
+        h.seek(SeekFrom::Start(self.seg.inner.begin().into()))?;
         match self.column_reader {
             ColumnReader::DelimitedAscii(p) => p.h_read(h).map_err(|e| e.inner_into()),
             ColumnReader::DelimitedAsciiNoRows(p) => p.h_read(h).map_err(|e| e.inner_into()),
@@ -621,7 +630,7 @@ impl ColumnReader {
     fn into_data_reader(self, seg: AnyDataSegment) -> DataReader {
         DataReader {
             column_reader: self,
-            begin: seg.inner.begin().into(),
+            seg,
         }
     }
 }
@@ -2197,7 +2206,7 @@ impl VersionedDataLayout for DataLayout2_0 {
         kws: &mut StdKeywords,
         seg: HeaderDataSegment,
         conf: &DataReadConfig,
-    ) -> ReaderResult {
+    ) -> DataReaderResult {
         let any_seg = seg.into_any();
         let go = |tnt: Tentative<AlphaNumReader, _, _>, maybe_tot| {
             tnt.inner_into()
@@ -2227,6 +2236,16 @@ impl VersionedDataLayout for DataLayout2_0 {
         })
         .map(|r| r.into_data_reader(any_seg));
         Ok(tnt_reader)
+    }
+
+    fn as_analysis_reader(
+        _: &mut StdKeywords,
+        seg: HeaderAnalysisSegment,
+        _: &DataReadConfig,
+    ) -> AnalysisReaderResult {
+        Ok(Tentative::new1(AnalysisReader {
+            seg: seg.into_any(),
+        }))
     }
 }
 
@@ -2297,18 +2316,41 @@ impl VersionedDataLayout for DataLayout3_0 {
         kws: &mut StdKeywords,
         seg: HeaderDataSegment,
         conf: &DataReadConfig,
-    ) -> ReaderResult {
+    ) -> DataReaderResult {
         let tot = Tot::remove_meta_req(kws).map_err(|e| DeferredFailure::new1(e.into()))?;
-        lookup_data_segment(kws, seg, conf.data, conf.standard.raw.enforce_offset_match)
-            .and_tentatively(|seg| {
-                match self {
-                    Self::Ascii(a) => a.into_col_reader(seg, tot, conf),
-                    Self::Integer(fl) => fl.into_col_reader(seg, tot, conf),
-                    Self::Float(fl) => fl.into_col_reader(seg, tot, conf),
-                    Self::Empty => Tentative::new1(ColumnReader::Empty),
-                }
-                .map(|r| r.into_data_reader(seg))
-            })
+        LookupSegment::remove_req_or(
+            kws,
+            conf.data,
+            seg,
+            conf.standard.raw.enforce_offset_match,
+            conf.standard.raw.enforce_required_offsets,
+        )
+        .inner_into()
+        .and_tentatively(|seg| {
+            match self {
+                Self::Ascii(a) => a.into_col_reader(seg, tot, conf),
+                Self::Integer(fl) => fl.into_col_reader(seg, tot, conf),
+                Self::Float(fl) => fl.into_col_reader(seg, tot, conf),
+                Self::Empty => Tentative::new1(ColumnReader::Empty),
+            }
+            .map(|r| r.into_data_reader(seg))
+        })
+    }
+
+    fn as_analysis_reader(
+        kws: &mut StdKeywords,
+        seg: HeaderAnalysisSegment,
+        conf: &DataReadConfig,
+    ) -> AnalysisReaderResult {
+        LookupSegment::remove_req_or(
+            kws,
+            conf.analysis,
+            seg,
+            conf.standard.raw.enforce_offset_match,
+            conf.standard.raw.enforce_required_offsets,
+        )
+        .inner_into()
+        .map_value(|s| AnalysisReader { seg: s })
     }
 }
 
@@ -2380,18 +2422,41 @@ impl VersionedDataLayout for DataLayout3_1 {
         kws: &mut StdKeywords,
         seg: HeaderDataSegment,
         conf: &DataReadConfig,
-    ) -> ReaderResult {
+    ) -> DataReaderResult {
         let tot = Tot::remove_meta_req(kws).map_err(|e| DeferredFailure::new1(e.into()))?;
-        lookup_data_segment(kws, seg, conf.data, conf.standard.raw.enforce_offset_match)
-            .and_tentatively(|seg| {
-                match self {
-                    Self::Ascii(a) => a.into_col_reader(seg, tot, conf),
-                    Self::Integer(fl) => fl.into_col_reader(seg, tot, conf),
-                    Self::Float(fl) => fl.into_col_reader(seg, tot, conf),
-                    Self::Empty => Tentative::new1(ColumnReader::Empty),
-                }
-                .map(|r| r.into_data_reader(seg))
-            })
+        LookupSegment::remove_req_or(
+            kws,
+            conf.data,
+            seg,
+            conf.standard.raw.enforce_offset_match,
+            conf.standard.raw.enforce_required_offsets,
+        )
+        .inner_into()
+        .and_tentatively(|seg| {
+            match self {
+                Self::Ascii(a) => a.into_col_reader(seg, tot, conf),
+                Self::Integer(fl) => fl.into_col_reader(seg, tot, conf),
+                Self::Float(fl) => fl.into_col_reader(seg, tot, conf),
+                Self::Empty => Tentative::new1(ColumnReader::Empty),
+            }
+            .map(|r| r.into_data_reader(seg))
+        })
+    }
+
+    fn as_analysis_reader(
+        kws: &mut StdKeywords,
+        seg: HeaderAnalysisSegment,
+        conf: &DataReadConfig,
+    ) -> AnalysisReaderResult {
+        LookupSegment::remove_req_or(
+            kws,
+            conf.analysis,
+            seg,
+            conf.standard.raw.enforce_offset_match,
+            conf.standard.raw.enforce_required_offsets,
+        )
+        .inner_into()
+        .map_value(|s| AnalysisReader { seg: s })
     }
 }
 
@@ -2517,37 +2582,60 @@ impl VersionedDataLayout for DataLayout3_2 {
         kws: &mut StdKeywords,
         seg: HeaderDataSegment,
         conf: &DataReadConfig,
-    ) -> ReaderResult {
+    ) -> DataReaderResult {
         let tot = Tot::remove_meta_req(kws).map_err(|e| DeferredFailure::new1(e.into()))?;
-        lookup_data_segment(kws, seg, conf.data, conf.standard.raw.enforce_offset_match)
-            .and_tentatively(|seg| {
-                match self {
-                    Self::Ascii(a) => a.into_col_reader(seg, tot, conf),
-                    Self::Integer(fl) => fl.into_col_reader(seg, tot, conf),
-                    Self::Float(fl) => fl.into_col_reader(seg, tot, conf),
-                    Self::Mixed(fl) => fl.into_col_reader(seg, tot, conf),
-                    Self::Empty => Tentative::new1(ColumnReader::Empty),
-                }
-                .map(|r| r.into_data_reader(seg))
-            })
+        LookupSegment::remove_req_or(
+            kws,
+            conf.data,
+            seg,
+            conf.standard.raw.enforce_offset_match,
+            conf.standard.raw.enforce_required_offsets,
+        )
+        .inner_into()
+        .and_tentatively(|seg| {
+            match self {
+                Self::Ascii(a) => a.into_col_reader(seg, tot, conf),
+                Self::Integer(fl) => fl.into_col_reader(seg, tot, conf),
+                Self::Float(fl) => fl.into_col_reader(seg, tot, conf),
+                Self::Mixed(fl) => fl.into_col_reader(seg, tot, conf),
+                Self::Empty => Tentative::new1(ColumnReader::Empty),
+            }
+            .map(|r| r.into_data_reader(seg))
+        })
+    }
+
+    fn as_analysis_reader(
+        kws: &mut StdKeywords,
+        seg: HeaderAnalysisSegment,
+        conf: &DataReadConfig,
+    ) -> AnalysisReaderResult {
+        let ret = LookupSegment::remove_opt_or(
+            kws,
+            conf.analysis,
+            seg,
+            conf.standard.raw.enforce_offset_match,
+        )
+        .map(|s| AnalysisReader { seg: s })
+        .inner_into();
+        Ok(ret)
     }
 }
 
-fn lookup_data_segment(
-    kws: &mut StdKeywords,
-    other: HeaderDataSegment,
-    corr: OffsetCorrection<DataSegmentId, SegmentFromTEXT>,
-    enforce: bool,
-) -> DeferredResult<AnyDataSegment, NewReaderWarning, NewReaderError> {
-    LookupSegment::remove_req(kws, corr)
-        .error_into()
-        .and_tentatively(|text_seg| {
-            other.or(text_seg).map_or_else(
-                |(s, w)| Tentative::new_either(s, vec![w], enforce),
-                Tentative::new1,
-            )
-        })
-}
+// fn lookup_data_segment(
+//     kws: &mut StdKeywords,
+//     other: HeaderDataSegment,
+//     corr: OffsetCorrection<DataSegmentId, SegmentFromTEXT>,
+//     enforce: bool,
+// ) -> DeferredResult<AnyDataSegment, NewDataReaderWarning, NewDataReaderError> {
+//     LookupSegment::remove_req(kws, corr)
+//         .error_into()
+//         .and_tentatively(|text_seg| {
+//             other.unless(text_seg).map_or_else(
+//                 |(s, w)| Tentative::new_either(s, vec![w], enforce),
+//                 Tentative::new1,
+//             )
+//         })
+// }
 
 #[allow(clippy::type_complexity)]
 fn kws_get_layout_2_0(
@@ -2719,24 +2807,40 @@ pub struct WrongFloatWidth {
     pub expected: usize,
 }
 
-pub(crate) type ReaderResult = DeferredResult<DataReader, NewReaderWarning, NewReaderError>;
+pub(crate) type DataReaderResult =
+    DeferredResult<DataReader, NewDataReaderWarning, NewDataReaderError>;
 
 enum_from_disp!(
-    pub NewReaderError,
+    pub NewDataReaderError,
     [TotMismatch, TotEventMismatch],
     [ParseTot, ReqKeyError<ParseIntError>],
-    [ParseSeg, ReqSegmentError],
+    [ParseSeg, ReqSegmentWithDefaultError<DataSegmentId>],
     [Width, UnevenEventWidth],
     [Mismatch, SegmentMismatchWarning<DataSegmentId>]
 );
 
 enum_from_disp!(
-    pub NewReaderWarning,
+    pub NewDataReaderWarning,
     [TotMismatch, TotEventMismatch],
     [ParseTot, ParseKeyError<ParseIntError>],
     [Layout, NewDataLayoutWarning],
     [Width, UnevenEventWidth],
-    [Mismatch, SegmentMismatchWarning<DataSegmentId>]
+    [Segment, ReqSegmentWithDefaultWarning<DataSegmentId>]
+);
+
+pub(crate) type AnalysisReaderResult =
+    DeferredResult<AnalysisReader, NewAnalysisReaderWarning, NewAnalysisReaderError>;
+
+enum_from_disp!(
+    pub NewAnalysisReaderError,
+    [ParseSeg, ReqSegmentWithDefaultError<AnalysisSegmentId>],
+    [Mismatch, SegmentMismatchWarning<AnalysisSegmentId>]
+);
+
+enum_from_disp!(
+    pub NewAnalysisReaderWarning,
+    [Opt, OptSegmentWithDefaultWarning<AnalysisSegmentId>],
+    [Req, ReqSegmentWithDefaultWarning<AnalysisSegmentId>]
 );
 
 // enum_from_disp!(
@@ -2800,13 +2904,13 @@ type FromRawResult<T> = DeferredResult<T, RawToLayoutWarning, RawToLayoutError>;
 enum_from_disp!(
     pub RawToReaderError,
     [Layout, RawToLayoutError],
-    [Reader, NewReaderError]
+    [Reader, NewDataReaderError]
 );
 
 enum_from_disp!(
     pub RawToReaderWarning,
     [Layout, RawToLayoutWarning],
-    [Reader, NewReaderWarning]
+    [Reader, NewDataReaderWarning]
 );
 
 enum_from_disp!(

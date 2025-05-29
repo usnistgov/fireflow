@@ -32,7 +32,7 @@ use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::fmt;
-use std::io::{BufWriter, Write};
+use std::io::{BufReader, BufWriter, Read, Seek, Write};
 
 /// Represents the minimal data required to write an FCS file.
 ///
@@ -2395,53 +2395,102 @@ where
     ///
     /// Return any errors encountered, including messing required keywords,
     /// parse errors, and/or deprecation warnings.
+    // pub(crate) fn new_text_from_raw(
+    //     kws: &mut StdKeywords,
+    //     nonstd: NonStdKeywords,
+    //     conf: &StdTextReadConfig,
+    // ) -> TerminalResult<Self, LookupMeasWarning, ParseKeysError, CoreTEXTFailure>
+    // where
+    //     M: LookupMetadata,
+    //     M::T: LookupTemporal,
+    //     M::P: LookupOptical,
+    // {
+    //     // Lookup $PAR first since we need this to get the measurements
+    //     let par = Par::remove_meta_req(kws)
+    //         .map_err(|e| TerminalFailure::new_single(CoreTEXTFailure::NoPar(e)))?;
+
+    //     // Lookup measurements and metadata with $PAR
+    //     let tp = conf.time.pattern.as_ref();
+    //     let sp = &conf.shortname_prefix;
+    //     let nsp = conf.nonstandard_measurement_pattern.as_ref();
+    //     let ns: Vec<_> = nonstd.into_iter().collect();
+    //     let mut tnt_core = Self::lookup_measurements(kws, par, tp, sp, nsp, ns)
+    //         .and_maybe(|(ms, meta_ns)| {
+    //             Metadata::lookup_metadata(kws, &ms, meta_ns)
+    //                 .map_value(|metadata| CoreTEXT::new_unchecked(metadata, ms))
+    //                 .warning_into()
+    //         })
+    //         .map_err(|e| e.terminate(CoreTEXTFailure::Keywords))?;
+
+    //     // Check that the time measurement is present if we want it
+    //     tnt_core.eval_error(|core| {
+    //         if let Some(pat) = tp {
+    //             if conf.time.ensure && core.measurements.as_center().is_none() {
+    //                 return Some(ParseKeysError::Other(MissingTime(pat.clone()).into()));
+    //             }
+    //         }
+    //         None
+    //     });
+
+    //     // make sure keywords which refer to $PnN are valid, if not then this
+    //     // fails because the API assumes these are valid and provides no way
+    //     // to fix otherwise.
+    //     tnt_core
+    //         .and_maybe(|core| {
+    //             core.check_linked_names()
+    //                 .into_deferred1()
+    //                 .map_value(|_| core)
+    //         })
+    //         .terminate(CoreTEXTFailure::Linked)
+    // }
+
     pub(crate) fn new_text_from_raw(
         kws: &mut StdKeywords,
         nonstd: NonStdKeywords,
         conf: &StdTextReadConfig,
-    ) -> TerminalResult<Self, LookupMeasWarning, ParseKeysError, CoreTEXTFailure>
+    ) -> DeferredResult<Self, LookupMeasWarning, ParseKeysError>
     where
         M: LookupMetadata,
         M::T: LookupTemporal,
         M::P: LookupOptical,
     {
         // Lookup $PAR first since we need this to get the measurements
-        let par = Par::remove_meta_req(kws)
-            .map_err(|e| TerminalFailure::new_single(CoreTEXTFailure::NoPar(e)))?;
+        Par::remove_meta_req(kws)
+            .map_err(|e| Box::new(ParseReqKeyError::Int(e)))
+            .into_deferred0()
+            .and_maybe(|par| {
+                // Lookup measurements and metadata with $PAR
+                let tp = conf.time.pattern.as_ref();
+                let sp = &conf.shortname_prefix;
+                let nsp = conf.nonstandard_measurement_pattern.as_ref();
+                let ns: Vec<_> = nonstd.into_iter().collect();
+                let mut tnt_core = Self::lookup_measurements(kws, par, tp, sp, nsp, ns).and_maybe(
+                    |(ms, meta_ns)| {
+                        Metadata::lookup_metadata(kws, &ms, meta_ns)
+                            .map_value(|metadata| CoreTEXT::new_unchecked(metadata, ms))
+                            .warning_into()
+                    },
+                )?;
 
-        // Lookup measurements and metadata with $PAR
-        let tp = conf.time.pattern.as_ref();
-        let sp = &conf.shortname_prefix;
-        let nsp = conf.nonstandard_measurement_pattern.as_ref();
-        let ns: Vec<_> = nonstd.into_iter().collect();
-        let mut tnt_core = Self::lookup_measurements(kws, par, tp, sp, nsp, ns)
-            .and_maybe(|(ms, meta_ns)| {
-                Metadata::lookup_metadata(kws, &ms, meta_ns)
-                    .map_value(|metadata| CoreTEXT::new_unchecked(metadata, ms))
-                    .warning_into()
+                // Check that the time measurement is present if we want it
+                tnt_core.eval_error(|core| {
+                    if let Some(pat) = tp {
+                        if conf.time.ensure && core.measurements.as_center().is_none() {
+                            return Some(ParseKeysError::Other(MissingTime(pat.clone()).into()));
+                        }
+                    }
+                    None
+                });
+
+                // make sure keywords which refer to $PnN are valid, if not then this
+                // fails because the API assumes these are valid and provides no way
+                // to fix otherwise.
+                tnt_core.and_maybe(|core| {
+                    core.check_linked_names()
+                        .into_deferred1()
+                        .map_value(|_| core)
+                })
             })
-            .map_err(|e| e.terminate(CoreTEXTFailure::Keywords))?;
-
-        // Check that the time measurement is present if we want it
-        tnt_core.eval_error(|core| {
-            if let Some(pat) = tp {
-                if conf.time.ensure && core.measurements.as_center().is_none() {
-                    return Some(ParseKeysError::Other(MissingTime(pat.clone()).into()));
-                }
-            }
-            None
-        });
-
-        // make sure keywords which refer to $PnN are valid, if not then this
-        // fails because the API assumes these are valid and provides no way
-        // to fix otherwise.
-        tnt_core
-            .and_maybe(|core| {
-                core.check_linked_names()
-                    .into_deferred1()
-                    .map_value(|_| core)
-            })
-            .terminate(CoreTEXTFailure::Linked)
     }
 
     /// Remove a measurement matching the given name.
@@ -2551,20 +2600,56 @@ where
     M::N: Clone,
     M::L: VersionedDataLayout,
 {
-    pub(crate) fn new_dataset_from_raw(
+    pub(crate) fn new_dataset_from_raw<R: Read + Seek>(
+        h: &mut BufReader<R>,
         kws: &mut StdKeywords,
         nonstd: NonStdKeywords,
-        conf: &StdTextReadConfig,
-    ) -> TerminalResult<(), LookupMeasWarning, ParseKeysError, CoreTEXTFailure>
+        data_seg: HeaderDataSegment,
+        analysis_seg: HeaderAnalysisSegment,
+        conf: &DataReadConfig,
+        // TODO wrap this in a nice struct
+    ) -> DeferredResult<
+        (Self, AnyDataSegment, AnyAnalysisSegment),
+        CoreDatasetFromRawWarning,
+        ImpureError<CoreDatasetFromRawError>,
+    >
     where
         M: LookupMetadata,
         M::T: LookupTemporal,
         M::P: LookupOptical,
     {
-        let text = CoreTEXT::new_text_from_raw(&mut kws, nonstd, conf);
-        // get offsets
-        // get TOT
-        Ok(Terminal::new(()))
+        CoreTEXT::new_text_from_raw(kws, nonstd, &conf.standard)
+            .inner_into()
+            .error_impure()
+            .and_maybe(|text| {
+                text.as_data_layout(&conf.shared)
+                    .inner_into()
+                    .error_impure()
+                    .and_maybe(|layout: M::L| {
+                        let data_res = layout
+                            .into_data_reader(kws, data_seg, conf)
+                            .inner_into()
+                            .error_impure();
+                        let analysis_res = M::L::as_analysis_reader(kws, analysis_seg, conf)
+                            .inner_into()
+                            .error_impure();
+                        data_res.zip_def(analysis_res).and_maybe(|(dr, ar)| {
+                            let data_seg = dr.seg;
+                            let data = dr
+                                .h_read(h)
+                                .map_err(|e| DeferredFailure::new1(e.inner_into()))?;
+                            let analysis =
+                                ar.h_read(h).map_err(|e| DeferredFailure::new1(e.into()))?;
+                            let dataset = Core {
+                                metadata: text.metadata,
+                                measurements: text.measurements,
+                                data,
+                                analysis,
+                            };
+                            Ok(Tentative::new1((dataset, data_seg, ar.seg)))
+                        })
+                    })
+            })
     }
 
     /// Write this dataset (HEADER+TEXT+DATA+ANALYSIS) to a handle
@@ -5486,7 +5571,7 @@ impl fmt::Display for OptionalKwToIdentityError {
 enum_from_disp!(
     pub StdReaderError,
     [Layout, NewDataLayoutError],
-    [Reader, NewReaderError]
+    [Reader, NewDataReaderError]
 );
 
 // enum_from_disp!(
@@ -5610,3 +5695,20 @@ impl fmt::Display for MissingMeasurementNameError {
         write!(f, "name {} does not exist in measurements", self.0)
     }
 }
+
+enum_from_disp!(
+    pub CoreDatasetFromRawError,
+    [TEXT, ParseKeysError],
+    [Layout, NewDataLayoutError],
+    [Data, NewDataReaderError],
+    [Analysis, NewAnalysisReaderError],
+    [DataRead, ReadDataError]
+);
+
+enum_from_disp!(
+    pub CoreDatasetFromRawWarning,
+    [TEXT, LookupMeasWarning],
+    [Layout, NewDataLayoutWarning],
+    [Data, NewDataReaderWarning],
+    [Analysis, NewAnalysisReaderWarning]
+);

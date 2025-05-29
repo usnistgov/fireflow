@@ -114,20 +114,82 @@ where
     type B;
     type E;
 
-    fn lookup(kws: &mut StdKeywords) -> SegmentKeywords<Self> {
-        SegmentKeywords {
-            begin: kws.remove(&Self::B::std()),
-            end: kws.remove(&Self::E::std()),
-            _id: PhantomData,
-        }
+    // fn lookup(kws: &mut StdKeywords) -> SegmentKeywords<Self> {
+    //     SegmentKeywords {
+    //         begin: kws.remove(&Self::B::std()),
+    //         end: kws.remove(&Self::E::std()),
+    //         _id: PhantomData,
+    //     }
+    // }
+
+    // fn lookup_cloned(kws: &StdKeywords) -> SegmentKeywords<Self> {
+    //     SegmentKeywords {
+    //         begin: kws.get(&Self::B::std()).cloned(),
+    //         end: kws.get(&Self::E::std()).cloned(),
+    //         _id: PhantomData,
+    //     }
+    // }
+
+    fn remove_req_or(
+        kws: &mut StdKeywords,
+        corr: OffsetCorrection<Self, SegmentFromTEXT>,
+        default: HeaderSegment<Self>,
+        enforce_match: bool,
+        enforce_lookup: bool,
+    ) -> DeferredResult<
+        AnySegment<Self>,
+        ReqSegmentWithDefaultWarning<Self>,
+        ReqSegmentWithDefaultError<Self>,
+    >
+    where
+        Self: Copy,
+        Self::B: ReqMetaKey,
+        Self::E: ReqMetaKey,
+    {
+        Self::remove_req(kws, corr)
+            .errors_map(ReqSegmentWithDefaultError::Req)
+            .map_or_else(
+                |f| {
+                    if enforce_lookup {
+                        Err(f)
+                    } else {
+                        let mut tnt = f.into_tentative(default.into_any());
+                        tnt.push_warning(SegmentDefaultWarning::default().into());
+                        Ok(tnt)
+                    }
+                },
+                |tnt| {
+                    Ok(tnt.and_tentatively(|other| {
+                        default.unless(other).map_or_else(
+                            |(s, w)| Tentative::new_either(s, vec![w], enforce_match),
+                            Tentative::new1,
+                        )
+                    }))
+                },
+            )
     }
 
-    fn lookup_cloned(kws: &StdKeywords) -> SegmentKeywords<Self> {
-        SegmentKeywords {
-            begin: kws.get(&Self::B::std()).cloned(),
-            end: kws.get(&Self::E::std()).cloned(),
-            _id: PhantomData,
-        }
+    fn remove_opt_or(
+        kws: &mut StdKeywords,
+        corr: OffsetCorrection<Self, SegmentFromTEXT>,
+        default: HeaderSegment<Self>,
+        enforce: bool,
+    ) -> Tentative<AnySegment<Self>, OptSegmentWithDefaultWarning<Self>, SegmentMismatchWarning<Self>>
+    where
+        Self: Copy,
+        Self::B: OptMetaKey,
+        Self::E: OptMetaKey,
+    {
+        Self::remove_opt(kws, corr)
+            .warnings_map(OptSegmentWithDefaultWarning::Opt)
+            .and_tentatively(|other| {
+                other.map_or(Tentative::new1(default.into_any()), |o| {
+                    default.unless(o).map_or_else(
+                        |(s, w)| Tentative::new_either(s, vec![w], enforce),
+                        Tentative::new1,
+                    )
+                })
+            })
     }
 
     fn remove_req<W>(
@@ -302,7 +364,7 @@ impl<I, S> SpecificSegment<I, S> {
 }
 
 impl<I: Copy> HeaderSegment<I> {
-    pub fn or(
+    pub fn unless(
         self,
         other: TEXTSegment<I>,
     ) -> Result<AnySegment<I>, (AnySegment<I>, SegmentMismatchWarning<I>)> {
@@ -511,5 +573,44 @@ where
             self.text.inner.fmt_pair(),
             I::REGION,
         )
+    }
+}
+
+pub enum ReqSegmentWithDefaultError<I> {
+    Req(ReqSegmentError),
+    Mismatch(SegmentMismatchWarning<I>),
+}
+
+impl<I> From<SegmentMismatchWarning<I>> for ReqSegmentWithDefaultError<I> {
+    fn from(value: SegmentMismatchWarning<I>) -> Self {
+        Self::Mismatch(value)
+    }
+}
+
+pub enum ReqSegmentWithDefaultWarning<I> {
+    Mismatch(SegmentMismatchWarning<I>),
+    Lookup(SegmentDefaultWarning<I>),
+}
+
+impl<I> From<SegmentMismatchWarning<I>> for ReqSegmentWithDefaultWarning<I> {
+    fn from(value: SegmentMismatchWarning<I>) -> Self {
+        Self::Mismatch(value)
+    }
+}
+
+impl<I> From<SegmentDefaultWarning<I>> for ReqSegmentWithDefaultWarning<I> {
+    fn from(value: SegmentDefaultWarning<I>) -> Self {
+        Self::Lookup(value)
+    }
+}
+
+pub enum OptSegmentWithDefaultWarning<I> {
+    Opt(OptSegmentError),
+    Mismatch(SegmentMismatchWarning<I>),
+}
+
+impl<I> From<SegmentMismatchWarning<I>> for OptSegmentWithDefaultWarning<I> {
+    fn from(value: SegmentMismatchWarning<I>) -> Self {
+        Self::Mismatch(value)
     }
 }

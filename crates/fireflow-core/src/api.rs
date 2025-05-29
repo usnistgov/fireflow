@@ -469,35 +469,29 @@ impl RawTEXTOutput {
     }
 }
 
-fn kws_to_reader(
-    version: Version,
-    kws: &StdKeywords,
-    data_seg: AnyDataSegment,
-    conf: &DataReadConfig,
-) -> DeferredResult<DataReader, RawToReaderWarning, RawToReaderError> {
-    let sc = &conf.shared;
-    let tot = TotValue(kws.get(&Tot::std()).map(|x| x.as_ref()));
-    match version {
-        Version::FCS2_0 => DataLayout2_0::try_new_from_raw(kws, sc)
-            .inner_into()
-            .and_maybe(|dl| dl.into_data_reader(&tot, data_seg, conf).inner_into()),
-        Version::FCS3_0 => DataLayout3_0::try_new_from_raw(kws, sc)
-            .inner_into()
-            .and_maybe(|dl| dl.into_data_reader(&tot, data_seg, conf).inner_into()),
-        Version::FCS3_1 => DataLayout3_1::try_new_from_raw(kws, sc)
-            .inner_into()
-            .and_maybe(|dl| dl.into_data_reader(&tot, data_seg, conf).inner_into()),
-        Version::FCS3_2 => DataLayout3_2::try_new_from_raw(kws, sc)
-            .inner_into()
-            .and_maybe(|dl| dl.into_data_reader(&tot, data_seg, conf).inner_into()),
-    }
-    .map(|x| {
-        x.map(|column_reader| DataReader {
-            column_reader,
-            begin: data_seg.inner.begin().into(),
-        })
-    })
-}
+// fn kws_to_reader(
+//     version: Version,
+//     kws: &StdKeywords,
+//     data_seg: AnyDataSegment,
+//     conf: &DataReadConfig,
+// ) -> DeferredResult<DataReader, RawToReaderWarning, RawToReaderError> {
+//     let sc = &conf.shared;
+//     let tot = TotValue(kws.get(&Tot::std()).map(|x| x.as_ref()));
+//     match version {
+//         Version::FCS2_0 => DataLayout2_0::try_new_from_raw(kws, sc)
+//             .inner_into()
+//             .and_maybe(|dl| dl.into_data_reader(&tot, data_seg, conf).inner_into()),
+//         Version::FCS3_0 => DataLayout3_0::try_new_from_raw(kws, sc)
+//             .inner_into()
+//             .and_maybe(|dl| dl.into_data_reader(&tot, data_seg, conf).inner_into()),
+//         Version::FCS3_1 => DataLayout3_1::try_new_from_raw(kws, sc)
+//             .inner_into()
+//             .and_maybe(|dl| dl.into_data_reader(&tot, data_seg, conf).inner_into()),
+//         Version::FCS3_2 => DataLayout3_2::try_new_from_raw(kws, sc)
+//             .inner_into()
+//             .and_maybe(|dl| dl.into_data_reader(&tot, data_seg, conf).inner_into()),
+//     }
+// }
 
 fn split_first_delim<'a>(
     bytes: &'a [u8],
@@ -1271,7 +1265,7 @@ enum_from_disp!(
     pub ReadStdDatasetWarning,
     [DataSeg, DataSegmentWarning],
     [AnalysisSeg, AnalysisSegmentWarning],
-    [ToReader, NewReaderWarning]
+    [ToReader, NewDataReaderWarning]
 );
 
 pub struct ReadRawDatasetFailure;

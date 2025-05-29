@@ -76,6 +76,8 @@ pub enum ImpureError<E> {
     Pure(E),
 }
 
+pub type IOResult<V, E> = Result<V, ImpureError<E>>;
+
 /// Run an iterator and collect successes or failures and return as Result
 ///
 /// Ok will have Vec of success types, and Err will have NonEmpty of error
@@ -969,7 +971,7 @@ impl<V, W, E> DeferredExt for DeferredResult<V, W, E> {
 }
 
 pub trait IODeferredExt: Sized + DeferredExt {
-    fn def_io_into<FromE, ToE, ToW>(self) -> DeferredResult<Self::V, ToW, ImpureError<ToE>>
+    fn def_io_into<FromE, ToE, ToW>(self) -> IODeferredResult<Self::V, ToW, ToE>
     where
         Self: DeferredExt<E = ImpureError<FromE>>,
         ToE: From<FromE>,

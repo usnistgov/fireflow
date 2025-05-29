@@ -622,10 +622,7 @@ pub enum AnyUintColumnReader {
 }
 
 impl DataReader {
-    pub(crate) fn h_read<R>(
-        self,
-        h: &mut BufReader<R>,
-    ) -> Result<FCSDataFrame, ImpureError<ReadDataError>>
+    pub(crate) fn h_read<R>(self, h: &mut BufReader<R>) -> IOResult<FCSDataFrame, ReadDataError>
     where
         R: Read + Seek,
     {
@@ -672,10 +669,7 @@ impl FloatReader {
 }
 
 impl DelimAsciiReader {
-    fn h_read<R: Read>(
-        self,
-        h: &mut BufReader<R>,
-    ) -> Result<FCSDataFrame, ImpureError<ReadDelimAsciiError>> {
+    fn h_read<R: Read>(self, h: &mut BufReader<R>) -> IOResult<FCSDataFrame, ReadDelimAsciiError> {
         // FCS 2.0 files have an optional $TOT field, which complicates this a
         // bit. If in this case we have $TOT so the columns have been
         // initialized to the number of rows.
@@ -746,7 +740,7 @@ impl DelimAsciiReaderNoRows {
     fn h_read<R: Read>(
         self,
         h: &mut BufReader<R>,
-    ) -> Result<FCSDataFrame, ImpureError<ReadDelimAsciiNoRowsError>> {
+    ) -> IOResult<FCSDataFrame, ReadDelimAsciiNoRowsError> {
         let mut buf = Vec::new();
         let mut data = self.0.columns;
         let ncols = data.len();
@@ -803,10 +797,7 @@ impl DelimAsciiReaderNoRows {
 }
 
 impl AlphaNumReader {
-    fn h_read<R: Read>(
-        mut self,
-        h: &mut BufReader<R>,
-    ) -> Result<FCSDataFrame, ImpureError<AsciiToUintError>> {
+    fn h_read<R: Read>(mut self, h: &mut BufReader<R>) -> IOResult<FCSDataFrame, AsciiToUintError> {
         let mut buf: Vec<u8> = vec![];
         let nrows = self.columns.head.len();
         for r in 0..nrows {
@@ -2897,8 +2888,7 @@ pub(crate) fn h_read_data_and_analysis<R: Read + Seek>(
     h: &mut BufReader<R>,
     data_reader: DataReader,
     analysis_reader: AnalysisReader,
-) -> Result<(FCSDataFrame, Analysis, AnyDataSegment, AnyAnalysisSegment), ImpureError<ReadDataError>>
-{
+) -> IOResult<(FCSDataFrame, Analysis, AnyDataSegment, AnyAnalysisSegment), ReadDataError> {
     let dseg = data_reader.seg;
     let data = data_reader.h_read(h)?;
     let analysis = analysis_reader.h_read(h)?;

@@ -2366,16 +2366,7 @@ impl VersionedDataLayout for DataLayout3_0 {
         seg: HeaderDataSegment,
         conf: &ReaderConfig,
     ) -> DataReaderResult {
-        let tot = Tot::remove_meta_req(kws).map_err(|e| DeferredFailure::new1(e.into()))?;
-        LookupSegment::remove_req_or(
-            kws,
-            conf.data,
-            seg,
-            conf.enforce_offset_match,
-            conf.enforce_required_offsets,
-        )
-        .def_inner_into()
-        .def_and_tentatively(|_seg| {
+        remove_tot_data_seg(kws, seg, conf).def_and_tentatively(|(tot, _seg)| {
             match self {
                 Self::Ascii(a) => a.into_col_reader(_seg, tot, conf),
                 Self::Integer(fl) => fl.into_col_reader(_seg, tot, conf),
@@ -2392,16 +2383,7 @@ impl VersionedDataLayout for DataLayout3_0 {
         seg: HeaderDataSegment,
         conf: &ReaderConfig,
     ) -> DataReaderResult {
-        let tot = Tot::get_meta_req(kws).map_err(|e| DeferredFailure::new1(e.into()))?;
-        LookupSegment::get_req_or(
-            kws,
-            conf.data,
-            seg,
-            conf.enforce_offset_match,
-            conf.enforce_required_offsets,
-        )
-        .def_inner_into()
-        .def_and_tentatively(|_seg| {
+        get_tot_data_seg(kws, seg, conf).def_and_tentatively(|(tot, _seg)| {
             match self {
                 Self::Ascii(a) => a.into_col_reader(_seg, tot, conf),
                 Self::Integer(fl) => fl.into_col_reader(_seg, tot, conf),
@@ -2514,16 +2496,7 @@ impl VersionedDataLayout for DataLayout3_1 {
         seg: HeaderDataSegment,
         conf: &ReaderConfig,
     ) -> DataReaderResult {
-        let tot = Tot::remove_meta_req(kws).map_err(|e| DeferredFailure::new1(e.into()))?;
-        LookupSegment::remove_req_or(
-            kws,
-            conf.data,
-            seg,
-            conf.enforce_offset_match,
-            conf.enforce_required_offsets,
-        )
-        .def_inner_into()
-        .def_and_tentatively(|_seg| {
+        remove_tot_data_seg(kws, seg, conf).def_and_tentatively(|(tot, _seg)| {
             match self {
                 Self::Ascii(a) => a.into_col_reader(_seg, tot, conf),
                 Self::Integer(fl) => fl.into_col_reader(_seg, tot, conf),
@@ -2540,16 +2513,7 @@ impl VersionedDataLayout for DataLayout3_1 {
         seg: HeaderDataSegment,
         conf: &ReaderConfig,
     ) -> DataReaderResult {
-        let tot = Tot::get_meta_req(kws).map_err(|e| DeferredFailure::new1(e.into()))?;
-        LookupSegment::get_req_or(
-            kws,
-            conf.data,
-            seg,
-            conf.enforce_offset_match,
-            conf.enforce_required_offsets,
-        )
-        .def_inner_into()
-        .def_and_tentatively(|_seg| {
+        get_tot_data_seg(kws, seg, conf).def_and_tentatively(|(tot, _seg)| {
             match self {
                 Self::Ascii(a) => a.into_col_reader(_seg, tot, conf),
                 Self::Integer(fl) => fl.into_col_reader(_seg, tot, conf),
@@ -2717,16 +2681,7 @@ impl VersionedDataLayout for DataLayout3_2 {
         seg: HeaderDataSegment,
         conf: &ReaderConfig,
     ) -> DataReaderResult {
-        let tot = Tot::remove_meta_req(kws).map_err(|e| DeferredFailure::new1(e.into()))?;
-        LookupSegment::remove_req_or(
-            kws,
-            conf.data,
-            seg,
-            conf.enforce_offset_match,
-            conf.enforce_required_offsets,
-        )
-        .def_inner_into()
-        .def_and_tentatively(|_seg| {
+        remove_tot_data_seg(kws, seg, conf).def_and_tentatively(|(tot, _seg)| {
             match self {
                 Self::Ascii(a) => a.into_col_reader(_seg, tot, conf),
                 Self::Integer(fl) => fl.into_col_reader(_seg, tot, conf),
@@ -2744,16 +2699,7 @@ impl VersionedDataLayout for DataLayout3_2 {
         seg: HeaderDataSegment,
         conf: &ReaderConfig,
     ) -> DataReaderResult {
-        let tot = Tot::get_meta_req(kws).map_err(|e| DeferredFailure::new1(e.into()))?;
-        LookupSegment::get_req_or(
-            kws,
-            conf.data,
-            seg,
-            conf.enforce_offset_match,
-            conf.enforce_required_offsets,
-        )
-        .def_inner_into()
-        .def_and_tentatively(|_seg| {
+        get_tot_data_seg(kws, seg, conf).def_and_tentatively(|(tot, _seg)| {
             match self {
                 Self::Ascii(a) => a.into_col_reader(_seg, tot, conf),
                 Self::Integer(fl) => fl.into_col_reader(_seg, tot, conf),
@@ -2786,6 +2732,40 @@ impl VersionedDataLayout for DataLayout3_2 {
             .inner_into();
         Ok(ret)
     }
+}
+
+fn remove_tot_data_seg(
+    kws: &mut StdKeywords,
+    seg: HeaderDataSegment,
+    conf: &ReaderConfig,
+) -> DeferredResult<(Tot, AnyDataSegment), NewDataReaderWarning, NewDataReaderError> {
+    let tot_res = Tot::remove_meta_req(kws).into_deferred();
+    let seg_res = LookupSegment::remove_req_or(
+        kws,
+        conf.data,
+        seg,
+        conf.enforce_offset_match,
+        conf.enforce_required_offsets,
+    )
+    .def_inner_into();
+    tot_res.def_zip(seg_res)
+}
+
+fn get_tot_data_seg(
+    kws: &StdKeywords,
+    seg: HeaderDataSegment,
+    conf: &ReaderConfig,
+) -> DeferredResult<(Tot, AnyDataSegment), NewDataReaderWarning, NewDataReaderError> {
+    let tot_res = Tot::get_meta_req(kws).into_deferred();
+    let seg_res = LookupSegment::get_req_or(
+        kws,
+        conf.data,
+        seg,
+        conf.enforce_offset_match,
+        conf.enforce_required_offsets,
+    )
+    .def_inner_into();
+    tot_res.def_zip(seg_res)
 }
 
 #[allow(clippy::type_complexity)]

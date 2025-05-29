@@ -116,7 +116,7 @@ where
         Self::E: ReqMetaKey,
     {
         Self::get_req(kws, corr)
-            .def_errors_map(ReqSegmentWithDefaultError::Req)
+            .def_map_errors(ReqSegmentWithDefaultError::Req)
             .map_or_else(
                 |f| {
                     if enforce_lookup {
@@ -150,7 +150,7 @@ where
         Self::E: OptMetaKey,
     {
         Self::get_opt(kws, corr)
-            .warnings_map(OptSegmentWithDefaultWarning::Opt)
+            .map_warnings(OptSegmentWithDefaultWarning::Opt)
             .and_tentatively(|other| {
                 other.map_or(Tentative::new1(default.into_any()), |o| {
                     default.unless(o).map_or_else(
@@ -223,7 +223,7 @@ where
         Self::E: ReqMetaKey,
     {
         Self::remove_req(kws, corr)
-            .def_errors_map(ReqSegmentWithDefaultError::Req)
+            .def_map_errors(ReqSegmentWithDefaultError::Req)
             .map_or_else(
                 |f| {
                     if enforce_lookup {
@@ -257,7 +257,7 @@ where
         Self::E: OptMetaKey,
     {
         Self::remove_opt(kws, corr)
-            .warnings_map(OptSegmentWithDefaultWarning::Opt)
+            .map_warnings(OptSegmentWithDefaultWarning::Opt)
             .and_tentatively(|other| {
                 other.map_or(Tentative::new1(default.into_any()), |o| {
                     default.unless(o).map_or_else(

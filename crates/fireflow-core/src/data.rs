@@ -855,14 +855,14 @@ impl FixedLayout<AnyUintType> {
             .enumerate()
             .map(|(i, c)| {
                 AnyUintType::try_new(c.width, c.range, e, notrunc)
-                    .def_errors_map(|error| {
+                    .def_map_errors(|error| {
                         ColumnError {
                             error,
                             index: i.into(),
                         }
                         .into()
                     })
-                    .def_warnings_map(|error| {
+                    .def_map_warnings(|error| {
                         ColumnError {
                             error,
                             index: i.into(),
@@ -2651,22 +2651,22 @@ impl VersionedDataLayout for DataLayout3_2 {
                         c.range,
                         conf.bitmask_notruncate,
                     )
-                    .def_errors_map(|error| {
+                    .def_map_errors(|error| {
                         ColumnError {
                             error,
                             index: i.into(),
                         }
                         .into()
                     })
-                    .def_errors_map(NewDataLayoutError::Mixed)
-                    .def_warnings_map(|error| {
+                    .def_map_errors(NewDataLayoutError::Mixed)
+                    .def_map_warnings(|error| {
                         ColumnError {
                             error,
                             index: i.into(),
                         }
                         .into()
                     })
-                    .def_warnings_map(NewDataLayoutWarning::VariableInt)
+                    .def_map_warnings(NewDataLayoutWarning::VariableInt)
                 })
                 .gather()
                 .map(Tentative::mconcat)

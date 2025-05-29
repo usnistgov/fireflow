@@ -57,8 +57,7 @@ pub fn fcs_read_std_text(
 ) -> IOTerminalResult<StdTEXTOutput, StdTEXTWarning, StdTEXTError, StdTEXTFailure> {
     read_fcs_raw_text_inner(p, &conf.raw)
         .def_map_value(|(x, _)| x)
-        .def_errors_map(|e| e.inner_into())
-        .def_warnings_into()
+        .def_io_into()
         .def_and_maybe(|raw| raw.into_std_text(conf).def_inner_into().def_errors_liftio())
         .def_terminate(StdTEXTFailure)
 }
@@ -69,8 +68,7 @@ pub fn fcs_read_raw_dataset(
     conf: &DataReadConfig,
 ) -> IOTerminalResult<RawDatasetOutput, RawDatasetWarning, RawDatasetError, RawDatasetFailure> {
     read_fcs_raw_text_inner(p, &conf.standard.raw)
-        .def_errors_map(|e| e.inner_into())
-        .def_warnings_into()
+        .def_io_into()
         .def_and_maybe(|(raw, mut h)| {
             h_read_dataset_from_kws(
                 &mut h,
@@ -81,8 +79,7 @@ pub fn fcs_read_raw_dataset(
                 conf,
             )
             .def_map_value(|dataset| RawDatasetOutput { text: raw, dataset })
-            .def_warnings_into()
-            .def_errors_map(|e| e.inner_into())
+            .def_io_into()
         })
         .def_terminate(RawDatasetFailure)
 }
@@ -93,13 +90,8 @@ pub fn fcs_read_std_dataset(
     conf: &DataReadConfig,
 ) -> IOTerminalResult<StdDatasetOutput, StdDatasetWarning, StdDatasetError, StdDatasetFailure> {
     read_fcs_raw_text_inner(p, &conf.standard.raw)
-        .def_errors_map(|e| e.inner_into())
-        .def_warnings_into()
-        .def_and_maybe(|(raw, mut h)| {
-            raw.into_std_dataset(&mut h, conf)
-                .def_warnings_into()
-                .def_errors_map(|e| e.inner_into())
-        })
+        .def_io_into()
+        .def_and_maybe(|(raw, mut h)| raw.into_std_dataset(&mut h, conf).def_io_into())
         .def_terminate(StdDatasetFailure)
 }
 
@@ -497,7 +489,7 @@ fn h_read_dataset_from_kws<R: Read + Seek>(
                 analysis_seg: a_seg,
             })
             .into_deferred()
-            .def_errors_map(|e: ImpureError<ReadDataError>| e.inner_into())
+            .def_map_errors(|e: ImpureError<ReadDataError>| e.inner_into())
     })
 }
 
@@ -520,9 +512,9 @@ impl RawTEXTOutput {
     ) -> DeferredResult<Self, ParseRawTEXTWarning, ImpureError<HeaderOrRawError>> {
         h_read_header(h, &conf.header)
             .mult_to_deferred()
-            .def_errors_map(|e: ImpureError<HeaderError>| e.inner_into())
+            .def_map_errors(|e: ImpureError<HeaderError>| e.inner_into())
             .def_and_maybe(|header| {
-                h_read_raw_text_from_header(h, header, conf).def_errors_map(|e| e.inner_into())
+                h_read_raw_text_from_header(h, header, conf).def_map_errors(|e| e.inner_into())
             })
     }
 
@@ -638,7 +630,9 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
         .h_read(h, &mut buf)
         .into_deferred()?;
 
-    let tnt_delim = split_first_delim(&buf, conf).def_inner_into().def_errors_liftio()?;
+    let tnt_delim = split_first_delim(&buf, conf)
+        .def_inner_into()
+        .def_errors_liftio()?;
 
     let tnt_primary = tnt_delim.and_maybe(|(delim, bytes)| {
         let kws = ParsedKeywords::default();
@@ -652,7 +646,7 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
     let tnt_all_kws = tnt_primary.and_maybe(|(delim, mut kws)| {
         lookup_stext_offsets(&mut kws.std, header.version, conf)
             .errors_into()
-            .errors_map(ImpureError::Pure)
+            .errors_liftio()
             .warnings_into()
             .map(|s| (s, kws))
             .and_maybe(|(maybe_supp_seg, _kws)| {
@@ -663,7 +657,7 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
                         .map_err(|e| DeferredFailure::new1(e.into()))?;
                     split_raw_supp_text(_kws, delim, &buf, conf)
                         .inner_into()
-                        .error_liftio()
+                        .errors_liftio()
                 } else {
                     Tentative::new1(_kws)
                 };
@@ -719,7 +713,7 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
                 },
             })
             .errors_into()
-            .errors_map(ImpureError::Pure)
+            .errors_liftio()
             .warnings_into()
     });
 

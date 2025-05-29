@@ -357,10 +357,10 @@ impl AnyCoreDataset {
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
         conf: &DataReadConfig,
-    ) -> DeferredResult<
+    ) -> IODeferredResult<
         (Self, AnyDataSegment, AnyAnalysisSegment),
         StdDatasetFromRawWarning,
-        ImpureError<StdDatasetFromRawError>,
+        StdDatasetFromRawError,
     > {
         match version {
             Version::FCS2_0 => {
@@ -1194,24 +1194,25 @@ where
                             None
                         }
                     });
-                    dt.def_zip(s).def_map_value(|(datatype, specific)| Metadata {
-                        datatype,
-                        abrt,
-                        com,
-                        cells,
-                        exp,
-                        fil,
-                        inst,
-                        lost,
-                        op,
-                        proj,
-                        smno,
-                        src,
-                        sys,
-                        tr,
-                        nonstandard_keywords: nonstd.into_iter().collect(),
-                        specific,
-                    })
+                    dt.def_zip(s)
+                        .def_map_value(|(datatype, specific)| Metadata {
+                            datatype,
+                            abrt,
+                            com,
+                            cells,
+                            exp,
+                            fil,
+                            inst,
+                            lost,
+                            op,
+                            proj,
+                            smno,
+                            src,
+                            sys,
+                            tr,
+                            nonstandard_keywords: nonstd.into_iter().collect(),
+                            specific,
+                        })
                 },
             )
     }
@@ -1953,7 +1954,7 @@ where
         let m = self
             .metadata
             .try_convert(convert)
-            .def_errors_map(ConvertErrorInner::Meta);
+            .def_map_errors(ConvertErrorInner::Meta);
         let ps = self
             .measurements
             .map_center_value(|y| y.value.convert())
@@ -1971,7 +1972,7 @@ where
                 data: self.data,
                 analysis: self.analysis,
             })
-            .def_errors_map(|error| ConvertError {
+            .def_map_errors(|error| ConvertError {
                 from: M::P::fcs_version(),
                 to: ToM::P::fcs_version(),
                 inner: error,
@@ -2475,13 +2476,12 @@ where
                 let sp = &conf.shortname_prefix;
                 let nsp = conf.nonstandard_measurement_pattern.as_ref();
                 let ns: Vec<_> = nonstd.into_iter().collect();
-                let mut tnt_core = Self::lookup_measurements(kws, par, tp, sp, nsp, ns).def_and_maybe(
-                    |(ms, meta_ns)| {
+                let mut tnt_core = Self::lookup_measurements(kws, par, tp, sp, nsp, ns)
+                    .def_and_maybe(|(ms, meta_ns)| {
                         Metadata::lookup_metadata(kws, &ms, meta_ns)
                             .def_map_value(|metadata| CoreTEXT::new_unchecked(metadata, ms))
                             .def_warnings_into()
-                    },
-                )?;
+                    })?;
 
                 // Check that the time measurement is present if we want it
                 tnt_core.eval_error(|core| {
@@ -2619,10 +2619,10 @@ where
         analysis_seg: HeaderAnalysisSegment,
         conf: &DataReadConfig,
         // TODO wrap this in a nice struct
-    ) -> DeferredResult<
+    ) -> IODeferredResult<
         (Self, AnyDataSegment, AnyAnalysisSegment),
         StdDatasetFromRawWarning,
-        ImpureError<StdDatasetFromRawError>,
+        StdDatasetFromRawError,
     >
     where
         M: LookupMetadata,
@@ -2645,7 +2645,7 @@ where
                             .def_inner_into()
                             .def_errors_liftio();
                         data_res.def_zip(analysis_res).def_and_maybe(|(dr, ar)| {
-                            let data_seg = dr.seg;
+                            let d_seg = dr.seg;
                             let data = dr
                                 .h_read(h)
                                 .map_err(|e| DeferredFailure::new1(e.inner_into()))?;
@@ -2657,7 +2657,7 @@ where
                                 data,
                                 analysis,
                             };
-                            Ok(Tentative::new1((dataset, data_seg, ar.seg)))
+                            Ok(Tentative::new1((dataset, d_seg, ar.seg)))
                         })
                     })
             })
@@ -2668,7 +2668,7 @@ where
         &self,
         h: &mut BufWriter<W>,
         conf: &WriteConfig,
-    ) -> DeferredResult<(), NewDataLayoutWarning, ImpureError<StdWriterError>>
+    ) -> IODeferredResult<(), NewDataLayoutWarning, StdWriterError>
     where
         W: Write,
     {
@@ -2676,7 +2676,12 @@ where
         self.as_data_layout(&conf.shared)
             .def_errors_into()
             .def_errors_liftio()
-            .def_and_maybe(|layout| layout.as_writer(df, conf).mult_to_deferred().def_errors_liftio())
+            .def_and_maybe(|layout| {
+                layout
+                    .as_writer(df, conf)
+                    .mult_to_deferred()
+                    .def_errors_liftio()
+            })
             .def_and_maybe(|mut writer| {
                 let tot = Tot(df.nrows());
                 let analysis_len = self.analysis.0.len();
@@ -4449,7 +4454,8 @@ impl LookupTemporal for InnerTemporal3_0 {
         tnt_gain.and_maybe(|_| {
             let s = lookup_temporal_scale_3_0(kws, i);
             let t = lookup_meta_req(kws);
-            s.def_zip(t).def_map_value(|(_, timestep)| Self { timestep })
+            s.def_zip(t)
+                .def_map_value(|(_, timestep)| Self { timestep })
         })
     }
 }

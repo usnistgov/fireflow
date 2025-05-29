@@ -468,7 +468,7 @@ impl<V, W, E> Tentative<V, W, E> {
         self.errors.extend(f(&self.value));
     }
 
-    pub fn warnings_map<F, X>(self, f: F) -> Tentative<V, X, E>
+    pub fn map_warnings<F, X>(self, f: F) -> Tentative<V, X, E>
     where
         F: Fn(W) -> X,
     {
@@ -479,7 +479,7 @@ impl<V, W, E> Tentative<V, W, E> {
         }
     }
 
-    pub fn errors_map<F, X>(self, f: F) -> Tentative<V, W, X>
+    pub fn map_errors<F, X>(self, f: F) -> Tentative<V, W, X>
     where
         F: Fn(E) -> X,
     {
@@ -494,14 +494,14 @@ impl<V, W, E> Tentative<V, W, E> {
     where
         X: From<W>,
     {
-        self.warnings_map(|w| w.into())
+        self.map_warnings(|w| w.into())
     }
 
     pub fn errors_into<X>(self) -> Tentative<V, W, X>
     where
         X: From<E>,
     {
-        self.errors_map(|e| e.into())
+        self.map_errors(|e| e.into())
     }
 
     pub fn inner_into<X, Y>(self) -> Tentative<V, X, Y>
@@ -512,8 +512,8 @@ impl<V, W, E> Tentative<V, W, E> {
         self.errors_into().warnings_into()
     }
 
-    pub fn error_liftio(self) -> Tentative<V, W, ImpureError<E>> {
-        self.errors_map(ImpureError::Pure)
+    pub fn errors_liftio(self) -> Tentative<V, W, ImpureError<E>> {
+        self.map_errors(ImpureError::Pure)
     }
 
     pub fn mconcat(xs: Vec<Self>) -> Tentative<Vec<V>, W, E> {
@@ -622,7 +622,7 @@ impl<W, E> DeferredFailure<W, E> {
         self.errors.push(x)
     }
 
-    pub fn warnings_map<F, X>(self, f: F) -> DeferredFailure<X, E>
+    pub fn map_warnings<F, X>(self, f: F) -> DeferredFailure<X, E>
     where
         F: Fn(W) -> X,
     {
@@ -632,7 +632,7 @@ impl<W, E> DeferredFailure<W, E> {
         }
     }
 
-    pub fn errors_map<F, X>(self, f: F) -> DeferredFailure<W, X>
+    pub fn map_errors<F, X>(self, f: F) -> DeferredFailure<W, X>
     where
         F: Fn(E) -> X,
     {
@@ -646,14 +646,14 @@ impl<W, E> DeferredFailure<W, E> {
     where
         X: From<W>,
     {
-        self.warnings_map(|w| w.into())
+        self.map_warnings(|w| w.into())
     }
 
     pub fn errors_into<X>(self) -> DeferredFailure<W, X>
     where
         X: From<E>,
     {
-        self.errors_map(|e| e.into())
+        self.map_errors(|e| e.into())
     }
 
     pub fn mappend(mut self, other: Self) -> Self {
@@ -792,7 +792,7 @@ impl<V, E> MultiResultExt for MultiResult<V, E> {
     }
 }
 
-pub trait DeferredExt {
+pub trait DeferredExt: Sized {
     type V;
     type E;
     type W;
@@ -800,27 +800,38 @@ pub trait DeferredExt {
     fn def_inner_into<ToW, ToE>(self) -> DeferredResult<Self::V, ToW, ToE>
     where
         ToW: From<Self::W>,
-        ToE: From<Self::E>;
+        ToE: From<Self::E>,
+    {
+        self.def_errors_into().def_warnings_into()
+    }
 
     fn def_errors_into<ToE>(self) -> DeferredResult<Self::V, Self::W, ToE>
     where
-        ToE: From<Self::E>;
+        ToE: From<Self::E>,
+    {
+        self.def_map_errors(|e| e.into())
+    }
 
-    fn def_errors_liftio(self) -> DeferredResult<Self::V, Self::W, ImpureError<Self::E>>;
+    fn def_errors_liftio(self) -> DeferredResult<Self::V, Self::W, ImpureError<Self::E>> {
+        self.def_map_errors(ImpureError::Pure)
+    }
 
     fn def_warnings_into<ToW>(self) -> DeferredResult<Self::V, ToW, Self::E>
     where
-        ToW: From<Self::W>;
+        ToW: From<Self::W>,
+    {
+        self.def_map_warnings(|w| w.into())
+    }
 
     fn def_map_value<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
     where
         F: FnOnce(Self::V) -> X;
 
-    fn def_warnings_map<F, X>(self, f: F) -> DeferredResult<Self::V, X, Self::E>
+    fn def_map_warnings<F, X>(self, f: F) -> DeferredResult<Self::V, X, Self::E>
     where
         F: Fn(Self::W) -> X;
 
-    fn def_errors_map<F, X>(self, f: F) -> DeferredResult<Self::V, Self::W, X>
+    fn def_map_errors<F, X>(self, f: F) -> DeferredResult<Self::V, Self::W, X>
     where
         F: Fn(Self::E) -> X;
 
@@ -864,35 +875,6 @@ impl<V, W, E> DeferredExt for DeferredResult<V, W, E> {
     type W = W;
     type E = E;
 
-    fn def_inner_into<ToW, ToE>(self) -> DeferredResult<Self::V, ToW, ToE>
-    where
-        ToW: From<Self::W>,
-        ToE: From<Self::E>,
-    {
-        self.map_err(|e| e.errors_into().warnings_into())
-            .map(|t| t.errors_into().warnings_into())
-    }
-
-    fn def_errors_into<ToE>(self) -> DeferredResult<Self::V, Self::W, ToE>
-    where
-        ToE: From<Self::E>,
-    {
-        self.map_err(|e| e.errors_into()).map(|t| t.errors_into())
-    }
-
-    fn def_errors_liftio(self) -> DeferredResult<Self::V, Self::W, ImpureError<E>> {
-        self.map(|t| t.errors_map(ImpureError::Pure))
-            .map_err(|e| e.errors_map(ImpureError::Pure))
-    }
-
-    fn def_warnings_into<ToW>(self) -> DeferredResult<Self::V, ToW, Self::E>
-    where
-        ToW: From<Self::W>,
-    {
-        self.map_err(|e| e.warnings_into())
-            .map(|t| t.warnings_into())
-    }
-
     fn def_map_value<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
     where
         F: FnOnce(Self::V) -> X,
@@ -900,23 +882,23 @@ impl<V, W, E> DeferredExt for DeferredResult<V, W, E> {
         self.map(|x| x.map(f))
     }
 
-    fn def_warnings_map<F, X>(self, f: F) -> DeferredResult<Self::V, X, Self::E>
+    fn def_map_warnings<F, X>(self, f: F) -> DeferredResult<Self::V, X, Self::E>
     where
         F: Fn(Self::W) -> X,
     {
         match self {
-            Ok(x) => Ok(x.warnings_map(f)),
-            Err(x) => Err(x.warnings_map(f)),
+            Ok(x) => Ok(x.map_warnings(f)),
+            Err(x) => Err(x.map_warnings(f)),
         }
     }
 
-    fn def_errors_map<F, X>(self, f: F) -> DeferredResult<Self::V, Self::W, X>
+    fn def_map_errors<F, X>(self, f: F) -> DeferredResult<Self::V, Self::W, X>
     where
         F: Fn(Self::E) -> X,
     {
         match self {
-            Ok(x) => Ok(x.errors_map(f)),
-            Err(x) => Err(x.errors_map(f)),
+            Ok(x) => Ok(x.map_errors(f)),
+            Err(x) => Err(x.map_errors(f)),
         }
     }
 
@@ -986,6 +968,19 @@ impl<V, W, E> DeferredExt for DeferredResult<V, W, E> {
     }
 }
 
+pub trait IODeferredExt: Sized + DeferredExt {
+    fn def_io_into<FromE, ToE, ToW>(self) -> DeferredResult<Self::V, ToW, ImpureError<ToE>>
+    where
+        Self: DeferredExt<E = ImpureError<FromE>>,
+        ToE: From<FromE>,
+        ToW: From<Self::W>,
+    {
+        self.def_map_errors(|e| e.inner_into()).def_warnings_into()
+    }
+}
+
+impl<V, W, E> IODeferredExt for IODeferredResult<V, W, E> {}
+
 impl<E> fmt::Display for ImpureError<E>
 where
     E: fmt::Display,
@@ -1008,7 +1003,7 @@ impl<E> ImpureError<E> {
 
     pub fn map_inner<F, X>(self, f: F) -> ImpureError<X>
     where
-        F: Fn(E) -> X,
+        F: FnOnce(E) -> X,
     {
         match self {
             Self::IO(x) => ImpureError::IO(x),

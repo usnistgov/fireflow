@@ -210,6 +210,22 @@ where
             .into_deferred1()
     }
 
+    fn remove_req_mult(
+        kws: &mut StdKeywords,
+        corr: OffsetCorrection<Self, SegmentFromTEXT>,
+    ) -> MultiResult<TEXTSegment<Self>, ReqSegmentError>
+    where
+        Self::B: ReqMetaKey,
+        Self::E: ReqMetaKey,
+    {
+        let x0 = Self::B::remove_meta_req(kws).map_err(|e| e.into());
+        let x1 = Self::E::remove_meta_req(kws).map_err(|e| e.into());
+        x0.zip(x1).and_then(|(y0, y1)| {
+            SpecificSegment::try_new(y0.into(), y1.into(), corr, SegmentFromTEXT)
+                .into_mult::<ReqSegmentError>()
+        })
+    }
+
     fn remove_opt<E>(
         kws: &mut StdKeywords,
         corr: OffsetCorrection<Self, SegmentFromTEXT>,

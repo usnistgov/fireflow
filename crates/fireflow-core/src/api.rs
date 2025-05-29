@@ -840,17 +840,14 @@ fn lookup_stext_offsets(
     version: Version,
     conf: &RawTextReadConfig,
 ) -> Tentative<Option<SupplementalTextSegment>, STextSegmentWarning, ReqSegmentError> {
-    let dws = SegmentFromTEXT::lookup(kws);
     match version {
         Version::FCS2_0 => Tentative::new1(None),
-        Version::FCS3_0 | Version::FCS3_1 => SegmentFromTEXT::req(dws, conf.stext).map_or_else(
-            |es| Tentative::new_either(None, es.into(), conf.enforce_stext),
-            |t| Tentative::new1(Some(t)),
-        ),
-        Version::FCS3_2 => SegmentFromTEXT::opt(dws, conf.stext).map_or_else(
-            |es| Tentative::new(None, es.map(|e| e.into()).into(), vec![]),
-            Tentative::new1,
-        ),
+        Version::FCS3_0 | Version::FCS3_1 => LookupSegment::remove_req_mult(kws, conf.stext)
+            .map_or_else(
+                |es| Tentative::new_either(None, es.into(), conf.enforce_stext),
+                |t| Tentative::new1(Some(t)),
+            ),
+        Version::FCS3_2 => LookupSegment::remove_opt(kws, conf.stext).warnings_into(),
     }
 }
 

@@ -936,9 +936,9 @@ where
     Self: FromStr,
     <Self as FromStr>::Err: fmt::Display,
 {
-    // fn get_meta_opt(kws: &StdKeywords) -> OptKwResult<Self> {
-    //     Self::get_opt(kws, &Self::std())
-    // }
+    fn get_meta_opt(kws: &StdKeywords) -> OptKwResult<Self> {
+        Self::get_opt(kws, &Self::std())
+    }
 
     fn remove_meta_opt(kws: &mut StdKeywords) -> OptKwResult<Self> {
         Self::remove_opt(kws, &Self::std())

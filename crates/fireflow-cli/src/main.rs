@@ -36,43 +36,6 @@ pub fn print_parsed_data(s: &StandardizedDatasetOutput, _delim: &str) {
     }
 }
 
-fn handle_fail_header(e: AnyParseHeaderFailure) {
-    match e {
-        AnyParseHeaderFailure::File(x) => eprintln!("IO ERROR: {x}"),
-        AnyParseHeaderFailure::Header(x) => handle_failure_nowarn(x),
-    }
-}
-
-fn handle_fail_raw_text(e: AnyRawTEXTFailure) {
-    match e {
-        AnyRawTEXTFailure::File(x) => eprintln!("IO ERROR: {x}"),
-        AnyRawTEXTFailure::Parse(x) => handle_fail_header_or_raw(x),
-    }
-}
-
-fn handle_fail_header_or_raw(e: HeaderOrRawFailure) {
-    match e {
-        HeaderOrRawFailure::Header(y) => handle_failure_nowarn(y),
-        HeaderOrRawFailure::RawTEXT(y) => handle_failure(y),
-    }
-}
-
-fn handle_fail_std_text(e: AnyStdTEXTFailure) {
-    match e {
-        AnyStdTEXTFailure::Raw(x) => handle_fail_raw_text(x),
-        AnyStdTEXTFailure::Std(x) => handle_failure(x),
-    }
-}
-
-fn handle_fail_std_dataset(e: AnyStdDatasetFailure) {
-    match e {
-        AnyStdDatasetFailure::File(i) => eprintln!("IO ERROR: {i}"),
-        AnyStdDatasetFailure::Raw(x) => handle_fail_header_or_raw(x),
-        AnyStdDatasetFailure::Std(x) => handle_failure(x),
-        AnyStdDatasetFailure::Read(x) => handle_failure(x),
-    }
-}
-
 // TODO use warnings_are_errors flag
 fn handle_warnings<X, W>(t: Terminal<X, W>) -> X
 where
@@ -237,8 +200,8 @@ fn main() -> Result<(), ()> {
         Some(("header", _)) => {
             let conf = config::HeaderConfig::default();
             read_fcs_header(filepath, &conf)
-                .map(|h| print_json(&h))
-                .map_err(handle_fail_header)
+                .map(|h| print_json(&h.inner()))
+                .map_err(handle_failure_nowarn)
         }
 
         Some(("raw", sargs)) => {
@@ -251,7 +214,7 @@ fn main() -> Result<(), ()> {
             read_fcs_raw_text(filepath, &conf)
                 .map(handle_warnings)
                 .map(|raw| print_json(&raw))
-                .map_err(handle_fail_raw_text)
+                .map_err(handle_failure)
         }
 
         Some(("spillover", sargs)) => {
@@ -263,7 +226,7 @@ fn main() -> Result<(), ()> {
             read_fcs_std_text(filepath, &conf)
                 .map(handle_warnings)
                 .map(|std| std.standardized.print_spillover_table(delim))
-                .map_err(handle_fail_std_text)
+                .map_err(handle_failure)
         }
 
         Some(("measurements", sargs)) => {
@@ -275,7 +238,7 @@ fn main() -> Result<(), ()> {
             read_fcs_std_text(filepath, &conf)
                 .map(handle_warnings)
                 .map(|std| std.standardized.print_meas_table(delim))
-                .map_err(handle_fail_std_text)
+                .map_err(handle_failure)
         }
 
         Some(("std", sargs)) => {
@@ -309,7 +272,7 @@ fn main() -> Result<(), ()> {
                 .map(|std| {
                     print_json(&std.standardized);
                 })
-                .map_err(handle_fail_std_text)
+                .map_err(handle_failure)
         }
 
         Some(("data", sargs)) => {
@@ -323,7 +286,7 @@ fn main() -> Result<(), ()> {
             read_fcs_std_file(filepath, &conf)
                 .map(handle_warnings)
                 .map(|res| print_parsed_data(&res, delim))
-                .map_err(handle_fail_std_dataset)
+                .map_err(handle_failure)
         }
 
         _ => Ok(()),

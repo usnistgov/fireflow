@@ -37,14 +37,6 @@ pub struct OffsetCorrection<I, S> {
     _src: PhantomData<S>,
 }
 
-// enum_from!(
-//     /// Denotes a segment came from either HEADER or TEXT
-//     #[derive(Clone, Copy)]
-//     pub SegmentFromAnywhere,
-//     [Header, SegmentFromHeader],
-//     [TEXT, SegmentFromTEXT]
-// );
-
 /// Denotes a segment came from either HEADER
 #[derive(Default, Debug, Clone, Copy, Serialize)]
 pub struct SegmentFromHeader;
@@ -68,13 +60,6 @@ pub struct DataSegmentId;
 /// Denotes the segment pertains to ANALYSIS
 #[derive(Default, Debug, Clone, Copy, Serialize)]
 pub struct AnalysisSegmentId;
-
-/// Intermediate store for TEXT keywords that might be parsed as a segment
-pub struct SegmentKeywords<I> {
-    pub begin: Option<String>,
-    pub end: Option<String>,
-    _id: PhantomData<I>,
-}
 
 pub type PrimaryTextSegment = SpecificSegment<PrimaryTextSegmentId, SegmentFromHeader>;
 pub type SupplementalTextSegment = SpecificSegment<SupplementalTextSegmentId, SegmentFromTEXT>;
@@ -114,21 +99,112 @@ where
     type B;
     type E;
 
-    // fn lookup(kws: &mut StdKeywords) -> SegmentKeywords<Self> {
-    //     SegmentKeywords {
-    //         begin: kws.remove(&Self::B::std()),
-    //         end: kws.remove(&Self::E::std()),
-    //         _id: PhantomData,
-    //     }
-    // }
+    fn get_req_or(
+        kws: &StdKeywords,
+        corr: OffsetCorrection<Self, SegmentFromTEXT>,
+        default: HeaderSegment<Self>,
+        enforce_match: bool,
+        enforce_lookup: bool,
+    ) -> DeferredResult<
+        AnySegment<Self>,
+        ReqSegmentWithDefaultWarning<Self>,
+        ReqSegmentWithDefaultError<Self>,
+    >
+    where
+        Self: Copy,
+        Self::B: ReqMetaKey,
+        Self::E: ReqMetaKey,
+    {
+        Self::get_req(kws, corr)
+            .errors_map(ReqSegmentWithDefaultError::Req)
+            .map_or_else(
+                |f| {
+                    if enforce_lookup {
+                        Err(f)
+                    } else {
+                        let mut tnt = f.into_tentative(default.into_any());
+                        tnt.push_warning(SegmentDefaultWarning::default().into());
+                        Ok(tnt)
+                    }
+                },
+                |tnt| {
+                    Ok(tnt.and_tentatively(|other| {
+                        default.unless(other).map_or_else(
+                            |(s, w)| Tentative::new_either(s, vec![w], enforce_match),
+                            Tentative::new1,
+                        )
+                    }))
+                },
+            )
+    }
 
-    // fn lookup_cloned(kws: &StdKeywords) -> SegmentKeywords<Self> {
-    //     SegmentKeywords {
-    //         begin: kws.get(&Self::B::std()).cloned(),
-    //         end: kws.get(&Self::E::std()).cloned(),
-    //         _id: PhantomData,
-    //     }
-    // }
+    fn get_opt_or(
+        kws: &StdKeywords,
+        corr: OffsetCorrection<Self, SegmentFromTEXT>,
+        default: HeaderSegment<Self>,
+        enforce: bool,
+    ) -> Tentative<AnySegment<Self>, OptSegmentWithDefaultWarning<Self>, SegmentMismatchWarning<Self>>
+    where
+        Self: Copy,
+        Self::B: OptMetaKey,
+        Self::E: OptMetaKey,
+    {
+        Self::get_opt(kws, corr)
+            .warnings_map(OptSegmentWithDefaultWarning::Opt)
+            .and_tentatively(|other| {
+                other.map_or(Tentative::new1(default.into_any()), |o| {
+                    default.unless(o).map_or_else(
+                        |(s, w)| Tentative::new_either(s, vec![w], enforce),
+                        Tentative::new1,
+                    )
+                })
+            })
+    }
+
+    fn get_req<W>(
+        kws: &StdKeywords,
+        corr: OffsetCorrection<Self, SegmentFromTEXT>,
+    ) -> DeferredResult<TEXTSegment<Self>, W, ReqSegmentError>
+    where
+        Self::B: ReqMetaKey,
+        Self::E: ReqMetaKey,
+    {
+        let x0 = Self::B::get_meta_req(kws).map_err(|e| e.into());
+        let x1 = Self::E::get_meta_req(kws).map_err(|e| e.into());
+        // TODO not DRY
+        x0.zip(x1)
+            .and_then(|(y0, y1)| {
+                SpecificSegment::try_new(y0.into(), y1.into(), corr, SegmentFromTEXT)
+                    .into_mult::<ReqSegmentError>()
+            })
+            .into_deferred1()
+    }
+
+    fn get_opt<E>(
+        kws: &StdKeywords,
+        corr: OffsetCorrection<Self, SegmentFromTEXT>,
+    ) -> Tentative<Option<TEXTSegment<Self>>, OptSegmentError, E>
+    where
+        Self::B: OptMetaKey,
+        Self::E: OptMetaKey,
+    {
+        let x0 = Self::B::get_meta_opt(kws).map_err(|e| e.into());
+        let x1 = Self::E::get_meta_opt(kws).map_err(|e| e.into());
+        // TODO this unwrap thing isn't totally necessary
+        x0.zip(x1)
+            .and_then(|(y0, y1)| {
+                y0.0.zip(y1.0)
+                    .map(|(z0, z1)| {
+                        SpecificSegment::try_new(z0.into(), z1.into(), corr, SegmentFromTEXT)
+                            .into_mult()
+                    })
+                    .transpose()
+            })
+            .map_or_else(
+                |ws| Tentative::new(None.into(), ws.into(), vec![]),
+                Tentative::new1,
+            )
+    }
 
     fn remove_req_or(
         kws: &mut StdKeywords,
@@ -250,41 +326,6 @@ where
                 |ws| Tentative::new(None.into(), ws.into(), vec![]),
                 Tentative::new1,
             )
-    }
-
-    fn req(
-        mut kws: SegmentKeywords<Self>,
-        corr: OffsetCorrection<Self, SegmentFromTEXT>,
-    ) -> MultiResult<SpecificSegment<Self, SegmentFromTEXT>, ReqSegmentError>
-    where
-        Self::B: ReqMetaKey,
-        Self::E: ReqMetaKey,
-    {
-        let x0 = parse_req::<Self::B>(&mut kws.begin).map_err(|e| e.into());
-        let x1 = parse_req::<Self::E>(&mut kws.end).map_err(|e| e.into());
-        x0.zip(x1).and_then(|(y0, y1)| {
-            SpecificSegment::try_new(y0.into(), y1.into(), corr, SegmentFromTEXT).into_mult()
-        })
-    }
-
-    fn opt(
-        mut kws: SegmentKeywords<Self>,
-        corr: OffsetCorrection<Self, SegmentFromTEXT>,
-    ) -> MultiResult<Option<SpecificSegment<Self, SegmentFromTEXT>>, OptSegmentError>
-    where
-        Self::B: OptMetaKey,
-        Self::E: OptMetaKey,
-    {
-        let x0 = parse_opt::<Self::B>(&mut kws.begin).map_err(|e| e.into());
-        let x1 = parse_opt::<Self::E>(&mut kws.end).map_err(|e| e.into());
-        x0.zip(x1).and_then(|(y0, y1)| {
-            y0.zip(y1)
-                .map(|(z0, z1)| {
-                    SpecificSegment::try_new(z0.into(), z1.into(), corr, SegmentFromTEXT)
-                        .into_mult()
-                })
-                .transpose()
-        })
     }
 }
 
@@ -608,6 +649,30 @@ pub enum ReqSegmentWithDefaultWarning<I> {
     Lookup(SegmentDefaultWarning<I>),
 }
 
+impl<I> fmt::Display for ReqSegmentWithDefaultError<I>
+where
+    I: HasRegion,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::Mismatch(e) => e.fmt(f),
+            Self::Req(e) => e.fmt(f),
+        }
+    }
+}
+
+impl<I> fmt::Display for ReqSegmentWithDefaultWarning<I>
+where
+    I: HasRegion,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::Mismatch(e) => e.fmt(f),
+            Self::Lookup(e) => e.fmt(f),
+        }
+    }
+}
+
 impl<I> From<SegmentMismatchWarning<I>> for ReqSegmentWithDefaultWarning<I> {
     fn from(value: SegmentMismatchWarning<I>) -> Self {
         Self::Mismatch(value)
@@ -628,5 +693,17 @@ pub enum OptSegmentWithDefaultWarning<I> {
 impl<I> From<SegmentMismatchWarning<I>> for OptSegmentWithDefaultWarning<I> {
     fn from(value: SegmentMismatchWarning<I>) -> Self {
         Self::Mismatch(value)
+    }
+}
+
+impl<I> fmt::Display for OptSegmentWithDefaultWarning<I>
+where
+    I: HasRegion,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::Mismatch(e) => e.fmt(f),
+            Self::Opt(e) => e.fmt(f),
+        }
     }
 }

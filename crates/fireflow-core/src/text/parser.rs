@@ -402,9 +402,3 @@ impl fmt::Display for TemporalError {
         }
     }
 }
-
-pub enum CoreTEXTFailure {
-    NoPar(ReqKeyError<ParseIntError>),
-    Keywords,
-    Linked,
-}

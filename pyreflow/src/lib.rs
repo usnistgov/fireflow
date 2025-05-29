@@ -63,8 +63,8 @@ fn py_read_fcs_header(
         analysis: OffsetCorrection::new(begin_analysis, end_analysis),
     };
     read_fcs_header(&p, &conf)
-        .map_err(handle_fail_header)
-        .map(|x| x.into())
+        .map_err(handle_failure_nowarn)
+        .map(|x| x.inner().into())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -163,7 +163,7 @@ fn py_read_fcs_raw_text(
         date_pattern: date_pattern.map(str_to_date_pat).transpose()?,
     };
     let raw: RawTEXTOutput = read_fcs_raw_text(&p, &conf.set_strict(strict))
-        .map_or_else(|e| Err(handle_fail_raw_text(e)), handle_warnings)?;
+        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
     let std = raw
         .keywords
         .std
@@ -323,7 +323,7 @@ fn py_read_fcs_std_text(
     };
 
     let out: StandardizedTEXTOutput = read_fcs_std_text(&p, &conf.set_strict(strict))
-        .map_or_else(|e| Err(handle_fail_std_text(e)), handle_warnings)?;
+        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
 
     let text = match &out.standardized {
         // TODO this copies all data from the "union type" into a new
@@ -521,7 +521,7 @@ fn py_read_fcs_file(
     };
 
     let out: StandardizedDatasetOutput = read_fcs_std_file(&p, &conf.set_strict(strict))
-        .map_or_else(|e| Err(handle_fail_std_dataset(e)), handle_warnings)?;
+        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
 
     let dataset = match &out.dataset.core {
         // TODO this copies all data from the "union type" into a new
@@ -2930,43 +2930,6 @@ create_exception!(
     PyWarning,
     "Warning created by internal pyreflow."
 );
-
-fn handle_fail_header(e: AnyParseHeaderFailure) -> PyErr {
-    match e {
-        AnyParseHeaderFailure::File(x) => x.into(),
-        AnyParseHeaderFailure::Header(x) => handle_failure_nowarn(x),
-    }
-}
-
-fn handle_fail_raw_text(e: AnyRawTEXTFailure) -> PyErr {
-    match e {
-        AnyRawTEXTFailure::File(x) => x.into(),
-        AnyRawTEXTFailure::Parse(x) => handle_fail_header_or_raw(x),
-    }
-}
-
-fn handle_fail_std_text(e: AnyStdTEXTFailure) -> PyErr {
-    match e {
-        AnyStdTEXTFailure::Raw(x) => handle_fail_raw_text(x),
-        AnyStdTEXTFailure::Std(x) => handle_failure(x),
-    }
-}
-
-fn handle_fail_header_or_raw(e: HeaderOrRawFailure) -> PyErr {
-    match e {
-        HeaderOrRawFailure::Header(y) => handle_failure_nowarn(y),
-        HeaderOrRawFailure::RawTEXT(y) => handle_failure(y),
-    }
-}
-
-fn handle_fail_std_dataset(e: AnyStdDatasetFailure) -> PyErr {
-    match e {
-        AnyStdDatasetFailure::File(i) => i.into(),
-        AnyStdDatasetFailure::Raw(x) => handle_fail_header_or_raw(x),
-        AnyStdDatasetFailure::Std(x) => handle_failure(x),
-        AnyStdDatasetFailure::Read(x) => handle_failure(x),
-    }
-}
 
 #[pymethods]
 impl PyOptical2_0 {

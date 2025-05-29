@@ -61,17 +61,15 @@ pub struct Header {
 pub fn h_read_header<R: Read>(
     h: &mut BufReader<R>,
     conf: &HeaderConfig,
-) -> Result<Header, TerminalFailure<(), ImpureError<HeaderError>, HeaderFailure>> {
+) -> MultiResult<Header, ImpureError<HeaderError>> {
     let mut verbuf = [0; HEADER_LEN];
-    h.read_exact(&mut verbuf)
-        .map_err(|e| DeferredFailure::new1(e.into()).terminate(HeaderFailure))?;
+    h.read_exact(&mut verbuf).into_mult()?;
     if verbuf.is_ascii() {
         let hs = unsafe { str::from_utf8_unchecked(&verbuf) };
-        parse_header(hs, conf)
+        parse_header(hs, conf).map_err(|es| es.map(ImpureError::Pure))
     } else {
-        Err(NonEmpty::new(HeaderError::NotAscii))
+        Err(NonEmpty::new(ImpureError::Pure(HeaderError::NotAscii)))
     }
-    .map_err(|es| TerminalFailure::new_many(HeaderFailure, es.map(ImpureError::Pure)))
 }
 
 fn parse_header(s: &str, conf: &HeaderConfig) -> MultiResult<Header, HeaderError> {
@@ -218,13 +216,5 @@ pub struct VersionError;
 impl fmt::Display for VersionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "could not parse FCS Version")
-    }
-}
-
-pub struct HeaderFailure;
-
-impl fmt::Display for HeaderFailure {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "could not parse HEADER")
     }
 }

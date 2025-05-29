@@ -57,8 +57,21 @@ pub trait VersionedDataLayout: Sized {
         conf: &DataReadConfig,
     ) -> DataReaderResult;
 
+    fn into_data_reader_raw(
+        self,
+        kws: &StdKeywords,
+        seg: HeaderDataSegment,
+        conf: &DataReadConfig,
+    ) -> DataReaderResult;
+
     fn as_analysis_reader(
         kws: &mut StdKeywords,
+        seg: HeaderAnalysisSegment,
+        conf: &DataReadConfig,
+    ) -> AnalysisReaderResult;
+
+    fn as_analysis_reader_raw(
+        kws: &StdKeywords,
         seg: HeaderAnalysisSegment,
         conf: &DataReadConfig,
     ) -> AnalysisReaderResult;
@@ -2238,8 +2251,55 @@ impl VersionedDataLayout for DataLayout2_0 {
         Ok(tnt_reader)
     }
 
+    fn into_data_reader_raw(
+        self,
+        kws: &StdKeywords,
+        seg: HeaderDataSegment,
+        conf: &DataReadConfig,
+    ) -> DataReaderResult {
+        let any_seg = seg.into_any();
+        let go = |tnt: Tentative<AlphaNumReader, _, _>, maybe_tot| {
+            tnt.inner_into()
+                .and_tentatively(|reader| {
+                    if let Some(tot) = maybe_tot {
+                        reader
+                            .check_tot(tot, conf.enforce_matching_tot)
+                            .inner_into()
+                            .map(|_| reader)
+                    } else {
+                        Tentative::new1(reader)
+                    }
+                })
+                .map(ColumnReader::AlphaNum)
+        };
+        let tnt_reader = match Tot::get_meta_opt(kws).map(|x| x.0) {
+            Ok(value) => Tentative::new1(value),
+            Err(w) => Tentative::new(None, vec![w.into()], vec![]),
+        }
+        .and_tentatively(|maybe_tot| match self {
+            Self::Ascii(a) => a
+                .into_col_reader_maybe_rows(any_seg, maybe_tot, conf)
+                .inner_into(),
+            Self::Integer(fl) => go(fl.into_col_reader_inner(any_seg, conf), maybe_tot),
+            Self::Float(fl) => go(fl.into_col_reader_inner(any_seg, conf), maybe_tot),
+            Self::Empty => Tentative::new1(ColumnReader::Empty),
+        })
+        .map(|r| r.into_data_reader(any_seg));
+        Ok(tnt_reader)
+    }
+
     fn as_analysis_reader(
         _: &mut StdKeywords,
+        seg: HeaderAnalysisSegment,
+        _: &DataReadConfig,
+    ) -> AnalysisReaderResult {
+        Ok(Tentative::new1(AnalysisReader {
+            seg: seg.into_any(),
+        }))
+    }
+
+    fn as_analysis_reader_raw(
+        _: &StdKeywords,
         seg: HeaderAnalysisSegment,
         _: &DataReadConfig,
     ) -> AnalysisReaderResult {
@@ -2337,12 +2397,54 @@ impl VersionedDataLayout for DataLayout3_0 {
         })
     }
 
+    fn into_data_reader_raw(
+        self,
+        kws: &StdKeywords,
+        seg: HeaderDataSegment,
+        conf: &DataReadConfig,
+    ) -> DataReaderResult {
+        let tot = Tot::get_meta_req(kws).map_err(|e| DeferredFailure::new1(e.into()))?;
+        LookupSegment::get_req_or(
+            kws,
+            conf.data,
+            seg,
+            conf.standard.raw.enforce_offset_match,
+            conf.standard.raw.enforce_required_offsets,
+        )
+        .inner_into()
+        .and_tentatively(|seg| {
+            match self {
+                Self::Ascii(a) => a.into_col_reader(seg, tot, conf),
+                Self::Integer(fl) => fl.into_col_reader(seg, tot, conf),
+                Self::Float(fl) => fl.into_col_reader(seg, tot, conf),
+                Self::Empty => Tentative::new1(ColumnReader::Empty),
+            }
+            .map(|r| r.into_data_reader(seg))
+        })
+    }
+
     fn as_analysis_reader(
         kws: &mut StdKeywords,
         seg: HeaderAnalysisSegment,
         conf: &DataReadConfig,
     ) -> AnalysisReaderResult {
         LookupSegment::remove_req_or(
+            kws,
+            conf.analysis,
+            seg,
+            conf.standard.raw.enforce_offset_match,
+            conf.standard.raw.enforce_required_offsets,
+        )
+        .inner_into()
+        .map_value(|s| AnalysisReader { seg: s })
+    }
+
+    fn as_analysis_reader_raw(
+        kws: &StdKeywords,
+        seg: HeaderAnalysisSegment,
+        conf: &DataReadConfig,
+    ) -> AnalysisReaderResult {
+        LookupSegment::get_req_or(
             kws,
             conf.analysis,
             seg,
@@ -2443,12 +2545,54 @@ impl VersionedDataLayout for DataLayout3_1 {
         })
     }
 
+    fn into_data_reader_raw(
+        self,
+        kws: &StdKeywords,
+        seg: HeaderDataSegment,
+        conf: &DataReadConfig,
+    ) -> DataReaderResult {
+        let tot = Tot::get_meta_req(kws).map_err(|e| DeferredFailure::new1(e.into()))?;
+        LookupSegment::get_req_or(
+            kws,
+            conf.data,
+            seg,
+            conf.standard.raw.enforce_offset_match,
+            conf.standard.raw.enforce_required_offsets,
+        )
+        .inner_into()
+        .and_tentatively(|seg| {
+            match self {
+                Self::Ascii(a) => a.into_col_reader(seg, tot, conf),
+                Self::Integer(fl) => fl.into_col_reader(seg, tot, conf),
+                Self::Float(fl) => fl.into_col_reader(seg, tot, conf),
+                Self::Empty => Tentative::new1(ColumnReader::Empty),
+            }
+            .map(|r| r.into_data_reader(seg))
+        })
+    }
+
     fn as_analysis_reader(
         kws: &mut StdKeywords,
         seg: HeaderAnalysisSegment,
         conf: &DataReadConfig,
     ) -> AnalysisReaderResult {
         LookupSegment::remove_req_or(
+            kws,
+            conf.analysis,
+            seg,
+            conf.standard.raw.enforce_offset_match,
+            conf.standard.raw.enforce_required_offsets,
+        )
+        .inner_into()
+        .map_value(|s| AnalysisReader { seg: s })
+    }
+
+    fn as_analysis_reader_raw(
+        kws: &StdKeywords,
+        seg: HeaderAnalysisSegment,
+        conf: &DataReadConfig,
+    ) -> AnalysisReaderResult {
+        LookupSegment::get_req_or(
             kws,
             conf.analysis,
             seg,
@@ -2604,12 +2748,55 @@ impl VersionedDataLayout for DataLayout3_2 {
         })
     }
 
+    fn into_data_reader_raw(
+        self,
+        kws: &StdKeywords,
+        seg: HeaderDataSegment,
+        conf: &DataReadConfig,
+    ) -> DataReaderResult {
+        let tot = Tot::get_meta_req(kws).map_err(|e| DeferredFailure::new1(e.into()))?;
+        LookupSegment::get_req_or(
+            kws,
+            conf.data,
+            seg,
+            conf.standard.raw.enforce_offset_match,
+            conf.standard.raw.enforce_required_offsets,
+        )
+        .inner_into()
+        .and_tentatively(|seg| {
+            match self {
+                Self::Ascii(a) => a.into_col_reader(seg, tot, conf),
+                Self::Integer(fl) => fl.into_col_reader(seg, tot, conf),
+                Self::Float(fl) => fl.into_col_reader(seg, tot, conf),
+                Self::Mixed(fl) => fl.into_col_reader(seg, tot, conf),
+                Self::Empty => Tentative::new1(ColumnReader::Empty),
+            }
+            .map(|r| r.into_data_reader(seg))
+        })
+    }
+
     fn as_analysis_reader(
         kws: &mut StdKeywords,
         seg: HeaderAnalysisSegment,
         conf: &DataReadConfig,
     ) -> AnalysisReaderResult {
         let ret = LookupSegment::remove_opt_or(
+            kws,
+            conf.analysis,
+            seg,
+            conf.standard.raw.enforce_offset_match,
+        )
+        .map(|s| AnalysisReader { seg: s })
+        .inner_into();
+        Ok(ret)
+    }
+
+    fn as_analysis_reader_raw(
+        kws: &StdKeywords,
+        seg: HeaderAnalysisSegment,
+        conf: &DataReadConfig,
+    ) -> AnalysisReaderResult {
+        let ret = LookupSegment::get_opt_or(
             kws,
             conf.analysis,
             seg,

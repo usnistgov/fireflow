@@ -1180,8 +1180,8 @@ macro_rules! convert_methods {
             $(
                 fn $fn(&self) -> PyResult<$to> {
                     let new = self.0.clone().$inner();
-                    new.map_value(|x| x.into())
-                        .terminate(ConvertFailure)
+                    new.def_map_value(|x| x.into())
+                        .def_terminate(ConvertFailure)
                         .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
                 }
             )*

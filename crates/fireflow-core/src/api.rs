@@ -28,50 +28,50 @@ use std::str;
 pub fn fcs_read_header(
     p: &path::PathBuf,
     conf: &HeaderConfig,
-) -> ImpureTerminalResult<Header, (), HeaderError, HeaderFailure> {
+) -> IOTerminalResult<Header, (), HeaderError, HeaderFailure> {
     fs::File::options()
         .read(true)
         .open(p)
-        .into_deferred0()
-        .and_maybe(|file| {
+        .into_deferred()
+        .def_and_maybe(|file| {
             let mut reader = BufReader::new(file);
-            h_read_header(&mut reader, conf).into_deferred1()
+            h_read_header(&mut reader, conf).mult_to_deferred()
         })
-        .terminate(HeaderFailure)
+        .def_terminate(HeaderFailure)
 }
 
 /// Read HEADER and key/value pairs from TEXT in an FCS file.
 pub fn fcs_read_raw_text(
     p: &path::PathBuf,
     conf: &RawTextReadConfig,
-) -> ImpureTerminalResult<RawTEXTOutput, ParseRawTEXTWarning, HeaderOrRawError, RawTEXTFailure> {
+) -> IOTerminalResult<RawTEXTOutput, ParseRawTEXTWarning, HeaderOrRawError, RawTEXTFailure> {
     read_fcs_raw_text_inner(p, conf)
-        .map_value(|(x, _)| x)
-        .terminate(RawTEXTFailure)
+        .def_map_value(|(x, _)| x)
+        .def_terminate(RawTEXTFailure)
 }
 
 /// Read HEADER and standardized TEXT from an FCS file.
 pub fn fcs_read_std_text(
     p: &path::PathBuf,
     conf: &StdTextReadConfig,
-) -> ImpureTerminalResult<StdTEXTOutput, StdTEXTWarning, StdTEXTError, StdTEXTFailure> {
+) -> IOTerminalResult<StdTEXTOutput, StdTEXTWarning, StdTEXTError, StdTEXTFailure> {
     read_fcs_raw_text_inner(p, &conf.raw)
-        .map_value(|(x, _)| x)
-        .errors_map(|e| e.inner_into())
-        .warning_into()
-        .and_maybe(|raw| raw.into_std_text(conf).inner_into().error_impure())
-        .terminate(StdTEXTFailure)
+        .def_map_value(|(x, _)| x)
+        .def_errors_map(|e| e.inner_into())
+        .def_warnings_into()
+        .def_and_maybe(|raw| raw.into_std_text(conf).def_inner_into().def_errors_liftio())
+        .def_terminate(StdTEXTFailure)
 }
 
 /// Read dataset from FCS file using standardized TEXT.
 pub fn fcs_read_raw_dataset(
     p: &path::PathBuf,
     conf: &DataReadConfig,
-) -> ImpureTerminalResult<RawDatasetOutput, RawDatasetWarning, RawDatasetError, RawDatasetFailure> {
+) -> IOTerminalResult<RawDatasetOutput, RawDatasetWarning, RawDatasetError, RawDatasetFailure> {
     read_fcs_raw_text_inner(p, &conf.standard.raw)
-        .errors_map(|e| e.inner_into())
-        .warning_into()
-        .and_maybe(|(raw, mut h)| {
+        .def_errors_map(|e| e.inner_into())
+        .def_warnings_into()
+        .def_and_maybe(|(raw, mut h)| {
             h_read_dataset_from_kws(
                 &mut h,
                 raw.version,
@@ -80,27 +80,27 @@ pub fn fcs_read_raw_dataset(
                 raw.parse.header_segments.analysis,
                 conf,
             )
-            .map_value(|dataset| RawDatasetOutput { text: raw, dataset })
-            .warning_into()
-            .errors_map(|e| e.inner_into())
+            .def_map_value(|dataset| RawDatasetOutput { text: raw, dataset })
+            .def_warnings_into()
+            .def_errors_map(|e| e.inner_into())
         })
-        .terminate(RawDatasetFailure)
+        .def_terminate(RawDatasetFailure)
 }
 
 /// Read dataset from FCS file using raw key/value pairs from TEXT.
 pub fn fcs_read_std_dataset(
     p: &path::PathBuf,
     conf: &DataReadConfig,
-) -> ImpureTerminalResult<StdDatasetOutput, StdDatasetWarning, StdDatasetError, StdDatasetFailure> {
+) -> IOTerminalResult<StdDatasetOutput, StdDatasetWarning, StdDatasetError, StdDatasetFailure> {
     read_fcs_raw_text_inner(p, &conf.standard.raw)
-        .errors_map(|e| e.inner_into())
-        .warning_into()
-        .and_maybe(|(raw, mut h)| {
+        .def_errors_map(|e| e.inner_into())
+        .def_warnings_into()
+        .def_and_maybe(|(raw, mut h)| {
             raw.into_std_dataset(&mut h, conf)
-                .warning_into()
-                .errors_map(|e| e.inner_into())
+                .def_warnings_into()
+                .def_errors_map(|e| e.inner_into())
         })
-        .terminate(StdDatasetFailure)
+        .def_terminate(StdDatasetFailure)
 }
 
 /// Read DATA/ANALYSIS in FCS file using provided keywords.
@@ -111,7 +111,7 @@ pub fn fcs_read_raw_dataset_with_keywords(
     conf: &DataReadConfig,
     data_seg: HeaderDataSegment,
     analysis_seg: HeaderAnalysisSegment,
-) -> ImpureTerminalResult<
+) -> IOTerminalResult<
     RawDatasetWithKwsOutput,
     ReadRawDatasetWarning,
     DatasetWithKwsError,
@@ -120,12 +120,12 @@ pub fn fcs_read_raw_dataset_with_keywords(
     fs::File::options()
         .read(true)
         .open(p)
-        .into_deferred0()
-        .and_maybe(|file| {
+        .into_deferred()
+        .def_and_maybe(|file| {
             let mut h = BufReader::new(file);
             h_read_dataset_from_kws(&mut h, version, std, data_seg, analysis_seg, conf)
         })
-        .terminate(RawDatasetWithKwsFailure)
+        .def_terminate(RawDatasetWithKwsFailure)
 }
 
 /// Read DATA/ANALYSIS in FCS file using provided keywords to be standardized.
@@ -137,7 +137,7 @@ pub fn fcs_read_std_dataset_with_keywords(
     conf: &DataReadConfig,
     data_seg: HeaderDataSegment,
     analysis_seg: HeaderAnalysisSegment,
-) -> ImpureTerminalResult<
+) -> IOTerminalResult<
     StdDatasetWithKwsOutput,
     StdDatasetFromRawWarning,
     StdDatasetFromRawError,
@@ -146,8 +146,8 @@ pub fn fcs_read_std_dataset_with_keywords(
     fs::File::options()
         .read(true)
         .open(p)
-        .into_deferred0()
-        .and_maybe(|file| {
+        .into_deferred()
+        .def_and_maybe(|file| {
             let mut h = BufReader::new(file);
             AnyCoreDataset::parse_raw(
                 &mut h,
@@ -158,7 +158,7 @@ pub fn fcs_read_std_dataset_with_keywords(
                 analysis_seg,
                 conf,
             )
-            .map_value(|(core, d_seg, a_seg)| StdDatasetWithKwsOutput {
+            .def_map_value(|(core, d_seg, a_seg)| StdDatasetWithKwsOutput {
                 standardized: DatasetWithSegments {
                     core,
                     data_seg: d_seg,
@@ -167,7 +167,7 @@ pub fn fcs_read_std_dataset_with_keywords(
                 deviant: std,
             })
         })
-        .terminate(StdDatasetWithKwsFailure)
+        .def_terminate(StdDatasetWithKwsFailure)
 }
 
 /// Output from parsing the TEXT segment.
@@ -466,10 +466,10 @@ fn read_fcs_raw_text_inner(
     fs::File::options()
         .read(true)
         .open(p)
-        .into_deferred0()
-        .and_maybe(|file| {
+        .into_deferred()
+        .def_and_maybe(|file| {
             let mut h = BufReader::new(file);
-            RawTEXTOutput::h_read(&mut h, conf).map_value(|x| (x, h))
+            RawTEXTOutput::h_read(&mut h, conf).def_map_value(|x| (x, h))
         })
 }
 
@@ -483,12 +483,12 @@ fn h_read_dataset_from_kws<R: Read + Seek>(
 ) -> DeferredResult<RawDatasetWithKwsOutput, ReadRawDatasetWarning, ImpureError<DatasetWithKwsError>>
 {
     let data_res = kws_to_data_reader(version, kws, data_seg, conf)
-        .inner_into()
-        .error_impure();
+        .def_inner_into()
+        .def_errors_liftio();
     let analysis_res = kws_to_analysis_reader(version, kws, analysis_seg, conf)
-        .inner_into()
-        .error_impure();
-    data_res.zip_def(analysis_res).and_maybe(|(dr, ar)| {
+        .def_inner_into()
+        .def_errors_liftio();
+    data_res.def_zip(analysis_res).def_and_maybe(|(dr, ar)| {
         h_read_data_and_analysis(h, dr, ar)
             .map(|(data, analysis, d_seg, a_seg)| RawDatasetWithKwsOutput {
                 data,
@@ -496,8 +496,8 @@ fn h_read_dataset_from_kws<R: Read + Seek>(
                 data_seg: d_seg,
                 analysis_seg: a_seg,
             })
-            .into_deferred0()
-            .errors_map(|e: ImpureError<ReadDataError>| e.inner_into())
+            .into_deferred()
+            .def_errors_map(|e: ImpureError<ReadDataError>| e.inner_into())
     })
 }
 
@@ -519,10 +519,10 @@ impl RawTEXTOutput {
         conf: &RawTextReadConfig,
     ) -> DeferredResult<Self, ParseRawTEXTWarning, ImpureError<HeaderOrRawError>> {
         h_read_header(h, &conf.header)
-            .into_deferred1()
-            .errors_map(|e: ImpureError<HeaderError>| e.inner_into())
-            .and_maybe(|header| {
-                h_read_raw_text_from_header(h, header, conf).errors_map(|e| e.inner_into())
+            .mult_to_deferred()
+            .def_errors_map(|e: ImpureError<HeaderError>| e.inner_into())
+            .def_and_maybe(|header| {
+                h_read_raw_text_from_header(h, header, conf).def_errors_map(|e| e.inner_into())
             })
     }
 
@@ -531,7 +531,7 @@ impl RawTEXTOutput {
         conf: &StdTextReadConfig,
     ) -> DeferredResult<StdTEXTOutput, LookupMeasWarning, ParseKeysError> {
         let mut kws = self.keywords;
-        AnyCoreTEXT::parse_raw(self.version, &mut kws.std, kws.nonstd, conf).map_value(
+        AnyCoreTEXT::parse_raw(self.version, &mut kws.std, kws.nonstd, conf).def_map_value(
             |standardized| {
                 let std = &mut kws.std;
                 let tot = std.remove(&Tot::std());
@@ -574,7 +574,7 @@ impl RawTEXTOutput {
             self.parse.header_segments.analysis,
             conf,
         )
-        .map_value(|(core, data_seg, analysis_seg)| StdDatasetOutput {
+        .def_map_value(|(core, data_seg, analysis_seg)| StdDatasetOutput {
             dataset: StdDatasetWithKwsOutput {
                 standardized: DatasetWithSegments {
                     core,
@@ -597,17 +597,17 @@ fn kws_to_data_reader(
     let sc = &conf.shared;
     match version {
         Version::FCS2_0 => DataLayout2_0::try_new_from_raw(kws, sc)
-            .inner_into()
-            .and_maybe(|dl| dl.into_data_reader_raw(kws, seg, conf).inner_into()),
+            .def_inner_into()
+            .def_and_maybe(|dl| dl.into_data_reader_raw(kws, seg, conf).def_inner_into()),
         Version::FCS3_0 => DataLayout3_0::try_new_from_raw(kws, sc)
-            .inner_into()
-            .and_maybe(|dl| dl.into_data_reader_raw(kws, seg, conf).inner_into()),
+            .def_inner_into()
+            .def_and_maybe(|dl| dl.into_data_reader_raw(kws, seg, conf).def_inner_into()),
         Version::FCS3_1 => DataLayout3_1::try_new_from_raw(kws, sc)
-            .inner_into()
-            .and_maybe(|dl| dl.into_data_reader_raw(kws, seg, conf).inner_into()),
+            .def_inner_into()
+            .def_and_maybe(|dl| dl.into_data_reader_raw(kws, seg, conf).def_inner_into()),
         Version::FCS3_2 => DataLayout3_2::try_new_from_raw(kws, sc)
-            .inner_into()
-            .and_maybe(|dl| dl.into_data_reader_raw(kws, seg, conf).inner_into()),
+            .def_inner_into()
+            .def_and_maybe(|dl| dl.into_data_reader_raw(kws, seg, conf).def_inner_into()),
     }
 }
 
@@ -618,10 +618,10 @@ fn kws_to_analysis_reader(
     conf: &DataReadConfig,
 ) -> AnalysisReaderResult {
     match version {
-        Version::FCS2_0 => DataLayout2_0::as_analysis_reader_raw(kws, seg, conf).inner_into(),
-        Version::FCS3_0 => DataLayout3_0::as_analysis_reader_raw(kws, seg, conf).inner_into(),
-        Version::FCS3_1 => DataLayout3_1::as_analysis_reader_raw(kws, seg, conf).inner_into(),
-        Version::FCS3_2 => DataLayout3_2::as_analysis_reader_raw(kws, seg, conf).inner_into(),
+        Version::FCS2_0 => DataLayout2_0::as_analysis_reader_raw(kws, seg, conf).def_inner_into(),
+        Version::FCS3_0 => DataLayout3_0::as_analysis_reader_raw(kws, seg, conf).def_inner_into(),
+        Version::FCS3_1 => DataLayout3_1::as_analysis_reader_raw(kws, seg, conf).def_inner_into(),
+        Version::FCS3_2 => DataLayout3_2::as_analysis_reader_raw(kws, seg, conf).def_inner_into(),
     }
 }
 
@@ -636,17 +636,17 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
         .text
         .inner
         .h_read(h, &mut buf)
-        .into_deferred0()?;
+        .into_deferred()?;
 
-    let tnt_delim = split_first_delim(&buf, conf).inner_into().error_impure()?;
+    let tnt_delim = split_first_delim(&buf, conf).def_inner_into().def_errors_liftio()?;
 
     let tnt_primary = tnt_delim.and_maybe(|(delim, bytes)| {
         let kws = ParsedKeywords::default();
         split_raw_primary_text(kws, delim, bytes, conf)
-            .inner_into()
-            .error_impure()
-            .map_value(|_kws| repair_offsets(_kws, conf))
-            .map_value(|_kws| (delim, _kws))
+            .def_inner_into()
+            .def_errors_liftio()
+            .def_map_value(|_kws| repair_offsets(_kws, conf))
+            .def_map_value(|_kws| (delim, _kws))
     })?;
 
     let tnt_all_kws = tnt_primary.and_maybe(|(delim, mut kws)| {
@@ -663,7 +663,7 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
                         .map_err(|e| DeferredFailure::new1(e.into()))?;
                     split_raw_supp_text(_kws, delim, &buf, conf)
                         .inner_into()
-                        .error_impure()
+                        .error_liftio()
                 } else {
                     Tentative::new1(_kws)
                 };

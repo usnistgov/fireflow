@@ -321,16 +321,16 @@ impl AnyCoreTEXT {
     ) -> DeferredResult<Self, LookupMeasWarning, ParseKeysError> {
         match version {
             Version::FCS2_0 => {
-                CoreTEXT2_0::new_text_from_raw(std, nonstd, conf).map_value(|x| x.into())
+                CoreTEXT2_0::new_text_from_raw(std, nonstd, conf).def_map_value(|x| x.into())
             }
             Version::FCS3_0 => {
-                CoreTEXT3_0::new_text_from_raw(std, nonstd, conf).map_value(|x| x.into())
+                CoreTEXT3_0::new_text_from_raw(std, nonstd, conf).def_map_value(|x| x.into())
             }
             Version::FCS3_1 => {
-                CoreTEXT3_1::new_text_from_raw(std, nonstd, conf).map_value(|x| x.into())
+                CoreTEXT3_1::new_text_from_raw(std, nonstd, conf).def_map_value(|x| x.into())
             }
             Version::FCS3_2 => {
-                CoreTEXT3_2::new_text_from_raw(std, nonstd, conf).map_value(|x| x.into())
+                CoreTEXT3_2::new_text_from_raw(std, nonstd, conf).def_map_value(|x| x.into())
             }
         }
     }
@@ -365,19 +365,19 @@ impl AnyCoreDataset {
         match version {
             Version::FCS2_0 => {
                 CoreDataset2_0::new_dataset_from_raw(h, kws, nonstd, data_seg, analysis_seg, conf)
-                    .map_value(|(x, y, z)| (x.into(), y, z))
+                    .def_map_value(|(x, y, z)| (x.into(), y, z))
             }
             Version::FCS3_0 => {
                 CoreDataset3_0::new_dataset_from_raw(h, kws, nonstd, data_seg, analysis_seg, conf)
-                    .map_value(|(x, y, z)| (x.into(), y, z))
+                    .def_map_value(|(x, y, z)| (x.into(), y, z))
             }
             Version::FCS3_1 => {
                 CoreDataset3_1::new_dataset_from_raw(h, kws, nonstd, data_seg, analysis_seg, conf)
-                    .map_value(|(x, y, z)| (x.into(), y, z))
+                    .def_map_value(|(x, y, z)| (x.into(), y, z))
             }
             Version::FCS3_2 => {
                 CoreDataset3_2::new_dataset_from_raw(h, kws, nonstd, data_seg, analysis_seg, conf)
-                    .map_value(|(x, y, z)| (x.into(), y, z))
+                    .def_map_value(|(x, y, z)| (x.into(), y, z))
             }
         }
     }
@@ -878,7 +878,7 @@ impl CommonMeasurement {
         lookup_meas_opt(kws, i, false).and_maybe(|longname| {
             let w = lookup_meas_req(kws, i);
             let r = lookup_meas_req(kws, i);
-            w.zip_def(r).map_value(|(width, range)| Self {
+            w.def_zip(r).def_map_value(|(width, range)| Self {
                 width,
                 range,
                 longname,
@@ -913,8 +913,8 @@ where
     {
         let c = CommonMeasurement::lookup(kws, i, nonstd);
         let t = T::lookup_specific(kws, i);
-        c.zip_def(t)
-            .map_value(|(common, specific)| Temporal { common, specific })
+        c.def_zip(t)
+            .def_map_value(|(common, specific)| Temporal { common, specific })
     }
 
     fn convert<ToT>(self) -> Temporal<ToT>
@@ -998,7 +998,7 @@ where
             |(filter, power, detector_type, percent_emitted, detector_voltage)| {
                 let c = CommonMeasurement::lookup(kws, i, nonstd);
                 let s = P::lookup_specific(kws, i);
-                c.zip_def(s).map_value(|(common, specific)| Optical {
+                c.def_zip(s).def_map_value(|(common, specific)| Optical {
                     common,
                     filter,
                     power,
@@ -1136,7 +1136,7 @@ where
         convert: SizeConvert<M::D>,
     ) -> DeferredResult<Metadata<ToM>, WidthToBytesError, MetaConvertError> {
         // TODO this seems silly, break struct up into common bits
-        ToM::try_from_meta(self.specific, convert).map_value(|specific| Metadata {
+        ToM::try_from_meta(self.specific, convert).def_map_value(|specific| Metadata {
             abrt: self.abrt,
             cells: self.cells,
             com: self.com,
@@ -1185,7 +1185,7 @@ where
                 |(((abrt, com, cells, exp, fil), inst, lost, op, proj), smno, src, sys, tr)| {
                     let mut dt = lookup_meta_req(kws);
                     let s = M::lookup_specific(kws, par);
-                    dt.eval_warning(|datatype| {
+                    dt.def_eval_warning(|datatype| {
                         if *datatype == AlphaNumType::Ascii
                             && M::P::fcs_version() >= Version::FCS3_1
                         {
@@ -1194,7 +1194,7 @@ where
                             None
                         }
                     });
-                    dt.zip_def(s).map_value(|(datatype, specific)| Metadata {
+                    dt.def_zip(s).def_map_value(|(datatype, specific)| Metadata {
                         datatype,
                         abrt,
                         com,
@@ -1953,7 +1953,7 @@ where
         let m = self
             .metadata
             .try_convert(convert)
-            .errors_map(ConvertErrorInner::Meta);
+            .def_errors_map(ConvertErrorInner::Meta);
         let ps = self
             .measurements
             .map_center_value(|y| y.value.convert())
@@ -1963,15 +1963,15 @@ where
                 x.try_rewrapped()
                     .map_err(|es| es.map(ConvertErrorInner::Rewrap))
             })
-            .into_deferred1();
-        m.zip_def(ps)
-            .map_value(|(metadata, measurements)| Core {
+            .mult_to_deferred();
+        m.def_zip(ps)
+            .def_map_value(|(metadata, measurements)| Core {
                 metadata,
                 measurements,
                 data: self.data,
                 analysis: self.analysis,
             })
-            .errors_map(|error| ConvertError {
+            .def_errors_map(|error| ConvertError {
                 from: M::P::fcs_version(),
                 to: ToM::P::fcs_version(),
                 inner: error,
@@ -2246,7 +2246,7 @@ where
                     // totally fail if not found since this is required. If it
                     // does exist, also check if it matches the time pattern and
                     // use it as the time measurement if it does.
-                    M::lookup_shortname(kws, i).and_maybe(|wrapped| {
+                    M::lookup_shortname(kws, i).def_and_maybe(|wrapped| {
                         // TODO if more than one name matches the time pattern
                         // this will give a cryptic "cannot find $TIMESTEP" for
                         // each subsequent match, which is not helpful. Probably
@@ -2272,16 +2272,16 @@ where
                             // TODO add switch to "downgrade" failed time
                             // channel to optical channel, which is more general
                             Ok(name) => Temporal::lookup_temporal(kws, i, meas_nonstd)
-                                .map_value(|t| Element::Center((name, t))),
+                                .def_map_value(|t| Element::Center((name, t))),
                             Err(k) => Optical::lookup_optical(kws, i, meas_nonstd)
-                                .map_value(|m| Element::NonCenter((k, m))),
+                                .def_map_value(|m| Element::NonCenter((k, m))),
                         }
                     })
                 })
                 .gather()
-                .map_err(DeferredFailure::fold)
+                .map_err(DeferredFailure::mconcat)
                 .map(Tentative::mconcat)
-                .and_maybe(|xs| {
+                .def_and_maybe(|xs| {
                     // Finally, attempt to put our proto-measurement binary soup
                     // into a named vector, which will have a special element
                     // for the time measurement if it exists, and will scream if
@@ -2289,9 +2289,9 @@ where
                     NamedVec::try_new(xs, prefix.clone())
                         .map(|ms| (ms, meta_nonstd))
                         .map_err(|e| ParseKeysError::Other(e.into()))
-                        .into_deferred0()
+                        .into_deferred()
                 })
-                .warning_into()
+                .def_warnings_into()
         })
     }
 
@@ -2468,18 +2468,18 @@ where
         // Lookup $PAR first since we need this to get the measurements
         Par::remove_meta_req(kws)
             .map_err(|e| Box::new(ParseReqKeyError::Int(e)))
-            .into_deferred0()
-            .and_maybe(|par| {
+            .into_deferred()
+            .def_and_maybe(|par| {
                 // Lookup measurements and metadata with $PAR
                 let tp = conf.time.pattern.as_ref();
                 let sp = &conf.shortname_prefix;
                 let nsp = conf.nonstandard_measurement_pattern.as_ref();
                 let ns: Vec<_> = nonstd.into_iter().collect();
-                let mut tnt_core = Self::lookup_measurements(kws, par, tp, sp, nsp, ns).and_maybe(
+                let mut tnt_core = Self::lookup_measurements(kws, par, tp, sp, nsp, ns).def_and_maybe(
                     |(ms, meta_ns)| {
                         Metadata::lookup_metadata(kws, &ms, meta_ns)
-                            .map_value(|metadata| CoreTEXT::new_unchecked(metadata, ms))
-                            .warning_into()
+                            .def_map_value(|metadata| CoreTEXT::new_unchecked(metadata, ms))
+                            .def_warnings_into()
                     },
                 )?;
 
@@ -2498,8 +2498,8 @@ where
                 // to fix otherwise.
                 tnt_core.and_maybe(|core| {
                     core.check_linked_names()
-                        .into_deferred1()
-                        .map_value(|_| core)
+                        .mult_to_deferred()
+                        .def_map_value(|_| core)
                 })
             })
     }
@@ -2630,21 +2630,21 @@ where
         M::P: LookupOptical,
     {
         CoreTEXT::new_text_from_raw(kws, nonstd, &conf.standard)
-            .inner_into()
-            .error_impure()
-            .and_maybe(|text| {
+            .def_inner_into()
+            .def_errors_liftio()
+            .def_and_maybe(|text| {
                 text.as_data_layout(&conf.shared)
-                    .inner_into()
-                    .error_impure()
-                    .and_maybe(|layout: M::L| {
+                    .def_inner_into()
+                    .def_errors_liftio()
+                    .def_and_maybe(|layout: M::L| {
                         let data_res = layout
                             .into_data_reader(kws, data_seg, conf)
-                            .inner_into()
-                            .error_impure();
+                            .def_inner_into()
+                            .def_errors_liftio();
                         let analysis_res = M::L::as_analysis_reader(kws, analysis_seg, conf)
-                            .inner_into()
-                            .error_impure();
-                        data_res.zip_def(analysis_res).and_maybe(|(dr, ar)| {
+                            .def_inner_into()
+                            .def_errors_liftio();
+                        data_res.def_zip(analysis_res).def_and_maybe(|(dr, ar)| {
                             let data_seg = dr.seg;
                             let data = dr
                                 .h_read(h)
@@ -2674,20 +2674,20 @@ where
     {
         let df = &self.data;
         self.as_data_layout(&conf.shared)
-            .error_into()
-            .error_impure()
-            .and_maybe(|layout| layout.as_writer(df, conf).into_deferred1().error_impure())
-            .and_maybe(|mut writer| {
+            .def_errors_into()
+            .def_errors_liftio()
+            .def_and_maybe(|layout| layout.as_writer(df, conf).mult_to_deferred().def_errors_liftio())
+            .def_and_maybe(|mut writer| {
                 let tot = Tot(df.nrows());
                 let analysis_len = self.analysis.0.len();
                 // write HEADER+TEXT first
                 self.h_write_text(h, tot, writer.nbytes(), analysis_len, conf)
                     .map_err(|e| e.inner_into())
-                    .into_deferred0()?;
+                    .into_deferred()?;
                 // write DATA
-                writer.h_write(h).into_deferred0()?;
+                writer.h_write(h).into_deferred()?;
                 // write ANALYSIS
-                h.write_all(&self.analysis.0).into_deferred0()
+                h.write_all(&self.analysis.0).into_deferred()
             })
     }
 
@@ -3899,7 +3899,7 @@ type EndianConvert = SizeConvert<Endian>;
 impl EndianConvert {
     fn try_as_byteord(self) -> DeferredResult<ByteOrd, WidthToBytesError, SingleWidthError> {
         Width::matrix_bytes(&self.widths[..], self.datatype)
-            .map_value(|bytes| self.size.as_bytord(bytes))
+            .def_map_value(|bytes| self.size.as_bytord(bytes))
     }
 }
 
@@ -3919,8 +3919,8 @@ impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata2_0 {
     fn try_from_meta(value: InnerMetadata3_1, endian: EndianConvert) -> MetaConvertResult<Self> {
         endian
             .try_as_byteord()
-            .error_into()
-            .map_value(|byteord| Self {
+            .def_errors_into()
+            .def_map_value(|byteord| Self {
                 mode: value.mode,
                 byteord,
                 cyt: value.cyt,
@@ -3934,8 +3934,8 @@ impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata2_0 {
     fn try_from_meta(value: InnerMetadata3_2, endian: EndianConvert) -> MetaConvertResult<Self> {
         endian
             .try_as_byteord()
-            .error_into()
-            .map_value(|byteord| Self {
+            .def_errors_into()
+            .def_map_value(|byteord| Self {
                 mode: Mode::List,
                 byteord,
                 cyt: Some(value.cyt).into(),
@@ -3963,8 +3963,8 @@ impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata3_0 {
     fn try_from_meta(value: InnerMetadata3_1, endian: EndianConvert) -> MetaConvertResult<Self> {
         endian
             .try_as_byteord()
-            .error_into()
-            .map_value(|byteord| Self {
+            .def_errors_into()
+            .def_map_value(|byteord| Self {
                 mode: value.mode,
                 byteord,
                 cyt: value.cyt,
@@ -3980,8 +3980,8 @@ impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata3_0 {
     fn try_from_meta(value: InnerMetadata3_2, endian: EndianConvert) -> MetaConvertResult<Self> {
         endian
             .try_as_byteord()
-            .error_into()
-            .map_value(|byteord| Self {
+            .def_errors_into()
+            .def_map_value(|byteord| Self {
                 mode: Mode::List,
                 byteord,
                 cyt: Some(value.cyt).into(),
@@ -3998,8 +3998,8 @@ impl TryFromMetadata<InnerMetadata2_0> for InnerMetadata3_1 {
         value
             .byteord
             .try_into()
-            .into_deferred0()
-            .map_value(|byteord| Self {
+            .into_deferred()
+            .def_map_value(|byteord| Self {
                 mode: value.mode,
                 byteord,
                 cyt: value.cyt,
@@ -4018,8 +4018,8 @@ impl TryFromMetadata<InnerMetadata3_0> for InnerMetadata3_1 {
         value
             .byteord
             .try_into()
-            .into_deferred0()
-            .map_value(|byteord| Self {
+            .into_deferred()
+            .def_map_value(|byteord| Self {
                 byteord,
                 mode: value.mode,
                 cyt: value.cyt,
@@ -4051,15 +4051,15 @@ impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata3_1 {
 
 impl TryFromMetadata<InnerMetadata2_0> for InnerMetadata3_2 {
     fn try_from_meta(value: InnerMetadata2_0, _: ByteOrdConvert) -> MetaConvertResult<Self> {
-        let b = value.byteord.try_into().into_deferred0();
-        let c = value.cyt.0.ok_or(NoCytError).into_deferred0();
+        let b = value.byteord.try_into().into_deferred();
+        let c = value.cyt.0.ok_or(NoCytError).into_deferred();
         let m = if value.mode != Mode::List {
             Err(ModeNotListError)
         } else {
             Ok(())
         }
-        .into_deferred0();
-        b.zip_def3(c, m).map_value(|(byteord, cyt, _)| Self {
+        .into_deferred();
+        b.def_zip3(c, m).def_map_value(|(byteord, cyt, _)| Self {
             byteord,
             cyt,
             timestamps: value.timestamps.map(|d| d.into()),
@@ -4078,15 +4078,15 @@ impl TryFromMetadata<InnerMetadata2_0> for InnerMetadata3_2 {
 
 impl TryFromMetadata<InnerMetadata3_0> for InnerMetadata3_2 {
     fn try_from_meta(value: InnerMetadata3_0, _: ByteOrdConvert) -> MetaConvertResult<Self> {
-        let b = value.byteord.try_into().into_deferred0();
-        let c = value.cyt.0.ok_or(NoCytError).into_deferred0();
+        let b = value.byteord.try_into().into_deferred();
+        let c = value.cyt.0.ok_or(NoCytError).into_deferred();
         let m = if value.mode != Mode::List {
             Err(ModeNotListError)
         } else {
             Ok(())
         }
-        .into_deferred0();
-        b.zip_def3(c, m).map_value(|(byteord, cyt, _)| Self {
+        .into_deferred();
+        b.def_zip3(c, m).def_map_value(|(byteord, cyt, _)| Self {
             byteord,
             cyt,
             cytsn: value.cytsn,
@@ -4110,9 +4110,9 @@ impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata3_2 {
         } else {
             Ok(())
         }
-        .into_deferred0();
-        let c = value.cyt.0.ok_or(NoCytError).into_deferred0();
-        m.zip_def(c).map_value(|(_, cyt)| Self {
+        .into_deferred();
+        let c = value.cyt.0.ok_or(NoCytError).into_deferred();
+        m.def_zip(c).def_map_value(|(_, cyt)| Self {
             byteord: value.byteord,
             cyt,
             cytsn: value.cytsn,
@@ -4352,7 +4352,7 @@ impl LookupOptical for InnerOptical3_0 {
         let g = lookup_meas_opt(kws, n, false);
         let w = lookup_meas_opt(kws, n, false);
         g.zip(w).and_maybe(|(gain, wavelength)| {
-            lookup_meas_req(kws, n).map_value(|scale| Self {
+            lookup_meas_req(kws, n).def_map_value(|scale| Self {
                 scale,
                 gain,
                 wavelength,
@@ -4369,7 +4369,7 @@ impl LookupOptical for InnerOptical3_1 {
         let d = lookup_meas_opt(kws, n, false);
         g.zip4(w, c, d)
             .and_maybe(|(gain, wavelengths, calibration, display)| {
-                lookup_meas_req(kws, n).map_value(|scale| Self {
+                lookup_meas_req(kws, n).def_map_value(|scale| Self {
                     scale,
                     gain,
                     wavelengths,
@@ -4403,7 +4403,7 @@ impl LookupOptical for InnerOptical3_2 {
                 ),
                 datatype,
             )| {
-                lookup_meas_req(kws, n).map_value(|scale| Self {
+                lookup_meas_req(kws, n).def_map_value(|scale| Self {
                     scale,
                     gain,
                     wavelengths,
@@ -4449,7 +4449,7 @@ impl LookupTemporal for InnerTemporal3_0 {
         tnt_gain.and_maybe(|_| {
             let s = lookup_temporal_scale_3_0(kws, i);
             let t = lookup_meta_req(kws);
-            s.zip_def(t).map_value(|(_, timestep)| Self { timestep })
+            s.def_zip(t).def_map_value(|(_, timestep)| Self { timestep })
         })
     }
 }
@@ -4461,8 +4461,8 @@ impl LookupTemporal for InnerTemporal3_1 {
         g.zip(d).and_maybe(|(_, display)| {
             let s = lookup_temporal_scale_3_0(kws, i);
             let t = lookup_meta_req(kws);
-            s.zip_def(t)
-                .map_value(|(_, timestep)| Self { timestep, display })
+            s.def_zip(t)
+                .def_map_value(|(_, timestep)| Self { timestep, display })
         })
     }
 }
@@ -4477,7 +4477,7 @@ impl LookupTemporal for InnerTemporal3_2 {
             .and_maybe(|(_, display, measurement_type, datatype)| {
                 let s = lookup_temporal_scale_3_0(kws, i);
                 let t = lookup_meta_req(kws);
-                s.zip_def(t).map_value(|(_, timestep)| Self {
+                s.def_zip(t).def_map_value(|(_, timestep)| Self {
                     timestep,
                     display,
                     measurement_type,
@@ -4776,7 +4776,7 @@ impl LookupMetadata for InnerMetadata2_0 {
         co.zip3(cy, t).and_maybe(|(comp, cyt, timestamps)| {
             let b = lookup_meta_req(kws);
             let m = lookup_meta_req(kws);
-            b.zip_def(m).map_value(|(byteord, mode)| Self {
+            b.def_zip(m).def_map_value(|(byteord, mode)| Self {
                 mode,
                 byteord,
                 cyt,
@@ -4805,7 +4805,7 @@ impl LookupMetadata for InnerMetadata3_0 {
             .and_maybe(|(comp, cyt, cytsn, timestamps, unicode)| {
                 let b = lookup_meta_req(kws);
                 let m = lookup_meta_req(kws);
-                b.zip_def(m).map_value(|(byteord, mode)| Self {
+                b.def_zip(m).def_map_value(|(byteord, mode)| Self {
                     mode,
                     byteord,
                     cyt,
@@ -4838,12 +4838,12 @@ impl LookupMetadata for InnerMetadata3_1 {
             |((cyt, spillover, cytsn, modification), plate, timestamps, vol)| {
                 let b = lookup_meta_req(kws);
                 let mut mo = lookup_meta_req(kws);
-                mo.eval_warning(|mode| match mode {
+                mo.def_eval_warning(|mode| match mode {
                     Mode::Correlated => Some(DepFeatureWarning::ModeCorrelated.into()),
                     Mode::Uncorrelated => Some(DepFeatureWarning::ModeUncorrelated.into()),
                     Mode::List => None,
                 });
-                b.zip_def(mo).map_value(|(byteord, mode)| Self {
+                b.def_zip(mo).def_map_value(|(byteord, mode)| Self {
                     mode,
                     byteord,
                     cyt,
@@ -4893,7 +4893,7 @@ impl LookupMetadata for InnerMetadata3_2 {
             )| {
                 let b = lookup_meta_req(kws);
                 let c = lookup_meta_req(kws);
-                b.zip_def(c).map_value(|(byteord, cyt)| Self {
+                b.def_zip(c).def_map_value(|(byteord, cyt)| Self {
                     byteord,
                     cyt,
                     cytsn,

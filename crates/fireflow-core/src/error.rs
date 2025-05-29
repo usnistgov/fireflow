@@ -1,3 +1,19 @@
+//! Error handling for fireflow
+//!
+//! The fundamental problem to solve is collecting multiple errors/warnings and
+//! displaying them all at once. Then once we reach the API boundary, trigger
+//! a "real error" with all these errors plus a summary.
+//!
+//! Generally, this will entail creating a [`DeferredResult`] from at least one
+//! error and any number of warnings which contains a [`Tentative`] and
+//! [`DeferredFailure`] in Ok and Err. This will be Ok if the result is still
+//! usable for downstream computation but may ultimately not pass some quality
+//! threshold demanded from the API; otherwise it will be Err.
+//!
+//! This can then be "resolved" into a [`TerminalResult`] which will be passed
+//! to the user at the API boundary. The only way to get the value out of
+//! such a result is to run a function to process the errors/warnings.
+
 use nonempty::NonEmpty;
 use std::fmt;
 use std::io;
@@ -5,44 +21,60 @@ use std::io;
 // TODO add a cap to the error buffer so the user doesn't DOS themselves if
 // their file is particularly screwed up
 
+/// Final result which may be passing or not passing
+pub type TerminalResult<V, W, E, T> = Result<Terminal<V, W>, TerminalFailure<W, E, T>>;
+
+/// Final result which may be passing or not passing in IO context
+pub type IOTerminalResult<V, W, E, T> = TerminalResult<V, W, ImpureError<E>, T>;
+
+/// Final passing result, possibly with warnings
+pub struct Terminal<V, W> {
+    value: V,
+    warnings: Vec<W>,
+}
+
+/// Final failed result with either one error or multiple errors with a summary.
+pub struct TerminalFailure<W, E, T> {
+    warnings: Vec<W>,
+    failure: Failure<E, T>,
+}
+
+/// Final failure message, either with one error or many errors with a summary.
+pub enum Failure<E, T> {
+    Single(T),
+    Many(T, Box<NonEmpty<E>>),
+}
+
+/// Result which may have at least one error
 pub type DeferredResult<V, W, E> = Result<Tentative<V, W, E>, DeferredFailure<W, E>>;
 
+/// Result which may have at least one error in IO context
+pub type IODeferredResult<V, W, E> = DeferredResult<V, W, ImpureError<E>>;
+
+/// Result which might have warnings or errors
 pub struct Tentative<V, W, E> {
     value: V,
     warnings: Vec<W>,
     errors: Vec<E>,
 }
 
+/// Result which has at least one error and zero or more warnings
 pub struct DeferredFailure<W, E> {
     warnings: Vec<W>,
     errors: NonEmpty<E>,
 }
 
-pub type TerminalResult<V, W, E, T> = Result<Terminal<V, W>, TerminalFailure<W, E, T>>;
+/// Result for which failure can have multiple errors
+pub type MultiResult<X, E> = Result<X, NonEmpty<E>>;
 
-pub type ImpureTerminalResult<V, W, E, T> = TerminalResult<V, W, ImpureError<E>, T>;
-
-pub struct Terminal<V, W> {
-    value: V,
-    warnings: Vec<W>,
-}
-
-pub struct TerminalFailure<W, E, T> {
-    warnings: Vec<W>,
-    failure: Failure<E, T>,
-}
-
-pub enum Failure<E, T> {
-    Single(T),
-    Many(T, Box<NonEmpty<E>>),
-}
-
+/// An error which is either pure or impure (IO)
+///
+/// Used in a similar manner to "IO a" in Haskell to denote IO-based
+/// computations which may fail.
 pub enum ImpureError<E> {
     IO(io::Error),
     Pure(E),
 }
-
-pub type MultiResult<X, E> = Result<X, NonEmpty<E>>;
 
 /// Run an iterator and collect successes or failures and return as Result
 ///
@@ -258,7 +290,7 @@ impl<W, E, T> TerminalFailure<W, E, T> {
         }
     }
 
-    pub fn terminal_map<F, X>(self, f: F) -> TerminalFailure<W, E, X>
+    pub fn value_map<F, X>(self, f: F) -> TerminalFailure<W, E, X>
     where
         F: FnOnce(T) -> X,
     {
@@ -282,11 +314,11 @@ impl<W, E, T> TerminalFailure<W, E, T> {
         self.errors_map(|e| e.into())
     }
 
-    pub fn terminal_into<X>(self) -> TerminalFailure<W, E, X>
+    pub fn value_into<X>(self) -> TerminalFailure<W, E, X>
     where
         X: From<T>,
     {
-        self.terminal_map(|e| e.into())
+        self.value_map(|e| e.into())
     }
 
     pub fn resolve<F, G, X, Y>(self, f: F, g: G) -> (X, Y)
@@ -480,7 +512,7 @@ impl<V, W, E> Tentative<V, W, E> {
         self.errors_into().warnings_into()
     }
 
-    pub fn error_impure(self) -> Tentative<V, W, ImpureError<E>> {
+    pub fn error_liftio(self) -> Tentative<V, W, ImpureError<E>> {
         self.errors_map(ImpureError::Pure)
     }
 
@@ -633,7 +665,7 @@ impl<W, E> DeferredFailure<W, E> {
         }
     }
 
-    pub fn fold(es: NonEmpty<Self>) -> Self {
+    pub fn mconcat(es: NonEmpty<Self>) -> Self {
         es.tail.into_iter().fold(es.head, |acc, x| acc.mappend(x))
     }
 
@@ -657,7 +689,7 @@ pub trait ResultExt {
     where
         F: From<Self::E>;
 
-    fn into_deferred0<F, W>(self) -> DeferredResult<Self::V, W, F>
+    fn into_deferred<F, W>(self) -> DeferredResult<Self::V, W, F>
     where
         F: From<Self::E>;
 
@@ -681,7 +713,7 @@ impl<V, E> ResultExt for Result<V, E> {
         self.map_err(|e| NonEmpty::new(e.into()))
     }
 
-    fn into_deferred0<F, W>(self) -> DeferredResult<Self::V, W, F>
+    fn into_deferred<F, W>(self) -> DeferredResult<Self::V, W, F>
     where
         F: From<Self::E>,
     {
@@ -721,13 +753,13 @@ pub trait MultiResultExt {
     type V;
     type E;
 
-    fn into_deferred1<F, W>(self) -> DeferredResult<Self::V, W, F>
+    fn mult_to_deferred<F, W>(self) -> DeferredResult<Self::V, W, F>
     where
         F: From<Self::E>;
 
-    fn zip_mult<A>(self, a: MultiResult<A, Self::E>) -> MultiResult<(Self::V, A), Self::E>;
+    fn mult_zip<A>(self, a: MultiResult<A, Self::E>) -> MultiResult<(Self::V, A), Self::E>;
 
-    fn zip_mult3<A, B>(
+    fn mult_zip3<A, B>(
         self,
         a: MultiResult<A, Self::E>,
         b: MultiResult<B, Self::E>,
@@ -738,20 +770,20 @@ impl<V, E> MultiResultExt for MultiResult<V, E> {
     type V = V;
     type E = E;
 
-    fn into_deferred1<F, W>(self) -> DeferredResult<Self::V, W, F>
+    fn mult_to_deferred<F, W>(self) -> DeferredResult<Self::V, W, F>
     where
         F: From<Self::E>,
     {
         self.map(Tentative::new1)
             .map_err(DeferredFailure::new2)
-            .error_into()
+            .def_errors_into()
     }
 
-    fn zip_mult<A>(self, a: MultiResult<A, Self::E>) -> MultiResult<(Self::V, A), Self::E> {
+    fn mult_zip<A>(self, a: MultiResult<A, Self::E>) -> MultiResult<(Self::V, A), Self::E> {
         self.zip(a).map_err(NonEmpty::flatten)
     }
 
-    fn zip_mult3<A, B>(
+    fn mult_zip3<A, B>(
         self,
         a: MultiResult<A, Self::E>,
         b: MultiResult<B, Self::E>,
@@ -765,64 +797,64 @@ pub trait DeferredExt {
     type E;
     type W;
 
-    fn inner_into<ToW, ToE>(self) -> DeferredResult<Self::V, ToW, ToE>
+    fn def_inner_into<ToW, ToE>(self) -> DeferredResult<Self::V, ToW, ToE>
     where
         ToW: From<Self::W>,
         ToE: From<Self::E>;
 
-    fn error_into<ToE>(self) -> DeferredResult<Self::V, Self::W, ToE>
+    fn def_errors_into<ToE>(self) -> DeferredResult<Self::V, Self::W, ToE>
     where
         ToE: From<Self::E>;
 
-    fn error_impure(self) -> DeferredResult<Self::V, Self::W, ImpureError<Self::E>>;
+    fn def_errors_liftio(self) -> DeferredResult<Self::V, Self::W, ImpureError<Self::E>>;
 
-    fn warning_into<ToW>(self) -> DeferredResult<Self::V, ToW, Self::E>
+    fn def_warnings_into<ToW>(self) -> DeferredResult<Self::V, ToW, Self::E>
     where
         ToW: From<Self::W>;
 
-    fn map_value<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
+    fn def_map_value<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
     where
         F: FnOnce(Self::V) -> X;
 
-    fn warnings_map<F, X>(self, f: F) -> DeferredResult<Self::V, X, Self::E>
+    fn def_warnings_map<F, X>(self, f: F) -> DeferredResult<Self::V, X, Self::E>
     where
         F: Fn(Self::W) -> X;
 
-    fn errors_map<F, X>(self, f: F) -> DeferredResult<Self::V, Self::W, X>
+    fn def_errors_map<F, X>(self, f: F) -> DeferredResult<Self::V, Self::W, X>
     where
         F: Fn(Self::E) -> X;
 
-    fn zip_def<A>(
+    fn def_zip<A>(
         self,
         a: DeferredResult<A, Self::W, Self::E>,
     ) -> DeferredResult<(Self::V, A), Self::W, Self::E>;
 
     #[allow(clippy::type_complexity)]
-    fn zip_def3<A, B>(
+    fn def_zip3<A, B>(
         self,
         a: DeferredResult<A, Self::W, Self::E>,
         b: DeferredResult<B, Self::W, Self::E>,
     ) -> DeferredResult<(Self::V, A, B), Self::W, Self::E>;
 
-    fn and_then_def<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
+    fn def_and_then<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
     where
         F: FnOnce(Self::V) -> Result<X, Self::E>;
 
-    fn and_tentatively<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
+    fn def_and_tentatively<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
     where
         F: FnOnce(Self::V) -> Tentative<X, Self::W, Self::E>;
 
-    fn and_maybe<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
+    fn def_and_maybe<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
     where
         F: FnOnce(Self::V) -> DeferredResult<X, Self::W, Self::E>;
 
-    fn terminate<T>(self, reason: T) -> TerminalResult<Self::V, Self::W, Self::E, T>;
+    fn def_terminate<T>(self, reason: T) -> TerminalResult<Self::V, Self::W, Self::E, T>;
 
-    fn eval_error<F>(&mut self, f: F)
+    fn def_eval_error<F>(&mut self, f: F)
     where
         F: FnOnce(&Self::V) -> Option<Self::E>;
 
-    fn eval_warning<F>(&mut self, f: F)
+    fn def_eval_warning<F>(&mut self, f: F)
     where
         F: FnOnce(&Self::V) -> Option<Self::W>;
 }
@@ -832,7 +864,7 @@ impl<V, W, E> DeferredExt for DeferredResult<V, W, E> {
     type W = W;
     type E = E;
 
-    fn inner_into<ToW, ToE>(self) -> DeferredResult<Self::V, ToW, ToE>
+    fn def_inner_into<ToW, ToE>(self) -> DeferredResult<Self::V, ToW, ToE>
     where
         ToW: From<Self::W>,
         ToE: From<Self::E>,
@@ -841,19 +873,19 @@ impl<V, W, E> DeferredExt for DeferredResult<V, W, E> {
             .map(|t| t.errors_into().warnings_into())
     }
 
-    fn error_into<ToE>(self) -> DeferredResult<Self::V, Self::W, ToE>
+    fn def_errors_into<ToE>(self) -> DeferredResult<Self::V, Self::W, ToE>
     where
         ToE: From<Self::E>,
     {
         self.map_err(|e| e.errors_into()).map(|t| t.errors_into())
     }
 
-    fn error_impure(self) -> DeferredResult<Self::V, Self::W, ImpureError<E>> {
+    fn def_errors_liftio(self) -> DeferredResult<Self::V, Self::W, ImpureError<E>> {
         self.map(|t| t.errors_map(ImpureError::Pure))
             .map_err(|e| e.errors_map(ImpureError::Pure))
     }
 
-    fn warning_into<ToW>(self) -> DeferredResult<Self::V, ToW, Self::E>
+    fn def_warnings_into<ToW>(self) -> DeferredResult<Self::V, ToW, Self::E>
     where
         ToW: From<Self::W>,
     {
@@ -861,14 +893,14 @@ impl<V, W, E> DeferredExt for DeferredResult<V, W, E> {
             .map(|t| t.warnings_into())
     }
 
-    fn map_value<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
+    fn def_map_value<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
     where
         F: FnOnce(Self::V) -> X,
     {
         self.map(|x| x.map(f))
     }
 
-    fn warnings_map<F, X>(self, f: F) -> DeferredResult<Self::V, X, Self::E>
+    fn def_warnings_map<F, X>(self, f: F) -> DeferredResult<Self::V, X, Self::E>
     where
         F: Fn(Self::W) -> X,
     {
@@ -878,7 +910,7 @@ impl<V, W, E> DeferredExt for DeferredResult<V, W, E> {
         }
     }
 
-    fn errors_map<F, X>(self, f: F) -> DeferredResult<Self::V, Self::W, X>
+    fn def_errors_map<F, X>(self, f: F) -> DeferredResult<Self::V, Self::W, X>
     where
         F: Fn(Self::E) -> X,
     {
@@ -888,54 +920,54 @@ impl<V, W, E> DeferredExt for DeferredResult<V, W, E> {
         }
     }
 
-    fn zip_def<A>(
+    fn def_zip<A>(
         self,
         a: DeferredResult<A, Self::W, Self::E>,
     ) -> DeferredResult<(Self::V, A), Self::W, Self::E> {
         self.zip(a)
-            .map_err(DeferredFailure::fold)
+            .map_err(DeferredFailure::mconcat)
             .map(|(ax, bx)| ax.zip(bx))
     }
 
-    fn zip_def3<A, B>(
+    fn def_zip3<A, B>(
         self,
         a: DeferredResult<A, Self::W, Self::E>,
         b: DeferredResult<B, Self::W, Self::E>,
     ) -> DeferredResult<(Self::V, A, B), Self::W, Self::E> {
         self.zip3(a, b)
-            .map_err(DeferredFailure::fold)
+            .map_err(DeferredFailure::mconcat)
             .map(|(ax, bx, cx)| ax.zip3(bx, cx))
     }
 
-    fn and_then_def<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
+    fn def_and_then<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
     where
         F: FnOnce(Self::V) -> Result<X, Self::E>,
     {
-        self.and_maybe(|x| f(x).map(Tentative::new1).map_err(DeferredFailure::new1))
+        self.def_and_maybe(|x| f(x).map(Tentative::new1).map_err(DeferredFailure::new1))
     }
 
-    fn and_tentatively<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
+    fn def_and_tentatively<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
     where
         F: FnOnce(Self::V) -> Tentative<X, Self::W, Self::E>,
     {
         self.map(|x| x.and_tentatively(f))
     }
 
-    fn and_maybe<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
+    fn def_and_maybe<F, X>(self, f: F) -> DeferredResult<X, Self::W, Self::E>
     where
         F: FnOnce(Self::V) -> DeferredResult<X, Self::W, Self::E>,
     {
         self.and_then(|x| x.and_maybe(f))
     }
 
-    fn terminate<T>(self, reason: T) -> TerminalResult<Self::V, Self::W, Self::E, T> {
+    fn def_terminate<T>(self, reason: T) -> TerminalResult<Self::V, Self::W, Self::E, T> {
         match self {
             Ok(t) => t.terminate(reason),
             Err(e) => Err(e.terminate(reason)),
         }
     }
 
-    fn eval_error<F>(&mut self, f: F)
+    fn def_eval_error<F>(&mut self, f: F)
     where
         F: FnOnce(&Self::V) -> Option<Self::E>,
     {
@@ -944,7 +976,7 @@ impl<V, W, E> DeferredExt for DeferredResult<V, W, E> {
         }
     }
 
-    fn eval_warning<F>(&mut self, f: F)
+    fn def_eval_warning<F>(&mut self, f: F)
     where
         F: FnOnce(&Self::V) -> Option<Self::W>,
     {

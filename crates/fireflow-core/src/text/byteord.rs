@@ -281,7 +281,7 @@ impl Width {
         t: AlphaNumType,
     ) -> DeferredResult<Bytes, WidthToBytesError, SingleWidthError> {
         if let Some(ws) = NonEmpty::collect(widths.iter().copied()) {
-            let bs = ne_map_results(ws, Bytes::try_from).into_deferred1();
+            let bs = ne_map_results(ws, Bytes::try_from).mult_to_deferred();
 
             let go = |sizes: NonEmpty<_>, expected: usize| {
                 if sizes.tail.is_empty() {
@@ -307,15 +307,15 @@ impl Width {
                         bs.map_or_else(|e| e.into_tentative(bytes), |_| Tentative::new1(bytes));
                     Ok(ret)
                 }
-                AlphaNumType::Integer => bs.and_then_def(|sizes| {
+                AlphaNumType::Integer => bs.def_and_then(|sizes| {
                     if sizes.tail.is_empty() {
                         Ok(sizes.head)
                     } else {
                         Err(MultiWidthsError(sizes).into())
                     }
                 }),
-                AlphaNumType::Single => bs.and_then_def(|sizes| go(sizes, 4)),
-                AlphaNumType::Double => bs.and_then_def(|sizes| go(sizes, 8)),
+                AlphaNumType::Single => bs.def_and_then(|sizes| go(sizes, 4)),
+                AlphaNumType::Double => bs.def_and_then(|sizes| go(sizes, 8)),
             }
         } else {
             Err(DeferredFailure::new1(EmptyWidthError.into()))

@@ -224,8 +224,8 @@ impl AnyUintType {
         notrunc: bool,
     ) -> DeferredResult<Self, BitmaskError, NewUintTypeError> {
         w.try_into()
-            .into_deferred0()
-            .and_tentatively(|bytes: Bytes| {
+            .into_deferred()
+            .def_and_tentatively(|bytes: Bytes| {
                 // ASSUME this can only be 1-8
                 match u8::from(bytes) {
                     1 => u8::column_type_endian(r, n, notrunc).map(Self::Uint08),
@@ -855,14 +855,14 @@ impl FixedLayout<AnyUintType> {
             .enumerate()
             .map(|(i, c)| {
                 AnyUintType::try_new(c.width, c.range, e, notrunc)
-                    .errors_map(|error| {
+                    .def_errors_map(|error| {
                         ColumnError {
                             error,
                             index: i.into(),
                         }
                         .into()
                     })
-                    .warnings_map(|error| {
+                    .def_warnings_map(|error| {
                         ColumnError {
                             error,
                             index: i.into(),
@@ -871,9 +871,9 @@ impl FixedLayout<AnyUintType> {
                     })
             })
             .gather()
-            .map_err(DeferredFailure::fold)
+            .map_err(DeferredFailure::mconcat)
             .map(Tentative::mconcat)
-            .map_value(FixedLayout::from_vec)
+            .def_map_value(FixedLayout::from_vec)
     }
 }
 
@@ -986,7 +986,7 @@ where
                         bitmask,
                         byteord: size,
                     })
-                    .into_deferred0()
+                    .into_deferred()
             })
     }
 
@@ -1003,9 +1003,9 @@ where
         rs.into_iter()
             .map(|r| Self::column_type_ordered(r, byteord, notrunc))
             .gather()
-            .map_err(DeferredFailure::fold)
+            .map_err(DeferredFailure::mconcat)
             .map(Tentative::mconcat)
-            .map_value(FixedLayout::from_vec)
+            .def_map_value(FixedLayout::from_vec)
     }
 
     fn h_read_int<R: Read>(
@@ -1336,16 +1336,16 @@ impl MixedType {
             AlphaNumType::Ascii => w
                 .try_into()
                 .map(|chars| Self::Ascii(AsciiType { chars }))
-                .into_deferred0(),
+                .into_deferred(),
             AlphaNumType::Integer => AnyUintType::try_new(w, r, n, notrunc)
-                .map_value(Self::Integer)
-                .error_into(),
+                .def_map_value(Self::Integer)
+                .def_errors_into(),
             AlphaNumType::Single => f32::column_type_endian(w, n, r)
                 .map(Self::Float)
-                .into_deferred0(),
+                .into_deferred(),
             AlphaNumType::Double => f64::column_type_endian(w, n, r)
                 .map(Self::Double)
-                .into_deferred0(),
+                .into_deferred(),
         }
     }
 }
@@ -1900,21 +1900,21 @@ impl AnyUintLayout {
     ) -> DeferredResult<Option<Self>, BitmaskError, NewFixedIntLayoutError> {
         let (ws, rs): (Vec<_>, Vec<_>) = cs.into_iter().map(|c| (c.width, c.range)).unzip();
         widths_to_single_fixed_bytes(&ws[..])
-            .into_deferred1()
-            .and_maybe(|b| {
+            .mult_to_deferred()
+            .def_and_maybe(|b| {
                 if let Some(bytes) = b {
                     match u8::from(bytes) {
-                        1 => u8::layout_ordered(rs, o, notrunc).map_value(|x| x.map(Self::Uint08)),
-                        2 => u16::layout_ordered(rs, o, notrunc).map_value(|x| x.map(Self::Uint16)),
-                        3 => u32::layout_ordered(rs, o, notrunc).map_value(|x| x.map(Self::Uint24)),
-                        4 => u32::layout_ordered(rs, o, notrunc).map_value(|x| x.map(Self::Uint32)),
-                        5 => u64::layout_ordered(rs, o, notrunc).map_value(|x| x.map(Self::Uint40)),
-                        6 => u64::layout_ordered(rs, o, notrunc).map_value(|x| x.map(Self::Uint48)),
-                        7 => u64::layout_ordered(rs, o, notrunc).map_value(|x| x.map(Self::Uint56)),
-                        8 => u64::layout_ordered(rs, o, notrunc).map_value(|x| x.map(Self::Uint64)),
+                        1 => u8::layout_ordered(rs, o, notrunc).def_map_value(|x| x.map(Self::Uint08)),
+                        2 => u16::layout_ordered(rs, o, notrunc).def_map_value(|x| x.map(Self::Uint16)),
+                        3 => u32::layout_ordered(rs, o, notrunc).def_map_value(|x| x.map(Self::Uint24)),
+                        4 => u32::layout_ordered(rs, o, notrunc).def_map_value(|x| x.map(Self::Uint32)),
+                        5 => u64::layout_ordered(rs, o, notrunc).def_map_value(|x| x.map(Self::Uint40)),
+                        6 => u64::layout_ordered(rs, o, notrunc).def_map_value(|x| x.map(Self::Uint48)),
+                        7 => u64::layout_ordered(rs, o, notrunc).def_map_value(|x| x.map(Self::Uint56)),
+                        8 => u64::layout_ordered(rs, o, notrunc).def_map_value(|x| x.map(Self::Uint64)),
                         _ => unreachable!(),
                     }
-                    .error_into()
+                    .def_errors_into()
                 } else {
                     Ok(Tentative::new1(None))
                 }
@@ -2165,26 +2165,26 @@ impl VersionedDataLayout for DataLayout2_0 {
         match datatype {
             AlphaNumType::Ascii => AsciiLayout::try_new(columns)
                 .map(|x| x.map_or(Self::Empty, Self::Ascii))
-                .into_deferred1(),
+                .mult_to_deferred(),
             AlphaNumType::Integer => {
                 AnyUintLayout::try_new(columns, &byteord, conf.bitmask_notruncate)
-                    .map_value(|x| x.map_or(Self::Empty, Self::Integer))
-                    .inner_into()
+                    .def_map_value(|x| x.map_or(Self::Empty, Self::Integer))
+                    .def_inner_into()
             }
             AlphaNumType::Single => f32::layout(columns, &byteord)
                 .map(|x| x.map_or(Self::Empty, |y| Self::Float(FloatLayout::F32(y))))
-                .into_deferred1(),
+                .mult_to_deferred(),
             AlphaNumType::Double => f64::layout(columns, &byteord)
                 .map(|x| x.map_or(Self::Empty, |y| Self::Float(FloatLayout::F64(y))))
-                .into_deferred1(),
+                .mult_to_deferred(),
         }
     }
 
     fn try_new_from_raw(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Self> {
         kws_get_layout_2_0(kws)
-            .into_deferred1()
-            .and_maybe(|(datatype, byteord, columns)| {
-                Self::try_new(datatype, byteord, columns, conf).inner_into()
+            .mult_to_deferred()
+            .def_and_maybe(|(datatype, byteord, columns)| {
+                Self::try_new(datatype, byteord, columns, conf).def_inner_into()
             })
     }
 
@@ -2322,26 +2322,26 @@ impl VersionedDataLayout for DataLayout3_0 {
         match datatype {
             AlphaNumType::Ascii => AsciiLayout::try_new(columns)
                 .map(|x| x.map_or(Self::Empty, Self::Ascii))
-                .into_deferred1(),
+                .mult_to_deferred(),
             AlphaNumType::Integer => {
                 AnyUintLayout::try_new(columns, &byteord, conf.bitmask_notruncate)
-                    .map_value(|x| x.map_or(Self::Empty, Self::Integer))
-                    .inner_into()
+                    .def_map_value(|x| x.map_or(Self::Empty, Self::Integer))
+                    .def_inner_into()
             }
             AlphaNumType::Single => f32::layout(columns, &byteord)
                 .map(|x| x.map_or(Self::Empty, |y| Self::Float(FloatLayout::F32(y))))
-                .into_deferred1(),
+                .mult_to_deferred(),
             AlphaNumType::Double => f64::layout(columns, &byteord)
                 .map(|x| x.map_or(Self::Empty, |y| Self::Float(FloatLayout::F64(y))))
-                .into_deferred1(),
+                .mult_to_deferred(),
         }
     }
 
     fn try_new_from_raw(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Self> {
         kws_get_layout_2_0(kws)
-            .into_deferred1()
-            .and_maybe(|(datatype, byteord, columns)| {
-                Self::try_new(datatype, byteord, columns, conf).inner_into()
+            .mult_to_deferred()
+            .def_and_maybe(|(datatype, byteord, columns)| {
+                Self::try_new(datatype, byteord, columns, conf).def_inner_into()
             })
     }
 
@@ -2385,8 +2385,8 @@ impl VersionedDataLayout for DataLayout3_0 {
             conf.standard.raw.enforce_offset_match,
             conf.standard.raw.enforce_required_offsets,
         )
-        .inner_into()
-        .and_tentatively(|seg| {
+        .def_inner_into()
+        .def_and_tentatively(|seg| {
             match self {
                 Self::Ascii(a) => a.into_col_reader(seg, tot, conf),
                 Self::Integer(fl) => fl.into_col_reader(seg, tot, conf),
@@ -2411,8 +2411,8 @@ impl VersionedDataLayout for DataLayout3_0 {
             conf.standard.raw.enforce_offset_match,
             conf.standard.raw.enforce_required_offsets,
         )
-        .inner_into()
-        .and_tentatively(|seg| {
+        .def_inner_into()
+        .def_and_tentatively(|seg| {
             match self {
                 Self::Ascii(a) => a.into_col_reader(seg, tot, conf),
                 Self::Integer(fl) => fl.into_col_reader(seg, tot, conf),
@@ -2435,8 +2435,8 @@ impl VersionedDataLayout for DataLayout3_0 {
             conf.standard.raw.enforce_offset_match,
             conf.standard.raw.enforce_required_offsets,
         )
-        .inner_into()
-        .map_value(|s| AnalysisReader { seg: s })
+        .def_inner_into()
+        .def_map_value(|s| AnalysisReader { seg: s })
     }
 
     fn as_analysis_reader_raw(
@@ -2451,8 +2451,8 @@ impl VersionedDataLayout for DataLayout3_0 {
             conf.standard.raw.enforce_offset_match,
             conf.standard.raw.enforce_required_offsets,
         )
-        .inner_into()
-        .map_value(|s| AnalysisReader { seg: s })
+        .def_inner_into()
+        .def_map_value(|s| AnalysisReader { seg: s })
     }
 }
 
@@ -2469,16 +2469,16 @@ impl VersionedDataLayout for DataLayout3_1 {
         match datatype {
             AlphaNumType::Ascii => AsciiLayout::try_new(columns)
                 .map(|x| x.map_or(Self::Empty, Self::Ascii))
-                .into_deferred1(),
+                .mult_to_deferred(),
             AlphaNumType::Integer => FixedLayout::try_new(columns, endian, conf.bitmask_notruncate)
-                .map_value(|x| x.map_or(Self::Empty, Self::Integer))
-                .inner_into(),
+                .def_map_value(|x| x.map_or(Self::Empty, Self::Integer))
+                .def_inner_into(),
             AlphaNumType::Single => f32::layout_endian(columns, endian)
                 .map(|x| x.map_or(Self::Empty, |y| Self::Float(FloatLayout::F32(y))))
-                .into_deferred1(),
+                .mult_to_deferred(),
             AlphaNumType::Double => f64::layout_endian(columns, endian)
                 .map(|x| x.map_or(Self::Empty, |y| Self::Float(FloatLayout::F64(y))))
-                .into_deferred1(),
+                .mult_to_deferred(),
         }
     }
 
@@ -2486,10 +2486,10 @@ impl VersionedDataLayout for DataLayout3_1 {
         let cs = kws_get_columns(kws);
         let d = AlphaNumType::get_meta_req(kws).into_mult::<RawParsedError>();
         let n = Endian::get_meta_req(kws).into_mult();
-        d.zip_mult3(n, cs)
-            .into_deferred1()
-            .and_maybe(|(datatype, byteord, columns)| {
-                Self::try_new(datatype, byteord, columns, conf).inner_into()
+        d.mult_zip3(n, cs)
+            .mult_to_deferred()
+            .def_and_maybe(|(datatype, byteord, columns)| {
+                Self::try_new(datatype, byteord, columns, conf).def_inner_into()
             })
     }
 
@@ -2533,8 +2533,8 @@ impl VersionedDataLayout for DataLayout3_1 {
             conf.standard.raw.enforce_offset_match,
             conf.standard.raw.enforce_required_offsets,
         )
-        .inner_into()
-        .and_tentatively(|seg| {
+        .def_inner_into()
+        .def_and_tentatively(|seg| {
             match self {
                 Self::Ascii(a) => a.into_col_reader(seg, tot, conf),
                 Self::Integer(fl) => fl.into_col_reader(seg, tot, conf),
@@ -2559,8 +2559,8 @@ impl VersionedDataLayout for DataLayout3_1 {
             conf.standard.raw.enforce_offset_match,
             conf.standard.raw.enforce_required_offsets,
         )
-        .inner_into()
-        .and_tentatively(|seg| {
+        .def_inner_into()
+        .def_and_tentatively(|seg| {
             match self {
                 Self::Ascii(a) => a.into_col_reader(seg, tot, conf),
                 Self::Integer(fl) => fl.into_col_reader(seg, tot, conf),
@@ -2583,8 +2583,8 @@ impl VersionedDataLayout for DataLayout3_1 {
             conf.standard.raw.enforce_offset_match,
             conf.standard.raw.enforce_required_offsets,
         )
-        .inner_into()
-        .map_value(|s| AnalysisReader { seg: s })
+        .def_inner_into()
+        .def_map_value(|s| AnalysisReader { seg: s })
     }
 
     fn as_analysis_reader_raw(
@@ -2599,8 +2599,8 @@ impl VersionedDataLayout for DataLayout3_1 {
             conf.standard.raw.enforce_offset_match,
             conf.standard.raw.enforce_required_offsets,
         )
-        .inner_into()
-        .map_value(|s| AnalysisReader { seg: s })
+        .def_inner_into()
+        .def_map_value(|s| AnalysisReader { seg: s })
     }
 }
 
@@ -2627,18 +2627,18 @@ impl VersionedDataLayout for DataLayout3_2 {
             [dt] => match dt {
                 AlphaNumType::Ascii => AsciiLayout::try_new(dt_columns)
                     .map(|x| x.map_or(Self::Empty, Self::Ascii))
-                    .into_deferred1(),
+                    .mult_to_deferred(),
                 AlphaNumType::Integer => {
                     FixedLayout::try_new(dt_columns, endian, conf.bitmask_notruncate)
-                        .map_value(|x| x.map_or(Self::Empty, Self::Integer))
-                        .inner_into()
+                        .def_map_value(|x| x.map_or(Self::Empty, Self::Integer))
+                        .def_inner_into()
                 }
                 AlphaNumType::Single => f32::layout_endian(dt_columns, endian)
                     .map(|x| x.map_or(Self::Empty, |y| Self::Float(FloatLayout::F32(y))))
-                    .into_deferred1(),
+                    .mult_to_deferred(),
                 AlphaNumType::Double => f64::layout_endian(dt_columns, endian)
                     .map(|x| x.map_or(Self::Empty, |y| Self::Float(FloatLayout::F64(y))))
-                    .into_deferred1(),
+                    .mult_to_deferred(),
             },
             _ => dt_columns
                 .into_iter()
@@ -2651,27 +2651,27 @@ impl VersionedDataLayout for DataLayout3_2 {
                         c.range,
                         conf.bitmask_notruncate,
                     )
-                    .errors_map(|error| {
+                    .def_errors_map(|error| {
                         ColumnError {
                             error,
                             index: i.into(),
                         }
                         .into()
                     })
-                    .errors_map(NewDataLayoutError::Mixed)
-                    .warnings_map(|error| {
+                    .def_errors_map(NewDataLayoutError::Mixed)
+                    .def_warnings_map(|error| {
                         ColumnError {
                             error,
                             index: i.into(),
                         }
                         .into()
                     })
-                    .warnings_map(NewDataLayoutWarning::VariableInt)
+                    .def_warnings_map(NewDataLayoutWarning::VariableInt)
                 })
                 .gather()
                 .map(Tentative::mconcat)
-                .map_err(DeferredFailure::fold)
-                .map_value(|mcs| {
+                .map_err(DeferredFailure::mconcat)
+                .def_map_value(|mcs| {
                     NonEmpty::from_vec(mcs)
                         .map_or(Self::Empty, |columns| Self::Mixed(FixedLayout { columns }))
                 }),
@@ -2681,13 +2681,13 @@ impl VersionedDataLayout for DataLayout3_2 {
     fn try_new_from_raw(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Self> {
         let d = AlphaNumType::get_meta_req(kws)
             .map_err(RawParsedError::from)
-            .into_deferred0();
+            .into_deferred();
         let e = Endian::get_meta_req(kws)
             .map_err(RawParsedError::from)
-            .into_deferred0();
-        let cs = kws_get_columns_3_2(kws).inner_into();
-        d.zip_def3(e, cs).and_maybe(|(datatype, endian, columns)| {
-            Self::try_new(datatype, endian, columns, conf).inner_into()
+            .into_deferred();
+        let cs = kws_get_columns_3_2(kws).def_inner_into();
+        d.def_zip3(e, cs).def_and_maybe(|(datatype, endian, columns)| {
+            Self::try_new(datatype, endian, columns, conf).def_inner_into()
         })
     }
 
@@ -2735,8 +2735,8 @@ impl VersionedDataLayout for DataLayout3_2 {
             conf.standard.raw.enforce_offset_match,
             conf.standard.raw.enforce_required_offsets,
         )
-        .inner_into()
-        .and_tentatively(|seg| {
+        .def_inner_into()
+        .def_and_tentatively(|seg| {
             match self {
                 Self::Ascii(a) => a.into_col_reader(seg, tot, conf),
                 Self::Integer(fl) => fl.into_col_reader(seg, tot, conf),
@@ -2762,8 +2762,8 @@ impl VersionedDataLayout for DataLayout3_2 {
             conf.standard.raw.enforce_offset_match,
             conf.standard.raw.enforce_required_offsets,
         )
-        .inner_into()
-        .and_tentatively(|seg| {
+        .def_inner_into()
+        .def_and_tentatively(|seg| {
             match self {
                 Self::Ascii(a) => a.into_col_reader(seg, tot, conf),
                 Self::Integer(fl) => fl.into_col_reader(seg, tot, conf),
@@ -2831,7 +2831,7 @@ fn kws_get_layout_2_0(
     let cs = kws_get_columns(kws);
     let d = AlphaNumType::get_meta_req(kws).into_mult();
     let b = ByteOrd::get_meta_req(kws).into_mult();
-    d.zip_mult3(b, cs)
+    d.mult_zip3(b, cs)
 }
 
 fn kws_get_columns(kws: &StdKeywords) -> MultiResult<Vec<ColumnLayoutData<()>>, RawParsedError> {
@@ -2876,11 +2876,11 @@ fn kws_get_columns_3_2(
                         range,
                         datatype: pn_datatype,
                     })
-                    .into_deferred1()
+                    .mult_to_deferred()
             })
         })
         .gather()
-        .map_err(DeferredFailure::fold)
+        .map_err(DeferredFailure::mconcat)
         .map(Tentative::mconcat)
 }
 

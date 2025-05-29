@@ -116,7 +116,7 @@ where
         Self::E: ReqMetaKey,
     {
         Self::get_req(kws, corr)
-            .errors_map(ReqSegmentWithDefaultError::Req)
+            .def_errors_map(ReqSegmentWithDefaultError::Req)
             .map_or_else(
                 |f| {
                     if enforce_lookup {
@@ -177,7 +177,7 @@ where
                 SpecificSegment::try_new(y0.into(), y1.into(), corr, SegmentFromTEXT)
                     .into_mult::<ReqSegmentError>()
             })
-            .into_deferred1()
+            .mult_to_deferred()
     }
 
     fn get_opt<E>(
@@ -223,7 +223,7 @@ where
         Self::E: ReqMetaKey,
     {
         Self::remove_req(kws, corr)
-            .errors_map(ReqSegmentWithDefaultError::Req)
+            .def_errors_map(ReqSegmentWithDefaultError::Req)
             .map_or_else(
                 |f| {
                     if enforce_lookup {
@@ -283,7 +283,7 @@ where
                 SpecificSegment::try_new(y0.into(), y1.into(), corr, SegmentFromTEXT)
                     .into_mult::<ReqSegmentError>()
             })
-            .into_deferred1()
+            .mult_to_deferred()
     }
 
     fn remove_req_mult(

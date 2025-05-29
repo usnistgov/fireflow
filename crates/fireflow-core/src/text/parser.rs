@@ -39,7 +39,7 @@ where
     V::remove_meta_req(kws)
         .map_err(ParseReqKeyError::from)
         .map_err(Box::new)
-        .into_deferred0()
+        .into_deferred()
 }
 
 pub(crate) fn lookup_meas_req<V>(kws: &mut StdKeywords, n: MeasIdx) -> LookupResult<V>
@@ -52,7 +52,7 @@ where
     V::remove_meas_req(kws, n)
         .map_err(ParseReqKeyError::from)
         .map_err(Box::new)
-        .into_deferred0()
+        .into_deferred()
 }
 
 pub(crate) fn lookup_meta_opt<V, E>(
@@ -245,7 +245,7 @@ pub(crate) fn lookup_temporal_gain_3_0(
 
 pub(crate) fn lookup_temporal_scale_3_0(kws: &mut StdKeywords, i: MeasIdx) -> LookupResult<Scale> {
     let mut res = lookup_meas_req(kws, i);
-    res.eval_error(|scale| {
+    res.def_eval_error(|scale| {
         if *scale != Scale::Linear {
             Some(ParseKeysError::Other(TemporalError::NonLinear.into()))
         } else {

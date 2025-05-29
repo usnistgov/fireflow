@@ -94,8 +94,8 @@ fn parse_header(s: &str, conf: &HeaderConfig) -> MultiResult<Header, HeaderError
     let data_res = parse_segment(d0, d1, false, conf.data);
     let anal_res = parse_segment(a0, a1, true, conf.analysis);
     vers_res
-        .zip_mult3(space_res, text_res)
-        .zip_mult3(data_res, anal_res)
+        .mult_zip3(space_res, text_res)
+        .mult_zip3(data_res, anal_res)
         .map(|((version, _, text), data, analysis)| Header {
             version: conf.version_override.unwrap_or(version),
             segments: HeaderSegments {

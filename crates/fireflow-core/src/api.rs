@@ -18,7 +18,6 @@ use itertools::Itertools;
 use serde::Serialize;
 use std::fmt;
 use std::fs;
-use std::io;
 use std::io::{BufReader, Read, Seek};
 use std::num::ParseIntError;
 use std::path;
@@ -70,11 +69,6 @@ pub struct KwsToStdDatasetOutput {
     pub dataset: ParsedDataset,
     pub deviant: StdKeywords,
 }
-
-// pub struct TEXTOffsets {
-//     pub data_seg: AnyDataSegment,
-//     pub analysis_seg: AnyAnalysisSegment,
-// }
 
 pub struct StdDatasetFromRaw {
     pub parsed: ParsedDataset,
@@ -363,61 +357,6 @@ pub fn read_fcs_std_file_from_raw(
         .terminate(KwsToStdDatasetFailure)
 }
 
-// fn h_read_raw_dataset<R: Read + Seek>(
-//     h: &mut BufReader<R>,
-//     raw: RawTEXTOutput,
-//     conf: &DataReadConfig,
-// ) -> TerminalResult<
-//     RawDatasetOutput,
-//     ReadRawDatasetWarning,
-//     ReadRawDatasetError,
-//     ReadRawDatasetFailure,
-// > {
-//     let version = raw.version;
-
-//     h_read_raw_dataset_from_raw(
-//         h,
-//         version,
-//         &raw.keywords.std,
-//         raw.parse.header_segments.data,
-//         raw.parse.header_segments.analysis,
-//         conf,
-//     )
-//     .term_map_value(|dataset| RawDatasetOutput {
-//         version,
-//         keywords: raw.keywords,
-//         dataset,
-//         parse: raw.parse,
-//     })
-// }
-
-// fn h_read_std_dataset<R: Read + Seek>(
-//     h: &mut BufReader<R>,
-//     std: StandardizedTEXTOutput,
-//     conf: &DataReadConfig,
-// ) -> TerminalResult<
-//     StandardizedDatasetOutput,
-//     ReadStdDatasetWarning,
-//     ReadStdDatasetError,
-//     ReadStdDatasetFailure,
-// > {
-//     h_read_std_dataset_from_core(
-//         h,
-//         std.standardized,
-//         TotValue(std.tot.as_deref()),
-//         std.data,
-//         std.analysis,
-//         std.parse.header_segments.data,
-//         std.parse.header_segments.analysis,
-//         conf,
-//     )
-//     .term_map_value(|dataset| StandardizedDatasetOutput {
-//         deviant: std.deviant,
-//         dataset,
-//         supp: std.parse,
-//     })
-// }
-
 fn h_read_dataset_from_kws<R: Read + Seek>(
     h: &mut BufReader<R>,
     version: Version,
@@ -456,48 +395,6 @@ fn h_read_data_and_analysis<R: Read + Seek>(
     let analysis = analysis_reader.h_read(h)?;
     Ok((data, analysis, dseg, analysis_reader.seg))
 }
-
-// #[allow(clippy::too_many_arguments)]
-// fn h_read_std_dataset_from_core<R: Read + Seek>(
-//     h: &mut BufReader<R>,
-//     core: AnyCoreTEXT,
-//     tot: TotValue,
-//     data_seg: SegmentKeywords<DataSegmentId>,
-//     anal_seg: SegmentKeywords<AnalysisSegmentId>,
-//     def_data_seg: HeaderDataSegment,
-//     def_anal_seg: HeaderAnalysisSegment,
-//     conf: &DataReadConfig,
-// ) -> TerminalResult<ParsedDataset, ReadStdDatasetWarning, ReadStdDatasetError, ReadStdDatasetFailure>
-// {
-//     let version = core.version();
-
-//     let tnt_anal = lookup_analysis_offsets(anal_seg, conf, version, def_anal_seg).inner_into();
-
-//     let reader_res = lookup_data_offsets(data_seg, conf, version, def_data_seg)
-//         .inner_into()
-//         .and_maybe(|_data_seg| {
-//             core.as_data_reader(&tot, conf, _data_seg)
-//                 .inner_into()
-//                 .map_value(|reader| (reader, _data_seg))
-//         });
-
-//     reader_res
-//         .and_tentatively(|x| tnt_anal.map(|y| (x, y)))
-//         .and_maybe(|((reader, _data_seg), analysis_seg)| {
-//             let columns = reader
-//                 .h_read(h)
-//                 .map_err(|e| DeferredFailure::new1(e.into()))?;
-//             let analysis =
-//                 h_read_analysis(h, analysis_seg).map_err(|e| DeferredFailure::new1(e.into()))?;
-//             let pd = ParsedDataset {
-//                 core: core.into_coredataset_unchecked(columns, analysis),
-//                 data_seg: _data_seg,
-//                 analysis_seg,
-//             };
-//             Ok(Tentative::new1(pd))
-//         })
-//         .terminate(ReadStdDatasetFailure)
-// }
 
 impl RawTEXTOutput {
     fn h_read<R: Read + Seek>(
@@ -863,94 +760,6 @@ fn repair_offsets(mut kws: ParsedKeywords, conf: &RawTextReadConfig) -> ParsedKe
     kws
 }
 
-// fn lookup_data_offsets(
-//     kws: SegmentKeywords<DataSegmentId>,
-//     conf: &DataReadConfig,
-//     version: Version,
-//     default: HeaderDataSegment,
-// ) -> Tentative<AnyDataSegment, DataSegmentWarning, DataSegmentError> {
-//     let d = SegmentDefaultWarning::default();
-//     match version {
-//         Version::FCS2_0 => Tentative::new1(default.into_any()),
-//         _ => SegmentFromTEXT::req(kws, conf.data).map_or_else(
-//             |es| {
-//                 if conf.standard.raw.enforce_required_offsets {
-//                     let ws = es.map(|e| e.into()).into_iter().chain([d.into()]).collect();
-//                     Tentative::new(default.into_any(), vec![], ws)
-//                 } else {
-//                     let ws = es.map(|e| e.into()).into_iter().chain([d.into()]).collect();
-//                     Tentative::new(default.into_any(), ws, vec![])
-//                 }
-//             },
-//             |t| {
-//                 let w = if t.inner != default.inner && !default.inner.is_empty() {
-//                     Some(SegmentMismatchWarning {
-//                         header: default,
-//                         text: t,
-//                     })
-//                 } else {
-//                     None
-//                 };
-//                 let xs = w.into_iter().collect();
-//                 Tentative::new_either(t.into_any(), xs, conf.standard.raw.enforce_offset_match)
-//             },
-//         ),
-//     }
-// }
-
-// fn lookup_analysis_offsets(
-//     kws: SegmentKeywords<AnalysisSegmentId>,
-//     conf: &DataReadConfig,
-//     version: Version,
-//     default: HeaderAnalysisSegment,
-// ) -> Tentative<AnyAnalysisSegment, AnalysisSegmentWarning, AnalysisSegmentError> {
-//     let d = SegmentDefaultWarning::default();
-//     let def_any = default.into_any();
-//     match version {
-//         Version::FCS2_0 => Tentative::new1(def_any),
-
-//         Version::FCS3_0 | Version::FCS3_1 => SegmentFromTEXT::req(kws, conf.analysis).map_or_else(
-//             |es| {
-//                 // TODO clean this up
-//                 if conf.standard.raw.enforce_required_offsets {
-//                     let ws = es.map(|e| e.into()).into_iter().chain([d.into()]).collect();
-//                     Tentative::new(def_any, vec![], ws)
-//                 } else {
-//                     let ws = es.map(|e| e.into()).into_iter().chain([d.into()]).collect();
-//                     Tentative::new(def_any, ws, vec![])
-//                 }
-//             },
-//             |t| Tentative::new1(t.into_any()),
-//         ),
-
-//         Version::FCS3_2 => SegmentFromTEXT::opt(kws, conf.analysis).map_or_else(
-//             |es| {
-//                 // unlike the above, this can never error because the keywords
-//                 // are optional
-//                 let ws = es.map(|e| e.into()).into_iter().chain([d.into()]).collect();
-//                 Tentative::new(def_any, ws, vec![])
-//             },
-//             |t| {
-//                 if let Some(this_seg) = t {
-//                     let w = if this_seg.inner != default.inner && !default.inner.is_empty() {
-//                         Some(SegmentMismatchWarning {
-//                             header: default,
-//                             text: this_seg,
-//                         })
-//                     } else {
-//                         None
-//                     };
-//                     let this_any = this_seg.into_any();
-//                     let xs: Vec<_> = w.into_iter().collect();
-//                     Tentative::new_either(this_any, xs, conf.standard.raw.enforce_offset_match)
-//                 } else {
-//                     Tentative::new1(t.map(|x| x.into_any()).unwrap_or(def_any))
-//                 }
-//             },
-//         ),
-//     }
-// }
-
 fn lookup_stext_offsets(
     kws: &mut StdKeywords,
     version: Version,
@@ -1084,32 +893,68 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
 }
 
 enum_from_disp!(
-    pub DataSegmentError,
-    [Req, ReqSegmentError],
-    [Mismatch, SegmentMismatchWarning<DataSegmentId>],
-    [Default, SegmentDefaultWarning<DataSegmentId>]
+    pub ParseRawTEXTWarning,
+    [Char, DelimCharError],
+    [Keywords, ParseKeywordsIssue],
+    [SuppOffsets, STextSegmentWarning],
+    [Nextdata, ParseKeyError<ParseIntError>]
 );
 
 enum_from_disp!(
-    pub DataSegmentWarning,
-    [Segment, ReqSegmentError],
-    [Default, SegmentDefaultWarning<DataSegmentId>],
-    [Mismatch, SegmentMismatchWarning<DataSegmentId>]
+    pub HeaderOrRawError,
+    [Header, HeaderError],
+    [RawTEXT, ParseRawTEXTError]
 );
 
 enum_from_disp!(
-    pub AnalysisSegmentWarning,
-    [ReqSegment, ReqSegmentError],
-    [OptSegment, OptSegmentError],
-    [Default, SegmentDefaultWarning<AnalysisSegmentId>],
-    [Mismatch, SegmentMismatchWarning<AnalysisSegmentId>]
+    pub StdTEXTWarning,
+    [Raw, ParseRawTEXTWarning],
+    [Std, LookupMeasWarning]
 );
 
 enum_from_disp!(
-    pub AnalysisSegmentError,
-    [Req, ReqSegmentError],
-    [Mismatch, SegmentMismatchWarning<AnalysisSegmentId>],
-    [Default, SegmentDefaultWarning<AnalysisSegmentId>]
+    pub StdTEXTError,
+    [Raw, HeaderOrRawError],
+    [Std, ParseKeysError]
+);
+
+enum_from_disp!(
+    pub StdDatasetWarning,
+    [Raw, ParseRawTEXTWarning],
+    [Std, CoreDatasetFromRawWarning]
+);
+
+enum_from_disp!(
+    pub StdDatasetError,
+    [Raw, HeaderOrRawError],
+    [Std, CoreDatasetFromRawError]
+);
+
+enum_from_disp!(
+    pub RawDatasetWarning,
+    [Raw, ParseRawTEXTWarning],
+    [Std, LookupMeasWarning],
+    [Read, ReadRawDatasetWarning]
+);
+
+enum_from_disp!(
+    pub RawDatasetError,
+    [Raw, HeaderOrRawError],
+    [Std, ParseKeysError],
+    [Read, KwsToDatasetError]
+);
+
+enum_from_disp!(
+    pub KwsToDatasetError,
+    [DataReader, RawToReaderError],
+    [AnalysisReader, NewAnalysisReaderError],
+    [Read, ReadDataError]
+);
+
+enum_from_disp!(
+    pub ReadRawDatasetWarning,
+    [DataReader, RawToReaderWarning],
+    [AnalysisReader, NewAnalysisReaderWarning]
 );
 
 enum_from_disp!(
@@ -1273,144 +1118,7 @@ impl fmt::Display for NonUtf8KeywordError {
     }
 }
 
-enum_from_disp!(
-    pub ParseRawTEXTWarning,
-    [Char, DelimCharError],
-    [Keywords, ParseKeywordsIssue],
-    [SuppOffsets, STextSegmentWarning],
-    [Nextdata, ParseKeyError<ParseIntError>]
-);
-
-enum_from!(
-    pub AnyParseHeaderFailure,
-    [File, io::Error],
-    [Header, TerminalFailure<(), ImpureError<HeaderError>, HeaderFailure>]
-);
-
-enum_from!(
-    pub AnyRawTEXTFailure,
-    [File, io::Error],
-    [Parse, ParseRawTEXTFailure]
-);
-
-enum_from_disp!(
-    pub HeaderOrRawError,
-    [Header, HeaderError],
-    [RawTEXT, ParseRawTEXTError]
-);
-
-enum_from!(
-    pub AnyStdTEXTFailure,
-    [Raw, AnyRawTEXTFailure],
-    [Std, TerminalFailure<StdTEXTWarning, ParseKeysError, CoreTEXTFailure>]
-);
-
-enum_from_disp!(
-    pub StdTEXTWarning,
-    [Raw, ParseRawTEXTWarning],
-    [Std, LookupMeasWarning]
-);
-
-enum_from_disp!(
-    pub StdTEXTError,
-    [Raw, HeaderOrRawError],
-    [Std, ParseKeysError]
-);
-
-enum_from_disp!(
-    pub StdDatasetWarning,
-    [Raw, ParseRawTEXTWarning],
-    [Std, CoreDatasetFromRawWarning]
-);
-
-enum_from_disp!(
-    pub StdDatasetError,
-    [Raw, HeaderOrRawError],
-    [Std, CoreDatasetFromRawError]
-);
-
-enum_from_disp!(
-    pub RawDatasetWarning,
-    [Raw, ParseRawTEXTWarning],
-    [Std, LookupMeasWarning],
-    [Read, ReadRawDatasetWarning]
-);
-
-enum_from_disp!(
-    pub RawDatasetError,
-    [Raw, HeaderOrRawError],
-    [Std, ParseKeysError],
-    [Read, KwsToDatasetError]
-);
-
-enum_from!(
-    pub AnyRawDatasetWarning,
-    [Read, ReadRawDatasetWarning]
-);
-
-enum_from!(
-    pub AnyKwsToRawDatasetFailure,
-    [File, io::Error],
-    [Read, TerminalFailure<ReadRawDatasetWarning, KwsToDatasetError, ReadRawDatasetFailure>]
-);
-
-enum_from_disp!(
-    pub KwsToDatasetError,
-    [DataReader, RawToReaderError],
-    [AnalysisReader, NewAnalysisReaderError],
-    [Read, ReadDataError]
-);
-
-enum_from_disp!(
-    pub ReadRawDatasetWarning,
-    [DataReader, RawToReaderWarning],
-    [AnalysisReader, NewAnalysisReaderWarning]
-);
-
-enum_from_disp!(
-    pub ReadStdDatasetError,
-    [DataSegment, DataSegmentError],
-    [AnalysisSegment, AnalysisSegmentError],
-    [ToReader, StdReaderError],
-    [ReadData, ImpureError<ReadDataError>],
-    [ReadAnalysis, io::Error]
-);
-
-enum_from_disp!(
-    pub ReadStdDatasetWarning,
-    [DataSeg, DataSegmentWarning],
-    [AnalysisSeg, AnalysisSegmentWarning],
-    [ToReader, NewDataReaderWarning]
-);
-
 pub struct ReadRawDatasetFailure;
-
-pub struct ReadStdDatasetFailure;
-
-enum_from!(
-    pub AnyStdDatasetFromRawFailure,
-    [File, io::Error],
-    [Std, TerminalFailure<LookupMeasWarning, ParseKeysError, CoreTEXTFailure>],
-    [Read, TerminalFailure<AnyStdDatasetFromRawWarning, ReadStdDatasetError, ReadStdDatasetFailure>]
-);
-
-enum_from_disp!(
-    pub ReadRawOrStdWarning,
-    [Raw, ParseRawTEXTWarning],
-    [Std, LookupMeasWarning]
-);
-
-enum_from_disp!(
-    pub AnyStdDatasetWarning,
-    [Raw, ParseRawTEXTWarning],
-    [Std, CoreDatasetFromRawWarning]
-);
-
-enum_from_disp!(
-    pub AnyStdDatasetFromRawWarning,
-    [Text, LookupMeasWarning],
-    [Dataset, ReadStdDatasetWarning]
-);
 
 pub struct ParseRawTEXTFailure;
 
@@ -1445,11 +1153,5 @@ impl fmt::Display for CoreTEXTFailure {
 impl fmt::Display for CoreDatasetFailure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "could not read DATA with standardized TEXT")
-    }
-}
-
-impl fmt::Display for ReadStdDatasetFailure {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "could not read DATA segment")
     }
 }

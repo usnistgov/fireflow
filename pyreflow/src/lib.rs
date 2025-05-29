@@ -99,8 +99,6 @@ fn py_read_fcs_header(
     enforce_stext=false,
     enforce_stext_delim=false,
     enforce_nextdata=false,
-    enforce_offset_match=false,
-    enforce_required_offsets=false,
     repair_offset_spaces=false,
     date_pattern=None,
     version_override=None)
@@ -133,8 +131,6 @@ fn py_read_fcs_raw_text(
     enforce_stext: bool,
     enforce_stext_delim: bool,
     enforce_nextdata: bool,
-    enforce_offset_match: bool,
-    enforce_required_offsets: bool,
     repair_offset_spaces: bool,
     date_pattern: Option<String>,
     version_override: Option<PyVersion>,
@@ -161,8 +157,6 @@ fn py_read_fcs_raw_text(
         enforce_stext,
         enforce_stext_delim,
         enforce_nextdata,
-        enforce_offset_match,
-        enforce_required_offsets,
         repair_offset_spaces,
         date_pattern: date_pattern.map(str_to_date_pat).transpose()?,
     };
@@ -211,8 +205,6 @@ fn py_read_fcs_raw_text(
     enforce_stext=false,
     enforce_stext_delim=false,
     enforce_nextdata=false,
-    enforce_offset_match=false,
-    enforce_required_offsets=false,
     repair_offset_spaces=false,
     disallow_deprecated=false,
 
@@ -257,8 +249,6 @@ fn py_read_fcs_std_text(
     enforce_stext: bool,
     enforce_stext_delim: bool,
     enforce_nextdata: bool,
-    enforce_offset_match: bool,
-    enforce_required_offsets: bool,
     repair_offset_spaces: bool,
     disallow_deprecated: bool,
 
@@ -298,8 +288,6 @@ fn py_read_fcs_std_text(
         enforce_stext,
         enforce_stext_delim,
         enforce_nextdata,
-        enforce_offset_match,
-        enforce_required_offsets,
         repair_offset_spaces,
         date_pattern: date_pattern.map(str_to_date_pat).transpose()?,
     };
@@ -484,8 +472,6 @@ fn py_read_fcs_file(
         enforce_stext,
         enforce_stext_delim,
         enforce_nextdata,
-        enforce_offset_match,
-        enforce_required_offsets,
         repair_offset_spaces,
         date_pattern: date_pattern.map(str_to_date_pat).transpose()?,
     };
@@ -522,6 +508,8 @@ fn py_read_fcs_file(
         analysis: OffsetCorrection::new(text_begin_analysis, text_end_analysis),
         enforce_data_width_divisibility,
         enforce_matching_tot,
+        enforce_offset_match,
+        enforce_required_offsets,
     };
 
     let out: StdDatasetOutput = fcs_read_std_dataset(&p, &conf.set_strict(strict))

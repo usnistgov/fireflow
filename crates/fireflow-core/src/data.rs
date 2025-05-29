@@ -2371,8 +2371,8 @@ impl VersionedDataLayout for DataLayout3_0 {
             kws,
             conf.data,
             seg,
-            conf.standard.raw.enforce_offset_match,
-            conf.standard.raw.enforce_required_offsets,
+            conf.enforce_offset_match,
+            conf.enforce_required_offsets,
         )
         .def_inner_into()
         .def_and_tentatively(|_seg| {
@@ -2397,8 +2397,8 @@ impl VersionedDataLayout for DataLayout3_0 {
             kws,
             conf.data,
             seg,
-            conf.standard.raw.enforce_offset_match,
-            conf.standard.raw.enforce_required_offsets,
+            conf.enforce_offset_match,
+            conf.enforce_required_offsets,
         )
         .def_inner_into()
         .def_and_tentatively(|_seg| {
@@ -2421,8 +2421,8 @@ impl VersionedDataLayout for DataLayout3_0 {
             kws,
             conf.analysis,
             seg,
-            conf.standard.raw.enforce_offset_match,
-            conf.standard.raw.enforce_required_offsets,
+            conf.enforce_offset_match,
+            conf.enforce_required_offsets,
         )
         .def_inner_into()
         .def_map_value(|s| AnalysisReader { seg: s })
@@ -2437,8 +2437,8 @@ impl VersionedDataLayout for DataLayout3_0 {
             kws,
             conf.analysis,
             seg,
-            conf.standard.raw.enforce_offset_match,
-            conf.standard.raw.enforce_required_offsets,
+            conf.enforce_offset_match,
+            conf.enforce_required_offsets,
         )
         .def_inner_into()
         .def_map_value(|s| AnalysisReader { seg: s })
@@ -2519,8 +2519,8 @@ impl VersionedDataLayout for DataLayout3_1 {
             kws,
             conf.data,
             seg,
-            conf.standard.raw.enforce_offset_match,
-            conf.standard.raw.enforce_required_offsets,
+            conf.enforce_offset_match,
+            conf.enforce_required_offsets,
         )
         .def_inner_into()
         .def_and_tentatively(|_seg| {
@@ -2545,8 +2545,8 @@ impl VersionedDataLayout for DataLayout3_1 {
             kws,
             conf.data,
             seg,
-            conf.standard.raw.enforce_offset_match,
-            conf.standard.raw.enforce_required_offsets,
+            conf.enforce_offset_match,
+            conf.enforce_required_offsets,
         )
         .def_inner_into()
         .def_and_tentatively(|_seg| {
@@ -2569,8 +2569,8 @@ impl VersionedDataLayout for DataLayout3_1 {
             kws,
             conf.analysis,
             seg,
-            conf.standard.raw.enforce_offset_match,
-            conf.standard.raw.enforce_required_offsets,
+            conf.enforce_offset_match,
+            conf.enforce_required_offsets,
         )
         .def_inner_into()
         .def_map_value(|s| AnalysisReader { seg: s })
@@ -2585,8 +2585,8 @@ impl VersionedDataLayout for DataLayout3_1 {
             kws,
             conf.analysis,
             seg,
-            conf.standard.raw.enforce_offset_match,
-            conf.standard.raw.enforce_required_offsets,
+            conf.enforce_offset_match,
+            conf.enforce_required_offsets,
         )
         .def_inner_into()
         .def_map_value(|s| AnalysisReader { seg: s })
@@ -2722,8 +2722,8 @@ impl VersionedDataLayout for DataLayout3_2 {
             kws,
             conf.data,
             seg,
-            conf.standard.raw.enforce_offset_match,
-            conf.standard.raw.enforce_required_offsets,
+            conf.enforce_offset_match,
+            conf.enforce_required_offsets,
         )
         .def_inner_into()
         .def_and_tentatively(|_seg| {
@@ -2749,8 +2749,8 @@ impl VersionedDataLayout for DataLayout3_2 {
             kws,
             conf.data,
             seg,
-            conf.standard.raw.enforce_offset_match,
-            conf.standard.raw.enforce_required_offsets,
+            conf.enforce_offset_match,
+            conf.enforce_required_offsets,
         )
         .def_inner_into()
         .def_and_tentatively(|_seg| {
@@ -2770,14 +2770,9 @@ impl VersionedDataLayout for DataLayout3_2 {
         seg: HeaderAnalysisSegment,
         conf: &DataReadConfig,
     ) -> AnalysisReaderResult {
-        let ret = LookupSegment::remove_opt_or(
-            kws,
-            conf.analysis,
-            seg,
-            conf.standard.raw.enforce_offset_match,
-        )
-        .map(|s| AnalysisReader { seg: s })
-        .inner_into();
+        let ret = LookupSegment::remove_opt_or(kws, conf.analysis, seg, conf.enforce_offset_match)
+            .map(|s| AnalysisReader { seg: s })
+            .inner_into();
         Ok(ret)
     }
 
@@ -2786,14 +2781,9 @@ impl VersionedDataLayout for DataLayout3_2 {
         seg: HeaderAnalysisSegment,
         conf: &DataReadConfig,
     ) -> AnalysisReaderResult {
-        let ret = LookupSegment::get_opt_or(
-            kws,
-            conf.analysis,
-            seg,
-            conf.standard.raw.enforce_offset_match,
-        )
-        .map(|s| AnalysisReader { seg: s })
-        .inner_into();
+        let ret = LookupSegment::get_opt_or(kws, conf.analysis, seg, conf.enforce_offset_match)
+            .map(|s| AnalysisReader { seg: s })
+            .inner_into();
         Ok(ret)
     }
 }

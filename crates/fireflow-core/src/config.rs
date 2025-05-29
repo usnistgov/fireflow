@@ -29,6 +29,17 @@ pub struct DataReadConfig {
     /// dividing DATA segment length event width doesn't match $TOT. Does
     /// nothing if $TOT not given, which may be the case in version 2.0.
     pub enforce_matching_tot: bool,
+
+    /// If true, throw error if offsets in HEADER and TEXT differ.
+    ///
+    /// Only applies to DATA and ANALYSIS offsets
+    pub enforce_offset_match: bool,
+
+    /// If true, throw error if required TEXT offsets are missing.
+    ///
+    /// Only applies to DATA and ANALYSIS offsets in versions 3.0 and 3.1. If
+    /// missing these will be taken from HEADER.
+    pub enforce_required_offsets: bool,
 }
 
 /// Configuration for writing an FCS file
@@ -148,17 +159,6 @@ pub struct RawTextReadConfig {
     /// standard.
     pub enforce_nextdata: bool,
 
-    /// If true, throw error if offsets in HEADER and TEXT differ.
-    ///
-    /// Only applies to DATA and ANALYSIS offsets
-    pub enforce_offset_match: bool,
-
-    /// If true, throw error if required TEXT offsets are missing.
-    ///
-    /// Only applies to DATA and ANALYSIS offsets in versions 3.0 and 3.1. If
-    /// missing these will be taken from HEADER.
-    pub enforce_required_offsets: bool,
-
     /// If true, replace leading spaces in offset keywords with 0.
     ///
     ///These often need to be padded to make the DATA segment appear at a
@@ -274,6 +274,8 @@ impl Strict for DataReadConfig {
             shared: SharedConfig::set_strict_inner(self.shared),
             enforce_data_width_divisibility: true,
             enforce_matching_tot: true,
+            enforce_offset_match: true,
+            enforce_required_offsets: true,
             ..self
         }
     }
@@ -292,8 +294,6 @@ impl Strict for RawTextReadConfig {
             enforce_stext: true,
             enforce_stext_delim: true,
             enforce_nextdata: true,
-            enforce_offset_match: true,
-            enforce_required_offsets: true,
             ..self
         }
     }

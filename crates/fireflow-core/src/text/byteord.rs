@@ -194,7 +194,7 @@ impl TryFrom<BitsOrChars> for Bytes {
     /// Return error if bits is not divisible by 8 and within [1,64].
     fn try_from(value: BitsOrChars) -> Result<Self, Self::Error> {
         let x = value.0;
-        if !(1..=64).contains(&x) && x % 8 == 0 {
+        if (1..=64).contains(&x) && x % 8 == 0 {
             Ok(Bytes(x / 8))
         } else {
             Err(BytesError(x))
@@ -490,7 +490,7 @@ impl fmt::Display for BytesError {
         write!(
             f,
             "bits must be multiple of 8 and between 8 and 64 \
-             to used as byte width, got {}",
+             to be used as byte width, got {}",
             self.0
         )
     }

@@ -1,7 +1,11 @@
 use fireflow_core::api::*;
 use fireflow_core::config::*;
+use fireflow_core::core::*;
 use fireflow_core::error::*;
+use fireflow_core::header::*;
+use fireflow_core::segment::*;
 use fireflow_core::text::byteord::*;
+use fireflow_core::text::keywords::*;
 use fireflow_core::text::named_vec::Element;
 use fireflow_core::text::optionalkw::*;
 use fireflow_core::text::range::*;
@@ -62,7 +66,7 @@ fn py_read_fcs_header(
         data: OffsetCorrection::new(begin_data, end_data),
         analysis: OffsetCorrection::new(begin_analysis, end_analysis),
     };
-    read_fcs_header(&p, &conf)
+    fcs_read_header(&p, &conf)
         .map_err(handle_failure_nowarn)
         .map(|x| x.inner().into())
 }
@@ -162,7 +166,7 @@ fn py_read_fcs_raw_text(
         repair_offset_spaces,
         date_pattern: date_pattern.map(str_to_date_pat).transpose()?,
     };
-    let raw: RawTEXTOutput = read_fcs_raw_text(&p, &conf.set_strict(strict))
+    let raw: RawTEXTOutput = fcs_read_raw_text(&p, &conf.set_strict(strict))
         .map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
     let std = raw
         .keywords
@@ -322,7 +326,7 @@ fn py_read_fcs_std_text(
         nonstandard_measurement_pattern: nsmp,
     };
 
-    let out: StandardizedTEXTOutput = read_fcs_std_text(&p, &conf.set_strict(strict))
+    let out: StandardizedTEXTOutput = fcs_read_std_text(&p, &conf.set_strict(strict))
         .map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
 
     let text = match &out.standardized {
@@ -520,7 +524,7 @@ fn py_read_fcs_file(
         enforce_matching_tot,
     };
 
-    let out: StandardizedDatasetOutput = read_fcs_std_file(&p, &conf.set_strict(strict))
+    let out: StandardizedDatasetOutput = fcs_read_std_dataset(&p, &conf.set_strict(strict))
         .map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
 
     let dataset = match &out.dataset.core {

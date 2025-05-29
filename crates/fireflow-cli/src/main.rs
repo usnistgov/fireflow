@@ -199,7 +199,7 @@ fn main() -> Result<(), ()> {
     match args.subcommand() {
         Some(("header", _)) => {
             let conf = config::HeaderConfig::default();
-            read_fcs_header(filepath, &conf)
+            fcs_read_header(filepath, &conf)
                 .map(|h| print_json(&h.inner()))
                 .map_err(handle_failure_nowarn)
         }
@@ -211,7 +211,7 @@ fn main() -> Result<(), ()> {
                 repair_offset_spaces: sargs.get_flag("repair-offset-spaces"),
                 ..conf
             };
-            read_fcs_raw_text(filepath, &conf)
+            fcs_read_raw_text(filepath, &conf)
                 .map(handle_warnings)
                 .map(|raw| print_json(&raw))
                 .map_err(handle_failure)
@@ -223,7 +223,7 @@ fn main() -> Result<(), ()> {
             conf.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
             let delim = sargs.get_one::<String>("delimiter").unwrap();
 
-            read_fcs_std_text(filepath, &conf)
+            fcs_read_std_text(filepath, &conf)
                 .map(handle_warnings)
                 .map(|std| std.standardized.print_spillover_table(delim))
                 .map_err(handle_failure)
@@ -235,7 +235,7 @@ fn main() -> Result<(), ()> {
             conf.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
             let delim = sargs.get_one::<String>("delimiter").unwrap();
 
-            read_fcs_std_text(filepath, &conf)
+            fcs_read_std_text(filepath, &conf)
                 .map(handle_warnings)
                 .map(|std| std.standardized.print_meas_table(delim))
                 .map_err(handle_failure)
@@ -267,7 +267,7 @@ fn main() -> Result<(), ()> {
             conf.disallow_deprecated = sargs.get_flag("disallow-deprecated");
             conf.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
 
-            read_fcs_std_text(filepath, &conf)
+            fcs_read_std_text(filepath, &conf)
                 .map(handle_warnings)
                 .map(|std| {
                     print_json(&std.standardized);
@@ -283,7 +283,7 @@ fn main() -> Result<(), ()> {
             conf.standard.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
             let delim = sargs.get_one::<String>("delimiter").unwrap();
 
-            read_fcs_std_file(filepath, &conf)
+            fcs_read_std_dataset(filepath, &conf)
                 .map(handle_warnings)
                 .map(|res| print_parsed_data(&res, delim))
                 .map_err(handle_failure)

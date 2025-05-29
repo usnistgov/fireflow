@@ -1,12 +1,11 @@
 use crate::config::*;
-pub use crate::core::*;
-pub use crate::data::*;
+use crate::core::*;
+use crate::data::*;
 use crate::error::*;
-pub use crate::header::*;
-pub use crate::header_text::*;
+use crate::header::*;
 use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
-pub use crate::segment::*;
-pub use crate::text::keywords::*;
+use crate::segment::*;
+use crate::text::keywords::*;
 use crate::text::parser::*;
 use crate::text::timestamps::*;
 use crate::validated::dataframe::FCSDataFrame;
@@ -70,11 +69,6 @@ pub struct KwsToStdDatasetOutput {
     pub deviant: StdKeywords,
 }
 
-pub struct StdDatasetFromRaw {
-    pub parsed: ParsedDataset,
-    pub deviant: StdKeywords,
-}
-
 pub struct ParsedDataset {
     pub core: AnyCoreDataset,
     pub data_seg: AnyDataSegment,
@@ -132,7 +126,7 @@ pub struct RawTEXTSupplementalData {
 ///
 /// Depending on the version, all of these except the TEXT offsets might be 0
 /// which indicates they are actually stored in TEXT due to size limitations.
-pub fn read_fcs_header(
+pub fn fcs_read_header(
     p: &path::PathBuf,
     conf: &HeaderConfig,
 ) -> TerminalResult<Header, (), ImpureError<HeaderError>, HeaderFailure> {
@@ -155,7 +149,7 @@ pub fn read_fcs_header(
 /// Next will use the offset information in the header to parse the TEXT segment
 /// for key/value pairs. On success will return these pairs as-is using Strings
 /// in a HashMap. No other processing will be performed.
-pub fn read_fcs_raw_text(
+pub fn fcs_read_raw_text(
     p: &path::PathBuf,
     conf: &RawTextReadConfig,
 ) -> TerminalResult<
@@ -169,24 +163,6 @@ pub fn read_fcs_raw_text(
         .terminate(ParseRawTEXTFailure)
 }
 
-fn read_fcs_raw_text_inner(
-    p: &path::PathBuf,
-    conf: &RawTextReadConfig,
-) -> DeferredResult<
-    (RawTEXTOutput, BufReader<fs::File>),
-    ParseRawTEXTWarning,
-    ImpureError<HeaderOrRawError>,
-> {
-    fs::File::options()
-        .read(true)
-        .open(p)
-        .into_deferred0()
-        .and_maybe(|file| {
-            let mut h = BufReader::new(file);
-            RawTEXTOutput::h_read(&mut h, conf).map_value(|x| (x, h))
-        })
-}
-
 /// Return header and standardized metadata in an FCS file.
 ///
 /// Begins by parsing header and raw keywords according to [`read_fcs_raw_text`]
@@ -196,7 +172,7 @@ fn read_fcs_raw_text_inner(
 /// FCS standard indicated in the header and returned in a struct storing each
 /// key/value pair in a standardized manner. This will halt and return any
 /// errors encountered during this process.
-pub fn read_fcs_std_text(
+pub fn fcs_read_std_text(
     p: &path::PathBuf,
     conf: &StdTextReadConfig,
 ) -> TerminalResult<
@@ -226,7 +202,7 @@ pub fn read_fcs_std_text(
 /// too much about the degree to which the metadata conforms to standard.
 ///
 /// Other than this, behavior is identical to [`read_fcs_std_file`],
-pub fn read_fcs_raw_file(
+pub fn fcs_read_raw_dataset(
     p: &path::PathBuf,
     conf: &DataReadConfig,
 ) -> TerminalResult<
@@ -272,7 +248,7 @@ pub fn read_fcs_raw_file(
 ///
 /// The [`conf`] argument can be used to control the behavior of each reading
 /// step, including the repair of non-conforming files.
-pub fn read_fcs_std_file(
+pub fn fcs_read_std_dataset(
     p: &path::PathBuf,
     conf: &DataReadConfig,
 ) -> TerminalResult<
@@ -292,7 +268,7 @@ pub fn read_fcs_std_file(
         .terminate(CoreDatasetFailure)
 }
 
-pub fn read_fcs_raw_file_from_raw(
+pub fn fcs_read_raw_dataset_with_keywords(
     p: path::PathBuf,
     version: Version,
     std: &StdKeywords,
@@ -316,7 +292,7 @@ pub fn read_fcs_raw_file_from_raw(
         .terminate(KwsToRawDatasetFailure)
 }
 
-pub fn read_fcs_std_file_from_raw(
+pub fn fcs_read_std_dataset_with_keywords(
     p: &path::PathBuf,
     version: Version,
     mut std: StdKeywords,
@@ -355,6 +331,24 @@ pub fn read_fcs_std_file_from_raw(
             })
         })
         .terminate(KwsToStdDatasetFailure)
+}
+
+fn read_fcs_raw_text_inner(
+    p: &path::PathBuf,
+    conf: &RawTextReadConfig,
+) -> DeferredResult<
+    (RawTEXTOutput, BufReader<fs::File>),
+    ParseRawTEXTWarning,
+    ImpureError<HeaderOrRawError>,
+> {
+    fs::File::options()
+        .read(true)
+        .open(p)
+        .into_deferred0()
+        .and_maybe(|file| {
+            let mut h = BufReader::new(file);
+            RawTEXTOutput::h_read(&mut h, conf).map_value(|x| (x, h))
+        })
 }
 
 fn h_read_dataset_from_kws<R: Read + Seek>(

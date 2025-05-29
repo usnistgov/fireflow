@@ -318,19 +318,19 @@ impl AnyCoreTEXT {
         std: &mut StdKeywords,
         nonstd: NonStdKeywords,
         conf: &StdTextReadConfig,
-    ) -> TerminalResult<Self, LookupMeasWarning, ParseKeysError, CoreTEXTFailure> {
+    ) -> DeferredResult<Self, LookupMeasWarning, ParseKeysError> {
         match version {
             Version::FCS2_0 => {
-                CoreTEXT2_0::new_text_from_raw(std, nonstd, conf).map(|x| x.value_into())
+                CoreTEXT2_0::new_text_from_raw(std, nonstd, conf).map_value(|x| x.into())
             }
             Version::FCS3_0 => {
-                CoreTEXT3_0::new_text_from_raw(std, nonstd, conf).map(|x| x.value_into())
+                CoreTEXT3_0::new_text_from_raw(std, nonstd, conf).map_value(|x| x.into())
             }
             Version::FCS3_1 => {
-                CoreTEXT3_1::new_text_from_raw(std, nonstd, conf).map(|x| x.value_into())
+                CoreTEXT3_1::new_text_from_raw(std, nonstd, conf).map_value(|x| x.into())
             }
             Version::FCS3_2 => {
-                CoreTEXT3_2::new_text_from_raw(std, nonstd, conf).map(|x| x.value_into())
+                CoreTEXT3_2::new_text_from_raw(std, nonstd, conf).map_value(|x| x.into())
             }
         }
     }
@@ -349,24 +349,35 @@ impl AnyCoreDataset {
         match_anycore!(self, x, { &x.data })
     }
 
-    pub(crate) fn parse_raw(
+    pub(crate) fn parse_raw<R: Read + Seek>(
+        h: &mut BufReader<R>,
         version: Version,
-        std: &mut StdKeywords,
+        kws: &mut StdKeywords,
         nonstd: NonStdKeywords,
+        data_seg: HeaderDataSegment,
+        analysis_seg: HeaderAnalysisSegment,
         conf: &DataReadConfig,
-    ) -> TerminalResult<Self, LookupMeasWarning, ParseKeysError, CoreTEXTFailure> {
+    ) -> DeferredResult<
+        (Self, AnyDataSegment, AnyAnalysisSegment),
+        CoreDatasetFromRawWarning,
+        ImpureError<CoreDatasetFromRawError>,
+    > {
         match version {
             Version::FCS2_0 => {
-                CoreDataset2_0::new_from_raw(std, nonstd, conf).map(|x| x.value_into())
+                CoreDataset2_0::new_dataset_from_raw(h, kws, nonstd, data_seg, analysis_seg, conf)
+                    .map_value(|(x, y, z)| (x.into(), y, z))
             }
             Version::FCS3_0 => {
-                CoreDataset3_0::new_from_raw(std, nonstd, conf).map(|x| x.value_into())
+                CoreDataset3_0::new_dataset_from_raw(h, kws, nonstd, data_seg, analysis_seg, conf)
+                    .map_value(|(x, y, z)| (x.into(), y, z))
             }
             Version::FCS3_1 => {
-                CoreDataset3_1::new_from_raw(std, nonstd, conf).map(|x| x.value_into())
+                CoreDataset3_1::new_dataset_from_raw(h, kws, nonstd, data_seg, analysis_seg, conf)
+                    .map_value(|(x, y, z)| (x.into(), y, z))
             }
             Version::FCS3_2 => {
-                CoreDataset3_2::new_from_raw(std, nonstd, conf).map(|x| x.value_into())
+                CoreDataset3_2::new_dataset_from_raw(h, kws, nonstd, data_seg, analysis_seg, conf)
+                    .map_value(|(x, y, z)| (x.into(), y, z))
             }
         }
     }
@@ -4413,7 +4424,7 @@ impl LookupOptical for InnerOptical3_2 {
 impl LookupTemporal for InnerTemporal2_0 {
     fn lookup_specific(kws: &mut StdKeywords, i: MeasIdx) -> LookupResult<Self> {
         // TODO push meas index with error
-        let mut tnt = lookup_meas_opt::<Scale>(kws, i, false);
+        let mut tnt = lookup_meas_opt::<Scale, ParseKeysError>(kws, i, false);
         tnt.eval_error(|scale| {
             if scale.0.is_some_and(|x| x != Scale::Linear) {
                 Some(ParseKeysError::Other(TemporalError::NonLinear.into()))
@@ -4427,7 +4438,7 @@ impl LookupTemporal for InnerTemporal2_0 {
 
 impl LookupTemporal for InnerTemporal3_0 {
     fn lookup_specific(kws: &mut StdKeywords, i: MeasIdx) -> LookupResult<Self> {
-        let mut tnt_gain = lookup_meas_opt::<Gain>(kws, i, false);
+        let mut tnt_gain = lookup_meas_opt::<Gain, ParseKeysError>(kws, i, false);
         tnt_gain.eval_error(|gain| {
             if gain.0.is_some() {
                 Some(ParseKeysError::Other(TemporalError::HasGain.into()))
@@ -4864,7 +4875,7 @@ impl LookupMetadata for InnerMetadata3_2 {
         // Only L is allowed as of 3.2, so pull the value and check it if given.
         // The only thing we care about is that the value is valid, since we
         // don't need to use it anywhere.
-        let mo = lookup_meta_opt::<Mode3_2>(kws, true);
+        let mo = lookup_meta_opt::<Mode3_2, ParseKeysError>(kws, true);
         let sp = lookup_meta_opt(kws, false);
         let sn = lookup_meta_opt(kws, false);
         let p = lookup_plate(kws, true);

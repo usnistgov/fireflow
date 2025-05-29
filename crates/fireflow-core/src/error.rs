@@ -20,6 +20,8 @@ pub struct DeferredFailure<W, E> {
 
 pub type TerminalResult<V, W, E, T> = Result<Terminal<V, W>, TerminalFailure<W, E, T>>;
 
+pub type ImpureTerminalResult<V, W, E, T> = TerminalResult<V, W, ImpureError<E>, T>;
+
 pub struct Terminal<V, W> {
     value: V,
     warnings: Vec<W>,

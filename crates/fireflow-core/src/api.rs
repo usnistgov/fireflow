@@ -24,67 +24,232 @@ use std::str;
 
 // TODO gating parameters not added (yet)
 
+/// Read HEADER from an FCS file.
+pub fn fcs_read_header(
+    p: &path::PathBuf,
+    conf: &HeaderConfig,
+) -> ImpureTerminalResult<Header, (), HeaderError, HeaderFailure> {
+    fs::File::options()
+        .read(true)
+        .open(p)
+        .into_deferred0()
+        .and_maybe(|file| {
+            let mut reader = BufReader::new(file);
+            h_read_header(&mut reader, conf).into_deferred1()
+        })
+        .terminate(HeaderFailure)
+}
+
+/// Read HEADER and key/value pairs from TEXT in an FCS file.
+pub fn fcs_read_raw_text(
+    p: &path::PathBuf,
+    conf: &RawTextReadConfig,
+) -> ImpureTerminalResult<RawTEXTOutput, ParseRawTEXTWarning, HeaderOrRawError, RawTEXTFailure> {
+    read_fcs_raw_text_inner(p, conf)
+        .map_value(|(x, _)| x)
+        .terminate(RawTEXTFailure)
+}
+
+/// Read HEADER and standardized TEXT from an FCS file.
+pub fn fcs_read_std_text(
+    p: &path::PathBuf,
+    conf: &StdTextReadConfig,
+) -> ImpureTerminalResult<StdTEXTOutput, StdTEXTWarning, StdTEXTError, StdTEXTFailure> {
+    read_fcs_raw_text_inner(p, &conf.raw)
+        .map_value(|(x, _)| x)
+        .errors_map(|e| e.inner_into())
+        .warning_into()
+        .and_maybe(|raw| raw.into_std_text(conf).inner_into().error_impure())
+        .terminate(StdTEXTFailure)
+}
+
+/// Read dataset from FCS file using standardized TEXT.
+pub fn fcs_read_raw_dataset(
+    p: &path::PathBuf,
+    conf: &DataReadConfig,
+) -> ImpureTerminalResult<RawDatasetOutput, RawDatasetWarning, RawDatasetError, RawDatasetFailure> {
+    read_fcs_raw_text_inner(p, &conf.standard.raw)
+        .errors_map(|e| e.inner_into())
+        .warning_into()
+        .and_maybe(|(raw, mut h)| {
+            h_read_dataset_from_kws(
+                &mut h,
+                raw.version,
+                &raw.keywords.std,
+                raw.parse.header_segments.data,
+                raw.parse.header_segments.analysis,
+                conf,
+            )
+            .map_value(|dataset| RawDatasetOutput { text: raw, dataset })
+            .warning_into()
+            .errors_map(|e| e.inner_into())
+        })
+        .terminate(RawDatasetFailure)
+}
+
+/// Read dataset from FCS file using raw key/value pairs from TEXT.
+pub fn fcs_read_std_dataset(
+    p: &path::PathBuf,
+    conf: &DataReadConfig,
+) -> ImpureTerminalResult<StdDatasetOutput, StdDatasetWarning, StdDatasetError, StdDatasetFailure> {
+    read_fcs_raw_text_inner(p, &conf.standard.raw)
+        .errors_map(|e| e.inner_into())
+        .warning_into()
+        .and_maybe(|(raw, mut h)| {
+            raw.into_std_dataset(&mut h, conf)
+                .warning_into()
+                .errors_map(|e| e.inner_into())
+        })
+        .terminate(StdDatasetFailure)
+}
+
+/// Read DATA/ANALYSIS in FCS file using provided keywords.
+pub fn fcs_read_raw_dataset_with_keywords(
+    p: path::PathBuf,
+    version: Version,
+    std: &StdKeywords,
+    conf: &DataReadConfig,
+    data_seg: HeaderDataSegment,
+    analysis_seg: HeaderAnalysisSegment,
+) -> ImpureTerminalResult<
+    RawDatasetWithKwsOutput,
+    ReadRawDatasetWarning,
+    DatasetWithKwsError,
+    RawDatasetWithKwsFailure,
+> {
+    fs::File::options()
+        .read(true)
+        .open(p)
+        .into_deferred0()
+        .and_maybe(|file| {
+            let mut h = BufReader::new(file);
+            h_read_dataset_from_kws(&mut h, version, std, data_seg, analysis_seg, conf)
+        })
+        .terminate(RawDatasetWithKwsFailure)
+}
+
+/// Read DATA/ANALYSIS in FCS file using provided keywords to be standardized.
+pub fn fcs_read_std_dataset_with_keywords(
+    p: &path::PathBuf,
+    version: Version,
+    mut std: StdKeywords,
+    nonstd: NonStdKeywords,
+    conf: &DataReadConfig,
+    data_seg: HeaderDataSegment,
+    analysis_seg: HeaderAnalysisSegment,
+) -> ImpureTerminalResult<
+    StdDatasetWithKwsOutput,
+    StdDatasetFromRawWarning,
+    StdDatasetFromRawError,
+    StdDatasetWithKwsFailure,
+> {
+    fs::File::options()
+        .read(true)
+        .open(p)
+        .into_deferred0()
+        .and_maybe(|file| {
+            let mut h = BufReader::new(file);
+            AnyCoreDataset::parse_raw(
+                &mut h,
+                version,
+                &mut std,
+                nonstd,
+                data_seg,
+                analysis_seg,
+                conf,
+            )
+            .map_value(|(core, d_seg, a_seg)| StdDatasetWithKwsOutput {
+                standardized: DatasetWithSegments {
+                    core,
+                    data_seg: d_seg,
+                    analysis_seg: a_seg,
+                },
+                deviant: std,
+            })
+        })
+        .terminate(StdDatasetWithKwsFailure)
+}
+
 /// Output from parsing the TEXT segment.
 #[derive(Serialize)]
 pub struct RawTEXTOutput {
+    /// FCS version
     pub version: Version,
+
+    /// Keywords from TEXT
     pub keywords: ValidKeywords,
-    pub parse: RawTEXTSupplementalData,
+
+    /// Miscellaneous data from parsing TEXT
+    pub parse: RawTEXTParseData,
 }
 
 /// Output of parsing the TEXT segment and standardizing keywords.
-pub struct StandardizedTEXTOutput {
+pub struct StdTEXTOutput {
+    /// Standardized data from TEXT
     pub standardized: AnyCoreTEXT,
-    pub tot: Option<String>,
-    pub data: SegmentKeywords,
-    pub analysis: SegmentKeywords,
-    pub deviant: StdKeywords,
-    pub parse: RawTEXTSupplementalData,
-}
 
-/// Intermediate store for TEXT keywords that might be parsed as a segment
-pub struct SegmentKeywords {
-    pub begin: Option<String>,
-    pub end: Option<String>,
+    /// TEXT value for $TOT
+    pub tot: Option<String>,
+
+    /// TEXT values for $BEGIN/ENDDATA
+    pub data: SegmentKeywords,
+
+    /// TEXT values for $BEGIN/ENDANALYSIS
+    pub analysis: SegmentKeywords,
+
+    /// Keywords that start with '$' that are not part of the standard
+    pub deviant: StdKeywords,
+
+    /// Miscellaneous data from parsing TEXT
+    pub parse: RawTEXTParseData,
 }
 
 /// Output of parsing one raw dataset (TEXT+DATA) from an FCS file.
 pub struct RawDatasetOutput {
-    pub version: Version,
-    pub keywords: ValidKeywords,
-    pub dataset: KwsToRawDatasetOutput,
-    pub parse: RawTEXTSupplementalData,
+    /// Output from parsing HEADER+TEXT
+    pub text: RawTEXTOutput,
+
+    /// Output from parsing DATA+ANALYSIS
+    pub dataset: RawDatasetWithKwsOutput,
 }
 
 /// Output of parsing one standardized dataset (TEXT+DATA) from an FCS file.
-pub struct StandardizedDatasetOutput {
-    pub dataset: ParsedDataset,
+pub struct StdDatasetOutput {
+    /// Standardized data from one FCS dataset
+    pub dataset: StdDatasetWithKwsOutput,
+
+    /// Miscellaneous data from parsing TEXT
+    pub parse: RawTEXTParseData,
+}
+
+/// Output of using keywords to read standardized TEXT+DATA
+pub struct StdDatasetWithKwsOutput {
+    /// DATA+ANALYSIS
+    pub standardized: DatasetWithSegments,
+
+    /// Keywords that start with '$' that are not part of the standard
     pub deviant: StdKeywords,
-    pub supp: RawTEXTSupplementalData,
 }
 
-/// Output of parsing one standardized dataset (TEXT+DATA) from an FCS file.
-pub struct KwsToStdDatasetOutput {
-    pub dataset: ParsedDataset,
-    pub deviant: StdKeywords,
-}
-
-pub struct ParsedDataset {
-    pub core: AnyCoreDataset,
-    pub data_seg: AnyDataSegment,
-    pub analysis_seg: AnyAnalysisSegment,
-}
-
-pub struct KwsToRawDatasetOutput {
+/// Output of using keywords to read raw TEXT+DATA
+pub struct RawDatasetWithKwsOutput {
+    /// DATA output
     pub data: FCSDataFrame,
+
+    /// ANALYSIS output
     pub analysis: Analysis,
+
+    /// offsets used to parse DATA
     pub data_seg: AnyDataSegment,
+
+    /// offsets used to parse ANALYSIS
     pub analysis_seg: AnyAnalysisSegment,
 }
 
 /// Data pertaining to parsing the TEXT segment.
 #[derive(Clone, Serialize)]
-pub struct RawTEXTSupplementalData {
+pub struct RawTEXTParseData {
+    /// Offsets read from HEADER
     pub header_segments: HeaderSegments,
 
     /// Supplemental TEXT offsets
@@ -117,220 +282,177 @@ pub struct RawTEXTSupplementalData {
     pub byte_pairs: BytesPairs,
 }
 
-/// Return header in an FCS file.
-///
-/// The header contains the version and offsets for the TEXT, DATA, and ANALYSIS
-/// segments, all of which are present in fixed byte offset segments. This
-/// function will fail and return an error if the file does not follow this
-/// structure. Will also check that the begin and end segments are not reversed.
-///
-/// Depending on the version, all of these except the TEXT offsets might be 0
-/// which indicates they are actually stored in TEXT due to size limitations.
-pub fn fcs_read_header(
-    p: &path::PathBuf,
-    conf: &HeaderConfig,
-) -> TerminalResult<Header, (), ImpureError<HeaderError>, HeaderFailure> {
-    fs::File::options()
-        .read(true)
-        .open(p)
-        .into_deferred0()
-        .and_maybe(|file| {
-            let mut reader = BufReader::new(file);
-            h_read_header(&mut reader, conf).into_deferred1()
-        })
-        .terminate(HeaderFailure)
+/// Raw TEXT values for $BEGIN/END* keywords
+pub struct SegmentKeywords {
+    pub begin: Option<String>,
+    pub end: Option<String>,
 }
 
-/// Return header and raw key/value metadata pairs in an FCS file.
-///
-/// First will parse the header according to [`read_fcs_header`]. If this fails
-/// an error will be returned.
-///
-/// Next will use the offset information in the header to parse the TEXT segment
-/// for key/value pairs. On success will return these pairs as-is using Strings
-/// in a HashMap. No other processing will be performed.
-pub fn fcs_read_raw_text(
-    p: &path::PathBuf,
-    conf: &RawTextReadConfig,
-) -> TerminalResult<
-    RawTEXTOutput,
-    ParseRawTEXTWarning,
-    ImpureError<HeaderOrRawError>,
-    ParseRawTEXTFailure,
-> {
-    read_fcs_raw_text_inner(p, conf)
-        .map_value(|(x, _)| x)
-        .terminate(ParseRawTEXTFailure)
+/// Standardized TEXT+DATA+ANALYSIS with DATA+ANALYSIS offsets
+pub struct DatasetWithSegments {
+    /// Standardized dataset
+    pub core: AnyCoreDataset,
+
+    /// offsets used to parse DATA
+    pub data_seg: AnyDataSegment,
+
+    /// offsets used to parse ANALYSIS
+    pub analysis_seg: AnyAnalysisSegment,
 }
 
-/// Return header and standardized metadata in an FCS file.
-///
-/// Begins by parsing header and raw keywords according to [`read_fcs_raw_text`]
-/// and will return error if this function fails.
-///
-/// Next, all keywords in the TEXT segment will be validated to conform to the
-/// FCS standard indicated in the header and returned in a struct storing each
-/// key/value pair in a standardized manner. This will halt and return any
-/// errors encountered during this process.
-pub fn fcs_read_std_text(
-    p: &path::PathBuf,
-    conf: &StdTextReadConfig,
-) -> TerminalResult<
-    StandardizedTEXTOutput,
-    StdTEXTWarning,
-    ImpureError<StdTEXTError>,
-    CoreTEXTFailure,
-> {
-    read_fcs_raw_text_inner(p, &conf.raw)
-        .map_value(|(x, _)| x)
-        .errors_map(|e| e.inner_into())
-        .warning_into()
-        .and_maybe(|raw| raw.into_std_text(conf).inner_into().error_impure())
-        .terminate(CoreTEXTFailure)
+pub struct HeaderFailure;
+
+pub struct RawTEXTFailure;
+
+pub struct RawDatasetFailure;
+
+pub struct RawDatasetWithKwsFailure;
+
+pub struct StdTEXTFailure;
+
+pub struct StdDatasetFailure;
+
+pub struct StdDatasetWithKwsFailure;
+
+enum_from_disp!(
+    pub StdTEXTWarning,
+    [Raw, ParseRawTEXTWarning],
+    [Std, LookupMeasWarning]
+);
+
+enum_from_disp!(
+    pub StdTEXTError,
+    [Raw, HeaderOrRawError],
+    [Std, ParseKeysError]
+);
+
+enum_from_disp!(
+    pub StdDatasetWarning,
+    [Raw, ParseRawTEXTWarning],
+    [Std, StdDatasetFromRawWarning]
+);
+
+enum_from_disp!(
+    pub StdDatasetError,
+    [Raw, HeaderOrRawError],
+    [Std, StdDatasetFromRawError]
+);
+
+enum_from_disp!(
+    pub RawDatasetWarning,
+    [Raw, ParseRawTEXTWarning],
+    [Std, LookupMeasWarning],
+    [Read, ReadRawDatasetWarning]
+);
+
+enum_from_disp!(
+    pub RawDatasetError,
+    [Raw, HeaderOrRawError],
+    [Std, ParseKeysError],
+    [Read, DatasetWithKwsError]
+);
+
+enum_from_disp!(
+    pub ParseRawTEXTWarning,
+    [Char, DelimCharError],
+    [Keywords, ParseKeywordsIssue],
+    [SuppOffsets, STextSegmentWarning],
+    [Nextdata, ParseKeyError<ParseIntError>]
+);
+
+enum_from_disp!(
+    pub HeaderOrRawError,
+    [Header, HeaderError],
+    [RawTEXT, ParseRawTEXTError]
+);
+
+enum_from_disp!(
+    pub DatasetWithKwsError,
+    [DataReader, RawToReaderError],
+    [AnalysisReader, NewAnalysisReaderError],
+    [Read, ReadDataError]
+);
+
+enum_from_disp!(
+    pub ReadRawDatasetWarning,
+    [DataReader, RawToReaderWarning],
+    [AnalysisReader, NewAnalysisReaderWarning]
+);
+
+enum_from_disp!(
+    pub STextSegmentWarning,
+    [ReqSegment, ReqSegmentError],
+    [OptSegment, OptSegmentError]
+);
+
+enum_from_disp!(
+    pub ParseRawTEXTError,
+    [Delim, DelimVerifyError],
+    [Primary, ParsePrimaryTEXTError],
+    [Supplemental, ParseSupplementalTEXTError],
+    [SuppOffsets, ReqSegmentError],
+    [Nextdata, ReqKeyError<ParseIntError>],
+    [NonAscii, NonAsciiKeyError],
+    [NonUtf8, NonUtf8KeywordError]
+);
+
+enum_from_disp!(
+    pub DelimVerifyError,
+    [Empty, EmptyTEXTError],
+    [Char, DelimCharError]
+);
+
+pub struct DelimCharError(u8);
+
+pub struct EmptyTEXTError;
+
+pub struct BlankKeyError;
+
+pub struct BlankValueError(Vec<u8>);
+
+pub struct UnevenWordsError;
+
+pub struct FinalDelimError;
+
+pub struct DelimBoundError;
+
+enum_from_disp!(
+    pub ParsePrimaryTEXTError,
+    [Keywords, ParseKeywordsIssue],
+    [Empty, NoTEXTWordsError]
+);
+
+pub struct NoTEXTWordsError;
+
+enum_from_disp!(
+    pub ParseKeywordsIssue,
+    [BlankKey, BlankKeyError],
+    [BlankValue, BlankValueError],
+    [Uneven, UnevenWordsError],
+    [Final, FinalDelimError],
+    [Unique, KeywordInsertError],
+    [Bound, DelimBoundError],
+    // this is only for supp TEXT but seems less wasteful/convoluted to put here
+    [Mismatch, DelimMismatch]
+
+);
+
+enum_from_disp!(
+    pub ParseSupplementalTEXTError,
+    [Keywords, ParseKeywordsIssue],
+    [Mismatch, DelimMismatch]
+);
+
+pub struct DelimMismatch {
+    supp: u8,
+    delim: u8,
 }
 
-/// Return header, raw metadata, and data in an FCS file.
-///
-/// In contrast to [`read_fcs_std_file`], this will return the keywords as a
-/// flat list of key/value pairs. Only the bare minimum of these will be read in
-/// order to determine how to parse the DATA segment (including $DATATYPE,
-/// $BYTEORD, etc). No other checks will be performed to ensure the metadata
-/// conforms to the FCS standard version indicated in the header.
-///
-/// This might be useful for applications where one does not necessarily need
-/// the strict structure of the standardized metadata, or if one does not care
-/// too much about the degree to which the metadata conforms to standard.
-///
-/// Other than this, behavior is identical to [`read_fcs_std_file`],
-pub fn fcs_read_raw_dataset(
-    p: &path::PathBuf,
-    conf: &DataReadConfig,
-) -> TerminalResult<
-    RawDatasetOutput,
-    RawDatasetWarning,
-    ImpureError<RawDatasetError>,
-    ReadRawDatasetFailure,
-> {
-    read_fcs_raw_text_inner(p, &conf.standard.raw)
-        .errors_map(|e| e.inner_into())
-        .warning_into()
-        .and_maybe(|(raw, mut h)| {
-            h_read_dataset_from_kws(
-                &mut h,
-                raw.version,
-                &raw.keywords.std,
-                raw.parse.header_segments.data,
-                raw.parse.header_segments.analysis,
-                conf,
-            )
-            .map_value(|dataset| RawDatasetOutput {
-                version: raw.version,
-                dataset,
-                parse: raw.parse,
-                keywords: raw.keywords,
-            })
-            .warning_into()
-            .errors_map(|e| e.inner_into())
-        })
-        .terminate(ReadRawDatasetFailure)
-}
+pub struct NonAsciiKeyError(String);
 
-/// Return header, structured metadata, and data in an FCS file.
-///
-/// Begins by parsing header and raw keywords according to [`read_fcs_text`]
-/// and will return error if this function fails.
-///
-/// Next, the DATA segment will be parsed according to the metadata present
-/// in TEXT.
-///
-/// On success will return all three of the above segments along with any
-/// non-critical warnings.
-///
-/// The [`conf`] argument can be used to control the behavior of each reading
-/// step, including the repair of non-conforming files.
-pub fn fcs_read_std_dataset(
-    p: &path::PathBuf,
-    conf: &DataReadConfig,
-) -> TerminalResult<
-    StandardizedDatasetOutput,
-    StdDatasetWarning,
-    ImpureError<StdDatasetError>,
-    CoreDatasetFailure,
-> {
-    read_fcs_raw_text_inner(p, &conf.standard.raw)
-        .errors_map(|e| e.inner_into())
-        .warning_into()
-        .and_maybe(|(raw, mut h)| {
-            raw.into_std_dataset(&mut h, conf)
-                .warning_into()
-                .errors_map(|e| e.inner_into())
-        })
-        .terminate(CoreDatasetFailure)
-}
-
-pub fn fcs_read_raw_dataset_with_keywords(
-    p: path::PathBuf,
-    version: Version,
-    std: &StdKeywords,
-    conf: &DataReadConfig,
-    data_seg: HeaderDataSegment,
-    analysis_seg: HeaderAnalysisSegment,
-) -> TerminalResult<
-    KwsToRawDatasetOutput,
-    ReadRawDatasetWarning,
-    ImpureError<KwsToDatasetError>,
-    KwsToRawDatasetFailure,
-> {
-    fs::File::options()
-        .read(true)
-        .open(p)
-        .into_deferred0()
-        .and_maybe(|file| {
-            let mut h = BufReader::new(file);
-            h_read_dataset_from_kws(&mut h, version, std, data_seg, analysis_seg, conf)
-        })
-        .terminate(KwsToRawDatasetFailure)
-}
-
-pub fn fcs_read_std_dataset_with_keywords(
-    p: &path::PathBuf,
-    version: Version,
-    mut std: StdKeywords,
-    nonstd: NonStdKeywords,
-    conf: &DataReadConfig,
-    data_seg: HeaderDataSegment,
-    analysis_seg: HeaderAnalysisSegment,
-) -> TerminalResult<
-    KwsToStdDatasetOutput,
-    CoreDatasetFromRawWarning,
-    ImpureError<CoreDatasetFromRawError>,
-    KwsToStdDatasetFailure,
-> {
-    fs::File::options()
-        .read(true)
-        .open(p)
-        .into_deferred0()
-        .and_maybe(|file| {
-            let mut h = BufReader::new(file);
-            AnyCoreDataset::parse_raw(
-                &mut h,
-                version,
-                &mut std,
-                nonstd,
-                data_seg,
-                analysis_seg,
-                conf,
-            )
-            .map_value(|(core, d_seg, a_seg)| KwsToStdDatasetOutput {
-                dataset: ParsedDataset {
-                    core,
-                    data_seg: d_seg,
-                    analysis_seg: a_seg,
-                },
-                deviant: std,
-            })
-        })
-        .terminate(KwsToStdDatasetFailure)
+pub struct NonUtf8KeywordError {
+    key: Vec<u8>,
+    value: Vec<u8>,
 }
 
 fn read_fcs_raw_text_inner(
@@ -358,7 +480,8 @@ fn h_read_dataset_from_kws<R: Read + Seek>(
     data_seg: HeaderDataSegment,
     analysis_seg: HeaderAnalysisSegment,
     conf: &DataReadConfig,
-) -> DeferredResult<KwsToRawDatasetOutput, ReadRawDatasetWarning, ImpureError<KwsToDatasetError>> {
+) -> DeferredResult<RawDatasetWithKwsOutput, ReadRawDatasetWarning, ImpureError<DatasetWithKwsError>>
+{
     let data_res = kws_to_data_reader(version, kws, data_seg, conf)
         .inner_into()
         .error_impure();
@@ -367,7 +490,7 @@ fn h_read_dataset_from_kws<R: Read + Seek>(
         .error_impure();
     data_res.zip_def(analysis_res).and_maybe(|(dr, ar)| {
         h_read_data_and_analysis(h, dr, ar)
-            .map(|(data, analysis, d_seg, a_seg)| KwsToRawDatasetOutput {
+            .map(|(data, analysis, d_seg, a_seg)| RawDatasetWithKwsOutput {
                 data,
                 analysis,
                 data_seg: d_seg,
@@ -406,7 +529,7 @@ impl RawTEXTOutput {
     fn into_std_text(
         self,
         conf: &StdTextReadConfig,
-    ) -> DeferredResult<StandardizedTEXTOutput, LookupMeasWarning, ParseKeysError> {
+    ) -> DeferredResult<StdTEXTOutput, LookupMeasWarning, ParseKeysError> {
         let mut kws = self.keywords;
         AnyCoreTEXT::parse_raw(self.version, &mut kws.std, kws.nonstd, conf).map_value(
             |standardized| {
@@ -420,7 +543,7 @@ impl RawTEXTOutput {
                     begin: std.remove(&Beginanalysis::std()),
                     end: std.remove(&Endanalysis::std()),
                 };
-                StandardizedTEXTOutput {
+                StdTEXTOutput {
                     parse: self.parse,
                     standardized,
                     tot,
@@ -437,9 +560,9 @@ impl RawTEXTOutput {
         h: &mut BufReader<R>,
         conf: &DataReadConfig,
     ) -> DeferredResult<
-        StandardizedDatasetOutput,
-        CoreDatasetFromRawWarning,
-        ImpureError<CoreDatasetFromRawError>,
+        StdDatasetOutput,
+        StdDatasetFromRawWarning,
+        ImpureError<StdDatasetFromRawError>,
     > {
         let mut kws = self.keywords;
         AnyCoreDataset::parse_raw(
@@ -451,14 +574,16 @@ impl RawTEXTOutput {
             self.parse.header_segments.analysis,
             conf,
         )
-        .map_value(|(core, data_seg, analysis_seg)| StandardizedDatasetOutput {
-            dataset: ParsedDataset {
-                core,
-                data_seg,
-                analysis_seg,
+        .map_value(|(core, data_seg, analysis_seg)| StdDatasetOutput {
+            dataset: StdDatasetWithKwsOutput {
+                standardized: DatasetWithSegments {
+                    core,
+                    data_seg,
+                    analysis_seg,
+                },
+                deviant: kws.std,
             },
-            deviant: kws.std,
-            supp: self.parse,
+            parse: self.parse,
         })
     }
 }
@@ -500,6 +625,107 @@ fn kws_to_analysis_reader(
     }
 }
 
+fn h_read_raw_text_from_header<R: Read + Seek>(
+    h: &mut BufReader<R>,
+    header: Header,
+    conf: &RawTextReadConfig,
+) -> DeferredResult<RawTEXTOutput, ParseRawTEXTWarning, ImpureError<ParseRawTEXTError>> {
+    let mut buf = vec![];
+    header
+        .segments
+        .text
+        .inner
+        .h_read(h, &mut buf)
+        .into_deferred0()?;
+
+    let tnt_delim = split_first_delim(&buf, conf).inner_into().error_impure()?;
+
+    let tnt_primary = tnt_delim.and_maybe(|(delim, bytes)| {
+        let kws = ParsedKeywords::default();
+        split_raw_primary_text(kws, delim, bytes, conf)
+            .inner_into()
+            .error_impure()
+            .map_value(|_kws| repair_offsets(_kws, conf))
+            .map_value(|_kws| (delim, _kws))
+    })?;
+
+    let tnt_all_kws = tnt_primary.and_maybe(|(delim, mut kws)| {
+        lookup_stext_offsets(&mut kws.std, header.version, conf)
+            .errors_into()
+            .errors_map(ImpureError::Pure)
+            .warnings_into()
+            .map(|s| (s, kws))
+            .and_maybe(|(maybe_supp_seg, _kws)| {
+                let tnt_supp_kws = if let Some(seg) = maybe_supp_seg {
+                    buf.clear();
+                    seg.inner
+                        .h_read(h, &mut buf)
+                        .map_err(|e| DeferredFailure::new1(e.into()))?;
+                    split_raw_supp_text(_kws, delim, &buf, conf)
+                        .inner_into()
+                        .error_impure()
+                } else {
+                    Tentative::new1(_kws)
+                };
+                Ok(tnt_supp_kws.map(|k| (delim, k, maybe_supp_seg)))
+            })
+    })?;
+
+    let out = tnt_all_kws.and_tentatively(|(delimiter, mut kws, supp_text_seg)| {
+        repair_keywords(&mut kws.std, conf);
+        let mut tnt_parse = lookup_nextdata(&kws.std, conf.enforce_nextdata)
+            .errors_into()
+            .map(|nextdata| RawTEXTParseData {
+                header_segments: header.segments,
+                supp_text: supp_text_seg,
+                nextdata,
+                delimiter,
+                non_ascii: kws.non_ascii,
+                byte_pairs: kws.byte_pairs,
+            });
+        tnt_parse.eval_errors(|pd| {
+            if conf.enforce_keyword_ascii {
+                pd.non_ascii
+                    .iter()
+                    .map(|(k, _)| ParseRawTEXTError::NonAscii(NonAsciiKeyError(k.clone())))
+                    .collect()
+            } else {
+                vec![]
+            }
+        });
+        tnt_parse.eval_errors(|pd| {
+            if conf.enforce_utf8 {
+                pd.byte_pairs
+                    .iter()
+                    .map(|(k, v)| {
+                        ParseRawTEXTError::NonUtf8(NonUtf8KeywordError {
+                            key: k.clone(),
+                            value: v.clone(),
+                        })
+                    })
+                    .collect()
+            } else {
+                vec![]
+            }
+        });
+
+        tnt_parse
+            .map(|parse| RawTEXTOutput {
+                version: header.version,
+                parse,
+                keywords: ValidKeywords {
+                    std: kws.std,
+                    nonstd: kws.nonstd,
+                },
+            })
+            .errors_into()
+            .errors_map(ImpureError::Pure)
+            .warnings_into()
+    });
+
+    Ok(out)
+}
+
 fn split_first_delim<'a>(
     bytes: &'a [u8],
     conf: &RawTextReadConfig,
@@ -519,6 +745,51 @@ fn split_first_delim<'a>(
         }
     } else {
         Err(DeferredFailure::new1(EmptyTEXTError.into()))
+    }
+}
+
+fn split_raw_primary_text(
+    kws: ParsedKeywords,
+    delim: u8,
+    bytes: &[u8],
+    conf: &RawTextReadConfig,
+) -> DeferredResult<ParsedKeywords, ParseKeywordsIssue, ParsePrimaryTEXTError> {
+    if bytes.is_empty() {
+        Err(DeferredFailure::new1(NoTEXTWordsError.into()))
+    } else if conf.allow_double_delim {
+        Ok(split_raw_text_double(kws, delim, bytes, conf).errors_into())
+    } else {
+        Ok(split_raw_text_nodouble(kws, delim, bytes, conf).errors_into())
+    }
+}
+
+fn split_raw_supp_text(
+    kws: ParsedKeywords,
+    delim: u8,
+    bytes: &[u8],
+    conf: &RawTextReadConfig,
+) -> Tentative<ParsedKeywords, ParseKeywordsIssue, ParseSupplementalTEXTError> {
+    if let Some((byte0, rest)) = bytes.split_first() {
+        let mut tnt = if conf.allow_double_delim {
+            split_raw_text_double(kws, *byte0, rest, conf).errors_into()
+        } else {
+            split_raw_text_nodouble(kws, *byte0, rest, conf).errors_into()
+        };
+        if *byte0 != delim {
+            let x = DelimMismatch {
+                delim,
+                supp: *byte0,
+            };
+            if conf.enforce_stext_delim {
+                tnt.push_error(x.into());
+            } else {
+                tnt.push_warning(x.into());
+            }
+        }
+        tnt
+    } else {
+        // if empty do nothing, this is expected for most files
+        Tentative::new1(kws)
     }
 }
 
@@ -671,51 +942,6 @@ fn split_raw_text_double(
     Tentative::new(kws, ews.0, ews.1)
 }
 
-fn split_raw_primary_text(
-    kws: ParsedKeywords,
-    delim: u8,
-    bytes: &[u8],
-    conf: &RawTextReadConfig,
-) -> DeferredResult<ParsedKeywords, ParseKeywordsIssue, ParsePrimaryTEXTError> {
-    if bytes.is_empty() {
-        Err(DeferredFailure::new1(NoTEXTWordsError.into()))
-    } else if conf.allow_double_delim {
-        Ok(split_raw_text_double(kws, delim, bytes, conf).errors_into())
-    } else {
-        Ok(split_raw_text_nodouble(kws, delim, bytes, conf).errors_into())
-    }
-}
-
-fn split_raw_supp_text(
-    kws: ParsedKeywords,
-    delim: u8,
-    bytes: &[u8],
-    conf: &RawTextReadConfig,
-) -> Tentative<ParsedKeywords, ParseKeywordsIssue, ParseSupplementalTEXTError> {
-    if let Some((byte0, rest)) = bytes.split_first() {
-        let mut tnt = if conf.allow_double_delim {
-            split_raw_text_double(kws, *byte0, rest, conf).errors_into()
-        } else {
-            split_raw_text_nodouble(kws, *byte0, rest, conf).errors_into()
-        };
-        if *byte0 != delim {
-            let x = DelimMismatch {
-                delim,
-                supp: *byte0,
-            };
-            if conf.enforce_stext_delim {
-                tnt.push_error(x.into());
-            } else {
-                tnt.push_warning(x.into());
-            }
-        }
-        tnt
-    } else {
-        // if empty do nothing, this is expected for most files
-        Tentative::new1(kws)
-    }
-}
-
 fn repair_keywords(kws: &mut StdKeywords, conf: &RawTextReadConfig) {
     for (key, v) in kws.iter_mut() {
         // TODO generalized this and possibly put in a trait
@@ -785,180 +1011,6 @@ fn lookup_nextdata(
     }
 }
 
-fn h_read_raw_text_from_header<R: Read + Seek>(
-    h: &mut BufReader<R>,
-    header: Header,
-    conf: &RawTextReadConfig,
-) -> DeferredResult<RawTEXTOutput, ParseRawTEXTWarning, ImpureError<ParseRawTEXTError>> {
-    let mut buf = vec![];
-    header
-        .segments
-        .text
-        .inner
-        .h_read(h, &mut buf)
-        .into_deferred0()?;
-
-    let tnt_delim = split_first_delim(&buf, conf).inner_into().error_impure()?;
-
-    let tnt_primary = tnt_delim.and_maybe(|(delim, bytes)| {
-        let kws = ParsedKeywords::default();
-        split_raw_primary_text(kws, delim, bytes, conf)
-            .inner_into()
-            .error_impure()
-            .map_value(|_kws| repair_offsets(_kws, conf))
-            .map_value(|_kws| (delim, _kws))
-    })?;
-
-    let tnt_all_kws = tnt_primary.and_maybe(|(delim, mut kws)| {
-        lookup_stext_offsets(&mut kws.std, header.version, conf)
-            .errors_into()
-            .errors_map(ImpureError::Pure)
-            .warnings_into()
-            .map(|s| (s, kws))
-            .and_maybe(|(maybe_supp_seg, _kws)| {
-                let tnt_supp_kws = if let Some(seg) = maybe_supp_seg {
-                    buf.clear();
-                    seg.inner
-                        .h_read(h, &mut buf)
-                        .map_err(|e| DeferredFailure::new1(e.into()))?;
-                    split_raw_supp_text(_kws, delim, &buf, conf)
-                        .inner_into()
-                        .error_impure()
-                } else {
-                    Tentative::new1(_kws)
-                };
-                Ok(tnt_supp_kws.map(|k| (delim, k, maybe_supp_seg)))
-            })
-    })?;
-
-    let out = tnt_all_kws.and_tentatively(|(delimiter, mut kws, supp_text_seg)| {
-        repair_keywords(&mut kws.std, conf);
-        let mut tnt_parse = lookup_nextdata(&kws.std, conf.enforce_nextdata)
-            .errors_into()
-            .map(|nextdata| RawTEXTSupplementalData {
-                header_segments: header.segments,
-                supp_text: supp_text_seg,
-                nextdata,
-                delimiter,
-                non_ascii: kws.non_ascii,
-                byte_pairs: kws.byte_pairs,
-            });
-        tnt_parse.eval_errors(|pd| {
-            if conf.enforce_keyword_ascii {
-                pd.non_ascii
-                    .iter()
-                    .map(|(k, _)| ParseRawTEXTError::NonAscii(NonAsciiKeyError(k.clone())))
-                    .collect()
-            } else {
-                vec![]
-            }
-        });
-        tnt_parse.eval_errors(|pd| {
-            if conf.enforce_utf8 {
-                pd.byte_pairs
-                    .iter()
-                    .map(|(k, v)| {
-                        ParseRawTEXTError::NonUtf8(NonUtf8KeywordError {
-                            key: k.clone(),
-                            value: v.clone(),
-                        })
-                    })
-                    .collect()
-            } else {
-                vec![]
-            }
-        });
-
-        tnt_parse
-            .map(|parse| RawTEXTOutput {
-                version: header.version,
-                parse,
-                keywords: ValidKeywords {
-                    std: kws.std,
-                    nonstd: kws.nonstd,
-                },
-            })
-            .errors_into()
-            .errors_map(ImpureError::Pure)
-            .warnings_into()
-    });
-
-    Ok(out)
-}
-
-enum_from_disp!(
-    pub ParseRawTEXTWarning,
-    [Char, DelimCharError],
-    [Keywords, ParseKeywordsIssue],
-    [SuppOffsets, STextSegmentWarning],
-    [Nextdata, ParseKeyError<ParseIntError>]
-);
-
-enum_from_disp!(
-    pub HeaderOrRawError,
-    [Header, HeaderError],
-    [RawTEXT, ParseRawTEXTError]
-);
-
-enum_from_disp!(
-    pub StdTEXTWarning,
-    [Raw, ParseRawTEXTWarning],
-    [Std, LookupMeasWarning]
-);
-
-enum_from_disp!(
-    pub StdTEXTError,
-    [Raw, HeaderOrRawError],
-    [Std, ParseKeysError]
-);
-
-enum_from_disp!(
-    pub StdDatasetWarning,
-    [Raw, ParseRawTEXTWarning],
-    [Std, CoreDatasetFromRawWarning]
-);
-
-enum_from_disp!(
-    pub StdDatasetError,
-    [Raw, HeaderOrRawError],
-    [Std, CoreDatasetFromRawError]
-);
-
-enum_from_disp!(
-    pub RawDatasetWarning,
-    [Raw, ParseRawTEXTWarning],
-    [Std, LookupMeasWarning],
-    [Read, ReadRawDatasetWarning]
-);
-
-enum_from_disp!(
-    pub RawDatasetError,
-    [Raw, HeaderOrRawError],
-    [Std, ParseKeysError],
-    [Read, KwsToDatasetError]
-);
-
-enum_from_disp!(
-    pub KwsToDatasetError,
-    [DataReader, RawToReaderError],
-    [AnalysisReader, NewAnalysisReaderError],
-    [Read, ReadDataError]
-);
-
-enum_from_disp!(
-    pub ReadRawDatasetWarning,
-    [DataReader, RawToReaderWarning],
-    [AnalysisReader, NewAnalysisReaderWarning]
-);
-
-enum_from_disp!(
-    pub STextSegmentWarning,
-    [ReqSegment, ReqSegmentError],
-    [OptSegment, OptSegmentError]
-);
-
-pub struct DelimCharError(u8);
-
 impl fmt::Display for DelimCharError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
@@ -969,29 +1021,17 @@ impl fmt::Display for DelimCharError {
     }
 }
 
-pub struct EmptyTEXTError;
-
 impl fmt::Display for EmptyTEXTError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "TEXT segment is empty")
     }
 }
 
-enum_from_disp!(
-    pub DelimVerifyError,
-    [Empty, EmptyTEXTError],
-    [Char, DelimCharError]
-);
-
-pub struct BlankKeyError;
-
 impl fmt::Display for BlankKeyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "encountered blank key, skipping key and its value")
     }
 }
-
-pub struct BlankValueError(Vec<u8>);
 
 impl fmt::Display for BlankValueError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -1003,15 +1043,11 @@ impl fmt::Display for BlankValueError {
     }
 }
 
-pub struct UnevenWordsError;
-
 impl fmt::Display for UnevenWordsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "TEXT segment has uneven number of words",)
     }
 }
-
-pub struct FinalDelimError;
 
 impl fmt::Display for FinalDelimError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -1019,50 +1055,16 @@ impl fmt::Display for FinalDelimError {
     }
 }
 
-pub struct DelimBoundError;
-
 impl fmt::Display for DelimBoundError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "delimiter encountered at word boundary",)
     }
 }
 
-enum_from_disp!(
-    pub ParseKeywordsIssue,
-    [BlankKey, BlankKeyError],
-    [BlankValue, BlankValueError],
-    [Uneven, UnevenWordsError],
-    [Final, FinalDelimError],
-    [Unique, KeywordInsertError],
-    [Bound, DelimBoundError],
-    // this is only for supp TEXT but seems less wasteful/convoluted to put here
-    [Mismatch, DelimMismatch]
-
-);
-
-pub struct NoTEXTWordsError;
-
 impl fmt::Display for NoTEXTWordsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "TEXT has a delimiter and no words",)
     }
-}
-
-enum_from_disp!(
-    pub ParsePrimaryTEXTError,
-    [Keywords, ParseKeywordsIssue],
-    [Empty, NoTEXTWordsError]
-);
-
-enum_from_disp!(
-    pub ParseSupplementalTEXTError,
-    [Keywords, ParseKeywordsIssue],
-    [Mismatch, DelimMismatch]
-);
-
-pub struct DelimMismatch {
-    supp: u8,
-    delim: u8,
 }
 
 impl fmt::Display for DelimMismatch {
@@ -1075,28 +1077,10 @@ impl fmt::Display for DelimMismatch {
     }
 }
 
-enum_from_disp!(
-    pub ParseRawTEXTError,
-    [Delim, DelimVerifyError],
-    [Primary, ParsePrimaryTEXTError],
-    [Supplemental, ParseSupplementalTEXTError],
-    [SuppOffsets, ReqSegmentError],
-    [Nextdata, ReqKeyError<ParseIntError>],
-    [NonAscii, NonAsciiKeyError],
-    [NonUtf8, NonUtf8KeywordError]
-);
-
-pub struct NonAsciiKeyError(String);
-
 impl fmt::Display for NonAsciiKeyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "non-ASCII key encountered and dropped: {}", self.0)
     }
-}
-
-pub struct NonUtf8KeywordError {
-    key: Vec<u8>,
-    value: Vec<u8>,
 }
 
 impl fmt::Display for NonUtf8KeywordError {
@@ -1112,39 +1096,25 @@ impl fmt::Display for NonUtf8KeywordError {
     }
 }
 
-pub struct ReadRawDatasetFailure;
-
-pub struct ParseRawTEXTFailure;
-
-pub struct CoreTEXTFailure;
-
-pub struct CoreDatasetFailure;
-
-pub struct HeaderFailure;
-
-pub struct KwsToRawDatasetFailure;
-
-pub struct KwsToStdDatasetFailure;
-
 impl fmt::Display for HeaderFailure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "could not parse HEADER")
     }
 }
 
-impl fmt::Display for ParseRawTEXTFailure {
+impl fmt::Display for RawTEXTFailure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "could not parse TEXT segment")
     }
 }
 
-impl fmt::Display for CoreTEXTFailure {
+impl fmt::Display for StdTEXTFailure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "could not standardize TEXT segment")
     }
 }
 
-impl fmt::Display for CoreDatasetFailure {
+impl fmt::Display for StdDatasetFailure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "could not read DATA with standardized TEXT")
     }

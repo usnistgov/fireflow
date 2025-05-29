@@ -14,15 +14,15 @@ fn print_json<T: Serialize>(j: &T) {
     println!("{}", serde_json::to_string(j).unwrap());
 }
 
-pub fn print_parsed_data(s: &StandardizedDatasetOutput, _delim: &str) {
-    let df = s.dataset.core.as_data();
+pub fn print_parsed_data(s: &StdDatasetOutput, _delim: &str) {
+    let df = s.dataset.standardized.core.as_data();
     let nrows = df.nrows();
     let cols: Vec<_> = df.iter_columns().collect();
     let ncols = cols.len();
     if ncols == 0 {
         return;
     }
-    let mut ns = s.dataset.core.shortnames().into_iter();
+    let mut ns = s.dataset.standardized.core.shortnames().into_iter();
     print!("{}", ns.next().unwrap());
     for n in ns {
         print!("\t{n}");

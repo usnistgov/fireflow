@@ -359,8 +359,8 @@ impl AnyCoreDataset {
         conf: &DataReadConfig,
     ) -> DeferredResult<
         (Self, AnyDataSegment, AnyAnalysisSegment),
-        CoreDatasetFromRawWarning,
-        ImpureError<CoreDatasetFromRawError>,
+        StdDatasetFromRawWarning,
+        ImpureError<StdDatasetFromRawError>,
     > {
         match version {
             Version::FCS2_0 => {
@@ -2621,8 +2621,8 @@ where
         // TODO wrap this in a nice struct
     ) -> DeferredResult<
         (Self, AnyDataSegment, AnyAnalysisSegment),
-        CoreDatasetFromRawWarning,
-        ImpureError<CoreDatasetFromRawError>,
+        StdDatasetFromRawWarning,
+        ImpureError<StdDatasetFromRawError>,
     >
     where
         M: LookupMetadata,
@@ -5708,7 +5708,7 @@ impl fmt::Display for MissingMeasurementNameError {
 }
 
 enum_from_disp!(
-    pub CoreDatasetFromRawError,
+    pub StdDatasetFromRawError,
     [TEXT, ParseKeysError],
     [Layout, NewDataLayoutError],
     [Data, NewDataReaderError],
@@ -5717,7 +5717,7 @@ enum_from_disp!(
 );
 
 enum_from_disp!(
-    pub CoreDatasetFromRawWarning,
+    pub StdDatasetFromRawWarning,
     [TEXT, LookupMeasWarning],
     [Layout, NewDataLayoutWarning],
     [Data, NewDataReaderWarning],

@@ -326,7 +326,7 @@ fn py_read_fcs_std_text(
         nonstandard_measurement_pattern: nsmp,
     };
 
-    let out: StandardizedTEXTOutput = fcs_read_std_text(&p, &conf.set_strict(strict))
+    let out: StdTEXTOutput = fcs_read_std_text(&p, &conf.set_strict(strict))
         .map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
 
     let text = match &out.standardized {
@@ -524,10 +524,10 @@ fn py_read_fcs_file(
         enforce_matching_tot,
     };
 
-    let out: StandardizedDatasetOutput = fcs_read_std_dataset(&p, &conf.set_strict(strict))
+    let out: StdDatasetOutput = fcs_read_std_dataset(&p, &conf.set_strict(strict))
         .map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
 
-    let dataset = match &out.dataset.core {
+    let dataset = match &out.dataset.standardized.core {
         // TODO this copies all data from the "union type" into a new
         // version-specific type. This might not be a big deal, but these
         // types might be rather large with lots of strings.
@@ -539,8 +539,9 @@ fn py_read_fcs_file(
 
     Ok((
         dataset,
-        out.supp.into(),
-        out.deviant
+        out.parse.into(),
+        out.dataset
+            .deviant
             .into_iter()
             .map(|(k, v)| (k.to_string(), v.clone()))
             .into_py_dict(py)?,
@@ -765,7 +766,7 @@ impl PyHeader {
     }
 }
 
-py_wrap!(PyParseData, RawTEXTSupplementalData, "ParseData");
+py_wrap!(PyParseData, RawTEXTParseData, "ParseData");
 
 #[pymethods]
 impl PyParseData {

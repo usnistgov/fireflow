@@ -631,6 +631,10 @@ pub struct InnerOptical3_2 {
 }
 
 /// A bundle for $PKn and $PKNn (2.0-3.1)
+///
+/// It makes little sense to have only one of these since they both collectively
+/// describe a histogram peak. This currently is not enforced since these keys
+/// are likely not used much and it is easy for users to check these themselves.
 #[derive(Clone, Default, Serialize)]
 pub struct PeakData {
     /// Value of $Pkn
@@ -641,6 +645,13 @@ pub struct PeakData {
 }
 
 /// A bundle for $CSMODE, $CSVBITS, and $CSVnFLAG (3.0, 3.1)
+///
+/// These describe what is sometimes present in the ANALYSIS segment for 3.0 and
+/// 3.1. In these versions, it was similar to TEXT which had key/value pairs. In
+/// 3.2, these keywords were removed and the ANALYSIS segment became a free-form
+/// bytestring. This library currently makes no attempt to interpret the
+/// ANALYSIS segment given the CS* keywords, but may add this in the future if
+/// the need arises.
 #[derive(Clone, Default)]
 pub struct SubsetData {
     /// Value of $CSBITS if given

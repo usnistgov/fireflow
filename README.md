@@ -18,7 +18,7 @@ Key features:
 * Can repair non-compliant FCS files
 * Has API for command line, Python, R (planned)
 
-[^1] see unsupported/planned features 
+[^1]: see unsupported/planned features 
 
 ### Overview
 

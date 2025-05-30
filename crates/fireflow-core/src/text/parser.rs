@@ -1,4 +1,4 @@
-use crate::core::{CarrierData, ModificationData, PlateData, UnstainedData};
+use crate::core::{CarrierData, ModificationData, PlateData, SubsetData, UnstainedData};
 use crate::error::*;
 use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
 use crate::validated::nonstandard::*;
@@ -20,6 +20,7 @@ use super::timestamps::*;
 use super::unstainedcenters::*;
 
 use nalgebra::DMatrix;
+use nonempty::NonEmpty;
 use std::convert::Infallible;
 use std::fmt;
 use std::num::{ParseFloatError, ParseIntError};
@@ -180,7 +181,7 @@ pub(crate) fn lookup_compensation_2_0<E>(
     for r in 0..n {
         for c in 0..n {
             let k = Dfc::std(c, r);
-            match lookup_dfc(kws, &k) {
+            match lookup_dfc(kws, k) {
                 Ok(Some(x)) => {
                     matrix[(r, c)] = x;
                 }
@@ -207,17 +208,46 @@ pub(crate) fn lookup_compensation_2_0<E>(
 
 pub(crate) fn lookup_dfc(
     kws: &mut StdKeywords,
-    k: &StdKey,
+    k: StdKey,
 ) -> Result<Option<f32>, ParseKeyError<ParseFloatError>> {
-    kws.remove(k).map_or(Ok(None), |v| {
+    kws.remove(&k).map_or(Ok(None), |v| {
         v.parse::<f32>()
             .map_err(|e| ParseKeyError {
                 error: e,
-                key: k.clone(),
+                key: k,
                 value: v.clone(),
             })
             .map(Some)
     })
+}
+
+// TODO warn on deprecated key use
+pub(crate) fn lookup_subset<E>(
+    kws: &mut StdKeywords,
+    dep: bool,
+) -> LookupTentative<OptionalKw<SubsetData>, E> {
+    process_opt(CSMode::remove_meta_opt(kws))
+        .map(|x| x.0)
+        .and_tentatively(|m: Option<CSMode>| {
+            if let Some(n) = m {
+                let mut warnings = vec![];
+                let it =
+                    (0..(n.0 as usize)).map(|i| match CSVFlag::remove_meas_opt(kws, i.into()) {
+                        Ok(x) => x.0.map(|y| y.0),
+                        Err(w) => {
+                            warnings.push(w);
+                            None
+                        }
+                    });
+                // ASSUME n is > 0 so this won't fail
+                let flags = NonEmpty::collect(it).unwrap();
+                process_opt(CSVBits::remove_meta_opt(kws))
+                    .map(|x| x.0.map(|y| y.0))
+                    .map(|bits| Some(SubsetData { flags, bits }).into())
+            } else {
+                Tentative::new1(None.into())
+            }
+        })
 }
 
 pub(crate) fn lookup_temporal_gain_3_0(

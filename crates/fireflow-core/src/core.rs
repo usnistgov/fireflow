@@ -417,6 +417,9 @@ pub struct InnerMetadata3_0 {
 
     /// Value of $UNICODE
     pub unicode: OptionalKw<Unicode>,
+
+    /// Aggregated values for $CS* keywords
+    pub subset: OptionalKw<SubsetData>,
 }
 
 /// Metadata fields specific to version 3.1
@@ -448,6 +451,9 @@ pub struct InnerMetadata3_1 {
 
     /// Value of $VOL
     pub vol: OptionalKw<Vol>,
+
+    /// Aggregated values for $CS* keywords
+    pub subset: OptionalKw<SubsetData>,
 }
 
 #[derive(Clone, Serialize)]
@@ -604,6 +610,16 @@ pub struct InnerOptical3_2 {
 
     /// Value for $PnDATATYPE
     pub datatype: OptionalKw<NumType>,
+}
+
+/// A bundle for $CSMODE, $CSVBITS, and $CSVnFLAG (3.0, 3.1)
+#[derive(Clone, Default)]
+pub struct SubsetData {
+    /// Value of $CSBITS if given
+    pub bits: Option<u32>,
+
+    /// Values of $CSVnFLAG if given, with length equal to $CSMODE
+    pub flags: NonEmpty<Option<u32>>,
 }
 
 /// A bundle for $ORIGINALITY, $LAST_MODIFIER, and $LAST_MODIFIED (3.1+)
@@ -3559,6 +3575,25 @@ impl UnstainedData {
     }
 }
 
+impl SubsetData {
+    // TODO
+    pub fn to_keywords(&self) -> RawOptPairs {
+        vec![]
+    }
+}
+
+impl Serialize for SubsetData {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut state = serializer.serialize_struct("SubsetData", 2)?;
+        state.serialize_field("bits", &self.bits)?;
+        state.serialize_field("flags", &self.flags.iter().collect::<Vec<_>>())?;
+        state.end()
+    }
+}
+
 #[derive(Clone, Serialize)]
 pub struct OptionalKwFamily;
 
@@ -3931,6 +3966,7 @@ impl TryFromMetadata<InnerMetadata2_0> for InnerMetadata3_0 {
             timestamps: value.timestamps.map(|d| d.into()),
             cytsn: None.into(),
             unicode: None.into(),
+            subset: None.into(),
         }))
     }
 }
@@ -3948,6 +3984,7 @@ impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata3_0 {
                 timestamps: value.timestamps.map(|d| d.into()),
                 comp: None.into(),
                 unicode: None.into(),
+                subset: None.into(),
             })
     }
 }
@@ -3965,6 +4002,7 @@ impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata3_0 {
                 timestamps: value.timestamps.map(|d| d.into()),
                 comp: None.into(),
                 unicode: None.into(),
+                subset: None.into(),
             })
     }
 }
@@ -3985,6 +4023,7 @@ impl TryFromMetadata<InnerMetadata2_0> for InnerMetadata3_1 {
                 modification: ModificationData::default(),
                 plate: PlateData::default(),
                 vol: None.into(),
+                subset: None.into(),
             })
     }
 }
@@ -4005,6 +4044,7 @@ impl TryFromMetadata<InnerMetadata3_0> for InnerMetadata3_1 {
                 modification: ModificationData::default(),
                 plate: PlateData::default(),
                 vol: None.into(),
+                subset: None.into(),
             })
     }
 }
@@ -4021,6 +4061,7 @@ impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata3_1 {
             plate: value.plate,
             modification: value.modification,
             vol: value.vol,
+            subset: None.into(),
         }))
     }
 }
@@ -4776,10 +4817,11 @@ impl LookupMetadata for InnerMetadata3_0 {
         let co = lookup_meta_opt(kws, false);
         let cy = lookup_meta_opt(kws, false);
         let sn = lookup_meta_opt(kws, false);
+        let su = lookup_subset(kws, false);
         let t = lookup_timestamps(kws, false);
         let u = lookup_meta_opt(kws, false);
-        co.zip5(cy, sn, t, u)
-            .and_maybe(|(comp, cyt, cytsn, timestamps, unicode)| {
+        co.zip6(cy, sn, su, t, u)
+            .and_maybe(|(comp, cyt, cytsn, subset, timestamps, unicode)| {
                 let b = lookup_meta_req(kws);
                 let m = lookup_meta_req(kws);
                 b.def_zip(m).def_map_value(|(byteord, mode)| Self {
@@ -4790,6 +4832,7 @@ impl LookupMetadata for InnerMetadata3_0 {
                     comp,
                     timestamps,
                     unicode,
+                    subset,
                 })
             })
     }
@@ -4807,12 +4850,13 @@ impl LookupMetadata for InnerMetadata3_1 {
         let cy = lookup_meta_opt(kws, false);
         let sp = lookup_meta_opt(kws, false);
         let sn = lookup_meta_opt(kws, false);
+        let su = lookup_subset(kws, true);
         let md = lookup_modification(kws);
         let p = lookup_plate(kws, false);
         let t = lookup_timestamps(kws, false);
         let v = lookup_meta_opt(kws, false);
-        cy.zip4(sp, sn, md).zip4(p, t, v).and_maybe(
-            |((cyt, spillover, cytsn, modification), plate, timestamps, vol)| {
+        cy.zip5(sp, sn, su, md).zip4(p, t, v).and_maybe(
+            |((cyt, spillover, cytsn, subset, modification), plate, timestamps, vol)| {
                 let b = lookup_meta_req(kws);
                 let mut mo = lookup_meta_req(kws);
                 mo.def_eval_warning(|mode| match mode {
@@ -4830,6 +4874,7 @@ impl LookupMetadata for InnerMetadata3_1 {
                     modification,
                     timestamps,
                     plate,
+                    subset,
                 })
             },
         )
@@ -5377,6 +5422,7 @@ impl InnerMetadata3_0 {
             cytsn: None.into(),
             comp: None.into(),
             unicode: None.into(),
+            subset: None.into(),
         }
     }
 }
@@ -5393,6 +5439,7 @@ impl InnerMetadata3_1 {
             modification: ModificationData::default(),
             spillover: None.into(),
             vol: None.into(),
+            subset: None.into(),
         }
     }
 }

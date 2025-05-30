@@ -1277,6 +1277,26 @@ impl BiIndexedKey for Dfc {
     const SUFFIX: &'static str = "";
 }
 
+// 3.0/3.1 subsets
+kw_opt_meta_int!(CSMode, u32, "CSMODE");
+kw_opt_meta_int!(CSVBits, u32, "CSVBits");
+
+#[derive(Clone)]
+pub struct CSVFlag(pub u32);
+
+newtype_from!(CSVFlag, u32);
+newtype_from_outer!(CSVFlag, u32);
+newtype_disp!(CSVFlag);
+newtype_fromstr!(CSVFlag, ParseIntError);
+
+impl IndexedKey for CSVFlag {
+    const PREFIX: &'static str = "CSV";
+    const SUFFIX: &'static str = "FLAG";
+}
+
+impl Optional for CSVFlag {}
+impl OptMeasKey for CSVFlag {}
+
 // offsets for all versions
 kw_req_meta_int!(Beginanalysis, u32, "BEGINANALYSIS");
 kw_req_meta_int!(Begindata, u32, "BEGINDATA");

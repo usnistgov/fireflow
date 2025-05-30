@@ -779,7 +779,32 @@ newtype_from!(DetectorVoltage, NonNegFloat);
 newtype_disp!(DetectorVoltage);
 newtype_fromstr!(DetectorVoltage, RangedFloatError);
 
-pub struct TotValue<'a>(pub Option<&'a str>);
+/// The value of the $CSVnFLAG key (2.0-3.0)
+#[derive(Clone, Copy, Serialize)]
+pub struct CSVFlag(pub u32);
+
+newtype_from!(CSVFlag, u32);
+newtype_from_outer!(CSVFlag, u32);
+newtype_disp!(CSVFlag);
+newtype_fromstr!(CSVFlag, ParseIntError);
+
+/// The value of the $PKn key (2.0-3.1)
+#[derive(Clone, Copy, Serialize)]
+pub struct PeakBin(pub u32);
+
+newtype_from!(PeakBin, u32);
+newtype_from_outer!(PeakBin, u32);
+newtype_disp!(PeakBin);
+newtype_fromstr!(PeakBin, ParseIntError);
+
+/// The value of the $PKNn key (2.0-3.1)
+#[derive(Clone, Copy, Serialize)]
+pub struct PeakNumber(pub u32);
+
+newtype_from!(PeakNumber, u32);
+newtype_from_outer!(PeakNumber, u32);
+newtype_disp!(PeakNumber);
+newtype_fromstr!(PeakNumber, ParseIntError);
 
 pub(crate) type RawKeywords = HashMap<String, String>;
 pub(crate) type OptKwResult<T> = Result<OptionalKw<T>, ParseKeyError<<T as FromStr>::Err>>;
@@ -1281,14 +1306,6 @@ impl BiIndexedKey for Dfc {
 kw_opt_meta_int!(CSMode, u32, "CSMODE");
 kw_opt_meta_int!(CSVBits, u32, "CSVBits");
 
-#[derive(Clone)]
-pub struct CSVFlag(pub u32);
-
-newtype_from!(CSVFlag, u32);
-newtype_from_outer!(CSVFlag, u32);
-newtype_disp!(CSVFlag);
-newtype_fromstr!(CSVFlag, ParseIntError);
-
 impl IndexedKey for CSVFlag {
     const PREFIX: &'static str = "CSV";
     const SUFFIX: &'static str = "FLAG";
@@ -1296,6 +1313,25 @@ impl IndexedKey for CSVFlag {
 
 impl Optional for CSVFlag {}
 impl OptMeasKey for CSVFlag {}
+
+// 2.0-3.1 histogram peaks
+impl IndexedKey for PeakBin {
+    const PREFIX: &'static str = "PK";
+    const SUFFIX: &'static str = "";
+}
+
+impl Optional for PeakBin {}
+impl OptMeasKey for PeakBin {}
+
+impl IndexedKey for PeakNumber {
+    const PREFIX: &'static str = "PKK";
+    const SUFFIX: &'static str = "";
+}
+
+impl Optional for PeakNumber {}
+impl OptMeasKey for PeakNumber {}
+
+// 2.0-3.1 histograms
 
 // offsets for all versions
 kw_req_meta_int!(Beginanalysis, u32, "BEGINANALYSIS");

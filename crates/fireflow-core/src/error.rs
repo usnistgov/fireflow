@@ -528,6 +528,20 @@ impl<V, W, E> Tentative<V, W, E> {
         ret
     }
 
+    pub fn mconcat_ne(xs: NonEmpty<Self>) -> Tentative<NonEmpty<V>, W, E> {
+        let mut ret = Tentative {
+            value: NonEmpty::new(xs.head.value),
+            warnings: xs.head.warnings,
+            errors: xs.head.errors,
+        };
+        for x in xs.tail {
+            ret.value.push(x.value);
+            ret.warnings.extend(x.warnings);
+            ret.errors.extend(x.errors);
+        }
+        ret
+    }
+
     pub fn terminate<T>(self, reason: T) -> TerminalResult<V, W, E, T> {
         match NonEmpty::from_vec(self.errors) {
             Some(errors) => Err(TerminalFailure {

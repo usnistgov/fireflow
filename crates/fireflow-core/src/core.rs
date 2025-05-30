@@ -497,14 +497,20 @@ pub struct InnerMetadata3_2 {
 }
 
 /// Temporal measurement fields specific to version 2.0
-#[derive(Clone, Serialize)]
-pub struct InnerTemporal2_0;
+#[derive(Clone, Serialize, Default)]
+pub struct InnerTemporal2_0 {
+    /// Values of $Pkn/$PKNn
+    pub peak: PeakData,
+}
 
 /// Temporal measurement fields specific to version 3.0
 #[derive(Clone, Serialize)]
 pub struct InnerTemporal3_0 {
     /// Value for $TIMESTEP
     pub timestep: Timestep,
+
+    /// Values of $Pkn/$PKNn
+    pub peak: PeakData,
 }
 
 /// Temporal measurement fields specific to version 3.1
@@ -515,6 +521,9 @@ pub struct InnerTemporal3_1 {
 
     /// Value for $PnDISPLAY
     pub display: OptionalKw<Display>,
+
+    /// Values of $Pkn/$PKNn
+    pub peak: PeakData,
 }
 
 /// Temporal measurement fields specific to version 3.2
@@ -541,6 +550,9 @@ pub struct InnerOptical2_0 {
 
     /// Value for $PnL
     pub wavelength: OptionalKw<Wavelength>,
+
+    /// Values of $Pkn/$PKNn
+    pub peak: PeakData,
 }
 
 /// Optical measurement fields specific to version 3.0
@@ -554,6 +566,9 @@ pub struct InnerOptical3_0 {
 
     /// Value for $PnG
     pub gain: OptionalKw<Gain>,
+
+    /// Values of $Pkn/$PKNn
+    pub peak: PeakData,
 }
 
 /// Optical measurement fields specific to version 3.1
@@ -573,6 +588,9 @@ pub struct InnerOptical3_1 {
 
     /// Value for $PnDISPLAY
     pub display: OptionalKw<Display>,
+
+    /// Values of $Pkn/$PKNn
+    pub peak: PeakData,
 }
 
 /// Optical measurement fields specific to version 3.2
@@ -610,6 +628,16 @@ pub struct InnerOptical3_2 {
 
     /// Value for $PnDATATYPE
     pub datatype: OptionalKw<NumType>,
+}
+
+/// A bundle for $PKn and $PKNn (2.0-3.1)
+#[derive(Clone, Default, Serialize)]
+pub struct PeakData {
+    /// Value of $Pkn
+    pub bin: OptionalKw<PeakBin>,
+
+    /// Value of $PkNn
+    pub size: OptionalKw<PeakNumber>,
 }
 
 /// A bundle for $CSMODE, $CSVBITS, and $CSVnFLAG (3.0, 3.1)
@@ -3732,6 +3760,7 @@ impl TryFrom<InnerOptical3_0> for InnerOptical2_0 {
         Ok(Self {
             scale: Some(value.scale).into(),
             wavelength: value.wavelength,
+            peak: value.peak,
         })
     }
 }
@@ -3743,6 +3772,7 @@ impl TryFrom<InnerOptical3_1> for InnerOptical2_0 {
         Ok(Self {
             scale: Some(value.scale).into(),
             wavelength: value.wavelengths.into(),
+            peak: value.peak,
         })
     }
 }
@@ -3754,6 +3784,7 @@ impl TryFrom<InnerOptical3_2> for InnerOptical2_0 {
         Ok(Self {
             scale: Some(value.scale).into(),
             wavelength: value.wavelengths.into(),
+            peak: PeakData::default(),
         })
     }
 }
@@ -3766,6 +3797,7 @@ impl TryFrom<InnerOptical2_0> for InnerOptical3_0 {
             scale,
             wavelength: value.wavelength,
             gain: None.into(),
+            peak: value.peak,
         })
     }
 }
@@ -3778,6 +3810,7 @@ impl TryFrom<InnerOptical3_1> for InnerOptical3_0 {
             scale: value.scale,
             gain: value.gain,
             wavelength: value.wavelengths.into(),
+            peak: value.peak,
         })
     }
 }
@@ -3790,6 +3823,7 @@ impl TryFrom<InnerOptical3_2> for InnerOptical3_0 {
             scale: value.scale,
             gain: value.gain,
             wavelength: value.wavelengths.into(),
+            peak: PeakData::default(),
         })
     }
 }
@@ -3804,6 +3838,7 @@ impl TryFrom<InnerOptical2_0> for InnerOptical3_1 {
             gain: None.into(),
             calibration: None.into(),
             display: None.into(),
+            peak: value.peak,
         })
     }
 }
@@ -3818,6 +3853,7 @@ impl TryFrom<InnerOptical3_0> for InnerOptical3_1 {
             wavelengths: None.into(),
             calibration: None.into(),
             display: None.into(),
+            peak: value.peak,
         })
     }
 }
@@ -3832,6 +3868,7 @@ impl TryFrom<InnerOptical3_2> for InnerOptical3_1 {
             wavelengths: value.wavelengths,
             calibration: value.calibration.map(|x| x.into()),
             display: value.display,
+            peak: PeakData::default(),
         })
     }
 }
@@ -4147,27 +4184,28 @@ impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata3_2 {
 }
 
 impl From<InnerTemporal3_0> for InnerTemporal2_0 {
-    fn from(_: InnerTemporal3_0) -> Self {
-        Self
+    fn from(value: InnerTemporal3_0) -> Self {
+        Self { peak: value.peak }
     }
 }
 
 impl From<InnerTemporal3_1> for InnerTemporal2_0 {
-    fn from(_: InnerTemporal3_1) -> Self {
-        Self
+    fn from(value: InnerTemporal3_1) -> Self {
+        Self { peak: value.peak }
     }
 }
 
 impl From<InnerTemporal3_2> for InnerTemporal2_0 {
     fn from(_: InnerTemporal3_2) -> Self {
-        Self
+        Self::default()
     }
 }
 
 impl From<InnerTemporal2_0> for InnerTemporal3_0 {
-    fn from(_: InnerTemporal2_0) -> Self {
+    fn from(value: InnerTemporal2_0) -> Self {
         Self {
             timestep: Timestep::default(),
+            peak: value.peak,
         }
     }
 }
@@ -4176,6 +4214,7 @@ impl From<InnerTemporal3_1> for InnerTemporal3_0 {
     fn from(value: InnerTemporal3_1) -> Self {
         Self {
             timestep: value.timestep,
+            peak: value.peak,
         }
     }
 }
@@ -4184,15 +4223,17 @@ impl From<InnerTemporal3_2> for InnerTemporal3_0 {
     fn from(value: InnerTemporal3_2) -> Self {
         Self {
             timestep: value.timestep,
+            peak: PeakData::default(),
         }
     }
 }
 
 impl From<InnerTemporal2_0> for InnerTemporal3_1 {
-    fn from(_: InnerTemporal2_0) -> Self {
+    fn from(value: InnerTemporal2_0) -> Self {
         Self {
             timestep: Timestep::default(),
             display: None.into(),
+            peak: value.peak,
         }
     }
 }
@@ -4202,6 +4243,7 @@ impl From<InnerTemporal3_0> for InnerTemporal3_1 {
         Self {
             timestep: value.timestep,
             display: None.into(),
+            peak: value.peak,
         }
     }
 }
@@ -4211,6 +4253,7 @@ impl From<InnerTemporal3_2> for InnerTemporal3_1 {
         Self {
             timestep: value.timestep,
             display: value.display,
+            peak: PeakData::default(),
         }
     }
 }
@@ -4249,20 +4292,22 @@ impl From<InnerTemporal3_1> for InnerTemporal3_2 {
 }
 
 impl From<InnerTemporal2_0> for InnerOptical2_0 {
-    fn from(_: InnerTemporal2_0) -> Self {
+    fn from(value: InnerTemporal2_0) -> Self {
         Self {
             scale: Some(Scale::Linear).into(),
             wavelength: None.into(),
+            peak: value.peak,
         }
     }
 }
 
 impl From<InnerTemporal3_0> for InnerOptical3_0 {
-    fn from(_: InnerTemporal3_0) -> Self {
+    fn from(value: InnerTemporal3_0) -> Self {
         Self {
             scale: Scale::Linear,
             wavelength: None.into(),
             gain: None.into(),
+            peak: value.peak,
         }
     }
 }
@@ -4275,6 +4320,7 @@ impl From<InnerTemporal3_1> for InnerOptical3_1 {
             wavelengths: None.into(),
             gain: None.into(),
             calibration: None.into(),
+            peak: value.peak,
         }
     }
 }
@@ -4298,15 +4344,16 @@ impl From<InnerTemporal3_2> for InnerOptical3_2 {
 }
 
 impl From<InnerOptical2_0> for InnerTemporal2_0 {
-    fn from(_: InnerOptical2_0) -> Self {
-        Self
+    fn from(value: InnerOptical2_0) -> Self {
+        Self { peak: value.peak }
     }
 }
 
 impl From<InnerOptical3_0> for InnerTemporal3_0 {
-    fn from(_: InnerOptical3_0) -> Self {
+    fn from(value: InnerOptical3_0) -> Self {
         Self {
             timestep: Timestep::default(),
+            peak: value.peak,
         }
     }
 }
@@ -4316,6 +4363,7 @@ impl From<InnerOptical3_1> for InnerTemporal3_1 {
         Self {
             timestep: Timestep::default(),
             display: value.display,
+            peak: value.peak,
         }
     }
 }
@@ -4359,8 +4407,12 @@ impl LookupOptical for InnerOptical2_0 {
     fn lookup_specific(kws: &mut StdKeywords, n: MeasIdx) -> LookupResult<Self> {
         let s = lookup_meas_opt(kws, n, false);
         let w = lookup_meas_opt(kws, n, false);
-        Ok(s.zip(w)
-            .map(|(scale, wavelength)| Self { scale, wavelength }))
+        let p = lookup_peakdata(kws, n, false);
+        Ok(s.zip3(w, p).map(|(scale, wavelength, peak)| Self {
+            scale,
+            wavelength,
+            peak,
+        }))
     }
 }
 
@@ -4368,11 +4420,13 @@ impl LookupOptical for InnerOptical3_0 {
     fn lookup_specific(kws: &mut StdKeywords, n: MeasIdx) -> LookupResult<Self> {
         let g = lookup_meas_opt(kws, n, false);
         let w = lookup_meas_opt(kws, n, false);
-        g.zip(w).and_maybe(|(gain, wavelength)| {
+        let p = lookup_peakdata(kws, n, false);
+        g.zip3(w, p).and_maybe(|(gain, wavelength, peak)| {
             lookup_meas_req(kws, n).def_map_value(|scale| Self {
                 scale,
                 gain,
                 wavelength,
+                peak,
             })
         })
     }
@@ -4384,14 +4438,16 @@ impl LookupOptical for InnerOptical3_1 {
         let w = lookup_meas_opt(kws, n, false);
         let c = lookup_meas_opt(kws, n, false);
         let d = lookup_meas_opt(kws, n, false);
-        g.zip4(w, c, d)
-            .and_maybe(|(gain, wavelengths, calibration, display)| {
+        let p = lookup_peakdata(kws, n, true);
+        g.zip5(w, c, d, p)
+            .and_maybe(|(gain, wavelengths, calibration, display, peak)| {
                 lookup_meas_req(kws, n).def_map_value(|scale| Self {
                     scale,
                     gain,
                     wavelengths,
                     calibration,
                     display,
+                    peak,
                 })
             })
     }
@@ -4441,15 +4497,16 @@ impl LookupOptical for InnerOptical3_2 {
 impl LookupTemporal for InnerTemporal2_0 {
     fn lookup_specific(kws: &mut StdKeywords, i: MeasIdx) -> LookupResult<Self> {
         // TODO push meas index with error
-        let mut tnt = lookup_meas_opt::<Scale, ParseKeysError>(kws, i, false);
-        tnt.eval_error(|scale| {
+        let mut tnt_scale = lookup_meas_opt::<Scale, ParseKeysError>(kws, i, false);
+        tnt_scale.eval_error(|scale| {
             if scale.0.is_some_and(|x| x != Scale::Linear) {
                 Some(ParseKeysError::Other(TemporalError::NonLinear.into()))
             } else {
                 None
             }
         });
-        Ok(tnt.map(|_| Self))
+        let p = lookup_peakdata(kws, i, false);
+        Ok(tnt_scale.zip(p).map(|(_, peak)| Self { peak }))
     }
 }
 
@@ -4463,11 +4520,12 @@ impl LookupTemporal for InnerTemporal3_0 {
                 None
             }
         });
-        tnt_gain.and_maybe(|_| {
+        let tnt_peak = lookup_peakdata(kws, i, false);
+        tnt_gain.zip(tnt_peak).and_maybe(|(_, peak)| {
             let s = lookup_temporal_scale_3_0(kws, i);
             let t = lookup_meta_req(kws);
             s.def_zip(t)
-                .def_map_value(|(_, timestep)| Self { timestep })
+                .def_map_value(|(_, timestep)| Self { timestep, peak })
         })
     }
 }
@@ -4476,11 +4534,15 @@ impl LookupTemporal for InnerTemporal3_1 {
     fn lookup_specific(kws: &mut StdKeywords, i: MeasIdx) -> LookupResult<Self> {
         let g = lookup_temporal_gain_3_0(kws, i);
         let d = lookup_meas_opt(kws, i, false);
-        g.zip(d).and_maybe(|(_, display)| {
+        let p = lookup_peakdata(kws, i, true);
+        g.zip3(d, p).and_maybe(|(_, display, peak)| {
             let s = lookup_temporal_scale_3_0(kws, i);
             let t = lookup_meta_req(kws);
-            s.def_zip(t)
-                .def_map_value(|(_, timestep)| Self { timestep, display })
+            s.def_zip(t).def_map_value(|(_, timestep)| Self {
+                timestep,
+                display,
+                peak,
+            })
         })
     }
 }
@@ -5327,7 +5389,10 @@ impl VersionedMetadata for InnerMetadata3_2 {
 
 impl InnerTemporal3_0 {
     pub(crate) fn new(timestep: Timestep) -> Self {
-        Self { timestep }
+        Self {
+            timestep,
+            peak: PeakData::default(),
+        }
     }
 }
 
@@ -5336,6 +5401,7 @@ impl InnerTemporal3_1 {
         Self {
             timestep,
             display: None.into(),
+            peak: PeakData::default(),
         }
     }
 }
@@ -5356,6 +5422,7 @@ impl InnerOptical2_0 {
         Self {
             scale: None.into(),
             wavelength: None.into(),
+            peak: PeakData::default(),
         }
     }
 }
@@ -5366,6 +5433,7 @@ impl InnerOptical3_0 {
             scale,
             gain: None.into(),
             wavelength: None.into(),
+            peak: PeakData::default(),
         }
     }
 }
@@ -5378,6 +5446,7 @@ impl InnerOptical3_1 {
             display: None.into(),
             gain: None.into(),
             wavelengths: None.into(),
+            peak: PeakData::default(),
         }
     }
 }
@@ -5465,7 +5534,7 @@ impl InnerMetadata3_2 {
 
 impl Temporal2_0 {
     pub fn new(width: Width, range: Range) -> Self {
-        let specific = InnerTemporal2_0;
+        let specific = InnerTemporal2_0::default();
         Temporal::new_common(width, range, specific)
     }
 }

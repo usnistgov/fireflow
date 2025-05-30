@@ -1,4 +1,4 @@
-use crate::core::{CarrierData, ModificationData, PlateData, SubsetData, UnstainedData};
+use crate::core::{CarrierData, ModificationData, PeakData, PlateData, SubsetData, UnstainedData};
 use crate::error::*;
 use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
 use crate::validated::nonstandard::*;
@@ -221,33 +221,36 @@ pub(crate) fn lookup_dfc(
     })
 }
 
-// TODO warn on deprecated key use
 pub(crate) fn lookup_subset<E>(
     kws: &mut StdKeywords,
     dep: bool,
 ) -> LookupTentative<OptionalKw<SubsetData>, E> {
-    process_opt(CSMode::remove_meta_opt(kws))
+    lookup_meta_opt(kws, dep)
         .map(|x| x.0)
         .and_tentatively(|m: Option<CSMode>| {
             if let Some(n) = m {
-                let mut warnings = vec![];
-                let it =
-                    (0..(n.0 as usize)).map(|i| match CSVFlag::remove_meas_opt(kws, i.into()) {
-                        Ok(x) => x.0.map(|y| y.0),
-                        Err(w) => {
-                            warnings.push(w);
-                            None
-                        }
-                    });
-                // ASSUME n is > 0 so this won't fail
-                let flags = NonEmpty::collect(it).unwrap();
-                process_opt(CSVBits::remove_meta_opt(kws))
-                    .map(|x| x.0.map(|y| y.0))
-                    .map(|bits| Some(SubsetData { flags, bits }).into())
+                let it = (0..(n.0 as usize)).map(|i| {
+                    lookup_meas_opt::<CSVFlag, _>(kws, i.into(), dep).map(|x| x.0.map(|y| y.0))
+                });
+                Tentative::mconcat_ne(NonEmpty::collect(it).unwrap()).and_tentatively(|flags| {
+                    lookup_meta_opt::<CSVBits, _>(kws, dep)
+                        .map(|x| x.0.map(|y| y.0))
+                        .map(|bits| Some(SubsetData { flags, bits }).into())
+                })
             } else {
                 Tentative::new1(None.into())
             }
         })
+}
+
+pub(crate) fn lookup_peakdata<E>(
+    kws: &mut StdKeywords,
+    i: MeasIdx,
+    dep: bool,
+) -> LookupTentative<PeakData, E> {
+    let b = lookup_meas_opt(kws, i, dep);
+    let s = lookup_meas_opt(kws, i, dep);
+    b.zip(s).map(|(bin, size)| PeakData { bin, size })
 }
 
 pub(crate) fn lookup_temporal_gain_3_0(

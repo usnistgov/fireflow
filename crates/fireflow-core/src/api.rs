@@ -183,6 +183,9 @@ pub struct StdTEXTOutput {
     /// TEXT value for $TOT
     pub tot: Option<String>,
 
+    /// TEXT value for $TIMESTEP if a time channel was not found (3.0+)
+    pub timestep: Option<String>,
+
     /// TEXT values for $BEGIN/ENDDATA
     pub data: SegmentKeywords,
 
@@ -349,7 +352,9 @@ enum_from_disp!(
     [Char, DelimCharError],
     [Keywords, ParseKeywordsIssue],
     [SuppOffsets, STextSegmentWarning],
-    [Nextdata, ParseKeyError<ParseIntError>]
+    [Nextdata, ParseKeyError<ParseIntError>],
+    [Nonstandard, NonstandardError]
+
 );
 
 enum_from_disp!(
@@ -397,7 +402,8 @@ enum_from_disp!(
     [SuppOffsets, ReqSegmentError],
     [Nextdata, ReqKeyError<ParseIntError>],
     [NonAscii, NonAsciiKeyError],
-    [NonUtf8, NonUtf8KeywordError]
+    [NonUtf8, NonUtf8KeywordError],
+    [Nonstandard, NonstandardError]
 );
 
 enum_from_disp!(
@@ -458,6 +464,8 @@ pub struct NonUtf8KeywordError {
     key: Vec<u8>,
     value: Vec<u8>,
 }
+
+pub struct NonstandardError;
 
 fn read_fcs_raw_text_inner(
     p: &path::PathBuf,
@@ -526,6 +534,7 @@ impl RawTEXTOutput {
             |standardized| {
                 let std = &mut kws.std;
                 let tot = std.remove(&Tot::std());
+                let timestep = std.remove(&Timestep::std());
                 let data = SegmentKeywords {
                     begin: std.remove(&Begindata::std()),
                     end: std.remove(&Enddata::std()),
@@ -538,6 +547,7 @@ impl RawTEXTOutput {
                     parse: self.parse,
                     standardized,
                     tot,
+                    timestep,
                     data,
                     analysis,
                     deviant: kws.std,
@@ -704,17 +714,19 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
         });
 
         tnt_parse
-            .map(|parse| RawTEXTOutput {
-                version: header.version,
-                parse,
-                keywords: ValidKeywords {
-                    std: kws.std,
-                    nonstd: kws.nonstd,
-                },
+            .inner_into()
+            .and_tentatively(|parse| {
+                let out = RawTEXTOutput {
+                    version: header.version,
+                    parse,
+                    keywords: ValidKeywords {
+                        std: kws.std,
+                        nonstd: kws.nonstd,
+                    },
+                };
+                Tentative::new_either(out, vec![NonstandardError], conf.disallow_nonstandard)
             })
-            .errors_into()
             .errors_liftio()
-            .warnings_into()
     });
 
     Ok(out)
@@ -981,12 +993,12 @@ fn lookup_stext_offsets(
 ) -> Tentative<Option<SupplementalTextSegment>, STextSegmentWarning, ReqSegmentError> {
     match version {
         Version::FCS2_0 => Tentative::new1(None),
-        Version::FCS3_0 | Version::FCS3_1 => LookupReqSegment::remove_mult(kws, conf.stext)
+        Version::FCS3_0 | Version::FCS3_1 => LookupReqSegment::get_mult(kws, conf.stext)
             .map_or_else(
                 |es| Tentative::new_either(None, es.into(), conf.enforce_stext),
                 |t| Tentative::new1(Some(t)),
             ),
-        Version::FCS3_2 => LookupOptSegment::remove(kws, conf.stext).warnings_into(),
+        Version::FCS3_2 => LookupOptSegment::get(kws, conf.stext).warnings_into(),
     }
 }
 
@@ -1087,6 +1099,12 @@ impl fmt::Display for NonUtf8KeywordError {
             self.key.iter().take(n).join(","),
             self.value.iter().take(n).join(",")
         )
+    }
+}
+
+impl fmt::Display for NonstandardError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "nonstandard keywords detected")
     }
 }
 

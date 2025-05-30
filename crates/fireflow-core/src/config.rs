@@ -174,6 +174,10 @@ pub struct RawTextReadConfig {
     /// character.
     pub repair_offset_spaces: bool,
 
+    /// If true, throw an error if TEXT includes any keywords that do not
+    /// start with "$".
+    pub disallow_nonstandard: bool,
+
     /// If supplied, will be used as an alternative pattern when parsing $DATE.
     ///
     /// It should have specifiers for year, month, and day as outlined in
@@ -229,10 +233,6 @@ pub struct StdTextReadConfig {
     /// If true, throw an error if TEXT includes any keywords that start with
     /// "$" which are not standard.
     pub disallow_deviant: bool,
-
-    /// If true, throw an error if TEXT includes any keywords that do not
-    /// start with "$".
-    pub disallow_nonstandard: bool,
 
     /// If true, throw an error if TEXT includes any deprecated features
     pub disallow_deprecated: bool,
@@ -309,6 +309,7 @@ impl Strict for RawTextReadConfig {
             enforce_stext: true,
             enforce_stext_delim: true,
             enforce_nextdata: true,
+            disallow_nonstandard: true,
             ..self
         }
     }
@@ -320,7 +321,6 @@ impl Strict for StdTextReadConfig {
             raw: RawTextReadConfig::set_strict_inner(self.raw),
             time: TimeConfig::set_strict_inner(self.time),
             disallow_deviant: true,
-            disallow_nonstandard: true,
             ..self
         }
     }

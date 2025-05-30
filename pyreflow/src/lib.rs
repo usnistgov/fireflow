@@ -99,6 +99,7 @@ fn py_read_fcs_header(
     enforce_stext=false,
     enforce_stext_delim=false,
     enforce_nextdata=false,
+    disallow_nonstandard=false,
     repair_offset_spaces=false,
     date_pattern=None,
     version_override=None)
@@ -131,6 +132,7 @@ fn py_read_fcs_raw_text(
     enforce_stext: bool,
     enforce_stext_delim: bool,
     enforce_nextdata: bool,
+    disallow_nonstandard: bool,
     repair_offset_spaces: bool,
     date_pattern: Option<String>,
     version_override: Option<PyVersion>,
@@ -157,6 +159,7 @@ fn py_read_fcs_raw_text(
         enforce_stext,
         enforce_stext_delim,
         enforce_nextdata,
+        disallow_nonstandard,
         repair_offset_spaces,
         date_pattern: date_pattern.map(str_to_date_pat).transpose()?,
     };
@@ -288,6 +291,7 @@ fn py_read_fcs_std_text(
         enforce_stext,
         enforce_stext_delim,
         enforce_nextdata,
+        disallow_nonstandard,
         repair_offset_spaces,
         date_pattern: date_pattern.map(str_to_date_pat).transpose()?,
     };
@@ -309,7 +313,6 @@ fn py_read_fcs_std_text(
             ensure_nogain: time_ensure_nogain,
         },
         disallow_deviant,
-        disallow_nonstandard,
         disallow_deprecated,
         nonstandard_measurement_pattern: nsmp,
     };
@@ -471,6 +474,7 @@ fn py_read_fcs_file(
         enforce_keyword_ascii,
         enforce_stext,
         enforce_stext_delim,
+        disallow_nonstandard,
         enforce_nextdata,
         repair_offset_spaces,
         date_pattern: date_pattern.map(str_to_date_pat).transpose()?,
@@ -494,7 +498,6 @@ fn py_read_fcs_file(
         },
         disallow_deviant,
         disallow_deprecated,
-        disallow_nonstandard,
         nonstandard_measurement_pattern: nsmp,
     };
 

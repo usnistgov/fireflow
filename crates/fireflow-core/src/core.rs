@@ -2416,6 +2416,13 @@ where
             .map_err(|e| Box::new(ParseReqKeyError::Int(e)))
             .into_deferred()
             .def_and_maybe(|par| {
+                // $NEXTDATA/$BEGINSTEXT/$ENDSTEXT should have already been
+                // processed when we read the TEXT; remove them so they don't
+                // trigger false positives later when we test for deviant keys
+                let _ = kws.remove(&Nextdata::std());
+                let _ = kws.remove(&Beginstext::std());
+                let _ = kws.remove(&Endstext::std());
+
                 // Lookup measurements and metadata with $PAR
                 let tp = conf.time.pattern.as_ref();
                 let sp = &conf.shortname_prefix;
@@ -2439,14 +2446,16 @@ where
                 });
 
                 // At this point the only keywords that should be left are $TOT,
-                // $BEGINDATA, $ENDDATA, $BEGINANALYSIS, and $ENDANALYSIS. Make
-                // sure this is actually true
+                // $BEGINDATA, $ENDDATA, $BEGINANALYSIS, and $ENDANALYSIS.
+                // $TIMESTEP might also be present if it wasn't used for the
+                // time measurement. Make sure this is actually true
                 if kws.keys().any(|k| {
                     !(k == &Begindata::std()
                         || k == &Enddata::std()
                         || k == &Beginanalysis::std()
                         || k == &Endanalysis::std()
-                        || k == &Tot::std())
+                        || k == &Tot::std()
+                        || k == &Timestep::std())
                 }) {
                     if conf.disallow_deviant {
                         tnt_core.push_error(DeviantError.into());

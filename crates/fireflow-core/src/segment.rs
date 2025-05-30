@@ -123,12 +123,18 @@ where
         kws: &StdKeywords,
         corr: TEXTCorrection<Self>,
     ) -> DeferredResult<TEXTSegment<Self>, W, ReqSegmentError> {
+        Self::get_mult(kws, corr).mult_to_deferred()
+    }
+
+    fn get_mult(
+        kws: &StdKeywords,
+        corr: TEXTCorrection<Self>,
+    ) -> MultiResult<TEXTSegment<Self>, ReqSegmentError> {
         Self::get_pair(kws)
             .map_err(|es| es.map(|e| e.into()))
             .and_then(|(y0, y1)| {
                 SpecificSegment::try_new(y0.into(), y1.into(), corr).into_mult::<ReqSegmentError>()
             })
-            .mult_to_deferred()
     }
 
     fn remove_or(

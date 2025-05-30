@@ -32,7 +32,6 @@ pub(crate) type LookupTentative<V, E> = Tentative<V, ParseKeysWarning, E>;
 pub(crate) fn lookup_meta_req<V>(kws: &mut StdKeywords) -> LookupResult<V>
 where
     V: ReqMetaKey,
-    V: FromStr,
     ParseReqKeyError: From<ReqKeyError<<V as FromStr>::Err>>,
 {
     V::remove_meta_req(kws)
@@ -44,7 +43,6 @@ where
 pub(crate) fn lookup_meas_req<V>(kws: &mut StdKeywords, n: MeasIdx) -> LookupResult<V>
 where
     V: ReqMeasKey,
-    V: FromStr,
     ParseReqKeyError: From<ReqKeyError<<V as FromStr>::Err>>,
 {
     V::remove_meas_req(kws, n)
@@ -76,7 +74,6 @@ pub(crate) fn lookup_meas_opt<V, E>(
 ) -> LookupTentative<OptionalKw<V>, E>
 where
     V: OptMeasKey,
-    V: FromStr,
     ParseOptKeyWarning: From<ParseKeyError<<V as FromStr>::Err>>,
 {
     let mut x = process_opt(V::remove_meas_opt(kws, n));

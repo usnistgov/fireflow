@@ -337,6 +337,7 @@ pub(crate) fn lookup_gate_region_2_0<E>(
 pub(crate) fn lookup_gate_region_3_0<E>(
     kws: &mut StdKeywords,
     i: MeasIdx,
+    dep: bool,
 ) -> LookupTentative<OptionalKw<GateRegion3_0>, E> {
     // query the keywords read-only at first since we want to remove both only
     // if they are valid
@@ -377,13 +378,20 @@ pub(crate) fn lookup_gate_region_3_0<E>(
                 Tentative::new1(None)
             }
         })
-        .map(|ret| {
+        .and_tentatively(|ret| {
             // remove both if we succeeded
+            let ki = GateRegionIndex3_0::std(i);
+            let kw = GateRegionWindow::std(i);
             if ret.is_some() {
-                let _ = kws.remove(&GateRegionIndex3_0::std(i));
-                let _ = kws.remove(&GateRegionWindow::std(i));
+                let _ = kws.remove(&ki);
+                let _ = kws.remove(&kw);
             }
-            ret.into()
+            let mut tnt = Tentative::new1(ret.into());
+            if dep {
+                tnt.push_warning(DepKeyWarning(ki).into());
+                tnt.push_warning(DepKeyWarning(kw).into());
+            }
+            tnt
         })
 }
 

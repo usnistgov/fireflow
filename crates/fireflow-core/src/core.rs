@@ -630,6 +630,36 @@ pub struct InnerOptical3_2 {
     pub datatype: OptionalKw<NumType>,
 }
 
+/// The values for $Gm* keywords (2.0-3.1)
+#[derive(Clone, Default, Serialize)]
+pub struct GatedMeasurement {
+    /// Value for $GmE
+    pub scale: OptionalKw<GateScale>,
+
+    /// Value for $GmF
+    pub filter: OptionalKw<GateFilter>,
+
+    /// Value for $GmN
+    ///
+    /// Unlike $PnN, this is not validated to be without commas
+    pub shortname: OptionalKw<GateShortname>,
+
+    /// Value for $GmP
+    pub percent_emitted: OptionalKw<GatePercentEmitted>,
+
+    /// Value for $GmR
+    pub range: OptionalKw<GateRange>,
+
+    /// Value for $GmS
+    pub longname: OptionalKw<GateLongname>,
+
+    /// Value for $GmT
+    pub detector_type: OptionalKw<GateDetectorType>,
+
+    /// Value for $GmV
+    pub detector_voltage: OptionalKw<GateDetectorVoltage>,
+}
+
 /// A bundle for $PKn and $PKNn (2.0-3.1)
 ///
 /// It makes little sense to have only one of these since they both collectively

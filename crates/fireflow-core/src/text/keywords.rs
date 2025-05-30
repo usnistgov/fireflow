@@ -22,6 +22,7 @@ use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::fmt;
+use std::marker::PhantomData;
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::FromStr;
 
@@ -768,6 +769,137 @@ pub struct FeatureError;
 impl fmt::Display for FeatureError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "must be one of 'Area', 'Width', or 'Height'")
+    }
+}
+
+/// The value of the $RnI key (2.0)
+#[derive(Clone, Copy, Serialize)]
+pub struct GateRegion2_0(pub GateRegionLink);
+
+newtype_from!(GateRegion2_0, GateRegionLink);
+newtype_from_outer!(GateRegion2_0, GateRegionLink);
+
+#[derive(Clone, Copy, Serialize)]
+pub enum GateRegionLink {
+    Univariate(u32),
+    Bivariate(u32, u32),
+}
+
+impl FromStr for GateRegion2_0 {
+    type Err = GateRegion2_0Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.split(",").collect::<Vec<_>>()[..] {
+            [x] => x
+                .parse()
+                .map(|a| GateRegionLink::Univariate(a).into())
+                .map_err(GateRegionError::Int),
+            [x, y] => x
+                .parse()
+                .and_then(|a| y.parse().map(|b| GateRegionLink::Bivariate(a, b).into()))
+                .map_err(GateRegionError::Int),
+            _ => Err(GateRegionError::Format(GateRegionFormat2_0)),
+        }
+    }
+}
+
+impl fmt::Display for GateRegion2_0 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self.0 {
+            GateRegionLink::Univariate(x) => write!(f, "{x}"),
+            GateRegionLink::Bivariate(x, y) => write!(f, "{x},{y}"),
+        }
+    }
+}
+
+pub type GateRegion2_0Error = GateRegionError<GateRegionFormat2_0>;
+pub type GateRegion3_0Error = GateRegionError<GateRegionFormat3_0>;
+
+pub enum GateRegionError<F> {
+    Format(F),
+    Int(ParseIntError),
+}
+
+impl<E> fmt::Display for GateRegionError<E>
+where
+    E: fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::Format(e) => e.fmt(f),
+            Self::Int(e) => e.fmt(f),
+        }
+    }
+}
+
+pub struct GateRegionFormat2_0;
+
+impl fmt::Display for GateRegionFormat2_0 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "must be string like 'n' or 'n1,n2'")
+    }
+}
+
+/// The value of the $RnI key (3.0 and 3.1)
+#[derive(Clone, Copy, Serialize)]
+pub struct GateRegion3_0 {
+    /// Numeric links to gates
+    pub link: GateRegionLink,
+
+    /// True if link points to $Gm* keys, false for $Pn* keys.
+    pub is_gate: bool,
+}
+
+impl FromStr for GateRegion3_0 {
+    type Err = GateRegion3_0Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let go = |sub: &str| {
+            if let Some((prefix, rest)) = sub.split_at_checked(1) {
+                match prefix {
+                    "P" => Ok(false),
+                    "G" => Ok(true),
+                    _ => Err(GateRegionError::Format(GateRegionFormat3_0)),
+                }
+                .and_then(|is_gate| {
+                    rest.parse()
+                        .map_err(GateRegionError::Int)
+                        .map(|x| (x, is_gate))
+                })
+            } else {
+                Err(GateRegionError::Format(GateRegionFormat3_0))
+            }
+        };
+        match s.split(",").collect::<Vec<_>>()[..] {
+            [x] => go(x).map(|(a, is_gate)| Self {
+                link: GateRegionLink::Univariate(a),
+                is_gate,
+            }),
+            [x, y] => go(x).and_then(|(a, a_is_gate)| {
+                go(y).and_then(|(b, b_is_gate)| {
+                    if a_is_gate == b_is_gate {
+                        Ok(Self {
+                            link: GateRegionLink::Bivariate(a, b),
+                            is_gate: a_is_gate,
+                        })
+                    } else {
+                        Err(GateRegionError::Format(GateRegionFormat3_0))
+                    }
+                })
+            }),
+            _ => Err(GateRegionError::Format(GateRegionFormat3_0)),
+        }
+    }
+}
+
+pub struct GateRegionFormat3_0;
+
+impl fmt::Display for GateRegionFormat3_0 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "must be string like 'Xn' or 'Xn1,Xn2' where X is either 'P' or 'G'"
+        )
     }
 }
 

@@ -1,4 +1,6 @@
-use crate::core::{CarrierData, ModificationData, PeakData, PlateData, SubsetData, UnstainedData};
+use crate::core::{
+    CarrierData, GatedMeasurement, ModificationData, PeakData, PlateData, SubsetData, UnstainedData,
+};
 use crate::error::*;
 use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
 use crate::validated::nonstandard::*;
@@ -253,6 +255,41 @@ pub(crate) fn lookup_peakdata<E>(
     b.zip(s).map(|(bin, size)| PeakData { bin, size })
 }
 
+pub(crate) fn lookup_gated_measurement<E>(
+    kws: &mut StdKeywords,
+    i: MeasIdx,
+    dep: bool,
+) -> LookupTentative<GatedMeasurement, E> {
+    let e = lookup_meas_opt(kws, i, dep);
+    let f = lookup_meas_opt(kws, i, dep);
+    let n = lookup_meas_opt(kws, i, dep);
+    let p = lookup_meas_opt(kws, i, dep);
+    let r = lookup_meas_opt(kws, i, dep);
+    let s = lookup_meas_opt(kws, i, dep);
+    let t = lookup_meas_opt(kws, i, dep);
+    let v = lookup_meas_opt(kws, i, dep);
+    e.zip4(f, n, p).zip5(r, s, t, v).map(
+        |(
+            (scale, filter, shortname, percent_emitted),
+            range,
+            longname,
+            detector_type,
+            detector_voltage,
+        )| {
+            GatedMeasurement {
+                scale,
+                filter,
+                shortname,
+                percent_emitted,
+                range,
+                longname,
+                detector_type,
+                detector_voltage,
+            }
+        },
+    )
+}
+
 pub(crate) fn lookup_temporal_gain_3_0(
     kws: &mut StdKeywords,
     i: MeasIdx,
@@ -326,7 +363,7 @@ enum_from_disp!(
 
 enum_from_disp!(
     pub ParseReqKeyError,
-    [Range,          ReqKeyError<ParseFloatOrIntError>],
+    [FloatOrInt,     ReqKeyError<ParseFloatOrIntError>],
     [AlphaNumType,   ReqKeyError<AlphaNumTypeError>],
     [String,         ReqKeyError<Infallible>],
     [Int,            ReqKeyError<ParseIntError>],
@@ -367,6 +404,7 @@ enum_from_disp!(
     [Unicode,          ParseKeyError<UnicodeError>],
     [Spillover,        ParseKeyError<ParseSpilloverError>],
     [Compensation,     ParseKeyError<ParseCompError>],
+    [FloatOrInt,       ParseKeyError<ParseFloatOrIntError>],
     [CompShape,        NewCompError]
 );
 

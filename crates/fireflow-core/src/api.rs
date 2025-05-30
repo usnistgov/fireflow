@@ -1000,6 +1000,12 @@ fn lookup_stext_offsets(
     }
 }
 
+// TODO the reason we use get instead of remove here is because we don't want to
+// mess up the keyword list for raw mode, but in standardized mode we are
+// consuming the hash table as a way to test for deviant keywords (ie those that
+// are left over). In order to reconcile these, we either need to make two raw
+// text reader functions which either take immutable or mutable kws or use a
+// more clever hash table that marks keys when we see them.
 fn lookup_nextdata(
     kws: &StdKeywords,
     enforce: bool,

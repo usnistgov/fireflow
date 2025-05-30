@@ -35,13 +35,17 @@ pub struct OffsetCorrection<I, S> {
     _src: PhantomData<S>,
 }
 
-/// Denotes a segment came from either HEADER
+/// Denotes a segment came from HEADER
 #[derive(Default, Debug, Clone, Copy, Serialize)]
 pub struct SegmentFromHeader;
 
-/// Denotes a segment came from either TEXT
+/// Denotes a segment came from TEXT
 #[derive(Default, Debug, Clone, Copy, Serialize)]
 pub struct SegmentFromTEXT;
+
+/// Denotes a segment came from either TEXT or HEADER
+#[derive(Clone, Copy)]
+pub struct SegmentFromAnywhere;
 
 /// Denotes the segment pertains to primary TEXT
 #[derive(Default, Debug, Clone, Copy, Serialize)]
@@ -76,9 +80,6 @@ pub type AnySegment<I> = SpecificSegment<I, SegmentFromAnywhere>;
 
 pub type HeaderCorrection<I> = OffsetCorrection<I, SegmentFromHeader>;
 pub type TEXTCorrection<I> = OffsetCorrection<I, SegmentFromTEXT>;
-
-#[derive(Clone, Copy)]
-pub struct SegmentFromAnywhere;
 
 pub type AnyDataSegment = DataSegment<SegmentFromAnywhere>;
 pub type AnyAnalysisSegment = AnalysisSegment<SegmentFromAnywhere>;

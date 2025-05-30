@@ -185,9 +185,8 @@ pub struct RawTextReadConfig {
     /// supplied, $DATE will be parsed according to the standard pattern which
     /// is '%d-%b-%Y'.
     pub date_pattern: Option<DatePattern>,
-    // TODO add keyword and value overrides, something like a list of patterns
-    // that can be used to alter each keyword
-    // TODO allow lambda function to be supplied which will alter the kv list
+    // TODO add two lists which will convert matching nonstandard keys to
+    // standard and vice versa
 }
 
 /// Instructions for validating time-related properties.

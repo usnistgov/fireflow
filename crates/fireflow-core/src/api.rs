@@ -9,7 +9,6 @@ use crate::text::keywords::*;
 use crate::text::parser::*;
 use crate::text::timestamps::*;
 use crate::validated::dataframe::FCSDataFrame;
-use crate::validated::nonstandard::NonStdKeywords;
 use crate::validated::standard::*;
 
 use chrono::NaiveDate;
@@ -100,9 +99,9 @@ pub fn fcs_read_raw_dataset_with_keywords(
     p: path::PathBuf,
     version: Version,
     std: &StdKeywords,
-    conf: &DataReadConfig,
     data_seg: HeaderDataSegment,
     analysis_seg: HeaderAnalysisSegment,
+    conf: &DataReadConfig,
 ) -> IOTerminalResult<
     RawDatasetWithKwsOutput,
     ReadRawDatasetWarning,
@@ -124,11 +123,10 @@ pub fn fcs_read_raw_dataset_with_keywords(
 pub fn fcs_read_std_dataset_with_keywords(
     p: &path::PathBuf,
     version: Version,
-    mut std: StdKeywords,
-    nonstd: NonStdKeywords,
-    conf: &DataReadConfig,
+    mut kws: ValidKeywords,
     data_seg: HeaderDataSegment,
     analysis_seg: HeaderAnalysisSegment,
+    conf: &DataReadConfig,
 ) -> IOTerminalResult<
     StdDatasetWithKwsOutput,
     StdDatasetFromRawWarning,
@@ -144,8 +142,8 @@ pub fn fcs_read_std_dataset_with_keywords(
             AnyCoreDataset::parse_raw(
                 &mut h,
                 version,
-                &mut std,
-                nonstd,
+                &mut kws.std,
+                kws.nonstd,
                 data_seg,
                 analysis_seg,
                 conf,
@@ -156,7 +154,7 @@ pub fn fcs_read_std_dataset_with_keywords(
                     data_seg: d_seg,
                     analysis_seg: a_seg,
                 },
-                deviant: std,
+                deviant: kws.std,
             })
         })
         .def_terminate(StdDatasetWithKwsFailure)

@@ -3,7 +3,7 @@
 FCS (flow cytometry standard) files are the canonical format for storing data
 produced by flow cytometers.
 
-Supported FCS versions
+Supported FCS versions:
 
 * 2.0
 * 3.0

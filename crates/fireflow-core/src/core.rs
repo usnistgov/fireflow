@@ -660,6 +660,58 @@ pub struct GatedMeasurement {
     pub detector_voltage: OptionalKw<GateDetectorVoltage>,
 }
 
+pub struct UnivariateRegion<I> {
+    pub gate: UniGate,
+    pub index: I,
+}
+
+pub struct BivariateRegion<I> {
+    pub vertices: NonEmpty<Vertex>,
+    pub x_index: I,
+    pub y_index: I,
+}
+
+pub struct Vertex {
+    pub x: FloatOrInt,
+    pub y: FloatOrInt,
+}
+
+pub struct UniGate {
+    pub lower: FloatOrInt,
+    pub upper: FloatOrInt,
+}
+
+impl From<GatePair> for UniGate {
+    fn from(value: GatePair) -> Self {
+        Self {
+            lower: value.x,
+            upper: value.y,
+        }
+    }
+}
+
+impl From<GatePair> for Vertex {
+    fn from(value: GatePair) -> Self {
+        Self {
+            x: value.x,
+            y: value.y,
+        }
+    }
+}
+
+pub enum GateRegion<I> {
+    Univariate(UnivariateRegion<I>),
+    Bivariate(BivariateRegion<I>),
+}
+
+pub type GateRegion2_0 = GateRegion<u32>;
+pub type GateRegion3_0 = GateRegion<RegionLink>;
+
+pub struct RegionLink {
+    pub index: u32,
+    pub is_gate: bool,
+}
+
 /// A bundle for $PKn and $PKNn (2.0-3.1)
 ///
 /// It makes little sense to have only one of these since they both collectively

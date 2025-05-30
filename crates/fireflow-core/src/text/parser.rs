@@ -1,6 +1,4 @@
-use crate::core::{
-    CarrierData, GatedMeasurement, ModificationData, PeakData, PlateData, SubsetData, UnstainedData,
-};
+use crate::core::*;
 use crate::error::*;
 use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
 use crate::validated::nonstandard::*;
@@ -290,6 +288,105 @@ pub(crate) fn lookup_gated_measurement<E>(
     )
 }
 
+pub(crate) fn lookup_gate_region_2_0<E>(
+    kws: &mut StdKeywords,
+    i: MeasIdx,
+) -> LookupTentative<OptionalKw<GateRegion2_0>, E> {
+    // query the keywords read-only at first since we want to remove both only
+    // if they are valid
+    let n = process_opt(GateRegionIndex2_0::get_meas_opt(kws, i));
+    let w = process_opt(GateRegionWindow::get_meas_opt(kws, i));
+    n.zip(w)
+        .map(|(x, y)| x.0.zip(y.0))
+        .and_tentatively(|maybe| {
+            if let Some((gi, win)) = maybe {
+                match (gi.0, win) {
+                    (GateRegionIndex::Univariate(index), GateRegionWindow::Univariate(pair)) => {
+                        Tentative::new1(Some(GateRegion::Univariate(UnivariateRegion {
+                            index,
+                            gate: pair.into(),
+                        })))
+                    }
+                    (
+                        GateRegionIndex::Bivariate(x_index, y_index),
+                        GateRegionWindow::Bivariate(pairs),
+                    ) => Tentative::new1(Some(GateRegion::Bivariate(BivariateRegion {
+                        x_index,
+                        y_index,
+                        vertices: pairs.map(|p| p.into()),
+                    }))),
+                    _ => {
+                        let warn = ParseOtherWarning::GateRegion(InvalidGateRegion).into();
+                        Tentative::new(None, vec![warn], vec![])
+                    }
+                }
+            } else {
+                Tentative::new1(None)
+            }
+        })
+        .map(|ret| {
+            // remove both if we succeeded
+            if ret.is_some() {
+                let _ = kws.remove(&GateRegionIndex2_0::std(i));
+                let _ = kws.remove(&GateRegionWindow::std(i));
+            }
+            ret.into()
+        })
+}
+
+pub(crate) fn lookup_gate_region_3_0<E>(
+    kws: &mut StdKeywords,
+    i: MeasIdx,
+) -> LookupTentative<OptionalKw<GateRegion3_0>, E> {
+    // query the keywords read-only at first since we want to remove both only
+    // if they are valid
+    let n = process_opt(GateRegionIndex3_0::get_meas_opt(kws, i));
+    let w = process_opt(GateRegionWindow::get_meas_opt(kws, i));
+    n.zip(w)
+        .map(|(x, y)| x.0.zip(y.0))
+        .and_tentatively(|maybe| {
+            if let Some((gi, win)) = maybe {
+                let is_gate = gi.is_gate;
+                match (gi.index, win) {
+                    (GateRegionIndex::Univariate(index), GateRegionWindow::Univariate(pair)) => {
+                        Tentative::new1(Some(GateRegion::Univariate(UnivariateRegion {
+                            index: RegionLink { index, is_gate },
+                            gate: pair.into(),
+                        })))
+                    }
+                    (
+                        GateRegionIndex::Bivariate(x_index, y_index),
+                        GateRegionWindow::Bivariate(pairs),
+                    ) => Tentative::new1(Some(GateRegion::Bivariate(BivariateRegion {
+                        x_index: RegionLink {
+                            index: x_index,
+                            is_gate,
+                        },
+                        y_index: RegionLink {
+                            index: y_index,
+                            is_gate,
+                        },
+                        vertices: pairs.map(|p| p.into()),
+                    }))),
+                    _ => {
+                        let warn = ParseOtherWarning::GateRegion(InvalidGateRegion).into();
+                        Tentative::new(None, vec![warn], vec![])
+                    }
+                }
+            } else {
+                Tentative::new1(None)
+            }
+        })
+        .map(|ret| {
+            // remove both if we succeeded
+            if ret.is_some() {
+                let _ = kws.remove(&GateRegionIndex3_0::std(i));
+                let _ = kws.remove(&GateRegionWindow::std(i));
+            }
+            ret.into()
+        })
+}
+
 pub(crate) fn lookup_temporal_gain_3_0(
     kws: &mut StdKeywords,
     i: MeasIdx,
@@ -377,35 +474,38 @@ enum_from_disp!(
 
 enum_from_disp!(
     pub ParseOptKeyWarning,
-    [NumType,          ParseKeyError<NumTypeError>],
-    [Trigger,          ParseKeyError<TriggerError>],
-    [OptScale,         ParseKeyError<ScaleError>],
-    [OptFloat,         ParseKeyError<ParseFloatError>],
-    [OptRangedFloat,   ParseKeyError<RangedFloatError>],
-    [Feature,          ParseKeyError<FeatureError>],
-    [Wavelengths,      ParseKeyError<WavelengthsError>],
-    [Calibration3_1,   ParseKeyError<CalibrationError<CalibrationFormat3_1>>],
-    [Calibration3_2,   ParseKeyError<CalibrationError<CalibrationFormat3_2>>],
-    [OptInt,           ParseKeyError<ParseIntError>],
-    [OptString,        ParseKeyError<Infallible>],
-    [FCSDate,          ParseKeyError<FCSDateError>],
-    [FCSTime,          ParseKeyError<FCSTimeError>],
-    [FCSTime60,        ParseKeyError<FCSTime60Error>],
-    [FCSTime100,       ParseKeyError<FCSTime100Error>],
-    [FCSDateTime,      ParseKeyError<FCSDateTimeError>],
-    [ModifiedDateTime, ParseKeyError<ModifiedDateTimeError>],
-    [Originality,      ParseKeyError<OriginalityError>],
-    [UnstainedCenter,  ParseKeyError<ParseUnstainedCenterError>],
-    [Mode3_2,          ParseKeyError<Mode3_2Error>],
-    [TemporalType,     ParseKeyError<TemporalTypeError>],
-    [OpticalType,      ParseKeyError<OpticalTypeError>],
-    [OptShortname,     ParseKeyError<ShortnameError>],
-    [Display,          ParseKeyError<DisplayError>],
-    [Unicode,          ParseKeyError<UnicodeError>],
-    [Spillover,        ParseKeyError<ParseSpilloverError>],
-    [Compensation,     ParseKeyError<ParseCompError>],
-    [FloatOrInt,       ParseKeyError<ParseFloatOrIntError>],
-    [CompShape,        NewCompError]
+    [NumType,            ParseKeyError<NumTypeError>],
+    [Trigger,            ParseKeyError<TriggerError>],
+    [OptScale,           ParseKeyError<ScaleError>],
+    [OptFloat,           ParseKeyError<ParseFloatError>],
+    [OptRangedFloat,     ParseKeyError<RangedFloatError>],
+    [Feature,            ParseKeyError<FeatureError>],
+    [Wavelengths,        ParseKeyError<WavelengthsError>],
+    [Calibration3_1,     ParseKeyError<CalibrationError<CalibrationFormat3_1>>],
+    [Calibration3_2,     ParseKeyError<CalibrationError<CalibrationFormat3_2>>],
+    [OptInt,             ParseKeyError<ParseIntError>],
+    [OptString,          ParseKeyError<Infallible>],
+    [FCSDate,            ParseKeyError<FCSDateError>],
+    [FCSTime,            ParseKeyError<FCSTimeError>],
+    [FCSTime60,          ParseKeyError<FCSTime60Error>],
+    [FCSTime100,         ParseKeyError<FCSTime100Error>],
+    [FCSDateTime,        ParseKeyError<FCSDateTimeError>],
+    [ModifiedDateTime,   ParseKeyError<ModifiedDateTimeError>],
+    [Originality,        ParseKeyError<OriginalityError>],
+    [UnstainedCenter,    ParseKeyError<ParseUnstainedCenterError>],
+    [Mode3_2,            ParseKeyError<Mode3_2Error>],
+    [TemporalType,       ParseKeyError<TemporalTypeError>],
+    [OpticalType,        ParseKeyError<OpticalTypeError>],
+    [OptShortname,       ParseKeyError<ShortnameError>],
+    [Display,            ParseKeyError<DisplayError>],
+    [Unicode,            ParseKeyError<UnicodeError>],
+    [Spillover,          ParseKeyError<ParseSpilloverError>],
+    [Compensation,       ParseKeyError<ParseCompError>],
+    [FloatOrInt,         ParseKeyError<ParseFloatOrIntError>],
+    [GateRegionIndex2_0, ParseKeyError<GateRegionIndex2_0Error>],
+    [GateRegionIndex3_0, ParseKeyError<GateRegionIndex3_0Error>],
+    [GateRegionWindow,   ParseKeyError<GatePairError>],
+    [CompShape,          NewCompError]
 );
 
 enum_from_disp!(
@@ -425,7 +525,8 @@ pub enum TemporalError {
 enum_from_disp!(
     pub ParseOtherWarning,
     [Timestamp, InvalidTimestamps],
-    [Datetime, InvalidDatetimes]
+    [Datetime, InvalidDatetimes],
+    [GateRegion, InvalidGateRegion]
 );
 
 pub struct DepKeyWarning(pub StdKey);
@@ -434,6 +535,17 @@ pub enum DepFeatureWarning {
     DatatypeASCII,
     ModeCorrelated,
     ModeUncorrelated,
+}
+
+pub struct InvalidGateRegion;
+
+impl fmt::Display for InvalidGateRegion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "values for $RnI and $RnW must both be univariate or bivariate"
+        )
+    }
 }
 
 impl fmt::Display for DepFeatureWarning {

@@ -22,7 +22,6 @@ use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::fmt;
-use std::marker::PhantomData;
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::FromStr;
 
@@ -774,48 +773,48 @@ impl fmt::Display for FeatureError {
 
 /// The value of the $RnI key (2.0)
 #[derive(Clone, Copy, Serialize)]
-pub struct GateRegion2_0(pub GateRegionLink);
+pub(crate) struct GateRegionIndex2_0(pub(crate) GateRegionIndex);
 
-newtype_from!(GateRegion2_0, GateRegionLink);
-newtype_from_outer!(GateRegion2_0, GateRegionLink);
+newtype_from!(GateRegionIndex2_0, GateRegionIndex);
+newtype_from_outer!(GateRegionIndex2_0, GateRegionIndex);
 
 #[derive(Clone, Copy, Serialize)]
-pub enum GateRegionLink {
+pub(crate) enum GateRegionIndex {
     Univariate(u32),
     Bivariate(u32, u32),
 }
 
-impl FromStr for GateRegion2_0 {
-    type Err = GateRegion2_0Error;
+impl FromStr for GateRegionIndex2_0 {
+    type Err = GateRegionIndex2_0Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.split(",").collect::<Vec<_>>()[..] {
             [x] => x
                 .parse()
-                .map(|a| GateRegionLink::Univariate(a).into())
+                .map(|a| GateRegionIndex::Univariate(a).into())
                 .map_err(GateRegionError::Int),
             [x, y] => x
                 .parse()
-                .and_then(|a| y.parse().map(|b| GateRegionLink::Bivariate(a, b).into()))
+                .and_then(|a| y.parse().map(|b| GateRegionIndex::Bivariate(a, b).into()))
                 .map_err(GateRegionError::Int),
             _ => Err(GateRegionError::Format(GateRegionFormat2_0)),
         }
     }
 }
 
-impl fmt::Display for GateRegion2_0 {
+impl fmt::Display for GateRegionIndex2_0 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self.0 {
-            GateRegionLink::Univariate(x) => write!(f, "{x}"),
-            GateRegionLink::Bivariate(x, y) => write!(f, "{x},{y}"),
+            GateRegionIndex::Univariate(x) => write!(f, "{x}"),
+            GateRegionIndex::Bivariate(x, y) => write!(f, "{x},{y}"),
         }
     }
 }
 
-pub type GateRegion2_0Error = GateRegionError<GateRegionFormat2_0>;
-pub type GateRegion3_0Error = GateRegionError<GateRegionFormat3_0>;
+pub(crate) type GateRegionIndex2_0Error = GateRegionError<GateRegionFormat2_0>;
+pub(crate) type GateRegionIndex3_0Error = GateRegionError<GateRegionFormat3_0>;
 
-pub enum GateRegionError<F> {
+pub(crate) enum GateRegionError<F> {
     Format(F),
     Int(ParseIntError),
 }
@@ -832,7 +831,7 @@ where
     }
 }
 
-pub struct GateRegionFormat2_0;
+pub(crate) struct GateRegionFormat2_0;
 
 impl fmt::Display for GateRegionFormat2_0 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -840,18 +839,18 @@ impl fmt::Display for GateRegionFormat2_0 {
     }
 }
 
-/// The value of the $RnI key (3.0 and 3.1)
+/// The value of the $RnI key (3.0-3.2)
 #[derive(Clone, Copy, Serialize)]
-pub struct GateRegion3_0 {
+pub(crate) struct GateRegionIndex3_0 {
     /// Numeric links to gates
-    pub link: GateRegionLink,
+    pub(crate) index: GateRegionIndex,
 
     /// True if link points to $Gm* keys, false for $Pn* keys.
-    pub is_gate: bool,
+    pub(crate) is_gate: bool,
 }
 
-impl FromStr for GateRegion3_0 {
-    type Err = GateRegion3_0Error;
+impl FromStr for GateRegionIndex3_0 {
+    type Err = GateRegionIndex3_0Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let go = |sub: &str| {
@@ -872,14 +871,14 @@ impl FromStr for GateRegion3_0 {
         };
         match s.split(",").collect::<Vec<_>>()[..] {
             [x] => go(x).map(|(a, is_gate)| Self {
-                link: GateRegionLink::Univariate(a),
+                index: GateRegionIndex::Univariate(a),
                 is_gate,
             }),
             [x, y] => go(x).and_then(|(a, a_is_gate)| {
                 go(y).and_then(|(b, b_is_gate)| {
                     if a_is_gate == b_is_gate {
                         Ok(Self {
-                            link: GateRegionLink::Bivariate(a, b),
+                            index: GateRegionIndex::Bivariate(a, b),
                             is_gate: a_is_gate,
                         })
                     } else {
@@ -892,7 +891,17 @@ impl FromStr for GateRegion3_0 {
     }
 }
 
-pub struct GateRegionFormat3_0;
+impl fmt::Display for GateRegionIndex3_0 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let prefix = if self.is_gate { "G" } else { "P" };
+        match self.index {
+            GateRegionIndex::Univariate(x) => write!(f, "{prefix}{x}"),
+            GateRegionIndex::Bivariate(x, y) => write!(f, "{prefix}{x},{prefix}{y}"),
+        }
+    }
+}
+
+pub(crate) struct GateRegionFormat3_0;
 
 impl fmt::Display for GateRegionFormat3_0 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -900,6 +909,77 @@ impl fmt::Display for GateRegionFormat3_0 {
             f,
             "must be string like 'Xn' or 'Xn1,Xn2' where X is either 'P' or 'G'"
         )
+    }
+}
+
+/// The value of the RnW key (3.0-3.2)
+///
+/// This is meant to be used internally to construct a higher-level abstraction
+/// over the gating keywords.
+pub(crate) enum GateRegionWindow {
+    Univariate(GatePair),
+    Bivariate(NonEmpty<GatePair>),
+}
+
+impl FromStr for GateRegionWindow {
+    type Err = GatePairError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // ASSUME split will always contain one element
+        let ss = NonEmpty::collect(s.split(";")).unwrap();
+        if ss.tail.is_empty() {
+            ss.head.parse().map(GateRegionWindow::Univariate)
+        } else {
+            ss.try_map(|sub| sub.parse()).map(Self::Bivariate)
+        }
+    }
+}
+
+impl fmt::Display for GateRegionWindow {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::Univariate(x) => x.fmt(f),
+            Self::Bivariate(xs) => write!(f, "{}", xs.iter().join(";")),
+        }
+    }
+}
+
+pub(crate) struct GatePair {
+    pub(crate) x: FloatOrInt,
+    pub(crate) y: FloatOrInt,
+}
+
+impl FromStr for GatePair {
+    type Err = GatePairError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.split(",").collect::<Vec<_>>()[..] {
+            [a, b] => a
+                .parse()
+                .and_then(|x| b.parse().map(|y| GatePair { x, y }))
+                .map_err(GatePairError::Num),
+            _ => Err(GatePairError::Format),
+        }
+    }
+}
+
+impl fmt::Display for GatePair {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{},{}", self.x, self.y)
+    }
+}
+
+pub(crate) enum GatePairError {
+    Num(ParseFloatOrIntError),
+    Format,
+}
+
+impl fmt::Display for GatePairError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::Num(e) => e.fmt(f),
+            Self::Format => write!(f, "must be a string like 'f1,f2;[f3,f4;...]'"),
+        }
     }
 }
 
@@ -1387,6 +1467,16 @@ macro_rules! kw_opt_gate_string {
     };
 }
 
+macro_rules! kw_opt_region {
+    ($t:ident, $sfx:expr) => {
+        impl IndexedKey for $t {
+            const PREFIX: &'static str = "R";
+            const SUFFIX: &'static str = $sfx;
+        }
+        opt_meas!($t);
+    };
+}
+
 // all versions
 kw_req_meta!(AlphaNumType, "DATATYPE");
 kw_opt_meta_int!(Abrt, u32, "ABRT");
@@ -1551,6 +1641,10 @@ kw_opt_gate_string!(GateShortname, "N");
 kw_opt_gate_string!(GateLongname, "S");
 kw_opt_gate_string!(GateDetectorType, "T");
 kw_opt_gate!(GateDetectorVoltage, "V");
+
+kw_opt_region!(GateRegionIndex2_0, "I");
+kw_opt_region!(GateRegionIndex3_0, "I");
+kw_opt_region!(GateRegionWindow, "W");
 
 // offsets for all versions
 kw_req_meta_int!(Beginanalysis, u32, "BEGINANALYSIS");

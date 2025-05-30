@@ -89,15 +89,15 @@ pub(crate) type ReqSegResult<T> =
 pub(crate) type OptSegTentative<T> =
     Tentative<AnySegment<T>, OptSegmentWithDefaultWarning<T>, SegmentMismatchWarning<T>>;
 
-/// Operations to obtain segment from TEXT keywords
-pub(crate) trait LookupSegment
+/// Operations to obtain required segment from TEXT keywords
+pub(crate) trait LookupReqSegment
 where
     Self: Sized,
     Self: HasRegion,
     Self::B: Into<u32>,
     Self::E: Into<u32>,
-    Self::B: Key,
-    Self::E: Key,
+    Self::B: ReqMetaKey,
+    Self::E: ReqMetaKey,
     Self::B: FromStr<Err = ParseIntError>,
     Self::E: FromStr<Err = ParseIntError>,
     <Self::B as FromStr>::Err: fmt::Display,
@@ -106,7 +106,7 @@ where
     type B;
     type E;
 
-    fn get_req_or(
+    fn get_or(
         kws: &StdKeywords,
         corr: TEXTCorrection<Self>,
         default: HeaderSegment<Self>,
@@ -115,37 +115,16 @@ where
     ) -> ReqSegResult<Self>
     where
         Self: Copy,
-        Self::B: ReqMetaKey,
-        Self::E: ReqMetaKey,
     {
-        let res = Self::get_req(kws, corr).def_map_errors(ReqSegmentWithDefaultError::Req);
-        Self::req_default_or(res, default, enforce_lookup, enforce_match)
+        let res = Self::get(kws, corr).def_map_errors(ReqSegmentWithDefaultError::Req);
+        Self::default_or(res, default, enforce_lookup, enforce_match)
     }
 
-    fn get_opt_or(
+    fn get<W>(
         kws: &StdKeywords,
         corr: TEXTCorrection<Self>,
-        default: HeaderSegment<Self>,
-        enforce: bool,
-    ) -> OptSegTentative<Self>
-    where
-        Self: Copy,
-        Self::B: OptMetaKey,
-        Self::E: OptMetaKey,
-    {
-        let res = Self::get_opt(kws, corr).map_warnings(OptSegmentWithDefaultWarning::Opt);
-        Self::opt_default_or(res, default, enforce)
-    }
-
-    fn get_req<W>(
-        kws: &StdKeywords,
-        corr: TEXTCorrection<Self>,
-    ) -> DeferredResult<TEXTSegment<Self>, W, ReqSegmentError>
-    where
-        Self::B: ReqMetaKey,
-        Self::E: ReqMetaKey,
-    {
-        Self::get_req_pair(kws)
+    ) -> DeferredResult<TEXTSegment<Self>, W, ReqSegmentError> {
+        Self::get_pair(kws)
             .map_err(|es| es.map(|e| e.into()))
             .and_then(|(y0, y1)| {
                 SpecificSegment::try_new(y0.into(), y1.into(), corr).into_mult::<ReqSegmentError>()
@@ -153,27 +132,7 @@ where
             .mult_to_deferred()
     }
 
-    fn get_opt<E>(
-        kws: &StdKeywords,
-        corr: TEXTCorrection<Self>,
-    ) -> Tentative<Option<TEXTSegment<Self>>, OptSegmentError, E>
-    where
-        Self::B: OptMetaKey,
-        Self::E: OptMetaKey,
-    {
-        Self::get_opt_pair(kws)
-            .map_err(|es| es.map(|e| e.into()))
-            .and_then(|x| {
-                x.map(|(z0, z1)| SpecificSegment::try_new(z0.into(), z1.into(), corr).into_mult())
-                    .transpose()
-            })
-            .map_or_else(
-                |ws| Tentative::new(None, ws.into(), vec![]),
-                Tentative::new1,
-            )
-    }
-
-    fn remove_req_or(
+    fn remove_or(
         kws: &mut StdKeywords,
         corr: TEXTCorrection<Self>,
         default: HeaderSegment<Self>,
@@ -182,75 +141,30 @@ where
     ) -> ReqSegResult<Self>
     where
         Self: Copy,
-        Self::B: ReqMetaKey,
-        Self::E: ReqMetaKey,
     {
-        let res = Self::remove_req(kws, corr).def_map_errors(ReqSegmentWithDefaultError::Req);
-        Self::req_default_or(res, default, enforce_lookup, enforce_match)
+        let res = Self::remove(kws, corr).def_map_errors(ReqSegmentWithDefaultError::Req);
+        Self::default_or(res, default, enforce_lookup, enforce_match)
     }
 
-    fn remove_opt_or(
+    fn remove<W>(
         kws: &mut StdKeywords,
         corr: TEXTCorrection<Self>,
-        default: HeaderSegment<Self>,
-        enforce: bool,
-    ) -> OptSegTentative<Self>
-    where
-        Self: Copy,
-        Self::B: OptMetaKey,
-        Self::E: OptMetaKey,
-    {
-        let res = Self::remove_opt(kws, corr).map_warnings(OptSegmentWithDefaultWarning::Opt);
-        Self::opt_default_or(res, default, enforce)
+    ) -> DeferredResult<TEXTSegment<Self>, W, ReqSegmentError> {
+        Self::remove_mult(kws, corr).mult_to_deferred()
     }
 
-    fn remove_req<W>(
+    fn remove_mult(
         kws: &mut StdKeywords,
         corr: TEXTCorrection<Self>,
-    ) -> DeferredResult<TEXTSegment<Self>, W, ReqSegmentError>
-    where
-        Self::B: ReqMetaKey,
-        Self::E: ReqMetaKey,
-    {
-        Self::remove_req_mult(kws, corr).mult_to_deferred()
-    }
-
-    fn remove_req_mult(
-        kws: &mut StdKeywords,
-        corr: TEXTCorrection<Self>,
-    ) -> MultiResult<TEXTSegment<Self>, ReqSegmentError>
-    where
-        Self::B: ReqMetaKey,
-        Self::E: ReqMetaKey,
-    {
-        Self::remove_req_pair(kws)
+    ) -> MultiResult<TEXTSegment<Self>, ReqSegmentError> {
+        Self::remove_pair(kws)
             .map_err(|es| es.map(|e| e.into()))
             .and_then(|(y0, y1)| {
                 SpecificSegment::try_new(y0.into(), y1.into(), corr).into_mult::<ReqSegmentError>()
             })
     }
 
-    fn remove_opt<E>(
-        kws: &mut StdKeywords,
-        corr: TEXTCorrection<Self>,
-    ) -> Tentative<Option<TEXTSegment<Self>>, OptSegmentError, E>
-    where
-        Self::B: OptMetaKey,
-        Self::E: OptMetaKey,
-    {
-        Self::remove_opt_pair(kws)
-            .map_err(|es| es.map(|e| e.into()))
-            .and_then(|x| {
-                x.map(|(z0, z1)| SpecificSegment::try_new(z0.into(), z1.into(), corr).into_mult())
-                    .transpose()
-            })
-            .map_or_else(
-                |ws| Tentative::new(None, ws.into(), vec![]),
-                Tentative::new1,
-            )
-    }
-
-    fn req_default_or(
+    fn default_or(
         res: DeferredResult<
             TEXTSegment<Self>,
             ReqSegmentWithDefaultWarning<Self>,
@@ -284,7 +198,99 @@ where
         )
     }
 
-    fn opt_default_or(
+    fn get_pair(kws: &StdKeywords) -> MultiResult<(Self::B, Self::E), ReqKeyError<ParseIntError>> {
+        let x0 = Self::B::get_meta_req(kws);
+        let x1 = Self::E::get_meta_req(kws);
+        x0.zip(x1)
+    }
+
+    fn remove_pair(
+        kws: &mut StdKeywords,
+    ) -> MultiResult<(Self::B, Self::E), ReqKeyError<ParseIntError>> {
+        let x0 = Self::B::remove_meta_req(kws);
+        let x1 = Self::E::remove_meta_req(kws);
+        x0.zip(x1)
+    }
+}
+
+/// Operations to obtain optional segment from TEXT keywords
+pub(crate) trait LookupOptSegment
+where
+    Self: Sized,
+    Self: HasRegion,
+    Self::B: Into<u32>,
+    Self::E: Into<u32>,
+    Self::B: OptMetaKey,
+    Self::E: OptMetaKey,
+    Self::B: FromStr<Err = ParseIntError>,
+    Self::E: FromStr<Err = ParseIntError>,
+    <Self::B as FromStr>::Err: fmt::Display,
+    <Self::E as FromStr>::Err: fmt::Display,
+{
+    type B;
+    type E;
+
+    fn get_or(
+        kws: &StdKeywords,
+        corr: TEXTCorrection<Self>,
+        default: HeaderSegment<Self>,
+        enforce: bool,
+    ) -> OptSegTentative<Self>
+    where
+        Self: Copy,
+        Self::B: OptMetaKey,
+        Self::E: OptMetaKey,
+    {
+        let res = Self::get(kws, corr).map_warnings(OptSegmentWithDefaultWarning::Opt);
+        Self::default_or(res, default, enforce)
+    }
+
+    fn get<E>(
+        kws: &StdKeywords,
+        corr: TEXTCorrection<Self>,
+    ) -> Tentative<Option<TEXTSegment<Self>>, OptSegmentError, E> {
+        Self::get_pair(kws)
+            .map_err(|es| es.map(|e| e.into()))
+            .and_then(|x| {
+                x.map(|(z0, z1)| SpecificSegment::try_new(z0.into(), z1.into(), corr).into_mult())
+                    .transpose()
+            })
+            .map_or_else(
+                |ws| Tentative::new(None, ws.into(), vec![]),
+                Tentative::new1,
+            )
+    }
+
+    fn remove_or(
+        kws: &mut StdKeywords,
+        corr: TEXTCorrection<Self>,
+        default: HeaderSegment<Self>,
+        enforce: bool,
+    ) -> OptSegTentative<Self>
+    where
+        Self: Copy,
+    {
+        let res = Self::remove(kws, corr).map_warnings(OptSegmentWithDefaultWarning::Opt);
+        Self::default_or(res, default, enforce)
+    }
+
+    fn remove<E>(
+        kws: &mut StdKeywords,
+        corr: TEXTCorrection<Self>,
+    ) -> Tentative<Option<TEXTSegment<Self>>, OptSegmentError, E> {
+        Self::remove_pair(kws)
+            .map_err(|es| es.map(|e| e.into()))
+            .and_then(|x| {
+                x.map(|(z0, z1)| SpecificSegment::try_new(z0.into(), z1.into(), corr).into_mult())
+                    .transpose()
+            })
+            .map_or_else(
+                |ws| Tentative::new(None, ws.into(), vec![]),
+                Tentative::new1,
+            )
+    }
+
+    fn default_or(
         res: Tentative<
             Option<TEXTSegment<Self>>,
             OptSegmentWithDefaultWarning<Self>,
@@ -306,51 +312,19 @@ where
         })
     }
 
-    fn get_req_pair(
-        kws: &StdKeywords,
-    ) -> MultiResult<(Self::B, Self::E), ReqKeyError<ParseIntError>>
-    where
-        Self::B: ReqMetaKey,
-        Self::E: ReqMetaKey,
-    {
-        let x0 = Self::B::get_meta_req(kws);
-        let x1 = Self::E::get_meta_req(kws);
-        x0.zip(x1)
-    }
-
-    fn remove_req_pair(
-        kws: &mut StdKeywords,
-    ) -> MultiResult<(Self::B, Self::E), ReqKeyError<ParseIntError>>
-    where
-        Self::B: ReqMetaKey,
-        Self::E: ReqMetaKey,
-    {
-        let x0 = Self::B::remove_meta_req(kws);
-        let x1 = Self::E::remove_meta_req(kws);
-        x0.zip(x1)
-    }
-
     #[allow(clippy::type_complexity)]
-    fn get_opt_pair(
+    fn get_pair(
         kws: &StdKeywords,
-    ) -> MultiResult<Option<(Self::B, Self::E)>, ParseKeyError<ParseIntError>>
-    where
-        Self::B: OptMetaKey,
-        Self::E: OptMetaKey,
-    {
+    ) -> MultiResult<Option<(Self::B, Self::E)>, ParseKeyError<ParseIntError>> {
         let x0 = Self::B::get_meta_opt(kws).map(|x| x.0);
         let x1 = Self::E::get_meta_opt(kws).map(|x| x.0);
         x0.zip(x1).map(|(x, y)| x.zip(y))
     }
 
     #[allow(clippy::type_complexity)]
-    fn remove_opt_pair(
+    fn remove_pair(
         kws: &mut StdKeywords,
-    ) -> MultiResult<Option<(Self::B, Self::E)>, ParseKeyError<ParseIntError>>
-    where
-        Self::B: OptMetaKey,
-        Self::E: OptMetaKey,
-    {
+    ) -> MultiResult<Option<(Self::B, Self::E)>, ParseKeyError<ParseIntError>> {
         let x0 = Self::B::remove_meta_opt(kws).map(|x| x.0);
         let x1 = Self::E::remove_meta_opt(kws).map(|x| x.0);
         x0.zip(x1).map(|(x, y)| x.zip(y))
@@ -367,17 +341,27 @@ pub trait HasRegion {
     const REGION: &'static str;
 }
 
-impl LookupSegment for AnalysisSegmentId {
+impl LookupReqSegment for AnalysisSegmentId {
     type B = Beginanalysis;
     type E = Endanalysis;
 }
 
-impl LookupSegment for DataSegmentId {
+impl LookupOptSegment for AnalysisSegmentId {
+    type B = Beginanalysis;
+    type E = Endanalysis;
+}
+
+impl LookupReqSegment for DataSegmentId {
     type B = Begindata;
     type E = Enddata;
 }
 
-impl LookupSegment for SupplementalTextSegmentId {
+impl LookupReqSegment for SupplementalTextSegmentId {
+    type B = Beginstext;
+    type E = Endstext;
+}
+
+impl LookupOptSegment for SupplementalTextSegmentId {
     type B = Beginstext;
     type E = Endstext;
 }

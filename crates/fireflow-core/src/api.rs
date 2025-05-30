@@ -981,12 +981,12 @@ fn lookup_stext_offsets(
 ) -> Tentative<Option<SupplementalTextSegment>, STextSegmentWarning, ReqSegmentError> {
     match version {
         Version::FCS2_0 => Tentative::new1(None),
-        Version::FCS3_0 | Version::FCS3_1 => LookupSegment::remove_req_mult(kws, conf.stext)
+        Version::FCS3_0 | Version::FCS3_1 => LookupReqSegment::remove_mult(kws, conf.stext)
             .map_or_else(
                 |es| Tentative::new_either(None, es.into(), conf.enforce_stext),
                 |t| Tentative::new1(Some(t)),
             ),
-        Version::FCS3_2 => LookupSegment::remove_opt(kws, conf.stext).warnings_into(),
+        Version::FCS3_2 => LookupOptSegment::remove(kws, conf.stext).warnings_into(),
     }
 }
 

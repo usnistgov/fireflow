@@ -8,11 +8,11 @@ use crate::segment::*;
 use crate::text::byteord::*;
 use crate::text::compensation::*;
 use crate::text::datetimes::*;
+use crate::text::float_or_int::*;
 use crate::text::keywords::*;
 use crate::text::named_vec::*;
 use crate::text::optionalkw::*;
 use crate::text::parser::*;
-use crate::text::range::*;
 use crate::text::scale::*;
 use crate::text::spillover::*;
 use crate::text::timestamps::*;
@@ -2995,7 +2995,7 @@ macro_rules! float_layout2_0 {
             let xs = rs
                 .into_iter()
                 .map(|r| Range::try_from(f64::from(r)))
-                .collect::<Result<Vec<Range>, NanRange>>()?;
+                .collect::<Result<Vec<Range>, NanFloatOrInt>>()?;
             self.set_to_floating_point(false, xs)?;
             Ok(())
         }
@@ -3005,7 +3005,7 @@ macro_rules! float_layout2_0 {
             let xs = rs
                 .into_iter()
                 .map(Range::try_from)
-                .collect::<Result<Vec<Range>, NanRange>>()?;
+                .collect::<Result<Vec<Range>, NanFloatOrInt>>()?;
             self.set_to_floating_point(true, xs)?;
             Ok(())
         }
@@ -3319,7 +3319,7 @@ impl<A, D> Core3_2<A, D> {
         let xs = rs
             .into_iter()
             .map(|r| Range::try_from(f64::from(r)))
-            .collect::<Result<Vec<Range>, NanRange>>()?;
+            .collect::<Result<Vec<Range>, NanFloatOrInt>>()?;
         self.set_to_floating_point_3_2(false, xs)?;
         Ok(())
     }
@@ -3329,7 +3329,7 @@ impl<A, D> Core3_2<A, D> {
         let xs = rs
             .into_iter()
             .map(Range::try_from)
-            .collect::<Result<Vec<Range>, NanRange>>()?;
+            .collect::<Result<Vec<Range>, NanFloatOrInt>>()?;
         self.set_to_floating_point_3_2(true, xs)?;
         Ok(())
     }
@@ -5625,7 +5625,7 @@ impl<X> AsRef<CommonMeasurement> for Temporal<X> {
 
 enum_from_disp!(
     pub SetFloatError,
-    [Nan, NanRange],
+    [Nan, NanFloatOrInt],
     [Length, KeyLengthError]
 );
 

@@ -9,10 +9,10 @@ use crate::validated::standard::*;
 use super::byteord::*;
 use super::compensation::*;
 use super::datetimes::*;
+use super::float_or_int::*;
 use super::keywords::*;
 use super::named_vec::*;
 use super::optionalkw::*;
-use super::range::*;
 use super::ranged_float::RangedFloatError;
 use super::scale::*;
 use super::spillover::*;
@@ -326,7 +326,7 @@ enum_from_disp!(
 
 enum_from_disp!(
     pub ParseReqKeyError,
-    [Range,          ReqKeyError<ParseRangeError>],
+    [Range,          ReqKeyError<ParseFloatOrIntError>],
     [AlphaNumType,   ReqKeyError<AlphaNumTypeError>],
     [String,         ReqKeyError<Infallible>],
     [Int,            ReqKeyError<ParseIntError>],

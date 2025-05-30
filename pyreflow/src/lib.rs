@@ -5,10 +5,10 @@ use fireflow_core::error::*;
 use fireflow_core::header::*;
 use fireflow_core::segment::*;
 use fireflow_core::text::byteord::*;
+use fireflow_core::text::float_or_int::*;
 use fireflow_core::text::keywords::*;
 use fireflow_core::text::named_vec::Element;
 use fireflow_core::text::optionalkw::*;
-use fireflow_core::text::range::*;
 use fireflow_core::text::ranged_float::*;
 use fireflow_core::text::scale::*;
 use fireflow_core::validated::dataframe::*;
@@ -1585,7 +1585,7 @@ macro_rules! common_methods {
             fn get_ranges<'py>(&self, py: Python<'py>) -> PyResult<Vec<Bound<'py, PyAny>>> {
                 let mut rs = vec![];
                 for r in self.0.ranges() {
-                    rs.push(range_to_any(r, py)?);
+                    rs.push(float_or_int_to_any(r.0, py)?);
                 }
                 Ok(rs)
             }
@@ -3034,7 +3034,7 @@ macro_rules! shared_meas_get_set {
 
                 #[getter]
                 fn range<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-                    range_to_any(self.0.common.range, py)
+                    float_or_int_to_any(self.0.common.range.0, py)
                 }
 
                 #[setter]
@@ -3376,10 +3376,10 @@ fn any_to_range(a: Bound<'_, PyAny>) -> PyResult<Range> {
         })
 }
 
-fn range_to_any(r: Range, py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
+fn float_or_int_to_any(r: FloatOrInt, py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
     match r {
-        Range::Float(x) => x.into_bound_py_any(py),
-        Range::Int(x) => x.into_bound_py_any(py),
+        FloatOrInt::Float(x) => x.into_bound_py_any(py),
+        FloatOrInt::Int(x) => x.into_bound_py_any(py),
     }
 }
 

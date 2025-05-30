@@ -6,9 +6,9 @@ use crate::validated::standard::*;
 use super::byteord::*;
 use super::compensation::*;
 use super::datetimes::*;
+use super::float_or_int::*;
 use super::named_vec::NameMapping;
 use super::optionalkw::*;
-use super::range::*;
 use super::ranged_float::*;
 use super::scale::*;
 use super::spillover::*;
@@ -771,6 +771,50 @@ impl fmt::Display for FeatureError {
     }
 }
 
+/// The value of the $PnR key
+#[derive(Clone, Copy, Serialize)]
+pub struct Range(pub FloatOrInt);
+
+newtype_from!(Range, FloatOrInt);
+newtype_from_outer!(Range, FloatOrInt);
+newtype_disp!(Range);
+newtype_fromstr!(Range, ParseFloatOrIntError);
+
+impl TryFrom<f64> for Range {
+    type Error = NanFloatOrInt;
+    fn try_from(value: f64) -> Result<Self, Self::Error> {
+        FloatOrInt::try_from(value).map(|x| x.into())
+    }
+}
+
+impl From<u64> for Range {
+    fn from(value: u64) -> Self {
+        FloatOrInt::from(value).into()
+    }
+}
+
+/// The value of the $GmR key
+#[derive(Clone, Copy, Serialize)]
+pub struct GateRange(pub FloatOrInt);
+
+newtype_from!(GateRange, FloatOrInt);
+newtype_from_outer!(GateRange, FloatOrInt);
+newtype_disp!(GateRange);
+newtype_fromstr!(GateRange, ParseFloatOrIntError);
+
+impl TryFrom<f64> for GateRange {
+    type Error = NanFloatOrInt;
+    fn try_from(value: f64) -> Result<Self, Self::Error> {
+        FloatOrInt::try_from(value).map(|x| x.into())
+    }
+}
+
+impl From<u64> for GateRange {
+    fn from(value: u64) -> Self {
+        FloatOrInt::from(value).into()
+    }
+}
+
 /// The value of the $PnV key
 #[derive(Clone, Copy, Serialize)]
 pub struct DetectorVoltage(pub NonNegFloat);
@@ -778,6 +822,22 @@ pub struct DetectorVoltage(pub NonNegFloat);
 newtype_from!(DetectorVoltage, NonNegFloat);
 newtype_disp!(DetectorVoltage);
 newtype_fromstr!(DetectorVoltage, RangedFloatError);
+
+/// The value of the $GmV key
+#[derive(Clone, Copy, Serialize)]
+pub struct GateDetectorVoltage(pub NonNegFloat);
+
+newtype_from!(GateDetectorVoltage, NonNegFloat);
+newtype_disp!(GateDetectorVoltage);
+newtype_fromstr!(GateDetectorVoltage, RangedFloatError);
+
+/// The value of the $GmE key
+#[derive(Clone, Copy, Serialize)]
+pub struct GateScale(pub Scale);
+
+newtype_from!(GateScale, Scale);
+newtype_disp!(GateScale);
+newtype_fromstr!(GateScale, ScaleError);
 
 /// The value of the $CSVnFLAG key (2.0-3.0)
 #[derive(Clone, Copy, Serialize)]
@@ -1178,6 +1238,23 @@ macro_rules! kw_time {
     };
 }
 
+macro_rules! kw_opt_gate {
+    ($t:ident, $sfx:expr) => {
+        impl IndexedKey for $t {
+            const PREFIX: &'static str = "G";
+            const SUFFIX: &'static str = $sfx;
+        }
+        opt_meas!($t);
+    };
+}
+
+macro_rules! kw_opt_gate_string {
+    ($t:ident, $sfx:expr) => {
+        newtype_string!($t);
+        kw_opt_gate!($t, $sfx);
+    };
+}
+
 // all versions
 kw_req_meta!(AlphaNumType, "DATATYPE");
 kw_opt_meta_int!(Abrt, u32, "ABRT");
@@ -1331,7 +1408,17 @@ impl IndexedKey for PeakNumber {
 impl Optional for PeakNumber {}
 impl OptMeasKey for PeakNumber {}
 
-// 2.0-3.1 histograms
+// 2.0-3.1 gating parameters
+kw_opt_meta_int!(Gate, u32, "GATE");
+
+kw_opt_gate!(GateScale, "E");
+kw_opt_gate_string!(GateFilter, "F");
+kw_opt_gate_string!(GatePercentEmitted, "P");
+kw_opt_gate!(GateRange, "R");
+kw_opt_gate_string!(GateShortname, "N");
+kw_opt_gate_string!(GateLongname, "S");
+kw_opt_gate_string!(GateDetectorType, "T");
+kw_opt_gate!(GateDetectorVoltage, "V");
 
 // offsets for all versions
 kw_req_meta_int!(Beginanalysis, u32, "BEGINANALYSIS");

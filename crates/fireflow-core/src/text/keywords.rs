@@ -788,7 +788,6 @@ pub(crate) trait Required {
     fn get_req<V>(kws: &StdKeywords, k: &StdKey) -> ReqResult<V>
     where
         V: FromStr,
-        <V as FromStr>::Err: fmt::Display,
     {
         get_req(kws, k)
     }
@@ -796,7 +795,6 @@ pub(crate) trait Required {
     fn remove_req<V>(kws: &mut StdKeywords, k: &StdKey) -> ReqResult<V>
     where
         V: FromStr,
-        <V as FromStr>::Err: fmt::Display,
     {
         remove_req(kws, k)
     }
@@ -806,7 +804,6 @@ pub(crate) trait Optional {
     fn get_opt<V>(kws: &StdKeywords, k: &StdKey) -> OptKwResult<V>
     where
         V: FromStr,
-        <V as FromStr>::Err: fmt::Display,
     {
         get_opt(kws, k).map(|x| x.into())
     }
@@ -817,7 +814,6 @@ pub(crate) trait Optional {
     ) -> Result<OptionalKw<V>, ParseKeyError<V::Err>>
     where
         V: FromStr,
-        <V as FromStr>::Err: fmt::Display,
     {
         remove_opt(kws, k).map(|x| x.into())
     }
@@ -829,7 +825,6 @@ where
     Self: fmt::Display,
     Self: Key,
     Self: FromStr,
-    <Self as FromStr>::Err: fmt::Display,
 {
     fn get_meta_req(kws: &StdKeywords) -> ReqResult<Self> {
         Self::get_req(kws, &Self::std())
@@ -850,7 +845,6 @@ where
     Self: fmt::Display,
     Self: IndexedKey,
     Self: FromStr,
-    <Self as FromStr>::Err: fmt::Display,
 {
     fn get_meas_req(kws: &StdKeywords, n: MeasIdx) -> ReqResult<Self> {
         Self::get_req(kws, &Self::std(n))
@@ -880,7 +874,6 @@ where
     Self: fmt::Display,
     Self: Key,
     Self: FromStr,
-    <Self as FromStr>::Err: fmt::Display,
 {
     fn get_meta_opt(kws: &StdKeywords) -> OptKwResult<Self> {
         Self::get_opt(kws, &Self::std())
@@ -904,7 +897,6 @@ where
     Self: fmt::Display,
     Self: IndexedKey,
     Self: FromStr,
-    <Self as FromStr>::Err: fmt::Display,
 {
     fn get_meas_opt(kws: &StdKeywords, n: MeasIdx) -> OptKwResult<Self> {
         Self::get_opt(kws, &Self::std(n))

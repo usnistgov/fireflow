@@ -66,7 +66,6 @@ pub type OptResult<T> = Result<Option<T>, ParseKeyError<<T as FromStr>::Err>>;
 pub(crate) fn get_req<T>(kws: &StdKeywords, k: &StdKey) -> ReqResult<T>
 where
     T: FromStr,
-    <T as FromStr>::Err: fmt::Display,
 {
     match kws.get(k) {
         Some(v) => v
@@ -85,7 +84,6 @@ where
 pub(crate) fn get_opt<T>(kws: &StdKeywords, k: &StdKey) -> OptResult<T>
 where
     T: FromStr,
-    <T as FromStr>::Err: fmt::Display,
 {
     kws.get(k)
         .map(|v| {
@@ -102,7 +100,6 @@ where
 pub(crate) fn remove_req<T>(kws: &mut StdKeywords, k: &StdKey) -> ReqResult<T>
 where
     T: FromStr,
-    <T as FromStr>::Err: fmt::Display,
 {
     match kws.remove(k) {
         Some(v) => v
@@ -121,7 +118,6 @@ where
 pub(crate) fn remove_opt<T>(kws: &mut StdKeywords, k: &StdKey) -> OptResult<T>
 where
     T: FromStr,
-    <T as FromStr>::Err: fmt::Display,
 {
     kws.remove(k)
         .map(|v| {

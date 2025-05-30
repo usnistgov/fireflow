@@ -33,7 +33,6 @@ pub(crate) fn lookup_meta_req<V>(kws: &mut StdKeywords) -> LookupResult<V>
 where
     V: ReqMetaKey,
     V: FromStr,
-    <V as FromStr>::Err: fmt::Display,
     ParseReqKeyError: From<ReqKeyError<<V as FromStr>::Err>>,
 {
     V::remove_meta_req(kws)
@@ -46,7 +45,6 @@ pub(crate) fn lookup_meas_req<V>(kws: &mut StdKeywords, n: MeasIdx) -> LookupRes
 where
     V: ReqMeasKey,
     V: FromStr,
-    <V as FromStr>::Err: fmt::Display,
     ParseReqKeyError: From<ReqKeyError<<V as FromStr>::Err>>,
 {
     V::remove_meas_req(kws, n)
@@ -62,7 +60,6 @@ pub(crate) fn lookup_meta_opt<V, E>(
 where
     V: OptMetaKey,
     V: FromStr,
-    <V as FromStr>::Err: fmt::Display,
     ParseOptKeyWarning: From<ParseKeyError<<V as FromStr>::Err>>,
 {
     let mut x = process_opt(V::remove_meta_opt(kws));
@@ -80,7 +77,6 @@ pub(crate) fn lookup_meas_opt<V, E>(
 where
     V: OptMeasKey,
     V: FromStr,
-    <V as FromStr>::Err: fmt::Display,
     ParseOptKeyWarning: From<ParseKeyError<<V as FromStr>::Err>>,
 {
     let mut x = process_opt(V::remove_meas_opt(kws, n));
@@ -98,9 +94,7 @@ where
     T: PartialOrd,
     T: Copy,
     Btim<T>: OptMetaKey,
-    <Btim<T> as FromStr>::Err: fmt::Display,
     Etim<T>: OptMetaKey,
-    <Etim<T> as FromStr>::Err: fmt::Display,
     ParseOptKeyWarning: From<ParseKeyError<<Btim<T> as FromStr>::Err>>,
     ParseOptKeyWarning: From<ParseKeyError<<Etim<T> as FromStr>::Err>>,
 {

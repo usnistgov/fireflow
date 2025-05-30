@@ -101,8 +101,6 @@ where
     Self::E: ReqMetaKey,
     Self::B: FromStr<Err = ParseIntError>,
     Self::E: FromStr<Err = ParseIntError>,
-    <Self::B as FromStr>::Err: fmt::Display,
-    <Self::E as FromStr>::Err: fmt::Display,
 {
     type B;
     type E;
@@ -225,8 +223,6 @@ where
     Self::E: OptMetaKey,
     Self::B: FromStr<Err = ParseIntError>,
     Self::E: FromStr<Err = ParseIntError>,
-    <Self::B as FromStr>::Err: fmt::Display,
-    <Self::E as FromStr>::Err: fmt::Display,
 {
     type B;
     type E;

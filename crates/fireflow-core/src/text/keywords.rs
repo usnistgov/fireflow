@@ -785,14 +785,14 @@ pub(crate) type RawKeywords = HashMap<String, String>;
 pub(crate) type OptKwResult<T> = Result<OptionalKw<T>, ParseKeyError<<T as FromStr>::Err>>;
 
 pub(crate) trait Required {
-    fn get_req<V>(kws: &StdKeywords, k: &StdKey) -> ReqResult<V>
+    fn get_req<V>(kws: &StdKeywords, k: StdKey) -> ReqResult<V>
     where
         V: FromStr,
     {
         get_req(kws, k)
     }
 
-    fn remove_req<V>(kws: &mut StdKeywords, k: &StdKey) -> ReqResult<V>
+    fn remove_req<V>(kws: &mut StdKeywords, k: StdKey) -> ReqResult<V>
     where
         V: FromStr,
     {
@@ -801,7 +801,7 @@ pub(crate) trait Required {
 }
 
 pub(crate) trait Optional {
-    fn get_opt<V>(kws: &StdKeywords, k: &StdKey) -> OptKwResult<V>
+    fn get_opt<V>(kws: &StdKeywords, k: StdKey) -> OptKwResult<V>
     where
         V: FromStr,
     {
@@ -810,7 +810,7 @@ pub(crate) trait Optional {
 
     fn remove_opt<V>(
         kws: &mut StdKeywords,
-        k: &StdKey,
+        k: StdKey,
     ) -> Result<OptionalKw<V>, ParseKeyError<V::Err>>
     where
         V: FromStr,
@@ -827,11 +827,11 @@ where
     Self: FromStr,
 {
     fn get_meta_req(kws: &StdKeywords) -> ReqResult<Self> {
-        Self::get_req(kws, &Self::std())
+        Self::get_req(kws, Self::std())
     }
 
     fn remove_meta_req(kws: &mut StdKeywords) -> ReqResult<Self> {
-        Self::remove_req(kws, &Self::std())
+        Self::remove_req(kws, Self::std())
     }
 
     fn pair(&self) -> (String, String) {
@@ -847,11 +847,11 @@ where
     Self: FromStr,
 {
     fn get_meas_req(kws: &StdKeywords, n: MeasIdx) -> ReqResult<Self> {
-        Self::get_req(kws, &Self::std(n))
+        Self::get_req(kws, Self::std(n))
     }
 
     fn remove_meas_req(kws: &mut StdKeywords, n: MeasIdx) -> ReqResult<Self> {
-        Self::remove_req(kws, &Self::std(n))
+        Self::remove_req(kws, Self::std(n))
     }
 
     fn triple(&self, n: MeasIdx) -> (String, String, String) {
@@ -876,11 +876,11 @@ where
     Self: FromStr,
 {
     fn get_meta_opt(kws: &StdKeywords) -> OptKwResult<Self> {
-        Self::get_opt(kws, &Self::std())
+        Self::get_opt(kws, Self::std())
     }
 
     fn remove_meta_opt(kws: &mut StdKeywords) -> OptKwResult<Self> {
-        Self::remove_opt(kws, &Self::std())
+        Self::remove_opt(kws, Self::std())
     }
 
     fn pair(opt: &OptionalKw<Self>) -> (String, Option<String>) {
@@ -899,11 +899,11 @@ where
     Self: FromStr,
 {
     fn get_meas_opt(kws: &StdKeywords, n: MeasIdx) -> OptKwResult<Self> {
-        Self::get_opt(kws, &Self::std(n))
+        Self::get_opt(kws, Self::std(n))
     }
 
     fn remove_meas_opt(kws: &mut StdKeywords, n: MeasIdx) -> OptKwResult<Self> {
-        Self::remove_opt(kws, &Self::std(n))
+        Self::remove_opt(kws, Self::std(n))
     }
 
     fn triple(opt: &OptionalKw<Self>, n: MeasIdx) -> (String, String, Option<String>) {

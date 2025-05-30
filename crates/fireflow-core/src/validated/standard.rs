@@ -63,16 +63,16 @@ pub type ReqResult<T> = Result<T, ReqKeyError<<T as FromStr>::Err>>;
 pub type OptResult<T> = Result<Option<T>, ParseKeyError<<T as FromStr>::Err>>;
 
 /// Find a required standard key in a hash table
-pub(crate) fn get_req<T>(kws: &StdKeywords, k: &StdKey) -> ReqResult<T>
+pub(crate) fn get_req<T>(kws: &StdKeywords, k: StdKey) -> ReqResult<T>
 where
     T: FromStr,
 {
-    match kws.get(k) {
+    match kws.get(&k) {
         Some(v) => v
             .parse()
             .map_err(|error| ParseKeyError {
                 error,
-                key: k.clone(),
+                key: k,
                 value: v.clone(),
             })
             .map_err(ReqKeyError::Parse),
@@ -81,15 +81,15 @@ where
 }
 
 /// Find an optional standard key in a hash table
-pub(crate) fn get_opt<T>(kws: &StdKeywords, k: &StdKey) -> OptResult<T>
+pub(crate) fn get_opt<T>(kws: &StdKeywords, k: StdKey) -> OptResult<T>
 where
     T: FromStr,
 {
-    kws.get(k)
+    kws.get(&k)
         .map(|v| {
             v.parse().map_err(|error| ParseKeyError {
                 error,
-                key: k.clone(),
+                key: k,
                 value: v.clone(),
             })
         })
@@ -97,16 +97,16 @@ where
 }
 
 /// Find a required standard key in a hash table and remove it
-pub(crate) fn remove_req<T>(kws: &mut StdKeywords, k: &StdKey) -> ReqResult<T>
+pub(crate) fn remove_req<T>(kws: &mut StdKeywords, k: StdKey) -> ReqResult<T>
 where
     T: FromStr,
 {
-    match kws.remove(k) {
+    match kws.remove(&k) {
         Some(v) => v
             .parse()
             .map_err(|error| ParseKeyError {
                 error,
-                key: k.clone(),
+                key: k,
                 value: v,
             })
             .map_err(ReqKeyError::Parse),
@@ -115,15 +115,15 @@ where
 }
 
 /// Find an optional standard key in a hash table and remove it
-pub(crate) fn remove_opt<T>(kws: &mut StdKeywords, k: &StdKey) -> OptResult<T>
+pub(crate) fn remove_opt<T>(kws: &mut StdKeywords, k: StdKey) -> OptResult<T>
 where
     T: FromStr,
 {
-    kws.remove(k)
+    kws.remove(&k)
         .map(|v| {
             v.parse().map_err(|error| ParseKeyError {
                 error,
-                key: k.clone(),
+                key: k,
                 value: v,
             })
         })

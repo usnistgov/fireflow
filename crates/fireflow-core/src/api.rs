@@ -994,7 +994,7 @@ fn lookup_nextdata(
     kws: &StdKeywords,
     enforce: bool,
 ) -> Tentative<Option<u32>, ParseKeyError<ParseIntError>, ReqKeyError<ParseIntError>> {
-    let k = &Nextdata::std();
+    let k = Nextdata::std();
     if enforce {
         get_req(kws, k).map_or_else(
             |e| Tentative::new(None, vec![], vec![e]),

@@ -2438,6 +2438,23 @@ where
                     None
                 });
 
+                // At this point the only keywords that should be left are $TOT,
+                // $BEGINDATA, $ENDDATA, $BEGINANALYSIS, and $ENDANALYSIS. Make
+                // sure this is actually true
+                if kws.keys().any(|k| {
+                    !(k == &Begindata::std()
+                        || k == &Enddata::std()
+                        || k == &Beginanalysis::std()
+                        || k == &Endanalysis::std()
+                        || k == &Tot::std())
+                }) {
+                    if conf.disallow_deviant {
+                        tnt_core.push_error(DeviantError.into());
+                    } else {
+                        tnt_core.push_warning(DeviantError.into());
+                    }
+                }
+
                 // make sure keywords which refer to $PnN are valid, if not then this
                 // fails because the API assumes these are valid and provides no way
                 // to fix otherwise.

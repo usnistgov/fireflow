@@ -61,6 +61,7 @@ where
     ParseOptKeyWarning: From<ParseKeyError<<V as FromStr>::Err>>,
 {
     let mut x = process_opt(V::remove_meta_opt(kws));
+    // TODO toggle
     if dep {
         x.push_warning(DepKeyWarning(V::std()).into());
     }
@@ -265,18 +266,21 @@ where
     )
 }
 
+// TODO this could be nested better
 enum_from_disp!(
     pub ParseKeysError,
     [ReqKey,     Box<ParseReqKeyError>],
     [Other,      ParseOtherError],
     [Deprecated, DepKeyWarning],
-    [Linked,     LinkedNameError]
+    [Linked,     LinkedNameError],
+    [Deviant,    DeviantError]
 );
 
 enum_from_disp!(
     pub LookupMeasWarning,
     [Parse, ParseKeysWarning],
-    [Pattern, NonStdMeasRegexError]
+    [Pattern, NonStdMeasRegexError],
+    [Deviant, DeviantError]
 );
 
 enum_from_disp!(
@@ -391,5 +395,13 @@ impl fmt::Display for TemporalError {
             TemporalError::NonLinear => write!(f, "$PnE must be '0,0'"),
             TemporalError::HasGain => write!(f, "$PnG must not be set"),
         }
+    }
+}
+
+pub struct DeviantError;
+
+impl fmt::Display for DeviantError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "deviant keywords found")
     }
 }

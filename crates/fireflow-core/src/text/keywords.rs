@@ -1854,6 +1854,7 @@ kw_opt_gate!(GateDetectorVoltage, "V");
 
 kw_opt_region!(GateRegionIndex2_0, "I");
 kw_opt_region!(GateRegionIndex3_0, "I");
+kw_opt_region!(GateRegionIndex3_2, "I");
 kw_opt_region!(GateRegionWindow, "W");
 
 // offsets for all versions

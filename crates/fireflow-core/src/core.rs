@@ -3,7 +3,9 @@ use crate::data::*;
 use crate::error::*;
 use crate::header::*;
 use crate::header_text::*;
-use crate::macros::{enum_from, enum_from_disp, match_many_to_one, newtype_from};
+use crate::macros::{
+    enum_from, enum_from_disp, match_many_to_one, newtype_from, newtype_from_outer,
+};
 use crate::segment::*;
 use crate::text::byteord::*;
 use crate::text::compensation::*;
@@ -704,8 +706,17 @@ pub enum GateRegion<I> {
     Bivariate(BivariateRegion<I>),
 }
 
-pub type GateRegion2_0 = GateRegion<u32>;
+pub struct GateLink(pub u32);
+pub struct MeasLink(pub u32);
+
+newtype_from!(GateLink, u32);
+newtype_from_outer!(GateLink, u32);
+newtype_from!(MeasLink, u32);
+newtype_from_outer!(MeasLink, u32);
+
+pub type GateRegion2_0 = GateRegion<GateLink>;
 pub type GateRegion3_0 = GateRegion<RegionLink>;
+pub type GateRegion3_2 = GateRegion<MeasLink>;
 
 pub struct RegionLink {
     pub index: u32,

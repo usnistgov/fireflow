@@ -303,7 +303,7 @@ pub(crate) fn lookup_gate_region_2_0<E>(
                 match (gi.0, win) {
                     (GateRegionIndex::Univariate(index), GateRegionWindow::Univariate(pair)) => {
                         Tentative::new1(Some(GateRegion::Univariate(UnivariateRegion {
-                            index,
+                            index: index.into(),
                             gate: pair.into(),
                         })))
                     }
@@ -311,8 +311,8 @@ pub(crate) fn lookup_gate_region_2_0<E>(
                         GateRegionIndex::Bivariate(x_index, y_index),
                         GateRegionWindow::Bivariate(pairs),
                     ) => Tentative::new1(Some(GateRegion::Bivariate(BivariateRegion {
-                        x_index,
-                        y_index,
+                        x_index: x_index.into(),
+                        y_index: y_index.into(),
                         vertices: pairs.map(|p| p.into()),
                     }))),
                     _ => {
@@ -337,7 +337,6 @@ pub(crate) fn lookup_gate_region_2_0<E>(
 pub(crate) fn lookup_gate_region_3_0<E>(
     kws: &mut StdKeywords,
     i: MeasIdx,
-    dep: bool,
 ) -> LookupTentative<OptionalKw<GateRegion3_0>, E> {
     // query the keywords read-only at first since we want to remove both only
     // if they are valid
@@ -378,19 +377,63 @@ pub(crate) fn lookup_gate_region_3_0<E>(
                 Tentative::new1(None)
             }
         })
+        .map(|ret| {
+            // remove both if we succeeded
+            if ret.is_some() {
+                let _ = kws.remove(&GateRegionIndex2_0::std(i));
+                let _ = kws.remove(&GateRegionWindow::std(i));
+            }
+            ret.into()
+        })
+}
+
+pub(crate) fn lookup_gate_region_3_2<E>(
+    kws: &mut StdKeywords,
+    i: MeasIdx,
+) -> LookupTentative<OptionalKw<GateRegion3_2>, E> {
+    // query the keywords read-only at first since we want to remove both only
+    // if they are valid
+    let n = process_opt(GateRegionIndex3_2::get_meas_opt(kws, i));
+    let w = process_opt(GateRegionWindow::get_meas_opt(kws, i));
+    n.zip(w)
+        .map(|(x, y)| x.0.zip(y.0))
+        .and_tentatively(|maybe| {
+            if let Some((gi, win)) = maybe {
+                match (gi.0, win) {
+                    (GateRegionIndex::Univariate(index), GateRegionWindow::Univariate(pair)) => {
+                        Tentative::new1(Some(GateRegion::Univariate(UnivariateRegion {
+                            index: index.into(),
+                            gate: pair.into(),
+                        })))
+                    }
+                    (
+                        GateRegionIndex::Bivariate(x_index, y_index),
+                        GateRegionWindow::Bivariate(pairs),
+                    ) => Tentative::new1(Some(GateRegion::Bivariate(BivariateRegion {
+                        x_index: x_index.into(),
+                        y_index: y_index.into(),
+                        vertices: pairs.map(|p| p.into()),
+                    }))),
+                    _ => {
+                        let warn = ParseOtherWarning::GateRegion(InvalidGateRegion).into();
+                        Tentative::new(None, vec![warn], vec![])
+                    }
+                }
+            } else {
+                Tentative::new1(None)
+            }
+        })
         .and_tentatively(|ret| {
             // remove both if we succeeded
-            let ki = GateRegionIndex3_0::std(i);
+            let ki = GateRegionIndex3_2::std(i);
             let kw = GateRegionWindow::std(i);
             if ret.is_some() {
                 let _ = kws.remove(&ki);
                 let _ = kws.remove(&kw);
             }
             let mut tnt = Tentative::new1(ret.into());
-            if dep {
-                tnt.push_warning(DepKeyWarning(ki).into());
-                tnt.push_warning(DepKeyWarning(kw).into());
-            }
+            tnt.push_warning(DepKeyWarning(ki).into());
+            tnt.push_warning(DepKeyWarning(kw).into());
             tnt
         })
 }
@@ -512,6 +555,7 @@ enum_from_disp!(
     [FloatOrInt,         ParseKeyError<ParseFloatOrIntError>],
     [GateRegionIndex2_0, ParseKeyError<GateRegionIndex2_0Error>],
     [GateRegionIndex3_0, ParseKeyError<GateRegionIndex3_0Error>],
+    [GateRegionIndex3_2, ParseKeyError<GateRegionIndex3_2Error>],
     [GateRegionWindow,   ParseKeyError<GatePairError>],
     [CompShape,          NewCompError]
 );

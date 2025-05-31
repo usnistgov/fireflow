@@ -1112,6 +1112,17 @@ fn tokenize_gating(s: &str) -> impl Iterator<Item = GatingToken> {
     })
 }
 
+impl fmt::Display for Gating {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::Region(r) => write!(f, "R{r}"),
+            Self::Not(r) => write!(f, "(NOT {r})"),
+            Self::And(a, b) => write!(f, "({a} AND {b})"),
+            Self::Or(a, b) => write!(f, "({a} OR {b})"),
+        }
+    }
+}
+
 enum GatingToken {
     RParen,
     LParen,

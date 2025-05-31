@@ -812,7 +812,6 @@ impl fmt::Display for GateRegionIndex2_0 {
 }
 
 pub(crate) type GateRegionIndex2_0Error = GateRegionError<GateRegionFormat2_0>;
-pub(crate) type GateRegionIndex3_0Error = GateRegionError<GateRegionFormat3_0>;
 
 pub(crate) enum GateRegionError<F> {
     Format(F),
@@ -901,6 +900,8 @@ impl fmt::Display for GateRegionIndex3_0 {
     }
 }
 
+pub(crate) type GateRegionIndex3_0Error = GateRegionError<GateRegionFormat3_0>;
+
 pub(crate) struct GateRegionFormat3_0;
 
 impl fmt::Display for GateRegionFormat3_0 {
@@ -909,6 +910,55 @@ impl fmt::Display for GateRegionFormat3_0 {
             f,
             "must be string like 'Xn' or 'Xn1,Xn2' where X is either 'P' or 'G'"
         )
+    }
+}
+
+/// The value of the $RnI key (3.2)
+#[derive(Clone, Copy, Serialize)]
+pub(crate) struct GateRegionIndex3_2(pub(crate) GateRegionIndex);
+
+newtype_from!(GateRegionIndex3_2, GateRegionIndex);
+newtype_from_outer!(GateRegionIndex3_2, GateRegionIndex);
+
+impl FromStr for GateRegionIndex3_2 {
+    type Err = GateRegionIndex3_2Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let go = |sub: &str| {
+            if let Some((prefix, rest)) = sub.split_at_checked(1) {
+                match prefix {
+                    "P" => rest.parse().map_err(GateRegionError::Int),
+                    _ => Err(GateRegionError::Format(GateRegionFormat3_2)),
+                }
+            } else {
+                Err(GateRegionError::Format(GateRegionFormat3_2))
+            }
+        };
+        match s.split(",").collect::<Vec<_>>()[..] {
+            [x] => go(x).map(|a| GateRegionIndex3_2(GateRegionIndex::Univariate(a))),
+            [x, y] => go(x)
+                .and_then(|a| go(y).map(|b| GateRegionIndex3_2(GateRegionIndex::Bivariate(a, b)))),
+            _ => Err(GateRegionError::Format(GateRegionFormat3_2)),
+        }
+    }
+}
+
+impl fmt::Display for GateRegionIndex3_2 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self.0 {
+            GateRegionIndex::Univariate(x) => write!(f, "{x}"),
+            GateRegionIndex::Bivariate(x, y) => write!(f, "P{x},P{y}"),
+        }
+    }
+}
+
+pub(crate) type GateRegionIndex3_2Error = GateRegionError<GateRegionFormat3_2>;
+
+pub(crate) struct GateRegionFormat3_2;
+
+impl fmt::Display for GateRegionFormat3_2 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "must be string like 'Pn' or 'Pn1,Pn2'")
     }
 }
 

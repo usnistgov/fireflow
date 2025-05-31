@@ -912,7 +912,7 @@ impl fmt::Display for GateRegionFormat3_0 {
     }
 }
 
-/// The value of the RnW key (3.0-3.2)
+/// The value of the $RnW key (3.0-3.2)
 ///
 /// This is meant to be used internally to construct a higher-level abstraction
 /// over the gating keywords.
@@ -981,6 +981,155 @@ impl fmt::Display for GatePairError {
             Self::Format => write!(f, "must be a string like 'f1,f2;[f3,f4;...]'"),
         }
     }
+}
+
+/// The value of the $GATING key (3.0-3.2)
+pub enum Gating {
+    Region(u32),
+    Not(Box<Gating>),
+    Or(Box<Gating>, Box<Gating>),
+    And(Box<Gating>, Box<Gating>),
+}
+
+impl FromStr for Gating {
+    type Err = GatingError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.is_ascii() {
+            let mut it = tokenize_gating(s);
+            match_tokens(&mut it, 0)
+        } else {
+            Err(GatingError::NonAscii)
+        }
+    }
+}
+
+fn match_tokens(
+    rest: &mut impl Iterator<Item = GatingToken>,
+    depth: u32,
+) -> Result<Gating, GatingError> {
+    if let Some(this) = rest.next() {
+        match this {
+            GatingToken::LParen => match_tokens_depth(rest, depth + 1),
+            GatingToken::Not => {
+                let inner = match_tokens_depth(rest, depth)?;
+                let new = Gating::Not(Box::new(inner));
+                match_tokens_acc(new, rest, depth)
+            }
+            GatingToken::Region(r) => {
+                let new = Gating::Region(r);
+                match_tokens_acc(new, rest, depth)
+            }
+            _ => Err(GatingError::ExpectedExpr),
+        }
+    } else {
+        Err(GatingError::Empty)
+    }
+}
+
+fn match_tokens_depth(
+    rest: &mut impl Iterator<Item = GatingToken>,
+    depth: u32,
+) -> Result<Gating, GatingError> {
+    if let Some(this) = rest.next() {
+        match this {
+            GatingToken::LParen => {
+                let inner = match_tokens_depth(rest, depth + 1)?;
+                match_tokens_acc(inner, rest, depth)
+            }
+            GatingToken::Not => {
+                let inner = match_tokens_depth(rest, depth)?;
+                Ok(Gating::Not(Box::new(inner)))
+            }
+            GatingToken::Region(r) => Ok(Gating::Region(r)),
+            _ => Err(GatingError::InvalidExprToken),
+        }
+    } else {
+        Err(GatingError::ExpectedExpr)
+    }
+}
+
+fn match_tokens_acc(
+    acc: Gating,
+    rest: &mut impl Iterator<Item = GatingToken>,
+    depth: u32,
+) -> Result<Gating, GatingError> {
+    if let Some(this) = rest.next() {
+        match this {
+            GatingToken::And => {
+                let right = match_tokens_depth(rest, depth)?;
+                let new = Gating::And(Box::new(acc), Box::new(right));
+                match_tokens_acc(new, rest, depth)
+            }
+            GatingToken::Or => {
+                let right = match_tokens_depth(rest, depth)?;
+                let new = Gating::Or(Box::new(acc), Box::new(right));
+                match_tokens_acc(new, rest, depth)
+            }
+            GatingToken::RParen => {
+                if depth > 0 {
+                    match_tokens_acc(acc, rest, depth - 1)
+                } else {
+                    Err(GatingError::ExtraParen)
+                }
+            }
+            _ => Err(GatingError::ExpectedOp),
+        }
+    } else if depth == 0 {
+        Ok(acc)
+    } else {
+        Err(GatingError::MissingParen)
+    }
+}
+
+fn tokenize_gating(s: &str) -> impl Iterator<Item = GatingToken> {
+    s.split(['.', ' ']).filter(|x| x.is_empty()).flat_map(|x| {
+        x.split('(').flat_map(|y| {
+            if y.is_empty() {
+                vec![GatingToken::LParen]
+            } else {
+                y.split(')')
+                    .map(|z| {
+                        if z.is_empty() {
+                            GatingToken::RParen
+                        } else {
+                            match z {
+                                "NOT" => GatingToken::Not,
+                                "AND" => GatingToken::And,
+                                "OR" => GatingToken::Or,
+                                _ => match z.split_at(1) {
+                                    ("R", rest) => {
+                                        rest.parse().map_or(GatingToken::Other, GatingToken::Region)
+                                    }
+                                    _ => GatingToken::Other,
+                                },
+                            }
+                        }
+                    })
+                    .collect()
+            }
+        })
+    })
+}
+
+enum GatingToken {
+    RParen,
+    LParen,
+    Region(u32),
+    And,
+    Or,
+    Not,
+    Other,
+}
+
+pub enum GatingError {
+    Empty,
+    ExpectedExpr,
+    ExpectedOp,
+    InvalidExprToken,
+    ExtraParen,
+    MissingParen,
+    NonAscii,
 }
 
 /// The value of the $PnR key

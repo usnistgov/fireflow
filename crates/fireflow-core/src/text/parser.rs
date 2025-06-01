@@ -257,7 +257,7 @@ pub(crate) fn lookup_peakdata<E>(
 pub(crate) fn lookup_applied_gates2_0<E>(
     kws: &mut StdKeywords,
 ) -> LookupTentative<OptionalKw<AppliedGates2_0>, E> {
-    let ag = lookup_applied_gates(kws, false, |k, i| lookup_gate_region_2_0(k, i.into()));
+    let ag = lookup_applied_gates(kws, false, |k, i| lookup_gate_region_2_0(k, i));
     let gm = lookup_gated_measurements(kws, false);
     ag.zip(gm).and_tentatively(|(x, y)| {
         if let Some((applied, gated_measurements)) = x.0.zip(y.0) {
@@ -282,7 +282,7 @@ pub(crate) fn lookup_applied_gates3_0<E>(
     kws: &mut StdKeywords,
     dep: bool,
 ) -> LookupTentative<OptionalKw<AppliedGates3_0>, E> {
-    let ag = lookup_applied_gates(kws, false, |k, i| lookup_gate_region_3_0(k, i.into()));
+    let ag = lookup_applied_gates(kws, false, |k, i| lookup_gate_region_3_0(k, i));
     let gm = lookup_gated_measurements(kws, dep);
     ag.zip(gm).and_tentatively(|(x, y)| {
         if let Some(applied) = x.0 {
@@ -345,6 +345,7 @@ pub(crate) fn lookup_gated_measurements<E>(
 ) -> LookupTentative<OptionalKw<GatedMeasurements>, E> {
     lookup_meta_opt::<Gate, E>(kws, dep).and_tentatively(|maybe| {
         if let Some(n) = maybe.0 {
+            // TODO this will be nicer with NonZeroUsize
             if n.0 > 0 {
                 let xs = NonEmpty::collect(
                     (0..n.0).map(|i| lookup_gated_measurement(kws, i.into(), dep)),

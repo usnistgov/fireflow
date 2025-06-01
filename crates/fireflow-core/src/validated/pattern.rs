@@ -1,7 +1,6 @@
 use crate::macros::{newtype_disp, newtype_from_outer, newtype_fromstr};
 
 use regex::{Error, Regex};
-use std::fmt;
 use std::str::FromStr;
 
 /// A pattern to match the $PnN for the time measurement.

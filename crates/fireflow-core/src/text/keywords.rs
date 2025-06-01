@@ -784,18 +784,6 @@ pub(crate) enum GateRegionIndex<I> {
     Bivariate(I, I),
 }
 
-impl<I> GateRegionIndex<I> {
-    fn map<F, J>(self, mut f: F) -> GateRegionIndex<J>
-    where
-        F: FnMut(I) -> J,
-    {
-        match self {
-            Self::Univariate(a) => GateRegionIndex::Univariate(f(a)),
-            Self::Bivariate(a, b) => GateRegionIndex::Bivariate(f(a), f(b)),
-        }
-    }
-}
-
 impl FromStr for GateRegionIndex2_0 {
     type Err = GateRegionIndex2_0Error;
 

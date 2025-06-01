@@ -617,6 +617,20 @@ impl<V, W, E> Tentative<V, W, E> {
     }
 }
 
+impl<V, W, E> Tentative<Option<V>, W, E> {
+    pub fn transpose(self) -> Option<Tentative<V, W, E>> {
+        if let Some(value) = self.value {
+            Some(Tentative {
+                value,
+                warnings: self.warnings,
+                errors: self.errors,
+            })
+        } else {
+            None
+        }
+    }
+}
+
 impl<W, E> DeferredFailure<W, E> {
     pub fn new(warnings: Vec<W>, errors: NonEmpty<E>) -> Self {
         Self { warnings, errors }

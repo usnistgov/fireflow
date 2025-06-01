@@ -780,8 +780,8 @@ newtype_from_outer!(GateRegionIndex2_0, GateRegionIndex);
 
 #[derive(Clone, Copy, Serialize)]
 pub(crate) enum GateRegionIndex {
-    Univariate(u32),
-    Bivariate(u32, u32),
+    Univariate(usize),
+    Bivariate(usize, usize),
 }
 
 impl FromStr for GateRegionIndex2_0 {
@@ -813,7 +813,7 @@ impl fmt::Display for GateRegionIndex2_0 {
 
 pub(crate) type GateRegionIndex2_0Error = GateRegionError<GateRegionFormat2_0>;
 
-pub(crate) enum GateRegionError<F> {
+pub enum GateRegionError<F> {
     Format(F),
     Int(ParseIntError),
 }
@@ -830,7 +830,7 @@ where
     }
 }
 
-pub(crate) struct GateRegionFormat2_0;
+pub struct GateRegionFormat2_0;
 
 impl fmt::Display for GateRegionFormat2_0 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -902,7 +902,7 @@ impl fmt::Display for GateRegionIndex3_0 {
 
 pub(crate) type GateRegionIndex3_0Error = GateRegionError<GateRegionFormat3_0>;
 
-pub(crate) struct GateRegionFormat3_0;
+pub struct GateRegionFormat3_0;
 
 impl fmt::Display for GateRegionFormat3_0 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -954,7 +954,7 @@ impl fmt::Display for GateRegionIndex3_2 {
 
 pub(crate) type GateRegionIndex3_2Error = GateRegionError<GateRegionFormat3_2>;
 
-pub(crate) struct GateRegionFormat3_2;
+pub struct GateRegionFormat3_2;
 
 impl fmt::Display for GateRegionFormat3_2 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -1019,7 +1019,7 @@ impl fmt::Display for GatePair {
     }
 }
 
-pub(crate) enum GatePairError {
+pub enum GatePairError {
     Num(ParseFloatOrIntError),
     Format,
 }
@@ -1034,11 +1034,31 @@ impl fmt::Display for GatePairError {
 }
 
 /// The value of the $GATING key (3.0-3.2)
+#[derive(Clone, Serialize)]
 pub enum Gating {
-    Region(u32),
+    Region(usize),
     Not(Box<Gating>),
-    Or(Box<Gating>, Box<Gating>),
     And(Box<Gating>, Box<Gating>),
+    Or(Box<Gating>, Box<Gating>),
+}
+
+impl Gating {
+    pub(crate) fn flatten(&self) -> NonEmpty<usize> {
+        match self {
+            Self::Region(x) => NonEmpty::new(*x),
+            Self::Not(x) => Self::flatten(x),
+            Self::And(x, y) => {
+                let mut acc = Self::flatten(x);
+                acc.extend(Self::flatten(y));
+                acc
+            }
+            Self::Or(x, y) => {
+                let mut acc = Self::flatten(x);
+                acc.extend(Self::flatten(y));
+                acc
+            }
+        }
+    }
 }
 
 impl FromStr for Gating {
@@ -1070,7 +1090,7 @@ fn match_tokens(
                 let new = Gating::Region(r);
                 match_tokens_acc(new, rest, depth)
             }
-            _ => Err(GatingError::ExpectedExpr),
+            _ => Err(GatingError::InvalidExprToken),
         }
     } else {
         Err(GatingError::Empty)
@@ -1123,7 +1143,7 @@ fn match_tokens_acc(
                     Err(GatingError::ExtraParen)
                 }
             }
-            _ => Err(GatingError::ExpectedOp),
+            _ => Err(GatingError::InvalidOpToken),
         }
     } else if depth == 0 {
         Ok(acc)
@@ -1176,7 +1196,7 @@ impl fmt::Display for Gating {
 enum GatingToken {
     RParen,
     LParen,
-    Region(u32),
+    Region(usize),
     And,
     Or,
     Not,
@@ -1186,11 +1206,26 @@ enum GatingToken {
 pub enum GatingError {
     Empty,
     ExpectedExpr,
-    ExpectedOp,
+    InvalidOpToken,
     InvalidExprToken,
     ExtraParen,
     MissingParen,
     NonAscii,
+}
+
+impl fmt::Display for GatingError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let s = match self {
+            Self::Empty => "gating string is empty",
+            Self::InvalidExprToken => "expected '(', 'NOT', or 'Rn'",
+            Self::InvalidOpToken => "expected 'AND', 'OR', or ')'",
+            Self::ExpectedExpr => "expected expression which evaluates to a region",
+            Self::ExtraParen => "extra ')' encountered",
+            Self::MissingParen => "missing ')'",
+            Self::NonAscii => "gating contains invalid bytes",
+        };
+        write!(f, "{s}")
+    }
 }
 
 /// The value of the $PnR key
@@ -1841,7 +1876,7 @@ impl Optional for PeakNumber {}
 impl OptMeasKey for PeakNumber {}
 
 // 2.0-3.1 gating parameters
-kw_opt_meta_int!(Gate, u32, "GATE");
+kw_opt_meta_int!(Gate, usize, "GATE");
 
 kw_opt_gate!(GateScale, "E");
 kw_opt_gate_string!(GateFilter, "F");
@@ -1851,6 +1886,7 @@ kw_opt_gate_string!(GateShortname, "N");
 kw_opt_gate_string!(GateLongname, "S");
 kw_opt_gate_string!(GateDetectorType, "T");
 kw_opt_gate!(GateDetectorVoltage, "V");
+kw_opt_meta!(Gating, "GATING");
 
 kw_opt_region!(GateRegionIndex2_0, "I");
 kw_opt_region!(GateRegionIndex3_0, "I");

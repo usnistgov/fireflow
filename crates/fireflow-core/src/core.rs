@@ -394,6 +394,9 @@ pub struct InnerMetadata2_0 {
 
     /// Values of $BTIM/ETIM/$DATE
     pub timestamps: Timestamps2_0,
+
+    /// Values of $Gm*/$RnI/$RnW/$GATING/$GATE
+    applied_gates: OptionalKw<AppliedGates2_0>,
 }
 
 /// Metadata fields specific to version 3.0
@@ -422,6 +425,9 @@ pub struct InnerMetadata3_0 {
 
     /// Aggregated values for $CS* keywords
     pub subset: OptionalKw<SubsetData>,
+
+    /// Values of $Gm*/$RnI/$RnW/$GATING/$GATE
+    applied_gates: OptionalKw<AppliedGates3_0>,
 }
 
 /// Metadata fields specific to version 3.1
@@ -456,6 +462,9 @@ pub struct InnerMetadata3_1 {
 
     /// Aggregated values for $CS* keywords
     pub subset: OptionalKw<SubsetData>,
+
+    /// Values of $Gm*/$RnI/$RnW/$GATING/$GATE
+    applied_gates: OptionalKw<AppliedGates3_0>,
 }
 
 #[derive(Clone, Serialize)]
@@ -496,6 +505,9 @@ pub struct InnerMetadata3_2 {
 
     /// Value of $FLOWRATE
     pub flowrate: OptionalKw<Flowrate>,
+
+    /// Values of $RnI/$RnW/$GATING
+    applied_gates: OptionalKw<AppliedGates3_2>,
 }
 
 /// Temporal measurement fields specific to version 2.0
@@ -662,22 +674,65 @@ pub struct GatedMeasurement {
     pub detector_voltage: OptionalKw<GateDetectorVoltage>,
 }
 
+#[derive(Clone, Serialize)]
 pub struct UnivariateRegion<I> {
     pub gate: UniGate,
     pub index: I,
 }
 
+impl<I> UnivariateRegion<I> {
+    fn map<F, J>(self, f: F) -> UnivariateRegion<J>
+    where
+        F: FnOnce(I) -> J,
+    {
+        UnivariateRegion {
+            gate: self.gate,
+            index: f(self.index),
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct BivariateRegion<I> {
     pub vertices: NonEmpty<Vertex>,
     pub x_index: I,
     pub y_index: I,
 }
 
+impl<I> BivariateRegion<I> {
+    fn map<F, J>(self, mut f: F) -> BivariateRegion<J>
+    where
+        F: FnMut(I) -> J,
+    {
+        BivariateRegion {
+            vertices: self.vertices,
+            x_index: f(self.x_index),
+            y_index: f(self.y_index),
+        }
+    }
+}
+
+// TODO wrap these nonempty's so I don't need to do this over and over
+impl<I: Serialize> Serialize for BivariateRegion<I> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut state = serializer.serialize_struct("BivariateRegion", 2)?;
+        state.serialize_field("vertices", &self.vertices.iter().collect::<Vec<_>>())?;
+        state.serialize_field("x_index", &self.x_index)?;
+        state.serialize_field("y_index", &self.y_index)?;
+        state.end()
+    }
+}
+
+#[derive(Clone, Serialize)]
 pub struct Vertex {
     pub x: FloatOrInt,
     pub y: FloatOrInt,
 }
 
+#[derive(Clone, Serialize)]
 pub struct UniGate {
     pub lower: FloatOrInt,
     pub upper: FloatOrInt,
@@ -701,26 +756,282 @@ impl From<GatePair> for Vertex {
     }
 }
 
+#[derive(Clone, Serialize)]
 pub enum GateRegion<I> {
     Univariate(UnivariateRegion<I>),
     Bivariate(BivariateRegion<I>),
 }
 
-pub struct GateLink(pub u32);
-pub struct MeasLink(pub u32);
+impl<I> GateRegion<I> {
+    pub(crate) fn map<F, J>(self, f: F) -> GateRegion<J>
+    where
+        F: FnMut(I) -> J,
+    {
+        match self {
+            Self::Univariate(x) => GateRegion::Univariate(x.map(f)),
+            Self::Bivariate(x) => GateRegion::Bivariate(x.map(f)),
+        }
+    }
 
-newtype_from!(GateLink, u32);
-newtype_from_outer!(GateLink, u32);
-newtype_from!(MeasLink, u32);
-newtype_from_outer!(MeasLink, u32);
+    pub(crate) fn inner_into<J>(self) -> GateRegion<J>
+    where
+        J: From<I>,
+    {
+        self.map(|i| i.into())
+    }
+
+    pub(crate) fn flatten(self) -> NonEmpty<I> {
+        match self {
+            Self::Univariate(r) => NonEmpty::new(r.index),
+            Self::Bivariate(r) => (r.x_index, vec![r.y_index]).into(),
+        }
+    }
+}
+
+impl GateRegion<usize> {
+    pub(crate) fn try_new(index: GateRegionIndex, window: GateRegionWindow) -> Option<Self> {
+        match (index, window) {
+            (GateRegionIndex::Univariate(_index), GateRegionWindow::Univariate(pair)) => {
+                Some(GateRegion::Univariate(UnivariateRegion {
+                    index: _index,
+                    gate: pair.into(),
+                }))
+            }
+            (GateRegionIndex::Bivariate(x_index, y_index), GateRegionWindow::Bivariate(pairs)) => {
+                Some(GateRegion::Bivariate(BivariateRegion {
+                    x_index,
+                    y_index,
+                    vertices: pairs.map(|p| p.into()),
+                }))
+            }
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Serialize)]
+pub struct GateLink(pub usize);
+
+#[derive(Clone, Serialize)]
+pub struct MeasLink(pub usize);
+
+newtype_from!(GateLink, usize);
+newtype_from_outer!(GateLink, usize);
+newtype_from!(MeasLink, usize);
+newtype_from_outer!(MeasLink, usize);
 
 pub type GateRegion2_0 = GateRegion<GateLink>;
 pub type GateRegion3_0 = GateRegion<RegionLink>;
 pub type GateRegion3_2 = GateRegion<MeasLink>;
 
+impl From<GateLink> for RegionLink {
+    fn from(value: GateLink) -> Self {
+        Self {
+            is_gate: true,
+            index: value.0,
+        }
+    }
+}
+
+impl From<MeasLink> for RegionLink {
+    fn from(value: MeasLink) -> Self {
+        Self {
+            is_gate: false,
+            index: value.0,
+        }
+    }
+}
+
+impl TryFrom<RegionLink> for MeasLink {
+    type Error = RegionToMeasLinkError;
+    fn try_from(value: RegionLink) -> Result<Self, Self::Error> {
+        if value.is_gate {
+            Err(RegionToMeasLinkError(value.index))
+        } else {
+            Ok(MeasLink(value.index))
+        }
+    }
+}
+
+impl TryFrom<GateLink> for MeasLink {
+    type Error = GateToMeasLinkError;
+    fn try_from(value: GateLink) -> Result<Self, Self::Error> {
+        Err(GateToMeasLinkError(value.0))
+    }
+}
+
+impl TryFrom<MeasLink> for GateLink {
+    type Error = MeasToGateLinkError;
+    fn try_from(value: MeasLink) -> Result<Self, Self::Error> {
+        Err(MeasToGateLinkError(value.0))
+    }
+}
+
+pub struct RegionToMeasLinkError(usize);
+
+impl fmt::Display for RegionToMeasLinkError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "cannot convert region index ({}) to measurement index since \
+                   it refers to a gate",
+            self.0
+        )
+    }
+}
+
+impl TryFrom<RegionLink> for GateLink {
+    type Error = RegionToGateLinkError;
+    fn try_from(value: RegionLink) -> Result<Self, Self::Error> {
+        if !value.is_gate {
+            Err(RegionToGateLinkError(value.index))
+        } else {
+            Ok(GateLink(value.index))
+        }
+    }
+}
+
+pub struct RegionToGateLinkError(usize);
+
+impl fmt::Display for RegionToGateLinkError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "cannot convert region index ({}) to gating index since \
+                   it refers to a measurement",
+            self.0
+        )
+    }
+}
+
+pub struct GateToMeasLinkError(usize);
+
+impl fmt::Display for GateToMeasLinkError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "cannot convert gate index ({}) to measurement index",
+            self.0
+        )
+    }
+}
+
+pub struct MeasToGateLinkError(usize);
+
+impl fmt::Display for MeasToGateLinkError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "cannot convert measurement index ({}) to gate index",
+            self.0
+        )
+    }
+}
+
+#[derive(Clone, Serialize)]
 pub struct RegionLink {
-    pub index: u32,
+    pub index: usize,
     pub is_gate: bool,
+}
+
+#[derive(Clone)]
+pub struct AppliedGates<I> {
+    pub gating: Gating,
+    pub regions: NonEmpty<(usize, I)>,
+}
+
+impl<I> Serialize for AppliedGates<I>
+where
+    I: Serialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut state = serializer.serialize_struct("AppliedGates", 2)?;
+        state.serialize_field("gating", &self.gating)?;
+        state.serialize_field("regions", &self.regions.iter().collect::<Vec<_>>())?;
+        state.end()
+    }
+}
+
+#[derive(Clone)]
+pub struct GatedMeasurements(pub NonEmpty<GatedMeasurement>);
+
+impl Serialize for GatedMeasurements {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.0.iter().collect::<Vec<_>>().serialize(serializer)
+    }
+}
+
+#[derive(Clone, Serialize)]
+pub struct AppliedGates2_0 {
+    pub gated_measurements: GatedMeasurements,
+    pub applied: AppliedGates<GateRegion2_0>,
+}
+
+impl AppliedGates2_0 {
+    pub fn check_gates(&self) -> Result<(), GateMeasurementLinkError> {
+        let n = self.gated_measurements.0.len();
+        let it = self
+            .applied
+            .regions
+            .as_ref()
+            .flat_map(|(_, r)| r.clone().flatten())
+            .into_iter()
+            .map(|x| x.0)
+            .filter(|i| *i > n);
+        NonEmpty::collect(it).map_or(Ok(()), |xs| Err(GateMeasurementLinkError(xs)))
+    }
+}
+
+#[derive(Clone, Serialize)]
+pub struct AppliedGates3_0 {
+    pub gated_measurements: Vec<GatedMeasurement>,
+    pub applied: AppliedGates<GateRegion3_0>,
+}
+
+impl AppliedGates3_0 {
+    pub fn check_gates(&self) -> Result<(), GateMeasurementLinkError> {
+        let n = self.gated_measurements.len();
+        let it = self
+            .applied
+            .regions
+            .as_ref()
+            .flat_map(|(_, r)| r.clone().flatten())
+            .into_iter()
+            .flat_map(|i| if i.is_gate { Some(i.index) } else { None })
+            .filter(|i| *i > n);
+        NonEmpty::collect(it).map_or(Ok(()), |xs| Err(GateMeasurementLinkError(xs)))
+    }
+}
+
+pub struct GateMeasurementLinkError(NonEmpty<usize>);
+
+pub struct GateRegionLinkError;
+
+impl fmt::Display for GateRegionLinkError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "regions in $GATING which do not have $RnI/$RnW")
+    }
+}
+
+impl fmt::Display for GateMeasurementLinkError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "$GATING regions reference nonexistent gates: {}",
+            self.0.iter().join(",")
+        )
+    }
+}
+
+#[derive(Clone, Serialize)]
+pub struct AppliedGates3_2 {
+    pub applied: AppliedGates<GateRegion3_2>,
 }
 
 /// A bundle for $PKn and $PKNn (2.0-3.1)
@@ -1491,7 +1802,11 @@ enum_from_disp!(
     [NoCyt, NoCytError],
     [Byteord, EndianToByteOrdError],
     [Endian, SingleWidthError],
-    [Mode, ModeNotListError]
+    [Mode, ModeNotListError],
+    [GateLink, RegionToGateLinkError],
+    [MeasLink, RegionToMeasLinkError],
+    [GateToMeas, GateToMeasLinkError],
+    [MeasToGate, MeasToGateLinkError]
 );
 
 pub struct NoCytError;
@@ -4055,14 +4370,18 @@ impl EndianConvert {
     }
 }
 
+// TODO add a way to force conversion (that is, ignore all ignorable errors and
+// proceed anyway)
 impl TryFromMetadata<InnerMetadata3_0> for InnerMetadata2_0 {
     fn try_from_meta(value: InnerMetadata3_0, _: ByteOrdConvert) -> MetaConvertResult<Self> {
+        // let ags = value.applied_gates.0.map(|x| x.try_into()).transpose()?;
         Ok(Tentative::new1(Self {
             mode: value.mode,
             byteord: value.byteord,
             cyt: value.cyt,
             comp: value.comp,
             timestamps: value.timestamps.map(|d| d.into()),
+            applied_gates: None.into(),
         }))
     }
 }
@@ -4078,6 +4397,7 @@ impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata2_0 {
                 cyt: value.cyt,
                 comp: None.into(),
                 timestamps: value.timestamps.map(|d| d.into()),
+                applied_gates: None.into(),
             })
     }
 }
@@ -4093,6 +4413,7 @@ impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata2_0 {
                 cyt: Some(value.cyt).into(),
                 comp: None.into(),
                 timestamps: value.timestamps.map(|d| d.into()),
+                applied_gates: None.into(),
             })
     }
 }
@@ -4108,6 +4429,7 @@ impl TryFromMetadata<InnerMetadata2_0> for InnerMetadata3_0 {
             cytsn: None.into(),
             unicode: None.into(),
             subset: None.into(),
+            applied_gates: None.into(),
         }))
     }
 }
@@ -4126,6 +4448,7 @@ impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata3_0 {
                 comp: None.into(),
                 unicode: None.into(),
                 subset: None.into(),
+                applied_gates: value.applied_gates,
             })
     }
 }
@@ -4144,6 +4467,7 @@ impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata3_0 {
                 comp: None.into(),
                 unicode: None.into(),
                 subset: None.into(),
+                applied_gates: None.into(),
             })
     }
 }
@@ -4165,6 +4489,7 @@ impl TryFromMetadata<InnerMetadata2_0> for InnerMetadata3_1 {
                 plate: PlateData::default(),
                 vol: None.into(),
                 subset: None.into(),
+                applied_gates: None.into(),
             })
     }
 }
@@ -4186,6 +4511,7 @@ impl TryFromMetadata<InnerMetadata3_0> for InnerMetadata3_1 {
                 plate: PlateData::default(),
                 vol: None.into(),
                 subset: None.into(),
+                applied_gates: value.applied_gates,
             })
     }
 }
@@ -4203,6 +4529,7 @@ impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata3_1 {
             modification: value.modification,
             vol: value.vol,
             subset: None.into(),
+            applied_gates: None.into(),
         }))
     }
 }
@@ -4230,6 +4557,7 @@ impl TryFromMetadata<InnerMetadata2_0> for InnerMetadata3_2 {
             carrier: CarrierData::default(),
             unstained: UnstainedData::default(),
             datetimes: Datetimes::default(),
+            applied_gates: None.into(),
         })
     }
 }
@@ -4257,6 +4585,7 @@ impl TryFromMetadata<InnerMetadata3_0> for InnerMetadata3_2 {
             carrier: CarrierData::default(),
             unstained: UnstainedData::default(),
             datetimes: Datetimes::default(),
+            applied_gates: None.into(),
         })
     }
 }
@@ -4283,6 +4612,7 @@ impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata3_2 {
             carrier: CarrierData::default(),
             unstained: UnstainedData::default(),
             datetimes: Datetimes::default(),
+            applied_gates: None.into(),
         })
     }
 }
@@ -4957,17 +5287,20 @@ impl LookupMetadata for InnerMetadata2_0 {
         let co = lookup_compensation_2_0(kws, par);
         let cy = lookup_meta_opt(kws, false);
         let t = lookup_timestamps(kws, false);
-        co.zip3(cy, t).and_maybe(|(comp, cyt, timestamps)| {
-            let b = lookup_meta_req(kws);
-            let m = lookup_meta_req(kws);
-            b.def_zip(m).def_map_value(|(byteord, mode)| Self {
-                mode,
-                byteord,
-                cyt,
-                comp,
-                timestamps,
+        let g = lookup_applied_gates2_0(kws);
+        co.zip4(cy, t, g)
+            .and_maybe(|(comp, cyt, timestamps, applied_gates)| {
+                let b = lookup_meta_req(kws);
+                let m = lookup_meta_req(kws);
+                b.def_zip(m).def_map_value(|(byteord, mode)| Self {
+                    mode,
+                    byteord,
+                    cyt,
+                    comp,
+                    timestamps,
+                    applied_gates,
+                })
             })
-        })
     }
 }
 
@@ -4986,8 +5319,9 @@ impl LookupMetadata for InnerMetadata3_0 {
         let su = lookup_subset(kws, false);
         let t = lookup_timestamps(kws, false);
         let u = lookup_meta_opt(kws, false);
-        co.zip6(cy, sn, su, t, u)
-            .and_maybe(|(comp, cyt, cytsn, subset, timestamps, unicode)| {
+        let g = lookup_applied_gates3_0(kws, false);
+        co.zip4(cy, sn, su).zip4(t, u, g).and_maybe(
+            |((comp, cyt, cytsn, subset), timestamps, unicode, applied_gates)| {
                 let b = lookup_meta_req(kws);
                 let m = lookup_meta_req(kws);
                 b.def_zip(m).def_map_value(|(byteord, mode)| Self {
@@ -4999,8 +5333,10 @@ impl LookupMetadata for InnerMetadata3_0 {
                     timestamps,
                     unicode,
                     subset,
+                    applied_gates,
                 })
-            })
+            },
+        )
     }
 }
 
@@ -5021,8 +5357,15 @@ impl LookupMetadata for InnerMetadata3_1 {
         let p = lookup_plate(kws, false);
         let t = lookup_timestamps(kws, false);
         let v = lookup_meta_opt(kws, false);
-        cy.zip5(sp, sn, su, md).zip4(p, t, v).and_maybe(
-            |((cyt, spillover, cytsn, subset, modification), plate, timestamps, vol)| {
+        let g = lookup_applied_gates3_0(kws, true);
+        cy.zip5(sp, sn, su, md).zip5(p, t, v, g).and_maybe(
+            |(
+                (cyt, spillover, cytsn, subset, modification),
+                plate,
+                timestamps,
+                vol,
+                applied_gates,
+            )| {
                 let b = lookup_meta_req(kws);
                 let mut mo = lookup_meta_req(kws);
                 mo.def_eval_warning(|mode| match mode {
@@ -5041,6 +5384,7 @@ impl LookupMetadata for InnerMetadata3_1 {
                     timestamps,
                     plate,
                     subset,
+                    applied_gates,
                 })
             },
         )
@@ -5070,33 +5414,41 @@ impl LookupMetadata for InnerMetadata3_2 {
         let t = lookup_timestamps(kws, false);
         let u = lookup_unstained(kws);
         let v = lookup_meta_opt(kws, false);
-        ca.zip6(d, f, md, mo, sp).zip6(sn, p, t, u, v).and_maybe(
-            |(
-                (carrier, datetimes, flowrate, modification, _, spillover),
-                cytsn,
-                plate,
-                timestamps,
-                unstained,
-                vol,
-            )| {
-                let b = lookup_meta_req(kws);
-                let c = lookup_meta_req(kws);
-                b.def_zip(c).def_map_value(|(byteord, cyt)| Self {
-                    byteord,
-                    cyt,
-                    cytsn,
-                    vol,
-                    spillover,
-                    modification,
-                    timestamps,
-                    plate,
-                    carrier,
-                    datetimes,
-                    flowrate,
-                    unstained,
-                })
-            },
-        )
+        let g = lookup_applied_gates3_2(kws);
+        ca.zip6(d, f, md, mo, sp)
+            .zip6(sn, p, t, u, v)
+            .zip(g)
+            .and_maybe(
+                |(
+                    (
+                        (carrier, datetimes, flowrate, modification, _, spillover),
+                        cytsn,
+                        plate,
+                        timestamps,
+                        unstained,
+                        vol,
+                    ),
+                    applied_gates,
+                )| {
+                    let b = lookup_meta_req(kws);
+                    let c = lookup_meta_req(kws);
+                    b.def_zip(c).def_map_value(|(byteord, cyt)| Self {
+                        byteord,
+                        cyt,
+                        cytsn,
+                        vol,
+                        spillover,
+                        modification,
+                        timestamps,
+                        plate,
+                        carrier,
+                        datetimes,
+                        flowrate,
+                        unstained,
+                        applied_gates,
+                    })
+                },
+            )
     }
 }
 
@@ -5581,6 +5933,7 @@ impl InnerMetadata2_0 {
             cyt: None.into(),
             timestamps: Timestamps::default(),
             comp: None.into(),
+            applied_gates: None.into(),
         }
     }
 }
@@ -5596,6 +5949,7 @@ impl InnerMetadata3_0 {
             comp: None.into(),
             unicode: None.into(),
             subset: None.into(),
+            applied_gates: None.into(),
         }
     }
 }
@@ -5613,6 +5967,7 @@ impl InnerMetadata3_1 {
             spillover: None.into(),
             vol: None.into(),
             subset: None.into(),
+            applied_gates: None.into(),
         }
     }
 }
@@ -5632,6 +5987,7 @@ impl InnerMetadata3_2 {
             unstained: UnstainedData::default(),
             spillover: None.into(),
             vol: None.into(),
+            applied_gates: None.into(),
         }
     }
 }

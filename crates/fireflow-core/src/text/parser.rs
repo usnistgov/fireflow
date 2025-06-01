@@ -253,6 +253,109 @@ pub(crate) fn lookup_peakdata<E>(
     b.zip(s).map(|(bin, size)| PeakData { bin, size })
 }
 
+pub(crate) fn lookup_applied_gates2_0<E>(
+    kws: &mut StdKeywords,
+) -> LookupTentative<OptionalKw<AppliedGates2_0>, E> {
+    let ag = lookup_applied_gates(kws, false, |k, i| lookup_gate_region_2_0(k, i.into()));
+    let gm = lookup_gated_measurements(kws, false);
+    ag.zip(gm).and_tentatively(|(x, y)| {
+        if let Some((applied, gated_measurements)) = x.0.zip(y.0) {
+            let ret = AppliedGates2_0 {
+                gated_measurements,
+                applied,
+            };
+            match ret.check_gates() {
+                Ok(_) => Tentative::new1(Some(ret).into()),
+                Err(e) => {
+                    let w = ParseKeysWarning::OtherWarning(e.into());
+                    Tentative::new(None.into(), vec![w], vec![])
+                }
+            }
+        } else {
+            Tentative::new1(None.into())
+        }
+    })
+}
+
+pub(crate) fn lookup_applied_gates3_0<E>(
+    kws: &mut StdKeywords,
+    dep: bool,
+) -> LookupTentative<OptionalKw<AppliedGates3_0>, E> {
+    let ag = lookup_applied_gates(kws, false, |k, i| lookup_gate_region_3_0(k, i.into()));
+    let gm = lookup_gated_measurements(kws, dep);
+    ag.zip(gm).and_tentatively(|(x, y)| {
+        if let Some(applied) = x.0 {
+            let ret = AppliedGates3_0 {
+                gated_measurements: y.0.map(|z| z.0.into()).unwrap_or_default(),
+                applied,
+            };
+            match ret.check_gates() {
+                Ok(_) => Tentative::new1(Some(ret).into()),
+                Err(e) => {
+                    let w = ParseKeysWarning::OtherWarning(e.into());
+                    Tentative::new(None.into(), vec![w], vec![])
+                }
+            }
+        } else {
+            Tentative::new1(None.into())
+        }
+    })
+}
+
+pub(crate) fn lookup_applied_gates3_2<E>(
+    kws: &mut StdKeywords,
+) -> LookupTentative<OptionalKw<AppliedGates3_2>, E> {
+    lookup_applied_gates(kws, false, |k, i| lookup_gate_region_3_2(k, i.into()))
+        .map(|x| x.map(|applied| AppliedGates3_2 { applied }))
+}
+
+pub(crate) fn lookup_applied_gates<I, E, F>(
+    kws: &mut StdKeywords,
+    dep: bool,
+    get_region: F,
+) -> LookupTentative<OptionalKw<AppliedGates<I>>, E>
+where
+    F: Fn(&mut StdKeywords, usize) -> LookupTentative<OptionalKw<I>, E>,
+{
+    lookup_meta_opt::<Gating, _>(kws, dep)
+        .and_tentatively(|maybe| {
+            if let Some(gating) = maybe.0 {
+                let res = gating.flatten().try_map(|ri| {
+                    get_region(kws, ri)
+                        .map(|x| x.0.map(|y| (ri, y)))
+                        .transpose()
+                        .ok_or(GateRegionLinkError.into())
+                });
+                match res {
+                    Ok(xs) => Tentative::mconcat_ne(xs)
+                        .map(|regions| Some(AppliedGates { regions, gating })),
+                    Err(w) => Tentative::new(None, vec![ParseKeysWarning::OtherWarning(w)], vec![]),
+                }
+            } else {
+                Tentative::new1(None)
+            }
+        })
+        .map(|x| x.into())
+}
+
+pub(crate) fn lookup_gated_measurements<E>(
+    kws: &mut StdKeywords,
+    dep: bool,
+) -> LookupTentative<OptionalKw<GatedMeasurements>, E> {
+    lookup_meta_opt::<Gate, E>(kws, dep).and_tentatively(|maybe| {
+        if let Some(n) = maybe.0 {
+            if n.0 > 0 {
+                let xs = NonEmpty::collect(
+                    (0..n.0).map(|i| lookup_gated_measurement(kws, i.into(), dep)),
+                )
+                .unwrap();
+                return Tentative::mconcat_ne(xs).map(|x| Some(GatedMeasurements(x)).into());
+            }
+        }
+        Tentative::new1(None.into())
+    })
+}
+
 pub(crate) fn lookup_gated_measurement<E>(
     kws: &mut StdKeywords,
     i: MeasIdx,
@@ -292,150 +395,70 @@ pub(crate) fn lookup_gate_region_2_0<E>(
     kws: &mut StdKeywords,
     i: MeasIdx,
 ) -> LookupTentative<OptionalKw<GateRegion2_0>, E> {
-    // query the keywords read-only at first since we want to remove both only
-    // if they are valid
-    let n = process_opt(GateRegionIndex2_0::get_meas_opt(kws, i));
-    let w = process_opt(GateRegionWindow::get_meas_opt(kws, i));
+    let n = lookup_meas_opt::<GateRegionIndex2_0, _>(kws, i, false);
+    let w = lookup_meas_opt(kws, i, false);
     n.zip(w)
-        .map(|(x, y)| x.0.zip(y.0))
-        .and_tentatively(|maybe| {
-            if let Some((gi, win)) = maybe {
-                match (gi.0, win) {
-                    (GateRegionIndex::Univariate(index), GateRegionWindow::Univariate(pair)) => {
-                        Tentative::new1(Some(GateRegion::Univariate(UnivariateRegion {
-                            index: index.into(),
-                            gate: pair.into(),
-                        })))
-                    }
-                    (
-                        GateRegionIndex::Bivariate(x_index, y_index),
-                        GateRegionWindow::Bivariate(pairs),
-                    ) => Tentative::new1(Some(GateRegion::Bivariate(BivariateRegion {
-                        x_index: x_index.into(),
-                        y_index: y_index.into(),
-                        vertices: pairs.map(|p| p.into()),
-                    }))),
-                    _ => {
+        .and_tentatively(|(_n, _y)| {
+            _n.0.zip(_y.0)
+                .and_then(|(gi, win)| GateRegion::try_new(gi.0, win).map(|x| x.inner_into()))
+                .map_or_else(
+                    || {
                         let warn = ParseOtherWarning::GateRegion(InvalidGateRegion).into();
                         Tentative::new(None, vec![warn], vec![])
-                    }
-                }
-            } else {
-                Tentative::new1(None)
-            }
+                    },
+                    |x| Tentative::new1(Some(x)),
+                )
         })
-        .map(|ret| {
-            // remove both if we succeeded
-            if ret.is_some() {
-                let _ = kws.remove(&GateRegionIndex2_0::std(i));
-                let _ = kws.remove(&GateRegionWindow::std(i));
-            }
-            ret.into()
-        })
+        .map(|x| x.into())
 }
 
 pub(crate) fn lookup_gate_region_3_0<E>(
     kws: &mut StdKeywords,
     i: MeasIdx,
 ) -> LookupTentative<OptionalKw<GateRegion3_0>, E> {
-    // query the keywords read-only at first since we want to remove both only
-    // if they are valid
-    let n = process_opt(GateRegionIndex3_0::get_meas_opt(kws, i));
-    let w = process_opt(GateRegionWindow::get_meas_opt(kws, i));
+    let n = lookup_meas_opt::<GateRegionIndex3_0, _>(kws, i, false);
+    let w = lookup_meas_opt(kws, i, false);
     n.zip(w)
-        .map(|(x, y)| x.0.zip(y.0))
-        .and_tentatively(|maybe| {
-            if let Some((gi, win)) = maybe {
-                let is_gate = gi.is_gate;
-                match (gi.index, win) {
-                    (GateRegionIndex::Univariate(index), GateRegionWindow::Univariate(pair)) => {
-                        Tentative::new1(Some(GateRegion::Univariate(UnivariateRegion {
-                            index: RegionLink { index, is_gate },
-                            gate: pair.into(),
-                        })))
-                    }
-                    (
-                        GateRegionIndex::Bivariate(x_index, y_index),
-                        GateRegionWindow::Bivariate(pairs),
-                    ) => Tentative::new1(Some(GateRegion::Bivariate(BivariateRegion {
-                        x_index: RegionLink {
-                            index: x_index,
-                            is_gate,
-                        },
-                        y_index: RegionLink {
-                            index: y_index,
-                            is_gate,
-                        },
-                        vertices: pairs.map(|p| p.into()),
-                    }))),
-                    _ => {
+        .and_tentatively(|(_n, _y)| {
+            _n.0.zip(_y.0)
+                .and_then(|(gi, win)| {
+                    GateRegion::try_new(gi.index, win).map(|x| {
+                        x.map(|index| RegionLink {
+                            is_gate: gi.is_gate,
+                            index,
+                        })
+                    })
+                })
+                .map_or_else(
+                    || {
                         let warn = ParseOtherWarning::GateRegion(InvalidGateRegion).into();
                         Tentative::new(None, vec![warn], vec![])
-                    }
-                }
-            } else {
-                Tentative::new1(None)
-            }
+                    },
+                    |x| Tentative::new1(Some(x)),
+                )
         })
-        .map(|ret| {
-            // remove both if we succeeded
-            if ret.is_some() {
-                let _ = kws.remove(&GateRegionIndex2_0::std(i));
-                let _ = kws.remove(&GateRegionWindow::std(i));
-            }
-            ret.into()
-        })
+        .map(|x| x.into())
 }
 
 pub(crate) fn lookup_gate_region_3_2<E>(
     kws: &mut StdKeywords,
     i: MeasIdx,
 ) -> LookupTentative<OptionalKw<GateRegion3_2>, E> {
-    // query the keywords read-only at first since we want to remove both only
-    // if they are valid
-    let n = process_opt(GateRegionIndex3_2::get_meas_opt(kws, i));
-    let w = process_opt(GateRegionWindow::get_meas_opt(kws, i));
+    let n = lookup_meas_opt::<GateRegionIndex3_2, _>(kws, i, true);
+    let w = lookup_meas_opt(kws, i, true);
     n.zip(w)
-        .map(|(x, y)| x.0.zip(y.0))
-        .and_tentatively(|maybe| {
-            if let Some((gi, win)) = maybe {
-                match (gi.0, win) {
-                    (GateRegionIndex::Univariate(index), GateRegionWindow::Univariate(pair)) => {
-                        Tentative::new1(Some(GateRegion::Univariate(UnivariateRegion {
-                            index: index.into(),
-                            gate: pair.into(),
-                        })))
-                    }
-                    (
-                        GateRegionIndex::Bivariate(x_index, y_index),
-                        GateRegionWindow::Bivariate(pairs),
-                    ) => Tentative::new1(Some(GateRegion::Bivariate(BivariateRegion {
-                        x_index: x_index.into(),
-                        y_index: y_index.into(),
-                        vertices: pairs.map(|p| p.into()),
-                    }))),
-                    _ => {
+        .and_tentatively(|(_n, _y)| {
+            _n.0.zip(_y.0)
+                .and_then(|(gi, win)| GateRegion::try_new(gi.0, win).map(|x| x.inner_into()))
+                .map_or_else(
+                    || {
                         let warn = ParseOtherWarning::GateRegion(InvalidGateRegion).into();
                         Tentative::new(None, vec![warn], vec![])
-                    }
-                }
-            } else {
-                Tentative::new1(None)
-            }
+                    },
+                    |x| Tentative::new1(Some(x)),
+                )
         })
-        .and_tentatively(|ret| {
-            // remove both if we succeeded
-            let ki = GateRegionIndex3_2::std(i);
-            let kw = GateRegionWindow::std(i);
-            if ret.is_some() {
-                let _ = kws.remove(&ki);
-                let _ = kws.remove(&kw);
-            }
-            let mut tnt = Tentative::new1(ret.into());
-            tnt.push_warning(DepKeyWarning(ki).into());
-            tnt.push_warning(DepKeyWarning(kw).into());
-            tnt
-        })
+        .map(|x| x.into())
 }
 
 pub(crate) fn lookup_temporal_gain_3_0(
@@ -557,6 +580,7 @@ enum_from_disp!(
     [GateRegionIndex3_0, ParseKeyError<GateRegionIndex3_0Error>],
     [GateRegionIndex3_2, ParseKeyError<GateRegionIndex3_2Error>],
     [GateRegionWindow,   ParseKeyError<GatePairError>],
+    [Gating,             ParseKeyError<GatingError>],
     [CompShape,          NewCompError]
 );
 
@@ -578,7 +602,9 @@ enum_from_disp!(
     pub ParseOtherWarning,
     [Timestamp, InvalidTimestamps],
     [Datetime, InvalidDatetimes],
-    [GateRegion, InvalidGateRegion]
+    [GateRegion, InvalidGateRegion],
+    [GateRegionLink, GateRegionLinkError],
+    [GateMeasLink, GateMeasurementLinkError]
 );
 
 pub struct DepKeyWarning(pub StdKey);

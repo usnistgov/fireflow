@@ -5,9 +5,9 @@ use crate::macros::{enum_from, enum_from_disp, match_many_to_one, newtype_disp, 
 use crate::segment::*;
 use crate::text::byteord::*;
 use crate::text::float_or_int::*;
+use crate::text::index::IndexFromOne;
 use crate::text::keywords::*;
 use crate::validated::dataframe::*;
-use crate::validated::nonstandard::*;
 use crate::validated::standard::*;
 
 use itertools::repeat_n;
@@ -3043,7 +3043,7 @@ impl fmt::Display for BitmaskLossError {
 }
 
 pub struct ColumnError<E> {
-    index: MeasIdx,
+    index: IndexFromOne,
     error: E,
 }
 

@@ -1,6 +1,6 @@
-use crate::validated::nonstandard::*;
 use crate::validated::standard::BiIndexedKey;
 
+use super::index::MeasIndex;
 use super::keywords::Dfc;
 use super::optionalkw::*;
 
@@ -31,7 +31,7 @@ impl Compensation {
         }
     }
 
-    pub(crate) fn remove_by_index(&mut self, index: MeasIdx) -> Result<bool, ClearOptional> {
+    pub(crate) fn remove_by_index(&mut self, index: MeasIndex) -> Result<bool, ClearOptional> {
         let i: usize = index.into();
         let n = self.matrix.ncols();
         if i <= n {
@@ -57,9 +57,9 @@ impl Compensation {
             .enumerate()
             .flat_map(|(i, x)| {
                 if *x != 0.0 {
-                    let row = i / n + 1;
-                    let col = i % n + 1;
-                    Some((Dfc::std(row, col).to_string(), x.to_string()))
+                    let row = i / n;
+                    let col = i % n;
+                    Some((Dfc::std(row.into(), col.into()).to_string(), x.to_string()))
                 } else {
                     None
                 }

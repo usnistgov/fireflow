@@ -3,14 +3,13 @@ use crate::data::*;
 use crate::error::*;
 use crate::header::*;
 use crate::header_text::*;
-use crate::macros::{
-    enum_from, enum_from_disp, match_many_to_one, newtype_from, newtype_from_outer,
-};
+use crate::macros::{enum_from, enum_from_disp, match_many_to_one, newtype_from};
 use crate::segment::*;
 use crate::text::byteord::*;
 use crate::text::compensation::*;
 use crate::text::datetimes::*;
 use crate::text::float_or_int::*;
+use crate::text::index::*;
 use crate::text::keywords::*;
 use crate::text::named_vec::*;
 use crate::text::optionalkw::*;
@@ -786,10 +785,8 @@ impl<I> GateRegion<I> {
             Self::Bivariate(r) => (r.x_index, vec![r.y_index]).into(),
         }
     }
-}
 
-impl GateRegion<usize> {
-    pub(crate) fn try_new(index: GateRegionIndex, window: GateRegionWindow) -> Option<Self> {
+    pub(crate) fn try_new(index: GateRegionIndex<I>, window: GateRegionWindow) -> Option<Self> {
         match (index, window) {
             (GateRegionIndex::Univariate(_index), GateRegionWindow::Univariate(pair)) => {
                 Some(GateRegion::Univariate(UnivariateRegion {
@@ -809,65 +806,45 @@ impl GateRegion<usize> {
     }
 }
 
-#[derive(Clone, Serialize)]
-pub struct GateLink(pub usize);
+pub type GateRegion2_0 = GateRegion<GateIndex>;
+pub type GateRegion3_0 = GateRegion<MeasOrGateIndex>;
+pub type GateRegion3_2 = GateRegion<MeasIndex>;
 
-#[derive(Clone, Serialize)]
-pub struct MeasLink(pub usize);
-
-newtype_from!(GateLink, usize);
-newtype_from_outer!(GateLink, usize);
-newtype_from!(MeasLink, usize);
-newtype_from_outer!(MeasLink, usize);
-
-pub type GateRegion2_0 = GateRegion<GateLink>;
-pub type GateRegion3_0 = GateRegion<RegionLink>;
-pub type GateRegion3_2 = GateRegion<MeasLink>;
-
-impl From<GateLink> for RegionLink {
-    fn from(value: GateLink) -> Self {
-        Self {
-            is_gate: true,
-            index: value.0,
-        }
-    }
-}
-
-impl From<MeasLink> for RegionLink {
-    fn from(value: MeasLink) -> Self {
-        Self {
-            is_gate: false,
-            index: value.0,
-        }
-    }
-}
-
-impl TryFrom<RegionLink> for MeasLink {
+impl TryFrom<MeasOrGateIndex> for MeasIndex {
     type Error = RegionToMeasLinkError;
-    fn try_from(value: RegionLink) -> Result<Self, Self::Error> {
-        if value.is_gate {
-            Err(RegionToMeasLinkError(value.index))
-        } else {
-            Ok(MeasLink(value.index))
+    fn try_from(value: MeasOrGateIndex) -> Result<Self, Self::Error> {
+        match value {
+            MeasOrGateIndex::Meas(i) => Ok(i),
+            MeasOrGateIndex::Gate(i) => Err(RegionToMeasLinkError(i)),
         }
     }
 }
 
-impl TryFrom<GateLink> for MeasLink {
+impl TryFrom<MeasOrGateIndex> for GateIndex {
+    type Error = RegionToGateLinkError;
+    fn try_from(value: MeasOrGateIndex) -> Result<Self, Self::Error> {
+        match value {
+            MeasOrGateIndex::Gate(i) => Ok(i),
+            MeasOrGateIndex::Meas(i) => Err(RegionToGateLinkError(i)),
+        }
+    }
+}
+
+impl TryFrom<GateIndex> for MeasIndex {
     type Error = GateToMeasLinkError;
-    fn try_from(value: GateLink) -> Result<Self, Self::Error> {
-        Err(GateToMeasLinkError(value.0))
+    fn try_from(value: GateIndex) -> Result<Self, Self::Error> {
+        Err(GateToMeasLinkError(value))
     }
 }
 
-impl TryFrom<MeasLink> for GateLink {
+impl TryFrom<MeasIndex> for GateIndex {
     type Error = MeasToGateLinkError;
-    fn try_from(value: MeasLink) -> Result<Self, Self::Error> {
-        Err(MeasToGateLinkError(value.0))
+    fn try_from(value: MeasIndex) -> Result<Self, Self::Error> {
+        Err(MeasToGateLinkError(value))
     }
 }
 
-pub struct RegionToMeasLinkError(usize);
+pub struct RegionToMeasLinkError(GateIndex);
 
 impl fmt::Display for RegionToMeasLinkError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -880,18 +857,7 @@ impl fmt::Display for RegionToMeasLinkError {
     }
 }
 
-impl TryFrom<RegionLink> for GateLink {
-    type Error = RegionToGateLinkError;
-    fn try_from(value: RegionLink) -> Result<Self, Self::Error> {
-        if !value.is_gate {
-            Err(RegionToGateLinkError(value.index))
-        } else {
-            Ok(GateLink(value.index))
-        }
-    }
-}
-
-pub struct RegionToGateLinkError(usize);
+pub struct RegionToGateLinkError(MeasIndex);
 
 impl fmt::Display for RegionToGateLinkError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -904,7 +870,7 @@ impl fmt::Display for RegionToGateLinkError {
     }
 }
 
-pub struct GateToMeasLinkError(usize);
+pub struct GateToMeasLinkError(GateIndex);
 
 impl fmt::Display for GateToMeasLinkError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -916,7 +882,7 @@ impl fmt::Display for GateToMeasLinkError {
     }
 }
 
-pub struct MeasToGateLinkError(usize);
+pub struct MeasToGateLinkError(MeasIndex);
 
 impl fmt::Display for MeasToGateLinkError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -928,16 +894,10 @@ impl fmt::Display for MeasToGateLinkError {
     }
 }
 
-#[derive(Clone, Serialize)]
-pub struct RegionLink {
-    pub index: usize,
-    pub is_gate: bool,
-}
-
 #[derive(Clone)]
 pub struct AppliedGates<I> {
     pub gating: Gating,
-    pub regions: NonEmpty<(usize, I)>,
+    pub regions: NonEmpty<(RegionIndex, I)>,
 }
 
 impl<I> Serialize for AppliedGates<I>
@@ -982,8 +942,7 @@ impl AppliedGates2_0 {
             .as_ref()
             .flat_map(|(_, r)| r.clone().flatten())
             .into_iter()
-            .map(|x| x.0)
-            .filter(|i| *i > n);
+            .filter(|i| usize::from(*i) > n);
         NonEmpty::collect(it).map_or(Ok(()), |xs| Err(GateMeasurementLinkError(xs)))
     }
 }
@@ -1003,13 +962,13 @@ impl AppliedGates3_0 {
             .as_ref()
             .flat_map(|(_, r)| r.clone().flatten())
             .into_iter()
-            .flat_map(|i| if i.is_gate { Some(i.index) } else { None })
-            .filter(|i| *i > n);
+            .flat_map(|i| GateIndex::try_from(i).ok())
+            .filter(|i| usize::from(*i) > n);
         NonEmpty::collect(it).map_or(Ok(()), |xs| Err(GateMeasurementLinkError(xs)))
     }
 }
 
-pub struct GateMeasurementLinkError(NonEmpty<usize>);
+pub struct GateMeasurementLinkError(NonEmpty<GateIndex>);
 
 pub struct GateRegionLinkError;
 
@@ -1229,7 +1188,7 @@ pub trait Versioned {
 pub(crate) trait LookupMetadata: Sized + VersionedMetadata {
     fn lookup_shortname(
         kws: &mut StdKeywords,
-        n: MeasIdx,
+        n: MeasIndex,
     ) -> LookupResult<<Self::N as MightHave>::Wrapper<Shortname>>;
 
     fn lookup_specific(st: &mut StdKeywords, par: Par) -> LookupResult<Self>;
@@ -1286,9 +1245,9 @@ pub trait VersionedMetadata: Sized {
 }
 
 pub trait VersionedOptical: Sized + Versioned {
-    fn req_suffixes_inner(&self, n: MeasIdx) -> RawTriples;
+    fn req_suffixes_inner(&self, n: MeasIndex) -> RawTriples;
 
-    fn opt_suffixes_inner(&self, n: MeasIdx) -> RawOptTriples;
+    fn opt_suffixes_inner(&self, n: MeasIndex) -> RawOptTriples;
 
     fn datatype(&self) -> Option<NumType>;
 
@@ -1296,7 +1255,7 @@ pub trait VersionedOptical: Sized + Versioned {
 }
 
 pub(crate) trait LookupOptical: Sized + VersionedOptical {
-    fn lookup_specific(kws: &mut StdKeywords, n: MeasIdx) -> LookupResult<Self>;
+    fn lookup_specific(kws: &mut StdKeywords, n: MeasIndex) -> LookupResult<Self>;
 }
 
 pub trait VersionedTemporal: Sized {
@@ -1308,11 +1267,11 @@ pub trait VersionedTemporal: Sized {
 
     fn req_meta_keywords_inner(&self) -> RawPairs;
 
-    fn opt_meas_keywords_inner(&self, _: MeasIdx) -> RawOptPairs;
+    fn opt_meas_keywords_inner(&self, _: MeasIndex) -> RawOptPairs;
 }
 
 pub(crate) trait LookupTemporal: VersionedTemporal {
-    fn lookup_specific(kws: &mut StdKeywords, n: MeasIdx) -> LookupResult<Self>;
+    fn lookup_specific(kws: &mut StdKeywords, n: MeasIndex) -> LookupResult<Self>;
 }
 
 impl CommonMeasurement {
@@ -1325,10 +1284,10 @@ impl CommonMeasurement {
         }
     }
 
-    fn lookup(kws: &mut StdKeywords, i: MeasIdx, nonstd: NonStdPairs) -> LookupResult<Self> {
-        lookup_meas_opt(kws, i, false).and_maybe(|longname| {
-            let w = lookup_meas_req(kws, i);
-            let r = lookup_meas_req(kws, i);
+    fn lookup(kws: &mut StdKeywords, i: MeasIndex, nonstd: NonStdPairs) -> LookupResult<Self> {
+        lookup_indexed_opt(kws, i.into(), false).and_maybe(|longname| {
+            let w = lookup_indexed_req(kws, i.into());
+            let r = lookup_indexed_req(kws, i.into());
             w.def_zip(r).def_map_value(|(width, range)| Self {
                 width,
                 range,
@@ -1358,7 +1317,11 @@ where
         }
     }
 
-    fn lookup_temporal(kws: &mut StdKeywords, i: MeasIdx, nonstd: NonStdPairs) -> LookupResult<Self>
+    fn lookup_temporal(
+        kws: &mut StdKeywords,
+        i: MeasIndex,
+        nonstd: NonStdPairs,
+    ) -> LookupResult<Self>
     where
         T: LookupTemporal,
     {
@@ -1378,20 +1341,23 @@ where
         }
     }
 
-    fn req_meas_keywords(&self, n: MeasIdx) -> RawPairs {
-        [self.common.width.pair(n), self.common.range.pair(n)]
-            .into_iter()
-            .collect()
+    fn req_meas_keywords(&self, n: MeasIndex) -> RawPairs {
+        [
+            self.common.width.pair(n.into()),
+            self.common.range.pair(n.into()),
+        ]
+        .into_iter()
+        .collect()
     }
 
     fn req_meta_keywords(&self) -> RawPairs {
         self.specific.req_meta_keywords_inner()
     }
 
-    fn opt_meas_keywords(&self, n: MeasIdx) -> RawPairs {
-        [OptMeasKey::pair(&self.common.longname, n)]
+    fn opt_meas_keywords(&self, i: MeasIndex) -> RawPairs {
+        [OptMeasKey::pair(&self.common.longname, i.into())]
             .into_iter()
-            .chain(self.specific.opt_meas_keywords_inner(n))
+            .chain(self.specific.opt_meas_keywords_inner(i))
             .flat_map(|(k, v)| v.map(|x| (k, x)))
             .collect()
     }
@@ -1435,16 +1401,20 @@ where
         })
     }
 
-    fn lookup_optical(kws: &mut StdKeywords, i: MeasIdx, nonstd: NonStdPairs) -> LookupResult<Self>
+    fn lookup_optical(
+        kws: &mut StdKeywords,
+        i: MeasIndex,
+        nonstd: NonStdPairs,
+    ) -> LookupResult<Self>
     where
         P: LookupOptical,
     {
         let version = P::fcs_version();
-        let f = lookup_meas_opt(kws, i, false);
-        let p = lookup_meas_opt(kws, i, false);
-        let d = lookup_meas_opt(kws, i, false);
-        let e = lookup_meas_opt(kws, i, version == Version::FCS3_2);
-        let v = lookup_meas_opt(kws, i, false);
+        let f = lookup_indexed_opt(kws, i.into(), false);
+        let p = lookup_indexed_opt(kws, i.into(), false);
+        let d = lookup_indexed_opt(kws, i.into(), false);
+        let e = lookup_indexed_opt(kws, i.into(), version == Version::FCS3_2);
+        let v = lookup_indexed_opt(kws, i.into(), false);
         f.zip5(p, d, e, v).and_maybe(
             |(filter, power, detector_type, percent_emitted, detector_voltage)| {
                 let c = CommonMeasurement::lookup(kws, i, nonstd);
@@ -1462,24 +1432,27 @@ where
         )
     }
 
-    fn req_keywords(&self, n: MeasIdx) -> RawTriples {
-        [self.common.width.triple(n), self.common.range.triple(n)]
-            .into_iter()
-            .chain(self.specific.req_suffixes_inner(n))
-            .collect()
-    }
-
-    fn opt_keywords(&self, n: MeasIdx) -> RawOptTriples {
+    fn req_keywords(&self, i: MeasIndex) -> RawTriples {
         [
-            OptMeasKey::triple(&self.common.longname, n),
-            OptMeasKey::triple(&self.filter, n),
-            OptMeasKey::triple(&self.power, n),
-            OptMeasKey::triple(&self.detector_type, n),
-            OptMeasKey::triple(&self.percent_emitted, n),
-            OptMeasKey::triple(&self.detector_voltage, n),
+            self.common.width.triple(i.into()),
+            self.common.range.triple(i.into()),
         ]
         .into_iter()
-        .chain(self.specific.opt_suffixes_inner(n))
+        .chain(self.specific.req_suffixes_inner(i))
+        .collect()
+    }
+
+    fn opt_keywords(&self, i: MeasIndex) -> RawOptTriples {
+        [
+            OptMeasKey::triple(&self.common.longname, i.into()),
+            OptMeasKey::triple(&self.filter, i.into()),
+            OptMeasKey::triple(&self.power, i.into()),
+            OptMeasKey::triple(&self.detector_type, i.into()),
+            OptMeasKey::triple(&self.percent_emitted, i.into()),
+            OptMeasKey::triple(&self.detector_voltage, i.into()),
+        ]
+        .into_iter()
+        .chain(self.specific.opt_suffixes_inner(i))
         .collect()
     }
 
@@ -1502,7 +1475,7 @@ where
             .collect()
     }
 
-    fn table_row(&self, i: MeasIdx, n: Option<&Shortname>) -> Vec<String> {
+    fn table_row(&self, i: MeasIndex, n: Option<&Shortname>) -> Vec<String> {
         let na = || "NA".into();
         [i.to_string(), n.map_or(na(), |x| x.to_string())]
             .into_iter()
@@ -1517,14 +1490,14 @@ where
 
     // TODO this name is weird, this is standard+nonstandard keywords
     // after filtering out None values
-    fn all_req_keywords(&self, n: MeasIdx) -> RawPairs {
+    fn all_req_keywords(&self, n: MeasIndex) -> RawPairs {
         self.req_keywords(n)
             .into_iter()
             .map(|(_, k, v)| (k, v))
             .collect()
     }
 
-    fn all_opt_keywords(&self, n: MeasIdx) -> RawPairs {
+    fn all_opt_keywords(&self, n: MeasIndex) -> RawPairs {
         self.opt_keywords(n)
             .into_iter()
             .filter_map(|(_, k, v)| v.map(|x| (k, x)))
@@ -1744,7 +1717,7 @@ where
         }
     }
 
-    fn remove_name_index(&mut self, n: &Shortname, i: MeasIdx) {
+    fn remove_name_index(&mut self, n: &Shortname, i: MeasIndex) {
         self.remove_trigger_by_name(n);
         let s = &mut self.specific;
         s.with_spillover(|x| x.remove_by_name(n));
@@ -1892,7 +1865,7 @@ pub(crate) type VersionedConvertError<N, ToN> = ConvertError<
 macro_rules! non_time_get_set {
     ($get:ident, $set:ident, $ty:ident, [$($root:ident)*], $field:ident, $kw:ident) => {
         /// Get $$kw value for optical measurements
-        pub fn $get(&self) -> Vec<(MeasIdx, Option<&$ty>)> {
+        pub fn $get(&self) -> Vec<(MeasIndex, Option<&$ty>)> {
             self.measurements
                 .iter_non_center_values()
                 .map(|(i, m)| (i, m.$($root.)*$field.as_ref_opt()))
@@ -2130,7 +2103,7 @@ where
     /// Set the measurement at given index to the time measurement.
     pub fn set_temporal_at(
         &mut self,
-        index: MeasIdx,
+        index: MeasIndex,
         force: bool,
     ) -> Result<bool, SetTemporalIndexError>
     where
@@ -2231,7 +2204,7 @@ where
     #[allow(clippy::type_complexity)]
     pub fn replace_measurement_at(
         &mut self,
-        index: MeasIdx,
+        index: MeasIndex,
         m: Optical<M::P>,
     ) -> Result<Element<Temporal<M::T>, Optical<M::P>>, ElementIndexError> {
         self.measurements.replace_at(index, m)
@@ -2259,7 +2232,7 @@ where
     /// on success.
     pub fn rename_measurement(
         &mut self,
-        index: MeasIdx,
+        index: MeasIndex,
         key: <M::N as MightHave>::Wrapper<Shortname>,
     ) -> Result<(Shortname, Shortname), RenameError> {
         self.measurements.rename(index, key).map(|(old, new)| {
@@ -2439,7 +2412,7 @@ where
     fn remove_measurement_by_name_inner(
         &mut self,
         n: &Shortname,
-    ) -> Option<(MeasIdx, Element<Temporal<M::T>, Optical<M::P>>)> {
+    ) -> Option<(MeasIndex, Element<Temporal<M::T>, Optical<M::P>>)> {
         if let Some(e) = self.measurements.remove_name(n) {
             self.metadata.remove_name_index(n, e.0);
             Some(e)
@@ -2451,7 +2424,7 @@ where
     #[allow(clippy::type_complexity)]
     fn remove_measurement_by_index_inner(
         &mut self,
-        index: MeasIdx,
+        index: MeasIndex,
     ) -> Result<EitherPair<M::N, Temporal<M::T>, Optical<M::P>>, ElementIndexError> {
         let res = self.measurements.remove_index(index)?;
         if let Element::NonCenter(left) = &res {
@@ -2544,8 +2517,8 @@ where
         f_meta: I,
     ) -> (RawPairs, RawPairs)
     where
-        F: Fn(&Optical<M::P>, MeasIdx) -> RawPairs,
-        G: Fn(&Temporal<M::T>, MeasIdx) -> RawPairs,
+        F: Fn(&Optical<M::P>, MeasIndex) -> RawPairs,
+        G: Fn(&Temporal<M::T>, MeasIndex) -> RawPairs,
         H: Fn(&Temporal<M::T>) -> RawPairs,
         I: Fn(&Metadata<M>, Par) -> RawPairs,
     {
@@ -2609,7 +2582,7 @@ where
         // to named vector structure
         self.measurements
             .indexed_names()
-            .map(|(i, n)| ReqMeasKey::pair(n, i))
+            .map(|(i, n)| ReqMeasKey::pair(n, i.into()))
             .collect()
     }
 
@@ -2945,7 +2918,7 @@ where
     pub fn remove_measurement_by_name(
         &mut self,
         n: &Shortname,
-    ) -> Option<(MeasIdx, Element<Temporal<M::T>, Optical<M::P>>)> {
+    ) -> Option<(MeasIndex, Element<Temporal<M::T>, Optical<M::P>>)> {
         self.remove_measurement_by_name_inner(n)
     }
 
@@ -2955,7 +2928,7 @@ where
     #[allow(clippy::type_complexity)]
     pub fn remove_measurement_by_index(
         &mut self,
-        index: MeasIdx,
+        index: MeasIndex,
     ) -> Result<EitherPair<M::N, Temporal<M::T>, Optical<M::P>>, ElementIndexError> {
         self.remove_measurement_by_index_inner(index)
     }
@@ -2977,7 +2950,7 @@ where
     /// index is out of bounds.
     pub fn insert_temporal(
         &mut self,
-        i: MeasIdx,
+        i: MeasIndex,
         n: Shortname,
         m: Temporal<M::T>,
     ) -> Result<(), InsertCenterError> {
@@ -3000,7 +2973,7 @@ where
     /// Return error if name is non-unique, or index is out of bounds.
     pub fn insert_optical(
         &mut self,
-        i: MeasIdx,
+        i: MeasIndex,
         n: <M::N as MightHave>::Wrapper<Shortname>,
         m: Optical<M::P>,
     ) -> Result<Shortname, InsertError> {
@@ -3158,7 +3131,7 @@ where
     pub fn remove_measurement_by_name(
         &mut self,
         n: &Shortname,
-    ) -> Option<(MeasIdx, Element<Temporal<M::T>, Optical<M::P>>)> {
+    ) -> Option<(MeasIndex, Element<Temporal<M::T>, Optical<M::P>>)> {
         self.remove_measurement_by_name_inner(n).map(|(i, x)| {
             self.data.drop_in_place(i.into()).unwrap();
             (i, x)
@@ -3171,7 +3144,7 @@ where
     #[allow(clippy::type_complexity)]
     pub fn remove_measurement_by_index(
         &mut self,
-        index: MeasIdx,
+        index: MeasIndex,
     ) -> Result<EitherPair<M::N, Temporal<M::T>, Optical<M::P>>, ElementIndexError> {
         let res = self.remove_measurement_by_index_inner(index)?;
         self.data.drop_in_place(index.into()).unwrap();
@@ -3198,7 +3171,7 @@ where
     /// index is out of bounds.
     pub fn insert_temporal(
         &mut self,
-        i: MeasIdx,
+        i: MeasIndex,
         n: Shortname,
         m: Temporal<M::T>,
         col: AnyFCSColumn,
@@ -3228,7 +3201,7 @@ where
     /// Return error if name is non-unique, or index is out of bounds.
     pub fn insert_optical(
         &mut self,
-        i: MeasIdx,
+        i: MeasIndex,
         n: <M::N as MightHave>::Wrapper<Shortname>,
         m: Optical<M::P>,
         col: AnyFCSColumn,
@@ -3378,7 +3351,7 @@ macro_rules! scale_get_set {
         }
 
         /// Show $PnE for optical measurements
-        pub fn scales(&self) -> Vec<(MeasIdx, $t)> {
+        pub fn scales(&self) -> Vec<(MeasIndex, $t)> {
             self.measurements
                 .iter_non_center_values()
                 .map(|(i, m)| (i, m.specific.scale.into()))
@@ -4838,10 +4811,10 @@ impl Versioned for InnerOptical3_2 {
 }
 
 impl LookupOptical for InnerOptical2_0 {
-    fn lookup_specific(kws: &mut StdKeywords, n: MeasIdx) -> LookupResult<Self> {
-        let s = lookup_meas_opt(kws, n, false);
-        let w = lookup_meas_opt(kws, n, false);
-        let p = lookup_peakdata(kws, n, false);
+    fn lookup_specific(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
+        let s = lookup_indexed_opt(kws, i.into(), false);
+        let w = lookup_indexed_opt(kws, i.into(), false);
+        let p = lookup_peakdata(kws, i, false);
         Ok(s.zip3(w, p).map(|(scale, wavelength, peak)| Self {
             scale,
             wavelength,
@@ -4851,12 +4824,12 @@ impl LookupOptical for InnerOptical2_0 {
 }
 
 impl LookupOptical for InnerOptical3_0 {
-    fn lookup_specific(kws: &mut StdKeywords, n: MeasIdx) -> LookupResult<Self> {
-        let g = lookup_meas_opt(kws, n, false);
-        let w = lookup_meas_opt(kws, n, false);
-        let p = lookup_peakdata(kws, n, false);
+    fn lookup_specific(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
+        let g = lookup_indexed_opt(kws, i.into(), false);
+        let w = lookup_indexed_opt(kws, i.into(), false);
+        let p = lookup_peakdata(kws, i, false);
         g.zip3(w, p).and_maybe(|(gain, wavelength, peak)| {
-            lookup_meas_req(kws, n).def_map_value(|scale| Self {
+            lookup_indexed_req(kws, i.into()).def_map_value(|scale| Self {
                 scale,
                 gain,
                 wavelength,
@@ -4867,15 +4840,15 @@ impl LookupOptical for InnerOptical3_0 {
 }
 
 impl LookupOptical for InnerOptical3_1 {
-    fn lookup_specific(kws: &mut StdKeywords, n: MeasIdx) -> LookupResult<Self> {
-        let g = lookup_meas_opt(kws, n, false);
-        let w = lookup_meas_opt(kws, n, false);
-        let c = lookup_meas_opt(kws, n, false);
-        let d = lookup_meas_opt(kws, n, false);
-        let p = lookup_peakdata(kws, n, true);
+    fn lookup_specific(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
+        let g = lookup_indexed_opt(kws, i.into(), false);
+        let w = lookup_indexed_opt(kws, i.into(), false);
+        let c = lookup_indexed_opt(kws, i.into(), false);
+        let d = lookup_indexed_opt(kws, i.into(), false);
+        let p = lookup_peakdata(kws, i, true);
         g.zip5(w, c, d, p)
             .and_maybe(|(gain, wavelengths, calibration, display, peak)| {
-                lookup_meas_req(kws, n).def_map_value(|scale| Self {
+                lookup_indexed_req(kws, i.into()).def_map_value(|scale| Self {
                     scale,
                     gain,
                     wavelengths,
@@ -4888,17 +4861,17 @@ impl LookupOptical for InnerOptical3_1 {
 }
 
 impl LookupOptical for InnerOptical3_2 {
-    fn lookup_specific(kws: &mut StdKeywords, n: MeasIdx) -> LookupResult<Self> {
-        let g = lookup_meas_opt(kws, n, false);
-        let w = lookup_meas_opt(kws, n, false);
-        let c = lookup_meas_opt(kws, n, false);
-        let d = lookup_meas_opt(kws, n, false);
-        let de = lookup_meas_opt(kws, n, false);
-        let ta = lookup_meas_opt(kws, n, false);
-        let m = lookup_meas_opt(kws, n, false);
-        let f = lookup_meas_opt(kws, n, false);
-        let a = lookup_meas_opt(kws, n, false);
-        let da = lookup_meas_opt(kws, n, false);
+    fn lookup_specific(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
+        let g = lookup_indexed_opt(kws, i.into(), false);
+        let w = lookup_indexed_opt(kws, i.into(), false);
+        let c = lookup_indexed_opt(kws, i.into(), false);
+        let d = lookup_indexed_opt(kws, i.into(), false);
+        let de = lookup_indexed_opt(kws, i.into(), false);
+        let ta = lookup_indexed_opt(kws, i.into(), false);
+        let m = lookup_indexed_opt(kws, i.into(), false);
+        let f = lookup_indexed_opt(kws, i.into(), false);
+        let a = lookup_indexed_opt(kws, i.into(), false);
+        let da = lookup_indexed_opt(kws, i.into(), false);
         g.zip5(w, c, d, de).zip5(ta, m, f, a).zip(da).and_maybe(
             |(
                 (
@@ -4910,7 +4883,7 @@ impl LookupOptical for InnerOptical3_2 {
                 ),
                 datatype,
             )| {
-                lookup_meas_req(kws, n).def_map_value(|scale| Self {
+                lookup_indexed_req(kws, i.into()).def_map_value(|scale| Self {
                     scale,
                     gain,
                     wavelengths,
@@ -4929,9 +4902,9 @@ impl LookupOptical for InnerOptical3_2 {
 }
 
 impl LookupTemporal for InnerTemporal2_0 {
-    fn lookup_specific(kws: &mut StdKeywords, i: MeasIdx) -> LookupResult<Self> {
+    fn lookup_specific(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
         // TODO push meas index with error
-        let mut tnt_scale = lookup_meas_opt::<Scale, ParseKeysError>(kws, i, false);
+        let mut tnt_scale = lookup_indexed_opt::<Scale, ParseKeysError>(kws, i.into(), false);
         tnt_scale.eval_error(|scale| {
             if scale.0.is_some_and(|x| x != Scale::Linear) {
                 Some(ParseKeysError::Other(TemporalError::NonLinear.into()))
@@ -4945,8 +4918,8 @@ impl LookupTemporal for InnerTemporal2_0 {
 }
 
 impl LookupTemporal for InnerTemporal3_0 {
-    fn lookup_specific(kws: &mut StdKeywords, i: MeasIdx) -> LookupResult<Self> {
-        let mut tnt_gain = lookup_meas_opt::<Gain, ParseKeysError>(kws, i, false);
+    fn lookup_specific(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
+        let mut tnt_gain = lookup_indexed_opt::<Gain, ParseKeysError>(kws, i.into(), false);
         tnt_gain.eval_error(|gain| {
             if gain.0.is_some() {
                 Some(ParseKeysError::Other(TemporalError::HasGain.into()))
@@ -4956,7 +4929,7 @@ impl LookupTemporal for InnerTemporal3_0 {
         });
         let tnt_peak = lookup_peakdata(kws, i, false);
         tnt_gain.zip(tnt_peak).and_maybe(|(_, peak)| {
-            let s = lookup_temporal_scale_3_0(kws, i);
+            let s = lookup_temporal_scale_3_0(kws, i.into());
             let t = lookup_meta_req(kws);
             s.def_zip(t)
                 .def_map_value(|(_, timestep)| Self { timestep, peak })
@@ -4965,12 +4938,12 @@ impl LookupTemporal for InnerTemporal3_0 {
 }
 
 impl LookupTemporal for InnerTemporal3_1 {
-    fn lookup_specific(kws: &mut StdKeywords, i: MeasIdx) -> LookupResult<Self> {
-        let g = lookup_temporal_gain_3_0(kws, i);
-        let d = lookup_meas_opt(kws, i, false);
+    fn lookup_specific(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
+        let g = lookup_temporal_gain_3_0(kws, i.into());
+        let d = lookup_indexed_opt(kws, i.into(), false);
         let p = lookup_peakdata(kws, i, true);
         g.zip3(d, p).and_maybe(|(_, display, peak)| {
-            let s = lookup_temporal_scale_3_0(kws, i);
+            let s = lookup_temporal_scale_3_0(kws, i.into());
             let t = lookup_meta_req(kws);
             s.def_zip(t).def_map_value(|(_, timestep)| Self {
                 timestep,
@@ -4982,14 +4955,14 @@ impl LookupTemporal for InnerTemporal3_1 {
 }
 
 impl LookupTemporal for InnerTemporal3_2 {
-    fn lookup_specific(kws: &mut StdKeywords, i: MeasIdx) -> LookupResult<Self> {
-        let g = lookup_temporal_gain_3_0(kws, i);
-        let di = lookup_meas_opt(kws, i, false);
-        let m = lookup_meas_opt(kws, i, false);
-        let da = lookup_meas_opt(kws, i, false);
+    fn lookup_specific(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
+        let g = lookup_temporal_gain_3_0(kws, i.into());
+        let di = lookup_indexed_opt(kws, i.into(), false);
+        let m = lookup_indexed_opt(kws, i.into(), false);
+        let da = lookup_indexed_opt(kws, i.into(), false);
         g.zip4(di, m, da)
             .and_maybe(|(_, display, measurement_type, datatype)| {
-                let s = lookup_temporal_scale_3_0(kws, i);
+                let s = lookup_temporal_scale_3_0(kws, i.into());
                 let t = lookup_meta_req(kws);
                 s.def_zip(t).def_map_value(|(_, timestep)| Self {
                     timestep,
@@ -5006,14 +4979,14 @@ impl VersionedOptical for InnerOptical2_0 {
         None
     }
 
-    fn req_suffixes_inner(&self, _: MeasIdx) -> RawTriples {
+    fn req_suffixes_inner(&self, _: MeasIndex) -> RawTriples {
         vec![]
     }
 
-    fn opt_suffixes_inner(&self, n: MeasIdx) -> RawOptTriples {
+    fn opt_suffixes_inner(&self, i: MeasIndex) -> RawOptTriples {
         [
-            OptMeasKey::triple(&self.scale, n),
-            OptMeasKey::triple(&self.wavelength, n),
+            OptMeasKey::triple(&self.scale, i.into()),
+            OptMeasKey::triple(&self.wavelength, i.into()),
         ]
         .into_iter()
         .collect()
@@ -5033,14 +5006,14 @@ impl VersionedOptical for InnerOptical3_0 {
         None
     }
 
-    fn req_suffixes_inner(&self, n: MeasIdx) -> RawTriples {
-        [self.scale.triple(n)].into_iter().collect()
+    fn req_suffixes_inner(&self, i: MeasIndex) -> RawTriples {
+        [self.scale.triple(i.into())].into_iter().collect()
     }
 
-    fn opt_suffixes_inner(&self, n: MeasIdx) -> RawOptTriples {
+    fn opt_suffixes_inner(&self, i: MeasIndex) -> RawOptTriples {
         [
-            OptMeasKey::triple(&self.wavelength, n),
-            OptMeasKey::triple(&self.gain, n),
+            OptMeasKey::triple(&self.wavelength, i.into()),
+            OptMeasKey::triple(&self.gain, i.into()),
         ]
         .into_iter()
         .collect()
@@ -5062,16 +5035,16 @@ impl VersionedOptical for InnerOptical3_1 {
         None
     }
 
-    fn req_suffixes_inner(&self, n: MeasIdx) -> RawTriples {
-        [self.scale.triple(n)].into_iter().collect()
+    fn req_suffixes_inner(&self, i: MeasIndex) -> RawTriples {
+        [self.scale.triple(i.into())].into_iter().collect()
     }
 
-    fn opt_suffixes_inner(&self, n: MeasIdx) -> RawOptTriples {
+    fn opt_suffixes_inner(&self, i: MeasIndex) -> RawOptTriples {
         [
-            OptMeasKey::triple(&self.wavelengths, n),
-            OptMeasKey::triple(&self.gain, n),
-            OptMeasKey::triple(&self.calibration, n),
-            OptMeasKey::triple(&self.display, n),
+            OptMeasKey::triple(&self.wavelengths, i.into()),
+            OptMeasKey::triple(&self.gain, i.into()),
+            OptMeasKey::triple(&self.calibration, i.into()),
+            OptMeasKey::triple(&self.display, i.into()),
         ]
         .into_iter()
         .collect()
@@ -5093,22 +5066,22 @@ impl VersionedOptical for InnerOptical3_2 {
         self.datatype.0.as_ref().copied()
     }
 
-    fn req_suffixes_inner(&self, n: MeasIdx) -> RawTriples {
-        [self.scale.triple(n)].into_iter().collect()
+    fn req_suffixes_inner(&self, i: MeasIndex) -> RawTriples {
+        [self.scale.triple(i.into())].into_iter().collect()
     }
 
-    fn opt_suffixes_inner(&self, n: MeasIdx) -> RawOptTriples {
+    fn opt_suffixes_inner(&self, i: MeasIndex) -> RawOptTriples {
         [
-            OptMeasKey::triple(&self.wavelengths, n),
-            OptMeasKey::triple(&self.gain, n),
-            OptMeasKey::triple(&self.calibration, n),
-            OptMeasKey::triple(&self.display, n),
-            OptMeasKey::triple(&self.detector_name, n),
-            OptMeasKey::triple(&self.tag, n),
-            OptMeasKey::triple(&self.measurement_type, n),
-            OptMeasKey::triple(&self.feature, n),
-            OptMeasKey::triple(&self.analyte, n),
-            OptMeasKey::triple(&self.datatype, n),
+            OptMeasKey::triple(&self.wavelengths, i.into()),
+            OptMeasKey::triple(&self.gain, i.into()),
+            OptMeasKey::triple(&self.calibration, i.into()),
+            OptMeasKey::triple(&self.display, i.into()),
+            OptMeasKey::triple(&self.detector_name, i.into()),
+            OptMeasKey::triple(&self.tag, i.into()),
+            OptMeasKey::triple(&self.measurement_type, i.into()),
+            OptMeasKey::triple(&self.feature, i.into()),
+            OptMeasKey::triple(&self.analyte, i.into()),
+            OptMeasKey::triple(&self.datatype, i.into()),
         ]
         .into_iter()
         .collect()
@@ -5142,7 +5115,7 @@ impl VersionedTemporal for InnerTemporal2_0 {
         vec![]
     }
 
-    fn opt_meas_keywords_inner(&self, _: MeasIdx) -> RawOptPairs {
+    fn opt_meas_keywords_inner(&self, _: MeasIndex) -> RawOptPairs {
         vec![]
     }
 }
@@ -5164,7 +5137,7 @@ impl VersionedTemporal for InnerTemporal3_0 {
         [ReqMetaKey::pair(&self.timestep)].into_iter().collect()
     }
 
-    fn opt_meas_keywords_inner(&self, _: MeasIdx) -> RawOptPairs {
+    fn opt_meas_keywords_inner(&self, _: MeasIndex) -> RawOptPairs {
         vec![]
     }
 }
@@ -5186,8 +5159,10 @@ impl VersionedTemporal for InnerTemporal3_1 {
         [ReqMetaKey::pair(&self.timestep)].into_iter().collect()
     }
 
-    fn opt_meas_keywords_inner(&self, n: MeasIdx) -> RawOptPairs {
-        [OptMeasKey::pair(&self.display, n)].into_iter().collect()
+    fn opt_meas_keywords_inner(&self, i: MeasIndex) -> RawOptPairs {
+        [OptMeasKey::pair(&self.display, i.into())]
+            .into_iter()
+            .collect()
     }
 }
 
@@ -5208,10 +5183,10 @@ impl VersionedTemporal for InnerTemporal3_2 {
         [ReqMetaKey::pair(&self.timestep)].into_iter().collect()
     }
 
-    fn opt_meas_keywords_inner(&self, n: MeasIdx) -> RawOptPairs {
+    fn opt_meas_keywords_inner(&self, i: MeasIndex) -> RawOptPairs {
         [
-            OptMeasKey::pair(&self.display, n),
-            OptMeasKey::pair(&self.datatype, n),
+            OptMeasKey::pair(&self.display, i.into()),
+            OptMeasKey::pair(&self.datatype, i.into()),
         ]
         .into_iter()
         .collect()
@@ -5278,9 +5253,9 @@ type Timestamps3_1 = Timestamps<FCSTime100>;
 impl LookupMetadata for InnerMetadata2_0 {
     fn lookup_shortname(
         kws: &mut StdKeywords,
-        n: MeasIdx,
+        i: MeasIndex,
     ) -> LookupResult<<Self::N as MightHave>::Wrapper<Shortname>> {
-        Ok(lookup_meas_opt(kws, n, false))
+        Ok(lookup_indexed_opt(kws, i.into(), false))
     }
 
     fn lookup_specific(kws: &mut StdKeywords, par: Par) -> LookupResult<Self> {
@@ -5307,9 +5282,9 @@ impl LookupMetadata for InnerMetadata2_0 {
 impl LookupMetadata for InnerMetadata3_0 {
     fn lookup_shortname(
         kws: &mut StdKeywords,
-        n: MeasIdx,
+        i: MeasIndex,
     ) -> LookupResult<<Self::N as MightHave>::Wrapper<Shortname>> {
-        Ok(lookup_meas_opt(kws, n, false))
+        Ok(lookup_indexed_opt(kws, i.into(), false))
     }
 
     fn lookup_specific(kws: &mut StdKeywords, _: Par) -> LookupResult<Self> {
@@ -5343,9 +5318,9 @@ impl LookupMetadata for InnerMetadata3_0 {
 impl LookupMetadata for InnerMetadata3_1 {
     fn lookup_shortname(
         kws: &mut StdKeywords,
-        n: MeasIdx,
+        i: MeasIndex,
     ) -> LookupResult<<Self::N as MightHave>::Wrapper<Shortname>> {
-        lookup_meas_req(kws, n).map(|x| x.map(Identity))
+        lookup_indexed_req(kws, i.into()).map(|x| x.map(Identity))
     }
 
     fn lookup_specific(kws: &mut StdKeywords, _: Par) -> LookupResult<Self> {
@@ -5394,9 +5369,9 @@ impl LookupMetadata for InnerMetadata3_1 {
 impl LookupMetadata for InnerMetadata3_2 {
     fn lookup_shortname(
         kws: &mut StdKeywords,
-        n: MeasIdx,
+        i: MeasIndex,
     ) -> LookupResult<<Self::N as MightHave>::Wrapper<Shortname>> {
-        lookup_meas_req(kws, n).map(|x| x.map(Identity))
+        lookup_indexed_req(kws, i.into()).map(|x| x.map(Identity))
     }
 
     fn lookup_specific(kws: &mut StdKeywords, _: Par) -> LookupResult<Self> {

@@ -2,6 +2,7 @@ pub mod byteord;
 pub mod compensation;
 pub mod datetimes;
 pub mod float_or_int;
+pub mod index;
 pub mod keywords;
 pub mod named_vec;
 pub mod optionalkw;

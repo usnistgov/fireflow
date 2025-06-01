@@ -1,5 +1,4 @@
-use crate::macros::{newtype_disp, newtype_from, newtype_from_outer, newtype_fromstr};
-use crate::validated::nonstandard::*;
+use crate::macros::{enum_from, newtype_disp, newtype_from, newtype_from_outer, newtype_fromstr};
 use crate::validated::shortname::*;
 use crate::validated::standard::*;
 
@@ -7,6 +6,7 @@ use super::byteord::*;
 use super::compensation::*;
 use super::datetimes::*;
 use super::float_or_int::*;
+use super::index::*;
 use super::named_vec::NameMapping;
 use super::optionalkw::*;
 use super::ranged_float::*;
@@ -773,15 +773,27 @@ impl fmt::Display for FeatureError {
 
 /// The value of the $RnI key (2.0)
 #[derive(Clone, Copy, Serialize)]
-pub(crate) struct GateRegionIndex2_0(pub(crate) GateRegionIndex);
+pub(crate) struct GateRegionIndex2_0(pub(crate) GateRegionIndex<GateIndex>);
 
-newtype_from!(GateRegionIndex2_0, GateRegionIndex);
-newtype_from_outer!(GateRegionIndex2_0, GateRegionIndex);
+newtype_from!(GateRegionIndex2_0, GateRegionIndex<GateIndex>);
+newtype_from_outer!(GateRegionIndex2_0, GateRegionIndex<GateIndex>);
 
 #[derive(Clone, Copy, Serialize)]
-pub(crate) enum GateRegionIndex {
-    Univariate(usize),
-    Bivariate(usize, usize),
+pub(crate) enum GateRegionIndex<I> {
+    Univariate(I),
+    Bivariate(I, I),
+}
+
+impl<I> GateRegionIndex<I> {
+    fn map<F, J>(self, mut f: F) -> GateRegionIndex<J>
+    where
+        F: FnMut(I) -> J,
+    {
+        match self {
+            Self::Univariate(a) => GateRegionIndex::Univariate(f(a)),
+            Self::Bivariate(a, b) => GateRegionIndex::Bivariate(f(a), f(b)),
+        }
+    }
 }
 
 impl FromStr for GateRegionIndex2_0 {
@@ -839,14 +851,17 @@ impl fmt::Display for GateRegionFormat2_0 {
 }
 
 /// The value of the $RnI key (3.0-3.2)
-#[derive(Clone, Copy, Serialize)]
-pub(crate) struct GateRegionIndex3_0 {
-    /// Numeric links to gates
-    pub(crate) index: GateRegionIndex,
+pub(crate) struct GateRegionIndex3_0(pub(crate) GateRegionIndex<MeasOrGateIndex>);
 
-    /// True if link points to $Gm* keys, false for $Pn* keys.
-    pub(crate) is_gate: bool,
-}
+newtype_from!(GateRegionIndex3_0, GateRegionIndex<MeasOrGateIndex>);
+newtype_from_outer!(GateRegionIndex3_0, GateRegionIndex<MeasOrGateIndex>);
+
+enum_from!(
+    #[derive(Clone, Copy, Serialize)]
+    pub MeasOrGateIndex,
+    [Meas, MeasIndex],
+    [Gate, GateIndex]
+);
 
 impl FromStr for GateRegionIndex3_0 {
     type Err = GateRegionIndex3_0Error;
@@ -855,47 +870,42 @@ impl FromStr for GateRegionIndex3_0 {
         let go = |sub: &str| {
             if let Some((prefix, rest)) = sub.split_at_checked(1) {
                 match prefix {
-                    "P" => Ok(false),
-                    "G" => Ok(true),
+                    "P" => rest
+                        .parse::<MeasIndex>()
+                        .map(|x| x.into())
+                        .map_err(GateRegionError::Int),
+                    "G" => rest
+                        .parse::<GateIndex>()
+                        .map(|x| x.into())
+                        .map_err(GateRegionError::Int),
                     _ => Err(GateRegionError::Format(GateRegionFormat3_0)),
                 }
-                .and_then(|is_gate| {
-                    rest.parse()
-                        .map_err(GateRegionError::Int)
-                        .map(|x| (x, is_gate))
-                })
             } else {
                 Err(GateRegionError::Format(GateRegionFormat3_0))
             }
         };
         match s.split(",").collect::<Vec<_>>()[..] {
-            [x] => go(x).map(|(a, is_gate)| Self {
-                index: GateRegionIndex::Univariate(a),
-                is_gate,
-            }),
-            [x, y] => go(x).and_then(|(a, a_is_gate)| {
-                go(y).and_then(|(b, b_is_gate)| {
-                    if a_is_gate == b_is_gate {
-                        Ok(Self {
-                            index: GateRegionIndex::Bivariate(a, b),
-                            is_gate: a_is_gate,
-                        })
-                    } else {
-                        Err(GateRegionError::Format(GateRegionFormat3_0))
-                    }
-                })
-            }),
+            [x] => go(x).map(|a| Self(GateRegionIndex::Univariate(a))),
+            [x, y] => go(x).and_then(|a| go(y).map(|b| Self(GateRegionIndex::Bivariate(a, b)))),
             _ => Err(GateRegionError::Format(GateRegionFormat3_0)),
+        }
+    }
+}
+
+impl fmt::Display for MeasOrGateIndex {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::Meas(x) => write!(f, "P{x}"),
+            Self::Gate(x) => write!(f, "G{x}"),
         }
     }
 }
 
 impl fmt::Display for GateRegionIndex3_0 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let prefix = if self.is_gate { "G" } else { "P" };
-        match self.index {
-            GateRegionIndex::Univariate(x) => write!(f, "{prefix}{x}"),
-            GateRegionIndex::Bivariate(x, y) => write!(f, "{prefix}{x},{prefix}{y}"),
+        match self.0 {
+            GateRegionIndex::Univariate(x) => write!(f, "{x}"),
+            GateRegionIndex::Bivariate(x, y) => write!(f, "{x},{y}"),
         }
     }
 }
@@ -915,10 +925,10 @@ impl fmt::Display for GateRegionFormat3_0 {
 
 /// The value of the $RnI key (3.2)
 #[derive(Clone, Copy, Serialize)]
-pub(crate) struct GateRegionIndex3_2(pub(crate) GateRegionIndex);
+pub(crate) struct GateRegionIndex3_2(pub(crate) GateRegionIndex<MeasIndex>);
 
-newtype_from!(GateRegionIndex3_2, GateRegionIndex);
-newtype_from_outer!(GateRegionIndex3_2, GateRegionIndex);
+newtype_from!(GateRegionIndex3_2, GateRegionIndex<MeasIndex>);
+newtype_from_outer!(GateRegionIndex3_2, GateRegionIndex<MeasIndex>);
 
 impl FromStr for GateRegionIndex3_2 {
     type Err = GateRegionIndex3_2Error;
@@ -1036,14 +1046,14 @@ impl fmt::Display for GatePairError {
 /// The value of the $GATING key (3.0-3.2)
 #[derive(Clone, Serialize)]
 pub enum Gating {
-    Region(usize),
+    Region(RegionIndex),
     Not(Box<Gating>),
     And(Box<Gating>, Box<Gating>),
     Or(Box<Gating>, Box<Gating>),
 }
 
 impl Gating {
-    pub(crate) fn flatten(&self) -> NonEmpty<usize> {
+    pub(crate) fn flatten(&self) -> NonEmpty<RegionIndex> {
         match self {
             Self::Region(x) => NonEmpty::new(*x),
             Self::Not(x) => Self::flatten(x),
@@ -1196,7 +1206,7 @@ impl fmt::Display for Gating {
 enum GatingToken {
     RParen,
     LParen,
-    Region(usize),
+    Region(RegionIndex),
     And,
     Or,
     Not,
@@ -1388,15 +1398,15 @@ where
     Self: IndexedKey,
     Self: FromStr,
 {
-    fn get_meas_req(kws: &StdKeywords, n: MeasIdx) -> ReqResult<Self> {
+    fn get_meas_req(kws: &StdKeywords, n: IndexFromOne) -> ReqResult<Self> {
         Self::get_req(kws, Self::std(n))
     }
 
-    fn remove_meas_req(kws: &mut StdKeywords, n: MeasIdx) -> ReqResult<Self> {
+    fn remove_meas_req(kws: &mut StdKeywords, n: IndexFromOne) -> ReqResult<Self> {
         Self::remove_req(kws, Self::std(n))
     }
 
-    fn triple(&self, n: MeasIdx) -> (String, String, String) {
+    fn triple(&self, n: IndexFromOne) -> (String, String, String) {
         (
             Self::std_blank(),
             Self::std(n).to_string(),
@@ -1404,7 +1414,7 @@ where
         )
     }
 
-    fn pair(&self, n: MeasIdx) -> (String, String) {
+    fn pair(&self, n: IndexFromOne) -> (String, String) {
         let (_, k, v) = self.triple(n);
         (k, v)
     }
@@ -1440,15 +1450,15 @@ where
     Self: IndexedKey,
     Self: FromStr,
 {
-    fn get_meas_opt(kws: &StdKeywords, n: MeasIdx) -> OptKwResult<Self> {
+    fn get_meas_opt(kws: &StdKeywords, n: IndexFromOne) -> OptKwResult<Self> {
         Self::get_opt(kws, Self::std(n))
     }
 
-    fn remove_meas_opt(kws: &mut StdKeywords, n: MeasIdx) -> OptKwResult<Self> {
+    fn remove_meas_opt(kws: &mut StdKeywords, n: IndexFromOne) -> OptKwResult<Self> {
         Self::remove_opt(kws, Self::std(n))
     }
 
-    fn triple(opt: &OptionalKw<Self>, n: MeasIdx) -> (String, String, Option<String>) {
+    fn triple(opt: &OptionalKw<Self>, n: IndexFromOne) -> (String, String, Option<String>) {
         (
             Self::std_blank(),
             Self::std(n).to_string(),
@@ -1456,7 +1466,7 @@ where
         )
     }
 
-    fn pair(opt: &OptionalKw<Self>, n: MeasIdx) -> (String, Option<String>) {
+    fn pair(opt: &OptionalKw<Self>, n: IndexFromOne) -> (String, Option<String>) {
         let (_, k, v) = Self::triple(opt, n);
         (k, v)
     }

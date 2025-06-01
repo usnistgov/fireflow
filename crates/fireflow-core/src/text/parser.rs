@@ -10,6 +10,7 @@ use super::byteord::*;
 use super::compensation::*;
 use super::datetimes::*;
 use super::float_or_int::*;
+use super::index::*;
 use super::keywords::*;
 use super::named_vec::*;
 use super::optionalkw::*;
@@ -41,7 +42,7 @@ where
         .into_deferred()
 }
 
-pub(crate) fn lookup_meas_req<V>(kws: &mut StdKeywords, n: MeasIdx) -> LookupResult<V>
+pub(crate) fn lookup_indexed_req<V>(kws: &mut StdKeywords, n: IndexFromOne) -> LookupResult<V>
 where
     V: ReqMeasKey,
     ParseReqKeyError: From<ReqKeyError<<V as FromStr>::Err>>,
@@ -69,9 +70,9 @@ where
     x
 }
 
-pub(crate) fn lookup_meas_opt<V, E>(
+pub(crate) fn lookup_indexed_opt<V, E>(
     kws: &mut StdKeywords,
-    n: MeasIdx,
+    n: IndexFromOne,
     dep: bool,
 ) -> LookupTentative<OptionalKw<V>, E>
 where
@@ -180,7 +181,7 @@ pub(crate) fn lookup_compensation_2_0<E>(
     let mut warnings = vec![];
     for r in 0..n {
         for c in 0..n {
-            let k = Dfc::std(c, r);
+            let k = Dfc::std(c.into(), r.into());
             match lookup_dfc(kws, k) {
                 Ok(Some(x)) => {
                     matrix[(r, c)] = x;
@@ -230,7 +231,7 @@ pub(crate) fn lookup_subset<E>(
         .and_tentatively(|m: Option<CSMode>| {
             if let Some(n) = m {
                 let it = (0..(n.0 as usize)).map(|i| {
-                    lookup_meas_opt::<CSVFlag, _>(kws, i.into(), dep).map(|x| x.0.map(|y| y.0))
+                    lookup_indexed_opt::<CSVFlag, _>(kws, i.into(), dep).map(|x| x.0.map(|y| y.0))
                 });
                 Tentative::mconcat_ne(NonEmpty::collect(it).unwrap()).and_tentatively(|flags| {
                     lookup_meta_opt::<CSVBits, _>(kws, dep)
@@ -245,11 +246,11 @@ pub(crate) fn lookup_subset<E>(
 
 pub(crate) fn lookup_peakdata<E>(
     kws: &mut StdKeywords,
-    i: MeasIdx,
+    i: MeasIndex,
     dep: bool,
 ) -> LookupTentative<PeakData, E> {
-    let b = lookup_meas_opt(kws, i, dep);
-    let s = lookup_meas_opt(kws, i, dep);
+    let b = lookup_indexed_opt(kws, i.into(), dep);
+    let s = lookup_indexed_opt(kws, i.into(), dep);
     b.zip(s).map(|(bin, size)| PeakData { bin, size })
 }
 
@@ -305,7 +306,7 @@ pub(crate) fn lookup_applied_gates3_0<E>(
 pub(crate) fn lookup_applied_gates3_2<E>(
     kws: &mut StdKeywords,
 ) -> LookupTentative<OptionalKw<AppliedGates3_2>, E> {
-    lookup_applied_gates(kws, false, |k, i| lookup_gate_region_3_2(k, i.into()))
+    lookup_applied_gates(kws, false, |k, i| lookup_gate_region_3_2(k, i))
         .map(|x| x.map(|applied| AppliedGates3_2 { applied }))
 }
 
@@ -315,7 +316,7 @@ pub(crate) fn lookup_applied_gates<I, E, F>(
     get_region: F,
 ) -> LookupTentative<OptionalKw<AppliedGates<I>>, E>
 where
-    F: Fn(&mut StdKeywords, usize) -> LookupTentative<OptionalKw<I>, E>,
+    F: Fn(&mut StdKeywords, RegionIndex) -> LookupTentative<OptionalKw<I>, E>,
 {
     lookup_meta_opt::<Gating, _>(kws, dep)
         .and_tentatively(|maybe| {
@@ -358,17 +359,17 @@ pub(crate) fn lookup_gated_measurements<E>(
 
 pub(crate) fn lookup_gated_measurement<E>(
     kws: &mut StdKeywords,
-    i: MeasIdx,
+    i: IndexFromOne,
     dep: bool,
 ) -> LookupTentative<GatedMeasurement, E> {
-    let e = lookup_meas_opt(kws, i, dep);
-    let f = lookup_meas_opt(kws, i, dep);
-    let n = lookup_meas_opt(kws, i, dep);
-    let p = lookup_meas_opt(kws, i, dep);
-    let r = lookup_meas_opt(kws, i, dep);
-    let s = lookup_meas_opt(kws, i, dep);
-    let t = lookup_meas_opt(kws, i, dep);
-    let v = lookup_meas_opt(kws, i, dep);
+    let e = lookup_indexed_opt(kws, i, dep);
+    let f = lookup_indexed_opt(kws, i, dep);
+    let n = lookup_indexed_opt(kws, i, dep);
+    let p = lookup_indexed_opt(kws, i, dep);
+    let r = lookup_indexed_opt(kws, i, dep);
+    let s = lookup_indexed_opt(kws, i, dep);
+    let t = lookup_indexed_opt(kws, i, dep);
+    let v = lookup_indexed_opt(kws, i, dep);
     e.zip4(f, n, p).zip5(r, s, t, v).map(
         |(
             (scale, filter, shortname, percent_emitted),
@@ -393,10 +394,10 @@ pub(crate) fn lookup_gated_measurement<E>(
 
 pub(crate) fn lookup_gate_region_2_0<E>(
     kws: &mut StdKeywords,
-    i: MeasIdx,
+    i: RegionIndex,
 ) -> LookupTentative<OptionalKw<GateRegion2_0>, E> {
-    let n = lookup_meas_opt::<GateRegionIndex2_0, _>(kws, i, false);
-    let w = lookup_meas_opt(kws, i, false);
+    let n = lookup_indexed_opt::<GateRegionIndex2_0, _>(kws, i.into(), false);
+    let w = lookup_indexed_opt(kws, i.into(), false);
     n.zip(w)
         .and_tentatively(|(_n, _y)| {
             _n.0.zip(_y.0)
@@ -414,21 +415,14 @@ pub(crate) fn lookup_gate_region_2_0<E>(
 
 pub(crate) fn lookup_gate_region_3_0<E>(
     kws: &mut StdKeywords,
-    i: MeasIdx,
+    i: RegionIndex,
 ) -> LookupTentative<OptionalKw<GateRegion3_0>, E> {
-    let n = lookup_meas_opt::<GateRegionIndex3_0, _>(kws, i, false);
-    let w = lookup_meas_opt(kws, i, false);
+    let n = lookup_indexed_opt::<GateRegionIndex3_0, _>(kws, i.into(), false);
+    let w = lookup_indexed_opt(kws, i.into(), false);
     n.zip(w)
         .and_tentatively(|(_n, _y)| {
             _n.0.zip(_y.0)
-                .and_then(|(gi, win)| {
-                    GateRegion::try_new(gi.index, win).map(|x| {
-                        x.map(|index| RegionLink {
-                            is_gate: gi.is_gate,
-                            index,
-                        })
-                    })
-                })
+                .and_then(|(gi, win)| GateRegion::try_new(gi.0, win))
                 .map_or_else(
                     || {
                         let warn = ParseOtherWarning::GateRegion(InvalidGateRegion).into();
@@ -442,10 +436,10 @@ pub(crate) fn lookup_gate_region_3_0<E>(
 
 pub(crate) fn lookup_gate_region_3_2<E>(
     kws: &mut StdKeywords,
-    i: MeasIdx,
+    i: RegionIndex,
 ) -> LookupTentative<OptionalKw<GateRegion3_2>, E> {
-    let n = lookup_meas_opt::<GateRegionIndex3_2, _>(kws, i, true);
-    let w = lookup_meas_opt(kws, i, true);
+    let n = lookup_indexed_opt::<GateRegionIndex3_2, _>(kws, i.into(), true);
+    let w = lookup_indexed_opt(kws, i.into(), true);
     n.zip(w)
         .and_tentatively(|(_n, _y)| {
             _n.0.zip(_y.0)
@@ -463,9 +457,9 @@ pub(crate) fn lookup_gate_region_3_2<E>(
 
 pub(crate) fn lookup_temporal_gain_3_0(
     kws: &mut StdKeywords,
-    i: MeasIdx,
+    i: IndexFromOne,
 ) -> LookupTentative<OptionalKw<Gain>, ParseKeysError> {
-    let mut tnt_gain = lookup_meas_opt(kws, i, false);
+    let mut tnt_gain = lookup_indexed_opt(kws, i, false);
     tnt_gain.eval_error(|gain| {
         if gain.0.is_some() {
             Some(ParseKeysError::Other(TemporalError::HasGain.into()))
@@ -476,8 +470,11 @@ pub(crate) fn lookup_temporal_gain_3_0(
     tnt_gain
 }
 
-pub(crate) fn lookup_temporal_scale_3_0(kws: &mut StdKeywords, i: MeasIdx) -> LookupResult<Scale> {
-    let mut res = lookup_meas_req(kws, i);
+pub(crate) fn lookup_temporal_scale_3_0(
+    kws: &mut StdKeywords,
+    i: IndexFromOne,
+) -> LookupResult<Scale> {
+    let mut res = lookup_indexed_req(kws, i);
     res.def_eval_error(|scale| {
         if *scale != Scale::Linear {
             Some(ParseKeysError::Other(TemporalError::NonLinear.into()))

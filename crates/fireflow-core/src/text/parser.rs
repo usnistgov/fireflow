@@ -44,7 +44,7 @@ where
 
 pub(crate) fn lookup_indexed_req<V>(kws: &mut StdKeywords, n: IndexFromOne) -> LookupResult<V>
 where
-    V: ReqMeasKey,
+    V: ReqIndexedKey,
     ParseReqKeyError: From<ReqKeyError<<V as FromStr>::Err>>,
 {
     V::remove_meas_req(kws, n)
@@ -76,7 +76,7 @@ pub(crate) fn lookup_indexed_opt<V, E>(
     dep: bool,
 ) -> LookupTentative<OptionalKw<V>, E>
 where
-    V: OptMeasKey,
+    V: OptIndexedKey,
     ParseOptKeyWarning: From<ParseKeyError<<V as FromStr>::Err>>,
 {
     let mut x = process_opt(V::remove_meas_opt(kws, n));

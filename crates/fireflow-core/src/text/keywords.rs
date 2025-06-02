@@ -1369,7 +1369,7 @@ where
     }
 }
 
-pub(crate) trait ReqMeasKey
+pub(crate) trait ReqIndexedKey
 where
     Self: Required,
     Self: fmt::Display,
@@ -1421,7 +1421,7 @@ where
     }
 }
 
-pub(crate) trait OptMeasKey
+pub(crate) trait OptIndexedKey
 where
     Self: Optional,
     Self: fmt::Display,
@@ -1844,7 +1844,7 @@ impl IndexedKey for CSVFlag {
 }
 
 impl Optional for CSVFlag {}
-impl OptMeasKey for CSVFlag {}
+impl OptIndexedKey for CSVFlag {}
 
 // 2.0-3.1 histogram peaks
 impl IndexedKey for PeakBin {
@@ -1853,7 +1853,7 @@ impl IndexedKey for PeakBin {
 }
 
 impl Optional for PeakBin {}
-impl OptMeasKey for PeakBin {}
+impl OptIndexedKey for PeakBin {}
 
 impl IndexedKey for PeakNumber {
     const PREFIX: &'static str = "PKK";
@@ -1861,7 +1861,7 @@ impl IndexedKey for PeakNumber {
 }
 
 impl Optional for PeakNumber {}
-impl OptMeasKey for PeakNumber {}
+impl OptIndexedKey for PeakNumber {}
 
 // 2.0-3.1 gating parameters
 kw_opt_meta_int!(Gate, usize, "GATE");
@@ -1884,7 +1884,7 @@ impl<I> IndexedKey for RegionGateIndex<I> {
 }
 
 impl<I> Optional for RegionGateIndex<I> {}
-impl<I> OptMeasKey for RegionGateIndex<I>
+impl<I> OptIndexedKey for RegionGateIndex<I>
 where
     I: fmt::Display,
     I: FromStr,

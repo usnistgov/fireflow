@@ -1097,7 +1097,7 @@ where
     }
 
     fn opt_meas_keywords(&self, i: MeasIndex) -> RawPairs {
-        [OptMeasKey::pair(&self.common.longname, i.into())]
+        [OptIndexedKey::pair(&self.common.longname, i.into())]
             .into_iter()
             .chain(self.specific.opt_meas_keywords_inner(i))
             .flat_map(|(k, v)| v.map(|x| (k, x)))
@@ -1186,12 +1186,12 @@ where
 
     fn opt_keywords(&self, i: MeasIndex) -> RawOptTriples {
         [
-            OptMeasKey::triple(&self.common.longname, i.into()),
-            OptMeasKey::triple(&self.filter, i.into()),
-            OptMeasKey::triple(&self.power, i.into()),
-            OptMeasKey::triple(&self.detector_type, i.into()),
-            OptMeasKey::triple(&self.percent_emitted, i.into()),
-            OptMeasKey::triple(&self.detector_voltage, i.into()),
+            OptIndexedKey::triple(&self.common.longname, i.into()),
+            OptIndexedKey::triple(&self.filter, i.into()),
+            OptIndexedKey::triple(&self.power, i.into()),
+            OptIndexedKey::triple(&self.detector_type, i.into()),
+            OptIndexedKey::triple(&self.percent_emitted, i.into()),
+            OptIndexedKey::triple(&self.detector_voltage, i.into()),
         ]
         .into_iter()
         .chain(self.specific.opt_suffixes_inner(i))
@@ -2324,7 +2324,7 @@ where
         // to named vector structure
         self.measurements
             .indexed_names()
-            .map(|(i, n)| ReqMeasKey::pair(n, i.into()))
+            .map(|(i, n)| ReqIndexedKey::pair(n, i.into()))
             .collect()
     }
 
@@ -3725,7 +3725,7 @@ impl SubsetData {
         self.flags
             .iter()
             .enumerate()
-            .map(|(i, f)| OptMeasKey::pair(f, i.into()))
+            .map(|(i, f)| OptIndexedKey::pair(f, i.into()))
             .chain([OptMetaKey::pair(&self.bits), OptMetaKey::pair(&m)])
             .collect()
     }
@@ -3819,14 +3819,14 @@ impl GatedMeasurement {
     pub(crate) fn opt_keywords(&self, i: GateIndex) -> RawOptPairs {
         let j = i.into();
         [
-            OptMeasKey::pair(&self.scale, j),
-            OptMeasKey::pair(&self.filter, j),
-            OptMeasKey::pair(&self.shortname, j),
-            OptMeasKey::pair(&self.percent_emitted, j),
-            OptMeasKey::pair(&self.range, j),
-            OptMeasKey::pair(&self.longname, j),
-            OptMeasKey::pair(&self.detector_type, j),
-            OptMeasKey::pair(&self.detector_voltage, j),
+            OptIndexedKey::pair(&self.scale, j),
+            OptIndexedKey::pair(&self.filter, j),
+            OptIndexedKey::pair(&self.shortname, j),
+            OptIndexedKey::pair(&self.percent_emitted, j),
+            OptIndexedKey::pair(&self.range, j),
+            OptIndexedKey::pair(&self.longname, j),
+            OptIndexedKey::pair(&self.detector_type, j),
+            OptIndexedKey::pair(&self.detector_voltage, j),
         ]
         .into_iter()
         .collect()
@@ -3873,8 +3873,8 @@ impl<I> Region<I> {
     {
         let (ri, rw) = self.split();
         [
-            OptMeasKey::pair(&OptionalKw(Some(ri)), i.into()),
-            OptMeasKey::pair(&OptionalKw(Some(rw)), i.into()),
+            OptIndexedKey::pair(&OptionalKw(Some(ri)), i.into()),
+            OptIndexedKey::pair(&OptionalKw(Some(rw)), i.into()),
         ]
         .into_iter()
         .collect()
@@ -4012,8 +4012,8 @@ impl AppliedGates3_0 {
 impl PeakData {
     pub(crate) fn opt_keywords(&self, i: MeasIndex) -> RawOptTriples {
         [
-            OptMeasKey::triple(&self.bin, i.into()),
-            OptMeasKey::triple(&self.size, i.into()),
+            OptIndexedKey::triple(&self.bin, i.into()),
+            OptIndexedKey::triple(&self.size, i.into()),
         ]
         .into_iter()
         .collect()
@@ -4991,8 +4991,8 @@ impl VersionedOptical for InnerOptical2_0 {
 
     fn opt_suffixes_inner(&self, i: MeasIndex) -> RawOptTriples {
         [
-            OptMeasKey::triple(&self.scale, i.into()),
-            OptMeasKey::triple(&self.wavelength, i.into()),
+            OptIndexedKey::triple(&self.scale, i.into()),
+            OptIndexedKey::triple(&self.wavelength, i.into()),
         ]
         .into_iter()
         .chain(self.peak.opt_keywords(i))
@@ -5019,8 +5019,8 @@ impl VersionedOptical for InnerOptical3_0 {
 
     fn opt_suffixes_inner(&self, i: MeasIndex) -> RawOptTriples {
         [
-            OptMeasKey::triple(&self.wavelength, i.into()),
-            OptMeasKey::triple(&self.gain, i.into()),
+            OptIndexedKey::triple(&self.wavelength, i.into()),
+            OptIndexedKey::triple(&self.gain, i.into()),
         ]
         .into_iter()
         .chain(self.peak.opt_keywords(i))
@@ -5049,10 +5049,10 @@ impl VersionedOptical for InnerOptical3_1 {
 
     fn opt_suffixes_inner(&self, i: MeasIndex) -> RawOptTriples {
         [
-            OptMeasKey::triple(&self.wavelengths, i.into()),
-            OptMeasKey::triple(&self.gain, i.into()),
-            OptMeasKey::triple(&self.calibration, i.into()),
-            OptMeasKey::triple(&self.display, i.into()),
+            OptIndexedKey::triple(&self.wavelengths, i.into()),
+            OptIndexedKey::triple(&self.gain, i.into()),
+            OptIndexedKey::triple(&self.calibration, i.into()),
+            OptIndexedKey::triple(&self.display, i.into()),
         ]
         .into_iter()
         .chain(self.peak.opt_keywords(i))
@@ -5081,16 +5081,16 @@ impl VersionedOptical for InnerOptical3_2 {
 
     fn opt_suffixes_inner(&self, i: MeasIndex) -> RawOptTriples {
         [
-            OptMeasKey::triple(&self.wavelengths, i.into()),
-            OptMeasKey::triple(&self.gain, i.into()),
-            OptMeasKey::triple(&self.calibration, i.into()),
-            OptMeasKey::triple(&self.display, i.into()),
-            OptMeasKey::triple(&self.detector_name, i.into()),
-            OptMeasKey::triple(&self.tag, i.into()),
-            OptMeasKey::triple(&self.measurement_type, i.into()),
-            OptMeasKey::triple(&self.feature, i.into()),
-            OptMeasKey::triple(&self.analyte, i.into()),
-            OptMeasKey::triple(&self.datatype, i.into()),
+            OptIndexedKey::triple(&self.wavelengths, i.into()),
+            OptIndexedKey::triple(&self.gain, i.into()),
+            OptIndexedKey::triple(&self.calibration, i.into()),
+            OptIndexedKey::triple(&self.display, i.into()),
+            OptIndexedKey::triple(&self.detector_name, i.into()),
+            OptIndexedKey::triple(&self.tag, i.into()),
+            OptIndexedKey::triple(&self.measurement_type, i.into()),
+            OptIndexedKey::triple(&self.feature, i.into()),
+            OptIndexedKey::triple(&self.analyte, i.into()),
+            OptIndexedKey::triple(&self.datatype, i.into()),
         ]
         .into_iter()
         .collect()
@@ -5169,7 +5169,7 @@ impl VersionedTemporal for InnerTemporal3_1 {
     }
 
     fn opt_meas_keywords_inner(&self, i: MeasIndex) -> RawOptPairs {
-        [OptMeasKey::pair(&self.display, i.into())]
+        [OptIndexedKey::pair(&self.display, i.into())]
             .into_iter()
             .collect()
     }
@@ -5194,8 +5194,8 @@ impl VersionedTemporal for InnerTemporal3_2 {
 
     fn opt_meas_keywords_inner(&self, i: MeasIndex) -> RawOptPairs {
         [
-            OptMeasKey::pair(&self.display, i.into()),
-            OptMeasKey::pair(&self.datatype, i.into()),
+            OptIndexedKey::pair(&self.display, i.into()),
+            OptIndexedKey::pair(&self.datatype, i.into()),
         ]
         .into_iter()
         .collect()

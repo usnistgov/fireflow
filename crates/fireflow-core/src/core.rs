@@ -3843,8 +3843,7 @@ impl<I> GatingRegions<I> {
         self.regions
             .iter()
             .flat_map(|(ri, r)| r.opt_keywords(*ri))
-            // TODO useless clone
-            .chain([OptMetaKey::pair(&OptionalKw(Some(self.gating.clone())))])
+            .chain([(Gating::std().to_string(), Some(self.gating.to_string()))])
             .collect()
     }
 }

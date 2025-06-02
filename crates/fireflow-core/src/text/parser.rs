@@ -226,22 +226,17 @@ pub(crate) fn lookup_subset<E>(
     kws: &mut StdKeywords,
     dep: bool,
 ) -> LookupTentative<OptionalKw<SubsetData>, E> {
-    lookup_meta_opt(kws, dep)
-        .map(|x| x.0)
-        .and_tentatively(|m: Option<CSMode>| {
-            if let Some(n) = m {
-                let it = (0..(n.0 as usize)).map(|i| {
-                    lookup_indexed_opt::<CSVFlag, _>(kws, i.into(), dep).map(|x| x.0.map(|y| y.0))
-                });
-                Tentative::mconcat_ne(NonEmpty::collect(it).unwrap()).and_tentatively(|flags| {
-                    lookup_meta_opt::<CSVBits, _>(kws, dep)
-                        .map(|x| x.0.map(|y| y.0))
-                        .map(|bits| Some(SubsetData { flags, bits }).into())
-                })
-            } else {
-                Tentative::new1(None.into())
-            }
-        })
+    lookup_meta_opt(kws, dep).and_tentatively(|m: OptionalKw<CSMode>| {
+        if let Some(n) = m.0 {
+            let it = (0..n.0).map(|i| lookup_indexed_opt::<CSVFlag, _>(kws, i.into(), dep));
+            Tentative::mconcat_ne(NonEmpty::collect(it).unwrap()).and_tentatively(|flags| {
+                lookup_meta_opt::<CSVBits, _>(kws, dep)
+                    .map(|bits| Some(SubsetData { flags, bits }).into())
+            })
+        } else {
+            Tentative::new1(None.into())
+        }
+    })
 }
 
 pub(crate) fn lookup_peakdata<E>(
@@ -257,7 +252,7 @@ pub(crate) fn lookup_peakdata<E>(
 pub(crate) fn lookup_applied_gates2_0<E>(
     kws: &mut StdKeywords,
 ) -> LookupTentative<OptionalKw<AppliedGates2_0>, E> {
-    let ag = lookup_applied_gates(kws, false, |k, i| lookup_gate_region_2_0(k, i));
+    let ag = lookup_applied_gates(kws, false, |k, i| lookup_region(k, i, false));
     let gm = lookup_gated_measurements(kws, false);
     ag.zip(gm).and_tentatively(|(x, y)| {
         if let Some((applied, gated_measurements)) = x.0.zip(y.0) {
@@ -282,7 +277,7 @@ pub(crate) fn lookup_applied_gates3_0<E>(
     kws: &mut StdKeywords,
     dep: bool,
 ) -> LookupTentative<OptionalKw<AppliedGates3_0>, E> {
-    let ag = lookup_applied_gates(kws, false, |k, i| lookup_gate_region_3_0(k, i));
+    let ag = lookup_applied_gates(kws, false, |k, i| lookup_region(k, i, false));
     let gm = lookup_gated_measurements(kws, dep);
     ag.zip(gm).and_tentatively(|(x, y)| {
         if let Some(applied) = x.0 {
@@ -306,7 +301,7 @@ pub(crate) fn lookup_applied_gates3_0<E>(
 pub(crate) fn lookup_applied_gates3_2<E>(
     kws: &mut StdKeywords,
 ) -> LookupTentative<OptionalKw<AppliedGates3_2>, E> {
-    lookup_applied_gates(kws, false, |k, i| lookup_gate_region_3_2(k, i))
+    lookup_applied_gates(kws, true, |k, i| lookup_region(k, i, true))
         .map(|x| x.map(|regions| AppliedGates3_2 { regions }))
 }
 
@@ -394,58 +389,22 @@ pub(crate) fn lookup_gated_measurement<E>(
     )
 }
 
-pub(crate) fn lookup_gate_region_2_0<E>(
+pub(crate) fn lookup_region<I, E>(
     kws: &mut StdKeywords,
     i: RegionIndex,
-) -> LookupTentative<OptionalKw<Region2_0>, E> {
-    let n = lookup_indexed_opt::<RegionGateIndex2_0, _>(kws, i.into(), false);
-    let w = lookup_indexed_opt(kws, i.into(), false);
+    dep: bool,
+) -> LookupTentative<OptionalKw<Region<I>>, E>
+where
+    I: FromStr,
+    I: fmt::Display,
+    ParseOptKeyWarning: From<ParseKeyError<<RegionGateIndex<I> as FromStr>::Err>>,
+{
+    let n = lookup_indexed_opt::<RegionGateIndex<I>, _>(kws, i.into(), dep);
+    let w = lookup_indexed_opt::<RegionWindow, _>(kws, i.into(), dep);
     n.zip(w)
         .and_tentatively(|(_n, _y)| {
             _n.0.zip(_y.0)
-                .and_then(|(gi, win)| Region::try_new(gi.0, win).map(|x| x.inner_into()))
-                .map_or_else(
-                    || {
-                        let warn = ParseOtherWarning::GateRegion(InvalidGateRegion).into();
-                        Tentative::new(None, vec![warn], vec![])
-                    },
-                    |x| Tentative::new1(Some(x)),
-                )
-        })
-        .map(|x| x.into())
-}
-
-pub(crate) fn lookup_gate_region_3_0<E>(
-    kws: &mut StdKeywords,
-    i: RegionIndex,
-) -> LookupTentative<OptionalKw<Region3_0>, E> {
-    let n = lookup_indexed_opt::<RegionGateIndex3_0, _>(kws, i.into(), false);
-    let w = lookup_indexed_opt(kws, i.into(), false);
-    n.zip(w)
-        .and_tentatively(|(_n, _y)| {
-            _n.0.zip(_y.0)
-                .and_then(|(gi, win)| Region::try_new(gi.0, win))
-                .map_or_else(
-                    || {
-                        let warn = ParseOtherWarning::GateRegion(InvalidGateRegion).into();
-                        Tentative::new(None, vec![warn], vec![])
-                    },
-                    |x| Tentative::new1(Some(x)),
-                )
-        })
-        .map(|x| x.into())
-}
-
-pub(crate) fn lookup_gate_region_3_2<E>(
-    kws: &mut StdKeywords,
-    i: RegionIndex,
-) -> LookupTentative<OptionalKw<Region3_2>, E> {
-    let n = lookup_indexed_opt::<RegionGateIndex3_2, _>(kws, i.into(), true);
-    let w = lookup_indexed_opt(kws, i.into(), true);
-    n.zip(w)
-        .and_tentatively(|(_n, _y)| {
-            _n.0.zip(_y.0)
-                .and_then(|(gi, win)| Region::try_new(gi.0, win).map(|x| x.inner_into()))
+                .and_then(|(gi, win)| Region::try_new(gi, win).map(|x| x.inner_into()))
                 .map_or_else(
                     || {
                         let warn = ParseOtherWarning::GateRegion(InvalidGateRegion).into();
@@ -575,9 +534,9 @@ enum_from_disp!(
     [Spillover,          ParseKeyError<ParseSpilloverError>],
     [Compensation,       ParseKeyError<ParseCompError>],
     [FloatOrInt,         ParseKeyError<ParseFloatOrIntError>],
-    [GateRegionIndex2_0, ParseKeyError<RegionGateIndex2_0Error>],
-    [GateRegionIndex3_0, ParseKeyError<RegionGateIndex3_0Error>],
-    [GateRegionIndex3_2, ParseKeyError<RegionGateIndex3_2Error>],
+    [GateRegionIndex2_0, ParseKeyError<RegionGateIndexError<ParseIntError>>],
+    [GateRegionIndex3_0, ParseKeyError<RegionGateIndexError<MeasOrGateIndexError>>],
+    [GateRegionIndex3_2, ParseKeyError<RegionGateIndexError<PrefixedMeasIndexError>>],
     [GateRegionWindow,   ParseKeyError<GatePairError>],
     [Gating,             ParseKeyError<GatingError>],
     [CompShape,          NewCompError]

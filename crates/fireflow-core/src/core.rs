@@ -726,7 +726,7 @@ pub enum Region<I> {
 
 pub type Region2_0 = Region<GateIndex>;
 pub type Region3_0 = Region<MeasOrGateIndex>;
-pub type Region3_2 = Region<MeasIndex>;
+pub type Region3_2 = Region<PrefixedMeasIndex>;
 
 /// A univariate region corresponding to an $RnI/$RnW keyword pair
 #[derive(Clone, Serialize)]
@@ -768,10 +768,10 @@ pub struct PeakData {
 #[derive(Clone, Default)]
 pub struct SubsetData {
     /// Value of $CSBITS if given
-    pub bits: Option<u32>,
+    pub bits: OptionalKw<CSVBits>,
 
     /// Values of $CSVnFLAG if given, with length equal to $CSMODE
-    pub flags: NonEmpty<Option<u32>>,
+    pub flags: NonEmpty<OptionalKw<CSVFlag>>,
 }
 
 /// A bundle for $ORIGINALITY, $LAST_MODIFIER, and $LAST_MODIFIED (3.1+)
@@ -3746,9 +3746,14 @@ impl UnstainedData {
 }
 
 impl SubsetData {
-    // TODO
-    pub fn to_keywords(&self) -> RawOptPairs {
-        vec![]
+    fn opt_keywords(&self) -> RawOptPairs {
+        let m = OptionalKw(Some(CSMode(self.flags.len())));
+        self.flags
+            .iter()
+            .enumerate()
+            .map(|(i, f)| OptMeasKey::pair(f, i.into()))
+            .chain([OptMetaKey::pair(&self.bits), OptMetaKey::pair(&m)])
+            .collect()
     }
 }
 
@@ -3764,7 +3769,12 @@ impl Serialize for SubsetData {
     }
 }
 
-// TODO add keyword formatters for this and the rest of the gating stuff
+// impl<I> Region<I> {
+//     fn opt_keywords(&self) -> RawOptPairs {
+//         self.
+//     }
+// }
+
 impl<I> UnivariateRegion<I> {
     fn map<F, J>(self, f: F) -> UnivariateRegion<J>
     where
@@ -3775,6 +3785,10 @@ impl<I> UnivariateRegion<I> {
             index: f(self.index),
         }
     }
+
+    // fn opt_keywords(&self, i: RegionIndex) -> RawOptPairs {
+    //     (RegionGateIndex2_0::std(i.into()), self.gate.to_string())
+    // }
 }
 
 impl<I> BivariateRegion<I> {

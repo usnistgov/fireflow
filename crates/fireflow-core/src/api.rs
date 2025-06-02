@@ -21,8 +21,6 @@ use std::num::ParseIntError;
 use std::path;
 use std::str;
 
-// TODO gating parameters not added (yet)
-
 /// Read HEADER from an FCS file.
 pub fn fcs_read_header(
     p: &path::PathBuf,

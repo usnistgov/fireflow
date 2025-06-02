@@ -303,15 +303,6 @@ impl<A, D> AnyCore<A, D> {
             println!("None")
         }
     }
-
-    // pub(crate) fn as_data_reader(
-    //     &self,
-    //     kws: &TotValue,
-    //     conf: &DataReadConfig,
-    //     data_seg: AnyDataSegment,
-    // ) -> DeferredResult<DataReader, NewReaderWarning, StdReaderError> {
-    //     match_anycore!(self, x, { x.as_data_reader(kws, conf, data_seg) })
-    // }
 }
 
 impl AnyCoreTEXT {
@@ -2559,24 +2550,6 @@ where
     ) -> DeferredResult<M::L, NewDataLayoutWarning, NewDataLayoutError> {
         M::as_data_layout(&self.metadata, &self.measurements, conf)
     }
-
-    // pub(crate) fn as_data_reader(
-    //     &self,
-    //     kws: &TotValue,
-    //     conf: &DataReadConfig,
-    //     data_seg: AnyDataSegment,
-    // ) -> DeferredResult<DataReader, NewReaderWarning, StdReaderError> {
-    //     M::as_data_layout(&self.metadata, &self.measurements, &conf.shared)
-    //         .inner_into()
-    //         .and_maybe(|dl| {
-    //             dl.into_data_reader(kws, data_seg, conf)
-    //                 .error_into()
-    //                 .map_value(|column_reader| DataReader {
-    //                     column_reader,
-    //                     begin: u64::from(data_seg.inner.begin()),
-    //                 })
-    //         })
-    // }
 }
 
 impl<M> VersionedCoreTEXT<M>
@@ -5771,10 +5744,6 @@ impl VersionedMetadata for InnerMetadata3_2 {
     type L = DataLayout3_2;
     type D = Endian;
 
-    // fn lookup_tot(kws: &mut RawKeywords) -> PureMaybe<Tot> {
-    //     PureMaybe::from_result_1(Tot::remove_meta_req(kws), PureErrorLevel::Error)
-    // }
-
     fn byteord(&self) -> Endian {
         self.byteord
     }
@@ -6185,12 +6154,6 @@ enum_from_disp!(
     [Layout, NewDataLayoutError],
     [Reader, NewDataReaderError]
 );
-
-// enum_from_disp!(
-//     pub StdReaderTermination,
-//     [Layout, TerminalDataLayoutFailure],
-//     [TEXT, TEXTOverflowError]
-// );
 
 pub struct TerminalDataLayoutFailure;
 

@@ -4014,6 +4014,7 @@ impl From<AppliedGates2_0> for AppliedGates3_0 {
     }
 }
 
+// TODO emit a warning if we "lose" anything
 impl TryFrom<AppliedGates3_0> for AppliedGates2_0 {
     type Error = AppliedGates3_0To2_0Error;
     fn try_from(value: AppliedGates3_0) -> Result<Self, Self::Error> {
@@ -4032,6 +4033,7 @@ impl TryFrom<AppliedGates3_0> for AppliedGates2_0 {
     }
 }
 
+// TODO emit a warning if we "lose" anything
 impl TryFrom<AppliedGates3_0> for AppliedGates3_2 {
     type Error = AppliedGates3_0To3_2Error;
     fn try_from(value: AppliedGates3_0) -> Result<Self, Self::Error> {
@@ -4402,6 +4404,7 @@ impl TryFromMetadata<InnerMetadata3_0> for InnerMetadata2_0 {
         _: ByteOrdConvert,
         lossless: bool,
     ) -> MetaConvertResult<Self> {
+        // TODO warn if subset present
         let c = check_key_transfer(value.cytsn, lossless);
         let u = check_key_transfer(value.unicode, lossless);
         let ret = c.zip(u).inner_into().and_tentatively(|_| {
@@ -4433,6 +4436,8 @@ impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata2_0 {
         endian: EndianConvert,
         lossless: bool,
     ) -> MetaConvertResult<Self> {
+        // TODO warn if subset present
+        // TODO ditto platedata/modified
         let c = check_key_transfer(value.cytsn, lossless);
         let v = check_key_transfer(value.vol, lossless);
         let s = check_key_transfer(value.spillover, lossless);
@@ -4469,6 +4474,8 @@ impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata2_0 {
         endian: EndianConvert,
         lossless: bool,
     ) -> MetaConvertResult<Self> {
+        // TODO warn if datetimes/carrier/unstained present
+        // TODO ditto platedata/modified
         let c = check_key_transfer(value.cytsn, lossless);
         let v = check_key_transfer(value.vol, lossless);
         let s = check_key_transfer(value.spillover, lossless);
@@ -4519,6 +4526,7 @@ impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata3_0 {
         endian: EndianConvert,
         lossless: bool,
     ) -> MetaConvertResult<Self> {
+        // TODO warn if platedata/modified present
         check_key_transfer(value.vol, lossless)
             .inner_into()
             .and_maybe(|_| {
@@ -4546,6 +4554,8 @@ impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata3_0 {
         endian: EndianConvert,
         lossless: bool,
     ) -> MetaConvertResult<Self> {
+        // TODO warn if platedata/modified present
+        // TODO warn if datetimes/carrier/unstained present
         let v = check_key_transfer(value.vol, lossless);
         let f = check_key_transfer(value.flowrate, lossless);
         v.zip(f).inner_into().and_maybe(|_| {
@@ -4633,6 +4643,7 @@ impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata3_1 {
         _: EndianConvert,
         lossless: bool,
     ) -> MetaConvertResult<Self> {
+        // TODO warn if subset present
         let ret = check_key_transfer(value.flowrate, lossless)
             .inner_into()
             .and_tentatively(|_| {
@@ -4697,6 +4708,7 @@ impl TryFromMetadata<InnerMetadata3_0> for InnerMetadata3_2 {
         _: ByteOrdConvert,
         lossless: bool,
     ) -> MetaConvertResult<Self> {
+        // TODO warn if subset present
         let u = check_key_transfer(value.unicode, lossless);
         let co = check_key_transfer(value.comp, lossless);
         u.zip(co).inner_into().and_maybe(|_| {
@@ -4744,6 +4756,7 @@ impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata3_2 {
         _: EndianConvert,
         lossless: bool,
     ) -> MetaConvertResult<Self> {
+        // TODO warn if subset present
         value
             .applied_gates
             .0

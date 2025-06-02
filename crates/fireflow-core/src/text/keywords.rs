@@ -778,10 +778,6 @@ pub(crate) enum RegionGateIndex<I> {
     Bivariate(I, I),
 }
 
-pub(crate) type RegionGateIndex2_0 = RegionGateIndex<GateIndex>;
-pub(crate) type RegionGateIndex3_0 = RegionGateIndex<MeasOrGateIndex>;
-pub(crate) type RegionGateIndex3_2 = RegionGateIndex<PrefixedMeasIndex>;
-
 impl<I> FromStr for RegionGateIndex<I>
 where
     I: FromStr,
@@ -1579,14 +1575,14 @@ macro_rules! opt_meta {
 macro_rules! req_meas {
     ($t:ident) => {
         impl Required for $t {}
-        impl ReqMeasKey for $t {}
+        impl ReqIndexedKey for $t {}
     };
 }
 
 macro_rules! opt_meas {
     ($t:ident) => {
         impl Optional for $t {}
-        impl OptMeasKey for $t {}
+        impl OptIndexedKey for $t {}
     };
 }
 

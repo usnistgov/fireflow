@@ -252,7 +252,7 @@ pub(crate) fn lookup_peakdata<E>(
 pub(crate) fn lookup_applied_gates2_0<E>(
     kws: &mut StdKeywords,
 ) -> LookupTentative<OptionalKw<AppliedGates2_0>, E> {
-    let ag = lookup_applied_gates(kws, false, |k, i| lookup_region(k, i, false));
+    let ag = lookup_gating_regions(kws, false, |k, i| lookup_region(k, i, false));
     let gm = lookup_gated_measurements(kws, false);
     ag.zip(gm).and_tentatively(|(x, y)| {
         if let Some((applied, gated_measurements)) = x.0.zip(y.0) {
@@ -277,7 +277,7 @@ pub(crate) fn lookup_applied_gates3_0<E>(
     kws: &mut StdKeywords,
     dep: bool,
 ) -> LookupTentative<OptionalKw<AppliedGates3_0>, E> {
-    let ag = lookup_applied_gates(kws, false, |k, i| lookup_region(k, i, false));
+    let ag = lookup_gating_regions(kws, false, |k, i| lookup_region(k, i, false));
     let gm = lookup_gated_measurements(kws, dep);
     ag.zip(gm).and_tentatively(|(x, y)| {
         if let Some(applied) = x.0 {
@@ -301,17 +301,17 @@ pub(crate) fn lookup_applied_gates3_0<E>(
 pub(crate) fn lookup_applied_gates3_2<E>(
     kws: &mut StdKeywords,
 ) -> LookupTentative<OptionalKw<AppliedGates3_2>, E> {
-    lookup_applied_gates(kws, true, |k, i| lookup_region(k, i, true))
+    lookup_gating_regions(kws, true, |k, i| lookup_region(k, i, true))
         .map(|x| x.map(|regions| AppliedGates3_2 { regions }))
 }
 
-pub(crate) fn lookup_applied_gates<I, E, F>(
+pub(crate) fn lookup_gating_regions<I, E, F>(
     kws: &mut StdKeywords,
     dep: bool,
     get_region: F,
 ) -> LookupTentative<OptionalKw<GatingRegions<I>>, E>
 where
-    F: Fn(&mut StdKeywords, RegionIndex) -> LookupTentative<OptionalKw<I>, E>,
+    F: Fn(&mut StdKeywords, RegionIndex) -> LookupTentative<OptionalKw<Region<I>>, E>,
 {
     lookup_meta_opt::<Gating, _>(kws, dep)
         .and_tentatively(|maybe| {

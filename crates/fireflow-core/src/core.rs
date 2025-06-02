@@ -34,6 +34,7 @@ use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::fmt;
 use std::io::{BufReader, BufWriter, Read, Seek, Write};
+use std::str::FromStr;
 
 /// Represents the minimal data required to write an FCS file.
 ///
@@ -673,24 +674,13 @@ pub struct GatedMeasurement {
     pub detector_voltage: OptionalKw<GateDetectorVoltage>,
 }
 
-/// The $GATING/$RnI/$RnW keywords in a unified bundle.
-///
-/// All regions in $GATING are assumed to have corresponding $RnI/$RnW keywords,
-/// and each $RnI/$RnW pair is assumed to be consistent (ie both are univariate
-/// or bivariate)
-#[derive(Clone)]
-pub struct GatingRegions<I> {
-    pub gating: Gating,
-    pub regions: NonEmpty<(RegionIndex, I)>,
-}
-
 /// The $GATING/$RnI/$RnW/$Gn* keywords in a unified bundle (2.0)
 ///
 /// Each region is assumed to point to a member of ['gated_measurements'].
 #[derive(Clone, Serialize)]
 pub struct AppliedGates2_0 {
     pub gated_measurements: GatedMeasurements,
-    pub regions: GatingRegions<Region2_0>,
+    pub regions: GatingRegions<GateIndex>,
 }
 
 /// The $GATING/$RnI/$RnW/$Gn* keywords in a unified bundle (3.0-3.1)
@@ -700,7 +690,7 @@ pub struct AppliedGates2_0 {
 #[derive(Clone, Serialize)]
 pub struct AppliedGates3_0 {
     pub gated_measurements: Vec<GatedMeasurement>,
-    pub regions: GatingRegions<Region3_0>,
+    pub regions: GatingRegions<MeasOrGateIndex>,
 }
 
 /// The $GATING/$RnI/$RnW keywords in a unified bundle (3.2)
@@ -708,7 +698,18 @@ pub struct AppliedGates3_0 {
 /// Each region is assumed to point to a measurement in the ['Core'] struct
 #[derive(Clone, Serialize)]
 pub struct AppliedGates3_2 {
-    pub regions: GatingRegions<Region3_2>,
+    pub regions: GatingRegions<PrefixedMeasIndex>,
+}
+
+/// The $GATING/$RnI/$RnW keywords in a unified bundle.
+///
+/// All regions in $GATING are assumed to have corresponding $RnI/$RnW keywords,
+/// and each $RnI/$RnW pair is assumed to be consistent (ie both are univariate
+/// or bivariate)
+#[derive(Clone)]
+pub struct GatingRegions<I> {
+    pub gating: Gating,
+    pub regions: NonEmpty<(RegionIndex, Region<I>)>,
 }
 
 /// A list of $Gn* keywords for indices 1-n.
@@ -3769,12 +3770,6 @@ impl Serialize for SubsetData {
     }
 }
 
-// impl<I> Region<I> {
-//     fn opt_keywords(&self) -> RawOptPairs {
-//         self.
-//     }
-// }
-
 impl<I> UnivariateRegion<I> {
     fn map<F, J>(self, f: F) -> UnivariateRegion<J>
     where
@@ -3785,10 +3780,6 @@ impl<I> UnivariateRegion<I> {
             index: f(self.index),
         }
     }
-
-    // fn opt_keywords(&self, i: RegionIndex) -> RawOptPairs {
-    //     (RegionGateIndex2_0::std(i.into()), self.gate.to_string())
-    // }
 }
 
 impl<I> BivariateRegion<I> {
@@ -3817,7 +3808,123 @@ impl<I: Serialize> Serialize for BivariateRegion<I> {
     }
 }
 
+impl AppliedGates2_0 {
+    pub(crate) fn opt_keywords(&self) -> RawOptPairs {
+        let gate = OptionalKw(Some(Gate(self.gated_measurements.0.len())));
+        self.gated_measurements
+            .0
+            .iter()
+            .enumerate()
+            .flat_map(|(i, m)| m.opt_keywords(i.into()))
+            .chain([OptMetaKey::pair(&gate)])
+            .chain(self.regions.opt_keywords())
+            .collect()
+    }
+}
+
+impl AppliedGates3_0 {
+    pub(crate) fn opt_keywords(&self) -> RawOptPairs {
+        let g = self.gated_measurements.len();
+        let gate = OptionalKw(if g == 0 { None } else { Some(Gate(g)) });
+        self.gated_measurements
+            .iter()
+            .enumerate()
+            .flat_map(|(i, m)| m.opt_keywords(i.into()))
+            .chain([OptMetaKey::pair(&gate)])
+            .chain(self.regions.opt_keywords())
+            .collect()
+    }
+}
+
+impl AppliedGates3_2 {
+    pub(crate) fn opt_keywords(&self) -> RawOptPairs {
+        self.regions.opt_keywords()
+    }
+}
+
+impl GatedMeasurement {
+    pub(crate) fn opt_keywords(&self, i: GateIndex) -> RawOptPairs {
+        let j = i.into();
+        [
+            OptMeasKey::pair(&self.scale, j),
+            OptMeasKey::pair(&self.filter, j),
+            OptMeasKey::pair(&self.shortname, j),
+            OptMeasKey::pair(&self.percent_emitted, j),
+            OptMeasKey::pair(&self.range, j),
+            OptMeasKey::pair(&self.longname, j),
+            OptMeasKey::pair(&self.detector_type, j),
+            OptMeasKey::pair(&self.detector_voltage, j),
+        ]
+        .into_iter()
+        .collect()
+    }
+}
+
+impl<I> GatingRegions<I> {
+    pub(crate) fn opt_keywords(&self) -> RawOptPairs
+    where
+        I: fmt::Display,
+        I: FromStr,
+        I: Copy,
+    {
+        self.regions
+            .iter()
+            .flat_map(|(ri, r)| r.opt_keywords(*ri))
+            // TODO useless clone
+            .chain([OptMetaKey::pair(&OptionalKw(Some(self.gating.clone())))])
+            .collect()
+    }
+}
+
 impl<I> Region<I> {
+    pub(crate) fn try_new(r_index: RegionGateIndex<I>, window: RegionWindow) -> Option<Self> {
+        match (r_index, window) {
+            (RegionGateIndex::Univariate(index), RegionWindow::Univariate(gate)) => {
+                Some(Region::Univariate(UnivariateRegion { index, gate }))
+            }
+            (RegionGateIndex::Bivariate(x_index, y_index), RegionWindow::Bivariate(vertices)) => {
+                Some(Region::Bivariate(BivariateRegion {
+                    x_index,
+                    y_index,
+                    vertices,
+                }))
+            }
+            _ => None,
+        }
+    }
+
+    pub(crate) fn opt_keywords(&self, i: RegionIndex) -> RawOptPairs
+    where
+        I: Copy,
+        I: FromStr,
+        I: fmt::Display,
+    {
+        let (ri, rw) = self.split();
+        [
+            OptMeasKey::pair(&OptionalKw(Some(ri)), i.into()),
+            OptMeasKey::pair(&OptionalKw(Some(rw)), i.into()),
+        ]
+        .into_iter()
+        .collect()
+    }
+
+    pub(crate) fn split(&self) -> (RegionGateIndex<I>, RegionWindow)
+    where
+        I: Copy,
+    {
+        match self {
+            Self::Univariate(x) => (
+                RegionGateIndex::Univariate(x.index),
+                // TODO clone
+                RegionWindow::Univariate(x.gate.clone()),
+            ),
+            Self::Bivariate(x) => (
+                RegionGateIndex::Bivariate(x.x_index, x.y_index),
+                RegionWindow::Bivariate(x.vertices.clone()),
+            ),
+        }
+    }
+
     pub(crate) fn map<F, J>(self, f: F) -> Region<J>
     where
         F: FnMut(I) -> J,
@@ -3839,22 +3946,6 @@ impl<I> Region<I> {
         match self {
             Self::Univariate(r) => NonEmpty::new(r.index),
             Self::Bivariate(r) => (r.x_index, vec![r.y_index]).into(),
-        }
-    }
-
-    pub(crate) fn try_new(r_index: RegionGateIndex<I>, window: RegionWindow) -> Option<Self> {
-        match (r_index, window) {
-            (RegionGateIndex::Univariate(index), RegionWindow::Univariate(gate)) => {
-                Some(Region::Univariate(UnivariateRegion { index, gate }))
-            }
-            (RegionGateIndex::Bivariate(x_index, y_index), RegionWindow::Bivariate(vertices)) => {
-                Some(Region::Bivariate(BivariateRegion {
-                    x_index,
-                    y_index,
-                    vertices,
-                }))
-            }
-            _ => None,
         }
     }
 }
@@ -3943,6 +4034,17 @@ impl AppliedGates3_0 {
             .flat_map(|i| GateIndex::try_from(i).ok())
             .filter(|i| usize::from(*i) > n);
         NonEmpty::collect(it).map_or(Ok(()), |xs| Err(GateMeasurementLinkError(xs)))
+    }
+}
+
+impl PeakData {
+    pub(crate) fn opt_keywords(&self, i: MeasIndex) -> RawOptTriples {
+        [
+            OptMeasKey::triple(&self.bin, i.into()),
+            OptMeasKey::triple(&self.size, i.into()),
+        ]
+        .into_iter()
+        .collect()
     }
 }
 
@@ -4921,6 +5023,7 @@ impl VersionedOptical for InnerOptical2_0 {
             OptMeasKey::triple(&self.wavelength, i.into()),
         ]
         .into_iter()
+        .chain(self.peak.opt_keywords(i))
         .collect()
     }
 
@@ -4948,6 +5051,7 @@ impl VersionedOptical for InnerOptical3_0 {
             OptMeasKey::triple(&self.gain, i.into()),
         ]
         .into_iter()
+        .chain(self.peak.opt_keywords(i))
         .collect()
     }
 
@@ -4979,6 +5083,7 @@ impl VersionedOptical for InnerOptical3_1 {
             OptMeasKey::triple(&self.display, i.into()),
         ]
         .into_iter()
+        .chain(self.peak.opt_keywords(i))
         .collect()
     }
 
@@ -5426,6 +5531,12 @@ impl VersionedMetadata for InnerMetadata2_0 {
             OptMetaKey::pair(&self.timestamps.date()),
         ]
         .into_iter()
+        .chain(
+            self.applied_gates
+                .as_ref_opt()
+                .map(|x| x.opt_keywords())
+                .unwrap_or_default(),
+        )
         .flat_map(|(k, v)| v.map(|x| (k, x)))
         .chain(self.comp.as_ref_opt().map_or(vec![], |c| c.as_dfc_keys()))
         .collect()
@@ -5515,6 +5626,18 @@ impl VersionedMetadata for InnerMetadata3_0 {
             OptMetaKey::pair(&self.unicode),
         ]
         .into_iter()
+        .chain(
+            self.applied_gates
+                .as_ref_opt()
+                .map(|x| x.opt_keywords())
+                .unwrap_or_default(),
+        )
+        .chain(
+            self.subset
+                .as_ref_opt()
+                .map(|x| x.opt_keywords())
+                .unwrap_or_default(),
+        )
         .flat_map(|(k, v)| v.map(|x| (k, x)))
         .collect()
     }
@@ -5611,6 +5734,18 @@ impl VersionedMetadata for InnerMetadata3_1 {
             OptMetaKey::pair(&self.vol),
         ]
         .into_iter()
+        .chain(
+            self.applied_gates
+                .as_ref_opt()
+                .map(|x| x.opt_keywords())
+                .unwrap_or_default(),
+        )
+        .chain(
+            self.subset
+                .as_ref_opt()
+                .map(|x| x.opt_keywords())
+                .unwrap_or_default(),
+        )
         .flat_map(|(k, v)| v.map(|x| (k, x)))
         .collect()
     }
@@ -5719,6 +5854,12 @@ impl VersionedMetadata for InnerMetadata3_2 {
             OptMetaKey::pair(&self.flowrate),
         ]
         .into_iter()
+        .chain(
+            self.applied_gates
+                .as_ref_opt()
+                .map(|x| x.opt_keywords())
+                .unwrap_or_default(),
+        )
         .flat_map(|(k, v)| v.map(|x| (k, x)))
         .collect()
     }

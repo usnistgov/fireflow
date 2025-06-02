@@ -30,10 +30,12 @@ use nalgebra::DMatrix;
 use nonempty::NonEmpty;
 use serde::ser::SerializeStruct;
 use serde::Serialize;
+use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::fmt;
 use std::io::{BufReader, BufWriter, Read, Seek, Write};
+use std::marker::PhantomData;
 use std::str::FromStr;
 
 /// Represents the minimal data required to write an FCS file.
@@ -403,7 +405,7 @@ pub struct InnerMetadata3_0 {
     pub cyt: OptionalKw<Cyt>,
 
     /// Value of $COMP
-    comp: OptionalKw<Compensation>,
+    comp: OptionalKw<Compensation3_0>,
 
     /// Values of $BTIM/ETIM/$DATE
     pub timestamps: Timestamps3_0,
@@ -941,7 +943,7 @@ where
     Self: VersionedMetadata,
     M: VersionedMetadata,
 {
-    fn try_from_meta(value: M, byteord: SizeConvert<M::D>) -> MetaConvertResult<Self>;
+    fn try_from_meta(value: M, byteord: SizeConvert<M::D>, force: bool) -> MetaConvertResult<Self>;
 }
 
 pub trait VersionedMetadata: Sized {
@@ -1300,9 +1302,10 @@ where
     fn try_convert<ToM: TryFromMetadata<M>>(
         self,
         convert: SizeConvert<M::D>,
-    ) -> DeferredResult<Metadata<ToM>, WidthToBytesError, MetaConvertError> {
+        force: bool,
+    ) -> MetaConvertResult<Metadata<ToM>> {
         // TODO this seems silly, break struct up into common bits
-        ToM::try_from_meta(self.specific, convert).def_map_value(|specific| Metadata {
+        ToM::try_from_meta(self.specific, convert, force).def_map_value(|specific| Metadata {
             abrt: self.abrt,
             cells: self.cells,
             com: self.com,
@@ -1472,73 +1475,6 @@ pub(crate) type RawPairs = Vec<(String, String)>;
 pub(crate) type RawTriples = Vec<(String, String, String)>;
 pub(crate) type RawOptPairs = Vec<(String, Option<String>)>;
 pub(crate) type RawOptTriples = Vec<(String, String, Option<String>)>;
-
-// for now this just means $PnE isn't set and should be to convert
-pub struct OpticalConvertError;
-
-impl fmt::Display for OpticalConvertError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "scale must be set before converting measurement",)
-    }
-}
-
-pub enum OpticalToTemporalError {
-    NonLinear,
-    HasGain,
-    NotTimeType,
-}
-
-pub enum SetTemporalIndexError {
-    Convert(OpticalToTemporalError),
-    Index(SetCenterError),
-}
-
-impl fmt::Display for OpticalToTemporalError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            OpticalToTemporalError::NonLinear => write!(f, "$PnE must be '0,0'"),
-            OpticalToTemporalError::HasGain => write!(f, "$PnG must not be set"),
-            OpticalToTemporalError::NotTimeType => write!(f, "$PnTYPE must not be set"),
-        }
-    }
-}
-
-impl fmt::Display for SetTemporalIndexError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            SetTemporalIndexError::Convert(c) => c.fmt(f),
-            SetTemporalIndexError::Index(i) => i.fmt(f),
-        }
-    }
-}
-
-enum_from_disp!(
-    pub MetaConvertError,
-    [NoCyt, NoCytError],
-    [Byteord, EndianToByteOrdError],
-    [Endian, SingleWidthError],
-    [Mode, ModeNotListError],
-    [GateLink, RegionToGateIndexError],
-    [MeasLink, RegionToMeasIndexError],
-    [GateToMeas, GateToMeasIndexError],
-    [MeasToGate, MeasToGateIndexError]
-);
-
-pub struct NoCytError;
-
-impl fmt::Display for NoCytError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "$CYT is missing")
-    }
-}
-
-pub struct ModeNotListError;
-
-impl fmt::Display for ModeNotListError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "$MODE is not L")
-    }
-}
 
 impl<M, T> From<Optical<M>> for Temporal<T>
 where
@@ -2099,9 +2035,10 @@ where
     #[allow(clippy::type_complexity)]
     pub fn try_convert<ToM>(
         self,
+        force: bool,
     ) -> DeferredResult<
         VersionedCore<A, D, ToM>,
-        WidthToBytesError,
+        MetaConvertWarning,
         VersionedConvertError<M::N, ToM::N>,
     >
     where
@@ -2124,7 +2061,7 @@ where
         };
         let m = self
             .metadata
-            .try_convert(convert)
+            .try_convert(convert, force)
             .def_map_errors(ConvertErrorInner::Meta);
         let ps = self
             .measurements
@@ -2972,7 +2909,7 @@ macro_rules! comp_methods {
     () => {
         /// Return matrix for $COMP
         pub fn compensation(&self) -> Option<&Compensation> {
-            self.metadata.specific.comp.as_ref_opt()
+            self.metadata.specific.comp.as_ref_opt().map(|x| x.borrow())
         }
 
         /// Set matrix for $COMP
@@ -2981,7 +2918,7 @@ macro_rules! comp_methods {
         /// square or rows/columns are not the same length as $PAR.
         pub fn set_compensation(&mut self, matrix: DMatrix<f32>) -> Result<(), NewCompError> {
             Compensation::try_new(matrix).map(|comp| {
-                self.metadata.specific.comp = Some(comp).into();
+                self.metadata.specific.comp = Some(comp.into()).into();
             })
         }
 
@@ -3753,6 +3690,16 @@ impl<I> UnivariateRegion<I> {
             index: f(self.index),
         }
     }
+
+    fn try_map<F, J, E>(self, f: F) -> Result<UnivariateRegion<J>, E>
+    where
+        F: FnOnce(I) -> Result<J, E>,
+    {
+        Ok(UnivariateRegion {
+            gate: self.gate,
+            index: f(self.index)?,
+        })
+    }
 }
 
 impl<I> BivariateRegion<I> {
@@ -3765,6 +3712,17 @@ impl<I> BivariateRegion<I> {
             x_index: f(self.x_index),
             y_index: f(self.y_index),
         }
+    }
+
+    fn try_map<F, J, E>(self, mut f: F) -> Result<BivariateRegion<J>, E>
+    where
+        F: FnMut(I) -> Result<J, E>,
+    {
+        Ok(BivariateRegion {
+            vertices: self.vertices,
+            x_index: f(self.x_index)?,
+            y_index: f(self.y_index)?,
+        })
     }
 }
 
@@ -3846,6 +3804,28 @@ impl<I> GatingRegions<I> {
             .chain([(Gating::std().to_string(), Some(self.gating.to_string()))])
             .collect()
     }
+
+    fn inner_into<J>(self) -> GatingRegions<J>
+    where
+        J: From<I>,
+    {
+        GatingRegions {
+            gating: self.gating,
+            regions: self.regions.map(|(ri, r)| (ri, r.inner_into())),
+        }
+    }
+
+    fn try_inner_into<J, E>(self) -> Result<GatingRegions<J>, E>
+    where
+        J: TryFrom<I, Error = E>,
+    {
+        Ok(GatingRegions {
+            gating: self.gating,
+            regions: self
+                .regions
+                .try_map(|(ri, r)| r.try_map(|i| i.try_into()).map(|x| (ri, x)))?,
+        })
+    }
 }
 
 impl<I> Region<I> {
@@ -3907,6 +3887,16 @@ impl<I> Region<I> {
         }
     }
 
+    pub(crate) fn try_map<F, J, E>(self, f: F) -> Result<Region<J>, E>
+    where
+        F: FnMut(I) -> Result<J, E>,
+    {
+        match self {
+            Self::Univariate(x) => Ok(Region::Univariate(x.try_map(f)?)),
+            Self::Bivariate(x) => Ok(Region::Bivariate(x.try_map(f)?)),
+        }
+    }
+
     pub(crate) fn inner_into<J>(self) -> Region<J>
     where
         J: From<I>,
@@ -3922,13 +3912,19 @@ impl<I> Region<I> {
     }
 }
 
-impl TryFrom<MeasOrGateIndex> for MeasIndex {
+impl TryFrom<MeasOrGateIndex> for PrefixedMeasIndex {
     type Error = RegionToMeasIndexError;
     fn try_from(value: MeasOrGateIndex) -> Result<Self, Self::Error> {
         match value {
-            MeasOrGateIndex::Meas(i) => Ok(i),
+            MeasOrGateIndex::Meas(i) => Ok(i.into()),
             MeasOrGateIndex::Gate(i) => Err(RegionToMeasIndexError(i)),
         }
+    }
+}
+
+impl From<PrefixedMeasIndex> for MeasOrGateIndex {
+    fn from(value: PrefixedMeasIndex) -> Self {
+        Self::Meas(value.0)
     }
 }
 
@@ -3942,16 +3938,16 @@ impl TryFrom<MeasOrGateIndex> for GateIndex {
     }
 }
 
-impl TryFrom<GateIndex> for MeasIndex {
+impl TryFrom<GateIndex> for PrefixedMeasIndex {
     type Error = GateToMeasIndexError;
     fn try_from(value: GateIndex) -> Result<Self, Self::Error> {
         Err(GateToMeasIndexError(value))
     }
 }
 
-impl TryFrom<MeasIndex> for GateIndex {
+impl TryFrom<PrefixedMeasIndex> for GateIndex {
     type Error = MeasToGateIndexError;
-    fn try_from(value: MeasIndex) -> Result<Self, Self::Error> {
+    fn try_from(value: PrefixedMeasIndex) -> Result<Self, Self::Error> {
         Err(MeasToGateIndexError(value))
     }
 }
@@ -4006,6 +4002,57 @@ impl AppliedGates3_0 {
             .flat_map(|i| GateIndex::try_from(i).ok())
             .filter(|i| usize::from(*i) > n);
         NonEmpty::collect(it).map_or(Ok(()), |xs| Err(GateMeasurementLinkError(xs)))
+    }
+}
+
+impl From<AppliedGates2_0> for AppliedGates3_0 {
+    fn from(value: AppliedGates2_0) -> Self {
+        Self {
+            gated_measurements: value.gated_measurements.0.into(),
+            regions: value.regions.inner_into(),
+        }
+    }
+}
+
+impl TryFrom<AppliedGates3_0> for AppliedGates2_0 {
+    type Error = AppliedGates3_0To2_0Error;
+    fn try_from(value: AppliedGates3_0) -> Result<Self, Self::Error> {
+        let regions = value
+            .regions
+            .try_inner_into()
+            .map_err(AppliedGates3_0To2_0Error::Index)?;
+        if let Some(gs) = NonEmpty::from_vec(value.gated_measurements) {
+            Ok(Self {
+                gated_measurements: GatedMeasurements(gs),
+                regions,
+            })
+        } else {
+            Err(AppliedGates3_0To2_0Error::NoGates)
+        }
+    }
+}
+
+impl TryFrom<AppliedGates3_0> for AppliedGates3_2 {
+    type Error = AppliedGates3_0To3_2Error;
+    fn try_from(value: AppliedGates3_0) -> Result<Self, Self::Error> {
+        let regions = value
+            .regions
+            .try_inner_into()
+            .map_err(AppliedGates3_0To3_2Error::Index)?;
+        if value.gated_measurements.is_empty() {
+            Ok(Self { regions })
+        } else {
+            Err(AppliedGates3_0To3_2Error::HasGates)
+        }
+    }
+}
+
+impl From<AppliedGates3_2> for AppliedGates3_0 {
+    fn from(value: AppliedGates3_2) -> Self {
+        Self {
+            gated_measurements: vec![],
+            regions: value.regions.inner_into(),
+        }
     }
 }
 
@@ -4331,7 +4378,7 @@ impl TryFrom<InnerOptical3_1> for InnerOptical3_2 {
     }
 }
 
-type MetaConvertResult<M> = DeferredResult<M, WidthToBytesError, MetaConvertError>;
+type MetaConvertResult<M> = DeferredResult<M, MetaConvertWarning, MetaConvertError>;
 
 pub struct SizeConvert<O> {
     size: O,
@@ -4349,61 +4396,114 @@ impl EndianConvert {
     }
 }
 
-// TODO add a way to force conversion (that is, ignore all ignorable errors and
-// proceed anyway)
 impl TryFromMetadata<InnerMetadata3_0> for InnerMetadata2_0 {
-    fn try_from_meta(value: InnerMetadata3_0, _: ByteOrdConvert) -> MetaConvertResult<Self> {
-        // let ags = value.applied_gates.0.map(|x| x.try_into()).transpose()?;
-        Ok(Tentative::new1(Self {
-            mode: value.mode,
-            byteord: value.byteord,
-            cyt: value.cyt,
-            comp: value.comp,
-            timestamps: value.timestamps.map(|d| d.into()),
-            applied_gates: None.into(),
-        }))
+    fn try_from_meta(
+        value: InnerMetadata3_0,
+        _: ByteOrdConvert,
+        lossless: bool,
+    ) -> MetaConvertResult<Self> {
+        let c = check_key_transfer(value.cytsn, lossless);
+        let u = check_key_transfer(value.unicode, lossless);
+        let ret = c.zip(u).inner_into().and_tentatively(|_| {
+            value
+                .applied_gates
+                .0
+                .map(|x| x.try_into())
+                .transpose()
+                .map_or_else(
+                    |w| Tentative::new_either(None, vec![w], lossless),
+                    Tentative::new1,
+                )
+                .map(|ag| Self {
+                    mode: value.mode,
+                    byteord: value.byteord,
+                    cyt: value.cyt,
+                    comp: value.comp.map(|x| x.into()),
+                    timestamps: value.timestamps.map(|d| d.into()),
+                    applied_gates: ag.into(),
+                })
+        });
+        Ok(ret)
     }
 }
 
 impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata2_0 {
-    fn try_from_meta(value: InnerMetadata3_1, endian: EndianConvert) -> MetaConvertResult<Self> {
-        endian
-            .try_as_byteord()
-            .def_errors_into()
-            .def_map_value(|byteord| Self {
-                mode: value.mode,
-                byteord,
-                cyt: value.cyt,
-                comp: None.into(),
-                timestamps: value.timestamps.map(|d| d.into()),
-                applied_gates: None.into(),
-            })
+    fn try_from_meta(
+        value: InnerMetadata3_1,
+        endian: EndianConvert,
+        lossless: bool,
+    ) -> MetaConvertResult<Self> {
+        let c = check_key_transfer(value.cytsn, lossless);
+        let v = check_key_transfer(value.vol, lossless);
+        let s = check_key_transfer(value.spillover, lossless);
+        c.zip3(v, s).inner_into().and_maybe(|_| {
+            value
+                .applied_gates
+                .0
+                .map(|x| x.try_into())
+                .transpose()
+                .map_or_else(
+                    |w| Tentative::new_either(None, vec![w], lossless),
+                    Tentative::new1,
+                )
+                .and_maybe(|ag| {
+                    endian
+                        .try_as_byteord()
+                        .def_inner_into()
+                        .def_map_value(|byteord| Self {
+                            mode: value.mode,
+                            byteord,
+                            cyt: value.cyt,
+                            comp: None.into(),
+                            timestamps: value.timestamps.map(|d| d.into()),
+                            applied_gates: ag.into(),
+                        })
+                })
+        })
     }
 }
 
 impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata2_0 {
-    fn try_from_meta(value: InnerMetadata3_2, endian: EndianConvert) -> MetaConvertResult<Self> {
-        endian
-            .try_as_byteord()
-            .def_errors_into()
-            .def_map_value(|byteord| Self {
-                mode: Mode::List,
-                byteord,
-                cyt: Some(value.cyt).into(),
-                comp: None.into(),
-                timestamps: value.timestamps.map(|d| d.into()),
-                applied_gates: None.into(),
-            })
+    fn try_from_meta(
+        value: InnerMetadata3_2,
+        endian: EndianConvert,
+        lossless: bool,
+    ) -> MetaConvertResult<Self> {
+        let c = check_key_transfer(value.cytsn, lossless);
+        let v = check_key_transfer(value.vol, lossless);
+        let s = check_key_transfer(value.spillover, lossless);
+        let f = check_key_transfer(value.flowrate, lossless);
+        let mut ret = c.zip4(v, s, f).inner_into().and_maybe(|_| {
+            endian
+                .try_as_byteord()
+                .def_inner_into()
+                .def_map_value(|byteord| Self {
+                    mode: Mode::List,
+                    byteord,
+                    cyt: Some(value.cyt).into(),
+                    comp: None.into(),
+                    timestamps: value.timestamps.map(|d| d.into()),
+                    applied_gates: None.into(),
+                })
+        });
+        if value.applied_gates.0.is_some() {
+            ret.def_push_error_or_warning(AppliedGates3_2To2_0Error, lossless);
+        }
+        ret
     }
 }
 
 impl TryFromMetadata<InnerMetadata2_0> for InnerMetadata3_0 {
-    fn try_from_meta(value: InnerMetadata2_0, _: ByteOrdConvert) -> MetaConvertResult<Self> {
+    fn try_from_meta(
+        value: InnerMetadata2_0,
+        _: ByteOrdConvert,
+        _: bool,
+    ) -> MetaConvertResult<Self> {
         Ok(Tentative::new1(Self {
             mode: value.mode,
             byteord: value.byteord,
             cyt: value.cyt,
-            comp: value.comp,
+            comp: value.comp.map(|x| x.into()),
             timestamps: value.timestamps.map(|d| d.into()),
             cytsn: None.into(),
             unicode: None.into(),
@@ -4414,46 +4514,66 @@ impl TryFromMetadata<InnerMetadata2_0> for InnerMetadata3_0 {
 }
 
 impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata3_0 {
-    fn try_from_meta(value: InnerMetadata3_1, endian: EndianConvert) -> MetaConvertResult<Self> {
-        endian
-            .try_as_byteord()
-            .def_errors_into()
-            .def_map_value(|byteord| Self {
-                mode: value.mode,
-                byteord,
-                cyt: value.cyt,
-                cytsn: value.cytsn,
-                timestamps: value.timestamps.map(|d| d.into()),
-                comp: None.into(),
-                unicode: None.into(),
-                subset: None.into(),
-                applied_gates: value.applied_gates,
+    fn try_from_meta(
+        value: InnerMetadata3_1,
+        endian: EndianConvert,
+        lossless: bool,
+    ) -> MetaConvertResult<Self> {
+        check_key_transfer(value.vol, lossless)
+            .inner_into()
+            .and_maybe(|_| {
+                endian
+                    .try_as_byteord()
+                    .def_inner_into()
+                    .def_map_value(|byteord| Self {
+                        mode: value.mode,
+                        byteord,
+                        cyt: value.cyt,
+                        cytsn: value.cytsn,
+                        timestamps: value.timestamps.map(|d| d.into()),
+                        comp: None.into(),
+                        unicode: None.into(),
+                        subset: None.into(),
+                        applied_gates: value.applied_gates,
+                    })
             })
     }
 }
 
 impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata3_0 {
-    fn try_from_meta(value: InnerMetadata3_2, endian: EndianConvert) -> MetaConvertResult<Self> {
-        endian
-            .try_as_byteord()
-            .def_errors_into()
-            .def_map_value(|byteord| Self {
-                mode: Mode::List,
-                byteord,
-                cyt: Some(value.cyt).into(),
-                cytsn: value.cytsn,
-                timestamps: value.timestamps.map(|d| d.into()),
-                comp: None.into(),
-                unicode: None.into(),
-                subset: None.into(),
-                applied_gates: None.into(),
-            })
+    fn try_from_meta(
+        value: InnerMetadata3_2,
+        endian: EndianConvert,
+        lossless: bool,
+    ) -> MetaConvertResult<Self> {
+        let v = check_key_transfer(value.vol, lossless);
+        let f = check_key_transfer(value.flowrate, lossless);
+        v.zip(f).inner_into().and_maybe(|_| {
+            endian
+                .try_as_byteord()
+                .def_inner_into()
+                .def_map_value(|byteord| Self {
+                    mode: Mode::List,
+                    byteord,
+                    cyt: Some(value.cyt).into(),
+                    cytsn: value.cytsn,
+                    timestamps: value.timestamps.map(|d| d.into()),
+                    comp: None.into(),
+                    unicode: None.into(),
+                    subset: None.into(),
+                    applied_gates: value.applied_gates.map(|x| x.into()),
+                })
+        })
     }
 }
 
 impl TryFromMetadata<InnerMetadata2_0> for InnerMetadata3_1 {
-    fn try_from_meta(value: InnerMetadata2_0, _: ByteOrdConvert) -> MetaConvertResult<Self> {
-        value
+    fn try_from_meta(
+        value: InnerMetadata2_0,
+        _: ByteOrdConvert,
+        lossless: bool,
+    ) -> MetaConvertResult<Self> {
+        let mut res = value
             .byteord
             .try_into()
             .into_deferred()
@@ -4468,53 +4588,78 @@ impl TryFromMetadata<InnerMetadata2_0> for InnerMetadata3_1 {
                 plate: PlateData::default(),
                 vol: None.into(),
                 subset: None.into(),
-                applied_gates: None.into(),
-            })
+                applied_gates: value.applied_gates.map(|x| x.into()),
+            });
+        if value.comp.0.is_some() {
+            res.def_push_error_or_warning(Comp2_0TransferError, lossless);
+        }
+        res
     }
 }
 
 impl TryFromMetadata<InnerMetadata3_0> for InnerMetadata3_1 {
-    fn try_from_meta(value: InnerMetadata3_0, _: ByteOrdConvert) -> MetaConvertResult<Self> {
-        value
-            .byteord
-            .try_into()
-            .into_deferred()
-            .def_map_value(|byteord| Self {
-                byteord,
-                mode: value.mode,
-                cyt: value.cyt,
-                cytsn: value.cytsn,
-                timestamps: value.timestamps.map(|d| d.into()),
-                spillover: None.into(),
-                modification: ModificationData::default(),
-                plate: PlateData::default(),
-                vol: None.into(),
-                subset: None.into(),
-                applied_gates: value.applied_gates,
-            })
+    fn try_from_meta(
+        value: InnerMetadata3_0,
+        _: ByteOrdConvert,
+        lossless: bool,
+    ) -> MetaConvertResult<Self> {
+        let c = check_key_transfer(value.comp, lossless);
+        let u = check_key_transfer(value.unicode, lossless);
+        c.zip(u).inner_into().and_maybe(|_| {
+            value
+                .byteord
+                .try_into()
+                .into_deferred()
+                .def_map_value(|byteord| Self {
+                    byteord,
+                    mode: value.mode,
+                    cyt: value.cyt,
+                    cytsn: value.cytsn,
+                    timestamps: value.timestamps.map(|d| d.into()),
+                    spillover: None.into(),
+                    modification: ModificationData::default(),
+                    plate: PlateData::default(),
+                    vol: None.into(),
+                    subset: value.subset,
+                    applied_gates: value.applied_gates,
+                })
+        })
     }
 }
 
 impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata3_1 {
-    fn try_from_meta(value: InnerMetadata3_2, _: EndianConvert) -> MetaConvertResult<Self> {
-        Ok(Tentative::new1(Self {
-            mode: Mode::List,
-            byteord: value.byteord,
-            cyt: Some(value.cyt).into(),
-            cytsn: value.cytsn,
-            timestamps: value.timestamps,
-            spillover: value.spillover,
-            plate: value.plate,
-            modification: value.modification,
-            vol: value.vol,
-            subset: None.into(),
-            applied_gates: None.into(),
-        }))
+    fn try_from_meta(
+        value: InnerMetadata3_2,
+        _: EndianConvert,
+        lossless: bool,
+    ) -> MetaConvertResult<Self> {
+        let ret = check_key_transfer(value.flowrate, lossless)
+            .inner_into()
+            .and_tentatively(|_| {
+                Tentative::new1(Self {
+                    mode: Mode::List,
+                    byteord: value.byteord,
+                    cyt: Some(value.cyt).into(),
+                    cytsn: value.cytsn,
+                    timestamps: value.timestamps,
+                    spillover: value.spillover,
+                    plate: value.plate,
+                    modification: value.modification,
+                    vol: value.vol,
+                    subset: None.into(),
+                    applied_gates: value.applied_gates.map(|x| x.into()),
+                })
+            });
+        Ok(ret)
     }
 }
 
 impl TryFromMetadata<InnerMetadata2_0> for InnerMetadata3_2 {
-    fn try_from_meta(value: InnerMetadata2_0, _: ByteOrdConvert) -> MetaConvertResult<Self> {
+    fn try_from_meta(
+        value: InnerMetadata2_0,
+        _: ByteOrdConvert,
+        lossless: bool,
+    ) -> MetaConvertResult<Self> {
         let b = value.byteord.try_into().into_deferred();
         let c = value.cyt.0.ok_or(NoCytError).into_deferred();
         let m = if value.mode != Mode::List {
@@ -4523,7 +4668,7 @@ impl TryFromMetadata<InnerMetadata2_0> for InnerMetadata3_2 {
             Ok(())
         }
         .into_deferred();
-        b.def_zip3(c, m).def_map_value(|(byteord, cyt, _)| Self {
+        let mut res = b.def_zip3(c, m).def_map_value(|(byteord, cyt, _)| Self {
             byteord,
             cyt,
             timestamps: value.timestamps.map(|d| d.into()),
@@ -4537,63 +4682,116 @@ impl TryFromMetadata<InnerMetadata2_0> for InnerMetadata3_2 {
             unstained: UnstainedData::default(),
             datetimes: Datetimes::default(),
             applied_gates: None.into(),
-        })
+        });
+        if value.applied_gates.0.is_some() {
+            res.def_push_error_or_warning(AppliedGates2_0To3_2Error, lossless);
+        }
+
+        res
     }
 }
 
 impl TryFromMetadata<InnerMetadata3_0> for InnerMetadata3_2 {
-    fn try_from_meta(value: InnerMetadata3_0, _: ByteOrdConvert) -> MetaConvertResult<Self> {
-        let b = value.byteord.try_into().into_deferred();
-        let c = value.cyt.0.ok_or(NoCytError).into_deferred();
-        let m = if value.mode != Mode::List {
-            Err(ModeNotListError)
-        } else {
-            Ok(())
-        }
-        .into_deferred();
-        b.def_zip3(c, m).def_map_value(|(byteord, cyt, _)| Self {
-            byteord,
-            cyt,
-            cytsn: value.cytsn,
-            timestamps: value.timestamps.map(|d| d.into()),
-            modification: ModificationData::default(),
-            spillover: None.into(),
-            plate: PlateData::default(),
-            vol: None.into(),
-            flowrate: None.into(),
-            carrier: CarrierData::default(),
-            unstained: UnstainedData::default(),
-            datetimes: Datetimes::default(),
-            applied_gates: None.into(),
+    fn try_from_meta(
+        value: InnerMetadata3_0,
+        _: ByteOrdConvert,
+        lossless: bool,
+    ) -> MetaConvertResult<Self> {
+        let u = check_key_transfer(value.unicode, lossless);
+        let co = check_key_transfer(value.comp, lossless);
+        u.zip(co).inner_into().and_maybe(|_| {
+            value
+                .applied_gates
+                .0
+                .map(|x| x.try_into())
+                .transpose()
+                .map_or_else(
+                    |w| Tentative::new_either(None, vec![w], lossless),
+                    Tentative::new1,
+                )
+                .and_maybe(|ag| {
+                    let b = value.byteord.try_into().into_deferred();
+                    let c = value.cyt.0.ok_or(NoCytError).into_deferred();
+                    let m = if value.mode != Mode::List {
+                        Err(ModeNotListError)
+                    } else {
+                        Ok(())
+                    }
+                    .into_deferred();
+                    b.def_zip3(c, m).def_map_value(|(byteord, cyt, _)| Self {
+                        byteord,
+                        cyt,
+                        cytsn: value.cytsn,
+                        timestamps: value.timestamps.map(|d| d.into()),
+                        modification: ModificationData::default(),
+                        spillover: None.into(),
+                        plate: PlateData::default(),
+                        vol: None.into(),
+                        flowrate: None.into(),
+                        carrier: CarrierData::default(),
+                        unstained: UnstainedData::default(),
+                        datetimes: Datetimes::default(),
+                        applied_gates: ag.into(),
+                    })
+                })
         })
     }
 }
 
 impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata3_2 {
-    fn try_from_meta(value: InnerMetadata3_1, _: EndianConvert) -> MetaConvertResult<Self> {
-        let m = if value.mode != Mode::List {
-            Err(ModeNotListError)
-        } else {
-            Ok(())
-        }
-        .into_deferred();
-        let c = value.cyt.0.ok_or(NoCytError).into_deferred();
-        m.def_zip(c).def_map_value(|(_, cyt)| Self {
-            byteord: value.byteord,
-            cyt,
-            cytsn: value.cytsn,
-            timestamps: value.timestamps,
-            spillover: value.spillover,
-            modification: value.modification,
-            plate: value.plate,
-            vol: value.vol,
-            flowrate: None.into(),
-            carrier: CarrierData::default(),
-            unstained: UnstainedData::default(),
-            datetimes: Datetimes::default(),
-            applied_gates: None.into(),
-        })
+    fn try_from_meta(
+        value: InnerMetadata3_1,
+        _: EndianConvert,
+        lossless: bool,
+    ) -> MetaConvertResult<Self> {
+        value
+            .applied_gates
+            .0
+            .map(|x| x.try_into())
+            .transpose()
+            .map_or_else(
+                |w| Tentative::new_either(None, vec![w], lossless),
+                Tentative::new1,
+            )
+            .and_maybe(|ag| {
+                let m = if value.mode != Mode::List {
+                    Err(ModeNotListError)
+                } else {
+                    Ok(())
+                }
+                .into_deferred();
+                let c = value.cyt.0.ok_or(NoCytError).into_deferred();
+                m.def_zip(c).def_map_value(|(_, cyt)| Self {
+                    byteord: value.byteord,
+                    cyt,
+                    cytsn: value.cytsn,
+                    timestamps: value.timestamps,
+                    spillover: value.spillover,
+                    modification: value.modification,
+                    plate: value.plate,
+                    vol: value.vol,
+                    flowrate: None.into(),
+                    carrier: CarrierData::default(),
+                    unstained: UnstainedData::default(),
+                    datetimes: Datetimes::default(),
+                    applied_gates: ag.into(),
+                })
+            })
     }
+}
+
+fn check_key_transfer<T>(
+    x: OptionalKw<T>,
+    lossless: bool,
+) -> Tentative<(), AnyKeyTransferError, AnyKeyTransferError>
+where
+    AnyKeyTransferError: From<KeyTransferError<T>>,
+{
+    let mut tnt = Tentative::new1(());
+    if x.0.is_some() {
+        tnt.push_error_or_warning(KeyTransferError::<T>::default(), lossless);
+    }
+    tnt
 }
 
 impl From<InnerTemporal3_0> for InnerTemporal2_0 {
@@ -5562,14 +5760,14 @@ impl VersionedMetadata for InnerMetadata3_0 {
     }
 
     fn as_compensation(&self) -> Option<&Compensation> {
-        self.comp.as_ref_opt()
+        self.comp.as_ref_opt().map(|x| x.borrow())
     }
 
     fn with_compensation<F, X>(&mut self, f: F) -> Option<X>
     where
         F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
     {
-        self.comp.mut_or_unset(f)
+        self.comp.mut_or_unset(|c| f(&mut c.0))
     }
 
     fn timestamps_valid(&self) -> bool {
@@ -6325,7 +6523,7 @@ impl fmt::Display for GateToMeasIndexError {
     }
 }
 
-pub struct MeasToGateIndexError(MeasIndex);
+pub struct MeasToGateIndexError(PrefixedMeasIndex);
 
 impl fmt::Display for MeasToGateIndexError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -6354,5 +6552,180 @@ impl fmt::Display for GateMeasurementLinkError {
             "$GATING regions reference nonexistent gates: {}",
             self.0.iter().join(",")
         )
+    }
+}
+
+// for now this just means $PnE isn't set and should be to convert
+pub struct OpticalConvertError;
+
+impl fmt::Display for OpticalConvertError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "scale must be set before converting measurement",)
+    }
+}
+
+pub enum OpticalToTemporalError {
+    NonLinear,
+    HasGain,
+    NotTimeType,
+}
+
+pub enum SetTemporalIndexError {
+    Convert(OpticalToTemporalError),
+    Index(SetCenterError),
+}
+
+impl fmt::Display for OpticalToTemporalError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            OpticalToTemporalError::NonLinear => write!(f, "$PnE must be '0,0'"),
+            OpticalToTemporalError::HasGain => write!(f, "$PnG must not be set"),
+            OpticalToTemporalError::NotTimeType => write!(f, "$PnTYPE must not be set"),
+        }
+    }
+}
+
+impl fmt::Display for SetTemporalIndexError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            SetTemporalIndexError::Convert(c) => c.fmt(f),
+            SetTemporalIndexError::Index(i) => i.fmt(f),
+        }
+    }
+}
+
+enum_from_disp!(
+    pub MetaConvertError,
+    [NoCyt, NoCytError],
+    [Byteord, EndianToByteOrdError],
+    [Endian, SingleWidthError],
+    [Mode, ModeNotListError],
+    [GateLink, RegionToGateIndexError],
+    [MeasLink, RegionToMeasIndexError],
+    [GateToMeas, GateToMeasIndexError],
+    [MeasToGate, MeasToGateIndexError],
+    [Gates3_0To2_0, AppliedGates3_0To2_0Error],
+    [Gates3_0To3_2, AppliedGates3_0To3_2Error],
+    [Gates3_2To2_0, AppliedGates3_2To2_0Error],
+    [Gates2_0To3_2, AppliedGates2_0To3_2Error],
+    [Xfer, AnyKeyTransferError],
+    [Comp2_0, Comp2_0TransferError]
+);
+
+enum_from_disp!(
+    pub MetaConvertWarning,
+    [Width, WidthToBytesError],
+    [Gates3_0To2_0, AppliedGates3_0To2_0Error],
+    [Gates3_0To3_2, AppliedGates3_0To3_2Error],
+    [Gates3_2To2_0, AppliedGates3_2To2_0Error],
+    [Gates2_0To3_2, AppliedGates2_0To3_2Error],
+    [Xfer, AnyKeyTransferError],
+    [Comp2_0, Comp2_0TransferError]
+);
+
+// NOTE these all correspond to a single keyword transfer, things like $DFCiTOj
+// need separate error types
+enum_from_disp!(
+    pub AnyKeyTransferError,
+    [Cytsn, KeyTransferError<Cytsn>],
+    [Unicode, KeyTransferError<Unicode>],
+    [Vol, KeyTransferError<Vol>],
+    [Flowrate, KeyTransferError<Flowrate>],
+    [Comp, KeyTransferError<Compensation3_0>],
+    [Spillover, KeyTransferError<Spillover>]
+);
+
+pub struct Comp2_0TransferError;
+
+impl fmt::Display for Comp2_0TransferError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "$DFCiTOj keywords are set and not applicable to the target version"
+        )
+    }
+}
+
+pub enum AppliedGates3_0To2_0Error {
+    Index(RegionToGateIndexError),
+    NoGates,
+}
+
+impl fmt::Display for AppliedGates3_0To2_0Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::Index(x) => x.fmt(f),
+            Self::NoGates => write!(f, "no $Gn* keywords present"),
+        }
+    }
+}
+
+pub enum AppliedGates3_0To3_2Error {
+    Index(RegionToMeasIndexError),
+    HasGates,
+}
+
+impl fmt::Display for AppliedGates3_0To3_2Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::Index(x) => x.fmt(f),
+            Self::HasGates => write!(f, "$GATING references $Gn* keywords"),
+        }
+    }
+}
+
+pub struct AppliedGates2_0To3_2Error;
+
+impl fmt::Display for AppliedGates2_0To3_2Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "cannot convert 2.0 $GATING/$Gn*/$RnI/$RnW keywords to 3.2"
+        )
+    }
+}
+
+pub struct AppliedGates3_2To2_0Error;
+
+impl fmt::Display for AppliedGates3_2To2_0Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "cannot convert 3.2 $GATING/$RnI/$RnW keywords to 2.0")
+    }
+}
+
+pub struct KeyTransferError<T>(PhantomData<T>);
+
+impl<T> Default for KeyTransferError<T> {
+    fn default() -> Self {
+        Self(PhantomData)
+    }
+}
+
+impl<K> fmt::Display for KeyTransferError<K>
+where
+    K: Key,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "{} is set but is not applicable to target version",
+            K::std()
+        )
+    }
+}
+
+pub struct NoCytError;
+
+impl fmt::Display for NoCytError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "$CYT is missing")
+    }
+}
+
+pub struct ModeNotListError;
+
+impl fmt::Display for ModeNotListError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "$MODE is not L")
     }
 }

@@ -1167,12 +1167,12 @@ macro_rules! meas_get_set {
 }
 
 macro_rules! convert_methods {
-    ($pytype:ident, $inner:ident, $([$fn:ident, $to:ident]),+) => {
+    ($pytype:ident, $([$fn:ident, $to:ident]),+) => {
         #[pymethods]
         impl $pytype {
             $(
-                fn $fn(&self) -> PyResult<$to> {
-                    let new = self.0.clone().$inner();
+                fn $fn(&self, lossless: bool) -> PyResult<$to> {
+                    let new = self.0.clone().try_convert(lossless);
                     new.def_map_value(|x| x.into())
                         .def_terminate(ConvertFailure)
                         .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
@@ -1192,7 +1192,6 @@ impl fmt::Display for ConvertFailure {
 
 convert_methods!(
     PyCoreTEXT2_0,
-    try_convert,
     [version_3_0, PyCoreTEXT3_0],
     [version_3_1, PyCoreTEXT3_1],
     [version_3_2, PyCoreTEXT3_2]
@@ -1200,7 +1199,6 @@ convert_methods!(
 
 convert_methods!(
     PyCoreTEXT3_0,
-    try_convert,
     [version_2_0, PyCoreTEXT2_0],
     [version_3_1, PyCoreTEXT3_1],
     [version_3_2, PyCoreTEXT3_2]
@@ -1208,7 +1206,6 @@ convert_methods!(
 
 convert_methods!(
     PyCoreTEXT3_1,
-    try_convert,
     [version_2_0, PyCoreTEXT2_0],
     [version_3_0, PyCoreTEXT3_0],
     [version_3_2, PyCoreTEXT3_2]
@@ -1216,7 +1213,6 @@ convert_methods!(
 
 convert_methods!(
     PyCoreTEXT3_2,
-    try_convert,
     [version_2_0, PyCoreTEXT2_0],
     [version_3_0, PyCoreTEXT3_0],
     [version_3_1, PyCoreTEXT3_1]
@@ -1224,7 +1220,6 @@ convert_methods!(
 
 convert_methods!(
     PyCoreDataset2_0,
-    try_convert,
     [version_3_0, PyCoreDataset3_0],
     [version_3_1, PyCoreDataset3_1],
     [version_3_2, PyCoreDataset3_2]
@@ -1232,7 +1227,6 @@ convert_methods!(
 
 convert_methods!(
     PyCoreDataset3_0,
-    try_convert,
     [version_2_0, PyCoreDataset2_0],
     [version_3_1, PyCoreDataset3_1],
     [version_3_2, PyCoreDataset3_2]
@@ -1240,7 +1234,6 @@ convert_methods!(
 
 convert_methods!(
     PyCoreDataset3_1,
-    try_convert,
     [version_2_0, PyCoreDataset2_0],
     [version_3_0, PyCoreDataset3_0],
     [version_3_2, PyCoreDataset3_2]
@@ -1248,7 +1241,6 @@ convert_methods!(
 
 convert_methods!(
     PyCoreDataset3_2,
-    try_convert,
     [version_2_0, PyCoreDataset2_0],
     [version_3_0, PyCoreDataset3_0],
     [version_3_1, PyCoreDataset3_1]

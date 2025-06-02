@@ -365,6 +365,18 @@ impl<V, W, E> Tentative<V, W, E> {
         self.errors.push(x)
     }
 
+    pub fn push_error_or_warning<X>(&mut self, x: X, is_error: bool)
+    where
+        X: Into<E>,
+        X: Into<W>,
+    {
+        if is_error {
+            self.push_error(x.into());
+        } else {
+            self.push_warning(x.into());
+        }
+    }
+
     pub fn extend_warnings(&mut self, xs: Vec<W>) {
         self.warnings.extend(xs)
     }
@@ -652,6 +664,18 @@ impl<W, E> DeferredFailure<W, E> {
         self.errors.push(x)
     }
 
+    pub fn push_error_or_warning<X>(&mut self, x: X, is_error: bool)
+    where
+        X: Into<E>,
+        X: Into<W>,
+    {
+        if is_error {
+            self.push_error(x.into());
+        } else {
+            self.push_warning(x.into());
+        }
+    }
+
     pub fn map_warnings<F, X>(self, f: F) -> DeferredFailure<X, E>
     where
         F: Fn(W) -> X,
@@ -898,6 +922,22 @@ pub trait DeferredExt: Sized {
     fn def_eval_warning<F>(&mut self, f: F)
     where
         F: FnOnce(&Self::V) -> Option<Self::W>;
+
+    fn def_push_error(&mut self, e: Self::E);
+
+    fn def_push_warning(&mut self, w: Self::W);
+
+    fn def_push_error_or_warning<X>(&mut self, x: X, is_error: bool)
+    where
+        X: Into<Self::W>,
+        X: Into<Self::E>,
+    {
+        if is_error {
+            self.def_push_error(x.into())
+        } else {
+            self.def_push_warning(x.into())
+        }
+    }
 }
 
 impl<V, W, E> DeferredExt for DeferredResult<V, W, E> {
@@ -994,6 +1034,20 @@ impl<V, W, E> DeferredExt for DeferredResult<V, W, E> {
     {
         if let Ok(tnt) = self.as_mut() {
             tnt.eval_warning(f)
+        }
+    }
+
+    fn def_push_error(&mut self, e: Self::E) {
+        match self {
+            Ok(tnt) => tnt.push_error(e),
+            Err(f) => f.push_error(e),
+        }
+    }
+
+    fn def_push_warning(&mut self, w: Self::W) {
+        match self {
+            Ok(tnt) => tnt.push_warning(w),
+            Err(f) => f.push_warning(w),
         }
     }
 }

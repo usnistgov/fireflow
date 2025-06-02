@@ -673,324 +673,74 @@ pub struct GatedMeasurement {
     pub detector_voltage: OptionalKw<GateDetectorVoltage>,
 }
 
+/// The $GATING/$RnI/$RnW keywords in a unified bundle.
+///
+/// All regions in $GATING are assumed to have corresponding $RnI/$RnW keywords,
+/// and each $RnI/$RnW pair is assumed to be consistent (ie both are univariate
+/// or bivariate)
+#[derive(Clone)]
+pub struct GatingRegions<I> {
+    pub gating: Gating,
+    pub regions: NonEmpty<(RegionIndex, I)>,
+}
+
+/// The $GATING/$RnI/$RnW/$Gn* keywords in a unified bundle (2.0)
+///
+/// Each region is assumed to point to a member of ['gated_measurements'].
+#[derive(Clone, Serialize)]
+pub struct AppliedGates2_0 {
+    pub gated_measurements: GatedMeasurements,
+    pub regions: GatingRegions<Region2_0>,
+}
+
+/// The $GATING/$RnI/$RnW/$Gn* keywords in a unified bundle (3.0-3.1)
+///
+/// Each region is assumed to point to a member of ['gated_measurements'] or
+/// a measurement in the ['Core'] struct
+#[derive(Clone, Serialize)]
+pub struct AppliedGates3_0 {
+    pub gated_measurements: Vec<GatedMeasurement>,
+    pub regions: GatingRegions<Region3_0>,
+}
+
+/// The $GATING/$RnI/$RnW keywords in a unified bundle (3.2)
+///
+/// Each region is assumed to point to a measurement in the ['Core'] struct
+#[derive(Clone, Serialize)]
+pub struct AppliedGates3_2 {
+    pub regions: GatingRegions<Region3_2>,
+}
+
+/// A list of $Gn* keywords for indices 1-n.
+///
+/// The maximum value of 'n' implies the $GATE keyword.
+#[derive(Clone)]
+pub struct GatedMeasurements(pub NonEmpty<GatedMeasurement>);
+
+/// A uni/bivariate region corresponding to an $RnI/$RnW keyword pair
+#[derive(Clone, Serialize)]
+pub enum Region<I> {
+    Univariate(UnivariateRegion<I>),
+    Bivariate(BivariateRegion<I>),
+}
+
+pub type Region2_0 = Region<GateIndex>;
+pub type Region3_0 = Region<MeasOrGateIndex>;
+pub type Region3_2 = Region<MeasIndex>;
+
+/// A univariate region corresponding to an $RnI/$RnW keyword pair
 #[derive(Clone, Serialize)]
 pub struct UnivariateRegion<I> {
     pub gate: UniGate,
     pub index: I,
 }
 
-impl<I> UnivariateRegion<I> {
-    fn map<F, J>(self, f: F) -> UnivariateRegion<J>
-    where
-        F: FnOnce(I) -> J,
-    {
-        UnivariateRegion {
-            gate: self.gate,
-            index: f(self.index),
-        }
-    }
-}
-
+/// A bivariate region corresponding to an $RnI/$RnW keyword pair
 #[derive(Clone)]
 pub struct BivariateRegion<I> {
     pub vertices: NonEmpty<Vertex>,
     pub x_index: I,
     pub y_index: I,
-}
-
-impl<I> BivariateRegion<I> {
-    fn map<F, J>(self, mut f: F) -> BivariateRegion<J>
-    where
-        F: FnMut(I) -> J,
-    {
-        BivariateRegion {
-            vertices: self.vertices,
-            x_index: f(self.x_index),
-            y_index: f(self.y_index),
-        }
-    }
-}
-
-// TODO wrap these nonempty's so I don't need to do this over and over
-impl<I: Serialize> Serialize for BivariateRegion<I> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut state = serializer.serialize_struct("BivariateRegion", 2)?;
-        state.serialize_field("vertices", &self.vertices.iter().collect::<Vec<_>>())?;
-        state.serialize_field("x_index", &self.x_index)?;
-        state.serialize_field("y_index", &self.y_index)?;
-        state.end()
-    }
-}
-
-#[derive(Clone, Serialize)]
-pub struct Vertex {
-    pub x: FloatOrInt,
-    pub y: FloatOrInt,
-}
-
-#[derive(Clone, Serialize)]
-pub struct UniGate {
-    pub lower: FloatOrInt,
-    pub upper: FloatOrInt,
-}
-
-impl From<GatePair> for UniGate {
-    fn from(value: GatePair) -> Self {
-        Self {
-            lower: value.x,
-            upper: value.y,
-        }
-    }
-}
-
-impl From<GatePair> for Vertex {
-    fn from(value: GatePair) -> Self {
-        Self {
-            x: value.x,
-            y: value.y,
-        }
-    }
-}
-
-#[derive(Clone, Serialize)]
-pub enum GateRegion<I> {
-    Univariate(UnivariateRegion<I>),
-    Bivariate(BivariateRegion<I>),
-}
-
-impl<I> GateRegion<I> {
-    pub(crate) fn map<F, J>(self, f: F) -> GateRegion<J>
-    where
-        F: FnMut(I) -> J,
-    {
-        match self {
-            Self::Univariate(x) => GateRegion::Univariate(x.map(f)),
-            Self::Bivariate(x) => GateRegion::Bivariate(x.map(f)),
-        }
-    }
-
-    pub(crate) fn inner_into<J>(self) -> GateRegion<J>
-    where
-        J: From<I>,
-    {
-        self.map(|i| i.into())
-    }
-
-    pub(crate) fn flatten(self) -> NonEmpty<I> {
-        match self {
-            Self::Univariate(r) => NonEmpty::new(r.index),
-            Self::Bivariate(r) => (r.x_index, vec![r.y_index]).into(),
-        }
-    }
-
-    pub(crate) fn try_new(index: GateRegionIndex<I>, window: GateRegionWindow) -> Option<Self> {
-        match (index, window) {
-            (GateRegionIndex::Univariate(_index), GateRegionWindow::Univariate(pair)) => {
-                Some(GateRegion::Univariate(UnivariateRegion {
-                    index: _index,
-                    gate: pair.into(),
-                }))
-            }
-            (GateRegionIndex::Bivariate(x_index, y_index), GateRegionWindow::Bivariate(pairs)) => {
-                Some(GateRegion::Bivariate(BivariateRegion {
-                    x_index,
-                    y_index,
-                    vertices: pairs.map(|p| p.into()),
-                }))
-            }
-            _ => None,
-        }
-    }
-}
-
-pub type GateRegion2_0 = GateRegion<GateIndex>;
-pub type GateRegion3_0 = GateRegion<MeasOrGateIndex>;
-pub type GateRegion3_2 = GateRegion<MeasIndex>;
-
-impl TryFrom<MeasOrGateIndex> for MeasIndex {
-    type Error = RegionToMeasLinkError;
-    fn try_from(value: MeasOrGateIndex) -> Result<Self, Self::Error> {
-        match value {
-            MeasOrGateIndex::Meas(i) => Ok(i),
-            MeasOrGateIndex::Gate(i) => Err(RegionToMeasLinkError(i)),
-        }
-    }
-}
-
-impl TryFrom<MeasOrGateIndex> for GateIndex {
-    type Error = RegionToGateLinkError;
-    fn try_from(value: MeasOrGateIndex) -> Result<Self, Self::Error> {
-        match value {
-            MeasOrGateIndex::Gate(i) => Ok(i),
-            MeasOrGateIndex::Meas(i) => Err(RegionToGateLinkError(i)),
-        }
-    }
-}
-
-impl TryFrom<GateIndex> for MeasIndex {
-    type Error = GateToMeasLinkError;
-    fn try_from(value: GateIndex) -> Result<Self, Self::Error> {
-        Err(GateToMeasLinkError(value))
-    }
-}
-
-impl TryFrom<MeasIndex> for GateIndex {
-    type Error = MeasToGateLinkError;
-    fn try_from(value: MeasIndex) -> Result<Self, Self::Error> {
-        Err(MeasToGateLinkError(value))
-    }
-}
-
-pub struct RegionToMeasLinkError(GateIndex);
-
-impl fmt::Display for RegionToMeasLinkError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "cannot convert region index ({}) to measurement index since \
-                   it refers to a gate",
-            self.0
-        )
-    }
-}
-
-pub struct RegionToGateLinkError(MeasIndex);
-
-impl fmt::Display for RegionToGateLinkError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "cannot convert region index ({}) to gating index since \
-                   it refers to a measurement",
-            self.0
-        )
-    }
-}
-
-pub struct GateToMeasLinkError(GateIndex);
-
-impl fmt::Display for GateToMeasLinkError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "cannot convert gate index ({}) to measurement index",
-            self.0
-        )
-    }
-}
-
-pub struct MeasToGateLinkError(MeasIndex);
-
-impl fmt::Display for MeasToGateLinkError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "cannot convert measurement index ({}) to gate index",
-            self.0
-        )
-    }
-}
-
-#[derive(Clone)]
-pub struct AppliedGates<I> {
-    pub gating: Gating,
-    pub regions: NonEmpty<(RegionIndex, I)>,
-}
-
-impl<I> Serialize for AppliedGates<I>
-where
-    I: Serialize,
-{
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut state = serializer.serialize_struct("AppliedGates", 2)?;
-        state.serialize_field("gating", &self.gating)?;
-        state.serialize_field("regions", &self.regions.iter().collect::<Vec<_>>())?;
-        state.end()
-    }
-}
-
-#[derive(Clone)]
-pub struct GatedMeasurements(pub NonEmpty<GatedMeasurement>);
-
-impl Serialize for GatedMeasurements {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.0.iter().collect::<Vec<_>>().serialize(serializer)
-    }
-}
-
-#[derive(Clone, Serialize)]
-pub struct AppliedGates2_0 {
-    pub gated_measurements: GatedMeasurements,
-    pub applied: AppliedGates<GateRegion2_0>,
-}
-
-impl AppliedGates2_0 {
-    pub fn check_gates(&self) -> Result<(), GateMeasurementLinkError> {
-        let n = self.gated_measurements.0.len();
-        let it = self
-            .applied
-            .regions
-            .as_ref()
-            .flat_map(|(_, r)| r.clone().flatten())
-            .into_iter()
-            .filter(|i| usize::from(*i) > n);
-        NonEmpty::collect(it).map_or(Ok(()), |xs| Err(GateMeasurementLinkError(xs)))
-    }
-}
-
-#[derive(Clone, Serialize)]
-pub struct AppliedGates3_0 {
-    pub gated_measurements: Vec<GatedMeasurement>,
-    pub applied: AppliedGates<GateRegion3_0>,
-}
-
-impl AppliedGates3_0 {
-    pub fn check_gates(&self) -> Result<(), GateMeasurementLinkError> {
-        let n = self.gated_measurements.len();
-        let it = self
-            .applied
-            .regions
-            .as_ref()
-            .flat_map(|(_, r)| r.clone().flatten())
-            .into_iter()
-            .flat_map(|i| GateIndex::try_from(i).ok())
-            .filter(|i| usize::from(*i) > n);
-        NonEmpty::collect(it).map_or(Ok(()), |xs| Err(GateMeasurementLinkError(xs)))
-    }
-}
-
-pub struct GateMeasurementLinkError(NonEmpty<GateIndex>);
-
-pub struct GateRegionLinkError;
-
-impl fmt::Display for GateRegionLinkError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "regions in $GATING which do not have $RnI/$RnW")
-    }
-}
-
-impl fmt::Display for GateMeasurementLinkError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "$GATING regions reference nonexistent gates: {}",
-            self.0.iter().join(",")
-        )
-    }
-}
-
-#[derive(Clone, Serialize)]
-pub struct AppliedGates3_2 {
-    pub applied: AppliedGates<GateRegion3_2>,
 }
 
 /// A bundle for $PKn and $PKNn (2.0-3.1)
@@ -1776,10 +1526,10 @@ enum_from_disp!(
     [Byteord, EndianToByteOrdError],
     [Endian, SingleWidthError],
     [Mode, ModeNotListError],
-    [GateLink, RegionToGateLinkError],
-    [MeasLink, RegionToMeasLinkError],
-    [GateToMeas, GateToMeasLinkError],
-    [MeasToGate, MeasToGateLinkError]
+    [GateLink, RegionToGateIndexError],
+    [MeasLink, RegionToMeasIndexError],
+    [GateToMeas, GateToMeasIndexError],
+    [MeasToGate, MeasToGateIndexError]
 );
 
 pub struct NoCytError;
@@ -4011,6 +3761,174 @@ impl Serialize for SubsetData {
         state.serialize_field("bits", &self.bits)?;
         state.serialize_field("flags", &self.flags.iter().collect::<Vec<_>>())?;
         state.end()
+    }
+}
+
+// TODO add keyword formatters for this and the rest of the gating stuff
+impl<I> UnivariateRegion<I> {
+    fn map<F, J>(self, f: F) -> UnivariateRegion<J>
+    where
+        F: FnOnce(I) -> J,
+    {
+        UnivariateRegion {
+            gate: self.gate,
+            index: f(self.index),
+        }
+    }
+}
+
+impl<I> BivariateRegion<I> {
+    fn map<F, J>(self, mut f: F) -> BivariateRegion<J>
+    where
+        F: FnMut(I) -> J,
+    {
+        BivariateRegion {
+            vertices: self.vertices,
+            x_index: f(self.x_index),
+            y_index: f(self.y_index),
+        }
+    }
+}
+
+impl<I: Serialize> Serialize for BivariateRegion<I> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut state = serializer.serialize_struct("BivariateRegion", 2)?;
+        state.serialize_field("vertices", &self.vertices.iter().collect::<Vec<_>>())?;
+        state.serialize_field("x_index", &self.x_index)?;
+        state.serialize_field("y_index", &self.y_index)?;
+        state.end()
+    }
+}
+
+impl<I> Region<I> {
+    pub(crate) fn map<F, J>(self, f: F) -> Region<J>
+    where
+        F: FnMut(I) -> J,
+    {
+        match self {
+            Self::Univariate(x) => Region::Univariate(x.map(f)),
+            Self::Bivariate(x) => Region::Bivariate(x.map(f)),
+        }
+    }
+
+    pub(crate) fn inner_into<J>(self) -> Region<J>
+    where
+        J: From<I>,
+    {
+        self.map(|i| i.into())
+    }
+
+    pub(crate) fn flatten(self) -> NonEmpty<I> {
+        match self {
+            Self::Univariate(r) => NonEmpty::new(r.index),
+            Self::Bivariate(r) => (r.x_index, vec![r.y_index]).into(),
+        }
+    }
+
+    pub(crate) fn try_new(r_index: RegionGateIndex<I>, window: RegionWindow) -> Option<Self> {
+        match (r_index, window) {
+            (RegionGateIndex::Univariate(index), RegionWindow::Univariate(gate)) => {
+                Some(Region::Univariate(UnivariateRegion { index, gate }))
+            }
+            (RegionGateIndex::Bivariate(x_index, y_index), RegionWindow::Bivariate(vertices)) => {
+                Some(Region::Bivariate(BivariateRegion {
+                    x_index,
+                    y_index,
+                    vertices,
+                }))
+            }
+            _ => None,
+        }
+    }
+}
+
+impl TryFrom<MeasOrGateIndex> for MeasIndex {
+    type Error = RegionToMeasIndexError;
+    fn try_from(value: MeasOrGateIndex) -> Result<Self, Self::Error> {
+        match value {
+            MeasOrGateIndex::Meas(i) => Ok(i),
+            MeasOrGateIndex::Gate(i) => Err(RegionToMeasIndexError(i)),
+        }
+    }
+}
+
+impl TryFrom<MeasOrGateIndex> for GateIndex {
+    type Error = RegionToGateIndexError;
+    fn try_from(value: MeasOrGateIndex) -> Result<Self, Self::Error> {
+        match value {
+            MeasOrGateIndex::Gate(i) => Ok(i),
+            MeasOrGateIndex::Meas(i) => Err(RegionToGateIndexError(i)),
+        }
+    }
+}
+
+impl TryFrom<GateIndex> for MeasIndex {
+    type Error = GateToMeasIndexError;
+    fn try_from(value: GateIndex) -> Result<Self, Self::Error> {
+        Err(GateToMeasIndexError(value))
+    }
+}
+
+impl TryFrom<MeasIndex> for GateIndex {
+    type Error = MeasToGateIndexError;
+    fn try_from(value: MeasIndex) -> Result<Self, Self::Error> {
+        Err(MeasToGateIndexError(value))
+    }
+}
+
+impl<I> Serialize for GatingRegions<I>
+where
+    I: Serialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut state = serializer.serialize_struct("AppliedGates", 2)?;
+        state.serialize_field("gating", &self.gating)?;
+        state.serialize_field("regions", &self.regions.iter().collect::<Vec<_>>())?;
+        state.end()
+    }
+}
+
+impl Serialize for GatedMeasurements {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.0.iter().collect::<Vec<_>>().serialize(serializer)
+    }
+}
+
+impl AppliedGates2_0 {
+    pub fn check_gates(&self) -> Result<(), GateMeasurementLinkError> {
+        let n = self.gated_measurements.0.len();
+        let it = self
+            .regions
+            .regions
+            .as_ref()
+            .flat_map(|(_, r)| r.clone().flatten())
+            .into_iter()
+            .filter(|i| usize::from(*i) > n);
+        NonEmpty::collect(it).map_or(Ok(()), |xs| Err(GateMeasurementLinkError(xs)))
+    }
+}
+
+impl AppliedGates3_0 {
+    pub fn check_gates(&self) -> Result<(), GateMeasurementLinkError> {
+        let n = self.gated_measurements.len();
+        let it = self
+            .regions
+            .regions
+            .as_ref()
+            .flat_map(|(_, r)| r.clone().flatten())
+            .into_iter()
+            .flat_map(|i| GateIndex::try_from(i).ok())
+            .filter(|i| usize::from(*i) > n);
+        NonEmpty::collect(it).map_or(Ok(()), |xs| Err(GateMeasurementLinkError(xs)))
     }
 }
 
@@ -6251,3 +6169,73 @@ enum_from_disp!(
     [Data, NewDataReaderWarning],
     [Analysis, NewAnalysisReaderWarning]
 );
+
+pub struct RegionToMeasIndexError(GateIndex);
+
+impl fmt::Display for RegionToMeasIndexError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "cannot convert region index ({}) to measurement index since \
+                   it refers to a gate",
+            self.0
+        )
+    }
+}
+
+pub struct RegionToGateIndexError(MeasIndex);
+
+impl fmt::Display for RegionToGateIndexError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "cannot convert region index ({}) to gating index since \
+                   it refers to a measurement",
+            self.0
+        )
+    }
+}
+
+pub struct GateToMeasIndexError(GateIndex);
+
+impl fmt::Display for GateToMeasIndexError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "cannot convert gate index ({}) to measurement index",
+            self.0
+        )
+    }
+}
+
+pub struct MeasToGateIndexError(MeasIndex);
+
+impl fmt::Display for MeasToGateIndexError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "cannot convert measurement index ({}) to gate index",
+            self.0
+        )
+    }
+}
+
+pub struct GateMeasurementLinkError(NonEmpty<GateIndex>);
+
+impl fmt::Display for GateRegionLinkError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "regions in $GATING which do not have $RnI/$RnW")
+    }
+}
+
+pub struct GateRegionLinkError;
+
+impl fmt::Display for GateMeasurementLinkError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "$GATING regions reference nonexistent gates: {}",
+            self.0.iter().join(",")
+        )
+    }
+}

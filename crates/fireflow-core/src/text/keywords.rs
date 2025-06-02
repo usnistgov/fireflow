@@ -773,52 +773,52 @@ impl fmt::Display for FeatureError {
 
 /// The value of the $RnI key (2.0)
 #[derive(Clone, Copy, Serialize)]
-pub(crate) struct GateRegionIndex2_0(pub(crate) GateRegionIndex<GateIndex>);
+pub(crate) struct RegionGateIndex2_0(pub(crate) RegionGateIndex<GateIndex>);
 
-newtype_from!(GateRegionIndex2_0, GateRegionIndex<GateIndex>);
-newtype_from_outer!(GateRegionIndex2_0, GateRegionIndex<GateIndex>);
+newtype_from!(RegionGateIndex2_0, RegionGateIndex<GateIndex>);
+newtype_from_outer!(RegionGateIndex2_0, RegionGateIndex<GateIndex>);
 
 #[derive(Clone, Copy, Serialize)]
-pub(crate) enum GateRegionIndex<I> {
+pub(crate) enum RegionGateIndex<I> {
     Univariate(I),
     Bivariate(I, I),
 }
 
-impl FromStr for GateRegionIndex2_0 {
-    type Err = GateRegionIndex2_0Error;
+impl FromStr for RegionGateIndex2_0 {
+    type Err = RegionGateIndex2_0Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.split(",").collect::<Vec<_>>()[..] {
             [x] => x
                 .parse()
-                .map(|a| GateRegionIndex::Univariate(a).into())
-                .map_err(GateRegionError::Int),
+                .map(|a| RegionGateIndex::Univariate(a).into())
+                .map_err(RegionGateIndexError::Int),
             [x, y] => x
                 .parse()
-                .and_then(|a| y.parse().map(|b| GateRegionIndex::Bivariate(a, b).into()))
-                .map_err(GateRegionError::Int),
-            _ => Err(GateRegionError::Format(GateRegionFormat2_0)),
+                .and_then(|a| y.parse().map(|b| RegionGateIndex::Bivariate(a, b).into()))
+                .map_err(RegionGateIndexError::Int),
+            _ => Err(RegionGateIndexError::Format(RegionGateIndexFormat2_0)),
         }
     }
 }
 
-impl fmt::Display for GateRegionIndex2_0 {
+impl fmt::Display for RegionGateIndex2_0 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self.0 {
-            GateRegionIndex::Univariate(x) => write!(f, "{x}"),
-            GateRegionIndex::Bivariate(x, y) => write!(f, "{x},{y}"),
+            RegionGateIndex::Univariate(x) => write!(f, "{x}"),
+            RegionGateIndex::Bivariate(x, y) => write!(f, "{x},{y}"),
         }
     }
 }
 
-pub(crate) type GateRegionIndex2_0Error = GateRegionError<GateRegionFormat2_0>;
+pub(crate) type RegionGateIndex2_0Error = RegionGateIndexError<RegionGateIndexFormat2_0>;
 
-pub enum GateRegionError<F> {
+pub enum RegionGateIndexError<F> {
     Format(F),
     Int(ParseIntError),
 }
 
-impl<E> fmt::Display for GateRegionError<E>
+impl<E> fmt::Display for RegionGateIndexError<E>
 where
     E: fmt::Display,
 {
@@ -830,19 +830,19 @@ where
     }
 }
 
-pub struct GateRegionFormat2_0;
+pub struct RegionGateIndexFormat2_0;
 
-impl fmt::Display for GateRegionFormat2_0 {
+impl fmt::Display for RegionGateIndexFormat2_0 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "must be string like 'n' or 'n1,n2'")
     }
 }
 
 /// The value of the $RnI key (3.0-3.2)
-pub(crate) struct GateRegionIndex3_0(pub(crate) GateRegionIndex<MeasOrGateIndex>);
+pub(crate) struct RegionGateIndex3_0(pub(crate) RegionGateIndex<MeasOrGateIndex>);
 
-newtype_from!(GateRegionIndex3_0, GateRegionIndex<MeasOrGateIndex>);
-newtype_from_outer!(GateRegionIndex3_0, GateRegionIndex<MeasOrGateIndex>);
+newtype_from!(RegionGateIndex3_0, RegionGateIndex<MeasOrGateIndex>);
+newtype_from_outer!(RegionGateIndex3_0, RegionGateIndex<MeasOrGateIndex>);
 
 enum_from!(
     #[derive(Clone, Copy, Serialize)]
@@ -851,8 +851,8 @@ enum_from!(
     [Gate, GateIndex]
 );
 
-impl FromStr for GateRegionIndex3_0 {
-    type Err = GateRegionIndex3_0Error;
+impl FromStr for RegionGateIndex3_0 {
+    type Err = RegionGateIndex3_0Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let go = |sub: &str| {
@@ -861,21 +861,21 @@ impl FromStr for GateRegionIndex3_0 {
                     "P" => rest
                         .parse::<MeasIndex>()
                         .map(|x| x.into())
-                        .map_err(GateRegionError::Int),
+                        .map_err(RegionGateIndexError::Int),
                     "G" => rest
                         .parse::<GateIndex>()
                         .map(|x| x.into())
-                        .map_err(GateRegionError::Int),
-                    _ => Err(GateRegionError::Format(GateRegionFormat3_0)),
+                        .map_err(RegionGateIndexError::Int),
+                    _ => Err(RegionGateIndexError::Format(RegionGateIndexFormat3_0)),
                 }
             } else {
-                Err(GateRegionError::Format(GateRegionFormat3_0))
+                Err(RegionGateIndexError::Format(RegionGateIndexFormat3_0))
             }
         };
         match s.split(",").collect::<Vec<_>>()[..] {
-            [x] => go(x).map(|a| Self(GateRegionIndex::Univariate(a))),
-            [x, y] => go(x).and_then(|a| go(y).map(|b| Self(GateRegionIndex::Bivariate(a, b)))),
-            _ => Err(GateRegionError::Format(GateRegionFormat3_0)),
+            [x] => go(x).map(|a| Self(RegionGateIndex::Univariate(a))),
+            [x, y] => go(x).and_then(|a| go(y).map(|b| Self(RegionGateIndex::Bivariate(a, b)))),
+            _ => Err(RegionGateIndexError::Format(RegionGateIndexFormat3_0)),
         }
     }
 }
@@ -889,20 +889,20 @@ impl fmt::Display for MeasOrGateIndex {
     }
 }
 
-impl fmt::Display for GateRegionIndex3_0 {
+impl fmt::Display for RegionGateIndex3_0 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self.0 {
-            GateRegionIndex::Univariate(x) => write!(f, "{x}"),
-            GateRegionIndex::Bivariate(x, y) => write!(f, "{x},{y}"),
+            RegionGateIndex::Univariate(x) => write!(f, "{x}"),
+            RegionGateIndex::Bivariate(x, y) => write!(f, "{x},{y}"),
         }
     }
 }
 
-pub(crate) type GateRegionIndex3_0Error = GateRegionError<GateRegionFormat3_0>;
+pub(crate) type RegionGateIndex3_0Error = RegionGateIndexError<RegionGateIndexFormat3_0>;
 
-pub struct GateRegionFormat3_0;
+pub struct RegionGateIndexFormat3_0;
 
-impl fmt::Display for GateRegionFormat3_0 {
+impl fmt::Display for RegionGateIndexFormat3_0 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             f,
@@ -913,48 +913,48 @@ impl fmt::Display for GateRegionFormat3_0 {
 
 /// The value of the $RnI key (3.2)
 #[derive(Clone, Copy, Serialize)]
-pub(crate) struct GateRegionIndex3_2(pub(crate) GateRegionIndex<MeasIndex>);
+pub(crate) struct RegionGateIndex3_2(pub(crate) RegionGateIndex<MeasIndex>);
 
-newtype_from!(GateRegionIndex3_2, GateRegionIndex<MeasIndex>);
-newtype_from_outer!(GateRegionIndex3_2, GateRegionIndex<MeasIndex>);
+newtype_from!(RegionGateIndex3_2, RegionGateIndex<MeasIndex>);
+newtype_from_outer!(RegionGateIndex3_2, RegionGateIndex<MeasIndex>);
 
-impl FromStr for GateRegionIndex3_2 {
-    type Err = GateRegionIndex3_2Error;
+impl FromStr for RegionGateIndex3_2 {
+    type Err = RegionGateIndex3_2Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let go = |sub: &str| {
             if let Some((prefix, rest)) = sub.split_at_checked(1) {
                 match prefix {
-                    "P" => rest.parse().map_err(GateRegionError::Int),
-                    _ => Err(GateRegionError::Format(GateRegionFormat3_2)),
+                    "P" => rest.parse().map_err(RegionGateIndexError::Int),
+                    _ => Err(RegionGateIndexError::Format(RegionGateIndexFormat3_2)),
                 }
             } else {
-                Err(GateRegionError::Format(GateRegionFormat3_2))
+                Err(RegionGateIndexError::Format(RegionGateIndexFormat3_2))
             }
         };
         match s.split(",").collect::<Vec<_>>()[..] {
-            [x] => go(x).map(|a| GateRegionIndex3_2(GateRegionIndex::Univariate(a))),
+            [x] => go(x).map(|a| RegionGateIndex3_2(RegionGateIndex::Univariate(a))),
             [x, y] => go(x)
-                .and_then(|a| go(y).map(|b| GateRegionIndex3_2(GateRegionIndex::Bivariate(a, b)))),
-            _ => Err(GateRegionError::Format(GateRegionFormat3_2)),
+                .and_then(|a| go(y).map(|b| RegionGateIndex3_2(RegionGateIndex::Bivariate(a, b)))),
+            _ => Err(RegionGateIndexError::Format(RegionGateIndexFormat3_2)),
         }
     }
 }
 
-impl fmt::Display for GateRegionIndex3_2 {
+impl fmt::Display for RegionGateIndex3_2 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self.0 {
-            GateRegionIndex::Univariate(x) => write!(f, "{x}"),
-            GateRegionIndex::Bivariate(x, y) => write!(f, "P{x},P{y}"),
+            RegionGateIndex::Univariate(x) => write!(f, "{x}"),
+            RegionGateIndex::Bivariate(x, y) => write!(f, "P{x},P{y}"),
         }
     }
 }
 
-pub(crate) type GateRegionIndex3_2Error = GateRegionError<GateRegionFormat3_2>;
+pub(crate) type RegionGateIndex3_2Error = RegionGateIndexError<RegionGateIndexFormat3_2>;
 
-pub struct GateRegionFormat3_2;
+pub struct RegionGateIndexFormat3_2;
 
-impl fmt::Display for GateRegionFormat3_2 {
+impl fmt::Display for RegionGateIndexFormat3_2 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "must be string like 'Pn' or 'Pn1,Pn2'")
     }
@@ -964,26 +964,38 @@ impl fmt::Display for GateRegionFormat3_2 {
 ///
 /// This is meant to be used internally to construct a higher-level abstraction
 /// over the gating keywords.
-pub(crate) enum GateRegionWindow {
-    Univariate(GatePair),
-    Bivariate(NonEmpty<GatePair>),
+pub(crate) enum RegionWindow {
+    Univariate(UniGate),
+    Bivariate(NonEmpty<Vertex>),
 }
 
-impl FromStr for GateRegionWindow {
+#[derive(Clone, Serialize)]
+pub struct Vertex {
+    pub x: FloatOrInt,
+    pub y: FloatOrInt,
+}
+
+#[derive(Clone, Serialize)]
+pub struct UniGate {
+    pub lower: FloatOrInt,
+    pub upper: FloatOrInt,
+}
+
+impl FromStr for RegionWindow {
     type Err = GatePairError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         // ASSUME split will always contain one element
         let ss = NonEmpty::collect(s.split(";")).unwrap();
         if ss.tail.is_empty() {
-            ss.head.parse().map(GateRegionWindow::Univariate)
+            ss.head.parse().map(RegionWindow::Univariate)
         } else {
             ss.try_map(|sub| sub.parse()).map(Self::Bivariate)
         }
     }
 }
 
-impl fmt::Display for GateRegionWindow {
+impl fmt::Display for RegionWindow {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
             Self::Univariate(x) => x.fmt(f),
@@ -992,26 +1004,39 @@ impl fmt::Display for GateRegionWindow {
     }
 }
 
-pub(crate) struct GatePair {
-    pub(crate) x: FloatOrInt,
-    pub(crate) y: FloatOrInt,
-}
-
-impl FromStr for GatePair {
+impl FromStr for UniGate {
     type Err = GatePairError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.split(",").collect::<Vec<_>>()[..] {
-            [a, b] => a
-                .parse()
-                .and_then(|x| b.parse().map(|y| GatePair { x, y }))
-                .map_err(GatePairError::Num),
-            _ => Err(GatePairError::Format),
-        }
+        parse_pair(s).map(|(lower, upper)| Self { lower, upper })
     }
 }
 
-impl fmt::Display for GatePair {
+impl FromStr for Vertex {
+    type Err = GatePairError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        parse_pair(s).map(|(x, y)| Self { x, y })
+    }
+}
+
+fn parse_pair(s: &str) -> Result<(FloatOrInt, FloatOrInt), GatePairError> {
+    match s.split(",").collect::<Vec<_>>()[..] {
+        [a, b] => a
+            .parse()
+            .and_then(|x| b.parse().map(|y| (x, y)))
+            .map_err(GatePairError::Num),
+        _ => Err(GatePairError::Format),
+    }
+}
+
+impl fmt::Display for UniGate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{},{}", self.lower, self.upper)
+    }
+}
+
+impl fmt::Display for Vertex {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "{},{}", self.x, self.y)
     }
@@ -1886,10 +1911,10 @@ kw_opt_gate_string!(GateDetectorType, "T");
 kw_opt_gate!(GateDetectorVoltage, "V");
 kw_opt_meta!(Gating, "GATING");
 
-kw_opt_region!(GateRegionIndex2_0, "I");
-kw_opt_region!(GateRegionIndex3_0, "I");
-kw_opt_region!(GateRegionIndex3_2, "I");
-kw_opt_region!(GateRegionWindow, "W");
+kw_opt_region!(RegionGateIndex2_0, "I");
+kw_opt_region!(RegionGateIndex3_0, "I");
+kw_opt_region!(RegionGateIndex3_2, "I");
+kw_opt_region!(RegionWindow, "W");
 
 // offsets for all versions
 kw_req_meta_int!(Beginanalysis, u32, "BEGINANALYSIS");

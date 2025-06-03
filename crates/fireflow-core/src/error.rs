@@ -733,7 +733,7 @@ impl<P, W, E> DeferredFailure<P, W, E> {
         self.map_errors(|e| e.into())
     }
 
-    pub fn unfail<V>(self) -> Tentative<P, W, E> {
+    pub fn unfail(self) -> Tentative<P, W, E> {
         Tentative::new(
             self.passthru,
             self.warnings,

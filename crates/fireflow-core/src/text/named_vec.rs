@@ -1059,69 +1059,147 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     }
 
     /// Set center to be the element with name if it exists.
-    pub fn set_center_by_name(&mut self, n: &Shortname) -> bool
+    pub fn set_center_by_name<Fswap, FtoU, W, E>(
+        &mut self,
+        n: &Shortname,
+        swap: Fswap,
+        toU: FtoU,
+    ) -> DeferredResult<bool, W, E>
     where
-        U: From<V>,
-        V: From<U>,
+        Fswap: FnOnce(U, V) -> PassthruResult<(V, U), (U, V), W, E>,
+        FtoU: FnOnce(V) -> PassthruResult<U, V, W, E>,
+        E: From<SetCenterError>,
     {
-        self.find_with_name(n)
-            .map(|index| self.set_center_by_index(index).unwrap())
-            .unwrap_or(false)
+        Tentative::new1(self.find_with_name(n)).and_maybe(|x| {
+            x.map_or(Ok(Tentative::new1(false)), |index| {
+                self.set_center_by_index(index, swap, toU)
+            })
+        })
     }
 
     /// Set center to be the element with index if it exists.
-    pub fn set_center_by_index(&mut self, index: MeasIndex) -> Result<bool, SetCenterError>
+    pub fn set_center_by_index<Fswap, FtoU, W, E>(
+        &mut self,
+        index: MeasIndex,
+        swap: Fswap,
+        toU: FtoU,
+    ) -> DeferredResult<bool, W, E>
     where
-        U: From<V>,
-        V: From<U>,
+        Fswap: FnOnce(U, V) -> PassthruResult<(V, U), (U, V), W, E>,
+        FtoU: FnOnce(V) -> PassthruResult<U, V, W, E>,
+        E: From<SetCenterError>,
     {
-        let i = self
-            .check_element_index(index, true)
-            .map_err(SetCenterError::Index)?;
         if !self
             .get(index)
             .unwrap()
             .both(|_| true, |(n, _)| K::as_opt(n).is_some())
         {
-            return Err(SetCenterError::NoName);
+            return Err(DeferredFailure::new1(SetCenterError::NoName.into()));
         }
-        let (newself, ret) = match mem::replace(self, dummy()) {
-            NamedVec::Split(s, p) => match split_at_index::<K, U, V>(s, i) {
-                PartialSplit::Left(left, center, right, prefix) => (
-                    Self::new_split(
-                        left.left,
-                        Self::to_center(left.selected).unwrap(),
-                        left.right
-                            .into_iter()
-                            .chain([Self::to_non_center(*center)])
-                            .chain(right)
-                            .collect(),
-                        prefix,
-                    ),
-                    true,
-                ),
-                PartialSplit::Center(sc) => (NamedVec::Split(sc, p), false),
-                PartialSplit::Right(left, center, right, prefix) => (
-                    Self::new_split(
-                        left.into_iter()
-                            .chain([Self::to_non_center(*center)])
-                            .chain(right.left)
-                            .collect(),
-                        Self::to_center(right.selected).unwrap(),
-                        right.right,
-                        prefix,
-                    ),
-                    true,
-                ),
-            },
-            NamedVec::Unsplit(u) => {
-                let x = split_paired_vec::<K, V>(u.members, i);
-                let center = Self::to_center(x.selected).unwrap();
-                (Self::new_split(x.left, center, x.right, u.prefix), true)
-            }
-        };
-        *self = newself;
-        Ok(ret)
+        self.check_element_index(index, true)
+            .map_err(SetCenterError::Index)
+            .into_deferred()
+            .def_and_tentatively(|i| match mem::replace(self, dummy()) {
+                NamedVec::Split(s, p) => match split_at_index::<K, U, V>(s, i) {
+                    PartialSplit::Left(left, center, right, prefix) => {
+                        let center_key = center.key;
+                        match swap(center.value, left.selected.value) {
+                            Ok(tnt) => tnt.map(|(right_value, center_value)| {
+                                let sp = Self::new_split_from_left(
+                                    left.left,
+                                    left.selected.key,
+                                    center_value,
+                                    left.right,
+                                    center_key,
+                                    right_value,
+                                    right,
+                                    prefix,
+                                )
+                                .unwrap();
+                                (sp, true)
+                            }),
+                            Err(fail) => fail.unfail().map(|(center_value, left_value)| {
+                                let sp = Self::recover_split_from_left(
+                                    left.left,
+                                    left.selected.key,
+                                    left_value,
+                                    left.right,
+                                    center_key,
+                                    center_value,
+                                    right,
+                                    prefix,
+                                );
+                                (sp, false)
+                            }),
+                        }
+                    }
+
+                    PartialSplit::Center(sc) => Tentative::new1((NamedVec::Split(sc, p), false)),
+
+                    PartialSplit::Right(left, center, right, prefix) => {
+                        let center_key = center.key;
+                        match swap(center.value, right.selected.value) {
+                            Ok(tnt) => tnt.map(|(right_value, center_value)| {
+                                let sp = Self::new_split_from_right(
+                                    left,
+                                    center_key,
+                                    right_value,
+                                    right.left,
+                                    right.selected.key,
+                                    center_value,
+                                    right.right,
+                                    prefix,
+                                )
+                                .unwrap();
+                                (sp, true)
+                            }),
+                            Err(fail) => fail.unfail().map(|(center_value, right_value)| {
+                                let sp = Self::recover_split_from_right(
+                                    left,
+                                    center_key,
+                                    center_value,
+                                    right.left,
+                                    right.selected.key,
+                                    right_value,
+                                    right.right,
+                                    prefix,
+                                );
+                                (sp, false)
+                            }),
+                        }
+                    }
+                },
+
+                NamedVec::Unsplit(u) => {
+                    let x = split_paired_vec::<K, V>(u.members, i);
+                    match toU(x.selected.value) {
+                        Ok(tnt) => tnt.map(|new_value| {
+                            let center = Pair {
+                                key: K::to_opt(x.selected.key).unwrap(),
+                                value: new_value,
+                            };
+                            (Self::new_split(x.left, center, x.right, u.prefix), true)
+                        }),
+                        Err(fail) => fail.unfail().map(|old_value| {
+                            let center = Pair {
+                                key: x.selected.key,
+                                value: old_value,
+                            };
+                            (
+                                Self::new_unsplit(
+                                    x.left.into_iter().chain([center]).chain(x.right).collect(),
+                                    u.prefix,
+                                ),
+                                false,
+                            )
+                        }),
+                    }
+                }
+            })
+            .def_map_value(|(newself, flag)| {
+                *self = newself;
+                flag
+            })
     }
 
     /// Convert the center element into a non-center element.
@@ -1347,6 +1425,125 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                 prefix,
             },
             PhantomData,
+        )
+    }
+
+    fn new_split_from_left(
+        left_left: WrappedPairedVec<K, V>,
+        new_center_name: K::Wrapper<Shortname>,
+        new_center_value: U,
+        left_right: WrappedPairedVec<K, V>,
+        old_center_name: Shortname,
+        old_center_value: V,
+        right: WrappedPairedVec<K, V>,
+        prefix: ShortnamePrefix,
+    ) -> Option<Self> {
+        let new_center = Pair {
+            key: K::to_opt(new_center_name)?,
+            value: new_center_value,
+        };
+        let new_right = Pair {
+            key: K::wrap(old_center_name),
+            value: old_center_value,
+        };
+        Some(Self::new_split(
+            left_left,
+            new_center,
+            left_right
+                .into_iter()
+                .chain([new_right])
+                .chain(right)
+                .collect(),
+            prefix,
+        ))
+    }
+
+    fn recover_split_from_left(
+        left_left: WrappedPairedVec<K, V>,
+        left_key: K::Wrapper<Shortname>,
+        left_value: V,
+        left_right: WrappedPairedVec<K, V>,
+        center_key: Shortname,
+        center_value: U,
+        right: WrappedPairedVec<K, V>,
+        prefix: ShortnamePrefix,
+    ) -> Self {
+        let center = Pair {
+            key: center_key,
+            value: center_value,
+        };
+        let new_left = Pair {
+            key: left_key,
+            value: left_value,
+        };
+        Self::new_split(
+            left_left
+                .into_iter()
+                .chain([new_left])
+                .chain(left_right)
+                .collect(),
+            center,
+            right,
+            prefix,
+        )
+    }
+
+    fn new_split_from_right(
+        left: WrappedPairedVec<K, V>,
+        old_center_name: Shortname,
+        old_center_value: V,
+        right_left: WrappedPairedVec<K, V>,
+        new_center_key: K::Wrapper<Shortname>,
+        new_center_value: U,
+        right_right: WrappedPairedVec<K, V>,
+        prefix: ShortnamePrefix,
+    ) -> Option<Self> {
+        let new_center = Pair {
+            key: K::to_opt(new_center_key)?,
+            value: new_center_value,
+        };
+        let new_left = Pair {
+            key: K::wrap(old_center_name),
+            value: old_center_value,
+        };
+        Some(Self::new_split(
+            left.into_iter()
+                .chain([new_left])
+                .chain(right_left)
+                .collect(),
+            new_center,
+            right_right,
+            prefix,
+        ))
+    }
+
+    fn recover_split_from_right(
+        left: WrappedPairedVec<K, V>,
+        center_key: Shortname,
+        center_value: U,
+        right_left: WrappedPairedVec<K, V>,
+        right_key: K::Wrapper<Shortname>,
+        right_value: V,
+        right_right: WrappedPairedVec<K, V>,
+        prefix: ShortnamePrefix,
+    ) -> Self {
+        let center = Pair {
+            key: center_key,
+            value: center_value,
+        };
+        let new_right = Pair {
+            key: right_key,
+            value: right_value,
+        };
+        Self::new_split(
+            left,
+            center,
+            right_left
+                .into_iter()
+                .chain([new_right])
+                .chain(right_right)
+                .collect(),
+            prefix,
         )
     }
 

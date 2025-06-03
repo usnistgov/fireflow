@@ -46,7 +46,10 @@ pub enum Failure<E, T> {
 }
 
 /// Result which may have at least one error
-pub type DeferredResult<V, W, E> = Result<Tentative<V, W, E>, DeferredFailure<W, E>>;
+pub type DeferredResult<V, W, E> = Result<Tentative<V, W, E>, DeferredFailure<(), W, E>>;
+
+/// Result which may have at least one error (with passthru)
+pub type PassthruResult<V, P, W, E> = Result<Tentative<V, W, E>, DeferredFailure<P, W, E>>;
 
 /// Result which may have at least one error in IO context
 pub type IODeferredResult<V, W, E> = DeferredResult<V, W, ImpureError<E>>;
@@ -58,8 +61,15 @@ pub struct Tentative<V, W, E> {
     errors: Vec<E>,
 }
 
-/// Result which has at least one error and zero or more warnings
-pub struct DeferredFailure<W, E> {
+/// Result which has 1+ errors, 0+ warnings, and the input type.
+///
+/// Passthru is meant to hold the input type for the failed computation such
+/// that it can be reused if needed rather than consumed in a black hole by
+/// the ownership model. Obvious use case: failed From<X>-like methods where
+/// we may want to do something with the original value after trying and failing
+/// to convert it.
+pub struct DeferredFailure<P, W, E> {
+    passthru: P,
     warnings: Vec<W>,
     errors: NonEmpty<E>,
 }
@@ -198,6 +208,9 @@ impl<V, W> Terminal<V, W> {
             Err(e) => {
                 self.warnings.extend(e.warnings);
                 Err(DeferredFailure {
+                    // termination will throw away the passthru value so this
+                    // only needs to be a dummy
+                    passthru: (),
                     warnings: self.warnings,
                     errors: e.errors,
                 }
@@ -436,6 +449,7 @@ impl<V, W, E> Tentative<V, W, E> {
                 self.warnings.extend(e.warnings);
                 self.errors.extend(e.errors);
                 Err(DeferredFailure {
+                    passthru: e.passthru,
                     warnings: self.warnings,
                     errors: NonEmpty::from_vec(self.errors).unwrap(),
                 })
@@ -643,17 +657,13 @@ impl<V, W, E> Tentative<Option<V>, W, E> {
     }
 }
 
-impl<W, E> DeferredFailure<W, E> {
-    pub fn new(warnings: Vec<W>, errors: NonEmpty<E>) -> Self {
-        Self { warnings, errors }
-    }
-
-    pub fn new1(e: E) -> Self {
-        Self::new(vec![], NonEmpty::new(e))
-    }
-
-    pub fn new2(errors: NonEmpty<E>) -> Self {
-        Self::new(vec![], errors)
+impl<P, W, E> DeferredFailure<P, W, E> {
+    pub fn new(warnings: Vec<W>, errors: NonEmpty<E>, passthru: P) -> Self {
+        Self {
+            warnings,
+            errors,
+            passthru,
+        }
     }
 
     pub fn push_warning(&mut self, x: W) {
@@ -676,44 +686,65 @@ impl<W, E> DeferredFailure<W, E> {
         }
     }
 
-    pub fn map_warnings<F, X>(self, f: F) -> DeferredFailure<X, E>
+    pub fn map_warnings<F, X>(self, f: F) -> DeferredFailure<P, X, E>
     where
         F: Fn(W) -> X,
     {
         DeferredFailure {
+            passthru: self.passthru,
             warnings: self.warnings.into_iter().map(f).collect(),
             errors: self.errors,
         }
     }
 
-    pub fn map_errors<F, X>(self, f: F) -> DeferredFailure<W, X>
+    pub fn map_errors<F, X>(self, f: F) -> DeferredFailure<P, W, X>
     where
         F: Fn(E) -> X,
     {
         DeferredFailure {
+            passthru: self.passthru,
             warnings: self.warnings,
             errors: self.errors.map(f),
         }
     }
 
-    pub fn warnings_into<X>(self) -> DeferredFailure<X, E>
+    pub fn warnings_into<X>(self) -> DeferredFailure<P, X, E>
     where
         X: From<W>,
     {
         self.map_warnings(|w| w.into())
     }
 
-    pub fn errors_into<X>(self) -> DeferredFailure<W, X>
+    pub fn errors_into<X>(self) -> DeferredFailure<P, W, X>
     where
         X: From<E>,
     {
         self.map_errors(|e| e.into())
     }
 
+    pub fn unfail<V>(self) -> Tentative<P, W, E> {
+        Tentative::new(
+            self.passthru,
+            self.warnings,
+            self.errors.into_iter().collect(),
+        )
+    }
+}
+
+impl<W, E> DeferredFailure<(), W, E> {
+    pub fn new1(e: E) -> Self {
+        DeferredFailure::new(vec![], NonEmpty::new(e), ())
+    }
+
+    pub fn new2(errors: NonEmpty<E>) -> Self {
+        DeferredFailure::new(vec![], errors, ())
+    }
+
     pub fn mappend(mut self, other: Self) -> Self {
         self.warnings.extend(other.warnings);
         self.errors.extend(other.errors);
         Self {
+            passthru: (),
             warnings: self.warnings,
             errors: self.errors,
         }

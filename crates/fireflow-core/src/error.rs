@@ -431,9 +431,9 @@ impl<V, W, E> Tentative<V, W, E> {
         }
     }
 
-    pub fn and_maybe<F, X>(mut self, f: F) -> DeferredResult<X, W, E>
+    pub fn and_maybe<F, X, P>(mut self, f: F) -> PassthruResult<P, X, W, E>
     where
-        F: FnOnce(V) -> DeferredResult<X, W, E>,
+        F: FnOnce(V) -> PassthruResult<P, X, W, E>,
     {
         match f(self.value) {
             Ok(s) => {
@@ -728,6 +728,10 @@ impl<P, W, E> DeferredFailure<P, W, E> {
             self.warnings,
             self.errors.into_iter().collect(),
         )
+    }
+
+    pub fn drop(self) -> DeferredFailure<(), W, E> {
+        DeferredFailure::new(self.warnings, self.errors, ())
     }
 }
 

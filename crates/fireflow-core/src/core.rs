@@ -26,6 +26,7 @@ use crate::validated::standard::*;
 
 use chrono::Timelike;
 use itertools::Itertools;
+use nalgebra::convert_unchecked;
 use nalgebra::DMatrix;
 use nonempty::NonEmpty;
 use serde::ser::SerializeStruct;
@@ -4437,11 +4438,12 @@ impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata2_0 {
         lossless: bool,
     ) -> MetaConvertResult<Self> {
         // TODO warn if subset present
-        // TODO ditto platedata/modified
         let c = check_key_transfer(value.cytsn, lossless);
         let v = check_key_transfer(value.vol, lossless);
         let s = check_key_transfer(value.spillover, lossless);
-        c.zip3(v, s).inner_into().and_maybe(|_| {
+        let m = check_modified_keys_transfer(value.modification, lossless);
+        let p = check_plate_keys_transfer(value.plate, lossless);
+        c.zip5(v, s, m, p).inner_into().and_maybe(|_| {
             value
                 .applied_gates
                 .0
@@ -4474,25 +4476,32 @@ impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata2_0 {
         endian: EndianConvert,
         lossless: bool,
     ) -> MetaConvertResult<Self> {
-        // TODO warn if datetimes/carrier/unstained present
-        // TODO ditto platedata/modified
-        let c = check_key_transfer(value.cytsn, lossless);
+        let cy = check_key_transfer(value.cytsn, lossless);
         let v = check_key_transfer(value.vol, lossless);
         let s = check_key_transfer(value.spillover, lossless);
         let f = check_key_transfer(value.flowrate, lossless);
-        let mut ret = c.zip4(v, s, f).inner_into().and_maybe(|_| {
-            endian
-                .try_as_byteord()
-                .def_inner_into()
-                .def_map_value(|byteord| Self {
-                    mode: Mode::List,
-                    byteord,
-                    cyt: Some(value.cyt).into(),
-                    comp: None.into(),
-                    timestamps: value.timestamps.map(|d| d.into()),
-                    applied_gates: None.into(),
-                })
-        });
+        let m = check_modified_keys_transfer(value.modification, lossless);
+        let p = check_plate_keys_transfer(value.plate, lossless);
+        let d = check_datetimes_keys_transfer(value.datetimes, lossless);
+        let ca = check_carrier_keys_transfer(value.carrier, lossless);
+        let u = check_unstained_keys_transfer(value.unstained, lossless);
+        let mut ret = cy
+            .zip6(v, s, f, m, p)
+            .zip4(d, ca, u)
+            .inner_into()
+            .and_maybe(|_| {
+                endian
+                    .try_as_byteord()
+                    .def_inner_into()
+                    .def_map_value(|byteord| Self {
+                        mode: Mode::List,
+                        byteord,
+                        cyt: Some(value.cyt).into(),
+                        comp: None.into(),
+                        timestamps: value.timestamps.map(|x| x.into()),
+                        applied_gates: None.into(),
+                    })
+            });
         if value.applied_gates.0.is_some() {
             ret.def_push_error_or_warning(AppliedGates3_2To2_0Error, lossless);
         }
@@ -4526,25 +4535,25 @@ impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata3_0 {
         endian: EndianConvert,
         lossless: bool,
     ) -> MetaConvertResult<Self> {
-        // TODO warn if platedata/modified present
-        check_key_transfer(value.vol, lossless)
-            .inner_into()
-            .and_maybe(|_| {
-                endian
-                    .try_as_byteord()
-                    .def_inner_into()
-                    .def_map_value(|byteord| Self {
-                        mode: value.mode,
-                        byteord,
-                        cyt: value.cyt,
-                        cytsn: value.cytsn,
-                        timestamps: value.timestamps.map(|d| d.into()),
-                        comp: None.into(),
-                        unicode: None.into(),
-                        subset: None.into(),
-                        applied_gates: value.applied_gates,
-                    })
-            })
+        let p = check_plate_keys_transfer(value.plate, lossless);
+        let m = check_modified_keys_transfer(value.modification, lossless);
+        let v = check_key_transfer(value.vol, lossless);
+        p.zip3(m, v).inner_into().and_maybe(|_| {
+            endian
+                .try_as_byteord()
+                .def_inner_into()
+                .def_map_value(|byteord| Self {
+                    mode: value.mode,
+                    byteord,
+                    cyt: value.cyt,
+                    cytsn: value.cytsn,
+                    timestamps: value.timestamps.map(|d| d.into()),
+                    comp: None.into(),
+                    unicode: None.into(),
+                    subset: None.into(),
+                    applied_gates: value.applied_gates,
+                })
+        })
     }
 }
 
@@ -4554,11 +4563,14 @@ impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata3_0 {
         endian: EndianConvert,
         lossless: bool,
     ) -> MetaConvertResult<Self> {
-        // TODO warn if platedata/modified present
-        // TODO warn if datetimes/carrier/unstained present
         let v = check_key_transfer(value.vol, lossless);
         let f = check_key_transfer(value.flowrate, lossless);
-        v.zip(f).inner_into().and_maybe(|_| {
+        let m = check_modified_keys_transfer(value.modification, lossless);
+        let p = check_plate_keys_transfer(value.plate, lossless);
+        let d = check_datetimes_keys_transfer(value.datetimes, lossless);
+        let ca = check_carrier_keys_transfer(value.carrier, lossless);
+        let u = check_unstained_keys_transfer(value.unstained, lossless);
+        v.zip6(f, m, p, d, ca).zip(u).inner_into().and_maybe(|_| {
             endian
                 .try_as_byteord()
                 .def_inner_into()
@@ -4567,7 +4579,7 @@ impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata3_0 {
                     byteord,
                     cyt: Some(value.cyt).into(),
                     cytsn: value.cytsn,
-                    timestamps: value.timestamps.map(|d| d.into()),
+                    timestamps: value.timestamps.map(|x| x.into()),
                     comp: None.into(),
                     unicode: None.into(),
                     subset: None.into(),
@@ -4643,24 +4655,25 @@ impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata3_1 {
         _: EndianConvert,
         lossless: bool,
     ) -> MetaConvertResult<Self> {
-        // TODO warn if subset present
-        let ret = check_key_transfer(value.flowrate, lossless)
-            .inner_into()
-            .and_tentatively(|_| {
-                Tentative::new1(Self {
-                    mode: Mode::List,
-                    byteord: value.byteord,
-                    cyt: Some(value.cyt).into(),
-                    cytsn: value.cytsn,
-                    timestamps: value.timestamps,
-                    spillover: value.spillover,
-                    plate: value.plate,
-                    modification: value.modification,
-                    vol: value.vol,
-                    subset: None.into(),
-                    applied_gates: value.applied_gates.map(|x| x.into()),
-                })
-            });
+        let d = check_datetimes_keys_transfer(value.datetimes, lossless);
+        let ca = check_carrier_keys_transfer(value.carrier, lossless);
+        let u = check_unstained_keys_transfer(value.unstained, lossless);
+        let f = check_key_transfer(value.flowrate, lossless);
+        let ret = d.zip4(ca, u, f).inner_into().and_tentatively(|_| {
+            Tentative::new1(Self {
+                mode: Mode::List,
+                byteord: value.byteord,
+                cyt: Some(value.cyt).into(),
+                cytsn: value.cytsn,
+                timestamps: value.timestamps,
+                spillover: value.spillover,
+                plate: value.plate,
+                modification: value.modification,
+                vol: value.vol,
+                subset: None.into(),
+                applied_gates: value.applied_gates.map(|x| x.into()),
+            })
+        });
         Ok(ret)
     }
 }
@@ -4673,13 +4686,7 @@ impl TryFromMetadata<InnerMetadata2_0> for InnerMetadata3_2 {
     ) -> MetaConvertResult<Self> {
         let b = value.byteord.try_into().into_deferred();
         let c = value.cyt.0.ok_or(NoCytError).into_deferred();
-        let m = if value.mode != Mode::List {
-            Err(ModeNotListError)
-        } else {
-            Ok(())
-        }
-        .into_deferred();
-        let mut res = b.def_zip3(c, m).def_map_value(|(byteord, cyt, _)| Self {
+        let mut res = b.def_zip(c).def_map_value(|(byteord, cyt)| Self {
             byteord,
             cyt,
             timestamps: value.timestamps.map(|d| d.into()),
@@ -4697,7 +4704,12 @@ impl TryFromMetadata<InnerMetadata2_0> for InnerMetadata3_2 {
         if value.applied_gates.0.is_some() {
             res.def_push_error_or_warning(AppliedGates2_0To3_2Error, lossless);
         }
-
+        if value.comp.0.is_some() {
+            res.def_push_error_or_warning(Comp2_0TransferError, lossless);
+        }
+        if value.mode != Mode::List {
+            res.def_push_error_or_warning(ModeNotListError, lossless);
+        }
         res
     }
 }
@@ -4711,7 +4723,7 @@ impl TryFromMetadata<InnerMetadata3_0> for InnerMetadata3_2 {
         // TODO warn if subset present
         let u = check_key_transfer(value.unicode, lossless);
         let co = check_key_transfer(value.comp, lossless);
-        u.zip(co).inner_into().and_maybe(|_| {
+        let mut res = u.zip(co).inner_into().and_maybe(|_| {
             value
                 .applied_gates
                 .0
@@ -4724,13 +4736,7 @@ impl TryFromMetadata<InnerMetadata3_0> for InnerMetadata3_2 {
                 .and_maybe(|ag| {
                     let b = value.byteord.try_into().into_deferred();
                     let c = value.cyt.0.ok_or(NoCytError).into_deferred();
-                    let m = if value.mode != Mode::List {
-                        Err(ModeNotListError)
-                    } else {
-                        Ok(())
-                    }
-                    .into_deferred();
-                    b.def_zip3(c, m).def_map_value(|(byteord, cyt, _)| Self {
+                    b.def_zip(c).def_map_value(|(byteord, cyt)| Self {
                         byteord,
                         cyt,
                         cytsn: value.cytsn,
@@ -4746,7 +4752,11 @@ impl TryFromMetadata<InnerMetadata3_0> for InnerMetadata3_2 {
                         applied_gates: ag.into(),
                     })
                 })
-        })
+        });
+        if value.mode != Mode::List {
+            res.def_push_error_or_warning(ModeNotListError, lossless);
+        }
+        res
     }
 }
 
@@ -4757,7 +4767,7 @@ impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata3_2 {
         lossless: bool,
     ) -> MetaConvertResult<Self> {
         // TODO warn if subset present
-        value
+        let mut res = value
             .applied_gates
             .0
             .map(|x| x.try_into())
@@ -4767,29 +4777,31 @@ impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata3_2 {
                 Tentative::new1,
             )
             .and_maybe(|ag| {
-                let m = if value.mode != Mode::List {
-                    Err(ModeNotListError)
-                } else {
-                    Ok(())
-                }
-                .into_deferred();
-                let c = value.cyt.0.ok_or(NoCytError).into_deferred();
-                m.def_zip(c).def_map_value(|(_, cyt)| Self {
-                    byteord: value.byteord,
-                    cyt,
-                    cytsn: value.cytsn,
-                    timestamps: value.timestamps,
-                    spillover: value.spillover,
-                    modification: value.modification,
-                    plate: value.plate,
-                    vol: value.vol,
-                    flowrate: None.into(),
-                    carrier: CarrierData::default(),
-                    unstained: UnstainedData::default(),
-                    datetimes: Datetimes::default(),
-                    applied_gates: ag.into(),
-                })
-            })
+                value
+                    .cyt
+                    .0
+                    .ok_or(NoCytError)
+                    .into_deferred()
+                    .def_map_value(|cyt| Self {
+                        byteord: value.byteord,
+                        cyt,
+                        cytsn: value.cytsn,
+                        timestamps: value.timestamps,
+                        spillover: value.spillover,
+                        modification: value.modification,
+                        plate: value.plate,
+                        vol: value.vol,
+                        flowrate: None.into(),
+                        carrier: CarrierData::default(),
+                        unstained: UnstainedData::default(),
+                        datetimes: Datetimes::default(),
+                        applied_gates: ag.into(),
+                    })
+            });
+        if value.mode != Mode::List {
+            res.def_push_error_or_warning(ModeNotListError, lossless);
+        }
+        res
     }
 }
 
@@ -4807,6 +4819,63 @@ where
     tnt
 }
 
+fn check_plate_keys_transfer(
+    p: PlateData,
+    lossless: bool,
+) -> Tentative<(), AnyKeyTransferError, AnyKeyTransferError> {
+    let n = check_key_transfer(p.platename, lossless);
+    let i = check_key_transfer(p.plateid, lossless);
+    let w = check_key_transfer(p.wellid, lossless);
+    n.zip3(i, w).map(|_| ())
+}
+
+fn check_carrier_keys_transfer(
+    c: CarrierData,
+    lossless: bool,
+) -> Tentative<(), AnyKeyTransferError, AnyKeyTransferError> {
+    let i = check_key_transfer(c.carrierid, lossless);
+    let t = check_key_transfer(c.carriertype, lossless);
+    let l = check_key_transfer(c.locationid, lossless);
+    i.zip3(t, l).map(|_| ())
+}
+
+fn check_unstained_keys_transfer(
+    u: UnstainedData,
+    lossless: bool,
+) -> Tentative<(), AnyKeyTransferError, AnyKeyTransferError> {
+    let c = check_key_transfer(u.unstainedcenters, lossless);
+    let i = check_key_transfer(u.unstainedinfo, lossless);
+    c.zip(i).map(|_| ())
+}
+
+fn check_datetimes_keys_transfer(
+    d: Datetimes,
+    lossless: bool,
+) -> Tentative<(), AnyKeyTransferError, AnyKeyTransferError> {
+    let mut tnt = Tentative::new1(());
+    if d.begin_naive().is_some() {
+        tnt.push_error_or_warning(KeyTransferError::<BeginDateTime>::default(), lossless);
+    }
+    if d.end_naive().is_some() {
+        tnt.push_error_or_warning(KeyTransferError::<EndDateTime>::default(), lossless);
+    }
+    tnt
+}
+
+fn check_modified_keys_transfer(
+    m: ModificationData,
+    lossless: bool,
+) -> Tentative<(), AnyKeyTransferError, AnyKeyTransferError> {
+    let d = check_key_transfer(m.last_modified, lossless);
+    let r = check_key_transfer(m.last_modifier, lossless);
+    let o = check_key_transfer(m.originality, lossless);
+    d.zip3(r, o).map(|_| ())
+}
+
+// TODO emit warnings if any of these "lose" data, which means we need a new
+// trait, and also means we need to make the named_vec functions more generic so
+// they don't rely on the from traits here, or I can run a seperate method in
+// parallel to emit the warnings
 impl From<InnerTemporal3_0> for InnerTemporal2_0 {
     fn from(value: InnerTemporal3_0) -> Self {
         Self { peak: value.peak }
@@ -6628,6 +6697,7 @@ enum_from_disp!(
 enum_from_disp!(
     pub MetaConvertWarning,
     [Width, WidthToBytesError],
+    [Mode, ModeNotListError],
     [Gates3_0To2_0, AppliedGates3_0To2_0Error],
     [Gates3_0To3_2, AppliedGates3_0To3_2Error],
     [Gates3_2To2_0, AppliedGates3_2To2_0Error],
@@ -6645,6 +6715,19 @@ enum_from_disp!(
     [Vol, KeyTransferError<Vol>],
     [Flowrate, KeyTransferError<Flowrate>],
     [Comp, KeyTransferError<Compensation3_0>],
+    [Platename, KeyTransferError<Platename>],
+    [Plateid, KeyTransferError<Plateid>],
+    [Wellid, KeyTransferError<Wellid>],
+    [Carrierid, KeyTransferError<Carrierid>],
+    [Locationid, KeyTransferError<Locationid>],
+    [Carriertype, KeyTransferError<Carriertype>],
+    [LastModifier, KeyTransferError<LastModifier>],
+    [LastModified, KeyTransferError<ModifiedDateTime>],
+    [Originality, KeyTransferError<Originality>],
+    [UnstainedCenters, KeyTransferError<UnstainedCenters>],
+    [UnstainedInfo, KeyTransferError<UnstainedInfo>],
+    [Begindatetime, KeyTransferError<BeginDateTime>],
+    [Enddatetime, KeyTransferError<EndDateTime>],
     [Spillover, KeyTransferError<Spillover>]
 );
 

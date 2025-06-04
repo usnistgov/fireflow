@@ -1066,8 +1066,8 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         toU: FtoU,
     ) -> DeferredResult<bool, W, E>
     where
-        Fswap: FnOnce(MeasIndex, U, V) -> PassthruResult<(V, U), (U, V), W, E>,
-        FtoU: FnOnce(MeasIndex, V) -> PassthruResult<U, V, W, E>,
+        Fswap: FnOnce(MeasIndex, U, V) -> PassthruResult<(V, U), Box<(U, V)>, W, E>,
+        FtoU: FnOnce(MeasIndex, V) -> PassthruResult<U, Box<V>, W, E>,
         E: From<SetCenterError>,
     {
         Tentative::new1(self.find_with_name(n)).and_maybe(|x| {
@@ -1085,8 +1085,8 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         toU: FtoU,
     ) -> DeferredResult<bool, W, E>
     where
-        Fswap: FnOnce(MeasIndex, U, V) -> PassthruResult<(V, U), (U, V), W, E>,
-        FtoU: FnOnce(MeasIndex, V) -> PassthruResult<U, V, W, E>,
+        Fswap: FnOnce(MeasIndex, U, V) -> PassthruResult<(V, U), Box<(U, V)>, W, E>,
+        FtoU: FnOnce(MeasIndex, V) -> PassthruResult<U, Box<V>, W, E>,
         E: From<SetCenterError>,
     {
         if !self
@@ -1118,19 +1118,21 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                                 .unwrap();
                                 (sp, true)
                             }),
-                            Err(fail) => fail.unfail().map(|(center_value, left_value)| {
-                                let sp = Self::recover_split_from_left(
-                                    left.left,
-                                    left.selected.key,
-                                    left_value,
-                                    left.right,
-                                    center_key,
-                                    center_value,
-                                    right,
-                                    prefix,
-                                );
-                                (sp, false)
-                            }),
+                            Err(fail) => {
+                                fail.unfail().map(|x| *x).map(|(center_value, left_value)| {
+                                    let sp = Self::recover_split_from_left(
+                                        left.left,
+                                        left.selected.key,
+                                        left_value,
+                                        left.right,
+                                        center_key,
+                                        center_value,
+                                        right,
+                                        prefix,
+                                    );
+                                    (sp, false)
+                                })
+                            }
                         }
                     }
 
@@ -1153,19 +1155,23 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                                 .unwrap();
                                 (sp, true)
                             }),
-                            Err(fail) => fail.unfail().map(|(center_value, right_value)| {
-                                let sp = Self::recover_split_from_right(
-                                    left,
-                                    center_key,
-                                    center_value,
-                                    right.left,
-                                    right.selected.key,
-                                    right_value,
-                                    right.right,
-                                    prefix,
-                                );
-                                (sp, false)
-                            }),
+                            Err(fail) => {
+                                fail.unfail()
+                                    .map(|x| *x)
+                                    .map(|(center_value, right_value)| {
+                                        let sp = Self::recover_split_from_right(
+                                            left,
+                                            center_key,
+                                            center_value,
+                                            right.left,
+                                            right.selected.key,
+                                            right_value,
+                                            right.right,
+                                            prefix,
+                                        );
+                                        (sp, false)
+                                    })
+                            }
                         }
                     }
                 },
@@ -1183,7 +1189,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                         Err(fail) => fail.unfail().map(|old_value| {
                             let center = Pair {
                                 key: x.selected.key,
-                                value: old_value,
+                                value: *old_value,
                             };
                             (
                                 Self::new_unsplit(
@@ -1209,7 +1215,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     /// Return true if vector is updated.
     pub fn unset_center<F, W, E, X>(&mut self, toV: F) -> Tentative<Option<X>, W, E>
     where
-        F: FnOnce(MeasIndex, U) -> PassthruResult<(V, X), U, W, E>,
+        F: FnOnce(MeasIndex, U) -> PassthruResult<(V, X), Box<U>, W, E>,
     {
         match mem::replace(self, dummy()) {
             NamedVec::Split(s, _) => {
@@ -1232,7 +1238,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
                     Err(fail) => fail.unfail().map(|value| {
                         let center = Pair {
                             key: center_key,
-                            value,
+                            value: *value,
                         };
                         let sp = Self::new_split(s.left, center, s.right, s.prefix);
                         (sp, None)

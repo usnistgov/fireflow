@@ -994,7 +994,7 @@ pub trait VersionedMetadata: Sized {
         lossless: bool,
     ) -> PassthruResult<
         (Optical<Self::O>, Temporal<Self::T>),
-        (Temporal<Self::T>, Optical<Self::O>),
+        Box<(Temporal<Self::T>, Optical<Self::O>)>,
         SwapOpticalTemporalError,
         SwapOpticalTemporalError,
     > {
@@ -1027,7 +1027,7 @@ pub trait VersionedMetadata: Sized {
             Ok(_) => Ok(Tentative::new1(go(t, o))),
             Err(es) => {
                 if lossless {
-                    Err(DeferredFailure::new(vec![], es, (t, o)))
+                    Err(DeferredFailure::new(vec![], es, Box::new((t, o))))
                 } else {
                     Ok(Tentative::new(go(t, o), es.into(), vec![]))
                 }
@@ -1078,8 +1078,12 @@ pub(crate) trait OpticalToTemporal<O: VersionedOptical>: Sized {
         i: MeasIndex,
         d: Self::TData,
         lossless: bool,
-    ) -> PassthruResult<Temporal<Self>, Optical<O>, OpticalToTemporalError, OpticalToTemporalError>
-    {
+    ) -> PassthruResult<
+        Temporal<Self>,
+        Box<Optical<O>>,
+        OpticalToTemporalError,
+        OpticalToTemporalError,
+    > {
         let go = |old_o: Optical<O>| Temporal {
             common: old_o.common,
             specific: Self::from_optical_inner(old_o.specific, d),
@@ -1088,7 +1092,7 @@ pub(crate) trait OpticalToTemporal<O: VersionedOptical>: Sized {
             Ok(()) => Ok(Tentative::new1(go(o))),
             Err(es) => {
                 if lossless {
-                    Err(DeferredFailure::new(vec![], es, o))
+                    Err(DeferredFailure::new(vec![], es, Box::new(o)))
                 } else {
                     Ok(Tentative::new(go(o), es.into(), vec![]))
                 }
@@ -1108,7 +1112,7 @@ pub(crate) trait TemporalToOptical<T: VersionedTemporal>: Sized {
         lossless: bool,
     ) -> PassthruResult<
         (Optical<Self>, Self::TData),
-        Temporal<T>,
+        Box<Temporal<T>>,
         TemporalToOpticalError,
         TemporalToOpticalError,
     > {
@@ -1129,7 +1133,7 @@ pub(crate) trait TemporalToOptical<T: VersionedTemporal>: Sized {
             Ok(()) => Ok(Tentative::new1(go(t))),
             Err(es) => {
                 if lossless {
-                    Err(DeferredFailure::new(vec![], es, t))
+                    Err(DeferredFailure::new(vec![], es, Box::new(t)))
                 } else {
                     Ok(Tentative::new(go(t), es.into(), vec![]))
                 }

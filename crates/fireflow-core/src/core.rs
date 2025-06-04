@@ -26,7 +26,6 @@ use crate::validated::standard::*;
 
 use chrono::Timelike;
 use itertools::Itertools;
-use nalgebra::convert_unchecked;
 use nalgebra::DMatrix;
 use nonempty::NonEmpty;
 use serde::ser::SerializeStruct;
@@ -948,7 +947,7 @@ where
 }
 
 pub trait VersionedMetadata: Sized {
-    type P: VersionedOptical;
+    type O: VersionedOptical;
     type T: VersionedTemporal;
     type N: MightHave;
     type L: VersionedDataLayout;
@@ -984,9 +983,59 @@ pub trait VersionedMetadata: Sized {
 
     fn as_data_layout(
         metadata: &Metadata<Self>,
-        ms: &Measurements<Self::N, Self::T, Self::P>,
+        ms: &Measurements<Self::N, Self::T, Self::O>,
         conf: &SharedConfig,
     ) -> DeferredResult<Self::L, NewDataLayoutWarning, NewDataLayoutError>;
+
+    fn swap_optical_temporal(
+        t: Temporal<Self::T>,
+        o: Optical<Self::O>,
+        i: MeasIndex,
+        lossless: bool,
+    ) -> PassthruResult<
+        (Optical<Self::O>, Temporal<Self::T>),
+        (Temporal<Self::T>, Optical<Self::O>),
+        SwapOpticalTemporalError,
+        SwapOpticalTemporalError,
+    > {
+        let t_res = o
+            .specific
+            .can_convert_to_temporal(i)
+            .map_err(|es| es.map(|e| e.into()));
+        let o_res = t
+            .specific
+            .can_convert_to_optical(i)
+            .map_err(|es| es.map(|e| e.into()));
+        let go = |old_t: Temporal<Self::T>, old_o: Optical<Self::O>| {
+            let (so, st) = Self::swap_optical_temporal_inner(old_t.specific, old_o.specific);
+            let new_o = Optical {
+                common: old_t.common,
+                filter: None.into(),
+                power: None.into(),
+                detector_type: None.into(),
+                percent_emitted: None.into(),
+                detector_voltage: None.into(),
+                specific: so,
+            };
+            let new_t = Temporal {
+                common: old_o.common,
+                specific: st,
+            };
+            (new_o, new_t)
+        };
+        match t_res.mult_zip(o_res) {
+            Ok(_) => Ok(Tentative::new1(go(t, o))),
+            Err(es) => {
+                if lossless {
+                    Err(DeferredFailure::new(vec![], es, (t, o)))
+                } else {
+                    Ok(Tentative::new(go(t, o), es.into(), vec![]))
+                }
+            }
+        }
+    }
+
+    fn swap_optical_temporal_inner(t: Self::T, p: Self::O) -> (Self::O, Self::T);
 }
 
 pub trait VersionedOptical: Sized + Versioned {
@@ -996,7 +1045,7 @@ pub trait VersionedOptical: Sized + Versioned {
 
     fn datatype(&self) -> Option<NumType>;
 
-    fn can_convert_temporal(&self) -> Result<(), OpticalToTemporalError>;
+    fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult<(), OpticalToTemporalError>;
 }
 
 pub(crate) trait LookupOptical: Sized + VersionedOptical {
@@ -1013,10 +1062,82 @@ pub trait VersionedTemporal: Sized {
     fn req_meta_keywords_inner(&self) -> RawPairs;
 
     fn opt_meas_keywords_inner(&self, _: MeasIndex) -> RawOptPairs;
+
+    fn can_convert_to_optical(&self, i: MeasIndex) -> MultiResult<(), TemporalToOpticalError>;
 }
 
 pub(crate) trait LookupTemporal: VersionedTemporal {
     fn lookup_specific(kws: &mut StdKeywords, n: MeasIndex) -> LookupResult<Self>;
+}
+
+pub(crate) trait OpticalToTemporal<O: VersionedOptical>: Sized {
+    type TData;
+
+    fn from_optical(
+        o: Optical<O>,
+        i: MeasIndex,
+        d: Self::TData,
+        lossless: bool,
+    ) -> PassthruResult<Temporal<Self>, Optical<O>, OpticalToTemporalError, OpticalToTemporalError>
+    {
+        let go = |old_o: Optical<O>| Temporal {
+            common: old_o.common,
+            specific: Self::from_optical_inner(old_o.specific, d),
+        };
+        match o.specific.can_convert_to_temporal(i) {
+            Ok(()) => Ok(Tentative::new1(go(o))),
+            Err(es) => {
+                if lossless {
+                    Err(DeferredFailure::new(vec![], es, o))
+                } else {
+                    Ok(Tentative::new(go(o), es.into(), vec![]))
+                }
+            }
+        }
+    }
+
+    fn from_optical_inner(o: O, d: Self::TData) -> Self;
+}
+
+pub(crate) trait TemporalToOptical<T: VersionedTemporal>: Sized {
+    type TData;
+
+    fn from_temporal(
+        t: Temporal<T>,
+        i: MeasIndex,
+        lossless: bool,
+    ) -> PassthruResult<
+        (Optical<Self>, Self::TData),
+        Temporal<T>,
+        TemporalToOpticalError,
+        TemporalToOpticalError,
+    > {
+        let go = |old_t: Temporal<T>| {
+            let (specific, td) = Self::from_temporal_inner(old_t.specific);
+            let new = Optical {
+                common: old_t.common,
+                filter: None.into(),
+                power: None.into(),
+                detector_type: None.into(),
+                percent_emitted: None.into(),
+                detector_voltage: None.into(),
+                specific,
+            };
+            (new, td)
+        };
+        match t.specific.can_convert_to_optical(i) {
+            Ok(()) => Ok(Tentative::new1(go(t))),
+            Err(es) => {
+                if lossless {
+                    Err(DeferredFailure::new(vec![], es, t))
+                } else {
+                    Ok(Tentative::new(go(t), es.into(), vec![]))
+                }
+            }
+        }
+    }
+
+    fn from_temporal_inner(t: T) -> (Self, Self::TData);
 }
 
 impl CommonMeasurement {
@@ -1328,7 +1449,7 @@ where
 
     fn lookup_metadata(
         kws: &mut StdKeywords,
-        ms: &Measurements<M::N, M::T, M::P>,
+        ms: &Measurements<M::N, M::T, M::O>,
         nonstd: NonStdPairs,
     ) -> LookupResult<Self>
     where
@@ -1357,7 +1478,7 @@ where
                     let s = M::lookup_specific(kws, par);
                     dt.def_eval_warning(|datatype| {
                         if *datatype == AlphaNumType::Ascii
-                            && M::P::fcs_version() >= Version::FCS3_1
+                            && M::O::fcs_version() >= Version::FCS3_1
                         {
                             Some(DepFeatureWarning::DatatypeASCII.into())
                         } else {
@@ -1512,7 +1633,7 @@ pub(crate) type Measurements<N, T, P> =
 pub(crate) type VersionedCoreTEXT<M> = CoreTEXT<
     M,
     <M as VersionedMetadata>::T,
-    <M as VersionedMetadata>::P,
+    <M as VersionedMetadata>::O,
     <M as VersionedMetadata>::N,
     <<M as VersionedMetadata>::N as MightHave>::Wrapper<Shortname>,
 >;
@@ -1520,7 +1641,7 @@ pub(crate) type VersionedCoreTEXT<M> = CoreTEXT<
 pub(crate) type VersionedCoreDataset<M> = CoreDataset<
     M,
     <M as VersionedMetadata>::T,
-    <M as VersionedMetadata>::P,
+    <M as VersionedMetadata>::O,
     <M as VersionedMetadata>::N,
     <<M as VersionedMetadata>::N as MightHave>::Wrapper<Shortname>,
 >;
@@ -1530,7 +1651,7 @@ pub(crate) type VersionedCore<A, D, M> = Core<
     D,
     M,
     <M as VersionedMetadata>::T,
-    <M as VersionedMetadata>::P,
+    <M as VersionedMetadata>::O,
     <M as VersionedMetadata>::N,
     <<M as VersionedMetadata>::N as MightHave>::Wrapper<Shortname>,
 >;
@@ -1620,7 +1741,7 @@ where
         self.header_and_raw_keywords(tot, data_len, analysis_len)
             // TODO do something useful with nextdata offset (the "_" thing)
             .map(|(header, kws, _)| {
-                let version = M::P::fcs_version();
+                let version = M::O::fcs_version();
                 let flat: Vec<_> = kws.into_iter().flat_map(|(k, v)| [k, v]).collect();
                 [format!("{version}{header}")]
                     .into_iter()
@@ -1746,82 +1867,67 @@ where
     pub fn set_temporal(
         &mut self,
         n: &Shortname,
+        timestep: <M::T as OpticalToTemporal<M::O>>::TData,
         force: bool,
-    ) -> Result<bool, OpticalToTemporalError>
+    ) -> DeferredResult<bool, SetTemporalError, SetTemporalError>
     where
-        Optical<M::P>: From<Temporal<M::T>>,
-        Temporal<M::T>: From<Optical<M::P>>,
+        Optical<M::O>: From<Temporal<M::T>>,
+        Temporal<M::T>: From<Optical<M::O>>,
+        M::T: OpticalToTemporal<M::O>,
     {
-        if let Some((_, Element::NonCenter(o))) = self.measurements_named_vec().get_name(n) {
-            if !force {
-                o.specific.can_convert_temporal()?;
-            }
-        }
-
-        // This is tricky because $TIMESTEP will be filled with a dummy value
-        // when a Temporal is converted from an Optical. This will get annoying
-        // for cases where the time measurement already exists and we are simply
-        // "moving" it to a new measurement; $TIMESTEP should follow the move in
-        // this case. Therefore, get the value of $TIMESTEP (if it exists) and
-        // reassign to new time measurement (if it exists). The added
-        // complication is that not all versions have $TIMESTEP, so consult
-        // trait-level functions for this and wrap in Option.
-        let ms = &mut self.measurements;
-        let current_timestep = ms.as_center().and_then(|c| c.value.specific.timestep());
-        let res = ms.set_center_by_name(n);
-        if res {
-            // Technically this is a bit more work than necessary because
-            // we should know by this point if the center exists. Oh well..
-            if let (Some(ts), Some(c)) = (current_timestep, ms.as_center_mut()) {
-                M::T::set_timestep(&mut c.value.specific, ts);
-            }
-        }
-        Ok(res)
+        let lossless = !force;
+        self.measurements.set_center_by_name(
+            n,
+            |i, old_o, old_t| M::swap_optical_temporal(old_o, old_t, i, lossless).def_inner_into(),
+            |i, old_o| {
+                <M::T as OpticalToTemporal<M::O>>::from_optical(old_o, i, timestep, lossless)
+                    .def_inner_into()
+            },
+        )
     }
 
     /// Set the measurement at given index to the time measurement.
     pub fn set_temporal_at(
         &mut self,
         index: MeasIndex,
+        timestep: <M::T as OpticalToTemporal<M::O>>::TData,
         force: bool,
-    ) -> Result<bool, SetTemporalIndexError>
+    ) -> DeferredResult<bool, SetTemporalError, SetTemporalError>
     where
-        Optical<M::P>: From<Temporal<M::T>>,
-        Temporal<M::T>: From<Optical<M::P>>,
+        Optical<M::O>: From<Temporal<M::T>>,
+        Temporal<M::T>: From<Optical<M::O>>,
+        M::T: OpticalToTemporal<M::O>,
     {
-        if let Ok(Element::NonCenter((_, o))) = self.measurements_named_vec().get(index) {
-            if !force {
-                o.specific
-                    .can_convert_temporal()
-                    .map_err(SetTemporalIndexError::Convert)?;
-            }
-        }
-
-        // TODO not DRY (ish, see above)
-        let ms = &mut self.measurements;
-        let current_timestep = ms.as_center().and_then(|c| c.value.specific.timestep());
-        let res = ms
-            .set_center_by_index(index)
-            .map_err(SetTemporalIndexError::Index)?;
-        if res {
-            if let (Some(ts), Some(c)) = (current_timestep, ms.as_center_mut()) {
-                M::T::set_timestep(&mut c.value.specific, ts);
-            }
-        }
-        Ok(res)
+        let lossless = !force;
+        self.measurements.set_center_by_index(
+            index,
+            |i, old_o, old_t| M::swap_optical_temporal(old_o, old_t, i, lossless).def_inner_into(),
+            |i, old_o| {
+                <M::T as OpticalToTemporal<M::O>>::from_optical(old_o, i, timestep, lossless)
+                    .def_inner_into()
+            },
+        )
     }
 
     /// Convert time measurement to optical measurement.
     ///
     /// Return true if a time measurement existed and was converted, false
     /// otherwise.
-    pub fn unset_temporal(&mut self) -> bool
+    pub fn unset_temporal(
+        &mut self,
+        force: bool,
+    ) -> Tentative<
+        Option<<M::O as TemporalToOptical<M::T>>::TData>,
+        TemporalToOpticalError,
+        TemporalToOpticalError,
+    >
     where
-        Optical<M::P>: From<Temporal<M::T>>,
+        Optical<M::O>: From<Temporal<M::T>>,
+        M::O: TemporalToOptical<M::T>,
     {
-        // TODO what if the temporal measurement has $PnTYPE set, we throw error
-        // when going optical->temporal, so why not here?
-        self.measurements.unset_center()
+        self.measurements.unset_center(|i, old_t| {
+            <M::O as TemporalToOptical<M::T>>::from_temporal(old_t, i, !force)
+        })
     }
 
     /// Insert a nonstandard key/value pair for each measurement.
@@ -1871,7 +1977,7 @@ where
     }
 
     /// Return read-only reference to measurement vector
-    pub fn measurements_named_vec(&self) -> &Measurements<M::N, M::T, M::P> {
+    pub fn measurements_named_vec(&self) -> &Measurements<M::N, M::T, M::O> {
         &self.measurements
     }
 
@@ -1884,8 +1990,8 @@ where
     pub fn replace_measurement_at(
         &mut self,
         index: MeasIndex,
-        m: Optical<M::P>,
-    ) -> Result<Element<Temporal<M::T>, Optical<M::P>>, ElementIndexError> {
+        m: Optical<M::O>,
+    ) -> Result<Element<Temporal<M::T>, Optical<M::O>>, ElementIndexError> {
         self.measurements.replace_at(index, m)
     }
 
@@ -1898,8 +2004,8 @@ where
     pub fn replace_measurement_named(
         &mut self,
         name: &Shortname,
-        m: Optical<M::P>,
-    ) -> Option<Element<Temporal<M::T>, Optical<M::P>>> {
+        m: Optical<M::O>,
+    ) -> Option<Element<Temporal<M::T>, Optical<M::O>>> {
         self.measurements.replace_named(name, m)
     }
 
@@ -1929,7 +2035,7 @@ where
     /// Apply functions to measurement values
     pub fn alter_measurements<F, G, R>(&mut self, f: F, g: G) -> Vec<R>
     where
-        F: Fn(IndexedElement<&<M::N as MightHave>::Wrapper<Shortname>, &mut Optical<M::P>>) -> R,
+        F: Fn(IndexedElement<&<M::N as MightHave>::Wrapper<Shortname>, &mut Optical<M::O>>) -> R,
         G: Fn(IndexedElement<&Shortname, &mut Temporal<M::T>>) -> R,
     {
         self.measurements.alter_values(f, g)
@@ -1943,7 +2049,7 @@ where
         g: G,
     ) -> Result<Vec<R>, KeyLengthError>
     where
-        F: Fn(IndexedElement<&<M::N as MightHave>::Wrapper<Shortname>, &mut Optical<M::P>>, X) -> R,
+        F: Fn(IndexedElement<&<M::N as MightHave>::Wrapper<Shortname>, &mut Optical<M::O>>, X) -> R,
         G: Fn(IndexedElement<&Shortname, &mut Temporal<M::T>>, X) -> R,
     {
         self.measurements.alter_values_zip(xs, f, g)
@@ -2046,11 +2152,11 @@ where
         M::N: Clone,
         ToM: VersionedMetadata,
         ToM: TryFromMetadata<M>,
-        ToM::P: VersionedOptical,
+        ToM::O: VersionedOptical,
         ToM::T: VersionedTemporal,
         ToM::N: MightHave,
         ToM::N: Clone,
-        ToM::P: TryFrom<M::P, Error = OpticalConvertError>,
+        ToM::O: TryFrom<M::O, Error = OpticalConvertError>,
         ToM::T: From<M::T>,
         <ToM::N as MightHave>::Wrapper<Shortname>: TryFrom<<M::N as MightHave>::Wrapper<Shortname>>,
     {
@@ -2082,8 +2188,8 @@ where
                 analysis: self.analysis,
             })
             .def_map_errors(|error| ConvertError {
-                from: M::P::fcs_version(),
-                to: ToM::P::fcs_version(),
+                from: M::O::fcs_version(),
+                to: ToM::O::fcs_version(),
                 inner: error,
             })
     }
@@ -2092,7 +2198,7 @@ where
     fn remove_measurement_by_name_inner(
         &mut self,
         n: &Shortname,
-    ) -> Option<(MeasIndex, Element<Temporal<M::T>, Optical<M::P>>)> {
+    ) -> Option<(MeasIndex, Element<Temporal<M::T>, Optical<M::O>>)> {
         if let Some(e) = self.measurements.remove_name(n) {
             self.metadata.remove_name_index(n, e.0);
             Some(e)
@@ -2105,7 +2211,7 @@ where
     fn remove_measurement_by_index_inner(
         &mut self,
         index: MeasIndex,
-    ) -> Result<EitherPair<M::N, Temporal<M::T>, Optical<M::P>>, ElementIndexError> {
+    ) -> Result<EitherPair<M::N, Temporal<M::T>, Optical<M::O>>, ElementIndexError> {
         let res = self.measurements.remove_index(index)?;
         if let Element::NonCenter(left) = &res {
             if let Some(n) = M::N::as_opt(&left.key) {
@@ -2135,7 +2241,7 @@ where
 
     fn set_measurements_inner(
         &mut self,
-        xs: RawInput<M::N, Temporal<M::T>, Optical<M::P>>,
+        xs: RawInput<M::N, Temporal<M::T>, Optical<M::O>>,
         prefix: ShortnamePrefix,
     ) -> Result<(), SetMeasurementsError> {
         self.check_existing_links()?;
@@ -2156,7 +2262,7 @@ where
         data_len: usize,
         analysis_len: usize,
     ) -> Option<(String, RawKeywords, usize)> {
-        let version = M::P::fcs_version();
+        let version = M::O::fcs_version();
         let tot_pair = (Tot::std().to_string(), tot.to_string());
 
         let (req_meas, req_meta, req_text_len) = self.req_meta_meas_keywords();
@@ -2197,7 +2303,7 @@ where
         f_meta: I,
     ) -> (RawPairs, RawPairs)
     where
-        F: Fn(&Optical<M::P>, MeasIndex) -> RawPairs,
+        F: Fn(&Optical<M::O>, MeasIndex) -> RawPairs,
         G: Fn(&Temporal<M::T>, MeasIndex) -> RawPairs,
         H: Fn(&Temporal<M::T>) -> RawPairs,
         I: Fn(&Metadata<M>, Par) -> RawPairs,
@@ -2269,14 +2375,14 @@ where
     fn meas_table(&self, delim: &str) -> Vec<String>
     where
         M::T: Clone,
-        M::P: From<M::T>,
+        M::O: From<M::T>,
     {
         let ms = &self.measurements;
         if let Some(m0) = ms.get(0.into()).ok().and_then(|x| x.non_center()) {
             let header = m0.1.table_header();
             let rows = self.measurements.iter().map(|(i, r)| {
                 r.both(
-                    |c| Optical::<M::P>::from(c.value.clone()).table_row(i, Some(&c.key)),
+                    |c| Optical::<M::O>::from(c.value.clone()).table_row(i, Some(&c.key)),
                     |nc| nc.value.table_row(i, M::N::as_opt(&nc.key)),
                 )
             });
@@ -2294,7 +2400,7 @@ where
     pub(crate) fn print_meas_table(&self, delim: &str)
     where
         M::T: Clone,
-        M::P: From<M::T>,
+        M::O: From<M::T>,
     {
         for e in self.meas_table(delim) {
             println!("{}", e);
@@ -2310,14 +2416,14 @@ where
         ns_pat: Option<&NonStdMeasPattern>,
         nonstd: NonStdPairs,
     ) -> DeferredResult<
-        (Measurements<M::N, M::T, M::P>, NonStdPairs),
+        (Measurements<M::N, M::T, M::O>, NonStdPairs),
         LookupMeasWarning,
         ParseKeysError,
     >
     where
         M: LookupMetadata,
         M::T: LookupTemporal,
-        M::P: LookupOptical,
+        M::O: LookupOptical,
     {
         // Use nonstandard measurement pattern to assign keyvals to their
         // measurement if they match. Only capture one warning because if the
@@ -2507,7 +2613,7 @@ where
     where
         M: LookupMetadata,
         M::T: LookupTemporal,
-        M::P: LookupOptical,
+        M::O: LookupOptical,
     {
         // Lookup $PAR first since we need this to get the measurements
         Par::remove_meta_req(kws)
@@ -2580,7 +2686,7 @@ where
     pub fn remove_measurement_by_name(
         &mut self,
         n: &Shortname,
-    ) -> Option<(MeasIndex, Element<Temporal<M::T>, Optical<M::P>>)> {
+    ) -> Option<(MeasIndex, Element<Temporal<M::T>, Optical<M::O>>)> {
         self.remove_measurement_by_name_inner(n)
     }
 
@@ -2591,7 +2697,7 @@ where
     pub fn remove_measurement_by_index(
         &mut self,
         index: MeasIndex,
-    ) -> Result<EitherPair<M::N, Temporal<M::T>, Optical<M::P>>, ElementIndexError> {
+    ) -> Result<EitherPair<M::N, Temporal<M::T>, Optical<M::O>>, ElementIndexError> {
         self.remove_measurement_by_index_inner(index)
     }
 
@@ -2625,7 +2731,7 @@ where
     pub fn push_optical(
         &mut self,
         n: <M::N as MightHave>::Wrapper<Shortname>,
-        m: Optical<M::P>,
+        m: Optical<M::O>,
     ) -> Result<Shortname, NonUniqueKeyError> {
         self.measurements.push(n, m)
     }
@@ -2637,7 +2743,7 @@ where
         &mut self,
         i: MeasIndex,
         n: <M::N as MightHave>::Wrapper<Shortname>,
-        m: Optical<M::P>,
+        m: Optical<M::O>,
     ) -> Result<Shortname, InsertError> {
         self.measurements.insert(i, n, m)
     }
@@ -2696,7 +2802,7 @@ where
     where
         M: LookupMetadata,
         M::T: LookupTemporal,
-        M::P: LookupOptical,
+        M::O: LookupOptical,
     {
         CoreTEXT::new_text_from_raw(kws, nonstd, &conf.standard)
             .def_inner_into()
@@ -2793,7 +2899,7 @@ where
     pub fn remove_measurement_by_name(
         &mut self,
         n: &Shortname,
-    ) -> Option<(MeasIndex, Element<Temporal<M::T>, Optical<M::P>>)> {
+    ) -> Option<(MeasIndex, Element<Temporal<M::T>, Optical<M::O>>)> {
         self.remove_measurement_by_name_inner(n).map(|(i, x)| {
             self.data.drop_in_place(i.into()).unwrap();
             (i, x)
@@ -2807,7 +2913,7 @@ where
     pub fn remove_measurement_by_index(
         &mut self,
         index: MeasIndex,
-    ) -> Result<EitherPair<M::N, Temporal<M::T>, Optical<M::P>>, ElementIndexError> {
+    ) -> Result<EitherPair<M::N, Temporal<M::T>, Optical<M::O>>, ElementIndexError> {
         let res = self.remove_measurement_by_index_inner(index)?;
         self.data.drop_in_place(index.into()).unwrap();
         Ok(res)
@@ -2850,7 +2956,7 @@ where
     pub fn push_optical(
         &mut self,
         n: <M::N as MightHave>::Wrapper<Shortname>,
-        m: Optical<M::P>,
+        m: Optical<M::O>,
         col: AnyFCSColumn,
     ) -> Result<Shortname, PushOpticalError> {
         let k = self.measurements.push(n, m)?;
@@ -2865,7 +2971,7 @@ where
         &mut self,
         i: MeasIndex,
         n: <M::N as MightHave>::Wrapper<Shortname>,
-        m: Optical<M::P>,
+        m: Optical<M::O>,
         col: AnyFCSColumn,
     ) -> Result<Shortname, InsertOpticalError> {
         let k = self.measurements.insert(i, n, m)?;
@@ -4805,6 +4911,29 @@ impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata3_2 {
     }
 }
 
+fn check_indexed_key_transfer<T, E>(x: &OptionalKw<T>, i: IndexFromOne) -> Result<(), E>
+where
+    E: From<IndexedKeyTransferError<T>>,
+{
+    if x.0.is_some() {
+        Err(IndexedKeyTransferError::<T>::new(i).into())
+    } else {
+        Ok(())
+    }
+}
+
+fn check_optical_keys_transfer<X, T, E>(
+    x: &Optical<X>,
+    i: IndexFromOne,
+) -> MultiResult<(), AnyIndexedKeyTransferError> {
+    let f = check_indexed_key_transfer(&x.filter, i);
+    let o = check_indexed_key_transfer(&x.power, i);
+    let t = check_indexed_key_transfer(&x.detector_type, i);
+    let p = check_indexed_key_transfer(&x.percent_emitted, i);
+    let v = check_indexed_key_transfer(&x.detector_voltage, i);
+    f.zip3(o, t).mult_zip(p.zip(v)).map(|_| ())
+}
+
 fn check_key_transfer<T>(
     x: OptionalKw<T>,
     lossless: bool,
@@ -4826,7 +4955,7 @@ fn check_plate_keys_transfer(
     let n = check_key_transfer(p.platename, lossless);
     let i = check_key_transfer(p.plateid, lossless);
     let w = check_key_transfer(p.wellid, lossless);
-    n.zip3(i, w).map(|_| ())
+    n.zip3(i, w).void()
 }
 
 fn check_carrier_keys_transfer(
@@ -4836,7 +4965,7 @@ fn check_carrier_keys_transfer(
     let i = check_key_transfer(c.carrierid, lossless);
     let t = check_key_transfer(c.carriertype, lossless);
     let l = check_key_transfer(c.locationid, lossless);
-    i.zip3(t, l).map(|_| ())
+    i.zip3(t, l).void()
 }
 
 fn check_unstained_keys_transfer(
@@ -4845,7 +4974,7 @@ fn check_unstained_keys_transfer(
 ) -> Tentative<(), AnyKeyTransferError, AnyKeyTransferError> {
     let c = check_key_transfer(u.unstainedcenters, lossless);
     let i = check_key_transfer(u.unstainedinfo, lossless);
-    c.zip(i).map(|_| ())
+    c.zip(i).void()
 }
 
 fn check_datetimes_keys_transfer(
@@ -4869,7 +4998,7 @@ fn check_modified_keys_transfer(
     let d = check_key_transfer(m.last_modified, lossless);
     let r = check_key_transfer(m.last_modifier, lossless);
     let o = check_key_transfer(m.originality, lossless);
-    d.zip3(r, o).map(|_| ())
+    d.zip3(r, o).void()
 }
 
 // TODO emit warnings if any of these "lose" data, which means we need a new
@@ -5036,41 +5165,41 @@ impl From<InnerTemporal3_2> for InnerOptical3_2 {
     }
 }
 
-impl From<InnerOptical2_0> for InnerTemporal2_0 {
-    fn from(value: InnerOptical2_0) -> Self {
-        Self { peak: value.peak }
-    }
-}
+// impl From<InnerOptical2_0> for InnerTemporal2_0 {
+//     fn from(value: InnerOptical2_0) -> Self {
+//         Self { peak: value.peak }
+//     }
+// }
 
-impl From<InnerOptical3_0> for InnerTemporal3_0 {
-    fn from(value: InnerOptical3_0) -> Self {
-        Self {
-            timestep: Timestep::default(),
-            peak: value.peak,
-        }
-    }
-}
+// impl From<InnerOptical3_0> for InnerTemporal3_0 {
+//     fn from(value: InnerOptical3_0) -> Self {
+//         Self {
+//             timestep: Timestep::default(),
+//             peak: value.peak,
+//         }
+//     }
+// }
 
-impl From<InnerOptical3_1> for InnerTemporal3_1 {
-    fn from(value: InnerOptical3_1) -> Self {
-        Self {
-            timestep: Timestep::default(),
-            display: value.display,
-            peak: value.peak,
-        }
-    }
-}
+// impl From<InnerOptical3_1> for InnerTemporal3_1 {
+//     fn from(value: InnerOptical3_1) -> Self {
+//         Self {
+//             timestep: Timestep::default(),
+//             display: value.display,
+//             peak: value.peak,
+//         }
+//     }
+// }
 
-impl From<InnerOptical3_2> for InnerTemporal3_2 {
-    fn from(value: InnerOptical3_2) -> Self {
-        Self {
-            timestep: Timestep::default(),
-            display: value.display,
-            datatype: value.datatype,
-            measurement_type: None.into(),
-        }
-    }
-}
+// impl From<InnerOptical3_2> for InnerTemporal3_2 {
+//     fn from(value: InnerOptical3_2) -> Self {
+//         Self {
+//             timestep: Timestep::default(),
+//             display: value.display,
+//             datatype: value.datatype,
+//             measurement_type: None.into(),
+//         }
+//     }
+// }
 
 impl Versioned for InnerOptical2_0 {
     fn fcs_version() -> Version {
@@ -5279,12 +5408,14 @@ impl VersionedOptical for InnerOptical2_0 {
         .collect()
     }
 
-    fn can_convert_temporal(&self) -> Result<(), OpticalToTemporalError> {
-        if !self.scale.as_ref_opt().is_some_and(|s| *s == Scale::Linear) {
-            Err(OpticalToTemporalError::NonLinear)
-        } else {
-            Ok(())
+    fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult<(), OpticalToTemporalError> {
+        let mut res = check_indexed_key_transfer(&self.wavelength, i.into()).map_err(NonEmpty::new);
+        if let Err(err) = res.as_mut() {
+            if !self.scale.as_ref_opt().is_some_and(|s| *s == Scale::Linear) {
+                err.push(OpticalNonLinearError.into());
+            }
         }
+        res
     }
 }
 
@@ -5307,14 +5438,17 @@ impl VersionedOptical for InnerOptical3_0 {
         .collect()
     }
 
-    fn can_convert_temporal(&self) -> Result<(), OpticalToTemporalError> {
-        if self.scale != Scale::Linear {
-            Err(OpticalToTemporalError::NonLinear)
-        } else if self.gain.0.is_some() {
-            Err(OpticalToTemporalError::HasGain)
-        } else {
-            Ok(())
+    fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult<(), OpticalToTemporalError> {
+        let mut res = check_indexed_key_transfer(&self.wavelength, i.into()).map_err(NonEmpty::new);
+        if let Err(err) = res.as_mut() {
+            if self.scale != Scale::Linear {
+                err.push(OpticalNonLinearError.into());
+            }
+            if self.gain.0.is_some() {
+                err.push(OpticalHasGainError.into());
+            }
         }
+        res
     }
 }
 
@@ -5339,14 +5473,20 @@ impl VersionedOptical for InnerOptical3_1 {
         .collect()
     }
 
-    fn can_convert_temporal(&self) -> Result<(), OpticalToTemporalError> {
-        if self.scale != Scale::Linear {
-            Err(OpticalToTemporalError::NonLinear)
-        } else if self.gain.0.is_some() {
-            Err(OpticalToTemporalError::HasGain)
-        } else {
-            Ok(())
+    fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult<(), OpticalToTemporalError> {
+        let j = i.into();
+        let c = check_indexed_key_transfer(&self.calibration, j);
+        let w = check_indexed_key_transfer(&self.wavelengths, j);
+        let mut res = c.zip(w).map(|_| ());
+        if let Err(err) = res.as_mut() {
+            if self.scale != Scale::Linear {
+                err.push(OpticalNonLinearError.into());
+            }
+            if self.gain.0.is_some() {
+                err.push(OpticalHasGainError.into());
+            }
         }
+        res
     }
 }
 
@@ -5376,16 +5516,25 @@ impl VersionedOptical for InnerOptical3_2 {
         .collect()
     }
 
-    fn can_convert_temporal(&self) -> Result<(), OpticalToTemporalError> {
-        if self.scale != Scale::Linear {
-            Err(OpticalToTemporalError::NonLinear)
-        } else if self.gain.0.is_some() {
-            Err(OpticalToTemporalError::HasGain)
-        } else if self.measurement_type.0.is_some() {
-            Err(OpticalToTemporalError::NotTimeType)
-        } else {
-            Ok(())
+    fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult<(), OpticalToTemporalError> {
+        let j = i.into();
+        let c = check_indexed_key_transfer(&self.calibration, j);
+        let w = check_indexed_key_transfer(&self.wavelengths, j);
+        let m = check_indexed_key_transfer(&self.measurement_type, j);
+        let a = check_indexed_key_transfer(&self.analyte, j);
+        let t = check_indexed_key_transfer(&self.tag, j);
+        let n = check_indexed_key_transfer(&self.detector_name, j);
+        let f = check_indexed_key_transfer(&self.feature, j);
+        let mut res = c.zip3(w, m).mult_zip3(a.zip(t), n.zip(f)).map(|_| ());
+        if let Err(err) = res.as_mut() {
+            if self.scale != Scale::Linear {
+                err.push(OpticalNonLinearError.into())
+            }
+            if self.gain.0.is_some() {
+                err.push(OpticalHasGainError.into())
+            }
         }
+        res
     }
 }
 
@@ -5406,6 +5555,10 @@ impl VersionedTemporal for InnerTemporal2_0 {
 
     fn opt_meas_keywords_inner(&self, _: MeasIndex) -> RawOptPairs {
         vec![]
+    }
+
+    fn can_convert_to_optical(&self, _: MeasIndex) -> MultiResult<(), TemporalToOpticalError> {
+        Ok(())
     }
 }
 
@@ -5428,6 +5581,10 @@ impl VersionedTemporal for InnerTemporal3_0 {
 
     fn opt_meas_keywords_inner(&self, _: MeasIndex) -> RawOptPairs {
         vec![]
+    }
+
+    fn can_convert_to_optical(&self, _: MeasIndex) -> MultiResult<(), TemporalToOpticalError> {
+        Ok(())
     }
 }
 
@@ -5452,6 +5609,10 @@ impl VersionedTemporal for InnerTemporal3_1 {
         [OptIndexedKey::pair(&self.display, i.into())]
             .into_iter()
             .collect()
+    }
+
+    fn can_convert_to_optical(&self, _: MeasIndex) -> MultiResult<(), TemporalToOpticalError> {
+        Ok(())
     }
 }
 
@@ -5479,6 +5640,118 @@ impl VersionedTemporal for InnerTemporal3_2 {
         ]
         .into_iter()
         .collect()
+    }
+
+    fn can_convert_to_optical(&self, i: MeasIndex) -> MultiResult<(), TemporalToOpticalError> {
+        check_indexed_key_transfer(&self.measurement_type, i.into()).map_err(NonEmpty::new)
+    }
+}
+
+impl TemporalToOptical<InnerTemporal2_0> for InnerOptical2_0 {
+    type TData = ();
+
+    fn from_temporal_inner(t: InnerTemporal2_0) -> (Self, Self::TData) {
+        let new = Self {
+            scale: Some(Scale::Linear).into(),
+            peak: t.peak,
+            wavelength: None.into(),
+        };
+        (new, ())
+    }
+}
+
+impl TemporalToOptical<InnerTemporal3_0> for InnerOptical3_0 {
+    type TData = Timestep;
+
+    fn from_temporal_inner(t: InnerTemporal3_0) -> (Self, Self::TData) {
+        let new = Self {
+            scale: Scale::Linear,
+            peak: t.peak,
+            wavelength: None.into(),
+            gain: None.into(),
+        };
+        (new, t.timestep)
+    }
+}
+
+impl TemporalToOptical<InnerTemporal3_1> for InnerOptical3_1 {
+    type TData = Timestep;
+
+    fn from_temporal_inner(t: InnerTemporal3_1) -> (Self, Self::TData) {
+        let new = Self {
+            scale: Scale::Linear,
+            peak: t.peak,
+            wavelengths: None.into(),
+            gain: None.into(),
+            calibration: None.into(),
+            display: t.display,
+        };
+        (new, t.timestep)
+    }
+}
+
+impl TemporalToOptical<InnerTemporal3_2> for InnerOptical3_2 {
+    type TData = Timestep;
+
+    fn from_temporal_inner(t: InnerTemporal3_2) -> (Self, Self::TData) {
+        let new = Self {
+            scale: Scale::Linear,
+            wavelengths: None.into(),
+            gain: None.into(),
+            calibration: None.into(),
+            display: t.display,
+            analyte: None.into(),
+            feature: None.into(),
+            measurement_type: None.into(),
+            tag: None.into(),
+            detector_name: None.into(),
+            datatype: t.datatype,
+        };
+        (new, t.timestep)
+    }
+}
+
+impl OpticalToTemporal<InnerOptical2_0> for InnerTemporal2_0 {
+    type TData = ();
+
+    fn from_optical_inner(t: InnerOptical2_0, _: Self::TData) -> Self {
+        Self { peak: t.peak }
+    }
+}
+
+impl OpticalToTemporal<InnerOptical3_0> for InnerTemporal3_0 {
+    type TData = Timestep;
+
+    fn from_optical_inner(t: InnerOptical3_0, timestep: Self::TData) -> Self {
+        Self {
+            timestep,
+            peak: t.peak,
+        }
+    }
+}
+
+impl OpticalToTemporal<InnerOptical3_1> for InnerTemporal3_1 {
+    type TData = Timestep;
+
+    fn from_optical_inner(t: InnerOptical3_1, timestep: Self::TData) -> Self {
+        Self {
+            timestep,
+            peak: t.peak,
+            display: t.display,
+        }
+    }
+}
+
+impl OpticalToTemporal<InnerOptical3_2> for InnerTemporal3_2 {
+    type TData = Timestep;
+
+    fn from_optical_inner(t: InnerOptical3_2, timestep: Self::TData) -> Self {
+        Self {
+            timestep,
+            display: t.display,
+            measurement_type: None.into(),
+            datatype: t.datatype,
+        }
     }
 }
 
@@ -5717,7 +5990,7 @@ impl LookupMetadata for InnerMetadata3_2 {
 }
 
 impl VersionedMetadata for InnerMetadata2_0 {
-    type P = InnerOptical2_0;
+    type O = InnerOptical2_0;
     type T = InnerTemporal2_0;
     type N = OptionalKwFamily;
     type L = DataLayout2_0;
@@ -5796,7 +6069,7 @@ impl VersionedMetadata for InnerMetadata2_0 {
 
     fn as_data_layout(
         metadata: &Metadata<Self>,
-        ms: &Measurements<Self::N, Self::T, Self::P>,
+        ms: &Measurements<Self::N, Self::T, Self::O>,
         conf: &SharedConfig,
     ) -> DeferredResult<Self::L, NewDataLayoutWarning, NewDataLayoutError> {
         Self::L::try_new(
@@ -5806,10 +6079,20 @@ impl VersionedMetadata for InnerMetadata2_0 {
             conf,
         )
     }
+
+    fn swap_optical_temporal_inner(old_t: Self::T, old_o: Self::O) -> (Self::O, Self::T) {
+        let new_t = Self::T { peak: old_o.peak };
+        let new_o = Self::O {
+            peak: old_t.peak,
+            scale: Some(Scale::Linear).into(),
+            wavelength: None.into(),
+        };
+        (new_o, new_t)
+    }
 }
 
 impl VersionedMetadata for InnerMetadata3_0 {
-    type P = InnerOptical3_0;
+    type O = InnerOptical3_0;
     type T = InnerTemporal3_0;
     type N = OptionalKwFamily;
     type L = DataLayout3_0;
@@ -5896,7 +6179,7 @@ impl VersionedMetadata for InnerMetadata3_0 {
 
     fn as_data_layout(
         metadata: &Metadata<Self>,
-        ms: &Measurements<Self::N, Self::T, Self::P>,
+        ms: &Measurements<Self::N, Self::T, Self::O>,
         conf: &SharedConfig,
     ) -> DeferredResult<Self::L, NewDataLayoutWarning, NewDataLayoutError> {
         Self::L::try_new(
@@ -5906,10 +6189,24 @@ impl VersionedMetadata for InnerMetadata3_0 {
             conf,
         )
     }
+
+    fn swap_optical_temporal_inner(old_t: Self::T, old_o: Self::O) -> (Self::O, Self::T) {
+        let new_t = Self::T {
+            peak: old_o.peak,
+            timestep: old_t.timestep,
+        };
+        let new_o = Self::O {
+            scale: Scale::Linear,
+            wavelength: None.into(),
+            gain: None.into(),
+            peak: old_t.peak,
+        };
+        (new_o, new_t)
+    }
 }
 
 impl VersionedMetadata for InnerMetadata3_1 {
-    type P = InnerOptical3_1;
+    type O = InnerOptical3_1;
     type T = InnerTemporal3_1;
     type N = IdentityFamily;
     type L = DataLayout3_1;
@@ -6004,7 +6301,7 @@ impl VersionedMetadata for InnerMetadata3_1 {
 
     fn as_data_layout(
         metadata: &Metadata<Self>,
-        ms: &Measurements<Self::N, Self::T, Self::P>,
+        ms: &Measurements<Self::N, Self::T, Self::O>,
         conf: &SharedConfig,
     ) -> DeferredResult<Self::L, NewDataLayoutWarning, NewDataLayoutError> {
         Self::L::try_new(
@@ -6014,10 +6311,27 @@ impl VersionedMetadata for InnerMetadata3_1 {
             conf,
         )
     }
+
+    fn swap_optical_temporal_inner(old_t: Self::T, old_o: Self::O) -> (Self::O, Self::T) {
+        let new_t = Self::T {
+            peak: old_o.peak,
+            display: old_o.display,
+            timestep: old_t.timestep,
+        };
+        let new_o = Self::O {
+            scale: Scale::Linear,
+            wavelengths: None.into(),
+            gain: None.into(),
+            display: old_t.display,
+            peak: old_t.peak,
+            calibration: None.into(),
+        };
+        (new_o, new_t)
+    }
 }
 
 impl VersionedMetadata for InnerMetadata3_2 {
-    type P = InnerOptical3_2;
+    type O = InnerOptical3_2;
     type T = InnerTemporal3_2;
     type N = IdentityFamily;
     type L = DataLayout3_2;
@@ -6114,7 +6428,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
 
     fn as_data_layout(
         metadata: &Metadata<Self>,
-        ms: &Measurements<Self::N, Self::T, Self::P>,
+        ms: &Measurements<Self::N, Self::T, Self::O>,
         conf: &SharedConfig,
     ) -> DeferredResult<Self::L, NewDataLayoutWarning, NewDataLayoutError> {
         let endian = metadata.specific.byteord;
@@ -6136,6 +6450,29 @@ impl VersionedMetadata for InnerMetadata3_2 {
             })
             .collect();
         Self::L::try_new(metadata.datatype, endian, cs, conf)
+    }
+
+    fn swap_optical_temporal_inner(old_t: Self::T, old_o: Self::O) -> (Self::O, Self::T) {
+        let new_t = Self::T {
+            display: old_o.display,
+            datatype: old_o.datatype,
+            timestep: old_t.timestep,
+            measurement_type: None.into(),
+        };
+        let new_o = Self::O {
+            scale: Scale::Linear,
+            display: old_t.display,
+            datatype: old_t.datatype,
+            wavelengths: None.into(),
+            gain: None.into(),
+            calibration: None.into(),
+            analyte: None.into(),
+            measurement_type: None.into(),
+            tag: None.into(),
+            detector_name: None.into(),
+            feature: None.into(),
+        };
+        (new_o, new_t)
     }
 }
 
@@ -6646,26 +6983,74 @@ impl fmt::Display for OpticalConvertError {
     }
 }
 
-pub enum OpticalToTemporalError {
-    NonLinear,
-    HasGain,
-    NotTimeType,
-}
+enum_from_disp!(
+    pub SetTemporalError,
+    [ToTemp, OpticalToTemporalError],
+    [Swap, SwapOpticalTemporalError],
+    [Set, SetCenterError]
+);
+
+enum_from_disp!(
+    pub SwapOpticalTemporalError,
+    [ToTemporal, OpticalToTemporalError],
+    [ToOptical, TemporalToOpticalError]
+);
+
+enum_from_disp!(
+    pub OpticalToTemporalError,
+    [NonLinear, OpticalNonLinearError],
+    [HasGain, OpticalHasGainError],
+    [Wavelength, IndexedKeyTransferError<Wavelength>],
+    [Wavelengths, IndexedKeyTransferError<Wavelengths>],
+    [MeasType, IndexedKeyTransferError<OpticalType>],
+    [Analyte, IndexedKeyTransferError<Analyte>],
+    [Tag, IndexedKeyTransferError<Tag>],
+    [DetectorName, IndexedKeyTransferError<DetectorName>],
+    [Feature, IndexedKeyTransferError<Feature>],
+    [Calibration3_1, IndexedKeyTransferError<Calibration3_1>],
+    [Calibration3_2, IndexedKeyTransferError<Calibration3_2>]
+);
+
+enum_from_disp!(
+    pub TemporalToOpticalError,
+    [MeasType, IndexedKeyTransferError<TemporalType>]
+);
+
+// pub enum OpticalToTemporalError {
+//     NonLinear,
+//     HasGain,
+//     NotTimeType,
+// }
 
 pub enum SetTemporalIndexError {
     Convert(OpticalToTemporalError),
     Index(SetCenterError),
 }
 
-impl fmt::Display for OpticalToTemporalError {
+pub struct OpticalNonLinearError;
+pub struct OpticalHasGainError;
+
+impl fmt::Display for OpticalNonLinearError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            OpticalToTemporalError::NonLinear => write!(f, "$PnE must be '0,0'"),
-            OpticalToTemporalError::HasGain => write!(f, "$PnG must not be set"),
-            OpticalToTemporalError::NotTimeType => write!(f, "$PnTYPE must not be set"),
-        }
+        write!(f, "$PnE must be '0,0' to convert to temporal")
     }
 }
+
+impl fmt::Display for OpticalHasGainError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "$PnG must not be set to convert to temporal")
+    }
+}
+
+// impl fmt::Display for OpticalToTemporalError {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+//         match self {
+//             OpticalToTemporalError::NonLinear => write!(f, "$PnE must be '0,0'"),
+//             OpticalToTemporalError::HasGain => write!(f, "$PnG must not be set"),
+//             OpticalToTemporalError::NotTimeType => write!(f, "$PnTYPE must not be set"),
+//         }
+//     }
+// }
 
 impl fmt::Display for SetTemporalIndexError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -6729,6 +7114,15 @@ enum_from_disp!(
     [Begindatetime, KeyTransferError<BeginDateTime>],
     [Enddatetime, KeyTransferError<EndDateTime>],
     [Spillover, KeyTransferError<Spillover>]
+);
+
+enum_from_disp!(
+    pub AnyIndexedKeyTransferError,
+    [Filter, IndexedKeyTransferError<Filter>],
+    [Power, IndexedKeyTransferError<Power>],
+    [DetectorType, IndexedKeyTransferError<DetectorType>],
+    [PercentEmitted, IndexedKeyTransferError<PercentEmitted>],
+    [DetectorVoltage, IndexedKeyTransferError<DetectorVoltage>]
 );
 
 pub struct Comp2_0TransferError;
@@ -6797,15 +7191,36 @@ impl<T> Default for KeyTransferError<T> {
     }
 }
 
-impl<K> fmt::Display for KeyTransferError<K>
+impl<T> fmt::Display for KeyTransferError<T>
 where
-    K: Key,
+    T: Key,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             f,
             "{} is set but is not applicable to target version",
-            K::std()
+            T::std()
+        )
+    }
+}
+
+pub struct IndexedKeyTransferError<T>(PhantomData<T>, IndexFromOne);
+
+impl<T> IndexedKeyTransferError<T> {
+    fn new(i: IndexFromOne) -> Self {
+        Self(PhantomData, i)
+    }
+}
+
+impl<T> fmt::Display for IndexedKeyTransferError<T>
+where
+    T: IndexedKey,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "{} is set but is not applicable to target version",
+            T::std(self.1)
         )
     }
 }

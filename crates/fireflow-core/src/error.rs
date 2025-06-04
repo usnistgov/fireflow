@@ -69,7 +69,7 @@ pub struct Tentative<V, W, E> {
 /// we may want to do something with the original value after trying and failing
 /// to convert it.
 pub struct DeferredFailure<P, W, E> {
-    passthru: P,
+    passthru: Box<P>,
     warnings: Vec<W>,
     errors: NonEmpty<E>,
 }
@@ -210,7 +210,7 @@ impl<V, W> Terminal<V, W> {
                 Err(DeferredFailure {
                     // termination will throw away the passthru value so this
                     // only needs to be a dummy
-                    passthru: (),
+                    passthru: Box::new(()),
                     warnings: self.warnings,
                     errors: e.errors,
                 }
@@ -641,6 +641,10 @@ impl<V, W, E> Tentative<V, W, E> {
             errors: self.errors,
         }
     }
+
+    pub fn void(self) -> Tentative<(), W, E> {
+        Tentative::new((), self.warnings, self.errors)
+    }
 }
 
 impl<V, W, E> Tentative<Option<V>, W, E> {
@@ -658,11 +662,11 @@ impl<V, W, E> Tentative<Option<V>, W, E> {
 }
 
 impl<P, W, E> DeferredFailure<P, W, E> {
-    pub fn new(warnings: Vec<W>, errors: NonEmpty<E>, passthru: P) -> Self {
+    pub fn new(warnings: Vec<W>, errors: NonEmpty<E>, p: P) -> Self {
         Self {
             warnings,
             errors,
-            passthru,
+            passthru: Box::new(p),
         }
     }
 
@@ -691,7 +695,7 @@ impl<P, W, E> DeferredFailure<P, W, E> {
         F: FnOnce(P) -> X,
     {
         DeferredFailure {
-            passthru: f(self.passthru),
+            passthru: Box::new(f(*self.passthru)),
             warnings: self.warnings,
             errors: self.errors,
         }
@@ -735,7 +739,7 @@ impl<P, W, E> DeferredFailure<P, W, E> {
 
     pub fn unfail(self) -> Tentative<P, W, E> {
         Tentative::new(
-            self.passthru,
+            *self.passthru,
             self.warnings,
             self.errors.into_iter().collect(),
         )
@@ -804,7 +808,7 @@ impl<P, W, E> DeferredFailure<P, W, E> {
         self.warnings.extend(other.warnings);
         self.errors.extend(other.errors);
         DeferredFailure {
-            passthru: f(self.passthru, other.passthru),
+            passthru: Box::new(f(*self.passthru, *other.passthru)),
             warnings: self.warnings,
             errors: self.errors,
         }
@@ -824,7 +828,7 @@ impl<W, E> DeferredFailure<(), W, E> {
         self.warnings.extend(other.warnings);
         self.errors.extend(other.errors);
         Self {
-            passthru: (),
+            passthru: Box::new(()),
             warnings: self.warnings,
             errors: self.errors,
         }

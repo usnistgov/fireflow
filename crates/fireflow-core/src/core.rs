@@ -2009,6 +2009,51 @@ where
         self.measurements.replace_named(name, m)
     }
 
+    /// Replace temporal measurement at index.
+    #[allow(clippy::type_complexity)]
+    pub fn replace_temporal_at(
+        &mut self,
+        index: MeasIndex,
+        m: Temporal<M::T>,
+        force: bool,
+    ) -> DeferredResult<
+        Element<Temporal<M::T>, Optical<M::O>>,
+        ReplaceTemporalError,
+        ReplaceTemporalError,
+    >
+    where
+        M::O: OpticalFromTemporal<M::T>,
+    {
+        self.measurements.replace_center_at(index, m, |i, old_t| {
+            <M::O as OpticalFromTemporal<M::T>>::from_temporal(old_t, i, !force)
+                .def_inner_into()
+                .def_map_value(|(x, _)| x)
+        })
+    }
+
+    /// Replace temporal measurement at index.
+    #[allow(clippy::type_complexity)]
+    pub fn replace_temporal_named(
+        &mut self,
+        name: &Shortname,
+        m: Temporal<M::T>,
+        force: bool,
+    ) -> DeferredResult<
+        Option<Element<Temporal<M::T>, Optical<M::O>>>,
+        ReplaceTemporalError,
+        ReplaceTemporalError,
+    >
+    where
+        M::O: OpticalFromTemporal<M::T>,
+    {
+        self.measurements
+            .replace_center_by_name(name, m, |i, old_t| {
+                <M::O as OpticalFromTemporal<M::T>>::from_temporal(old_t, i, !force)
+                    .def_inner_into()
+                    .def_map_value(|(x, _)| x)
+            })
+    }
+
     /// Rename a measurement
     ///
     /// If index points to the center element and the wrapped name contains
@@ -6991,6 +7036,12 @@ impl fmt::Display for OpticalConvertError {
         write!(f, "scale must be set before converting measurement",)
     }
 }
+
+enum_from_disp!(
+    pub ReplaceTemporalError,
+    [FromTemp, TemporalToOpticalError],
+    [Set, SetCenterError]
+);
 
 // TODO these could be nested more clearly
 enum_from_disp!(

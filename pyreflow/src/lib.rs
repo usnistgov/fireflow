@@ -1182,14 +1182,6 @@ macro_rules! convert_methods {
     };
 }
 
-struct ConvertFailure;
-
-impl fmt::Display for ConvertFailure {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "could not change FCS version")
-    }
-}
-
 convert_methods!(
     PyCoreTEXT2_0,
     [version_3_0, PyCoreTEXT3_0],
@@ -1556,23 +1548,6 @@ macro_rules! common_methods {
                 self.0.clear_trigger()
             }
 
-            fn set_temporal(&mut self, name: String, force: bool) -> PyResult<bool> {
-                let n = str_to_shortname(name)?;
-                self.0
-                    .set_temporal(&n, force)
-                    .map_err(|e| PyreflowException::new_err(e.to_string()))
-            }
-
-            fn set_temporal_at(&mut self, index: usize, force: bool) -> PyResult<bool> {
-                self.0
-                    .set_temporal_at(index.into(), force)
-                    .map_err(|e| PyreflowException::new_err(e.to_string()))
-            }
-
-            fn unset_temporal(&mut self) -> bool {
-                self.0.unset_temporal()
-            }
-
             #[getter]
             fn get_ranges<'py>(&self, py: Python<'py>) -> PyResult<Vec<Bound<'py, PyAny>>> {
                 let mut rs = vec![];
@@ -1688,6 +1663,99 @@ common_methods!(
     PyCoreTEXT3_1,
     PyCoreTEXT3_2,
     PyCoreDataset2_0,
+    PyCoreDataset3_0,
+    PyCoreDataset3_1,
+    PyCoreDataset3_2
+);
+
+macro_rules! temporal_get_set_2_0 {
+    ($($pytype:ident),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                fn set_temporal(
+                    &mut self,
+                    name: String,
+                    force: bool
+                ) -> PyResult<bool> {
+                    let n = str_to_shortname(name)?;
+                    self.0
+                        .set_temporal(&n, (), force)
+                        .def_terminate(SetTemporalFailure)
+                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
+                }
+
+                fn set_temporal_at(
+                    &mut self,
+                    index: usize,
+                    force: bool
+                ) -> PyResult<bool> {
+                    self.0
+                        .set_temporal_at(index.into(), (), force)
+                        .def_terminate(SetTemporalFailure)
+                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
+                }
+
+                fn unset_temporal(&mut self, force: bool) -> PyResult<bool> {
+                    let out = self.0.unset_temporal(force).map(|x| x.is_some());
+                    Ok(out)
+                        .def_terminate(SetTemporalFailure)
+                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
+                }
+            }
+        )*
+    }
+}
+
+temporal_get_set_2_0!(PyCoreTEXT2_0, PyCoreDataset2_0);
+
+macro_rules! temporal_get_set_3_0 {
+    ($($pytype:ident),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                fn set_temporal(
+                    &mut self,
+                    name: String,
+                    timestep: f32,
+                    force: bool
+                ) -> PyResult<bool> {
+                    let n = str_to_shortname(name)?;
+                    let ts = f32_to_positive_float(timestep).map(Timestep)?;
+                    self.0
+                        .set_temporal(&n, ts, force)
+                        .def_terminate(SetTemporalFailure)
+                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
+                }
+
+                fn set_temporal_at(
+                    &mut self,
+                    index: usize,
+                    timestep: f32,
+                    force: bool
+                ) -> PyResult<bool> {
+                    let ts = f32_to_positive_float(timestep).map(Timestep)?;
+                    self.0
+                        .set_temporal_at(index.into(), ts, force)
+                        .def_terminate(SetTemporalFailure)
+                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
+                }
+
+                fn unset_temporal(&mut self, force: bool) -> PyResult<Option<f32>> {
+                    let out = self.0.unset_temporal(force).map(|x| x.map(|y| y.0.into()));
+                    Ok(out)
+                        .def_terminate(SetTemporalFailure)
+                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
+                }
+            }
+        )*
+    }
+}
+
+temporal_get_set_3_0!(
+    PyCoreTEXT3_0,
+    PyCoreTEXT3_1,
+    PyCoreTEXT3_2,
     PyCoreDataset3_0,
     PyCoreDataset3_1,
     PyCoreDataset3_2
@@ -3473,4 +3541,20 @@ fn dataframe_to_fcs(mut df: DataFrame) -> Result<Vec<AnyFCSColumn>, String> {
         cols.push(series_to_fcs(c.clone())?);
     }
     Ok(cols)
+}
+
+struct ConvertFailure;
+
+impl fmt::Display for ConvertFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "could not change FCS version")
+    }
+}
+
+struct SetTemporalFailure;
+
+impl fmt::Display for SetTemporalFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "could not convert to/from temporal measurement")
+    }
 }

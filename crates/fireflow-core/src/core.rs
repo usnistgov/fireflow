@@ -1874,8 +1874,6 @@ where
         force: bool,
     ) -> DeferredResult<bool, SetTemporalError, SetTemporalError>
     where
-        Optical<M::O>: From<Temporal<M::T>>,
-        Temporal<M::T>: From<Optical<M::O>>,
         M::T: TemporalFromOptical<M::O>,
     {
         let lossless = !force;
@@ -1897,8 +1895,6 @@ where
         force: bool,
     ) -> DeferredResult<bool, SetTemporalError, SetTemporalError>
     where
-        Optical<M::O>: From<Temporal<M::T>>,
-        Temporal<M::T>: From<Optical<M::O>>,
         M::T: TemporalFromOptical<M::O>,
     {
         let lossless = !force;

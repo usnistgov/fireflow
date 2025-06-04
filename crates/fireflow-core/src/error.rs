@@ -869,6 +869,8 @@ pub trait ResultExt {
         a: Result<A, Self::E>,
         b: Result<B, Self::E>,
     ) -> MultiResult<(Self::V, A, B), Self::E>;
+
+    fn void(self) -> Result<(), Self::E>;
 }
 
 impl<V, E> ResultExt for Result<V, E> {
@@ -916,9 +918,13 @@ impl<V, E> ResultExt for Result<V, E> {
             .unwrap()),
         }
     }
+
+    fn void(self) -> Result<(), Self::E> {
+        self.map(|_| ())
+    }
 }
 
-pub trait MultiResultExt {
+pub trait MultiResultExt: Sized {
     type V;
     type E;
 
@@ -933,6 +939,17 @@ pub trait MultiResultExt {
         a: MultiResult<A, Self::E>,
         b: MultiResult<B, Self::E>,
     ) -> MultiResult<(Self::V, A, B), Self::E>;
+
+    fn mult_errors_into<ToE>(self) -> MultiResult<Self::V, ToE>
+    where
+        ToE: From<Self::E>,
+    {
+        self.mult_map_errors(|e| e.into())
+    }
+
+    fn mult_map_errors<F, X>(self, f: F) -> MultiResult<Self::V, X>
+    where
+        F: Fn(Self::E) -> X;
 }
 
 impl<V, E> MultiResultExt for MultiResult<V, E> {
@@ -958,6 +975,13 @@ impl<V, E> MultiResultExt for MultiResult<V, E> {
         b: MultiResult<B, Self::E>,
     ) -> MultiResult<(Self::V, A, B), Self::E> {
         self.zip3(a, b).map_err(NonEmpty::flatten)
+    }
+
+    fn mult_map_errors<F, X>(self, f: F) -> MultiResult<Self::V, X>
+    where
+        F: Fn(Self::E) -> X,
+    {
+        self.map_err(|es| es.map(f))
     }
 }
 

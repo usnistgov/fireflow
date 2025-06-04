@@ -987,6 +987,7 @@ pub trait VersionedMetadata: Sized {
         conf: &SharedConfig,
     ) -> DeferredResult<Self::L, NewDataLayoutWarning, NewDataLayoutError>;
 
+    #[allow(clippy::type_complexity)]
     fn swap_optical_temporal(
         t: Temporal<Self::T>,
         o: Optical<Self::O>,
@@ -998,14 +999,6 @@ pub trait VersionedMetadata: Sized {
         SwapOpticalTemporalError,
         SwapOpticalTemporalError,
     > {
-        let t_res = o
-            .specific
-            .can_convert_to_temporal(i)
-            .map_err(|es| es.map(|e| e.into()));
-        let o_res = t
-            .specific
-            .can_convert_to_optical(i)
-            .map_err(|es| es.map(|e| e.into()));
         let go = |old_t: Temporal<Self::T>, old_o: Optical<Self::O>| {
             let (so, st) = Self::swap_optical_temporal_inner(old_t.specific, old_o.specific);
             let new_o = Optical {
@@ -1023,7 +1016,10 @@ pub trait VersionedMetadata: Sized {
             };
             (new_o, new_t)
         };
-        match t_res.mult_zip(o_res) {
+        let t_res = o.specific.can_convert_to_temporal(i).mult_errors_into();
+        let o_specific_res = t.specific.can_convert_to_optical(i).mult_errors_into();
+        let o_common_res = check_optical_keys_transfer(&o, i).mult_errors_into();
+        match t_res.mult_zip3(o_specific_res, o_common_res) {
             Ok(_) => Ok(Tentative::new1(go(t, o))),
             Err(es) => {
                 if lossless {
@@ -1070,7 +1066,7 @@ pub(crate) trait LookupTemporal: VersionedTemporal {
     fn lookup_specific(kws: &mut StdKeywords, n: MeasIndex) -> LookupResult<Self>;
 }
 
-pub(crate) trait OpticalToTemporal<O: VersionedOptical>: Sized {
+pub trait TemporalFromOptical<O: VersionedOptical>: Sized {
     type TData;
 
     fn from_optical(
@@ -1088,8 +1084,10 @@ pub(crate) trait OpticalToTemporal<O: VersionedOptical>: Sized {
             common: old_o.common,
             specific: Self::from_optical_inner(old_o.specific, d),
         };
-        match o.specific.can_convert_to_temporal(i) {
-            Ok(()) => Ok(Tentative::new1(go(o))),
+        let opt_common_res = check_optical_keys_transfer(&o, i).mult_errors_into();
+        let opt_specific_res = o.specific.can_convert_to_temporal(i).mult_errors_into();
+        match opt_common_res.mult_zip(opt_specific_res) {
+            Ok(_) => Ok(Tentative::new1(go(o))),
             Err(es) => {
                 if lossless {
                     Err(DeferredFailure::new(vec![], es, Box::new(o)))
@@ -1103,9 +1101,10 @@ pub(crate) trait OpticalToTemporal<O: VersionedOptical>: Sized {
     fn from_optical_inner(o: O, d: Self::TData) -> Self;
 }
 
-pub(crate) trait TemporalToOptical<T: VersionedTemporal>: Sized {
+pub trait OpticalFromTemporal<T: VersionedTemporal>: Sized {
     type TData;
 
+    #[allow(clippy::type_complexity)]
     fn from_temporal(
         t: Temporal<T>,
         i: MeasIndex,
@@ -1871,20 +1870,20 @@ where
     pub fn set_temporal(
         &mut self,
         n: &Shortname,
-        timestep: <M::T as OpticalToTemporal<M::O>>::TData,
+        timestep: <M::T as TemporalFromOptical<M::O>>::TData,
         force: bool,
     ) -> DeferredResult<bool, SetTemporalError, SetTemporalError>
     where
         Optical<M::O>: From<Temporal<M::T>>,
         Temporal<M::T>: From<Optical<M::O>>,
-        M::T: OpticalToTemporal<M::O>,
+        M::T: TemporalFromOptical<M::O>,
     {
         let lossless = !force;
         self.measurements.set_center_by_name(
             n,
             |i, old_o, old_t| M::swap_optical_temporal(old_o, old_t, i, lossless).def_inner_into(),
             |i, old_o| {
-                <M::T as OpticalToTemporal<M::O>>::from_optical(old_o, i, timestep, lossless)
+                <M::T as TemporalFromOptical<M::O>>::from_optical(old_o, i, timestep, lossless)
                     .def_inner_into()
             },
         )
@@ -1894,20 +1893,20 @@ where
     pub fn set_temporal_at(
         &mut self,
         index: MeasIndex,
-        timestep: <M::T as OpticalToTemporal<M::O>>::TData,
+        timestep: <M::T as TemporalFromOptical<M::O>>::TData,
         force: bool,
     ) -> DeferredResult<bool, SetTemporalError, SetTemporalError>
     where
         Optical<M::O>: From<Temporal<M::T>>,
         Temporal<M::T>: From<Optical<M::O>>,
-        M::T: OpticalToTemporal<M::O>,
+        M::T: TemporalFromOptical<M::O>,
     {
         let lossless = !force;
         self.measurements.set_center_by_index(
             index,
             |i, old_o, old_t| M::swap_optical_temporal(old_o, old_t, i, lossless).def_inner_into(),
             |i, old_o| {
-                <M::T as OpticalToTemporal<M::O>>::from_optical(old_o, i, timestep, lossless)
+                <M::T as TemporalFromOptical<M::O>>::from_optical(old_o, i, timestep, lossless)
                     .def_inner_into()
             },
         )
@@ -1917,20 +1916,21 @@ where
     ///
     /// Return true if a time measurement existed and was converted, false
     /// otherwise.
+    #[allow(clippy::type_complexity)]
     pub fn unset_temporal(
         &mut self,
         force: bool,
     ) -> Tentative<
-        Option<<M::O as TemporalToOptical<M::T>>::TData>,
+        Option<<M::O as OpticalFromTemporal<M::T>>::TData>,
         TemporalToOpticalError,
         TemporalToOpticalError,
     >
     where
         Optical<M::O>: From<Temporal<M::T>>,
-        M::O: TemporalToOptical<M::T>,
+        M::O: OpticalFromTemporal<M::T>,
     {
         self.measurements.unset_center(|i, old_t| {
-            <M::O as TemporalToOptical<M::T>>::from_temporal(old_t, i, !force)
+            <M::O as OpticalFromTemporal<M::T>>::from_temporal(old_t, i, !force)
         })
     }
 
@@ -4926,15 +4926,16 @@ where
     }
 }
 
-fn check_optical_keys_transfer<X, T, E>(
+fn check_optical_keys_transfer<X>(
     x: &Optical<X>,
-    i: IndexFromOne,
+    i: MeasIndex,
 ) -> MultiResult<(), AnyIndexedKeyTransferError> {
-    let f = check_indexed_key_transfer(&x.filter, i);
-    let o = check_indexed_key_transfer(&x.power, i);
-    let t = check_indexed_key_transfer(&x.detector_type, i);
-    let p = check_indexed_key_transfer(&x.percent_emitted, i);
-    let v = check_indexed_key_transfer(&x.detector_voltage, i);
+    let j = i.into();
+    let f = check_indexed_key_transfer(&x.filter, j);
+    let o = check_indexed_key_transfer(&x.power, j);
+    let t = check_indexed_key_transfer(&x.detector_type, j);
+    let p = check_indexed_key_transfer(&x.percent_emitted, j);
+    let v = check_indexed_key_transfer(&x.detector_voltage, j);
     f.zip3(o, t).mult_zip(p.zip(v)).map(|_| ())
 }
 
@@ -5413,7 +5414,9 @@ impl VersionedOptical for InnerOptical2_0 {
     }
 
     fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult<(), OpticalToTemporalError> {
-        let mut res = check_indexed_key_transfer(&self.wavelength, i.into()).map_err(NonEmpty::new);
+        let mut res = check_indexed_key_transfer(&self.wavelength, i.into())
+            .map_err(OpticalToTemporalError::Xfer)
+            .into_mult();
         if let Err(err) = res.as_mut() {
             if !self.scale.as_ref_opt().is_some_and(|s| *s == Scale::Linear) {
                 err.push(OpticalNonLinearError.into());
@@ -5443,7 +5446,9 @@ impl VersionedOptical for InnerOptical3_0 {
     }
 
     fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult<(), OpticalToTemporalError> {
-        let mut res = check_indexed_key_transfer(&self.wavelength, i.into()).map_err(NonEmpty::new);
+        let mut res = check_indexed_key_transfer(&self.wavelength, i.into())
+            .map_err(OpticalToTemporalError::Xfer)
+            .into_mult();
         if let Err(err) = res.as_mut() {
             if self.scale != Scale::Linear {
                 err.push(OpticalNonLinearError.into());
@@ -5479,9 +5484,9 @@ impl VersionedOptical for InnerOptical3_1 {
 
     fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult<(), OpticalToTemporalError> {
         let j = i.into();
-        let c = check_indexed_key_transfer(&self.calibration, j);
+        let c = check_indexed_key_transfer::<_, AnyIndexedKeyTransferError>(&self.calibration, j);
         let w = check_indexed_key_transfer(&self.wavelengths, j);
-        let mut res = c.zip(w).map(|_| ());
+        let mut res = c.zip(w).mult_errors_into().void();
         if let Err(err) = res.as_mut() {
             if self.scale != Scale::Linear {
                 err.push(OpticalNonLinearError.into());
@@ -5522,14 +5527,18 @@ impl VersionedOptical for InnerOptical3_2 {
 
     fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult<(), OpticalToTemporalError> {
         let j = i.into();
-        let c = check_indexed_key_transfer(&self.calibration, j);
+        let c = check_indexed_key_transfer::<_, AnyIndexedKeyTransferError>(&self.calibration, j);
         let w = check_indexed_key_transfer(&self.wavelengths, j);
         let m = check_indexed_key_transfer(&self.measurement_type, j);
         let a = check_indexed_key_transfer(&self.analyte, j);
         let t = check_indexed_key_transfer(&self.tag, j);
         let n = check_indexed_key_transfer(&self.detector_name, j);
         let f = check_indexed_key_transfer(&self.feature, j);
-        let mut res = c.zip3(w, m).mult_zip3(a.zip(t), n.zip(f)).map(|_| ());
+        let mut res = c
+            .zip3(w, m)
+            .mult_zip3(a.zip(t), n.zip(f))
+            .mult_errors_into()
+            .void();
         if let Err(err) = res.as_mut() {
             if self.scale != Scale::Linear {
                 err.push(OpticalNonLinearError.into())
@@ -5651,7 +5660,7 @@ impl VersionedTemporal for InnerTemporal3_2 {
     }
 }
 
-impl TemporalToOptical<InnerTemporal2_0> for InnerOptical2_0 {
+impl OpticalFromTemporal<InnerTemporal2_0> for InnerOptical2_0 {
     type TData = ();
 
     fn from_temporal_inner(t: InnerTemporal2_0) -> (Self, Self::TData) {
@@ -5664,7 +5673,7 @@ impl TemporalToOptical<InnerTemporal2_0> for InnerOptical2_0 {
     }
 }
 
-impl TemporalToOptical<InnerTemporal3_0> for InnerOptical3_0 {
+impl OpticalFromTemporal<InnerTemporal3_0> for InnerOptical3_0 {
     type TData = Timestep;
 
     fn from_temporal_inner(t: InnerTemporal3_0) -> (Self, Self::TData) {
@@ -5678,7 +5687,7 @@ impl TemporalToOptical<InnerTemporal3_0> for InnerOptical3_0 {
     }
 }
 
-impl TemporalToOptical<InnerTemporal3_1> for InnerOptical3_1 {
+impl OpticalFromTemporal<InnerTemporal3_1> for InnerOptical3_1 {
     type TData = Timestep;
 
     fn from_temporal_inner(t: InnerTemporal3_1) -> (Self, Self::TData) {
@@ -5694,7 +5703,7 @@ impl TemporalToOptical<InnerTemporal3_1> for InnerOptical3_1 {
     }
 }
 
-impl TemporalToOptical<InnerTemporal3_2> for InnerOptical3_2 {
+impl OpticalFromTemporal<InnerTemporal3_2> for InnerOptical3_2 {
     type TData = Timestep;
 
     fn from_temporal_inner(t: InnerTemporal3_2) -> (Self, Self::TData) {
@@ -5715,7 +5724,7 @@ impl TemporalToOptical<InnerTemporal3_2> for InnerOptical3_2 {
     }
 }
 
-impl OpticalToTemporal<InnerOptical2_0> for InnerTemporal2_0 {
+impl TemporalFromOptical<InnerOptical2_0> for InnerTemporal2_0 {
     type TData = ();
 
     fn from_optical_inner(t: InnerOptical2_0, _: Self::TData) -> Self {
@@ -5723,7 +5732,7 @@ impl OpticalToTemporal<InnerOptical2_0> for InnerTemporal2_0 {
     }
 }
 
-impl OpticalToTemporal<InnerOptical3_0> for InnerTemporal3_0 {
+impl TemporalFromOptical<InnerOptical3_0> for InnerTemporal3_0 {
     type TData = Timestep;
 
     fn from_optical_inner(t: InnerOptical3_0, timestep: Self::TData) -> Self {
@@ -5734,7 +5743,7 @@ impl OpticalToTemporal<InnerOptical3_0> for InnerTemporal3_0 {
     }
 }
 
-impl OpticalToTemporal<InnerOptical3_1> for InnerTemporal3_1 {
+impl TemporalFromOptical<InnerOptical3_1> for InnerTemporal3_1 {
     type TData = Timestep;
 
     fn from_optical_inner(t: InnerOptical3_1, timestep: Self::TData) -> Self {
@@ -5746,7 +5755,7 @@ impl OpticalToTemporal<InnerOptical3_1> for InnerTemporal3_1 {
     }
 }
 
-impl OpticalToTemporal<InnerOptical3_2> for InnerTemporal3_2 {
+impl TemporalFromOptical<InnerOptical3_2> for InnerTemporal3_2 {
     type TData = Timestep;
 
     fn from_optical_inner(t: InnerOptical3_2, timestep: Self::TData) -> Self {
@@ -6987,6 +6996,7 @@ impl fmt::Display for OpticalConvertError {
     }
 }
 
+// TODO these could be nested more clearly
 enum_from_disp!(
     pub SetTemporalError,
     [ToTemp, OpticalToTemporalError],
@@ -6997,22 +7007,15 @@ enum_from_disp!(
 enum_from_disp!(
     pub SwapOpticalTemporalError,
     [ToTemporal, OpticalToTemporalError],
-    [ToOptical, TemporalToOpticalError]
+    [ToOptical, TemporalToOpticalError],
+    [Xfer, AnyIndexedKeyTransferError]
 );
 
 enum_from_disp!(
     pub OpticalToTemporalError,
     [NonLinear, OpticalNonLinearError],
     [HasGain, OpticalHasGainError],
-    [Wavelength, IndexedKeyTransferError<Wavelength>],
-    [Wavelengths, IndexedKeyTransferError<Wavelengths>],
-    [MeasType, IndexedKeyTransferError<OpticalType>],
-    [Analyte, IndexedKeyTransferError<Analyte>],
-    [Tag, IndexedKeyTransferError<Tag>],
-    [DetectorName, IndexedKeyTransferError<DetectorName>],
-    [Feature, IndexedKeyTransferError<Feature>],
-    [Calibration3_1, IndexedKeyTransferError<Calibration3_1>],
-    [Calibration3_2, IndexedKeyTransferError<Calibration3_2>]
+    [Xfer, AnyIndexedKeyTransferError]
 );
 
 enum_from_disp!(
@@ -7126,7 +7129,16 @@ enum_from_disp!(
     [Power, IndexedKeyTransferError<Power>],
     [DetectorType, IndexedKeyTransferError<DetectorType>],
     [PercentEmitted, IndexedKeyTransferError<PercentEmitted>],
-    [DetectorVoltage, IndexedKeyTransferError<DetectorVoltage>]
+    [DetectorVoltage, IndexedKeyTransferError<DetectorVoltage>],
+    [Wavelength, IndexedKeyTransferError<Wavelength>],
+    [Wavelengths, IndexedKeyTransferError<Wavelengths>],
+    [MeasType, IndexedKeyTransferError<OpticalType>],
+    [Analyte, IndexedKeyTransferError<Analyte>],
+    [Tag, IndexedKeyTransferError<Tag>],
+    [DetectorName, IndexedKeyTransferError<DetectorName>],
+    [Feature, IndexedKeyTransferError<Feature>],
+    [Calibration3_1, IndexedKeyTransferError<Calibration3_1>],
+    [Calibration3_2, IndexedKeyTransferError<Calibration3_2>]
 );
 
 pub struct Comp2_0TransferError;

@@ -477,25 +477,30 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     }
 
     /// Apply function over center value, possibly changing it's type
-    pub fn map_center_value<F, W>(self, f: F) -> NamedVec<K, K::Wrapper<Shortname>, W, V>
+    pub fn map_center_value<F, X, W, E>(
+        self,
+        f: F,
+    ) -> DeferredResult<NamedVec<K, K::Wrapper<Shortname>, X, V>, W, IndexedElementError<E>>
     where
-        F: Fn(IndexedElement<&Shortname, U>) -> W,
+        F: Fn(IndexedElement<&Shortname, U>) -> DeferredResult<X, W, E>,
     {
         match self {
             NamedVec::Split(s, _) => {
                 let c = s.center;
+                let index = s.left.len().into();
+                let ckey = c.key;
                 let e = IndexedElement {
-                    index: s.left.len().into(),
-                    key: &c.key,
+                    index,
+                    key: &ckey,
                     value: c.value,
                 };
-                let center = Pair {
-                    value: f(e),
-                    key: c.key,
-                };
-                NamedVec::new_split(s.left, center, s.right, s.prefix)
+                f(e).def_map_value(|value| {
+                    let center = Pair { value, key: ckey };
+                    NamedVec::new_split(s.left, center, s.right, s.prefix)
+                })
+                .def_map_errors(|error| IndexedElementError { index, error })
             }
-            NamedVec::Unsplit(u) => NamedVec::Unsplit(u),
+            NamedVec::Unsplit(u) => Ok(Tentative::new1(NamedVec::Unsplit(u))),
         }
     }
 
@@ -1299,7 +1304,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         match mem::replace(self, dummy()) {
             NamedVec::Split(s, _) => {
                 let center_key = s.center.key;
-                let index = (s.left.len() + 1).into();
+                let index = (s.left.len()).into();
                 match to_v(index, s.center.value) {
                     Ok(tnt) => tnt.map(|(value, ret)| {
                         let non_center = Pair {

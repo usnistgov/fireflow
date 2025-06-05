@@ -954,9 +954,16 @@ where
 pub trait ConvertFromOptical<O>: Sized
 where
     Self: VersionedOptical,
-    O: VersionedOptical,
 {
     fn convert_from_optical(value: O, i: MeasIndex, force: bool) -> OpticalConvertResult<Self>;
+}
+
+pub trait ConvertFromTemporal<T>: Sized
+where
+    Self: VersionedTemporal,
+{
+    fn convert_from_temporal(value: T, i: MeasIndex, force: bool)
+        -> TemporalConvertTentative<Self>;
 }
 
 pub trait VersionedMetaroot: Sized {
@@ -1225,14 +1232,14 @@ where
             .def_map_value(|(common, specific)| Temporal { common, specific })
     }
 
-    fn convert<ToT>(self) -> Temporal<ToT>
+    fn convert<ToT>(self, i: MeasIndex, force: bool) -> TemporalConvertTentative<Temporal<ToT>>
     where
-        ToT: From<T>,
+        ToT: ConvertFromTemporal<T>,
     {
-        Temporal {
+        ToT::convert_from_temporal(self.specific, i, force).map(|specific| Temporal {
             common: self.common,
-            specific: self.specific.into(),
-        }
+            specific,
+        })
     }
 
     fn req_meas_keywords(&self, n: MeasIndex) -> RawPairs {
@@ -2230,7 +2237,7 @@ where
         ToM::N: MightHave,
         ToM::N: Clone,
         ToM::O: ConvertFromOptical<M::O>,
-        ToM::T: From<M::T>,
+        ToM::T: ConvertFromTemporal<M::T>,
         <ToM::N as MightHave>::Wrapper<Shortname>: TryFrom<<M::N as MightHave>::Wrapper<Shortname>>,
     {
         let widths = self.widths();
@@ -2245,9 +2252,12 @@ where
             .def_map_errors(ConvertErrorInner::Meta);
         let ps = self
             .measurements
-            .map_center_value(|y| y.value.convert())
-            .map_non_center_values(|i, v| v.try_convert(i, force))
-            .def_map_errors(ConvertErrorInner::Optical)
+            .map_center_value(|y| Ok(y.value.convert(y.index, force)))
+            .def_map_errors(ConvertErrorInner::Temporal)
+            .def_and_maybe(|xs| {
+                xs.map_non_center_values(|i, v| v.try_convert(i, force))
+                    .def_map_errors(ConvertErrorInner::Optical)
+            })
             .def_warnings_into()
             .def_and_maybe(|x| {
                 x.try_rewrapped()
@@ -4669,9 +4679,16 @@ type MetarootConvertResult<M> = DeferredResult<M, MetarootConvertWarning, Metaro
 
 type OpticalConvertResult<M> = DeferredResult<M, AnyIndexedKeyTransferError, OpticalConvertError>;
 
+type TemporalConvertTentative<M> = Tentative<M, AnyIndexedKeyTransferError, TemporalConvertError>;
+
 enum_from_disp!(
     pub OpticalConvertError,
     [NoScale, NoScaleError],
+    [Xfer, AnyIndexedKeyTransferError]
+);
+
+enum_from_disp!(
+    pub TemporalConvertError,
     [Xfer, AnyIndexedKeyTransferError]
 );
 
@@ -5203,115 +5220,185 @@ fn check_modified_keys_transfer(
     d.zip3(r, o).void()
 }
 
-// TODO emit warnings if any of these "lose" data, which means we need a new
-// trait, and also means we need to make the named_vec functions more generic so
-// they don't rely on the from traits here, or I can run a seperate method in
-// parallel to emit the warnings
-impl From<InnerTemporal3_0> for InnerTemporal2_0 {
-    fn from(value: InnerTemporal3_0) -> Self {
-        Self { peak: value.peak }
+impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal2_0 {
+    fn convert_from_temporal(
+        value: InnerTemporal3_0,
+        _: MeasIndex,
+        _: bool,
+    ) -> TemporalConvertTentative<Self> {
+        // TODO warn timestep
+        Tentative::new1(Self { peak: value.peak })
     }
 }
 
-impl From<InnerTemporal3_1> for InnerTemporal2_0 {
-    fn from(value: InnerTemporal3_1) -> Self {
-        Self { peak: value.peak }
+impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal2_0 {
+    fn convert_from_temporal(
+        value: InnerTemporal3_1,
+        i: MeasIndex,
+        force: bool,
+    ) -> TemporalConvertTentative<Self> {
+        // TODO warn timestep
+        check_indexed_key_transfer_own(value.display, i.into(), !force)
+            .errors_into()
+            .map(|_| Self { peak: value.peak })
     }
 }
 
-impl From<InnerTemporal3_2> for InnerTemporal2_0 {
-    fn from(_: InnerTemporal3_2) -> Self {
-        Self::default()
+impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal2_0 {
+    fn convert_from_temporal(
+        value: InnerTemporal3_2,
+        i: MeasIndex,
+        force: bool,
+    ) -> TemporalConvertTentative<Self> {
+        let j = i.into();
+        let dt = check_indexed_key_transfer_own(value.datatype, j, !force);
+        let di = check_indexed_key_transfer_own(value.display, j, !force);
+        let m = check_indexed_key_transfer_own(value.measurement_type, j, !force);
+        // TODO warn peak
+        // TODO warn timestep
+        dt.zip3(di, m).errors_into().map(|_| Self {
+            peak: PeakData::default(),
+        })
     }
 }
 
-impl From<InnerTemporal2_0> for InnerTemporal3_0 {
-    fn from(value: InnerTemporal2_0) -> Self {
-        Self {
+impl ConvertFromTemporal<InnerTemporal2_0> for InnerTemporal3_0 {
+    fn convert_from_temporal(
+        value: InnerTemporal2_0,
+        _: MeasIndex,
+        _: bool,
+    ) -> TemporalConvertTentative<Self> {
+        Tentative::new1(Self {
             timestep: Timestep::default(),
             peak: value.peak,
-        }
+        })
     }
 }
 
-impl From<InnerTemporal3_1> for InnerTemporal3_0 {
-    fn from(value: InnerTemporal3_1) -> Self {
-        Self {
-            timestep: value.timestep,
-            peak: value.peak,
-        }
+impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_0 {
+    fn convert_from_temporal(
+        value: InnerTemporal3_1,
+        i: MeasIndex,
+        force: bool,
+    ) -> TemporalConvertTentative<Self> {
+        check_indexed_key_transfer_own(value.display, i.into(), !force)
+            .errors_into()
+            .map(|_| Self {
+                timestep: value.timestep,
+                peak: value.peak,
+            })
     }
 }
 
-impl From<InnerTemporal3_2> for InnerTemporal3_0 {
-    fn from(value: InnerTemporal3_2) -> Self {
-        Self {
+impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal3_0 {
+    fn convert_from_temporal(
+        value: InnerTemporal3_2,
+        i: MeasIndex,
+        force: bool,
+    ) -> TemporalConvertTentative<Self> {
+        let j = i.into();
+        let dt = check_indexed_key_transfer_own(value.datatype, j, !force);
+        let di = check_indexed_key_transfer_own(value.display, j, !force);
+        let m = check_indexed_key_transfer_own(value.measurement_type, j, !force);
+        // TODO warn peak
+        dt.zip3(di, m).errors_into().map(|_| Self {
             timestep: value.timestep,
             peak: PeakData::default(),
-        }
+        })
     }
 }
 
-impl From<InnerTemporal2_0> for InnerTemporal3_1 {
-    fn from(value: InnerTemporal2_0) -> Self {
-        Self {
+impl ConvertFromTemporal<InnerTemporal2_0> for InnerTemporal3_1 {
+    fn convert_from_temporal(
+        value: InnerTemporal2_0,
+        _: MeasIndex,
+        _: bool,
+    ) -> TemporalConvertTentative<Self> {
+        Tentative::new1(Self {
             timestep: Timestep::default(),
             display: None.into(),
             peak: value.peak,
-        }
+        })
     }
 }
 
-impl From<InnerTemporal3_0> for InnerTemporal3_1 {
-    fn from(value: InnerTemporal3_0) -> Self {
-        Self {
+impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal3_1 {
+    fn convert_from_temporal(
+        value: InnerTemporal3_0,
+        _: MeasIndex,
+        _: bool,
+    ) -> TemporalConvertTentative<Self> {
+        Tentative::new1(Self {
             timestep: value.timestep,
             display: None.into(),
             peak: value.peak,
-        }
+        })
     }
 }
 
-impl From<InnerTemporal3_2> for InnerTemporal3_1 {
-    fn from(value: InnerTemporal3_2) -> Self {
-        Self {
+impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal3_1 {
+    fn convert_from_temporal(
+        value: InnerTemporal3_2,
+        i: MeasIndex,
+        force: bool,
+    ) -> TemporalConvertTentative<Self> {
+        let j = i.into();
+        let dt = check_indexed_key_transfer_own(value.datatype, j, !force);
+        let m = check_indexed_key_transfer_own(value.measurement_type, j, !force);
+        // TODO warn peak
+        dt.zip(m).errors_into().map(|_| Self {
             timestep: value.timestep,
             display: value.display,
             peak: PeakData::default(),
-        }
+        })
     }
 }
 
-impl From<InnerTemporal2_0> for InnerTemporal3_2 {
-    fn from(_: InnerTemporal2_0) -> Self {
-        Self {
+impl ConvertFromTemporal<InnerTemporal2_0> for InnerTemporal3_2 {
+    fn convert_from_temporal(
+        _: InnerTemporal2_0,
+        _: MeasIndex,
+        _: bool,
+    ) -> TemporalConvertTentative<Self> {
+        // TODO warn peak
+        Tentative::new1(Self {
             timestep: Timestep::default(),
             display: None.into(),
-            datatype: None.into(),
             measurement_type: None.into(),
-        }
+            datatype: None.into(),
+        })
     }
 }
 
-impl From<InnerTemporal3_0> for InnerTemporal3_2 {
-    fn from(value: InnerTemporal3_0) -> Self {
-        Self {
+impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal3_2 {
+    fn convert_from_temporal(
+        value: InnerTemporal3_0,
+        _: MeasIndex,
+        _: bool,
+    ) -> TemporalConvertTentative<Self> {
+        // TODO warn peak
+        Tentative::new1(Self {
             timestep: value.timestep,
             display: None.into(),
-            datatype: None.into(),
             measurement_type: None.into(),
-        }
+            datatype: None.into(),
+        })
     }
 }
 
-impl From<InnerTemporal3_1> for InnerTemporal3_2 {
-    fn from(value: InnerTemporal3_1) -> Self {
-        Self {
+impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_2 {
+    fn convert_from_temporal(
+        value: InnerTemporal3_1,
+        _: MeasIndex,
+        _: bool,
+    ) -> TemporalConvertTentative<Self> {
+        // TODO warn peak
+        Tentative::new1(Self {
             timestep: value.timestep,
             display: value.display,
-            datatype: None.into(),
             measurement_type: None.into(),
-        }
+            datatype: None.into(),
+        })
     }
 }
 
@@ -6856,6 +6943,7 @@ pub enum ConvertErrorInner<E> {
     Rewrap(IndexedElementError<E>),
     Meta(MetarootConvertError),
     Optical(IndexedElementError<OpticalConvertError>),
+    Temporal(IndexedElementError<TemporalConvertError>),
 }
 
 impl<E> fmt::Display for ConvertErrorInner<E>
@@ -6867,6 +6955,7 @@ where
             Self::Rewrap(e) => e.fmt(f),
             Self::Meta(e) => e.fmt(f),
             Self::Optical(e) => e.fmt(f),
+            Self::Temporal(e) => e.fmt(f),
         }
     }
 }
@@ -7253,6 +7342,7 @@ enum_from_disp!(
     [Wavelength, IndexedKeyTransferError<Wavelength>],
     [Wavelengths, IndexedKeyTransferError<Wavelengths>],
     [MeasType, IndexedKeyTransferError<OpticalType>],
+    [TempType, IndexedKeyTransferError<TemporalType>],
     [Analyte, IndexedKeyTransferError<Analyte>],
     [Tag, IndexedKeyTransferError<Tag>],
     [Gain, IndexedKeyTransferError<Gain>],

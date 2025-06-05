@@ -939,12 +939,24 @@ pub(crate) trait LookupMetaroot: Sized + VersionedMetaroot {
     fn lookup_specific(st: &mut StdKeywords, par: Par) -> LookupResult<Self>;
 }
 
-pub trait TryFromMetaroot<M>: Sized
+pub trait ConvertFromMetaroot<M>: Sized
 where
     Self: VersionedMetaroot,
     M: VersionedMetaroot,
 {
-    fn try_from_meta(value: M, byteord: SizeConvert<M::D>, force: bool) -> MetaConvertResult<Self>;
+    fn convert_from_metaroot(
+        value: M,
+        byteord: SizeConvert<M::D>,
+        force: bool,
+    ) -> MetarootConvertResult<Self>;
+}
+
+pub trait ConvertFromOptical<O>: Sized
+where
+    Self: VersionedOptical,
+    O: VersionedOptical,
+{
+    fn convert_from_optical(value: O, i: MeasIndex, force: bool) -> OpticalConvertResult<Self>;
 }
 
 pub trait VersionedMetaroot: Sized {
@@ -1269,10 +1281,12 @@ where
         }
     }
 
-    fn try_convert<ToP: TryFrom<P, Error = OpticalConvertError>>(
+    fn try_convert<ToP: ConvertFromOptical<P>>(
         self,
-    ) -> Result<Optical<ToP>, OpticalConvertError> {
-        self.specific.try_into().map(|specific| Optical {
+        i: MeasIndex,
+        force: bool,
+    ) -> OpticalConvertResult<Optical<ToP>> {
+        ToP::convert_from_optical(self.specific, i, force).def_map_value(|specific| Optical {
             common: self.common,
             detector_type: self.detector_type,
             detector_voltage: self.detector_voltage,
@@ -1437,29 +1451,31 @@ where
         self.datatype
     }
 
-    fn try_convert<ToM: TryFromMetaroot<M>>(
+    fn try_convert<ToM: ConvertFromMetaroot<M>>(
         self,
         convert: SizeConvert<M::D>,
         force: bool,
-    ) -> MetaConvertResult<Metaroot<ToM>> {
+    ) -> MetarootConvertResult<Metaroot<ToM>> {
         // TODO this seems silly, break struct up into common bits
-        ToM::try_from_meta(self.specific, convert, force).def_map_value(|specific| Metaroot {
-            abrt: self.abrt,
-            cells: self.cells,
-            com: self.com,
-            datatype: self.datatype,
-            exp: self.exp,
-            fil: self.fil,
-            inst: self.inst,
-            lost: self.lost,
-            op: self.op,
-            proj: self.proj,
-            smno: self.smno,
-            sys: self.sys,
-            src: self.src,
-            tr: self.tr,
-            nonstandard_keywords: self.nonstandard_keywords,
-            specific,
+        ToM::convert_from_metaroot(self.specific, convert, force).def_map_value(|specific| {
+            Metaroot {
+                abrt: self.abrt,
+                cells: self.cells,
+                com: self.com,
+                datatype: self.datatype,
+                exp: self.exp,
+                fil: self.fil,
+                inst: self.inst,
+                lost: self.lost,
+                op: self.op,
+                proj: self.proj,
+                smno: self.smno,
+                sys: self.sys,
+                src: self.src,
+                tr: self.tr,
+                nonstandard_keywords: self.nonstandard_keywords,
+                specific,
+            }
         })
     }
 
@@ -2202,18 +2218,18 @@ where
         force: bool,
     ) -> DeferredResult<
         VersionedCore<A, D, ToM>,
-        MetaConvertWarning,
+        MetarootConvertWarning,
         VersionedConvertError<M::N, ToM::N>,
     >
     where
         M::N: Clone,
         ToM: VersionedMetaroot,
-        ToM: TryFromMetaroot<M>,
+        ToM: ConvertFromMetaroot<M>,
         ToM::O: VersionedOptical,
         ToM::T: VersionedTemporal,
         ToM::N: MightHave,
         ToM::N: Clone,
-        ToM::O: TryFrom<M::O, Error = OpticalConvertError>,
+        ToM::O: ConvertFromOptical<M::O>,
         ToM::T: From<M::T>,
         <ToM::N as MightHave>::Wrapper<Shortname>: TryFrom<<M::N as MightHave>::Wrapper<Shortname>>,
     {
@@ -2230,13 +2246,14 @@ where
         let ps = self
             .measurements
             .map_center_value(|y| y.value.convert())
-            .map_non_center_values(|_, v| v.try_convert())
-            .map_err(|es| es.map(ConvertErrorInner::Optical))
-            .and_then(|x| {
+            .map_non_center_values(|i, v| v.try_convert(i, force))
+            .def_map_errors(ConvertErrorInner::Optical)
+            .def_warnings_into()
+            .def_and_maybe(|x| {
                 x.try_rewrapped()
-                    .map_err(|es| es.map(ConvertErrorInner::Rewrap))
-            })
-            .mult_to_deferred();
+                    .mult_map_errors(ConvertErrorInner::Rewrap)
+                    .mult_to_deferred()
+            });
         m.def_zip(ps)
             .def_map_value(|(metaroot, measurements)| Core {
                 metaroot,
@@ -4372,151 +4389,244 @@ impl From<Calibration3_2> for Calibration3_1 {
     }
 }
 
-impl TryFrom<InnerOptical3_0> for InnerOptical2_0 {
-    type Error = OpticalConvertError;
-
-    fn try_from(value: InnerOptical3_0) -> Result<Self, Self::Error> {
-        Ok(Self {
-            scale: Some(value.scale).into(),
-            wavelength: value.wavelength,
-            peak: value.peak,
-        })
+impl ConvertFromOptical<InnerOptical3_0> for InnerOptical2_0 {
+    fn convert_from_optical(
+        value: InnerOptical3_0,
+        i: MeasIndex,
+        force: bool,
+    ) -> OpticalConvertResult<Self> {
+        let out = check_indexed_key_transfer_own(value.gain, i.into(), !force)
+            .inner_into()
+            .map(|_| Self {
+                scale: Some(value.scale).into(),
+                wavelength: value.wavelength,
+                peak: value.peak,
+            });
+        Ok(out)
     }
 }
 
-impl TryFrom<InnerOptical3_1> for InnerOptical2_0 {
-    type Error = OpticalConvertError;
-
-    fn try_from(value: InnerOptical3_1) -> Result<Self, Self::Error> {
-        Ok(Self {
+impl ConvertFromOptical<InnerOptical3_1> for InnerOptical2_0 {
+    fn convert_from_optical(
+        value: InnerOptical3_1,
+        i: MeasIndex,
+        force: bool,
+    ) -> OpticalConvertResult<Self> {
+        let j = i.into();
+        let g = check_indexed_key_transfer_own(value.gain, j, !force);
+        let c = check_indexed_key_transfer_own(value.calibration, j, !force);
+        let d = check_indexed_key_transfer_own(value.display, j, !force);
+        let out = g.zip3(c, d).inner_into().map(|_| Self {
             scale: Some(value.scale).into(),
+            // TODO warn that data might be lost here
             wavelength: value.wavelengths.into(),
             peak: value.peak,
-        })
+        });
+        Ok(out)
     }
 }
 
-impl TryFrom<InnerOptical3_2> for InnerOptical2_0 {
-    type Error = OpticalConvertError;
-
-    fn try_from(value: InnerOptical3_2) -> Result<Self, Self::Error> {
-        Ok(Self {
-            scale: Some(value.scale).into(),
-            wavelength: value.wavelengths.into(),
-            peak: PeakData::default(),
-        })
+impl ConvertFromOptical<InnerOptical3_2> for InnerOptical2_0 {
+    fn convert_from_optical(
+        value: InnerOptical3_2,
+        i: MeasIndex,
+        force: bool,
+    ) -> OpticalConvertResult<Self> {
+        let j = i.into();
+        let g = check_indexed_key_transfer_own(value.gain, j, !force);
+        let c = check_indexed_key_transfer_own(value.calibration, j, !force);
+        let d = check_indexed_key_transfer_own(value.display, j, !force);
+        let a = check_indexed_key_transfer_own(value.analyte, j, !force);
+        let f = check_indexed_key_transfer_own(value.feature, j, !force);
+        let m = check_indexed_key_transfer_own(value.measurement_type, j, !force);
+        let t = check_indexed_key_transfer_own(value.tag, j, !force);
+        let n = check_indexed_key_transfer_own(value.detector_name, j, !force);
+        let dt = check_indexed_key_transfer_own(value.datatype, j, !force);
+        let out = g
+            .zip6(c, d, a, f, m)
+            .zip4(t, n, dt)
+            .inner_into()
+            .map(|_| Self {
+                scale: Some(value.scale).into(),
+                // TODO warn that data might be lost here
+                wavelength: value.wavelengths.into(),
+                peak: PeakData::default(),
+            });
+        Ok(out)
     }
 }
 
-impl TryFrom<InnerOptical2_0> for InnerOptical3_0 {
-    type Error = OpticalConvertError;
-
-    fn try_from(value: InnerOptical2_0) -> Result<Self, Self::Error> {
-        value.scale.0.ok_or(OpticalConvertError).map(|scale| Self {
-            scale,
-            wavelength: value.wavelength,
-            gain: None.into(),
-            peak: value.peak,
-        })
+impl ConvertFromOptical<InnerOptical2_0> for InnerOptical3_0 {
+    fn convert_from_optical(
+        value: InnerOptical2_0,
+        i: MeasIndex,
+        _: bool,
+    ) -> OpticalConvertResult<Self> {
+        value
+            .scale
+            .0
+            .ok_or(NoScaleError(i))
+            .map(|scale| Self {
+                scale,
+                wavelength: value.wavelength,
+                gain: None.into(),
+                peak: value.peak,
+            })
+            .into_deferred()
     }
 }
 
-impl TryFrom<InnerOptical3_1> for InnerOptical3_0 {
-    type Error = OpticalConvertError;
-
-    fn try_from(value: InnerOptical3_1) -> Result<Self, Self::Error> {
-        Ok(Self {
+impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_0 {
+    fn convert_from_optical(
+        value: InnerOptical3_1,
+        i: MeasIndex,
+        force: bool,
+    ) -> OpticalConvertResult<Self> {
+        let j = i.into();
+        let c = check_indexed_key_transfer_own(value.calibration, j, !force);
+        let d = check_indexed_key_transfer_own(value.display, j, !force);
+        let out = c.zip(d).inner_into().map(|_| Self {
             scale: value.scale,
             gain: value.gain,
+            // TODO warn that data might be lost here
             wavelength: value.wavelengths.into(),
             peak: value.peak,
-        })
+        });
+        Ok(out)
     }
 }
 
-impl TryFrom<InnerOptical3_2> for InnerOptical3_0 {
-    type Error = OpticalConvertError;
+impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_0 {
+    fn convert_from_optical(
+        value: InnerOptical3_2,
+        i: MeasIndex,
+        force: bool,
+    ) -> OpticalConvertResult<Self> {
+        let j = i.into();
+        let c = check_indexed_key_transfer_own(value.calibration, j, !force);
+        let d = check_indexed_key_transfer_own(value.display, j, !force);
+        let a = check_indexed_key_transfer_own(value.analyte, j, !force);
+        let f = check_indexed_key_transfer_own(value.feature, j, !force);
+        let m = check_indexed_key_transfer_own(value.measurement_type, j, !force);
+        let t = check_indexed_key_transfer_own(value.tag, j, !force);
+        let n = check_indexed_key_transfer_own(value.detector_name, j, !force);
+        let dt = check_indexed_key_transfer_own(value.datatype, j, !force);
+        let out = c
+            .zip5(d, a, f, m)
+            .zip4(t, n, dt)
+            .inner_into()
+            .map(|_| Self {
+                scale: value.scale,
+                gain: value.gain,
+                // TODO warn that data might be lost here
+                wavelength: value.wavelengths.into(),
+                peak: PeakData::default(),
+            });
+        Ok(out)
+    }
+}
 
-    fn try_from(value: InnerOptical3_2) -> Result<Self, Self::Error> {
-        Ok(Self {
+impl ConvertFromOptical<InnerOptical2_0> for InnerOptical3_1 {
+    fn convert_from_optical(
+        value: InnerOptical2_0,
+        i: MeasIndex,
+        _: bool,
+    ) -> OpticalConvertResult<Self> {
+        value
+            .scale
+            .0
+            .ok_or(NoScaleError(i))
+            .map(|scale| Self {
+                scale,
+                wavelengths: value.wavelength.map(|x| x.into()),
+                gain: None.into(),
+                calibration: None.into(),
+                display: None.into(),
+                peak: value.peak,
+            })
+            .into_deferred()
+    }
+}
+
+impl ConvertFromOptical<InnerOptical3_0> for InnerOptical3_1 {
+    fn convert_from_optical(
+        value: InnerOptical3_0,
+        _: MeasIndex,
+        _: bool,
+    ) -> OpticalConvertResult<Self> {
+        Ok(Tentative::new1(Self {
             scale: value.scale,
             gain: value.gain,
-            wavelength: value.wavelengths.into(),
-            peak: PeakData::default(),
-        })
-    }
-}
-
-impl TryFrom<InnerOptical2_0> for InnerOptical3_1 {
-    type Error = OpticalConvertError;
-
-    fn try_from(value: InnerOptical2_0) -> Result<Self, Self::Error> {
-        value.scale.0.ok_or(OpticalConvertError).map(|scale| Self {
-            scale,
             wavelengths: value.wavelength.map(|x| x.into()),
-            gain: None.into(),
+            peak: value.peak,
             calibration: None.into(),
             display: None.into(),
-            peak: value.peak,
-        })
+        }))
     }
 }
 
-impl TryFrom<InnerOptical3_0> for InnerOptical3_1 {
-    type Error = OpticalConvertError;
-
-    fn try_from(value: InnerOptical3_0) -> Result<Self, Self::Error> {
-        Ok(Self {
-            scale: value.scale,
-            gain: value.gain,
-            wavelengths: None.into(),
-            calibration: None.into(),
-            display: None.into(),
-            peak: value.peak,
-        })
-    }
-}
-
-impl TryFrom<InnerOptical3_2> for InnerOptical3_1 {
-    type Error = OpticalConvertError;
-
-    fn try_from(value: InnerOptical3_2) -> Result<Self, Self::Error> {
-        Ok(Self {
+impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_1 {
+    fn convert_from_optical(
+        value: InnerOptical3_2,
+        i: MeasIndex,
+        force: bool,
+    ) -> OpticalConvertResult<Self> {
+        let j = i.into();
+        let a = check_indexed_key_transfer_own(value.analyte, j, !force);
+        let f = check_indexed_key_transfer_own(value.feature, j, !force);
+        let m = check_indexed_key_transfer_own(value.measurement_type, j, !force);
+        let t = check_indexed_key_transfer_own(value.tag, j, !force);
+        let n = check_indexed_key_transfer_own(value.detector_name, j, !force);
+        let dt = check_indexed_key_transfer_own(value.datatype, j, !force);
+        let out = a.zip3(f, m).zip4(t, n, dt).inner_into().map(|_| Self {
             scale: value.scale,
             gain: value.gain,
             wavelengths: value.wavelengths,
-            calibration: value.calibration.map(|x| x.into()),
-            display: value.display,
             peak: PeakData::default(),
-        })
+            display: value.display,
+            // TODO warn offset might be lost here
+            calibration: value.calibration.map(|x| x.into()),
+        });
+        Ok(out)
     }
 }
 
-impl TryFrom<InnerOptical2_0> for InnerOptical3_2 {
-    type Error = OpticalConvertError;
-
-    fn try_from(value: InnerOptical2_0) -> Result<Self, Self::Error> {
-        value.scale.0.ok_or(OpticalConvertError).map(|scale| Self {
-            scale,
-            wavelengths: None.into(),
-            gain: None.into(),
-            calibration: None.into(),
-            display: None.into(),
-            analyte: None.into(),
-            feature: None.into(),
-            tag: None.into(),
-            detector_name: None.into(),
-            datatype: None.into(),
-            measurement_type: None.into(),
-        })
+impl ConvertFromOptical<InnerOptical2_0> for InnerOptical3_2 {
+    fn convert_from_optical(
+        value: InnerOptical2_0,
+        i: MeasIndex,
+        _: bool,
+    ) -> OpticalConvertResult<Self> {
+        // TODO warn peak data will be lost
+        value
+            .scale
+            .0
+            .ok_or(NoScaleError(i))
+            .map(|scale| Self {
+                scale,
+                wavelengths: value.wavelength.map(|x| x.into()),
+                gain: None.into(),
+                calibration: None.into(),
+                display: None.into(),
+                analyte: None.into(),
+                feature: None.into(),
+                tag: None.into(),
+                detector_name: None.into(),
+                datatype: None.into(),
+                measurement_type: None.into(),
+            })
+            .into_deferred()
     }
 }
 
-impl TryFrom<InnerOptical3_0> for InnerOptical3_2 {
-    type Error = OpticalConvertError;
-
-    fn try_from(value: InnerOptical3_0) -> Result<Self, Self::Error> {
-        Ok(Self {
+impl ConvertFromOptical<InnerOptical3_0> for InnerOptical3_2 {
+    fn convert_from_optical(
+        value: InnerOptical3_0,
+        _: MeasIndex,
+        _: bool,
+    ) -> OpticalConvertResult<Self> {
+        // TODO warn peak data will be lost
+        Ok(Tentative::new1(Self {
             scale: value.scale,
             wavelengths: value.wavelength.map(|x| x.into()),
             gain: value.gain,
@@ -4528,15 +4638,18 @@ impl TryFrom<InnerOptical3_0> for InnerOptical3_2 {
             detector_name: None.into(),
             datatype: None.into(),
             measurement_type: None.into(),
-        })
+        }))
     }
 }
 
-impl TryFrom<InnerOptical3_1> for InnerOptical3_2 {
-    type Error = OpticalConvertError;
-
-    fn try_from(value: InnerOptical3_1) -> Result<Self, Self::Error> {
-        Ok(Self {
+impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_2 {
+    fn convert_from_optical(
+        value: InnerOptical3_1,
+        _: MeasIndex,
+        _: bool,
+    ) -> OpticalConvertResult<Self> {
+        // TODO warn peak data will be lost
+        Ok(Tentative::new1(Self {
             scale: value.scale,
             wavelengths: value.wavelengths,
             gain: value.gain,
@@ -4548,11 +4661,19 @@ impl TryFrom<InnerOptical3_1> for InnerOptical3_2 {
             detector_name: None.into(),
             datatype: None.into(),
             measurement_type: None.into(),
-        })
+        }))
     }
 }
 
-type MetaConvertResult<M> = DeferredResult<M, MetaConvertWarning, MetaConvertError>;
+type MetarootConvertResult<M> = DeferredResult<M, MetarootConvertWarning, MetarootConvertError>;
+
+type OpticalConvertResult<M> = DeferredResult<M, AnyIndexedKeyTransferError, OpticalConvertError>;
+
+enum_from_disp!(
+    pub OpticalConvertError,
+    [NoScale, NoScaleError],
+    [Xfer, AnyIndexedKeyTransferError]
+);
 
 pub struct SizeConvert<O> {
     size: O,
@@ -4570,12 +4691,12 @@ impl EndianConvert {
     }
 }
 
-impl TryFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
-    fn try_from_meta(
+impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
+    fn convert_from_metaroot(
         value: InnerMetaroot3_0,
         _: ByteOrdConvert,
         lossless: bool,
-    ) -> MetaConvertResult<Self> {
+    ) -> MetarootConvertResult<Self> {
         // TODO warn if subset present
         let c = check_key_transfer(value.cytsn, lossless);
         let u = check_key_transfer(value.unicode, lossless);
@@ -4602,12 +4723,12 @@ impl TryFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
     }
 }
 
-impl TryFromMetaroot<InnerMetaroot3_1> for InnerMetaroot2_0 {
-    fn try_from_meta(
+impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot2_0 {
+    fn convert_from_metaroot(
         value: InnerMetaroot3_1,
         endian: EndianConvert,
         lossless: bool,
-    ) -> MetaConvertResult<Self> {
+    ) -> MetarootConvertResult<Self> {
         // TODO warn if subset present
         let c = check_key_transfer(value.cytsn, lossless);
         let v = check_key_transfer(value.vol, lossless);
@@ -4641,12 +4762,12 @@ impl TryFromMetaroot<InnerMetaroot3_1> for InnerMetaroot2_0 {
     }
 }
 
-impl TryFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
-    fn try_from_meta(
+impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
+    fn convert_from_metaroot(
         value: InnerMetaroot3_2,
         endian: EndianConvert,
         lossless: bool,
-    ) -> MetaConvertResult<Self> {
+    ) -> MetarootConvertResult<Self> {
         let cy = check_key_transfer(value.cytsn, lossless);
         let v = check_key_transfer(value.vol, lossless);
         let s = check_key_transfer(value.spillover, lossless);
@@ -4680,12 +4801,12 @@ impl TryFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
     }
 }
 
-impl TryFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_0 {
-    fn try_from_meta(
+impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_0 {
+    fn convert_from_metaroot(
         value: InnerMetaroot2_0,
         _: ByteOrdConvert,
         _: bool,
-    ) -> MetaConvertResult<Self> {
+    ) -> MetarootConvertResult<Self> {
         Ok(Tentative::new1(Self {
             mode: value.mode,
             byteord: value.byteord,
@@ -4700,12 +4821,12 @@ impl TryFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_0 {
     }
 }
 
-impl TryFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_0 {
-    fn try_from_meta(
+impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_0 {
+    fn convert_from_metaroot(
         value: InnerMetaroot3_1,
         endian: EndianConvert,
         lossless: bool,
-    ) -> MetaConvertResult<Self> {
+    ) -> MetarootConvertResult<Self> {
         let p = check_plate_keys_transfer(value.plate, lossless);
         let m = check_modified_keys_transfer(value.modification, lossless);
         let v = check_key_transfer(value.vol, lossless);
@@ -4728,12 +4849,12 @@ impl TryFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_0 {
     }
 }
 
-impl TryFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_0 {
-    fn try_from_meta(
+impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_0 {
+    fn convert_from_metaroot(
         value: InnerMetaroot3_2,
         endian: EndianConvert,
         lossless: bool,
-    ) -> MetaConvertResult<Self> {
+    ) -> MetarootConvertResult<Self> {
         let v = check_key_transfer(value.vol, lossless);
         let f = check_key_transfer(value.flowrate, lossless);
         let m = check_modified_keys_transfer(value.modification, lossless);
@@ -4760,12 +4881,12 @@ impl TryFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_0 {
     }
 }
 
-impl TryFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_1 {
-    fn try_from_meta(
+impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_1 {
+    fn convert_from_metaroot(
         value: InnerMetaroot2_0,
         _: ByteOrdConvert,
         lossless: bool,
-    ) -> MetaConvertResult<Self> {
+    ) -> MetarootConvertResult<Self> {
         let mut res = value
             .byteord
             .try_into()
@@ -4790,12 +4911,12 @@ impl TryFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_1 {
     }
 }
 
-impl TryFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_1 {
-    fn try_from_meta(
+impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_1 {
+    fn convert_from_metaroot(
         value: InnerMetaroot3_0,
         _: ByteOrdConvert,
         lossless: bool,
-    ) -> MetaConvertResult<Self> {
+    ) -> MetarootConvertResult<Self> {
         let c = check_key_transfer(value.comp, lossless);
         let u = check_key_transfer(value.unicode, lossless);
         c.zip(u).inner_into().and_maybe(|_| {
@@ -4820,12 +4941,12 @@ impl TryFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_1 {
     }
 }
 
-impl TryFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_1 {
-    fn try_from_meta(
+impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_1 {
+    fn convert_from_metaroot(
         value: InnerMetaroot3_2,
         _: EndianConvert,
         lossless: bool,
-    ) -> MetaConvertResult<Self> {
+    ) -> MetarootConvertResult<Self> {
         let d = check_datetimes_keys_transfer(value.datetimes, lossless);
         let ca = check_carrier_keys_transfer(value.carrier, lossless);
         let u = check_unstained_keys_transfer(value.unstained, lossless);
@@ -4849,12 +4970,12 @@ impl TryFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_1 {
     }
 }
 
-impl TryFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
-    fn try_from_meta(
+impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
+    fn convert_from_metaroot(
         value: InnerMetaroot2_0,
         _: ByteOrdConvert,
         lossless: bool,
-    ) -> MetaConvertResult<Self> {
+    ) -> MetarootConvertResult<Self> {
         let b = value.byteord.try_into().into_deferred();
         let c = value.cyt.0.ok_or(NoCytError).into_deferred();
         let mut res = b.def_zip(c).def_map_value(|(byteord, cyt)| Self {
@@ -4885,12 +5006,12 @@ impl TryFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
     }
 }
 
-impl TryFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
-    fn try_from_meta(
+impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
+    fn convert_from_metaroot(
         value: InnerMetaroot3_0,
         _: ByteOrdConvert,
         lossless: bool,
-    ) -> MetaConvertResult<Self> {
+    ) -> MetarootConvertResult<Self> {
         // TODO warn if subset present
         let u = check_key_transfer(value.unicode, lossless);
         let co = check_key_transfer(value.comp, lossless);
@@ -4931,12 +5052,12 @@ impl TryFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
     }
 }
 
-impl TryFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
-    fn try_from_meta(
+impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
+    fn convert_from_metaroot(
         value: InnerMetaroot3_1,
         _: EndianConvert,
         lossless: bool,
-    ) -> MetaConvertResult<Self> {
+    ) -> MetarootConvertResult<Self> {
         // TODO warn if subset present
         let mut res = value
             .applied_gates
@@ -4998,6 +5119,21 @@ fn check_optical_keys_transfer<X>(
     let p = check_indexed_key_transfer(&x.percent_emitted, j);
     let v = check_indexed_key_transfer(&x.detector_voltage, j);
     f.zip3(o, t).mult_zip(p.zip(v)).map(|_| ())
+}
+
+fn check_indexed_key_transfer_own<T>(
+    x: OptionalKw<T>,
+    i: IndexFromOne,
+    lossless: bool,
+) -> Tentative<(), AnyIndexedKeyTransferError, AnyIndexedKeyTransferError>
+where
+    AnyIndexedKeyTransferError: From<IndexedKeyTransferError<T>>,
+{
+    let mut tnt = Tentative::new1(());
+    if x.0.is_some() {
+        tnt.push_error_or_warning(IndexedKeyTransferError::<T>::new(i), lossless);
+    }
+    tnt
 }
 
 fn check_key_transfer<T>(
@@ -6718,7 +6854,7 @@ where
 
 pub enum ConvertErrorInner<E> {
     Rewrap(IndexedElementError<E>),
-    Meta(MetaConvertError),
+    Meta(MetarootConvertError),
     Optical(IndexedElementError<OpticalConvertError>),
 }
 
@@ -6961,11 +7097,15 @@ impl fmt::Display for GateMeasurementLinkError {
 }
 
 // for now this just means $PnE isn't set and should be to convert
-pub struct OpticalConvertError;
+pub struct NoScaleError(MeasIndex);
 
-impl fmt::Display for OpticalConvertError {
+impl fmt::Display for NoScaleError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "scale must be set before converting measurement",)
+        write!(
+            f,
+            "{} must be set before converting measurement",
+            Scale::std(self.0.into()),
+        )
     }
 }
 
@@ -7048,7 +7188,7 @@ impl fmt::Display for SetTemporalIndexError {
 }
 
 enum_from_disp!(
-    pub MetaConvertError,
+    pub MetarootConvertError,
     [NoCyt, NoCytError],
     [Byteord, EndianToByteOrdError],
     [Endian, SingleWidthError],
@@ -7066,7 +7206,7 @@ enum_from_disp!(
 );
 
 enum_from_disp!(
-    pub MetaConvertWarning,
+    pub MetarootConvertWarning,
     [Width, WidthToBytesError],
     [Mode, ModeNotListError],
     [Gates3_0To2_0, AppliedGates3_0To2_0Error],
@@ -7074,6 +7214,7 @@ enum_from_disp!(
     [Gates3_2To2_0, AppliedGates3_2To2_0Error],
     [Gates2_0To3_2, AppliedGates2_0To3_2Error],
     [Xfer, AnyKeyTransferError],
+    [IndexedXfer, AnyIndexedKeyTransferError],
     [Comp2_0, Comp2_0TransferError]
 );
 
@@ -7114,6 +7255,9 @@ enum_from_disp!(
     [MeasType, IndexedKeyTransferError<OpticalType>],
     [Analyte, IndexedKeyTransferError<Analyte>],
     [Tag, IndexedKeyTransferError<Tag>],
+    [Gain, IndexedKeyTransferError<Gain>],
+    [Display, IndexedKeyTransferError<Display>],
+    [Datatype, IndexedKeyTransferError<NumType>],
     [DetectorName, IndexedKeyTransferError<DetectorName>],
     [Feature, IndexedKeyTransferError<Feature>],
     [Calibration3_1, IndexedKeyTransferError<Calibration3_1>],

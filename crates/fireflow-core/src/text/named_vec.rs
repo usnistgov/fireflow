@@ -500,38 +500,40 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     }
 
     /// Apply function over non-center values, possibly changing their type
-    pub fn map_non_center_values<E, F, W>(
+    pub fn map_non_center_values<E, F, W, ToV>(
         self,
         f: F,
-    ) -> MultiResult<WrappedNamedVec<K, U, W>, IndexedElementError<E>>
+    ) -> DeferredResult<WrappedNamedVec<K, U, ToV>, W, IndexedElementError<E>>
     where
-        F: Fn(usize, V) -> Result<W, E>,
+        F: Fn(MeasIndex, V) -> DeferredResult<ToV, W, E>,
     {
         let go = |xs: WrappedPairedVec<K, V>, offset: usize| {
             xs.into_iter()
                 .enumerate()
                 .map(|(i, p)| {
                     let j = i + offset;
-                    f(j, p.value)
-                        .map(|value| Pair { key: p.key, value })
-                        .map_err(|error| IndexedElementError {
+                    f(j.into(), p.value)
+                        .def_map_value(|value| Pair { key: p.key, value })
+                        .def_map_errors(|error| IndexedElementError {
                             index: j.into(),
                             error,
                         })
                 })
                 .gather()
+                .map_err(DeferredFailure::mconcat)
+                .map(Tentative::mconcat)
         };
         match self {
             NamedVec::Split(s, _) => {
                 let nleft = s.left.len();
                 let lres = go(s.left, 0);
                 let rres = go(s.right, nleft + 1);
-                let (left, right) = lres.mult_zip(rres)?;
-                Ok(NamedVec::new_split(left, *s.center, right, s.prefix))
+                lres.def_zip(rres).def_map_value(|(left, right)| {
+                    NamedVec::new_split(left, *s.center, right, s.prefix)
+                })
             }
             NamedVec::Unsplit(u) => {
-                let members = go(u.members, 0)?;
-                Ok(NamedVec::new_unsplit(members, u.prefix))
+                go(u.members, 0).def_map_value(|members| NamedVec::new_unsplit(members, u.prefix))
             }
         }
     }

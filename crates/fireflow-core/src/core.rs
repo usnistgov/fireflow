@@ -313,7 +313,7 @@ impl AnyCoreTEXT {
         std: &mut StdKeywords,
         nonstd: NonStdKeywords,
         conf: &StdTextReadConfig,
-    ) -> DeferredResult<Self, LookupMeasWarning, ParseKeysError> {
+    ) -> DeferredResult<Self, LookupMeasWarning, LookupKeysError> {
         match version {
             Version::FCS2_0 => {
                 CoreTEXT2_0::new_text_from_raw(std, nonstd, conf).def_map_value(|x| x.into())
@@ -1519,7 +1519,7 @@ where
                         if *datatype == AlphaNumType::Ascii
                             && M::O::fcs_version() >= Version::FCS3_1
                         {
-                            Some(DepFeatureWarning::DatatypeASCII.into())
+                            Some(DeprecatedError::Value(DepValueWarning::DatatypeASCII).into())
                         } else {
                             None
                         }
@@ -2511,7 +2511,7 @@ where
     ) -> DeferredResult<
         (Measurements<M::N, M::T, M::O>, NonStdPairs),
         LookupMeasWarning,
-        ParseKeysError,
+        LookupKeysError,
     >
     where
         M: LookupMetaroot,
@@ -2598,7 +2598,7 @@ where
                     // we have more than one time measurement.
                     NamedVec::try_new(xs, prefix.clone())
                         .map(|ms| (ms, meta_nonstd))
-                        .map_err(|e| ParseKeysError::Other(e.into()))
+                        .map_err(|e| LookupKeysError::Misc(e.into()))
                         .into_deferred()
                 })
                 .def_warnings_into()
@@ -2702,7 +2702,7 @@ where
         kws: &mut StdKeywords,
         nonstd: NonStdKeywords,
         conf: &StdTextReadConfig,
-    ) -> DeferredResult<Self, LookupMeasWarning, ParseKeysError>
+    ) -> DeferredResult<Self, LookupMeasWarning, LookupKeysError>
     where
         M: LookupMetaroot,
         M::T: LookupTemporal,
@@ -2736,7 +2736,7 @@ where
                 tnt_core.eval_error(|core| {
                     if let Some(pat) = tp {
                         if conf.time.ensure && core.measurements.as_center().is_none() {
-                            return Some(ParseKeysError::Other(MissingTime(pat.clone()).into()));
+                            return Some(LookupKeysError::Misc(MissingTime(pat.clone()).into()));
                         }
                     }
                     None
@@ -5562,10 +5562,10 @@ impl LookupOptical for InnerOptical3_2 {
 impl LookupTemporal for InnerTemporal2_0 {
     fn lookup_specific(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
         // TODO push meas index with error
-        let mut tnt_scale = lookup_indexed_opt::<Scale, ParseKeysError>(kws, i.into(), false);
+        let mut tnt_scale = lookup_indexed_opt::<Scale, LookupKeysError>(kws, i.into(), false);
         tnt_scale.eval_error(|scale| {
             if scale.0.is_some_and(|x| x != Scale::Linear) {
-                Some(ParseKeysError::Other(TemporalError::NonLinear.into()))
+                Some(LookupKeysError::Misc(TemporalError::NonLinear.into()))
             } else {
                 None
             }
@@ -5577,10 +5577,10 @@ impl LookupTemporal for InnerTemporal2_0 {
 
 impl LookupTemporal for InnerTemporal3_0 {
     fn lookup_specific(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
-        let mut tnt_gain = lookup_indexed_opt::<Gain, ParseKeysError>(kws, i.into(), false);
+        let mut tnt_gain = lookup_indexed_opt::<Gain, LookupKeysError>(kws, i.into(), false);
         tnt_gain.eval_error(|gain| {
             if gain.0.is_some() {
-                Some(ParseKeysError::Other(TemporalError::HasGain.into()))
+                Some(LookupKeysError::Misc(TemporalError::HasGain.into()))
             } else {
                 None
             }
@@ -6157,8 +6157,12 @@ impl LookupMetaroot for InnerMetaroot3_1 {
                 let b = lookup_meta_req(kws);
                 let mut mo = lookup_meta_req(kws);
                 mo.def_eval_warning(|mode| match mode {
-                    Mode::Correlated => Some(DepFeatureWarning::ModeCorrelated.into()),
-                    Mode::Uncorrelated => Some(DepFeatureWarning::ModeUncorrelated.into()),
+                    Mode::Correlated => {
+                        Some(DeprecatedError::Value(DepValueWarning::ModeCorrelated).into())
+                    }
+                    Mode::Uncorrelated => {
+                        Some(DeprecatedError::Value(DepValueWarning::ModeUncorrelated).into())
+                    }
                     Mode::List => None,
                 });
                 b.def_zip(mo).def_map_value(|(byteord, mode)| Self {
@@ -6195,7 +6199,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         // Only L is allowed as of 3.2, so pull the value and check it if given.
         // The only thing we care about is that the value is valid, since we
         // don't need to use it anywhere.
-        let mo = lookup_meta_opt::<Mode3_2, ParseKeysError>(kws, true);
+        let mo = lookup_meta_opt::<Mode3_2, LookupKeysError>(kws, true);
         let sp = lookup_meta_opt(kws, false);
         let sn = lookup_meta_opt(kws, false);
         let p = lookup_plate(kws, true);
@@ -7142,7 +7146,7 @@ impl fmt::Display for MissingMeasurementNameError {
 
 enum_from_disp!(
     pub StdDatasetFromRawError,
-    [TEXT, ParseKeysError],
+    [TEXT, LookupKeysError],
     [Layout, NewDataLayoutError],
     [Data, NewDataReaderError],
     [Analysis, NewAnalysisReaderError],
@@ -7155,6 +7159,13 @@ enum_from_disp!(
     [Layout, NewDataLayoutWarning],
     [Data, NewDataReaderWarning],
     [Analysis, NewAnalysisReaderWarning]
+);
+
+enum_from_disp!(
+    pub LookupMeasWarning,
+    [Parse, LookupKeysWarning],
+    [Pattern, NonStdMeasRegexError],
+    [Deviant, DeviantError]
 );
 
 pub struct RegionToMeasIndexError(GateIndex);

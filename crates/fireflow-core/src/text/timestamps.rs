@@ -69,7 +69,7 @@ macro_rules! get_set {
                 Ok(())
             } else {
                 self.$field = tmp;
-                Err(InvalidTimestamps)
+                Err(ReversedTimestamps)
             }
         }
 
@@ -100,7 +100,7 @@ where
         if ret.valid() {
             Ok(ret)
         } else {
-            Err(InvalidTimestamps)
+            Err(ReversedTimestamps)
         }
     }
 
@@ -155,11 +155,11 @@ where
     }
 }
 
-pub struct InvalidTimestamps;
+pub struct ReversedTimestamps;
 
-type TimestampsResult<T> = Result<T, InvalidTimestamps>;
+type TimestampsResult<T> = Result<T, ReversedTimestamps>;
 
-impl fmt::Display for InvalidTimestamps {
+impl fmt::Display for ReversedTimestamps {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "$ETIM is before $BTIM and $DATE is given")
     }

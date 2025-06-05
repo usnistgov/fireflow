@@ -1,7 +1,6 @@
 use crate::core::*;
 use crate::error::*;
 use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
-use crate::validated::nonstandard::*;
 use crate::validated::pattern::*;
 use crate::validated::shortname::*;
 use crate::validated::standard::*;
@@ -27,9 +26,9 @@ use std::fmt;
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::FromStr;
 
-pub(crate) type LookupResult<V> = DeferredResult<V, ParseKeysWarning, ParseKeysError>;
+pub(crate) type LookupResult<V> = DeferredResult<V, LookupKeysWarning, LookupKeysError>;
 
-pub(crate) type LookupTentative<V, E> = Tentative<V, ParseKeysWarning, E>;
+pub(crate) type LookupTentative<V, E> = Tentative<V, LookupKeysWarning, E>;
 
 pub(crate) fn lookup_meta_req<V>(kws: &mut StdKeywords) -> LookupResult<V>
 where
@@ -65,23 +64,23 @@ where
     let mut x = process_opt(V::remove_meta_opt(kws));
     // TODO toggle
     if dep {
-        x.push_warning(DepKeyWarning(V::std()).into());
+        x.push_warning(DeprecatedError::Key(DepKeyWarning(V::std())).into());
     }
     x
 }
 
 pub(crate) fn lookup_indexed_opt<V, E>(
     kws: &mut StdKeywords,
-    n: IndexFromOne,
+    i: IndexFromOne,
     dep: bool,
 ) -> LookupTentative<OptionalKw<V>, E>
 where
     V: OptIndexedKey,
     ParseOptKeyWarning: From<<V as FromStr>::Err>,
 {
-    let mut x = process_opt(V::remove_meas_opt(kws, n));
+    let mut x = process_opt(V::remove_meas_opt(kws, i));
     if dep {
-        x.push_warning(DepKeyWarning(V::std(n)).into());
+        x.push_warning(DeprecatedError::Key(DepKeyWarning(V::std(i))).into());
     }
     x
 }
@@ -105,7 +104,7 @@ where
         Timestamps::new(btim, etim, date)
             .map(Tentative::new1)
             .unwrap_or_else(|w| {
-                let ow = ParseKeysWarning::OtherWarning(w.into());
+                let ow = LookupKeysWarning::Relation(w.into());
                 Tentative::new(Timestamps::default(), vec![ow], vec![])
             })
     })
@@ -118,7 +117,7 @@ pub(crate) fn lookup_datetimes<E>(kws: &mut StdKeywords) -> LookupTentative<Date
         Datetimes::try_new(begin, end)
             .map(Tentative::new1)
             .unwrap_or_else(|w| {
-                let ow = ParseKeysWarning::OtherWarning(w.into());
+                let ow = LookupKeysWarning::Relation(w.into());
                 Tentative::new(Datetimes::default(), vec![ow], vec![])
             })
     })
@@ -187,7 +186,7 @@ pub(crate) fn lookup_compensation_2_0<E>(
                     matrix[(r, c)] = x;
                 }
                 Ok(None) => (),
-                Err(w) => warnings.push(ParseKeysWarning::OptKey(w.inner_into())),
+                Err(w) => warnings.push(LookupKeysWarning::Parse(w.inner_into())),
             }
         }
     }
@@ -196,7 +195,7 @@ pub(crate) fn lookup_compensation_2_0<E>(
             |w| {
                 Tentative::new(
                     None.into(),
-                    vec![ParseKeysWarning::OtherWarning(w.into())],
+                    vec![LookupKeysWarning::Relation(w.into())],
                     vec![],
                 )
             },
@@ -263,7 +262,7 @@ pub(crate) fn lookup_applied_gates2_0<E>(
             match ret.check_gates() {
                 Ok(_) => Tentative::new1(Some(ret).into()),
                 Err(e) => {
-                    let w = ParseKeysWarning::OtherWarning(e.into());
+                    let w = LookupKeysWarning::Relation(e.into());
                     Tentative::new(None.into(), vec![w], vec![])
                 }
             }
@@ -288,7 +287,7 @@ pub(crate) fn lookup_applied_gates3_0<E>(
             match ret.check_gates() {
                 Ok(_) => Tentative::new1(Some(ret).into()),
                 Err(e) => {
-                    let w = ParseKeysWarning::OtherWarning(e.into());
+                    let w = LookupKeysWarning::Relation(e.into());
                     Tentative::new(None.into(), vec![w], vec![])
                 }
             }
@@ -325,7 +324,7 @@ where
                 match res {
                     Ok(xs) => Tentative::mconcat_ne(xs)
                         .map(|regions| Some(GatingRegions { regions, gating })),
-                    Err(w) => Tentative::new(None, vec![ParseKeysWarning::OtherWarning(w)], vec![]),
+                    Err(w) => Tentative::new(None, vec![LookupKeysWarning::Relation(w)], vec![]),
                 }
             } else {
                 Tentative::new1(None)
@@ -407,7 +406,9 @@ where
                 .and_then(|(gi, win)| Region::try_new(gi, win).map(|x| x.inner_into()))
                 .map_or_else(
                     || {
-                        let warn = ParseOtherWarning::GateRegion(InvalidGateRegion).into();
+                        let warn =
+                            LookupRelationalWarning::GateRegion(MismatchedIndexAndWindowError)
+                                .into();
                         Tentative::new(None, vec![warn], vec![])
                     },
                     |x| Tentative::new1(Some(x)),
@@ -419,11 +420,11 @@ where
 pub(crate) fn lookup_temporal_gain_3_0(
     kws: &mut StdKeywords,
     i: IndexFromOne,
-) -> LookupTentative<OptionalKw<Gain>, ParseKeysError> {
+) -> LookupTentative<OptionalKw<Gain>, LookupKeysError> {
     let mut tnt_gain = lookup_indexed_opt(kws, i, false);
     tnt_gain.eval_error(|gain| {
         if gain.0.is_some() {
-            Some(ParseKeysError::Other(TemporalError::HasGain.into()))
+            Some(LookupKeysError::Misc(TemporalError::HasGain.into()))
         } else {
             None
         }
@@ -438,7 +439,7 @@ pub(crate) fn lookup_temporal_scale_3_0(
     let mut res = lookup_indexed_req(kws, i);
     res.def_eval_error(|scale| {
         if *scale != Scale::Linear {
-            Some(ParseKeysError::Other(TemporalError::NonLinear.into()))
+            Some(LookupKeysError::Misc(TemporalError::NonLinear.into()))
         } else {
             None
         }
@@ -448,7 +449,7 @@ pub(crate) fn lookup_temporal_scale_3_0(
 
 fn process_opt<V, E>(
     res: Result<OptionalKw<V>, ParseKeyError<<V as FromStr>::Err>>,
-) -> Tentative<OptionalKw<V>, ParseKeysWarning, E>
+) -> Tentative<OptionalKw<V>, LookupKeysWarning, E>
 where
     V: FromStr,
     ParseOptKeyWarning: From<<V as FromStr>::Err>,
@@ -457,7 +458,7 @@ where
         |e| {
             Tentative::new(
                 None.into(),
-                vec![ParseKeysWarning::OptKey(e.inner_into())],
+                vec![LookupKeysWarning::Parse(e.inner_into())],
                 vec![],
             )
         },
@@ -467,56 +468,58 @@ where
 
 // TODO this could be nested better
 enum_from_disp!(
-    pub ParseKeysError,
-    [ReqKey,     Box<ReqKeyError<ParseReqKeyError>>],
-    [Other,      ParseOtherError],
-    [Deprecated, DepKeyWarning],
-    [Linked,     LinkedNameError],
-    [Deviant,    DeviantError]
-);
-
-enum_from_disp!(
-    pub LookupMeasWarning,
-    [Parse, ParseKeysWarning],
-    [Pattern, NonStdMeasRegexError],
+    pub LookupKeysError,
+    [Parse, Box<ReqKeyError<ParseReqKeyError>>],
+    // TODO this currently does nothing, need to add a flag to toggle these to
+    // errors
+    [Dep, DeprecatedError],
+    [Linked, LinkedNameError],
+    [Misc, LookupMiscError],
     [Deviant, DeviantError]
 );
 
 enum_from_disp!(
-    pub ParseKeysWarning,
-    [OptKey,       ParseKeyError<ParseOptKeyWarning>],
-    [OtherWarning, ParseOtherWarning],
-    [DepKey,       DepKeyWarning],
-    [OtherDep,     DepFeatureWarning]
+    pub LookupKeysWarning,
+    [Parse, ParseKeyError<ParseOptKeyWarning>],
+    [Relation, LookupRelationalWarning],
+    [Dep, DeprecatedError]
 );
 
 enum_from_disp!(
+    pub DeprecatedError,
+    [Key, DepKeyWarning],
+    [Value, DepValueWarning]
+);
+
+enum_from_disp!(
+    /// Error encountered when parsing a required key from a string
     pub ParseReqKeyError,
-    [FloatOrInt,     ParseFloatOrIntError],
-    [AlphaNumType,   AlphaNumTypeError],
-    [String,         Infallible],
-    [Int,            ParseIntError],
-    [Scale,          ScaleError],
-    [ReqRangedFloat, RangedFloatError],
-    [Mode,           ModeError],
-    [ByteOrd,        ParseByteOrdError],
-    [Endian,         NewEndianError],
-    [ReqShortname,   ShortnameError]
+    [FloatOrInt,   ParseFloatOrIntError],
+    [AlphaNumType, AlphaNumTypeError],
+    [String,       Infallible],
+    [Int,          ParseIntError],
+    [Scale,        ScaleError],
+    [RangedFloat,  RangedFloatError],
+    [Mode,         ModeError],
+    [ByteOrd,      ParseByteOrdError],
+    [Endian,       NewEndianError],
+    [Shortname,    ShortnameError]
 );
 
 enum_from_disp!(
+    /// Error encountered when parsing an optional key from a string
     pub ParseOptKeyWarning,
     [NumType,            NumTypeError],
     [Trigger,            TriggerError],
-    [OptScale,           ScaleError],
-    [OptFloat,           ParseFloatError],
-    [OptRangedFloat,     RangedFloatError],
+    [Scale,              ScaleError],
+    [Float,              ParseFloatError],
+    [RangedFloat,        RangedFloatError],
     [Feature,            FeatureError],
     [Wavelengths,        WavelengthsError],
     [Calibration3_1,     CalibrationError<CalibrationFormat3_1>],
     [Calibration3_2,     CalibrationError<CalibrationFormat3_2>],
-    [OptInt,             ParseIntError],
-    [OptString,          Infallible],
+    [Int,                ParseIntError],
+    [String,             Infallible],
     [FCSDate,            FCSDateError],
     [FCSTime,            FCSTimeError],
     [FCSTime60,          FCSTime60Error],
@@ -528,7 +531,7 @@ enum_from_disp!(
     [Mode3_2,            Mode3_2Error],
     [TemporalType,       TemporalTypeError],
     [OpticalType,        OpticalTypeError],
-    [OptShortname,       ShortnameError],
+    [Shortname,          ShortnameError],
     [Display,            DisplayError],
     [Unicode,            UnicodeError],
     [Spillover,          ParseSpilloverError],
@@ -542,40 +545,48 @@ enum_from_disp!(
 );
 
 enum_from_disp!(
-    pub ParseOtherError,
+    /// Misc errors encountered when looking up keywords for standardization
+    pub LookupMiscError,
+    // TODO this should be a configurable warning
     [Temporal, TemporalError],
     [NamedVec, NewNamedVecError],
     [MissingTime, MissingTime]
 );
 
+/// Error triggered when time measurement is missing but required.
 pub struct MissingTime(pub TimePattern);
 
+/// Errors triggered when time measurement keyword value is invalid
+// TODO add other optical keywords that shouldn't be set for time.
 pub enum TemporalError {
     NonLinear,
     HasGain,
 }
 
 enum_from_disp!(
-    pub ParseOtherWarning,
-    [Timestamp, InvalidTimestamps],
-    [Datetime, InvalidDatetimes],
+    /// Error encountered when relation between two or more keys is invalid
+    pub LookupRelationalWarning,
+    [Timestamp, ReversedTimestamps],
+    [Datetime, ReversedDatetimes],
     [CompShape, NewCompError],
-    [GateRegion, InvalidGateRegion],
+    [GateRegion, MismatchedIndexAndWindowError],
     [GateRegionLink, GateRegionLinkError],
     [GateMeasLink, GateMeasurementLinkError]
 );
 
+/// Error/warning triggered when encountering a key which is deprecated
 pub struct DepKeyWarning(pub StdKey);
 
-pub enum DepFeatureWarning {
+/// Error/warning triggered when encountering a key value which is deprecated
+pub enum DepValueWarning {
     DatatypeASCII,
     ModeCorrelated,
     ModeUncorrelated,
 }
 
-pub struct InvalidGateRegion;
+pub struct MismatchedIndexAndWindowError;
 
-impl fmt::Display for InvalidGateRegion {
+impl fmt::Display for MismatchedIndexAndWindowError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             f,
@@ -584,7 +595,7 @@ impl fmt::Display for InvalidGateRegion {
     }
 }
 
-impl fmt::Display for DepFeatureWarning {
+impl fmt::Display for DepValueWarning {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let s = match self {
             Self::DatatypeASCII => "$DATATYPE=A is deprecated",
@@ -617,6 +628,11 @@ impl fmt::Display for TemporalError {
     }
 }
 
+/// Error denoting that deviant keywords were found.
+// TODO add them here? the only reason we might want this is in the situation
+// where we trigger an error for this (rather than a warning) in which case the
+// deviant keywords are not returned along with the standardized struct and
+// we want to use those deviant keywords somehow.
 pub struct DeviantError;
 
 impl fmt::Display for DeviantError {

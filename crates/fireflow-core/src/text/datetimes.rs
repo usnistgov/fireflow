@@ -57,7 +57,7 @@ macro_rules! get_set {
                 Ok(())
             } else {
                 self.$field = tmp;
-                Err(InvalidDatetimes)
+                Err(ReversedDatetimes)
             }
         }
 
@@ -79,7 +79,7 @@ impl Datetimes {
         if ret.valid() {
             Ok(ret)
         } else {
-            Err(InvalidDatetimes)
+            Err(ReversedDatetimes)
         }
     }
 
@@ -102,11 +102,11 @@ impl Datetimes {
     }
 }
 
-pub struct InvalidDatetimes;
+pub struct ReversedDatetimes;
 
-type DatetimesResult<T> = Result<T, InvalidDatetimes>;
+type DatetimesResult<T> = Result<T, ReversedDatetimes>;
 
-impl fmt::Display for InvalidDatetimes {
+impl fmt::Display for ReversedDatetimes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "$BEGINDATETIME is after $ENDDATETIME")
     }

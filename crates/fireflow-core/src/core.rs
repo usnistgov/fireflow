@@ -1080,21 +1080,28 @@ pub trait TemporalFromOptical<O: VersionedOptical>: Sized {
         OpticalToTemporalError,
         OpticalToTemporalError,
     > {
-        let go = |old_o: Optical<O>| Temporal {
-            common: old_o.common,
-            specific: Self::from_optical_inner(old_o.specific, d),
-        };
         let opt_common_res = check_optical_keys_transfer(&o, i).mult_errors_into();
         let opt_specific_res = o.specific.can_convert_to_temporal(i).mult_errors_into();
         match opt_common_res.mult_zip(opt_specific_res) {
-            Ok(_) => Ok(Tentative::new1(go(o))),
+            Ok(_) => Ok(Tentative::new1(Self::from_optical_unchecked(o, d))),
             Err(es) => {
                 if lossless {
                     Err(DeferredFailure::new(vec![], es, Box::new(o)))
                 } else {
-                    Ok(Tentative::new(go(o), es.into(), vec![]))
+                    Ok(Tentative::new(
+                        Self::from_optical_unchecked(o, d),
+                        es.into(),
+                        vec![],
+                    ))
                 }
             }
+        }
+    }
+
+    fn from_optical_unchecked(o: Optical<O>, d: Self::TData) -> Temporal<Self> {
+        Temporal {
+            common: o.common,
+            specific: Self::from_optical_inner(o.specific, d),
         }
     }
 
@@ -1115,29 +1122,34 @@ pub trait OpticalFromTemporal<T: VersionedTemporal>: Sized {
         TemporalToOpticalError,
         TemporalToOpticalError,
     > {
-        let go = |old_t: Temporal<T>| {
-            let (specific, td) = Self::from_temporal_inner(old_t.specific);
-            let new = Optical {
-                common: old_t.common,
-                filter: None.into(),
-                power: None.into(),
-                detector_type: None.into(),
-                percent_emitted: None.into(),
-                detector_voltage: None.into(),
-                specific,
-            };
-            (new, td)
-        };
         match t.specific.can_convert_to_optical(i) {
-            Ok(()) => Ok(Tentative::new1(go(t))),
+            Ok(()) => Ok(Tentative::new1(Self::from_temporal_unchecked(t))),
             Err(es) => {
                 if lossless {
                     Err(DeferredFailure::new(vec![], es, Box::new(t)))
                 } else {
-                    Ok(Tentative::new(go(t), es.into(), vec![]))
+                    Ok(Tentative::new(
+                        Self::from_temporal_unchecked(t),
+                        es.into(),
+                        vec![],
+                    ))
                 }
             }
         }
+    }
+
+    fn from_temporal_unchecked(t: Temporal<T>) -> (Optical<Self>, Self::TData) {
+        let (specific, td) = Self::from_temporal_inner(t.specific);
+        let new = Optical {
+            common: t.common,
+            filter: None.into(),
+            power: None.into(),
+            detector_type: None.into(),
+            percent_emitted: None.into(),
+            detector_voltage: None.into(),
+            specific,
+        };
+        (new, td)
     }
 
     fn from_temporal_inner(t: T) -> (Self, Self::TData);
@@ -1922,7 +1934,6 @@ where
         TemporalToOpticalError,
     >
     where
-        Optical<M::O>: From<Temporal<M::T>>,
         M::O: OpticalFromTemporal<M::T>,
     {
         self.measurements.unset_center(|i, old_t| {
@@ -2420,15 +2431,23 @@ where
     fn meas_table(&self, delim: &str) -> Vec<String>
     where
         M::T: Clone,
-        M::O: From<M::T>,
+        M::O: OpticalFromTemporal<M::T>,
     {
         let ms = &self.measurements;
         if let Some(m0) = ms.get(0.into()).ok().and_then(|x| x.non_center()) {
             let header = m0.1.table_header();
             let rows = self.measurements.iter().map(|(i, r)| {
                 r.both(
-                    |c| Optical::<M::O>::from(c.value.clone()).table_row(i, Some(&c.key)),
-                    |nc| nc.value.table_row(i, M::N::as_opt(&nc.key)),
+                    |t| {
+                        // NOTE this will force-convert all fields in the time
+                        // measurement, which for this is actually want we want
+                        <M::O as OpticalFromTemporal<M::T>>::from_temporal_unchecked(
+                            t.value.clone(),
+                        )
+                        .0
+                        .table_row(i, Some(&t.key))
+                    },
+                    |o| o.value.table_row(i, M::N::as_opt(&o.key)),
                 )
             });
             [header]
@@ -2445,7 +2464,7 @@ where
     pub(crate) fn print_meas_table(&self, delim: &str)
     where
         M::T: Clone,
-        M::O: From<M::T>,
+        M::O: OpticalFromTemporal<M::T>,
     {
         for e in self.meas_table(delim) {
             println!("{}", e);
@@ -5158,94 +5177,6 @@ impl From<InnerTemporal3_1> for InnerTemporal3_2 {
         }
     }
 }
-
-impl From<InnerTemporal2_0> for InnerOptical2_0 {
-    fn from(value: InnerTemporal2_0) -> Self {
-        Self {
-            scale: Some(Scale::Linear).into(),
-            wavelength: None.into(),
-            peak: value.peak,
-        }
-    }
-}
-
-impl From<InnerTemporal3_0> for InnerOptical3_0 {
-    fn from(value: InnerTemporal3_0) -> Self {
-        Self {
-            scale: Scale::Linear,
-            wavelength: None.into(),
-            gain: None.into(),
-            peak: value.peak,
-        }
-    }
-}
-
-impl From<InnerTemporal3_1> for InnerOptical3_1 {
-    fn from(value: InnerTemporal3_1) -> Self {
-        Self {
-            scale: Scale::Linear,
-            display: value.display,
-            wavelengths: None.into(),
-            gain: None.into(),
-            calibration: None.into(),
-            peak: value.peak,
-        }
-    }
-}
-
-impl From<InnerTemporal3_2> for InnerOptical3_2 {
-    fn from(value: InnerTemporal3_2) -> Self {
-        Self {
-            scale: Scale::Linear,
-            display: value.display,
-            datatype: value.datatype,
-            wavelengths: None.into(),
-            gain: None.into(),
-            calibration: None.into(),
-            analyte: None.into(),
-            measurement_type: None.into(),
-            tag: None.into(),
-            detector_name: None.into(),
-            feature: None.into(),
-        }
-    }
-}
-
-// impl From<InnerOptical2_0> for InnerTemporal2_0 {
-//     fn from(value: InnerOptical2_0) -> Self {
-//         Self { peak: value.peak }
-//     }
-// }
-
-// impl From<InnerOptical3_0> for InnerTemporal3_0 {
-//     fn from(value: InnerOptical3_0) -> Self {
-//         Self {
-//             timestep: Timestep::default(),
-//             peak: value.peak,
-//         }
-//     }
-// }
-
-// impl From<InnerOptical3_1> for InnerTemporal3_1 {
-//     fn from(value: InnerOptical3_1) -> Self {
-//         Self {
-//             timestep: Timestep::default(),
-//             display: value.display,
-//             peak: value.peak,
-//         }
-//     }
-// }
-
-// impl From<InnerOptical3_2> for InnerTemporal3_2 {
-//     fn from(value: InnerOptical3_2) -> Self {
-//         Self {
-//             timestep: Timestep::default(),
-//             display: value.display,
-//             datatype: value.datatype,
-//             measurement_type: None.into(),
-//         }
-//     }
-// }
 
 impl Versioned for InnerOptical2_0 {
     fn fcs_version() -> Version {

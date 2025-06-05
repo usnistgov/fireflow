@@ -1987,7 +1987,7 @@ where
     /// optical measurement. In both cases the name is kept. Return the
     /// measurement that was replaced if the index was in bounds.
     #[allow(clippy::type_complexity)]
-    pub fn replace_measurement_at(
+    pub fn replace_optical_at(
         &mut self,
         index: MeasIndex,
         m: Optical<M::O>,
@@ -2001,7 +2001,7 @@ where
     /// optical measurement. Return the measurement that was replaced if the
     /// index was in bounds.
     #[allow(clippy::type_complexity)]
-    pub fn replace_measurement_named(
+    pub fn replace_optical_named(
         &mut self,
         name: &Shortname,
         m: Optical<M::O>,

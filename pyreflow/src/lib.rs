@@ -1762,7 +1762,7 @@ temporal_get_set_3_0!(
 );
 
 macro_rules! common_meas_get_set {
-    ($([$pytype:ident, $meastype:ident, $timetype:ident]),*) => {
+    ($([$pytype:ident, $opttype:ident, $timetype:ident]),*) => {
         $(
             #[pymethods]
             impl $pytype {
@@ -1777,7 +1777,7 @@ macro_rules! common_meas_get_set {
                         .map(|(i, x)| {
                             x.both(
                                 |l| $timetype::from(l).into_bound_py_any(py),
-                                |r| $meastype::from(r).into_bound_py_any(py)
+                                |r| $opttype::from(r).into_bound_py_any(py)
                             ).map(|x| (usize::from(i), x))
                         }).transpose()
                 }
@@ -1794,36 +1794,36 @@ macro_rules! common_meas_get_set {
                         .map_err(|e| PyreflowException::new_err(e.to_string()))?;
                     m.both(
                         |(_, l)| $timetype::from(l.clone()).into_bound_py_any(py),
-                        |(_, r)| $meastype::from(r.clone()).into_bound_py_any(py)
+                        |(_, r)| $opttype::from(r.clone()).into_bound_py_any(py)
                     )
                 }
 
-                fn replace_measurement_at<'py>(
+                fn replace_optical_at<'py>(
                     &mut self,
                     i: usize,
-                    m: $meastype,
+                    m: $opttype,
                     py: Python<'py>
                 ) -> PyResult<Bound<'py, PyAny>> {
                     let r = self.0
-                        .replace_measurement_at(i.into(), m.into())
+                        .replace_optical_at(i.into(), m.into())
                         .map_err(|e| PyreflowException::new_err(e.to_string()))?;
                     r.both(
                         |l| $timetype::from(l).into_bound_py_any(py),
-                        |r| $meastype::from(r).into_bound_py_any(py),
+                        |r| $opttype::from(r).into_bound_py_any(py),
                     )
                 }
 
-                fn replace_measurement_named<'py>(
+                fn replace_optical_named<'py>(
                     &mut self,
                     name: String,
-                    m: $meastype,
+                    m: $opttype,
                     py: Python<'py>
                 ) -> PyResult<Option<Bound<'py, PyAny>>> {
                     let n = str_to_shortname(name)?;
-                    let r = self.0.replace_measurement_named(&n, m.into());
+                    let r = self.0.replace_optical_named(&n, m.into());
                     r.map(|x| x.both(
                         |l| $timetype::from(l).into_bound_py_any(py),
-                        |r| $meastype::from(r).into_bound_py_any(py),
+                        |r| $opttype::from(r).into_bound_py_any(py),
                     )).transpose()
                 }
 
@@ -1845,7 +1845,7 @@ macro_rules! common_meas_get_set {
                         .map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
                     r.both(
                         |l| $timetype::from(l).into_bound_py_any(py),
-                        |r| $meastype::from(r).into_bound_py_any(py),
+                        |r| $opttype::from(r).into_bound_py_any(py),
                     )
                 }
 
@@ -1863,7 +1863,7 @@ macro_rules! common_meas_get_set {
                         .map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
                     r.map(|x| x.both(
                         |l| $timetype::from(l).into_bound_py_any(py),
-                        |r| $meastype::from(r).into_bound_py_any(py),
+                        |r| $opttype::from(r).into_bound_py_any(py),
                     )).transpose()
                 }
 
@@ -1880,7 +1880,7 @@ macro_rules! common_meas_get_set {
                         .iter()
                         .map(|(_, x)| x.both(
                             |l| $timetype::from(l.value.clone()).into_bound_py_any(py),
-                            |r| $meastype::from(r.value.clone()).into_bound_py_any(py)
+                            |r| $opttype::from(r.value.clone()).into_bound_py_any(py)
                         ))
                     {
                         ret.push(x?);
@@ -2030,7 +2030,7 @@ coredata_meas_get_set!(
 );
 
 macro_rules! coretext2_0_meas_methods {
-    ($([$pytype:ident, $meastype:ident, $timetype:ident]),*) => {
+    ($([$pytype:ident, $opttype:ident, $timetype:ident]),*) => {
         $(
             #[pymethods]
             impl $pytype {
@@ -2048,7 +2048,7 @@ macro_rules! coretext2_0_meas_methods {
                             Ok((Some(p.key.to_string()), a))
                         },
                         |p| {
-                            let a = $meastype::from(p.value).into_bound_py_any(py)?;
+                            let a = $opttype::from(p.value).into_bound_py_any(py)?;
                             Ok((p.key.0.map(|n| n.to_string()), a))
                         },
                     )
@@ -2057,7 +2057,7 @@ macro_rules! coretext2_0_meas_methods {
                 #[pyo3(signature = (m, name=None))]
                 fn push_measurement(
                     &mut self,
-                    m: $meastype,
+                    m: $opttype,
                     name: Option<String>,
                 ) -> PyResult<String> {
                     let n = name.map(str_to_shortname).transpose()?;
@@ -2071,7 +2071,7 @@ macro_rules! coretext2_0_meas_methods {
                 fn insert_optical(
                     &mut self,
                     i: usize,
-                    m: $meastype,
+                    m: $opttype,
                     name: Option<String>,
                 ) -> PyResult<String> {
                     let n = name.map(str_to_shortname).transpose()?;
@@ -2091,7 +2091,7 @@ coretext2_0_meas_methods!(
 );
 
 macro_rules! coretext3_1_meas_methods {
-    ($([$pytype:ident, $meastype:ident, $timetype:ident]),*) => {
+    ($([$pytype:ident, $opttype:ident, $timetype:ident]),*) => {
         $(
             #[pymethods]
             impl $pytype {
@@ -2109,13 +2109,13 @@ macro_rules! coretext3_1_meas_methods {
                             Ok((p.key.to_string(), a))
                         },
                         |p| {
-                            let a = $meastype::from(p.value).into_bound_py_any(py)?;
+                            let a = $opttype::from(p.value).into_bound_py_any(py)?;
                             Ok((p.key.0.to_string(), a))
                         },
                     )
                 }
 
-                fn push_optical(&mut self, m: $meastype, name: String) -> PyResult<()> {
+                fn push_optical(&mut self, m: $opttype, name: String) -> PyResult<()> {
                     let n = str_to_shortname(name)?;
                     self.0
                         .push_optical(Identity(n), m.into())
@@ -2126,7 +2126,7 @@ macro_rules! coretext3_1_meas_methods {
                 fn insert_optical(
                     &mut self,
                     i: usize,
-                    m: $meastype,
+                    m: $opttype,
                     name: String,
                 ) -> PyResult<()> {
                     let n = str_to_shortname(name)?;
@@ -2146,7 +2146,7 @@ coretext3_1_meas_methods!(
 );
 
 macro_rules! set_measurements2_0 {
-    ($([$pytype:ident, $meastype:ident, $timetype:ident]),*) => {
+    ($([$pytype:ident, $opttype:ident, $timetype:ident]),*) => {
         $(
             #[pymethods]
             impl $pytype {
@@ -2158,7 +2158,7 @@ macro_rules! set_measurements2_0 {
                     let sp = str_to_shortname_prefix(prefix)?;
                     let mut ys = vec![];
                     for x in xs {
-                        let y = if let Ok((n, m)) = any_to_opt_named_pair::<$meastype>(x.clone()) {
+                        let y = if let Ok((n, m)) = any_to_opt_named_pair::<$opttype>(x.clone()) {
                             Element::NonCenter((n, m.into()))
                         } else {
                             let (n, t) = any_to_named_pair::<$timetype>(x)?;
@@ -2183,7 +2183,7 @@ set_measurements2_0!(
 );
 
 macro_rules! set_measurements3_1 {
-    ($([$pytype:ident, $meastype:ident, $timetype:ident]),*) => {
+    ($([$pytype:ident, $opttype:ident, $timetype:ident]),*) => {
         $(
             #[pymethods]
             impl $pytype {
@@ -2193,7 +2193,7 @@ macro_rules! set_measurements3_1 {
                 ) -> PyResult<()> {
                     let mut ys = vec![];
                     for x in xs {
-                        let y = if let Ok((n, m)) = any_to_named_pair::<$meastype>(x.clone()) {
+                        let y = if let Ok((n, m)) = any_to_named_pair::<$opttype>(x.clone()) {
                             Element::NonCenter((Identity(n), m.into()))
                         } else {
                             let (n, t) = any_to_named_pair::<$timetype>(x)?;
@@ -2218,7 +2218,7 @@ set_measurements3_1!(
 );
 
 macro_rules! coredata2_0_meas_methods {
-    ($([$pytype:ident, $meastype:ident, $timetype:ident]),*) => {
+    ($([$pytype:ident, $opttype:ident, $timetype:ident]),*) => {
         $(
             #[pymethods]
             impl $pytype {
@@ -2231,7 +2231,7 @@ macro_rules! coredata2_0_meas_methods {
                     let sp = str_to_shortname_prefix(prefix)?;
                     let mut ys = vec![];
                     for x in xs {
-                        let y = if let Ok((n, m)) = any_to_opt_named_pair::<$meastype>(x.clone()) {
+                        let y = if let Ok((n, m)) = any_to_opt_named_pair::<$opttype>(x.clone()) {
                             Element::NonCenter((n, m.into()))
                         } else {
                             let (n, t) = any_to_named_pair::<$timetype>(x)?;
@@ -2258,7 +2258,7 @@ coredata2_0_meas_methods!(
 );
 
 macro_rules! coredata3_1_meas_methods {
-    ($([$pytype:ident, $meastype:ident, $timetype:ident]),*) => {
+    ($([$pytype:ident, $opttype:ident, $timetype:ident]),*) => {
         $(
             #[pymethods]
             impl $pytype {
@@ -2269,7 +2269,7 @@ macro_rules! coredata3_1_meas_methods {
                 ) -> PyResult<()> {
                     let mut ys = vec![];
                     for x in xs {
-                        let y = if let Ok((n, m)) = any_to_named_pair::<$meastype>(x.clone()) {
+                        let y = if let Ok((n, m)) = any_to_named_pair::<$opttype>(x.clone()) {
                             Element::NonCenter((Identity(n), m.into()))
                         } else {
                             let (n, t) = any_to_named_pair::<$timetype>(x)?;

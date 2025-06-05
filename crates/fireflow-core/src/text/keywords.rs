@@ -36,7 +36,7 @@ newtype_disp!(Gain);
 newtype_fromstr!(Gain, RangedFloatError);
 
 /// The value of the $TIMESTEP keyword
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, PartialEq, Serialize)]
 pub struct Timestep(pub PositiveFloat);
 
 impl Default for Timestep {

@@ -2257,6 +2257,7 @@ where
             .def_and_maybe(|xs| {
                 xs.map_non_center_values(|i, v| v.try_convert(i, force))
                     .def_map_errors(ConvertErrorInner::Optical)
+                    .def_warnings_into()
             })
             .def_warnings_into()
             .def_and_maybe(|x| {
@@ -4679,7 +4680,7 @@ type MetarootConvertResult<M> = DeferredResult<M, MetarootConvertWarning, Metaro
 
 type OpticalConvertResult<M> = DeferredResult<M, AnyIndexedKeyTransferError, OpticalConvertError>;
 
-type TemporalConvertTentative<M> = Tentative<M, AnyIndexedKeyTransferError, TemporalConvertError>;
+type TemporalConvertTentative<M> = Tentative<M, TemporalConvertError, TemporalConvertError>;
 
 enum_from_disp!(
     pub OpticalConvertError,
@@ -4689,8 +4690,21 @@ enum_from_disp!(
 
 enum_from_disp!(
     pub TemporalConvertError,
+    [Timestep, TimestepLossError],
     [Xfer, AnyIndexedKeyTransferError]
 );
+
+pub struct TimestepLossError(Timestep);
+
+impl fmt::Display for TimestepLossError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "$TIMESTEP is {} and will be 1.0 after conversion",
+            self.0
+        )
+    }
+}
 
 pub struct SizeConvert<O> {
     size: O,
@@ -5220,14 +5234,21 @@ fn check_modified_keys_transfer(
     d.zip3(r, o).void()
 }
 
+fn check_timestep(x: Timestep, force: bool) -> TemporalConvertTentative<()> {
+    let mut tnt = Tentative::new1(());
+    if f32::from(x.0) != 1.0 {
+        tnt.push_error_or_warning(TimestepLossError(x), force);
+    }
+    tnt
+}
+
 impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal2_0 {
     fn convert_from_temporal(
         value: InnerTemporal3_0,
         _: MeasIndex,
-        _: bool,
+        force: bool,
     ) -> TemporalConvertTentative<Self> {
-        // TODO warn timestep
-        Tentative::new1(Self { peak: value.peak })
+        check_timestep(value.timestep, force).map(|_| Self { peak: value.peak })
     }
 }
 
@@ -5237,10 +5258,9 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal2_0 {
         i: MeasIndex,
         force: bool,
     ) -> TemporalConvertTentative<Self> {
-        // TODO warn timestep
-        check_indexed_key_transfer_own(value.display, i.into(), !force)
-            .errors_into()
-            .map(|_| Self { peak: value.peak })
+        let t = check_timestep(value.timestep, force);
+        let d = check_indexed_key_transfer_own(value.display, i.into(), !force).inner_into();
+        t.zip(d).map(|_| Self { peak: value.peak })
     }
 }
 
@@ -5254,9 +5274,9 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal2_0 {
         let dt = check_indexed_key_transfer_own(value.datatype, j, !force);
         let di = check_indexed_key_transfer_own(value.display, j, !force);
         let m = check_indexed_key_transfer_own(value.measurement_type, j, !force);
+        let t = check_timestep(value.timestep, force);
         // TODO warn peak
-        // TODO warn timestep
-        dt.zip3(di, m).errors_into().map(|_| Self {
+        dt.zip3(di, m).inner_into().zip(t).map(|_| Self {
             peak: PeakData::default(),
         })
     }
@@ -5282,7 +5302,7 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_0 {
         force: bool,
     ) -> TemporalConvertTentative<Self> {
         check_indexed_key_transfer_own(value.display, i.into(), !force)
-            .errors_into()
+            .inner_into()
             .map(|_| Self {
                 timestep: value.timestep,
                 peak: value.peak,
@@ -5301,7 +5321,7 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal3_0 {
         let di = check_indexed_key_transfer_own(value.display, j, !force);
         let m = check_indexed_key_transfer_own(value.measurement_type, j, !force);
         // TODO warn peak
-        dt.zip3(di, m).errors_into().map(|_| Self {
+        dt.zip3(di, m).inner_into().map(|_| Self {
             timestep: value.timestep,
             peak: PeakData::default(),
         })
@@ -5346,7 +5366,7 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal3_1 {
         let dt = check_indexed_key_transfer_own(value.datatype, j, !force);
         let m = check_indexed_key_transfer_own(value.measurement_type, j, !force);
         // TODO warn peak
-        dt.zip(m).errors_into().map(|_| Self {
+        dt.zip(m).inner_into().map(|_| Self {
             timestep: value.timestep,
             display: value.display,
             peak: PeakData::default(),
@@ -7304,6 +7324,7 @@ enum_from_disp!(
     [Gates2_0To3_2, AppliedGates2_0To3_2Error],
     [Xfer, AnyKeyTransferError],
     [IndexedXfer, AnyIndexedKeyTransferError],
+    [Temporal, TemporalConvertError],
     [Comp2_0, Comp2_0TransferError]
 );
 

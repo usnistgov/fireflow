@@ -60,7 +60,7 @@ pub(crate) fn lookup_meta_opt<V, E>(
 where
     V: OptMetaKey,
     V: FromStr,
-    ParseOptKeyWarning: From<ParseKeyError<<V as FromStr>::Err>>,
+    ParseOptKeyWarning: From<<V as FromStr>::Err>,
 {
     let mut x = process_opt(V::remove_meta_opt(kws));
     // TODO toggle
@@ -77,7 +77,7 @@ pub(crate) fn lookup_indexed_opt<V, E>(
 ) -> LookupTentative<OptionalKw<V>, E>
 where
     V: OptIndexedKey,
-    ParseOptKeyWarning: From<ParseKeyError<<V as FromStr>::Err>>,
+    ParseOptKeyWarning: From<<V as FromStr>::Err>,
 {
     let mut x = process_opt(V::remove_meas_opt(kws, n));
     if dep {
@@ -95,8 +95,8 @@ where
     T: Copy,
     Btim<T>: OptMetaKey,
     Etim<T>: OptMetaKey,
-    ParseOptKeyWarning: From<ParseKeyError<<Btim<T> as FromStr>::Err>>,
-    ParseOptKeyWarning: From<ParseKeyError<<Etim<T> as FromStr>::Err>>,
+    ParseOptKeyWarning: From<<Btim<T> as FromStr>::Err>,
+    ParseOptKeyWarning: From<<Etim<T> as FromStr>::Err>,
 {
     let b = lookup_meta_opt(kws, dep);
     let e = lookup_meta_opt(kws, dep);
@@ -187,7 +187,7 @@ pub(crate) fn lookup_compensation_2_0<E>(
                     matrix[(r, c)] = x;
                 }
                 Ok(None) => (),
-                Err(w) => warnings.push(ParseKeysWarning::OptKey(w.into())),
+                Err(w) => warnings.push(ParseKeysWarning::OptKey(w.inner_into())),
             }
         }
     }
@@ -196,7 +196,7 @@ pub(crate) fn lookup_compensation_2_0<E>(
             |w| {
                 Tentative::new(
                     None.into(),
-                    vec![ParseKeysWarning::OptKey(w.into())],
+                    vec![ParseKeysWarning::OtherWarning(w.into())],
                     vec![],
                 )
             },
@@ -397,7 +397,7 @@ pub(crate) fn lookup_region<I, E>(
 where
     I: FromStr,
     I: fmt::Display,
-    ParseOptKeyWarning: From<ParseKeyError<<RegionGateIndex<I> as FromStr>::Err>>,
+    ParseOptKeyWarning: From<<RegionGateIndex<I> as FromStr>::Err>,
 {
     let n = lookup_indexed_opt::<RegionGateIndex<I>, _>(kws, i.into(), dep);
     let w = lookup_indexed_opt::<RegionWindow, _>(kws, i.into(), dep);
@@ -451,13 +451,13 @@ fn process_opt<V, E>(
 ) -> Tentative<OptionalKw<V>, ParseKeysWarning, E>
 where
     V: FromStr,
-    ParseOptKeyWarning: From<ParseKeyError<<V as FromStr>::Err>>,
+    ParseOptKeyWarning: From<<V as FromStr>::Err>,
 {
     res.map_or_else(
         |e| {
             Tentative::new(
                 None.into(),
-                vec![ParseKeysWarning::OptKey(e.into())],
+                vec![ParseKeysWarning::OptKey(e.inner_into())],
                 vec![],
             )
         },
@@ -484,10 +484,10 @@ enum_from_disp!(
 
 enum_from_disp!(
     pub ParseKeysWarning,
-    [OptKey,       ParseOptKeyWarning],
+    [OptKey,       ParseKeyError<ParseOptKeyWarning>],
     [OtherWarning, ParseOtherWarning],
-    [DepKey,   DepKeyWarning],
-    [OtherDep, DepFeatureWarning]
+    [DepKey,       DepKeyWarning],
+    [OtherDep,     DepFeatureWarning]
 );
 
 enum_from_disp!(
@@ -506,40 +506,39 @@ enum_from_disp!(
 
 enum_from_disp!(
     pub ParseOptKeyWarning,
-    [NumType,            ParseKeyError<NumTypeError>],
-    [Trigger,            ParseKeyError<TriggerError>],
-    [OptScale,           ParseKeyError<ScaleError>],
-    [OptFloat,           ParseKeyError<ParseFloatError>],
-    [OptRangedFloat,     ParseKeyError<RangedFloatError>],
-    [Feature,            ParseKeyError<FeatureError>],
-    [Wavelengths,        ParseKeyError<WavelengthsError>],
-    [Calibration3_1,     ParseKeyError<CalibrationError<CalibrationFormat3_1>>],
-    [Calibration3_2,     ParseKeyError<CalibrationError<CalibrationFormat3_2>>],
-    [OptInt,             ParseKeyError<ParseIntError>],
-    [OptString,          ParseKeyError<Infallible>],
-    [FCSDate,            ParseKeyError<FCSDateError>],
-    [FCSTime,            ParseKeyError<FCSTimeError>],
-    [FCSTime60,          ParseKeyError<FCSTime60Error>],
-    [FCSTime100,         ParseKeyError<FCSTime100Error>],
-    [FCSDateTime,        ParseKeyError<FCSDateTimeError>],
-    [ModifiedDateTime,   ParseKeyError<ModifiedDateTimeError>],
-    [Originality,        ParseKeyError<OriginalityError>],
-    [UnstainedCenter,    ParseKeyError<ParseUnstainedCenterError>],
-    [Mode3_2,            ParseKeyError<Mode3_2Error>],
-    [TemporalType,       ParseKeyError<TemporalTypeError>],
-    [OpticalType,        ParseKeyError<OpticalTypeError>],
-    [OptShortname,       ParseKeyError<ShortnameError>],
-    [Display,            ParseKeyError<DisplayError>],
-    [Unicode,            ParseKeyError<UnicodeError>],
-    [Spillover,          ParseKeyError<ParseSpilloverError>],
-    [Compensation,       ParseKeyError<ParseCompError>],
-    [FloatOrInt,         ParseKeyError<ParseFloatOrIntError>],
-    [GateRegionIndex2_0, ParseKeyError<RegionGateIndexError<ParseIntError>>],
-    [GateRegionIndex3_0, ParseKeyError<RegionGateIndexError<MeasOrGateIndexError>>],
-    [GateRegionIndex3_2, ParseKeyError<RegionGateIndexError<PrefixedMeasIndexError>>],
-    [GateRegionWindow,   ParseKeyError<GatePairError>],
-    [Gating,             ParseKeyError<GatingError>],
-    [CompShape,          NewCompError]
+    [NumType,            NumTypeError],
+    [Trigger,            TriggerError],
+    [OptScale,           ScaleError],
+    [OptFloat,           ParseFloatError],
+    [OptRangedFloat,     RangedFloatError],
+    [Feature,            FeatureError],
+    [Wavelengths,        WavelengthsError],
+    [Calibration3_1,     CalibrationError<CalibrationFormat3_1>],
+    [Calibration3_2,     CalibrationError<CalibrationFormat3_2>],
+    [OptInt,             ParseIntError],
+    [OptString,          Infallible],
+    [FCSDate,            FCSDateError],
+    [FCSTime,            FCSTimeError],
+    [FCSTime60,          FCSTime60Error],
+    [FCSTime100,         FCSTime100Error],
+    [FCSDateTime,        FCSDateTimeError],
+    [ModifiedDateTime,   ModifiedDateTimeError],
+    [Originality,        OriginalityError],
+    [UnstainedCenter,    ParseUnstainedCenterError],
+    [Mode3_2,            Mode3_2Error],
+    [TemporalType,       TemporalTypeError],
+    [OpticalType,        OpticalTypeError],
+    [OptShortname,       ShortnameError],
+    [Display,            DisplayError],
+    [Unicode,            UnicodeError],
+    [Spillover,          ParseSpilloverError],
+    [Compensation,       ParseCompError],
+    [FloatOrInt,         ParseFloatOrIntError],
+    [GateRegionIndex2_0, RegionGateIndexError<ParseIntError>],
+    [GateRegionIndex3_0, RegionGateIndexError<MeasOrGateIndexError>],
+    [GateRegionIndex3_2, RegionGateIndexError<PrefixedMeasIndexError>],
+    [GateRegionWindow,   GatePairError],
+    [Gating,             GatingError]
 );
 
 enum_from_disp!(
@@ -560,6 +559,7 @@ enum_from_disp!(
     pub ParseOtherWarning,
     [Timestamp, InvalidTimestamps],
     [Datetime, InvalidDatetimes],
+    [CompShape, NewCompError],
     [GateRegion, InvalidGateRegion],
     [GateRegionLink, GateRegionLinkError],
     [GateMeasLink, GateMeasurementLinkError]

@@ -56,8 +56,8 @@ use std::str::FromStr;
 /// included can be computed on the fly when writing.
 #[derive(Clone, Serialize)]
 pub struct Core<A, D, M, T, P, N, W> {
-    /// All "non-measurement" TEXT keywords.
-    pub metadata: Metadata<M>,
+    /// The root of the metadata tree (ie "non-measurement" keywords)
+    pub metaroot: Metaroot<M>,
 
     /// All measurement TEXT keywords.
     ///
@@ -82,13 +82,13 @@ pub struct Analysis(pub Vec<u8>);
 
 newtype_from!(Analysis, Vec<u8>);
 
-/// Structured non-measurement metadata.
+/// Root of the metadata hierarchy.
 ///
-/// Explicit below are common to all FCS versions.
+/// Explicit fields are common to all FCS versions.
 ///
 /// The generic type parameter allows version-specific data to be encoded.
 #[derive(Clone, Serialize)]
-pub struct Metadata<X> {
+pub struct Metaroot<X> {
     /// Value of $DATATYPE
     datatype: AlphaNumType,
 
@@ -298,7 +298,7 @@ impl<A, D> AnyCore<A, D> {
     }
 
     pub fn print_spillover_table(&self, delim: &str) {
-        let res = match_anycore!(self, x, { x.metadata.specific.as_spillover() })
+        let res = match_anycore!(self, x, { x.metaroot.specific.as_spillover() })
             .as_ref()
             .map(|s| s.print_table(delim));
         if res.is_none() {
@@ -370,9 +370,9 @@ impl AnyCoreDataset {
     }
 }
 
-/// Metadata fields specific to version 2.0
+/// Metaroot fields specific to version 2.0
 #[derive(Clone, Serialize)]
-pub struct InnerMetadata2_0 {
+pub struct InnerMetaroot2_0 {
     /// Value of $MODE
     pub mode: Mode,
 
@@ -392,9 +392,9 @@ pub struct InnerMetadata2_0 {
     applied_gates: OptionalKw<AppliedGates2_0>,
 }
 
-/// Metadata fields specific to version 3.0
+/// Metaroot fields specific to version 3.0
 #[derive(Clone, Serialize)]
-pub struct InnerMetadata3_0 {
+pub struct InnerMetaroot3_0 {
     /// Value of $MODE
     pub mode: Mode,
 
@@ -423,9 +423,9 @@ pub struct InnerMetadata3_0 {
     applied_gates: OptionalKw<AppliedGates3_0>,
 }
 
-/// Metadata fields specific to version 3.1
+/// Metaroot fields specific to version 3.1
 #[derive(Clone, Serialize)]
-pub struct InnerMetadata3_1 {
+pub struct InnerMetaroot3_1 {
     /// Value of $MODE
     pub mode: Mode,
 
@@ -460,8 +460,9 @@ pub struct InnerMetadata3_1 {
     applied_gates: OptionalKw<AppliedGates3_0>,
 }
 
+/// Metaroot fields specific to version 3.2
 #[derive(Clone, Serialize)]
-pub struct InnerMetadata3_2 {
+pub struct InnerMetaroot3_2 {
     /// Value of $BYTEORD
     pub byteord: Endian,
 
@@ -814,10 +815,10 @@ pub type Measurements3_0 = Measurements<OptionalKwFamily, InnerTemporal3_0, Inne
 pub type Measurements3_1 = Measurements<IdentityFamily, InnerTemporal3_1, InnerOptical3_1>;
 pub type Measurements3_2 = Measurements<IdentityFamily, InnerTemporal3_2, InnerOptical3_2>;
 
-pub type Metadata2_0 = Metadata<InnerMetadata2_0>;
-pub type Metadata3_0 = Metadata<InnerMetadata3_0>;
-pub type Metadata3_1 = Metadata<InnerMetadata3_1>;
-pub type Metadata3_2 = Metadata<InnerMetadata3_2>;
+pub type Metaroot2_0 = Metaroot<InnerMetaroot2_0>;
+pub type Metaroot3_0 = Metaroot<InnerMetaroot3_0>;
+pub type Metaroot3_1 = Metaroot<InnerMetaroot3_1>;
+pub type Metaroot3_2 = Metaroot<InnerMetaroot3_2>;
 
 /// A minimal representation of the TEXT segment
 pub type CoreTEXT<M, T, P, N, W> = Core<(), (), M, T, P, N, W>;
@@ -826,28 +827,28 @@ pub type CoreTEXT<M, T, P, N, W> = Core<(), (), M, T, P, N, W>;
 pub type CoreDataset<M, T, P, N, W> = Core<Analysis, FCSDataFrame, M, T, P, N, W>;
 
 pub type CoreTEXT2_0 = CoreTEXT<
-    InnerMetadata2_0,
+    InnerMetaroot2_0,
     InnerTemporal2_0,
     InnerOptical2_0,
     OptionalKwFamily,
     OptionalKw<Shortname>,
 >;
 pub type CoreTEXT3_0 = CoreTEXT<
-    InnerMetadata3_0,
+    InnerMetaroot3_0,
     InnerTemporal3_0,
     InnerOptical3_0,
     OptionalKwFamily,
     OptionalKw<Shortname>,
 >;
 pub type CoreTEXT3_1 = CoreTEXT<
-    InnerMetadata3_1,
+    InnerMetaroot3_1,
     InnerTemporal3_1,
     InnerOptical3_1,
     IdentityFamily,
     Identity<Shortname>,
 >;
 pub type CoreTEXT3_2 = CoreTEXT<
-    InnerMetadata3_2,
+    InnerMetaroot3_2,
     InnerTemporal3_2,
     InnerOptical3_2,
     IdentityFamily,
@@ -855,28 +856,28 @@ pub type CoreTEXT3_2 = CoreTEXT<
 >;
 
 pub type CoreDataset2_0 = CoreDataset<
-    InnerMetadata2_0,
+    InnerMetaroot2_0,
     InnerTemporal2_0,
     InnerOptical2_0,
     OptionalKwFamily,
     OptionalKw<Shortname>,
 >;
 pub type CoreDataset3_0 = CoreDataset<
-    InnerMetadata3_0,
+    InnerMetaroot3_0,
     InnerTemporal3_0,
     InnerOptical3_0,
     OptionalKwFamily,
     OptionalKw<Shortname>,
 >;
 pub type CoreDataset3_1 = CoreDataset<
-    InnerMetadata3_1,
+    InnerMetaroot3_1,
     InnerTemporal3_1,
     InnerOptical3_1,
     IdentityFamily,
     Identity<Shortname>,
 >;
 pub type CoreDataset3_2 = CoreDataset<
-    InnerMetadata3_2,
+    InnerMetaroot3_2,
     InnerTemporal3_2,
     InnerOptical3_2,
     IdentityFamily,
@@ -886,7 +887,7 @@ pub type CoreDataset3_2 = CoreDataset<
 pub type Core2_0<A, D> = Core<
     A,
     D,
-    InnerMetadata2_0,
+    InnerMetaroot2_0,
     InnerTemporal2_0,
     InnerOptical2_0,
     OptionalKwFamily,
@@ -895,7 +896,7 @@ pub type Core2_0<A, D> = Core<
 pub type Core3_0<A, D> = Core<
     A,
     D,
-    InnerMetadata3_0,
+    InnerMetaroot3_0,
     InnerTemporal3_0,
     InnerOptical3_0,
     OptionalKwFamily,
@@ -904,7 +905,7 @@ pub type Core3_0<A, D> = Core<
 pub type Core3_1<A, D> = Core<
     A,
     D,
-    InnerMetadata3_1,
+    InnerMetaroot3_1,
     InnerTemporal3_1,
     InnerOptical3_1,
     IdentityFamily,
@@ -913,7 +914,7 @@ pub type Core3_1<A, D> = Core<
 pub type Core3_2<A, D> = Core<
     A,
     D,
-    InnerMetadata3_2,
+    InnerMetaroot3_2,
     InnerTemporal3_2,
     InnerOptical3_2,
     IdentityFamily,
@@ -929,7 +930,7 @@ pub trait Versioned {
     fn fcs_version() -> Version;
 }
 
-pub(crate) trait LookupMetadata: Sized + VersionedMetadata {
+pub(crate) trait LookupMetaroot: Sized + VersionedMetaroot {
     fn lookup_shortname(
         kws: &mut StdKeywords,
         n: MeasIndex,
@@ -938,15 +939,15 @@ pub(crate) trait LookupMetadata: Sized + VersionedMetadata {
     fn lookup_specific(st: &mut StdKeywords, par: Par) -> LookupResult<Self>;
 }
 
-pub trait TryFromMetadata<M>: Sized
+pub trait TryFromMetaroot<M>: Sized
 where
-    Self: VersionedMetadata,
-    M: VersionedMetadata,
+    Self: VersionedMetaroot,
+    M: VersionedMetaroot,
 {
     fn try_from_meta(value: M, byteord: SizeConvert<M::D>, force: bool) -> MetaConvertResult<Self>;
 }
 
-pub trait VersionedMetadata: Sized {
+pub trait VersionedMetaroot: Sized {
     type O: VersionedOptical;
     type T: VersionedTemporal;
     type N: MightHave;
@@ -982,7 +983,7 @@ pub trait VersionedMetadata: Sized {
     fn keywords_opt_inner(&self) -> RawPairs;
 
     fn as_data_layout(
-        metadata: &Metadata<Self>,
+        metaroot: &Metaroot<Self>,
         ms: &Measurements<Self::N, Self::T, Self::O>,
         conf: &SharedConfig,
     ) -> DeferredResult<Self::L, NewDataLayoutWarning, NewDataLayoutError>;
@@ -1405,13 +1406,13 @@ where
     }
 }
 
-impl<M> Metadata<M>
+impl<M> Metaroot<M>
 where
-    M: VersionedMetadata,
+    M: VersionedMetaroot,
 {
-    /// Make new version-specific metadata
+    /// Make new version-specific metaroot
     pub fn new(datatype: AlphaNumType, specific: M) -> Self {
-        Metadata {
+        Metaroot {
             datatype,
             abrt: None.into(),
             cells: None.into(),
@@ -1436,13 +1437,13 @@ where
         self.datatype
     }
 
-    fn try_convert<ToM: TryFromMetadata<M>>(
+    fn try_convert<ToM: TryFromMetaroot<M>>(
         self,
         convert: SizeConvert<M::D>,
         force: bool,
-    ) -> MetaConvertResult<Metadata<ToM>> {
+    ) -> MetaConvertResult<Metaroot<ToM>> {
         // TODO this seems silly, break struct up into common bits
-        ToM::try_from_meta(self.specific, convert, force).def_map_value(|specific| Metadata {
+        ToM::try_from_meta(self.specific, convert, force).def_map_value(|specific| Metaroot {
             abrt: self.abrt,
             cells: self.cells,
             com: self.com,
@@ -1462,13 +1463,13 @@ where
         })
     }
 
-    fn lookup_metadata(
+    fn lookup_metaroot(
         kws: &mut StdKeywords,
         ms: &Measurements<M::N, M::T, M::O>,
         nonstd: NonStdPairs,
     ) -> LookupResult<Self>
     where
-        M: LookupMetadata,
+        M: LookupMetaroot,
     {
         let par = Par(ms.len());
         let a = lookup_meta_opt(kws, false);
@@ -1501,7 +1502,7 @@ where
                         }
                     });
                     dt.def_zip(s)
-                        .def_map_value(|(datatype, specific)| Metadata {
+                        .def_map_value(|(datatype, specific)| Metaroot {
                             datatype,
                             abrt,
                             com,
@@ -1647,28 +1648,28 @@ pub(crate) type Measurements<N, T, P> =
 
 pub(crate) type VersionedCoreTEXT<M> = CoreTEXT<
     M,
-    <M as VersionedMetadata>::T,
-    <M as VersionedMetadata>::O,
-    <M as VersionedMetadata>::N,
-    <<M as VersionedMetadata>::N as MightHave>::Wrapper<Shortname>,
+    <M as VersionedMetaroot>::T,
+    <M as VersionedMetaroot>::O,
+    <M as VersionedMetaroot>::N,
+    <<M as VersionedMetaroot>::N as MightHave>::Wrapper<Shortname>,
 >;
 
 pub(crate) type VersionedCoreDataset<M> = CoreDataset<
     M,
-    <M as VersionedMetadata>::T,
-    <M as VersionedMetadata>::O,
-    <M as VersionedMetadata>::N,
-    <<M as VersionedMetadata>::N as MightHave>::Wrapper<Shortname>,
+    <M as VersionedMetaroot>::T,
+    <M as VersionedMetaroot>::O,
+    <M as VersionedMetaroot>::N,
+    <<M as VersionedMetaroot>::N as MightHave>::Wrapper<Shortname>,
 >;
 
 pub(crate) type VersionedCore<A, D, M> = Core<
     A,
     D,
     M,
-    <M as VersionedMetadata>::T,
-    <M as VersionedMetadata>::O,
-    <M as VersionedMetadata>::N,
-    <<M as VersionedMetadata>::N as MightHave>::Wrapper<Shortname>,
+    <M as VersionedMetaroot>::T,
+    <M as VersionedMetaroot>::O,
+    <M as VersionedMetaroot>::N,
+    <<M as VersionedMetaroot>::N as MightHave>::Wrapper<Shortname>,
 >;
 
 pub(crate) type VersionedConvertError<N, ToN> = ConvertError<
@@ -1698,7 +1699,7 @@ macro_rules! non_time_get_set {
 
 impl<M, A, D> VersionedCore<A, D, M>
 where
-    M: VersionedMetadata,
+    M: VersionedMetaroot,
     M::N: Clone,
 {
     /// Write this structure to a handle.
@@ -1801,12 +1802,12 @@ where
 
     /// Get measurement name for $TR keyword
     pub fn trigger_name(&self) -> Option<&Shortname> {
-        self.metadata.tr.as_ref_opt().map(|x| &x.measurement)
+        self.metaroot.tr.as_ref_opt().map(|x| &x.measurement)
     }
 
     /// Get threshold for $TR keyword
     pub fn trigger_threshold(&self) -> Option<u32> {
-        self.metadata.tr.as_ref_opt().map(|x| x.threshold)
+        self.metaroot.tr.as_ref_opt().map(|x| x.threshold)
     }
 
     /// Set measurement name for $TR keyword.
@@ -1816,10 +1817,10 @@ where
         if !self.measurement_names().contains(&n) {
             return false;
         }
-        if let Some(tr) = self.metadata.tr.0.as_mut() {
+        if let Some(tr) = self.metaroot.tr.0.as_mut() {
             tr.measurement = n;
         } else {
-            self.metadata.tr = Some(Trigger {
+            self.metaroot.tr = Some(Trigger {
                 measurement: n,
                 threshold: 0,
             })
@@ -1832,7 +1833,7 @@ where
     ///
     /// Return true if trigger exists, false otherwise.
     pub fn set_trigger_threshold(&mut self, x: u32) -> bool {
-        if let Some(tr) = self.metadata.tr.0.as_mut() {
+        if let Some(tr) = self.metaroot.tr.0.as_mut() {
             tr.threshold = x;
             true
         } else {
@@ -1845,8 +1846,8 @@ where
     /// Return true if trigger existed and was removed, false if it did not
     /// already exist.
     pub fn clear_trigger(&mut self) -> bool {
-        let ret = self.metadata.tr.0.is_some();
-        self.metadata.tr = None.into();
+        let ret = self.metaroot.tr.0.is_some();
+        self.metaroot.tr = None.into();
         ret
     }
 
@@ -1874,7 +1875,7 @@ where
     /// being set.
     pub fn set_all_shortnames(&mut self, ns: Vec<Shortname>) -> Result<NameMapping, SetKeysError> {
         let mapping = self.measurements.set_names(ns)?;
-        self.metadata.reassign_all(&mapping);
+        self.metaroot.reassign_all(&mapping);
         Ok(mapping)
     }
 
@@ -2078,7 +2079,7 @@ where
     ) -> Result<(Shortname, Shortname), RenameError> {
         self.measurements.rename(index, key).map(|(old, new)| {
             let mapping = [(old.clone(), new.clone())].into_iter().collect();
-            self.metadata.reassign_all(&mapping);
+            self.metaroot.reassign_all(&mapping);
             (old, new)
         })
     }
@@ -2206,8 +2207,8 @@ where
     >
     where
         M::N: Clone,
-        ToM: VersionedMetadata,
-        ToM: TryFromMetadata<M>,
+        ToM: VersionedMetaroot,
+        ToM: TryFromMetaroot<M>,
         ToM::O: VersionedOptical,
         ToM::T: VersionedTemporal,
         ToM::N: MightHave,
@@ -2219,11 +2220,11 @@ where
         let widths = self.widths();
         let convert = SizeConvert {
             widths,
-            datatype: self.metadata.datatype,
-            size: self.metadata.specific.byteord(),
+            datatype: self.metaroot.datatype,
+            size: self.metaroot.specific.byteord(),
         };
         let m = self
-            .metadata
+            .metaroot
             .try_convert(convert, force)
             .def_map_errors(ConvertErrorInner::Meta);
         let ps = self
@@ -2237,8 +2238,8 @@ where
             })
             .mult_to_deferred();
         m.def_zip(ps)
-            .def_map_value(|(metadata, measurements)| Core {
-                metadata,
+            .def_map_value(|(metaroot, measurements)| Core {
+                metaroot,
                 measurements,
                 data: self.data,
                 analysis: self.analysis,
@@ -2256,7 +2257,7 @@ where
         n: &Shortname,
     ) -> Option<(MeasIndex, Element<Temporal<M::T>, Optical<M::O>>)> {
         if let Some(e) = self.measurements.remove_name(n) {
-            self.metadata.remove_name_index(n, e.0);
+            self.metaroot.remove_name_index(n, e.0);
             Some(e)
         } else {
             None
@@ -2271,7 +2272,7 @@ where
         let res = self.measurements.remove_index(index)?;
         if let Element::NonCenter(left) = &res {
             if let Some(n) = M::N::as_opt(&left.key) {
-                self.metadata.remove_name_index(n, index);
+                self.metaroot.remove_name_index(n, index);
             }
         }
         Ok(res)
@@ -2281,7 +2282,7 @@ where
         if self.trigger_name().is_some() {
             return Err(ExistingLinkError::Trigger);
         }
-        let m = &self.metadata;
+        let m = &self.metaroot;
         let s = &m.specific;
         if s.as_unstainedcenters().is_some() {
             return Err(ExistingLinkError::UnstainedCenters);
@@ -2362,7 +2363,7 @@ where
         F: Fn(&Optical<M::O>, MeasIndex) -> RawPairs,
         G: Fn(&Temporal<M::T>, MeasIndex) -> RawPairs,
         H: Fn(&Temporal<M::T>) -> RawPairs,
-        I: Fn(&Metadata<M>, Par) -> RawPairs,
+        I: Fn(&Metaroot<M>, Par) -> RawPairs,
     {
         let meas: Vec<_> = self
             .measurements
@@ -2375,7 +2376,7 @@ where
             .map_or((vec![], vec![]), |tc| {
                 (f_time_meas(tc.value, tc.index), f_time_meta(tc.value))
             });
-        let meta: Vec<_> = f_meta(&self.metadata, self.par()).into_iter().collect();
+        let meta: Vec<_> = f_meta(&self.metaroot, self.par()).into_iter().collect();
         let all_meas: Vec<_> = meas.into_iter().chain(time_meas).collect();
         let all_meta: Vec<_> = meta.into_iter().chain(time_meta).collect();
         (all_meta, all_meas)
@@ -2386,7 +2387,7 @@ where
             Optical::all_req_keywords,
             Temporal::req_meas_keywords,
             Temporal::req_meta_keywords,
-            Metadata::all_req_keywords,
+            Metaroot::all_req_keywords,
         );
         if M::N::INFALLABLE {
             meas.append(&mut self.shortname_keywords());
@@ -2404,7 +2405,7 @@ where
             Optical::all_opt_keywords,
             Temporal::opt_meas_keywords,
             |_| vec![],
-            |s, _| Metadata::all_opt_keywords(s),
+            |s, _| Metaroot::all_opt_keywords(s),
         );
         if !M::N::INFALLABLE {
             meas.append(&mut self.shortname_keywords());
@@ -2485,7 +2486,7 @@ where
         ParseKeysError,
     >
     where
-        M: LookupMetadata,
+        M: LookupMetaroot,
         M::T: LookupTemporal,
         M::O: LookupOptical,
     {
@@ -2584,15 +2585,15 @@ where
         let mut errs = vec![];
         let names = self.measurement_names();
 
-        if let Err(e) = self.metadata.check_trigger(&names) {
+        if let Err(e) = self.metaroot.check_trigger(&names) {
             errs.push(e);
         }
 
-        if let Err(e) = self.metadata.check_unstainedcenters(&names) {
+        if let Err(e) = self.metaroot.check_unstainedcenters(&names) {
             errs.push(e);
         }
 
-        if let Err(e) = self.metadata.check_spillover(&names) {
+        if let Err(e) = self.metaroot.check_spillover(&names) {
             errs.push(e);
         }
 
@@ -2631,14 +2632,14 @@ where
         // a few lines above, so the only error/warning we need to screen is
         // for the length of the input
         self.set_data_width_range(xs)?;
-        self.metadata.datatype = dt;
+        self.metaroot.datatype = dt;
         Ok(())
     }
 
     fn set_data_ascii_inner(&mut self, xs: Vec<AsciiRangeSetter>) -> Result<(), KeyLengthError> {
         let ys: Vec<_> = xs.into_iter().map(|s| s.truncated()).collect();
         self.set_data_width_range(ys)?;
-        self.metadata.datatype = AlphaNumType::Ascii;
+        self.metaroot.datatype = AlphaNumType::Ascii;
         Ok(())
     }
 
@@ -2648,7 +2649,7 @@ where
     ) -> Result<(), KeyLengthError> {
         let ys: Vec<_> = xs.into_iter().map(|s| s.truncated()).collect();
         self.set_data_width_range(ys)?;
-        self.metadata.datatype = AlphaNumType::Integer;
+        self.metaroot.datatype = AlphaNumType::Integer;
         Ok(())
     }
 
@@ -2656,13 +2657,13 @@ where
         &self,
         conf: &SharedConfig,
     ) -> DeferredResult<M::L, NewDataLayoutWarning, NewDataLayoutError> {
-        M::as_data_layout(&self.metadata, &self.measurements, conf)
+        M::as_data_layout(&self.metaroot, &self.measurements, conf)
     }
 }
 
 impl<M> VersionedCoreTEXT<M>
 where
-    M: VersionedMetadata,
+    M: VersionedMetaroot,
     M::N: Clone,
 {
     /// Make a new CoreTEXT from raw keywords.
@@ -2675,7 +2676,7 @@ where
         conf: &StdTextReadConfig,
     ) -> DeferredResult<Self, LookupMeasWarning, ParseKeysError>
     where
-        M: LookupMetadata,
+        M: LookupMetaroot,
         M::T: LookupTemporal,
         M::O: LookupOptical,
     {
@@ -2691,15 +2692,15 @@ where
                 let _ = kws.remove(&Beginstext::std());
                 let _ = kws.remove(&Endstext::std());
 
-                // Lookup measurements and metadata with $PAR
+                // Lookup measurements and metaroot with $PAR
                 let tp = conf.time.pattern.as_ref();
                 let sp = &conf.shortname_prefix;
                 let nsp = conf.nonstandard_measurement_pattern.as_ref();
                 let ns: Vec<_> = nonstd.into_iter().collect();
                 let mut tnt_core = Self::lookup_measurements(kws, par, tp, sp, nsp, ns)
                     .def_and_maybe(|(ms, meta_ns)| {
-                        Metadata::lookup_metadata(kws, &ms, meta_ns)
-                            .def_map_value(|metadata| CoreTEXT::new_unchecked(metadata, ms))
+                        Metaroot::lookup_metaroot(kws, &ms, meta_ns)
+                            .def_map_value(|metaroot| CoreTEXT::new_unchecked(metaroot, ms))
                             .def_warnings_into()
                     })?;
 
@@ -2836,7 +2837,7 @@ where
         analysis: Analysis,
     ) -> VersionedCoreDataset<M> {
         CoreDataset {
-            metadata: self.metadata,
+            metaroot: self.metaroot,
             measurements: self.measurements,
             data,
             analysis,
@@ -2846,7 +2847,7 @@ where
 
 impl<M> VersionedCoreDataset<M>
 where
-    M: VersionedMetadata,
+    M: VersionedMetaroot,
     M::N: Clone,
     M::L: VersionedDataLayout,
 {
@@ -2864,7 +2865,7 @@ where
         StdDatasetFromRawError,
     >
     where
-        M: LookupMetadata,
+        M: LookupMetaroot,
         M::T: LookupTemporal,
         M::O: LookupOptical,
     {
@@ -2888,7 +2889,7 @@ where
                             h_read_data_and_analysis(h, dr, ar)
                                 .map(|(data, analysis, d_seg, a_seg)| {
                                     let c = Core {
-                                        metadata: text.metadata,
+                                        metaroot: text.metaroot,
                                         measurements: text.measurements,
                                         data,
                                         analysis,
@@ -3049,14 +3050,14 @@ where
     /// This simply entails taking ownership and dropping the ANALYSIS and DATA
     /// fields.
     pub fn into_coretext(self) -> VersionedCoreTEXT<M> {
-        CoreTEXT::new_unchecked(self.metadata, self.measurements)
+        CoreTEXT::new_unchecked(self.metaroot, self.measurements)
     }
 }
 
 impl<M, T, P, N, W> CoreTEXT<M, T, P, N, W> {
-    pub(crate) fn new_nomeas(metadata: Metadata<M>) -> Self {
+    pub(crate) fn new_nomeas(metaroot: Metaroot<M>) -> Self {
         Self {
-            metadata,
+            metaroot,
             measurements: NamedVec::default(),
             data: (),
             analysis: (),
@@ -3064,11 +3065,11 @@ impl<M, T, P, N, W> CoreTEXT<M, T, P, N, W> {
     }
 
     pub(crate) fn new_unchecked(
-        metadata: Metadata<M>,
+        metaroot: Metaroot<M>,
         measurements: NamedVec<N, W, Temporal<T>, Optical<P>>,
     ) -> Self {
         Self {
-            metadata,
+            metaroot,
             measurements,
             data: (),
             analysis: (),
@@ -3080,7 +3081,7 @@ macro_rules! comp_methods {
     () => {
         /// Return matrix for $COMP
         pub fn compensation(&self) -> Option<&Compensation> {
-            self.metadata.specific.comp.as_ref_opt().map(|x| x.borrow())
+            self.metaroot.specific.comp.as_ref_opt().map(|x| x.borrow())
         }
 
         /// Set matrix for $COMP
@@ -3089,13 +3090,13 @@ macro_rules! comp_methods {
         /// square or rows/columns are not the same length as $PAR.
         pub fn set_compensation(&mut self, matrix: DMatrix<f32>) -> Result<(), NewCompError> {
             Compensation::try_new(matrix).map(|comp| {
-                self.metadata.specific.comp = Some(comp.into()).into();
+                self.metaroot.specific.comp = Some(comp.into()).into();
             })
         }
 
         /// Clear $COMP
         pub fn unset_compensation(&mut self) {
-            self.metadata.specific.comp = None.into();
+            self.metaroot.specific.comp = None.into();
         }
     };
 }
@@ -3103,11 +3104,11 @@ macro_rules! comp_methods {
 macro_rules! timestamp_methods {
     ($timetype:ident) => {
         pub fn timestamps(&self) -> &Timestamps<$timetype> {
-            &self.metadata.specific.timestamps
+            &self.metaroot.specific.timestamps
         }
 
         pub fn timestamps_mut(&mut self) -> &mut Timestamps<$timetype> {
-            &mut self.metadata.specific.timestamps
+            &mut self.metaroot.specific.timestamps
         }
     };
 }
@@ -3116,7 +3117,7 @@ macro_rules! spillover_methods {
     () => {
         /// Show $SPILLOVER
         pub fn spillover(&self) -> Option<&Spillover> {
-            self.metadata.specific.spillover.as_ref_opt()
+            self.metaroot.specific.spillover.as_ref_opt()
         }
 
         /// Set names and matrix for $SPILLOVER
@@ -3135,13 +3136,13 @@ macro_rules! spillover_methods {
                 return Err(SpilloverLinkError.into());
             }
             let m = Spillover::try_new(ns, m)?;
-            self.metadata.specific.spillover = Some(m).into();
+            self.metaroot.specific.spillover = Some(m).into();
             Ok(())
         }
 
         /// Clear $SPILLOVER
         pub fn unset_spillover(&mut self) {
-            self.metadata.specific.spillover = None.into();
+            self.metaroot.specific.spillover = None.into();
         }
     };
 }
@@ -3239,7 +3240,7 @@ macro_rules! int_layout_2_0 {
                 .map(|r| RangeSetter { width: n, range: r })
                 .collect();
             self.set_data_integer_inner(ys)?;
-            self.metadata.specific.byteord = byteord;
+            self.metaroot.specific.byteord = byteord;
             Ok(())
         }
     };
@@ -3254,7 +3255,7 @@ macro_rules! set_shortnames_2_0 {
         ) -> Result<NameMapping, SetKeysError> {
             let ks = ns.into_iter().map(|n| n.into()).collect();
             let mapping = self.measurements.set_non_center_keys(ks)?;
-            self.metadata.reassign_all(&mapping);
+            self.metaroot.reassign_all(&mapping);
             Ok(mapping)
         }
     };
@@ -3344,11 +3345,11 @@ impl<A, D> Core3_1<A, D> {
     }
 
     pub fn get_big_endian(&self) -> bool {
-        self.metadata.specific.byteord == Endian::Big
+        self.metaroot.specific.byteord == Endian::Big
     }
 
     pub fn set_big_endian(&mut self, is_big: bool) {
-        self.metadata.specific.byteord = Endian::is_big(is_big);
+        self.metaroot.specific.byteord = Endian::is_big(is_big);
     }
 
     timestamp_methods!(FCSTime100);
@@ -3379,7 +3380,7 @@ impl<A, D> Core3_1<A, D> {
 impl<A, D> Core3_2<A, D> {
     /// Show $UNSTAINEDCENTERS
     pub fn unstained_centers(&self) -> Option<&UnstainedCenters> {
-        self.metadata
+        self.metaroot
             .specific
             .unstained
             .unstainedcenters
@@ -3395,7 +3396,7 @@ impl<A, D> Core3_2<A, D> {
         if !self.measurement_names().contains(&k) {
             Err(MissingMeasurementNameError(k))
         } else {
-            let us = &mut self.metadata.specific.unstained;
+            let us = &mut self.metaroot.specific.unstained;
             let ret = if let Some(u) = us.unstainedcenters.0.as_mut() {
                 u.insert(k, v)
             } else {
@@ -3408,7 +3409,7 @@ impl<A, D> Core3_2<A, D> {
 
     /// Remove an unstained center
     pub fn remove_unstained_center(&mut self, k: &Shortname) -> Option<f32> {
-        let us = &mut self.metadata.specific.unstained;
+        let us = &mut self.metaroot.specific.unstained;
         if let Some(u) = us.unstainedcenters.0.as_mut() {
             match u.remove(k) {
                 Ok(ret) => ret,
@@ -3424,7 +3425,7 @@ impl<A, D> Core3_2<A, D> {
 
     /// Remove all unstained center
     pub fn clear_unstained_centers(&mut self) {
-        self.metadata.specific.unstained.unstainedcenters = None.into()
+        self.metaroot.specific.unstained.unstainedcenters = None.into()
     }
 
     scale_get_set!(Scale, Scale::Linear);
@@ -3435,7 +3436,7 @@ impl<A, D> Core3_2<A, D> {
     /// This will be $PnDATATYPE if given and $DATATYPE otherwise at each
     /// measurement index
     pub fn datatypes(&self) -> Vec<AlphaNumType> {
-        let dt = self.metadata.datatype;
+        let dt = self.metaroot.datatype;
         self.measurements
             .iter()
             .map(|(_, x)| {
@@ -3512,7 +3513,7 @@ impl<A, D> Core3_2<A, D> {
                     t.specific.datatype = pndt.into();
                 },
             )?;
-            self.metadata.datatype = dt;
+            self.metaroot.datatype = dt;
             Ok(())
         } else {
             // this will only happen if the input is empty
@@ -3562,11 +3563,11 @@ impl<A, D> Core3_2<A, D> {
     }
 
     pub fn get_big_endian(&self) -> bool {
-        self.metadata.specific.byteord == Endian::Big
+        self.metaroot.specific.byteord == Endian::Big
     }
 
     pub fn set_big_endian(&mut self, is_big: bool) {
-        self.metadata.specific.byteord = Endian::is_big(is_big);
+        self.metaroot.specific.byteord = Endian::is_big(is_big);
     }
 
     timestamp_methods!(FCSTime100);
@@ -3684,9 +3685,9 @@ macro_rules! coretext_set_measurements3_1 {
 
 impl CoreTEXT2_0 {
     pub fn new(datatype: AlphaNumType, byteord: ByteOrd, mode: Mode) -> Self {
-        let specific = InnerMetadata2_0::new(mode, byteord);
-        let metadata = Metadata::new(datatype, specific);
-        CoreTEXT::new_nomeas(metadata)
+        let specific = InnerMetaroot2_0::new(mode, byteord);
+        let metaroot = Metaroot::new(datatype, specific);
+        CoreTEXT::new_nomeas(metaroot)
     }
 
     coretext_set_measurements2_0!(RawInput2_0);
@@ -3694,9 +3695,9 @@ impl CoreTEXT2_0 {
 
 impl CoreTEXT3_0 {
     pub fn new(datatype: AlphaNumType, byteord: ByteOrd, mode: Mode) -> Self {
-        let specific = InnerMetadata3_0::new(mode, byteord);
-        let metadata = Metadata::new(datatype, specific);
-        CoreTEXT::new_nomeas(metadata)
+        let specific = InnerMetaroot3_0::new(mode, byteord);
+        let metaroot = Metaroot::new(datatype, specific);
+        CoreTEXT::new_nomeas(metaroot)
     }
 
     coretext_set_measurements2_0!(RawInput3_0);
@@ -3704,9 +3705,9 @@ impl CoreTEXT3_0 {
 
 impl CoreTEXT3_1 {
     pub fn new(datatype: AlphaNumType, is_big: bool, mode: Mode) -> Self {
-        let specific = InnerMetadata3_1::new(mode, is_big);
-        let metadata = Metadata::new(datatype, specific);
-        CoreTEXT::new_nomeas(metadata)
+        let specific = InnerMetaroot3_1::new(mode, is_big);
+        let metaroot = Metaroot::new(datatype, specific);
+        CoreTEXT::new_nomeas(metaroot)
     }
 
     coretext_set_measurements3_1!(RawInput3_1);
@@ -3714,9 +3715,9 @@ impl CoreTEXT3_1 {
 
 impl CoreTEXT3_2 {
     pub fn new(datatype: AlphaNumType, is_big: bool, cyt: String) -> Self {
-        let specific = InnerMetadata3_2::new(is_big, cyt);
-        let metadata = Metadata::new(datatype, specific);
-        CoreTEXT::new_nomeas(metadata)
+        let specific = InnerMetaroot3_2::new(is_big, cyt);
+        let metaroot = Metaroot::new(datatype, specific);
+        CoreTEXT::new_nomeas(metaroot)
     }
 
     coretext_set_measurements3_1!(RawInput3_2);
@@ -4569,9 +4570,9 @@ impl EndianConvert {
     }
 }
 
-impl TryFromMetadata<InnerMetadata3_0> for InnerMetadata2_0 {
+impl TryFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
     fn try_from_meta(
-        value: InnerMetadata3_0,
+        value: InnerMetaroot3_0,
         _: ByteOrdConvert,
         lossless: bool,
     ) -> MetaConvertResult<Self> {
@@ -4601,9 +4602,9 @@ impl TryFromMetadata<InnerMetadata3_0> for InnerMetadata2_0 {
     }
 }
 
-impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata2_0 {
+impl TryFromMetaroot<InnerMetaroot3_1> for InnerMetaroot2_0 {
     fn try_from_meta(
-        value: InnerMetadata3_1,
+        value: InnerMetaroot3_1,
         endian: EndianConvert,
         lossless: bool,
     ) -> MetaConvertResult<Self> {
@@ -4640,9 +4641,9 @@ impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata2_0 {
     }
 }
 
-impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata2_0 {
+impl TryFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
     fn try_from_meta(
-        value: InnerMetadata3_2,
+        value: InnerMetaroot3_2,
         endian: EndianConvert,
         lossless: bool,
     ) -> MetaConvertResult<Self> {
@@ -4679,9 +4680,9 @@ impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata2_0 {
     }
 }
 
-impl TryFromMetadata<InnerMetadata2_0> for InnerMetadata3_0 {
+impl TryFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_0 {
     fn try_from_meta(
-        value: InnerMetadata2_0,
+        value: InnerMetaroot2_0,
         _: ByteOrdConvert,
         _: bool,
     ) -> MetaConvertResult<Self> {
@@ -4699,9 +4700,9 @@ impl TryFromMetadata<InnerMetadata2_0> for InnerMetadata3_0 {
     }
 }
 
-impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata3_0 {
+impl TryFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_0 {
     fn try_from_meta(
-        value: InnerMetadata3_1,
+        value: InnerMetaroot3_1,
         endian: EndianConvert,
         lossless: bool,
     ) -> MetaConvertResult<Self> {
@@ -4727,9 +4728,9 @@ impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata3_0 {
     }
 }
 
-impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata3_0 {
+impl TryFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_0 {
     fn try_from_meta(
-        value: InnerMetadata3_2,
+        value: InnerMetaroot3_2,
         endian: EndianConvert,
         lossless: bool,
     ) -> MetaConvertResult<Self> {
@@ -4759,9 +4760,9 @@ impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata3_0 {
     }
 }
 
-impl TryFromMetadata<InnerMetadata2_0> for InnerMetadata3_1 {
+impl TryFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_1 {
     fn try_from_meta(
-        value: InnerMetadata2_0,
+        value: InnerMetaroot2_0,
         _: ByteOrdConvert,
         lossless: bool,
     ) -> MetaConvertResult<Self> {
@@ -4789,9 +4790,9 @@ impl TryFromMetadata<InnerMetadata2_0> for InnerMetadata3_1 {
     }
 }
 
-impl TryFromMetadata<InnerMetadata3_0> for InnerMetadata3_1 {
+impl TryFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_1 {
     fn try_from_meta(
-        value: InnerMetadata3_0,
+        value: InnerMetaroot3_0,
         _: ByteOrdConvert,
         lossless: bool,
     ) -> MetaConvertResult<Self> {
@@ -4819,9 +4820,9 @@ impl TryFromMetadata<InnerMetadata3_0> for InnerMetadata3_1 {
     }
 }
 
-impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata3_1 {
+impl TryFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_1 {
     fn try_from_meta(
-        value: InnerMetadata3_2,
+        value: InnerMetaroot3_2,
         _: EndianConvert,
         lossless: bool,
     ) -> MetaConvertResult<Self> {
@@ -4848,9 +4849,9 @@ impl TryFromMetadata<InnerMetadata3_2> for InnerMetadata3_1 {
     }
 }
 
-impl TryFromMetadata<InnerMetadata2_0> for InnerMetadata3_2 {
+impl TryFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
     fn try_from_meta(
-        value: InnerMetadata2_0,
+        value: InnerMetaroot2_0,
         _: ByteOrdConvert,
         lossless: bool,
     ) -> MetaConvertResult<Self> {
@@ -4884,9 +4885,9 @@ impl TryFromMetadata<InnerMetadata2_0> for InnerMetadata3_2 {
     }
 }
 
-impl TryFromMetadata<InnerMetadata3_0> for InnerMetadata3_2 {
+impl TryFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
     fn try_from_meta(
-        value: InnerMetadata3_0,
+        value: InnerMetaroot3_0,
         _: ByteOrdConvert,
         lossless: bool,
     ) -> MetaConvertResult<Self> {
@@ -4930,9 +4931,9 @@ impl TryFromMetadata<InnerMetadata3_0> for InnerMetadata3_2 {
     }
 }
 
-impl TryFromMetadata<InnerMetadata3_1> for InnerMetadata3_2 {
+impl TryFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
     fn try_from_meta(
-        value: InnerMetadata3_1,
+        value: InnerMetaroot3_1,
         _: EndianConvert,
         lossless: bool,
     ) -> MetaConvertResult<Self> {
@@ -5797,7 +5798,7 @@ type Timestamps2_0 = Timestamps<FCSTime>;
 type Timestamps3_0 = Timestamps<FCSTime60>;
 type Timestamps3_1 = Timestamps<FCSTime100>;
 
-impl LookupMetadata for InnerMetadata2_0 {
+impl LookupMetaroot for InnerMetaroot2_0 {
     fn lookup_shortname(
         kws: &mut StdKeywords,
         i: MeasIndex,
@@ -5826,7 +5827,7 @@ impl LookupMetadata for InnerMetadata2_0 {
     }
 }
 
-impl LookupMetadata for InnerMetadata3_0 {
+impl LookupMetaroot for InnerMetaroot3_0 {
     fn lookup_shortname(
         kws: &mut StdKeywords,
         i: MeasIndex,
@@ -5862,7 +5863,7 @@ impl LookupMetadata for InnerMetadata3_0 {
     }
 }
 
-impl LookupMetadata for InnerMetadata3_1 {
+impl LookupMetaroot for InnerMetaroot3_1 {
     fn lookup_shortname(
         kws: &mut StdKeywords,
         i: MeasIndex,
@@ -5913,7 +5914,7 @@ impl LookupMetadata for InnerMetadata3_1 {
     }
 }
 
-impl LookupMetadata for InnerMetadata3_2 {
+impl LookupMetaroot for InnerMetaroot3_2 {
     fn lookup_shortname(
         kws: &mut StdKeywords,
         i: MeasIndex,
@@ -5974,7 +5975,7 @@ impl LookupMetadata for InnerMetadata3_2 {
     }
 }
 
-impl VersionedMetadata for InnerMetadata2_0 {
+impl VersionedMetaroot for InnerMetaroot2_0 {
     type O = InnerOptical2_0;
     type T = InnerTemporal2_0;
     type N = OptionalKwFamily;
@@ -6053,13 +6054,13 @@ impl VersionedMetadata for InnerMetadata2_0 {
     }
 
     fn as_data_layout(
-        metadata: &Metadata<Self>,
+        metaroot: &Metaroot<Self>,
         ms: &Measurements<Self::N, Self::T, Self::O>,
         conf: &SharedConfig,
     ) -> DeferredResult<Self::L, NewDataLayoutWarning, NewDataLayoutError> {
         Self::L::try_new(
-            metadata.datatype,
-            metadata.specific.byteord.clone(),
+            metaroot.datatype,
+            metaroot.specific.byteord.clone(),
             ms.layout_data(),
             conf,
         )
@@ -6076,7 +6077,7 @@ impl VersionedMetadata for InnerMetadata2_0 {
     }
 }
 
-impl VersionedMetadata for InnerMetadata3_0 {
+impl VersionedMetaroot for InnerMetaroot3_0 {
     type O = InnerOptical3_0;
     type T = InnerTemporal3_0;
     type N = OptionalKwFamily;
@@ -6163,13 +6164,13 @@ impl VersionedMetadata for InnerMetadata3_0 {
     }
 
     fn as_data_layout(
-        metadata: &Metadata<Self>,
+        metaroot: &Metaroot<Self>,
         ms: &Measurements<Self::N, Self::T, Self::O>,
         conf: &SharedConfig,
     ) -> DeferredResult<Self::L, NewDataLayoutWarning, NewDataLayoutError> {
         Self::L::try_new(
-            metadata.datatype,
-            metadata.specific.byteord.clone(),
+            metaroot.datatype,
+            metaroot.specific.byteord.clone(),
             ms.layout_data(),
             conf,
         )
@@ -6190,7 +6191,7 @@ impl VersionedMetadata for InnerMetadata3_0 {
     }
 }
 
-impl VersionedMetadata for InnerMetadata3_1 {
+impl VersionedMetaroot for InnerMetaroot3_1 {
     type O = InnerOptical3_1;
     type T = InnerTemporal3_1;
     type N = IdentityFamily;
@@ -6285,13 +6286,13 @@ impl VersionedMetadata for InnerMetadata3_1 {
     }
 
     fn as_data_layout(
-        metadata: &Metadata<Self>,
+        metaroot: &Metaroot<Self>,
         ms: &Measurements<Self::N, Self::T, Self::O>,
         conf: &SharedConfig,
     ) -> DeferredResult<Self::L, NewDataLayoutWarning, NewDataLayoutError> {
         Self::L::try_new(
-            metadata.datatype,
-            metadata.specific.byteord,
+            metaroot.datatype,
+            metaroot.specific.byteord,
             ms.layout_data(),
             conf,
         )
@@ -6315,7 +6316,7 @@ impl VersionedMetadata for InnerMetadata3_1 {
     }
 }
 
-impl VersionedMetadata for InnerMetadata3_2 {
+impl VersionedMetaroot for InnerMetaroot3_2 {
     type O = InnerOptical3_2;
     type T = InnerTemporal3_2;
     type N = IdentityFamily;
@@ -6412,11 +6413,11 @@ impl VersionedMetadata for InnerMetadata3_2 {
     }
 
     fn as_data_layout(
-        metadata: &Metadata<Self>,
+        metaroot: &Metaroot<Self>,
         ms: &Measurements<Self::N, Self::T, Self::O>,
         conf: &SharedConfig,
     ) -> DeferredResult<Self::L, NewDataLayoutWarning, NewDataLayoutError> {
-        let endian = metadata.specific.byteord;
+        let endian = metaroot.specific.byteord;
         let blank_cs = ms.layout_data();
         let cs: Vec<_> = ms
             .iter()
@@ -6434,7 +6435,7 @@ impl VersionedMetadata for InnerMetadata3_2 {
                 datatype,
             })
             .collect();
-        Self::L::try_new(metadata.datatype, endian, cs, conf)
+        Self::L::try_new(metaroot.datatype, endian, cs, conf)
     }
 
     fn swap_optical_temporal_inner(old_t: Self::T, old_o: Self::O) -> (Self::O, Self::T) {
@@ -6543,7 +6544,7 @@ impl InnerOptical3_2 {
     }
 }
 
-impl InnerMetadata2_0 {
+impl InnerMetaroot2_0 {
     pub(crate) fn new(mode: Mode, byteord: ByteOrd) -> Self {
         Self {
             mode,
@@ -6556,7 +6557,7 @@ impl InnerMetadata2_0 {
     }
 }
 
-impl InnerMetadata3_0 {
+impl InnerMetaroot3_0 {
     pub(crate) fn new(mode: Mode, byteord: ByteOrd) -> Self {
         Self {
             mode,
@@ -6572,7 +6573,7 @@ impl InnerMetadata3_0 {
     }
 }
 
-impl InnerMetadata3_1 {
+impl InnerMetaroot3_1 {
     pub(crate) fn new(mode: Mode, is_big: bool) -> Self {
         Self {
             mode,
@@ -6590,7 +6591,7 @@ impl InnerMetadata3_1 {
     }
 }
 
-impl InnerMetadata3_2 {
+impl InnerMetaroot3_2 {
     pub(crate) fn new(is_big: bool, cyt: String) -> Self {
         Self {
             byteord: Endian::is_big(is_big),

@@ -1258,7 +1258,7 @@ impl PyCoreTEXT3_0 {
     #[getter]
     fn get_unicode(&self) -> Option<PyUnicode> {
         self.0
-            .metadata
+            .metaroot
             .specific
             .unicode
             .as_ref_opt()
@@ -1267,7 +1267,7 @@ impl PyCoreTEXT3_0 {
 
     #[setter]
     fn set_unicode(&mut self, x: Option<PyUnicode>) {
-        self.0.metadata.specific.unicode = x.map(|y| y.into()).into();
+        self.0.metaroot.specific.unicode = x.map(|y| y.into()).into();
     }
 }
 
@@ -1288,13 +1288,13 @@ impl PyCoreTEXT3_2 {
 
     #[getter]
     fn get_datetime_begin(&self) -> Option<DateTime<FixedOffset>> {
-        self.0.metadata.specific.datetimes.begin_naive()
+        self.0.metaroot.specific.datetimes.begin_naive()
     }
 
     #[setter]
     fn set_datetime_begin(&mut self, x: Option<DateTime<FixedOffset>>) -> PyResult<()> {
         self.0
-            .metadata
+            .metaroot
             .specific
             .datetimes
             .set_begin_naive(x)
@@ -1303,13 +1303,13 @@ impl PyCoreTEXT3_2 {
 
     #[getter]
     fn get_datetime_end(&self) -> Option<DateTime<FixedOffset>> {
-        self.0.metadata.specific.datetimes.end_naive()
+        self.0.metaroot.specific.datetimes.end_naive()
     }
 
     #[setter]
     fn set_datetime_end(&mut self, x: Option<DateTime<FixedOffset>>) -> PyResult<()> {
         self.0
-            .metadata
+            .metaroot
             .specific
             .datetimes
             .set_end_naive(x)
@@ -1323,18 +1323,18 @@ impl PyCoreTEXT3_2 {
 
     #[getter]
     fn get_cyt(&self) -> String {
-        self.0.metadata.specific.cyt.0.clone()
+        self.0.metaroot.specific.cyt.0.clone()
     }
 
     #[setter]
     fn set_cyt(&mut self, x: String) {
-        self.0.metadata.specific.cyt = x.into()
+        self.0.metaroot.specific.cyt = x.into()
     }
 
     #[getter]
     fn get_unstainedinfo(&self) -> Option<String> {
         self.0
-            .metadata
+            .metaroot
             .specific
             .unstained
             .unstainedinfo
@@ -1345,7 +1345,7 @@ impl PyCoreTEXT3_2 {
 
     #[setter]
     fn set_unstainedinfo(&mut self, x: Option<String>) {
-        self.0.metadata.specific.unstained.unstainedinfo = x.map(|x| x.into()).into()
+        self.0.metaroot.specific.unstained.unstainedinfo = x.map(|x| x.into()).into()
     }
 
     #[getter]
@@ -1396,35 +1396,35 @@ macro_rules! common_methods {
         meas_get_set!(detector_types,    set_detector_types,    String,        $pytype);
         meas_get_set!(percents_emitted,  set_percents_emitted,  String,        $pytype);
 
-        get_set_copied!($pytype, [metadata], get_abrt, set_abrt, abrt, u32);
-        get_set_copied!($pytype, [metadata], get_lost, set_lost, lost, u32);
+        get_set_copied!($pytype, [metaroot], get_abrt, set_abrt, abrt, u32);
+        get_set_copied!($pytype, [metaroot], get_lost, set_lost, lost, u32);
 
-        get_set_str!($pytype, [metadata], get_cells, set_cells, cells);
-        get_set_str!($pytype, [metadata], get_com,   set_com,   com);
-        get_set_str!($pytype, [metadata], get_exp,   set_exp,   exp);
-        get_set_str!($pytype, [metadata], get_fil,   set_fil,   fil);
-        get_set_str!($pytype, [metadata], get_inst,  set_inst,  inst);
-        get_set_str!($pytype, [metadata], get_op,    set_op,    op);
-        get_set_str!($pytype, [metadata], get_proj,  set_proj,  proj);
-        get_set_str!($pytype, [metadata], get_smno,  set_smno,  smno);
-        get_set_str!($pytype, [metadata], get_src,   set_src,   src);
-        get_set_str!($pytype, [metadata], get_sys,   set_sys,   sys);
+        get_set_str!($pytype, [metaroot], get_cells, set_cells, cells);
+        get_set_str!($pytype, [metaroot], get_com,   set_com,   com);
+        get_set_str!($pytype, [metaroot], get_exp,   set_exp,   exp);
+        get_set_str!($pytype, [metaroot], get_fil,   set_fil,   fil);
+        get_set_str!($pytype, [metaroot], get_inst,  set_inst,  inst);
+        get_set_str!($pytype, [metaroot], get_op,    set_op,    op);
+        get_set_str!($pytype, [metaroot], get_proj,  set_proj,  proj);
+        get_set_str!($pytype, [metaroot], get_smno,  set_smno,  smno);
+        get_set_str!($pytype, [metaroot], get_src,   set_src,   src);
+        get_set_str!($pytype, [metaroot], get_sys,   set_sys,   sys);
 
         #[pymethods]
         impl $pytype {
             fn insert_nonstandard(&mut self, key: String, v: String) -> PyResult<Option<String>> {
                 let k = str_to_nonstd_key(key)?;
-                Ok(self.0.metadata.nonstandard_keywords.insert(k, v))
+                Ok(self.0.metaroot.nonstandard_keywords.insert(k, v))
             }
 
             fn remove_nonstandard(&mut self, key: String) -> PyResult<Option<String>> {
                 let k = str_to_nonstd_key(key)?;
-                Ok(self.0.metadata.nonstandard_keywords.remove(&k.into()))
+                Ok(self.0.metaroot.nonstandard_keywords.remove(&k.into()))
             }
 
             fn get_nonstandard(&mut self, key: String) -> PyResult<Option<String>> {
                 let k = str_to_nonstd_key(key)?;
-                Ok(self.0.metadata.nonstandard_keywords.get(&k.into()).cloned())
+                Ok(self.0.metaroot.nonstandard_keywords.get(&k.into()).cloned())
             }
 
             // TODO add way to remove nonstandard
@@ -2559,7 +2559,7 @@ macro_rules! modification_methods {
     ($($pytype:ident),+) => {
         get_set_copied!(
             $($pytype,)*
-            [metadata, specific, modification],
+            [metaroot, specific, modification],
             get_originality,
             set_originality,
             originality,
@@ -2568,7 +2568,7 @@ macro_rules! modification_methods {
 
         get_set_copied!(
             $($pytype,)*
-            [metadata, specific, modification],
+            [metaroot, specific, modification],
             get_last_modified,
             set_last_modified,
             last_modified,
@@ -2577,7 +2577,7 @@ macro_rules! modification_methods {
 
         get_set_str!(
             $($pytype,)*
-            [metadata, specific, modification],
+            [metaroot, specific, modification],
             get_last_modifier,
             set_last_modifier,
             last_modifier
@@ -2595,9 +2595,9 @@ modification_methods!(
 // Get/set methods for $CARRIERID/$CARRIERTYPE/$LOCATIONID (3.2)
 macro_rules! carrier_methods {
     ($($pytype:ident),*) => {
-        get_set_str!($($pytype,)* [metadata, specific, carrier], get_carriertype, set_carriertype, carriertype);
-        get_set_str!($($pytype,)* [metadata, specific, carrier], get_carrierid,   set_carrierid,   carrierid);
-        get_set_str!($($pytype,)* [metadata, specific, carrier], get_locationid,  set_locationid,  locationid);
+        get_set_str!($($pytype,)* [metaroot, specific, carrier], get_carriertype, set_carriertype, carriertype);
+        get_set_str!($($pytype,)* [metaroot, specific, carrier], get_carrierid,   set_carrierid,   carrierid);
+        get_set_str!($($pytype,)* [metaroot, specific, carrier], get_locationid,  set_locationid,  locationid);
     };
 }
 
@@ -2606,9 +2606,9 @@ carrier_methods!(PyCoreTEXT3_2, PyCoreDataset3_2);
 // Get/set methods for $PLATEID/$WELLID/$PLATENAME (3.1-3.2)
 macro_rules! plate_methods {
     ($($pytype:ident),*) => {
-        get_set_str!($($pytype,)* [metadata, specific, plate], get_wellid,    set_wellid,    wellid);
-        get_set_str!($($pytype,)* [metadata, specific, plate], get_plateid,   set_plateid,   plateid);
-        get_set_str!($($pytype,)* [metadata, specific, plate], get_platename, set_platename, platename);
+        get_set_str!($($pytype,)* [metaroot, specific, plate], get_wellid,    set_wellid,    wellid);
+        get_set_str!($($pytype,)* [metaroot, specific, plate], get_plateid,   set_plateid,   plateid);
+        get_set_str!($($pytype,)* [metaroot, specific, plate], get_platename, set_platename, platename);
     };
 }
 
@@ -2716,13 +2716,13 @@ macro_rules! vol_methods {
             impl $pytype {
                 #[getter]
                 fn get_vol(&self) -> Option<f32> {
-                    self.0.metadata.specific.vol.as_ref_opt().copied().map(|x| x.0.into())
+                    self.0.metaroot.specific.vol.as_ref_opt().copied().map(|x| x.0.into())
                 }
 
                 #[setter]
                 fn set_vol(&mut self, vol: Option<f32>) -> PyResult<()> {
                     let x = vol.map(f32_to_nonneg_float).transpose()?.map(Vol);
-                    self.0.metadata.specific.vol = x.into();
+                    self.0.metaroot.specific.vol = x.into();
                     Ok(())
                 }
             }
@@ -2789,7 +2789,7 @@ get_set_str!(
     PyCoreDataset2_0,
     PyCoreDataset3_0,
     PyCoreDataset3_1,
-    [metadata, specific],
+    [metaroot, specific],
     get_cyt,
     set_cyt,
     cyt
@@ -2799,7 +2799,7 @@ get_set_str!(
 get_set_str!(
     PyCoreTEXT3_2,
     PyCoreDataset3_2,
-    [metadata, specific],
+    [metaroot, specific],
     get_flowrate,
     set_flowrate,
     flowrate
@@ -2813,7 +2813,7 @@ get_set_str!(
     PyCoreDataset3_0,
     PyCoreDataset3_1,
     PyCoreDataset3_2,
-    [metadata, specific],
+    [metaroot, specific],
     get_cytsn,
     set_cytsn,
     cytsn

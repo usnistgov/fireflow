@@ -34,10 +34,10 @@ pub(crate) type LookupTentative<V, E> = Tentative<V, ParseKeysWarning, E>;
 pub(crate) fn lookup_meta_req<V>(kws: &mut StdKeywords) -> LookupResult<V>
 where
     V: ReqMetaKey,
-    ParseReqKeyError: From<ReqKeyError<<V as FromStr>::Err>>,
+    ParseReqKeyError: From<<V as FromStr>::Err>,
 {
     V::remove_meta_req(kws)
-        .map_err(ParseReqKeyError::from)
+        .map_err(|e| e.inner_into())
         .map_err(Box::new)
         .into_deferred()
 }
@@ -45,10 +45,10 @@ where
 pub(crate) fn lookup_indexed_req<V>(kws: &mut StdKeywords, n: IndexFromOne) -> LookupResult<V>
 where
     V: ReqIndexedKey,
-    ParseReqKeyError: From<ReqKeyError<<V as FromStr>::Err>>,
+    ParseReqKeyError: From<<V as FromStr>::Err>,
 {
     V::remove_meas_req(kws, n)
-        .map_err(ParseReqKeyError::from)
+        .map_err(|e| e.inner_into())
         .map_err(Box::new)
         .into_deferred()
 }
@@ -468,7 +468,7 @@ where
 // TODO this could be nested better
 enum_from_disp!(
     pub ParseKeysError,
-    [ReqKey,     Box<ParseReqKeyError>],
+    [ReqKey,     Box<ReqKeyError<ParseReqKeyError>>],
     [Other,      ParseOtherError],
     [Deprecated, DepKeyWarning],
     [Linked,     LinkedNameError],
@@ -492,16 +492,16 @@ enum_from_disp!(
 
 enum_from_disp!(
     pub ParseReqKeyError,
-    [FloatOrInt,     ReqKeyError<ParseFloatOrIntError>],
-    [AlphaNumType,   ReqKeyError<AlphaNumTypeError>],
-    [String,         ReqKeyError<Infallible>],
-    [Int,            ReqKeyError<ParseIntError>],
-    [Scale,          ReqKeyError<ScaleError>],
-    [ReqRangedFloat, ReqKeyError<RangedFloatError>],
-    [Mode,           ReqKeyError<ModeError>],
-    [ByteOrd,        ReqKeyError<ParseByteOrdError>],
-    [Endian,         ReqKeyError<NewEndianError>],
-    [ReqShortname,   ReqKeyError<ShortnameError>]
+    [FloatOrInt,     ParseFloatOrIntError],
+    [AlphaNumType,   AlphaNumTypeError],
+    [String,         Infallible],
+    [Int,            ParseIntError],
+    [Scale,          ScaleError],
+    [ReqRangedFloat, RangedFloatError],
+    [Mode,           ModeError],
+    [ByteOrd,        ParseByteOrdError],
+    [Endian,         NewEndianError],
+    [ReqShortname,   ShortnameError]
 );
 
 enum_from_disp!(

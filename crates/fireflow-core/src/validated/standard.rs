@@ -332,6 +332,19 @@ pub struct ParseKeyError<E> {
     pub value: String,
 }
 
+impl<E> ParseKeyError<E> {
+    pub fn inner_into<F>(self) -> ParseKeyError<F>
+    where
+        F: From<E>,
+    {
+        ParseKeyError {
+            error: self.error.into(),
+            key: self.key,
+            value: self.value,
+        }
+    }
+}
+
 impl<E> fmt::Display for ParseKeyError<E>
 where
     E: fmt::Display,
@@ -348,6 +361,18 @@ where
 pub enum ReqKeyError<E> {
     Parse(ParseKeyError<E>),
     Missing(StdKey),
+}
+
+impl<E> ReqKeyError<E> {
+    pub fn inner_into<F>(self) -> ReqKeyError<F>
+    where
+        F: From<E>,
+    {
+        match self {
+            ReqKeyError::Parse(e) => ReqKeyError::Parse(e.inner_into()),
+            ReqKeyError::Missing(e) => ReqKeyError::Missing(e),
+        }
+    }
 }
 
 impl<E> fmt::Display for ReqKeyError<E>

@@ -2710,7 +2710,7 @@ where
     {
         // Lookup $PAR first since we need this to get the measurements
         Par::remove_meta_req(kws)
-            .map_err(|e| Box::new(ParseReqKeyError::Int(e)))
+            .map_err(|e| Box::new(e.inner_into()))
             .into_deferred()
             .def_and_maybe(|par| {
                 // $NEXTDATA/$BEGINSTEXT/$ENDSTEXT should have already been

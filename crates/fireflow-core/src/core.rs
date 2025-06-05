@@ -2254,12 +2254,12 @@ where
             .measurements
             .map_center_value(|y| Ok(y.value.convert(y.index, force)))
             .def_map_errors(ConvertErrorInner::Temporal)
+            .def_warnings_into()
             .def_and_maybe(|xs| {
                 xs.map_non_center_values(|i, v| v.try_convert(i, force))
                     .def_map_errors(ConvertErrorInner::Optical)
                     .def_warnings_into()
             })
-            .def_warnings_into()
             .def_and_maybe(|x| {
                 x.try_rewrapped()
                     .mult_map_errors(ConvertErrorInner::Rewrap)
@@ -4375,11 +4375,11 @@ impl From<Wavelength> for Wavelengths {
     }
 }
 
-impl From<Wavelengths> for Wavelength {
-    fn from(value: Wavelengths) -> Self {
-        Self(value.0.head)
-    }
-}
+// impl From<Wavelengths> for Wavelength {
+//     fn from(value: Wavelengths) -> Self {
+//         Self(value.0.head)
+//     }
+// }
 
 impl From<Calibration3_1> for Calibration3_2 {
     fn from(value: Calibration3_1) -> Self {
@@ -4398,6 +4398,15 @@ impl From<Calibration3_2> for Calibration3_1 {
             slope: value.slope,
         }
     }
+}
+
+fn convert_wavelengths(
+    w: OptionalKw<Wavelengths>,
+    force: bool,
+) -> Tentative<OptionalKw<Wavelength>, WavelengthsLossError, WavelengthsLossError> {
+    w.0.map(|x| x.into_wavelength(!force))
+        .map_or(Tentative::new1(None), |tnt| tnt.map(Some))
+        .map(|x| x.into())
 }
 
 impl ConvertFromOptical<InnerOptical3_0> for InnerOptical2_0 {
@@ -4427,12 +4436,16 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical2_0 {
         let g = check_indexed_key_transfer_own(value.gain, j, !force);
         let c = check_indexed_key_transfer_own(value.calibration, j, !force);
         let d = check_indexed_key_transfer_own(value.display, j, !force);
-        let out = g.zip3(c, d).inner_into().map(|_| Self {
-            scale: Some(value.scale).into(),
-            // TODO warn that data might be lost here
-            wavelength: value.wavelengths.map(|x| x.into()),
-            peak: value.peak,
-        });
+        let w = convert_wavelengths(value.wavelengths, force).inner_into();
+        let out = g
+            .zip3(c, d)
+            .inner_into()
+            .zip(w)
+            .map(|(_, wavelength)| Self {
+                scale: Some(value.scale).into(),
+                wavelength,
+                peak: value.peak,
+            });
         Ok(out)
     }
 }
@@ -4453,14 +4466,15 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical2_0 {
         let t = check_indexed_key_transfer_own(value.tag, j, !force);
         let n = check_indexed_key_transfer_own(value.detector_name, j, !force);
         let dt = check_indexed_key_transfer_own(value.datatype, j, !force);
+        let w = convert_wavelengths(value.wavelengths, force).inner_into();
         let out = g
             .zip6(c, d, a, f, m)
             .zip4(t, n, dt)
             .inner_into()
-            .map(|_| Self {
+            .zip(w)
+            .map(|(_, wavelength)| Self {
                 scale: Some(value.scale).into(),
-                // TODO warn that data might be lost here
-                wavelength: value.wavelengths.map(|x| x.into()),
+                wavelength,
                 peak: PeakData::default(),
             });
         Ok(out)
@@ -4496,11 +4510,11 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_0 {
         let j = i.into();
         let c = check_indexed_key_transfer_own(value.calibration, j, !force);
         let d = check_indexed_key_transfer_own(value.display, j, !force);
-        let out = c.zip(d).inner_into().map(|_| Self {
+        let w = convert_wavelengths(value.wavelengths, force).inner_into();
+        let out = c.zip(d).inner_into().zip(w).map(|(_, wavelength)| Self {
             scale: value.scale,
             gain: value.gain,
-            // TODO warn that data might be lost here
-            wavelength: value.wavelengths.map(|x| x.into()),
+            wavelength,
             peak: value.peak,
         });
         Ok(out)
@@ -4522,15 +4536,16 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_0 {
         let t = check_indexed_key_transfer_own(value.tag, j, !force);
         let n = check_indexed_key_transfer_own(value.detector_name, j, !force);
         let dt = check_indexed_key_transfer_own(value.datatype, j, !force);
+        let w = convert_wavelengths(value.wavelengths, force).inner_into();
         let out = c
             .zip5(d, a, f, m)
             .zip4(t, n, dt)
             .inner_into()
-            .map(|_| Self {
+            .zip(w)
+            .map(|(_, wavelength)| Self {
                 scale: value.scale,
                 gain: value.gain,
-                // TODO warn that data might be lost here
-                wavelength: value.wavelengths.map(|x| x.into()),
+                wavelength,
                 peak: PeakData::default(),
             });
         Ok(out)
@@ -4678,13 +4693,20 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_2 {
 
 type MetarootConvertResult<M> = DeferredResult<M, MetarootConvertWarning, MetarootConvertError>;
 
-type OpticalConvertResult<M> = DeferredResult<M, AnyIndexedKeyTransferError, OpticalConvertError>;
+type OpticalConvertResult<M> = DeferredResult<M, OpticalConvertWarning, OpticalConvertError>;
 
 type TemporalConvertTentative<M> = Tentative<M, TemporalConvertError, TemporalConvertError>;
 
 enum_from_disp!(
     pub OpticalConvertError,
     [NoScale, NoScaleError],
+    [Wavelengths, WavelengthsLossError],
+    [Xfer, AnyIndexedKeyTransferError]
+);
+
+enum_from_disp!(
+    pub OpticalConvertWarning,
+    [Wavelengths, WavelengthsLossError],
     [Xfer, AnyIndexedKeyTransferError]
 );
 
@@ -5237,7 +5259,7 @@ fn check_modified_keys_transfer(
 fn check_timestep(x: Timestep, force: bool) -> TemporalConvertTentative<()> {
     let mut tnt = Tentative::new1(());
     if f32::from(x.0) != 1.0 {
-        tnt.push_error_or_warning(TimestepLossError(x), force);
+        tnt.push_error_or_warning(TimestepLossError(x), !force);
     }
     tnt
 }
@@ -7324,6 +7346,7 @@ enum_from_disp!(
     [Gates2_0To3_2, AppliedGates2_0To3_2Error],
     [Xfer, AnyKeyTransferError],
     [IndexedXfer, AnyIndexedKeyTransferError],
+    [Optical, OpticalConvertWarning],
     [Temporal, TemporalConvertError],
     [Comp2_0, Comp2_0TransferError]
 );

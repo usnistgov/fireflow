@@ -1,3 +1,4 @@
+use crate::error::*;
 use crate::macros::{
     enum_from, newtype_borrow, newtype_disp, newtype_from, newtype_from_outer, newtype_fromstr,
 };
@@ -483,6 +484,33 @@ impl FromStr for Wavelengths {
         NonEmpty::from_vec(ws)
             .ok_or(WavelengthsError::Empty)
             .map(Wavelengths)
+    }
+}
+
+impl Wavelengths {
+    pub(crate) fn into_wavelength(
+        self,
+        lossless: bool,
+    ) -> Tentative<Wavelength, WavelengthsLossError, WavelengthsLossError> {
+        let ws = self.0;
+        let n = ws.len();
+        let mut tnt = Tentative::new1(Wavelength(ws.head));
+        if n > 1 {
+            tnt.push_error_or_warning(WavelengthsLossError(n), lossless);
+        }
+        tnt
+    }
+}
+
+pub struct WavelengthsLossError(pub usize);
+
+impl fmt::Display for WavelengthsLossError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "wavelengths is {} elements long and will be reduced to first upon conversion",
+            self.0
+        )
     }
 }
 

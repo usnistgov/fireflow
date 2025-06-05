@@ -1813,9 +1813,58 @@ macro_rules! common_meas_get_set {
                     )
                 }
 
+                fn replace_measurement_named<'py>(
+                    &mut self,
+                    name: String,
+                    m: $meastype,
+                    py: Python<'py>
+                ) -> PyResult<Option<Bound<'py, PyAny>>> {
+                    let n = str_to_shortname(name)?;
+                    let r = self.0.replace_measurement_named(&n, m.into());
+                    r.map(|x| x.both(
+                        |l| $timetype::from(l).into_bound_py_any(py),
+                        |r| $meastype::from(r).into_bound_py_any(py),
+                    )).transpose()
+                }
+
                 fn rename_temporal(&mut self, name: String) -> PyResult<Option<String>> {
                     let n = str_to_shortname(name)?;
                     Ok(self.0.rename_temporal(n).map(|n| n.to_string()))
+                }
+
+                fn replace_temporal_at<'py>(
+                    &mut self,
+                    i: usize,
+                    m: $timetype,
+                    force: bool,
+                    py: Python<'py>
+                ) -> PyResult<Bound<'py, PyAny>> {
+                    let r = self.0
+                        .replace_temporal_at(i.into(), m.into(), force)
+                        .def_terminate(SetTemporalFailure)
+                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
+                    r.both(
+                        |l| $timetype::from(l).into_bound_py_any(py),
+                        |r| $meastype::from(r).into_bound_py_any(py),
+                    )
+                }
+
+                fn replace_temporal_named<'py>(
+                    &mut self,
+                    name: String,
+                    m: $timetype,
+                    force: bool,
+                    py: Python<'py>
+                ) -> PyResult<Option<Bound<'py, PyAny>>> {
+                    let n = str_to_shortname(name)?;
+                    let r = self.0
+                        .replace_temporal_named(&n, m.into(), force)
+                        .def_terminate(SetTemporalFailure)
+                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
+                    r.map(|x| x.both(
+                        |l| $timetype::from(l).into_bound_py_any(py),
+                        |r| $meastype::from(r).into_bound_py_any(py),
+                    )).transpose()
                 }
 
                 #[getter]

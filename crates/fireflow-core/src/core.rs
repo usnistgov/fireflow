@@ -4364,9 +4364,9 @@ impl From<Wavelength> for Wavelengths {
     }
 }
 
-impl From<OptionalKw<Wavelengths>> for OptionalKw<Wavelength> {
-    fn from(value: OptionalKw<Wavelengths>) -> Self {
-        value.0.map(|x| (*x.0.first()).into()).into()
+impl From<Wavelengths> for Wavelength {
+    fn from(value: Wavelengths) -> Self {
+        Self(value.0.head)
     }
 }
 
@@ -4419,7 +4419,7 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical2_0 {
         let out = g.zip3(c, d).inner_into().map(|_| Self {
             scale: Some(value.scale).into(),
             // TODO warn that data might be lost here
-            wavelength: value.wavelengths.into(),
+            wavelength: value.wavelengths.map(|x| x.into()),
             peak: value.peak,
         });
         Ok(out)
@@ -4449,7 +4449,7 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical2_0 {
             .map(|_| Self {
                 scale: Some(value.scale).into(),
                 // TODO warn that data might be lost here
-                wavelength: value.wavelengths.into(),
+                wavelength: value.wavelengths.map(|x| x.into()),
                 peak: PeakData::default(),
             });
         Ok(out)
@@ -4489,7 +4489,7 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_0 {
             scale: value.scale,
             gain: value.gain,
             // TODO warn that data might be lost here
-            wavelength: value.wavelengths.into(),
+            wavelength: value.wavelengths.map(|x| x.into()),
             peak: value.peak,
         });
         Ok(out)
@@ -4519,7 +4519,7 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_0 {
                 scale: value.scale,
                 gain: value.gain,
                 // TODO warn that data might be lost here
-                wavelength: value.wavelengths.into(),
+                wavelength: value.wavelengths.map(|x| x.into()),
                 peak: PeakData::default(),
             });
         Ok(out)

@@ -4591,6 +4591,13 @@ impl PeakData {
         .into_iter()
         .collect()
     }
+
+    fn check_loss(self, i: MeasIndex, lossless: bool) -> BiTentative<(), AnyMeasKeyLossError> {
+        let j = i.into();
+        let b = check_indexed_key_transfer_own(self.bin, j, lossless);
+        let s = check_indexed_key_transfer_own(self.size, j, lossless);
+        b.zip(s).void()
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -4948,38 +4955,42 @@ impl ConvertFromOptical<InnerOptical2_0> for InnerOptical3_2 {
     fn convert_from_optical(
         value: InnerOptical2_0,
         i: MeasIndex,
-        _: bool,
+        force: bool,
     ) -> OpticalConvertResult<Self> {
-        // TODO warn peak data will be lost
         value
-            .scale
-            .0
-            .ok_or(NoScaleError(i))
-            .map(|scale| Self {
-                scale,
-                wavelengths: value.wavelength.map(|x| x.into()),
-                gain: None.into(),
-                calibration: None.into(),
-                display: None.into(),
-                analyte: None.into(),
-                feature: None.into(),
-                tag: None.into(),
-                detector_name: None.into(),
-                datatype: None.into(),
-                measurement_type: None.into(),
+            .peak
+            .check_loss(i, !force)
+            .inner_into()
+            .and_maybe(|_| {
+                value
+                    .scale
+                    .0
+                    .ok_or(NoScaleError(i))
+                    .map(|scale| Self {
+                        scale,
+                        wavelengths: value.wavelength.map(|x| x.into()),
+                        gain: None.into(),
+                        calibration: None.into(),
+                        display: None.into(),
+                        analyte: None.into(),
+                        feature: None.into(),
+                        tag: None.into(),
+                        detector_name: None.into(),
+                        datatype: None.into(),
+                        measurement_type: None.into(),
+                    })
+                    .into_deferred()
             })
-            .into_deferred()
     }
 }
 
 impl ConvertFromOptical<InnerOptical3_0> for InnerOptical3_2 {
     fn convert_from_optical(
         value: InnerOptical3_0,
-        _: MeasIndex,
-        _: bool,
+        i: MeasIndex,
+        force: bool,
     ) -> OpticalConvertResult<Self> {
-        // TODO warn peak data will be lost
-        Ok(Tentative::new1(Self {
+        let out = value.peak.check_loss(i, !force).inner_into().map(|_| Self {
             scale: value.scale,
             wavelengths: value.wavelength.map(|x| x.into()),
             gain: value.gain,
@@ -4991,18 +5002,18 @@ impl ConvertFromOptical<InnerOptical3_0> for InnerOptical3_2 {
             detector_name: None.into(),
             datatype: None.into(),
             measurement_type: None.into(),
-        }))
+        });
+        Ok(out)
     }
 }
 
 impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_2 {
     fn convert_from_optical(
         value: InnerOptical3_1,
-        _: MeasIndex,
-        _: bool,
+        i: MeasIndex,
+        force: bool,
     ) -> OpticalConvertResult<Self> {
-        // TODO warn peak data will be lost
-        Ok(Tentative::new1(Self {
+        let out = value.peak.check_loss(i, !force).inner_into().map(|_| Self {
             scale: value.scale,
             wavelengths: value.wavelengths,
             gain: value.gain,
@@ -5014,7 +5025,8 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_2 {
             detector_name: None.into(),
             datatype: None.into(),
             measurement_type: None.into(),
-        }))
+        });
+        Ok(out)
     }
 }
 
@@ -7658,6 +7670,8 @@ enum_from_disp!(
     [Datatype,        IndexedKeyLossError<NumType>],
     [DetectorName,    IndexedKeyLossError<DetectorName>],
     [Feature,         IndexedKeyLossError<Feature>],
+    [PeakBin,         IndexedKeyLossError<PeakBin>],
+    [PeakNumber,      IndexedKeyLossError<PeakNumber>],
     [Calibration3_1,  IndexedKeyLossError<Calibration3_1>],
     [Calibration3_2,  IndexedKeyLossError<Calibration3_2>]
 );

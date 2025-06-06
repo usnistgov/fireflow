@@ -5180,7 +5180,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
         let f = check_key_transfer(value.flowrate, lossless);
         let m = value.modification.check_loss(lossless);
         let p = value.plate.check_loss(lossless);
-        let d = check_datetimes_keys_transfer(value.datetimes, lossless);
+        let d = value.datetimes.check_loss(lossless);
         let ca = value.carrier.check_loss(lossless);
         let u = value.unstained.check_loss(lossless);
         let mut ret = cy
@@ -5265,7 +5265,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_0 {
         let f = check_key_transfer(value.flowrate, lossless);
         let m = value.modification.check_loss(lossless);
         let p = value.plate.check_loss(lossless);
-        let d = check_datetimes_keys_transfer(value.datetimes, lossless);
+        let d = value.datetimes.check_loss(lossless);
         let ca = value.carrier.check_loss(lossless);
         let u = value.unstained.check_loss(lossless);
         v.zip6(f, m, p, d, ca).zip(u).inner_into().and_maybe(|_| {
@@ -5353,7 +5353,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_1 {
         _: EndianConvert,
         lossless: bool,
     ) -> MetarootConvertResult<Self> {
-        let d = check_datetimes_keys_transfer(value.datetimes, lossless);
+        let d = value.datetimes.check_loss(lossless);
         let ca = value.carrier.check_loss(lossless);
         let u = value.unstained.check_loss(lossless);
         let f = check_key_transfer(value.flowrate, lossless);
@@ -5550,20 +5550,6 @@ where
     let mut tnt = Tentative::new1(());
     if x.0.is_some() {
         tnt.push_error_or_warning(UnitaryKeyLossError::<T>::default(), lossless);
-    }
-    tnt
-}
-
-fn check_datetimes_keys_transfer(
-    d: Datetimes,
-    lossless: bool,
-) -> Tentative<(), AnyMetarootKeyLossError, AnyMetarootKeyLossError> {
-    let mut tnt = Tentative::new1(());
-    if d.begin_naive().is_some() {
-        tnt.push_error_or_warning(UnitaryKeyLossError::<BeginDateTime>::default(), lossless);
-    }
-    if d.end_naive().is_some() {
-        tnt.push_error_or_warning(UnitaryKeyLossError::<EndDateTime>::default(), lossless);
     }
     tnt
 }

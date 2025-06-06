@@ -1,3 +1,4 @@
+use crate::core::{AnyMetarootKeyLossError, UnitaryKeyLossError};
 use crate::error::*;
 use crate::macros::{newtype_disp, newtype_from, newtype_from_outer, newtype_fromstr};
 use crate::validated::standard::*;
@@ -125,6 +126,17 @@ impl Datetimes {
         ]
         .into_iter()
         .collect()
+    }
+
+    pub(crate) fn check_loss(self, lossless: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
+        let mut tnt = Tentative::new1(());
+        if self.begin_naive().is_some() {
+            tnt.push_error_or_warning(UnitaryKeyLossError::<BeginDateTime>::default(), lossless);
+        }
+        if self.end_naive().is_some() {
+            tnt.push_error_or_warning(UnitaryKeyLossError::<EndDateTime>::default(), lossless);
+        }
+        tnt
     }
 }
 

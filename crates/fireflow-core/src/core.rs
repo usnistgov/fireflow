@@ -350,6 +350,7 @@ impl AnyCoreDataset {
         match_anycore!(self, x, { &x.data })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn parse_raw<R: Read + Seek>(
         h: &mut BufReader<R>,
         version: Version,

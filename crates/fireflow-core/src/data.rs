@@ -37,7 +37,7 @@ impl AnalysisReader {
     }
 }
 
-impl<'a> OthersReader<'a> {
+impl OthersReader<'_> {
     pub(crate) fn h_read<R: Read + Seek>(&self, h: &mut BufReader<R>) -> io::Result<Others> {
         let mut buf = vec![];
         let mut others = vec![];

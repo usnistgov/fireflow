@@ -1019,6 +1019,18 @@ pub trait VersionedMetaroot: Sized {
         conf: &SharedConfig,
     ) -> DeferredResult<Self::L, NewDataLayoutWarning, NewDataLayoutError>;
 
+    /// Swap convert a temporal and optical channel into the other.
+    ///
+    /// This is necessary to have in one function since we may want to recover
+    /// a bad conversion. Thus we need to first check if the two types can be
+    /// converted into the other, and if so, actually do the conversion, and if
+    /// not, return the originals with error(s).
+    ///
+    /// It may seem tempting to use two TryFroms to so this, but this won't work
+    /// in the case where one conversion succeeds and the other fails. Rust's
+    /// ownership model dictates that the successful conversion consume the
+    /// original value, in which case we are stuck halfway with no path to
+    /// recover the original state.
     #[allow(clippy::type_complexity)]
     fn swap_optical_temporal(
         t: Temporal<Self::T>,
@@ -7552,7 +7564,7 @@ enum_from_disp!(
     [Gates3_0To3_2, AppliedGates3_0To3_2Error],
     [Gates3_2To2_0, AppliedGates3_2To2_0Error],
     [Gates2_0To3_2, AppliedGates2_0To3_2Error],
-    [Xfer, AnyMetarootKeyLossError],
+    [Loss, AnyMetarootKeyLossError],
     [Comp2_0, Comp2_0TransferError]
 );
 
@@ -7564,7 +7576,7 @@ enum_from_disp!(
     [Gates3_0To3_2, AppliedGates3_0To3_2Error],
     [Gates3_2To2_0, AppliedGates3_2To2_0Error],
     [Gates2_0To3_2, AppliedGates2_0To3_2Error],
-    [Xfer, AnyMetarootKeyLossError],
+    [Loss, AnyMetarootKeyLossError],
     [Optical, OpticalConvertWarning],
     [Temporal, TemporalConvertError],
     [Comp2_0, Comp2_0TransferError]

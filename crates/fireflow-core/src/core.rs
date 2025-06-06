@@ -3875,7 +3875,10 @@ impl UnstainedData {
         .collect()
     }
 
-    fn check_loss(self, lossless: bool) -> Tentative<(), AnyKeyTransferError, AnyKeyTransferError> {
+    fn check_loss(
+        self,
+        lossless: bool,
+    ) -> Tentative<(), AnyMetarootKeyLossError, AnyMetarootKeyLossError> {
         let c = check_key_transfer(self.unstainedcenters, lossless);
         let i = check_key_transfer(self.unstainedinfo, lossless);
         c.zip(i).void()
@@ -4477,7 +4480,10 @@ impl ModificationData {
         .collect()
     }
 
-    fn check_loss(self, lossless: bool) -> Tentative<(), AnyKeyTransferError, AnyKeyTransferError> {
+    fn check_loss(
+        self,
+        lossless: bool,
+    ) -> Tentative<(), AnyMetarootKeyLossError, AnyMetarootKeyLossError> {
         let d = check_key_transfer(self.last_modified, lossless);
         let r = check_key_transfer(self.last_modifier, lossless);
         let o = check_key_transfer(self.originality, lossless);
@@ -4508,7 +4514,10 @@ impl CarrierData {
         .collect()
     }
 
-    fn check_loss(self, lossless: bool) -> Tentative<(), AnyKeyTransferError, AnyKeyTransferError> {
+    fn check_loss(
+        self,
+        lossless: bool,
+    ) -> Tentative<(), AnyMetarootKeyLossError, AnyMetarootKeyLossError> {
         let i = check_key_transfer(self.carrierid, lossless);
         let t = check_key_transfer(self.carriertype, lossless);
         let l = check_key_transfer(self.locationid, lossless);
@@ -4538,7 +4547,10 @@ impl PlateData {
         .collect()
     }
 
-    fn check_loss(self, lossless: bool) -> Tentative<(), AnyKeyTransferError, AnyKeyTransferError> {
+    fn check_loss(
+        self,
+        lossless: bool,
+    ) -> Tentative<(), AnyMetarootKeyLossError, AnyMetarootKeyLossError> {
         let n = check_key_transfer(self.platename, lossless);
         let i = check_key_transfer(self.plateid, lossless);
         let w = check_key_transfer(self.wellid, lossless);
@@ -4995,19 +5007,19 @@ enum_from_disp!(
     pub OpticalConvertError,
     [NoScale, NoScaleError],
     [Wavelengths, WavelengthsLossError],
-    [Xfer, AnyIndexedKeyTransferError]
+    [Xfer, AnyMeasKeyLossError]
 );
 
 enum_from_disp!(
     pub OpticalConvertWarning,
     [Wavelengths, WavelengthsLossError],
-    [Xfer, AnyIndexedKeyTransferError]
+    [Xfer, AnyMeasKeyLossError]
 );
 
 enum_from_disp!(
     pub TemporalConvertError,
     [Timestep, TimestepLossError],
-    [Xfer, AnyIndexedKeyTransferError]
+    [Xfer, AnyMeasKeyLossError]
 );
 
 pub struct TimestepLossError(Timestep);
@@ -5446,10 +5458,10 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
 
 fn check_indexed_key_transfer<T, E>(x: &OptionalKw<T>, i: IndexFromOne) -> Result<(), E>
 where
-    E: From<IndexedKeyTransferError<T>>,
+    E: From<IndexedKeyLossError<T>>,
 {
     if x.0.is_some() {
-        Err(IndexedKeyTransferError::<T>::new(i).into())
+        Err(IndexedKeyLossError::<T>::new(i).into())
     } else {
         Ok(())
     }
@@ -5458,7 +5470,7 @@ where
 fn check_optical_keys_transfer<X>(
     x: &Optical<X>,
     i: MeasIndex,
-) -> MultiResult<(), AnyIndexedKeyTransferError> {
+) -> MultiResult<(), AnyMeasKeyLossError> {
     let j = i.into();
     let f = check_indexed_key_transfer(&x.filter, j);
     let o = check_indexed_key_transfer(&x.power, j);
@@ -5472,13 +5484,13 @@ fn check_indexed_key_transfer_own<T>(
     x: OptionalKw<T>,
     i: IndexFromOne,
     lossless: bool,
-) -> Tentative<(), AnyIndexedKeyTransferError, AnyIndexedKeyTransferError>
+) -> Tentative<(), AnyMeasKeyLossError, AnyMeasKeyLossError>
 where
-    AnyIndexedKeyTransferError: From<IndexedKeyTransferError<T>>,
+    AnyMeasKeyLossError: From<IndexedKeyLossError<T>>,
 {
     let mut tnt = Tentative::new1(());
     if x.0.is_some() {
-        tnt.push_error_or_warning(IndexedKeyTransferError::<T>::new(i), lossless);
+        tnt.push_error_or_warning(IndexedKeyLossError::<T>::new(i), lossless);
     }
     tnt
 }
@@ -5486,13 +5498,13 @@ where
 fn check_key_transfer<T>(
     x: OptionalKw<T>,
     lossless: bool,
-) -> Tentative<(), AnyKeyTransferError, AnyKeyTransferError>
+) -> Tentative<(), AnyMetarootKeyLossError, AnyMetarootKeyLossError>
 where
-    AnyKeyTransferError: From<KeyTransferError<T>>,
+    AnyMetarootKeyLossError: From<UnitaryKeyLossError<T>>,
 {
     let mut tnt = Tentative::new1(());
     if x.0.is_some() {
-        tnt.push_error_or_warning(KeyTransferError::<T>::default(), lossless);
+        tnt.push_error_or_warning(UnitaryKeyLossError::<T>::default(), lossless);
     }
     tnt
 }
@@ -5500,13 +5512,13 @@ where
 fn check_datetimes_keys_transfer(
     d: Datetimes,
     lossless: bool,
-) -> Tentative<(), AnyKeyTransferError, AnyKeyTransferError> {
+) -> Tentative<(), AnyMetarootKeyLossError, AnyMetarootKeyLossError> {
     let mut tnt = Tentative::new1(());
     if d.begin_naive().is_some() {
-        tnt.push_error_or_warning(KeyTransferError::<BeginDateTime>::default(), lossless);
+        tnt.push_error_or_warning(UnitaryKeyLossError::<BeginDateTime>::default(), lossless);
     }
     if d.end_naive().is_some() {
-        tnt.push_error_or_warning(KeyTransferError::<EndDateTime>::default(), lossless);
+        tnt.push_error_or_warning(UnitaryKeyLossError::<EndDateTime>::default(), lossless);
     }
     tnt
 }
@@ -5977,7 +5989,7 @@ impl VersionedOptical for InnerOptical3_1 {
 
     fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult<(), OpticalToTemporalError> {
         let j = i.into();
-        let c = check_indexed_key_transfer::<_, AnyIndexedKeyTransferError>(&self.calibration, j);
+        let c = check_indexed_key_transfer::<_, AnyMeasKeyLossError>(&self.calibration, j);
         let w = check_indexed_key_transfer(&self.wavelengths, j);
         let mut res = c.zip(w).mult_errors_into().void();
         if let Err(err) = res.as_mut() {
@@ -6020,7 +6032,7 @@ impl VersionedOptical for InnerOptical3_2 {
 
     fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult<(), OpticalToTemporalError> {
         let j = i.into();
-        let c = check_indexed_key_transfer::<_, AnyIndexedKeyTransferError>(&self.calibration, j);
+        let c = check_indexed_key_transfer::<_, AnyMeasKeyLossError>(&self.calibration, j);
         let w = check_indexed_key_transfer(&self.wavelengths, j);
         let m = check_indexed_key_transfer(&self.measurement_type, j);
         let a = check_indexed_key_transfer(&self.analyte, j);
@@ -7498,19 +7510,19 @@ enum_from_disp!(
     pub SwapOpticalTemporalError,
     [ToTemporal, OpticalToTemporalError],
     [ToOptical, TemporalToOpticalError],
-    [Xfer, AnyIndexedKeyTransferError]
+    [Xfer, AnyMeasKeyLossError]
 );
 
 enum_from_disp!(
     pub OpticalToTemporalError,
     [NonLinear, OpticalNonLinearError],
     [HasGain, OpticalHasGainError],
-    [Xfer, AnyIndexedKeyTransferError]
+    [Xfer, AnyMeasKeyLossError]
 );
 
 enum_from_disp!(
     pub TemporalToOpticalError,
-    [MeasType, IndexedKeyTransferError<TemporalType>]
+    [MeasType, IndexedKeyLossError<TemporalType>]
 );
 
 // pub enum OpticalToTemporalError {
@@ -7572,7 +7584,7 @@ enum_from_disp!(
     [Gates3_0To3_2, AppliedGates3_0To3_2Error],
     [Gates3_2To2_0, AppliedGates3_2To2_0Error],
     [Gates2_0To3_2, AppliedGates2_0To3_2Error],
-    [Xfer, AnyKeyTransferError],
+    [Xfer, AnyMetarootKeyLossError],
     [Comp2_0, Comp2_0TransferError]
 );
 
@@ -7584,58 +7596,57 @@ enum_from_disp!(
     [Gates3_0To3_2, AppliedGates3_0To3_2Error],
     [Gates3_2To2_0, AppliedGates3_2To2_0Error],
     [Gates2_0To3_2, AppliedGates2_0To3_2Error],
-    [Xfer, AnyKeyTransferError],
-    [IndexedXfer, AnyIndexedKeyTransferError],
+    [Xfer, AnyMetarootKeyLossError],
     [Optical, OpticalConvertWarning],
     [Temporal, TemporalConvertError],
     [Comp2_0, Comp2_0TransferError]
 );
 
-// NOTE these all correspond to a single keyword transfer, things like $DFCiTOj
-// need separate error types
 enum_from_disp!(
-    pub AnyKeyTransferError,
-    [Cytsn, KeyTransferError<Cytsn>],
-    [Unicode, KeyTransferError<Unicode>],
-    [Vol, KeyTransferError<Vol>],
-    [Flowrate, KeyTransferError<Flowrate>],
-    [Comp, KeyTransferError<Compensation3_0>],
-    [Platename, KeyTransferError<Platename>],
-    [Plateid, KeyTransferError<Plateid>],
-    [Wellid, KeyTransferError<Wellid>],
-    [Carrierid, KeyTransferError<Carrierid>],
-    [Locationid, KeyTransferError<Locationid>],
-    [Carriertype, KeyTransferError<Carriertype>],
-    [LastModifier, KeyTransferError<LastModifier>],
-    [LastModified, KeyTransferError<ModifiedDateTime>],
-    [Originality, KeyTransferError<Originality>],
-    [UnstainedCenters, KeyTransferError<UnstainedCenters>],
-    [UnstainedInfo, KeyTransferError<UnstainedInfo>],
-    [Begindatetime, KeyTransferError<BeginDateTime>],
-    [Enddatetime, KeyTransferError<EndDateTime>],
-    [Spillover, KeyTransferError<Spillover>]
+    /// Error when a metaroot keyword will be lost when converting versions
+    pub AnyMetarootKeyLossError,
+    [Cytsn,            UnitaryKeyLossError<Cytsn>],
+    [Unicode,          UnitaryKeyLossError<Unicode>],
+    [Vol,              UnitaryKeyLossError<Vol>],
+    [Flowrate,         UnitaryKeyLossError<Flowrate>],
+    [Comp,             UnitaryKeyLossError<Compensation3_0>],
+    [Platename,        UnitaryKeyLossError<Platename>],
+    [Plateid,          UnitaryKeyLossError<Plateid>],
+    [Wellid,           UnitaryKeyLossError<Wellid>],
+    [Carrierid,        UnitaryKeyLossError<Carrierid>],
+    [Locationid,       UnitaryKeyLossError<Locationid>],
+    [Carriertype,      UnitaryKeyLossError<Carriertype>],
+    [LastModifier,     UnitaryKeyLossError<LastModifier>],
+    [LastModified,     UnitaryKeyLossError<ModifiedDateTime>],
+    [Originality,      UnitaryKeyLossError<Originality>],
+    [UnstainedCenters, UnitaryKeyLossError<UnstainedCenters>],
+    [UnstainedInfo,    UnitaryKeyLossError<UnstainedInfo>],
+    [Begindatetime,    UnitaryKeyLossError<BeginDateTime>],
+    [Enddatetime,      UnitaryKeyLossError<EndDateTime>],
+    [Spillover,        UnitaryKeyLossError<Spillover>]
 );
 
 enum_from_disp!(
-    pub AnyIndexedKeyTransferError,
-    [Filter, IndexedKeyTransferError<Filter>],
-    [Power, IndexedKeyTransferError<Power>],
-    [DetectorType, IndexedKeyTransferError<DetectorType>],
-    [PercentEmitted, IndexedKeyTransferError<PercentEmitted>],
-    [DetectorVoltage, IndexedKeyTransferError<DetectorVoltage>],
-    [Wavelength, IndexedKeyTransferError<Wavelength>],
-    [Wavelengths, IndexedKeyTransferError<Wavelengths>],
-    [MeasType, IndexedKeyTransferError<OpticalType>],
-    [TempType, IndexedKeyTransferError<TemporalType>],
-    [Analyte, IndexedKeyTransferError<Analyte>],
-    [Tag, IndexedKeyTransferError<Tag>],
-    [Gain, IndexedKeyTransferError<Gain>],
-    [Display, IndexedKeyTransferError<Display>],
-    [Datatype, IndexedKeyTransferError<NumType>],
-    [DetectorName, IndexedKeyTransferError<DetectorName>],
-    [Feature, IndexedKeyTransferError<Feature>],
-    [Calibration3_1, IndexedKeyTransferError<Calibration3_1>],
-    [Calibration3_2, IndexedKeyTransferError<Calibration3_2>]
+    /// Error when an optical keyword will be lost when converting versions
+    pub AnyMeasKeyLossError,
+    [Filter,          IndexedKeyLossError<Filter>],
+    [Power,           IndexedKeyLossError<Power>],
+    [DetectorType,    IndexedKeyLossError<DetectorType>],
+    [PercentEmitted,  IndexedKeyLossError<PercentEmitted>],
+    [DetectorVoltage, IndexedKeyLossError<DetectorVoltage>],
+    [Wavelength,      IndexedKeyLossError<Wavelength>],
+    [Wavelengths,     IndexedKeyLossError<Wavelengths>],
+    [MeasType,        IndexedKeyLossError<OpticalType>],
+    [TempType,        IndexedKeyLossError<TemporalType>],
+    [Analyte,         IndexedKeyLossError<Analyte>],
+    [Tag,             IndexedKeyLossError<Tag>],
+    [Gain,            IndexedKeyLossError<Gain>],
+    [Display,         IndexedKeyLossError<Display>],
+    [Datatype,        IndexedKeyLossError<NumType>],
+    [DetectorName,    IndexedKeyLossError<DetectorName>],
+    [Feature,         IndexedKeyLossError<Feature>],
+    [Calibration3_1,  IndexedKeyLossError<Calibration3_1>],
+    [Calibration3_2,  IndexedKeyLossError<Calibration3_2>]
 );
 
 pub struct Comp2_0TransferError;
@@ -7696,15 +7707,15 @@ impl fmt::Display for AppliedGates3_2To2_0Error {
     }
 }
 
-pub struct KeyTransferError<T>(PhantomData<T>);
+pub struct UnitaryKeyLossError<T>(PhantomData<T>);
 
-impl<T> Default for KeyTransferError<T> {
+impl<T> Default for UnitaryKeyLossError<T> {
     fn default() -> Self {
         Self(PhantomData)
     }
 }
 
-impl<T> fmt::Display for KeyTransferError<T>
+impl<T> fmt::Display for UnitaryKeyLossError<T>
 where
     T: Key,
 {
@@ -7717,15 +7728,15 @@ where
     }
 }
 
-pub struct IndexedKeyTransferError<T>(PhantomData<T>, IndexFromOne);
+pub struct IndexedKeyLossError<T>(PhantomData<T>, IndexFromOne);
 
-impl<T> IndexedKeyTransferError<T> {
+impl<T> IndexedKeyLossError<T> {
     fn new(i: IndexFromOne) -> Self {
         Self(PhantomData, i)
     }
 }
 
-impl<T> fmt::Display for IndexedKeyTransferError<T>
+impl<T> fmt::Display for IndexedKeyLossError<T>
 where
     T: IndexedKey,
 {

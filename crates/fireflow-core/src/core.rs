@@ -1050,7 +1050,9 @@ pub trait VersionedMetaroot: Sized {
         };
         let t_res = o.specific.can_convert_to_temporal(i).mult_errors_into();
         let o_specific_res = t.specific.can_convert_to_optical(i).mult_errors_into();
-        let o_common_res = check_optical_keys_transfer(&o, i).mult_errors_into();
+        let o_common_res = check_optical_keys_transfer(&o, i)
+            .mult_errors_into::<OpticalToTemporalError>()
+            .mult_errors_into();
         match t_res.mult_zip3(o_specific_res, o_common_res) {
             Ok(_) => Ok(Tentative::new1(go(t, o))),
             Err(es) => {
@@ -1930,6 +1932,7 @@ where
             |i, old_o, old_t| M::swap_optical_temporal(old_o, old_t, i, lossless).def_inner_into(),
             |i, old_o| {
                 <M::T as TemporalFromOptical<M::O>>::from_optical(old_o, i, timestep, lossless)
+                    .def_inner_into::<SwapOpticalTemporalError, SwapOpticalTemporalError>()
                     .def_inner_into()
             },
         )
@@ -1951,6 +1954,7 @@ where
             |i, old_o, old_t| M::swap_optical_temporal(old_o, old_t, i, lossless).def_inner_into(),
             |i, old_o| {
                 <M::T as TemporalFromOptical<M::O>>::from_optical(old_o, i, timestep, lossless)
+                    .def_inner_into::<SwapOpticalTemporalError, SwapOpticalTemporalError>()
                     .def_inner_into()
             },
         )
@@ -5470,7 +5474,7 @@ where
 fn check_optical_keys_transfer<X>(
     x: &Optical<X>,
     i: MeasIndex,
-) -> MultiResult<(), AnyMeasKeyLossError> {
+) -> MultiResult<(), AnyOpticalToTemporalKeyLossError> {
     let j = i.into();
     let f = check_indexed_key_transfer(&x.filter, j);
     let o = check_indexed_key_transfer(&x.power, j);
@@ -5920,7 +5924,7 @@ impl VersionedOptical for InnerOptical2_0 {
 
     fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult<(), OpticalToTemporalError> {
         let mut res = check_indexed_key_transfer(&self.wavelength, i.into())
-            .map_err(OpticalToTemporalError::Xfer)
+            .map_err(OpticalToTemporalError::Loss)
             .into_mult();
         if let Err(err) = res.as_mut() {
             if !self.scale.as_ref_opt().is_some_and(|s| *s == Scale::Linear) {
@@ -5952,7 +5956,7 @@ impl VersionedOptical for InnerOptical3_0 {
 
     fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult<(), OpticalToTemporalError> {
         let mut res = check_indexed_key_transfer(&self.wavelength, i.into())
-            .map_err(OpticalToTemporalError::Xfer)
+            .map_err(OpticalToTemporalError::Loss)
             .into_mult();
         if let Err(err) = res.as_mut() {
             if self.scale != Scale::Linear {
@@ -5989,7 +5993,8 @@ impl VersionedOptical for InnerOptical3_1 {
 
     fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult<(), OpticalToTemporalError> {
         let j = i.into();
-        let c = check_indexed_key_transfer::<_, AnyMeasKeyLossError>(&self.calibration, j);
+        let c =
+            check_indexed_key_transfer::<_, AnyOpticalToTemporalKeyLossError>(&self.calibration, j);
         let w = check_indexed_key_transfer(&self.wavelengths, j);
         let mut res = c.zip(w).mult_errors_into().void();
         if let Err(err) = res.as_mut() {
@@ -6032,7 +6037,8 @@ impl VersionedOptical for InnerOptical3_2 {
 
     fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult<(), OpticalToTemporalError> {
         let j = i.into();
-        let c = check_indexed_key_transfer::<_, AnyMeasKeyLossError>(&self.calibration, j);
+        let c =
+            check_indexed_key_transfer::<_, AnyOpticalToTemporalKeyLossError>(&self.calibration, j);
         let w = check_indexed_key_transfer(&self.wavelengths, j);
         let m = check_indexed_key_transfer(&self.measurement_type, j);
         let a = check_indexed_key_transfer(&self.analyte, j);
@@ -6161,7 +6167,9 @@ impl VersionedTemporal for InnerTemporal3_2 {
     }
 
     fn can_convert_to_optical(&self, i: MeasIndex) -> MultiResult<(), TemporalToOpticalError> {
-        check_indexed_key_transfer(&self.measurement_type, i.into()).map_err(NonEmpty::new)
+        check_indexed_key_transfer(&self.measurement_type, i.into())
+            .map_err(TemporalToOpticalError::Loss)
+            .map_err(NonEmpty::new)
     }
 }
 
@@ -7498,10 +7506,8 @@ enum_from_disp!(
     [Set, SetCenterError]
 );
 
-// TODO these could be nested more clearly
 enum_from_disp!(
     pub SetTemporalError,
-    [ToTemp, OpticalToTemporalError],
     [Swap, SwapOpticalTemporalError],
     [Set, SetCenterError]
 );
@@ -7509,32 +7515,26 @@ enum_from_disp!(
 enum_from_disp!(
     pub SwapOpticalTemporalError,
     [ToTemporal, OpticalToTemporalError],
-    [ToOptical, TemporalToOpticalError],
-    [Xfer, AnyMeasKeyLossError]
+    [ToOptical, TemporalToOpticalError]
 );
 
 enum_from_disp!(
     pub OpticalToTemporalError,
     [NonLinear, OpticalNonLinearError],
     [HasGain, OpticalHasGainError],
-    [Xfer, AnyMeasKeyLossError]
+    [Loss, AnyOpticalToTemporalKeyLossError]
 );
 
 enum_from_disp!(
     pub TemporalToOpticalError,
-    [MeasType, IndexedKeyLossError<TemporalType>]
+    [Loss, AnyTemporalToOpticalKeyLossError]
 );
 
-// pub enum OpticalToTemporalError {
-//     NonLinear,
-//     HasGain,
-//     NotTimeType,
-// }
-
-pub enum SetTemporalIndexError {
-    Convert(OpticalToTemporalError),
-    Index(SetCenterError),
-}
+enum_from_disp!(
+    pub SetTemporalIndexError,
+    [Convert, OpticalToTemporalError],
+    [Index, SetCenterError]
+);
 
 pub struct OpticalNonLinearError;
 pub struct OpticalHasGainError;
@@ -7548,25 +7548,6 @@ impl fmt::Display for OpticalNonLinearError {
 impl fmt::Display for OpticalHasGainError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "$PnG must not be set to convert to temporal")
-    }
-}
-
-// impl fmt::Display for OpticalToTemporalError {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-//         match self {
-//             OpticalToTemporalError::NonLinear => write!(f, "$PnE must be '0,0'"),
-//             OpticalToTemporalError::HasGain => write!(f, "$PnG must not be set"),
-//             OpticalToTemporalError::NotTimeType => write!(f, "$PnTYPE must not be set"),
-//         }
-//     }
-// }
-
-impl fmt::Display for SetTemporalIndexError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            SetTemporalIndexError::Convert(c) => c.fmt(f),
-            SetTemporalIndexError::Index(i) => i.fmt(f),
-        }
     }
 }
 
@@ -7647,6 +7628,32 @@ enum_from_disp!(
     [Feature,         IndexedKeyLossError<Feature>],
     [Calibration3_1,  IndexedKeyLossError<Calibration3_1>],
     [Calibration3_2,  IndexedKeyLossError<Calibration3_2>]
+);
+
+enum_from_disp!(
+    /// Error when an optical keyword will be lost when converting to temporal
+    pub AnyOpticalToTemporalKeyLossError,
+    [Filter,          IndexedKeyLossError<Filter>],
+    [Power,           IndexedKeyLossError<Power>],
+    [DetectorType,    IndexedKeyLossError<DetectorType>],
+    [PercentEmitted,  IndexedKeyLossError<PercentEmitted>],
+    [DetectorVoltage, IndexedKeyLossError<DetectorVoltage>],
+    [Wavelength,      IndexedKeyLossError<Wavelength>],
+    [Wavelengths,     IndexedKeyLossError<Wavelengths>],
+    [MeasType,        IndexedKeyLossError<OpticalType>],
+    [Analyte,         IndexedKeyLossError<Analyte>],
+    [Tag,             IndexedKeyLossError<Tag>],
+    [Gain,            IndexedKeyLossError<Gain>],
+    [DetectorName,    IndexedKeyLossError<DetectorName>],
+    [Feature,         IndexedKeyLossError<Feature>],
+    [Calibration3_1,  IndexedKeyLossError<Calibration3_1>],
+    [Calibration3_2,  IndexedKeyLossError<Calibration3_2>]
+);
+
+enum_from_disp!(
+    /// Error when a temporal keyword will be lost when converting to optical
+    pub AnyTemporalToOpticalKeyLossError,
+    [TempType,        IndexedKeyLossError<TemporalType>]
 );
 
 pub struct Comp2_0TransferError;

@@ -5955,15 +5955,14 @@ impl VersionedOptical for InnerOptical3_0 {
     }
 
     fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult<(), OpticalToTemporalError> {
-        let mut res = check_indexed_key_transfer(&self.wavelength, i.into())
-            .map_err(OpticalToTemporalError::Loss)
-            .into_mult();
+        let j = i.into();
+        let w =
+            check_indexed_key_transfer(&self.wavelength, j).map_err(OpticalToTemporalError::Loss);
+        let g = check_indexed_key_transfer(&self.gain, j).map_err(OpticalToTemporalError::Loss);
+        let mut res = w.zip(g).map(|_| ());
         if let Err(err) = res.as_mut() {
             if self.scale != Scale::Linear {
                 err.push(OpticalNonLinearError.into());
-            }
-            if self.gain.0.is_some() {
-                err.push(OpticalHasGainError.into());
             }
         }
         res
@@ -5996,13 +5995,11 @@ impl VersionedOptical for InnerOptical3_1 {
         let c =
             check_indexed_key_transfer::<_, AnyOpticalToTemporalKeyLossError>(&self.calibration, j);
         let w = check_indexed_key_transfer(&self.wavelengths, j);
-        let mut res = c.zip(w).mult_errors_into().void();
+        let g = check_indexed_key_transfer(&self.gain, j);
+        let mut res = c.zip3(w, g).mult_errors_into().void();
         if let Err(err) = res.as_mut() {
             if self.scale != Scale::Linear {
                 err.push(OpticalNonLinearError.into());
-            }
-            if self.gain.0.is_some() {
-                err.push(OpticalHasGainError.into());
             }
         }
         res
@@ -6045,17 +6042,15 @@ impl VersionedOptical for InnerOptical3_2 {
         let t = check_indexed_key_transfer(&self.tag, j);
         let n = check_indexed_key_transfer(&self.detector_name, j);
         let f = check_indexed_key_transfer(&self.feature, j);
+        let g = check_indexed_key_transfer(&self.gain, j);
         let mut res = c
             .zip3(w, m)
-            .mult_zip3(a.zip(t), n.zip(f))
+            .mult_zip3(a.zip(t), n.zip3(f, g))
             .mult_errors_into()
             .void();
         if let Err(err) = res.as_mut() {
             if self.scale != Scale::Linear {
                 err.push(OpticalNonLinearError.into())
-            }
-            if self.gain.0.is_some() {
-                err.push(OpticalHasGainError.into())
             }
         }
         res
@@ -7521,7 +7516,6 @@ enum_from_disp!(
 enum_from_disp!(
     pub OpticalToTemporalError,
     [NonLinear, OpticalNonLinearError],
-    [HasGain, OpticalHasGainError],
     [Loss, AnyOpticalToTemporalKeyLossError]
 );
 
@@ -7537,17 +7531,10 @@ enum_from_disp!(
 );
 
 pub struct OpticalNonLinearError;
-pub struct OpticalHasGainError;
 
 impl fmt::Display for OpticalNonLinearError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "$PnE must be '0,0' to convert to temporal")
-    }
-}
-
-impl fmt::Display for OpticalHasGainError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "$PnG must not be set to convert to temporal")
     }
 }
 

@@ -3954,6 +3954,28 @@ impl<I: Serialize> Serialize for BivariateRegion<I> {
 }
 
 impl AppliedGates2_0 {
+    fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<OptionalKw<AppliedGates2_0>, E> {
+        let ag = GatingRegions::lookup(kws, false, |k, i| Region::lookup(k, i, false));
+        let gm = lookup_gated_measurements(kws, false);
+        ag.zip(gm).and_tentatively(|(x, y)| {
+            if let Some((applied, gated_measurements)) = x.0.zip(y.0) {
+                let ret = AppliedGates2_0 {
+                    gated_measurements,
+                    regions: applied,
+                };
+                match ret.check_gates() {
+                    Ok(_) => Tentative::new1(Some(ret).into()),
+                    Err(e) => {
+                        let w = LookupKeysWarning::Relation(e.into());
+                        Tentative::new(None.into(), vec![w], vec![])
+                    }
+                }
+            } else {
+                Tentative::new1(None.into())
+            }
+        })
+    }
+
     pub(crate) fn opt_keywords(&self) -> RawOptPairs {
         let gate = OptionalKw(Some(Gate(self.gated_measurements.0.len())));
         self.gated_measurements
@@ -3968,6 +3990,31 @@ impl AppliedGates2_0 {
 }
 
 impl AppliedGates3_0 {
+    fn lookup<E>(
+        kws: &mut StdKeywords,
+        dep: bool,
+    ) -> LookupTentative<OptionalKw<AppliedGates3_0>, E> {
+        let ag = GatingRegions::lookup(kws, false, |k, i| Region::lookup(k, i, false));
+        let gm = lookup_gated_measurements(kws, dep);
+        ag.zip(gm).and_tentatively(|(x, y)| {
+            if let Some(applied) = x.0 {
+                let ret = AppliedGates3_0 {
+                    gated_measurements: y.0.map(|z| z.0.into()).unwrap_or_default(),
+                    regions: applied,
+                };
+                match ret.check_gates() {
+                    Ok(_) => Tentative::new1(Some(ret).into()),
+                    Err(e) => {
+                        let w = LookupKeysWarning::Relation(e.into());
+                        Tentative::new(None.into(), vec![w], vec![])
+                    }
+                }
+            } else {
+                Tentative::new1(None.into())
+            }
+        })
+    }
+
     pub(crate) fn opt_keywords(&self) -> RawOptPairs {
         let g = self.gated_measurements.len();
         let gate = OptionalKw(if g == 0 { None } else { Some(Gate(g)) });
@@ -3982,6 +4029,11 @@ impl AppliedGates3_0 {
 }
 
 impl AppliedGates3_2 {
+    fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<OptionalKw<AppliedGates3_2>, E> {
+        GatingRegions::lookup(kws, true, |k, i| Region::lookup(k, i, true))
+            .map(|x| x.map(|regions| AppliedGates3_2 { regions }))
+    }
+
     pub(crate) fn opt_keywords(&self) -> RawOptPairs {
         self.regions.opt_keywords()
     }
@@ -4006,6 +4058,37 @@ impl GatedMeasurement {
 }
 
 impl<I> GatingRegions<I> {
+    fn lookup<E, F>(
+        kws: &mut StdKeywords,
+        dep: bool,
+        get_region: F,
+    ) -> LookupTentative<OptionalKw<GatingRegions<I>>, E>
+    where
+        F: Fn(&mut StdKeywords, RegionIndex) -> LookupTentative<OptionalKw<Region<I>>, E>,
+    {
+        lookup_meta_opt::<Gating, _>(kws, dep)
+            .and_tentatively(|maybe| {
+                if let Some(gating) = maybe.0 {
+                    let res = gating.flatten().try_map(|ri| {
+                        get_region(kws, ri)
+                            .map(|x| x.0.map(|y| (ri, y)))
+                            .transpose()
+                            .ok_or(GateRegionLinkError.into())
+                    });
+                    match res {
+                        Ok(xs) => Tentative::mconcat_ne(xs)
+                            .map(|regions| Some(GatingRegions { regions, gating })),
+                        Err(w) => {
+                            Tentative::new(None, vec![LookupKeysWarning::Relation(w)], vec![])
+                        }
+                    }
+                } else {
+                    Tentative::new1(None)
+                }
+            })
+            .map(|x| x.into())
+    }
+
     pub(crate) fn opt_keywords(&self) -> RawOptPairs
     where
         I: fmt::Display,
@@ -4057,6 +4140,35 @@ impl<I> Region<I> {
             }
             _ => None,
         }
+    }
+
+    fn lookup<E>(
+        kws: &mut StdKeywords,
+        i: RegionIndex,
+        dep: bool,
+    ) -> LookupTentative<OptionalKw<Region<I>>, E>
+    where
+        I: FromStr,
+        I: fmt::Display,
+        ParseOptKeyWarning: From<<RegionGateIndex<I> as FromStr>::Err>,
+    {
+        let n = lookup_indexed_opt::<RegionGateIndex<I>, _>(kws, i.into(), dep);
+        let w = lookup_indexed_opt::<RegionWindow, _>(kws, i.into(), dep);
+        n.zip(w)
+            .and_tentatively(|(_n, _y)| {
+                _n.0.zip(_y.0)
+                    .and_then(|(gi, win)| Region::try_new(gi, win).map(|x| x.inner_into()))
+                    .map_or_else(
+                        || {
+                            let warn =
+                                LookupRelationalWarning::GateRegion(MismatchedIndexAndWindowError)
+                                    .into();
+                            Tentative::new(None, vec![warn], vec![])
+                        },
+                        |x| Tentative::new1(Some(x)),
+                    )
+            })
+            .map(|x| x.into())
     }
 
     pub(crate) fn opt_keywords(&self, i: RegionIndex) -> RawOptPairs
@@ -4273,6 +4385,12 @@ impl From<AppliedGates3_2> for AppliedGates3_0 {
 }
 
 impl PeakData {
+    fn lookup<E>(kws: &mut StdKeywords, i: MeasIndex, dep: bool) -> LookupTentative<PeakData, E> {
+        let b = lookup_indexed_opt(kws, i.into(), dep);
+        let s = lookup_indexed_opt(kws, i.into(), dep);
+        b.zip(s).map(|(bin, size)| PeakData { bin, size })
+    }
+
     pub(crate) fn opt_keywords(&self, i: MeasIndex) -> RawOptTriples {
         [
             OptIndexedKey::triple(&self.bin, i.into()),
@@ -5486,7 +5604,7 @@ impl LookupOptical for InnerOptical2_0 {
     fn lookup_specific(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
         let s = lookup_indexed_opt(kws, i.into(), false);
         let w = lookup_indexed_opt(kws, i.into(), false);
-        let p = lookup_peakdata(kws, i, false);
+        let p = PeakData::lookup(kws, i, false);
         Ok(s.zip3(w, p).map(|(scale, wavelength, peak)| Self {
             scale,
             wavelength,
@@ -5499,7 +5617,7 @@ impl LookupOptical for InnerOptical3_0 {
     fn lookup_specific(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
         let g = lookup_indexed_opt(kws, i.into(), false);
         let w = lookup_indexed_opt(kws, i.into(), false);
-        let p = lookup_peakdata(kws, i, false);
+        let p = PeakData::lookup(kws, i, false);
         g.zip3(w, p).and_maybe(|(gain, wavelength, peak)| {
             lookup_indexed_req(kws, i.into()).def_map_value(|scale| Self {
                 scale,
@@ -5517,7 +5635,7 @@ impl LookupOptical for InnerOptical3_1 {
         let w = lookup_indexed_opt(kws, i.into(), false);
         let c = lookup_indexed_opt(kws, i.into(), false);
         let d = lookup_indexed_opt(kws, i.into(), false);
-        let p = lookup_peakdata(kws, i, true);
+        let p = PeakData::lookup(kws, i, true);
         g.zip5(w, c, d, p)
             .and_maybe(|(gain, wavelengths, calibration, display, peak)| {
                 lookup_indexed_req(kws, i.into()).def_map_value(|scale| Self {
@@ -5584,7 +5702,7 @@ impl LookupTemporal for InnerTemporal2_0 {
                 None
             }
         });
-        let p = lookup_peakdata(kws, i, false);
+        let p = PeakData::lookup(kws, i, false);
         Ok(tnt_scale.zip(p).map(|(_, peak)| Self { peak }))
     }
 }
@@ -5599,7 +5717,7 @@ impl LookupTemporal for InnerTemporal3_0 {
                 None
             }
         });
-        let tnt_peak = lookup_peakdata(kws, i, false);
+        let tnt_peak = PeakData::lookup(kws, i, false);
         tnt_gain.zip(tnt_peak).and_maybe(|(_, peak)| {
             let s = lookup_temporal_scale_3_0(kws, i.into());
             let t = lookup_meta_req(kws);
@@ -5613,7 +5731,7 @@ impl LookupTemporal for InnerTemporal3_1 {
     fn lookup_specific(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
         let g = lookup_temporal_gain_3_0(kws, i.into());
         let d = lookup_indexed_opt(kws, i.into(), false);
-        let p = lookup_peakdata(kws, i, true);
+        let p = PeakData::lookup(kws, i, true);
         g.zip3(d, p).and_maybe(|(_, display, peak)| {
             let s = lookup_temporal_scale_3_0(kws, i.into());
             let t = lookup_meta_req(kws);
@@ -6089,7 +6207,7 @@ impl LookupMetaroot for InnerMetaroot2_0 {
         let co = lookup_compensation_2_0(kws, par);
         let cy = lookup_meta_opt(kws, false);
         let t = lookup_timestamps(kws, false);
-        let g = lookup_applied_gates2_0(kws);
+        let g = AppliedGates2_0::lookup(kws);
         co.zip4(cy, t, g)
             .and_maybe(|(comp, cyt, timestamps, applied_gates)| {
                 let b = lookup_meta_req(kws);
@@ -6121,7 +6239,7 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         let su = SubsetData::lookup(kws, false);
         let t = lookup_timestamps(kws, false);
         let u = lookup_meta_opt(kws, false);
-        let g = lookup_applied_gates3_0(kws, false);
+        let g = AppliedGates3_0::lookup(kws, false);
         co.zip4(cy, sn, su).zip4(t, u, g).and_maybe(
             |((comp, cyt, cytsn, subset), timestamps, unicode, applied_gates)| {
                 let b = lookup_meta_req(kws);
@@ -6159,7 +6277,7 @@ impl LookupMetaroot for InnerMetaroot3_1 {
         let p = lookup_plate(kws, false);
         let t = lookup_timestamps(kws, false);
         let v = lookup_meta_opt(kws, false);
-        let g = lookup_applied_gates3_0(kws, true);
+        let g = AppliedGates3_0::lookup(kws, true);
         cy.zip5(sp, sn, su, md).zip5(p, t, v, g).and_maybe(
             |(
                 (cyt, spillover, cytsn, subset, modification),
@@ -6220,7 +6338,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         let t = lookup_timestamps(kws, false);
         let u = UnstainedData::lookup(kws);
         let v = lookup_meta_opt(kws, false);
-        let g = lookup_applied_gates3_2(kws);
+        let g = AppliedGates3_2::lookup(kws);
         ca.zip6(d, f, md, mo, sp)
             .zip6(sn, p, t, u, v)
             .zip(g)

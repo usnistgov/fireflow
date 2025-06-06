@@ -214,101 +214,6 @@ pub(crate) fn lookup_dfc(
     })
 }
 
-pub(crate) fn lookup_peakdata<E>(
-    kws: &mut StdKeywords,
-    i: MeasIndex,
-    dep: bool,
-) -> LookupTentative<PeakData, E> {
-    let b = lookup_indexed_opt(kws, i.into(), dep);
-    let s = lookup_indexed_opt(kws, i.into(), dep);
-    b.zip(s).map(|(bin, size)| PeakData { bin, size })
-}
-
-pub(crate) fn lookup_applied_gates2_0<E>(
-    kws: &mut StdKeywords,
-) -> LookupTentative<OptionalKw<AppliedGates2_0>, E> {
-    let ag = lookup_gating_regions(kws, false, |k, i| lookup_region(k, i, false));
-    let gm = lookup_gated_measurements(kws, false);
-    ag.zip(gm).and_tentatively(|(x, y)| {
-        if let Some((applied, gated_measurements)) = x.0.zip(y.0) {
-            let ret = AppliedGates2_0 {
-                gated_measurements,
-                regions: applied,
-            };
-            match ret.check_gates() {
-                Ok(_) => Tentative::new1(Some(ret).into()),
-                Err(e) => {
-                    let w = LookupKeysWarning::Relation(e.into());
-                    Tentative::new(None.into(), vec![w], vec![])
-                }
-            }
-        } else {
-            Tentative::new1(None.into())
-        }
-    })
-}
-
-pub(crate) fn lookup_applied_gates3_0<E>(
-    kws: &mut StdKeywords,
-    dep: bool,
-) -> LookupTentative<OptionalKw<AppliedGates3_0>, E> {
-    let ag = lookup_gating_regions(kws, false, |k, i| lookup_region(k, i, false));
-    let gm = lookup_gated_measurements(kws, dep);
-    ag.zip(gm).and_tentatively(|(x, y)| {
-        if let Some(applied) = x.0 {
-            let ret = AppliedGates3_0 {
-                gated_measurements: y.0.map(|z| z.0.into()).unwrap_or_default(),
-                regions: applied,
-            };
-            match ret.check_gates() {
-                Ok(_) => Tentative::new1(Some(ret).into()),
-                Err(e) => {
-                    let w = LookupKeysWarning::Relation(e.into());
-                    Tentative::new(None.into(), vec![w], vec![])
-                }
-            }
-        } else {
-            Tentative::new1(None.into())
-        }
-    })
-}
-
-pub(crate) fn lookup_applied_gates3_2<E>(
-    kws: &mut StdKeywords,
-) -> LookupTentative<OptionalKw<AppliedGates3_2>, E> {
-    lookup_gating_regions(kws, true, |k, i| lookup_region(k, i, true))
-        .map(|x| x.map(|regions| AppliedGates3_2 { regions }))
-}
-
-pub(crate) fn lookup_gating_regions<I, E, F>(
-    kws: &mut StdKeywords,
-    dep: bool,
-    get_region: F,
-) -> LookupTentative<OptionalKw<GatingRegions<I>>, E>
-where
-    F: Fn(&mut StdKeywords, RegionIndex) -> LookupTentative<OptionalKw<Region<I>>, E>,
-{
-    lookup_meta_opt::<Gating, _>(kws, dep)
-        .and_tentatively(|maybe| {
-            if let Some(gating) = maybe.0 {
-                let res = gating.flatten().try_map(|ri| {
-                    get_region(kws, ri)
-                        .map(|x| x.0.map(|y| (ri, y)))
-                        .transpose()
-                        .ok_or(GateRegionLinkError.into())
-                });
-                match res {
-                    Ok(xs) => Tentative::mconcat_ne(xs)
-                        .map(|regions| Some(GatingRegions { regions, gating })),
-                    Err(w) => Tentative::new(None, vec![LookupKeysWarning::Relation(w)], vec![]),
-                }
-            } else {
-                Tentative::new1(None)
-            }
-        })
-        .map(|x| x.into())
-}
-
 pub(crate) fn lookup_gated_measurements<E>(
     kws: &mut StdKeywords,
     dep: bool,
@@ -362,35 +267,6 @@ pub(crate) fn lookup_gated_measurement<E>(
             }
         },
     )
-}
-
-pub(crate) fn lookup_region<I, E>(
-    kws: &mut StdKeywords,
-    i: RegionIndex,
-    dep: bool,
-) -> LookupTentative<OptionalKw<Region<I>>, E>
-where
-    I: FromStr,
-    I: fmt::Display,
-    ParseOptKeyWarning: From<<RegionGateIndex<I> as FromStr>::Err>,
-{
-    let n = lookup_indexed_opt::<RegionGateIndex<I>, _>(kws, i.into(), dep);
-    let w = lookup_indexed_opt::<RegionWindow, _>(kws, i.into(), dep);
-    n.zip(w)
-        .and_tentatively(|(_n, _y)| {
-            _n.0.zip(_y.0)
-                .and_then(|(gi, win)| Region::try_new(gi, win).map(|x| x.inner_into()))
-                .map_or_else(
-                    || {
-                        let warn =
-                            LookupRelationalWarning::GateRegion(MismatchedIndexAndWindowError)
-                                .into();
-                        Tentative::new(None, vec![warn], vec![])
-                    },
-                    |x| Tentative::new1(Some(x)),
-                )
-        })
-        .map(|x| x.into())
 }
 
 pub(crate) fn lookup_temporal_gain_3_0(

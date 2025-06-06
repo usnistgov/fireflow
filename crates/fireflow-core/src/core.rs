@@ -5128,8 +5128,8 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot2_0 {
         let c = check_key_transfer(value.cytsn, lossless);
         let v = check_key_transfer(value.vol, lossless);
         let s = check_key_transfer(value.spillover, lossless);
-        let m = ModificationData::check_loss(value.modification, lossless);
-        let p = PlateData::check_loss(value.plate, lossless);
+        let m = value.modification.check_loss(lossless);
+        let p = value.plate.check_loss(lossless);
         let ss = value
             .subset
             .0
@@ -5172,11 +5172,11 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
         let v = check_key_transfer(value.vol, lossless);
         let s = check_key_transfer(value.spillover, lossless);
         let f = check_key_transfer(value.flowrate, lossless);
-        let m = ModificationData::check_loss(value.modification, lossless);
-        let p = PlateData::check_loss(value.plate, lossless);
+        let m = value.modification.check_loss(lossless);
+        let p = value.plate.check_loss(lossless);
         let d = check_datetimes_keys_transfer(value.datetimes, lossless);
-        let ca = CarrierData::check_loss(value.carrier, lossless);
-        let u = UnstainedData::check_loss(value.unstained, lossless);
+        let ca = value.carrier.check_loss(lossless);
+        let u = value.unstained.check_loss(lossless);
         let mut ret = cy
             .zip6(v, s, f, m, p)
             .zip4(d, ca, u)
@@ -5227,8 +5227,8 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_0 {
         endian: EndianConvert,
         lossless: bool,
     ) -> MetarootConvertResult<Self> {
-        let p = PlateData::check_loss(value.plate, lossless);
-        let m = ModificationData::check_loss(value.modification, lossless);
+        let p = value.plate.check_loss(lossless);
+        let m = value.modification.check_loss(lossless);
         let v = check_key_transfer(value.vol, lossless);
         p.zip3(m, v).inner_into().and_maybe(|_| {
             endian
@@ -5257,11 +5257,11 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_0 {
     ) -> MetarootConvertResult<Self> {
         let v = check_key_transfer(value.vol, lossless);
         let f = check_key_transfer(value.flowrate, lossless);
-        let m = ModificationData::check_loss(value.modification, lossless);
-        let p = PlateData::check_loss(value.plate, lossless);
+        let m = value.modification.check_loss(lossless);
+        let p = value.plate.check_loss(lossless);
         let d = check_datetimes_keys_transfer(value.datetimes, lossless);
-        let ca = CarrierData::check_loss(value.carrier, lossless);
-        let u = UnstainedData::check_loss(value.unstained, lossless);
+        let ca = value.carrier.check_loss(lossless);
+        let u = value.unstained.check_loss(lossless);
         v.zip6(f, m, p, d, ca).zip(u).inner_into().and_maybe(|_| {
             endian
                 .try_as_byteord()
@@ -5348,23 +5348,21 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_1 {
         lossless: bool,
     ) -> MetarootConvertResult<Self> {
         let d = check_datetimes_keys_transfer(value.datetimes, lossless);
-        let ca = CarrierData::check_loss(value.carrier, lossless);
-        let u = UnstainedData::check_loss(value.unstained, lossless);
+        let ca = value.carrier.check_loss(lossless);
+        let u = value.unstained.check_loss(lossless);
         let f = check_key_transfer(value.flowrate, lossless);
-        let ret = d.zip4(ca, u, f).inner_into().and_tentatively(|_| {
-            Tentative::new1(Self {
-                mode: Mode::List,
-                byteord: value.byteord,
-                cyt: Some(value.cyt).into(),
-                cytsn: value.cytsn,
-                timestamps: value.timestamps,
-                spillover: value.spillover,
-                plate: value.plate,
-                modification: value.modification,
-                vol: value.vol,
-                subset: None.into(),
-                applied_gates: value.applied_gates.map(|x| x.into()),
-            })
+        let ret = d.zip4(ca, u, f).inner_into().map(|_| Self {
+            mode: Mode::List,
+            byteord: value.byteord,
+            cyt: Some(value.cyt).into(),
+            cytsn: value.cytsn,
+            timestamps: value.timestamps,
+            spillover: value.spillover,
+            plate: value.plate,
+            modification: value.modification,
+            vol: value.vol,
+            subset: None.into(),
+            applied_gates: value.applied_gates.map(|x| x.into()),
         });
         Ok(ret)
     }

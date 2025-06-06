@@ -1,14 +1,39 @@
+use crate::error::*;
+use crate::macros::{
+    newtype_borrow, newtype_disp, newtype_from, newtype_from_outer, newtype_fromstr,
+};
 use crate::validated::standard::BiIndexedKey;
+use crate::validated::standard::*;
 
 use super::index::MeasIndex;
-use super::keywords::Dfc;
+use super::keywords::{Dfc, Par};
 use super::optionalkw::*;
+use super::parser::*;
 
 use itertools::Itertools;
 use nalgebra::DMatrix;
 use serde::Serialize;
 use std::fmt;
+use std::num::ParseFloatError;
 use std::str::FromStr;
+
+/// The aggregated values of the DFCiTOj keywords (2.0)
+#[derive(Clone, Serialize)]
+pub struct Compensation2_0(pub Compensation);
+
+newtype_from!(Compensation2_0, Compensation);
+newtype_from_outer!(Compensation2_0, Compensation);
+newtype_borrow!(Compensation2_0, Compensation);
+
+/// The value of the $COMP keyword (3.0)
+#[derive(Clone, Serialize)]
+pub struct Compensation3_0(pub Compensation);
+
+newtype_from!(Compensation3_0, Compensation);
+newtype_from_outer!(Compensation3_0, Compensation);
+newtype_disp!(Compensation3_0);
+newtype_fromstr!(Compensation3_0, ParseCompError);
+newtype_borrow!(Compensation3_0, Compensation);
 
 /// A compensation matrix.
 ///
@@ -18,6 +43,63 @@ pub struct Compensation {
     /// Values in the comp matrix in row-major order. Assumed to be the
     /// same width and height as $PAR
     matrix: DMatrix<f32>,
+}
+
+impl Compensation2_0 {
+    pub(crate) fn lookup<E>(
+        kws: &mut StdKeywords,
+        par: Par,
+    ) -> LookupTentative<OptionalKw<Self>, E> {
+        // column = src measurement
+        // row = target measurement
+        // These are "flipped" in 2.0, where "column" goes TO the "row"
+        let n = par.0;
+        let mut matrix = DMatrix::<f32>::identity(n, n);
+        let mut warnings = vec![];
+        for r in 0..n {
+            for c in 0..n {
+                let k = Dfc::std(c.into(), r.into());
+                match lookup_dfc(kws, k) {
+                    Ok(Some(x)) => {
+                        matrix[(r, c)] = x;
+                    }
+                    Ok(None) => (),
+                    Err(w) => warnings.push(LookupKeysWarning::Parse(w.inner_into())),
+                }
+            }
+        }
+        if warnings.is_empty() {
+            Compensation::try_new(matrix).map_or_else(
+                |w| {
+                    Tentative::new(
+                        None.into(),
+                        vec![LookupKeysWarning::Relation(w.into())],
+                        vec![],
+                    )
+                },
+                |x| Tentative::new1(Some(Self(x)).into()),
+            )
+        } else {
+            Tentative::new(None.into(), warnings, vec![])
+        }
+    }
+
+    pub fn opt_keywords(&self) -> Vec<(String, String)> {
+        let m = &self.0.matrix;
+        let n = m.ncols();
+        m.iter()
+            .enumerate()
+            .flat_map(|(i, x)| {
+                if *x != 0.0 {
+                    let row = i / n;
+                    let col = i % n;
+                    Some((Dfc::std(row.into(), col.into()).to_string(), x.to_string()))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
 }
 
 impl Compensation {
@@ -48,23 +130,6 @@ impl Compensation {
 
     pub fn matrix(&self) -> &DMatrix<f32> {
         &self.matrix
-    }
-
-    pub fn as_dfc_keys(&self) -> Vec<(String, String)> {
-        let n = self.matrix.ncols();
-        self.matrix
-            .iter()
-            .enumerate()
-            .flat_map(|(i, x)| {
-                if *x != 0.0 {
-                    let row = i / n;
-                    let col = i % n;
-                    Some((Dfc::std(row.into(), col.into()).to_string(), x.to_string()))
-                } else {
-                    None
-                }
-            })
-            .collect()
     }
 }
 
@@ -143,4 +208,19 @@ impl fmt::Display for ParseCompError {
             ParseCompError::BadLength => write!(f, "Could not determine length"),
         }
     }
+}
+
+pub(crate) fn lookup_dfc(
+    kws: &mut StdKeywords,
+    k: StdKey,
+) -> Result<Option<f32>, ParseKeyError<ParseFloatError>> {
+    kws.remove(&k).map_or(Ok(None), |v| {
+        v.parse::<f32>()
+            .map_err(|e| ParseKeyError {
+                error: e,
+                key: k,
+                value: v.clone(),
+            })
+            .map(Some)
+    })
 }

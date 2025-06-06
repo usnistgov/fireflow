@@ -84,59 +84,6 @@ where
     x
 }
 
-pub(crate) fn lookup_compensation_2_0<E>(
-    kws: &mut StdKeywords,
-    par: Par,
-) -> LookupTentative<OptionalKw<Compensation>, E> {
-    // column = src measurement
-    // row = target measurement
-    // These are "flipped" in 2.0, where "column" goes TO the "row"
-    let n = par.0;
-    let mut matrix = DMatrix::<f32>::identity(n, n);
-    let mut warnings = vec![];
-    for r in 0..n {
-        for c in 0..n {
-            let k = Dfc::std(c.into(), r.into());
-            match lookup_dfc(kws, k) {
-                Ok(Some(x)) => {
-                    matrix[(r, c)] = x;
-                }
-                Ok(None) => (),
-                Err(w) => warnings.push(LookupKeysWarning::Parse(w.inner_into())),
-            }
-        }
-    }
-    if warnings.is_empty() {
-        Compensation::try_new(matrix).map_or_else(
-            |w| {
-                Tentative::new(
-                    None.into(),
-                    vec![LookupKeysWarning::Relation(w.into())],
-                    vec![],
-                )
-            },
-            |x| Tentative::new1(Some(x).into()),
-        )
-    } else {
-        Tentative::new(None.into(), warnings, vec![])
-    }
-}
-
-pub(crate) fn lookup_dfc(
-    kws: &mut StdKeywords,
-    k: StdKey,
-) -> Result<Option<f32>, ParseKeyError<ParseFloatError>> {
-    kws.remove(&k).map_or(Ok(None), |v| {
-        v.parse::<f32>()
-            .map_err(|e| ParseKeyError {
-                error: e,
-                key: k,
-                value: v.clone(),
-            })
-            .map(Some)
-    })
-}
-
 pub(crate) fn lookup_temporal_gain_3_0(
     kws: &mut StdKeywords,
     i: IndexFromOne,

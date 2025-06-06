@@ -383,7 +383,7 @@ pub struct InnerMetaroot2_0 {
     pub cyt: OptionalKw<Cyt>,
 
     /// Compensation matrix derived from 'DFCnTOm' key/value pairs
-    comp: OptionalKw<Compensation>,
+    comp: OptionalKw<Compensation2_0>,
 
     /// Values of $BTIM/ETIM/$DATE
     pub timestamps: Timestamps2_0,
@@ -4995,7 +4995,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
                     mode: value.mode,
                     byteord: value.byteord,
                     cyt: value.cyt,
-                    comp: value.comp.map(|x| x.into()),
+                    comp: value.comp.map(|x| x.0.into()),
                     timestamps: value.timestamps.map(|d| d.into()),
                     applied_gates: ag.into(),
                 })
@@ -5092,7 +5092,7 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_0 {
             mode: value.mode,
             byteord: value.byteord,
             cyt: value.cyt,
-            comp: value.comp.map(|x| x.into()),
+            comp: value.comp.map(|x| x.0.into()),
             timestamps: value.timestamps.map(|d| d.into()),
             cytsn: None.into(),
             unicode: None.into(),
@@ -6303,7 +6303,7 @@ impl LookupMetaroot for InnerMetaroot2_0 {
     }
 
     fn lookup_specific(kws: &mut StdKeywords, par: Par) -> LookupResult<Self> {
-        let co = lookup_compensation_2_0(kws, par);
+        let co = Compensation2_0::lookup(kws, par);
         let cy = lookup_meta_opt(kws, false);
         let t = Timestamps::lookup(kws, false);
         let g = AppliedGates2_0::lookup(kws);
@@ -6509,14 +6509,14 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
     }
 
     fn as_compensation(&self) -> Option<&Compensation> {
-        self.comp.as_ref_opt()
+        self.comp.as_ref_opt().map(|x| x.borrow())
     }
 
     fn with_compensation<F, X>(&mut self, f: F) -> Option<X>
     where
         F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
     {
-        self.comp.mut_or_unset(f)
+        self.comp.mut_or_unset(|c| f(&mut c.0))
     }
 
     fn timestamps_valid(&self) -> bool {
@@ -6549,7 +6549,7 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
                 .unwrap_or_default(),
         )
         .flat_map(|(k, v)| v.map(|x| (k, x)))
-        .chain(self.comp.as_ref_opt().map_or(vec![], |c| c.as_dfc_keys()))
+        .chain(self.comp.as_ref_opt().map_or(vec![], |c| c.opt_keywords()))
         .collect()
     }
 

@@ -1,7 +1,5 @@
 use crate::error::*;
-use crate::macros::{
-    enum_from, newtype_borrow, newtype_disp, newtype_from, newtype_from_outer, newtype_fromstr,
-};
+use crate::macros::{enum_from, newtype_disp, newtype_from, newtype_from_outer, newtype_fromstr};
 use crate::validated::shortname::*;
 use crate::validated::standard::*;
 
@@ -1367,16 +1365,6 @@ newtype_from!(PeakNumber, u32);
 newtype_from_outer!(PeakNumber, u32);
 newtype_disp!(PeakNumber);
 newtype_fromstr!(PeakNumber, ParseIntError);
-
-/// The value of the $COMP keyword (3.0)
-#[derive(Clone, Serialize)]
-pub struct Compensation3_0(pub Compensation);
-
-newtype_from!(Compensation3_0, Compensation);
-newtype_from_outer!(Compensation3_0, Compensation);
-newtype_disp!(Compensation3_0);
-newtype_fromstr!(Compensation3_0, ParseCompError);
-newtype_borrow!(Compensation3_0, Compensation);
 
 pub(crate) type RawKeywords = HashMap<String, String>;
 pub(crate) type OptKwResult<T> = Result<OptionalKw<T>, ParseKeyError<<T as FromStr>::Err>>;

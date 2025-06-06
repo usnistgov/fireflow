@@ -3,6 +3,8 @@ use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
 use crate::text::keywords::*;
 use crate::validated::standard::*;
 
+use super::header::HEADER_LEN;
+
 use serde::Serialize;
 use std::fmt;
 use std::io;
@@ -507,7 +509,12 @@ impl Segment {
                 if new_begin > new_end {
                     err(SegmentErrorKind::Inverted)
                 } else {
-                    Ok(Self::new_unchecked(new_begin, new_end))
+                    let new = Self::new_unchecked(new_begin, new_end);
+                    if new.begin() < (HEADER_LEN as u32) && !new.is_empty() {
+                        err(SegmentErrorKind::InHeader)
+                    } else {
+                        Ok(new)
+                    }
                 }
             }
             (_, _) => err(SegmentErrorKind::Range),
@@ -576,6 +583,7 @@ impl Segment {
 pub enum SegmentErrorKind {
     Range,
     Inverted,
+    InHeader,
 }
 
 pub struct SegmentError {
@@ -602,6 +610,7 @@ impl fmt::Display for SegmentError {
         let kind_text = match &self.kind {
             SegmentErrorKind::Range => "Offset out of range",
             SegmentErrorKind::Inverted => "Begin after end",
+            SegmentErrorKind::InHeader => "Begins within HEADER",
         };
         write!(
             f,

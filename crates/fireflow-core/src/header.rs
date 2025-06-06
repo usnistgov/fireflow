@@ -176,7 +176,7 @@ fn h_read_other_segments<R: Read>(
     // ASSUME this won't fail because we checked that each offset is greater
     // than this
     let n = text_begin - (HEADER_LEN as u32);
-    // if less than 16 bytes (the width of two numbers) then nothing to do
+    // if less than 16 bytes (the width of two offsets) then nothing to do
     if n < 16 {
         return Ok(vec![]);
     }

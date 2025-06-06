@@ -1,7 +1,6 @@
-use crate::core::{CarrierData, ModificationData, PlateData, UnstainedData};
+use crate::core::*;
 use crate::error::*;
 use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
-use crate::validated::nonstandard::*;
 use crate::validated::pattern::*;
 use crate::validated::shortname::*;
 use crate::validated::standard::*;
@@ -9,44 +8,44 @@ use crate::validated::standard::*;
 use super::byteord::*;
 use super::compensation::*;
 use super::datetimes::*;
+use super::float_or_int::*;
+use super::index::*;
 use super::keywords::*;
 use super::named_vec::*;
 use super::optionalkw::*;
-use super::range::*;
 use super::ranged_float::RangedFloatError;
 use super::scale::*;
 use super::spillover::*;
 use super::timestamps::*;
 use super::unstainedcenters::*;
 
-use nalgebra::DMatrix;
 use std::convert::Infallible;
 use std::fmt;
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::FromStr;
 
-pub(crate) type LookupResult<V> = DeferredResult<V, ParseKeysWarning, ParseKeysError>;
+pub(crate) type LookupResult<V> = DeferredResult<V, LookupKeysWarning, LookupKeysError>;
 
-pub(crate) type LookupTentative<V, E> = Tentative<V, ParseKeysWarning, E>;
+pub(crate) type LookupTentative<V, E> = Tentative<V, LookupKeysWarning, E>;
 
 pub(crate) fn lookup_meta_req<V>(kws: &mut StdKeywords) -> LookupResult<V>
 where
     V: ReqMetaKey,
-    ParseReqKeyError: From<ReqKeyError<<V as FromStr>::Err>>,
+    ParseReqKeyError: From<<V as FromStr>::Err>,
 {
     V::remove_meta_req(kws)
-        .map_err(ParseReqKeyError::from)
+        .map_err(|e| e.inner_into())
         .map_err(Box::new)
         .into_deferred()
 }
 
-pub(crate) fn lookup_meas_req<V>(kws: &mut StdKeywords, n: MeasIdx) -> LookupResult<V>
+pub(crate) fn lookup_indexed_req<V>(kws: &mut StdKeywords, n: IndexFromOne) -> LookupResult<V>
 where
-    V: ReqMeasKey,
-    ParseReqKeyError: From<ReqKeyError<<V as FromStr>::Err>>,
+    V: ReqIndexedKey,
+    ParseReqKeyError: From<<V as FromStr>::Err>,
 {
     V::remove_meas_req(kws, n)
-        .map_err(ParseReqKeyError::from)
+        .map_err(|e| e.inner_into())
         .map_err(Box::new)
         .into_deferred()
 }
@@ -58,176 +57,40 @@ pub(crate) fn lookup_meta_opt<V, E>(
 where
     V: OptMetaKey,
     V: FromStr,
-    ParseOptKeyWarning: From<ParseKeyError<<V as FromStr>::Err>>,
+    ParseOptKeyWarning: From<<V as FromStr>::Err>,
 {
     let mut x = process_opt(V::remove_meta_opt(kws));
     // TODO toggle
     if dep {
-        x.push_warning(DepKeyWarning(V::std()).into());
+        x.push_warning(DeprecatedError::Key(DepKeyWarning(V::std())).into());
     }
     x
 }
 
-pub(crate) fn lookup_meas_opt<V, E>(
+pub(crate) fn lookup_indexed_opt<V, E>(
     kws: &mut StdKeywords,
-    n: MeasIdx,
+    i: IndexFromOne,
     dep: bool,
 ) -> LookupTentative<OptionalKw<V>, E>
 where
-    V: OptMeasKey,
-    ParseOptKeyWarning: From<ParseKeyError<<V as FromStr>::Err>>,
+    V: OptIndexedKey,
+    ParseOptKeyWarning: From<<V as FromStr>::Err>,
 {
-    let mut x = process_opt(V::remove_meas_opt(kws, n));
+    let mut x = process_opt(V::remove_meas_opt(kws, i));
     if dep {
-        x.push_warning(DepKeyWarning(V::std(n)).into());
+        x.push_warning(DeprecatedError::Key(DepKeyWarning(V::std(i))).into());
     }
     x
-}
-
-pub(crate) fn lookup_timestamps<T, E>(
-    kws: &mut StdKeywords,
-    dep: bool,
-) -> LookupTentative<Timestamps<T>, E>
-where
-    T: PartialOrd,
-    T: Copy,
-    Btim<T>: OptMetaKey,
-    Etim<T>: OptMetaKey,
-    ParseOptKeyWarning: From<ParseKeyError<<Btim<T> as FromStr>::Err>>,
-    ParseOptKeyWarning: From<ParseKeyError<<Etim<T> as FromStr>::Err>>,
-{
-    let b = lookup_meta_opt(kws, dep);
-    let e = lookup_meta_opt(kws, dep);
-    let d = lookup_meta_opt(kws, dep);
-    b.zip3(e, d).and_tentatively(|(btim, etim, date)| {
-        Timestamps::new(btim, etim, date)
-            .map(Tentative::new1)
-            .unwrap_or_else(|w| {
-                let ow = ParseKeysWarning::OtherWarning(w.into());
-                Tentative::new(Timestamps::default(), vec![ow], vec![])
-            })
-    })
-}
-
-pub(crate) fn lookup_datetimes<E>(kws: &mut StdKeywords) -> LookupTentative<Datetimes, E> {
-    let b = lookup_meta_opt(kws, false);
-    let e = lookup_meta_opt(kws, false);
-    b.zip(e).and_tentatively(|(begin, end)| {
-        Datetimes::try_new(begin, end)
-            .map(Tentative::new1)
-            .unwrap_or_else(|w| {
-                let ow = ParseKeysWarning::OtherWarning(w.into());
-                Tentative::new(Datetimes::default(), vec![ow], vec![])
-            })
-    })
-}
-
-pub(crate) fn lookup_modification<E>(
-    kws: &mut StdKeywords,
-) -> LookupTentative<ModificationData, E> {
-    let lmr = lookup_meta_opt(kws, false);
-    let lmd = lookup_meta_opt(kws, false);
-    let ori = lookup_meta_opt(kws, false);
-    lmr.zip3(lmd, ori).map(
-        |(last_modifier, last_modified, originality)| ModificationData {
-            last_modifier,
-            last_modified,
-            originality,
-        },
-    )
-}
-
-pub(crate) fn lookup_plate<E>(kws: &mut StdKeywords, dep: bool) -> LookupTentative<PlateData, E> {
-    let w = lookup_meta_opt(kws, dep);
-    let n = lookup_meta_opt(kws, dep);
-    let i = lookup_meta_opt(kws, dep);
-    w.zip3(n, i).map(|(wellid, platename, plateid)| PlateData {
-        wellid,
-        platename,
-        plateid,
-    })
-}
-
-pub(crate) fn lookup_carrier<E>(kws: &mut StdKeywords) -> LookupTentative<CarrierData, E> {
-    let l = lookup_meta_opt(kws, false);
-    let i = lookup_meta_opt(kws, false);
-    let t = lookup_meta_opt(kws, false);
-    l.zip3(i, t)
-        .map(|(locationid, carrierid, carriertype)| CarrierData {
-            locationid,
-            carrierid,
-            carriertype,
-        })
-}
-
-pub(crate) fn lookup_unstained<E>(kws: &mut StdKeywords) -> LookupTentative<UnstainedData, E> {
-    let c = lookup_meta_opt(kws, false);
-    let i = lookup_meta_opt(kws, false);
-    c.zip(i)
-        .map(|(centers, info)| UnstainedData::new_unchecked(centers, info))
-}
-
-pub(crate) fn lookup_compensation_2_0<E>(
-    kws: &mut StdKeywords,
-    par: Par,
-) -> LookupTentative<OptionalKw<Compensation>, E> {
-    // column = src measurement
-    // row = target measurement
-    // These are "flipped" in 2.0, where "column" goes TO the "row"
-    let n = par.0;
-    let mut matrix = DMatrix::<f32>::identity(n, n);
-    let mut warnings = vec![];
-    for r in 0..n {
-        for c in 0..n {
-            let k = Dfc::std(c, r);
-            match lookup_dfc(kws, &k) {
-                Ok(Some(x)) => {
-                    matrix[(r, c)] = x;
-                }
-                Ok(None) => (),
-                Err(w) => warnings.push(ParseKeysWarning::OptKey(w.into())),
-            }
-        }
-    }
-    if warnings.is_empty() {
-        Compensation::try_new(matrix).map_or_else(
-            |w| {
-                Tentative::new(
-                    None.into(),
-                    vec![ParseKeysWarning::OptKey(w.into())],
-                    vec![],
-                )
-            },
-            |x| Tentative::new1(Some(x).into()),
-        )
-    } else {
-        Tentative::new(None.into(), warnings, vec![])
-    }
-}
-
-pub(crate) fn lookup_dfc(
-    kws: &mut StdKeywords,
-    k: &StdKey,
-) -> Result<Option<f32>, ParseKeyError<ParseFloatError>> {
-    kws.remove(k).map_or(Ok(None), |v| {
-        v.parse::<f32>()
-            .map_err(|e| ParseKeyError {
-                error: e,
-                key: k.clone(),
-                value: v.clone(),
-            })
-            .map(Some)
-    })
 }
 
 pub(crate) fn lookup_temporal_gain_3_0(
     kws: &mut StdKeywords,
-    i: MeasIdx,
-) -> LookupTentative<OptionalKw<Gain>, ParseKeysError> {
-    let mut tnt_gain = lookup_meas_opt(kws, i, false);
+    i: IndexFromOne,
+) -> LookupTentative<OptionalKw<Gain>, LookupKeysError> {
+    let mut tnt_gain = lookup_indexed_opt(kws, i, false);
     tnt_gain.eval_error(|gain| {
         if gain.0.is_some() {
-            Some(ParseKeysError::Other(TemporalError::HasGain.into()))
+            Some(LookupKeysError::Misc(TemporalError::HasGain.into()))
         } else {
             None
         }
@@ -235,30 +98,18 @@ pub(crate) fn lookup_temporal_gain_3_0(
     tnt_gain
 }
 
-pub(crate) fn lookup_temporal_scale_3_0(kws: &mut StdKeywords, i: MeasIdx) -> LookupResult<Scale> {
-    let mut res = lookup_meas_req(kws, i);
-    res.def_eval_error(|scale| {
-        if *scale != Scale::Linear {
-            Some(ParseKeysError::Other(TemporalError::NonLinear.into()))
-        } else {
-            None
-        }
-    });
-    res
-}
-
 fn process_opt<V, E>(
     res: Result<OptionalKw<V>, ParseKeyError<<V as FromStr>::Err>>,
-) -> Tentative<OptionalKw<V>, ParseKeysWarning, E>
+) -> Tentative<OptionalKw<V>, LookupKeysWarning, E>
 where
     V: FromStr,
-    ParseOptKeyWarning: From<ParseKeyError<<V as FromStr>::Err>>,
+    ParseOptKeyWarning: From<<V as FromStr>::Err>,
 {
     res.map_or_else(
         |e| {
             Tentative::new(
                 None.into(),
-                vec![ParseKeysWarning::OptKey(e.into())],
+                vec![LookupKeysWarning::Parse(e.inner_into())],
                 vec![],
             )
         },
@@ -268,104 +119,136 @@ where
 
 // TODO this could be nested better
 enum_from_disp!(
-    pub ParseKeysError,
-    [ReqKey,     Box<ParseReqKeyError>],
-    [Other,      ParseOtherError],
-    [Deprecated, DepKeyWarning],
-    [Linked,     LinkedNameError],
-    [Deviant,    DeviantError]
-);
-
-enum_from_disp!(
-    pub LookupMeasWarning,
-    [Parse, ParseKeysWarning],
-    [Pattern, NonStdMeasRegexError],
+    pub LookupKeysError,
+    [Parse, Box<ReqKeyError<ParseReqKeyError>>],
+    // TODO this currently does nothing, need to add a flag to toggle these to
+    // errors
+    [Dep, DeprecatedError],
+    [Linked, LinkedNameError],
+    [Misc, LookupMiscError],
     [Deviant, DeviantError]
 );
 
 enum_from_disp!(
-    pub ParseKeysWarning,
-    [OptKey,       ParseOptKeyWarning],
-    [OtherWarning, ParseOtherWarning],
-    [DepKey,   DepKeyWarning],
-    [OtherDep, DepFeatureWarning]
+    pub LookupKeysWarning,
+    [Parse, ParseKeyError<ParseOptKeyWarning>],
+    [Relation, LookupRelationalWarning],
+    [Dep, DeprecatedError]
 );
 
 enum_from_disp!(
+    pub DeprecatedError,
+    [Key, DepKeyWarning],
+    [Value, DepValueWarning]
+);
+
+enum_from_disp!(
+    /// Error encountered when parsing a required key from a string
     pub ParseReqKeyError,
-    [Range,          ReqKeyError<ParseRangeError>],
-    [AlphaNumType,   ReqKeyError<AlphaNumTypeError>],
-    [String,         ReqKeyError<Infallible>],
-    [Int,            ReqKeyError<ParseIntError>],
-    [Scale,          ReqKeyError<ScaleError>],
-    [ReqRangedFloat, ReqKeyError<RangedFloatError>],
-    [Mode,           ReqKeyError<ModeError>],
-    [ByteOrd,        ReqKeyError<ParseByteOrdError>],
-    [Endian,         ReqKeyError<NewEndianError>],
-    [ReqShortname,   ReqKeyError<ShortnameError>]
+    [FloatOrInt,    ParseFloatOrIntError],
+    [AlphaNumType,  AlphaNumTypeError],
+    [String,        Infallible],
+    [Int,           ParseIntError],
+    [Scale,         ScaleError],
+    [TemporalScale, TemporalScaleError],
+    [RangedFloat,   RangedFloatError],
+    [Mode,          ModeError],
+    [ByteOrd,       ParseByteOrdError],
+    [Endian,        NewEndianError],
+    [Shortname,     ShortnameError]
 );
 
 enum_from_disp!(
+    /// Error encountered when parsing an optional key from a string
     pub ParseOptKeyWarning,
-    [NumType,          ParseKeyError<NumTypeError>],
-    [Trigger,          ParseKeyError<TriggerError>],
-    [OptScale,         ParseKeyError<ScaleError>],
-    [OptFloat,         ParseKeyError<ParseFloatError>],
-    [OptRangedFloat,   ParseKeyError<RangedFloatError>],
-    [Feature,          ParseKeyError<FeatureError>],
-    [Wavelengths,      ParseKeyError<WavelengthsError>],
-    [Calibration3_1,   ParseKeyError<CalibrationError<CalibrationFormat3_1>>],
-    [Calibration3_2,   ParseKeyError<CalibrationError<CalibrationFormat3_2>>],
-    [OptInt,           ParseKeyError<ParseIntError>],
-    [OptString,        ParseKeyError<Infallible>],
-    [FCSDate,          ParseKeyError<FCSDateError>],
-    [FCSTime,          ParseKeyError<FCSTimeError>],
-    [FCSTime60,        ParseKeyError<FCSTime60Error>],
-    [FCSTime100,       ParseKeyError<FCSTime100Error>],
-    [FCSDateTime,      ParseKeyError<FCSDateTimeError>],
-    [ModifiedDateTime, ParseKeyError<ModifiedDateTimeError>],
-    [Originality,      ParseKeyError<OriginalityError>],
-    [UnstainedCenter,  ParseKeyError<ParseUnstainedCenterError>],
-    [Mode3_2,          ParseKeyError<Mode3_2Error>],
-    [TemporalType,     ParseKeyError<TemporalTypeError>],
-    [OpticalType,      ParseKeyError<OpticalTypeError>],
-    [OptShortname,     ParseKeyError<ShortnameError>],
-    [Display,          ParseKeyError<DisplayError>],
-    [Unicode,          ParseKeyError<UnicodeError>],
-    [Spillover,        ParseKeyError<ParseSpilloverError>],
-    [Compensation,     ParseKeyError<ParseCompError>],
-    [CompShape,        NewCompError]
+    [NumType,            NumTypeError],
+    [Trigger,            TriggerError],
+    [Scale,              ScaleError],
+    [TemporalScale,      TemporalScaleError],
+    [Float,              ParseFloatError],
+    [RangedFloat,        RangedFloatError],
+    [Feature,            FeatureError],
+    [Wavelengths,        WavelengthsError],
+    [Calibration3_1,     CalibrationError<CalibrationFormat3_1>],
+    [Calibration3_2,     CalibrationError<CalibrationFormat3_2>],
+    [Int,                ParseIntError],
+    [String,             Infallible],
+    [FCSDate,            FCSDateError],
+    [FCSTime,            FCSTimeError],
+    [FCSTime60,          FCSTime60Error],
+    [FCSTime100,         FCSTime100Error],
+    [FCSDateTime,        FCSDateTimeError],
+    [ModifiedDateTime,   ModifiedDateTimeError],
+    [Originality,        OriginalityError],
+    [UnstainedCenter,    ParseUnstainedCenterError],
+    [Mode3_2,            Mode3_2Error],
+    [TemporalType,       TemporalTypeError],
+    [OpticalType,        OpticalTypeError],
+    [Shortname,          ShortnameError],
+    [Display,            DisplayError],
+    [Unicode,            UnicodeError],
+    [Spillover,          ParseSpilloverError],
+    [Compensation,       ParseCompError],
+    [FloatOrInt,         ParseFloatOrIntError],
+    [GateRegionIndex2_0, RegionGateIndexError<ParseIntError>],
+    [GateRegionIndex3_0, RegionGateIndexError<MeasOrGateIndexError>],
+    [GateRegionIndex3_2, RegionGateIndexError<PrefixedMeasIndexError>],
+    [GateRegionWindow,   GatePairError],
+    [Gating,             GatingError]
 );
 
 enum_from_disp!(
-    pub ParseOtherError,
+    /// Misc errors encountered when looking up keywords for standardization
+    pub LookupMiscError,
+    // TODO this should be a configurable warning
     [Temporal, TemporalError],
     [NamedVec, NewNamedVecError],
     [MissingTime, MissingTime]
 );
 
+/// Error triggered when time measurement is missing but required.
 pub struct MissingTime(pub TimePattern);
 
+/// Errors triggered when time measurement keyword value is invalid
+// TODO add other optical keywords that shouldn't be set for time.
 pub enum TemporalError {
     NonLinear,
     HasGain,
 }
 
 enum_from_disp!(
-    pub ParseOtherWarning,
-    [Timestamp, InvalidTimestamps],
-    [Datetime, InvalidDatetimes]
+    /// Error encountered when relation between two or more keys is invalid
+    pub LookupRelationalWarning,
+    [Timestamp, ReversedTimestamps],
+    [Datetime, ReversedDatetimes],
+    [CompShape, NewCompError],
+    [GateRegion, MismatchedIndexAndWindowError],
+    [GateRegionLink, GateRegionLinkError],
+    [GateMeasLink, GateMeasurementLinkError]
 );
 
+/// Error/warning triggered when encountering a key which is deprecated
 pub struct DepKeyWarning(pub StdKey);
 
-pub enum DepFeatureWarning {
+/// Error/warning triggered when encountering a key value which is deprecated
+pub enum DepValueWarning {
     DatatypeASCII,
     ModeCorrelated,
     ModeUncorrelated,
 }
 
-impl fmt::Display for DepFeatureWarning {
+pub struct MismatchedIndexAndWindowError;
+
+impl fmt::Display for MismatchedIndexAndWindowError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "values for $RnI and $RnW must both be univariate or bivariate"
+        )
+    }
+}
+
+impl fmt::Display for DepValueWarning {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let s = match self {
             Self::DatatypeASCII => "$DATATYPE=A is deprecated",
@@ -398,6 +281,11 @@ impl fmt::Display for TemporalError {
     }
 }
 
+/// Error denoting that deviant keywords were found.
+// TODO add them here? the only reason we might want this is in the situation
+// where we trigger an error for this (rather than a warning) in which case the
+// deviant keywords are not returned along with the standardized struct and
+// we want to use those deviant keywords somehow.
 pub struct DeviantError;
 
 impl fmt::Display for DeviantError {

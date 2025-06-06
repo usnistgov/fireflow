@@ -1,4 +1,5 @@
 use crate::macros::{newtype_asref, newtype_disp};
+use crate::text::index::IndexFromOne;
 
 use regex::Regex;
 use serde::Serialize;
@@ -22,23 +23,6 @@ pub type NonStdKeywords = HashMap<NonStdKey, String>;
 /// to match keywords.
 #[derive(Clone)]
 pub struct NonStdMeasPattern(String);
-
-/// The index for a measurement
-// TODO why is this here?
-#[derive(Clone, Copy, Eq, PartialEq, Debug)]
-pub struct MeasIdx(usize);
-
-impl From<usize> for MeasIdx {
-    fn from(value: usize) -> Self {
-        MeasIdx(value + 1)
-    }
-}
-
-impl From<MeasIdx> for usize {
-    fn from(value: MeasIdx) -> Self {
-        value.0 - 1
-    }
-}
 
 impl FromStr for NonStdKey {
     type Err = NonStdKeyError;
@@ -95,7 +79,7 @@ impl NonStdMeasPattern {
     //     (0..par.0).map(|n| self.from_index(n.into())).gather()
     // }
 
-    pub fn from_index(&self, n: MeasIdx) -> Result<NonStdMeasRegex, NonStdMeasRegexError> {
+    pub fn from_index(&self, n: IndexFromOne) -> Result<NonStdMeasRegex, NonStdMeasRegexError> {
         let pattern = self.0.replace("%n", n.to_string().as_str());
         Regex::new(pattern.as_str())
             .map_err(|_| NonStdMeasRegexError { pattern, index: n })
@@ -144,7 +128,7 @@ impl fmt::Display for NonStdMeasPatternError {
 
 pub struct NonStdMeasRegexError {
     pattern: String,
-    index: MeasIdx,
+    index: IndexFromOne,
 }
 
 impl fmt::Display for NonStdMeasRegexError {
@@ -159,7 +143,6 @@ impl fmt::Display for NonStdMeasRegexError {
 
 newtype_disp!(NonStdKey);
 newtype_disp!(NonStdMeasPattern);
-newtype_disp!(MeasIdx);
 
 newtype_asref!(NonStdKey, str);
 newtype_asref!(NonStdMeasPattern, str);

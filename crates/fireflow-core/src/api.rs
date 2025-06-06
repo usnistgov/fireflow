@@ -21,8 +21,6 @@ use std::num::ParseIntError;
 use std::path;
 use std::str;
 
-// TODO gating parameters not added (yet)
-
 /// Read HEADER from an FCS file.
 pub fn fcs_read_header(
     p: &path::PathBuf,
@@ -316,7 +314,7 @@ enum_from_disp!(
 enum_from_disp!(
     pub StdTEXTError,
     [Raw, HeaderOrRawError],
-    [Std, ParseKeysError]
+    [Std, LookupKeysError]
 );
 
 enum_from_disp!(
@@ -341,7 +339,7 @@ enum_from_disp!(
 enum_from_disp!(
     pub RawDatasetError,
     [Raw, HeaderOrRawError],
-    [Std, ParseKeysError],
+    [Std, LookupKeysError],
     [Read, DatasetWithKwsError]
 );
 
@@ -526,7 +524,7 @@ impl RawTEXTOutput {
     fn into_std_text(
         self,
         conf: &StdTextReadConfig,
-    ) -> DeferredResult<StdTEXTOutput, LookupMeasWarning, ParseKeysError> {
+    ) -> DeferredResult<StdTEXTOutput, LookupMeasWarning, LookupKeysError> {
         let mut kws = self.keywords;
         AnyCoreTEXT::parse_raw(self.version, &mut kws.std, kws.nonstd, conf).def_map_value(
             |standardized| {

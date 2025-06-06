@@ -26,8 +26,8 @@ pub(crate) use newtype_from_outer;
 
 macro_rules! newtype_disp {
     ($outer:ident) => {
-        impl fmt::Display for $outer {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        impl std::fmt::Display for $outer {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
                 write!(f, "{}", self.0)
             }
         }
@@ -38,7 +38,7 @@ pub(crate) use newtype_disp;
 
 macro_rules! newtype_fromstr {
     ($outer:ident, $err:path) => {
-        impl FromStr for $outer {
+        impl std::str::FromStr for $outer {
             type Err = $err;
 
             fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -52,7 +52,7 @@ pub(crate) use newtype_fromstr;
 
 macro_rules! newtype_asref {
     ($from:ident, $to:ident) => {
-        impl AsRef<$to> for $from {
+        impl std::convert::AsRef<$to> for $from {
             fn as_ref(&self) -> &$to {
                 self.0.as_ref()
             }
@@ -61,6 +61,18 @@ macro_rules! newtype_asref {
 }
 
 pub(crate) use newtype_asref;
+
+macro_rules! newtype_borrow {
+    ($from:ident, $to:ident) => {
+        impl std::borrow::Borrow<$to> for $from {
+            fn borrow(&self) -> &$to {
+                &self.0
+            }
+        }
+    };
+}
+
+pub(crate) use newtype_borrow;
 
 macro_rules! match_many_to_one {
     ($value:expr, $root:ident, [$($variant:ident),*], $inner:ident, $action:block) => {
@@ -101,8 +113,8 @@ macro_rules! enum_from_disp {
     ($(#[$attr:meta])* $v:vis$outer:ident, $([$var:ident, $inner:path]),*) => {
         enum_from!($(#[$attr])* $v$outer, $([$var, $inner]),*);
 
-        impl fmt::Display for $outer {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        impl std::fmt::Display for $outer {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
                 match_many_to_one!(self, $outer, [$($var),*], x, { x.fmt(f) })
             }
         }

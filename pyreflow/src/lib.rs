@@ -5,10 +5,10 @@ use fireflow_core::error::*;
 use fireflow_core::header::*;
 use fireflow_core::segment::*;
 use fireflow_core::text::byteord::*;
+use fireflow_core::text::float_or_int::*;
 use fireflow_core::text::keywords::*;
 use fireflow_core::text::named_vec::Element;
 use fireflow_core::text::optionalkw::*;
-use fireflow_core::text::range::*;
 use fireflow_core::text::ranged_float::*;
 use fireflow_core::text::scale::*;
 use fireflow_core::validated::dataframe::*;
@@ -1167,12 +1167,12 @@ macro_rules! meas_get_set {
 }
 
 macro_rules! convert_methods {
-    ($pytype:ident, $inner:ident, $([$fn:ident, $to:ident]),+) => {
+    ($pytype:ident, $([$fn:ident, $to:ident]),+) => {
         #[pymethods]
         impl $pytype {
             $(
-                fn $fn(&self) -> PyResult<$to> {
-                    let new = self.0.clone().$inner();
+                fn $fn(&self, lossless: bool) -> PyResult<$to> {
+                    let new = self.0.clone().try_convert(lossless);
                     new.def_map_value(|x| x.into())
                         .def_terminate(ConvertFailure)
                         .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
@@ -1182,17 +1182,8 @@ macro_rules! convert_methods {
     };
 }
 
-struct ConvertFailure;
-
-impl fmt::Display for ConvertFailure {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "could not change FCS version")
-    }
-}
-
 convert_methods!(
     PyCoreTEXT2_0,
-    try_convert,
     [version_3_0, PyCoreTEXT3_0],
     [version_3_1, PyCoreTEXT3_1],
     [version_3_2, PyCoreTEXT3_2]
@@ -1200,7 +1191,6 @@ convert_methods!(
 
 convert_methods!(
     PyCoreTEXT3_0,
-    try_convert,
     [version_2_0, PyCoreTEXT2_0],
     [version_3_1, PyCoreTEXT3_1],
     [version_3_2, PyCoreTEXT3_2]
@@ -1208,7 +1198,6 @@ convert_methods!(
 
 convert_methods!(
     PyCoreTEXT3_1,
-    try_convert,
     [version_2_0, PyCoreTEXT2_0],
     [version_3_0, PyCoreTEXT3_0],
     [version_3_2, PyCoreTEXT3_2]
@@ -1216,7 +1205,6 @@ convert_methods!(
 
 convert_methods!(
     PyCoreTEXT3_2,
-    try_convert,
     [version_2_0, PyCoreTEXT2_0],
     [version_3_0, PyCoreTEXT3_0],
     [version_3_1, PyCoreTEXT3_1]
@@ -1224,7 +1212,6 @@ convert_methods!(
 
 convert_methods!(
     PyCoreDataset2_0,
-    try_convert,
     [version_3_0, PyCoreDataset3_0],
     [version_3_1, PyCoreDataset3_1],
     [version_3_2, PyCoreDataset3_2]
@@ -1232,7 +1219,6 @@ convert_methods!(
 
 convert_methods!(
     PyCoreDataset3_0,
-    try_convert,
     [version_2_0, PyCoreDataset2_0],
     [version_3_1, PyCoreDataset3_1],
     [version_3_2, PyCoreDataset3_2]
@@ -1240,7 +1226,6 @@ convert_methods!(
 
 convert_methods!(
     PyCoreDataset3_1,
-    try_convert,
     [version_2_0, PyCoreDataset2_0],
     [version_3_0, PyCoreDataset3_0],
     [version_3_2, PyCoreDataset3_2]
@@ -1248,7 +1233,6 @@ convert_methods!(
 
 convert_methods!(
     PyCoreDataset3_2,
-    try_convert,
     [version_2_0, PyCoreDataset2_0],
     [version_3_0, PyCoreDataset3_0],
     [version_3_1, PyCoreDataset3_1]
@@ -1274,7 +1258,7 @@ impl PyCoreTEXT3_0 {
     #[getter]
     fn get_unicode(&self) -> Option<PyUnicode> {
         self.0
-            .metadata
+            .metaroot
             .specific
             .unicode
             .as_ref_opt()
@@ -1283,7 +1267,7 @@ impl PyCoreTEXT3_0 {
 
     #[setter]
     fn set_unicode(&mut self, x: Option<PyUnicode>) {
-        self.0.metadata.specific.unicode = x.map(|y| y.into()).into();
+        self.0.metaroot.specific.unicode = x.map(|y| y.into()).into();
     }
 }
 
@@ -1304,13 +1288,13 @@ impl PyCoreTEXT3_2 {
 
     #[getter]
     fn get_datetime_begin(&self) -> Option<DateTime<FixedOffset>> {
-        self.0.metadata.specific.datetimes.begin_naive()
+        self.0.metaroot.specific.datetimes.begin_naive()
     }
 
     #[setter]
     fn set_datetime_begin(&mut self, x: Option<DateTime<FixedOffset>>) -> PyResult<()> {
         self.0
-            .metadata
+            .metaroot
             .specific
             .datetimes
             .set_begin_naive(x)
@@ -1319,13 +1303,13 @@ impl PyCoreTEXT3_2 {
 
     #[getter]
     fn get_datetime_end(&self) -> Option<DateTime<FixedOffset>> {
-        self.0.metadata.specific.datetimes.end_naive()
+        self.0.metaroot.specific.datetimes.end_naive()
     }
 
     #[setter]
     fn set_datetime_end(&mut self, x: Option<DateTime<FixedOffset>>) -> PyResult<()> {
         self.0
-            .metadata
+            .metaroot
             .specific
             .datetimes
             .set_end_naive(x)
@@ -1339,18 +1323,18 @@ impl PyCoreTEXT3_2 {
 
     #[getter]
     fn get_cyt(&self) -> String {
-        self.0.metadata.specific.cyt.0.clone()
+        self.0.metaroot.specific.cyt.0.clone()
     }
 
     #[setter]
     fn set_cyt(&mut self, x: String) {
-        self.0.metadata.specific.cyt = x.into()
+        self.0.metaroot.specific.cyt = x.into()
     }
 
     #[getter]
     fn get_unstainedinfo(&self) -> Option<String> {
         self.0
-            .metadata
+            .metaroot
             .specific
             .unstained
             .unstainedinfo
@@ -1361,7 +1345,7 @@ impl PyCoreTEXT3_2 {
 
     #[setter]
     fn set_unstainedinfo(&mut self, x: Option<String>) {
-        self.0.metadata.specific.unstained.unstainedinfo = x.map(|x| x.into()).into()
+        self.0.metaroot.specific.unstained.unstainedinfo = x.map(|x| x.into()).into()
     }
 
     #[getter]
@@ -1412,35 +1396,35 @@ macro_rules! common_methods {
         meas_get_set!(detector_types,    set_detector_types,    String,        $pytype);
         meas_get_set!(percents_emitted,  set_percents_emitted,  String,        $pytype);
 
-        get_set_copied!($pytype, [metadata], get_abrt, set_abrt, abrt, u32);
-        get_set_copied!($pytype, [metadata], get_lost, set_lost, lost, u32);
+        get_set_copied!($pytype, [metaroot], get_abrt, set_abrt, abrt, u32);
+        get_set_copied!($pytype, [metaroot], get_lost, set_lost, lost, u32);
 
-        get_set_str!($pytype, [metadata], get_cells, set_cells, cells);
-        get_set_str!($pytype, [metadata], get_com,   set_com,   com);
-        get_set_str!($pytype, [metadata], get_exp,   set_exp,   exp);
-        get_set_str!($pytype, [metadata], get_fil,   set_fil,   fil);
-        get_set_str!($pytype, [metadata], get_inst,  set_inst,  inst);
-        get_set_str!($pytype, [metadata], get_op,    set_op,    op);
-        get_set_str!($pytype, [metadata], get_proj,  set_proj,  proj);
-        get_set_str!($pytype, [metadata], get_smno,  set_smno,  smno);
-        get_set_str!($pytype, [metadata], get_src,   set_src,   src);
-        get_set_str!($pytype, [metadata], get_sys,   set_sys,   sys);
+        get_set_str!($pytype, [metaroot], get_cells, set_cells, cells);
+        get_set_str!($pytype, [metaroot], get_com,   set_com,   com);
+        get_set_str!($pytype, [metaroot], get_exp,   set_exp,   exp);
+        get_set_str!($pytype, [metaroot], get_fil,   set_fil,   fil);
+        get_set_str!($pytype, [metaroot], get_inst,  set_inst,  inst);
+        get_set_str!($pytype, [metaroot], get_op,    set_op,    op);
+        get_set_str!($pytype, [metaroot], get_proj,  set_proj,  proj);
+        get_set_str!($pytype, [metaroot], get_smno,  set_smno,  smno);
+        get_set_str!($pytype, [metaroot], get_src,   set_src,   src);
+        get_set_str!($pytype, [metaroot], get_sys,   set_sys,   sys);
 
         #[pymethods]
         impl $pytype {
             fn insert_nonstandard(&mut self, key: String, v: String) -> PyResult<Option<String>> {
                 let k = str_to_nonstd_key(key)?;
-                Ok(self.0.metadata.nonstandard_keywords.insert(k, v))
+                Ok(self.0.metaroot.nonstandard_keywords.insert(k, v))
             }
 
             fn remove_nonstandard(&mut self, key: String) -> PyResult<Option<String>> {
                 let k = str_to_nonstd_key(key)?;
-                Ok(self.0.metadata.nonstandard_keywords.remove(&k.into()))
+                Ok(self.0.metaroot.nonstandard_keywords.remove(&k.into()))
             }
 
             fn get_nonstandard(&mut self, key: String) -> PyResult<Option<String>> {
                 let k = str_to_nonstd_key(key)?;
-                Ok(self.0.metadata.nonstandard_keywords.get(&k.into()).cloned())
+                Ok(self.0.metaroot.nonstandard_keywords.get(&k.into()).cloned())
             }
 
             // TODO add way to remove nonstandard
@@ -1564,28 +1548,11 @@ macro_rules! common_methods {
                 self.0.clear_trigger()
             }
 
-            fn set_temporal(&mut self, name: String, force: bool) -> PyResult<bool> {
-                let n = str_to_shortname(name)?;
-                self.0
-                    .set_temporal(&n, force)
-                    .map_err(|e| PyreflowException::new_err(e.to_string()))
-            }
-
-            fn set_temporal_at(&mut self, index: usize, force: bool) -> PyResult<bool> {
-                self.0
-                    .set_temporal_at(index.into(), force)
-                    .map_err(|e| PyreflowException::new_err(e.to_string()))
-            }
-
-            fn unset_temporal(&mut self) -> bool {
-                self.0.unset_temporal()
-            }
-
             #[getter]
             fn get_ranges<'py>(&self, py: Python<'py>) -> PyResult<Vec<Bound<'py, PyAny>>> {
                 let mut rs = vec![];
                 for r in self.0.ranges() {
-                    rs.push(range_to_any(r, py)?);
+                    rs.push(float_or_int_to_any(r.0, py)?);
                 }
                 Ok(rs)
             }
@@ -1701,8 +1668,101 @@ common_methods!(
     PyCoreDataset3_2
 );
 
+macro_rules! temporal_get_set_2_0 {
+    ($($pytype:ident),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                fn set_temporal(
+                    &mut self,
+                    name: String,
+                    force: bool
+                ) -> PyResult<bool> {
+                    let n = str_to_shortname(name)?;
+                    self.0
+                        .set_temporal(&n, (), force)
+                        .def_terminate(SetTemporalFailure)
+                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
+                }
+
+                fn set_temporal_at(
+                    &mut self,
+                    index: usize,
+                    force: bool
+                ) -> PyResult<bool> {
+                    self.0
+                        .set_temporal_at(index.into(), (), force)
+                        .def_terminate(SetTemporalFailure)
+                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
+                }
+
+                fn unset_temporal(&mut self, force: bool) -> PyResult<bool> {
+                    let out = self.0.unset_temporal(force).map(|x| x.is_some());
+                    Ok(out)
+                        .def_terminate(SetTemporalFailure)
+                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
+                }
+            }
+        )*
+    }
+}
+
+temporal_get_set_2_0!(PyCoreTEXT2_0, PyCoreDataset2_0);
+
+macro_rules! temporal_get_set_3_0 {
+    ($($pytype:ident),*) => {
+        $(
+            #[pymethods]
+            impl $pytype {
+                fn set_temporal(
+                    &mut self,
+                    name: String,
+                    timestep: f32,
+                    force: bool
+                ) -> PyResult<bool> {
+                    let n = str_to_shortname(name)?;
+                    let ts = f32_to_positive_float(timestep).map(Timestep)?;
+                    self.0
+                        .set_temporal(&n, ts, force)
+                        .def_terminate(SetTemporalFailure)
+                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
+                }
+
+                fn set_temporal_at(
+                    &mut self,
+                    index: usize,
+                    timestep: f32,
+                    force: bool
+                ) -> PyResult<bool> {
+                    let ts = f32_to_positive_float(timestep).map(Timestep)?;
+                    self.0
+                        .set_temporal_at(index.into(), ts, force)
+                        .def_terminate(SetTemporalFailure)
+                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
+                }
+
+                fn unset_temporal(&mut self, force: bool) -> PyResult<Option<f32>> {
+                    let out = self.0.unset_temporal(force).map(|x| x.map(|y| y.0.into()));
+                    Ok(out)
+                        .def_terminate(SetTemporalFailure)
+                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
+                }
+            }
+        )*
+    }
+}
+
+temporal_get_set_3_0!(
+    PyCoreTEXT3_0,
+    PyCoreTEXT3_1,
+    PyCoreTEXT3_2,
+    PyCoreDataset3_0,
+    PyCoreDataset3_1,
+    PyCoreDataset3_2
+);
+
 macro_rules! common_meas_get_set {
-    ($([$pytype:ident, $meastype:ident, $timetype:ident]),*) => {
+    ($([$pytype:ident, $opttype:ident, $timetype:ident]),*) => {
         $(
             #[pymethods]
             impl $pytype {
@@ -1717,7 +1777,7 @@ macro_rules! common_meas_get_set {
                         .map(|(i, x)| {
                             x.both(
                                 |l| $timetype::from(l).into_bound_py_any(py),
-                                |r| $meastype::from(r).into_bound_py_any(py)
+                                |r| $opttype::from(r).into_bound_py_any(py)
                             ).map(|x| (usize::from(i), x))
                         }).transpose()
                 }
@@ -1734,28 +1794,77 @@ macro_rules! common_meas_get_set {
                         .map_err(|e| PyreflowException::new_err(e.to_string()))?;
                     m.both(
                         |(_, l)| $timetype::from(l.clone()).into_bound_py_any(py),
-                        |(_, r)| $meastype::from(r.clone()).into_bound_py_any(py)
+                        |(_, r)| $opttype::from(r.clone()).into_bound_py_any(py)
                     )
                 }
 
-                fn replace_measurement_at<'py>(
+                fn replace_optical_at<'py>(
                     &mut self,
                     i: usize,
-                    m: $meastype,
+                    m: $opttype,
                     py: Python<'py>
                 ) -> PyResult<Bound<'py, PyAny>> {
                     let r = self.0
-                        .replace_measurement_at(i.into(), m.into())
+                        .replace_optical_at(i.into(), m.into())
                         .map_err(|e| PyreflowException::new_err(e.to_string()))?;
                     r.both(
                         |l| $timetype::from(l).into_bound_py_any(py),
-                        |r| $meastype::from(r).into_bound_py_any(py),
+                        |r| $opttype::from(r).into_bound_py_any(py),
                     )
+                }
+
+                fn replace_optical_named<'py>(
+                    &mut self,
+                    name: String,
+                    m: $opttype,
+                    py: Python<'py>
+                ) -> PyResult<Option<Bound<'py, PyAny>>> {
+                    let n = str_to_shortname(name)?;
+                    let r = self.0.replace_optical_named(&n, m.into());
+                    r.map(|x| x.both(
+                        |l| $timetype::from(l).into_bound_py_any(py),
+                        |r| $opttype::from(r).into_bound_py_any(py),
+                    )).transpose()
                 }
 
                 fn rename_temporal(&mut self, name: String) -> PyResult<Option<String>> {
                     let n = str_to_shortname(name)?;
                     Ok(self.0.rename_temporal(n).map(|n| n.to_string()))
+                }
+
+                fn replace_temporal_at<'py>(
+                    &mut self,
+                    i: usize,
+                    m: $timetype,
+                    force: bool,
+                    py: Python<'py>
+                ) -> PyResult<Bound<'py, PyAny>> {
+                    let r = self.0
+                        .replace_temporal_at(i.into(), m.into(), force)
+                        .def_terminate(SetTemporalFailure)
+                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
+                    r.both(
+                        |l| $timetype::from(l).into_bound_py_any(py),
+                        |r| $opttype::from(r).into_bound_py_any(py),
+                    )
+                }
+
+                fn replace_temporal_named<'py>(
+                    &mut self,
+                    name: String,
+                    m: $timetype,
+                    force: bool,
+                    py: Python<'py>
+                ) -> PyResult<Option<Bound<'py, PyAny>>> {
+                    let n = str_to_shortname(name)?;
+                    let r = self.0
+                        .replace_temporal_named(&n, m.into(), force)
+                        .def_terminate(SetTemporalFailure)
+                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
+                    r.map(|x| x.both(
+                        |l| $timetype::from(l).into_bound_py_any(py),
+                        |r| $opttype::from(r).into_bound_py_any(py),
+                    )).transpose()
                 }
 
                 #[getter]
@@ -1771,7 +1880,7 @@ macro_rules! common_meas_get_set {
                         .iter()
                         .map(|(_, x)| x.both(
                             |l| $timetype::from(l.value.clone()).into_bound_py_any(py),
-                            |r| $meastype::from(r.value.clone()).into_bound_py_any(py)
+                            |r| $opttype::from(r.value.clone()).into_bound_py_any(py)
                         ))
                     {
                         ret.push(x?);
@@ -1921,7 +2030,7 @@ coredata_meas_get_set!(
 );
 
 macro_rules! coretext2_0_meas_methods {
-    ($([$pytype:ident, $meastype:ident, $timetype:ident]),*) => {
+    ($([$pytype:ident, $opttype:ident, $timetype:ident]),*) => {
         $(
             #[pymethods]
             impl $pytype {
@@ -1939,7 +2048,7 @@ macro_rules! coretext2_0_meas_methods {
                             Ok((Some(p.key.to_string()), a))
                         },
                         |p| {
-                            let a = $meastype::from(p.value).into_bound_py_any(py)?;
+                            let a = $opttype::from(p.value).into_bound_py_any(py)?;
                             Ok((p.key.0.map(|n| n.to_string()), a))
                         },
                     )
@@ -1948,7 +2057,7 @@ macro_rules! coretext2_0_meas_methods {
                 #[pyo3(signature = (m, name=None))]
                 fn push_measurement(
                     &mut self,
-                    m: $meastype,
+                    m: $opttype,
                     name: Option<String>,
                 ) -> PyResult<String> {
                     let n = name.map(str_to_shortname).transpose()?;
@@ -1962,7 +2071,7 @@ macro_rules! coretext2_0_meas_methods {
                 fn insert_optical(
                     &mut self,
                     i: usize,
-                    m: $meastype,
+                    m: $opttype,
                     name: Option<String>,
                 ) -> PyResult<String> {
                     let n = name.map(str_to_shortname).transpose()?;
@@ -1982,7 +2091,7 @@ coretext2_0_meas_methods!(
 );
 
 macro_rules! coretext3_1_meas_methods {
-    ($([$pytype:ident, $meastype:ident, $timetype:ident]),*) => {
+    ($([$pytype:ident, $opttype:ident, $timetype:ident]),*) => {
         $(
             #[pymethods]
             impl $pytype {
@@ -2000,13 +2109,13 @@ macro_rules! coretext3_1_meas_methods {
                             Ok((p.key.to_string(), a))
                         },
                         |p| {
-                            let a = $meastype::from(p.value).into_bound_py_any(py)?;
+                            let a = $opttype::from(p.value).into_bound_py_any(py)?;
                             Ok((p.key.0.to_string(), a))
                         },
                     )
                 }
 
-                fn push_optical(&mut self, m: $meastype, name: String) -> PyResult<()> {
+                fn push_optical(&mut self, m: $opttype, name: String) -> PyResult<()> {
                     let n = str_to_shortname(name)?;
                     self.0
                         .push_optical(Identity(n), m.into())
@@ -2017,7 +2126,7 @@ macro_rules! coretext3_1_meas_methods {
                 fn insert_optical(
                     &mut self,
                     i: usize,
-                    m: $meastype,
+                    m: $opttype,
                     name: String,
                 ) -> PyResult<()> {
                     let n = str_to_shortname(name)?;
@@ -2037,7 +2146,7 @@ coretext3_1_meas_methods!(
 );
 
 macro_rules! set_measurements2_0 {
-    ($([$pytype:ident, $meastype:ident, $timetype:ident]),*) => {
+    ($([$pytype:ident, $opttype:ident, $timetype:ident]),*) => {
         $(
             #[pymethods]
             impl $pytype {
@@ -2049,7 +2158,7 @@ macro_rules! set_measurements2_0 {
                     let sp = str_to_shortname_prefix(prefix)?;
                     let mut ys = vec![];
                     for x in xs {
-                        let y = if let Ok((n, m)) = any_to_opt_named_pair::<$meastype>(x.clone()) {
+                        let y = if let Ok((n, m)) = any_to_opt_named_pair::<$opttype>(x.clone()) {
                             Element::NonCenter((n, m.into()))
                         } else {
                             let (n, t) = any_to_named_pair::<$timetype>(x)?;
@@ -2074,7 +2183,7 @@ set_measurements2_0!(
 );
 
 macro_rules! set_measurements3_1 {
-    ($([$pytype:ident, $meastype:ident, $timetype:ident]),*) => {
+    ($([$pytype:ident, $opttype:ident, $timetype:ident]),*) => {
         $(
             #[pymethods]
             impl $pytype {
@@ -2084,7 +2193,7 @@ macro_rules! set_measurements3_1 {
                 ) -> PyResult<()> {
                     let mut ys = vec![];
                     for x in xs {
-                        let y = if let Ok((n, m)) = any_to_named_pair::<$meastype>(x.clone()) {
+                        let y = if let Ok((n, m)) = any_to_named_pair::<$opttype>(x.clone()) {
                             Element::NonCenter((Identity(n), m.into()))
                         } else {
                             let (n, t) = any_to_named_pair::<$timetype>(x)?;
@@ -2109,7 +2218,7 @@ set_measurements3_1!(
 );
 
 macro_rules! coredata2_0_meas_methods {
-    ($([$pytype:ident, $meastype:ident, $timetype:ident]),*) => {
+    ($([$pytype:ident, $opttype:ident, $timetype:ident]),*) => {
         $(
             #[pymethods]
             impl $pytype {
@@ -2122,7 +2231,7 @@ macro_rules! coredata2_0_meas_methods {
                     let sp = str_to_shortname_prefix(prefix)?;
                     let mut ys = vec![];
                     for x in xs {
-                        let y = if let Ok((n, m)) = any_to_opt_named_pair::<$meastype>(x.clone()) {
+                        let y = if let Ok((n, m)) = any_to_opt_named_pair::<$opttype>(x.clone()) {
                             Element::NonCenter((n, m.into()))
                         } else {
                             let (n, t) = any_to_named_pair::<$timetype>(x)?;
@@ -2149,7 +2258,7 @@ coredata2_0_meas_methods!(
 );
 
 macro_rules! coredata3_1_meas_methods {
-    ($([$pytype:ident, $meastype:ident, $timetype:ident]),*) => {
+    ($([$pytype:ident, $opttype:ident, $timetype:ident]),*) => {
         $(
             #[pymethods]
             impl $pytype {
@@ -2160,7 +2269,7 @@ macro_rules! coredata3_1_meas_methods {
                 ) -> PyResult<()> {
                     let mut ys = vec![];
                     for x in xs {
-                        let y = if let Ok((n, m)) = any_to_named_pair::<$meastype>(x.clone()) {
+                        let y = if let Ok((n, m)) = any_to_named_pair::<$opttype>(x.clone()) {
                             Element::NonCenter((Identity(n), m.into()))
                         } else {
                             let (n, t) = any_to_named_pair::<$timetype>(x)?;
@@ -2450,7 +2559,7 @@ macro_rules! modification_methods {
     ($($pytype:ident),+) => {
         get_set_copied!(
             $($pytype,)*
-            [metadata, specific, modification],
+            [metaroot, specific, modification],
             get_originality,
             set_originality,
             originality,
@@ -2459,7 +2568,7 @@ macro_rules! modification_methods {
 
         get_set_copied!(
             $($pytype,)*
-            [metadata, specific, modification],
+            [metaroot, specific, modification],
             get_last_modified,
             set_last_modified,
             last_modified,
@@ -2468,7 +2577,7 @@ macro_rules! modification_methods {
 
         get_set_str!(
             $($pytype,)*
-            [metadata, specific, modification],
+            [metaroot, specific, modification],
             get_last_modifier,
             set_last_modifier,
             last_modifier
@@ -2486,9 +2595,9 @@ modification_methods!(
 // Get/set methods for $CARRIERID/$CARRIERTYPE/$LOCATIONID (3.2)
 macro_rules! carrier_methods {
     ($($pytype:ident),*) => {
-        get_set_str!($($pytype,)* [metadata, specific, carrier], get_carriertype, set_carriertype, carriertype);
-        get_set_str!($($pytype,)* [metadata, specific, carrier], get_carrierid,   set_carrierid,   carrierid);
-        get_set_str!($($pytype,)* [metadata, specific, carrier], get_locationid,  set_locationid,  locationid);
+        get_set_str!($($pytype,)* [metaroot, specific, carrier], get_carriertype, set_carriertype, carriertype);
+        get_set_str!($($pytype,)* [metaroot, specific, carrier], get_carrierid,   set_carrierid,   carrierid);
+        get_set_str!($($pytype,)* [metaroot, specific, carrier], get_locationid,  set_locationid,  locationid);
     };
 }
 
@@ -2497,9 +2606,9 @@ carrier_methods!(PyCoreTEXT3_2, PyCoreDataset3_2);
 // Get/set methods for $PLATEID/$WELLID/$PLATENAME (3.1-3.2)
 macro_rules! plate_methods {
     ($($pytype:ident),*) => {
-        get_set_str!($($pytype,)* [metadata, specific, plate], get_wellid,    set_wellid,    wellid);
-        get_set_str!($($pytype,)* [metadata, specific, plate], get_plateid,   set_plateid,   plateid);
-        get_set_str!($($pytype,)* [metadata, specific, plate], get_platename, set_platename, platename);
+        get_set_str!($($pytype,)* [metaroot, specific, plate], get_wellid,    set_wellid,    wellid);
+        get_set_str!($($pytype,)* [metaroot, specific, plate], get_plateid,   set_plateid,   plateid);
+        get_set_str!($($pytype,)* [metaroot, specific, plate], get_platename, set_platename, platename);
     };
 }
 
@@ -2607,13 +2716,13 @@ macro_rules! vol_methods {
             impl $pytype {
                 #[getter]
                 fn get_vol(&self) -> Option<f32> {
-                    self.0.metadata.specific.vol.as_ref_opt().copied().map(|x| x.0.into())
+                    self.0.metaroot.specific.vol.as_ref_opt().copied().map(|x| x.0.into())
                 }
 
                 #[setter]
                 fn set_vol(&mut self, vol: Option<f32>) -> PyResult<()> {
                     let x = vol.map(f32_to_nonneg_float).transpose()?.map(Vol);
-                    self.0.metadata.specific.vol = x.into();
+                    self.0.metaroot.specific.vol = x.into();
                     Ok(())
                 }
             }
@@ -2680,7 +2789,7 @@ get_set_str!(
     PyCoreDataset2_0,
     PyCoreDataset3_0,
     PyCoreDataset3_1,
-    [metadata, specific],
+    [metaroot, specific],
     get_cyt,
     set_cyt,
     cyt
@@ -2690,7 +2799,7 @@ get_set_str!(
 get_set_str!(
     PyCoreTEXT3_2,
     PyCoreDataset3_2,
-    [metadata, specific],
+    [metaroot, specific],
     get_flowrate,
     set_flowrate,
     flowrate
@@ -2704,7 +2813,7 @@ get_set_str!(
     PyCoreDataset3_0,
     PyCoreDataset3_1,
     PyCoreDataset3_2,
-    [metadata, specific],
+    [metaroot, specific],
     get_cytsn,
     set_cytsn,
     cytsn
@@ -3034,7 +3143,7 @@ macro_rules! shared_meas_get_set {
 
                 #[getter]
                 fn range<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-                    range_to_any(self.0.common.range, py)
+                    float_or_int_to_any(self.0.common.range.0, py)
                 }
 
                 #[setter]
@@ -3376,10 +3485,10 @@ fn any_to_range(a: Bound<'_, PyAny>) -> PyResult<Range> {
         })
 }
 
-fn range_to_any(r: Range, py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
+fn float_or_int_to_any(r: FloatOrInt, py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
     match r {
-        Range::Float(x) => x.into_bound_py_any(py),
-        Range::Int(x) => x.into_bound_py_any(py),
+        FloatOrInt::Float(x) => x.into_bound_py_any(py),
+        FloatOrInt::Int(x) => x.into_bound_py_any(py),
     }
 }
 
@@ -3481,4 +3590,20 @@ fn dataframe_to_fcs(mut df: DataFrame) -> Result<Vec<AnyFCSColumn>, String> {
         cols.push(series_to_fcs(c.clone())?);
     }
     Ok(cols)
+}
+
+struct ConvertFailure;
+
+impl fmt::Display for ConvertFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "could not change FCS version")
+    }
+}
+
+struct SetTemporalFailure;
+
+impl fmt::Display for SetTemporalFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "could not convert to/from temporal measurement")
+    }
 }

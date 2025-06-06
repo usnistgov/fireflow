@@ -1,6 +1,11 @@
+use crate::core::{AnyMetarootKeyLossError, UnitaryKeyLossError};
+use crate::error::*;
 use crate::macros::{newtype_disp, newtype_from, newtype_from_outer, newtype_fromstr};
+use crate::validated::standard::*;
 
+use super::keywords::OptMetaKey;
 use super::optionalkw::*;
+use super::parser::*;
 
 use chrono::{DateTime, FixedOffset};
 use serde::Serialize;
@@ -57,7 +62,7 @@ macro_rules! get_set {
                 Ok(())
             } else {
                 self.$field = tmp;
-                Err(InvalidDatetimes)
+                Err(ReversedDatetimes)
             }
         }
 
@@ -79,7 +84,7 @@ impl Datetimes {
         if ret.valid() {
             Ok(ret)
         } else {
-            Err(InvalidDatetimes)
+            Err(ReversedDatetimes)
         }
     }
 
@@ -100,13 +105,46 @@ impl Datetimes {
             true
         }
     }
+
+    pub(crate) fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<Self, E> {
+        let b = lookup_meta_opt(kws, false);
+        let e = lookup_meta_opt(kws, false);
+        b.zip(e).and_tentatively(|(begin, end)| {
+            Datetimes::try_new(begin, end)
+                .map(Tentative::new1)
+                .unwrap_or_else(|w| {
+                    let ow = LookupKeysWarning::Relation(w.into());
+                    Tentative::new(Datetimes::default(), vec![ow], vec![])
+                })
+        })
+    }
+
+    pub(crate) fn opt_keywords(&self) -> Vec<(String, Option<String>)> {
+        [
+            OptMetaKey::pair(&self.begin()),
+            OptMetaKey::pair(&self.end()),
+        ]
+        .into_iter()
+        .collect()
+    }
+
+    pub(crate) fn check_loss(self, lossless: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
+        let mut tnt = Tentative::new1(());
+        if self.begin_naive().is_some() {
+            tnt.push_error_or_warning(UnitaryKeyLossError::<BeginDateTime>::default(), lossless);
+        }
+        if self.end_naive().is_some() {
+            tnt.push_error_or_warning(UnitaryKeyLossError::<EndDateTime>::default(), lossless);
+        }
+        tnt
+    }
 }
 
-pub struct InvalidDatetimes;
+pub struct ReversedDatetimes;
 
-type DatetimesResult<T> = Result<T, InvalidDatetimes>;
+type DatetimesResult<T> = Result<T, ReversedDatetimes>;
 
-impl fmt::Display for InvalidDatetimes {
+impl fmt::Display for ReversedDatetimes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "$BEGINDATETIME is after $ENDDATETIME")
     }

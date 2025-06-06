@@ -73,6 +73,12 @@ impl<V> OptionalKw<V> {
     }
 }
 
+impl<V, E> OptionalKw<Result<V, E>> {
+    pub fn transpose(self) -> Result<OptionalKw<V>, E> {
+        self.0.transpose().map(|x| x.into())
+    }
+}
+
 pub struct ClearOptional;
 
 impl<V: fmt::Display> OptionalKw<V> {

@@ -1,3 +1,4 @@
+use crate::text::index::IndexFromOne;
 use crate::validated::nonstandard::*;
 
 use serde::Serialize;
@@ -137,7 +138,7 @@ pub(crate) trait IndexedKey {
     const PREFIX: &'static str;
     const SUFFIX: &'static str;
 
-    fn std(i: MeasIdx) -> StdKey {
+    fn std(i: IndexFromOne) -> StdKey {
         // reserve enough space for prefix, suffix, and a number with 3 digits
         let n = Self::PREFIX.len() + 3 + Self::SUFFIX.len();
         let mut s = String::with_capacity(n);
@@ -184,7 +185,7 @@ pub(crate) trait BiIndexedKey {
     const MIDDLE: &'static str;
     const SUFFIX: &'static str;
 
-    fn std(i: usize, j: usize) -> StdKey {
+    fn std(i: IndexFromOne, j: IndexFromOne) -> StdKey {
         // reserve enough space for prefix, middle, suffix, and two numbers with
         // 2 digits
         let n = Self::PREFIX.len() + Self::MIDDLE.len() + Self::SUFFIX.len() + 4;
@@ -331,6 +332,19 @@ pub struct ParseKeyError<E> {
     pub value: String,
 }
 
+impl<E> ParseKeyError<E> {
+    pub fn inner_into<F>(self) -> ParseKeyError<F>
+    where
+        F: From<E>,
+    {
+        ParseKeyError {
+            error: self.error.into(),
+            key: self.key,
+            value: self.value,
+        }
+    }
+}
+
 impl<E> fmt::Display for ParseKeyError<E>
 where
     E: fmt::Display,
@@ -347,6 +361,18 @@ where
 pub enum ReqKeyError<E> {
     Parse(ParseKeyError<E>),
     Missing(StdKey),
+}
+
+impl<E> ReqKeyError<E> {
+    pub fn inner_into<F>(self) -> ReqKeyError<F>
+    where
+        F: From<E>,
+    {
+        match self {
+            ReqKeyError::Parse(e) => ReqKeyError::Parse(e.inner_into()),
+            ReqKeyError::Missing(e) => ReqKeyError::Missing(e),
+        }
+    }
 }
 
 impl<E> fmt::Display for ReqKeyError<E>

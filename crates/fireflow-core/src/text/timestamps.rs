@@ -1,6 +1,10 @@
+use crate::error::*;
 use crate::macros::{newtype_from, newtype_from_outer};
+use crate::validated::standard::*;
 
+use super::keywords::OptMetaKey;
 use super::optionalkw::*;
+use super::parser::*;
 
 use chrono::{NaiveDate, NaiveTime, Timelike};
 use once_cell::sync::Lazy;
@@ -69,7 +73,7 @@ macro_rules! get_set {
                 Ok(())
             } else {
                 self.$field = tmp;
-                Err(InvalidTimestamps)
+                Err(ReversedTimestamps)
             }
         }
 
@@ -100,7 +104,7 @@ where
         if ret.valid() {
             Ok(ret)
         } else {
-            Err(InvalidTimestamps)
+            Err(ReversedTimestamps)
         }
     }
 
@@ -153,13 +157,47 @@ where
             true
         }
     }
+
+    pub(crate) fn lookup<E>(kws: &mut StdKeywords, dep: bool) -> LookupTentative<Self, E>
+    where
+        Btim<X>: OptMetaKey,
+        Etim<X>: OptMetaKey,
+        ParseOptKeyWarning: From<<Btim<X> as FromStr>::Err>,
+        ParseOptKeyWarning: From<<Etim<X> as FromStr>::Err>,
+    {
+        let b = lookup_meta_opt(kws, dep);
+        let e = lookup_meta_opt(kws, dep);
+        let d = lookup_meta_opt(kws, dep);
+        b.zip3(e, d).and_tentatively(|(btim, etim, date)| {
+            Timestamps::new(btim, etim, date)
+                .map(Tentative::new1)
+                .unwrap_or_else(|w| {
+                    let ow = LookupKeysWarning::Relation(w.into());
+                    Tentative::new(Timestamps::default(), vec![ow], vec![])
+                })
+        })
+    }
+
+    pub(crate) fn opt_keywords(&self) -> Vec<(String, Option<String>)>
+    where
+        Btim<X>: OptMetaKey,
+        Etim<X>: OptMetaKey,
+    {
+        [
+            OptMetaKey::pair(&self.btim()),
+            OptMetaKey::pair(&self.etim()),
+            OptMetaKey::pair(&self.date()),
+        ]
+        .into_iter()
+        .collect()
+    }
 }
 
-pub struct InvalidTimestamps;
+pub struct ReversedTimestamps;
 
-type TimestampsResult<T> = Result<T, InvalidTimestamps>;
+type TimestampsResult<T> = Result<T, ReversedTimestamps>;
 
-impl fmt::Display for InvalidTimestamps {
+impl fmt::Display for ReversedTimestamps {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "$ETIM is before $BTIM and $DATE is given")
     }

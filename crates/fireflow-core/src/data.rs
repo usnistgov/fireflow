@@ -4,10 +4,10 @@ use crate::error::*;
 use crate::macros::{enum_from, enum_from_disp, match_many_to_one, newtype_disp, newtype_from};
 use crate::segment::*;
 use crate::text::byteord::*;
+use crate::text::float_or_int::*;
+use crate::text::index::IndexFromOne;
 use crate::text::keywords::*;
-use crate::text::range::*;
 use crate::validated::dataframe::*;
-use crate::validated::nonstandard::*;
 use crate::validated::standard::*;
 
 use itertools::repeat_n;
@@ -919,7 +919,7 @@ trait OrderedFromBytes<const DTLEN: usize, const OLEN: usize>: NumProps<DTLEN> {
 trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>
 where
     Self: OrderedFromBytes<DTLEN, INTLEN>,
-    Self: TryFrom<Range, Error = RangeToIntError<Self>>,
+    Self: TryFrom<FloatOrInt, Error = ToIntError<Self>>,
     Self: IntMath,
     <Self as FromStr>::Err: fmt::Display,
 {
@@ -932,20 +932,16 @@ where
                 Tentative::new(y, vec![e], vec![])
             }
         };
-        r.try_into().map_or_else(
+        r.0.try_into().map_or_else(
             |e| match e {
-                RangeToIntError::IntOverrange(x) => {
-                    go(Self::maxval(), BitmaskError::IntOverrange(x))
-                }
-                RangeToIntError::FloatOverrange(x) => {
+                ToIntError::IntOverrange(x) => go(Self::maxval(), BitmaskError::IntOverrange(x)),
+                ToIntError::FloatOverrange(x) => {
                     go(Self::maxval(), BitmaskError::FloatOverrange(x))
                 }
-                RangeToIntError::FloatUnderrange(x) => {
+                ToIntError::FloatUnderrange(x) => {
                     go(Self::default(), BitmaskError::FloatUnderrange(x))
                 }
-                RangeToIntError::FloatPrecisionLoss(x, y) => {
-                    go(y, BitmaskError::FloatPrecisionLoss(x))
-                }
+                ToIntError::FloatPrecisionLoss(x, y) => go(y, BitmaskError::FloatPrecisionLoss(x)),
             },
             Tentative::new1,
         )
@@ -1056,16 +1052,16 @@ where
     Self: NumProps<LEN>,
     Self: OrderedFromBytes<LEN, LEN>,
     Self: FromStr,
-    Self: TryFrom<Range, Error = RangeToFloatError<Self>>,
+    Self: TryFrom<FloatOrInt, Error = ToFloatError<Self>>,
     <Self as FromStr>::Err: fmt::Display,
     Self: Clone,
 {
     fn range(r: Range) -> Self {
         // TODO control how this works and/or warn user if we truncate
-        r.try_into().unwrap_or_else(|e| match e {
-            RangeToFloatError::IntPrecisionLoss(_, x) => x,
-            RangeToFloatError::FloatOverrange(_) => Self::maxval(),
-            RangeToFloatError::FloatUnderrange(_) => Self::default(),
+        r.0.try_into().unwrap_or_else(|e| match e {
+            ToFloatError::IntPrecisionLoss(_, x) => x,
+            ToFloatError::FloatOverrange(_) => Self::maxval(),
+            ToFloatError::FloatUnderrange(_) => Self::default(),
         })
     }
 
@@ -3047,7 +3043,7 @@ impl fmt::Display for BitmaskLossError {
 }
 
 pub struct ColumnError<E> {
-    index: MeasIdx,
+    index: IndexFromOne,
     error: E,
 }
 
@@ -3071,7 +3067,7 @@ enum_from_disp!(
     [Endian, ReqKeyError<NewEndianError>],
     [ByteOrd, ReqKeyError<ParseByteOrdError>],
     [Int, ReqKeyError<ParseIntError>],
-    [Range, ReqKeyError<ParseRangeError>]
+    [Range, ReqKeyError<ParseFloatOrIntError>]
 );
 
 enum_from_disp!(

@@ -70,25 +70,6 @@ TODO
 * `OTHER` segments
 * CRC (read/write/check)
 * Support for multiple datasets
-* Support for the following keywords in standard mode (which are currently not
-  implemented)
-  * $CSMODE
-  * $CSVBITS 
-  * $CSVnFLAG
-  * $Pkn
-  * $PKNn
-  * $GATE
-  * $GnE
-  * $GnF
-  * $GnN
-  * $GnP
-  * $GnR
-  * $GnS
-  * $GnT
-  * $GnV
-  * $GATING
-  * $RnI
-  * $RnW
 
 #### Limitations
 

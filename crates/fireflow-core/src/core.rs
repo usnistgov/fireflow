@@ -3874,6 +3874,12 @@ impl UnstainedData {
         .into_iter()
         .collect()
     }
+
+    fn check_loss(self, lossless: bool) -> Tentative<(), AnyKeyTransferError, AnyKeyTransferError> {
+        let c = check_key_transfer(self.unstainedcenters, lossless);
+        let i = check_key_transfer(self.unstainedinfo, lossless);
+        c.zip(i).void()
+    }
 }
 
 impl SubsetData {
@@ -4470,6 +4476,13 @@ impl ModificationData {
         .into_iter()
         .collect()
     }
+
+    fn check_loss(self, lossless: bool) -> Tentative<(), AnyKeyTransferError, AnyKeyTransferError> {
+        let d = check_key_transfer(self.last_modified, lossless);
+        let r = check_key_transfer(self.last_modifier, lossless);
+        let o = check_key_transfer(self.originality, lossless);
+        d.zip3(r, o).void()
+    }
 }
 
 impl CarrierData {
@@ -4494,6 +4507,13 @@ impl CarrierData {
         .into_iter()
         .collect()
     }
+
+    fn check_loss(self, lossless: bool) -> Tentative<(), AnyKeyTransferError, AnyKeyTransferError> {
+        let i = check_key_transfer(self.carrierid, lossless);
+        let t = check_key_transfer(self.carriertype, lossless);
+        let l = check_key_transfer(self.locationid, lossless);
+        i.zip3(t, l).void()
+    }
 }
 
 impl PlateData {
@@ -4516,6 +4536,13 @@ impl PlateData {
         ]
         .into_iter()
         .collect()
+    }
+
+    fn check_loss(self, lossless: bool) -> Tentative<(), AnyKeyTransferError, AnyKeyTransferError> {
+        let n = check_key_transfer(self.platename, lossless);
+        let i = check_key_transfer(self.plateid, lossless);
+        let w = check_key_transfer(self.wellid, lossless);
+        n.zip3(i, w).void()
     }
 }
 
@@ -5053,8 +5080,8 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot2_0 {
         let c = check_key_transfer(value.cytsn, lossless);
         let v = check_key_transfer(value.vol, lossless);
         let s = check_key_transfer(value.spillover, lossless);
-        let m = check_modified_keys_transfer(value.modification, lossless);
-        let p = check_plate_keys_transfer(value.plate, lossless);
+        let m = ModificationData::check_loss(value.modification, lossless);
+        let p = PlateData::check_loss(value.plate, lossless);
         c.zip5(v, s, m, p).inner_into().and_maybe(|_| {
             value
                 .applied_gates
@@ -5092,11 +5119,11 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
         let v = check_key_transfer(value.vol, lossless);
         let s = check_key_transfer(value.spillover, lossless);
         let f = check_key_transfer(value.flowrate, lossless);
-        let m = check_modified_keys_transfer(value.modification, lossless);
-        let p = check_plate_keys_transfer(value.plate, lossless);
+        let m = ModificationData::check_loss(value.modification, lossless);
+        let p = PlateData::check_loss(value.plate, lossless);
         let d = check_datetimes_keys_transfer(value.datetimes, lossless);
-        let ca = check_carrier_keys_transfer(value.carrier, lossless);
-        let u = check_unstained_keys_transfer(value.unstained, lossless);
+        let ca = CarrierData::check_loss(value.carrier, lossless);
+        let u = UnstainedData::check_loss(value.unstained, lossless);
         let mut ret = cy
             .zip6(v, s, f, m, p)
             .zip4(d, ca, u)
@@ -5147,8 +5174,8 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_0 {
         endian: EndianConvert,
         lossless: bool,
     ) -> MetarootConvertResult<Self> {
-        let p = check_plate_keys_transfer(value.plate, lossless);
-        let m = check_modified_keys_transfer(value.modification, lossless);
+        let p = PlateData::check_loss(value.plate, lossless);
+        let m = ModificationData::check_loss(value.modification, lossless);
         let v = check_key_transfer(value.vol, lossless);
         p.zip3(m, v).inner_into().and_maybe(|_| {
             endian
@@ -5177,11 +5204,11 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_0 {
     ) -> MetarootConvertResult<Self> {
         let v = check_key_transfer(value.vol, lossless);
         let f = check_key_transfer(value.flowrate, lossless);
-        let m = check_modified_keys_transfer(value.modification, lossless);
-        let p = check_plate_keys_transfer(value.plate, lossless);
+        let m = ModificationData::check_loss(value.modification, lossless);
+        let p = PlateData::check_loss(value.plate, lossless);
         let d = check_datetimes_keys_transfer(value.datetimes, lossless);
-        let ca = check_carrier_keys_transfer(value.carrier, lossless);
-        let u = check_unstained_keys_transfer(value.unstained, lossless);
+        let ca = CarrierData::check_loss(value.carrier, lossless);
+        let u = UnstainedData::check_loss(value.unstained, lossless);
         v.zip6(f, m, p, d, ca).zip(u).inner_into().and_maybe(|_| {
             endian
                 .try_as_byteord()
@@ -5268,8 +5295,8 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_1 {
         lossless: bool,
     ) -> MetarootConvertResult<Self> {
         let d = check_datetimes_keys_transfer(value.datetimes, lossless);
-        let ca = check_carrier_keys_transfer(value.carrier, lossless);
-        let u = check_unstained_keys_transfer(value.unstained, lossless);
+        let ca = CarrierData::check_loss(value.carrier, lossless);
+        let u = UnstainedData::check_loss(value.unstained, lossless);
         let f = check_key_transfer(value.flowrate, lossless);
         let ret = d.zip4(ca, u, f).inner_into().and_tentatively(|_| {
             Tentative::new1(Self {
@@ -5470,35 +5497,6 @@ where
     tnt
 }
 
-fn check_plate_keys_transfer(
-    p: PlateData,
-    lossless: bool,
-) -> Tentative<(), AnyKeyTransferError, AnyKeyTransferError> {
-    let n = check_key_transfer(p.platename, lossless);
-    let i = check_key_transfer(p.plateid, lossless);
-    let w = check_key_transfer(p.wellid, lossless);
-    n.zip3(i, w).void()
-}
-
-fn check_carrier_keys_transfer(
-    c: CarrierData,
-    lossless: bool,
-) -> Tentative<(), AnyKeyTransferError, AnyKeyTransferError> {
-    let i = check_key_transfer(c.carrierid, lossless);
-    let t = check_key_transfer(c.carriertype, lossless);
-    let l = check_key_transfer(c.locationid, lossless);
-    i.zip3(t, l).void()
-}
-
-fn check_unstained_keys_transfer(
-    u: UnstainedData,
-    lossless: bool,
-) -> Tentative<(), AnyKeyTransferError, AnyKeyTransferError> {
-    let c = check_key_transfer(u.unstainedcenters, lossless);
-    let i = check_key_transfer(u.unstainedinfo, lossless);
-    c.zip(i).void()
-}
-
 fn check_datetimes_keys_transfer(
     d: Datetimes,
     lossless: bool,
@@ -5511,16 +5509,6 @@ fn check_datetimes_keys_transfer(
         tnt.push_error_or_warning(KeyTransferError::<EndDateTime>::default(), lossless);
     }
     tnt
-}
-
-fn check_modified_keys_transfer(
-    m: ModificationData,
-    lossless: bool,
-) -> Tentative<(), AnyKeyTransferError, AnyKeyTransferError> {
-    let d = check_key_transfer(m.last_modified, lossless);
-    let r = check_key_transfer(m.last_modifier, lossless);
-    let o = check_key_transfer(m.originality, lossless);
-    d.zip3(r, o).void()
 }
 
 fn check_timestep(x: Timestep, force: bool) -> TemporalConvertTentative<()> {

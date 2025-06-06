@@ -63,6 +63,10 @@ pub struct DataSegmentId;
 #[derive(Default, Debug, Clone, Copy, Serialize)]
 pub struct AnalysisSegmentId;
 
+/// Denotes the segment pertains to OTHER (indexed from 0)
+#[derive(Default, Debug, Clone, Copy, Serialize)]
+pub struct OtherSegmentId;
+
 pub type PrimaryTextSegment = SpecificSegment<PrimaryTextSegmentId, SegmentFromHeader>;
 pub type SupplementalTextSegment = SpecificSegment<SupplementalTextSegmentId, SegmentFromTEXT>;
 
@@ -83,6 +87,8 @@ pub type TEXTCorrection<I> = OffsetCorrection<I, SegmentFromTEXT>;
 
 pub type AnyDataSegment = DataSegment<SegmentFromAnywhere>;
 pub type AnyAnalysisSegment = AnalysisSegment<SegmentFromAnywhere>;
+
+pub type OtherSegment = SpecificSegment<OtherSegmentId, SegmentFromHeader>;
 
 pub(crate) type ReqSegResult<T> =
     DeferredResult<AnySegment<T>, ReqSegmentWithDefaultWarning<T>, ReqSegmentWithDefaultError<T>>;
@@ -391,6 +397,10 @@ impl HasRegion for SupplementalTextSegmentId {
 
 impl HasRegion for PrimaryTextSegmentId {
     const REGION: &'static str = "TEXT";
+}
+
+impl HasRegion for OtherSegmentId {
+    const REGION: &'static str = "OTHER";
 }
 
 enum_from_disp!(

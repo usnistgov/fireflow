@@ -7,6 +7,7 @@ use nonempty::NonEmpty;
 use serde::Serialize;
 use std::fmt;
 use std::io::{BufReader, Read};
+use std::iter::repeat;
 use std::num::ParseIntError;
 use std::str;
 
@@ -42,7 +43,7 @@ pub struct HeaderSegments {
     pub text: PrimaryTextSegment,
     pub data: HeaderDataSegment,
     pub analysis: HeaderAnalysisSegment,
-    // TODO add OTHER
+    pub other: Vec<OtherSegment>,
 }
 
 /// Output from parsing the FCS header.
@@ -66,13 +67,36 @@ pub fn h_read_header<R: Read>(
     h.read_exact(&mut verbuf).into_mult()?;
     if verbuf.is_ascii() {
         let hs = unsafe { str::from_utf8_unchecked(&verbuf) };
-        parse_header(hs, conf).map_err(|es| es.map(ImpureError::Pure))
+        parse_header(hs, conf)
+            .mult_map_errors(ImpureError::Pure)
+            .and_then(|(version, text, data, analysis)| {
+                h_read_other_segments(h, text.inner.begin(), &conf.other[..]).map(|other| Header {
+                    version,
+                    segments: HeaderSegments {
+                        text,
+                        data,
+                        analysis,
+                        other,
+                    },
+                })
+            })
     } else {
         Err(NonEmpty::new(ImpureError::Pure(HeaderError::NotAscii)))
     }
 }
 
-fn parse_header(s: &str, conf: &HeaderConfig) -> MultiResult<Header, HeaderError> {
+fn parse_header(
+    s: &str,
+    conf: &HeaderConfig,
+) -> MultiResult<
+    (
+        Version,
+        PrimaryTextSegment,
+        HeaderDataSegment,
+        HeaderAnalysisSegment,
+    ),
+    HeaderError,
+> {
     let v = &s[0..VERSION_END];
     let spaces = &s[VERSION_END..SPACE_END];
     let t0 = &s[SPACE_END..T0_END];
@@ -96,13 +120,13 @@ fn parse_header(s: &str, conf: &HeaderConfig) -> MultiResult<Header, HeaderError
     vers_res
         .mult_zip3(space_res, text_res)
         .mult_zip3(data_res, anal_res)
-        .map(|((version, _, text), data, analysis)| Header {
-            version: conf.version_override.unwrap_or(version),
-            segments: HeaderSegments {
+        .map(|((version, _, text), data, analysis)| {
+            (
+                conf.version_override.unwrap_or(version),
                 text,
                 data,
                 analysis,
-            },
+            )
         })
 }
 
@@ -144,6 +168,57 @@ fn parse_segment<I: HasRegion>(
         .map_err(|es| es.map(HeaderError::Segment))
 }
 
+fn h_read_other_segments<R: Read>(
+    h: &mut BufReader<R>,
+    text_begin: u32,
+    corrs: &[OffsetCorrection<OtherSegmentId, SegmentFromHeader>],
+) -> MultiResult<Vec<OtherSegment>, ImpureError<HeaderError>> {
+    // ASSUME this won't fail because we checked that each offset is greater
+    // than this
+    let n = text_begin - (HEADER_LEN as u32);
+    // if less than 16 bytes (the width of two numbers) then nothing to do
+    if n < 16 {
+        return Ok(vec![]);
+    }
+    let mut buf = vec![];
+    // ASSUME cursor is at HEADER_LEN
+    h.take(u64::from(n)).read_to_end(&mut buf).into_mult()?;
+    if buf.is_ascii() {
+        let mut xs = unsafe { str::from_utf8_unchecked(&buf) };
+        // if all spaces, nothing to do
+        if xs.chars().all(|x| x == ' ') {
+            return Ok(vec![]);
+        }
+
+        // chop the bytes into 8-byte chunks which hopefully have the offsets
+        let mut raw_offsets = vec![];
+        while let Some((left, right, rest)) = xs.split_at_checked(8).and_then(|(left, rest0)| {
+            rest0
+                .split_at_checked(8)
+                .map(|(right, rest1)| (left, right, rest1))
+        }) {
+            raw_offsets.push((left, right));
+            xs = rest;
+        }
+
+        let padded_corrs = corrs
+            .iter()
+            .copied()
+            .chain(repeat(OffsetCorrection::default()))
+            .take(raw_offsets.len());
+
+        raw_offsets
+            .into_iter()
+            .zip(padded_corrs)
+            .map(|((left, right), corr)| parse_segment(left, right, false, corr))
+            .gather()
+            .map_err(NonEmpty::flatten)
+            .mult_map_errors(ImpureError::Pure)
+    } else {
+        Err(NonEmpty::new(ImpureError::Pure(HeaderError::OtherNotAscii)))
+    }
+}
+
 impl str::FromStr for Version {
     type Err = VersionError;
 
@@ -174,6 +249,7 @@ pub enum HeaderError {
     Space,
     Version(VersionError),
     NotAscii,
+    OtherNotAscii,
 }
 
 impl fmt::Display for HeaderError {
@@ -183,6 +259,7 @@ impl fmt::Display for HeaderError {
             HeaderError::Version(x) => x.fmt(f),
             HeaderError::Space => write!(f, "version must be followed by 4 spaces"),
             HeaderError::NotAscii => write!(f, "HEADER must be ASCII"),
+            HeaderError::OtherNotAscii => write!(f, "OTHER offsets must be ASCII"),
         }
     }
 }

@@ -65,6 +65,8 @@ fn py_read_fcs_header(
         text: OffsetCorrection::new(begin_text, end_text),
         data: OffsetCorrection::new(begin_data, end_data),
         analysis: OffsetCorrection::new(begin_analysis, end_analysis),
+        // TODO addme
+        other: vec![],
     };
     fcs_read_header(&p, &conf)
         .map_err(handle_failure_nowarn)
@@ -142,6 +144,8 @@ fn py_read_fcs_raw_text(
         text: OffsetCorrection::new(begin_text, end_text),
         data: OffsetCorrection::new(begin_data, end_data),
         analysis: OffsetCorrection::new(begin_analysis, end_analysis),
+        // TODO addme
+        other: vec![],
     };
 
     let conf = RawTextReadConfig {
@@ -274,6 +278,8 @@ fn py_read_fcs_std_text(
         text: OffsetCorrection::new(begin_text, end_text),
         data: OffsetCorrection::new(begin_data, end_data),
         analysis: OffsetCorrection::new(begin_analysis, end_analysis),
+        // TODO addme
+        other: vec![],
     };
 
     let raw = RawTextReadConfig {
@@ -458,6 +464,8 @@ fn py_read_fcs_file(
         text: OffsetCorrection::new(header_begin_text, header_end_text),
         data: OffsetCorrection::new(header_begin_data, header_end_data),
         analysis: OffsetCorrection::new(header_begin_analysis, header_end_analysis),
+        // TODO addme
+        other: vec![],
     };
 
     let raw = RawTextReadConfig {

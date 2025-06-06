@@ -67,7 +67,6 @@ TODO
 
 #### Future additions
 
-* `OTHER` segments
 * CRC (read/write/check)
 * Support for multiple datasets
 

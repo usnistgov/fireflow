@@ -3,6 +3,8 @@ use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
 use crate::text::keywords::*;
 use crate::validated::standard::*;
 
+use super::header::HEADER_LEN;
+
 use serde::Serialize;
 use std::fmt;
 use std::io;
@@ -63,6 +65,10 @@ pub struct DataSegmentId;
 #[derive(Default, Debug, Clone, Copy, Serialize)]
 pub struct AnalysisSegmentId;
 
+/// Denotes the segment pertains to OTHER (indexed from 0)
+#[derive(Default, Debug, Clone, Copy, Serialize)]
+pub struct OtherSegmentId;
+
 pub type PrimaryTextSegment = SpecificSegment<PrimaryTextSegmentId, SegmentFromHeader>;
 pub type SupplementalTextSegment = SpecificSegment<SupplementalTextSegmentId, SegmentFromTEXT>;
 
@@ -83,6 +89,8 @@ pub type TEXTCorrection<I> = OffsetCorrection<I, SegmentFromTEXT>;
 
 pub type AnyDataSegment = DataSegment<SegmentFromAnywhere>;
 pub type AnyAnalysisSegment = AnalysisSegment<SegmentFromAnywhere>;
+
+pub type OtherSegment = SpecificSegment<OtherSegmentId, SegmentFromHeader>;
 
 pub(crate) type ReqSegResult<T> =
     DeferredResult<AnySegment<T>, ReqSegmentWithDefaultWarning<T>, ReqSegmentWithDefaultError<T>>;
@@ -393,6 +401,10 @@ impl HasRegion for PrimaryTextSegmentId {
     const REGION: &'static str = "TEXT";
 }
 
+impl HasRegion for OtherSegmentId {
+    const REGION: &'static str = "OTHER";
+}
+
 enum_from_disp!(
     pub ReqSegmentError,
     [Key, ReqKeyError<ParseIntError>],
@@ -497,7 +509,12 @@ impl Segment {
                 if new_begin > new_end {
                     err(SegmentErrorKind::Inverted)
                 } else {
-                    Ok(Self::new_unchecked(new_begin, new_end))
+                    let new = Self::new_unchecked(new_begin, new_end);
+                    if new.begin() < (HEADER_LEN as u32) && !new.is_empty() {
+                        err(SegmentErrorKind::InHeader)
+                    } else {
+                        Ok(new)
+                    }
                 }
             }
             (_, _) => err(SegmentErrorKind::Range),
@@ -566,6 +583,7 @@ impl Segment {
 pub enum SegmentErrorKind {
     Range,
     Inverted,
+    InHeader,
 }
 
 pub struct SegmentError {
@@ -592,6 +610,7 @@ impl fmt::Display for SegmentError {
         let kind_text = match &self.kind {
             SegmentErrorKind::Range => "Offset out of range",
             SegmentErrorKind::Inverted => "Begin after end",
+            SegmentErrorKind::InHeader => "Begins within HEADER",
         };
         write!(
             f,

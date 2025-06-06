@@ -55,7 +55,7 @@ use std::str::FromStr;
 /// TEXT data when writing a new FCS file, and the keywords that are not
 /// included can be computed on the fly when writing.
 #[derive(Clone, Serialize)]
-pub struct Core<A, D, M, T, P, N, W> {
+pub struct Core<A, D, O, M, T, P, N, W> {
     /// The root of the metadata tree (ie "non-measurement" keywords)
     pub metaroot: Metaroot<M>,
 
@@ -71,9 +71,10 @@ pub struct Core<A, D, M, T, P, N, W> {
 
     /// ANALYSIS segment (if applicable)
     pub analysis: A,
-    // TODO add CRC
 
-    // TODO add OTHER
+    /// Other segments (if applicable)
+    pub others: O,
+    // TODO add CRC
 }
 
 /// The ANALYSIS segment, which is just a string of bytes
@@ -81,6 +82,18 @@ pub struct Core<A, D, M, T, P, N, W> {
 pub struct Analysis(pub Vec<u8>);
 
 newtype_from!(Analysis, Vec<u8>);
+
+/// An OTHER segment, which is just a string of bytes
+#[derive(Clone)]
+pub struct Other(pub Vec<u8>);
+
+newtype_from!(Other, Vec<u8>);
+
+/// All OTHER segments
+#[derive(Clone, Default)]
+pub struct Others(pub Vec<Other>);
+
+newtype_from!(Others, Vec<Other>);
 
 /// Root of the metadata hierarchy.
 ///
@@ -205,20 +218,20 @@ pub struct Optical<X> {
 
 /// Minimal TEXT data for any supported FCS version
 #[derive(Clone)]
-pub enum AnyCore<A, D> {
-    FCS2_0(Box<Core2_0<A, D>>),
-    FCS3_0(Box<Core3_0<A, D>>),
-    FCS3_1(Box<Core3_1<A, D>>),
-    FCS3_2(Box<Core3_2<A, D>>),
+pub enum AnyCore<A, D, O> {
+    FCS2_0(Box<Core2_0<A, D, O>>),
+    FCS3_0(Box<Core3_0<A, D, O>>),
+    FCS3_1(Box<Core3_1<A, D, O>>),
+    FCS3_2(Box<Core3_2<A, D, O>>),
 }
 
-pub type AnyCoreTEXT = AnyCore<(), ()>;
-pub type AnyCoreDataset = AnyCore<Analysis, FCSDataFrame>;
+pub type AnyCoreTEXT = AnyCore<(), (), ()>;
+pub type AnyCoreDataset = AnyCore<Analysis, FCSDataFrame, Others>;
 
 macro_rules! from_anycoretext {
     ($anyvar:ident, $coretype:ident) => {
-        impl<A, D> From<$coretype<A, D>> for AnyCore<A, D> {
-            fn from(value: $coretype<A, D>) -> Self {
+        impl<A, D, O> From<$coretype<A, D, O>> for AnyCore<A, D, O> {
+            fn from(value: $coretype<A, D, O>) -> Self {
                 Self::$anyvar(Box::new(value))
             }
         }
@@ -230,10 +243,11 @@ from_anycoretext!(FCS3_0, Core3_0);
 from_anycoretext!(FCS3_1, Core3_1);
 from_anycoretext!(FCS3_2, Core3_2);
 
-impl<A, D> Serialize for AnyCore<A, D>
+impl<A, D, O> Serialize for AnyCore<A, D, O>
 where
     A: Serialize,
     D: Serialize,
+    O: Serialize,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -270,7 +284,7 @@ macro_rules! match_anycore {
 
 pub(crate) use match_anycore;
 
-impl<A, D> AnyCore<A, D> {
+impl<A, D, O> AnyCore<A, D, O> {
     pub fn version(&self) -> Version {
         match self {
             Self::FCS2_0(_) => Version::FCS2_0,
@@ -343,6 +357,7 @@ impl AnyCoreDataset {
         nonstd: NonStdKeywords,
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
+        other_segs: &[OtherSegment],
         conf: &DataReadConfig,
     ) -> IODeferredResult<
         (Self, AnyDataSegment, AnyAnalysisSegment),
@@ -350,22 +365,46 @@ impl AnyCoreDataset {
         StdDatasetFromRawError,
     > {
         match version {
-            Version::FCS2_0 => {
-                CoreDataset2_0::new_dataset_from_raw(h, kws, nonstd, data_seg, analysis_seg, conf)
-                    .def_map_value(|(x, y, z)| (x.into(), y, z))
-            }
-            Version::FCS3_0 => {
-                CoreDataset3_0::new_dataset_from_raw(h, kws, nonstd, data_seg, analysis_seg, conf)
-                    .def_map_value(|(x, y, z)| (x.into(), y, z))
-            }
-            Version::FCS3_1 => {
-                CoreDataset3_1::new_dataset_from_raw(h, kws, nonstd, data_seg, analysis_seg, conf)
-                    .def_map_value(|(x, y, z)| (x.into(), y, z))
-            }
-            Version::FCS3_2 => {
-                CoreDataset3_2::new_dataset_from_raw(h, kws, nonstd, data_seg, analysis_seg, conf)
-                    .def_map_value(|(x, y, z)| (x.into(), y, z))
-            }
+            Version::FCS2_0 => CoreDataset2_0::new_dataset_from_raw(
+                h,
+                kws,
+                nonstd,
+                data_seg,
+                analysis_seg,
+                other_segs,
+                conf,
+            )
+            .def_map_value(|(x, y, z)| (x.into(), y, z)),
+            Version::FCS3_0 => CoreDataset3_0::new_dataset_from_raw(
+                h,
+                kws,
+                nonstd,
+                data_seg,
+                analysis_seg,
+                other_segs,
+                conf,
+            )
+            .def_map_value(|(x, y, z)| (x.into(), y, z)),
+            Version::FCS3_1 => CoreDataset3_1::new_dataset_from_raw(
+                h,
+                kws,
+                nonstd,
+                data_seg,
+                analysis_seg,
+                other_segs,
+                conf,
+            )
+            .def_map_value(|(x, y, z)| (x.into(), y, z)),
+            Version::FCS3_2 => CoreDataset3_2::new_dataset_from_raw(
+                h,
+                kws,
+                nonstd,
+                data_seg,
+                analysis_seg,
+                other_segs,
+                conf,
+            )
+            .def_map_value(|(x, y, z)| (x.into(), y, z)),
         }
     }
 }
@@ -683,6 +722,7 @@ pub struct GatedMeasurement {
 /// The $GATING/$RnI/$RnW/$Gn* keywords in a unified bundle (2.0)
 ///
 /// Each region is assumed to point to a member of ['gated_measurements'].
+// TODO updates to these are currently not validated
 #[derive(Clone, Serialize)]
 pub struct AppliedGates2_0 {
     pub gated_measurements: GatedMeasurements,
@@ -693,6 +733,7 @@ pub struct AppliedGates2_0 {
 ///
 /// Each region is assumed to point to a member of ['gated_measurements'] or
 /// a measurement in the ['Core'] struct
+// TODO updates to these are currently not validated
 #[derive(Clone, Serialize)]
 pub struct AppliedGates3_0 {
     pub gated_measurements: Vec<GatedMeasurement>,
@@ -702,6 +743,7 @@ pub struct AppliedGates3_0 {
 /// The $GATING/$RnI/$RnW keywords in a unified bundle (3.2)
 ///
 /// Each region is assumed to point to a measurement in the ['Core'] struct
+// TODO updates to these are currently not validated
 #[derive(Clone, Serialize)]
 pub struct AppliedGates3_2 {
     pub regions: GatingRegions<PrefixedMeasIndex>,
@@ -833,10 +875,10 @@ pub type Metaroot3_1 = Metaroot<InnerMetaroot3_1>;
 pub type Metaroot3_2 = Metaroot<InnerMetaroot3_2>;
 
 /// A minimal representation of the TEXT segment
-pub type CoreTEXT<M, T, P, N, W> = Core<(), (), M, T, P, N, W>;
+pub type CoreTEXT<M, T, P, N, W> = Core<(), (), (), M, T, P, N, W>;
 
 /// A minimal representation of the TEXT+DATA+ANALYSIS segments
-pub type CoreDataset<M, T, P, N, W> = Core<Analysis, FCSDataFrame, M, T, P, N, W>;
+pub type CoreDataset<M, T, P, N, W> = Core<Analysis, FCSDataFrame, Others, M, T, P, N, W>;
 
 pub type CoreTEXT2_0 = CoreTEXT<
     InnerMetaroot2_0,
@@ -896,36 +938,40 @@ pub type CoreDataset3_2 = CoreDataset<
     Identity<Shortname>,
 >;
 
-pub type Core2_0<A, D> = Core<
+pub type Core2_0<A, D, O> = Core<
     A,
     D,
+    O,
     InnerMetaroot2_0,
     InnerTemporal2_0,
     InnerOptical2_0,
     OptionalKwFamily,
     OptionalKw<Shortname>,
 >;
-pub type Core3_0<A, D> = Core<
+pub type Core3_0<A, D, O> = Core<
     A,
     D,
+    O,
     InnerMetaroot3_0,
     InnerTemporal3_0,
     InnerOptical3_0,
     OptionalKwFamily,
     OptionalKw<Shortname>,
 >;
-pub type Core3_1<A, D> = Core<
+pub type Core3_1<A, D, O> = Core<
     A,
     D,
+    O,
     InnerMetaroot3_1,
     InnerTemporal3_1,
     InnerOptical3_1,
     IdentityFamily,
     Identity<Shortname>,
 >;
-pub type Core3_2<A, D> = Core<
+pub type Core3_2<A, D, O> = Core<
     A,
     D,
+    O,
     InnerMetaroot3_2,
     InnerTemporal3_2,
     InnerOptical3_2,
@@ -1711,9 +1757,10 @@ pub(crate) type VersionedCoreDataset<M> = CoreDataset<
     <<M as VersionedMetaroot>::N as MightHave>::Wrapper<Shortname>,
 >;
 
-pub(crate) type VersionedCore<A, D, M> = Core<
+pub(crate) type VersionedCore<A, D, O, M> = Core<
     A,
     D,
+    O,
     M,
     <M as VersionedMetaroot>::T,
     <M as VersionedMetaroot>::O,
@@ -1746,7 +1793,7 @@ macro_rules! non_time_get_set {
     };
 }
 
-impl<M, A, D> VersionedCore<A, D, M>
+impl<M, A, D, O> VersionedCore<A, D, O, M>
 where
     M: VersionedMetaroot,
     M::N: Clone,
@@ -2252,7 +2299,7 @@ where
         self,
         force: bool,
     ) -> DeferredResult<
-        VersionedCore<A, D, ToM>,
+        VersionedCore<A, D, O, ToM>,
         MetarootConvertWarning,
         VersionedConvertError<M::N, ToM::N>,
     >
@@ -2299,6 +2346,7 @@ where
                 measurements,
                 data: self.data,
                 analysis: self.analysis,
+                others: self.others,
             })
             .def_map_errors(|error| ConvertError {
                 from: M::O::fcs_version(),
@@ -2882,21 +2930,24 @@ where
         self,
         columns: Vec<AnyFCSColumn>,
         analysis: Analysis,
+        others: Others,
     ) -> Result<VersionedCoreDataset<M>, ColumsnToDataframeError> {
         let data = self.try_cols_to_dataframe(columns)?;
-        Ok(self.into_coredataset_unchecked(data, analysis))
+        Ok(self.into_coredataset_unchecked(data, analysis, others))
     }
 
     pub(crate) fn into_coredataset_unchecked(
         self,
         data: FCSDataFrame,
         analysis: Analysis,
+        others: Others,
     ) -> VersionedCoreDataset<M> {
         CoreDataset {
             metaroot: self.metaroot,
             measurements: self.measurements,
             data,
             analysis,
+            others,
         }
     }
 }
@@ -2913,6 +2964,7 @@ where
         nonstd: NonStdKeywords,
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
+        other_segs: &[OtherSegment],
         conf: &DataReadConfig,
         // TODO wrap this in a nice struct
     ) -> IODeferredResult<
@@ -2942,13 +2994,15 @@ where
                                 .def_inner_into()
                                 .def_errors_liftio();
                         data_res.def_zip(analysis_res).def_and_maybe(|(dr, ar)| {
-                            h_read_data_and_analysis(h, dr, ar)
-                                .map(|(data, analysis, d_seg, a_seg)| {
+                            let or = OthersReader { segs: other_segs };
+                            h_read_data_and_analysis(h, dr, ar, or)
+                                .map(|(data, analysis, others, d_seg, a_seg)| {
                                     let c = Core {
                                         metaroot: text.metaroot,
                                         measurements: text.measurements,
                                         data,
                                         analysis,
+                                        others,
                                     };
                                     (c, d_seg, a_seg)
                                 })
@@ -3117,6 +3171,7 @@ impl<M, T, P, N, W> CoreTEXT<M, T, P, N, W> {
             measurements: NamedVec::default(),
             data: (),
             analysis: (),
+            others: (),
         }
     }
 
@@ -3129,6 +3184,7 @@ impl<M, T, P, N, W> CoreTEXT<M, T, P, N, W> {
             measurements,
             data: (),
             analysis: (),
+            others: (),
         }
     }
 }
@@ -3317,7 +3373,7 @@ macro_rules! set_shortnames_2_0 {
     };
 }
 
-impl<A, D> Core2_0<A, D> {
+impl<A, D, O> Core2_0<A, D, O> {
     comp_methods!();
     scale_get_set!(Option<Scale>, Some(Scale::Linear));
 
@@ -3347,7 +3403,7 @@ impl<A, D> Core2_0<A, D> {
     );
 }
 
-impl<A, D> Core3_0<A, D> {
+impl<A, D, O> Core3_0<A, D, O> {
     comp_methods!();
     scale_get_set!(Scale, Scale::Linear);
 
@@ -3379,7 +3435,7 @@ impl<A, D> Core3_0<A, D> {
     );
 }
 
-impl<A, D> Core3_1<A, D> {
+impl<A, D, O> Core3_1<A, D, O> {
     scale_get_set!(Scale, Scale::Linear);
     spillover_methods!();
 
@@ -3433,7 +3489,7 @@ impl<A, D> Core3_1<A, D> {
     );
 }
 
-impl<A, D> Core3_2<A, D> {
+impl<A, D, O> Core3_2<A, D, O> {
     /// Show $UNSTAINEDCENTERS
     pub fn unstained_centers(&self) -> Option<&UnstainedCenters> {
         self.metaroot

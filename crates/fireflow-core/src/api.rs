@@ -73,6 +73,7 @@ pub fn fcs_read_raw_dataset(
                 &raw.keywords.std,
                 raw.parse.header_segments.data,
                 raw.parse.header_segments.analysis,
+                &raw.parse.header_segments.other[..],
                 conf,
             )
             .def_map_value(|dataset| RawDatasetOutput { text: raw, dataset })
@@ -99,6 +100,7 @@ pub fn fcs_read_raw_dataset_with_keywords(
     std: &StdKeywords,
     data_seg: HeaderDataSegment,
     analysis_seg: HeaderAnalysisSegment,
+    other_segs: Vec<OtherSegment>,
     conf: &DataReadConfig,
 ) -> IOTerminalResult<
     RawDatasetWithKwsOutput,
@@ -112,7 +114,15 @@ pub fn fcs_read_raw_dataset_with_keywords(
         .into_deferred()
         .def_and_maybe(|file| {
             let mut h = BufReader::new(file);
-            h_read_dataset_from_kws(&mut h, version, std, data_seg, analysis_seg, conf)
+            h_read_dataset_from_kws(
+                &mut h,
+                version,
+                std,
+                data_seg,
+                analysis_seg,
+                &other_segs[..],
+                conf,
+            )
         })
         .def_terminate(RawDatasetWithKwsFailure)
 }
@@ -124,6 +134,7 @@ pub fn fcs_read_std_dataset_with_keywords(
     mut kws: ValidKeywords,
     data_seg: HeaderDataSegment,
     analysis_seg: HeaderAnalysisSegment,
+    other_segs: Vec<OtherSegment>,
     conf: &DataReadConfig,
 ) -> IOTerminalResult<
     StdDatasetWithKwsOutput,
@@ -144,6 +155,7 @@ pub fn fcs_read_std_dataset_with_keywords(
                 kws.nonstd,
                 data_seg,
                 analysis_seg,
+                &other_segs[..],
                 conf,
             )
             .def_map_value(|(core, d_seg, a_seg)| StdDatasetWithKwsOutput {
@@ -229,6 +241,9 @@ pub struct RawDatasetWithKwsOutput {
 
     /// ANALYSIS output
     pub analysis: Analysis,
+
+    /// OTHER output(s)
+    pub others: Others,
 
     /// offsets used to parse DATA
     pub data_seg: AnyDataSegment,
@@ -487,6 +502,7 @@ fn h_read_dataset_from_kws<R: Read + Seek>(
     kws: &StdKeywords,
     data_seg: HeaderDataSegment,
     analysis_seg: HeaderAnalysisSegment,
+    other_segs: &[OtherSegment],
     conf: &DataReadConfig,
 ) -> IODeferredResult<RawDatasetWithKwsOutput, ReadRawDatasetWarning, DatasetWithKwsError> {
     let data_res = kws_to_data_reader(version, kws, data_seg, conf)
@@ -496,13 +512,17 @@ fn h_read_dataset_from_kws<R: Read + Seek>(
         .def_inner_into()
         .def_errors_liftio();
     data_res.def_zip(analysis_res).def_and_maybe(|(dr, ar)| {
-        h_read_data_and_analysis(h, dr, ar)
-            .map(|(data, analysis, d_seg, a_seg)| RawDatasetWithKwsOutput {
-                data,
-                analysis,
-                data_seg: d_seg,
-                analysis_seg: a_seg,
-            })
+        let or = OthersReader { segs: other_segs };
+        h_read_data_and_analysis(h, dr, ar, or)
+            .map(
+                |(data, analysis, others, d_seg, a_seg)| RawDatasetWithKwsOutput {
+                    data,
+                    analysis,
+                    others,
+                    data_seg: d_seg,
+                    analysis_seg: a_seg,
+                },
+            )
             .into_deferred()
             .def_map_errors(|e: ImpureError<ReadDataError>| e.inner_into())
     })
@@ -569,6 +589,7 @@ impl RawTEXTOutput {
             kws.nonstd,
             self.parse.header_segments.data,
             self.parse.header_segments.analysis,
+            &self.parse.header_segments.other[..],
             conf,
         )
         .def_map_value(|(core, data_seg, analysis_seg)| StdDatasetOutput {

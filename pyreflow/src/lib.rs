@@ -65,6 +65,8 @@ fn py_read_fcs_header(
         text: OffsetCorrection::new(begin_text, end_text),
         data: OffsetCorrection::new(begin_data, end_data),
         analysis: OffsetCorrection::new(begin_analysis, end_analysis),
+        // TODO addme
+        other: vec![],
     };
     fcs_read_header(&p, &conf)
         .map_err(handle_failure_nowarn)
@@ -142,6 +144,8 @@ fn py_read_fcs_raw_text(
         text: OffsetCorrection::new(begin_text, end_text),
         data: OffsetCorrection::new(begin_data, end_data),
         analysis: OffsetCorrection::new(begin_analysis, end_analysis),
+        // TODO addme
+        other: vec![],
     };
 
     let conf = RawTextReadConfig {
@@ -274,6 +278,8 @@ fn py_read_fcs_std_text(
         text: OffsetCorrection::new(begin_text, end_text),
         data: OffsetCorrection::new(begin_data, end_data),
         analysis: OffsetCorrection::new(begin_analysis, end_analysis),
+        // TODO addme
+        other: vec![],
     };
 
     let raw = RawTextReadConfig {
@@ -458,6 +464,8 @@ fn py_read_fcs_file(
         text: OffsetCorrection::new(header_begin_text, header_end_text),
         data: OffsetCorrection::new(header_begin_data, header_end_data),
         analysis: OffsetCorrection::new(header_begin_analysis, header_end_analysis),
+        // TODO addme
+        other: vec![],
     };
 
     let raw = RawTextReadConfig {
@@ -756,6 +764,17 @@ impl PyHeader {
     #[getter]
     fn analysis(&self) -> PySegment {
         self.0.segments.analysis.inner.into()
+    }
+
+    #[getter]
+    fn other(&self) -> Vec<PySegment> {
+        self.0
+            .segments
+            .other
+            .iter()
+            .copied()
+            .map(|x| x.inner.into())
+            .collect()
     }
 }
 
@@ -2016,6 +2035,16 @@ macro_rules! coredata_meas_get_set {
                 fn set_analysis(&mut self, xs: Vec<u8>) {
                     self.0.analysis = xs.into();
                 }
+
+                #[getter]
+                fn others(&self) -> Vec<Vec<u8>> {
+                    self.0.others.0.clone().into_iter().map(|x| x.0).collect()
+                }
+
+                #[setter]
+                fn set_others(&mut self, xs: Vec<Vec<u8>>) {
+                    self.0.others = Others(xs.into_iter().map(Other).collect());
+                }
             }
         )*
 
@@ -2876,18 +2905,27 @@ meas_get_set!(
     PyCoreDataset3_2
 );
 
-// Add method to convert CoreTEXT* to CoreDataset* by adding DATA and ANALYSIS
-// (all versions)
+// Add method to convert CoreTEXT* to CoreDataset* by adding DATA, ANALYSIS, and
+// OTHER(s) (all versions)
 macro_rules! to_dataset_method {
     ($from:ident, $to:ident) => {
         #[pymethods]
         impl $from {
-            fn to_dataset(&self, df: PyDataFrame, analysis: Vec<u8>) -> PyResult<$to> {
+            fn to_dataset(
+                &self,
+                df: PyDataFrame,
+                analysis: Vec<u8>,
+                others: Vec<Vec<u8>>,
+            ) -> PyResult<$to> {
                 let cols = dataframe_to_fcs(df.into())
                     .map_err(|e| PyreflowException::new_err(e.to_string()))?;
                 self.0
                     .clone()
-                    .into_coredataset(cols, analysis.into())
+                    .into_coredataset(
+                        cols,
+                        analysis.into(),
+                        Others(others.into_iter().map(|x| x.into()).collect()),
+                    )
                     .map_err(|e| PyreflowException::new_err(e.to_string()))
                     .map(|df| df.into())
             }

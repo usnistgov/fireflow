@@ -25,13 +25,28 @@ pub struct AnalysisReader {
     pub seg: AnyAnalysisSegment,
 }
 
+pub struct OthersReader<'a> {
+    pub segs: &'a [OtherSegment],
+}
+
 impl AnalysisReader {
     pub(crate) fn h_read<R: Read + Seek>(&self, h: &mut BufReader<R>) -> io::Result<Analysis> {
         let mut buf = vec![];
-        h.seek(SeekFrom::Start(u64::from(self.seg.inner.begin())))?;
-        h.take(u64::from(self.seg.inner.len()))
-            .read_to_end(&mut buf)?;
+        self.seg.inner.h_read(h, &mut buf)?;
         Ok(buf.into())
+    }
+}
+
+impl<'a> OthersReader<'a> {
+    pub(crate) fn h_read<R: Read + Seek>(&self, h: &mut BufReader<R>) -> io::Result<Others> {
+        let mut buf = vec![];
+        let mut others = vec![];
+        for s in self.segs.iter() {
+            s.inner.h_read(h, &mut buf)?;
+            others.push(Other(buf.clone()));
+            buf.clear();
+        }
+        Ok(Others(others))
     }
 }
 
@@ -2844,11 +2859,22 @@ pub(crate) fn h_read_data_and_analysis<R: Read + Seek>(
     h: &mut BufReader<R>,
     data_reader: DataReader,
     analysis_reader: AnalysisReader,
-) -> IOResult<(FCSDataFrame, Analysis, AnyDataSegment, AnyAnalysisSegment), ReadDataError> {
+    others_reader: OthersReader,
+) -> IOResult<
+    (
+        FCSDataFrame,
+        Analysis,
+        Others,
+        AnyDataSegment,
+        AnyAnalysisSegment,
+    ),
+    ReadDataError,
+> {
     let dseg = data_reader.seg;
     let data = data_reader.h_read(h)?;
     let analysis = analysis_reader.h_read(h)?;
-    Ok((data, analysis, dseg, analysis_reader.seg))
+    let others = others_reader.h_read(h)?;
+    Ok((data, analysis, others, dseg, analysis_reader.seg))
 }
 
 enum_from_disp!(

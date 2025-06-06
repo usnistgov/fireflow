@@ -99,6 +99,12 @@ pub struct HeaderConfig {
 
     /// Corrections for ANALYSIS segment
     pub analysis: HeaderCorrection<AnalysisSegmentId>,
+
+    /// Corrections for OTHER segments if they exist
+    ///
+    /// Each correction will be applied in order. If an offset does not need
+    /// to be corrected, use 0,0.
+    pub other: Vec<HeaderCorrection<OtherSegmentId>>,
 }
 
 /// Instructions for reading the TEXT segment as raw key/value pairs.

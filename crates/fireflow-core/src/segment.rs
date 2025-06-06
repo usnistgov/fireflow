@@ -187,7 +187,7 @@ where
                 if enforce_lookup {
                     Err(f)
                 } else {
-                    let mut tnt = f.into_tentative(default.into_any());
+                    let mut tnt = f.unfail_with(default.into_any());
                     tnt.push_warning(SegmentDefaultWarning::default().into());
                     Ok(tnt)
                 }

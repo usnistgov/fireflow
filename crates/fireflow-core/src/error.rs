@@ -48,6 +48,8 @@ pub enum Failure<E, T> {
 /// Result which may have at least one error
 pub type DeferredResult<V, W, E> = Result<Tentative<V, W, E>, DeferredFailure<(), W, E>>;
 
+pub type BiDeferredResult<V, E> = DeferredResult<V, E, E>;
+
 /// Result which may have at least one error (with passthru)
 pub type PassthruResult<V, P, W, E> = Result<Tentative<V, W, E>, DeferredFailure<P, W, E>>;
 
@@ -848,7 +850,7 @@ impl<W, E> DeferredFailure<(), W, E> {
         }
     }
 
-    pub fn into_tentative<V>(self, value: V) -> Tentative<V, W, E> {
+    pub fn unfail_with<V>(self, value: V) -> Tentative<V, W, E> {
         Tentative::new(value, self.warnings, self.errors.into_iter().collect())
     }
 }
@@ -1160,6 +1162,8 @@ pub trait DeferredExt: Sized {
         F: FnOnce(Self::V) -> Result<X, Self::E>;
 
     fn def_terminate<T>(self, reason: T) -> TerminalResult<Self::V, Self::W, Self::E, T>;
+
+    fn def_unfail(self) -> Tentative<Option<Self::V>, Self::W, Self::E>;
 }
 
 impl<V, W, E> DeferredExt for DeferredResult<V, W, E> {
@@ -1205,6 +1209,10 @@ impl<V, W, E> DeferredExt for DeferredResult<V, W, E> {
             Ok(t) => t.terminate(reason),
             Err(e) => Err(e.terminate(reason)),
         }
+    }
+
+    fn def_unfail(self) -> Tentative<Option<Self::V>, Self::W, Self::E> {
+        self.map_or_else(|fail| fail.unfail_with(None), |tnt| tnt.map(Some))
     }
 }
 

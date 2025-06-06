@@ -4104,6 +4104,65 @@ impl AppliedGates3_0 {
             .filter(|i| usize::from(*i) > n);
         NonEmpty::collect(it).map_or(Ok(()), |xs| Err(GateMeasurementLinkError(xs)))
     }
+
+    fn try_into_2_0(
+        self,
+        lossless: bool,
+    ) -> BiDeferredResult<AppliedGates2_0, AppliedGates3_0To2_0Error> {
+        let (rs, es): (Vec<_>, Vec<_>) = self
+            .regions
+            .regions
+            .into_iter()
+            .map(|(ri, r)| r.try_map(|i| i.try_into()).map(|x| (ri, x)))
+            .partition_result();
+        let gr_res = NonEmpty::from_vec(rs)
+            .map(|regions| GatingRegions {
+                regions,
+                gating: self.regions.gating,
+            })
+            .ok_or(AppliedGates3_0To2_0Error::NoRegions);
+        let gms_res =
+            NonEmpty::from_vec(self.gated_measurements).ok_or(AppliedGates3_0To2_0Error::NoGates);
+        let mut res = gr_res
+            .zip(gms_res)
+            .mult_to_deferred()
+            .def_map_value(|(regions, gs)| AppliedGates2_0 {
+                gated_measurements: GatedMeasurements(gs),
+                regions,
+            });
+        for e in es {
+            res.def_push_error_or_warning(AppliedGates3_0To2_0Error::Index(e), lossless);
+        }
+        res
+    }
+
+    fn try_into_3_2(
+        self,
+        lossless: bool,
+    ) -> BiDeferredResult<AppliedGates3_2, AppliedGates3_0To3_2Error> {
+        let (rs, es): (Vec<_>, Vec<_>) = self
+            .regions
+            .regions
+            .into_iter()
+            .map(|(ri, r)| r.try_map(|i| i.try_into()).map(|x| (ri, x)))
+            .partition_result();
+        let mut res = NonEmpty::from_vec(rs)
+            .map(|regions| GatingRegions {
+                regions,
+                gating: self.regions.gating,
+            })
+            .ok_or(AppliedGates3_0To3_2Error::NoRegions)
+            .map(|regions| AppliedGates3_2 { regions })
+            .into_deferred();
+        for e in es {
+            res.def_push_error_or_warning(AppliedGates3_0To3_2Error::Index(e), lossless);
+        }
+        let n_gates = self.gated_measurements.len();
+        if n_gates > 0 {
+            res.def_push_error_or_warning(AppliedGates3_0To3_2Error::HasGates(n_gates), lossless);
+        }
+        res
+    }
 }
 
 impl AppliedGates3_2 {
@@ -4221,18 +4280,6 @@ impl<I> GatingRegions<I> {
             gating: self.gating,
             regions: self.regions.map(|(ri, r)| (ri, r.inner_into())),
         }
-    }
-
-    fn try_inner_into<J, E>(self) -> Result<GatingRegions<J>, E>
-    where
-        J: TryFrom<I, Error = E>,
-    {
-        Ok(GatingRegions {
-            gating: self.gating,
-            regions: self
-                .regions
-                .try_map(|(ri, r)| r.try_map(|i| i.try_into()).map(|x| (ri, x)))?,
-        })
     }
 }
 
@@ -4436,41 +4483,6 @@ impl From<AppliedGates2_0> for AppliedGates3_0 {
         Self {
             gated_measurements: value.gated_measurements.0.into(),
             regions: value.regions.inner_into(),
-        }
-    }
-}
-
-// TODO emit a warning if we "lose" anything
-impl TryFrom<AppliedGates3_0> for AppliedGates2_0 {
-    type Error = AppliedGates3_0To2_0Error;
-    fn try_from(value: AppliedGates3_0) -> Result<Self, Self::Error> {
-        let regions = value
-            .regions
-            .try_inner_into()
-            .map_err(AppliedGates3_0To2_0Error::Index)?;
-        if let Some(gs) = NonEmpty::from_vec(value.gated_measurements) {
-            Ok(Self {
-                gated_measurements: GatedMeasurements(gs),
-                regions,
-            })
-        } else {
-            Err(AppliedGates3_0To2_0Error::NoGates)
-        }
-    }
-}
-
-// TODO emit a warning if we "lose" anything
-impl TryFrom<AppliedGates3_0> for AppliedGates3_2 {
-    type Error = AppliedGates3_0To3_2Error;
-    fn try_from(value: AppliedGates3_0) -> Result<Self, Self::Error> {
-        let regions = value
-            .regions
-            .try_inner_into()
-            .map_err(AppliedGates3_0To3_2Error::Index)?;
-        if value.gated_measurements.is_empty() {
-            Ok(Self { regions })
-        } else {
-            Err(AppliedGates3_0To3_2Error::HasGates)
         }
     }
 }
@@ -5100,12 +5112,9 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
             value
                 .applied_gates
                 .0
-                .map(|x| x.try_into())
-                .transpose()
-                .map_or_else(
-                    |w| Tentative::new_either(None, vec![w], lossless),
-                    Tentative::new1,
-                )
+                .map_or(Tentative::new1(None), |x| {
+                    x.try_into_2_0(lossless).def_unfail().inner_into()
+                })
                 .map(|ag| Self {
                     mode: value.mode,
                     byteord: value.byteord,
@@ -5139,12 +5148,9 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot2_0 {
             value
                 .applied_gates
                 .0
-                .map(|x| x.try_into())
-                .transpose()
-                .map_or_else(
-                    |w| Tentative::new_either(None, vec![w], lossless),
-                    Tentative::new1,
-                )
+                .map_or(Tentative::new1(None), |x| {
+                    x.try_into_2_0(lossless).def_unfail().inner_into()
+                })
                 .and_maybe(|ag| {
                     endian
                         .try_as_byteord()
@@ -5421,12 +5427,9 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
             value
                 .applied_gates
                 .0
-                .map(|x| x.try_into())
-                .transpose()
-                .map_or_else(
-                    |w| Tentative::new_either(None, vec![w], lossless),
-                    Tentative::new1,
-                )
+                .map_or(Tentative::new1(None), |x| {
+                    x.try_into_3_2(lossless).def_unfail().inner_into()
+                })
                 .and_maybe(|ag| {
                     let b = value.byteord.try_into().into_deferred();
                     let c = value.cyt.0.ok_or(NoCytError).into_deferred();
@@ -5466,15 +5469,9 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
             .map(|ss| ss.check_loss(lossless))
             .unwrap_or(Tentative::new1(()))
             .inner_into();
-        let a = value
-            .applied_gates
-            .0
-            .map(|x| x.try_into())
-            .transpose()
-            .map_or_else(
-                |w| Tentative::new_either(None, vec![w], lossless),
-                Tentative::new1,
-            );
+        let a = value.applied_gates.0.map_or(Tentative::new1(None), |x| {
+            x.try_into_3_2(lossless).def_unfail().inner_into()
+        });
         let mut res = ss.zip(a).and_maybe(|(_, ag)| {
             value
                 .cyt
@@ -5624,7 +5621,6 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal2_0 {
         let di = check_indexed_key_transfer_own(value.display, j, !force);
         let m = check_indexed_key_transfer_own(value.measurement_type, j, !force);
         let t = check_timestep(value.timestep, force);
-        // TODO warn peak
         dt.zip3(di, m).inner_into().zip(t).map(|_| Self {
             peak: PeakData::default(),
             scale: Some(TemporalScale).into(),
@@ -5671,7 +5667,6 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal3_0 {
             check_indexed_key_transfer_own::<_, AnyMeasKeyLossError>(value.datatype, j, !force);
         let di = check_indexed_key_transfer_own(value.display, j, !force);
         let m = check_indexed_key_transfer_own(value.measurement_type, j, !force);
-        // TODO warn peak
         dt.zip3(di, m).inner_into().map(|_| Self {
             timestep: value.timestep,
             peak: PeakData::default(),
@@ -5717,7 +5712,6 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal3_1 {
         let dt =
             check_indexed_key_transfer_own::<_, AnyMeasKeyLossError>(value.datatype, j, !force);
         let m = check_indexed_key_transfer_own(value.measurement_type, j, !force);
-        // TODO warn peak
         dt.zip(m).inner_into().map(|_| Self {
             timestep: value.timestep,
             display: value.display,
@@ -5728,12 +5722,11 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal3_1 {
 
 impl ConvertFromTemporal<InnerTemporal2_0> for InnerTemporal3_2 {
     fn convert_from_temporal(
-        _: InnerTemporal2_0,
-        _: MeasIndex,
-        _: bool,
+        value: InnerTemporal2_0,
+        i: MeasIndex,
+        force: bool,
     ) -> TemporalConvertTentative<Self> {
-        // TODO warn peak
-        Tentative::new1(Self {
+        value.peak.check_loss(i, !force).inner_into().map(|_| Self {
             timestep: Timestep::default(),
             display: None.into(),
             measurement_type: None.into(),
@@ -5745,11 +5738,10 @@ impl ConvertFromTemporal<InnerTemporal2_0> for InnerTemporal3_2 {
 impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal3_2 {
     fn convert_from_temporal(
         value: InnerTemporal3_0,
-        _: MeasIndex,
-        _: bool,
+        i: MeasIndex,
+        force: bool,
     ) -> TemporalConvertTentative<Self> {
-        // TODO warn peak
-        Tentative::new1(Self {
+        value.peak.check_loss(i, !force).inner_into().map(|_| Self {
             timestep: value.timestep,
             display: None.into(),
             measurement_type: None.into(),
@@ -5761,11 +5753,10 @@ impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal3_2 {
 impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_2 {
     fn convert_from_temporal(
         value: InnerTemporal3_1,
-        _: MeasIndex,
-        _: bool,
+        i: MeasIndex,
+        force: bool,
     ) -> TemporalConvertTentative<Self> {
-        // TODO warn peak
-        Tentative::new1(Self {
+        value.peak.check_loss(i, !force).inner_into().map(|_| Self {
             timestep: value.timestep,
             display: value.display,
             measurement_type: None.into(),
@@ -7714,6 +7705,7 @@ impl fmt::Display for Comp2_0TransferError {
 pub enum AppliedGates3_0To2_0Error {
     Index(RegionToGateIndexError),
     NoGates,
+    NoRegions,
 }
 
 impl fmt::Display for AppliedGates3_0To2_0Error {
@@ -7721,20 +7713,23 @@ impl fmt::Display for AppliedGates3_0To2_0Error {
         match self {
             Self::Index(x) => x.fmt(f),
             Self::NoGates => write!(f, "no $Gn* keywords present"),
+            Self::NoRegions => write!(f, "no valid $Rn* keywords present"),
         }
     }
 }
 
 pub enum AppliedGates3_0To3_2Error {
     Index(RegionToMeasIndexError),
-    HasGates,
+    HasGates(usize),
+    NoRegions,
 }
 
 impl fmt::Display for AppliedGates3_0To3_2Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
             Self::Index(x) => x.fmt(f),
-            Self::HasGates => write!(f, "$GATING references $Gn* keywords"),
+            Self::HasGates(n) => write!(f, "$GATING references {n} $Gn* keywords"),
+            Self::NoRegions => write!(f, "no valid $Rn* keywords present"),
         }
     }
 }

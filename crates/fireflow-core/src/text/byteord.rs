@@ -304,7 +304,7 @@ impl Width {
                 AlphaNumType::Ascii => {
                     let bytes = Bytes(4);
                     let ret =
-                        bs.map_or_else(|e| e.into_tentative(bytes), |_| Tentative::new1(bytes));
+                        bs.map_or_else(|e| e.unfail_with(bytes), |_| Tentative::new1(bytes));
                     Ok(ret)
                 }
                 AlphaNumType::Integer => bs.def_and_then(|sizes| {

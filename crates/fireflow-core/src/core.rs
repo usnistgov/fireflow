@@ -3865,6 +3865,15 @@ impl UnstainedData {
             unstainedinfo,
         })
     }
+
+    fn opt_keywords(&self) -> RawOptPairs {
+        [
+            OptMetaKey::pair(&self.unstainedcenters),
+            OptMetaKey::pair(&self.unstainedinfo),
+        ]
+        .into_iter()
+        .collect()
+    }
 }
 
 impl SubsetData {
@@ -4451,6 +4460,16 @@ impl ModificationData {
                 originality,
             })
     }
+
+    fn opt_keywords(&self) -> RawOptPairs {
+        [
+            OptMetaKey::pair(&self.last_modifier),
+            OptMetaKey::pair(&self.last_modified),
+            OptMetaKey::pair(&self.originality),
+        ]
+        .into_iter()
+        .collect()
+    }
 }
 
 impl CarrierData {
@@ -4465,6 +4484,16 @@ impl CarrierData {
                 carriertype,
             })
     }
+
+    fn opt_keywords(&self) -> RawOptPairs {
+        [
+            OptMetaKey::pair(&self.carrierid),
+            OptMetaKey::pair(&self.carriertype),
+            OptMetaKey::pair(&self.locationid),
+        ]
+        .into_iter()
+        .collect()
+    }
 }
 
 impl PlateData {
@@ -4477,6 +4506,16 @@ impl PlateData {
             platename,
             plateid,
         })
+    }
+
+    fn opt_keywords(&self) -> RawOptPairs {
+        [
+            OptMetaKey::pair(&self.wellid),
+            OptMetaKey::pair(&self.platename),
+            OptMetaKey::pair(&self.platename),
+        ]
+        .into_iter()
+        .collect()
     }
 }
 
@@ -6535,22 +6574,18 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
 
     // TODO use iterators for all this string stuff
     fn keywords_opt_inner(&self) -> RawPairs {
-        [
-            OptMetaKey::pair(&self.cyt),
-            OptMetaKey::pair(&self.timestamps.btim()),
-            OptMetaKey::pair(&self.timestamps.etim()),
-            OptMetaKey::pair(&self.timestamps.date()),
-        ]
-        .into_iter()
-        .chain(
-            self.applied_gates
-                .as_ref_opt()
-                .map(|x| x.opt_keywords())
-                .unwrap_or_default(),
-        )
-        .flat_map(|(k, v)| v.map(|x| (k, x)))
-        .chain(self.comp.as_ref_opt().map_or(vec![], |c| c.opt_keywords()))
-        .collect()
+        [OptMetaKey::pair(&self.cyt)]
+            .into_iter()
+            .chain(self.timestamps.opt_keywords())
+            .chain(
+                self.applied_gates
+                    .as_ref_opt()
+                    .map(|x| x.opt_keywords())
+                    .unwrap_or_default(),
+            )
+            .flat_map(|(k, v)| v.map(|x| (k, x)))
+            .chain(self.comp.as_ref_opt().map_or(vec![], |c| c.opt_keywords()))
+            .collect()
     }
 
     fn as_data_layout(
@@ -6639,17 +6674,14 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
     }
 
     fn keywords_opt_inner(&self) -> RawPairs {
-        let ts = &self.timestamps;
         [
             OptMetaKey::pair(&self.cyt),
             OptMetaKey::pair(&self.comp),
-            OptMetaKey::pair(&ts.btim()),
-            OptMetaKey::pair(&ts.etim()),
-            OptMetaKey::pair(&ts.date()),
             OptMetaKey::pair(&self.cytsn),
             OptMetaKey::pair(&self.unicode),
         ]
         .into_iter()
+        .chain(self.timestamps.opt_keywords())
         .chain(
             self.applied_gates
                 .as_ref_opt()
@@ -6753,25 +6785,16 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
     }
 
     fn keywords_opt_inner(&self) -> RawPairs {
-        let mdn = &self.modification;
-        let ts = &self.timestamps;
-        let pl = &self.plate;
         [
             OptMetaKey::pair(&self.cyt),
             OptMetaKey::pair(&self.spillover),
-            OptMetaKey::pair(&ts.btim()),
-            OptMetaKey::pair(&ts.etim()),
-            OptMetaKey::pair(&ts.date()),
             OptMetaKey::pair(&self.cytsn),
-            OptMetaKey::pair(&mdn.last_modifier),
-            OptMetaKey::pair(&mdn.last_modified),
-            OptMetaKey::pair(&mdn.originality),
-            OptMetaKey::pair(&pl.plateid),
-            OptMetaKey::pair(&pl.platename),
-            OptMetaKey::pair(&pl.wellid),
             OptMetaKey::pair(&self.vol),
         ]
         .into_iter()
+        .chain(self.timestamps.opt_keywords())
+        .chain(self.plate.opt_keywords())
+        .chain(self.modification.opt_keywords())
         .chain(
             self.applied_gates
                 .as_ref_opt()
@@ -6876,35 +6899,19 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
     }
 
     fn keywords_opt_inner(&self) -> RawPairs {
-        let mdn = &self.modification;
-        let ts = &self.timestamps;
-        let pl = &self.plate;
-        let car = &self.carrier;
-        let dt = &self.datetimes;
-        let us = &self.unstained;
         [
             OptMetaKey::pair(&self.spillover),
-            OptMetaKey::pair(&ts.btim()),
-            OptMetaKey::pair(&ts.etim()),
-            OptMetaKey::pair(&ts.date()),
             OptMetaKey::pair(&self.cytsn),
-            OptMetaKey::pair(&mdn.last_modifier),
-            OptMetaKey::pair(&mdn.last_modified),
-            OptMetaKey::pair(&mdn.originality),
-            OptMetaKey::pair(&pl.plateid),
-            OptMetaKey::pair(&pl.platename),
-            OptMetaKey::pair(&pl.wellid),
             OptMetaKey::pair(&self.vol),
-            OptMetaKey::pair(&car.carrierid),
-            OptMetaKey::pair(&car.carriertype),
-            OptMetaKey::pair(&car.locationid),
-            OptMetaKey::pair(&dt.begin()),
-            OptMetaKey::pair(&dt.end()),
-            OptMetaKey::pair(&us.unstainedcenters),
-            OptMetaKey::pair(&us.unstainedinfo),
             OptMetaKey::pair(&self.flowrate),
         ]
         .into_iter()
+        .chain(self.timestamps.opt_keywords())
+        .chain(self.datetimes.opt_keywords())
+        .chain(self.plate.opt_keywords())
+        .chain(self.unstained.opt_keywords())
+        .chain(self.carrier.opt_keywords())
+        .chain(self.modification.opt_keywords())
         .chain(
             self.applied_gates
                 .as_ref_opt()

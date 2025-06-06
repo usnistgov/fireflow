@@ -2,6 +2,7 @@ use crate::error::*;
 use crate::macros::{newtype_disp, newtype_from, newtype_from_outer, newtype_fromstr};
 use crate::validated::standard::*;
 
+use super::keywords::OptMetaKey;
 use super::optionalkw::*;
 use super::parser::*;
 
@@ -115,6 +116,15 @@ impl Datetimes {
                     Tentative::new(Datetimes::default(), vec![ow], vec![])
                 })
         })
+    }
+
+    pub(crate) fn opt_keywords(&self) -> Vec<(String, Option<String>)> {
+        [
+            OptMetaKey::pair(&self.begin()),
+            OptMetaKey::pair(&self.end()),
+        ]
+        .into_iter()
+        .collect()
     }
 }
 

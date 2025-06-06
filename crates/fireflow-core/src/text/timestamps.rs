@@ -177,6 +177,20 @@ where
                 })
         })
     }
+
+    pub(crate) fn opt_keywords(&self) -> Vec<(String, Option<String>)>
+    where
+        Btim<X>: OptMetaKey,
+        Etim<X>: OptMetaKey,
+    {
+        [
+            OptMetaKey::pair(&self.btim()),
+            OptMetaKey::pair(&self.etim()),
+            OptMetaKey::pair(&self.date()),
+        ]
+        .into_iter()
+        .collect()
+    }
 }
 
 pub struct ReversedTimestamps;

@@ -19,7 +19,6 @@ use super::spillover::*;
 use super::timestamps::*;
 use super::unstainedcenters::*;
 
-use nalgebra::DMatrix;
 use std::convert::Infallible;
 use std::fmt;
 use std::num::{ParseFloatError, ParseIntError};

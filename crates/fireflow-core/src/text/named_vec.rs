@@ -477,6 +477,7 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
     }
 
     /// Apply function over center value, possibly changing it's type
+    #[allow(clippy::type_complexity)]
     pub fn map_center_value<F, X, W, E>(
         self,
         f: F,

@@ -3891,10 +3891,7 @@ impl UnstainedData {
         .collect()
     }
 
-    fn check_loss(
-        self,
-        lossless: bool,
-    ) -> Tentative<(), AnyMetarootKeyLossError, AnyMetarootKeyLossError> {
+    fn check_loss(self, lossless: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
         let c = check_key_transfer(self.unstainedcenters, lossless);
         let i = check_key_transfer(self.unstainedinfo, lossless);
         c.zip(i).void()
@@ -3924,6 +3921,20 @@ impl SubsetData {
             .map(|(i, f)| OptIndexedKey::pair(f, i.into()))
             .chain([OptMetaKey::pair(&self.bits), OptMetaKey::pair(&m)])
             .collect()
+    }
+
+    fn check_loss(self, lossless: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
+        let b = check_key_transfer(self.bits, lossless);
+        let xs = self
+            .flags
+            .into_iter()
+            .enumerate()
+            .map(|(i, f)| check_indexed_key_transfer_own(f, i.into(), lossless))
+            .collect();
+        let fs = Tentative::mconcat(xs);
+        let mut tnt = b.zip(fs).void();
+        tnt.push_error_or_warning(UnitaryKeyLossError::<CSMode>::default(), lossless);
+        tnt
     }
 }
 
@@ -4496,10 +4507,7 @@ impl ModificationData {
         .collect()
     }
 
-    fn check_loss(
-        self,
-        lossless: bool,
-    ) -> Tentative<(), AnyMetarootKeyLossError, AnyMetarootKeyLossError> {
+    fn check_loss(self, lossless: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
         let d = check_key_transfer(self.last_modified, lossless);
         let r = check_key_transfer(self.last_modifier, lossless);
         let o = check_key_transfer(self.originality, lossless);
@@ -4530,10 +4538,7 @@ impl CarrierData {
         .collect()
     }
 
-    fn check_loss(
-        self,
-        lossless: bool,
-    ) -> Tentative<(), AnyMetarootKeyLossError, AnyMetarootKeyLossError> {
+    fn check_loss(self, lossless: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
         let i = check_key_transfer(self.carrierid, lossless);
         let t = check_key_transfer(self.carriertype, lossless);
         let l = check_key_transfer(self.locationid, lossless);
@@ -4563,10 +4568,7 @@ impl PlateData {
         .collect()
     }
 
-    fn check_loss(
-        self,
-        lossless: bool,
-    ) -> Tentative<(), AnyMetarootKeyLossError, AnyMetarootKeyLossError> {
+    fn check_loss(self, lossless: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
         let n = check_key_transfer(self.platename, lossless);
         let i = check_key_transfer(self.plateid, lossless);
         let w = check_key_transfer(self.wellid, lossless);
@@ -4737,13 +4739,14 @@ impl ConvertFromOptical<InnerOptical3_0> for InnerOptical2_0 {
         i: MeasIndex,
         force: bool,
     ) -> OpticalConvertResult<Self> {
-        let out = check_indexed_key_transfer_own(value.gain, i.into(), !force)
-            .inner_into()
-            .map(|_| Self {
-                scale: Some(value.scale).into(),
-                wavelength: value.wavelength,
-                peak: value.peak,
-            });
+        let out =
+            check_indexed_key_transfer_own::<_, AnyMeasKeyLossError>(value.gain, i.into(), !force)
+                .inner_into()
+                .map(|_| Self {
+                    scale: Some(value.scale).into(),
+                    wavelength: value.wavelength,
+                    peak: value.peak,
+                });
         Ok(out)
     }
 }
@@ -4755,7 +4758,7 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical2_0 {
         force: bool,
     ) -> OpticalConvertResult<Self> {
         let j = i.into();
-        let g = check_indexed_key_transfer_own(value.gain, j, !force);
+        let g = check_indexed_key_transfer_own::<_, AnyMeasKeyLossError>(value.gain, j, !force);
         let c = check_indexed_key_transfer_own(value.calibration, j, !force);
         let d = check_indexed_key_transfer_own(value.display, j, !force);
         let w = convert_wavelengths(value.wavelengths, force).inner_into();
@@ -4779,7 +4782,7 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical2_0 {
         force: bool,
     ) -> OpticalConvertResult<Self> {
         let j = i.into();
-        let g = check_indexed_key_transfer_own(value.gain, j, !force);
+        let g = check_indexed_key_transfer_own::<_, AnyMeasKeyLossError>(value.gain, j, !force);
         let c = check_indexed_key_transfer_own(value.calibration, j, !force);
         let d = check_indexed_key_transfer_own(value.display, j, !force);
         let a = check_indexed_key_transfer_own(value.analyte, j, !force);
@@ -4830,7 +4833,8 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_0 {
         force: bool,
     ) -> OpticalConvertResult<Self> {
         let j = i.into();
-        let c = check_indexed_key_transfer_own(value.calibration, j, !force);
+        let c =
+            check_indexed_key_transfer_own::<_, AnyMeasKeyLossError>(value.calibration, j, !force);
         let d = check_indexed_key_transfer_own(value.display, j, !force);
         let w = convert_wavelengths(value.wavelengths, force).inner_into();
         let out = c.zip(d).inner_into().zip(w).map(|(_, wavelength)| Self {
@@ -4850,7 +4854,8 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_0 {
         force: bool,
     ) -> OpticalConvertResult<Self> {
         let j = i.into();
-        let c = check_indexed_key_transfer_own(value.calibration, j, !force);
+        let c =
+            check_indexed_key_transfer_own::<_, AnyMeasKeyLossError>(value.calibration, j, !force);
         let d = check_indexed_key_transfer_own(value.display, j, !force);
         let a = check_indexed_key_transfer_own(value.analyte, j, !force);
         let f = check_indexed_key_transfer_own(value.feature, j, !force);
@@ -4920,7 +4925,7 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical3_1 {
         force: bool,
     ) -> OpticalConvertResult<Self> {
         let j = i.into();
-        let a = check_indexed_key_transfer_own(value.analyte, j, !force);
+        let a = check_indexed_key_transfer_own::<_, AnyMeasKeyLossError>(value.analyte, j, !force);
         let f = check_indexed_key_transfer_own(value.feature, j, !force);
         let m = check_indexed_key_transfer_own(value.measurement_type, j, !force);
         let t = check_indexed_key_transfer_own(value.tag, j, !force);
@@ -5072,10 +5077,14 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
         _: ByteOrdConvert,
         lossless: bool,
     ) -> MetarootConvertResult<Self> {
-        // TODO warn if subset present
         let c = check_key_transfer(value.cytsn, lossless);
         let u = check_key_transfer(value.unicode, lossless);
-        let ret = c.zip(u).inner_into().and_tentatively(|_| {
+        let s = value
+            .subset
+            .0
+            .map(|ss| ss.check_loss(lossless))
+            .unwrap_or(Tentative::new1(()));
+        let ret = c.zip3(u, s).inner_into().and_tentatively(|_| {
             value
                 .applied_gates
                 .0
@@ -5104,13 +5113,17 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot2_0 {
         endian: EndianConvert,
         lossless: bool,
     ) -> MetarootConvertResult<Self> {
-        // TODO warn if subset present
         let c = check_key_transfer(value.cytsn, lossless);
         let v = check_key_transfer(value.vol, lossless);
         let s = check_key_transfer(value.spillover, lossless);
         let m = ModificationData::check_loss(value.modification, lossless);
         let p = PlateData::check_loss(value.plate, lossless);
-        c.zip5(v, s, m, p).inner_into().and_maybe(|_| {
+        let ss = value
+            .subset
+            .0
+            .map(|ss| ss.check_loss(lossless))
+            .unwrap_or(Tentative::new1(()));
+        c.zip6(v, s, m, p, ss).inner_into().and_maybe(|_| {
             value
                 .applied_gates
                 .0
@@ -5387,10 +5400,14 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
         _: ByteOrdConvert,
         lossless: bool,
     ) -> MetarootConvertResult<Self> {
-        // TODO warn if subset present
         let u = check_key_transfer(value.unicode, lossless);
         let co = check_key_transfer(value.comp, lossless);
-        let mut res = u.zip(co).inner_into().and_maybe(|_| {
+        let ss = value
+            .subset
+            .0
+            .map(|ss| ss.check_loss(lossless))
+            .unwrap_or(Tentative::new1(()));
+        let mut res = u.zip3(co, ss).inner_into().and_maybe(|_| {
             value
                 .applied_gates
                 .0
@@ -5433,8 +5450,13 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
         _: EndianConvert,
         lossless: bool,
     ) -> MetarootConvertResult<Self> {
-        // TODO warn if subset present
-        let mut res = value
+        let ss = value
+            .subset
+            .0
+            .map(|ss| ss.check_loss(lossless))
+            .unwrap_or(Tentative::new1(()))
+            .inner_into();
+        let a = value
             .applied_gates
             .0
             .map(|x| x.try_into())
@@ -5442,29 +5464,29 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
             .map_or_else(
                 |w| Tentative::new_either(None, vec![w], lossless),
                 Tentative::new1,
-            )
-            .and_maybe(|ag| {
-                value
-                    .cyt
-                    .0
-                    .ok_or(NoCytError)
-                    .into_deferred()
-                    .def_map_value(|cyt| Self {
-                        byteord: value.byteord,
-                        cyt,
-                        cytsn: value.cytsn,
-                        timestamps: value.timestamps,
-                        spillover: value.spillover,
-                        modification: value.modification,
-                        plate: value.plate,
-                        vol: value.vol,
-                        flowrate: None.into(),
-                        carrier: CarrierData::default(),
-                        unstained: UnstainedData::default(),
-                        datetimes: Datetimes::default(),
-                        applied_gates: ag.into(),
-                    })
-            });
+            );
+        let mut res = ss.zip(a).and_maybe(|(_, ag)| {
+            value
+                .cyt
+                .0
+                .ok_or(NoCytError)
+                .into_deferred()
+                .def_map_value(|cyt| Self {
+                    byteord: value.byteord,
+                    cyt,
+                    cytsn: value.cytsn,
+                    timestamps: value.timestamps,
+                    spillover: value.spillover,
+                    modification: value.modification,
+                    plate: value.plate,
+                    vol: value.vol,
+                    flowrate: None.into(),
+                    carrier: CarrierData::default(),
+                    unstained: UnstainedData::default(),
+                    datetimes: Datetimes::default(),
+                    applied_gates: ag.into(),
+                })
+        });
         if value.mode != Mode::List {
             res.def_push_error_or_warning(ModeNotListError, lossless);
         }
@@ -5496,13 +5518,13 @@ fn check_optical_keys_transfer<X>(
     f.zip3(o, t).mult_zip(p.zip(v)).map(|_| ())
 }
 
-fn check_indexed_key_transfer_own<T>(
+fn check_indexed_key_transfer_own<T, E>(
     x: OptionalKw<T>,
     i: IndexFromOne,
     lossless: bool,
-) -> Tentative<(), AnyMeasKeyLossError, AnyMeasKeyLossError>
+) -> BiTentative<(), E>
 where
-    AnyMeasKeyLossError: From<IndexedKeyLossError<T>>,
+    E: From<IndexedKeyLossError<T>>,
 {
     let mut tnt = Tentative::new1(());
     if x.0.is_some() {
@@ -5567,7 +5589,12 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal2_0 {
         force: bool,
     ) -> TemporalConvertTentative<Self> {
         let t = check_timestep(value.timestep, force);
-        let d = check_indexed_key_transfer_own(value.display, i.into(), !force).inner_into();
+        let d = check_indexed_key_transfer_own::<_, AnyMeasKeyLossError>(
+            value.display,
+            i.into(),
+            !force,
+        )
+        .inner_into();
         t.zip(d).map(|_| Self {
             peak: value.peak,
             scale: Some(TemporalScale).into(),
@@ -5582,7 +5609,8 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal2_0 {
         force: bool,
     ) -> TemporalConvertTentative<Self> {
         let j = i.into();
-        let dt = check_indexed_key_transfer_own(value.datatype, j, !force);
+        let dt =
+            check_indexed_key_transfer_own::<_, AnyMeasKeyLossError>(value.datatype, j, !force);
         let di = check_indexed_key_transfer_own(value.display, j, !force);
         let m = check_indexed_key_transfer_own(value.measurement_type, j, !force);
         let t = check_timestep(value.timestep, force);
@@ -5613,7 +5641,7 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_0 {
         i: MeasIndex,
         force: bool,
     ) -> TemporalConvertTentative<Self> {
-        check_indexed_key_transfer_own(value.display, i.into(), !force)
+        check_indexed_key_transfer_own::<_, AnyMeasKeyLossError>(value.display, i.into(), !force)
             .inner_into()
             .map(|_| Self {
                 timestep: value.timestep,
@@ -5629,7 +5657,8 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal3_0 {
         force: bool,
     ) -> TemporalConvertTentative<Self> {
         let j = i.into();
-        let dt = check_indexed_key_transfer_own(value.datatype, j, !force);
+        let dt =
+            check_indexed_key_transfer_own::<_, AnyMeasKeyLossError>(value.datatype, j, !force);
         let di = check_indexed_key_transfer_own(value.display, j, !force);
         let m = check_indexed_key_transfer_own(value.measurement_type, j, !force);
         // TODO warn peak
@@ -5675,7 +5704,8 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal3_1 {
         force: bool,
     ) -> TemporalConvertTentative<Self> {
         let j = i.into();
-        let dt = check_indexed_key_transfer_own(value.datatype, j, !force);
+        let dt =
+            check_indexed_key_transfer_own::<_, AnyMeasKeyLossError>(value.datatype, j, !force);
         let m = check_indexed_key_transfer_own(value.measurement_type, j, !force);
         // TODO warn peak
         dt.zip(m).inner_into().map(|_| Self {
@@ -7509,7 +7539,7 @@ impl fmt::Display for NoScaleError {
 
 enum_from_disp!(
     pub ReplaceTemporalError,
-    [FromTemp, TemporalToOpticalError],
+    [ToOptical, TemporalToOpticalError],
     [Set, SetCenterError]
 );
 
@@ -7603,7 +7633,10 @@ enum_from_disp!(
     [UnstainedInfo,    UnitaryKeyLossError<UnstainedInfo>],
     [Begindatetime,    UnitaryKeyLossError<BeginDateTime>],
     [Enddatetime,      UnitaryKeyLossError<EndDateTime>],
-    [Spillover,        UnitaryKeyLossError<Spillover>]
+    [Spillover,        UnitaryKeyLossError<Spillover>],
+    [CSMode,           UnitaryKeyLossError<CSMode>],
+    [CSVBits,          UnitaryKeyLossError<CSVBits>],
+    [CSVFlag,          IndexedKeyLossError<CSVFlag>]
 );
 
 enum_from_disp!(

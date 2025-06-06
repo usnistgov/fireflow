@@ -61,6 +61,9 @@ pub struct Tentative<V, W, E> {
     errors: Vec<E>,
 }
 
+/// Tentative where both error and warning are the same type
+pub type BiTentative<V, T> = Tentative<V, T, T>;
+
 /// Result which has 1+ errors, 0+ warnings, and the input type.
 ///
 /// Passthru is meant to hold the input type for the failed computation such

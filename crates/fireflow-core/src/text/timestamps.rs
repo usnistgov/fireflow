@@ -1,6 +1,10 @@
+use crate::error::*;
 use crate::macros::{newtype_from, newtype_from_outer};
+use crate::validated::standard::*;
 
+use super::keywords::OptMetaKey;
 use super::optionalkw::*;
+use super::parser::*;
 
 use chrono::{NaiveDate, NaiveTime, Timelike};
 use once_cell::sync::Lazy;
@@ -152,6 +156,26 @@ where
         } else {
             true
         }
+    }
+
+    pub(crate) fn lookup<E>(kws: &mut StdKeywords, dep: bool) -> LookupTentative<Self, E>
+    where
+        Btim<X>: OptMetaKey,
+        Etim<X>: OptMetaKey,
+        ParseOptKeyWarning: From<<Btim<X> as FromStr>::Err>,
+        ParseOptKeyWarning: From<<Etim<X> as FromStr>::Err>,
+    {
+        let b = lookup_meta_opt(kws, dep);
+        let e = lookup_meta_opt(kws, dep);
+        let d = lookup_meta_opt(kws, dep);
+        b.zip3(e, d).and_tentatively(|(btim, etim, date)| {
+            Timestamps::new(btim, etim, date)
+                .map(Tentative::new1)
+                .unwrap_or_else(|w| {
+                    let ow = LookupKeysWarning::Relation(w.into());
+                    Tentative::new(Timestamps::default(), vec![ow], vec![])
+                })
+        })
     }
 }
 

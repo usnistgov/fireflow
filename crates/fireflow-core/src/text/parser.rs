@@ -20,7 +20,6 @@ use super::timestamps::*;
 use super::unstainedcenters::*;
 
 use nalgebra::DMatrix;
-use nonempty::NonEmpty;
 use std::convert::Infallible;
 use std::fmt;
 use std::num::{ParseFloatError, ParseIntError};
@@ -85,82 +84,6 @@ where
     x
 }
 
-pub(crate) fn lookup_timestamps<T, E>(
-    kws: &mut StdKeywords,
-    dep: bool,
-) -> LookupTentative<Timestamps<T>, E>
-where
-    T: PartialOrd,
-    T: Copy,
-    Btim<T>: OptMetaKey,
-    Etim<T>: OptMetaKey,
-    ParseOptKeyWarning: From<<Btim<T> as FromStr>::Err>,
-    ParseOptKeyWarning: From<<Etim<T> as FromStr>::Err>,
-{
-    let b = lookup_meta_opt(kws, dep);
-    let e = lookup_meta_opt(kws, dep);
-    let d = lookup_meta_opt(kws, dep);
-    b.zip3(e, d).and_tentatively(|(btim, etim, date)| {
-        Timestamps::new(btim, etim, date)
-            .map(Tentative::new1)
-            .unwrap_or_else(|w| {
-                let ow = LookupKeysWarning::Relation(w.into());
-                Tentative::new(Timestamps::default(), vec![ow], vec![])
-            })
-    })
-}
-
-pub(crate) fn lookup_datetimes<E>(kws: &mut StdKeywords) -> LookupTentative<Datetimes, E> {
-    let b = lookup_meta_opt(kws, false);
-    let e = lookup_meta_opt(kws, false);
-    b.zip(e).and_tentatively(|(begin, end)| {
-        Datetimes::try_new(begin, end)
-            .map(Tentative::new1)
-            .unwrap_or_else(|w| {
-                let ow = LookupKeysWarning::Relation(w.into());
-                Tentative::new(Datetimes::default(), vec![ow], vec![])
-            })
-    })
-}
-
-pub(crate) fn lookup_modification<E>(
-    kws: &mut StdKeywords,
-) -> LookupTentative<ModificationData, E> {
-    let lmr = lookup_meta_opt(kws, false);
-    let lmd = lookup_meta_opt(kws, false);
-    let ori = lookup_meta_opt(kws, false);
-    lmr.zip3(lmd, ori).map(
-        |(last_modifier, last_modified, originality)| ModificationData {
-            last_modifier,
-            last_modified,
-            originality,
-        },
-    )
-}
-
-pub(crate) fn lookup_plate<E>(kws: &mut StdKeywords, dep: bool) -> LookupTentative<PlateData, E> {
-    let w = lookup_meta_opt(kws, dep);
-    let n = lookup_meta_opt(kws, dep);
-    let i = lookup_meta_opt(kws, dep);
-    w.zip3(n, i).map(|(wellid, platename, plateid)| PlateData {
-        wellid,
-        platename,
-        plateid,
-    })
-}
-
-pub(crate) fn lookup_carrier<E>(kws: &mut StdKeywords) -> LookupTentative<CarrierData, E> {
-    let l = lookup_meta_opt(kws, false);
-    let i = lookup_meta_opt(kws, false);
-    let t = lookup_meta_opt(kws, false);
-    l.zip3(i, t)
-        .map(|(locationid, carrierid, carriertype)| CarrierData {
-            locationid,
-            carrierid,
-            carriertype,
-        })
-}
-
 pub(crate) fn lookup_compensation_2_0<E>(
     kws: &mut StdKeywords,
     par: Par,
@@ -212,61 +135,6 @@ pub(crate) fn lookup_dfc(
             })
             .map(Some)
     })
-}
-
-pub(crate) fn lookup_gated_measurements<E>(
-    kws: &mut StdKeywords,
-    dep: bool,
-) -> LookupTentative<OptionalKw<GatedMeasurements>, E> {
-    lookup_meta_opt::<Gate, E>(kws, dep).and_tentatively(|maybe| {
-        if let Some(n) = maybe.0 {
-            // TODO this will be nicer with NonZeroUsize
-            if n.0 > 0 {
-                let xs = NonEmpty::collect(
-                    (0..n.0).map(|i| lookup_gated_measurement(kws, i.into(), dep)),
-                )
-                .unwrap();
-                return Tentative::mconcat_ne(xs).map(|x| Some(GatedMeasurements(x)).into());
-            }
-        }
-        Tentative::new1(None.into())
-    })
-}
-
-pub(crate) fn lookup_gated_measurement<E>(
-    kws: &mut StdKeywords,
-    i: GateIndex,
-    dep: bool,
-) -> LookupTentative<GatedMeasurement, E> {
-    let j = i.into();
-    let e = lookup_indexed_opt(kws, j, dep);
-    let f = lookup_indexed_opt(kws, j, dep);
-    let n = lookup_indexed_opt(kws, j, dep);
-    let p = lookup_indexed_opt(kws, j, dep);
-    let r = lookup_indexed_opt(kws, j, dep);
-    let s = lookup_indexed_opt(kws, j, dep);
-    let t = lookup_indexed_opt(kws, j, dep);
-    let v = lookup_indexed_opt(kws, j, dep);
-    e.zip4(f, n, p).zip5(r, s, t, v).map(
-        |(
-            (scale, filter, shortname, percent_emitted),
-            range,
-            longname,
-            detector_type,
-            detector_voltage,
-        )| {
-            GatedMeasurement {
-                scale,
-                filter,
-                shortname,
-                percent_emitted,
-                range,
-                longname,
-                detector_type,
-                detector_voltage,
-            }
-        },
-    )
 }
 
 pub(crate) fn lookup_temporal_gain_3_0(

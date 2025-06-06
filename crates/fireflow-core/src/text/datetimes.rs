@@ -1,6 +1,9 @@
+use crate::error::*;
 use crate::macros::{newtype_disp, newtype_from, newtype_from_outer, newtype_fromstr};
+use crate::validated::standard::*;
 
 use super::optionalkw::*;
+use super::parser::*;
 
 use chrono::{DateTime, FixedOffset};
 use serde::Serialize;
@@ -99,6 +102,19 @@ impl Datetimes {
         } else {
             true
         }
+    }
+
+    pub(crate) fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<Self, E> {
+        let b = lookup_meta_opt(kws, false);
+        let e = lookup_meta_opt(kws, false);
+        b.zip(e).and_tentatively(|(begin, end)| {
+            Datetimes::try_new(begin, end)
+                .map(Tentative::new1)
+                .unwrap_or_else(|w| {
+                    let ow = LookupKeysWarning::Relation(w.into());
+                    Tentative::new(Datetimes::default(), vec![ow], vec![])
+                })
+        })
     }
 }
 

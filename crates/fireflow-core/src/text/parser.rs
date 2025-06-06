@@ -161,13 +161,6 @@ pub(crate) fn lookup_carrier<E>(kws: &mut StdKeywords) -> LookupTentative<Carrie
         })
 }
 
-pub(crate) fn lookup_unstained<E>(kws: &mut StdKeywords) -> LookupTentative<UnstainedData, E> {
-    let c = lookup_meta_opt(kws, false);
-    let i = lookup_meta_opt(kws, false);
-    c.zip(i)
-        .map(|(centers, info)| UnstainedData::new_unchecked(centers, info))
-}
-
 pub(crate) fn lookup_compensation_2_0<E>(
     kws: &mut StdKeywords,
     par: Par,

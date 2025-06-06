@@ -3845,15 +3845,25 @@ impl CoreDataset3_2 {
 }
 
 impl UnstainedData {
-    pub(crate) fn new_unchecked(
-        us: OptionalKw<UnstainedCenters>,
-        ui: OptionalKw<UnstainedInfo>,
-    ) -> Self {
-        Self {
-            unstainedcenters: us,
-            unstainedinfo: ui,
-        }
+    fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<UnstainedData, E> {
+        let c = lookup_meta_opt(kws, false);
+        let i = lookup_meta_opt(kws, false);
+        c.zip(i)
+            .map(|(unstainedcenters, unstainedinfo)| UnstainedData {
+                unstainedcenters,
+                unstainedinfo,
+            })
     }
+
+    // pub(crate) fn new_unchecked(
+    //     us: OptionalKw<UnstainedCenters>,
+    //     ui: OptionalKw<UnstainedInfo>,
+    // ) -> Self {
+    //     Self {
+    //         unstainedcenters: us,
+    //         unstainedinfo: ui,
+    //     }
+    // }
 }
 
 impl SubsetData {
@@ -6204,7 +6214,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         let sn = lookup_meta_opt(kws, false);
         let p = lookup_plate(kws, true);
         let t = lookup_timestamps(kws, false);
-        let u = lookup_unstained(kws);
+        let u = UnstainedData::lookup(kws);
         let v = lookup_meta_opt(kws, false);
         let g = lookup_applied_gates3_2(kws);
         ca.zip6(d, f, md, mo, sp)

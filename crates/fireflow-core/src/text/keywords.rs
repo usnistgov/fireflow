@@ -1914,7 +1914,7 @@ impl Optional for PeakBin {}
 impl OptIndexedKey for PeakBin {}
 
 impl IndexedKey for PeakNumber {
-    const PREFIX: &'static str = "PKK";
+    const PREFIX: &'static str = "PKN";
     const SUFFIX: &'static str = "";
 }
 

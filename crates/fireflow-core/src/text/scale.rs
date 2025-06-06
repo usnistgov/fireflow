@@ -57,7 +57,7 @@ impl fmt::Display for Scale {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
             Scale::Log(LogScale { decades, offset }) => write!(f, "{decades},{offset}"),
-            Scale::Linear => write!(f, "Lin"),
+            Scale::Linear => write!(f, "0,0"),
         }
     }
 }

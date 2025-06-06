@@ -507,11 +507,19 @@ pub struct InnerMetaroot3_2 {
 /// Temporal measurement fields specific to version 2.0
 #[derive(Clone, Serialize, Default)]
 pub struct InnerTemporal2_0 {
+    /// Value of $PnE
+    ///
+    /// Unlike subsequent versions, included here because it is optional rather
+    /// than required and constant.
+    pub scale: OptionalKw<TemporalScale>,
+
     /// Values of $Pkn/$PKNn
     pub peak: PeakData,
 }
 
 /// Temporal measurement fields specific to version 3.0
+///
+/// $PnE is implied as linear but not included since it only has one value
 #[derive(Clone, Serialize)]
 pub struct InnerTemporal3_0 {
     /// Value for $TIMESTEP
@@ -522,6 +530,8 @@ pub struct InnerTemporal3_0 {
 }
 
 /// Temporal measurement fields specific to version 3.1
+///
+/// $PnE is implied as linear but not included since it only has one value
 #[derive(Clone, Serialize)]
 pub struct InnerTemporal3_1 {
     /// Value for $TIMESTEP
@@ -535,6 +545,8 @@ pub struct InnerTemporal3_1 {
 }
 
 /// Temporal measurement fields specific to version 3.2
+///
+/// $PnE is implied as linear but not included since it only has one value
 #[derive(Clone, Serialize)]
 pub struct InnerTemporal3_2 {
     /// Value for $TIMESTEP
@@ -3848,11 +3860,10 @@ impl UnstainedData {
     fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<Self, E> {
         let c = lookup_meta_opt(kws, false);
         let i = lookup_meta_opt(kws, false);
-        c.zip(i)
-            .map(|(unstainedcenters, unstainedinfo)| UnstainedData {
-                unstainedcenters,
-                unstainedinfo,
-            })
+        c.zip(i).map(|(unstainedcenters, unstainedinfo)| Self {
+            unstainedcenters,
+            unstainedinfo,
+        })
     }
 }
 
@@ -3863,7 +3874,7 @@ impl SubsetData {
                 let it = (0..n.0).map(|i| lookup_indexed_opt::<CSVFlag, _>(kws, i.into(), dep));
                 Tentative::mconcat_ne(NonEmpty::collect(it).unwrap()).and_tentatively(|flags| {
                     lookup_meta_opt::<CSVBits, _>(kws, dep)
-                        .map(|bits| Some(SubsetData { flags, bits }).into())
+                        .map(|bits| Some(Self { flags, bits }).into())
                 })
             } else {
                 Tentative::new1(None.into())
@@ -3959,7 +3970,7 @@ impl AppliedGates2_0 {
         let gm = GatedMeasurements::lookup(kws, false);
         ag.zip(gm).and_tentatively(|(x, y)| {
             if let Some((applied, gated_measurements)) = x.0.zip(y.0) {
-                let ret = AppliedGates2_0 {
+                let ret = Self {
                     gated_measurements,
                     regions: applied,
                 };
@@ -4007,7 +4018,7 @@ impl AppliedGates3_0 {
         let gm = GatedMeasurements::lookup(kws, dep);
         ag.zip(gm).and_tentatively(|(x, y)| {
             if let Some(applied) = x.0 {
-                let ret = AppliedGates3_0 {
+                let ret = Self {
                     gated_measurements: y.0.map(|z| z.0.into()).unwrap_or_default(),
                     regions: applied,
                 };
@@ -4053,7 +4064,7 @@ impl AppliedGates3_0 {
 impl AppliedGates3_2 {
     fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<OptionalKw<Self>, E> {
         GatingRegions::lookup(kws, true, |k, i| Region::lookup(k, i, true))
-            .map(|x| x.map(|regions| AppliedGates3_2 { regions }))
+            .map(|x| x.map(|regions| Self { regions }))
     }
 
     pub(crate) fn opt_keywords(&self) -> RawOptPairs {
@@ -4130,8 +4141,9 @@ impl<I> GatingRegions<I> {
                             .ok_or(GateRegionLinkError.into())
                     });
                     match res {
-                        Ok(xs) => Tentative::mconcat_ne(xs)
-                            .map(|regions| Some(GatingRegions { regions, gating })),
+                        Ok(xs) => {
+                            Tentative::mconcat_ne(xs).map(|regions| Some(Self { regions, gating }))
+                        }
                         Err(w) => {
                             Tentative::new(None, vec![LookupKeysWarning::Relation(w)], vec![])
                         }
@@ -4211,7 +4223,7 @@ impl<I> Region<I> {
         n.zip(w)
             .and_tentatively(|(_n, _y)| {
                 _n.0.zip(_y.0)
-                    .and_then(|(gi, win)| Region::try_new(gi, win).map(|x| x.inner_into()))
+                    .and_then(|(gi, win)| Self::try_new(gi, win).map(|x| x.inner_into()))
                     .map_or_else(
                         || {
                             let warn =
@@ -5486,7 +5498,10 @@ impl ConvertFromTemporal<InnerTemporal3_0> for InnerTemporal2_0 {
         _: MeasIndex,
         force: bool,
     ) -> TemporalConvertTentative<Self> {
-        check_timestep(value.timestep, force).map(|_| Self { peak: value.peak })
+        check_timestep(value.timestep, force).map(|_| Self {
+            peak: value.peak,
+            scale: Some(TemporalScale).into(),
+        })
     }
 }
 
@@ -5498,7 +5513,10 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal2_0 {
     ) -> TemporalConvertTentative<Self> {
         let t = check_timestep(value.timestep, force);
         let d = check_indexed_key_transfer_own(value.display, i.into(), !force).inner_into();
-        t.zip(d).map(|_| Self { peak: value.peak })
+        t.zip(d).map(|_| Self {
+            peak: value.peak,
+            scale: Some(TemporalScale).into(),
+        })
     }
 }
 
@@ -5516,6 +5534,7 @@ impl ConvertFromTemporal<InnerTemporal3_2> for InnerTemporal2_0 {
         // TODO warn peak
         dt.zip3(di, m).inner_into().zip(t).map(|_| Self {
             peak: PeakData::default(),
+            scale: Some(TemporalScale).into(),
         })
     }
 }
@@ -5778,16 +5797,9 @@ impl LookupOptical for InnerOptical3_2 {
 impl LookupTemporal for InnerTemporal2_0 {
     fn lookup_specific(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
         // TODO push meas index with error
-        let mut tnt_scale = lookup_indexed_opt::<Scale, LookupKeysError>(kws, i.into(), false);
-        tnt_scale.eval_error(|scale| {
-            if scale.0.is_some_and(|x| x != Scale::Linear) {
-                Some(LookupKeysError::Misc(TemporalError::NonLinear.into()))
-            } else {
-                None
-            }
-        });
+        let s = lookup_indexed_opt(kws, i.into(), false);
         let p = PeakData::lookup(kws, i, false);
-        Ok(tnt_scale.zip(p).map(|(_, peak)| Self { peak }))
+        Ok(s.zip(p).map(|(scale, peak)| Self { peak, scale }))
     }
 }
 
@@ -5803,7 +5815,7 @@ impl LookupTemporal for InnerTemporal3_0 {
         });
         let tnt_peak = PeakData::lookup(kws, i, false);
         tnt_gain.zip(tnt_peak).and_maybe(|(_, peak)| {
-            let s = lookup_temporal_scale_3_0(kws, i.into());
+            let s = lookup_indexed_req::<TemporalScale>(kws, i.into());
             let t = lookup_meta_req(kws);
             s.def_zip(t)
                 .def_map_value(|(_, timestep)| Self { timestep, peak })
@@ -5817,7 +5829,7 @@ impl LookupTemporal for InnerTemporal3_1 {
         let d = lookup_indexed_opt(kws, i.into(), false);
         let p = PeakData::lookup(kws, i, true);
         g.zip3(d, p).and_maybe(|(_, display, peak)| {
-            let s = lookup_temporal_scale_3_0(kws, i.into());
+            let s = lookup_indexed_req::<TemporalScale>(kws, i.into());
             let t = lookup_meta_req(kws);
             s.def_zip(t).def_map_value(|(_, timestep)| Self {
                 timestep,
@@ -5836,7 +5848,7 @@ impl LookupTemporal for InnerTemporal3_2 {
         let da = lookup_indexed_opt(kws, i.into(), false);
         g.zip4(di, m, da)
             .and_maybe(|(_, display, measurement_type, datatype)| {
-                let s = lookup_temporal_scale_3_0(kws, i.into());
+                let s = lookup_indexed_req::<TemporalScale>(kws, i.into());
                 let t = lookup_meta_req(kws);
                 s.def_zip(t).def_map_value(|(_, timestep)| Self {
                     timestep,
@@ -6181,8 +6193,11 @@ impl OpticalFromTemporal<InnerTemporal3_2> for InnerOptical3_2 {
 impl TemporalFromOptical<InnerOptical2_0> for InnerTemporal2_0 {
     type TData = ();
 
-    fn from_optical_inner(t: InnerOptical2_0, _: Self::TData) -> Self {
-        Self { peak: t.peak }
+    fn from_optical_inner(o: InnerOptical2_0, _: Self::TData) -> Self {
+        Self {
+            peak: o.peak,
+            scale: o.scale.map(|_| TemporalScale),
+        }
     }
 }
 
@@ -6552,10 +6567,13 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
     }
 
     fn swap_optical_temporal_inner(old_t: Self::T, old_o: Self::O) -> (Self::O, Self::T) {
-        let new_t = Self::T { peak: old_o.peak };
+        let new_t = Self::T {
+            peak: old_o.peak,
+            scale: old_o.scale.map(|_| TemporalScale),
+        };
         let new_o = Self::O {
             peak: old_t.peak,
-            scale: Some(Scale::Linear).into(),
+            scale: old_t.scale.map(|_| Scale::Linear),
             wavelength: None.into(),
         };
         (new_o, new_t)

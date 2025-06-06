@@ -351,6 +351,37 @@ impl TryFrom<AlphaNumType> for NumType {
     }
 }
 
+/// The value of the $PnE key for temporal measurements (all versions)
+///
+/// This can only be linear (0,0)
+#[derive(Clone, Serialize)]
+pub struct TemporalScale;
+
+impl FromStr for TemporalScale {
+    type Err = TemporalScaleError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "0,0" => Ok(Self),
+            _ => Err(TemporalScaleError),
+        }
+    }
+}
+
+impl fmt::Display for TemporalScale {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "0,0")
+    }
+}
+
+pub struct TemporalScaleError;
+
+impl fmt::Display for TemporalScaleError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "$PnE for time measurement must be '0,0' (linear)")
+    }
+}
+
 /// The value for the $PnCALIBRATION key (3.1 only)
 ///
 /// This should be formatted like '<value>,<unit>'
@@ -1854,6 +1885,9 @@ req_meas!(Shortname); // required for 3.1+
 
 kw_opt_meas!(Scale, "E"); // optional for 2.0
 req_meas!(Scale); // required for 3.0+
+
+kw_opt_meas!(TemporalScale, "E"); // optional for 2.0
+req_meas!(TemporalScale); // required for 3.0+
 
 kw_opt_meas_int!(Wavelength, u32, "L"); // scaler in 2.0/3.0
 kw_opt_meas!(Wavelengths, "L"); // vector in 3.1+

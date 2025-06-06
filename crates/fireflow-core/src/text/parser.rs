@@ -152,21 +152,6 @@ pub(crate) fn lookup_temporal_gain_3_0(
     tnt_gain
 }
 
-pub(crate) fn lookup_temporal_scale_3_0(
-    kws: &mut StdKeywords,
-    i: IndexFromOne,
-) -> LookupResult<Scale> {
-    let mut res = lookup_indexed_req(kws, i);
-    res.def_eval_error(|scale| {
-        if *scale != Scale::Linear {
-            Some(LookupKeysError::Misc(TemporalError::NonLinear.into()))
-        } else {
-            None
-        }
-    });
-    res
-}
-
 fn process_opt<V, E>(
     res: Result<OptionalKw<V>, ParseKeyError<<V as FromStr>::Err>>,
 ) -> Tentative<OptionalKw<V>, LookupKeysWarning, E>
@@ -214,16 +199,17 @@ enum_from_disp!(
 enum_from_disp!(
     /// Error encountered when parsing a required key from a string
     pub ParseReqKeyError,
-    [FloatOrInt,   ParseFloatOrIntError],
-    [AlphaNumType, AlphaNumTypeError],
-    [String,       Infallible],
-    [Int,          ParseIntError],
-    [Scale,        ScaleError],
-    [RangedFloat,  RangedFloatError],
-    [Mode,         ModeError],
-    [ByteOrd,      ParseByteOrdError],
-    [Endian,       NewEndianError],
-    [Shortname,    ShortnameError]
+    [FloatOrInt,    ParseFloatOrIntError],
+    [AlphaNumType,  AlphaNumTypeError],
+    [String,        Infallible],
+    [Int,           ParseIntError],
+    [Scale,         ScaleError],
+    [TemporalScale, TemporalScaleError],
+    [RangedFloat,   RangedFloatError],
+    [Mode,          ModeError],
+    [ByteOrd,       ParseByteOrdError],
+    [Endian,        NewEndianError],
+    [Shortname,     ShortnameError]
 );
 
 enum_from_disp!(
@@ -232,6 +218,7 @@ enum_from_disp!(
     [NumType,            NumTypeError],
     [Trigger,            TriggerError],
     [Scale,              ScaleError],
+    [TemporalScale,      TemporalScaleError],
     [Float,              ParseFloatError],
     [RangedFloat,        RangedFloatError],
     [Feature,            FeatureError],

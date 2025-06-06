@@ -3854,19 +3854,23 @@ impl UnstainedData {
                 unstainedinfo,
             })
     }
-
-    // pub(crate) fn new_unchecked(
-    //     us: OptionalKw<UnstainedCenters>,
-    //     ui: OptionalKw<UnstainedInfo>,
-    // ) -> Self {
-    //     Self {
-    //         unstainedcenters: us,
-    //         unstainedinfo: ui,
-    //     }
-    // }
 }
 
 impl SubsetData {
+    fn lookup<E>(kws: &mut StdKeywords, dep: bool) -> LookupTentative<OptionalKw<SubsetData>, E> {
+        lookup_meta_opt(kws, dep).and_tentatively(|m: OptionalKw<CSMode>| {
+            if let Some(n) = m.0 {
+                let it = (0..n.0).map(|i| lookup_indexed_opt::<CSVFlag, _>(kws, i.into(), dep));
+                Tentative::mconcat_ne(NonEmpty::collect(it).unwrap()).and_tentatively(|flags| {
+                    lookup_meta_opt::<CSVBits, _>(kws, dep)
+                        .map(|bits| Some(SubsetData { flags, bits }).into())
+                })
+            } else {
+                Tentative::new1(None.into())
+            }
+        })
+    }
+
     fn opt_keywords(&self) -> RawOptPairs {
         let m = OptionalKw(Some(CSMode(self.flags.len())));
         self.flags
@@ -6114,7 +6118,7 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         let co = lookup_meta_opt(kws, false);
         let cy = lookup_meta_opt(kws, false);
         let sn = lookup_meta_opt(kws, false);
-        let su = lookup_subset(kws, false);
+        let su = SubsetData::lookup(kws, false);
         let t = lookup_timestamps(kws, false);
         let u = lookup_meta_opt(kws, false);
         let g = lookup_applied_gates3_0(kws, false);
@@ -6150,7 +6154,7 @@ impl LookupMetaroot for InnerMetaroot3_1 {
         let cy = lookup_meta_opt(kws, false);
         let sp = lookup_meta_opt(kws, false);
         let sn = lookup_meta_opt(kws, false);
-        let su = lookup_subset(kws, true);
+        let su = SubsetData::lookup(kws, true);
         let md = lookup_modification(kws);
         let p = lookup_plate(kws, false);
         let t = lookup_timestamps(kws, false);

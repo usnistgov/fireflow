@@ -214,23 +214,6 @@ pub(crate) fn lookup_dfc(
     })
 }
 
-pub(crate) fn lookup_subset<E>(
-    kws: &mut StdKeywords,
-    dep: bool,
-) -> LookupTentative<OptionalKw<SubsetData>, E> {
-    lookup_meta_opt(kws, dep).and_tentatively(|m: OptionalKw<CSMode>| {
-        if let Some(n) = m.0 {
-            let it = (0..n.0).map(|i| lookup_indexed_opt::<CSVFlag, _>(kws, i.into(), dep));
-            Tentative::mconcat_ne(NonEmpty::collect(it).unwrap()).and_tentatively(|flags| {
-                lookup_meta_opt::<CSVBits, _>(kws, dep)
-                    .map(|bits| Some(SubsetData { flags, bits }).into())
-            })
-        } else {
-            Tentative::new1(None.into())
-        }
-    })
-}
-
 pub(crate) fn lookup_peakdata<E>(
     kws: &mut StdKeywords,
     i: MeasIndex,

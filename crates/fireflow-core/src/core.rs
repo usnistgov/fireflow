@@ -683,6 +683,7 @@ pub struct GatedMeasurement {
 /// The $GATING/$RnI/$RnW/$Gn* keywords in a unified bundle (2.0)
 ///
 /// Each region is assumed to point to a member of ['gated_measurements'].
+// TODO updates to these are currently not validated
 #[derive(Clone, Serialize)]
 pub struct AppliedGates2_0 {
     pub gated_measurements: GatedMeasurements,
@@ -693,6 +694,7 @@ pub struct AppliedGates2_0 {
 ///
 /// Each region is assumed to point to a member of ['gated_measurements'] or
 /// a measurement in the ['Core'] struct
+// TODO updates to these are currently not validated
 #[derive(Clone, Serialize)]
 pub struct AppliedGates3_0 {
     pub gated_measurements: Vec<GatedMeasurement>,
@@ -702,6 +704,7 @@ pub struct AppliedGates3_0 {
 /// The $GATING/$RnI/$RnW keywords in a unified bundle (3.2)
 ///
 /// Each region is assumed to point to a measurement in the ['Core'] struct
+// TODO updates to these are currently not validated
 #[derive(Clone, Serialize)]
 pub struct AppliedGates3_2 {
     pub regions: GatingRegions<PrefixedMeasIndex>,

@@ -2435,7 +2435,7 @@ where
         other_lens: Vec<u64>,
     ) -> Result<(String, RawKeywords, Nextdata), Uint8DigitOverflow> {
         let version = M::O::fcs_version();
-        let tot_pair = (Tot::std().to_string(), tot.to_string());
+        let tot_pair = ReqMetaKey::pair(&tot);
 
         let (req_meas, req_meta, req_text_len) = self.req_meta_meas_keywords();
         let (opt_meas, opt_meta, opt_text_len) = self.opt_meta_meas_keywords();
@@ -2470,39 +2470,37 @@ where
         // TODO...
         let h = offset_result.header;
         let header = format!(
-            "{}{}{}{}{}",
-            version,
+            "{}{}{}{}",
             h.text.header_string(),
             h.analysis.header_string(),
             h.data.header_string(),
             h.other.into_iter().map(|x| x.header_string()).join("")
         );
-        // TODO fixme
         Ok((
             header,
             [ReqMetaKey::pair(&offset_result.real_nextdata)]
                 .into_iter()
-                // .chain(
-                //     offset_result
-                //         .stext
-                //         .map(|x| x.text_string())
-                //         .into_iter()
-                //         .flatten(),
-                // )
-                // .chain(
-                //     offset_result
-                //         .analysis
-                //         .map(|x| x.text_string())
-                //         .into_iter()
-                //         .flatten(),
-                // )
-                // .chain(
-                //     offset_result
-                //         .data
-                //         .map(|x| x.text_string())
-                //         .into_iter()
-                //         .flatten(),
-                // )
+                .chain(
+                    offset_result
+                        .stext
+                        .map(|x| x.req_keywords())
+                        .into_iter()
+                        .flatten(),
+                )
+                .chain(
+                    offset_result
+                        .analysis
+                        .map(|x| x.req_keywords())
+                        .into_iter()
+                        .flatten(),
+                )
+                .chain(
+                    offset_result
+                        .data
+                        .map(|x| x.req_keywords())
+                        .into_iter()
+                        .flatten(),
+                )
                 .chain(req_opt_kws)
                 .collect(),
             offset_result.real_nextdata,

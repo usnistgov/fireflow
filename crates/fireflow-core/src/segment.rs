@@ -607,7 +607,30 @@ impl<I: Copy> HeaderSegment<I> {
 }
 
 impl<I> TEXTSegment<I> {
-    pub(crate) fn opt_keywords(&self) -> Vec<(String, String)>
+    pub(crate) fn req_keywords(&self) -> [(String, String); 2]
+    where
+        I: KeyedReqSegment,
+        I::B: Into<Uint20Char>,
+        I::E: Into<Uint20Char>,
+        I::B: From<Uint20Char>,
+        I::E: From<Uint20Char>,
+        I::B: ReqMetaKey,
+        I::E: ReqMetaKey,
+        I::B: FromStr<Err = ParseIntError>,
+        I::E: FromStr<Err = ParseIntError>,
+    {
+        let i = self.inner;
+        let (b, e) = match i {
+            Segment::Empty => (Uint20Char::default(), Uint20Char::default()),
+            Segment::NonEmpty(x) => (x.begin, x.end),
+        };
+        [
+            ReqMetaKey::pair(&I::B::from(b)),
+            ReqMetaKey::pair(&I::E::from(e)),
+        ]
+    }
+
+    pub(crate) fn opt_keywords(&self) -> Option<[(String, String); 2]>
     where
         I: KeyedOptSegment,
         I::B: Into<Uint20Char>,
@@ -621,38 +644,11 @@ impl<I> TEXTSegment<I> {
     {
         let i = self.inner;
         match i {
-            Segment::Empty => vec![],
+            Segment::Empty => None,
             Segment::NonEmpty(x) => {
-                let b: I::B = x.begin.into();
-                let e: I::B = x.end.into();
-                [OptMetaKey::pair(&b), OptMetaKey::pair(&e)]
-                    .into_iter()
-                    .collect()
-            }
-        }
-    }
-
-    pub(crate) fn req_keywords(&self) -> Vec<(String, String)>
-    where
-        I: KeyedReqSegment,
-        I::B: Into<Uint20Char>,
-        I::E: Into<Uint20Char>,
-        I::B: From<Uint20Char>,
-        I::E: From<Uint20Char>,
-        I::B: ReqMetaKey,
-        I::E: ReqMetaKey,
-        I::B: FromStr<Err = ParseIntError>,
-        I::E: FromStr<Err = ParseIntError>,
-    {
-        let i = self.inner;
-        match i {
-            Segment::Empty => vec![],
-            Segment::NonEmpty(x) => {
-                let b: I::B = x.begin.into();
-                let e: I::B = x.end.into();
-                [ReqMetaKey::pair(&b), ReqMetaKey::pair(&e)]
-                    .into_iter()
-                    .collect()
+                let b = I::B::from(x.begin);
+                let e = I::B::from(x.end);
+                Some([OptMetaKey::pair(&b), OptMetaKey::pair(&e)])
             }
         }
     }

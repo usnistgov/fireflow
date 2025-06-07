@@ -17,8 +17,8 @@ use std::str::FromStr;
 /// A segment in an FCS file which is denoted by a pair of offsets
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Default)]
 pub struct Segment {
-    begin: u32,
-    pseudo_length: u32,
+    begin: u64,
+    pseudo_length: u64,
 }
 
 /// A segment that is specific to a region in the FCS file.
@@ -115,8 +115,8 @@ pub(crate) trait KeyedReqSegment
 where
     Self: KeyedSegment,
     Self: HasRegion,
-    Self::B: Into<u32>,
-    Self::E: Into<u32>,
+    Self::B: Into<u64>,
+    Self::E: Into<u64>,
     Self::B: ReqMetaKey,
     Self::E: ReqMetaKey,
     Self::B: FromStr<Err = ParseIntError>,
@@ -240,8 +240,8 @@ pub(crate) trait KeyedOptSegment
 where
     Self: KeyedSegment,
     Self: HasRegion,
-    Self::B: Into<u32>,
-    Self::E: Into<u32>,
+    Self::B: Into<u64>,
+    Self::E: Into<u64>,
     Self::B: OptMetaKey,
     Self::E: OptMetaKey,
     Self::B: FromStr<Err = ParseIntError>,
@@ -435,7 +435,7 @@ impl<I, S> OffsetCorrection<I, S> {
 }
 
 impl<I, S> SpecificSegment<I, S> {
-    pub fn try_new(begin: u32, end: u32, corr: OffsetCorrection<I, S>) -> Result<Self, SegmentError>
+    pub fn try_new(begin: u64, end: u64, corr: OffsetCorrection<I, S>) -> Result<Self, SegmentError>
     where
         I: HasRegion,
         S: HasSource,
@@ -447,7 +447,7 @@ impl<I, S> SpecificSegment<I, S> {
         })
     }
 
-    pub(crate) fn new_with_len(begin: u32, length: u32) -> Self {
+    pub(crate) fn new_with_len(begin: u64, length: u64) -> Self {
         let inner = if length == 0 {
             Segment::default()
         } else {
@@ -560,12 +560,12 @@ impl Segment {
     /// actually 1 byte long. There is no way to represent a zero-length segment
     /// starting at 0 unless we use signed ints.
     pub fn try_new<I: HasRegion, S: HasSource>(
-        begin: u32,
-        end: u32,
+        begin: u64,
+        end: u64,
         corr: OffsetCorrection<I, S>,
     ) -> Result<Self, SegmentError> {
-        let x = i64::from(begin) + i64::from(corr.begin);
-        let y = i64::from(end) + i64::from(corr.end);
+        let x = i128::from(begin) + i128::from(corr.begin);
+        let y = i128::from(end) + i128::from(corr.end);
         let err = |kind| {
             Err(SegmentError {
                 begin,
@@ -577,13 +577,13 @@ impl Segment {
                 src: S::SRC,
             })
         };
-        match (u32::try_from(x), u32::try_from(y)) {
+        match (u64::try_from(x), u64::try_from(y)) {
             (Ok(new_begin), Ok(new_end)) => {
                 if new_begin > new_end {
                     err(SegmentErrorKind::Inverted)
                 } else {
                     let new = Self::new_unchecked(new_begin, new_end);
-                    if new.begin() < (HEADER_LEN as u32) && !new.is_empty() {
+                    if new.begin() < HEADER_LEN.into() && !new.is_empty() {
                         err(SegmentErrorKind::InHeader)
                     } else {
                         Ok(new)
@@ -616,7 +616,7 @@ impl Segment {
     }
 
     /// Return the number of bytes in this segment
-    pub fn len(&self) -> u32 {
+    pub fn len(&self) -> u64 {
         // NOTE In FCS a 0,0 means "empty" but this also means one byte
         // according to the spec's on definitions. The first number points to
         // the first byte in a segment, and the second number points to the last
@@ -635,17 +635,17 @@ impl Segment {
     }
 
     /// Return the first byte of this segment
-    pub fn begin(&self) -> u32 {
+    pub fn begin(&self) -> u64 {
         self.begin
     }
 
     /// Return the last byte of this segment
-    pub fn end(&self) -> u32 {
+    pub fn end(&self) -> u64 {
         self.begin + self.pseudo_length
     }
 
     /// Return the next byte after this segment
-    pub fn next(&self) -> u32 {
+    pub fn next(&self) -> u64 {
         self.begin + self.len()
     }
 
@@ -653,7 +653,7 @@ impl Segment {
         format!("{},{}", self.begin(), self.end())
     }
 
-    fn new_unchecked(begin: u32, end: u32) -> Segment {
+    fn new_unchecked(begin: u64, end: u64) -> Segment {
         Segment {
             begin,
             pseudo_length: end - begin,
@@ -665,7 +665,7 @@ fn parse_header_offset<I: HasRegion>(
     s: &str,
     allow_blank: bool,
     is_begin: bool,
-) -> Result<u32, ParseOffsetError> {
+) -> Result<u64, ParseOffsetError> {
     let trimmed = s.trim_start();
     if allow_blank && trimmed.is_empty() {
         return Ok(0);
@@ -685,8 +685,8 @@ enum_from_disp!(
 );
 
 pub struct SegmentError {
-    begin: u32,
-    end: u32,
+    begin: u64,
+    end: u64,
     corr_begin: i32,
     corr_end: i32,
     kind: SegmentErrorKind,

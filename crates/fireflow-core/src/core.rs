@@ -300,9 +300,9 @@ impl<A, D, O> AnyCore<A, D, O> {
     pub fn text_segment(
         &self,
         tot: Tot,
-        data_len: u32,
-        analysis_len: u32,
-        other_lens: Vec<u32>,
+        data_len: u64,
+        analysis_len: u64,
+        other_lens: Vec<u64>,
     ) -> Option<Vec<String>> {
         match_anycore!(self, x, {
             x.text_segment(tot, data_len, analysis_len, other_lens)
@@ -1809,9 +1809,9 @@ where
         &self,
         h: &mut BufWriter<W>,
         tot: Tot,
-        data_len: u32,
-        analysis_len: u32,
-        other_lens: Vec<u32>,
+        data_len: u64,
+        analysis_len: u64,
+        other_lens: Vec<u64>,
         conf: &WriteConfig,
     ) -> Result<(), ImpureError<TEXTOverflowError>> {
         // TODO newtypes for data and analysis lenth to make them more obvious
@@ -1857,9 +1857,9 @@ where
     fn text_segment(
         &self,
         tot: Tot,
-        data_len: u32,
-        analysis_len: u32,
-        other_lens: Vec<u32>,
+        data_len: u64,
+        analysis_len: u64,
+        other_lens: Vec<u64>,
     ) -> Option<Vec<String>> {
         self.header_and_raw_keywords(tot, data_len, analysis_len, other_lens)
             // TODO do something useful with nextdata offset (the "_" thing)
@@ -2431,10 +2431,10 @@ where
     fn header_and_raw_keywords(
         &self,
         tot: Tot,
-        data_len: u32,
-        analysis_len: u32,
-        other_lens: Vec<u32>,
-    ) -> Option<(String, RawKeywords, u32)> {
+        data_len: u64,
+        analysis_len: u64,
+        other_lens: Vec<u64>,
+    ) -> Option<(String, RawKeywords, u64)> {
         let version = M::O::fcs_version();
         let tot_pair = (Tot::std().to_string(), tot.to_string());
 
@@ -2443,15 +2443,15 @@ where
 
         let offset_result = if version == Version::FCS2_0 {
             make_data_offset_keywords_2_0(
-                (req_text_len + opt_text_len) as u32,
+                (req_text_len + opt_text_len) as u64,
                 data_len,
                 analysis_len,
                 other_lens,
             )
         } else {
             make_data_offset_keywords_3_0(
-                req_text_len as u32,
-                opt_text_len as u32,
+                req_text_len as u64,
+                opt_text_len as u64,
                 data_len,
                 analysis_len,
                 other_lens,
@@ -3097,8 +3097,8 @@ where
                 self.h_write_text(
                     h,
                     tot,
-                    writer.nbytes() as u32,
-                    analysis_len as u32,
+                    writer.nbytes() as u64,
+                    analysis_len as u64,
                     vec![],
                     conf,
                 )

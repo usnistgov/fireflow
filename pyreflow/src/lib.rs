@@ -725,15 +725,15 @@ py_wrap!(PySegment, Segment, "Segment");
 
 #[pymethods]
 impl PySegment {
-    fn begin(&self) -> u32 {
+    fn begin(&self) -> u64 {
         self.0.begin()
     }
 
-    fn end(&self) -> u32 {
+    fn end(&self) -> u64 {
         self.0.end()
     }
 
-    fn nbytes(&self) -> u32 {
+    fn nbytes(&self) -> u64 {
         self.0.len()
     }
 

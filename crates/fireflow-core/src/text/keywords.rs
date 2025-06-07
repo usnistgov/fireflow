@@ -1950,13 +1950,13 @@ where
 }
 
 // offsets for all versions
-kw_req_meta_int!(Beginanalysis, u32, "BEGINANALYSIS");
-kw_req_meta_int!(Begindata, u32, "BEGINDATA");
-kw_req_meta_int!(Beginstext, u32, "BEGINSTEXT");
-kw_req_meta_int!(Endanalysis, u32, "ENDANALYSIS");
-kw_req_meta_int!(Enddata, u32, "ENDDATA");
-kw_req_meta_int!(Endstext, u32, "ENDSTEXT");
-kw_req_meta_int!(Nextdata, u32, "NEXTDATA");
+kw_req_meta_int!(Beginanalysis, u64, "BEGINANALYSIS");
+kw_req_meta_int!(Begindata, u64, "BEGINDATA");
+kw_req_meta_int!(Beginstext, u64, "BEGINSTEXT");
+kw_req_meta_int!(Endanalysis, u64, "ENDANALYSIS");
+kw_req_meta_int!(Enddata, u64, "ENDDATA");
+kw_req_meta_int!(Endstext, u64, "ENDSTEXT");
+kw_req_meta_int!(Nextdata, u64, "NEXTDATA");
 
 opt_meta!(Beginanalysis);
 opt_meta!(Endanalysis);

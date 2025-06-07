@@ -2604,7 +2604,7 @@ impl VersionedDataLayout for DataLayout3_2 {
         seg: HeaderAnalysisSegment,
         conf: &ReaderConfig,
     ) -> AnalysisReaderResult<AnalysisReader> {
-        let ret = LookupOptSegment::remove_or(kws, conf.analysis, seg, conf.enforce_offset_match)
+        let ret = KeyedOptSegment::remove_or(kws, conf.analysis, seg, conf.enforce_offset_match)
             .map(|s| AnalysisReader { seg: s })
             .inner_into();
         Ok(ret)
@@ -2615,7 +2615,7 @@ impl VersionedDataLayout for DataLayout3_2 {
         seg: HeaderAnalysisSegment,
         conf: &ReaderConfig,
     ) -> AnalysisReaderResult<AnalysisReader> {
-        let ret = LookupOptSegment::get_or(kws, conf.analysis, seg, conf.enforce_offset_match)
+        let ret = KeyedOptSegment::get_or(kws, conf.analysis, seg, conf.enforce_offset_match)
             .map(|s| AnalysisReader { seg: s })
             .inner_into();
         Ok(ret)
@@ -2627,7 +2627,7 @@ fn remove_analysis_seg_req(
     seg: HeaderAnalysisSegment,
     conf: &ReaderConfig,
 ) -> AnalysisReaderResult<AnalysisReader> {
-    LookupReqSegment::remove_or(
+    KeyedReqSegment::remove_or(
         kws,
         conf.analysis,
         seg,
@@ -2643,7 +2643,7 @@ fn get_analysis_seg_req(
     seg: HeaderAnalysisSegment,
     conf: &ReaderConfig,
 ) -> AnalysisReaderResult<AnalysisReader> {
-    LookupReqSegment::get_or(
+    KeyedReqSegment::get_or(
         kws,
         conf.analysis,
         seg,
@@ -2660,7 +2660,7 @@ fn remove_tot_data_seg(
     conf: &ReaderConfig,
 ) -> DataReaderResult<(Tot, AnyDataSegment)> {
     let tot_res = Tot::remove_meta_req(kws).into_deferred();
-    let seg_res = LookupReqSegment::remove_or(
+    let seg_res = KeyedReqSegment::remove_or(
         kws,
         conf.data,
         seg,
@@ -2784,7 +2784,7 @@ fn get_tot_data_seg(
     conf: &ReaderConfig,
 ) -> DataReaderResult<(Tot, AnyDataSegment)> {
     let tot_res = Tot::get_meta_req(kws).into_deferred();
-    let seg_res = LookupReqSegment::get_or(
+    let seg_res = KeyedReqSegment::get_or(
         kws,
         conf.data,
         seg,

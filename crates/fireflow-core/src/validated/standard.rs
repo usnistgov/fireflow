@@ -55,8 +55,8 @@ pub(crate) trait Key {
         StdKey(Self::C.to_string())
     }
 
-    fn len() -> usize {
-        Self::C.len() + 1
+    fn len() -> u32 {
+        (Self::C.len() + 1) as u32
     }
 }
 

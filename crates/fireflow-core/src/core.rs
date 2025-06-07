@@ -2,7 +2,6 @@ use crate::config::*;
 use crate::data::*;
 use crate::error::*;
 use crate::header::*;
-use crate::header_text::*;
 use crate::macros::{enum_from, enum_from_disp, match_many_to_one, newtype_from};
 use crate::segment::*;
 use crate::text::byteord::*;
@@ -301,10 +300,13 @@ impl<A, D, O> AnyCore<A, D, O> {
     pub fn text_segment(
         &self,
         tot: Tot,
-        data_len: usize,
-        analysis_len: usize,
+        data_len: u32,
+        analysis_len: u32,
+        other_lens: Vec<u32>,
     ) -> Option<Vec<String>> {
-        match_anycore!(self, x, { x.text_segment(tot, data_len, analysis_len) })
+        match_anycore!(self, x, {
+            x.text_segment(tot, data_len, analysis_len, other_lens)
+        })
     }
 
     pub fn print_meas_table(&self, delim: &str) {
@@ -1807,13 +1809,15 @@ where
         &self,
         h: &mut BufWriter<W>,
         tot: Tot,
-        data_len: usize,
-        analysis_len: usize,
+        data_len: u32,
+        analysis_len: u32,
+        other_lens: Vec<u32>,
         conf: &WriteConfig,
     ) -> Result<(), ImpureError<TEXTOverflowError>> {
         // TODO newtypes for data and analysis lenth to make them more obvious
-        if let Some(ts) = self.text_segment(tot, data_len, analysis_len) {
+        if let Some(ts) = self.text_segment(tot, data_len, analysis_len, other_lens) {
             for t in ts {
+                // TODO OTHER needs to be written somewhere in here
                 h.write_all(t.as_bytes())?;
                 h.write_all(&[conf.delim.inner()])?;
             }
@@ -1850,8 +1854,14 @@ where
     /// order.
     ///
     /// Return None if primary TEXT does not fit into first 99,999,999 bytes.
-    fn text_segment(&self, tot: Tot, data_len: usize, analysis_len: usize) -> Option<Vec<String>> {
-        self.header_and_raw_keywords(tot, data_len, analysis_len)
+    fn text_segment(
+        &self,
+        tot: Tot,
+        data_len: u32,
+        analysis_len: u32,
+        other_lens: Vec<u32>,
+    ) -> Option<Vec<String>> {
+        self.header_and_raw_keywords(tot, data_len, analysis_len, other_lens)
             // TODO do something useful with nextdata offset (the "_" thing)
             .map(|(header, kws, _)| {
                 let version = M::O::fcs_version();
@@ -2421,9 +2431,10 @@ where
     fn header_and_raw_keywords(
         &self,
         tot: Tot,
-        data_len: usize,
-        analysis_len: usize,
-    ) -> Option<(String, RawKeywords, usize)> {
+        data_len: u32,
+        analysis_len: u32,
+        other_lens: Vec<u32>,
+    ) -> Option<(String, RawKeywords, u32)> {
         let version = M::O::fcs_version();
         let tot_pair = (Tot::std().to_string(), tot.to_string());
 
@@ -2431,9 +2442,20 @@ where
         let (opt_meas, opt_meta, opt_text_len) = self.opt_meta_meas_keywords();
 
         let offset_result = if version == Version::FCS2_0 {
-            make_data_offset_keywords_2_0(req_text_len + opt_text_len, data_len, analysis_len)
+            make_data_offset_keywords_2_0(
+                (req_text_len + opt_text_len) as u32,
+                data_len,
+                analysis_len,
+                other_lens,
+            )
         } else {
-            make_data_offset_keywords_3_0(req_text_len, opt_text_len, data_len, analysis_len)
+            make_data_offset_keywords_3_0(
+                req_text_len as u32,
+                opt_text_len as u32,
+                data_len,
+                analysis_len,
+                other_lens,
+            )
         }?;
 
         let mut meta: Vec<_> = req_meta
@@ -2446,13 +2468,46 @@ where
         meas.sort_by(|a, b| a.0.cmp(&b.0));
 
         let req_opt_kws: Vec<_> = meta.into_iter().chain(meas).collect();
+        // TODO...
+        let h = offset_result.header;
+        let header = format!(
+            "{}{}{}{}{}",
+            version,
+            h.text.header_string(),
+            h.analysis.header_string(),
+            h.data.header_string(),
+            h.other.into_iter().map(|x| x.header_string()).join("")
+        );
         Some((
-            offset_result.header,
-            offset_result
-                .offsets
-                .into_iter()
-                .chain(req_opt_kws)
-                .collect(),
+            header,
+            [(
+                Nextdata::std().to_string(),
+                format!("{:>8}", offset_result.real_nextdata),
+            )]
+            .into_iter()
+            .chain(
+                offset_result
+                    .stext
+                    .map(|x| x.text_string())
+                    .into_iter()
+                    .flatten(),
+            )
+            .chain(
+                offset_result
+                    .analysis
+                    .map(|x| x.text_string())
+                    .into_iter()
+                    .flatten(),
+            )
+            .chain(
+                offset_result
+                    .data
+                    .map(|x| x.text_string())
+                    .into_iter()
+                    .flatten(),
+            )
+            .chain(req_opt_kws)
+            .collect(),
             offset_result.real_nextdata,
         ))
     }
@@ -3014,7 +3069,7 @@ where
             })
     }
 
-    /// Write this dataset (HEADER+TEXT+DATA+ANALYSIS) to a handle
+    /// Write this dataset (HEADER+TEXT+DATA+ANALYSIS+OTHER) to a handle
     pub fn h_write<W>(
         &self,
         h: &mut BufWriter<W>,
@@ -3037,9 +3092,18 @@ where
                 let tot = Tot(df.nrows());
                 let analysis_len = self.analysis.0.len();
                 // write HEADER+TEXT first
-                self.h_write_text(h, tot, writer.nbytes(), analysis_len, conf)
-                    .map_err(|e| e.inner_into())
-                    .into_deferred()?;
+                // TODO fixme
+                // TODO fix cast
+                self.h_write_text(
+                    h,
+                    tot,
+                    writer.nbytes() as u32,
+                    analysis_len as u32,
+                    vec![],
+                    conf,
+                )
+                .map_err(|e| e.inner_into())
+                .into_deferred()?;
                 // write DATA
                 writer.h_write(h).into_deferred()?;
                 // write ANALYSIS

@@ -1,30 +1,30 @@
 use crate::config::HeaderConfig;
 use crate::error::*;
-use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
 use crate::segment::*;
+use crate::text::keywords::*;
+use crate::validated::standard::*;
 
 use nonempty::NonEmpty;
 use serde::Serialize;
 use std::fmt;
 use std::io::{BufReader, Read};
 use std::iter::repeat;
-use std::num::ParseIntError;
 use std::str;
 
 /// The length of the HEADER.
 ///
 /// This should always be the same. This also assumes that there are no OTHER
 /// segments (which for now are not supported).
-pub const HEADER_LEN: usize = A1_END;
+pub const HEADER_LEN: u8 = A1_END;
 
-const VERSION_END: usize = 6;
-const SPACE_END: usize = VERSION_END + 4;
-const T0_END: usize = SPACE_END + 8;
-const T1_END: usize = T0_END + 8;
-const D0_END: usize = T1_END + 8;
-const D1_END: usize = D0_END + 8;
-const A0_END: usize = D1_END + 8;
-const A1_END: usize = A0_END + 8;
+const VERSION_END: u8 = 6;
+const SPACE_END: u8 = VERSION_END + 4;
+const T0_END: u8 = SPACE_END + 8;
+const T1_END: u8 = T0_END + 8;
+const D0_END: u8 = T1_END + 8;
+const D1_END: u8 = D0_END + 8;
+const A0_END: u8 = D1_END + 8;
+const A1_END: u8 = A0_END + 8;
 
 /// All FCS versions this library supports.
 ///
@@ -63,7 +63,7 @@ pub fn h_read_header<R: Read>(
     h: &mut BufReader<R>,
     conf: &HeaderConfig,
 ) -> MultiResult<Header, ImpureError<HeaderError>> {
-    let mut verbuf = [0; HEADER_LEN];
+    let mut verbuf = [0; HEADER_LEN as usize];
     h.read_exact(&mut verbuf).into_mult()?;
     if verbuf.is_ascii() {
         let hs = unsafe { str::from_utf8_unchecked(&verbuf) };
@@ -97,14 +97,14 @@ fn parse_header(
     ),
     HeaderError,
 > {
-    let v = &s[0..VERSION_END];
-    let spaces = &s[VERSION_END..SPACE_END];
-    let t0 = &s[SPACE_END..T0_END];
-    let t1 = &s[T0_END..T1_END];
-    let d0 = &s[T1_END..D0_END];
-    let d1 = &s[D0_END..D1_END];
-    let a0 = &s[D1_END..A0_END];
-    let a1 = &s[A0_END..A1_END];
+    let v = &s[0..VERSION_END.into()];
+    let spaces = &s[usize::from(VERSION_END)..SPACE_END.into()];
+    let t0 = &s[usize::from(SPACE_END)..T0_END.into()];
+    let t1 = &s[usize::from(T0_END)..T1_END.into()];
+    let d0 = &s[usize::from(T1_END)..D0_END.into()];
+    let d1 = &s[usize::from(D0_END)..D1_END.into()];
+    let a0 = &s[usize::from(D1_END)..A0_END.into()];
+    let a1 = &s[usize::from(A0_END)..A1_END.into()];
     let vers_res = v
         .parse::<Version>()
         .map_err(HeaderError::Version)
@@ -114,13 +114,15 @@ fn parse_header(
     } else {
         Ok(())
     };
-    let text_res = parse_segment(t0, t1, false, conf.text);
-    let data_res = parse_segment(d0, d1, false, conf.data);
-    let anal_res = parse_segment(a0, a1, true, conf.analysis);
-    vers_res
-        .mult_zip3(space_res, text_res)
+    let text_res = PrimaryTextSegment::parse(t0, t1, false, conf.text);
+    let data_res = HeaderDataSegment::parse(d0, d1, false, conf.data);
+    let anal_res = HeaderAnalysisSegment::parse(a0, a1, true, conf.analysis);
+    let offset_res = text_res
         .mult_zip3(data_res, anal_res)
-        .map(|((version, _, text), data, analysis)| {
+        .mult_map_errors(HeaderError::Segment);
+    vers_res
+        .mult_zip3(space_res, offset_res)
+        .map(|(version, _, (text, data, analysis))| {
             (
                 conf.version_override.unwrap_or(version),
                 text,
@@ -264,29 +266,29 @@ impl fmt::Display for HeaderError {
     }
 }
 
-enum_from_disp!(
-    pub HeaderSegmentError,
-    [Segment, SegmentError],
-    [Parse, ParseOffsetError]
-);
+// enum_from_disp!(
+//     pub HeaderSegmentError,
+//     [Segment, SegmentError],
+//     [Parse, ParseOffsetError]
+// );
 
-pub struct ParseOffsetError {
-    error: ParseIntError,
-    is_begin: bool,
-    location: &'static str,
-    source: String,
-}
+// pub struct ParseOffsetError {
+//     error: ParseIntError,
+//     is_begin: bool,
+//     location: &'static str,
+//     source: String,
+// }
 
-impl fmt::Display for ParseOffsetError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let which = if self.is_begin { "begin" } else { "end" };
-        write!(
-            f,
-            "parse error for {which} offset in {} segment from source '{}': {}",
-            self.location, self.source, self.error
-        )
-    }
-}
+// impl fmt::Display for ParseOffsetError {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+//         let which = if self.is_begin { "begin" } else { "end" };
+//         write!(
+//             f,
+//             "parse error for {which} offset in {} segment from source '{}': {}",
+//             self.location, self.source, self.error
+//         )
+//     }
+// }
 
 pub struct VersionError;
 
@@ -294,4 +296,233 @@ impl fmt::Display for VersionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "could not parse FCS Version")
     }
+}
+
+/// HEADER and TEXT offsets
+pub struct OffsetFormatResult {
+    pub header: HeaderSegments,
+
+    /// The offset TEXT keywords and their values.
+    ///
+    /// For 2.0 this will only contain $NEXTDATA. For 3.0+, this will contain,
+    /// (BEGIN|END)(STEXT|ANALYSIS|DATA).
+    pub stext: Option<SupplementalTextSegment>,
+    pub data: Option<TEXTDataSegment>,
+    pub analysis: Option<TEXTAnalysisSegment>,
+
+    /// The offset where the next data segment can start.
+    ///
+    /// If beyond 99,999,999 bytes, this will be zero.
+    pub real_nextdata: u32,
+}
+
+/// Create HEADER+TEXT+OTHER offsets for FCS 2.0
+pub fn make_data_offset_keywords_2_0(
+    nooffset_text_len: u32,
+    data_len: u32,
+    analysis_len: u32,
+    other_lens: Vec<u32>,
+) -> Option<OffsetFormatResult> {
+    let (other_segs, other_header_len, other_segments_len) = other_segments(other_lens);
+    // +1 at end accounts for first delimiter
+    let begin_text = u32::from(HEADER_LEN) + other_header_len + other_segments_len + 1;
+    let text_len = nextdata_len() + nooffset_text_len;
+
+    let text_seg = PrimaryTextSegment::new_with_len(begin_text, text_len);
+    let data_seg = HeaderDataSegment::new_with_len(text_seg.inner.next(), data_len);
+    let anal_seg = HeaderAnalysisSegment::new_with_len(data_seg.inner.next(), analysis_len);
+    let nextdata = anal_seg.inner.next();
+
+    if nextdata > MAX_HEADER_OFFSET {
+        return None;
+    }
+
+    Some(OffsetFormatResult {
+        header: HeaderSegments {
+            text: text_seg,
+            data: data_seg,
+            analysis: anal_seg,
+            other: other_segs,
+        },
+        stext: None,
+        data: None,
+        analysis: None,
+        real_nextdata: nextdata,
+    })
+}
+
+/// Create HEADER+TEXT+OTHER offsets for FCS 3.0
+///
+/// Order in which this is expected to be written is HEADER, OTHER(s), TEXT,
+/// STEXT, DATA, ANALYSIS.
+pub fn make_data_offset_keywords_3_0(
+    nooffset_req_text_len: u32,
+    opt_text_len: u32,
+    data_len: u32,
+    analysis_len: u32,
+    other_lens: Vec<u32>,
+) -> Option<OffsetFormatResult> {
+    let (other_segs, other_header_len, other_segments_len) = other_segments(other_lens);
+    // +1 at end accounts for first delimiter
+    let begin_prim_text = u32::from(HEADER_LEN) + other_header_len + other_segments_len + 1;
+
+    // // Compute the length of (S)TEXT
+    let nosupp_text_len = offsets_len() + nooffset_req_text_len;
+    let all_text_len = opt_text_len + nosupp_text_len;
+
+    let (prim_text_seg, supp_text_seg) = if begin_prim_text + all_text_len <= MAX_HEADER_OFFSET {
+        // all of TEXT can fit in in HEADER, so no need for Supp TEXT
+        let p = PrimaryTextSegment::new_with_len(begin_prim_text, all_text_len);
+        let s = SupplementalTextSegment::default();
+        (p, s)
+    } else if begin_prim_text + nosupp_text_len <= MAX_HEADER_OFFSET {
+        // otherwise make Supp TEXT
+        let p = PrimaryTextSegment::new_with_len(begin_prim_text, nosupp_text_len);
+        let s = SupplementalTextSegment::new_with_len(p.inner.next(), opt_text_len);
+        (p, s)
+    } else {
+        // If HEADER+TEXT(required)+OTHER exceeds 99,999,999 bytes, we are stuck
+        return None;
+    };
+
+    let begin_data = prim_text_seg.inner.next() + supp_text_seg.inner.len();
+
+    let data_seg = TEXTDataSegment::new_with_len(begin_data, data_len);
+    let anal_seg = TEXTAnalysisSegment::new_with_len(data_seg.inner.next(), analysis_len);
+
+    let h_anal_seg =
+        HeaderAnalysisSegment::new_with_len(anal_seg.inner.begin(), anal_seg.inner.len());
+    let h_data_seg = HeaderDataSegment::new_with_len(data_seg.inner.begin(), data_seg.inner.len());
+
+    let nextdata = if anal_seg.inner.next() > MAX_HEADER_OFFSET {
+        0
+    } else {
+        anal_seg.inner.next()
+    };
+
+    Some(OffsetFormatResult {
+        header: HeaderSegments {
+            text: prim_text_seg,
+            analysis: h_anal_seg,
+            data: h_data_seg,
+            other: other_segs,
+        },
+        stext: Some(supp_text_seg),
+        data: Some(data_seg),
+        analysis: Some(anal_seg),
+        real_nextdata: nextdata,
+    })
+}
+
+fn other_segments(other_lens: Vec<u32>) -> (Vec<OtherSegment>, u32, u32) {
+    let os: Vec<_> = other_lens
+        .into_iter()
+        .filter(|x| *x > 0)
+        .scan(HEADER_LEN as u32, |begin, length| {
+            let ret = OtherSegment::new_with_len(*begin, length);
+            *begin = *begin + length;
+            Some(ret)
+        })
+        .collect();
+    let total_length = os.iter().map(|s| s.inner.len()).sum();
+    let header_length = (os.len() as u32) * 16;
+    (os, header_length, total_length)
+}
+
+// /// Compute length occupied by OTHER segments.
+// ///
+// /// This includes the length of the segments themselves plus the length
+// /// added to the back of the HEADER to encode their offsets.
+// fn other_segment_lengths(other_lens: Vec<usize>) -> (usize, usize) {
+//     (other_lens.len() * 16, other_lens.iter().sum::<usize>())
+// }
+
+/// Create offset keyword pairs for HEADER
+///
+/// Returns two right-aligned, space-padded numbers exactly 8 bytes long as one
+/// contiguous string.
+pub fn offset_header_string(begin: u32, end: u32) -> String {
+    let nbytes = end - begin + 1;
+    let (b, e) = if end <= MAX_HEADER_OFFSET && nbytes > 0 {
+        (begin, end)
+    } else {
+        (0, 0)
+    };
+    format!("{:0>8}{:0>8}", b, e)
+}
+
+/// Compute $NEXTDATA offset and format the keyword pair.
+///
+/// Returns something like (12345678, ["$NEXTDATA", "12345678"])
+pub fn offset_nextdata_string(nextdata: u32) -> (u32, (String, String)) {
+    let n = if nextdata > MAX_HEADER_OFFSET {
+        0
+    } else {
+        nextdata
+    };
+    let s = format_zero_padded(n, NEXTDATA_VAL_LEN);
+    (n, (Nextdata::std().to_string(), s))
+}
+
+/// Compute the number of digits for a number.
+///
+/// Assume number is greater than 0 and in decimal radix.
+fn n_digits(x: u32) -> u32 {
+    // TODO cast?
+    let n = u32::ilog10(x) as u32;
+    if 10 ^ n == x {
+        n
+    } else {
+        n + 1
+    }
+}
+
+/// Format a digit with left-padded zeros to a given length
+pub(crate) fn format_zero_padded(x: u32, width: u32) -> String {
+    format!("{}{}", ("0").repeat((width - n_digits(x)) as usize), x)
+}
+
+/// Length of the $NEXTDATA offset length.
+///
+/// This value has a maximum of 99,999,999, and as such the length of this
+/// number is always 8 bytes.
+const NEXTDATA_VAL_LEN: u32 = 8;
+
+/// Length of $(BEGIN/END)(STEXT/ANALYSIS/DATA) offset length.
+///
+/// This was chosen on the basis that the maximum file size is 2^64, and thus
+/// the maximum offset is the number of digits in 2^64, which is 20. This will
+/// "waste" very little space in TEXT and will make computing the TEXT width
+/// much easier.
+pub(crate) const OFFSET_VAL_LEN: u32 = 20;
+
+/// The maximum value that may be stored in a HEADER offset.
+pub(crate) const MAX_HEADER_OFFSET: u32 = 99_999_999;
+
+/// Number of bytes consumed by $NEXTDATA keyword + value + delimiters
+fn nextdata_len() -> u32 {
+    Nextdata::len() + NEXTDATA_VAL_LEN + 2
+}
+
+/// The number of bytes each offset is expected to take.
+///
+/// These are the length of each keyword + 2 since there should be two
+/// delimiters counting toward its byte real estate.
+fn data_len() -> u32 {
+    Begindata::len() + Enddata::len() + OFFSET_VAL_LEN * 2 + 4
+}
+
+fn analysis_len() -> u32 {
+    Beginanalysis::len() + Endanalysis::len() + OFFSET_VAL_LEN * 2 + 4
+}
+
+fn supp_text_len() -> u32 {
+    Beginstext::len() + Endstext::len() + OFFSET_VAL_LEN * 2 + 4
+}
+
+/// The total number of bytes offset keywords are expected to take.
+///
+/// This only applies to 3.0+ since 2.0 only has NEXTDATA.
+fn offsets_len() -> u32 {
+    data_len() + analysis_len() + supp_text_len() + nextdata_len()
 }

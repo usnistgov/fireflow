@@ -2434,7 +2434,7 @@ where
         data_len: u64,
         analysis_len: u64,
         other_lens: Vec<u64>,
-    ) -> Option<(String, RawKeywords, u64)> {
+    ) -> Option<(String, RawKeywords, Nextdata)> {
         let version = M::O::fcs_version();
         let tot_pair = (Tot::std().to_string(), tot.to_string());
 
@@ -2480,34 +2480,31 @@ where
         );
         Some((
             header,
-            [(
-                Nextdata::std().to_string(),
-                format!("{:>8}", offset_result.real_nextdata),
-            )]
-            .into_iter()
-            .chain(
-                offset_result
-                    .stext
-                    .map(|x| x.text_string())
-                    .into_iter()
-                    .flatten(),
-            )
-            .chain(
-                offset_result
-                    .analysis
-                    .map(|x| x.text_string())
-                    .into_iter()
-                    .flatten(),
-            )
-            .chain(
-                offset_result
-                    .data
-                    .map(|x| x.text_string())
-                    .into_iter()
-                    .flatten(),
-            )
-            .chain(req_opt_kws)
-            .collect(),
+            [ReqMetaKey::pair(&offset_result.real_nextdata)]
+                .into_iter()
+                .chain(
+                    offset_result
+                        .stext
+                        .map(|x| x.text_string())
+                        .into_iter()
+                        .flatten(),
+                )
+                .chain(
+                    offset_result
+                        .analysis
+                        .map(|x| x.text_string())
+                        .into_iter()
+                        .flatten(),
+                )
+                .chain(
+                    offset_result
+                        .data
+                        .map(|x| x.text_string())
+                        .into_iter()
+                        .flatten(),
+                )
+                .chain(req_opt_kws)
+                .collect(),
             offset_result.real_nextdata,
         ))
     }

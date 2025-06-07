@@ -2,6 +2,7 @@ use crate::error::*;
 use crate::macros::{enum_from, newtype_disp, newtype_from, newtype_from_outer, newtype_fromstr};
 use crate::validated::shortname::*;
 use crate::validated::standard::*;
+use crate::validated::uint_8char::*;
 
 use super::byteord::*;
 use super::compensation::*;
@@ -25,6 +26,14 @@ use std::convert::Infallible;
 use std::fmt;
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::FromStr;
+
+/// Value for $NEXTDATA (all versions)
+pub struct Nextdata(pub Uint8Char);
+
+newtype_from!(Nextdata, Uint8Char);
+newtype_from_outer!(Nextdata, Uint8Char);
+newtype_fromstr!(Nextdata, ParseUint8CharError);
+newtype_disp!(Nextdata);
 
 /// The value of the $PnG keyword
 #[derive(Clone, Copy, Serialize, PartialEq)]
@@ -1956,7 +1965,8 @@ kw_req_meta_int!(Beginstext, u64, "BEGINSTEXT");
 kw_req_meta_int!(Endanalysis, u64, "ENDANALYSIS");
 kw_req_meta_int!(Enddata, u64, "ENDDATA");
 kw_req_meta_int!(Endstext, u64, "ENDSTEXT");
-kw_req_meta_int!(Nextdata, u64, "NEXTDATA");
+
+kw_req_meta!(Nextdata, "NEXTDATA");
 
 opt_meta!(Beginanalysis);
 opt_meta!(Endanalysis);

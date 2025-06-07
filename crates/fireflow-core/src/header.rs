@@ -276,7 +276,7 @@ pub struct OffsetFormatResult {
     /// The offset where the next data segment can start.
     ///
     /// If beyond 99,999,999 bytes, this will be zero.
-    pub real_nextdata: u64,
+    pub real_nextdata: Nextdata,
 }
 
 /// Create HEADER+TEXT+OTHER offsets for FCS 2.0
@@ -294,11 +294,7 @@ pub fn make_data_offset_keywords_2_0(
     let text_seg = PrimaryTextSegment::new_with_len(begin_text, text_len);
     let data_seg = HeaderDataSegment::new_with_len(text_seg.inner.next(), data_len);
     let anal_seg = HeaderAnalysisSegment::new_with_len(data_seg.inner.next(), analysis_len);
-    let nextdata = anal_seg.inner.next();
-
-    if nextdata > MAX_HEADER_OFFSET {
-        return None;
-    }
+    let nextdata = anal_seg.inner.next().try_into().ok().unwrap_or_default();
 
     Some(OffsetFormatResult {
         header: HeaderSegments {
@@ -310,7 +306,7 @@ pub fn make_data_offset_keywords_2_0(
         stext: None,
         data: None,
         analysis: None,
-        real_nextdata: nextdata,
+        real_nextdata: Nextdata(nextdata),
     })
 }
 
@@ -333,20 +329,21 @@ pub fn make_data_offset_keywords_3_0(
     let nosupp_text_len = offsets_len() + nooffset_req_text_len;
     let all_text_len = opt_text_len + nosupp_text_len;
 
-    let (prim_text_seg, supp_text_seg) = if begin_prim_text + all_text_len <= MAX_HEADER_OFFSET {
-        // all of TEXT can fit in in HEADER, so no need for Supp TEXT
-        let p = PrimaryTextSegment::new_with_len(begin_prim_text, all_text_len);
-        let s = SupplementalTextSegment::default();
-        (p, s)
-    } else if begin_prim_text + nosupp_text_len <= MAX_HEADER_OFFSET {
-        // otherwise make Supp TEXT
-        let p = PrimaryTextSegment::new_with_len(begin_prim_text, nosupp_text_len);
-        let s = SupplementalTextSegment::new_with_len(p.inner.next(), opt_text_len);
-        (p, s)
-    } else {
-        // If HEADER+TEXT(required)+OTHER exceeds 99,999,999 bytes, we are stuck
-        return None;
-    };
+    let (prim_text_seg, supp_text_seg) =
+        if begin_prim_text + all_text_len <= u64::from(MAX_HEADER_OFFSET) {
+            // all of TEXT can fit in in HEADER, so no need for Supp TEXT
+            let p = PrimaryTextSegment::new_with_len(begin_prim_text, all_text_len);
+            let s = SupplementalTextSegment::default();
+            (p, s)
+        } else if begin_prim_text + nosupp_text_len <= u64::from(MAX_HEADER_OFFSET) {
+            // otherwise make Supp TEXT
+            let p = PrimaryTextSegment::new_with_len(begin_prim_text, nosupp_text_len);
+            let s = SupplementalTextSegment::new_with_len(p.inner.next(), opt_text_len);
+            (p, s)
+        } else {
+            // If HEADER+TEXT(required)+OTHER exceeds 99,999,999 bytes, we are stuck
+            return None;
+        };
 
     let begin_data = prim_text_seg.inner.next() + supp_text_seg.inner.len();
 
@@ -357,11 +354,7 @@ pub fn make_data_offset_keywords_3_0(
         HeaderAnalysisSegment::new_with_len(anal_seg.inner.begin(), anal_seg.inner.len());
     let h_data_seg = HeaderDataSegment::new_with_len(data_seg.inner.begin(), data_seg.inner.len());
 
-    let nextdata = if anal_seg.inner.next() > MAX_HEADER_OFFSET {
-        0
-    } else {
-        anal_seg.inner.next()
-    };
+    let nextdata = anal_seg.inner.next().try_into().ok().unwrap_or_default();
 
     Some(OffsetFormatResult {
         header: HeaderSegments {
@@ -373,7 +366,7 @@ pub fn make_data_offset_keywords_3_0(
         stext: Some(supp_text_seg),
         data: Some(data_seg),
         analysis: Some(anal_seg),
-        real_nextdata: nextdata,
+        real_nextdata: Nextdata(nextdata),
     })
 }
 
@@ -406,7 +399,7 @@ fn other_segments(other_lens: Vec<u64>) -> (Vec<OtherSegment>, u64, u64) {
 /// contiguous string.
 pub fn offset_header_string(begin: u64, end: u64) -> String {
     let nbytes = end - begin + 1;
-    let (b, e) = if end <= MAX_HEADER_OFFSET && nbytes > 0 {
+    let (b, e) = if end <= u64::from(MAX_HEADER_OFFSET) && nbytes > 0 {
         (begin, end)
     } else {
         (0, 0)
@@ -418,7 +411,7 @@ pub fn offset_header_string(begin: u64, end: u64) -> String {
 ///
 /// Returns something like (12345678, ["$NEXTDATA", "12345678"])
 pub fn offset_nextdata_string(nextdata: u64) -> (u64, (String, String)) {
-    let n = if nextdata > MAX_HEADER_OFFSET {
+    let n = if nextdata > u64::from(MAX_HEADER_OFFSET) {
         0
     } else {
         nextdata
@@ -460,7 +453,7 @@ const NEXTDATA_VAL_LEN: u64 = 8;
 pub(crate) const OFFSET_VAL_LEN: u64 = 20;
 
 /// The maximum value that may be stored in a HEADER offset.
-pub(crate) const MAX_HEADER_OFFSET: u64 = 99_999_999;
+pub(crate) const MAX_HEADER_OFFSET: u32 = 99_999_999;
 
 /// Number of bytes consumed by $NEXTDATA keyword + value + delimiters
 fn nextdata_len() -> u64 {

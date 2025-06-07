@@ -488,7 +488,7 @@ impl<I: Copy> HeaderSegment<I> {
         let i = self.inner;
         let begin = i.begin();
         let end = i.end();
-        let (b, e) = if end <= MAX_HEADER_OFFSET && !i.is_empty() {
+        let (b, e) = if end <= u64::from(MAX_HEADER_OFFSET) && !i.is_empty() {
             (begin, end)
         } else {
             (0, 0)

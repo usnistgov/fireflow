@@ -654,7 +654,7 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
         .segments
         .text
         .inner
-        .h_read(h, &mut buf)
+        .h_read_contents(h, &mut buf)
         .into_deferred()?;
 
     let tnt_delim = split_first_delim(&buf, conf)
@@ -680,7 +680,7 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
                 let tnt_supp_kws = if let Some(seg) = maybe_supp_seg {
                     buf.clear();
                     seg.inner
-                        .h_read(h, &mut buf)
+                        .h_read_contents(h, &mut buf)
                         .map_err(|e| DeferredFailure::new1(e.into()))?;
                     split_raw_supp_text(_kws, delim, &buf, conf)
                         .inner_into()

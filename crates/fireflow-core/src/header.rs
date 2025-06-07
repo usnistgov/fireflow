@@ -2,6 +2,7 @@ use crate::config::HeaderConfig;
 use crate::error::*;
 use crate::segment::*;
 use crate::text::keywords::*;
+use crate::validated::ascii_uint::*;
 use crate::validated::standard::*;
 
 use nonempty::NonEmpty;
@@ -15,16 +16,7 @@ use std::str;
 ///
 /// This should always be the same. This also assumes that there are no OTHER
 /// segments (which for now are not supported).
-pub const HEADER_LEN: u8 = A1_END;
-
-const VERSION_END: u8 = 6;
-const SPACE_END: u8 = VERSION_END + 4;
-const T0_END: u8 = SPACE_END + 8;
-const T1_END: u8 = T0_END + 8;
-const D0_END: u8 = T1_END + 8;
-const D1_END: u8 = D0_END + 8;
-const A0_END: u8 = D1_END + 8;
-const A1_END: u8 = A0_END + 8;
+pub const HEADER_LEN: u8 = 58;
 
 /// All FCS versions this library supports.
 ///
@@ -48,9 +40,8 @@ pub struct HeaderSegments {
 
 /// Output from parsing the FCS header.
 ///
-/// Includes version and the three main segments (TEXT, DATA, ANALYSIS). For
-/// now, OTHER segments are ignored. This may change in the future. Segments may
-/// or may not be adjusted using configuration parameters to correct for errors.
+/// Includes version and the three main segments (TEXT, DATA, ANALYSIS) plus
+/// any OTHER segments after the first 58 bytes.
 ///
 /// Only valid segments are to be put in this struct (ie begin <= end).
 #[derive(Clone, Serialize)]
@@ -65,28 +56,34 @@ pub fn h_read_header<R: Read>(
 ) -> MultiResult<Header, ImpureError<HeaderError>> {
     let mut verbuf = [0; HEADER_LEN as usize];
     h.read_exact(&mut verbuf).into_mult()?;
-    if verbuf.is_ascii() {
-        let hs = unsafe { str::from_utf8_unchecked(&verbuf) };
-        parse_header(hs, conf)
-            .mult_map_errors(ImpureError::Pure)
-            .and_then(|(version, text, data, analysis)| {
-                h_read_other_segments(h, text.inner.begin(), &conf.other[..]).map(|other| Header {
-                    version,
-                    segments: HeaderSegments {
-                        text,
-                        data,
-                        analysis,
-                        other,
-                    },
-                })
-            })
-    } else {
-        Err(NonEmpty::new(ImpureError::Pure(HeaderError::NotAscii)))
-    }
+    h_read_standard_header(h, conf).and_then(|(version, text, data, analysis)| {
+        [
+            text.inner.try_coords(),
+            data.inner.try_coords(),
+            analysis.inner.try_coords(),
+        ]
+        .iter()
+        .flatten()
+        .map(|(x, _)| x)
+        .min()
+        .map_or(Ok(vec![]), |earliest_begin| {
+            h_read_other_segments(h, *earliest_begin, &conf.other[..])
+        })
+        .map(|other| Header {
+            version,
+            segments: HeaderSegments {
+                text,
+                data,
+                analysis,
+                other,
+            },
+        })
+    })
+    // .map_err(NonEmpty::flatten)
 }
 
-fn parse_header(
-    s: &str,
+fn h_read_standard_header<R: Read>(
+    h: &mut BufReader<R>,
     conf: &HeaderConfig,
 ) -> MultiResult<
     (
@@ -95,34 +92,21 @@ fn parse_header(
         HeaderDataSegment,
         HeaderAnalysisSegment,
     ),
-    HeaderError,
+    ImpureError<HeaderError>,
 > {
-    let v = &s[0..VERSION_END.into()];
-    let spaces = &s[usize::from(VERSION_END)..SPACE_END.into()];
-    let t0 = &s[usize::from(SPACE_END)..T0_END.into()];
-    let t1 = &s[usize::from(T0_END)..T1_END.into()];
-    let d0 = &s[usize::from(T1_END)..D0_END.into()];
-    let d1 = &s[usize::from(D0_END)..D1_END.into()];
-    let a0 = &s[usize::from(D1_END)..A0_END.into()];
-    let a1 = &s[usize::from(A0_END)..A1_END.into()];
-    let vers_res = v
-        .parse::<Version>()
-        .map_err(HeaderError::Version)
-        .into_mult();
-    let space_res = if !spaces.chars().all(|x| x == ' ') {
-        Err(NonEmpty::new(HeaderError::Space))
-    } else {
-        Ok(())
-    };
-    let text_res = PrimaryTextSegment::parse(t0, t1, false, conf.text);
-    let data_res = HeaderDataSegment::parse(d0, d1, false, conf.data);
-    let anal_res = HeaderAnalysisSegment::parse(a0, a1, true, conf.analysis);
+    let vers_res = Version::h_read(h)
+        .map_err(NonEmpty::new)
+        .mult_map_errors(|e| e.map_inner(HeaderError::Version));
+    let space_res = h_read_spaces(h).map_err(NonEmpty::new);
+    let text_res = PrimaryTextSegment::h_read_offsets(h, false, conf.text);
+    let data_res = HeaderDataSegment::h_read_offsets(h, false, conf.data);
+    let anal_res = HeaderAnalysisSegment::h_read_offsets(h, true, conf.analysis);
     let offset_res = text_res
         .mult_zip3(data_res, anal_res)
-        .mult_map_errors(HeaderError::Segment);
+        .mult_map_errors(|e| e.map_inner(HeaderError::Segment));
     vers_res
         .mult_zip3(space_res, offset_res)
-        .map(|(version, _, (text, data, analysis))| {
+        .map(|(version, (), (text, data, analysis))| {
             (
                 conf.version_override.unwrap_or(version),
                 text,
@@ -132,55 +116,97 @@ fn parse_header(
         })
 }
 
+fn h_read_spaces<R: Read>(h: &mut BufReader<R>) -> Result<(), ImpureError<HeaderError>> {
+    let mut buf = [0_u8; 4];
+    h.read_exact(&mut buf)?;
+    if buf.iter().all(|x| *x == 32) {
+        Ok(())
+    } else {
+        Err(ImpureError::Pure(HeaderError::Space))
+    }
+}
+
 fn h_read_other_segments<R: Read>(
     h: &mut BufReader<R>,
-    text_begin: u64,
+    text_begin: Uint8Digit,
     corrs: &[OffsetCorrection<OtherSegmentId, SegmentFromHeader>],
 ) -> MultiResult<Vec<OtherSegment>, ImpureError<HeaderError>> {
     // ASSUME this won't fail because we checked that each offset is greater
     // than this
-    let n = text_begin - u64::from(HEADER_LEN);
-    // if less than 16 bytes (the width of two offsets) then nothing to do
-    if n < 16 {
-        return Ok(vec![]);
-    }
-    let mut buf = vec![];
-    // ASSUME cursor is at HEADER_LEN
-    h.take(u64::from(n)).read_to_end(&mut buf).into_mult()?;
-    if buf.is_ascii() {
-        let mut xs = unsafe { str::from_utf8_unchecked(&buf) };
-        // if all spaces, nothing to do
-        if xs.chars().all(|x| x == ' ') {
-            return Ok(vec![]);
+    let n = u64::from(text_begin) - u64::from(HEADER_LEN);
+    let mut buf0 = [0_u8; 8];
+    let mut buf1 = [0_u8; 8];
+    let n_segs = (n / 16) as usize;
+
+    corrs
+        .iter()
+        .copied()
+        .chain(repeat(OffsetCorrection::default()))
+        .take(n_segs)
+        .map(|corr| {
+            h.read_exact(&mut buf0).into_mult()?;
+            h.read_exact(&mut buf1).into_mult()?;
+            // If any regions are entirely blank, just ignore them
+            if buf0.iter().chain(buf1.iter()).all(|x| *x == 32) {
+                Ok(None)
+            } else {
+                OtherSegment::parse(&buf0, &buf1, false, corr)
+                    .map(Some)
+                    .mult_map_errors(HeaderError::Segment)
+                    .mult_map_errors(ImpureError::Pure)
+            }
+        })
+        .gather()
+        .map_err(NonEmpty::flatten)
+        .map(|os| os.into_iter().flatten().collect())
+    // // if less than 16 bytes (the width of two offsets) then nothing to do
+    // if n < 16 {
+    //     return Ok(vec![]);
+    // }
+    // let mut buf = vec![];
+    // // ASSUME cursor is at HEADER_LEN
+    // h.take(u64::from(n)).read_to_end(&mut buf).into_mult()?;
+    // if buf.is_ascii() {
+    //     let mut xs = unsafe { str::from_utf8_unchecked(&buf) };
+    //     // if all spaces, nothing to do
+    //     if xs.chars().all(|x| x == ' ') {
+    //         return Ok(vec![]);
+    //     }
+
+    //     // chop the bytes into 8-byte chunks which hopefully have the offsets
+    //     let mut raw_offsets = vec![];
+    //     while let Some((left, right, rest)) = xs.split_at_checked(8).and_then(|(left, rest0)| {
+    //         rest0
+    //             .split_at_checked(8)
+    //             .map(|(right, rest1)| (left, right, rest1))
+    //     }) {
+    //         raw_offsets.push((left, right));
+    //         xs = rest;
+    //     }
+
+    //     raw_offsets
+    //         .into_iter()
+    //         .zip(padded_corrs)
+    //         .map(|((left, right), corr)| OtherSegment::parse(left, right, false, corr))
+    //         .gather()
+    //         .map_err(NonEmpty::flatten)
+    //         .mult_map_errors(HeaderError::Segment)
+    //         .mult_map_errors(ImpureError::Pure)
+    // } else {
+    //     Err(NonEmpty::new(ImpureError::Pure(HeaderError::OtherNotAscii)))
+    // }
+}
+
+impl Version {
+    fn h_read<R: Read>(h: &mut BufReader<R>) -> Result<Self, ImpureError<VersionError>> {
+        let mut buf = [0; 6];
+        h.read_exact(&mut buf)?;
+        if buf.is_ascii() {
+            let s = unsafe { str::from_utf8_unchecked(&buf) };
+            s.parse().map_err(ImpureError::Pure)
+        } else {
+            Err(ImpureError::Pure(VersionError))
         }
-
-        // chop the bytes into 8-byte chunks which hopefully have the offsets
-        let mut raw_offsets = vec![];
-        while let Some((left, right, rest)) = xs.split_at_checked(8).and_then(|(left, rest0)| {
-            rest0
-                .split_at_checked(8)
-                .map(|(right, rest1)| (left, right, rest1))
-        }) {
-            raw_offsets.push((left, right));
-            xs = rest;
-        }
-
-        let padded_corrs = corrs
-            .iter()
-            .copied()
-            .chain(repeat(OffsetCorrection::default()))
-            .take(raw_offsets.len());
-
-        raw_offsets
-            .into_iter()
-            .zip(padded_corrs)
-            .map(|((left, right), corr)| OtherSegment::parse(left, right, false, corr))
-            .gather()
-            .map_err(NonEmpty::flatten)
-            .mult_map_errors(HeaderError::Segment)
-            .mult_map_errors(ImpureError::Pure)
-    } else {
-        Err(NonEmpty::new(ImpureError::Pure(HeaderError::OtherNotAscii)))
     }
 }
 
@@ -285,28 +311,45 @@ pub fn make_data_offset_keywords_2_0(
     data_len: u64,
     analysis_len: u64,
     other_lens: Vec<u64>,
-) -> Option<OffsetFormatResult> {
-    let (other_segs, other_header_len, other_segments_len) = other_segments(other_lens);
+) -> Result<OffsetFormatResult, Uint8DigitOverflow> {
+    let (other_segs, other_header_len, other_segments_len) = other_segments(other_lens)?;
+
+    let text_begin: Uint8Digit =
+        (u64::from(HEADER_LEN) + other_header_len + other_segments_len).try_into()?;
     // +1 at end accounts for first delimiter
-    let begin_text = u64::from(HEADER_LEN) + other_header_len + other_segments_len + 1;
-    let text_len = nextdata_len() + nooffset_text_len;
+    let text_len = nextdata_len() + nooffset_text_len + 1;
+    let text_seg = PrimaryTextSegment::try_new_with_len(text_begin, text_len)?;
 
-    let text_seg = PrimaryTextSegment::new_with_len(begin_text, text_len);
-    let data_seg = HeaderDataSegment::new_with_len(text_seg.inner.next(), data_len);
-    let anal_seg = HeaderAnalysisSegment::new_with_len(data_seg.inner.next(), analysis_len);
-    let nextdata = anal_seg.inner.next().try_into().ok().unwrap_or_default();
+    let data_begin = text_seg
+        .inner
+        .try_next_byte()
+        .map_or(Ok(text_begin), |x| x.try_into())?;
+    let data_seg = HeaderDataSegment::try_new_with_len(data_begin, data_len)?;
 
-    Some(OffsetFormatResult {
+    let analysis_begin = data_seg
+        .inner
+        .try_next_byte()
+        .map_or(Ok(text_begin), |x| x.try_into())?;
+    let analysis_seg = HeaderAnalysisSegment::try_new_with_len(analysis_begin, analysis_len)?;
+
+    let nextdata = analysis_seg
+        .inner
+        .try_next_byte()
+        .map_or(Ok(analysis_begin), |x| x.try_into())
+        .ok()
+        .unwrap_or_default();
+
+    Ok(OffsetFormatResult {
         header: HeaderSegments {
             text: text_seg,
             data: data_seg,
-            analysis: anal_seg,
+            analysis: analysis_seg,
             other: other_segs,
         },
         stext: None,
         data: None,
         analysis: None,
-        real_nextdata: Nextdata(nextdata),
+        real_nextdata: Nextdata(nextdata.into()),
     })
 }
 
@@ -320,69 +363,85 @@ pub fn make_data_offset_keywords_3_0(
     data_len: u64,
     analysis_len: u64,
     other_lens: Vec<u64>,
-) -> Option<OffsetFormatResult> {
-    let (other_segs, other_header_len, other_segments_len) = other_segments(other_lens);
-    // +1 at end accounts for first delimiter
-    let begin_prim_text = u64::from(HEADER_LEN) + other_header_len + other_segments_len + 1;
+) -> Result<OffsetFormatResult, Uint8DigitOverflow> {
+    let (other_segs, other_header_len, other_segments_len) = other_segments(other_lens)?;
+    let prim_text_begin: Uint8Digit =
+        (u64::from(HEADER_LEN) + other_header_len + other_segments_len).try_into()?;
 
-    // // Compute the length of (S)TEXT
-    let nosupp_text_len = offsets_len() + nooffset_req_text_len;
+    // +1 at end accounts for first delimiter
+    let nosupp_text_len = offsets_len() + nooffset_req_text_len + 1;
     let all_text_len = opt_text_len + nosupp_text_len;
 
+    // include STEXT only if the optional keywords don't fit within the first
+    // 99,999,999 bytes
     let (prim_text_seg, supp_text_seg) =
-        if begin_prim_text + all_text_len <= u64::from(MAX_HEADER_OFFSET) {
-            // all of TEXT can fit in in HEADER, so no need for Supp TEXT
-            let p = PrimaryTextSegment::new_with_len(begin_prim_text, all_text_len);
-            let s = SupplementalTextSegment::default();
-            (p, s)
-        } else if begin_prim_text + nosupp_text_len <= u64::from(MAX_HEADER_OFFSET) {
-            // otherwise make Supp TEXT
-            let p = PrimaryTextSegment::new_with_len(begin_prim_text, nosupp_text_len);
-            let s = SupplementalTextSegment::new_with_len(p.inner.next(), opt_text_len);
-            (p, s)
-        } else {
-            // If HEADER+TEXT(required)+OTHER exceeds 99,999,999 bytes, we are stuck
-            return None;
-        };
+        PrimaryTextSegment::try_new_with_len(prim_text_begin, all_text_len)
+            .map(|p| (p, SupplementalTextSegment::default()))
+            .or(
+                PrimaryTextSegment::try_new_with_len(prim_text_begin, nosupp_text_len).map(|p| {
+                    let supp_text_begin = p
+                        .inner
+                        .try_next_byte()
+                        .map_or(u64::from(prim_text_begin).into(), |x| x.into());
+                    let s = SupplementalTextSegment::new_with_len(supp_text_begin, opt_text_len);
+                    (p, s)
+                }),
+            )?;
 
-    let begin_data = prim_text_seg.inner.next() + supp_text_seg.inner.len();
+    let data_begin = supp_text_seg
+        .inner
+        .try_next_byte()
+        .or(prim_text_seg.inner.try_next_byte())
+        .unwrap_or(u64::from(prim_text_begin))
+        .into();
 
-    let data_seg = TEXTDataSegment::new_with_len(begin_data, data_len);
-    let anal_seg = TEXTAnalysisSegment::new_with_len(data_seg.inner.next(), analysis_len);
+    let data_seg = TEXTDataSegment::new_with_len(data_begin, data_len);
 
-    let h_anal_seg =
-        HeaderAnalysisSegment::new_with_len(anal_seg.inner.begin(), anal_seg.inner.len());
-    let h_data_seg = HeaderDataSegment::new_with_len(data_seg.inner.begin(), data_seg.inner.len());
+    let analysis_begin = data_seg
+        .inner
+        .try_next_byte()
+        .map(|x| x.into())
+        .unwrap_or(data_begin);
+    let analysis_seg = TEXTAnalysisSegment::new_with_len(analysis_begin, analysis_len);
 
-    let nextdata = anal_seg.inner.next().try_into().ok().unwrap_or_default();
+    let h_analysis_seg = analysis_seg.as_header();
+    let h_data_seg = data_seg.as_header();
 
-    Some(OffsetFormatResult {
+    let nextdata: Uint8Digit = analysis_seg
+        .inner
+        .try_next_byte()
+        .unwrap_or(u64::from(analysis_begin))
+        .try_into()
+        .ok()
+        .unwrap_or_default();
+
+    Ok(OffsetFormatResult {
         header: HeaderSegments {
             text: prim_text_seg,
-            analysis: h_anal_seg,
+            analysis: h_analysis_seg,
             data: h_data_seg,
             other: other_segs,
         },
         stext: Some(supp_text_seg),
         data: Some(data_seg),
-        analysis: Some(anal_seg),
-        real_nextdata: Nextdata(nextdata),
+        analysis: Some(analysis_seg),
+        real_nextdata: Nextdata(nextdata.into()),
     })
 }
 
-fn other_segments(other_lens: Vec<u64>) -> (Vec<OtherSegment>, u64, u64) {
-    let os: Vec<_> = other_lens
-        .into_iter()
-        .filter(|x| *x > 0)
-        .scan(HEADER_LEN.into(), |begin, length| {
-            let ret = OtherSegment::new_with_len(*begin, length);
-            *begin = *begin + length;
-            Some(ret)
-        })
-        .collect();
+fn other_segments(
+    other_lens: Vec<u64>,
+) -> Result<(Vec<OtherSegment>, u64, u64), Uint8DigitOverflow> {
+    let mut os = vec![];
+    let mut begin: Uint8Digit = HEADER_LEN.into();
+    for length in other_lens {
+        let seg = OtherSegment::try_new_with_len(begin, length)?;
+        begin = (u64::from(begin) + length).try_into()?;
+        os.push(seg);
+    }
     let total_length = os.iter().map(|s| s.inner.len()).sum();
     let header_length = (os.len() as u64) * 16;
-    (os, header_length, total_length)
+    Ok((os, header_length, total_length))
 }
 
 // /// Compute length occupied by OTHER segments.

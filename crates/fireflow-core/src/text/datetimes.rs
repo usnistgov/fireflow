@@ -121,8 +121,8 @@ impl Datetimes {
 
     pub(crate) fn opt_keywords(&self) -> Vec<(String, Option<String>)> {
         [
-            OptMetaKey::pair(&self.begin()),
-            OptMetaKey::pair(&self.end()),
+            OptMetaKey::pair_opt(&self.begin()),
+            OptMetaKey::pair_opt(&self.end()),
         ]
         .into_iter()
         .collect()

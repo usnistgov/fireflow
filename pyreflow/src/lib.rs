@@ -721,16 +721,12 @@ py_enum!(
     [FCS3_2, FCS3_2]
 );
 
-py_wrap!(PySegment, Segment, "Segment");
+py_wrap!(PySegment, Segment<u64>, "Segment");
 
 #[pymethods]
 impl PySegment {
-    fn begin(&self) -> u64 {
-        self.0.begin()
-    }
-
-    fn end(&self) -> u64 {
-        self.0.end()
+    fn coords(&self) -> (u64, u64) {
+        self.0.try_coords().unwrap_or((0, 0))
     }
 
     fn nbytes(&self) -> u64 {
@@ -738,7 +734,7 @@ impl PySegment {
     }
 
     fn __repr__(&self) -> String {
-        format!("({},{})", self.begin(), self.end())
+        format!("({})", self.0.fmt_pair())
     }
 }
 
@@ -753,17 +749,17 @@ impl PyHeader {
 
     #[getter]
     fn text(&self) -> PySegment {
-        self.0.segments.text.inner.into()
+        self.0.segments.text.inner.as_u64().into()
     }
 
     #[getter]
     fn data(&self) -> PySegment {
-        self.0.segments.data.inner.into()
+        self.0.segments.data.inner.as_u64().into()
     }
 
     #[getter]
     fn analysis(&self) -> PySegment {
-        self.0.segments.analysis.inner.into()
+        self.0.segments.analysis.inner.as_u64().into()
     }
 
     #[getter]
@@ -773,7 +769,7 @@ impl PyHeader {
             .other
             .iter()
             .copied()
-            .map(|x| x.inner.into())
+            .map(|x| x.inner.as_u64().into())
             .collect()
     }
 }
@@ -784,22 +780,22 @@ py_wrap!(PyParseData, RawTEXTParseData, "ParseData");
 impl PyParseData {
     #[getter]
     fn prim_text(&self) -> PySegment {
-        self.0.header_segments.text.inner.into()
+        self.0.header_segments.text.inner.as_u64().into()
     }
 
     #[getter]
     fn supp_text(&self) -> Option<PySegment> {
-        self.0.supp_text.map(|x| x.inner.into())
+        self.0.supp_text.map(|x| x.inner.as_u64().into())
     }
 
     #[getter]
     fn data(&self) -> PySegment {
-        self.0.header_segments.data.inner.into()
+        self.0.header_segments.data.inner.as_u64().into()
     }
 
     #[getter]
     fn analysis(&self) -> PySegment {
-        self.0.header_segments.analysis.inner.into()
+        self.0.header_segments.analysis.inner.as_u64().into()
     }
 
     #[getter]

@@ -1,11 +1,10 @@
 use crate::error::*;
-use crate::header::{format_zero_padded, MAX_HEADER_OFFSET, OFFSET_VAL_LEN};
 use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
 use crate::text::keywords::*;
+use crate::validated::ascii_uint::*;
 use crate::validated::standard::*;
 
-use super::header::HEADER_LEN;
-
+use itertools::Itertools;
 use serde::Serialize;
 use std::fmt;
 use std::io;
@@ -16,15 +15,22 @@ use std::str::FromStr;
 
 /// A segment in an FCS file which is denoted by a pair of offsets
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Default)]
-pub struct Segment {
-    begin: u64,
-    pseudo_length: u64,
+pub enum Segment<T> {
+    NonEmpty(NonEmptySegment<T>),
+    #[default]
+    Empty,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq)]
+pub struct NonEmptySegment<T> {
+    begin: T,
+    end: T,
 }
 
 /// A segment that is specific to a region in the FCS file.
 #[derive(Clone, Copy, Serialize, Default)]
-pub struct SpecificSegment<I, S> {
-    pub inner: Segment,
+pub struct SpecificSegment<I, S, T> {
+    pub inner: Segment<T>,
     _id: PhantomData<I>,
     _src: PhantomData<S>,
 }
@@ -70,28 +76,29 @@ pub struct AnalysisSegmentId;
 #[derive(Default, Debug, Clone, Copy, Serialize)]
 pub struct OtherSegmentId;
 
-pub type PrimaryTextSegment = SpecificSegment<PrimaryTextSegmentId, SegmentFromHeader>;
-pub type SupplementalTextSegment = SpecificSegment<SupplementalTextSegmentId, SegmentFromTEXT>;
+pub type PrimaryTextSegment = SpecificSegment<PrimaryTextSegmentId, SegmentFromHeader, Uint8Digit>;
+pub type SupplementalTextSegment =
+    SpecificSegment<SupplementalTextSegmentId, SegmentFromTEXT, Uint20Char>;
 
-type DataSegment<S> = SpecificSegment<DataSegmentId, S>;
-pub type HeaderDataSegment = DataSegment<SegmentFromHeader>;
-pub type TEXTDataSegment = DataSegment<SegmentFromTEXT>;
+type DataSegment<S, T> = SpecificSegment<DataSegmentId, S, T>;
+pub type HeaderDataSegment = DataSegment<SegmentFromHeader, Uint8Digit>;
+pub type TEXTDataSegment = DataSegment<SegmentFromTEXT, Uint20Char>;
 
-type AnalysisSegment<S> = SpecificSegment<AnalysisSegmentId, S>;
-pub type HeaderAnalysisSegment = AnalysisSegment<SegmentFromHeader>;
-pub type TEXTAnalysisSegment = AnalysisSegment<SegmentFromTEXT>;
+type AnalysisSegment<S, T> = SpecificSegment<AnalysisSegmentId, S, T>;
+pub type HeaderAnalysisSegment = AnalysisSegment<SegmentFromHeader, Uint8Digit>;
+pub type TEXTAnalysisSegment = AnalysisSegment<SegmentFromTEXT, Uint20Char>;
 
-pub type HeaderSegment<I> = SpecificSegment<I, SegmentFromHeader>;
-pub type TEXTSegment<I> = SpecificSegment<I, SegmentFromTEXT>;
-pub type AnySegment<I> = SpecificSegment<I, SegmentFromAnywhere>;
+pub type HeaderSegment<I> = SpecificSegment<I, SegmentFromHeader, Uint8Digit>;
+pub type TEXTSegment<I> = SpecificSegment<I, SegmentFromTEXT, Uint20Char>;
+pub type AnySegment<I> = SpecificSegment<I, SegmentFromAnywhere, u64>;
 
 pub type HeaderCorrection<I> = OffsetCorrection<I, SegmentFromHeader>;
 pub type TEXTCorrection<I> = OffsetCorrection<I, SegmentFromTEXT>;
 
-pub type AnyDataSegment = DataSegment<SegmentFromAnywhere>;
-pub type AnyAnalysisSegment = AnalysisSegment<SegmentFromAnywhere>;
+pub type AnyDataSegment = DataSegment<SegmentFromAnywhere, u64>;
+pub type AnyAnalysisSegment = AnalysisSegment<SegmentFromAnywhere, u64>;
 
-pub type OtherSegment = SpecificSegment<OtherSegmentId, SegmentFromHeader>;
+pub type OtherSegment = SpecificSegment<OtherSegmentId, SegmentFromHeader, Uint8Digit>;
 
 pub(crate) type ReqSegResult<T> =
     DeferredResult<AnySegment<T>, ReqSegmentWithDefaultWarning<T>, ReqSegmentWithDefaultError<T>>;
@@ -115,8 +122,8 @@ pub(crate) trait KeyedReqSegment
 where
     Self: KeyedSegment,
     Self: HasRegion,
-    Self::B: Into<u64>,
-    Self::E: Into<u64>,
+    Self::B: Into<Uint20Char>,
+    Self::E: Into<Uint20Char>,
     Self::B: ReqMetaKey,
     Self::E: ReqMetaKey,
     Self::B: FromStr<Err = ParseIntError>,
@@ -240,8 +247,8 @@ pub(crate) trait KeyedOptSegment
 where
     Self: KeyedSegment,
     Self: HasRegion,
-    Self::B: Into<u64>,
-    Self::E: Into<u64>,
+    Self::B: Into<Uint20Char>,
+    Self::E: Into<Uint20Char>,
     Self::B: OptMetaKey,
     Self::E: OptMetaKey,
     Self::B: FromStr<Err = ParseIntError>,
@@ -414,13 +421,13 @@ impl HasRegion for OtherSegmentId {
 enum_from_disp!(
     pub ReqSegmentError,
     [Key, ReqKeyError<ParseIntError>],
-    [Segment, SegmentError]
+    [Segment, SegmentError<Uint20Char>]
 );
 
 enum_from_disp!(
     pub OptSegmentError,
     [Key, ParseKeyError<ParseIntError>],
-    [Segment, SegmentError]
+    [Segment, SegmentError<Uint20Char>]
 );
 
 impl<I, S> OffsetCorrection<I, S> {
@@ -434,11 +441,17 @@ impl<I, S> OffsetCorrection<I, S> {
     }
 }
 
-impl<I, S> SpecificSegment<I, S> {
-    pub fn try_new(begin: u64, end: u64, corr: OffsetCorrection<I, S>) -> Result<Self, SegmentError>
+impl<I, S, T> SpecificSegment<I, S, T> {
+    pub fn try_new(begin: T, end: T, corr: OffsetCorrection<I, S>) -> Result<Self, SegmentError<T>>
     where
         I: HasRegion,
         S: HasSource,
+        T: Default,
+        T: Into<u64>,
+        T: Into<i128>,
+        T: TryFrom<i128>,
+        T: PartialOrd,
+        T: Copy,
     {
         Segment::try_new::<I, S>(begin, end, corr).map(|inner| Self {
             inner,
@@ -447,13 +460,62 @@ impl<I, S> SpecificSegment<I, S> {
         })
     }
 
-    pub(crate) fn new_with_len(begin: u64, length: u64) -> Self {
+    pub(crate) fn try_new_with_len(
+        begin: T,
+        length: u64,
+    ) -> Result<Self, <T as TryFrom<u64>>::Error>
+    where
+        T: Into<u64>,
+        T: TryFrom<u64>,
+        T: Copy,
+    {
+        if length == 0 {
+            Ok(Segment::default())
+        } else {
+            (begin.into() + length - 1)
+                .try_into()
+                .map(|end| Segment::NonEmpty(NonEmptySegment::new_unchecked(begin, end)))
+        }
+        .map(|inner| Self {
+            inner,
+            _id: PhantomData,
+            _src: PhantomData,
+        })
+    }
+}
+
+impl<I> TEXTSegment<I> {
+    pub(crate) fn new_with_len(begin: Uint20Char, length: u64) -> Self {
         let inner = if length == 0 {
             Segment::default()
         } else {
-            Segment::new_unchecked(begin, begin + length - 1)
+            let end = Uint20Char::from(u64::from(begin) + length - 1);
+            Segment::NonEmpty(NonEmptySegment::new_unchecked(begin, end))
         };
         Self {
+            inner,
+            _id: PhantomData,
+            _src: PhantomData,
+        }
+    }
+
+    /// Convert TEXT segment to HEADER segment.
+    ///
+    /// If offsets are too big, return an empty segment.
+    pub(crate) fn as_header(&self) -> HeaderSegment<I> {
+        let inner = self
+            .inner
+            .try_coords()
+            .map_or(Segment::default(), |(b, e)| {
+                let br = u64::from(b).try_into();
+                let er = u64::from(e).try_into();
+                if let (Ok(begin), Ok(end)) = (br, er) {
+                    Segment::NonEmpty(NonEmptySegment::new_unchecked(begin, end))
+                } else {
+                    Segment::default()
+                }
+            });
+        SpecificSegment {
             inner,
             _id: PhantomData,
             _src: PhantomData,
@@ -462,22 +524,44 @@ impl<I, S> SpecificSegment<I, S> {
 }
 
 impl<I: Copy> HeaderSegment<I> {
-    pub(crate) fn parse(
-        s0: &str,
-        s1: &str,
+    pub(crate) fn h_read_offsets<R: Read>(
+        h: &mut BufReader<R>,
         allow_blank: bool,
         corr: OffsetCorrection<I, SegmentFromHeader>,
-    ) -> MultiResult<SpecificSegment<I, SegmentFromHeader>, HeaderSegmentError>
+    ) -> MultiResult<Self, ImpureError<HeaderSegmentError>>
     where
         I: HasRegion,
     {
-        let parse_one = |s, is_begin| {
-            parse_header_offset::<I>(s, allow_blank, is_begin).map_err(HeaderSegmentError::Parse)
+        let mut buf0 = [0_u8; 8];
+        let mut buf1 = [0_u8; 8];
+        h.read_exact(&mut buf0).into_mult()?;
+        h.read_exact(&mut buf1).into_mult()?;
+        Self::parse(&buf0, &buf1, allow_blank, corr).mult_map_errors(ImpureError::Pure)
+    }
+
+    pub(crate) fn parse(
+        bs0: &[u8; 8],
+        bs1: &[u8; 8],
+        allow_blank: bool,
+        corr: OffsetCorrection<I, SegmentFromHeader>,
+    ) -> MultiResult<Self, HeaderSegmentError>
+    where
+        I: HasRegion,
+    {
+        let parse_one = |bs, is_begin| {
+            Uint8Digit::from_bytes(bs, allow_blank).map_err(|error| ParseOffsetError {
+                error,
+                is_begin,
+                location: I::REGION,
+                source: bs.to_vec(),
+            })
         };
-        let begin_res = parse_one(s0, true);
-        let end_res = parse_one(s1, false);
+
+        let begin_res = parse_one(bs0, true);
+        let end_res = parse_one(bs1, false);
         begin_res
             .zip(end_res)
+            .mult_errors_into()
             .and_then(|(begin, end)| SpecificSegment::try_new(begin, end, corr).into_mult())
     }
 
@@ -485,14 +569,10 @@ impl<I: Copy> HeaderSegment<I> {
     ///
     /// Returns a string array like "   XXXX    YYYY".
     pub(crate) fn header_string(&self) -> String {
-        let i = self.inner;
-        let begin = i.begin();
-        let end = i.end();
-        let (b, e) = if end <= u64::from(MAX_HEADER_OFFSET) && !i.is_empty() {
-            (begin, end)
-        } else {
-            (0, 0)
-        };
+        let (b, e) = self
+            .inner
+            .try_coords()
+            .unwrap_or((Uint8Digit::default(), Uint8Digit::default()));
         format!("{:>8}{:>8}", b, e)
     }
 
@@ -500,7 +580,7 @@ impl<I: Copy> HeaderSegment<I> {
         self,
         other: TEXTSegment<I>,
     ) -> Result<AnySegment<I>, (AnySegment<I>, SegmentMismatchWarning<I>)> {
-        if other.inner != self.inner && !self.inner.is_empty() {
+        if other.inner.as_u64() != self.inner.as_u64() && !self.inner.is_empty() {
             Err((
                 self.into_any(),
                 SegmentMismatchWarning {
@@ -510,7 +590,7 @@ impl<I: Copy> HeaderSegment<I> {
             ))
         } else {
             Ok(SpecificSegment {
-                inner: other.inner,
+                inner: other.inner.as_u64(),
                 _id: PhantomData,
                 _src: PhantomData,
             })
@@ -519,7 +599,7 @@ impl<I: Copy> HeaderSegment<I> {
 
     pub(crate) fn into_any(self) -> AnySegment<I> {
         SpecificSegment {
-            inner: self.inner,
+            inner: self.inner.as_u64(),
             _id: PhantomData,
             _src: PhantomData,
         }
@@ -527,26 +607,58 @@ impl<I: Copy> HeaderSegment<I> {
 }
 
 impl<I> TEXTSegment<I> {
-    /// Create offset keyword pairs for TEXT
-    ///
-    /// Returns a string array like [("BEGINX", "0"), ("ENDX", "1000")]
-    pub(crate) fn text_string(self) -> [(String, String); 2]
+    pub(crate) fn opt_keywords(&self) -> Vec<(String, String)>
     where
-        I: KeyedSegment,
+        I: KeyedOptSegment,
+        I::B: Into<Uint20Char>,
+        I::E: Into<Uint20Char>,
+        I::B: From<Uint20Char>,
+        I::E: From<Uint20Char>,
+        I::B: OptMetaKey,
+        I::E: OptMetaKey,
+        I::B: FromStr<Err = ParseIntError>,
+        I::E: FromStr<Err = ParseIntError>,
     {
         let i = self.inner;
-        let (b, e) = if i.is_empty() {
-            (0, 0)
-        } else {
-            (i.begin(), i.end())
-        };
-        let fb = format_zero_padded(b, OFFSET_VAL_LEN);
-        let fe = format_zero_padded(e, OFFSET_VAL_LEN);
-        [(I::B::std().to_string(), fb), (I::E::std().to_string(), fe)]
+        match i {
+            Segment::Empty => vec![],
+            Segment::NonEmpty(x) => {
+                let b: I::B = x.begin.into();
+                let e: I::B = x.end.into();
+                [OptMetaKey::pair(&b), OptMetaKey::pair(&e)]
+                    .into_iter()
+                    .collect()
+            }
+        }
+    }
+
+    pub(crate) fn req_keywords(&self) -> Vec<(String, String)>
+    where
+        I: KeyedReqSegment,
+        I::B: Into<Uint20Char>,
+        I::E: Into<Uint20Char>,
+        I::B: From<Uint20Char>,
+        I::E: From<Uint20Char>,
+        I::B: ReqMetaKey,
+        I::E: ReqMetaKey,
+        I::B: FromStr<Err = ParseIntError>,
+        I::E: FromStr<Err = ParseIntError>,
+    {
+        let i = self.inner;
+        match i {
+            Segment::Empty => vec![],
+            Segment::NonEmpty(x) => {
+                let b: I::B = x.begin.into();
+                let e: I::B = x.end.into();
+                [ReqMetaKey::pair(&b), ReqMetaKey::pair(&e)]
+                    .into_iter()
+                    .collect()
+            }
+        }
     }
 }
 
-impl Segment {
+impl<T> Segment<T> {
     /// Make new segment and check bounds to ensure validity
     ///
     /// Will return error explaining why bounds were invalid if failed.
@@ -560,12 +672,19 @@ impl Segment {
     /// actually 1 byte long. There is no way to represent a zero-length segment
     /// starting at 0 unless we use signed ints.
     pub fn try_new<I: HasRegion, S: HasSource>(
-        begin: u64,
-        end: u64,
+        begin: T,
+        end: T,
         corr: OffsetCorrection<I, S>,
-    ) -> Result<Self, SegmentError> {
-        let x = i128::from(begin) + i128::from(corr.begin);
-        let y = i128::from(end) + i128::from(corr.end);
+    ) -> Result<Self, SegmentError<T>>
+    where
+        T: Default,
+        T: Into<i128>,
+        T: TryFrom<i128>,
+        T: PartialOrd,
+        T: Copy,
+    {
+        let x = Into::<i128>::into(begin) + i128::from(corr.begin);
+        let y = Into::<i128>::into(end) + i128::from(corr.end);
         let err = |kind| {
             Err(SegmentError {
                 begin,
@@ -577,116 +696,185 @@ impl Segment {
                 src: S::SRC,
             })
         };
-        match (u64::try_from(x), u64::try_from(y)) {
+        match (T::try_from(x), T::try_from(y)) {
             (Ok(new_begin), Ok(new_end)) => {
                 if new_begin > new_end {
                     err(SegmentErrorKind::Inverted)
+                } else if new_begin == T::default() && new_end == T::default() {
+                    Ok(Self::Empty)
                 } else {
-                    let new = Self::new_unchecked(new_begin, new_end);
-                    if new.begin() < HEADER_LEN.into() && !new.is_empty() {
-                        err(SegmentErrorKind::InHeader)
-                    } else {
-                        Ok(new)
-                    }
+                    Ok(Self::NonEmpty(NonEmptySegment::new_unchecked(
+                        new_begin, new_end,
+                    )))
                 }
             }
             (_, _) => err(SegmentErrorKind::Range),
         }
     }
 
-    pub fn h_read<R: Read + Seek>(
+    pub fn h_read_contents<R: Read + Seek>(
         &self,
         h: &mut BufReader<R>,
         buf: &mut Vec<u8>,
-    ) -> io::Result<()> {
-        let begin = u64::from(self.begin);
-        let nbytes = u64::from(self.len());
+    ) -> io::Result<()>
+    where
+        T: Into<u64>,
+        T: Copy,
+    {
+        match self {
+            Self::Empty => Ok(()),
+            Self::NonEmpty(s) => {
+                let begin = s.begin.into();
+                let nbytes = s.len().into();
 
-        h.seek(SeekFrom::Start(begin))?;
-        h.take(nbytes).read_to_end(buf)?;
-        Ok(())
+                h.seek(SeekFrom::Start(begin))?;
+                h.take(nbytes).read_to_end(buf)?;
+                Ok(())
+            }
+        }
     }
 
-    pub fn try_adjust<I, S>(self, corr: OffsetCorrection<I, S>) -> Result<Self, SegmentError>
+    pub fn try_adjust<I, S>(self, corr: OffsetCorrection<I, S>) -> Result<Self, SegmentError<T>>
     where
         I: HasRegion,
         S: HasSource,
+        T: Copy,
+        T: Default,
+        T: TryFrom<i128>,
+        T: Into<i128>,
+        T: PartialOrd,
     {
-        Self::try_new::<I, S>(self.begin, self.end(), corr)
+        let (b, e) = match self {
+            Self::Empty => (T::default(), T::default()),
+            Self::NonEmpty(s) => s.coords(),
+        };
+        Self::try_new::<I, S>(b, e, corr)
+    }
+
+    /// Return the first and last byte if applicable
+    pub fn try_coords(&self) -> Option<(T, T)>
+    where
+        T: Copy,
+    {
+        match self {
+            Self::Empty => None,
+            Self::NonEmpty(s) => Some(s.coords()),
+        }
+    }
+
+    /// Return byte after end of segment if applicable
+    pub fn try_next_byte(&self) -> Option<u64>
+    where
+        T: Copy,
+        T: Into<u64>,
+    {
+        match self {
+            Self::Empty => None,
+            Self::NonEmpty(s) => Some(s.next_byte()),
+        }
     }
 
     /// Return the number of bytes in this segment
-    pub fn len(&self) -> u64 {
+    pub fn len(&self) -> u64
+    where
+        T: Copy,
+        T: Into<u64>,
+    {
         // NOTE In FCS a 0,0 means "empty" but this also means one byte
         // according to the spec's on definitions. The first number points to
         // the first byte in a segment, and the second number points to the last
         // byte, therefore 0,0 means "0 is both the first and last byte, which
         // also means there is one byte".
-        if self.is_empty() {
-            0
-        } else {
-            self.pseudo_length + 1
+        match self {
+            Self::Empty => 0,
+            Self::NonEmpty(s) => s.len(),
         }
     }
 
     /// Return true if segment has 0 bytes
     pub fn is_empty(&self) -> bool {
-        self.begin == 0 && self.pseudo_length == 0
+        matches!(self, Self::Empty)
     }
 
-    /// Return the first byte of this segment
-    pub fn begin(&self) -> u64 {
-        self.begin
+    pub fn fmt_pair(&self) -> String
+    where
+        T: Default,
+        T: Copy,
+        T: fmt::Display,
+    {
+        let (b, e) = match self {
+            Self::Empty => (T::default(), T::default()),
+            Self::NonEmpty(s) => s.coords(),
+        };
+        format!("{},{}", b, e)
     }
 
-    /// Return the last byte of this segment
-    pub fn end(&self) -> u64 {
-        self.begin + self.pseudo_length
-    }
-
-    /// Return the next byte after this segment
-    pub fn next(&self) -> u64 {
-        self.begin + self.len()
-    }
-
-    pub fn fmt_pair(&self) -> String {
-        format!("{},{}", self.begin(), self.end())
-    }
-
-    fn new_unchecked(begin: u64, end: u64) -> Segment {
-        Segment {
-            begin,
-            pseudo_length: end - begin,
+    pub fn as_u64(&self) -> Segment<u64>
+    where
+        T: Into<u64>,
+        T: Copy,
+    {
+        match self {
+            Self::Empty => Segment::Empty,
+            Self::NonEmpty(x) => Segment::NonEmpty(x.as_u64()),
         }
     }
 }
 
-fn parse_header_offset<I: HasRegion>(
-    s: &str,
-    allow_blank: bool,
-    is_begin: bool,
-) -> Result<u64, ParseOffsetError> {
-    let trimmed = s.trim_start();
-    if allow_blank && trimmed.is_empty() {
-        return Ok(0);
+impl<T> NonEmptySegment<T> {
+    /// Return the number of bytes in this segment
+    pub fn len(&self) -> u64
+    where
+        T: Into<u64>,
+        T: Copy,
+    {
+        self.end.into() - self.begin.into() + 1
     }
-    trimmed.parse().map_err(|error| ParseOffsetError {
-        error,
-        is_begin,
-        location: I::REGION,
-        source: s.to_string(),
-    })
+
+    /// Return the first and last byte or this segment
+    pub fn coords(&self) -> (T, T)
+    where
+        T: Copy,
+    {
+        (self.begin, self.end)
+    }
+
+    /// Return the next byte after this segment
+    pub fn next_byte(&self) -> u64
+    where
+        T: Into<u64>,
+        T: Copy,
+    {
+        // TODO technically this should return option since it isn't guaranteed
+        // that the next byte won't wrap
+        self.begin.into() + self.len()
+    }
+
+    fn new_unchecked(begin: T, end: T) -> Self {
+        Self { begin, end }
+    }
+
+    fn as_u64(&self) -> NonEmptySegment<u64>
+    where
+        T: Into<u64>,
+        T: Copy,
+    {
+        NonEmptySegment {
+            begin: self.begin.into(),
+            end: self.end.into(),
+        }
+    }
 }
 
 enum_from_disp!(
     pub HeaderSegmentError,
-    [Segment, SegmentError],
+    [Segment, SegmentError<Uint8Digit>],
     [Parse, ParseOffsetError]
 );
 
-pub struct SegmentError {
-    begin: u64,
-    end: u64,
+pub struct SegmentError<T> {
+    begin: T,
+    end: T,
     corr_begin: i32,
     corr_end: i32,
     kind: SegmentErrorKind,
@@ -702,10 +890,10 @@ pub enum SegmentErrorKind {
 }
 
 pub struct ParseOffsetError {
-    pub(crate) error: ParseIntError,
+    pub(crate) error: ParseFixedUint8CharError,
     pub(crate) is_begin: bool,
     pub(crate) location: &'static str,
-    pub(crate) source: String,
+    pub(crate) source: Vec<u8>,
 }
 
 impl fmt::Display for ParseOffsetError {
@@ -714,12 +902,17 @@ impl fmt::Display for ParseOffsetError {
         write!(
             f,
             "parse error for {which} offset in {} segment from source '{}': {}",
-            self.location, self.source, self.error
+            self.location,
+            self.source.iter().join(","),
+            self.error
         )
     }
 }
 
-impl fmt::Display for SegmentError {
+impl<T> fmt::Display for SegmentError<T>
+where
+    T: fmt::Display,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let offset_text = |x, delta| {
             if delta == 0 {
@@ -728,8 +921,8 @@ impl fmt::Display for SegmentError {
                 format!("{} ({}))", x, delta)
             }
         };
-        let begin_text = offset_text(self.begin, self.corr_begin);
-        let end_text = offset_text(self.end, self.corr_end);
+        let begin_text = offset_text(&self.begin, self.corr_begin);
+        let end_text = offset_text(&self.end, self.corr_end);
         let kind_text = match &self.kind {
             SegmentErrorKind::Range => "Offset out of range",
             SegmentErrorKind::Inverted => "Begin after end",
@@ -766,8 +959,8 @@ where
 }
 
 pub struct SegmentMismatchWarning<S> {
-    header: SpecificSegment<S, SegmentFromHeader>,
-    text: SpecificSegment<S, SegmentFromTEXT>,
+    header: HeaderSegment<S>,
+    text: TEXTSegment<S>,
 }
 
 impl<I> fmt::Display for SegmentMismatchWarning<I>

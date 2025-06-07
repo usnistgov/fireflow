@@ -32,7 +32,7 @@ pub struct OthersReader<'a> {
 impl AnalysisReader {
     pub(crate) fn h_read<R: Read + Seek>(&self, h: &mut BufReader<R>) -> io::Result<Analysis> {
         let mut buf = vec![];
-        self.seg.inner.h_read(h, &mut buf)?;
+        self.seg.inner.h_read_contents(h, &mut buf)?;
         Ok(buf.into())
     }
 }
@@ -42,7 +42,7 @@ impl OthersReader<'_> {
         let mut buf = vec![];
         let mut others = vec![];
         for s in self.segs.iter() {
-            s.inner.h_read(h, &mut buf)?;
+            s.inner.h_read_contents(h, &mut buf)?;
             others.push(Other(buf.clone()));
             buf.clear();
         }
@@ -641,12 +641,18 @@ impl DataReader {
     where
         R: Read + Seek,
     {
-        h.seek(SeekFrom::Start(self.seg.inner.begin().into()))?;
-        match self.column_reader {
-            ColumnReader::DelimitedAscii(p) => p.h_read(h).map_err(|e| e.inner_into()),
-            ColumnReader::DelimitedAsciiNoRows(p) => p.h_read(h).map_err(|e| e.inner_into()),
-            ColumnReader::AlphaNum(p) => p.h_read(h).map_err(|e| e.inner_into()),
-            ColumnReader::Empty => Ok(FCSDataFrame::default()),
+        // TODO it seems a bit odd that we would have an empty segment this
+        // late in the process
+        if let Some(begin) = self.seg.inner.try_coords().map(|(x, _)| x) {
+            h.seek(SeekFrom::Start(begin))?;
+            match self.column_reader {
+                ColumnReader::DelimitedAscii(p) => p.h_read(h).map_err(|e| e.inner_into()),
+                ColumnReader::DelimitedAsciiNoRows(p) => p.h_read(h).map_err(|e| e.inner_into()),
+                ColumnReader::AlphaNum(p) => p.h_read(h).map_err(|e| e.inner_into()),
+                ColumnReader::Empty => Ok(FCSDataFrame::default()),
+            }
+        } else {
+            Ok(FCSDataFrame::default())
         }
     }
 }

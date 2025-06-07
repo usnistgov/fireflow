@@ -1,8 +1,8 @@
 use crate::error::*;
 use crate::macros::{enum_from, newtype_disp, newtype_from, newtype_from_outer, newtype_fromstr};
+use crate::validated::ascii_uint::*;
 use crate::validated::shortname::*;
 use crate::validated::standard::*;
-use crate::validated::uint_8char::*;
 
 use super::byteord::*;
 use super::compensation::*;
@@ -32,7 +32,7 @@ pub struct Nextdata(pub Uint8Char);
 
 newtype_from!(Nextdata, Uint8Char);
 newtype_from_outer!(Nextdata, Uint8Char);
-newtype_fromstr!(Nextdata, ParseUint8CharError);
+newtype_fromstr!(Nextdata, ParseUint8DigitError);
 newtype_disp!(Nextdata);
 
 /// The value of the $PnG keyword
@@ -1477,11 +1477,15 @@ where
         Self::remove_opt(kws, Self::std())
     }
 
-    fn pair(opt: &OptionalKw<Self>) -> (String, Option<String>) {
+    fn pair_opt(opt: &OptionalKw<Self>) -> (String, Option<String>) {
         (
             Self::std().to_string(),
             opt.0.as_ref().map(|s| s.to_string()),
         )
+    }
+
+    fn pair(opt: &Self) -> (String, String) {
+        (Self::std().to_string(), opt.to_string())
     }
 }
 
@@ -1959,14 +1963,28 @@ where
 }
 
 // offsets for all versions
-kw_req_meta_int!(Beginanalysis, u64, "BEGINANALYSIS");
-kw_req_meta_int!(Begindata, u64, "BEGINDATA");
-kw_req_meta_int!(Beginstext, u64, "BEGINSTEXT");
-kw_req_meta_int!(Endanalysis, u64, "ENDANALYSIS");
-kw_req_meta_int!(Enddata, u64, "ENDDATA");
-kw_req_meta_int!(Endstext, u64, "ENDSTEXT");
-
 kw_req_meta!(Nextdata, "NEXTDATA");
+
+macro_rules! kw_offset {
+    ($t:ident, $key:expr) => {
+        /// Value for $$key (3.0-3.2)
+        pub struct $t(pub Uint20Char);
+
+        newtype_from!($t, Uint20Char);
+        newtype_from_outer!($t, Uint20Char);
+        newtype_fromstr!($t, ParseIntError);
+        newtype_disp!($t);
+
+        kw_req_meta!($t, $key);
+    };
+}
+
+kw_offset!(Beginanalysis, "BEGINANALYSIS");
+kw_offset!(Begindata, "BEGINDATA");
+kw_offset!(Beginstext, "BEGINSTEXT");
+kw_offset!(Endanalysis, "ENDANALYSIS");
+kw_offset!(Enddata, "ENDDATA");
+kw_offset!(Endstext, "ENDSTEXT");
 
 opt_meta!(Beginanalysis);
 opt_meta!(Endanalysis);

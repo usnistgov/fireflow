@@ -184,9 +184,9 @@ where
         Etim<X>: OptMetaKey,
     {
         [
-            OptMetaKey::pair(&self.btim()),
-            OptMetaKey::pair(&self.etim()),
-            OptMetaKey::pair(&self.date()),
+            OptMetaKey::pair_opt(&self.btim()),
+            OptMetaKey::pair_opt(&self.etim()),
+            OptMetaKey::pair_opt(&self.date()),
         ]
         .into_iter()
         .collect()

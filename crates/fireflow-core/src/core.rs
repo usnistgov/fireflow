@@ -17,6 +17,7 @@ use crate::text::scale::*;
 use crate::text::spillover::*;
 use crate::text::timestamps::*;
 use crate::text::unstainedcenters::*;
+use crate::validated::ascii_uint::Uint8DigitOverflow;
 use crate::validated::dataframe::*;
 use crate::validated::nonstandard::*;
 use crate::validated::pattern::*;
@@ -303,7 +304,7 @@ impl<A, D, O> AnyCore<A, D, O> {
         data_len: u64,
         analysis_len: u64,
         other_lens: Vec<u64>,
-    ) -> Option<Vec<String>> {
+    ) -> Result<Vec<String>, Uint8DigitOverflow> {
         match_anycore!(self, x, {
             x.text_segment(tot, data_len, analysis_len, other_lens)
         })
@@ -1631,19 +1632,19 @@ where
 
     fn all_opt_keywords(&self) -> RawPairs {
         [
-            OptMetaKey::pair(&self.abrt),
-            OptMetaKey::pair(&self.com),
-            OptMetaKey::pair(&self.cells),
-            OptMetaKey::pair(&self.exp),
-            OptMetaKey::pair(&self.fil),
-            OptMetaKey::pair(&self.inst),
-            OptMetaKey::pair(&self.lost),
-            OptMetaKey::pair(&self.op),
-            OptMetaKey::pair(&self.proj),
-            OptMetaKey::pair(&self.smno),
-            OptMetaKey::pair(&self.src),
-            OptMetaKey::pair(&self.sys),
-            OptMetaKey::pair(&self.tr),
+            OptMetaKey::pair_opt(&self.abrt),
+            OptMetaKey::pair_opt(&self.com),
+            OptMetaKey::pair_opt(&self.cells),
+            OptMetaKey::pair_opt(&self.exp),
+            OptMetaKey::pair_opt(&self.fil),
+            OptMetaKey::pair_opt(&self.inst),
+            OptMetaKey::pair_opt(&self.lost),
+            OptMetaKey::pair_opt(&self.op),
+            OptMetaKey::pair_opt(&self.proj),
+            OptMetaKey::pair_opt(&self.smno),
+            OptMetaKey::pair_opt(&self.src),
+            OptMetaKey::pair_opt(&self.sys),
+            OptMetaKey::pair_opt(&self.tr),
         ]
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))
@@ -1813,19 +1814,17 @@ where
         analysis_len: u64,
         other_lens: Vec<u64>,
         conf: &WriteConfig,
-    ) -> Result<(), ImpureError<TEXTOverflowError>> {
+    ) -> Result<(), ImpureError<Uint8DigitOverflow>> {
         // TODO newtypes for data and analysis lenth to make them more obvious
-        if let Some(ts) = self.text_segment(tot, data_len, analysis_len, other_lens) {
-            for t in ts {
-                // TODO OTHER needs to be written somewhere in here
-                h.write_all(t.as_bytes())?;
-                h.write_all(&[conf.delim.inner()])?;
-            }
-            Ok(())
-        } else {
-            let te = ImpureError::Pure(TEXTOverflowError);
-            Err(te)
+        let ts = self
+            .text_segment(tot, data_len, analysis_len, other_lens)
+            .map_err(ImpureError::Pure)?;
+        for t in ts {
+            // TODO OTHER needs to be written somewhere in here
+            h.write_all(t.as_bytes())?;
+            h.write_all(&[conf.delim.inner()])?;
         }
+        Ok(())
     }
 
     pub(crate) fn try_cols_to_dataframe(
@@ -1860,7 +1859,7 @@ where
         data_len: u64,
         analysis_len: u64,
         other_lens: Vec<u64>,
-    ) -> Option<Vec<String>> {
+    ) -> Result<Vec<String>, Uint8DigitOverflow> {
         self.header_and_raw_keywords(tot, data_len, analysis_len, other_lens)
             // TODO do something useful with nextdata offset (the "_" thing)
             .map(|(header, kws, _)| {
@@ -2434,7 +2433,7 @@ where
         data_len: u64,
         analysis_len: u64,
         other_lens: Vec<u64>,
-    ) -> Option<(String, RawKeywords, Nextdata)> {
+    ) -> Result<(String, RawKeywords, Nextdata), Uint8DigitOverflow> {
         let version = M::O::fcs_version();
         let tot_pair = (Tot::std().to_string(), tot.to_string());
 
@@ -2478,31 +2477,32 @@ where
             h.data.header_string(),
             h.other.into_iter().map(|x| x.header_string()).join("")
         );
-        Some((
+        // TODO fixme
+        Ok((
             header,
             [ReqMetaKey::pair(&offset_result.real_nextdata)]
                 .into_iter()
-                .chain(
-                    offset_result
-                        .stext
-                        .map(|x| x.text_string())
-                        .into_iter()
-                        .flatten(),
-                )
-                .chain(
-                    offset_result
-                        .analysis
-                        .map(|x| x.text_string())
-                        .into_iter()
-                        .flatten(),
-                )
-                .chain(
-                    offset_result
-                        .data
-                        .map(|x| x.text_string())
-                        .into_iter()
-                        .flatten(),
-                )
+                // .chain(
+                //     offset_result
+                //         .stext
+                //         .map(|x| x.text_string())
+                //         .into_iter()
+                //         .flatten(),
+                // )
+                // .chain(
+                //     offset_result
+                //         .analysis
+                //         .map(|x| x.text_string())
+                //         .into_iter()
+                //         .flatten(),
+                // )
+                // .chain(
+                //     offset_result
+                //         .data
+                //         .map(|x| x.text_string())
+                //         .into_iter()
+                //         .flatten(),
+                // )
                 .chain(req_opt_kws)
                 .collect(),
             offset_result.real_nextdata,
@@ -4002,8 +4002,8 @@ impl UnstainedData {
 
     fn opt_keywords(&self) -> RawOptPairs {
         [
-            OptMetaKey::pair(&self.unstainedcenters),
-            OptMetaKey::pair(&self.unstainedinfo),
+            OptMetaKey::pair_opt(&self.unstainedcenters),
+            OptMetaKey::pair_opt(&self.unstainedinfo),
         ]
         .into_iter()
         .collect()
@@ -4037,7 +4037,7 @@ impl SubsetData {
             .iter()
             .enumerate()
             .map(|(i, f)| OptIndexedKey::pair(f, i.into()))
-            .chain([OptMetaKey::pair(&self.bits), OptMetaKey::pair(&m)])
+            .chain([OptMetaKey::pair_opt(&self.bits), OptMetaKey::pair_opt(&m)])
             .collect()
     }
 
@@ -4157,7 +4157,7 @@ impl AppliedGates2_0 {
             .iter()
             .enumerate()
             .flat_map(|(i, m)| m.opt_keywords(i.into()))
-            .chain([OptMetaKey::pair(&gate)])
+            .chain([OptMetaKey::pair_opt(&gate)])
             .chain(self.regions.opt_keywords())
             .collect()
     }
@@ -4205,7 +4205,7 @@ impl AppliedGates3_0 {
             .iter()
             .enumerate()
             .flat_map(|(i, m)| m.opt_keywords(i.into()))
-            .chain([OptMetaKey::pair(&gate)])
+            .chain([OptMetaKey::pair_opt(&gate)])
             .chain(self.regions.opt_keywords())
             .collect()
     }
@@ -4629,9 +4629,9 @@ impl ModificationData {
 
     fn opt_keywords(&self) -> RawOptPairs {
         [
-            OptMetaKey::pair(&self.last_modifier),
-            OptMetaKey::pair(&self.last_modified),
-            OptMetaKey::pair(&self.originality),
+            OptMetaKey::pair_opt(&self.last_modifier),
+            OptMetaKey::pair_opt(&self.last_modified),
+            OptMetaKey::pair_opt(&self.originality),
         ]
         .into_iter()
         .collect()
@@ -4660,9 +4660,9 @@ impl CarrierData {
 
     fn opt_keywords(&self) -> RawOptPairs {
         [
-            OptMetaKey::pair(&self.carrierid),
-            OptMetaKey::pair(&self.carriertype),
-            OptMetaKey::pair(&self.locationid),
+            OptMetaKey::pair_opt(&self.carrierid),
+            OptMetaKey::pair_opt(&self.carriertype),
+            OptMetaKey::pair_opt(&self.locationid),
         ]
         .into_iter()
         .collect()
@@ -4690,9 +4690,9 @@ impl PlateData {
 
     fn opt_keywords(&self) -> RawOptPairs {
         [
-            OptMetaKey::pair(&self.wellid),
-            OptMetaKey::pair(&self.platename),
-            OptMetaKey::pair(&self.platename),
+            OptMetaKey::pair_opt(&self.wellid),
+            OptMetaKey::pair_opt(&self.platename),
+            OptMetaKey::pair_opt(&self.platename),
         ]
         .into_iter()
         .collect()
@@ -6724,7 +6724,7 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
 
     // TODO use iterators for all this string stuff
     fn keywords_opt_inner(&self) -> RawPairs {
-        [OptMetaKey::pair(&self.cyt)]
+        [OptMetaKey::pair_opt(&self.cyt)]
             .into_iter()
             .chain(self.timestamps.opt_keywords())
             .chain(
@@ -6825,10 +6825,10 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
 
     fn keywords_opt_inner(&self) -> RawPairs {
         [
-            OptMetaKey::pair(&self.cyt),
-            OptMetaKey::pair(&self.comp),
-            OptMetaKey::pair(&self.cytsn),
-            OptMetaKey::pair(&self.unicode),
+            OptMetaKey::pair_opt(&self.cyt),
+            OptMetaKey::pair_opt(&self.comp),
+            OptMetaKey::pair_opt(&self.cytsn),
+            OptMetaKey::pair_opt(&self.unicode),
         ]
         .into_iter()
         .chain(self.timestamps.opt_keywords())
@@ -6936,10 +6936,10 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
 
     fn keywords_opt_inner(&self) -> RawPairs {
         [
-            OptMetaKey::pair(&self.cyt),
-            OptMetaKey::pair(&self.spillover),
-            OptMetaKey::pair(&self.cytsn),
-            OptMetaKey::pair(&self.vol),
+            OptMetaKey::pair_opt(&self.cyt),
+            OptMetaKey::pair_opt(&self.spillover),
+            OptMetaKey::pair_opt(&self.cytsn),
+            OptMetaKey::pair_opt(&self.vol),
         ]
         .into_iter()
         .chain(self.timestamps.opt_keywords())
@@ -7050,10 +7050,10 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
 
     fn keywords_opt_inner(&self) -> RawPairs {
         [
-            OptMetaKey::pair(&self.spillover),
-            OptMetaKey::pair(&self.cytsn),
-            OptMetaKey::pair(&self.vol),
-            OptMetaKey::pair(&self.flowrate),
+            OptMetaKey::pair_opt(&self.spillover),
+            OptMetaKey::pair_opt(&self.cytsn),
+            OptMetaKey::pair_opt(&self.vol),
+            OptMetaKey::pair_opt(&self.flowrate),
         ]
         .into_iter()
         .chain(self.timestamps.opt_keywords())
@@ -7421,19 +7421,19 @@ enum_from_disp!(
 
 pub struct TerminalDataLayoutFailure;
 
-pub struct TEXTOverflowError;
+// pub struct TEXTOverflowError;
 
-impl fmt::Display for TEXTOverflowError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "primary TEXT does not fit into first 99,999,999 bytes")
-    }
-}
+// impl fmt::Display for TEXTOverflowError {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+//         write!(f, "primary TEXT does not fit into first 99,999,999 bytes")
+//     }
+// }
 
 enum_from_disp!(
     pub StdWriterError,
     [Layout, NewDataLayoutError],
     [Writer, ColumnWriterError],
-    [TEXT, TEXTOverflowError]
+    [Overflow, Uint8DigitOverflow]
 );
 
 pub enum ExistingLinkError {

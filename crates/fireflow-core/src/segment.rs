@@ -792,12 +792,12 @@ impl<T> Segment<T> {
         }
     }
 
-    pub fn any_overlap(xs: Vec<Self>) -> bool
+    pub fn any_overlap(xs: &[Self]) -> bool
     where
         T: Ord,
         T: Copy,
     {
-        let mut ys: Vec<_> = xs.into_iter().flat_map(|x| x.as_nonempty()).collect();
+        let mut ys: Vec<_> = xs.iter().flat_map(|x| x.as_nonempty()).collect();
         ys.sort_by_key(|x| x.begin);
         if let Some(zs) = NonEmpty::from_vec(ys) {
             let mut prev_end = zs.head.end;
@@ -846,7 +846,7 @@ impl<T> NonEmptySegment<T> {
         Self { begin, end }
     }
 
-    fn as_u64(&self) -> NonEmptySegment<u64>
+    pub fn as_u64(&self) -> NonEmptySegment<u64>
     where
         T: Into<u64>,
         T: Copy,

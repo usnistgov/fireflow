@@ -72,47 +72,76 @@ pub struct Header {
     pub segments: HeaderSegments,
 }
 
-pub fn h_read_header<R: Read>(
-    h: &mut BufReader<R>,
-    conf: &HeaderConfig,
-) -> MultiResult<Header, ImpureError<HeaderError>> {
-    let mut verbuf = [0; HEADER_LEN as usize];
-    h.read_exact(&mut verbuf).into_mult()?;
-    h_read_standard_header(h, conf).and_then(|(version, text, data, analysis)| {
-        [
-            text.inner.try_coords(),
-            data.inner.try_coords(),
-            analysis.inner.try_coords(),
-        ]
-        .iter()
-        .flatten()
-        .map(|(x, _)| x)
-        .min()
-        .map_or(Ok(vec![]), |earliest_begin| {
-            h_read_other_segments(h, *earliest_begin, &conf.other[..])
+impl Header {
+    pub fn h_read<R: Read>(
+        h: &mut BufReader<R>,
+        conf: &HeaderConfig,
+    ) -> MultiResult<Self, ImpureError<HeaderError>> {
+        let mut verbuf = [0; HEADER_LEN as usize];
+        h.read_exact(&mut verbuf).into_mult()?;
+        h_read_standard_header(h, conf).and_then(|(version, text, data, analysis)| {
+            [
+                text.inner.try_coords(),
+                data.inner.try_coords(),
+                analysis.inner.try_coords(),
+            ]
+            .iter()
+            .flatten()
+            .map(|(x, _)| x)
+            .min()
+            .map_or(Ok(vec![]), |earliest_begin| {
+                h_read_other_segments(h, *earliest_begin, &conf.other[..])
+            })
+            .map(|other| Self {
+                version,
+                segments: HeaderSegments {
+                    text,
+                    data,
+                    analysis,
+                    other,
+                },
+            })
+            .and_then(|hdr| {
+                hdr.validate()
+                    .map_err(HeaderError::Validation)
+                    .map_err(ImpureError::Pure)
+                    .into_mult()?;
+                Ok(hdr)
+            })
         })
-        .and_then(|other| {
-            let xs = other
-                .iter()
-                .copied()
-                .map(|x| x.inner)
-                .chain([text.inner, data.inner, analysis.inner])
-                .collect();
-            if Segment::any_overlap(xs) {
-                Err(NonEmpty::new(ImpureError::Pure(HeaderError::Overlap)))
-            } else {
-                Ok(Header {
-                    version,
-                    segments: HeaderSegments {
-                        text,
-                        data,
-                        analysis,
-                        other,
-                    },
-                })
-            }
-        })
-    })
+    }
+
+    /// Return number of bytes required to encode HEADER
+    fn nbytes(&self) -> u64 {
+        u64::from(HEADER_LEN) + (self.segments.other.len() as u64) * 16
+    }
+
+    fn validate(&self) -> Result<(), HeaderValidationError> {
+        let s = &self.segments;
+        // ensure segments don't overlap
+        let xs: Vec<_> = s
+            .other
+            .iter()
+            .copied()
+            .map(|x| x.inner)
+            .chain([s.text.inner, s.data.inner, s.analysis.inner])
+            .collect();
+        if Segment::any_overlap(&xs[..]) {
+            return Err(HeaderValidationError::Overlap);
+        }
+
+        // ensure segments don't start within header
+        let n = self.nbytes();
+        if xs
+            .iter()
+            .flat_map(|x| x.as_nonempty())
+            .any(|x| x.as_u64().coords().0 < n)
+        {
+            return Err(HeaderValidationError::InHeader);
+        }
+
+        Ok(())
+    }
 }
 
 fn h_read_standard_header<R: Read>(
@@ -192,42 +221,6 @@ fn h_read_other_segments<R: Read>(
         .gather()
         .map_err(NonEmpty::flatten)
         .map(|os| os.into_iter().flatten().collect())
-    // // if less than 16 bytes (the width of two offsets) then nothing to do
-    // if n < 16 {
-    //     return Ok(vec![]);
-    // }
-    // let mut buf = vec![];
-    // // ASSUME cursor is at HEADER_LEN
-    // h.take(u64::from(n)).read_to_end(&mut buf).into_mult()?;
-    // if buf.is_ascii() {
-    //     let mut xs = unsafe { str::from_utf8_unchecked(&buf) };
-    //     // if all spaces, nothing to do
-    //     if xs.chars().all(|x| x == ' ') {
-    //         return Ok(vec![]);
-    //     }
-
-    //     // chop the bytes into 8-byte chunks which hopefully have the offsets
-    //     let mut raw_offsets = vec![];
-    //     while let Some((left, right, rest)) = xs.split_at_checked(8).and_then(|(left, rest0)| {
-    //         rest0
-    //             .split_at_checked(8)
-    //             .map(|(right, rest1)| (left, right, rest1))
-    //     }) {
-    //         raw_offsets.push((left, right));
-    //         xs = rest;
-    //     }
-
-    //     raw_offsets
-    //         .into_iter()
-    //         .zip(padded_corrs)
-    //         .map(|((left, right), corr)| OtherSegment::parse(left, right, false, corr))
-    //         .gather()
-    //         .map_err(NonEmpty::flatten)
-    //         .mult_map_errors(HeaderError::Segment)
-    //         .mult_map_errors(ImpureError::Pure)
-    // } else {
-    //     Err(NonEmpty::new(ImpureError::Pure(HeaderError::OtherNotAscii)))
-    // }
 }
 
 impl Version {
@@ -272,16 +265,30 @@ pub enum HeaderError {
     Segment(HeaderSegmentError),
     Space,
     Version(VersionError),
-    Overlap,
+    Validation(HeaderValidationError),
 }
 
 impl fmt::Display for HeaderError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            HeaderError::Segment(x) => x.fmt(f),
-            HeaderError::Version(x) => x.fmt(f),
-            HeaderError::Space => f.write_str("version must be followed by 4 spaces"),
-            HeaderError::Overlap => f.write_str("segments in HEADER overlap"),
+            Self::Segment(x) => x.fmt(f),
+            Self::Version(x) => x.fmt(f),
+            Self::Validation(x) => x.fmt(f),
+            Self::Space => f.write_str("version must be followed by 4 spaces"),
+        }
+    }
+}
+
+pub enum HeaderValidationError {
+    Overlap,
+    InHeader,
+}
+
+impl fmt::Display for HeaderValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::Overlap => f.write_str("segment(s) in HEADER overlap"),
+            Self::InHeader => f.write_str("segment(s) start within HEADER"),
         }
     }
 }

@@ -32,7 +32,7 @@ pub fn fcs_read_header(
         .into_deferred()
         .def_and_maybe(|file| {
             let mut reader = BufReader::new(file);
-            h_read_header(&mut reader, conf).mult_to_deferred()
+            Header::h_read(&mut reader, conf).mult_to_deferred()
         })
         .def_terminate(HeaderFailure)
 }
@@ -533,7 +533,7 @@ impl RawTEXTOutput {
         h: &mut BufReader<R>,
         conf: &RawTextReadConfig,
     ) -> DeferredResult<Self, ParseRawTEXTWarning, ImpureError<HeaderOrRawError>> {
-        h_read_header(h, &conf.header)
+        Header::h_read(h, &conf.header)
             .mult_to_deferred()
             .def_map_errors(|e: ImpureError<HeaderError>| e.inner_into())
             .def_and_maybe(|header| {

@@ -19,7 +19,6 @@ use std::fs;
 use std::io::{BufReader, Read, Seek};
 use std::num::ParseIntError;
 use std::path;
-use std::str;
 
 /// Read HEADER from an FCS file.
 pub fn fcs_read_header(
@@ -1005,13 +1004,6 @@ fn repair_keywords(kws: &mut StdKeywords, conf: &RawTextReadConfig) {
     }
 }
 
-fn pad_zeros(s: &str) -> String {
-    let len = s.len();
-    let trimmed = s.trim_start();
-    let newlen = trimmed.len();
-    ("0").repeat(len - newlen) + trimmed
-}
-
 fn repair_offsets(mut kws: ParsedKeywords, conf: &RawTextReadConfig) -> ParsedKeywords {
     if conf.repair_offset_spaces {
         for (key, v) in kws.std.iter_mut() {
@@ -1022,8 +1014,9 @@ fn repair_offsets(mut kws: ParsedKeywords, conf: &RawTextReadConfig) -> ParsedKe
                 || key == &Beginanalysis::std()
                 || key == &Endanalysis::std()
                 || key == &Nextdata::std()
+                || key == &Tot::std()
             {
-                *v = pad_zeros(v.as_str())
+                *v = v.as_str().trim().to_string();
             }
         }
     }

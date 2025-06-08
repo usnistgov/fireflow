@@ -172,12 +172,13 @@ pub struct RawTextReadConfig {
     /// standard.
     pub enforce_nextdata: bool,
 
-    /// If true, replace leading spaces in offset keywords with 0.
+    /// If true, trim whitespace from offsets in TEXT
     ///
-    ///These often need to be padded to make the DATA segment appear at a
+    /// These often need to be padded to make the DATA segment appear at a
     /// predictable offset. Many machines/programs will pad with spaces despite
     /// the spec requiring that all numeric fields be entirely numeric
-    /// character.
+    /// characters. Furthermore, machines can pad either the right or the left,
+    /// so need to trim both.
     pub repair_offset_spaces: bool,
 
     /// If true, throw an error if TEXT includes any keywords that do not

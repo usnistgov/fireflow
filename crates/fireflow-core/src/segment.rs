@@ -517,13 +517,15 @@ impl<I, S, T> SpecificSegment<I, S, T> {
 
 impl GenericSegment {
     pub fn overlaps(&self, other: &GenericSegment) -> Result<(), SegmentOverlapError> {
-        if self.end >= other.begin || other.end >= self.begin {
+        if (self.begin < other.begin && self.end < other.begin)
+            || (other.begin < self.begin && other.end < self.begin)
+        {
+            Ok(())
+        } else {
             Err(SegmentOverlapError {
                 seg0: self.clone(),
                 seg1: other.clone(),
             })
-        } else {
-            Ok(())
         }
     }
 

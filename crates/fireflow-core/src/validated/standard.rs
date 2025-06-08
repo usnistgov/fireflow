@@ -257,7 +257,7 @@ impl ParsedKeywords {
         let vv = v.to_vec();
         match String::from_utf8(vv) {
             Ok(vs) => {
-                if n > 1 && k[0] == 36 && is_ascii(&k[1..]) {
+                if n > 1 && k[0] == 36 && is_printable_ascii(&k[1..]) {
                     // Standard key: starts with '$', check remaining chars are
                     // ASCII and convert lowercase to uppercase
                     let xs = k[1..]
@@ -274,7 +274,7 @@ impl ParsedKeywords {
                             Ok(())
                         }
                     }
-                } else if n > 0 && is_ascii(k) {
+                } else if n > 0 && is_printable_ascii(k) {
                     // Non-standard key: does not start with '$' but is still
                     // ASCII
                     let kk = NonStdKey::into_unchecked(unsafe {
@@ -387,6 +387,6 @@ where
     }
 }
 
-fn is_ascii(xs: &[u8]) -> bool {
-    xs.iter().all(|x| 36 <= *x && *x <= 126)
+fn is_printable_ascii(xs: &[u8]) -> bool {
+    xs.iter().all(|x| 32 <= *x && *x <= 126)
 }

@@ -806,10 +806,8 @@ fn split_raw_primary_text(
 ) -> DeferredResult<ParsedKeywords, ParseKeywordsIssue, ParsePrimaryTEXTError> {
     if bytes.is_empty() {
         Err(DeferredFailure::new1(NoTEXTWordsError.into()))
-    } else if conf.allow_double_delim {
-        Ok(split_raw_text_double(kws, delim, bytes, conf).errors_into())
     } else {
-        Ok(split_raw_text_nodouble(kws, delim, bytes, conf).errors_into())
+        Ok(split_raw_text_inner(kws, delim, bytes, conf).errors_into())
     }
 }
 
@@ -820,11 +818,7 @@ fn split_raw_supp_text(
     conf: &RawTextReadConfig,
 ) -> Tentative<ParsedKeywords, ParseKeywordsIssue, ParseSupplementalTEXTError> {
     if let Some((byte0, rest)) = bytes.split_first() {
-        let mut tnt = if conf.allow_double_delim {
-            split_raw_text_double(kws, *byte0, rest, conf).errors_into()
-        } else {
-            split_raw_text_nodouble(kws, *byte0, rest, conf).errors_into()
-        };
+        let mut tnt = split_raw_text_inner(kws, *byte0, rest, conf).errors_into();
         if *byte0 != delim {
             let x = DelimMismatch {
                 delim,
@@ -843,7 +837,20 @@ fn split_raw_supp_text(
     }
 }
 
-fn split_raw_text_nodouble(
+fn split_raw_text_inner(
+    kws: ParsedKeywords,
+    delim: u8,
+    bytes: &[u8],
+    conf: &RawTextReadConfig,
+) -> Tentative<ParsedKeywords, ParseKeywordsIssue, ParseKeywordsIssue> {
+    if conf.allow_double_delim {
+        split_raw_text_noescape(kws, delim, bytes, conf)
+    } else {
+        split_raw_text_escape(kws, delim, bytes, conf)
+    }
+}
+
+fn split_raw_text_noescape(
     mut kws: ParsedKeywords,
     delim: u8,
     bytes: &[u8],
@@ -904,7 +911,7 @@ fn split_raw_text_nodouble(
     Tentative::new(kws, warnings, errors)
 }
 
-fn split_raw_text_double(
+fn split_raw_text_escape(
     mut kws: ParsedKeywords,
     delim: u8,
     bytes: &[u8],

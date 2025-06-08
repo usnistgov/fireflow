@@ -540,7 +540,7 @@ impl GenericSegment {
                 if z.begin <= prev.begin {
                     errors.push(SegmentOverlapError {
                         seg0: prev,
-                        seg1: z.clone().into(),
+                        seg1: z.clone(),
                     });
                     prev = z;
                 }

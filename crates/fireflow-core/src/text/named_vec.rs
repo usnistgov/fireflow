@@ -276,6 +276,14 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
             .map(|(i, x)| (i, x.both(|l| l.value.as_ref(), |r| r.value.as_ref())))
     }
 
+    pub fn iter_with<'a, T, F, G>(&'a self, f: &'a F, g: &'a G) -> impl Iterator<Item = T> + 'a
+    where
+        F: Fn(MeasIndex, &'a Pair<Shortname, U>) -> T,
+        G: Fn(MeasIndex, &'a WrappedPair<K, V>) -> T,
+    {
+        self.iter().map(|(i, e)| e.both(|x| f(i, x), |x| g(i, x)))
+    }
+
     /// Return iterator over borrowed non-center values
     pub fn iter_non_center_values(&self) -> impl Iterator<Item = (MeasIndex, &V)> + '_ {
         self.iter()

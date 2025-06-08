@@ -1512,9 +1512,13 @@ where
         )
     }
 
-    fn pair(opt: &OptionalKw<Self>, n: IndexFromOne) -> (String, Option<String>) {
+    fn pair_opt(opt: &OptionalKw<Self>, n: IndexFromOne) -> (String, Option<String>) {
         let (_, k, v) = Self::triple(opt, n);
         (k, v)
+    }
+
+    fn pair(&self, i: IndexFromOne) -> (String, String) {
+        (Self::std(i).to_string(), self.to_string())
     }
 }
 

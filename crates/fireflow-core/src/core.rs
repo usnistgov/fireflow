@@ -1059,9 +1059,9 @@ pub trait VersionedMetaroot: Sized {
 
     fn byteord(&self) -> Self::D;
 
-    fn keywords_req_inner(&self) -> RawPairs;
+    fn keywords_req_inner(&self) -> impl Iterator<Item = (String, String)>;
 
-    fn keywords_opt_inner(&self) -> RawPairs;
+    fn keywords_opt_inner(&self) -> impl Iterator<Item = (String, String)>;
 
     fn as_data_layout(
         metaroot: &Metaroot<Self>,
@@ -1151,9 +1151,9 @@ pub trait VersionedTemporal: Sized {
 
     fn set_timestep(&mut self, ts: Timestep);
 
-    fn req_meta_keywords_inner(&self) -> RawPairs;
+    fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)>;
 
-    fn opt_meas_keywords_inner(&self, _: MeasIndex) -> RawOptPairs;
+    fn opt_meas_keywords_inner(&self, _: MeasIndex) -> impl Iterator<Item = (String, String)>;
 
     fn can_convert_to_optical(&self, i: MeasIndex) -> MultiResult<(), TemporalToOpticalError>;
 }
@@ -1318,25 +1318,23 @@ where
         })
     }
 
-    fn req_meas_keywords(&self, n: MeasIndex) -> RawPairs {
+    fn req_meas_keywords(&self, n: MeasIndex) -> impl Iterator<Item = (String, String)> {
         [
             self.common.width.pair(n.into()),
             self.common.range.pair(n.into()),
         ]
         .into_iter()
-        .collect()
     }
 
-    fn req_meta_keywords(&self) -> RawPairs {
+    fn req_meta_keywords(&self) -> impl Iterator<Item = (String, String)> {
         self.specific.req_meta_keywords_inner()
     }
 
-    fn opt_meas_keywords(&self, i: MeasIndex) -> RawPairs {
-        [OptIndexedKey::pair(&self.common.longname, i.into())]
+    fn opt_meas_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)> {
+        [OptIndexedKey::pair_opt(&self.common.longname, i.into())]
             .into_iter()
-            .chain(self.specific.opt_meas_keywords_inner(i))
             .flat_map(|(k, v)| v.map(|x| (k, x)))
-            .collect()
+            .chain(self.specific.opt_meas_keywords_inner(i))
     }
 }
 
@@ -1469,14 +1467,11 @@ where
 
     // TODO this name is weird, this is standard+nonstandard keywords
     // after filtering out None values
-    fn all_req_keywords(&self, n: MeasIndex) -> RawPairs {
-        self.req_keywords(n)
-            .into_iter()
-            .map(|(_, k, v)| (k, v))
-            .collect()
+    fn all_req_keywords(&self, n: MeasIndex) -> impl Iterator<Item = (String, String)> {
+        self.req_keywords(n).into_iter().map(|(_, k, v)| (k, v))
     }
 
-    fn all_opt_keywords(&self, n: MeasIndex) -> RawPairs {
+    fn all_opt_keywords(&self, n: MeasIndex) -> impl Iterator<Item = (String, String)> {
         self.opt_keywords(n)
             .into_iter()
             .filter_map(|(_, k, v)| v.map(|x| (k, x)))
@@ -1486,7 +1481,6 @@ where
                     .iter()
                     .map(|(k, v)| (k.as_ref().to_string(), v.clone())),
             )
-            .collect()
     }
 }
 
@@ -1630,7 +1624,7 @@ where
             .collect()
     }
 
-    fn all_opt_keywords(&self) -> RawPairs {
+    fn all_opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         [
             OptMetaKey::pair_opt(&self.abrt),
             OptMetaKey::pair_opt(&self.com),
@@ -1655,7 +1649,6 @@ where
                 .iter()
                 .map(|(k, v)| (k.as_ref().to_string(), v.clone())),
         )
-        .collect()
     }
 
     fn reassign_trigger(&mut self, mapping: &NameMapping) {
@@ -1710,7 +1703,6 @@ where
 
 pub(crate) type RawPairs = Vec<(String, String)>;
 pub(crate) type RawTriples = Vec<(String, String, String)>;
-pub(crate) type RawOptPairs = Vec<(String, Option<String>)>;
 pub(crate) type RawOptTriples = Vec<(String, String, Option<String>)>;
 
 impl<M, T> From<Optical<M>> for Temporal<T>
@@ -1878,8 +1870,10 @@ where
     /// [CoreTEXT]. This means it will not include $TOT, since this depends on
     /// the DATA segment.
     pub fn raw_keywords(&self, want_req: Option<bool>, want_meta: Option<bool>) -> RawKeywords {
-        let (req_meas, req_meta, _) = self.req_meta_meas_keywords();
-        let (opt_meas, opt_meta, _) = self.opt_meta_meas_keywords();
+        let req_meta: Vec<_> = self.req_meta_keywords().collect();
+        let opt_meta: Vec<_> = self.opt_meta_keywords().collect();
+        let req_meas: Vec<_> = self.req_meas_keywords().collect();
+        let opt_meas: Vec<_> = self.opt_meas_keywords().collect();
 
         let triop = |op| match op {
             None => (true, true),
@@ -2435,38 +2429,44 @@ where
         other_lens: Vec<u64>,
     ) -> Result<(String, RawKeywords, Nextdata), Uint8DigitOverflow> {
         let version = M::O::fcs_version();
-        let tot_pair = ReqMetaKey::pair(&tot);
 
-        let (req_meas, req_meta, req_text_len) = self.req_meta_meas_keywords();
-        let (opt_meas, opt_meta, opt_text_len) = self.opt_meta_meas_keywords();
+        let req: Vec<_> = self
+            .req_meta_keywords()
+            .chain([ReqMetaKey::pair(&tot)])
+            .chain(self.req_meas_keywords())
+            .collect();
+        let opt: Vec<_> = self
+            .opt_meta_keywords()
+            .chain(self.opt_meas_keywords())
+            .collect();
+
+        let req_text_len = req
+            .iter()
+            .map(|(k, v)| k.len() + v.len() + 2)
+            .sum::<usize>() as u64;
+
+        let opt_text_len = opt
+            .iter()
+            .map(|(k, v)| k.len() + v.len() + 2)
+            .sum::<usize>() as u64;
 
         let offset_result = if version == Version::FCS2_0 {
             make_data_offset_keywords_2_0(
-                (req_text_len + opt_text_len) as u64,
+                req_text_len + opt_text_len,
                 data_len,
                 analysis_len,
                 other_lens,
             )
         } else {
             make_data_offset_keywords_3_0(
-                req_text_len as u64,
-                opt_text_len as u64,
+                req_text_len,
+                opt_text_len,
                 data_len,
                 analysis_len,
                 other_lens,
             )
         }?;
 
-        let mut meta: Vec<_> = req_meta
-            .into_iter()
-            .chain(opt_meta)
-            .chain([tot_pair])
-            .collect();
-        let mut meas: Vec<_> = req_meas.into_iter().chain(opt_meas).collect();
-        meta.sort_by(|a, b| a.0.cmp(&b.0));
-        meas.sort_by(|a, b| a.0.cmp(&b.0));
-
-        let req_opt_kws: Vec<_> = meta.into_iter().chain(meas).collect();
         // TODO...
         let h = offset_result.header;
         let header = format!(
@@ -2501,87 +2501,63 @@ where
                         .into_iter()
                         .flatten(),
                 )
-                .chain(req_opt_kws)
+                .chain(req)
+                // TODO this isn't correct, since we may need to put the opt
+                // keys in their own section
+                .chain(opt)
                 .collect(),
             offset_result.real_nextdata,
         ))
     }
 
-    fn meta_meas_keywords<F, G, H, I>(
-        &self,
-        f_meas: F,
-        f_time_meas: G,
-        f_time_meta: H,
-        f_meta: I,
-    ) -> (RawPairs, RawPairs)
-    where
-        F: Fn(&Optical<M::O>, MeasIndex) -> RawPairs,
-        G: Fn(&Temporal<M::T>, MeasIndex) -> RawPairs,
-        H: Fn(&Temporal<M::T>) -> RawPairs,
-        I: Fn(&Metaroot<M>, Par) -> RawPairs,
-    {
-        let meas: Vec<_> = self
-            .measurements
-            .iter_non_center_values()
-            .flat_map(|(i, m)| f_meas(m, i))
-            .collect();
-        let (time_meas, time_meta) = self
+    fn opt_meas_keywords(&self) -> impl Iterator<Item = (String, String)> {
+        let ns = if !M::N::INFALLABLE {
+            Some(self.shortname_keywords())
+        } else {
+            None
+        };
+        self.measurements
+            .iter_with(
+                &|i, x| Temporal::opt_meas_keywords(&x.value, i).collect::<Vec<_>>(),
+                &|i, x| Optical::all_opt_keywords(&x.value, i).collect(),
+            )
+            .flatten()
+            .chain(ns.into_iter().flatten())
+    }
+
+    fn req_meas_keywords(&self) -> impl Iterator<Item = (String, String)> {
+        let ns = if M::N::INFALLABLE {
+            Some(self.shortname_keywords())
+        } else {
+            None
+        };
+        self.measurements
+            .iter_with(
+                &|i, x| Temporal::req_meas_keywords(&x.value, i).collect::<Vec<_>>(),
+                &|i, x| Optical::all_req_keywords(&x.value, i).collect(),
+            )
+            .flatten()
+            .chain(ns.into_iter().flatten())
+    }
+
+    fn req_meta_keywords(&self) -> impl Iterator<Item = (String, String)> {
+        let time_meta = self
             .measurements
             .as_center()
-            .map_or((vec![], vec![]), |tc| {
-                (f_time_meas(tc.value, tc.index), f_time_meta(tc.value))
-            });
-        let meta: Vec<_> = f_meta(&self.metaroot, self.par()).into_iter().collect();
-        let all_meas: Vec<_> = meas.into_iter().chain(time_meas).collect();
-        let all_meta: Vec<_> = meta.into_iter().chain(time_meta).collect();
-        (all_meta, all_meas)
+            .map(|tc| Temporal::req_meta_keywords(tc.value));
+        Metaroot::all_req_keywords(&self.metaroot, self.par())
+            .into_iter()
+            .chain(time_meta.into_iter().flatten())
     }
 
-    fn req_meta_meas_keywords(&self) -> (RawPairs, RawPairs, usize) {
-        let (meta, mut meas) = self.meta_meas_keywords(
-            Optical::all_req_keywords,
-            Temporal::req_meas_keywords,
-            Temporal::req_meta_keywords,
-            Metaroot::all_req_keywords,
-        );
-        if M::N::INFALLABLE {
-            meas.append(&mut self.shortname_keywords());
-        };
-        let length = meta
-            .iter()
-            .chain(meas.iter())
-            .map(|(k, v)| k.len() + v.len())
-            .sum();
-        (meta, meas, length)
+    fn opt_meta_keywords(&self) -> impl Iterator<Item = (String, String)> {
+        Metaroot::all_opt_keywords(&self.metaroot)
     }
 
-    fn opt_meta_meas_keywords(&self) -> (RawPairs, RawPairs, usize) {
-        let (meta, mut meas) = self.meta_meas_keywords(
-            Optical::all_opt_keywords,
-            Temporal::opt_meas_keywords,
-            |_| vec![],
-            |s, _| Metaroot::all_opt_keywords(s),
-        );
-        if !M::N::INFALLABLE {
-            meas.append(&mut self.shortname_keywords());
-        };
-        // TODO not DRY
-        let length = meta
-            .iter()
-            .chain(meas.iter())
-            .map(|(k, v)| k.len() + v.len())
-            .sum();
-        (meta, meas, length)
-    }
-
-    fn shortname_keywords(&self) -> RawPairs {
-        // This is sometimes an optional key, but here we use ReqMeasKey
-        // instance since we already pre-filter using the wrapper type internal
-        // to named vector structure
+    fn shortname_keywords(&self) -> impl Iterator<Item = (String, String)> {
         self.measurements
             .indexed_names()
-            .map(|(i, n)| ReqIndexedKey::pair(n, i.into()))
-            .collect()
+            .map(|(i, n)| (Shortname::std(i.into()).to_string(), n.to_string()))
     }
 
     fn meas_table(&self, delim: &str) -> Vec<String>
@@ -3074,6 +3050,7 @@ where
         W: Write,
     {
         let df = &self.data;
+        let others = &self.others;
         self.as_data_layout(&conf.shared)
             .def_errors_into()
             .def_errors_liftio()
@@ -3998,13 +3975,13 @@ impl UnstainedData {
         })
     }
 
-    fn opt_keywords(&self) -> RawOptPairs {
+    fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         [
             OptMetaKey::pair_opt(&self.unstainedcenters),
             OptMetaKey::pair_opt(&self.unstainedinfo),
         ]
         .into_iter()
-        .collect()
+        .flat_map(|(k, v)| v.map(|x| (k, x)))
     }
 
     fn check_loss(self, lossless: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
@@ -4029,14 +4006,15 @@ impl SubsetData {
         })
     }
 
-    fn opt_keywords(&self) -> RawOptPairs {
-        let m = OptionalKw(Some(CSMode(self.flags.len())));
+    fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
+        let m = CSMode(self.flags.len());
         self.flags
             .iter()
             .enumerate()
-            .map(|(i, f)| OptIndexedKey::pair(f, i.into()))
-            .chain([OptMetaKey::pair_opt(&self.bits), OptMetaKey::pair_opt(&m)])
-            .collect()
+            .map(|(i, f)| OptIndexedKey::pair_opt(f, i.into()))
+            .chain([OptMetaKey::pair_opt(&self.bits)])
+            .flat_map(|(k, v)| v.map(|x| (k, x)))
+            .chain([OptMetaKey::pair(&m)])
     }
 
     fn check_loss(self, lossless: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
@@ -4148,16 +4126,15 @@ impl AppliedGates2_0 {
         })
     }
 
-    pub(crate) fn opt_keywords(&self) -> RawOptPairs {
-        let gate = OptionalKw(Some(Gate(self.gated_measurements.0.len())));
+    pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
+        let gate = Gate(self.gated_measurements.0.len());
         self.gated_measurements
             .0
             .iter()
             .enumerate()
             .flat_map(|(i, m)| m.opt_keywords(i.into()))
-            .chain([OptMetaKey::pair_opt(&gate)])
+            .chain([OptMetaKey::pair(&gate)])
             .chain(self.regions.opt_keywords())
-            .collect()
     }
 
     pub fn check_gates(&self) -> Result<(), GateMeasurementLinkError> {
@@ -4196,16 +4173,15 @@ impl AppliedGates3_0 {
         })
     }
 
-    pub(crate) fn opt_keywords(&self) -> RawOptPairs {
+    pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         let g = self.gated_measurements.len();
-        let gate = OptionalKw(if g == 0 { None } else { Some(Gate(g)) });
+        let gate = if g == 0 { None } else { Some(Gate(g)) };
         self.gated_measurements
             .iter()
             .enumerate()
             .flat_map(|(i, m)| m.opt_keywords(i.into()))
-            .chain([OptMetaKey::pair_opt(&gate)])
             .chain(self.regions.opt_keywords())
-            .collect()
+            .chain(gate.map(|x| OptMetaKey::pair(&x)))
     }
 
     pub fn check_gates(&self) -> Result<(), GateMeasurementLinkError> {
@@ -4287,7 +4263,7 @@ impl AppliedGates3_2 {
             .map(|x| x.map(|regions| Self { regions }))
     }
 
-    pub(crate) fn opt_keywords(&self) -> RawOptPairs {
+    pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         self.regions.opt_keywords()
     }
 }
@@ -4325,20 +4301,20 @@ impl GatedMeasurement {
         )
     }
 
-    pub(crate) fn opt_keywords(&self, i: GateIndex) -> RawOptPairs {
+    pub(crate) fn opt_keywords(&self, i: GateIndex) -> impl Iterator<Item = (String, String)> {
         let j = i.into();
         [
-            OptIndexedKey::pair(&self.scale, j),
-            OptIndexedKey::pair(&self.filter, j),
-            OptIndexedKey::pair(&self.shortname, j),
-            OptIndexedKey::pair(&self.percent_emitted, j),
-            OptIndexedKey::pair(&self.range, j),
-            OptIndexedKey::pair(&self.longname, j),
-            OptIndexedKey::pair(&self.detector_type, j),
-            OptIndexedKey::pair(&self.detector_voltage, j),
+            OptIndexedKey::pair_opt(&self.scale, j),
+            OptIndexedKey::pair_opt(&self.filter, j),
+            OptIndexedKey::pair_opt(&self.shortname, j),
+            OptIndexedKey::pair_opt(&self.percent_emitted, j),
+            OptIndexedKey::pair_opt(&self.range, j),
+            OptIndexedKey::pair_opt(&self.longname, j),
+            OptIndexedKey::pair_opt(&self.detector_type, j),
+            OptIndexedKey::pair_opt(&self.detector_voltage, j),
         ]
         .into_iter()
-        .collect()
+        .flat_map(|(k, v)| v.map(|x| (k, x)))
     }
 }
 
@@ -4375,7 +4351,7 @@ impl<I> GatingRegions<I> {
             .map(|x| x.into())
     }
 
-    pub(crate) fn opt_keywords(&self) -> RawOptPairs
+    pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)>
     where
         I: fmt::Display,
         I: FromStr,
@@ -4384,8 +4360,7 @@ impl<I> GatingRegions<I> {
         self.regions
             .iter()
             .flat_map(|(ri, r)| r.opt_keywords(*ri))
-            .chain([(Gating::std().to_string(), Some(self.gating.to_string()))])
-            .collect()
+            .chain([OptMetaKey::pair(&self.gating)])
     }
 
     fn inner_into<J>(self) -> GatingRegions<J>
@@ -4445,7 +4420,7 @@ impl<I> Region<I> {
             .map(|x| x.into())
     }
 
-    pub(crate) fn opt_keywords(&self, i: RegionIndex) -> RawOptPairs
+    pub(crate) fn opt_keywords(&self, i: RegionIndex) -> impl Iterator<Item = (String, String)>
     where
         I: Copy,
         I: FromStr,
@@ -4453,11 +4428,10 @@ impl<I> Region<I> {
     {
         let (ri, rw) = self.split();
         [
-            OptIndexedKey::pair(&OptionalKw(Some(ri)), i.into()),
-            OptIndexedKey::pair(&OptionalKw(Some(rw)), i.into()),
+            OptIndexedKey::pair(&ri, i.into()),
+            OptIndexedKey::pair(&rw, i.into()),
         ]
         .into_iter()
-        .collect()
     }
 
     pub(crate) fn split(&self) -> (RegionGateIndex<I>, RegionWindow)
@@ -4625,14 +4599,14 @@ impl ModificationData {
             })
     }
 
-    fn opt_keywords(&self) -> RawOptPairs {
+    fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         [
             OptMetaKey::pair_opt(&self.last_modifier),
             OptMetaKey::pair_opt(&self.last_modified),
             OptMetaKey::pair_opt(&self.originality),
         ]
         .into_iter()
-        .collect()
+        .flat_map(|(k, v)| v.map(|x| (k, x)))
     }
 
     fn check_loss(self, lossless: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
@@ -4656,14 +4630,14 @@ impl CarrierData {
             })
     }
 
-    fn opt_keywords(&self) -> RawOptPairs {
+    fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         [
             OptMetaKey::pair_opt(&self.carrierid),
             OptMetaKey::pair_opt(&self.carriertype),
             OptMetaKey::pair_opt(&self.locationid),
         ]
         .into_iter()
-        .collect()
+        .flat_map(|(k, v)| v.map(|x| (k, x)))
     }
 
     fn check_loss(self, lossless: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
@@ -4686,14 +4660,14 @@ impl PlateData {
         })
     }
 
-    fn opt_keywords(&self) -> RawOptPairs {
+    fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         [
             OptMetaKey::pair_opt(&self.wellid),
             OptMetaKey::pair_opt(&self.platename),
             OptMetaKey::pair_opt(&self.platename),
         ]
         .into_iter()
-        .collect()
+        .flat_map(|(k, v)| v.map(|x| (k, x)))
     }
 
     fn check_loss(self, lossless: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
@@ -4711,13 +4685,15 @@ impl PeakData {
         b.zip(s).map(|(bin, size)| Self { bin, size })
     }
 
-    pub(crate) fn opt_keywords(&self, i: MeasIndex) -> RawOptTriples {
+    pub(crate) fn opt_keywords(
+        &self,
+        i: MeasIndex,
+    ) -> impl Iterator<Item = (String, String, Option<String>)> {
         [
             OptIndexedKey::triple(&self.bin, i.into()),
             OptIndexedKey::triple(&self.size, i.into()),
         ]
         .into_iter()
-        .collect()
     }
 
     fn check_loss(self, i: MeasIndex, lossless: bool) -> BiTentative<(), AnyMeasKeyLossError> {
@@ -6213,12 +6189,14 @@ impl VersionedTemporal for InnerTemporal2_0 {
 
     fn set_timestep(&mut self, _: Timestep) {}
 
-    fn req_meta_keywords_inner(&self) -> RawPairs {
-        vec![]
+    fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)> {
+        [].into_iter()
     }
 
-    fn opt_meas_keywords_inner(&self, _: MeasIndex) -> RawOptPairs {
-        vec![]
+    fn opt_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)> {
+        self.peak
+            .opt_keywords(i)
+            .flat_map(|(k, _, v)| v.map(|x| (k, x)))
     }
 
     fn can_convert_to_optical(&self, _: MeasIndex) -> MultiResult<(), TemporalToOpticalError> {
@@ -6239,12 +6217,14 @@ impl VersionedTemporal for InnerTemporal3_0 {
         self.timestep = ts;
     }
 
-    fn req_meta_keywords_inner(&self) -> RawPairs {
-        [ReqMetaKey::pair(&self.timestep)].into_iter().collect()
+    fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)> {
+        [ReqMetaKey::pair(&self.timestep)].into_iter()
     }
 
-    fn opt_meas_keywords_inner(&self, _: MeasIndex) -> RawOptPairs {
-        vec![]
+    fn opt_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)> {
+        self.peak
+            .opt_keywords(i)
+            .flat_map(|(k, _, v)| v.map(|x| (k, x)))
     }
 
     fn can_convert_to_optical(&self, _: MeasIndex) -> MultiResult<(), TemporalToOpticalError> {
@@ -6265,14 +6245,16 @@ impl VersionedTemporal for InnerTemporal3_1 {
         self.timestep = ts;
     }
 
-    fn req_meta_keywords_inner(&self) -> RawPairs {
-        [ReqMetaKey::pair(&self.timestep)].into_iter().collect()
+    fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)> {
+        [ReqMetaKey::pair(&self.timestep)].into_iter()
     }
 
-    fn opt_meas_keywords_inner(&self, i: MeasIndex) -> RawOptPairs {
-        [OptIndexedKey::pair(&self.display, i.into())]
-            .into_iter()
-            .collect()
+    fn opt_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)> {
+        self.peak
+            .opt_keywords(i)
+            .map(|(k, _, v)| (k, v))
+            .chain([OptIndexedKey::pair_opt(&self.display, i.into())])
+            .flat_map(|(k, v)| v.map(|x| (k, x)))
     }
 
     fn can_convert_to_optical(&self, _: MeasIndex) -> MultiResult<(), TemporalToOpticalError> {
@@ -6293,17 +6275,17 @@ impl VersionedTemporal for InnerTemporal3_2 {
         self.timestep = ts;
     }
 
-    fn req_meta_keywords_inner(&self) -> RawPairs {
-        [ReqMetaKey::pair(&self.timestep)].into_iter().collect()
+    fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)> {
+        [ReqMetaKey::pair(&self.timestep)].into_iter()
     }
 
-    fn opt_meas_keywords_inner(&self, i: MeasIndex) -> RawOptPairs {
+    fn opt_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)> {
         [
-            OptIndexedKey::pair(&self.display, i.into()),
-            OptIndexedKey::pair(&self.datatype, i.into()),
+            OptIndexedKey::pair_opt(&self.display, i.into()),
+            OptIndexedKey::pair_opt(&self.datatype, i.into()),
         ]
         .into_iter()
-        .collect()
+        .flat_map(|(k, v)| v.map(|x| (k, x)))
     }
 
     fn can_convert_to_optical(&self, i: MeasIndex) -> MultiResult<(), TemporalToOpticalError> {
@@ -6714,26 +6696,23 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
         true
     }
 
-    fn keywords_req_inner(&self) -> RawPairs {
-        [self.mode.pair(), self.byteord.pair()]
-            .into_iter()
-            .collect()
+    fn keywords_req_inner(&self) -> impl Iterator<Item = (String, String)> {
+        [self.mode.pair(), self.byteord.pair()].into_iter()
     }
 
-    // TODO use iterators for all this string stuff
-    fn keywords_opt_inner(&self) -> RawPairs {
+    fn keywords_opt_inner(&self) -> impl Iterator<Item = (String, String)> {
         [OptMetaKey::pair_opt(&self.cyt)]
             .into_iter()
-            .chain(self.timestamps.opt_keywords())
+            .flat_map(|(k, v)| v.map(|x| (k, x)))
             .chain(
                 self.applied_gates
                     .as_ref_opt()
                     .map(|x| x.opt_keywords())
-                    .unwrap_or_default(),
+                    .into_iter()
+                    .flatten(),
             )
-            .flat_map(|(k, v)| v.map(|x| (k, x)))
+            .chain(self.timestamps.opt_keywords())
             .chain(self.comp.as_ref_opt().map_or(vec![], |c| c.opt_keywords()))
-            .collect()
     }
 
     fn as_data_layout(
@@ -6815,13 +6794,11 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
         true
     }
 
-    fn keywords_req_inner(&self) -> RawPairs {
-        [self.mode.pair(), self.byteord.pair()]
-            .into_iter()
-            .collect()
+    fn keywords_req_inner(&self) -> impl Iterator<Item = (String, String)> {
+        [self.mode.pair(), self.byteord.pair()].into_iter()
     }
 
-    fn keywords_opt_inner(&self) -> RawPairs {
+    fn keywords_opt_inner(&self) -> impl Iterator<Item = (String, String)> {
         [
             OptMetaKey::pair_opt(&self.cyt),
             OptMetaKey::pair_opt(&self.comp),
@@ -6829,21 +6806,22 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
             OptMetaKey::pair_opt(&self.unicode),
         ]
         .into_iter()
-        .chain(self.timestamps.opt_keywords())
+        .flat_map(|(k, v)| v.map(|x| (k, x)))
         .chain(
             self.applied_gates
                 .as_ref_opt()
                 .map(|x| x.opt_keywords())
-                .unwrap_or_default(),
+                .into_iter()
+                .flatten(),
         )
         .chain(
             self.subset
                 .as_ref_opt()
                 .map(|x| x.opt_keywords())
-                .unwrap_or_default(),
+                .into_iter()
+                .flatten(),
         )
-        .flat_map(|(k, v)| v.map(|x| (k, x)))
-        .collect()
+        .chain(self.timestamps.opt_keywords())
     }
 
     fn as_data_layout(
@@ -6926,13 +6904,11 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
         true
     }
 
-    fn keywords_req_inner(&self) -> RawPairs {
-        [self.mode.pair(), self.byteord.pair()]
-            .into_iter()
-            .collect()
+    fn keywords_req_inner(&self) -> impl Iterator<Item = (String, String)> {
+        [self.mode.pair(), self.byteord.pair()].into_iter()
     }
 
-    fn keywords_opt_inner(&self) -> RawPairs {
+    fn keywords_opt_inner(&self) -> impl Iterator<Item = (String, String)> {
         [
             OptMetaKey::pair_opt(&self.cyt),
             OptMetaKey::pair_opt(&self.spillover),
@@ -6940,23 +6916,24 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
             OptMetaKey::pair_opt(&self.vol),
         ]
         .into_iter()
-        .chain(self.timestamps.opt_keywords())
-        .chain(self.plate.opt_keywords())
-        .chain(self.modification.opt_keywords())
+        .flat_map(|(k, v)| v.map(|x| (k, x)))
         .chain(
             self.applied_gates
                 .as_ref_opt()
                 .map(|x| x.opt_keywords())
-                .unwrap_or_default(),
+                .into_iter()
+                .flatten(),
         )
         .chain(
             self.subset
                 .as_ref_opt()
                 .map(|x| x.opt_keywords())
-                .unwrap_or_default(),
+                .into_iter()
+                .flatten(),
         )
-        .flat_map(|(k, v)| v.map(|x| (k, x)))
-        .collect()
+        .chain(self.modification.opt_keywords())
+        .chain(self.plate.opt_keywords())
+        .chain(self.timestamps.opt_keywords())
     }
 
     fn as_data_layout(
@@ -7042,11 +7019,11 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
         self.datetimes.valid()
     }
 
-    fn keywords_req_inner(&self) -> RawPairs {
-        [self.byteord.pair(), self.cyt.pair()].into_iter().collect()
+    fn keywords_req_inner(&self) -> impl Iterator<Item = (String, String)> {
+        [self.byteord.pair(), self.cyt.pair()].into_iter()
     }
 
-    fn keywords_opt_inner(&self) -> RawPairs {
+    fn keywords_opt_inner(&self) -> impl Iterator<Item = (String, String)> {
         [
             OptMetaKey::pair_opt(&self.spillover),
             OptMetaKey::pair_opt(&self.cytsn),
@@ -7054,20 +7031,20 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
             OptMetaKey::pair_opt(&self.flowrate),
         ]
         .into_iter()
-        .chain(self.timestamps.opt_keywords())
-        .chain(self.datetimes.opt_keywords())
-        .chain(self.plate.opt_keywords())
-        .chain(self.unstained.opt_keywords())
-        .chain(self.carrier.opt_keywords())
-        .chain(self.modification.opt_keywords())
+        .flat_map(|(k, v)| v.map(|x| (k, x)))
         .chain(
             self.applied_gates
                 .as_ref_opt()
                 .map(|x| x.opt_keywords())
-                .unwrap_or_default(),
+                .into_iter()
+                .flatten(),
         )
-        .flat_map(|(k, v)| v.map(|x| (k, x)))
-        .collect()
+        .chain(self.unstained.opt_keywords())
+        .chain(self.modification.opt_keywords())
+        .chain(self.carrier.opt_keywords())
+        .chain(self.plate.opt_keywords())
+        .chain(self.timestamps.opt_keywords())
+        .chain(self.datetimes.opt_keywords())
     }
 
     fn as_data_layout(

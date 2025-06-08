@@ -178,7 +178,7 @@ where
         })
     }
 
-    pub(crate) fn opt_keywords(&self) -> Vec<(String, Option<String>)>
+    pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)>
     where
         Btim<X>: OptMetaKey,
         Etim<X>: OptMetaKey,
@@ -189,7 +189,7 @@ where
             OptMetaKey::pair_opt(&self.date()),
         ]
         .into_iter()
-        .collect()
+        .flat_map(|(k, v)| v.map(|x| (k, x)))
     }
 }
 

@@ -119,13 +119,13 @@ impl Datetimes {
         })
     }
 
-    pub(crate) fn opt_keywords(&self) -> Vec<(String, Option<String>)> {
+    pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         [
             OptMetaKey::pair_opt(&self.begin()),
             OptMetaKey::pair_opt(&self.end()),
         ]
         .into_iter()
-        .collect()
+        .flat_map(|(k, v)| v.map(|x| (k, x)))
     }
 
     pub(crate) fn check_loss(self, lossless: bool) -> BiTentative<(), AnyMetarootKeyLossError> {

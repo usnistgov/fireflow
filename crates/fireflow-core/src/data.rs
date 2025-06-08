@@ -1004,12 +1004,24 @@ where
         notrunc: bool,
     ) -> DeferredResult<
         Option<FixedLayout<UintType<Self, INTLEN>>>,
-        BitmaskError,
-        IntOrderedColumnError,
+        ColumnError<BitmaskError>,
+        ColumnError<IntOrderedColumnError>,
     > {
-        // TODO add index to bitmask warning output
         rs.into_iter()
-            .map(|r| Self::column_type_ordered(r, byteord, notrunc))
+            .enumerate()
+            .map(|(i, r)| {
+                // TODO this is sloppy, it isn't clear at what point the column
+                // index should be put in the error
+                Self::column_type_ordered(r, byteord, notrunc)
+                    .def_map_errors(|error| ColumnError {
+                        error,
+                        index: i.into(),
+                    })
+                    .def_map_warnings(|warning| ColumnError {
+                        error: warning,
+                        index: i.into(),
+                    })
+            })
             .gather()
             .map_err(DeferredFailure::mconcat)
             .map(Tentative::mconcat)
@@ -1899,7 +1911,7 @@ impl AnyUintLayout {
         cs: Vec<ColumnLayoutData<D>>,
         o: &ByteOrd,
         notrunc: bool,
-    ) -> DeferredResult<Option<Self>, BitmaskError, NewFixedIntLayoutError> {
+    ) -> DeferredResult<Option<Self>, ColumnError<BitmaskError>, NewFixedIntLayoutError> {
         let (ws, rs): (Vec<_>, Vec<_>) = cs.into_iter().map(|c| (c.width, c.range)).unzip();
         widths_to_single_fixed_bytes(&ws[..])
             .mult_to_deferred()
@@ -2903,7 +2915,7 @@ enum_from_disp!(
 
 enum_from_disp!(
     pub NewDataLayoutWarning,
-    [FixedInt,     BitmaskError],
+    [FixedInt,     ColumnError<BitmaskError>],
     [VariableInt,  UintColumnWarning]
 );
 
@@ -2915,7 +2927,7 @@ newtype_disp!(NewAsciiLayoutError);
 enum_from_disp!(
     pub NewFixedIntLayoutError,
     [Width, SingleFixedWidthError],
-    [Column, IntOrderedColumnError]
+    [Column, ColumnError<IntOrderedColumnError>]
 );
 
 pub struct UintColumnError(ColumnError<NewUintTypeError>);

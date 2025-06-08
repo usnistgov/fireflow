@@ -1131,9 +1131,12 @@ pub trait VersionedMetaroot: Sized {
 }
 
 pub trait VersionedOptical: Sized + Versioned {
-    fn req_suffixes_inner(&self, n: MeasIndex) -> RawTriples;
+    fn req_suffixes_inner(&self, n: MeasIndex) -> impl Iterator<Item = (String, String, String)>;
 
-    fn opt_suffixes_inner(&self, n: MeasIndex) -> RawOptTriples;
+    fn opt_suffixes_inner(
+        &self,
+        n: MeasIndex,
+    ) -> impl Iterator<Item = (String, String, Option<String>)>;
 
     fn datatype(&self) -> Option<NumType>;
 
@@ -1409,17 +1412,16 @@ where
         )
     }
 
-    fn req_keywords(&self, i: MeasIndex) -> RawTriples {
+    fn req_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (String, String, String)> {
         [
             self.common.width.triple(i.into()),
             self.common.range.triple(i.into()),
         ]
         .into_iter()
         .chain(self.specific.req_suffixes_inner(i))
-        .collect()
     }
 
-    fn opt_keywords(&self, i: MeasIndex) -> RawOptTriples {
+    fn opt_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (String, String, Option<String>)> {
         [
             OptIndexedKey::triple(&self.common.longname, i.into()),
             OptIndexedKey::triple(&self.filter, i.into()),
@@ -1430,25 +1432,22 @@ where
         ]
         .into_iter()
         .chain(self.specific.opt_suffixes_inner(i))
-        .collect()
     }
 
     // TODO move out, this is specific to the CLI interface
     // for table
-    fn table_pairs(&self) -> Vec<(String, Option<String>)> {
+    fn table_pairs(&self) -> impl Iterator<Item = (String, Option<String>)> {
         // zero is a dummy and not meaningful here
         let n = 0.into();
         self.req_keywords(n)
-            .into_iter()
             .map(|(t, _, v)| (t, Some(v)))
-            .chain(self.opt_keywords(n).into_iter().map(|(k, _, v)| (k, v)))
-            .collect()
+            .chain(self.opt_keywords(n).map(|(k, _, v)| (k, v)))
     }
 
     fn table_header(&self) -> Vec<String> {
         ["index".into(), "$PnN".into()]
             .into_iter()
-            .chain(self.table_pairs().into_iter().map(|(k, _)| k))
+            .chain(self.table_pairs().map(|(k, _)| k))
             .collect()
     }
 
@@ -1458,7 +1457,6 @@ where
             .into_iter()
             .chain(
                 self.table_pairs()
-                    .into_iter()
                     .map(|(_, v)| v)
                     .map(|v| v.unwrap_or(na())),
             )
@@ -1468,12 +1466,11 @@ where
     // TODO this name is weird, this is standard+nonstandard keywords
     // after filtering out None values
     fn all_req_keywords(&self, n: MeasIndex) -> impl Iterator<Item = (String, String)> {
-        self.req_keywords(n).into_iter().map(|(_, k, v)| (k, v))
+        self.req_keywords(n).map(|(_, k, v)| (k, v))
     }
 
     fn all_opt_keywords(&self, n: MeasIndex) -> impl Iterator<Item = (String, String)> {
         self.opt_keywords(n)
-            .into_iter()
             .filter_map(|(_, k, v)| v.map(|x| (k, x)))
             .chain(
                 self.common
@@ -1617,11 +1614,10 @@ where
             )
     }
 
-    fn all_req_keywords(&self, par: Par) -> RawPairs {
+    fn all_req_keywords(&self, par: Par) -> impl Iterator<Item = (String, String)> {
         [par.pair(), self.datatype.pair()]
             .into_iter()
             .chain(self.specific.keywords_req_inner())
-            .collect()
     }
 
     fn all_opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -1700,10 +1696,6 @@ where
         s.with_compensation(|c| c.remove_by_index(i));
     }
 }
-
-pub(crate) type RawPairs = Vec<(String, String)>;
-pub(crate) type RawTriples = Vec<(String, String, String)>;
-pub(crate) type RawOptTriples = Vec<(String, String, Option<String>)>;
 
 impl<M, T> From<Optical<M>> for Temporal<T>
 where
@@ -2546,7 +2538,6 @@ where
             .as_center()
             .map(|tc| Temporal::req_meta_keywords(tc.value));
         Metaroot::all_req_keywords(&self.metaroot, self.par())
-            .into_iter()
             .chain(time_meta.into_iter().flatten())
     }
 
@@ -6029,18 +6020,20 @@ impl VersionedOptical for InnerOptical2_0 {
         None
     }
 
-    fn req_suffixes_inner(&self, _: MeasIndex) -> RawTriples {
-        vec![]
+    fn req_suffixes_inner(&self, _: MeasIndex) -> impl Iterator<Item = (String, String, String)> {
+        [].into_iter()
     }
 
-    fn opt_suffixes_inner(&self, i: MeasIndex) -> RawOptTriples {
+    fn opt_suffixes_inner(
+        &self,
+        i: MeasIndex,
+    ) -> impl Iterator<Item = (String, String, Option<String>)> {
         [
             OptIndexedKey::triple(&self.scale, i.into()),
             OptIndexedKey::triple(&self.wavelength, i.into()),
         ]
         .into_iter()
         .chain(self.peak.opt_keywords(i))
-        .collect()
     }
 
     fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult<(), OpticalToTemporalError> {
@@ -6061,18 +6054,20 @@ impl VersionedOptical for InnerOptical3_0 {
         None
     }
 
-    fn req_suffixes_inner(&self, i: MeasIndex) -> RawTriples {
-        [self.scale.triple(i.into())].into_iter().collect()
+    fn req_suffixes_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String, String)> {
+        [self.scale.triple(i.into())].into_iter()
     }
 
-    fn opt_suffixes_inner(&self, i: MeasIndex) -> RawOptTriples {
+    fn opt_suffixes_inner(
+        &self,
+        i: MeasIndex,
+    ) -> impl Iterator<Item = (String, String, Option<String>)> {
         [
             OptIndexedKey::triple(&self.wavelength, i.into()),
             OptIndexedKey::triple(&self.gain, i.into()),
         ]
         .into_iter()
         .chain(self.peak.opt_keywords(i))
-        .collect()
     }
 
     fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult<(), OpticalToTemporalError> {
@@ -6095,11 +6090,14 @@ impl VersionedOptical for InnerOptical3_1 {
         None
     }
 
-    fn req_suffixes_inner(&self, i: MeasIndex) -> RawTriples {
-        [self.scale.triple(i.into())].into_iter().collect()
+    fn req_suffixes_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String, String)> {
+        [self.scale.triple(i.into())].into_iter()
     }
 
-    fn opt_suffixes_inner(&self, i: MeasIndex) -> RawOptTriples {
+    fn opt_suffixes_inner(
+        &self,
+        i: MeasIndex,
+    ) -> impl Iterator<Item = (String, String, Option<String>)> {
         [
             OptIndexedKey::triple(&self.wavelengths, i.into()),
             OptIndexedKey::triple(&self.gain, i.into()),
@@ -6108,7 +6106,6 @@ impl VersionedOptical for InnerOptical3_1 {
         ]
         .into_iter()
         .chain(self.peak.opt_keywords(i))
-        .collect()
     }
 
     fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult<(), OpticalToTemporalError> {
@@ -6132,11 +6129,14 @@ impl VersionedOptical for InnerOptical3_2 {
         self.datatype.0.as_ref().copied()
     }
 
-    fn req_suffixes_inner(&self, i: MeasIndex) -> RawTriples {
-        [self.scale.triple(i.into())].into_iter().collect()
+    fn req_suffixes_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String, String)> {
+        [self.scale.triple(i.into())].into_iter()
     }
 
-    fn opt_suffixes_inner(&self, i: MeasIndex) -> RawOptTriples {
+    fn opt_suffixes_inner(
+        &self,
+        i: MeasIndex,
+    ) -> impl Iterator<Item = (String, String, Option<String>)> {
         [
             OptIndexedKey::triple(&self.wavelengths, i.into()),
             OptIndexedKey::triple(&self.gain, i.into()),
@@ -6150,7 +6150,6 @@ impl VersionedOptical for InnerOptical3_2 {
             OptIndexedKey::triple(&self.datatype, i.into()),
         ]
         .into_iter()
-        .collect()
     }
 
     fn can_convert_to_temporal(&self, i: MeasIndex) -> MultiResult<(), OpticalToTemporalError> {

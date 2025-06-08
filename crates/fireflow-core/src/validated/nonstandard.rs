@@ -10,7 +10,7 @@ use std::str::FromStr;
 /// A String that matches a non-standard metadata keyword
 ///
 /// This shall not start with '$'.
-#[derive(Clone, PartialEq, Eq, Hash, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub struct NonStdKey(String);
 
 pub type NonStdPairs = Vec<(NonStdKey, String)>;

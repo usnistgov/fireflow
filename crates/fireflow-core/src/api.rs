@@ -427,14 +427,19 @@ pub struct DelimCharError(u8);
 
 pub struct EmptyTEXTError;
 
+#[derive(Debug)]
 pub struct BlankKeyError;
 
+#[derive(Debug)]
 pub struct BlankValueError(Vec<u8>);
 
+#[derive(Debug)]
 pub struct UnevenWordsError;
 
+#[derive(Debug)]
 pub struct FinalDelimError;
 
+#[derive(Debug)]
 pub struct DelimBoundError;
 
 enum_from_disp!(
@@ -446,6 +451,7 @@ enum_from_disp!(
 pub struct NoTEXTWordsError;
 
 enum_from_disp!(
+    #[derive(Debug)]
     pub ParseKeywordsIssue,
     [BlankKey, BlankKeyError],
     [BlankValue, BlankValueError],
@@ -464,6 +470,7 @@ enum_from_disp!(
     [Mismatch, DelimMismatch]
 );
 
+#[derive(Debug, Clone)]
 pub struct DelimMismatch {
     supp: u8,
     delim: u8,
@@ -971,22 +978,45 @@ fn split_raw_text_escape(
                 }
             } else {
                 // Previous consecutive delimiter sequence was even. Push n / 2
-                // delimiters to whatever the current word is.
+                // delimiters to whatever the current word is. Then push to
+                // key or value
                 push_delim(&mut keybuf, &mut valuebuf, consec_blanks);
+                if !valuebuf.is_empty() {
+                    valuebuf.extend_from_slice(segment);
+                } else {
+                    keybuf.extend_from_slice(segment);
+                }
             }
             consec_blanks = 0;
         }
     }
 
+    // If all went perfectly, we should have one consecutive blank at this point
+    // since the space between the last delim and the end will show up as a
+    // blank.
+    //
+    // If we have 0, then there was no delim at the end, which is an error.
+    //
+    // If number of blanks is even and not 0, then the last word ended with one
+    // or more escaped delimiters, but the TEXT didn't (2 errors, delim at
+    // boundary and no delim ending TEXT). Note that here, blanks = number of
+    // literal delimiters, whereas in the loop, this corresponded to blanks + 1
+    // delimiters.
+    //
+    // If number of blanks is odd but not 1, the last word ended with one or
+    // more escaped delimiters (error: on a boundary) and the TEXT ended with a
+    // delimiter (not an error).
+
     if consec_blanks == 0 {
         push_issue(&mut ews, conf.enforce_final_delim, FinalDelimError.into());
-    } else if consec_blanks & 1 == 1 {
-        // technically this ends with a delim but it is part of a word so
-        // doesn't count
+    }
+
+    if consec_blanks & 1 == 1 && consec_blanks > 1 {
         push_issue(&mut ews, conf.enforce_final_delim, FinalDelimError.into());
-        push_issue(&mut ews, conf.enforce_delim_nobound, DelimBoundError.into());
         push_delim(&mut keybuf, &mut valuebuf, consec_blanks);
-    } else if consec_blanks > 1 {
+    }
+
+    if consec_blanks > 1 {
         push_issue(&mut ews, conf.enforce_delim_nobound, DelimBoundError.into());
     }
 
@@ -1180,5 +1210,32 @@ impl fmt::Display for StdTEXTFailure {
 impl fmt::Display for StdDatasetFailure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "could not read DATA with standardized TEXT")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_split_text_escape() {
+        let kws = ParsedKeywords::default();
+        let conf = RawTextReadConfig::default();
+        // NOTE should not start with delim
+        let bytes = "$P4F/700//75 BP/".as_bytes();
+        let delim = 47;
+        let out = split_raw_text_escape(kws, delim, bytes, &conf);
+        let v = out
+            .value()
+            .std
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .next()
+            .unwrap();
+        let es = out.errors();
+        let ws = out.warnings();
+        assert_eq!(("$P4F".to_string(), "700/75 BP".to_string()), v);
+        assert!(es.is_empty(), "errors: {:?}", es);
+        assert!(ws.is_empty(), "warnings: {:?}", ws);
     }
 }

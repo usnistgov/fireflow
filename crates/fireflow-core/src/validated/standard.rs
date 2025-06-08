@@ -308,6 +308,7 @@ impl ParsedKeywords {
     }
 }
 
+#[derive(Debug)]
 pub enum KeywordInsertError {
     StdPresent(StdKey, String),
     NonStdPresent(NonStdKey, String),

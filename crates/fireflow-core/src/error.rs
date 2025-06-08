@@ -650,6 +650,21 @@ impl<V, W, E> Tentative<V, W, E> {
     pub fn void(self) -> Tentative<(), W, E> {
         Tentative::new((), self.warnings, self.errors)
     }
+
+    #[test]
+    pub(crate) fn value(&self) -> &V {
+        &self.value
+    }
+
+    #[test]
+    pub(crate) fn errors(&self) -> &[E] {
+        &self.errors[..]
+    }
+
+    #[test]
+    pub(crate) fn warnings(&self) -> &[W] {
+        &self.warnings[..]
+    }
 }
 
 impl<V, W, E> Tentative<Option<V>, W, E> {

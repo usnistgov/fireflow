@@ -91,17 +91,28 @@ pub fn h_read_header<R: Read>(
         .map_or(Ok(vec![]), |earliest_begin| {
             h_read_other_segments(h, *earliest_begin, &conf.other[..])
         })
-        .map(|other| Header {
-            version,
-            segments: HeaderSegments {
-                text,
-                data,
-                analysis,
-                other,
-            },
+        .and_then(|other| {
+            let xs = other
+                .iter()
+                .copied()
+                .map(|x| x.inner)
+                .chain([text.inner, data.inner, analysis.inner])
+                .collect();
+            if Segment::any_overlap(xs) {
+                Err(NonEmpty::new(ImpureError::Pure(HeaderError::Overlap)))
+            } else {
+                Ok(Header {
+                    version,
+                    segments: HeaderSegments {
+                        text,
+                        data,
+                        analysis,
+                        other,
+                    },
+                })
+            }
         })
     })
-    // .map_err(NonEmpty::flatten)
 }
 
 fn h_read_standard_header<R: Read>(
@@ -261,8 +272,7 @@ pub enum HeaderError {
     Segment(HeaderSegmentError),
     Space,
     Version(VersionError),
-    NotAscii,
-    OtherNotAscii,
+    Overlap,
 }
 
 impl fmt::Display for HeaderError {
@@ -270,9 +280,8 @@ impl fmt::Display for HeaderError {
         match self {
             HeaderError::Segment(x) => x.fmt(f),
             HeaderError::Version(x) => x.fmt(f),
-            HeaderError::Space => write!(f, "version must be followed by 4 spaces"),
-            HeaderError::NotAscii => write!(f, "HEADER must be ASCII"),
-            HeaderError::OtherNotAscii => write!(f, "OTHER offsets must be ASCII"),
+            HeaderError::Space => f.write_str("version must be followed by 4 spaces"),
+            HeaderError::Overlap => f.write_str("segments in HEADER overlap"),
         }
     }
 }

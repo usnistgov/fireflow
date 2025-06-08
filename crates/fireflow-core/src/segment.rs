@@ -5,6 +5,7 @@ use crate::validated::ascii_uint::*;
 use crate::validated::standard::*;
 
 use itertools::Itertools;
+use nonempty::NonEmpty;
 use serde::Serialize;
 use std::fmt;
 use std::io;
@@ -729,10 +730,7 @@ impl<T> Segment<T> {
     where
         T: Copy,
     {
-        match self {
-            Self::Empty => None,
-            Self::NonEmpty(s) => Some(s.coords()),
-        }
+        self.as_nonempty().map(|x| x.coords())
     }
 
     /// Return byte after end of segment if applicable
@@ -741,10 +739,7 @@ impl<T> Segment<T> {
         T: Copy,
         T: Into<u64>,
     {
-        match self {
-            Self::Empty => None,
-            Self::NonEmpty(s) => Some(s.next_byte()),
-        }
+        self.as_nonempty().map(|x| x.next_byte())
     }
 
     /// Return the number of bytes in this segment
@@ -758,10 +753,7 @@ impl<T> Segment<T> {
         // the first byte in a segment, and the second number points to the last
         // byte, therefore 0,0 means "0 is both the first and last byte, which
         // also means there is one byte".
-        match self {
-            Self::Empty => 0,
-            Self::NonEmpty(s) => s.nbytes(),
-        }
+        self.as_nonempty().map_or(0, |s| s.nbytes())
     }
 
     /// Return true if segment has 0 bytes
@@ -775,10 +767,7 @@ impl<T> Segment<T> {
         T: Copy,
         T: fmt::Display,
     {
-        let (b, e) = match self {
-            Self::Empty => (T::default(), T::default()),
-            Self::NonEmpty(s) => s.coords(),
-        };
+        let (b, e) = self.try_coords().unwrap_or((T::default(), T::default()));
         format!("{},{}", b, e)
     }
 
@@ -791,6 +780,36 @@ impl<T> Segment<T> {
             Self::Empty => Segment::Empty,
             Self::NonEmpty(x) => Segment::NonEmpty(x.as_u64()),
         }
+    }
+
+    pub fn as_nonempty(&self) -> Option<NonEmptySegment<T>>
+    where
+        T: Copy,
+    {
+        match self {
+            Self::Empty => None,
+            Self::NonEmpty(x) => Some(*x),
+        }
+    }
+
+    pub fn any_overlap(xs: Vec<Self>) -> bool
+    where
+        T: Ord,
+        T: Copy,
+    {
+        let mut ys: Vec<_> = xs.into_iter().flat_map(|x| x.as_nonempty()).collect();
+        ys.sort_by_key(|x| x.begin);
+        if let Some(zs) = NonEmpty::from_vec(ys) {
+            let mut prev_end = zs.head.end;
+            for z in zs.tail {
+                if z.begin > prev_end {
+                    prev_end = z.end;
+                } else {
+                    return true;
+                }
+            }
+        }
+        false
     }
 }
 

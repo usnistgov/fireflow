@@ -7,7 +7,6 @@ pub mod core;
 pub mod data;
 pub mod error;
 pub mod header;
-mod header_text;
 mod macros;
 pub mod segment;
 pub mod text;

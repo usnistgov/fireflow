@@ -18,7 +18,7 @@ use std::str::FromStr;
 /// can fail in numerous ways) or to make a type for the key and implement
 /// one of the 'Key', 'IndexedKey', or 'BiIndexedKey' traits which can create
 /// a key from thin-air.
-#[derive(Clone, PartialEq, Eq, Hash, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub struct StdKey(String);
 
 /// A collection dump for parsed keywords of varying quality

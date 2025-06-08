@@ -751,23 +751,24 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
             }
         });
 
+        // throw error if we have nonstandard keywords and we forbid them
+        tnt_parse.eval_error(|_| {
+            if kws.nonstd.is_empty() && conf.disallow_nonstandard {
+                Some(NonstandardError.into())
+            } else {
+                None
+            }
+        });
+
         tnt_parse
             .inner_into()
-            .and_tentatively(|parse| {
-                let w = if kws.nonstd.is_empty() {
-                    vec![]
-                } else {
-                    vec![NonstandardError]
-                };
-                let out = RawTEXTOutput {
-                    version: header.version,
-                    parse,
-                    keywords: ValidKeywords {
-                        std: kws.std,
-                        nonstd: kws.nonstd,
-                    },
-                };
-                Tentative::new_either(out, w, conf.disallow_nonstandard)
+            .map(|parse| RawTEXTOutput {
+                version: header.version,
+                parse,
+                keywords: ValidKeywords {
+                    std: kws.std,
+                    nonstd: kws.nonstd,
+                },
             })
             .errors_liftio()
     });

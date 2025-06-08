@@ -755,6 +755,11 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
         tnt_parse
             .inner_into()
             .and_tentatively(|parse| {
+                let w = if kws.nonstd.is_empty() {
+                    vec![]
+                } else {
+                    vec![NonstandardError]
+                };
                 let out = RawTEXTOutput {
                     version: header.version,
                     parse,
@@ -763,7 +768,7 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
                         nonstd: kws.nonstd,
                     },
                 };
-                Tentative::new_either(out, vec![NonstandardError], conf.disallow_nonstandard)
+                Tentative::new_either(out, w, conf.disallow_nonstandard)
             })
             .errors_liftio()
     });

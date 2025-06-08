@@ -59,6 +59,87 @@ impl HeaderSegments {
         }
         Ok(())
     }
+
+    /// Check if TEXT segment starts within HEADER
+    pub(crate) fn contains_text_segment<I>(&self, s: TEXTSegment<I>) -> Result<(), InHeaderError>
+    where
+        I: HasRegion,
+    {
+        s.try_as_generic()
+            .map_or(Ok(()), |q| self.contains_segment(q))
+    }
+
+    /// Check if TEXT segment overlaps with any in HEADER.
+    ///
+    /// Assume HEADER itself has no overlapping segments.
+    pub(crate) fn overlaps_with<I>(&self, s: TEXTSegment<I>) -> MultiResult<(), SegmentOverlapError>
+    where
+        I: HasRegion,
+    {
+        if let Some(q) = s.try_as_generic() {
+            self.as_generics().map(|x| x.overlaps(&q)).gather().void()
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Ensure HEADER segments don't overlap and start after HEADER itself
+    fn validate(&self) -> MultiResult<(), HeaderValidationError> {
+        let x = self.overlapping_segments().mult_errors_into();
+        let y = self.contains_header_segments().mult_errors_into();
+        x.mult_zip(y).void()
+    }
+
+    fn contains_header_segments(&self) -> MultiResult<(), InHeaderError> {
+        let t = self.contains_header_segment(self.text);
+        let d = self.contains_header_segment(self.data);
+        let a = self.contains_header_segment(self.analysis);
+        let os = self
+            .other
+            .iter()
+            .copied()
+            .map(|o| self.contains_header_segment(o))
+            .gather();
+        t.zip3(d, a).mult_zip(os).void()
+    }
+
+    fn contains_header_segment<I>(&self, s: HeaderSegment<I>) -> Result<(), InHeaderError>
+    where
+        I: HasRegion,
+    {
+        s.try_as_generic()
+            .map_or(Ok(()), |q| self.contains_segment(q))
+    }
+
+    fn contains_segment(&self, s: GenericSegment) -> Result<(), InHeaderError> {
+        if s.begin < self.nbytes() {
+            Err(InHeaderError(s))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn overlapping_segments(&self) -> MultiResult<(), SegmentOverlapError> {
+        GenericSegment::find_overlaps(self.as_generics().collect())
+    }
+
+    /// Return number of bytes required to encode HEADER
+    fn nbytes(&self) -> u64 {
+        u64::from(HEADER_LEN) + (self.other.len() as u64) * 16
+    }
+
+    fn as_generics(&self) -> impl Iterator<Item = GenericSegment> {
+        self.other
+            .iter()
+            .copied()
+            .map(|x| x.try_as_generic())
+            .chain([
+                self.text.try_as_generic(),
+                self.data.try_as_generic(),
+                self.analysis.try_as_generic(),
+            ])
+            .flatten()
+    }
 }
 
 /// Output from parsing the FCS header.
@@ -101,80 +182,14 @@ impl Header {
                 },
             })
             .and_then(|hdr| {
-                hdr.validate()
+                hdr.segments
+                    .validate()
                     .mult_map_errors(Box::new)
                     .mult_map_errors(HeaderError::Validation)
                     .mult_map_errors(ImpureError::Pure)?;
                 Ok(hdr)
             })
         })
-    }
-
-    pub(crate) fn contains_text_segment<I>(&self, s: TEXTSegment<I>) -> Result<(), InHeaderError>
-    where
-        I: HasRegion,
-    {
-        s.try_as_generic()
-            .map_or(Ok(()), |q| self.contains_segment(q))
-    }
-
-    /// Ensure HEADER segments don't overlap and start after HEADER itself
-    fn validate(&self) -> MultiResult<(), HeaderValidationError> {
-        let x = self.overlapping_segments().mult_errors_into();
-        let y = self.contains_header_segments().mult_errors_into();
-        x.mult_zip(y).void()
-    }
-
-    fn contains_header_segments(&self) -> MultiResult<(), InHeaderError> {
-        let s = &self.segments;
-        let t = self.contains_header_segment(s.text);
-        let d = self.contains_header_segment(s.data);
-        let a = self.contains_header_segment(s.analysis);
-        let os = s
-            .other
-            .iter()
-            .copied()
-            .map(|o| self.contains_header_segment(o))
-            .gather();
-        t.zip3(d, a).mult_zip(os).void()
-    }
-
-    fn contains_header_segment<I>(&self, s: HeaderSegment<I>) -> Result<(), InHeaderError>
-    where
-        I: HasRegion,
-    {
-        s.try_as_generic()
-            .map_or(Ok(()), |q| self.contains_segment(q))
-    }
-
-    fn contains_segment(&self, s: GenericSegment) -> Result<(), InHeaderError> {
-        if s.begin < self.nbytes() {
-            Err(InHeaderError(s))
-        } else {
-            Ok(())
-        }
-    }
-
-    fn overlapping_segments(&self) -> MultiResult<(), SegmentOverlapError> {
-        let s = &self.segments;
-        let xs: Vec<_> = s
-            .other
-            .iter()
-            .copied()
-            .map(|x| x.try_as_generic())
-            .chain([
-                s.text.try_as_generic(),
-                s.data.try_as_generic(),
-                s.analysis.try_as_generic(),
-            ])
-            .flatten()
-            .collect();
-        GenericSegment::find_overlaps(xs)
-    }
-
-    /// Return number of bytes required to encode HEADER
-    fn nbytes(&self) -> u64 {
-        u64::from(HEADER_LEN) + (self.segments.other.len() as u64) * 16
     }
 }
 

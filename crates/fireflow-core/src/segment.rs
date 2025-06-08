@@ -516,11 +516,26 @@ impl<I, S, T> SpecificSegment<I, S, T> {
 }
 
 impl GenericSegment {
+    pub fn overlaps(&self, other: &GenericSegment) -> Result<(), SegmentOverlapError> {
+        if self.end >= other.begin || other.end >= self.begin {
+            Err(SegmentOverlapError {
+                seg0: self.clone(),
+                seg1: other.clone(),
+            })
+        } else {
+            Ok(())
+        }
+    }
+
     pub fn find_overlaps(mut xs: Vec<Self>) -> MultiResult<(), SegmentOverlapError> {
         xs.sort_by_key(|x| x.begin);
         if let Some(ys) = NonEmpty::from_vec(xs) {
             let mut prev = ys.head;
             let mut errors = vec![];
+            // NOTE this won't find all overlaps since it won't check if a given
+            // segment's end is after the beginning of segments 2 or more ahead,
+            // but at least an error will be throw for all that are 1 away which
+            // should be good enough to let the user fix the problem
             for z in ys.tail {
                 if z.begin <= prev.begin {
                     errors.push(SegmentOverlapError {

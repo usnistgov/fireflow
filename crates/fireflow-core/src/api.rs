@@ -414,7 +414,8 @@ enum_from_disp!(
     [Nextdata, ReqKeyError<ParseIntError>],
     [NonAscii, NonAsciiKeyError],
     [NonUtf8, NonUtf8KeywordError],
-    [Nonstandard, NonstandardError]
+    [Nonstandard, NonstandardError],
+    [Header, Box<HeaderValidationError>]
 );
 
 enum_from_disp!(
@@ -704,6 +705,8 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
                 non_ascii: kws.non_ascii,
                 byte_pairs: kws.byte_pairs,
             });
+
+        // throw errors if we found any non-ascii keywords and we want to know
         tnt_parse.eval_errors(|pd| {
             if conf.enforce_keyword_ascii {
                 pd.non_ascii
@@ -714,6 +717,8 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
                 vec![]
             }
         });
+
+        // throw errors if we found any non-utf8 keywords and we want to know
         tnt_parse.eval_errors(|pd| {
             if conf.enforce_utf8 {
                 pd.byte_pairs
@@ -725,6 +730,23 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
                         })
                     })
                     .collect()
+            } else {
+                vec![]
+            }
+        });
+
+        // throw errors if the supp text segment overlaps with HEADER or
+        // anything else
+        tnt_parse.eval_errors(|pd| {
+            if let Some(s) = pd.supp_text {
+                let x = pd.header_segments.contains_text_segment(s).into_mult();
+                let y = pd.header_segments.overlaps_with(s).mult_errors_into();
+                x.mult_zip(y)
+                    .mult_map_errors(Box::new)
+                    .mult_map_errors(ParseRawTEXTError::Header)
+                    .err()
+                    .map(|n| n.into())
+                    .unwrap_or_default()
             } else {
                 vec![]
             }

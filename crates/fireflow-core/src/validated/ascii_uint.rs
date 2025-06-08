@@ -99,7 +99,7 @@ impl Uint8Digit {
             let s = unsafe { str::from_utf8_unchecked(bs) };
             let trimmed = s.trim_start();
             if allow_blank && trimmed.is_empty() {
-                return Ok(Uint8Digit::default().into());
+                return Ok(Uint8Digit::default());
             }
             trimmed
                 .parse::<u32>()

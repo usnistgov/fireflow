@@ -438,10 +438,10 @@ pub(crate) fn make_data_offset_keywords_3_0(
     // NOTE in 3.2 *DATA and *SDATA are technically optional, but it is much
     // easier just to include them in the "required" stuff regardless.
     let all_req = supp_text_seg
-        .req_keywords()
+        .keywords()
         .into_iter()
-        .chain(data_seg.req_keywords())
-        .chain(analysis_seg.req_keywords())
+        .chain(data_seg.keywords())
+        .chain(analysis_seg.keywords())
         .chain([nextdata.pair()])
         .chain(req);
 

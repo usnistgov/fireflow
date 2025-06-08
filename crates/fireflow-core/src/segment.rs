@@ -607,7 +607,7 @@ impl<I: Copy> HeaderSegment<I> {
 }
 
 impl<I> TEXTSegment<I> {
-    pub(crate) fn req_keywords(&self) -> [(String, String); 2]
+    pub(crate) fn keywords(&self) -> [(String, String); 2]
     where
         I: KeyedReqSegment,
         I::B: Into<Uint20Char>,
@@ -628,29 +628,6 @@ impl<I> TEXTSegment<I> {
             ReqMetaKey::pair(&I::B::from(b)),
             ReqMetaKey::pair(&I::E::from(e)),
         ]
-    }
-
-    pub(crate) fn opt_keywords(&self) -> Option<[(String, String); 2]>
-    where
-        I: KeyedOptSegment,
-        I::B: Into<Uint20Char>,
-        I::E: Into<Uint20Char>,
-        I::B: From<Uint20Char>,
-        I::E: From<Uint20Char>,
-        I::B: OptMetaKey,
-        I::E: OptMetaKey,
-        I::B: FromStr<Err = ParseIntError>,
-        I::E: FromStr<Err = ParseIntError>,
-    {
-        let i = self.inner;
-        match i {
-            Segment::Empty => None,
-            Segment::NonEmpty(x) => {
-                let b = I::B::from(x.begin);
-                let e = I::B::from(x.end);
-                Some([OptMetaKey::pair(&b), OptMetaKey::pair(&e)])
-            }
-        }
     }
 }
 
@@ -721,7 +698,7 @@ impl<T> Segment<T> {
             Self::Empty => Ok(()),
             Self::NonEmpty(s) => {
                 let begin = s.begin.into();
-                let nbytes = s.len().into();
+                let nbytes = s.nbytes();
 
                 h.seek(SeekFrom::Start(begin))?;
                 h.take(nbytes).read_to_end(buf)?;
@@ -783,7 +760,7 @@ impl<T> Segment<T> {
         // also means there is one byte".
         match self {
             Self::Empty => 0,
-            Self::NonEmpty(s) => s.len(),
+            Self::NonEmpty(s) => s.nbytes(),
         }
     }
 
@@ -819,7 +796,7 @@ impl<T> Segment<T> {
 
 impl<T> NonEmptySegment<T> {
     /// Return the number of bytes in this segment
-    pub fn len(&self) -> u64
+    pub fn nbytes(&self) -> u64
     where
         T: Into<u64>,
         T: Copy,
@@ -843,7 +820,7 @@ impl<T> NonEmptySegment<T> {
     {
         // TODO technically this should return option since it isn't guaranteed
         // that the next byte won't wrap
-        self.begin.into() + self.len()
+        self.begin.into() + self.nbytes()
     }
 
     fn new_unchecked(begin: T, end: T) -> Self {

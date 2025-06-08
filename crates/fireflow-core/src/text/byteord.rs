@@ -74,13 +74,13 @@ impl TryFrom<Vec<u8>> for ByteOrd {
     fn try_from(xs: Vec<u8>) -> Result<Self, Self::Error> {
         let n = xs.len();
         if xs.iter().unique().count() == n
-            && !(1..=8).contains(&n)
+            && (1..=8).contains(&n)
             && xs.iter().min().is_some_and(|x| *x == 1)
             && xs.iter().max().is_some_and(|x| usize::from(*x) == n)
         {
             Ok(ByteOrd(xs.iter().map(|x| x - 1).collect()))
         } else {
-            Err(NewByteOrdError)
+            Err(NewByteOrdError(n))
         }
     }
 }
@@ -397,7 +397,7 @@ pub enum ParseByteOrdError {
     Format,
 }
 
-pub struct NewByteOrdError;
+pub struct NewByteOrdError(usize);
 
 pub struct NewEndianError;
 
@@ -434,7 +434,7 @@ impl fmt::Display for ParseByteOrdError {
 
 impl fmt::Display for NewByteOrdError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "Byte order must include 1-n uniquely")
+        write!(f, "Byte order must include 1-{} uniquely", self.0)
     }
 }
 

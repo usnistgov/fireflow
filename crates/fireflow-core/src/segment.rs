@@ -36,6 +36,18 @@ pub struct SpecificSegment<I, S, T> {
     _src: PhantomData<S>,
 }
 
+/// A non-empty segment that still has regional/src data but is type-agnostic.
+///
+/// Useful for bulk operations on lots of segments at once that wouldn't work
+/// if they segments were all different types.
+#[derive(Clone)]
+pub struct GenericSegment {
+    pub begin: u64,
+    pub end: u64,
+    pub region: &'static str,
+    pub src: &'static str,
+}
+
 /// Denotes a correction for a segment
 #[derive(Default, Clone, Copy)]
 pub struct OffsetCorrection<I, S> {
@@ -483,6 +495,46 @@ impl<I, S, T> SpecificSegment<I, S, T> {
             _src: PhantomData,
         })
     }
+
+    pub fn try_as_generic(&self) -> Option<GenericSegment>
+    where
+        I: HasRegion,
+        S: HasSource,
+        T: Copy,
+        T: Into<u64>,
+    {
+        self.inner.try_as_nonempty().map(|x| {
+            let (begin, end) = x.as_u64().coords();
+            GenericSegment {
+                begin,
+                end,
+                src: S::SRC,
+                region: I::REGION,
+            }
+        })
+    }
+}
+
+impl GenericSegment {
+    pub fn find_overlaps(mut xs: Vec<Self>) -> MultiResult<(), SegmentOverlapError> {
+        xs.sort_by_key(|x| x.begin);
+        if let Some(ys) = NonEmpty::from_vec(xs) {
+            let mut prev = ys.head;
+            let mut errors = vec![];
+            for z in ys.tail {
+                if z.begin <= prev.begin {
+                    errors.push(SegmentOverlapError {
+                        seg0: prev,
+                        seg1: z.clone().into(),
+                    });
+                    prev = z;
+                }
+            }
+            NonEmpty::from_vec(errors).map(Err).unwrap_or(Ok(()))
+        } else {
+            Ok(())
+        }
+    }
 }
 
 impl<I> TEXTSegment<I> {
@@ -730,7 +782,7 @@ impl<T> Segment<T> {
     where
         T: Copy,
     {
-        self.as_nonempty().map(|x| x.coords())
+        self.try_as_nonempty().map(|x| x.coords())
     }
 
     /// Return byte after end of segment if applicable
@@ -739,7 +791,7 @@ impl<T> Segment<T> {
         T: Copy,
         T: Into<u64>,
     {
-        self.as_nonempty().map(|x| x.next_byte())
+        self.try_as_nonempty().map(|x| x.next_byte())
     }
 
     /// Return the number of bytes in this segment
@@ -753,7 +805,7 @@ impl<T> Segment<T> {
         // the first byte in a segment, and the second number points to the last
         // byte, therefore 0,0 means "0 is both the first and last byte, which
         // also means there is one byte".
-        self.as_nonempty().map_or(0, |s| s.nbytes())
+        self.try_as_nonempty().map_or(0, |s| s.nbytes())
     }
 
     /// Return true if segment has 0 bytes
@@ -782,7 +834,7 @@ impl<T> Segment<T> {
         }
     }
 
-    pub fn as_nonempty(&self) -> Option<NonEmptySegment<T>>
+    pub fn try_as_nonempty(&self) -> Option<NonEmptySegment<T>>
     where
         T: Copy,
     {
@@ -790,26 +842,6 @@ impl<T> Segment<T> {
             Self::Empty => None,
             Self::NonEmpty(x) => Some(*x),
         }
-    }
-
-    pub fn any_overlap(xs: &[Self]) -> bool
-    where
-        T: Ord,
-        T: Copy,
-    {
-        let mut ys: Vec<_> = xs.iter().flat_map(|x| x.as_nonempty()).collect();
-        ys.sort_by_key(|x| x.begin);
-        if let Some(zs) = NonEmpty::from_vec(ys) {
-            let mut prev_end = zs.head.end;
-            for z in zs.tail {
-                if z.begin > prev_end {
-                    prev_end = z.end;
-                } else {
-                    return true;
-                }
-            }
-        }
-        false
     }
 }
 
@@ -872,6 +904,27 @@ pub struct SegmentError<T> {
     kind: SegmentErrorKind,
     location: &'static str,
     src: &'static str,
+}
+
+pub struct SegmentOverlapError {
+    seg0: GenericSegment,
+    seg1: GenericSegment,
+}
+
+impl fmt::Display for SegmentOverlapError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{} overlaps with {}", self.seg0, self.seg1)
+    }
+}
+
+impl fmt::Display for GenericSegment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "segment for {} from {} with coords ({}, {})",
+            self.region, self.src, self.begin, self.end
+        )
+    }
 }
 
 #[derive(Debug)]

@@ -1,5 +1,6 @@
 use crate::config::HeaderConfig;
 use crate::error::*;
+use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
 use crate::segment::*;
 use crate::text::keywords::*;
 use crate::validated::ascii_uint::*;
@@ -101,44 +102,79 @@ impl Header {
             })
             .and_then(|hdr| {
                 hdr.validate()
-                    .map_err(HeaderError::Validation)
-                    .map_err(ImpureError::Pure)
-                    .into_mult()?;
+                    .mult_map_errors(Box::new)
+                    .mult_map_errors(HeaderError::Validation)
+                    .mult_map_errors(ImpureError::Pure)?;
                 Ok(hdr)
             })
         })
     }
 
-    /// Return number of bytes required to encode HEADER
-    fn nbytes(&self) -> u64 {
-        u64::from(HEADER_LEN) + (self.segments.other.len() as u64) * 16
+    pub(crate) fn contains_text_segment<I>(&self, s: TEXTSegment<I>) -> Result<(), InHeaderError>
+    where
+        I: HasRegion,
+    {
+        s.try_as_generic()
+            .map_or(Ok(()), |q| self.contains_segment(q))
     }
 
-    fn validate(&self) -> Result<(), HeaderValidationError> {
+    /// Ensure HEADER segments don't overlap and start after HEADER itself
+    fn validate(&self) -> MultiResult<(), HeaderValidationError> {
+        let x = self.overlapping_segments().mult_errors_into();
+        let y = self.contains_header_segments().mult_errors_into();
+        x.mult_zip(y).void()
+    }
+
+    fn contains_header_segments(&self) -> MultiResult<(), InHeaderError> {
         let s = &self.segments;
-        // ensure segments don't overlap
+        let t = self.contains_header_segment(s.text);
+        let d = self.contains_header_segment(s.data);
+        let a = self.contains_header_segment(s.analysis);
+        let os = s
+            .other
+            .iter()
+            .copied()
+            .map(|o| self.contains_header_segment(o))
+            .gather();
+        t.zip3(d, a).mult_zip(os).void()
+    }
+
+    fn contains_header_segment<I>(&self, s: HeaderSegment<I>) -> Result<(), InHeaderError>
+    where
+        I: HasRegion,
+    {
+        s.try_as_generic()
+            .map_or(Ok(()), |q| self.contains_segment(q))
+    }
+
+    fn contains_segment(&self, s: GenericSegment) -> Result<(), InHeaderError> {
+        if s.begin < self.nbytes() {
+            Err(InHeaderError(s))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn overlapping_segments(&self) -> MultiResult<(), SegmentOverlapError> {
+        let s = &self.segments;
         let xs: Vec<_> = s
             .other
             .iter()
             .copied()
-            .map(|x| x.inner)
-            .chain([s.text.inner, s.data.inner, s.analysis.inner])
+            .map(|x| x.try_as_generic())
+            .chain([
+                s.text.try_as_generic(),
+                s.data.try_as_generic(),
+                s.analysis.try_as_generic(),
+            ])
+            .flatten()
             .collect();
-        if Segment::any_overlap(&xs[..]) {
-            return Err(HeaderValidationError::Overlap);
-        }
+        GenericSegment::find_overlaps(xs)
+    }
 
-        // ensure segments don't start within header
-        let n = self.nbytes();
-        if xs
-            .iter()
-            .flat_map(|x| x.as_nonempty())
-            .any(|x| x.as_u64().coords().0 < n)
-        {
-            return Err(HeaderValidationError::InHeader);
-        }
-
-        Ok(())
+    /// Return number of bytes required to encode HEADER
+    fn nbytes(&self) -> u64 {
+        u64::from(HEADER_LEN) + (self.segments.other.len() as u64) * 16
     }
 }
 
@@ -263,7 +299,7 @@ pub enum HeaderError {
     Segment(HeaderSegmentError),
     Space,
     Version(VersionError),
-    Validation(HeaderValidationError),
+    Validation(Box<HeaderValidationError>),
 }
 
 impl fmt::Display for HeaderError {
@@ -277,17 +313,17 @@ impl fmt::Display for HeaderError {
     }
 }
 
-pub enum HeaderValidationError {
-    Overlap,
-    InHeader,
-}
+enum_from_disp!(
+    pub HeaderValidationError,
+    [Overlap, SegmentOverlapError],
+    [InHeader, InHeaderError]
+);
 
-impl fmt::Display for HeaderValidationError {
+pub struct InHeaderError(GenericSegment);
+
+impl fmt::Display for InHeaderError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Overlap => f.write_str("segment(s) in HEADER overlap"),
-            Self::InHeader => f.write_str("segment(s) start within HEADER"),
-        }
+        write!(f, "{} is within HEADER region", self.0)
     }
 }
 

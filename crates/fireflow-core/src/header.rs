@@ -368,8 +368,9 @@ pub fn make_data_offset_keywords_3_0(
     let prim_text_begin: Uint8Digit =
         (u64::from(HEADER_LEN) + other_header_len + other_segments_len).try_into()?;
 
-    // +1 at end accounts for first delimiter
+    // +1 accounts for first delimiter
     let nosupp_text_len = offsets_len() + nooffset_req_text_len + 1;
+    let supp_text_len = opt_text_len + 1;
     let all_text_len = opt_text_len + nosupp_text_len;
 
     // include STEXT only if the optional keywords don't fit within the first
@@ -383,7 +384,7 @@ pub fn make_data_offset_keywords_3_0(
                         .inner
                         .try_next_byte()
                         .map_or(u64::from(prim_text_begin).into(), |x| x.into());
-                    let s = SupplementalTextSegment::new_with_len(supp_text_begin, opt_text_len);
+                    let s = SupplementalTextSegment::new_with_len(supp_text_begin, supp_text_len);
                     (p, s)
                 }),
             )?;

@@ -8,7 +8,8 @@ use crate::validated::standard::*;
 use nonempty::NonEmpty;
 use serde::Serialize;
 use std::fmt;
-use std::io::{BufReader, Read};
+use std::io;
+use std::io::{BufReader, BufWriter, Read, Write};
 use std::iter::repeat;
 use std::str;
 
@@ -36,6 +37,27 @@ pub struct HeaderSegments {
     pub data: HeaderDataSegment,
     pub analysis: HeaderAnalysisSegment,
     pub other: Vec<OtherSegment>,
+}
+
+impl HeaderSegments {
+    pub(crate) fn h_write<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        version: Version,
+    ) -> io::Result<()> {
+        for s in [
+            version.to_string(),
+            self.text.header_string(),
+            self.data.header_string(),
+            self.analysis.header_string(),
+        ]
+        .into_iter()
+        .chain(self.other.iter().map(|x| x.header_string()))
+        {
+            h.write_all(s.as_bytes())?;
+        }
+        Ok(())
+    }
 }
 
 /// Output from parsing the FCS header.
@@ -255,30 +277,6 @@ impl fmt::Display for HeaderError {
     }
 }
 
-// enum_from_disp!(
-//     pub HeaderSegmentError,
-//     [Segment, SegmentError],
-//     [Parse, ParseOffsetError]
-// );
-
-// pub struct ParseOffsetError {
-//     error: ParseIntError,
-//     is_begin: bool,
-//     location: &'static str,
-//     source: String,
-// }
-
-// impl fmt::Display for ParseOffsetError {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-//         let which = if self.is_begin { "begin" } else { "end" };
-//         write!(
-//             f,
-//             "parse error for {which} offset in {} segment from source '{}': {}",
-//             self.location, self.source, self.error
-//         )
-//     }
-// }
-
 pub struct VersionError;
 
 impl fmt::Display for VersionError {
@@ -287,37 +285,43 @@ impl fmt::Display for VersionError {
     }
 }
 
-/// HEADER and TEXT offsets
-pub struct OffsetFormatResult {
-    pub header: HeaderSegments,
+pub(crate) struct HeaderKeywordsToWrite {
+    pub(crate) header: HeaderSegments,
+    pub(crate) primary: KeywordsWriter,
+    pub(crate) supplemental: KeywordsWriter,
+    // TODO do something useful with this
+    pub(crate) _nextdata: Nextdata,
+}
 
-    /// The offset TEXT keywords and their values.
-    ///
-    /// For 2.0 this will only contain $NEXTDATA. For 3.0+, this will contain,
-    /// (BEGIN|END)(STEXT|ANALYSIS|DATA).
-    pub stext: Option<SupplementalTextSegment>,
-    pub data: Option<TEXTDataSegment>,
-    pub analysis: Option<TEXTAnalysisSegment>,
+#[derive(Default)]
+pub(crate) struct KeywordsWriter(pub Vec<(String, String)>);
 
-    /// The offset where the next data segment can start.
-    ///
-    /// If beyond 99,999,999 bytes, this will be zero.
-    pub real_nextdata: Nextdata,
+impl KeywordsWriter {
+    pub(crate) fn h_write<W: Write>(&self, h: &mut BufWriter<W>, delim: u8) -> io::Result<()> {
+        h.write_all(&[delim])?; // write first delim
+        for s in self.0.iter().flat_map(|(k, v)| [k, v]) {
+            h.write_all(s.as_bytes())?;
+            h.write_all(&[delim])?;
+        }
+        Ok(())
+    }
 }
 
 /// Create HEADER+TEXT+OTHER offsets for FCS 2.0
-pub fn make_data_offset_keywords_2_0(
-    nooffset_text_len: u64,
+pub(crate) fn make_data_offset_keywords_2_0(
+    req: Vec<(String, String)>,
+    opt: Vec<(String, String)>,
     data_len: u64,
     analysis_len: u64,
     other_lens: Vec<u64>,
-) -> Result<OffsetFormatResult, Uint8DigitOverflow> {
+) -> Result<HeaderKeywordsToWrite, Uint8DigitOverflow> {
     let (other_segs, other_header_len, other_segments_len) = other_segments(other_lens)?;
 
     let text_begin: Uint8Digit =
         (u64::from(HEADER_LEN) + other_header_len + other_segments_len).try_into()?;
     // +1 at end accounts for first delimiter
-    let text_len = nextdata_len() + nooffset_text_len + 1;
+    let text_len =
+        raw_keywords_length(&req[..]) + raw_keywords_length(&opt[..]) + nextdata_len() + 1;
     let text_seg = PrimaryTextSegment::try_new_with_len(text_begin, text_len)?;
 
     let data_begin = text_seg
@@ -332,24 +336,35 @@ pub fn make_data_offset_keywords_2_0(
         .map_or(Ok(text_begin), |x| x.try_into())?;
     let analysis_seg = HeaderAnalysisSegment::try_new_with_len(analysis_begin, analysis_len)?;
 
-    let nextdata = analysis_seg
-        .inner
-        .try_next_byte()
-        .map_or(Ok(analysis_begin), |x| x.try_into())
-        .ok()
-        .unwrap_or_default();
+    let nextdata = Nextdata(Uint8Char(
+        analysis_seg
+            .inner
+            .try_next_byte()
+            .map_or(Ok(analysis_begin), |x| x.try_into())
+            .ok()
+            .unwrap_or_default(),
+    ));
 
-    Ok(OffsetFormatResult {
-        header: HeaderSegments {
-            text: text_seg,
-            data: data_seg,
-            analysis: analysis_seg,
-            other: other_segs,
-        },
-        stext: None,
-        data: None,
-        analysis: None,
-        real_nextdata: Nextdata(nextdata.into()),
+    let header = HeaderSegments {
+        text: text_seg,
+        data: data_seg,
+        analysis: analysis_seg,
+        other: other_segs,
+    };
+
+    let primary = KeywordsWriter(
+        [nextdata.pair()]
+            .into_iter()
+            .chain(req)
+            .chain(opt)
+            .collect(),
+    );
+
+    Ok(HeaderKeywordsToWrite {
+        header,
+        primary,
+        supplemental: KeywordsWriter::default(),
+        _nextdata: nextdata,
     })
 }
 
@@ -357,17 +372,19 @@ pub fn make_data_offset_keywords_2_0(
 ///
 /// Order in which this is expected to be written is HEADER, OTHER(s), TEXT,
 /// STEXT, DATA, ANALYSIS.
-pub fn make_data_offset_keywords_3_0(
-    nooffset_req_text_len: u64,
-    opt_text_len: u64,
+pub(crate) fn make_data_offset_keywords_3_0(
+    req: Vec<(String, String)>,
+    opt: Vec<(String, String)>,
     data_len: u64,
     analysis_len: u64,
     other_lens: Vec<u64>,
-) -> Result<OffsetFormatResult, Uint8DigitOverflow> {
+) -> Result<HeaderKeywordsToWrite, Uint8DigitOverflow> {
     let (other_segs, other_header_len, other_segments_len) = other_segments(other_lens)?;
     let prim_text_begin: Uint8Digit =
         (u64::from(HEADER_LEN) + other_header_len + other_segments_len).try_into()?;
 
+    let nooffset_req_text_len = raw_keywords_length(&req[..]);
+    let opt_text_len = raw_keywords_length(&opt[..]);
     // +1 accounts for first delimiter
     let nosupp_text_len = offsets_len() + nooffset_req_text_len + 1;
     let supp_text_len = opt_text_len + 1;
@@ -408,26 +425,49 @@ pub fn make_data_offset_keywords_3_0(
     let h_analysis_seg = analysis_seg.as_header();
     let h_data_seg = data_seg.as_header();
 
-    let nextdata: Uint8Digit = analysis_seg
-        .inner
-        .try_next_byte()
-        .unwrap_or(u64::from(analysis_begin))
-        .try_into()
-        .ok()
-        .unwrap_or_default();
+    let nextdata = Nextdata(Uint8Char(
+        analysis_seg
+            .inner
+            .try_next_byte()
+            .unwrap_or(u64::from(analysis_begin))
+            .try_into()
+            .ok()
+            .unwrap_or_default(),
+    ));
 
-    Ok(OffsetFormatResult {
-        header: HeaderSegments {
-            text: prim_text_seg,
-            analysis: h_analysis_seg,
-            data: h_data_seg,
-            other: other_segs,
-        },
-        stext: Some(supp_text_seg),
-        data: Some(data_seg),
-        analysis: Some(analysis_seg),
-        real_nextdata: Nextdata(nextdata.into()),
+    // NOTE in 3.2 *DATA and *SDATA are technically optional, but it is much
+    // easier just to include them in the "required" stuff regardless.
+    let all_req = supp_text_seg
+        .req_keywords()
+        .into_iter()
+        .chain(data_seg.req_keywords())
+        .chain(analysis_seg.req_keywords())
+        .chain([nextdata.pair()])
+        .chain(req);
+
+    let (primary, supplemental) = if supp_text_seg.inner.is_empty() {
+        (all_req.chain(opt).collect(), vec![])
+    } else {
+        (all_req.collect(), opt)
+    };
+
+    let header = HeaderSegments {
+        text: prim_text_seg,
+        analysis: h_analysis_seg,
+        data: h_data_seg,
+        other: other_segs,
+    };
+
+    Ok(HeaderKeywordsToWrite {
+        header,
+        primary: KeywordsWriter(primary),
+        supplemental: KeywordsWriter(supplemental),
+        _nextdata: nextdata,
     })
+}
+
+fn raw_keywords_length(ks: &[(String, String)]) -> u64 {
+    ks.iter().map(|(k, v)| k.len() + v.len() + 2).sum::<usize>() as u64
 }
 
 fn other_segments(

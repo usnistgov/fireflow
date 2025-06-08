@@ -298,17 +298,17 @@ impl<A, D, O> AnyCore<A, D, O> {
         match_anycore!(self, x, { x.all_shortnames() })
     }
 
-    pub fn text_segment(
-        &self,
-        tot: Tot,
-        data_len: u64,
-        analysis_len: u64,
-        other_lens: Vec<u64>,
-    ) -> Result<Vec<String>, Uint8DigitOverflow> {
-        match_anycore!(self, x, {
-            x.text_segment(tot, data_len, analysis_len, other_lens)
-        })
-    }
+    // pub fn text_segment(
+    //     &self,
+    //     tot: Tot,
+    //     data_len: u64,
+    //     analysis_len: u64,
+    //     other_lens: Vec<u64>,
+    // ) -> Result<Vec<String>, Uint8DigitOverflow> {
+    //     match_anycore!(self, x, {
+    //         x.text_segment(tot, data_len, analysis_len, other_lens)
+    //     })
+    // }
 
     pub fn print_meas_table(&self, delim: &str) {
         match_anycore!(self, x, { x.print_meas_table(delim) })
@@ -1786,31 +1786,6 @@ where
     M: VersionedMetaroot,
     M::N: Clone,
 {
-    /// Write this structure to a handle.
-    ///
-    /// The actual bytes written will be the HEADER and TEXT, including the
-    /// last delimiter.
-    pub(crate) fn h_write_text<W: Write>(
-        &self,
-        h: &mut BufWriter<W>,
-        tot: Tot,
-        data_len: u64,
-        analysis_len: u64,
-        other_lens: Vec<u64>,
-        conf: &WriteConfig,
-    ) -> Result<(), ImpureError<Uint8DigitOverflow>> {
-        // TODO newtypes for data and analysis lenth to make them more obvious
-        let ts = self
-            .text_segment(tot, data_len, analysis_len, other_lens)
-            .map_err(ImpureError::Pure)?;
-        for t in ts {
-            // TODO OTHER needs to be written somewhere in here
-            h.write_all(t.as_bytes())?;
-            h.write_all(&[conf.delim.inner()])?;
-        }
-        Ok(())
-    }
-
     pub(crate) fn try_cols_to_dataframe(
         &self,
         cols: Vec<AnyFCSColumn>,
@@ -1824,37 +1799,37 @@ where
         Ok(df)
     }
 
-    /// Return HEADER+TEXT as a list of strings
-    ///
-    /// The first member will be a string exactly 58 bytes long which will be
-    /// the HEADER. The next members will be alternating keys and values of the
-    /// primary TEXT segment and supplemental if included. Each member should be
-    /// separated by a delimiter when writing to a file, and a trailing
-    /// delimiter should be added.
-    ///
-    /// Keywords will be sorted with offsets first, non-measurement keywords
-    /// second in alphabetical order, then measurement keywords in alphabetical
-    /// order.
-    ///
-    /// Return None if primary TEXT does not fit into first 99,999,999 bytes.
-    fn text_segment(
-        &self,
-        tot: Tot,
-        data_len: u64,
-        analysis_len: u64,
-        other_lens: Vec<u64>,
-    ) -> Result<Vec<String>, Uint8DigitOverflow> {
-        self.header_and_raw_keywords(tot, data_len, analysis_len, other_lens)
-            // TODO do something useful with nextdata offset (the "_" thing)
-            .map(|(header, kws, _)| {
-                let version = M::O::fcs_version();
-                let flat: Vec<_> = kws.into_iter().flat_map(|(k, v)| [k, v]).collect();
-                [format!("{version}{header}")]
-                    .into_iter()
-                    .chain(flat)
-                    .collect()
-            })
-    }
+    // /// Return HEADER+TEXT as a list of strings
+    // ///
+    // /// The first member will be a string exactly 58 bytes long which will be
+    // /// the HEADER. The next members will be alternating keys and values of the
+    // /// primary TEXT segment and supplemental if included. Each member should be
+    // /// separated by a delimiter when writing to a file, and a trailing
+    // /// delimiter should be added.
+    // ///
+    // /// Keywords will be sorted with offsets first, non-measurement keywords
+    // /// second in alphabetical order, then measurement keywords in alphabetical
+    // /// order.
+    // ///
+    // /// Return None if primary TEXT does not fit into first 99,999,999 bytes.
+    // fn text_segment(
+    //     &self,
+    //     tot: Tot,
+    //     data_len: u64,
+    //     analysis_len: u64,
+    //     other_lens: Vec<u64>,
+    // ) -> Result<Vec<String>, Uint8DigitOverflow> {
+    //     self.header_and_raw_keywords(tot, data_len, analysis_len, other_lens)
+    //         // TODO do something useful with nextdata offset (the "_" thing)
+    //         .map(|(header, kws, _)| {
+    //             let version = M::O::fcs_version();
+    //             let flat: Vec<_> = kws.into_iter().flat_map(|(k, v)| [k, v]).collect();
+    //             [format!("{version}{header}")]
+    //                 .into_iter()
+    //                 .chain(flat)
+    //                 .collect()
+    //         })
+    // }
 
     /// Return all keywords as an ordered list of pairs
     ///
@@ -2419,9 +2394,7 @@ where
         data_len: u64,
         analysis_len: u64,
         other_lens: Vec<u64>,
-    ) -> Result<(String, RawKeywords, Nextdata), Uint8DigitOverflow> {
-        let version = M::O::fcs_version();
-
+    ) -> Result<HeaderKeywordsToWrite, Uint8DigitOverflow> {
         let req: Vec<_> = self
             .req_meta_keywords()
             .chain([ReqMetaKey::pair(&tot)])
@@ -2431,75 +2404,11 @@ where
             .opt_meta_keywords()
             .chain(self.opt_meas_keywords())
             .collect();
-
-        let req_text_len = req
-            .iter()
-            .map(|(k, v)| k.len() + v.len() + 2)
-            .sum::<usize>() as u64;
-
-        let opt_text_len = opt
-            .iter()
-            .map(|(k, v)| k.len() + v.len() + 2)
-            .sum::<usize>() as u64;
-
-        let offset_result = if version == Version::FCS2_0 {
-            make_data_offset_keywords_2_0(
-                req_text_len + opt_text_len,
-                data_len,
-                analysis_len,
-                other_lens,
-            )
+        if M::O::fcs_version() == Version::FCS2_0 {
+            make_data_offset_keywords_2_0(req, opt, data_len, analysis_len, other_lens)
         } else {
-            make_data_offset_keywords_3_0(
-                req_text_len,
-                opt_text_len,
-                data_len,
-                analysis_len,
-                other_lens,
-            )
-        }?;
-
-        // TODO...
-        let h = offset_result.header;
-        let header = format!(
-            "{}{}{}{}",
-            h.text.header_string(),
-            h.analysis.header_string(),
-            h.data.header_string(),
-            h.other.into_iter().map(|x| x.header_string()).join("")
-        );
-        Ok((
-            header,
-            [ReqMetaKey::pair(&offset_result.real_nextdata)]
-                .into_iter()
-                .chain(
-                    offset_result
-                        .stext
-                        .map(|x| x.req_keywords())
-                        .into_iter()
-                        .flatten(),
-                )
-                .chain(
-                    offset_result
-                        .analysis
-                        .map(|x| x.req_keywords())
-                        .into_iter()
-                        .flatten(),
-                )
-                .chain(
-                    offset_result
-                        .data
-                        .map(|x| x.req_keywords())
-                        .into_iter()
-                        .flatten(),
-                )
-                .chain(req)
-                // TODO this isn't correct, since we may need to put the opt
-                // keys in their own section
-                .chain(opt)
-                .collect(),
-            offset_result.real_nextdata,
-        ))
+            make_data_offset_keywords_3_0(req, opt, data_len, analysis_len, other_lens)
+        }
     }
 
     fn opt_meas_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -3032,16 +2941,18 @@ where
     }
 
     /// Write this dataset (HEADER+TEXT+DATA+ANALYSIS+OTHER) to a handle
-    pub fn h_write<W>(
+    pub fn h_write<W: Write>(
         &self,
         h: &mut BufWriter<W>,
         conf: &WriteConfig,
-    ) -> IODeferredResult<(), NewDataLayoutWarning, StdWriterError>
-    where
-        W: Write,
-    {
+    ) -> IODeferredResult<(), NewDataLayoutWarning, StdWriterError> {
         let df = &self.data;
         let others = &self.others;
+        let delim = conf.delim.inner();
+        let tot = Tot(df.nrows());
+        let analysis_len = self.analysis.0.len() as u64;
+        let other_lens = others.0.iter().map(|o| o.0.len() as u64).collect();
+
         self.as_data_layout(&conf.shared)
             .def_errors_into()
             .def_errors_liftio()
@@ -3052,25 +2963,38 @@ where
                     .def_errors_liftio()
             })
             .def_and_maybe(|mut writer| {
-                let tot = Tot(df.nrows());
-                let analysis_len = self.analysis.0.len();
-                // write HEADER+TEXT first
-                // TODO fixme
-                // TODO fix cast
-                self.h_write_text(
-                    h,
-                    tot,
-                    writer.nbytes() as u64,
-                    analysis_len as u64,
-                    vec![],
-                    conf,
-                )
-                .map_err(|e| e.inner_into())
-                .into_deferred()?;
-                // write DATA
-                writer.h_write(h).into_deferred()?;
-                // write ANALYSIS
-                h.write_all(&self.analysis.0).into_deferred()
+                let data_len = writer.nbytes() as u64;
+                let hdr_kws = self
+                    .header_and_raw_keywords(tot, data_len, analysis_len, other_lens)
+                    .map_err(ImpureError::Pure)
+                    .map_err(|e| e.inner_into())
+                    .map_err(DeferredFailure::new1)?;
+
+                let mut go = || {
+                    // write HEADER
+                    hdr_kws.header.h_write(h, M::O::fcs_version())?;
+
+                    // write OTHER
+                    for o in others.0.iter() {
+                        h.write_all(&o.0)?;
+                    }
+
+                    // write primary TEXT
+                    hdr_kws.primary.h_write(h, delim)?;
+
+                    // write supplemental TEXT
+                    if !hdr_kws.supplemental.0.is_empty() {
+                        hdr_kws.supplemental.h_write(h, delim)?;
+                    }
+
+                    // write DATA
+                    writer.h_write(h)?;
+
+                    // write ANALYSIS
+                    h.write_all(&self.analysis.0)
+                };
+
+                go().into_deferred()
             })
     }
 

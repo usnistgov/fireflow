@@ -77,8 +77,6 @@ impl Header {
         h: &mut BufReader<R>,
         conf: &HeaderConfig,
     ) -> MultiResult<Self, ImpureError<HeaderError>> {
-        let mut verbuf = [0; HEADER_LEN as usize];
-        h.read_exact(&mut verbuf).into_mult()?;
         h_read_standard_header(h, conf).and_then(|(version, text, data, analysis)| {
             [
                 text.inner.try_coords(),

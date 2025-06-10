@@ -2,6 +2,7 @@ use crate::header::Version;
 use crate::segment::*;
 use crate::validated::datepattern::DatePattern;
 use crate::validated::nonstandard::NonStdMeasPattern;
+use crate::validated::other_width::OtherWidth;
 use crate::validated::pattern::TimePattern;
 use crate::validated::shortname::*;
 use crate::validated::textdelim::TEXTDelim;
@@ -92,19 +93,33 @@ pub struct HeaderConfig {
     pub version_override: Option<Version>,
 
     /// Corrections for primary TEXT segment
-    pub text: HeaderCorrection<PrimaryTextSegmentId>,
+    pub text_correction: HeaderCorrection<PrimaryTextSegmentId>,
 
     /// Corrections for DATA segment
-    pub data: HeaderCorrection<DataSegmentId>,
+    pub data_correction: HeaderCorrection<DataSegmentId>,
 
     /// Corrections for ANALYSIS segment
-    pub analysis: HeaderCorrection<AnalysisSegmentId>,
+    pub analysis_correction: HeaderCorrection<AnalysisSegmentId>,
 
     /// Corrections for OTHER segments if they exist
     ///
     /// Each correction will be applied in order. If an offset does not need
     /// to be corrected, use 0,0.
-    pub other: Vec<HeaderCorrection<OtherSegmentId>>,
+    pub other_corrections: Vec<HeaderCorrection<OtherSegmentId>>,
+
+    /// Maximum number of OTHER segments that can be parsed.
+    ///
+    /// None means limitless.
+    pub max_other: Option<usize>,
+
+    /// Width (in bytes) to use when parsing OTHER offsets.
+    ///
+    /// In 3.2 this should be 8 bytes. In older versions this was not specified.
+    /// In practice, vendors seem to use whatever width they want, presumably to
+    /// make "large" numbers fit. As such, this must be an integer between 1 and
+    /// 20 (corresponding to a theoretical max of 2^64) but will default to 8
+    /// since this is most logical.
+    pub other_width: OtherWidth,
 }
 
 /// Instructions for reading the TEXT segment as raw key/value pairs.

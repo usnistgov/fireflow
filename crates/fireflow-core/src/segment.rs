@@ -12,6 +12,7 @@ use std::io;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::marker::PhantomData;
 use std::num::ParseIntError;
+use std::str;
 use std::str::FromStr;
 
 /// A segment in an FCS file which is denoted by a pair of offsets
@@ -111,7 +112,7 @@ pub type TEXTCorrection<I> = OffsetCorrection<I, SegmentFromTEXT>;
 pub type AnyDataSegment = DataSegment<SegmentFromAnywhere, u64>;
 pub type AnyAnalysisSegment = AnalysisSegment<SegmentFromAnywhere, u64>;
 
-pub type OtherSegment = SpecificSegment<OtherSegmentId, SegmentFromHeader, Uint8Digit>;
+pub type OtherSegment = SpecificSegment<OtherSegmentId, SegmentFromHeader, Uint20Char>;
 
 pub(crate) type ReqSegResult<T> =
     DeferredResult<AnySegment<T>, ReqSegmentWithDefaultWarning<T>, ReqSegmentWithDefaultError<T>>;
@@ -554,7 +555,7 @@ impl GenericSegment {
     }
 }
 
-impl<I> TEXTSegment<I> {
+impl<I, S> SpecificSegment<I, S, Uint20Char> {
     pub(crate) fn new_with_len(begin: Uint20Char, length: u64) -> Self {
         let inner = if length == 0 {
             Segment::default()
@@ -568,7 +569,9 @@ impl<I> TEXTSegment<I> {
             _src: PhantomData,
         }
     }
+}
 
+impl<I> TEXTSegment<I> {
     /// Convert TEXT segment to HEADER segment.
     ///
     /// If offsets are too big, return an empty segment.
@@ -673,6 +676,48 @@ impl<I: Copy> HeaderSegment<I> {
             _id: PhantomData,
             _src: PhantomData,
         }
+    }
+}
+
+impl OtherSegment {
+    pub(crate) fn parse(
+        bs0: &[u8],
+        bs1: &[u8],
+        corr: OffsetCorrection<OtherSegmentId, SegmentFromHeader>,
+    ) -> MultiResult<Self, HeaderSegmentError> {
+        let parse_one = |bs: &[u8], is_begin| {
+            ascii_str_from_bytes(bs)
+                .map_err(ParseFixedUintError::NotAscii)
+                .and_then(|s| {
+                    s.trim_start()
+                        .parse::<Uint20Char>()
+                        .map_err(ParseFixedUintError::Int)
+                })
+                .map_err(|error| ParseOffsetError {
+                    error,
+                    is_begin,
+                    location: OtherSegmentId::REGION,
+                    source: bs.to_vec(),
+                })
+        };
+
+        let begin_res = parse_one(bs0, true);
+        let end_res = parse_one(bs1, false);
+        begin_res
+            .zip(end_res)
+            .mult_errors_into()
+            .and_then(|(begin, end)| SpecificSegment::try_new(begin, end, corr).into_mult())
+    }
+
+    pub(crate) fn header_string(&self) -> String {
+        let (b, e) = self
+            .inner
+            .try_coords()
+            .unwrap_or((Uint20Char::default(), Uint20Char::default()));
+        let mut s = String::new();
+        s.push_str(&b.to_string());
+        s.push_str(&e.to_string());
+        s
     }
 }
 
@@ -909,7 +954,8 @@ impl<T> NonEmptySegment<T> {
 
 enum_from_disp!(
     pub HeaderSegmentError,
-    [Segment, SegmentError<Uint8Digit>],
+    [Standard, SegmentError<Uint8Digit>],
+    [Other, SegmentError<Uint20Char>],
     [Parse, ParseOffsetError]
 );
 
@@ -952,7 +998,7 @@ pub enum SegmentErrorKind {
 }
 
 pub struct ParseOffsetError {
-    pub(crate) error: ParseFixedUint8CharError,
+    pub(crate) error: ParseFixedUintError,
     pub(crate) is_begin: bool,
     pub(crate) location: &'static str,
     pub(crate) source: Vec<u8>,

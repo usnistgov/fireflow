@@ -103,9 +103,14 @@ impl HeaderSegments {
         t.zip3(d, a).mult_zip(os).void()
     }
 
-    fn contains_header_segment<I>(&self, s: HeaderSegment<I>) -> Result<(), InHeaderError>
+    fn contains_header_segment<I, S, T>(
+        &self,
+        s: SpecificSegment<I, S, T>,
+    ) -> Result<(), InHeaderError>
     where
         I: HasRegion,
+        S: HasSource,
+        T: Into<u64> + Copy,
     {
         s.try_as_generic()
             .map_or(Ok(()), |q| self.contains_segment(q))
@@ -170,7 +175,7 @@ impl Header {
             .map(|(x, _)| x)
             .min()
             .map_or(Ok(vec![]), |earliest_begin| {
-                h_read_other_segments(h, *earliest_begin, &conf.other[..])
+                h_read_other_segments(h, *earliest_begin, conf)
             })
             .map(|other| Self {
                 version,
@@ -209,9 +214,9 @@ fn h_read_standard_header<R: Read>(
         .map_err(NonEmpty::new)
         .mult_map_errors(|e| e.map_inner(HeaderError::Version));
     let space_res = h_read_spaces(h).map_err(NonEmpty::new);
-    let text_res = PrimaryTextSegment::h_read_offsets(h, false, conf.text);
-    let data_res = HeaderDataSegment::h_read_offsets(h, false, conf.data);
-    let anal_res = HeaderAnalysisSegment::h_read_offsets(h, true, conf.analysis);
+    let text_res = PrimaryTextSegment::h_read_offsets(h, false, conf.text_correction);
+    let data_res = HeaderDataSegment::h_read_offsets(h, false, conf.data_correction);
+    let anal_res = HeaderAnalysisSegment::h_read_offsets(h, true, conf.analysis_correction);
     let offset_res = text_res
         .mult_zip3(data_res, anal_res)
         .mult_map_errors(|e| e.map_inner(HeaderError::Segment));
@@ -240,28 +245,31 @@ fn h_read_spaces<R: Read>(h: &mut BufReader<R>) -> Result<(), ImpureError<Header
 fn h_read_other_segments<R: Read>(
     h: &mut BufReader<R>,
     text_begin: Uint8Digit,
-    corrs: &[OffsetCorrection<OtherSegmentId, SegmentFromHeader>],
+    conf: &HeaderConfig,
 ) -> MultiResult<Vec<OtherSegment>, ImpureError<HeaderError>> {
     // ASSUME this won't fail because we checked that each offset is greater
     // than this
     let n = u64::from(text_begin) - u64::from(HEADER_LEN);
-    let mut buf0 = [0_u8; 8];
-    let mut buf1 = [0_u8; 8];
-    let n_segs = (n / 16) as usize;
+    let w = u8::from(conf.other_width);
+    let mut buf0 = vec![];
+    let mut buf1 = vec![];
+    let n_segs = (n / (u64::from(w) * 2)) as usize;
 
-    corrs
+    conf.other_corrections
         .iter()
         .copied()
         .chain(repeat(OffsetCorrection::default()))
-        .take(n_segs)
+        .take(conf.max_other.map(|x| x.min(n_segs)).unwrap_or(n_segs))
         .map(|corr| {
-            h.read_exact(&mut buf0).into_mult()?;
-            h.read_exact(&mut buf1).into_mult()?;
+            buf0.clear();
+            buf1.clear();
+            h.take(u64::from(w)).read_to_end(&mut buf0).into_mult()?;
+            h.take(u64::from(w)).read_to_end(&mut buf1).into_mult()?;
             // If any regions are entirely blank, just ignore them
             if buf0.iter().chain(buf1.iter()).all(|x| *x == 32) {
                 Ok(None)
             } else {
-                OtherSegment::parse(&buf0, &buf1, false, corr)
+                OtherSegment::parse(&buf0, &buf1, corr)
                     .map(Some)
                     .mult_map_errors(HeaderError::Segment)
                     .mult_map_errors(ImpureError::Pure)
@@ -380,7 +388,7 @@ pub(crate) fn make_data_offset_keywords_2_0(
     analysis_len: u64,
     other_lens: Vec<u64>,
 ) -> Result<HeaderKeywordsToWrite, Uint8DigitOverflow> {
-    let (other_segs, other_header_len, other_segments_len) = other_segments(other_lens)?;
+    let (other_segs, other_header_len, other_segments_len) = other_segments(other_lens);
 
     let text_begin: Uint8Digit =
         (u64::from(HEADER_LEN) + other_header_len + other_segments_len).try_into()?;
@@ -444,7 +452,7 @@ pub(crate) fn make_data_offset_keywords_3_0(
     analysis_len: u64,
     other_lens: Vec<u64>,
 ) -> Result<HeaderKeywordsToWrite, Uint8DigitOverflow> {
-    let (other_segs, other_header_len, other_segments_len) = other_segments(other_lens)?;
+    let (other_segs, other_header_len, other_segments_len) = other_segments(other_lens);
     let prim_text_begin: Uint8Digit =
         (u64::from(HEADER_LEN) + other_header_len + other_segments_len).try_into()?;
 
@@ -535,19 +543,17 @@ fn raw_keywords_length(ks: &[(String, String)]) -> u64 {
     ks.iter().map(|(k, v)| k.len() + v.len() + 2).sum::<usize>() as u64
 }
 
-fn other_segments(
-    other_lens: Vec<u64>,
-) -> Result<(Vec<OtherSegment>, u64, u64), Uint8DigitOverflow> {
+fn other_segments(other_lens: Vec<u64>) -> (Vec<OtherSegment>, u64, u64) {
     let mut os = vec![];
-    let mut begin: Uint8Digit = HEADER_LEN.into();
+    let mut begin = u64::from(HEADER_LEN);
     for length in other_lens {
-        let seg = OtherSegment::try_new_with_len(begin, length)?;
-        begin = (u64::from(begin) + length).try_into()?;
+        let seg = OtherSegment::new_with_len(begin.into(), length);
+        begin += length;
         os.push(seg);
     }
     let total_length = os.iter().map(|s| s.inner.len()).sum();
     let header_length = (os.len() as u64) * 16;
-    Ok((os, header_length, total_length))
+    (os, header_length, total_length)
 }
 
 // /// Compute length occupied by OTHER segments.

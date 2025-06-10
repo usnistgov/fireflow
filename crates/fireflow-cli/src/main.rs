@@ -119,6 +119,10 @@ fn main() -> Result<(), ()> {
         .subcommand(
             Command::new("header")
                 .about("show header as JSON")
+                .arg(arg!(--"max-other" [BYTES] "max number of OTHER segments to parse")
+                     .value_parser(value_parser!(usize)))
+                .arg(arg!(--"other-width" [WIDTH] "width of OTHER segments")
+                     .value_parser(value_parser!(u8)))
         )
 
         .subcommand(
@@ -197,8 +201,17 @@ fn main() -> Result<(), ()> {
     // };
 
     match args.subcommand() {
-        Some(("header", _)) => {
-            let conf = config::HeaderConfig::default();
+        Some(("header", sargs)) => {
+            let mut conf = config::HeaderConfig::default();
+            conf = config::HeaderConfig {
+                max_other: sargs.get_one::<usize>("max-other").copied(),
+                other_width: sargs
+                    .get_one::<u8>("other-width")
+                    .copied()
+                    .map(|x| x.try_into().unwrap())
+                    .unwrap_or_default(),
+                ..conf
+            };
             fcs_read_header(filepath, &conf)
                 .map(|h| print_json(&h.inner()))
                 .map_err(handle_failure_nowarn)
@@ -206,7 +219,6 @@ fn main() -> Result<(), ()> {
 
         Some(("raw", sargs)) => {
             let mut conf = config::RawTextReadConfig::default();
-            // get_text_delta(sargs);
             conf = config::RawTextReadConfig {
                 repair_offset_spaces: sargs.get_flag("repair-offset-spaces"),
                 ..conf

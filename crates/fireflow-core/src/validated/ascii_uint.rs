@@ -91,39 +91,24 @@ newtype_disp!(Uint8Digit);
 
 impl Uint8Digit {
     /// Parse from a buffer that contains 8 bytes.
-    pub(crate) fn from_bytes(
-        bs: &[u8; 8],
-        allow_blank: bool,
-    ) -> Result<Self, ParseFixedUint8CharError> {
-        if bs.is_ascii() {
-            let s = unsafe { str::from_utf8_unchecked(bs) };
-            let trimmed = s.trim_start();
-            if allow_blank && trimmed.is_empty() {
-                return Ok(Uint8Digit::default());
-            }
-            trimmed
-                .parse::<u32>()
-                .map(Uint8Digit)
-                .map_err(ParseFixedUint8CharError::Int)
-        } else {
-            Err(ParseFixedUint8CharError::NotAscii)
+    pub(crate) fn from_bytes(bs: &[u8; 8], allow_blank: bool) -> Result<Self, ParseFixedUintError> {
+        let s = ascii_str_from_bytes(bs).map_err(ParseFixedUintError::NotAscii)?;
+        let trimmed = s.trim_start();
+        if allow_blank && trimmed.is_empty() {
+            return Ok(Uint8Digit::default());
         }
+        trimmed
+            .parse::<u32>()
+            .map(Uint8Digit)
+            .map_err(ParseFixedUintError::Int)
     }
 }
 
-pub enum ParseFixedUint8CharError {
-    Int(ParseIntError),
-    NotAscii,
-}
-
-impl fmt::Display for ParseFixedUint8CharError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Int(e) => e.fmt(f),
-            Self::NotAscii => write!(f, "digit bytes are not ASCII"),
-        }
-    }
-}
+enum_from_disp!(
+    pub ParseFixedUintError,
+    [Int, ParseIntError],
+    [NotAscii, BytesNotAscii]
+);
 
 impl From<Uint8Digit> for u64 {
     fn from(value: Uint8Digit) -> Self {
@@ -181,5 +166,21 @@ pub struct Uint8DigitOverflow(u64);
 impl fmt::Display for Uint8DigitOverflow {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "must be {} or less, got {}", MAX_HEADER_OFFSET, self.0)
+    }
+}
+
+pub(crate) fn ascii_str_from_bytes(xs: &[u8]) -> Result<&str, BytesNotAscii> {
+    if xs.is_ascii() {
+        Ok(unsafe { str::from_utf8_unchecked(xs) })
+    } else {
+        Err(BytesNotAscii(xs.to_vec()))
+    }
+}
+
+pub struct BytesNotAscii(Vec<u8>);
+
+impl fmt::Display for BytesNotAscii {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "could not convert to ASCII string: {:?}", self.0)
     }
 }

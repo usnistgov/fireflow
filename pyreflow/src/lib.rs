@@ -14,6 +14,7 @@ use fireflow_core::text::scale::*;
 use fireflow_core::validated::dataframe::*;
 use fireflow_core::validated::datepattern::DatePattern;
 use fireflow_core::validated::nonstandard::*;
+use fireflow_core::validated::other_width::*;
 use fireflow_core::validated::pattern::*;
 use fireflow_core::validated::shortname::*;
 
@@ -62,11 +63,13 @@ fn py_read_fcs_header(
 ) -> PyResult<PyHeader> {
     let conf = HeaderConfig {
         version_override: version_override.map(|x| x.0),
-        text: OffsetCorrection::new(begin_text, end_text),
-        data: OffsetCorrection::new(begin_data, end_data),
-        analysis: OffsetCorrection::new(begin_analysis, end_analysis),
+        text_correction: OffsetCorrection::new(begin_text, end_text),
+        data_correction: OffsetCorrection::new(begin_data, end_data),
+        analysis_correction: OffsetCorrection::new(begin_analysis, end_analysis),
         // TODO addme
-        other: vec![],
+        other_corrections: vec![],
+        other_width: OtherWidth::default(),
+        max_other: None,
     };
     fcs_read_header(&p, &conf)
         .map_err(handle_failure_nowarn)
@@ -141,11 +144,13 @@ fn py_read_fcs_raw_text(
 ) -> PyResult<(PyVersion, Bound<'_, PyDict>, Bound<'_, PyDict>, PyParseData)> {
     let header = HeaderConfig {
         version_override: version_override.map(|x| x.0),
-        text: OffsetCorrection::new(begin_text, end_text),
-        data: OffsetCorrection::new(begin_data, end_data),
-        analysis: OffsetCorrection::new(begin_analysis, end_analysis),
+        text_correction: OffsetCorrection::new(begin_text, end_text),
+        data_correction: OffsetCorrection::new(begin_data, end_data),
+        analysis_correction: OffsetCorrection::new(begin_analysis, end_analysis),
         // TODO addme
-        other: vec![],
+        other_corrections: vec![],
+        other_width: OtherWidth::default(),
+        max_other: None,
     };
 
     let conf = RawTextReadConfig {
@@ -275,11 +280,13 @@ fn py_read_fcs_std_text(
 ) -> PyResult<(Bound<'_, PyAny>, PyParseData, Bound<'_, PyDict>)> {
     let header = HeaderConfig {
         version_override: version_override.map(|x| x.0),
-        text: OffsetCorrection::new(begin_text, end_text),
-        data: OffsetCorrection::new(begin_data, end_data),
-        analysis: OffsetCorrection::new(begin_analysis, end_analysis),
+        text_correction: OffsetCorrection::new(begin_text, end_text),
+        data_correction: OffsetCorrection::new(begin_data, end_data),
+        analysis_correction: OffsetCorrection::new(begin_analysis, end_analysis),
         // TODO addme
-        other: vec![],
+        other_corrections: vec![],
+        other_width: OtherWidth::default(),
+        max_other: None,
     };
 
     let raw = RawTextReadConfig {
@@ -461,11 +468,13 @@ fn py_read_fcs_file(
 ) -> PyResult<(Bound<'_, PyAny>, PyParseData, Bound<'_, PyDict>)> {
     let header = HeaderConfig {
         version_override: version_override.map(|x| x.0),
-        text: OffsetCorrection::new(header_begin_text, header_end_text),
-        data: OffsetCorrection::new(header_begin_data, header_end_data),
-        analysis: OffsetCorrection::new(header_begin_analysis, header_end_analysis),
+        text_correction: OffsetCorrection::new(header_begin_text, header_end_text),
+        data_correction: OffsetCorrection::new(header_begin_data, header_end_data),
+        analysis_correction: OffsetCorrection::new(header_begin_analysis, header_end_analysis),
         // TODO addme
-        other: vec![],
+        other_corrections: vec![],
+        other_width: OtherWidth::default(),
+        max_other: None,
     };
 
     let raw = RawTextReadConfig {

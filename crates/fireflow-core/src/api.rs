@@ -701,7 +701,7 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
 
     let out = tnt_all_kws.and_tentatively(|(delimiter, mut kws, supp_text_seg)| {
         repair_keywords(&mut kws.std, conf);
-        let mut tnt_parse = lookup_nextdata(&kws.std, conf.enforce_nextdata)
+        let mut tnt_parse = lookup_nextdata(&kws.std, conf.allow_missing_nextdata)
             .errors_into()
             .map(|nextdata| RawTEXTParseData {
                 header_segments: header.segments,
@@ -714,19 +714,21 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
 
         // throw errors if we found any non-ascii keywords and we want to know
         tnt_parse.eval_errors(|pd| {
-            if conf.enforce_keyword_ascii {
+            if conf.allow_non_ascii_keywords {
+                vec![]
+            } else {
                 pd.non_ascii
                     .iter()
                     .map(|(k, _)| ParseRawTEXTError::NonAscii(NonAsciiKeyError(k.clone())))
                     .collect()
-            } else {
-                vec![]
             }
         });
 
         // throw errors if we found any non-utf8 keywords and we want to know
         tnt_parse.eval_errors(|pd| {
-            if conf.enforce_utf8 {
+            if conf.allow_non_utf8 {
+                vec![]
+            } else {
                 pd.byte_pairs
                     .iter()
                     .map(|(k, v)| {
@@ -736,8 +738,6 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
                         })
                     })
                     .collect()
-            } else {
-                vec![]
             }
         });
 
@@ -755,15 +755,6 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
                     .unwrap_or_default()
             } else {
                 vec![]
-            }
-        });
-
-        // throw error if we have nonstandard keywords and we forbid them
-        tnt_parse.eval_error(|_| {
-            if kws.nonstd.is_empty() && conf.disallow_nonstandard {
-                Some(NonstandardError.into())
-            } else {
-                None
             }
         });
 
@@ -790,16 +781,9 @@ fn split_first_delim<'a>(
     if let Some((delim, rest)) = bytes.split_first() {
         let mut tnt = Tentative::new1((*delim, rest));
         if (1..=126).contains(delim) {
-            Ok(tnt)
-        } else {
-            let e = DelimCharError(*delim);
-            if conf.force_ascii_delim {
-                Err(DeferredFailure::new1(e.into()))
-            } else {
-                tnt.push_warning(e);
-                Ok(tnt)
-            }
+            tnt.push_error_or_warning(DelimCharError(*delim), !conf.allow_non_ascii_delim);
         }
+        Ok(tnt)
     } else {
         Err(DeferredFailure::new1(EmptyTEXTError.into()))
     }
@@ -831,7 +815,7 @@ fn split_raw_supp_text(
                 delim,
                 supp: *byte0,
             };
-            if conf.enforce_stext_delim {
+            if conf.allow_stext_own_delim {
                 tnt.push_error(x.into());
             } else {
                 tnt.push_warning(x.into());
@@ -850,14 +834,14 @@ fn split_raw_text_inner(
     bytes: &[u8],
     conf: &RawTextReadConfig,
 ) -> Tentative<ParsedKeywords, ParseKeywordsIssue, ParseKeywordsIssue> {
-    if conf.allow_double_delim {
-        split_raw_text_noescape(kws, delim, bytes, conf)
+    if conf.use_literal_delims {
+        split_raw_text_literal_delim(kws, delim, bytes, conf)
     } else {
-        split_raw_text_escape(kws, delim, bytes, conf)
+        split_raw_text_escaped_delim(kws, delim, bytes, conf)
     }
 }
 
-fn split_raw_text_noescape(
+fn split_raw_text_literal_delim(
     mut kws: ParsedKeywords,
     delim: u8,
     bytes: &[u8],
@@ -866,11 +850,11 @@ fn split_raw_text_noescape(
     let mut errors = vec![];
     let mut warnings = vec![];
 
-    let mut push_issue = |test, error| {
-        if test {
-            errors.push(error);
-        } else {
+    let mut push_issue = |is_warning, error| {
+        if is_warning {
             warnings.push(error);
+        } else {
+            errors.push(error);
         }
     };
 
@@ -886,7 +870,7 @@ fn split_raw_text_noescape(
             if let Some(value) = it.next() {
                 prev_was_key = false;
                 prev_was_blank = value.is_empty();
-                push_issue(conf.enforce_nonempty, BlankKeyError.into());
+                push_issue(conf.allow_empty, BlankKeyError.into());
             } else {
                 // if everything is correct, we should exit here since the
                 // last word will be the blank slice after the final delim
@@ -896,9 +880,9 @@ fn split_raw_text_noescape(
             prev_was_key = false;
             prev_was_blank = value.is_empty();
             if value.is_empty() {
-                push_issue(conf.enforce_nonempty, BlankValueError(key.to_vec()).into());
+                push_issue(conf.allow_empty, BlankValueError(key.to_vec()).into());
             } else if let Err(e) = kws.insert(key, value) {
-                push_issue(conf.enforce_unique, e.into());
+                push_issue(conf.allow_nonunique, e.into());
             }
         } else {
             // exiting here means we found a key without a value and also didn't
@@ -908,17 +892,17 @@ fn split_raw_text_noescape(
     }
 
     if !prev_was_key {
-        push_issue(conf.enforce_even, UnevenWordsError.into());
+        push_issue(conf.allow_odd, UnevenWordsError.into());
     }
 
     if !prev_was_blank {
-        push_issue(conf.enforce_final_delim, FinalDelimError.into());
+        push_issue(conf.allow_missing_final_delim, FinalDelimError.into());
     }
 
     Tentative::new(kws, warnings, errors)
 }
 
-fn split_raw_text_escape(
+fn split_raw_text_escaped_delim(
     mut kws: ParsedKeywords,
     delim: u8,
     bytes: &[u8],
@@ -926,19 +910,19 @@ fn split_raw_text_escape(
 ) -> Tentative<ParsedKeywords, ParseKeywordsIssue, ParseKeywordsIssue> {
     let mut ews = (vec![], vec![]);
 
-    let push_issue = |_ews: &mut (Vec<_>, Vec<_>), test, error| {
+    let push_issue = |_ews: &mut (Vec<_>, Vec<_>), is_warning, error| {
         let warnings = &mut _ews.0;
         let errors = &mut _ews.1;
-        if test {
-            errors.push(error);
-        } else {
+        if is_warning {
             warnings.push(error);
+        } else {
+            errors.push(error);
         }
     };
 
     let mut push_pair = |_ews: &mut (Vec<_>, Vec<_>), kb: &Vec<_>, vb: &Vec<_>| {
         if let Err(e) = kws.insert(kb, vb) {
-            push_issue(_ews, conf.enforce_unique, e.into())
+            push_issue(_ews, conf.allow_nonunique, e.into())
         }
     };
 
@@ -974,7 +958,11 @@ fn split_raw_text_escape(
                     keybuf.extend_from_slice(segment);
                 }
                 if consec_blanks > 0 {
-                    push_issue(&mut ews, conf.enforce_delim_nobound, DelimBoundError.into());
+                    push_issue(
+                        &mut ews,
+                        conf.allow_delim_at_boundary,
+                        DelimBoundError.into(),
+                    );
                 }
             } else {
                 // Previous consecutive delimiter sequence was even. Push n / 2
@@ -1008,20 +996,30 @@ fn split_raw_text_escape(
     // delimiter (not an error).
 
     if consec_blanks == 0 {
-        push_issue(&mut ews, conf.enforce_final_delim, FinalDelimError.into());
-    }
-
-    if consec_blanks & 1 == 1 && consec_blanks > 1 {
-        push_issue(&mut ews, conf.enforce_final_delim, FinalDelimError.into());
+        push_issue(
+            &mut ews,
+            conf.allow_missing_final_delim,
+            FinalDelimError.into(),
+        );
+    } else if consec_blanks > 1 {
+        push_issue(
+            &mut ews,
+            conf.allow_delim_at_boundary,
+            DelimBoundError.into(),
+        );
         push_delim(&mut keybuf, &mut valuebuf, consec_blanks);
-    }
 
-    if consec_blanks > 1 {
-        push_issue(&mut ews, conf.enforce_delim_nobound, DelimBoundError.into());
+        if consec_blanks & 1 == 1 {
+            push_issue(
+                &mut ews,
+                conf.allow_missing_final_delim,
+                FinalDelimError.into(),
+            );
+        }
     }
 
     if valuebuf.is_empty() {
-        push_issue(&mut ews, conf.enforce_even, UnevenWordsError.into());
+        push_issue(&mut ews, conf.allow_odd, UnevenWordsError.into());
     } else {
         push_pair(&mut ews, &keybuf, &valuebuf);
     }
@@ -1070,7 +1068,7 @@ fn lookup_stext_offsets(
         Version::FCS2_0 => Tentative::new1(None),
         Version::FCS3_0 | Version::FCS3_1 => KeyedReqSegment::get_mult(kws, conf.stext)
             .map_or_else(
-                |es| Tentative::new_either(None, es.into(), conf.enforce_stext),
+                |es| Tentative::new_either(None, es.into(), conf.allow_missing_stext),
                 |t| Tentative::new1(Some(t)),
             ),
         Version::FCS3_2 => KeyedOptSegment::get(kws, conf.stext).warnings_into(),
@@ -1224,7 +1222,7 @@ mod tests {
         // NOTE should not start with delim
         let bytes = "$P4F/700//75 BP/".as_bytes();
         let delim = 47;
-        let out = split_raw_text_escape(kws, delim, bytes, &conf);
+        let out = split_raw_text_escaped_delim(kws, delim, bytes, &conf);
         let v = out
             .value()
             .std

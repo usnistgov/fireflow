@@ -349,7 +349,6 @@ fn main() -> Result<(), ()> {
             conf.time.ensure_linear = sargs.get_flag("ensure-time-linear");
             conf.time.ensure_nogain = sargs.get_flag("ensure-time-nogain");
             conf.disallow_deviant = sargs.get_flag("disallow-deviant");
-            conf.raw.disallow_nonstandard = sargs.get_flag("disallow-nonstandard");
             conf.disallow_deprecated = sargs.get_flag("disallow-deprecated");
             conf.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
 

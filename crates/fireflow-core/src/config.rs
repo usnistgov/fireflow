@@ -164,60 +164,86 @@ pub struct RawTextReadConfig {
     /// Corrections for supplemental TEXT segment
     pub stext: TEXTCorrection<SupplementalTextSegmentId>,
 
-    /// Will treat every delimiter as a literal delimiter rather than "escaping"
-    /// double delimiters
-    pub allow_double_delim: bool,
-
-    /// If true, only ASCII characters 1-126 will be allowed for the delimiter
-    pub force_ascii_delim: bool,
-
-    /// If true, throw an error if the last byte of the TEXT segment is not
-    /// a delimiter.
-    pub enforce_final_delim: bool,
-
-    /// If true, throw an error if any key in the TEXT segment is not unique
-    pub enforce_unique: bool,
-
-    /// If true, throw an error if the number or words in the TEXT segment is
-    /// not an even number (ie there is a key with no value)
-    pub enforce_even: bool,
-
-    /// If true, throw an error if we encounter a key with a blank value.
+    /// If true, treat every delimiter as literal.
     ///
-    /// Only relevant if [`allow_double_delim`] is also true.
-    pub enforce_nonempty: bool,
-
-    /// If true, throw an error if we encounter a delimiter at a word boundary.
+    /// The standard allows delimiters to be included in keys or values (words)
+    /// if they are "escaped" with another delimiter. This also implies that
+    /// delimiters can never start or end a word since it is impossible to
+    /// unambiguously assign such escaped delimiters to either side of the real
+    /// delimiter. This also means empty words are not allowed.
     ///
-    /// Only relevant if [`allow_double_delim`] is also true. While delimiters
+    /// Setting this to true will disable delimiter escaping; all delimiters will
+    /// be literal delimiters that split words. This allows words to be empty
+    /// and also disallows delimiters to be included in words at all. For some
+    /// files, this is the correct interpretation, albeit not compliant.
+    pub use_literal_delims: bool,
+
+    /// If true, allow delimiter to be character outside 1-126.
+    pub allow_non_ascii_delim: bool,
+
+    /// If true, allow TEXT to not end with a delimiter.
+    pub allow_missing_final_delim: bool,
+
+    /// If true, allow non-unique keys to be present in TEXT.
+    ///
+    /// In any case, only the first value for a given key will be used. Setting
+    /// this to true merely changes a duplicate key to emit a warning and not
+    /// an error.
+    pub allow_nonunique: bool,
+
+    /// If true, allow TEXT to contain an odd number of words.
+    ///
+    /// Regardless, the final "dangling" word in the case of an odd number
+    /// will be dropped as it has no obvious interpretation.
+    pub allow_odd: bool,
+
+    /// If true, allow keys with blank values.
+    ///
+    /// Only relevant if [`literal_delims`] is also true.
+    pub allow_empty: bool,
+
+    /// If true, allow delimiters at word boundaries.
+    ///
+    /// Only relevant if [`literal_delims`] is false. While delimiters
     /// may be escaped and included in keys or values, it is impossible to tell
     /// within which word they are belong when the are next to a real delimiter,
-    /// which is why they are "not allowed".
+    /// which is why they are "not allowed."
     ///
-    /// When set to false, these delimiters are simply not included in word.
-    pub enforce_delim_nobound: bool,
+    /// Regardless of this value, delimiters at word boundaries will not be
+    /// included due to their ambiguity. Setting this to true will emit an
+    /// error rather than a warning if this is encountered.
+    pub allow_delim_at_boundary: bool,
 
-    /// If true, throw an error if the parser encounters a bad UTF-8 byte when
-    /// creating the key/value list. If false, merely drop the bad pair.
-    pub enforce_utf8: bool,
-
-    /// If true, throw error when encountering key with non-ASCII characters
-    pub enforce_keyword_ascii: bool,
-
-    /// If true, throw error if supplemental TEXT offsets are missing.
+    /// If true, allow non-utf8 byte sequences in TEXT.
     ///
-    /// Does not affect 3.2 since these are optional there.
-    pub enforce_stext: bool,
+    /// Words with such bytes will be dropped regardless of this keyword.
+    /// Setting this to true will emit an error rather than a warning in such
+    /// cases.
+    pub allow_non_utf8: bool,
 
-    /// If true, error if delim differs between primary and supplemental TEXT.
-    pub enforce_stext_delim: bool,
-
-    /// If true, throw error if $NEXTDATA is missing.
+    /// If true, allow keys with non-ASCII characters.
     ///
-    /// For now only reading the first dataset is supported, so this keyword
-    /// does nothing. However, it is supposed to be present according to the
-    /// standard.
-    pub enforce_nextdata: bool,
+    /// This only applies to non-standard keywords, as all standardized keywords
+    /// may only contain letters, numbers, and start with '$'. Regardless, all
+    /// compliant keys must only have ASCII. Setting this to true will emit
+    /// an error when encountering such a key. If false, the key will be kept
+    /// as a non-standard key.
+    pub allow_non_ascii_keywords: bool,
+
+    /// If true, allow STEXT offsets to be missing from TEXT.
+    ///
+    /// Does not affect FCS 3.2 since STEXT is optional there.
+    pub allow_missing_stext: bool,
+
+    /// If true, allow STEXT to use a different delimiter than TEXT.
+    pub allow_stext_own_delim: bool,
+
+    /// If true, allow $NEXTDATA to be missing.
+    ///
+    /// This is a required keyword in all versions. However, most files only
+    /// have one dataset so this keyword does nothing. If true, a warning will
+    /// be emitted rather than an error if this is missing.
+    pub allow_missing_nextdata: bool,
 
     /// If true, trim whitespace from offsets in TEXT
     ///
@@ -227,10 +253,6 @@ pub struct RawTextReadConfig {
     /// characters. Furthermore, machines can pad either the right or the left,
     /// so need to trim both.
     pub repair_offset_spaces: bool,
-
-    /// If true, throw an error if TEXT includes any keywords that do not
-    /// start with "$".
-    pub disallow_nonstandard: bool,
 
     /// If supplied, will be used as an alternative pattern when parsing $DATE.
     ///
@@ -352,17 +374,16 @@ impl Strict for ReaderConfig {
 impl Strict for RawTextReadConfig {
     fn set_strict_inner(self) -> Self {
         Self {
-            force_ascii_delim: true,
-            enforce_final_delim: true,
-            enforce_unique: true,
-            enforce_even: true,
-            enforce_delim_nobound: true,
-            enforce_utf8: true,
-            enforce_keyword_ascii: true,
-            enforce_stext: true,
-            enforce_stext_delim: true,
-            enforce_nextdata: true,
-            disallow_nonstandard: true,
+            allow_non_ascii_delim: true,
+            allow_missing_final_delim: true,
+            allow_nonunique: true,
+            allow_odd: true,
+            allow_delim_at_boundary: true,
+            allow_non_utf8: true,
+            allow_non_ascii_keywords: true,
+            allow_missing_stext: true,
+            allow_stext_own_delim: true,
+            allow_missing_nextdata: true,
             ..self
         }
     }

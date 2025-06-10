@@ -845,12 +845,12 @@ impl AlphaNumReader {
     fn check_tot(
         &self,
         tot: Tot,
-        enforce: bool,
+        allow_mismatch: bool,
     ) -> Tentative<(), TotEventMismatch, TotEventMismatch> {
         let total_events = self.columns.head.len();
         if tot.0 != total_events {
             let i = TotEventMismatch { tot, total_events };
-            Tentative::new_either((), vec![i], enforce)
+            Tentative::new_either((), vec![i], !allow_mismatch)
         } else {
             Tentative::new1(())
         }
@@ -1455,7 +1455,7 @@ where
                 nbytes: n,
                 remainder,
             };
-            Tentative::new_either(r, vec![i], conf.enforce_data_width_divisibility)
+            Tentative::new_either(r, vec![i], !conf.allow_uneven_event_width)
         } else {
             Tentative::new1(r)
         }
@@ -1477,7 +1477,7 @@ where
             .inner_into()
             .and_tentatively(|reader| {
                 reader
-                    .check_tot(tot, conf.enforce_matching_tot)
+                    .check_tot(tot, conf.allow_tot_mismatch)
                     .map(|_| reader)
                     .inner_into()
             })
@@ -2622,9 +2622,14 @@ impl VersionedDataLayout for DataLayout3_2 {
         seg: HeaderAnalysisSegment,
         conf: &ReaderConfig,
     ) -> AnalysisReaderResult<AnalysisReader> {
-        let ret = KeyedOptSegment::remove_or(kws, conf.analysis, seg, conf.enforce_offset_match)
-            .map(|s| AnalysisReader { seg: s })
-            .inner_into();
+        let ret = KeyedOptSegment::remove_or(
+            kws,
+            conf.analysis,
+            seg,
+            conf.allow_header_text_offset_mismatch,
+        )
+        .map(|s| AnalysisReader { seg: s })
+        .inner_into();
         Ok(ret)
     }
 
@@ -2633,9 +2638,14 @@ impl VersionedDataLayout for DataLayout3_2 {
         seg: HeaderAnalysisSegment,
         conf: &ReaderConfig,
     ) -> AnalysisReaderResult<AnalysisReader> {
-        let ret = KeyedOptSegment::get_or(kws, conf.analysis, seg, conf.enforce_offset_match)
-            .map(|s| AnalysisReader { seg: s })
-            .inner_into();
+        let ret = KeyedOptSegment::get_or(
+            kws,
+            conf.analysis,
+            seg,
+            conf.allow_header_text_offset_mismatch,
+        )
+        .map(|s| AnalysisReader { seg: s })
+        .inner_into();
         Ok(ret)
     }
 }
@@ -2649,8 +2659,8 @@ fn remove_analysis_seg_req(
         kws,
         conf.analysis,
         seg,
-        conf.enforce_offset_match,
-        conf.enforce_required_offsets,
+        conf.allow_header_text_offset_mismatch,
+        conf.allow_missing_required_offsets,
     )
     .def_inner_into()
     .def_map_value(|s| AnalysisReader { seg: s })
@@ -2665,8 +2675,8 @@ fn get_analysis_seg_req(
         kws,
         conf.analysis,
         seg,
-        conf.enforce_offset_match,
-        conf.enforce_required_offsets,
+        conf.allow_header_text_offset_mismatch,
+        conf.allow_missing_required_offsets,
     )
     .def_inner_into()
     .def_map_value(|s| AnalysisReader { seg: s })
@@ -2682,8 +2692,8 @@ fn remove_tot_data_seg(
         kws,
         conf.data,
         seg,
-        conf.enforce_offset_match,
-        conf.enforce_required_offsets,
+        conf.allow_header_text_offset_mismatch,
+        conf.allow_missing_required_offsets,
     )
     .def_inner_into();
     tot_res.def_zip(seg_res)
@@ -2707,7 +2717,7 @@ impl DataLayout2_0 {
                 .and_tentatively(|reader| {
                     if let Some(_tot) = maybe_tot {
                         reader
-                            .check_tot(_tot, conf.enforce_matching_tot)
+                            .check_tot(_tot, conf.allow_tot_mismatch)
                             .inner_into()
                             .map(|_| reader)
                     } else {
@@ -2806,8 +2816,8 @@ fn get_tot_data_seg(
         kws,
         conf.data,
         seg,
-        conf.enforce_offset_match,
-        conf.enforce_required_offsets,
+        conf.allow_header_text_offset_mismatch,
+        conf.allow_missing_required_offsets,
     )
     .def_inner_into();
     tot_res.def_zip(seg_res)

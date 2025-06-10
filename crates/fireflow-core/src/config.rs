@@ -1,3 +1,14 @@
+/// Main configuration for reading and writing FCS files.
+///
+/// By convention, this is "strict-by-default", meaning the default parameters
+/// will be set such that only a fully-compliant FCS file can be read without
+/// error. This greatly simplifies the API and internally reduces the likelihood
+/// of "flipped flags."
+///
+/// Internal to the library, the main question that matters for whether to throw
+/// a warning or error should be "does this adhere to the standard." If not, its
+/// an error. This will work in most cases, with a few exceptions where the
+/// standard is unclear.
 use crate::header::Version;
 use crate::segment::*;
 use crate::validated::datepattern::DatePattern;
@@ -23,25 +34,32 @@ pub struct DataReadConfig {
 /// Instructions for reading the DATA/ANALYSIS segments
 #[derive(Default, Clone)]
 pub struct ReaderConfig {
-    /// If true, throw error when total event width does not evenly divide
-    /// the DATA segment. Meaningless for delimited ASCII data.
-    pub enforce_data_width_divisibility: bool,
+    /// If true, allow event width to not perfectly divide DATA.
+    ///
+    /// In practice, having such a mismatch likely means either PnB or the DATA
+    /// offsets are incorrect.
+    ///
+    /// Does not apply to delimited ASCII, which does not have a fixed width.
+    pub allow_uneven_event_width: bool,
 
-    /// If true, throw error if the total number of events as computed by
-    /// dividing DATA segment length event width doesn't match $TOT. Does
-    /// nothing if $TOT not given, which may be the case in version 2.0.
-    pub enforce_matching_tot: bool,
+    /// If true, allow $TOT to not match number of events in DATA.
+    ///
+    /// For all but delimited ASCII layouts, $TOT is unnecessary and can be
+    /// computed by dividing the bytes in DATA by the event width computed from
+    /// all $PnB. If $TOT does not match this, it may indicate an issue. If false,
+    /// throw an error on mismatch, and warning otherwise.
+    pub allow_tot_mismatch: bool,
 
     /// If true, throw error if offsets in HEADER and TEXT differ.
     ///
     /// Only applies to DATA and ANALYSIS offsets
-    pub enforce_offset_match: bool,
+    pub allow_header_text_offset_mismatch: bool,
 
     /// If true, throw error if required TEXT offsets are missing.
     ///
     /// Only applies to DATA and ANALYSIS offsets in versions 3.0 and 3.1. If
     /// missing these will be taken from HEADER.
-    pub enforce_required_offsets: bool,
+    pub allow_missing_required_offsets: bool,
 
     /// Corrections for DATA offsets in TEXT segment
     pub data: TEXTCorrection<DataSegmentId>,
@@ -101,7 +119,7 @@ pub struct HeaderConfig {
     /// Corrections for ANALYSIS segment
     pub analysis_correction: HeaderCorrection<AnalysisSegmentId>,
 
-    /// Corrections for OTHER segments if they exist
+    /// Corrections for OTHER segments if they exist.
     ///
     /// Each correction will be applied in order. If an offset does not need
     /// to be corrected, use 0,0.
@@ -275,18 +293,16 @@ pub struct TimeConfig {
     /// set to '0,0'.
     pub pattern: Option<TimePattern>,
 
-    /// If true, will ensure that time measurement is present
-    pub ensure: bool,
+    /// If true, allow time to not be present even if we specify ['pattern'].
+    pub allow_missing: bool,
+    // /// If true, will allow $PnE to not be linear (ie "0,0").
+    // ///
+    // /// $PnE will not be used regardless. This will merely throw an error if
+    // /// scale is non-linear
+    // pub allow_nonlinear_scale: bool,
 
-    /// If true, will ensure TIMESTEP is present if time measurement is also
-    /// present.
-    pub ensure_timestep: bool,
-
-    /// If true, will ensure PnE is 0,0 for time measurement.
-    pub ensure_linear: bool,
-
-    /// If true, will ensure PnG is absent for time measurement.
-    pub ensure_nogain: bool,
+    // /// If true, will ensure PnG is absent for time measurement.
+    // pub allow_nontime_keywords: bool,
 }
 
 /// Instructions for reading the TEXT segment in a standardized structure.
@@ -305,11 +321,15 @@ pub struct StdTextReadConfig {
     /// will be this prefix appended with the measurement index.
     pub shortname_prefix: ShortnamePrefix,
 
-    /// If true, throw an error if TEXT includes any keywords that start with
-    /// "$" which are not standard.
-    pub disallow_deviant: bool,
+    /// If true, allow non-standard keywords starting with '$'.
+    ///
+    /// The '$' prefix is reserved for standard keywords only. However, little
+    /// harm will be done by violating this.
+    pub allow_deviant: bool,
 
-    /// If true, throw an error if TEXT includes any deprecated features
+    /// If true, throw an error if TEXT includes any deprecated features.
+    ///
+    /// If false, merely throw a warning.
     pub disallow_deprecated: bool,
 
     /// If supplied, this pattern will be used to group "nonstandard" keywords
@@ -362,10 +382,10 @@ impl Strict for DataReadConfig {
 impl Strict for ReaderConfig {
     fn set_strict_inner(self) -> Self {
         Self {
-            enforce_data_width_divisibility: true,
-            enforce_matching_tot: true,
-            enforce_offset_match: true,
-            enforce_required_offsets: true,
+            allow_uneven_event_width: true,
+            allow_tot_mismatch: true,
+            allow_header_text_offset_mismatch: true,
+            allow_missing_required_offsets: true,
             ..self
         }
     }
@@ -394,7 +414,7 @@ impl Strict for StdTextReadConfig {
         Self {
             raw: RawTextReadConfig::set_strict_inner(self.raw),
             time: TimeConfig::set_strict_inner(self.time),
-            disallow_deviant: true,
+            allow_deviant: true,
             ..self
         }
     }
@@ -404,10 +424,7 @@ impl Strict for TimeConfig {
     fn set_strict_inner(self) -> Self {
         Self {
             pattern: Some(TimePattern::default()),
-            ensure: true,
-            ensure_timestep: true,
-            ensure_linear: true,
-            ensure_nogain: true,
+            allow_missing: true,
         }
     }
 }

@@ -2738,7 +2738,7 @@ where
                 // Check that the time measurement is present if we want it
                 tnt_core.eval_error(|core| {
                     if let Some(pat) = tp {
-                        if conf.time.ensure && core.measurements.as_center().is_none() {
+                        if !conf.time.allow_missing && core.measurements.as_center().is_none() {
                             return Some(LookupKeysError::Misc(MissingTime(pat.clone()).into()));
                         }
                     }
@@ -2757,7 +2757,7 @@ where
                         || k == &Tot::std()
                         || k == &Timestep::std())
                 }) {
-                    if conf.disallow_deviant {
+                    if conf.allow_deviant {
                         tnt_core.push_error(DeviantError.into());
                     } else {
                         tnt_core.push_warning(DeviantError.into());

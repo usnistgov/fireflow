@@ -345,10 +345,10 @@ fn main() -> Result<(), ()> {
                 conf.time.pattern = Some(m.parse::<TimePattern>().unwrap());
             }
 
-            conf.time.ensure = sargs.get_flag("ensure-time");
-            conf.time.ensure_linear = sargs.get_flag("ensure-time-linear");
-            conf.time.ensure_nogain = sargs.get_flag("ensure-time-nogain");
-            conf.disallow_deviant = sargs.get_flag("disallow-deviant");
+            conf.time.allow_missing = sargs.get_flag("ensure-time");
+            // conf.time.allow_nonlinear_scale = sargs.get_flag("ensure-time-linear");
+            // conf.time.allow_nontime_keywords = sargs.get_flag("ensure-time-nogain");
+            conf.allow_deviant = sargs.get_flag("disallow-deviant");
             conf.disallow_deprecated = sargs.get_flag("disallow-deprecated");
             conf.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
 

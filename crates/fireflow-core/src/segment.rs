@@ -148,14 +148,14 @@ where
         kws: &StdKeywords,
         corr: TEXTCorrection<Self>,
         default: HeaderSegment<Self>,
-        enforce_match: bool,
-        enforce_lookup: bool,
+        allow_mismatch: bool,
+        allow_missing: bool,
     ) -> ReqSegResult<Self>
     where
         Self: Copy,
     {
         let res = Self::get(kws, corr).def_map_errors(ReqSegmentWithDefaultError::Req);
-        Self::default_or(res, default, enforce_lookup, enforce_match)
+        Self::default_or(res, default, allow_missing, allow_mismatch)
     }
 
     fn get<W>(
@@ -180,14 +180,14 @@ where
         kws: &mut StdKeywords,
         corr: TEXTCorrection<Self>,
         default: HeaderSegment<Self>,
-        enforce_match: bool,
-        enforce_lookup: bool,
+        allow_mismatch: bool,
+        allow_missing: bool,
     ) -> ReqSegResult<Self>
     where
         Self: Copy,
     {
         let res = Self::remove(kws, corr).def_map_errors(ReqSegmentWithDefaultError::Req);
-        Self::default_or(res, default, enforce_lookup, enforce_match)
+        Self::default_or(res, default, allow_missing, allow_mismatch)
     }
 
     fn remove<W>(
@@ -215,26 +215,26 @@ where
             ReqSegmentWithDefaultError<Self>,
         >,
         default: HeaderSegment<Self>,
-        enforce_lookup: bool,
-        enforce_match: bool,
+        allow_missing: bool,
+        allow_mismatch: bool,
     ) -> ReqSegResult<Self>
     where
         Self: Copy,
     {
         res.map_or_else(
             |f| {
-                if enforce_lookup {
-                    Err(f)
-                } else {
+                if allow_missing {
                     let mut tnt = f.unfail_with(default.into_any());
                     tnt.push_warning(SegmentDefaultWarning::default().into());
                     Ok(tnt)
+                } else {
+                    Err(f)
                 }
             },
             |tnt| {
                 Ok(tnt.and_tentatively(|other| {
                     default.unless(other).map_or_else(
-                        |(s, w)| Tentative::new_either(s, vec![w], enforce_match),
+                        |(s, w)| Tentative::new_either(s, vec![w], !allow_mismatch),
                         Tentative::new1,
                     )
                 }))
@@ -273,7 +273,7 @@ where
         kws: &StdKeywords,
         corr: TEXTCorrection<Self>,
         default: HeaderSegment<Self>,
-        enforce: bool,
+        allow_mismatch: bool,
     ) -> OptSegTentative<Self>
     where
         Self: Copy,
@@ -281,7 +281,7 @@ where
         Self::E: OptMetaKey,
     {
         let res = Self::get(kws, corr).map_warnings(OptSegmentWithDefaultWarning::Opt);
-        Self::default_or(res, default, enforce)
+        Self::default_or(res, default, allow_mismatch)
     }
 
     fn get<E>(
@@ -336,7 +336,7 @@ where
             SegmentMismatchWarning<Self>,
         >,
         default: HeaderSegment<Self>,
-        enforce: bool,
+        allow_mismatch: bool,
     ) -> OptSegTentative<Self>
     where
         Self: Copy,
@@ -344,7 +344,7 @@ where
         res.and_tentatively(|other| {
             other.map_or(Tentative::new1(default.into_any()), |o| {
                 default.unless(o).map_or_else(
-                    |(s, w)| Tentative::new_either(s, vec![w], enforce),
+                    |(s, w)| Tentative::new_either(s, vec![w], !allow_mismatch),
                     Tentative::new1,
                 )
             })

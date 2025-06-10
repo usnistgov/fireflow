@@ -339,10 +339,13 @@ pub struct StdTextReadConfig {
     /// will be this prefix appended with the measurement index.
     pub shortname_prefix: ShortnamePrefix,
 
-    /// If true, allow non-standard keywords starting with '$'.
+    /// If true, allow non-standard keywords starting with '$' (aka "deviant").
     ///
-    /// The '$' prefix is reserved for standard keywords only. However, little
-    /// harm will be done by violating this.
+    /// The '$' prefix is reserved for standard keywords only. While little
+    /// harm may come from violating this, having deviant keywords might
+    /// signify that the version in the HEADER is wrong and that the file
+    /// actually follows a different FCS standard (usually higher) in which
+    /// the deviant keywords are standard.
     pub allow_deviant: bool,
 
     /// If true, throw an error if TEXT includes any deprecated features.

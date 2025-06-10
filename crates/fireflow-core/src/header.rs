@@ -409,13 +409,11 @@ pub(crate) fn make_data_offset_keywords_2_0(
         .map_or(Ok(text_begin), |x| x.try_into())?;
     let analysis_seg = HeaderAnalysisSegment::try_new_with_len(analysis_begin, analysis_len)?;
 
-    let nextdata = Nextdata(Uint8Char(
+    let nextdata = Nextdata(Uint20Char(
         analysis_seg
             .inner
             .try_next_byte()
-            .map_or(Ok(analysis_begin), |x| x.try_into())
-            .ok()
-            .unwrap_or_default(),
+            .unwrap_or(u64::from(analysis_begin)),
     ));
 
     let header = HeaderSegments {
@@ -498,14 +496,11 @@ pub(crate) fn make_data_offset_keywords_3_0(
     let h_analysis_seg = analysis_seg.as_header();
     let h_data_seg = data_seg.as_header();
 
-    let nextdata = Nextdata(Uint8Char(
+    let nextdata = Nextdata(Uint20Char(
         analysis_seg
             .inner
             .try_next_byte()
-            .unwrap_or(u64::from(analysis_begin))
-            .try_into()
-            .ok()
-            .unwrap_or_default(),
+            .unwrap_or(u64::from(analysis_begin)),
     ));
 
     // NOTE in 3.2 *DATA and *SDATA are technically optional, but it is much
@@ -556,66 +551,7 @@ fn other_segments(other_lens: Vec<u64>) -> (Vec<OtherSegment>, u64, u64) {
     (os, header_length, total_length)
 }
 
-// /// Compute length occupied by OTHER segments.
-// ///
-// /// This includes the length of the segments themselves plus the length
-// /// added to the back of the HEADER to encode their offsets.
-// fn other_segment_lengths(other_lens: Vec<usize>) -> (usize, usize) {
-//     (other_lens.len() * 16, other_lens.iter().sum::<usize>())
-// }
-
-/// Create offset keyword pairs for HEADER
-///
-/// Returns two right-aligned, space-padded numbers exactly 8 bytes long as one
-/// contiguous string.
-pub fn offset_header_string(begin: u64, end: u64) -> String {
-    let nbytes = end - begin + 1;
-    let (b, e) = if end <= u64::from(MAX_HEADER_OFFSET) && nbytes > 0 {
-        (begin, end)
-    } else {
-        (0, 0)
-    };
-    format!("{:0>8}{:0>8}", b, e)
-}
-
-/// Compute $NEXTDATA offset and format the keyword pair.
-///
-/// Returns something like (12345678, ["$NEXTDATA", "12345678"])
-pub fn offset_nextdata_string(nextdata: u64) -> (u64, (String, String)) {
-    let n = if nextdata > u64::from(MAX_HEADER_OFFSET) {
-        0
-    } else {
-        nextdata
-    };
-    let s = format_zero_padded(n, NEXTDATA_VAL_LEN);
-    (n, (Nextdata::std().to_string(), s))
-}
-
-/// Compute the number of digits for a number.
-///
-/// Assume number is greater than 0 and in decimal radix.
-fn n_digits(x: u64) -> u64 {
-    // TODO cast?
-    let n = u64::ilog10(x) as u64;
-    if 10 ^ n == x {
-        n
-    } else {
-        n + 1
-    }
-}
-
-/// Format a digit with left-padded zeros to a given length
-pub(crate) fn format_zero_padded(x: u64, width: u64) -> String {
-    format!("{}{}", ("0").repeat((width - n_digits(x)) as usize), x)
-}
-
-/// Length of the $NEXTDATA offset length.
-///
-/// This value has a maximum of 99,999,999, and as such the length of this
-/// number is always 8 bytes.
-const NEXTDATA_VAL_LEN: u64 = 8;
-
-/// Length of $(BEGIN/END)(STEXT/ANALYSIS/DATA) offset length.
+/// Length of $(BEGIN/END)(STEXT/ANALYSIS/DATA) and $NEXTDATA offset length.
 ///
 /// This was chosen on the basis that the maximum file size is 2^64, and thus
 /// the maximum offset is the number of digits in 2^64, which is 20. This will
@@ -628,7 +564,7 @@ pub(crate) const MAX_HEADER_OFFSET: u32 = 99_999_999;
 
 /// Number of bytes consumed by $NEXTDATA keyword + value + delimiters
 fn nextdata_len() -> u64 {
-    Nextdata::len() + NEXTDATA_VAL_LEN + 2
+    Nextdata::len() + OFFSET_VAL_LEN + 2
 }
 
 /// The number of bytes each offset is expected to take.

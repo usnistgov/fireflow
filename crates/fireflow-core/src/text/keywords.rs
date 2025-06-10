@@ -28,11 +28,11 @@ use std::num::{ParseFloatError, ParseIntError};
 use std::str::FromStr;
 
 /// Value for $NEXTDATA (all versions)
-pub struct Nextdata(pub Uint8Char);
+pub struct Nextdata(pub Uint20Char);
 
-newtype_from!(Nextdata, Uint8Char);
-newtype_from_outer!(Nextdata, Uint8Char);
-newtype_fromstr!(Nextdata, ParseUint8DigitError);
+newtype_from!(Nextdata, Uint20Char);
+newtype_from_outer!(Nextdata, Uint20Char);
+newtype_fromstr!(Nextdata, ParseIntError);
 newtype_disp!(Nextdata);
 
 /// The value of the $PnG keyword

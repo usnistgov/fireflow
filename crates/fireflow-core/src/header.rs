@@ -175,7 +175,7 @@ impl Header {
             .map(|(x, _)| x)
             .min()
             .map_or(Ok(vec![]), |earliest_begin| {
-                h_read_other_segments(h, *earliest_begin, conf.allow_negative, conf)
+                h_read_other_segments(h, *earliest_begin, conf)
             })
             .map(|other| Self {
                 version,
@@ -245,7 +245,6 @@ fn h_read_spaces<R: Read>(h: &mut BufReader<R>) -> Result<(), ImpureError<Header
 fn h_read_other_segments<R: Read>(
     h: &mut BufReader<R>,
     text_begin: Uint8Digit,
-    allow_negative: bool,
     conf: &HeaderConfig,
 ) -> MultiResult<Vec<OtherSegment>, ImpureError<HeaderError>> {
     // ASSUME this won't fail because we checked that each offset is greater
@@ -270,7 +269,7 @@ fn h_read_other_segments<R: Read>(
             if buf0.iter().chain(buf1.iter()).all(|x| *x == 32) {
                 Ok(None)
             } else {
-                OtherSegment::parse(&buf0, &buf1, allow_negative, corr)
+                OtherSegment::parse(&buf0, &buf1, conf.allow_negative, corr)
                     .map(Some)
                     .mult_map_errors(HeaderError::Segment)
                     .mult_map_errors(ImpureError::Pure)

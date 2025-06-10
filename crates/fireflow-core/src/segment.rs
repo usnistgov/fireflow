@@ -457,6 +457,32 @@ impl<I, S> OffsetCorrection<I, S> {
 }
 
 impl<I, S, T> SpecificSegment<I, S, T> {
+    pub fn try_new_squish(
+        begin: T,
+        end: T,
+        squish: bool,
+        corr: OffsetCorrection<I, S>,
+    ) -> Result<Self, SegmentError<T>>
+    where
+        I: HasRegion,
+        S: HasSource,
+        T: Default,
+        T: Into<u64>,
+        T: Into<i128>,
+        T: TryFrom<i128>,
+        T: PartialOrd,
+        T: Copy,
+    {
+        // TODO this might produce really weird errors if run on a 2.0
+        // file, so in those cases, this should never be true
+        let (b, e) = if squish && end == T::default() && begin > end {
+            (T::default(), T::default())
+        } else {
+            (begin, end)
+        };
+        SpecificSegment::try_new(b, e, corr)
+    }
+
     pub fn try_new(begin: T, end: T, corr: OffsetCorrection<I, S>) -> Result<Self, SegmentError<T>>
     where
         I: HasRegion,
@@ -641,12 +667,7 @@ impl<I: Copy> HeaderSegment<I> {
             .zip(end_res)
             .mult_errors_into()
             .and_then(|(begin, end)| {
-                let (b, e) = if conf.squish_offsets && u32::from(end) == 0 && begin > end {
-                    (Uint8Digit::default(), Uint8Digit::default())
-                } else {
-                    (begin, end)
-                };
-                SpecificSegment::try_new(b, e, corr).into_mult()
+                SpecificSegment::try_new_squish(begin, end, conf.squish_offsets, corr).into_mult()
             })
     }
 

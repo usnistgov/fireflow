@@ -108,6 +108,13 @@ fn main() -> Result<(), ()> {
     let repair_offset_spaces_arg =
         arg!(-o --"repair-offset-spaces" "remove spaces from offset keywords");
 
+    let max_other = arg!(--"max-other" [BYTES] "max number of OTHER segments to parse")
+        .value_parser(value_parser!(usize));
+    let other_width =
+        arg!(--"other-width" [WIDTH] "width of OTHER segments").value_parser(value_parser!(u8));
+    let squish_offsets = arg!(--"squish-offsets" "squish DATA/ANALYSIS, offsets that end in 0");
+    let allow_negative = arg!(--"allow-negative" "substitute 0 for negative offsets");
+
     let cmd = Command::new("fireflow")
         .about("read and write FCS files")
         .arg(
@@ -119,10 +126,10 @@ fn main() -> Result<(), ()> {
         .subcommand(
             Command::new("header")
                 .about("show header as JSON")
-                .arg(arg!(--"max-other" [BYTES] "max number of OTHER segments to parse")
-                     .value_parser(value_parser!(usize)))
-                .arg(arg!(--"other-width" [WIDTH] "width of OTHER segments")
-                     .value_parser(value_parser!(u8)))
+                .arg(&max_other)
+                .arg(&other_width)
+                .arg(&squish_offsets)
+                .arg(&allow_negative)
         )
 
         .subcommand(
@@ -132,6 +139,10 @@ fn main() -> Result<(), ()> {
                 .arg(&begintext_arg)
                 .arg(&endtext_arg)
                 .arg(&repair_offset_spaces_arg)
+                .arg(&max_other)
+                .arg(&other_width)
+                .arg(&squish_offsets)
+                .arg(&allow_negative)
         )
 
         .subcommand(
@@ -151,6 +162,10 @@ fn main() -> Result<(), ()> {
                 .arg(arg!(-p --"date-pattern" [PATTERN] "pattern to use when matching $DATE"))
                 .arg(arg!(-P --"ns-meas-pattern" [PATTERN] "pattern used to for nonstandard measurement keywords"))
                 .arg(&repair_offset_spaces_arg)
+                .arg(&max_other)
+                .arg(&other_width)
+                .arg(&squish_offsets)
+                .arg(&allow_negative)
         )
 
         .subcommand(
@@ -161,6 +176,10 @@ fn main() -> Result<(), ()> {
                 .arg(&delim_arg)
                 // TODO this shouldn't be necessary since we aren't reading DATA
                 .arg(&repair_offset_spaces_arg)
+                .arg(&max_other)
+                .arg(&other_width)
+                .arg(&squish_offsets)
+                .arg(&allow_negative)
         )
 
         .subcommand(
@@ -171,6 +190,10 @@ fn main() -> Result<(), ()> {
                 .arg(&delim_arg)
                 // TODO this shouldn't be necessary since we aren't reading DATA
                 .arg(&repair_offset_spaces_arg)
+                .arg(&max_other)
+                .arg(&other_width)
+                .arg(&squish_offsets)
+                .arg(&allow_negative)
         )
 
         .subcommand(
@@ -182,6 +205,10 @@ fn main() -> Result<(), ()> {
                 .arg(&enddata_arg)
                 .arg(&repair_offset_spaces_arg)
                 .arg(&delim_arg)
+                .arg(&max_other)
+                .arg(&other_width)
+                .arg(&squish_offsets)
+                .arg(&allow_negative)
         );
 
     let args = cmd.get_matches();
@@ -210,6 +237,8 @@ fn main() -> Result<(), ()> {
                     .copied()
                     .map(|x| x.try_into().unwrap())
                     .unwrap_or_default(),
+                allow_negative: sargs.get_flag("allow-negative"),
+                squish_offsets: sargs.get_flag("squish-offsets"),
                 ..conf
             };
             fcs_read_header(filepath, &conf)
@@ -219,6 +248,17 @@ fn main() -> Result<(), ()> {
 
         Some(("raw", sargs)) => {
             let mut conf = config::RawTextReadConfig::default();
+            conf.header = config::HeaderConfig {
+                max_other: sargs.get_one::<usize>("max-other").copied(),
+                other_width: sargs
+                    .get_one::<u8>("other-width")
+                    .copied()
+                    .map(|x| x.try_into().unwrap())
+                    .unwrap_or_default(),
+                allow_negative: sargs.get_flag("allow-negative"),
+                squish_offsets: sargs.get_flag("squish-offsets"),
+                ..conf.header
+            };
             conf = config::RawTextReadConfig {
                 repair_offset_spaces: sargs.get_flag("repair-offset-spaces"),
                 ..conf
@@ -231,6 +271,17 @@ fn main() -> Result<(), ()> {
 
         Some(("spillover", sargs)) => {
             let mut conf = config::StdTextReadConfig::default();
+            conf.raw.header = config::HeaderConfig {
+                max_other: sargs.get_one::<usize>("max-other").copied(),
+                other_width: sargs
+                    .get_one::<u8>("other-width")
+                    .copied()
+                    .map(|x| x.try_into().unwrap())
+                    .unwrap_or_default(),
+                allow_negative: sargs.get_flag("allow-negative"),
+                squish_offsets: sargs.get_flag("squish-offsets"),
+                ..conf.raw.header
+            };
             // get_text_delta(sargs);
             conf.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
             let delim = sargs.get_one::<String>("delimiter").unwrap();
@@ -243,6 +294,17 @@ fn main() -> Result<(), ()> {
 
         Some(("measurements", sargs)) => {
             let mut conf = config::StdTextReadConfig::default();
+            conf.raw.header = config::HeaderConfig {
+                max_other: sargs.get_one::<usize>("max-other").copied(),
+                other_width: sargs
+                    .get_one::<u8>("other-width")
+                    .copied()
+                    .map(|x| x.try_into().unwrap())
+                    .unwrap_or_default(),
+                allow_negative: sargs.get_flag("allow-negative"),
+                squish_offsets: sargs.get_flag("squish-offsets"),
+                ..conf.raw.header
+            };
             // get_text_delta(sargs);
             conf.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
             let delim = sargs.get_one::<String>("delimiter").unwrap();
@@ -255,6 +317,18 @@ fn main() -> Result<(), ()> {
 
         Some(("std", sargs)) => {
             let mut conf = config::StdTextReadConfig::default();
+
+            conf.raw.header = config::HeaderConfig {
+                max_other: sargs.get_one::<usize>("max-other").copied(),
+                other_width: sargs
+                    .get_one::<u8>("other-width")
+                    .copied()
+                    .map(|x| x.try_into().unwrap())
+                    .unwrap_or_default(),
+                allow_negative: sargs.get_flag("allow-negative"),
+                squish_offsets: sargs.get_flag("squish-offsets"),
+                ..conf.raw.header
+            };
             // get_text_delta(sargs);
 
             // TODO refactor
@@ -289,6 +363,18 @@ fn main() -> Result<(), ()> {
 
         Some(("data", sargs)) => {
             let mut conf = config::DataReadConfig::default();
+
+            conf.standard.raw.header = config::HeaderConfig {
+                max_other: sargs.get_one::<usize>("max-other").copied(),
+                other_width: sargs
+                    .get_one::<u8>("other-width")
+                    .copied()
+                    .map(|x| x.try_into().unwrap())
+                    .unwrap_or_default(),
+                allow_negative: sargs.get_flag("allow-negative"),
+                squish_offsets: sargs.get_flag("squish-offsets"),
+                ..conf.standard.raw.header
+            };
 
             // get_text_delta(sargs);
             // TODO add DATA delta adjust

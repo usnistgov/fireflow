@@ -194,6 +194,12 @@ pub struct RawTextReadConfig {
     /// duplicated.
     pub allow_duplicated_stext: bool,
 
+    /// If true, totally ignore STEXT and its offsets.
+    ///
+    /// This may be useful if STEXT is duplicated (or partly overlaps) with
+    /// primary TEXT.
+    pub ignore_stext: bool,
+
     /// If true, treat every delimiter as literal.
     ///
     /// The standard allows delimiters to be included in keys or values (words)

@@ -1125,8 +1125,8 @@ where
         write!(
             f,
             "segments differ in HEADER ({}) and TEXT ({}) for {}, using TEXT",
-            self.header.inner.fmt_pair(),
-            self.text.inner.fmt_pair(),
+            self.header.inner.as_u64().fmt_pair(),
+            self.text.inner.as_u64().fmt_pair(),
             I::REGION,
         )
     }

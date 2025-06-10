@@ -686,25 +686,29 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
     })?;
 
     let tnt_all_kws = tnt_primary.and_maybe(|(delim, mut kws)| {
-        lookup_stext_offsets(&mut kws.std, header.version, ptext_seg, conf)
-            .errors_into()
-            .errors_liftio()
-            .warnings_into()
-            .map(|s| (s, kws))
-            .and_maybe(|(maybe_supp_seg, _kws)| {
-                let tnt_supp_kws = if let Some(seg) = maybe_supp_seg {
-                    buf.clear();
-                    seg.inner
-                        .h_read_contents(h, &mut buf)
-                        .map_err(|e| DeferredFailure::new1(e.into()))?;
-                    split_raw_supp_text(_kws, delim, &buf, conf)
-                        .inner_into()
-                        .errors_liftio()
-                } else {
-                    Tentative::new1(_kws)
-                };
-                Ok(tnt_supp_kws.map(|k| (delim, k, maybe_supp_seg)))
-            })
+        if conf.ignore_stext {
+            Ok(Tentative::new1((delim, kws, None)))
+        } else {
+            lookup_stext_offsets(&mut kws.std, header.version, ptext_seg, conf)
+                .errors_into()
+                .errors_liftio()
+                .warnings_into()
+                .map(|s| (s, kws))
+                .and_maybe(|(maybe_supp_seg, _kws)| {
+                    let tnt_supp_kws = if let Some(seg) = maybe_supp_seg {
+                        buf.clear();
+                        seg.inner
+                            .h_read_contents(h, &mut buf)
+                            .map_err(|e| DeferredFailure::new1(e.into()))?;
+                        split_raw_supp_text(_kws, delim, &buf, conf)
+                            .inner_into()
+                            .errors_liftio()
+                    } else {
+                        Tentative::new1(_kws)
+                    };
+                    Ok(tnt_supp_kws.map(|k| (delim, k, maybe_supp_seg)))
+                })
+        }
     })?;
 
     let out = tnt_all_kws.and_tentatively(|(delimiter, mut kws, supp_text_seg)| {
@@ -1117,7 +1121,7 @@ fn lookup_nextdata(
 
 impl fmt::Display for DuplicatedSuppTEXT {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        f.write_str("offsets for TEXT in HEADER are duplicated in STEXT")
+        f.write_str("primary and supplemental TEXT are duplicated")
     }
 }
 

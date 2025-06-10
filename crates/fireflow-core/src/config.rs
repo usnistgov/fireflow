@@ -122,7 +122,8 @@ pub struct HeaderConfig {
     /// Corrections for OTHER segments if they exist.
     ///
     /// Each correction will be applied in order. If an offset does not need
-    /// to be corrected, use 0,0.
+    /// to be corrected, use 0,0. This will not affect the number of OTHER
+    /// segments that are read; this is controlled by ['max_other'].
     pub other_corrections: Vec<HeaderCorrection<OtherSegmentId>>,
 
     /// Maximum number of OTHER segments that can be parsed.
@@ -353,8 +354,28 @@ pub struct SharedConfig {
     /// If true, all warnings are considered to be fatal errors.
     pub warnings_are_errors: bool,
 
-    /// If true, don't truncate the bitmask to whatever type it needs to be.
-    pub bitmask_notruncate: bool,
+    /// If true, disallow bitmask to be truncated when converting from native type.
+    ///
+    /// This only applies to integer columns (ie DATATYPE=I and/or
+    /// PnDATATYPE=I).
+    ///
+    /// Some files store $PnR as an large number (such as 2^128), sometimes much
+    /// more than the $PnB would allow if matched to the type of the range. For
+    /// integers, $PnR implies the bitmask, and a larger-than-$PnB number
+    /// implies this bitmask should be all ones. Setting this flag to true will
+    /// throw an error if $PnR is much higher than the type for $PnB (ie it
+    /// needs to be truncated to make the bitmask).
+    ///
+    /// The standard is not clear on how this is supposed to work. Ideally, $PnR
+    /// and $PnB should match in terms of type and bits to express said type.
+    /// Due to the vagueness in the standard and the fact that the interpretation of
+    /// large $PnR is fairly clear, this is not an error by default. Users might be
+    /// interested in setting this to true if large $PnR values might indicated a typo
+    /// or other issue.
+    ///
+    /// Note: this flag has nothing to do with the bitmask being applied to the
+    /// actual data being read. This will happen regardless.
+    pub disallow_bitmask_truncation: bool,
 }
 
 pub trait Strict: Default {
@@ -432,7 +453,7 @@ impl Strict for TimeConfig {
 impl Strict for SharedConfig {
     fn set_strict_inner(self) -> Self {
         Self {
-            bitmask_notruncate: true,
+            disallow_bitmask_truncation: true,
             ..self
         }
     }

@@ -394,7 +394,7 @@ fn py_read_fcs_std_text(
     allow_uneven_event_width=false,
     allow_tot_mismatch=false,
 
-    bitmask_notruncate=false,
+    disallow_bitmask_truncation=false,
     warnings_are_errors=false,
 
     shortname_prefix=None,
@@ -448,7 +448,7 @@ fn py_read_fcs_file(
     allow_uneven_event_width: bool,
     allow_tot_mismatch: bool,
 
-    bitmask_notruncate: bool,
+    disallow_bitmask_truncation: bool,
     warnings_are_errors: bool,
 
     shortname_prefix: Option<String>,
@@ -511,7 +511,7 @@ fn py_read_fcs_file(
     let conf = DataReadConfig {
         standard,
         shared: SharedConfig {
-            bitmask_notruncate,
+            disallow_bitmask_truncation,
             warnings_are_errors,
         },
         reader: ReaderConfig {

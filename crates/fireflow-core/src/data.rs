@@ -2180,7 +2180,7 @@ impl VersionedDataLayout for DataLayout2_0 {
                 .map(|x| x.map_or(Self::Empty, Self::Ascii))
                 .mult_to_deferred(),
             AlphaNumType::Integer => {
-                AnyUintLayout::try_new(columns, &byteord, conf.bitmask_notruncate)
+                AnyUintLayout::try_new(columns, &byteord, conf.disallow_bitmask_truncation)
                     .def_map_value(|x| x.map_or(Self::Empty, Self::Integer))
                     .def_inner_into()
             }
@@ -2295,7 +2295,7 @@ impl VersionedDataLayout for DataLayout3_0 {
                 .map(|x| x.map_or(Self::Empty, Self::Ascii))
                 .mult_to_deferred(),
             AlphaNumType::Integer => {
-                AnyUintLayout::try_new(columns, &byteord, conf.bitmask_notruncate)
+                AnyUintLayout::try_new(columns, &byteord, conf.disallow_bitmask_truncation)
                     .def_map_value(|x| x.map_or(Self::Empty, Self::Integer))
                     .def_inner_into()
             }
@@ -2393,9 +2393,11 @@ impl VersionedDataLayout for DataLayout3_1 {
             AlphaNumType::Ascii => AsciiLayout::try_new(columns)
                 .map(|x| x.map_or(Self::Empty, Self::Ascii))
                 .mult_to_deferred(),
-            AlphaNumType::Integer => FixedLayout::try_new(columns, endian, conf.bitmask_notruncate)
-                .def_map_value(|x| x.map_or(Self::Empty, Self::Integer))
-                .def_inner_into(),
+            AlphaNumType::Integer => {
+                FixedLayout::try_new(columns, endian, conf.disallow_bitmask_truncation)
+                    .def_map_value(|x| x.map_or(Self::Empty, Self::Integer))
+                    .def_inner_into()
+            }
             AlphaNumType::Single => f32::layout_endian(columns, endian)
                 .map(|x| x.map_or(Self::Empty, |y| Self::Float(FloatLayout::F32(y))))
                 .mult_to_deferred(),
@@ -2504,7 +2506,7 @@ impl VersionedDataLayout for DataLayout3_2 {
                     .map(|x| x.map_or(Self::Empty, Self::Ascii))
                     .mult_to_deferred(),
                 AlphaNumType::Integer => {
-                    FixedLayout::try_new(dt_columns, endian, conf.bitmask_notruncate)
+                    FixedLayout::try_new(dt_columns, endian, conf.disallow_bitmask_truncation)
                         .def_map_value(|x| x.map_or(Self::Empty, Self::Integer))
                         .def_inner_into()
                 }
@@ -2524,7 +2526,7 @@ impl VersionedDataLayout for DataLayout3_2 {
                         c.datatype,
                         endian,
                         c.range,
-                        conf.bitmask_notruncate,
+                        conf.disallow_bitmask_truncation,
                     )
                     .def_map_errors(|error| {
                         ColumnError {

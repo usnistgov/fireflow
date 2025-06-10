@@ -164,7 +164,7 @@ impl Header {
         h: &mut BufReader<R>,
         conf: &HeaderConfig,
     ) -> MultiResult<Self, ImpureError<HeaderError>> {
-        h_read_standard_header(h, conf).and_then(|(version, text, data, analysis)| {
+        h_read_required_header(h, conf).and_then(|(version, text, data, analysis)| {
             [
                 text.inner.try_coords(),
                 data.inner.try_coords(),
@@ -175,7 +175,7 @@ impl Header {
             .map(|(x, _)| x)
             .min()
             .map_or(Ok(vec![]), |earliest_begin| {
-                h_read_other_segments(h, *earliest_begin, conf)
+                h_read_other_segments(h, *earliest_begin, conf.allow_negative, conf)
             })
             .map(|other| Self {
                 version,
@@ -198,7 +198,7 @@ impl Header {
     }
 }
 
-fn h_read_standard_header<R: Read>(
+fn h_read_required_header<R: Read>(
     h: &mut BufReader<R>,
     conf: &HeaderConfig,
 ) -> MultiResult<
@@ -214,9 +214,9 @@ fn h_read_standard_header<R: Read>(
         .map_err(NonEmpty::new)
         .mult_map_errors(|e| e.map_inner(HeaderError::Version));
     let space_res = h_read_spaces(h).map_err(NonEmpty::new);
-    let text_res = PrimaryTextSegment::h_read_offsets(h, false, conf.text_correction);
-    let data_res = HeaderDataSegment::h_read_offsets(h, false, conf.data_correction);
-    let anal_res = HeaderAnalysisSegment::h_read_offsets(h, true, conf.analysis_correction);
+    let text_res = PrimaryTextSegment::h_read_offsets(h, false, conf, conf.text_correction);
+    let data_res = HeaderDataSegment::h_read_offsets(h, true, conf, conf.data_correction);
+    let anal_res = HeaderAnalysisSegment::h_read_offsets(h, true, conf, conf.analysis_correction);
     let offset_res = text_res
         .mult_zip3(data_res, anal_res)
         .mult_map_errors(|e| e.map_inner(HeaderError::Segment));
@@ -245,6 +245,7 @@ fn h_read_spaces<R: Read>(h: &mut BufReader<R>) -> Result<(), ImpureError<Header
 fn h_read_other_segments<R: Read>(
     h: &mut BufReader<R>,
     text_begin: Uint8Digit,
+    allow_negative: bool,
     conf: &HeaderConfig,
 ) -> MultiResult<Vec<OtherSegment>, ImpureError<HeaderError>> {
     // ASSUME this won't fail because we checked that each offset is greater
@@ -269,7 +270,7 @@ fn h_read_other_segments<R: Read>(
             if buf0.iter().chain(buf1.iter()).all(|x| *x == 32) {
                 Ok(None)
             } else {
-                OtherSegment::parse(&buf0, &buf1, corr)
+                OtherSegment::parse(&buf0, &buf1, allow_negative, corr)
                     .map(Some)
                     .mult_map_errors(HeaderError::Segment)
                     .mult_map_errors(ImpureError::Pure)

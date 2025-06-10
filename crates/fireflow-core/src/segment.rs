@@ -1,3 +1,4 @@
+use crate::config::HeaderConfig;
 use crate::error::*;
 use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
 use crate::text::keywords::*;
@@ -600,6 +601,7 @@ impl<I: Copy> HeaderSegment<I> {
     pub(crate) fn h_read_offsets<R: Read>(
         h: &mut BufReader<R>,
         allow_blank: bool,
+        conf: &HeaderConfig,
         corr: OffsetCorrection<I, SegmentFromHeader>,
     ) -> MultiResult<Self, ImpureError<HeaderSegmentError>>
     where
@@ -609,24 +611,27 @@ impl<I: Copy> HeaderSegment<I> {
         let mut buf1 = [0_u8; 8];
         h.read_exact(&mut buf0).into_mult()?;
         h.read_exact(&mut buf1).into_mult()?;
-        Self::parse(&buf0, &buf1, allow_blank, corr).mult_map_errors(ImpureError::Pure)
+        Self::parse(&buf0, &buf1, allow_blank, conf, corr).mult_map_errors(ImpureError::Pure)
     }
 
     pub(crate) fn parse(
         bs0: &[u8; 8],
         bs1: &[u8; 8],
         allow_blank: bool,
+        conf: &HeaderConfig,
         corr: OffsetCorrection<I, SegmentFromHeader>,
     ) -> MultiResult<Self, HeaderSegmentError>
     where
         I: HasRegion,
     {
         let parse_one = |bs, is_begin| {
-            Uint8Digit::from_bytes(bs, allow_blank).map_err(|error| ParseOffsetError {
-                error,
-                is_begin,
-                location: I::REGION,
-                source: bs.to_vec(),
+            Uint8Digit::from_bytes(bs, allow_blank, conf.allow_negative).map_err(|error| {
+                ParseOffsetError {
+                    error,
+                    is_begin,
+                    location: I::REGION,
+                    source: bs.to_vec(),
+                }
             })
         };
 
@@ -635,7 +640,14 @@ impl<I: Copy> HeaderSegment<I> {
         begin_res
             .zip(end_res)
             .mult_errors_into()
-            .and_then(|(begin, end)| SpecificSegment::try_new(begin, end, corr).into_mult())
+            .and_then(|(begin, end)| {
+                let (b, e) = if conf.squish_offsets && u32::from(end) == 0 && begin > end {
+                    (Uint8Digit::default(), Uint8Digit::default())
+                } else {
+                    (begin, end)
+                };
+                SpecificSegment::try_new(b, e, corr).into_mult()
+            })
     }
 
     /// Create offset pairs for HEADER
@@ -683,15 +695,28 @@ impl OtherSegment {
     pub(crate) fn parse(
         bs0: &[u8],
         bs1: &[u8],
+        allow_negative: bool,
         corr: OffsetCorrection<OtherSegmentId, SegmentFromHeader>,
     ) -> MultiResult<Self, HeaderSegmentError> {
         let parse_one = |bs: &[u8], is_begin| {
             ascii_str_from_bytes(bs)
                 .map_err(ParseFixedUintError::NotAscii)
                 .and_then(|s| {
-                    s.trim_start()
-                        .parse::<Uint20Char>()
-                        .map_err(ParseFixedUintError::Int)
+                    let x = s
+                        .trim_start()
+                        .parse::<i32>()
+                        .map_err(ParseFixedUintError::Int)?;
+                    if x < 0 {
+                        if allow_negative {
+                            Ok(Uint20Char::default())
+                        } else {
+                            Err(ParseFixedUintError::Negative(NegativeOffsetError(x)))
+                        }
+                    } else {
+                        // ASSUME this will never fail because we checked the
+                        // sign above
+                        Ok(Uint20Char(x as u64))
+                    }
                 })
                 .map_err(|error| ParseOffsetError {
                     error,

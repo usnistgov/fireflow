@@ -120,6 +120,38 @@ pub struct HeaderConfig {
     /// 20 (corresponding to a theoretical max of 2^64) but will default to 8
     /// since this is most logical.
     pub other_width: OtherWidth,
+
+    /// If true and a segments ending offset is zero, treat it as empty.
+    ///
+    /// HEADER offsets can only store up to 99,999,999 bytes. If an offset must
+    /// be bigger, both offsets for the segment should be written in TEXT and
+    /// the HEADER offsets should be both set to zero.
+    ///
+    /// Some files (incorrectly) only set the ending HEADER offset to zero in
+    /// this case is too big. Since offsets are validated such that start <=
+    /// end, this is invalid. This option will artificially "squish" the HEADER
+    /// offset so it is actually 0,0 which will force the use of the
+    /// corresponding offset in TEXT.
+    ///
+    /// This only applies to 3.0 and up. If this happens in a 2.0 file, it is
+    /// just wrong and the only option to fix it is to directly override/edit
+    /// the offsets. This also will only apply to DATA and ANALYSIS offsets,
+    /// since the TEXT offsets themselves cannot be written in TEXT without
+    /// unleashing the dreaded recursive doom loop monster.
+    pub squish_offsets: bool,
+
+    /// If true, allow negative values in a HEADER offset.
+    ///
+    /// An empty offset is supposed to be written as 0,0 according to the
+    /// standard. However, this is actually nonsense given that the begin and
+    /// end offsets point to the first and last byte; thus 0,0 points to
+    /// bytes 0 and 0 for begin and end respectively, which is one byte and
+    /// not zero. Therefore, some vendors (understandably) write an "empty"
+    /// offset as 0,-1 which actually is zero bytes long. However, -1 is
+    /// not a valid offset.
+    ///
+    /// This flag will treat any negative offset as a 0.
+    pub allow_negative: bool,
 }
 
 /// Instructions for reading the TEXT segment as raw key/value pairs.

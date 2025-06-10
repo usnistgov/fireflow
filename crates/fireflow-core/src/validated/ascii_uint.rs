@@ -91,23 +91,37 @@ newtype_disp!(Uint8Digit);
 
 impl Uint8Digit {
     /// Parse from a buffer that contains 8 bytes.
-    pub(crate) fn from_bytes(bs: &[u8; 8], allow_blank: bool) -> Result<Self, ParseFixedUintError> {
+    pub(crate) fn from_bytes(
+        bs: &[u8; 8],
+        allow_blank: bool,
+        allow_negative: bool,
+    ) -> Result<Self, ParseFixedUintError> {
         let s = ascii_str_from_bytes(bs).map_err(ParseFixedUintError::NotAscii)?;
         let trimmed = s.trim_start();
         if allow_blank && trimmed.is_empty() {
             return Ok(Uint8Digit::default());
         }
-        trimmed
-            .parse::<u32>()
-            .map(Uint8Digit)
-            .map_err(ParseFixedUintError::Int)
+        let x = trimmed.parse::<i32>().map_err(ParseFixedUintError::Int)?;
+        if x < 0 {
+            if allow_negative {
+                Ok(Self::default())
+            } else {
+                Err(ParseFixedUintError::Negative(NegativeOffsetError(x)))
+            }
+        } else {
+            // ASSUME this will never wrap since the max digits we can read are
+            // 8, which is only ~1e9 which is much less than 4e10 which is the
+            // max of a u32.
+            Ok(Self(x as u32))
+        }
     }
 }
 
 enum_from_disp!(
     pub ParseFixedUintError,
     [Int, ParseIntError],
-    [NotAscii, BytesNotAscii]
+    [NotAscii, BytesNotAscii],
+    [Negative, NegativeOffsetError]
 );
 
 impl From<Uint8Digit> for u64 {
@@ -182,5 +196,13 @@ pub struct BytesNotAscii(Vec<u8>);
 impl fmt::Display for BytesNotAscii {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "could not convert to ASCII string: {:?}", self.0)
+    }
+}
+
+pub struct NegativeOffsetError(pub i32);
+
+impl fmt::Display for NegativeOffsetError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "HEADER offset is negative: {}", self.0)
     }
 }

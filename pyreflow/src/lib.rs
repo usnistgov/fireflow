@@ -70,6 +70,8 @@ fn py_read_fcs_header(
         other_corrections: vec![],
         other_width: OtherWidth::default(),
         max_other: None,
+        allow_negative: false,
+        squish_offsets: false,
     };
     fcs_read_header(&p, &conf)
         .map_err(handle_failure_nowarn)
@@ -151,6 +153,8 @@ fn py_read_fcs_raw_text(
         other_corrections: vec![],
         other_width: OtherWidth::default(),
         max_other: None,
+        allow_negative: false,
+        squish_offsets: false,
     };
 
     let conf = RawTextReadConfig {
@@ -287,6 +291,8 @@ fn py_read_fcs_std_text(
         other_corrections: vec![],
         other_width: OtherWidth::default(),
         max_other: None,
+        allow_negative: false,
+        squish_offsets: false,
     };
 
     let raw = RawTextReadConfig {
@@ -475,6 +481,8 @@ fn py_read_fcs_file(
         other_corrections: vec![],
         other_width: OtherWidth::default(),
         max_other: None,
+        allow_negative: false,
+        squish_offsets: false,
     };
 
     let raw = RawTextReadConfig {

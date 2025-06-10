@@ -1117,7 +1117,7 @@ fn lookup_nextdata(
 
 impl fmt::Display for DuplicatedSuppTEXT {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        f.write_str("offsets for TEXT in HEADER are duplicated in STEXT in TEXT")
+        f.write_str("offsets for TEXT in HEADER are duplicated in STEXT")
     }
 }
 

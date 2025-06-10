@@ -96,6 +96,7 @@ fn py_read_fcs_header(
     text_end_stext=0,
     use_literal_delims=false,
     allow_non_ascii_delim=false,
+    allow_duplicated_stext=false,
     allow_missing_final_delim=false,
     allow_nonunique=false,
     allow_odd=false,
@@ -128,6 +129,7 @@ fn py_read_fcs_raw_text(
     text_end_stext: i32,
     use_literal_delims: bool,
     allow_non_ascii_delim: bool,
+    allow_duplicated_stext: bool,
     allow_missing_final_delim: bool,
     allow_nonunique: bool,
     allow_odd: bool,
@@ -157,8 +159,9 @@ fn py_read_fcs_raw_text(
 
     let conf = RawTextReadConfig {
         header,
-        stext: OffsetCorrection::new(text_begin_stext, text_end_stext),
+        stext_correction: OffsetCorrection::new(text_begin_stext, text_end_stext),
         use_literal_delims,
+        allow_duplicated_stext,
         allow_non_ascii_delim,
         allow_missing_final_delim,
         allow_nonunique,
@@ -207,6 +210,7 @@ fn py_read_fcs_raw_text(
     text_begin_stext=0,
     text_end_stext=0,
     use_literal_delims=false,
+    allow_duplicated_stext=false,
     allow_non_ascii_delim=false,
     allow_missing_final_delim=false,
     allow_nonunique=false,
@@ -249,6 +253,7 @@ fn py_read_fcs_std_text(
     text_begin_stext: i32,
     text_end_stext: i32,
     use_literal_delims: bool,
+    allow_duplicated_stext: bool,
     allow_non_ascii_delim: bool,
     allow_missing_final_delim: bool,
     allow_nonunique: bool,
@@ -289,8 +294,9 @@ fn py_read_fcs_std_text(
 
     let raw = RawTextReadConfig {
         header,
-        stext: OffsetCorrection::new(text_begin_stext, text_end_stext),
+        stext_correction: OffsetCorrection::new(text_begin_stext, text_end_stext),
         use_literal_delims,
+        allow_duplicated_stext,
         allow_non_ascii_delim,
         allow_missing_final_delim,
         allow_nonunique,
@@ -370,6 +376,7 @@ fn py_read_fcs_std_text(
     text_end_analysis=0,
 
     use_literal_delims=false,
+    allow_duplicated_stext=false,
     allow_non_ascii_delim=false,
     allow_missing_final_delim=false,
     allow_nonunique=false,
@@ -425,6 +432,7 @@ fn py_read_fcs_file(
     text_end_analysis: i32,
 
     use_literal_delims: bool,
+    allow_duplicated_stext: bool,
     allow_non_ascii_delim: bool,
     allow_missing_final_delim: bool,
     allow_nonunique: bool,
@@ -472,8 +480,9 @@ fn py_read_fcs_file(
 
     let raw = RawTextReadConfig {
         header,
-        stext: OffsetCorrection::new(text_begin_stext, text_end_stext),
+        stext_correction: OffsetCorrection::new(text_begin_stext, text_end_stext),
         use_literal_delims,
+        allow_duplicated_stext,
         allow_non_ascii_delim,
         allow_missing_final_delim,
         allow_nonunique,

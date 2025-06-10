@@ -181,7 +181,18 @@ pub struct RawTextReadConfig {
     pub header: HeaderConfig,
 
     /// Corrections for supplemental TEXT segment
-    pub stext: TEXTCorrection<SupplementalTextSegmentId>,
+    pub stext_correction: TEXTCorrection<SupplementalTextSegmentId>,
+
+    /// If true, allow STEXT to exactly match the HEADER offsets for TEXT.
+    ///
+    /// Many files do not have (or need) STEXT, but a subset of these will
+    /// duplicate the offsets of TEXT from the HEADER into the *STEXT keywords.
+    /// According to the standard, these should be empty, which is why this is
+    /// an error by default. If this flag is true, this becomes a warning.
+    ///
+    /// The STEXT offsets will be regardless of this flag if they are
+    /// duplicated.
+    pub allow_duplicated_stext: bool,
 
     /// If true, treat every delimiter as literal.
     ///

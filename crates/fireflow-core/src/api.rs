@@ -399,17 +399,26 @@ enum_from_disp!(
 );
 
 enum_from_disp!(
+    pub STextSegmentError,
+    [ReqSegment, ReqSegmentError],
+    [Dup, DuplicatedSuppTEXT]
+);
+
+enum_from_disp!(
     pub STextSegmentWarning,
     [ReqSegment, ReqSegmentError],
-    [OptSegment, OptSegmentError]
+    [OptSegment, OptSegmentError],
+    [Dup, DuplicatedSuppTEXT]
 );
+
+pub struct DuplicatedSuppTEXT;
 
 enum_from_disp!(
     pub ParseRawTEXTError,
     [Delim, DelimVerifyError],
     [Primary, ParsePrimaryTEXTError],
     [Supplemental, ParseSupplementalTEXTError],
-    [SuppOffsets, ReqSegmentError],
+    [SuppOffsets, STextSegmentError],
     [Nextdata, ReqKeyError<ParseIntError>],
     [NonAscii, NonAsciiKeyError],
     [NonUtf8, NonUtf8KeywordError],
@@ -657,9 +666,8 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
     conf: &RawTextReadConfig,
 ) -> DeferredResult<RawTEXTOutput, ParseRawTEXTWarning, ImpureError<ParseRawTEXTError>> {
     let mut buf = vec![];
-    header
-        .segments
-        .text
+    let ptext_seg = header.segments.text;
+    ptext_seg
         .inner
         .h_read_contents(h, &mut buf)
         .into_deferred()?;
@@ -678,7 +686,7 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
     })?;
 
     let tnt_all_kws = tnt_primary.and_maybe(|(delim, mut kws)| {
-        lookup_stext_offsets(&mut kws.std, header.version, conf)
+        lookup_stext_offsets(&mut kws.std, header.version, ptext_seg, conf)
             .errors_into()
             .errors_liftio()
             .warnings_into()
@@ -780,7 +788,7 @@ fn split_first_delim<'a>(
 ) -> DeferredResult<(u8, &'a [u8]), DelimCharError, DelimVerifyError> {
     if let Some((delim, rest)) = bytes.split_first() {
         let mut tnt = Tentative::new1((*delim, rest));
-        if (1..=126).contains(delim) {
+        if !(1..=126).contains(delim) {
             tnt.push_error_or_warning(DelimCharError(*delim), !conf.allow_non_ascii_delim);
         }
         Ok(tnt)
@@ -1062,17 +1070,28 @@ fn repair_offsets(mut kws: ParsedKeywords, conf: &RawTextReadConfig) -> ParsedKe
 fn lookup_stext_offsets(
     kws: &mut StdKeywords,
     version: Version,
+    text_segment: PrimaryTextSegment,
     conf: &RawTextReadConfig,
-) -> Tentative<Option<SupplementalTextSegment>, STextSegmentWarning, ReqSegmentError> {
+) -> Tentative<Option<SupplementalTextSegment>, STextSegmentWarning, STextSegmentError> {
     match version {
         Version::FCS2_0 => Tentative::new1(None),
-        Version::FCS3_0 | Version::FCS3_1 => KeyedReqSegment::get_mult(kws, conf.stext)
+        Version::FCS3_0 | Version::FCS3_1 => KeyedReqSegment::get_mult(kws, conf.stext_correction)
             .map_or_else(
                 |es| Tentative::new_either(None, es.into(), conf.allow_missing_stext),
                 |t| Tentative::new1(Some(t)),
             ),
-        Version::FCS3_2 => KeyedOptSegment::get(kws, conf.stext).warnings_into(),
+        Version::FCS3_2 => KeyedOptSegment::get(kws, conf.stext_correction).warnings_into(),
     }
+    .and_tentatively(|x| {
+        x.map(|seg| {
+            if seg.inner.as_u64() == text_segment.inner.as_u64() {
+                Tentative::new_either(None, vec![DuplicatedSuppTEXT], !conf.allow_duplicated_stext)
+            } else {
+                Tentative::new1(Some(seg))
+            }
+        })
+        .unwrap_or(Tentative::new1(None))
+    })
 }
 
 // TODO the reason we use get instead of remove here is because we don't want to
@@ -1093,6 +1112,12 @@ fn lookup_nextdata(
         )
     } else {
         get_opt(kws, k).map_or_else(|w| Tentative::new(None, vec![w], vec![]), Tentative::new1)
+    }
+}
+
+impl fmt::Display for DuplicatedSuppTEXT {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        f.write_str("offsets for TEXT in HEADER are duplicated in STEXT in TEXT")
     }
 }
 

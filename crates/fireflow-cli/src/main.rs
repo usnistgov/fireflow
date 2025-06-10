@@ -114,6 +114,7 @@ fn main() -> Result<(), ()> {
         arg!(--"other-width" [WIDTH] "width of OTHER segments").value_parser(value_parser!(u8));
     let squish_offsets = arg!(--"squish-offsets" "squish DATA/ANALYSIS, offsets that end in 0");
     let allow_negative = arg!(--"allow-negative" "substitute 0 for negative offsets");
+    let allow_dup_stext = arg!(--"allow-dup-stext" "only throw warning if STEXT is same as TEXT");
 
     let cmd = Command::new("fireflow")
         .about("read and write FCS files")
@@ -143,6 +144,7 @@ fn main() -> Result<(), ()> {
                 .arg(&other_width)
                 .arg(&squish_offsets)
                 .arg(&allow_negative)
+                .arg(&allow_dup_stext)
         )
 
         .subcommand(
@@ -165,6 +167,7 @@ fn main() -> Result<(), ()> {
                 .arg(&other_width)
                 .arg(&squish_offsets)
                 .arg(&allow_negative)
+                .arg(&allow_dup_stext)
         )
 
         .subcommand(
@@ -179,6 +182,7 @@ fn main() -> Result<(), ()> {
                 .arg(&other_width)
                 .arg(&squish_offsets)
                 .arg(&allow_negative)
+                .arg(&allow_dup_stext)
         )
 
         .subcommand(
@@ -193,6 +197,7 @@ fn main() -> Result<(), ()> {
                 .arg(&other_width)
                 .arg(&squish_offsets)
                 .arg(&allow_negative)
+                .arg(&allow_dup_stext)
         )
 
         .subcommand(
@@ -208,6 +213,7 @@ fn main() -> Result<(), ()> {
                 .arg(&other_width)
                 .arg(&squish_offsets)
                 .arg(&allow_negative)
+                .arg(&allow_dup_stext)
         );
 
     let args = cmd.get_matches();
@@ -260,6 +266,7 @@ fn main() -> Result<(), ()> {
             };
             conf = config::RawTextReadConfig {
                 repair_offset_spaces: sargs.get_flag("repair-offset-spaces"),
+                allow_duplicated_stext: sargs.get_flag("allow-dup-stext"),
                 ..conf
             };
             fcs_read_raw_text(filepath, &conf)
@@ -283,6 +290,7 @@ fn main() -> Result<(), ()> {
             };
             // get_text_delta(sargs);
             conf.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
+            conf.raw.allow_duplicated_stext = sargs.get_flag("allow-dup-stext");
             let delim = sargs.get_one::<String>("delimiter").unwrap();
 
             fcs_read_std_text(filepath, &conf)
@@ -306,6 +314,7 @@ fn main() -> Result<(), ()> {
             };
             // get_text_delta(sargs);
             conf.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
+            conf.raw.allow_duplicated_stext = sargs.get_flag("allow-dup-stext");
             let delim = sargs.get_one::<String>("delimiter").unwrap();
 
             fcs_read_std_text(filepath, &conf)
@@ -345,6 +354,7 @@ fn main() -> Result<(), ()> {
             }
 
             conf.time.allow_missing = sargs.get_flag("ensure-time");
+            conf.raw.allow_duplicated_stext = sargs.get_flag("allow-dup-stext");
             // conf.time.allow_nonlinear_scale = sargs.get_flag("ensure-time-linear");
             // conf.time.allow_nontime_keywords = sargs.get_flag("ensure-time-nogain");
             conf.allow_deviant = sargs.get_flag("allow-deviant");
@@ -376,6 +386,7 @@ fn main() -> Result<(), ()> {
 
             // get_text_delta(sargs);
             // TODO add DATA delta adjust
+            conf.standard.raw.allow_duplicated_stext = sargs.get_flag("allow-dup-stext");
             conf.standard.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
             let delim = sargs.get_one::<String>("delimiter").unwrap();
 

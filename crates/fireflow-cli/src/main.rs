@@ -154,10 +154,9 @@ fn main() -> Result<(), ()> {
                 .arg(&endtext_arg)
                 .arg(arg!(-t --"time-name" [NAME] "name of time measurement"))
                 .arg(arg!(-T --"ensure-time" "make sure time measurement exists"))
-                .arg(arg!(-l --"ensure-time-linear" "ensure time measurement is linear"))
-                .arg(arg!(-g --"ensure-time-nogain" "ensure time measurement does not have gain"))
-                .arg(arg!(-d --"disallow-deviant" "disallow deviant keywords"))
-                .arg(arg!(-n --"disallow-nonstandard" "disallow nonstandard keywords"))
+                // .arg(arg!(-l --"ensure-time-linear" "ensure time measurement is linear"))
+                // .arg(arg!(-g --"ensure-time-nogain" "ensure time measurement does not have gain"))
+                .arg(arg!(-d --"allow-deviant" "allow deviant keywords"))
                 .arg(arg!(-D --"disallow-deprecated" "disallow deprecated keywords"))
                 .arg(arg!(-p --"date-pattern" [PATTERN] "pattern to use when matching $DATE"))
                 .arg(arg!(-P --"ns-meas-pattern" [PATTERN] "pattern used to for nonstandard measurement keywords"))
@@ -348,7 +347,7 @@ fn main() -> Result<(), ()> {
             conf.time.allow_missing = sargs.get_flag("ensure-time");
             // conf.time.allow_nonlinear_scale = sargs.get_flag("ensure-time-linear");
             // conf.time.allow_nontime_keywords = sargs.get_flag("ensure-time-nogain");
-            conf.allow_deviant = sargs.get_flag("disallow-deviant");
+            conf.allow_deviant = sargs.get_flag("allow-deviant");
             conf.disallow_deprecated = sargs.get_flag("disallow-deprecated");
             conf.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
 

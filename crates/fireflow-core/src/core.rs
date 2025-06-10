@@ -2749,18 +2749,25 @@ where
                 // $BEGINDATA, $ENDDATA, $BEGINANALYSIS, and $ENDANALYSIS.
                 // $TIMESTEP might also be present if it wasn't used for the
                 // time measurement. Make sure this is actually true
-                if kws.keys().any(|k| {
-                    !(k == &Begindata::std()
+                let mut deviant = vec![];
+                for k in kws.keys() {
+                    // TODO probably a more efficient way to do this
+                    if !(k == &Begindata::std()
                         || k == &Enddata::std()
                         || k == &Beginanalysis::std()
                         || k == &Endanalysis::std()
                         || k == &Tot::std()
                         || k == &Timestep::std())
-                }) {
+                    {
+                        deviant.push(k.clone())
+                    }
+                }
+                if let Some(ds) = NonEmpty::from_vec(deviant) {
+                    let e = DeviantError(ds);
                     if conf.allow_deviant {
-                        tnt_core.push_error(DeviantError.into());
+                        tnt_core.push_error(e.into());
                     } else {
-                        tnt_core.push_warning(DeviantError.into());
+                        tnt_core.push_warning(e.into());
                     }
                 }
 

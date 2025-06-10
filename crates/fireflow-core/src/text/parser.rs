@@ -19,6 +19,8 @@ use super::spillover::*;
 use super::timestamps::*;
 use super::unstainedcenters::*;
 
+use itertools::Itertools;
+use nonempty::NonEmpty;
 use std::convert::Infallible;
 use std::fmt;
 use std::num::{ParseFloatError, ParseIntError};
@@ -286,10 +288,10 @@ impl fmt::Display for TemporalError {
 // where we trigger an error for this (rather than a warning) in which case the
 // deviant keywords are not returned along with the standardized struct and
 // we want to use those deviant keywords somehow.
-pub struct DeviantError;
+pub struct DeviantError(pub NonEmpty<StdKey>);
 
 impl fmt::Display for DeviantError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "deviant keywords found")
+        write!(f, "deviant keywords found: {}", self.0.iter().join(","))
     }
 }

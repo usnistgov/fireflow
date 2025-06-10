@@ -687,6 +687,9 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
 
     let tnt_all_kws = tnt_primary.and_maybe(|(delim, mut kws)| {
         if conf.ignore_stext {
+            // TODO rip out the STEXT keywords so they don't trigger a false
+            // positive deviant keyword error later, there is probably a
+            // better way to handle this.
             Ok(Tentative::new1((delim, kws, None)))
         } else {
             lookup_stext_offsets(&mut kws.std, header.version, ptext_seg, conf)

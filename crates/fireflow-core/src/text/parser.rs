@@ -243,7 +243,7 @@ where
             .unwrap_or(Ok(()))
     }
 
-    fn lookup_linked_opt<E>(
+    fn lookup_opt<E>(
         kws: &mut StdKeywords,
         names: &HashSet<&Shortname>,
     ) -> LookupTentative<OptionalKw<Self>, E>
@@ -269,10 +269,6 @@ where
             Self::std().to_string(),
             opt.0.as_ref().map(|s| s.to_string()),
         )
-    }
-
-    fn pair(opt: &Self) -> (String, String) {
-        (Self::std().to_string(), opt.to_string())
     }
 
     fn reassign(&mut self, mapping: &NameMapping);

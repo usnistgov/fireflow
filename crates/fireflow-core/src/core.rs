@@ -1579,7 +1579,7 @@ where
         let sm = Smno::lookup_opt(kws, false);
         let sr = Src::lookup_opt(kws, false);
         let sy = Sys::lookup_opt(kws, false);
-        let t = Trigger::lookup_linked_opt(kws, &names);
+        let t = Trigger::lookup_opt(kws, &names);
         a.zip5(co, ce, e, f)
             .zip5(i, l, o, p)
             .zip5(sm, sr, sy, t)
@@ -3850,7 +3850,7 @@ impl CoreDataset3_2 {
 
 impl UnstainedData {
     fn lookup<E>(kws: &mut StdKeywords, names: &HashSet<&Shortname>) -> LookupTentative<Self, E> {
-        let c = UnstainedCenters::lookup_linked_opt(kws, names);
+        let c = UnstainedCenters::lookup_opt(kws, names);
         let i = UnstainedInfo::lookup_opt(kws, false);
         c.zip(i).map(|(unstainedcenters, unstainedinfo)| Self {
             unstainedcenters,
@@ -6440,7 +6440,7 @@ impl LookupMetaroot for InnerMetaroot3_1 {
         names: &HashSet<&Shortname>,
     ) -> LookupResult<Self> {
         let cy = Cyt::lookup_opt(kws, false);
-        let sp = Spillover::lookup_linked_opt(kws, names);
+        let sp = Spillover::lookup_opt(kws, names);
         let sn = Cytsn::lookup_opt(kws, false);
         let su = SubsetData::lookup(kws, true);
         let md = ModificationData::lookup(kws);
@@ -6506,7 +6506,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         // The only thing we care about is that the value is valid, since we
         // don't need to use it anywhere.
         let mo = Mode3_2::lookup_opt(kws, true);
-        let sp = Spillover::lookup_linked_opt(kws, names);
+        let sp = Spillover::lookup_opt(kws, names);
         let sn = Cytsn::lookup_opt(kws, false);
         let p = PlateData::lookup(kws, true);
         let t = Timestamps::lookup(kws, false);

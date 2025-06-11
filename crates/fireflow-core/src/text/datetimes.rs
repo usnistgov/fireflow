@@ -3,7 +3,6 @@ use crate::error::*;
 use crate::macros::{newtype_disp, newtype_from, newtype_from_outer, newtype_fromstr};
 use crate::validated::standard::*;
 
-use super::keywords::OptMetaKey;
 use super::optionalkw::*;
 use super::parser::*;
 
@@ -107,8 +106,8 @@ impl Datetimes {
     }
 
     pub(crate) fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<Self, E> {
-        let b = lookup_meta_opt(kws, false);
-        let e = lookup_meta_opt(kws, false);
+        let b = BeginDateTime::lookup_opt(kws, false);
+        let e = EndDateTime::lookup_opt(kws, false);
         b.zip(e).and_tentatively(|(begin, end)| {
             Datetimes::try_new(begin, end)
                 .map(Tentative::new1)
@@ -121,8 +120,8 @@ impl Datetimes {
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         [
-            OptMetaKey::pair_opt(&self.begin()),
-            OptMetaKey::pair_opt(&self.end()),
+            OptMetarootKey::pair_opt(&self.begin()),
+            OptMetarootKey::pair_opt(&self.end()),
         ]
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))

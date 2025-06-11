@@ -3,6 +3,7 @@ use crate::error::*;
 use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
 use crate::segment::*;
 use crate::text::keywords::*;
+use crate::text::parser::*;
 use crate::validated::ascii_uint::*;
 use crate::validated::standard::*;
 

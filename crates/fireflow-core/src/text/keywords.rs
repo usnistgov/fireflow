@@ -10,7 +10,7 @@ use super::datetimes::*;
 use super::float_or_int::*;
 use super::index::*;
 use super::named_vec::NameMapping;
-use super::optionalkw::*;
+use super::parser::*;
 use super::ranged_float::*;
 use super::scale::*;
 use super::spillover::*;
@@ -21,7 +21,7 @@ use chrono::{NaiveDateTime, NaiveTime, Timelike};
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::convert::Infallible;
 use std::fmt;
 use std::num::{ParseFloatError, ParseIntError};
@@ -1375,190 +1375,6 @@ newtype_from_outer!(PeakNumber, u32);
 newtype_disp!(PeakNumber);
 newtype_fromstr!(PeakNumber, ParseIntError);
 
-pub(crate) type RawKeywords = HashMap<String, String>;
-pub(crate) type OptKwResult<T> = Result<OptionalKw<T>, ParseKeyError<<T as FromStr>::Err>>;
-
-pub(crate) trait Required {
-    fn get_req<V>(kws: &StdKeywords, k: StdKey) -> ReqResult<V>
-    where
-        V: FromStr,
-    {
-        get_req(kws, k)
-    }
-
-    fn remove_req<V>(kws: &mut StdKeywords, k: StdKey) -> ReqResult<V>
-    where
-        V: FromStr,
-    {
-        remove_req(kws, k)
-    }
-}
-
-pub(crate) trait Optional {
-    fn get_opt<V>(kws: &StdKeywords, k: StdKey) -> OptKwResult<V>
-    where
-        V: FromStr,
-    {
-        get_opt(kws, k).map(|x| x.into())
-    }
-
-    fn remove_opt<V>(
-        kws: &mut StdKeywords,
-        k: StdKey,
-    ) -> Result<OptionalKw<V>, ParseKeyError<V::Err>>
-    where
-        V: FromStr,
-    {
-        remove_opt(kws, k).map(|x| x.into())
-    }
-}
-
-pub(crate) trait ReqMetaKey
-where
-    Self: Required,
-    Self: fmt::Display,
-    Self: Key,
-    Self: FromStr,
-{
-    fn get_meta_req(kws: &StdKeywords) -> ReqResult<Self> {
-        Self::get_req(kws, Self::std())
-    }
-
-    fn remove_meta_req(kws: &mut StdKeywords) -> ReqResult<Self> {
-        Self::remove_req(kws, Self::std())
-    }
-
-    fn pair(&self) -> (String, String) {
-        (Self::std().to_string(), self.to_string())
-    }
-}
-
-pub(crate) trait ReqIndexedKey
-where
-    Self: Required,
-    Self: fmt::Display,
-    Self: IndexedKey,
-    Self: FromStr,
-{
-    fn get_meas_req(kws: &StdKeywords, n: IndexFromOne) -> ReqResult<Self> {
-        Self::get_req(kws, Self::std(n))
-    }
-
-    fn remove_meas_req(kws: &mut StdKeywords, n: IndexFromOne) -> ReqResult<Self> {
-        Self::remove_req(kws, Self::std(n))
-    }
-
-    fn triple(&self, n: IndexFromOne) -> (String, String, String) {
-        (
-            Self::std_blank(),
-            Self::std(n).to_string(),
-            self.to_string(),
-        )
-    }
-
-    fn pair(&self, n: IndexFromOne) -> (String, String) {
-        let (_, k, v) = self.triple(n);
-        (k, v)
-    }
-}
-
-pub(crate) trait OptMetaKey
-where
-    Self: Optional,
-    Self: fmt::Display,
-    Self: Key,
-    Self: FromStr,
-{
-    fn get_meta_opt(kws: &StdKeywords) -> OptKwResult<Self> {
-        Self::get_opt(kws, Self::std())
-    }
-
-    fn remove_meta_opt(kws: &mut StdKeywords) -> OptKwResult<Self> {
-        Self::remove_opt(kws, Self::std())
-    }
-
-    fn pair_opt(opt: &OptionalKw<Self>) -> (String, Option<String>) {
-        (
-            Self::std().to_string(),
-            opt.0.as_ref().map(|s| s.to_string()),
-        )
-    }
-
-    fn pair(opt: &Self) -> (String, String) {
-        (Self::std().to_string(), opt.to_string())
-    }
-}
-
-pub(crate) trait OptIndexedKey
-where
-    Self: Optional,
-    Self: fmt::Display,
-    Self: IndexedKey,
-    Self: FromStr,
-{
-    fn get_meas_opt(kws: &StdKeywords, n: IndexFromOne) -> OptKwResult<Self> {
-        Self::get_opt(kws, Self::std(n))
-    }
-
-    fn remove_meas_opt(kws: &mut StdKeywords, n: IndexFromOne) -> OptKwResult<Self> {
-        Self::remove_opt(kws, Self::std(n))
-    }
-
-    fn triple(opt: &OptionalKw<Self>, n: IndexFromOne) -> (String, String, Option<String>) {
-        (
-            Self::std_blank(),
-            Self::std(n).to_string(),
-            opt.0.as_ref().map(|s| s.to_string()),
-        )
-    }
-
-    fn pair_opt(opt: &OptionalKw<Self>, n: IndexFromOne) -> (String, Option<String>) {
-        let (_, k, v) = Self::triple(opt, n);
-        (k, v)
-    }
-
-    fn pair(&self, i: IndexFromOne) -> (String, String) {
-        (Self::std(i).to_string(), self.to_string())
-    }
-}
-
-pub(crate) trait Linked
-where
-    Self: Key,
-    Self: Sized,
-{
-    fn check_link(&self, names: &HashSet<&Shortname>) -> Result<(), LinkedNameError> {
-        NonEmpty::collect(self.names().difference(names).copied().cloned())
-            .map(|common_names| LinkedNameError {
-                names: common_names,
-                key: Self::std(),
-            })
-            .map(Err)
-            .unwrap_or(Ok(()))
-    }
-
-    fn reassign(&mut self, mapping: &NameMapping);
-
-    fn names(&self) -> HashSet<&Shortname>;
-}
-
-pub struct LinkedNameError {
-    pub key: StdKey,
-    pub names: NonEmpty<Shortname>,
-}
-
-impl fmt::Display for LinkedNameError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let ns = if self.names.tail.is_empty() {
-            "name"
-        } else {
-            "names"
-        };
-        let bad = self.names.iter().join(", ");
-        write!(f, "{} references non-existent $PnN {ns}: {bad}", self.key)
-    }
-}
-
 macro_rules! newtype_string {
     ($t:ident) => {
         #[derive(Clone, Serialize)]
@@ -1637,14 +1453,14 @@ macro_rules! kw_meas_string {
 macro_rules! req_meta {
     ($t:ident) => {
         impl Required for $t {}
-        impl ReqMetaKey for $t {}
+        impl ReqMetarootKey for $t {}
     };
 }
 
 macro_rules! opt_meta {
     ($t:ident) => {
         impl Optional for $t {}
-        impl OptMetaKey for $t {}
+        impl OptMetarootKey for $t {}
     };
 }
 

@@ -1265,9 +1265,9 @@ impl CommonMeasurement {
     }
 
     fn lookup(kws: &mut StdKeywords, i: MeasIndex, nonstd: NonStdPairs) -> LookupResult<Self> {
-        lookup_indexed_opt(kws, i.into(), false).and_maybe(|longname| {
-            let w = lookup_indexed_req(kws, i.into());
-            let r = lookup_indexed_req(kws, i.into());
+        Longname::lookup_opt(kws, i.into(), false).and_maybe(|longname| {
+            let w = Width::lookup_req(kws, i.into());
+            let r = Range::lookup_req(kws, i.into());
             w.def_zip(r).def_map_value(|(width, range)| Self {
                 width,
                 range,
@@ -1390,11 +1390,11 @@ where
         P: LookupOptical,
     {
         let version = P::fcs_version();
-        let f = lookup_indexed_opt(kws, i.into(), false);
-        let p = lookup_indexed_opt(kws, i.into(), false);
-        let d = lookup_indexed_opt(kws, i.into(), false);
-        let e = lookup_indexed_opt(kws, i.into(), version == Version::FCS3_2);
-        let v = lookup_indexed_opt(kws, i.into(), false);
+        let f = Filter::lookup_opt(kws, i.into(), false);
+        let p = Power::lookup_opt(kws, i.into(), false);
+        let d = DetectorType::lookup_opt(kws, i.into(), false);
+        let e = PercentEmitted::lookup_opt(kws, i.into(), version == Version::FCS3_2);
+        let v = DetectorVoltage::lookup_opt(kws, i.into(), false);
         f.zip5(p, d, e, v).and_maybe(
             |(filter, power, detector_type, percent_emitted, detector_voltage)| {
                 let c = CommonMeasurement::lookup(kws, i, nonstd);
@@ -1562,25 +1562,25 @@ where
         M: LookupMetaroot,
     {
         let par = Par(ms.len());
-        let a = lookup_meta_opt(kws, false);
-        let ce = lookup_meta_opt(kws, false);
-        let co = lookup_meta_opt(kws, false);
-        let e = lookup_meta_opt(kws, false);
-        let f = lookup_meta_opt(kws, false);
-        let i = lookup_meta_opt(kws, false);
-        let l = lookup_meta_opt(kws, false);
-        let o = lookup_meta_opt(kws, false);
-        let p = lookup_meta_opt(kws, false);
-        let sm = lookup_meta_opt(kws, false);
-        let sr = lookup_meta_opt(kws, false);
-        let sy = lookup_meta_opt(kws, false);
-        let t = lookup_meta_opt(kws, false);
-        a.zip5(ce, co, e, f)
+        let a = Abrt::lookup_opt(kws, false);
+        let co = Com::lookup_opt(kws, false);
+        let ce = Cells::lookup_opt(kws, false);
+        let e = Exp::lookup_opt(kws, false);
+        let f = Fil::lookup_opt(kws, false);
+        let i = Inst::lookup_opt(kws, false);
+        let l = Lost::lookup_opt(kws, false);
+        let o = Op::lookup_opt(kws, false);
+        let p = Proj::lookup_opt(kws, false);
+        let sm = Smno::lookup_opt(kws, false);
+        let sr = Src::lookup_opt(kws, false);
+        let sy = Sys::lookup_opt(kws, false);
+        let t = Trigger::lookup_opt(kws, false);
+        a.zip5(co, ce, e, f)
             .zip5(i, l, o, p)
             .zip5(sm, sr, sy, t)
             .and_maybe(
                 |(((abrt, com, cells, exp, fil), inst, lost, op, proj), smno, src, sys, tr)| {
-                    let mut dt = lookup_meta_req(kws);
+                    let mut dt = AlphaNumType::lookup_req(kws);
                     let s = M::lookup_specific(kws, par);
                     dt.def_eval_warning(|datatype| {
                         if *datatype == AlphaNumType::Ascii
@@ -1622,19 +1622,19 @@ where
 
     fn all_opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         [
-            OptMetaKey::pair_opt(&self.abrt),
-            OptMetaKey::pair_opt(&self.com),
-            OptMetaKey::pair_opt(&self.cells),
-            OptMetaKey::pair_opt(&self.exp),
-            OptMetaKey::pair_opt(&self.fil),
-            OptMetaKey::pair_opt(&self.inst),
-            OptMetaKey::pair_opt(&self.lost),
-            OptMetaKey::pair_opt(&self.op),
-            OptMetaKey::pair_opt(&self.proj),
-            OptMetaKey::pair_opt(&self.smno),
-            OptMetaKey::pair_opt(&self.src),
-            OptMetaKey::pair_opt(&self.sys),
-            OptMetaKey::pair_opt(&self.tr),
+            OptMetarootKey::pair_opt(&self.abrt),
+            OptMetarootKey::pair_opt(&self.com),
+            OptMetarootKey::pair_opt(&self.cells),
+            OptMetarootKey::pair_opt(&self.exp),
+            OptMetarootKey::pair_opt(&self.fil),
+            OptMetarootKey::pair_opt(&self.inst),
+            OptMetarootKey::pair_opt(&self.lost),
+            OptMetarootKey::pair_opt(&self.op),
+            OptMetarootKey::pair_opt(&self.proj),
+            OptMetarootKey::pair_opt(&self.smno),
+            OptMetarootKey::pair_opt(&self.src),
+            OptMetarootKey::pair_opt(&self.sys),
+            OptMetarootKey::pair_opt(&self.tr),
         ]
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))
@@ -2397,7 +2397,7 @@ where
     ) -> Result<HeaderKeywordsToWrite, Uint8DigitOverflow> {
         let req: Vec<_> = self
             .req_meta_keywords()
-            .chain([ReqMetaKey::pair(&tot)])
+            .chain([ReqMetarootKey::pair(&tot)])
             .chain(self.req_meas_keywords())
             .collect();
         let opt: Vec<_> = self
@@ -2712,74 +2712,72 @@ where
         M::O: LookupOptical,
     {
         // Lookup $PAR first since we need this to get the measurements
-        Par::remove_meta_req(kws)
-            .map_err(|e| Box::new(e.inner_into()))
-            .into_deferred()
-            .def_and_maybe(|par| {
-                // $NEXTDATA/$BEGINSTEXT/$ENDSTEXT should have already been
-                // processed when we read the TEXT; remove them so they don't
-                // trigger false positives later when we test for deviant keys
-                let _ = kws.remove(&Nextdata::std());
-                let _ = kws.remove(&Beginstext::std());
-                let _ = kws.remove(&Endstext::std());
+        Par::lookup_req(kws).def_inner_into().def_and_maybe(|par| {
+            // $NEXTDATA/$BEGINSTEXT/$ENDSTEXT should have already been
+            // processed when we read the TEXT; remove them so they don't
+            // trigger false positives later when we test for deviant keys
+            let _ = kws.remove(&Nextdata::std());
+            let _ = kws.remove(&Beginstext::std());
+            let _ = kws.remove(&Endstext::std());
 
-                // Lookup measurements and metaroot with $PAR
-                let tp = conf.time.pattern.as_ref();
-                let sp = &conf.shortname_prefix;
-                let nsp = conf.nonstandard_measurement_pattern.as_ref();
-                let ns: Vec<_> = nonstd.into_iter().collect();
-                let mut tnt_core = Self::lookup_measurements(kws, par, tp, sp, nsp, ns)
-                    .def_and_maybe(|(ms, meta_ns)| {
-                        Metaroot::lookup_metaroot(kws, &ms, meta_ns)
-                            .def_map_value(|metaroot| CoreTEXT::new_unchecked(metaroot, ms))
-                            .def_warnings_into()
-                    })?;
+            // Lookup measurements and metaroot with $PAR
+            let tp = conf.time.pattern.as_ref();
+            let sp = &conf.shortname_prefix;
+            let nsp = conf.nonstandard_measurement_pattern.as_ref();
+            let ns: Vec<_> = nonstd.into_iter().collect();
+            let mut tnt_core = Self::lookup_measurements(kws, par, tp, sp, nsp, ns).def_and_maybe(
+                |(ms, meta_ns)| {
+                    Metaroot::lookup_metaroot(kws, &ms, meta_ns)
+                        .def_map_value(|metaroot| CoreTEXT::new_unchecked(metaroot, ms))
+                        .def_warnings_into()
+                },
+            )?;
 
-                // Check that the time measurement is present if we want it
-                tnt_core.eval_error(|core| {
-                    if let Some(pat) = tp {
-                        if !conf.time.allow_missing && core.measurements.as_center().is_none() {
-                            return Some(LookupKeysError::Misc(MissingTime(pat.clone()).into()));
-                        }
-                    }
-                    None
-                });
-
-                // At this point the only keywords that should be left are $TOT,
-                // $BEGINDATA, $ENDDATA, $BEGINANALYSIS, and $ENDANALYSIS.
-                // $TIMESTEP might also be present if it wasn't used for the
-                // time measurement. Make sure this is actually true
-                let mut deviant = vec![];
-                for k in kws.keys() {
-                    // TODO probably a more efficient way to do this
-                    if !(k == &Begindata::std()
-                        || k == &Enddata::std()
-                        || k == &Beginanalysis::std()
-                        || k == &Endanalysis::std()
-                        || k == &Tot::std()
-                        || k == &Timestep::std())
-                    {
-                        deviant.push(k.clone())
+            // Check that the time measurement is present if we want it
+            tnt_core.eval_error(|core| {
+                if let Some(pat) = tp {
+                    if !conf.time.allow_missing && core.measurements.as_center().is_none() {
+                        return Some(LookupKeysError::Misc(MissingTime(pat.clone()).into()));
                     }
                 }
-                if let Some(ds) = NonEmpty::from_vec(deviant) {
-                    let e = DeviantError(ds);
-                    if conf.allow_deviant {
-                        tnt_core.push_error(e.into());
-                    } else {
-                        tnt_core.push_warning(e.into());
-                    }
-                }
+                None
+            });
 
-                // make sure keywords which refer to $PnN are valid, if not then this
-                // fails because the API assumes these are valid and provides no way
-                // to fix otherwise.
-                tnt_core.and_maybe(|core| {
-                    core.check_linked_names()
-                        .mult_to_deferred()
-                        .def_map_value(|_| core)
-                })
+            // At this point the only keywords that should be left are $TOT,
+            // $BEGINDATA, $ENDDATA, $BEGINANALYSIS, and $ENDANALYSIS.
+            // $TIMESTEP might also be present if it wasn't used for the
+            // time measurement. Make sure this is actually true
+            let mut deviant = vec![];
+            for k in kws.keys() {
+                // TODO probably a more efficient way to do this
+                if !(k == &Begindata::std()
+                    || k == &Enddata::std()
+                    || k == &Beginanalysis::std()
+                    || k == &Endanalysis::std()
+                    || k == &Tot::std()
+                    || k == &Timestep::std())
+                {
+                    deviant.push(k.clone())
+                }
+            }
+            if let Some(ds) = NonEmpty::from_vec(deviant) {
+                let e = DeviantError(ds);
+                if conf.allow_deviant {
+                    tnt_core.push_error(e.into());
+                } else {
+                    tnt_core.push_warning(e.into());
+                }
+            }
+
+            // make sure keywords which refer to $PnN are valid, if not then this
+            // fails because the API assumes these are valid and provides no way
+            // to fix otherwise.
+            tnt_core.and_maybe(|core| {
+                core.check_linked_names()
+                    .mult_to_deferred()
+                    .def_map_value(|_| core)
             })
+        })
     }
 
     /// Remove a measurement matching the given name.
@@ -3889,8 +3887,8 @@ impl CoreDataset3_2 {
 
 impl UnstainedData {
     fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<Self, E> {
-        let c = lookup_meta_opt(kws, false);
-        let i = lookup_meta_opt(kws, false);
+        let c = UnstainedCenters::lookup_opt(kws, false);
+        let i = UnstainedInfo::lookup_opt(kws, false);
         c.zip(i).map(|(unstainedcenters, unstainedinfo)| Self {
             unstainedcenters,
             unstainedinfo,
@@ -3899,8 +3897,8 @@ impl UnstainedData {
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         [
-            OptMetaKey::pair_opt(&self.unstainedcenters),
-            OptMetaKey::pair_opt(&self.unstainedinfo),
+            OptMetarootKey::pair_opt(&self.unstainedcenters),
+            OptMetarootKey::pair_opt(&self.unstainedinfo),
         ]
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))
@@ -3915,12 +3913,11 @@ impl UnstainedData {
 
 impl SubsetData {
     fn lookup<E>(kws: &mut StdKeywords, dep: bool) -> LookupTentative<OptionalKw<Self>, E> {
-        lookup_meta_opt(kws, dep).and_tentatively(|m: OptionalKw<CSMode>| {
+        CSMode::lookup_opt(kws, dep).and_tentatively(|m| {
             if let Some(n) = m.0 {
-                let it = (0..n.0).map(|i| lookup_indexed_opt::<CSVFlag, _>(kws, i.into(), dep));
+                let it = (0..n.0).map(|i| CSVFlag::lookup_opt(kws, i.into(), dep));
                 Tentative::mconcat_ne(NonEmpty::collect(it).unwrap()).and_tentatively(|flags| {
-                    lookup_meta_opt::<CSVBits, _>(kws, dep)
-                        .map(|bits| Some(Self { flags, bits }).into())
+                    CSVBits::lookup_opt(kws, dep).map(|bits| Some(Self { flags, bits }).into())
                 })
             } else {
                 Tentative::new1(None.into())
@@ -3934,9 +3931,9 @@ impl SubsetData {
             .iter()
             .enumerate()
             .map(|(i, f)| OptIndexedKey::pair_opt(f, i.into()))
-            .chain([OptMetaKey::pair_opt(&self.bits)])
+            .chain([OptMetarootKey::pair_opt(&self.bits)])
             .flat_map(|(k, v)| v.map(|x| (k, x)))
-            .chain([OptMetaKey::pair(&m)])
+            .chain([OptMetarootKey::pair(&m)])
     }
 
     fn check_loss(self, lossless: bool) -> BiTentative<(), AnyMetarootKeyLossError> {
@@ -4055,7 +4052,7 @@ impl AppliedGates2_0 {
             .iter()
             .enumerate()
             .flat_map(|(i, m)| m.opt_keywords(i.into()))
-            .chain([OptMetaKey::pair(&gate)])
+            .chain([OptMetarootKey::pair(&gate)])
             .chain(self.regions.opt_keywords())
     }
 
@@ -4103,7 +4100,7 @@ impl AppliedGates3_0 {
             .enumerate()
             .flat_map(|(i, m)| m.opt_keywords(i.into()))
             .chain(self.regions.opt_keywords())
-            .chain(gate.map(|x| OptMetaKey::pair(&x)))
+            .chain(gate.map(|x| OptMetarootKey::pair(&x)))
     }
 
     pub fn check_gates(&self) -> Result<(), GateMeasurementLinkError> {
@@ -4193,14 +4190,14 @@ impl AppliedGates3_2 {
 impl GatedMeasurement {
     fn lookup<E>(kws: &mut StdKeywords, i: GateIndex, dep: bool) -> LookupTentative<Self, E> {
         let j = i.into();
-        let e = lookup_indexed_opt(kws, j, dep);
-        let f = lookup_indexed_opt(kws, j, dep);
-        let n = lookup_indexed_opt(kws, j, dep);
-        let p = lookup_indexed_opt(kws, j, dep);
-        let r = lookup_indexed_opt(kws, j, dep);
-        let s = lookup_indexed_opt(kws, j, dep);
-        let t = lookup_indexed_opt(kws, j, dep);
-        let v = lookup_indexed_opt(kws, j, dep);
+        let e = GateScale::lookup_opt(kws, j, dep);
+        let f = GateFilter::lookup_opt(kws, j, dep);
+        let n = GateShortname::lookup_opt(kws, j, dep);
+        let p = GatePercentEmitted::lookup_opt(kws, j, dep);
+        let r = GateRange::lookup_opt(kws, j, dep);
+        let s = GateLongname::lookup_opt(kws, j, dep);
+        let t = GateDetectorType::lookup_opt(kws, j, dep);
+        let v = GateDetectorVoltage::lookup_opt(kws, j, dep);
         e.zip4(f, n, p).zip5(r, s, t, v).map(
             |(
                 (scale, filter, shortname, percent_emitted),
@@ -4249,7 +4246,7 @@ impl<I> GatingRegions<I> {
     where
         F: Fn(&mut StdKeywords, RegionIndex) -> LookupTentative<OptionalKw<Region<I>>, E>,
     {
-        lookup_meta_opt::<Gating, _>(kws, dep)
+        Gating::lookup_opt(kws, dep)
             .and_tentatively(|maybe| {
                 if let Some(gating) = maybe.0 {
                     let res = gating.flatten().try_map(|ri| {
@@ -4282,7 +4279,7 @@ impl<I> GatingRegions<I> {
         self.regions
             .iter()
             .flat_map(|(ri, r)| r.opt_keywords(*ri))
-            .chain([OptMetaKey::pair(&self.gating)])
+            .chain([OptMetarootKey::pair(&self.gating)])
     }
 
     fn inner_into<J>(self) -> GatingRegions<J>
@@ -4323,8 +4320,8 @@ impl<I> Region<I> {
         I: fmt::Display,
         ParseOptKeyWarning: From<<RegionGateIndex<I> as FromStr>::Err>,
     {
-        let n = lookup_indexed_opt::<RegionGateIndex<I>, _>(kws, i.into(), dep);
-        let w = lookup_indexed_opt::<RegionWindow, _>(kws, i.into(), dep);
+        let n = RegionGateIndex::lookup_opt(kws, i.into(), dep);
+        let w = RegionWindow::lookup_opt(kws, i.into(), dep);
         n.zip(w)
             .and_tentatively(|(_n, _y)| {
                 _n.0.zip(_y.0)
@@ -4465,7 +4462,7 @@ where
 
 impl GatedMeasurements {
     fn lookup<E>(kws: &mut StdKeywords, dep: bool) -> LookupTentative<OptionalKw<Self>, E> {
-        lookup_meta_opt::<Gate, E>(kws, dep).and_tentatively(|maybe| {
+        Gate::lookup_opt(kws, dep).and_tentatively(|maybe| {
             if let Some(n) = maybe.0 {
                 // TODO this will be nicer with NonZeroUsize
                 if n.0 > 0 {
@@ -4510,9 +4507,9 @@ impl From<AppliedGates3_2> for AppliedGates3_0 {
 
 impl ModificationData {
     fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<Self, E> {
-        let lmr = lookup_meta_opt(kws, false);
-        let lmd = lookup_meta_opt(kws, false);
-        let ori = lookup_meta_opt(kws, false);
+        let lmr = LastModifier::lookup_opt(kws, false);
+        let lmd = ModifiedDateTime::lookup_opt(kws, false);
+        let ori = Originality::lookup_opt(kws, false);
         lmr.zip3(lmd, ori)
             .map(|(last_modifier, last_modified, originality)| Self {
                 last_modifier,
@@ -4523,9 +4520,9 @@ impl ModificationData {
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         [
-            OptMetaKey::pair_opt(&self.last_modifier),
-            OptMetaKey::pair_opt(&self.last_modified),
-            OptMetaKey::pair_opt(&self.originality),
+            OptMetarootKey::pair_opt(&self.last_modifier),
+            OptMetarootKey::pair_opt(&self.last_modified),
+            OptMetarootKey::pair_opt(&self.originality),
         ]
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))
@@ -4541,9 +4538,9 @@ impl ModificationData {
 
 impl CarrierData {
     fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<Self, E> {
-        let l = lookup_meta_opt(kws, false);
-        let i = lookup_meta_opt(kws, false);
-        let t = lookup_meta_opt(kws, false);
+        let l = Locationid::lookup_opt(kws, false);
+        let i = Carrierid::lookup_opt(kws, false);
+        let t = Carriertype::lookup_opt(kws, false);
         l.zip3(i, t)
             .map(|(locationid, carrierid, carriertype)| Self {
                 locationid,
@@ -4554,9 +4551,9 @@ impl CarrierData {
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         [
-            OptMetaKey::pair_opt(&self.carrierid),
-            OptMetaKey::pair_opt(&self.carriertype),
-            OptMetaKey::pair_opt(&self.locationid),
+            OptMetarootKey::pair_opt(&self.carrierid),
+            OptMetarootKey::pair_opt(&self.carriertype),
+            OptMetarootKey::pair_opt(&self.locationid),
         ]
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))
@@ -4572,9 +4569,9 @@ impl CarrierData {
 
 impl PlateData {
     fn lookup<E>(kws: &mut StdKeywords, dep: bool) -> LookupTentative<Self, E> {
-        let w = lookup_meta_opt(kws, dep);
-        let n = lookup_meta_opt(kws, dep);
-        let i = lookup_meta_opt(kws, dep);
+        let w = Wellid::lookup_opt(kws, dep);
+        let n = Platename::lookup_opt(kws, dep);
+        let i = Plateid::lookup_opt(kws, dep);
         w.zip3(n, i).map(|(wellid, platename, plateid)| Self {
             wellid,
             platename,
@@ -4584,9 +4581,9 @@ impl PlateData {
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         [
-            OptMetaKey::pair_opt(&self.wellid),
-            OptMetaKey::pair_opt(&self.platename),
-            OptMetaKey::pair_opt(&self.platename),
+            OptMetarootKey::pair_opt(&self.wellid),
+            OptMetarootKey::pair_opt(&self.platename),
+            OptMetarootKey::pair_opt(&self.platename),
         ]
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))
@@ -4602,8 +4599,8 @@ impl PlateData {
 
 impl PeakData {
     fn lookup<E>(kws: &mut StdKeywords, i: MeasIndex, dep: bool) -> LookupTentative<Self, E> {
-        let b = lookup_indexed_opt(kws, i.into(), dep);
-        let s = lookup_indexed_opt(kws, i.into(), dep);
+        let b = PeakBin::lookup_opt(kws, i.into(), dep);
+        let s = PeakNumber::lookup_opt(kws, i.into(), dep);
         b.zip(s).map(|(bin, size)| Self { bin, size })
     }
 
@@ -5791,8 +5788,8 @@ impl Versioned for InnerOptical3_2 {
 
 impl LookupOptical for InnerOptical2_0 {
     fn lookup_specific(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
-        let s = lookup_indexed_opt(kws, i.into(), false);
-        let w = lookup_indexed_opt(kws, i.into(), false);
+        let s = Scale::lookup_opt(kws, i.into(), false);
+        let w = Wavelength::lookup_opt(kws, i.into(), false);
         let p = PeakData::lookup(kws, i, false);
         Ok(s.zip3(w, p).map(|(scale, wavelength, peak)| Self {
             scale,
@@ -5804,11 +5801,11 @@ impl LookupOptical for InnerOptical2_0 {
 
 impl LookupOptical for InnerOptical3_0 {
     fn lookup_specific(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
-        let g = lookup_indexed_opt(kws, i.into(), false);
-        let w = lookup_indexed_opt(kws, i.into(), false);
+        let g = Gain::lookup_opt(kws, i.into(), false);
+        let w = Wavelength::lookup_opt(kws, i.into(), false);
         let p = PeakData::lookup(kws, i, false);
         g.zip3(w, p).and_maybe(|(gain, wavelength, peak)| {
-            lookup_indexed_req(kws, i.into()).def_map_value(|scale| Self {
+            Scale::lookup_req(kws, i.into()).def_map_value(|scale| Self {
                 scale,
                 gain,
                 wavelength,
@@ -5820,14 +5817,14 @@ impl LookupOptical for InnerOptical3_0 {
 
 impl LookupOptical for InnerOptical3_1 {
     fn lookup_specific(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
-        let g = lookup_indexed_opt(kws, i.into(), false);
-        let w = lookup_indexed_opt(kws, i.into(), false);
-        let c = lookup_indexed_opt(kws, i.into(), false);
-        let d = lookup_indexed_opt(kws, i.into(), false);
+        let g = Gain::lookup_opt(kws, i.into(), false);
+        let w = Wavelengths::lookup_opt(kws, i.into(), false);
+        let c = Calibration3_1::lookup_opt(kws, i.into(), false);
+        let d = Display::lookup_opt(kws, i.into(), false);
         let p = PeakData::lookup(kws, i, true);
         g.zip5(w, c, d, p)
             .and_maybe(|(gain, wavelengths, calibration, display, peak)| {
-                lookup_indexed_req(kws, i.into()).def_map_value(|scale| Self {
+                Scale::lookup_req(kws, i.into()).def_map_value(|scale| Self {
                     scale,
                     gain,
                     wavelengths,
@@ -5841,16 +5838,16 @@ impl LookupOptical for InnerOptical3_1 {
 
 impl LookupOptical for InnerOptical3_2 {
     fn lookup_specific(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
-        let g = lookup_indexed_opt(kws, i.into(), false);
-        let w = lookup_indexed_opt(kws, i.into(), false);
-        let c = lookup_indexed_opt(kws, i.into(), false);
-        let d = lookup_indexed_opt(kws, i.into(), false);
-        let de = lookup_indexed_opt(kws, i.into(), false);
-        let ta = lookup_indexed_opt(kws, i.into(), false);
-        let m = lookup_indexed_opt(kws, i.into(), false);
-        let f = lookup_indexed_opt(kws, i.into(), false);
-        let a = lookup_indexed_opt(kws, i.into(), false);
-        let da = lookup_indexed_opt(kws, i.into(), false);
+        let g = Gain::lookup_opt(kws, i.into(), false);
+        let w = Wavelengths::lookup_opt(kws, i.into(), false);
+        let c = Calibration3_2::lookup_opt(kws, i.into(), false);
+        let d = Display::lookup_opt(kws, i.into(), false);
+        let de = DetectorName::lookup_opt(kws, i.into(), false);
+        let ta = Tag::lookup_opt(kws, i.into(), false);
+        let m = OpticalType::lookup_opt(kws, i.into(), false);
+        let f = Feature::lookup_opt(kws, i.into(), false);
+        let a = Analyte::lookup_opt(kws, i.into(), false);
+        let da = NumType::lookup_opt(kws, i.into(), false);
         g.zip5(w, c, d, de).zip5(ta, m, f, a).zip(da).and_maybe(
             |(
                 (
@@ -5862,7 +5859,7 @@ impl LookupOptical for InnerOptical3_2 {
                 ),
                 datatype,
             )| {
-                lookup_indexed_req(kws, i.into()).def_map_value(|scale| Self {
+                Scale::lookup_req(kws, i.into()).def_map_value(|scale| Self {
                     scale,
                     gain,
                     wavelengths,
@@ -5883,7 +5880,7 @@ impl LookupOptical for InnerOptical3_2 {
 impl LookupTemporal for InnerTemporal2_0 {
     fn lookup_specific(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
         // TODO push meas index with error
-        let s = lookup_indexed_opt(kws, i.into(), false);
+        let s = TemporalScale::lookup_opt(kws, i.into(), false);
         let p = PeakData::lookup(kws, i, false);
         Ok(s.zip(p).map(|(scale, peak)| Self { peak, scale }))
     }
@@ -5891,7 +5888,7 @@ impl LookupTemporal for InnerTemporal2_0 {
 
 impl LookupTemporal for InnerTemporal3_0 {
     fn lookup_specific(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
-        let mut tnt_gain = lookup_indexed_opt::<Gain, LookupKeysError>(kws, i.into(), false);
+        let mut tnt_gain = Gain::lookup_opt(kws, i.into(), false);
         tnt_gain.eval_error(|gain| {
             if gain.0.is_some() {
                 Some(LookupKeysError::Misc(TemporalError::HasGain.into()))
@@ -5901,8 +5898,8 @@ impl LookupTemporal for InnerTemporal3_0 {
         });
         let tnt_peak = PeakData::lookup(kws, i, false);
         tnt_gain.zip(tnt_peak).and_maybe(|(_, peak)| {
-            let s = lookup_indexed_req::<TemporalScale>(kws, i.into());
-            let t = lookup_meta_req(kws);
+            let s = TemporalScale::lookup_req(kws, i.into());
+            let t = Timestep::lookup_req(kws);
             s.def_zip(t)
                 .def_map_value(|(_, timestep)| Self { timestep, peak })
         })
@@ -5912,11 +5909,11 @@ impl LookupTemporal for InnerTemporal3_0 {
 impl LookupTemporal for InnerTemporal3_1 {
     fn lookup_specific(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
         let g = lookup_temporal_gain_3_0(kws, i.into());
-        let d = lookup_indexed_opt(kws, i.into(), false);
+        let d = Display::lookup_opt(kws, i.into(), false);
         let p = PeakData::lookup(kws, i, true);
         g.zip3(d, p).and_maybe(|(_, display, peak)| {
-            let s = lookup_indexed_req::<TemporalScale>(kws, i.into());
-            let t = lookup_meta_req(kws);
+            let s = TemporalScale::lookup_req(kws, i.into());
+            let t = Timestep::lookup_req(kws);
             s.def_zip(t).def_map_value(|(_, timestep)| Self {
                 timestep,
                 display,
@@ -5929,13 +5926,13 @@ impl LookupTemporal for InnerTemporal3_1 {
 impl LookupTemporal for InnerTemporal3_2 {
     fn lookup_specific(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
         let g = lookup_temporal_gain_3_0(kws, i.into());
-        let di = lookup_indexed_opt(kws, i.into(), false);
-        let m = lookup_indexed_opt(kws, i.into(), false);
-        let da = lookup_indexed_opt(kws, i.into(), false);
+        let di = Display::lookup_opt(kws, i.into(), false);
+        let m = TemporalType::lookup_opt(kws, i.into(), false);
+        let da = NumType::lookup_opt(kws, i.into(), false);
         g.zip4(di, m, da)
             .and_maybe(|(_, display, measurement_type, datatype)| {
-                let s = lookup_indexed_req::<TemporalScale>(kws, i.into());
-                let t = lookup_meta_req(kws);
+                let s = TemporalScale::lookup_req(kws, i.into());
+                let t = Timestep::lookup_req(kws);
                 s.def_zip(t).def_map_value(|(_, timestep)| Self {
                     timestep,
                     display,
@@ -6148,7 +6145,7 @@ impl VersionedTemporal for InnerTemporal3_0 {
     }
 
     fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)> {
-        [ReqMetaKey::pair(&self.timestep)].into_iter()
+        [ReqMetarootKey::pair(&self.timestep)].into_iter()
     }
 
     fn opt_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)> {
@@ -6176,7 +6173,7 @@ impl VersionedTemporal for InnerTemporal3_1 {
     }
 
     fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)> {
-        [ReqMetaKey::pair(&self.timestep)].into_iter()
+        [ReqMetarootKey::pair(&self.timestep)].into_iter()
     }
 
     fn opt_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)> {
@@ -6206,7 +6203,7 @@ impl VersionedTemporal for InnerTemporal3_2 {
     }
 
     fn req_meta_keywords_inner(&self) -> impl Iterator<Item = (String, String)> {
-        [ReqMetaKey::pair(&self.timestep)].into_iter()
+        [ReqMetarootKey::pair(&self.timestep)].into_iter()
     }
 
     fn opt_meas_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String)> {
@@ -6398,18 +6395,18 @@ impl LookupMetaroot for InnerMetaroot2_0 {
         kws: &mut StdKeywords,
         i: MeasIndex,
     ) -> LookupResult<<Self::N as MightHave>::Wrapper<Shortname>> {
-        Ok(lookup_indexed_opt(kws, i.into(), false))
+        Ok(Shortname::lookup_opt(kws, i.into(), false))
     }
 
     fn lookup_specific(kws: &mut StdKeywords, par: Par) -> LookupResult<Self> {
         let co = Compensation2_0::lookup(kws, par);
-        let cy = lookup_meta_opt(kws, false);
+        let cy = Cyt::lookup_opt(kws, false);
         let t = Timestamps::lookup(kws, false);
         let g = AppliedGates2_0::lookup(kws);
         co.zip4(cy, t, g)
             .and_maybe(|(comp, cyt, timestamps, applied_gates)| {
-                let b = lookup_meta_req(kws);
-                let m = lookup_meta_req(kws);
+                let b = ByteOrd::lookup_req(kws);
+                let m = Mode::lookup_req(kws);
                 b.def_zip(m).def_map_value(|(byteord, mode)| Self {
                     mode,
                     byteord,
@@ -6427,21 +6424,21 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         kws: &mut StdKeywords,
         i: MeasIndex,
     ) -> LookupResult<<Self::N as MightHave>::Wrapper<Shortname>> {
-        Ok(lookup_indexed_opt(kws, i.into(), false))
+        Ok(Shortname::lookup_opt(kws, i.into(), false))
     }
 
     fn lookup_specific(kws: &mut StdKeywords, _: Par) -> LookupResult<Self> {
-        let co = lookup_meta_opt(kws, false);
-        let cy = lookup_meta_opt(kws, false);
-        let sn = lookup_meta_opt(kws, false);
+        let co = Compensation3_0::lookup_opt(kws, false);
+        let cy = Cyt::lookup_opt(kws, false);
+        let sn = Cytsn::lookup_opt(kws, false);
         let su = SubsetData::lookup(kws, false);
         let t = Timestamps::lookup(kws, false);
-        let u = lookup_meta_opt(kws, false);
+        let u = Unicode::lookup_opt(kws, false);
         let g = AppliedGates3_0::lookup(kws, false);
         co.zip4(cy, sn, su).zip4(t, u, g).and_maybe(
             |((comp, cyt, cytsn, subset), timestamps, unicode, applied_gates)| {
-                let b = lookup_meta_req(kws);
-                let m = lookup_meta_req(kws);
+                let b = ByteOrd::lookup_req(kws);
+                let m = Mode::lookup_req(kws);
                 b.def_zip(m).def_map_value(|(byteord, mode)| Self {
                     mode,
                     byteord,
@@ -6463,18 +6460,18 @@ impl LookupMetaroot for InnerMetaroot3_1 {
         kws: &mut StdKeywords,
         i: MeasIndex,
     ) -> LookupResult<<Self::N as MightHave>::Wrapper<Shortname>> {
-        lookup_indexed_req(kws, i.into()).map(|x| x.map(Identity))
+        Shortname::lookup_req(kws, i.into()).map(|x| x.map(Identity))
     }
 
     fn lookup_specific(kws: &mut StdKeywords, _: Par) -> LookupResult<Self> {
-        let cy = lookup_meta_opt(kws, false);
-        let sp = lookup_meta_opt(kws, false);
-        let sn = lookup_meta_opt(kws, false);
+        let cy = Cyt::lookup_opt(kws, false);
+        let sp = Spillover::lookup_opt(kws, false);
+        let sn = Cytsn::lookup_opt(kws, false);
         let su = SubsetData::lookup(kws, true);
         let md = ModificationData::lookup(kws);
         let p = PlateData::lookup(kws, false);
         let t = Timestamps::lookup(kws, false);
-        let v = lookup_meta_opt(kws, false);
+        let v = Vol::lookup_opt(kws, false);
         let g = AppliedGates3_0::lookup(kws, true);
         cy.zip5(sp, sn, su, md).zip5(p, t, v, g).and_maybe(
             |(
@@ -6484,8 +6481,8 @@ impl LookupMetaroot for InnerMetaroot3_1 {
                 vol,
                 applied_gates,
             )| {
-                let b = lookup_meta_req(kws);
-                let mut mo = lookup_meta_req(kws);
+                let b = Endian::lookup_req(kws);
+                let mut mo = Mode::lookup_req(kws);
                 mo.def_eval_warning(|mode| match mode {
                     Mode::Correlated => {
                         Some(DeprecatedError::Value(DepValueWarning::ModeCorrelated).into())
@@ -6518,24 +6515,24 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         kws: &mut StdKeywords,
         i: MeasIndex,
     ) -> LookupResult<<Self::N as MightHave>::Wrapper<Shortname>> {
-        lookup_indexed_req(kws, i.into()).map(|x| x.map(Identity))
+        Shortname::lookup_req(kws, i.into()).map(|x| x.map(Identity))
     }
 
     fn lookup_specific(kws: &mut StdKeywords, _: Par) -> LookupResult<Self> {
         let ca = CarrierData::lookup(kws);
         let d = Datetimes::lookup(kws);
-        let f = lookup_meta_opt(kws, false);
+        let f = Flowrate::lookup_opt(kws, false);
         let md = ModificationData::lookup(kws);
         // Only L is allowed as of 3.2, so pull the value and check it if given.
         // The only thing we care about is that the value is valid, since we
         // don't need to use it anywhere.
-        let mo = lookup_meta_opt::<Mode3_2, LookupKeysError>(kws, true);
-        let sp = lookup_meta_opt(kws, false);
-        let sn = lookup_meta_opt(kws, false);
+        let mo = Mode3_2::lookup_opt(kws, true);
+        let sp = Spillover::lookup_opt(kws, false);
+        let sn = Cytsn::lookup_opt(kws, false);
         let p = PlateData::lookup(kws, true);
         let t = Timestamps::lookup(kws, false);
         let u = UnstainedData::lookup(kws);
-        let v = lookup_meta_opt(kws, false);
+        let v = Vol::lookup_opt(kws, false);
         let g = AppliedGates3_2::lookup(kws);
         ca.zip6(d, f, md, mo, sp)
             .zip6(sn, p, t, u, v)
@@ -6552,8 +6549,8 @@ impl LookupMetaroot for InnerMetaroot3_2 {
                     ),
                     applied_gates,
                 )| {
-                    let b = lookup_meta_req(kws);
-                    let c = lookup_meta_req(kws);
+                    let b = Endian::lookup_req(kws);
+                    let c = Cyt::lookup_req(kws);
                     b.def_zip(c).def_map_value(|(byteord, cyt)| Self {
                         byteord,
                         cyt,
@@ -6631,7 +6628,7 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
     }
 
     fn keywords_opt_inner(&self) -> impl Iterator<Item = (String, String)> {
-        [OptMetaKey::pair_opt(&self.cyt)]
+        [OptMetarootKey::pair_opt(&self.cyt)]
             .into_iter()
             .flat_map(|(k, v)| v.map(|x| (k, x)))
             .chain(
@@ -6730,10 +6727,10 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
 
     fn keywords_opt_inner(&self) -> impl Iterator<Item = (String, String)> {
         [
-            OptMetaKey::pair_opt(&self.cyt),
-            OptMetaKey::pair_opt(&self.comp),
-            OptMetaKey::pair_opt(&self.cytsn),
-            OptMetaKey::pair_opt(&self.unicode),
+            OptMetarootKey::pair_opt(&self.cyt),
+            OptMetarootKey::pair_opt(&self.comp),
+            OptMetarootKey::pair_opt(&self.cytsn),
+            OptMetarootKey::pair_opt(&self.unicode),
         ]
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))
@@ -6840,10 +6837,10 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
 
     fn keywords_opt_inner(&self) -> impl Iterator<Item = (String, String)> {
         [
-            OptMetaKey::pair_opt(&self.cyt),
-            OptMetaKey::pair_opt(&self.spillover),
-            OptMetaKey::pair_opt(&self.cytsn),
-            OptMetaKey::pair_opt(&self.vol),
+            OptMetarootKey::pair_opt(&self.cyt),
+            OptMetarootKey::pair_opt(&self.spillover),
+            OptMetarootKey::pair_opt(&self.cytsn),
+            OptMetarootKey::pair_opt(&self.vol),
         ]
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))
@@ -6955,10 +6952,10 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
 
     fn keywords_opt_inner(&self) -> impl Iterator<Item = (String, String)> {
         [
-            OptMetaKey::pair_opt(&self.spillover),
-            OptMetaKey::pair_opt(&self.cytsn),
-            OptMetaKey::pair_opt(&self.vol),
-            OptMetaKey::pair_opt(&self.flowrate),
+            OptMetarootKey::pair_opt(&self.spillover),
+            OptMetarootKey::pair_opt(&self.cytsn),
+            OptMetarootKey::pair_opt(&self.vol),
+            OptMetarootKey::pair_opt(&self.flowrate),
         ]
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))

@@ -1,8 +1,8 @@
 use crate::validated::shortname::*;
 
-use super::keywords::Linked;
 use super::named_vec::NameMapping;
 use super::optionalkw::ClearOptional;
+use super::parser::Linked;
 
 use itertools::Itertools;
 use nalgebra::DMatrix;

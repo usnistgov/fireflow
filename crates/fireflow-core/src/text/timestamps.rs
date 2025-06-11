@@ -2,7 +2,6 @@ use crate::error::*;
 use crate::macros::{newtype_from, newtype_from_outer};
 use crate::validated::standard::*;
 
-use super::keywords::OptMetaKey;
 use super::optionalkw::*;
 use super::parser::*;
 
@@ -160,14 +159,14 @@ where
 
     pub(crate) fn lookup<E>(kws: &mut StdKeywords, dep: bool) -> LookupTentative<Self, E>
     where
-        Btim<X>: OptMetaKey,
-        Etim<X>: OptMetaKey,
+        Btim<X>: OptMetarootKey,
+        Etim<X>: OptMetarootKey,
         ParseOptKeyWarning: From<<Btim<X> as FromStr>::Err>,
         ParseOptKeyWarning: From<<Etim<X> as FromStr>::Err>,
     {
-        let b = lookup_meta_opt(kws, dep);
-        let e = lookup_meta_opt(kws, dep);
-        let d = lookup_meta_opt(kws, dep);
+        let b = Btim::lookup_opt(kws, dep);
+        let e = Etim::lookup_opt(kws, dep);
+        let d = FCSDate::lookup_opt(kws, dep);
         b.zip3(e, d).and_tentatively(|(btim, etim, date)| {
             Timestamps::new(btim, etim, date)
                 .map(Tentative::new1)
@@ -180,13 +179,13 @@ where
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)>
     where
-        Btim<X>: OptMetaKey,
-        Etim<X>: OptMetaKey,
+        Btim<X>: OptMetarootKey,
+        Etim<X>: OptMetarootKey,
     {
         [
-            OptMetaKey::pair_opt(&self.btim()),
-            OptMetaKey::pair_opt(&self.etim()),
-            OptMetaKey::pair_opt(&self.date()),
+            OptMetarootKey::pair_opt(&self.btim()),
+            OptMetarootKey::pair_opt(&self.etim()),
+            OptMetarootKey::pair_opt(&self.date()),
         ]
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))

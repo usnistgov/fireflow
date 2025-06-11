@@ -7,6 +7,7 @@ use crate::text::byteord::*;
 use crate::text::float_or_int::*;
 use crate::text::index::IndexFromOne;
 use crate::text::keywords::*;
+use crate::text::parser::*;
 use crate::validated::dataframe::*;
 use crate::validated::standard::*;
 
@@ -2233,7 +2234,7 @@ impl VersionedDataLayout for DataLayout2_0 {
         seg: HeaderDataSegment,
         conf: &ReaderConfig,
     ) -> DataReaderResult<DataReader> {
-        let out = Tot::remove_meta_opt(kws)
+        let out = Tot::remove_metaroot_opt(kws)
             .map(|x| x.0)
             .map_or_else(
                 |w| Tentative::new(None, vec![w.into()], vec![]),
@@ -2249,7 +2250,7 @@ impl VersionedDataLayout for DataLayout2_0 {
         seg: HeaderDataSegment,
         conf: &ReaderConfig,
     ) -> DataReaderResult<DataReader> {
-        let out = Tot::get_meta_opt(kws)
+        let out = Tot::get_metaroot_opt(kws)
             .map(|x| x.0)
             .map_or_else(
                 |w| Tentative::new(None, vec![w.into()], vec![]),
@@ -2409,8 +2410,8 @@ impl VersionedDataLayout for DataLayout3_1 {
 
     fn try_new_from_raw(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Self> {
         let cs = kws_get_columns(kws);
-        let d = AlphaNumType::get_meta_req(kws).into_mult::<RawParsedError>();
-        let n = Endian::get_meta_req(kws).into_mult();
+        let d = AlphaNumType::get_metaroot_req(kws).into_mult::<RawParsedError>();
+        let n = Endian::get_metaroot_req(kws).into_mult();
         d.mult_zip3(n, cs)
             .mult_to_deferred()
             .def_and_maybe(|(datatype, byteord, columns)| {
@@ -2556,10 +2557,10 @@ impl VersionedDataLayout for DataLayout3_2 {
     }
 
     fn try_new_from_raw(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Self> {
-        let d = AlphaNumType::get_meta_req(kws)
+        let d = AlphaNumType::get_metaroot_req(kws)
             .map_err(RawParsedError::from)
             .into_deferred();
-        let e = Endian::get_meta_req(kws)
+        let e = Endian::get_metaroot_req(kws)
             .map_err(RawParsedError::from)
             .into_deferred();
         let cs = kws_get_columns_3_2(kws).def_inner_into();
@@ -2689,7 +2690,7 @@ fn remove_tot_data_seg(
     seg: HeaderDataSegment,
     conf: &ReaderConfig,
 ) -> DataReaderResult<(Tot, AnyDataSegment)> {
-    let tot_res = Tot::remove_meta_req(kws).into_deferred();
+    let tot_res = Tot::remove_metaroot_req(kws).into_deferred();
     let seg_res = KeyedReqSegment::remove_or(
         kws,
         conf.data,
@@ -2813,7 +2814,7 @@ fn get_tot_data_seg(
     seg: HeaderDataSegment,
     conf: &ReaderConfig,
 ) -> DataReaderResult<(Tot, AnyDataSegment)> {
-    let tot_res = Tot::get_meta_req(kws).into_deferred();
+    let tot_res = Tot::get_metaroot_req(kws).into_deferred();
     let seg_res = KeyedReqSegment::get_or(
         kws,
         conf.data,
@@ -2830,13 +2831,13 @@ fn kws_get_layout_2_0(
     kws: &StdKeywords,
 ) -> MultiResult<(AlphaNumType, ByteOrd, Vec<ColumnLayoutData<()>>), RawParsedError> {
     let cs = kws_get_columns(kws);
-    let d = AlphaNumType::get_meta_req(kws).into_mult();
-    let b = ByteOrd::get_meta_req(kws).into_mult();
+    let d = AlphaNumType::get_metaroot_req(kws).into_mult();
+    let b = ByteOrd::get_metaroot_req(kws).into_mult();
     d.mult_zip3(b, cs)
 }
 
 fn kws_get_columns(kws: &StdKeywords) -> MultiResult<Vec<ColumnLayoutData<()>>, RawParsedError> {
-    let par = Par::get_meta_req(kws).into_mult()?;
+    let par = Par::get_metaroot_req(kws).into_mult()?;
     (0..par.0)
         .map(|i| {
             let w = Width::get_meas_req(kws, i.into()).map_err(|e| e.into());
@@ -2858,7 +2859,7 @@ fn kws_get_columns_3_2(
     ParseKeyError<NumTypeError>,
     RawParsedError,
 > {
-    let par = Par::get_meta_req(kws)
+    let par = Par::get_metaroot_req(kws)
         .map_err(|e| e.into())
         .map_err(DeferredFailure::new1)?;
     (0..par.0)

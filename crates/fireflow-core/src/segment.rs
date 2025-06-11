@@ -2,6 +2,7 @@ use crate::config::HeaderConfig;
 use crate::error::*;
 use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
 use crate::text::keywords::*;
+use crate::text::parser::*;
 use crate::validated::ascii_uint::*;
 use crate::validated::standard::*;
 
@@ -139,8 +140,8 @@ where
     Self: HasRegion,
     Self::B: Into<Uint20Char>,
     Self::E: Into<Uint20Char>,
-    Self::B: ReqMetaKey,
-    Self::E: ReqMetaKey,
+    Self::B: ReqMetarootKey,
+    Self::E: ReqMetarootKey,
     Self::B: FromStr<Err = ParseIntError>,
     Self::E: FromStr<Err = ParseIntError>,
 {
@@ -243,16 +244,16 @@ where
     }
 
     fn get_pair(kws: &StdKeywords) -> MultiResult<(Self::B, Self::E), ReqKeyError<ParseIntError>> {
-        let x0 = Self::B::get_meta_req(kws);
-        let x1 = Self::E::get_meta_req(kws);
+        let x0 = Self::B::get_metaroot_req(kws);
+        let x1 = Self::E::get_metaroot_req(kws);
         x0.zip(x1)
     }
 
     fn remove_pair(
         kws: &mut StdKeywords,
     ) -> MultiResult<(Self::B, Self::E), ReqKeyError<ParseIntError>> {
-        let x0 = Self::B::remove_meta_req(kws);
-        let x1 = Self::E::remove_meta_req(kws);
+        let x0 = Self::B::remove_metaroot_req(kws);
+        let x1 = Self::E::remove_metaroot_req(kws);
         x0.zip(x1)
     }
 }
@@ -264,8 +265,8 @@ where
     Self: HasRegion,
     Self::B: Into<Uint20Char>,
     Self::E: Into<Uint20Char>,
-    Self::B: OptMetaKey,
-    Self::E: OptMetaKey,
+    Self::B: OptMetarootKey,
+    Self::E: OptMetarootKey,
     Self::B: FromStr<Err = ParseIntError>,
     Self::E: FromStr<Err = ParseIntError>,
 {
@@ -277,8 +278,8 @@ where
     ) -> OptSegTentative<Self>
     where
         Self: Copy,
-        Self::B: OptMetaKey,
-        Self::E: OptMetaKey,
+        Self::B: OptMetarootKey,
+        Self::E: OptMetarootKey,
     {
         let res = Self::get(kws, corr).map_warnings(OptSegmentWithDefaultWarning::Opt);
         Self::default_or(res, default, allow_mismatch)
@@ -355,8 +356,8 @@ where
     fn get_pair(
         kws: &StdKeywords,
     ) -> MultiResult<Option<(Self::B, Self::E)>, ParseKeyError<ParseIntError>> {
-        let x0 = Self::B::get_meta_opt(kws).map(|x| x.0);
-        let x1 = Self::E::get_meta_opt(kws).map(|x| x.0);
+        let x0 = Self::B::get_metaroot_opt(kws).map(|x| x.0);
+        let x1 = Self::E::get_metaroot_opt(kws).map(|x| x.0);
         x0.zip(x1).map(|(x, y)| x.zip(y))
     }
 
@@ -364,8 +365,8 @@ where
     fn remove_pair(
         kws: &mut StdKeywords,
     ) -> MultiResult<Option<(Self::B, Self::E)>, ParseKeyError<ParseIntError>> {
-        let x0 = Self::B::remove_meta_opt(kws).map(|x| x.0);
-        let x1 = Self::E::remove_meta_opt(kws).map(|x| x.0);
+        let x0 = Self::B::remove_metaroot_opt(kws).map(|x| x.0);
+        let x1 = Self::E::remove_metaroot_opt(kws).map(|x| x.0);
         x0.zip(x1).map(|(x, y)| x.zip(y))
     }
 }
@@ -781,8 +782,8 @@ impl<I> TEXTSegment<I> {
         I::E: Into<Uint20Char>,
         I::B: From<Uint20Char>,
         I::E: From<Uint20Char>,
-        I::B: ReqMetaKey,
-        I::E: ReqMetaKey,
+        I::B: ReqMetarootKey,
+        I::E: ReqMetarootKey,
         I::B: FromStr<Err = ParseIntError>,
         I::E: FromStr<Err = ParseIntError>,
     {
@@ -792,8 +793,8 @@ impl<I> TEXTSegment<I> {
             Segment::NonEmpty(x) => (x.begin, x.end),
         };
         [
-            ReqMetaKey::pair(&I::B::from(b)),
-            ReqMetaKey::pair(&I::E::from(e)),
+            ReqMetarootKey::pair(&I::B::from(b)),
+            ReqMetarootKey::pair(&I::E::from(e)),
         ]
     }
 }

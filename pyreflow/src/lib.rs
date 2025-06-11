@@ -41,6 +41,46 @@ use std::path;
 fn pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("PyreflowException", py.get_type::<PyreflowException>())?;
     m.add("PyreflowWarning", py.get_type::<PyreflowWarning>())?;
+
+    m.add_class::<PyVersion>()?;
+    m.add_class::<PySegment>()?;
+    m.add_class::<PyHeader>()?;
+
+    m.add_class::<PyCoreTEXT2_0>()?;
+    m.add_class::<PyCoreTEXT3_0>()?;
+    m.add_class::<PyCoreTEXT3_1>()?;
+    m.add_class::<PyCoreTEXT3_2>()?;
+
+    m.add_class::<PyCoreDataset2_0>()?;
+    m.add_class::<PyCoreDataset3_0>()?;
+    m.add_class::<PyCoreDataset3_1>()?;
+    m.add_class::<PyCoreDataset3_2>()?;
+
+    m.add_class::<PyOptical2_0>()?;
+    m.add_class::<PyOptical3_0>()?;
+    m.add_class::<PyOptical3_1>()?;
+    m.add_class::<PyOptical3_2>()?;
+
+    m.add_class::<PyTemporal2_0>()?;
+    m.add_class::<PyTemporal3_0>()?;
+    m.add_class::<PyTemporal3_1>()?;
+    m.add_class::<PyTemporal3_2>()?;
+
+    m.add_class::<PyNumRangeSetter>()?;
+    m.add_class::<PyAsciiRangeSetter>()?;
+    m.add_class::<PyMixedColumnSetter>()?;
+    m.add_class::<PyCalibration3_1>()?;
+    m.add_class::<PyCalibration3_2>()?;
+    m.add_class::<PyFeature>()?;
+    m.add_class::<PyMode>()?;
+    m.add_class::<PyOriginality>()?;
+    m.add_class::<PyAlphaNumType>()?;
+    m.add_class::<PyNumType>()?;
+    m.add_class::<PyOpticalType>()?;
+    m.add_class::<PyScale>()?;
+    m.add_class::<PyDisplay>()?;
+    m.add_class::<PyUnicode>()?;
+
     m.add_function(wrap_pyfunction!(py_fcs_read_header, m)?)?;
     m.add_function(wrap_pyfunction!(py_fcs_read_raw_text, m)?)?;
     m.add_function(wrap_pyfunction!(py_fcs_read_std_text, m)?)?;

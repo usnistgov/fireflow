@@ -456,6 +456,12 @@ impl<I, S> OffsetCorrection<I, S> {
     }
 }
 
+impl<I, S> From<(i32, i32)> for OffsetCorrection<I, S> {
+    fn from(value: (i32, i32)) -> Self {
+        Self::new(value.0, value.1)
+    }
+}
+
 impl<I, S, T> SpecificSegment<I, S, T> {
     pub fn try_new_squish(
         begin: T,

@@ -651,17 +651,17 @@ impl<V, W, E> Tentative<V, W, E> {
         Tentative::new((), self.warnings, self.errors)
     }
 
-    #[test]
+    #[cfg(test)]
     pub(crate) fn value(&self) -> &V {
         &self.value
     }
 
-    #[test]
+    #[cfg(test)]
     pub(crate) fn errors(&self) -> &[E] {
         &self.errors[..]
     }
 
-    #[test]
+    #[cfg(test)]
     pub(crate) fn warnings(&self) -> &[W] {
         &self.warnings[..]
     }

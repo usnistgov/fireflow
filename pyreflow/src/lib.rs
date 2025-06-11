@@ -41,38 +41,52 @@ use std::path;
 fn pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("PyreflowException", py.get_type::<PyreflowException>())?;
     m.add("PyreflowWarning", py.get_type::<PyreflowWarning>())?;
-    m.add_function(wrap_pyfunction!(py_read_fcs_header, m)?)?;
-    m.add_function(wrap_pyfunction!(py_read_fcs_raw_text, m)?)?;
-    m.add_function(wrap_pyfunction!(py_read_fcs_std_text, m)?)?;
-    m.add_function(wrap_pyfunction!(py_read_fcs_file, m)?)
+    m.add_function(wrap_pyfunction!(py_fcs_read_header, m)?)?;
+    m.add_function(wrap_pyfunction!(py_fcs_read_raw_text, m)?)?;
+    m.add_function(wrap_pyfunction!(py_fcs_read_std_text, m)?)?;
+    m.add_function(wrap_pyfunction!(py_fcs_read_std_dataset, m)?)
 }
 
 #[allow(clippy::too_many_arguments)]
 #[pyfunction]
-#[pyo3(signature = (p, begin_text=0, end_text=0, begin_data=0, end_data=0,
-                    begin_analysis=0, end_analysis=0, version_override=None))]
-fn py_read_fcs_header(
+#[pyo3(
+    name = "fcs_read_header",
+    signature = (
+        p,
+        version_override=None,
+        prim_text_correction=(0,0),
+        data_correction=(0,0),
+        analysis_correction=(0,0),
+        other_corrections=vec![],
+        other_width=None,
+        max_other=None,
+        allow_negative=false,
+        squish_offsets=false,
+    )
+)]
+fn py_fcs_read_header(
     p: path::PathBuf,
-    begin_text: i32,
-    end_text: i32,
-    begin_data: i32,
-    end_data: i32,
-    begin_analysis: i32,
-    end_analysis: i32,
     version_override: Option<PyVersion>,
+    prim_text_correction: (i32, i32),
+    data_correction: (i32, i32),
+    analysis_correction: (i32, i32),
+    other_corrections: Vec<(i32, i32)>,
+    other_width: Option<u8>,
+    max_other: Option<usize>,
+    allow_negative: bool,
+    squish_offsets: bool,
 ) -> PyResult<PyHeader> {
-    let conf = HeaderConfig {
-        version_override: version_override.map(|x| x.0),
-        text_correction: OffsetCorrection::new(begin_text, end_text),
-        data_correction: OffsetCorrection::new(begin_data, end_data),
-        analysis_correction: OffsetCorrection::new(begin_analysis, end_analysis),
-        // TODO addme
-        other_corrections: vec![],
-        other_width: OtherWidth::default(),
-        max_other: None,
-        allow_negative: false,
-        squish_offsets: false,
-    };
+    let conf = header_config(
+        version_override,
+        prim_text_correction,
+        data_correction,
+        analysis_correction,
+        other_corrections,
+        other_width,
+        max_other,
+        allow_negative,
+        squish_offsets,
+    )?;
     fcs_read_header(&p, &conf)
         .map_err(handle_failure_nowarn)
         .map(|x| x.inner().into())
@@ -80,54 +94,56 @@ fn py_read_fcs_header(
 
 #[allow(clippy::too_many_arguments)]
 #[pyfunction]
-#[pyo3(signature = (
-    p,
+#[pyo3(
+    name = "fcs_read_raw_text",
+    signature = (
+        p,
 
-    strict=false,
+        version_override=None,
+        prim_text_correction=(0,0),
+        data_correction=(0,0),
+        analysis_correction=(0,0),
+        other_corrections=vec![],
+        other_width=None,
+        max_other=None,
+        allow_negative=false,
+        squish_offsets=false,
 
-    begin_text=0,
-    end_text=0,
-    begin_data=0,
-    end_data=0,
-    begin_analysis=0,
-    end_analysis=0,
-
-    text_begin_stext=0,
-    text_end_stext=0,
-    use_literal_delims=false,
-    allow_non_ascii_delim=false,
-    ignore_stext=false,
-    allow_duplicated_stext=false,
-    allow_missing_final_delim=false,
-    allow_nonunique=false,
-    allow_odd=false,
-    allow_delim_at_boundary=false,
-    allow_empty=false,
-    allow_non_utf8=false,
-    allow_non_ascii_keywords=false,
-    allow_missing_stext=false,
-    allow_stext_own_delim=false,
-    allow_missing_nextdata=false,
-    repair_offset_spaces=false,
-    date_pattern=None,
-    version_override=None)
+        supp_text_correction=(0,0),
+        use_literal_delims=false,
+        allow_non_ascii_delim=false,
+        ignore_stext=false,
+        allow_duplicated_stext=false,
+        allow_missing_final_delim=false,
+        allow_nonunique=false,
+        allow_odd=false,
+        allow_delim_at_boundary=false,
+        allow_empty=false,
+        allow_non_utf8=false,
+        allow_non_ascii_keywords=false,
+        allow_missing_stext=false,
+        allow_stext_own_delim=false,
+        allow_missing_nextdata=false,
+        repair_offset_spaces=false,
+        date_pattern=None
+    )
 )]
-fn py_read_fcs_raw_text(
+fn py_fcs_read_raw_text(
     p: path::PathBuf,
 
     py: Python<'_>,
 
-    strict: bool,
+    version_override: Option<PyVersion>,
+    prim_text_correction: (i32, i32),
+    data_correction: (i32, i32),
+    analysis_correction: (i32, i32),
+    other_corrections: Vec<(i32, i32)>,
+    other_width: Option<u8>,
+    max_other: Option<usize>,
+    allow_negative: bool,
+    squish_offsets: bool,
 
-    begin_text: i32,
-    end_text: i32,
-    begin_data: i32,
-    end_data: i32,
-    begin_analysis: i32,
-    end_analysis: i32,
-
-    text_begin_stext: i32,
-    text_end_stext: i32,
+    supp_text_correction: (i32, i32),
     use_literal_delims: bool,
     allow_non_ascii_delim: bool,
     ignore_stext: bool,
@@ -144,28 +160,26 @@ fn py_read_fcs_raw_text(
     allow_missing_nextdata: bool,
     repair_offset_spaces: bool,
     date_pattern: Option<String>,
-    version_override: Option<PyVersion>,
 ) -> PyResult<(PyVersion, Bound<'_, PyDict>, Bound<'_, PyDict>, PyParseData)> {
-    let header = HeaderConfig {
-        version_override: version_override.map(|x| x.0),
-        text_correction: OffsetCorrection::new(begin_text, end_text),
-        data_correction: OffsetCorrection::new(begin_data, end_data),
-        analysis_correction: OffsetCorrection::new(begin_analysis, end_analysis),
-        // TODO addme
-        other_corrections: vec![],
-        other_width: OtherWidth::default(),
-        max_other: None,
-        allow_negative: false,
-        squish_offsets: false,
-    };
+    let header = header_config(
+        version_override,
+        prim_text_correction,
+        data_correction,
+        analysis_correction,
+        other_corrections,
+        other_width,
+        max_other,
+        allow_negative,
+        squish_offsets,
+    )?;
 
-    let conf = RawTextReadConfig {
+    let conf = raw_config(
         header,
-        stext_correction: OffsetCorrection::new(text_begin_stext, text_end_stext),
+        supp_text_correction,
         use_literal_delims,
+        allow_non_ascii_delim,
         ignore_stext,
         allow_duplicated_stext,
-        allow_non_ascii_delim,
         allow_missing_final_delim,
         allow_nonunique,
         allow_odd,
@@ -177,10 +191,11 @@ fn py_read_fcs_raw_text(
         allow_stext_own_delim,
         allow_missing_nextdata,
         repair_offset_spaces,
-        date_pattern: date_pattern.map(str_to_date_pat).transpose()?,
-    };
-    let raw: RawTEXTOutput = fcs_read_raw_text(&p, &conf.set_strict(strict))
-        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
+        date_pattern,
+    )?;
+
+    let raw: RawTEXTOutput =
+        fcs_read_raw_text(&p, &conf).map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
     let std = raw
         .keywords
         .std
@@ -198,68 +213,69 @@ fn py_read_fcs_raw_text(
 
 #[allow(clippy::too_many_arguments)]
 #[pyfunction]
-#[pyo3(signature = (
-    p,
+#[pyo3(
+    name = "fcs_read_std_text",
+    signature = (
+        p,
 
-    strict=false,
+        version_override=None,
+        prim_text_correction=(0,0),
+        data_correction=(0,0),
+        analysis_correction=(0,0),
+        other_corrections=vec![],
+        other_width=None,
+        max_other=None,
+        allow_negative=false,
+        squish_offsets=false,
 
-    begin_text=0,
-    end_text=0,
-    begin_data=0,
-    end_data=0,
-    begin_analysis=0,
-    end_analysis=0,
+        supp_text_correction=(0,0),
+        use_literal_delims=false,
+        allow_non_ascii_delim=false,
+        ignore_stext=false,
+        allow_duplicated_stext=false,
+        allow_missing_final_delim=false,
+        allow_nonunique=false,
+        allow_odd=false,
+        allow_delim_at_boundary=false,
+        allow_empty=false,
+        allow_non_utf8=false,
+        allow_non_ascii_keywords=false,
+        allow_missing_stext=false,
+        allow_stext_own_delim=false,
+        allow_missing_nextdata=false,
+        repair_offset_spaces=false,
+        date_pattern=None,
 
-    text_begin_stext=0,
-    text_end_stext=0,
-    use_literal_delims=false,
-    ignore_stext=false,
-    allow_duplicated_stext=false,
-    allow_non_ascii_delim=false,
-    allow_missing_final_delim=false,
-    allow_nonunique=false,
-    allow_odd=false,
-    allow_delim_at_boundary=false,
-    allow_empty=false,
-    allow_non_utf8=false,
-    allow_non_ascii_keywords=false,
-    allow_missing_stext=false,
-    allow_stext_own_delim=false,
-    allow_missing_nextdata=false,
-    repair_offset_spaces=false,
-    disallow_deprecated=false,
-
-    time_ensure=false,
-    // time_ensure_linear=false,
-    // time_ensure_nogain=false,
-    allow_deviant=false,
-
-    shortname_prefix=None,
-    nonstandard_measurement_pattern=None,
-    time_pattern=None,
-    date_pattern=None,
-    version_override=None)
+        disallow_deprecated=false,
+        time_ensure=false,
+        // time_ensure_linear=false,
+        // time_ensure_nogain=false,
+        allow_deviant=false,
+        shortname_prefix=None,
+        nonstandard_measurement_pattern=None,
+        time_pattern=None,
+    )
 )]
-fn py_read_fcs_std_text(
+fn py_fcs_read_std_text(
     py: Python<'_>,
 
     p: path::PathBuf,
 
-    strict: bool,
+    version_override: Option<PyVersion>,
+    prim_text_correction: (i32, i32),
+    data_correction: (i32, i32),
+    analysis_correction: (i32, i32),
+    other_corrections: Vec<(i32, i32)>,
+    other_width: Option<u8>,
+    max_other: Option<usize>,
+    allow_negative: bool,
+    squish_offsets: bool,
 
-    begin_text: i32,
-    end_text: i32,
-    begin_data: i32,
-    end_data: i32,
-    begin_analysis: i32,
-    end_analysis: i32,
-
-    text_begin_stext: i32,
-    text_end_stext: i32,
+    supp_text_correction: (i32, i32),
     use_literal_delims: bool,
+    allow_non_ascii_delim: bool,
     ignore_stext: bool,
     allow_duplicated_stext: bool,
-    allow_non_ascii_delim: bool,
     allow_missing_final_delim: bool,
     allow_nonunique: bool,
     allow_odd: bool,
@@ -271,39 +287,36 @@ fn py_read_fcs_std_text(
     allow_stext_own_delim: bool,
     allow_missing_nextdata: bool,
     repair_offset_spaces: bool,
-    disallow_deprecated: bool,
+    date_pattern: Option<String>,
 
+    disallow_deprecated: bool,
     time_ensure: bool,
     // time_ensure_linear: bool,
     // time_ensure_nogain: bool,
     allow_deviant: bool,
-
     shortname_prefix: Option<String>,
     nonstandard_measurement_pattern: Option<String>,
     time_pattern: Option<String>,
-    date_pattern: Option<String>,
-    version_override: Option<PyVersion>,
 ) -> PyResult<(Bound<'_, PyAny>, PyParseData, Bound<'_, PyDict>)> {
-    let header = HeaderConfig {
-        version_override: version_override.map(|x| x.0),
-        text_correction: OffsetCorrection::new(begin_text, end_text),
-        data_correction: OffsetCorrection::new(begin_data, end_data),
-        analysis_correction: OffsetCorrection::new(begin_analysis, end_analysis),
-        // TODO addme
-        other_corrections: vec![],
-        other_width: OtherWidth::default(),
-        max_other: None,
-        allow_negative: false,
-        squish_offsets: false,
-    };
+    let header = header_config(
+        version_override,
+        prim_text_correction,
+        data_correction,
+        analysis_correction,
+        other_corrections,
+        other_width,
+        max_other,
+        allow_negative,
+        squish_offsets,
+    )?;
 
-    let raw = RawTextReadConfig {
+    let raw = raw_config(
         header,
-        stext_correction: OffsetCorrection::new(text_begin_stext, text_end_stext),
+        supp_text_correction,
         use_literal_delims,
+        allow_non_ascii_delim,
         ignore_stext,
         allow_duplicated_stext,
-        allow_non_ascii_delim,
         allow_missing_final_delim,
         allow_nonunique,
         allow_odd,
@@ -315,31 +328,21 @@ fn py_read_fcs_std_text(
         allow_stext_own_delim,
         allow_missing_nextdata,
         repair_offset_spaces,
-        date_pattern: date_pattern.map(str_to_date_pat).transpose()?,
-    };
+        date_pattern,
+    )?;
 
-    let sp = shortname_prefix.map(str_to_shortname_prefix).transpose()?;
-    let nsmp = nonstandard_measurement_pattern
-        .map(str_to_nonstd_meas_pat)
-        .transpose()?;
-    let tp = time_pattern.map(str_to_time_pat).transpose()?;
-
-    let conf = StdTextReadConfig {
+    let conf = std_config(
         raw,
-        shortname_prefix: sp.unwrap_or_default(),
-        time: TimeConfig {
-            pattern: tp,
-            allow_missing: time_ensure,
-            // allow_nonlinear_scale: time_ensure_linear,
-            // allow_nontime_keywords: time_ensure_nogain,
-        },
-        allow_deviant,
         disallow_deprecated,
-        nonstandard_measurement_pattern: nsmp,
-    };
+        time_ensure,
+        allow_deviant,
+        shortname_prefix,
+        nonstandard_measurement_pattern,
+        time_pattern,
+    )?;
 
-    let out: StdTEXTOutput = fcs_read_std_text(&p, &conf.set_strict(strict))
-        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
+    let out: StdTEXTOutput =
+        fcs_read_std_text(&p, &conf).map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
 
     let text = match &out.standardized {
         // TODO this copies all data from the "union type" into a new
@@ -363,85 +366,78 @@ fn py_read_fcs_std_text(
 
 #[allow(clippy::too_many_arguments)]
 #[pyfunction]
-#[pyo3(signature = (
-    p,
+#[pyo3(
+    name = "fcs_read_std_dataset",
+    signature = (
+        p,
 
-    strict=false,
+        version_override=None,
+        prim_text_correction=(0,0),
+        data_correction=(0,0),
+        analysis_correction=(0,0),
+        other_corrections=vec![],
+        other_width=None,
+        max_other=None,
+        allow_negative=false,
+        squish_offsets=false,
 
-    header_begin_text=0,
-    header_end_text=0,
-    header_begin_data=0,
-    header_end_data=0,
-    header_begin_analysis=0,
-    header_end_analysis=0,
-    text_begin_stext=0,
-    text_end_stext=0,
-    text_begin_data=0,
-    text_end_data=0,
-    text_begin_analysis=0,
-    text_end_analysis=0,
+        supp_text_correction=(0,0),
+        use_literal_delims=false,
+        allow_non_ascii_delim=false,
+        ignore_stext=false,
+        allow_duplicated_stext=false,
+        allow_missing_final_delim=false,
+        allow_nonunique=false,
+        allow_odd=false,
+        allow_delim_at_boundary=false,
+        allow_empty=false,
+        allow_non_utf8=false,
+        allow_non_ascii_keywords=false,
+        allow_missing_stext=false,
+        allow_stext_own_delim=false,
+        allow_missing_nextdata=false,
+        repair_offset_spaces=false,
+        date_pattern=None,
 
-    use_literal_delims=false,
-    ignore_stext=false,
-    allow_duplicated_stext=false,
-    allow_non_ascii_delim=false,
-    allow_missing_final_delim=false,
-    allow_nonunique=false,
-    allow_odd=false,
-    allow_delim_at_boundary=false,
-    allow_empty=false,
-    allow_non_utf8=false,
-    allow_non_ascii_keywords=false,
-    allow_missing_stext=false,
-    allow_stext_own_delim=false,
-    allow_missing_nextdata=false,
-    allow_header_text_offset_mismatch=false,
-    allow_missing_required_offsets=false,
-    repair_offset_spaces=false,
-    disallow_deprecated=false,
+        disallow_deprecated=false,
+        time_ensure=false,
+        // time_ensure_linear=false,
+        // time_ensure_nogain=false,
+        allow_deviant=false,
+        shortname_prefix=None,
+        nonstandard_measurement_pattern=None,
+        time_pattern=None,
 
-    time_ensure=false,
-    // time_ensure_linear=false,
-    // time_ensure_nogain=false,
-
-    allow_deviant=false,
-    allow_uneven_event_width=false,
-    allow_tot_mismatch=false,
-
-    disallow_bitmask_truncation=false,
-    warnings_are_errors=false,
-
-    shortname_prefix=None,
-    nonstandard_measurement_pattern=None,
-    time_pattern=None,
-    date_pattern=None,
-    version_override=None)
+        allow_uneven_event_width=false,
+        allow_tot_mismatch=false,
+        allow_header_text_offset_mismatch=false,
+        allow_missing_required_offsets=false,
+        text_data_correction=(0,0),
+        text_analysis_correction=(0,0),
+        disallow_bitmask_truncation=false,
+        warnings_are_errors=false
+    )
 )]
-fn py_read_fcs_file(
+fn py_fcs_read_std_dataset(
     py: Python<'_>,
 
     p: path::PathBuf,
 
-    strict: bool,
+    version_override: Option<PyVersion>,
+    prim_text_correction: (i32, i32),
+    data_correction: (i32, i32),
+    analysis_correction: (i32, i32),
+    other_corrections: Vec<(i32, i32)>,
+    other_width: Option<u8>,
+    max_other: Option<usize>,
+    allow_negative: bool,
+    squish_offsets: bool,
 
-    header_begin_text: i32,
-    header_end_text: i32,
-    header_begin_data: i32,
-    header_end_data: i32,
-    header_begin_analysis: i32,
-    header_end_analysis: i32,
-
-    text_begin_stext: i32,
-    text_end_stext: i32,
-    text_begin_data: i32,
-    text_end_data: i32,
-    text_begin_analysis: i32,
-    text_end_analysis: i32,
-
+    supp_text_correction: (i32, i32),
     use_literal_delims: bool,
+    allow_non_ascii_delim: bool,
     ignore_stext: bool,
     allow_duplicated_stext: bool,
-    allow_non_ascii_delim: bool,
     allow_missing_final_delim: bool,
     allow_nonunique: bool,
     allow_odd: bool,
@@ -452,47 +448,46 @@ fn py_read_fcs_file(
     allow_missing_stext: bool,
     allow_stext_own_delim: bool,
     allow_missing_nextdata: bool,
-    allow_header_text_offset_mismatch: bool,
-    allow_missing_required_offsets: bool,
     repair_offset_spaces: bool,
-    disallow_deprecated: bool,
+    date_pattern: Option<String>,
 
+    disallow_deprecated: bool,
     time_ensure: bool,
     // time_ensure_linear: bool,
     // time_ensure_nogain: bool,
     allow_deviant: bool,
-    allow_uneven_event_width: bool,
-    allow_tot_mismatch: bool,
-
-    disallow_bitmask_truncation: bool,
-    warnings_are_errors: bool,
-
     shortname_prefix: Option<String>,
     nonstandard_measurement_pattern: Option<String>,
     time_pattern: Option<String>,
-    date_pattern: Option<String>,
-    version_override: Option<PyVersion>,
-) -> PyResult<(Bound<'_, PyAny>, PyParseData, Bound<'_, PyDict>)> {
-    let header = HeaderConfig {
-        version_override: version_override.map(|x| x.0),
-        text_correction: OffsetCorrection::new(header_begin_text, header_end_text),
-        data_correction: OffsetCorrection::new(header_begin_data, header_end_data),
-        analysis_correction: OffsetCorrection::new(header_begin_analysis, header_end_analysis),
-        // TODO addme
-        other_corrections: vec![],
-        other_width: OtherWidth::default(),
-        max_other: None,
-        allow_negative: false,
-        squish_offsets: false,
-    };
 
-    let raw = RawTextReadConfig {
+    allow_uneven_event_width: bool,
+    allow_tot_mismatch: bool,
+    allow_header_text_offset_mismatch: bool,
+    allow_missing_required_offsets: bool,
+    text_data_correction: (i32, i32),
+    text_analysis_correction: (i32, i32),
+    disallow_bitmask_truncation: bool,
+    warnings_are_errors: bool,
+) -> PyResult<(Bound<'_, PyAny>, PyParseData, Bound<'_, PyDict>)> {
+    let header = header_config(
+        version_override,
+        prim_text_correction,
+        data_correction,
+        analysis_correction,
+        other_corrections,
+        other_width,
+        max_other,
+        allow_negative,
+        squish_offsets,
+    )?;
+
+    let raw = raw_config(
         header,
-        stext_correction: OffsetCorrection::new(text_begin_stext, text_end_stext),
+        supp_text_correction,
         use_literal_delims,
+        allow_non_ascii_delim,
         ignore_stext,
         allow_duplicated_stext,
-        allow_non_ascii_delim,
         allow_missing_final_delim,
         allow_nonunique,
         allow_odd,
@@ -504,46 +499,33 @@ fn py_read_fcs_file(
         allow_stext_own_delim,
         allow_missing_nextdata,
         repair_offset_spaces,
-        date_pattern: date_pattern.map(str_to_date_pat).transpose()?,
-    };
+        date_pattern,
+    )?;
 
-    let sp = shortname_prefix.map(str_to_shortname_prefix).transpose()?;
-    let nsmp = nonstandard_measurement_pattern
-        .map(str_to_nonstd_meas_pat)
-        .transpose()?;
-    let tp = time_pattern.map(str_to_time_pat).transpose()?;
-
-    let standard = StdTextReadConfig {
+    let standard = std_config(
         raw,
-        shortname_prefix: sp.unwrap_or_default(),
-        time: TimeConfig {
-            pattern: tp,
-            allow_missing: time_ensure,
-            // allow_nontime_keywords: time_ensure_nogain,
-        },
-        allow_deviant,
         disallow_deprecated,
-        nonstandard_measurement_pattern: nsmp,
-    };
+        time_ensure,
+        allow_deviant,
+        shortname_prefix,
+        nonstandard_measurement_pattern,
+        time_pattern,
+    )?;
 
-    let conf = DataReadConfig {
+    let conf = data_config(
         standard,
-        shared: SharedConfig {
-            disallow_bitmask_truncation,
-            warnings_are_errors,
-        },
-        reader: ReaderConfig {
-            allow_uneven_event_width,
-            allow_tot_mismatch,
-            allow_header_text_offset_mismatch,
-            allow_missing_required_offsets,
-            data: OffsetCorrection::new(text_begin_data, text_end_data),
-            analysis: OffsetCorrection::new(text_begin_analysis, text_end_analysis),
-        },
-    };
+        allow_uneven_event_width,
+        allow_tot_mismatch,
+        allow_header_text_offset_mismatch,
+        allow_missing_required_offsets,
+        text_data_correction,
+        text_analysis_correction,
+        disallow_bitmask_truncation,
+        warnings_are_errors,
+    );
 
-    let out: StdDatasetOutput = fcs_read_std_dataset(&p, &conf.set_strict(strict))
-        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
+    let out: StdDatasetOutput =
+        fcs_read_std_dataset(&p, &conf).map_or_else(|e| Err(handle_failure(e)), handle_warnings)?;
 
     let dataset = match &out.dataset.standardized.core {
         // TODO this copies all data from the "union type" into a new
@@ -564,6 +546,145 @@ fn py_read_fcs_file(
             .map(|(k, v)| (k.to_string(), v.clone()))
             .into_py_dict(py)?,
     ))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn header_config(
+    version_override: Option<PyVersion>,
+    prim_text_correction: (i32, i32),
+    data_correction: (i32, i32),
+    analysis_correction: (i32, i32),
+    other_corrections: Vec<(i32, i32)>,
+    other_width: Option<u8>,
+    max_other: Option<usize>,
+    allow_negative: bool,
+    squish_offsets: bool,
+) -> PyResult<HeaderConfig> {
+    let os = other_corrections
+        .into_iter()
+        .map(OffsetCorrection::from)
+        .collect();
+    let ow = other_width
+        .map(OtherWidth::try_from)
+        .transpose()
+        .map_err(|e| PyreflowException::new_err(e.to_string()))?
+        .unwrap_or_default();
+    let out = HeaderConfig {
+        version_override: version_override.map(|x| x.0),
+        text_correction: OffsetCorrection::from(prim_text_correction),
+        data_correction: OffsetCorrection::from(data_correction),
+        analysis_correction: OffsetCorrection::from(analysis_correction),
+        other_corrections: os,
+        other_width: ow,
+        max_other,
+        allow_negative,
+        squish_offsets,
+    };
+    Ok(out)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn raw_config(
+    header: HeaderConfig,
+    supp_text_correction: (i32, i32),
+    use_literal_delims: bool,
+    allow_non_ascii_delim: bool,
+    ignore_stext: bool,
+    allow_duplicated_stext: bool,
+    allow_missing_final_delim: bool,
+    allow_nonunique: bool,
+    allow_odd: bool,
+    allow_delim_at_boundary: bool,
+    allow_empty: bool,
+    allow_non_utf8: bool,
+    allow_non_ascii_keywords: bool,
+    allow_missing_stext: bool,
+    allow_stext_own_delim: bool,
+    allow_missing_nextdata: bool,
+    repair_offset_spaces: bool,
+    date_pattern: Option<String>,
+) -> PyResult<RawTextReadConfig> {
+    let out = RawTextReadConfig {
+        header,
+        stext_correction: OffsetCorrection::from(supp_text_correction),
+        use_literal_delims,
+        ignore_stext,
+        allow_duplicated_stext,
+        allow_non_ascii_delim,
+        allow_missing_final_delim,
+        allow_nonunique,
+        allow_odd,
+        allow_delim_at_boundary,
+        allow_empty,
+        allow_non_utf8,
+        allow_non_ascii_keywords,
+        allow_missing_stext,
+        allow_stext_own_delim,
+        allow_missing_nextdata,
+        repair_offset_spaces,
+        date_pattern: date_pattern.map(str_to_date_pat).transpose()?,
+    };
+    Ok(out)
+}
+
+fn std_config(
+    raw: RawTextReadConfig,
+    disallow_deprecated: bool,
+    time_ensure: bool,
+    allow_deviant: bool,
+    shortname_prefix: Option<String>,
+    nonstandard_measurement_pattern: Option<String>,
+    time_pattern: Option<String>,
+) -> PyResult<StdTextReadConfig> {
+    let sp = shortname_prefix.map(str_to_shortname_prefix).transpose()?;
+    let nsmp = nonstandard_measurement_pattern
+        .map(str_to_nonstd_meas_pat)
+        .transpose()?;
+    let tp = time_pattern.map(str_to_time_pat).transpose()?;
+
+    let out = StdTextReadConfig {
+        raw,
+        shortname_prefix: sp.unwrap_or_default(),
+        time: TimeConfig {
+            pattern: tp,
+            allow_missing: time_ensure,
+            // allow_nonlinear_scale: time_ensure_linear,
+            // allow_nontime_keywords: time_ensure_nogain,
+        },
+        allow_deviant,
+        disallow_deprecated,
+        nonstandard_measurement_pattern: nsmp,
+    };
+    Ok(out)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn data_config(
+    standard: StdTextReadConfig,
+    allow_uneven_event_width: bool,
+    allow_tot_mismatch: bool,
+    allow_header_text_offset_mismatch: bool,
+    allow_missing_required_offsets: bool,
+    text_data_correction: (i32, i32),
+    text_analysis_correction: (i32, i32),
+    disallow_bitmask_truncation: bool,
+    warnings_are_errors: bool,
+) -> DataReadConfig {
+    DataReadConfig {
+        standard,
+        shared: SharedConfig {
+            disallow_bitmask_truncation,
+            warnings_are_errors,
+        },
+        reader: ReaderConfig {
+            allow_uneven_event_width,
+            allow_tot_mismatch,
+            allow_header_text_offset_mismatch,
+            allow_missing_required_offsets,
+            data: OffsetCorrection::from(text_data_correction),
+            analysis: OffsetCorrection::from(text_analysis_correction),
+        },
+    }
 }
 
 macro_rules! py_wrap {

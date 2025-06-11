@@ -115,18 +115,6 @@ impl fmt::Display for TriggerError {
     }
 }
 
-impl Linked for Trigger {
-    fn names(&self) -> HashSet<&Shortname> {
-        [&self.measurement].into_iter().collect()
-    }
-
-    fn reassign(&mut self, mapping: &NameMapping) {
-        if let Some(new) = mapping.get(&self.measurement) {
-            self.measurement = (*new).clone();
-        }
-    }
-}
-
 /// The values used for the $MODE key (up to 3.1)
 #[derive(Clone, PartialEq, Eq, Serialize)]
 pub enum Mode {
@@ -1615,7 +1603,24 @@ kw_opt_meta_string!(Proj, "PROJ");
 kw_opt_meta_string!(Smno, "SMNO");
 kw_opt_meta_string!(Src, "SRC");
 kw_opt_meta_string!(Sys, "SYS");
-kw_opt_meta!(Trigger, "TR");
+
+impl Key for Trigger {
+    const C: &'static str = "TR";
+}
+
+impl Optional for Trigger {}
+
+impl OptLinkedKey for Trigger {
+    fn names(&self) -> HashSet<&Shortname> {
+        [&self.measurement].into_iter().collect()
+    }
+
+    fn reassign(&mut self, mapping: &NameMapping) {
+        if let Some(new) = mapping.get(&self.measurement) {
+            self.measurement = (*new).clone();
+        }
+    }
+}
 
 // time for 2.0
 kw_time!(Btim2_0, Btim, FCSTime, FCSTimeError, "BTIM");
@@ -1645,7 +1650,11 @@ kw_opt_meta_string!(Plateid, "PLATEID");
 kw_opt_meta_string!(Platename, "PLATENAME");
 kw_opt_meta_string!(Wellid, "WELLID");
 
-kw_opt_meta!(Spillover, "SPILLOVER");
+impl Key for Spillover {
+    const C: &'static str = "SPILLOVER";
+}
+
+impl Optional for Spillover {}
 
 kw_opt_meta!(Vol, "VOL");
 
@@ -1657,7 +1666,12 @@ kw_opt_meta_string!(Locationid, "LOCATIONID");
 kw_opt_meta!(BeginDateTime, "BEGINDATETIME");
 kw_opt_meta!(EndDateTime, "ENDDATETIME");
 
-kw_opt_meta!(UnstainedCenters, "UNSTAINEDCENTERS");
+impl Key for UnstainedCenters {
+    const C: &'static str = "UNSTAINEDCENTERS";
+}
+
+impl Optional for UnstainedCenters {}
+
 kw_opt_meta_string!(UnstainedInfo, "UNSTAINEDINFO");
 
 kw_opt_meta_string!(Flowrate, "FLOWRATE");

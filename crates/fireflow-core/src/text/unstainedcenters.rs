@@ -3,7 +3,7 @@ use crate::validated::shortname::*;
 
 use super::named_vec::NameMapping;
 use super::optionalkw::ClearOptional;
-use super::parser::Linked;
+use super::parser::OptLinkedKey;
 
 use itertools::Itertools;
 use serde::Serialize;
@@ -126,7 +126,7 @@ impl fmt::Display for ParseUnstainedCenterError {
 }
 
 // TODO define in same mode as type
-impl Linked for UnstainedCenters {
+impl OptLinkedKey for UnstainedCenters {
     fn names(&self) -> HashSet<&Shortname> {
         self.0.keys().collect()
     }

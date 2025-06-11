@@ -998,7 +998,11 @@ pub(crate) trait LookupMetaroot: Sized + VersionedMetaroot {
         n: MeasIndex,
     ) -> LookupResult<<Self::N as MightHave>::Wrapper<Shortname>>;
 
-    fn lookup_specific(st: &mut StdKeywords, par: Par) -> LookupResult<Self>;
+    fn lookup_specific(
+        st: &mut StdKeywords,
+        par: Par,
+        names: &HashSet<&Shortname>,
+    ) -> LookupResult<Self>;
 }
 
 pub trait ConvertFromMetaroot<M>: Sized
@@ -1562,6 +1566,7 @@ where
         M: LookupMetaroot,
     {
         let par = Par(ms.len());
+        let names: HashSet<_> = ms.indexed_names().map(|(_, n)| n).collect();
         let a = Abrt::lookup_opt(kws, false);
         let co = Com::lookup_opt(kws, false);
         let ce = Cells::lookup_opt(kws, false);
@@ -1574,14 +1579,14 @@ where
         let sm = Smno::lookup_opt(kws, false);
         let sr = Src::lookup_opt(kws, false);
         let sy = Sys::lookup_opt(kws, false);
-        let t = Trigger::lookup_opt(kws, false);
+        let t = Trigger::lookup_linked_opt(kws, &names);
         a.zip5(co, ce, e, f)
             .zip5(i, l, o, p)
             .zip5(sm, sr, sy, t)
             .and_maybe(
                 |(((abrt, com, cells, exp, fil), inst, lost, op, proj), smno, src, sys, tr)| {
                     let mut dt = AlphaNumType::lookup_req(kws);
-                    let s = M::lookup_specific(kws, par);
+                    let s = M::lookup_specific(kws, par, &names);
                     dt.def_eval_warning(|datatype| {
                         if *datatype == AlphaNumType::Ascii
                             && M::O::fcs_version() >= Version::FCS3_1
@@ -1634,7 +1639,7 @@ where
             OptMetarootKey::pair_opt(&self.smno),
             OptMetarootKey::pair_opt(&self.src),
             OptMetarootKey::pair_opt(&self.sys),
-            OptMetarootKey::pair_opt(&self.tr),
+            OptLinkedKey::pair_opt(&self.tr),
         ]
         .into_iter()
         .flat_map(|(k, v)| v.map(|x| (k, x)))
@@ -1661,22 +1666,6 @@ where
             u.reassign(mapping);
             Ok(())
         });
-    }
-
-    fn check_trigger(&self, names: &HashSet<&Shortname>) -> Result<(), LinkedNameError> {
-        self.tr.0.as_ref().map_or(Ok(()), |tr| tr.check_link(names))
-    }
-
-    fn check_unstainedcenters(&self, names: &HashSet<&Shortname>) -> Result<(), LinkedNameError> {
-        self.specific
-            .as_unstainedcenters()
-            .map_or(Ok(()), |x| x.check_link(names))
-    }
-
-    fn check_spillover(&self, names: &HashSet<&Shortname>) -> Result<(), LinkedNameError> {
-        self.specific
-            .as_spillover()
-            .map_or(Ok(()), |x| x.check_link(names))
     }
 
     fn remove_trigger_by_name(&mut self, n: &Shortname) -> bool {
@@ -2612,25 +2601,6 @@ where
         self.measurements.indexed_names().map(|(_, x)| x).collect()
     }
 
-    fn check_linked_names(&self) -> MultiResult<(), LinkedNameError> {
-        let mut errs = vec![];
-        let names = self.measurement_names();
-
-        if let Err(e) = self.metaroot.check_trigger(&names) {
-            errs.push(e);
-        }
-
-        if let Err(e) = self.metaroot.check_unstainedcenters(&names) {
-            errs.push(e);
-        }
-
-        if let Err(e) = self.metaroot.check_spillover(&names) {
-            errs.push(e);
-        }
-
-        NonEmpty::from_vec(errs).map_or(Ok(()), Err)
-    }
-
     fn set_data_width_range(&mut self, xs: Vec<(Width, Range)>) -> Result<(), KeyLengthError> {
         self.measurements
             .alter_common_values_zip(xs, |_, x, (b, r)| {
@@ -2769,14 +2739,7 @@ where
                 }
             }
 
-            // make sure keywords which refer to $PnN are valid, if not then this
-            // fails because the API assumes these are valid and provides no way
-            // to fix otherwise.
-            tnt_core.and_maybe(|core| {
-                core.check_linked_names()
-                    .mult_to_deferred()
-                    .def_map_value(|_| core)
-            })
+            Ok(tnt_core)
         })
     }
 
@@ -3886,8 +3849,8 @@ impl CoreDataset3_2 {
 }
 
 impl UnstainedData {
-    fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<Self, E> {
-        let c = UnstainedCenters::lookup_opt(kws, false);
+    fn lookup<E>(kws: &mut StdKeywords, names: &HashSet<&Shortname>) -> LookupTentative<Self, E> {
+        let c = UnstainedCenters::lookup_linked_opt(kws, names);
         let i = UnstainedInfo::lookup_opt(kws, false);
         c.zip(i).map(|(unstainedcenters, unstainedinfo)| Self {
             unstainedcenters,
@@ -3897,7 +3860,7 @@ impl UnstainedData {
 
     fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
         [
-            OptMetarootKey::pair_opt(&self.unstainedcenters),
+            OptLinkedKey::pair_opt(&self.unstainedcenters),
             OptMetarootKey::pair_opt(&self.unstainedinfo),
         ]
         .into_iter()
@@ -6398,7 +6361,11 @@ impl LookupMetaroot for InnerMetaroot2_0 {
         Ok(Shortname::lookup_opt(kws, i.into(), false))
     }
 
-    fn lookup_specific(kws: &mut StdKeywords, par: Par) -> LookupResult<Self> {
+    fn lookup_specific(
+        kws: &mut StdKeywords,
+        par: Par,
+        _: &HashSet<&Shortname>,
+    ) -> LookupResult<Self> {
         let co = Compensation2_0::lookup(kws, par);
         let cy = Cyt::lookup_opt(kws, false);
         let t = Timestamps::lookup(kws, false);
@@ -6427,7 +6394,11 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         Ok(Shortname::lookup_opt(kws, i.into(), false))
     }
 
-    fn lookup_specific(kws: &mut StdKeywords, _: Par) -> LookupResult<Self> {
+    fn lookup_specific(
+        kws: &mut StdKeywords,
+        _: Par,
+        _: &HashSet<&Shortname>,
+    ) -> LookupResult<Self> {
         let co = Compensation3_0::lookup_opt(kws, false);
         let cy = Cyt::lookup_opt(kws, false);
         let sn = Cytsn::lookup_opt(kws, false);
@@ -6463,9 +6434,13 @@ impl LookupMetaroot for InnerMetaroot3_1 {
         Shortname::lookup_req(kws, i.into()).map(|x| x.map(Identity))
     }
 
-    fn lookup_specific(kws: &mut StdKeywords, _: Par) -> LookupResult<Self> {
+    fn lookup_specific(
+        kws: &mut StdKeywords,
+        _: Par,
+        names: &HashSet<&Shortname>,
+    ) -> LookupResult<Self> {
         let cy = Cyt::lookup_opt(kws, false);
-        let sp = Spillover::lookup_opt(kws, false);
+        let sp = Spillover::lookup_linked_opt(kws, names);
         let sn = Cytsn::lookup_opt(kws, false);
         let su = SubsetData::lookup(kws, true);
         let md = ModificationData::lookup(kws);
@@ -6518,7 +6493,11 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         Shortname::lookup_req(kws, i.into()).map(|x| x.map(Identity))
     }
 
-    fn lookup_specific(kws: &mut StdKeywords, _: Par) -> LookupResult<Self> {
+    fn lookup_specific(
+        kws: &mut StdKeywords,
+        _: Par,
+        names: &HashSet<&Shortname>,
+    ) -> LookupResult<Self> {
         let ca = CarrierData::lookup(kws);
         let d = Datetimes::lookup(kws);
         let f = Flowrate::lookup_opt(kws, false);
@@ -6527,11 +6506,11 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         // The only thing we care about is that the value is valid, since we
         // don't need to use it anywhere.
         let mo = Mode3_2::lookup_opt(kws, true);
-        let sp = Spillover::lookup_opt(kws, false);
+        let sp = Spillover::lookup_linked_opt(kws, names);
         let sn = Cytsn::lookup_opt(kws, false);
         let p = PlateData::lookup(kws, true);
         let t = Timestamps::lookup(kws, false);
-        let u = UnstainedData::lookup(kws);
+        let u = UnstainedData::lookup(kws, names);
         let v = Vol::lookup_opt(kws, false);
         let g = AppliedGates3_2::lookup(kws);
         ca.zip6(d, f, md, mo, sp)
@@ -6838,7 +6817,7 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
     fn keywords_opt_inner(&self) -> impl Iterator<Item = (String, String)> {
         [
             OptMetarootKey::pair_opt(&self.cyt),
-            OptMetarootKey::pair_opt(&self.spillover),
+            OptLinkedKey::pair_opt(&self.spillover),
             OptMetarootKey::pair_opt(&self.cytsn),
             OptMetarootKey::pair_opt(&self.vol),
         ]
@@ -6952,7 +6931,7 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
 
     fn keywords_opt_inner(&self) -> impl Iterator<Item = (String, String)> {
         [
-            OptMetarootKey::pair_opt(&self.spillover),
+            OptLinkedKey::pair_opt(&self.spillover),
             OptMetarootKey::pair_opt(&self.cytsn),
             OptMetarootKey::pair_opt(&self.vol),
             OptMetarootKey::pair_opt(&self.flowrate),

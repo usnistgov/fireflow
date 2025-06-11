@@ -225,9 +225,12 @@ where
 }
 
 /// Any key which references $PnN in its value
-pub(crate) trait Linked
+pub(crate) trait OptLinkedKey
 where
     Self: Key,
+    Self: Optional,
+    Self: fmt::Display,
+    Self: FromStr,
     Self: Sized,
 {
     fn check_link(&self, names: &HashSet<&Shortname>) -> Result<(), LinkedNameError> {
@@ -238,6 +241,38 @@ where
             })
             .map(Err)
             .unwrap_or(Ok(()))
+    }
+
+    fn lookup_linked_opt<E>(
+        kws: &mut StdKeywords,
+        names: &HashSet<&Shortname>,
+    ) -> LookupTentative<OptionalKw<Self>, E>
+    where
+        ParseOptKeyWarning: From<<Self as FromStr>::Err>,
+    {
+        process_opt(Self::remove_opt(kws, Self::std())).and_tentatively(|maybe| {
+            if let Some(x) = maybe.0 {
+                Self::check_link(&x, names).map_or_else(
+                    |w| Tentative::new(None, vec![w.into()], vec![]),
+                    |_| Tentative::new1(Some(x)),
+                )
+            } else {
+                Tentative::new1(None)
+            }
+            .map(|x| x.into())
+        })
+    }
+
+    // TODO not DRY
+    fn pair_opt(opt: &OptionalKw<Self>) -> (String, Option<String>) {
+        (
+            Self::std().to_string(),
+            opt.0.as_ref().map(|s| s.to_string()),
+        )
+    }
+
+    fn pair(opt: &Self) -> (String, String) {
+        (Self::std().to_string(), opt.to_string())
     }
 
     fn reassign(&mut self, mapping: &NameMapping);
@@ -313,9 +348,6 @@ where
         .transpose()
 }
 
-pub(crate) type RawKeywords = HashMap<String, String>;
-pub(crate) type OptKwResult<T> = Result<OptionalKw<T>, ParseKeyError<<T as FromStr>::Err>>;
-
 pub struct LinkedNameError {
     pub key: StdKey,
     pub names: NonEmpty<Shortname>,
@@ -367,10 +399,14 @@ where
     )
 }
 
-pub(crate) type LookupResult<V> = DeferredResult<V, LookupKeysWarning, LookupKeysError>;
-pub(crate) type LookupTentative<V, E> = Tentative<V, LookupKeysWarning, E>;
+pub(crate) type RawKeywords = HashMap<String, String>;
+
 pub(crate) type ReqResult<T> = Result<T, ReqKeyError<<T as FromStr>::Err>>;
 pub(crate) type OptResult<T> = Result<Option<T>, ParseKeyError<<T as FromStr>::Err>>;
+pub(crate) type OptKwResult<T> = Result<OptionalKw<T>, ParseKeyError<<T as FromStr>::Err>>;
+
+pub(crate) type LookupResult<V> = DeferredResult<V, LookupKeysWarning, LookupKeysError>;
+pub(crate) type LookupTentative<V, E> = Tentative<V, LookupKeysWarning, E>;
 
 // TODO this could be nested better
 enum_from_disp!(
@@ -379,7 +415,6 @@ enum_from_disp!(
     // TODO this currently does nothing, need to add a flag to toggle these to
     // errors
     [Dep, DeprecatedError],
-    [Linked, LinkedNameError],
     [Misc, LookupMiscError],
     [Deviant, DeviantError]
 );
@@ -388,6 +423,7 @@ enum_from_disp!(
     pub LookupKeysWarning,
     [Parse, ParseKeyError<ParseOptKeyWarning>],
     [Relation, LookupRelationalWarning],
+    [Linked, LinkedNameError],
     [Dep, DeprecatedError]
 );
 

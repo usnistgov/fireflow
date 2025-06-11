@@ -2,7 +2,7 @@ use crate::validated::shortname::*;
 
 use super::named_vec::NameMapping;
 use super::optionalkw::ClearOptional;
-use super::parser::Linked;
+use super::parser::OptLinkedKey;
 
 use itertools::Itertools;
 use nalgebra::DMatrix;
@@ -176,7 +176,7 @@ impl fmt::Display for SpilloverError {
     }
 }
 
-impl Linked for Spillover {
+impl OptLinkedKey for Spillover {
     fn names(&self) -> HashSet<&Shortname> {
         self.measurements.iter().collect()
     }

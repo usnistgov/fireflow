@@ -2732,10 +2732,10 @@ where
             }
             if let Some(ds) = NonEmpty::from_vec(deviant) {
                 let e = DeviantError(ds);
-                if conf.allow_deviant {
-                    tnt_core.push_error(e.into());
-                } else {
+                if conf.allow_pseudostandard {
                     tnt_core.push_warning(e.into());
+                } else {
+                    tnt_core.push_error(e.into());
                 }
             }
 

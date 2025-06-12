@@ -1,3 +1,6 @@
+use crate::config::RawTextReadConfig;
+use crate::error::*;
+use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
 use crate::text::index::IndexFromOne;
 use crate::validated::nonstandard::*;
 
@@ -6,6 +9,7 @@ use std::borrow::Borrow;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt;
+use std::str;
 
 /// Represents a standard key.
 ///
@@ -180,25 +184,45 @@ impl fmt::Display for StdKey {
 }
 
 impl ParsedKeywords {
-    pub(crate) fn insert(&mut self, k: &[u8], v: &[u8]) -> Result<(), KeywordInsertError> {
+    pub(crate) fn insert(
+        &mut self,
+        k: &[u8],
+        v: &[u8],
+        conf: &RawTextReadConfig,
+    ) -> Result<(), Leveled<KeywordInsertError>> {
+        // ASSUME key and value are never blank since we checked both prior to
+        // calling this. The FCS standards do not allow either to be blank.
         let n = k.len();
-        let vv = v.to_vec();
-        match String::from_utf8(vv) {
-            Ok(vs) => {
-                if n > 1 && k[0] == 36 && is_printable_ascii(&k[1..]) {
+        match str::from_utf8(v) {
+            Ok(vv) => {
+                // Trim whitespace from value if desired. Warn (or half) if this
+                // results in a blank.
+                let value = if conf.trim_value_whitespace {
+                    let trimmed = vv.trim();
+                    if trimmed.is_empty() {
+                        let w = BlankValueError(k.to_vec());
+                        return Err(Leveled::new(w.into(), !conf.allow_empty));
+                    } else {
+                        trimmed.to_string()
+                    }
+                } else {
+                    vv.to_string()
+                };
+                if n > 1 && k[0] == STD_PREFIX && is_printable_ascii(&k[1..]) {
                     // Standard key: starts with '$', check remaining chars are
                     // ASCII and convert lowercase to uppercase
-                    let xs = k[1..]
-                        .iter()
-                        .map(|x| if (97..=122).contains(x) { *x - 32 } else { *x })
-                        .collect();
+                    let xs = k[1..].iter().copied().map(ascii_to_upper).collect();
                     let kk = StdKey(unsafe { String::from_utf8_unchecked(xs) });
                     match self.std.entry(kk) {
                         Entry::Occupied(e) => {
-                            Err(KeywordInsertError::StdPresent(e.key().clone(), vs))
+                            let w = StdPresent {
+                                key: e.key().clone(),
+                                value,
+                            };
+                            Err(Leveled::new(w.into(), !conf.allow_nonunique))
                         }
                         Entry::Vacant(e) => {
-                            e.insert(vs);
+                            e.insert(value);
                             Ok(())
                         }
                     }
@@ -210,10 +234,14 @@ impl ParsedKeywords {
                     });
                     match self.nonstd.entry(kk) {
                         Entry::Occupied(e) => {
-                            Err(KeywordInsertError::NonStdPresent(e.key().clone(), vs))
+                            let w = NonStdPresent {
+                                key: e.key().clone(),
+                                value,
+                            };
+                            Err(Leveled::new(w.into(), !conf.allow_nonunique))
                         }
                         Entry::Vacant(e) => {
-                            e.insert(vs);
+                            e.insert(value);
                             Ok(())
                         }
                     }
@@ -221,40 +249,74 @@ impl ParsedKeywords {
                     // Non-ascii key: these are technically not allowed but save
                     // them anyways in case the user cares. If key isn't UTF-8
                     // then give up.
-                    self.non_ascii.push((kk, vs));
+                    self.non_ascii.push((kk, value));
                     Ok(())
                 } else {
-                    self.byte_pairs.push((k.to_vec(), vs.into()));
+                    self.byte_pairs.push((k.to_vec(), value.into()));
                     Ok(())
                 }
             }
-            Err(e) => {
-                self.byte_pairs.push((k.to_vec(), e.into_bytes()));
+            _ => {
+                self.byte_pairs.push((k.to_vec(), v.to_vec()));
                 Ok(())
             }
         }
     }
 }
 
+enum_from_disp!(
+    #[derive(Debug)]
+    pub KeywordInsertError,
+    [StdPresent, StdPresent],
+    [NonStdPresent, NonStdPresent],
+    [Blank, BlankValueError]
+);
+
 #[derive(Debug)]
-pub enum KeywordInsertError {
-    StdPresent(StdKey, String),
-    NonStdPresent(NonStdKey, String),
+pub struct BlankValueError(pub Vec<u8>);
+
+#[derive(Debug)]
+pub struct StdPresent {
+    key: StdKey,
+    value: String,
 }
 
-impl fmt::Display for KeywordInsertError {
+#[derive(Debug)]
+pub struct NonStdPresent {
+    key: NonStdKey,
+    value: String,
+}
+
+impl fmt::Display for StdPresent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            KeywordInsertError::StdPresent(k, v) => {
-                write!(f, "std key '{k}' already present, has value '{v}'")
-            }
-            KeywordInsertError::NonStdPresent(k, v) => {
-                write!(f, "non-std key '{k}' already present, has value '{v}'")
-            }
-        }
+        write!(
+            f,
+            "std key '{}' already present, has value '{}'",
+            self.key, self.value
+        )
+    }
+}
+
+impl fmt::Display for NonStdPresent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "non-std key '{}' already present, has value '{}'",
+            self.key, self.value
+        )
     }
 }
 
 fn is_printable_ascii(xs: &[u8]) -> bool {
     xs.iter().all(|x| 32 <= *x && *x <= 126)
 }
+
+fn ascii_to_upper(x: u8) -> u8 {
+    if (97..=122).contains(&x) {
+        x - 32
+    } else {
+        x
+    }
+}
+
+const STD_PREFIX: u8 = 36; // '$'

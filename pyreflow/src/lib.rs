@@ -164,7 +164,7 @@ fn py_fcs_read_header(
         allow_missing_stext=false,
         allow_stext_own_delim=false,
         allow_missing_nextdata=false,
-        repair_offset_spaces=false,
+        trim_value_whitespace=false,
         date_pattern=None
     )
 )]
@@ -198,7 +198,7 @@ fn py_fcs_read_raw_text(
     allow_missing_stext: bool,
     allow_stext_own_delim: bool,
     allow_missing_nextdata: bool,
-    repair_offset_spaces: bool,
+    trim_value_whitespace: bool,
     date_pattern: Option<String>,
 ) -> PyResult<(PyVersion, Bound<'_, PyDict>, Bound<'_, PyDict>, PyParseData)> {
     let header = header_config(
@@ -230,7 +230,7 @@ fn py_fcs_read_raw_text(
         allow_missing_stext,
         allow_stext_own_delim,
         allow_missing_nextdata,
-        repair_offset_spaces,
+        trim_value_whitespace,
         date_pattern,
     )?;
 
@@ -283,7 +283,7 @@ fn py_fcs_read_raw_text(
         allow_missing_stext=false,
         allow_stext_own_delim=false,
         allow_missing_nextdata=false,
-        repair_offset_spaces=false,
+        trim_value_whitespace=false,
         date_pattern=None,
 
         disallow_deprecated=false,
@@ -325,7 +325,7 @@ fn py_fcs_read_std_text(
     allow_missing_stext: bool,
     allow_stext_own_delim: bool,
     allow_missing_nextdata: bool,
-    repair_offset_spaces: bool,
+    trim_value_whitespace: bool,
     date_pattern: Option<String>,
 
     disallow_deprecated: bool,
@@ -365,7 +365,7 @@ fn py_fcs_read_std_text(
         allow_missing_stext,
         allow_stext_own_delim,
         allow_missing_nextdata,
-        repair_offset_spaces,
+        trim_value_whitespace,
         date_pattern,
     )?;
 
@@ -435,7 +435,7 @@ fn py_fcs_read_std_text(
         allow_missing_stext=false,
         allow_stext_own_delim=false,
         allow_missing_nextdata=false,
-        repair_offset_spaces=false,
+        trim_value_whitespace=false,
         date_pattern=None,
 
         disallow_deprecated=false,
@@ -486,7 +486,7 @@ fn py_fcs_read_std_dataset(
     allow_missing_stext: bool,
     allow_stext_own_delim: bool,
     allow_missing_nextdata: bool,
-    repair_offset_spaces: bool,
+    trim_value_whitespace: bool,
     date_pattern: Option<String>,
 
     disallow_deprecated: bool,
@@ -535,7 +535,7 @@ fn py_fcs_read_std_dataset(
         allow_missing_stext,
         allow_stext_own_delim,
         allow_missing_nextdata,
-        repair_offset_spaces,
+        trim_value_whitespace,
         date_pattern,
     )?;
 
@@ -639,7 +639,7 @@ fn raw_config(
     allow_missing_stext: bool,
     allow_stext_own_delim: bool,
     allow_missing_nextdata: bool,
-    repair_offset_spaces: bool,
+    trim_value_whitespace: bool,
     date_pattern: Option<String>,
 ) -> PyResult<RawTextReadConfig> {
     let out = RawTextReadConfig {
@@ -659,7 +659,7 @@ fn raw_config(
         allow_missing_stext,
         allow_stext_own_delim,
         allow_missing_nextdata,
-        repair_offset_spaces,
+        trim_value_whitespace,
         date_pattern: date_pattern.map(str_to_date_pat).transpose()?,
     };
     Ok(out)

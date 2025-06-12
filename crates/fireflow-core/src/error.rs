@@ -63,6 +63,15 @@ pub struct Tentative<V, W, E> {
     errors: Vec<E>,
 }
 
+/// A type that may be either an error or warning.
+///
+/// Useful for functions which only return one error or warning for which
+/// using a tentative would be unnecessary.
+pub enum Leveled<T> {
+    Error(T),
+    Warning(T),
+}
+
 /// Tentative where both error and warning are the same type
 pub type BiTentative<V, T> = Tentative<V, T, T>;
 
@@ -867,6 +876,33 @@ impl<W, E> DeferredFailure<(), W, E> {
 
     pub fn unfail_with<V>(self, value: V) -> Tentative<V, W, E> {
         Tentative::new(value, self.warnings, self.errors.into_iter().collect())
+    }
+}
+
+impl<T> Leveled<T> {
+    pub fn new(value: T, is_error: bool) -> Self {
+        if is_error {
+            Self::Error(value)
+        } else {
+            Self::Warning(value)
+        }
+    }
+
+    pub fn inner_into<X>(self) -> Leveled<X>
+    where
+        X: From<T>,
+    {
+        self.map(|x| x.into())
+    }
+
+    pub fn map<F, X>(self, f: F) -> Leveled<X>
+    where
+        F: FnOnce(T) -> X,
+    {
+        match self {
+            Self::Error(x) => Leveled::Error(f(x)),
+            Self::Warning(x) => Leveled::Warning(f(x)),
+        }
     }
 }
 

@@ -106,7 +106,7 @@ fn main() -> Result<(), ()> {
         arg!(-d --delimiter [DELIM] "delimiter to use for the table").default_value("\t");
 
     let repair_offset_spaces_arg =
-        arg!(-o --"repair-offset-spaces" "remove spaces from offset keywords");
+        arg!(-o --"trim-whitespace" "remove spaces from offset keywords");
 
     let max_other = arg!(--"max-other" [BYTES] "max number of OTHER segments to parse")
         .value_parser(value_parser!(usize));
@@ -271,7 +271,7 @@ fn main() -> Result<(), ()> {
                 ..conf.header
             };
             conf = config::RawTextReadConfig {
-                repair_offset_spaces: sargs.get_flag("repair-offset-spaces"),
+                trim_value_whitespace: sargs.get_flag("trim-whitespace"),
                 allow_duplicated_stext: sargs.get_flag("allow-dup-stext"),
                 ignore_stext: sargs.get_flag("ignore-stext"),
                 ..conf
@@ -296,7 +296,7 @@ fn main() -> Result<(), ()> {
                 ..conf.raw.header
             };
             // get_text_delta(sargs);
-            conf.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
+            conf.raw.trim_value_whitespace = sargs.get_flag("trim-whitespace");
             conf.raw.allow_duplicated_stext = sargs.get_flag("allow-dup-stext");
             let delim = sargs.get_one::<String>("delimiter").unwrap();
 
@@ -320,7 +320,7 @@ fn main() -> Result<(), ()> {
                 ..conf.raw.header
             };
             // get_text_delta(sargs);
-            conf.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
+            conf.raw.trim_value_whitespace = sargs.get_flag("trim-whitespace");
             conf.raw.allow_duplicated_stext = sargs.get_flag("allow-dup-stext");
             conf.raw.ignore_stext = sargs.get_flag("ignore-stext");
             let delim = sargs.get_one::<String>("delimiter").unwrap();
@@ -368,7 +368,7 @@ fn main() -> Result<(), ()> {
             // conf.time.allow_nontime_keywords = sargs.get_flag("ensure-time-nogain");
             conf.allow_pseudostandard = sargs.get_flag("allow-pseudostandard");
             conf.disallow_deprecated = sargs.get_flag("disallow-deprecated");
-            conf.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
+            conf.raw.trim_value_whitespace = sargs.get_flag("trim-whitespace");
 
             fcs_read_std_text(filepath, &conf)
                 .map(handle_warnings)
@@ -397,7 +397,7 @@ fn main() -> Result<(), ()> {
             // TODO add DATA delta adjust
             conf.standard.raw.allow_duplicated_stext = sargs.get_flag("allow-dup-stext");
             conf.standard.raw.ignore_stext = sargs.get_flag("ignore-stext");
-            conf.standard.raw.repair_offset_spaces = sargs.get_flag("repair-offset-spaces");
+            conf.standard.raw.trim_value_whitespace = sargs.get_flag("trim-whitespace");
             let delim = sargs.get_one::<String>("delimiter").unwrap();
 
             fcs_read_std_dataset(filepath, &conf)

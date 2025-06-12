@@ -440,9 +440,6 @@ pub struct EmptyTEXTError;
 pub struct BlankKeyError;
 
 #[derive(Debug)]
-pub struct BlankValueError(Vec<u8>);
-
-#[derive(Debug)]
 pub struct UnevenWordsError;
 
 #[derive(Debug)]
@@ -681,7 +678,6 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
         split_raw_primary_text(kws, delim, bytes, conf)
             .def_inner_into()
             .def_errors_liftio()
-            .def_map_value(|_kws| repair_offsets(_kws, conf))
             .def_map_value(|_kws| (delim, _kws))
     })?;
 
@@ -897,8 +893,11 @@ fn split_raw_text_literal_delim(
             prev_was_blank = value.is_empty();
             if value.is_empty() {
                 push_issue(conf.allow_empty, BlankValueError(key.to_vec()).into());
-            } else if let Err(e) = kws.insert(key, value) {
-                push_issue(conf.allow_nonunique, e.into());
+            } else if let Err(lvl) = kws.insert(key, value, conf) {
+                match lvl.inner_into() {
+                    Leveled::Error(e) => push_issue(false, e),
+                    Leveled::Warning(w) => push_issue(true, w),
+                }
             }
         } else {
             // exiting here means we found a key without a value and also didn't
@@ -937,8 +936,11 @@ fn split_raw_text_escaped_delim(
     };
 
     let mut push_pair = |_ews: &mut (Vec<_>, Vec<_>), kb: &Vec<_>, vb: &Vec<_>| {
-        if let Err(e) = kws.insert(kb, vb) {
-            push_issue(_ews, conf.allow_nonunique, e.into())
+        if let Err(lvl) = kws.insert(kb, vb, conf) {
+            match lvl.inner_into() {
+                Leveled::Error(e) => push_issue(_ews, false, e),
+                Leveled::Warning(w) => push_issue(_ews, true, w),
+            }
         }
     };
 
@@ -1054,25 +1056,6 @@ fn repair_keywords(kws: &mut StdKeywords, conf: &RawTextReadConfig) {
             }
         }
     }
-}
-
-fn repair_offsets(mut kws: ParsedKeywords, conf: &RawTextReadConfig) -> ParsedKeywords {
-    if conf.repair_offset_spaces {
-        for (key, v) in kws.std.iter_mut() {
-            if key == &Begindata::std()
-                || key == &Enddata::std()
-                || key == &Beginstext::std()
-                || key == &Endstext::std()
-                || key == &Beginanalysis::std()
-                || key == &Endanalysis::std()
-                || key == &Nextdata::std()
-                || key == &Tot::std()
-            {
-                *v = v.as_str().trim().to_string();
-            }
-        }
-    }
-    kws
 }
 
 fn lookup_stext_offsets(

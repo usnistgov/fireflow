@@ -235,7 +235,10 @@ pub struct RawTextReadConfig {
 
     /// If true, allow keys with blank values.
     ///
-    /// Only relevant if [`literal_delims`] is also true.
+    /// Only relevant if [`use_literal_delims`] is also true since blank values
+    /// cannot exist when delimiters are escaped. Blank values will be dropped
+    /// regardless of this flag; setting it to false will trigger an error,
+    /// otherwise a warning.
     pub allow_empty: bool,
 
     /// If true, allow delimiters at word boundaries.
@@ -281,14 +284,26 @@ pub struct RawTextReadConfig {
     /// be emitted rather than an error if this is missing.
     pub allow_missing_nextdata: bool,
 
-    /// If true, trim whitespace from offsets in TEXT
+    /// If true, trim whitespace from all values.
     ///
-    /// These often need to be padded to make the DATA segment appear at a
-    /// predictable offset. Many machines/programs will pad with spaces despite
-    /// the spec requiring that all numeric fields be entirely numeric
-    /// characters. Furthermore, machines can pad either the right or the left,
-    /// so need to trim both.
-    pub repair_offset_spaces: bool,
+    /// This is mainly useful for the case of fixing offsets which are usually
+    /// padded in order to make the TEXT segment a predictable length. These
+    /// should be left-padded with numbers since the standard stipulates that
+    /// offset values should only be numeric digits, but in many cases offsets
+    /// are padded with spaces (on either side). Setting this to true will trim
+    /// the spaces leaving just a number to be parsed.
+    ///
+    /// Blanks may be erroneously present on any keyword that has a fixed
+    /// structure; setting this to true may allow these to be parsed correctly
+    /// as well.
+    ///
+    /// Trimming will be done as soon as the bytes are read from the file, thus
+    /// preceding any other repair steps. Furthermore, trimming values has a
+    /// relatively small performance hit since no additional string allocations
+    /// are needed. If anything, it may improve performance since values that
+    /// are entirely whitespace will become empty and thus be dropped. Note
+    /// that these will result in errors if ['allow_empty'] is false.
+    pub trim_value_whitespace: bool,
 
     /// If supplied, will be used as an alternative pattern when parsing $DATE.
     ///

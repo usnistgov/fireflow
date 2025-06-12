@@ -895,8 +895,8 @@ fn split_raw_text_literal_delim(
         } else if let Some(value) = it.next() {
             prev_was_key = false;
             prev_was_blank = value.is_empty();
-            if value.is_empty() {
-                push_issue(conf.allow_empty, BlankValueError(key.to_vec()).into());
+            if value.is_empty() && !conf.allow_empty {
+                push_issue(false, BlankValueError(key.to_vec()).into());
             } else if let Err(e) = kws.insert(key, value) {
                 push_issue(conf.allow_nonunique, e.into());
             }

@@ -412,7 +412,7 @@ enum_from_disp!(
     // errors
     [Dep, DeprecatedError],
     [Misc, LookupMiscError],
-    [Deviant, DeviantError]
+    [Pseudostandard, PseudostandardError]
 );
 
 enum_from_disp!(
@@ -568,16 +568,12 @@ impl fmt::Display for TemporalError {
     }
 }
 
-/// Error denoting that deviant keywords were found.
-// TODO add them here? the only reason we might want this is in the situation
-// where we trigger an error for this (rather than a warning) in which case the
-// deviant keywords are not returned along with the standardized struct and
-// we want to use those deviant keywords somehow.
-pub struct DeviantError(pub NonEmpty<StdKey>);
+/// Error denoting that pseudostandard keyword was found.
+pub struct PseudostandardError(pub StdKey);
 
-impl fmt::Display for DeviantError {
+impl fmt::Display for PseudostandardError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "deviant keywords found: {}", self.0.iter().join(","))
+        write!(f, "pseudostandard keyword found: {}", self.0)
     }
 }
 

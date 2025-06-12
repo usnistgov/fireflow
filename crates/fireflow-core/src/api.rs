@@ -163,7 +163,7 @@ pub fn fcs_read_std_dataset_with_keywords(
                     data_seg: d_seg,
                     analysis_seg: a_seg,
                 },
-                deviant: kws.std,
+                pseudostandard: kws.std,
             })
         })
         .def_terminate(StdDatasetWithKwsFailure)
@@ -200,7 +200,7 @@ pub struct StdTEXTOutput {
     pub analysis: SegmentKeywords,
 
     /// Keywords that start with '$' that are not part of the standard
-    pub deviant: StdKeywords,
+    pub pseudostandard: StdKeywords,
 
     /// Miscellaneous data from parsing TEXT
     pub parse: RawTEXTParseData,
@@ -230,7 +230,7 @@ pub struct StdDatasetWithKwsOutput {
     pub standardized: DatasetWithSegments,
 
     /// Keywords that start with '$' that are not part of the standard
-    pub deviant: StdKeywords,
+    pub pseudostandard: StdKeywords,
 }
 
 /// Output of using keywords to read raw TEXT+DATA
@@ -582,7 +582,7 @@ impl RawTEXTOutput {
                     timestep,
                     data,
                     analysis,
-                    deviant: kws.std,
+                    pseudostandard: kws.std,
                 }
             },
         )
@@ -615,7 +615,7 @@ impl RawTEXTOutput {
                     data_seg,
                     analysis_seg,
                 },
-                deviant: kws.std,
+                pseudostandard: kws.std,
             },
             parse: self.parse,
         })
@@ -687,9 +687,10 @@ fn h_read_raw_text_from_header<R: Read + Seek>(
 
     let tnt_all_kws = tnt_primary.and_maybe(|(delim, mut kws)| {
         if conf.ignore_stext {
-            // TODO rip out the STEXT keywords so they don't trigger a false
-            // positive deviant keyword error later, there is probably a
-            // better way to handle this.
+            // NOTE rip out the STEXT keywords so they don't trigger a false
+            // positive pseudostandard keyword error later
+            let _ = kws.std.remove(&Beginstext::std());
+            let _ = kws.std.remove(&Endstext::std());
             Ok(Tentative::new1((delim, kws, None)))
         } else {
             lookup_stext_offsets(&mut kws.std, header.version, ptext_seg, conf)
@@ -1103,10 +1104,10 @@ fn lookup_stext_offsets(
 
 // TODO the reason we use get instead of remove here is because we don't want to
 // mess up the keyword list for raw mode, but in standardized mode we are
-// consuming the hash table as a way to test for deviant keywords (ie those that
-// are left over). In order to reconcile these, we either need to make two raw
-// text reader functions which either take immutable or mutable kws or use a
-// more clever hash table that marks keys when we see them.
+// consuming the hash table as a way to test for pseudostandard keywords (ie
+// those that are left over). In order to reconcile these, we either need to
+// make two raw text reader functions which either take immutable or mutable kws
+// or use a more clever hash table that marks keys when we see them.
 fn lookup_nextdata(
     kws: &StdKeywords,
     enforce: bool,

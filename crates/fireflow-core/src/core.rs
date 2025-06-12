@@ -152,9 +152,9 @@ pub struct Metaroot<X> {
     /// This will include all the keywords that do not start with '$'.
     ///
     /// Keywords which do start with '$' but are not part of the standard are
-    /// considered 'deviant' and stored elsewhere since this structure will also
-    /// be used to write FCS-compliant files (which do not allow nonstandard
-    /// keywords starting with '$')
+    /// considered 'pseudostandard' and stored elsewhere since this structure
+    /// will also be used to write FCS-compliant files (which do not allow
+    /// nonstandard keywords starting with '$')
     pub nonstandard_keywords: NonStdKeywords,
 }
 
@@ -2685,7 +2685,7 @@ where
         Par::lookup_req(kws).def_inner_into().def_and_maybe(|par| {
             // $NEXTDATA/$BEGINSTEXT/$ENDSTEXT should have already been
             // processed when we read the TEXT; remove them so they don't
-            // trigger false positives later when we test for deviant keys
+            // trigger false positives later when we test for pseudostandard keys
             let _ = kws.remove(&Nextdata::std());
             let _ = kws.remove(&Beginstext::std());
             let _ = kws.remove(&Endstext::std());
@@ -2717,9 +2717,7 @@ where
             // $BEGINDATA, $ENDDATA, $BEGINANALYSIS, and $ENDANALYSIS.
             // $TIMESTEP might also be present if it wasn't used for the
             // time measurement. Make sure this is actually true
-            let mut deviant = vec![];
             for k in kws.keys() {
-                // TODO probably a more efficient way to do this
                 if !(k == &Begindata::std()
                     || k == &Enddata::std()
                     || k == &Beginanalysis::std()
@@ -2727,15 +2725,12 @@ where
                     || k == &Tot::std()
                     || k == &Timestep::std())
                 {
-                    deviant.push(k.clone())
-                }
-            }
-            if let Some(ds) = NonEmpty::from_vec(deviant) {
-                let e = DeviantError(ds);
-                if conf.allow_pseudostandard {
-                    tnt_core.push_warning(e.into());
-                } else {
-                    tnt_core.push_error(e.into());
+                    let e = PseudostandardError(k.clone());
+                    if conf.allow_pseudostandard {
+                        tnt_core.push_warning(e.into());
+                    } else {
+                        tnt_core.push_error(e.into());
+                    }
                 }
             }
 
@@ -7437,7 +7432,7 @@ enum_from_disp!(
     pub LookupMeasWarning,
     [Parse, LookupKeysWarning],
     [Pattern, NonStdMeasRegexError],
-    [Deviant, DeviantError]
+    [Pseudostandard, PseudostandardError]
 );
 
 pub struct RegionToMeasIndexError(GateIndex);

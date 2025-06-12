@@ -397,7 +397,7 @@ fn py_fcs_read_std_text(
     Ok((
         text,
         out.parse.into(),
-        out.deviant
+        out.pseudostandard
             .into_iter()
             .map(|(k, v)| (k.to_string(), v.clone()))
             .into_py_dict(py)?,
@@ -581,7 +581,7 @@ fn py_fcs_read_std_dataset(
         dataset,
         out.parse.into(),
         out.dataset
-            .deviant
+            .pseudostandard
             .into_iter()
             .map(|(k, v)| (k.to_string(), v.clone()))
             .into_py_dict(py)?,

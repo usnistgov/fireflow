@@ -160,7 +160,7 @@ fn main() -> Result<(), ()> {
                 .arg(arg!(-T --"ensure-time" "make sure time measurement exists"))
                 // .arg(arg!(-l --"ensure-time-linear" "ensure time measurement is linear"))
                 // .arg(arg!(-g --"ensure-time-nogain" "ensure time measurement does not have gain"))
-                .arg(arg!(-d --"allow-pseudostandard" "allow deviant keywords"))
+                .arg(arg!(-d --"allow-pseudostandard" "allow pseudostandard keywords"))
                 .arg(arg!(-D --"disallow-deprecated" "disallow deprecated keywords"))
                 .arg(arg!(-p --"date-pattern" [PATTERN] "pattern to use when matching $DATE"))
                 .arg(arg!(-P --"ns-meas-pattern" [PATTERN] "pattern used to for nonstandard measurement keywords"))

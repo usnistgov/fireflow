@@ -61,6 +61,19 @@ pub struct ReaderConfig {
     /// missing these will be taken from HEADER.
     pub allow_missing_required_offsets: bool,
 
+    // /// If given, override all $PnB keywords to a single value.
+    // ///
+    // /// Some files set $PnB to match the bitmask. For example, a 16-bit column
+    // /// may only use 10 bits, so $PnB will be 10 and $PnR will be 1024. This
+    // /// will not work since $PnB must match the width of the real data.
+    // ///
+    // /// Setting this will force all $PnB to be a given width. This is in
+    // /// bytes and NOT bits since this library does not support non-octal column
+    // /// widths and thus must be a number between 1 and 8, allowing a maximum
+    // /// numerical value of 2^64-1.
+    // ///
+    // /// This only has an effect for FCS 2.0-3.0 where $DATATYPE=I.
+    // pub integer_bytes_override: Option<Bytes>,
     /// Corrections for DATA offsets in TEXT segment
     pub data: TEXTCorrection<DataSegmentId>,
 

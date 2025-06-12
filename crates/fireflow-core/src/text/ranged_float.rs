@@ -54,6 +54,12 @@ macro_rules! impl_ranged_float {
 impl_ranged_float!(PositiveFloat, <, false);
 impl_ranged_float!(NonNegFloat, <=, true);
 
+impl PositiveFloat {
+    pub fn unit() -> Self {
+        Self(1.0)
+    }
+}
+
 pub enum RangedFloatError {
     Parse(ParseFloatError),
     Range { x: f32, include_zero: bool },

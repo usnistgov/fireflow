@@ -20,7 +20,6 @@ use crate::text::unstainedcenters::*;
 use crate::validated::ascii_uint::Uint8DigitOverflow;
 use crate::validated::dataframe::*;
 use crate::validated::nonstandard::*;
-use crate::validated::pattern::*;
 use crate::validated::shortname::*;
 use crate::validated::standard::*;
 
@@ -1002,6 +1001,7 @@ pub(crate) trait LookupMetaroot: Sized + VersionedMetaroot {
         st: &mut StdKeywords,
         par: Par,
         names: &HashSet<&Shortname>,
+        conf: &StdTextReadConfig,
     ) -> LookupResult<Self>;
 }
 
@@ -1148,7 +1148,11 @@ pub trait VersionedOptical: Sized + Versioned {
 }
 
 pub(crate) trait LookupOptical: Sized + VersionedOptical {
-    fn lookup_specific(kws: &mut StdKeywords, n: MeasIndex) -> LookupResult<Self>;
+    fn lookup_specific(
+        kws: &mut StdKeywords,
+        n: MeasIndex,
+        conf: &StdTextReadConfig,
+    ) -> LookupResult<Self>;
 }
 
 pub trait VersionedTemporal: Sized {
@@ -1389,6 +1393,7 @@ where
         kws: &mut StdKeywords,
         i: MeasIndex,
         nonstd: NonStdPairs,
+        conf: &StdTextReadConfig,
     ) -> LookupResult<Self>
     where
         P: LookupOptical,
@@ -1402,7 +1407,7 @@ where
         f.zip5(p, d, e, v).and_maybe(
             |(filter, power, detector_type, percent_emitted, detector_voltage)| {
                 let c = CommonMeasurement::lookup(kws, i, nonstd);
-                let s = P::lookup_specific(kws, i);
+                let s = P::lookup_specific(kws, i, conf);
                 c.def_zip(s).def_map_value(|(common, specific)| Optical {
                     common,
                     filter,
@@ -1561,6 +1566,7 @@ where
         kws: &mut StdKeywords,
         ms: &Measurements<M::N, M::T, M::O>,
         nonstd: NonStdPairs,
+        conf: &StdTextReadConfig,
     ) -> LookupResult<Self>
     where
         M: LookupMetaroot,
@@ -1586,7 +1592,7 @@ where
             .and_maybe(
                 |(((abrt, com, cells, exp, fil), inst, lost, op, proj), smno, src, sys, tr)| {
                     let mut dt = AlphaNumType::lookup_req(kws);
-                    let s = M::lookup_specific(kws, par, &names);
+                    let s = M::lookup_specific(kws, par, &names, conf);
                     dt.def_eval_warning(|datatype| {
                         if *datatype == AlphaNumType::Ascii
                             && M::O::fcs_version() >= Version::FCS3_1
@@ -2496,10 +2502,8 @@ where
     fn lookup_measurements(
         kws: &mut StdKeywords,
         par: Par,
-        time_pat: Option<&TimePattern>,
-        prefix: &ShortnamePrefix,
-        ns_pat: Option<&NonStdMeasPattern>,
         nonstd: NonStdPairs,
+        conf: &StdTextReadConfig,
     ) -> DeferredResult<
         (Measurements<M::N, M::T, M::O>, NonStdPairs),
         LookupMeasWarning,
@@ -2514,7 +2518,7 @@ where
         // measurement if they match. Only capture one warning because if the
         // pattern is wrong for one measurement it is probably wrong for all of
         // them.
-        let tnt = if let Some(pat) = ns_pat {
+        let tnt = if let Some(pat) = conf.nonstandard_measurement_pattern.as_ref() {
             let res = (0..par.0)
                 .map(|n| pat.from_index(n.into()))
                 .collect::<Result<Vec<_>, _>>();
@@ -2557,7 +2561,7 @@ where
                         // will know it is trying to find $TIMESTEP in a
                         // nonsense measurement.
                         let key = M::N::unwrap(wrapped).and_then(|name| {
-                            if let Some(tp) = time_pat {
+                            if let Some(tp) = conf.time.pattern.as_ref() {
                                 if tp.0.as_inner().is_match(name.as_ref()) {
                                     return Ok(name);
                                 }
@@ -2575,7 +2579,7 @@ where
                             // channel to optical channel, which is more general
                             Ok(name) => Temporal::lookup_temporal(kws, i, meas_nonstd)
                                 .def_map_value(|t| Element::Center((name, t))),
-                            Err(k) => Optical::lookup_optical(kws, i, meas_nonstd)
+                            Err(k) => Optical::lookup_optical(kws, i, meas_nonstd, conf)
                                 .def_map_value(|m| Element::NonCenter((k, m))),
                         }
                     })
@@ -2588,7 +2592,7 @@ where
                     // into a named vector, which will have a special element
                     // for the time measurement if it exists, and will scream if
                     // we have more than one time measurement.
-                    NamedVec::try_new(xs, prefix.clone())
+                    NamedVec::try_new(xs, conf.shortname_prefix.clone())
                         .map(|ms| (ms, meta_nonstd))
                         .map_err(|e| LookupKeysError::Misc(e.into()))
                         .into_deferred()
@@ -2691,21 +2695,17 @@ where
             let _ = kws.remove(&Endstext::std());
 
             // Lookup measurements and metaroot with $PAR
-            let tp = conf.time.pattern.as_ref();
-            let sp = &conf.shortname_prefix;
-            let nsp = conf.nonstandard_measurement_pattern.as_ref();
             let ns: Vec<_> = nonstd.into_iter().collect();
-            let mut tnt_core = Self::lookup_measurements(kws, par, tp, sp, nsp, ns).def_and_maybe(
-                |(ms, meta_ns)| {
-                    Metaroot::lookup_metaroot(kws, &ms, meta_ns)
+            let mut tnt_core =
+                Self::lookup_measurements(kws, par, ns, conf).def_and_maybe(|(ms, meta_ns)| {
+                    Metaroot::lookup_metaroot(kws, &ms, meta_ns, conf)
                         .def_map_value(|metaroot| CoreTEXT::new_unchecked(metaroot, ms))
                         .def_warnings_into()
-                },
-            )?;
+                })?;
 
             // Check that the time measurement is present if we want it
             tnt_core.eval_error(|core| {
-                if let Some(pat) = tp {
+                if let Some(pat) = conf.time.pattern.as_ref() {
                     if !conf.time.allow_missing && core.measurements.as_center().is_none() {
                         return Some(LookupKeysError::Misc(MissingTime(pat.clone()).into()));
                     }
@@ -3981,9 +3981,12 @@ impl<I: Serialize> Serialize for BivariateRegion<I> {
 }
 
 impl AppliedGates2_0 {
-    fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<OptionalKw<Self>, E> {
+    fn lookup<E>(
+        kws: &mut StdKeywords,
+        conf: &StdTextReadConfig,
+    ) -> LookupTentative<OptionalKw<Self>, E> {
         let ag = GatingRegions::lookup(kws, false, |k, i| Region::lookup(k, i, false));
-        let gm = GatedMeasurements::lookup(kws, false);
+        let gm = GatedMeasurements::lookup(kws, false, conf);
         ag.zip(gm).and_tentatively(|(x, y)| {
             if let Some((applied, gated_measurements)) = x.0.zip(y.0) {
                 let ret = Self {
@@ -4028,9 +4031,13 @@ impl AppliedGates2_0 {
 }
 
 impl AppliedGates3_0 {
-    fn lookup<E>(kws: &mut StdKeywords, dep: bool) -> LookupTentative<OptionalKw<Self>, E> {
+    fn lookup<E>(
+        kws: &mut StdKeywords,
+        dep: bool,
+        conf: &StdTextReadConfig,
+    ) -> LookupTentative<OptionalKw<Self>, E> {
         let ag = GatingRegions::lookup(kws, false, |k, i| Region::lookup(k, i, false));
-        let gm = GatedMeasurements::lookup(kws, dep);
+        let gm = GatedMeasurements::lookup(kws, dep, conf);
         ag.zip(gm).and_tentatively(|(x, y)| {
             if let Some(applied) = x.0 {
                 let ret = Self {
@@ -4146,9 +4153,14 @@ impl AppliedGates3_2 {
 }
 
 impl GatedMeasurement {
-    fn lookup<E>(kws: &mut StdKeywords, i: GateIndex, dep: bool) -> LookupTentative<Self, E> {
+    fn lookup<E>(
+        kws: &mut StdKeywords,
+        i: GateIndex,
+        dep: bool,
+        conf: &StdTextReadConfig,
+    ) -> LookupTentative<Self, E> {
         let j = i.into();
-        let e = GateScale::lookup_opt(kws, j, dep);
+        let e = GateScale::lookup_fixed_opt(kws, i, dep, conf.fix_log_scale_offsets);
         let f = GateFilter::lookup_opt(kws, j, dep);
         let n = GateShortname::lookup_opt(kws, j, dep);
         let p = GatePercentEmitted::lookup_opt(kws, j, dep);
@@ -4419,13 +4431,17 @@ where
 }
 
 impl GatedMeasurements {
-    fn lookup<E>(kws: &mut StdKeywords, dep: bool) -> LookupTentative<OptionalKw<Self>, E> {
+    fn lookup<E>(
+        kws: &mut StdKeywords,
+        dep: bool,
+        conf: &StdTextReadConfig,
+    ) -> LookupTentative<OptionalKw<Self>, E> {
         Gate::lookup_opt(kws, dep).and_tentatively(|maybe| {
             if let Some(n) = maybe.0 {
                 // TODO this will be nicer with NonZeroUsize
                 if n.0 > 0 {
                     let xs = NonEmpty::collect(
-                        (0..n.0).map(|i| GatedMeasurement::lookup(kws, i.into(), dep)),
+                        (0..n.0).map(|i| GatedMeasurement::lookup(kws, i.into(), dep, conf)),
                     )
                     .unwrap();
                     return Tentative::mconcat_ne(xs).map(|x| Some(Self(x)).into());
@@ -5745,8 +5761,12 @@ impl Versioned for InnerOptical3_2 {
 }
 
 impl LookupOptical for InnerOptical2_0 {
-    fn lookup_specific(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
-        let s = Scale::lookup_opt(kws, i.into(), false);
+    fn lookup_specific(
+        kws: &mut StdKeywords,
+        i: MeasIndex,
+        conf: &StdTextReadConfig,
+    ) -> LookupResult<Self> {
+        let s = Scale::lookup_fixed_opt(kws, i, false, conf.fix_log_scale_offsets);
         let w = Wavelength::lookup_opt(kws, i.into(), false);
         let p = PeakData::lookup(kws, i, false);
         Ok(s.zip3(w, p).map(|(scale, wavelength, peak)| Self {
@@ -5758,23 +5778,33 @@ impl LookupOptical for InnerOptical2_0 {
 }
 
 impl LookupOptical for InnerOptical3_0 {
-    fn lookup_specific(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
+    fn lookup_specific(
+        kws: &mut StdKeywords,
+        i: MeasIndex,
+        conf: &StdTextReadConfig,
+    ) -> LookupResult<Self> {
         let g = Gain::lookup_opt(kws, i.into(), false);
         let w = Wavelength::lookup_opt(kws, i.into(), false);
         let p = PeakData::lookup(kws, i, false);
         g.zip3(w, p).and_maybe(|(gain, wavelength, peak)| {
-            Scale::lookup_req(kws, i.into()).def_map_value(|scale| Self {
-                scale,
-                gain,
-                wavelength,
-                peak,
+            Scale::lookup_fixed_req(kws, i, conf.fix_log_scale_offsets).def_map_value(|scale| {
+                Self {
+                    scale,
+                    gain,
+                    wavelength,
+                    peak,
+                }
             })
         })
     }
 }
 
 impl LookupOptical for InnerOptical3_1 {
-    fn lookup_specific(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
+    fn lookup_specific(
+        kws: &mut StdKeywords,
+        i: MeasIndex,
+        conf: &StdTextReadConfig,
+    ) -> LookupResult<Self> {
         let g = Gain::lookup_opt(kws, i.into(), false);
         let w = Wavelengths::lookup_opt(kws, i.into(), false);
         let c = Calibration3_1::lookup_opt(kws, i.into(), false);
@@ -5782,20 +5812,26 @@ impl LookupOptical for InnerOptical3_1 {
         let p = PeakData::lookup(kws, i, true);
         g.zip5(w, c, d, p)
             .and_maybe(|(gain, wavelengths, calibration, display, peak)| {
-                Scale::lookup_req(kws, i.into()).def_map_value(|scale| Self {
-                    scale,
-                    gain,
-                    wavelengths,
-                    calibration,
-                    display,
-                    peak,
+                Scale::lookup_fixed_req(kws, i, conf.fix_log_scale_offsets).def_map_value(|scale| {
+                    Self {
+                        scale,
+                        gain,
+                        wavelengths,
+                        calibration,
+                        display,
+                        peak,
+                    }
                 })
             })
     }
 }
 
 impl LookupOptical for InnerOptical3_2 {
-    fn lookup_specific(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
+    fn lookup_specific(
+        kws: &mut StdKeywords,
+        i: MeasIndex,
+        conf: &StdTextReadConfig,
+    ) -> LookupResult<Self> {
         let g = Gain::lookup_opt(kws, i.into(), false);
         let w = Wavelengths::lookup_opt(kws, i.into(), false);
         let c = Calibration3_2::lookup_opt(kws, i.into(), false);
@@ -5817,18 +5853,20 @@ impl LookupOptical for InnerOptical3_2 {
                 ),
                 datatype,
             )| {
-                Scale::lookup_req(kws, i.into()).def_map_value(|scale| Self {
-                    scale,
-                    gain,
-                    wavelengths,
-                    calibration,
-                    display,
-                    detector_name,
-                    tag,
-                    measurement_type,
-                    feature,
-                    analyte,
-                    datatype,
+                Scale::lookup_fixed_req(kws, i, conf.fix_log_scale_offsets).def_map_value(|scale| {
+                    Self {
+                        scale,
+                        gain,
+                        wavelengths,
+                        calibration,
+                        display,
+                        detector_name,
+                        tag,
+                        measurement_type,
+                        feature,
+                        analyte,
+                        datatype,
+                    }
                 })
             },
         )
@@ -6360,11 +6398,12 @@ impl LookupMetaroot for InnerMetaroot2_0 {
         kws: &mut StdKeywords,
         par: Par,
         _: &HashSet<&Shortname>,
+        conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
         let co = Compensation2_0::lookup(kws, par);
         let cy = Cyt::lookup_opt(kws, false);
         let t = Timestamps::lookup(kws, false);
-        let g = AppliedGates2_0::lookup(kws);
+        let g = AppliedGates2_0::lookup(kws, conf);
         co.zip4(cy, t, g)
             .and_maybe(|(comp, cyt, timestamps, applied_gates)| {
                 let b = ByteOrd::lookup_req(kws);
@@ -6393,6 +6432,7 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         kws: &mut StdKeywords,
         _: Par,
         _: &HashSet<&Shortname>,
+        conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
         let co = Compensation3_0::lookup_opt(kws, false);
         let cy = Cyt::lookup_opt(kws, false);
@@ -6400,7 +6440,7 @@ impl LookupMetaroot for InnerMetaroot3_0 {
         let su = SubsetData::lookup(kws, false);
         let t = Timestamps::lookup(kws, false);
         let u = Unicode::lookup_opt(kws, false);
-        let g = AppliedGates3_0::lookup(kws, false);
+        let g = AppliedGates3_0::lookup(kws, false, conf);
         co.zip4(cy, sn, su).zip4(t, u, g).and_maybe(
             |((comp, cyt, cytsn, subset), timestamps, unicode, applied_gates)| {
                 let b = ByteOrd::lookup_req(kws);
@@ -6433,6 +6473,7 @@ impl LookupMetaroot for InnerMetaroot3_1 {
         kws: &mut StdKeywords,
         _: Par,
         names: &HashSet<&Shortname>,
+        conf: &StdTextReadConfig,
     ) -> LookupResult<Self> {
         let cy = Cyt::lookup_opt(kws, false);
         let sp = Spillover::lookup_opt(kws, names);
@@ -6442,7 +6483,7 @@ impl LookupMetaroot for InnerMetaroot3_1 {
         let p = PlateData::lookup(kws, false);
         let t = Timestamps::lookup(kws, false);
         let v = Vol::lookup_opt(kws, false);
-        let g = AppliedGates3_0::lookup(kws, true);
+        let g = AppliedGates3_0::lookup(kws, true, conf);
         cy.zip5(sp, sn, su, md).zip5(p, t, v, g).and_maybe(
             |(
                 (cyt, spillover, cytsn, subset, modification),
@@ -6492,6 +6533,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
         kws: &mut StdKeywords,
         _: Par,
         names: &HashSet<&Shortname>,
+        _: &StdTextReadConfig,
     ) -> LookupResult<Self> {
         let ca = CarrierData::lookup(kws);
         let d = Datetimes::lookup(kws);

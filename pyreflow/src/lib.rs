@@ -288,9 +288,8 @@ fn py_fcs_read_raw_text(
 
         disallow_deprecated=false,
         time_ensure=false,
-        // time_ensure_linear=false,
-        // time_ensure_nogain=false,
         allow_pseudostandard=false,
+        fix_log_scale_offsets=false,
         shortname_prefix=None,
         nonstandard_measurement_pattern=None,
         time_pattern=None,
@@ -331,9 +330,8 @@ fn py_fcs_read_std_text(
 
     disallow_deprecated: bool,
     time_ensure: bool,
-    // time_ensure_linear: bool,
-    // time_ensure_nogain: bool,
     allow_pseudostandard: bool,
+    fix_log_scale_offsets: bool,
     shortname_prefix: Option<String>,
     nonstandard_measurement_pattern: Option<String>,
     time_pattern: Option<String>,
@@ -376,6 +374,7 @@ fn py_fcs_read_std_text(
         disallow_deprecated,
         time_ensure,
         allow_pseudostandard,
+        fix_log_scale_offsets,
         shortname_prefix,
         nonstandard_measurement_pattern,
         time_pattern,
@@ -441,9 +440,8 @@ fn py_fcs_read_std_text(
 
         disallow_deprecated=false,
         time_ensure=false,
-        // time_ensure_linear=false,
-        // time_ensure_nogain=false,
         allow_pseudostandard=false,
+        fix_log_scale_offsets=false,
         shortname_prefix=None,
         nonstandard_measurement_pattern=None,
         time_pattern=None,
@@ -493,9 +491,8 @@ fn py_fcs_read_std_dataset(
 
     disallow_deprecated: bool,
     time_ensure: bool,
-    // time_ensure_linear: bool,
-    // time_ensure_nogain: bool,
     allow_pseudostandard: bool,
+    fix_log_scale_offsets: bool,
     shortname_prefix: Option<String>,
     nonstandard_measurement_pattern: Option<String>,
     time_pattern: Option<String>,
@@ -547,6 +544,7 @@ fn py_fcs_read_std_dataset(
         disallow_deprecated,
         time_ensure,
         allow_pseudostandard,
+        fix_log_scale_offsets,
         shortname_prefix,
         nonstandard_measurement_pattern,
         time_pattern,
@@ -667,11 +665,13 @@ fn raw_config(
     Ok(out)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn std_config(
     raw: RawTextReadConfig,
     disallow_deprecated: bool,
     time_ensure: bool,
     allow_pseudostandard: bool,
+    fix_log_scale_offsets: bool,
     shortname_prefix: Option<String>,
     nonstandard_measurement_pattern: Option<String>,
     time_pattern: Option<String>,
@@ -692,6 +692,7 @@ fn std_config(
             // allow_nontime_keywords: time_ensure_nogain,
         },
         allow_pseudostandard,
+        fix_log_scale_offsets,
         disallow_deprecated,
         nonstandard_measurement_pattern: nsmp,
     };

@@ -353,6 +353,17 @@ pub struct StdTextReadConfig {
     /// If false, merely throw a warning.
     pub disallow_deprecated: bool,
 
+    /// If true, try to fix log-scale $PnE and $GnE keywords.
+    ///
+    /// These keywords are both formatted like 'X,Y' where X and Y are floats.
+    /// In the log case, both must be positive. Many files will incorrectly set
+    /// Y to 0.0 and X to some positive number. Since Y denotes the minimum
+    /// value of the log scale, 0 is meaningless.
+    ///
+    /// This fix will replace Y in such cases with 1.0, such that the value
+    /// becomes 'X,1.0'.
+    pub fix_log_scale_offsets: bool,
+
     /// If supplied, this pattern will be used to group "nonstandard" keywords
     /// with matching measurements.
     ///

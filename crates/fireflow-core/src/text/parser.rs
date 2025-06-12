@@ -376,7 +376,23 @@ pub(crate) fn lookup_temporal_gain_3_0(
     tnt_gain
 }
 
-fn process_opt<V, E>(
+pub(crate) fn process_opt_dep<V, E>(
+    res: Result<OptionalKw<V>, ParseKeyError<<V as FromStr>::Err>>,
+    k: StdKey,
+    dep: bool,
+) -> Tentative<OptionalKw<V>, LookupKeysWarning, E>
+where
+    V: FromStr,
+    ParseOptKeyWarning: From<<V as FromStr>::Err>,
+{
+    let mut x = process_opt(res);
+    if dep {
+        x.push_warning(DeprecatedError::Key(DepKeyWarning(k)).into());
+    }
+    x
+}
+
+pub(crate) fn process_opt<V, E>(
     res: Result<OptionalKw<V>, ParseKeyError<<V as FromStr>::Err>>,
 ) -> Tentative<OptionalKw<V>, LookupKeysWarning, E>
 where
@@ -594,6 +610,17 @@ impl<E> ParseKeyError<E> {
             value: self.value,
         }
     }
+
+    pub fn with_error<F, X>(self, f: F) -> Result<X, Self>
+    where
+        F: FnOnce(E) -> Result<X, E>,
+    {
+        f(self.error).map_err(|error| Self {
+            error,
+            key: self.key,
+            value: self.value,
+        })
+    }
 }
 
 impl<E> fmt::Display for ParseKeyError<E>
@@ -622,6 +649,16 @@ impl<E> ReqKeyError<E> {
         match self {
             ReqKeyError::Parse(e) => ReqKeyError::Parse(e.inner_into()),
             ReqKeyError::Missing(e) => ReqKeyError::Missing(e),
+        }
+    }
+
+    pub fn with_parse_error<F, X>(self, f: F) -> Result<X, Self>
+    where
+        F: FnOnce(E) -> Result<X, E>,
+    {
+        match self {
+            ReqKeyError::Parse(p) => p.with_error(f).map_err(ReqKeyError::Parse),
+            ReqKeyError::Missing(m) => Err(ReqKeyError::Missing(m)),
         }
     }
 }

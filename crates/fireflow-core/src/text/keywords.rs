@@ -10,6 +10,7 @@ use super::datetimes::*;
 use super::float_or_int::*;
 use super::index::*;
 use super::named_vec::NameMapping;
+use super::optionalkw::*;
 use super::parser::*;
 use super::ranged_float::*;
 use super::scale::*;
@@ -1335,6 +1336,18 @@ pub struct GateScale(pub Scale);
 newtype_from!(GateScale, Scale);
 newtype_disp!(GateScale);
 newtype_fromstr!(GateScale, ScaleError);
+
+// use the same fix we use for PnE here
+impl GateScale {
+    pub(crate) fn lookup_fixed_opt<E>(
+        kws: &mut StdKeywords,
+        i: GateIndex,
+        dep: bool,
+        try_fix: bool,
+    ) -> LookupTentative<OptionalKw<GateScale>, E> {
+        Scale::lookup_fixed_opt(kws, usize::from(i).into(), dep, try_fix).map(|x| x.map(GateScale))
+    }
+}
 
 /// The value of the $CSVnFLAG key (2.0-3.0)
 #[derive(Clone, Copy, Serialize)]

@@ -5669,7 +5669,7 @@ impl ConvertFromLayout<DataLayout3_2> for DataLayout3_1 {
         _: bool,
     ) -> LayoutConvertResult<Self> {
         let out = match value {
-            DataLayout3_2::Ascii(x) => Self::Ascii(x),
+            DataLayout3_2::Unmixed(x) => Self::Ascii(x),
             DataLayout3_2::Integer(x) => Self::Integer(x),
             DataLayout3_2::Float(x) => Self::Float(x),
             DataLayout3_2::Empty => Self::Empty,

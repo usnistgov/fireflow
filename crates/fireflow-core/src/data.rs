@@ -98,37 +98,20 @@ newtype_from!(DataLayout3_0, OrderedDataLayout);
 /// different. This is a consequence of making BYTEORD only mean "big or little
 /// endian" and have nothing to do with number of bytes.
 #[derive(Clone, Serialize, Default)]
-pub enum DataLayout3_1 {
-    /// Non-empty layout when DATATYPE=A
-    Ascii(AsciiLayout),
-    /// Non-empty layout when DATATYPE=I
-    Integer(FixedLayout<AnyEndianUintType>),
-    /// Non-empty layout when DATATYPE=F/D
-    Float(EndianFloatLayout),
-    /// Layout with no columns
-    #[default]
-    Empty,
-}
+pub struct DataLayout3_1(pub UnmixedEndianLayout);
 
-/// All possible byte layouts for the DATA segment in 3.2.
-///
-/// In addition to the loosened integer layouts in 3.1, 3.2 additionally allows
-/// each column to have a different type and size (hence "Mixed").
-#[derive(Clone, Serialize, Default)]
-pub enum DataLayout3_2 {
-    /// Non-empty layout when all columns are ASCII
-    Ascii(AsciiLayout),
-    /// Non-empty layout when all columns are integers
-    Integer(FixedLayout<AnyEndianUintType>),
-    /// Non-empty layout when all columns are floats or doubles
-    Float(EndianFloatLayout),
-    /// Non-empty layout when columns have at least two of float, double,
-    /// integer, ASCII types.
-    Mixed(FixedLayout<MixedType>),
-    /// Layout with no columns
-    #[default]
-    Empty,
-}
+newtype_from!(DataLayout3_1, UnmixedEndianLayout);
+
+enum_from!(
+    /// All possible byte layouts for the DATA segment in 3.2.
+    ///
+    /// In addition to the loosened integer layouts in 3.1, 3.2 additionally allows
+    /// each column to have a different type and size (hence "Mixed").
+    #[derive(Clone, Serialize)]
+    pub DataLayout3_2,
+    [Mixed,FixedLayout<MixedType>],
+    [Unmixed,UnmixedEndianLayout]
+);
 
 /// All possible byte layouts for the DATA segment in 2.0 and 3.0.
 ///
@@ -142,6 +125,20 @@ pub enum OrderedDataLayout {
     Integer(AnyOrderedUintLayout),
     /// Non-empty layout when DATATYPE=F/D
     Float(OrderedFloatLayout),
+    /// Layout with no columns
+    #[default]
+    Empty,
+}
+
+/// All possible byte layouts for 3.1+ where DATATYPE is constant.
+#[derive(Clone, Serialize, Default)]
+pub enum UnmixedEndianLayout {
+    /// Non-empty layout when DATATYPE=A
+    Ascii(AsciiLayout),
+    /// Non-empty layout when DATATYPE=I
+    Integer(FixedLayout<AnyEndianUintType>),
+    /// Non-empty layout when DATATYPE=F/D
+    Float(EndianFloatLayout),
     /// Layout with no columns
     #[default]
     Empty,
@@ -2802,22 +2799,7 @@ impl VersionedDataLayout for DataLayout3_1 {
         columns: Vec<ColumnLayoutData<Self::D>>,
         conf: &SharedConfig,
     ) -> DeferredResult<Self, NewDataLayoutWarning, NewDataLayoutError> {
-        match datatype {
-            AlphaNumType::Ascii => AsciiLayout::try_new(columns)
-                .map(|x| x.map_or(Self::Empty, Self::Ascii))
-                .mult_to_deferred(),
-            AlphaNumType::Integer => {
-                FixedLayout::try_new(columns, endian, conf.disallow_bitmask_truncation)
-                    .def_map_value(|x| x.map_or(Self::Empty, Self::Integer))
-                    .def_inner_into()
-            }
-            AlphaNumType::Single => f32::layout_endian(columns, endian)
-                .map(|x| x.map_or(Self::Empty, |y| Self::Float(EndianFloatLayout::F32(y))))
-                .mult_to_deferred(),
-            AlphaNumType::Double => f64::layout_endian(columns, endian)
-                .map(|x| x.map_or(Self::Empty, |y| Self::Float(EndianFloatLayout::F64(y))))
-                .mult_to_deferred(),
-        }
+        UnmixedEndianLayout::try_new(datatype, endian, columns, conf).def_map_value(|x| x.into())
     }
 
     fn try_new_from_raw(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Self> {
@@ -2832,12 +2814,7 @@ impl VersionedDataLayout for DataLayout3_1 {
     }
 
     fn ncols(&self) -> usize {
-        match self {
-            Self::Ascii(a) => a.ncols(),
-            Self::Integer(i) => i.ncols(),
-            Self::Float(f) => f.ncols(),
-            Self::Empty => 0,
-        }
+        self.0.ncols()
     }
 
     fn as_writer_inner<'a>(
@@ -2845,16 +2822,7 @@ impl VersionedDataLayout for DataLayout3_1 {
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
     ) -> MultiResult<DataWriter<'a>, ColumnWriterError> {
-        match self {
-            Self::Ascii(a) => a.as_writer(df, conf),
-            Self::Integer(i) => i
-                .as_writer(df, conf)
-                .map(|x| x.map_or(DataWriter::Empty, DataWriter::Fixed)),
-            Self::Float(f) => f
-                .as_writer(df, conf)
-                .map(|x| x.map_or(DataWriter::Empty, DataWriter::Fixed)),
-            Self::Empty => Ok(DataWriter::Empty),
-        }
+        self.0.as_writer_inner(df, conf)
     }
 
     fn into_data_reader(
@@ -2914,22 +2882,8 @@ impl VersionedDataLayout for DataLayout3_2 {
             .collect();
         let unique_dt: Vec<_> = dt_columns.iter().map(|c| c.datatype).unique().collect();
         match unique_dt[..] {
-            [dt] => match dt {
-                AlphaNumType::Ascii => AsciiLayout::try_new(dt_columns)
-                    .map(|x| x.map_or(Self::Empty, Self::Ascii))
-                    .mult_to_deferred(),
-                AlphaNumType::Integer => {
-                    FixedLayout::try_new(dt_columns, endian, conf.disallow_bitmask_truncation)
-                        .def_map_value(|x| x.map_or(Self::Empty, Self::Integer))
-                        .def_inner_into()
-                }
-                AlphaNumType::Single => f32::layout_endian(dt_columns, endian)
-                    .map(|x| x.map_or(Self::Empty, |y| Self::Float(EndianFloatLayout::F32(y))))
-                    .mult_to_deferred(),
-                AlphaNumType::Double => f64::layout_endian(dt_columns, endian)
-                    .map(|x| x.map_or(Self::Empty, |y| Self::Float(EndianFloatLayout::F64(y))))
-                    .mult_to_deferred(),
-            },
+            [dt] => UnmixedEndianLayout::try_new(dt, endian, dt_columns, conf)
+                .def_map_value(|x| x.into()),
             _ => dt_columns
                 .into_iter()
                 .enumerate()
@@ -2984,11 +2938,8 @@ impl VersionedDataLayout for DataLayout3_2 {
 
     fn ncols(&self) -> usize {
         match self {
-            Self::Ascii(a) => a.ncols(),
-            Self::Integer(i) => i.ncols(),
-            Self::Float(f) => f.ncols(),
+            Self::Unmixed(x) => x.ncols(),
             Self::Mixed(m) => m.ncols(),
-            Self::Empty => 0,
         }
     }
 
@@ -2998,17 +2949,10 @@ impl VersionedDataLayout for DataLayout3_2 {
         conf: &WriteConfig,
     ) -> MultiResult<DataWriter<'a>, ColumnWriterError> {
         match self {
-            Self::Ascii(a) => a.as_writer(df, conf),
-            Self::Integer(i) => i
-                .as_writer(df, conf)
-                .map(|x| x.map_or(DataWriter::Empty, DataWriter::Fixed)),
-            Self::Float(f) => f
-                .as_writer(df, conf)
-                .map(|x| x.map_or(DataWriter::Empty, DataWriter::Fixed)),
+            Self::Unmixed(x) => x.as_writer_inner(df, conf),
             Self::Mixed(m) => m
                 .as_writer(df, conf)
                 .map(|x| x.map_or(DataWriter::Empty, DataWriter::Fixed)),
-            Self::Empty => Ok(DataWriter::Empty),
         }
     }
 
@@ -3187,24 +3131,11 @@ impl DataLayout3_1 {
         W: From<TotEventMismatch>,
         E: From<TotEventMismatch>,
     {
-        match self {
-            Self::Ascii(a) => a.into_col_reader(seg, tot, conf),
-            Self::Integer(fl) => fl.into_col_reader(seg, tot, conf),
-            Self::Float(fl) => fl.into_col_reader(seg, tot, conf),
-            Self::Empty => Tentative::new1(ColumnReader::Empty),
-        }
-        .map(|r| r.into_data_reader(seg))
+        self.0.into_reader(tot, seg, conf)
     }
 
     pub(crate) fn into_ordered(self) -> LayoutConvertResult<OrderedDataLayout> {
-        match self {
-            Self::Ascii(x) => Ok(Tentative::new1(OrderedDataLayout::Ascii(x))),
-            Self::Integer(x) => x
-                .try_into_ordered()
-                .def_map_value(OrderedDataLayout::Integer),
-            Self::Float(x) => Ok(Tentative::new1(OrderedDataLayout::Float(x.into()))),
-            Self::Empty => Ok(Tentative::new1(OrderedDataLayout::Empty)),
-        }
+        self.0.into_ordered()
     }
 }
 
@@ -3222,25 +3153,24 @@ impl DataLayout3_2 {
         E: From<TotEventMismatch>,
     {
         match self {
-            Self::Ascii(a) => a.into_col_reader(seg, tot, conf),
-            Self::Integer(fl) => fl.into_col_reader(seg, tot, conf),
-            Self::Float(fl) => fl.into_col_reader(seg, tot, conf),
-            Self::Mixed(fl) => fl.into_col_reader(seg, tot, conf),
-            Self::Empty => Tentative::new1(ColumnReader::Empty),
+            Self::Unmixed(x) => x.into_reader(tot, seg, conf),
+            Self::Mixed(fl) => fl
+                .into_col_reader(seg, tot, conf)
+                .map(|r| r.into_data_reader(seg)),
         }
-        .map(|r| r.into_data_reader(seg))
     }
 
     pub(crate) fn into_ordered(self) -> LayoutConvertResult<OrderedDataLayout> {
         match self {
-            Self::Ascii(x) => Ok(Tentative::new1(OrderedDataLayout::Ascii(x))),
-            Self::Integer(x) => x
-                .try_into_ordered()
-                .def_map_value(OrderedDataLayout::Integer),
-            Self::Float(x) => Ok(Tentative::new1(OrderedDataLayout::Float(x.into()))),
-            Self::Empty => Ok(Tentative::new1(OrderedDataLayout::Empty)),
+            Self::Unmixed(x) => x.into_ordered(),
             // TODO mixed
         }
+    }
+}
+
+impl Default for DataLayout3_2 {
+    fn default() -> Self {
+        DataLayout3_2::Unmixed(UnmixedEndianLayout::default())
     }
 }
 
@@ -3303,22 +3233,108 @@ impl OrderedDataLayout {
         }
     }
 
-    pub(crate) fn into_3_1(self) -> LayoutConvertResult<DataLayout3_1> {
+    pub fn into_unmixed(self) -> LayoutConvertResult<UnmixedEndianLayout> {
         match self {
-            Self::Ascii(x) => Ok(Tentative::new1(DataLayout3_1::Ascii(x))),
-            Self::Integer(x) => x.into_endian_layout().def_map_value(DataLayout3_1::Integer),
-            Self::Float(x) => x.into_endian_layout().def_map_value(DataLayout3_1::Float),
-            Self::Empty => Ok(Tentative::new1(DataLayout3_1::Empty)),
+            Self::Ascii(x) => Ok(Tentative::new1(UnmixedEndianLayout::Ascii(x))),
+            Self::Integer(x) => x
+                .into_endian_layout()
+                .def_map_value(UnmixedEndianLayout::Integer),
+            Self::Float(x) => x
+                .into_endian_layout()
+                .def_map_value(UnmixedEndianLayout::Float),
+            Self::Empty => Ok(Tentative::new1(UnmixedEndianLayout::Empty)),
         }
     }
 
-    // TODO not DRY
+    pub(crate) fn into_3_1(self) -> LayoutConvertResult<DataLayout3_1> {
+        self.into_unmixed().def_map_value(|x| x.into())
+    }
+
     pub(crate) fn into_3_2(self) -> LayoutConvertResult<DataLayout3_2> {
+        self.into_unmixed().def_map_value(|x| x.into())
+    }
+}
+
+impl UnmixedEndianLayout {
+    fn try_new(
+        datatype: AlphaNumType,
+        endian: Endian,
+        columns: Vec<ColumnLayoutData<()>>,
+        conf: &SharedConfig,
+    ) -> DeferredResult<Self, NewDataLayoutWarning, NewDataLayoutError> {
+        match datatype {
+            AlphaNumType::Ascii => AsciiLayout::try_new(columns)
+                .map(|x| x.map_or(Self::Empty, Self::Ascii))
+                .mult_to_deferred(),
+            AlphaNumType::Integer => {
+                FixedLayout::try_new(columns, endian, conf.disallow_bitmask_truncation)
+                    .def_map_value(|x| x.map_or(Self::Empty, Self::Integer))
+                    .def_inner_into()
+            }
+            AlphaNumType::Single => f32::layout_endian(columns, endian)
+                .map(|x| x.map_or(Self::Empty, |y| Self::Float(EndianFloatLayout::F32(y))))
+                .mult_to_deferred(),
+            AlphaNumType::Double => f64::layout_endian(columns, endian)
+                .map(|x| x.map_or(Self::Empty, |y| Self::Float(EndianFloatLayout::F64(y))))
+                .mult_to_deferred(),
+        }
+    }
+
+    fn into_reader<W, E>(
+        self,
+        tot: Tot,
+        seg: AnyDataSegment,
+        conf: &ReaderConfig,
+    ) -> Tentative<DataReader, W, E>
+    where
+        W: From<UnevenEventWidth>,
+        E: From<UnevenEventWidth>,
+        W: From<TotEventMismatch>,
+        E: From<TotEventMismatch>,
+    {
         match self {
-            Self::Ascii(x) => Ok(Tentative::new1(DataLayout3_2::Ascii(x))),
-            Self::Integer(x) => x.into_endian_layout().def_map_value(DataLayout3_2::Integer),
-            Self::Float(x) => x.into_endian_layout().def_map_value(DataLayout3_2::Float),
-            Self::Empty => Ok(Tentative::new1(DataLayout3_2::Empty)),
+            Self::Ascii(a) => a.into_col_reader(seg, tot, conf),
+            Self::Integer(fl) => fl.into_col_reader(seg, tot, conf),
+            Self::Float(fl) => fl.into_col_reader(seg, tot, conf),
+            Self::Empty => Tentative::new1(ColumnReader::Empty),
+        }
+        .map(|r| r.into_data_reader(seg))
+    }
+
+    fn ncols(&self) -> usize {
+        match self {
+            Self::Ascii(a) => a.ncols(),
+            Self::Integer(i) => i.ncols(),
+            Self::Float(f) => f.ncols(),
+            Self::Empty => 0,
+        }
+    }
+
+    fn as_writer_inner<'a>(
+        &self,
+        df: &'a FCSDataFrame,
+        conf: &WriteConfig,
+    ) -> MultiResult<DataWriter<'a>, ColumnWriterError> {
+        match self {
+            Self::Ascii(a) => a.as_writer(df, conf),
+            Self::Integer(i) => i
+                .as_writer(df, conf)
+                .map(|x| x.map_or(DataWriter::Empty, DataWriter::Fixed)),
+            Self::Float(f) => f
+                .as_writer(df, conf)
+                .map(|x| x.map_or(DataWriter::Empty, DataWriter::Fixed)),
+            Self::Empty => Ok(DataWriter::Empty),
+        }
+    }
+
+    pub(crate) fn into_ordered(self) -> LayoutConvertResult<OrderedDataLayout> {
+        match self {
+            Self::Ascii(x) => Ok(Tentative::new1(OrderedDataLayout::Ascii(x))),
+            Self::Integer(x) => x
+                .try_into_ordered()
+                .def_map_value(OrderedDataLayout::Integer),
+            Self::Float(x) => Ok(Tentative::new1(OrderedDataLayout::Float(x.into()))),
+            Self::Empty => Ok(Tentative::new1(OrderedDataLayout::Empty)),
         }
     }
 }

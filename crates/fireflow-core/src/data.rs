@@ -12,44 +12,33 @@
 //!
 //! Now for the ugly bits.
 //!
-//! Performance is critical for this since some files are MBs in size (or more)
-//! and we also want to represent data in such a manner that it can be easily
-//! passed off into Python, R, or whatever. Therefore, no dynamic dispatch. This
-//! is also sensible to avoid here given that the types should represent *valid*
-//! layout configurations only, which trait objects obscure (the scientifically
-//! proper word for dynamic dispatch is "icky").
+//! Performance is critical since files can be large, and we want to possibly
+//! pass data into Python, R, etc. Therefore, no dynamic dispatch. This is also
+//! sensible to avoid given that the types should represent *valid* layout
+//! configurations only, which trait objects obscure.
 //!
-//! So if there is no dynamic dispatch, that means all types need to be
-//! enumerated perfectly. For layouts this isn't so bad, The main rub is that
-//! floats have two widths (32 and 64), integers have eight widths (1-8 bytes),
-//! and each of these can have their bytes laid out via big/little endian (the
-//! simple/sane case) or using byte order (for older versions) where the bytes
+//! For layouts this isn't so bad; the main rub is that floats have two widths
+//! (32 and 64), integers have eight widths (1-8 bytes), and each of these can
+//! have their bytes as big/little endian or using byte order where the bytes
 //! may not be strictly monotonic in either direction. The former is refereed to
 //! as "Endian" and the latter "Ordered" throughout.
 //!
 //! To make this extra confusing, Endian is a subset of Ordered, since all
-//! possible byte orders include the two corresponding to big and little endian.
-//! This is necessary to distinguish here, because if we allowed Ordered
-//! everywhere, then it would be theoretically possible to create a 3.1 or 3.2
-//! layout with a non-big or non-little endian byte order for a numeric field,
-//! which is bad design.
+//! possible byte orders include the two corresponding to big/little endian.
+//! This is important, because if we allowed Ordered in all versions, then it
+//! would be theoretically possible to create a 3.1 or 3.2 layout with a
+//! non-big/little endian byte order, which is bad design.
 //!
-//! The readers and writers are where this gets really fun. For both, it is more
-//! sensible to use one type for all layouts, since the readers and writers do
-//! not directly correspond to the keywords in TEXT and are also not in Core*.
-//! It would also be a giant pain in the butt to make version-specific readers
-//! and writers, and the gain would be minimal. This means that each layout for
-//! each version will get projected into a reader or a writer via a
-//! non-surjective function. Principally, this means that Endian layouts will
-//! get mapped into Ordered layouts, since the format is a subset of the latter.
-//! This should all be well and good, since we only need to go unidirectionally
-//! from a layout to either a reader or writer.
+//! For readers/writers, it is sensible to use one type for all layouts, since
+//! the readers/writers do not directly correspond to keywords in TEXT. It would
+//! also be a giant pain to make version-specific readers/writers, and the gain
+//! would be minimal. Thus each layout for each version will be non-surjectively
+//! mapped into a reader or writer. Principally, this means that Endian layouts
+//! will get mapped into Ordered layouts, since the latter includes the former.
 //!
 //! Lastly, writers are extra fun because they encode iterators that map from
-//! all possible types in the dataframe (of which there are six) to all possible
-//! types that may be written (of which there are twelve). That's lots of
-//! combinations, and all the more reason why this doesn't need to be
-//! version-specific.
+//! all possible types in the dataframe (six) to all possible types that may be
+//! written (twelve).
 
 use crate::config::{ReaderConfig, SharedConfig, WriteConfig};
 use crate::core::*;

@@ -67,12 +67,22 @@ pub enum SizedByteOrd<const LEN: usize> {
 }
 
 /// $BYTEORD (endian) with known size in bytes
-#[derive(PartialEq, Eq, Hash, Copy, Clone)]
+#[derive(PartialEq, Eq, Hash, Copy, Clone, Serialize)]
 pub struct SizedEndian<const LEN: usize>(pub Endian);
 
 impl<const LEN: usize> From<SizedEndian<LEN>> for SizedByteOrd<LEN> {
     fn from(value: SizedEndian<LEN>) -> Self {
         SizedByteOrd::Endian(value.0)
+    }
+}
+
+impl<const LEN: usize> TryFrom<SizedByteOrd<LEN>> for SizedEndian<LEN> {
+    type Error = OrderedToEndianError;
+    fn try_from(value: SizedByteOrd<LEN>) -> Result<Self, Self::Error> {
+        match value {
+            SizedByteOrd::Endian(x) => Ok(Self(x)),
+            SizedByteOrd::Order(_) => Err(OrderedToEndianError),
+        }
     }
 }
 
@@ -148,10 +158,10 @@ impl ByteOrd {
         &self,
     ) -> Result<SizedEndian<LEN>, ByteOrdToSizedEndianError> {
         self.as_sized_byteord().map_or_else(
-            |e| Err(ByteOrdToSizedEndianError::ToSized(e)),
+            |e| Err(e.into()),
             |x: SizedByteOrd<LEN>| match x {
                 SizedByteOrd::Endian(e) => Ok(SizedEndian(e)),
-                _ => Err(ByteOrdToSizedEndianError::Ordered),
+                _ => Err(OrderedToEndianError.into()),
             },
         )
     }
@@ -444,17 +454,17 @@ pub struct EndianToByteOrdError;
 
 pub struct ByteOrdToEndianError(Vec<u8>);
 
-pub enum ByteOrdToSizedEndianError {
-    Ordered,
-    ToSized(ByteOrdToSizedError),
-}
+enum_from_disp!(
+    pub ByteOrdToSizedEndianError,
+    [Ordered, OrderedToEndianError],
+    [ToSized, ByteOrdToSizedError]
+);
 
-impl fmt::Display for ByteOrdToSizedEndianError {
+pub struct OrderedToEndianError;
+
+impl fmt::Display for OrderedToEndianError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::ToSized(e) => e.fmt(f),
-            Self::Ordered => f.write_str("byte order is not monotonic"),
-        }
+        f.write_str("byte order is not monotonic")
     }
 }
 

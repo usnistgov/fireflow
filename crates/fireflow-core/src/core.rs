@@ -4916,7 +4916,8 @@ type OpticalConvertResult<M> = DeferredResult<M, OpticalConvertWarning, OpticalC
 
 type TemporalConvertTentative<M> = BiTentative<M, TemporalConvertError>;
 
-type LayoutConvertResult<L> = DeferredResult<L, LayoutConvertWarning, LayoutConvertError>;
+pub(crate) type LayoutConvertResult<L> =
+    DeferredResult<L, LayoutConvertWarning, LayoutConvertError>;
 
 enum_from_disp!(
     pub OpticalConvertError,
@@ -4944,7 +4945,8 @@ enum_from_disp!(
 
 enum_from_disp!(
     pub LayoutConvertError,
-    [Xfer, AnyLayoutKeyLossError]
+    [Xfer, AnyLayoutKeyLossError],
+    [OrderToEndian, OrderedToEndianError]
 );
 
 pub struct TimestepLossError(Timestep);
@@ -5585,13 +5587,7 @@ impl ConvertFromLayout<DataLayout3_0> for DataLayout2_0 {
         _: ByteOrdConvert,
         _: bool,
     ) -> LayoutConvertResult<Self> {
-        let out = match value {
-            DataLayout3_0::Ascii(x) => Self::Ascii(x),
-            DataLayout3_0::Integer(x) => Self::Integer(x),
-            DataLayout3_0::Float(x) => Self::Float(x),
-            DataLayout3_0::Empty => Self::Empty,
-        };
-        Ok(Tentative::new1(out))
+        Ok(Tentative::new1(Self(value.0)))
     }
 }
 
@@ -5602,12 +5598,12 @@ impl ConvertFromLayout<DataLayout3_1> for DataLayout2_0 {
         force: bool,
     ) -> LayoutConvertResult<Self> {
         let out = match value {
-            DataLayout3_1::Ascii(x) => Self::Ascii(x),
-            DataLayout3_1::Integer(x) => Self::Integer(x),
-            DataLayout3_1::Float(x) => Self::Float(x),
-            DataLayout3_1::Empty => Self::Empty,
+            DataLayout3_1::Ascii(x) => OrderedDataLayout::Ascii(x),
+            DataLayout3_1::Integer(x) => OrderedDataLayout::Integer(x),
+            DataLayout3_1::Float(x) => OrderedDataLayout::Float(x),
+            DataLayout3_1::Empty => OrderedDataLayout::Empty,
         };
-        Ok(Tentative::new1(out))
+        Ok(Tentative::new1(out.into()))
     }
 }
 
@@ -5618,13 +5614,13 @@ impl ConvertFromLayout<DataLayout3_2> for DataLayout2_0 {
         force: bool,
     ) -> LayoutConvertResult<Self> {
         let out = match value {
-            DataLayout3_2::Ascii(x) => Self::Ascii(x),
-            DataLayout3_2::Integer(x) => Self::Integer(x),
-            DataLayout3_2::Float(x) => Self::Float(x),
+            DataLayout3_2::Ascii(x) => OrderedDataLayout::Ascii(x),
+            DataLayout3_2::Integer(x) => OrderedDataLayout::Integer(x),
+            DataLayout3_2::Float(x) => OrderedDataLayout::Float(x),
             // DataLayout3_2::Mixed(x) => (),
-            DataLayout3_2::Empty => Self::Empty,
+            DataLayout3_2::Empty => OrderedDataLayout::Empty,
         };
-        Ok(Tentative::new1(out))
+        Ok(Tentative::new1(out.into()))
     }
 }
 
@@ -5634,13 +5630,7 @@ impl ConvertFromLayout<DataLayout2_0> for DataLayout3_0 {
         _: ByteOrdConvert,
         _: bool,
     ) -> LayoutConvertResult<Self> {
-        let out = match value {
-            DataLayout2_0::Ascii(x) => Self::Ascii(x),
-            DataLayout2_0::Integer(x) => Self::Integer(x),
-            DataLayout2_0::Float(x) => Self::Float(x),
-            DataLayout2_0::Empty => Self::Empty,
-        };
-        Ok(Tentative::new1(out))
+        Ok(Tentative::new1(Self(value.0)))
     }
 }
 
@@ -5651,12 +5641,12 @@ impl ConvertFromLayout<DataLayout3_1> for DataLayout3_0 {
         _: bool,
     ) -> LayoutConvertResult<Self> {
         let out = match value {
-            DataLayout3_1::Ascii(x) => Self::Ascii(x),
-            DataLayout3_1::Integer(x) => Self::Integer(x),
-            DataLayout3_1::Float(x) => Self::Float(x),
-            DataLayout3_1::Empty => Self::Empty,
+            DataLayout3_1::Ascii(x) => OrderedDataLayout::Ascii(x),
+            DataLayout3_1::Integer(x) => OrderedDataLayout::Integer(x),
+            DataLayout3_1::Float(x) => OrderedDataLayout::Float(x),
+            DataLayout3_1::Empty => OrderedDataLayout::Empty,
         };
-        Ok(Tentative::new1(out))
+        Ok(Tentative::new1(out.into()))
     }
 }
 
@@ -5667,12 +5657,12 @@ impl ConvertFromLayout<DataLayout3_2> for DataLayout3_0 {
         _: bool,
     ) -> LayoutConvertResult<Self> {
         let out = match value {
-            DataLayout3_2::Ascii(x) => Self::Ascii(x),
-            DataLayout3_2::Integer(x) => Self::Integer(x),
-            DataLayout3_2::Float(x) => Self::Float(x),
-            DataLayout3_2::Empty => Self::Empty,
+            DataLayout3_2::Ascii(x) => OrderedDataLayout::Ascii(x),
+            DataLayout3_2::Integer(x) => OrderedDataLayout::Integer(x),
+            DataLayout3_2::Float(x) => OrderedDataLayout::Float(x),
+            DataLayout3_2::Empty => OrderedDataLayout::Empty,
         };
-        Ok(Tentative::new1(out))
+        Ok(Tentative::new1(out.into()))
     }
 }
 
@@ -5682,13 +5672,7 @@ impl ConvertFromLayout<DataLayout2_0> for DataLayout3_1 {
         _: EndianConvert,
         _: bool,
     ) -> LayoutConvertResult<Self> {
-        let out = match value {
-            DataLayout2_0::Ascii(x) => Self::Ascii(x),
-            DataLayout2_0::Integer(x) => Self::Integer(x),
-            DataLayout2_0::Float(x) => Self::Float(x),
-            DataLayout2_0::Empty => Self::Empty,
-        };
-        Ok(Tentative::new1(out))
+        value.0.into_3_1()
     }
 }
 
@@ -5698,13 +5682,7 @@ impl ConvertFromLayout<DataLayout3_0> for DataLayout3_1 {
         _: EndianConvert,
         _: bool,
     ) -> LayoutConvertResult<Self> {
-        let out = match value {
-            DataLayout3_0::Ascii(x) => Self::Ascii(x),
-            DataLayout3_0::Integer(x) => Self::Integer(x),
-            DataLayout3_0::Float(x) => Self::Float(x),
-            DataLayout3_0::Empty => Self::Empty,
-        };
-        Ok(Tentative::new1(out))
+        value.0.into_3_1()
     }
 }
 
@@ -5718,6 +5696,7 @@ impl ConvertFromLayout<DataLayout3_2> for DataLayout3_1 {
             DataLayout3_2::Ascii(x) => Self::Ascii(x),
             DataLayout3_2::Integer(x) => Self::Integer(x),
             DataLayout3_2::Float(x) => Self::Float(x),
+            DataLayout3_2::Mixed(x) => Self::Float(x),
             DataLayout3_2::Empty => Self::Empty,
         };
         Ok(Tentative::new1(out))
@@ -5730,13 +5709,7 @@ impl ConvertFromLayout<DataLayout2_0> for DataLayout3_2 {
         _: EndianConvert,
         _: bool,
     ) -> LayoutConvertResult<Self> {
-        let out = match value {
-            DataLayout2_0::Ascii(x) => Self::Ascii(x),
-            DataLayout2_0::Integer(x) => Self::Integer(x),
-            DataLayout2_0::Float(x) => Self::Float(x),
-            DataLayout2_0::Empty => Self::Empty,
-        };
-        Ok(Tentative::new1(out))
+        value.0.into_3_2()
     }
 }
 
@@ -5746,13 +5719,7 @@ impl ConvertFromLayout<DataLayout3_0> for DataLayout3_2 {
         _: EndianConvert,
         _: bool,
     ) -> LayoutConvertResult<Self> {
-        let out = match value {
-            DataLayout3_0::Ascii(x) => Self::Ascii(x),
-            DataLayout3_0::Integer(x) => Self::Integer(x),
-            DataLayout3_0::Float(x) => Self::Float(x),
-            DataLayout3_0::Empty => Self::Empty,
-        };
-        Ok(Tentative::new1(out))
+        value.0.into_3_2()
     }
 }
 

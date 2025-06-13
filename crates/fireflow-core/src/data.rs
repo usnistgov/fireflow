@@ -81,11 +81,13 @@ use std::str::FromStr;
 ///
 /// This is identical to 3.0 in every way except that the $TOT keyword in 2.0
 /// is optional, which requires a different interface.
+#[derive(Clone, Serialize, Default)]
 pub struct DataLayout2_0(pub OrderedDataLayout);
 
 newtype_from!(DataLayout2_0, OrderedDataLayout);
 
 /// All possible byte layouts for the DATA segment in 2.0.
+#[derive(Clone, Serialize, Default)]
 pub struct DataLayout3_0(pub OrderedDataLayout);
 
 newtype_from!(DataLayout3_0, OrderedDataLayout);
@@ -95,6 +97,7 @@ newtype_from!(DataLayout3_0, OrderedDataLayout);
 /// Unlike 2.0 and 3.0, the integer layout allows the column widths to be
 /// different. This is a consequence of making BYTEORD only mean "big or little
 /// endian" and have nothing to do with number of bytes.
+#[derive(Clone, Serialize, Default)]
 pub enum DataLayout3_1 {
     /// Non-empty layout when DATATYPE=A
     Ascii(AsciiLayout),
@@ -103,6 +106,7 @@ pub enum DataLayout3_1 {
     /// Non-empty layout when DATATYPE=F/D
     Float(EndianFloatLayout),
     /// Layout with no columns
+    #[default]
     Empty,
 }
 
@@ -110,6 +114,7 @@ pub enum DataLayout3_1 {
 ///
 /// In addition to the loosened integer layouts in 3.1, 3.2 additionally allows
 /// each column to have a different type and size (hence "Mixed").
+#[derive(Clone, Serialize, Default)]
 pub enum DataLayout3_2 {
     /// Non-empty layout when all columns are ASCII
     Ascii(AsciiLayout),
@@ -121,6 +126,7 @@ pub enum DataLayout3_2 {
     /// integer, ASCII types.
     Mixed(FixedLayout<MixedType>),
     /// Layout with no columns
+    #[default]
     Empty,
 }
 
@@ -128,6 +134,7 @@ pub enum DataLayout3_2 {
 ///
 /// It is so named "Ordered" because the BYTEORD keyword represents any possible
 /// byte ordering that may occur rather than simply little or big endian.
+#[derive(Clone, Serialize, Default)]
 pub enum OrderedDataLayout {
     /// Non-empty layout when DATATYPE=A
     Ascii(AsciiLayout),
@@ -136,6 +143,7 @@ pub enum OrderedDataLayout {
     /// Non-empty layout when DATATYPE=F/D
     Float(OrderedFloatLayout),
     /// Layout with no columns
+    #[default]
     Empty,
 }
 
@@ -144,34 +152,41 @@ pub enum OrderedDataLayout {
 /// This may either be fixed (ie columns have the same number of characters)
 /// or variable (ie columns have have different number of characters and are
 /// separated by delimiters).
+#[derive(Clone, Serialize)]
 pub enum AsciiLayout {
     Delimited(DelimitedLayout),
     Fixed(FixedLayout<AsciiType>),
 }
 
 /// Byte layouts for floating-point data with any byte order.
+#[derive(Clone, Serialize)]
 pub enum OrderedFloatLayout {
     F32(FixedLayout<OrderedF32Type>),
     F64(FixedLayout<OrderedF64Type>),
 }
 
-/// Byte layouts for big or little endian floating-point data.
-pub enum EndianFloatLayout {
-    F32(FixedLayout<EndianF32Type>),
-    F64(FixedLayout<EndianF64Type>),
-}
+enum_from!(
+    /// Byte layouts for big or little endian floating-point data.
+    #[derive(Clone, Serialize)]
+    pub EndianFloatLayout,
+    [F32, FixedLayout<EndianF32Type>],
+    [F64, FixedLayout<EndianF64Type>]
+);
 
 /// Byte layout for delimited ASCII.
+#[derive(Clone, Serialize)]
 pub struct DelimitedLayout {
     pub ncols: usize,
 }
 
 /// Byte layout where each column has a fixed width.
+#[derive(Clone)]
 pub struct FixedLayout<C> {
     pub columns: NonEmpty<C>,
 }
 
 /// Byte layout for integers that may be in any byte order.
+#[derive(Clone, Serialize)]
 pub enum AnyOrderedUintLayout {
     Uint08(FixedLayout<EndianUint08Type>),
     Uint16(FixedLayout<EndianUint16Type>),
@@ -185,7 +200,7 @@ pub enum AnyOrderedUintLayout {
 
 enum_from!(
     /// The type of a non-delimited column in the DATA segment for 3.2
-    #[derive(PartialEq, Clone, Copy)]
+    #[derive(PartialEq, Clone, Copy, Serialize)]
     pub MixedType,
     [Ascii, AsciiType],
     [Integer, AnyEndianUintType],
@@ -194,13 +209,13 @@ enum_from!(
 );
 
 /// The type of an ASCII column in all versions
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Clone, Copy, Serialize)]
 pub struct AsciiType {
     pub(crate) chars: Chars,
 }
 
 /// The type of any floating point column in all versions
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Clone, Copy, Serialize)]
 pub struct FloatType<T, S> {
     pub byte_layout: S,
     // TODO why is this here?
@@ -224,7 +239,7 @@ type EndianFloatType<T, const LEN: usize> = FloatType<T, SizedEndian<LEN>>;
 
 enum_from!(
     /// A big or little-endian integer column of some size (1-8 bytes)
-    #[derive(PartialEq, Clone, Copy)]
+    #[derive(PartialEq, Clone, Copy, Serialize)]
     pub AnyEndianUintType,
     [Uint08, EndianUint08Type],
     [Uint16, EndianUint16Type],
@@ -392,7 +407,7 @@ type EndianUint56Type = EndianUintType<u64, 7>;
 type EndianUint64Type = EndianUintType<u64, 8>;
 
 /// A generic integer column type with a byte-layout and bitmask.
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Clone, Copy, Serialize)]
 pub struct UintType<T, L> {
     pub bitmask: T,
     pub byte_layout: L,
@@ -404,19 +419,39 @@ pub type EndianUintType<T, const LEN: usize> = UintType<T, SizedEndian<LEN>>;
 
 impl<T, const LEN: usize> From<EndianUintType<T, LEN>> for OrderedUintType<T, LEN> {
     fn from(value: EndianUintType<T, LEN>) -> Self {
-        UintType {
+        Self {
             bitmask: value.bitmask,
             byte_layout: value.byte_layout.into(),
         }
     }
 }
 
+impl<T, const LEN: usize> TryFrom<OrderedUintType<T, LEN>> for EndianUintType<T, LEN> {
+    type Error = OrderedToEndianError;
+    fn try_from(value: OrderedUintType<T, LEN>) -> Result<Self, Self::Error> {
+        value.byte_layout.try_into().map(|byte_layout| Self {
+            bitmask: value.bitmask,
+            byte_layout,
+        })
+    }
+}
+
 impl<T, const LEN: usize> From<EndianFloatType<T, LEN>> for OrderedFloatType<T, LEN> {
     fn from(value: EndianFloatType<T, LEN>) -> Self {
-        FloatType {
+        Self {
             range: value.range,
             byte_layout: value.byte_layout.into(),
         }
+    }
+}
+
+impl<T, const LEN: usize> TryFrom<OrderedFloatType<T, LEN>> for EndianFloatType<T, LEN> {
+    type Error = OrderedToEndianError;
+    fn try_from(value: OrderedFloatType<T, LEN>) -> Result<Self, Self::Error> {
+        value.byte_layout.try_into().map(|byte_layout| Self {
+            range: value.range,
+            byte_layout,
+        })
     }
 }
 
@@ -1020,15 +1055,15 @@ impl FixedLayout<AnyEndianUintType> {
             .def_map_value(FixedLayout::from_vec)
     }
 
-    pub(crate) fn try_into_single_width(self) -> Option<AnyUintLayout> {
-        let ws = NonEmpty::collect(self.columns.iter().map(|c| c.width()).unique()).unwrap();
-        // let rs = self.columns.iter().map(|c| c)
-        if ws.tail.is_empty() {
-            ws.head
-        } else {
-            None
-        }
-    }
+    // pub(crate) fn try_into_single_width(self) -> Option<AnyUintLayout> {
+    //     let ws = NonEmpty::collect(self.columns.iter().map(|c| c.width()).unique()).unwrap();
+    //     // let rs = self.columns.iter().map(|c| c)
+    //     if ws.tail.is_empty() {
+    //         ws.head
+    //     } else {
+    //         None
+    //     }
+    // }
 }
 
 trait IntMath: Sized
@@ -2254,6 +2289,26 @@ impl AnyOrderedUintLayout {
             Self::Uint64(x) => x.as_writer(df, conf),
         }
     }
+
+    fn into_endian_layout(self) -> LayoutConvertResult<FixedLayout<AnyEndianUintType>> {
+        match self {
+            Self::Uint08(x) => Ok(Tentative::new1(x.inner_into())),
+            Self::Uint16(x) => Ok(Tentative::new1(x.inner_into())),
+            Self::Uint24(x) => x.into_endian().map(|x| x.inner_into()).mult_to_deferred(),
+            Self::Uint32(x) => x.into_endian().map(|x| x.inner_into()).mult_to_deferred(),
+            Self::Uint40(x) => x.into_endian().map(|x| x.inner_into()).mult_to_deferred(),
+            Self::Uint48(x) => x.into_endian().map(|x| x.inner_into()).mult_to_deferred(),
+            Self::Uint56(x) => x.into_endian().map(|x| x.inner_into()).mult_to_deferred(),
+            Self::Uint64(x) => x.into_endian().map(|x| x.inner_into()).mult_to_deferred(),
+        }
+    }
+}
+
+impl<T, const LEN: usize> FixedLayout<OrderedUintType<T, LEN>> {
+    fn into_endian(self) -> MultiResult<FixedLayout<EndianUintType<T, LEN>>, OrderedToEndianError> {
+        let columns = ne_map_results(self.columns, |c| c.try_into())?;
+        Ok(FixedLayout { columns })
+    }
 }
 
 impl AsciiLayout {
@@ -2407,6 +2462,22 @@ impl OrderedFloatLayout {
         conf: &WriteConfig,
     ) -> MultiResult<Option<FixedWriter<'a>>, ColumnWriterError> {
         match_many_to_one!(self, Self, [F32, F64], l, { l.as_writer(df, conf) })
+    }
+
+    fn into_endian_layout(self) -> LayoutConvertResult<EndianFloatLayout> {
+        match self {
+            Self::F32(x) => x.into_endian().map(|x| x.into()).mult_to_deferred(),
+            Self::F64(x) => x.into_endian().map(|x| x.into()).mult_to_deferred(),
+        }
+    }
+}
+
+impl<T, const LEN: usize> FixedLayout<OrderedFloatType<T, LEN>> {
+    fn into_endian(
+        self,
+    ) -> MultiResult<FixedLayout<EndianFloatType<T, LEN>>, OrderedToEndianError> {
+        let columns = ne_map_results(self.columns, |c| c.try_into())?;
+        Ok(FixedLayout { columns })
     }
 }
 
@@ -3080,6 +3151,25 @@ impl OrderedDataLayout {
                 .as_writer(df, conf)
                 .map(|x| x.map_or(DataWriter::Empty, DataWriter::Fixed)),
             Self::Empty => Ok(DataWriter::Empty),
+        }
+    }
+
+    pub(crate) fn into_3_1(self) -> LayoutConvertResult<DataLayout3_1> {
+        match self {
+            Self::Ascii(x) => Ok(Tentative::new1(DataLayout3_1::Ascii(x))),
+            Self::Integer(x) => x.into_endian_layout().def_map_value(DataLayout3_1::Integer),
+            Self::Float(x) => x.into_endian_layout().def_map_value(DataLayout3_1::Float),
+            Self::Empty => Ok(Tentative::new1(DataLayout3_1::Empty)),
+        }
+    }
+
+    // TODO not DRY
+    pub(crate) fn into_3_2(self) -> LayoutConvertResult<DataLayout3_2> {
+        match self {
+            Self::Ascii(x) => Ok(Tentative::new1(DataLayout3_2::Ascii(x))),
+            Self::Integer(x) => x.into_endian_layout().def_map_value(DataLayout3_2::Integer),
+            Self::Float(x) => x.into_endian_layout().def_map_value(DataLayout3_2::Float),
+            Self::Empty => Ok(Tentative::new1(DataLayout3_2::Empty)),
         }
     }
 }

@@ -165,11 +165,6 @@ pub struct Metaroot<X> {
 
 #[derive(Clone, Serialize, Default)]
 pub struct CommonMeasurement {
-    // /// Value for $PnB
-    // pub width: Width,
-
-    // /// Value for $PnR
-    // pub range: Range,
     /// Value for $PnS
     pub longname: OptionalKw<Longname>,
 
@@ -961,11 +956,7 @@ where
     Self: VersionedMetaroot,
     M: VersionedMetaroot,
 {
-    fn convert_from_metaroot(
-        value: M,
-        // byteord: SizeConvert<M::D>,
-        force: bool,
-    ) -> MetarootConvertResult<Self>;
+    fn convert_from_metaroot(value: M, force: bool) -> MetarootConvertResult<Self>;
 }
 
 pub trait ConvertFromOptical<O>: Sized
@@ -983,12 +974,22 @@ where
         -> TemporalConvertTentative<Self>;
 }
 
+pub trait ConvertFromLayout<T>: Sized
+where
+    Self: VersionedDataLayout,
+{
+    fn convert_from_layout(
+        value: T,
+        convert: SizeConvert<Self::S>,
+        force: bool,
+    ) -> LayoutConvertResult<Self>;
+}
+
 pub trait VersionedMetaroot: Sized {
     type O: VersionedOptical;
     type T: VersionedTemporal;
     type N: MightHave;
     type L: VersionedDataLayout;
-    type D;
 
     fn as_unstainedcenters(&self) -> Option<&UnstainedCenters>;
 
@@ -4913,7 +4914,9 @@ type MetarootConvertResult<M> = DeferredResult<M, MetarootConvertWarning, Metaro
 
 type OpticalConvertResult<M> = DeferredResult<M, OpticalConvertWarning, OpticalConvertError>;
 
-type TemporalConvertTentative<M> = Tentative<M, TemporalConvertError, TemporalConvertError>;
+type TemporalConvertTentative<M> = BiTentative<M, TemporalConvertError>;
+
+type LayoutConvertResult<L> = DeferredResult<L, LayoutConvertWarning, LayoutConvertError>;
 
 enum_from_disp!(
     pub OpticalConvertError,
@@ -4932,6 +4935,16 @@ enum_from_disp!(
     pub TemporalConvertError,
     [Timestep, TimestepLossError],
     [Xfer, AnyMeasKeyLossError]
+);
+
+enum_from_disp!(
+    pub LayoutConvertWarning,
+    [Xfer, AnyLayoutKeyLossError]
+);
+
+enum_from_disp!(
+    pub LayoutConvertError,
+    [Xfer, AnyLayoutKeyLossError]
 );
 
 pub struct TimestepLossError(Timestep);
@@ -5563,6 +5576,199 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_2 {
             display: value.display,
             measurement_type: None.into(),
         })
+    }
+}
+
+impl ConvertFromLayout<DataLayout3_0> for DataLayout2_0 {
+    fn convert_from_layout(
+        value: DataLayout3_0,
+        _: ByteOrdConvert,
+        _: bool,
+    ) -> LayoutConvertResult<Self> {
+        let out = match value {
+            DataLayout3_0::Ascii(x) => Self::Ascii(x),
+            DataLayout3_0::Integer(x) => Self::Integer(x),
+            DataLayout3_0::Float(x) => Self::Float(x),
+            DataLayout3_0::Empty => Self::Empty,
+        };
+        Ok(Tentative::new1(out))
+    }
+}
+
+impl ConvertFromLayout<DataLayout3_1> for DataLayout2_0 {
+    fn convert_from_layout(
+        value: DataLayout3_1,
+        _: ByteOrdConvert,
+        force: bool,
+    ) -> LayoutConvertResult<Self> {
+        let out = match value {
+            DataLayout3_1::Ascii(x) => Self::Ascii(x),
+            DataLayout3_1::Integer(x) => Self::Integer(x),
+            DataLayout3_1::Float(x) => Self::Float(x),
+            DataLayout3_1::Empty => Self::Empty,
+        };
+        Ok(Tentative::new1(out))
+    }
+}
+
+impl ConvertFromLayout<DataLayout3_2> for DataLayout2_0 {
+    fn convert_from_layout(
+        value: DataLayout3_2,
+        _: ByteOrdConvert,
+        force: bool,
+    ) -> LayoutConvertResult<Self> {
+        let out = match value {
+            DataLayout3_2::Ascii(x) => Self::Ascii(x),
+            DataLayout3_2::Integer(x) => Self::Integer(x),
+            DataLayout3_2::Float(x) => Self::Float(x),
+            // DataLayout3_2::Mixed(x) => (),
+            DataLayout3_2::Empty => Self::Empty,
+        };
+        Ok(Tentative::new1(out))
+    }
+}
+
+impl ConvertFromLayout<DataLayout2_0> for DataLayout3_0 {
+    fn convert_from_layout(
+        value: DataLayout2_0,
+        _: ByteOrdConvert,
+        _: bool,
+    ) -> LayoutConvertResult<Self> {
+        let out = match value {
+            DataLayout2_0::Ascii(x) => Self::Ascii(x),
+            DataLayout2_0::Integer(x) => Self::Integer(x),
+            DataLayout2_0::Float(x) => Self::Float(x),
+            DataLayout2_0::Empty => Self::Empty,
+        };
+        Ok(Tentative::new1(out))
+    }
+}
+
+impl ConvertFromLayout<DataLayout3_1> for DataLayout3_0 {
+    fn convert_from_layout(
+        value: DataLayout3_1,
+        _: ByteOrdConvert,
+        _: bool,
+    ) -> LayoutConvertResult<Self> {
+        let out = match value {
+            DataLayout3_1::Ascii(x) => Self::Ascii(x),
+            DataLayout3_1::Integer(x) => Self::Integer(x),
+            DataLayout3_1::Float(x) => Self::Float(x),
+            DataLayout3_1::Empty => Self::Empty,
+        };
+        Ok(Tentative::new1(out))
+    }
+}
+
+impl ConvertFromLayout<DataLayout3_2> for DataLayout3_0 {
+    fn convert_from_layout(
+        value: DataLayout3_2,
+        _: ByteOrdConvert,
+        _: bool,
+    ) -> LayoutConvertResult<Self> {
+        let out = match value {
+            DataLayout3_2::Ascii(x) => Self::Ascii(x),
+            DataLayout3_2::Integer(x) => Self::Integer(x),
+            DataLayout3_2::Float(x) => Self::Float(x),
+            DataLayout3_2::Empty => Self::Empty,
+        };
+        Ok(Tentative::new1(out))
+    }
+}
+
+impl ConvertFromLayout<DataLayout2_0> for DataLayout3_1 {
+    fn convert_from_layout(
+        value: DataLayout2_0,
+        _: EndianConvert,
+        _: bool,
+    ) -> LayoutConvertResult<Self> {
+        let out = match value {
+            DataLayout2_0::Ascii(x) => Self::Ascii(x),
+            DataLayout2_0::Integer(x) => Self::Integer(x),
+            DataLayout2_0::Float(x) => Self::Float(x),
+            DataLayout2_0::Empty => Self::Empty,
+        };
+        Ok(Tentative::new1(out))
+    }
+}
+
+impl ConvertFromLayout<DataLayout3_0> for DataLayout3_1 {
+    fn convert_from_layout(
+        value: DataLayout3_0,
+        _: EndianConvert,
+        _: bool,
+    ) -> LayoutConvertResult<Self> {
+        let out = match value {
+            DataLayout3_0::Ascii(x) => Self::Ascii(x),
+            DataLayout3_0::Integer(x) => Self::Integer(x),
+            DataLayout3_0::Float(x) => Self::Float(x),
+            DataLayout3_0::Empty => Self::Empty,
+        };
+        Ok(Tentative::new1(out))
+    }
+}
+
+impl ConvertFromLayout<DataLayout3_2> for DataLayout3_1 {
+    fn convert_from_layout(
+        value: DataLayout3_2,
+        _: EndianConvert,
+        _: bool,
+    ) -> LayoutConvertResult<Self> {
+        let out = match value {
+            DataLayout3_2::Ascii(x) => Self::Ascii(x),
+            DataLayout3_2::Integer(x) => Self::Integer(x),
+            DataLayout3_2::Float(x) => Self::Float(x),
+            DataLayout3_2::Empty => Self::Empty,
+        };
+        Ok(Tentative::new1(out))
+    }
+}
+
+impl ConvertFromLayout<DataLayout2_0> for DataLayout3_2 {
+    fn convert_from_layout(
+        value: DataLayout2_0,
+        _: EndianConvert,
+        _: bool,
+    ) -> LayoutConvertResult<Self> {
+        let out = match value {
+            DataLayout2_0::Ascii(x) => Self::Ascii(x),
+            DataLayout2_0::Integer(x) => Self::Integer(x),
+            DataLayout2_0::Float(x) => Self::Float(x),
+            DataLayout2_0::Empty => Self::Empty,
+        };
+        Ok(Tentative::new1(out))
+    }
+}
+
+impl ConvertFromLayout<DataLayout3_0> for DataLayout3_2 {
+    fn convert_from_layout(
+        value: DataLayout3_0,
+        _: EndianConvert,
+        _: bool,
+    ) -> LayoutConvertResult<Self> {
+        let out = match value {
+            DataLayout3_0::Ascii(x) => Self::Ascii(x),
+            DataLayout3_0::Integer(x) => Self::Integer(x),
+            DataLayout3_0::Float(x) => Self::Float(x),
+            DataLayout3_0::Empty => Self::Empty,
+        };
+        Ok(Tentative::new1(out))
+    }
+}
+
+impl ConvertFromLayout<DataLayout3_1> for DataLayout3_2 {
+    fn convert_from_layout(
+        value: DataLayout3_1,
+        _: EndianConvert,
+        _: bool,
+    ) -> LayoutConvertResult<Self> {
+        let out = match value {
+            DataLayout3_1::Ascii(x) => Self::Ascii(x),
+            DataLayout3_1::Integer(x) => Self::Integer(x),
+            DataLayout3_1::Float(x) => Self::Float(x),
+            DataLayout3_1::Empty => Self::Empty,
+        };
+        Ok(Tentative::new1(out))
     }
 }
 
@@ -6365,7 +6571,6 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
     type T = InnerTemporal2_0;
     type N = OptionalKwFamily;
     type L = DataLayout2_0;
-    type D = ByteOrd;
 
     fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
         None
@@ -6446,7 +6651,6 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
     type T = InnerTemporal3_0;
     type N = OptionalKwFamily;
     type L = DataLayout3_0;
-    type D = ByteOrd;
 
     fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
         None
@@ -6539,7 +6743,6 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
     type T = InnerTemporal3_1;
     type N = IdentityFamily;
     type L = DataLayout3_1;
-    type D = Endian;
 
     fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
         None
@@ -6637,7 +6840,6 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
     type T = InnerTemporal3_2;
     type N = IdentityFamily;
     type L = DataLayout3_2;
-    type D = Endian;
 
     fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
         self.unstained.unstainedcenters.as_ref_opt()
@@ -7395,6 +7597,12 @@ enum_from_disp!(
     [PeakNumber,      IndexedKeyLossError<PeakNumber>],
     [Calibration3_1,  IndexedKeyLossError<Calibration3_1>],
     [Calibration3_2,  IndexedKeyLossError<Calibration3_2>]
+);
+
+enum_from_disp!(
+    /// Error when an optical keyword will be lost when converting versions
+    pub AnyLayoutKeyLossError,
+    [Datatype,        IndexedKeyLossError<NumType>]
 );
 
 enum_from_disp!(

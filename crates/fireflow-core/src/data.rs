@@ -1019,6 +1019,16 @@ impl FixedLayout<AnyEndianUintType> {
             .map(Tentative::mconcat)
             .def_map_value(FixedLayout::from_vec)
     }
+
+    pub(crate) fn try_into_single_width(self) -> Option<AnyUintLayout> {
+        let ws = NonEmpty::collect(self.columns.iter().map(|c| c.width()).unique()).unwrap();
+        // let rs = self.columns.iter().map(|c| c)
+        if ws.tail.is_empty() {
+            ws.head
+        } else {
+            None
+        }
+    }
 }
 
 trait IntMath: Sized

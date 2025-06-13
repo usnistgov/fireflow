@@ -216,35 +216,6 @@ enum_from!(
     [Uint64, EndianUint64Type]
 );
 
-// enum_from!(
-//     /// An integer column of some size (1-8 bytes)
-//     #[derive(PartialEq, Clone, Copy)]
-//     pub AnyOrderedUintType,
-//     [Uint08, EndianUint08Type],
-//     [Uint16, EndianUint16Type],
-//     [Uint24, OrderedUint24Type],
-//     [Uint32, OrderedUint32Type],
-//     [Uint40, OrderedUint40Type],
-//     [Uint48, OrderedUint48Type],
-//     [Uint56, OrderedUint56Type],
-//     [Uint64, OrderedUint64Type]
-// );
-
-// impl From<AnyEndianUintType> for AnyOrderedUintType {
-//     fn from(value: AnyEndianUintType) -> Self {
-//         match value {
-//             AnyEndianUintType::Uint08(x) => x.into(),
-//             AnyEndianUintType::Uint16(x) => x.into(),
-//             AnyEndianUintType::Uint24(x) => Self::Uint24(x.into()),
-//             AnyEndianUintType::Uint32(x) => Self::Uint32(x.into()),
-//             AnyEndianUintType::Uint40(x) => Self::Uint40(x.into()),
-//             AnyEndianUintType::Uint48(x) => Self::Uint48(x.into()),
-//             AnyEndianUintType::Uint56(x) => Self::Uint56(x.into()),
-//             AnyEndianUintType::Uint64(x) => Self::Uint64(x.into()),
-//         }
-//     }
-// }
-
 impl AnyEndianUintType {
     fn try_new(
         w: Width,
@@ -655,7 +626,6 @@ pub struct UintColumnReader<B, S> {
 }
 
 type OrderedUintColumnReader<B, const LEN: usize> = UintColumnReader<B, SizedByteOrd<LEN>>;
-// type EndianUintColumnReader<B, const LEN: usize> = UintColumnReader<B, SizedEndian<LEN>>;
 
 pub enum AnyUintColumnReader {
     Uint08(OrderedUintColumnReader<u8, 1>),
@@ -1627,12 +1597,6 @@ impl<T, const LEN: usize> IsFixed for OrderedUintType<T, LEN> {
     }
 }
 
-// impl<T, const LEN: usize> IsFixed for EndianUintType<T, LEN> {
-//     fn width(&self) -> usize {
-//         LEN
-//     }
-// }
-
 impl<T, const LEN: usize> IsFixedReader for OrderedUintType<T, LEN>
 where
     T: Copy,
@@ -1888,23 +1852,6 @@ where
     }
 }
 
-// impl<T, const INTLEN: usize> EndianUintColumnReader<T, INTLEN> {
-//     fn h_read<R: Read, const DTLEN: usize>(
-//         &mut self,
-//         h: &mut BufReader<R>,
-//         row: usize,
-//     ) -> io::Result<()>
-//     where
-//         T: IntFromBytes<DTLEN, INTLEN>,
-//         <T as FromStr>::Err: fmt::Display,
-//         T: Ord,
-//     {
-//         let x = T::h_read_int_endian(h, self.uint_type.byte_layout.0)?;
-//         self.column[row] = x.min(self.uint_type.bitmask);
-//         Ok(())
-//     }
-// }
-
 impl<T, const INTLEN: usize> OrderedUintColumnReader<T, INTLEN> {
     fn h_read<R: Read, const DTLEN: usize>(
         &mut self,
@@ -2150,13 +2097,6 @@ impl AnyOrderedUintLayout {
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
     ) -> MultiResult<Option<FixedWriter<'a>>, ColumnWriterError> {
-        // match_many_to_one!(
-        //     self,
-        //     Self,
-        //     [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-        //     l,
-        //     { l.as_writer(df, conf) }
-        // )
         match self {
             Self::Uint08(x) => x.inner_into::<OrderedUintType<u8, 1>>().as_writer(df, conf),
             Self::Uint16(x) => x

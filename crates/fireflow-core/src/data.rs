@@ -216,34 +216,34 @@ enum_from!(
     [Uint64, EndianUint64Type]
 );
 
-enum_from!(
-    /// An integer column of some size (1-8 bytes)
-    #[derive(PartialEq, Clone, Copy)]
-    pub AnyOrderedUintType,
-    [Uint08, EndianUint08Type],
-    [Uint16, EndianUint16Type],
-    [Uint24, OrderedUint24Type],
-    [Uint32, OrderedUint32Type],
-    [Uint40, OrderedUint40Type],
-    [Uint48, OrderedUint48Type],
-    [Uint56, OrderedUint56Type],
-    [Uint64, OrderedUint64Type]
-);
+// enum_from!(
+//     /// An integer column of some size (1-8 bytes)
+//     #[derive(PartialEq, Clone, Copy)]
+//     pub AnyOrderedUintType,
+//     [Uint08, EndianUint08Type],
+//     [Uint16, EndianUint16Type],
+//     [Uint24, OrderedUint24Type],
+//     [Uint32, OrderedUint32Type],
+//     [Uint40, OrderedUint40Type],
+//     [Uint48, OrderedUint48Type],
+//     [Uint56, OrderedUint56Type],
+//     [Uint64, OrderedUint64Type]
+// );
 
-impl From<AnyEndianUintType> for AnyOrderedUintType {
-    fn from(value: AnyEndianUintType) -> Self {
-        match value {
-            AnyEndianUintType::Uint08(x) => x.into(),
-            AnyEndianUintType::Uint16(x) => x.into(),
-            AnyEndianUintType::Uint24(x) => Self::Uint24(x.into()),
-            AnyEndianUintType::Uint32(x) => Self::Uint32(x.into()),
-            AnyEndianUintType::Uint40(x) => Self::Uint40(x.into()),
-            AnyEndianUintType::Uint48(x) => Self::Uint48(x.into()),
-            AnyEndianUintType::Uint56(x) => Self::Uint56(x.into()),
-            AnyEndianUintType::Uint64(x) => Self::Uint64(x.into()),
-        }
-    }
-}
+// impl From<AnyEndianUintType> for AnyOrderedUintType {
+//     fn from(value: AnyEndianUintType) -> Self {
+//         match value {
+//             AnyEndianUintType::Uint08(x) => x.into(),
+//             AnyEndianUintType::Uint16(x) => x.into(),
+//             AnyEndianUintType::Uint24(x) => Self::Uint24(x.into()),
+//             AnyEndianUintType::Uint32(x) => Self::Uint32(x.into()),
+//             AnyEndianUintType::Uint40(x) => Self::Uint40(x.into()),
+//             AnyEndianUintType::Uint48(x) => Self::Uint48(x.into()),
+//             AnyEndianUintType::Uint56(x) => Self::Uint56(x.into()),
+//             AnyEndianUintType::Uint64(x) => Self::Uint64(x.into()),
+//         }
+//     }
+// }
 
 impl AnyEndianUintType {
     fn try_new(
@@ -1517,8 +1517,11 @@ impl DelimitedLayout {
     }
 }
 
-impl<C: IsFixed> FixedLayout<C> {
-    fn event_width(&self) -> usize {
+impl<C> FixedLayout<C> {
+    fn event_width(&self) -> usize
+    where
+        C: IsFixed,
+    {
         self.columns.iter().map(|c| c.width()).sum()
     }
 
@@ -1532,7 +1535,7 @@ impl<C: IsFixed> FixedLayout<C> {
         conf: &ReaderConfig,
     ) -> Tentative<AlphaNumReader, UnevenEventWidth, UnevenEventWidth>
     where
-        C: IsFixedReader,
+        C: IsFixedReader + IsFixed,
     {
         let n = seg.inner.len() as usize;
         let w = self.event_width();
@@ -1559,11 +1562,9 @@ impl<C: IsFixed> FixedLayout<C> {
         conf: &ReaderConfig,
     ) -> Tentative<ColumnReader, W, E>
     where
-        C: IsFixedReader,
-        W: From<UnevenEventWidth>,
-        E: From<UnevenEventWidth>,
-        W: From<TotEventMismatch>,
-        E: From<TotEventMismatch>,
+        C: IsFixedReader + IsFixed,
+        W: From<TotEventMismatch> + From<UnevenEventWidth>,
+        E: From<TotEventMismatch> + From<UnevenEventWidth>,
     {
         self.into_col_reader_inner(seg, conf)
             .inner_into()
@@ -1582,13 +1583,11 @@ impl<C: IsFixed> FixedLayout<C> {
         conf: &WriteConfig,
     ) -> MultiResult<Option<FixedWriter<'a>>, ColumnWriterError>
     where
-        C: Copy,
-        C: IsFixedWriter,
+        C: Copy + IsFixedWriter + IsFixed,
     {
         let check = conf.check_conversion;
         self.columns
             .iter()
-            // .map(|c| AnyType::from(*c))
             .zip(df.iter_columns())
             .enumerate()
             .map(|(i, (t, c))| {
@@ -1610,11 +1609,11 @@ pub trait IsFixed {
     fn width(&self) -> usize;
 }
 
-pub trait IsFixedReader: IsFixed {
+pub trait IsFixedReader {
     fn into_col_reader(self, nrows: usize) -> AlphaNumColumnReader;
 }
 
-pub trait IsFixedWriter: IsFixed {
+pub trait IsFixedWriter {
     fn into_col_writer(
         self,
         c: &AnyFCSColumn,
@@ -1628,11 +1627,11 @@ impl<T, const LEN: usize> IsFixed for OrderedUintType<T, LEN> {
     }
 }
 
-impl<T, const LEN: usize> IsFixed for EndianUintType<T, LEN> {
-    fn width(&self) -> usize {
-        LEN
-    }
-}
+// impl<T, const LEN: usize> IsFixed for EndianUintType<T, LEN> {
+//     fn width(&self) -> usize {
+//         LEN
+//     }
+// }
 
 impl<T, const LEN: usize> IsFixedReader for OrderedUintType<T, LEN>
 where

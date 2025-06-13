@@ -117,28 +117,28 @@ pub trait VersionedDataLayout: Sized {
 
 pub enum DataLayout2_0 {
     Ascii(AsciiLayout),
-    Integer(AnyUintLayout),
+    Integer(AnyOrderedUintLayout),
     Float(FloatLayout),
     Empty,
 }
 
 pub enum DataLayout3_0 {
     Ascii(AsciiLayout),
-    Integer(AnyUintLayout),
+    Integer(AnyOrderedUintLayout),
     Float(FloatLayout),
     Empty,
 }
 
 pub enum DataLayout3_1 {
     Ascii(AsciiLayout),
-    Integer(FixedLayout<AnyUintType>),
+    Integer(FixedLayout<AnyEndianUintType>),
     Float(FloatLayout),
     Empty,
 }
 
 pub enum DataLayout3_2 {
     Ascii(AsciiLayout),
-    Integer(FixedLayout<AnyUintType>),
+    Integer(FixedLayout<AnyEndianUintType>),
     Float(FloatLayout),
     Mixed(FixedLayout<MixedType>),
     Empty,
@@ -162,35 +162,30 @@ pub struct FixedLayout<C> {
     pub columns: NonEmpty<C>,
 }
 
-pub enum AnyUintLayout {
-    Uint08(FixedLayout<Uint08Type>),
-    Uint16(FixedLayout<Uint16Type>),
-    Uint24(FixedLayout<Uint24Type>),
-    Uint32(FixedLayout<Uint32Type>),
-    Uint40(FixedLayout<Uint40Type>),
-    Uint48(FixedLayout<Uint48Type>),
-    Uint56(FixedLayout<Uint56Type>),
-    Uint64(FixedLayout<Uint64Type>),
+pub enum AnyOrderedUintLayout {
+    Uint08(FixedLayout<EndianUint08Type>),
+    Uint16(FixedLayout<EndianUint16Type>),
+    Uint24(FixedLayout<OrderedUint24Type>),
+    Uint32(FixedLayout<OrderedUint32Type>),
+    Uint40(FixedLayout<OrderedUint40Type>),
+    Uint48(FixedLayout<OrderedUint48Type>),
+    Uint56(FixedLayout<OrderedUint56Type>),
+    Uint64(FixedLayout<OrderedUint64Type>),
 }
 
-/// The type of a non-delimited column in the DATA segment
-#[derive(PartialEq, Clone, Copy)]
-pub enum MixedType {
-    Ascii(AsciiType),
-    Integer(AnyUintType),
-    Float(F32Type),
-    Double(F64Type),
-}
+enum_from!(
+    /// The type of a non-delimited column in the DATA segment for 3.2
+    #[derive(PartialEq, Clone, Copy)]
+    pub MixedType,
+    [Ascii, AsciiType],
+    [Integer, AnyEndianUintType],
+    [Float, F32Type],
+    [Double, F64Type]
+);
 
 #[derive(PartialEq, Clone, Copy)]
 pub struct AsciiType {
     pub(crate) chars: Chars,
-}
-
-impl From<AsciiType> for MixedType {
-    fn from(value: AsciiType) -> Self {
-        MixedType::Ascii(value)
-    }
 }
 
 /// An f32 column
@@ -198,18 +193,6 @@ type F32Type = FloatType<f32, 4>;
 
 /// An f64 column
 type F64Type = FloatType<f64, 8>;
-
-impl From<F32Type> for MixedType {
-    fn from(value: F32Type) -> Self {
-        MixedType::Float(value)
-    }
-}
-
-impl From<F64Type> for MixedType {
-    fn from(value: F64Type) -> Self {
-        MixedType::Double(value)
-    }
-}
 
 /// A floating point column (to be further constained)
 #[derive(PartialEq, Clone, Copy)]
@@ -219,20 +202,50 @@ pub struct FloatType<T, const LEN: usize> {
     pub range: T,
 }
 
-/// An integer column of some size (1-8 bytes)
-#[derive(PartialEq, Clone, Copy)]
-pub enum AnyUintType {
-    Uint08(Uint08Type),
-    Uint16(Uint16Type),
-    Uint24(Uint24Type),
-    Uint32(Uint32Type),
-    Uint40(Uint40Type),
-    Uint48(Uint48Type),
-    Uint56(Uint56Type),
-    Uint64(Uint64Type),
+enum_from!(
+    /// An integer column of some size (1-8 bytes)
+    #[derive(PartialEq, Clone, Copy)]
+    pub AnyEndianUintType,
+    [Uint08, EndianUint08Type],
+    [Uint16, EndianUint16Type],
+    [Uint24, EndianUint24Type],
+    [Uint32, EndianUint32Type],
+    [Uint40, EndianUint40Type],
+    [Uint48, EndianUint48Type],
+    [Uint56, EndianUint56Type],
+    [Uint64, EndianUint64Type]
+);
+
+enum_from!(
+    /// An integer column of some size (1-8 bytes)
+    #[derive(PartialEq, Clone, Copy)]
+    pub AnyOrderedUintType,
+    [Uint08, EndianUint08Type],
+    [Uint16, EndianUint16Type],
+    [Uint24, OrderedUint24Type],
+    [Uint32, OrderedUint32Type],
+    [Uint40, OrderedUint40Type],
+    [Uint48, OrderedUint48Type],
+    [Uint56, OrderedUint56Type],
+    [Uint64, OrderedUint64Type]
+);
+
+impl From<AnyEndianUintType> for AnyOrderedUintType {
+    fn from(value: AnyEndianUintType) -> Self {
+        match value {
+            AnyEndianUintType::Uint08(x) => x.into(),
+            AnyEndianUintType::Uint16(x) => x.into(),
+            AnyEndianUintType::Uint24(x) => Self::Uint24(x.into()),
+            AnyEndianUintType::Uint32(x) => Self::Uint32(x.into()),
+            AnyEndianUintType::Uint40(x) => Self::Uint40(x.into()),
+            AnyEndianUintType::Uint48(x) => Self::Uint48(x.into()),
+            AnyEndianUintType::Uint56(x) => Self::Uint56(x.into()),
+            AnyEndianUintType::Uint64(x) => Self::Uint64(x.into()),
+        }
+    }
 }
 
-impl AnyUintType {
+impl AnyEndianUintType {
     fn try_new(
         w: Width,
         r: Range,
@@ -259,45 +272,59 @@ impl AnyUintType {
     }
 }
 
-impl From<AnyUintType> for MixedType {
-    fn from(value: AnyUintType) -> Self {
-        MixedType::Integer(value)
-    }
-}
-
 macro_rules! uint_to_mixed {
     ($uint:ident, $wrap:ident) => {
         impl From<$uint> for MixedType {
             fn from(value: $uint) -> Self {
-                MixedType::Integer(AnyUintType::$wrap(value))
+                MixedType::Integer(AnyEndianUintType::$wrap(value))
             }
         }
     };
 }
 
-uint_to_mixed!(Uint08Type, Uint08);
-uint_to_mixed!(Uint16Type, Uint16);
-uint_to_mixed!(Uint24Type, Uint24);
-uint_to_mixed!(Uint32Type, Uint32);
-uint_to_mixed!(Uint40Type, Uint40);
-uint_to_mixed!(Uint48Type, Uint48);
-uint_to_mixed!(Uint56Type, Uint56);
-uint_to_mixed!(Uint64Type, Uint64);
+uint_to_mixed!(EndianUint08Type, Uint08);
+uint_to_mixed!(EndianUint16Type, Uint16);
+uint_to_mixed!(EndianUint24Type, Uint24);
+uint_to_mixed!(EndianUint32Type, Uint32);
+uint_to_mixed!(EndianUint40Type, Uint40);
+uint_to_mixed!(EndianUint48Type, Uint48);
+uint_to_mixed!(EndianUint56Type, Uint56);
+uint_to_mixed!(EndianUint64Type, Uint64);
 
-type Uint08Type = UintType<u8, 1>;
-type Uint16Type = UintType<u16, 2>;
-type Uint24Type = UintType<u32, 3>;
-type Uint32Type = UintType<u32, 4>;
-type Uint40Type = UintType<u64, 5>;
-type Uint48Type = UintType<u64, 6>;
-type Uint56Type = UintType<u64, 7>;
-type Uint64Type = UintType<u64, 8>;
+type OrderedUint24Type = OrderedUintType<u32, 3>;
+type OrderedUint32Type = OrderedUintType<u32, 4>;
+type OrderedUint40Type = OrderedUintType<u64, 5>;
+type OrderedUint48Type = OrderedUintType<u64, 6>;
+type OrderedUint56Type = OrderedUintType<u64, 7>;
+type OrderedUint64Type = OrderedUintType<u64, 8>;
+
+type EndianUint08Type = EndianUintType<u8, 1>;
+type EndianUint16Type = EndianUintType<u16, 2>;
+type EndianUint24Type = EndianUintType<u32, 3>;
+type EndianUint32Type = EndianUintType<u32, 4>;
+type EndianUint40Type = EndianUintType<u64, 5>;
+type EndianUint48Type = EndianUintType<u64, 6>;
+type EndianUint56Type = EndianUintType<u64, 7>;
+type EndianUint64Type = EndianUintType<u64, 8>;
 
 /// A generic integer column type with a byte-layout and bitmask.
 #[derive(PartialEq, Clone, Copy)]
-pub struct UintType<T, const LEN: usize> {
+pub struct UintType<T, L> {
     pub bitmask: T,
-    pub byteord: SizedByteOrd<LEN>,
+    pub byte_layout: L,
+}
+
+pub type OrderedUintType<T, const LEN: usize> = UintType<T, SizedByteOrd<LEN>>;
+
+pub type EndianUintType<T, const LEN: usize> = UintType<T, SizedEndian<LEN>>;
+
+impl<T, const LEN: usize> From<EndianUintType<T, LEN>> for OrderedUintType<T, LEN> {
+    fn from(value: EndianUintType<T, LEN>) -> Self {
+        UintType {
+            bitmask: value.bitmask,
+            byte_layout: value.byte_layout.into(),
+        }
+    }
 }
 
 /// Instructions for writing measurements to a file.
@@ -387,7 +414,8 @@ pub enum AnyColumnWriter<'a, X> {
     Ascii(AsciiColumnWriter<'a, X>),
 }
 
-pub type IntColumnWriter<'a, X, T, const LEN: usize> = ColumnWriter<'a, X, T, UintType<T, LEN>>;
+pub type IntColumnWriter<'a, X, T, const LEN: usize> =
+    ColumnWriter<'a, X, T, OrderedUintType<T, LEN>>;
 
 pub type FloatColumnWriter<'a, X, T, const LEN: usize> = ColumnWriter<'a, X, T, SizedByteOrd<LEN>>;
 
@@ -486,17 +514,17 @@ impl<X> AnyColumnWriter<'_, X> {
         X: Copy,
     {
         match self {
-            AnyColumnWriter::U08(c) => c.h_write_int(h),
-            AnyColumnWriter::U16(c) => c.h_write_int(h),
-            AnyColumnWriter::U24(c) => c.h_write_int(h),
-            AnyColumnWriter::U32(c) => c.h_write_int(h),
-            AnyColumnWriter::U40(c) => c.h_write_int(h),
-            AnyColumnWriter::U48(c) => c.h_write_int(h),
-            AnyColumnWriter::U56(c) => c.h_write_int(h),
-            AnyColumnWriter::U64(c) => c.h_write_int(h),
-            AnyColumnWriter::F32(c) => c.h_write_float(h),
-            AnyColumnWriter::F64(c) => c.h_write_float(h),
-            AnyColumnWriter::Ascii(c) => c.h_write_ascii(h),
+            Self::U08(c) => c.h_write_int(h),
+            Self::U16(c) => c.h_write_int(h),
+            Self::U24(c) => c.h_write_int(h),
+            Self::U32(c) => c.h_write_int(h),
+            Self::U40(c) => c.h_write_int(h),
+            Self::U48(c) => c.h_write_int(h),
+            Self::U56(c) => c.h_write_int(h),
+            Self::U64(c) => c.h_write_int(h),
+            Self::F32(c) => c.h_write_float(h),
+            Self::F64(c) => c.h_write_float(h),
+            Self::Ascii(c) => c.h_write_ascii(h),
         }
     }
 }
@@ -513,7 +541,7 @@ impl<X, Y, const INTLEN: usize> IntColumnWriter<'_, X, Y, INTLEN> {
         let x = self.data.next().unwrap();
         x.new
             .min(self.size.bitmask)
-            .h_write_int(h, &self.size.byteord)
+            .h_write_int(h, &self.size.byte_layout)
     }
 }
 
@@ -621,20 +649,23 @@ pub struct AsciiColumnReader {
     pub width: Chars,
 }
 
-pub struct UintColumnReader<B, const LEN: usize> {
+pub struct UintColumnReader<B, S> {
     pub column: Vec<B>,
-    pub uint_type: UintType<B, LEN>,
+    pub uint_type: UintType<B, S>,
 }
 
+type OrderedUintColumnReader<B, const LEN: usize> = UintColumnReader<B, SizedByteOrd<LEN>>;
+// type EndianUintColumnReader<B, const LEN: usize> = UintColumnReader<B, SizedEndian<LEN>>;
+
 pub enum AnyUintColumnReader {
-    Uint08(UintColumnReader<u8, 1>),
-    Uint16(UintColumnReader<u16, 2>),
-    Uint24(UintColumnReader<u32, 3>),
-    Uint32(UintColumnReader<u32, 4>),
-    Uint40(UintColumnReader<u64, 5>),
-    Uint48(UintColumnReader<u64, 6>),
-    Uint56(UintColumnReader<u64, 7>),
-    Uint64(UintColumnReader<u64, 8>),
+    Uint08(OrderedUintColumnReader<u8, 1>),
+    Uint16(OrderedUintColumnReader<u16, 2>),
+    Uint24(OrderedUintColumnReader<u32, 3>),
+    Uint32(OrderedUintColumnReader<u32, 4>),
+    Uint40(OrderedUintColumnReader<u64, 5>),
+    Uint48(OrderedUintColumnReader<u64, 6>),
+    Uint56(OrderedUintColumnReader<u64, 7>),
+    Uint64(OrderedUintColumnReader<u64, 8>),
 }
 
 impl DataReader {
@@ -858,7 +889,7 @@ impl AlphaNumReader {
     }
 }
 
-impl FixedLayout<AnyUintType> {
+impl FixedLayout<AnyEndianUintType> {
     pub(crate) fn try_new<D>(
         cs: Vec<ColumnLayoutData<D>>,
         e: Endian,
@@ -867,7 +898,7 @@ impl FixedLayout<AnyUintType> {
         cs.into_iter()
             .enumerate()
             .map(|(i, c)| {
-                AnyUintType::try_new(c.width, c.range, e, notrunc)
+                AnyEndianUintType::try_new(c.width, c.range, e, notrunc)
                     .def_map_errors(|error| {
                         ColumnError {
                             error,
@@ -973,11 +1004,11 @@ where
         r: Range,
         e: Endian,
         notrunc: bool,
-    ) -> Tentative<UintType<Self, INTLEN>, BitmaskError, BitmaskError> {
+    ) -> Tentative<EndianUintType<Self, INTLEN>, BitmaskError, BitmaskError> {
         // TODO be more specific, which means we need the measurement index
         Self::range_to_bitmask(r, notrunc).map(|bitmask| UintType {
             bitmask,
-            byteord: e.into(),
+            byte_layout: SizedEndian(e),
         })
     }
 
@@ -985,18 +1016,66 @@ where
         r: Range,
         o: &ByteOrd,
         notrunc: bool,
-    ) -> DeferredResult<UintType<Self, INTLEN>, BitmaskError, IntOrderedColumnError> {
+    ) -> DeferredResult<OrderedUintType<Self, INTLEN>, BitmaskError, IntOrderedColumnError> {
         // TODO be more specific, which means we need the measurement index
         Self::range_to_bitmask(r, notrunc)
             .errors_into()
             .and_maybe(|bitmask| {
-                o.as_sized()
+                o.as_sized_byteord()
                     .map(|size| UintType {
                         bitmask,
-                        byteord: size,
+                        byte_layout: size,
                     })
                     .into_deferred()
             })
+    }
+
+    fn column_type_ordered_endian(
+        r: Range,
+        o: &ByteOrd,
+        notrunc: bool,
+    ) -> DeferredResult<EndianUintType<Self, INTLEN>, BitmaskError, IntOrderedColumnError> {
+        // TODO be more specific, which means we need the measurement index
+        Self::range_to_bitmask(r, notrunc)
+            .errors_into()
+            .and_maybe(|bitmask| {
+                o.as_sized_endian()
+                    .map(|size| UintType {
+                        bitmask,
+                        byte_layout: size,
+                    })
+                    .into_deferred()
+            })
+    }
+
+    fn layout_endian(
+        rs: Vec<Range>,
+        byteord: &ByteOrd,
+        notrunc: bool,
+    ) -> DeferredResult<
+        Option<FixedLayout<EndianUintType<Self, INTLEN>>>,
+        ColumnError<BitmaskError>,
+        ColumnError<IntOrderedColumnError>,
+    > {
+        rs.into_iter()
+            .enumerate()
+            .map(|(i, r)| {
+                // TODO this is sloppy, it isn't clear at what point the column
+                // index should be put in the error
+                Self::column_type_ordered_endian(r, byteord, notrunc)
+                    .def_map_errors(|error| ColumnError {
+                        error,
+                        index: i.into(),
+                    })
+                    .def_map_warnings(|warning| ColumnError {
+                        error: warning,
+                        index: i.into(),
+                    })
+            })
+            .gather()
+            .map_err(DeferredFailure::mconcat)
+            .map(Tentative::mconcat)
+            .def_map_value(FixedLayout::from_vec)
     }
 
     fn layout_ordered(
@@ -1004,7 +1083,7 @@ where
         byteord: &ByteOrd,
         notrunc: bool,
     ) -> DeferredResult<
-        Option<FixedLayout<UintType<Self, INTLEN>>>,
+        Option<FixedLayout<OrderedUintType<Self, INTLEN>>>,
         ColumnError<BitmaskError>,
         ColumnError<IntOrderedColumnError>,
     > {
@@ -1029,33 +1108,35 @@ where
             .def_map_value(FixedLayout::from_vec)
     }
 
-    fn h_read_int<R: Read>(
-        h: &mut BufReader<R>,
-        byteord: &SizedByteOrd<INTLEN>,
-    ) -> io::Result<Self> {
-        // This lovely code will read data that is not a power-of-two
-        // bytes long. Start by reading n bytes into a vector, which can
-        // take a varying size. Then copy this into the power of 2 buffer
-        // and reset all the unused cells to 0. This copy has to go to one
-        // or the other end of the buffer depending on endianness.
+    fn h_read_int_endian<R: Read>(h: &mut BufReader<R>, endian: Endian) -> io::Result<Self> {
+        // This will read data that is not a power-of-two bytes long. Start by
+        // reading n bytes into a vector, which can take a varying size. Then
+        // copy this into the power of 2 buffer and reset all the unused cells
+        // to 0. This copy has to go to one or the other end of the buffer
+        // depending on endianness.
         //
         // ASSUME for u8 and u16 that these will get heavily optimized away
         // since 'order' is totally meaningless for u8 and the only two possible
         // 'orders' for u16 are big and little.
+        let mut tmp = [0; INTLEN];
+        let mut buf = [0; DTLEN];
+        h.read_exact(&mut tmp)?;
+        Ok(if endian == Endian::Big {
+            let b = DTLEN - INTLEN;
+            buf[b..].copy_from_slice(&tmp[b..]);
+            Self::from_big(buf)
+        } else {
+            buf[..INTLEN].copy_from_slice(&tmp[..INTLEN]);
+            Self::from_little(buf)
+        })
+    }
+
+    fn h_read_int<R: Read>(
+        h: &mut BufReader<R>,
+        byteord: &SizedByteOrd<INTLEN>,
+    ) -> io::Result<Self> {
         match byteord {
-            SizedByteOrd::Endian(e) => {
-                let mut tmp = [0; INTLEN];
-                let mut buf = [0; DTLEN];
-                h.read_exact(&mut tmp)?;
-                Ok(if *e == Endian::Big {
-                    let b = DTLEN - INTLEN;
-                    buf[b..].copy_from_slice(&tmp[b..]);
-                    Self::from_big(buf)
-                } else {
-                    buf[..INTLEN].copy_from_slice(&tmp[..INTLEN]);
-                    Self::from_little(buf)
-                })
-            }
+            SizedByteOrd::Endian(e) => Self::h_read_int_endian(h, *e),
             SizedByteOrd::Order(order) => Self::h_read_from_ordered(h, order),
         }
     }
@@ -1131,7 +1212,7 @@ where
             .and_then(|bytes| {
                 if usize::from(u8::from(bytes)) == LEN {
                     let range = Self::range(r);
-                    o.as_sized()
+                    o.as_sized_byteord()
                         .map(|order| FloatType { order, range })
                         .map_err(OrderedFloatError::Order)
                 } else {
@@ -1358,7 +1439,7 @@ impl MixedType {
                 .try_into()
                 .map(|chars| Self::Ascii(AsciiType { chars }))
                 .into_deferred(),
-            AlphaNumType::Integer => AnyUintType::try_new(w, r, n, notrunc)
+            AlphaNumType::Integer => AnyEndianUintType::try_new(w, r, n, notrunc)
                 .def_map_value(Self::Integer)
                 .def_errors_into(),
             AlphaNumType::Single => f32::column_type_endian(w, n, r)
@@ -1389,6 +1470,15 @@ pub struct ColumnLayoutData<D> {
 impl<C> FixedLayout<C> {
     fn from_vec(xs: Vec<C>) -> Option<Self> {
         NonEmpty::from_vec(xs).map(|columns| FixedLayout { columns })
+    }
+
+    fn inner_into<D: From<C>>(&self) -> FixedLayout<D>
+    where
+        C: Copy,
+    {
+        FixedLayout {
+            columns: self.columns.as_ref().map(|x| (*x).into()),
+        }
     }
 }
 
@@ -1427,10 +1517,7 @@ impl DelimitedLayout {
     }
 }
 
-impl<C> FixedLayout<C>
-where
-    C: IsFixed,
-{
+impl<C: IsFixed> FixedLayout<C> {
     fn event_width(&self) -> usize {
         self.columns.iter().map(|c| c.width()).sum()
     }
@@ -1443,7 +1530,10 @@ where
         self,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
-    ) -> Tentative<AlphaNumReader, UnevenEventWidth, UnevenEventWidth> {
+    ) -> Tentative<AlphaNumReader, UnevenEventWidth, UnevenEventWidth>
+    where
+        C: IsFixedReader,
+    {
         let n = seg.inner.len() as usize;
         let w = self.event_width();
         let total_events = n / w;
@@ -1469,6 +1559,7 @@ where
         conf: &ReaderConfig,
     ) -> Tentative<ColumnReader, W, E>
     where
+        C: IsFixedReader,
         W: From<UnevenEventWidth>,
         E: From<UnevenEventWidth>,
         W: From<TotEventMismatch>,
@@ -1491,17 +1582,17 @@ where
         conf: &WriteConfig,
     ) -> MultiResult<Option<FixedWriter<'a>>, ColumnWriterError>
     where
-        MixedType: From<C>,
         C: Copy,
+        C: IsFixedWriter,
     {
         let check = conf.check_conversion;
         self.columns
             .iter()
-            .map(|c| (*c).into())
+            // .map(|c| AnyType::from(*c))
             .zip(df.iter_columns())
             .enumerate()
-            .map(|(i, (t, c)): (usize, (MixedType, &AnyFCSColumn))| {
-                t.into_writer(c, check).map_err(|error| {
+            .map(|(i, (t, c))| {
+                t.into_col_writer(c, check).map_err(|error| {
                     ColumnWriterError(ColumnError {
                         index: i.into(),
                         error,
@@ -1517,23 +1608,51 @@ where
 
 pub trait IsFixed {
     fn width(&self) -> usize;
+}
 
+pub trait IsFixedReader: IsFixed {
     fn into_col_reader(self, nrows: usize) -> AlphaNumColumnReader;
+}
 
-    fn into_writer(
+pub trait IsFixedWriter: IsFixed {
+    fn into_col_writer(
         self,
         c: &AnyFCSColumn,
         check: bool,
     ) -> Result<AnyFixedColumnWriter, AnyLossError>;
 }
 
-impl<T, const LEN: usize> IsFixed for UintType<T, LEN>
+impl<T, const LEN: usize> IsFixed for OrderedUintType<T, LEN> {
+    fn width(&self) -> usize {
+        LEN
+    }
+}
+
+impl<T, const LEN: usize> IsFixed for EndianUintType<T, LEN> {
+    fn width(&self) -> usize {
+        LEN
+    }
+}
+
+impl<T, const LEN: usize> IsFixedReader for OrderedUintType<T, LEN>
 where
-    T: Clone,
     T: Copy,
     T: Default,
+    AlphaNumColumnReader: From<OrderedUintColumnReader<T, LEN>>,
+{
+    fn into_col_reader(self, nrows: usize) -> AlphaNumColumnReader {
+        UintColumnReader {
+            column: vec![T::default(); nrows],
+            uint_type: self,
+        }
+        .into()
+    }
+}
+
+impl<T, const LEN: usize> IsFixedWriter for OrderedUintType<T, LEN>
+where
+    T: Copy,
     T: Ord,
-    AlphaNumColumnReader: From<UintColumnReader<T, LEN>>,
     T: NumCast<u8>,
     T: NumCast<u16>,
     T: NumCast<u32>,
@@ -1548,19 +1667,7 @@ where
     for<'b> AnyFixedColumnWriter<'b>: From<IntColumnWriter<'b, f32, T, LEN>>,
     for<'b> AnyFixedColumnWriter<'b>: From<IntColumnWriter<'b, f64, T, LEN>>,
 {
-    fn width(&self) -> usize {
-        LEN
-    }
-
-    fn into_col_reader(self, nrows: usize) -> AlphaNumColumnReader {
-        UintColumnReader {
-            column: vec![T::default(); nrows],
-            uint_type: self,
-        }
-        .into()
-    }
-
-    fn into_writer(
+    fn into_col_writer(
         self,
         c: &AnyFCSColumn,
         check: bool,
@@ -1580,38 +1687,42 @@ where
     }
 }
 
-impl IsFixed for AnyUintType {
+impl IsFixed for AnyEndianUintType {
     fn width(&self) -> usize {
         match_many_to_one!(
             self,
-            AnyUintType,
+            AnyEndianUintType,
             [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
             x,
-            { (*x).width() }
+            { OrderedUintType::from(*x).width() }
         )
     }
+}
 
+impl IsFixedReader for AnyEndianUintType {
     fn into_col_reader(self, nrows: usize) -> AlphaNumColumnReader {
         match_many_to_one!(
             self,
-            AnyUintType,
+            AnyEndianUintType,
             [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
             x,
-            { x.into_col_reader(nrows) }
+            { OrderedUintType::from(x).into_col_reader(nrows) }
         )
     }
+}
 
-    fn into_writer(
+impl IsFixedWriter for AnyEndianUintType {
+    fn into_col_writer(
         self,
         c: &AnyFCSColumn,
         check: bool,
     ) -> Result<AnyFixedColumnWriter, AnyLossError> {
         match_many_to_one!(
             self,
-            AnyUintType,
+            AnyEndianUintType,
             [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
             x,
-            { x.into_writer(c, check) }
+            { OrderedUintType::from(x).into_col_writer(c, check) }
         )
     }
 }
@@ -1626,20 +1737,20 @@ macro_rules! uint_from_reader {
     };
 }
 
-uint_from_reader!(UintColumnReader<u8, 1>, Uint08);
-uint_from_reader!(UintColumnReader<u16, 2>, Uint16);
-uint_from_reader!(UintColumnReader<u32, 3>, Uint24);
-uint_from_reader!(UintColumnReader<u32, 4>, Uint32);
-uint_from_reader!(UintColumnReader<u64, 5>, Uint40);
-uint_from_reader!(UintColumnReader<u64, 6>, Uint48);
-uint_from_reader!(UintColumnReader<u64, 7>, Uint56);
-uint_from_reader!(UintColumnReader<u64, 8>, Uint64);
+uint_from_reader!(OrderedUintColumnReader<u8, 1>, Uint08);
+uint_from_reader!(OrderedUintColumnReader<u16, 2>, Uint16);
+uint_from_reader!(OrderedUintColumnReader<u32, 3>, Uint24);
+uint_from_reader!(OrderedUintColumnReader<u32, 4>, Uint32);
+uint_from_reader!(OrderedUintColumnReader<u64, 5>, Uint40);
+uint_from_reader!(OrderedUintColumnReader<u64, 6>, Uint48);
+uint_from_reader!(OrderedUintColumnReader<u64, 7>, Uint56);
+uint_from_reader!(OrderedUintColumnReader<u64, 8>, Uint64);
 
 macro_rules! uint_from_writer {
     ($fromtype:ident, $totype:ident, $len:expr, $fromwrap:ident, $wrap:ident) => {
         impl<'a> From<IntColumnWriter<'a, $fromtype, $totype, $len>> for AnyFixedColumnWriter<'a> {
             fn from(value: IntColumnWriter<'a, $fromtype, $totype, $len>) -> Self {
-                AnyFixedColumnWriter::$fromwrap(AnyColumnWriter::$wrap(value))
+                Self::$fromwrap(AnyColumnWriter::$wrap(value))
             }
         }
     };
@@ -1729,11 +1840,29 @@ float_from_writer!(f32, f64, 8, FromF32, F64);
 float_from_writer!(f64, f32, 4, FromF64, F32);
 float_from_writer!(f64, f64, 8, FromF64, F64);
 
-impl<T, const LEN: usize> IsFixed for FloatType<T, LEN>
+impl<T, const LEN: usize> IsFixed for FloatType<T, LEN> {
+    fn width(&self) -> usize {
+        LEN
+    }
+}
+
+impl<T, const LEN: usize> IsFixedReader for FloatType<T, LEN>
 where
     T: Clone,
     T: Default,
     AlphaNumColumnReader: From<FloatColumnReader<T, LEN>>,
+{
+    fn into_col_reader(self, nrows: usize) -> AlphaNumColumnReader {
+        FloatColumnReader {
+            column: vec![T::default(); nrows],
+            size: self.order,
+        }
+        .into()
+    }
+}
+
+impl<T, const LEN: usize> IsFixedWriter for FloatType<T, LEN>
+where
     T: NumCast<u8>,
     T: NumCast<u16>,
     T: NumCast<u32>,
@@ -1747,19 +1876,7 @@ where
     for<'b> AnyFixedColumnWriter<'b>: From<FloatColumnWriter<'b, f32, T, LEN>>,
     for<'b> AnyFixedColumnWriter<'b>: From<FloatColumnWriter<'b, f64, T, LEN>>,
 {
-    fn width(&self) -> usize {
-        LEN
-    }
-
-    fn into_col_reader(self, nrows: usize) -> AlphaNumColumnReader {
-        FloatColumnReader {
-            column: vec![T::default(); nrows],
-            size: self.order,
-        }
-        .into()
-    }
-
-    fn into_writer(
+    fn into_col_writer(
         self,
         c: &AnyFCSColumn,
         check: bool,
@@ -1772,7 +1889,24 @@ where
     }
 }
 
-impl<T, const INTLEN: usize> UintColumnReader<T, INTLEN> {
+// impl<T, const INTLEN: usize> EndianUintColumnReader<T, INTLEN> {
+//     fn h_read<R: Read, const DTLEN: usize>(
+//         &mut self,
+//         h: &mut BufReader<R>,
+//         row: usize,
+//     ) -> io::Result<()>
+//     where
+//         T: IntFromBytes<DTLEN, INTLEN>,
+//         <T as FromStr>::Err: fmt::Display,
+//         T: Ord,
+//     {
+//         let x = T::h_read_int_endian(h, self.uint_type.byte_layout.0)?;
+//         self.column[row] = x.min(self.uint_type.bitmask);
+//         Ok(())
+//     }
+// }
+
+impl<T, const INTLEN: usize> OrderedUintColumnReader<T, INTLEN> {
     fn h_read<R: Read, const DTLEN: usize>(
         &mut self,
         h: &mut BufReader<R>,
@@ -1783,7 +1917,7 @@ impl<T, const INTLEN: usize> UintColumnReader<T, INTLEN> {
         <T as FromStr>::Err: fmt::Display,
         T: Ord,
     {
-        let x = T::h_read_int(h, &self.uint_type.byteord)?;
+        let x = T::h_read_int(h, &self.uint_type.byte_layout)?;
         self.column[row] = x.min(self.uint_type.bitmask);
         Ok(())
     }
@@ -1816,15 +1950,19 @@ impl IsFixed for AsciiType {
     fn width(&self) -> usize {
         u8::from(self.chars).into()
     }
+}
 
+impl IsFixedReader for AsciiType {
     fn into_col_reader(self, nrows: usize) -> AlphaNumColumnReader {
         AlphaNumColumnReader::Ascii(AsciiColumnReader {
             column: vec![0; nrows],
             width: self.chars,
         })
     }
+}
 
-    fn into_writer(
+impl IsFixedWriter for AsciiType {
+    fn into_col_writer(
         self,
         col: &AnyFCSColumn,
         check: bool,
@@ -1859,32 +1997,36 @@ impl IsFixed for AsciiType {
 impl IsFixed for MixedType {
     fn width(&self) -> usize {
         match self {
-            MixedType::Ascii(a) => u8::from(a.chars).into(),
-            MixedType::Integer(i) => i.width(),
-            MixedType::Float(f) => f.width(),
-            MixedType::Double(d) => d.width(),
+            Self::Ascii(a) => u8::from(a.chars).into(),
+            Self::Integer(i) => i.width(),
+            Self::Float(f) => f.width(),
+            Self::Double(d) => d.width(),
         }
     }
+}
 
+impl IsFixedReader for MixedType {
     fn into_col_reader(self, nrows: usize) -> AlphaNumColumnReader {
         match self {
-            MixedType::Ascii(a) => a.into_col_reader(nrows),
-            MixedType::Integer(i) => i.into_col_reader(nrows),
-            MixedType::Float(f) => f.into_col_reader(nrows),
-            MixedType::Double(d) => d.into_col_reader(nrows),
+            Self::Ascii(a) => a.into_col_reader(nrows),
+            Self::Integer(i) => i.into_col_reader(nrows),
+            Self::Float(f) => f.into_col_reader(nrows),
+            Self::Double(d) => d.into_col_reader(nrows),
         }
     }
+}
 
-    fn into_writer(
+impl IsFixedWriter for MixedType {
+    fn into_col_writer(
         self,
         c: &AnyFCSColumn,
         check: bool,
     ) -> Result<AnyFixedColumnWriter, AnyLossError> {
         match self {
-            MixedType::Ascii(a) => a.into_writer(c, check),
-            MixedType::Integer(i) => i.into_writer(c, check),
-            MixedType::Float(f) => f.into_writer(c, check),
-            MixedType::Double(d) => d.into_writer(c, check),
+            Self::Ascii(a) => a.into_col_writer(c, check),
+            Self::Integer(i) => i.into_col_writer(c, check),
+            Self::Float(f) => f.into_col_writer(c, check),
+            Self::Double(d) => d.into_col_writer(c, check),
         }
     }
 }
@@ -1907,7 +2049,7 @@ fn widths_to_single_fixed_bytes(ws: &[Width]) -> MultiResult<Option<Bytes>, Sing
     })
 }
 
-impl AnyUintLayout {
+impl AnyOrderedUintLayout {
     pub(crate) fn try_new<D>(
         cs: Vec<ColumnLayoutData<D>>,
         o: &ByteOrd,
@@ -1919,9 +2061,10 @@ impl AnyUintLayout {
             .def_and_maybe(|b| {
                 if let Some(bytes) = b {
                     match u8::from(bytes) {
-                        1 => u8::layout_ordered(rs, o, notrunc)
-                            .def_map_value(|x| x.map(Self::Uint08)),
-                        2 => u16::layout_ordered(rs, o, notrunc)
+                        1 => {
+                            u8::layout_endian(rs, o, notrunc).def_map_value(|x| x.map(Self::Uint08))
+                        }
+                        2 => u16::layout_endian(rs, o, notrunc)
                             .def_map_value(|x| x.map(Self::Uint16)),
                         3 => u32::layout_ordered(rs, o, notrunc)
                             .def_map_value(|x| x.map(Self::Uint24)),
@@ -1959,13 +2102,20 @@ impl AnyUintLayout {
         seg: AnyDataSegment,
         conf: &ReaderConfig,
     ) -> Tentative<AlphaNumReader, UnevenEventWidth, UnevenEventWidth> {
-        match_many_to_one!(
-            self,
-            Self,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            l,
-            { l.into_col_reader_inner(seg, conf) }
-        )
+        match self {
+            Self::Uint08(x) => x
+                .inner_into::<OrderedUintType<u8, 1>>()
+                .into_col_reader_inner(seg, conf),
+            Self::Uint16(x) => x
+                .inner_into::<OrderedUintType<u16, 2>>()
+                .into_col_reader_inner(seg, conf),
+            Self::Uint24(x) => x.into_col_reader_inner(seg, conf),
+            Self::Uint32(x) => x.into_col_reader_inner(seg, conf),
+            Self::Uint40(x) => x.into_col_reader_inner(seg, conf),
+            Self::Uint48(x) => x.into_col_reader_inner(seg, conf),
+            Self::Uint56(x) => x.into_col_reader_inner(seg, conf),
+            Self::Uint64(x) => x.into_col_reader_inner(seg, conf),
+        }
     }
 
     fn into_col_reader<W, E>(
@@ -1980,13 +2130,20 @@ impl AnyUintLayout {
         W: From<TotEventMismatch>,
         E: From<TotEventMismatch>,
     {
-        match_many_to_one!(
-            self,
-            Self,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            l,
-            { l.into_col_reader(seg, tot, conf) }
-        )
+        match self {
+            Self::Uint08(x) => x
+                .inner_into::<OrderedUintType<u8, 1>>()
+                .into_col_reader(seg, tot, conf),
+            Self::Uint16(x) => x
+                .inner_into::<OrderedUintType<u16, 2>>()
+                .into_col_reader(seg, tot, conf),
+            Self::Uint24(x) => x.into_col_reader(seg, tot, conf),
+            Self::Uint32(x) => x.into_col_reader(seg, tot, conf),
+            Self::Uint40(x) => x.into_col_reader(seg, tot, conf),
+            Self::Uint48(x) => x.into_col_reader(seg, tot, conf),
+            Self::Uint56(x) => x.into_col_reader(seg, tot, conf),
+            Self::Uint64(x) => x.into_col_reader(seg, tot, conf),
+        }
     }
 
     fn as_writer<'a>(
@@ -1994,13 +2151,25 @@ impl AnyUintLayout {
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
     ) -> MultiResult<Option<FixedWriter<'a>>, ColumnWriterError> {
-        match_many_to_one!(
-            self,
-            Self,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            l,
-            { l.as_writer(df, conf) }
-        )
+        // match_many_to_one!(
+        //     self,
+        //     Self,
+        //     [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+        //     l,
+        //     { l.as_writer(df, conf) }
+        // )
+        match self {
+            Self::Uint08(x) => x.inner_into::<OrderedUintType<u8, 1>>().as_writer(df, conf),
+            Self::Uint16(x) => x
+                .inner_into::<OrderedUintType<u16, 2>>()
+                .as_writer(df, conf),
+            Self::Uint24(x) => x.as_writer(df, conf),
+            Self::Uint32(x) => x.as_writer(df, conf),
+            Self::Uint40(x) => x.as_writer(df, conf),
+            Self::Uint48(x) => x.as_writer(df, conf),
+            Self::Uint56(x) => x.as_writer(df, conf),
+            Self::Uint64(x) => x.as_writer(df, conf),
+        }
     }
 }
 
@@ -2181,7 +2350,7 @@ impl VersionedDataLayout for DataLayout2_0 {
                 .map(|x| x.map_or(Self::Empty, Self::Ascii))
                 .mult_to_deferred(),
             AlphaNumType::Integer => {
-                AnyUintLayout::try_new(columns, &byteord, conf.disallow_bitmask_truncation)
+                AnyOrderedUintLayout::try_new(columns, &byteord, conf.disallow_bitmask_truncation)
                     .def_map_value(|x| x.map_or(Self::Empty, Self::Integer))
                     .def_inner_into()
             }
@@ -2296,7 +2465,7 @@ impl VersionedDataLayout for DataLayout3_0 {
                 .map(|x| x.map_or(Self::Empty, Self::Ascii))
                 .mult_to_deferred(),
             AlphaNumType::Integer => {
-                AnyUintLayout::try_new(columns, &byteord, conf.disallow_bitmask_truncation)
+                AnyOrderedUintLayout::try_new(columns, &byteord, conf.disallow_bitmask_truncation)
                     .def_map_value(|x| x.map_or(Self::Empty, Self::Integer))
                     .def_inner_into()
             }
@@ -2436,6 +2605,7 @@ impl VersionedDataLayout for DataLayout3_1 {
         match self {
             Self::Ascii(a) => a.as_writer(df, conf),
             Self::Integer(i) => i
+                // .inner_into::<AnyOrderedUintType>()
                 .as_writer(df, conf)
                 .map(|x| x.map_or(DataWriter::Empty, DataWriter::Fixed)),
             Self::Float(f) => f
@@ -2957,6 +3127,8 @@ newtype_from!(UintColumnWarning, ColumnError<BitmaskError>);
 enum_from_disp!(
     pub IntOrderedColumnError,
     [Order, ByteOrdToSizedError],
+    // TODO sloppy nesting
+    [Endian, ByteOrdToSizedEndianError],
     [Size,  BitmaskError]
 );
 

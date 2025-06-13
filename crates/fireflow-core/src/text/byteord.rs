@@ -59,15 +59,22 @@ pub struct Chars(u8);
 #[derive(Clone, Copy, Serialize, PartialEq, Eq, Hash)]
 pub struct BitsOrChars(u8);
 
-/// $BYTEORD with known size in bytes
+/// $BYTEORD (ordered) with known size in bytes
 #[derive(PartialEq, Eq, Hash, Copy, Clone)]
 pub enum SizedByteOrd<const LEN: usize> {
     Endian(Endian),
     Order([u8; LEN]),
 }
 
-#[derive(Clone, Serialize)]
-pub struct MixedOrder(Vec<u8>);
+/// $BYTEORD (endian) with known size in bytes
+#[derive(PartialEq, Eq, Hash, Copy, Clone)]
+pub struct SizedEndian<const LEN: usize>(pub Endian);
+
+impl<const LEN: usize> From<SizedEndian<LEN>> for SizedByteOrd<LEN> {
+    fn from(value: SizedEndian<LEN>) -> Self {
+        SizedByteOrd::Endian(value.0)
+    }
+}
 
 impl TryFrom<Vec<u8>> for ByteOrd {
     type Error = NewByteOrdError;
@@ -106,7 +113,9 @@ impl ByteOrd {
         }
     }
 
-    pub fn as_sized<const LEN: usize>(&self) -> Result<SizedByteOrd<LEN>, ByteOrdToSizedError> {
+    pub fn as_sized_byteord<const LEN: usize>(
+        &self,
+    ) -> Result<SizedByteOrd<LEN>, ByteOrdToSizedError> {
         let xs = &self.0;
         let n = xs.len();
         if n != LEN {
@@ -119,6 +128,18 @@ impl ByteOrd {
         } else {
             Ok(SizedByteOrd::Order(xs[..].try_into().unwrap()))
         }
+    }
+
+    pub fn as_sized_endian<const LEN: usize>(
+        &self,
+    ) -> Result<SizedEndian<LEN>, ByteOrdToSizedEndianError> {
+        self.as_sized_byteord().map_or_else(
+            |e| Err(ByteOrdToSizedEndianError::ToSized(e)),
+            |x: SizedByteOrd<LEN>| match x {
+                SizedByteOrd::Endian(e) => Ok(SizedEndian(e)),
+                _ => Err(ByteOrdToSizedEndianError::Ordered),
+            },
+        )
     }
 }
 
@@ -409,6 +430,20 @@ pub struct EndianToByteOrdError;
 
 pub struct ByteOrdToEndianError(Vec<u8>);
 
+pub enum ByteOrdToSizedEndianError {
+    Ordered,
+    ToSized(ByteOrdToSizedError),
+}
+
+impl fmt::Display for ByteOrdToSizedEndianError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::ToSized(e) => e.fmt(f),
+            Self::Ordered => f.write_str("byte order is not monotonic"),
+        }
+    }
+}
+
 pub struct ByteOrdToSizedError {
     bytes: usize,
     length: usize,
@@ -426,8 +461,8 @@ pub enum WidthToFixedError<X> {
 impl fmt::Display for ParseByteOrdError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            ParseByteOrdError::Format => write!(f, "Could not parse numbers in byte order"),
-            ParseByteOrdError::Order(x) => x.fmt(f),
+            Self::Format => write!(f, "Could not parse numbers in byte order"),
+            Self::Order(x) => x.fmt(f),
         }
     }
 }

@@ -341,7 +341,7 @@ impl Width {
                         .into())
                     }
                 } else {
-                    Err(MultiWidthsError(sizes).into())
+                    Err(MultiWidthsError(sizes.map(|x| x.into())).into())
                 }
             };
 
@@ -355,7 +355,7 @@ impl Width {
                     if sizes.tail.is_empty() {
                         Ok(sizes.head)
                     } else {
-                        Err(MultiWidthsError(sizes).into())
+                        Err(MultiWidthsError(sizes.map(|x| x.into())).into())
                     }
                 }),
                 AlphaNumType::Single => bs.def_and_then(|sizes| go(sizes, 4)),

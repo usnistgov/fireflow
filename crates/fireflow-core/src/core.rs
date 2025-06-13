@@ -4946,7 +4946,8 @@ enum_from_disp!(
 enum_from_disp!(
     pub LayoutConvertError,
     [Xfer, AnyLayoutKeyLossError],
-    [OrderToEndian, OrderedToEndianError]
+    [OrderToEndian, OrderedToEndianError],
+    [Width, ConvertWidthError]
 );
 
 pub struct TimestepLossError(Timestep);
@@ -5595,15 +5596,9 @@ impl ConvertFromLayout<DataLayout3_1> for DataLayout2_0 {
     fn convert_from_layout(
         value: DataLayout3_1,
         _: ByteOrdConvert,
-        force: bool,
+        _: bool,
     ) -> LayoutConvertResult<Self> {
-        let out = match value {
-            DataLayout3_1::Ascii(x) => OrderedDataLayout::Ascii(x),
-            DataLayout3_1::Integer(x) => OrderedDataLayout::Integer(x),
-            DataLayout3_1::Float(x) => OrderedDataLayout::Float(x),
-            DataLayout3_1::Empty => OrderedDataLayout::Empty,
-        };
-        Ok(Tentative::new1(out.into()))
+        value.into_ordered().def_map_value(|x| x.into())
     }
 }
 
@@ -5611,16 +5606,9 @@ impl ConvertFromLayout<DataLayout3_2> for DataLayout2_0 {
     fn convert_from_layout(
         value: DataLayout3_2,
         _: ByteOrdConvert,
-        force: bool,
+        _: bool,
     ) -> LayoutConvertResult<Self> {
-        let out = match value {
-            DataLayout3_2::Ascii(x) => OrderedDataLayout::Ascii(x),
-            DataLayout3_2::Integer(x) => OrderedDataLayout::Integer(x),
-            DataLayout3_2::Float(x) => OrderedDataLayout::Float(x),
-            // DataLayout3_2::Mixed(x) => (),
-            DataLayout3_2::Empty => OrderedDataLayout::Empty,
-        };
-        Ok(Tentative::new1(out.into()))
+        value.into_ordered().def_map_value(|x| x.into())
     }
 }
 
@@ -5640,13 +5628,7 @@ impl ConvertFromLayout<DataLayout3_1> for DataLayout3_0 {
         _: ByteOrdConvert,
         _: bool,
     ) -> LayoutConvertResult<Self> {
-        let out = match value {
-            DataLayout3_1::Ascii(x) => OrderedDataLayout::Ascii(x),
-            DataLayout3_1::Integer(x) => OrderedDataLayout::Integer(x),
-            DataLayout3_1::Float(x) => OrderedDataLayout::Float(x),
-            DataLayout3_1::Empty => OrderedDataLayout::Empty,
-        };
-        Ok(Tentative::new1(out.into()))
+        value.into_ordered().def_map_value(|x| x.into())
     }
 }
 
@@ -5656,13 +5638,7 @@ impl ConvertFromLayout<DataLayout3_2> for DataLayout3_0 {
         _: ByteOrdConvert,
         _: bool,
     ) -> LayoutConvertResult<Self> {
-        let out = match value {
-            DataLayout3_2::Ascii(x) => OrderedDataLayout::Ascii(x),
-            DataLayout3_2::Integer(x) => OrderedDataLayout::Integer(x),
-            DataLayout3_2::Float(x) => OrderedDataLayout::Float(x),
-            DataLayout3_2::Empty => OrderedDataLayout::Empty,
-        };
-        Ok(Tentative::new1(out.into()))
+        value.into_ordered().def_map_value(|x| x.into())
     }
 }
 
@@ -5696,7 +5672,6 @@ impl ConvertFromLayout<DataLayout3_2> for DataLayout3_1 {
             DataLayout3_2::Ascii(x) => Self::Ascii(x),
             DataLayout3_2::Integer(x) => Self::Integer(x),
             DataLayout3_2::Float(x) => Self::Float(x),
-            DataLayout3_2::Mixed(x) => Self::Float(x),
             DataLayout3_2::Empty => Self::Empty,
         };
         Ok(Tentative::new1(out))

@@ -67,6 +67,8 @@ use crate::validated::standard::*;
 use itertools::repeat_n;
 use itertools::Itertools;
 use nonempty::NonEmpty;
+use serde::ser::SerializeStruct;
+use serde::Serialize;
 use std::convert::Infallible;
 use std::fmt;
 use std::io;
@@ -976,6 +978,14 @@ impl AlphaNumReader {
         } else {
             Tentative::new1(())
         }
+    }
+}
+
+impl<C: Serialize> Serialize for FixedLayout<C> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut state = serializer.serialize_struct("FixedLayout", 1)?;
+        state.serialize_field("columns", Vec::from(self.columns.as_ref()).as_slice())?;
+        state.end()
     }
 }
 

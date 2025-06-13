@@ -54,8 +54,11 @@ use std::str::FromStr;
 /// TEXT data when writing a new FCS file, and the keywords that are not
 /// included can be computed on the fly when writing.
 #[derive(Clone, Serialize)]
-pub struct Core<A, D, O, M, T, P, N, W> {
-    /// The root of the metadata tree (ie "non-measurement" keywords)
+pub struct Core<A, D, O, M, T, P, N, W, L> {
+    /// Metaroot TEXT keywords.
+    ///
+    /// This includes all keywords that are not part of measurements or the data
+    /// layout (ie the "root" of the metadata if thought of as a hierarchy)
     pub metaroot: Metaroot<M>,
 
     /// All measurement TEXT keywords.
@@ -64,6 +67,12 @@ pub struct Core<A, D, O, M, T, P, N, W> {
     /// of the measurement which also corresponds to its column in the DATA
     /// segment. The index of each measurement in this vector is n - 1.
     measurements: NamedVec<N, W, Temporal<T>, Optical<P>>,
+
+    /// The byte layout of the DATA segment
+    ///
+    /// This is derived from $BYTEORD, $DATATYPE, $PnB, $PnR and maybe
+    /// $PnDATATYPE for version 3.2.
+    layout: L,
 
     /// DATA segment (if applicable)
     data: D,
@@ -878,68 +887,10 @@ pub type Metaroot3_1 = Metaroot<InnerMetaroot3_1>;
 pub type Metaroot3_2 = Metaroot<InnerMetaroot3_2>;
 
 /// A minimal representation of the TEXT segment
-pub type CoreTEXT<M, T, P, N, W> = Core<(), (), (), M, T, P, N, W>;
+pub type CoreTEXT<M, T, P, N, W, L> = Core<(), (), (), M, T, P, N, W, L>;
 
 /// A minimal representation of the TEXT+DATA+ANALYSIS segments
-pub type CoreDataset<M, T, P, N, W> = Core<Analysis, FCSDataFrame, Others, M, T, P, N, W>;
-
-pub type CoreTEXT2_0 = CoreTEXT<
-    InnerMetaroot2_0,
-    InnerTemporal2_0,
-    InnerOptical2_0,
-    OptionalKwFamily,
-    OptionalKw<Shortname>,
->;
-pub type CoreTEXT3_0 = CoreTEXT<
-    InnerMetaroot3_0,
-    InnerTemporal3_0,
-    InnerOptical3_0,
-    OptionalKwFamily,
-    OptionalKw<Shortname>,
->;
-pub type CoreTEXT3_1 = CoreTEXT<
-    InnerMetaroot3_1,
-    InnerTemporal3_1,
-    InnerOptical3_1,
-    IdentityFamily,
-    Identity<Shortname>,
->;
-pub type CoreTEXT3_2 = CoreTEXT<
-    InnerMetaroot3_2,
-    InnerTemporal3_2,
-    InnerOptical3_2,
-    IdentityFamily,
-    Identity<Shortname>,
->;
-
-pub type CoreDataset2_0 = CoreDataset<
-    InnerMetaroot2_0,
-    InnerTemporal2_0,
-    InnerOptical2_0,
-    OptionalKwFamily,
-    OptionalKw<Shortname>,
->;
-pub type CoreDataset3_0 = CoreDataset<
-    InnerMetaroot3_0,
-    InnerTemporal3_0,
-    InnerOptical3_0,
-    OptionalKwFamily,
-    OptionalKw<Shortname>,
->;
-pub type CoreDataset3_1 = CoreDataset<
-    InnerMetaroot3_1,
-    InnerTemporal3_1,
-    InnerOptical3_1,
-    IdentityFamily,
-    Identity<Shortname>,
->;
-pub type CoreDataset3_2 = CoreDataset<
-    InnerMetaroot3_2,
-    InnerTemporal3_2,
-    InnerOptical3_2,
-    IdentityFamily,
-    Identity<Shortname>,
->;
+pub type CoreDataset<M, T, P, N, W, L> = Core<Analysis, FCSDataFrame, Others, M, T, P, N, W, L>;
 
 pub type Core2_0<A, D, O> = Core<
     A,
@@ -950,6 +901,7 @@ pub type Core2_0<A, D, O> = Core<
     InnerOptical2_0,
     OptionalKwFamily,
     OptionalKw<Shortname>,
+    DataLayout2_0,
 >;
 pub type Core3_0<A, D, O> = Core<
     A,
@@ -960,6 +912,7 @@ pub type Core3_0<A, D, O> = Core<
     InnerOptical3_0,
     OptionalKwFamily,
     OptionalKw<Shortname>,
+    DataLayout3_0,
 >;
 pub type Core3_1<A, D, O> = Core<
     A,
@@ -970,6 +923,7 @@ pub type Core3_1<A, D, O> = Core<
     InnerOptical3_1,
     IdentityFamily,
     Identity<Shortname>,
+    DataLayout3_1,
 >;
 pub type Core3_2<A, D, O> = Core<
     A,
@@ -980,7 +934,18 @@ pub type Core3_2<A, D, O> = Core<
     InnerOptical3_2,
     IdentityFamily,
     Identity<Shortname>,
+    DataLayout3_2,
 >;
+
+pub type CoreTEXT2_0 = Core2_0<(), (), ()>;
+pub type CoreTEXT3_0 = Core3_0<(), (), ()>;
+pub type CoreTEXT3_1 = Core3_1<(), (), ()>;
+pub type CoreTEXT3_2 = Core3_2<(), (), ()>;
+
+pub type CoreDataset2_0 = Core2_0<Analysis, FCSDataFrame, Others>;
+pub type CoreDataset3_0 = Core3_0<Analysis, FCSDataFrame, Others>;
+pub type CoreDataset3_1 = Core3_1<Analysis, FCSDataFrame, Others>;
+pub type CoreDataset3_2 = Core3_2<Analysis, FCSDataFrame, Others>;
 
 type RawInput2_0 = RawInput<OptionalKwFamily, Temporal2_0, Optical2_0>;
 type RawInput3_0 = RawInput<OptionalKwFamily, Temporal3_0, Optical3_0>;
@@ -1724,22 +1689,6 @@ where
 pub(crate) type Measurements<N, T, P> =
     NamedVec<N, <N as MightHave>::Wrapper<Shortname>, Temporal<T>, Optical<P>>;
 
-pub(crate) type VersionedCoreTEXT<M> = CoreTEXT<
-    M,
-    <M as VersionedMetaroot>::T,
-    <M as VersionedMetaroot>::O,
-    <M as VersionedMetaroot>::N,
-    <<M as VersionedMetaroot>::N as MightHave>::Wrapper<Shortname>,
->;
-
-pub(crate) type VersionedCoreDataset<M> = CoreDataset<
-    M,
-    <M as VersionedMetaroot>::T,
-    <M as VersionedMetaroot>::O,
-    <M as VersionedMetaroot>::N,
-    <<M as VersionedMetaroot>::N as MightHave>::Wrapper<Shortname>,
->;
-
 pub(crate) type VersionedCore<A, D, O, M> = Core<
     A,
     D,
@@ -1749,7 +1698,12 @@ pub(crate) type VersionedCore<A, D, O, M> = Core<
     <M as VersionedMetaroot>::O,
     <M as VersionedMetaroot>::N,
     <<M as VersionedMetaroot>::N as MightHave>::Wrapper<Shortname>,
+    <M as VersionedMetaroot>::L,
 >;
+
+pub(crate) type VersionedCoreTEXT<M> = VersionedCore<(), (), (), M>;
+
+pub(crate) type VersionedCoreDataset<M> = VersionedCore<Analysis, FCSDataFrame, Others, M>;
 
 pub(crate) type VersionedConvertError<N, ToN> = ConvertError<
     <<ToN as MightHave>::Wrapper<Shortname> as TryFrom<
@@ -2310,6 +2264,7 @@ where
             .def_map_value(|(metaroot, measurements)| Core {
                 metaroot,
                 measurements,
+                layout,
                 data: self.data,
                 analysis: self.analysis,
                 others: self.others,
@@ -2699,7 +2654,7 @@ where
             let mut tnt_core =
                 Self::lookup_measurements(kws, par, ns, conf).def_and_maybe(|(ms, meta_ns)| {
                     Metaroot::lookup_metaroot(kws, &ms, meta_ns, conf)
-                        .def_map_value(|metaroot| CoreTEXT::new_unchecked(metaroot, ms))
+                        .def_map_value(|metaroot| CoreTEXT::new_unchecked(metaroot, ms, layout))
                         .def_warnings_into()
                 })?;
 
@@ -2835,6 +2790,7 @@ where
         CoreDataset {
             metaroot: self.metaroot,
             measurements: self.measurements,
+            layout: self.layout,
             data,
             analysis,
             others,
@@ -2890,6 +2846,7 @@ where
                                     let c = Core {
                                         metaroot: text.metaroot,
                                         measurements: text.measurements,
+                                        layout,
                                         data,
                                         analysis,
                                         others,
@@ -3075,15 +3032,19 @@ where
     /// This simply entails taking ownership and dropping the ANALYSIS and DATA
     /// fields.
     pub fn into_coretext(self) -> VersionedCoreTEXT<M> {
-        CoreTEXT::new_unchecked(self.metaroot, self.measurements)
+        CoreTEXT::new_unchecked(self.metaroot, self.measurements, self.layout)
     }
 }
 
-impl<M, T, P, N, W> CoreTEXT<M, T, P, N, W> {
-    pub(crate) fn new_nomeas(metaroot: Metaroot<M>) -> Self {
+impl<M, T, P, N, W, L> CoreTEXT<M, T, P, N, W, L> {
+    pub(crate) fn new_nomeas(metaroot: Metaroot<M>) -> Self
+    where
+        L: Default,
+    {
         Self {
             metaroot,
             measurements: NamedVec::default(),
+            layout: L::default(),
             data: (),
             analysis: (),
             others: (),
@@ -3093,10 +3054,12 @@ impl<M, T, P, N, W> CoreTEXT<M, T, P, N, W> {
     pub(crate) fn new_unchecked(
         metaroot: Metaroot<M>,
         measurements: NamedVec<N, W, Temporal<T>, Optical<P>>,
+        layout: L,
     ) -> Self {
         Self {
             metaroot,
             measurements,
+            layout,
             data: (),
             analysis: (),
             others: (),

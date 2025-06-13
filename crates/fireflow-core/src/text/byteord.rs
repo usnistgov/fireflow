@@ -76,6 +76,20 @@ impl<const LEN: usize> From<SizedEndian<LEN>> for SizedByteOrd<LEN> {
     }
 }
 
+impl<const LEN: usize> Serialize for SizedByteOrd<LEN> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            Self::Endian(e) => serializer.serialize_newtype_variant("SizedByteOrd", 0, "Endian", e),
+            Self::Order(o) => {
+                serializer.serialize_newtype_variant("SizedByteOrd", 1, "Order", &o[..])
+            }
+        }
+    }
+}
+
 impl TryFrom<Vec<u8>> for ByteOrd {
     type Error = NewByteOrdError;
     fn try_from(xs: Vec<u8>) -> Result<Self, Self::Error> {

@@ -1,3 +1,56 @@
+//! Things pertaining to the DATA segment (mostly)
+//!
+//! Basic overview: DATA is arranged according to version specific "layouts".
+//! Each layout will enumerate all possible combinations that may be represented
+//! in version, which directly correspond to all valid combinations of $BYTEORD,
+//! $DATATYPE, $PnB, $PnR, and $PnDATATYPE in the case of 3.2.
+//!
+//! Each layout may then be projected in a "reader" or "writer." Readers are
+//! essentially blank vectors waiting to accept the data from disk. Writers are
+//! iterators that read values from the dataframe, possibly convert them, and
+//! emit the resulting bytes for writing to disk.
+//!
+//! Now for the ugly bits.
+//!
+//! Performance is critical for this since some files are MBs in size (or more)
+//! and we also want to represent data in such a manner that it can be easily
+//! passed off into Python, R, or whatever. Therefore, no dynamic dispatch. This
+//! is also sensible to avoid here given that the types should represent *valid*
+//! layout configurations only, which trait objects obscure (the scientifically
+//! proper word for dynamic dispatch is "icky").
+//!
+//! So if there is no dynamic dispatch, that means all types need to be
+//! enumerated perfectly. For layouts this isn't so bad, The main rub is that
+//! floats have two widths (32 and 64), integers have eight widths (1-8 bytes),
+//! and each of these can have their bytes laid out via big/little endian (the
+//! simple/sane case) or using byte order (for older versions) where the bytes
+//! may not be strictly monotonic in either direction. The former is refereed to
+//! as "Endian" and the latter "Ordered" throughout.
+//!
+//! To make this extra confusing, Endian is a subset of Ordered, since all
+//! possible byte orders include the two corresponding to big and little endian.
+//! This is necessary to distinguish here, because if we allowed Ordered
+//! everywhere, then it would be theoretically possible to create a 3.1 or 3.2
+//! layout with a non-big or non-little endian byte order for a numeric field,
+//! which is bad design.
+//!
+//! The readers and writers are where this gets really fun. For both, it is more
+//! sensible to use one type for all layouts, since the readers and writers do
+//! not directly correspond to the keywords in TEXT and are also not in Core*.
+//! It would also be a giant pain in the butt to make version-specific readers
+//! and writers, and the gain would be minimal. This means that each layout for
+//! each version will get projected into a reader or a writer via a
+//! non-surjective function. Principally, this means that Endian layouts will
+//! get mapped into Ordered layouts, since the format is a subset of the latter.
+//! This should all be well and good, since we only need to go unidirectionally
+//! from a layout to either a reader or writer.
+//!
+//! Lastly, writers are extra fun because they encode iterators that map from
+//! all possible types in the dataframe (of which there are six) to all possible
+//! types that may be written (of which there are twelve). That's lots of
+//! combinations, and all the more reason why this doesn't need to be
+//! version-specific.
+
 use crate::config::{ReaderConfig, SharedConfig, WriteConfig};
 use crate::core::*;
 use crate::error::*;
@@ -21,6 +74,165 @@ use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::num::ParseIntError;
 use std::str;
 use std::str::FromStr;
+
+/// All possible byte layouts for the DATA segment in 2.0.
+///
+/// This is identical to 3.0 in every way except that the $TOT keyword in 2.0
+/// is optional, which requires a different interface.
+pub struct DataLayout2_0(pub OrderedDataLayout);
+
+newtype_from!(DataLayout2_0, OrderedDataLayout);
+
+/// All possible byte layouts for the DATA segment in 2.0.
+pub struct DataLayout3_0(pub OrderedDataLayout);
+
+newtype_from!(DataLayout3_0, OrderedDataLayout);
+
+/// All possible byte layouts for the DATA segment in 3.1.
+///
+/// Unlike 2.0 and 3.0, the integer layout allows the column widths to be
+/// different. This is a consequence of making BYTEORD only mean "big or little
+/// endian" and have nothing to do with number of bytes.
+pub enum DataLayout3_1 {
+    /// Non-empty layout when DATATYPE=A
+    Ascii(AsciiLayout),
+    /// Non-empty layout when DATATYPE=I
+    Integer(FixedLayout<AnyEndianUintType>),
+    /// Non-empty layout when DATATYPE=F/D
+    Float(EndianFloatLayout),
+    /// Layout with no columns
+    Empty,
+}
+
+/// All possible byte layouts for the DATA segment in 3.2.
+///
+/// In addition to the loosened integer layouts in 3.1, 3.2 additionally allows
+/// each column to have a different type and size (hence "Mixed").
+pub enum DataLayout3_2 {
+    /// Non-empty layout when all columns are ASCII
+    Ascii(AsciiLayout),
+    /// Non-empty layout when all columns are integers
+    Integer(FixedLayout<AnyEndianUintType>),
+    /// Non-empty layout when all columns are floats or doubles
+    Float(EndianFloatLayout),
+    /// Non-empty layout when columns have at least two of float, double,
+    /// integer, ASCII types.
+    Mixed(FixedLayout<MixedType>),
+    /// Layout with no columns
+    Empty,
+}
+
+/// All possible byte layouts for the DATA segment in 2.0 and 3.0.
+///
+/// It is so named "Ordered" because the BYTEORD keyword represents any possible
+/// byte ordering that may occur rather than simply little or big endian.
+pub enum OrderedDataLayout {
+    /// Non-empty layout when DATATYPE=A
+    Ascii(AsciiLayout),
+    /// Non-empty layout when DATATYPE=I
+    Integer(AnyOrderedUintLayout),
+    /// Non-empty layout when DATATYPE=F/D
+    Float(OrderedFloatLayout),
+    /// Layout with no columns
+    Empty,
+}
+
+/// Byte layouts for ASCII data.
+///
+/// This may either be fixed (ie columns have the same number of characters)
+/// or variable (ie columns have have different number of characters and are
+/// separated by delimiters).
+pub enum AsciiLayout {
+    Delimited(DelimitedLayout),
+    Fixed(FixedLayout<AsciiType>),
+}
+
+/// Byte layouts for floating-point data with any byte order.
+pub enum OrderedFloatLayout {
+    F32(FixedLayout<OrderedF32Type>),
+    F64(FixedLayout<OrderedF64Type>),
+}
+
+/// Byte layouts for big or little endian floating-point data.
+pub enum EndianFloatLayout {
+    F32(FixedLayout<EndianF32Type>),
+    F64(FixedLayout<EndianF64Type>),
+}
+
+/// Byte layout for delimited ASCII.
+pub struct DelimitedLayout {
+    pub ncols: usize,
+}
+
+/// Byte layout where each column has a fixed width.
+pub struct FixedLayout<C> {
+    pub columns: NonEmpty<C>,
+}
+
+/// Byte layout for integers that may be in any byte order.
+pub enum AnyOrderedUintLayout {
+    Uint08(FixedLayout<EndianUint08Type>),
+    Uint16(FixedLayout<EndianUint16Type>),
+    Uint24(FixedLayout<OrderedUint24Type>),
+    Uint32(FixedLayout<OrderedUint32Type>),
+    Uint40(FixedLayout<OrderedUint40Type>),
+    Uint48(FixedLayout<OrderedUint48Type>),
+    Uint56(FixedLayout<OrderedUint56Type>),
+    Uint64(FixedLayout<OrderedUint64Type>),
+}
+
+enum_from!(
+    /// The type of a non-delimited column in the DATA segment for 3.2
+    #[derive(PartialEq, Clone, Copy)]
+    pub MixedType,
+    [Ascii, AsciiType],
+    [Integer, AnyEndianUintType],
+    [Float, EndianF32Type],
+    [Double, EndianF64Type]
+);
+
+/// The type of an ASCII column in all versions
+#[derive(PartialEq, Clone, Copy)]
+pub struct AsciiType {
+    pub(crate) chars: Chars,
+}
+
+/// The type of any floating point column in all versions
+#[derive(PartialEq, Clone, Copy)]
+pub struct FloatType<T, S> {
+    pub byte_layout: S,
+    // TODO why is this here?
+    pub range: T,
+}
+
+/// The type of a 32-bit float column with any byte order (2.0/3.0)
+type OrderedF32Type = OrderedFloatType<f32, 4>;
+
+/// The type of a 64-bit float column with any byte order (2.0/3.0)
+type OrderedF64Type = OrderedFloatType<f64, 8>;
+
+/// The type of a big or little endian 32-bit float column (3.1+)
+type EndianF32Type = EndianFloatType<f32, 4>;
+
+/// The type of a big or little endian 64-bit float column (3.1+)
+type EndianF64Type = EndianFloatType<f64, 8>;
+
+type OrderedFloatType<T, const LEN: usize> = FloatType<T, SizedByteOrd<LEN>>;
+type EndianFloatType<T, const LEN: usize> = FloatType<T, SizedEndian<LEN>>;
+
+enum_from!(
+    /// A big or little-endian integer column of some size (1-8 bytes)
+    #[derive(PartialEq, Clone, Copy)]
+    pub AnyEndianUintType,
+    [Uint08, EndianUint08Type],
+    [Uint16, EndianUint16Type],
+    [Uint24, EndianUint24Type],
+    [Uint32, EndianUint32Type],
+    [Uint40, EndianUint40Type],
+    [Uint48, EndianUint48Type],
+    [Uint56, EndianUint56Type],
+    [Uint64, EndianUint64Type]
+);
 
 pub struct AnalysisReader {
     pub seg: AnyAnalysisSegment,
@@ -115,151 +327,6 @@ pub trait VersionedDataLayout: Sized {
     ) -> MultiResult<DataWriter<'a>, ColumnWriterError>;
 }
 
-/// All possible byte layouts for the DATA segment in 2.0 and 3.0.
-///
-/// It is so named "Ordered" because the BYTEORD keyword represents any possible
-/// byte ordering that may occur rather than simply little or big endian.
-pub enum OrderedDataLayout {
-    /// Non-empty layout when DATATYPE=A
-    Ascii(AsciiLayout),
-    /// Non-empty layout when DATATYPE=I
-    Integer(AnyOrderedUintLayout),
-    /// Non-empty layout when DATATYPE=F/D
-    Float(FloatLayout),
-    /// Empty layout with no bytes.
-    Empty,
-}
-
-/// All possible byte layouts for the DATA segment in 2.0.
-///
-/// This is identical to 3.0 in every way except that the $TOT keyword in 2.0
-/// is optional, which requires a different interface.
-pub struct DataLayout2_0(pub OrderedDataLayout);
-
-newtype_from!(DataLayout2_0, OrderedDataLayout);
-
-/// All possible byte layouts for the DATA segment in 2.0.
-pub struct DataLayout3_0(pub OrderedDataLayout);
-
-newtype_from!(DataLayout3_0, OrderedDataLayout);
-
-/// All possible byte layouts for the DATA segment in 3.1.
-///
-/// Unlike 2.0 and 3.0, the integer layout allows the column widths to be
-/// different. This is a consequence of making BYTEORD only mean "big or little
-/// endian" and have nothing to do with number of bytes.
-pub enum DataLayout3_1 {
-    /// Non-empty layout when DATATYPE=A
-    Ascii(AsciiLayout),
-    /// Non-empty layout when DATATYPE=I
-    Integer(FixedLayout<AnyEndianUintType>),
-    /// Non-empty layout when DATATYPE=F/D
-    Float(FloatLayout),
-    /// Empty layout with no bytes.
-    Empty,
-}
-
-/// All possible byte layouts for the DATA segment in 3.2.
-///
-/// In addition to the loosened integer layouts in 3.1, 3.2 additionally allows
-/// each column to have a different type and size (hence "Mixed").
-pub enum DataLayout3_2 {
-    /// Non-empty layout when all columns are ASCII
-    Ascii(AsciiLayout),
-    /// Non-empty layout when all columns are integers
-    Integer(FixedLayout<AnyEndianUintType>),
-    /// Non-empty layout when all columns are floats or doubles
-    Float(FloatLayout),
-    /// Non-empty layout when columns have at least two of float, double,
-    /// integer, ASCII types.
-    Mixed(FixedLayout<MixedType>),
-    /// Empty layout with no bytes.
-    Empty,
-}
-
-/// Byte layouts for ASCII data.
-///
-/// This may either be fixed (ie columns have the same number of characters)
-/// or variable (ie columns have have different number of characters and are
-/// separated by delimiters).
-pub enum AsciiLayout {
-    Delimited(DelimitedLayout),
-    Fixed(FixedLayout<AsciiType>),
-}
-
-/// Byte layouts for floating-point data.
-pub enum FloatLayout {
-    F32(FixedLayout<F32Type>),
-    F64(FixedLayout<F64Type>),
-}
-
-/// Byte layout for delimited ASCII.
-pub struct DelimitedLayout {
-    pub ncols: usize,
-}
-
-/// Byte layout where each column has a fixed width.
-pub struct FixedLayout<C> {
-    pub columns: NonEmpty<C>,
-}
-
-/// Byte layout for integers that may be in any byte order.
-pub enum AnyOrderedUintLayout {
-    Uint08(FixedLayout<EndianUint08Type>),
-    Uint16(FixedLayout<EndianUint16Type>),
-    Uint24(FixedLayout<OrderedUint24Type>),
-    Uint32(FixedLayout<OrderedUint32Type>),
-    Uint40(FixedLayout<OrderedUint40Type>),
-    Uint48(FixedLayout<OrderedUint48Type>),
-    Uint56(FixedLayout<OrderedUint56Type>),
-    Uint64(FixedLayout<OrderedUint64Type>),
-}
-
-enum_from!(
-    /// The type of a non-delimited column in the DATA segment for 3.2
-    #[derive(PartialEq, Clone, Copy)]
-    pub MixedType,
-    [Ascii, AsciiType],
-    [Integer, AnyEndianUintType],
-    [Float, F32Type],
-    [Double, F64Type]
-);
-
-/// The type of an ASCII column in all versions
-#[derive(PartialEq, Clone, Copy)]
-pub struct AsciiType {
-    pub(crate) chars: Chars,
-}
-
-/// The type of any floating point column in all versions
-#[derive(PartialEq, Clone, Copy)]
-pub struct FloatType<T, const LEN: usize> {
-    // TODO use sized endian here
-    pub order: SizedByteOrd<LEN>,
-    // TODO why is this here?
-    pub range: T,
-}
-
-/// The type of a 32-bit float column in all versions
-type F32Type = FloatType<f32, 4>;
-
-/// The type of a 64-bit double column in all versions
-type F64Type = FloatType<f64, 8>;
-
-enum_from!(
-    /// A big or little-endian integer column of some size (1-8 bytes)
-    #[derive(PartialEq, Clone, Copy)]
-    pub AnyEndianUintType,
-    [Uint08, EndianUint08Type],
-    [Uint16, EndianUint16Type],
-    [Uint24, EndianUint24Type],
-    [Uint32, EndianUint32Type],
-    [Uint40, EndianUint40Type],
-    [Uint48, EndianUint48Type],
-    [Uint56, EndianUint56Type],
-    [Uint64, EndianUint64Type]
-);
-
 impl AnyEndianUintType {
     fn try_new(
         w: Width,
@@ -337,6 +404,15 @@ impl<T, const LEN: usize> From<EndianUintType<T, LEN>> for OrderedUintType<T, LE
     fn from(value: EndianUintType<T, LEN>) -> Self {
         UintType {
             bitmask: value.bitmask,
+            byte_layout: value.byte_layout.into(),
+        }
+    }
+}
+
+impl<T, const LEN: usize> From<EndianFloatType<T, LEN>> for OrderedFloatType<T, LEN> {
+    fn from(value: EndianFloatType<T, LEN>) -> Self {
+        FloatType {
+            range: value.range,
             byte_layout: value.byte_layout.into(),
         }
     }
@@ -656,7 +732,7 @@ pub enum FloatReader {
 
 pub struct FloatColumnReader<T, const LEN: usize> {
     pub column: Vec<T>,
-    pub size: SizedByteOrd<LEN>,
+    pub byte_layout: SizedByteOrd<LEN>,
 }
 
 pub struct AsciiColumnReader {
@@ -1198,12 +1274,12 @@ where
         w: Width,
         n: Endian,
         r: Range,
-    ) -> Result<FloatType<Self, LEN>, FloatWidthError> {
+    ) -> Result<EndianFloatType<Self, LEN>, FloatWidthError> {
         Bytes::try_from(w).map_err(|e| e.into()).and_then(|bytes| {
             if usize::from(u8::from(bytes)) == LEN {
                 let range = Self::range(r);
                 Ok(FloatType {
-                    order: n.into(),
+                    byte_layout: SizedEndian(n),
                     range,
                 })
             } else {
@@ -1219,7 +1295,7 @@ where
         w: Width,
         o: &ByteOrd,
         r: Range,
-    ) -> Result<FloatType<Self, LEN>, OrderedFloatError> {
+    ) -> Result<OrderedFloatType<Self, LEN>, OrderedFloatError> {
         Bytes::try_from(w)
             .map_err(|e| e.into())
             .map_err(OrderedFloatError::WrongWidth)
@@ -1227,7 +1303,10 @@ where
                 if usize::from(u8::from(bytes)) == LEN {
                     let range = Self::range(r);
                     o.as_sized_byteord()
-                        .map(|order| FloatType { order, range })
+                        .map(|order| FloatType {
+                            byte_layout: order,
+                            range,
+                        })
                         .map_err(OrderedFloatError::Order)
                 } else {
                     Err(FloatWidthError::WrongWidth(WrongFloatWidth {
@@ -1242,7 +1321,7 @@ where
     fn layout_endian<D>(
         cs: Vec<ColumnLayoutData<D>>,
         endian: Endian,
-    ) -> MultiResult<Option<FixedLayout<FloatType<Self, LEN>>>, EndianFloatColumnError> {
+    ) -> MultiResult<Option<FixedLayout<EndianFloatType<Self, LEN>>>, EndianFloatColumnError> {
         cs.into_iter()
             .enumerate()
             .map(|(i, c)| {
@@ -1256,10 +1335,11 @@ where
             .map(FixedLayout::from_vec)
     }
 
-    fn layout<D>(
+    fn layout_ordered<D>(
         cs: Vec<ColumnLayoutData<D>>,
         byteord: &ByteOrd,
-    ) -> MultiResult<Option<FixedLayout<FloatType<Self, LEN>>>, OrderedFloatColumnError> {
+    ) -> MultiResult<Option<FixedLayout<OrderedFloatType<Self, LEN>>>, OrderedFloatColumnError>
+    {
         cs.into_iter()
             .enumerate()
             .map(|(i, c)| {
@@ -1847,13 +1927,13 @@ float_from_writer!(f32, f64, 8, FromF32, F64);
 float_from_writer!(f64, f32, 4, FromF64, F32);
 float_from_writer!(f64, f64, 8, FromF64, F64);
 
-impl<T, const LEN: usize> IsFixed for FloatType<T, LEN> {
+impl<T, const LEN: usize> IsFixed for OrderedFloatType<T, LEN> {
     fn width(&self) -> usize {
         LEN
     }
 }
 
-impl<T, const LEN: usize> IsFixedReader for FloatType<T, LEN>
+impl<T, const LEN: usize> IsFixedReader for OrderedFloatType<T, LEN>
 where
     T: Clone,
     T: Default,
@@ -1862,13 +1942,13 @@ where
     fn into_col_reader(self, nrows: usize) -> AlphaNumColumnReader {
         FloatColumnReader {
             column: vec![T::default(); nrows],
-            size: self.order,
+            byte_layout: self.byte_layout,
         }
         .into()
     }
 }
 
-impl<T, const LEN: usize> IsFixedWriter for FloatType<T, LEN>
+impl<T, const LEN: usize> IsFixedWriter for OrderedFloatType<T, LEN>
 where
     T: NumCast<u8>,
     T: NumCast<u16>,
@@ -1889,7 +1969,7 @@ where
         check: bool,
     ) -> Result<AnyFixedColumnWriter, AnyLossError> {
         match_many_to_one!(c, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], xs, {
-            FCSDataType::into_writer(xs, self.order, check, |_| None)
+            FCSDataType::into_writer(xs, self.byte_layout, check, |_| None)
                 .map(|w| w.into())
                 .map_err(AnyLossError::Int)
         })
@@ -1919,7 +1999,7 @@ impl<T, const LEN: usize> FloatColumnReader<T, LEN> {
         T: FloatFromBytes<LEN>,
         <T as FromStr>::Err: fmt::Display,
     {
-        self.column[row] = T::h_read_float(h, &self.size)?;
+        self.column[row] = T::h_read_float(h, &self.byte_layout)?;
         Ok(())
     }
 }
@@ -1989,8 +2069,8 @@ impl IsFixed for MixedType {
         match self {
             Self::Ascii(a) => u8::from(a.chars).into(),
             Self::Integer(i) => i.width(),
-            Self::Float(f) => f.width(),
-            Self::Double(d) => d.width(),
+            Self::Float(f) => OrderedFloatType::from(*f).width(),
+            Self::Double(d) => OrderedFloatType::from(*d).width(),
         }
     }
 }
@@ -2000,8 +2080,8 @@ impl IsFixedReader for MixedType {
         match self {
             Self::Ascii(a) => a.into_col_reader(nrows),
             Self::Integer(i) => i.into_col_reader(nrows),
-            Self::Float(f) => f.into_col_reader(nrows),
-            Self::Double(d) => d.into_col_reader(nrows),
+            Self::Float(f) => OrderedFloatType::from(f).into_col_reader(nrows),
+            Self::Double(d) => OrderedFloatType::from(d).into_col_reader(nrows),
         }
     }
 }
@@ -2015,8 +2095,8 @@ impl IsFixedWriter for MixedType {
         match self {
             Self::Ascii(a) => a.into_col_writer(c, check),
             Self::Integer(i) => i.into_col_writer(c, check),
-            Self::Float(f) => f.into_col_writer(c, check),
-            Self::Double(d) => d.into_col_writer(c, check),
+            Self::Float(f) => OrderedFloatType::from(f).into_col_writer(c, check),
+            Self::Double(d) => OrderedFloatType::from(d).into_col_writer(c, check),
         }
     }
 }
@@ -2271,12 +2351,9 @@ impl AsciiLayout {
     }
 }
 
-impl FloatLayout {
+impl OrderedFloatLayout {
     fn ncols(&self) -> usize {
-        match self {
-            FloatLayout::F32(l) => l.columns.len(),
-            FloatLayout::F64(l) => l.columns.len(),
-        }
+        match_many_to_one!(self, Self, [F32, F64], l, { l.columns.len() })
     }
 
     fn into_col_reader_inner(
@@ -2296,10 +2373,8 @@ impl FloatLayout {
         conf: &ReaderConfig,
     ) -> Tentative<ColumnReader, W, E>
     where
-        W: From<UnevenEventWidth>,
-        E: From<UnevenEventWidth>,
-        W: From<TotEventMismatch>,
-        E: From<TotEventMismatch>,
+        W: From<UnevenEventWidth> + From<TotEventMismatch>,
+        E: From<UnevenEventWidth> + From<TotEventMismatch>,
     {
         match_many_to_one!(self, Self, [F32, F64], l, {
             l.into_col_reader(seg, tot, conf)
@@ -2311,9 +2386,43 @@ impl FloatLayout {
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
     ) -> MultiResult<Option<FixedWriter<'a>>, ColumnWriterError> {
+        match_many_to_one!(self, Self, [F32, F64], l, { l.as_writer(df, conf) })
+    }
+}
+
+impl EndianFloatLayout {
+    fn ncols(&self) -> usize {
+        match_many_to_one!(self, Self, [F32, F64], l, { l.columns.len() })
+    }
+
+    fn into_col_reader<W, E>(
+        self,
+        seg: AnyDataSegment,
+        tot: Tot,
+        conf: &ReaderConfig,
+    ) -> Tentative<ColumnReader, W, E>
+    where
+        W: From<UnevenEventWidth> + From<TotEventMismatch>,
+        E: From<UnevenEventWidth> + From<TotEventMismatch>,
+    {
         match self {
-            FloatLayout::F32(l) => l.as_writer(df, conf),
-            FloatLayout::F64(l) => l.as_writer(df, conf),
+            Self::F32(x) => x
+                .inner_into::<OrderedF32Type>()
+                .into_col_reader(seg, tot, conf),
+            Self::F64(x) => x
+                .inner_into::<OrderedF64Type>()
+                .into_col_reader(seg, tot, conf),
+        }
+    }
+
+    fn as_writer<'a>(
+        &self,
+        df: &'a FCSDataFrame,
+        conf: &WriteConfig,
+    ) -> MultiResult<Option<FixedWriter<'a>>, ColumnWriterError> {
+        match self {
+            Self::F32(x) => x.inner_into::<OrderedF32Type>().as_writer(df, conf),
+            Self::F64(x) => x.inner_into::<OrderedF64Type>().as_writer(df, conf),
         }
     }
 }
@@ -2486,10 +2595,10 @@ impl VersionedDataLayout for DataLayout3_1 {
                     .def_inner_into()
             }
             AlphaNumType::Single => f32::layout_endian(columns, endian)
-                .map(|x| x.map_or(Self::Empty, |y| Self::Float(FloatLayout::F32(y))))
+                .map(|x| x.map_or(Self::Empty, |y| Self::Float(EndianFloatLayout::F32(y))))
                 .mult_to_deferred(),
             AlphaNumType::Double => f64::layout_endian(columns, endian)
-                .map(|x| x.map_or(Self::Empty, |y| Self::Float(FloatLayout::F64(y))))
+                .map(|x| x.map_or(Self::Empty, |y| Self::Float(EndianFloatLayout::F64(y))))
                 .mult_to_deferred(),
         }
     }
@@ -2598,10 +2707,10 @@ impl VersionedDataLayout for DataLayout3_2 {
                         .def_inner_into()
                 }
                 AlphaNumType::Single => f32::layout_endian(dt_columns, endian)
-                    .map(|x| x.map_or(Self::Empty, |y| Self::Float(FloatLayout::F32(y))))
+                    .map(|x| x.map_or(Self::Empty, |y| Self::Float(EndianFloatLayout::F32(y))))
                     .mult_to_deferred(),
                 AlphaNumType::Double => f64::layout_endian(dt_columns, endian)
-                    .map(|x| x.map_or(Self::Empty, |y| Self::Float(FloatLayout::F64(y))))
+                    .map(|x| x.map_or(Self::Empty, |y| Self::Float(EndianFloatLayout::F64(y))))
                     .mult_to_deferred(),
             },
             _ => dt_columns
@@ -2911,11 +3020,11 @@ impl OrderedDataLayout {
                     .def_map_value(|x| x.map_or(Self::Empty, Self::Integer))
                     .def_inner_into()
             }
-            AlphaNumType::Single => f32::layout(columns, &byteord)
-                .map(|x| x.map_or(Self::Empty, |y| Self::Float(FloatLayout::F32(y))))
+            AlphaNumType::Single => f32::layout_ordered(columns, &byteord)
+                .map(|x| x.map_or(Self::Empty, |y| Self::Float(OrderedFloatLayout::F32(y))))
                 .mult_to_deferred(),
-            AlphaNumType::Double => f64::layout(columns, &byteord)
-                .map(|x| x.map_or(Self::Empty, |y| Self::Float(FloatLayout::F64(y))))
+            AlphaNumType::Double => f64::layout_ordered(columns, &byteord)
+                .map(|x| x.map_or(Self::Empty, |y| Self::Float(OrderedFloatLayout::F64(y))))
                 .mult_to_deferred(),
         }
     }

@@ -87,9 +87,9 @@ newtype_from!(DataLayout3_0, OrderedDataLayout);
 /// different. This is a consequence of making BYTEORD only mean "big or little
 /// endian" and have nothing to do with number of bytes.
 #[derive(Clone, Serialize, Default)]
-pub struct DataLayout3_1(pub UnmixedEndianLayout);
+pub struct DataLayout3_1(pub NonMixedEndianLayout);
 
-newtype_from!(DataLayout3_1, UnmixedEndianLayout);
+newtype_from!(DataLayout3_1, NonMixedEndianLayout);
 
 enum_from!(
     /// All possible byte layouts for the DATA segment in 3.2.
@@ -99,7 +99,7 @@ enum_from!(
     #[derive(Clone, Serialize)]
     pub DataLayout3_2,
     [Mixed,FixedLayout<MixedType>],
-    [Unmixed,UnmixedEndianLayout]
+    [Unmixed,NonMixedEndianLayout]
 );
 
 /// All possible byte layouts for the DATA segment in 2.0 and 3.0.
@@ -121,7 +121,7 @@ pub enum OrderedDataLayout {
 
 /// All possible byte layouts for 3.1+ where DATATYPE is constant.
 #[derive(Clone, Serialize, Default)]
-pub enum UnmixedEndianLayout {
+pub enum NonMixedEndianLayout {
     /// Non-empty layout when DATATYPE=A
     Ascii(AsciiLayout),
     /// Non-empty layout when DATATYPE=I
@@ -133,23 +133,25 @@ pub enum UnmixedEndianLayout {
     Empty,
 }
 
-/// Byte layouts for ASCII data.
-///
-/// This may either be fixed (ie columns have the same number of characters)
-/// or variable (ie columns have have different number of characters and are
-/// separated by delimiters).
-#[derive(Clone, Serialize)]
-pub enum AsciiLayout {
-    Delimited(DelimitedLayout),
-    Fixed(FixedLayout<AsciiType>),
-}
+enum_from!(
+    /// Byte layouts for ASCII data.
+    ///
+    /// This may either be fixed (ie columns have the same number of characters)
+    /// or variable (ie columns have have different number of characters and are
+    /// separated by delimiters).
+    #[derive(Clone, Serialize)]
+    pub AsciiLayout,
+    [Delimited, DelimitedLayout],
+    [Fixed, FixedLayout<AsciiType>]
+);
 
-/// Byte layouts for floating-point data with any byte order.
-#[derive(Clone, Serialize)]
-pub enum OrderedFloatLayout {
-    F32(FixedLayout<OrderedF32Type>),
-    F64(FixedLayout<OrderedF64Type>),
-}
+enum_from!(
+    /// Byte layouts for floating-point data with any byte order.
+    #[derive(Clone, Serialize)]
+    pub OrderedFloatLayout,
+    [F32, FixedLayout<OrderedF32Type>],
+    [F64, FixedLayout<OrderedF64Type>]
+);
 
 enum_from!(
     /// Byte layouts for big or little endian floating-point data.
@@ -244,6 +246,261 @@ impl From<EndianFloatLayout> for OrderedFloatLayout {
             EndianFloatLayout::F32(x) => Self::F32(x.inner_into()),
             EndianFloatLayout::F64(x) => Self::F64(x.inner_into()),
         }
+    }
+}
+
+macro_rules! any_uint_to_width {
+    ($from:ident, $to:ident) => {
+        impl TryFrom<AnyEndianUintType> for $to {
+            type Error = UintToUintError;
+            fn try_from(value: AnyEndianUintType) -> Result<Self, Self::Error> {
+                let w = value.width();
+                if let AnyEndianUintType::$from(x) = value {
+                    Ok(x)
+                } else {
+                    Err(UintToUintError {
+                        from: w,
+                        to: Self::inherent_width(),
+                    })
+                }
+            }
+        }
+    };
+}
+
+pub struct UintToUintError {
+    from: u8,
+    to: u8,
+}
+
+impl fmt::Display for UintToUintError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "could not convert integer from {} bytes to {} bytes",
+            self.from, self.to,
+        )
+    }
+}
+
+any_uint_to_width!(Uint08, EndianUint08Type);
+any_uint_to_width!(Uint16, EndianUint16Type);
+any_uint_to_width!(Uint24, EndianUint24Type);
+any_uint_to_width!(Uint32, EndianUint32Type);
+any_uint_to_width!(Uint40, EndianUint40Type);
+any_uint_to_width!(Uint48, EndianUint48Type);
+any_uint_to_width!(Uint56, EndianUint56Type);
+any_uint_to_width!(Uint64, EndianUint64Type);
+
+macro_rules! mixed_to_width {
+    ($from:ident, $to:ident) => {
+        impl TryFrom<MixedType> for $to {
+            type Error = MixedToOrderedUintError;
+            fn try_from(value: MixedType) -> Result<Self, Self::Error> {
+                match value {
+                    MixedType::Integer(x) => {
+                        let w = value.width();
+                        if let AnyEndianUintType::$from(y) = x {
+                            Ok(y)
+                        } else {
+                            Err(UintToUintError {
+                                from: w,
+                                to: Self::inherent_width(),
+                            }
+                            .into())
+                        }
+                    }
+                    MixedType::Ascii(_) => Err(MixedIsAscii.into()),
+                    MixedType::Float(_) => Err(MixedIsFloat.into()),
+                    MixedType::Double(_) => Err(MixedIsDouble.into()),
+                }
+            }
+        }
+    };
+}
+
+mixed_to_width!(Uint08, EndianUint08Type);
+mixed_to_width!(Uint16, EndianUint16Type);
+mixed_to_width!(Uint24, EndianUint24Type);
+mixed_to_width!(Uint32, EndianUint32Type);
+mixed_to_width!(Uint40, EndianUint40Type);
+mixed_to_width!(Uint48, EndianUint48Type);
+mixed_to_width!(Uint56, EndianUint56Type);
+mixed_to_width!(Uint64, EndianUint64Type);
+
+impl TryFrom<MixedType> for AsciiType {
+    type Error = MixedToAsciiError;
+    fn try_from(value: MixedType) -> Result<Self, Self::Error> {
+        match value {
+            MixedType::Ascii(x) => Ok(x),
+            MixedType::Integer(x) => Err(MixedIsInteger { width: x.width() }.into()),
+            MixedType::Float(_) => Err(MixedIsFloat.into()),
+            MixedType::Double(_) => Err(MixedIsDouble.into()),
+        }
+    }
+}
+
+impl TryFrom<MixedType> for AnyEndianUintType {
+    type Error = MixedToEndianUintError;
+    fn try_from(value: MixedType) -> Result<Self, Self::Error> {
+        match value {
+            MixedType::Ascii(_) => Err(MixedIsAscii.into()),
+            MixedType::Integer(x) => Ok(x),
+            MixedType::Float(_) => Err(MixedIsFloat.into()),
+            MixedType::Double(_) => Err(MixedIsDouble.into()),
+        }
+    }
+}
+
+impl TryFrom<MixedType> for EndianF32Type {
+    type Error = MixedToFloatError;
+    fn try_from(value: MixedType) -> Result<Self, Self::Error> {
+        match value {
+            MixedType::Ascii(_) => Err(MixedIsAscii.into()),
+            MixedType::Integer(x) => Err(MixedIsInteger { width: x.width() }.into()),
+            MixedType::Float(x) => Ok(x),
+            MixedType::Double(_) => Err(MixedIsDouble.into()),
+        }
+    }
+}
+
+impl TryFrom<MixedType> for EndianF64Type {
+    type Error = MixedToDoubleError;
+    fn try_from(value: MixedType) -> Result<Self, Self::Error> {
+        match value {
+            MixedType::Ascii(_) => Err(MixedIsAscii.into()),
+            MixedType::Integer(x) => Err(MixedIsInteger { width: x.width() }.into()),
+            MixedType::Float(_) => Err(MixedIsFloat.into()),
+            MixedType::Double(x) => Ok(x),
+        }
+    }
+}
+
+enum_from!(
+    pub MixedToOrderedUintError,
+    [IsAscii, MixedIsAscii],
+    [IsWrongInteger, UintToUintError],
+    [IsFloat, MixedIsFloat],
+    [IsDouble, MixedIsDouble]
+);
+
+impl fmt::Display for MixedToOrderedUintError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::IsWrongInteger(e) => write!(
+                f,
+                "could not convert mixed from {}- to {}-byte integer",
+                e.from, e.to
+            ),
+            Self::IsAscii(e) => write!(f, "could not convert mixed from {e} to integer"),
+            Self::IsFloat(e) => write!(f, "could not convert mixed from {e} to integer"),
+            Self::IsDouble(e) => write!(f, "could not convert mixed from {e} to integer"),
+        }
+    }
+}
+
+enum_from!(
+    pub MixedToEndianUintError,
+    [IsAscii, MixedIsAscii],
+    [IsFloat, MixedIsFloat],
+    [IsDouble, MixedIsDouble]
+);
+
+impl fmt::Display for MixedToEndianUintError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::IsAscii(e) => write!(f, "could not convert mixed from {e} to integer"),
+            Self::IsFloat(e) => write!(f, "could not convert mixed from {e} to integer"),
+            Self::IsDouble(e) => write!(f, "could not convert mixed from {e} to integer"),
+        }
+    }
+}
+
+enum_from!(
+    pub MixedToAsciiError,
+    [IsInteger, MixedIsInteger],
+    [IsFloat, MixedIsFloat],
+    [IsDouble, MixedIsDouble]
+);
+
+impl fmt::Display for MixedToAsciiError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let e = match self {
+            Self::IsInteger(e) => e.to_string(),
+            Self::IsFloat(e) => e.to_string(),
+            Self::IsDouble(e) => e.to_string(),
+        };
+        write!(f, "could not convert mixed from {e} to ASCII")
+    }
+}
+
+enum_from!(
+    pub MixedToFloatError,
+    [IsAscii, MixedIsAscii],
+    [IsInteger, MixedIsInteger],
+    [IsDouble, MixedIsDouble]
+);
+
+impl fmt::Display for MixedToFloatError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let e = match self {
+            Self::IsAscii(e) => e.to_string(),
+            Self::IsInteger(e) => e.to_string(),
+            Self::IsDouble(e) => e.to_string(),
+        };
+        write!(f, "could not convert mixed from {e} to float")
+    }
+}
+
+enum_from!(
+    pub MixedToDoubleError,
+    [IsAscii, MixedIsAscii],
+    [IsInteger, MixedIsInteger],
+    [IsFloat, MixedIsFloat]
+);
+
+impl fmt::Display for MixedToDoubleError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let e = match self {
+            Self::IsAscii(e) => e.to_string(),
+            Self::IsInteger(e) => e.to_string(),
+            Self::IsFloat(e) => e.to_string(),
+        };
+        write!(f, "could not convert mixed from {e} to double")
+    }
+}
+
+pub struct MixedIsInteger {
+    width: u8,
+}
+
+pub struct MixedIsAscii;
+
+pub struct MixedIsFloat;
+
+pub struct MixedIsDouble;
+
+impl fmt::Display for MixedIsInteger {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{}-byte integer", self.width)
+    }
+}
+
+impl fmt::Display for MixedIsAscii {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "fixed-width ASCII")
+    }
+}
+
+impl fmt::Display for MixedIsFloat {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "32-bit float")
+    }
+}
+
+impl fmt::Display for MixedIsDouble {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "64-bit float")
     }
 }
 
@@ -364,6 +621,109 @@ impl AnyEndianUintType {
                 }
                 .errors_into()
             })
+    }
+
+    fn try_into_ordered<E, X>(
+        self,
+        tail: Vec<X>,
+    ) -> MultiResult<AnyOrderedUintLayout, (MeasIndex, E)>
+    where
+        EndianUint08Type: TryFrom<X, Error = E>,
+        EndianUint16Type: TryFrom<X, Error = E>,
+        EndianUint24Type: TryFrom<X, Error = E>,
+        EndianUint32Type: TryFrom<X, Error = E>,
+        EndianUint40Type: TryFrom<X, Error = E>,
+        EndianUint48Type: TryFrom<X, Error = E>,
+        EndianUint56Type: TryFrom<X, Error = E>,
+        EndianUint64Type: TryFrom<X, Error = E>,
+    {
+        // compare the tail to the head, ensuring that all have the same
+        // width as head and returning an error for every mismatching width
+        let it = tail.into_iter().enumerate();
+        let err = |i: usize, e| ((i + 1).into(), e);
+        match self {
+            Self::Uint08(x) => it
+                .map(|(i, c)| c.try_into().map_err(|w| err(i, w)))
+                .gather()
+                .map(|xs| {
+                    let columns = (x, xs).into();
+                    FixedLayout { columns }.into()
+                }),
+            Self::Uint16(x) => it
+                .map(|(i, c)| c.try_into().map_err(|w| err(i, w)))
+                .gather()
+                .map(|xs| {
+                    let columns = (x, xs).into();
+                    FixedLayout { columns }.into()
+                }),
+            // NOTE these next six are slightly different from the first two
+            Self::Uint24(x) => it
+                .map(|(i, c)| {
+                    EndianUint24Type::try_from(c)
+                        .map_err(|w| err(i, w))
+                        .map(OrderedUintType::from)
+                })
+                .gather()
+                .map(|xs| {
+                    let columns = (x.into(), xs).into();
+                    FixedLayout { columns }.into()
+                }),
+            Self::Uint32(x) => it
+                .map(|(i, c)| {
+                    EndianUint32Type::try_from(c)
+                        .map_err(|w| err(i, w))
+                        .map(OrderedUintType::from)
+                })
+                .gather()
+                .map(|xs| {
+                    let columns = (x.into(), xs).into();
+                    FixedLayout { columns }.into()
+                }),
+            Self::Uint40(x) => it
+                .map(|(i, c)| {
+                    EndianUint40Type::try_from(c)
+                        .map_err(|w| err(i, w))
+                        .map(OrderedUintType::from)
+                })
+                .gather()
+                .map(|xs| {
+                    let columns = (x.into(), xs).into();
+                    FixedLayout { columns }.into()
+                }),
+            Self::Uint48(x) => it
+                .map(|(i, c)| {
+                    EndianUint48Type::try_from(c)
+                        .map_err(|w| err(i, w))
+                        .map(OrderedUintType::from)
+                })
+                .gather()
+                .map(|xs| {
+                    let columns = (x.into(), xs).into();
+                    FixedLayout { columns }.into()
+                }),
+            Self::Uint56(x) => it
+                .map(|(i, c)| {
+                    EndianUint56Type::try_from(c)
+                        .map_err(|w| err(i, w))
+                        .map(OrderedUintType::from)
+                })
+                .gather()
+                .map(|xs| {
+                    let columns = (x.into(), xs).into();
+                    FixedLayout { columns }.into()
+                }),
+            Self::Uint64(x) => it
+                .map(|(i, c)| {
+                    EndianUint64Type::try_from(c)
+                        .map_err(|w| err(i, w))
+                        .map(OrderedUintType::from)
+                })
+                .gather()
+                .map(|xs| {
+                    let columns = (x.into(), xs).into();
+                    FixedLayout { columns }.into()
+                }),
+        }
     }
 }
 
@@ -1052,131 +1412,158 @@ impl FixedLayout<AnyEndianUintType> {
     }
 
     pub(crate) fn try_into_ordered(self) -> LayoutConvertResult<AnyOrderedUintLayout> {
-        let c0 = self.columns.head;
-        let c0_width = c0.width();
-        let it = self.columns.tail.into_iter().enumerate();
-        let err = |i: usize, w| ConvertWidthError {
-            to: c0_width,
-            from: w,
-            index: (i + 1).into(),
-        };
-        // compare the tail to the head, ensuring that all have the same
-        // width as head and returning an error for every mismatching width
-        match c0 {
-            // TODO this is gross...
-            AnyEndianUintType::Uint08(x) => it
-                .map(|(i, cN)| {
-                    if let AnyEndianUintType::Uint08(y) = cN {
-                        Ok(y)
-                    } else {
-                        Err(err(i, cN.width()))
-                    }
-                })
-                .gather()
-                .map(|xs| {
-                    let columns = (x, xs).into();
-                    FixedLayout { columns }.into()
-                }),
-            AnyEndianUintType::Uint16(x) => it
-                .map(|(i, cN)| {
-                    if let AnyEndianUintType::Uint16(y) = cN {
-                        Ok(y)
-                    } else {
-                        Err(err(i, cN.width()))
-                    }
-                })
-                .gather()
-                .map(|xs| {
-                    let columns = (x, xs).into();
-                    FixedLayout { columns }.into()
-                }),
-            // NOTE these next six are slightly different from the first two
-            AnyEndianUintType::Uint24(x) => it
-                .map(|(i, cN)| {
-                    if let AnyEndianUintType::Uint24(y) = cN {
-                        Ok(OrderedUintType::from(y))
-                    } else {
-                        Err(err(i, cN.width()))
-                    }
-                })
-                .gather()
-                .map(|xs| {
-                    let columns = (x.into(), xs).into();
-                    FixedLayout { columns }.into()
-                }),
-            AnyEndianUintType::Uint32(x) => it
-                .map(|(i, cN)| {
-                    if let AnyEndianUintType::Uint32(y) = cN {
-                        Ok(OrderedUintType::from(y))
-                    } else {
-                        Err(err(i, cN.width()))
-                    }
-                })
-                .gather()
-                .map(|xs| {
-                    let columns = (x.into(), xs).into();
-                    FixedLayout { columns }.into()
-                }),
-            AnyEndianUintType::Uint40(x) => it
-                .map(|(i, cN)| {
-                    if let AnyEndianUintType::Uint40(y) = cN {
-                        Ok(OrderedUintType::from(y))
-                    } else {
-                        Err(err(i, cN.width()))
-                    }
-                })
-                .gather()
-                .map(|xs| {
-                    let columns = (x.into(), xs).into();
-                    FixedLayout { columns }.into()
-                }),
-            AnyEndianUintType::Uint48(x) => it
-                .map(|(i, cN)| {
-                    if let AnyEndianUintType::Uint48(y) = cN {
-                        Ok(OrderedUintType::from(y))
-                    } else {
-                        Err(err(i, cN.width()))
-                    }
-                })
-                .gather()
-                .map(|xs| {
-                    let columns = (x.into(), xs).into();
-                    FixedLayout { columns }.into()
-                }),
-            AnyEndianUintType::Uint56(x) => it
-                .map(|(i, cN)| {
-                    if let AnyEndianUintType::Uint56(y) = cN {
-                        Ok(OrderedUintType::from(y))
-                    } else {
-                        Err(err(i, cN.width()))
-                    }
-                })
-                .gather()
-                .map(|xs| {
-                    let columns = (x.into(), xs).into();
-                    FixedLayout { columns }.into()
-                }),
-            AnyEndianUintType::Uint64(x) => it
-                .map(|(i, cN)| {
-                    if let AnyEndianUintType::Uint64(y) = cN {
-                        Ok(OrderedUintType::from(y))
-                    } else {
-                        Err(err(i, cN.width()))
-                    }
-                })
-                .gather()
-                .map(|xs| {
-                    let columns = (x.into(), xs).into();
-                    FixedLayout { columns }.into()
-                }),
-        }
-        .mult_to_deferred()
+        self.columns
+            .head
+            .try_into_ordered(self.columns.tail)
+            .mult_map_errors(|(index, error)| ConvertWidthError { index, error })
+            .mult_to_deferred()
     }
 }
 
-// impl FixedLayout<MixedType> {
-//     pub(crate) fn try_non_mixed_ordered(self) -> LayoutConvertResult<OrderedLayout> {}
-// }
+impl FixedLayout<MixedType> {
+    pub(crate) fn try_into_ordered(
+        self,
+    ) -> MultiResult<OrderedDataLayout, MixedColumnConvertError<MixedToOrderedConvertError>> {
+        let c = self.columns.head;
+        let cs = self.columns.tail;
+        match c {
+            MixedType::Ascii(x) => cs
+                .into_iter()
+                .enumerate()
+                .map(|(i, c)| {
+                    c.try_into().map_err(|e| MixedColumnConvertError {
+                        error: MixedToOrderedConvertError::Ascii(e),
+                        index: (i + 1).into(),
+                    })
+                })
+                .gather()
+                .map(|xs| {
+                    let columns = (x, xs).into();
+                    OrderedDataLayout::Ascii(FixedLayout { columns }.into())
+                }),
+            MixedType::Integer(x) => x
+                .try_into_ordered(cs)
+                .map(OrderedDataLayout::Integer)
+                .mult_map_errors(|(index, error)| MixedColumnConvertError {
+                    index,
+                    error: error.into(),
+                }),
+            MixedType::Float(x) => cs
+                .into_iter()
+                .enumerate()
+                .map(|(i, c)| {
+                    c.try_into().map_err(|e| MixedColumnConvertError {
+                        error: MixedToOrderedConvertError::Float(e),
+                        index: (i + 1).into(),
+                    })
+                })
+                .gather()
+                .map(|xs| {
+                    let columns = NonEmpty::from((x, xs)).map(OrderedFloatType::from);
+                    OrderedDataLayout::Float(FixedLayout { columns }.into())
+                }),
+            MixedType::Double(x) => cs
+                .into_iter()
+                .enumerate()
+                .map(|(i, c)| {
+                    c.try_into().map_err(|e| MixedColumnConvertError {
+                        error: MixedToOrderedConvertError::Double(e),
+                        index: (i + 1).into(),
+                    })
+                })
+                .gather()
+                .map(|xs| {
+                    let columns = NonEmpty::from((x, xs)).map(OrderedFloatType::from);
+                    OrderedDataLayout::Float(FixedLayout { columns }.into())
+                }),
+        }
+    }
+
+    pub(crate) fn try_into_non_mixed(
+        self,
+    ) -> MultiResult<NonMixedEndianLayout, MixedColumnConvertError<MixedToNonMixedConvertError>>
+    {
+        let c = self.columns.head;
+        let it = self.columns.tail.into_iter().enumerate();
+        match c {
+            MixedType::Ascii(x) => it
+                .map(|(i, c)| {
+                    c.try_into()
+                        .map_err(|e| (i, MixedToNonMixedConvertError::Ascii(e)))
+                })
+                .gather()
+                .map(|xs| {
+                    let columns = (x, xs).into();
+                    NonMixedEndianLayout::Ascii(FixedLayout { columns }.into())
+                }),
+            MixedType::Integer(x) => it
+                .map(|(i, c)| {
+                    c.try_into()
+                        .map_err(|e| (i, MixedToNonMixedConvertError::Integer(e)))
+                })
+                .gather()
+                .map(|xs| {
+                    let columns = (x, xs).into();
+                    NonMixedEndianLayout::Integer(FixedLayout { columns }.into())
+                }),
+            MixedType::Float(x) => it
+                .map(|(i, c)| {
+                    c.try_into()
+                        .map_err(|e| (i, MixedToNonMixedConvertError::Float(e)))
+                })
+                .gather()
+                .map(|xs| {
+                    let columns = NonEmpty::from((x, xs));
+                    NonMixedEndianLayout::Float(FixedLayout { columns }.into())
+                }),
+            MixedType::Double(x) => it
+                .map(|(i, c)| {
+                    c.try_into()
+                        .map_err(|e| (i, MixedToNonMixedConvertError::Double(e)))
+                })
+                .gather()
+                .map(|xs| {
+                    let columns = NonEmpty::from((x, xs));
+                    NonMixedEndianLayout::Float(FixedLayout { columns }.into())
+                }),
+        }
+        .mult_map_errors(|(i, error)| MixedColumnConvertError {
+            index: (i + 1).into(),
+            error,
+        })
+    }
+}
+
+pub struct MixedColumnConvertError<E> {
+    index: MeasIndex,
+    error: E,
+}
+
+enum_from_disp!(
+    pub MixedToOrderedConvertError,
+    [Ascii, MixedToAsciiError],
+    [Integer, MixedToOrderedUintError],
+    [Float, MixedToFloatError],
+    [Double, MixedToDoubleError]
+);
+
+enum_from_disp!(
+    pub MixedToNonMixedConvertError,
+    [Ascii, MixedToAsciiError],
+    [Integer, MixedToEndianUintError],
+    [Float, MixedToFloatError],
+    [Double, MixedToDoubleError]
+);
+
+impl<E: fmt::Display> fmt::Display for MixedColumnConvertError<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "mixed conversion error in column {}: {}",
+            self.index, self.error
+        )
+    }
+}
 
 trait IntMath: Sized
 where
@@ -1866,6 +2253,10 @@ impl<C> FixedLayout<C> {
     }
 }
 
+pub trait HasWidth {
+    fn inherent_width() -> u8;
+}
+
 pub trait IsFixed {
     fn width(&self) -> u8;
 }
@@ -1882,8 +2273,20 @@ pub trait IsFixedWriter {
     ) -> Result<AnyFixedColumnWriter, AnyLossError>;
 }
 
+impl<T, const LEN: usize> HasWidth for OrderedUintType<T, LEN> {
+    fn inherent_width() -> u8 {
+        LEN as u8
+    }
+}
+
 impl<T, const LEN: usize> IsFixed for OrderedUintType<T, LEN> {
     fn width(&self) -> u8 {
+        Self::inherent_width()
+    }
+}
+
+impl<T, const LEN: usize> HasWidth for EndianUintType<T, LEN> {
+    fn inherent_width() -> u8 {
         LEN as u8
     }
 }
@@ -2788,7 +3191,7 @@ impl VersionedDataLayout for DataLayout3_1 {
         columns: Vec<ColumnLayoutData<Self::D>>,
         conf: &SharedConfig,
     ) -> DeferredResult<Self, NewDataLayoutWarning, NewDataLayoutError> {
-        UnmixedEndianLayout::try_new(datatype, endian, columns, conf).def_map_value(|x| x.into())
+        NonMixedEndianLayout::try_new(datatype, endian, columns, conf).def_map_value(|x| x.into())
     }
 
     fn try_new_from_raw(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Self> {
@@ -2871,7 +3274,7 @@ impl VersionedDataLayout for DataLayout3_2 {
             .collect();
         let unique_dt: Vec<_> = dt_columns.iter().map(|c| c.datatype).unique().collect();
         match unique_dt[..] {
-            [dt] => UnmixedEndianLayout::try_new(dt, endian, dt_columns, conf)
+            [dt] => NonMixedEndianLayout::try_new(dt, endian, dt_columns, conf)
                 .def_map_value(|x| x.into()),
             _ => dt_columns
                 .into_iter()
@@ -3159,7 +3562,7 @@ impl DataLayout3_2 {
 
 impl Default for DataLayout3_2 {
     fn default() -> Self {
-        DataLayout3_2::Unmixed(UnmixedEndianLayout::default())
+        DataLayout3_2::Unmixed(NonMixedEndianLayout::default())
     }
 }
 
@@ -3222,16 +3625,16 @@ impl OrderedDataLayout {
         }
     }
 
-    pub fn into_unmixed(self) -> LayoutConvertResult<UnmixedEndianLayout> {
+    pub fn into_unmixed(self) -> LayoutConvertResult<NonMixedEndianLayout> {
         match self {
-            Self::Ascii(x) => Ok(Tentative::new1(UnmixedEndianLayout::Ascii(x))),
+            Self::Ascii(x) => Ok(Tentative::new1(NonMixedEndianLayout::Ascii(x))),
             Self::Integer(x) => x
                 .into_endian_layout()
-                .def_map_value(UnmixedEndianLayout::Integer),
+                .def_map_value(NonMixedEndianLayout::Integer),
             Self::Float(x) => x
                 .into_endian_layout()
-                .def_map_value(UnmixedEndianLayout::Float),
-            Self::Empty => Ok(Tentative::new1(UnmixedEndianLayout::Empty)),
+                .def_map_value(NonMixedEndianLayout::Float),
+            Self::Empty => Ok(Tentative::new1(NonMixedEndianLayout::Empty)),
         }
     }
 
@@ -3244,7 +3647,7 @@ impl OrderedDataLayout {
     }
 }
 
-impl UnmixedEndianLayout {
+impl NonMixedEndianLayout {
     fn try_new(
         datatype: AlphaNumType,
         endian: Endian,
@@ -3805,9 +4208,8 @@ impl fmt::Display for UnevenEventWidth {
 }
 
 pub struct ConvertWidthError {
-    to: u8,
-    from: u8,
     index: MeasIndex,
+    error: UintToUintError,
 }
 
 impl fmt::Display for ConvertWidthError {

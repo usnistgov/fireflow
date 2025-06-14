@@ -2154,14 +2154,9 @@ where
         ToM::N: Clone,
         ToM::O: ConvertFromOptical<M::O>,
         ToM::T: ConvertFromTemporal<M::T>,
+        ToM::L: ConvertFromLayout<M::L>,
         <ToM::N as MightHave>::Wrapper<Shortname>: TryFrom<<M::N as MightHave>::Wrapper<Shortname>>,
     {
-        // let widths = self.widths();
-        // let convert = SizeConvert {
-        //     widths,
-        //     datatype: self.metaroot.datatype,
-        //     size: self.metaroot.specific.byteord(),
-        // };
         let m = self
             .metaroot
             .try_convert(force)
@@ -2181,8 +2176,11 @@ where
                     .mult_map_errors(ConvertErrorInner::Rewrap)
                     .mult_to_deferred()
             });
-        m.def_zip(ps)
-            .def_map_value(|(metaroot, measurements)| Core {
+        let lres = ConvertFromLayout::convert_from_layout(self.layout)
+            .mult_map_errors(ConvertErrorInner::Layout)
+            .mult_to_deferred();
+        m.def_zip3(ps, lres)
+            .def_map_value(|(metaroot, measurements, layout)| Core {
                 metaroot,
                 measurements,
                 layout,
@@ -7087,6 +7085,7 @@ pub enum ConvertErrorInner<E> {
     Meta(MetarootConvertError),
     Optical(IndexedElementError<OpticalConvertError>),
     Temporal(IndexedElementError<TemporalConvertError>),
+    Layout(LayoutConvertError),
 }
 
 impl<E> fmt::Display for ConvertErrorInner<E>
@@ -7099,6 +7098,7 @@ where
             Self::Meta(e) => e.fmt(f),
             Self::Optical(e) => e.fmt(f),
             Self::Temporal(e) => e.fmt(f),
+            Self::Layout(e) => e.fmt(f),
         }
     }
 }

@@ -4951,22 +4951,6 @@ impl fmt::Display for TimestepLossError {
     }
 }
 
-// pub struct SizeConvert<O> {
-//     size: O,
-//     datatype: AlphaNumType,
-//     widths: Vec<Width>,
-// }
-
-// type ByteOrdConvert = SizeConvert<ByteOrd>;
-// type EndianConvert = SizeConvert<Endian>;
-
-// impl EndianConvert {
-//     fn try_as_byteord(self) -> DeferredResult<ByteOrd, WidthToBytesError, SingleWidthError> {
-//         Width::matrix_bytes(&self.widths[..], self.datatype)
-//             .def_map_value(|bytes| self.size.as_bytord(bytes))
-//     }
-// }
-
 impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
     fn convert_from_metaroot(
         value: InnerMetaroot3_0,
@@ -7394,8 +7378,6 @@ impl fmt::Display for OpticalNonLinearError {
 enum_from_disp!(
     pub MetarootConvertError,
     [NoCyt, NoCytError],
-    [Byteord, EndianToByteOrdError],
-    [Endian, SingleWidthError],
     [Mode, ModeNotListError],
     [GateLink, RegionToGateIndexError],
     [MeasLink, RegionToMeasIndexError],
@@ -7411,7 +7393,6 @@ enum_from_disp!(
 
 enum_from_disp!(
     pub MetarootConvertWarning,
-    [Width, WidthToBytesError],
     [Mode, ModeNotListError],
     [Gates3_0To2_0, AppliedGates3_0To2_0Error],
     [Gates3_0To3_2, AppliedGates3_0To3_2Error],
@@ -7466,19 +7447,12 @@ enum_from_disp!(
     [Tag,             IndexedKeyLossError<Tag>],
     [Gain,            IndexedKeyLossError<Gain>],
     [Display,         IndexedKeyLossError<Display>],
-    [Datatype,        IndexedKeyLossError<NumType>],
     [DetectorName,    IndexedKeyLossError<DetectorName>],
     [Feature,         IndexedKeyLossError<Feature>],
     [PeakBin,         IndexedKeyLossError<PeakBin>],
     [PeakNumber,      IndexedKeyLossError<PeakNumber>],
     [Calibration3_1,  IndexedKeyLossError<Calibration3_1>],
     [Calibration3_2,  IndexedKeyLossError<Calibration3_2>]
-);
-
-enum_from_disp!(
-    /// Error when an optical keyword will be lost when converting versions
-    pub AnyLayoutKeyLossError,
-    [Datatype,        IndexedKeyLossError<NumType>]
 );
 
 enum_from_disp!(

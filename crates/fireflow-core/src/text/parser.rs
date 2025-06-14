@@ -103,19 +103,19 @@ where
     Self: IndexedKey,
     Self: FromStr,
 {
-    fn get_meas_req(kws: &StdKeywords, n: IndexFromOne) -> ReqResult<Self> {
-        Self::get_req(kws, Self::std(n))
+    fn get_meas_req(kws: &StdKeywords, i: IndexFromOne) -> ReqResult<Self> {
+        Self::get_req(kws, Self::std(i))
     }
 
-    fn remove_meas_req(kws: &mut StdKeywords, n: IndexFromOne) -> ReqResult<Self> {
-        Self::remove_req(kws, Self::std(n))
+    fn remove_meas_req(kws: &mut StdKeywords, i: IndexFromOne) -> ReqResult<Self> {
+        Self::remove_req(kws, Self::std(i))
     }
 
-    fn lookup_req(kws: &mut StdKeywords, n: IndexFromOne) -> LookupResult<Self>
+    fn lookup_req(kws: &mut StdKeywords, i: IndexFromOne) -> LookupResult<Self>
     where
         ParseReqKeyError: From<<Self as FromStr>::Err>,
     {
-        Self::remove_meas_req(kws, n)
+        Self::remove_meas_req(kws, i)
             .map_err(|e| e.inner_into())
             .map_err(Box::new)
             .into_deferred()
@@ -183,12 +183,12 @@ where
     Self: IndexedKey,
     Self: FromStr,
 {
-    fn get_meas_opt(kws: &StdKeywords, n: IndexFromOne) -> OptKwResult<Self> {
-        Self::get_opt(kws, Self::std(n))
+    fn get_meas_opt(kws: &StdKeywords, i: IndexFromOne) -> OptKwResult<Self> {
+        Self::get_opt(kws, Self::std(i))
     }
 
-    fn remove_meas_opt(kws: &mut StdKeywords, n: IndexFromOne) -> OptKwResult<Self> {
-        Self::remove_opt(kws, Self::std(n))
+    fn remove_meas_opt(kws: &mut StdKeywords, i: IndexFromOne) -> OptKwResult<Self> {
+        Self::remove_opt(kws, Self::std(i))
     }
 
     fn lookup_opt<E>(

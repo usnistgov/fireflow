@@ -544,7 +544,9 @@ pub trait VersionedDataLayout: Sized {
         conf: &SharedConfig,
     ) -> DeferredResult<Self, NewDataLayoutWarning, NewDataLayoutError>;
 
-    fn try_new_from_raw(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Self>;
+    fn lookup(kws: &mut StdKeywords, conf: &SharedConfig, par: Par) -> LookupLayoutResult<Self>;
+
+    fn lookup_ro(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Self>;
 
     fn ncols(&self) -> usize;
 
@@ -2117,6 +2119,120 @@ pub struct ColumnLayoutData<D> {
     pub datatype: D,
 }
 
+type ColumnLayoutData2_0 = ColumnLayoutData<()>;
+type ColumnLayoutData3_2 = ColumnLayoutData<Option<NumType>>;
+
+trait VersionedColumnLayout: Sized {
+    fn lookup_all(kws: &mut StdKeywords, par: Par) -> LookupResult<Vec<Self>> {
+        (0..par.0)
+            .map(|i| Self::lookup(kws, i.into()))
+            .gather()
+            .map(Tentative::mconcat)
+            .map_err(DeferredFailure::mconcat)
+    }
+
+    fn get_all(
+        kws: &StdKeywords,
+    ) -> DeferredResult<Vec<Self>, ParseKeyError<NumTypeError>, RawParsedError> {
+        Par::get_metaroot_req(kws)
+            .into_deferred()
+            .def_and_maybe(|par| {
+                (0..par.0)
+                    .map(|i| Self::get(kws, i.into()))
+                    .gather()
+                    .map(Tentative::mconcat)
+                    .map_err(DeferredFailure::mconcat)
+            })
+    }
+
+    fn lookup(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self>;
+
+    fn get(
+        kws: &StdKeywords,
+        i: MeasIndex,
+    ) -> DeferredResult<Self, ParseKeyError<NumTypeError>, RawParsedError>;
+}
+
+impl VersionedColumnLayout for ColumnLayoutData2_0 {
+    fn lookup(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
+        let j = i.into();
+        let w = Width::lookup_req(kws, j);
+        let r = Range::lookup_req(kws, j);
+        w.def_zip(r).def_map_value(|(width, range)| Self {
+            width,
+            range,
+            datatype: (),
+        })
+    }
+
+    fn get(
+        kws: &StdKeywords,
+        i: MeasIndex,
+    ) -> DeferredResult<Self, ParseKeyError<NumTypeError>, RawParsedError> {
+        let j = i.into();
+        let w = Width::get_meas_req(kws, j).map_err(|e| e.into());
+        let r = Range::get_meas_req(kws, j).map_err(|e| e.into());
+        w.zip(r)
+            .map(|(width, range)| Self {
+                width,
+                range,
+                datatype: (),
+            })
+            .map(Tentative::new1)
+            .map_err(DeferredFailure::new2)
+    }
+}
+
+impl VersionedColumnLayout for ColumnLayoutData3_2 {
+    fn lookup(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
+        let j = i.into();
+        let w = Width::lookup_req(kws, j);
+        let r = Range::lookup_req(kws, j);
+        w.def_zip(r).def_and_tentatively(|(width, range)| {
+            NumType::lookup_opt(kws, j, false)
+                .map(|x| x.0)
+                .map(|datatype| Self {
+                    width,
+                    range,
+                    datatype,
+                })
+        })
+    }
+
+    fn get(
+        kws: &StdKeywords,
+        i: MeasIndex,
+    ) -> DeferredResult<Self, ParseKeyError<NumTypeError>, RawParsedError> {
+        let j = i.into();
+        let w = Width::get_meas_req(kws, j).map_err(|e| e.into());
+        let r = Range::get_meas_req(kws, j).map_err(|e| e.into());
+        w.zip(r)
+            .map(Tentative::new1)
+            .map_err(DeferredFailure::new2)
+            .def_and_tentatively(|(width, range)| {
+                NumType::get_meas_opt(kws, j)
+                    .map_err(|e| e.into())
+                    .map(|x| x.0)
+                    .map_or_else(|w| Tentative::new(None, vec![w], vec![]), Tentative::new1)
+                    .map(|datatype| Self {
+                        width,
+                        range,
+                        datatype,
+                    })
+            })
+    }
+}
+
+impl From<ColumnLayoutData3_2> for ColumnLayoutData2_0 {
+    fn from(value: ColumnLayoutData3_2) -> Self {
+        Self {
+            width: value.width,
+            range: value.range,
+            datatype: (),
+        }
+    }
+}
+
 impl<C> FixedLayout<C> {
     fn from_vec(xs: Vec<C>) -> Option<Self> {
         NonEmpty::from_vec(xs).map(|columns| FixedLayout { columns })
@@ -3048,8 +3164,12 @@ impl VersionedDataLayout for DataLayout2_0 {
         OrderedDataLayout::try_new(datatype, byteord, columns, conf).def_map_value(|x| x.into())
     }
 
-    fn try_new_from_raw(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Self> {
-        OrderedDataLayout::try_new_from_raw(kws, conf).def_map_value(|x| x.into())
+    fn lookup(kws: &mut StdKeywords, conf: &SharedConfig, par: Par) -> LookupLayoutResult<Self> {
+        OrderedDataLayout::lookup(kws, conf, par).def_map_value(|x| x.into())
+    }
+
+    fn lookup_ro(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Self> {
+        OrderedDataLayout::lookup_ro(kws, conf).def_map_value(|x| x.into())
     }
 
     fn ncols(&self) -> usize {
@@ -3130,8 +3250,12 @@ impl VersionedDataLayout for DataLayout3_0 {
         OrderedDataLayout::try_new(datatype, byteord, columns, conf).def_map_value(|x| x.into())
     }
 
-    fn try_new_from_raw(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Self> {
-        OrderedDataLayout::try_new_from_raw(kws, conf).def_map_value(|x| x.into())
+    fn lookup(kws: &mut StdKeywords, conf: &SharedConfig, par: Par) -> LookupLayoutResult<Self> {
+        OrderedDataLayout::lookup(kws, conf, par).def_map_value(|x| x.into())
+    }
+
+    fn lookup_ro(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Self> {
+        OrderedDataLayout::lookup_ro(kws, conf).def_map_value(|x| x.into())
     }
 
     fn ncols(&self) -> usize {
@@ -3196,12 +3320,23 @@ impl VersionedDataLayout for DataLayout3_1 {
         NonMixedEndianLayout::try_new(datatype, endian, columns, conf).def_map_value(|x| x.into())
     }
 
-    fn try_new_from_raw(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Self> {
-        let cs = kws_get_columns(kws);
-        let d = AlphaNumType::get_metaroot_req(kws).into_mult::<RawParsedError>();
-        let n = Endian::get_metaroot_req(kws).into_mult();
-        d.mult_zip3(n, cs)
-            .mult_to_deferred()
+    fn lookup(kws: &mut StdKeywords, conf: &SharedConfig, par: Par) -> LookupLayoutResult<Self> {
+        let cs = ColumnLayoutData2_0::lookup_all(kws, par);
+        let d = AlphaNumType::lookup_req(kws);
+        let n = Endian::lookup_req(kws);
+        d.def_zip3(n, cs)
+            .def_inner_into()
+            .def_and_maybe(|(datatype, byteord, columns)| {
+                Self::try_new(datatype, byteord, columns, conf).def_inner_into()
+            })
+    }
+
+    fn lookup_ro(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Self> {
+        let cs = ColumnLayoutData2_0::get_all(kws);
+        let d = AlphaNumType::get_metaroot_req(kws).into_deferred();
+        let n = Endian::get_metaroot_req(kws).into_deferred();
+        d.def_zip3(n, cs)
+            .def_inner_into()
             .def_and_maybe(|(datatype, byteord, columns)| {
                 Self::try_new(datatype, byteord, columns, conf).def_inner_into()
             })
@@ -3327,14 +3462,25 @@ impl VersionedDataLayout for DataLayout3_2 {
         }
     }
 
-    fn try_new_from_raw(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Self> {
+    fn lookup(kws: &mut StdKeywords, conf: &SharedConfig, par: Par) -> LookupLayoutResult<Self> {
+        let d = AlphaNumType::lookup_req(kws);
+        let e = Endian::lookup_req(kws);
+        let cs = ColumnLayoutData3_2::lookup_all(kws, par);
+        d.def_zip3(e, cs)
+            .def_inner_into()
+            .def_and_maybe(|(datatype, endian, columns)| {
+                Self::try_new(datatype, endian, columns, conf).def_inner_into()
+            })
+    }
+
+    fn lookup_ro(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Self> {
         let d = AlphaNumType::get_metaroot_req(kws)
             .map_err(RawParsedError::from)
             .into_deferred();
         let e = Endian::get_metaroot_req(kws)
             .map_err(RawParsedError::from)
             .into_deferred();
-        let cs = kws_get_columns_3_2(kws).def_inner_into();
+        let cs = ColumnLayoutData3_2::get_all(kws).def_inner_into();
         d.def_zip3(e, cs)
             .def_and_maybe(|(datatype, endian, columns)| {
                 Self::try_new(datatype, endian, columns, conf).def_inner_into()
@@ -3604,9 +3750,23 @@ impl OrderedDataLayout {
         }
     }
 
-    fn try_new_from_raw(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Self> {
-        kws_get_layout_2_0(kws)
-            .mult_to_deferred()
+    fn lookup(kws: &mut StdKeywords, conf: &SharedConfig, par: Par) -> LookupLayoutResult<Self> {
+        let cs = ColumnLayoutData2_0::lookup_all(kws, par);
+        let d = AlphaNumType::lookup_req(kws);
+        let b = ByteOrd::lookup_req(kws);
+        d.def_zip3(b, cs)
+            .def_inner_into()
+            .def_and_maybe(|(datatype, byteord, columns)| {
+                Self::try_new(datatype, byteord, columns, conf).def_inner_into()
+            })
+    }
+
+    fn lookup_ro(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Self> {
+        let cs = ColumnLayoutData2_0::get_all(kws);
+        let d = AlphaNumType::get_metaroot_req(kws).into_deferred();
+        let b = ByteOrd::get_metaroot_req(kws).into_deferred();
+        d.def_zip3(b, cs)
+            .def_inner_into()
             .def_and_maybe(|(datatype, byteord, columns)| {
                 Self::try_new(datatype, byteord, columns, conf).def_inner_into()
             })
@@ -3753,66 +3913,6 @@ fn get_tot_data_seg(
     )
     .def_inner_into();
     tot_res.def_zip(seg_res)
-}
-
-#[allow(clippy::type_complexity)]
-fn kws_get_layout_2_0(
-    kws: &StdKeywords,
-) -> MultiResult<(AlphaNumType, ByteOrd, Vec<ColumnLayoutData<()>>), RawParsedError> {
-    let cs = kws_get_columns(kws);
-    let d = AlphaNumType::get_metaroot_req(kws).into_mult();
-    let b = ByteOrd::get_metaroot_req(kws).into_mult();
-    d.mult_zip3(b, cs)
-}
-
-fn kws_get_columns(kws: &StdKeywords) -> MultiResult<Vec<ColumnLayoutData<()>>, RawParsedError> {
-    let par = Par::get_metaroot_req(kws).into_mult()?;
-    (0..par.0)
-        .map(|i| {
-            let w = Width::get_meas_req(kws, i.into()).map_err(|e| e.into());
-            let r = Range::get_meas_req(kws, i.into()).map_err(|e| e.into());
-            w.zip(r).map(|(width, range)| ColumnLayoutData {
-                width,
-                range,
-                datatype: (),
-            })
-        })
-        .gather()
-        .map_err(NonEmpty::flatten)
-}
-
-fn kws_get_columns_3_2(
-    kws: &StdKeywords,
-) -> DeferredResult<
-    Vec<ColumnLayoutData<Option<NumType>>>,
-    ParseKeyError<NumTypeError>,
-    RawParsedError,
-> {
-    let par = Par::get_metaroot_req(kws)
-        .map_err(|e| e.into())
-        .map_err(DeferredFailure::new1)?;
-    (0..par.0)
-        .map(|i| {
-            let index = i.into();
-            match NumType::get_meas_opt(kws, index) {
-                Ok(x) => Tentative::new1(x.0),
-                Err(e) => Tentative::new(None, vec![e], vec![]),
-            }
-            .and_maybe(|pn_datatype| {
-                let w = Width::get_meas_req(kws, index).map_err(RawParsedError::from);
-                let r = Range::get_meas_req(kws, index).map_err(|e| e.into());
-                w.zip(r)
-                    .map(|(width, range)| ColumnLayoutData {
-                        width,
-                        range,
-                        datatype: pn_datatype,
-                    })
-                    .mult_to_deferred()
-            })
-        })
-        .gather()
-        .map_err(DeferredFailure::mconcat)
-        .map(Tentative::mconcat)
 }
 
 pub(crate) fn h_read_data_and_analysis<R: Read + Seek>(
@@ -4034,6 +4134,20 @@ pub struct ColumnError<E> {
     index: IndexFromOne,
     error: E,
 }
+
+type LookupLayoutResult<T> = DeferredResult<T, LookupLayoutWarning, LookupLayoutError>;
+
+enum_from_disp!(
+    pub LookupLayoutError,
+    [New, NewDataLayoutError],
+    [Raw, LookupKeysError]
+);
+
+enum_from_disp!(
+    pub LookupLayoutWarning,
+    [New, NewDataLayoutWarning],
+    [Raw, LookupKeysWarning]
+);
 
 type FromRawResult<T> = DeferredResult<T, RawToLayoutWarning, RawToLayoutError>;
 

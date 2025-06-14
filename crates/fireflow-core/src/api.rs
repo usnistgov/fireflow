@@ -628,16 +628,16 @@ fn kws_to_data_reader(
     let cs = &conf.shared;
     let cr = &conf.reader;
     match version {
-        Version::FCS2_0 => DataLayout2_0::try_new_from_raw(kws, cs)
+        Version::FCS2_0 => DataLayout2_0::lookup_ro(kws, cs)
             .def_inner_into()
             .def_and_maybe(|dl| dl.into_data_reader_raw(kws, seg, cr).def_inner_into()),
-        Version::FCS3_0 => DataLayout3_0::try_new_from_raw(kws, cs)
+        Version::FCS3_0 => DataLayout3_0::lookup_ro(kws, cs)
             .def_inner_into()
             .def_and_maybe(|dl| dl.into_data_reader_raw(kws, seg, cr).def_inner_into()),
-        Version::FCS3_1 => DataLayout3_1::try_new_from_raw(kws, cs)
+        Version::FCS3_1 => DataLayout3_1::lookup_ro(kws, cs)
             .def_inner_into()
             .def_and_maybe(|dl| dl.into_data_reader_raw(kws, seg, cr).def_inner_into()),
-        Version::FCS3_2 => DataLayout3_2::try_new_from_raw(kws, cs)
+        Version::FCS3_2 => DataLayout3_2::lookup_ro(kws, cs)
             .def_inner_into()
             .def_and_maybe(|dl| dl.into_data_reader_raw(kws, seg, cr).def_inner_into()),
     }

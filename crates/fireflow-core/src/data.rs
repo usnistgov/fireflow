@@ -99,7 +99,7 @@ enum_from!(
     #[derive(Clone, Serialize)]
     pub DataLayout3_2,
     [Mixed,FixedLayout<MixedType>],
-    [Unmixed,NonMixedEndianLayout]
+    [NonMixed,NonMixedEndianLayout]
 );
 
 /// All possible byte layouts for the DATA segment in 2.0 and 3.0.
@@ -1416,14 +1416,14 @@ impl FixedLayout<AnyEndianUintType> {
             .head
             .try_into_ordered(self.columns.tail)
             .mult_map_errors(|(index, error)| ConvertWidthError { index, error })
-            .mult_to_deferred()
+            .mult_errors_into()
     }
 }
 
 impl FixedLayout<MixedType> {
     pub(crate) fn try_into_ordered(
         self,
-    ) -> MultiResult<OrderedDataLayout, MixedColumnConvertError<MixedToOrderedConvertError>> {
+    ) -> MultiResult<OrderedDataLayout, MixedToOrderedLayoutError> {
         let c = self.columns.head;
         let cs = self.columns.tail;
         match c {
@@ -1481,8 +1481,7 @@ impl FixedLayout<MixedType> {
 
     pub(crate) fn try_into_non_mixed(
         self,
-    ) -> MultiResult<NonMixedEndianLayout, MixedColumnConvertError<MixedToNonMixedConvertError>>
-    {
+    ) -> MultiResult<NonMixedEndianLayout, MixedToNonMixedLayoutError> {
         let c = self.columns.head;
         let it = self.columns.tail.into_iter().enumerate();
         match c {
@@ -1533,6 +1532,9 @@ impl FixedLayout<MixedType> {
         })
     }
 }
+
+pub type MixedToOrderedLayoutError = MixedColumnConvertError<MixedToOrderedConvertError>;
+pub type MixedToNonMixedLayoutError = MixedColumnConvertError<MixedToNonMixedConvertError>;
 
 pub struct MixedColumnConvertError<E> {
     index: MeasIndex,
@@ -2807,14 +2809,14 @@ impl AnyOrderedUintLayout {
 
     fn into_endian_layout(self) -> LayoutConvertResult<FixedLayout<AnyEndianUintType>> {
         match self {
-            Self::Uint08(x) => Ok(Tentative::new1(x.inner_into())),
-            Self::Uint16(x) => Ok(Tentative::new1(x.inner_into())),
-            Self::Uint24(x) => x.into_endian().map(|x| x.inner_into()).mult_to_deferred(),
-            Self::Uint32(x) => x.into_endian().map(|x| x.inner_into()).mult_to_deferred(),
-            Self::Uint40(x) => x.into_endian().map(|x| x.inner_into()).mult_to_deferred(),
-            Self::Uint48(x) => x.into_endian().map(|x| x.inner_into()).mult_to_deferred(),
-            Self::Uint56(x) => x.into_endian().map(|x| x.inner_into()).mult_to_deferred(),
-            Self::Uint64(x) => x.into_endian().map(|x| x.inner_into()).mult_to_deferred(),
+            Self::Uint08(x) => Ok(x.inner_into()),
+            Self::Uint16(x) => Ok(x.inner_into()),
+            Self::Uint24(x) => x.into_endian().map(|x| x.inner_into()).mult_errors_into(),
+            Self::Uint32(x) => x.into_endian().map(|x| x.inner_into()).mult_errors_into(),
+            Self::Uint40(x) => x.into_endian().map(|x| x.inner_into()).mult_errors_into(),
+            Self::Uint48(x) => x.into_endian().map(|x| x.inner_into()).mult_errors_into(),
+            Self::Uint56(x) => x.into_endian().map(|x| x.inner_into()).mult_errors_into(),
+            Self::Uint64(x) => x.into_endian().map(|x| x.inner_into()).mult_errors_into(),
         }
     }
 }
@@ -2981,8 +2983,8 @@ impl OrderedFloatLayout {
 
     fn into_endian_layout(self) -> LayoutConvertResult<EndianFloatLayout> {
         match self {
-            Self::F32(x) => x.into_endian().map(|x| x.into()).mult_to_deferred(),
-            Self::F64(x) => x.into_endian().map(|x| x.into()).mult_to_deferred(),
+            Self::F32(x) => x.into_endian().map(|x| x.into()).mult_errors_into(),
+            Self::F64(x) => x.into_endian().map(|x| x.into()).mult_errors_into(),
         }
     }
 }
@@ -3274,8 +3276,18 @@ impl VersionedDataLayout for DataLayout3_2 {
             .collect();
         let unique_dt: Vec<_> = dt_columns.iter().map(|c| c.datatype).unique().collect();
         match unique_dt[..] {
-            [dt] => NonMixedEndianLayout::try_new(dt, endian, dt_columns, conf)
-                .def_map_value(|x| x.into()),
+            [dt] => {
+                let ds = dt_columns
+                    .into_iter()
+                    // TODO lame...
+                    .map(|c| ColumnLayoutData {
+                        width: c.width,
+                        range: c.range,
+                        datatype: (),
+                    })
+                    .collect();
+                NonMixedEndianLayout::try_new(dt, endian, ds, conf).def_map_value(|x| x.into())
+            }
             _ => dt_columns
                 .into_iter()
                 .enumerate()
@@ -3308,8 +3320,9 @@ impl VersionedDataLayout for DataLayout3_2 {
                 .map(Tentative::mconcat)
                 .map_err(DeferredFailure::mconcat)
                 .def_map_value(|mcs| {
-                    NonEmpty::from_vec(mcs)
-                        .map_or(Self::Empty, |columns| Self::Mixed(FixedLayout { columns }))
+                    NonEmpty::from_vec(mcs).map_or(Self::default(), |columns| {
+                        Self::Mixed(FixedLayout { columns })
+                    })
                 }),
         }
     }
@@ -3330,7 +3343,7 @@ impl VersionedDataLayout for DataLayout3_2 {
 
     fn ncols(&self) -> usize {
         match self {
-            Self::Unmixed(x) => x.ncols(),
+            Self::NonMixed(x) => x.ncols(),
             Self::Mixed(m) => m.ncols(),
         }
     }
@@ -3341,7 +3354,7 @@ impl VersionedDataLayout for DataLayout3_2 {
         conf: &WriteConfig,
     ) -> MultiResult<DataWriter<'a>, ColumnWriterError> {
         match self {
-            Self::Unmixed(x) => x.as_writer_inner(df, conf),
+            Self::NonMixed(x) => x.as_writer_inner(df, conf),
             Self::Mixed(m) => m
                 .as_writer(df, conf)
                 .map(|x| x.map_or(DataWriter::Empty, DataWriter::Fixed)),
@@ -3545,7 +3558,7 @@ impl DataLayout3_2 {
         E: From<TotEventMismatch>,
     {
         match self {
-            Self::Unmixed(x) => x.into_reader(tot, seg, conf),
+            Self::NonMixed(x) => x.into_reader(tot, seg, conf),
             Self::Mixed(fl) => fl
                 .into_col_reader(seg, tot, conf)
                 .map(|r| r.into_data_reader(seg)),
@@ -3554,15 +3567,15 @@ impl DataLayout3_2 {
 
     pub(crate) fn into_ordered(self) -> LayoutConvertResult<OrderedDataLayout> {
         match self {
-            Self::Unmixed(x) => x.into_ordered(),
-            // TODO mixed
+            Self::NonMixed(x) => x.into_ordered(),
+            Self::Mixed(x) => x.try_into_ordered().mult_errors_into(),
         }
     }
 }
 
 impl Default for DataLayout3_2 {
     fn default() -> Self {
-        DataLayout3_2::Unmixed(NonMixedEndianLayout::default())
+        DataLayout3_2::NonMixed(NonMixedEndianLayout::default())
     }
 }
 
@@ -3627,23 +3640,19 @@ impl OrderedDataLayout {
 
     pub fn into_unmixed(self) -> LayoutConvertResult<NonMixedEndianLayout> {
         match self {
-            Self::Ascii(x) => Ok(Tentative::new1(NonMixedEndianLayout::Ascii(x))),
-            Self::Integer(x) => x
-                .into_endian_layout()
-                .def_map_value(NonMixedEndianLayout::Integer),
-            Self::Float(x) => x
-                .into_endian_layout()
-                .def_map_value(NonMixedEndianLayout::Float),
-            Self::Empty => Ok(Tentative::new1(NonMixedEndianLayout::Empty)),
+            Self::Ascii(x) => Ok(NonMixedEndianLayout::Ascii(x)),
+            Self::Integer(x) => x.into_endian_layout().map(NonMixedEndianLayout::Integer),
+            Self::Float(x) => x.into_endian_layout().map(NonMixedEndianLayout::Float),
+            Self::Empty => Ok(NonMixedEndianLayout::Empty),
         }
     }
 
     pub(crate) fn into_3_1(self) -> LayoutConvertResult<DataLayout3_1> {
-        self.into_unmixed().def_map_value(|x| x.into())
+        self.into_unmixed().map(|x| x.into())
     }
 
     pub(crate) fn into_3_2(self) -> LayoutConvertResult<DataLayout3_2> {
-        self.into_unmixed().def_map_value(|x| x.into())
+        self.into_unmixed().map(|x| x.into())
     }
 }
 
@@ -3721,12 +3730,10 @@ impl NonMixedEndianLayout {
 
     pub(crate) fn into_ordered(self) -> LayoutConvertResult<OrderedDataLayout> {
         match self {
-            Self::Ascii(x) => Ok(Tentative::new1(OrderedDataLayout::Ascii(x))),
-            Self::Integer(x) => x
-                .try_into_ordered()
-                .def_map_value(OrderedDataLayout::Integer),
-            Self::Float(x) => Ok(Tentative::new1(OrderedDataLayout::Float(x.into()))),
-            Self::Empty => Ok(Tentative::new1(OrderedDataLayout::Empty)),
+            Self::Ascii(x) => Ok(OrderedDataLayout::Ascii(x)),
+            Self::Integer(x) => x.try_into_ordered().map(OrderedDataLayout::Integer),
+            Self::Float(x) => Ok(OrderedDataLayout::Float(x.into())),
+            Self::Empty => Ok(OrderedDataLayout::Empty),
         }
     }
 }
@@ -4216,8 +4223,8 @@ impl fmt::Display for ConvertWidthError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             f,
-            "could not convert from {} to {} in column {}",
-            self.from, self.to, self.index
+            "integer conversion error in column {}: {}",
+            self.index, self.error,
         )
     }
 }

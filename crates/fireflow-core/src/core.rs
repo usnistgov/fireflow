@@ -978,11 +978,7 @@ pub trait ConvertFromLayout<T>: Sized
 where
     Self: VersionedDataLayout,
 {
-    fn convert_from_layout(
-        value: T,
-        convert: SizeConvert<Self::S>,
-        force: bool,
-    ) -> LayoutConvertResult<Self>;
+    fn convert_from_layout(value: T) -> LayoutConvertResult<Self>;
 }
 
 pub trait VersionedMetaroot: Sized {
@@ -4916,8 +4912,7 @@ type OpticalConvertResult<M> = DeferredResult<M, OpticalConvertWarning, OpticalC
 
 type TemporalConvertTentative<M> = BiTentative<M, TemporalConvertError>;
 
-pub(crate) type LayoutConvertResult<L> =
-    DeferredResult<L, LayoutConvertWarning, LayoutConvertError>;
+pub(crate) type LayoutConvertResult<L> = MultiResult<L, LayoutConvertError>;
 
 enum_from_disp!(
     pub OpticalConvertError,
@@ -4939,15 +4934,11 @@ enum_from_disp!(
 );
 
 enum_from_disp!(
-    pub LayoutConvertWarning,
-    [Xfer, AnyLayoutKeyLossError]
-);
-
-enum_from_disp!(
     pub LayoutConvertError,
-    [Xfer, AnyLayoutKeyLossError],
     [OrderToEndian, OrderedToEndianError],
-    [Width, ConvertWidthError]
+    [Width, ConvertWidthError],
+    [MixedToOrdered, MixedToOrderedLayoutError],
+    [MixedToNonMixed, MixedToNonMixedLayoutError]
 );
 
 pub struct TimestepLossError(Timestep);
@@ -4962,21 +4953,21 @@ impl fmt::Display for TimestepLossError {
     }
 }
 
-pub struct SizeConvert<O> {
-    size: O,
-    datatype: AlphaNumType,
-    widths: Vec<Width>,
-}
+// pub struct SizeConvert<O> {
+//     size: O,
+//     datatype: AlphaNumType,
+//     widths: Vec<Width>,
+// }
 
-type ByteOrdConvert = SizeConvert<ByteOrd>;
-type EndianConvert = SizeConvert<Endian>;
+// type ByteOrdConvert = SizeConvert<ByteOrd>;
+// type EndianConvert = SizeConvert<Endian>;
 
-impl EndianConvert {
-    fn try_as_byteord(self) -> DeferredResult<ByteOrd, WidthToBytesError, SingleWidthError> {
-        Width::matrix_bytes(&self.widths[..], self.datatype)
-            .def_map_value(|bytes| self.size.as_bytord(bytes))
-    }
-}
+// impl EndianConvert {
+//     fn try_as_byteord(self) -> DeferredResult<ByteOrd, WidthToBytesError, SingleWidthError> {
+//         Width::matrix_bytes(&self.widths[..], self.datatype)
+//             .def_map_value(|bytes| self.size.as_bytord(bytes))
+//     }
+// }
 
 impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
     fn convert_from_metaroot(
@@ -5583,134 +5574,77 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_2 {
 }
 
 impl ConvertFromLayout<DataLayout3_0> for DataLayout2_0 {
-    fn convert_from_layout(
-        value: DataLayout3_0,
-        _: ByteOrdConvert,
-        _: bool,
-    ) -> LayoutConvertResult<Self> {
-        Ok(Tentative::new1(Self(value.0)))
+    fn convert_from_layout(value: DataLayout3_0) -> LayoutConvertResult<Self> {
+        Ok(Self(value.0))
     }
 }
 
 impl ConvertFromLayout<DataLayout3_1> for DataLayout2_0 {
-    fn convert_from_layout(
-        value: DataLayout3_1,
-        _: ByteOrdConvert,
-        _: bool,
-    ) -> LayoutConvertResult<Self> {
-        value.into_ordered().def_map_value(|x| x.into())
+    fn convert_from_layout(value: DataLayout3_1) -> LayoutConvertResult<Self> {
+        value.into_ordered().map(|x| x.into())
     }
 }
 
 impl ConvertFromLayout<DataLayout3_2> for DataLayout2_0 {
-    fn convert_from_layout(
-        value: DataLayout3_2,
-        _: ByteOrdConvert,
-        _: bool,
-    ) -> LayoutConvertResult<Self> {
-        value.into_ordered().def_map_value(|x| x.into())
+    fn convert_from_layout(value: DataLayout3_2) -> LayoutConvertResult<Self> {
+        value.into_ordered().map(|x| x.into())
     }
 }
 
 impl ConvertFromLayout<DataLayout2_0> for DataLayout3_0 {
-    fn convert_from_layout(
-        value: DataLayout2_0,
-        _: ByteOrdConvert,
-        _: bool,
-    ) -> LayoutConvertResult<Self> {
-        Ok(Tentative::new1(Self(value.0)))
+    fn convert_from_layout(value: DataLayout2_0) -> LayoutConvertResult<Self> {
+        Ok(Self(value.0))
     }
 }
 
 impl ConvertFromLayout<DataLayout3_1> for DataLayout3_0 {
-    fn convert_from_layout(
-        value: DataLayout3_1,
-        _: ByteOrdConvert,
-        _: bool,
-    ) -> LayoutConvertResult<Self> {
-        value.into_ordered().def_map_value(|x| x.into())
+    fn convert_from_layout(value: DataLayout3_1) -> LayoutConvertResult<Self> {
+        value.into_ordered().map(|x| x.into())
     }
 }
 
 impl ConvertFromLayout<DataLayout3_2> for DataLayout3_0 {
-    fn convert_from_layout(
-        value: DataLayout3_2,
-        _: ByteOrdConvert,
-        _: bool,
-    ) -> LayoutConvertResult<Self> {
-        value.into_ordered().def_map_value(|x| x.into())
+    fn convert_from_layout(value: DataLayout3_2) -> LayoutConvertResult<Self> {
+        value.into_ordered().map(|x| x.into())
     }
 }
 
 impl ConvertFromLayout<DataLayout2_0> for DataLayout3_1 {
-    fn convert_from_layout(
-        value: DataLayout2_0,
-        _: EndianConvert,
-        _: bool,
-    ) -> LayoutConvertResult<Self> {
+    fn convert_from_layout(value: DataLayout2_0) -> LayoutConvertResult<Self> {
         value.0.into_3_1()
     }
 }
 
 impl ConvertFromLayout<DataLayout3_0> for DataLayout3_1 {
-    fn convert_from_layout(
-        value: DataLayout3_0,
-        _: EndianConvert,
-        _: bool,
-    ) -> LayoutConvertResult<Self> {
+    fn convert_from_layout(value: DataLayout3_0) -> LayoutConvertResult<Self> {
         value.0.into_3_1()
     }
 }
 
 impl ConvertFromLayout<DataLayout3_2> for DataLayout3_1 {
-    fn convert_from_layout(
-        value: DataLayout3_2,
-        _: EndianConvert,
-        _: bool,
-    ) -> LayoutConvertResult<Self> {
-        let out = match value {
-            DataLayout3_2::Unmixed(x) => Self::Ascii(x),
-            DataLayout3_2::Integer(x) => Self::Integer(x),
-            DataLayout3_2::Float(x) => Self::Float(x),
-            DataLayout3_2::Empty => Self::Empty,
-        };
-        Ok(Tentative::new1(out))
+    fn convert_from_layout(value: DataLayout3_2) -> LayoutConvertResult<Self> {
+        match value {
+            DataLayout3_2::NonMixed(x) => Ok(Self(x)),
+            DataLayout3_2::Mixed(x) => x.try_into_non_mixed().map(Self).mult_errors_into(),
+        }
     }
 }
 
 impl ConvertFromLayout<DataLayout2_0> for DataLayout3_2 {
-    fn convert_from_layout(
-        value: DataLayout2_0,
-        _: EndianConvert,
-        _: bool,
-    ) -> LayoutConvertResult<Self> {
+    fn convert_from_layout(value: DataLayout2_0) -> LayoutConvertResult<Self> {
         value.0.into_3_2()
     }
 }
 
 impl ConvertFromLayout<DataLayout3_0> for DataLayout3_2 {
-    fn convert_from_layout(
-        value: DataLayout3_0,
-        _: EndianConvert,
-        _: bool,
-    ) -> LayoutConvertResult<Self> {
+    fn convert_from_layout(value: DataLayout3_0) -> LayoutConvertResult<Self> {
         value.0.into_3_2()
     }
 }
 
 impl ConvertFromLayout<DataLayout3_1> for DataLayout3_2 {
-    fn convert_from_layout(
-        value: DataLayout3_1,
-        _: EndianConvert,
-        _: bool,
-    ) -> LayoutConvertResult<Self> {
-        let out = match value {
-            DataLayout3_1::Ascii(x) => Self::Ascii(x),
-            DataLayout3_1::Integer(x) => Self::Integer(x),
-            DataLayout3_1::Float(x) => Self::Float(x),
-            DataLayout3_1::Empty => Self::Empty,
-        };
-        Ok(Tentative::new1(out))
+    fn convert_from_layout(value: DataLayout3_1) -> LayoutConvertResult<Self> {
+        Ok(value.0.into())
     }
 }
 

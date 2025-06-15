@@ -86,6 +86,20 @@ impl<const LEN: usize> From<SizedByteOrd<LEN>> for ByteOrd {
     }
 }
 
+impl<const LEN: usize> From<SizedByteOrd<LEN>> for Bytes {
+    fn from(_: SizedByteOrd<LEN>) -> Self {
+        // TODO this might produce >8-byte byteord if LEN is >8
+        Bytes(LEN as u8)
+    }
+}
+
+impl<const LEN: usize> From<SizedEndian<LEN>> for Bytes {
+    fn from(_: SizedEndian<LEN>) -> Self {
+        // TODO this might produce >8-byte byteord if LEN is >8
+        Bytes(LEN as u8)
+    }
+}
+
 impl<const LEN: usize> TryFrom<SizedByteOrd<LEN>> for SizedEndian<LEN> {
     type Error = OrderedToEndianError;
     fn try_from(value: SizedByteOrd<LEN>) -> Result<Self, Self::Error> {
@@ -129,11 +143,6 @@ impl TryFrom<Vec<u8>> for ByteOrd {
 impl ByteOrd {
     pub fn new_little4() -> Self {
         ByteOrd((0..4).collect())
-    }
-
-    // ASSUME this will always be 1-8 elements
-    pub fn nbytes(&self) -> Bytes {
-        Bytes(self.0.len() as u8)
     }
 
     pub fn as_endian(&self) -> Option<Endian> {
@@ -242,6 +251,12 @@ impl TryFrom<BitsOrChars> for Chars {
     }
 }
 
+impl From<Chars> for BitsOrChars {
+    fn from(value: Chars) -> Self {
+        BitsOrChars(value.0)
+    }
+}
+
 impl TryFrom<BitsOrChars> for Bytes {
     type Error = BytesError;
     /// Return number of bytes represented by this.
@@ -254,6 +269,12 @@ impl TryFrom<BitsOrChars> for Bytes {
         } else {
             Err(BytesError(x))
         }
+    }
+}
+
+impl From<Bytes> for BitsOrChars {
+    fn from(value: Bytes) -> Self {
+        BitsOrChars(value.0 * 8)
     }
 }
 

@@ -182,6 +182,36 @@ pub enum ToIntError<X> {
     FloatPrecisionLoss(f64, X),
 }
 
+impl<X: fmt::Display> fmt::Display for ToIntError<X> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            // TODO what is the target type?
+            Self::IntOverrange(x) => {
+                write!(
+                    f,
+                    "integer range {x} is larger than target unsigned integer can hold"
+                )
+            }
+            Self::FloatOverrange(x) => {
+                write!(
+                    f,
+                    "float range {x} is larger than target unsigned integer can hold"
+                )
+            }
+            Self::FloatUnderrange(x) => {
+                write!(
+                    f,
+                    "float range {x} is less than zero and \
+                     could not be converted to unsigned integer"
+                )
+            }
+            Self::FloatPrecisionLoss(x, y) => {
+                write!(f, "float range {x} lost precision when converting to {y}")
+            }
+        }
+    }
+}
+
 pub enum ToFloatError<X> {
     /// u64 would lose precision when converted to a float
     IntPrecisionLoss(u64, X),

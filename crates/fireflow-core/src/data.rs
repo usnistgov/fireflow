@@ -201,6 +201,7 @@ enum_from!(
 #[derive(PartialEq, Clone, Copy, Serialize)]
 pub struct AsciiType {
     pub(crate) chars: Chars,
+    pub(crate) range: u64,
 }
 
 /// The type of any floating point column in all versions
@@ -2142,12 +2143,11 @@ impl MixedType {
         notrunc: bool,
     ) -> DeferredResult<Self, BitmaskError, NewMixedTypeError> {
         match dt {
-            AlphaNumType::Ascii => w
-                .try_into()
-                .map(|chars| Self::Ascii(AsciiType { chars }))
-                .into_deferred(),
+            AlphaNumType::Ascii => AsciiType::try_new(w, r)
+                .mult_to_deferred()
+                .def_map_value(|x| x.into()),
             AlphaNumType::Integer => AnyEndianUintType::try_new(w, r, n, notrunc)
-                .def_map_value(Self::Integer)
+                .def_map_value(|x| x.into())
                 .def_errors_into(),
             AlphaNumType::Single => f32::column_type_endian(w, n, r)
                 .map(Self::Float)
@@ -2628,9 +2628,8 @@ impl IsFixed for AsciiType {
         self.chars.into()
     }
 
-    // TODO don't these also have a range?
     fn range(&self) -> Range {
-        Range(u64::MAX.into())
+        Range(self.range.into())
     }
 
     // byte order is meaningless for ASCII so this is an arbitrary dummy
@@ -3167,6 +3166,14 @@ impl<T, const LEN: usize> FixedLayout<OrderedUintType<T, LEN>> {
     }
 }
 
+impl AsciiType {
+    fn try_new(width: Width, range: Range) -> MultiResult<Self, NewAsciiTypeError> {
+        let c = Chars::try_from(width).map_err(|e| e.into());
+        let r = u64::try_from(range.0).map_err(|e| e.into());
+        c.zip(r).map(|(chars, range)| Self { chars, range })
+    }
+}
+
 impl AsciiLayout {
     pub(crate) fn try_new<D>(
         cs: Vec<ColumnLayoutData<D>>,
@@ -3178,18 +3185,16 @@ impl AsciiLayout {
             cs.into_iter()
                 .enumerate()
                 .map(|(i, c)| {
-                    c.width
-                        .try_into()
-                        .map(|chars| AsciiType { chars })
-                        .map_err(|error| {
-                            ColumnError {
-                                error,
-                                index: i.into(),
-                            }
-                            .into()
-                        })
+                    AsciiType::try_new(c.width, c.range).mult_map_errors(|error| {
+                        ColumnError {
+                            error,
+                            index: i.into(),
+                        }
+                        .into()
+                    })
                 })
                 .gather()
+                .map_err(NonEmpty::flatten)
                 .map(|columns| FixedLayout::from_vec(columns).map(AsciiLayout::Fixed))
         }
     }
@@ -4184,10 +4189,16 @@ enum_from_disp!(
     [VariableInt,  UintColumnWarning]
 );
 
-pub struct NewAsciiLayoutError(ColumnError<WidthToCharsError>);
+pub struct NewAsciiLayoutError(ColumnError<NewAsciiTypeError>);
 
-newtype_from!(NewAsciiLayoutError, ColumnError<WidthToCharsError>);
+newtype_from!(NewAsciiLayoutError, ColumnError<NewAsciiTypeError>);
 newtype_disp!(NewAsciiLayoutError);
+
+enum_from_disp!(
+    pub NewAsciiTypeError,
+    [Width, WidthToCharsError],
+    [Range, ToIntError<u64>]
+);
 
 enum_from_disp!(
     pub NewFixedIntLayoutError,
@@ -4236,7 +4247,7 @@ newtype_disp!(MixedColumnError);
 
 enum_from_disp!(
     pub NewMixedTypeError,
-    [Ascii, WidthToCharsError],
+    [Ascii, NewAsciiTypeError],
     [Uint, NewUintTypeError],
     [Float, FloatWidthError]
 );

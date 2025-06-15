@@ -121,16 +121,16 @@ where
             .into_deferred()
     }
 
-    fn triple(&self, n: IndexFromOne) -> (String, String, String) {
+    fn triple(&self, i: IndexFromOne) -> (String, String, String) {
         (
             Self::std_blank(),
-            Self::std(n).to_string(),
+            Self::std(i).to_string(),
             self.to_string(),
         )
     }
 
-    fn pair(&self, n: IndexFromOne) -> (String, String) {
-        let (_, k, v) = self.triple(n);
+    fn pair(&self, i: IndexFromOne) -> (String, String) {
+        let (_, k, v) = self.triple(i);
         (k, v)
     }
 }
@@ -206,16 +206,16 @@ where
         x
     }
 
-    fn triple(opt: &OptionalKw<Self>, n: IndexFromOne) -> (String, String, Option<String>) {
+    fn triple(opt: &OptionalKw<Self>, i: IndexFromOne) -> (String, String, Option<String>) {
         (
             Self::std_blank(),
-            Self::std(n).to_string(),
+            Self::std(i).to_string(),
             opt.0.as_ref().map(|s| s.to_string()),
         )
     }
 
-    fn pair_opt(opt: &OptionalKw<Self>, n: IndexFromOne) -> (String, Option<String>) {
-        let (_, k, v) = Self::triple(opt, n);
+    fn pair_opt(opt: &OptionalKw<Self>, i: IndexFromOne) -> (String, Option<String>) {
+        let (_, k, v) = Self::triple(opt, i);
         (k, v)
     }
 

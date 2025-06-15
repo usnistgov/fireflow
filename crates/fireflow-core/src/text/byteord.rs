@@ -76,6 +76,16 @@ impl<const LEN: usize> From<SizedEndian<LEN>> for SizedByteOrd<LEN> {
     }
 }
 
+impl<const LEN: usize> From<SizedByteOrd<LEN>> for ByteOrd {
+    fn from(value: SizedByteOrd<LEN>) -> Self {
+        match value {
+            // TODO this might produce >8-byte byteord if LEN is >8
+            SizedByteOrd::Endian(e) => e.as_byteord(Bytes(LEN as u8)),
+            SizedByteOrd::Order(o) => ByteOrd(o.to_vec()),
+        }
+    }
+}
+
 impl<const LEN: usize> TryFrom<SizedByteOrd<LEN>> for SizedEndian<LEN> {
     type Error = OrderedToEndianError;
     fn try_from(value: SizedByteOrd<LEN>) -> Result<Self, Self::Error> {
@@ -176,7 +186,7 @@ impl Endian {
         }
     }
 
-    pub fn as_bytord(&self, n: Bytes) -> ByteOrd {
+    pub fn as_byteord(&self, n: Bytes) -> ByteOrd {
         let it = 0..(u8::from(n));
         let xs = match self {
             Endian::Big => it.rev().collect(),

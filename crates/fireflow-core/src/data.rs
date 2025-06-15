@@ -533,6 +533,7 @@ impl OthersReader<'_> {
     }
 }
 
+/// A version-specific data layout
 pub trait VersionedDataLayout: Sized {
     type S;
     type D;
@@ -597,6 +598,49 @@ pub trait VersionedDataLayout: Sized {
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
     ) -> MultiResult<DataWriter<'a>, ColumnWriterError>;
+}
+
+/// A type which has one predefined width
+pub trait HasWidth {
+    fn inherent_width() -> u8;
+}
+
+pub trait HasDatatype {
+    fn datatype(&self) -> AlphaNumType;
+}
+
+/// A type which has a width that may vary
+pub trait IsFixed {
+    type S: ReqMetarootKey;
+
+    fn width(&self) -> u8;
+
+    fn byte_layout(&self) -> Self::S;
+
+    fn req_keywords(&self) -> impl Iterator<Item = (String, String)>
+    where
+        Self: HasDatatype,
+    {
+        [self.byte_layout().pair(), Self::datatype(self).pair()].into_iter()
+    }
+
+    // fn req_meas_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (String, String, String)>;
+
+    // fn opt_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (String, String, Option<String>)>;
+}
+
+/// A type which is may read bytes in a fixed width
+pub trait IsFixedReader {
+    fn into_col_reader(self, nrows: usize) -> AlphaNumColumnReader;
+}
+
+/// A type which is may write bytes in a fixed width
+pub trait IsFixedWriter {
+    fn into_col_writer(
+        self,
+        c: &AnyFCSColumn,
+        check: bool,
+    ) -> Result<AnyFixedColumnWriter, AnyLossError>;
 }
 
 impl AnyEndianUintType {
@@ -2371,36 +2415,80 @@ impl<C> FixedLayout<C> {
     }
 }
 
-pub trait HasWidth {
-    fn inherent_width() -> u8;
-}
-
-pub trait IsFixed {
-    fn width(&self) -> u8;
-}
-
-pub trait IsFixedReader {
-    fn into_col_reader(self, nrows: usize) -> AlphaNumColumnReader;
-}
-
-pub trait IsFixedWriter {
-    fn into_col_writer(
-        self,
-        c: &AnyFCSColumn,
-        check: bool,
-    ) -> Result<AnyFixedColumnWriter, AnyLossError>;
-}
-
 impl<T, const LEN: usize> HasWidth for OrderedUintType<T, LEN> {
     fn inherent_width() -> u8 {
         LEN as u8
     }
 }
 
-impl<T, const LEN: usize> IsFixed for OrderedUintType<T, LEN> {
+impl<T, S> HasDatatype for UintType<T, S> {
+    fn datatype(&self) -> AlphaNumType {
+        AlphaNumType::Integer
+    }
+}
+
+impl HasDatatype for AsciiType {
+    fn datatype(&self) -> AlphaNumType {
+        AlphaNumType::Ascii
+    }
+}
+
+impl<S> HasDatatype for FloatType<f32, S> {
+    fn datatype(&self) -> AlphaNumType {
+        AlphaNumType::Single
+    }
+}
+
+impl<S> HasDatatype for FloatType<f64, S> {
+    fn datatype(&self) -> AlphaNumType {
+        AlphaNumType::Double
+    }
+}
+
+impl HasDatatype for AnyEndianUintType {
+    fn datatype(&self) -> AlphaNumType {
+        AlphaNumType::Integer
+    }
+}
+
+impl HasDatatype for MixedType {
+    fn datatype(&self) -> AlphaNumType {
+        match_many_to_one!(self, Self, [Ascii, Integer, Float, Double], x, {
+            x.datatype()
+        })
+    }
+}
+
+impl<T, const LEN: usize> IsFixed for OrderedUintType<T, LEN>
+where
+    u64: From<T>,
+    T: Copy,
+{
+    type S = ByteOrd;
+
     fn width(&self) -> u8 {
         Self::inherent_width()
     }
+
+    fn byte_layout(&self) -> Self::S {
+        ByteOrd::from(self.byte_layout)
+    }
+
+    // fn req_keywords(&self) -> impl Iterator<Item = (String, String)> {
+    //     let b = ByteOrd::from(self.byte_layout);
+    //     [b.pair()].into_iter()
+    // }
+
+    // fn req_meas_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (String, String, String)> {
+    //     let j = i.into();
+    //     let r = Range(FloatOrInt::from(u64::from(self.bitmask)));
+    //     let w = Width::from(ByteOrd::from(self.byte_layout).nbytes());
+    //     [r.triple(j), w.triple(j)].into_iter()
+    // }
+
+    // fn opt_keywords(&self, _: MeasIndex) -> impl Iterator<Item = (String, String, Option<String>)> {
+    //     [].into_iter()
+    // }
 }
 
 impl<T, const LEN: usize> HasWidth for EndianUintType<T, LEN> {
@@ -2463,6 +2551,8 @@ where
 }
 
 impl IsFixed for AnyEndianUintType {
+    type S = Endian;
+
     fn width(&self) -> u8 {
         match_many_to_one!(
             self,
@@ -2472,6 +2562,22 @@ impl IsFixed for AnyEndianUintType {
             { OrderedUintType::from(*x).width() }
         )
     }
+
+    fn byte_layout(&self) -> Self::S {
+        match_many_to_one!(
+            self,
+            AnyEndianUintType,
+            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+            x,
+            { x.byte_layout.0 }
+        )
+    }
+
+    // fn req_meas_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (String, String, String)> {
+    // }
+
+    // fn opt_keywords(&self, _: MeasIndex) -> impl Iterator<Item = (String, String, Option<String>)> {
+    // }
 }
 
 impl IsFixedReader for AnyEndianUintType {
@@ -2616,8 +2722,14 @@ float_from_writer!(f64, f32, 4, FromF64, F32);
 float_from_writer!(f64, f64, 8, FromF64, F64);
 
 impl<T, const LEN: usize> IsFixed for OrderedFloatType<T, LEN> {
+    type S = ByteOrd;
+
     fn width(&self) -> u8 {
         LEN as u8
+    }
+
+    fn byte_layout(&self) -> Self::S {
+        ByteOrd::from(self.byte_layout)
     }
 }
 
@@ -2705,8 +2817,15 @@ impl From<FloatColumnReader<f64, 8>> for AlphaNumColumnReader {
 }
 
 impl IsFixed for AsciiType {
+    type S = Endian;
+
     fn width(&self) -> u8 {
         u8::from(self.chars)
+    }
+
+    // byte order is meaningless for ASCII so this is an arbitrary dummy
+    fn byte_layout(&self) -> Self::S {
+        Endian::Little
     }
 }
 
@@ -2753,12 +2872,23 @@ impl IsFixedWriter for AsciiType {
 }
 
 impl IsFixed for MixedType {
+    type S = Endian;
+
     fn width(&self) -> u8 {
         match self {
             Self::Ascii(a) => u8::from(a.chars),
             Self::Integer(i) => i.width(),
             Self::Float(f) => OrderedFloatType::from(*f).width(),
             Self::Double(d) => OrderedFloatType::from(*d).width(),
+        }
+    }
+
+    fn byte_layout(&self) -> Self::S {
+        match self {
+            Self::Ascii(_) => Endian::Little,
+            Self::Integer(i) => i.byte_layout(),
+            Self::Float(f) => f.byte_layout.0,
+            Self::Double(f) => f.byte_layout.0,
         }
     }
 }

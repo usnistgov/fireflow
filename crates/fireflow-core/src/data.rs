@@ -2288,21 +2288,6 @@ impl From<ColumnLayoutData3_2> for ColumnLayoutData2_0 {
     }
 }
 
-impl<C> FixedLayout<C> {
-    fn from_vec(xs: Vec<C>) -> Option<Self> {
-        NonEmpty::from_vec(xs).map(|columns| FixedLayout { columns })
-    }
-
-    fn inner_into<D: From<C>>(&self) -> FixedLayout<D>
-    where
-        C: Copy,
-    {
-        FixedLayout {
-            columns: self.columns.as_ref().map(|x| (*x).into()),
-        }
-    }
-}
-
 impl DelimitedLayout {
     fn into_col_reader_maybe_rows(self, nbytes: usize, kw_tot: Option<Tot>) -> ColumnReader {
         if self.ncols == 0 {
@@ -2339,6 +2324,25 @@ impl DelimitedLayout {
 }
 
 impl<C> FixedLayout<C> {
+    pub(crate) fn req_keywords(&self) -> impl Iterator<Item = (String, String)>
+    where
+        C: IsFixed + HasDatatype,
+    {
+        // TODO $PAR?
+        self.columns.head.req_keywords()
+    }
+
+    pub(crate) fn req_meas_keywords(&self) -> impl Iterator<Item = (String, String, String)>
+    where
+        C: IsFixed + HasDatatype,
+    {
+        self.columns
+            .iter()
+            .enumerate()
+            .map(|(i, c)| c.req_meas_keywords(i.into()))
+            .flatten()
+    }
+
     fn event_width(&self) -> usize
     where
         C: IsFixed,
@@ -2423,6 +2427,19 @@ impl<C> FixedLayout<C> {
             .map(|columns| {
                 FixedWriter::try_new(columns, df.nrows(), self.event_width() * df.nrows())
             })
+    }
+
+    fn from_vec(xs: Vec<C>) -> Option<Self> {
+        NonEmpty::from_vec(xs).map(|columns| Self { columns })
+    }
+
+    fn inner_into<D: From<C>>(&self) -> FixedLayout<D>
+    where
+        C: Copy,
+    {
+        FixedLayout {
+            columns: self.columns.as_ref().map(|x| (*x).into()),
+        }
     }
 }
 

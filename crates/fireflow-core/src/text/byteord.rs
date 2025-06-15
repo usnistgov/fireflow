@@ -16,9 +16,10 @@ use std::str::FromStr;
 /// Endianness
 ///
 /// This is also stored in the $BYTEORD key in 3.1+
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Serialize, PartialEq, Eq, Hash, Default)]
 pub enum Endian {
     Big,
+    #[default]
     Little,
 }
 
@@ -140,11 +141,13 @@ impl TryFrom<Vec<u8>> for ByteOrd {
     }
 }
 
-impl ByteOrd {
-    pub fn new_little4() -> Self {
-        ByteOrd((0..4).collect())
+impl Default for ByteOrd {
+    fn default() -> Self {
+        Self((0..4).collect())
     }
+}
 
+impl ByteOrd {
     pub fn as_endian(&self) -> Option<Endian> {
         let mut it = self.0.iter().map(|x| usize::from(*x));
         if it.by_ref().enumerate().all(|(i, x)| i == x) {

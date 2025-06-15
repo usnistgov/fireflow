@@ -1699,7 +1699,7 @@ where
                 }
                 ToIntError::FloatPrecisionLoss(x, y) => go(y, BitmaskError::FloatPrecisionLoss(x)),
             },
-            Tentative::new1,
+            |x| Tentative::new1(Self::next_bitmask(x)),
         )
     }
 
@@ -2491,9 +2491,10 @@ where
         Bytes::from(self.byte_layout).into()
     }
 
-    // TODO won't this be off by one?
     fn range(&self) -> Range {
-        Range(u64::from(self.bitmask).into())
+        let x = u64::from(self.bitmask);
+        // TODO fix u64 max
+        Range(if x == u64::MAX { x } else { x + 1 }.into())
     }
 
     fn byte_layout(&self) -> Self::S {

@@ -1269,7 +1269,7 @@ impl fmt::Display for GatingError {
     }
 }
 
-/// The value of the $PnR key
+/// The value of the $PnR key.
 #[derive(Clone, Copy, Serialize)]
 pub struct Range(pub FloatOrInt);
 

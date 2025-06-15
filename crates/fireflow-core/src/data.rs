@@ -162,9 +162,9 @@ enum_from!(
 );
 
 /// Byte layout for delimited ASCII.
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
 pub struct DelimitedLayout {
-    pub ncols: usize,
+    pub ranges: NonEmpty<u64>,
 }
 
 /// Byte layout where each column has a fixed width.
@@ -1438,6 +1438,14 @@ impl<C: Serialize> Serialize for FixedLayout<C> {
     }
 }
 
+impl Serialize for DelimitedLayout {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut state = serializer.serialize_struct("DelimitedLayout", 1)?;
+        state.serialize_field("ranges", Vec::from(self.ranges.as_ref()).as_slice())?;
+        state.end()
+    }
+}
+
 impl FixedLayout<AnyEndianUintType> {
     pub(crate) fn try_new<D>(
         cs: Vec<ColumnLayoutData<D>>,
@@ -2296,48 +2304,41 @@ impl DelimitedLayout {
     }
 
     pub(crate) fn req_meas_keywords(&self) -> impl Iterator<Item = (String, String, String)> {
-        (0..self.ncols)
-            .map(|i| {
+        self.ranges
+            .iter()
+            .enumerate()
+            .map(|(i, r)| {
                 [
                     Width::Variable.triple(i.into()),
-                    // TODO missing range
-                    Range(u64::MAX.into()).triple(i.into()),
+                    Range((*r).into()).triple(i.into()),
                 ]
             })
             .flatten()
     }
 
     fn into_col_reader_maybe_rows(self, nbytes: usize, kw_tot: Option<Tot>) -> ColumnReader {
-        if self.ncols == 0 {
-            ColumnReader::Empty
-        } else {
-            match kw_tot {
-                // TODO not DRY
-                Some(tot) => {
-                    ColumnReader::DelimitedAscii(DelimAsciiReader(DelimAsciiReaderInner {
-                        columns: NonEmpty::collect(repeat_n(vec![0; tot.0], self.ncols)).unwrap(),
-                        nbytes,
-                    }))
-                }
-                None => ColumnReader::DelimitedAsciiNoRows(DelimAsciiReaderNoRows(
-                    DelimAsciiReaderInner {
-                        columns: NonEmpty::collect(repeat_n(vec![], self.ncols)).unwrap(),
-                        nbytes,
-                    },
-                )),
+        let n = self.ranges.len();
+        match kw_tot {
+            // TODO not DRY
+            Some(tot) => ColumnReader::DelimitedAscii(DelimAsciiReader(DelimAsciiReaderInner {
+                columns: NonEmpty::collect(repeat_n(vec![0; tot.0], n)).unwrap(),
+                nbytes,
+            })),
+            None => {
+                ColumnReader::DelimitedAsciiNoRows(DelimAsciiReaderNoRows(DelimAsciiReaderInner {
+                    columns: NonEmpty::collect(repeat_n(vec![], n)).unwrap(),
+                    nbytes,
+                }))
             }
         }
     }
 
     fn into_col_reader(self, nbytes: usize, tot: Tot) -> ColumnReader {
-        if self.ncols == 0 {
-            ColumnReader::Empty
-        } else {
-            ColumnReader::DelimitedAscii(DelimAsciiReader(DelimAsciiReaderInner {
-                columns: NonEmpty::collect(repeat_n(vec![0; tot.0], self.ncols)).unwrap(),
-                nbytes,
-            }))
-        }
+        let n = self.ranges.len();
+        ColumnReader::DelimitedAscii(DelimAsciiReader(DelimAsciiReaderInner {
+            columns: NonEmpty::collect(repeat_n(vec![0; tot.0], n)).unwrap(),
+            nbytes,
+        }))
     }
 }
 
@@ -3213,9 +3214,20 @@ impl AsciiLayout {
     pub(crate) fn try_new<D>(
         cs: Vec<ColumnLayoutData<D>>,
     ) -> MultiResult<Option<Self>, NewAsciiLayoutError> {
-        let ncols = cs.len();
         if cs.iter().all(|c| c.width == Width::Variable) {
-            Ok(Some(AsciiLayout::Delimited(DelimitedLayout { ncols })))
+            cs.into_iter()
+                .enumerate()
+                .map(|(i, c)| {
+                    u64::try_from(c.range.0).map_err(|error| {
+                        ColumnError {
+                            error: error.into(),
+                            index: i.into(),
+                        }
+                        .into()
+                    })
+                })
+                .gather()
+                .map(|rs| NonEmpty::from_vec(rs).map(|ranges| DelimitedLayout { ranges }.into()))
         } else {
             cs.into_iter()
                 .enumerate()
@@ -3236,7 +3248,7 @@ impl AsciiLayout {
 
     fn ncols(&self) -> usize {
         match self {
-            AsciiLayout::Delimited(a) => a.ncols,
+            AsciiLayout::Delimited(a) => a.ranges.len(),
             AsciiLayout::Fixed(l) => l.columns.len(),
         }
     }

@@ -599,6 +599,8 @@ pub trait VersionedDataLayout: Sized {
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
     ) -> MultiResult<DataWriter<'a>, ColumnWriterError>;
+
+    fn layout_values(&self) -> LayoutValues<Self::S, Self::D>;
 }
 
 /// A type which has one predefined width
@@ -3591,6 +3593,10 @@ impl VersionedDataLayout for DataLayout2_0 {
             seg: seg.into_any(),
         }))
     }
+
+    fn layout_values(&self) -> OrderedLayoutValues {
+        self.0.layout_values()
+    }
 }
 
 impl VersionedDataLayout for DataLayout3_0 {
@@ -3660,6 +3666,10 @@ impl VersionedDataLayout for DataLayout3_0 {
         conf: &ReaderConfig,
     ) -> AnalysisReaderResult<AnalysisReader> {
         get_analysis_seg_req(kws, seg, conf)
+    }
+
+    fn layout_values(&self) -> OrderedLayoutValues {
+        self.0.layout_values()
     }
 }
 
@@ -3744,6 +3754,10 @@ impl VersionedDataLayout for DataLayout3_1 {
         conf: &ReaderConfig,
     ) -> AnalysisReaderResult<AnalysisReader> {
         get_analysis_seg_req(kws, seg, conf)
+    }
+
+    fn layout_values(&self) -> LayoutValues3_1 {
+        self.0.layout_values(())
     }
 }
 
@@ -3913,6 +3927,22 @@ impl VersionedDataLayout for DataLayout3_2 {
         .map(|s| AnalysisReader { seg: s })
         .inner_into();
         Ok(ret)
+    }
+
+    fn layout_values(&self) -> LayoutValues3_2 {
+        match self {
+            Self::NonMixed(x) => x.layout_values(None),
+            // oops...
+            Self::Mixed(x) => {
+                // let c0 = &x.columns.head;
+                // if c0.datatype() == AlphaNumType::Ascii {
+                //     LayoutValues3_2 {
+                //         datatype: Ascii
+                //     }
+                // } else {
+                // }
+            }
+        }
     }
 }
 

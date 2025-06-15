@@ -2289,6 +2289,24 @@ impl From<ColumnLayoutData3_2> for ColumnLayoutData2_0 {
 }
 
 impl DelimitedLayout {
+    pub(crate) fn req_keywords(&self) -> impl Iterator<Item = (String, String)> {
+        // NOTE BYTEORD is meaningless for delimited ASCII so little endian
+        // is an arbitrary dummy
+        [AlphaNumType::Ascii.pair(), Endian::Little.pair()].into_iter()
+    }
+
+    pub(crate) fn req_meas_keywords(&self) -> impl Iterator<Item = (String, String, String)> {
+        (0..self.ncols)
+            .map(|i| {
+                [
+                    Width::Variable.triple(i.into()),
+                    // TODO missing range
+                    Range(u64::MAX.into()).triple(i.into()),
+                ]
+            })
+            .flatten()
+    }
+
     fn into_col_reader_maybe_rows(self, nbytes: usize, kw_tot: Option<Tot>) -> ColumnReader {
         if self.ncols == 0 {
             ColumnReader::Empty

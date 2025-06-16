@@ -58,6 +58,7 @@ use itertools::Itertools;
 use nonempty::NonEmpty;
 use serde::ser::SerializeStruct;
 use serde::Serialize;
+use std::collections::HashMap;
 use std::convert::Infallible;
 use std::fmt;
 use std::io;
@@ -178,8 +179,9 @@ enum_from!(
     /// Byte layout for integers that may be in any byte order.
     #[derive(Clone, Serialize)]
     pub AnyOrderedUintLayout,
-    [Uint08, FixedLayout<Uint08Type, ()>],
-    [Uint16, FixedLayout<Uint16Type, Endian>],
+    // TODO the first two don't need to be ordered
+    [Uint08, FixedLayout<Uint08Type, SizedByteOrd<1>>],
+    [Uint16, FixedLayout<Uint16Type, SizedByteOrd<2>>],
     [Uint24, FixedLayout<Uint24Type, SizedByteOrd<3>>],
     [Uint32, FixedLayout<Uint32Type, SizedByteOrd<4>>],
     [Uint40, FixedLayout<Uint40Type, SizedByteOrd<5>>],
@@ -652,65 +654,21 @@ impl AnyUintType {
         Uint56Type: TryFrom<X, Error = E>,
         Uint64Type: TryFrom<X, Error = E>,
     {
-        let i = starting_index;
-        match self {
-            AnyUintType::Uint08(x) => Uint08Type::try_from_many(tail, i).map(|xs| {
-                FixedLayout {
-                    columns: NonEmpty::from((x, xs)),
-                    byte_layout: (),
-                }
-                .into()
-            }),
-            AnyUintType::Uint16(x) => Uint16Type::try_from_many(tail, i).map(|xs| {
-                FixedLayout {
-                    columns: NonEmpty::from((x, xs)),
-                    byte_layout: endian,
-                }
-                .into()
-            }),
-            AnyUintType::Uint24(x) => Uint24Type::try_from_many(tail, i).map(|xs| {
-                FixedLayout {
-                    columns: NonEmpty::from((x, xs)),
-                    byte_layout: endian.into(),
-                }
-                .into()
-            }),
-            AnyUintType::Uint32(x) => Uint32Type::try_from_many(tail, i).map(|xs| {
-                FixedLayout {
-                    columns: NonEmpty::from((x, xs)),
-                    byte_layout: endian.into(),
-                }
-                .into()
-            }),
-            AnyUintType::Uint40(x) => Uint40Type::try_from_many(tail, i).map(|xs| {
-                FixedLayout {
-                    columns: NonEmpty::from((x, xs)),
-                    byte_layout: endian.into(),
-                }
-                .into()
-            }),
-            AnyUintType::Uint48(x) => Uint48Type::try_from_many(tail, i).map(|xs| {
-                FixedLayout {
-                    columns: NonEmpty::from((x, xs)),
-                    byte_layout: endian.into(),
-                }
-                .into()
-            }),
-            AnyUintType::Uint56(x) => Uint56Type::try_from_many(tail, i).map(|xs| {
-                FixedLayout {
-                    columns: NonEmpty::from((x, xs)),
-                    byte_layout: endian.into(),
-                }
-                .into()
-            }),
-            AnyUintType::Uint64(x) => Uint64Type::try_from_many(tail, i).map(|xs| {
-                FixedLayout {
-                    columns: NonEmpty::from((x, xs)),
-                    byte_layout: endian.into(),
-                }
-                .into()
-            }),
-        }
+        match_many_to_one!(
+            self,
+            Self,
+            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+            x,
+            {
+                UintType::try_from_many(tail, starting_index).map(|xs| {
+                    FixedLayout {
+                        columns: NonEmpty::from((x, xs)),
+                        byte_layout: endian.into(),
+                    }
+                    .into()
+                })
+            }
+        )
     }
 }
 
@@ -1403,6 +1361,47 @@ impl FixedLayout<AnyUintType, Endian> {
 }
 
 impl FixedLayout<MixedType, Endian> {
+    fn mixed_layout_values(&self) -> LayoutValues<Endian, Option<NumType>> {
+        let cs: NonEmpty<_> = self.columns.as_ref().map(|c| ColumnLayoutValues {
+            width: Width::Fixed(c.fixed_width()),
+            range: c.range(),
+            datatype: c.as_num_type(),
+        });
+        // If any numeric types are none, then that means at least one column is
+        // ASCII, which means that $DATATYPE needs to be "A" since $PnDATATYPE
+        // cannot be "A".
+        let (datatype, columns) = if let Ok(mut ds) = cs.as_ref().try_map(|c| c.datatype.ok_or(()))
+        {
+            // Determine which type appears the most, use that for $DATATYPE
+            ds.sort();
+            // TODO this should be a general non-empty function
+            let mut counts = NonEmpty::new((ds.head, 1));
+            for d in ds.tail {
+                if counts.last().0 == d {
+                    counts.last_mut().1 += 1;
+                } else {
+                    counts.push((d, 1));
+                }
+            }
+            let mode = counts.maximum_by_key(|x| x.1).0;
+            // Set all columns which have same type as $DATATYPE to None
+            let new_cs = cs.map(|c| {
+                if c.datatype.is_some_and(|x| x == mode) {
+                    c.datatype == None;
+                }
+                c
+            });
+            (mode.into(), new_cs)
+        } else {
+            (AlphaNumType::Ascii, cs)
+        };
+        LayoutValues3_2 {
+            datatype,
+            byte_layout: self.byte_layout,
+            columns: columns.into(),
+        }
+    }
+
     pub(crate) fn try_into_ordered(
         self,
     ) -> MultiResult<OrderedDataLayout, MixedToOrderedLayoutError> {
@@ -1679,12 +1678,40 @@ where
         Self::range_to_bitmask(r, notrunc).map(|bitmask| UintType { bitmask })
     }
 
-    fn layout_endian(
+    // fn layout_endian(
+    //     rs: Vec<Range>,
+    //     byteord: &ByteOrd,
+    //     notrunc: bool,
+    // ) -> DeferredResult<
+    //     Option<FixedLayout<UintType<Self, INTLEN>, Endian>>,
+    //     ColumnError<BitmaskError>,
+    //     ColumnError<IntOrderedColumnError>,
+    // > {
+    //     rs.into_iter()
+    //         .enumerate()
+    //         .map(|(i, r)| {
+    //             // TODO this is sloppy, it isn't clear at what point the column
+    //             // index should be put in the error
+    //             Self::column_type(r, notrunc)
+    //                 .map_errors(|error| ColumnError {
+    //                     error,
+    //                     index: i.into(),
+    //                 })
+    //                 .map_warnings(|warning| ColumnError {
+    //                     error: warning,
+    //                     index: i.into(),
+    //                 })
+    //         })
+    //         .map(Tentative::mconcat)
+    //         .def_map_value(FixedLayout::from_vec)
+    // }
+
+    fn layout_ordered(
         rs: Vec<Range>,
         byteord: &ByteOrd,
         notrunc: bool,
     ) -> DeferredResult<
-        Option<FixedLayout<UintType<Self, INTLEN>, Endian>>,
+        Option<FixedLayout<UintType<Self, INTLEN>, SizedByteOrd<INTLEN>>>,
         ColumnError<BitmaskError>,
         ColumnError<IntOrderedColumnError>,
     > {
@@ -1703,36 +1730,6 @@ where
                         index: i.into(),
                     })
             })
-            .map(Tentative::mconcat)
-            .def_map_value(FixedLayout::from_vec)
-    }
-
-    fn layout_ordered(
-        rs: Vec<Range>,
-        byteord: &ByteOrd,
-        notrunc: bool,
-    ) -> DeferredResult<
-        Option<FixedLayout<UintType<Self, INTLEN>, SizedByteOrd<INTLEN>>>,
-        ColumnError<BitmaskError>,
-        ColumnError<IntOrderedColumnError>,
-    > {
-        rs.into_iter()
-            .enumerate()
-            .map(|(i, r)| {
-                // TODO this is sloppy, it isn't clear at what point the column
-                // index should be put in the error
-                Self::column_type_ordered(r, byteord, notrunc)
-                    .def_map_errors(|error| ColumnError {
-                        error,
-                        index: i.into(),
-                    })
-                    .def_map_warnings(|warning| ColumnError {
-                        error: warning,
-                        index: i.into(),
-                    })
-            })
-            .gather()
-            .map_err(DeferredFailure::mconcat)
             .map(Tentative::mconcat)
             .def_map_value(FixedLayout::from_vec)
     }
@@ -1823,30 +1820,30 @@ where
         })
     }
 
-    fn column_type_ordered(
-        w: Width,
-        o: &ByteOrd,
-        r: Range,
-    ) -> Result<FloatType<Self, LEN>, OrderedFloatError> {
-        Bytes::try_from(w)
-            .map_err(|e| e.into())
-            .map_err(OrderedFloatError::WrongWidth)
-            .and_then(|bytes| {
-                if usize::from(u8::from(bytes)) == LEN {
-                    let range = Self::range(r);
-                    // TODO this now seems unnecessary
-                    o.as_sized_byteord()
-                        .map(|_| FloatType { range })
-                        .map_err(OrderedFloatError::Order)
-                } else {
-                    Err(FloatWidthError::WrongWidth(WrongFloatWidth {
-                        expected: LEN,
-                        width: bytes,
-                    })
-                    .into())
-                }
-            })
-    }
+    // fn column_type_ordered(
+    //     w: Width,
+    //     o: &ByteOrd,
+    //     r: Range,
+    // ) -> Result<FloatType<Self, LEN>, OrderedFloatError> {
+    //     Bytes::try_from(w)
+    //         .map_err(|e| e.into())
+    //         .map_err(OrderedFloatError::WrongWidth)
+    //         .and_then(|bytes| {
+    //             if usize::from(u8::from(bytes)) == LEN {
+    //                 let range = Self::range(r);
+    //                 // TODO this now seems unnecessary
+    //                 o.as_sized_byteord()
+    //                     .map(|_| FloatType { range })
+    //                     .map_err(OrderedFloatError::Order)
+    //             } else {
+    //                 Err(FloatWidthError::WrongWidth(WrongFloatWidth {
+    //                     expected: LEN,
+    //                     width: bytes,
+    //                 })
+    //                 .into())
+    //             }
+    //         })
+    // }
 
     fn layout_endian<D>(
         cs: Vec<ColumnLayoutValues<D>>,
@@ -1866,28 +1863,35 @@ where
             .map(|xs| FixedLayout::from_vec(xs, endian))
     }
 
+    fn column_types<D>(
+        cs: Vec<ColumnLayoutValues<D>>,
+    ) -> MultiResult<Vec<FloatType<Self, LEN>>, ColumnError<FloatWidthError>> {
+        cs.into_iter()
+            .enumerate()
+            .map(|(i, c)| {
+                Self::column_type(c.width, c.range).map_err(|error| ColumnError {
+                    error,
+                    index: i.into(),
+                })
+            })
+            .gather()
+    }
+
     fn layout_ordered<D>(
         cs: Vec<ColumnLayoutValues<D>>,
-        byteord: &ByteOrd,
+        byteord: ByteOrd,
     ) -> MultiResult<
         Option<FixedLayout<FloatType<Self, LEN>, SizedByteOrd<LEN>>>,
         NewOrderedUintLayoutError,
-    > {
-        byteord
-            .as_sized_byteord()
+    >
+    where
+        SizedByteOrd<LEN>: TryFrom<ByteOrd>,
+        NewOrderedUintLayoutError: From<<SizedByteOrd<LEN> as TryFrom<ByteOrd>>::Error>,
+    {
+        SizedByteOrd::<LEN>::try_from(byteord)
             .map_err(|e| NonEmpty::new(e.into()))
             .and_then(|byte_layout| {
-                cs.into_iter()
-                    .enumerate()
-                    .map(|(i, c)| {
-                        Self::column_type_ordered(c.width, byteord, c.range).map_err(|error| {
-                            ColumnError {
-                                error,
-                                index: i.into(),
-                            }
-                        })
-                    })
-                    .gather()
+                Self::column_types(cs)
                     .mult_errors_into()
                     .map(|xs| FixedLayout::from_vec(xs, byte_layout))
             })
@@ -2076,6 +2080,15 @@ impl MixedType {
                 .def_errors_into(),
             AlphaNumType::Single => f32::column_type(w, r).map(Self::Float).into_deferred(),
             AlphaNumType::Double => f64::column_type(w, r).map(Self::Double).into_deferred(),
+        }
+    }
+
+    fn as_num_type(&self) -> Option<NumType> {
+        match self {
+            Self::Ascii(_) => None,
+            Self::Integer(_) => Some(NumType::Integer),
+            Self::Float(_) => Some(NumType::Single),
+            Self::Double(_) => Some(NumType::Double),
         }
     }
 }
@@ -2334,17 +2347,16 @@ impl DelimitedLayout {
 }
 
 impl<C, S> FixedLayout<C, S> {
-    fn layout_values<D: Copy>(&self, datatype: D) -> LayoutValues<S, D>
+    fn layout_values<D: Copy, R>(&self, datatype: D) -> LayoutValues<R, D>
     where
-        S: Clone,
-        // C: IsFixed + HasByteLayout + HasDatatype,
+        R: From<S>,
+        S: Copy,
         C: IsFixed + HasDatatype,
     {
         let c0 = &self.columns.head;
         LayoutValues {
             datatype: c0.datatype(),
-            // TODO clone
-            byte_layout: self.byte_layout.clone(),
+            byte_layout: self.byte_layout.into(),
             columns: self
                 .columns
                 .as_ref()
@@ -2355,6 +2367,26 @@ impl<C, S> FixedLayout<C, S> {
                 })
                 .into(),
         }
+    }
+
+    fn byte_layout_into<X>(self) -> FixedLayout<C, X>
+    where
+        X: From<S>,
+    {
+        FixedLayout {
+            byte_layout: self.byte_layout.into(),
+            columns: self.columns,
+        }
+    }
+
+    fn byte_layout_try_into<X>(self) -> Result<FixedLayout<C, X>, X::Error>
+    where
+        X: TryFrom<S>,
+    {
+        self.byte_layout.try_into().map(|byte_layout| FixedLayout {
+            byte_layout,
+            columns: self.columns,
+        })
     }
 
     fn event_width(&self) -> usize
@@ -3063,8 +3095,8 @@ fn widths_to_single_fixed_bytes(ws: &[Width]) -> MultiResult<Option<Bytes>, Sing
 impl AnyOrderedUintLayout {
     fn layout_values(&self) -> OrderedLayoutValues {
         match self {
-            Self::Uint08(x) => x.inner_into::<UintType<u8, 1>>().layout_values(()),
-            Self::Uint16(x) => x.inner_into::<UintType<u16, 2>>().layout_values(()),
+            Self::Uint08(x) => x.layout_values(()),
+            Self::Uint16(x) => x.layout_values(()),
             Self::Uint24(x) => x.layout_values(()),
             Self::Uint32(x) => x.layout_values(()),
             Self::Uint40(x) => x.layout_values(()),
@@ -3085,10 +3117,9 @@ impl AnyOrderedUintLayout {
             .def_and_maybe(|b| {
                 if let Some(bytes) = b {
                     match u8::from(bytes) {
-                        1 => {
-                            u8::layout_endian(rs, o, notrunc).def_map_value(|x| x.map(Self::Uint08))
-                        }
-                        2 => u16::layout_endian(rs, o, notrunc)
+                        1 => u8::layout_ordered(rs, o, notrunc)
+                            .def_map_value(|x| x.map(Self::Uint08)),
+                        2 => u16::layout_ordered(rs, o, notrunc)
                             .def_map_value(|x| x.map(Self::Uint16)),
                         3 => u32::layout_ordered(rs, o, notrunc)
                             .def_map_value(|x| x.map(Self::Uint24)),
@@ -3151,12 +3182,8 @@ impl AnyOrderedUintLayout {
         E: From<TotEventMismatch>,
     {
         match self {
-            Self::Uint08(x) => x
-                .inner_into::<UintType<u8, 1>>()
-                .into_col_reader(seg, tot, conf),
-            Self::Uint16(x) => x
-                .inner_into::<UintType<u16, 2>>()
-                .into_col_reader(seg, tot, conf),
+            Self::Uint08(x) => x.into_col_reader(seg, tot, conf),
+            Self::Uint16(x) => x.into_col_reader(seg, tot, conf),
             Self::Uint24(x) => x.into_col_reader(seg, tot, conf),
             Self::Uint32(x) => x.into_col_reader(seg, tot, conf),
             Self::Uint40(x) => x.into_col_reader(seg, tot, conf),
@@ -3172,8 +3199,8 @@ impl AnyOrderedUintLayout {
         conf: &WriteConfig,
     ) -> MultiResult<Option<FixedWriter<'a>>, ColumnWriterError> {
         match self {
-            Self::Uint08(x) => x.inner_into::<UintType<u8, 1>>().as_writer(df, conf),
-            Self::Uint16(x) => x.inner_into::<UintType<u16, 2>>().as_writer(df, conf),
+            Self::Uint08(x) => x.as_writer(df, conf),
+            Self::Uint16(x) => x.as_writer(df, conf),
             Self::Uint24(x) => x.as_writer(df, conf),
             Self::Uint32(x) => x.as_writer(df, conf),
             Self::Uint40(x) => x.as_writer(df, conf),
@@ -3373,9 +3400,11 @@ impl OrderedFloatLayout {
 
     fn into_endian_layout(self) -> LayoutConvertResult<EndianFloatLayout> {
         match self {
-            Self::F32(x) => x.into_endian().map(|x| x.into()).mult_errors_into(),
-            Self::F64(x) => x.into_endian().map(|x| x.into()).mult_errors_into(),
+            Self::F32(x) => x.byte_layout_try_into().map(|x| x.into()),
+            Self::F64(x) => x.byte_layout_try_into().map(|x| x.into()),
         }
+        .map_err(NonEmpty::new)
+        .mult_errors_into()
     }
 }
 
@@ -3408,8 +3437,8 @@ impl EndianFloatLayout {
         E: From<UnevenEventWidth> + From<TotEventMismatch>,
     {
         match self {
-            Self::F32(x) => x.inner_into::<F32Type>().into_col_reader(seg, tot, conf),
-            Self::F64(x) => x.inner_into::<F64Type>().into_col_reader(seg, tot, conf),
+            Self::F32(x) => x.byte_layout_into().into_col_reader(seg, tot, conf),
+            Self::F64(x) => x.byte_layout_into().into_col_reader(seg, tot, conf),
         }
     }
 
@@ -3419,8 +3448,8 @@ impl EndianFloatLayout {
         conf: &WriteConfig,
     ) -> MultiResult<Option<FixedWriter<'a>>, ColumnWriterError> {
         match self {
-            Self::F32(x) => x.inner_into::<F32Type>().as_writer(df, conf),
-            Self::F64(x) => x.inner_into::<F64Type>().as_writer(df, conf),
+            Self::F32(x) => x.byte_layout_into().as_writer(df, conf),
+            Self::F64(x) => x.byte_layout_into().as_writer(df, conf),
         }
     }
 }
@@ -3850,16 +3879,7 @@ impl VersionedDataLayout for DataLayout3_2 {
     fn layout_values(&self) -> LayoutValues3_2 {
         match self {
             Self::NonMixed(x) => x.layout_values(None),
-            // oops...
-            Self::Mixed(x) => {
-                // let c0 = &x.columns.head;
-                // if c0.datatype() == AlphaNumType::Ascii {
-                //     LayoutValues3_2 {
-                //         datatype: Ascii
-                //     }
-                // } else {
-                // }
-            }
+            Self::Mixed(x) => x.mixed_layout_values(),
         }
     }
 }
@@ -4054,10 +4074,10 @@ impl OrderedDataLayout {
                     .def_map_value(|x| x.map_or(Self::Empty, Self::Integer))
                     .def_inner_into()
             }
-            AlphaNumType::Single => f32::layout_ordered(columns, &byteord)
+            AlphaNumType::Single => f32::layout_ordered(columns, byteord)
                 .map(|x| x.map_or(Self::Empty, |y| Self::Float(OrderedFloatLayout::F32(y))))
                 .mult_to_deferred(),
-            AlphaNumType::Double => f64::layout_ordered(columns, &byteord)
+            AlphaNumType::Double => f64::layout_ordered(columns, byteord)
                 .map(|x| x.map_or(Self::Empty, |y| Self::Float(OrderedFloatLayout::F64(y))))
                 .mult_to_deferred(),
         }

@@ -25,11 +25,20 @@ pub enum Endian {
 
 /// The byte order as shown in the $BYTEORD field in 2.0 and 3.0
 ///
-/// This must be a set of unique integers in {1, N} where N is the length of the
-/// vector and ranged [1, 8]. It will actually be stored as 1 less than the
-/// input sequence, which will reflect the 0-indexed operation of Rust arrays.
-#[derive(Clone, Serialize)]
-pub struct ByteOrd(Vec<u8>);
+/// This must be a list of integers belonging to the unordered set {1..N} where
+/// N is the total number of bytes. The numbers will be stored as one less the
+/// displayed integers to make array indexing easier.
+#[derive(Clone, Copy, Serialize)]
+pub enum ByteOrd {
+    O1([u8; 1]),
+    O2([u8; 2]),
+    O3([u8; 3]),
+    O4([u8; 4]),
+    O5([u8; 5]),
+    O6([u8; 6]),
+    O7([u8; 7]),
+    O8([u8; 8]),
+}
 
 /// The value for the $PnB key (all versions)
 ///
@@ -126,39 +135,73 @@ impl<const LEN: usize> From<SizedEndian<LEN>> for SizedByteOrd<LEN> {
     }
 }
 
-impl<const LEN: usize> From<SizedByteOrd<LEN>> for ByteOrd {
-    fn from(value: SizedByteOrd<LEN>) -> Self {
-        match value {
-            // TODO this might produce >8-byte byteord if LEN is >8
-            SizedByteOrd::Endian(e) => e.as_byteord(Bytes(LEN as u8)),
-            SizedByteOrd::Order(o) => ByteOrd(o.to_vec()),
+macro_rules! byteord_from_sized {
+    ($len:expr, $var:ident) => {
+        impl From<SizedByteOrd<$len>> for ByteOrd {
+            fn from(value: SizedByteOrd<$len>) -> Self {
+                match value {
+                    SizedByteOrd::Endian(e) => {
+                        let mut o = std::array::from_fn(|i| i as u8);
+                        if e == Endian::Big {
+                            o.reverse();
+                        };
+                        ByteOrd::$var(o)
+                    }
+                    SizedByteOrd::Order(o) => ByteOrd::$var(o),
+                }
+            }
         }
-    }
-}
 
-impl<const LEN: usize> From<SizedByteOrd<LEN>> for Bytes {
-    fn from(_: SizedByteOrd<LEN>) -> Self {
-        // TODO this might produce >8-byte byteord if LEN is >8
-        Bytes(LEN as u8)
-    }
-}
-
-impl<const LEN: usize> From<SizedEndian<LEN>> for Bytes {
-    fn from(_: SizedEndian<LEN>) -> Self {
-        // TODO this might produce >8-byte byteord if LEN is >8
-        Bytes(LEN as u8)
-    }
-}
-
-impl<const LEN: usize> TryFrom<SizedByteOrd<LEN>> for SizedEndian<LEN> {
-    type Error = OrderedToEndianError;
-    fn try_from(value: SizedByteOrd<LEN>) -> Result<Self, Self::Error> {
-        match value {
-            SizedByteOrd::Endian(x) => Ok(Self(x)),
-            SizedByteOrd::Order(_) => Err(OrderedToEndianError),
+        impl TryFrom<SizedByteOrd<$len>> for Endian {
+            type Error = OrderedToEndianError;
+            fn try_from(value: SizedByteOrd<$len>) -> Result<Self, Self::Error> {
+                match value {
+                    SizedByteOrd::Endian(x) => Ok(x),
+                    SizedByteOrd::Order(_) => Err(OrderedToEndianError),
+                }
+            }
         }
-    }
+
+        impl TryFrom<ByteOrd> for SizedByteOrd<$len> {
+            type Error = ByteOrdToSizedError;
+            fn try_from(value: ByteOrd) -> Result<Self, Self::Error> {
+                if let ByteOrd::$var(xs) = value {
+                    Ok(value
+                        .as_endian()
+                        .map_or(SizedByteOrd::Order(xs), SizedByteOrd::Endian))
+                } else {
+                    Err(ByteOrdToSizedError {
+                        bytes: value.as_slice().len(),
+                        length: $len,
+                    })
+                }
+            }
+        }
+    };
 }
+
+byteord_from_sized!(1, O1);
+byteord_from_sized!(2, O2);
+byteord_from_sized!(3, O3);
+byteord_from_sized!(4, O4);
+byteord_from_sized!(5, O5);
+byteord_from_sized!(6, O6);
+byteord_from_sized!(7, O7);
+byteord_from_sized!(8, O8);
+
+// impl<const LEN: usize> From<SizedByteOrd<LEN>> for Bytes {
+//     fn from(_: SizedByteOrd<LEN>) -> Self {
+//         // TODO this might produce >8-byte byteord if LEN is >8
+//         Bytes(LEN as u8)
+//     }
+// }
+
+// impl<const LEN: usize> From<SizedEndian<LEN>> for Bytes {
+//     fn from(_: SizedEndian<LEN>) -> Self {
+//         // TODO this might produce >8-byte byteord if LEN is >8
+//         Bytes(LEN as u8)
+//     }
+// }
 
 impl<const LEN: usize> Serialize for SizedByteOrd<LEN> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -174,31 +217,43 @@ impl<const LEN: usize> Serialize for SizedByteOrd<LEN> {
     }
 }
 
-impl TryFrom<Vec<u8>> for ByteOrd {
+impl TryFrom<&[u8]> for ByteOrd {
     type Error = NewByteOrdError;
-    fn try_from(xs: Vec<u8>) -> Result<Self, Self::Error> {
+    fn try_from(xs: &[u8]) -> Result<Self, Self::Error> {
         let n = xs.len();
-        if xs.iter().unique().count() == n
-            && (1..=8).contains(&n)
-            && xs.iter().min().is_some_and(|x| *x == 1)
-            && xs.iter().max().is_some_and(|x| usize::from(*x) == n)
-        {
-            Ok(ByteOrd(xs.iter().map(|x| x - 1).collect()))
+        // if min is 1, subtract 0 from everything to move from 1- to 0-indexed
+        let ys: Vec<_> = if let Some(1) = xs.iter().min() {
+            xs.iter().map(|x| *x - 1).collect()
         } else {
-            Err(NewByteOrdError(n))
+            return Err(NewByteOrdError(n));
+        };
+        // check if consecutive, bail if not
+        if !is_contiguous(&ys[..]) {
+            return Err(NewByteOrdError(n));
+        }
+        match &ys[..] {
+            [a] => Ok(Self::O1([*a])),
+            [a, b] => Ok(Self::O2([*a, *b])),
+            [a, b, c] => Ok(Self::O3([*a, *b, *c])),
+            [a, b, c, d] => Ok(Self::O4([*a, *b, *c, *d])),
+            [a, b, c, d, e] => Ok(Self::O5([*a, *b, *c, *d, *e])),
+            [a, b, c, d, e, f] => Ok(Self::O6([*a, *b, *c, *d, *e, *f])),
+            [a, b, c, d, e, f, g] => Ok(Self::O7([*a, *b, *c, *d, *e, *f, *g])),
+            [a, b, c, d, e, f, g, h] => Ok(Self::O8([*a, *b, *c, *d, *e, *f, *g, *h])),
+            _ => Err(NewByteOrdError(n)),
         }
     }
 }
 
 impl Default for ByteOrd {
     fn default() -> Self {
-        Self((0..4).collect())
+        Self::O4([0, 1, 2, 3])
     }
 }
 
 impl ByteOrd {
     pub fn as_endian(&self) -> Option<Endian> {
-        let mut it = self.0.iter().map(|x| usize::from(*x));
+        let mut it = self.as_slice().iter().map(|x| usize::from(*x));
         if it.by_ref().enumerate().all(|(i, x)| i == x) {
             Some(Endian::Little)
         } else if it.rev().enumerate().all(|(i, x)| i == x) {
@@ -208,34 +263,21 @@ impl ByteOrd {
         }
     }
 
-    pub fn as_sized_byteord<const LEN: usize>(
-        &self,
-    ) -> Result<SizedByteOrd<LEN>, ByteOrdToSizedError> {
-        let xs = &self.0;
-        let n = xs.len();
-        if n != LEN {
-            Err(ByteOrdToSizedError {
-                bytes: n,
-                length: LEN,
-            })
-        } else if let Some(e) = self.as_endian() {
-            Ok(SizedByteOrd::Endian(e))
-        } else {
-            Ok(SizedByteOrd::Order(xs[..].try_into().unwrap()))
-        }
+    pub fn as_slice(&self) -> &[u8] {
+        match_many_to_one!(self, Self, [O1, O2, O3, O4, O5, O6, O7, O8], x, { &x[..] })
     }
 
-    pub fn as_sized_endian<const LEN: usize>(
-        &self,
-    ) -> Result<SizedEndian<LEN>, ByteOrdToSizedEndianError> {
-        self.as_sized_byteord().map_or_else(
-            |e| Err(e.into()),
-            |x: SizedByteOrd<LEN>| match x {
-                SizedByteOrd::Endian(e) => Ok(SizedEndian(e)),
-                _ => Err(OrderedToEndianError.into()),
-            },
-        )
-    }
+    // pub fn as_sized_endian<const LEN: usize>(
+    //     &self,
+    // ) -> Result<SizedEndian<LEN>, ByteOrdToSizedEndianError> {
+    //     self.as_sized_byteord().map_or_else(
+    //         |e| Err(e.into()),
+    //         |x: SizedByteOrd<LEN>| match x {
+    //             SizedByteOrd::Endian(e) => Ok(SizedEndian(e)),
+    //             _ => Err(OrderedToEndianError.into()),
+    //         },
+    //     )
+    // }
 }
 
 impl Endian {
@@ -247,14 +289,14 @@ impl Endian {
         }
     }
 
-    pub fn as_byteord(&self, n: Bytes) -> ByteOrd {
-        let it = 0..(u8::from(n));
-        let xs = match self {
-            Endian::Big => it.rev().collect(),
-            Endian::Little => it.collect(),
-        };
-        ByteOrd(xs)
-    }
+    // pub fn as_byteord(&self, n: Bytes) -> ByteOrd {
+    //     let it = 0..(u8::from(n));
+    //     let xs = match self {
+    //         Endian::Big => it.rev().collect(),
+    //         Endian::Little => it.collect(),
+    //     };
+    //     ByteOrd(xs)
+    // }
 }
 
 impl TryFrom<Width> for Chars {
@@ -479,7 +521,7 @@ impl FromStr for ByteOrd {
         let (pass, fail): (Vec<_>, Vec<_>) =
             s.split(",").map(|x| x.parse::<u8>()).partition_result();
         if fail.is_empty() {
-            ByteOrd::try_from(pass).map_err(ParseByteOrdError::Order)
+            ByteOrd::try_from(&pass[..]).map_err(ParseByteOrdError::Order)
         } else {
             Err(ParseByteOrdError::Format)
         }
@@ -488,7 +530,7 @@ impl FromStr for ByteOrd {
 
 impl fmt::Display for ByteOrd {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}", self.0.iter().join(","))
+        write!(f, "{}", self.as_slice().iter().join(","))
     }
 }
 
@@ -671,4 +713,32 @@ impl fmt::Display for EmptyWidthError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "could not determine width, no measurements available")
     }
+}
+
+/// Return true if sequence is a contiguous set.
+///
+/// Example: '1,3,4,2,5' should return true. So should '5,6,4,3,7'.
+///
+/// Returns true if empty.
+fn is_contiguous(xs: &[u8]) -> bool {
+    let mut ys: Vec<_> = xs.iter().copied().collect();
+    ys.sort_unstable();
+    is_contiguously_increasing(&ys[..])
+}
+
+/// Return true if all values in sequence are increasing consecutively.
+///
+/// Returns true if empty.
+fn is_contiguously_increasing(xs: &[u8]) -> bool {
+    if let Some((y, ys)) = xs.split_first() {
+        let mut prev = y;
+        for k in ys {
+            if let Some(1) = k.checked_sub(*prev) {
+                prev = k;
+            } else {
+                return false;
+            }
+        }
+    }
+    true
 }

@@ -245,7 +245,7 @@ impl fmt::Display for DisplayError {
 }
 
 /// The three values for the $PnDATATYPE keyword (3.2+)
-#[derive(Clone, Copy, Serialize, PartialEq)]
+#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum NumType {
     Integer,
     Single,

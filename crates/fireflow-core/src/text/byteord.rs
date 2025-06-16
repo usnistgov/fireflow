@@ -71,6 +71,55 @@ pub enum SizedByteOrd<const LEN: usize> {
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Serialize)]
 pub struct SizedEndian<const LEN: usize>(pub Endian);
 
+/// A generic integer column type with a byte-layout and bitmask.
+#[derive(PartialEq, Clone, Copy, Serialize)]
+pub struct UintType<T, const LEN: usize> {
+    pub bitmask: T,
+}
+
+/// The type of any floating point column in all versions
+#[derive(PartialEq, Clone, Copy, Serialize)]
+pub struct FloatType<T, const LEN: usize> {
+    pub range: T,
+}
+
+/// A type which uses a defined number of bytes
+pub(crate) trait HasDefinedBytes {
+    const BYTES: Bytes;
+}
+
+macro_rules! def_sized_uint {
+    ($name:ident, $t:ty, $size:expr) => {
+        pub type $name = UintType<$t, $size>;
+
+        impl HasDefinedBytes for $name {
+            const BYTES: Bytes = Bytes($size);
+        }
+    };
+}
+
+def_sized_uint!(Uint08Type, u8, 1);
+def_sized_uint!(Uint16Type, u16, 2);
+def_sized_uint!(Uint24Type, u32, 3);
+def_sized_uint!(Uint32Type, u32, 4);
+def_sized_uint!(Uint40Type, u64, 5);
+def_sized_uint!(Uint48Type, u64, 6);
+def_sized_uint!(Uint56Type, u64, 7);
+def_sized_uint!(Uint64Type, u64, 8);
+
+macro_rules! def_sized_float {
+    ($name:ident, $t:ty, $size:expr) => {
+        pub type $name = FloatType<$t, $size>;
+
+        impl HasDefinedBytes for $name {
+            const BYTES: Bytes = Bytes($size);
+        }
+    };
+}
+
+def_sized_float!(F32Type, f32, 4);
+def_sized_float!(F64Type, f64, 8);
+
 impl<const LEN: usize> From<SizedEndian<LEN>> for SizedByteOrd<LEN> {
     fn from(value: SizedEndian<LEN>) -> Self {
         SizedByteOrd::Endian(value.0)

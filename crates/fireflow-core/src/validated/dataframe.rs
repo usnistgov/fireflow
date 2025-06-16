@@ -1,4 +1,3 @@
-use crate::data::ColumnWriter;
 use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
 use crate::text::named_vec::BoundaryIndexError;
 
@@ -279,22 +278,17 @@ where
     /// all, which ironically can only be found by iterating the entire vector
     /// once. However, if we only want to warn the user, we don't need this
     /// extra scan step and can simply log lossy values when writing.
-    fn into_writer<E, F, S, T>(
+    fn into_writer<E, F: Fn(ToType) -> Option<E>, ToType: NumCast<Self>>(
         c: &FCSColumn<Self>,
-        s: S,
         check: bool,
         f: F,
-    ) -> Result<ColumnWriter<'_, Self, T, S>, LossError<E>>
-    where
-        F: Fn(T) -> Option<E>,
-        T: NumCast<Self>,
-    {
+    ) -> Result<FCSColIter<'_, Self, ToType>, LossError<E>> {
         if check {
-            for x in Self::iter_converted::<T>(c) {
+            for x in Self::iter_converted::<ToType>(c) {
                 if x.lossy {
                     let d = CastError {
                         from: type_name::<Self>(),
-                        to: type_name::<T>(),
+                        to: type_name::<ToType>(),
                     };
                     return Err(LossError::Cast(d));
                 }
@@ -303,10 +297,7 @@ where
                 }
             }
         }
-        Ok(ColumnWriter {
-            data: Self::iter_converted(c),
-            size: s,
-        })
+        Ok(Self::iter_converted(c))
     }
 }
 

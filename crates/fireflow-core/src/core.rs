@@ -2790,7 +2790,7 @@ where
         &self,
         h: &mut BufWriter<W>,
         conf: &WriteConfig,
-    ) -> IODeferredResult<(), NewDataLayoutWarning, StdWriterError> {
+    ) -> IODeferredResult<(), ColumnError<BitmaskError>, StdWriterError> {
         let df = &self.data;
         let others = &self.others;
         let delim = conf.delim.inner();
@@ -7237,7 +7237,7 @@ enum_from_disp!(
 enum_from_disp!(
     pub StdDatasetFromRawWarning,
     [TEXT, LookupMeasWarning],
-    [Layout, NewDataLayoutWarning],
+    [Layout, ColumnError<BitmaskError>],
     [Data, NewDataReaderWarning],
     [Analysis, NewAnalysisReaderWarning]
 );

@@ -53,7 +53,6 @@ use crate::text::parser::*;
 use crate::validated::dataframe::*;
 use crate::validated::standard::*;
 
-use itertools::repeat_n;
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use serde::ser::SerializeStruct;
@@ -906,7 +905,6 @@ pub struct DataReader {
 /// but the case of delimited ASCII, this is pre-allocated with the number of
 /// rows to make reading faster. Each column has other information necessary to
 /// read the column (bitmask, width, etc).
-// TODO add method to check the $TOT field in case this is available
 pub enum ColumnReader {
     DelimitedAsciiNoRows(DelimAsciiReaderNoRows),
     DelimitedAscii(DelimAsciiReader),
@@ -2053,16 +2051,11 @@ impl DelimitedLayout {
     }
 
     fn into_col_reader_maybe_rows(self, nbytes: usize, kw_tot: Option<Tot>) -> ColumnReader {
-        let n = self.ranges.len();
         match kw_tot {
-            // TODO not DRY
-            Some(tot) => ColumnReader::DelimitedAscii(DelimAsciiReader(DelimAsciiReaderInner {
-                columns: NonEmpty::collect(repeat_n(vec![0; tot.0], n)).unwrap(),
-                nbytes,
-            })),
+            Some(tot) => self.into_col_reader(nbytes, tot),
             None => {
                 ColumnReader::DelimitedAsciiNoRows(DelimAsciiReaderNoRows(DelimAsciiReaderInner {
-                    columns: NonEmpty::collect(repeat_n(vec![], n)).unwrap(),
+                    columns: self.ranges.as_ref().map(|_| vec![]),
                     nbytes,
                 }))
             }
@@ -2070,9 +2063,8 @@ impl DelimitedLayout {
     }
 
     fn into_col_reader(self, nbytes: usize, tot: Tot) -> ColumnReader {
-        let n = self.ranges.len();
         ColumnReader::DelimitedAscii(DelimAsciiReader(DelimAsciiReaderInner {
-            columns: NonEmpty::collect(repeat_n(vec![0; tot.0], n)).unwrap(),
+            columns: self.ranges.as_ref().map(|_| vec![0; tot.0]),
             nbytes,
         }))
     }

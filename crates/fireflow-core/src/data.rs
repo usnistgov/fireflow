@@ -2814,40 +2814,12 @@ impl AnyOrderedUintLayout {
         notrunc: bool,
     ) -> DeferredResult<Option<Self>, ColumnError<BitmaskError>, NewFixedIntLayoutError> {
         // TODO check widths and bail if they don't match byteord
-        match o {
-            ByteOrd::O1(o) => FixedLayout::try_new(cs, o, |c| {
+        match_many_to_one!(o, ByteOrd, [O1, O2, O3, O4, O5, O6, O7, O8], o, {
+            FixedLayout::try_new(cs, o, |c| {
                 Ok(IntFromBytes::column_type(c.range, notrunc).errors_into())
             })
-            .def_map_value(|x| x.map(Self::Uint08)),
-            ByteOrd::O2(o) => FixedLayout::try_new(cs, o, |c| {
-                Ok(IntFromBytes::column_type(c.range, notrunc).errors_into())
-            })
-            .def_map_value(|x| x.map(Self::Uint16)),
-            ByteOrd::O3(o) => FixedLayout::try_new(cs, o, |c| {
-                Ok(IntFromBytes::column_type(c.range, notrunc).errors_into())
-            })
-            .def_map_value(|x| x.map(Self::Uint24)),
-            ByteOrd::O4(o) => FixedLayout::try_new(cs, o, |c| {
-                Ok(IntFromBytes::column_type(c.range, notrunc).errors_into())
-            })
-            .def_map_value(|x| x.map(Self::Uint32)),
-            ByteOrd::O5(o) => FixedLayout::try_new(cs, o, |c| {
-                Ok(IntFromBytes::column_type(c.range, notrunc).errors_into())
-            })
-            .def_map_value(|x| x.map(Self::Uint40)),
-            ByteOrd::O6(o) => FixedLayout::try_new(cs, o, |c| {
-                Ok(IntFromBytes::column_type(c.range, notrunc).errors_into())
-            })
-            .def_map_value(|x| x.map(Self::Uint48)),
-            ByteOrd::O7(o) => FixedLayout::try_new(cs, o, |c| {
-                Ok(IntFromBytes::column_type(c.range, notrunc).errors_into())
-            })
-            .def_map_value(|x| x.map(Self::Uint56)),
-            ByteOrd::O8(o) => FixedLayout::try_new(cs, o, |c| {
-                Ok(IntFromBytes::column_type(c.range, notrunc).errors_into())
-            })
-            .def_map_value(|x| x.map(Self::Uint64)),
-        }
+            .def_map_value(|x| x.map(|y| y.into()))
+        })
     }
 
     fn ncols(&self) -> usize {

@@ -108,20 +108,20 @@ enum_from!(
     /// byte ordering that may occur rather than simply little or big endian.
     #[derive(Clone, Serialize)]
     pub OrderedDataLayout,
-    [Ascii, AsciiLayout],
+    [Ascii, AnyAsciiLayout],
     [Integer, AnyOrderedUintLayout],
-    [F32, FixedLayout<F32Type, SizedByteOrd<4>>],
-    [F64, FixedLayout<F64Type, SizedByteOrd<8>>]
+    [F32, OrderedLayout<F32Type>],
+    [F64, OrderedLayout<F64Type>]
 );
 
 enum_from!(
     /// All possible byte layouts for 3.1+ where DATATYPE is constant.
     #[derive(Clone, Serialize)]
     pub NonMixedEndianLayout,
-    [Ascii, AsciiLayout],
-    [Integer, FixedLayout<AnyUintType, Endian>],
-    [F32, FixedLayout<F32Type, Endian>],
-    [F64, FixedLayout<F64Type, Endian>]
+    [Ascii, AnyAsciiLayout],
+    [Integer, EndianLayout<AnyUintType>],
+    [F32, EndianLayout<F32Type>],
+    [F64, EndianLayout<F64Type>]
 );
 
 enum_from!(
@@ -131,14 +131,14 @@ enum_from!(
     /// or variable (ie columns have have different number of characters and are
     /// separated by delimiters).
     #[derive(Clone, Serialize)]
-    pub AsciiLayout,
-    [Delimited, DelimitedLayout],
-    [Fixed, FixedLayout<AsciiType, ()>]
+    pub AnyAsciiLayout,
+    [Delimited, DelimAsciiLayout],
+    [Fixed, FixedAsciiLayout]
 );
 
 /// Byte layout for delimited ASCII.
 #[derive(Clone)]
-pub struct DelimitedLayout {
+pub struct DelimAsciiLayout {
     pub ranges: NonEmpty<u64>,
 }
 
@@ -154,15 +154,19 @@ enum_from!(
     #[derive(Clone, Serialize)]
     pub AnyOrderedUintLayout,
     // TODO the first two don't need to be ordered
-    [Uint08, FixedLayout<Uint08Type, SizedByteOrd<1>>],
-    [Uint16, FixedLayout<Uint16Type, SizedByteOrd<2>>],
-    [Uint24, FixedLayout<Uint24Type, SizedByteOrd<3>>],
-    [Uint32, FixedLayout<Uint32Type, SizedByteOrd<4>>],
-    [Uint40, FixedLayout<Uint40Type, SizedByteOrd<5>>],
-    [Uint48, FixedLayout<Uint48Type, SizedByteOrd<6>>],
-    [Uint56, FixedLayout<Uint56Type, SizedByteOrd<7>>],
-    [Uint64, FixedLayout<Uint64Type, SizedByteOrd<8>>]
+    [Uint08, OrderedLayout<Uint08Type>],
+    [Uint16, OrderedLayout<Uint16Type>],
+    [Uint24, OrderedLayout<Uint24Type>],
+    [Uint32, OrderedLayout<Uint32Type>],
+    [Uint40, OrderedLayout<Uint40Type>],
+    [Uint48, OrderedLayout<Uint48Type>],
+    [Uint56, OrderedLayout<Uint56Type>],
+    [Uint64, OrderedLayout<Uint64Type>]
 );
+
+type OrderedLayout<C> = FixedLayout<C, <C as HasNativeType>::Order>;
+type EndianLayout<C> = FixedLayout<C, Endian>;
+type FixedAsciiLayout = FixedLayout<AsciiType, ()>;
 
 enum_from!(
     /// The type of a non-delimited column in the DATA segment for 3.2
@@ -1194,7 +1198,7 @@ impl<C: Serialize, L: Serialize> Serialize for FixedLayout<C, L> {
     }
 }
 
-impl Serialize for DelimitedLayout {
+impl Serialize for DelimAsciiLayout {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut state = serializer.serialize_struct("DelimitedLayout", 1)?;
         state.serialize_field("ranges", Vec::from(self.ranges.as_ref()).as_slice())?;
@@ -1301,7 +1305,7 @@ impl FixedLayout<MixedType, Endian> {
                 })
                 .gather()
                 .map(|xs| {
-                    AsciiLayout::Fixed(FixedLayout {
+                    AnyAsciiLayout::Fixed(FixedLayout {
                         columns: (x, xs).into(),
                         byte_layout: (),
                     })
@@ -1365,7 +1369,7 @@ impl FixedLayout<MixedType, Endian> {
                 })
                 .gather()
                 .map(|xs| {
-                    AsciiLayout::Fixed(FixedLayout {
+                    AnyAsciiLayout::Fixed(FixedLayout {
                         columns: (x, xs).into(),
                         byte_layout: (),
                     })
@@ -2032,7 +2036,7 @@ impl From<ColumnLayoutValues3_2> for ColumnLayoutValues2_0 {
     }
 }
 
-impl DelimitedLayout {
+impl DelimAsciiLayout {
     fn layout_values<D: Copy, S: Default>(&self, datatype: D) -> LayoutValues<S, D> {
         LayoutValues {
             datatype: AlphaNumType::Ascii,
@@ -2848,7 +2852,7 @@ impl AsciiType {
     }
 }
 
-impl AsciiLayout {
+impl AnyAsciiLayout {
     fn layout_values<D: Copy, S: Default>(&self, datatype: D) -> LayoutValues<S, D> {
         match self {
             Self::Delimited(x) => x.layout_values(datatype),
@@ -2869,7 +2873,7 @@ impl AsciiLayout {
                     .into()
                 })
             })
-            .map(|ranges| DelimitedLayout { ranges }.into())
+            .map(|ranges| DelimAsciiLayout { ranges }.into())
             .mult_to_deferred()
         } else {
             FixedLayout::try_new(cs, (), |c| {
@@ -2893,8 +2897,8 @@ impl AsciiLayout {
         conf: &WriteConfig,
     ) -> MultiResult<DataWriter<'a>, ColumnWriterError> {
         match self {
-            AsciiLayout::Fixed(a) => a.as_writer(df, conf).map(DataWriter::Fixed),
-            AsciiLayout::Delimited(_) => {
+            AnyAsciiLayout::Fixed(a) => a.as_writer(df, conf).map(DataWriter::Fixed),
+            AnyAsciiLayout::Delimited(_) => {
                 let ch = conf.check_conversion;
                 let go = |c: &'a AnyFCSColumn| {
                     match_many_to_one!(c, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], xs, {
@@ -2933,10 +2937,10 @@ impl AsciiLayout {
     ) -> Tentative<ColumnReader, UnevenEventWidth, UnevenEventWidth> {
         let nbytes = seg.inner.len() as usize;
         match self {
-            AsciiLayout::Delimited(dl) => {
+            AnyAsciiLayout::Delimited(dl) => {
                 Tentative::new1(dl.into_col_reader_maybe_rows(nbytes, kw_tot))
             }
-            AsciiLayout::Fixed(fl) => fl
+            AnyAsciiLayout::Fixed(fl) => fl
                 .into_col_reader_inner(seg, conf)
                 .map(ColumnReader::AlphaNum),
         }
@@ -2956,8 +2960,8 @@ impl AsciiLayout {
     {
         let nbytes = seg.inner.len() as usize;
         match self {
-            AsciiLayout::Delimited(dl) => Tentative::new1(dl.into_col_reader(nbytes, tot)),
-            AsciiLayout::Fixed(fl) => fl.into_col_reader(seg, tot, conf),
+            AnyAsciiLayout::Delimited(dl) => Tentative::new1(dl.into_col_reader(nbytes, tot)),
+            AnyAsciiLayout::Fixed(fl) => fl.into_col_reader(seg, tot, conf),
         }
     }
 }
@@ -3555,7 +3559,7 @@ impl OrderedDataLayout {
         conf: &SharedConfig,
     ) -> DeferredResult<Self, ColumnError<BitmaskError>, NewDataLayoutError> {
         match datatype {
-            AlphaNumType::Ascii => AsciiLayout::try_new(columns)
+            AlphaNumType::Ascii => AnyAsciiLayout::try_new(columns)
                 .def_map_value(Self::Ascii)
                 .def_errors_into(),
             AlphaNumType::Integer => {
@@ -3670,7 +3674,7 @@ impl NonMixedEndianLayout {
         conf: &SharedConfig,
     ) -> DeferredResult<Self, ColumnError<BitmaskError>, NewDataLayoutError> {
         match datatype {
-            AlphaNumType::Ascii => AsciiLayout::try_new(columns)
+            AlphaNumType::Ascii => AnyAsciiLayout::try_new(columns)
                 .def_map_value(Self::Ascii)
                 .def_errors_into(),
             AlphaNumType::Integer => {

@@ -91,10 +91,14 @@ pub struct FloatType<T, const LEN: usize> {
 
 /// A type which uses a defined number of bytes
 pub(crate) trait HasNativeType {
-    /// The number of bytes the type consumes in an FCS file
+    /// The length of the type in bytes
     const BYTES: Bytes;
+
     /// The native rust type
-    type NATIVE;
+    type Native;
+
+    /// The sized byte order to be used with this type
+    type Order;
 }
 
 macro_rules! def_native_wrapper {
@@ -103,7 +107,8 @@ macro_rules! def_native_wrapper {
 
         impl HasNativeType for $name {
             const BYTES: Bytes = Bytes($size);
-            type NATIVE = $native;
+            type Native = $native;
+            type Order = SizedByteOrd<$size>;
         }
     };
 }
@@ -198,6 +203,12 @@ macro_rules! byteord_from_sized {
                 }
             }
         }
+
+        impl From<SizedByteOrd<$len>> for Bytes {
+            fn from(_: SizedByteOrd<$len>) -> Self {
+                Bytes($len)
+            }
+        }
     };
 }
 
@@ -209,20 +220,6 @@ byteord_from_sized!(5, O5);
 byteord_from_sized!(6, O6);
 byteord_from_sized!(7, O7);
 byteord_from_sized!(8, O8);
-
-// impl<const LEN: usize> From<SizedByteOrd<LEN>> for Bytes {
-//     fn from(_: SizedByteOrd<LEN>) -> Self {
-//         // TODO this might produce >8-byte byteord if LEN is >8
-//         Bytes(LEN as u8)
-//     }
-// }
-
-// impl<const LEN: usize> From<SizedEndian<LEN>> for Bytes {
-//     fn from(_: SizedEndian<LEN>) -> Self {
-//         // TODO this might produce >8-byte byteord if LEN is >8
-//         Bytes(LEN as u8)
-//     }
-// }
 
 impl<const LEN: usize> Serialize for SizedByteOrd<LEN> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

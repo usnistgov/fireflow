@@ -2769,24 +2769,6 @@ impl From<FloatColumnReader<f64, 8>> for AlphaNumColumnReader {
     }
 }
 
-// fn widths_to_single_fixed_bytes(ws: &[Width]) -> MultiResult<Option<Bytes>, SingleFixedWidthError> {
-//     let bs = ws
-//         .iter()
-//         .copied()
-//         .map(Bytes::try_from)
-//         .gather()
-//         .map_err(|es| es.map(SingleFixedWidthError::Bytes))?;
-//     NonEmpty::collect(bs.into_iter().unique()).map_or(Ok(None), |us| {
-//         if us.tail.is_empty() {
-//             Ok(Some(us.head))
-//         } else {
-//             Err(NonEmpty::new(SingleFixedWidthError::Multi(
-//                 MultiWidthsError(us.map(|x| x.into())),
-//             )))
-//         }
-//     })
-// }
-
 impl AnyOrderedUintLayout {
     fn layout_values(&self) -> OrderedLayoutValues {
         match_many_to_one!(

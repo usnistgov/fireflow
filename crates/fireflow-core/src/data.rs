@@ -562,7 +562,7 @@ pub trait VersionedDataLayout: Sized {
 }
 
 pub trait HasDatatype {
-    fn datatype(&self) -> AlphaNumType;
+    const DATATYPE: AlphaNumType;
 }
 
 /// A type which has a width that may vary
@@ -2159,9 +2159,8 @@ impl<C, S> FixedLayout<C, S> {
         S: Copy,
         C: IsFixed + HasDatatype,
     {
-        let c0 = &self.columns.head;
         LayoutValues {
-            datatype: c0.datatype(),
+            datatype: C::DATATYPE,
             byte_layout: self.byte_layout.into(),
             columns: self
                 .columns
@@ -2253,7 +2252,7 @@ impl<C, S> FixedLayout<C, S> {
         conf: &ReaderConfig,
     ) -> Tentative<ColumnReader, W, E>
     where
-        S: Clone,
+        S: Copy,
         C: IsFixedReader<S = S> + IsFixed,
         W: From<TotEventMismatch> + From<UnevenEventWidth>,
         E: From<TotEventMismatch> + From<UnevenEventWidth>,
@@ -2275,7 +2274,7 @@ impl<C, S> FixedLayout<C, S> {
         conf: &WriteConfig,
     ) -> MultiResult<Option<FixedWriter<'a>>, ColumnWriterError>
     where
-        S: Clone,
+        S: Copy,
         C: Copy + IsFixedWriter<S = S> + IsFixed,
     {
         let check = conf.check_conversion;
@@ -2284,8 +2283,7 @@ impl<C, S> FixedLayout<C, S> {
             .zip(df.iter_columns())
             .enumerate()
             .map(|(i, (t, c))| {
-                // TODO clone
-                t.into_col_writer(c, check, self.byte_layout.clone())
+                t.into_col_writer(c, check, self.byte_layout)
                     .map_err(|error| {
                         ColumnWriterError(ColumnError {
                             index: i.into(),
@@ -2341,80 +2339,20 @@ impl<C, S> FixedLayout<C, S> {
 }
 
 impl<T, const LEN: usize> HasDatatype for UintType<T, LEN> {
-    fn datatype(&self) -> AlphaNumType {
-        AlphaNumType::Integer
-    }
-}
-
-impl HasDatatype for AsciiType {
-    fn datatype(&self) -> AlphaNumType {
-        AlphaNumType::Ascii
-    }
+    const DATATYPE: AlphaNumType = AlphaNumType::Integer;
 }
 
 impl HasDatatype for F32Type {
-    fn datatype(&self) -> AlphaNumType {
-        AlphaNumType::Single
-    }
+    const DATATYPE: AlphaNumType = AlphaNumType::Single;
 }
 
 impl HasDatatype for F64Type {
-    fn datatype(&self) -> AlphaNumType {
-        AlphaNumType::Double
-    }
+    const DATATYPE: AlphaNumType = AlphaNumType::Double;
 }
 
 impl HasDatatype for AnyUintType {
-    fn datatype(&self) -> AlphaNumType {
-        AlphaNumType::Integer
-    }
+    const DATATYPE: AlphaNumType = AlphaNumType::Integer;
 }
-
-impl HasDatatype for MixedType {
-    fn datatype(&self) -> AlphaNumType {
-        match_many_to_one!(self, Self, [Ascii, Integer, Float, Double], x, {
-            x.datatype()
-        })
-    }
-}
-
-// impl<T, const LEN: usize> HasByteLayout for UintType<T, LEN> {
-//     type S = ByteOrd;
-
-//     fn byte_layout(&self) -> Self::S {
-//         ByteOrd::from(self.byte_layout)
-//     }
-// }
-
-// impl HasByteLayout for AnyUintType {
-//     type S = Endian;
-
-//     fn byte_layout(&self) -> Self::S {
-//         match_many_to_one!(
-//             self,
-//             AnyUintType,
-//             [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-//             x,
-//             { x.byte_layout.0 }
-//         )
-//     }
-// }
-
-// impl<T, const LEN: usize> HasByteLayout for FloatType<T, LEN> {
-//     type S = ByteOrd;
-
-//     fn byte_layout(&self) -> Self::S {
-//         ByteOrd::from(self.byte_layout)
-//     }
-// }
-
-// impl<T, const LEN: usize> HasByteLayout for FloatType<T, LEN> {
-//     type S = Endian;
-
-//     fn byte_layout(&self) -> Self::S {
-//         self.byte_layout.0
-//     }
-// }
 
 impl<T, const LEN: usize> IsFixed for UintType<T, LEN>
 where

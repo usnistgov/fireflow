@@ -882,7 +882,7 @@ pub type Core2_0<A, D, O> = Core<
     InnerOptical2_0,
     OptionalKwFamily,
     OptionalKw<Shortname>,
-    DataLayout2_0,
+    Layout2_0Inner,
 >;
 pub type Core3_0<A, D, O> = Core<
     A,
@@ -893,7 +893,7 @@ pub type Core3_0<A, D, O> = Core<
     InnerOptical3_0,
     OptionalKwFamily,
     OptionalKw<Shortname>,
-    DataLayout3_0,
+    Layout3_0Inner,
 >;
 pub type Core3_1<A, D, O> = Core<
     A,
@@ -904,7 +904,7 @@ pub type Core3_1<A, D, O> = Core<
     InnerOptical3_1,
     IdentityFamily,
     Identity<Shortname>,
-    DataLayout3_1,
+    Layout3_1Inner,
 >;
 pub type Core3_2<A, D, O> = Core<
     A,
@@ -915,7 +915,7 @@ pub type Core3_2<A, D, O> = Core<
     InnerOptical3_2,
     IdentityFamily,
     Identity<Shortname>,
-    DataLayout3_2,
+    Layout3_2Inner,
 >;
 
 pub type CoreTEXT2_0 = Core2_0<(), (), ()>;
@@ -5552,78 +5552,78 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_2 {
     }
 }
 
-impl ConvertFromLayout<DataLayout3_0> for DataLayout2_0 {
-    fn convert_from_layout(value: DataLayout3_0) -> LayoutConvertResult<Self> {
+impl ConvertFromLayout<Layout3_0> for Layout2_0 {
+    fn convert_from_layout(value: Layout3_0) -> LayoutConvertResult<Self> {
         Ok(Self(value.0))
     }
 }
 
-impl ConvertFromLayout<DataLayout3_1> for DataLayout2_0 {
-    fn convert_from_layout(value: DataLayout3_1) -> LayoutConvertResult<Self> {
-        value.into_ordered().map(|x| x.into())
+impl ConvertFromLayout<Layout3_1> for Layout2_0 {
+    fn convert_from_layout(value: Layout3_1) -> LayoutConvertResult<Self> {
+        value.into_ordered().map(Layout2_0Inner)
     }
 }
 
-impl ConvertFromLayout<DataLayout3_2> for DataLayout2_0 {
-    fn convert_from_layout(value: DataLayout3_2) -> LayoutConvertResult<Self> {
-        value.into_ordered().map(|x| x.into())
+impl ConvertFromLayout<Layout3_2> for Layout2_0 {
+    fn convert_from_layout(value: Layout3_2) -> LayoutConvertResult<Self> {
+        value.into_ordered().map(Layout2_0Inner)
     }
 }
 
-impl ConvertFromLayout<DataLayout2_0> for DataLayout3_0 {
-    fn convert_from_layout(value: DataLayout2_0) -> LayoutConvertResult<Self> {
+impl ConvertFromLayout<Layout2_0> for Layout3_0 {
+    fn convert_from_layout(value: Layout2_0) -> LayoutConvertResult<Self> {
         Ok(Self(value.0))
     }
 }
 
-impl ConvertFromLayout<DataLayout3_1> for DataLayout3_0 {
-    fn convert_from_layout(value: DataLayout3_1) -> LayoutConvertResult<Self> {
-        value.into_ordered().map(|x| x.into())
+impl ConvertFromLayout<Layout3_1> for Layout3_0 {
+    fn convert_from_layout(value: Layout3_1) -> LayoutConvertResult<Self> {
+        value.into_ordered().map(Layout3_0Inner)
     }
 }
 
-impl ConvertFromLayout<DataLayout3_2> for DataLayout3_0 {
-    fn convert_from_layout(value: DataLayout3_2) -> LayoutConvertResult<Self> {
-        value.into_ordered().map(|x| x.into())
+impl ConvertFromLayout<Layout3_2> for Layout3_0 {
+    fn convert_from_layout(value: Layout3_2) -> LayoutConvertResult<Self> {
+        value.into_ordered().map(Layout3_0Inner)
     }
 }
 
-impl ConvertFromLayout<DataLayout2_0> for DataLayout3_1 {
-    fn convert_from_layout(value: DataLayout2_0) -> LayoutConvertResult<Self> {
+impl ConvertFromLayout<Layout2_0> for Layout3_1 {
+    fn convert_from_layout(value: Layout2_0) -> LayoutConvertResult<Self> {
         value.0.into_3_1()
     }
 }
 
-impl ConvertFromLayout<DataLayout3_0> for DataLayout3_1 {
-    fn convert_from_layout(value: DataLayout3_0) -> LayoutConvertResult<Self> {
+impl ConvertFromLayout<Layout3_0> for Layout3_1 {
+    fn convert_from_layout(value: Layout3_0) -> LayoutConvertResult<Self> {
         value.0.into_3_1()
     }
 }
 
-impl ConvertFromLayout<DataLayout3_2> for DataLayout3_1 {
-    fn convert_from_layout(value: DataLayout3_2) -> LayoutConvertResult<Self> {
+impl ConvertFromLayout<Layout3_2> for Layout3_1 {
+    fn convert_from_layout(value: Layout3_2) -> LayoutConvertResult<Self> {
         match value {
-            DataLayout3_2::NonMixed(x) => Ok(Self(x)),
-            DataLayout3_2::Mixed(x) => x.try_into_non_mixed().map(Self).mult_errors_into(),
+            Layout3_2::NonMixed(x) => Ok(Self(x)),
+            Layout3_2::Mixed(x) => x.try_into_non_mixed().map(Self).mult_errors_into(),
         }
     }
 }
 
-impl ConvertFromLayout<DataLayout2_0> for DataLayout3_2 {
-    fn convert_from_layout(value: DataLayout2_0) -> LayoutConvertResult<Self> {
+impl ConvertFromLayout<Layout2_0> for Layout3_2 {
+    fn convert_from_layout(value: Layout2_0) -> LayoutConvertResult<Self> {
         value.0.into_3_2()
     }
 }
 
-impl ConvertFromLayout<DataLayout3_0> for DataLayout3_2 {
-    fn convert_from_layout(value: DataLayout3_0) -> LayoutConvertResult<Self> {
+impl ConvertFromLayout<Layout3_0> for Layout3_2 {
+    fn convert_from_layout(value: Layout3_0) -> LayoutConvertResult<Self> {
         value.0.into_3_2()
     }
 }
 
-impl ConvertFromLayout<DataLayout3_1> for DataLayout3_2 {
-    fn convert_from_layout(value: DataLayout3_1) -> LayoutConvertResult<Self> {
-        Ok(value.0.into())
+impl ConvertFromLayout<Layout3_1> for Layout3_2 {
+    fn convert_from_layout(value: Layout3_1) -> LayoutConvertResult<Self> {
+        Ok(Layout3_2Inner::NonMixed(value.0))
     }
 }
 
@@ -6425,7 +6425,7 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
     type O = InnerOptical2_0;
     type T = InnerTemporal2_0;
     type N = OptionalKwFamily;
-    type L = DataLayout2_0;
+    type L = Layout2_0;
 
     fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
         None
@@ -6505,7 +6505,7 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
     type O = InnerOptical3_0;
     type T = InnerTemporal3_0;
     type N = OptionalKwFamily;
-    type L = DataLayout3_0;
+    type L = Layout3_0;
 
     fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
         None
@@ -6597,7 +6597,7 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
     type O = InnerOptical3_1;
     type T = InnerTemporal3_1;
     type N = IdentityFamily;
-    type L = DataLayout3_1;
+    type L = Layout3_1;
 
     fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
         None
@@ -6694,7 +6694,7 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
     type O = InnerOptical3_2;
     type T = InnerTemporal3_2;
     type N = IdentityFamily;
-    type L = DataLayout3_2;
+    type L = Layout3_2;
 
     fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
         self.unstained.unstainedcenters.as_ref_opt()

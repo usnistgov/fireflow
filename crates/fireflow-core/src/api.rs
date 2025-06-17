@@ -628,22 +628,22 @@ fn kws_to_data_reader(
     let cs = &conf.shared;
     let cr = &conf.reader;
     match version {
-        Version::FCS2_0 => DataLayout2_0::lookup_ro(kws, cs)
+        Version::FCS2_0 => Layout2_0Inner::lookup_ro(kws, cs)
             .def_inner_into()
             .def_and_maybe(|x| {
                 def_transpose(x.map(|dl| dl.into_data_reader_raw(kws, seg, cr))).def_inner_into()
             }),
-        Version::FCS3_0 => DataLayout3_0::lookup_ro(kws, cs)
+        Version::FCS3_0 => Layout3_0Inner::lookup_ro(kws, cs)
             .def_inner_into()
             .def_and_maybe(|x| {
                 def_transpose(x.map(|dl| dl.into_data_reader_raw(kws, seg, cr))).def_inner_into()
             }),
-        Version::FCS3_1 => DataLayout3_1::lookup_ro(kws, cs)
+        Version::FCS3_1 => Layout3_1Inner::lookup_ro(kws, cs)
             .def_inner_into()
             .def_and_maybe(|x| {
                 def_transpose(x.map(|dl| dl.into_data_reader_raw(kws, seg, cr))).def_inner_into()
             }),
-        Version::FCS3_2 => DataLayout3_2::lookup_ro(kws, cs)
+        Version::FCS3_2 => Layout3_2Inner::lookup_ro(kws, cs)
             .def_inner_into()
             .def_and_maybe(|x| {
                 def_transpose(x.map(|dl| dl.into_data_reader_raw(kws, seg, cr))).def_inner_into()
@@ -658,10 +658,10 @@ fn kws_to_analysis_reader(
     conf: &ReaderConfig,
 ) -> AnalysisReaderResult<AnalysisReader> {
     match version {
-        Version::FCS2_0 => DataLayout2_0::as_analysis_reader_raw(kws, seg, conf).def_inner_into(),
-        Version::FCS3_0 => DataLayout3_0::as_analysis_reader_raw(kws, seg, conf).def_inner_into(),
-        Version::FCS3_1 => DataLayout3_1::as_analysis_reader_raw(kws, seg, conf).def_inner_into(),
-        Version::FCS3_2 => DataLayout3_2::as_analysis_reader_raw(kws, seg, conf).def_inner_into(),
+        Version::FCS2_0 => Layout2_0Inner::as_analysis_reader_raw(kws, seg, conf).def_inner_into(),
+        Version::FCS3_0 => Layout3_0Inner::as_analysis_reader_raw(kws, seg, conf).def_inner_into(),
+        Version::FCS3_1 => Layout3_1Inner::as_analysis_reader_raw(kws, seg, conf).def_inner_into(),
+        Version::FCS3_2 => Layout3_2Inner::as_analysis_reader_raw(kws, seg, conf).def_inner_into(),
     }
 }
 

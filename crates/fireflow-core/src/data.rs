@@ -97,8 +97,8 @@ enum_from!(
     /// each column to have a different type and size (hence "Mixed").
     #[derive(Clone, Serialize)]
     pub DataLayout3_2,
-    [Mixed,FixedLayout<MixedType, Endian>],
-    [NonMixed,NonMixedEndianLayout]
+    [Mixed, EndianLayout<MixedType, ()>],
+    [NonMixed, NonMixedEndianLayout]
 );
 
 enum_from!(
@@ -110,8 +110,8 @@ enum_from!(
     pub OrderedDataLayout,
     [Ascii, AnyAsciiLayout],
     [Integer, AnyOrderedUintLayout],
-    [F32, OrderedLayout<F32Type>],
-    [F64, OrderedLayout<F64Type>]
+    [F32, OrderedLayout<F32Type, ()>],
+    [F64, OrderedLayout<F64Type, ()>]
 );
 
 enum_from!(
@@ -119,9 +119,9 @@ enum_from!(
     #[derive(Clone, Serialize)]
     pub NonMixedEndianLayout,
     [Ascii, AnyAsciiLayout],
-    [Integer, EndianLayout<AnyUintType>],
-    [F32, EndianLayout<F32Type>],
-    [F64, EndianLayout<F64Type>]
+    [Integer, EndianLayout<AnyUintType, ()>],
+    [F32, EndianLayout<F32Type, ()>],
+    [F64, EndianLayout<F64Type, ()>]
 );
 
 enum_from!(
@@ -133,7 +133,7 @@ enum_from!(
     #[derive(Clone, Serialize)]
     pub AnyAsciiLayout,
     [Delimited, DelimAsciiLayout],
-    [Fixed, FixedAsciiLayout]
+    [Fixed, FixedAsciiLayout<()>]
 );
 
 /// Byte layout for delimited ASCII.
@@ -154,19 +154,34 @@ enum_from!(
     #[derive(Clone, Serialize)]
     pub AnyOrderedUintLayout,
     // TODO the first two don't need to be ordered
-    [Uint08, OrderedLayout<Uint08Type>],
-    [Uint16, OrderedLayout<Uint16Type>],
-    [Uint24, OrderedLayout<Uint24Type>],
-    [Uint32, OrderedLayout<Uint32Type>],
-    [Uint40, OrderedLayout<Uint40Type>],
-    [Uint48, OrderedLayout<Uint48Type>],
-    [Uint56, OrderedLayout<Uint56Type>],
-    [Uint64, OrderedLayout<Uint64Type>]
+    [Uint08, OrderedLayout<Uint08Type, ()>],
+    [Uint16, OrderedLayout<Uint16Type, ()>],
+    [Uint24, OrderedLayout<Uint24Type, ()>],
+    [Uint32, OrderedLayout<Uint32Type, ()>],
+    [Uint40, OrderedLayout<Uint40Type, ()>],
+    [Uint48, OrderedLayout<Uint48Type, ()>],
+    [Uint56, OrderedLayout<Uint56Type, ()>],
+    [Uint64, OrderedLayout<Uint64Type, ()>]
 );
 
-type OrderedLayout<C> = FixedLayout<C, <C as HasNativeType>::Order>;
-type EndianLayout<C> = FixedLayout<C, Endian>;
-type FixedAsciiLayout = FixedLayout<AsciiType, ()>;
+type OrderedLayout<C, D> = FixedLayout<ColumnWrapper<C, D>, <C as HasNativeType>::Order>;
+type EndianLayout<C, D> = FixedLayout<ColumnWrapper<C, D>, Endian>;
+type FixedAsciiLayout<D> = FixedLayout<ColumnWrapper<AsciiType, D>, ()>;
+
+#[derive(Clone, Serialize)]
+pub struct ColumnWrapper<C, D> {
+    column_type: C,
+    data: D,
+}
+
+impl<C> ColumnWrapper<C, ()> {
+    fn new(column_type: C) -> Self {
+        ColumnWrapper {
+            column_type,
+            data: (),
+        }
+    }
+}
 
 enum_from!(
     /// The type of a non-delimited column in the DATA segment for 3.2
@@ -636,7 +651,7 @@ impl AnyUintType {
             {
                 UintType::try_from_many(tail, starting_index).map(|xs| {
                     FixedLayout {
-                        columns: NonEmpty::from((x, xs)),
+                        columns: NonEmpty::from((x, xs)).map(ColumnWrapper::new),
                         byte_layout: endian.into(),
                     }
                     .into()
@@ -1206,7 +1221,7 @@ impl Serialize for DelimAsciiLayout {
     }
 }
 
-impl FixedLayout<AsciiType, ()> {
+impl FixedLayout<ColumnWrapper<AsciiType, ()>, ()> {
     fn ascii_layout_values<D: Copy, S: Default>(&self, datatype: D) -> LayoutValues<S, D> {
         LayoutValues {
             datatype: AlphaNumType::Ascii,
@@ -1218,14 +1233,14 @@ impl FixedLayout<AsciiType, ()> {
 
     fn column_layout_values<D: Copy>(&self, datatype: D) -> NonEmpty<ColumnLayoutValues<D>> {
         self.columns.as_ref().map(|c| ColumnLayoutValues {
-            width: Width::Fixed(c.fixed_width()),
-            range: Range(c.range().into()),
+            width: Width::Fixed(c.column_type.fixed_width()),
+            range: Range(c.column_type.range().into()),
             datatype,
         })
     }
 }
 
-impl FixedLayout<AnyUintType, Endian> {
+impl FixedLayout<ColumnWrapper<AnyUintType, ()>, Endian> {
     pub(crate) fn endian_uint_try_new<D>(
         cs: NonEmpty<ColumnLayoutValues<D>>,
         e: Endian,
@@ -1237,20 +1252,20 @@ impl FixedLayout<AnyUintType, Endian> {
     }
 
     pub(crate) fn try_into_ordered(self) -> LayoutConvertResult<AnyOrderedUintLayout> {
-        self.columns
-            .head
-            .try_into_one_size(self.columns.tail, self.byte_layout, 1)
+        let cs = self.columns.map(|c| c.column_type);
+        cs.head
+            .try_into_one_size(cs.tail, self.byte_layout, 1)
             .mult_map_errors(|(index, error)| ConvertWidthError { index, error })
             .mult_errors_into()
     }
 }
 
-impl FixedLayout<MixedType, Endian> {
+impl FixedLayout<ColumnWrapper<MixedType, ()>, Endian> {
     fn mixed_layout_values(&self) -> LayoutValues<Endian, Option<NumType>> {
         let cs: NonEmpty<_> = self.columns.as_ref().map(|c| ColumnLayoutValues {
-            width: Width::Fixed(c.fixed_width()),
-            range: c.range(),
-            datatype: c.as_num_type(),
+            width: Width::Fixed(c.column_type.fixed_width()),
+            range: c.column_type.range(),
+            datatype: c.column_type.as_num_type(),
         });
         // If any numeric types are none, then that means at least one column is
         // ASCII, which means that $DATATYPE needs to be "A" since $PnDATATYPE
@@ -1293,26 +1308,28 @@ impl FixedLayout<MixedType, Endian> {
         let c = self.columns.head;
         let cs = self.columns.tail;
         let endian = self.byte_layout;
-        match c {
+        match c.column_type {
             MixedType::Ascii(x) => cs
                 .into_iter()
                 .enumerate()
                 .map(|(i, c)| {
-                    c.try_into().map_err(|e| MixedColumnConvertError {
-                        error: MixedToOrderedConvertError::Ascii(e),
-                        index: (i + 1).into(),
-                    })
+                    c.column_type
+                        .try_into()
+                        .map_err(|e| MixedColumnConvertError {
+                            error: MixedToOrderedConvertError::Ascii(e),
+                            index: (i + 1).into(),
+                        })
                 })
                 .gather()
                 .map(|xs| {
                     AnyAsciiLayout::Fixed(FixedLayout {
-                        columns: (x, xs).into(),
+                        columns: NonEmpty::from((x, xs)).map(ColumnWrapper::new),
                         byte_layout: (),
                     })
                     .into()
                 }),
             MixedType::Integer(x) => x
-                .try_into_one_size(cs, endian, 1)
+                .try_into_one_size(cs.into_iter().map(|c| c.column_type).collect(), endian, 1)
                 .map(|x| x.into())
                 .mult_map_errors(|(index, error)| MixedColumnConvertError {
                     index,
@@ -1322,15 +1339,19 @@ impl FixedLayout<MixedType, Endian> {
                 .into_iter()
                 .enumerate()
                 .map(|(i, c)| {
-                    c.try_into().map_err(|e| MixedColumnConvertError {
-                        error: MixedToOrderedConvertError::Float(e),
-                        index: (i + 1).into(),
-                    })
+                    c.column_type
+                        .try_into()
+                        .map_err(|e| MixedColumnConvertError {
+                            error: MixedToOrderedConvertError::Float(e),
+                            index: (i + 1).into(),
+                        })
                 })
                 .gather()
                 .map(|xs| {
                     FixedLayout {
-                        columns: NonEmpty::from((x, xs)).map(FloatType::from),
+                        columns: NonEmpty::from((x, xs))
+                            .map(FloatType::from)
+                            .map(ColumnWrapper::new),
                         byte_layout: endian.into(),
                     }
                     .into()
@@ -1339,15 +1360,19 @@ impl FixedLayout<MixedType, Endian> {
                 .into_iter()
                 .enumerate()
                 .map(|(i, c)| {
-                    c.try_into().map_err(|e| MixedColumnConvertError {
-                        error: MixedToOrderedConvertError::Double(e),
-                        index: (i + 1).into(),
-                    })
+                    c.column_type
+                        .try_into()
+                        .map_err(|e| MixedColumnConvertError {
+                            error: MixedToOrderedConvertError::Double(e),
+                            index: (i + 1).into(),
+                        })
                 })
                 .gather()
                 .map(|xs| {
                     FixedLayout {
-                        columns: NonEmpty::from((x, xs)).map(FloatType::from),
+                        columns: NonEmpty::from((x, xs))
+                            .map(FloatType::from)
+                            .map(ColumnWrapper::new),
                         byte_layout: endian.into(),
                     }
                     .into()
@@ -1361,55 +1386,59 @@ impl FixedLayout<MixedType, Endian> {
         let c = self.columns.head;
         let it = self.columns.tail.into_iter().enumerate();
         let byte_layout = self.byte_layout;
-        match c {
+        match c.column_type {
             MixedType::Ascii(x) => it
                 .map(|(i, c)| {
-                    c.try_into()
+                    c.column_type
+                        .try_into()
                         .map_err(|e| (i, MixedToNonMixedConvertError::Ascii(e)))
                 })
                 .gather()
                 .map(|xs| {
                     AnyAsciiLayout::Fixed(FixedLayout {
-                        columns: (x, xs).into(),
+                        columns: NonEmpty::from((x, xs)).map(ColumnWrapper::new),
                         byte_layout: (),
                     })
                     .into()
                 }),
             MixedType::Integer(x) => it
                 .map(|(i, c)| {
-                    c.try_into()
+                    c.column_type
+                        .try_into()
                         .map_err(|e| (i, MixedToNonMixedConvertError::Integer(e)))
                 })
                 .gather()
                 .map(|xs| {
                     FixedLayout {
-                        columns: (x, xs).into(),
+                        columns: NonEmpty::from((x, xs)).map(ColumnWrapper::new),
                         byte_layout,
                     }
                     .into()
                 }),
             MixedType::Float(x) => it
                 .map(|(i, c)| {
-                    c.try_into()
+                    c.column_type
+                        .try_into()
                         .map_err(|e| (i, MixedToNonMixedConvertError::Float(e)))
                 })
                 .gather()
                 .map(|xs| {
                     FixedLayout {
-                        columns: NonEmpty::from((x, xs)),
+                        columns: NonEmpty::from((x, xs)).map(ColumnWrapper::new),
                         byte_layout,
                     }
                     .into()
                 }),
             MixedType::Double(x) => it
                 .map(|(i, c)| {
-                    c.try_into()
+                    c.column_type
+                        .try_into()
                         .map_err(|e| (i, MixedToNonMixedConvertError::Double(e)))
                 })
                 .gather()
                 .map(|xs| {
                     FixedLayout {
-                        columns: NonEmpty::from((x, xs)),
+                        columns: NonEmpty::from((x, xs)).map(ColumnWrapper::new),
                         byte_layout,
                     }
                     .into()
@@ -2074,7 +2103,7 @@ impl DelimAsciiLayout {
     }
 }
 
-impl<C, S> FixedLayout<C, S> {
+impl<C, S> FixedLayout<ColumnWrapper<C, ()>, S> {
     fn layout_values<D: Copy, R>(&self, datatype: D) -> LayoutValues<R, D>
     where
         R: From<S>,
@@ -2088,25 +2117,28 @@ impl<C, S> FixedLayout<C, S> {
                 .columns
                 .as_ref()
                 .map(|c| ColumnLayoutValues {
-                    width: Width::Fixed(c.fixed_width()),
-                    range: c.range(),
+                    width: Width::Fixed(c.column_type.fixed_width()),
+                    range: c.column_type.range(),
                     datatype,
                 })
                 .into(),
         }
     }
 
-    fn columns_into<X>(self) -> FixedLayout<X, S>
+    fn columns_into<X>(self) -> FixedLayout<ColumnWrapper<X, ()>, S>
     where
         X: From<C>,
     {
         FixedLayout {
             byte_layout: self.byte_layout,
-            columns: self.columns.map(|x| x.into()),
+            columns: self.columns.map(|c| ColumnWrapper {
+                column_type: c.column_type.into(),
+                data: c.data,
+            }),
         }
     }
 
-    fn byte_layout_into<X>(self) -> FixedLayout<C, X>
+    fn byte_layout_into<X>(self) -> FixedLayout<ColumnWrapper<C, ()>, X>
     where
         X: From<S>,
     {
@@ -2116,7 +2148,7 @@ impl<C, S> FixedLayout<C, S> {
         }
     }
 
-    fn byte_layout_try_into<X>(self) -> Result<FixedLayout<C, X>, X::Error>
+    fn byte_layout_try_into<X>(self) -> Result<FixedLayout<ColumnWrapper<C, ()>, X>, X::Error>
     where
         X: TryFrom<S>,
     {
@@ -2130,7 +2162,10 @@ impl<C, S> FixedLayout<C, S> {
     where
         C: IsFixed,
     {
-        self.columns.iter().map(|c| usize::from(c.nbytes())).sum()
+        self.columns
+            .iter()
+            .map(|c| usize::from(c.column_type.nbytes()))
+            .sum()
     }
 
     fn ncols(&self) -> usize {
@@ -2153,7 +2188,10 @@ impl<C, S> FixedLayout<C, S> {
         let columns = self
             .columns
             // TODO clone
-            .map(|c| c.into_col_reader(total_events, self.byte_layout.clone()));
+            .map(|c| {
+                c.column_type
+                    .into_col_reader(total_events, self.byte_layout.clone())
+            });
         let r = AlphaNumReader { columns };
         if remainder > 0 {
             let i = UnevenEventWidth {
@@ -2206,7 +2244,8 @@ impl<C, S> FixedLayout<C, S> {
             .zip(df.iter_columns())
             .enumerate()
             .map(|(i, (t, c))| {
-                t.into_col_writer(c, check, self.byte_layout)
+                t.column_type
+                    .into_col_writer(c, check, self.byte_layout)
                     .map_err(|error| {
                         ColumnWriterError(ColumnError {
                             index: i.into(),
@@ -2253,7 +2292,7 @@ impl<C, S> FixedLayout<C, S> {
         .map_err(DeferredFailure::mconcat)
         .map(Tentative::mconcat_ne)
         .def_map_value(|columns| Self {
-            columns,
+            columns: columns.map(ColumnWrapper::new),
             byte_layout,
         })
     }
@@ -2745,7 +2784,7 @@ impl AnyOrderedUintLayout {
         )
     }
 
-    fn into_endian(self) -> Result<FixedLayout<AnyUintType, Endian>, OrderedToEndianError> {
+    fn into_endian(self) -> Result<EndianLayout<AnyUintType, ()>, OrderedToEndianError> {
         match_many_to_one!(
             self,
             Self,

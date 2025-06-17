@@ -2769,23 +2769,23 @@ impl From<FloatColumnReader<f64, 8>> for AlphaNumColumnReader {
     }
 }
 
-fn widths_to_single_fixed_bytes(ws: &[Width]) -> MultiResult<Option<Bytes>, SingleFixedWidthError> {
-    let bs = ws
-        .iter()
-        .copied()
-        .map(Bytes::try_from)
-        .gather()
-        .map_err(|es| es.map(SingleFixedWidthError::Bytes))?;
-    NonEmpty::collect(bs.into_iter().unique()).map_or(Ok(None), |us| {
-        if us.tail.is_empty() {
-            Ok(Some(us.head))
-        } else {
-            Err(NonEmpty::new(SingleFixedWidthError::Multi(
-                MultiWidthsError(us.map(|x| x.into())),
-            )))
-        }
-    })
-}
+// fn widths_to_single_fixed_bytes(ws: &[Width]) -> MultiResult<Option<Bytes>, SingleFixedWidthError> {
+//     let bs = ws
+//         .iter()
+//         .copied()
+//         .map(Bytes::try_from)
+//         .gather()
+//         .map_err(|es| es.map(SingleFixedWidthError::Bytes))?;
+//     NonEmpty::collect(bs.into_iter().unique()).map_or(Ok(None), |us| {
+//         if us.tail.is_empty() {
+//             Ok(Some(us.head))
+//         } else {
+//             Err(NonEmpty::new(SingleFixedWidthError::Multi(
+//                 MultiWidthsError(us.map(|x| x.into())),
+//             )))
+//         }
+//     })
+// }
 
 impl AnyOrderedUintLayout {
     fn layout_values(&self) -> OrderedLayoutValues {
@@ -2813,13 +2813,30 @@ impl AnyOrderedUintLayout {
         o: ByteOrd,
         notrunc: bool,
     ) -> DeferredResult<Option<Self>, ColumnError<BitmaskError>, NewFixedIntLayoutError> {
-        // TODO check widths and bail if they don't match byteord
-        match_many_to_one!(o, ByteOrd, [O1, O2, O3, O4, O5, O6, O7, O8], o, {
-            FixedLayout::try_new(cs, o, |c| {
-                Ok(IntFromBytes::column_type(c.range, notrunc).errors_into())
+        let n = o.nbytes();
+        // First, scan through the widths to make sure they are all fixed and
+        // are all the same number of bytes as ByteOrd
+        cs.iter()
+            .map(|c| Bytes::try_from(c.width))
+            .gather()
+            .mult_map_errors(SingleFixedWidthError::Bytes)
+            .and_then(|widths| {
+                NonEmpty::collect(widths.into_iter().filter(|w| *w != n).unique())
+                    .map_or(Ok(()), |ws| Err(NonEmpty::new(MultiWidthsError(ws).into())))
             })
-            .def_map_value(|x| x.map(|y| y.into()))
-        })
+            .mult_to_deferred()
+            .def_and_maybe(|_| {
+                // Second, make the layout, and force all columns to the correct
+                // type based on ByteOrd. It is necessary to check the columns
+                // first because the bitmask won't necessarily fail even if it
+                // is larger than the target type.
+                match_many_to_one!(o, ByteOrd, [O1, O2, O3, O4, O5, O6, O7, O8], o, {
+                    FixedLayout::try_new(cs, o, |c| {
+                        Ok(IntFromBytes::column_type(c.range, notrunc).errors_into())
+                    })
+                    .def_map_value(|x| x.map(|y| y.into()))
+                })
+            })
     }
 
     fn ncols(&self) -> usize {
@@ -3870,7 +3887,7 @@ enum_from_disp!(
     [Multi, MultiWidthsError]
 );
 
-pub struct MultiWidthsError(pub NonEmpty<u8>);
+pub struct MultiWidthsError(pub NonEmpty<Bytes>);
 
 enum_from_disp!(
     pub NewMixedTypeError,

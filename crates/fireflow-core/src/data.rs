@@ -102,34 +102,28 @@ enum_from!(
     [NonMixed,NonMixedEndianLayout]
 );
 
-/// All possible byte layouts for the DATA segment in 2.0 and 3.0.
-///
-/// It is so named "Ordered" because the BYTEORD keyword represents any possible
-/// byte ordering that may occur rather than simply little or big endian.
-#[derive(Clone, Serialize)]
-pub enum OrderedDataLayout {
-    /// Non-empty layout when DATATYPE=A
-    Ascii(AsciiLayout),
-    /// Non-empty layout when DATATYPE=I
-    Integer(AnyOrderedUintLayout),
-    /// Non-empty layout when DATATYPE=F
-    F32(FixedLayout<F32Type, SizedByteOrd<4>>),
-    /// Non-empty layout when DATATYPE=D
-    F64(FixedLayout<F64Type, SizedByteOrd<8>>),
-}
+enum_from!(
+    /// All possible byte layouts for the DATA segment in 2.0 and 3.0.
+    ///
+    /// It is so named "Ordered" because the BYTEORD keyword represents any possible
+    /// byte ordering that may occur rather than simply little or big endian.
+    #[derive(Clone, Serialize)]
+    pub OrderedDataLayout,
+    [Ascii, AsciiLayout],
+    [Integer, AnyOrderedUintLayout],
+    [F32, FixedLayout<F32Type, SizedByteOrd<4>>],
+    [F64, FixedLayout<F64Type, SizedByteOrd<8>>]
+);
 
-/// All possible byte layouts for 3.1+ where DATATYPE is constant.
-#[derive(Clone, Serialize)]
-pub enum NonMixedEndianLayout {
-    /// Non-empty layout when DATATYPE=A
-    Ascii(AsciiLayout),
-    /// Non-empty layout when DATATYPE=I
-    Integer(FixedLayout<AnyUintType, Endian>),
-    /// Non-empty layout when DATATYPE=F
-    F32(FixedLayout<F32Type, Endian>),
-    /// Non-empty layout when DATATYPE=D
-    F64(FixedLayout<F64Type, Endian>),
-}
+enum_from!(
+    /// All possible byte layouts for 3.1+ where DATATYPE is constant.
+    #[derive(Clone, Serialize)]
+    pub NonMixedEndianLayout,
+    [Ascii, AsciiLayout],
+    [Integer, FixedLayout<AnyUintType, Endian>],
+    [F32, FixedLayout<F32Type, Endian>],
+    [F64, FixedLayout<F64Type, Endian>]
+);
 
 enum_from!(
     /// Byte layouts for ASCII data.
@@ -1309,18 +1303,15 @@ impl FixedLayout<MixedType, Endian> {
                 })
                 .gather()
                 .map(|xs| {
-                    let columns = (x, xs).into();
-                    OrderedDataLayout::Ascii(
-                        FixedLayout {
-                            columns,
-                            byte_layout: (),
-                        }
-                        .into(),
-                    )
+                    AsciiLayout::Fixed(FixedLayout {
+                        columns: (x, xs).into(),
+                        byte_layout: (),
+                    })
+                    .into()
                 }),
             MixedType::Integer(x) => x
                 .try_into_one_size(cs, endian, 1)
-                .map(OrderedDataLayout::Integer)
+                .map(|x| x.into())
                 .mult_map_errors(|(index, error)| MixedColumnConvertError {
                     index,
                     error: error.into(),
@@ -1336,10 +1327,11 @@ impl FixedLayout<MixedType, Endian> {
                 })
                 .gather()
                 .map(|xs| {
-                    OrderedDataLayout::F32(FixedLayout {
+                    FixedLayout {
                         columns: NonEmpty::from((x, xs)).map(FloatType::from),
                         byte_layout: endian.into(),
-                    })
+                    }
+                    .into()
                 }),
             MixedType::Double(x) => cs
                 .into_iter()
@@ -1352,10 +1344,11 @@ impl FixedLayout<MixedType, Endian> {
                 })
                 .gather()
                 .map(|xs| {
-                    OrderedDataLayout::F64(FixedLayout {
+                    FixedLayout {
                         columns: NonEmpty::from((x, xs)).map(FloatType::from),
                         byte_layout: endian.into(),
-                    })
+                    }
+                    .into()
                 }),
         }
     }
@@ -1374,15 +1367,11 @@ impl FixedLayout<MixedType, Endian> {
                 })
                 .gather()
                 .map(|xs| {
-                    let columns = (x, xs).into();
-                    let byte_layout = ();
-                    NonMixedEndianLayout::Ascii(
-                        FixedLayout {
-                            columns,
-                            byte_layout,
-                        }
-                        .into(),
-                    )
+                    AsciiLayout::Fixed(FixedLayout {
+                        columns: (x, xs).into(),
+                        byte_layout: (),
+                    })
+                    .into()
                 }),
             MixedType::Integer(x) => it
                 .map(|(i, c)| {
@@ -1391,14 +1380,11 @@ impl FixedLayout<MixedType, Endian> {
                 })
                 .gather()
                 .map(|xs| {
-                    let columns = (x, xs).into();
-                    NonMixedEndianLayout::Integer(
-                        FixedLayout {
-                            columns,
-                            byte_layout,
-                        }
-                        .into(),
-                    )
+                    FixedLayout {
+                        columns: (x, xs).into(),
+                        byte_layout,
+                    }
+                    .into()
                 }),
             MixedType::Float(x) => it
                 .map(|(i, c)| {
@@ -1407,10 +1393,11 @@ impl FixedLayout<MixedType, Endian> {
                 })
                 .gather()
                 .map(|xs| {
-                    NonMixedEndianLayout::F32(FixedLayout {
+                    FixedLayout {
                         columns: NonEmpty::from((x, xs)),
                         byte_layout,
-                    })
+                    }
+                    .into()
                 }),
             MixedType::Double(x) => it
                 .map(|(i, c)| {
@@ -1419,10 +1406,11 @@ impl FixedLayout<MixedType, Endian> {
                 })
                 .gather()
                 .map(|xs| {
-                    NonMixedEndianLayout::F64(FixedLayout {
+                    FixedLayout {
                         columns: NonEmpty::from((x, xs)),
                         byte_layout,
-                    })
+                    }
+                    .into()
                 }),
         }
         .mult_map_errors(|(i, error)| MixedColumnConvertError {
@@ -3656,10 +3644,10 @@ impl OrderedDataLayout {
 
     pub fn into_unmixed(self) -> LayoutConvertResult<NonMixedEndianLayout> {
         match self {
-            Self::Ascii(x) => Ok(NonMixedEndianLayout::Ascii(x)),
-            Self::Integer(x) => x.into_endian().map(NonMixedEndianLayout::Integer),
-            Self::F32(x) => x.byte_layout_try_into().map(NonMixedEndianLayout::F32),
-            Self::F64(x) => x.byte_layout_try_into().map(NonMixedEndianLayout::F64),
+            Self::Ascii(x) => Ok(x.into()),
+            Self::Integer(x) => x.into_endian().map(|x| x.into()),
+            Self::F32(x) => x.byte_layout_try_into().map(|x| x.into()),
+            Self::F64(x) => x.byte_layout_try_into().map(|x| x.into()),
         }
         .into_mult()
     }
@@ -3763,10 +3751,10 @@ impl NonMixedEndianLayout {
 
     pub(crate) fn into_ordered(self) -> LayoutConvertResult<OrderedDataLayout> {
         match self {
-            Self::Ascii(x) => Ok(OrderedDataLayout::Ascii(x)),
-            Self::Integer(x) => x.try_into_ordered().map(OrderedDataLayout::Integer),
-            Self::F32(x) => Ok(OrderedDataLayout::F32(x.byte_layout_into())),
-            Self::F64(x) => Ok(OrderedDataLayout::F64(x.byte_layout_into())),
+            Self::Ascii(x) => Ok(x.into()),
+            Self::Integer(x) => x.try_into_ordered().map(|x| x.into()),
+            Self::F32(x) => Ok(x.byte_layout_into().into()),
+            Self::F64(x) => Ok(x.byte_layout_into().into()),
         }
     }
 }

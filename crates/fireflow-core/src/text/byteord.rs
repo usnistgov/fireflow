@@ -90,41 +90,34 @@ pub struct FloatType<T, const LEN: usize> {
 }
 
 /// A type which uses a defined number of bytes
-pub(crate) trait HasDefinedBytes {
+pub(crate) trait HasNativeType {
+    /// The number of bytes the type consumes in an FCS file
     const BYTES: Bytes;
+    /// The native rust type
+    type NATIVE;
 }
 
-macro_rules! def_sized_uint {
-    ($name:ident, $t:ty, $size:expr) => {
-        pub type $name = UintType<$t, $size>;
+macro_rules! def_native_wrapper {
+    ($name:ident, $wrapper:ident, $native:ty, $size:expr) => {
+        pub type $name = $wrapper<$native, $size>;
 
-        impl HasDefinedBytes for $name {
+        impl HasNativeType for $name {
             const BYTES: Bytes = Bytes($size);
+            type NATIVE = $native;
         }
     };
 }
 
-def_sized_uint!(Uint08Type, u8, 1);
-def_sized_uint!(Uint16Type, u16, 2);
-def_sized_uint!(Uint24Type, u32, 3);
-def_sized_uint!(Uint32Type, u32, 4);
-def_sized_uint!(Uint40Type, u64, 5);
-def_sized_uint!(Uint48Type, u64, 6);
-def_sized_uint!(Uint56Type, u64, 7);
-def_sized_uint!(Uint64Type, u64, 8);
-
-macro_rules! def_sized_float {
-    ($name:ident, $t:ty, $size:expr) => {
-        pub type $name = FloatType<$t, $size>;
-
-        impl HasDefinedBytes for $name {
-            const BYTES: Bytes = Bytes($size);
-        }
-    };
-}
-
-def_sized_float!(F32Type, f32, 4);
-def_sized_float!(F64Type, f64, 8);
+def_native_wrapper!(Uint08Type, UintType, u8, 1);
+def_native_wrapper!(Uint16Type, UintType, u16, 2);
+def_native_wrapper!(Uint24Type, UintType, u32, 3);
+def_native_wrapper!(Uint32Type, UintType, u32, 4);
+def_native_wrapper!(Uint40Type, UintType, u64, 5);
+def_native_wrapper!(Uint48Type, UintType, u64, 6);
+def_native_wrapper!(Uint56Type, UintType, u64, 7);
+def_native_wrapper!(Uint64Type, UintType, u64, 8);
+def_native_wrapper!(F32Type, FloatType, f32, 4);
+def_native_wrapper!(F64Type, FloatType, f64, 8);
 
 macro_rules! byteord_from_sized {
     ($len:expr, $var:ident) => {

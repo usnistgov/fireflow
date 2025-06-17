@@ -2273,7 +2273,7 @@ impl HasDatatype for AnyUintType {
 
 impl<T, const LEN: usize> IsFixed for UintType<T, LEN>
 where
-    Self: HasDefinedBytes,
+    Self: HasNativeType,
     u64: From<T>,
     T: Copy,
 {
@@ -2326,7 +2326,7 @@ impl IsFixed for AnyUintType {
 
 impl<T, const LEN: usize> IsFixed for FloatType<T, LEN>
 where
-    Self: HasDefinedBytes,
+    Self: HasNativeType,
     T: Copy,
     f64: From<T>,
 {

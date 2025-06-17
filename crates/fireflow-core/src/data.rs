@@ -70,13 +70,13 @@ use std::str::FromStr;
 ///
 /// This is identical to 3.0 in every way except that the $TOT keyword in 2.0
 /// is optional, which requires a different interface.
-#[derive(Clone, Serialize, Default)]
+#[derive(Clone, Serialize)]
 pub struct DataLayout2_0(pub OrderedDataLayout);
 
 newtype_from!(DataLayout2_0, OrderedDataLayout);
 
 /// All possible byte layouts for the DATA segment in 2.0.
-#[derive(Clone, Serialize, Default)]
+#[derive(Clone, Serialize)]
 pub struct DataLayout3_0(pub OrderedDataLayout);
 
 newtype_from!(DataLayout3_0, OrderedDataLayout);
@@ -86,7 +86,7 @@ newtype_from!(DataLayout3_0, OrderedDataLayout);
 /// Unlike 2.0 and 3.0, the integer layout allows the column widths to be
 /// different. This is a consequence of making BYTEORD only mean "big or little
 /// endian" and have nothing to do with number of bytes.
-#[derive(Clone, Serialize, Default)]
+#[derive(Clone, Serialize)]
 pub struct DataLayout3_1(pub NonMixedEndianLayout);
 
 newtype_from!(DataLayout3_1, NonMixedEndianLayout);
@@ -106,7 +106,7 @@ enum_from!(
 ///
 /// It is so named "Ordered" because the BYTEORD keyword represents any possible
 /// byte ordering that may occur rather than simply little or big endian.
-#[derive(Clone, Serialize, Default)]
+#[derive(Clone, Serialize)]
 pub enum OrderedDataLayout {
     /// Non-empty layout when DATATYPE=A
     Ascii(AsciiLayout),
@@ -116,13 +116,10 @@ pub enum OrderedDataLayout {
     F32(FixedLayout<F32Type, SizedByteOrd<4>>),
     /// Non-empty layout when DATATYPE=D
     F64(FixedLayout<F64Type, SizedByteOrd<8>>),
-    /// Layout with no columns
-    #[default]
-    Empty,
 }
 
 /// All possible byte layouts for 3.1+ where DATATYPE is constant.
-#[derive(Clone, Serialize, Default)]
+#[derive(Clone, Serialize)]
 pub enum NonMixedEndianLayout {
     /// Non-empty layout when DATATYPE=A
     Ascii(AsciiLayout),
@@ -132,9 +129,6 @@ pub enum NonMixedEndianLayout {
     F32(FixedLayout<F32Type, Endian>),
     /// Non-empty layout when DATATYPE=D
     F64(FixedLayout<F64Type, Endian>),
-    /// Layout with no columns
-    #[default]
-    Empty,
 }
 
 enum_from!(
@@ -500,13 +494,17 @@ pub trait VersionedDataLayout: Sized {
     fn try_new(
         dt: AlphaNumType,
         size: Self::S,
-        cs: Vec<ColumnLayoutValues<Self::D>>,
+        cs: NonEmpty<ColumnLayoutValues<Self::D>>,
         conf: &SharedConfig,
     ) -> DeferredResult<Self, ColumnError<BitmaskError>, NewDataLayoutError>;
 
-    fn lookup(kws: &mut StdKeywords, conf: &SharedConfig, par: Par) -> LookupLayoutResult<Self>;
+    fn lookup(
+        kws: &mut StdKeywords,
+        conf: &SharedConfig,
+        par: Par,
+    ) -> LookupLayoutResult<Option<Self>>;
 
-    fn lookup_ro(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Self>;
+    fn lookup_ro(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Option<Self>>;
 
     fn ncols(&self) -> usize;
 
@@ -711,7 +709,6 @@ uint_to_mixed!(Uint64Type, Uint64);
 pub enum DataWriter<'a> {
     Delim(DelimWriter<'a>),
     Fixed(FixedWriter<'a>),
-    Empty,
 }
 
 pub type DelimWriter<'a> = DataWriterInner<DelimColumnWriter<'a>>;
@@ -780,7 +777,6 @@ impl DataWriter<'_> {
         match self {
             Self::Delim(d) => d.h_write(h),
             Self::Fixed(f) => f.h_write(h),
-            Self::Empty => Ok(()),
         }
     }
 
@@ -788,18 +784,7 @@ impl DataWriter<'_> {
         match self {
             Self::Delim(d) => d.nbytes,
             Self::Fixed(f) => f.nbytes,
-            Self::Empty => 0,
         }
-    }
-}
-
-impl<C> DataWriterInner<C> {
-    fn try_new(cs: Vec<C>, nrows: usize, nbytes: usize) -> Option<Self> {
-        NonEmpty::from_vec(cs).map(|columns| Self {
-            columns,
-            nrows,
-            nbytes,
-        })
     }
 }
 
@@ -932,7 +917,6 @@ pub enum ColumnReader {
     DelimitedAsciiNoRows(DelimAsciiReaderNoRows),
     DelimitedAscii(DelimAsciiReader),
     AlphaNum(AlphaNumReader),
-    Empty,
 }
 
 // The only difference b/t these two is that the no-rows version will be
@@ -1002,7 +986,6 @@ impl DataReader {
                 ColumnReader::DelimitedAscii(p) => p.h_read(h).map_err(|e| e.inner_into()),
                 ColumnReader::DelimitedAsciiNoRows(p) => p.h_read(h).map_err(|e| e.inner_into()),
                 ColumnReader::AlphaNum(p) => p.h_read(h).map_err(|e| e.inner_into()),
-                ColumnReader::Empty => Ok(FCSDataFrame::default()),
             }
         } else {
             Ok(FCSDataFrame::default())
@@ -1248,11 +1231,10 @@ impl FixedLayout<AsciiType, ()> {
 
 impl FixedLayout<AnyUintType, Endian> {
     pub(crate) fn endian_uint_try_new<D>(
-        cs: Vec<ColumnLayoutValues<D>>,
+        cs: NonEmpty<ColumnLayoutValues<D>>,
         e: Endian,
         notrunc: bool,
-    ) -> DeferredResult<Option<Self>, ColumnError<BitmaskError>, ColumnError<NewUintTypeError>>
-    {
+    ) -> DeferredResult<Self, ColumnError<BitmaskError>, ColumnError<NewUintTypeError>> {
         FixedLayout::try_new(cs, e, |c| {
             AnyUintType::try_new(c, notrunc).def_errors_into()
         })
@@ -2228,12 +2210,13 @@ impl<C, S> FixedLayout<C, S> {
         &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
-    ) -> MultiResult<Option<FixedWriter<'a>>, ColumnWriterError>
+    ) -> MultiResult<FixedWriter<'a>, ColumnWriterError>
     where
         S: Copy,
         C: Copy + IsFixedWriter<S = S> + IsFixed,
     {
         let check = conf.check_conversion;
+        // ASSUME df has same number of columns as layout
         self.columns
             .iter()
             .zip(df.iter_columns())
@@ -2248,49 +2231,47 @@ impl<C, S> FixedLayout<C, S> {
                     })
             })
             .gather()
-            .map(|columns| {
-                FixedWriter::try_new(columns, df.nrows(), self.event_width() * df.nrows())
+            .map(|columns| DataWriterInner {
+                // TODO there should be a better way to do this
+                columns: NonEmpty::from_vec(columns).unwrap(),
+                nrows: df.nrows(),
+                nbytes: self.event_width() * df.nrows(),
             })
     }
 
     fn try_new<D, F, W, E, CW, CE>(
-        cs: Vec<ColumnLayoutValues<D>>,
+        cs: NonEmpty<ColumnLayoutValues<D>>,
         byte_layout: S,
         new_col_f: F,
-    ) -> DeferredResult<Option<Self>, W, E>
+    ) -> DeferredResult<Self, W, E>
     where
         W: From<ColumnError<CW>>,
         E: From<ColumnError<CE>>,
         F: Fn(ColumnLayoutValues<D>) -> DeferredResult<C, CW, CE>,
     {
-        cs.into_iter()
-            .enumerate()
-            .map(|(i, c)| {
-                new_col_f(c)
-                    .def_map_errors(|error| {
-                        ColumnError {
-                            error,
-                            index: i.into(),
-                        }
-                        .into()
-                    })
-                    .def_map_warnings(|error| {
-                        ColumnError {
-                            error,
-                            index: i.into(),
-                        }
-                        .into()
-                    })
-            })
-            .gather()
-            .map_err(DeferredFailure::mconcat)
-            .map(Tentative::mconcat)
-            .def_map_value(|xs| {
-                NonEmpty::from_vec(xs).map(|columns| Self {
-                    columns,
-                    byte_layout,
+        ne_map_results(ne_enumerate(cs), |(i, c)| {
+            new_col_f(c)
+                .def_map_errors(|error| {
+                    ColumnError {
+                        error,
+                        index: i.into(),
+                    }
+                    .into()
                 })
-            })
+                .def_map_warnings(|error| {
+                    ColumnError {
+                        error,
+                        index: i.into(),
+                    }
+                    .into()
+                })
+        })
+        .map_err(DeferredFailure::mconcat)
+        .map(Tentative::mconcat_ne)
+        .def_map_value(|columns| Self {
+            columns,
+            byte_layout,
+        })
     }
 }
 
@@ -2791,10 +2772,10 @@ impl AnyOrderedUintLayout {
     }
 
     pub(crate) fn try_new<D>(
-        cs: Vec<ColumnLayoutValues<D>>,
+        cs: NonEmpty<ColumnLayoutValues<D>>,
         o: ByteOrd,
         notrunc: bool,
-    ) -> DeferredResult<Option<Self>, ColumnError<BitmaskError>, NewFixedIntLayoutError> {
+    ) -> DeferredResult<Self, ColumnError<BitmaskError>, NewFixedIntLayoutError> {
         let n = o.nbytes();
         // First, scan through the widths to make sure they are all fixed and
         // are all the same number of bytes as ByteOrd
@@ -2816,7 +2797,7 @@ impl AnyOrderedUintLayout {
                     FixedLayout::try_new(cs, o, |c| {
                         Ok(IntFromBytes::column_type(c.range, notrunc).errors_into())
                     })
-                    .def_map_value(|x| x.map(|y| y.into()))
+                    .def_map_value(|x| x.into())
                 })
             })
     }
@@ -2868,7 +2849,7 @@ impl AnyOrderedUintLayout {
         &self,
         df: &'a FCSDataFrame,
         conf: &WriteConfig,
-    ) -> MultiResult<Option<FixedWriter<'a>>, ColumnWriterError> {
+    ) -> MultiResult<FixedWriter<'a>, ColumnWriterError> {
         match_many_to_one!(
             self,
             Self,
@@ -2896,29 +2877,26 @@ impl AsciiLayout {
     }
 
     pub(crate) fn try_new<D, W: From<ColumnError<X>>, X>(
-        cs: Vec<ColumnLayoutValues<D>>,
-    ) -> DeferredResult<Option<Self>, W, ColumnError<NewAsciiTypeError>> {
+        cs: NonEmpty<ColumnLayoutValues<D>>,
+    ) -> DeferredResult<Self, W, ColumnError<NewAsciiTypeError>> {
         if cs.iter().all(|c| c.width == Width::Variable) {
-            cs.into_iter()
-                .enumerate()
-                .map(|(i, c)| {
-                    u64::try_from(c.range.0).map_err(|error| {
-                        ColumnError {
-                            error: error.into(),
-                            index: i.into(),
-                        }
-                        .into()
-                    })
+            ne_map_results(ne_enumerate(cs), |(i, c)| {
+                u64::try_from(c.range.0).map_err(|error| {
+                    ColumnError {
+                        error: error.into(),
+                        index: i.into(),
+                    }
+                    .into()
                 })
-                .gather()
-                .map(|rs| NonEmpty::from_vec(rs).map(|ranges| DelimitedLayout { ranges }.into()))
-                .mult_to_deferred()
+            })
+            .map(|ranges| DelimitedLayout { ranges }.into())
+            .mult_to_deferred()
         } else {
             FixedLayout::try_new(cs, (), |c| {
                 // dummy type to satisfy constraint
                 AsciiType::try_new(c.width, c.range).mult_to_deferred::<_, X>()
             })
-            .def_map_value(|x| x.map(Self::Fixed))
+            .def_map_value(Self::Fixed)
         }
     }
 
@@ -2935,9 +2913,7 @@ impl AsciiLayout {
         conf: &WriteConfig,
     ) -> MultiResult<DataWriter<'a>, ColumnWriterError> {
         match self {
-            AsciiLayout::Fixed(a) => a
-                .as_writer(df, conf)
-                .map(|x| x.map_or(DataWriter::Empty, DataWriter::Fixed)),
+            AsciiLayout::Fixed(a) => a.as_writer(df, conf).map(DataWriter::Fixed),
             AsciiLayout::Delimited(_) => {
                 let ch = conf.check_conversion;
                 let go = |c: &'a AnyFCSColumn| {
@@ -2958,8 +2934,12 @@ impl AsciiLayout {
                     })
                     .gather()
                     .map(|columns| {
-                        DelimWriter::try_new(columns, df.nrows(), df.ascii_nbytes())
-                            .map_or(DataWriter::Empty, DataWriter::Delim)
+                        DataWriter::Delim(DataWriterInner {
+                            // TODO not dry
+                            columns: NonEmpty::from_vec(columns).unwrap(),
+                            nrows: df.nrows(),
+                            nbytes: df.ascii_nbytes(),
+                        })
                     })
             }
         }
@@ -3009,18 +2989,22 @@ impl VersionedDataLayout for DataLayout2_0 {
     fn try_new(
         datatype: AlphaNumType,
         byteord: Self::S,
-        columns: Vec<ColumnLayoutValues<Self::D>>,
+        columns: NonEmpty<ColumnLayoutValues<Self::D>>,
         conf: &SharedConfig,
     ) -> DeferredResult<Self, ColumnError<BitmaskError>, NewDataLayoutError> {
         OrderedDataLayout::try_new(datatype, byteord, columns, conf).def_map_value(|x| x.into())
     }
 
-    fn lookup(kws: &mut StdKeywords, conf: &SharedConfig, par: Par) -> LookupLayoutResult<Self> {
-        OrderedDataLayout::lookup(kws, conf, par).def_map_value(|x| x.into())
+    fn lookup(
+        kws: &mut StdKeywords,
+        conf: &SharedConfig,
+        par: Par,
+    ) -> LookupLayoutResult<Option<Self>> {
+        OrderedDataLayout::lookup(kws, conf, par).def_map_value(|x| x.map(|y| y.into()))
     }
 
-    fn lookup_ro(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Self> {
-        OrderedDataLayout::lookup_ro(kws, conf).def_map_value(|x| x.into())
+    fn lookup_ro(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Option<Self>> {
+        OrderedDataLayout::lookup_ro(kws, conf).def_map_value(|x| x.map(|y| y.into()))
     }
 
     fn ncols(&self) -> usize {
@@ -3099,18 +3083,22 @@ impl VersionedDataLayout for DataLayout3_0 {
     fn try_new(
         datatype: AlphaNumType,
         byteord: Self::S,
-        columns: Vec<ColumnLayoutValues<Self::D>>,
+        columns: NonEmpty<ColumnLayoutValues<Self::D>>,
         conf: &SharedConfig,
     ) -> DeferredResult<Self, ColumnError<BitmaskError>, NewDataLayoutError> {
         OrderedDataLayout::try_new(datatype, byteord, columns, conf).def_map_value(|x| x.into())
     }
 
-    fn lookup(kws: &mut StdKeywords, conf: &SharedConfig, par: Par) -> LookupLayoutResult<Self> {
-        OrderedDataLayout::lookup(kws, conf, par).def_map_value(|x| x.into())
+    fn lookup(
+        kws: &mut StdKeywords,
+        conf: &SharedConfig,
+        par: Par,
+    ) -> LookupLayoutResult<Option<Self>> {
+        OrderedDataLayout::lookup(kws, conf, par).def_map_value(|x| x.map(|y| y.into()))
     }
 
-    fn lookup_ro(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Self> {
-        OrderedDataLayout::lookup_ro(kws, conf).def_map_value(|x| x.into())
+    fn lookup_ro(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Option<Self>> {
+        OrderedDataLayout::lookup_ro(kws, conf).def_map_value(|x| x.map(|y| y.into()))
     }
 
     fn ncols(&self) -> usize {
@@ -3173,31 +3161,44 @@ impl VersionedDataLayout for DataLayout3_1 {
     fn try_new(
         datatype: AlphaNumType,
         endian: Self::S,
-        columns: Vec<ColumnLayoutValues<Self::D>>,
+        columns: NonEmpty<ColumnLayoutValues<Self::D>>,
         conf: &SharedConfig,
     ) -> DeferredResult<Self, ColumnError<BitmaskError>, NewDataLayoutError> {
         NonMixedEndianLayout::try_new(datatype, endian, columns, conf).def_map_value(|x| x.into())
     }
 
-    fn lookup(kws: &mut StdKeywords, conf: &SharedConfig, par: Par) -> LookupLayoutResult<Self> {
+    fn lookup(
+        kws: &mut StdKeywords,
+        conf: &SharedConfig,
+        par: Par,
+    ) -> LookupLayoutResult<Option<Self>> {
         let cs = ColumnLayoutValues2_0::lookup_all(kws, par);
         let d = AlphaNumType::lookup_req(kws);
         let n = Endian::lookup_req(kws);
+        // TODO not DRY
         d.def_zip3(n, cs)
             .def_inner_into()
             .def_and_maybe(|(datatype, byteord, columns)| {
-                Self::try_new(datatype, byteord, columns, conf).def_inner_into()
+                def_transpose(
+                    NonEmpty::from_vec(columns)
+                        .map(|cs| Self::try_new(datatype, byteord, cs, conf)),
+                )
+                .def_inner_into()
             })
     }
 
-    fn lookup_ro(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Self> {
+    fn lookup_ro(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Option<Self>> {
         let cs = ColumnLayoutValues2_0::get_all(kws);
         let d = AlphaNumType::get_metaroot_req(kws).into_deferred();
         let n = Endian::get_metaroot_req(kws).into_deferred();
         d.def_zip3(n, cs)
             .def_inner_into()
             .def_and_maybe(|(datatype, byteord, columns)| {
-                Self::try_new(datatype, byteord, columns, conf).def_inner_into()
+                def_transpose(
+                    NonEmpty::from_vec(columns)
+                        .map(|cs| Self::try_new(datatype, byteord, cs, conf)),
+                )
+                .def_inner_into()
             })
     }
 
@@ -3261,7 +3262,7 @@ impl VersionedDataLayout for DataLayout3_2 {
     fn try_new(
         datatype: AlphaNumType,
         endian: Self::S,
-        cs: Vec<ColumnLayoutValues<Self::D>>,
+        cs: NonEmpty<ColumnLayoutValues<Self::D>>,
         conf: &SharedConfig,
     ) -> DeferredResult<Self, ColumnError<BitmaskError>, NewDataLayoutError> {
         let unique_dt: Vec<_> = cs
@@ -3272,33 +3273,38 @@ impl VersionedDataLayout for DataLayout3_2 {
         match unique_dt[..] {
             [dt] => {
                 let ds = cs
-                    .into_iter()
                     // TODO lame...
                     .map(|c| ColumnLayoutValues {
                         width: c.width,
                         range: c.range,
                         datatype: (),
-                    })
-                    .collect();
+                    });
                 NonMixedEndianLayout::try_new(dt, endian, ds, conf).def_map_value(|x| x.into())
             }
             _ => FixedLayout::try_new(cs, endian, |c| MixedType::try_new(c, conf))
-                .def_map_value(|x| x.map_or(Self::default(), |y| y.into())),
+                .def_map_value(|x| x.into()),
         }
     }
 
-    fn lookup(kws: &mut StdKeywords, conf: &SharedConfig, par: Par) -> LookupLayoutResult<Self> {
+    fn lookup(
+        kws: &mut StdKeywords,
+        conf: &SharedConfig,
+        par: Par,
+    ) -> LookupLayoutResult<Option<Self>> {
         let d = AlphaNumType::lookup_req(kws);
         let e = Endian::lookup_req(kws);
         let cs = ColumnLayoutValues3_2::lookup_all(kws, par);
         d.def_zip3(e, cs)
             .def_inner_into()
             .def_and_maybe(|(datatype, endian, columns)| {
-                Self::try_new(datatype, endian, columns, conf).def_inner_into()
+                def_transpose(
+                    NonEmpty::from_vec(columns).map(|cs| Self::try_new(datatype, endian, cs, conf)),
+                )
+                .def_inner_into()
             })
     }
 
-    fn lookup_ro(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Self> {
+    fn lookup_ro(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Option<Self>> {
         let d = AlphaNumType::get_metaroot_req(kws)
             .map_err(RawParsedError::from)
             .into_deferred();
@@ -3308,7 +3314,10 @@ impl VersionedDataLayout for DataLayout3_2 {
         let cs = ColumnLayoutValues3_2::get_all(kws).def_inner_into();
         d.def_zip3(e, cs)
             .def_and_maybe(|(datatype, endian, columns)| {
-                Self::try_new(datatype, endian, columns, conf).def_inner_into()
+                def_transpose(
+                    NonEmpty::from_vec(columns).map(|cs| Self::try_new(datatype, endian, cs, conf)),
+                )
+                .def_inner_into()
             })
     }
 
@@ -3326,9 +3335,7 @@ impl VersionedDataLayout for DataLayout3_2 {
     ) -> MultiResult<DataWriter<'a>, ColumnWriterError> {
         match self {
             Self::NonMixed(x) => x.as_writer_inner(df, conf),
-            Self::Mixed(m) => m
-                .as_writer(df, conf)
-                .map(|x| x.map_or(DataWriter::Empty, DataWriter::Fixed)),
+            Self::Mixed(m) => m.as_writer(df, conf).map(DataWriter::Fixed),
         }
     }
 
@@ -3473,7 +3480,6 @@ impl DataLayout2_0 {
             OrderedDataLayout::Integer(fl) => go(fl.into_col_reader_inner(seg, conf), tot),
             OrderedDataLayout::F32(fl) => go(fl.into_col_reader_inner(seg, conf), tot),
             OrderedDataLayout::F64(fl) => go(fl.into_col_reader_inner(seg, conf), tot),
-            OrderedDataLayout::Empty => Tentative::new1(ColumnReader::Empty),
         }
         .map(|r| r.into_data_reader(seg))
     }
@@ -3497,7 +3503,6 @@ impl DataLayout3_0 {
             OrderedDataLayout::Integer(fl) => fl.into_col_reader(seg, tot, conf),
             OrderedDataLayout::F32(fl) => fl.into_col_reader(seg, tot, conf),
             OrderedDataLayout::F64(fl) => fl.into_col_reader(seg, tot, conf),
-            OrderedDataLayout::Empty => Tentative::new1(ColumnReader::Empty),
         }
         .map(|r| r.into_data_reader(seg))
     }
@@ -3553,12 +3558,6 @@ impl DataLayout3_2 {
     }
 }
 
-impl Default for DataLayout3_2 {
-    fn default() -> Self {
-        DataLayout3_2::NonMixed(NonMixedEndianLayout::default())
-    }
-}
-
 impl OrderedDataLayout {
     fn layout_values(&self) -> OrderedLayoutValues {
         match self {
@@ -3566,60 +3565,70 @@ impl OrderedDataLayout {
             Self::Integer(x) => x.layout_values(),
             Self::F32(x) => x.layout_values(()),
             Self::F64(x) => x.layout_values(()),
-            Self::Empty => OrderedLayoutValues::default(),
         }
     }
 
     fn try_new(
         datatype: AlphaNumType,
         byteord: ByteOrd,
-        columns: Vec<ColumnLayoutValues<()>>,
+        columns: NonEmpty<ColumnLayoutValues<()>>,
         conf: &SharedConfig,
     ) -> DeferredResult<Self, ColumnError<BitmaskError>, NewDataLayoutError> {
         match datatype {
             AlphaNumType::Ascii => AsciiLayout::try_new(columns)
-                .def_map_value(|x| x.map(Self::Ascii))
+                .def_map_value(Self::Ascii)
                 .def_errors_into(),
             AlphaNumType::Integer => {
                 AnyOrderedUintLayout::try_new(columns, byteord, conf.disallow_bitmask_truncation)
-                    .def_map_value(|x| x.map(Self::Integer))
+                    .def_map_value(Self::Integer)
                     .def_inner_into()
             }
             AlphaNumType::Single => byteord.try_into().into_deferred().def_and_maybe(|b| {
                 FixedLayout::try_new(columns, b, |c| {
                     f32::column_type(c.width, c.range).into_deferred::<FloatWidthError, _>()
                 })
-                .def_map_value(|x| x.map(Self::F32))
+                .def_map_value(Self::F32)
             }),
             AlphaNumType::Double => byteord.try_into().into_deferred().def_and_maybe(|b| {
                 FixedLayout::try_new(columns, b, |c| {
                     f64::column_type(c.width, c.range).into_deferred::<FloatWidthError, _>()
                 })
-                .def_map_value(|x| x.map(Self::F64))
+                .def_map_value(Self::F64)
             }),
         }
-        .def_map_value(|x| x.unwrap_or(Self::Empty))
     }
 
-    fn lookup(kws: &mut StdKeywords, conf: &SharedConfig, par: Par) -> LookupLayoutResult<Self> {
+    fn lookup(
+        kws: &mut StdKeywords,
+        conf: &SharedConfig,
+        par: Par,
+    ) -> LookupLayoutResult<Option<Self>> {
         let cs = ColumnLayoutValues2_0::lookup_all(kws, par);
         let d = AlphaNumType::lookup_req(kws);
         let b = ByteOrd::lookup_req(kws);
         d.def_zip3(b, cs)
             .def_inner_into()
             .def_and_maybe(|(datatype, byteord, columns)| {
-                Self::try_new(datatype, byteord, columns, conf).def_inner_into()
+                def_transpose(
+                    NonEmpty::from_vec(columns)
+                        .map(|cs| Self::try_new(datatype, byteord, cs, conf)),
+                )
+                .def_inner_into()
             })
     }
 
-    fn lookup_ro(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Self> {
+    fn lookup_ro(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Option<Self>> {
         let cs = ColumnLayoutValues2_0::get_all(kws);
         let d = AlphaNumType::get_metaroot_req(kws).into_deferred();
         let b = ByteOrd::get_metaroot_req(kws).into_deferred();
         d.def_zip3(b, cs)
             .def_inner_into()
             .def_and_maybe(|(datatype, byteord, columns)| {
-                Self::try_new(datatype, byteord, columns, conf).def_inner_into()
+                def_transpose(
+                    NonEmpty::from_vec(columns)
+                        .map(|cs| Self::try_new(datatype, byteord, cs, conf)),
+                )
+                .def_inner_into()
             })
     }
 
@@ -3629,7 +3638,6 @@ impl OrderedDataLayout {
             Self::Integer(i) => i.ncols(),
             Self::F32(f) => f.ncols(),
             Self::F64(f) => f.ncols(),
-            Self::Empty => 0,
         }
     }
 
@@ -3640,16 +3648,9 @@ impl OrderedDataLayout {
     ) -> MultiResult<DataWriter<'a>, ColumnWriterError> {
         match self {
             Self::Ascii(a) => a.as_writer(df, conf),
-            Self::Integer(i) => i
-                .as_writer(df, conf)
-                .map(|x| x.map_or(DataWriter::Empty, DataWriter::Fixed)),
-            Self::F32(f) => f
-                .as_writer(df, conf)
-                .map(|x| x.map_or(DataWriter::Empty, DataWriter::Fixed)),
-            Self::F64(f) => f
-                .as_writer(df, conf)
-                .map(|x| x.map_or(DataWriter::Empty, DataWriter::Fixed)),
-            Self::Empty => Ok(DataWriter::Empty),
+            Self::Integer(i) => i.as_writer(df, conf).map(DataWriter::Fixed),
+            Self::F32(f) => f.as_writer(df, conf).map(DataWriter::Fixed),
+            Self::F64(f) => f.as_writer(df, conf).map(DataWriter::Fixed),
         }
     }
 
@@ -3659,7 +3660,6 @@ impl OrderedDataLayout {
             Self::Integer(x) => x.into_endian().map(NonMixedEndianLayout::Integer),
             Self::F32(x) => x.byte_layout_try_into().map(NonMixedEndianLayout::F32),
             Self::F64(x) => x.byte_layout_try_into().map(NonMixedEndianLayout::F64),
-            Self::Empty => Ok(NonMixedEndianLayout::Empty),
         }
         .into_mult()
     }
@@ -3680,35 +3680,33 @@ impl NonMixedEndianLayout {
             Self::Integer(x) => x.layout_values(datatype),
             Self::F32(x) => x.layout_values(datatype),
             Self::F64(x) => x.layout_values(datatype),
-            Self::Empty => LayoutValues::default(),
         }
     }
 
     fn try_new(
         datatype: AlphaNumType,
         endian: Endian,
-        columns: Vec<ColumnLayoutValues<()>>,
+        columns: NonEmpty<ColumnLayoutValues<()>>,
         conf: &SharedConfig,
     ) -> DeferredResult<Self, ColumnError<BitmaskError>, NewDataLayoutError> {
         match datatype {
             AlphaNumType::Ascii => AsciiLayout::try_new(columns)
-                .def_map_value(|x| x.map(Self::Ascii))
+                .def_map_value(Self::Ascii)
                 .def_errors_into(),
             AlphaNumType::Integer => {
                 FixedLayout::endian_uint_try_new(columns, endian, conf.disallow_bitmask_truncation)
-                    .def_map_value(|x| x.map(Self::Integer))
+                    .def_map_value(Self::Integer)
                     .def_inner_into()
             }
             AlphaNumType::Single => FixedLayout::try_new(columns, endian, |c| {
                 f32::column_type(c.width, c.range).into_deferred::<FloatWidthError, _>()
             })
-            .def_map_value(|x| x.map(Self::F32)),
+            .def_map_value(Self::F32),
             AlphaNumType::Double => FixedLayout::try_new(columns, endian, |c| {
                 f64::column_type(c.width, c.range).into_deferred::<FloatWidthError, _>()
             })
-            .def_map_value(|x| x.map(Self::F64)),
+            .def_map_value(Self::F64),
         }
-        .def_map_value(|x| x.unwrap_or(Self::Empty))
     }
 
     fn into_reader<W, E>(
@@ -3728,7 +3726,6 @@ impl NonMixedEndianLayout {
             Self::Integer(fl) => fl.into_col_reader(seg, tot, conf),
             Self::F32(fl) => fl.byte_layout_into().into_col_reader(seg, tot, conf),
             Self::F64(fl) => fl.byte_layout_into().into_col_reader(seg, tot, conf),
-            Self::Empty => Tentative::new1(ColumnReader::Empty),
         }
         .map(|r| r.into_data_reader(seg))
     }
@@ -3739,7 +3736,6 @@ impl NonMixedEndianLayout {
             Self::Integer(i) => i.ncols(),
             Self::F32(f) => f.ncols(),
             Self::F64(f) => f.ncols(),
-            Self::Empty => 0,
         }
     }
 
@@ -3750,21 +3746,18 @@ impl NonMixedEndianLayout {
     ) -> MultiResult<DataWriter<'a>, ColumnWriterError> {
         match self {
             Self::Ascii(a) => a.as_writer(df, conf),
-            Self::Integer(i) => i
-                .as_writer(df, conf)
-                .map(|x| x.map_or(DataWriter::Empty, DataWriter::Fixed)),
+            Self::Integer(i) => i.as_writer(df, conf).map(DataWriter::Fixed),
             // TODO clone
             Self::F32(f) => f
                 .clone()
                 .byte_layout_into()
                 .as_writer(df, conf)
-                .map(|x| x.map_or(DataWriter::Empty, DataWriter::Fixed)),
+                .map(DataWriter::Fixed),
             Self::F64(f) => f
                 .clone()
                 .byte_layout_into()
                 .as_writer(df, conf)
-                .map(|x| x.map_or(DataWriter::Empty, DataWriter::Fixed)),
-            Self::Empty => Ok(DataWriter::Empty),
+                .map(DataWriter::Fixed),
         }
     }
 
@@ -3774,7 +3767,6 @@ impl NonMixedEndianLayout {
             Self::Integer(x) => x.try_into_ordered().map(OrderedDataLayout::Integer),
             Self::F32(x) => Ok(OrderedDataLayout::F32(x.byte_layout_into())),
             Self::F64(x) => Ok(OrderedDataLayout::F64(x.byte_layout_into())),
-            Self::Empty => Ok(OrderedDataLayout::Empty),
         }
     }
 }

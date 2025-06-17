@@ -139,6 +139,10 @@ where
         .map(|ys| NonEmpty::from_vec(ys).unwrap())
 }
 
+pub fn ne_enumerate<X>(xs: NonEmpty<X>) -> NonEmpty<(usize, X)> {
+    NonEmpty::collect(xs.into_iter().enumerate()).unwrap()
+}
+
 impl<I: Iterator<Item = Result<T, E>>, T, E> ErrorIter<T, E> for I {}
 
 impl<V, W> Terminal<V, W> {
@@ -1265,6 +1269,12 @@ impl<V, W, E> DeferredExt for DeferredResult<V, W, E> {
     fn def_unfail(self) -> Tentative<Option<Self::V>, Self::W, Self::E> {
         self.map_or_else(|fail| fail.unfail_with(None), |tnt| tnt.map(Some))
     }
+}
+
+pub fn def_transpose<X, W, E>(
+    x: Option<DeferredResult<X, W, E>>,
+) -> DeferredResult<Option<X>, W, E> {
+    x.map_or(Ok(Tentative::new1(None)), |x| x.def_map_value(Some))
 }
 
 pub trait IODeferredExt: Sized + PassthruExt {

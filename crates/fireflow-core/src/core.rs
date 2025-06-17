@@ -72,7 +72,7 @@ pub struct Core<A, D, O, M, T, P, N, W, L> {
     ///
     /// This is derived from $BYTEORD, $DATATYPE, $PnB, $PnR and maybe
     /// $PnDATATYPE for version 3.2.
-    layout: L,
+    layout: Option<L>,
 
     /// DATA segment (if applicable)
     data: D,
@@ -2176,7 +2176,10 @@ where
                     .mult_map_errors(ConvertErrorInner::Rewrap)
                     .mult_to_deferred()
             });
-        let lres = ConvertFromLayout::convert_from_layout(self.layout)
+        let lres = self
+            .layout
+            .map(|l| ConvertFromLayout::convert_from_layout(l))
+            .transpose()
             .mult_map_errors(ConvertErrorInner::Layout)
             .mult_to_deferred();
         m.def_zip3(ps, lres)
@@ -2751,17 +2754,14 @@ where
             .def_inner_into()
             .def_errors_liftio()
             .def_and_maybe(|text: VersionedCoreTEXT<M>| {
-                // text.as_data_layout(&conf.shared)
-                //     .def_inner_into()
-                //     .def_errors_liftio()
-                //     .def_and_maybe(|layout: M::L| {
-                let data_res = text
-                    .layout
+                let data_res = text.layout.map_or(Ok(Tentative::new1(None)), |l| {
                     // TODO this shouldn't be necessary
-                    .clone()
-                    .into_data_reader(kws, data_seg, &conf.reader)
-                    .def_inner_into()
-                    .def_errors_liftio();
+                    l.clone()
+                        .into_data_reader(kws, data_seg, &conf.reader)
+                        .def_map_value(Some)
+                        .def_inner_into()
+                        .def_errors_liftio()
+                });
                 let analysis_res = M::L::as_analysis_reader(kws, analysis_seg, &conf.reader)
                     .def_inner_into()
                     .def_errors_liftio();
@@ -2957,14 +2957,11 @@ where
 }
 
 impl<M, T, P, N, W, L> CoreTEXT<M, T, P, N, W, L> {
-    pub(crate) fn new_nomeas(metaroot: Metaroot<M>) -> Self
-    where
-        L: Default,
-    {
+    pub(crate) fn new_nomeas(metaroot: Metaroot<M>) -> Self {
         Self {
             metaroot,
             measurements: NamedVec::default(),
-            layout: L::default(),
+            layout: None,
             data: (),
             analysis: (),
             others: (),
@@ -2974,7 +2971,7 @@ impl<M, T, P, N, W, L> CoreTEXT<M, T, P, N, W, L> {
     pub(crate) fn new_unchecked(
         metaroot: Metaroot<M>,
         measurements: NamedVec<N, W, Temporal<T>, Optical<P>>,
-        layout: L,
+        layout: Option<L>,
     ) -> Self {
         Self {
             metaroot,

@@ -882,7 +882,7 @@ pub type Core2_0<A, D, O> = Core<
     InnerOptical2_0,
     OptionalKwFamily,
     OptionalKw<Shortname>,
-    Layout2_0Inner,
+    Layout2_0,
 >;
 pub type Core3_0<A, D, O> = Core<
     A,
@@ -893,7 +893,7 @@ pub type Core3_0<A, D, O> = Core<
     InnerOptical3_0,
     OptionalKwFamily,
     OptionalKw<Shortname>,
-    Layout3_0Inner,
+    Layout3_0,
 >;
 pub type Core3_1<A, D, O> = Core<
     A,
@@ -904,7 +904,7 @@ pub type Core3_1<A, D, O> = Core<
     InnerOptical3_1,
     IdentityFamily,
     Identity<Shortname>,
-    Layout3_1Inner,
+    Layout3_1,
 >;
 pub type Core3_2<A, D, O> = Core<
     A,
@@ -915,7 +915,7 @@ pub type Core3_2<A, D, O> = Core<
     InnerOptical3_2,
     IdentityFamily,
     Identity<Shortname>,
-    Layout3_2Inner,
+    Layout3_2,
 >;
 
 pub type CoreTEXT2_0 = Core2_0<(), (), ()>;
@@ -5560,13 +5560,13 @@ impl ConvertFromLayout<Layout3_0> for Layout2_0 {
 
 impl ConvertFromLayout<Layout3_1> for Layout2_0 {
     fn convert_from_layout(value: Layout3_1) -> LayoutConvertResult<Self> {
-        value.into_ordered().map(Layout2_0Inner)
+        value.into_ordered().map(|x| x.into())
     }
 }
 
 impl ConvertFromLayout<Layout3_2> for Layout2_0 {
     fn convert_from_layout(value: Layout3_2) -> LayoutConvertResult<Self> {
-        value.into_ordered().map(Layout2_0Inner)
+        value.into_ordered().map(|x| x.into())
     }
 }
 
@@ -5578,13 +5578,13 @@ impl ConvertFromLayout<Layout2_0> for Layout3_0 {
 
 impl ConvertFromLayout<Layout3_1> for Layout3_0 {
     fn convert_from_layout(value: Layout3_1) -> LayoutConvertResult<Self> {
-        value.into_ordered().map(Layout3_0Inner)
+        value.into_ordered().map(|x| x.into())
     }
 }
 
 impl ConvertFromLayout<Layout3_2> for Layout3_0 {
     fn convert_from_layout(value: Layout3_2) -> LayoutConvertResult<Self> {
-        value.into_ordered().map(Layout3_0Inner)
+        value.into_ordered().map(|x| x.into())
     }
 }
 

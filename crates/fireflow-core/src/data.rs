@@ -188,9 +188,11 @@ any_ordered_uint_from!(Uint48, Uint48Type);
 any_ordered_uint_from!(Uint56, Uint56Type);
 any_ordered_uint_from!(Uint64, Uint64Type);
 
-type OrderedLayout<F, C> = FixedLayout<NativeWrapper<F, C>, <C as HasNativeType>::Order>;
-type EndianLayout<F, C> = FixedLayout<NativeWrapper<F, C>, Endian>;
-type FixedAsciiLayout<F> = FixedLayout<<F as ColumnFamily>::ColumnWrapper<AsciiType, u64>, ()>;
+type OrderedLayout<F, C> = NativeLayout<F, C, <C as HasNativeWidth>::Order>;
+type EndianLayout<F, C> = NativeLayout<F, C, Endian>;
+type FixedAsciiLayout<F> = NativeLayout<F, AsciiType, ()>;
+
+type NativeLayout<F, C, S> = FixedLayout<NativeWrapper<F, C>, S>;
 
 /// The type of a non-delimited column in the DATA segment for 3.2
 pub enum MixedType<F: ColumnFamily> {
@@ -198,13 +200,6 @@ pub enum MixedType<F: ColumnFamily> {
     Integer(AnyUintType<F>),
     Float(F::ColumnWrapper<F32Type, f32>),
     Double(F::ColumnWrapper<F64Type, f64>),
-}
-
-/// The type of an ASCII column in all versions
-#[derive(PartialEq, Clone, Copy, Serialize)]
-pub struct AsciiType {
-    pub chars: Chars,
-    pub range: u64,
 }
 
 /// A big or little-endian integer column of some size (1-8 bytes)
@@ -296,9 +291,9 @@ struct ColumnReaderFamily;
 
 struct ColumnWriterFamily<'a>(std::marker::PhantomData<&'a ()>);
 
-struct ColumnReader0<C, T> {
-    column_type: C,
-    data: Vec<T>,
+pub(crate) struct ColumnReader0<C, T> {
+    pub(crate) column_type: C,
+    pub(crate) data: Vec<T>,
 }
 
 struct ColumnWriter0<'a, C, T> {
@@ -710,6 +705,95 @@ pub trait IsFixed {
     fn fixed_width(&self) -> BitsOrChars;
 
     fn range(&self) -> Range;
+}
+
+trait ToReader: HasNativeType {
+    fn into_reader(self, nrows: usize) -> ColumnReader0<Self, Self::Native>
+    where
+        Self::Native: Default + Copy,
+    {
+        ColumnReader0 {
+            column_type: self,
+            data: vec![Self::Native::default(); nrows],
+        }
+    }
+}
+
+trait ToWriter: HasNativeType {
+    type Error;
+
+    fn into_writer<E>(
+        self,
+        c: &AnyFCSColumn,
+        check: bool,
+    ) -> Result<ColumnWriter0<Self, Self::Native>, LossError<Self::Error>>
+    where
+        Self::Native: Default + Copy,
+        Self::Native:
+            NumCast<u8> + NumCast<u16> + NumCast<u32> + NumCast<u64> + NumCast<f32> + NumCast<f64>,
+        for<'b> AnySource<'b, Self::Native>: From<FCSColIter<'b, u8, Self::Native>>
+            + From<FCSColIter<'b, u16, Self::Native>>
+            + From<FCSColIter<'b, u32, Self::Native>>
+            + From<FCSColIter<'b, u64, Self::Native>>
+            + From<FCSColIter<'b, f32, Self::Native>>
+            + From<FCSColIter<'b, f64, Self::Native>>,
+    {
+        match_many_to_one!(c, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], xs, {
+            FCSDataType::into_writer(xs, check, |x| self.check_loss(x)).map(|w| ColumnWriter0 {
+                column_type: self,
+                data: w.into(),
+            })
+        })
+    }
+
+    fn check_loss(&self, x: Self::Native) -> Option<Self::Error>;
+}
+
+impl<T, const LEN: usize> ToReader for UintType<T, LEN> where Self: HasNativeType<Native = T> {}
+
+impl<T, const LEN: usize> ToReader for FloatType<T, LEN> where Self: HasNativeType<Native = T> {}
+
+impl ToReader for AsciiType {}
+
+impl<T, const LEN: usize> ToWriter for UintType<T, LEN>
+where
+    Self: HasNativeType<Native = T>,
+    u64: From<Self::Native>,
+    Self::Native: Ord + Copy,
+{
+    type Error = BitmaskLossError;
+
+    fn check_loss(&self, x: Self::Native) -> Option<Self::Error> {
+        if x > self.bitmask {
+            Some(BitmaskLossError(u64::from(self.bitmask)))
+        } else {
+            None
+        }
+    }
+}
+
+impl<T, const LEN: usize> ToWriter for FloatType<T, LEN>
+where
+    Self: HasNativeType<Native = T>,
+{
+    type Error = Infallible;
+
+    fn check_loss(&self, _: Self::Native) -> Option<Self::Error> {
+        None
+    }
+}
+
+impl ToWriter for AsciiType {
+    type Error = AsciiLossError;
+
+    fn check_loss(&self, x: Self::Native) -> Option<Self::Error> {
+        let width = u8::from(self.chars);
+        if ascii_nbytes(x) > width.into() {
+            Some(AsciiLossError(width))
+        } else {
+            None
+        }
+    }
 }
 
 /// A type which is may read bytes in a fixed width
@@ -2415,7 +2499,7 @@ impl<F: ColumnFamily> HasDatatype for AnyUintType<F> {
 
 impl<T, const LEN: usize> IsFixed for UintType<T, LEN>
 where
-    Self: HasNativeType,
+    Self: HasNativeWidth,
     u64: From<T>,
     T: Copy,
 {
@@ -2468,7 +2552,7 @@ impl IsFixed for AnyUintType<ColumnNullFamily> {
 
 impl<T, const LEN: usize> IsFixed for FloatType<T, LEN>
 where
-    Self: HasNativeType,
+    Self: HasNativeWidth,
     T: Copy,
     f64: From<T>,
 {
@@ -4096,7 +4180,7 @@ impl fmt::Display for AsciiLossError {
     }
 }
 
-pub struct BitmaskLossError(u64);
+pub struct BitmaskLossError(pub u64);
 
 impl fmt::Display for BitmaskLossError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {

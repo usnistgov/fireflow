@@ -89,13 +89,22 @@ pub struct FloatType<T, const LEN: usize> {
     pub range: T,
 }
 
+/// The type of an ASCII column in all versions
+#[derive(PartialEq, Clone, Copy, Serialize)]
+pub struct AsciiType {
+    pub chars: Chars,
+    pub range: u64,
+}
+
+pub(crate) trait HasNativeType: Sized {
+    /// The native rust type
+    type Native: Default + Copy;
+}
+
 /// A type which uses a defined number of bytes
-pub(crate) trait HasNativeType {
+pub(crate) trait HasNativeWidth: HasNativeType {
     /// The length of the type in bytes
     const BYTES: Bytes;
-
-    /// The native rust type
-    type Native;
 
     /// The sized byte order to be used with this type
     type Order;
@@ -106,8 +115,11 @@ macro_rules! def_native_wrapper {
         pub type $name = $wrapper<$native, $size>;
 
         impl HasNativeType for $name {
-            const BYTES: Bytes = Bytes($size);
             type Native = $native;
+        }
+
+        impl HasNativeWidth for $name {
+            const BYTES: Bytes = Bytes($size);
             type Order = SizedByteOrd<$size>;
         }
     };
@@ -123,6 +135,10 @@ def_native_wrapper!(Uint56Type, UintType, u64, 7);
 def_native_wrapper!(Uint64Type, UintType, u64, 8);
 def_native_wrapper!(F32Type, FloatType, f32, 4);
 def_native_wrapper!(F64Type, FloatType, f64, 8);
+
+impl HasNativeType for AsciiType {
+    type Native = u64;
+}
 
 macro_rules! byteord_from_sized {
     ($len:expr, $var:ident) => {

@@ -5623,7 +5623,7 @@ impl ConvertFromLayout<Layout3_0> for Layout3_2 {
 
 impl ConvertFromLayout<Layout3_1> for Layout3_2 {
     fn convert_from_layout(value: Layout3_1) -> LayoutConvertResult<Self> {
-        Ok(Layout3_2Inner::NonMixed(value.0))
+        Ok(Layout3_2::NonMixed(value.0))
     }
 }
 

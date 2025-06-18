@@ -61,87 +61,84 @@ use std::convert::Infallible;
 use std::fmt;
 use std::io;
 use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
+use std::marker::PhantomData;
 use std::num::ParseIntError;
 use std::str;
 use std::str::FromStr;
-
-#[derive(Clone, Serialize)]
-pub struct Layout2_0(pub AnyOrderedNullLayout);
-
-newtype_from!(Layout2_0, AnyOrderedNullLayout);
-
-#[derive(Clone, Serialize)]
-pub struct Layout3_0(pub AnyOrderedNullLayout);
-
-newtype_from!(Layout3_0, AnyOrderedNullLayout);
-
-#[derive(Clone, Serialize)]
-pub struct Layout3_1(pub NonMixedEndianLayout<DelimAsciiLayout, ColumnNullFamily>);
-
-newtype_from!(Layout3_1, NonMixedEndianNullLayout);
-
-pub type Layout3_2 = Layout3_2Inner<DelimAsciiLayout, ColumnNullFamily>;
-
-type AnyOrderedNullLayout = AnyOrderedLayout<DelimAsciiLayout, ColumnNullFamily>;
-
-type NonMixedEndianNullLayout = NonMixedEndianLayout<DelimAsciiLayout, ColumnNullFamily>;
 
 /// All possible byte layouts for the DATA segment in 2.0.
 ///
 /// This is identical to 3.0 in every way except that the $TOT keyword in 2.0
 /// is optional, which requires a different interface.
-pub struct Layout2_0Inner<D, F: ColumnFamily>(pub AnyOrderedLayout<D, F>);
+#[derive(Clone, Serialize)]
+pub struct Layout2_0(pub AnyOrderedLayout);
+
+newtype_from!(Layout2_0, AnyOrderedLayout);
 
 /// All possible byte layouts for the DATA segment in 2.0.
-pub struct Layout3_0Inner<D, F: ColumnFamily>(pub AnyOrderedLayout<D, F>);
+#[derive(Clone, Serialize)]
+pub struct Layout3_0(pub AnyOrderedLayout);
+
+newtype_from!(Layout3_0, AnyOrderedLayout);
 
 /// All possible byte layouts for the DATA segment in 3.1.
 ///
 /// Unlike 2.0 and 3.0, the integer layout allows the column widths to be
 /// different. This is a consequence of making BYTEORD only mean "big or little
 /// endian" and have nothing to do with number of bytes.
-pub struct Layout3_1Inner<D, F: ColumnFamily>(pub NonMixedEndianLayout<D, F>);
+#[derive(Clone, Serialize)]
+pub struct Layout3_1(pub NonMixedEndianLayout);
 
-/// All possible byte layouts for the DATA segment in 3.2.
-///
-/// In addition to the loosened integer layouts in 3.1, 3.2 additionally allows
-/// each column to have a different type and size (hence "Mixed").
-pub enum Layout3_2Inner<D, F: ColumnFamily> {
-    Mixed(MixedLayout<F>),
-    NonMixed(NonMixedEndianLayout<D, F>),
-}
+newtype_from!(Layout3_1, NonMixedEndianLayout);
 
-type MixedLayout<F> = FixedLayout<MixedType<F>, Endian>;
+enum_from!(
+    /// All possible byte layouts for the DATA segment in 3.2.
+    ///
+    /// In addition to the loosened integer layouts in 3.1, 3.2 additionally allows
+    /// each column to have a different type and size (hence "Mixed").
+    #[derive(Clone, Serialize)]
+    pub Layout3_2,
+    [Mixed, EndianLayout<MixedType>],
+    [NonMixed, NonMixedEndianLayout]
+);
 
-/// All possible byte layouts for the DATA segment in 2.0 and 3.0.
-///
-/// It is so named "Ordered" because the BYTEORD keyword represents any possible
-/// byte ordering that may occur rather than simply little or big endian.
-pub enum AnyOrderedLayout<D, F: ColumnFamily> {
-    Ascii(AnyAsciiLayout<D, F>),
-    Integer(AnyOrderedUintLayout<F>),
-    F32(OrderedLayout<F, F32Type>),
-    F64(OrderedLayout<F, F64Type>),
-}
+enum_from!(
+    /// All possible byte layouts for the DATA segment in 2.0 and 3.0.
+    ///
+    /// It is so named "Ordered" because the BYTEORD keyword represents any possible
+    /// byte ordering that may occur rather than simply little or big endian.
+    #[derive(Clone, Serialize)]
+    pub AnyOrderedLayout,
+    [Ascii, AnyAsciiLayout],
+    [Integer, AnyOrderedUintLayout],
+    [F32, OrderedLayout<F32Type>],
+    [F64, OrderedLayout<F64Type>]
+);
 
-pub enum NonMixedEndianLayout<D, F: ColumnFamily> {
-    Ascii(AnyAsciiLayout<D, F>),
-    Integer(EndianUintLayout<F>),
-    F32(EndianLayout<F, F32Type>),
-    F64(EndianLayout<F, F64Type>),
-}
+enum_from!(
+    #[derive(Clone, Serialize)]
+    pub NonMixedEndianLayout,
+    [Ascii, AnyAsciiLayout],
+    [Integer, EndianLayout<AnyUintType>],
+    [F32, EndianLayout<F32Type>],
+    [F64, EndianLayout<F64Type>]
+);
 
-type EndianUintLayout<F> = FixedLayout<AnyUintType<F>, Endian>;
+type EndianLayout<C> = FixedLayout<C, Endian>;
 
-/// Byte layouts for ASCII data.
-///
-/// This may either be fixed (ie columns have the same number of characters)
-/// or variable (ie columns have have different number of characters and are
-/// separated by delimiters).
-pub enum AnyAsciiLayout<D, F: ColumnFamily> {
-    Delimited(D),
-    Fixed(FixedAsciiLayout<F>),
-}
+enum_from!(
+    /// Byte layouts for ASCII data.
+    ///
+    /// This may either be fixed (ie columns have the same number of characters)
+    /// or variable (ie columns have have different number of characters and are
+    /// separated by delimiters).
+    #[derive(Clone, Serialize)]
+    pub AnyAsciiLayout,
+    [Delimited, DelimAsciiLayout],
+    [Fixed, FixedAsciiLayout]
+);
+
+type FixedAsciiLayout = FixedLayout<AsciiType, ()>;
 
 /// Byte layout for delimited ASCII.
 #[derive(Clone)]
@@ -156,186 +153,52 @@ struct FixedLayout<C, L> {
     columns: NonEmpty<C>,
 }
 
-/// Byte layout for integers that may be in any byte order.
-pub enum AnyOrderedUintLayout<F: ColumnFamily> {
+enum_from!(
+    /// Byte layout for integers that may be in any byte order.
+    #[derive(Clone, Serialize)]
+    pub AnyOrderedUintLayout,
     // TODO the first two don't need to be ordered
-    Uint08(OrderedLayout<F, Uint08Type>),
-    Uint16(OrderedLayout<F, Uint16Type>),
-    Uint24(OrderedLayout<F, Uint24Type>),
-    Uint32(OrderedLayout<F, Uint32Type>),
-    Uint40(OrderedLayout<F, Uint40Type>),
-    Uint48(OrderedLayout<F, Uint48Type>),
-    Uint56(OrderedLayout<F, Uint56Type>),
-    Uint64(OrderedLayout<F, Uint64Type>),
-}
-
-macro_rules! any_ordered_uint_from {
-    ($var:ident, $inner:path) => {
-        impl<F: ColumnFamily> From<OrderedLayout<F, $inner>> for AnyOrderedUintLayout<F> {
-            fn from(value: OrderedLayout<F, $inner>) -> Self {
-                Self::$var(value)
-            }
-        }
-    };
-}
-
-any_ordered_uint_from!(Uint08, Uint08Type);
-any_ordered_uint_from!(Uint16, Uint16Type);
-any_ordered_uint_from!(Uint24, Uint24Type);
-any_ordered_uint_from!(Uint32, Uint32Type);
-any_ordered_uint_from!(Uint40, Uint40Type);
-any_ordered_uint_from!(Uint48, Uint48Type);
-any_ordered_uint_from!(Uint56, Uint56Type);
-any_ordered_uint_from!(Uint64, Uint64Type);
-
-type OrderedLayout<F, C> = NativeLayout<F, C, <C as HasNativeWidth>::Order>;
-type EndianLayout<F, C> = NativeLayout<F, C, Endian>;
-type FixedAsciiLayout<F> = NativeLayout<F, AsciiType, ()>;
-
-type NativeLayout<F, C, S> = FixedLayout<NativeWrapper<F, C>, S>;
-
-/// The type of a non-delimited column in the DATA segment for 3.2
-pub enum MixedType<F: ColumnFamily> {
-    Ascii(F::ColumnWrapper<AsciiType, u64>),
-    Integer(AnyUintType<F>),
-    Float(F::ColumnWrapper<F32Type, f32>),
-    Double(F::ColumnWrapper<F64Type, f64>),
-}
-
-/// A big or little-endian integer column of some size (1-8 bytes)
-pub enum AnyUintType<F: ColumnFamily> {
-    Uint08(NativeWrapper<F, Uint08Type>),
-    Uint16(NativeWrapper<F, Uint16Type>),
-    Uint24(NativeWrapper<F, Uint24Type>),
-    Uint32(NativeWrapper<F, Uint32Type>),
-    Uint40(NativeWrapper<F, Uint40Type>),
-    Uint48(NativeWrapper<F, Uint48Type>),
-    Uint56(NativeWrapper<F, Uint56Type>),
-    Uint64(NativeWrapper<F, Uint64Type>),
-}
-
-macro_rules! impl_null_layout {
-    ($t:path, $($var:ident),*) => {
-        impl Clone for $t {
-            fn clone(&self) -> Self {
-                match self {
-                    $(
-                        Self::$var(x) => Self::$var(x.clone()),
-                    )*
-                }
-            }
-        }
-
-        impl Serialize for $t {
-            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-                match self {
-                    $(
-                        Self::$var(x) => x.serialize(serializer),
-                    )*
-                }
-            }
-        }
-    };
-}
-
-type AnyAsciiNullLayout = AnyAsciiLayout<DelimAsciiLayout, ColumnNullFamily>;
-
-type AnyOrderedUintNullLayout = AnyOrderedUintLayout<ColumnNullFamily>;
-
-type NullMixedType = MixedType<ColumnNullFamily>;
-
-type NullAnyUintType = AnyUintType<ColumnNullFamily>;
-
-impl_null_layout!(AnyOrderedNullLayout, Ascii, Integer, F32, F64);
-
-impl_null_layout!(Layout3_2, Mixed, NonMixed);
-
-impl_null_layout!(NonMixedEndianNullLayout, Ascii, Integer, F32, F64);
-
-impl_null_layout!(AnyAsciiNullLayout, Delimited, Fixed);
-
-impl_null_layout!(
-    AnyOrderedUintNullLayout,
-    Uint08,
-    Uint16,
-    Uint24,
-    Uint32,
-    Uint40,
-    Uint48,
-    Uint56,
-    Uint64
+    [Uint08, OrderedLayout<Uint08Type>],
+    [Uint16, OrderedLayout<Uint16Type>],
+    [Uint24, OrderedLayout<Uint24Type>],
+    [Uint32, OrderedLayout<Uint32Type>],
+    [Uint40, OrderedLayout<Uint40Type>],
+    [Uint48, OrderedLayout<Uint48Type>],
+    [Uint56, OrderedLayout<Uint56Type>],
+    [Uint64, OrderedLayout<Uint64Type>]
 );
 
-impl_null_layout!(NullMixedType, Ascii, Integer, Float, Double);
+type OrderedLayout<C> = FixedLayout<C, <C as HasNativeWidth>::Order>;
 
-impl_null_layout!(
-    NullAnyUintType,
-    Uint08,
-    Uint16,
-    Uint24,
-    Uint32,
-    Uint40,
-    Uint48,
-    Uint56,
-    Uint64
+enum_from!(
+    /// The type of a non-delimited column in the DATA segment for 3.2
+    #[derive(Clone, Copy, Serialize)]
+    pub MixedType,
+    [Ascii, AsciiType],
+    [Integer, AnyUintType],
+    [Float, F32Type],
+    [Double, F64Type]
 );
 
-impl Copy for NullMixedType {}
-impl Copy for NullAnyUintType {}
-
-type NativeWrapper<F, C> = <F as ColumnFamily>::ColumnWrapper<C, <C as HasNativeType>::Native>;
-
-struct ColumnNullFamily;
-
-struct ColumnReaderFamily;
-
-struct ColumnWriterFamily<'a>(std::marker::PhantomData<&'a ()>);
-
-pub(crate) struct ColumnReader0<C, T> {
-    pub(crate) column_type: C,
-    pub(crate) data: Vec<T>,
-}
-
-struct ColumnWriter0<'a, C, T> {
-    column_type: C,
-    data: AnySource<'a, T>,
-}
-
-trait ColumnFamily {
-    type ColumnWrapper<C, T>;
-
-    fn column_type<C, T>(x: Self::ColumnWrapper<C, T>) -> C;
-}
-
-impl ColumnFamily for ColumnNullFamily {
-    type ColumnWrapper<C, T> = C;
-
-    fn column_type<C, T>(x: Self::ColumnWrapper<C, T>) -> C {
-        x
-    }
-}
-
-impl ColumnFamily for ColumnReaderFamily {
-    type ColumnWrapper<C, T> = ColumnReader0<C, T>;
-
-    fn column_type<C, T>(x: Self::ColumnWrapper<C, T>) -> C {
-        x.column_type
-    }
-}
-
-impl<'a> ColumnFamily for ColumnWriterFamily<'a> {
-    type ColumnWrapper<C, T> = ColumnWriter0<'a, C, T>;
-
-    fn column_type<C, T>(x: Self::ColumnWrapper<C, T>) -> C {
-        x.column_type
-    }
-}
+enum_from!(
+    /// A big or little-endian integer column of some size (1-8 bytes)
+    #[derive(Clone, Copy, Serialize)]
+    pub AnyUintType,
+    [Uint08, Uint08Type],
+    [Uint16, Uint16Type],
+    [Uint24, Uint24Type],
+    [Uint32, Uint32Type],
+    [Uint40, Uint40Type],
+    [Uint48, Uint48Type],
+    [Uint56, Uint56Type],
+    [Uint64, Uint64Type]
+);
 
 macro_rules! any_uint_to_width {
     ($from:ident, $to:ident) => {
-        impl TryFrom<AnyUintType<ColumnNullFamily>> for $to {
+        impl TryFrom<AnyUintType> for $to {
             type Error = UintToUintError;
-            fn try_from(value: AnyUintType<ColumnNullFamily>) -> Result<Self, Self::Error> {
+            fn try_from(value: AnyUintType) -> Result<Self, Self::Error> {
                 let w = value.nbytes();
                 if let AnyUintType::$from(x) = value {
                     Ok(x)
@@ -345,12 +208,6 @@ macro_rules! any_uint_to_width {
                         to: Self::BYTES.into(),
                     })
                 }
-            }
-        }
-
-        impl From<$to> for AnyUintType<ColumnNullFamily> {
-            fn from(value: $to) -> Self {
-                Self::$from(value)
             }
         }
     };
@@ -382,9 +239,9 @@ any_uint_to_width!(Uint64, Uint64Type);
 
 macro_rules! mixed_to_width {
     ($from:ident, $to:ident) => {
-        impl TryFrom<NullMixedType> for $to {
+        impl TryFrom<MixedType> for $to {
             type Error = MixedToOrderedUintError;
-            fn try_from(value: NullMixedType) -> Result<Self, Self::Error> {
+            fn try_from(value: MixedType) -> Result<Self, Self::Error> {
                 let w = value.nbytes();
                 match value {
                     MixedType::Integer(x) => {
@@ -416,9 +273,9 @@ mixed_to_width!(Uint48, Uint48Type);
 mixed_to_width!(Uint56, Uint56Type);
 mixed_to_width!(Uint64, Uint64Type);
 
-impl TryFrom<NullMixedType> for AsciiType {
+impl TryFrom<MixedType> for AsciiType {
     type Error = MixedToAsciiError;
-    fn try_from(value: NullMixedType) -> Result<Self, Self::Error> {
+    fn try_from(value: MixedType) -> Result<Self, Self::Error> {
         match value {
             MixedType::Ascii(x) => Ok(x),
             MixedType::Integer(x) => Err(MixedIsInteger { width: x.nbytes() }.into()),
@@ -428,9 +285,9 @@ impl TryFrom<NullMixedType> for AsciiType {
     }
 }
 
-impl TryFrom<NullMixedType> for AnyUintType<ColumnNullFamily> {
+impl TryFrom<MixedType> for AnyUintType {
     type Error = MixedToEndianUintError;
-    fn try_from(value: NullMixedType) -> Result<Self, Self::Error> {
+    fn try_from(value: MixedType) -> Result<Self, Self::Error> {
         match value {
             MixedType::Ascii(_) => Err(MixedIsAscii.into()),
             MixedType::Integer(x) => Ok(x),
@@ -440,9 +297,9 @@ impl TryFrom<NullMixedType> for AnyUintType<ColumnNullFamily> {
     }
 }
 
-impl TryFrom<NullMixedType> for F32Type {
+impl TryFrom<MixedType> for F32Type {
     type Error = MixedToFloatError;
-    fn try_from(value: NullMixedType) -> Result<Self, Self::Error> {
+    fn try_from(value: MixedType) -> Result<Self, Self::Error> {
         match value {
             MixedType::Ascii(_) => Err(MixedIsAscii.into()),
             MixedType::Integer(x) => Err(MixedIsInteger { width: x.nbytes() }.into()),
@@ -452,9 +309,9 @@ impl TryFrom<NullMixedType> for F32Type {
     }
 }
 
-impl TryFrom<NullMixedType> for F64Type {
+impl TryFrom<MixedType> for F64Type {
     type Error = MixedToDoubleError;
-    fn try_from(value: NullMixedType) -> Result<Self, Self::Error> {
+    fn try_from(value: MixedType) -> Result<Self, Self::Error> {
         match value {
             MixedType::Ascii(_) => Err(MixedIsAscii.into()),
             MixedType::Integer(x) => Err(MixedIsInteger { width: x.nbytes() }.into()),
@@ -707,14 +564,27 @@ pub trait IsFixed {
     fn range(&self) -> Range;
 }
 
+struct ColumnReader0<C, T, S> {
+    column_type: C,
+    data: Vec<T>,
+    byte_layout: PhantomData<S>,
+}
+
+struct ColumnWriter0<'a, C, T, S> {
+    column_type: C,
+    data: AnySource<'a, T>,
+    byte_layout: PhantomData<S>,
+}
+
 trait ToReader: HasNativeType {
-    fn into_reader(self, nrows: usize) -> ColumnReader0<Self, Self::Native>
+    fn into_reader<S>(self, nrows: usize) -> ColumnReader0<Self, Self::Native, S>
     where
         Self::Native: Default + Copy,
     {
         ColumnReader0 {
             column_type: self,
             data: vec![Self::Native::default(); nrows],
+            byte_layout: PhantomData,
         }
     }
 }
@@ -722,11 +592,11 @@ trait ToReader: HasNativeType {
 trait ToWriter: HasNativeType {
     type Error;
 
-    fn into_writer<E>(
+    fn into_writer<S, E>(
         self,
         c: &AnyFCSColumn,
         check: bool,
-    ) -> Result<ColumnWriter0<Self, Self::Native>, LossError<Self::Error>>
+    ) -> Result<ColumnWriter0<Self, Self::Native, S>, LossError<Self::Error>>
     where
         Self::Native: Default + Copy,
         Self::Native:
@@ -742,6 +612,7 @@ trait ToWriter: HasNativeType {
             FCSDataType::into_writer(xs, check, |x| self.check_loss(x)).map(|w| ColumnWriter0 {
                 column_type: self,
                 data: w.into(),
+                byte_layout: PhantomData,
             })
         })
     }
@@ -813,7 +684,7 @@ pub trait IsFixedWriter {
     ) -> Result<AnyFixedColumnWriter, AnyLossError>;
 }
 
-impl AnyUintType<ColumnNullFamily> {
+impl AnyUintType {
     fn try_new<D>(
         c: ColumnLayoutValues<D>,
         notrunc: bool,
@@ -844,7 +715,7 @@ impl AnyUintType<ColumnNullFamily> {
         tail: Vec<X>,
         endian: Endian,
         starting_index: usize,
-    ) -> MultiResult<AnyOrderedUintLayout<ColumnNullFamily>, (MeasIndex, E)>
+    ) -> MultiResult<AnyOrderedUintLayout, (MeasIndex, E)>
     where
         Uint08Type: TryFrom<X, Error = E>,
         Uint16Type: TryFrom<X, Error = E>,
@@ -894,7 +765,7 @@ impl<T, const LEN: usize> UintType<T, LEN> {
 
 macro_rules! uint_to_mixed {
     ($uint:ident, $wrap:ident) => {
-        impl From<$uint> for MixedType<ColumnNullFamily> {
+        impl From<$uint> for MixedType {
             fn from(value: $uint) -> Self {
                 MixedType::Integer(AnyUintType::$wrap(value))
             }
@@ -1433,7 +1304,7 @@ impl Serialize for DelimAsciiLayout {
     }
 }
 
-impl FixedAsciiLayout<ColumnNullFamily> {
+impl FixedAsciiLayout {
     fn ascii_layout_values<D: Copy, S: Default>(&self, datatype: D) -> LayoutValues<S, D> {
         LayoutValues {
             datatype: AlphaNumType::Ascii,
@@ -1452,7 +1323,7 @@ impl FixedAsciiLayout<ColumnNullFamily> {
     }
 }
 
-impl EndianUintLayout<ColumnNullFamily> {
+impl EndianLayout<AnyUintType> {
     pub(crate) fn endian_uint_try_new<D>(
         cs: NonEmpty<ColumnLayoutValues<D>>,
         e: Endian,
@@ -1463,9 +1334,7 @@ impl EndianUintLayout<ColumnNullFamily> {
         })
     }
 
-    pub(crate) fn uint_try_into_ordered(
-        self,
-    ) -> LayoutConvertResult<AnyOrderedUintLayout<ColumnNullFamily>> {
+    pub(crate) fn uint_try_into_ordered(self) -> LayoutConvertResult<AnyOrderedUintLayout> {
         let cs = self.columns;
         cs.head
             .try_into_one_size(cs.tail, self.byte_layout, 1)
@@ -1474,7 +1343,7 @@ impl EndianUintLayout<ColumnNullFamily> {
     }
 }
 
-impl<'a> MixedLayout<ColumnNullFamily> {
+impl<'a> EndianLayout<MixedType> {
     fn mixed_layout_values(&self) -> LayoutValues<Endian, Option<NumType>> {
         let cs: NonEmpty<_> = self.columns.as_ref().map(|c| ColumnLayoutValues {
             width: Width::Fixed(c.fixed_width()),
@@ -1516,9 +1385,9 @@ impl<'a> MixedLayout<ColumnNullFamily> {
         }
     }
 
-    pub(crate) fn try_into_ordered<D>(
+    pub(crate) fn try_into_ordered(
         self,
-    ) -> MultiResult<AnyOrderedLayout<D, ColumnNullFamily>, MixedToOrderedLayoutError> {
+    ) -> MultiResult<AnyOrderedLayout, MixedToOrderedLayoutError> {
         let c = self.columns.head;
         let cs = self.columns.tail;
         let endian = self.byte_layout;
@@ -1581,9 +1450,9 @@ impl<'a> MixedLayout<ColumnNullFamily> {
         }
     }
 
-    pub(crate) fn try_into_non_mixed<D>(
+    pub(crate) fn try_into_non_mixed(
         self,
-    ) -> MultiResult<NonMixedEndianLayout<D, ColumnNullFamily>, MixedToNonMixedLayoutError> {
+    ) -> MultiResult<NonMixedEndianLayout, MixedToNonMixedLayoutError> {
         let c = self.columns.head;
         let it = self.columns.tail.into_iter().enumerate();
         let byte_layout = self.byte_layout;
@@ -2017,7 +1886,7 @@ impl AnyUintColumnReader {
 }
 
 // TODO also check scale here?
-impl MixedType<ColumnNullFamily> {
+impl MixedType {
     pub(crate) fn try_new(
         c: ColumnLayoutValues<Option<NumType>>,
         conf: &SharedConfig,
@@ -2493,7 +2362,7 @@ impl HasDatatype for F64Type {
     const DATATYPE: AlphaNumType = AlphaNumType::Double;
 }
 
-impl<F: ColumnFamily> HasDatatype for AnyUintType<F> {
+impl HasDatatype for AnyUintType {
     const DATATYPE: AlphaNumType = AlphaNumType::Integer;
 }
 
@@ -2518,7 +2387,7 @@ where
     }
 }
 
-impl IsFixed for AnyUintType<ColumnNullFamily> {
+impl IsFixed for AnyUintType {
     fn nbytes(&self) -> u8 {
         match_many_to_one!(
             self,
@@ -2584,7 +2453,7 @@ impl IsFixed for AsciiType {
     }
 }
 
-impl IsFixed for MixedType<ColumnNullFamily> {
+impl IsFixed for MixedType {
     fn nbytes(&self) -> u8 {
         match_many_to_one!(self, Self, [Ascii, Integer, Float, Double], x, {
             x.nbytes()
@@ -2621,7 +2490,7 @@ where
     }
 }
 
-impl IsFixedReader for AnyUintType<ColumnNullFamily> {
+impl IsFixedReader for AnyUintType {
     type S = Endian;
     fn into_col_reader(self, nrows: usize, byte_layout: Self::S) -> AlphaNumColumnReader {
         match_many_to_one!(
@@ -2660,7 +2529,7 @@ impl IsFixedReader for AsciiType {
     }
 }
 
-impl IsFixedReader for MixedType<ColumnNullFamily> {
+impl IsFixedReader for MixedType {
     type S = Endian;
     fn into_col_reader(self, nrows: usize, byte_layout: Self::S) -> AlphaNumColumnReader {
         match self {
@@ -2717,7 +2586,7 @@ where
     }
 }
 
-impl IsFixedWriter for AnyUintType<ColumnNullFamily> {
+impl IsFixedWriter for AnyUintType {
     type S = Endian;
 
     fn into_col_writer(
@@ -2796,7 +2665,7 @@ impl IsFixedWriter for AsciiType {
     }
 }
 
-impl IsFixedWriter for MixedType<ColumnNullFamily> {
+impl IsFixedWriter for MixedType {
     type S = Endian;
     fn into_col_writer(
         self,
@@ -2956,7 +2825,7 @@ impl From<FloatColumnReader<f64, 8>> for AlphaNumColumnReader {
     }
 }
 
-impl AnyOrderedUintLayout<ColumnNullFamily> {
+impl AnyOrderedUintLayout {
     fn layout_values(&self) -> OrderedLayoutValues {
         match_many_to_one!(
             self,
@@ -2967,9 +2836,7 @@ impl AnyOrderedUintLayout<ColumnNullFamily> {
         )
     }
 
-    fn into_endian(
-        self,
-    ) -> Result<FixedLayout<AnyUintType<ColumnNullFamily>, Endian>, OrderedToEndianError> {
+    fn into_endian(self) -> Result<FixedLayout<AnyUintType, Endian>, OrderedToEndianError> {
         match_many_to_one!(
             self,
             Self,
@@ -3076,7 +2943,7 @@ impl AsciiType {
     }
 }
 
-impl AnyAsciiLayout<DelimAsciiLayout, ColumnNullFamily> {
+impl AnyAsciiLayout {
     fn layout_values<D: Copy, S: Default>(&self, datatype: D) -> LayoutValues<S, D> {
         match self {
             Self::Delimited(x) => x.layout_values(datatype),
@@ -3730,9 +3597,7 @@ impl Layout3_1 {
         self.0.into_reader(tot, seg, conf)
     }
 
-    pub(crate) fn into_ordered(
-        self,
-    ) -> LayoutConvertResult<AnyOrderedLayout<DelimAsciiLayout, ColumnNullFamily>> {
+    pub(crate) fn into_ordered(self) -> LayoutConvertResult<AnyOrderedLayout> {
         self.0.into_ordered()
     }
 }
@@ -3758,9 +3623,7 @@ impl Layout3_2 {
         }
     }
 
-    pub(crate) fn into_ordered(
-        self,
-    ) -> LayoutConvertResult<AnyOrderedLayout<DelimAsciiLayout, ColumnNullFamily>> {
+    pub(crate) fn into_ordered(self) -> LayoutConvertResult<AnyOrderedLayout> {
         match self {
             Self::NonMixed(x) => x.into_ordered(),
             Self::Mixed(x) => x.try_into_ordered().mult_errors_into(),
@@ -3768,7 +3631,7 @@ impl Layout3_2 {
     }
 }
 
-impl AnyOrderedLayout<DelimAsciiLayout, ColumnNullFamily> {
+impl AnyOrderedLayout {
     fn layout_values(&self) -> OrderedLayoutValues {
         match self {
             Self::Ascii(x) => x.layout_values(()),
@@ -3864,9 +3727,7 @@ impl AnyOrderedLayout<DelimAsciiLayout, ColumnNullFamily> {
         }
     }
 
-    pub fn into_unmixed(
-        self,
-    ) -> LayoutConvertResult<NonMixedEndianLayout<DelimAsciiLayout, ColumnNullFamily>> {
+    pub fn into_unmixed(self) -> LayoutConvertResult<NonMixedEndianLayout> {
         match self {
             Self::Ascii(x) => Ok(NonMixedEndianLayout::Ascii(x)),
             Self::Integer(x) => x.into_endian().map(NonMixedEndianLayout::Integer),
@@ -3881,11 +3742,11 @@ impl AnyOrderedLayout<DelimAsciiLayout, ColumnNullFamily> {
     }
 
     pub(crate) fn into_3_2(self) -> LayoutConvertResult<Layout3_2> {
-        self.into_unmixed().map(Layout3_2Inner::NonMixed)
+        self.into_unmixed().map(Layout3_2::NonMixed)
     }
 }
 
-impl NonMixedEndianNullLayout {
+impl NonMixedEndianLayout {
     fn layout_values<D: Copy>(&self, datatype: D) -> LayoutValues<Endian, D> {
         match self {
             Self::Ascii(x) => x.layout_values(datatype),
@@ -3973,7 +3834,7 @@ impl NonMixedEndianNullLayout {
         }
     }
 
-    pub(crate) fn into_ordered(self) -> LayoutConvertResult<AnyOrderedNullLayout> {
+    pub(crate) fn into_ordered(self) -> LayoutConvertResult<AnyOrderedLayout> {
         match self {
             Self::Ascii(x) => Ok(AnyOrderedLayout::Ascii(x)),
             Self::Integer(x) => x.uint_try_into_ordered().map(AnyOrderedLayout::Integer),

@@ -740,7 +740,6 @@ where
 
     fn into_writer<'a, S>(self, c: &'a AnyFCSColumn) -> ColumnWriter0<'a, Self, Self::Native, S>
     where
-        // TODO put these at the trait level so I don't need to keep rewriting them
         Self::Native: Default + Copy + AllFCSCast,
         AnySource<'a, Self::Native>: From<FCSColIter<'a, u8, Self::Native>>
             + From<FCSColIter<'a, u16, Self::Native>>
@@ -771,11 +770,21 @@ where
     fn check_other_loss(&self, x: Self::Native) -> Option<Self::Error>;
 }
 
-impl<T, const LEN: usize> ToNativeReader for UintType<T, LEN> where Self: HasNativeType<Native = T> {}
+trait NativeReadable<S>: HasNativeType {
+    fn h_read<R: Read>(&self, h: &mut BufReader<R>, byte_layout: S) -> io::Result<Self::Native>;
+}
 
-impl<T, const LEN: usize> ToNativeReader for FloatType<T, LEN> where Self: HasNativeType<Native = T> {}
+trait Readable<'a, S> {
+    type Inner;
 
-impl ToNativeReader for AsciiType {}
+    fn new(column_type: Self::Inner, nrows: usize) -> Self;
+
+    fn h_read<E, R: Write>(
+        &mut self,
+        h: &mut BufReader<R>,
+        byte_layout: S,
+    ) -> Result<AnyFCSColumn, E>;
+}
 
 trait NativeWritable<S>: HasNativeType {
     fn h_write<W: Write>(
@@ -784,6 +793,87 @@ trait NativeWritable<S>: HasNativeType {
         x: CastResult<Self::Native>,
         byte_layout: S,
     ) -> io::Result<()>;
+}
+
+trait Writable<'a, S> {
+    type Inner;
+
+    fn new(column_type: Self::Inner, col: &'a AnyFCSColumn) -> Self;
+
+    fn check_writer(column_type: Self::Inner, col: &'a AnyFCSColumn) -> Result<(), AnyLossError>;
+
+    fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: S) -> io::Result<()>;
+}
+
+impl<T, const LEN: usize> ToNativeReader for UintType<T, LEN> where Self: HasNativeType<Native = T> {}
+
+impl<T, const LEN: usize> ToNativeReader for FloatType<T, LEN> where Self: HasNativeType<Native = T> {}
+
+impl ToNativeReader for AsciiType {}
+
+impl<T, const LEN: usize> NativeReadable<Endian> for UintType<T, LEN>
+where
+    UintType<T, LEN>: HasNativeType<Native = T>,
+    <UintType<T, LEN> as HasNativeType>::Native: Ord + Copy + IntFromBytes<LEN>,
+{
+    fn h_read<R: Read>(
+        &self,
+        h: &mut BufReader<R>,
+        byte_layout: Endian,
+    ) -> io::Result<Self::Native> {
+        Self::Native::h_read_endian(h, byte_layout)
+    }
+}
+
+impl<T, const LEN: usize> NativeReadable<SizedByteOrd<LEN>> for UintType<T, LEN>
+where
+    UintType<T, LEN>: HasNativeType<Native = T>,
+    <UintType<T, LEN> as HasNativeType>::Native: Ord + Copy + IntFromBytes<LEN>,
+{
+    fn h_read<R: Read>(
+        &self,
+        h: &mut BufReader<R>,
+        byte_layout: SizedByteOrd<LEN>,
+    ) -> io::Result<Self::Native> {
+        Self::Native::h_read_ordered(h, byte_layout)
+    }
+}
+
+impl<T, const LEN: usize> NativeReadable<Endian> for FloatType<T, LEN>
+where
+    FloatType<T, LEN>: HasNativeType<Native = T>,
+    <FloatType<T, LEN> as HasNativeType>::Native: Copy + FloatFromBytes<LEN>,
+{
+    fn h_read<R: Read>(
+        &self,
+        h: &mut BufReader<R>,
+        byte_layout: Endian,
+    ) -> io::Result<Self::Native> {
+        Self::Native::h_read_endian(h, byte_layout)
+    }
+}
+
+impl<T, const LEN: usize> NativeReadable<SizedByteOrd<LEN>> for FloatType<T, LEN>
+where
+    FloatType<T, LEN>: HasNativeType<Native = T>,
+    <FloatType<T, LEN> as HasNativeType>::Native: Copy + FloatFromBytes<LEN>,
+{
+    fn h_read<R: Read>(
+        &self,
+        h: &mut BufReader<R>,
+        byte_layout: SizedByteOrd<LEN>,
+    ) -> io::Result<Self::Native> {
+        Self::Native::h_read_ordered(h, byte_layout)
+    }
+}
+
+impl NativeReadable<()> for AsciiType {
+    fn h_read<R: Read>(&self, h: &mut BufReader<R>, _: ()) -> io::Result<Self::Native> {
+        // TODO this is crazy inefficient
+        let mut buf: Vec<u8> = vec![];
+        h.take(u8::from(self.chars).into()).read_to_end(&mut buf)?;
+        ascii_to_uint(&buf).map_err(ImpureError::Pure)
+    }
 }
 
 impl<T, const LEN: usize> NativeWritable<Endian> for UintType<T, LEN>
@@ -869,16 +959,6 @@ impl NativeWritable<()> for AsciiType {
             h.write_all(s.as_bytes())
         }
     }
-}
-
-trait Writable<'a, S> {
-    type Inner;
-
-    fn new(column_type: Self::Inner, col: &'a AnyFCSColumn) -> Self;
-
-    fn check_writer(column_type: Self::Inner, col: &'a AnyFCSColumn) -> Result<(), AnyLossError>;
-
-    fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: S) -> io::Result<()>;
 }
 
 impl<'a, C, T, S> Writable<'a, S> for ColumnWriter0<'a, C, T, S>
@@ -1973,7 +2053,7 @@ trait NumProps: Sized + Copy + Default {
 }
 
 trait OrderedFromBytes<const OLEN: usize>: NumProps {
-    fn h_read_from_ordered<R: Read>(h: &mut BufReader<R>, order: &[u8; OLEN]) -> io::Result<Self> {
+    fn h_read_from_ordered<R: Read>(h: &mut BufReader<R>, order: [u8; OLEN]) -> io::Result<Self> {
         let mut tmp = [0; OLEN];
         let mut buf = Self::BUF::default();
         h.read_exact(&mut tmp)?;
@@ -2059,10 +2139,10 @@ where
 
     fn h_read_ordered<R: Read>(
         h: &mut BufReader<R>,
-        byteord: &SizedByteOrd<INTLEN>,
+        byteord: SizedByteOrd<INTLEN>,
     ) -> io::Result<Self> {
         match byteord {
-            SizedByteOrd::Endian(e) => Self::h_read_endian(h, *e),
+            SizedByteOrd::Endian(e) => Self::h_read_endian(h, e),
             SizedByteOrd::Order(order) => Self::h_read_from_ordered(h, order),
         }
     }
@@ -2121,21 +2201,21 @@ where
         })
     }
 
-    fn h_read_float<R: Read>(
+    fn h_read_endian<R: Read>(h: &mut BufReader<R>, endian: Endian) -> io::Result<Self> {
+        let buf = Self::read_buf(h)?;
+        Ok(if endian == Endian::Big {
+            Self::from_big(buf)
+        } else {
+            Self::from_little(buf)
+        })
+    }
+
+    fn h_read_ordered<R: Read>(
         h: &mut BufReader<R>,
-        byteord: &SizedByteOrd<LEN>,
+        byteord: SizedByteOrd<LEN>,
     ) -> io::Result<Self> {
         match byteord {
-            SizedByteOrd::Endian(e) => {
-                let buf = Self::read_buf(h)?;
-                // let mut buf = [0; LEN];
-                // h.read_exact(&mut buf)?;
-                Ok(if *e == Endian::Big {
-                    Self::from_big(buf)
-                } else {
-                    Self::from_little(buf)
-                })
-            }
+            SizedByteOrd::Endian(endian) => Self::h_read_endian(h, endian),
             SizedByteOrd::Order(order) => Self::h_read_from_ordered(h, order),
         }
     }
@@ -2790,7 +2870,6 @@ impl<C, S> FixedLayout<C, S> {
 
     fn check_writer<'a, T>(&self, df: &'a FCSDataFrame) -> MultiResult<(), AnyLossError>
     where
-        S: Copy,
         C: Copy,
         T: Writable<'a, S, Inner = C>,
     {
@@ -3260,7 +3339,7 @@ impl<T, const INTLEN: usize> UintColumnReader<T, INTLEN> {
         T: IntFromBytes<INTLEN>,
         T: Ord,
     {
-        let x = T::h_read_ordered(h, &self.size)?;
+        let x = T::h_read_ordered(h, self.size)?;
         self.column[row] = x.min(self.uint_type.bitmask);
         Ok(())
     }
@@ -3271,7 +3350,7 @@ impl<T, const LEN: usize> FloatColumnReader<T, LEN> {
     where
         T: FloatFromBytes<LEN>,
     {
-        self.column[row] = T::h_read_float(h, &self.byte_layout)?;
+        self.column[row] = T::h_read_ordered(h, self.byte_layout)?;
         Ok(())
     }
 }

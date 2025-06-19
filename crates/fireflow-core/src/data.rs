@@ -172,10 +172,10 @@ type OrderedLayout<C> = FixedLayout<C, <C as HasNativeWidth>::Order>;
 
 /// The type of a non-delimited column in the DATA segment for 3.2
 pub enum MixedType<F: ColumnFamily> {
-    Ascii(F::ColumnWrapper<AsciiType, u64>),
-    Integer(AnyUintType<F>),
-    Float(F::ColumnWrapper<F32Type, f32>),
-    Double(F::ColumnWrapper<F64Type, f64>),
+    Ascii(F::ColumnWrapper<AsciiType, u64, ()>),
+    Uint(AnyUintType<F>),
+    F32(NativeWrapper<F, F32Type>),
+    F64(NativeWrapper<F, F64Type>),
 }
 
 /// A big or little-endian integer column of some size (1-8 bytes)
@@ -238,7 +238,7 @@ macro_rules! impl_null_layout {
     };
 }
 
-impl_null_layout!(NullMixedType, Ascii, Integer, Float, Double);
+impl_null_layout!(NullMixedType, Ascii, Uint, F32, F64);
 
 impl_null_layout!(
     NullAnyUintType,
@@ -259,8 +259,23 @@ macro_rules! any_uint_from {
                 Self::$var(value)
             }
         }
+
+        impl From<UintColumnReader0<$inner>> for ReaderAnyUintType {
+            fn from(value: UintColumnReader0<$inner>) -> Self {
+                Self::$var(value)
+            }
+        }
+
+        impl<'a> From<UintColumnWriter0<'a, $inner>> for WriterAnyUintType<'a> {
+            fn from(value: UintColumnWriter0<'a, $inner>) -> Self {
+                Self::$var(value)
+            }
+        }
     };
 }
+
+type UintColumnReader0<C> = ColumnReader0<C, <C as HasNativeType>::Native, Endian>;
+type UintColumnWriter0<'a, C> = ColumnWriter0<'a, C, <C as HasNativeType>::Native, Endian>;
 
 any_uint_from!(Uint08, Uint08Type);
 any_uint_from!(Uint16, Uint16Type);
@@ -274,10 +289,17 @@ any_uint_from!(Uint64, Uint64Type);
 type NullMixedType = MixedType<ColumnNullFamily>;
 type NullAnyUintType = AnyUintType<ColumnNullFamily>;
 
+type ReaderMixedType = MixedType<ColumnReaderFamily>;
+type ReaderAnyUintType = AnyUintType<ColumnReaderFamily>;
+
+type WriterMixedType<'a> = MixedType<ColumnWriterFamily<'a>>;
+type WriterAnyUintType<'a> = AnyUintType<ColumnWriterFamily<'a>>;
+
 impl Copy for NullMixedType {}
 impl Copy for NullAnyUintType {}
 
-type NativeWrapper<F, C> = <F as ColumnFamily>::ColumnWrapper<C, <C as HasNativeType>::Native>;
+type NativeWrapper<F, C> =
+    <F as ColumnFamily>::ColumnWrapper<C, <C as HasNativeType>::Native, Endian>;
 
 struct ColumnNullFamily;
 
@@ -286,33 +308,33 @@ struct ColumnReaderFamily;
 struct ColumnWriterFamily<'a>(std::marker::PhantomData<&'a ()>);
 
 trait ColumnFamily {
-    type ColumnWrapper<C, T>;
+    type ColumnWrapper<C, T, S>;
 
-    fn column_type<C, T>(x: Self::ColumnWrapper<C, T>) -> C;
+    // fn column_type<C, T, S>(x: Self::ColumnWrapper<C, T, S>) -> C;
 }
 
 impl ColumnFamily for ColumnNullFamily {
-    type ColumnWrapper<C, T> = C;
+    type ColumnWrapper<C, T, S> = C;
 
-    fn column_type<C, T>(x: Self::ColumnWrapper<C, T>) -> C {
-        x
-    }
+    // fn column_type<C, T>(x: Self::ColumnWrapper<C, T>) -> C {
+    //     x
+    // }
 }
 
 impl ColumnFamily for ColumnReaderFamily {
-    type ColumnWrapper<C, T> = ColumnReader0<C, T, Endian>;
+    type ColumnWrapper<C, T, S> = ColumnReader0<C, T, S>;
 
-    fn column_type<C, T>(x: Self::ColumnWrapper<C, T>) -> C {
-        x.column_type
-    }
+    // fn column_type<C, T>(x: Self::ColumnWrapper<C, T, S>) -> C {
+    //     x.column_type
+    // }
 }
 
 impl<'a> ColumnFamily for ColumnWriterFamily<'a> {
-    type ColumnWrapper<C, T> = ColumnWriter0<'a, C, T, Endian>;
+    type ColumnWrapper<C, T, S> = ColumnWriter0<'a, C, T, S>;
 
-    fn column_type<C, T>(x: Self::ColumnWrapper<C, T>) -> C {
-        x.column_type
-    }
+    // fn column_type<C, T>(x: Self::ColumnWrapper<C, T, S>) -> C {
+    //     x.column_type
+    // }
 }
 
 macro_rules! any_uint_to_width {
@@ -365,7 +387,7 @@ macro_rules! mixed_to_width {
             fn try_from(value: NullMixedType) -> Result<Self, Self::Error> {
                 let w = value.nbytes();
                 match value {
-                    MixedType::Integer(x) => {
+                    MixedType::Uint(x) => {
                         if let AnyUintType::$from(y) = x {
                             Ok(y)
                         } else {
@@ -377,8 +399,8 @@ macro_rules! mixed_to_width {
                         }
                     }
                     MixedType::Ascii(_) => Err(MixedIsAscii.into()),
-                    MixedType::Float(_) => Err(MixedIsFloat.into()),
-                    MixedType::Double(_) => Err(MixedIsDouble.into()),
+                    MixedType::F32(_) => Err(MixedIsFloat.into()),
+                    MixedType::F64(_) => Err(MixedIsDouble.into()),
                 }
             }
         }
@@ -399,9 +421,9 @@ impl TryFrom<NullMixedType> for AsciiType {
     fn try_from(value: NullMixedType) -> Result<Self, Self::Error> {
         match value {
             MixedType::Ascii(x) => Ok(x),
-            MixedType::Integer(x) => Err(MixedIsInteger { width: x.nbytes() }.into()),
-            MixedType::Float(_) => Err(MixedIsFloat.into()),
-            MixedType::Double(_) => Err(MixedIsDouble.into()),
+            MixedType::Uint(x) => Err(MixedIsInteger { width: x.nbytes() }.into()),
+            MixedType::F32(_) => Err(MixedIsFloat.into()),
+            MixedType::F64(_) => Err(MixedIsDouble.into()),
         }
     }
 }
@@ -411,9 +433,9 @@ impl TryFrom<NullMixedType> for NullAnyUintType {
     fn try_from(value: NullMixedType) -> Result<Self, Self::Error> {
         match value {
             MixedType::Ascii(_) => Err(MixedIsAscii.into()),
-            MixedType::Integer(x) => Ok(x),
-            MixedType::Float(_) => Err(MixedIsFloat.into()),
-            MixedType::Double(_) => Err(MixedIsDouble.into()),
+            MixedType::Uint(x) => Ok(x),
+            MixedType::F32(_) => Err(MixedIsFloat.into()),
+            MixedType::F64(_) => Err(MixedIsDouble.into()),
         }
     }
 }
@@ -423,9 +445,9 @@ impl TryFrom<NullMixedType> for F32Type {
     fn try_from(value: NullMixedType) -> Result<Self, Self::Error> {
         match value {
             MixedType::Ascii(_) => Err(MixedIsAscii.into()),
-            MixedType::Integer(x) => Err(MixedIsInteger { width: x.nbytes() }.into()),
-            MixedType::Float(x) => Ok(x),
-            MixedType::Double(_) => Err(MixedIsDouble.into()),
+            MixedType::Uint(x) => Err(MixedIsInteger { width: x.nbytes() }.into()),
+            MixedType::F32(x) => Ok(x),
+            MixedType::F64(_) => Err(MixedIsDouble.into()),
         }
     }
 }
@@ -435,9 +457,9 @@ impl TryFrom<NullMixedType> for F64Type {
     fn try_from(value: NullMixedType) -> Result<Self, Self::Error> {
         match value {
             MixedType::Ascii(_) => Err(MixedIsAscii.into()),
-            MixedType::Integer(x) => Err(MixedIsInteger { width: x.nbytes() }.into()),
-            MixedType::Float(_) => Err(MixedIsFloat.into()),
-            MixedType::Double(x) => Ok(x),
+            MixedType::Uint(x) => Err(MixedIsInteger { width: x.nbytes() }.into()),
+            MixedType::F32(_) => Err(MixedIsFloat.into()),
+            MixedType::F64(x) => Ok(x),
         }
     }
 }
@@ -697,7 +719,7 @@ struct ColumnWriter0<'a, C, T, S> {
     byte_layout: PhantomData<S>,
 }
 
-trait ToReader: HasNativeType {
+trait ToNativeReader: HasNativeType {
     fn into_reader<S>(self, nrows: usize) -> ColumnReader0<Self, Self::Native, S>
     where
         Self::Native: Default + Copy,
@@ -710,44 +732,261 @@ trait ToReader: HasNativeType {
     }
 }
 
-trait ToWriter: HasNativeType {
+trait ToNativeWriter
+where
+    Self: HasNativeType,
+{
     type Error;
 
-    fn into_writer<S, E>(
-        self,
-        c: &AnyFCSColumn,
-        check: bool,
-    ) -> Result<ColumnWriter0<Self, Self::Native, S>, LossError<Self::Error>>
+    fn into_writer<'a, S>(self, c: &'a AnyFCSColumn) -> ColumnWriter0<'a, Self, Self::Native, S>
     where
-        Self::Native: Default + Copy,
-        Self::Native:
-            NumCast<u8> + NumCast<u16> + NumCast<u32> + NumCast<u64> + NumCast<f32> + NumCast<f64>,
-        for<'b> AnySource<'b, Self::Native>: From<FCSColIter<'b, u8, Self::Native>>
-            + From<FCSColIter<'b, u16, Self::Native>>
-            + From<FCSColIter<'b, u32, Self::Native>>
-            + From<FCSColIter<'b, u64, Self::Native>>
-            + From<FCSColIter<'b, f32, Self::Native>>
-            + From<FCSColIter<'b, f64, Self::Native>>,
+        // TODO put these at the trait level so I don't need to keep rewriting them
+        Self::Native: Default + Copy + AllFCSCast,
+        AnySource<'a, Self::Native>: From<FCSColIter<'a, u8, Self::Native>>
+            + From<FCSColIter<'a, u16, Self::Native>>
+            + From<FCSColIter<'a, u32, Self::Native>>
+            + From<FCSColIter<'a, u64, Self::Native>>
+            + From<FCSColIter<'a, f32, Self::Native>>
+            + From<FCSColIter<'a, f64, Self::Native>>,
     {
         match_many_to_one!(c, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], xs, {
-            FCSDataType::into_writer(xs, check, |x| self.check_loss(x)).map(|w| ColumnWriter0 {
+            let it = FCSDataType::as_col_iter(xs);
+            ColumnWriter0 {
                 column_type: self,
-                data: w.into(),
+                data: it.into(),
                 byte_layout: PhantomData,
-            })
+            }
         })
     }
 
-    fn check_loss(&self, x: Self::Native) -> Option<Self::Error>;
+    fn check_writer(&self, col: &AnyFCSColumn) -> Result<(), LossError<Self::Error>>
+    where
+        Self::Native: Default + Copy + AllFCSCast,
+    {
+        match_many_to_one!(col, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], xs, {
+            FCSDataType::check_writer(xs, |x| Self::check_other_loss(self, x))
+        })
+    }
+
+    fn check_other_loss(&self, x: Self::Native) -> Option<Self::Error>;
 }
 
-impl<T, const LEN: usize> ToReader for UintType<T, LEN> where Self: HasNativeType<Native = T> {}
+impl<T, const LEN: usize> ToNativeReader for UintType<T, LEN> where Self: HasNativeType<Native = T> {}
 
-impl<T, const LEN: usize> ToReader for FloatType<T, LEN> where Self: HasNativeType<Native = T> {}
+impl<T, const LEN: usize> ToNativeReader for FloatType<T, LEN> where Self: HasNativeType<Native = T> {}
 
-impl ToReader for AsciiType {}
+impl ToNativeReader for AsciiType {}
 
-impl<T, const LEN: usize> ToWriter for UintType<T, LEN>
+trait NativeWritable<S>: HasNativeType {
+    fn h_write<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        x: CastResult<Self::Native>,
+        byte_layout: S,
+    ) -> io::Result<()>;
+}
+
+impl<T, const LEN: usize> NativeWritable<Endian> for UintType<T, LEN>
+where
+    UintType<T, LEN>: HasNativeType<Native = T>,
+    <UintType<T, LEN> as HasNativeType>::Native: Ord + Copy + IntFromBytes<LEN>,
+{
+    fn h_write<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        x: CastResult<Self::Native>,
+        byte_layout: Endian,
+    ) -> io::Result<()> {
+        x.new.min(self.bitmask).h_write_endian(h, byte_layout)
+    }
+}
+
+impl<T, const LEN: usize> NativeWritable<SizedByteOrd<LEN>> for UintType<T, LEN>
+where
+    UintType<T, LEN>: HasNativeType<Native = T>,
+    <UintType<T, LEN> as HasNativeType>::Native: Ord + Copy + IntFromBytes<LEN>,
+{
+    fn h_write<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        x: CastResult<Self::Native>,
+        byte_layout: SizedByteOrd<LEN>,
+    ) -> io::Result<()> {
+        x.new.min(self.bitmask).h_write_ordered(h, byte_layout)
+    }
+}
+
+impl<T, const LEN: usize> NativeWritable<Endian> for FloatType<T, LEN>
+where
+    FloatType<T, LEN>: HasNativeType<Native = T>,
+    <FloatType<T, LEN> as HasNativeType>::Native: Copy + FloatFromBytes<LEN>,
+{
+    fn h_write<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        x: CastResult<Self::Native>,
+        byte_layout: Endian,
+    ) -> io::Result<()> {
+        x.new.h_write_endian(h, byte_layout)
+    }
+}
+
+impl<T, const LEN: usize> NativeWritable<SizedByteOrd<LEN>> for FloatType<T, LEN>
+where
+    FloatType<T, LEN>: HasNativeType<Native = T>,
+    <FloatType<T, LEN> as HasNativeType>::Native: Copy + FloatFromBytes<LEN>,
+{
+    fn h_write<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        x: CastResult<Self::Native>,
+        byte_layout: SizedByteOrd<LEN>,
+    ) -> io::Result<()> {
+        x.new.h_write_ordered(h, byte_layout)
+    }
+}
+
+impl NativeWritable<()> for AsciiType {
+    fn h_write<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        x: CastResult<Self::Native>,
+        _: (),
+    ) -> io::Result<()> {
+        let s = x.new.to_string();
+        let w: usize = u8::from(self.chars).into();
+        if s.len() > w {
+            // if string is greater than allocated chars, only write a fraction
+            // starting from the left
+            let offset = s.len() - w;
+            h.write_all(&s.as_bytes()[offset..])
+        } else {
+            // if string less than allocated chars, pad left side with zero before
+            // writing number
+            for _ in 0..(w - s.len()) {
+                h.write_all(&[30])?;
+            }
+            h.write_all(s.as_bytes())
+        }
+    }
+}
+
+trait Writable<'a, S> {
+    type Inner;
+
+    fn new(column_type: Self::Inner, col: &'a AnyFCSColumn) -> Self;
+
+    fn check_writer(column_type: Self::Inner, col: &'a AnyFCSColumn) -> Result<(), AnyLossError>;
+
+    fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: S) -> io::Result<()>;
+}
+
+impl<'a, C, T, S> Writable<'a, S> for ColumnWriter0<'a, C, T, S>
+where
+    C: NativeWritable<S> + HasNativeType<Native = T> + ToNativeWriter,
+    C::Native: AllFCSCast + Copy + Default,
+    AnyLossError: From<LossError<<C as ToNativeWriter>::Error>>,
+    AnySource<'a, C::Native>: From<FCSColIter<'a, u8, C::Native>>
+        + From<FCSColIter<'a, u16, C::Native>>
+        + From<FCSColIter<'a, u32, C::Native>>
+        + From<FCSColIter<'a, u64, C::Native>>
+        + From<FCSColIter<'a, f32, C::Native>>
+        + From<FCSColIter<'a, f64, C::Native>>,
+{
+    type Inner = C;
+
+    fn new(column_type: Self::Inner, col: &'a AnyFCSColumn) -> Self {
+        column_type.into_writer(col)
+    }
+
+    fn check_writer(column_type: Self::Inner, col: &'a AnyFCSColumn) -> Result<(), AnyLossError> {
+        column_type.check_writer(col).map_err(|e| e.into())
+    }
+
+    fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: S) -> io::Result<()> {
+        let x = self.data.next().unwrap();
+        self.column_type.h_write(h, x, byte_layout)
+    }
+}
+
+impl<'a> Writable<'a, Endian> for WriterMixedType<'a> {
+    type Inner = NullMixedType;
+
+    fn new(column_type: Self::Inner, col: &'a AnyFCSColumn) -> Self {
+        match column_type {
+            MixedType::Ascii(c) => Self::Ascii(c.into_writer(col)),
+            MixedType::Uint(c) => Self::Uint(WriterAnyUintType::new(c, col)),
+            MixedType::F32(c) => Self::F32(c.into_writer(col)),
+            MixedType::F64(c) => Self::F64(c.into_writer(col)),
+        }
+    }
+
+    fn check_writer(column_type: Self::Inner, col: &'a AnyFCSColumn) -> Result<(), AnyLossError> {
+        match column_type {
+            MixedType::Ascii(c) => c.check_writer(col).map_err(|e| e.into()),
+            MixedType::Uint(c) => WriterAnyUintType::check_writer(c, col),
+            MixedType::F32(c) => c.check_writer(col).map_err(|e| e.into()),
+            MixedType::F64(c) => c.check_writer(col).map_err(|e| e.into()),
+        }
+    }
+
+    fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: Endian) -> io::Result<()> {
+        match self {
+            Self::Ascii(c) => {
+                let x = c.data.next().unwrap();
+                c.column_type.h_write(h, x, ())
+            }
+            Self::Uint(c) => c.h_write(h, byte_layout),
+            Self::F32(c) => {
+                let x = c.data.next().unwrap();
+                c.column_type.h_write(h, x, byte_layout)
+            }
+            Self::F64(c) => {
+                let x = c.data.next().unwrap();
+                c.column_type.h_write(h, x, byte_layout)
+            }
+        }
+    }
+}
+
+impl<'a> Writable<'a, Endian> for WriterAnyUintType<'a> {
+    type Inner = NullAnyUintType;
+
+    fn new(column_type: Self::Inner, col: &'a AnyFCSColumn) -> Self {
+        match_many_to_one!(
+            column_type,
+            AnyUintType,
+            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+            c,
+            { c.into_writer(col).into() }
+        )
+    }
+
+    fn check_writer(column_type: Self::Inner, col: &'a AnyFCSColumn) -> Result<(), AnyLossError> {
+        match_many_to_one!(
+            column_type,
+            AnyUintType,
+            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+            c,
+            { c.check_writer(col).map_err(|e| e.into()) }
+        )
+    }
+
+    fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: Endian) -> io::Result<()> {
+        match_many_to_one!(
+            self,
+            Self,
+            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+            c,
+            {
+                let x = c.data.next().unwrap();
+                c.column_type.h_write(h, x, byte_layout)
+            }
+        )
+    }
+}
+
+impl<T, const LEN: usize> ToNativeWriter for UintType<T, LEN>
 where
     Self: HasNativeType<Native = T>,
     u64: From<Self::Native>,
@@ -755,7 +994,7 @@ where
 {
     type Error = BitmaskLossError;
 
-    fn check_loss(&self, x: Self::Native) -> Option<Self::Error> {
+    fn check_other_loss(&self, x: Self::Native) -> Option<Self::Error> {
         if x > self.bitmask {
             Some(BitmaskLossError(u64::from(self.bitmask)))
         } else {
@@ -764,21 +1003,21 @@ where
     }
 }
 
-impl<T, const LEN: usize> ToWriter for FloatType<T, LEN>
+impl<T, const LEN: usize> ToNativeWriter for FloatType<T, LEN>
 where
     Self: HasNativeType<Native = T>,
 {
     type Error = Infallible;
 
-    fn check_loss(&self, _: Self::Native) -> Option<Self::Error> {
+    fn check_other_loss(&self, _: Self::Native) -> Option<Self::Error> {
         None
     }
 }
 
-impl ToWriter for AsciiType {
+impl ToNativeWriter for AsciiType {
     type Error = AsciiLossError;
 
-    fn check_loss(&self, x: Self::Native) -> Option<Self::Error> {
+    fn check_other_loss(&self, x: Self::Native) -> Option<Self::Error> {
         let width = u8::from(self.chars);
         if ascii_nbytes(x) > width.into() {
             Some(AsciiLossError(width))
@@ -788,22 +1027,22 @@ impl ToWriter for AsciiType {
     }
 }
 
-/// A type which is may read bytes in a fixed width
-pub trait IsFixedReader {
-    type S;
-    fn into_col_reader(self, nrows: usize, byte_layout: Self::S) -> AlphaNumColumnReader;
-}
+// /// A type which is may read bytes in a fixed width
+// pub trait IsFixedReader {
+//     type S;
+//     fn into_col_reader(self, nrows: usize, byte_layout: Self::S) -> AlphaNumColumnReader;
+// }
 
-/// A type which is may write bytes in a fixed width
-pub trait IsFixedWriter {
-    type S;
-    fn into_col_writer(
-        self,
-        c: &AnyFCSColumn,
-        check: bool,
-        byte_layout: Self::S,
-    ) -> Result<AnyFixedColumnWriter, AnyLossError>;
-}
+// /// A type which is may write bytes in a fixed width
+// pub trait IsFixedWriter {
+//     type S;
+//     fn into_col_writer(
+//         self,
+//         c: &AnyFCSColumn,
+//         check: bool,
+//         byte_layout: Self::S,
+//     ) -> Result<AnyFixedColumnWriter, AnyLossError>;
+// }
 
 impl NullAnyUintType {
     fn try_new<D>(
@@ -863,6 +1102,29 @@ impl NullAnyUintType {
             }
         )
     }
+
+    fn as_reader(&self, nrows: usize) -> ReaderAnyUintType {
+        match_many_to_one!(
+            self,
+            Self,
+            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+            c,
+            { c.into_reader(nrows).into() }
+        )
+    }
+
+    // fn as_writer<'a>(
+    //     &self,
+    //     xs: &'a AnyFCSColumn,
+    // ) -> Result<WriterAnyUintType<'a>, LossError<BitmaskLossError>> {
+    //     match_many_to_one!(
+    //         self,
+    //         Self,
+    //         [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+    //         c,
+    //         { c.into_writer(xs, false).map(|w| w.into()) }
+    //     )
+    // }
 }
 
 impl<T, const LEN: usize> UintType<T, LEN> {
@@ -888,7 +1150,7 @@ macro_rules! uint_to_mixed {
     ($uint:ident, $wrap:ident) => {
         impl From<$uint> for NullMixedType {
             fn from(value: $uint) -> Self {
-                MixedType::Integer(AnyUintType::$wrap(value))
+                MixedType::Uint(AnyUintType::$wrap(value))
             }
         }
     };
@@ -988,6 +1250,26 @@ pub enum AnySource<'a, TargetType> {
     FromF64(FCSColIter<'a, f64, TargetType>),
 }
 
+trait FromAnySource<'a, T>:
+    From<FCSColIter<'a, u8, T>>
+    + From<FCSColIter<'a, u16, T>>
+    + From<FCSColIter<'a, u32, T>>
+    + From<FCSColIter<'a, u64, T>>
+    + From<FCSColIter<'a, f32, T>>
+    + From<FCSColIter<'a, f64, T>>
+{
+}
+
+impl<'a, T> FromAnySource<'a, T> for T where
+    T: From<FCSColIter<'a, u8, T>>
+        + From<FCSColIter<'a, u16, T>>
+        + From<FCSColIter<'a, u32, T>>
+        + From<FCSColIter<'a, u64, T>>
+        + From<FCSColIter<'a, f32, T>>
+        + From<FCSColIter<'a, f64, T>>
+{
+}
+
 impl DataWriter<'_> {
     pub(crate) fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()> {
         match self {
@@ -1051,16 +1333,15 @@ impl AnyFixedColumnWriter<'_> {
 }
 
 impl<Y, const INTLEN: usize> IntColumnWriter<'_, Y, INTLEN> {
-    fn h_write_int<W: Write, const DTLEN: usize>(&mut self, h: &mut BufWriter<W>) -> io::Result<()>
+    fn h_write_int<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()>
     where
-        Y: IntFromBytes<DTLEN, INTLEN>,
-        <Y as FromStr>::Err: fmt::Display,
+        Y: IntFromBytes<INTLEN>,
         Y: Ord,
     {
         let x = self.data.next().unwrap();
         x.new
             .min(self.size.bitmask)
-            .h_write_int(h, &self.size.byte_layout)
+            .h_write_ordered(h, self.size.byte_layout)
     }
 }
 
@@ -1068,9 +1349,8 @@ impl<Y, const DTLEN: usize> FloatColumnWriter<'_, Y, DTLEN> {
     fn h_write_float<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()>
     where
         Y: FloatFromBytes<DTLEN>,
-        <Y as FromStr>::Err: fmt::Display,
     {
-        self.data.next().unwrap().new.h_write_float(h, &self.size)
+        self.data.next().unwrap().new.h_write_ordered(h, self.size)
     }
 }
 
@@ -1529,14 +1809,14 @@ impl<'a> EndianLayout<NullMixedType> {
                         byte_layout: (),
                     }))
                 }),
-            MixedType::Integer(x) => x
+            MixedType::Uint(x) => x
                 .try_into_one_size(cs, endian, 1)
                 .map(AnyOrderedLayout::Integer)
                 .mult_map_errors(|(index, error)| MixedColumnConvertError {
                     index,
                     error: error.into(),
                 }),
-            MixedType::Float(x) => cs
+            MixedType::F32(x) => cs
                 .into_iter()
                 .enumerate()
                 .map(|(i, c)| {
@@ -1552,7 +1832,7 @@ impl<'a> EndianLayout<NullMixedType> {
                         byte_layout: endian.into(),
                     })
                 }),
-            MixedType::Double(x) => cs
+            MixedType::F64(x) => cs
                 .into_iter()
                 .enumerate()
                 .map(|(i, c)| {
@@ -1590,7 +1870,7 @@ impl<'a> EndianLayout<NullMixedType> {
                         byte_layout: (),
                     }))
                 }),
-            MixedType::Integer(x) => it
+            MixedType::Uint(x) => it
                 .map(|(i, c)| {
                     c.try_into()
                         .map_err(|e| (i, MixedToNonMixedConvertError::Integer(e)))
@@ -1602,7 +1882,7 @@ impl<'a> EndianLayout<NullMixedType> {
                         byte_layout,
                     })
                 }),
-            MixedType::Float(x) => it
+            MixedType::F32(x) => it
                 .map(|(i, c)| {
                     c.try_into()
                         .map_err(|e| (i, MixedToNonMixedConvertError::Float(e)))
@@ -1614,7 +1894,7 @@ impl<'a> EndianLayout<NullMixedType> {
                         byte_layout,
                     })
                 }),
-            MixedType::Double(x) => it
+            MixedType::F64(x) => it
                 .map(|(i, c)| {
                     c.try_into()
                         .map_err(|e| (i, MixedToNonMixedConvertError::Double(e)))
@@ -1668,36 +1948,37 @@ impl<E: fmt::Display> fmt::Display for MixedColumnConvertError<E> {
     }
 }
 
-trait IntMath: Sized
-where
-    Self: fmt::Display,
-    Self: FromStr,
-{
+trait IntMath: Sized {
     fn next_bitmask(x: Self) -> Self;
 }
 
 // TODO clean this up with https://github.com/rust-lang/rust/issues/76560 once
 // it lands in a stable compiler, in theory there is no reason to put the length
 // of the type as a parameter, but the current compiler is not smart enough
-trait NumProps<const DTLEN: usize>: Sized + Copy + Default {
-    fn from_big(buf: [u8; DTLEN]) -> Self;
+trait NumProps: Sized + Copy + Default {
+    const LEN: usize;
+    type BUF: AsRef<[u8]> + AsMut<[u8]> + Default;
 
-    fn from_little(buf: [u8; DTLEN]) -> Self;
+    fn read_buf<R: Read>(h: &mut BufReader<R>) -> io::Result<Self::BUF>;
 
-    fn to_big(self) -> [u8; DTLEN];
+    fn from_big(buf: Self::BUF) -> Self;
 
-    fn to_little(self) -> [u8; DTLEN];
+    fn from_little(buf: Self::BUF) -> Self;
+
+    fn to_big(self) -> Self::BUF;
+
+    fn to_little(self) -> Self::BUF;
 
     fn maxval() -> Self;
 }
 
-trait OrderedFromBytes<const DTLEN: usize, const OLEN: usize>: NumProps<DTLEN> {
+trait OrderedFromBytes<const OLEN: usize>: NumProps {
     fn h_read_from_ordered<R: Read>(h: &mut BufReader<R>, order: &[u8; OLEN]) -> io::Result<Self> {
         let mut tmp = [0; OLEN];
-        let mut buf = [0; DTLEN];
+        let mut buf = Self::BUF::default();
         h.read_exact(&mut tmp)?;
         for (i, j) in order.iter().enumerate() {
-            buf[usize::from(*j)] = tmp[i];
+            buf.as_mut()[usize::from(*j)] = tmp[i];
         }
         Ok(Self::from_little(buf))
     }
@@ -1705,23 +1986,22 @@ trait OrderedFromBytes<const DTLEN: usize, const OLEN: usize>: NumProps<DTLEN> {
     fn h_write_from_ordered<W: Write>(
         self,
         h: &mut BufWriter<W>,
-        order: &[u8; OLEN],
+        order: [u8; OLEN],
     ) -> io::Result<()> {
         let tmp = Self::to_little(self);
         let mut buf = [0; OLEN];
         for (i, j) in order.iter().enumerate() {
-            buf[usize::from(*j)] = tmp[i];
+            buf[usize::from(*j)] = tmp.as_ref()[i];
         }
-        h.write_all(&tmp)
+        h.write_all(tmp.as_ref())
     }
 }
 
-trait IntFromBytes<const DTLEN: usize, const INTLEN: usize>
+trait IntFromBytes<const INTLEN: usize>
 where
-    Self: OrderedFromBytes<DTLEN, INTLEN>,
+    Self: OrderedFromBytes<INTLEN>,
     Self: TryFrom<FloatOrInt, Error = ToIntError<Self>>,
     Self: IntMath,
-    <Self as FromStr>::Err: fmt::Display,
 {
     fn range_to_bitmask(r: Range, notrunc: bool) -> Tentative<Self, BitmaskError, BitmaskError> {
         let go = |x, e| {
@@ -1754,7 +2034,7 @@ where
         Self::range_to_bitmask(r, notrunc).map(|bitmask| UintType { bitmask })
     }
 
-    fn h_read_int_endian<R: Read>(h: &mut BufReader<R>, endian: Endian) -> io::Result<Self> {
+    fn h_read_endian<R: Read>(h: &mut BufReader<R>, endian: Endian) -> io::Result<Self> {
         // This will read data that is not a power-of-two bytes long. Start by
         // reading n bytes into a vector, which can take a varying size. Then
         // copy this into the power of 2 buffer and reset all the unused cells
@@ -1765,56 +2045,57 @@ where
         // since 'order' is totally meaningless for u8 and the only two possible
         // 'orders' for u16 are big and little.
         let mut tmp = [0; INTLEN];
-        let mut buf = [0; DTLEN];
+        let mut buf = Self::BUF::default();
         h.read_exact(&mut tmp)?;
         Ok(if endian == Endian::Big {
-            let b = DTLEN - INTLEN;
-            buf[b..].copy_from_slice(&tmp[b..]);
+            let b = Self::LEN - INTLEN;
+            buf.as_mut()[b..].copy_from_slice(&tmp[b..]);
             Self::from_big(buf)
         } else {
-            buf[..INTLEN].copy_from_slice(&tmp[..INTLEN]);
+            buf.as_mut()[..INTLEN].copy_from_slice(&tmp[..INTLEN]);
             Self::from_little(buf)
         })
     }
 
-    fn h_read_int<R: Read>(
+    fn h_read_ordered<R: Read>(
         h: &mut BufReader<R>,
         byteord: &SizedByteOrd<INTLEN>,
     ) -> io::Result<Self> {
         match byteord {
-            SizedByteOrd::Endian(e) => Self::h_read_int_endian(h, *e),
+            SizedByteOrd::Endian(e) => Self::h_read_endian(h, *e),
             SizedByteOrd::Order(order) => Self::h_read_from_ordered(h, order),
         }
     }
 
-    fn h_write_int<W: Write>(
+    fn h_write_endian<W: Write>(self, h: &mut BufWriter<W>, endian: Endian) -> io::Result<()> {
+        let mut buf = [0; INTLEN];
+        let (start, end, tmp) = if endian == Endian::Big {
+            ((Self::LEN - INTLEN), Self::LEN, Self::to_big(self))
+        } else {
+            (0, INTLEN, Self::to_little(self))
+        };
+        buf[..].copy_from_slice(&tmp.as_ref()[start..end]);
+        h.write_all(&buf)
+    }
+
+    fn h_write_ordered<W: Write>(
         self,
         h: &mut BufWriter<W>,
-        byteord: &SizedByteOrd<INTLEN>,
+        byteord: SizedByteOrd<INTLEN>,
     ) -> io::Result<()> {
         match byteord {
-            SizedByteOrd::Endian(e) => {
-                let mut buf = [0; INTLEN];
-                let (start, end, tmp) = if *e == Endian::Big {
-                    ((DTLEN - INTLEN), DTLEN, Self::to_big(self))
-                } else {
-                    (0, INTLEN, Self::to_little(self))
-                };
-                buf[..].copy_from_slice(&tmp[start..end]);
-                h.write_all(&buf)
-            }
-            SizedByteOrd::Order(order) => self.h_write_from_ordered(h, order),
+            SizedByteOrd::Endian(e) => self.h_write_endian(h, e),
+            SizedByteOrd::Order(o) => self.h_write_from_ordered(h, o),
         }
     }
 }
 
 trait FloatFromBytes<const LEN: usize>
 where
-    Self: NumProps<LEN>,
-    Self: OrderedFromBytes<LEN, LEN>,
+    Self: NumProps,
+    Self: OrderedFromBytes<LEN>,
     Self: FromStr,
     Self: TryFrom<FloatOrInt, Error = ToFloatError<Self>>,
-    <Self as FromStr>::Err: fmt::Display,
     Self: Clone,
 {
     fn range(r: Range) -> Self {
@@ -1846,8 +2127,9 @@ where
     ) -> io::Result<Self> {
         match byteord {
             SizedByteOrd::Endian(e) => {
-                let mut buf = [0; LEN];
-                h.read_exact(&mut buf)?;
+                let buf = Self::read_buf(h)?;
+                // let mut buf = [0; LEN];
+                // h.read_exact(&mut buf)?;
                 Ok(if *e == Endian::Big {
                     Self::from_big(buf)
                 } else {
@@ -1858,20 +2140,22 @@ where
         }
     }
 
-    fn h_write_float<W: Write>(
+    fn h_write_endian<W: Write>(self, h: &mut BufWriter<W>, endian: Endian) -> io::Result<()> {
+        let buf = if endian == Endian::Big {
+            Self::to_big(self)
+        } else {
+            Self::to_little(self)
+        };
+        h.write_all(buf.as_ref())
+    }
+
+    fn h_write_ordered<W: Write>(
         self,
         h: &mut BufWriter<W>,
-        byteord: &SizedByteOrd<LEN>,
+        byteord: SizedByteOrd<LEN>,
     ) -> io::Result<()> {
         match byteord {
-            SizedByteOrd::Endian(e) => {
-                let buf: [u8; LEN] = if *e == Endian::Big {
-                    Self::to_big(self)
-                } else {
-                    Self::to_little(self)
-                };
-                h.write_all(&buf)
-            }
+            SizedByteOrd::Endian(endian) => self.h_write_endian(h, endian),
             SizedByteOrd::Order(order) => self.h_write_from_ordered(h, order),
         }
     }
@@ -1879,7 +2163,16 @@ where
 
 macro_rules! impl_num_props {
     ($size:expr, $t:ty) => {
-        impl NumProps<$size> for $t {
+        impl NumProps for $t {
+            const LEN: usize = $size;
+            type BUF = [u8; $size];
+
+            fn read_buf<R: Read>(h: &mut BufReader<R>) -> io::Result<[u8; $size]> {
+                let mut buf = [0; $size];
+                h.read_exact(&mut buf)?;
+                Ok(buf)
+            }
+
             fn to_big(self) -> [u8; $size] {
                 <$t>::to_be_bytes(self)
             }
@@ -1927,28 +2220,28 @@ impl_int_math!(u16);
 impl_int_math!(u32);
 impl_int_math!(u64);
 
-impl OrderedFromBytes<1, 1> for u8 {}
-impl OrderedFromBytes<2, 2> for u16 {}
-impl OrderedFromBytes<4, 3> for u32 {}
-impl OrderedFromBytes<4, 4> for u32 {}
-impl OrderedFromBytes<8, 5> for u64 {}
-impl OrderedFromBytes<8, 6> for u64 {}
-impl OrderedFromBytes<8, 7> for u64 {}
-impl OrderedFromBytes<8, 8> for u64 {}
-impl OrderedFromBytes<4, 4> for f32 {}
-impl OrderedFromBytes<8, 8> for f64 {}
+impl OrderedFromBytes<1> for u8 {}
+impl OrderedFromBytes<2> for u16 {}
+impl OrderedFromBytes<3> for u32 {}
+impl OrderedFromBytes<4> for u32 {}
+impl OrderedFromBytes<5> for u64 {}
+impl OrderedFromBytes<6> for u64 {}
+impl OrderedFromBytes<7> for u64 {}
+impl OrderedFromBytes<8> for u64 {}
+impl OrderedFromBytes<4> for f32 {}
+impl OrderedFromBytes<8> for f64 {}
 
 impl FloatFromBytes<4> for f32 {}
 impl FloatFromBytes<8> for f64 {}
 
-impl IntFromBytes<1, 1> for u8 {}
-impl IntFromBytes<2, 2> for u16 {}
-impl IntFromBytes<4, 3> for u32 {}
-impl IntFromBytes<4, 4> for u32 {}
-impl IntFromBytes<8, 5> for u64 {}
-impl IntFromBytes<8, 6> for u64 {}
-impl IntFromBytes<8, 7> for u64 {}
-impl IntFromBytes<8, 8> for u64 {}
+impl IntFromBytes<1> for u8 {}
+impl IntFromBytes<2> for u16 {}
+impl IntFromBytes<3> for u32 {}
+impl IntFromBytes<4> for u32 {}
+impl IntFromBytes<5> for u64 {}
+impl IntFromBytes<6> for u64 {}
+impl IntFromBytes<7> for u64 {}
+impl IntFromBytes<8> for u64 {}
 
 impl AlphaNumColumnReader {
     fn into_fcs_column(self) -> AnyFCSColumn {
@@ -2017,10 +2310,10 @@ impl NullMixedType {
         if let Some(dt) = c.datatype {
             match dt {
                 NumType::Integer => AnyUintType::try_new(c, conf.disallow_bitmask_truncation)
-                    .def_map_value(Self::Integer)
+                    .def_map_value(Self::Uint)
                     .def_errors_into(),
-                NumType::Single => f32::column_type(w, r).map(Self::Float).into_deferred(),
-                NumType::Double => f64::column_type(w, r).map(Self::Double).into_deferred(),
+                NumType::Single => f32::column_type(w, r).map(Self::F32).into_deferred(),
+                NumType::Double => f64::column_type(w, r).map(Self::F64).into_deferred(),
             }
         } else {
             AsciiType::try_new(w, r)
@@ -2032,11 +2325,38 @@ impl NullMixedType {
     fn as_num_type(&self) -> Option<NumType> {
         match self {
             Self::Ascii(_) => None,
-            Self::Integer(_) => Some(NumType::Integer),
-            Self::Float(_) => Some(NumType::Single),
-            Self::Double(_) => Some(NumType::Double),
+            Self::Uint(_) => Some(NumType::Integer),
+            Self::F32(_) => Some(NumType::Single),
+            Self::F64(_) => Some(NumType::Double),
         }
     }
+
+    fn as_reader(&self, nrows: usize) -> ReaderMixedType {
+        match self {
+            Self::Ascii(c) => MixedType::Ascii(c.into_reader(nrows)),
+            Self::Uint(c) => MixedType::Uint(c.as_reader(nrows)),
+            Self::F32(c) => MixedType::F32(c.into_reader(nrows)),
+            Self::F64(c) => MixedType::F64(c.into_reader(nrows)),
+        }
+    }
+
+    // fn as_writer<'a>(&self, xs: &'a AnyFCSColumn) -> Result<WriterMixedType<'a>, AnyLossError> {
+    //     match self {
+    //         Self::Ascii(c) => c
+    //             .into_writer(xs, false)
+    //             .map(MixedType::Ascii)
+    //             .map_err(|e| e.into()),
+    //         Self::Uint(c) => c.as_writer(xs).map(MixedType::Uint).map_err(|e| e.into()),
+    //         Self::F32(c) => c
+    //             .into_writer(xs, false)
+    //             .map(MixedType::F32)
+    //             .map_err(|e| e.into()),
+    //         Self::F64(c) => c
+    //             .into_writer(xs, false)
+    //             .map(MixedType::F64)
+    //             .map_err(|e| e.into()),
+    //     }
+    // }
 }
 
 fn ascii_to_uint(buf: &[u8]) -> Result<u64, AsciiToUintError> {
@@ -2349,91 +2669,89 @@ impl<C, S> FixedLayout<C, S> {
         self.columns.len()
     }
 
-    pub fn into_col_reader_inner(
-        self,
-        seg: AnyDataSegment,
-        conf: &ReaderConfig,
-    ) -> Tentative<AlphaNumReader, UnevenEventWidth, UnevenEventWidth>
-    where
-        S: Clone,
-        C: IsFixedReader<S = S> + IsFixed,
-    {
-        let n = seg.inner.len() as usize;
-        let w = self.event_width();
-        let total_events = n / w;
-        let remainder = n % w;
-        let columns = self
-            .columns
-            // TODO clone
-            .map(|c| c.into_col_reader(total_events, self.byte_layout.clone()));
-        let r = AlphaNumReader { columns };
-        if remainder > 0 {
-            let i = UnevenEventWidth {
-                event_width: w,
-                nbytes: n,
-                remainder,
-            };
-            Tentative::new_either(r, vec![i], !conf.allow_uneven_event_width)
-        } else {
-            Tentative::new1(r)
-        }
-    }
+    // pub fn into_col_reader_inner(
+    //     self,
+    //     seg: AnyDataSegment,
+    //     conf: &ReaderConfig,
+    // ) -> Tentative<AlphaNumReader, UnevenEventWidth, UnevenEventWidth>
+    // where
+    //     S: Clone,
+    //     C: IsFixedReader<S = S> + IsFixed,
+    // {
+    //     let n = seg.inner.len() as usize;
+    //     let w = self.event_width();
+    //     let total_events = n / w;
+    //     let remainder = n % w;
+    //     let columns = self
+    //         .columns
+    //         // TODO clone
+    //         .map(|c| c.into_col_reader(total_events, self.byte_layout.clone()));
+    //     let r = AlphaNumReader { columns };
+    //     if remainder > 0 {
+    //         let i = UnevenEventWidth {
+    //             event_width: w,
+    //             nbytes: n,
+    //             remainder,
+    //         };
+    //         Tentative::new_either(r, vec![i], !conf.allow_uneven_event_width)
+    //     } else {
+    //         Tentative::new1(r)
+    //     }
+    // }
 
-    pub fn into_col_reader<W, E>(
-        self,
-        seg: AnyDataSegment,
-        tot: Tot,
-        conf: &ReaderConfig,
-    ) -> Tentative<ColumnReader, W, E>
-    where
-        S: Copy,
-        C: IsFixedReader<S = S> + IsFixed,
-        W: From<TotEventMismatch> + From<UnevenEventWidth>,
-        E: From<TotEventMismatch> + From<UnevenEventWidth>,
-    {
-        self.into_col_reader_inner(seg, conf)
-            .inner_into()
-            .and_tentatively(|reader| {
-                reader
-                    .check_tot(tot, conf.allow_tot_mismatch)
-                    .map(|_| reader)
-                    .inner_into()
-            })
-            .map(ColumnReader::AlphaNum)
-    }
+    // pub fn into_col_reader<W, E>(
+    //     self,
+    //     seg: AnyDataSegment,
+    //     tot: Tot,
+    //     conf: &ReaderConfig,
+    // ) -> Tentative<ColumnReader, W, E>
+    // where
+    //     S: Copy,
+    //     C: IsFixedReader<S = S> + IsFixed,
+    //     W: From<TotEventMismatch> + From<UnevenEventWidth>,
+    //     E: From<TotEventMismatch> + From<UnevenEventWidth>,
+    // {
+    //     self.into_col_reader_inner(seg, conf)
+    //         .inner_into()
+    //         .and_tentatively(|reader| {
+    //             reader
+    //                 .check_tot(tot, conf.allow_tot_mismatch)
+    //                 .map(|_| reader)
+    //                 .inner_into()
+    //         })
+    //         .map(ColumnReader::AlphaNum)
+    // }
 
-    fn as_writer<'a>(
-        &self,
-        df: &'a FCSDataFrame,
-        conf: &WriteConfig,
-    ) -> MultiResult<FixedWriter<'a>, ColumnWriterError>
-    where
-        S: Copy,
-        C: Copy + IsFixedWriter<S = S> + IsFixed,
-    {
-        let check = conf.check_conversion;
-        // ASSUME df has same number of columns as layout
-        self.columns
-            .iter()
-            .zip(df.iter_columns())
-            .enumerate()
-            .map(|(i, (t, c))| {
-                t.into_col_writer(c, check, self.byte_layout)
-                    .map_err(|error| {
-                        ColumnWriterError(ColumnError {
-                            index: i.into(),
-                            error,
-                        })
-                    })
-            })
-            .gather()
-            .map(|columns| DataWriterInner {
-                // TODO there should be a better way to do this
-                columns: NonEmpty::from_vec(columns).unwrap(),
-                nrows: df.nrows(),
-                nbytes: self.event_width() * df.nrows(),
-            })
-    }
+    // fn as_writer<'a>(&self, df: &'a FCSDataFrame, conf: &WriteConfig) -> io::Result<()>
+    // where
+    //     S: Copy,
+    //     C: Copy + IsFixedWriter<S = S> + IsFixed,
+    // {
+    //     let check = conf.check_conversion;
+    //     let nrows = df.nrows();
+    //     // ASSUME df has same number of columns as layout
+    //     let cs = self
+    //         .columns
+    //         .iter()
+    //         .zip(df.iter_columns())
+    //         .enumerate()
+    //         .map(|(i, (t, c))| {
+    //             t.into_col_writer(c, check, self.byte_layout)
+    //                 .map_err(|error| {
+    //                     ColumnWriterError(ColumnError {
+    //                         index: i.into(),
+    //                         error,
+    //                     })
+    //                 })
+    //         })
+    //         .collect();
+    //     for _ in 0..nrows {
+    //         for c in cs {
+    //             c.h_write(h)?;
+    //         }
+    //     }
+    //     Ok(())
+    // }
 
     fn try_new<D, F, W, E, CW, CE>(
         cs: NonEmpty<ColumnLayoutValues<D>>,
@@ -2468,6 +2786,43 @@ impl<C, S> FixedLayout<C, S> {
             columns,
             byte_layout,
         })
+    }
+
+    fn check_writer<'a, T>(&self, df: &'a FCSDataFrame) -> MultiResult<(), AnyLossError>
+    where
+        S: Copy,
+        C: Copy,
+        T: Writable<'a, S, Inner = C>,
+    {
+        // ASSUME df has same number of columns as layout
+        self.columns
+            .iter()
+            .zip(df.iter_columns())
+            .map(|(col_type, col_data)| T::check_writer(*col_type, col_data))
+            .gather()
+            .void()
+    }
+
+    fn h_write<'a, W: Write, T>(&self, h: &mut BufWriter<W>, df: &'a FCSDataFrame) -> io::Result<()>
+    where
+        S: Copy,
+        C: Copy,
+        T: Writable<'a, S, Inner = C>,
+    {
+        let nrows = df.nrows();
+        // ASSUME df has same number of columns as layout
+        let mut cs: Vec<_> = self
+            .columns
+            .iter()
+            .zip(df.iter_columns())
+            .map(|(col_type, col_data)| T::new(*col_type, col_data))
+            .collect();
+        for _ in 0..nrows {
+            for c in cs.iter_mut() {
+                c.h_write(h, self.byte_layout)?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -2576,232 +2931,225 @@ impl IsFixed for AsciiType {
 
 impl IsFixed for NullMixedType {
     fn nbytes(&self) -> u8 {
-        match_many_to_one!(self, Self, [Ascii, Integer, Float, Double], x, {
-            x.nbytes()
-        })
+        match_many_to_one!(self, Self, [Ascii, Uint, F32, F64], x, { x.nbytes() })
     }
 
     fn fixed_width(&self) -> BitsOrChars {
-        match_many_to_one!(self, Self, [Ascii, Integer, Float, Double], x, {
-            x.fixed_width()
-        })
+        match_many_to_one!(self, Self, [Ascii, Uint, F32, F64], x, { x.fixed_width() })
     }
 
     fn range(&self) -> Range {
-        match_many_to_one!(self, Self, [Ascii, Integer, Float, Double], x, {
-            x.range()
-        })
+        match_many_to_one!(self, Self, [Ascii, Uint, F32, F64], x, { x.range() })
     }
 }
 
-impl<T, const LEN: usize> IsFixedReader for UintType<T, LEN>
-where
-    T: Copy,
-    T: Default,
-    AlphaNumColumnReader: From<UintColumnReader<T, LEN>>,
-{
-    type S = SizedByteOrd<LEN>;
-    fn into_col_reader(self, nrows: usize, byte_layout: Self::S) -> AlphaNumColumnReader {
-        UintColumnReader {
-            column: vec![T::default(); nrows],
-            uint_type: self,
-            size: byte_layout,
-        }
-        .into()
-    }
-}
+// impl<T, const LEN: usize> IsFixedReader for UintType<T, LEN>
+// where
+//     T: Copy,
+//     T: Default,
+//     AlphaNumColumnReader: From<UintColumnReader<T, LEN>>,
+// {
+//     type S = SizedByteOrd<LEN>;
+//     fn into_col_reader(self, nrows: usize, byte_layout: Self::S) -> AlphaNumColumnReader {
+//         UintColumnReader {
+//             column: vec![T::default(); nrows],
+//             uint_type: self,
+//             size: byte_layout,
+//         }
+//         .into()
+//     }
+// }
 
-impl IsFixedReader for NullAnyUintType {
-    type S = Endian;
-    fn into_col_reader(self, nrows: usize, byte_layout: Self::S) -> AlphaNumColumnReader {
-        match_many_to_one!(
-            self,
-            AnyUintType,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            x,
-            { x.into_col_reader(nrows, byte_layout.into()) }
-        )
-    }
-}
+// impl IsFixedReader for NullAnyUintType {
+//     type S = Endian;
+//     fn into_col_reader(self, nrows: usize, byte_layout: Self::S) -> AlphaNumColumnReader {
+//         match_many_to_one!(
+//             self,
+//             AnyUintType,
+//             [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+//             x,
+//             { x.into_col_reader(nrows, byte_layout.into()) }
+//         )
+//     }
+// }
 
-impl<T, const LEN: usize> IsFixedReader for FloatType<T, LEN>
-where
-    T: Clone,
-    T: Default,
-    AlphaNumColumnReader: From<FloatColumnReader<T, LEN>>,
-{
-    type S = SizedByteOrd<LEN>;
-    fn into_col_reader(self, nrows: usize, byte_layout: Self::S) -> AlphaNumColumnReader {
-        FloatColumnReader {
-            column: vec![T::default(); nrows],
-            byte_layout,
-        }
-        .into()
-    }
-}
+// impl<T, const LEN: usize> IsFixedReader for FloatType<T, LEN>
+// where
+//     T: Clone,
+//     T: Default,
+//     AlphaNumColumnReader: From<FloatColumnReader<T, LEN>>,
+// {
+//     type S = SizedByteOrd<LEN>;
+//     fn into_col_reader(self, nrows: usize, byte_layout: Self::S) -> AlphaNumColumnReader {
+//         FloatColumnReader {
+//             column: vec![T::default(); nrows],
+//             byte_layout,
+//         }
+//         .into()
+//     }
+// }
 
-impl IsFixedReader for AsciiType {
-    type S = ();
-    fn into_col_reader(self, nrows: usize, _: ()) -> AlphaNumColumnReader {
-        AlphaNumColumnReader::Ascii(AsciiColumnReader {
-            column: vec![0; nrows],
-            width: self.chars,
-        })
-    }
-}
+// impl IsFixedReader for AsciiType {
+//     type S = ();
+//     fn into_col_reader(self, nrows: usize, _: ()) -> AlphaNumColumnReader {
+//         AlphaNumColumnReader::Ascii(AsciiColumnReader {
+//             column: vec![0; nrows],
+//             width: self.chars,
+//         })
+//     }
+// }
 
-impl IsFixedReader for NullMixedType {
-    type S = Endian;
-    fn into_col_reader(self, nrows: usize, byte_layout: Self::S) -> AlphaNumColumnReader {
-        match self {
-            Self::Ascii(a) => a.into_col_reader(nrows, ()),
-            Self::Integer(i) => i.into_col_reader(nrows, byte_layout),
-            Self::Float(f) => f.into_col_reader(nrows, byte_layout.into()),
-            Self::Double(d) => d.into_col_reader(nrows, byte_layout.into()),
-        }
-    }
-}
+// impl IsFixedReader for NullMixedType {
+//     type S = Endian;
+//     fn into_col_reader(self, nrows: usize, byte_layout: Self::S) -> AlphaNumColumnReader {
+//         match self {
+//             Self::Ascii(a) => a.into_col_reader(nrows, ()),
+//             Self::Uint(i) => i.into_col_reader(nrows, byte_layout),
+//             Self::F32(f) => f.into_col_reader(nrows, byte_layout.into()),
+//             Self::F64(d) => d.into_col_reader(nrows, byte_layout.into()),
+//         }
+//     }
+// }
 
-impl<T, const LEN: usize> IsFixedWriter for UintType<T, LEN>
-where
-    T: Copy + Ord,
-    T: NumCast<u8> + NumCast<u16> + NumCast<u32> + NumCast<u64> + NumCast<f32> + NumCast<f64>,
-    u64: From<T>,
-    for<'b> AnyFixedColumnWriter<'b>: From<IntColumnWriter<'b, T, LEN>>,
-    for<'b> AnySource<'b, T>: From<FCSColIter<'b, u8, T>>
-        + From<FCSColIter<'b, u16, T>>
-        + From<FCSColIter<'b, u32, T>>
-        + From<FCSColIter<'b, u64, T>>
-        + From<FCSColIter<'b, f32, T>>
-        + From<FCSColIter<'b, f64, T>>,
-{
-    type S = SizedByteOrd<LEN>;
+// impl<T, const LEN: usize> IsFixedWriter for UintType<T, LEN>
+// where
+//     T: Copy + Ord + AllFCSCast,
+//     u64: From<T>,
+//     for<'b> AnyFixedColumnWriter<'b>: From<IntColumnWriter<'b, T, LEN>>,
+//     for<'b> AnySource<'b, T>: From<FCSColIter<'b, u8, T>>
+//         + From<FCSColIter<'b, u16, T>>
+//         + From<FCSColIter<'b, u32, T>>
+//         + From<FCSColIter<'b, u64, T>>
+//         + From<FCSColIter<'b, f32, T>>
+//         + From<FCSColIter<'b, f64, T>>,
+// {
+//     type S = SizedByteOrd<LEN>;
 
-    fn into_col_writer(
-        self,
-        c: &AnyFCSColumn,
-        check: bool,
-        byte_layout: Self::S,
-    ) -> Result<AnyFixedColumnWriter, AnyLossError> {
-        let bitmask = self.bitmask;
-        match_many_to_one!(c, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], xs, {
-            FCSDataType::into_writer(xs, check, |x: T| {
-                if x > bitmask {
-                    Some(BitmaskLossError(u64::from(bitmask)))
-                } else {
-                    None
-                }
-            })
-            .map(|w| {
-                IntColumnWriter {
-                    data: w.into(),
-                    size: OrderedUintType {
-                        bitmask,
-                        byte_layout,
-                    },
-                }
-                .into()
-            })
-            .map_err(|e| e.into())
-        })
-    }
-}
+//     fn into_col_writer(
+//         self,
+//         c: &AnyFCSColumn,
+//         check: bool,
+//         byte_layout: Self::S,
+//     ) -> Result<AnyFixedColumnWriter, AnyLossError> {
+//         let bitmask = self.bitmask;
+//         match_many_to_one!(c, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], xs, {
+//             FCSDataType::into_writer(xs, check, |x: T| {
+//                 if x > bitmask {
+//                     Some(BitmaskLossError(u64::from(bitmask)))
+//                 } else {
+//                     None
+//                 }
+//             })
+//             .map(|w| {
+//                 IntColumnWriter {
+//                     data: w.into(),
+//                     size: OrderedUintType {
+//                         bitmask,
+//                         byte_layout,
+//                     },
+//                 }
+//                 .into()
+//             })
+//             .map_err(|e| e.into())
+//         })
+//     }
+// }
 
-impl IsFixedWriter for NullAnyUintType {
-    type S = Endian;
+// impl IsFixedWriter for NullAnyUintType {
+//     type S = Endian;
 
-    fn into_col_writer(
-        self,
-        c: &AnyFCSColumn,
-        check: bool,
-        byte_layout: Self::S,
-    ) -> Result<AnyFixedColumnWriter, AnyLossError> {
-        match_many_to_one!(
-            self,
-            AnyUintType,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            x,
-            { x.into_col_writer(c, check, byte_layout.into()) }
-        )
-    }
-}
+//     fn into_col_writer(
+//         self,
+//         c: &AnyFCSColumn,
+//         check: bool,
+//         byte_layout: Self::S,
+//     ) -> Result<AnyFixedColumnWriter, AnyLossError> {
+//         match_many_to_one!(
+//             self,
+//             AnyUintType,
+//             [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+//             x,
+//             { x.into_col_writer(c, check, byte_layout.into()) }
+//         )
+//     }
+// }
 
-impl<T, const LEN: usize> IsFixedWriter for FloatType<T, LEN>
-where
-    T: NumCast<u8> + NumCast<u16> + NumCast<u32> + NumCast<u64> + NumCast<f32> + NumCast<f64>,
-    for<'b> AnyFixedColumnWriter<'b>: From<FloatColumnWriter<'b, T, LEN>>,
-    for<'b> AnySource<'b, T>: From<FCSColIter<'b, u8, T>>
-        + From<FCSColIter<'b, u16, T>>
-        + From<FCSColIter<'b, u32, T>>
-        + From<FCSColIter<'b, u64, T>>
-        + From<FCSColIter<'b, f32, T>>
-        + From<FCSColIter<'b, f64, T>>,
-{
-    type S = SizedByteOrd<LEN>;
+// impl<T, const LEN: usize> IsFixedWriter for FloatType<T, LEN>
+// where
+//     T: NumCast<u8> + NumCast<u16> + NumCast<u32> + NumCast<u64> + NumCast<f32> + NumCast<f64>,
+//     for<'b> AnyFixedColumnWriter<'b>: From<FloatColumnWriter<'b, T, LEN>>,
+//     for<'b> AnySource<'b, T>: From<FCSColIter<'b, u8, T>>
+//         + From<FCSColIter<'b, u16, T>>
+//         + From<FCSColIter<'b, u32, T>>
+//         + From<FCSColIter<'b, u64, T>>
+//         + From<FCSColIter<'b, f32, T>>
+//         + From<FCSColIter<'b, f64, T>>,
+// {
+//     type S = SizedByteOrd<LEN>;
 
-    fn into_col_writer(
-        self,
-        c: &AnyFCSColumn,
-        check: bool,
-        byte_layout: Self::S,
-    ) -> Result<AnyFixedColumnWriter, AnyLossError> {
-        match_many_to_one!(c, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], xs, {
-            FCSDataType::into_writer(xs, check, |_| None)
-                .map(|w| {
-                    FloatColumnWriter {
-                        data: w.into(),
-                        size: byte_layout,
-                    }
-                    .into()
-                })
-                .map_err(AnyLossError::Int)
-        })
-    }
-}
+//     fn into_col_writer(
+//         self,
+//         c: &AnyFCSColumn,
+//         check: bool,
+//         byte_layout: Self::S,
+//     ) -> Result<AnyFixedColumnWriter, AnyLossError> {
+//         match_many_to_one!(c, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], xs, {
+//             FCSDataType::into_writer(xs, check, |_| None)
+//                 .map(|w| {
+//                     FloatColumnWriter {
+//                         data: w.into(),
+//                         size: byte_layout,
+//                     }
+//                     .into()
+//                 })
+//                 .map_err(AnyLossError::Int)
+//         })
+//     }
+// }
 
-impl IsFixedWriter for AsciiType {
-    type S = ();
-    fn into_col_writer(
-        self,
-        col: &AnyFCSColumn,
-        check: bool,
-        _: (),
-    ) -> Result<AnyFixedColumnWriter, AnyLossError> {
-        let c = self.chars;
-        let width = u8::from(c);
-        let go = |x: u64| {
-            if ascii_nbytes(x) > width.into() {
-                Some(AsciiLossError(width))
-            } else {
-                None
-            }
-        };
-        match_many_to_one!(col, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], xs, {
-            FCSDataType::into_writer(xs, check, go)
-                .map(|data| data.into())
-                .map(|data| AsciiColumnWriter { data, size: c })
-        })
-        .map(AnyFixedColumnWriter::Ascii)
-        .map_err(|e| e.into())
-    }
-}
+// impl IsFixedWriter for AsciiType {
+//     type S = ();
+//     fn into_col_writer(
+//         self,
+//         col: &AnyFCSColumn,
+//         check: bool,
+//         _: (),
+//     ) -> Result<AnyFixedColumnWriter, AnyLossError> {
+//         let c = self.chars;
+//         let width = u8::from(c);
+//         let go = |x: u64| {
+//             if ascii_nbytes(x) > width.into() {
+//                 Some(AsciiLossError(width))
+//             } else {
+//                 None
+//             }
+//         };
+//         match_many_to_one!(col, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], xs, {
+//             FCSDataType::into_writer(xs, check, go)
+//                 .map(|data| data.into())
+//                 .map(|data| AsciiColumnWriter { data, size: c })
+//         })
+//         .map(AnyFixedColumnWriter::Ascii)
+//         .map_err(|e| e.into())
+//     }
+// }
 
-impl IsFixedWriter for NullMixedType {
-    type S = Endian;
-    fn into_col_writer(
-        self,
-        c: &AnyFCSColumn,
-        check: bool,
-        byte_layout: Endian,
-    ) -> Result<AnyFixedColumnWriter, AnyLossError> {
-        match self {
-            Self::Ascii(a) => a.into_col_writer(c, check, ()),
-            Self::Integer(i) => i.into_col_writer(c, check, byte_layout),
-            Self::Float(f) => f.into_col_writer(c, check, byte_layout.into()),
-            Self::Double(d) => d.into_col_writer(c, check, byte_layout.into()),
-        }
-    }
-}
+// impl IsFixedWriter for NullMixedType {
+//     type S = Endian;
+//     fn into_col_writer(
+//         self,
+//         c: &AnyFCSColumn,
+//         check: bool,
+//         byte_layout: Endian,
+//     ) -> Result<AnyFixedColumnWriter, AnyLossError> {
+//         match self {
+//             Self::Ascii(a) => a.into_col_writer(c, check, ()),
+//             Self::Uint(i) => i.into_col_writer(c, check, byte_layout),
+//             Self::F32(f) => f.into_col_writer(c, check, byte_layout.into()),
+//             Self::F64(d) => d.into_col_writer(c, check, byte_layout.into()),
+//         }
+//     }
+// }
 
 macro_rules! uint_from_reader {
     ($from:path, $wrap:ident) => {
@@ -2907,17 +3255,12 @@ float_from_writer!(f32, 4, F32);
 float_from_writer!(f64, 8, F64);
 
 impl<T, const INTLEN: usize> UintColumnReader<T, INTLEN> {
-    fn h_read<R: Read, const DTLEN: usize>(
-        &mut self,
-        h: &mut BufReader<R>,
-        row: usize,
-    ) -> io::Result<()>
+    fn h_read<R: Read>(&mut self, h: &mut BufReader<R>, row: usize) -> io::Result<()>
     where
-        T: IntFromBytes<DTLEN, INTLEN>,
-        <T as FromStr>::Err: fmt::Display,
+        T: IntFromBytes<INTLEN>,
         T: Ord,
     {
-        let x = T::h_read_int(h, &self.size)?;
+        let x = T::h_read_ordered(h, &self.size)?;
         self.column[row] = x.min(self.uint_type.bitmask);
         Ok(())
     }
@@ -2927,7 +3270,6 @@ impl<T, const LEN: usize> FloatColumnReader<T, LEN> {
     fn h_read<R: Read>(&mut self, h: &mut BufReader<R>, row: usize) -> io::Result<()>
     where
         T: FloatFromBytes<LEN>,
-        <T as FromStr>::Err: fmt::Display,
     {
         self.column[row] = T::h_read_float(h, &self.byte_layout)?;
         Ok(())
@@ -3008,52 +3350,52 @@ impl AnyOrderedUintLayout {
         )
     }
 
-    fn into_col_reader_inner(
-        self,
-        seg: AnyDataSegment,
-        conf: &ReaderConfig,
-    ) -> Tentative<AlphaNumReader, UnevenEventWidth, UnevenEventWidth> {
-        match_many_to_one!(
-            self,
-            Self,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            l,
-            { l.into_col_reader_inner(seg, conf) }
-        )
-    }
+    // fn into_col_reader_inner(
+    //     self,
+    //     seg: AnyDataSegment,
+    //     conf: &ReaderConfig,
+    // ) -> Tentative<AlphaNumReader, UnevenEventWidth, UnevenEventWidth> {
+    //     match_many_to_one!(
+    //         self,
+    //         Self,
+    //         [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+    //         l,
+    //         { l.into_col_reader_inner(seg, conf) }
+    //     )
+    // }
 
-    fn into_col_reader<W, E>(
-        self,
-        seg: AnyDataSegment,
-        tot: Tot,
-        conf: &ReaderConfig,
-    ) -> Tentative<ColumnReader, W, E>
-    where
-        W: From<TotEventMismatch> + From<UnevenEventWidth>,
-        E: From<TotEventMismatch> + From<UnevenEventWidth>,
-    {
-        match_many_to_one!(
-            self,
-            Self,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            l,
-            { l.into_col_reader(seg, tot, conf) }
-        )
-    }
+    // fn into_col_reader<W, E>(
+    //     self,
+    //     seg: AnyDataSegment,
+    //     tot: Tot,
+    //     conf: &ReaderConfig,
+    // ) -> Tentative<ColumnReader, W, E>
+    // where
+    //     W: From<TotEventMismatch> + From<UnevenEventWidth>,
+    //     E: From<TotEventMismatch> + From<UnevenEventWidth>,
+    // {
+    //     match_many_to_one!(
+    //         self,
+    //         Self,
+    //         [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+    //         l,
+    //         { l.into_col_reader(seg, tot, conf) }
+    //     )
+    // }
 
-    fn as_writer<'a>(
-        &self,
-        df: &'a FCSDataFrame,
-        conf: &WriteConfig,
-    ) -> MultiResult<FixedWriter<'a>, ColumnWriterError> {
-        match_many_to_one!(
-            self,
-            Self,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            l,
-            { l.as_writer(df, conf) }
-        )
-    }
+    // fn as_writer<'a>(
+    //     &self,
+    //     df: &'a FCSDataFrame,
+    //     conf: &WriteConfig,
+    // ) -> MultiResult<FixedWriter<'a>, ColumnWriterError> {
+    //     match_many_to_one!(
+    //         self,
+    //         Self,
+    //         [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+    //         l,
+    //         { l.as_writer(df, conf) }
+    //     )
+    // }
 }
 
 impl AsciiType {
@@ -3103,79 +3445,79 @@ impl AnyAsciiLayout {
         }
     }
 
-    fn as_writer<'a>(
-        &self,
-        df: &'a FCSDataFrame,
-        conf: &WriteConfig,
-    ) -> MultiResult<DataWriter<'a>, ColumnWriterError> {
-        match self {
-            AnyAsciiLayout::Fixed(a) => a.as_writer(df, conf).map(DataWriter::Fixed),
-            AnyAsciiLayout::Delimited(_) => {
-                let ch = conf.check_conversion;
-                let go = |c: &'a AnyFCSColumn| {
-                    match_many_to_one!(c, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], xs, {
-                        FCSDataType::into_writer(xs, ch, |_| None).map(|data| data.into())
-                    })
-                    .map(|data| DelimColumnWriter { data, size: () })
-                };
-                df.iter_columns()
-                    .enumerate()
-                    .map(|(i, c)| {
-                        go(c).map_err(|error| {
-                            ColumnWriterError(ColumnError {
-                                index: i.into(),
-                                error: AnyLossError::Int(error),
-                            })
-                        })
-                    })
-                    .gather()
-                    .map(|columns| {
-                        DataWriter::Delim(DataWriterInner {
-                            // TODO not dry
-                            columns: NonEmpty::from_vec(columns).unwrap(),
-                            nrows: df.nrows(),
-                            nbytes: df.ascii_nbytes(),
-                        })
-                    })
-            }
-        }
-    }
+    // fn as_writer<'a>(
+    //     &self,
+    //     df: &'a FCSDataFrame,
+    //     conf: &WriteConfig,
+    // ) -> MultiResult<DataWriter<'a>, ColumnWriterError> {
+    //     match self {
+    //         AnyAsciiLayout::Fixed(a) => a.as_writer(df, conf).map(DataWriter::Fixed),
+    //         AnyAsciiLayout::Delimited(_) => {
+    //             let ch = conf.check_conversion;
+    //             let go = |c: &'a AnyFCSColumn| {
+    //                 match_many_to_one!(c, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], xs, {
+    //                     FCSDataType::into_writer(xs, ch, |_| None).map(|data| data.into())
+    //                 })
+    //                 .map(|data| DelimColumnWriter { data, size: () })
+    //             };
+    //             df.iter_columns()
+    //                 .enumerate()
+    //                 .map(|(i, c)| {
+    //                     go(c).map_err(|error| {
+    //                         ColumnWriterError(ColumnError {
+    //                             index: i.into(),
+    //                             error: AnyLossError::Int(error),
+    //                         })
+    //                     })
+    //                 })
+    //                 .gather()
+    //                 .map(|columns| {
+    //                     DataWriter::Delim(DataWriterInner {
+    //                         // TODO not dry
+    //                         columns: NonEmpty::from_vec(columns).unwrap(),
+    //                         nrows: df.nrows(),
+    //                         nbytes: df.ascii_nbytes(),
+    //                     })
+    //                 })
+    //         }
+    //     }
+    // }
 
-    fn into_col_reader_maybe_rows(
-        self,
-        seg: AnyDataSegment,
-        kw_tot: Option<Tot>,
-        conf: &ReaderConfig,
-    ) -> Tentative<ColumnReader, UnevenEventWidth, UnevenEventWidth> {
-        let nbytes = seg.inner.len() as usize;
-        match self {
-            AnyAsciiLayout::Delimited(dl) => {
-                Tentative::new1(dl.into_col_reader_maybe_rows(nbytes, kw_tot))
-            }
-            AnyAsciiLayout::Fixed(fl) => fl
-                .into_col_reader_inner(seg, conf)
-                .map(ColumnReader::AlphaNum),
-        }
-    }
+    // fn into_col_reader_maybe_rows(
+    //     self,
+    //     seg: AnyDataSegment,
+    //     kw_tot: Option<Tot>,
+    //     conf: &ReaderConfig,
+    // ) -> Tentative<ColumnReader, UnevenEventWidth, UnevenEventWidth> {
+    //     let nbytes = seg.inner.len() as usize;
+    //     match self {
+    //         AnyAsciiLayout::Delimited(dl) => {
+    //             Tentative::new1(dl.into_col_reader_maybe_rows(nbytes, kw_tot))
+    //         }
+    //         AnyAsciiLayout::Fixed(fl) => fl
+    //             .into_col_reader_inner(seg, conf)
+    //             .map(ColumnReader::AlphaNum),
+    //     }
+    // }
 
-    fn into_col_reader<W, E>(
-        self,
-        seg: AnyDataSegment,
-        tot: Tot,
-        conf: &ReaderConfig,
-    ) -> Tentative<ColumnReader, W, E>
-    where
-        W: From<UnevenEventWidth>,
-        E: From<UnevenEventWidth>,
-        W: From<TotEventMismatch>,
-        E: From<TotEventMismatch>,
-    {
-        let nbytes = seg.inner.len() as usize;
-        match self {
-            AnyAsciiLayout::Delimited(dl) => Tentative::new1(dl.into_col_reader(nbytes, tot)),
-            AnyAsciiLayout::Fixed(fl) => fl.into_col_reader(seg, tot, conf),
-        }
-    }
+    // fn into_col_reader<W, E>(
+    //     self,
+    //     seg: AnyDataSegment,
+    //     tot: Tot,
+    //     conf: &ReaderConfig,
+    // ) -> Tentative<ColumnReader, W, E>
+    // where
+    //     W: From<UnevenEventWidth>,
+    //     E: From<UnevenEventWidth>,
+    //     W: From<TotEventMismatch>,
+    //     E: From<TotEventMismatch>,
+    // {
+    //     let nbytes = seg.inner.len() as usize;
+    //     match self {
+    //         AnyAsciiLayout::Delimited(dl) => Tentative::new1(dl.into_col_reader(nbytes, tot)),
+    //         AnyAsciiLayout::Fixed(fl) => fl.into_col_reader(seg, tot, conf),
+    //     }
+    // }
 }
 
 impl VersionedDataLayout for Layout2_0 {

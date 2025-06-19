@@ -106,12 +106,14 @@ pub(crate) trait HasNativeWidth: HasNativeType {
     /// The length of the type in bytes
     const BYTES: Bytes;
 
+    const LEN: usize;
+
     /// The sized byte order to be used with this type
     type Order;
 }
 
 macro_rules! def_native_wrapper {
-    ($name:ident, $wrapper:ident, $native:ty, $size:expr) => {
+    ($name:ident, $wrapper:ident, $native:ty, $size:expr, $native_size:expr) => {
         pub type $name = $wrapper<$native, $size>;
 
         impl HasNativeType for $name {
@@ -120,21 +122,22 @@ macro_rules! def_native_wrapper {
 
         impl HasNativeWidth for $name {
             const BYTES: Bytes = Bytes($size);
+            const LEN: usize = $native_size;
             type Order = SizedByteOrd<$size>;
         }
     };
 }
 
-def_native_wrapper!(Uint08Type, UintType, u8, 1);
-def_native_wrapper!(Uint16Type, UintType, u16, 2);
-def_native_wrapper!(Uint24Type, UintType, u32, 3);
-def_native_wrapper!(Uint32Type, UintType, u32, 4);
-def_native_wrapper!(Uint40Type, UintType, u64, 5);
-def_native_wrapper!(Uint48Type, UintType, u64, 6);
-def_native_wrapper!(Uint56Type, UintType, u64, 7);
-def_native_wrapper!(Uint64Type, UintType, u64, 8);
-def_native_wrapper!(F32Type, FloatType, f32, 4);
-def_native_wrapper!(F64Type, FloatType, f64, 8);
+def_native_wrapper!(Uint08Type, UintType, u8, 1, 1);
+def_native_wrapper!(Uint16Type, UintType, u16, 2, 2);
+def_native_wrapper!(Uint24Type, UintType, u32, 3, 4);
+def_native_wrapper!(Uint32Type, UintType, u32, 4, 4);
+def_native_wrapper!(Uint40Type, UintType, u64, 5, 8);
+def_native_wrapper!(Uint48Type, UintType, u64, 6, 8);
+def_native_wrapper!(Uint56Type, UintType, u64, 7, 8);
+def_native_wrapper!(Uint64Type, UintType, u64, 8, 8);
+def_native_wrapper!(F32Type, FloatType, f32, 4, 4);
+def_native_wrapper!(F64Type, FloatType, f64, 8, 8);
 
 impl HasNativeType for AsciiType {
     type Native = u64;

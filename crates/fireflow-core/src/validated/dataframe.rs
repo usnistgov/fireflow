@@ -81,12 +81,12 @@ impl AnyFCSColumn {
     /// The number of bytes occupied by the column if written as ASCII
     pub fn ascii_nbytes(&self) -> u32 {
         match self {
-            Self::U08(xs) => u8::iter_converted::<u64>(xs).map(cast_nbytes).sum(),
-            Self::U16(xs) => u16::iter_converted::<u64>(xs).map(cast_nbytes).sum(),
-            Self::U32(xs) => u32::iter_converted::<u64>(xs).map(cast_nbytes).sum(),
-            Self::U64(xs) => u64::iter_converted::<u64>(xs).map(cast_nbytes).sum(),
-            Self::F32(xs) => f32::iter_converted::<u64>(xs).map(cast_nbytes).sum(),
-            Self::F64(xs) => f64::iter_converted::<u64>(xs).map(cast_nbytes).sum(),
+            Self::U08(xs) => u8::as_col_iter::<u64>(xs).map(cast_nbytes).sum(),
+            Self::U16(xs) => u16::as_col_iter::<u64>(xs).map(cast_nbytes).sum(),
+            Self::U32(xs) => u32::as_col_iter::<u64>(xs).map(cast_nbytes).sum(),
+            Self::U64(xs) => u64::as_col_iter::<u64>(xs).map(cast_nbytes).sum(),
+            Self::F32(xs) => f32::as_col_iter::<u64>(xs).map(cast_nbytes).sum(),
+            Self::F64(xs) => f64::as_col_iter::<u64>(xs).map(cast_nbytes).sum(),
         }
     }
 
@@ -253,51 +253,48 @@ where
     Self: Copy,
     [Self]: ToOwned,
 {
-    fn iter_native(c: &FCSColumn<Self>) -> iter::Copied<Iter<'_, Self>> {
-        c.0.iter().copied()
-    }
-
-    fn iter_converted<ToType>(c: &FCSColumn<Self>) -> FCSColIter<'_, Self, ToType>
+    /// Return iterator for column, converting to native type on the fly.
+    fn as_col_iter<ToType>(c: &FCSColumn<Self>) -> FCSColIter<'_, Self, ToType>
     where
         ToType: NumCast<Self>,
     {
         Self::iter_native(c).map(ToType::from_truncated)
     }
 
-    /// Convert column to an iterator with possibly lossy conversion
+    /// Try to convert column to native type, and return error on failure.
     ///
-    /// Iterate through the column and check if loss will occur, if so return
-    /// err. On success, return an iterator which will yield a converted value
-    /// with a flag indicating if loss occurred when converting. This way we
-    /// can also warn user if loss occurred.
+    /// This is separate from returning the iterator itself because if we can't
+    /// tolerate any loss, the only way to find with only the iterator it is
+    /// while we are using it to write a file, which opens the possibility of a
+    /// partially-written file (not good). Therefore we need to check this
+    /// before returning the iterator at all, which ironically can only be found
+    /// by iterating the entire vector once.
     ///
-    /// The error/warning split is such because if we can't tolerate any loss,
-    /// the only way to find it is while we are using the iterator to write a
-    /// file, which opens the possibility of a partially-written file (not
-    /// good). Therefore we need to check this before making the iterator at
-    /// all, which ironically can only be found by iterating the entire vector
-    /// once. However, if we only want to warn the user, we don't need this
-    /// extra scan step and can simply log lossy values when writing.
-    fn into_writer<E, F: Fn(ToType) -> Option<E>, ToType: NumCast<Self>>(
+    /// This only applies to the case where we want to crash if any loss will
+    /// occur. If we only wish to warn the user and use lossy conversion
+    /// anyways, this only requires one iteration since the iterator itself will
+    /// return a ['CastResult'] which carries a flag if loss occurred.
+    fn check_writer<E, F: Fn(ToType) -> Option<E>, ToType: NumCast<Self>>(
         c: &FCSColumn<Self>,
-        check: bool,
         f: F,
-    ) -> Result<FCSColIter<'_, Self, ToType>, LossError<E>> {
-        if check {
-            for x in Self::iter_converted::<ToType>(c) {
-                if x.lossy {
-                    let d = CastError {
-                        from: type_name::<Self>(),
-                        to: type_name::<ToType>(),
-                    };
-                    return Err(LossError::Cast(d));
-                }
-                if let Some(err) = f(x.new) {
-                    return Err(LossError::Other(err));
-                }
+    ) -> Result<(), LossError<E>> {
+        for x in Self::as_col_iter::<ToType>(c) {
+            if x.lossy {
+                let d = CastError {
+                    from: type_name::<Self>(),
+                    to: type_name::<ToType>(),
+                };
+                return Err(LossError::Cast(d));
+            }
+            if let Some(err) = f(x.new) {
+                return Err(LossError::Other(err));
             }
         }
-        Ok(Self::iter_converted(c))
+        Ok(())
+    }
+
+    fn iter_native(c: &FCSColumn<Self>) -> iter::Copied<Iter<'_, Self>> {
+        c.0.iter().copied()
     }
 }
 
@@ -462,4 +459,14 @@ pub(crate) fn cast_nbytes(x: CastResult<u64>) -> u32 {
 
 pub(crate) fn ascii_nbytes(x: u64) -> u32 {
     x.checked_ilog10().map(|y| y + 1).unwrap_or(1)
+}
+
+pub(crate) trait AllFCSCast:
+    NumCast<u8> + NumCast<u16> + NumCast<u32> + NumCast<u64> + NumCast<f32> + NumCast<f64>
+{
+}
+
+impl<T> AllFCSCast for T where
+    T: NumCast<u8> + NumCast<u16> + NumCast<u32> + NumCast<u64> + NumCast<f32> + NumCast<f64>
+{
 }

@@ -16,16 +16,17 @@ pub struct FCSDataFrame {
     nrows: usize,
 }
 
-/// Any valid column from an FCS dataframe
-#[derive(Clone)]
-pub enum AnyFCSColumn {
-    U08(U08Column),
-    U16(U16Column),
-    U32(U32Column),
-    U64(U64Column),
-    F32(F32Column),
-    F64(F64Column),
-}
+enum_from!(
+    /// Any valid column from an FCS dataframe
+    #[derive(Clone)]
+    pub AnyFCSColumn,
+    [U08, U08Column],
+    [U16, U16Column],
+    [U32, U32Column],
+    [U64, U64Column],
+    [F32, F32Column],
+    [F64, F64Column]
+);
 
 #[derive(Clone)]
 pub struct FCSColumn<T>(pub Buffer<T>);
@@ -35,23 +36,6 @@ impl<T> From<Vec<T>> for FCSColumn<T> {
         FCSColumn(value.into())
     }
 }
-
-macro_rules! anycolumn_from {
-    ($inner:ident, $var:ident) => {
-        impl From<$inner> for AnyFCSColumn {
-            fn from(value: $inner) -> Self {
-                AnyFCSColumn::$var(value)
-            }
-        }
-    };
-}
-
-anycolumn_from!(U08Column, U08);
-anycolumn_from!(U16Column, U16);
-anycolumn_from!(U32Column, U32);
-anycolumn_from!(U64Column, U64);
-anycolumn_from!(F32Column, F32);
-anycolumn_from!(F64Column, F64);
 
 pub type U08Column = FCSColumn<u8>;
 pub type U16Column = FCSColumn<u16>;

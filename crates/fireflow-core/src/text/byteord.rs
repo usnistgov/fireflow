@@ -103,9 +103,10 @@ pub(crate) trait HasNativeType: Sized {
 
 /// A type which uses a defined number of bytes
 pub(crate) trait HasNativeWidth: HasNativeType {
-    /// The length of the type in bytes
+    /// The length of the type in an FCS file (may be less than native)
     const BYTES: Bytes;
 
+    /// The length of the native Rust type
     const LEN: usize;
 
     /// The sized byte order to be used with this type

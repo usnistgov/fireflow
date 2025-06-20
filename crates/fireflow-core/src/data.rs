@@ -771,19 +771,33 @@ where
 }
 
 trait NativeReadable<S>: HasNativeType {
-    fn h_read<R: Read>(&self, h: &mut BufReader<R>, byte_layout: S) -> io::Result<Self::Native>;
+    type Buf;
+    type Error;
+
+    fn h_read<R: Read>(
+        &self,
+        h: &mut BufReader<R>,
+        byte_layout: S,
+        buf: &mut Self::Buf,
+    ) -> IOResult<Self::Native, Self::Error>;
 }
 
-trait Readable<'a, S> {
+trait Readable<S> {
     type Inner;
+    type Buf;
+    type Error;
 
     fn new(column_type: Self::Inner, nrows: usize) -> Self;
 
-    fn h_read<E, R: Write>(
+    fn into_column(self) -> AnyFCSColumn;
+
+    fn h_read_row<R: Read>(
         &mut self,
         h: &mut BufReader<R>,
+        row: usize,
         byte_layout: S,
-    ) -> Result<AnyFCSColumn, E>;
+        buf: &mut Self::Buf,
+    ) -> IOResult<(), Self::Error>;
 }
 
 trait NativeWritable<S>: HasNativeType {
@@ -816,12 +830,17 @@ where
     UintType<T, LEN>: HasNativeType<Native = T>,
     <UintType<T, LEN> as HasNativeType>::Native: Ord + Copy + IntFromBytes<LEN>,
 {
+    type Buf = ();
+    type Error = Infallible;
+
     fn h_read<R: Read>(
         &self,
         h: &mut BufReader<R>,
         byte_layout: Endian,
-    ) -> io::Result<Self::Native> {
-        Self::Native::h_read_endian(h, byte_layout)
+        _: &mut (),
+    ) -> IOResult<Self::Native, Self::Error> {
+        let x = Self::Native::h_read_endian(h, byte_layout)?;
+        Ok(x)
     }
 }
 
@@ -830,12 +849,17 @@ where
     UintType<T, LEN>: HasNativeType<Native = T>,
     <UintType<T, LEN> as HasNativeType>::Native: Ord + Copy + IntFromBytes<LEN>,
 {
+    type Buf = ();
+    type Error = Infallible;
+
     fn h_read<R: Read>(
         &self,
         h: &mut BufReader<R>,
         byte_layout: SizedByteOrd<LEN>,
-    ) -> io::Result<Self::Native> {
-        Self::Native::h_read_ordered(h, byte_layout)
+        _: &mut (),
+    ) -> IOResult<Self::Native, Self::Error> {
+        let x = Self::Native::h_read_ordered(h, byte_layout)?;
+        Ok(x)
     }
 }
 
@@ -844,12 +868,17 @@ where
     FloatType<T, LEN>: HasNativeType<Native = T>,
     <FloatType<T, LEN> as HasNativeType>::Native: Copy + FloatFromBytes<LEN>,
 {
+    type Buf = ();
+    type Error = Infallible;
+
     fn h_read<R: Read>(
         &self,
         h: &mut BufReader<R>,
         byte_layout: Endian,
-    ) -> io::Result<Self::Native> {
-        Self::Native::h_read_endian(h, byte_layout)
+        _: &mut (),
+    ) -> IOResult<Self::Native, Self::Error> {
+        let x = Self::Native::h_read_endian(h, byte_layout)?;
+        Ok(x)
     }
 }
 
@@ -858,21 +887,150 @@ where
     FloatType<T, LEN>: HasNativeType<Native = T>,
     <FloatType<T, LEN> as HasNativeType>::Native: Copy + FloatFromBytes<LEN>,
 {
+    type Buf = ();
+    type Error = Infallible;
+
     fn h_read<R: Read>(
         &self,
         h: &mut BufReader<R>,
         byte_layout: SizedByteOrd<LEN>,
-    ) -> io::Result<Self::Native> {
-        Self::Native::h_read_ordered(h, byte_layout)
+        _: &mut (),
+    ) -> IOResult<Self::Native, Self::Error> {
+        let x = Self::Native::h_read_ordered(h, byte_layout)?;
+        Ok(x)
     }
 }
 
 impl NativeReadable<()> for AsciiType {
-    fn h_read<R: Read>(&self, h: &mut BufReader<R>, _: ()) -> io::Result<Self::Native> {
-        // TODO this is crazy inefficient
-        let mut buf: Vec<u8> = vec![];
-        h.take(u8::from(self.chars).into()).read_to_end(&mut buf)?;
+    type Buf = Vec<u8>;
+    type Error = AsciiToUintError;
+
+    fn h_read<R: Read>(
+        &self,
+        h: &mut BufReader<R>,
+        _: (),
+        buf: &mut Vec<u8>,
+    ) -> IOResult<Self::Native, Self::Error> {
+        buf.clear();
+        h.take(u8::from(self.chars).into()).read_to_end(buf)?;
         ascii_to_uint(&buf).map_err(ImpureError::Pure)
+    }
+}
+
+impl<C, T, S> Readable<S> for ColumnReader0<C, T, S>
+where
+    T: Copy + Default,
+    C: NativeReadable<S> + HasNativeType<Native = T> + ToNativeReader,
+    AnyFCSColumn: From<FCSColumn<T>>,
+{
+    type Inner = C;
+    type Buf = <C as NativeReadable<S>>::Buf;
+    type Error = <C as NativeReadable<S>>::Error;
+
+    fn new(column_type: Self::Inner, nrows: usize) -> Self {
+        column_type.into_reader(nrows)
+    }
+
+    fn into_column(self) -> AnyFCSColumn {
+        FCSColumn::from(self.data).into()
+    }
+
+    fn h_read_row<R: Read>(
+        &mut self,
+        h: &mut BufReader<R>,
+        row: usize,
+        byte_layout: S,
+        buf: &mut Self::Buf,
+    ) -> IOResult<(), Self::Error> {
+        self.data[row] = self.column_type.h_read(h, byte_layout, buf)?;
+        Ok(())
+    }
+}
+
+impl Readable<Endian> for ReaderMixedType {
+    type Inner = NullMixedType;
+    type Buf = Vec<u8>;
+    type Error = AsciiToUintError;
+
+    fn new(column_type: Self::Inner, nrows: usize) -> Self {
+        match column_type {
+            MixedType::Ascii(c) => Self::Ascii(c.into_reader(nrows)),
+            MixedType::Uint(c) => Self::Uint(ReaderAnyUintType::new(c, nrows)),
+            MixedType::F32(c) => Self::F32(c.into_reader(nrows)),
+            MixedType::F64(c) => Self::F64(c.into_reader(nrows)),
+        }
+    }
+
+    fn into_column(self) -> AnyFCSColumn {
+        match self {
+            MixedType::Ascii(c) => c.into_column(),
+            MixedType::Uint(c) => ReaderAnyUintType::into_column(c),
+            MixedType::F32(c) => c.into_column(),
+            MixedType::F64(c) => c.into_column(),
+        }
+    }
+
+    fn h_read_row<R: Read>(
+        &mut self,
+        h: &mut BufReader<R>,
+        row: usize,
+        byte_layout: Endian,
+        buf: &mut Self::Buf,
+    ) -> IOResult<(), Self::Error> {
+        match self {
+            MixedType::Ascii(c) => c.h_read_row(h, row, (), buf),
+            MixedType::Uint(c) => c
+                .h_read_row(h, row, byte_layout, &mut ())
+                .map_err(ImpureError::infallible),
+            MixedType::F32(c) => c
+                .h_read_row(h, row, byte_layout, &mut ())
+                .map_err(ImpureError::infallible),
+            MixedType::F64(c) => c
+                .h_read_row(h, row, byte_layout, &mut ())
+                .map_err(ImpureError::infallible),
+        }
+    }
+}
+
+impl Readable<Endian> for ReaderAnyUintType {
+    type Inner = NullAnyUintType;
+    type Buf = ();
+    type Error = Infallible;
+
+    fn new(column_type: Self::Inner, nrows: usize) -> Self {
+        match_many_to_one!(
+            column_type,
+            AnyUintType,
+            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+            c,
+            { c.into_reader(nrows).into() }
+        )
+    }
+
+    fn into_column(self) -> AnyFCSColumn {
+        match_many_to_one!(
+            self,
+            AnyUintType,
+            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+            c,
+            { c.into_column() }
+        )
+    }
+
+    fn h_read_row<R: Read>(
+        &mut self,
+        h: &mut BufReader<R>,
+        row: usize,
+        byte_layout: Endian,
+        buf: &mut Self::Buf,
+    ) -> IOResult<(), Self::Error> {
+        match_many_to_one!(
+            self,
+            AnyUintType,
+            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+            c,
+            { c.h_read_row(h, row, byte_layout, buf) }
+        )
     }
 }
 

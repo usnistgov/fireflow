@@ -1319,6 +1319,12 @@ impl<E> ImpureError<E> {
             Self::Pure(e) => ImpureError::Pure(f(e)),
         }
     }
+
+    pub fn infallible(e: ImpureError<std::convert::Infallible>) -> ImpureError<E> {
+        match e {
+            ImpureError::IO(e) => ImpureError::IO(e),
+        }
+    }
 }
 
 impl<E> From<io::Error> for ImpureError<E> {

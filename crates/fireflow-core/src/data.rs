@@ -71,15 +71,15 @@ use std::str::FromStr;
 /// This is identical to 3.0 in every way except that the $TOT keyword in 2.0
 /// is optional, which requires a different interface.
 #[derive(Clone, Serialize)]
-pub struct Layout2_0(pub AnyOrderedLayout);
+pub struct Layout2_0(pub AnyOrderedLayout<MaybeTot>);
 
-newtype_from!(Layout2_0, AnyOrderedLayout);
+newtype_from!(Layout2_0, AnyOrderedLayout<MaybeTot>);
 
 /// All possible byte layouts for the DATA segment in 2.0.
 #[derive(Clone, Serialize)]
-pub struct Layout3_0(pub AnyOrderedLayout);
+pub struct Layout3_0(pub AnyOrderedLayout<KnownTot>);
 
-newtype_from!(Layout3_0, AnyOrderedLayout);
+newtype_from!(Layout3_0, AnyOrderedLayout<KnownTot>);
 
 /// All possible byte layouts for the DATA segment in 3.1.
 ///
@@ -102,73 +102,91 @@ enum_from!(
     [NonMixed, NonMixedEndianLayout]
 );
 
-enum_from!(
-    /// All possible byte layouts for the DATA segment in 2.0 and 3.0.
-    ///
-    /// It is so named "Ordered" because the BYTEORD keyword represents any possible
-    /// byte ordering that may occur rather than simply little or big endian.
-    #[derive(Clone, Serialize)]
-    pub AnyOrderedLayout,
-    [Ascii, AnyAsciiLayout],
-    [Integer, AnyOrderedUintLayout],
-    [F32, OrderedLayout<F32Type>],
-    [F64, OrderedLayout<F64Type>]
-);
+/// All possible byte layouts for the DATA segment in 2.0 and 3.0.
+///
+/// It is so named "Ordered" because the BYTEORD keyword represents any possible
+/// byte ordering that may occur rather than simply little or big endian.
+#[derive(Clone, Serialize)]
+pub enum AnyOrderedLayout<T> {
+    Ascii(AnyAsciiLayout<T>),
+    Integer(AnyOrderedUintLayout<T>),
+    F32(OrderedLayout<F32Type, T>),
+    F64(OrderedLayout<F64Type, T>),
+}
 
 enum_from!(
     #[derive(Clone, Serialize)]
     pub NonMixedEndianLayout,
-    [Ascii, AnyAsciiLayout],
+    [Ascii, AnyAsciiLayout<KnownTot>],
     [Integer, EndianLayout<NullAnyUintType>],
     [F32, EndianLayout<F32Type>],
     [F64, EndianLayout<F64Type>]
 );
 
-type EndianLayout<C> = FixedLayout<C, Endian>;
+type EndianLayout<C> = FixedLayout<C, Endian, KnownTot>;
 
-enum_from!(
-    /// Byte layouts for ASCII data.
-    ///
-    /// This may either be fixed (ie columns have the same number of characters)
-    /// or variable (ie columns have have different number of characters and are
-    /// separated by delimiters).
-    #[derive(Clone, Serialize)]
-    pub AnyAsciiLayout,
-    [Delimited, DelimAsciiLayout],
-    [Fixed, FixedAsciiLayout]
-);
+/// Byte layouts for ASCII data.
+///
+/// This may either be fixed (ie columns have the same number of characters)
+/// or variable (ie columns have have different number of characters and are
+/// separated by delimiters).
+#[derive(Clone, Serialize)]
+pub enum AnyAsciiLayout<T> {
+    Delimited(DelimAsciiLayout<T>),
+    Fixed(FixedAsciiLayout<T>),
+}
 
-type FixedAsciiLayout = FixedLayout<AsciiType, ()>;
+type FixedAsciiLayout<T> = FixedLayout<AsciiType, (), T>;
 
 /// Byte layout for delimited ASCII.
 #[derive(Clone)]
-pub struct DelimAsciiLayout {
+pub struct DelimAsciiLayout<T> {
     pub ranges: NonEmpty<u64>,
+    tot_action: PhantomData<T>,
 }
 
 /// Byte layout where each column has a fixed width.
 #[derive(Clone)]
-struct FixedLayout<C, L> {
+struct FixedLayout<C, L, T> {
     byte_layout: L,
     columns: NonEmpty<C>,
+    tot_action: PhantomData<T>,
 }
 
-enum_from!(
-    /// Byte layout for integers that may be in any byte order.
-    #[derive(Clone, Serialize)]
-    pub AnyOrderedUintLayout,
+/// Byte layout for integers that may be in any byte order.
+#[derive(Clone, Serialize)]
+pub enum AnyOrderedUintLayout<T> {
     // TODO the first two don't need to be ordered
-    [Uint08, OrderedLayout<Uint08Type>],
-    [Uint16, OrderedLayout<Uint16Type>],
-    [Uint24, OrderedLayout<Uint24Type>],
-    [Uint32, OrderedLayout<Uint32Type>],
-    [Uint40, OrderedLayout<Uint40Type>],
-    [Uint48, OrderedLayout<Uint48Type>],
-    [Uint56, OrderedLayout<Uint56Type>],
-    [Uint64, OrderedLayout<Uint64Type>]
-);
+    Uint08(OrderedLayout<Uint08Type, T>),
+    Uint16(OrderedLayout<Uint16Type, T>),
+    Uint24(OrderedLayout<Uint24Type, T>),
+    Uint32(OrderedLayout<Uint32Type, T>),
+    Uint40(OrderedLayout<Uint40Type, T>),
+    Uint48(OrderedLayout<Uint48Type, T>),
+    Uint56(OrderedLayout<Uint56Type, T>),
+    Uint64(OrderedLayout<Uint64Type, T>),
+}
 
-type OrderedLayout<C> = FixedLayout<C, <C as HasNativeWidth>::Order>;
+type OrderedLayout<C, T> = FixedLayout<C, <C as HasNativeWidth>::Order, T>;
+
+macro_rules! into_any_ordered_layout {
+    ($var:ident, $inner:ident) => {
+        impl<T> From<OrderedLayout<$inner, T>> for AnyOrderedUintLayout<T> {
+            fn from(value: OrderedLayout<$inner, T>) -> Self {
+                Self::$var(value)
+            }
+        }
+    };
+}
+
+into_any_ordered_layout!(Uint08, Uint08Type);
+into_any_ordered_layout!(Uint16, Uint16Type);
+into_any_ordered_layout!(Uint24, Uint24Type);
+into_any_ordered_layout!(Uint32, Uint32Type);
+into_any_ordered_layout!(Uint40, Uint40Type);
+into_any_ordered_layout!(Uint48, Uint48Type);
+into_any_ordered_layout!(Uint56, Uint56Type);
+into_any_ordered_layout!(Uint64, Uint64Type);
 
 /// The type of a non-delimited column in the DATA segment for 3.2
 pub enum MixedType<F: ColumnFamily> {
@@ -306,6 +324,75 @@ struct ColumnNullFamily;
 struct ColumnReaderFamily;
 
 struct ColumnWriterFamily<'a>(std::marker::PhantomData<&'a ()>);
+
+#[derive(Clone, Serialize)]
+struct MaybeTot;
+
+#[derive(Clone, Serialize)]
+struct KnownTot;
+
+trait TotDefinition {
+    type Tot;
+
+    fn with_tot<F, G, I, X>(input: I, tot: Self::Tot, tot_f: F, notot_f: G) -> X
+    where
+        F: FnOnce(I, Tot) -> X,
+        G: FnOnce(I) -> X;
+
+    fn check_tot(
+        total_events: usize,
+        tot: Self::Tot,
+        allow_mismatch: bool,
+    ) -> BiTentative<(), TotEventMismatch> {
+        Self::with_tot(
+            (),
+            tot,
+            |_, t| Self::check_tot_inner(total_events, t, allow_mismatch),
+            |_| Tentative::new1(()),
+        )
+    }
+
+    fn check_tot_inner(
+        total_events: usize,
+        tot: Tot,
+        allow_mismatch: bool,
+    ) -> BiTentative<(), TotEventMismatch> {
+        if tot.0 != total_events {
+            let i = TotEventMismatch { tot, total_events };
+            Tentative::new_either((), vec![i], !allow_mismatch)
+        } else {
+            Tentative::new1(())
+        }
+    }
+}
+
+impl TotDefinition for MaybeTot {
+    type Tot = Option<Tot>;
+
+    fn with_tot<F, G, I, X>(input: I, tot: Self::Tot, tot_f: F, notot_f: G) -> X
+    where
+        F: FnOnce(I, Tot) -> X,
+        G: FnOnce(I) -> X,
+    {
+        if let Some(t) = tot {
+            tot_f(input, t)
+        } else {
+            notot_f(input)
+        }
+    }
+}
+
+impl TotDefinition for KnownTot {
+    type Tot = Tot;
+
+    fn with_tot<F, G, I, X>(input: I, tot: Self::Tot, tot_f: F, _: G) -> X
+    where
+        F: FnOnce(I, Tot) -> X,
+        G: FnOnce(I) -> X,
+    {
+        tot_f(input, tot)
+    }
+}
 
 trait ColumnFamily {
     type ColumnWrapper<C, T, S>;
@@ -646,25 +733,25 @@ pub trait VersionedDataLayout: Sized {
 
     fn h_read_dataframe<R: Read>(
         &self,
-        h: BufReader<R>,
+        h: &mut BufReader<R>,
         tot: Self::T,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
-    ) -> IODeferredResult<FCSDataFrame, UnevenEventWidth, ReadDataError0>;
+    ) -> IODeferredResult<FCSDataFrame, ReadWarning, ReadDataError0>;
 
-    fn into_data_reader(
-        self,
-        kws: &mut StdKeywords,
-        seg: HeaderDataSegment,
-        conf: &ReaderConfig,
-    ) -> DataReaderResult<DataReader>;
+    // fn into_data_reader(
+    //     self,
+    //     kws: &mut StdKeywords,
+    //     seg: HeaderDataSegment,
+    //     conf: &ReaderConfig,
+    // ) -> DataReaderResult<DataReader>;
 
-    fn into_data_reader_raw(
-        self,
-        kws: &StdKeywords,
-        seg: HeaderDataSegment,
-        conf: &ReaderConfig,
-    ) -> DataReaderResult<DataReader>;
+    // fn into_data_reader_raw(
+    //     self,
+    //     kws: &StdKeywords,
+    //     seg: HeaderDataSegment,
+    //     conf: &ReaderConfig,
+    // ) -> DataReaderResult<DataReader>;
 
     fn as_analysis_reader(
         kws: &mut StdKeywords,
@@ -779,22 +866,20 @@ where
     fn check_other_loss(&self, x: Self::Native) -> Option<Self::Error>;
 }
 
-trait NativeReadable<S>: HasNativeType {
+trait NativeReadable<S, E>: HasNativeType {
     type Buf;
-    type Error;
 
     fn h_read<R: Read>(
         &self,
         h: &mut BufReader<R>,
         byte_layout: S,
         buf: &mut Self::Buf,
-    ) -> IOResult<Self::Native, Self::Error>;
+    ) -> IOResult<Self::Native, E>;
 }
 
-trait Readable<S> {
+trait Readable<S, E> {
     type Inner;
     type Buf;
-    type Error;
 
     fn new(column_type: Self::Inner, nrows: usize) -> Self;
 
@@ -806,7 +891,7 @@ trait Readable<S> {
         row: usize,
         byte_layout: S,
         buf: &mut Self::Buf,
-    ) -> IOResult<(), Self::Error>;
+    ) -> IOResult<(), E>;
 }
 
 trait NativeWritable<S>: HasNativeType {
@@ -834,107 +919,102 @@ impl<T, const LEN: usize> ToNativeReader for FloatType<T, LEN> where Self: HasNa
 
 impl ToNativeReader for AsciiType {}
 
-impl<T, const LEN: usize> NativeReadable<Endian> for UintType<T, LEN>
+impl<T, const LEN: usize, E> NativeReadable<Endian, E> for UintType<T, LEN>
 where
     UintType<T, LEN>: HasNativeType<Native = T>,
     <UintType<T, LEN> as HasNativeType>::Native: Ord + Copy + IntFromBytes<LEN>,
 {
     type Buf = ();
-    type Error = Infallible;
 
     fn h_read<R: Read>(
         &self,
         h: &mut BufReader<R>,
         byte_layout: Endian,
         _: &mut (),
-    ) -> IOResult<Self::Native, Self::Error> {
+    ) -> IOResult<Self::Native, E> {
         let x = Self::Native::h_read_endian(h, byte_layout)?;
         Ok(x)
     }
 }
 
-impl<T, const LEN: usize> NativeReadable<SizedByteOrd<LEN>> for UintType<T, LEN>
+impl<T, const LEN: usize, E> NativeReadable<SizedByteOrd<LEN>, E> for UintType<T, LEN>
 where
     UintType<T, LEN>: HasNativeType<Native = T>,
     <UintType<T, LEN> as HasNativeType>::Native: Ord + Copy + IntFromBytes<LEN>,
 {
     type Buf = ();
-    type Error = Infallible;
 
     fn h_read<R: Read>(
         &self,
         h: &mut BufReader<R>,
         byte_layout: SizedByteOrd<LEN>,
         _: &mut (),
-    ) -> IOResult<Self::Native, Self::Error> {
+    ) -> IOResult<Self::Native, E> {
         let x = Self::Native::h_read_ordered(h, byte_layout)?;
         Ok(x)
     }
 }
 
-impl<T, const LEN: usize> NativeReadable<Endian> for FloatType<T, LEN>
+impl<T, const LEN: usize, E> NativeReadable<Endian, E> for FloatType<T, LEN>
 where
     FloatType<T, LEN>: HasNativeType<Native = T>,
     <FloatType<T, LEN> as HasNativeType>::Native: Copy + FloatFromBytes<LEN>,
 {
     type Buf = ();
-    type Error = Infallible;
 
     fn h_read<R: Read>(
         &self,
         h: &mut BufReader<R>,
         byte_layout: Endian,
         _: &mut (),
-    ) -> IOResult<Self::Native, Self::Error> {
+    ) -> IOResult<Self::Native, E> {
         let x = Self::Native::h_read_endian(h, byte_layout)?;
         Ok(x)
     }
 }
 
-impl<T, const LEN: usize> NativeReadable<SizedByteOrd<LEN>> for FloatType<T, LEN>
+impl<T, const LEN: usize, E> NativeReadable<SizedByteOrd<LEN>, E> for FloatType<T, LEN>
 where
     FloatType<T, LEN>: HasNativeType<Native = T>,
     <FloatType<T, LEN> as HasNativeType>::Native: Copy + FloatFromBytes<LEN>,
 {
     type Buf = ();
-    type Error = Infallible;
 
     fn h_read<R: Read>(
         &self,
         h: &mut BufReader<R>,
         byte_layout: SizedByteOrd<LEN>,
         _: &mut (),
-    ) -> IOResult<Self::Native, Self::Error> {
+    ) -> IOResult<Self::Native, E> {
         let x = Self::Native::h_read_ordered(h, byte_layout)?;
         Ok(x)
     }
 }
 
-impl NativeReadable<()> for AsciiType {
+impl NativeReadable<(), AsciiToUintError> for AsciiType {
     type Buf = Vec<u8>;
-    type Error = AsciiToUintError;
 
     fn h_read<R: Read>(
         &self,
         h: &mut BufReader<R>,
         _: (),
         buf: &mut Vec<u8>,
-    ) -> IOResult<Self::Native, Self::Error> {
+    ) -> IOResult<Self::Native, AsciiToUintError> {
         buf.clear();
         h.take(u8::from(self.chars).into()).read_to_end(buf)?;
         ascii_to_uint(&buf).map_err(ImpureError::Pure)
     }
 }
 
-impl<C, T, S> Readable<S> for ColumnReader0<C, T, S>
+impl<C, T, S, E> Readable<S, E> for ColumnReader0<C, T, S>
 where
     T: Copy + Default,
-    C: NativeReadable<S> + HasNativeType<Native = T> + ToNativeReader,
+    C: NativeReadable<S, E> + HasNativeType<Native = T> + ToNativeReader,
     AnyFCSColumn: From<FCSColumn<T>>,
 {
     type Inner = C;
-    type Buf = <C as NativeReadable<S>>::Buf;
-    type Error = <C as NativeReadable<S>>::Error;
+    type Buf = <C as NativeReadable<S, E>>::Buf;
+    // type Error = <C as NativeReadable<S>>::Error;
 
     fn new(column_type: Self::Inner, nrows: usize) -> Self {
         column_type.into_reader(nrows)
@@ -950,21 +1030,20 @@ where
         row: usize,
         byte_layout: S,
         buf: &mut Self::Buf,
-    ) -> IOResult<(), Self::Error> {
+    ) -> IOResult<(), E> {
         self.data[row] = self.column_type.h_read(h, byte_layout, buf)?;
         Ok(())
     }
 }
 
-impl Readable<Endian> for ReaderMixedType {
+impl Readable<Endian, AsciiToUintError> for ReaderMixedType {
     type Inner = NullMixedType;
     type Buf = Vec<u8>;
-    type Error = AsciiToUintError;
 
     fn new(column_type: Self::Inner, nrows: usize) -> Self {
         match column_type {
             MixedType::Ascii(c) => Self::Ascii(c.into_reader(nrows)),
-            MixedType::Uint(c) => Self::Uint(ReaderAnyUintType::new(c, nrows)),
+            MixedType::Uint(c) => Self::Uint(Readable::<_, AsciiToUintError>::new(c, nrows)),
             MixedType::F32(c) => Self::F32(c.into_reader(nrows)),
             MixedType::F64(c) => Self::F64(c.into_reader(nrows)),
         }
@@ -973,9 +1052,9 @@ impl Readable<Endian> for ReaderMixedType {
     fn into_column(self) -> AnyFCSColumn {
         match self {
             MixedType::Ascii(c) => c.into_column(),
-            MixedType::Uint(c) => ReaderAnyUintType::into_column(c),
-            MixedType::F32(c) => c.into_column(),
-            MixedType::F64(c) => c.into_column(),
+            MixedType::Uint(c) => Readable::<_, AsciiToUintError>::into_column(c),
+            MixedType::F32(c) => Readable::<_, AsciiToUintError>::into_column(c),
+            MixedType::F64(c) => Readable::<_, AsciiToUintError>::into_column(c),
         }
     }
 
@@ -985,7 +1064,7 @@ impl Readable<Endian> for ReaderMixedType {
         row: usize,
         byte_layout: Endian,
         buf: &mut Self::Buf,
-    ) -> IOResult<(), Self::Error> {
+    ) -> IOResult<(), AsciiToUintError> {
         match self {
             MixedType::Ascii(c) => c.h_read_row(h, row, (), buf),
             MixedType::Uint(c) => c
@@ -1001,10 +1080,9 @@ impl Readable<Endian> for ReaderMixedType {
     }
 }
 
-impl Readable<Endian> for ReaderAnyUintType {
+impl<E> Readable<Endian, E> for ReaderAnyUintType {
     type Inner = NullAnyUintType;
     type Buf = ();
-    type Error = Infallible;
 
     fn new(column_type: Self::Inner, nrows: usize) -> Self {
         match_many_to_one!(
@@ -1022,7 +1100,7 @@ impl Readable<Endian> for ReaderAnyUintType {
             AnyUintType,
             [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
             c,
-            { c.into_column() }
+            { Readable::<_, E>::into_column(c) }
         )
     }
 
@@ -1032,7 +1110,7 @@ impl Readable<Endian> for ReaderAnyUintType {
         row: usize,
         byte_layout: Endian,
         buf: &mut Self::Buf,
-    ) -> IOResult<(), Self::Error> {
+    ) -> IOResult<(), E> {
         match_many_to_one!(
             self,
             AnyUintType,
@@ -1317,12 +1395,12 @@ impl NullAnyUintType {
             })
     }
 
-    pub(crate) fn try_into_one_size<X, E>(
+    pub(crate) fn try_into_one_size<X, E, T>(
         self,
         tail: Vec<X>,
         endian: Endian,
         starting_index: usize,
-    ) -> MultiResult<AnyOrderedUintLayout, (MeasIndex, E)>
+    ) -> MultiResult<AnyOrderedUintLayout<T>, (MeasIndex, E)>
     where
         Uint08Type: TryFrom<X, Error = E>,
         Uint16Type: TryFrom<X, Error = E>,
@@ -1339,13 +1417,8 @@ impl NullAnyUintType {
             [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
             x,
             {
-                UintType::try_from_many(tail, starting_index).map(|xs| {
-                    FixedLayout {
-                        columns: NonEmpty::from((x, xs)),
-                        byte_layout: endian.into(),
-                    }
-                    .into()
-                })
+                UintType::try_from_many(tail, starting_index)
+                    .map(|xs| FixedLayout::new1(x, xs, endian.into()).into())
             }
         )
     }
@@ -1925,19 +1998,19 @@ impl AlphaNumReader {
         Ok(FCSDataFrame::try_new(cs).unwrap())
     }
 
-    fn check_tot(
-        &self,
-        tot: Tot,
-        allow_mismatch: bool,
-    ) -> Tentative<(), TotEventMismatch, TotEventMismatch> {
-        let total_events = self.columns.head.len();
-        if tot.0 != total_events {
-            let i = TotEventMismatch { tot, total_events };
-            Tentative::new_either((), vec![i], !allow_mismatch)
-        } else {
-            Tentative::new1(())
-        }
-    }
+    // fn check_tot(
+    //     &self,
+    //     tot: Tot,
+    //     allow_mismatch: bool,
+    // ) -> Tentative<(), TotEventMismatch, TotEventMismatch> {
+    //     let total_events = self.columns.head.len();
+    //     if tot.0 != total_events {
+    //         let i = TotEventMismatch { tot, total_events };
+    //         Tentative::new_either((), vec![i], !allow_mismatch)
+    //     } else {
+    //         Tentative::new1(())
+    //     }
+    // }
 }
 
 fn check_tot(
@@ -1953,7 +2026,7 @@ fn check_tot(
     }
 }
 
-impl<C: Serialize, L: Serialize> Serialize for FixedLayout<C, L> {
+impl<C: Serialize, L: Serialize, T> Serialize for FixedLayout<C, L, T> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut state = serializer.serialize_struct("FixedLayout", 2)?;
         state.serialize_field("columns", Vec::from(self.columns.as_ref()).as_slice())?;
@@ -1962,7 +2035,7 @@ impl<C: Serialize, L: Serialize> Serialize for FixedLayout<C, L> {
     }
 }
 
-impl Serialize for DelimAsciiLayout {
+impl<T> Serialize for DelimAsciiLayout<T> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut state = serializer.serialize_struct("DelimitedLayout", 1)?;
         state.serialize_field("ranges", Vec::from(self.ranges.as_ref()).as_slice())?;
@@ -1970,7 +2043,7 @@ impl Serialize for DelimAsciiLayout {
     }
 }
 
-impl FixedAsciiLayout {
+impl<T> FixedAsciiLayout<T> {
     fn ascii_layout_values<D: Copy, S: Default>(&self, datatype: D) -> LayoutValues<S, D> {
         LayoutValues {
             datatype: AlphaNumType::Ascii,
@@ -2000,7 +2073,7 @@ impl EndianLayout<NullAnyUintType> {
         })
     }
 
-    pub(crate) fn uint_try_into_ordered(self) -> LayoutConvertResult<AnyOrderedUintLayout> {
+    pub(crate) fn uint_try_into_ordered<T>(self) -> LayoutConvertResult<AnyOrderedUintLayout<T>> {
         let cs = self.columns;
         cs.head
             .try_into_one_size(cs.tail, self.byte_layout, 1)
@@ -2051,9 +2124,9 @@ impl<'a> EndianLayout<NullMixedType> {
         }
     }
 
-    pub(crate) fn try_into_ordered(
+    pub(crate) fn try_into_ordered<T>(
         self,
-    ) -> MultiResult<AnyOrderedLayout, MixedToOrderedLayoutError> {
+    ) -> MultiResult<AnyOrderedLayout<T>, MixedToOrderedLayoutError> {
         let c = self.columns.head;
         let cs = self.columns.tail;
         let endian = self.byte_layout;
@@ -2069,10 +2142,7 @@ impl<'a> EndianLayout<NullMixedType> {
                 })
                 .gather()
                 .map(|xs| {
-                    AnyOrderedLayout::Ascii(AnyAsciiLayout::Fixed(FixedLayout {
-                        columns: NonEmpty::from((x, xs)),
-                        byte_layout: (),
-                    }))
+                    AnyOrderedLayout::Ascii(AnyAsciiLayout::Fixed(FixedLayout::new1(x, xs, ())))
                 }),
             MixedType::Uint(x) => x
                 .try_into_one_size(cs, endian, 1)
@@ -2091,12 +2161,7 @@ impl<'a> EndianLayout<NullMixedType> {
                     })
                 })
                 .gather()
-                .map(|xs| {
-                    AnyOrderedLayout::F32(FixedLayout {
-                        columns: NonEmpty::from((x, xs)).map(FloatType::from),
-                        byte_layout: endian.into(),
-                    })
-                }),
+                .map(|xs| AnyOrderedLayout::F32(FixedLayout::new1(x, xs, endian.into()))),
             MixedType::F64(x) => cs
                 .into_iter()
                 .enumerate()
@@ -2107,12 +2172,7 @@ impl<'a> EndianLayout<NullMixedType> {
                     })
                 })
                 .gather()
-                .map(|xs| {
-                    AnyOrderedLayout::F64(FixedLayout {
-                        columns: NonEmpty::from((x, xs)).map(FloatType::from),
-                        byte_layout: endian.into(),
-                    })
-                }),
+                .map(|xs| AnyOrderedLayout::F64(FixedLayout::new1(x, xs, endian.into()))),
         }
     }
 
@@ -2130,10 +2190,7 @@ impl<'a> EndianLayout<NullMixedType> {
                 })
                 .gather()
                 .map(|xs| {
-                    NonMixedEndianLayout::Ascii(AnyAsciiLayout::Fixed(FixedLayout {
-                        columns: NonEmpty::from((x, xs)),
-                        byte_layout: (),
-                    }))
+                    NonMixedEndianLayout::Ascii(AnyAsciiLayout::Fixed(FixedLayout::new1(x, xs, ())))
                 }),
             MixedType::Uint(x) => it
                 .map(|(i, c)| {
@@ -2141,36 +2198,21 @@ impl<'a> EndianLayout<NullMixedType> {
                         .map_err(|e| (i, MixedToNonMixedConvertError::Integer(e)))
                 })
                 .gather()
-                .map(|xs| {
-                    NonMixedEndianLayout::Integer(FixedLayout {
-                        columns: NonEmpty::from((x, xs)),
-                        byte_layout,
-                    })
-                }),
+                .map(|xs| NonMixedEndianLayout::Integer(FixedLayout::new1(x, xs, byte_layout))),
             MixedType::F32(x) => it
                 .map(|(i, c)| {
                     c.try_into()
                         .map_err(|e| (i, MixedToNonMixedConvertError::Float(e)))
                 })
                 .gather()
-                .map(|xs| {
-                    NonMixedEndianLayout::F32(FixedLayout {
-                        columns: NonEmpty::from((x, xs)),
-                        byte_layout,
-                    })
-                }),
+                .map(|xs| NonMixedEndianLayout::F32(FixedLayout::new1(x, xs, byte_layout))),
             MixedType::F64(x) => it
                 .map(|(i, c)| {
                     c.try_into()
                         .map_err(|e| (i, MixedToNonMixedConvertError::Double(e)))
                 })
                 .gather()
-                .map(|xs| {
-                    NonMixedEndianLayout::F64(FixedLayout {
-                        columns: NonEmpty::from((x, xs)),
-                        byte_layout,
-                    })
-                }),
+                .map(|xs| NonMixedEndianLayout::F64(FixedLayout::new1(x, xs, byte_layout))),
         }
         .mult_map_errors(|(i, error)| MixedColumnConvertError {
             index: (i + 1).into(),
@@ -2833,7 +2875,14 @@ impl From<ColumnLayoutValues3_2> for ColumnLayoutValues2_0 {
     }
 }
 
-impl DelimAsciiLayout {
+impl<T> DelimAsciiLayout<T> {
+    fn new(ranges: NonEmpty<u64>) -> Self {
+        Self {
+            ranges,
+            tot_action: PhantomData,
+        }
+    }
+
     fn layout_values<D: Copy, S: Default>(&self, datatype: D) -> LayoutValues<S, D> {
         LayoutValues {
             datatype: AlphaNumType::Ascii,
@@ -2851,171 +2900,199 @@ impl DelimAsciiLayout {
         })
     }
 
-    // fn into_col_reader_maybe_rows(self, nbytes: usize, kw_tot: Option<Tot>) -> ColumnReader {
-    //     match kw_tot {
-    //         Some(tot) => self.into_col_reader(nbytes, tot),
-    //         None => {
-    //             ColumnReader::DelimitedAsciiNoRows(DelimAsciiReaderNoRows(DelimAsciiReaderInner {
-    //                 columns: self.ranges.as_ref().map(|_| vec![]),
-    //                 nbytes,
-    //             }))
-    //         }
-    //     }
-    // }
-
-    // fn into_col_reader(self, nbytes: usize, tot: Tot) -> ColumnReader {
-    //     ColumnReader::DelimitedAscii(DelimAsciiReader(DelimAsciiReaderInner {
-    //         columns: self.ranges.as_ref().map(|_| vec![0; tot.0]),
-    //         nbytes,
-    //     }))
-    // }
-
-    fn h_read_maybe_rows<R: Read>(
+    fn h_read_checked_dataframe<R: Read>(
         &self,
         h: &mut BufReader<R>,
-        kw_tot: Option<Tot>,
+        tot: T::Tot,
         nbytes: usize,
-    ) -> IOResult<FCSDataFrame, ReadDelimAsciiError> {
-        if let Some(tot) = kw_tot {
-            self.h_read_with_rows(h, tot, nbytes)
-                .map_err(|e| e.inner_into())
-        } else {
-            self.h_read_without_rows(h, nbytes)
-                .map_err(|e| e.inner_into())
-        }
-    }
-
-    fn h_read_with_rows<R: Read>(
-        &self,
-        h: &mut BufReader<R>,
-        tot: Tot,
-        nbytes: usize,
-    ) -> IOResult<FCSDataFrame, ReadDelimWithRowsAsciiError> {
-        let mut buf = Vec::new();
-        let mut last_was_delim = false;
-        let nrows = tot.0;
-        let ncols = self.ranges.len();
-        // Here we have $TOT so initialize vectors to required length
-        let mut data = self.ranges.as_ref().map(|_| vec![0; nrows]);
-        // let mut data = self.0.columns;
-        // let nrows = data.head.len();
-        // let ncols = data.len();
-        let mut row = 0;
-        let mut col = 0;
-        // Delimiters are tab, newline, carriage return, space, or comma. Any
-        // consecutive delimiter counts as one, and delimiters can be mixed.
-        for b in h.bytes().take(nbytes) {
-            let byte = b?;
-            // exit if we encounter more rows than expected.
-            if row == nrows {
-                let e = ReadDelimWithRowsAsciiError::RowsExceeded(RowsExceededError(nrows));
-                return Err(ImpureError::Pure(e));
-            }
-            if is_ascii_delim(byte) {
-                if !last_was_delim {
-                    last_was_delim = true;
-                    data[col][row] = ascii_to_uint(&buf)
-                        .map_err(ReadDelimWithRowsAsciiError::Parse)
-                        .map_err(ImpureError::Pure)?;
-                    buf.clear();
-                    if col == ncols - 1 {
-                        col = 0;
-                        row += 1;
-                    } else {
-                        col += 1;
-                    }
-                }
-            } else {
-                buf.push(byte);
-                last_was_delim = false;
-            }
-        }
-        if !(col == 0 && row == nrows) {
-            let e = DelimIncompleteError { col, row, nrows };
-            return Err(ImpureError::Pure(ReadDelimWithRowsAsciiError::Incomplete(
-                e,
-            )));
-        }
-        // The spec isn't clear if the last value should be a delim or
-        // not, so flush the buffer if it has anything in it since we
-        // only try to parse if we hit a delim above.
-        if !buf.is_empty() {
-            data[col][row] = ascii_to_uint(&buf)
-                .map_err(ReadDelimWithRowsAsciiError::Parse)
-                .map_err(ImpureError::Pure)?;
-        }
-        let cs: Vec<_> = data
-            .into_iter()
-            .map(FCSColumn::from)
-            .map(AnyFCSColumn::from)
-            .collect();
-        // ASSUME this will never fail because all columns should be the same
-        // length
-        Ok(FCSDataFrame::try_new(cs).unwrap())
-    }
-
-    fn h_read_without_rows<R: Read>(
-        &self,
-        h: &mut BufReader<R>,
-        nbytes: usize,
-    ) -> IOResult<FCSDataFrame, ReadDelimAsciiWithoutRowsError> {
-        let mut buf = Vec::new();
-        // Here we don't have $TOT so init to empty vectors
-        let mut data = self.ranges.as_ref().map(|_| vec![]);
-        let ncols = data.len();
-        let mut col = 0;
-        let mut last_was_delim = false;
-        let go = |_data: &mut NonEmpty<Vec<u64>>, _col, _buf: &[u8]| {
-            ascii_to_uint(_buf)
-                .map_err(ReadDelimAsciiWithoutRowsError::Parse)
-                .map_err(ImpureError::Pure)
-                .map(|x| _data[_col].push(x))
-        };
-        // Delimiters are tab, newline, carriage return, space, or comma. Any
-        // consecutive delimiter counts as one, and delimiters can be mixed.
-        // If we don't know the number of rows, the only choice is to push onto
-        // the column vectors one at a time. This leads to the possibility that
-        // the vectors may not be the same length in the end, in which case,
-        // scream loudly and bail.
-        for b in h.bytes().take(nbytes) {
-            let byte = b?;
-            if is_ascii_delim(byte) {
-                if !last_was_delim {
-                    last_was_delim = true;
-                    buf.clear();
-                    go(&mut data, col, &buf)?;
-                    if col == ncols - 1 {
-                        col = 0;
-                    } else {
-                        col += 1;
-                    }
-                }
-            } else {
-                buf.push(byte);
-                last_was_delim = false;
-            }
-        }
-        if data.iter().map(|c| c.len()).unique().count() > 1 {
-            return Err(ImpureError::Pure(ReadDelimAsciiWithoutRowsError::Unequal));
-        }
-        // The spec isn't clear if the last value should be a delim or
-        // not, so flush the buffer if it has anything in it since we
-        // only try to parse if we hit a delim above.
-        if !buf.is_empty() {
-            go(&mut data, col, &buf)?;
-        }
-        let cs: Vec<_> = data
-            .into_iter()
-            .map(FCSColumn::from)
-            .map(AnyFCSColumn::from)
-            .collect();
-        // ASSUME this will never fail because all columns should be the same
-        // length
-        Ok(FCSDataFrame::try_new(cs).unwrap())
+    ) -> IOResult<FCSDataFrame, ReadDelimAsciiError>
+    where
+        T: TotDefinition,
+    {
+        let rs = &self.ranges;
+        T::with_tot(
+            h,
+            tot,
+            |_h, t| h_read_delim_with_rows(rs, _h, t, nbytes).map_err(|e| e.inner_into()),
+            |_h| h_read_delim_without_rows(rs, _h, nbytes).map_err(|e| e.inner_into()),
+        )
     }
 }
 
-impl<C, S> FixedLayout<C, S> {
+fn h_read_delim_with_rows<R: Read>(
+    ranges: &NonEmpty<u64>,
+    h: &mut BufReader<R>,
+    tot: Tot,
+    nbytes: usize,
+) -> IOResult<FCSDataFrame, ReadDelimWithRowsAsciiError> {
+    let mut buf = Vec::new();
+    let mut last_was_delim = false;
+    let nrows = tot.0;
+    let ncols = ranges.len();
+    // Here we have $TOT so initialize vectors to required length
+    let mut data = ranges.as_ref().map(|_| vec![0; nrows]);
+    // let mut data = self.0.columns;
+    // let nrows = data.head.len();
+    // let ncols = data.len();
+    let mut row = 0;
+    let mut col = 0;
+    // Delimiters are tab, newline, carriage return, space, or comma. Any
+    // consecutive delimiter counts as one, and delimiters can be mixed.
+    for b in h.bytes().take(nbytes) {
+        let byte = b?;
+        // exit if we encounter more rows than expected.
+        if row == nrows {
+            let e = ReadDelimWithRowsAsciiError::RowsExceeded(RowsExceededError(nrows));
+            return Err(ImpureError::Pure(e));
+        }
+        if is_ascii_delim(byte) {
+            if !last_was_delim {
+                last_was_delim = true;
+                data[col][row] = ascii_to_uint(&buf)
+                    .map_err(ReadDelimWithRowsAsciiError::Parse)
+                    .map_err(ImpureError::Pure)?;
+                buf.clear();
+                if col == ncols - 1 {
+                    col = 0;
+                    row += 1;
+                } else {
+                    col += 1;
+                }
+            }
+        } else {
+            buf.push(byte);
+            last_was_delim = false;
+        }
+    }
+    if !(col == 0 && row == nrows) {
+        let e = DelimIncompleteError { col, row, nrows };
+        return Err(ImpureError::Pure(ReadDelimWithRowsAsciiError::Incomplete(
+            e,
+        )));
+    }
+    // The spec isn't clear if the last value should be a delim or
+    // not, so flush the buffer if it has anything in it since we
+    // only try to parse if we hit a delim above.
+    if !buf.is_empty() {
+        data[col][row] = ascii_to_uint(&buf)
+            .map_err(ReadDelimWithRowsAsciiError::Parse)
+            .map_err(ImpureError::Pure)?;
+    }
+    let cs: Vec<_> = data
+        .into_iter()
+        .map(FCSColumn::from)
+        .map(AnyFCSColumn::from)
+        .collect();
+    // ASSUME this will never fail because all columns should be the same
+    // length
+    Ok(FCSDataFrame::try_new(cs).unwrap())
+}
+
+fn h_read_delim_without_rows<R: Read>(
+    ranges: &NonEmpty<u64>,
+    h: &mut BufReader<R>,
+    nbytes: usize,
+) -> IOResult<FCSDataFrame, ReadDelimAsciiWithoutRowsError> {
+    let mut buf = Vec::new();
+    // Here we don't have $TOT so init to empty vectors
+    let mut data = ranges.as_ref().map(|_| vec![]);
+    let ncols = data.len();
+    let mut col = 0;
+    let mut last_was_delim = false;
+    let go = |_data: &mut NonEmpty<Vec<u64>>, _col, _buf: &[u8]| {
+        ascii_to_uint(_buf)
+            .map_err(ReadDelimAsciiWithoutRowsError::Parse)
+            .map_err(ImpureError::Pure)
+            .map(|x| _data[_col].push(x))
+    };
+    // Delimiters are tab, newline, carriage return, space, or comma. Any
+    // consecutive delimiter counts as one, and delimiters can be mixed.
+    // If we don't know the number of rows, the only choice is to push onto
+    // the column vectors one at a time. This leads to the possibility that
+    // the vectors may not be the same length in the end, in which case,
+    // scream loudly and bail.
+    for b in h.bytes().take(nbytes) {
+        let byte = b?;
+        if is_ascii_delim(byte) {
+            if !last_was_delim {
+                last_was_delim = true;
+                buf.clear();
+                go(&mut data, col, &buf)?;
+                if col == ncols - 1 {
+                    col = 0;
+                } else {
+                    col += 1;
+                }
+            }
+        } else {
+            buf.push(byte);
+            last_was_delim = false;
+        }
+    }
+    if data.iter().map(|c| c.len()).unique().count() > 1 {
+        return Err(ImpureError::Pure(ReadDelimAsciiWithoutRowsError::Unequal));
+    }
+    // The spec isn't clear if the last value should be a delim or
+    // not, so flush the buffer if it has anything in it since we
+    // only try to parse if we hit a delim above.
+    if !buf.is_empty() {
+        go(&mut data, col, &buf)?;
+    }
+    let cs: Vec<_> = data
+        .into_iter()
+        .map(FCSColumn::from)
+        .map(AnyFCSColumn::from)
+        .collect();
+    // ASSUME this will never fail because all columns should be the same
+    // length
+    Ok(FCSDataFrame::try_new(cs).unwrap())
+}
+
+impl<C, S, T> FixedLayout<C, S, T> {
+    fn new(columns: NonEmpty<C>, byte_layout: S) -> Self {
+        Self {
+            columns,
+            byte_layout,
+            tot_action: PhantomData,
+        }
+    }
+
+    fn new1(head: C, tail: Vec<C>, byte_layout: S) -> Self {
+        Self::new((head, tail).into(), byte_layout)
+    }
+
+    fn try_new<D, F, W, E, CW, CE>(
+        cs: NonEmpty<ColumnLayoutValues<D>>,
+        byte_layout: S,
+        new_col_f: F,
+    ) -> DeferredResult<Self, W, E>
+    where
+        W: From<ColumnError<CW>>,
+        E: From<ColumnError<CE>>,
+        F: Fn(ColumnLayoutValues<D>) -> DeferredResult<C, CW, CE>,
+    {
+        ne_map_results(ne_enumerate(cs), |(i, c)| {
+            new_col_f(c)
+                .def_map_errors(|error| {
+                    ColumnError {
+                        error,
+                        index: i.into(),
+                    }
+                    .into()
+                })
+                .def_map_warnings(|error| {
+                    ColumnError {
+                        error,
+                        index: i.into(),
+                    }
+                    .into()
+                })
+        })
+        .map_err(DeferredFailure::mconcat)
+        .map(Tentative::mconcat_ne)
+        .def_map_value(|columns| Self::new(columns, byte_layout))
+    }
+
     fn layout_values<D: Copy, R>(&self, datatype: D) -> LayoutValues<R, D>
     where
         R: From<S>,
@@ -3037,34 +3114,31 @@ impl<C, S> FixedLayout<C, S> {
         }
     }
 
-    fn columns_into<X>(self) -> FixedLayout<X, S>
+    fn columns_into<X>(self) -> FixedLayout<X, S, T>
     where
         X: From<C>,
     {
-        FixedLayout {
-            byte_layout: self.byte_layout,
-            columns: self.columns.map(|c| c.into()),
-        }
+        FixedLayout::new(self.columns.map(|c| c.into()), self.byte_layout)
     }
 
-    fn byte_layout_into<X>(self) -> FixedLayout<C, X>
+    fn byte_layout_into<X>(self) -> FixedLayout<C, X, T>
     where
         X: From<S>,
     {
-        FixedLayout {
-            byte_layout: self.byte_layout.into(),
-            columns: self.columns,
-        }
+        FixedLayout::new(self.columns, self.byte_layout.into())
     }
 
-    fn byte_layout_try_into<X>(self) -> Result<FixedLayout<C, X>, X::Error>
+    fn byte_layout_try_into<X>(self) -> Result<FixedLayout<C, X, T>, X::Error>
     where
         X: TryFrom<S>,
     {
-        self.byte_layout.try_into().map(|byte_layout| FixedLayout {
-            byte_layout,
-            columns: self.columns,
-        })
+        self.byte_layout
+            .try_into()
+            .map(|byte_layout| FixedLayout::new(self.columns, byte_layout))
+    }
+
+    fn tot_into<X>(self) -> FixedLayout<C, S, X> {
+        FixedLayout::new(self.columns, self.byte_layout)
     }
 
     fn event_width(&self) -> usize
@@ -3162,41 +3236,6 @@ impl<C, S> FixedLayout<C, S> {
     //     Ok(())
     // }
 
-    fn try_new<D, F, W, E, CW, CE>(
-        cs: NonEmpty<ColumnLayoutValues<D>>,
-        byte_layout: S,
-        new_col_f: F,
-    ) -> DeferredResult<Self, W, E>
-    where
-        W: From<ColumnError<CW>>,
-        E: From<ColumnError<CE>>,
-        F: Fn(ColumnLayoutValues<D>) -> DeferredResult<C, CW, CE>,
-    {
-        ne_map_results(ne_enumerate(cs), |(i, c)| {
-            new_col_f(c)
-                .def_map_errors(|error| {
-                    ColumnError {
-                        error,
-                        index: i.into(),
-                    }
-                    .into()
-                })
-                .def_map_warnings(|error| {
-                    ColumnError {
-                        error,
-                        index: i.into(),
-                    }
-                    .into()
-                })
-        })
-        .map_err(DeferredFailure::mconcat)
-        .map(Tentative::mconcat_ne)
-        .def_map_value(|columns| Self {
-            columns,
-            byte_layout,
-        })
-    }
-
     pub fn compute_nrows(
         &self,
         seg: AnyDataSegment,
@@ -3222,148 +3261,57 @@ impl<C, S> FixedLayout<C, S> {
         }
     }
 
-    fn h_read_maybe_rows<R: Read, T, B, E, F>(
+    fn h_read_checked_df_numeric<R: Read, I, W, E>(
         &self,
         h: &mut BufReader<R>,
-        kw_tot: Option<Tot>,
-        buf: &mut B,
+        tot: T::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
-    ) -> IODeferredResult<FCSDataFrame, E, E>
+    ) -> IODeferredResult<FCSDataFrame, W, E>
     where
+        W: From<UnevenEventWidth> + From<TotEventMismatch>,
+        E: From<UnevenEventWidth> + From<TotEventMismatch>,
         S: Copy,
         C: IsFixed + Copy,
-        T: Readable<S, Inner = C, Buf = B, Error = F>,
-        E: From<UnevenEventWidth> + From<TotEventMismatch> + From<F>,
+        I: Readable<S, E, Inner = C, Buf = ()>,
+        T: TotDefinition,
     {
-        if let Some(tot) = kw_tot {
-            self.h_read_with_rows::<_, T, _, E, F>(h, tot, buf, seg, conf)
-        } else {
-            self.h_read_inner::<_, T, _, E, F>(h, buf, seg, conf)
-                .def_map_errors(|e| e.inner_into())
-                .def_warnings_into()
-                .def_map_value(|(df, _)| df)
-        }
+        self.h_read_checked_df::<_, I, _, _, E, E>(h, &mut (), tot, seg, conf)
     }
 
-    fn h_read_with_rows<R: Read, T, B, E, F>(
+    fn h_read_checked_df<R: Read, I, B, W, E, ReadErr>(
         &self,
         h: &mut BufReader<R>,
-        tot: Tot,
         buf: &mut B,
+        tot: T::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
-    ) -> IODeferredResult<FCSDataFrame, E, E>
+    ) -> IODeferredResult<FCSDataFrame, W, E>
     where
+        W: From<UnevenEventWidth> + From<TotEventMismatch>,
+        E: From<ReadErr> + From<UnevenEventWidth> + From<TotEventMismatch>,
         S: Copy,
         C: IsFixed + Copy,
-        T: Readable<S, Inner = C, Buf = B, Error = F>,
-        E: From<UnevenEventWidth> + From<TotEventMismatch> + From<F>,
+        I: Readable<S, ReadErr, Inner = C, Buf = B>,
+        T: TotDefinition,
     {
-        self.h_read_inner::<_, T, _, E, F>(h, buf, seg, conf)
-            .def_map_errors(|e| e.inner_into())
-            .def_warnings_into()
-            .def_and_tentatively(|(df, nrows)| {
-                check_tot(nrows, tot, conf.allow_tot_mismatch)
-                    .map(|_| df)
+        self.compute_nrows(seg, conf)
+            .inner_into()
+            .errors_liftio()
+            .and_tentatively(|nrows| {
+                T::check_tot(nrows, tot, conf.allow_tot_mismatch)
+                    .map(|_| nrows)
                     .inner_into()
                     .errors_liftio()
             })
-    }
-
-    fn h_read_numeric_maybe_rows<R: Read, T, E>(
-        &self,
-        h: &mut BufReader<R>,
-        kw_tot: Option<Tot>,
-        seg: AnyDataSegment,
-        conf: &ReaderConfig,
-    ) -> IODeferredResult<FCSDataFrame, E, E>
-    where
-        S: Copy,
-        C: IsFixed + Copy,
-        T: Readable<S, Inner = C, Buf = (), Error = Infallible>,
-        E: From<UnevenEventWidth> + From<TotEventMismatch>,
-    {
-        if let Some(tot) = kw_tot {
-            self.h_read_numeric_with_rows::<_, T, E>(h, tot, seg, conf)
-        } else {
-            self.h_read_numeric_inner::<_, T>(h, seg, conf)
-                .def_map_errors(|e| e.inner_into())
-                .def_warnings_into()
-                .def_map_value(|(df, _)| df)
-        }
-    }
-
-    fn h_read_numeric_with_rows<R: Read, T, E>(
-        &self,
-        h: &mut BufReader<R>,
-        tot: Tot,
-        seg: AnyDataSegment,
-        conf: &ReaderConfig,
-    ) -> IODeferredResult<FCSDataFrame, E, E>
-    where
-        S: Copy,
-        C: IsFixed + Copy,
-        T: Readable<S, Inner = C, Buf = (), Error = Infallible>,
-        E: From<UnevenEventWidth> + From<TotEventMismatch>,
-    {
-        self.h_read_numeric_inner::<_, T>(h, seg, conf)
-            .def_map_errors(|e| e.inner_into())
-            .def_warnings_into()
-            .def_and_tentatively(|(df, nrows)| {
-                check_tot(nrows, tot, conf.allow_tot_mismatch)
-                    .map(|_| df)
-                    .inner_into()
-                    .errors_liftio()
-            })
-    }
-
-    fn h_read_numeric_inner<R: Read, T>(
-        &self,
-        h: &mut BufReader<R>,
-        seg: AnyDataSegment,
-        conf: &ReaderConfig,
-    ) -> IODeferredResult<(FCSDataFrame, usize), UnevenEventWidth, UnevenEventWidth>
-    where
-        S: Copy,
-        C: IsFixed + Copy,
-        T: Readable<S, Inner = C, Buf = (), Error = Infallible>,
-    {
-        self.compute_nrows(seg, conf)
-            .errors_liftio()
             .and_maybe(|nrows| {
-                self.h_read_dataframe::<R, T, (), Infallible>(h, nrows, &mut ())
-                    .map_err(|e| e.infallible())
-                    .map(|df| (df, nrows))
-                    .into_deferred()
-            })
-    }
-
-    fn h_read_inner<R: Read, T, B, E, F>(
-        &self,
-        h: &mut BufReader<R>,
-        buf: &mut B,
-        seg: AnyDataSegment,
-        conf: &ReaderConfig,
-    ) -> IODeferredResult<(FCSDataFrame, usize), UnevenEventWidth, E>
-    where
-        E: From<F> + From<UnevenEventWidth>,
-        S: Copy,
-        C: IsFixed + Copy,
-        T: Readable<S, Inner = C, Buf = B, Error = F>,
-    {
-        self.compute_nrows(seg, conf)
-            .errors_into()
-            .errors_liftio()
-            .and_maybe(|nrows| {
-                self.h_read_dataframe::<R, T, B, F>(h, nrows, buf)
+                self.h_read_df::<R, I, B, ReadErr>(h, nrows, buf)
                     .map_err(|e| e.inner_into())
-                    .map(|df| (df, nrows))
                     .into_deferred()
             })
     }
 
-    fn h_read_dataframe<R: Read, T, B, E>(
+    fn h_read_df<R: Read, I, B, E>(
         &self,
         h: &mut BufReader<R>,
         nrows: usize,
@@ -3372,9 +3320,9 @@ impl<C, S> FixedLayout<C, S> {
     where
         S: Copy,
         C: IsFixed + Copy,
-        T: Readable<S, Inner = C, Buf = B, Error = E>,
+        I: Readable<S, E, Inner = C, Buf = B>,
     {
-        let mut col_readers: Vec<_> = self.columns.iter().map(|c| T::new(*c, nrows)).collect();
+        let mut col_readers: Vec<_> = self.columns.iter().map(|c| I::new(*c, nrows)).collect();
         for row in 0..nrows {
             for c in col_readers.iter_mut() {
                 c.h_read_row(h, row, self.byte_layout, buf)
@@ -3385,25 +3333,25 @@ impl<C, S> FixedLayout<C, S> {
         Ok(FCSDataFrame::try_new(data).unwrap())
     }
 
-    fn check_writer<'a, T>(&self, df: &'a FCSDataFrame) -> MultiResult<(), AnyLossError>
+    fn check_writer<'a, I>(&self, df: &'a FCSDataFrame) -> MultiResult<(), AnyLossError>
     where
         C: Copy,
-        T: Writable<'a, S, Inner = C>,
+        I: Writable<'a, S, Inner = C>,
     {
         // ASSUME df has same number of columns as layout
         self.columns
             .iter()
             .zip(df.iter_columns())
-            .map(|(col_type, col_data)| T::check_writer(*col_type, col_data))
+            .map(|(col_type, col_data)| I::check_writer(*col_type, col_data))
             .gather()
             .void()
     }
 
-    fn h_write<'a, W: Write, T>(&self, h: &mut BufWriter<W>, df: &'a FCSDataFrame) -> io::Result<()>
+    fn h_write<'a, W: Write, I>(&self, h: &mut BufWriter<W>, df: &'a FCSDataFrame) -> io::Result<()>
     where
         S: Copy,
         C: Copy,
-        T: Writable<'a, S, Inner = C>,
+        I: Writable<'a, S, Inner = C>,
     {
         let nrows = df.nrows();
         // ASSUME df has same number of columns as layout
@@ -3411,7 +3359,7 @@ impl<C, S> FixedLayout<C, S> {
             .columns
             .iter()
             .zip(df.iter_columns())
-            .map(|(col_type, col_data)| T::new(*col_type, col_data))
+            .map(|(col_type, col_data)| I::new(*col_type, col_data))
             .collect();
         for _ in 0..nrows {
             for c in cs.iter_mut() {
@@ -3884,7 +3832,7 @@ impl From<FloatColumnReader<f64, 8>> for AlphaNumColumnReader {
     }
 }
 
-impl AnyOrderedUintLayout {
+impl<T> AnyOrderedUintLayout<T> {
     fn layout_values(&self) -> OrderedLayoutValues {
         match_many_to_one!(
             self,
@@ -3895,13 +3843,37 @@ impl AnyOrderedUintLayout {
         )
     }
 
-    fn into_endian(self) -> Result<FixedLayout<NullAnyUintType, Endian>, OrderedToEndianError> {
+    fn tot_into<X>(self) -> AnyOrderedLayout<X>
+    where
+        AnyOrderedLayout<X>: From<OrderedLayout<Uint08Type, X>>
+            + From<OrderedLayout<Uint16Type, X>>
+            + From<OrderedLayout<Uint24Type, X>>
+            + From<OrderedLayout<Uint32Type, X>>
+            + From<OrderedLayout<Uint40Type, X>>
+            + From<OrderedLayout<Uint48Type, X>>
+            + From<OrderedLayout<Uint56Type, X>>
+            + From<OrderedLayout<Uint64Type, X>>,
+    {
         match_many_to_one!(
             self,
             Self,
             [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
             l,
-            { l.byte_layout_try_into().map(|x| x.columns_into()) }
+            { l.tot_into().into() }
+        )
+    }
+
+    fn into_endian(self) -> Result<EndianLayout<NullAnyUintType>, OrderedToEndianError> {
+        match_many_to_one!(
+            self,
+            Self,
+            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+            l,
+            {
+                l.tot_into()
+                    .byte_layout_try_into()
+                    .map(|x| x.columns_into())
+            }
         )
     }
 
@@ -3946,18 +3918,24 @@ impl AnyOrderedUintLayout {
         )
     }
 
-    fn h_read<R: Read>(
+    fn h_read_checked_df<R: Read, W, E>(
         &self,
         h: &mut BufReader<R>,
+        tot: T::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
-    ) -> IODeferredResult<FCSDataFrame, UnevenEventWidth, UnevenEventWidth> {
+    ) -> IODeferredResult<FCSDataFrame, W, E>
+    where
+        W: From<UnevenEventWidth> + From<TotEventMismatch>,
+        E: From<UnevenEventWidth> + From<TotEventMismatch>,
+        T: TotDefinition,
+    {
         match_many_to_one!(
             self,
             Self,
             [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
             l,
-            { l.h_read_numeric::<_, ColumnReader0<_, _, _>>(h, seg, conf) }
+            { l.h_read_checked_df_numeric::<_, ColumnReader0<_, _, _>, _, E>(h, tot, seg, conf,) }
         )
     }
 
@@ -4017,11 +3995,18 @@ impl AsciiType {
     }
 }
 
-impl AnyAsciiLayout {
+impl<T> AnyAsciiLayout<T> {
     fn layout_values<D: Copy, S: Default>(&self, datatype: D) -> LayoutValues<S, D> {
         match self {
             Self::Delimited(x) => x.layout_values(datatype),
             Self::Fixed(x) => x.ascii_layout_values(datatype),
+        }
+    }
+
+    fn tot_into<X>(self) -> AnyAsciiLayout<X> {
+        match self {
+            Self::Delimited(x) => AnyAsciiLayout::Delimited(DelimAsciiLayout::new(x.ranges)),
+            Self::Fixed(x) => AnyAsciiLayout::Fixed(x.tot_into()),
         }
     }
 
@@ -4038,7 +4023,7 @@ impl AnyAsciiLayout {
                     .into()
                 })
             })
-            .map(|ranges| AnyAsciiLayout::Delimited(DelimAsciiLayout { ranges }))
+            .map(|ranges| AnyAsciiLayout::Delimited(DelimAsciiLayout::new(ranges)))
             .mult_to_deferred()
         } else {
             FixedLayout::try_new(cs, (), |c| {
@@ -4056,23 +4041,26 @@ impl AnyAsciiLayout {
         }
     }
 
-    fn h_read_maybe_rows<R: Read>(
+    fn h_read_checked_dataframe<R: Read>(
         &self,
         h: &mut BufReader<R>,
-        kw_tot: Option<Tot>,
+        tot: T::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
-    ) -> IODeferredResult<FCSDataFrame, UnevenEventWidth, ReadAsciiError> {
+    ) -> IODeferredResult<FCSDataFrame, ReadWarning, ReadAsciiError>
+    where
+        T: TotDefinition,
+    {
         match self {
             Self::Fixed(c) => {
                 let mut buf = vec![];
-                c.h_read_inner::<_, ColumnReader0<_, _, _>, _, ReadFixedAsciiError, _>(
-                    h, &mut buf, seg, conf,
+                c.h_read_checked_df::<_, ColumnReader0<_, _, _>, _, _, ReadFixedAsciiError, _>(
+                    h, &mut buf, tot, seg, conf,
                 )
                 .def_map_errors(|e| e.inner_into())
             }
             Self::Delimited(l) => l
-                .h_read_maybe_rows(h, kw_tot, seg.inner.len() as usize)
+                .h_read_checked_dataframe(h, tot, seg.inner.len() as usize)
                 .map_err(|e| e.inner_into::<ReadDelimAsciiError>().inner_into())
                 .into_deferred(),
         }
@@ -4185,12 +4173,12 @@ impl VersionedDataLayout for Layout2_0 {
 
     fn h_read_dataframe<R: Read>(
         &self,
-        h: BufReader<R>,
+        h: &mut BufReader<R>,
         tot: Self::T,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
-    ) {
-        self.0.h_read_dataframe(h, seg, conf)
+    ) -> IODeferredResult<FCSDataFrame, ReadWarning, ReadDataError0> {
+        self.0.h_read_checked_df(h, tot, seg, conf)
     }
 
     fn as_writer_inner<'a>(
@@ -4201,37 +4189,37 @@ impl VersionedDataLayout for Layout2_0 {
         self.0.as_writer_inner(df, conf)
     }
 
-    fn into_data_reader(
-        self,
-        kws: &mut StdKeywords,
-        seg: HeaderDataSegment,
-        conf: &ReaderConfig,
-    ) -> DataReaderResult<DataReader> {
-        let out = Tot::remove_metaroot_opt(kws)
-            .map(|x| x.0)
-            .map_or_else(
-                |w| Tentative::new(None, vec![w.into()], vec![]),
-                Tentative::new1,
-            )
-            .and_tentatively(|maybe_tot| self.into_reader(maybe_tot, seg.into_any(), conf));
-        Ok(out)
-    }
+    // fn into_data_reader(
+    //     self,
+    //     kws: &mut StdKeywords,
+    //     seg: HeaderDataSegment,
+    //     conf: &ReaderConfig,
+    // ) -> DataReaderResult<DataReader> {
+    //     let out = Tot::remove_metaroot_opt(kws)
+    //         .map(|x| x.0)
+    //         .map_or_else(
+    //             |w| Tentative::new(None, vec![w.into()], vec![]),
+    //             Tentative::new1,
+    //         )
+    //         .and_tentatively(|maybe_tot| self.into_reader(maybe_tot, seg.into_any(), conf));
+    //     Ok(out)
+    // }
 
-    fn into_data_reader_raw(
-        self,
-        kws: &StdKeywords,
-        seg: HeaderDataSegment,
-        conf: &ReaderConfig,
-    ) -> DataReaderResult<DataReader> {
-        let out = Tot::get_metaroot_opt(kws)
-            .map(|x| x.0)
-            .map_or_else(
-                |w| Tentative::new(None, vec![w.into()], vec![]),
-                Tentative::new1,
-            )
-            .and_tentatively(|maybe_tot| self.into_reader(maybe_tot, seg.into_any(), conf));
-        Ok(out)
-    }
+    // fn into_data_reader_raw(
+    //     self,
+    //     kws: &StdKeywords,
+    //     seg: HeaderDataSegment,
+    //     conf: &ReaderConfig,
+    // ) -> DataReaderResult<DataReader> {
+    //     let out = Tot::get_metaroot_opt(kws)
+    //         .map(|x| x.0)
+    //         .map_or_else(
+    //             |w| Tentative::new(None, vec![w.into()], vec![]),
+    //             Tentative::new1,
+    //         )
+    //         .and_tentatively(|maybe_tot| self.into_reader(maybe_tot, seg.into_any(), conf));
+    //     Ok(out)
+    // }
 
     fn as_analysis_reader(
         _: &mut StdKeywords,
@@ -4284,6 +4272,16 @@ impl VersionedDataLayout for Layout3_0 {
         AnyOrderedLayout::lookup_ro(kws, conf).def_map_value(|x| x.map(|y| y.into()))
     }
 
+    fn h_read_dataframe<R: Read>(
+        &self,
+        h: &mut BufReader<R>,
+        tot: Self::T,
+        seg: AnyDataSegment,
+        conf: &ReaderConfig,
+    ) -> IODeferredResult<FCSDataFrame, ReadWarning, ReadDataError0> {
+        self.0.h_read_checked_df(h, tot, seg, conf)
+    }
+
     fn ncols(&self) -> usize {
         self.0.ncols()
     }
@@ -4296,25 +4294,25 @@ impl VersionedDataLayout for Layout3_0 {
         self.0.as_writer_inner(df, conf)
     }
 
-    fn into_data_reader(
-        self,
-        kws: &mut StdKeywords,
-        seg: HeaderDataSegment,
-        conf: &ReaderConfig,
-    ) -> DataReaderResult<DataReader> {
-        remove_tot_data_seg(kws, seg, conf)
-            .def_and_tentatively(|(tot, any_seg)| self.into_reader(tot, any_seg, conf))
-    }
+    // fn into_data_reader(
+    //     self,
+    //     kws: &mut StdKeywords,
+    //     seg: HeaderDataSegment,
+    //     conf: &ReaderConfig,
+    // ) -> DataReaderResult<DataReader> {
+    //     remove_tot_data_seg(kws, seg, conf)
+    //         .def_and_tentatively(|(tot, any_seg)| self.into_reader(tot, any_seg, conf))
+    // }
 
-    fn into_data_reader_raw(
-        self,
-        kws: &StdKeywords,
-        seg: HeaderDataSegment,
-        conf: &ReaderConfig,
-    ) -> DataReaderResult<DataReader> {
-        get_tot_data_seg(kws, seg, conf)
-            .def_and_tentatively(|(tot, any_seg)| self.into_reader(tot, any_seg, conf))
-    }
+    // fn into_data_reader_raw(
+    //     self,
+    //     kws: &StdKeywords,
+    //     seg: HeaderDataSegment,
+    //     conf: &ReaderConfig,
+    // ) -> DataReaderResult<DataReader> {
+    //     get_tot_data_seg(kws, seg, conf)
+    //         .def_and_tentatively(|(tot, any_seg)| self.into_reader(tot, any_seg, conf))
+    // }
 
     fn as_analysis_reader(
         kws: &mut StdKeywords,
@@ -4386,6 +4384,16 @@ impl VersionedDataLayout for Layout3_1 {
             })
     }
 
+    fn h_read_dataframe<R: Read>(
+        &self,
+        h: &mut BufReader<R>,
+        tot: Self::T,
+        seg: AnyDataSegment,
+        conf: &ReaderConfig,
+    ) -> IODeferredResult<FCSDataFrame, ReadWarning, ReadDataError0> {
+        self.0.h_read_checked_df(h, tot, seg, conf)
+    }
+
     fn ncols(&self) -> usize {
         self.0.ncols()
     }
@@ -4398,25 +4406,25 @@ impl VersionedDataLayout for Layout3_1 {
         self.0.as_writer_inner(df, conf)
     }
 
-    fn into_data_reader(
-        self,
-        kws: &mut StdKeywords,
-        seg: HeaderDataSegment,
-        conf: &ReaderConfig,
-    ) -> DataReaderResult<DataReader> {
-        remove_tot_data_seg(kws, seg, conf)
-            .def_and_tentatively(|(tot, any_seg)| self.into_reader(tot, any_seg, conf))
-    }
+    // fn into_data_reader(
+    //     self,
+    //     kws: &mut StdKeywords,
+    //     seg: HeaderDataSegment,
+    //     conf: &ReaderConfig,
+    // ) -> DataReaderResult<DataReader> {
+    //     remove_tot_data_seg(kws, seg, conf)
+    //         .def_and_tentatively(|(tot, any_seg)| self.into_reader(tot, any_seg, conf))
+    // }
 
-    fn into_data_reader_raw(
-        self,
-        kws: &StdKeywords,
-        seg: HeaderDataSegment,
-        conf: &ReaderConfig,
-    ) -> DataReaderResult<DataReader> {
-        get_tot_data_seg(kws, seg, conf)
-            .def_and_tentatively(|(tot, any_seg)| self.into_reader(tot, any_seg, conf))
-    }
+    // fn into_data_reader_raw(
+    //     self,
+    //     kws: &StdKeywords,
+    //     seg: HeaderDataSegment,
+    //     conf: &ReaderConfig,
+    // ) -> DataReaderResult<DataReader> {
+    //     get_tot_data_seg(kws, seg, conf)
+    //         .def_and_tentatively(|(tot, any_seg)| self.into_reader(tot, any_seg, conf))
+    // }
 
     fn as_analysis_reader(
         kws: &mut StdKeywords,
@@ -4506,6 +4514,22 @@ impl VersionedDataLayout for Layout3_2 {
             })
     }
 
+    fn h_read_dataframe<R: Read>(
+        &self,
+        h: &mut BufReader<R>,
+        tot: Self::T,
+        seg: AnyDataSegment,
+        conf: &ReaderConfig,
+    ) -> IODeferredResult<FCSDataFrame, ReadWarning, ReadDataError0> {
+        match self {
+            Self::NonMixed(x) => x.h_read_checked_df(h, tot, seg, conf),
+            Self::Mixed(m) => {
+                let mut buf = vec![];
+                m.h_read_checked_df::<_, ReaderMixedType, _, _, _, _>(h, &mut buf, tot, seg, conf)
+            }
+        }
+    }
+
     fn ncols(&self) -> usize {
         match self {
             Self::NonMixed(x) => x.ncols(),
@@ -4524,25 +4548,25 @@ impl VersionedDataLayout for Layout3_2 {
         }
     }
 
-    fn into_data_reader(
-        self,
-        kws: &mut StdKeywords,
-        seg: HeaderDataSegment,
-        conf: &ReaderConfig,
-    ) -> DataReaderResult<DataReader> {
-        remove_tot_data_seg(kws, seg, conf)
-            .def_and_tentatively(|(tot, any_seg)| self.into_reader(tot, any_seg, conf))
-    }
+    // fn into_data_reader(
+    //     self,
+    //     kws: &mut StdKeywords,
+    //     seg: HeaderDataSegment,
+    //     conf: &ReaderConfig,
+    // ) -> DataReaderResult<DataReader> {
+    //     remove_tot_data_seg(kws, seg, conf)
+    //         .def_and_tentatively(|(tot, any_seg)| self.into_reader(tot, any_seg, conf))
+    // }
 
-    fn into_data_reader_raw(
-        self,
-        kws: &StdKeywords,
-        seg: HeaderDataSegment,
-        conf: &ReaderConfig,
-    ) -> DataReaderResult<DataReader> {
-        get_tot_data_seg(kws, seg, conf)
-            .def_and_tentatively(|(tot, any_seg)| self.into_reader(tot, any_seg, conf))
-    }
+    // fn into_data_reader_raw(
+    //     self,
+    //     kws: &StdKeywords,
+    //     seg: HeaderDataSegment,
+    //     conf: &ReaderConfig,
+    // ) -> DataReaderResult<DataReader> {
+    //     get_tot_data_seg(kws, seg, conf)
+    //         .def_and_tentatively(|(tot, any_seg)| self.into_reader(tot, any_seg, conf))
+    // }
 
     fn as_analysis_reader(
         kws: &mut StdKeywords,
@@ -4633,107 +4657,107 @@ fn remove_tot_data_seg(
     tot_res.def_zip(seg_res)
 }
 
-impl Layout2_0 {
-    fn into_reader<W, E>(
-        self,
-        tot: Option<Tot>,
-        seg: AnyDataSegment,
-        conf: &ReaderConfig,
-    ) -> Tentative<DataReader, W, E>
-    where
-        W: From<TotEventMismatch> + From<UnevenEventWidth>,
-        E: From<TotEventMismatch> + From<UnevenEventWidth>,
-    {
-        let go = |tnt: Tentative<AlphaNumReader, _, _>, maybe_tot| {
-            tnt.inner_into()
-                .and_tentatively(|reader| {
-                    if let Some(_tot) = maybe_tot {
-                        reader
-                            .check_tot(_tot, conf.allow_tot_mismatch)
-                            .inner_into()
-                            .map(|_| reader)
-                    } else {
-                        Tentative::new1(reader)
-                    }
-                })
-                .map(ColumnReader::AlphaNum)
-        };
-        match self.0 {
-            AnyOrderedLayout::Ascii(a) => a.into_col_reader_maybe_rows(seg, tot, conf).inner_into(),
-            AnyOrderedLayout::Integer(fl) => go(fl.into_col_reader_inner(seg, conf), tot),
-            AnyOrderedLayout::F32(fl) => go(fl.into_col_reader_inner(seg, conf), tot),
-            AnyOrderedLayout::F64(fl) => go(fl.into_col_reader_inner(seg, conf), tot),
-        }
-        .map(|r| r.into_data_reader(seg))
-    }
-}
+// impl Layout2_0 {
+//     fn into_reader<W, E>(
+//         self,
+//         tot: Option<Tot>,
+//         seg: AnyDataSegment,
+//         conf: &ReaderConfig,
+//     ) -> Tentative<DataReader, W, E>
+//     where
+//         W: From<TotEventMismatch> + From<UnevenEventWidth>,
+//         E: From<TotEventMismatch> + From<UnevenEventWidth>,
+//     {
+//         let go = |tnt: Tentative<AlphaNumReader, _, _>, maybe_tot| {
+//             tnt.inner_into()
+//                 .and_tentatively(|reader| {
+//                     if let Some(_tot) = maybe_tot {
+//                         reader
+//                             .check_tot(_tot, conf.allow_tot_mismatch)
+//                             .inner_into()
+//                             .map(|_| reader)
+//                     } else {
+//                         Tentative::new1(reader)
+//                     }
+//                 })
+//                 .map(ColumnReader::AlphaNum)
+//         };
+//         match self.0 {
+//             AnyOrderedLayout::Ascii(a) => a.into_col_reader_maybe_rows(seg, tot, conf).inner_into(),
+//             AnyOrderedLayout::Integer(fl) => go(fl.into_col_reader_inner(seg, conf), tot),
+//             AnyOrderedLayout::F32(fl) => go(fl.into_col_reader_inner(seg, conf), tot),
+//             AnyOrderedLayout::F64(fl) => go(fl.into_col_reader_inner(seg, conf), tot),
+//         }
+//         .map(|r| r.into_data_reader(seg))
+//     }
+// }
 
-impl Layout3_0 {
-    fn into_reader<W, E>(
-        self,
-        tot: Tot,
-        seg: AnyDataSegment,
-        conf: &ReaderConfig,
-    ) -> Tentative<DataReader, W, E>
-    where
-        W: From<UnevenEventWidth>,
-        E: From<UnevenEventWidth>,
-        W: From<TotEventMismatch>,
-        E: From<TotEventMismatch>,
-    {
-        match self.0 {
-            AnyOrderedLayout::Ascii(a) => a.into_col_reader(seg, tot, conf),
-            AnyOrderedLayout::Integer(fl) => fl.into_col_reader(seg, tot, conf),
-            AnyOrderedLayout::F32(fl) => fl.into_col_reader(seg, tot, conf),
-            AnyOrderedLayout::F64(fl) => fl.into_col_reader(seg, tot, conf),
-        }
-        .map(|r| r.into_data_reader(seg))
-    }
-}
+// impl Layout3_0 {
+//     fn into_reader<W, E>(
+//         self,
+//         tot: Tot,
+//         seg: AnyDataSegment,
+//         conf: &ReaderConfig,
+//     ) -> Tentative<DataReader, W, E>
+//     where
+//         W: From<UnevenEventWidth>,
+//         E: From<UnevenEventWidth>,
+//         W: From<TotEventMismatch>,
+//         E: From<TotEventMismatch>,
+//     {
+//         match self.0 {
+//             AnyOrderedLayout::Ascii(a) => a.into_col_reader(seg, tot, conf),
+//             AnyOrderedLayout::Integer(fl) => fl.into_col_reader(seg, tot, conf),
+//             AnyOrderedLayout::F32(fl) => fl.into_col_reader(seg, tot, conf),
+//             AnyOrderedLayout::F64(fl) => fl.into_col_reader(seg, tot, conf),
+//         }
+//         .map(|r| r.into_data_reader(seg))
+//     }
+// }
 
 impl Layout3_1 {
-    fn into_reader<W, E>(
-        self,
-        tot: Tot,
-        seg: AnyDataSegment,
-        conf: &ReaderConfig,
-    ) -> Tentative<DataReader, W, E>
-    where
-        W: From<UnevenEventWidth>,
-        E: From<UnevenEventWidth>,
-        W: From<TotEventMismatch>,
-        E: From<TotEventMismatch>,
-    {
-        self.0.into_reader(tot, seg, conf)
-    }
+    // fn into_reader<W, E>(
+    //     self,
+    //     tot: Tot,
+    //     seg: AnyDataSegment,
+    //     conf: &ReaderConfig,
+    // ) -> Tentative<DataReader, W, E>
+    // where
+    //     W: From<UnevenEventWidth>,
+    //     E: From<UnevenEventWidth>,
+    //     W: From<TotEventMismatch>,
+    //     E: From<TotEventMismatch>,
+    // {
+    //     self.0.into_reader(tot, seg, conf)
+    // }
 
-    pub(crate) fn into_ordered(self) -> LayoutConvertResult<AnyOrderedLayout> {
+    pub(crate) fn into_ordered<T>(self) -> LayoutConvertResult<AnyOrderedLayout<T>> {
         self.0.into_ordered()
     }
 }
 
 impl Layout3_2 {
-    fn into_reader<W, E>(
-        self,
-        tot: Tot,
-        seg: AnyDataSegment,
-        conf: &ReaderConfig,
-    ) -> Tentative<DataReader, W, E>
-    where
-        W: From<UnevenEventWidth>,
-        E: From<UnevenEventWidth>,
-        W: From<TotEventMismatch>,
-        E: From<TotEventMismatch>,
-    {
-        match self {
-            Self::NonMixed(x) => x.into_reader(tot, seg, conf),
-            Self::Mixed(fl) => fl
-                .into_col_reader(seg, tot, conf)
-                .map(|r| r.into_data_reader(seg)),
-        }
-    }
+    // fn into_reader<W, E>(
+    //     self,
+    //     tot: Tot,
+    //     seg: AnyDataSegment,
+    //     conf: &ReaderConfig,
+    // ) -> Tentative<DataReader, W, E>
+    // where
+    //     W: From<UnevenEventWidth>,
+    //     E: From<UnevenEventWidth>,
+    //     W: From<TotEventMismatch>,
+    //     E: From<TotEventMismatch>,
+    // {
+    //     match self {
+    //         Self::NonMixed(x) => x.into_reader(tot, seg, conf),
+    //         Self::Mixed(fl) => fl
+    //             .into_col_reader(seg, tot, conf)
+    //             .map(|r| r.into_data_reader(seg)),
+    //     }
+    // }
 
-    pub(crate) fn into_ordered(self) -> LayoutConvertResult<AnyOrderedLayout> {
+    pub(crate) fn into_ordered<T>(self) -> LayoutConvertResult<AnyOrderedLayout<T>> {
         match self {
             Self::NonMixed(x) => x.into_ordered(),
             Self::Mixed(x) => x.try_into_ordered().mult_errors_into(),
@@ -4741,7 +4765,7 @@ impl Layout3_2 {
     }
 }
 
-impl AnyOrderedLayout {
+impl<T> AnyOrderedLayout<T> {
     fn layout_values(&self) -> OrderedLayoutValues {
         match self {
             Self::Ascii(x) => x.layout_values(()),
@@ -4824,46 +4848,55 @@ impl AnyOrderedLayout {
         }
     }
 
-    fn h_read_maybe_rows<R: Read>(
+    fn h_read_checked_df<R: Read>(
         &self,
         h: &mut BufReader<R>,
-        kw_tot: Option<Tot>,
+        tot: T::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
-    ) -> IODeferredResult<FCSDataFrame, UnevenEventWidth, ReadDataError0> {
+    ) -> IODeferredResult<FCSDataFrame, ReadWarning, ReadDataError0>
+    where
+        T: TotDefinition,
+    {
         match self {
             Self::Ascii(x) => x
-                .h_read_maybe_rows(h, kw_tot, seg, conf)
+                .h_read_checked_dataframe(h, tot, seg, conf)
                 .def_map_errors(|e| e.inner_into()),
-            Self::Integer(x) => x.h_read(h, seg, conf).def_map_errors(|e| e.inner_into()),
-            Self::F32(x) => x
-                .h_read_numeric::<_, ColumnReader0<_, _, _>>(h, seg, conf)
-                .def_map_errors(|e| e.inner_into()),
-            Self::F64(x) => x
-                .h_read_numeric::<_, ColumnReader0<_, _, _>>(h, seg, conf)
-                .def_map_errors(|e| e.inner_into()),
+            Self::Integer(x) => x.h_read_checked_df(h, tot, seg, conf),
+            Self::F32(x) => {
+                x.h_read_checked_df_numeric::<_, ColumnReader0<_, _, _>, _, _>(h, tot, seg, conf)
+            }
+            Self::F64(x) => {
+                x.h_read_checked_df_numeric::<_, ColumnReader0<_, _, _>, _, _>(h, tot, seg, conf)
+            }
         }
     }
 
-    fn as_writer_inner<'a>(
-        &self,
-        df: &'a FCSDataFrame,
-        conf: &WriteConfig,
-    ) -> MultiResult<DataWriter<'a>, ColumnWriterError> {
-        match self {
-            Self::Ascii(a) => a.as_writer(df, conf),
-            Self::Integer(i) => i.as_writer(df, conf).map(DataWriter::Fixed),
-            Self::F32(f) => f.as_writer(df, conf).map(DataWriter::Fixed),
-            Self::F64(f) => f.as_writer(df, conf).map(DataWriter::Fixed),
-        }
-    }
+    // fn as_writer_inner<'a>(
+    //     &self,
+    //     df: &'a FCSDataFrame,
+    //     conf: &WriteConfig,
+    // ) -> MultiResult<DataWriter<'a>, ColumnWriterError> {
+    //     match self {
+    //         Self::Ascii(a) => a.as_writer(df, conf),
+    //         Self::Integer(i) => i.as_writer(df, conf).map(DataWriter::Fixed),
+    //         Self::F32(f) => f.as_writer(df, conf).map(DataWriter::Fixed),
+    //         Self::F64(f) => f.as_writer(df, conf).map(DataWriter::Fixed),
+    //     }
+    // }
 
     pub fn into_unmixed(self) -> LayoutConvertResult<NonMixedEndianLayout> {
         match self {
-            Self::Ascii(x) => Ok(NonMixedEndianLayout::Ascii(x)),
+            Self::Ascii(x) => Ok(NonMixedEndianLayout::Ascii(x.tot_into())),
             Self::Integer(x) => x.into_endian().map(NonMixedEndianLayout::Integer),
-            Self::F32(x) => x.byte_layout_try_into().map(NonMixedEndianLayout::F32),
-            Self::F64(x) => x.byte_layout_try_into().map(NonMixedEndianLayout::F64),
+            Self::F32(x) => x
+                .tot_into()
+                .byte_layout_try_into()
+                .map(NonMixedEndianLayout::F32),
+            Self::F64(x) => x
+                .tot_into()
+                .byte_layout_try_into()
+                .map(NonMixedEndianLayout::F64),
         }
         .into_mult()
     }
@@ -4913,26 +4946,49 @@ impl NonMixedEndianLayout {
         }
     }
 
-    fn into_reader<W, E>(
-        self,
+    fn h_read_checked_df<R: Read>(
+        &self,
+        h: &mut BufReader<R>,
         tot: Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
-    ) -> Tentative<DataReader, W, E>
-    where
-        W: From<UnevenEventWidth>,
-        E: From<UnevenEventWidth>,
-        W: From<TotEventMismatch>,
-        E: From<TotEventMismatch>,
-    {
+    ) -> IODeferredResult<FCSDataFrame, ReadWarning, ReadDataError0> {
         match self {
-            Self::Ascii(a) => a.into_col_reader(seg, tot, conf),
-            Self::Integer(fl) => fl.into_col_reader(seg, tot, conf),
-            Self::F32(fl) => fl.byte_layout_into().into_col_reader(seg, tot, conf),
-            Self::F64(fl) => fl.byte_layout_into().into_col_reader(seg, tot, conf),
+            Self::Ascii(x) => x
+                .h_read_checked_dataframe(h, tot, seg, conf)
+                .def_map_errors(|e| e.inner_into()),
+            Self::Integer(x) => {
+                x.h_read_checked_df_numeric::<_, ReaderAnyUintType, _, _>(h, tot, seg, conf)
+            }
+            Self::F32(x) => {
+                x.h_read_checked_df_numeric::<_, ColumnReader0<_, _, _>, _, _>(h, tot, seg, conf)
+            }
+            Self::F64(x) => {
+                x.h_read_checked_df_numeric::<_, ColumnReader0<_, _, _>, _, _>(h, tot, seg, conf)
+            }
         }
-        .map(|r| r.into_data_reader(seg))
     }
+
+    // fn into_reader<W, E>(
+    //     self,
+    //     tot: Tot,
+    //     seg: AnyDataSegment,
+    //     conf: &ReaderConfig,
+    // ) -> Tentative<DataReader, W, E>
+    // where
+    //     W: From<UnevenEventWidth>,
+    //     E: From<UnevenEventWidth>,
+    //     W: From<TotEventMismatch>,
+    //     E: From<TotEventMismatch>,
+    // {
+    //     match self {
+    //         Self::Ascii(a) => a.into_col_reader(seg, tot, conf),
+    //         Self::Integer(fl) => fl.into_col_reader(seg, tot, conf),
+    //         Self::F32(fl) => fl.byte_layout_into().into_col_reader(seg, tot, conf),
+    //         Self::F64(fl) => fl.byte_layout_into().into_col_reader(seg, tot, conf),
+    //     }
+    //     .map(|r| r.into_data_reader(seg))
+    // }
 
     fn ncols(&self) -> usize {
         match self {
@@ -4943,34 +4999,34 @@ impl NonMixedEndianLayout {
         }
     }
 
-    fn as_writer_inner<'a>(
-        &self,
-        df: &'a FCSDataFrame,
-        conf: &WriteConfig,
-    ) -> MultiResult<DataWriter<'a>, ColumnWriterError> {
-        match self {
-            Self::Ascii(a) => a.as_writer(df, conf),
-            Self::Integer(i) => i.as_writer(df, conf).map(DataWriter::Fixed),
-            // TODO clone
-            Self::F32(f) => f
-                .clone()
-                .byte_layout_into()
-                .as_writer(df, conf)
-                .map(DataWriter::Fixed),
-            Self::F64(f) => f
-                .clone()
-                .byte_layout_into()
-                .as_writer(df, conf)
-                .map(DataWriter::Fixed),
-        }
-    }
+    // fn as_writer_inner<'a>(
+    //     &self,
+    //     df: &'a FCSDataFrame,
+    //     conf: &WriteConfig,
+    // ) -> MultiResult<DataWriter<'a>, ColumnWriterError> {
+    //     match self {
+    //         Self::Ascii(a) => a.as_writer(df, conf),
+    //         Self::Integer(i) => i.as_writer(df, conf).map(DataWriter::Fixed),
+    //         // TODO clone
+    //         Self::F32(f) => f
+    //             .clone()
+    //             .byte_layout_into()
+    //             .as_writer(df, conf)
+    //             .map(DataWriter::Fixed),
+    //         Self::F64(f) => f
+    //             .clone()
+    //             .byte_layout_into()
+    //             .as_writer(df, conf)
+    //             .map(DataWriter::Fixed),
+    //     }
+    // }
 
-    pub(crate) fn into_ordered(self) -> LayoutConvertResult<AnyOrderedLayout> {
+    pub(crate) fn into_ordered<T>(self) -> LayoutConvertResult<AnyOrderedLayout<T>> {
         match self {
-            Self::Ascii(x) => Ok(AnyOrderedLayout::Ascii(x)),
+            Self::Ascii(x) => Ok(AnyOrderedLayout::Ascii(x.tot_into())),
             Self::Integer(x) => x.uint_try_into_ordered().map(AnyOrderedLayout::Integer),
-            Self::F32(x) => Ok(AnyOrderedLayout::F32(x.byte_layout_into())),
-            Self::F64(x) => Ok(AnyOrderedLayout::F64(x.byte_layout_into())),
+            Self::F32(x) => Ok(AnyOrderedLayout::F32(x.tot_into().byte_layout_into())),
+            Self::F64(x) => Ok(AnyOrderedLayout::F64(x.tot_into().byte_layout_into())),
         }
     }
 }
@@ -5252,7 +5308,14 @@ enum_from_disp!(
 enum_from_disp!(
     pub ReadFixedAsciiError,
     [Uneven, UnevenEventWidth],
+    [Tot, TotEventMismatch],
     [ToUint, AsciiToUintError]
+);
+
+enum_from_disp!(
+    pub ReadWarning,
+    [Uneven, UnevenEventWidth],
+    [Tot, TotEventMismatch]
 );
 
 enum_from_disp!(

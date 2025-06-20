@@ -1,3 +1,4 @@
+use crate::api::RawTEXTOutput;
 use crate::config::*;
 use crate::data::*;
 use crate::error::*;
@@ -1197,6 +1198,38 @@ pub trait OpticalFromTemporal<T: VersionedTemporal>: Sized {
 
     fn from_temporal_inner(t: T) -> (Self, Self::TData);
 }
+
+pub(crate) trait VersionedTEXTOffsets {
+    type Tot;
+
+    fn lookup(
+        kws: &mut StdKeywords,
+        data: HeaderDataSegment,
+        analysis: HeaderAnalysisSegment,
+        conf: &ReaderConfig,
+    ) -> LookupTEXTOffsetsResult<Self::Tot>;
+
+    fn lookup_ro(
+        kws: &mut StdKeywords,
+        data: HeaderDataSegment,
+        analysis: HeaderAnalysisSegment,
+        conf: &ReaderConfig,
+    ) -> LookupTEXTOffsetsResult<Self::Tot>;
+}
+
+pub(crate) struct TEXTOffsets<T> {
+    pub(crate) data: AnyDataSegment,
+    pub(crate) analysis: AnyAnalysisSegment,
+    pub(crate) tot: T,
+}
+
+pub(crate) struct TEXTOffsetsResult2_0(pub(crate) TEXTOffsets<OptionalKw<Tot>>);
+pub(crate) struct TEXTOffsetsResult3_0(pub(crate) TEXTOffsets<Tot>);
+pub(crate) struct TEXTOffsetsResult3_2(pub(crate) TEXTOffsets<Tot>);
+
+newtype_from!(TEXTOffsetsResult2_0, TEXTOffsets<OptionalKw<Tot>>);
+newtype_from!(TEXTOffsetsResult3_0, TEXTOffsets<Tot>);
+newtype_from!(TEXTOffsetsResult3_2, TEXTOffsets<Tot>);
 
 impl CommonMeasurement {
     fn lookup<E>(
@@ -6065,6 +6098,150 @@ impl VersionedTemporal for InnerTemporal3_2 {
     }
 }
 
+impl VersionedTEXTOffsets for TEXTOffsetsResult2_0 {
+    type Tot = OptionalKw<Tot>;
+
+    fn lookup(
+        kws: &mut StdKeywords,
+        data: HeaderDataSegment,
+        analysis: HeaderAnalysisSegment,
+        _: &ReaderConfig,
+    ) -> LookupTEXTOffsetsResult<Self::Tot> {
+        Ok(Tot::remove_metaroot_opt(kws)
+            .map_or_else(
+                |w| Tentative::new(None.into(), vec![w.into()], vec![]),
+                Tentative::new1,
+            )
+            .map(|tot| TEXTOffsets {
+                data: data.into_any(),
+                analysis: analysis.into_any(),
+                tot,
+            }))
+    }
+
+    fn lookup_ro(
+        kws: &mut StdKeywords,
+        data: HeaderDataSegment,
+        analysis: HeaderAnalysisSegment,
+        _: &ReaderConfig,
+    ) -> LookupTEXTOffsetsResult<Self::Tot> {
+        Ok(Tot::get_metaroot_opt(kws)
+            .map_or_else(
+                |w| Tentative::new(None.into(), vec![w.into()], vec![]),
+                Tentative::new1,
+            )
+            .map(|tot| TEXTOffsets {
+                data: data.into_any(),
+                analysis: analysis.into_any(),
+                tot,
+            }))
+    }
+}
+
+impl VersionedTEXTOffsets for TEXTOffsetsResult3_0 {
+    type Tot = Tot;
+
+    fn lookup(
+        kws: &mut StdKeywords,
+        data: HeaderDataSegment,
+        analysis: HeaderAnalysisSegment,
+        conf: &ReaderConfig,
+    ) -> LookupTEXTOffsetsResult<Self::Tot> {
+        let allow_mismatch = conf.allow_header_text_offset_mismatch;
+        let allow_missing = conf.allow_missing_required_offsets;
+        let tot_res = Tot::remove_metaroot_req(kws).into_deferred();
+        let data_res =
+            KeyedReqSegment::remove_or(kws, conf.data, data, allow_mismatch, allow_missing)
+                .def_inner_into();
+        let analysis_res =
+            KeyedReqSegment::remove_or(kws, conf.analysis, analysis, allow_mismatch, allow_missing)
+                .def_inner_into();
+        tot_res
+            .def_zip3(data_res, analysis_res)
+            .def_map_value(|(tot, data, analysis)| TEXTOffsets {
+                data,
+                analysis,
+                tot,
+            })
+    }
+
+    fn lookup_ro(
+        kws: &mut StdKeywords,
+        data: HeaderDataSegment,
+        analysis: HeaderAnalysisSegment,
+        conf: &ReaderConfig,
+    ) -> LookupTEXTOffsetsResult<Self::Tot> {
+        let allow_mismatch = conf.allow_header_text_offset_mismatch;
+        let allow_missing = conf.allow_missing_required_offsets;
+        let tot_res = Tot::get_metaroot_req(kws).into_deferred();
+        let data_res = KeyedReqSegment::get_or(kws, conf.data, data, allow_mismatch, allow_missing)
+            .def_inner_into();
+        let analysis_res =
+            KeyedReqSegment::get_or(kws, conf.analysis, analysis, allow_mismatch, allow_missing)
+                .def_inner_into();
+        tot_res
+            .def_zip3(data_res, analysis_res)
+            .def_map_value(|(tot, data, analysis)| TEXTOffsets {
+                data,
+                analysis,
+                tot,
+            })
+    }
+}
+
+impl VersionedTEXTOffsets for TEXTOffsetsResult3_2 {
+    type Tot = Tot;
+
+    fn lookup(
+        kws: &mut StdKeywords,
+        data: HeaderDataSegment,
+        analysis: HeaderAnalysisSegment,
+        conf: &ReaderConfig,
+    ) -> LookupTEXTOffsetsResult<Self::Tot> {
+        let allow_mismatch = conf.allow_header_text_offset_mismatch;
+        let allow_missing = conf.allow_missing_required_offsets;
+        let tot_res = Tot::remove_metaroot_req(kws).into_deferred();
+        let data_res =
+            KeyedReqSegment::remove_or(kws, conf.data, data, allow_mismatch, allow_missing)
+                .def_inner_into();
+        tot_res
+            .def_zip(data_res)
+            .def_and_tentatively(|(tot, data)| {
+                KeyedOptSegment::remove_or(kws, conf.analysis, analysis, allow_mismatch)
+                    .inner_into()
+                    .map(|analysis| TEXTOffsets {
+                        data,
+                        analysis,
+                        tot,
+                    })
+            })
+    }
+
+    fn lookup_ro(
+        kws: &mut StdKeywords,
+        data: HeaderDataSegment,
+        analysis: HeaderAnalysisSegment,
+        conf: &ReaderConfig,
+    ) -> LookupTEXTOffsetsResult<Self::Tot> {
+        let allow_mismatch = conf.allow_header_text_offset_mismatch;
+        let allow_missing = conf.allow_missing_required_offsets;
+        let tot_res = Tot::remove_metaroot_req(kws).into_deferred();
+        let data_res = KeyedReqSegment::get_or(kws, conf.data, data, allow_mismatch, allow_missing)
+            .def_inner_into();
+        tot_res
+            .def_zip(data_res)
+            .def_and_tentatively(|(tot, data)| {
+                KeyedOptSegment::get_or(kws, conf.analysis, analysis, allow_mismatch)
+                    .inner_into()
+                    .map(|analysis| TEXTOffsets {
+                        data,
+                        analysis,
+                        tot,
+                    })
+            })
+    }
+}
+
 impl OpticalFromTemporal<InnerTemporal2_0> for InnerOptical2_0 {
     type TData = ();
 
@@ -7477,6 +7654,26 @@ enum_from_disp!(
     pub AnyTemporalToOpticalKeyLossError,
     [TempType,        IndexedKeyLossError<TemporalType>]
 );
+
+enum_from_disp!(
+    pub LookupTEXTOffsetsWarning,
+    [Tot, ParseKeyError<std::num::ParseIntError>],
+    [ReqData, ReqSegmentWithDefaultWarning<DataSegmentId>],
+    [ReqAnalysis, ReqSegmentWithDefaultWarning<AnalysisSegmentId>],
+    [MismatchAnalysis, OptSegmentWithDefaultWarning<AnalysisSegmentId>]
+);
+
+enum_from_disp!(
+    pub LookupTEXTOffsetsError,
+    [Tot, ReqKeyError<std::num::ParseIntError>],
+    [ReqData, ReqSegmentWithDefaultError<DataSegmentId>],
+    [ReqAnalysis, ReqSegmentWithDefaultError<AnalysisSegmentId>],
+    [MismatchData, SegmentMismatchWarning<DataSegmentId>],
+    [MismatchAnalysis, SegmentMismatchWarning<AnalysisSegmentId>]
+);
+
+type LookupTEXTOffsetsResult<T> =
+    DeferredResult<TEXTOffsets<T>, LookupTEXTOffsetsWarning, LookupTEXTOffsetsError>;
 
 pub struct Comp2_0TransferError;
 

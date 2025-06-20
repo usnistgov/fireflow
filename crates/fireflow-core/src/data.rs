@@ -739,20 +739,6 @@ pub trait VersionedDataLayout: Sized {
         conf: &ReaderConfig,
     ) -> IODeferredResult<FCSDataFrame, ReadWarning, ReadDataError0>;
 
-    // fn into_data_reader(
-    //     self,
-    //     kws: &mut StdKeywords,
-    //     seg: HeaderDataSegment,
-    //     conf: &ReaderConfig,
-    // ) -> DataReaderResult<DataReader>;
-
-    // fn into_data_reader_raw(
-    //     self,
-    //     kws: &StdKeywords,
-    //     seg: HeaderDataSegment,
-    //     conf: &ReaderConfig,
-    // ) -> DataReaderResult<DataReader>;
-
     fn as_analysis_reader(
         kws: &mut StdKeywords,
         seg: HeaderAnalysisSegment,
@@ -788,28 +774,6 @@ pub trait VersionedDataLayout: Sized {
         h: &mut BufWriter<W>,
         df: &'a FCSDataFrame,
     ) -> io::Result<()>;
-
-    // fn as_writer<'a>(
-    //     &self,
-    //     df: &'a FCSDataFrame,
-    //     conf: &WriteConfig,
-    // ) -> MultiResult<DataWriter<'a>, ColumnWriterError> {
-    //     // The dataframe should be encapsulated such that a) the column number
-    //     // matches the number of measurements. If these are not true, the code
-    //     // is wrong.
-    //     let par = self.ncols();
-    //     let ncols = df.ncols();
-    //     if ncols != par {
-    //         panic!("datafame columns ({ncols}) unequal to number of measurements ({par})");
-    //     }
-    //     self.as_writer_inner(df, conf)
-    // }
-
-    // fn as_writer_inner<'a>(
-    //     &self,
-    //     df: &'a FCSDataFrame,
-    //     conf: &WriteConfig,
-    // ) -> MultiResult<DataWriter<'a>, ColumnWriterError>;
 
     fn layout_values(&self) -> LayoutValues<Self::S, Self::D>;
 }

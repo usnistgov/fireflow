@@ -40,7 +40,7 @@
 //! all possible types in the dataframe (six) to all possible types that may be
 //! written (twelve).
 
-use crate::config::{DataReadConfig, ReaderConfig, SharedConfig, WriteConfig};
+use crate::config::{ReaderConfig, SharedConfig};
 use crate::core::*;
 use crate::error::*;
 use crate::macros::{enum_from, enum_from_disp, match_many_to_one, newtype_disp, newtype_from};
@@ -765,11 +765,13 @@ pub trait VersionedDataLayout: Sized {
         conf: &ReaderConfig,
     ) -> AnalysisReaderResult<AnalysisReader>;
 
-    fn as_writer<'a>(
+    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), AnyLossError>;
+
+    fn h_write_df<'a, W: Write>(
         &self,
+        h: &mut BufWriter<W>,
         df: &'a FCSDataFrame,
-        conf: &WriteConfig,
-    ) -> MultiResult<DataWriter<'a>, ColumnWriterError> {
+    ) -> io::Result<()> {
         // The dataframe should be encapsulated such that a) the column number
         // matches the number of measurements. If these are not true, the code
         // is wrong.
@@ -778,14 +780,36 @@ pub trait VersionedDataLayout: Sized {
         if ncols != par {
             panic!("datafame columns ({ncols}) unequal to number of measurements ({par})");
         }
-        self.as_writer_inner(df, conf)
+        self.h_write_df(h, df)
     }
 
-    fn as_writer_inner<'a>(
+    fn h_write_df_inner<'a, W: Write>(
         &self,
+        h: &mut BufWriter<W>,
         df: &'a FCSDataFrame,
-        conf: &WriteConfig,
-    ) -> MultiResult<DataWriter<'a>, ColumnWriterError>;
+    ) -> io::Result<()>;
+
+    // fn as_writer<'a>(
+    //     &self,
+    //     df: &'a FCSDataFrame,
+    //     conf: &WriteConfig,
+    // ) -> MultiResult<DataWriter<'a>, ColumnWriterError> {
+    //     // The dataframe should be encapsulated such that a) the column number
+    //     // matches the number of measurements. If these are not true, the code
+    //     // is wrong.
+    //     let par = self.ncols();
+    //     let ncols = df.ncols();
+    //     if ncols != par {
+    //         panic!("datafame columns ({ncols}) unequal to number of measurements ({par})");
+    //     }
+    //     self.as_writer_inner(df, conf)
+    // }
+
+    // fn as_writer_inner<'a>(
+    //     &self,
+    //     df: &'a FCSDataFrame,
+    //     conf: &WriteConfig,
+    // ) -> MultiResult<DataWriter<'a>, ColumnWriterError>;
 
     fn layout_values(&self) -> LayoutValues<Self::S, Self::D>;
 }
@@ -844,23 +868,18 @@ where
             + From<FCSColIter<'a, f32, Self::Native>>
             + From<FCSColIter<'a, f64, Self::Native>>,
     {
-        match_many_to_one!(c, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], xs, {
-            let it = FCSDataType::as_col_iter(xs);
-            ColumnWriter0 {
-                column_type: self,
-                data: it.into(),
-                byte_layout: PhantomData,
-            }
-        })
+        ColumnWriter0 {
+            column_type: self,
+            data: AnySource::new::<Self::Native>(c),
+            byte_layout: PhantomData,
+        }
     }
 
     fn check_writer(&self, col: &AnyFCSColumn) -> Result<(), LossError<Self::Error>>
     where
         Self::Native: Default + Copy + AllFCSCast,
     {
-        match_many_to_one!(col, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], xs, {
-            FCSDataType::check_writer(xs, |x| Self::check_other_loss(self, x))
-        })
+        col.check_writer(|x| Self::check_other_loss(self, x))
     }
 
     fn check_other_loss(&self, x: Self::Native) -> Option<Self::Error>;
@@ -1570,26 +1589,6 @@ pub enum AnySource<'a, TargetType> {
     FromF64(FCSColIter<'a, f64, TargetType>),
 }
 
-trait FromAnySource<'a, T>:
-    From<FCSColIter<'a, u8, T>>
-    + From<FCSColIter<'a, u16, T>>
-    + From<FCSColIter<'a, u32, T>>
-    + From<FCSColIter<'a, u64, T>>
-    + From<FCSColIter<'a, f32, T>>
-    + From<FCSColIter<'a, f64, T>>
-{
-}
-
-impl<'a, T> FromAnySource<'a, T> for T where
-    T: From<FCSColIter<'a, u8, T>>
-        + From<FCSColIter<'a, u16, T>>
-        + From<FCSColIter<'a, u32, T>>
-        + From<FCSColIter<'a, u64, T>>
-        + From<FCSColIter<'a, f32, T>>
-        + From<FCSColIter<'a, f64, T>>
-{
-}
-
 impl DataWriter<'_> {
     pub(crate) fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()> {
         match self {
@@ -1704,7 +1703,22 @@ impl DelimColumnWriter<'_> {
     }
 }
 
-impl<T> AnySource<'_, T> {
+impl<'a, T> AnySource<'a, T> {
+    fn new<TargetType>(c: &'a AnyFCSColumn) -> Self
+    where
+        TargetType: AllFCSCast,
+        Self: From<FCSColIter<'a, u8, TargetType>>
+            + From<FCSColIter<'a, u16, TargetType>>
+            + From<FCSColIter<'a, u32, TargetType>>
+            + From<FCSColIter<'a, u64, TargetType>>
+            + From<FCSColIter<'a, f32, TargetType>>
+            + From<FCSColIter<'a, f64, TargetType>>,
+    {
+        match_many_to_one!(c, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], xs, {
+            FCSDataType::as_col_iter(xs).into()
+        })
+    }
+
     fn next(&mut self) -> Option<CastResult<T>> {
         match_many_to_one!(
             self,
@@ -2900,7 +2914,7 @@ impl<T> DelimAsciiLayout<T> {
         })
     }
 
-    fn h_read_checked_dataframe<R: Read>(
+    fn h_read_df<R: Read>(
         &self,
         h: &mut BufReader<R>,
         tot: T::Tot,
@@ -2916,6 +2930,38 @@ impl<T> DelimAsciiLayout<T> {
             |_h, t| h_read_delim_with_rows(rs, _h, t, nbytes).map_err(|e| e.inner_into()),
             |_h| h_read_delim_without_rows(rs, _h, nbytes).map_err(|e| e.inner_into()),
         )
+    }
+
+    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), AnyLossError> {
+        df.iter_columns()
+            .map(|c| c.check_writer::<_, _, u64>(|_| None))
+            .gather()
+            .mult_map_errors(AnyLossError::Int)
+            .void()
+    }
+
+    fn h_write_df<'a, W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        df: &'a FCSDataFrame,
+    ) -> io::Result<()> {
+        let ncols = df.ncols();
+        let nrows = df.nrows();
+        // ASSUME dataframe has correct number of columns
+        let mut column_srcs: Vec<_> = df.iter_columns().map(AnySource::new::<u64>).collect();
+        for row in 0..nrows {
+            for (col, xs) in column_srcs.iter_mut().enumerate() {
+                let x = xs.next().unwrap();
+                let s = x.new.to_string();
+                let buf = s.as_bytes();
+                h.write_all(buf)?;
+                // write delimiter after all but last value
+                if !(row == nrows - 1 && col == ncols - 1) {
+                    h.write_all(&[32])?; // 32 = space in ASCII
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -3261,7 +3307,7 @@ impl<C, S, T> FixedLayout<C, S, T> {
         }
     }
 
-    fn h_read_checked_df_numeric<R: Read, I, W, E>(
+    fn h_read_df_numeric<R: Read, I, W, E>(
         &self,
         h: &mut BufReader<R>,
         tot: T::Tot,
@@ -3276,10 +3322,10 @@ impl<C, S, T> FixedLayout<C, S, T> {
         I: Readable<S, E, Inner = C, Buf = ()>,
         T: TotDefinition,
     {
-        self.h_read_checked_df::<_, I, _, _, E, E>(h, &mut (), tot, seg, conf)
+        self.h_read_df::<_, I, _, _, E, E>(h, &mut (), tot, seg, conf)
     }
 
-    fn h_read_checked_df<R: Read, I, B, W, E, ReadErr>(
+    fn h_read_df<R: Read, I, B, W, E, ReadErr>(
         &self,
         h: &mut BufReader<R>,
         buf: &mut B,
@@ -3305,13 +3351,13 @@ impl<C, S, T> FixedLayout<C, S, T> {
                     .errors_liftio()
             })
             .and_maybe(|nrows| {
-                self.h_read_df::<R, I, B, ReadErr>(h, nrows, buf)
+                self.h_read_unchecked_df::<R, I, B, ReadErr>(h, nrows, buf)
                     .map_err(|e| e.inner_into())
                     .into_deferred()
             })
     }
 
-    fn h_read_df<R: Read, I, B, E>(
+    fn h_read_unchecked_df<R: Read, I, B, E>(
         &self,
         h: &mut BufReader<R>,
         nrows: usize,
@@ -3347,7 +3393,11 @@ impl<C, S, T> FixedLayout<C, S, T> {
             .void()
     }
 
-    fn h_write<'a, W: Write, I>(&self, h: &mut BufWriter<W>, df: &'a FCSDataFrame) -> io::Result<()>
+    fn h_write_df<'a, W: Write, I>(
+        &self,
+        h: &mut BufWriter<W>,
+        df: &'a FCSDataFrame,
+    ) -> io::Result<()>
     where
         S: Copy,
         C: Copy,
@@ -3918,7 +3968,7 @@ impl<T> AnyOrderedUintLayout<T> {
         )
     }
 
-    fn h_read_checked_df<R: Read, W, E>(
+    fn h_read_df<R: Read, W, E>(
         &self,
         h: &mut BufReader<R>,
         tot: T::Tot,
@@ -3935,7 +3985,31 @@ impl<T> AnyOrderedUintLayout<T> {
             Self,
             [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
             l,
-            { l.h_read_checked_df_numeric::<_, ColumnReader0<_, _, _>, _, E>(h, tot, seg, conf,) }
+            { l.h_read_df_numeric::<_, ColumnReader0<_, _, _>, _, E>(h, tot, seg, conf,) }
+        )
+    }
+
+    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), AnyLossError> {
+        match_many_to_one!(
+            self,
+            Self,
+            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+            l,
+            { l.check_writer::<ColumnWriter0<_, _, _>>(df) }
+        )
+    }
+
+    fn h_write_df<'a, W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        df: &'a FCSDataFrame,
+    ) -> io::Result<()> {
+        match_many_to_one!(
+            self,
+            Self,
+            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+            l,
+            { l.h_write_df::<_, ColumnWriter0<_, _, _>>(h, df) }
         )
     }
 
@@ -4041,7 +4115,7 @@ impl<T> AnyAsciiLayout<T> {
         }
     }
 
-    fn h_read_checked_dataframe<R: Read>(
+    fn h_read_checked_df<R: Read>(
         &self,
         h: &mut BufReader<R>,
         tot: T::Tot,
@@ -4054,15 +4128,33 @@ impl<T> AnyAsciiLayout<T> {
         match self {
             Self::Fixed(c) => {
                 let mut buf = vec![];
-                c.h_read_checked_df::<_, ColumnReader0<_, _, _>, _, _, ReadFixedAsciiError, _>(
+                c.h_read_df::<_, ColumnReader0<_, _, _>, _, _, ReadFixedAsciiError, _>(
                     h, &mut buf, tot, seg, conf,
                 )
                 .def_map_errors(|e| e.inner_into())
             }
             Self::Delimited(l) => l
-                .h_read_checked_dataframe(h, tot, seg.inner.len() as usize)
+                .h_read_df(h, tot, seg.inner.len() as usize)
                 .map_err(|e| e.inner_into::<ReadDelimAsciiError>().inner_into())
                 .into_deferred(),
+        }
+    }
+
+    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), AnyLossError> {
+        match self {
+            Self::Fixed(l) => l.check_writer::<ColumnWriter0<_, _, _>>(df),
+            Self::Delimited(l) => l.check_writer(df),
+        }
+    }
+
+    fn h_write_df<'a, W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        df: &'a FCSDataFrame,
+    ) -> io::Result<()> {
+        match self {
+            Self::Fixed(l) => l.h_write_df::<_, ColumnWriter0<_, _, _>>(h, df),
+            Self::Delimited(l) => l.h_write_df(h, df),
         }
     }
 
@@ -4181,13 +4273,25 @@ impl VersionedDataLayout for Layout2_0 {
         self.0.h_read_checked_df(h, tot, seg, conf)
     }
 
-    fn as_writer_inner<'a>(
-        &self,
-        df: &'a FCSDataFrame,
-        conf: &WriteConfig,
-    ) -> MultiResult<DataWriter<'a>, ColumnWriterError> {
-        self.0.as_writer_inner(df, conf)
+    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), AnyLossError> {
+        self.0.check_writer(df)
     }
+
+    fn h_write_df_inner<'a, W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        df: &'a FCSDataFrame,
+    ) -> io::Result<()> {
+        self.0.h_write_df(h, df)
+    }
+
+    // fn as_writer_inner<'a>(
+    //     &self,
+    //     df: &'a FCSDataFrame,
+    //     conf: &WriteConfig,
+    // ) -> MultiResult<DataWriter<'a>, ColumnWriterError> {
+    //     self.0.as_writer_inner(df, conf)
+    // }
 
     // fn into_data_reader(
     //     self,
@@ -4272,6 +4376,10 @@ impl VersionedDataLayout for Layout3_0 {
         AnyOrderedLayout::lookup_ro(kws, conf).def_map_value(|x| x.map(|y| y.into()))
     }
 
+    fn ncols(&self) -> usize {
+        self.0.ncols()
+    }
+
     fn h_read_dataframe<R: Read>(
         &self,
         h: &mut BufReader<R>,
@@ -4282,17 +4390,25 @@ impl VersionedDataLayout for Layout3_0 {
         self.0.h_read_checked_df(h, tot, seg, conf)
     }
 
-    fn ncols(&self) -> usize {
-        self.0.ncols()
+    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), AnyLossError> {
+        self.0.check_writer(df)
     }
 
-    fn as_writer_inner<'a>(
+    fn h_write_df_inner<'a, W: Write>(
         &self,
+        h: &mut BufWriter<W>,
         df: &'a FCSDataFrame,
-        conf: &WriteConfig,
-    ) -> MultiResult<DataWriter<'a>, ColumnWriterError> {
-        self.0.as_writer_inner(df, conf)
+    ) -> io::Result<()> {
+        self.0.h_write_df(h, df)
     }
+
+    // fn as_writer_inner<'a>(
+    //     &self,
+    //     df: &'a FCSDataFrame,
+    //     conf: &WriteConfig,
+    // ) -> MultiResult<DataWriter<'a>, ColumnWriterError> {
+    //     self.0.as_writer_inner(df, conf)
+    // }
 
     // fn into_data_reader(
     //     self,
@@ -4384,6 +4500,10 @@ impl VersionedDataLayout for Layout3_1 {
             })
     }
 
+    fn ncols(&self) -> usize {
+        self.0.ncols()
+    }
+
     fn h_read_dataframe<R: Read>(
         &self,
         h: &mut BufReader<R>,
@@ -4391,20 +4511,28 @@ impl VersionedDataLayout for Layout3_1 {
         seg: AnyDataSegment,
         conf: &ReaderConfig,
     ) -> IODeferredResult<FCSDataFrame, ReadWarning, ReadDataError0> {
-        self.0.h_read_checked_df(h, tot, seg, conf)
+        self.0.h_read_df(h, tot, seg, conf)
     }
 
-    fn ncols(&self) -> usize {
-        self.0.ncols()
+    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), AnyLossError> {
+        self.0.check_writer(df)
     }
 
-    fn as_writer_inner<'a>(
+    fn h_write_df_inner<'a, W: Write>(
         &self,
+        h: &mut BufWriter<W>,
         df: &'a FCSDataFrame,
-        conf: &WriteConfig,
-    ) -> MultiResult<DataWriter<'a>, ColumnWriterError> {
-        self.0.as_writer_inner(df, conf)
+    ) -> io::Result<()> {
+        self.0.h_write_df(h, df)
     }
+
+    // fn as_writer_inner<'a>(
+    //     &self,
+    //     df: &'a FCSDataFrame,
+    //     conf: &WriteConfig,
+    // ) -> MultiResult<DataWriter<'a>, ColumnWriterError> {
+    //     self.0.as_writer_inner(df, conf)
+    // }
 
     // fn into_data_reader(
     //     self,
@@ -4514,6 +4642,13 @@ impl VersionedDataLayout for Layout3_2 {
             })
     }
 
+    fn ncols(&self) -> usize {
+        match self {
+            Self::NonMixed(x) => x.ncols(),
+            Self::Mixed(m) => m.ncols(),
+        }
+    }
+
     fn h_read_dataframe<R: Read>(
         &self,
         h: &mut BufReader<R>,
@@ -4522,31 +4657,42 @@ impl VersionedDataLayout for Layout3_2 {
         conf: &ReaderConfig,
     ) -> IODeferredResult<FCSDataFrame, ReadWarning, ReadDataError0> {
         match self {
-            Self::NonMixed(x) => x.h_read_checked_df(h, tot, seg, conf),
+            Self::NonMixed(x) => x.h_read_df(h, tot, seg, conf),
             Self::Mixed(m) => {
                 let mut buf = vec![];
-                m.h_read_checked_df::<_, ReaderMixedType, _, _, _, _>(h, &mut buf, tot, seg, conf)
+                m.h_read_df::<_, ReaderMixedType, _, _, _, _>(h, &mut buf, tot, seg, conf)
             }
         }
     }
 
-    fn ncols(&self) -> usize {
+    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), AnyLossError> {
         match self {
-            Self::NonMixed(x) => x.ncols(),
-            Self::Mixed(m) => m.ncols(),
+            Self::NonMixed(x) => x.check_writer(df),
+            Self::Mixed(m) => m.check_writer::<WriterMixedType>(df),
         }
     }
 
-    fn as_writer_inner<'a>(
+    fn h_write_df_inner<'a, W: Write>(
         &self,
+        h: &mut BufWriter<W>,
         df: &'a FCSDataFrame,
-        conf: &WriteConfig,
-    ) -> MultiResult<DataWriter<'a>, ColumnWriterError> {
+    ) -> io::Result<()> {
         match self {
-            Self::NonMixed(x) => x.as_writer_inner(df, conf),
-            Self::Mixed(m) => m.as_writer(df, conf).map(DataWriter::Fixed),
+            Self::NonMixed(x) => x.h_write_df(h, df),
+            Self::Mixed(m) => m.h_write_df::<_, WriterMixedType>(h, df),
         }
     }
+
+    // fn as_writer_inner<'a>(
+    //     &self,
+    //     df: &'a FCSDataFrame,
+    //     conf: &WriteConfig,
+    // ) -> MultiResult<DataWriter<'a>, ColumnWriterError> {
+    //     match self {
+    //         Self::NonMixed(x) => x.as_writer_inner(df, conf),
+    //         Self::Mixed(m) => m.as_writer(df, conf).map(DataWriter::Fixed),
+    //     }
+    // }
 
     // fn into_data_reader(
     //     self,
@@ -4860,15 +5006,39 @@ impl<T> AnyOrderedLayout<T> {
     {
         match self {
             Self::Ascii(x) => x
-                .h_read_checked_dataframe(h, tot, seg, conf)
+                .h_read_checked_df(h, tot, seg, conf)
                 .def_map_errors(|e| e.inner_into()),
-            Self::Integer(x) => x.h_read_checked_df(h, tot, seg, conf),
+            Self::Integer(x) => x.h_read_df(h, tot, seg, conf),
             Self::F32(x) => {
-                x.h_read_checked_df_numeric::<_, ColumnReader0<_, _, _>, _, _>(h, tot, seg, conf)
+                x.h_read_df_numeric::<_, ColumnReader0<_, _, _>, _, _>(h, tot, seg, conf)
             }
             Self::F64(x) => {
-                x.h_read_checked_df_numeric::<_, ColumnReader0<_, _, _>, _, _>(h, tot, seg, conf)
+                x.h_read_df_numeric::<_, ColumnReader0<_, _, _>, _, _>(h, tot, seg, conf)
             }
+        }
+    }
+
+    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), AnyLossError>
+    where
+        T: TotDefinition,
+    {
+        match self {
+            Self::Ascii(x) => x.check_writer(df),
+            Self::Integer(x) => x.check_writer(df),
+            Self::F32(x) => x.check_writer::<ColumnWriter0<_, _, _>>(df),
+            Self::F64(x) => x.check_writer::<ColumnWriter0<_, _, _>>(df),
+        }
+    }
+
+    fn h_write_df<'a, W: Write>(&self, h: &mut BufWriter<W>, df: &'a FCSDataFrame) -> io::Result<()>
+    where
+        T: TotDefinition,
+    {
+        match self {
+            Self::Ascii(x) => x.h_write_df(h, df),
+            Self::Integer(x) => x.h_write_df(h, df),
+            Self::F32(x) => x.h_write_df::<_, ColumnWriter0<_, _, _>>(h, df),
+            Self::F64(x) => x.h_write_df::<_, ColumnWriter0<_, _, _>>(h, df),
         }
     }
 
@@ -4946,7 +5116,7 @@ impl NonMixedEndianLayout {
         }
     }
 
-    fn h_read_checked_df<R: Read>(
+    fn h_read_df<R: Read>(
         &self,
         h: &mut BufReader<R>,
         tot: Tot,
@@ -4955,17 +5125,39 @@ impl NonMixedEndianLayout {
     ) -> IODeferredResult<FCSDataFrame, ReadWarning, ReadDataError0> {
         match self {
             Self::Ascii(x) => x
-                .h_read_checked_dataframe(h, tot, seg, conf)
+                .h_read_checked_df(h, tot, seg, conf)
                 .def_map_errors(|e| e.inner_into()),
             Self::Integer(x) => {
-                x.h_read_checked_df_numeric::<_, ReaderAnyUintType, _, _>(h, tot, seg, conf)
+                x.h_read_df_numeric::<_, ReaderAnyUintType, _, _>(h, tot, seg, conf)
             }
             Self::F32(x) => {
-                x.h_read_checked_df_numeric::<_, ColumnReader0<_, _, _>, _, _>(h, tot, seg, conf)
+                x.h_read_df_numeric::<_, ColumnReader0<_, _, _>, _, _>(h, tot, seg, conf)
             }
             Self::F64(x) => {
-                x.h_read_checked_df_numeric::<_, ColumnReader0<_, _, _>, _, _>(h, tot, seg, conf)
+                x.h_read_df_numeric::<_, ColumnReader0<_, _, _>, _, _>(h, tot, seg, conf)
             }
+        }
+    }
+
+    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), AnyLossError> {
+        match self {
+            Self::Ascii(x) => x.check_writer(df),
+            Self::Integer(x) => x.check_writer::<WriterAnyUintType>(df),
+            Self::F32(x) => x.check_writer::<ColumnWriter0<_, _, _>>(df),
+            Self::F64(x) => x.check_writer::<ColumnWriter0<_, _, _>>(df),
+        }
+    }
+
+    fn h_write_df<'a, W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        df: &'a FCSDataFrame,
+    ) -> io::Result<()> {
+        match self {
+            Self::Ascii(x) => x.h_write_df(h, df),
+            Self::Integer(x) => x.h_write_df::<_, WriterAnyUintType>(h, df),
+            Self::F32(x) => x.h_write_df::<_, ColumnWriter0<_, _, _>>(h, df),
+            Self::F64(x) => x.h_write_df::<_, ColumnWriter0<_, _, _>>(h, df),
         }
     }
 

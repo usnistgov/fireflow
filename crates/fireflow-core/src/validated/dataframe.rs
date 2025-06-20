@@ -51,6 +51,16 @@ impl AnyFCSColumn {
         })
     }
 
+    pub fn check_writer<E, F, ToType>(&self, f: F) -> Result<(), LossError<E>>
+    where
+        F: Fn(ToType) -> Option<E>,
+        ToType: AllFCSCast,
+    {
+        match_many_to_one!(self, Self, [U08, U16, U32, U64, F32, F64], xs, {
+            FCSDataType::check_writer(xs, f)
+        })
+    }
+
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }

@@ -40,7 +40,7 @@
 //! all possible types in the dataframe (six) to all possible types that may be
 //! written (twelve).
 
-use crate::config::{ReaderConfig, SharedConfig, WriteConfig};
+use crate::config::{DataReadConfig, ReaderConfig, SharedConfig, WriteConfig};
 use crate::core::*;
 use crate::error::*;
 use crate::macros::{enum_from, enum_from_disp, match_many_to_one, newtype_disp, newtype_from};
@@ -625,6 +625,7 @@ impl OthersReader<'_> {
 pub trait VersionedDataLayout: Sized {
     type S;
     type D;
+    type T;
 
     fn try_new(
         dt: AlphaNumType,
@@ -642,6 +643,14 @@ pub trait VersionedDataLayout: Sized {
     fn lookup_ro(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Option<Self>>;
 
     fn ncols(&self) -> usize;
+
+    fn h_read_dataframe<R: Read>(
+        &self,
+        h: BufReader<R>,
+        tot: Self::T,
+        seg: AnyDataSegment,
+        conf: &ReaderConfig,
+    ) -> IODeferredResult<FCSDataFrame, UnevenEventWidth, ReadDataError0>;
 
     fn into_data_reader(
         self,
@@ -981,13 +990,13 @@ impl Readable<Endian> for ReaderMixedType {
             MixedType::Ascii(c) => c.h_read_row(h, row, (), buf),
             MixedType::Uint(c) => c
                 .h_read_row(h, row, byte_layout, &mut ())
-                .map_err(ImpureError::infallible),
+                .map_err(|e| e.infallible()),
             MixedType::F32(c) => c
                 .h_read_row(h, row, byte_layout, &mut ())
-                .map_err(ImpureError::infallible),
+                .map_err(|e| e.infallible()),
             MixedType::F64(c) => c
                 .h_read_row(h, row, byte_layout, &mut ())
-                .map_err(ImpureError::infallible),
+                .map_err(|e| e.infallible()),
         }
     }
 }
@@ -1759,7 +1768,10 @@ impl FloatReader {
 }
 
 impl DelimAsciiReader {
-    fn h_read<R: Read>(self, h: &mut BufReader<R>) -> IOResult<FCSDataFrame, ReadDelimAsciiError> {
+    fn h_read<R: Read>(
+        self,
+        h: &mut BufReader<R>,
+    ) -> IOResult<FCSDataFrame, ReadDelimWithRowsAsciiError> {
         // FCS 2.0 files have an optional $TOT field, which complicates this a
         // bit. If in this case we have $TOT so the columns have been
         // initialized to the number of rows.
@@ -1776,14 +1788,14 @@ impl DelimAsciiReader {
             let byte = b?;
             // exit if we encounter more rows than expected.
             if row == nrows {
-                let e = ReadDelimAsciiError::RowsExceeded(RowsExceededError(nrows));
+                let e = ReadDelimWithRowsAsciiError::RowsExceeded(RowsExceededError(nrows));
                 return Err(ImpureError::Pure(e));
             }
             if is_ascii_delim(byte) {
                 if !last_was_delim {
                     last_was_delim = true;
                     data[col][row] = ascii_to_uint(&buf)
-                        .map_err(ReadDelimAsciiError::Parse)
+                        .map_err(ReadDelimWithRowsAsciiError::Parse)
                         .map_err(ImpureError::Pure)?;
                     buf.clear();
                     if col == ncols - 1 {
@@ -1800,14 +1812,16 @@ impl DelimAsciiReader {
         }
         if !(col == 0 && row == nrows) {
             let e = DelimIncompleteError { col, row, nrows };
-            return Err(ImpureError::Pure(ReadDelimAsciiError::Incomplete(e)));
+            return Err(ImpureError::Pure(ReadDelimWithRowsAsciiError::Incomplete(
+                e,
+            )));
         }
         // The spec isn't clear if the last value should be a delim or
         // not, so flush the buffer if it has anything in it since we
         // only try to parse if we hit a delim above.
         if !buf.is_empty() {
             data[col][row] = ascii_to_uint(&buf)
-                .map_err(ReadDelimAsciiError::Parse)
+                .map_err(ReadDelimWithRowsAsciiError::Parse)
                 .map_err(ImpureError::Pure)?;
         }
         let cs: Vec<_> = data
@@ -1821,16 +1835,11 @@ impl DelimAsciiReader {
     }
 }
 
-fn is_ascii_delim(x: u8) -> bool {
-    // tab, newline, carriage return, space, or comma
-    x == 9 || x == 10 || x == 13 || x == 32 || x == 44
-}
-
 impl DelimAsciiReaderNoRows {
     fn h_read<R: Read>(
         self,
         h: &mut BufReader<R>,
-    ) -> IOResult<FCSDataFrame, ReadDelimAsciiNoRowsError> {
+    ) -> IOResult<FCSDataFrame, ReadDelimAsciiWithoutRowsError> {
         let mut buf = Vec::new();
         let mut data = self.0.columns;
         let ncols = data.len();
@@ -1838,7 +1847,7 @@ impl DelimAsciiReaderNoRows {
         let mut last_was_delim = false;
         let go = |_data: &mut NonEmpty<Vec<u64>>, _col, _buf: &[u8]| {
             ascii_to_uint(_buf)
-                .map_err(ReadDelimAsciiNoRowsError::Parse)
+                .map_err(ReadDelimAsciiWithoutRowsError::Parse)
                 .map_err(ImpureError::Pure)
                 .map(|x| _data[_col].push(x))
         };
@@ -1867,7 +1876,7 @@ impl DelimAsciiReaderNoRows {
             }
         }
         if data.iter().map(|c| c.len()).unique().count() > 1 {
-            return Err(ImpureError::Pure(ReadDelimAsciiNoRowsError::Unequal));
+            return Err(ImpureError::Pure(ReadDelimAsciiWithoutRowsError::Unequal));
         }
         // The spec isn't clear if the last value should be a delim or
         // not, so flush the buffer if it has anything in it since we
@@ -1884,6 +1893,11 @@ impl DelimAsciiReaderNoRows {
         // length
         Ok(FCSDataFrame::try_new(cs).unwrap())
     }
+}
+
+fn is_ascii_delim(x: u8) -> bool {
+    // tab, newline, carriage return, space, or comma
+    x == 9 || x == 10 || x == 13 || x == 32 || x == 44
 }
 
 impl AlphaNumReader {
@@ -1923,6 +1937,19 @@ impl AlphaNumReader {
         } else {
             Tentative::new1(())
         }
+    }
+}
+
+fn check_tot(
+    total_events: usize,
+    tot: Tot,
+    allow_mismatch: bool,
+) -> BiTentative<(), TotEventMismatch> {
+    if tot.0 != total_events {
+        let i = TotEventMismatch { tot, total_events };
+        Tentative::new_either((), vec![i], !allow_mismatch)
+    } else {
+        Tentative::new1(())
     }
 }
 
@@ -2824,23 +2851,167 @@ impl DelimAsciiLayout {
         })
     }
 
-    fn into_col_reader_maybe_rows(self, nbytes: usize, kw_tot: Option<Tot>) -> ColumnReader {
-        match kw_tot {
-            Some(tot) => self.into_col_reader(nbytes, tot),
-            None => {
-                ColumnReader::DelimitedAsciiNoRows(DelimAsciiReaderNoRows(DelimAsciiReaderInner {
-                    columns: self.ranges.as_ref().map(|_| vec![]),
-                    nbytes,
-                }))
-            }
+    // fn into_col_reader_maybe_rows(self, nbytes: usize, kw_tot: Option<Tot>) -> ColumnReader {
+    //     match kw_tot {
+    //         Some(tot) => self.into_col_reader(nbytes, tot),
+    //         None => {
+    //             ColumnReader::DelimitedAsciiNoRows(DelimAsciiReaderNoRows(DelimAsciiReaderInner {
+    //                 columns: self.ranges.as_ref().map(|_| vec![]),
+    //                 nbytes,
+    //             }))
+    //         }
+    //     }
+    // }
+
+    // fn into_col_reader(self, nbytes: usize, tot: Tot) -> ColumnReader {
+    //     ColumnReader::DelimitedAscii(DelimAsciiReader(DelimAsciiReaderInner {
+    //         columns: self.ranges.as_ref().map(|_| vec![0; tot.0]),
+    //         nbytes,
+    //     }))
+    // }
+
+    fn h_read_maybe_rows<R: Read>(
+        &self,
+        h: &mut BufReader<R>,
+        kw_tot: Option<Tot>,
+        nbytes: usize,
+    ) -> IOResult<FCSDataFrame, ReadDelimAsciiError> {
+        if let Some(tot) = kw_tot {
+            self.h_read_with_rows(h, tot, nbytes)
+                .map_err(|e| e.inner_into())
+        } else {
+            self.h_read_without_rows(h, nbytes)
+                .map_err(|e| e.inner_into())
         }
     }
 
-    fn into_col_reader(self, nbytes: usize, tot: Tot) -> ColumnReader {
-        ColumnReader::DelimitedAscii(DelimAsciiReader(DelimAsciiReaderInner {
-            columns: self.ranges.as_ref().map(|_| vec![0; tot.0]),
-            nbytes,
-        }))
+    fn h_read_with_rows<R: Read>(
+        &self,
+        h: &mut BufReader<R>,
+        tot: Tot,
+        nbytes: usize,
+    ) -> IOResult<FCSDataFrame, ReadDelimWithRowsAsciiError> {
+        let mut buf = Vec::new();
+        let mut last_was_delim = false;
+        let nrows = tot.0;
+        let ncols = self.ranges.len();
+        // Here we have $TOT so initialize vectors to required length
+        let mut data = self.ranges.as_ref().map(|_| vec![0; nrows]);
+        // let mut data = self.0.columns;
+        // let nrows = data.head.len();
+        // let ncols = data.len();
+        let mut row = 0;
+        let mut col = 0;
+        // Delimiters are tab, newline, carriage return, space, or comma. Any
+        // consecutive delimiter counts as one, and delimiters can be mixed.
+        for b in h.bytes().take(nbytes) {
+            let byte = b?;
+            // exit if we encounter more rows than expected.
+            if row == nrows {
+                let e = ReadDelimWithRowsAsciiError::RowsExceeded(RowsExceededError(nrows));
+                return Err(ImpureError::Pure(e));
+            }
+            if is_ascii_delim(byte) {
+                if !last_was_delim {
+                    last_was_delim = true;
+                    data[col][row] = ascii_to_uint(&buf)
+                        .map_err(ReadDelimWithRowsAsciiError::Parse)
+                        .map_err(ImpureError::Pure)?;
+                    buf.clear();
+                    if col == ncols - 1 {
+                        col = 0;
+                        row += 1;
+                    } else {
+                        col += 1;
+                    }
+                }
+            } else {
+                buf.push(byte);
+                last_was_delim = false;
+            }
+        }
+        if !(col == 0 && row == nrows) {
+            let e = DelimIncompleteError { col, row, nrows };
+            return Err(ImpureError::Pure(ReadDelimWithRowsAsciiError::Incomplete(
+                e,
+            )));
+        }
+        // The spec isn't clear if the last value should be a delim or
+        // not, so flush the buffer if it has anything in it since we
+        // only try to parse if we hit a delim above.
+        if !buf.is_empty() {
+            data[col][row] = ascii_to_uint(&buf)
+                .map_err(ReadDelimWithRowsAsciiError::Parse)
+                .map_err(ImpureError::Pure)?;
+        }
+        let cs: Vec<_> = data
+            .into_iter()
+            .map(FCSColumn::from)
+            .map(AnyFCSColumn::from)
+            .collect();
+        // ASSUME this will never fail because all columns should be the same
+        // length
+        Ok(FCSDataFrame::try_new(cs).unwrap())
+    }
+
+    fn h_read_without_rows<R: Read>(
+        &self,
+        h: &mut BufReader<R>,
+        nbytes: usize,
+    ) -> IOResult<FCSDataFrame, ReadDelimAsciiWithoutRowsError> {
+        let mut buf = Vec::new();
+        // Here we don't have $TOT so init to empty vectors
+        let mut data = self.ranges.as_ref().map(|_| vec![]);
+        let ncols = data.len();
+        let mut col = 0;
+        let mut last_was_delim = false;
+        let go = |_data: &mut NonEmpty<Vec<u64>>, _col, _buf: &[u8]| {
+            ascii_to_uint(_buf)
+                .map_err(ReadDelimAsciiWithoutRowsError::Parse)
+                .map_err(ImpureError::Pure)
+                .map(|x| _data[_col].push(x))
+        };
+        // Delimiters are tab, newline, carriage return, space, or comma. Any
+        // consecutive delimiter counts as one, and delimiters can be mixed.
+        // If we don't know the number of rows, the only choice is to push onto
+        // the column vectors one at a time. This leads to the possibility that
+        // the vectors may not be the same length in the end, in which case,
+        // scream loudly and bail.
+        for b in h.bytes().take(nbytes) {
+            let byte = b?;
+            if is_ascii_delim(byte) {
+                if !last_was_delim {
+                    last_was_delim = true;
+                    buf.clear();
+                    go(&mut data, col, &buf)?;
+                    if col == ncols - 1 {
+                        col = 0;
+                    } else {
+                        col += 1;
+                    }
+                }
+            } else {
+                buf.push(byte);
+                last_was_delim = false;
+            }
+        }
+        if data.iter().map(|c| c.len()).unique().count() > 1 {
+            return Err(ImpureError::Pure(ReadDelimAsciiWithoutRowsError::Unequal));
+        }
+        // The spec isn't clear if the last value should be a delim or
+        // not, so flush the buffer if it has anything in it since we
+        // only try to parse if we hit a delim above.
+        if !buf.is_empty() {
+            go(&mut data, col, &buf)?;
+        }
+        let cs: Vec<_> = data
+            .into_iter()
+            .map(FCSColumn::from)
+            .map(AnyFCSColumn::from)
+            .collect();
+        // ASSUME this will never fail because all columns should be the same
+        // length
+        Ok(FCSDataFrame::try_new(cs).unwrap())
     }
 }
 
@@ -3024,6 +3195,194 @@ impl<C, S> FixedLayout<C, S> {
             columns,
             byte_layout,
         })
+    }
+
+    pub fn compute_nrows(
+        &self,
+        seg: AnyDataSegment,
+        conf: &ReaderConfig,
+    ) -> BiTentative<usize, UnevenEventWidth>
+    where
+        S: Clone,
+        C: IsFixed,
+    {
+        let n = seg.inner.len() as usize;
+        let w = self.event_width();
+        let total_events = n / w;
+        let remainder = n % w;
+        if remainder > 0 {
+            let i = UnevenEventWidth {
+                event_width: w,
+                nbytes: n,
+                remainder,
+            };
+            Tentative::new_either(total_events, vec![i], !conf.allow_uneven_event_width)
+        } else {
+            Tentative::new1(total_events)
+        }
+    }
+
+    fn h_read_maybe_rows<R: Read, T, B, E, F>(
+        &self,
+        h: &mut BufReader<R>,
+        kw_tot: Option<Tot>,
+        buf: &mut B,
+        seg: AnyDataSegment,
+        conf: &ReaderConfig,
+    ) -> IODeferredResult<FCSDataFrame, E, E>
+    where
+        S: Copy,
+        C: IsFixed + Copy,
+        T: Readable<S, Inner = C, Buf = B, Error = F>,
+        E: From<UnevenEventWidth> + From<TotEventMismatch> + From<F>,
+    {
+        if let Some(tot) = kw_tot {
+            self.h_read_with_rows::<_, T, _, E, F>(h, tot, buf, seg, conf)
+        } else {
+            self.h_read_inner::<_, T, _, E, F>(h, buf, seg, conf)
+                .def_map_errors(|e| e.inner_into())
+                .def_warnings_into()
+                .def_map_value(|(df, _)| df)
+        }
+    }
+
+    fn h_read_with_rows<R: Read, T, B, E, F>(
+        &self,
+        h: &mut BufReader<R>,
+        tot: Tot,
+        buf: &mut B,
+        seg: AnyDataSegment,
+        conf: &ReaderConfig,
+    ) -> IODeferredResult<FCSDataFrame, E, E>
+    where
+        S: Copy,
+        C: IsFixed + Copy,
+        T: Readable<S, Inner = C, Buf = B, Error = F>,
+        E: From<UnevenEventWidth> + From<TotEventMismatch> + From<F>,
+    {
+        self.h_read_inner::<_, T, _, E, F>(h, buf, seg, conf)
+            .def_map_errors(|e| e.inner_into())
+            .def_warnings_into()
+            .def_and_tentatively(|(df, nrows)| {
+                check_tot(nrows, tot, conf.allow_tot_mismatch)
+                    .map(|_| df)
+                    .inner_into()
+                    .errors_liftio()
+            })
+    }
+
+    fn h_read_numeric_maybe_rows<R: Read, T, E>(
+        &self,
+        h: &mut BufReader<R>,
+        kw_tot: Option<Tot>,
+        seg: AnyDataSegment,
+        conf: &ReaderConfig,
+    ) -> IODeferredResult<FCSDataFrame, E, E>
+    where
+        S: Copy,
+        C: IsFixed + Copy,
+        T: Readable<S, Inner = C, Buf = (), Error = Infallible>,
+        E: From<UnevenEventWidth> + From<TotEventMismatch>,
+    {
+        if let Some(tot) = kw_tot {
+            self.h_read_numeric_with_rows::<_, T, E>(h, tot, seg, conf)
+        } else {
+            self.h_read_numeric_inner::<_, T>(h, seg, conf)
+                .def_map_errors(|e| e.inner_into())
+                .def_warnings_into()
+                .def_map_value(|(df, _)| df)
+        }
+    }
+
+    fn h_read_numeric_with_rows<R: Read, T, E>(
+        &self,
+        h: &mut BufReader<R>,
+        tot: Tot,
+        seg: AnyDataSegment,
+        conf: &ReaderConfig,
+    ) -> IODeferredResult<FCSDataFrame, E, E>
+    where
+        S: Copy,
+        C: IsFixed + Copy,
+        T: Readable<S, Inner = C, Buf = (), Error = Infallible>,
+        E: From<UnevenEventWidth> + From<TotEventMismatch>,
+    {
+        self.h_read_numeric_inner::<_, T>(h, seg, conf)
+            .def_map_errors(|e| e.inner_into())
+            .def_warnings_into()
+            .def_and_tentatively(|(df, nrows)| {
+                check_tot(nrows, tot, conf.allow_tot_mismatch)
+                    .map(|_| df)
+                    .inner_into()
+                    .errors_liftio()
+            })
+    }
+
+    fn h_read_numeric_inner<R: Read, T>(
+        &self,
+        h: &mut BufReader<R>,
+        seg: AnyDataSegment,
+        conf: &ReaderConfig,
+    ) -> IODeferredResult<(FCSDataFrame, usize), UnevenEventWidth, UnevenEventWidth>
+    where
+        S: Copy,
+        C: IsFixed + Copy,
+        T: Readable<S, Inner = C, Buf = (), Error = Infallible>,
+    {
+        self.compute_nrows(seg, conf)
+            .errors_liftio()
+            .and_maybe(|nrows| {
+                self.h_read_dataframe::<R, T, (), Infallible>(h, nrows, &mut ())
+                    .map_err(|e| e.infallible())
+                    .map(|df| (df, nrows))
+                    .into_deferred()
+            })
+    }
+
+    fn h_read_inner<R: Read, T, B, E, F>(
+        &self,
+        h: &mut BufReader<R>,
+        buf: &mut B,
+        seg: AnyDataSegment,
+        conf: &ReaderConfig,
+    ) -> IODeferredResult<(FCSDataFrame, usize), UnevenEventWidth, E>
+    where
+        E: From<F> + From<UnevenEventWidth>,
+        S: Copy,
+        C: IsFixed + Copy,
+        T: Readable<S, Inner = C, Buf = B, Error = F>,
+    {
+        self.compute_nrows(seg, conf)
+            .errors_into()
+            .errors_liftio()
+            .and_maybe(|nrows| {
+                self.h_read_dataframe::<R, T, B, F>(h, nrows, buf)
+                    .map_err(|e| e.inner_into())
+                    .map(|df| (df, nrows))
+                    .into_deferred()
+            })
+    }
+
+    fn h_read_dataframe<R: Read, T, B, E>(
+        &self,
+        h: &mut BufReader<R>,
+        nrows: usize,
+        buf: &mut B,
+    ) -> IOResult<FCSDataFrame, E>
+    where
+        S: Copy,
+        C: IsFixed + Copy,
+        T: Readable<S, Inner = C, Buf = B, Error = E>,
+    {
+        let mut col_readers: Vec<_> = self.columns.iter().map(|c| T::new(*c, nrows)).collect();
+        for row in 0..nrows {
+            for c in col_readers.iter_mut() {
+                c.h_read_row(h, row, self.byte_layout, buf)
+                    .map_err(|e| e.inner_into())?;
+            }
+        }
+        let data = col_readers.into_iter().map(|c| c.into_column()).collect();
+        Ok(FCSDataFrame::try_new(data).unwrap())
     }
 
     fn check_writer<'a, T>(&self, df: &'a FCSDataFrame) -> MultiResult<(), AnyLossError>
@@ -3587,6 +3946,21 @@ impl AnyOrderedUintLayout {
         )
     }
 
+    fn h_read<R: Read>(
+        &self,
+        h: &mut BufReader<R>,
+        seg: AnyDataSegment,
+        conf: &ReaderConfig,
+    ) -> IODeferredResult<FCSDataFrame, UnevenEventWidth, UnevenEventWidth> {
+        match_many_to_one!(
+            self,
+            Self,
+            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+            l,
+            { l.h_read_numeric::<_, ColumnReader0<_, _, _>>(h, seg, conf) }
+        )
+    }
+
     // fn into_col_reader_inner(
     //     self,
     //     seg: AnyDataSegment,
@@ -3682,6 +4056,28 @@ impl AnyAsciiLayout {
         }
     }
 
+    fn h_read_maybe_rows<R: Read>(
+        &self,
+        h: &mut BufReader<R>,
+        kw_tot: Option<Tot>,
+        seg: AnyDataSegment,
+        conf: &ReaderConfig,
+    ) -> IODeferredResult<FCSDataFrame, UnevenEventWidth, ReadAsciiError> {
+        match self {
+            Self::Fixed(c) => {
+                let mut buf = vec![];
+                c.h_read_inner::<_, ColumnReader0<_, _, _>, _, ReadFixedAsciiError, _>(
+                    h, &mut buf, seg, conf,
+                )
+                .def_map_errors(|e| e.inner_into())
+            }
+            Self::Delimited(l) => l
+                .h_read_maybe_rows(h, kw_tot, seg.inner.len() as usize)
+                .map_err(|e| e.inner_into::<ReadDelimAsciiError>().inner_into())
+                .into_deferred(),
+        }
+    }
+
     // fn as_writer<'a>(
     //     &self,
     //     df: &'a FCSDataFrame,
@@ -3760,6 +4156,7 @@ impl AnyAsciiLayout {
 impl VersionedDataLayout for Layout2_0 {
     type S = ByteOrd;
     type D = ();
+    type T = Option<Tot>;
 
     fn try_new(
         datatype: AlphaNumType,
@@ -3784,6 +4181,16 @@ impl VersionedDataLayout for Layout2_0 {
 
     fn ncols(&self) -> usize {
         self.0.ncols()
+    }
+
+    fn h_read_dataframe<R: Read>(
+        &self,
+        h: BufReader<R>,
+        tot: Self::T,
+        seg: AnyDataSegment,
+        conf: &ReaderConfig,
+    ) {
+        self.0.h_read_dataframe(h, seg, conf)
     }
 
     fn as_writer_inner<'a>(
@@ -3854,6 +4261,7 @@ impl VersionedDataLayout for Layout2_0 {
 impl VersionedDataLayout for Layout3_0 {
     type S = ByteOrd;
     type D = ();
+    type T = Tot;
 
     fn try_new(
         datatype: AlphaNumType,
@@ -3932,6 +4340,7 @@ impl VersionedDataLayout for Layout3_0 {
 impl VersionedDataLayout for Layout3_1 {
     type S = Endian;
     type D = ();
+    type T = Tot;
 
     fn try_new(
         datatype: AlphaNumType,
@@ -4033,6 +4442,7 @@ impl VersionedDataLayout for Layout3_1 {
 impl VersionedDataLayout for Layout3_2 {
     type S = Endian;
     type D = Option<NumType>;
+    type T = Tot;
 
     fn try_new(
         datatype: AlphaNumType,
@@ -4411,6 +4821,27 @@ impl AnyOrderedLayout {
             Self::Integer(i) => i.ncols(),
             Self::F32(f) => f.ncols(),
             Self::F64(f) => f.ncols(),
+        }
+    }
+
+    fn h_read_maybe_rows<R: Read>(
+        &self,
+        h: &mut BufReader<R>,
+        kw_tot: Option<Tot>,
+        seg: AnyDataSegment,
+        conf: &ReaderConfig,
+    ) -> IODeferredResult<FCSDataFrame, UnevenEventWidth, ReadDataError0> {
+        match self {
+            Self::Ascii(x) => x
+                .h_read_maybe_rows(h, kw_tot, seg, conf)
+                .def_map_errors(|e| e.inner_into()),
+            Self::Integer(x) => x.h_read(h, seg, conf).def_map_errors(|e| e.inner_into()),
+            Self::F32(x) => x
+                .h_read_numeric::<_, ColumnReader0<_, _, _>>(h, seg, conf)
+                .def_map_errors(|e| e.inner_into()),
+            Self::F64(x) => x
+                .h_read_numeric::<_, ColumnReader0<_, _, _>>(h, seg, conf)
+                .def_map_errors(|e| e.inner_into()),
         }
     }
 
@@ -4797,13 +5228,41 @@ enum_from_disp!(
 
 enum_from_disp!(
     pub ReadDataError,
-    [Delim, ReadDelimAsciiError],
-    [DelimNoRows, ReadDelimAsciiNoRowsError],
+    [Delim, ReadDelimWithRowsAsciiError],
+    [DelimNoRows, ReadDelimAsciiWithoutRowsError],
     [AlphaNum, AsciiToUintError]
 );
 
 enum_from_disp!(
+    pub ReadDataError0,
+    [Ascii, ReadAsciiError],
+    [Uneven, UnevenEventWidth],
+    [TotMismatch, TotEventMismatch],
+    [Delim, ReadDelimWithRowsAsciiError],
+    [DelimNoRows, ReadDelimAsciiWithoutRowsError],
+    [AlphaNum, AsciiToUintError]
+);
+
+enum_from_disp!(
+    pub ReadAsciiError,
+    [Delim, ReadDelimAsciiError],
+    [Fixed, ReadFixedAsciiError]
+);
+
+enum_from_disp!(
+    pub ReadFixedAsciiError,
+    [Uneven, UnevenEventWidth],
+    [ToUint, AsciiToUintError]
+);
+
+enum_from_disp!(
     pub ReadDelimAsciiError,
+    [Rows, ReadDelimWithRowsAsciiError],
+    [NoRows, ReadDelimAsciiWithoutRowsError]
+);
+
+enum_from_disp!(
+    pub ReadDelimWithRowsAsciiError,
     [RowsExceeded, RowsExceededError],
     [Incomplete, DelimIncompleteError],
     [Parse, AsciiToUintError]
@@ -4819,7 +5278,7 @@ pub struct DelimIncompleteError {
     nrows: usize,
 }
 
-pub enum ReadDelimAsciiNoRowsError {
+pub enum ReadDelimAsciiWithoutRowsError {
     Unequal,
     Parse(AsciiToUintError),
 }
@@ -4886,7 +5345,7 @@ where
     }
 }
 
-impl fmt::Display for ReadDelimAsciiNoRowsError {
+impl fmt::Display for ReadDelimAsciiWithoutRowsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
             Self::Unequal => write!(

@@ -3857,17 +3857,7 @@ impl<T> AnyOrderedUintLayout<T> {
         )
     }
 
-    fn tot_into<X>(self) -> AnyOrderedLayout<X>
-    where
-        AnyOrderedLayout<X>: From<OrderedLayout<Uint08Type, X>>
-            + From<OrderedLayout<Uint16Type, X>>
-            + From<OrderedLayout<Uint24Type, X>>
-            + From<OrderedLayout<Uint32Type, X>>
-            + From<OrderedLayout<Uint40Type, X>>
-            + From<OrderedLayout<Uint48Type, X>>
-            + From<OrderedLayout<Uint56Type, X>>
-            + From<OrderedLayout<Uint64Type, X>>,
-    {
+    fn tot_into<X>(self) -> AnyOrderedUintLayout<X> {
         match_many_to_one!(
             self,
             Self,
@@ -4955,6 +4945,15 @@ impl<T> AnyOrderedLayout<T> {
             Self::Integer(i) => i.ncols(),
             Self::F32(f) => f.ncols(),
             Self::F64(f) => f.ncols(),
+        }
+    }
+
+    pub(crate) fn tot_into<X>(self) -> AnyOrderedLayout<X> {
+        match self {
+            Self::Ascii(a) => AnyOrderedLayout::Ascii(a.tot_into()),
+            Self::Integer(i) => AnyOrderedLayout::Integer(i.tot_into()),
+            Self::F32(f) => AnyOrderedLayout::F32(f.tot_into()),
+            Self::F64(f) => AnyOrderedLayout::F64(f.tot_into()),
         }
     }
 

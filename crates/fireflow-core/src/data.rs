@@ -68,7 +68,7 @@ use serde::Serialize;
 use std::convert::Infallible;
 use std::fmt;
 use std::io;
-use std::io::{BufReader, BufWriter, Read, Seek, Write};
+use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::marker::PhantomData;
 use std::num::ParseIntError;
 use std::str;
@@ -329,14 +329,14 @@ trait TotDefinition {
 
 /// A version-specific data layout
 pub trait VersionedDataLayout: Sized {
-    type S;
-    type D;
-    type T;
+    type ByteLayout;
+    type ColDatatype;
+    type Tot;
 
     fn try_new(
         dt: AlphaNumType,
-        size: Self::S,
-        cs: NonEmpty<ColumnLayoutValues<Self::D>>,
+        size: Self::ByteLayout,
+        cs: NonEmpty<ColumnLayoutValues<Self::ColDatatype>>,
         conf: &SharedConfig,
     ) -> DeferredResult<Self, ColumnError<BitmaskError>, NewDataLayoutError>;
 
@@ -350,10 +350,26 @@ pub trait VersionedDataLayout: Sized {
 
     fn ncols(&self) -> usize;
 
-    fn h_read_dataframe<R: Read>(
+    fn h_read_df<R: Read + Seek>(
         &self,
         h: &mut BufReader<R>,
-        tot: Self::T,
+        tot: Self::Tot,
+        seg: AnyDataSegment,
+        conf: &ReaderConfig,
+    ) -> IODeferredResult<FCSDataFrame, ReadWarning, ReadDataError0> {
+        seg.inner.as_u64().try_coords().map_or(
+            Ok(Tentative::new1(FCSDataFrame::default())),
+            |(begin, _)| {
+                h.seek(SeekFrom::Start(begin)).into_deferred()?;
+                self.h_read_df_inner(h, tot, seg, conf)
+            },
+        )
+    }
+
+    fn h_read_df_inner<R: Read>(
+        &self,
+        h: &mut BufReader<R>,
+        tot: Self::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
     ) -> IODeferredResult<FCSDataFrame, ReadWarning, ReadDataError0>;
@@ -394,7 +410,7 @@ pub trait VersionedDataLayout: Sized {
         df: &'a FCSDataFrame,
     ) -> io::Result<()>;
 
-    fn layout_values(&self) -> LayoutValues<Self::S, Self::D>;
+    fn layout_values(&self) -> LayoutValues<Self::ByteLayout, Self::ColDatatype>;
 }
 
 /// A column which has a $DATATYPE keyword
@@ -2439,6 +2455,118 @@ impl<C, S, T> FixedLayout<C, S, T> {
         }
     }
 
+    fn h_read_df_numeric<R: Read, I, W, E>(
+        &self,
+        h: &mut BufReader<R>,
+        tot: T::Tot,
+        seg: AnyDataSegment,
+        conf: &ReaderConfig,
+    ) -> IODeferredResult<FCSDataFrame, W, E>
+    where
+        W: From<UnevenEventWidth> + From<TotEventMismatch>,
+        E: From<UnevenEventWidth> + From<TotEventMismatch>,
+        S: Copy,
+        C: IsFixed + Copy,
+        I: Readable<S, E, Inner = C, Buf = ()>,
+        T: TotDefinition,
+    {
+        self.h_read_df::<_, I, _, _, E, E>(h, &mut (), tot, seg, conf)
+    }
+
+    fn h_read_df<R: Read, I, B, W, E, ReadErr>(
+        &self,
+        h: &mut BufReader<R>,
+        buf: &mut B,
+        tot: T::Tot,
+        seg: AnyDataSegment,
+        conf: &ReaderConfig,
+    ) -> IODeferredResult<FCSDataFrame, W, E>
+    where
+        W: From<UnevenEventWidth> + From<TotEventMismatch>,
+        E: From<ReadErr> + From<UnevenEventWidth> + From<TotEventMismatch>,
+        S: Copy,
+        C: IsFixed + Copy,
+        I: Readable<S, ReadErr, Inner = C, Buf = B>,
+        T: TotDefinition,
+    {
+        self.compute_nrows(seg, conf)
+            .inner_into()
+            .errors_liftio()
+            .and_tentatively(|nrows| {
+                T::check_tot(nrows, tot, conf.allow_tot_mismatch)
+                    .map(|_| nrows)
+                    .inner_into()
+                    .errors_liftio()
+            })
+            .and_maybe(|nrows| {
+                self.h_read_unchecked_df::<R, I, B, ReadErr>(h, nrows, buf)
+                    .map_err(|e| e.inner_into())
+                    .into_deferred()
+            })
+    }
+
+    fn check_writer<'a, I>(&self, df: &'a FCSDataFrame) -> MultiResult<(), AnyLossError>
+    where
+        C: Copy,
+        I: Writable<'a, S, Inner = C>,
+    {
+        // ASSUME df has same number of columns as layout
+        self.columns
+            .iter()
+            .zip(df.iter_columns())
+            .map(|(col_type, col_data)| I::check_writer(*col_type, col_data))
+            .gather()
+            .void()
+    }
+
+    fn h_write_df<'a, W: Write, I>(
+        &self,
+        h: &mut BufWriter<W>,
+        df: &'a FCSDataFrame,
+    ) -> io::Result<()>
+    where
+        S: Copy,
+        C: Copy,
+        I: Writable<'a, S, Inner = C>,
+    {
+        let nrows = df.nrows();
+        // ASSUME df has same number of columns as layout
+        let mut cs: Vec<_> = self
+            .columns
+            .iter()
+            .zip(df.iter_columns())
+            .map(|(col_type, col_data)| I::new(*col_type, col_data))
+            .collect();
+        for _ in 0..nrows {
+            for c in cs.iter_mut() {
+                c.h_write(h, self.byte_layout)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn h_read_unchecked_df<R: Read, I, B, E>(
+        &self,
+        h: &mut BufReader<R>,
+        nrows: usize,
+        buf: &mut B,
+    ) -> IOResult<FCSDataFrame, E>
+    where
+        S: Copy,
+        C: IsFixed + Copy,
+        I: Readable<S, E, Inner = C, Buf = B>,
+    {
+        let mut col_readers: Vec<_> = self.columns.iter().map(|c| I::new(*c, nrows)).collect();
+        for row in 0..nrows {
+            for c in col_readers.iter_mut() {
+                c.h_read_row(h, row, self.byte_layout, buf)
+                    .map_err(|e| e.inner_into())?;
+            }
+        }
+        let data = col_readers.into_iter().map(|c| c.into_column()).collect();
+        Ok(FCSDataFrame::try_new(data).unwrap())
+    }
+
     fn columns_into<X>(self) -> FixedLayout<X, S, T>
     where
         X: From<C>,
@@ -2500,118 +2628,6 @@ impl<C, S, T> FixedLayout<C, S, T> {
         } else {
             Tentative::new1(total_events)
         }
-    }
-
-    fn h_read_df_numeric<R: Read, I, W, E>(
-        &self,
-        h: &mut BufReader<R>,
-        tot: T::Tot,
-        seg: AnyDataSegment,
-        conf: &ReaderConfig,
-    ) -> IODeferredResult<FCSDataFrame, W, E>
-    where
-        W: From<UnevenEventWidth> + From<TotEventMismatch>,
-        E: From<UnevenEventWidth> + From<TotEventMismatch>,
-        S: Copy,
-        C: IsFixed + Copy,
-        I: Readable<S, E, Inner = C, Buf = ()>,
-        T: TotDefinition,
-    {
-        self.h_read_df::<_, I, _, _, E, E>(h, &mut (), tot, seg, conf)
-    }
-
-    fn h_read_df<R: Read, I, B, W, E, ReadErr>(
-        &self,
-        h: &mut BufReader<R>,
-        buf: &mut B,
-        tot: T::Tot,
-        seg: AnyDataSegment,
-        conf: &ReaderConfig,
-    ) -> IODeferredResult<FCSDataFrame, W, E>
-    where
-        W: From<UnevenEventWidth> + From<TotEventMismatch>,
-        E: From<ReadErr> + From<UnevenEventWidth> + From<TotEventMismatch>,
-        S: Copy,
-        C: IsFixed + Copy,
-        I: Readable<S, ReadErr, Inner = C, Buf = B>,
-        T: TotDefinition,
-    {
-        self.compute_nrows(seg, conf)
-            .inner_into()
-            .errors_liftio()
-            .and_tentatively(|nrows| {
-                T::check_tot(nrows, tot, conf.allow_tot_mismatch)
-                    .map(|_| nrows)
-                    .inner_into()
-                    .errors_liftio()
-            })
-            .and_maybe(|nrows| {
-                self.h_read_unchecked_df::<R, I, B, ReadErr>(h, nrows, buf)
-                    .map_err(|e| e.inner_into())
-                    .into_deferred()
-            })
-    }
-
-    fn h_read_unchecked_df<R: Read, I, B, E>(
-        &self,
-        h: &mut BufReader<R>,
-        nrows: usize,
-        buf: &mut B,
-    ) -> IOResult<FCSDataFrame, E>
-    where
-        S: Copy,
-        C: IsFixed + Copy,
-        I: Readable<S, E, Inner = C, Buf = B>,
-    {
-        let mut col_readers: Vec<_> = self.columns.iter().map(|c| I::new(*c, nrows)).collect();
-        for row in 0..nrows {
-            for c in col_readers.iter_mut() {
-                c.h_read_row(h, row, self.byte_layout, buf)
-                    .map_err(|e| e.inner_into())?;
-            }
-        }
-        let data = col_readers.into_iter().map(|c| c.into_column()).collect();
-        Ok(FCSDataFrame::try_new(data).unwrap())
-    }
-
-    fn check_writer<'a, I>(&self, df: &'a FCSDataFrame) -> MultiResult<(), AnyLossError>
-    where
-        C: Copy,
-        I: Writable<'a, S, Inner = C>,
-    {
-        // ASSUME df has same number of columns as layout
-        self.columns
-            .iter()
-            .zip(df.iter_columns())
-            .map(|(col_type, col_data)| I::check_writer(*col_type, col_data))
-            .gather()
-            .void()
-    }
-
-    fn h_write_df<'a, W: Write, I>(
-        &self,
-        h: &mut BufWriter<W>,
-        df: &'a FCSDataFrame,
-    ) -> io::Result<()>
-    where
-        S: Copy,
-        C: Copy,
-        I: Writable<'a, S, Inner = C>,
-    {
-        let nrows = df.nrows();
-        // ASSUME df has same number of columns as layout
-        let mut cs: Vec<_> = self
-            .columns
-            .iter()
-            .zip(df.iter_columns())
-            .map(|(col_type, col_data)| I::new(*col_type, col_data))
-            .collect();
-        for _ in 0..nrows {
-            for c in cs.iter_mut() {
-                c.h_write(h, self.byte_layout)?;
-            }
-        }
-        Ok(())
     }
 }
 
@@ -2997,14 +3013,14 @@ impl<T> AnyAsciiLayout<T> {
 }
 
 impl VersionedDataLayout for Layout2_0 {
-    type S = ByteOrd;
-    type D = ();
-    type T = Option<Tot>;
+    type ByteLayout = ByteOrd;
+    type ColDatatype = ();
+    type Tot = Option<Tot>;
 
     fn try_new(
         datatype: AlphaNumType,
-        byteord: Self::S,
-        columns: NonEmpty<ColumnLayoutValues<Self::D>>,
+        byteord: Self::ByteLayout,
+        columns: NonEmpty<ColumnLayoutValues<Self::ColDatatype>>,
         conf: &SharedConfig,
     ) -> DeferredResult<Self, ColumnError<BitmaskError>, NewDataLayoutError> {
         AnyOrderedLayout::try_new(datatype, byteord, columns, conf).def_map_value(|x| x.into())
@@ -3026,10 +3042,10 @@ impl VersionedDataLayout for Layout2_0 {
         self.0.ncols()
     }
 
-    fn h_read_dataframe<R: Read>(
+    fn h_read_df_inner<R: Read>(
         &self,
         h: &mut BufReader<R>,
-        tot: Self::T,
+        tot: Self::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
     ) -> IODeferredResult<FCSDataFrame, ReadWarning, ReadDataError0> {
@@ -3074,14 +3090,14 @@ impl VersionedDataLayout for Layout2_0 {
 }
 
 impl VersionedDataLayout for Layout3_0 {
-    type S = ByteOrd;
-    type D = ();
-    type T = Tot;
+    type ByteLayout = ByteOrd;
+    type ColDatatype = ();
+    type Tot = Tot;
 
     fn try_new(
         datatype: AlphaNumType,
-        byteord: Self::S,
-        columns: NonEmpty<ColumnLayoutValues<Self::D>>,
+        byteord: Self::ByteLayout,
+        columns: NonEmpty<ColumnLayoutValues<Self::ColDatatype>>,
         conf: &SharedConfig,
     ) -> DeferredResult<Self, ColumnError<BitmaskError>, NewDataLayoutError> {
         AnyOrderedLayout::try_new(datatype, byteord, columns, conf).def_map_value(|x| x.into())
@@ -3103,10 +3119,10 @@ impl VersionedDataLayout for Layout3_0 {
         self.0.ncols()
     }
 
-    fn h_read_dataframe<R: Read>(
+    fn h_read_df_inner<R: Read>(
         &self,
         h: &mut BufReader<R>,
-        tot: Self::T,
+        tot: Self::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
     ) -> IODeferredResult<FCSDataFrame, ReadWarning, ReadDataError0> {
@@ -3147,14 +3163,14 @@ impl VersionedDataLayout for Layout3_0 {
 }
 
 impl VersionedDataLayout for Layout3_1 {
-    type S = Endian;
-    type D = ();
-    type T = Tot;
+    type ByteLayout = Endian;
+    type ColDatatype = ();
+    type Tot = Tot;
 
     fn try_new(
         datatype: AlphaNumType,
-        endian: Self::S,
-        columns: NonEmpty<ColumnLayoutValues<Self::D>>,
+        endian: Self::ByteLayout,
+        columns: NonEmpty<ColumnLayoutValues<Self::ColDatatype>>,
         conf: &SharedConfig,
     ) -> DeferredResult<Self, ColumnError<BitmaskError>, NewDataLayoutError> {
         NonMixedEndianLayout::try_new(datatype, endian, columns, conf).def_map_value(|x| x.into())
@@ -3199,10 +3215,10 @@ impl VersionedDataLayout for Layout3_1 {
         self.0.ncols()
     }
 
-    fn h_read_dataframe<R: Read>(
+    fn h_read_df_inner<R: Read>(
         &self,
         h: &mut BufReader<R>,
-        tot: Self::T,
+        tot: Self::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
     ) -> IODeferredResult<FCSDataFrame, ReadWarning, ReadDataError0> {
@@ -3243,14 +3259,14 @@ impl VersionedDataLayout for Layout3_1 {
 }
 
 impl VersionedDataLayout for Layout3_2 {
-    type S = Endian;
-    type D = Option<NumType>;
-    type T = Tot;
+    type ByteLayout = Endian;
+    type ColDatatype = Option<NumType>;
+    type Tot = Tot;
 
     fn try_new(
         datatype: AlphaNumType,
-        endian: Self::S,
-        cs: NonEmpty<ColumnLayoutValues<Self::D>>,
+        endian: Self::ByteLayout,
+        cs: NonEmpty<ColumnLayoutValues<Self::ColDatatype>>,
         conf: &SharedConfig,
     ) -> DeferredResult<Self, ColumnError<BitmaskError>, NewDataLayoutError> {
         let unique_dt: Vec<_> = cs
@@ -3316,10 +3332,10 @@ impl VersionedDataLayout for Layout3_2 {
         }
     }
 
-    fn h_read_dataframe<R: Read>(
+    fn h_read_df_inner<R: Read>(
         &self,
         h: &mut BufReader<R>,
-        tot: Self::T,
+        tot: Self::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
     ) -> IODeferredResult<FCSDataFrame, ReadWarning, ReadDataError0> {

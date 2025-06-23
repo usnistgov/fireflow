@@ -942,7 +942,7 @@ pub(crate) trait LookupMetaroot: Sized + VersionedMetaroot {
     fn lookup_shortname(
         kws: &mut StdKeywords,
         n: MeasIndex,
-    ) -> LookupResult<<Self::N as MightHave>::Wrapper<Shortname>>;
+    ) -> LookupResult<<Self::Name as MightHave>::Wrapper<Shortname>>;
 
     fn lookup_specific(
         st: &mut StdKeywords,
@@ -983,10 +983,11 @@ where
 }
 
 pub trait VersionedMetaroot: Sized {
-    type O: VersionedOptical;
-    type T: VersionedTemporal;
-    type N: MightHave;
-    type L: VersionedDataLayout;
+    type Optical: VersionedOptical;
+    type Temporal: VersionedTemporal;
+    type Name: MightHave;
+    type Layout: VersionedDataLayout;
+    type Offsets: VersionedTEXTOffsets<Tot = <Self::Layout as VersionedDataLayout>::Tot>;
 
     fn as_unstainedcenters(&self) -> Option<&UnstainedCenters>;
 
@@ -1028,17 +1029,17 @@ pub trait VersionedMetaroot: Sized {
     /// recover the original state.
     #[allow(clippy::type_complexity)]
     fn swap_optical_temporal(
-        t: Temporal<Self::T>,
-        o: Optical<Self::O>,
+        t: Temporal<Self::Temporal>,
+        o: Optical<Self::Optical>,
         i: MeasIndex,
         lossless: bool,
     ) -> PassthruResult<
-        (Optical<Self::O>, Temporal<Self::T>),
-        Box<(Temporal<Self::T>, Optical<Self::O>)>,
+        (Optical<Self::Optical>, Temporal<Self::Temporal>),
+        Box<(Temporal<Self::Temporal>, Optical<Self::Optical>)>,
         SwapOpticalTemporalError,
         SwapOpticalTemporalError,
     > {
-        let go = |old_t: Temporal<Self::T>, old_o: Optical<Self::O>| {
+        let go = |old_t: Temporal<Self::Temporal>, old_o: Optical<Self::Optical>| {
             let (so, st) = Self::swap_optical_temporal_inner(old_t.specific, old_o.specific);
             let new_o = Optical {
                 common: old_t.common,
@@ -1072,7 +1073,10 @@ pub trait VersionedMetaroot: Sized {
         }
     }
 
-    fn swap_optical_temporal_inner(t: Self::T, p: Self::O) -> (Self::O, Self::T);
+    fn swap_optical_temporal_inner(
+        t: Self::Temporal,
+        p: Self::Optical,
+    ) -> (Self::Optical, Self::Temporal);
 }
 
 pub trait VersionedOptical: Sized + Versioned {
@@ -1223,13 +1227,13 @@ pub(crate) struct TEXTOffsets<T> {
     pub(crate) tot: T,
 }
 
-pub(crate) struct TEXTOffsetsResult2_0(pub(crate) TEXTOffsets<OptionalKw<Tot>>);
-pub(crate) struct TEXTOffsetsResult3_0(pub(crate) TEXTOffsets<Tot>);
-pub(crate) struct TEXTOffsetsResult3_2(pub(crate) TEXTOffsets<Tot>);
+pub(crate) struct TEXTOffsets2_0(pub(crate) TEXTOffsets<Option<Tot>>);
+pub(crate) struct TEXTOffsets3_0(pub(crate) TEXTOffsets<Tot>);
+pub(crate) struct TEXTOffsets3_2(pub(crate) TEXTOffsets<Tot>);
 
-newtype_from!(TEXTOffsetsResult2_0, TEXTOffsets<OptionalKw<Tot>>);
-newtype_from!(TEXTOffsetsResult3_0, TEXTOffsets<Tot>);
-newtype_from!(TEXTOffsetsResult3_2, TEXTOffsets<Tot>);
+newtype_from!(TEXTOffsets2_0, TEXTOffsets<Option<Tot>>);
+newtype_from!(TEXTOffsets3_0, TEXTOffsets<Tot>);
+newtype_from!(TEXTOffsets3_2, TEXTOffsets<Tot>);
 
 impl CommonMeasurement {
     fn lookup<E>(
@@ -1486,7 +1490,7 @@ where
 
     fn lookup_metaroot(
         kws: &mut StdKeywords,
-        ms: &Measurements<M::N, M::T, M::O>,
+        ms: &Measurements<M::Name, M::Temporal, M::Optical>,
         nonstd: NonStdPairs,
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self>
@@ -1648,11 +1652,11 @@ pub(crate) type VersionedCore<A, D, O, M> = Core<
     D,
     O,
     M,
-    <M as VersionedMetaroot>::T,
-    <M as VersionedMetaroot>::O,
-    <M as VersionedMetaroot>::N,
-    <<M as VersionedMetaroot>::N as MightHave>::Wrapper<Shortname>,
-    <M as VersionedMetaroot>::L,
+    <M as VersionedMetaroot>::Temporal,
+    <M as VersionedMetaroot>::Optical,
+    <M as VersionedMetaroot>::Name,
+    <<M as VersionedMetaroot>::Name as MightHave>::Wrapper<Shortname>,
+    <M as VersionedMetaroot>::Layout,
 >;
 
 pub(crate) type VersionedCoreTEXT<M> = VersionedCore<(), (), (), M>;
@@ -1687,7 +1691,7 @@ macro_rules! non_time_get_set {
 impl<M, A, D, O> VersionedCore<A, D, O, M>
 where
     M: VersionedMetaroot,
-    M::N: Clone,
+    M::Name: Clone,
 {
     pub(crate) fn try_cols_to_dataframe(
         &self,
@@ -1825,7 +1829,7 @@ where
     pub fn shortnames_maybe(&self) -> Vec<Option<&Shortname>> {
         self.measurements
             .iter()
-            .map(|(_, x)| x.both(|t| Some(&t.key), |m| M::N::as_opt(&m.key)))
+            .map(|(_, x)| x.both(|t| Some(&t.key), |m| M::Name::as_opt(&m.key)))
             .collect()
     }
 
@@ -1853,20 +1857,22 @@ where
     pub fn set_temporal(
         &mut self,
         n: &Shortname,
-        timestep: <M::T as TemporalFromOptical<M::O>>::TData,
+        timestep: <M::Temporal as TemporalFromOptical<M::Optical>>::TData,
         force: bool,
     ) -> DeferredResult<bool, SetTemporalError, SetTemporalError>
     where
-        M::T: TemporalFromOptical<M::O>,
+        M::Temporal: TemporalFromOptical<M::Optical>,
     {
         let lossless = !force;
         self.measurements.set_center_by_name(
             n,
             |i, old_o, old_t| M::swap_optical_temporal(old_o, old_t, i, lossless).def_inner_into(),
             |i, old_o| {
-                <M::T as TemporalFromOptical<M::O>>::from_optical(old_o, i, timestep, lossless)
-                    .def_inner_into::<SwapOpticalTemporalError, SwapOpticalTemporalError>()
-                    .def_inner_into()
+                <M::Temporal as TemporalFromOptical<M::Optical>>::from_optical(
+                    old_o, i, timestep, lossless,
+                )
+                .def_inner_into::<SwapOpticalTemporalError, SwapOpticalTemporalError>()
+                .def_inner_into()
             },
         )
     }
@@ -1875,20 +1881,22 @@ where
     pub fn set_temporal_at(
         &mut self,
         index: MeasIndex,
-        timestep: <M::T as TemporalFromOptical<M::O>>::TData,
+        timestep: <M::Temporal as TemporalFromOptical<M::Optical>>::TData,
         force: bool,
     ) -> DeferredResult<bool, SetTemporalError, SetTemporalError>
     where
-        M::T: TemporalFromOptical<M::O>,
+        M::Temporal: TemporalFromOptical<M::Optical>,
     {
         let lossless = !force;
         self.measurements.set_center_by_index(
             index,
             |i, old_o, old_t| M::swap_optical_temporal(old_o, old_t, i, lossless).def_inner_into(),
             |i, old_o| {
-                <M::T as TemporalFromOptical<M::O>>::from_optical(old_o, i, timestep, lossless)
-                    .def_inner_into::<SwapOpticalTemporalError, SwapOpticalTemporalError>()
-                    .def_inner_into()
+                <M::Temporal as TemporalFromOptical<M::Optical>>::from_optical(
+                    old_o, i, timestep, lossless,
+                )
+                .def_inner_into::<SwapOpticalTemporalError, SwapOpticalTemporalError>()
+                .def_inner_into()
             },
         )
     }
@@ -1902,15 +1910,15 @@ where
         &mut self,
         force: bool,
     ) -> Tentative<
-        Option<<M::O as OpticalFromTemporal<M::T>>::TData>,
+        Option<<M::Optical as OpticalFromTemporal<M::Temporal>>::TData>,
         TemporalToOpticalError,
         TemporalToOpticalError,
     >
     where
-        M::O: OpticalFromTemporal<M::T>,
+        M::Optical: OpticalFromTemporal<M::Temporal>,
     {
         self.measurements.unset_center(|i, old_t| {
-            <M::O as OpticalFromTemporal<M::T>>::from_temporal(old_t, i, !force)
+            <M::Optical as OpticalFromTemporal<M::Temporal>>::from_temporal(old_t, i, !force)
         })
     }
 
@@ -1961,7 +1969,7 @@ where
     }
 
     /// Return read-only reference to measurement vector
-    pub fn measurements_named_vec(&self) -> &Measurements<M::N, M::T, M::O> {
+    pub fn measurements_named_vec(&self) -> &Measurements<M::Name, M::Temporal, M::Optical> {
         &self.measurements
     }
 
@@ -1974,8 +1982,8 @@ where
     pub fn replace_optical_at(
         &mut self,
         index: MeasIndex,
-        m: Optical<M::O>,
-    ) -> Result<Element<Temporal<M::T>, Optical<M::O>>, ElementIndexError> {
+        m: Optical<M::Optical>,
+    ) -> Result<Element<Temporal<M::Temporal>, Optical<M::Optical>>, ElementIndexError> {
         self.measurements.replace_at(index, m)
     }
 
@@ -1988,8 +1996,8 @@ where
     pub fn replace_optical_named(
         &mut self,
         name: &Shortname,
-        m: Optical<M::O>,
-    ) -> Option<Element<Temporal<M::T>, Optical<M::O>>> {
+        m: Optical<M::Optical>,
+    ) -> Option<Element<Temporal<M::Temporal>, Optical<M::Optical>>> {
         self.measurements.replace_named(name, m)
     }
 
@@ -1998,18 +2006,18 @@ where
     pub fn replace_temporal_at(
         &mut self,
         index: MeasIndex,
-        m: Temporal<M::T>,
+        m: Temporal<M::Temporal>,
         force: bool,
     ) -> DeferredResult<
-        Element<Temporal<M::T>, Optical<M::O>>,
+        Element<Temporal<M::Temporal>, Optical<M::Optical>>,
         ReplaceTemporalError,
         ReplaceTemporalError,
     >
     where
-        M::O: OpticalFromTemporal<M::T>,
+        M::Optical: OpticalFromTemporal<M::Temporal>,
     {
         self.measurements.replace_center_at(index, m, |i, old_t| {
-            <M::O as OpticalFromTemporal<M::T>>::from_temporal(old_t, i, !force)
+            <M::Optical as OpticalFromTemporal<M::Temporal>>::from_temporal(old_t, i, !force)
                 .def_inner_into()
                 .def_map_value(|(x, _)| x)
         })
@@ -2020,19 +2028,19 @@ where
     pub fn replace_temporal_named(
         &mut self,
         name: &Shortname,
-        m: Temporal<M::T>,
+        m: Temporal<M::Temporal>,
         force: bool,
     ) -> DeferredResult<
-        Option<Element<Temporal<M::T>, Optical<M::O>>>,
+        Option<Element<Temporal<M::Temporal>, Optical<M::Optical>>>,
         ReplaceTemporalError,
         ReplaceTemporalError,
     >
     where
-        M::O: OpticalFromTemporal<M::T>,
+        M::Optical: OpticalFromTemporal<M::Temporal>,
     {
         self.measurements
             .replace_center_by_name(name, m, |i, old_t| {
-                <M::O as OpticalFromTemporal<M::T>>::from_temporal(old_t, i, !force)
+                <M::Optical as OpticalFromTemporal<M::Temporal>>::from_temporal(old_t, i, !force)
                     .def_inner_into()
                     .def_map_value(|(x, _)| x)
             })
@@ -2047,7 +2055,7 @@ where
     pub fn rename_measurement(
         &mut self,
         index: MeasIndex,
-        key: <M::N as MightHave>::Wrapper<Shortname>,
+        key: <M::Name as MightHave>::Wrapper<Shortname>,
     ) -> Result<(Shortname, Shortname), RenameError> {
         self.measurements.rename(index, key).map(|(old, new)| {
             let mapping = [(old.clone(), new.clone())].into_iter().collect();
@@ -2064,8 +2072,10 @@ where
     /// Apply functions to measurement values
     pub fn alter_measurements<F, G, R>(&mut self, f: F, g: G) -> Vec<R>
     where
-        F: Fn(IndexedElement<&<M::N as MightHave>::Wrapper<Shortname>, &mut Optical<M::O>>) -> R,
-        G: Fn(IndexedElement<&Shortname, &mut Temporal<M::T>>) -> R,
+        F: Fn(
+            IndexedElement<&<M::Name as MightHave>::Wrapper<Shortname>, &mut Optical<M::Optical>>,
+        ) -> R,
+        G: Fn(IndexedElement<&Shortname, &mut Temporal<M::Temporal>>) -> R,
     {
         self.measurements.alter_values(f, g)
     }
@@ -2078,14 +2088,19 @@ where
         g: G,
     ) -> Result<Vec<R>, KeyLengthError>
     where
-        F: Fn(IndexedElement<&<M::N as MightHave>::Wrapper<Shortname>, &mut Optical<M::O>>, X) -> R,
-        G: Fn(IndexedElement<&Shortname, &mut Temporal<M::T>>, X) -> R,
+        F: Fn(
+            IndexedElement<&<M::Name as MightHave>::Wrapper<Shortname>, &mut Optical<M::Optical>>,
+            X,
+        ) -> R,
+        G: Fn(IndexedElement<&Shortname, &mut Temporal<M::Temporal>>, X) -> R,
     {
         self.measurements.alter_values_zip(xs, f, g)
     }
 
     /// Return mutable reference to time measurement as a name/value pair.
-    pub fn temporal_mut(&mut self) -> Option<IndexedElement<&mut Shortname, &mut Temporal<M::T>>> {
+    pub fn temporal_mut(
+        &mut self,
+    ) -> Option<IndexedElement<&mut Shortname, &mut Temporal<M::Temporal>>> {
         self.measurements.as_center_mut()
     }
 
@@ -2175,20 +2190,21 @@ where
     ) -> DeferredResult<
         VersionedCore<A, D, O, ToM>,
         MetarootConvertWarning,
-        VersionedConvertError<M::N, ToM::N>,
+        VersionedConvertError<M::Name, ToM::Name>,
     >
     where
-        M::N: Clone,
+        M::Name: Clone,
         ToM: VersionedMetaroot,
         ToM: ConvertFromMetaroot<M>,
-        ToM::O: VersionedOptical,
-        ToM::T: VersionedTemporal,
-        ToM::N: MightHave,
-        ToM::N: Clone,
-        ToM::O: ConvertFromOptical<M::O>,
-        ToM::T: ConvertFromTemporal<M::T>,
-        ToM::L: ConvertFromLayout<M::L>,
-        <ToM::N as MightHave>::Wrapper<Shortname>: TryFrom<<M::N as MightHave>::Wrapper<Shortname>>,
+        ToM::Optical: VersionedOptical,
+        ToM::Temporal: VersionedTemporal,
+        ToM::Name: MightHave,
+        ToM::Name: Clone,
+        ToM::Optical: ConvertFromOptical<M::Optical>,
+        ToM::Temporal: ConvertFromTemporal<M::Temporal>,
+        ToM::Layout: ConvertFromLayout<M::Layout>,
+        <ToM::Name as MightHave>::Wrapper<Shortname>:
+            TryFrom<<M::Name as MightHave>::Wrapper<Shortname>>,
     {
         let m = self
             .metaroot
@@ -2225,8 +2241,8 @@ where
                 others: self.others,
             })
             .def_map_errors(|error| ConvertError {
-                from: M::O::fcs_version(),
-                to: ToM::O::fcs_version(),
+                from: M::Optical::fcs_version(),
+                to: ToM::Optical::fcs_version(),
                 inner: error,
             })
     }
@@ -2235,7 +2251,10 @@ where
     fn remove_measurement_by_name_inner(
         &mut self,
         n: &Shortname,
-    ) -> Option<(MeasIndex, Element<Temporal<M::T>, Optical<M::O>>)> {
+    ) -> Option<(
+        MeasIndex,
+        Element<Temporal<M::Temporal>, Optical<M::Optical>>,
+    )> {
         if let Some(e) = self.measurements.remove_name(n) {
             self.metaroot.remove_name_index(n, e.0);
             Some(e)
@@ -2248,10 +2267,11 @@ where
     fn remove_measurement_by_index_inner(
         &mut self,
         index: MeasIndex,
-    ) -> Result<EitherPair<M::N, Temporal<M::T>, Optical<M::O>>, ElementIndexError> {
+    ) -> Result<EitherPair<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>, ElementIndexError>
+    {
         let res = self.measurements.remove_index(index)?;
         if let Element::NonCenter(left) = &res {
-            if let Some(n) = M::N::as_opt(&left.key) {
+            if let Some(n) = M::Name::as_opt(&left.key) {
                 self.metaroot.remove_name_index(n, index);
             }
         }
@@ -2278,7 +2298,7 @@ where
 
     fn set_measurements_inner(
         &mut self,
-        xs: RawInput<M::N, Temporal<M::T>, Optical<M::O>>,
+        xs: RawInput<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
         prefix: ShortnamePrefix,
     ) -> Result<(), SetMeasurementsError> {
         self.check_existing_links()?;
@@ -2309,7 +2329,7 @@ where
             .opt_meta_keywords()
             .chain(self.opt_meas_keywords())
             .collect();
-        if M::O::fcs_version() == Version::FCS2_0 {
+        if M::Optical::fcs_version() == Version::FCS2_0 {
             make_data_offset_keywords_2_0(req, opt, data_len, analysis_len, other_lens)
         } else {
             make_data_offset_keywords_3_0(req, opt, data_len, analysis_len, other_lens)
@@ -2317,7 +2337,7 @@ where
     }
 
     fn opt_meas_keywords(&self) -> impl Iterator<Item = (String, String)> {
-        let ns = if !M::N::INFALLABLE {
+        let ns = if !M::Name::INFALLABLE {
             Some(self.shortname_keywords())
         } else {
             None
@@ -2332,7 +2352,7 @@ where
     }
 
     fn req_meas_keywords(&self) -> impl Iterator<Item = (String, String)> {
-        let ns = if M::N::INFALLABLE {
+        let ns = if M::Name::INFALLABLE {
             Some(self.shortname_keywords())
         } else {
             None
@@ -2367,8 +2387,8 @@ where
 
     fn meas_table(&self, delim: &str) -> Vec<String>
     where
-        M::T: Clone,
-        M::O: OpticalFromTemporal<M::T>,
+        M::Temporal: Clone,
+        M::Optical: OpticalFromTemporal<M::Temporal>,
     {
         let ms = &self.measurements;
         if let Some(m0) = ms.get(0.into()).ok().and_then(|x| x.non_center()) {
@@ -2378,13 +2398,13 @@ where
                     |t| {
                         // NOTE this will force-convert all fields in the time
                         // measurement, which for this is actually want we want
-                        <M::O as OpticalFromTemporal<M::T>>::from_temporal_unchecked(
+                        <M::Optical as OpticalFromTemporal<M::Temporal>>::from_temporal_unchecked(
                             t.value.clone(),
                         )
                         .0
                         .table_row(i, Some(&t.key))
                     },
-                    |o| o.value.table_row(i, M::N::as_opt(&o.key)),
+                    |o| o.value.table_row(i, M::Name::as_opt(&o.key)),
                 )
             });
             [header]
@@ -2400,8 +2420,8 @@ where
     // TOOD moveme
     pub(crate) fn print_meas_table(&self, delim: &str)
     where
-        M::T: Clone,
-        M::O: OpticalFromTemporal<M::T>,
+        M::Temporal: Clone,
+        M::Optical: OpticalFromTemporal<M::Temporal>,
     {
         for e in self.meas_table(delim) {
             println!("{}", e);
@@ -2415,14 +2435,14 @@ where
         nonstd: NonStdPairs,
         conf: &StdTextReadConfig,
     ) -> DeferredResult<
-        (Measurements<M::N, M::T, M::O>, NonStdPairs),
+        (Measurements<M::Name, M::Temporal, M::Optical>, NonStdPairs),
         LookupMeasWarning,
         LookupKeysError,
     >
     where
         M: LookupMetaroot,
-        M::T: LookupTemporal,
-        M::O: LookupOptical,
+        M::Temporal: LookupTemporal,
+        M::Optical: LookupOptical,
     {
         // Use nonstandard measurement pattern to assign keyvals to their
         // measurement if they match. Only capture one warning because if the
@@ -2470,13 +2490,13 @@ where
                         // and possibly key to the error, so at least the user
                         // will know it is trying to find $TIMESTEP in a
                         // nonsense measurement.
-                        let key = M::N::unwrap(wrapped).and_then(|name| {
+                        let key = M::Name::unwrap(wrapped).and_then(|name| {
                             if let Some(tp) = conf.time.pattern.as_ref() {
                                 if tp.0.as_inner().is_match(name.as_ref()) {
                                     return Ok(name);
                                 }
                             }
-                            Err(M::N::wrap(name))
+                            Err(M::Name::wrap(name))
                         });
                         // Once we checked $PnN, pull all the rest of the
                         // standardized keywords from the hashtable and collect
@@ -2581,7 +2601,7 @@ where
 impl<M> VersionedCoreTEXT<M>
 where
     M: VersionedMetaroot,
-    M::N: Clone,
+    M::Name: Clone,
 {
     /// Make a new CoreTEXT from raw keywords.
     ///
@@ -2594,8 +2614,8 @@ where
     ) -> DeferredResult<Self, LookupMeasWarning, LookupKeysError>
     where
         M: LookupMetaroot,
-        M::T: LookupTemporal,
-        M::O: LookupOptical,
+        M::Temporal: LookupTemporal,
+        M::Optical: LookupOptical,
     {
         // Lookup $PAR first since we need this to get the measurements
         Par::lookup_req(kws).def_inner_into().def_and_maybe(|par| {
@@ -2657,7 +2677,10 @@ where
     pub fn remove_measurement_by_name(
         &mut self,
         n: &Shortname,
-    ) -> Option<(MeasIndex, Element<Temporal<M::T>, Optical<M::O>>)> {
+    ) -> Option<(
+        MeasIndex,
+        Element<Temporal<M::Temporal>, Optical<M::Optical>>,
+    )> {
         self.remove_measurement_by_name_inner(n)
     }
 
@@ -2668,7 +2691,8 @@ where
     pub fn remove_measurement_by_index(
         &mut self,
         index: MeasIndex,
-    ) -> Result<EitherPair<M::N, Temporal<M::T>, Optical<M::O>>, ElementIndexError> {
+    ) -> Result<EitherPair<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>, ElementIndexError>
+    {
         self.remove_measurement_by_index_inner(index)
     }
 
@@ -2678,7 +2702,7 @@ where
     pub fn push_temporal(
         &mut self,
         n: Shortname,
-        m: Temporal<M::T>,
+        m: Temporal<M::Temporal>,
     ) -> Result<(), InsertCenterError> {
         self.measurements.push_center(n, m)
     }
@@ -2691,7 +2715,7 @@ where
         &mut self,
         i: MeasIndex,
         n: Shortname,
-        m: Temporal<M::T>,
+        m: Temporal<M::Temporal>,
     ) -> Result<(), InsertCenterError> {
         self.measurements.insert_center(i, n, m)
     }
@@ -2701,8 +2725,8 @@ where
     /// Return error if name is non-unique.
     pub fn push_optical(
         &mut self,
-        n: <M::N as MightHave>::Wrapper<Shortname>,
-        m: Optical<M::O>,
+        n: <M::Name as MightHave>::Wrapper<Shortname>,
+        m: Optical<M::Optical>,
     ) -> Result<Shortname, NonUniqueKeyError> {
         self.measurements.push(n, m)
     }
@@ -2713,8 +2737,8 @@ where
     pub fn insert_optical(
         &mut self,
         i: MeasIndex,
-        n: <M::N as MightHave>::Wrapper<Shortname>,
-        m: Optical<M::O>,
+        n: <M::Name as MightHave>::Wrapper<Shortname>,
+        m: Optical<M::Optical>,
     ) -> Result<Shortname, InsertError> {
         self.measurements.insert(i, n, m)
     }
@@ -2758,8 +2782,8 @@ where
 impl<M> VersionedCoreDataset<M>
 where
     M: VersionedMetaroot,
-    M::N: Clone,
-    M::L: VersionedDataLayout,
+    M::Name: Clone,
+    M::Layout: VersionedDataLayout,
 {
     pub(crate) fn new_dataset_from_raw<R: Read + Seek>(
         h: &mut BufReader<R>,
@@ -2777,44 +2801,49 @@ where
     >
     where
         M: LookupMetaroot,
-        M::T: LookupTemporal,
-        M::O: LookupOptical,
-        M::L: VersionedDataLayout,
-        // TODO fixme
-        M::L: Clone,
+        M::Temporal: LookupTemporal,
+        M::Optical: LookupOptical,
+        M::Layout: VersionedDataLayout,
+        M::Offsets: VersionedTEXTOffsets<Tot = <M::Layout as VersionedDataLayout>::Tot>,
     {
-        CoreTEXT::new_text_from_raw(kws, nonstd, &conf.standard)
+        let offset_res = M::Offsets::lookup_ro(kws, data_seg, analysis_seg, &conf.reader)
             .def_inner_into()
-            .def_errors_liftio()
-            .def_and_maybe(|text: VersionedCoreTEXT<M>| {
-                let data_res = text.layout.map_or(Ok(Tentative::new1(None)), |l| {
-                    // TODO this shouldn't be necessary
-                    l.clone()
-                        .into_data_reader(kws, data_seg, &conf.reader)
-                        .def_map_value(Some)
-                        .def_inner_into()
-                        .def_errors_liftio()
-                });
-                let analysis_res = M::L::as_analysis_reader(kws, analysis_seg, &conf.reader)
-                    .def_inner_into()
-                    .def_errors_liftio();
-                data_res.def_zip(analysis_res).def_and_maybe(|(dr, ar)| {
-                    let or = OthersReader { segs: other_segs };
-                    h_read_data_and_analysis(h, dr, ar, or)
-                        .map(|(data, analysis, others, d_seg, a_seg)| {
-                            let c = Core {
-                                metaroot: text.metaroot,
-                                measurements: text.measurements,
-                                layout: text.layout,
-                                data,
-                                analysis,
-                                others,
-                            };
-                            (c, d_seg, a_seg)
-                        })
-                        .into_deferred::<_, StdDatasetFromRawWarning>()
-                        .def_io_into()
-                })
+            .def_errors_liftio();
+        let core_res = CoreTEXT::new_text_from_raw(kws, nonstd, &conf.standard)
+            .def_inner_into()
+            .def_errors_liftio();
+        offset_res
+            .def_zip(core_res)
+            .def_and_maybe(|(offsets, text)| {
+                let or = OthersReader { segs: other_segs };
+                let ar = AnalysisReader {
+                    seg: offsets.analysis,
+                };
+                // TODO what happens if the layout is empty but the segment
+                // isn't?
+                let data_res = text.layout.as_ref().map_or(
+                    Ok(Tentative::new1(FCSDataFrame::default())),
+                    |l: &M::Layout| {
+                        l.h_read_df(h, offsets.tot, offsets.data, &conf.reader)
+                            .def_warnings_into()
+                            .def_map_errors(|e| e.inner_into())
+                    },
+                );
+                let analysis_res = ar.h_read(h).into_deferred();
+                let others_res = or.h_read(h).into_deferred();
+                data_res.def_zip3(analysis_res, others_res).def_map_value(
+                    |(data, analysis, others)| {
+                        let c = Core {
+                            metaroot: text.metaroot,
+                            measurements: text.measurements,
+                            layout: text.layout,
+                            data,
+                            analysis,
+                            others,
+                        };
+                        (c, offsets.data, offsets.analysis)
+                    },
+                )
             })
     }
 
@@ -2845,7 +2874,7 @@ where
 
                 let mut go = || {
                     // write HEADER
-                    hdr_kws.header.h_write(h, M::O::fcs_version())?;
+                    hdr_kws.header.h_write(h, M::Optical::fcs_version())?;
 
                     // write OTHER
                     for o in others.0.iter() {
@@ -2899,7 +2928,10 @@ where
     pub fn remove_measurement_by_name(
         &mut self,
         n: &Shortname,
-    ) -> Option<(MeasIndex, Element<Temporal<M::T>, Optical<M::O>>)> {
+    ) -> Option<(
+        MeasIndex,
+        Element<Temporal<M::Temporal>, Optical<M::Optical>>,
+    )> {
         self.remove_measurement_by_name_inner(n).map(|(i, x)| {
             self.data.drop_in_place(i.into()).unwrap();
             (i, x)
@@ -2913,7 +2945,8 @@ where
     pub fn remove_measurement_by_index(
         &mut self,
         index: MeasIndex,
-    ) -> Result<EitherPair<M::N, Temporal<M::T>, Optical<M::O>>, ElementIndexError> {
+    ) -> Result<EitherPair<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>, ElementIndexError>
+    {
         let res = self.remove_measurement_by_index_inner(index)?;
         self.data.drop_in_place(index.into()).unwrap();
         Ok(res)
@@ -2925,7 +2958,7 @@ where
     pub fn push_temporal(
         &mut self,
         n: Shortname,
-        m: Temporal<M::T>,
+        m: Temporal<M::Temporal>,
         col: AnyFCSColumn,
     ) -> Result<(), PushTemporalError> {
         self.measurements.push_center(n, m)?;
@@ -2941,7 +2974,7 @@ where
         &mut self,
         i: MeasIndex,
         n: Shortname,
-        m: Temporal<M::T>,
+        m: Temporal<M::Temporal>,
         col: AnyFCSColumn,
     ) -> Result<(), PushTemporalError> {
         self.measurements.insert_center(i, n, m)?;
@@ -2955,8 +2988,8 @@ where
     /// Return error if name is non-unique.
     pub fn push_optical(
         &mut self,
-        n: <M::N as MightHave>::Wrapper<Shortname>,
-        m: Optical<M::O>,
+        n: <M::Name as MightHave>::Wrapper<Shortname>,
+        m: Optical<M::Optical>,
         col: AnyFCSColumn,
     ) -> Result<Shortname, PushOpticalError> {
         let k = self.measurements.push(n, m)?;
@@ -2970,8 +3003,8 @@ where
     pub fn insert_optical(
         &mut self,
         i: MeasIndex,
-        n: <M::N as MightHave>::Wrapper<Shortname>,
-        m: Optical<M::O>,
+        n: <M::Name as MightHave>::Wrapper<Shortname>,
+        m: Optical<M::Optical>,
         col: AnyFCSColumn,
     ) -> Result<Shortname, InsertOpticalError> {
         let k = self.measurements.insert(i, n, m)?;
@@ -6098,7 +6131,7 @@ impl VersionedTemporal for InnerTemporal3_2 {
     }
 }
 
-impl VersionedTEXTOffsets for TEXTOffsetsResult2_0 {
+impl VersionedTEXTOffsets for TEXTOffsets2_0 {
     type Tot = OptionalKw<Tot>;
 
     fn lookup(
@@ -6138,7 +6171,7 @@ impl VersionedTEXTOffsets for TEXTOffsetsResult2_0 {
     }
 }
 
-impl VersionedTEXTOffsets for TEXTOffsetsResult3_0 {
+impl VersionedTEXTOffsets for TEXTOffsets3_0 {
     type Tot = Tot;
 
     fn lookup(
@@ -6189,7 +6222,7 @@ impl VersionedTEXTOffsets for TEXTOffsetsResult3_0 {
     }
 }
 
-impl VersionedTEXTOffsets for TEXTOffsetsResult3_2 {
+impl VersionedTEXTOffsets for TEXTOffsets3_2 {
     type Tot = Tot;
 
     fn lookup(
@@ -6412,7 +6445,7 @@ impl LookupMetaroot for InnerMetaroot2_0 {
     fn lookup_shortname(
         kws: &mut StdKeywords,
         i: MeasIndex,
-    ) -> LookupResult<<Self::N as MightHave>::Wrapper<Shortname>> {
+    ) -> LookupResult<<Self::Name as MightHave>::Wrapper<Shortname>> {
         Ok(Shortname::lookup_opt(kws, i.into(), false))
     }
 
@@ -6443,7 +6476,7 @@ impl LookupMetaroot for InnerMetaroot3_0 {
     fn lookup_shortname(
         kws: &mut StdKeywords,
         i: MeasIndex,
-    ) -> LookupResult<<Self::N as MightHave>::Wrapper<Shortname>> {
+    ) -> LookupResult<<Self::Name as MightHave>::Wrapper<Shortname>> {
         Ok(Shortname::lookup_opt(kws, i.into(), false))
     }
 
@@ -6481,7 +6514,7 @@ impl LookupMetaroot for InnerMetaroot3_1 {
     fn lookup_shortname(
         kws: &mut StdKeywords,
         i: MeasIndex,
-    ) -> LookupResult<<Self::N as MightHave>::Wrapper<Shortname>> {
+    ) -> LookupResult<<Self::Name as MightHave>::Wrapper<Shortname>> {
         Shortname::lookup_req(kws, i.into()).map(|x| x.map(Identity))
     }
 
@@ -6539,7 +6572,7 @@ impl LookupMetaroot for InnerMetaroot3_2 {
     fn lookup_shortname(
         kws: &mut StdKeywords,
         i: MeasIndex,
-    ) -> LookupResult<<Self::N as MightHave>::Wrapper<Shortname>> {
+    ) -> LookupResult<<Self::Name as MightHave>::Wrapper<Shortname>> {
         Shortname::lookup_req(kws, i.into()).map(|x| x.map(Identity))
     }
 
@@ -6599,10 +6632,11 @@ impl LookupMetaroot for InnerMetaroot3_2 {
 }
 
 impl VersionedMetaroot for InnerMetaroot2_0 {
-    type O = InnerOptical2_0;
-    type T = InnerTemporal2_0;
-    type N = OptionalKwFamily;
-    type L = Layout2_0;
+    type Optical = InnerOptical2_0;
+    type Temporal = InnerTemporal2_0;
+    type Name = OptionalKwFamily;
+    type Layout = Layout2_0;
+    type Offsets = TEXTOffsets2_0;
 
     fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
         None
@@ -6664,12 +6698,15 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
             .chain(self.comp.as_ref_opt().map_or(vec![], |c| c.opt_keywords()))
     }
 
-    fn swap_optical_temporal_inner(old_t: Self::T, old_o: Self::O) -> (Self::O, Self::T) {
-        let new_t = Self::T {
+    fn swap_optical_temporal_inner(
+        old_t: Self::Temporal,
+        old_o: Self::Optical,
+    ) -> (Self::Optical, Self::Temporal) {
+        let new_t = Self::Temporal {
             peak: old_o.peak,
             scale: old_o.scale.map(|_| TemporalScale),
         };
-        let new_o = Self::O {
+        let new_o = Self::Optical {
             peak: old_t.peak,
             scale: old_t.scale.map(|_| Scale::Linear),
             wavelength: None.into(),
@@ -6679,10 +6716,11 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
 }
 
 impl VersionedMetaroot for InnerMetaroot3_0 {
-    type O = InnerOptical3_0;
-    type T = InnerTemporal3_0;
-    type N = OptionalKwFamily;
-    type L = Layout3_0;
+    type Optical = InnerOptical3_0;
+    type Temporal = InnerTemporal3_0;
+    type Name = OptionalKwFamily;
+    type Layout = Layout3_0;
+    type Offsets = TEXTOffsets3_0;
 
     fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
         None
@@ -6755,12 +6793,15 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
         .chain(self.timestamps.opt_keywords())
     }
 
-    fn swap_optical_temporal_inner(old_t: Self::T, old_o: Self::O) -> (Self::O, Self::T) {
-        let new_t = Self::T {
+    fn swap_optical_temporal_inner(
+        old_t: Self::Temporal,
+        old_o: Self::Optical,
+    ) -> (Self::Optical, Self::Temporal) {
+        let new_t = Self::Temporal {
             peak: old_o.peak,
             timestep: old_t.timestep,
         };
-        let new_o = Self::O {
+        let new_o = Self::Optical {
             scale: Scale::Linear,
             wavelength: None.into(),
             gain: None.into(),
@@ -6771,10 +6812,11 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
 }
 
 impl VersionedMetaroot for InnerMetaroot3_1 {
-    type O = InnerOptical3_1;
-    type T = InnerTemporal3_1;
-    type N = IdentityFamily;
-    type L = Layout3_1;
+    type Optical = InnerOptical3_1;
+    type Temporal = InnerTemporal3_1;
+    type Name = IdentityFamily;
+    type Layout = Layout3_1;
+    type Offsets = TEXTOffsets3_0;
 
     fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
         None
@@ -6849,13 +6891,16 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
         .chain(self.timestamps.opt_keywords())
     }
 
-    fn swap_optical_temporal_inner(old_t: Self::T, old_o: Self::O) -> (Self::O, Self::T) {
-        let new_t = Self::T {
+    fn swap_optical_temporal_inner(
+        old_t: Self::Temporal,
+        old_o: Self::Optical,
+    ) -> (Self::Optical, Self::Temporal) {
+        let new_t = Self::Temporal {
             peak: old_o.peak,
             display: old_o.display,
             timestep: old_t.timestep,
         };
-        let new_o = Self::O {
+        let new_o = Self::Optical {
             scale: Scale::Linear,
             wavelengths: None.into(),
             gain: None.into(),
@@ -6868,10 +6913,11 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
 }
 
 impl VersionedMetaroot for InnerMetaroot3_2 {
-    type O = InnerOptical3_2;
-    type T = InnerTemporal3_2;
-    type N = IdentityFamily;
-    type L = Layout3_2;
+    type Optical = InnerOptical3_2;
+    type Temporal = InnerTemporal3_2;
+    type Name = IdentityFamily;
+    type Layout = Layout3_2;
+    type Offsets = TEXTOffsets3_2;
 
     fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
         self.unstained.unstainedcenters.as_ref_opt()
@@ -6968,13 +7014,16 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
     //     Self::L::try_new(metaroot.datatype, endian, cs, conf)
     // }
 
-    fn swap_optical_temporal_inner(old_t: Self::T, old_o: Self::O) -> (Self::O, Self::T) {
-        let new_t = Self::T {
+    fn swap_optical_temporal_inner(
+        old_t: Self::Temporal,
+        old_o: Self::Optical,
+    ) -> (Self::Optical, Self::Temporal) {
+        let new_t = Self::Temporal {
             display: old_o.display,
             timestep: old_t.timestep,
             measurement_type: None.into(),
         };
-        let new_o = Self::O {
+        let new_o = Self::Optical {
             scale: Scale::Linear,
             display: old_t.display,
             wavelengths: None.into(),
@@ -7402,7 +7451,9 @@ impl fmt::Display for MissingMeasurementNameError {
 enum_from_disp!(
     pub StdDatasetFromRawError,
     [TEXT, LookupKeysError],
-    [Layout, NewDataLayoutError],
+    [Offsets, LookupTEXTOffsetsError],
+    // [Layout, NewDataLayoutError],
+    [Layout, ReadDataError0],
     [Data, NewDataReaderError],
     [Analysis, NewAnalysisReaderError],
     [DataRead, ReadDataError]
@@ -7411,7 +7462,8 @@ enum_from_disp!(
 enum_from_disp!(
     pub StdDatasetFromRawWarning,
     [TEXT, LookupMeasWarning],
-    [Layout, ColumnError<BitmaskError>],
+    [Offsets, LookupTEXTOffsetsWarning],
+    [Layout, ReadWarning],
     [Data, NewDataReaderWarning],
     [Analysis, NewAnalysisReaderWarning]
 );

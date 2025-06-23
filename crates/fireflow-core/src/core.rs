@@ -1,4 +1,3 @@
-use crate::api::RawTEXTOutput;
 use crate::config::*;
 use crate::data::*;
 use crate::error::*;
@@ -329,21 +328,13 @@ impl AnyCoreTEXT {
         version: Version,
         std: &mut StdKeywords,
         nonstd: NonStdKeywords,
-        conf: &StdTextReadConfig,
-    ) -> DeferredResult<Self, LookupMeasWarning, LookupKeysError> {
+        conf: &DataReadConfig,
+    ) -> DeferredResult<Self, StdTEXTFromRawWarning, StdTEXTFromRawError> {
         match version {
-            Version::FCS2_0 => {
-                CoreTEXT2_0::new_text_from_raw(std, nonstd, conf).def_map_value(|x| x.into())
-            }
-            Version::FCS3_0 => {
-                CoreTEXT3_0::new_text_from_raw(std, nonstd, conf).def_map_value(|x| x.into())
-            }
-            Version::FCS3_1 => {
-                CoreTEXT3_1::new_text_from_raw(std, nonstd, conf).def_map_value(|x| x.into())
-            }
-            Version::FCS3_2 => {
-                CoreTEXT3_2::new_text_from_raw(std, nonstd, conf).def_map_value(|x| x.into())
-            }
+            Version::FCS2_0 => CoreTEXT2_0::lookup(std, nonstd, conf).def_map_value(|x| x.into()),
+            Version::FCS3_0 => CoreTEXT3_0::lookup(std, nonstd, conf).def_map_value(|x| x.into()),
+            Version::FCS3_1 => CoreTEXT3_1::lookup(std, nonstd, conf).def_map_value(|x| x.into()),
+            Version::FCS3_2 => CoreTEXT3_2::lookup(std, nonstd, conf).def_map_value(|x| x.into()),
         }
     }
 }
@@ -2607,67 +2598,70 @@ where
     ///
     /// Return any errors encountered, including messing required keywords,
     /// parse errors, and/or deprecation warnings.
-    pub(crate) fn new_text_from_raw(
+    pub(crate) fn lookup(
         kws: &mut StdKeywords,
         nonstd: NonStdKeywords,
-        conf: &StdTextReadConfig,
-    ) -> DeferredResult<Self, LookupMeasWarning, LookupKeysError>
+        conf: &DataReadConfig,
+    ) -> DeferredResult<Self, StdTEXTFromRawWarning, StdTEXTFromRawError>
     where
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
         M::Optical: LookupOptical,
+        M::Layout: VersionedDataLayout,
     {
         // Lookup $PAR first since we need this to get the measurements
-        Par::lookup_req(kws).def_inner_into().def_and_maybe(|par| {
-            // $NEXTDATA/$BEGINSTEXT/$ENDSTEXT should have already been
-            // processed when we read the TEXT; remove them so they don't
-            // trigger false positives later when we test for pseudostandard keys
-            let _ = kws.remove(&Nextdata::std());
-            let _ = kws.remove(&Beginstext::std());
-            let _ = kws.remove(&Endstext::std());
+        Par::lookup_req(kws)
+            // .def_inner_into()
+            .def_inner_into::<StdTEXTFromRawWarning, StdTEXTFromRawError>()
+            .def_and_maybe(|par| {
+                // $NEXTDATA/$BEGINSTEXT/$ENDSTEXT should have already been
+                // processed when we read the TEXT; remove them so they don't
+                // trigger false positives later when we test for pseudostandard keys
+                let _ = kws.remove(&Nextdata::std());
+                let _ = kws.remove(&Beginstext::std());
+                let _ = kws.remove(&Endstext::std());
 
-            // Lookup measurements and metaroot with $PAR
-            let ns: Vec<_> = nonstd.into_iter().collect();
-            let mut tnt_core =
-                Self::lookup_measurements(kws, par, ns, conf).def_and_maybe(|(ms, meta_ns)| {
-                    Metaroot::lookup_metaroot(kws, &ms, meta_ns, conf)
-                        .def_map_value(|metaroot| CoreTEXT::new_unchecked(metaroot, ms, layout))
-                        .def_warnings_into()
-                })?;
+                // Lookup measurements and metaroot with $PAR
+                let ns: Vec<_> = nonstd.into_iter().collect();
+                let meas_res = Self::lookup_measurements(kws, par, ns, &conf.standard)
+                    .def_inner_into::<StdTEXTFromRawWarning, StdTEXTFromRawError>();
+                let layout_res = M::Layout::lookup(kws, &conf.shared, par)
+                    .def_inner_into::<StdTEXTFromRawWarning, StdTEXTFromRawError>();
+                let mut tnt_core =
+                    meas_res
+                        .def_zip(layout_res)
+                        .def_and_maybe(|((ms, meta_ns), layout)| {
+                            Metaroot::lookup_metaroot(kws, &ms, meta_ns, &conf.standard)
+                                .def_map_value(|metaroot| {
+                                    CoreTEXT::new_unchecked(metaroot, ms, layout)
+                                })
+                                .def_inner_into()
+                        })?;
 
-            // Check that the time measurement is present if we want it
-            tnt_core.eval_error(|core| {
-                if let Some(pat) = conf.time.pattern.as_ref() {
-                    if !conf.time.allow_missing && core.measurements.as_center().is_none() {
-                        return Some(LookupKeysError::Misc(MissingTime(pat.clone()).into()));
+                // Check that the time measurement is present if we want it
+                tnt_core.eval_error(|core| {
+                    if let Some(pat) = conf.standard.time.pattern.as_ref() {
+                        if !conf.standard.time.allow_missing
+                            && core.measurements.as_center().is_none()
+                        {
+                            let e = MissingTime(pat.clone());
+                            return Some(LookupKeysError::Misc(e.into()).into());
+                        }
                     }
-                }
-                None
-            });
+                    None
+                });
 
-            // At this point the only keywords that should be left are $TOT,
-            // $BEGINDATA, $ENDDATA, $BEGINANALYSIS, and $ENDANALYSIS.
-            // $TIMESTEP might also be present if it wasn't used for the
-            // time measurement. Make sure this is actually true
-            for k in kws.keys() {
-                if !(k == &Begindata::std()
-                    || k == &Enddata::std()
-                    || k == &Beginanalysis::std()
-                    || k == &Endanalysis::std()
-                    || k == &Tot::std()
-                    || k == &Timestep::std())
-                {
+                for k in kws.keys() {
                     let e = PseudostandardError(k.clone());
-                    if conf.allow_pseudostandard {
+                    if conf.standard.allow_pseudostandard {
                         tnt_core.push_warning(e.into());
                     } else {
                         tnt_core.push_error(e.into());
                     }
                 }
-            }
 
-            Ok(tnt_core)
-        })
+                Ok(tnt_core)
+            })
     }
 
     /// Remove a measurement matching the given name.
@@ -2809,7 +2803,7 @@ where
         let offset_res = M::Offsets::lookup_ro(kws, data_seg, analysis_seg, &conf.reader)
             .def_inner_into()
             .def_errors_liftio();
-        let core_res = CoreTEXT::new_text_from_raw(kws, nonstd, &conf.standard)
+        let core_res = CoreTEXT::lookup(kws, nonstd, conf)
             .def_inner_into()
             .def_errors_liftio();
         offset_res
@@ -6135,7 +6129,7 @@ impl VersionedTemporal for InnerTemporal3_2 {
 }
 
 impl VersionedTEXTOffsets for TEXTOffsets2_0 {
-    type Tot = OptionalKw<Tot>;
+    type Tot = Option<Tot>;
 
     fn lookup(
         kws: &mut StdKeywords,
@@ -6146,7 +6140,7 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
         Ok(Tot::remove_metaroot_opt(kws)
             .map_or_else(
                 |w| Tentative::new(None.into(), vec![w.into()], vec![]),
-                Tentative::new1,
+                |t| Tentative::new1(t.0),
             )
             .map(|tot| TEXTOffsets {
                 data: data.into_any(),
@@ -6164,7 +6158,7 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
         Ok(Tot::get_metaroot_opt(kws)
             .map_or_else(
                 |w| Tentative::new(None.into(), vec![w.into()], vec![]),
-                Tentative::new1,
+                |t| Tentative::new1(t.0),
             )
             .map(|tot| TEXTOffsets {
                 data: data.into_any(),
@@ -7452,30 +7446,45 @@ impl fmt::Display for MissingMeasurementNameError {
 }
 
 enum_from_disp!(
-    pub StdDatasetFromRawError,
-    [TEXT, LookupKeysError],
-    [Offsets, LookupTEXTOffsetsError],
-    // [Layout, NewDataLayoutError],
-    [Layout, ReadDataError0],
+    pub StdTEXTFromRawError,
+    [Metaroot, LookupKeysError],
+    [Layout, LookupLayoutError],
     [Data, NewDataReaderError],
     [Analysis, NewAnalysisReaderError],
+    [DataRead, ReadDataError],
+    [Pseudostandard, PseudostandardError]
+);
+
+enum_from_disp!(
+    pub StdTEXTFromRawWarning,
+    [Metaroot, LookupKeysWarning],
+    [Meas, LookupMeasWarning],
+    [Layout, LookupLayoutWarning],
+    [Data, NewDataReaderWarning],
+    [Analysis, NewAnalysisReaderWarning],
+    [Pseudostandard, PseudostandardError]
+);
+
+enum_from_disp!(
+    pub StdDatasetFromRawError,
+    [TEXT, StdTEXTFromRawError],
+    [Layout, ReadDataError0],
+    [Offsets, LookupTEXTOffsetsError],
     [DataRead, ReadDataError]
 );
 
 enum_from_disp!(
     pub StdDatasetFromRawWarning,
-    [TEXT, LookupMeasWarning],
+    [TEXT, StdTEXTFromRawWarning],
     [Offsets, LookupTEXTOffsetsWarning],
     [Layout, ReadWarning],
-    [Data, NewDataReaderWarning],
     [Analysis, NewAnalysisReaderWarning]
 );
 
 enum_from_disp!(
     pub LookupMeasWarning,
     [Parse, LookupKeysWarning],
-    [Pattern, NonStdMeasRegexError],
-    [Pseudostandard, PseudostandardError]
+    [Pattern, NonStdMeasRegexError]
 );
 
 pub struct RegionToMeasIndexError(GateIndex);

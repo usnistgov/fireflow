@@ -1,4 +1,5 @@
 use crate::core::*;
+use crate::data::LookupLayoutError;
 use crate::error::*;
 use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
 use crate::validated::pattern::*;
@@ -427,8 +428,7 @@ enum_from_disp!(
     // TODO this currently does nothing, need to add a flag to toggle these to
     // errors
     [Dep, DeprecatedError],
-    [Misc, LookupMiscError],
-    [Pseudostandard, PseudostandardError]
+    [Misc, LookupMiscError]
 );
 
 enum_from_disp!(

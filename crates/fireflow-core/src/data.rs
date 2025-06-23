@@ -350,6 +350,8 @@ pub trait VersionedDataLayout: Sized {
 
     fn ncols(&self) -> usize;
 
+    fn nbytes(&self, df: &FCSDataFrame) -> u64;
+
     fn h_read_df<R: Read + Seek>(
         &self,
         h: &mut BufReader<R>,
@@ -386,7 +388,7 @@ pub trait VersionedDataLayout: Sized {
         conf: &ReaderConfig,
     ) -> AnalysisReaderResult<AnalysisReader>;
 
-    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), AnyLossError>;
+    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>>;
 
     fn h_write_df<'a, W: Write>(
         &self,
@@ -2227,11 +2229,17 @@ impl<T> DelimAsciiLayout<T> {
         )
     }
 
-    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), AnyLossError> {
+    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
         df.iter_columns()
-            .map(|c| c.check_writer::<_, _, u64>(|_| None))
+            .enumerate()
+            .map(|(i, c)| {
+                c.check_writer::<_, _, u64>(|_| None)
+                    .map_err(|error| ColumnError {
+                        error: AnyLossError::Int(error),
+                        index: i.into(),
+                    })
+            })
             .gather()
-            .mult_map_errors(AnyLossError::Int)
             .void()
     }
 
@@ -2505,7 +2513,10 @@ impl<C, S, T> FixedLayout<C, S, T> {
             })
     }
 
-    fn check_writer<'a, I>(&self, df: &'a FCSDataFrame) -> MultiResult<(), AnyLossError>
+    fn check_writer<'a, I>(
+        &self,
+        df: &'a FCSDataFrame,
+    ) -> MultiResult<(), ColumnError<AnyLossError>>
     where
         C: Copy,
         I: Writable<'a, S, Inner = C>,
@@ -2514,7 +2525,13 @@ impl<C, S, T> FixedLayout<C, S, T> {
         self.columns
             .iter()
             .zip(df.iter_columns())
-            .map(|(col_type, col_data)| I::check_writer(*col_type, col_data))
+            .enumerate()
+            .map(|(i, (col_type, col_data))| {
+                I::check_writer(*col_type, col_data).map_err(|error| ColumnError {
+                    error,
+                    index: i.into(),
+                })
+            })
             .gather()
             .void()
     }
@@ -2603,6 +2620,13 @@ impl<C, S, T> FixedLayout<C, S, T> {
 
     fn ncols(&self) -> usize {
         self.columns.len()
+    }
+
+    fn nbytes(&self, df: &FCSDataFrame) -> u64
+    where
+        C: IsFixed,
+    {
+        (self.event_width() * df.nrows()) as u64
     }
 
     pub fn compute_nrows(
@@ -2800,39 +2824,33 @@ source_from_iter!(f64, u64, FromF64);
 source_from_iter!(f64, f32, FromF64);
 source_from_iter!(f64, f64, FromF64);
 
+macro_rules! match_any_uint {
+    ($value:expr, $root:ident, $inner:ident, $action:block) => {
+        match_many_to_one!(
+            $value,
+            $root,
+            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+            $inner,
+            $action
+        )
+    };
+}
+
 impl<T> AnyOrderedUintLayout<T> {
     fn layout_values(&self) -> OrderedLayoutValues {
-        match_many_to_one!(
-            self,
-            Self,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            l,
-            { l.layout_values(()) }
-        )
+        match_any_uint!(self, Self, l, { l.layout_values(()) })
     }
 
     fn tot_into<X>(self) -> AnyOrderedUintLayout<X> {
-        match_many_to_one!(
-            self,
-            Self,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            l,
-            { l.tot_into().into() }
-        )
+        match_any_uint!(self, Self, l, { l.tot_into().into() })
     }
 
     fn into_endian(self) -> Result<EndianLayout<NullAnyUintType>, OrderedToEndianError> {
-        match_many_to_one!(
-            self,
-            Self,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            l,
-            {
-                l.tot_into()
-                    .byte_layout_try_into()
-                    .map(|x| x.columns_into())
-            }
-        )
+        match_any_uint!(self, Self, l, {
+            l.tot_into()
+                .byte_layout_try_into()
+                .map(|x| x.columns_into())
+        })
     }
 
     pub(crate) fn try_new<D>(
@@ -2867,13 +2885,11 @@ impl<T> AnyOrderedUintLayout<T> {
     }
 
     fn ncols(&self) -> usize {
-        match_many_to_one!(
-            self,
-            Self,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            l,
-            { l.columns.len() }
-        )
+        match_any_uint!(self, Self, l, { l.columns.len() })
+    }
+
+    fn nbytes(&self, df: &FCSDataFrame) -> u64 {
+        match_any_uint!(self, Self, l, { l.nbytes(df) })
     }
 
     fn h_read_df<R: Read, W, E>(
@@ -2888,23 +2904,15 @@ impl<T> AnyOrderedUintLayout<T> {
         E: From<UnevenEventWidth> + From<TotEventMismatch>,
         T: TotDefinition,
     {
-        match_many_to_one!(
-            self,
-            Self,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            l,
-            { l.h_read_df_numeric::<_, ColumnReader<_, _, _>, _, E>(h, tot, seg, conf,) }
-        )
+        match_any_uint!(self, Self, l, {
+            l.h_read_df_numeric::<_, ColumnReader<_, _, _>, _, E>(h, tot, seg, conf)
+        })
     }
 
-    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), AnyLossError> {
-        match_many_to_one!(
-            self,
-            Self,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            l,
-            { l.check_writer::<ColumnWriter<_, _, _>>(df) }
-        )
+    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
+        match_any_uint!(self, Self, l, {
+            l.check_writer::<ColumnWriter<_, _, _>>(df)
+        })
     }
 
     fn h_write_df<'a, W: Write>(
@@ -2912,13 +2920,9 @@ impl<T> AnyOrderedUintLayout<T> {
         h: &mut BufWriter<W>,
         df: &'a FCSDataFrame,
     ) -> io::Result<()> {
-        match_many_to_one!(
-            self,
-            Self,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            l,
-            { l.h_write_df::<_, ColumnWriter<_, _, _>>(h, df) }
-        )
+        match_any_uint!(self, Self, l, {
+            l.h_write_df::<_, ColumnWriter<_, _, _>>(h, df)
+        })
     }
 }
 
@@ -2968,6 +2972,13 @@ impl<T> AnyAsciiLayout<T> {
         }
     }
 
+    fn nbytes(&self, df: &FCSDataFrame) -> u64 {
+        match self {
+            Self::Delimited(_) => df.ascii_nbytes(),
+            Self::Fixed(l) => l.nbytes(df),
+        }
+    }
+
     fn h_read_checked_df<R: Read>(
         &self,
         h: &mut BufReader<R>,
@@ -2993,7 +3004,7 @@ impl<T> AnyAsciiLayout<T> {
         }
     }
 
-    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), AnyLossError> {
+    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
         match self {
             Self::Fixed(l) => l.check_writer::<ColumnWriter<_, _, _>>(df),
             Self::Delimited(l) => l.check_writer(df),
@@ -3042,6 +3053,10 @@ impl VersionedDataLayout for Layout2_0 {
         self.0.ncols()
     }
 
+    fn nbytes(&self, df: &FCSDataFrame) -> u64 {
+        self.0.nbytes(df)
+    }
+
     fn h_read_df_inner<R: Read>(
         &self,
         h: &mut BufReader<R>,
@@ -3052,7 +3067,7 @@ impl VersionedDataLayout for Layout2_0 {
         self.0.h_read_checked_df(h, tot, seg, conf)
     }
 
-    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), AnyLossError> {
+    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
         self.0.check_writer(df)
     }
 
@@ -3119,6 +3134,10 @@ impl VersionedDataLayout for Layout3_0 {
         self.0.ncols()
     }
 
+    fn nbytes(&self, df: &FCSDataFrame) -> u64 {
+        self.0.nbytes(df)
+    }
+
     fn h_read_df_inner<R: Read>(
         &self,
         h: &mut BufReader<R>,
@@ -3129,7 +3148,7 @@ impl VersionedDataLayout for Layout3_0 {
         self.0.h_read_checked_df(h, tot, seg, conf)
     }
 
-    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), AnyLossError> {
+    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
         self.0.check_writer(df)
     }
 
@@ -3215,6 +3234,10 @@ impl VersionedDataLayout for Layout3_1 {
         self.0.ncols()
     }
 
+    fn nbytes(&self, df: &FCSDataFrame) -> u64 {
+        self.0.nbytes(df)
+    }
+
     fn h_read_df_inner<R: Read>(
         &self,
         h: &mut BufReader<R>,
@@ -3225,7 +3248,7 @@ impl VersionedDataLayout for Layout3_1 {
         self.0.h_read_df(h, tot, seg, conf)
     }
 
-    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), AnyLossError> {
+    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
         self.0.check_writer(df)
     }
 
@@ -3332,6 +3355,13 @@ impl VersionedDataLayout for Layout3_2 {
         }
     }
 
+    fn nbytes(&self, df: &FCSDataFrame) -> u64 {
+        match self {
+            Self::NonMixed(x) => x.nbytes(df),
+            Self::Mixed(m) => m.nbytes(df),
+        }
+    }
+
     fn h_read_df_inner<R: Read>(
         &self,
         h: &mut BufReader<R>,
@@ -3348,7 +3378,7 @@ impl VersionedDataLayout for Layout3_2 {
         }
     }
 
-    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), AnyLossError> {
+    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
         match self {
             Self::NonMixed(x) => x.check_writer(df),
             Self::Mixed(m) => m.check_writer::<WriterMixedType>(df),
@@ -3621,12 +3651,11 @@ impl<T> AnyOrderedLayout<T> {
     }
 
     fn ncols(&self) -> usize {
-        match self {
-            Self::Ascii(a) => a.ncols(),
-            Self::Integer(i) => i.ncols(),
-            Self::F32(f) => f.ncols(),
-            Self::F64(f) => f.ncols(),
-        }
+        match_many_to_one!(self, Self, [Ascii, Integer, F32, F64], x, { x.ncols() })
+    }
+
+    fn nbytes(&self, df: &FCSDataFrame) -> u64 {
+        match_many_to_one!(self, Self, [Ascii, Integer, F32, F64], x, { x.nbytes(df) })
     }
 
     pub(crate) fn tot_into<X>(self) -> AnyOrderedLayout<X> {
@@ -3662,7 +3691,7 @@ impl<T> AnyOrderedLayout<T> {
         }
     }
 
-    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), AnyLossError>
+    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>>
     where
         T: TotDefinition,
     {
@@ -3770,7 +3799,7 @@ impl NonMixedEndianLayout {
         }
     }
 
-    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), AnyLossError> {
+    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
         match self {
             Self::Ascii(x) => x.check_writer(df),
             Self::Integer(x) => x.check_writer::<WriterAnyUintType>(df),
@@ -3793,12 +3822,11 @@ impl NonMixedEndianLayout {
     }
 
     fn ncols(&self) -> usize {
-        match self {
-            Self::Ascii(a) => a.ncols(),
-            Self::Integer(i) => i.ncols(),
-            Self::F32(f) => f.ncols(),
-            Self::F64(f) => f.ncols(),
-        }
+        match_many_to_one!(self, Self, [Ascii, Integer, F32, F64], x, { x.ncols() })
+    }
+
+    fn nbytes(&self, df: &FCSDataFrame) -> u64 {
+        match_many_to_one!(self, Self, [Ascii, Integer, F32, F64], x, { x.nbytes(df) })
     }
 
     pub(crate) fn into_ordered<T>(self) -> LayoutConvertResult<AnyOrderedLayout<T>> {

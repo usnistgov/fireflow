@@ -160,8 +160,8 @@ impl FCSDataFrame {
         self.columns.len()
     }
 
-    pub fn size(&self) -> usize {
-        self.ncols() * self.nrows()
+    pub fn size(&self) -> u64 {
+        (self.ncols() * self.nrows()) as u64
     }
 
     pub(crate) fn is_empty(&self) -> bool {
@@ -227,14 +227,14 @@ impl FCSDataFrame {
     // }
 
     /// Return number of bytes this will occupy if written as delimited ASCII
-    pub(crate) fn ascii_nbytes(&self) -> usize {
+    pub(crate) fn ascii_nbytes(&self) -> u64 {
         let n = self.size();
         if n == 0 {
             return 0;
         }
         let ndelim = n - 1;
         let ndigits: u32 = self.iter_columns().map(|c| c.ascii_nbytes()).sum();
-        (ndigits as usize) + ndelim
+        u64::from(ndigits) + ndelim
     }
 }
 

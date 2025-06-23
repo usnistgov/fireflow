@@ -2854,18 +2854,19 @@ where
         conf: &WriteConfig,
     ) -> IODeferredResult<(), ColumnError<BitmaskError>, StdWriterError> {
         let df = &self.data;
+        let layout = self.layout.as_ref();
         let others = &self.others;
         let delim = conf.delim.inner();
         let tot = Tot(df.nrows());
         let analysis_len = self.analysis.0.len() as u64;
         let other_lens = others.0.iter().map(|o| o.0.len() as u64).collect();
 
-        self.layout
-            .as_writer(df, conf)
+        layout
+            .map_or(Ok(()), |l| l.check_writer(df))
             .mult_to_deferred()
             .def_errors_liftio()
-            .def_and_maybe(|mut writer| {
-                let data_len = writer.nbytes() as u64;
+            .def_and_maybe(|()| {
+                let data_len = layout.map(|l| l.nbytes(df)).unwrap_or_default();
                 let hdr_kws = self
                     .header_and_raw_keywords(tot, data_len, analysis_len, other_lens)
                     .map_err(ImpureError::Pure)
@@ -2890,7 +2891,9 @@ where
                     }
 
                     // write DATA
-                    writer.h_write(h)?;
+                    if let Some(l) = layout {
+                        l.h_write_df(h, df)?;
+                    }
 
                     // write ANALYSIS
                     h.write_all(&self.analysis.0)
@@ -7345,7 +7348,7 @@ pub struct TerminalDataLayoutFailure;
 enum_from_disp!(
     pub StdWriterError,
     [Layout, NewDataLayoutError],
-    [Writer, ColumnWriterError],
+    [Check, ColumnError<AnyLossError>],
     [Overflow, Uint8DigitOverflow]
 );
 

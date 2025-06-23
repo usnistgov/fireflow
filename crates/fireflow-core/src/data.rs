@@ -376,18 +376,6 @@ pub trait VersionedDataLayout: Sized {
         conf: &ReaderConfig,
     ) -> IODeferredResult<FCSDataFrame, ReadWarning, ReadDataError0>;
 
-    fn as_analysis_reader(
-        kws: &mut StdKeywords,
-        seg: HeaderAnalysisSegment,
-        conf: &ReaderConfig,
-    ) -> AnalysisReaderResult<AnalysisReader>;
-
-    fn as_analysis_reader_raw(
-        kws: &StdKeywords,
-        seg: HeaderAnalysisSegment,
-        conf: &ReaderConfig,
-    ) -> AnalysisReaderResult<AnalysisReader>;
-
     fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>>;
 
     fn h_write_df<'a, W: Write>(
@@ -1100,35 +1088,6 @@ impl fmt::Display for MixedToDoubleError {
             Self::IsFloat(e) => e.to_string(),
         };
         write!(f, "could not convert mixed from {e} to double")
-    }
-}
-
-pub struct AnalysisReader {
-    pub seg: AnyAnalysisSegment,
-}
-
-pub struct OthersReader<'a> {
-    pub segs: &'a [OtherSegment],
-}
-
-impl AnalysisReader {
-    pub(crate) fn h_read<R: Read + Seek>(&self, h: &mut BufReader<R>) -> io::Result<Analysis> {
-        let mut buf = vec![];
-        self.seg.inner.h_read_contents(h, &mut buf)?;
-        Ok(buf.into())
-    }
-}
-
-impl OthersReader<'_> {
-    pub(crate) fn h_read<R: Read + Seek>(&self, h: &mut BufReader<R>) -> io::Result<Others> {
-        let mut buf = vec![];
-        let mut others = vec![];
-        for s in self.segs.iter() {
-            s.inner.h_read_contents(h, &mut buf)?;
-            others.push(Other(buf.clone()));
-            buf.clear();
-        }
-        Ok(Others(others))
     }
 }
 
@@ -3079,26 +3038,6 @@ impl VersionedDataLayout for Layout2_0 {
         self.0.h_write_df(h, df)
     }
 
-    fn as_analysis_reader(
-        _: &mut StdKeywords,
-        seg: HeaderAnalysisSegment,
-        _: &ReaderConfig,
-    ) -> AnalysisReaderResult<AnalysisReader> {
-        Ok(Tentative::new1(AnalysisReader {
-            seg: seg.into_any(),
-        }))
-    }
-
-    fn as_analysis_reader_raw(
-        _: &StdKeywords,
-        seg: HeaderAnalysisSegment,
-        _: &ReaderConfig,
-    ) -> AnalysisReaderResult<AnalysisReader> {
-        Ok(Tentative::new1(AnalysisReader {
-            seg: seg.into_any(),
-        }))
-    }
-
     fn layout_values(&self) -> OrderedLayoutValues {
         self.0.layout_values()
     }
@@ -3158,22 +3097,6 @@ impl VersionedDataLayout for Layout3_0 {
         df: &'a FCSDataFrame,
     ) -> io::Result<()> {
         self.0.h_write_df(h, df)
-    }
-
-    fn as_analysis_reader(
-        kws: &mut StdKeywords,
-        seg: HeaderAnalysisSegment,
-        conf: &ReaderConfig,
-    ) -> AnalysisReaderResult<AnalysisReader> {
-        remove_analysis_seg_req(kws, seg, conf)
-    }
-
-    fn as_analysis_reader_raw(
-        kws: &StdKeywords,
-        seg: HeaderAnalysisSegment,
-        conf: &ReaderConfig,
-    ) -> AnalysisReaderResult<AnalysisReader> {
-        get_analysis_seg_req(kws, seg, conf)
     }
 
     fn layout_values(&self) -> OrderedLayoutValues {
@@ -3258,22 +3181,6 @@ impl VersionedDataLayout for Layout3_1 {
         df: &'a FCSDataFrame,
     ) -> io::Result<()> {
         self.0.h_write_df(h, df)
-    }
-
-    fn as_analysis_reader(
-        kws: &mut StdKeywords,
-        seg: HeaderAnalysisSegment,
-        conf: &ReaderConfig,
-    ) -> AnalysisReaderResult<AnalysisReader> {
-        remove_analysis_seg_req(kws, seg, conf)
-    }
-
-    fn as_analysis_reader_raw(
-        kws: &StdKeywords,
-        seg: HeaderAnalysisSegment,
-        conf: &ReaderConfig,
-    ) -> AnalysisReaderResult<AnalysisReader> {
-        get_analysis_seg_req(kws, seg, conf)
     }
 
     fn layout_values(&self) -> LayoutValues3_1 {
@@ -3396,76 +3303,12 @@ impl VersionedDataLayout for Layout3_2 {
         }
     }
 
-    fn as_analysis_reader(
-        kws: &mut StdKeywords,
-        seg: HeaderAnalysisSegment,
-        conf: &ReaderConfig,
-    ) -> AnalysisReaderResult<AnalysisReader> {
-        let ret = KeyedOptSegment::remove_or(
-            kws,
-            conf.analysis,
-            seg,
-            conf.allow_header_text_offset_mismatch,
-        )
-        .map(|s| AnalysisReader { seg: s })
-        .inner_into();
-        Ok(ret)
-    }
-
-    fn as_analysis_reader_raw(
-        kws: &StdKeywords,
-        seg: HeaderAnalysisSegment,
-        conf: &ReaderConfig,
-    ) -> AnalysisReaderResult<AnalysisReader> {
-        let ret = KeyedOptSegment::get_or(
-            kws,
-            conf.analysis,
-            seg,
-            conf.allow_header_text_offset_mismatch,
-        )
-        .map(|s| AnalysisReader { seg: s })
-        .inner_into();
-        Ok(ret)
-    }
-
     fn layout_values(&self) -> LayoutValues3_2 {
         match self {
             Self::NonMixed(x) => x.layout_values(None),
             Self::Mixed(x) => x.mixed_layout_values(),
         }
     }
-}
-
-fn remove_analysis_seg_req(
-    kws: &mut StdKeywords,
-    seg: HeaderAnalysisSegment,
-    conf: &ReaderConfig,
-) -> AnalysisReaderResult<AnalysisReader> {
-    KeyedReqSegment::remove_or(
-        kws,
-        conf.analysis,
-        seg,
-        conf.allow_header_text_offset_mismatch,
-        conf.allow_missing_required_offsets,
-    )
-    .def_inner_into()
-    .def_map_value(|s| AnalysisReader { seg: s })
-}
-
-fn get_analysis_seg_req(
-    kws: &StdKeywords,
-    seg: HeaderAnalysisSegment,
-    conf: &ReaderConfig,
-) -> AnalysisReaderResult<AnalysisReader> {
-    KeyedReqSegment::get_or(
-        kws,
-        conf.analysis,
-        seg,
-        conf.allow_header_text_offset_mismatch,
-        conf.allow_missing_required_offsets,
-    )
-    .def_inner_into()
-    .def_map_value(|s| AnalysisReader { seg: s })
 }
 
 // impl Layout2_0 {
@@ -3839,28 +3682,6 @@ impl NonMixedEndianLayout {
     }
 }
 
-// pub(crate) fn h_read_data_and_analysis<R: Read + Seek>(
-//     h: &mut BufReader<R>,
-//     data_reader: DataReader,
-//     analysis_reader: AnalysisReader,
-//     others_reader: OthersReader,
-// ) -> IOResult<
-//     (
-//         FCSDataFrame,
-//         Analysis,
-//         Others,
-//         AnyDataSegment,
-//         AnyAnalysisSegment,
-//     ),
-//     ReadDataError,
-// > {
-//     let dseg = data_reader.seg;
-//     let data = data_reader.h_read(h)?;
-//     let analysis = analysis_reader.h_read(h)?;
-//     let others = others_reader.h_read(h)?;
-//     Ok((data, analysis, others, dseg, analysis_reader.seg))
-// }
-
 enum_from_disp!(
     pub AsciiToUintError,
     [NotAscii, NotAsciiError],
@@ -3968,21 +3789,6 @@ enum_from_disp!(
     [Layout, ColumnError<BitmaskError>],
     [Width, UnevenEventWidth],
     [Segment, ReqSegmentWithDefaultWarning<DataSegmentId>]
-);
-
-pub(crate) type AnalysisReaderResult<T> =
-    DeferredResult<T, NewAnalysisReaderWarning, NewAnalysisReaderError>;
-
-enum_from_disp!(
-    pub NewAnalysisReaderError,
-    [ParseSeg, ReqSegmentWithDefaultError<AnalysisSegmentId>],
-    [Mismatch, SegmentMismatchWarning<AnalysisSegmentId>]
-);
-
-enum_from_disp!(
-    pub NewAnalysisReaderWarning,
-    [Opt, OptSegmentWithDefaultWarning<AnalysisSegmentId>],
-    [Req, ReqSegmentWithDefaultWarning<AnalysisSegmentId>]
 );
 
 pub struct TotEventMismatch {

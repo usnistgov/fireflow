@@ -33,6 +33,7 @@ use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::fmt;
+use std::io;
 use std::io::{BufReader, BufWriter, Read, Seek, Write};
 use std::marker::PhantomData;
 use std::str::FromStr;
@@ -255,19 +256,19 @@ where
         let mut state = serializer.serialize_struct("AnyCore", 2)?;
         match self {
             Self::FCS2_0(x) => {
-                state.serialize_field("version", &Version::FCS2_0)?;
+                state.serialize_field("version", &x.fcs_version())?;
                 state.serialize_field("data", &x)?;
             }
             Self::FCS3_0(x) => {
-                state.serialize_field("version", &Version::FCS3_0)?;
+                state.serialize_field("version", &x.fcs_version())?;
                 state.serialize_field("data", &x)?;
             }
             Self::FCS3_1(x) => {
-                state.serialize_field("version", &Version::FCS3_1)?;
+                state.serialize_field("version", &x.fcs_version())?;
                 state.serialize_field("data", &x)?;
             }
             Self::FCS3_2(x) => {
-                state.serialize_field("version", &Version::FCS3_2)?;
+                state.serialize_field("version", &x.fcs_version())?;
                 state.serialize_field("data", &x)?;
             }
         }
@@ -285,12 +286,9 @@ pub(crate) use match_anycore;
 
 impl<A, D, O> AnyCore<A, D, O> {
     pub fn version(&self) -> Version {
-        match self {
-            Self::FCS2_0(_) => Version::FCS2_0,
-            Self::FCS3_0(_) => Version::FCS3_0,
-            Self::FCS3_1(_) => Version::FCS3_1,
-            Self::FCS3_2(_) => Version::FCS3_2,
-        }
+        match_many_to_one!(self, Self, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
+            (*x).fcs_version()
+        })
     }
 
     pub fn shortnames(&self) -> Vec<Shortname> {
@@ -331,10 +329,18 @@ impl AnyCoreTEXT {
         conf: &DataReadConfig,
     ) -> DeferredResult<Self, StdTEXTFromRawWarning, StdTEXTFromRawError> {
         match version {
-            Version::FCS2_0 => CoreTEXT2_0::lookup(std, nonstd, conf).def_map_value(|x| x.into()),
-            Version::FCS3_0 => CoreTEXT3_0::lookup(std, nonstd, conf).def_map_value(|x| x.into()),
-            Version::FCS3_1 => CoreTEXT3_1::lookup(std, nonstd, conf).def_map_value(|x| x.into()),
-            Version::FCS3_2 => CoreTEXT3_2::lookup(std, nonstd, conf).def_map_value(|x| x.into()),
+            Version::FCS2_0(_) => {
+                CoreTEXT2_0::lookup(std, nonstd, conf).def_map_value(|x| x.into())
+            }
+            Version::FCS3_0(_) => {
+                CoreTEXT3_0::lookup(std, nonstd, conf).def_map_value(|x| x.into())
+            }
+            Version::FCS3_1(_) => {
+                CoreTEXT3_1::lookup(std, nonstd, conf).def_map_value(|x| x.into())
+            }
+            Version::FCS3_2(_) => {
+                CoreTEXT3_2::lookup(std, nonstd, conf).def_map_value(|x| x.into())
+            }
         }
     }
 }
@@ -360,7 +366,7 @@ impl AnyCoreDataset {
         StdDatasetFromRawError,
     > {
         match version {
-            Version::FCS2_0 => CoreDataset2_0::new_dataset_from_raw(
+            Version::FCS2_0(_) => CoreDataset2_0::new_dataset_from_raw(
                 h,
                 kws,
                 nonstd,
@@ -370,7 +376,7 @@ impl AnyCoreDataset {
                 conf,
             )
             .def_map_value(|(x, y, z)| (x.into(), y, z)),
-            Version::FCS3_0 => CoreDataset3_0::new_dataset_from_raw(
+            Version::FCS3_0(_) => CoreDataset3_0::new_dataset_from_raw(
                 h,
                 kws,
                 nonstd,
@@ -380,7 +386,7 @@ impl AnyCoreDataset {
                 conf,
             )
             .def_map_value(|(x, y, z)| (x.into(), y, z)),
-            Version::FCS3_1 => CoreDataset3_1::new_dataset_from_raw(
+            Version::FCS3_1(_) => CoreDataset3_1::new_dataset_from_raw(
                 h,
                 kws,
                 nonstd,
@@ -390,7 +396,7 @@ impl AnyCoreDataset {
                 conf,
             )
             .def_map_value(|(x, y, z)| (x.into(), y, z)),
-            Version::FCS3_2 => CoreDataset3_2::new_dataset_from_raw(
+            Version::FCS3_2(_) => CoreDataset3_2::new_dataset_from_raw(
                 h,
                 kws,
                 nonstd,
@@ -925,8 +931,57 @@ type RawInput3_0 = RawInput<OptionalKwFamily, Temporal3_0, Optical3_0>;
 type RawInput3_1 = RawInput<IdentityFamily, Temporal3_1, Optical3_1>;
 type RawInput3_2 = RawInput<IdentityFamily, Temporal3_2, Optical3_2>;
 
+/// Reader for ANALYSIS segment
+pub struct AnalysisReader {
+    pub seg: AnyAnalysisSegment,
+}
+
+/// Reader for OTHER segments
+pub struct OthersReader<'a> {
+    pub segs: &'a [OtherSegment],
+}
+
 pub trait Versioned {
-    fn fcs_version() -> Version;
+    type Layout: VersionedDataLayout;
+    type Offsets: VersionedTEXTOffsets<Tot = <Self::Layout as VersionedDataLayout>::Tot>;
+
+    // type Layout: VersionedDataLayout<Tot = Self::Tot>;
+
+    fn fcs_version() -> Self;
+
+    // fn h_lookup_and_read<R: Read + Seek>(
+    //     h: &mut BufReader<R>,
+    //     kws: &StdKeywords,
+    //     data: HeaderDataSegment,
+    //     analysis: HeaderAnalysisSegment,
+    //     conf: &DataReadConfig,
+    // ) -> IODeferredResult<
+    //     (FCSDataFrame, Analysis),
+    //     LookupAndReadDataAnalysisWarning,
+    //     LookupAndReadDataAnalysisError,
+    // > {
+    //     let layout_res = Self::Layout::lookup_ro(kws, &conf.shared)
+    //         .def_inner_into()
+    //         .def_errors_liftio();
+    //     let offset_res = Self::lookup_ro(kws, data, analysis, &conf.reader)
+    //         .def_inner_into()
+    //         .def_errors_liftio();
+    //     layout_res
+    //         .def_zip(offset_res)
+    //         .def_and_maybe(|(layout, offsets)| {
+    //             let ar = AnalysisReader {
+    //                 seg: offsets.analysis,
+    //             };
+    //             // TODO what if data seg is non empty and layout is empty?
+    //             let data_res = layout.map_or(Ok(Tentative::new1(FCSDataFrame::default())), |l| {
+    //                 l.h_read_df(h, offsets.tot, offsets.data, &conf.reader)
+    //                     .def_warnings_into()
+    //                     .def_map_errors(|e| e.inner_into())
+    //             });
+    //             let analysis_res = ar.h_read(h).map_err(|e| e.into()).into_deferred();
+    //             data_res.def_zip(analysis_res)
+    //         })
+    // }
 }
 
 pub(crate) trait LookupMetaroot: Sized + VersionedMetaroot {
@@ -974,11 +1029,12 @@ where
 }
 
 pub trait VersionedMetaroot: Sized {
-    type Optical: VersionedOptical;
-    type Temporal: VersionedTemporal;
+    type Ver: Versioned;
+    type Optical: VersionedOptical<Ver = Self::Ver>;
+    type Temporal: VersionedTemporal<Ver = Self::Ver>;
     type Name: MightHave;
-    type Layout: VersionedDataLayout;
-    type Offsets: VersionedTEXTOffsets<Tot = <Self::Layout as VersionedDataLayout>::Tot>;
+    // type Layout: VersionedDataLayout;
+    // type Offsets: VersionedTEXTOffsets<Tot = <Self::Layout as VersionedDataLayout>::Tot>;
 
     fn as_unstainedcenters(&self) -> Option<&UnstainedCenters>;
 
@@ -1070,7 +1126,9 @@ pub trait VersionedMetaroot: Sized {
     ) -> (Self::Optical, Self::Temporal);
 }
 
-pub trait VersionedOptical: Sized + Versioned {
+pub trait VersionedOptical: Sized {
+    type Ver: Versioned;
+
     fn req_suffixes_inner(&self, n: MeasIndex) -> impl Iterator<Item = (String, String, String)>;
 
     fn opt_suffixes_inner(
@@ -1090,6 +1148,8 @@ pub(crate) trait LookupOptical: Sized + VersionedOptical {
 }
 
 pub trait VersionedTemporal: Sized {
+    type Ver: Versioned;
+
     fn timestep(&self) -> Option<Timestep>;
 
     fn set_timestep(&mut self, ts: Timestep);
@@ -1205,7 +1265,7 @@ pub(crate) trait VersionedTEXTOffsets {
     ) -> LookupTEXTOffsetsResult<Self::Tot>;
 
     fn lookup_ro(
-        kws: &mut StdKeywords,
+        kws: &StdKeywords,
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
         conf: &ReaderConfig,
@@ -1289,11 +1349,11 @@ where
     }
 }
 
-impl<P> Optical<P>
+impl<O> Optical<O>
 where
-    P: VersionedOptical,
+    O: VersionedOptical,
 {
-    fn new_common(specific: P) -> Self {
+    fn new_common(specific: O) -> Self {
         Self {
             common: CommonMeasurement::default(),
             specific,
@@ -1305,7 +1365,7 @@ where
         }
     }
 
-    fn try_convert<ToP: ConvertFromOptical<P>>(
+    fn try_convert<ToP: ConvertFromOptical<O>>(
         self,
         i: MeasIndex,
         force: bool,
@@ -1328,18 +1388,18 @@ where
         conf: &StdTextReadConfig,
     ) -> LookupResult<Self>
     where
-        P: LookupOptical,
+        O: LookupOptical,
     {
-        let version = P::fcs_version();
+        let version = O::Ver::fcs_version();
         let f = Filter::lookup_opt(kws, i.into(), false);
         let p = Power::lookup_opt(kws, i.into(), false);
         let d = DetectorType::lookup_opt(kws, i.into(), false);
-        let e = PercentEmitted::lookup_opt(kws, i.into(), version == Version::FCS3_2);
+        let e = PercentEmitted::lookup_opt(kws, i.into(), version.into() == Version::FCS3_2);
         let v = DetectorVoltage::lookup_opt(kws, i.into(), false);
         f.zip5(p, d, e, v).and_maybe(
             |(filter, power, detector_type, percent_emitted, detector_voltage)| {
                 CommonMeasurement::lookup(kws, i, nonstd).and_maybe(|common| {
-                    P::lookup_specific(kws, i, conf).def_map_value(|specific| Optical {
+                    O::lookup_specific(kws, i, conf).def_map_value(|specific| Optical {
                         common,
                         filter,
                         power,
@@ -1647,7 +1707,7 @@ pub(crate) type VersionedCore<A, D, O, M> = Core<
     <M as VersionedMetaroot>::Optical,
     <M as VersionedMetaroot>::Name,
     <<M as VersionedMetaroot>::Name as MightHave>::Wrapper<Shortname>,
-    <M as VersionedMetaroot>::Layout,
+    <<M as VersionedMetaroot>::Ver as Versioned>::Layout,
 >;
 
 pub(crate) type VersionedCoreTEXT<M> = VersionedCore<(), (), (), M>;
@@ -1684,6 +1744,13 @@ where
     M: VersionedMetaroot,
     M::Name: Clone,
 {
+    pub(crate) fn fcs_version(&self) -> Version
+    where
+        Version: From<M::Ver>,
+    {
+        M::Ver::fcs_version().into()
+    }
+
     pub(crate) fn try_cols_to_dataframe(
         &self,
         cols: Vec<AnyFCSColumn>,
@@ -2184,6 +2251,8 @@ where
         VersionedConvertError<M::Name, ToM::Name>,
     >
     where
+        Version: From<M::Ver>,
+        Version: From<ToM::Ver>,
         M::Name: Clone,
         ToM: VersionedMetaroot,
         ToM: ConvertFromMetaroot<M>,
@@ -2193,7 +2262,7 @@ where
         ToM::Name: Clone,
         ToM::Optical: ConvertFromOptical<M::Optical>,
         ToM::Temporal: ConvertFromTemporal<M::Temporal>,
-        ToM::Layout: ConvertFromLayout<M::Layout>,
+        <ToM::Ver as Versioned>::Layout: ConvertFromLayout<<M::Ver as Versioned>::Layout>,
         <ToM::Name as MightHave>::Wrapper<Shortname>:
             TryFrom<<M::Name as MightHave>::Wrapper<Shortname>>,
     {
@@ -2232,8 +2301,8 @@ where
                 others: self.others,
             })
             .def_map_errors(|error| ConvertError {
-                from: M::Optical::fcs_version(),
-                to: ToM::Optical::fcs_version(),
+                from: M::Ver::fcs_version().into(),
+                to: ToM::Ver::fcs_version().into(),
                 inner: error,
             })
     }
@@ -2320,7 +2389,7 @@ where
             .opt_meta_keywords()
             .chain(self.opt_meas_keywords())
             .collect();
-        if M::Optical::fcs_version() == Version::FCS2_0 {
+        if M::Ver::fcs_version().into() == Version::FCS2_0 {
             make_data_offset_keywords_2_0(req, opt, data_len, analysis_len, other_lens)
         } else {
             make_data_offset_keywords_3_0(req, opt, data_len, analysis_len, other_lens)
@@ -2607,7 +2676,7 @@ where
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
         M::Optical: LookupOptical,
-        M::Layout: VersionedDataLayout,
+        <M::Ver as Versioned>::Layout: VersionedDataLayout,
     {
         // Lookup $PAR first since we need this to get the measurements
         Par::lookup_req(kws)
@@ -2625,7 +2694,7 @@ where
                 let ns: Vec<_> = nonstd.into_iter().collect();
                 let meas_res = Self::lookup_measurements(kws, par, ns, &conf.standard)
                     .def_inner_into::<StdTEXTFromRawWarning, StdTEXTFromRawError>();
-                let layout_res = M::Layout::lookup(kws, &conf.shared, par)
+                let layout_res = <M::Ver as Versioned>::Layout::lookup(kws, &conf.shared, par)
                     .def_inner_into::<StdTEXTFromRawWarning, StdTEXTFromRawError>();
                 let mut tnt_core =
                     meas_res
@@ -2651,12 +2720,24 @@ where
                     None
                 });
 
+                // At this point the only keywords that should be left are $TOT,
+                // $BEGINDATA, $ENDDATA, $BEGINANALYSIS, and $ENDANALYSIS.
+                // $TIMESTEP might also be present if it wasn't used for the
+                // time measurement. Make sure this is actually true
                 for k in kws.keys() {
-                    let e = PseudostandardError(k.clone());
-                    if conf.standard.allow_pseudostandard {
-                        tnt_core.push_warning(e.into());
-                    } else {
-                        tnt_core.push_error(e.into());
+                    if !(k == &Begindata::std()
+                        || k == &Enddata::std()
+                        || k == &Beginanalysis::std()
+                        || k == &Endanalysis::std()
+                        || k == &Tot::std()
+                        || k == &Timestep::std())
+                    {
+                        let e = PseudostandardError(k.clone());
+                        if conf.standard.allow_pseudostandard {
+                            tnt_core.push_warning(e.into());
+                        } else {
+                            tnt_core.push_error(e.into());
+                        }
                     }
                 }
 
@@ -2777,7 +2858,7 @@ impl<M> VersionedCoreDataset<M>
 where
     M: VersionedMetaroot,
     M::Name: Clone,
-    M::Layout: VersionedDataLayout,
+    <M::Ver as Versioned>::Layout: VersionedDataLayout,
 {
     pub(crate) fn new_dataset_from_raw<R: Read + Seek>(
         h: &mut BufReader<R>,
@@ -2797,12 +2878,11 @@ where
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
         M::Optical: LookupOptical,
-        M::Layout: VersionedDataLayout,
-        M::Offsets: VersionedTEXTOffsets<Tot = <M::Layout as VersionedDataLayout>::Tot>,
     {
-        let offset_res = M::Offsets::lookup_ro(kws, data_seg, analysis_seg, &conf.reader)
-            .def_inner_into()
-            .def_errors_liftio();
+        let offset_res =
+            <M::Ver as Versioned>::Offsets::lookup_ro(kws, data_seg, analysis_seg, &conf.reader)
+                .def_inner_into()
+                .def_errors_liftio();
         let core_res = CoreTEXT::lookup(kws, nonstd, conf)
             .def_inner_into()
             .def_errors_liftio();
@@ -2817,7 +2897,7 @@ where
                 // isn't?
                 let data_res = text.layout.as_ref().map_or(
                     Ok(Tentative::new1(FCSDataFrame::default())),
-                    |l: &M::Layout| {
+                    |l: &<M::Ver as Versioned>::Layout| {
                         l.h_read_df(h, offsets.tot, offsets.data, &conf.reader)
                             .def_warnings_into()
                             .def_map_errors(|e| e.inner_into())
@@ -2846,7 +2926,10 @@ where
         &self,
         h: &mut BufWriter<W>,
         conf: &WriteConfig,
-    ) -> IODeferredResult<(), ColumnError<BitmaskError>, StdWriterError> {
+    ) -> IODeferredResult<(), ColumnError<BitmaskError>, StdWriterError>
+    where
+        Version: From<M::Ver>,
+    {
         let df = &self.data;
         let layout = self.layout.as_ref();
         let others = &self.others;
@@ -2869,7 +2952,7 @@ where
 
                 let mut go = || {
                     // write HEADER
-                    hdr_kws.header.h_write(h, M::Optical::fcs_version())?;
+                    hdr_kws.header.h_write(h, M::Ver::fcs_version().into())?;
 
                     // write OTHER
                     for o in others.0.iter() {
@@ -5690,27 +5773,39 @@ impl ConvertFromLayout<Layout3_1> for Layout3_2 {
     }
 }
 
-impl Versioned for InnerOptical2_0 {
-    fn fcs_version() -> Version {
-        Version::FCS2_0
+impl Versioned for Version2_0 {
+    type Layout = Layout2_0;
+    type Offsets = TEXTOffsets2_0;
+
+    fn fcs_version() -> Self {
+        Version2_0
     }
 }
 
-impl Versioned for InnerOptical3_0 {
-    fn fcs_version() -> Version {
-        Version::FCS3_0
+impl Versioned for Version3_0 {
+    type Layout = Layout3_0;
+    type Offsets = TEXTOffsets3_0;
+
+    fn fcs_version() -> Self {
+        Version3_0
     }
 }
 
-impl Versioned for InnerOptical3_1 {
-    fn fcs_version() -> Version {
-        Version::FCS3_1
+impl Versioned for Version3_1 {
+    type Layout = Layout3_1;
+    type Offsets = TEXTOffsets3_0;
+
+    fn fcs_version() -> Self {
+        Version3_1
     }
 }
 
-impl Versioned for InnerOptical3_2 {
-    fn fcs_version() -> Version {
-        Version::FCS3_2
+impl Versioned for Version3_2 {
+    type Layout = Layout3_2;
+    type Offsets = TEXTOffsets3_2;
+
+    fn fcs_version() -> Self {
+        Version3_2
     }
 }
 
@@ -5886,6 +5981,7 @@ impl LookupTemporal for InnerTemporal3_2 {
 }
 
 impl VersionedOptical for InnerOptical2_0 {
+    type Ver = Version2_0;
     fn req_suffixes_inner(&self, _: MeasIndex) -> impl Iterator<Item = (String, String, String)> {
         [].into_iter()
     }
@@ -5916,6 +6012,7 @@ impl VersionedOptical for InnerOptical2_0 {
 }
 
 impl VersionedOptical for InnerOptical3_0 {
+    type Ver = Version3_0;
     fn req_suffixes_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String, String)> {
         [self.scale.triple(i.into())].into_iter()
     }
@@ -5948,6 +6045,7 @@ impl VersionedOptical for InnerOptical3_0 {
 }
 
 impl VersionedOptical for InnerOptical3_1 {
+    type Ver = Version3_1;
     fn req_suffixes_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String, String)> {
         [self.scale.triple(i.into())].into_iter()
     }
@@ -5983,6 +6081,7 @@ impl VersionedOptical for InnerOptical3_1 {
 }
 
 impl VersionedOptical for InnerOptical3_2 {
+    type Ver = Version3_2;
     fn req_suffixes_inner(&self, i: MeasIndex) -> impl Iterator<Item = (String, String, String)> {
         [self.scale.triple(i.into())].into_iter()
     }
@@ -6031,6 +6130,7 @@ impl VersionedOptical for InnerOptical3_2 {
 }
 
 impl VersionedTemporal for InnerTemporal2_0 {
+    type Ver = Version2_0;
     fn timestep(&self) -> Option<Timestep> {
         None
     }
@@ -6053,6 +6153,7 @@ impl VersionedTemporal for InnerTemporal2_0 {
 }
 
 impl VersionedTemporal for InnerTemporal3_0 {
+    type Ver = Version3_0;
     fn timestep(&self) -> Option<Timestep> {
         Some(self.timestep)
     }
@@ -6077,6 +6178,7 @@ impl VersionedTemporal for InnerTemporal3_0 {
 }
 
 impl VersionedTemporal for InnerTemporal3_1 {
+    type Ver = Version3_1;
     fn timestep(&self) -> Option<Timestep> {
         Some(self.timestep)
     }
@@ -6103,6 +6205,7 @@ impl VersionedTemporal for InnerTemporal3_1 {
 }
 
 impl VersionedTemporal for InnerTemporal3_2 {
+    type Ver = Version3_2;
     fn timestep(&self) -> Option<Timestep> {
         Some(self.timestep)
     }
@@ -6150,7 +6253,7 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
     }
 
     fn lookup_ro(
-        kws: &mut StdKeywords,
+        kws: &StdKeywords,
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
         _: &ReaderConfig,
@@ -6196,7 +6299,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
     }
 
     fn lookup_ro(
-        kws: &mut StdKeywords,
+        kws: &StdKeywords,
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
         conf: &ReaderConfig,
@@ -6248,14 +6351,14 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
     }
 
     fn lookup_ro(
-        kws: &mut StdKeywords,
+        kws: &StdKeywords,
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
         conf: &ReaderConfig,
     ) -> LookupTEXTOffsetsResult<Self::Tot> {
         let allow_mismatch = conf.allow_header_text_offset_mismatch;
         let allow_missing = conf.allow_missing_required_offsets;
-        let tot_res = Tot::remove_metaroot_req(kws).into_deferred();
+        let tot_res = Tot::get_metaroot_req(kws).into_deferred();
         let data_res = KeyedReqSegment::get_or(kws, conf.data, data, allow_mismatch, allow_missing)
             .def_inner_into();
         tot_res
@@ -6629,11 +6732,10 @@ impl LookupMetaroot for InnerMetaroot3_2 {
 }
 
 impl VersionedMetaroot for InnerMetaroot2_0 {
+    type Ver = Version2_0;
     type Optical = InnerOptical2_0;
     type Temporal = InnerTemporal2_0;
     type Name = OptionalKwFamily;
-    type Layout = Layout2_0;
-    type Offsets = TEXTOffsets2_0;
 
     fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
         None
@@ -6713,11 +6815,10 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
 }
 
 impl VersionedMetaroot for InnerMetaroot3_0 {
+    type Ver = Version3_0;
     type Optical = InnerOptical3_0;
     type Temporal = InnerTemporal3_0;
     type Name = OptionalKwFamily;
-    type Layout = Layout3_0;
-    type Offsets = TEXTOffsets3_0;
 
     fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
         None
@@ -6809,11 +6910,10 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
 }
 
 impl VersionedMetaroot for InnerMetaroot3_1 {
+    type Ver = Version3_1;
     type Optical = InnerOptical3_1;
     type Temporal = InnerTemporal3_1;
     type Name = IdentityFamily;
-    type Layout = Layout3_1;
-    type Offsets = TEXTOffsets3_0;
 
     fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
         None
@@ -6910,11 +7010,10 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
 }
 
 impl VersionedMetaroot for InnerMetaroot3_2 {
+    type Ver = Version3_2;
     type Optical = InnerOptical3_2;
     type Temporal = InnerTemporal3_2;
     type Name = IdentityFamily;
-    type Layout = Layout3_2;
-    type Offsets = TEXTOffsets3_2;
 
     fn as_unstainedcenters(&self) -> Option<&UnstainedCenters> {
         self.unstained.unstainedcenters.as_ref_opt()
@@ -7259,6 +7358,27 @@ impl<X> AsRef<CommonMeasurement> for Temporal<X> {
     }
 }
 
+impl AnalysisReader {
+    pub(crate) fn h_read<R: Read + Seek>(&self, h: &mut BufReader<R>) -> io::Result<Analysis> {
+        let mut buf = vec![];
+        self.seg.inner.h_read_contents(h, &mut buf)?;
+        Ok(buf.into())
+    }
+}
+
+impl OthersReader<'_> {
+    pub(crate) fn h_read<R: Read + Seek>(&self, h: &mut BufReader<R>) -> io::Result<Others> {
+        let mut buf = vec![];
+        let mut others = vec![];
+        for s in self.segs.iter() {
+            s.inner.h_read_contents(h, &mut buf)?;
+            others.push(Other(buf.clone()));
+            buf.clear();
+        }
+        Ok(Others(others))
+    }
+}
+
 enum_from_disp!(
     pub SetFloatError,
     [Nan, NanFloatOrInt],
@@ -7450,7 +7570,6 @@ enum_from_disp!(
     [Metaroot, LookupKeysError],
     [Layout, LookupLayoutError],
     [Data, NewDataReaderError],
-    [Analysis, NewAnalysisReaderError],
     [DataRead, ReadDataError],
     [Pseudostandard, PseudostandardError]
 );
@@ -7461,7 +7580,6 @@ enum_from_disp!(
     [Meas, LookupMeasWarning],
     [Layout, LookupLayoutWarning],
     [Data, NewDataReaderWarning],
-    [Analysis, NewAnalysisReaderWarning],
     [Pseudostandard, PseudostandardError]
 );
 
@@ -7477,8 +7595,7 @@ enum_from_disp!(
     pub StdDatasetFromRawWarning,
     [TEXT, StdTEXTFromRawWarning],
     [Offsets, LookupTEXTOffsetsWarning],
-    [Layout, ReadWarning],
-    [Analysis, NewAnalysisReaderWarning]
+    [Layout, ReadWarning]
 );
 
 enum_from_disp!(
@@ -7717,6 +7834,20 @@ enum_from_disp!(
     /// Error when a temporal keyword will be lost when converting to optical
     pub AnyTemporalToOpticalKeyLossError,
     [TempType,        IndexedKeyLossError<TemporalType>]
+);
+
+enum_from_disp!(
+    pub LookupAndReadDataAnalysisError,
+    [Offsets, LookupTEXTOffsetsError],
+    [Layout, RawToLayoutError],
+    [Data, ReadDataError0]
+);
+
+enum_from_disp!(
+    pub LookupAndReadDataAnalysisWarning,
+    [Offsets, LookupTEXTOffsetsWarning],
+    [Layout, RawToLayoutWarning],
+    [Data, ReadWarning]
 );
 
 enum_from_disp!(

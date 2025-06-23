@@ -21,16 +21,61 @@ use std::str;
 /// segments (which for now are not supported).
 pub const HEADER_LEN: u8 = 58;
 
-/// All FCS versions this library supports.
-///
-/// This appears as the first 6 bytes of any valid FCS file.
-#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Serialize)]
-pub enum Version {
-    FCS2_0,
-    FCS3_0,
-    FCS3_1,
-    FCS3_2,
+// /// All FCS versions this library supports.
+// ///
+// /// This appears as the first 6 bytes of any valid FCS file.
+// #[derive(Clone, Copy, Eq, PartialEq, Serialize)]
+// pub enum Version {
+//     // FCS2_0(Version2_0),
+//     // FCS3_0(Version3_0),
+//     // FCS3_1(Version3_1),
+//     // FCS3_2(Version3_2),
+//     FCS2_0,
+//     FCS3_0,
+//     FCS3_1,
+//     FCS3_2,
+// }
+
+enum_from_disp!(
+    /// All FCS versions this library supports.
+    ///
+    /// This appears as the first 6 bytes of any valid FCS file.
+    #[derive(Clone, Copy, Eq, PartialEq, Serialize)]
+    pub Version,
+    [FCS2_0, Version2_0],
+    [FCS3_0, Version3_0],
+    [FCS3_1, Version3_1],
+    [FCS3_2, Version3_2]
+);
+
+macro_rules! impl_version {
+    ($name:ident, $text:expr) => {
+        #[derive(Clone, Copy, Eq, PartialEq, Serialize)]
+        pub struct $name;
+
+        impl str::FromStr for $name {
+            type Err = VersionError;
+
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                match s {
+                    $text => Ok(Self),
+                    _ => Err(VersionError),
+                }
+            }
+        }
+
+        impl fmt::Display for $name {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+                f.write_str($text)
+            }
+        }
+    };
 }
+
+impl_version!(Version2_0, "FCS2.0");
+impl_version!(Version3_0, "FCS3.0");
+impl_version!(Version3_1, "FCS3.1");
+impl_version!(Version3_2, "FCS3.2");
 
 /// The three segments from the HEADER
 #[derive(Clone, Serialize)]
@@ -298,26 +343,24 @@ impl str::FromStr for Version {
     type Err = VersionError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "FCS2.0" => Ok(Version::FCS2_0),
-            "FCS3.0" => Ok(Version::FCS3_0),
-            "FCS3.1" => Ok(Version::FCS3_1),
-            "FCS3.2" => Ok(Version::FCS3_2),
-            _ => Err(VersionError),
-        }
+        Version2_0::from_str(s)
+            .map(|x| x.into())
+            .or(Version3_0::from_str(s).map(|x| x.into()))
+            .or(Version3_1::from_str(s).map(|x| x.into()))
+            .or(Version3_2::from_str(s).map(|x| x.into()))
     }
 }
 
-impl fmt::Display for Version {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Version::FCS2_0 => write!(f, "FCS2.0"),
-            Version::FCS3_0 => write!(f, "FCS3.0"),
-            Version::FCS3_1 => write!(f, "FCS3.1"),
-            Version::FCS3_2 => write!(f, "FCS3.2"),
-        }
-    }
-}
+// impl fmt::Display for Version {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+//         match self {
+//             Version::FCS2_0 => write!(f, "FCS2.0"),
+//             Version::FCS3_0 => write!(f, "FCS3.0"),
+//             Version::FCS3_1 => write!(f, "FCS3.1"),
+//             Version::FCS3_2 => write!(f, "FCS3.2"),
+//         }
+//     }
+// }
 
 pub enum HeaderError {
     Segment(HeaderSegmentError),

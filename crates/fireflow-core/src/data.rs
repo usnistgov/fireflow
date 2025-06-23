@@ -1,44 +1,52 @@
 //! Things pertaining to the DATA segment (mostly)
 //!
-//! Basic overview: DATA is arranged according to version specific "layouts".
-//! Each layout will enumerate all possible combinations that may be represented
-//! in version, which directly correspond to all valid combinations of $BYTEORD,
-//! $DATATYPE, $PnB, $PnR, and $PnDATATYPE in the case of 3.2.
+//! Basic overview: DATA is arranged according to version-specific "layouts".
+//! Each layout will enumerate all possible combinations for a given version,
+//! which directly correspond to all valid combinations of $BYTEORD, $DATATYPE,
+//! $PnB, $PnR, and $PnDATATYPE in the case of 3.2.
 //!
 //! Each layout may then be projected in a "reader" or "writer." Readers are
-//! essentially blank vectors waiting to accept the data from disk. Writers are
-//! iterators that read values from the dataframe, possibly convert them, and
-//! emit the resulting bytes for writing to disk.
+//! blank vectors waiting to accept data from disk. Writers are iterators that
+//! read values from a dataframe and possibly convert them before writing.
 //!
 //! Now for the ugly bits.
 //!
-//! Performance is critical since files can be large, and we want to possibly
-//! pass data into Python, R, etc. Therefore, no dynamic dispatch. This is also
-//! sensible to avoid given that the types should represent *valid* layout
-//! configurations only, which trait objects obscure.
+//! Layouts can first be classified by column width, where "fixed" layouts have
+//! a single width per column and "delimited" layouts have a variable width. The
+//! latter only corresponds to one layout: the case where $DATATYPE=A and all
+//! $PnB=*. Values in such layouts will always be read as u64.
 //!
-//! For layouts this isn't so bad; the main rub is that floats have two widths
-//! (32 and 64), integers have eight widths (1-8 bytes), and each of these can
-//! have their bytes as big/little endian or using byte order where the bytes
-//! may not be strictly monotonic in either direction. The former is refereed to
-//! as "Endian" and the latter "Ordered" throughout.
+//! Fixed layouts can further be classified by the type in each column:
+//! 1) Single-type numeric layouts (aka "matrices")
+//! 2) Fixed ASCII layouts
+//! 3) Variable-width integer layouts
+//! 4) Mixed layouts
 //!
-//! To make this extra confusing, Endian is a subset of Ordered, since all
-//! possible byte orders include the two corresponding to big/little endian.
-//! This is important, because if we allowed Ordered in all versions, then it
-//! would be theoretically possible to create a 3.1 or 3.2 layout with a
-//! non-big/little endian byte order, which is bad design.
+//! (1) is the simplest; each column is the same type which corresponds directly
+//! with a native Rust type. This includes f32, f64, and uint ranging from 1 to
+//! 8 bytes (including those that aren't powers of 2). Each type has a slightly
+//! different reader/writer corresponding to distinct byte interpretations on
+//! disk. (2) is similar in that the entire layout is one type; however, each
+//! number is always read as u64 subject to the chars allowed by $PnB. (1)/(2)
+//! are the only possibilities for FCS 2.0/3.0 since $BYTEORD restricts all $PnB
+//! to the same width in the case of numeric $DATATYPE.
 //!
-//! For readers/writers, it is sensible to use one type for all layouts, since
-//! the readers/writers do not directly correspond to keywords in TEXT. It would
-//! also be a giant pain to make version-specific readers/writers, and the gain
-//! would be minimal. Thus each layout for each version will be non-surjectively
-//! mapped into a reader or writer. Principally, this means that Endian layouts
-//! will get mapped into Ordered layouts, since the latter includes the former.
+//! (3) is a weird layout that almost nobody likely uses but is nonetheless
+//! permitted starting with 3.1. Since $BYTEORD was changed to only mean
+//! endian-ness, its relation to $PnB was severed. When DATATYPE=I, this means
+//! $PnB may be changed freely, which allows different integer widths in each
+//! column. In practice this makes the resulting data structure a dataframe (vs
+//! a matrix).
 //!
-//! Lastly, writers are extra fun because they encode iterators that map from
-//! all possible types in the dataframe (six) to all possible types that may be
-//! written (twelve).
+//! (4) was newly added to 3.2 by way of the PnDATATYPE keywords which now
+//! allows the data layout to include any type. This obviously more complex but
+//! is not computationally very different from (3).
+//!
+//! In addition to width, layouts may also be classified by whether $TOT is
+//! known. In 2.0, $TOT is optional and may not be given. For delimited ASCII
+//! layouts, not have $TOT means we need to parse until we reach the end of
+//! DATA, hoping that all columns have the same length. For fixed layouts, we
+//! can compute $TOT using $PnB and the length of DATA.
 
 use crate::config::{ReaderConfig, SharedConfig};
 use crate::core::*;
@@ -196,6 +204,10 @@ pub enum MixedType<F: ColumnFamily> {
     F64(NativeWrapper<F, F64Type>),
 }
 
+type NullMixedType = MixedType<ColumnNullFamily>;
+type ReaderMixedType = MixedType<ColumnReaderFamily>;
+type WriterMixedType<'a> = MixedType<ColumnWriterFamily<'a>>;
+
 /// A big or little-endian integer column of some size (1-8 bytes)
 pub enum AnyUintType<F: ColumnFamily> {
     Uint08(NativeWrapper<F, Uint08Type>),
@@ -208,6 +220,10 @@ pub enum AnyUintType<F: ColumnFamily> {
     Uint64(NativeWrapper<F, Uint64Type>),
 }
 
+type NullAnyUintType = AnyUintType<ColumnNullFamily>;
+type ReaderAnyUintType = AnyUintType<ColumnReaderFamily>;
+type WriterAnyUintType<'a> = AnyUintType<ColumnWriterFamily<'a>>;
+
 /// Instructions to read one column and store in a vector
 struct ColumnReader<C, T, S> {
     column_type: C,
@@ -215,12 +231,16 @@ struct ColumnReader<C, T, S> {
     byte_layout: PhantomData<S>,
 }
 
+type UintColumnReader<C> = ColumnReader<C, <C as HasNativeType>::Native, Endian>;
+
 /// Instructions to write one column using an iterator
 struct ColumnWriter<'a, C, T, S> {
     column_type: C,
     data: AnySource<'a, T>,
     byte_layout: PhantomData<S>,
 }
+
+type UintColumnWriter<'a, C> = ColumnWriter<'a, C, <C as HasNativeType>::Native, Endian>;
 
 /// Marker type for columns which are used in a layout (non-reader/writer)
 struct ColumnNullFamily;
@@ -267,6 +287,9 @@ type ColumnLayoutValues3_2 = ColumnLayoutValues<Option<NumType>>;
 trait ColumnFamily {
     type ColumnWrapper<C, T, S>;
 }
+
+type NativeWrapper<F, C> =
+    <F as ColumnFamily>::ColumnWrapper<C, <C as HasNativeType>::Native, Endian>;
 
 /// Methods for a type which may or may not have $TOT
 trait TotDefinition {
@@ -790,22 +813,19 @@ macro_rules! any_uint_from {
             }
         }
 
-        impl From<UintColumnReader0<$inner>> for ReaderAnyUintType {
-            fn from(value: UintColumnReader0<$inner>) -> Self {
+        impl From<UintColumnReader<$inner>> for ReaderAnyUintType {
+            fn from(value: UintColumnReader<$inner>) -> Self {
                 Self::$var(value)
             }
         }
 
-        impl<'a> From<UintColumnWriter0<'a, $inner>> for WriterAnyUintType<'a> {
-            fn from(value: UintColumnWriter0<'a, $inner>) -> Self {
+        impl<'a> From<UintColumnWriter<'a, $inner>> for WriterAnyUintType<'a> {
+            fn from(value: UintColumnWriter<'a, $inner>) -> Self {
                 Self::$var(value)
             }
         }
     };
 }
-
-type UintColumnReader0<C> = ColumnReader<C, <C as HasNativeType>::Native, Endian>;
-type UintColumnWriter0<'a, C> = ColumnWriter<'a, C, <C as HasNativeType>::Native, Endian>;
 
 any_uint_from!(Uint08, Uint08Type);
 any_uint_from!(Uint16, Uint16Type);
@@ -816,20 +836,8 @@ any_uint_from!(Uint48, Uint48Type);
 any_uint_from!(Uint56, Uint56Type);
 any_uint_from!(Uint64, Uint64Type);
 
-type NullMixedType = MixedType<ColumnNullFamily>;
-type NullAnyUintType = AnyUintType<ColumnNullFamily>;
-
-type ReaderMixedType = MixedType<ColumnReaderFamily>;
-type ReaderAnyUintType = AnyUintType<ColumnReaderFamily>;
-
-type WriterMixedType<'a> = MixedType<ColumnWriterFamily<'a>>;
-type WriterAnyUintType<'a> = AnyUintType<ColumnWriterFamily<'a>>;
-
 impl Copy for NullMixedType {}
 impl Copy for NullAnyUintType {}
-
-type NativeWrapper<F, C> =
-    <F as ColumnFamily>::ColumnWrapper<C, <C as HasNativeType>::Native, Endian>;
 
 impl TotDefinition for MaybeTot {
     type Tot = Option<Tot>;
@@ -1545,80 +1553,6 @@ impl ToNativeWriter for AsciiType {
     }
 }
 
-impl NullAnyUintType {
-    fn try_new<D>(
-        c: ColumnLayoutValues<D>,
-        notrunc: bool,
-    ) -> DeferredResult<Self, BitmaskError, NewUintTypeError> {
-        let r = c.range;
-        c.width
-            .try_into()
-            .into_deferred()
-            .def_and_tentatively(|bytes: Bytes| {
-                // ASSUME this can only be 1-8
-                match u8::from(bytes) {
-                    1 => u8::column_type(r, notrunc).map(Self::Uint08),
-                    2 => u16::column_type(r, notrunc).map(Self::Uint16),
-                    3 => u32::column_type(r, notrunc).map(Self::Uint24),
-                    4 => u32::column_type(r, notrunc).map(Self::Uint32),
-                    5 => u64::column_type(r, notrunc).map(Self::Uint40),
-                    6 => u64::column_type(r, notrunc).map(Self::Uint48),
-                    7 => u64::column_type(r, notrunc).map(Self::Uint56),
-                    8 => u64::column_type(r, notrunc).map(Self::Uint64),
-                    _ => unreachable!(),
-                }
-                .errors_into()
-            })
-    }
-
-    pub(crate) fn try_into_one_size<X, E, T>(
-        self,
-        tail: Vec<X>,
-        endian: Endian,
-        starting_index: usize,
-    ) -> MultiResult<AnyOrderedUintLayout<T>, (MeasIndex, E)>
-    where
-        Uint08Type: TryFrom<X, Error = E>,
-        Uint16Type: TryFrom<X, Error = E>,
-        Uint24Type: TryFrom<X, Error = E>,
-        Uint32Type: TryFrom<X, Error = E>,
-        Uint40Type: TryFrom<X, Error = E>,
-        Uint48Type: TryFrom<X, Error = E>,
-        Uint56Type: TryFrom<X, Error = E>,
-        Uint64Type: TryFrom<X, Error = E>,
-    {
-        match_many_to_one!(
-            self,
-            Self,
-            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
-            x,
-            {
-                UintType::try_from_many(tail, starting_index)
-                    .map(|xs| FixedLayout::new1(x, xs, endian.into()).into())
-            }
-        )
-    }
-}
-
-impl<T, const LEN: usize> UintType<T, LEN> {
-    fn try_from_many<E, X>(
-        xs: Vec<X>,
-        starting_index: usize,
-    ) -> MultiResult<Vec<Self>, (MeasIndex, E)>
-    where
-        Self: TryFrom<X, Error = E>,
-    {
-        xs.into_iter()
-            .enumerate()
-            .map(|(i, c)| {
-                Self::try_from(c)
-                    .map_err(|e| ((i + starting_index).into(), e))
-                    .map(UintType::from)
-            })
-            .gather()
-    }
-}
-
 macro_rules! uint_to_mixed {
     ($uint:ident, $wrap:ident) => {
         impl From<$uint> for NullMixedType {
@@ -1966,6 +1900,33 @@ impl IntFromBytes<6> for u64 {}
 impl IntFromBytes<7> for u64 {}
 impl IntFromBytes<8> for u64 {}
 
+impl<T, const LEN: usize> UintType<T, LEN> {
+    fn try_from_many<E, X>(
+        xs: Vec<X>,
+        starting_index: usize,
+    ) -> MultiResult<Vec<Self>, (MeasIndex, E)>
+    where
+        Self: TryFrom<X, Error = E>,
+    {
+        xs.into_iter()
+            .enumerate()
+            .map(|(i, c)| {
+                Self::try_from(c)
+                    .map_err(|e| ((i + starting_index).into(), e))
+                    .map(UintType::from)
+            })
+            .gather()
+    }
+}
+
+impl AsciiType {
+    fn try_new(width: Width, range: Range) -> MultiResult<Self, NewAsciiTypeError> {
+        let c = Chars::try_from(width).map_err(|e| e.into());
+        let r = u64::try_from(range.0).map_err(|e| e.into());
+        c.zip(r).map(|(chars, range)| Self { chars, range })
+    }
+}
+
 // TODO also check scale here?
 impl NullMixedType {
     pub(crate) fn try_new(
@@ -1996,6 +1957,61 @@ impl NullMixedType {
             Self::F32(_) => Some(NumType::Single),
             Self::F64(_) => Some(NumType::Double),
         }
+    }
+}
+
+impl NullAnyUintType {
+    fn try_new<D>(
+        c: ColumnLayoutValues<D>,
+        notrunc: bool,
+    ) -> DeferredResult<Self, BitmaskError, NewUintTypeError> {
+        let r = c.range;
+        c.width
+            .try_into()
+            .into_deferred()
+            .def_and_tentatively(|bytes: Bytes| {
+                // ASSUME this can only be 1-8
+                match u8::from(bytes) {
+                    1 => u8::column_type(r, notrunc).map(Self::Uint08),
+                    2 => u16::column_type(r, notrunc).map(Self::Uint16),
+                    3 => u32::column_type(r, notrunc).map(Self::Uint24),
+                    4 => u32::column_type(r, notrunc).map(Self::Uint32),
+                    5 => u64::column_type(r, notrunc).map(Self::Uint40),
+                    6 => u64::column_type(r, notrunc).map(Self::Uint48),
+                    7 => u64::column_type(r, notrunc).map(Self::Uint56),
+                    8 => u64::column_type(r, notrunc).map(Self::Uint64),
+                    _ => unreachable!(),
+                }
+                .errors_into()
+            })
+    }
+
+    pub(crate) fn try_into_one_size<X, E, T>(
+        self,
+        tail: Vec<X>,
+        endian: Endian,
+        starting_index: usize,
+    ) -> MultiResult<AnyOrderedUintLayout<T>, (MeasIndex, E)>
+    where
+        Uint08Type: TryFrom<X, Error = E>,
+        Uint16Type: TryFrom<X, Error = E>,
+        Uint24Type: TryFrom<X, Error = E>,
+        Uint32Type: TryFrom<X, Error = E>,
+        Uint40Type: TryFrom<X, Error = E>,
+        Uint48Type: TryFrom<X, Error = E>,
+        Uint56Type: TryFrom<X, Error = E>,
+        Uint64Type: TryFrom<X, Error = E>,
+    {
+        match_many_to_one!(
+            self,
+            Self,
+            [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
+            x,
+            {
+                UintType::try_from_many(tail, starting_index)
+                    .map(|xs| FixedLayout::new1(x, xs, endian.into()).into())
+            }
+        )
     }
 }
 
@@ -2887,14 +2903,6 @@ impl<T> AnyOrderedUintLayout<T> {
             l,
             { l.h_write_df::<_, ColumnWriter<_, _, _>>(h, df) }
         )
-    }
-}
-
-impl AsciiType {
-    fn try_new(width: Width, range: Range) -> MultiResult<Self, NewAsciiTypeError> {
-        let c = Chars::try_from(width).map_err(|e| e.into());
-        let r = u64::try_from(range.0).map_err(|e| e.into());
-        c.zip(r).map(|(chars, range)| Self { chars, range })
     }
 }
 

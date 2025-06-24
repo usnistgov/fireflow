@@ -155,7 +155,7 @@ pub struct DelimAsciiLayout<T> {
 
 /// Byte layout where each column has a fixed width.
 #[derive(Clone)]
-struct FixedLayout<C, L, T> {
+pub struct FixedLayout<C, L, T> {
     byte_layout: L,
     columns: NonEmpty<C>,
     tot_action: PhantomData<T>,
@@ -243,7 +243,7 @@ struct ColumnWriter<'a, C, T, S> {
 type UintColumnWriter<'a, C> = ColumnWriter<'a, C, <C as HasNativeType>::Native, Endian>;
 
 /// Marker type for columns which are used in a layout (non-reader/writer)
-struct ColumnNullFamily;
+pub(crate) struct ColumnNullFamily;
 
 /// Marker type for columns which are in a layout and have data for reading
 struct ColumnReaderFamily;
@@ -253,14 +253,14 @@ struct ColumnWriterFamily<'a>(std::marker::PhantomData<&'a ()>);
 
 /// Marker type for layouts that might have $TOT
 #[derive(Clone, Serialize)]
-struct MaybeTot;
+pub struct MaybeTot;
 
 /// Marker type for layouts that always have $TOT
 #[derive(Clone, Serialize)]
-struct KnownTot;
+pub struct KnownTot;
 
 /// A struct whose fields map 1-1 with keyword values pertaining to data layout.
-struct LayoutValues<S, D> {
+pub struct LayoutValues<S, D> {
     datatype: AlphaNumType,
     byte_layout: S,
     columns: Vec<ColumnLayoutValues<D>>,
@@ -271,7 +271,7 @@ type LayoutValues3_1 = LayoutValues<Endian, ()>;
 type LayoutValues3_2 = LayoutValues<Endian, Option<NumType>>;
 
 /// A struct whose fields map 1-1 with keyword values in one data column
-struct ColumnLayoutValues<D> {
+pub struct ColumnLayoutValues<D> {
     width: Width,
     range: Range,
     datatype: D,
@@ -284,7 +284,7 @@ type ColumnLayoutValues3_2 = ColumnLayoutValues<Option<NumType>>;
 ///
 /// Used to implement a higher-kinded type interface for columns that can be
 /// by themselves or associated with reader or writer data.
-trait ColumnFamily {
+pub trait ColumnFamily {
     type ColumnWrapper<C, T, S>;
 }
 
@@ -376,13 +376,12 @@ pub trait VersionedDataLayout: Sized {
         conf: &ReaderConfig,
     ) -> IODeferredResult<FCSDataFrame, ReadWarning, ReadDataError0>;
 
-    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>>;
+    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>>;
 
-    fn h_write_df<'a, W: Write>(
-        &self,
-        h: &mut BufWriter<W>,
-        df: &'a FCSDataFrame,
-    ) -> io::Result<()> {
+    fn h_write_df<W>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame) -> io::Result<()>
+    where
+        W: Write,
+    {
         // The dataframe should be encapsulated such that a) the column number
         // matches the number of measurements. If these are not true, the code
         // is wrong.
@@ -391,14 +390,11 @@ pub trait VersionedDataLayout: Sized {
         if ncols != par {
             panic!("datafame columns ({ncols}) unequal to number of measurements ({par})");
         }
-        self.h_write_df(h, df)
+        self.h_write_df_inner(h, df)
     }
 
-    fn h_write_df_inner<'a, W: Write>(
-        &self,
-        h: &mut BufWriter<W>,
-        df: &'a FCSDataFrame,
-    ) -> io::Result<()>;
+    fn h_write_df_inner<W: Write>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame)
+        -> io::Result<()>;
 
     fn layout_values(&self) -> LayoutValues<Self::ByteLayout, Self::ColDatatype>;
 }
@@ -775,13 +771,11 @@ trait VersionedColumnLayout: Sized {
 
 macro_rules! impl_null_layout {
     ($t:path, $($var:ident),*) => {
+        impl Copy for $t {}
+
         impl Clone for $t {
             fn clone(&self) -> Self {
-                match self {
-                    $(
-                        Self::$var(x) => Self::$var(x.clone()),
-                    )*
-                }
+                *self
             }
         }
 
@@ -841,9 +835,6 @@ any_uint_from!(Uint40, Uint40Type);
 any_uint_from!(Uint48, Uint48Type);
 any_uint_from!(Uint56, Uint56Type);
 any_uint_from!(Uint64, Uint64Type);
-
-impl Copy for NullMixedType {}
-impl Copy for NullAnyUintType {}
 
 impl TotDefinition for MaybeTot {
     type Tot = Option<Tot>;
@@ -1180,7 +1171,7 @@ impl NativeReadable<(), AsciiToUintError> for AsciiType {
     ) -> IOResult<Self::Native, AsciiToUintError> {
         buf.clear();
         h.take(u8::from(self.chars).into()).read_to_end(buf)?;
-        ascii_to_uint(&buf).map_err(ImpureError::Pure)
+        ascii_to_uint(buf).map_err(ImpureError::Pure)
     }
 }
 
@@ -1553,7 +1544,7 @@ uint_to_mixed!(Uint64Type, Uint64);
 ///
 /// Each inner type is an iterator from a different source type which emit
 /// the given target type.
-pub enum AnySource<'a, TargetType> {
+enum AnySource<'a, TargetType> {
     FromU08(FCSColIter<'a, u8, TargetType>),
     FromU16(FCSColIter<'a, u16, TargetType>),
     FromU32(FCSColIter<'a, u32, TargetType>),
@@ -1656,7 +1647,7 @@ impl EndianLayout<NullAnyUintType> {
     }
 }
 
-impl<'a> EndianLayout<NullMixedType> {
+impl EndianLayout<NullMixedType> {
     fn mixed_layout_values(&self) -> LayoutValues<Endian, Option<NumType>> {
         let cs: NonEmpty<_> = self.columns.as_ref().map(|c| ColumnLayoutValues {
             width: Width::Fixed(c.fixed_width()),
@@ -1681,9 +1672,9 @@ impl<'a> EndianLayout<NullMixedType> {
             }
             let mode = counts.maximum_by_key(|x| x.1).0;
             // Set all columns which have same type as $DATATYPE to None
-            let new_cs = cs.map(|c| {
+            let new_cs = cs.map(|mut c| {
                 if c.datatype.is_some_and(|x| x == mode) {
-                    c.datatype == None;
+                    c.datatype = None;
                 }
                 c
             });
@@ -1701,10 +1692,10 @@ impl<'a> EndianLayout<NullMixedType> {
     pub(crate) fn try_into_ordered<T>(
         self,
     ) -> MultiResult<AnyOrderedLayout<T>, MixedToOrderedLayoutError> {
-        let c = self.columns.head;
+        let c0 = self.columns.head;
         let cs = self.columns.tail;
         let endian = self.byte_layout;
-        match c {
+        match c0 {
             MixedType::Ascii(x) => cs
                 .into_iter()
                 .enumerate()
@@ -1753,10 +1744,10 @@ impl<'a> EndianLayout<NullMixedType> {
     pub(crate) fn try_into_non_mixed(
         self,
     ) -> MultiResult<NonMixedEndianLayout, MixedToNonMixedLayoutError> {
-        let c = self.columns.head;
+        let c0 = self.columns.head;
         let it = self.columns.tail.into_iter().enumerate();
         let byte_layout = self.byte_layout;
-        match c {
+        match c0 {
             MixedType::Ascii(x) => it
                 .map(|(i, c)| {
                     c.try_into()
@@ -1887,11 +1878,7 @@ impl<T, const LEN: usize> UintType<T, LEN> {
     {
         xs.into_iter()
             .enumerate()
-            .map(|(i, c)| {
-                Self::try_from(c)
-                    .map_err(|e| ((i + starting_index).into(), e))
-                    .map(UintType::from)
-            })
+            .map(|(i, c)| Self::try_from(c).map_err(|e| ((i + starting_index).into(), e)))
             .gather()
     }
 }
@@ -1900,7 +1887,10 @@ impl AsciiType {
     fn try_new(width: Width, range: Range) -> MultiResult<Self, NewAsciiTypeError> {
         let c = Chars::try_from(width).map_err(|e| e.into());
         let r = u64::try_from(range.0).map_err(|e| e.into());
-        c.zip(r).map(|(chars, range)| Self { chars, range })
+        c.zip(r).map(|(chars, _range)| Self {
+            chars,
+            range: _range,
+        })
     }
 }
 
@@ -2016,8 +2006,7 @@ impl<S, D> LayoutValues<S, D> {
         self.columns
             .iter()
             .enumerate()
-            .map(|(i, c)| c.req_keywords(i.into()))
-            .flatten()
+            .flat_map(|(i, c)| c.req_keywords(i.into()))
     }
 
     fn opt_meas_keywords(&self) -> impl Iterator<Item = (String, String, Option<String>)>
@@ -2027,8 +2016,7 @@ impl<S, D> LayoutValues<S, D> {
         self.columns
             .iter()
             .enumerate()
-            .map(|(i, c)| c.opt_keywords(i.into()))
-            .flatten()
+            .flat_map(|(i, c)| c.opt_keywords(i.into()))
     }
 }
 
@@ -2109,9 +2097,8 @@ impl VersionedColumnLayout for ColumnLayoutValues3_2 {
             .map_err(DeferredFailure::new2)
             .def_and_tentatively(|(width, range)| {
                 NumType::get_meas_opt(kws, j)
-                    .map_err(|e| e.into())
                     .map(|x| x.0)
-                    .map_or_else(|w| Tentative::new(None, vec![w], vec![]), Tentative::new1)
+                    .map_or_else(|e| Tentative::new(None, vec![e], vec![]), Tentative::new1)
                     .map(|datatype| Self {
                         width,
                         range,
@@ -2188,7 +2175,7 @@ impl<T> DelimAsciiLayout<T> {
         )
     }
 
-    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
+    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
         df.iter_columns()
             .enumerate()
             .map(|(i, c)| {
@@ -2202,11 +2189,7 @@ impl<T> DelimAsciiLayout<T> {
             .void()
     }
 
-    fn h_write_df<'a, W: Write>(
-        &self,
-        h: &mut BufWriter<W>,
-        df: &'a FCSDataFrame,
-    ) -> io::Result<()> {
+    fn h_write_df<W: Write>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame) -> io::Result<()> {
         let ncols = df.ncols();
         let nrows = df.nrows();
         // ASSUME dataframe has correct number of columns
@@ -2868,17 +2851,13 @@ impl<T> AnyOrderedUintLayout<T> {
         })
     }
 
-    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
+    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
         match_any_uint!(self, Self, l, {
             l.check_writer::<ColumnWriter<_, _, _>>(df)
         })
     }
 
-    fn h_write_df<'a, W: Write>(
-        &self,
-        h: &mut BufWriter<W>,
-        df: &'a FCSDataFrame,
-    ) -> io::Result<()> {
+    fn h_write_df<W: Write>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame) -> io::Result<()> {
         match_any_uint!(self, Self, l, {
             l.h_write_df::<_, ColumnWriter<_, _, _>>(h, df)
         })
@@ -2905,12 +2884,9 @@ impl<T> AnyAsciiLayout<T> {
     ) -> DeferredResult<Self, W, ColumnError<NewAsciiTypeError>> {
         if cs.iter().all(|c| c.width == Width::Variable) {
             ne_map_results(ne_enumerate(cs), |(i, c)| {
-                u64::try_from(c.range.0).map_err(|error| {
-                    ColumnError {
-                        error: error.into(),
-                        index: i.into(),
-                    }
-                    .into()
+                u64::try_from(c.range.0).map_err(|error| ColumnError {
+                    error: error.into(),
+                    index: i.into(),
                 })
             })
             .map(|ranges| AnyAsciiLayout::Delimited(DelimAsciiLayout::new(ranges)))
@@ -2963,18 +2939,14 @@ impl<T> AnyAsciiLayout<T> {
         }
     }
 
-    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
+    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
         match self {
             Self::Fixed(l) => l.check_writer::<ColumnWriter<_, _, _>>(df),
             Self::Delimited(l) => l.check_writer(df),
         }
     }
 
-    fn h_write_df<'a, W: Write>(
-        &self,
-        h: &mut BufWriter<W>,
-        df: &'a FCSDataFrame,
-    ) -> io::Result<()> {
+    fn h_write_df<W: Write>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame) -> io::Result<()> {
         match self {
             Self::Fixed(l) => l.h_write_df::<_, ColumnWriter<_, _, _>>(h, df),
             Self::Delimited(l) => l.h_write_df(h, df),
@@ -3026,14 +2998,14 @@ impl VersionedDataLayout for Layout2_0 {
         self.0.h_read_checked_df(h, tot, seg, conf)
     }
 
-    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
+    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
         self.0.check_writer(df)
     }
 
-    fn h_write_df_inner<'a, W: Write>(
+    fn h_write_df_inner<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        df: &'a FCSDataFrame,
+        df: &FCSDataFrame,
     ) -> io::Result<()> {
         self.0.h_write_df(h, df)
     }
@@ -3087,14 +3059,14 @@ impl VersionedDataLayout for Layout3_0 {
         self.0.h_read_checked_df(h, tot, seg, conf)
     }
 
-    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
+    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
         self.0.check_writer(df)
     }
 
-    fn h_write_df_inner<'a, W: Write>(
+    fn h_write_df_inner<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        df: &'a FCSDataFrame,
+        df: &FCSDataFrame,
     ) -> io::Result<()> {
         self.0.h_write_df(h, df)
     }
@@ -3171,14 +3143,14 @@ impl VersionedDataLayout for Layout3_1 {
         self.0.h_read_df(h, tot, seg, conf)
     }
 
-    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
+    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
         self.0.check_writer(df)
     }
 
-    fn h_write_df_inner<'a, W: Write>(
+    fn h_write_df_inner<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        df: &'a FCSDataFrame,
+        df: &FCSDataFrame,
     ) -> io::Result<()> {
         self.0.h_write_df(h, df)
     }
@@ -3285,17 +3257,17 @@ impl VersionedDataLayout for Layout3_2 {
         }
     }
 
-    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
+    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
         match self {
             Self::NonMixed(x) => x.check_writer(df),
             Self::Mixed(m) => m.check_writer::<WriterMixedType>(df),
         }
     }
 
-    fn h_write_df_inner<'a, W: Write>(
+    fn h_write_df_inner<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        df: &'a FCSDataFrame,
+        df: &FCSDataFrame,
     ) -> io::Result<()> {
         match self {
             Self::NonMixed(x) => x.h_write_df(h, df),
@@ -3534,7 +3506,7 @@ impl<T> AnyOrderedLayout<T> {
         }
     }
 
-    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>>
+    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>>
     where
         T: TotDefinition,
     {
@@ -3546,7 +3518,7 @@ impl<T> AnyOrderedLayout<T> {
         }
     }
 
-    fn h_write_df<'a, W: Write>(&self, h: &mut BufWriter<W>, df: &'a FCSDataFrame) -> io::Result<()>
+    fn h_write_df<W: Write>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame) -> io::Result<()>
     where
         T: TotDefinition,
     {
@@ -3642,7 +3614,7 @@ impl NonMixedEndianLayout {
         }
     }
 
-    fn check_writer<'a>(&self, df: &'a FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
+    fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
         match self {
             Self::Ascii(x) => x.check_writer(df),
             Self::Integer(x) => x.check_writer::<WriterAnyUintType>(df),
@@ -3651,11 +3623,7 @@ impl NonMixedEndianLayout {
         }
     }
 
-    fn h_write_df<'a, W: Write>(
-        &self,
-        h: &mut BufWriter<W>,
-        df: &'a FCSDataFrame,
-    ) -> io::Result<()> {
+    fn h_write_df<W: Write>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame) -> io::Result<()> {
         match self {
             Self::Ascii(x) => x.h_write_df(h, df),
             Self::Integer(x) => x.h_write_df::<_, WriterAnyUintType>(h, df),

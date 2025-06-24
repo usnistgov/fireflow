@@ -49,9 +49,9 @@ pub fn fcs_read_raw_text(
 /// Read HEADER and standardized TEXT from an FCS file.
 pub fn fcs_read_std_text(
     p: &path::PathBuf,
-    conf: &StdTextReadConfig,
+    conf: &DataReadConfig,
 ) -> IOTerminalResult<StdTEXTOutput, StdTEXTWarning, StdTEXTError, StdTEXTFailure> {
-    read_fcs_raw_text_inner(p, &conf.raw)
+    read_fcs_raw_text_inner(p, &conf.standard.raw)
         .def_map_value(|(x, _)| x)
         .def_io_into()
         .def_and_maybe(|raw| raw.into_std_text(conf).def_inner_into().def_errors_liftio())
@@ -103,8 +103,8 @@ pub fn fcs_read_raw_dataset_with_keywords(
     conf: &DataReadConfig,
 ) -> IOTerminalResult<
     RawDatasetWithKwsOutput,
-    ReadRawDatasetWarning,
-    DatasetWithKwsError,
+    LookupAndReadDataAnalysisWarning,
+    LookupAndReadDataAnalysisError,
     RawDatasetWithKwsFailure,
 > {
     fs::File::options()
@@ -188,16 +188,18 @@ pub struct StdTEXTOutput {
     pub standardized: AnyCoreTEXT,
 
     /// TEXT value for $TOT
-    pub tot: Option<String>,
+    ///
+    /// This should always be Some for 3.0+ and might be None for 2.0.
+    pub tot: Option<Tot>,
 
     /// TEXT value for $TIMESTEP if a time channel was not found (3.0+)
     pub timestep: Option<String>,
 
-    /// TEXT values for $BEGIN/ENDDATA
-    pub data: SegmentKeywords,
+    /// Segment for DATA
+    pub data: AnyDataSegment,
 
-    /// TEXT values for $BEGIN/ENDANALYSIS
-    pub analysis: SegmentKeywords,
+    /// Segment for ANALYSIS
+    pub analysis: AnyAnalysisSegment,
 
     /// Keywords that start with '$' that are not part of the standard
     pub pseudostandard: StdKeywords,
@@ -287,11 +289,11 @@ pub struct RawTEXTParseData {
     pub byte_pairs: BytesPairs,
 }
 
-/// Raw TEXT values for $BEGIN/END* keywords
-pub struct SegmentKeywords {
-    pub begin: Option<String>,
-    pub end: Option<String>,
-}
+// /// Raw TEXT values for $BEGIN/END* keywords
+// pub struct SegmentKeywords {
+//     pub begin: Option<String>,
+//     pub end: Option<String>,
+// }
 
 /// Standardized TEXT+DATA+ANALYSIS with DATA+ANALYSIS offsets
 pub struct DatasetWithSegments {
@@ -322,13 +324,13 @@ pub struct StdDatasetWithKwsFailure;
 enum_from_disp!(
     pub StdTEXTWarning,
     [Raw, ParseRawTEXTWarning],
-    [Std, LookupMeasWarning]
+    [Std, StdTEXTFromRawWarning]
 );
 
 enum_from_disp!(
     pub StdTEXTError,
     [Raw, HeaderOrRawError],
-    [Std, LookupKeysError]
+    [Std, StdTEXTFromRawError]
 );
 
 enum_from_disp!(
@@ -346,15 +348,13 @@ enum_from_disp!(
 enum_from_disp!(
     pub RawDatasetWarning,
     [Raw, ParseRawTEXTWarning],
-    [Std, LookupMeasWarning],
-    [Read, ReadRawDatasetWarning]
+    [Read, LookupAndReadDataAnalysisWarning]
 );
 
 enum_from_disp!(
     pub RawDatasetError,
     [Raw, HeaderOrRawError],
-    [Std, LookupKeysError],
-    [Read, DatasetWithKwsError]
+    [Read, LookupAndReadDataAnalysisError]
 );
 
 enum_from_disp!(
@@ -376,14 +376,14 @@ enum_from_disp!(
 enum_from_disp!(
     pub DatasetWithKwsError,
     [DataReader, RawToReaderError],
-    [AnalysisReader, NewAnalysisReaderError],
+    // [AnalysisReader, NewAnalysisReaderError],
     [Read, ReadDataError]
 );
 
 enum_from_disp!(
     pub ReadRawDatasetWarning,
-    [DataReader, RawToReaderWarning],
-    [AnalysisReader, NewAnalysisReaderWarning]
+    [DataReader, RawToReaderWarning]
+    // [AnalysisReader, NewAnalysisReaderWarning]
 );
 
 enum_from_disp!(
@@ -517,28 +517,25 @@ fn h_read_dataset_from_kws<R: Read + Seek>(
     analysis_seg: HeaderAnalysisSegment,
     other_segs: &[OtherSegment],
     conf: &DataReadConfig,
-) -> IODeferredResult<RawDatasetWithKwsOutput, ReadRawDatasetWarning, DatasetWithKwsError> {
-    let data_res = kws_to_data_reader(version, kws, data_seg, conf)
+) -> IODeferredResult<
+    RawDatasetWithKwsOutput,
+    LookupAndReadDataAnalysisWarning,
+    LookupAndReadDataAnalysisError,
+> {
+    kws_to_df_analysis(version, h, kws, data_seg, analysis_seg, conf)
         .def_inner_into()
-        .def_errors_liftio();
-    let analysis_res = kws_to_analysis_reader(version, kws, analysis_seg, &conf.reader)
-        .def_inner_into()
-        .def_errors_liftio();
-    data_res.def_zip(analysis_res).def_and_maybe(|(dr, ar)| {
-        let or = OthersReader { segs: other_segs };
-        h_read_data_and_analysis(h, dr, ar, or)
-            .map(
-                |(data, analysis, others, d_seg, a_seg)| RawDatasetWithKwsOutput {
+        .def_and_maybe(|(data, analysis, _data_seg, _analysis_seg)| {
+            let or = OthersReader { segs: other_segs };
+            or.h_read(h)
+                .into_deferred()
+                .def_map_value(|others| RawDatasetWithKwsOutput {
                     data,
                     analysis,
                     others,
-                    data_seg: d_seg,
-                    analysis_seg: a_seg,
-                },
-            )
-            .into_deferred()
-            .def_map_errors(|e: ImpureError<ReadDataError>| e.inner_into())
-    })
+                    data_seg: _data_seg,
+                    analysis_seg: _analysis_seg,
+                })
+        })
 }
 
 impl RawTEXTOutput {
@@ -556,33 +553,30 @@ impl RawTEXTOutput {
 
     fn into_std_text(
         self,
-        conf: &StdTextReadConfig,
-    ) -> DeferredResult<StdTEXTOutput, LookupMeasWarning, LookupKeysError> {
+        conf: &DataReadConfig,
+    ) -> DeferredResult<StdTEXTOutput, StdTEXTFromRawWarning, StdTEXTFromRawError> {
         let mut kws = self.keywords;
-        AnyCoreTEXT::parse_raw(self.version, &mut kws.std, kws.nonstd, conf).def_map_value(
-            |standardized| {
-                let std = &mut kws.std;
-                let tot = std.remove(&Tot::std());
-                let timestep = std.remove(&Timestep::std());
-                let data = SegmentKeywords {
-                    begin: std.remove(&Begindata::std()),
-                    end: std.remove(&Enddata::std()),
-                };
-                let analysis = SegmentKeywords {
-                    begin: std.remove(&Beginanalysis::std()),
-                    end: std.remove(&Endanalysis::std()),
-                };
-                StdTEXTOutput {
-                    parse: self.parse,
-                    standardized,
-                    tot,
-                    timestep,
-                    data,
-                    analysis,
-                    pseudostandard: kws.std,
-                }
-            },
+        let header = &self.parse.header_segments;
+        AnyCoreTEXT::parse_raw(
+            self.version,
+            &mut kws.std,
+            kws.nonstd,
+            header.data,
+            header.analysis,
+            conf,
         )
+        .def_map_value(|(standardized, offsets)| {
+            let timestep = kws.std.remove(&Timestep::std());
+            StdTEXTOutput {
+                parse: self.parse,
+                standardized,
+                tot: offsets.tot,
+                timestep,
+                data: offsets.data,
+                analysis: offsets.analysis,
+                pseudostandard: kws.std,
+            }
+        })
     }
 
     fn into_std_dataset<R: Read + Seek>(
@@ -619,49 +613,23 @@ impl RawTEXTOutput {
     }
 }
 
-fn kws_to_data_reader(
+fn kws_to_df_analysis<R: Read + Seek>(
     version: Version,
+    h: &mut BufReader<R>,
     kws: &StdKeywords,
-    seg: HeaderDataSegment,
+    data: HeaderDataSegment,
+    analysis: HeaderAnalysisSegment,
     conf: &DataReadConfig,
-) -> DeferredResult<Option<DataReader>, RawToReaderWarning, RawToReaderError> {
-    let cs = &conf.shared;
-    let cr = &conf.reader;
+) -> IODeferredResult<
+    (FCSDataFrame, Analysis, AnyDataSegment, AnyAnalysisSegment),
+    LookupAndReadDataAnalysisWarning,
+    LookupAndReadDataAnalysisError,
+> {
     match version {
-        Version::FCS2_0 => Layout2_0::lookup_ro(kws, cs)
-            .def_inner_into()
-            .def_and_maybe(|x| {
-                def_transpose(x.map(|dl| dl.into_data_reader_raw(kws, seg, cr))).def_inner_into()
-            }),
-        Version::FCS3_0 => Layout3_0::lookup_ro(kws, cs)
-            .def_inner_into()
-            .def_and_maybe(|x| {
-                def_transpose(x.map(|dl| dl.into_data_reader_raw(kws, seg, cr))).def_inner_into()
-            }),
-        Version::FCS3_1 => Layout3_1::lookup_ro(kws, cs)
-            .def_inner_into()
-            .def_and_maybe(|x| {
-                def_transpose(x.map(|dl| dl.into_data_reader_raw(kws, seg, cr))).def_inner_into()
-            }),
-        Version::FCS3_2 => Layout3_2::lookup_ro(kws, cs)
-            .def_inner_into()
-            .def_and_maybe(|x| {
-                def_transpose(x.map(|dl| dl.into_data_reader_raw(kws, seg, cr))).def_inner_into()
-            }),
-    }
-}
-
-fn kws_to_analysis_reader(
-    version: Version,
-    kws: &StdKeywords,
-    seg: HeaderAnalysisSegment,
-    conf: &ReaderConfig,
-) -> AnalysisReaderResult<AnalysisReader> {
-    match version {
-        Version::FCS2_0 => Layout2_0::as_analysis_reader_raw(kws, seg, conf).def_inner_into(),
-        Version::FCS3_0 => Layout3_0::as_analysis_reader_raw(kws, seg, conf).def_inner_into(),
-        Version::FCS3_1 => Layout3_1::as_analysis_reader_raw(kws, seg, conf).def_inner_into(),
-        Version::FCS3_2 => Layout3_2::as_analysis_reader_raw(kws, seg, conf).def_inner_into(),
+        Version::FCS2_0 => Version2_0::h_lookup_and_read(h, kws, data, analysis, conf),
+        Version::FCS3_0 => Version3_0::h_lookup_and_read(h, kws, data, analysis, conf),
+        Version::FCS3_1 => Version3_1::h_lookup_and_read(h, kws, data, analysis, conf),
+        Version::FCS3_2 => Version3_2::h_lookup_and_read(h, kws, data, analysis, conf),
     }
 }
 

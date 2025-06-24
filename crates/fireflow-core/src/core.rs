@@ -326,21 +326,20 @@ impl AnyCoreTEXT {
         version: Version,
         std: &mut StdKeywords,
         nonstd: NonStdKeywords,
+        data: HeaderDataSegment,
+        analysis: HeaderAnalysisSegment,
         conf: &DataReadConfig,
-    ) -> DeferredResult<Self, StdTEXTFromRawWarning, StdTEXTFromRawError> {
+    ) -> DeferredResult<(Self, TEXTOffsets<Option<Tot>>), StdTEXTFromRawWarning, StdTEXTFromRawError>
+    {
         match version {
-            Version::FCS2_0(_) => {
-                CoreTEXT2_0::lookup(std, nonstd, conf).def_map_value(|x| x.into())
-            }
-            Version::FCS3_0(_) => {
-                CoreTEXT3_0::lookup(std, nonstd, conf).def_map_value(|x| x.into())
-            }
-            Version::FCS3_1(_) => {
-                CoreTEXT3_1::lookup(std, nonstd, conf).def_map_value(|x| x.into())
-            }
-            Version::FCS3_2(_) => {
-                CoreTEXT3_2::lookup(std, nonstd, conf).def_map_value(|x| x.into())
-            }
+            Version::FCS2_0 => CoreTEXT2_0::lookup(std, nonstd, data, analysis, conf)
+                .def_map_value(|(x, y)| (x.into(), y.into_common())),
+            Version::FCS3_0 => CoreTEXT3_0::lookup(std, nonstd, data, analysis, conf)
+                .def_map_value(|(x, y)| (x.into(), y.into_common())),
+            Version::FCS3_1 => CoreTEXT3_1::lookup(std, nonstd, data, analysis, conf)
+                .def_map_value(|(x, y)| (x.into(), y.into_common())),
+            Version::FCS3_2 => CoreTEXT3_2::lookup(std, nonstd, data, analysis, conf)
+                .def_map_value(|(x, y)| (x.into(), y.into_common())),
         }
     }
 }
@@ -366,7 +365,7 @@ impl AnyCoreDataset {
         StdDatasetFromRawError,
     > {
         match version {
-            Version::FCS2_0(_) => CoreDataset2_0::new_dataset_from_raw(
+            Version::FCS2_0 => CoreDataset2_0::new_dataset_from_raw(
                 h,
                 kws,
                 nonstd,
@@ -376,7 +375,7 @@ impl AnyCoreDataset {
                 conf,
             )
             .def_map_value(|(x, y, z)| (x.into(), y, z)),
-            Version::FCS3_0(_) => CoreDataset3_0::new_dataset_from_raw(
+            Version::FCS3_0 => CoreDataset3_0::new_dataset_from_raw(
                 h,
                 kws,
                 nonstd,
@@ -386,7 +385,7 @@ impl AnyCoreDataset {
                 conf,
             )
             .def_map_value(|(x, y, z)| (x.into(), y, z)),
-            Version::FCS3_1(_) => CoreDataset3_1::new_dataset_from_raw(
+            Version::FCS3_1 => CoreDataset3_1::new_dataset_from_raw(
                 h,
                 kws,
                 nonstd,
@@ -396,7 +395,7 @@ impl AnyCoreDataset {
                 conf,
             )
             .def_map_value(|(x, y, z)| (x.into(), y, z)),
-            Version::FCS3_2(_) => CoreDataset3_2::new_dataset_from_raw(
+            Version::FCS3_2 => CoreDataset3_2::new_dataset_from_raw(
                 h,
                 kws,
                 nonstd,
@@ -945,43 +944,45 @@ pub trait Versioned {
     type Layout: VersionedDataLayout;
     type Offsets: VersionedTEXTOffsets<Tot = <Self::Layout as VersionedDataLayout>::Tot>;
 
-    // type Layout: VersionedDataLayout<Tot = Self::Tot>;
-
     fn fcs_version() -> Self;
 
-    // fn h_lookup_and_read<R: Read + Seek>(
-    //     h: &mut BufReader<R>,
-    //     kws: &StdKeywords,
-    //     data: HeaderDataSegment,
-    //     analysis: HeaderAnalysisSegment,
-    //     conf: &DataReadConfig,
-    // ) -> IODeferredResult<
-    //     (FCSDataFrame, Analysis),
-    //     LookupAndReadDataAnalysisWarning,
-    //     LookupAndReadDataAnalysisError,
-    // > {
-    //     let layout_res = Self::Layout::lookup_ro(kws, &conf.shared)
-    //         .def_inner_into()
-    //         .def_errors_liftio();
-    //     let offset_res = Self::lookup_ro(kws, data, analysis, &conf.reader)
-    //         .def_inner_into()
-    //         .def_errors_liftio();
-    //     layout_res
-    //         .def_zip(offset_res)
-    //         .def_and_maybe(|(layout, offsets)| {
-    //             let ar = AnalysisReader {
-    //                 seg: offsets.analysis,
-    //             };
-    //             // TODO what if data seg is non empty and layout is empty?
-    //             let data_res = layout.map_or(Ok(Tentative::new1(FCSDataFrame::default())), |l| {
-    //                 l.h_read_df(h, offsets.tot, offsets.data, &conf.reader)
-    //                     .def_warnings_into()
-    //                     .def_map_errors(|e| e.inner_into())
-    //             });
-    //             let analysis_res = ar.h_read(h).map_err(|e| e.into()).into_deferred();
-    //             data_res.def_zip(analysis_res)
-    //         })
-    // }
+    fn h_lookup_and_read<R: Read + Seek>(
+        h: &mut BufReader<R>,
+        kws: &StdKeywords,
+        data: HeaderDataSegment,
+        analysis: HeaderAnalysisSegment,
+        conf: &DataReadConfig,
+    ) -> IODeferredResult<
+        (FCSDataFrame, Analysis, AnyDataSegment, AnyAnalysisSegment),
+        LookupAndReadDataAnalysisWarning,
+        LookupAndReadDataAnalysisError,
+    > {
+        let layout_res = Self::Layout::lookup_ro(kws, &conf.shared)
+            .def_inner_into()
+            .def_errors_liftio();
+        let offset_res = Self::Offsets::lookup_ro(kws, data, analysis, &conf.reader)
+            .def_inner_into()
+            .def_errors_liftio();
+        layout_res
+            .def_zip(offset_res)
+            .def_and_maybe(|(layout, offsets)| {
+                let ar = AnalysisReader {
+                    seg: offsets.analysis(),
+                };
+                // TODO what if data seg is non empty and layout is empty?
+                let data_res = layout.map_or(Ok(Tentative::new1(FCSDataFrame::default())), |l| {
+                    l.h_read_df(h, offsets.tot(), offsets.data(), &conf.reader)
+                        .def_warnings_into()
+                        .def_map_errors(|e| e.inner_into())
+                });
+                let analysis_res = ar.h_read(h).into_deferred();
+                data_res
+                    .def_zip(analysis_res)
+                    .def_map_value(|(data, analysis)| {
+                        (data, analysis, offsets.data(), offsets.analysis())
+                    })
+            })
+    }
 }
 
 pub(crate) trait LookupMetaroot: Sized + VersionedMetaroot {
@@ -1254,7 +1255,7 @@ pub trait OpticalFromTemporal<T: VersionedTemporal>: Sized {
     fn from_temporal_inner(t: T) -> (Self, Self::TData);
 }
 
-pub(crate) trait VersionedTEXTOffsets {
+pub(crate) trait VersionedTEXTOffsets: Sized {
     type Tot;
 
     fn lookup(
@@ -1262,25 +1263,34 @@ pub(crate) trait VersionedTEXTOffsets {
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
         conf: &ReaderConfig,
-    ) -> LookupTEXTOffsetsResult<Self::Tot>;
+    ) -> LookupTEXTOffsetsResult<Self>;
 
     fn lookup_ro(
         kws: &StdKeywords,
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
         conf: &ReaderConfig,
-    ) -> LookupTEXTOffsetsResult<Self::Tot>;
+    ) -> LookupTEXTOffsetsResult<Self>;
+
+    // TODO this doesn't seem necessary
+    fn data(&self) -> AnyDataSegment;
+
+    fn analysis(&self) -> AnyAnalysisSegment;
+
+    fn tot(&self) -> Self::Tot;
+
+    fn into_common(self) -> TEXTOffsets<Option<Tot>>;
 }
 
-pub(crate) struct TEXTOffsets<T> {
-    pub(crate) data: AnyDataSegment,
-    pub(crate) analysis: AnyAnalysisSegment,
-    pub(crate) tot: T,
+pub struct TEXTOffsets<T> {
+    pub data: AnyDataSegment,
+    pub analysis: AnyAnalysisSegment,
+    pub tot: T,
 }
 
-pub(crate) struct TEXTOffsets2_0(pub(crate) TEXTOffsets<Option<Tot>>);
-pub(crate) struct TEXTOffsets3_0(pub(crate) TEXTOffsets<Tot>);
-pub(crate) struct TEXTOffsets3_2(pub(crate) TEXTOffsets<Tot>);
+pub struct TEXTOffsets2_0(pub TEXTOffsets<Option<Tot>>);
+pub struct TEXTOffsets3_0(pub TEXTOffsets<Tot>);
+pub struct TEXTOffsets3_2(pub TEXTOffsets<Tot>);
 
 newtype_from!(TEXTOffsets2_0, TEXTOffsets<Option<Tot>>);
 newtype_from!(TEXTOffsets3_0, TEXTOffsets<Tot>);
@@ -1389,12 +1399,14 @@ where
     ) -> LookupResult<Self>
     where
         O: LookupOptical,
+        Version: From<O::Ver>,
     {
         let version = O::Ver::fcs_version();
         let f = Filter::lookup_opt(kws, i.into(), false);
         let p = Power::lookup_opt(kws, i.into(), false);
         let d = DetectorType::lookup_opt(kws, i.into(), false);
-        let e = PercentEmitted::lookup_opt(kws, i.into(), version.into() == Version::FCS3_2);
+        let e =
+            PercentEmitted::lookup_opt(kws, i.into(), Version::from(version) == Version::FCS3_2);
         let v = DetectorVoltage::lookup_opt(kws, i.into(), false);
         f.zip5(p, d, e, v).and_maybe(
             |(filter, power, detector_type, percent_emitted, detector_voltage)| {
@@ -2379,7 +2391,10 @@ where
         data_len: u64,
         analysis_len: u64,
         other_lens: Vec<u64>,
-    ) -> Result<HeaderKeywordsToWrite, Uint8DigitOverflow> {
+    ) -> Result<HeaderKeywordsToWrite, Uint8DigitOverflow>
+    where
+        Version: From<M::Ver>,
+    {
         let req: Vec<_> = self
             .req_meta_keywords()
             .chain([ReqMetarootKey::pair(&tot)])
@@ -2389,7 +2404,7 @@ where
             .opt_meta_keywords()
             .chain(self.opt_meas_keywords())
             .collect();
-        if M::Ver::fcs_version().into() == Version::FCS2_0 {
+        if Version::from(M::Ver::fcs_version()) == Version::FCS2_0 {
             make_data_offset_keywords_2_0(req, opt, data_len, analysis_len, other_lens)
         } else {
             make_data_offset_keywords_3_0(req, opt, data_len, analysis_len, other_lens)
@@ -2503,6 +2518,7 @@ where
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
         M::Optical: LookupOptical,
+        Version: From<M::Ver>,
     {
         // Use nonstandard measurement pattern to assign keyvals to their
         // measurement if they match. Only capture one warning because if the
@@ -2665,84 +2681,89 @@ where
 {
     /// Make a new CoreTEXT from raw keywords.
     ///
-    /// Return any errors encountered, including messing required keywords,
+    /// Return any errors encountered, including missing required keywords,
     /// parse errors, and/or deprecation warnings.
     pub(crate) fn lookup(
         kws: &mut StdKeywords,
         nonstd: NonStdKeywords,
+        data: HeaderDataSegment,
+        analysis: HeaderAnalysisSegment,
         conf: &DataReadConfig,
-    ) -> DeferredResult<Self, StdTEXTFromRawWarning, StdTEXTFromRawError>
+    ) -> DeferredResult<
+        (Self, <M::Ver as Versioned>::Offsets),
+        StdTEXTFromRawWarning,
+        StdTEXTFromRawError,
+    >
     where
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
         M::Optical: LookupOptical,
+        Version: From<M::Ver>,
         <M::Ver as Versioned>::Layout: VersionedDataLayout,
     {
+        // $NEXTDATA/$BEGINSTEXT/$ENDSTEXT should have already been
+        // processed when we read the TEXT; remove them so they don't
+        // trigger false positives later when we test for pseudostandard keys
+        let _ = kws.remove(&Nextdata::std());
+        let _ = kws.remove(&Beginstext::std());
+        let _ = kws.remove(&Endstext::std());
+
         // Lookup $PAR first since we need this to get the measurements
-        Par::lookup_req(kws)
-            // .def_inner_into()
-            .def_inner_into::<StdTEXTFromRawWarning, StdTEXTFromRawError>()
+        let par_res = Par::lookup_req(kws).def_inner_into();
+
+        // Lookup DATA/ANALYSIS offsets and $TOT; these are not stored in the
+        // Core struct but they will be needed later for parsing DATA and
+        // ANALYSIS, and processing these keywords now will make it easier to
+        // determine if TEXT is totally standardized or not.
+        let offsets_res = <M::Ver as Versioned>::Offsets::lookup(kws, data, analysis, &conf.reader)
+            .def_inner_into();
+
+        par_res
             .def_and_maybe(|par| {
-                // $NEXTDATA/$BEGINSTEXT/$ENDSTEXT should have already been
-                // processed when we read the TEXT; remove them so they don't
-                // trigger false positives later when we test for pseudostandard keys
-                let _ = kws.remove(&Nextdata::std());
-                let _ = kws.remove(&Beginstext::std());
-                let _ = kws.remove(&Endstext::std());
-
-                // Lookup measurements and metaroot with $PAR
+                // Lookup measurements/layout/metaroot with $PAR
                 let ns: Vec<_> = nonstd.into_iter().collect();
-                let meas_res = Self::lookup_measurements(kws, par, ns, &conf.standard)
-                    .def_inner_into::<StdTEXTFromRawWarning, StdTEXTFromRawError>();
-                let layout_res = <M::Ver as Versioned>::Layout::lookup(kws, &conf.shared, par)
-                    .def_inner_into::<StdTEXTFromRawWarning, StdTEXTFromRawError>();
-                let mut tnt_core =
-                    meas_res
-                        .def_zip(layout_res)
-                        .def_and_maybe(|((ms, meta_ns), layout)| {
-                            Metaroot::lookup_metaroot(kws, &ms, meta_ns, &conf.standard)
-                                .def_map_value(|metaroot| {
-                                    CoreTEXT::new_unchecked(metaroot, ms, layout)
-                                })
-                                .def_inner_into()
-                        })?;
+                let meas_res =
+                    Self::lookup_measurements(kws, par, ns, &conf.standard).def_inner_into();
+                let layout_res =
+                    <M::Ver as Versioned>::Layout::lookup(kws, &conf.shared, par).def_inner_into();
+                meas_res
+                    .def_zip(layout_res)
+                    .def_and_maybe(|((ms, meta_ns), layout)| {
+                        Metaroot::lookup_metaroot(kws, &ms, meta_ns, &conf.standard)
+                            .def_map_value(|metaroot| CoreTEXT::new_unchecked(metaroot, ms, layout))
+                            .def_inner_into()
+                    })
+                    .map(|mut tnt_core| {
+                        // Check that the time measurement is present if we want it
+                        tnt_core.eval_error(|core| {
+                            if let Some(pat) = conf.standard.time.pattern.as_ref() {
+                                if !conf.standard.time.allow_missing
+                                    && core.measurements.as_center().is_none()
+                                {
+                                    let e = MissingTime(pat.clone());
+                                    return Some(LookupKeysError::Misc(e.into()).into());
+                                }
+                            }
+                            None
+                        });
 
-                // Check that the time measurement is present if we want it
-                tnt_core.eval_error(|core| {
-                    if let Some(pat) = conf.standard.time.pattern.as_ref() {
-                        if !conf.standard.time.allow_missing
-                            && core.measurements.as_center().is_none()
-                        {
-                            let e = MissingTime(pat.clone());
-                            return Some(LookupKeysError::Misc(e.into()).into());
+                        // The only keyword that might be left is $TIMESTEP if it
+                        // wasn't used for the time measurement.
+                        for k in kws.keys() {
+                            if k != &Timestep::std() {
+                                let e = PseudostandardError(k.clone());
+                                if conf.standard.allow_pseudostandard {
+                                    tnt_core.push_warning(e.into());
+                                } else {
+                                    tnt_core.push_error(e.into());
+                                }
+                            }
                         }
-                    }
-                    None
-                });
 
-                // At this point the only keywords that should be left are $TOT,
-                // $BEGINDATA, $ENDDATA, $BEGINANALYSIS, and $ENDANALYSIS.
-                // $TIMESTEP might also be present if it wasn't used for the
-                // time measurement. Make sure this is actually true
-                for k in kws.keys() {
-                    if !(k == &Begindata::std()
-                        || k == &Enddata::std()
-                        || k == &Beginanalysis::std()
-                        || k == &Endanalysis::std()
-                        || k == &Tot::std()
-                        || k == &Timestep::std())
-                    {
-                        let e = PseudostandardError(k.clone());
-                        if conf.standard.allow_pseudostandard {
-                            tnt_core.push_warning(e.into());
-                        } else {
-                            tnt_core.push_error(e.into());
-                        }
-                    }
-                }
-
-                Ok(tnt_core)
+                        tnt_core
+                    })
             })
+            .def_zip(offsets_res)
     }
 
     /// Remove a measurement matching the given name.
@@ -2878,27 +2899,22 @@ where
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
         M::Optical: LookupOptical,
+        Version: From<M::Ver>,
     {
-        let offset_res =
-            <M::Ver as Versioned>::Offsets::lookup_ro(kws, data_seg, analysis_seg, &conf.reader)
-                .def_inner_into()
-                .def_errors_liftio();
-        let core_res = CoreTEXT::lookup(kws, nonstd, conf)
+        VersionedCoreTEXT::<M>::lookup(kws, nonstd, data_seg, analysis_seg, conf)
             .def_inner_into()
-            .def_errors_liftio();
-        offset_res
-            .def_zip(core_res)
-            .def_and_maybe(|(offsets, text)| {
+            .def_errors_liftio()
+            .def_and_maybe(|(text, offsets)| {
                 let or = OthersReader { segs: other_segs };
                 let ar = AnalysisReader {
-                    seg: offsets.analysis,
+                    seg: offsets.analysis(),
                 };
                 // TODO what happens if the layout is empty but the segment
                 // isn't?
                 let data_res = text.layout.as_ref().map_or(
                     Ok(Tentative::new1(FCSDataFrame::default())),
                     |l: &<M::Ver as Versioned>::Layout| {
-                        l.h_read_df(h, offsets.tot, offsets.data, &conf.reader)
+                        l.h_read_df(h, offsets.tot(), offsets.data(), &conf.reader)
                             .def_warnings_into()
                             .def_map_errors(|e| e.inner_into())
                     },
@@ -2915,7 +2931,7 @@ where
                             analysis,
                             others,
                         };
-                        (c, offsets.data, offsets.analysis)
+                        (c, offsets.data(), offsets.analysis())
                     },
                 )
             })
@@ -6239,16 +6255,19 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
         _: &ReaderConfig,
-    ) -> LookupTEXTOffsetsResult<Self::Tot> {
+    ) -> LookupTEXTOffsetsResult<Self> {
         Ok(Tot::remove_metaroot_opt(kws)
             .map_or_else(
-                |w| Tentative::new(None.into(), vec![w.into()], vec![]),
+                |w| Tentative::new(None, vec![w.into()], vec![]),
                 |t| Tentative::new1(t.0),
             )
-            .map(|tot| TEXTOffsets {
-                data: data.into_any(),
-                analysis: analysis.into_any(),
-                tot,
+            .map(|tot| {
+                TEXTOffsets {
+                    data: data.into_any(),
+                    analysis: analysis.into_any(),
+                    tot,
+                }
+                .into()
             }))
     }
 
@@ -6257,17 +6276,41 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
         _: &ReaderConfig,
-    ) -> LookupTEXTOffsetsResult<Self::Tot> {
+    ) -> LookupTEXTOffsetsResult<Self> {
         Ok(Tot::get_metaroot_opt(kws)
             .map_or_else(
-                |w| Tentative::new(None.into(), vec![w.into()], vec![]),
+                |w| Tentative::new(None, vec![w.into()], vec![]),
                 |t| Tentative::new1(t.0),
             )
-            .map(|tot| TEXTOffsets {
-                data: data.into_any(),
-                analysis: analysis.into_any(),
-                tot,
+            .map(|tot| {
+                TEXTOffsets {
+                    data: data.into_any(),
+                    analysis: analysis.into_any(),
+                    tot,
+                }
+                .into()
             }))
+    }
+
+    fn data(&self) -> AnyDataSegment {
+        self.0.data
+    }
+
+    fn analysis(&self) -> AnyAnalysisSegment {
+        self.0.analysis
+    }
+
+    fn tot(&self) -> Self::Tot {
+        self.0.tot
+    }
+
+    fn into_common(self) -> TEXTOffsets<Option<Tot>> {
+        let x = self.0;
+        TEXTOffsets {
+            tot: x.tot,
+            data: x.data,
+            analysis: x.analysis,
+        }
     }
 }
 
@@ -6279,7 +6322,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
         conf: &ReaderConfig,
-    ) -> LookupTEXTOffsetsResult<Self::Tot> {
+    ) -> LookupTEXTOffsetsResult<Self> {
         let allow_mismatch = conf.allow_header_text_offset_mismatch;
         let allow_missing = conf.allow_missing_required_offsets;
         let tot_res = Tot::remove_metaroot_req(kws).into_deferred();
@@ -6291,10 +6334,13 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
                 .def_inner_into();
         tot_res
             .def_zip3(data_res, analysis_res)
-            .def_map_value(|(tot, data, analysis)| TEXTOffsets {
-                data,
-                analysis,
-                tot,
+            .def_map_value(|(tot, data, analysis)| {
+                TEXTOffsets {
+                    data,
+                    analysis,
+                    tot,
+                }
+                .into()
             })
     }
 
@@ -6303,7 +6349,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
         conf: &ReaderConfig,
-    ) -> LookupTEXTOffsetsResult<Self::Tot> {
+    ) -> LookupTEXTOffsetsResult<Self> {
         let allow_mismatch = conf.allow_header_text_offset_mismatch;
         let allow_missing = conf.allow_missing_required_offsets;
         let tot_res = Tot::get_metaroot_req(kws).into_deferred();
@@ -6314,11 +6360,35 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
                 .def_inner_into();
         tot_res
             .def_zip3(data_res, analysis_res)
-            .def_map_value(|(tot, data, analysis)| TEXTOffsets {
-                data,
-                analysis,
-                tot,
+            .def_map_value(|(tot, data, analysis)| {
+                TEXTOffsets {
+                    data,
+                    analysis,
+                    tot,
+                }
+                .into()
             })
+    }
+
+    fn data(&self) -> AnyDataSegment {
+        self.0.data
+    }
+
+    fn analysis(&self) -> AnyAnalysisSegment {
+        self.0.analysis
+    }
+
+    fn tot(&self) -> Self::Tot {
+        self.0.tot
+    }
+
+    fn into_common(self) -> TEXTOffsets<Option<Tot>> {
+        let x = self.0;
+        TEXTOffsets {
+            tot: Some(x.tot),
+            data: x.data,
+            analysis: x.analysis,
+        }
     }
 }
 
@@ -6330,7 +6400,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
         conf: &ReaderConfig,
-    ) -> LookupTEXTOffsetsResult<Self::Tot> {
+    ) -> LookupTEXTOffsetsResult<Self> {
         let allow_mismatch = conf.allow_header_text_offset_mismatch;
         let allow_missing = conf.allow_missing_required_offsets;
         let tot_res = Tot::remove_metaroot_req(kws).into_deferred();
@@ -6340,13 +6410,18 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
         tot_res
             .def_zip(data_res)
             .def_and_tentatively(|(tot, data)| {
-                KeyedOptSegment::remove_or(kws, conf.analysis, analysis, allow_mismatch)
-                    .inner_into()
-                    .map(|analysis| TEXTOffsets {
-                        data,
-                        analysis,
-                        tot,
-                    })
+                {
+                    KeyedOptSegment::remove_or(kws, conf.analysis, analysis, allow_mismatch)
+                        .inner_into()
+                        .map(|analysis| {
+                            TEXTOffsets {
+                                data,
+                                analysis,
+                                tot,
+                            }
+                            .into()
+                        })
+                }
             })
     }
 
@@ -6355,7 +6430,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
         conf: &ReaderConfig,
-    ) -> LookupTEXTOffsetsResult<Self::Tot> {
+    ) -> LookupTEXTOffsetsResult<Self> {
         let allow_mismatch = conf.allow_header_text_offset_mismatch;
         let allow_missing = conf.allow_missing_required_offsets;
         let tot_res = Tot::get_metaroot_req(kws).into_deferred();
@@ -6366,12 +6441,36 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
             .def_and_tentatively(|(tot, data)| {
                 KeyedOptSegment::get_or(kws, conf.analysis, analysis, allow_mismatch)
                     .inner_into()
-                    .map(|analysis| TEXTOffsets {
-                        data,
-                        analysis,
-                        tot,
+                    .map(|analysis| {
+                        TEXTOffsets {
+                            data,
+                            analysis,
+                            tot,
+                        }
+                        .into()
                     })
             })
+    }
+
+    fn data(&self) -> AnyDataSegment {
+        self.0.data
+    }
+
+    fn analysis(&self) -> AnyAnalysisSegment {
+        self.0.analysis
+    }
+
+    fn tot(&self) -> Self::Tot {
+        self.0.tot
+    }
+
+    fn into_common(self) -> TEXTOffsets<Option<Tot>> {
+        let x = self.0;
+        TEXTOffsets {
+            tot: Some(x.tot),
+            data: x.data,
+            analysis: x.analysis,
+        }
     }
 }
 
@@ -7569,8 +7668,7 @@ enum_from_disp!(
     pub StdTEXTFromRawError,
     [Metaroot, LookupKeysError],
     [Layout, LookupLayoutError],
-    [Data, NewDataReaderError],
-    [DataRead, ReadDataError],
+    [Offsets, LookupTEXTOffsetsError],
     [Pseudostandard, PseudostandardError]
 );
 
@@ -7579,7 +7677,7 @@ enum_from_disp!(
     [Metaroot, LookupKeysWarning],
     [Meas, LookupMeasWarning],
     [Layout, LookupLayoutWarning],
-    [Data, NewDataReaderWarning],
+    [Offsets, LookupTEXTOffsetsWarning],
     [Pseudostandard, PseudostandardError]
 );
 
@@ -7868,7 +7966,7 @@ enum_from_disp!(
 );
 
 type LookupTEXTOffsetsResult<T> =
-    DeferredResult<TEXTOffsets<T>, LookupTEXTOffsetsWarning, LookupTEXTOffsetsError>;
+    DeferredResult<T, LookupTEXTOffsetsWarning, LookupTEXTOffsetsError>;
 
 pub struct Comp2_0TransferError;
 

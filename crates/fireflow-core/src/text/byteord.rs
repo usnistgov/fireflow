@@ -1,13 +1,8 @@
-use crate::data::{MultiWidthsError, WrongFloatWidth};
-use crate::error::*;
 use crate::macros::{
     enum_from, enum_from_disp, match_many_to_one, newtype_disp, newtype_from_outer,
 };
 
-use super::keywords::AlphaNumType;
-
 use itertools::Itertools;
-use nonempty::NonEmpty;
 use serde::Serialize;
 use std::fmt;
 use std::num::ParseIntError;
@@ -96,13 +91,13 @@ pub struct AsciiType {
     pub range: u64,
 }
 
-pub(crate) trait HasNativeType: Sized {
+pub trait HasNativeType: Sized {
     /// The native rust type
     type Native: Default + Copy;
 }
 
 /// A type which uses a defined number of bytes
-pub(crate) trait HasNativeWidth: HasNativeType {
+pub trait HasNativeWidth: HasNativeType {
     /// The length of the type in an FCS file (may be less than native)
     const BYTES: Bytes;
 
@@ -199,7 +194,7 @@ macro_rules! byteord_from_sized {
                     } else if it.rev().enumerate().all(|(i, x)| i == x) {
                         Self::Endian(Endian::Big)
                     } else {
-                        // something else (mixec)
+                        // something else (mixed)
                         Self::Order(ys)
                     };
                     Ok(ret)
@@ -497,62 +492,62 @@ impl Width {
         Width::Fixed(BitsOrChars(64))
     }
 
-    /// Given a list of widths and a type, return the byte-width for a matrix.
-    ///
-    /// That is, only return Ok if the widths are all the same and they
-    /// match the given type.
-    ///
-    /// If type is Ascii, automatically return 4 bytes,
-    /// which is an arbitrary default since Ascii data does not care about
-    /// $BYTEORD.
-    ///
-    /// If type is Integer, returned number can be 1-8.
-    ///
-    /// If type is Float or Double, return number must be 4 or 8 respectively.
-    pub(crate) fn matrix_bytes(
-        widths: &[Self],
-        t: AlphaNumType,
-    ) -> DeferredResult<Bytes, WidthToBytesError, SingleWidthError> {
-        if let Some(ws) = NonEmpty::collect(widths.iter().copied()) {
-            let bs = ne_map_results(ws, Bytes::try_from).mult_to_deferred();
+    // /// Given a list of widths and a type, return the byte-width for a matrix.
+    // ///
+    // /// That is, only return Ok if the widths are all the same and they
+    // /// match the given type.
+    // ///
+    // /// If type is Ascii, automatically return 4 bytes,
+    // /// which is an arbitrary default since Ascii data does not care about
+    // /// $BYTEORD.
+    // ///
+    // /// If type is Integer, returned number can be 1-8.
+    // ///
+    // /// If type is Float or Double, return number must be 4 or 8 respectively.
+    // pub(crate) fn matrix_bytes(
+    //     widths: &[Self],
+    //     t: AlphaNumType,
+    // ) -> DeferredResult<Bytes, WidthToBytesError, SingleWidthError> {
+    //     if let Some(ws) = NonEmpty::collect(widths.iter().copied()) {
+    //         let bs = ne_map_results(ws, Bytes::try_from).mult_to_deferred();
 
-            let go = |sizes: NonEmpty<_>, expected: usize| {
-                if sizes.tail.is_empty() {
-                    let bytes = sizes.head;
-                    if usize::from(u8::from(bytes)) == expected {
-                        Ok(bytes)
-                    } else {
-                        Err(WrongFloatWidth {
-                            width: bytes,
-                            expected,
-                        }
-                        .into())
-                    }
-                } else {
-                    Err(MultiWidthsError(sizes.map(|x| x.into())).into())
-                }
-            };
+    //         let go = |sizes: NonEmpty<_>, expected: usize| {
+    //             if sizes.tail.is_empty() {
+    //                 let bytes = sizes.head;
+    //                 if usize::from(u8::from(bytes)) == expected {
+    //                     Ok(bytes)
+    //                 } else {
+    //                     Err(WrongFloatWidth {
+    //                         width: bytes,
+    //                         expected,
+    //                     }
+    //                     .into())
+    //                 }
+    //             } else {
+    //                 Err(MultiWidthsError(sizes.map(|x| x.into())).into())
+    //             }
+    //         };
 
-            match t {
-                AlphaNumType::Ascii => {
-                    let bytes = Bytes(4);
-                    let ret = bs.map_or_else(|e| e.unfail_with(bytes), |_| Tentative::new1(bytes));
-                    Ok(ret)
-                }
-                AlphaNumType::Integer => bs.def_and_then(|sizes| {
-                    if sizes.tail.is_empty() {
-                        Ok(sizes.head)
-                    } else {
-                        Err(MultiWidthsError(sizes.map(|x| x.into())).into())
-                    }
-                }),
-                AlphaNumType::Single => bs.def_and_then(|sizes| go(sizes, 4)),
-                AlphaNumType::Double => bs.def_and_then(|sizes| go(sizes, 8)),
-            }
-        } else {
-            Err(DeferredFailure::new1(EmptyWidthError.into()))
-        }
-    }
+    //         match t {
+    //             AlphaNumType::Ascii => {
+    //                 let bytes = Bytes(4);
+    //                 let ret = bs.map_or_else(|e| e.unfail_with(bytes), |_| Tentative::new1(bytes));
+    //                 Ok(ret)
+    //             }
+    //             AlphaNumType::Integer => bs.def_and_then(|sizes| {
+    //                 if sizes.tail.is_empty() {
+    //                     Ok(sizes.head)
+    //                 } else {
+    //                     Err(MultiWidthsError(sizes.map(|x| x.into())).into())
+    //                 }
+    //             }),
+    //             AlphaNumType::Single => bs.def_and_then(|sizes| go(sizes, 4)),
+    //             AlphaNumType::Double => bs.def_and_then(|sizes| go(sizes, 8)),
+    //         }
+    //     } else {
+    //         Err(DeferredFailure::new1(EmptyWidthError.into()))
+    //     }
+    // }
 }
 
 impl FromStr for Endian {
@@ -763,48 +758,48 @@ where
     }
 }
 
-enum_from_disp!(
-    pub SingleWidthError,
-    // TODO put this error somewhere more obvious
-    [Multi, MultiWidthsError],
-    [Float, WrongFloatWidth],
-    [Width, WidthToBytesError],
-    [Empty, EmptyWidthError]
+// enum_from_disp!(
+//     pub SingleWidthError,
+//     // TODO put this error somewhere more obvious
+//     [Multi, MultiWidthsError],
+//     [Float, WrongFloatWidth],
+//     [Width, WidthToBytesError],
+//     [Empty, EmptyWidthError]
 
-);
+// );
 
-pub struct EmptyWidthError;
+// pub struct EmptyWidthError;
 
-impl fmt::Display for EmptyWidthError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "could not determine width, no measurements available")
-    }
-}
+// impl fmt::Display for EmptyWidthError {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+//         write!(f, "could not determine width, no measurements available")
+//     }
+// }
 
-/// Return true if sequence is a contiguous set.
-///
-/// Example: '1,3,4,2,5' should return true. So should '5,6,4,3,7'.
-///
-/// Returns true if empty.
-fn is_contiguous(xs: &[u8]) -> bool {
-    let mut ys: Vec<_> = xs.iter().copied().collect();
-    ys.sort_unstable();
-    is_contiguously_increasing(&ys[..])
-}
+// /// Return true if sequence is a contiguous set.
+// ///
+// /// Example: '1,3,4,2,5' should return true. So should '5,6,4,3,7'.
+// ///
+// /// Returns true if empty.
+// fn is_contiguous(xs: &[u8]) -> bool {
+//     let mut ys: Vec<_> = xs.iter().copied().collect();
+//     ys.sort_unstable();
+//     is_contiguously_increasing(&ys[..])
+// }
 
-/// Return true if all values in sequence are increasing consecutively.
-///
-/// Returns true if empty.
-fn is_contiguously_increasing(xs: &[u8]) -> bool {
-    if let Some((y, ys)) = xs.split_first() {
-        let mut prev = y;
-        for k in ys {
-            if let Some(1) = k.checked_sub(*prev) {
-                prev = k;
-            } else {
-                return false;
-            }
-        }
-    }
-    true
-}
+// /// Return true if all values in sequence are increasing consecutively.
+// ///
+// /// Returns true if empty.
+// fn is_contiguously_increasing(xs: &[u8]) -> bool {
+//     if let Some((y, ys)) = xs.split_first() {
+//         let mut prev = y;
+//         for k in ys {
+//             if let Some(1) = k.checked_sub(*prev) {
+//                 prev = k;
+//             } else {
+//                 return false;
+//             }
+//         }
+//     }
+//     true
+// }

@@ -358,7 +358,7 @@ pub trait VersionedDataLayout: Sized {
         tot: Self::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
-    ) -> IODeferredResult<FCSDataFrame, ReadWarning, ReadDataError0> {
+    ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError> {
         seg.inner.as_u64().try_coords().map_or(
             Ok(Tentative::new1(FCSDataFrame::default())),
             |(begin, _)| {
@@ -374,7 +374,7 @@ pub trait VersionedDataLayout: Sized {
         tot: Self::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
-    ) -> IODeferredResult<FCSDataFrame, ReadWarning, ReadDataError0>;
+    ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError>;
 
     fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>>;
 
@@ -2920,7 +2920,7 @@ impl<T> AnyAsciiLayout<T> {
         tot: T::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
-    ) -> IODeferredResult<FCSDataFrame, ReadWarning, ReadAsciiError>
+    ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadAsciiError>
     where
         T: TotDefinition,
     {
@@ -2994,7 +2994,7 @@ impl VersionedDataLayout for Layout2_0 {
         tot: Self::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
-    ) -> IODeferredResult<FCSDataFrame, ReadWarning, ReadDataError0> {
+    ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError> {
         self.0.h_read_checked_df(h, tot, seg, conf)
     }
 
@@ -3055,7 +3055,7 @@ impl VersionedDataLayout for Layout3_0 {
         tot: Self::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
-    ) -> IODeferredResult<FCSDataFrame, ReadWarning, ReadDataError0> {
+    ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError> {
         self.0.h_read_checked_df(h, tot, seg, conf)
     }
 
@@ -3139,7 +3139,7 @@ impl VersionedDataLayout for Layout3_1 {
         tot: Self::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
-    ) -> IODeferredResult<FCSDataFrame, ReadWarning, ReadDataError0> {
+    ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError> {
         self.0.h_read_df(h, tot, seg, conf)
     }
 
@@ -3247,7 +3247,7 @@ impl VersionedDataLayout for Layout3_2 {
         tot: Self::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
-    ) -> IODeferredResult<FCSDataFrame, ReadWarning, ReadDataError0> {
+    ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError> {
         match self {
             Self::NonMixed(x) => x.h_read_df(h, tot, seg, conf),
             Self::Mixed(m) => {
@@ -3488,7 +3488,7 @@ impl<T> AnyOrderedLayout<T> {
         tot: T::Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
-    ) -> IODeferredResult<FCSDataFrame, ReadWarning, ReadDataError0>
+    ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError>
     where
         T: TotDefinition,
     {
@@ -3597,7 +3597,7 @@ impl NonMixedEndianLayout {
         tot: Tot,
         seg: AnyDataSegment,
         conf: &ReaderConfig,
-    ) -> IODeferredResult<FCSDataFrame, ReadWarning, ReadDataError0> {
+    ) -> IODeferredResult<FCSDataFrame, ReadDataframeWarning, ReadDataframeError> {
         match self {
             Self::Ascii(x) => x
                 .h_read_checked_df(h, tot, seg, conf)
@@ -3848,14 +3848,7 @@ enum_from_disp!(
 );
 
 enum_from_disp!(
-    pub ReadDataError,
-    [Delim, ReadDelimWithRowsAsciiError],
-    [DelimNoRows, ReadDelimAsciiWithoutRowsError],
-    [AlphaNum, AsciiToUintError]
-);
-
-enum_from_disp!(
-    pub ReadDataError0,
+    pub ReadDataframeError,
     [Ascii, ReadAsciiError],
     [Uneven, UnevenEventWidth],
     [TotMismatch, TotEventMismatch],
@@ -3878,7 +3871,7 @@ enum_from_disp!(
 );
 
 enum_from_disp!(
-    pub ReadWarning,
+    pub ReadDataframeWarning,
     [Uneven, UnevenEventWidth],
     [Tot, TotEventMismatch]
 );

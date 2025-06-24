@@ -595,7 +595,7 @@ pub struct InnerTemporal3_2 {
 }
 
 /// Optical measurement fields specific to version 2.0
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Default)]
 pub struct InnerOptical2_0 {
     /// Value for $PnE
     pub scale: OptionalKw<Scale>,
@@ -949,8 +949,8 @@ pub trait Versioned {
     fn h_lookup_and_read<R: Read + Seek>(
         h: &mut BufReader<R>,
         kws: &StdKeywords,
-        data: HeaderDataSegment,
-        analysis: HeaderAnalysisSegment,
+        data_seg: HeaderDataSegment,
+        analysis_seg: HeaderAnalysisSegment,
         conf: &DataReadConfig,
     ) -> IODeferredResult<
         (FCSDataFrame, Analysis, AnyDataSegment, AnyAnalysisSegment),
@@ -960,7 +960,7 @@ pub trait Versioned {
         let layout_res = Self::Layout::lookup_ro(kws, &conf.shared)
             .def_inner_into()
             .def_errors_liftio();
-        let offset_res = Self::Offsets::lookup_ro(kws, data, analysis, &conf.reader)
+        let offset_res = Self::Offsets::lookup_ro(kws, data_seg, analysis_seg, &conf.reader)
             .def_inner_into()
             .def_errors_liftio();
         layout_res
@@ -1255,7 +1255,7 @@ pub trait OpticalFromTemporal<T: VersionedTemporal>: Sized {
     fn from_temporal_inner(t: T) -> (Self, Self::TData);
 }
 
-pub(crate) trait VersionedTEXTOffsets: Sized {
+pub trait VersionedTEXTOffsets: Sized {
     type Tot;
 
     fn lookup(
@@ -2299,7 +2299,7 @@ where
             });
         let lres = self
             .layout
-            .map(|l| ConvertFromLayout::convert_from_layout(l))
+            .map(ConvertFromLayout::convert_from_layout)
             .transpose()
             .mult_map_errors(ConvertErrorInner::Layout)
             .mult_to_deferred();
@@ -6319,19 +6319,24 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
 
     fn lookup(
         kws: &mut StdKeywords,
-        data: HeaderDataSegment,
-        analysis: HeaderAnalysisSegment,
+        data_seg: HeaderDataSegment,
+        analysis_seg: HeaderAnalysisSegment,
         conf: &ReaderConfig,
     ) -> LookupTEXTOffsetsResult<Self> {
         let allow_mismatch = conf.allow_header_text_offset_mismatch;
         let allow_missing = conf.allow_missing_required_offsets;
         let tot_res = Tot::remove_metaroot_req(kws).into_deferred();
         let data_res =
-            KeyedReqSegment::remove_or(kws, conf.data, data, allow_mismatch, allow_missing)
+            KeyedReqSegment::remove_or(kws, conf.data, data_seg, allow_mismatch, allow_missing)
                 .def_inner_into();
-        let analysis_res =
-            KeyedReqSegment::remove_or(kws, conf.analysis, analysis, allow_mismatch, allow_missing)
-                .def_inner_into();
+        let analysis_res = KeyedReqSegment::remove_or(
+            kws,
+            conf.analysis,
+            analysis_seg,
+            allow_mismatch,
+            allow_missing,
+        )
+        .def_inner_into();
         tot_res
             .def_zip3(data_res, analysis_res)
             .def_map_value(|(tot, data, analysis)| {
@@ -6346,18 +6351,24 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
 
     fn lookup_ro(
         kws: &StdKeywords,
-        data: HeaderDataSegment,
-        analysis: HeaderAnalysisSegment,
+        data_seg: HeaderDataSegment,
+        analysis_seg: HeaderAnalysisSegment,
         conf: &ReaderConfig,
     ) -> LookupTEXTOffsetsResult<Self> {
         let allow_mismatch = conf.allow_header_text_offset_mismatch;
         let allow_missing = conf.allow_missing_required_offsets;
         let tot_res = Tot::get_metaroot_req(kws).into_deferred();
-        let data_res = KeyedReqSegment::get_or(kws, conf.data, data, allow_mismatch, allow_missing)
-            .def_inner_into();
-        let analysis_res =
-            KeyedReqSegment::get_or(kws, conf.analysis, analysis, allow_mismatch, allow_missing)
+        let data_res =
+            KeyedReqSegment::get_or(kws, conf.data, data_seg, allow_mismatch, allow_missing)
                 .def_inner_into();
+        let analysis_res = KeyedReqSegment::get_or(
+            kws,
+            conf.analysis,
+            analysis_seg,
+            allow_mismatch,
+            allow_missing,
+        )
+        .def_inner_into();
         tot_res
             .def_zip3(data_res, analysis_res)
             .def_map_value(|(tot, data, analysis)| {
@@ -6397,21 +6408,21 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
 
     fn lookup(
         kws: &mut StdKeywords,
-        data: HeaderDataSegment,
-        analysis: HeaderAnalysisSegment,
+        data_seg: HeaderDataSegment,
+        analysis_seg: HeaderAnalysisSegment,
         conf: &ReaderConfig,
     ) -> LookupTEXTOffsetsResult<Self> {
         let allow_mismatch = conf.allow_header_text_offset_mismatch;
         let allow_missing = conf.allow_missing_required_offsets;
         let tot_res = Tot::remove_metaroot_req(kws).into_deferred();
         let data_res =
-            KeyedReqSegment::remove_or(kws, conf.data, data, allow_mismatch, allow_missing)
+            KeyedReqSegment::remove_or(kws, conf.data, data_seg, allow_mismatch, allow_missing)
                 .def_inner_into();
         tot_res
             .def_zip(data_res)
             .def_and_tentatively(|(tot, data)| {
                 {
-                    KeyedOptSegment::remove_or(kws, conf.analysis, analysis, allow_mismatch)
+                    KeyedOptSegment::remove_or(kws, conf.analysis, analysis_seg, allow_mismatch)
                         .inner_into()
                         .map(|analysis| {
                             TEXTOffsets {
@@ -6427,19 +6438,20 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
 
     fn lookup_ro(
         kws: &StdKeywords,
-        data: HeaderDataSegment,
-        analysis: HeaderAnalysisSegment,
+        data_seg: HeaderDataSegment,
+        analysis_seg: HeaderAnalysisSegment,
         conf: &ReaderConfig,
     ) -> LookupTEXTOffsetsResult<Self> {
         let allow_mismatch = conf.allow_header_text_offset_mismatch;
         let allow_missing = conf.allow_missing_required_offsets;
         let tot_res = Tot::get_metaroot_req(kws).into_deferred();
-        let data_res = KeyedReqSegment::get_or(kws, conf.data, data, allow_mismatch, allow_missing)
-            .def_inner_into();
+        let data_res =
+            KeyedReqSegment::get_or(kws, conf.data, data_seg, allow_mismatch, allow_missing)
+                .def_inner_into();
         tot_res
             .def_zip(data_res)
             .def_and_tentatively(|(tot, data)| {
-                KeyedOptSegment::get_or(kws, conf.analysis, analysis, allow_mismatch)
+                KeyedOptSegment::get_or(kws, conf.analysis, analysis_seg, allow_mismatch)
                     .inner_into()
                     .map(|analysis| {
                         TEXTOffsets {
@@ -6583,58 +6595,58 @@ impl TemporalFromOptical<InnerOptical3_2> for InnerTemporal3_2 {
     }
 }
 
-#[derive(Clone, Copy)]
-pub enum MixedColumnSetter {
-    // ASSUME this won't have NaNs
-    Float(f32),
-    Double(f64),
-    Ascii(AsciiRangeSetter),
-    Uint(NumRangeSetter),
-}
+// #[derive(Clone, Copy)]
+// pub enum MixedColumnSetter {
+//     // ASSUME this won't have NaNs
+//     Float(f32),
+//     Double(f64),
+//     Ascii(AsciiRangeSetter),
+//     Uint(NumRangeSetter),
+// }
 
-impl From<MixedColumnSetter> for AlphaNumType {
-    fn from(value: MixedColumnSetter) -> Self {
-        match value {
-            MixedColumnSetter::Float(_) => AlphaNumType::Single,
-            MixedColumnSetter::Double(_) => AlphaNumType::Double,
-            MixedColumnSetter::Ascii(_) => AlphaNumType::Ascii,
-            MixedColumnSetter::Uint(_) => AlphaNumType::Integer,
-        }
-    }
-}
+// impl From<MixedColumnSetter> for AlphaNumType {
+//     fn from(value: MixedColumnSetter) -> Self {
+//         match value {
+//             MixedColumnSetter::Float(_) => AlphaNumType::Single,
+//             MixedColumnSetter::Double(_) => AlphaNumType::Double,
+//             MixedColumnSetter::Ascii(_) => AlphaNumType::Ascii,
+//             MixedColumnSetter::Uint(_) => AlphaNumType::Integer,
+//         }
+//     }
+// }
 
-#[derive(Clone, Copy)]
-pub struct RangeSetter<B> {
-    pub width: B,
-    pub range: u64,
-}
+// #[derive(Clone, Copy)]
+// pub struct RangeSetter<B> {
+//     pub width: B,
+//     pub range: u64,
+// }
 
-pub type AsciiRangeSetter = RangeSetter<Chars>;
-pub type NumRangeSetter = RangeSetter<Bytes>;
+// pub type AsciiRangeSetter = RangeSetter<Chars>;
+// pub type NumRangeSetter = RangeSetter<Bytes>;
 
-impl NumRangeSetter {
-    fn truncated(&self) -> (Width, Range) {
-        (
-            self.width.into(),
-            2_u64
-                .pow(u8::from(self.width).into())
-                .min(self.range)
-                .into(),
-        )
-    }
-}
+// impl NumRangeSetter {
+//     fn truncated(&self) -> (Width, Range) {
+//         (
+//             self.width.into(),
+//             2_u64
+//                 .pow(u8::from(self.width).into())
+//                 .min(self.range)
+//                 .into(),
+//         )
+//     }
+// }
 
-impl AsciiRangeSetter {
-    fn truncated(&self) -> (Width, Range) {
-        (
-            self.width.into(),
-            10_u64
-                .pow(u8::from(self.width).into())
-                .min(self.range)
-                .into(),
-        )
-    }
-}
+// impl AsciiRangeSetter {
+//     fn truncated(&self) -> (Width, Range) {
+//         (
+//             self.width.into(),
+//             10_u64
+//                 .pow(u8::from(self.width).into())
+//                 .min(self.range)
+//                 .into(),
+//         )
+//     }
+// }
 
 type Timestamps2_0 = Timestamps<FCSTime>;
 type Timestamps3_0 = Timestamps<FCSTime60>;
@@ -7263,16 +7275,6 @@ impl InnerTemporal3_2 {
     }
 }
 
-impl InnerOptical2_0 {
-    pub(crate) fn new() -> Self {
-        Self {
-            scale: None.into(),
-            wavelength: None.into(),
-            peak: PeakData::default(),
-        }
-    }
-}
-
 impl InnerOptical3_0 {
     pub(crate) fn new(scale: Scale) -> Self {
         Self {
@@ -7405,9 +7407,9 @@ impl Temporal3_2 {
     }
 }
 
-impl Optical2_0 {
-    pub fn new() -> Self {
-        let specific = InnerOptical2_0::new();
+impl Default for Optical2_0 {
+    fn default() -> Self {
+        let specific = InnerOptical2_0::default();
         Self::new_common(specific)
     }
 }
@@ -7684,16 +7686,15 @@ enum_from_disp!(
 enum_from_disp!(
     pub StdDatasetFromRawError,
     [TEXT, StdTEXTFromRawError],
-    [Layout, ReadDataError0],
-    [Offsets, LookupTEXTOffsetsError],
-    [DataRead, ReadDataError]
+    [Dataframe, ReadDataframeError],
+    [Offsets, LookupTEXTOffsetsError]
 );
 
 enum_from_disp!(
     pub StdDatasetFromRawWarning,
     [TEXT, StdTEXTFromRawWarning],
     [Offsets, LookupTEXTOffsetsWarning],
-    [Layout, ReadWarning]
+    [Layout, ReadDataframeWarning]
 );
 
 enum_from_disp!(
@@ -7938,14 +7939,14 @@ enum_from_disp!(
     pub LookupAndReadDataAnalysisError,
     [Offsets, LookupTEXTOffsetsError],
     [Layout, RawToLayoutError],
-    [Data, ReadDataError0]
+    [Dataframe, ReadDataframeError]
 );
 
 enum_from_disp!(
     pub LookupAndReadDataAnalysisWarning,
     [Offsets, LookupTEXTOffsetsWarning],
     [Layout, RawToLayoutWarning],
-    [Data, ReadWarning]
+    [Data, ReadDataframeWarning]
 );
 
 enum_from_disp!(

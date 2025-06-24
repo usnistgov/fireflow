@@ -374,19 +374,6 @@ enum_from_disp!(
 );
 
 enum_from_disp!(
-    pub DatasetWithKwsError,
-    [DataReader, RawToReaderError],
-    // [AnalysisReader, NewAnalysisReaderError],
-    [Read, ReadDataError]
-);
-
-enum_from_disp!(
-    pub ReadRawDatasetWarning,
-    [DataReader, RawToReaderWarning]
-    // [AnalysisReader, NewAnalysisReaderWarning]
-);
-
-enum_from_disp!(
     pub RawToReaderError,
     [Layout, RawToLayoutError],
     [Reader, NewDataReaderError]

@@ -1279,9 +1279,9 @@ newtype_disp!(Range);
 newtype_fromstr!(Range, ParseFloatOrIntError);
 
 impl TryFrom<f64> for Range {
-    type Error = NanFloatOrInt;
+    type Error = NanFloatError;
     fn try_from(value: f64) -> Result<Self, Self::Error> {
-        FloatOrInt::try_from(value).map(|x| x.into())
+        NonNanF64::try_from(value).map(|x| FloatOrInt::Float(x).into())
     }
 }
 
@@ -1301,9 +1301,9 @@ newtype_disp!(GateRange);
 newtype_fromstr!(GateRange, ParseFloatOrIntError);
 
 impl TryFrom<f64> for GateRange {
-    type Error = NanFloatOrInt;
+    type Error = NanFloatError;
     fn try_from(value: f64) -> Result<Self, Self::Error> {
-        FloatOrInt::try_from(value).map(|x| x.into())
+        NonNanF64::try_from(value).map(|x| FloatOrInt::Float(x).into())
     }
 }
 

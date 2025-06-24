@@ -7482,12 +7482,6 @@ impl OthersReader<'_> {
     }
 }
 
-enum_from_disp!(
-    pub SetFloatError,
-    [Nan, NanFloatOrInt],
-    [Length, KeyLengthError]
-);
-
 pub struct ConvertError<E> {
     from: Version,
     to: Version,

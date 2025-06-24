@@ -280,6 +280,14 @@ pub struct ColumnLayoutValues<D> {
 type ColumnLayoutValues2_0 = ColumnLayoutValues<()>;
 type ColumnLayoutValues3_2 = ColumnLayoutValues<Option<NumType>>;
 
+pub struct FixedColumnValues<W> {
+    width: W,
+    range: Range,
+}
+
+type AsciiColumnValues = FixedColumnValues<Chars>;
+type NumericColumnValues = FixedColumnValues<Bytes>;
+
 /// A type which represents a column which may have associated data.
 ///
 /// Used to implement a higher-kinded type interface for columns that can be
@@ -549,7 +557,9 @@ trait NumProps: Sized + Copy + Default {
             Endian::Little => self.to_little(),
         }
     }
+}
 
+trait IntProps: Sized {
     fn maxval() -> Self;
 }
 
@@ -582,11 +592,12 @@ trait OrderedFromBytes<const OLEN: usize>: NumProps {
 /// Methods for reading/writing integers (1-8 bytes) from FCS files.
 trait IntFromBytes<const INTLEN: usize>
 where
-    Self: OrderedFromBytes<INTLEN>,
-    Self: TryFrom<FloatOrInt, Error = ToIntError<Self>>,
-    Self: IntMath,
+    Self: OrderedFromBytes<INTLEN> + IntMath + IntProps,
 {
-    fn range_to_bitmask(r: Range, notrunc: bool) -> Tentative<Self, BitmaskError, BitmaskError> {
+    fn range_to_bitmask(r: Range, notrunc: bool) -> Tentative<Self, BitmaskError, BitmaskError>
+    where
+        Self: TryFrom<FloatOrInt, Error = ToIntError<Self>>,
+    {
         let go = |x, e| {
             let y = Self::next_bitmask(x);
             if notrunc {
@@ -613,7 +624,10 @@ where
     fn column_type(
         r: Range,
         notrunc: bool,
-    ) -> Tentative<UintType<Self, INTLEN>, BitmaskError, BitmaskError> {
+    ) -> Tentative<UintType<Self, INTLEN>, BitmaskError, BitmaskError>
+    where
+        Self: TryFrom<FloatOrInt, Error = ToIntError<Self>>,
+    {
         Self::range_to_bitmask(r, notrunc).map(|bitmask| UintType { bitmask })
     }
 
@@ -672,22 +686,24 @@ where
 /// Methods for reading/writing floats (32 and 64 bit) from FCS files.
 trait FloatFromBytes<const LEN: usize>
 where
-    Self: NumProps,
-    Self: OrderedFromBytes<LEN>,
-    Self: FromStr,
-    Self: TryFrom<FloatOrInt, Error = ToFloatError<Self>>,
-    Self: Clone,
+    Self: NumProps + FloatProps + OrderedFromBytes<LEN> + FromStr,
 {
-    fn range(r: Range) -> Self {
+    fn range(r: Range) -> NonNanFloat<Self>
+    where
+        NonNanFloat<Self>: TryFrom<FloatOrInt, Error = ToFloatError<Self>>,
+    {
         // TODO control how this works and/or warn user if we truncate
         r.0.try_into().unwrap_or_else(|e| match e {
             ToFloatError::IntPrecisionLoss(_, x) => x,
             ToFloatError::FloatOverrange(_) => Self::maxval(),
-            ToFloatError::FloatUnderrange(_) => Self::default(),
+            ToFloatError::FloatUnderrange(_) => NonNanFloat::<Self>::default(),
         })
     }
 
-    fn column_type(w: Width, r: Range) -> Result<FloatType<Self, LEN>, FloatWidthError> {
+    fn column_type(w: Width, r: Range) -> Result<FloatType<Self, LEN>, FloatWidthError>
+    where
+        NonNanFloat<Self>: TryFrom<FloatOrInt, Error = ToFloatError<Self>>,
+    {
         Bytes::try_from(w).map_err(|e| e.into()).and_then(|bytes| {
             if usize::from(u8::from(bytes)) == LEN {
                 let range = Self::range(r);
@@ -1091,7 +1107,7 @@ impl ToNativeReader for AsciiType {}
 impl<T, const LEN: usize, E> NativeReadable<Endian, E> for UintType<T, LEN>
 where
     UintType<T, LEN>: HasNativeType<Native = T>,
-    <UintType<T, LEN> as HasNativeType>::Native: Ord + Copy + IntFromBytes<LEN>,
+    T: Ord + Copy + IntFromBytes<LEN>,
 {
     type Buf = ();
 
@@ -1100,8 +1116,8 @@ where
         h: &mut BufReader<R>,
         byte_layout: Endian,
         _: &mut (),
-    ) -> IOResult<Self::Native, E> {
-        let x = Self::Native::h_read_endian(h, byte_layout)?;
+    ) -> IOResult<T, E> {
+        let x = T::h_read_endian(h, byte_layout)?;
         Ok(x)
     }
 }
@@ -1109,7 +1125,7 @@ where
 impl<T, const LEN: usize, E> NativeReadable<SizedByteOrd<LEN>, E> for UintType<T, LEN>
 where
     UintType<T, LEN>: HasNativeType<Native = T>,
-    <UintType<T, LEN> as HasNativeType>::Native: Ord + Copy + IntFromBytes<LEN>,
+    T: Ord + Copy + IntFromBytes<LEN>,
 {
     type Buf = ();
 
@@ -1118,8 +1134,8 @@ where
         h: &mut BufReader<R>,
         byte_layout: SizedByteOrd<LEN>,
         _: &mut (),
-    ) -> IOResult<Self::Native, E> {
-        let x = Self::Native::h_read_ordered(h, byte_layout)?;
+    ) -> IOResult<T, E> {
+        let x = T::h_read_ordered(h, byte_layout)?;
         Ok(x)
     }
 }
@@ -1127,7 +1143,7 @@ where
 impl<T, const LEN: usize, E> NativeReadable<Endian, E> for FloatType<T, LEN>
 where
     FloatType<T, LEN>: HasNativeType<Native = T>,
-    <FloatType<T, LEN> as HasNativeType>::Native: Copy + FloatFromBytes<LEN>,
+    T: Copy + FloatFromBytes<LEN>,
 {
     type Buf = ();
 
@@ -1136,8 +1152,8 @@ where
         h: &mut BufReader<R>,
         byte_layout: Endian,
         _: &mut (),
-    ) -> IOResult<Self::Native, E> {
-        let x = Self::Native::h_read_endian(h, byte_layout)?;
+    ) -> IOResult<T, E> {
+        let x = T::h_read_endian(h, byte_layout)?;
         Ok(x)
     }
 }
@@ -1145,7 +1161,7 @@ where
 impl<T, const LEN: usize, E> NativeReadable<SizedByteOrd<LEN>, E> for FloatType<T, LEN>
 where
     FloatType<T, LEN>: HasNativeType<Native = T>,
-    <FloatType<T, LEN> as HasNativeType>::Native: Copy + FloatFromBytes<LEN>,
+    T: Copy + FloatFromBytes<LEN>,
 {
     type Buf = ();
 
@@ -1154,8 +1170,8 @@ where
         h: &mut BufReader<R>,
         byte_layout: SizedByteOrd<LEN>,
         _: &mut (),
-    ) -> IOResult<Self::Native, E> {
-        let x = Self::Native::h_read_ordered(h, byte_layout)?;
+    ) -> IOResult<T, E> {
+        let x = T::h_read_ordered(h, byte_layout)?;
         Ok(x)
     }
 }
@@ -1183,7 +1199,6 @@ where
 {
     type Inner = C;
     type Buf = <C as NativeReadable<S, E>>::Buf;
-    // type Error = <C as NativeReadable<S>>::Error;
 
     fn new(column_type: Self::Inner, nrows: usize) -> Self {
         column_type.into_reader(nrows)
@@ -1293,12 +1308,12 @@ impl<E> Readable<Endian, E> for ReaderAnyUintType {
 impl<T, const LEN: usize> NativeWritable<Endian> for UintType<T, LEN>
 where
     UintType<T, LEN>: HasNativeType<Native = T>,
-    <UintType<T, LEN> as HasNativeType>::Native: Ord + Copy + IntFromBytes<LEN>,
+    T: Ord + Copy + IntFromBytes<LEN>,
 {
     fn h_write<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        x: CastResult<Self::Native>,
+        x: CastResult<T>,
         byte_layout: Endian,
     ) -> io::Result<()> {
         x.new.min(self.bitmask).h_write_endian(h, byte_layout)
@@ -1308,12 +1323,12 @@ where
 impl<T, const LEN: usize> NativeWritable<SizedByteOrd<LEN>> for UintType<T, LEN>
 where
     UintType<T, LEN>: HasNativeType<Native = T>,
-    <UintType<T, LEN> as HasNativeType>::Native: Ord + Copy + IntFromBytes<LEN>,
+    T: Ord + Copy + IntFromBytes<LEN>,
 {
     fn h_write<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        x: CastResult<Self::Native>,
+        x: CastResult<T>,
         byte_layout: SizedByteOrd<LEN>,
     ) -> io::Result<()> {
         x.new.min(self.bitmask).h_write_ordered(h, byte_layout)
@@ -1323,12 +1338,12 @@ where
 impl<T, const LEN: usize> NativeWritable<Endian> for FloatType<T, LEN>
 where
     FloatType<T, LEN>: HasNativeType<Native = T>,
-    <FloatType<T, LEN> as HasNativeType>::Native: Copy + FloatFromBytes<LEN>,
+    T: Copy + FloatFromBytes<LEN>,
 {
     fn h_write<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        x: CastResult<Self::Native>,
+        x: CastResult<T>,
         byte_layout: Endian,
     ) -> io::Result<()> {
         x.new.h_write_endian(h, byte_layout)
@@ -1338,12 +1353,12 @@ where
 impl<T, const LEN: usize> NativeWritable<SizedByteOrd<LEN>> for FloatType<T, LEN>
 where
     FloatType<T, LEN>: HasNativeType<Native = T>,
-    <FloatType<T, LEN> as HasNativeType>::Native: Copy + FloatFromBytes<LEN>,
+    T: Copy + FloatFromBytes<LEN>,
 {
     fn h_write<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        x: CastResult<Self::Native>,
+        x: CastResult<T>,
         byte_layout: SizedByteOrd<LEN>,
     ) -> io::Result<()> {
         x.new.h_write_ordered(h, byte_layout)
@@ -1378,14 +1393,14 @@ impl NativeWritable<()> for AsciiType {
 impl<'a, C, T, S> Writable<'a, S> for ColumnWriter<'a, C, T, S>
 where
     C: NativeWritable<S> + HasNativeType<Native = T> + ToNativeWriter,
-    C::Native: AllFCSCast + Copy + Default,
+    T: AllFCSCast + Copy + Default,
     AnyLossError: From<LossError<<C as ToNativeWriter>::Error>>,
-    AnySource<'a, C::Native>: From<FCSColIter<'a, u8, C::Native>>
-        + From<FCSColIter<'a, u16, C::Native>>
-        + From<FCSColIter<'a, u32, C::Native>>
-        + From<FCSColIter<'a, u64, C::Native>>
-        + From<FCSColIter<'a, f32, C::Native>>
-        + From<FCSColIter<'a, f64, C::Native>>,
+    AnySource<'a, T>: From<FCSColIter<'a, u8, T>>
+        + From<FCSColIter<'a, u16, T>>
+        + From<FCSColIter<'a, u32, T>>
+        + From<FCSColIter<'a, u64, T>>
+        + From<FCSColIter<'a, f32, T>>
+        + From<FCSColIter<'a, f64, T>>,
 {
     type Inner = C;
 
@@ -1483,12 +1498,12 @@ impl<'a> Writable<'a, Endian> for WriterAnyUintType<'a> {
 impl<T, const LEN: usize> ToNativeWriter for UintType<T, LEN>
 where
     Self: HasNativeType<Native = T>,
-    u64: From<Self::Native>,
-    Self::Native: Ord + Copy,
+    u64: From<T>,
+    T: Ord + Copy,
 {
     type Error = BitmaskLossError;
 
-    fn check_other_loss(&self, x: Self::Native) -> Option<Self::Error> {
+    fn check_other_loss(&self, x: T) -> Option<Self::Error> {
         if x > self.bitmask {
             Some(BitmaskLossError(u64::from(self.bitmask)))
         } else {
@@ -1503,7 +1518,7 @@ where
 {
     type Error = Infallible;
 
-    fn check_other_loss(&self, _: Self::Native) -> Option<Self::Error> {
+    fn check_other_loss(&self, _: T) -> Option<Self::Error> {
         None
     }
 }
@@ -1813,10 +1828,6 @@ macro_rules! impl_num_props {
             fn from_little(buf: [u8; $size]) -> Self {
                 <$t>::from_le_bytes(buf)
             }
-
-            fn maxval() -> Self {
-                Self::MAX
-            }
         }
     };
 }
@@ -1830,6 +1841,12 @@ impl_num_props!(8, f64);
 
 macro_rules! impl_int_math {
     ($t:ty) => {
+        impl IntProps for $t {
+            fn maxval() -> Self {
+                Self::MAX
+            }
+        }
+
         impl IntMath for $t {
             fn next_bitmask(x: Self) -> Self {
                 Self::checked_next_power_of_two(x)
@@ -2597,6 +2614,25 @@ impl<C, S, T> FixedLayout<C, S, T> {
     }
 }
 
+// impl<C: HasNativeType, const LEN: usize, S, T> FixedLayout<FloatType<C, LEN>, S, T> {
+//     pub(crate) fn new_floating(
+//         &self,
+//         ranges: NonEmpty<C::Native>,
+//         byte_layout: S,
+//     ) -> Result<Self, NanFloatError>
+//     where
+//         f64: From<C::Native>,
+//     {
+//         let columns = ranges
+//             .try_map(|r| f64::from(r))
+//             .map(|range| FloatType { range })?;
+//         Ok(FixedLayout {
+//             columns,
+//             byte_layout,
+//         })
+//     }
+// }
+
 impl<T, const LEN: usize> HasDatatype for UintType<T, LEN> {
     const DATATYPE: AlphaNumType = AlphaNumType::Integer;
 }
@@ -2680,9 +2716,8 @@ where
         Self::BYTES.into()
     }
 
-    // TODO this will fail if NaN
     fn range(&self) -> Range {
-        Range(f64::from(self.range).try_into().unwrap())
+        Range(FloatOrInt::Float(self.range.inner_into()))
     }
 }
 
@@ -2898,6 +2933,14 @@ impl<T> AnyAsciiLayout<T> {
             })
             .def_map_value(Self::Fixed)
         }
+    }
+
+    pub(crate) fn new_fixed(columns: NonEmpty<AsciiType>) -> Self {
+        Self::Fixed(FixedLayout::new(columns, ()))
+    }
+
+    pub(crate) fn new_delim(ranges: NonEmpty<u64>) -> Self {
+        Self::Delimited(DelimAsciiLayout::new(ranges))
     }
 
     fn ncols(&self) -> usize {
@@ -4125,3 +4168,25 @@ impl<E: fmt::Display> fmt::Display for MixedColumnConvertError<E> {
         )
     }
 }
+
+// enum_from_disp!(
+//     pub SetFloatError,
+//     [Nan, NanFloatError],
+//     [Length, ColumnLengthError]
+// );
+
+// #[derive(Debug)]
+// pub struct ColumnLengthError {
+//     this_len: usize,
+//     other_len: usize,
+// }
+
+// impl fmt::Display for ColumnLengthError {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+//         write!(
+//             f,
+//             "number of columns is {}, input should match but got {}",
+//             self.this_len, self.other_len,
+//         )
+//     }
+// }

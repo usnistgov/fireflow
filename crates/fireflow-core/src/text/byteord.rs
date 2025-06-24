@@ -2,6 +2,8 @@ use crate::macros::{
     enum_from, enum_from_disp, match_many_to_one, newtype_disp, newtype_from_outer,
 };
 
+use super::float_or_int::NonNanFloat;
+
 use itertools::Itertools;
 use serde::Serialize;
 use std::fmt;
@@ -81,7 +83,7 @@ pub struct UintType<T, const LEN: usize> {
 /// The type of any floating point column in all versions
 #[derive(PartialEq, Clone, Copy, Serialize)]
 pub struct FloatType<T, const LEN: usize> {
-    pub range: T,
+    pub range: NonNanFloat<T>,
 }
 
 /// The type of an ASCII column in all versions

@@ -2724,8 +2724,9 @@ where
                 let ns: Vec<_> = nonstd.into_iter().collect();
                 let meas_res =
                     Self::lookup_measurements(kws, par, ns, &conf.standard).def_inner_into();
-                let layout_res =
-                    <M::Ver as Versioned>::Layout::lookup(kws, &conf.shared, par).def_inner_into();
+                let layout_res = <M::Ver as Versioned>::Layout::lookup(kws, &conf.shared, par)
+                    .def_map_errors(Box::new)
+                    .def_inner_into();
                 meas_res
                     .def_zip(layout_res)
                     .def_and_maybe(|((ms, meta_ns), layout)| {
@@ -2902,6 +2903,7 @@ where
         Version: From<M::Ver>,
     {
         VersionedCoreTEXT::<M>::lookup(kws, nonstd, data_seg, analysis_seg, conf)
+            .def_map_errors(Box::new)
             .def_inner_into()
             .def_errors_liftio()
             .def_and_maybe(|(text, offsets)| {
@@ -7669,7 +7671,7 @@ impl fmt::Display for MissingMeasurementNameError {
 enum_from_disp!(
     pub StdTEXTFromRawError,
     [Metaroot, LookupKeysError],
-    [Layout, LookupLayoutError],
+    [Layout, Box<LookupLayoutError>],
     [Offsets, LookupTEXTOffsetsError],
     [Pseudostandard, PseudostandardError]
 );
@@ -7685,7 +7687,7 @@ enum_from_disp!(
 
 enum_from_disp!(
     pub StdDatasetFromRawError,
-    [TEXT, StdTEXTFromRawError],
+    [TEXT, Box<StdTEXTFromRawError>],
     [Dataframe, ReadDataframeError],
     [Offsets, LookupTEXTOffsetsError]
 );

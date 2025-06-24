@@ -743,7 +743,7 @@ trait VersionedColumnLayout: Sized {
             .map_err(DeferredFailure::mconcat)
     }
 
-    fn get_all(
+    fn lookup_ro_all(
         kws: &StdKeywords,
     ) -> DeferredResult<Vec<Self>, ParseKeyError<NumTypeError>, RawParsedError> {
         Par::get_metaroot_req(kws)
@@ -3098,20 +3098,19 @@ impl VersionedDataLayout for Layout3_1 {
         let cs = ColumnLayoutValues2_0::lookup_all(kws, par);
         let d = AlphaNumType::lookup_req(kws);
         let n = Endian::lookup_req(kws);
-        // TODO not DRY
         d.def_zip3(n, cs)
             .def_inner_into()
             .def_and_maybe(|(datatype, byteord, columns)| {
                 def_transpose(
                     NonEmpty::from_vec(columns)
-                        .map(|cs| Self::try_new(datatype, byteord, cs, conf)),
+                        .map(|xs| Self::try_new(datatype, byteord, xs, conf)),
                 )
                 .def_inner_into()
             })
     }
 
     fn lookup_ro(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Option<Self>> {
-        let cs = ColumnLayoutValues2_0::get_all(kws);
+        let cs = ColumnLayoutValues2_0::lookup_ro_all(kws);
         let d = AlphaNumType::get_metaroot_req(kws).into_deferred();
         let n = Endian::get_metaroot_req(kws).into_deferred();
         d.def_zip3(n, cs)
@@ -3119,7 +3118,7 @@ impl VersionedDataLayout for Layout3_1 {
             .def_and_maybe(|(datatype, byteord, columns)| {
                 def_transpose(
                     NonEmpty::from_vec(columns)
-                        .map(|cs| Self::try_new(datatype, byteord, cs, conf)),
+                        .map(|xs| Self::try_new(datatype, byteord, xs, conf)),
                 )
                 .def_inner_into()
             })
@@ -3178,13 +3177,11 @@ impl VersionedDataLayout for Layout3_2 {
             .collect();
         match unique_dt[..] {
             [dt] => {
-                let ds = cs
-                    // TODO lame...
-                    .map(|c| ColumnLayoutValues {
-                        width: c.width,
-                        range: c.range,
-                        datatype: (),
-                    });
+                let ds = cs.map(|c| ColumnLayoutValues {
+                    width: c.width,
+                    range: c.range,
+                    datatype: (),
+                });
                 NonMixedEndianLayout::try_new(dt, endian, ds, conf).def_map_value(Self::NonMixed)
             }
             _ => FixedLayout::try_new(cs, endian, |c| MixedType::try_new(c, conf))
@@ -3204,7 +3201,7 @@ impl VersionedDataLayout for Layout3_2 {
             .def_inner_into()
             .def_and_maybe(|(datatype, endian, columns)| {
                 def_transpose(
-                    NonEmpty::from_vec(columns).map(|cs| Self::try_new(datatype, endian, cs, conf)),
+                    NonEmpty::from_vec(columns).map(|xs| Self::try_new(datatype, endian, xs, conf)),
                 )
                 .def_inner_into()
             })
@@ -3217,11 +3214,11 @@ impl VersionedDataLayout for Layout3_2 {
         let e = Endian::get_metaroot_req(kws)
             .map_err(RawParsedError::from)
             .into_deferred();
-        let cs = ColumnLayoutValues3_2::get_all(kws).def_inner_into();
+        let cs = ColumnLayoutValues3_2::lookup_ro_all(kws).def_inner_into();
         d.def_zip3(e, cs)
             .def_and_maybe(|(datatype, endian, columns)| {
                 def_transpose(
-                    NonEmpty::from_vec(columns).map(|cs| Self::try_new(datatype, endian, cs, conf)),
+                    NonEmpty::from_vec(columns).map(|xs| Self::try_new(datatype, endian, xs, conf)),
                 )
                 .def_inner_into()
             })
@@ -3404,7 +3401,7 @@ impl<T> AnyOrderedLayout<T> {
     fn try_new(
         datatype: AlphaNumType,
         byteord: ByteOrd,
-        columns: NonEmpty<ColumnLayoutValues<()>>,
+        columns: NonEmpty<ColumnLayoutValues2_0>,
         conf: &SharedConfig,
     ) -> DeferredResult<Self, ColumnError<BitmaskError>, NewDataLayoutError> {
         match datatype {
@@ -3444,14 +3441,14 @@ impl<T> AnyOrderedLayout<T> {
             .def_and_maybe(|(datatype, byteord, columns)| {
                 def_transpose(
                     NonEmpty::from_vec(columns)
-                        .map(|cs| Self::try_new(datatype, byteord, cs, conf)),
+                        .map(|xs| Self::try_new(datatype, byteord, xs, conf)),
                 )
                 .def_inner_into()
             })
     }
 
     fn lookup_ro(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Option<Self>> {
-        let cs = ColumnLayoutValues2_0::get_all(kws);
+        let cs = ColumnLayoutValues2_0::lookup_ro_all(kws);
         let d = AlphaNumType::get_metaroot_req(kws).into_deferred();
         let b = ByteOrd::get_metaroot_req(kws).into_deferred();
         d.def_zip3(b, cs)
@@ -3459,7 +3456,7 @@ impl<T> AnyOrderedLayout<T> {
             .def_and_maybe(|(datatype, byteord, columns)| {
                 def_transpose(
                     NonEmpty::from_vec(columns)
-                        .map(|cs| Self::try_new(datatype, byteord, cs, conf)),
+                        .map(|xs| Self::try_new(datatype, byteord, xs, conf)),
                 )
                 .def_inner_into()
             })

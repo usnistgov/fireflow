@@ -2,7 +2,7 @@ use crate::macros::{
     enum_from, enum_from_disp, match_many_to_one, newtype_disp, newtype_from_outer,
 };
 
-use super::float_or_int::NonNanFloat;
+use super::float_or_int::{FloatProps, NonNanFloat};
 
 use itertools::Itertools;
 use serde::Serialize;
@@ -56,9 +56,13 @@ pub enum Width {
 #[derive(Clone, Copy, Serialize, PartialEq, Eq, Hash)]
 pub struct Bytes(u8);
 
+const MAX_BYTES: u8 = 8;
+
 /// The number of chars or an ASCII measurement
 #[derive(Clone, Copy, Serialize, PartialEq, Eq, Hash)]
 pub struct Chars(u8);
+
+const MAX_CHARS: u8 = 20;
 
 /// The value of $PnB if it is fixed.
 ///
@@ -136,6 +140,39 @@ def_native_wrapper!(Uint56Type, UintType, u64, 7, 8);
 def_native_wrapper!(Uint64Type, UintType, u64, 8, 8);
 def_native_wrapper!(F32Type, FloatType, f32, 4, 4);
 def_native_wrapper!(F64Type, FloatType, f64, 8, 8);
+
+macro_rules! uint_default {
+    ($name:ident, $size:expr) => {
+        impl Default for $name {
+            fn default() -> Self {
+                Self { bitmask: 2 ^ $size }
+            }
+        }
+    };
+}
+
+uint_default!(Uint08Type, 1);
+uint_default!(Uint16Type, 2);
+uint_default!(Uint24Type, 3);
+uint_default!(Uint32Type, 4);
+uint_default!(Uint40Type, 5);
+uint_default!(Uint48Type, 6);
+uint_default!(Uint56Type, 7);
+uint_default!(Uint64Type, 8);
+
+macro_rules! float_default {
+    ($name:ident, $t:ident) => {
+        impl Default for $name {
+            fn default() -> Self {
+                Self {
+                    range: $t::maxval(),
+                }
+            }
+        }
+    };
+}
+
+float_default!(F32Type, f32);
 
 impl HasNativeType for AsciiType {
     type Native = u64;
@@ -237,6 +274,21 @@ byteord_from_sized!(5, O5);
 byteord_from_sized!(6, O6);
 byteord_from_sized!(7, O7);
 byteord_from_sized!(8, O8);
+
+impl Chars {
+    fn max() -> Self {
+        Self(MAX_CHARS)
+    }
+}
+
+impl Default for AsciiType {
+    fn default() -> Self {
+        Self {
+            chars: Chars::max(),
+            range: u64::MAX,
+        }
+    }
+}
 
 impl<const LEN: usize> Serialize for SizedByteOrd<LEN> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -395,7 +447,7 @@ impl TryFrom<BitsOrChars> for Chars {
     /// which is the numeric type used to back ASCII data.
     fn try_from(value: BitsOrChars) -> Result<Self, Self::Error> {
         let x = value.0;
-        if !(1..=20).contains(&x) {
+        if !(1..=MAX_CHARS).contains(&x) {
             Err(CharsError(x))
         } else {
             Ok(Chars(x))
@@ -416,11 +468,13 @@ impl TryFrom<BitsOrChars> for Bytes {
     /// Return error if bits is not divisible by 8 and within [1,64].
     fn try_from(value: BitsOrChars) -> Result<Self, Self::Error> {
         let x = value.0;
-        if (1..=64).contains(&x) && x % 8 == 0 {
-            Ok(Bytes(x / 8))
-        } else {
-            Err(BytesError(x))
+        if (x & 0b111) == 0 {
+            let y = x >> 3;
+            if (1..=MAX_BYTES).contains(&y) {
+                return Ok(Bytes(y));
+            }
         }
+        Err(BytesError(x))
     }
 }
 

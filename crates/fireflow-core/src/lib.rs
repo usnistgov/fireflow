@@ -8,6 +8,7 @@ pub mod data;
 pub mod error;
 pub mod header;
 mod macros;
+mod nonempty;
 pub mod segment;
 pub mod text;
 pub mod validated;

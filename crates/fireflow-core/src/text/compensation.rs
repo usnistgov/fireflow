@@ -118,7 +118,7 @@ impl Compensation {
         let n = self.matrix.ncols();
         if i <= n {
             if n < 3 {
-                Err(ClearOptional)
+                Err(ClearOptional::default())
             } else {
                 self.matrix = self.matrix.clone().remove_row(i).remove_column(i);
                 Ok(true)

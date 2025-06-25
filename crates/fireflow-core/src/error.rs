@@ -128,21 +128,6 @@ pub(crate) trait ErrorIter<T, E>: Iterator<Item = Result<T, E>> + Sized {
     }
 }
 
-// why isn't this on the real NonEmpty? too useful...
-pub fn ne_map_results<F, E, X, Y>(xs: NonEmpty<X>, f: F) -> MultiResult<NonEmpty<Y>, E>
-where
-    F: Fn(X) -> Result<Y, E>,
-{
-    xs.map(f)
-        .into_iter()
-        .gather()
-        .map(|ys| NonEmpty::from_vec(ys).unwrap())
-}
-
-pub fn ne_enumerate<X>(xs: NonEmpty<X>) -> NonEmpty<(usize, X)> {
-    NonEmpty::collect(xs.into_iter().enumerate()).unwrap()
-}
-
 impl<I: Iterator<Item = Result<T, E>>, T, E> ErrorIter<T, E> for I {}
 
 impl<V, W> Terminal<V, W> {

@@ -1,6 +1,7 @@
 use crate::macros::{newtype_disp, newtype_from, newtype_from_outer, newtype_fromstr};
 
 use serde::Serialize;
+use std::fmt;
 use std::num::ParseIntError;
 
 /// An index starting at 1, used as the basis for keyword indices
@@ -46,6 +47,26 @@ macro_rules! newtype_index {
     };
 }
 
+impl IndexFromOne {
+    pub(crate) fn check_index(&self, len: usize) -> Result<usize, IndexError> {
+        let i = (*self).into();
+        if i < len {
+            Ok(i)
+        } else {
+            Err(IndexError { index: *self, len })
+        }
+    }
+
+    pub(crate) fn check_boundary_index(&self, len: usize) -> Result<usize, BoundaryIndexError> {
+        let i = (*self).into();
+        if i <= len {
+            Ok(i)
+        } else {
+            Err(BoundaryIndexError { index: *self, len })
+        }
+    }
+}
+
 newtype_index!(
     /// The 'n' in $Pn* keywords
     #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Debug, Serialize)]
@@ -63,3 +84,31 @@ newtype_index!(
     #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Debug, Serialize)]
     RegionIndex
 );
+
+#[derive(Debug)]
+pub struct IndexError {
+    pub index: IndexFromOne, // refers to index of element
+    pub len: usize,
+}
+
+#[derive(Debug)]
+pub struct BoundaryIndexError {
+    pub index: IndexFromOne, // refers to index between elements
+    pub len: usize,
+}
+
+impl fmt::Display for IndexError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "index must be 0 <= i < {}, got {}", self.len, self.index)
+    }
+}
+
+impl fmt::Display for BoundaryIndexError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "index must be 0 <= i <= {}, got {}",
+            self.len, self.index
+        )
+    }
+}

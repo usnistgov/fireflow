@@ -55,7 +55,7 @@ impl UnstainedCenters {
 
     pub(crate) fn remove(&mut self, n: &Shortname) -> Result<Option<f32>, ClearOptional> {
         if self.0.len() == 1 {
-            Err(ClearOptional)
+            Err(ClearOptional::default())
         } else {
             Ok(self.0.remove(n))
         }

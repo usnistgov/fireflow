@@ -1,6 +1,7 @@
 use crate::macros::{
     enum_from, enum_from_disp, match_many_to_one, newtype_disp, newtype_from_outer,
 };
+use crate::validated::dataframe::ascii_nbytes;
 
 use super::float_or_int::{FloatProps, NonNanFloat};
 
@@ -276,8 +277,13 @@ byteord_from_sized!(7, O7);
 byteord_from_sized!(8, O8);
 
 impl Chars {
-    fn max() -> Self {
+    pub(crate) fn max() -> Self {
         Self(MAX_CHARS)
+    }
+
+    pub(crate) fn from_range(x: u64) -> Self {
+        // ASSUME this will never be greater than 20
+        Chars(ascii_nbytes(x) as u8)
     }
 }
 
@@ -286,6 +292,15 @@ impl Default for AsciiType {
         Self {
             chars: Chars::max(),
             range: u64::MAX,
+        }
+    }
+}
+
+impl AsciiType {
+    pub(crate) fn from_range(range: u64) -> Self {
+        Self {
+            range,
+            chars: Chars::from_range(range),
         }
     }
 }

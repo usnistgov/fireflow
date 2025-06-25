@@ -58,7 +58,7 @@ impl Spillover {
     pub(crate) fn remove_by_name(&mut self, n: &Shortname) -> Result<bool, ClearOptional> {
         if let Some(i) = self.measurements.iter().position(|m| m == n) {
             if self.measurements.len() < 3 {
-                Err(ClearOptional)
+                Err(ClearOptional::default())
             } else {
                 // TODO this looks expensive; it copies almost everything 3x;
                 // good thing these matrices aren't that big (usually). The

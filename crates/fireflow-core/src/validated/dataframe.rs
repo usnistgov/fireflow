@@ -1,5 +1,5 @@
 use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
-use crate::text::named_vec::BoundaryIndexError;
+use crate::text::index::BoundaryIndexError;
 
 use polars_arrow::array::{Array, PrimitiveArray};
 use polars_arrow::buffer::Buffer;

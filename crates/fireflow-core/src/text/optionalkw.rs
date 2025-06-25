@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::convert::Infallible;
 use std::fmt;
 use std::mem;
 
@@ -56,18 +57,19 @@ impl<V> OptionalKw<V> {
     }
 
     /// Mutate thing in Option if present, and possibly unset Option entirely
-    pub fn mut_or_unset<F, X>(&mut self, f: F) -> Option<X>
+    pub fn mut_or_unset<E, F, X>(&mut self, f: F) -> Result<Option<X>, E>
     where
-        F: Fn(&mut V) -> Result<X, ClearOptional>,
+        F: Fn(&mut V) -> Result<X, ClearOptionalOr<E>>,
     {
         match mem::replace(self, None.into()).0 {
-            None => None,
+            None => Ok(None),
             Some(mut x) => match f(&mut x) {
-                Ok(y) => Some(y),
-                Err(_) => {
+                Ok(y) => Ok(Some(y)),
+                Err(ClearOptionalOr::Clear) => {
                     *self = None.into();
-                    None
+                    Ok(None)
                 }
+                Err(ClearOptionalOr::Error(e)) => Err(e),
             },
         }
     }
@@ -79,7 +81,14 @@ impl<V, E> OptionalKw<Result<V, E>> {
     }
 }
 
-pub struct ClearOptional;
+pub type ClearOptional = ClearOptionalOr<Infallible>;
+
+#[derive(Default)]
+pub enum ClearOptionalOr<E> {
+    #[default]
+    Clear,
+    Error(E),
+}
 
 impl<V: fmt::Display> OptionalKw<V> {
     pub fn as_opt_string(&self) -> Option<String> {

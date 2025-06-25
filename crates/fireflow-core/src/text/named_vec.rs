@@ -1,7 +1,7 @@
 use crate::error::*;
 use crate::validated::shortname::{Shortname, ShortnamePrefix};
 
-use super::index::MeasIndex;
+use super::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};
 
 use serde::Serialize;
 use std::cmp::Ordering;
@@ -1453,35 +1453,32 @@ impl<K: MightHave, U, V> WrappedNamedVec<K, U, V> {
         include_center: bool,
     ) -> Result<usize, ElementIndexError> {
         let len = self.len();
-        let i = index.into();
-        if i < len {
-            if let Some(j) = self.center_index() {
-                if !include_center && usize::from(j) == i {
-                    return Err(ElementIndexError {
-                        index,
-                        len,
-                        center: Some(j),
-                    });
+        IndexFromOne::from(index).check_index(len).map_or_else(
+            |e| {
+                Err(ElementIndexError {
+                    index: e,
+                    center: None,
+                })
+            },
+            |i| {
+                if let Some(j) = self.center_index() {
+                    if !include_center && usize::from(j) == i {
+                        return Err(ElementIndexError {
+                            index: IndexError {
+                                index: i.into(),
+                                len,
+                            },
+                            center: Some(j),
+                        });
+                    }
                 }
-            }
-            Ok(i)
-        } else {
-            Err(ElementIndexError {
-                index,
-                len,
-                center: None,
-            })
-        }
+                Ok(i)
+            },
+        )
     }
 
     fn check_boundary_index(&self, index: MeasIndex) -> Result<usize, BoundaryIndexError> {
-        let len = self.len();
-        let i = index.into();
-        if i <= len {
-            Ok(i)
-        } else {
-            Err(BoundaryIndexError { index, len })
-        }
+        IndexFromOne::from(index).check_boundary_index(self.len())
     }
 
     fn check_keys_length<X>(&self, xs: &[X], include_center: bool) -> Result<(), KeyLengthError> {
@@ -1846,15 +1843,8 @@ pub struct NonUniqueKeyError {
 
 #[derive(Debug)]
 pub struct ElementIndexError {
-    index: MeasIndex, // refers to index of element
-    len: usize,
+    index: IndexError,
     center: Option<MeasIndex>,
-}
-
-#[derive(Debug)]
-pub struct BoundaryIndexError {
-    pub index: MeasIndex, // refers to index between elements
-    pub len: usize,
 }
 
 #[derive(Debug)]
@@ -1950,24 +1940,15 @@ impl fmt::Display for RenameError {
 
 impl fmt::Display for ElementIndexError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let center = self
-            .center
-            .map_or("".into(), |c| format!(" and must not include {c}"));
-        write!(
-            f,
-            "index must be 0 <= i < {}{}, got {}",
-            self.len, center, self.index
-        )
-    }
-}
-
-impl fmt::Display for BoundaryIndexError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "index must be 0 <= i <= {}, got {}",
-            self.len, self.index
-        )
+        if let Some(c) = self.center.as_ref() {
+            write!(
+                f,
+                "index must be 0 <= i < {} and not include center at {c}, got {}",
+                self.index.len, self.index.index
+            )
+        } else {
+            self.index.fmt(f)
+        }
     }
 }
 

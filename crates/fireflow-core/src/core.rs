@@ -2319,6 +2319,7 @@ where
             })
     }
 
+    // TODO also update data layout
     #[allow(clippy::type_complexity)]
     fn remove_measurement_by_name_inner(
         &mut self,
@@ -2335,6 +2336,7 @@ where
         }
     }
 
+    // TODO also update data layout
     #[allow(clippy::type_complexity)]
     fn remove_measurement_by_index_inner(
         &mut self,
@@ -2368,6 +2370,7 @@ where
         Ok(())
     }
 
+    // TODO need to also check the data layout
     fn set_measurements_inner(
         &mut self,
         xs: RawInput<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
@@ -2379,6 +2382,7 @@ where
         Ok(())
     }
 
+    // TODO also clear data layout
     fn unset_measurements_inner(&mut self) -> Result<(), ExistingLinkError> {
         self.check_existing_links()?;
         self.measurements = NamedVec::default();
@@ -2801,6 +2805,7 @@ where
         n: Shortname,
         m: Temporal<M::Temporal>,
     ) -> Result<(), InsertCenterError> {
+        // TODO update layout
         self.measurements.push_center(n, m)
     }
 
@@ -2814,6 +2819,7 @@ where
         n: Shortname,
         m: Temporal<M::Temporal>,
     ) -> Result<(), InsertCenterError> {
+        // TODO update layout
         self.measurements.insert_center(i, n, m)
     }
 
@@ -2825,6 +2831,7 @@ where
         n: <M::Name as MightHave>::Wrapper<Shortname>,
         m: Optical<M::Optical>,
     ) -> Result<Shortname, NonUniqueKeyError> {
+        // TODO update layout
         self.measurements.push(n, m)
     }
 
@@ -2837,6 +2844,7 @@ where
         n: <M::Name as MightHave>::Wrapper<Shortname>,
         m: Optical<M::Optical>,
     ) -> Result<Shortname, InsertError> {
+        // TODO update layout
         self.measurements.insert(i, n, m)
     }
 
@@ -3059,6 +3067,7 @@ where
         m: Temporal<M::Temporal>,
         col: AnyFCSColumn,
     ) -> Result<(), PushTemporalError> {
+        // TODO update layout
         self.measurements.push_center(n, m)?;
         self.data.push_column(col)?;
         Ok(())
@@ -3075,6 +3084,7 @@ where
         m: Temporal<M::Temporal>,
         col: AnyFCSColumn,
     ) -> Result<(), PushTemporalError> {
+        // TODO update layout
         self.measurements.insert_center(i, n, m)?;
         // ASSUME index is within bounds here since it was checked above
         self.data.insert_column_nocheck(i.into(), col)?;
@@ -3090,6 +3100,7 @@ where
         m: Optical<M::Optical>,
         col: AnyFCSColumn,
     ) -> Result<Shortname, PushOpticalError> {
+        // TODO update layout
         let k = self.measurements.push(n, m)?;
         self.data.push_column(col)?;
         Ok(k)
@@ -3105,6 +3116,7 @@ where
         m: Optical<M::Optical>,
         col: AnyFCSColumn,
     ) -> Result<Shortname, InsertOpticalError> {
+        // TODO update layout
         let k = self.measurements.insert(i, n, m)?;
         // ASSUME index is within bounds here since it was checked above
         self.data.insert_column_nocheck(i.into(), col)?;
@@ -6880,7 +6892,8 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
     where
         F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
     {
-        self.comp.mut_or_unset(|c| f(&mut c.0))
+        let Ok(x) = self.comp.mut_or_unset(|c| f(&mut c.0));
+        x
     }
 
     fn timestamps_valid(&self) -> bool {
@@ -6963,7 +6976,8 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
     where
         F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
     {
-        self.comp.mut_or_unset(|c| f(&mut c.0))
+        let Ok(x) = self.comp.mut_or_unset(|c| f(&mut c.0));
+        x
     }
 
     fn timestamps_valid(&self) -> bool {
@@ -7047,7 +7061,8 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
     where
         F: Fn(&mut Spillover) -> Result<X, ClearOptional>,
     {
-        self.spillover.mut_or_unset(f)
+        let Ok(x) = self.spillover.mut_or_unset(f);
+        x
     }
 
     fn as_compensation(&self) -> Option<&Compensation> {
@@ -7136,7 +7151,8 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
     where
         F: Fn(&mut UnstainedCenters) -> Result<X, ClearOptional>,
     {
-        self.unstained.unstainedcenters.mut_or_unset(f)
+        let Ok(x) = self.unstained.unstainedcenters.mut_or_unset(f);
+        x
     }
 
     fn as_spillover(&self) -> Option<&Spillover> {
@@ -7147,7 +7163,8 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
     where
         F: Fn(&mut Spillover) -> Result<X, ClearOptional>,
     {
-        self.spillover.mut_or_unset(f)
+        let Ok(x) = self.spillover.mut_or_unset(f);
+        x
     }
 
     fn as_compensation(&self) -> Option<&Compensation> {
@@ -8082,5 +8099,27 @@ pub struct ModeNotListError;
 impl fmt::Display for ModeNotListError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "$MODE is not L")
+    }
+}
+
+enum_from_disp!(
+    pub SetFloatError,
+    [Nan, NanFloatError],
+    [Column, ColumnNumberError]
+);
+
+#[derive(Debug)]
+pub struct ColumnNumberError {
+    this_len: usize,
+    other_len: usize,
+}
+
+impl fmt::Display for ColumnNumberError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "number of columns is {}, input should match but got {}",
+            self.this_len, self.other_len,
+        )
     }
 }

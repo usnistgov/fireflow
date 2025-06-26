@@ -2310,6 +2310,90 @@ where
         Ok(res)
     }
 
+    fn push_temporal_inner(
+        &mut self,
+        n: Shortname,
+        m: Temporal<M::Temporal>,
+        r: Range,
+        notrunc: bool,
+    ) -> DeferredResult<(), LayoutPushColumnError, PushTemporalError> {
+        self.measurements
+            .push_center(n, m)
+            .into_deferred()
+            .def_and_tentatively(|_| {
+                self.layout
+                    .0
+                    .as_mut()
+                    .map(|l| l.push(r, notrunc))
+                    .unwrap_or_default()
+                    .errors_into()
+            })
+    }
+
+    fn insert_temporal_inner(
+        &mut self,
+        i: MeasIndex,
+        n: Shortname,
+        m: Temporal<M::Temporal>,
+        r: Range,
+        notrunc: bool,
+    ) -> DeferredResult<(), LayoutInsertColumnWarning, InsertTemporalError> {
+        self.measurements
+            .insert_center(i, n, m)
+            .into_deferred()
+            .def_and_tentatively(|_| {
+                self.layout
+                    .0
+                    .as_mut()
+                    .map(|l| l.insert_nocheck(i, r, notrunc))
+                    .unwrap_or_default()
+                    .inner_into()
+            })
+    }
+
+    fn push_optical_inner(
+        &mut self,
+        n: <M::Name as MightHave>::Wrapper<Shortname>,
+        m: Optical<M::Optical>,
+        r: Range,
+        notrunc: bool,
+    ) -> DeferredResult<Shortname, LayoutPushColumnError, PushOpticalError> {
+        self.measurements
+            .push(n, m)
+            .into_deferred()
+            .def_and_tentatively(|ret| {
+                self.layout
+                    .0
+                    .as_mut()
+                    .map(|l| l.push(r, notrunc))
+                    .unwrap_or_default()
+                    .errors_into()
+                    .map(|_| ret)
+            })
+    }
+
+    fn insert_optical_inner(
+        &mut self,
+        i: MeasIndex,
+        n: <M::Name as MightHave>::Wrapper<Shortname>,
+        m: Optical<M::Optical>,
+        r: Range,
+        notrunc: bool,
+    ) -> DeferredResult<Shortname, LayoutInsertColumnWarning, InsertOpticalError> {
+        self.measurements
+            .insert(i, n, m)
+            .into_deferred()
+            .def_and_tentatively(|ret| {
+                self.layout
+                    .0
+                    .as_mut()
+                    .map(|l| l.insert_nocheck(i, r, notrunc))
+                    .unwrap_or_default()
+                    .inner_into()
+                    .map(|_| ret)
+            })
+    }
+
     fn check_existing_links(&mut self) -> Result<(), ExistingLinkError> {
         if self.trigger_name().is_some() {
             return Err(ExistingLinkError::Trigger);
@@ -2782,17 +2866,7 @@ where
         r: Range,
         notrunc: bool,
     ) -> DeferredResult<(), LayoutPushColumnError, PushTemporalError> {
-        self.measurements
-            .push_center(n, m)
-            .into_deferred()
-            .def_and_tentatively(|_| {
-                self.layout
-                    .0
-                    .as_mut()
-                    .map(|l| l.push(r, notrunc))
-                    .unwrap_or_default()
-                    .errors_into()
-            })
+        self.push_temporal_inner(n, m, r, notrunc)
     }
 
     /// Add time measurement at the given position
@@ -2807,17 +2881,7 @@ where
         r: Range,
         notrunc: bool,
     ) -> DeferredResult<(), LayoutInsertColumnWarning, InsertTemporalError> {
-        self.measurements
-            .insert_center(i, n, m)
-            .into_deferred()
-            .def_and_tentatively(|_| {
-                self.layout
-                    .0
-                    .as_mut()
-                    .map(|l| l.insert_nocheck(i, r, notrunc))
-                    .unwrap_or_default()
-                    .inner_into()
-            })
+        self.insert_temporal_inner(i, n, m, r, notrunc)
     }
 
     /// Add optical measurement to the end of the measurement vector
@@ -2830,18 +2894,7 @@ where
         r: Range,
         notrunc: bool,
     ) -> DeferredResult<Shortname, LayoutPushColumnError, PushOpticalError> {
-        self.measurements
-            .push(n, m)
-            .into_deferred()
-            .def_and_tentatively(|ret| {
-                self.layout
-                    .0
-                    .as_mut()
-                    .map(|l| l.push(r, notrunc))
-                    .unwrap_or_default()
-                    .errors_into()
-                    .map(|_| ret)
-            })
+        self.push_optical_inner(n, m, r, notrunc)
     }
 
     /// Add optical measurement at a given position
@@ -2855,18 +2908,7 @@ where
         r: Range,
         notrunc: bool,
     ) -> DeferredResult<Shortname, LayoutInsertColumnWarning, InsertOpticalError> {
-        self.measurements
-            .insert(i, n, m)
-            .into_deferred()
-            .def_and_tentatively(|ret| {
-                self.layout
-                    .0
-                    .as_mut()
-                    .map(|l| l.insert_nocheck(i, r, notrunc))
-                    .unwrap_or_default()
-                    .inner_into()
-                    .map(|_| ret)
-            })
+        self.insert_optical_inner(i, n, m, r, notrunc)
     }
 
     /// Remove measurements
@@ -3048,6 +3090,10 @@ where
         Ok(())
     }
 
+    // TODO add function to set measurements/data/layout all at once
+
+    // TODO add function to append event(s)
+
     /// Remove a measurement matching the given name.
     ///
     /// Return removed measurement and its index if found.
@@ -3087,11 +3133,12 @@ where
         n: Shortname,
         m: Temporal<M::Temporal>,
         col: AnyFCSColumn,
-    ) -> Result<(), PushTemporalToDatasetError> {
-        // TODO update layout
-        self.measurements.push_center(n, m)?;
-        self.data.push_column(col)?;
-        Ok(())
+        r: Range,
+        notrunc: bool,
+    ) -> DeferredResult<(), LayoutPushColumnError, PushTemporalToDatasetError> {
+        self.push_temporal_inner(n, m, r, notrunc)
+            .def_errors_into()
+            .def_and_maybe(|_| self.data.push_column(col).into_deferred())
     }
 
     /// Add time measurement at the given position
@@ -3104,12 +3151,17 @@ where
         n: Shortname,
         m: Temporal<M::Temporal>,
         col: AnyFCSColumn,
-    ) -> Result<(), PushTemporalToDatasetError> {
-        // TODO update layout
-        self.measurements.insert_center(i, n, m)?;
-        // ASSUME index is within bounds here since it was checked above
-        self.data.insert_column_nocheck(i.into(), col)?;
-        Ok(())
+        r: Range,
+        notrunc: bool,
+    ) -> DeferredResult<(), LayoutInsertColumnWarning, InsertTemporalToDatasetError> {
+        self.insert_temporal_inner(i, n, m, r, notrunc)
+            .def_errors_into()
+            .def_and_maybe(|_| {
+                // ASSUME index is within bounds here since it was checked above
+                self.data
+                    .insert_column_nocheck(i.into(), col)
+                    .into_deferred()
+            })
     }
 
     /// Add measurement to the end of the measurement vector
@@ -3120,11 +3172,17 @@ where
         n: <M::Name as MightHave>::Wrapper<Shortname>,
         m: Optical<M::Optical>,
         col: AnyFCSColumn,
-    ) -> Result<Shortname, PushOpticalToDatasetError> {
-        // TODO update layout
-        let k = self.measurements.push(n, m)?;
-        self.data.push_column(col)?;
-        Ok(k)
+        r: Range,
+        notrunc: bool,
+    ) -> DeferredResult<Shortname, LayoutPushColumnError, PushOpticalToDatasetError> {
+        self.push_optical_inner(n, m, r, notrunc)
+            .def_errors_into()
+            .def_and_maybe(|k| {
+                self.data
+                    .push_column(col)
+                    .into_deferred()
+                    .def_map_value(|_| k)
+            })
     }
 
     /// Add measurement at a given position
@@ -3136,12 +3194,18 @@ where
         n: <M::Name as MightHave>::Wrapper<Shortname>,
         m: Optical<M::Optical>,
         col: AnyFCSColumn,
-    ) -> Result<Shortname, InsertOpticalInDatasetError> {
-        // TODO update layout
-        let k = self.measurements.insert(i, n, m)?;
-        // ASSUME index is within bounds here since it was checked above
-        self.data.insert_column_nocheck(i.into(), col)?;
-        Ok(k)
+        r: Range,
+        notrunc: bool,
+    ) -> DeferredResult<Shortname, LayoutInsertColumnWarning, InsertOpticalInDatasetError> {
+        self.insert_optical_inner(i, n, m, r, notrunc)
+            .def_errors_into()
+            .def_and_maybe(|k| {
+                // ASSUME index is within bounds here since it was checked above
+                self.data
+                    .insert_column_nocheck(i.into(), col)
+                    .into_deferred()
+                    .def_map_value(|_| k)
+            })
     }
 
     /// Convert this struct into a CoreTEXT.
@@ -7681,19 +7745,25 @@ enum_from_disp!(
 
 enum_from_disp!(
     pub PushTemporalToDatasetError,
-    [Center, InsertCenterError],
+    [Measurement, PushTemporalError],
+    [Column, ColumnLengthError]
+);
+
+enum_from_disp!(
+    pub InsertTemporalToDatasetError,
+    [Measurement, InsertTemporalError],
     [Column, ColumnLengthError]
 );
 
 enum_from_disp!(
     pub PushOpticalToDatasetError,
-    [NonUnique, NonUniqueKeyError],
+    [Measurement, PushOpticalError],
     [Column, ColumnLengthError]
 );
 
 enum_from_disp!(
     pub InsertOpticalInDatasetError,
-    [Insert, InsertError],
+    [Measurement, InsertOpticalError],
     [Column, ColumnLengthError]
 );
 

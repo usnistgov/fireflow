@@ -65,6 +65,7 @@ use crate::validated::standard::*;
 
 use itertools::Itertools;
 use nonempty::NonEmpty;
+use num_traits::bounds::UpperBounded;
 use serde::ser::SerializeStruct;
 use serde::Serialize;
 use std::convert::Infallible;
@@ -565,10 +566,6 @@ trait NumProps: Sized + Copy + Default {
     }
 }
 
-trait IntProps: Sized {
-    fn maxval() -> Self;
-}
-
 /// Methods for reading numbers which may be in arbitrary byte orders.
 trait OrderedFromBytes<const OLEN: usize>: NumProps {
     fn h_read_from_ordered<R: Read>(h: &mut BufReader<R>, order: [u8; OLEN]) -> io::Result<Self> {
@@ -598,13 +595,13 @@ trait OrderedFromBytes<const OLEN: usize>: NumProps {
 /// Methods for reading/writing integers (1-8 bytes) from FCS files.
 trait IntFromBytes<const INTLEN: usize>
 where
-    Self: OrderedFromBytes<INTLEN> + IntMath + IntProps,
+    Self: OrderedFromBytes<INTLEN> + IntMath + UpperBounded,
 {
     fn max_bitmask() -> Self
     where
         Self: TryFrom<usize>,
     {
-        Self::try_from((INTLEN ^ 2) - 1).unwrap_or(Self::maxval())
+        Self::try_from((INTLEN ^ 2) - 1).unwrap_or(Self::max_value())
     }
 
     fn to_bitmask(self, notrunc: bool) -> BiTentative<Self, BitmaskError>
@@ -628,8 +625,14 @@ where
         u64: From<Self>,
     {
         Self::try_from(x).map_or_else(
-            |_| tentative_error(Self::maxval(), Some(BitmaskError::IntOverrange(x)), notrunc),
-            |x| x.to_bitmask(notrunc),
+            |_| {
+                tentative_error(
+                    Self::max_value(),
+                    Some(BitmaskError::IntOverrange(x)),
+                    notrunc,
+                )
+            },
+            |y| y.to_bitmask(notrunc),
         )
     }
 
@@ -640,10 +643,10 @@ where
         let (b, e) = r.0.try_into().map_or_else(
             |e| match e {
                 ToIntError::IntOverrange(x) => {
-                    (Self::maxval(), Some(BitmaskError::IntOverrange(x)))
+                    (Self::max_value(), Some(BitmaskError::IntOverrange(x)))
                 }
                 ToIntError::Float(FloatToIntError::FloatOverrange(x)) => {
-                    (Self::maxval(), Some(BitmaskError::FloatOverrange(x)))
+                    (Self::max_value(), Some(BitmaskError::FloatOverrange(x)))
                 }
                 ToIntError::Float(FloatToIntError::FloatUnderrange(x)) => (
                     Self::next_bitmask(Self::default()),
@@ -1921,12 +1924,6 @@ impl_num_props!(8, f64);
 
 macro_rules! impl_int_math {
     ($t:ty) => {
-        impl IntProps for $t {
-            fn maxval() -> Self {
-                Self::MAX
-            }
-        }
-
         impl IntMath for $t {
             fn next_bitmask(x: Self) -> Self {
                 Self::checked_next_power_of_two(x)

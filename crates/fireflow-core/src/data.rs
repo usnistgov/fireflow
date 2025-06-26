@@ -2776,13 +2776,32 @@ impl<C, const LEN: usize, S, T> FixedLayout<FloatType<C, LEN>, S, T> {
 // }
 
 impl<T> FixedLayout<NullAnyUintType, Endian, T> {
-    pub(crate) fn new_endian_uint(
-        &self,
-        widths: NonEmpty<UintColumnValues>,
-        byte_layout: Endian,
-    ) -> BiTentative<Self, BitmaskError> {
-        Tentative::mconcat_ne(widths.map(|w| AnyUintType::new1(w.width, w.range, true)))
-            .map(|columns| Self::new(columns, byte_layout))
+    // pub(crate) fn new_endian_uint(
+    //     &self,
+    //     ranges: NonEmpty<Range>,
+    //     byte_layout: Endian,
+    // ) -> BiTentative<Self, BitmaskError> {
+    //     Tentative::mconcat_ne(widths.map(|w| AnyUintType::new1(w.width, w.range, true)))
+    //         .map(|columns| Self::new(columns, byte_layout))
+    // }
+
+    fn insert_uint(
+        &mut self,
+        index: MeasIndex,
+        range: Range,
+        notrunc: bool,
+    ) -> DeferredResult<(), BitmaskError, UintInsertColumnError> {
+        AnyUintType::new_from_range(range, notrunc)
+            .errors_into()
+            .and_maybe(|t| self.insert_inner(index, t).into_deferred())
+    }
+
+    fn push_uint(&mut self, range: Range, notrunc: bool) -> BiTentative<(), BitmaskError> {
+        AnyUintType::new_from_range(range, notrunc).map(|t| self.push_inner(t))
+    }
+
+    fn remove_uint(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
+        self.remove_inner(index)
     }
 }
 

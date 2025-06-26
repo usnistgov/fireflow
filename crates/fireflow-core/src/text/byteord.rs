@@ -1,3 +1,4 @@
+use crate::error::BiTentative;
 use crate::macros::{
     enum_from, enum_from_disp, match_many_to_one, newtype_disp, newtype_from_outer,
 };
@@ -6,6 +7,9 @@ use super::float_or_int::{FloatOrInt, FloatProps, NonNanFloat, ToIntError};
 
 use itertools::Itertools;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
+use num_traits::bounds::LowerBounded;
+use num_traits::identities::Zero;
+use num_traits::PrimInt;
 use serde::Serialize;
 use std::fmt;
 use std::num::ParseIntError;
@@ -87,10 +91,15 @@ pub enum SizedByteOrd<const LEN: usize> {
     Order([u8; LEN]),
 }
 
+/// A number representing a bitmask up to LEN bits
+#[derive(PartialEq, Clone, Copy, Serialize, PartialOrd)]
+pub struct Bitmask<const LEN: usize, T>(T);
+
 /// A generic integer column type with a byte-layout and bitmask.
 #[derive(PartialEq, Clone, Copy, Serialize)]
 pub struct UintType<T, const LEN: usize> {
-    pub bitmask: T,
+    pub bitmask: Bitmask<LEN, T>,
+    pub range: T,
 }
 
 /// The type of any floating point column in all versions
@@ -123,6 +132,99 @@ pub trait HasNativeWidth: HasNativeType {
     type Order;
 }
 
+impl<const LEN: usize, T> Bitmask<LEN, T> {
+    // pub(crate) fn zero() -> Self
+    // where
+    //     T: Zero,
+    // {
+    //     Self(T::zero())
+    // }
+
+    pub(crate) fn apply(&self, value: T) -> T
+    where
+        T: Ord + Copy,
+    {
+        self.0.min(value)
+    }
+
+    pub(crate) fn from_native(value: T) -> (Self, bool)
+    where
+        T: PrimInt,
+    {
+        // ASSUME number of bits will never exceed 64 (or 255 for that matter)
+        // and thus will fit in a u8
+        let native_bits = (std::mem::size_of::<T>() * 8) as u8;
+        let value_bits = native_bits - (value.leading_zeros() as u8);
+        let truncated = value_bits > Self::bits();
+        let bits = value_bits.min(Self::bits());
+        let mask = if bits == 0 {
+            T::zero()
+        } else if bits == native_bits {
+            T::max_value()
+        } else {
+            (T::one() << usize::from(value_bits)) - T::one()
+        };
+        (Self(mask), truncated)
+    }
+
+    fn from_u64(value: u64) -> (Self, bool)
+    where
+        T: PrimInt + TryFrom<u64>,
+    {
+        T::try_from(value)
+            .map(Self::from_native)
+            .unwrap_or((Self::max(), true))
+    }
+
+    fn from_native_tnt(value: T, notrunc: bool) -> BiTentative<Self, BitmaskTruncationError>
+    where
+        T: PrimInt,
+        u64: From<T>,
+    {
+        let (bitmask, truncated) = Bitmask::from_native(value);
+        let error = if truncated {
+            Some(BitmaskTruncationError {
+                bytes: Self::bits(),
+                value: u64::from(value),
+            })
+        } else {
+            None
+        };
+        BiTentative::new_either1(bitmask, error, notrunc)
+    }
+
+    fn from_u64_tnt(value: u64, notrunc: bool) -> BiTentative<Self, BitmaskTruncationError>
+    where
+        T: PrimInt + TryFrom<u64>,
+    {
+        let (bitmask, truncated) = Bitmask::from_u64(value);
+        let error = if truncated {
+            Some(BitmaskTruncationError {
+                bytes: Self::bits(),
+                value: u64::from(value),
+            })
+        } else {
+            None
+        };
+        BiTentative::new_either1(bitmask, error, notrunc)
+    }
+
+    fn max() -> Self
+    where
+        T: PrimInt,
+    {
+        Bitmask::from_native(T::max_value()).0
+    }
+
+    fn bytes() -> u8 {
+        LEN as u8
+    }
+
+    fn bits() -> u8 {
+        Self::bytes() * 8
+    }
+}
+
 macro_rules! def_native_wrapper {
     ($name:ident, $wrapper:ident, $native:ty, $size:expr, $native_size:expr, $bytes:ident) => {
         pub type $name = $wrapper<$native, $size>;
@@ -150,24 +252,30 @@ def_native_wrapper!(Uint64Type, UintType, u64, 8, 8, B8);
 def_native_wrapper!(F32Type, FloatType, f32, 4, 4, B4);
 def_native_wrapper!(F64Type, FloatType, f64, 8, 8, B8);
 
-macro_rules! uint_default {
-    ($name:ident, $size:expr) => {
-        impl Default for $name {
-            fn default() -> Self {
-                Self { bitmask: 2 ^ $size }
-            }
-        }
-    };
-}
+// macro_rules! uint_default {
+//     ($name:ident, $size:expr, $t:ident) => {
+//         impl Default for Bitmask<$size, $t> {
+//             fn default() -> Self {
+//                 Self(2 ^ $size - 1)
+//             }
+//         }
 
-uint_default!(Uint08Type, 1);
-uint_default!(Uint16Type, 2);
-uint_default!(Uint24Type, 3);
-uint_default!(Uint32Type, 4);
-uint_default!(Uint40Type, 5);
-uint_default!(Uint48Type, 6);
-uint_default!(Uint56Type, 7);
-uint_default!(Uint64Type, 8);
+//         impl Default for $name {
+//             fn default() -> Self {
+//                 Self { bitmask: 2 ^ $size }
+//             }
+//         }
+//     };
+// }
+
+// uint_default!(Uint08Type, 1, u8);
+// uint_default!(Uint16Type, 2, u16);
+// uint_default!(Uint24Type, 3, u32);
+// uint_default!(Uint32Type, 4, u32);
+// uint_default!(Uint40Type, 5, u64);
+// uint_default!(Uint48Type, 6, u64);
+// uint_default!(Uint56Type, 7, u64);
+// uint_default!(Uint64Type, 8, u64);
 
 macro_rules! float_default {
     ($name:ident, $t:ident) => {
@@ -755,6 +863,21 @@ pub type WidthToBytesError = WidthToFixedError<BytesError>;
 pub enum WidthToFixedError<X> {
     Variable,
     Fixed(X),
+}
+
+pub struct BitmaskTruncationError {
+    bytes: u8,
+    value: u64,
+}
+
+impl fmt::Display for BitmaskTruncationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "could not make bitmask for {} which exceeds {} bytes",
+            self.value, self.bytes
+        )
+    }
 }
 
 impl fmt::Display for ParseByteOrdError {

@@ -665,6 +665,20 @@ impl<V, W, E> Tentative<V, W, E> {
     }
 }
 
+impl<V, E> BiTentative<V, E> {
+    pub fn new_either1(x: V, error: Option<E>, is_error: bool) -> Self {
+        if let Some(e) = error {
+            if is_error {
+                Tentative::new(x, vec![], vec![e])
+            } else {
+                Tentative::new(x, vec![e], vec![])
+            }
+        } else {
+            Tentative::new1(x)
+        }
+    }
+}
+
 impl<V, W, E> Tentative<Option<V>, W, E> {
     pub fn transpose(self) -> Option<Tentative<V, W, E>> {
         if let Some(value) = self.value {

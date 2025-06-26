@@ -66,6 +66,7 @@ use crate::validated::standard::*;
 use itertools::Itertools;
 use nonempty::NonEmpty;
 use num_traits::bounds::UpperBounded;
+use num_traits::PrimInt;
 use serde::ser::SerializeStruct;
 use serde::Serialize;
 use std::convert::Infallible;
@@ -613,68 +614,67 @@ trait OrderedFromBytes<const OLEN: usize>: NumProps {
 }
 
 /// Methods for reading/writing integers (1-8 bytes) from FCS files.
-trait IntFromBytes<const INTLEN: usize>
-where
-    Self: OrderedFromBytes<INTLEN> + IntMath + UpperBounded,
-{
-    fn max_bitmask() -> Self
-    where
-        Self: TryFrom<usize>,
-    {
-        Self::try_from((INTLEN ^ 2) - 1).unwrap_or(Self::max_value())
-    }
+trait IntFromBytes<const INTLEN: usize> {
+    // fn max_bitmask() -> Bitmask<INTLEN, Self>
+    // where
+    //     Self: PrimInt,
+    // {
+    //     Bitmask::from_native(Self::max_value()).0
+    // }
 
-    fn to_bitmask_unchecked(self) -> Self
-    where
-        Self: Ord + TryFrom<usize>,
-    {
-        Self::next_bitmask(self).min(Self::max_bitmask())
-    }
+    // fn to_bitmask_unchecked(self) -> Self
+    // where
+    //     Self: Ord + TryFrom<usize>,
+    // {
+    //     Bitmask::from_native(self).0
+    //     // Self::next_bitmask(self).min(Self::max_bitmask())
+    // }
 
-    fn to_bitmask(self, notrunc: bool) -> BiTentative<Self, IntRangeError>
-    where
-        Self: TryFrom<usize> + Ord,
-        u64: From<Self>,
-    {
-        let x = Self::next_bitmask(self);
-        let y = Self::max_bitmask();
-        let (b, e) = if x > y {
-            (y, Some(IntRangeError::IntOverrange(x.into())))
-        } else {
-            (x, None)
-        };
-        tentative_error(b, e, notrunc)
-    }
+    // fn to_bitmask(self, notrunc: bool) -> BiTentative<Bitmask<INTLEN, Self>, IntRangeError>
+    // where
+    //     Self: PrimInt,
+    //     u64: From<Self>,
+    // {
+    //     let (bitmask, truncated) = Bitmask::from_native(self);
+    //     // TODO this error seems seperate from the enum
+    //     let error = if truncated {
+    //         Some(IntRangeError::IntTruncated(self.into()))
+    //     } else {
+    //         None
+    //     };
+    //     tentative_error(bitmask, error, notrunc)
+    // }
 
-    fn u64_to_bitmask(x: u64, notrunc: bool) -> BiTentative<Self, IntRangeError>
-    where
-        Self: TryFrom<u64> + TryFrom<usize> + Ord,
-        u64: From<Self>,
-    {
-        Self::try_from(x).map_or_else(
-            |_| {
-                tentative_error(
-                    Self::max_value(),
-                    Some(IntRangeError::IntOverrange(x)),
-                    notrunc,
-                )
-            },
-            |y| y.to_bitmask(notrunc),
-        )
-    }
+    // fn u64_to_bitmask(x: u64, notrunc: bool) -> BiTentative<Bitmask<INTLEN, Self>, IntRangeError>
+    // where
+    //     Self: TryFrom<u64> + PrimInt,
+    //     u64: From<Self>,
+    // {
+    //     Self::try_from(x).map_or_else(
+    //         |_| {
+    //             tentative_error(
+    //                 Self::max_bitmask(),
+    //                 Some(IntRangeError::IntTruncated(x)),
+    //                 notrunc,
+    //             )
+    //         },
+    //         |y| y.to_bitmask(notrunc),
+    //     )
+    // }
 
-    fn u64_to_bitmask_unchecked(x: u64) -> Self
-    where
-        Self: TryFrom<u64> + TryFrom<usize> + Ord,
-    {
-        Self::try_from(x)
-            .ok()
-            .map_or(Self::max_bitmask(), |y| y.to_bitmask_unchecked())
-    }
+    // fn u64_to_bitmask_unchecked(x: u64) -> Self
+    // where
+    //     Self: TryFrom<u64> + TryFrom<usize> + Ord,
+    // {
+    //     Self::try_from(x)
+    //         .ok()
+    //         .map_or(Self::max_bitmask(), |y| y.to_bitmask_unchecked())
+    // }
 
+    // TODO this is only used by ascii
     fn range_to_int(r: Range, notrunc: bool) -> BiTentative<Self, IntRangeError>
     where
-        Self: TryFrom<FloatOrInt, Error = ToIntError<Self>>,
+        Self: TryFrom<FloatOrInt, Error = ToIntError<Self>> + PrimInt,
     {
         let (b, e) = r.0.try_into().map_or_else(
             |e| match e {
@@ -696,11 +696,32 @@ where
         tentative_error(b, e, notrunc)
     }
 
-    fn range_to_bitmask(r: Range, notrunc: bool) -> BiTentative<Self, IntRangeError>
+    fn range_to_bitmask(
+        r: Range,
+        notrunc: bool,
+    ) -> BiTentative<Bitmask<INTLEN, Self>, IntRangeError>
     where
-        Self: TryFrom<FloatOrInt, Error = ToIntError<Self>>,
+        Self: TryFrom<FloatOrInt, Error = ToIntError<Self>> + PrimInt,
+        u64: From<Self>,
     {
-        Self::range_to_int(r, notrunc).map(Self::next_bitmask)
+        let (b, e) = r.0.try_into().map_or_else(
+            |e| match e {
+                ToIntError::IntOverrange(x) => {
+                    (Self::max_value(), Some(IntRangeError::IntOverrange(x)))
+                }
+                ToIntError::Float(FloatToIntError::FloatOverrange(x)) => {
+                    (Self::max_value(), Some(IntRangeError::FloatOverrange(x)))
+                }
+                ToIntError::Float(FloatToIntError::FloatUnderrange(x)) => {
+                    (Self::zero(), Some(IntRangeError::FloatUnderrange(x)))
+                }
+                ToIntError::Float(FloatToIntError::FloatPrecisionLoss(x, y)) => {
+                    (y, Some(IntRangeError::FloatPrecisionLoss(x)))
+                }
+            },
+            |x| (x, None),
+        );
+        tentative_error(b, e, notrunc).and_tentatively(|x| x.to_bitmask(notrunc))
     }
 
     fn column_type<F, T>(
@@ -709,7 +730,8 @@ where
         f: F,
     ) -> BiTentative<UintType<Self, INTLEN>, IntRangeError>
     where
-        F: FnOnce(T, bool) -> BiTentative<Self, IntRangeError>,
+        F: FnOnce(T, bool) -> BiTentative<Bitmask<INTLEN, Self>, IntRangeError>,
+        Self: Sized,
     {
         f(x, notrunc).map(|bitmask| UintType { bitmask })
     }
@@ -2902,22 +2924,22 @@ impl<C, const LEN: usize, S, T> FixedLayout<FloatType<C, LEN>, S, T> {
     }
 }
 
-// impl<C, const LEN: usize, T> FixedLayout<UintType<C, LEN>, SizedByteOrd<LEN>, T>
-// where
-//     C: IntFromBytes<LEN> + TryFrom<usize> + Ord,
-// {
-//     pub(crate) fn new_ordered_uint(
-//         &self,
-//         bitmasks: NonEmpty<C>,
-//         byte_layout: SizedByteOrd<LEN>,
-//     ) -> Self {
-//         // TODO warn on truncation
-//         let columns = bitmasks.map(|b| UintType {
-//             bitmask: b.to_bitmask(),
-//         });
-//         Self::new(columns, byte_layout)
-//     }
-// }
+impl<C, const LEN: usize, T> FixedLayout<UintType<C, LEN>, SizedByteOrd<LEN>, T>
+where
+    C: IntFromBytes<LEN> + TryFrom<usize> + Ord,
+{
+    pub(crate) fn new_ordered_uint(
+        &self,
+        ranges: NonEmpty<C>,
+        byte_layout: SizedByteOrd<LEN>,
+    ) -> Self {
+        // TODO warn on truncation? might not matter here
+        let columns = ranges.map(|b| UintType {
+            bitmask: b.to_bitmask_unchecked(),
+        });
+        Self::new(columns, byte_layout)
+    }
+}
 
 impl<T> FixedLayout<NullAnyUintType, Endian, T> {
     // pub(crate) fn new_endian_uint(
@@ -4422,6 +4444,7 @@ enum_from_disp!(
 );
 
 pub enum IntRangeError {
+    IntTruncated(u64),
     IntOverrange(u64),
     FloatOverrange(f64),
     FloatUnderrange(f64),
@@ -4970,17 +4993,5 @@ impl fmt::Display for ColumnNumberError {
             "number of columns is {}, input should match but got {}",
             self.this_len, self.other_len,
         )
-    }
-}
-
-fn tentative_error<T, E>(x: T, error: Option<E>, is_error: bool) -> BiTentative<T, E> {
-    if let Some(e) = error {
-        if is_error {
-            Tentative::new(x, vec![], vec![e])
-        } else {
-            Tentative::new(x, vec![e], vec![])
-        }
-    } else {
-        Tentative::new1(x)
     }
 }

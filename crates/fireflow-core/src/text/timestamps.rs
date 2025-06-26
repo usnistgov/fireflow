@@ -54,8 +54,8 @@ newtype_from_outer!(FCSDate, NaiveDate);
 
 macro_rules! get_set {
     ($fn_get_naive:ident, $fn:ident, $fn_naive:ident, $in:path, $in_naive:path, $field:ident) => {
-        pub fn $field(&self) -> OptionalKw<$in> {
-            OptionalKw(self.$field)
+        pub fn $field(&self) -> OptionalValue<$in> {
+            OptionalValue(self.$field)
         }
 
         pub fn $fn_get_naive(&self) -> Option<$in_naive>
@@ -65,7 +65,7 @@ macro_rules! get_set {
             self.$field().0.map(|x| x.into())
         }
 
-        pub fn $fn(&mut self, x: OptionalKw<$in>) -> TimestampsResult<()> {
+        pub fn $fn(&mut self, x: OptionalValue<$in>) -> TimestampsResult<()> {
             let tmp = self.$field;
             self.$field = x.0;
             if self.valid() {
@@ -91,9 +91,9 @@ where
     X: Copy,
 {
     pub fn new(
-        btim: OptionalKw<Btim<X>>,
-        etim: OptionalKw<Etim<X>>,
-        date: OptionalKw<FCSDate>,
+        btim: OptionalValue<Btim<X>>,
+        etim: OptionalValue<Etim<X>>,
+        date: OptionalValue<FCSDate>,
     ) -> TimestampsResult<Self> {
         let ret = Self {
             btim: btim.0,

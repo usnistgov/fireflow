@@ -73,7 +73,7 @@ pub struct Core<A, D, O, M, T, P, N, W, L> {
     ///
     /// This is derived from $BYTEORD, $DATATYPE, $PnB, $PnR and maybe
     /// $PnDATATYPE for version 3.2.
-    layout: OptionalKw<L>,
+    layout: OptionalValue<L>,
 
     /// DATA segment (if applicable)
     data: D,
@@ -112,43 +112,43 @@ newtype_from!(Others, Vec<Other>);
 #[derive(Clone, Serialize)]
 pub struct Metaroot<X> {
     /// Value of $ABRT
-    pub abrt: OptionalKw<Abrt>,
+    pub abrt: OptionalValue<Abrt>,
 
     /// Value of $COM
-    pub com: OptionalKw<Com>,
+    pub com: OptionalValue<Com>,
 
     /// Value of $CELLS
-    pub cells: OptionalKw<Cells>,
+    pub cells: OptionalValue<Cells>,
 
     /// Value of $EXP
-    pub exp: OptionalKw<Exp>,
+    pub exp: OptionalValue<Exp>,
 
     /// Value of $FIL
-    pub fil: OptionalKw<Fil>,
+    pub fil: OptionalValue<Fil>,
 
     /// Value of $INST
-    pub inst: OptionalKw<Inst>,
+    pub inst: OptionalValue<Inst>,
 
     /// Value of $LOST
-    pub lost: OptionalKw<Lost>,
+    pub lost: OptionalValue<Lost>,
 
     /// Value of $OP
-    pub op: OptionalKw<Op>,
+    pub op: OptionalValue<Op>,
 
     /// Value of $PROJ
-    pub proj: OptionalKw<Proj>,
+    pub proj: OptionalValue<Proj>,
 
     /// Value of $SMNO
-    pub smno: OptionalKw<Smno>,
+    pub smno: OptionalValue<Smno>,
 
     /// Value of $SRC
-    pub src: OptionalKw<Src>,
+    pub src: OptionalValue<Src>,
 
     /// Value of $SYS
-    pub sys: OptionalKw<Sys>,
+    pub sys: OptionalValue<Sys>,
 
     /// Value of $TR
-    tr: OptionalKw<Trigger>,
+    tr: OptionalValue<Trigger>,
 
     /// Version-specific data
     pub specific: X,
@@ -167,7 +167,7 @@ pub struct Metaroot<X> {
 #[derive(Clone, Serialize, Default)]
 pub struct CommonMeasurement {
     /// Value for $PnS
-    pub longname: OptionalKw<Longname>,
+    pub longname: OptionalValue<Longname>,
 
     /// Non standard keywords that belong to this measurement.
     ///
@@ -198,19 +198,19 @@ pub struct Optical<X> {
     pub common: CommonMeasurement,
 
     /// Value for $PnF
-    pub filter: OptionalKw<Filter>,
+    pub filter: OptionalValue<Filter>,
 
     /// Value for $PnO
-    pub power: OptionalKw<Power>,
+    pub power: OptionalValue<Power>,
 
     /// Value for $PnD
-    pub detector_type: OptionalKw<DetectorType>,
+    pub detector_type: OptionalValue<DetectorType>,
 
     /// Value for $PnP
-    pub percent_emitted: OptionalKw<PercentEmitted>,
+    pub percent_emitted: OptionalValue<PercentEmitted>,
 
     /// Value for $PnV
-    pub detector_voltage: OptionalKw<DetectorVoltage>,
+    pub detector_voltage: OptionalValue<DetectorVoltage>,
 
     /// Version specific data
     pub specific: X,
@@ -418,16 +418,16 @@ pub struct InnerMetaroot2_0 {
     // /// Value of $BYTEORD
     // byteord: ByteOrd,
     /// Value of $CYT
-    pub cyt: OptionalKw<Cyt>,
+    pub cyt: OptionalValue<Cyt>,
 
     /// Compensation matrix derived from 'DFCnTOm' key/value pairs
-    comp: OptionalKw<Compensation2_0>,
+    comp: OptionalValue<Compensation2_0>,
 
     /// Values of $BTIM/ETIM/$DATE
     pub timestamps: Timestamps2_0,
 
     /// Values of $Gm*/$RnI/$RnW/$GATING/$GATE
-    applied_gates: OptionalKw<AppliedGates2_0>,
+    applied_gates: OptionalValue<AppliedGates2_0>,
 }
 
 /// Metaroot fields specific to version 3.0
@@ -439,25 +439,25 @@ pub struct InnerMetaroot3_0 {
     // /// Value of $BYTEORD
     // byteord: ByteOrd,
     /// Value of $CYT
-    pub cyt: OptionalKw<Cyt>,
+    pub cyt: OptionalValue<Cyt>,
 
     /// Value of $COMP
-    comp: OptionalKw<Compensation3_0>,
+    comp: OptionalValue<Compensation3_0>,
 
     /// Values of $BTIM/ETIM/$DATE
     pub timestamps: Timestamps3_0,
 
     /// Value of $CYTSN
-    pub cytsn: OptionalKw<Cytsn>,
+    pub cytsn: OptionalValue<Cytsn>,
 
     /// Value of $UNICODE
-    pub unicode: OptionalKw<Unicode>,
+    pub unicode: OptionalValue<Unicode>,
 
     /// Aggregated values for $CS* keywords
-    pub subset: OptionalKw<SubsetData>,
+    pub subset: OptionalValue<SubsetData>,
 
     /// Values of $Gm*/$RnI/$RnW/$GATING/$GATE
-    applied_gates: OptionalKw<AppliedGates3_0>,
+    applied_gates: OptionalValue<AppliedGates3_0>,
 }
 
 /// Metaroot fields specific to version 3.1
@@ -469,16 +469,16 @@ pub struct InnerMetaroot3_1 {
     // /// Value of $BYTEORD
     // pub byteord: Endian,
     /// Value of $CYT
-    pub cyt: OptionalKw<Cyt>,
+    pub cyt: OptionalValue<Cyt>,
 
     /// Values of $BTIM/ETIM/$DATE
     pub timestamps: Timestamps3_1,
 
     /// Value of $CYTSN
-    pub cytsn: OptionalKw<Cytsn>,
+    pub cytsn: OptionalValue<Cytsn>,
 
     /// Value of $SPILLOVER
-    spillover: OptionalKw<Spillover>,
+    spillover: OptionalValue<Spillover>,
 
     /// Values of $LAST_MODIFIED/$LAST_MODIFIER/$ORIGINALITY
     pub modification: ModificationData,
@@ -487,13 +487,13 @@ pub struct InnerMetaroot3_1 {
     pub plate: PlateData,
 
     /// Value of $VOL
-    pub vol: OptionalKw<Vol>,
+    pub vol: OptionalValue<Vol>,
 
     /// Aggregated values for $CS* keywords
-    pub subset: OptionalKw<SubsetData>,
+    pub subset: OptionalValue<SubsetData>,
 
     /// Values of $Gm*/$RnI/$RnW/$GATING/$GATE
-    applied_gates: OptionalKw<AppliedGates3_0>,
+    applied_gates: OptionalValue<AppliedGates3_0>,
 }
 
 /// Metaroot fields specific to version 3.2
@@ -511,10 +511,10 @@ pub struct InnerMetaroot3_2 {
     pub cyt: Cyt,
 
     /// Value of $SPILLOVER
-    spillover: OptionalKw<Spillover>,
+    spillover: OptionalValue<Spillover>,
 
     /// Value of $CYTSN
-    pub cytsn: OptionalKw<Cytsn>,
+    pub cytsn: OptionalValue<Cytsn>,
 
     /// Values of $LAST_MODIFIED/$LAST_MODIFIER/$ORIGINALITY
     // TODO it makes sense to verify this isn't before the file was created
@@ -524,7 +524,7 @@ pub struct InnerMetaroot3_2 {
     pub plate: PlateData,
 
     /// Value of $VOL
-    pub vol: OptionalKw<Vol>,
+    pub vol: OptionalValue<Vol>,
 
     /// Values of $CARRIERID/$CARRIERTYPE/$LOCATIONID
     pub carrier: CarrierData,
@@ -533,10 +533,10 @@ pub struct InnerMetaroot3_2 {
     pub unstained: UnstainedData,
 
     /// Value of $FLOWRATE
-    pub flowrate: OptionalKw<Flowrate>,
+    pub flowrate: OptionalValue<Flowrate>,
 
     /// Values of $RnI/$RnW/$GATING
-    applied_gates: OptionalKw<AppliedGates3_2>,
+    applied_gates: OptionalValue<AppliedGates3_2>,
 }
 
 /// Temporal measurement fields specific to version 2.0
@@ -546,7 +546,7 @@ pub struct InnerTemporal2_0 {
     ///
     /// Unlike subsequent versions, included here because it is optional rather
     /// than required and constant.
-    pub scale: OptionalKw<TemporalScale>,
+    pub scale: OptionalValue<TemporalScale>,
 
     /// Values of $Pkn/$PKNn
     pub peak: PeakData,
@@ -573,7 +573,7 @@ pub struct InnerTemporal3_1 {
     pub timestep: Timestep,
 
     /// Value for $PnDISPLAY
-    pub display: OptionalKw<Display>,
+    pub display: OptionalValue<Display>,
 
     /// Values of $Pkn/$PKNn
     pub peak: PeakData,
@@ -588,20 +588,20 @@ pub struct InnerTemporal3_2 {
     pub timestep: Timestep,
 
     /// Value for $PnDISPLAY
-    pub display: OptionalKw<Display>,
+    pub display: OptionalValue<Display>,
 
     /// Value for $PnTYPE
-    pub measurement_type: OptionalKw<TemporalType>,
+    pub measurement_type: OptionalValue<TemporalType>,
 }
 
 /// Optical measurement fields specific to version 2.0
 #[derive(Clone, Serialize, Default)]
 pub struct InnerOptical2_0 {
     /// Value for $PnE
-    pub scale: OptionalKw<Scale>,
+    pub scale: OptionalValue<Scale>,
 
     /// Value for $PnL
-    pub wavelength: OptionalKw<Wavelength>,
+    pub wavelength: OptionalValue<Wavelength>,
 
     /// Values of $Pkn/$PKNn
     pub peak: PeakData,
@@ -614,10 +614,10 @@ pub struct InnerOptical3_0 {
     pub scale: Scale,
 
     /// Value for $PnL
-    pub wavelength: OptionalKw<Wavelength>,
+    pub wavelength: OptionalValue<Wavelength>,
 
     /// Value for $PnG
-    pub gain: OptionalKw<Gain>,
+    pub gain: OptionalValue<Gain>,
 
     /// Values of $Pkn/$PKNn
     pub peak: PeakData,
@@ -630,16 +630,16 @@ pub struct InnerOptical3_1 {
     pub scale: Scale,
 
     /// Value for $PnL
-    pub wavelengths: OptionalKw<Wavelengths>,
+    pub wavelengths: OptionalValue<Wavelengths>,
 
     /// Value for $PnG
-    pub gain: OptionalKw<Gain>,
+    pub gain: OptionalValue<Gain>,
 
     /// Value for $PnCALIBRATION
-    pub calibration: OptionalKw<Calibration3_1>,
+    pub calibration: OptionalValue<Calibration3_1>,
 
     /// Value for $PnDISPLAY
-    pub display: OptionalKw<Display>,
+    pub display: OptionalValue<Display>,
 
     /// Values of $Pkn/$PKNn
     pub peak: PeakData,
@@ -652,61 +652,61 @@ pub struct InnerOptical3_2 {
     pub scale: Scale,
 
     /// Value for $PnL
-    pub wavelengths: OptionalKw<Wavelengths>,
+    pub wavelengths: OptionalValue<Wavelengths>,
 
     /// Value for $PnG
-    pub gain: OptionalKw<Gain>,
+    pub gain: OptionalValue<Gain>,
 
     /// Value for $PnCALIBRATION
-    pub calibration: OptionalKw<Calibration3_2>,
+    pub calibration: OptionalValue<Calibration3_2>,
 
     /// Value for $PnDISPLAY
-    pub display: OptionalKw<Display>,
+    pub display: OptionalValue<Display>,
 
     /// Value for $PnANALYTE
-    pub analyte: OptionalKw<Analyte>,
+    pub analyte: OptionalValue<Analyte>,
 
     /// Value for $PnFEATURE
-    pub feature: OptionalKw<Feature>,
+    pub feature: OptionalValue<Feature>,
 
     /// Value for $PnTYPE
-    pub measurement_type: OptionalKw<OpticalType>,
+    pub measurement_type: OptionalValue<OpticalType>,
 
     /// Value for $PnTAG
-    pub tag: OptionalKw<Tag>,
+    pub tag: OptionalValue<Tag>,
 
     /// Value for $PnDET
-    pub detector_name: OptionalKw<DetectorName>,
+    pub detector_name: OptionalValue<DetectorName>,
 }
 
 /// The values for $Gm* keywords (2.0-3.1)
 #[derive(Clone, Default, Serialize)]
 pub struct GatedMeasurement {
     /// Value for $GmE
-    pub scale: OptionalKw<GateScale>,
+    pub scale: OptionalValue<GateScale>,
 
     /// Value for $GmF
-    pub filter: OptionalKw<GateFilter>,
+    pub filter: OptionalValue<GateFilter>,
 
     /// Value for $GmN
     ///
     /// Unlike $PnN, this is not validated to be without commas
-    pub shortname: OptionalKw<GateShortname>,
+    pub shortname: OptionalValue<GateShortname>,
 
     /// Value for $GmP
-    pub percent_emitted: OptionalKw<GatePercentEmitted>,
+    pub percent_emitted: OptionalValue<GatePercentEmitted>,
 
     /// Value for $GmR
-    pub range: OptionalKw<GateRange>,
+    pub range: OptionalValue<GateRange>,
 
     /// Value for $GmS
-    pub longname: OptionalKw<GateLongname>,
+    pub longname: OptionalValue<GateLongname>,
 
     /// Value for $GmT
-    pub detector_type: OptionalKw<GateDetectorType>,
+    pub detector_type: OptionalValue<GateDetectorType>,
 
     /// Value for $GmV
-    pub detector_voltage: OptionalKw<GateDetectorVoltage>,
+    pub detector_voltage: OptionalValue<GateDetectorVoltage>,
 }
 
 /// The $GATING/$RnI/$RnW/$Gn* keywords in a unified bundle (2.0)
@@ -790,10 +790,10 @@ pub struct BivariateRegion<I> {
 #[derive(Clone, Default, Serialize)]
 pub struct PeakData {
     /// Value of $Pkn
-    pub bin: OptionalKw<PeakBin>,
+    pub bin: OptionalValue<PeakBin>,
 
     /// Value of $PkNn
-    pub size: OptionalKw<PeakNumber>,
+    pub size: OptionalValue<PeakNumber>,
 }
 
 /// A bundle for $CSMODE, $CSVBITS, and $CSVnFLAG (3.0, 3.1)
@@ -807,41 +807,41 @@ pub struct PeakData {
 #[derive(Clone, Default)]
 pub struct SubsetData {
     /// Value of $CSBITS if given
-    pub bits: OptionalKw<CSVBits>,
+    pub bits: OptionalValue<CSVBits>,
 
     /// Values of $CSVnFLAG if given, with length equal to $CSMODE
-    pub flags: NonEmpty<OptionalKw<CSVFlag>>,
+    pub flags: NonEmpty<OptionalValue<CSVFlag>>,
 }
 
 /// A bundle for $ORIGINALITY, $LAST_MODIFIER, and $LAST_MODIFIED (3.1+)
 #[derive(Clone, Serialize, Default)]
 pub struct ModificationData {
-    pub last_modifier: OptionalKw<LastModifier>,
-    pub last_modified: OptionalKw<ModifiedDateTime>,
-    pub originality: OptionalKw<Originality>,
+    pub last_modifier: OptionalValue<LastModifier>,
+    pub last_modified: OptionalValue<ModifiedDateTime>,
+    pub originality: OptionalValue<Originality>,
 }
 
 /// A bundle for $PLATEID, $PLATENAME, and $WELLID (3.1+)
 #[derive(Clone, Serialize, Default)]
 pub struct PlateData {
-    pub plateid: OptionalKw<Plateid>,
-    pub platename: OptionalKw<Platename>,
-    pub wellid: OptionalKw<Wellid>,
+    pub plateid: OptionalValue<Plateid>,
+    pub platename: OptionalValue<Platename>,
+    pub wellid: OptionalValue<Wellid>,
 }
 
 /// A bundle for $UNSTAINEDCENTERS and $UNSTAINEDINFO (3.2+)
 #[derive(Clone, Serialize, Default)]
 pub struct UnstainedData {
-    unstainedcenters: OptionalKw<UnstainedCenters>,
-    pub unstainedinfo: OptionalKw<UnstainedInfo>,
+    unstainedcenters: OptionalValue<UnstainedCenters>,
+    pub unstainedinfo: OptionalValue<UnstainedInfo>,
 }
 
 /// A bundle for $CARRIERID, $CARRIERTYPE, $LOCATIONID (3.2+)
 #[derive(Clone, Serialize, Default)]
 pub struct CarrierData {
-    pub carrierid: OptionalKw<Carrierid>,
-    pub carriertype: OptionalKw<Carriertype>,
-    pub locationid: OptionalKw<Locationid>,
+    pub carrierid: OptionalValue<Carrierid>,
+    pub carriertype: OptionalValue<Carriertype>,
+    pub locationid: OptionalValue<Locationid>,
 }
 
 pub type Temporal2_0 = Temporal<InnerTemporal2_0>;
@@ -878,7 +878,7 @@ pub type Core2_0<A, D, O> = Core<
     InnerTemporal2_0,
     InnerOptical2_0,
     OptionalKwFamily,
-    OptionalKw<Shortname>,
+    OptionalValue<Shortname>,
     Layout2_0,
 >;
 pub type Core3_0<A, D, O> = Core<
@@ -889,7 +889,7 @@ pub type Core3_0<A, D, O> = Core<
     InnerTemporal3_0,
     InnerOptical3_0,
     OptionalKwFamily,
-    OptionalKw<Shortname>,
+    OptionalValue<Shortname>,
     Layout3_0,
 >;
 pub type Core3_1<A, D, O> = Core<
@@ -3107,7 +3107,7 @@ impl<M, T, P, N, W, L> CoreTEXT<M, T, P, N, W, L> {
     pub(crate) fn new_unchecked(
         metaroot: Metaroot<M>,
         measurements: NamedVec<N, W, Temporal<T>, Optical<P>>,
-        layout: OptionalKw<L>,
+        layout: OptionalValue<L>,
     ) -> Self {
         Self {
             metaroot,
@@ -3886,7 +3886,7 @@ impl UnstainedData {
 }
 
 impl SubsetData {
-    fn lookup<E>(kws: &mut StdKeywords, dep: bool) -> LookupTentative<OptionalKw<Self>, E> {
+    fn lookup<E>(kws: &mut StdKeywords, dep: bool) -> LookupTentative<OptionalValue<Self>, E> {
         CSMode::lookup_opt(kws, dep).and_tentatively(|m| {
             if let Some(n) = m.0 {
                 let it = (0..n.0).map(|i| CSVFlag::lookup_opt(kws, i.into(), dep));
@@ -4000,7 +4000,7 @@ impl AppliedGates2_0 {
     fn lookup<E>(
         kws: &mut StdKeywords,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<OptionalKw<Self>, E> {
+    ) -> LookupTentative<OptionalValue<Self>, E> {
         let ag = GatingRegions::lookup(kws, false, |k, i| Region::lookup(k, i, false));
         let gm = GatedMeasurements::lookup(kws, false, conf);
         ag.zip(gm).and_tentatively(|(x, y)| {
@@ -4051,7 +4051,7 @@ impl AppliedGates3_0 {
         kws: &mut StdKeywords,
         dep: bool,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<OptionalKw<Self>, E> {
+    ) -> LookupTentative<OptionalValue<Self>, E> {
         let ag = GatingRegions::lookup(kws, false, |k, i| Region::lookup(k, i, false));
         let gm = GatedMeasurements::lookup(kws, dep, conf);
         ag.zip(gm).and_tentatively(|(x, y)| {
@@ -4158,7 +4158,7 @@ impl AppliedGates3_0 {
 }
 
 impl AppliedGates3_2 {
-    fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<OptionalKw<Self>, E> {
+    fn lookup<E>(kws: &mut StdKeywords) -> LookupTentative<OptionalValue<Self>, E> {
         GatingRegions::lookup(kws, true, |k, i| Region::lookup(k, i, true))
             .map(|x| x.map(|regions| Self { regions }))
     }
@@ -4228,9 +4228,9 @@ impl<I> GatingRegions<I> {
         kws: &mut StdKeywords,
         dep: bool,
         get_region: F,
-    ) -> LookupTentative<OptionalKw<Self>, E>
+    ) -> LookupTentative<OptionalValue<Self>, E>
     where
-        F: Fn(&mut StdKeywords, RegionIndex) -> LookupTentative<OptionalKw<Region<I>>, E>,
+        F: Fn(&mut StdKeywords, RegionIndex) -> LookupTentative<OptionalValue<Region<I>>, E>,
     {
         Gating::lookup_opt(kws, dep)
             .and_tentatively(|maybe| {
@@ -4300,7 +4300,7 @@ impl<I> Region<I> {
         kws: &mut StdKeywords,
         i: RegionIndex,
         dep: bool,
-    ) -> LookupTentative<OptionalKw<Self>, E>
+    ) -> LookupTentative<OptionalValue<Self>, E>
     where
         I: FromStr,
         I: fmt::Display,
@@ -4451,7 +4451,7 @@ impl GatedMeasurements {
         kws: &mut StdKeywords,
         dep: bool,
         conf: &StdTextReadConfig,
-    ) -> LookupTentative<OptionalKw<Self>, E> {
+    ) -> LookupTentative<OptionalValue<Self>, E> {
         Gate::lookup_opt(kws, dep).and_tentatively(|maybe| {
             if let Some(n) = maybe.0 {
                 // TODO this will be nicer with NonZeroUsize
@@ -4617,7 +4617,7 @@ impl PeakData {
 pub struct OptionalKwFamily;
 
 impl MightHave for OptionalKwFamily {
-    type Wrapper<T> = OptionalKw<T>;
+    type Wrapper<T> = OptionalValue<T>;
     const INFALLABLE: bool = false;
 
     fn unwrap<T>(x: Self::Wrapper<T>) -> Result<T, Self::Wrapper<T>> {
@@ -4651,21 +4651,21 @@ impl<T> From<T> for Identity<T> {
     }
 }
 
-impl<T> From<T> for OptionalKw<T> {
+impl<T> From<T> for OptionalValue<T> {
     fn from(value: T) -> Self {
         Some(value).into()
     }
 }
 
-impl<T> TryFrom<OptionalKw<T>> for Identity<T> {
+impl<T> TryFrom<OptionalValue<T>> for Identity<T> {
     type Error = OptionalKwToIdentityError;
-    fn try_from(value: OptionalKw<T>) -> Result<Self, Self::Error> {
+    fn try_from(value: OptionalValue<T>) -> Result<Self, Self::Error> {
         value.0.ok_or(OptionalKwToIdentityError).map(Identity)
     }
 }
 
 // This will never really fail but is implemented for symmetry with its inverse
-impl<T> TryFrom<Identity<T>> for OptionalKw<T> {
+impl<T> TryFrom<Identity<T>> for OptionalValue<T> {
     type Error = Infallible;
     fn try_from(value: Identity<T>) -> Result<Self, Infallible> {
         Ok(Some(value.0).into())
@@ -4745,9 +4745,9 @@ impl From<Calibration3_2> for Calibration3_1 {
 }
 
 fn convert_wavelengths(
-    w: OptionalKw<Wavelengths>,
+    w: OptionalValue<Wavelengths>,
     force: bool,
-) -> Tentative<OptionalKw<Wavelength>, WavelengthsLossError, WavelengthsLossError> {
+) -> Tentative<OptionalValue<Wavelength>, WavelengthsLossError, WavelengthsLossError> {
     w.0.map(|x| x.into_wavelength(!force))
         .map_or(Tentative::new1(None), |tnt| tnt.map(Some))
         .map(|x| x.into())
@@ -5443,7 +5443,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
     }
 }
 
-fn check_indexed_key_transfer<T, E>(x: &OptionalKw<T>, i: IndexFromOne) -> Result<(), E>
+fn check_indexed_key_transfer<T, E>(x: &OptionalValue<T>, i: IndexFromOne) -> Result<(), E>
 where
     E: From<IndexedKeyLossError<T>>,
 {
@@ -5468,7 +5468,7 @@ fn check_optical_keys_transfer<X>(
 }
 
 fn check_indexed_key_transfer_own<T, E>(
-    x: OptionalKw<T>,
+    x: OptionalValue<T>,
     i: IndexFromOne,
     lossless: bool,
 ) -> BiTentative<(), E>
@@ -5483,7 +5483,7 @@ where
 }
 
 fn check_key_transfer<T>(
-    x: OptionalKw<T>,
+    x: OptionalValue<T>,
     lossless: bool,
 ) -> Tentative<(), AnyMetarootKeyLossError, AnyMetarootKeyLossError>
 where

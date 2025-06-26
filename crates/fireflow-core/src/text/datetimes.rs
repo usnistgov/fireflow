@@ -46,15 +46,15 @@ newtype_from_outer!(FCSDateTime, DateTime<FixedOffset>);
 
 macro_rules! get_set {
     ($fn_get_naive:ident, $fn:ident, $fn_naive:ident, $in:path, $field:ident) => {
-        pub fn $field(&self) -> OptionalKw<$in> {
-            OptionalKw(self.$field)
+        pub fn $field(&self) -> OptionalValue<$in> {
+            OptionalValue(self.$field)
         }
 
         pub fn $fn_get_naive(&self) -> Option<DateTime<FixedOffset>> {
             self.$field().0.map(|x| x.0.into())
         }
 
-        pub fn $fn(&mut self, x: OptionalKw<$in>) -> DatetimesResult<()> {
+        pub fn $fn(&mut self, x: OptionalValue<$in>) -> DatetimesResult<()> {
             let tmp = self.$field;
             self.$field = x.0;
             if self.valid() {
@@ -73,8 +73,8 @@ macro_rules! get_set {
 
 impl Datetimes {
     pub fn try_new(
-        begin: OptionalKw<BeginDateTime>,
-        end: OptionalKw<EndDateTime>,
+        begin: OptionalValue<BeginDateTime>,
+        end: OptionalValue<EndDateTime>,
     ) -> DatetimesResult<Self> {
         let ret = Self {
             begin: begin.0,

@@ -1360,7 +1360,7 @@ impl GateScale {
         i: GateIndex,
         dep: bool,
         try_fix: bool,
-    ) -> LookupTentative<OptionalKw<GateScale>, E> {
+    ) -> LookupTentative<OptionalValue<GateScale>, E> {
         Scale::lookup_fixed_opt(kws, usize::from(i).into(), dep, try_fix).map(|x| x.map(GateScale))
     }
 }

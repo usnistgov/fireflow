@@ -57,7 +57,7 @@ pub(crate) trait Optional {
     fn remove_opt<V>(
         kws: &mut StdKeywords,
         k: StdKey,
-    ) -> Result<OptionalKw<V>, ParseKeyError<V::Err>>
+    ) -> Result<OptionalValue<V>, ParseKeyError<V::Err>>
     where
         V: FromStr,
     {
@@ -152,7 +152,7 @@ where
         Self::remove_opt(kws, Self::std())
     }
 
-    fn lookup_opt<E>(kws: &mut StdKeywords, dep: bool) -> LookupTentative<OptionalKw<Self>, E>
+    fn lookup_opt<E>(kws: &mut StdKeywords, dep: bool) -> LookupTentative<OptionalValue<Self>, E>
     where
         ParseOptKeyWarning: From<<Self as FromStr>::Err>,
     {
@@ -164,7 +164,7 @@ where
         x
     }
 
-    fn pair_opt(opt: &OptionalKw<Self>) -> (String, Option<String>) {
+    fn pair_opt(opt: &OptionalValue<Self>) -> (String, Option<String>) {
         (
             Self::std().to_string(),
             opt.0.as_ref().map(|s| s.to_string()),
@@ -196,7 +196,7 @@ where
         kws: &mut StdKeywords,
         i: IndexFromOne,
         dep: bool,
-    ) -> LookupTentative<OptionalKw<Self>, E>
+    ) -> LookupTentative<OptionalValue<Self>, E>
     where
         ParseOptKeyWarning: From<<Self as FromStr>::Err>,
     {
@@ -207,7 +207,7 @@ where
         x
     }
 
-    fn triple(opt: &OptionalKw<Self>, i: IndexFromOne) -> (String, String, Option<String>) {
+    fn triple(opt: &OptionalValue<Self>, i: IndexFromOne) -> (String, String, Option<String>) {
         (
             Self::std_blank(),
             Self::std(i).to_string(),
@@ -215,7 +215,7 @@ where
         )
     }
 
-    fn pair_opt(opt: &OptionalKw<Self>, i: IndexFromOne) -> (String, Option<String>) {
+    fn pair_opt(opt: &OptionalValue<Self>, i: IndexFromOne) -> (String, Option<String>) {
         let (_, k, v) = Self::triple(opt, i);
         (k, v)
     }
@@ -247,7 +247,7 @@ where
     fn lookup_opt<E>(
         kws: &mut StdKeywords,
         names: &HashSet<&Shortname>,
-    ) -> LookupTentative<OptionalKw<Self>, E>
+    ) -> LookupTentative<OptionalValue<Self>, E>
     where
         ParseOptKeyWarning: From<<Self as FromStr>::Err>,
     {
@@ -265,7 +265,7 @@ where
     }
 
     // TODO not DRY
-    fn pair_opt(opt: &OptionalKw<Self>) -> (String, Option<String>) {
+    fn pair_opt(opt: &OptionalValue<Self>) -> (String, Option<String>) {
         (
             Self::std().to_string(),
             opt.0.as_ref().map(|s| s.to_string()),
@@ -365,7 +365,7 @@ impl fmt::Display for LinkedNameError {
 pub(crate) fn lookup_temporal_gain_3_0(
     kws: &mut StdKeywords,
     i: IndexFromOne,
-) -> LookupTentative<OptionalKw<Gain>, LookupKeysError> {
+) -> LookupTentative<OptionalValue<Gain>, LookupKeysError> {
     let mut tnt_gain = Gain::lookup_opt(kws, i, false);
     tnt_gain.eval_error(|gain| {
         if gain.0.is_some() {
@@ -378,10 +378,10 @@ pub(crate) fn lookup_temporal_gain_3_0(
 }
 
 pub(crate) fn process_opt_dep<V, E>(
-    res: Result<OptionalKw<V>, ParseKeyError<<V as FromStr>::Err>>,
+    res: Result<OptionalValue<V>, ParseKeyError<<V as FromStr>::Err>>,
     k: StdKey,
     dep: bool,
-) -> Tentative<OptionalKw<V>, LookupKeysWarning, E>
+) -> Tentative<OptionalValue<V>, LookupKeysWarning, E>
 where
     V: FromStr,
     ParseOptKeyWarning: From<<V as FromStr>::Err>,
@@ -394,8 +394,8 @@ where
 }
 
 pub(crate) fn process_opt<V, E>(
-    res: Result<OptionalKw<V>, ParseKeyError<<V as FromStr>::Err>>,
-) -> Tentative<OptionalKw<V>, LookupKeysWarning, E>
+    res: Result<OptionalValue<V>, ParseKeyError<<V as FromStr>::Err>>,
+) -> Tentative<OptionalValue<V>, LookupKeysWarning, E>
 where
     V: FromStr,
     ParseOptKeyWarning: From<<V as FromStr>::Err>,
@@ -416,7 +416,7 @@ pub(crate) type RawKeywords = HashMap<String, String>;
 
 pub(crate) type ReqResult<T> = Result<T, ReqKeyError<<T as FromStr>::Err>>;
 pub(crate) type OptResult<T> = Result<Option<T>, ParseKeyError<<T as FromStr>::Err>>;
-pub(crate) type OptKwResult<T> = Result<OptionalKw<T>, ParseKeyError<<T as FromStr>::Err>>;
+pub(crate) type OptKwResult<T> = Result<OptionalValue<T>, ParseKeyError<<T as FromStr>::Err>>;
 
 pub(crate) type LookupResult<V> = DeferredResult<V, LookupKeysWarning, LookupKeysError>;
 pub(crate) type LookupTentative<V, E> = Tentative<V, LookupKeysWarning, E>;

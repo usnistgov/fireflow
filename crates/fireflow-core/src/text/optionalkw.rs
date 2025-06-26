@@ -3,29 +3,30 @@ use std::convert::Infallible;
 use std::fmt;
 use std::mem;
 
-/// Denotes that the value for a key is optional.
+/// Denotes that the value for a key (or collection of keys) is optional.
 ///
-/// This is basically an Option but more obvious in what it indicates.
+/// This is basically an Option but more obvious in what it indicates. It also
+/// allows some nice methods to be built on top of option.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OptionalKw<T>(pub Option<T>);
+pub struct OptionalValue<T>(pub Option<T>);
 
 /// A wrapper to contrast OptionalKw at the same abstraction level.
 #[derive(Clone, Serialize)]
 pub struct Identity<T>(pub T);
 
-impl<T> From<Option<T>> for OptionalKw<T> {
+impl<T> From<Option<T>> for OptionalValue<T> {
     fn from(value: Option<T>) -> Self {
-        OptionalKw(value)
+        OptionalValue(value)
     }
 }
 
-impl<T> From<OptionalKw<T>> for Option<T> {
-    fn from(value: OptionalKw<T>) -> Self {
+impl<T> From<OptionalValue<T>> for Option<T> {
+    fn from(value: OptionalValue<T>) -> Self {
         value.0
     }
 }
 
-impl<T: Copy> Copy for OptionalKw<T> {}
+impl<T: Copy> Copy for OptionalValue<T> {}
 
 // slightly hacky thing to let us copy the inner bit while re-wrapping as option
 // impl<T: Copy> From<OptionalKw<T>> for Option<T> {
@@ -34,26 +35,26 @@ impl<T: Copy> Copy for OptionalKw<T> {}
 //     }
 // }
 
-impl<T> Default for OptionalKw<T> {
-    fn default() -> OptionalKw<T> {
-        OptionalKw(None)
+impl<T> Default for OptionalValue<T> {
+    fn default() -> OptionalValue<T> {
+        OptionalValue(None)
     }
 }
 
-impl<V> OptionalKw<V> {
-    pub fn as_ref(&self) -> OptionalKw<&V> {
-        OptionalKw(self.0.as_ref())
+impl<V> OptionalValue<V> {
+    pub fn as_ref(&self) -> OptionalValue<&V> {
+        OptionalValue(self.0.as_ref())
     }
 
     pub fn as_ref_opt(&self) -> Option<&V> {
         self.0.as_ref()
     }
 
-    pub fn map<F, W>(self, f: F) -> OptionalKw<W>
+    pub fn map<F, W>(self, f: F) -> OptionalValue<W>
     where
         F: Fn(V) -> W,
     {
-        OptionalKw(self.0.map(f))
+        OptionalValue(self.0.map(f))
     }
 
     /// Mutate thing in Option if present, and possibly unset Option entirely
@@ -75,8 +76,8 @@ impl<V> OptionalKw<V> {
     }
 }
 
-impl<V, E> OptionalKw<Result<V, E>> {
-    pub fn transpose(self) -> Result<OptionalKw<V>, E> {
+impl<V, E> OptionalValue<Result<V, E>> {
+    pub fn transpose(self) -> Result<OptionalValue<V>, E> {
         self.0.transpose().map(|x| x.into())
     }
 }
@@ -90,13 +91,13 @@ pub enum ClearOptionalOr<E> {
     Error(E),
 }
 
-impl<V: fmt::Display> OptionalKw<V> {
+impl<V: fmt::Display> OptionalValue<V> {
     pub fn as_opt_string(&self) -> Option<String> {
         self.0.as_ref().map(|x| x.to_string())
     }
 }
 
-impl<T: Serialize> Serialize for OptionalKw<T> {
+impl<T: Serialize> Serialize for OptionalValue<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,

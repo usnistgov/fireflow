@@ -100,7 +100,7 @@ impl Scale {
         i: MeasIndex,
         dep: bool,
         try_fix: bool,
-    ) -> LookupTentative<OptionalKw<Scale>, E> {
+    ) -> LookupTentative<OptionalValue<Scale>, E> {
         let res = Scale::remove_meas_opt(kws, i.into());
         let fix_res = if try_fix {
             res.map_or_else(

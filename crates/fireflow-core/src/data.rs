@@ -642,14 +642,14 @@ where
                 ToIntError::IntOverrange(x) => {
                     (Self::maxval(), Some(BitmaskError::IntOverrange(x)))
                 }
-                ToIntError::FloatOverrange(x) => {
+                ToIntError::Float(FloatToIntError::FloatOverrange(x)) => {
                     (Self::maxval(), Some(BitmaskError::FloatOverrange(x)))
                 }
-                ToIntError::FloatUnderrange(x) => (
+                ToIntError::Float(FloatToIntError::FloatUnderrange(x)) => (
                     Self::next_bitmask(Self::default()),
                     Some(BitmaskError::FloatUnderrange(x)),
                 ),
-                ToIntError::FloatPrecisionLoss(x, y) => {
+                ToIntError::Float(FloatToIntError::FloatPrecisionLoss(x, y)) => {
                     (y, Some(BitmaskError::FloatPrecisionLoss(x)))
                 }
             },
@@ -2042,19 +2042,35 @@ impl NullAnyUintType {
     }
 
     fn new1(width: Bytes, range: Range, notrunc: bool) -> BiTentative<Self, BitmaskError> {
-        // ASSUME this can only be 1-8
-        match u8::from(width) {
-            1 => u8::column_type_from_range(range, notrunc).map(Self::Uint08),
-            2 => u16::column_type_from_range(range, notrunc).map(Self::Uint16),
-            3 => u32::column_type_from_range(range, notrunc).map(Self::Uint24),
-            4 => u32::column_type_from_range(range, notrunc).map(Self::Uint32),
-            5 => u64::column_type_from_range(range, notrunc).map(Self::Uint40),
-            6 => u64::column_type_from_range(range, notrunc).map(Self::Uint48),
-            7 => u64::column_type_from_range(range, notrunc).map(Self::Uint56),
-            8 => u64::column_type_from_range(range, notrunc).map(Self::Uint64),
-            _ => unreachable!(),
+        match width {
+            Bytes::B1 => u8::column_type_from_range(range, notrunc).map(Self::Uint08),
+            Bytes::B2 => u16::column_type_from_range(range, notrunc).map(Self::Uint16),
+            Bytes::B3 => u32::column_type_from_range(range, notrunc).map(Self::Uint24),
+            Bytes::B4 => u32::column_type_from_range(range, notrunc).map(Self::Uint32),
+            Bytes::B5 => u64::column_type_from_range(range, notrunc).map(Self::Uint40),
+            Bytes::B6 => u64::column_type_from_range(range, notrunc).map(Self::Uint48),
+            Bytes::B7 => u64::column_type_from_range(range, notrunc).map(Self::Uint56),
+            Bytes::B8 => u64::column_type_from_range(range, notrunc).map(Self::Uint64),
         }
         .errors_into()
+    }
+
+    fn new_from_range(range: Range, notrunc: bool) -> BiTentative<Self, BitmaskError> {
+        let (width, error) = match Bytes::try_from(range.0) {
+            Ok(width) => (width, None),
+            // TODO from trait
+            Err(FloatToIntError::FloatOverrange(x)) => {
+                (Bytes::B8, Some(BitmaskError::FloatOverrange(x)))
+            }
+            Err(FloatToIntError::FloatUnderrange(x)) => {
+                (Bytes::B1, Some(BitmaskError::FloatUnderrange(x)))
+            }
+            Err(FloatToIntError::FloatPrecisionLoss(x, y)) => (
+                Bytes::from_u64(y),
+                Some(BitmaskError::FloatPrecisionLoss(x)),
+            ),
+        };
+        tentative_error(width, error, notrunc).and_tentatively(|w| Self::new1(w, range, notrunc))
     }
 
     pub(crate) fn try_into_one_size<X, E, T>(

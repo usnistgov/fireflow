@@ -1,5 +1,9 @@
 use crate::macros::{newtype_disp, newtype_from_outer};
 
+use super::byteord::Bytes;
+
+use num_traits::bounds::Bounded;
+use num_traits::AsPrimitive;
 use serde::Serialize;
 use std::fmt;
 use std::num::{ParseFloatError, ParseIntError};
@@ -28,6 +32,25 @@ newtype_disp!(NonNanF64);
 
 pub(crate) trait FloatProps: Sized {
     fn maxval() -> NonNanFloat<Self>;
+}
+
+impl NonNanF64 {
+    fn to_int<T>(&self) -> Result<T, FloatToIntError<T>>
+    where
+        T: AsPrimitive<f64> + Bounded,
+        f64: AsPrimitive<T>,
+    {
+        let y = f64::from(*self);
+        if y < 0.0 {
+            Err(FloatToIntError::FloatUnderrange(y))
+        } else if (T::max_value().as_()) < y {
+            Err(FloatToIntError::FloatOverrange(y))
+        } else if y.fract() != 0.0 {
+            Err(FloatToIntError::FloatPrecisionLoss(y, y.as_()))
+        } else {
+            Ok(y.as_())
+        }
+    }
 }
 
 impl FloatProps for f32 {
@@ -86,6 +109,17 @@ impl From<u64> for FloatOrInt {
     }
 }
 
+impl TryFrom<FloatOrInt> for Bytes {
+    type Error = FloatToIntError<u64>;
+
+    fn try_from(value: FloatOrInt) -> Result<Self, Self::Error> {
+        match value {
+            FloatOrInt::Int(x) => Ok(Bytes::from_u64(x)),
+            FloatOrInt::Float(x) => x.to_int::<u64>().map(Bytes::from_u64),
+        }
+    }
+}
+
 macro_rules! impl_non_nan_float {
     ($inner:ident, $outer:ident) => {
         impl TryFrom<$inner> for $outer {
@@ -132,27 +166,13 @@ macro_rules! try_from_range_int {
     ($inttype:ident) => {
         impl TryFrom<FloatOrInt> for $inttype {
             type Error = ToIntError<$inttype>;
+
             fn try_from(value: FloatOrInt) -> Result<Self, Self::Error> {
                 match value {
                     FloatOrInt::Int(x) => {
-                        if ($inttype::MAX as u64) < x {
-                            Err(ToIntError::IntOverrange(x))
-                        } else {
-                            Ok(x as $inttype)
-                        }
+                        $inttype::try_from(x).or(Err(ToIntError::IntOverrange(x)))
                     }
-                    FloatOrInt::Float(x) => {
-                        let y = f64::from(x);
-                        if y < 0.0 {
-                            Err(ToIntError::FloatUnderrange(y))
-                        } else if ($inttype::MAX as f64) < y {
-                            Err(ToIntError::FloatOverrange(y))
-                        } else if y.fract() != 0.0 {
-                            Err(ToIntError::FloatPrecisionLoss(y, y as $inttype))
-                        } else {
-                            Ok(y as $inttype)
-                        }
-                    }
+                    FloatOrInt::Float(x) => x.to_int().map_err(ToIntError::Float),
                 }
             }
         }
@@ -220,6 +240,10 @@ impl TryFrom<FloatOrInt> for NonNanF64 {
 pub enum ToIntError<X> {
     /// u64 is larger than target int can hold
     IntOverrange(u64),
+    Float(FloatToIntError<X>),
+}
+
+pub enum FloatToIntError<X> {
     /// f64 is larger than target int can hold
     FloatOverrange(f64),
     /// f64 is smaller than target int can hold
@@ -238,6 +262,14 @@ impl<X: fmt::Display> fmt::Display for ToIntError<X> {
                     "integer range {x} is larger than target unsigned integer can hold"
                 )
             }
+            Self::Float(e) => e.fmt(f),
+        }
+    }
+}
+
+impl<X: fmt::Display> fmt::Display for FloatToIntError<X> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
             Self::FloatOverrange(x) => {
                 write!(
                     f,

@@ -6,6 +6,7 @@ use crate::validated::dataframe::ascii_nbytes;
 use super::float_or_int::{FloatProps, NonNanFloat};
 
 use itertools::Itertools;
+use num_enum::{IntoPrimitive, TryFromPrimitive};
 use serde::Serialize;
 use std::fmt;
 use std::num::ParseIntError;
@@ -54,10 +55,18 @@ pub enum Width {
 }
 
 /// The number of bytes for a numeric measurement
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, Hash)]
-pub struct Bytes(u8);
-
-const MAX_BYTES: u8 = 8;
+#[derive(Clone, Copy, Serialize, PartialEq, Eq, Hash, TryFromPrimitive, IntoPrimitive)]
+#[repr(u8)]
+pub enum Bytes {
+    B1 = 1,
+    B2,
+    B3,
+    B4,
+    B5,
+    B6,
+    B7,
+    B8,
+}
 
 /// The number of chars or an ASCII measurement
 #[derive(Clone, Copy, Serialize, PartialEq, Eq, Hash)]
@@ -116,7 +125,7 @@ pub trait HasNativeWidth: HasNativeType {
 }
 
 macro_rules! def_native_wrapper {
-    ($name:ident, $wrapper:ident, $native:ty, $size:expr, $native_size:expr) => {
+    ($name:ident, $wrapper:ident, $native:ty, $size:expr, $native_size:expr, $bytes:ident) => {
         pub type $name = $wrapper<$native, $size>;
 
         impl HasNativeType for $name {
@@ -124,23 +133,23 @@ macro_rules! def_native_wrapper {
         }
 
         impl HasNativeWidth for $name {
-            const BYTES: Bytes = Bytes($size);
+            const BYTES: Bytes = Bytes::$bytes;
             const LEN: usize = $native_size;
             type Order = SizedByteOrd<$size>;
         }
     };
 }
 
-def_native_wrapper!(Uint08Type, UintType, u8, 1, 1);
-def_native_wrapper!(Uint16Type, UintType, u16, 2, 2);
-def_native_wrapper!(Uint24Type, UintType, u32, 3, 4);
-def_native_wrapper!(Uint32Type, UintType, u32, 4, 4);
-def_native_wrapper!(Uint40Type, UintType, u64, 5, 8);
-def_native_wrapper!(Uint48Type, UintType, u64, 6, 8);
-def_native_wrapper!(Uint56Type, UintType, u64, 7, 8);
-def_native_wrapper!(Uint64Type, UintType, u64, 8, 8);
-def_native_wrapper!(F32Type, FloatType, f32, 4, 4);
-def_native_wrapper!(F64Type, FloatType, f64, 8, 8);
+def_native_wrapper!(Uint08Type, UintType, u8, 1, 1, B1);
+def_native_wrapper!(Uint16Type, UintType, u16, 2, 2, B2);
+def_native_wrapper!(Uint24Type, UintType, u32, 3, 4, B3);
+def_native_wrapper!(Uint32Type, UintType, u32, 4, 4, B4);
+def_native_wrapper!(Uint40Type, UintType, u64, 5, 8, B5);
+def_native_wrapper!(Uint48Type, UintType, u64, 6, 8, B6);
+def_native_wrapper!(Uint56Type, UintType, u64, 7, 8, B7);
+def_native_wrapper!(Uint64Type, UintType, u64, 8, 8, B8);
+def_native_wrapper!(F32Type, FloatType, f32, 4, 4, B4);
+def_native_wrapper!(F64Type, FloatType, f64, 8, 8, B8);
 
 macro_rules! uint_default {
     ($name:ident, $size:expr) => {
@@ -180,7 +189,7 @@ impl HasNativeType for AsciiType {
 }
 
 macro_rules! byteord_from_sized {
-    ($len:expr, $var:ident) => {
+    ($len:expr, $var:ident, $bytes:ident) => {
         impl TryFrom<SizedByteOrd<$len>> for Endian {
             type Error = OrderedToEndianError;
             fn try_from(value: SizedByteOrd<$len>) -> Result<Self, Self::Error> {
@@ -259,22 +268,22 @@ macro_rules! byteord_from_sized {
             }
         }
 
-        impl From<SizedByteOrd<$len>> for Bytes {
-            fn from(_: SizedByteOrd<$len>) -> Self {
-                Bytes($len)
+        impl SizedByteOrd<$len> {
+            pub(crate) fn nbytes() -> Bytes {
+                Bytes::$bytes
             }
         }
     };
 }
 
-byteord_from_sized!(1, O1);
-byteord_from_sized!(2, O2);
-byteord_from_sized!(3, O3);
-byteord_from_sized!(4, O4);
-byteord_from_sized!(5, O5);
-byteord_from_sized!(6, O6);
-byteord_from_sized!(7, O7);
-byteord_from_sized!(8, O8);
+byteord_from_sized!(1, O1, B1);
+byteord_from_sized!(2, O2, B2);
+byteord_from_sized!(3, O3, B3);
+byteord_from_sized!(4, O4, B4);
+byteord_from_sized!(5, O5, B5);
+byteord_from_sized!(6, O6, B6);
+byteord_from_sized!(7, O7, B7);
+byteord_from_sized!(8, O8, B8);
 
 impl Chars {
     pub(crate) fn max() -> Self {
@@ -284,6 +293,19 @@ impl Chars {
     pub(crate) fn from_range(x: u64) -> Self {
         // ASSUME this will never be greater than 20
         Chars(ascii_nbytes(x) as u8)
+    }
+}
+
+impl Bytes {
+    /// Return number of bytes needed to express the given u64.
+    pub(crate) fn from_u64(x: u64) -> Self {
+        // find position of most-significant non-zero byte
+        x.to_le_bytes()
+            .iter()
+            .rposition(|i| *i > 0)
+            .and_then(|i| u8::try_from(i + 1).ok())
+            .and_then(|i| Bytes::try_from(i).ok())
+            .unwrap_or(Bytes::B1)
     }
 }
 
@@ -345,12 +367,6 @@ impl<const LEN: usize> Default for SizedByteOrd<LEN> {
 impl Default for ByteOrd {
     fn default() -> Self {
         Self::O4(SizedByteOrd::default())
-    }
-}
-
-impl<const LEN: usize> SizedByteOrd<LEN> {
-    pub(crate) fn nbytes() -> Bytes {
-        Bytes(LEN as u8)
     }
 }
 
@@ -484,10 +500,7 @@ impl TryFrom<BitsOrChars> for Bytes {
     fn try_from(value: BitsOrChars) -> Result<Self, Self::Error> {
         let x = value.0;
         if (x & 0b111) == 0 {
-            let y = x >> 3;
-            if (1..=MAX_BYTES).contains(&y) {
-                return Ok(Bytes(y));
-            }
+            return (x >> 3).try_into().or(Err(BytesError(x)));
         }
         Err(BytesError(x))
     }
@@ -495,7 +508,7 @@ impl TryFrom<BitsOrChars> for Bytes {
 
 impl From<Bytes> for BitsOrChars {
     fn from(value: Bytes) -> Self {
-        BitsOrChars(value.0 * 8)
+        BitsOrChars(u8::from(value) * 8)
     }
 }
 
@@ -524,7 +537,7 @@ impl From<Chars> for Width {
 
 impl From<Bytes> for Width {
     fn from(value: Bytes) -> Self {
-        Width::Fixed(BitsOrChars(value.0 * 8))
+        Width::Fixed(BitsOrChars(u8::from(value) * 8))
     }
 }
 
@@ -686,9 +699,7 @@ impl fmt::Display for Width {
     }
 }
 
-newtype_disp!(Bytes);
 newtype_disp!(Chars);
-newtype_from_outer!(Bytes, u8);
 newtype_from_outer!(Chars, u8);
 newtype_from_outer!(BitsOrChars, u8);
 
@@ -771,6 +782,12 @@ impl fmt::Display for EndianToByteOrdError {
             f,
             "could not convert ByteOrd, must be either '1,2,3,4' or '4,3,2,1'",
         )
+    }
+}
+
+impl fmt::Display for Bytes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        u8::from(*self).fmt(f)
     }
 }
 

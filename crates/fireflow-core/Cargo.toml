@@ -10,6 +10,8 @@ Core library code for fireflow.
 chrono = { workspace = true }
 regex = "1.11.1"
 itertools = { workspace = true }
+num_enum = { workspace = true }
+num-traits = { workspace = true }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 nalgebra = { workspace = true }

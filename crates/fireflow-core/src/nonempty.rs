@@ -1,6 +1,6 @@
 use crate::error::{ErrorIter, MultiResult};
 use crate::text::index::{IndexError, IndexFromOne};
-use crate::text::optional::ClearOptionalOr;
+use crate::text::optional::{ClearOptional, ClearOptionalOr};
 
 use nonempty::NonEmpty;
 
@@ -14,6 +14,8 @@ pub(crate) trait NonEmptyExt {
         F: Fn(Self::X) -> Result<Y, E>;
 
     fn remove(&mut self, index: IndexFromOne) -> Result<(), ClearOptionalOr<IndexError>>;
+
+    fn remove_nocheck(&mut self, index: IndexFromOne) -> Result<(), ClearOptional>;
 }
 
 impl<X> NonEmptyExt for NonEmpty<X> {
@@ -37,18 +39,24 @@ impl<X> NonEmptyExt for NonEmpty<X> {
         index.check_index(self.len()).map_or_else(
             |e| Err(ClearOptionalOr::Error(e)),
             |i| {
-                if i == 0 {
-                    let tail = std::mem::take(&mut self.tail);
-                    if let Some(xs) = NonEmpty::from_vec(tail) {
-                        *self = xs
-                    } else {
-                        return Err(ClearOptionalOr::Clear);
-                    }
-                } else {
-                    self.tail.remove(i + 1);
-                }
-                Ok(())
+                self.remove_nocheck(i.into())
+                    .map_err(|_| ClearOptionalOr::Clear)
             },
         )
+    }
+
+    fn remove_nocheck(&mut self, index: IndexFromOne) -> Result<(), ClearOptional> {
+        let i: usize = index.into();
+        if i == 0 {
+            let tail = std::mem::take(&mut self.tail);
+            if let Some(xs) = NonEmpty::from_vec(tail) {
+                *self = xs
+            } else {
+                return Err(ClearOptionalOr::Clear);
+            }
+        } else {
+            self.tail.remove(i + 1);
+        }
+        Ok(())
     }
 }

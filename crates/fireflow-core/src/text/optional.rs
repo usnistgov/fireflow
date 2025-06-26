@@ -74,6 +74,14 @@ impl<V> OptionalValue<V> {
             },
         }
     }
+
+    pub fn mut_or_unset_nofail<F, X>(&mut self, f: F) -> Option<X>
+    where
+        F: Fn(&mut V) -> Result<X, ClearOptional>,
+    {
+        let Ok(x) = self.mut_or_unset(f);
+        x
+    }
 }
 
 impl<V, E> OptionalValue<Result<V, E>> {

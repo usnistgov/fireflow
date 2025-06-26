@@ -2277,7 +2277,6 @@ where
             })
     }
 
-    // TODO also update data layout
     #[allow(clippy::type_complexity)]
     fn remove_measurement_by_name_inner(
         &mut self,
@@ -2288,13 +2287,13 @@ where
     )> {
         if let Some(e @ (i, _)) = self.measurements.remove_name(n) {
             self.metaroot.remove_name_index(n, i);
+            self.layout.mut_or_unset_nofail(|l| l.remove_nocheck(i));
             Some(e)
         } else {
             None
         }
     }
 
-    // TODO also update data layout
     #[allow(clippy::type_complexity)]
     fn remove_measurement_by_index_inner(
         &mut self,
@@ -2305,6 +2304,7 @@ where
         if let Element::NonCenter(left) = &res {
             if let Some(n) = M::Name::as_opt(&left.key) {
                 self.metaroot.remove_name_index(n, index);
+                self.layout.mut_or_unset_nofail(|l| l.remove_nocheck(index));
             }
         }
         Ok(res)
@@ -2328,23 +2328,38 @@ where
         Ok(())
     }
 
-    // TODO need to also check the data layout
     fn set_measurements_inner(
         &mut self,
         xs: RawInput<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
         prefix: ShortnamePrefix,
     ) -> Result<(), SetMeasurementsError> {
+        if xs.len() != self.layout_len() {
+            return Err(MeasLayoutMismatchError {
+                meas_n: xs.len(),
+                layout_n: self.layout_len(),
+            }
+            .into());
+        }
         self.check_existing_links()?;
         let ms = NamedVec::try_new(xs, prefix)?;
         self.measurements = ms;
         Ok(())
     }
 
-    // TODO also clear data layout
+    // TODO also add a function to set layout and measurements simultaneously
+
     fn unset_measurements_inner(&mut self) -> Result<(), ExistingLinkError> {
         self.check_existing_links()?;
         self.measurements = NamedVec::default();
+        self.layout = None.into();
         Ok(())
+    }
+
+    fn layout_len(&self) -> usize {
+        self.layout
+            .as_ref_opt()
+            .map(|x| x.ncols())
+            .unwrap_or_default()
     }
 
     fn header_and_raw_keywords(
@@ -2764,9 +2779,20 @@ where
         &mut self,
         n: Shortname,
         m: Temporal<M::Temporal>,
-    ) -> Result<(), InsertCenterError> {
-        // TODO update layout
-        self.measurements.push_center(n, m)
+        r: Range,
+        notrunc: bool,
+    ) -> DeferredResult<(), LayoutPushColumnError, PushTemporalError> {
+        self.measurements
+            .push_center(n, m)
+            .into_deferred()
+            .def_and_tentatively(|_| {
+                self.layout
+                    .0
+                    .as_mut()
+                    .map(|l| l.push(r, notrunc))
+                    .unwrap_or_default()
+                    .errors_into()
+            })
     }
 
     /// Add time measurement at the given position
@@ -2778,9 +2804,20 @@ where
         i: MeasIndex,
         n: Shortname,
         m: Temporal<M::Temporal>,
-    ) -> Result<(), InsertCenterError> {
-        // TODO update layout
-        self.measurements.insert_center(i, n, m)
+        r: Range,
+        notrunc: bool,
+    ) -> DeferredResult<(), LayoutInsertColumnWarning, InsertTemporalError> {
+        self.measurements
+            .insert_center(i, n, m)
+            .into_deferred()
+            .def_and_tentatively(|_| {
+                self.layout
+                    .0
+                    .as_mut()
+                    .map(|l| l.insert_nocheck(i, r, notrunc))
+                    .unwrap_or_default()
+                    .inner_into()
+            })
     }
 
     /// Add optical measurement to the end of the measurement vector
@@ -2790,9 +2827,21 @@ where
         &mut self,
         n: <M::Name as MightHave>::Wrapper<Shortname>,
         m: Optical<M::Optical>,
-    ) -> Result<Shortname, NonUniqueKeyError> {
-        // TODO update layout
-        self.measurements.push(n, m)
+        r: Range,
+        notrunc: bool,
+    ) -> DeferredResult<Shortname, LayoutPushColumnError, PushOpticalError> {
+        self.measurements
+            .push(n, m)
+            .into_deferred()
+            .def_and_tentatively(|ret| {
+                self.layout
+                    .0
+                    .as_mut()
+                    .map(|l| l.push(r, notrunc))
+                    .unwrap_or_default()
+                    .errors_into()
+                    .map(|_| ret)
+            })
     }
 
     /// Add optical measurement at a given position
@@ -2803,9 +2852,21 @@ where
         i: MeasIndex,
         n: <M::Name as MightHave>::Wrapper<Shortname>,
         m: Optical<M::Optical>,
-    ) -> Result<Shortname, InsertError> {
-        // TODO update layout
-        self.measurements.insert(i, n, m)
+        r: Range,
+        notrunc: bool,
+    ) -> DeferredResult<Shortname, LayoutInsertColumnWarning, InsertOpticalError> {
+        self.measurements
+            .insert(i, n, m)
+            .into_deferred()
+            .def_and_tentatively(|ret| {
+                self.layout
+                    .0
+                    .as_mut()
+                    .map(|l| l.insert_nocheck(i, r, notrunc))
+                    .unwrap_or_default()
+                    .inner_into()
+                    .map(|_| ret)
+            })
     }
 
     /// Remove measurements
@@ -3026,7 +3087,7 @@ where
         n: Shortname,
         m: Temporal<M::Temporal>,
         col: AnyFCSColumn,
-    ) -> Result<(), PushTemporalError> {
+    ) -> Result<(), PushTemporalToDatasetError> {
         // TODO update layout
         self.measurements.push_center(n, m)?;
         self.data.push_column(col)?;
@@ -3043,7 +3104,7 @@ where
         n: Shortname,
         m: Temporal<M::Temporal>,
         col: AnyFCSColumn,
-    ) -> Result<(), PushTemporalError> {
+    ) -> Result<(), PushTemporalToDatasetError> {
         // TODO update layout
         self.measurements.insert_center(i, n, m)?;
         // ASSUME index is within bounds here since it was checked above
@@ -3059,7 +3120,7 @@ where
         n: <M::Name as MightHave>::Wrapper<Shortname>,
         m: Optical<M::Optical>,
         col: AnyFCSColumn,
-    ) -> Result<Shortname, PushOpticalError> {
+    ) -> Result<Shortname, PushOpticalToDatasetError> {
         // TODO update layout
         let k = self.measurements.push(n, m)?;
         self.data.push_column(col)?;
@@ -3075,7 +3136,7 @@ where
         n: <M::Name as MightHave>::Wrapper<Shortname>,
         m: Optical<M::Optical>,
         col: AnyFCSColumn,
-    ) -> Result<Shortname, InsertOpticalError> {
+    ) -> Result<Shortname, InsertOpticalInDatasetError> {
         // TODO update layout
         let k = self.measurements.insert(i, n, m)?;
         // ASSUME index is within bounds here since it was checked above
@@ -6852,8 +6913,7 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
     where
         F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
     {
-        let Ok(x) = self.comp.mut_or_unset(|c| f(&mut c.0));
-        x
+        self.comp.mut_or_unset_nofail(|c| f(&mut c.0))
     }
 
     fn timestamps_valid(&self) -> bool {
@@ -6936,8 +6996,7 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
     where
         F: Fn(&mut Compensation) -> Result<X, ClearOptional>,
     {
-        let Ok(x) = self.comp.mut_or_unset(|c| f(&mut c.0));
-        x
+        self.comp.mut_or_unset_nofail(|c| f(&mut c.0))
     }
 
     fn timestamps_valid(&self) -> bool {
@@ -7021,8 +7080,7 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
     where
         F: Fn(&mut Spillover) -> Result<X, ClearOptional>,
     {
-        let Ok(x) = self.spillover.mut_or_unset(f);
-        x
+        self.spillover.mut_or_unset_nofail(f)
     }
 
     fn as_compensation(&self) -> Option<&Compensation> {
@@ -7111,8 +7169,7 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
     where
         F: Fn(&mut UnstainedCenters) -> Result<X, ClearOptional>,
     {
-        let Ok(x) = self.unstained.unstainedcenters.mut_or_unset(f);
-        x
+        self.unstained.unstainedcenters.mut_or_unset_nofail(f)
     }
 
     fn as_spillover(&self) -> Option<&Spillover> {
@@ -7123,8 +7180,7 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
     where
         F: Fn(&mut Spillover) -> Result<X, ClearOptional>,
     {
-        let Ok(x) = self.spillover.mut_or_unset(f);
-        x
+        self.spillover.mut_or_unset_nofail(f)
     }
 
     fn as_compensation(&self) -> Option<&Compensation> {
@@ -7576,7 +7632,8 @@ impl fmt::Display for SpilloverLinkError {
 enum_from_disp!(
     pub SetMeasurementsError,
     [New, NewNamedVecError],
-    [Link, ExistingLinkError]
+    [Link, ExistingLinkError],
+    [MeasNumber, MeasLayoutMismatchError]
 );
 
 enum_from_disp!(
@@ -7601,20 +7658,59 @@ enum_from_disp!(
 enum_from_disp!(
     pub PushTemporalError,
     [Center, InsertCenterError],
-    [Column, ColumnLengthError]
+    [Layout, LayoutPushColumnError]
+);
+
+enum_from_disp!(
+    pub InsertTemporalError,
+    [Center, InsertCenterError],
+    [Layout, LayoutInsertColumnWarning]
 );
 
 enum_from_disp!(
     pub PushOpticalError,
-    [NonUnique, NonUniqueKeyError],
-    [Column, ColumnLengthError]
+    [Unique, NonUniqueKeyError],
+    [Layout, LayoutPushColumnError]
 );
 
 enum_from_disp!(
     pub InsertOpticalError,
     [Insert, InsertError],
+    [Layout, LayoutInsertColumnWarning]
+);
+
+enum_from_disp!(
+    pub PushTemporalToDatasetError,
+    [Center, InsertCenterError],
     [Column, ColumnLengthError]
 );
+
+enum_from_disp!(
+    pub PushOpticalToDatasetError,
+    [NonUnique, NonUniqueKeyError],
+    [Column, ColumnLengthError]
+);
+
+enum_from_disp!(
+    pub InsertOpticalInDatasetError,
+    [Insert, InsertError],
+    [Column, ColumnLengthError]
+);
+
+pub struct MeasLayoutMismatchError {
+    meas_n: usize,
+    layout_n: usize,
+}
+
+impl fmt::Display for MeasLayoutMismatchError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "measurement number ({}) does not match layout column number ({})",
+            self.meas_n, self.layout_n
+        )
+    }
+}
 
 pub struct MeasDataMismatchError {
     meas_n: usize,

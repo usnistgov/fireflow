@@ -679,6 +679,12 @@ impl<V, W, E> Tentative<Option<V>, W, E> {
     }
 }
 
+impl<W, E> Default for Tentative<(), W, E> {
+    fn default() -> Self {
+        Self::new1(())
+    }
+}
+
 impl<P, W, E> DeferredFailure<P, W, E> {
     pub fn new(warnings: Vec<W>, errors: NonEmpty<E>, passthru: P) -> Self {
         Self {

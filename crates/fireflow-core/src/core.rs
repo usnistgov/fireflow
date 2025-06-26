@@ -73,7 +73,7 @@ pub struct Core<A, D, O, M, T, P, N, W, L> {
     ///
     /// This is derived from $BYTEORD, $DATATYPE, $PnB, $PnR and maybe
     /// $PnDATATYPE for version 3.2.
-    layout: Option<L>,
+    layout: OptionalKw<L>,
 
     /// DATA segment (if applicable)
     data: D,
@@ -1766,38 +1766,6 @@ where
         Ok(df)
     }
 
-    // /// Return HEADER+TEXT as a list of strings
-    // ///
-    // /// The first member will be a string exactly 58 bytes long which will be
-    // /// the HEADER. The next members will be alternating keys and values of the
-    // /// primary TEXT segment and supplemental if included. Each member should be
-    // /// separated by a delimiter when writing to a file, and a trailing
-    // /// delimiter should be added.
-    // ///
-    // /// Keywords will be sorted with offsets first, non-measurement keywords
-    // /// second in alphabetical order, then measurement keywords in alphabetical
-    // /// order.
-    // ///
-    // /// Return None if primary TEXT does not fit into first 99,999,999 bytes.
-    // fn text_segment(
-    //     &self,
-    //     tot: Tot,
-    //     data_len: u64,
-    //     analysis_len: u64,
-    //     other_lens: Vec<u64>,
-    // ) -> Result<Vec<String>, Uint8DigitOverflow> {
-    //     self.header_and_raw_keywords(tot, data_len, analysis_len, other_lens)
-    //         // TODO do something useful with nextdata offset (the "_" thing)
-    //         .map(|(header, kws, _)| {
-    //             let version = M::O::fcs_version();
-    //             let flat: Vec<_> = kws.into_iter().flat_map(|(k, v)| [k, v]).collect();
-    //             [format!("{version}{header}")]
-    //                 .into_iter()
-    //                 .chain(flat)
-    //                 .collect()
-    //         })
-    // }
-
     /// Return all keywords as an ordered list of pairs
     ///
     /// Thiw will only include keywords that can be directly derived from
@@ -2318,8 +2286,8 @@ where
         MeasIndex,
         Element<Temporal<M::Temporal>, Optical<M::Optical>>,
     )> {
-        if let Some(e) = self.measurements.remove_name(n) {
-            self.metaroot.remove_name_index(n, e.0);
+        if let Some(e @ (i, _)) = self.measurements.remove_name(n) {
+            self.metaroot.remove_name_index(n, i);
             Some(e)
         } else {
             None
@@ -2725,7 +2693,9 @@ where
                     .def_zip(layout_res)
                     .def_and_maybe(|((ms, meta_ns), layout)| {
                         Metaroot::lookup_metaroot(kws, &ms, meta_ns, &conf.standard)
-                            .def_map_value(|metaroot| CoreTEXT::new_unchecked(metaroot, ms, layout))
+                            .def_map_value(|metaroot| {
+                                CoreTEXT::new_unchecked(metaroot, ms, layout.into())
+                            })
                             .def_inner_into()
                     })
                     .map(|mut tnt_core| {
@@ -2911,7 +2881,7 @@ where
                 };
                 // TODO what happens if the layout is empty but the segment
                 // isn't?
-                let data_res = text.layout.as_ref().map_or(
+                let data_res = text.layout.as_ref_opt().map_or(
                     Ok(Tentative::new1(FCSDataFrame::default())),
                     |l: &<M::Ver as Versioned>::Layout| {
                         l.h_read_df(h, offsets.tot(), offsets.data(), &conf.reader)
@@ -2947,7 +2917,7 @@ where
         Version: From<M::Ver>,
     {
         let df = &self.data;
-        let layout = self.layout.as_ref();
+        let layout = self.layout.as_ref_opt();
         let others = &self.others;
         let delim = conf.delim.inner();
         let tot = Tot(df.nrows());
@@ -3127,7 +3097,7 @@ impl<M, T, P, N, W, L> CoreTEXT<M, T, P, N, W, L> {
         Self {
             metaroot,
             measurements: NamedVec::default(),
-            layout: None,
+            layout: None.into(),
             data: (),
             analysis: (),
             others: (),
@@ -3137,7 +3107,7 @@ impl<M, T, P, N, W, L> CoreTEXT<M, T, P, N, W, L> {
     pub(crate) fn new_unchecked(
         metaroot: Metaroot<M>,
         measurements: NamedVec<N, W, Temporal<T>, Optical<P>>,
-        layout: Option<L>,
+        layout: OptionalKw<L>,
     ) -> Self {
         Self {
             metaroot,

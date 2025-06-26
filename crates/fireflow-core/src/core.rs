@@ -1580,16 +1580,6 @@ where
             .zip5(sm, sr, sy, t)
             .and_maybe(
                 |(((abrt, com, cells, exp, fil), inst, lost, op, proj), smno, src, sys, tr)| {
-                    // TODO move this to the new data layout lookup functions
-                    // dt.def_eval_warning(|datatype| {
-                    //     if *datatype == AlphaNumType::Ascii
-                    //         && M::O::fcs_version() >= Version::FCS3_1
-                    //     {
-                    //         Some(DeprecatedError::Value(DepValueWarning::DatatypeASCII).into())
-                    //     } else {
-                    //         None
-                    //     }
-                    // });
                     M::lookup_specific(kws, par, &names, conf).def_map_value(|specific| Metaroot {
                         abrt,
                         com,

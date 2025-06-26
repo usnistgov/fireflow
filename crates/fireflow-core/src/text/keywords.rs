@@ -292,6 +292,22 @@ pub enum AlphaNumType {
     Double,
 }
 
+impl AlphaNumType {
+    pub(crate) fn lookup_req_check_ascii(kws: &mut StdKeywords) -> LookupResult<Self> {
+        let mut d = AlphaNumType::lookup_req(kws);
+        d.def_eval_warning(check_datatype_ascii);
+        d
+    }
+}
+
+fn check_datatype_ascii(datatype: &AlphaNumType) -> Option<LookupKeysWarning> {
+    if *datatype == AlphaNumType::Ascii {
+        Some(DeprecatedError::Value(DepValueWarning::DatatypeASCII).into())
+    } else {
+        None
+    }
+}
+
 impl FromStr for AlphaNumType {
     type Err = AlphaNumTypeError;
 

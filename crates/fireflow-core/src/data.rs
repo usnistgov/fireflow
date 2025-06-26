@@ -3521,7 +3521,7 @@ impl VersionedDataLayout for Layout3_1 {
         par: Par,
     ) -> LookupLayoutResult<Option<Self>> {
         let cs = ColumnLayoutValues2_0::lookup_all(kws, par);
-        let d = AlphaNumType::lookup_req(kws);
+        let d = AlphaNumType::lookup_req_check_ascii(kws);
         let n = Endian::lookup_req(kws);
         d.def_zip3(n, cs)
             .def_inner_into()
@@ -3638,7 +3638,7 @@ impl VersionedDataLayout for Layout3_2 {
         conf: &SharedConfig,
         par: Par,
     ) -> LookupLayoutResult<Option<Self>> {
-        let d = AlphaNumType::lookup_req(kws);
+        let d = AlphaNumType::lookup_req_check_ascii(kws);
         let e = Endian::lookup_req(kws);
         let cs = ColumnLayoutValues3_2::lookup_all(kws, par);
         d.def_zip3(e, cs)

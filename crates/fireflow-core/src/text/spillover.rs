@@ -1,7 +1,7 @@
 use crate::validated::shortname::*;
 
 use super::named_vec::NameMapping;
-use super::optionalkw::ClearOptional;
+use super::optional::ClearOptional;
 use super::parser::OptLinkedKey;
 
 use itertools::Itertools;

@@ -1,5 +1,4 @@
 use crate::core::*;
-use crate::data::LookupLayoutError;
 use crate::error::*;
 use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
 use crate::validated::pattern::*;
@@ -13,7 +12,7 @@ use super::float_or_int::*;
 use super::index::*;
 use super::keywords::*;
 use super::named_vec::*;
-use super::optionalkw::*;
+use super::optional::*;
 use super::ranged_float::RangedFloatError;
 use super::scale::*;
 use super::spillover::*;

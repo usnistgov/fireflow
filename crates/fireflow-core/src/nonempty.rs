@@ -1,6 +1,6 @@
 use crate::error::{ErrorIter, MultiResult};
 use crate::text::index::{IndexError, IndexFromOne};
-use crate::text::optionalkw::ClearOptionalOr;
+use crate::text::optional::ClearOptionalOr;
 
 use nonempty::NonEmpty;
 

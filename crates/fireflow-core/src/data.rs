@@ -58,7 +58,7 @@ use crate::text::byteord::*;
 use crate::text::float_or_int::*;
 use crate::text::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};
 use crate::text::keywords::*;
-use crate::text::optionalkw::ClearOptionalOr;
+use crate::text::optional::ClearOptionalOr;
 use crate::text::parser::*;
 use crate::validated::dataframe::*;
 use crate::validated::standard::*;

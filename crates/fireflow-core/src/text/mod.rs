@@ -5,7 +5,7 @@ pub mod float_or_int;
 pub mod index;
 pub mod keywords;
 pub mod named_vec;
-pub mod optionalkw;
+pub mod optional;
 pub mod parser;
 pub mod ranged_float;
 pub mod scale;

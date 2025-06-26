@@ -11,7 +11,7 @@ use crate::text::float_or_int::*;
 use crate::text::index::*;
 use crate::text::keywords::*;
 use crate::text::named_vec::*;
-use crate::text::optionalkw::*;
+use crate::text::optional::*;
 use crate::text::parser::*;
 use crate::text::scale::*;
 use crate::text::spillover::*;

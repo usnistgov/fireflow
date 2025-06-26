@@ -7,7 +7,7 @@ use crate::validated::standard::*;
 
 use super::index::MeasIndex;
 use super::keywords::{Dfc, Par};
-use super::optionalkw::*;
+use super::optional::*;
 use super::parser::*;
 
 use itertools::Itertools;

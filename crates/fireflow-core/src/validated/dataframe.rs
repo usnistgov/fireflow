@@ -1,4 +1,5 @@
 use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
+use crate::text::byteord::Chars;
 use crate::text::index::BoundaryIndexError;
 
 use polars_arrow::array::{Array, PrimitiveArray};
@@ -448,11 +449,7 @@ impl NumCast<f64> for f32 {
 impl_cast_noloss!(f64, f64);
 
 pub(crate) fn cast_nbytes(x: CastResult<u64>) -> u32 {
-    ascii_nbytes(x.new)
-}
-
-pub(crate) fn ascii_nbytes(x: u64) -> u32 {
-    x.checked_ilog10().map(|y| y + 1).unwrap_or(1)
+    u8::from(Chars::from_u64(x.new)).into()
 }
 
 pub(crate) trait AllFCSCast:

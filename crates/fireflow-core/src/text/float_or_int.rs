@@ -1,6 +1,6 @@
 use crate::macros::{newtype_disp, newtype_from_outer};
 
-use super::byteord::Bytes;
+use super::byteord::{Bytes, Chars};
 
 use num_traits::bounds::Bounded;
 use num_traits::AsPrimitive;
@@ -71,6 +71,26 @@ impl<T> NonNanFloat<T> {
     }
 }
 
+impl NonNanF64 {
+    pub(crate) fn try_as_f32(self) -> Option<NonNanF32> {
+        // TODO, this actually isn't as intuitive as one would hope. For
+        // example, "1.1" as input will fail this test, since the f64->f32-f64
+        // conversion will result in "1.100000023841858" and thus return false.
+        // Apparently the "as" cast will not try to force the result to be as
+        // close numerically to the original as possible; in this case
+        // it will merely add 0s to the end of the f32, which is different than
+        // the starting value
+        let x = f64::from(self);
+        let y = x as f32;
+        let z = y as f64;
+        if x == z {
+            Some(NonNanFloat(y))
+        } else {
+            None
+        }
+    }
+}
+
 impl FromStr for FloatOrInt {
     type Err = ParseFloatOrIntError;
 
@@ -112,10 +132,25 @@ impl From<u64> for FloatOrInt {
 impl TryFrom<FloatOrInt> for Bytes {
     type Error = FloatToIntError<u64>;
 
+    /// Return the number of bytes needed to hold the float/int.
+    ///
+    /// This might fail because it involves squishing the input into a
+    /// u64, which could fail for out of range or fractional values.
     fn try_from(value: FloatOrInt) -> Result<Self, Self::Error> {
         match value {
             FloatOrInt::Int(x) => Ok(Bytes::from_u64(x)),
             FloatOrInt::Float(x) => x.to_int::<u64>().map(Bytes::from_u64),
+        }
+    }
+}
+
+impl TryFrom<FloatOrInt> for Chars {
+    type Error = FloatToIntError<u64>;
+
+    fn try_from(value: FloatOrInt) -> Result<Self, Self::Error> {
+        match value {
+            FloatOrInt::Int(x) => Ok(Chars::from_u64(x)),
+            FloatOrInt::Float(x) => x.to_int::<u64>().map(Chars::from_u64),
         }
     }
 }

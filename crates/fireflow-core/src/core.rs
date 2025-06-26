@@ -2952,7 +2952,7 @@ where
         &self,
         h: &mut BufWriter<W>,
         conf: &WriteConfig,
-    ) -> IODeferredResult<(), ColumnError<BitmaskError>, StdWriterError>
+    ) -> IODeferredResult<(), ColumnError<IntRangeError>, StdWriterError>
     where
         Version: From<M::Ver>,
     {

@@ -1,9 +1,8 @@
 use crate::macros::{
     enum_from, enum_from_disp, match_many_to_one, newtype_disp, newtype_from_outer,
 };
-use crate::validated::dataframe::ascii_nbytes;
 
-use super::float_or_int::{FloatProps, NonNanFloat};
+use super::float_or_int::{FloatOrInt, FloatProps, NonNanFloat, ToIntError};
 
 use itertools::Itertools;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
@@ -69,7 +68,7 @@ pub enum Bytes {
 }
 
 /// The number of chars or an ASCII measurement
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Hash)]
 pub struct Chars(u8);
 
 const MAX_CHARS: u8 = 20;
@@ -290,9 +289,10 @@ impl Chars {
         Self(MAX_CHARS)
     }
 
-    pub(crate) fn from_range(x: u64) -> Self {
-        // ASSUME this will never be greater than 20
-        Chars(ascii_nbytes(x) as u8)
+    /// Return number of chars needed to express the given u64.
+    pub(crate) fn from_u64(x: u64) -> Self {
+        // ASSUME the max possible value is 20 thus will always fit in u8
+        Chars(x.checked_ilog10().map(|y| y + 1).unwrap_or(1) as u8)
     }
 }
 
@@ -319,10 +319,17 @@ impl Default for AsciiType {
 }
 
 impl AsciiType {
-    pub(crate) fn from_range(range: u64) -> Self {
+    // pub(crate) fn try_from_range(range: FloatOrInt) -> Result<Self, ToIntError<u64>> {
+    //     u64::try_from(range).map(|x| Self {
+    //         range: x,
+    //         chars: Chars::from_u64(x),
+    //     })
+    // }
+
+    pub(crate) fn from_u64(range: u64) -> Self {
         Self {
             range,
-            chars: Chars::from_range(range),
+            chars: Chars::from_u64(range),
         }
     }
 }

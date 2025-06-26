@@ -363,6 +363,17 @@ pub trait VersionedDataLayout: Sized {
 
     fn lookup_ro(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Option<Self>>;
 
+    fn insert(
+        &mut self,
+        index: MeasIndex,
+        range: Range,
+        notrunc: bool,
+    ) -> DeferredResult<(), LayoutInsertColumnWarning, LayoutInsertColumnError>;
+
+    fn push(&mut self, range: Range, notrunc: bool) -> BiTentative<(), LayoutPushColumnError>;
+
+    fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>>;
+
     fn ncols(&self) -> usize;
 
     fn nbytes(&self, df: &FCSDataFrame) -> u64;
@@ -604,7 +615,14 @@ where
         Self::try_from((INTLEN ^ 2) - 1).unwrap_or(Self::max_value())
     }
 
-    fn to_bitmask(self, notrunc: bool) -> BiTentative<Self, BitmaskError>
+    fn to_bitmask_unchecked(self) -> Self
+    where
+        Self: Ord + TryFrom<usize>,
+    {
+        Self::next_bitmask(self).min(Self::max_bitmask())
+    }
+
+    fn to_bitmask(self, notrunc: bool) -> BiTentative<Self, IntRangeError>
     where
         Self: TryFrom<usize> + Ord,
         u64: From<Self>,
@@ -612,14 +630,14 @@ where
         let x = Self::next_bitmask(self);
         let y = Self::max_bitmask();
         let (b, e) = if x > y {
-            (y, Some(BitmaskError::IntOverrange(x.into())))
+            (y, Some(IntRangeError::IntOverrange(x.into())))
         } else {
             (x, None)
         };
         tentative_error(b, e, notrunc)
     }
 
-    fn u64_to_bitmask(x: u64, notrunc: bool) -> BiTentative<Self, BitmaskError>
+    fn u64_to_bitmask(x: u64, notrunc: bool) -> BiTentative<Self, IntRangeError>
     where
         Self: TryFrom<u64> + TryFrom<usize> + Ord,
         u64: From<Self>,
@@ -628,7 +646,7 @@ where
             |_| {
                 tentative_error(
                     Self::max_value(),
-                    Some(BitmaskError::IntOverrange(x)),
+                    Some(IntRangeError::IntOverrange(x)),
                     notrunc,
                 )
             },
@@ -636,38 +654,53 @@ where
         )
     }
 
-    fn range_to_bitmask(r: Range, notrunc: bool) -> BiTentative<Self, BitmaskError>
+    fn u64_to_bitmask_unchecked(x: u64) -> Self
+    where
+        Self: TryFrom<u64> + TryFrom<usize> + Ord,
+    {
+        Self::try_from(x)
+            .ok()
+            .map_or(Self::max_bitmask(), |y| y.to_bitmask_unchecked())
+    }
+
+    fn range_to_int(r: Range, notrunc: bool) -> BiTentative<Self, IntRangeError>
     where
         Self: TryFrom<FloatOrInt, Error = ToIntError<Self>>,
     {
         let (b, e) = r.0.try_into().map_or_else(
             |e| match e {
                 ToIntError::IntOverrange(x) => {
-                    (Self::max_value(), Some(BitmaskError::IntOverrange(x)))
+                    (Self::max_value(), Some(IntRangeError::IntOverrange(x)))
                 }
                 ToIntError::Float(FloatToIntError::FloatOverrange(x)) => {
-                    (Self::max_value(), Some(BitmaskError::FloatOverrange(x)))
+                    (Self::max_value(), Some(IntRangeError::FloatOverrange(x)))
                 }
-                ToIntError::Float(FloatToIntError::FloatUnderrange(x)) => (
-                    Self::next_bitmask(Self::default()),
-                    Some(BitmaskError::FloatUnderrange(x)),
-                ),
+                ToIntError::Float(FloatToIntError::FloatUnderrange(x)) => {
+                    (Self::default(), Some(IntRangeError::FloatUnderrange(x)))
+                }
                 ToIntError::Float(FloatToIntError::FloatPrecisionLoss(x, y)) => {
-                    (y, Some(BitmaskError::FloatPrecisionLoss(x)))
+                    (y, Some(IntRangeError::FloatPrecisionLoss(x)))
                 }
             },
-            |x| (Self::next_bitmask(x), None),
+            |x| (x, None),
         );
         tentative_error(b, e, notrunc)
+    }
+
+    fn range_to_bitmask(r: Range, notrunc: bool) -> BiTentative<Self, IntRangeError>
+    where
+        Self: TryFrom<FloatOrInt, Error = ToIntError<Self>>,
+    {
+        Self::range_to_int(r, notrunc).map(Self::next_bitmask)
     }
 
     fn column_type<F, T>(
         x: T,
         notrunc: bool,
         f: F,
-    ) -> BiTentative<UintType<Self, INTLEN>, BitmaskError>
+    ) -> BiTentative<UintType<Self, INTLEN>, IntRangeError>
     where
-        F: FnOnce(T, bool) -> BiTentative<Self, BitmaskError>,
+        F: FnOnce(T, bool) -> BiTentative<Self, IntRangeError>,
     {
         f(x, notrunc).map(|bitmask| UintType { bitmask })
     }
@@ -675,7 +708,7 @@ where
     fn column_type_from_range(
         range: Range,
         notrunc: bool,
-    ) -> BiTentative<UintType<Self, INTLEN>, BitmaskError>
+    ) -> BiTentative<UintType<Self, INTLEN>, IntRangeError>
     where
         Self: TryFrom<FloatOrInt, Error = ToIntError<Self>>,
     {
@@ -689,12 +722,22 @@ where
     fn column_type_from_u64(
         x: u64,
         notrunc: bool,
-    ) -> BiTentative<UintType<Self, INTLEN>, BitmaskError>
+    ) -> BiTentative<UintType<Self, INTLEN>, IntRangeError>
     where
         Self: TryFrom<u64> + TryFrom<usize> + Ord,
         u64: From<Self>,
     {
         Self::column_type(x, notrunc, <Self as IntFromBytes<INTLEN>>::u64_to_bitmask)
+    }
+
+    fn column_type_from_u64_unchecked(x: u64) -> UintType<Self, INTLEN>
+    where
+        Self: TryFrom<u64> + TryFrom<usize> + Ord,
+        u64: From<Self>,
+    {
+        UintType {
+            bitmask: Self::u64_to_bitmask_unchecked(x),
+        }
     }
 
     fn h_read_endian<R: Read>(h: &mut BufReader<R>, endian: Endian) -> io::Result<Self> {
@@ -776,7 +819,16 @@ where
         tentative_error(x, e, notrunc)
     }
 
-    fn column_type(
+    fn column_type(r: Range, notrunc: bool) -> BiTentative<FloatType<Self, LEN>, FloatRangeError>
+    where
+        NonNanFloat<Self>: TryFrom<FloatOrInt, Error = ToFloatError<Self>>,
+    {
+        Self::from_range(r, notrunc)
+            .map(|range| FloatType { range })
+            .errors_into()
+    }
+
+    fn column_type1(
         w: Width,
         r: Range,
         notrunc: bool,
@@ -786,9 +838,7 @@ where
     {
         Bytes::try_from(w).into_deferred().def_and_maybe(|bytes| {
             if usize::from(u8::from(bytes)) == LEN {
-                Ok(Self::from_range(r, notrunc)
-                    .map(|range| FloatType { range })
-                    .errors_into())
+                Ok(<Self as FloatFromBytes<LEN>>::column_type(r, notrunc).errors_into())
             } else {
                 Err(DeferredFailure::new1(FloatWidthError::WrongWidth(
                     WrongFloatWidth {
@@ -1609,10 +1659,12 @@ where
 impl ToNativeWriter for AsciiType {
     type Error = AsciiLossError;
 
-    fn check_other_loss(&self, x: Self::Native) -> Option<Self::Error> {
-        let width = u8::from(self.chars);
-        if ascii_nbytes(x) > width.into() {
-            Some(AsciiLossError(width))
+    fn check_other_loss(&self, x: Self::Native) -> Option<Self::Error>
+    where
+        u64: From<Self::Native>,
+    {
+        if Chars::from_u64(u64::from(x)) > self.chars {
+            Some(AsciiLossError(self.chars))
         } else {
             None
         }
@@ -1730,7 +1782,7 @@ impl EndianLayout<NullAnyUintType> {
         cs: NonEmpty<ColumnLayoutValues<D>>,
         e: Endian,
         notrunc: bool,
-    ) -> DeferredResult<Self, ColumnError<BitmaskError>, ColumnError<NewUintTypeError>> {
+    ) -> DeferredResult<Self, ColumnError<IntRangeError>, ColumnError<NewUintTypeError>> {
         FixedLayout::try_new(cs, e, |c| {
             AnyUintType::try_new(c.width, c.range, notrunc).def_errors_into()
         })
@@ -2002,10 +2054,10 @@ impl NullMixedType {
                 NumType::Integer => AnyUintType::try_new(c.width, c.range, notrunc)
                     .def_map_value(Self::Uint)
                     .def_inner_into(),
-                NumType::Single => f32::column_type(w, r, notrunc)
+                NumType::Single => f32::column_type1(w, r, notrunc)
                     .def_map_value(Self::F32)
                     .def_inner_into(),
-                NumType::Double => f64::column_type(w, r, notrunc)
+                NumType::Double => f64::column_type1(w, r, notrunc)
                     .def_map_value(Self::F64)
                     .def_inner_into(),
             }
@@ -2013,6 +2065,22 @@ impl NullMixedType {
             AsciiType::try_new(w, r)
                 .mult_to_deferred()
                 .def_map_value(Self::Ascii)
+        }
+    }
+
+    /// Infer the mixed type from the type of the range.
+    ///
+    /// If int is supplied, return one of the uint types depending on size.
+    /// If float is supplied, return f32 or f64 depending on size. This will
+    /// never return ASCII.
+    fn new_from_range(range: FloatOrInt) -> Self {
+        match range {
+            FloatOrInt::Int(x) => Self::Uint(AnyUintType::new_from_u64(x)),
+            FloatOrInt::Float(x) => x
+                .try_as_f32()
+                .map_or(Self::F64(FloatType { range: x }), |y| {
+                    Self::F32(FloatType { range: y })
+                }),
         }
     }
 
@@ -2031,14 +2099,14 @@ impl NullAnyUintType {
         width: Width,
         range: Range,
         notrunc: bool,
-    ) -> DeferredResult<Self, BitmaskError, NewUintTypeError> {
+    ) -> DeferredResult<Self, IntRangeError, NewUintTypeError> {
         width
             .try_into()
             .into_deferred()
             .def_and_tentatively(|bytes| Self::new1(bytes, range, notrunc).errors_into())
     }
 
-    fn new1(width: Bytes, range: Range, notrunc: bool) -> BiTentative<Self, BitmaskError> {
+    fn new1(width: Bytes, range: Range, notrunc: bool) -> BiTentative<Self, IntRangeError> {
         match width {
             Bytes::B1 => u8::column_type_from_range(range, notrunc).map(Self::Uint08),
             Bytes::B2 => u16::column_type_from_range(range, notrunc).map(Self::Uint16),
@@ -2052,19 +2120,32 @@ impl NullAnyUintType {
         .errors_into()
     }
 
-    fn new_from_range(range: Range, notrunc: bool) -> BiTentative<Self, BitmaskError> {
+    fn new_from_u64(range: u64) -> Self {
+        match Bytes::from_u64(range) {
+            Bytes::B1 => Self::Uint08(u8::column_type_from_u64_unchecked(range)),
+            Bytes::B2 => Self::Uint16(u16::column_type_from_u64_unchecked(range)),
+            Bytes::B3 => Self::Uint24(u32::column_type_from_u64_unchecked(range)),
+            Bytes::B4 => Self::Uint32(u32::column_type_from_u64_unchecked(range)),
+            Bytes::B5 => Self::Uint40(u64::column_type_from_u64_unchecked(range)),
+            Bytes::B6 => Self::Uint48(u64::column_type_from_u64_unchecked(range)),
+            Bytes::B7 => Self::Uint56(u64::column_type_from_u64_unchecked(range)),
+            Bytes::B8 => Self::Uint64(u64::column_type_from_u64_unchecked(range)),
+        }
+    }
+
+    fn new_from_range(range: Range, notrunc: bool) -> BiTentative<Self, IntRangeError> {
         let (width, error) = match Bytes::try_from(range.0) {
             Ok(width) => (width, None),
             // TODO from trait
             Err(FloatToIntError::FloatOverrange(x)) => {
-                (Bytes::B8, Some(BitmaskError::FloatOverrange(x)))
+                (Bytes::B8, Some(IntRangeError::FloatOverrange(x)))
             }
             Err(FloatToIntError::FloatUnderrange(x)) => {
-                (Bytes::B1, Some(BitmaskError::FloatUnderrange(x)))
+                (Bytes::B1, Some(IntRangeError::FloatUnderrange(x)))
             }
             Err(FloatToIntError::FloatPrecisionLoss(x, y)) => (
                 Bytes::from_u64(y),
-                Some(BitmaskError::FloatPrecisionLoss(x)),
+                Some(IntRangeError::FloatPrecisionLoss(x)),
             ),
         };
         tentative_error(width, error, notrunc).and_tentatively(|w| Self::new1(w, range, notrunc))
@@ -2756,6 +2837,29 @@ impl<C, const LEN: usize, S, T> FixedLayout<FloatType<C, LEN>, S, T> {
             ranges.try_map(|r| NonNanFloat::try_from(r).map(|range| FloatType { range }))?;
         Ok(FixedLayout::new(columns, byte_layout))
     }
+
+    fn insert_float(
+        &mut self,
+        index: MeasIndex,
+        range: Range,
+        notrunc: bool,
+    ) -> DeferredResult<(), FloatRangeError, FloatInsertColumnError>
+    where
+        C: FloatFromBytes<LEN>,
+        NonNanFloat<C>: TryFrom<FloatOrInt, Error = ToFloatError<C>>,
+    {
+        C::column_type(range, notrunc)
+            .errors_into()
+            .and_maybe(|t| self.insert_inner(index, t).into_deferred())
+    }
+
+    fn push_float(&mut self, range: Range, notrunc: bool) -> BiTentative<(), FloatRangeError>
+    where
+        C: FloatFromBytes<LEN>,
+        NonNanFloat<C>: TryFrom<FloatOrInt, Error = ToFloatError<C>>,
+    {
+        C::column_type(range, notrunc).map(|t| self.push_inner(t))
+    }
 }
 
 // impl<C, const LEN: usize, T> FixedLayout<UintType<C, LEN>, SizedByteOrd<LEN>, T>
@@ -2790,18 +2894,14 @@ impl<T> FixedLayout<NullAnyUintType, Endian, T> {
         index: MeasIndex,
         range: Range,
         notrunc: bool,
-    ) -> DeferredResult<(), BitmaskError, UintInsertColumnError> {
+    ) -> DeferredResult<(), IntRangeError, IntInsertColumnError> {
         AnyUintType::new_from_range(range, notrunc)
             .errors_into()
             .and_maybe(|t| self.insert_inner(index, t).into_deferred())
     }
 
-    fn push_uint(&mut self, range: Range, notrunc: bool) -> BiTentative<(), BitmaskError> {
+    fn push_uint(&mut self, range: Range, notrunc: bool) -> BiTentative<(), IntRangeError> {
         AnyUintType::new_from_range(range, notrunc).map(|t| self.push_inner(t))
-    }
-
-    fn remove_uint(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
-        self.remove_inner(index)
     }
 }
 
@@ -3017,7 +3117,7 @@ impl<T> AnyOrderedUintLayout<T> {
         cs: NonEmpty<ColumnLayoutValues<D>>,
         o: ByteOrd,
         notrunc: bool,
-    ) -> DeferredResult<Self, ColumnError<BitmaskError>, NewFixedIntLayoutError> {
+    ) -> DeferredResult<Self, ColumnError<IntRangeError>, NewFixedIntLayoutError> {
         let n = o.nbytes();
         // First, scan through the widths to make sure they are all fixed and
         // are all the same number of bytes as ByteOrd
@@ -3049,7 +3149,7 @@ impl<T> AnyOrderedUintLayout<T> {
         index: MeasIndex,
         range: Range,
         notrunc: bool,
-    ) -> DeferredResult<(), BitmaskError, UintInsertColumnError> {
+    ) -> DeferredResult<(), IntRangeError, IntInsertColumnError> {
         match_any_uint!(self, Self, l, {
             IntFromBytes::column_type_from_range(range, notrunc)
                 .errors_into()
@@ -3058,7 +3158,7 @@ impl<T> AnyOrderedUintLayout<T> {
         })
     }
 
-    fn push(&mut self, range: Range, notrunc: bool) -> BiTentative<(), BitmaskError> {
+    fn push(&mut self, range: Range, notrunc: bool) -> BiTentative<(), IntRangeError> {
         match_any_uint!(self, Self, l, {
             IntFromBytes::column_type_from_range(range, notrunc)
                 .map(|t| l.push_inner(t))
@@ -3145,18 +3245,29 @@ impl<T> AnyAsciiLayout<T> {
         }
     }
 
-    fn insert(&mut self, index: MeasIndex, range: u64) -> Result<(), BoundaryIndexError> {
-        match self {
-            Self::Fixed(l) => l.insert_inner(index, AsciiType::from_range(range)),
-            Self::Delimited(l) => l.insert(index, range),
-        }
+    fn insert(
+        &mut self,
+        index: MeasIndex,
+        range: Range,
+        notrunc: bool,
+    ) -> DeferredResult<(), IntRangeError, IntInsertColumnError> {
+        IntFromBytes::<8>::range_to_int(range, notrunc)
+            .errors_into()
+            .and_maybe(|x| match self {
+                Self::Fixed(l) => l
+                    .insert_inner(index, AsciiType::from_u64(x))
+                    .into_deferred(),
+                Self::Delimited(l) => l.insert(index, x).into_deferred(),
+            })
     }
 
-    fn push(&mut self, range: u64) {
-        match self {
-            Self::Fixed(l) => l.push_inner(AsciiType::from_range(range)),
-            Self::Delimited(l) => l.push(range),
-        }
+    fn push(&mut self, range: Range, notrunc: bool) -> BiTentative<(), IntRangeError> {
+        IntFromBytes::<8>::range_to_int(range, notrunc)
+            .errors_into()
+            .map(|x| match self {
+                Self::Fixed(l) => l.push_inner(AsciiType::from_u64(x)),
+                Self::Delimited(l) => l.push(x),
+            })
     }
 
     fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
@@ -3256,6 +3367,23 @@ impl VersionedDataLayout for Layout2_0 {
         AnyOrderedLayout::lookup_ro(kws, conf).def_map_value(|x| x.map(|y| y.into()))
     }
 
+    fn insert(
+        &mut self,
+        index: MeasIndex,
+        range: Range,
+        notrunc: bool,
+    ) -> DeferredResult<(), LayoutInsertColumnWarning, LayoutInsertColumnError> {
+        self.0.insert(index, range, notrunc)
+    }
+
+    fn push(&mut self, range: Range, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
+        self.0.push(range, notrunc)
+    }
+
+    fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
+        self.0.remove(index)
+    }
+
     fn ncols(&self) -> usize {
         self.0.ncols()
     }
@@ -3317,6 +3445,23 @@ impl VersionedDataLayout for Layout3_0 {
 
     fn lookup_ro(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Option<Self>> {
         AnyOrderedLayout::lookup_ro(kws, conf).def_map_value(|x| x.map(|y| y.into()))
+    }
+
+    fn insert(
+        &mut self,
+        index: MeasIndex,
+        range: Range,
+        notrunc: bool,
+    ) -> DeferredResult<(), LayoutInsertColumnWarning, LayoutInsertColumnError> {
+        self.0.insert(index, range, notrunc)
+    }
+
+    fn push(&mut self, range: Range, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
+        self.0.push(range, notrunc)
+    }
+
+    fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
+        self.0.remove(index)
     }
 
     fn ncols(&self) -> usize {
@@ -3402,6 +3547,23 @@ impl VersionedDataLayout for Layout3_1 {
                 )
                 .def_inner_into()
             })
+    }
+
+    fn insert(
+        &mut self,
+        index: MeasIndex,
+        range: Range,
+        notrunc: bool,
+    ) -> DeferredResult<(), LayoutInsertColumnWarning, LayoutInsertColumnError> {
+        self.0.insert(index, range, notrunc)
+    }
+
+    fn push(&mut self, range: Range, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
+        self.0.push(range, notrunc)
+    }
+
+    fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
+        self.0.remove(index)
     }
 
     fn ncols(&self) -> usize {
@@ -3504,6 +3666,39 @@ impl VersionedDataLayout for Layout3_2 {
                 )
                 .def_inner_into()
             })
+    }
+
+    fn insert(
+        &mut self,
+        index: MeasIndex,
+        range: Range,
+        notrunc: bool,
+    ) -> DeferredResult<(), LayoutInsertColumnWarning, LayoutInsertColumnError> {
+        match self {
+            Self::NonMixed(x) => x.insert(index, range, notrunc),
+            Self::Mixed(x) => x
+                .insert_inner(index, MixedType::new_from_range(range.0))
+                // TODO this is confusing
+                .map_err(IntInsertColumnError::Index)
+                .into_deferred(),
+        }
+    }
+
+    fn push(&mut self, range: Range, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
+        match self {
+            Self::NonMixed(x) => x.push(range, notrunc),
+            Self::Mixed(x) => {
+                x.push_inner(MixedType::new_from_range(range.0));
+                Tentative::new1(())
+            }
+        }
+    }
+
+    fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
+        match self {
+            Self::NonMixed(x) => x.remove(index),
+            Self::Mixed(x) => x.remove_inner(index),
+        }
     }
 
     fn ncols(&self) -> usize {
@@ -3699,13 +3894,13 @@ impl<T> AnyOrderedLayout<T> {
                 .def_inner_into(),
             AlphaNumType::Single => byteord.try_into().into_deferred().def_and_maybe(|b| {
                 FixedLayout::try_new(columns, b, |c| {
-                    f32::column_type(c.width, c.range, notrunc).def_warnings_into()
+                    f32::column_type1(c.width, c.range, notrunc).def_warnings_into()
                 })
                 .def_map_value(Self::F32)
             }),
             AlphaNumType::Double => byteord.try_into().into_deferred().def_and_maybe(|b| {
                 FixedLayout::try_new(columns, b, |c| {
-                    f64::column_type(c.width, c.range, notrunc).def_warnings_into()
+                    f64::column_type1(c.width, c.range, notrunc).def_warnings_into()
                 })
                 .def_map_value(Self::F64)
             }),
@@ -3744,6 +3939,38 @@ impl<T> AnyOrderedLayout<T> {
                 )
                 .def_inner_into()
             })
+    }
+
+    fn insert(
+        &mut self,
+        index: MeasIndex,
+        range: Range,
+        notrunc: bool,
+    ) -> DeferredResult<(), LayoutInsertColumnWarning, LayoutInsertColumnError> {
+        match self {
+            Self::Ascii(l) => l.insert(index, range, notrunc).def_inner_into(),
+            Self::Integer(l) => l.insert(index, range, notrunc).def_inner_into(),
+            Self::F32(l) => l.insert_float(index, range, notrunc).def_inner_into(),
+            Self::F64(l) => l.insert_float(index, range, notrunc).def_inner_into(),
+        }
+    }
+
+    fn push(&mut self, range: Range, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
+        match self {
+            Self::Ascii(l) => l.push(range, notrunc).inner_into(),
+            Self::Integer(l) => l.push(range, notrunc).inner_into(),
+            Self::F32(l) => l.push_float(range, notrunc).inner_into(),
+            Self::F64(l) => l.push_float(range, notrunc).inner_into(),
+        }
+    }
+
+    fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
+        match self {
+            Self::Ascii(l) => l.remove(index),
+            Self::Integer(l) => l.remove(index),
+            Self::F32(l) => l.remove_inner(index),
+            Self::F64(l) => l.remove_inner(index),
+        }
     }
 
     fn ncols(&self) -> usize {
@@ -3837,8 +4064,6 @@ impl<T> AnyOrderedLayout<T> {
 }
 
 impl NonMixedEndianLayout {
-    // TODO add insert/remove
-
     fn layout_values<D: Copy>(&self, datatype: D) -> LayoutValues<Endian, D> {
         match self {
             Self::Ascii(x) => x.layout_values(datatype),
@@ -3864,11 +4089,11 @@ impl NonMixedEndianLayout {
                 .def_map_warnings(|e| e.inner_into())
                 .def_inner_into(),
             AlphaNumType::Single => FixedLayout::try_new(columns, endian, |c| {
-                f32::column_type(c.width, c.range, notrunc).def_warnings_into()
+                f32::column_type1(c.width, c.range, notrunc).def_warnings_into()
             })
             .def_map_value(Self::F32),
             AlphaNumType::Double => FixedLayout::try_new(columns, endian, |c| {
-                f64::column_type(c.width, c.range, notrunc).def_warnings_into()
+                f64::column_type1(c.width, c.range, notrunc).def_warnings_into()
             })
             .def_map_value(Self::F64),
         }
@@ -3912,6 +4137,38 @@ impl NonMixedEndianLayout {
             Self::Integer(x) => x.h_write_df::<_, WriterAnyUintType>(h, df),
             Self::F32(x) => x.h_write_df::<_, ColumnWriter<_, _, _>>(h, df),
             Self::F64(x) => x.h_write_df::<_, ColumnWriter<_, _, _>>(h, df),
+        }
+    }
+
+    fn insert(
+        &mut self,
+        index: MeasIndex,
+        range: Range,
+        notrunc: bool,
+    ) -> DeferredResult<(), LayoutInsertColumnWarning, LayoutInsertColumnError> {
+        match self {
+            Self::Ascii(l) => l.insert(index, range, notrunc).def_inner_into(),
+            Self::Integer(l) => l.insert_uint(index, range, notrunc).def_inner_into(),
+            Self::F32(l) => l.insert_float(index, range, notrunc).def_inner_into(),
+            Self::F64(l) => l.insert_float(index, range, notrunc).def_inner_into(),
+        }
+    }
+
+    fn push(&mut self, range: Range, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
+        match self {
+            Self::Ascii(l) => l.push(range, notrunc).inner_into(),
+            Self::Integer(l) => l.push_uint(range, notrunc).inner_into(),
+            Self::F32(l) => l.push_float(range, notrunc).inner_into(),
+            Self::F64(l) => l.push_float(range, notrunc).inner_into(),
+        }
+    }
+
+    fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
+        match self {
+            Self::Ascii(l) => l.remove(index),
+            Self::Integer(l) => l.remove_inner(index),
+            Self::F32(l) => l.remove_inner(index),
+            Self::F64(l) => l.remove_inner(index),
         }
     }
 
@@ -3968,10 +4225,10 @@ enum_from_disp!(
     [Order, ByteOrdToSizedError],
     // TODO sloppy nesting
     [Endian, ByteOrdToSizedEndianError],
-    [Size,  BitmaskError]
+    [Size,  IntRangeError]
 );
 
-pub enum BitmaskError {
+pub enum IntRangeError {
     IntOverrange(u64),
     FloatOverrange(f64),
     FloatUnderrange(f64),
@@ -3984,16 +4241,28 @@ pub enum FloatRangeError {
     FloatUnderrange(f64),
 }
 
-// impl<X> From<ToIntError<X>> for BitmaskError {
-//     fn from(value: ToIntError<X>) -> Self {
-//         match value {
-//             ToIntError::IntOverrange(x) => Self::IntOverrange(x),
-//             ToIntError::FloatOverrange(x) => Self::FloatOverrange(x),
-//             ToIntError::FloatUnderrange(x) => Self::FloatUnderrange(x),
-//             ToIntError::FloatPrecisionLoss(x, _) => Self::FloatPrecisionLoss(x),
-//         }
-//     }
-// }
+impl<X> From<ToIntError<X>> for IntRangeError {
+    fn from(value: ToIntError<X>) -> Self {
+        match value {
+            ToIntError::IntOverrange(x) => Self::IntOverrange(x),
+            ToIntError::Float(e) => match e {
+                FloatToIntError::FloatOverrange(x) => Self::FloatOverrange(x),
+                FloatToIntError::FloatUnderrange(x) => Self::FloatUnderrange(x),
+                FloatToIntError::FloatPrecisionLoss(x, _) => Self::FloatPrecisionLoss(x),
+            },
+        }
+    }
+}
+
+impl<X> From<ToFloatError<X>> for FloatRangeError {
+    fn from(value: ToFloatError<X>) -> Self {
+        match value {
+            ToFloatError::FloatOverrange(x) => Self::FloatOverrange(x),
+            ToFloatError::FloatUnderrange(x) => Self::FloatUnderrange(x),
+            ToFloatError::IntPrecisionLoss(x, _) => Self::IntPrecisionLoss(x),
+        }
+    }
+}
 
 enum_from_disp!(
     pub SingleFixedWidthError,
@@ -4012,13 +4281,13 @@ enum_from_disp!(
 
 enum_from_disp!(
     pub NewMixedTypeWarning,
-    [Uint, BitmaskError],
+    [Uint, IntRangeError],
     [Float, FloatRangeError]
 );
 
 enum_from_disp!(
     pub NewUintTypeError,
-    [Bitmask, BitmaskError],
+    [Bitmask, IntRangeError],
     [Bytes, WidthToBytesError]
 );
 
@@ -4061,7 +4330,7 @@ enum_from_disp!(
     pub NewDataReaderWarning,
     [TotMismatch, TotEventMismatch],
     [ParseTot, ParseKeyError<ParseIntError>],
-    [Layout, ColumnError<BitmaskError>],
+    [Layout, ColumnError<IntRangeError>],
     [Width, UnevenEventWidth],
     [Segment, ReqSegmentWithDefaultWarning<DataSegmentId>]
 );
@@ -4088,7 +4357,7 @@ enum_from_disp!(
     [Ascii, LossError<AsciiLossError>]
 );
 
-pub struct AsciiLossError(u8);
+pub struct AsciiLossError(Chars);
 
 impl fmt::Display for AsciiLossError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -4223,7 +4492,7 @@ pub enum ReadDelimAsciiWithoutRowsError {
     Parse(AsciiToUintError),
 }
 
-impl fmt::Display for BitmaskError {
+impl fmt::Display for IntRangeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
             // TODO what is the target type?
@@ -4450,8 +4719,33 @@ enum_from_disp!(
 );
 
 enum_from_disp!(
-    pub UintInsertColumnError,
-    [Bitmask, BitmaskError],
+    pub LayoutInsertColumnError,
+    [Int, IntInsertColumnError],
+    [Float, FloatInsertColumnError]
+);
+
+enum_from_disp!(
+    pub LayoutPushColumnError,
+    [Int, IntRangeError],
+    [Float, FloatRangeError]
+);
+
+enum_from_disp!(
+    pub LayoutInsertColumnWarning,
+    [Int, IntRangeError],
+    [Float, FloatRangeError]
+);
+
+// NOTE this also applies to ASCII since these use u64 (an "int")
+enum_from_disp!(
+    pub IntInsertColumnError,
+    [Range, IntRangeError],
+    [Index, BoundaryIndexError]
+);
+
+enum_from_disp!(
+    pub FloatInsertColumnError,
+    [Range, FloatRangeError],
     [Index, BoundaryIndexError]
 );
 

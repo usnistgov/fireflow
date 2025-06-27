@@ -23,6 +23,21 @@ pub struct Bitmask<T, const LEN: usize> {
     bitmask: T,
 }
 
+macro_rules! bitmask_type {
+    ($name:ident, $wrapper:ident, $native:ty, $size:expr) => {
+        pub type $name = $wrapper<$native, $size>;
+    };
+}
+
+bitmask_type!(Bitmask08, Bitmask, u8, 1);
+bitmask_type!(Bitmask16, Bitmask, u16, 2);
+bitmask_type!(Bitmask24, Bitmask, u32, 3);
+bitmask_type!(Bitmask32, Bitmask, u32, 4);
+bitmask_type!(Bitmask40, Bitmask, u64, 5);
+bitmask_type!(Bitmask48, Bitmask, u64, 6);
+bitmask_type!(Bitmask56, Bitmask, u64, 7);
+bitmask_type!(Bitmask64, Bitmask, u64, 8);
+
 impl<T, const LEN: usize> Bitmask<T, LEN> {
     /// Make new bitmask from float or integer.
     pub(crate) fn from_range(range: FloatOrInt, notrunc: bool) -> BiTentative<Self, BitmaskError>
@@ -120,7 +135,7 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
         )
     }
 
-    fn from_u64(value: u64) -> (Self, bool)
+    pub(crate) fn from_u64(value: u64) -> (Self, bool)
     where
         T: PrimInt + TryFrom<u64>,
     {

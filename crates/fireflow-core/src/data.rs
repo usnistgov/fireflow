@@ -55,20 +55,27 @@ use crate::macros::{enum_from, enum_from_disp, match_many_to_one, newtype_disp, 
 use crate::nonempty::NonEmptyExt;
 use crate::segment::*;
 use crate::text::byteord::*;
-use crate::text::float_or_int::*;
+use crate::text::float_or_int::{
+    FloatOrInt, FloatRangeError, IntRangeError, NanFloatError, NonNanFloat, ParseFloatOrIntError,
+    ToFloatError,
+};
 use crate::text::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};
 use crate::text::keywords::*;
 use crate::text::optional::{ClearOptional, ClearOptionalOr};
 use crate::text::parser::*;
+use crate::validated::ascii_range;
 use crate::validated::ascii_range::{AsciiRange, Chars};
-use crate::validated::bitmask::{Bitmask, BitmaskError};
+use crate::validated::bitmask;
+use crate::validated::bitmask::{
+    Bitmask, Bitmask08, Bitmask16, Bitmask24, Bitmask32, Bitmask40, Bitmask48, Bitmask56,
+    Bitmask64, BitmaskError,
+};
 use crate::validated::dataframe::*;
 use crate::validated::standard::*;
 
 use itertools::Itertools;
 use nonempty::NonEmpty;
-use num_traits::bounds::UpperBounded;
-use num_traits::PrimInt;
+use num_traits::float::Float;
 use serde::ser::SerializeStruct;
 use serde::Serialize;
 use std::convert::Infallible;
@@ -78,7 +85,6 @@ use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::marker::PhantomData;
 use std::num::ParseIntError;
 use std::str;
-use std::str::FromStr;
 
 /// All possible byte layouts for the DATA segment in 2.0.
 ///
@@ -124,8 +130,8 @@ enum_from!(
 pub enum AnyOrderedLayout<T> {
     Ascii(AnyAsciiLayout<T>),
     Integer(AnyOrderedUintLayout<T>),
-    F32(OrderedLayout<F32Type, T>),
-    F64(OrderedLayout<F64Type, T>),
+    F32(OrderedLayout<F32Range, T>),
+    F64(OrderedLayout<F64Range, T>),
 }
 
 enum_from!(
@@ -133,8 +139,8 @@ enum_from!(
     pub NonMixedEndianLayout,
     [Ascii, AnyAsciiLayout<KnownTot>],
     [Integer, EndianLayout<AnyNullBitmask>],
-    [F32, EndianLayout<F32Type>],
-    [F64, EndianLayout<F64Type>]
+    [F32, EndianLayout<F32Range>],
+    [F64, EndianLayout<F64Range>]
 );
 
 type EndianLayout<C> = FixedLayout<C, Endian, KnownTot>;
@@ -206,8 +212,8 @@ into_any_ordered_layout!(Uint64, Bitmask64);
 pub enum MixedType<F: ColumnFamily> {
     Ascii(F::ColumnWrapper<AsciiRange, u64, ()>),
     Uint(AnyBitmask<F>),
-    F32(NativeWrapper<F, F32Type>),
-    F64(NativeWrapper<F, F64Type>),
+    F32(NativeWrapper<F, F32Range>),
+    F64(NativeWrapper<F, F64Range>),
 }
 
 type NullMixedType = MixedType<ColumnNullFamily>;
@@ -229,6 +235,15 @@ pub enum AnyBitmask<F: ColumnFamily> {
 type AnyNullBitmask = AnyBitmask<ColumnNullFamily>;
 type AnyReaderBitmask = AnyBitmask<ColumnReaderFamily>;
 type AnyWriterBitmask<'a> = AnyBitmask<ColumnWriterFamily<'a>>;
+
+/// The type of any floating point column in all versions
+#[derive(PartialEq, Clone, Copy, Serialize)]
+pub struct FloatRange<T, const LEN: usize> {
+    pub range: NonNanFloat<T>,
+}
+
+pub type F32Range = FloatRange<f32, 4>;
+pub type F64Range = FloatRange<f64, 8>;
 
 /// Instructions to read one column and store in a vector
 struct ColumnReader<C, T, S> {
@@ -291,12 +306,12 @@ pub struct UintColumnValues {
     range: Range,
 }
 
-pub enum MixedColumnValues {
-    Float(NonNanF32),
-    Double(NonNanF64),
-    Ascii(AsciiRange),
-    Uint(UintColumnValues),
-}
+// pub enum MixedColumnValues {
+//     Float(NonNanF32),
+//     Double(NonNanF64),
+//     Ascii(AsciiRange),
+//     Uint(UintColumnValues),
+// }
 
 /// A type which represents a column which may have associated data.
 ///
@@ -376,11 +391,11 @@ pub trait VersionedDataLayout: Sized {
     fn insert_nocheck(
         &mut self,
         index: MeasIndex,
-        range: Range,
+        range: FloatOrInt,
         notrunc: bool,
     ) -> BiTentative<(), LayoutInsertColumnWarning>;
 
-    fn push(&mut self, range: Range, notrunc: bool) -> BiTentative<(), LayoutPushColumnError>;
+    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), LayoutPushColumnError>;
 
     fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>>;
 
@@ -435,6 +450,23 @@ pub trait VersionedDataLayout: Sized {
         -> io::Result<()>;
 
     fn layout_values(&self) -> LayoutValues<Self::ByteLayout, Self::ColDatatype>;
+}
+
+pub trait HasNativeType: Sized {
+    /// The native rust type
+    type Native: Default + Copy;
+}
+
+/// A type which uses a defined number of bytes
+pub trait HasNativeWidth: HasNativeType {
+    /// The length of the type in an FCS file (may be less than native)
+    const BYTES: Bytes;
+
+    /// The length of the native Rust type
+    const LEN: usize;
+
+    /// The sized byte order to be used with this type
+    type Order;
 }
 
 /// A column which has a $DATATYPE keyword
@@ -1143,7 +1175,7 @@ impl TryFrom<NullMixedType> for AnyNullBitmask {
     }
 }
 
-impl TryFrom<NullMixedType> for F32Type {
+impl TryFrom<NullMixedType> for F32Range {
     type Error = MixedToFloatError;
     fn try_from(value: NullMixedType) -> Result<Self, Self::Error> {
         match value {
@@ -1155,7 +1187,7 @@ impl TryFrom<NullMixedType> for F32Type {
     }
 }
 
-impl TryFrom<NullMixedType> for F64Type {
+impl TryFrom<NullMixedType> for F64Range {
     type Error = MixedToDoubleError;
     fn try_from(value: NullMixedType) -> Result<Self, Self::Error> {
         match value {
@@ -1263,7 +1295,8 @@ impl fmt::Display for MixedToDoubleError {
 
 impl<T, const LEN: usize> ToNativeReader for Bitmask<T, LEN> where Self: HasNativeType<Native = T> {}
 
-impl<T, const LEN: usize> ToNativeReader for FloatType<T, LEN> where Self: HasNativeType<Native = T> {}
+impl<T, const LEN: usize> ToNativeReader for FloatRange<T, LEN> where Self: HasNativeType<Native = T>
+{}
 
 impl ToNativeReader for AsciiRange {}
 
@@ -1303,9 +1336,9 @@ where
     }
 }
 
-impl<T, const LEN: usize, E> NativeReadable<Endian, E> for FloatType<T, LEN>
+impl<T, const LEN: usize, E> NativeReadable<Endian, E> for FloatRange<T, LEN>
 where
-    FloatType<T, LEN>: HasNativeType<Native = T>,
+    FloatRange<T, LEN>: HasNativeType<Native = T>,
     T: Copy + FloatFromBytes<LEN>,
 {
     type Buf = ();
@@ -1321,9 +1354,9 @@ where
     }
 }
 
-impl<T, const LEN: usize, E> NativeReadable<SizedByteOrd<LEN>, E> for FloatType<T, LEN>
+impl<T, const LEN: usize, E> NativeReadable<SizedByteOrd<LEN>, E> for FloatRange<T, LEN>
 where
-    FloatType<T, LEN>: HasNativeType<Native = T>,
+    FloatRange<T, LEN>: HasNativeType<Native = T>,
     T: Copy + FloatFromBytes<LEN>,
 {
     type Buf = ();
@@ -1498,9 +1531,9 @@ where
     }
 }
 
-impl<T, const LEN: usize> NativeWritable<Endian> for FloatType<T, LEN>
+impl<T, const LEN: usize> NativeWritable<Endian> for FloatRange<T, LEN>
 where
-    FloatType<T, LEN>: HasNativeType<Native = T>,
+    FloatRange<T, LEN>: HasNativeType<Native = T>,
     T: Copy + FloatFromBytes<LEN>,
 {
     fn h_write<W: Write>(
@@ -1513,9 +1546,9 @@ where
     }
 }
 
-impl<T, const LEN: usize> NativeWritable<SizedByteOrd<LEN>> for FloatType<T, LEN>
+impl<T, const LEN: usize> NativeWritable<SizedByteOrd<LEN>> for FloatRange<T, LEN>
 where
-    FloatType<T, LEN>: HasNativeType<Native = T>,
+    FloatRange<T, LEN>: HasNativeType<Native = T>,
     T: Copy + FloatFromBytes<LEN>,
 {
     fn h_write<W: Write>(
@@ -1675,7 +1708,7 @@ where
     }
 }
 
-impl<T, const LEN: usize> ToNativeWriter for FloatType<T, LEN>
+impl<T, const LEN: usize> ToNativeWriter for FloatRange<T, LEN>
 where
     Self: HasNativeType<Native = T>,
 {
@@ -1814,7 +1847,7 @@ impl EndianLayout<AnyNullBitmask> {
         notrunc: bool,
     ) -> DeferredResult<Self, ColumnError<BitmaskError>, ColumnError<NewUintTypeError>> {
         FixedLayout::try_new(cs, e, |c| {
-            AnyBitmask::try_new(c.width, c.range, notrunc).def_errors_into()
+            AnyBitmask::from_width_and_range(c.width, c.range, notrunc).def_errors_into()
         })
     }
 
@@ -2060,29 +2093,70 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
     }
 }
 
+impl<T, const LEN: usize> FloatRange<T, LEN> {
+    /// Create a new float range from an integer or float.
+    pub(crate) fn from_range(range: FloatOrInt, notrunc: bool) -> BiTentative<Self, FloatRangeError>
+    where
+        NonNanFloat<T>: TryFrom<FloatOrInt, Error = ToFloatError<T>>,
+        T: num_traits::float::Float,
+    {
+        range.as_float(notrunc).map(|range| Self { range })
+    }
+
+    /// Make new float range from $PnB and $PnR values.
+    ///
+    /// Will return an error if $PnB is the incorrect size.
+    pub(crate) fn from_width_and_range(
+        width: Width,
+        range: Range,
+        notrunc: bool,
+    ) -> DeferredResult<Self, FloatRangeError, FloatWidthError>
+    where
+        NonNanFloat<T>: TryFrom<FloatOrInt, Error = ToFloatError<T>>,
+        T: num_traits::float::Float,
+    {
+        Bytes::try_from(width)
+            .into_deferred()
+            .def_and_maybe(|bytes| {
+                if usize::from(u8::from(bytes)) == LEN {
+                    Ok(Self::from_range(range.0, notrunc).errors_into())
+                } else {
+                    Err(DeferredFailure::new1(FloatWidthError::WrongWidth(
+                        WrongFloatWidth {
+                            expected: LEN,
+                            width: bytes,
+                        },
+                    )))
+                }
+            })
+    }
+}
+
 // TODO also check scale here?
 impl NullMixedType {
-    pub(crate) fn try_new(
-        c: ColumnLayoutValues<Option<NumType>>,
-        conf: &SharedConfig,
+    /// Make a new mixed range from $PnB and $PnR, and $PnDATATYPE values
+    pub(crate) fn from_width_and_range(
+        width: Width,
+        range: Range,
+        datatype: Option<NumType>,
+        notrunc: bool,
     ) -> DeferredResult<Self, NewMixedTypeWarning, NewMixedTypeError> {
-        let w = c.width;
-        let r = c.range;
-        let notrunc = conf.disallow_bitmask_truncation;
-        if let Some(dt) = c.datatype {
+        if let Some(dt) = datatype {
             match dt {
-                NumType::Integer => AnyBitmask::try_new(c.width, c.range, notrunc)
+                NumType::Integer => AnyBitmask::from_width_and_range(width, range, notrunc)
                     .def_map_value(Self::Uint)
                     .def_inner_into(),
-                NumType::Single => f32::column_type1(w, r, notrunc)
+                NumType::Single => F32Range::from_width_and_range(width, range, notrunc)
                     .def_map_value(Self::F32)
                     .def_inner_into(),
-                NumType::Double => f64::column_type1(w, r, notrunc)
+                NumType::Double => F64Range::from_width_and_range(width, range, notrunc)
                     .def_map_value(Self::F64)
                     .def_inner_into(),
             }
         } else {
-            AsciiRange::from_width_and_range(w, r, notrunc).def_map_value(Self::Ascii)
+            AsciiRange::from_width_and_range(width, range, notrunc)
+                .def_map_value(Self::Ascii)
+                .def_inner_into()
         }
     }
 
@@ -2091,13 +2165,13 @@ impl NullMixedType {
     /// If int is supplied, return one of the uint types depending on size.
     /// If float is supplied, return f32 or f64 depending on size. This will
     /// never return ASCII.
-    fn new_from_range(range: FloatOrInt) -> Self {
+    fn from_range(range: FloatOrInt) -> Self {
         match range {
-            FloatOrInt::Int(x) => Self::Uint(AnyBitmask::new_from_u64(x)),
+            FloatOrInt::Int(x) => Self::Uint(AnyBitmask::from_u64(x)),
             FloatOrInt::Float(x) => x
                 .try_as_f32()
-                .map_or(Self::F64(FloatType { range: x }), |y| {
-                    Self::F32(FloatType { range: y })
+                .map_or(Self::F64(FloatRange { range: x }), |y| {
+                    Self::F32(FloatRange { range: y })
                 }),
         }
     }
@@ -2117,7 +2191,7 @@ impl AnyNullBitmask {
     ///
     /// Will return an error if $PnB (in bits) cannot be converted into a width
     /// in bytes.
-    fn try_new(
+    fn from_width_and_range(
         width: Width,
         range: Range,
         notrunc: bool,
@@ -2126,6 +2200,14 @@ impl AnyNullBitmask {
             .try_into()
             .into_deferred()
             .def_and_tentatively(|bytes| Self::new1(bytes, range.0, notrunc).errors_into())
+    }
+
+    /// make a new bitmask from a float or integer.
+    ///
+    /// The size will be determined by the input and will be kept as small as
+    /// possible.
+    fn from_range(range: FloatOrInt, notrunc: bool) -> BiTentative<Self, IntRangeError> {
+        range.as_uint(notrunc).map(Self::from_u64)
     }
 
     /// Make a new bitmask with a given width (in bytes) using a float/int.
@@ -2142,36 +2224,23 @@ impl AnyNullBitmask {
         }
     }
 
-    // fn new_from_u64(range: u64) -> Self {
-    //     match Bytes::from_u64(range) {
-    //         Bytes::B1 => Self::Uint08(u8::column_type_from_u64_unchecked(range)),
-    //         Bytes::B2 => Self::Uint16(u16::column_type_from_u64_unchecked(range)),
-    //         Bytes::B3 => Self::Uint24(u32::column_type_from_u64_unchecked(range)),
-    //         Bytes::B4 => Self::Uint32(u32::column_type_from_u64_unchecked(range)),
-    //         Bytes::B5 => Self::Uint40(u64::column_type_from_u64_unchecked(range)),
-    //         Bytes::B6 => Self::Uint48(u64::column_type_from_u64_unchecked(range)),
-    //         Bytes::B7 => Self::Uint56(u64::column_type_from_u64_unchecked(range)),
-    //         Bytes::B8 => Self::Uint64(u64::column_type_from_u64_unchecked(range)),
-    //     }
-    // }
-
-    // fn new_from_range(range: Range, notrunc: bool) -> BiTentative<Self, IntRangeError> {
-    //     let (width, error) = match Bytes::try_from(range.0) {
-    //         Ok(width) => (width, None),
-    //         // TODO from trait
-    //         Err(FloatToIntError::FloatOverrange(x)) => {
-    //             (Bytes::B8, Some(IntRangeError::FloatOverrange(x)))
-    //         }
-    //         Err(FloatToIntError::FloatUnderrange(x)) => {
-    //             (Bytes::B1, Some(IntRangeError::FloatUnderrange(x)))
-    //         }
-    //         Err(FloatToIntError::FloatPrecisionLoss(x, y)) => (
-    //             Bytes::from_u64(y),
-    //             Some(IntRangeError::FloatPrecisionLoss(x)),
-    //         ),
-    //     };
-    //     tentative_error(width, error, notrunc).and_tentatively(|w| Self::new1(w, range, notrunc))
-    // }
+    /// Make a new bitmask from a u64.
+    ///
+    /// The width is determined by the magnitude of the range; the smallest
+    /// possible will be used.
+    fn from_u64(range: u64) -> Self {
+        // ASSUME these will never truncate because we check the width first
+        match Bytes::from_u64(range) {
+            Bytes::B1 => Self::Uint08(Bitmask::from_u64(range).0),
+            Bytes::B2 => Self::Uint16(Bitmask::from_u64(range).0),
+            Bytes::B3 => Self::Uint24(Bitmask::from_u64(range).0),
+            Bytes::B4 => Self::Uint32(Bitmask::from_u64(range).0),
+            Bytes::B5 => Self::Uint40(Bitmask::from_u64(range).0),
+            Bytes::B6 => Self::Uint48(Bitmask::from_u64(range).0),
+            Bytes::B7 => Self::Uint56(Bitmask::from_u64(range).0),
+            Bytes::B8 => Self::Uint64(Bitmask::from_u64(range).0),
+        }
+    }
 
     pub(crate) fn try_into_one_size<X, E, T>(
         self,
@@ -2862,7 +2931,7 @@ impl<C, S, T> FixedLayout<C, S, T> {
     }
 }
 
-impl<C, const LEN: usize, S, T> FixedLayout<FloatType<C, LEN>, S, T> {
+impl<C, const LEN: usize, S, T> FixedLayout<FloatRange<C, LEN>, S, T> {
     pub(crate) fn new_floating(
         &self,
         ranges: NonEmpty<C>,
@@ -2872,7 +2941,7 @@ impl<C, const LEN: usize, S, T> FixedLayout<FloatType<C, LEN>, S, T> {
         NonNanFloat<C>: TryFrom<C, Error = NanFloatError>,
     {
         let columns =
-            ranges.try_map(|r| NonNanFloat::try_from(r).map(|range| FloatType { range }))?;
+            ranges.try_map(|r| NonNanFloat::try_from(r).map(|range| FloatRange { range }))?;
         Ok(FixedLayout::new(columns, byte_layout))
     }
 
@@ -2894,24 +2963,24 @@ impl<C, const LEN: usize, S, T> FixedLayout<FloatType<C, LEN>, S, T> {
     fn insert_float_nocheck(
         &mut self,
         index: MeasIndex,
-        range: Range,
+        range: FloatOrInt,
         notrunc: bool,
     ) -> BiTentative<(), FloatRangeError>
     where
-        C: FloatFromBytes<LEN>,
+        C: Float,
         NonNanFloat<C>: TryFrom<FloatOrInt, Error = ToFloatError<C>>,
     {
-        C::column_type(range, notrunc)
+        FloatRange::from_range(range, notrunc)
             .errors_into()
             .map(|t| self.insert_inner_nocheck(index, t))
     }
 
-    fn push_float(&mut self, range: Range, notrunc: bool) -> BiTentative<(), FloatRangeError>
+    fn push_float(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), FloatRangeError>
     where
-        C: FloatFromBytes<LEN>,
+        C: Float,
         NonNanFloat<C>: TryFrom<FloatOrInt, Error = ToFloatError<C>>,
     {
-        C::column_type(range, notrunc).map(|t| self.push_inner(t))
+        FloatRange::from_range(range, notrunc).map(|t| self.push_inner(t))
     }
 }
 
@@ -2923,12 +2992,14 @@ where
         &self,
         ranges: NonEmpty<C>,
         byte_layout: SizedByteOrd<LEN>,
-    ) -> Self {
-        // TODO warn on truncation? might not matter here
-        let columns = ranges.map(|b| Bitmask {
-            bitmask: b.to_bitmask_unchecked(),
-        });
-        Self::new(columns, byte_layout)
+        notrunc: bool,
+    ) -> BiTentative<Self, bitmask::BitmaskTruncationError>
+    where
+        C: num_traits::PrimInt,
+        u64: From<C>,
+    {
+        Tentative::mconcat_ne(ranges.map(|b| Bitmask::from_native_tnt(b, notrunc)))
+            .map(|columns| Self::new(columns, byte_layout))
     }
 }
 
@@ -2956,16 +3027,14 @@ impl<T> FixedLayout<AnyNullBitmask, Endian, T> {
     fn insert_uint_nocheck(
         &mut self,
         index: MeasIndex,
-        range: Range,
+        range: FloatOrInt,
         notrunc: bool,
     ) -> BiTentative<(), IntRangeError> {
-        AnyBitmask::new_from_range(range, notrunc)
-            .errors_into()
-            .map(|t| self.insert_inner_nocheck(index, t))
+        AnyBitmask::from_range(range, notrunc).map(|t| self.insert_inner_nocheck(index, t))
     }
 
-    fn push_uint(&mut self, range: Range, notrunc: bool) -> BiTentative<(), IntRangeError> {
-        AnyBitmask::new_from_range(range, notrunc).map(|t| self.push_inner(t))
+    fn push_uint(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), IntRangeError> {
+        AnyBitmask::from_range(range, notrunc).map(|t| self.push_inner(t))
     }
 }
 
@@ -2980,15 +3049,44 @@ impl<T> FixedLayout<AnyNullBitmask, Endian, T> {
 //     }
 // }
 
+macro_rules! def_native_wrapper {
+    ($name:path, $native:ty, $size:expr, $native_size:expr, $bytes:ident) => {
+        impl HasNativeType for $name {
+            type Native = $native;
+        }
+
+        impl HasNativeWidth for $name {
+            const BYTES: Bytes = Bytes::$bytes;
+            const LEN: usize = $native_size;
+            type Order = SizedByteOrd<$size>;
+        }
+    };
+}
+
+def_native_wrapper!(Bitmask08, u8, 1, 1, B1);
+def_native_wrapper!(Bitmask16, u16, 2, 2, B2);
+def_native_wrapper!(Bitmask24, u32, 3, 4, B3);
+def_native_wrapper!(Bitmask32, u32, 4, 4, B4);
+def_native_wrapper!(Bitmask40, u64, 5, 8, B5);
+def_native_wrapper!(Bitmask48, u64, 6, 8, B6);
+def_native_wrapper!(Bitmask56, u64, 7, 8, B7);
+def_native_wrapper!(Bitmask64, u64, 8, 8, B8);
+def_native_wrapper!(F32Range, f32, 4, 4, B4);
+def_native_wrapper!(F64Range, f64, 8, 8, B8);
+
+impl HasNativeType for AsciiRange {
+    type Native = u64;
+}
+
 impl<T, const LEN: usize> HasDatatype for Bitmask<T, LEN> {
     const DATATYPE: AlphaNumType = AlphaNumType::Integer;
 }
 
-impl HasDatatype for F32Type {
+impl HasDatatype for F32Range {
     const DATATYPE: AlphaNumType = AlphaNumType::Single;
 }
 
-impl HasDatatype for F64Type {
+impl HasDatatype for F64Range {
     const DATATYPE: AlphaNumType = AlphaNumType::Double;
 }
 
@@ -3011,7 +3109,7 @@ where
     }
 
     fn range(&self) -> Range {
-        let x = u64::from(self.bitmask);
+        let x = u64::from(self.value());
         // TODO fix u64 max
         Range(if x == u64::MAX { x } else { x + 1 }.into())
     }
@@ -3049,7 +3147,7 @@ impl IsFixed for AnyNullBitmask {
     }
 }
 
-impl<T, const LEN: usize> IsFixed for FloatType<T, LEN>
+impl<T, const LEN: usize> IsFixed for FloatRange<T, LEN>
 where
     Self: HasNativeWidth,
     T: Copy,
@@ -3181,7 +3279,7 @@ impl<T> AnyOrderedUintLayout<T> {
         cs: NonEmpty<ColumnLayoutValues<D>>,
         o: ByteOrd,
         notrunc: bool,
-    ) -> DeferredResult<Self, ColumnError<IntRangeError>, NewFixedIntLayoutError> {
+    ) -> DeferredResult<Self, ColumnError<BitmaskError>, NewFixedIntLayoutError> {
         let n = o.nbytes();
         // First, scan through the widths to make sure they are all fixed and
         // are all the same number of bytes as ByteOrd
@@ -3201,7 +3299,7 @@ impl<T> AnyOrderedUintLayout<T> {
                 // is larger than the target type.
                 match_many_to_one!(o, ByteOrd, [O1, O2, O3, O4, O5, O6, O7, O8], o, {
                     FixedLayout::try_new(cs, o, |c| {
-                        Ok(IntFromBytes::column_type_from_range(c.range, notrunc).errors_into())
+                        Ok(Bitmask::from_range(c.range.0, notrunc).errors_into())
                     })
                     .def_map_value(|x| x.into())
                 })
@@ -3225,18 +3323,17 @@ impl<T> AnyOrderedUintLayout<T> {
     fn insert_nocheck(
         &mut self,
         index: MeasIndex,
-        range: Range,
+        range: FloatOrInt,
         notrunc: bool,
-    ) -> BiTentative<(), IntRangeError> {
+    ) -> BiTentative<(), BitmaskError> {
         match_any_uint!(self, Self, l, {
-            IntFromBytes::column_type_from_range(range, notrunc)
-                .map(|t| l.insert_inner_nocheck(index, t))
+            Bitmask::from_range(range, notrunc).map(|t| l.insert_inner_nocheck(index, t))
         })
     }
 
-    fn push(&mut self, range: Range, notrunc: bool) -> BiTentative<(), IntRangeError> {
+    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), BitmaskError> {
         match_any_uint!(self, Self, l, {
-            IntFromBytes::column_type_from_range(range, notrunc)
+            Bitmask::from_range(range, notrunc)
                 .map(|t| l.push_inner(t))
                 .void()
         })
@@ -3303,23 +3400,33 @@ impl<T> AnyAsciiLayout<T> {
         }
     }
 
-    pub(crate) fn try_new<D, W: From<ColumnError<X>>, X>(
+    pub(crate) fn try_new<D>(
         cs: NonEmpty<ColumnLayoutValues<D>>,
-    ) -> DeferredResult<Self, W, ColumnError<NewAsciiTypeError>> {
+        notrunc: bool,
+    ) -> DeferredResult<
+        Self,
+        ColumnError<IntRangeError>,
+        ColumnError<ascii_range::NewAsciiRangeError>,
+    > {
+        let go = |error: IntRangeError, i: usize| ColumnError {
+            error,
+            index: i.into(),
+        };
         if cs.iter().all(|c| c.width == Width::Variable) {
-            cs.enumerate()
-                .map_results(|(i, c)| {
-                    u64::try_from(c.range.0).map_err(|error| ColumnError {
-                        error: error.into(),
-                        index: i.into(),
-                    })
-                })
+            let ts = cs.enumerate().map(|(i, c)| {
+                c.range
+                    .0
+                    .as_uint(notrunc)
+                    .map_errors(|e| go(e, i))
+                    .map_warnings(|e| go(e, i))
+            });
+            let ret = Tentative::mconcat_ne(ts)
                 .map(|ranges| AnyAsciiLayout::Delimited(DelimAsciiLayout::new(ranges)))
-                .mult_to_deferred()
+                .map_errors(|e| e.inner_into());
+            Ok(ret)
         } else {
             FixedLayout::try_new(cs, (), |c| {
-                // dummy type to satisfy constraint
-                AsciiType::try_new(c.width, c.range).mult_to_deferred::<_, X>()
+                AsciiRange::from_width_and_range(c.width, c.range, notrunc)
             })
             .def_map_value(Self::Fixed)
         }
@@ -3344,22 +3451,20 @@ impl<T> AnyAsciiLayout<T> {
     fn insert_nocheck(
         &mut self,
         index: MeasIndex,
-        range: Range,
+        range: FloatOrInt,
         notrunc: bool,
     ) -> BiTentative<(), IntRangeError> {
-        IntFromBytes::<8>::range_to_int(range, notrunc).map(|x| match self {
-            Self::Fixed(l) => l.insert_inner_nocheck(index, AsciiType::from_u64(x)),
+        range.as_uint::<u64>(notrunc).map(|x| match self {
+            Self::Fixed(l) => l.insert_inner_nocheck(index, x.into()),
             Self::Delimited(l) => l.insert_unchecked(index, x),
         })
     }
 
-    fn push(&mut self, range: Range, notrunc: bool) -> BiTentative<(), IntRangeError> {
-        IntFromBytes::<8>::range_to_int(range, notrunc)
-            .errors_into()
-            .map(|x| match self {
-                Self::Fixed(l) => l.push_inner(AsciiType::from_u64(x)),
-                Self::Delimited(l) => l.push(x),
-            })
+    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), IntRangeError> {
+        range.as_uint::<u64>(notrunc).map(|x| match self {
+            Self::Fixed(l) => l.push_inner(x.into()),
+            Self::Delimited(l) => l.push(x),
+        })
     }
 
     fn remove(&mut self, index: MeasIndex) -> Result<(), ClearOptionalOr<IndexError>> {
@@ -3376,7 +3481,7 @@ impl<T> AnyAsciiLayout<T> {
         }
     }
 
-    pub(crate) fn new_fixed(columns: NonEmpty<AsciiType>) -> Self {
+    pub(crate) fn new_fixed(columns: NonEmpty<AsciiRange>) -> Self {
         Self::Fixed(FixedLayout::new(columns, ()))
     }
 
@@ -3478,13 +3583,13 @@ impl VersionedDataLayout for Layout2_0 {
     fn insert_nocheck(
         &mut self,
         index: MeasIndex,
-        range: Range,
+        range: FloatOrInt,
         notrunc: bool,
     ) -> BiTentative<(), LayoutInsertColumnWarning> {
         self.0.insert_nocheck(index, range, notrunc)
     }
 
-    fn push(&mut self, range: Range, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
+    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
         self.0.push(range, notrunc)
     }
 
@@ -3571,13 +3676,13 @@ impl VersionedDataLayout for Layout3_0 {
     fn insert_nocheck(
         &mut self,
         index: MeasIndex,
-        range: Range,
+        range: FloatOrInt,
         notrunc: bool,
     ) -> BiTentative<(), LayoutInsertColumnWarning> {
         self.0.insert_nocheck(index, range, notrunc)
     }
 
-    fn push(&mut self, range: Range, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
+    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
         self.0.push(range, notrunc)
     }
 
@@ -3686,13 +3791,13 @@ impl VersionedDataLayout for Layout3_1 {
     fn insert_nocheck(
         &mut self,
         index: MeasIndex,
-        range: Range,
+        range: FloatOrInt,
         notrunc: bool,
     ) -> BiTentative<(), LayoutInsertColumnWarning> {
         self.0.insert_nocheck(index, range, notrunc)
     }
 
-    fn push(&mut self, range: Range, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
+    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
         self.0.push(range, notrunc)
     }
 
@@ -3750,6 +3855,7 @@ impl VersionedDataLayout for Layout3_2 {
         cs: NonEmpty<ColumnLayoutValues<Self::ColDatatype>>,
         conf: &SharedConfig,
     ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError> {
+        let notrunc = conf.disallow_bitmask_truncation;
         let unique_dt: Vec<_> = cs
             .iter()
             .map(|c| c.datatype.map(|x| x.into()).unwrap_or(datatype))
@@ -3766,8 +3872,10 @@ impl VersionedDataLayout for Layout3_2 {
                     .def_map_value(Self::NonMixed)
                     .def_map_warnings(|e| e.inner_into())
             }
-            _ => FixedLayout::try_new(cs, endian, |c| MixedType::try_new(c, conf))
-                .def_map_value(Self::Mixed),
+            _ => FixedLayout::try_new(cs, endian, |c| {
+                MixedType::from_width_and_range(c.width, c.range, c.datatype, notrunc)
+            })
+            .def_map_value(Self::Mixed),
         }
     }
 
@@ -3825,23 +3933,23 @@ impl VersionedDataLayout for Layout3_2 {
     fn insert_nocheck(
         &mut self,
         index: MeasIndex,
-        range: Range,
+        range: FloatOrInt,
         notrunc: bool,
     ) -> BiTentative<(), LayoutInsertColumnWarning> {
         match self {
             Self::NonMixed(x) => x.insert_nocheck(index, range, notrunc),
             Self::Mixed(x) => {
-                x.insert_inner_nocheck(index, MixedType::new_from_range(range.0));
+                x.insert_inner_nocheck(index, MixedType::from_range(range));
                 Tentative::default()
             }
         }
     }
 
-    fn push(&mut self, range: Range, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
+    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
         match self {
             Self::NonMixed(x) => x.push(range, notrunc),
             Self::Mixed(x) => {
-                x.push_inner(MixedType::new_from_range(range.0));
+                x.push_inner(MixedType::from_range(range));
                 Tentative::default()
             }
         }
@@ -4045,22 +4153,23 @@ impl<T> AnyOrderedLayout<T> {
     ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError> {
         let notrunc = conf.disallow_bitmask_truncation;
         match datatype {
-            AlphaNumType::Ascii => AnyAsciiLayout::try_new(columns)
+            AlphaNumType::Ascii => AnyAsciiLayout::try_new(columns, notrunc)
                 .def_map_value(Self::Ascii)
-                .def_errors_into(),
+                .def_errors_into()
+                .def_map_warnings(|w| w.inner_into()),
             AlphaNumType::Integer => AnyOrderedUintLayout::try_new(columns, byteord, notrunc)
                 .def_map_value(Self::Integer)
                 .def_map_warnings(|e| e.inner_into())
                 .def_inner_into(),
             AlphaNumType::Single => byteord.try_into().into_deferred().def_and_maybe(|b| {
                 FixedLayout::try_new(columns, b, |c| {
-                    f32::column_type1(c.width, c.range, notrunc).def_warnings_into()
+                    F32Range::from_width_and_range(c.width, c.range, notrunc).def_warnings_into()
                 })
                 .def_map_value(Self::F32)
             }),
             AlphaNumType::Double => byteord.try_into().into_deferred().def_and_maybe(|b| {
                 FixedLayout::try_new(columns, b, |c| {
-                    f64::column_type1(c.width, c.range, notrunc).def_warnings_into()
+                    F64Range::from_width_and_range(c.width, c.range, notrunc).def_warnings_into()
                 })
                 .def_map_value(Self::F64)
             }),
@@ -4118,7 +4227,7 @@ impl<T> AnyOrderedLayout<T> {
     fn insert_nocheck(
         &mut self,
         index: MeasIndex,
-        range: Range,
+        range: FloatOrInt,
         notrunc: bool,
     ) -> BiTentative<(), LayoutInsertColumnWarning> {
         match self {
@@ -4129,7 +4238,7 @@ impl<T> AnyOrderedLayout<T> {
         }
     }
 
-    fn push(&mut self, range: Range, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
+    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
         match self {
             Self::Ascii(l) => l.push(range, notrunc).inner_into(),
             Self::Integer(l) => l.push(range, notrunc).inner_into(),
@@ -4264,19 +4373,20 @@ impl NonMixedEndianLayout {
     ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError> {
         let notrunc = conf.disallow_bitmask_truncation;
         match datatype {
-            AlphaNumType::Ascii => AnyAsciiLayout::try_new(columns)
+            AlphaNumType::Ascii => AnyAsciiLayout::try_new(columns, notrunc)
                 .def_map_value(Self::Ascii)
-                .def_errors_into(),
+                .def_errors_into()
+                .def_map_warnings(|w| w.inner_into()),
             AlphaNumType::Integer => FixedLayout::endian_uint_try_new(columns, endian, notrunc)
                 .def_map_value(Self::Integer)
                 .def_map_warnings(|e| e.inner_into())
                 .def_inner_into(),
             AlphaNumType::Single => FixedLayout::try_new(columns, endian, |c| {
-                f32::column_type1(c.width, c.range, notrunc).def_warnings_into()
+                F32Range::from_width_and_range(c.width, c.range, notrunc).def_warnings_into()
             })
             .def_map_value(Self::F32),
             AlphaNumType::Double => FixedLayout::try_new(columns, endian, |c| {
-                f64::column_type1(c.width, c.range, notrunc).def_warnings_into()
+                F64Range::from_width_and_range(c.width, c.range, notrunc).def_warnings_into()
             })
             .def_map_value(Self::F64),
         }
@@ -4338,7 +4448,7 @@ impl NonMixedEndianLayout {
     fn insert_nocheck(
         &mut self,
         index: MeasIndex,
-        range: Range,
+        range: FloatOrInt,
         notrunc: bool,
     ) -> BiTentative<(), LayoutInsertColumnWarning> {
         match self {
@@ -4349,7 +4459,7 @@ impl NonMixedEndianLayout {
         }
     }
 
-    fn push(&mut self, range: Range, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
+    fn push(&mut self, range: FloatOrInt, notrunc: bool) -> BiTentative<(), LayoutPushColumnError> {
         match self {
             Self::Ascii(l) => l.push(range, notrunc).inner_into(),
             Self::Integer(l) => l.push_uint(range, notrunc).inner_into(),
@@ -4404,7 +4514,7 @@ pub struct NotAsciiError(Vec<u8>);
 
 enum_from_disp!(
     pub NewDataLayoutError,
-    [Ascii,       ColumnError<NewAsciiTypeError>],
+    [Ascii,       ColumnError<ascii_range::NewAsciiRangeError>],
     [FixedInt,    NewFixedIntLayoutError],
     [Float,       ColumnError<FloatWidthError>],
     [VariableInt, ColumnError<NewUintTypeError>],
@@ -4423,7 +4533,7 @@ enum_from_disp!(
     [Order, ByteOrdToSizedError],
     // TODO sloppy nesting
     [Endian, ByteOrdToSizedEndianError],
-    [Size,  IntRangeError]
+    [Size,  BitmaskError]
 );
 
 enum_from_disp!(
@@ -4436,14 +4546,15 @@ pub struct MultiWidthsError(pub NonEmpty<Bytes>);
 
 enum_from_disp!(
     pub NewMixedTypeError,
-    [Ascii, NewAsciiTypeError],
+    [Ascii, ascii_range::NewAsciiRangeError],
     [Uint, NewUintTypeError],
     [Float, FloatWidthError]
 );
 
 enum_from_disp!(
     pub NewMixedTypeWarning,
-    [Uint, IntRangeError],
+    [Ascii, IntRangeError],
+    [Uint, BitmaskError],
     [Float, FloatRangeError]
 );
 
@@ -4839,13 +4950,15 @@ enum_from_disp!(
 
 enum_from_disp!(
     pub LayoutPushColumnError,
-    [Int, IntRangeError],
+    [Ascii, IntRangeError],
+    [Int, BitmaskError],
     [Float, FloatRangeError]
 );
 
 enum_from_disp!(
     pub LayoutInsertColumnWarning,
-    [Int, IntRangeError],
+    [Ascii, IntRangeError],
+    [Int, BitmaskError],
     [Float, FloatRangeError]
 );
 

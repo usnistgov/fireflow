@@ -2314,7 +2314,7 @@ where
         &mut self,
         n: Shortname,
         m: Temporal<M::Temporal>,
-        r: Range,
+        r: FloatOrInt,
         notrunc: bool,
     ) -> DeferredResult<(), LayoutPushColumnError, PushTemporalError> {
         self.measurements
@@ -2335,7 +2335,7 @@ where
         i: MeasIndex,
         n: Shortname,
         m: Temporal<M::Temporal>,
-        r: Range,
+        r: FloatOrInt,
         notrunc: bool,
     ) -> DeferredResult<(), LayoutInsertColumnWarning, InsertTemporalError> {
         self.measurements
@@ -2355,7 +2355,7 @@ where
         &mut self,
         n: <M::Name as MightHave>::Wrapper<Shortname>,
         m: Optical<M::Optical>,
-        r: Range,
+        r: FloatOrInt,
         notrunc: bool,
     ) -> DeferredResult<Shortname, LayoutPushColumnError, PushOpticalError> {
         self.measurements
@@ -2377,7 +2377,7 @@ where
         i: MeasIndex,
         n: <M::Name as MightHave>::Wrapper<Shortname>,
         m: Optical<M::Optical>,
-        r: Range,
+        r: FloatOrInt,
         notrunc: bool,
     ) -> DeferredResult<Shortname, LayoutInsertColumnWarning, InsertOpticalError> {
         self.measurements
@@ -2863,7 +2863,7 @@ where
         &mut self,
         n: Shortname,
         m: Temporal<M::Temporal>,
-        r: Range,
+        r: FloatOrInt,
         notrunc: bool,
     ) -> DeferredResult<(), LayoutPushColumnError, PushTemporalError> {
         self.push_temporal_inner(n, m, r, notrunc)
@@ -2878,7 +2878,7 @@ where
         i: MeasIndex,
         n: Shortname,
         m: Temporal<M::Temporal>,
-        r: Range,
+        r: FloatOrInt,
         notrunc: bool,
     ) -> DeferredResult<(), LayoutInsertColumnWarning, InsertTemporalError> {
         self.insert_temporal_inner(i, n, m, r, notrunc)
@@ -2891,7 +2891,7 @@ where
         &mut self,
         n: <M::Name as MightHave>::Wrapper<Shortname>,
         m: Optical<M::Optical>,
-        r: Range,
+        r: FloatOrInt,
         notrunc: bool,
     ) -> DeferredResult<Shortname, LayoutPushColumnError, PushOpticalError> {
         self.push_optical_inner(n, m, r, notrunc)
@@ -2905,7 +2905,7 @@ where
         i: MeasIndex,
         n: <M::Name as MightHave>::Wrapper<Shortname>,
         m: Optical<M::Optical>,
-        r: Range,
+        r: FloatOrInt,
         notrunc: bool,
     ) -> DeferredResult<Shortname, LayoutInsertColumnWarning, InsertOpticalError> {
         self.insert_optical_inner(i, n, m, r, notrunc)
@@ -3133,7 +3133,7 @@ where
         n: Shortname,
         m: Temporal<M::Temporal>,
         col: AnyFCSColumn,
-        r: Range,
+        r: FloatOrInt,
         notrunc: bool,
     ) -> DeferredResult<(), LayoutPushColumnError, PushTemporalToDatasetError> {
         self.push_temporal_inner(n, m, r, notrunc)
@@ -3151,7 +3151,7 @@ where
         n: Shortname,
         m: Temporal<M::Temporal>,
         col: AnyFCSColumn,
-        r: Range,
+        r: FloatOrInt,
         notrunc: bool,
     ) -> DeferredResult<(), LayoutInsertColumnWarning, InsertTemporalToDatasetError> {
         self.insert_temporal_inner(i, n, m, r, notrunc)
@@ -3172,7 +3172,7 @@ where
         n: <M::Name as MightHave>::Wrapper<Shortname>,
         m: Optical<M::Optical>,
         col: AnyFCSColumn,
-        r: Range,
+        r: FloatOrInt,
         notrunc: bool,
     ) -> DeferredResult<Shortname, LayoutPushColumnError, PushOpticalToDatasetError> {
         self.push_optical_inner(n, m, r, notrunc)
@@ -3194,7 +3194,7 @@ where
         n: <M::Name as MightHave>::Wrapper<Shortname>,
         m: Optical<M::Optical>,
         col: AnyFCSColumn,
-        r: Range,
+        r: FloatOrInt,
         notrunc: bool,
     ) -> DeferredResult<Shortname, LayoutInsertColumnWarning, InsertOpticalInDatasetError> {
         self.insert_optical_inner(i, n, m, r, notrunc)

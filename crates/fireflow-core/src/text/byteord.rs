@@ -1,9 +1,9 @@
 use crate::error::BiTentative;
 use crate::macros::{enum_from, enum_from_disp, match_many_to_one, newtype_from_outer};
 use crate::validated::ascii_range::{AsciiRange, Chars, CharsError};
-use crate::validated::bitmask::{Bitmask, BitmaskError};
+use crate::validated::bitmask;
 
-use super::float_or_int::{FloatOrInt, FloatProps, NonNanFloat, ToIntError};
+use super::float_or_int::{FloatOrInt, FloatRangeError, NonNanFloat, ToFloatError};
 
 use itertools::Itertools;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
@@ -88,62 +88,12 @@ pub enum SizedByteOrd<const LEN: usize> {
 //     pub bitmask: Bitmask<LEN, T>,
 // }
 
-/// The type of any floating point column in all versions
-#[derive(PartialEq, Clone, Copy, Serialize)]
-pub struct FloatType<T, const LEN: usize> {
-    pub range: NonNanFloat<T>,
-}
-
 // /// The type of an ASCII column in all versions
 // #[derive(PartialEq, Clone, Copy, Serialize)]
 // pub struct AsciiType {
 //     pub chars: Chars,
 //     pub range: u64,
 // }
-
-pub trait HasNativeType: Sized {
-    /// The native rust type
-    type Native: Default + Copy;
-}
-
-/// A type which uses a defined number of bytes
-pub trait HasNativeWidth: HasNativeType {
-    /// The length of the type in an FCS file (may be less than native)
-    const BYTES: Bytes;
-
-    /// The length of the native Rust type
-    const LEN: usize;
-
-    /// The sized byte order to be used with this type
-    type Order;
-}
-
-macro_rules! def_native_wrapper {
-    ($name:ident, $wrapper:ident, $native:ty, $size:expr, $native_size:expr, $bytes:ident) => {
-        pub type $name = $wrapper<$native, $size>;
-
-        impl HasNativeType for $name {
-            type Native = $native;
-        }
-
-        impl HasNativeWidth for $name {
-            const BYTES: Bytes = Bytes::$bytes;
-            const LEN: usize = $native_size;
-            type Order = SizedByteOrd<$size>;
-        }
-    };
-}
-
-def_native_wrapper!(Bitmask08, Bitmask, u8, 1, 1, B1);
-def_native_wrapper!(Bitmask16, Bitmask, u16, 2, 2, B2);
-def_native_wrapper!(Bitmask24, Bitmask, u32, 3, 4, B3);
-def_native_wrapper!(Bitmask32, Bitmask, u32, 4, 4, B4);
-def_native_wrapper!(Bitmask40, Bitmask, u64, 5, 8, B5);
-def_native_wrapper!(Bitmask48, Bitmask, u64, 6, 8, B6);
-def_native_wrapper!(Bitmask56, Bitmask, u64, 7, 8, B7);
-def_native_wrapper!(Bitmask64, Bitmask, u64, 8, 8, B8);
-def_native_wrapper!(F32Type, FloatType, f32, 4, 4, B4);
-def_native_wrapper!(F64Type, FloatType, f64, 8, 8, B8);
 
 // macro_rules! uint_default {
 //     ($name:ident, $size:expr, $t:ident) => {
@@ -183,10 +133,6 @@ def_native_wrapper!(F64Type, FloatType, f64, 8, 8, B8);
 // }
 
 // float_default!(F32Type, f32);
-
-impl HasNativeType for AsciiRange {
-    type Native = u64;
-}
 
 macro_rules! byteord_from_sized {
     ($len:expr, $var:ident, $bytes:ident) => {

@@ -42,10 +42,10 @@ impl From<u64> for AsciiRange {
 }
 
 impl AsciiRange {
-    pub(crate) fn try_new(value: u64, chars: Chars) -> Result<Self, NewAsciiRangeError> {
+    pub(crate) fn try_new(value: u64, chars: Chars) -> Result<Self, NotEnoughCharsError> {
         let needed = Chars::from_u64(value);
         if chars < needed {
-            Err(NewAsciiRangeError { value, chars })
+            Err(NotEnoughCharsError { value, chars })
         } else {
             Ok(Self { value, chars })
         }
@@ -55,8 +55,8 @@ impl AsciiRange {
     ///
     /// The number of chars will be automatically selected as the minimum
     /// required to express the range.
-    pub(crate) fn from_range(range: Range, notrunc: bool) -> BiTentative<Self, IntRangeError> {
-        range.0.as_uint(notrunc).map(AsciiRange::from)
+    pub(crate) fn from_range(range: FloatOrInt, notrunc: bool) -> BiTentative<Self, IntRangeError> {
+        range.as_uint::<u64>(notrunc).map(AsciiRange::from)
     }
 
     /// Make new AsciiRange from $PnB and $PnR values.
@@ -64,13 +64,14 @@ impl AsciiRange {
     /// Will return an error if $PnB is too small to hold $PnR.
     pub(crate) fn from_width_and_range(
         width: Width,
-        range: FloatOrInt,
+        range: Range,
         notrunc: bool,
-    ) -> DeferredResult<Self, IntRangeError, AsciiRangeFromWidthRangeError> {
+    ) -> DeferredResult<Self, IntRangeError, NewAsciiRangeError> {
         Chars::try_from(width)
             .into_deferred()
             .def_and_maybe(|chars| {
                 range
+                    .0
                     .as_uint(notrunc)
                     .inner_into()
                     .and_maybe(|value| Self::try_new(value, chars).into_deferred())
@@ -126,18 +127,18 @@ impl fmt::Display for CharsError {
 }
 
 enum_from_disp!(
-    pub AsciiRangeFromWidthRangeError,
-    [New, NewAsciiRangeError],
+    pub NewAsciiRangeError,
+    [New, NotEnoughCharsError],
     [Width, WidthToCharsError],
     [Range, IntRangeError]
 );
 
-pub struct NewAsciiRangeError {
+pub struct NotEnoughCharsError {
     chars: Chars,
     value: u64,
 }
 
-impl fmt::Display for NewAsciiRangeError {
+impl fmt::Display for NotEnoughCharsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             f,

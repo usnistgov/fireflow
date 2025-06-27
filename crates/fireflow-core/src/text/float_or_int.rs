@@ -198,20 +198,20 @@ impl From<u64> for FloatOrInt {
     }
 }
 
-impl TryFrom<FloatOrInt> for Bytes {
-    type Error = FloatToIntError<u64>;
+// impl TryFrom<FloatOrInt> for Bytes {
+//     type Error = FloatToIntError<u64>;
 
-    /// Return the number of bytes needed to hold the float/int.
-    ///
-    /// This might fail because it involves squishing the input into a
-    /// u64, which could fail for out of range or fractional values.
-    fn try_from(value: FloatOrInt) -> Result<Self, Self::Error> {
-        match value {
-            FloatOrInt::Int(x) => Ok(Bytes::from_u64(x)),
-            FloatOrInt::Float(x) => x.to_int::<u64>().map(Bytes::from_u64),
-        }
-    }
-}
+//     /// Return the number of bytes needed to hold the float/int.
+//     ///
+//     /// This might fail because it involves squishing the input into a
+//     /// u64, which could fail for out of range or fractional values.
+//     fn try_from(value: FloatOrInt) -> Result<Self, Self::Error> {
+//         match value {
+//             FloatOrInt::Int(x) => Ok(Bytes::from_u64(x)),
+//             FloatOrInt::Float(x) => x.to_int::<u64>().map(Bytes::from_u64),
+//         }
+//     }
+// }
 
 impl TryFrom<FloatOrInt> for Chars {
     type Error = FloatToIntError<u64>;

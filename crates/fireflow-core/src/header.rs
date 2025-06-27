@@ -24,7 +24,7 @@ pub const HEADER_LEN: u8 = 58;
 /// All FCS versions this library supports.
 ///
 /// This appears as the first 6 bytes of any valid FCS file.
-#[derive(Clone, Copy, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Eq, PartialEq, Serialize, PartialOrd, Ord)]
 pub enum Version {
     FCS2_0,
     FCS3_0,

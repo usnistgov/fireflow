@@ -3841,6 +3841,7 @@ impl<A, D, O> Core3_2<A, D, O> {
     // }
 }
 
+// TODO also set layout
 macro_rules! coretext_set_measurements2_0 {
     ($rawinput:path) => {
         /// Set measurements.
@@ -7504,7 +7505,7 @@ impl Default for Temporal2_0 {
 }
 
 impl Temporal3_0 {
-    fn new(timestep: Timestep) -> Self {
+    pub fn new(timestep: Timestep) -> Self {
         let specific = InnerTemporal3_0::new(timestep);
         Self::new_common(specific)
     }

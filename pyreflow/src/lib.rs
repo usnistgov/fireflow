@@ -4,11 +4,10 @@ use fireflow_core::core::*;
 use fireflow_core::error::*;
 use fireflow_core::header::*;
 use fireflow_core::segment::*;
-use fireflow_core::text::byteord::*;
 use fireflow_core::text::float_or_int::*;
 use fireflow_core::text::keywords::*;
 use fireflow_core::text::named_vec::Element;
-use fireflow_core::text::optionalkw::*;
+use fireflow_core::text::optional::*;
 use fireflow_core::text::ranged_float::*;
 use fireflow_core::text::scale::*;
 use fireflow_core::validated::dataframe::*;
@@ -66,9 +65,6 @@ fn pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyTemporal3_1>()?;
     m.add_class::<PyTemporal3_2>()?;
 
-    m.add_class::<PyNumRangeSetter>()?;
-    m.add_class::<PyAsciiRangeSetter>()?;
-    m.add_class::<PyMixedColumnSetter>()?;
     m.add_class::<PyCalibration3_1>()?;
     m.add_class::<PyCalibration3_2>()?;
     m.add_class::<PyFeature>()?;
@@ -291,6 +287,11 @@ fn py_fcs_read_raw_text(
         allow_pseudostandard=false,
         fix_log_scale_offsets=false,
         shortname_prefix=None,
+        allow_header_text_offset_mismatch=false,
+        allow_missing_required_offsets=false,
+        text_data_correction=(0,0),
+        text_analysis_correction=(0,0),
+        disallow_range_truncation=false,
         nonstandard_measurement_pattern=None,
         time_pattern=None,
     )
@@ -333,6 +334,11 @@ fn py_fcs_read_std_text(
     allow_pseudostandard: bool,
     fix_log_scale_offsets: bool,
     shortname_prefix: Option<String>,
+    allow_header_text_offset_mismatch: bool,
+    allow_missing_required_offsets: bool,
+    text_data_correction: (i32, i32),
+    text_analysis_correction: (i32, i32),
+    disallow_range_truncation: bool,
     nonstandard_measurement_pattern: Option<String>,
     time_pattern: Option<String>,
 ) -> PyResult<(Bound<'_, PyAny>, PyParseData, Bound<'_, PyDict>)> {
@@ -376,6 +382,11 @@ fn py_fcs_read_std_text(
         allow_pseudostandard,
         fix_log_scale_offsets,
         shortname_prefix,
+        allow_header_text_offset_mismatch,
+        allow_missing_required_offsets,
+        text_data_correction,
+        text_analysis_correction,
+        disallow_range_truncation,
         nonstandard_measurement_pattern,
         time_pattern,
     )?;
@@ -443,16 +454,16 @@ fn py_fcs_read_std_text(
         allow_pseudostandard=false,
         fix_log_scale_offsets=false,
         shortname_prefix=None,
+        allow_header_text_offset_mismatch=false,
+        allow_missing_required_offsets=false,
+        text_data_correction=(0,0),
+        text_analysis_correction=(0,0),
+        disallow_range_truncation=false,
         nonstandard_measurement_pattern=None,
         time_pattern=None,
 
         allow_uneven_event_width=false,
         allow_tot_mismatch=false,
-        allow_header_text_offset_mismatch=false,
-        allow_missing_required_offsets=false,
-        text_data_correction=(0,0),
-        text_analysis_correction=(0,0),
-        disallow_bitmask_truncation=false,
         warnings_are_errors=false
     )
 )]
@@ -494,16 +505,16 @@ fn py_fcs_read_std_dataset(
     allow_pseudostandard: bool,
     fix_log_scale_offsets: bool,
     shortname_prefix: Option<String>,
+    allow_header_text_offset_mismatch: bool,
+    allow_missing_required_offsets: bool,
+    text_data_correction: (i32, i32),
+    text_analysis_correction: (i32, i32),
+    disallow_range_truncation: bool,
     nonstandard_measurement_pattern: Option<String>,
     time_pattern: Option<String>,
 
     allow_uneven_event_width: bool,
     allow_tot_mismatch: bool,
-    allow_header_text_offset_mismatch: bool,
-    allow_missing_required_offsets: bool,
-    text_data_correction: (i32, i32),
-    text_analysis_correction: (i32, i32),
-    disallow_bitmask_truncation: bool,
     warnings_are_errors: bool,
 ) -> PyResult<(Bound<'_, PyAny>, PyParseData, Bound<'_, PyDict>)> {
     let header = header_config(
@@ -546,6 +557,11 @@ fn py_fcs_read_std_dataset(
         allow_pseudostandard,
         fix_log_scale_offsets,
         shortname_prefix,
+        allow_header_text_offset_mismatch,
+        allow_missing_required_offsets,
+        text_data_correction,
+        text_analysis_correction,
+        disallow_range_truncation,
         nonstandard_measurement_pattern,
         time_pattern,
     )?;
@@ -554,11 +570,6 @@ fn py_fcs_read_std_dataset(
         standard,
         allow_uneven_event_width,
         allow_tot_mismatch,
-        allow_header_text_offset_mismatch,
-        allow_missing_required_offsets,
-        text_data_correction,
-        text_analysis_correction,
-        disallow_bitmask_truncation,
         warnings_are_errors,
     );
 
@@ -673,6 +684,11 @@ fn std_config(
     allow_pseudostandard: bool,
     fix_log_scale_offsets: bool,
     shortname_prefix: Option<String>,
+    allow_header_text_offset_mismatch: bool,
+    allow_missing_required_offsets: bool,
+    text_data_correction: (i32, i32),
+    text_analysis_correction: (i32, i32),
+    disallow_range_truncation: bool,
     nonstandard_measurement_pattern: Option<String>,
     time_pattern: Option<String>,
 ) -> PyResult<StdTextReadConfig> {
@@ -694,36 +710,30 @@ fn std_config(
         allow_pseudostandard,
         fix_log_scale_offsets,
         disallow_deprecated,
+        allow_header_text_offset_mismatch,
+        allow_missing_required_offsets,
+        data: OffsetCorrection::from(text_data_correction),
+        analysis: OffsetCorrection::from(text_analysis_correction),
+        disallow_range_truncation,
         nonstandard_measurement_pattern: nsmp,
     };
     Ok(out)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn data_config(
     standard: StdTextReadConfig,
     allow_uneven_event_width: bool,
     allow_tot_mismatch: bool,
-    allow_header_text_offset_mismatch: bool,
-    allow_missing_required_offsets: bool,
-    text_data_correction: (i32, i32),
-    text_analysis_correction: (i32, i32),
-    disallow_bitmask_truncation: bool,
     warnings_are_errors: bool,
 ) -> DataReadConfig {
     DataReadConfig {
         standard,
         shared: SharedConfig {
-            disallow_bitmask_truncation,
             warnings_are_errors,
         },
         reader: ReaderConfig {
             allow_uneven_event_width,
             allow_tot_mismatch,
-            allow_header_text_offset_mismatch,
-            allow_missing_required_offsets,
-            data: OffsetCorrection::from(text_data_correction),
-            analysis: OffsetCorrection::from(text_analysis_correction),
         },
     }
 }
@@ -1018,11 +1028,6 @@ py_wrap!(PyTemporal2_0, Temporal2_0, "Temporal2_0");
 py_wrap!(PyTemporal3_0, Temporal3_0, "Temporal3_0");
 py_wrap!(PyTemporal3_1, Temporal3_1, "Temporal3_1");
 py_wrap!(PyTemporal3_2, Temporal3_2, "Temporal3_2");
-
-// data setters
-py_wrap!(PyNumRangeSetter, NumRangeSetter, "NumRangeSetter");
-py_wrap!(PyAsciiRangeSetter, AsciiRangeSetter, "AsciiRangeSetter");
-py_wrap!(PyMixedColumnSetter, MixedColumnSetter, "MixedColumnSetter");
 
 // PnCALIBRATION (3.1)
 py_wrap!(PyCalibration3_1, Calibration3_1, "Calibration3_1");
@@ -1435,18 +1440,16 @@ convert_methods!(
 #[pymethods]
 impl PyCoreTEXT2_0 {
     #[new]
-    fn new(datatype: PyAlphaNumType, byteord: Vec<u8>, mode: PyMode) -> PyResult<Self> {
-        let o = vec_to_byteord(byteord)?;
-        Ok(CoreTEXT2_0::new(datatype.into(), o, mode.into()).into())
+    fn new(mode: PyMode) -> PyResult<Self> {
+        Ok(CoreTEXT2_0::new(mode.into()).into())
     }
 }
 
 #[pymethods]
 impl PyCoreTEXT3_0 {
     #[new]
-    fn new(datatype: PyAlphaNumType, byteord: Vec<u8>, mode: PyMode) -> PyResult<Self> {
-        let o = vec_to_byteord(byteord)?;
-        Ok(CoreTEXT3_0::new(datatype.into(), o, mode.into()).into())
+    fn new(mode: PyMode) -> PyResult<Self> {
+        Ok(CoreTEXT3_0::new(mode.into()).into())
     }
 
     #[getter]
@@ -1468,16 +1471,16 @@ impl PyCoreTEXT3_0 {
 #[pymethods]
 impl PyCoreTEXT3_1 {
     #[new]
-    fn new(datatype: PyAlphaNumType, is_big: bool, mode: PyMode) -> Self {
-        CoreTEXT3_1::new(datatype.into(), is_big, mode.into()).into()
+    fn new(mode: PyMode) -> Self {
+        CoreTEXT3_1::new(mode.into()).into()
     }
 }
 
 #[pymethods]
 impl PyCoreTEXT3_2 {
     #[new]
-    fn new(datatype: PyAlphaNumType, is_big: bool, cyt: String) -> Self {
-        CoreTEXT3_2::new(datatype.into(), is_big, cyt).into()
+    fn new(cyt: String) -> Self {
+        CoreTEXT3_2::new(cyt).into()
     }
 
     #[getter]
@@ -1510,10 +1513,10 @@ impl PyCoreTEXT3_2 {
             .map_err(|e| PyreflowException::new_err(e.to_string()))
     }
 
-    #[getter]
-    fn get_datatypes(&self) -> Vec<PyAlphaNumType> {
-        self.0.datatypes().into_iter().map(|x| x.into()).collect()
-    }
+    // #[getter]
+    // fn get_datatypes(&self) -> Vec<PyAlphaNumType> {
+    //     self.0.datatypes().into_iter().map(|x| x.into()).collect()
+    // }
 
     #[getter]
     fn get_cyt(&self) -> String {
@@ -1568,11 +1571,11 @@ impl PyCoreTEXT3_2 {
         self.0.clear_unstained_centers()
     }
 
-    fn set_data_mixed(&mut self, cs: Vec<PyMixedColumnSetter>) -> PyResult<()> {
-        self.0
-            .set_data_mixed(cs.into_iter().map(|x| x.into()).collect())
-            .map_err(|e| PyreflowException::new_err(e.to_string()))
-    }
+    // fn set_data_mixed(&mut self, cs: Vec<PyMixedColumnSetter>) -> PyResult<()> {
+    //     self.0
+    //         .set_data_mixed(cs.into_iter().map(|x| x.into()).collect())
+    //         .map_err(|e| PyreflowException::new_err(e.to_string()))
+    // }
 }
 
 // Get/set methods for all versions
@@ -1742,14 +1745,14 @@ macro_rules! common_methods {
                 self.0.clear_trigger()
             }
 
-            #[getter]
-            fn get_ranges<'py>(&self, py: Python<'py>) -> PyResult<Vec<Bound<'py, PyAny>>> {
-                let mut rs = vec![];
-                for r in self.0.ranges() {
-                    rs.push(float_or_int_to_any(r.0, py)?);
-                }
-                Ok(rs)
-            }
+            // #[getter]
+            // fn get_ranges<'py>(&self, py: Python<'py>) -> PyResult<Vec<Bound<'py, PyAny>>> {
+            //     let mut rs = vec![];
+            //     for r in self.0.ranges() {
+            //         rs.push(float_or_int_to_any(r.0, py)?);
+            //     }
+            //     Ok(rs)
+            // }
 
             #[getter]
             fn get_longnames(&self) -> Vec<Option<String>> {
@@ -1797,29 +1800,29 @@ macro_rules! common_methods {
                     .map(|_| ())
             }
 
-            fn set_data_f32(&mut self, ranges: Vec<f32>) -> PyResult<()> {
-                self.0
-                    .set_data_f32(ranges)
-                    .map_err(|e| PyreflowException::new_err(e.to_string()))
-            }
+            // fn set_data_f32(&mut self, ranges: Vec<f32>) -> PyResult<()> {
+            //     self.0
+            //         .set_data_f32(ranges)
+            //         .map_err(|e| PyreflowException::new_err(e.to_string()))
+            // }
 
-            fn set_data_f64(&mut self, ranges: Vec<f64>) -> PyResult<()> {
-                self.0
-                    .set_data_f64(ranges)
-                    .map_err(|e| PyreflowException::new_err(e.to_string()))
-            }
+            // fn set_data_f64(&mut self, ranges: Vec<f64>) -> PyResult<()> {
+            //     self.0
+            //         .set_data_f64(ranges)
+            //         .map_err(|e| PyreflowException::new_err(e.to_string()))
+            // }
 
-            fn set_data_ascii(&mut self, rs: Vec<PyAsciiRangeSetter>) -> PyResult<()> {
-                self.0
-                    .set_data_ascii(rs.into_iter().map(|x| x.into()).collect())
-                    .map_err(|e| PyreflowException::new_err(e.to_string()))
-            }
+            // fn set_data_ascii(&mut self, rs: Vec<PyAsciiRangeSetter>) -> PyResult<()> {
+            //     self.0
+            //         .set_data_ascii(rs.into_iter().map(|x| x.into()).collect())
+            //         .map_err(|e| PyreflowException::new_err(e.to_string()))
+            // }
 
-            fn set_data_delimited(&mut self, ranges: Vec<u64>) -> PyResult<()> {
-                self.0
-                    .set_data_delimited(ranges)
-                    .map_err(|e| PyreflowException::new_err(e.to_string()))
-            }
+            // fn set_data_delimited(&mut self, ranges: Vec<u64>) -> PyResult<()> {
+            //     self.0
+            //         .set_data_delimited(ranges)
+            //         .map_err(|e| PyreflowException::new_err(e.to_string()))
+            // }
 
             #[getter]
             fn get_detector_voltages(&self) -> Vec<(usize, Option<f32>)> {
@@ -2106,11 +2109,15 @@ macro_rules! common_coretext_meas_get_set {
                     &mut self,
                     name: String,
                     t: $timetype,
+                    r: Bound<'_, PyAny>,
+                    notrunc: bool,
                 ) -> PyResult<()> {
+                    let x = any_to_float_or_int(r)?;
                     let n = str_to_shortname(name)?;
                     self.0
-                        .push_temporal(n, t.into())
-                        .map_err(|e| PyreflowException::new_err(e.to_string()))
+                        .push_temporal(n, t.into(), x, notrunc)
+                        .def_terminate(PushTemporalFailure)
+                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
                 }
 
                 fn insert_time_channel(
@@ -2118,11 +2125,15 @@ macro_rules! common_coretext_meas_get_set {
                     i: usize,
                     name: String,
                     t: $timetype,
+                    r: Bound<'_, PyAny>,
+                    notrunc: bool,
                 ) -> PyResult<()> {
+                    let x = any_to_float_or_int(r)?;
                     let n = str_to_shortname(name)?;
                     self.0
-                        .insert_temporal(i.into(), n, t.into())
-                        .map_err(|e| PyreflowException::new_err(e.to_string()))
+                        .insert_temporal(i.into(), n, t.into(), x, notrunc)
+                        .def_terminate(InsertTemporalFailure)
+                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
                 }
 
                 fn unset_measurements(
@@ -2151,12 +2162,16 @@ macro_rules! coredata_meas_get_set {
                     name: String,
                     t: $timetype,
                     xs: PySeries,
+                    r: Bound<'_, PyAny>,
+                    notrunc: bool,
                 ) -> PyResult<()> {
+                    let x = any_to_float_or_int(r)?;
                     let n = str_to_shortname(name)?;
                     let col = series_to_fcs(xs.into()).map_err(PyreflowException::new_err)?;
                     self.0
-                        .push_temporal(n, t.into(), col)
-                        .map_err(|e| PyreflowException::new_err(e.to_string()))
+                        .push_temporal(n, t.into(), col, x, notrunc)
+                        .def_terminate(PushTemporalFailure)
+                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
                 }
 
                 fn insert_time_channel(
@@ -2165,12 +2180,16 @@ macro_rules! coredata_meas_get_set {
                     name: String,
                     t: $timetype,
                     xs: PySeries,
+                    r: Bound<'_, PyAny>,
+                    notrunc: bool,
                 ) -> PyResult<()> {
+                    let x = any_to_float_or_int(r)?;
                     let n = str_to_shortname(name)?;
                     let col = series_to_fcs(xs.into()).map_err(PyreflowException::new_err)?;
                     self.0
-                        .insert_temporal(i.into(), n, t.into(), col)
-                        .map_err(|e| PyreflowException::new_err(e.to_string()))
+                        .insert_temporal(i.into(), n, t.into(), col, x, notrunc)
+                        .def_terminate(InsertTemporalFailure)
+                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
                 }
 
                 fn unset_data(
@@ -2258,31 +2277,39 @@ macro_rules! coretext2_0_meas_methods {
                     )
                 }
 
-                #[pyo3(signature = (m, name=None))]
+                #[pyo3(signature = (m, r, notrunc=false, name=None))]
                 fn push_measurement(
                     &mut self,
                     m: $opttype,
+                    r: Bound<'_, PyAny>,
+                    notrunc: bool,
                     name: Option<String>,
                 ) -> PyResult<String> {
+                    let x = any_to_float_or_int(r)?;
                     let n = name.map(str_to_shortname).transpose()?;
                     self.0
-                        .push_optical(n.into(), m.into())
-                        .map(|x| x.to_string())
-                        .map_err(|e| PyreflowException::new_err(e.to_string()))
+                        .push_optical(n.into(), m.into(), x, notrunc)
+                        .def_map_value(|x| x.to_string())
+                        .def_terminate(InsertOpticalFailure)
+                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
                 }
 
-                #[pyo3(signature = (i, m, name=None))]
+                #[pyo3(signature = (i, m, r, notrunc=false, name=None))]
                 fn insert_optical(
                     &mut self,
                     i: usize,
                     m: $opttype,
+                    r: Bound<'_, PyAny>,
+                    notrunc: bool,
                     name: Option<String>,
                 ) -> PyResult<String> {
+                    let x = any_to_float_or_int(r)?;
                     let n = name.map(str_to_shortname).transpose()?;
                     self.0
-                        .insert_optical(i.into(), n.into(), m.into())
-                        .map(|x| x.to_string())
-                        .map_err(|e| PyreflowException::new_err(e.to_string()))
+                        .insert_optical(i.into(), n.into(), m.into(), x, notrunc)
+                        .def_map_value(|x| x.to_string())
+                        .def_terminate(InsertOpticalFailure)
+                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
                 }
             }
         )*
@@ -2319,12 +2346,20 @@ macro_rules! coretext3_1_meas_methods {
                     )
                 }
 
-                fn push_optical(&mut self, m: $opttype, name: String) -> PyResult<()> {
+                fn push_optical(
+                    &mut self,
+                    m: $opttype,
+                    name: String,
+                    r: Bound<'_, PyAny>,
+                    notrunc: bool,
+                ) -> PyResult<()> {
+                    let x = any_to_float_or_int(r)?;
                     let n = str_to_shortname(name)?;
                     self.0
-                        .push_optical(Identity(n), m.into())
-                        .map(|_| ())
-                        .map_err(|e| PyreflowException::new_err(e.to_string()))
+                        .push_optical(Identity(n), m.into(), x, notrunc)
+                        .def_map_value(|_| ())
+                        .def_terminate(PushOpticalFailure)
+                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
                 }
 
                 fn insert_optical(
@@ -2332,12 +2367,16 @@ macro_rules! coretext3_1_meas_methods {
                     i: usize,
                     m: $opttype,
                     name: String,
+                    r: Bound<'_, PyAny>,
+                    notrunc: bool,
                 ) -> PyResult<()> {
+                    let x = any_to_float_or_int(r)?;
                     let n = str_to_shortname(name)?;
                     self.0
-                        .insert_optical(i.into(), Identity(n), m.into())
-                        .map(|_| ())
-                        .map_err(|e| PyreflowException::new_err(e.to_string()))
+                        .insert_optical(i.into(), Identity(n), m.into(), x, notrunc)
+                        .def_map_value(|_| ())
+                        .def_terminate(InsertOpticalFailure)
+                        .map_or_else(|e| Err(handle_failure(e)), handle_warnings)
                 }
             }
         )*
@@ -2531,78 +2570,78 @@ shortnames_methods!(
 );
 
 // Get/set methods for setting integer measurement types (2.0-3.0)
-macro_rules! integer_2_0_methods {
-    ($($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                fn set_data_integer(&mut self, rs: Vec<u64>, byteord: Vec<u8>) -> PyResult<()> {
-                    let o = vec_to_byteord(byteord)?;
-                    self.0
-                        .set_data_integer(rs, o)
-                        .map_err(|e| PyreflowException::new_err(e.to_string()))
-                }
-            }
-        )*
-    };
-}
+// macro_rules! integer_2_0_methods {
+//     ($($pytype:ident),*) => {
+//         $(
+//             #[pymethods]
+//             impl $pytype {
+//                 fn set_data_integer(&mut self, rs: Vec<u64>, byteord: Vec<u8>) -> PyResult<()> {
+//                     let o = vec_to_byteord(byteord)?;
+//                     self.0
+//                         .set_data_integer(rs, o)
+//                         .map_err(|e| PyreflowException::new_err(e.to_string()))
+//                 }
+//             }
+//         )*
+//     };
+// }
 
-integer_2_0_methods!(
-    PyCoreTEXT2_0,
-    PyCoreTEXT3_0,
-    PyCoreDataset2_0,
-    PyCoreDataset3_0
-);
+// integer_2_0_methods!(
+//     PyCoreTEXT2_0,
+//     PyCoreTEXT3_0,
+//     PyCoreDataset2_0,
+//     PyCoreDataset3_0
+// );
 
 // Get/set methods for setting integer measurement types (3.1-3.2)
-macro_rules! integer_methods {
-    ($($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                fn set_data_integer(&mut self, rs: Vec<PyNumRangeSetter>) -> PyResult<()> {
-                    self.0
-                        .set_data_integer(rs.into_iter().map(|x| x.into()).collect())
-                        .map_err(|e| PyreflowException::new_err(e.to_string()))
-                }
-            }
-        )*
-    };
-}
+// macro_rules! integer_methods {
+//     ($($pytype:ident),*) => {
+//         $(
+//             #[pymethods]
+//             impl $pytype {
+//                 fn set_data_integer(&mut self, rs: Vec<PyNumRangeSetter>) -> PyResult<()> {
+//                     self.0
+//                         .set_data_integer(rs.into_iter().map(|x| x.into()).collect())
+//                         .map_err(|e| PyreflowException::new_err(e.to_string()))
+//                 }
+//             }
+//         )*
+//     };
+// }
 
-integer_methods!(
-    PyCoreTEXT3_1,
-    PyCoreTEXT3_2,
-    PyCoreDataset3_1,
-    PyCoreDataset3_2
-);
+// integer_methods!(
+//     PyCoreTEXT3_1,
+//     PyCoreTEXT3_2,
+//     PyCoreDataset3_1,
+//     PyCoreDataset3_2
+// );
 
 // Get/set methods for $BYTEORD (3.1-3.2)
-macro_rules! endian_methods {
-    ($($pytype:ident),*) => {
-        $(
-            #[pymethods]
-            impl $pytype {
-                #[getter]
-                fn get_big_endian(&self) -> bool {
-                    self.0.get_big_endian()
-                }
+// macro_rules! endian_methods {
+//     ($($pytype:ident),*) => {
+//         $(
+//             #[pymethods]
+//             impl $pytype {
+//                 #[getter]
+//                 fn get_big_endian(&self) -> bool {
+//                     self.0.get_big_endian()
+//                 }
 
-                #[setter]
-                fn set_big_endian(&mut self, is_big: bool) {
-                    self.0.set_big_endian(is_big)
-                }
-            }
-        )*
-    };
-}
+//                 #[setter]
+//                 fn set_big_endian(&mut self, is_big: bool) {
+//                     self.0.set_big_endian(is_big)
+//                 }
+//             }
+//         )*
+//     };
+// }
 
-endian_methods!(
-    PyCoreTEXT3_1,
-    PyCoreTEXT3_2,
-    PyCoreDataset3_1,
-    PyCoreDataset3_2
-);
+// endian_methods!(
+//     PyCoreTEXT3_1,
+//     PyCoreTEXT3_2,
+//     PyCoreDataset3_1,
+//     PyCoreDataset3_2
+// );
 
 // Get/set methods for $PnE (3.0-3.2)
 macro_rules! scales_methods {
@@ -3254,78 +3293,64 @@ create_exception!(
 #[pymethods]
 impl PyOptical2_0 {
     #[new]
-    #[pyo3(signature = (range, width=None))]
-    fn new(range: Bound<'_, PyAny>, width: Option<u8>) -> PyResult<Self> {
-        any_to_range(range).map(|r| Optical2_0::new(width.into(), r).into())
+    fn new() -> Self {
+        Optical2_0::default().into()
     }
 }
 
 #[pymethods]
 impl PyOptical3_0 {
     #[new]
-    #[pyo3(signature = (range, scale, width=None))]
-    fn new(range: Bound<'_, PyAny>, scale: PyScale, width: Option<u8>) -> PyResult<Self> {
-        any_to_range(range).map(|r| Optical3_0::new(width.into(), r, scale.into()).into())
+    fn new(scale: PyScale) -> Self {
+        Optical3_0::new(scale.into()).into()
     }
 }
 
 #[pymethods]
 impl PyOptical3_1 {
     #[new]
-    #[pyo3(signature = (range, scale, width=None))]
-    fn new(range: Bound<'_, PyAny>, scale: PyScale, width: Option<u8>) -> PyResult<Self> {
-        any_to_range(range).map(|r| Optical3_1::new(width.into(), r, scale.into()).into())
+    fn new(scale: PyScale) -> Self {
+        Optical3_1::new(scale.into()).into()
     }
 }
 
 #[pymethods]
 impl PyOptical3_2 {
     #[new]
-    #[pyo3(signature = (range, scale, width=None))]
-    fn new(range: Bound<'_, PyAny>, scale: PyScale, width: Option<u8>) -> PyResult<Self> {
-        any_to_range(range).map(|r| Optical3_2::new(width.into(), r, scale.into()).into())
+    fn new(scale: PyScale) -> Self {
+        Optical3_2::new(scale.into()).into()
     }
 }
 
 #[pymethods]
 impl PyTemporal2_0 {
     #[new]
-    #[pyo3(signature = (range, width=None))]
-    fn new(range: Bound<'_, PyAny>, width: Option<u8>) -> PyResult<Self> {
-        any_to_range(range).map(|r| Temporal2_0::new(width.into(), r).into())
+    fn new() -> Self {
+        Temporal2_0::default().into()
     }
 }
 
 #[pymethods]
 impl PyTemporal3_0 {
     #[new]
-    #[pyo3(signature = (range, timestep, width=None))]
-    fn new(range: Bound<'_, PyAny>, timestep: f32, width: Option<u8>) -> PyResult<Self> {
-        let ts = to_positive_float(timestep)?;
-        let r = any_to_range(range)?;
-        Ok(Temporal3_0::new(width.into(), r, ts.into()).into())
+    fn new(timestep: f32) -> PyResult<Self> {
+        to_positive_float(timestep).map(|ts| Temporal3_0::new(ts.into()).into())
     }
 }
 
 #[pymethods]
 impl PyTemporal3_1 {
     #[new]
-    #[pyo3(signature = (range, timestep, width=None))]
-    fn new(range: Bound<'_, PyAny>, timestep: f32, width: Option<u8>) -> PyResult<Self> {
-        let ts = to_positive_float(timestep)?;
-        let r = any_to_range(range)?;
-        Ok(Temporal3_1::new(width.into(), r, ts.into()).into())
+    fn new(timestep: f32) -> PyResult<Self> {
+        to_positive_float(timestep).map(|ts| Temporal3_1::new(ts.into()).into())
     }
 }
 
 #[pymethods]
 impl PyTemporal3_2 {
     #[new]
-    #[pyo3(signature = (range, timestep, width=None))]
-    fn new(range: Bound<'_, PyAny>, timestep: f32, width: Option<u8>) -> PyResult<Self> {
-        let ts = to_positive_float(timestep)?;
-        let r = any_to_range(range)?;
-        Ok(Temporal3_2::new(width.into(), r, ts.into()).into())
+    fn new(timestep: f32) -> PyResult<Self> {
+        to_positive_float(timestep).map(|ts| Temporal3_2::new(ts.into()).into())
     }
 
     #[getter]
@@ -3344,26 +3369,26 @@ macro_rules! shared_meas_get_set {
         $(
             #[pymethods]
             impl $pytype {
-                #[getter]
-                fn width(&self) -> Option<u8> {
-                    self.0.common.width.into()
-                }
+                // #[getter]
+                // fn width(&self) -> Option<u8> {
+                //     self.0.common.width.into()
+                // }
 
-                #[setter]
-                fn set_width(&mut self, x: Option<u8>) {
-                    self.0.common.width = x.into();
-                }
+                // #[setter]
+                // fn set_width(&mut self, x: Option<u8>) {
+                //     self.0.common.width = x.into();
+                // }
 
-                #[getter]
-                fn range<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-                    float_or_int_to_any(self.0.common.range.0, py)
-                }
+                // #[getter]
+                // fn range<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+                //     float_or_int_to_any(self.0.common.range.0, py)
+                // }
 
-                #[setter]
-                fn set_range(&mut self, x: Bound<'_, PyAny>) -> PyResult<()> {
-                    self.0.common.range = any_to_range(x)?;
-                    Ok(())
-                }
+                // #[setter]
+                // fn set_range(&mut self, x: Bound<'_, PyAny>) -> PyResult<()> {
+                //     self.0.common.range = any_to_range(x)?;
+                //     Ok(())
+                // }
 
                 #[getter]
                 fn longname(&self) -> Option<String> {
@@ -3608,15 +3633,15 @@ get_set_copied!(
 );
 
 // $PnDATATYPE (3.2)
-get_set_copied!(
-    PyOptical3_2,
-    PyTemporal3_2,
-    [specific],
-    get_datatype,
-    set_datatype,
-    datatype,
-    PyNumType
-);
+// get_set_copied!(
+//     PyOptical3_2,
+//     PyTemporal3_2,
+//     [specific],
+//     get_datatype,
+//     set_datatype,
+//     datatype,
+//     PyNumType
+// );
 
 // $PnDET (3.2)
 get_set_str!(
@@ -3690,20 +3715,26 @@ where
     Ok((sn, m))
 }
 
-fn any_to_range(a: Bound<'_, PyAny>) -> PyResult<Range> {
+// fn any_to_range(a: Bound<'_, PyAny>) -> PyResult<Range> {
+//     any_to_float_or_int(a).map(Range)
+// }
+
+fn any_to_float_or_int(a: Bound<'_, PyAny>) -> PyResult<FloatOrInt> {
     a.clone()
         .extract::<f64>()
         .map_or(a.extract::<u64>().map(|x| x.into()), |x| {
-            Range::try_from(x).map_err(|e| PyreflowException::new_err(e.to_string()))
+            NonNanF64::try_from(x)
+                .map(FloatOrInt::Float)
+                .map_err(|e| PyreflowException::new_err(e.to_string()))
         })
 }
 
-fn float_or_int_to_any(r: FloatOrInt, py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
-    match r {
-        FloatOrInt::Float(x) => x.into_bound_py_any(py),
-        FloatOrInt::Int(x) => x.into_bound_py_any(py),
-    }
-}
+// fn float_or_int_to_any(r: FloatOrInt, py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
+//     match r {
+//         FloatOrInt::Float(x) => f64::from(x).into_bound_py_any(py),
+//         FloatOrInt::Int(x) => x.into_bound_py_any(py),
+//     }
+// }
 
 fn to_positive_float(x: f32) -> PyResult<PositiveFloat> {
     PositiveFloat::try_from(x).map_err(|e| PyreflowException::new_err(e.to_string()))
@@ -3743,9 +3774,9 @@ fn str_to_date_pat(s: String) -> PyResult<DatePattern> {
         .map_err(|e| PyreflowException::new_err(e.to_string()))
 }
 
-fn vec_to_byteord(xs: Vec<u8>) -> PyResult<ByteOrd> {
-    ByteOrd::try_from(xs).map_err(|e| PyreflowException::new_err(e.to_string()))
-}
+// fn vec_to_byteord(xs: Vec<u8>) -> PyResult<ByteOrd> {
+//     ByteOrd::try_from(xs).map_err(|e| PyreflowException::new_err(e.to_string()))
+// }
 
 fn f32_to_positive_float(x: f32) -> PyResult<PositiveFloat> {
     PositiveFloat::try_from(x).map_err(|e| PyreflowException::new_err(e.to_string()))
@@ -3818,5 +3849,37 @@ struct SetTemporalFailure;
 impl fmt::Display for SetTemporalFailure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "could not convert to/from temporal measurement")
+    }
+}
+
+struct PushTemporalFailure;
+
+impl fmt::Display for PushTemporalFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "could not push temporal measurement")
+    }
+}
+
+struct InsertTemporalFailure;
+
+impl fmt::Display for InsertTemporalFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "could not push temporal measurement")
+    }
+}
+
+struct PushOpticalFailure;
+
+impl fmt::Display for PushOpticalFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "could not push optical measurement")
+    }
+}
+
+struct InsertOpticalFailure;
+
+impl fmt::Display for InsertOpticalFailure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "could not push optical measurement")
     }
 }

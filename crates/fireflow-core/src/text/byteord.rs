@@ -1,10 +1,9 @@
 use crate::error::BiTentative;
-use crate::macros::{
-    enum_from, enum_from_disp, match_many_to_one, newtype_disp, newtype_from_outer,
-};
-use crate::validated::bitmask::Bitmask;
+use crate::macros::{enum_from, enum_from_disp, match_many_to_one, newtype_from_outer};
+use crate::validated::ascii_range::{AsciiRange, Chars, CharsError};
+use crate::validated::bitmask::{Bitmask, BitmaskError};
 
-use super::float_or_int::{BitmaskError, FloatOrInt, FloatProps, NonNanFloat, ToIntError};
+use super::float_or_int::{FloatOrInt, FloatProps, NonNanFloat, ToIntError};
 
 use itertools::Itertools;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
@@ -69,12 +68,6 @@ pub enum Bytes {
     B8,
 }
 
-/// The number of chars or an ASCII measurement
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Hash)]
-pub struct Chars(u8);
-
-const MAX_CHARS: u8 = 20;
-
 /// The value of $PnB if it is fixed.
 ///
 /// Subsequent operations can be used to use it as "bytes" or "characters"
@@ -101,12 +94,12 @@ pub struct FloatType<T, const LEN: usize> {
     pub range: NonNanFloat<T>,
 }
 
-/// The type of an ASCII column in all versions
-#[derive(PartialEq, Clone, Copy, Serialize)]
-pub struct AsciiType {
-    pub chars: Chars,
-    pub range: u64,
-}
+// /// The type of an ASCII column in all versions
+// #[derive(PartialEq, Clone, Copy, Serialize)]
+// pub struct AsciiType {
+//     pub chars: Chars,
+//     pub range: u64,
+// }
 
 pub trait HasNativeType: Sized {
     /// The native rust type
@@ -191,7 +184,7 @@ def_native_wrapper!(F64Type, FloatType, f64, 8, 8, B8);
 
 // float_default!(F32Type, f32);
 
-impl HasNativeType for AsciiType {
+impl HasNativeType for AsciiRange {
     type Native = u64;
 }
 
@@ -292,18 +285,6 @@ byteord_from_sized!(6, O6, B6);
 byteord_from_sized!(7, O7, B7);
 byteord_from_sized!(8, O8, B8);
 
-impl Chars {
-    pub(crate) fn max() -> Self {
-        Self(MAX_CHARS)
-    }
-
-    /// Return number of chars needed to express the given u64.
-    pub(crate) fn from_u64(x: u64) -> Self {
-        // ASSUME the max possible value is 20 thus will always fit in u8
-        Chars(x.checked_ilog10().map(|y| y + 1).unwrap_or(1) as u8)
-    }
-}
-
 impl Bytes {
     /// Return number of bytes needed to express the given u64.
     pub(crate) fn from_u64(x: u64) -> Self {
@@ -317,30 +298,30 @@ impl Bytes {
     }
 }
 
-impl Default for AsciiType {
-    fn default() -> Self {
-        Self {
-            chars: Chars::max(),
-            range: u64::MAX,
-        }
-    }
-}
+// impl Default for AsciiType {
+//     fn default() -> Self {
+//         Self {
+//             chars: Chars::max(),
+//             range: u64::MAX,
+//         }
+//     }
+// }
 
-impl AsciiType {
-    // pub(crate) fn try_from_range(range: FloatOrInt) -> Result<Self, ToIntError<u64>> {
-    //     u64::try_from(range).map(|x| Self {
-    //         range: x,
-    //         chars: Chars::from_u64(x),
-    //     })
-    // }
+// impl AsciiType {
+//     // pub(crate) fn try_from_range(range: FloatOrInt) -> Result<Self, ToIntError<u64>> {
+//     //     u64::try_from(range).map(|x| Self {
+//     //         range: x,
+//     //         chars: Chars::from_u64(x),
+//     //     })
+//     // }
 
-    pub(crate) fn from_u64(range: u64) -> Self {
-        Self {
-            range,
-            chars: Chars::from_u64(range),
-        }
-    }
-}
+//     pub(crate) fn from_u64(range: u64) -> Self {
+//         Self {
+//             range,
+//             chars: Chars::from_u64(range),
+//         }
+//     }
+// }
 
 impl<const LEN: usize> Serialize for SizedByteOrd<LEN> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -487,23 +468,14 @@ impl TryFrom<Width> for BitsOrChars {
 
 impl TryFrom<BitsOrChars> for Chars {
     type Error = CharsError;
-    /// Return the number of chars represented by this if 20 or less.
-    ///
-    /// 20 is the maximum number of digits representable by an unsigned integer,
-    /// which is the numeric type used to back ASCII data.
     fn try_from(value: BitsOrChars) -> Result<Self, Self::Error> {
-        let x = value.0;
-        if !(1..=MAX_CHARS).contains(&x) {
-            Err(CharsError(x))
-        } else {
-            Ok(Chars(x))
-        }
+        u8::from(value).try_into()
     }
 }
 
 impl From<Chars> for BitsOrChars {
     fn from(value: Chars) -> Self {
-        BitsOrChars(value.0)
+        BitsOrChars(u8::from(value))
     }
 }
 
@@ -523,7 +495,7 @@ impl TryFrom<BitsOrChars> for Bytes {
 
 impl From<Bytes> for BitsOrChars {
     fn from(value: Bytes) -> Self {
-        BitsOrChars(u8::from(value) * 8)
+        BitsOrChars(value.into())
     }
 }
 
@@ -546,7 +518,7 @@ impl From<Width> for Option<u8> {
 
 impl From<Chars> for Width {
     fn from(value: Chars) -> Self {
-        Width::Fixed(BitsOrChars(value.0))
+        Width::Fixed(BitsOrChars(value.into()))
     }
 }
 
@@ -714,8 +686,6 @@ impl fmt::Display for Width {
     }
 }
 
-newtype_disp!(Chars);
-newtype_from_outer!(Chars, u8);
 newtype_from_outer!(BitsOrChars, u8);
 
 pub struct BitsError(u8);
@@ -728,8 +698,6 @@ pub enum ParseByteOrdError {
 pub struct NewByteOrdError(usize);
 
 pub struct NewEndianError;
-
-pub struct CharsError(u8);
 
 pub struct BytesError(u8);
 
@@ -819,16 +787,6 @@ impl fmt::Display for ByteOrdToSizedError {
 impl fmt::Display for BitsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "bits must be between 1 and 64, got {}", self.0)
-    }
-}
-
-impl fmt::Display for CharsError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "bits must be <= 20 to use as number of characters, got {}",
-            self.0
-        )
     }
 }
 

@@ -1,8 +1,9 @@
 use crate::error::BiTentative;
 use crate::macros::{enum_from, enum_from_disp, newtype_disp, newtype_from_outer};
+use crate::validated::ascii_range::Chars;
 use crate::validated::bitmask::{Bitmask, BitmaskTruncationError};
 
-use super::byteord::{Bytes, Chars};
+use super::byteord::Bytes;
 
 use num_traits::bounds::Bounded;
 use num_traits::float::Float;
@@ -156,20 +157,6 @@ impl FloatOrInt {
             |x| (x, None),
         );
         BiTentative::new_either1(x, e, notrunc)
-    }
-
-    pub(crate) fn as_bitmask<const LEN: usize, T>(
-        &self,
-        notrunc: bool,
-    ) -> BiTentative<Bitmask<T, LEN>, BitmaskError>
-    where
-        T: TryFrom<Self, Error = ToIntError<T>> + PrimInt,
-        u64: From<T>,
-    {
-        // TODO subtract 1 from here
-        self.as_uint(notrunc)
-            .inner_into()
-            .and_tentatively(|x| Bitmask::from_native_tnt(x, notrunc).inner_into())
     }
 }
 
@@ -415,12 +402,6 @@ pub enum ToFloatError<X> {
     /// f64 is smaller than target float can hold
     FloatUnderrange(f64),
 }
-
-enum_from_disp!(
-    pub BitmaskError,
-    [ToInt, IntRangeError],
-    [Trunc, BitmaskTruncationError]
-);
 
 pub enum IntRangeError {
     // IntTruncated(u64),

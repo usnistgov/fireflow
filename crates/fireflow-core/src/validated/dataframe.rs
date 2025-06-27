@@ -1,6 +1,6 @@
 use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
-use crate::text::byteord::Chars;
 use crate::text::index::BoundaryIndexError;
+use crate::validated::ascii_range::Chars;
 
 use polars_arrow::array::{Array, PrimitiveArray};
 use polars_arrow::buffer::Buffer;

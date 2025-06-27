@@ -1,4 +1,7 @@
-use crate::error::BiTentative;
+use crate::error::{BiTentative, DeferredExt, DeferredResult, ResultExt};
+use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
+use crate::text::byteord::{Bytes, Width};
+use crate::text::float_or_int::{FloatOrInt, IntRangeError, ToIntError};
 
 use num_traits::PrimInt;
 use serde::Serialize;
@@ -17,10 +20,23 @@ pub struct Bitmask<T, const LEN: usize> {
     /// Will always be a power of 2 minus 1 (ie, some number of contiguous bits
     /// in binary). This will be able to hold ['range'] but will mask out any
     /// bits beyond those needed to express ['range'].
-    mask: T,
+    bitmask: T,
 }
 
 impl<T, const LEN: usize> Bitmask<T, LEN> {
+    /// Make new bitmask from float or integer.
+    pub(crate) fn from_range(range: FloatOrInt, notrunc: bool) -> BiTentative<Self, BitmaskError>
+    where
+        T: TryFrom<FloatOrInt, Error = ToIntError<T>> + PrimInt,
+        u64: From<T>,
+    {
+        // TODO subtract 1 from here (or somewhere)
+        range
+            .as_uint(notrunc)
+            .inner_into()
+            .and_tentatively(|x| Bitmask::from_native_tnt(x, notrunc).inner_into())
+    }
+
     pub(crate) fn value(&self) -> T
     where
         T: Copy,
@@ -28,46 +44,18 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
         self.value
     }
 
+    pub(crate) fn bitmask(&self) -> T
+    where
+        T: Copy,
+    {
+        self.bitmask
+    }
+
     pub(crate) fn apply(&self, value: T) -> T
     where
         T: Ord + Copy,
     {
-        self.mask.min(value)
-    }
-
-    pub(crate) fn from_native(value: T) -> (Self, bool)
-    where
-        T: PrimInt,
-    {
-        // ASSUME number of bits will never exceed 64 (or 255 for that matter)
-        // and thus will fit in a u8
-        let native_bits = (std::mem::size_of::<T>() * 8) as u8;
-        let value_bits = native_bits - (value.leading_zeros() as u8);
-        let truncated = value_bits > Self::bits();
-        let bits = value_bits.min(Self::bits());
-        let mask = if bits == 0 {
-            T::zero()
-        } else if bits == native_bits {
-            T::max_value()
-        } else {
-            (T::one() << usize::from(value_bits)) - T::one()
-        };
-        (
-            Self {
-                mask,
-                value: value.min(mask),
-            },
-            truncated,
-        )
-    }
-
-    fn from_u64(value: u64) -> (Self, bool)
-    where
-        T: PrimInt + TryFrom<u64>,
-    {
-        T::try_from(value)
-            .map(Self::from_native)
-            .unwrap_or((Self::max(), true))
+        self.bitmask.min(value)
     }
 
     pub(crate) fn from_native_tnt(
@@ -106,6 +94,41 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
         BiTentative::new_either1(bitmask, error, notrunc)
     }
 
+    pub(crate) fn from_native(value: T) -> (Self, bool)
+    where
+        T: PrimInt,
+    {
+        // ASSUME number of bits will never exceed 64 (or 255 for that matter)
+        // and thus will fit in a u8
+        let native_bits = (std::mem::size_of::<T>() * 8) as u8;
+        let value_bits = native_bits - (value.leading_zeros() as u8);
+        let truncated = value_bits > Self::bits();
+        let bits = value_bits.min(Self::bits());
+        let mask = if bits == 0 {
+            T::zero()
+        } else if bits == native_bits {
+            T::max_value()
+        } else {
+            (T::one() << usize::from(value_bits)) - T::one()
+        };
+        (
+            Self {
+                bitmask: mask,
+                value: value.min(mask),
+            },
+            truncated,
+        )
+    }
+
+    fn from_u64(value: u64) -> (Self, bool)
+    where
+        T: PrimInt + TryFrom<u64>,
+    {
+        T::try_from(value)
+            .map(Self::from_native)
+            .unwrap_or((Self::max(), true))
+    }
+
     fn max() -> Self
     where
         T: PrimInt,
@@ -136,3 +159,9 @@ impl fmt::Display for BitmaskTruncationError {
         )
     }
 }
+
+enum_from_disp!(
+    pub BitmaskError,
+    [ToInt, IntRangeError],
+    [Trunc, BitmaskTruncationError]
+);

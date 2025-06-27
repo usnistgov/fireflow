@@ -1,3 +1,4 @@
+pub mod ascii_range;
 pub mod ascii_uint;
 pub mod bitmask;
 pub mod dataframe;

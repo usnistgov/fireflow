@@ -1772,8 +1772,8 @@ where
     /// [CoreTEXT]. This means it will not include $TOT, since this depends on
     /// the DATA segment.
     pub fn raw_keywords(&self, want_req: Option<bool>, want_meta: Option<bool>) -> RawKeywords {
-        let req_meta: Vec<_> = self.req_meta_keywords().collect();
-        let opt_meta: Vec<_> = self.opt_meta_keywords().collect();
+        let req_meta: Vec<_> = self.req_root_keywords().collect();
+        let opt_meta: Vec<_> = self.opt_root_keywords().collect();
         let req_meas: Vec<_> = self.req_meas_keywords().collect();
         let opt_meas: Vec<_> = self.opt_meas_keywords().collect();
 
@@ -2457,12 +2457,12 @@ where
         Version: From<M::Ver>,
     {
         let req: Vec<_> = self
-            .req_meta_keywords()
+            .req_root_keywords()
             .chain([ReqMetarootKey::pair(&tot)])
             .chain(self.req_meas_keywords())
             .collect();
         let opt: Vec<_> = self
-            .opt_meta_keywords()
+            .opt_root_keywords()
             .chain(self.opt_meas_keywords())
             .collect();
         if Version::from(M::Ver::fcs_version()) == Version::FCS2_0 {
@@ -2478,6 +2478,11 @@ where
         } else {
             None
         };
+        let lv = self
+            .layout
+            .as_ref_opt()
+            .map(|l| l.opt_meas_keywords())
+            .unwrap_or_default();
         self.measurements
             .iter_with(
                 &|i, x| Temporal::opt_meas_keywords(&x.value, i).collect::<Vec<_>>(),
@@ -2485,6 +2490,7 @@ where
             )
             .flatten()
             .chain(ns.into_iter().flatten())
+            .chain(lv.into_iter().flat_map(|(k, _, v)| v.map(|x| (k, x))))
     }
 
     fn req_meas_keywords(&self) -> impl Iterator<Item = (String, String)> {
@@ -2493,6 +2499,11 @@ where
         } else {
             None
         };
+        let lv = self
+            .layout
+            .as_ref_opt()
+            .map(|l| Vec::from(l.req_meas_keywords()))
+            .unwrap_or_default();
         self.measurements
             .iter_with(
                 &|i, x| Temporal::req_meas_keywords(&x.value, i).collect::<Vec<_>>(),
@@ -2500,18 +2511,25 @@ where
             )
             .flatten()
             .chain(ns.into_iter().flatten())
+            .chain(lv.into_iter().map(|(k, _, v)| (k, v)))
     }
 
-    fn req_meta_keywords(&self) -> impl Iterator<Item = (String, String)> {
+    fn req_root_keywords(&self) -> impl Iterator<Item = (String, String)> {
         let time_meta = self
             .measurements
             .as_center()
             .map(|tc| Temporal::req_meta_keywords(tc.value));
+        let lv = self
+            .layout
+            .as_ref_opt()
+            .into_iter()
+            .flat_map(|l| l.req_keywords().into_iter());
         Metaroot::all_req_keywords(&self.metaroot, self.par())
             .chain(time_meta.into_iter().flatten())
+            .chain(lv)
     }
 
-    fn opt_meta_keywords(&self) -> impl Iterator<Item = (String, String)> {
+    fn opt_root_keywords(&self) -> impl Iterator<Item = (String, String)> {
         Metaroot::all_opt_keywords(&self.metaroot)
     }
 
@@ -2521,6 +2539,7 @@ where
             .map(|(i, n)| (Shortname::std(i.into()).to_string(), n.to_string()))
     }
 
+    // TODO add layout keywords back to this
     fn meas_table(&self, delim: &str) -> Vec<String>
     where
         M::Temporal: Clone,

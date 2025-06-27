@@ -280,16 +280,16 @@ pub struct MaybeTot;
 #[derive(Clone, Serialize)]
 pub struct KnownTot;
 
-/// A struct whose fields map 1-1 with keyword values pertaining to data layout.
-pub struct LayoutValues<S, D> {
-    datatype: AlphaNumType,
-    byte_layout: S,
-    columns: Vec<ColumnLayoutValues<D>>,
-}
+// /// A struct whose fields map 1-1 with keyword values pertaining to data layout.
+// pub struct LayoutValues<S, D> {
+//     datatype: AlphaNumType,
+//     byte_layout: S,
+//     columns: Vec<ColumnLayoutValues<D>>,
+// }
 
-type OrderedLayoutValues = LayoutValues<ByteOrd, ()>;
-type LayoutValues3_1 = LayoutValues<Endian, ()>;
-type LayoutValues3_2 = LayoutValues<Endian, Option<NumType>>;
+// type OrderedLayoutValues = LayoutValues<ByteOrd, ()>;
+// type LayoutValues3_1 = LayoutValues<Endian, ()>;
+// type LayoutValues3_2 = LayoutValues<Endian, Option<NumType>>;
 
 /// A struct whose fields map 1-1 with keyword values in one data column
 pub struct ColumnLayoutValues<D> {
@@ -449,7 +449,13 @@ pub trait VersionedDataLayout: Sized {
     fn h_write_df_inner<W: Write>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame)
         -> io::Result<()>;
 
-    fn layout_values(&self) -> LayoutValues<Self::ByteLayout, Self::ColDatatype>;
+    // fn layout_values(&self) -> LayoutValues<Self::ByteLayout, Self::ColDatatype>;
+
+    fn req_keywords(&self) -> [(String, String); 2];
+
+    fn req_meas_keywords(&self) -> NonEmpty<(String, String, String)>;
+
+    fn opt_meas_keywords(&self) -> Vec<(String, String, Option<String>)>;
 }
 
 pub trait HasNativeType: Sized {
@@ -481,6 +487,13 @@ pub trait IsFixed {
     fn fixed_width(&self) -> BitsOrChars;
 
     fn range(&self) -> Range;
+
+    fn req_meas_keywords(&self, i: MeasIndex) -> [(String, String, String); 2] {
+        [
+            Width::Fixed(self.fixed_width()).triple(i.into()),
+            self.range().triple(i.into()),
+        ]
+    }
 }
 
 /// A column which may be transformed into a reader for a rust numeric type
@@ -736,7 +749,7 @@ trait FloatFromBytes<const LEN: usize>: NumProps + OrderedFromBytes<LEN> {
 }
 
 /// Methods for converting between FCS TEXT keywords and column layouts.
-trait VersionedColumnLayout: Sized {
+pub(crate) trait VersionedColumnLayout: Sized {
     fn lookup_all(kws: &mut StdKeywords, par: Par) -> LookupResult<Vec<Self>> {
         (0..par.0)
             .map(|i| Self::lookup(kws, i.into()))
@@ -1607,14 +1620,14 @@ impl<T> Serialize for DelimAsciiLayout<T> {
 }
 
 impl<T> FixedAsciiLayout<T> {
-    fn ascii_layout_values<D: Copy, S: Default>(&self, datatype: D) -> LayoutValues<S, D> {
-        LayoutValues {
-            datatype: AlphaNumType::Ascii,
-            // NOTE BYTEORD is meaningless for ASCII so use dummy
-            byte_layout: S::default(),
-            columns: self.column_layout_values(datatype).into(),
-        }
-    }
+    // fn ascii_layout_values<D: Copy, S: Default>(&self, datatype: D) -> LayoutValues<S, D> {
+    //     LayoutValues {
+    //         datatype: AlphaNumType::Ascii,
+    //         // NOTE BYTEORD is meaningless for ASCII so use dummy
+    //         byte_layout: S::default(),
+    //         columns: self.column_layout_values(datatype).into(),
+    //     }
+    // }
 
     fn column_layout_values<D: Copy>(&self, datatype: D) -> NonEmpty<ColumnLayoutValues<D>> {
         self.columns.as_ref().map(|c| ColumnLayoutValues {
@@ -1646,17 +1659,52 @@ impl EndianLayout<AnyNullBitmask> {
 }
 
 impl EndianLayout<NullMixedType> {
-    fn mixed_layout_values(&self) -> LayoutValues<Endian, Option<NumType>> {
-        let cs: NonEmpty<_> = self.columns.as_ref().map(|c| ColumnLayoutValues {
-            width: Width::Fixed(c.fixed_width()),
-            range: c.range(),
-            datatype: c.as_num_type(),
-        });
+    // fn mixed_layout_values(&self) -> LayoutValues<Endian, Option<NumType>> {
+    //     let cs: NonEmpty<_> = self.columns.as_ref().map(|c| ColumnLayoutValues {
+    //         width: Width::Fixed(c.fixed_width()),
+    //         range: c.range(),
+    //         datatype: c.as_num_type(),
+    //     });
+    //     // If any numeric types are none, then that means at least one column is
+    //     // ASCII, which means that $DATATYPE needs to be "A" since $PnDATATYPE
+    //     // cannot be "A".
+    //     let (datatype, columns) = if let Ok(mut ds) = cs.as_ref().try_map(|c| c.datatype.ok_or(()))
+    //     {
+    //         // Determine which type appears the most, use that for $DATATYPE
+    //         ds.sort();
+    //         // TODO this should be a general non-empty function
+    //         let mut counts = NonEmpty::new((ds.head, 1));
+    //         for d in ds.tail {
+    //             if counts.last().0 == d {
+    //                 counts.last_mut().1 += 1;
+    //             } else {
+    //                 counts.push((d, 1));
+    //             }
+    //         }
+    //         let mode = counts.maximum_by_key(|x| x.1).0;
+    //         // Set all columns which have same type as $DATATYPE to None
+    //         let new_cs = cs.map(|mut c| {
+    //             if c.datatype.is_some_and(|x| x == mode) {
+    //                 c.datatype = None;
+    //             }
+    //             c
+    //         });
+    //         (mode.into(), new_cs)
+    //     } else {
+    //         (AlphaNumType::Ascii, cs)
+    //     };
+    //     LayoutValues3_2 {
+    //         datatype,
+    //         byte_layout: self.byte_layout,
+    //         columns: columns.into(),
+    //     }
+    // }
+
+    fn primary_datatype(&self) -> AlphaNumType {
         // If any numeric types are none, then that means at least one column is
         // ASCII, which means that $DATATYPE needs to be "A" since $PnDATATYPE
         // cannot be "A".
-        let (datatype, columns) = if let Ok(mut ds) = cs.as_ref().try_map(|c| c.datatype.ok_or(()))
-        {
+        if let Ok(mut ds) = self.columns.as_ref().try_map(|c| c.as_num_type().ok_or(())) {
             // Determine which type appears the most, use that for $DATATYPE
             ds.sort();
             // TODO this should be a general non-empty function
@@ -1669,21 +1717,9 @@ impl EndianLayout<NullMixedType> {
                 }
             }
             let mode = counts.maximum_by_key(|x| x.1).0;
-            // Set all columns which have same type as $DATATYPE to None
-            let new_cs = cs.map(|mut c| {
-                if c.datatype.is_some_and(|x| x == mode) {
-                    c.datatype = None;
-                }
-                c
-            });
-            (mode.into(), new_cs)
+            mode.into()
         } else {
-            (AlphaNumType::Ascii, cs)
-        };
-        LayoutValues3_2 {
-            datatype,
-            byte_layout: self.byte_layout,
-            columns: columns.into(),
+            AlphaNumType::Ascii
         }
     }
 
@@ -2065,44 +2101,44 @@ fn ascii_to_uint(buf: &[u8]) -> Result<u64, AsciiToUintError> {
     }
 }
 
-impl<S, D> LayoutValues<S, D> {
-    fn req_keywords(&self) -> impl Iterator<Item = (String, String)>
-    where
-        S: ReqMetarootKey,
-    {
-        [self.datatype.pair(), self.byte_layout.pair()].into_iter()
-    }
+// impl<S, D> LayoutValues<S, D> {
+//     pub(crate) fn req_keywords(&self) -> impl Iterator<Item = (String, String)>
+//     where
+//         S: ReqMetarootKey,
+//     {
+//         [self.datatype.pair(), self.byte_layout.pair()].into_iter()
+//     }
 
-    fn req_meas_keywords(&self) -> impl Iterator<Item = (String, String, String)>
-    where
-        ColumnLayoutValues<D>: VersionedColumnLayout,
-    {
-        self.columns
-            .iter()
-            .enumerate()
-            .flat_map(|(i, c)| c.req_keywords(i.into()))
-    }
+//     pub(crate) fn req_meas_keywords(&self) -> impl Iterator<Item = (String, String, String)>
+//     where
+//         ColumnLayoutValues<D>: VersionedColumnLayout,
+//     {
+//         self.columns
+//             .iter()
+//             .enumerate()
+//             .flat_map(|(i, c)| c.req_keywords(i.into()))
+//     }
 
-    fn opt_meas_keywords(&self) -> impl Iterator<Item = (String, String, Option<String>)>
-    where
-        ColumnLayoutValues<D>: VersionedColumnLayout,
-    {
-        self.columns
-            .iter()
-            .enumerate()
-            .flat_map(|(i, c)| c.opt_keywords(i.into()))
-    }
-}
+//     pub(crate) fn opt_meas_keywords(&self) -> impl Iterator<Item = (String, String, Option<String>)>
+//     where
+//         ColumnLayoutValues<D>: VersionedColumnLayout,
+//     {
+//         self.columns
+//             .iter()
+//             .enumerate()
+//             .flat_map(|(i, c)| c.opt_keywords(i.into()))
+//     }
+// }
 
-impl<S: Default, D> Default for LayoutValues<S, D> {
-    fn default() -> Self {
-        Self {
-            datatype: AlphaNumType::Integer,
-            byte_layout: S::default(),
-            columns: vec![],
-        }
-    }
-}
+// impl<S: Default, D> Default for LayoutValues<S, D> {
+//     fn default() -> Self {
+//         Self {
+//             datatype: AlphaNumType::Integer,
+//             byte_layout: S::default(),
+//             columns: vec![],
+//         }
+//     }
+// }
 
 impl VersionedColumnLayout for ColumnLayoutValues2_0 {
     fn lookup(kws: &mut StdKeywords, i: MeasIndex) -> LookupResult<Self> {
@@ -2214,22 +2250,22 @@ impl<T> DelimAsciiLayout<T> {
         }
     }
 
-    fn layout_values<D: Copy, S: Default>(&self, datatype: D) -> LayoutValues<S, D> {
-        LayoutValues {
-            datatype: AlphaNumType::Ascii,
-            // NOTE BYTEORD is meaningless for delimited ASCII so use a dummy
-            byte_layout: S::default(),
-            columns: self.column_layout_values(datatype).into(),
-        }
-    }
+    // fn layout_values<D: Copy, S: Default>(&self, datatype: D) -> LayoutValues<S, D> {
+    //     LayoutValues {
+    //         datatype: AlphaNumType::Ascii,
+    //         // NOTE BYTEORD is meaningless for delimited ASCII so use a dummy
+    //         byte_layout: S::default(),
+    //         columns: self.column_layout_values(datatype).into(),
+    //     }
+    // }
 
-    fn column_layout_values<D: Copy>(&self, datatype: D) -> NonEmpty<ColumnLayoutValues<D>> {
-        self.ranges.as_ref().map(|r| ColumnLayoutValues {
-            width: Width::Variable,
-            range: Range((*r).into()),
-            datatype,
-        })
-    }
+    // fn column_layout_values<D: Copy>(&self, datatype: D) -> NonEmpty<ColumnLayoutValues<D>> {
+    //     self.ranges.as_ref().map(|r| ColumnLayoutValues {
+    //         width: Width::Variable,
+    //         range: Range((*r).into()),
+    //         datatype,
+    //     })
+    // }
 
     // fn insert(&mut self, index: MeasIndex, range: u64) -> Result<(), BoundaryIndexError> {
     //     IndexFromOne::from(index)
@@ -2303,6 +2339,20 @@ impl<T> DelimAsciiLayout<T> {
             }
         }
         Ok(())
+    }
+
+    fn req_keywords<X: Default + ReqMetarootKey>(&self) -> [(String, String); 2] {
+        // NOTE BYTEORD is meaningless for delimited ASCII so use a dummy
+        [AlphaNumType::Ascii.pair(), X::default().pair()]
+    }
+
+    fn req_meas_keywords(&self) -> NonEmpty<(String, String, String)> {
+        let xs = self.ranges.as_ref().enumerate().map(|(i, r)| {
+            let x = Width::Variable.triple(i.into());
+            let y = Range((*r).into()).triple(i.into());
+            NonEmpty::from((x, vec![y]))
+        });
+        NonEmpty::flatten(xs)
     }
 }
 
@@ -2503,26 +2553,26 @@ impl<C, S, T> FixedLayout<C, S, T> {
         self.columns.remove_nocheck(index.into())
     }
 
-    fn layout_values<D: Copy, R>(&self, datatype: D) -> LayoutValues<R, D>
-    where
-        R: From<S>,
-        S: Copy,
-        C: IsFixed + HasDatatype,
-    {
-        LayoutValues {
-            datatype: C::DATATYPE,
-            byte_layout: self.byte_layout.into(),
-            columns: self
-                .columns
-                .as_ref()
-                .map(|c| ColumnLayoutValues {
-                    width: Width::Fixed(c.fixed_width()),
-                    range: c.range(),
-                    datatype,
-                })
-                .into(),
-        }
-    }
+    // fn layout_values<D: Copy, R>(&self, datatype: D) -> LayoutValues<R, D>
+    // where
+    //     R: From<S>,
+    //     S: Copy,
+    //     C: IsFixed + HasDatatype,
+    // {
+    //     LayoutValues {
+    //         datatype: C::DATATYPE,
+    //         byte_layout: self.byte_layout.into(),
+    //         columns: self
+    //             .columns
+    //             .as_ref()
+    //             .map(|c| ColumnLayoutValues {
+    //                 width: Width::Fixed(c.fixed_width()),
+    //                 range: c.range(),
+    //                 datatype,
+    //             })
+    //             .into(),
+    //     }
+    // }
 
     fn h_read_df_numeric<R: Read, I, W, E>(
         &self,
@@ -2714,6 +2764,26 @@ impl<C, S, T> FixedLayout<C, S, T> {
             Tentative::new1(total_events)
         }
     }
+
+    fn req_keywords<X>(&self, byteord: X) -> [(String, String); 2]
+    where
+        S: Copy,
+        X: ReqMetarootKey,
+        C: HasDatatype,
+    {
+        [byteord.pair(), C::DATATYPE.pair()]
+    }
+
+    fn req_meas_keywords(&self) -> NonEmpty<(String, String, String)>
+    where
+        C: IsFixed,
+    {
+        let xs = self.columns.as_ref().enumerate().map(|(i, c)| {
+            let [x, y] = c.req_meas_keywords(i.into());
+            NonEmpty::from((x, vec![y]))
+        });
+        NonEmpty::flatten(xs)
+    }
 }
 
 impl<C, const LEN: usize, S, T> FixedLayout<FloatRange<C, LEN>, S, T> {
@@ -2861,6 +2931,10 @@ def_native_wrapper!(F64Range, f64, 8, 8, B8);
 
 impl HasNativeType for AsciiRange {
     type Native = u64;
+}
+
+impl HasDatatype for AsciiRange {
+    const DATATYPE: AlphaNumType = AlphaNumType::Ascii;
 }
 
 impl<T, const LEN: usize> HasDatatype for Bitmask<T, LEN> {
@@ -3044,9 +3118,9 @@ macro_rules! match_any_uint {
 }
 
 impl<T> AnyOrderedUintLayout<T> {
-    fn layout_values(&self) -> OrderedLayoutValues {
-        match_any_uint!(self, Self, l, { l.layout_values(()) })
-    }
+    // fn layout_values(&self) -> OrderedLayoutValues {
+    //     match_any_uint!(self, Self, l, { l.layout_values(()) })
+    // }
 
     fn tot_into<X>(self) -> AnyOrderedUintLayout<X> {
         match_any_uint!(self, Self, l, { l.tot_into().into() })
@@ -3168,15 +3242,25 @@ impl<T> AnyOrderedUintLayout<T> {
             l.h_write_df::<_, ColumnWriter<_, _, _>>(h, df)
         })
     }
+
+    fn req_keywords(&self) -> [(String, String); 2] {
+        match_any_uint!(self, Self, l, {
+            l.req_keywords(ByteOrd::from(l.byte_layout))
+        })
+    }
+
+    fn req_meas_keywords(&self) -> NonEmpty<(String, String, String)> {
+        match_any_uint!(self, Self, l, { l.req_meas_keywords() })
+    }
 }
 
 impl<T> AnyAsciiLayout<T> {
-    fn layout_values<D: Copy, S: Default>(&self, datatype: D) -> LayoutValues<S, D> {
-        match self {
-            Self::Delimited(x) => x.layout_values(datatype),
-            Self::Fixed(x) => x.ascii_layout_values(datatype),
-        }
-    }
+    // fn layout_values<D: Copy, S: Default>(&self, datatype: D) -> LayoutValues<S, D> {
+    //     match self {
+    //         Self::Delimited(x) => x.layout_values(datatype),
+    //         Self::Fixed(x) => x.ascii_layout_values(datatype),
+    //     }
+    // }
 
     fn tot_into<X>(self) -> AnyAsciiLayout<X> {
         match self {
@@ -3326,6 +3410,20 @@ impl<T> AnyAsciiLayout<T> {
             Self::Delimited(l) => l.h_write_df(h, df),
         }
     }
+
+    fn req_keywords<X: Default + ReqMetarootKey>(&self) -> [(String, String); 2] {
+        match self {
+            Self::Fixed(l) => l.req_keywords(X::default()),
+            Self::Delimited(l) => l.req_keywords::<X>(),
+        }
+    }
+
+    fn req_meas_keywords(&self) -> NonEmpty<(String, String, String)> {
+        match self {
+            Self::Fixed(l) => l.req_meas_keywords(),
+            Self::Delimited(l) => l.req_meas_keywords(),
+        }
+    }
 }
 
 impl VersionedDataLayout for Layout2_0 {
@@ -3416,8 +3514,20 @@ impl VersionedDataLayout for Layout2_0 {
         self.0.h_write_df(h, df)
     }
 
-    fn layout_values(&self) -> OrderedLayoutValues {
-        self.0.layout_values()
+    // fn layout_values(&self) -> OrderedLayoutValues {
+    //     self.0.layout_values()
+    // }
+
+    fn req_keywords(&self) -> [(String, String); 2] {
+        self.0.req_keywords()
+    }
+
+    fn req_meas_keywords(&self) -> NonEmpty<(String, String, String)> {
+        self.0.req_meas_keywords()
+    }
+
+    fn opt_meas_keywords(&self) -> Vec<(String, String, Option<String>)> {
+        vec![]
     }
 }
 
@@ -3509,8 +3619,20 @@ impl VersionedDataLayout for Layout3_0 {
         self.0.h_write_df(h, df)
     }
 
-    fn layout_values(&self) -> OrderedLayoutValues {
-        self.0.layout_values()
+    // fn layout_values(&self) -> OrderedLayoutValues {
+    //     self.0.layout_values()
+    // }
+
+    fn req_keywords(&self) -> [(String, String); 2] {
+        self.0.req_keywords()
+    }
+
+    fn req_meas_keywords(&self) -> NonEmpty<(String, String, String)> {
+        self.0.req_meas_keywords()
+    }
+
+    fn opt_meas_keywords(&self) -> Vec<(String, String, Option<String>)> {
+        vec![]
     }
 }
 
@@ -3624,8 +3746,20 @@ impl VersionedDataLayout for Layout3_1 {
         self.0.h_write_df(h, df)
     }
 
-    fn layout_values(&self) -> LayoutValues3_1 {
-        self.0.layout_values(())
+    // fn layout_values(&self) -> LayoutValues3_1 {
+    //     self.0.layout_values(())
+    // }
+
+    fn req_keywords(&self) -> [(String, String); 2] {
+        self.0.req_keywords()
+    }
+
+    fn req_meas_keywords(&self) -> NonEmpty<(String, String, String)> {
+        self.0.req_meas_keywords()
+    }
+
+    fn opt_meas_keywords(&self) -> Vec<(String, String, Option<String>)> {
+        vec![]
     }
 }
 
@@ -3802,116 +3936,52 @@ impl VersionedDataLayout for Layout3_2 {
         }
     }
 
-    fn layout_values(&self) -> LayoutValues3_2 {
+    // fn layout_values(&self) -> LayoutValues3_2 {
+    //     match self {
+    //         Self::NonMixed(x) => x.layout_values(None),
+    //         Self::Mixed(x) => x.mixed_layout_values(),
+    //     }
+    // }
+
+    fn req_keywords(&self) -> [(String, String); 2] {
         match self {
-            Self::NonMixed(x) => x.layout_values(None),
-            Self::Mixed(x) => x.mixed_layout_values(),
+            Self::NonMixed(x) => x.req_keywords(),
+            Self::Mixed(x) => [x.primary_datatype().pair(), x.byte_layout.pair()],
+        }
+    }
+
+    fn req_meas_keywords(&self) -> NonEmpty<(String, String, String)> {
+        match self {
+            Self::NonMixed(x) => x.req_meas_keywords(),
+            Self::Mixed(x) => x.req_meas_keywords(),
+        }
+    }
+
+    fn opt_meas_keywords(&self) -> Vec<(String, String, Option<String>)> {
+        match self {
+            Self::NonMixed(_) => vec![],
+            Self::Mixed(x) => {
+                let dt = x.primary_datatype();
+                x.columns
+                    .iter()
+                    .map(|c| c.as_num_type())
+                    .filter(|&pdt| pdt.is_some_and(|x| AlphaNumType::from(x) != dt))
+                    .enumerate()
+                    // TODO into thing is silly
+                    .map(|(i, x)| NumType::triple(&x.into(), i.into()))
+                    .collect()
+            }
         }
     }
 }
 
-// impl Layout2_0 {
-//     fn into_reader<W, E>(
-//         self,
-//         tot: Option<Tot>,
-//         seg: AnyDataSegment,
-//         conf: &ReaderConfig,
-//     ) -> Tentative<DataReader, W, E>
-//     where
-//         W: From<TotEventMismatch> + From<UnevenEventWidth>,
-//         E: From<TotEventMismatch> + From<UnevenEventWidth>,
-//     {
-//         let go = |tnt: Tentative<AlphaNumReader, _, _>, maybe_tot| {
-//             tnt.inner_into()
-//                 .and_tentatively(|reader| {
-//                     if let Some(_tot) = maybe_tot {
-//                         reader
-//                             .check_tot(_tot, conf.allow_tot_mismatch)
-//                             .inner_into()
-//                             .map(|_| reader)
-//                     } else {
-//                         Tentative::new1(reader)
-//                     }
-//                 })
-//                 .map(ColumnReader::AlphaNum)
-//         };
-//         match self.0 {
-//             AnyOrderedLayout::Ascii(a) => a.into_col_reader_maybe_rows(seg, tot, conf).inner_into(),
-//             AnyOrderedLayout::Integer(fl) => go(fl.into_col_reader_inner(seg, conf), tot),
-//             AnyOrderedLayout::F32(fl) => go(fl.into_col_reader_inner(seg, conf), tot),
-//             AnyOrderedLayout::F64(fl) => go(fl.into_col_reader_inner(seg, conf), tot),
-//         }
-//         .map(|r| r.into_data_reader(seg))
-//     }
-// }
-
-// impl Layout3_0 {
-//     fn into_reader<W, E>(
-//         self,
-//         tot: Tot,
-//         seg: AnyDataSegment,
-//         conf: &ReaderConfig,
-//     ) -> Tentative<DataReader, W, E>
-//     where
-//         W: From<UnevenEventWidth>,
-//         E: From<UnevenEventWidth>,
-//         W: From<TotEventMismatch>,
-//         E: From<TotEventMismatch>,
-//     {
-//         match self.0 {
-//             AnyOrderedLayout::Ascii(a) => a.into_col_reader(seg, tot, conf),
-//             AnyOrderedLayout::Integer(fl) => fl.into_col_reader(seg, tot, conf),
-//             AnyOrderedLayout::F32(fl) => fl.into_col_reader(seg, tot, conf),
-//             AnyOrderedLayout::F64(fl) => fl.into_col_reader(seg, tot, conf),
-//         }
-//         .map(|r| r.into_data_reader(seg))
-//     }
-// }
-
 impl Layout3_1 {
-    // fn into_reader<W, E>(
-    //     self,
-    //     tot: Tot,
-    //     seg: AnyDataSegment,
-    //     conf: &ReaderConfig,
-    // ) -> Tentative<DataReader, W, E>
-    // where
-    //     W: From<UnevenEventWidth>,
-    //     E: From<UnevenEventWidth>,
-    //     W: From<TotEventMismatch>,
-    //     E: From<TotEventMismatch>,
-    // {
-    //     self.0.into_reader(tot, seg, conf)
-    // }
-
     pub(crate) fn into_ordered<T>(self) -> LayoutConvertResult<AnyOrderedLayout<T>> {
         self.0.into_ordered()
     }
 }
 
 impl Layout3_2 {
-    // fn into_reader<W, E>(
-    //     self,
-    //     tot: Tot,
-    //     seg: AnyDataSegment,
-    //     conf: &ReaderConfig,
-    // ) -> Tentative<DataReader, W, E>
-    // where
-    //     W: From<UnevenEventWidth>,
-    //     E: From<UnevenEventWidth>,
-    //     W: From<TotEventMismatch>,
-    //     E: From<TotEventMismatch>,
-    // {
-    //     match self {
-    //         Self::NonMixed(x) => x.into_reader(tot, seg, conf),
-    //         Self::Mixed(fl) => fl
-    //             .into_col_reader(seg, tot, conf)
-    //             .map(|r| r.into_data_reader(seg)),
-    //     }
-    // }
-
-    // TODO add insert/remove
-
     pub(crate) fn into_ordered<T>(self) -> LayoutConvertResult<AnyOrderedLayout<T>> {
         match self {
             Self::NonMixed(x) => x.into_ordered(),
@@ -3921,14 +3991,14 @@ impl Layout3_2 {
 }
 
 impl<T> AnyOrderedLayout<T> {
-    fn layout_values(&self) -> OrderedLayoutValues {
-        match self {
-            Self::Ascii(x) => x.layout_values(()),
-            Self::Integer(x) => x.layout_values(),
-            Self::F32(x) => x.layout_values(()),
-            Self::F64(x) => x.layout_values(()),
-        }
-    }
+    // fn layout_values(&self) -> OrderedLayoutValues {
+    //     match self {
+    //         Self::Ascii(x) => x.layout_values(()),
+    //         Self::Integer(x) => x.layout_values(),
+    //         Self::F32(x) => x.layout_values(()),
+    //         Self::F64(x) => x.layout_values(()),
+    //     }
+    // }
 
     fn try_new(
         datatype: AlphaNumType,
@@ -4131,6 +4201,24 @@ impl<T> AnyOrderedLayout<T> {
         .into_mult()
     }
 
+    fn req_keywords(&self) -> [(String, String); 2] {
+        match self {
+            Self::Ascii(x) => x.req_keywords::<ByteOrd>(),
+            Self::Integer(x) => x.req_keywords(),
+            Self::F32(x) => x.req_keywords(ByteOrd::from(x.byte_layout)),
+            Self::F64(x) => x.req_keywords(ByteOrd::from(x.byte_layout)),
+        }
+    }
+
+    fn req_meas_keywords(&self) -> NonEmpty<(String, String, String)> {
+        match self {
+            Self::Ascii(x) => x.req_meas_keywords(),
+            Self::Integer(x) => x.req_meas_keywords(),
+            Self::F32(x) => x.req_meas_keywords(),
+            Self::F64(x) => x.req_meas_keywords(),
+        }
+    }
+
     pub(crate) fn into_3_1(self) -> LayoutConvertResult<Layout3_1> {
         self.into_unmixed().map(|x| x.into())
     }
@@ -4141,14 +4229,14 @@ impl<T> AnyOrderedLayout<T> {
 }
 
 impl NonMixedEndianLayout {
-    fn layout_values<D: Copy>(&self, datatype: D) -> LayoutValues<Endian, D> {
-        match self {
-            Self::Ascii(x) => x.layout_values(datatype),
-            Self::Integer(x) => x.layout_values(datatype),
-            Self::F32(x) => x.layout_values(datatype),
-            Self::F64(x) => x.layout_values(datatype),
-        }
-    }
+    // fn layout_values<D: Copy>(&self, datatype: D) -> LayoutValues<Endian, D> {
+    //     match self {
+    //         Self::Ascii(x) => x.layout_values(datatype),
+    //         Self::Integer(x) => x.layout_values(datatype),
+    //         Self::F32(x) => x.layout_values(datatype),
+    //         Self::F64(x) => x.layout_values(datatype),
+    //     }
+    // }
 
     fn try_new(
         datatype: AlphaNumType,
@@ -4285,6 +4373,24 @@ impl NonMixedEndianLayout {
             Self::Integer(x) => x.uint_try_into_ordered().map(AnyOrderedLayout::Integer),
             Self::F32(x) => Ok(AnyOrderedLayout::F32(x.tot_into().byte_layout_into())),
             Self::F64(x) => Ok(AnyOrderedLayout::F64(x.tot_into().byte_layout_into())),
+        }
+    }
+
+    fn req_keywords(&self) -> [(String, String); 2] {
+        match self {
+            Self::Ascii(x) => x.req_keywords::<Endian>(),
+            Self::Integer(x) => x.req_keywords(x.byte_layout),
+            Self::F32(x) => x.req_keywords(x.byte_layout),
+            Self::F64(x) => x.req_keywords(x.byte_layout),
+        }
+    }
+
+    fn req_meas_keywords(&self) -> NonEmpty<(String, String, String)> {
+        match self {
+            Self::Ascii(x) => x.req_meas_keywords(),
+            Self::Integer(x) => x.req_meas_keywords(),
+            Self::F32(x) => x.req_meas_keywords(),
+            Self::F64(x) => x.req_meas_keywords(),
         }
     }
 }

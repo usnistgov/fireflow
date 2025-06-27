@@ -1279,7 +1279,7 @@ impl<V, W, E> DeferredExt for DeferredResult<V, W, E> {
 pub fn def_transpose<X, W, E>(
     x: Option<DeferredResult<X, W, E>>,
 ) -> DeferredResult<Option<X>, W, E> {
-    x.map_or(Ok(Tentative::new1(None)), |x| x.def_map_value(Some))
+    x.map_or(Ok(Tentative::new1(None)), |y| y.def_map_value(Some))
 }
 
 pub trait IODeferredExt: Sized + PassthruExt {

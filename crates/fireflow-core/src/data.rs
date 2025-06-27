@@ -56,8 +56,7 @@ use crate::nonempty::NonEmptyExt;
 use crate::segment::*;
 use crate::text::byteord::*;
 use crate::text::float_or_int::{
-    FloatOrInt, FloatRangeError, IntRangeError, NanFloatError, NonNanFloat, ParseFloatOrIntError,
-    ToFloatError,
+    FloatOrInt, FloatRangeError, IntRangeError, NonNanFloat, ParseFloatOrIntError, ToFloatError,
 };
 use crate::text::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};
 use crate::text::keywords::*;
@@ -65,7 +64,6 @@ use crate::text::optional::{ClearOptional, ClearOptionalOr};
 use crate::text::parser::*;
 use crate::validated::ascii_range;
 use crate::validated::ascii_range::{AsciiRange, Chars};
-use crate::validated::bitmask;
 use crate::validated::bitmask::{
     Bitmask, Bitmask08, Bitmask16, Bitmask24, Bitmask32, Bitmask40, Bitmask48, Bitmask56,
     Bitmask64, BitmaskError,
@@ -264,7 +262,7 @@ struct ColumnWriter<'a, C, T, S> {
 type UintColumnWriter<'a, C> = ColumnWriter<'a, C, <C as HasNativeType>::Native, Endian>;
 
 /// Marker type for columns which are used in a layout (non-reader/writer)
-pub(crate) struct ColumnNullFamily;
+pub struct ColumnNullFamily;
 
 /// Marker type for columns which are in a layout and have data for reading
 struct ColumnReaderFamily;
@@ -301,10 +299,10 @@ pub struct ColumnLayoutValues<D> {
 type ColumnLayoutValues2_0 = ColumnLayoutValues<()>;
 type ColumnLayoutValues3_2 = ColumnLayoutValues<Option<NumType>>;
 
-pub struct UintColumnValues {
-    width: Bytes,
-    range: Range,
-}
+// pub struct UintColumnValues {
+//     width: Bytes,
+//     range: Range,
+// }
 
 // pub enum MixedColumnValues {
 //     Float(NonNanF32),
@@ -592,13 +590,6 @@ trait Writable<'a, S> {
     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: S) -> io::Result<()>;
 }
 
-/// Methods for integer math.
-///
-/// For now this only pertains to finding the next power of 2 for bitmasks.
-trait IntMath: Sized {
-    fn next_bitmask(x: Self) -> Self;
-}
-
 /// General methods for each numeric type.
 ///
 /// This is mostly for converting to/from bytes with various endian-ness.
@@ -779,9 +770,9 @@ pub(crate) trait VersionedColumnLayout: Sized {
         i: MeasIndex,
     ) -> DeferredResult<Self, ParseKeyError<NumTypeError>, RawParsedError>;
 
-    fn req_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (String, String, String)>;
+    // fn req_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (String, String, String)>;
 
-    fn opt_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (String, String, Option<String>)>;
+    // fn opt_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (String, String, Option<String>)>;
 }
 
 macro_rules! impl_null_layout {
@@ -1629,13 +1620,13 @@ impl<T> FixedAsciiLayout<T> {
     //     }
     // }
 
-    fn column_layout_values<D: Copy>(&self, datatype: D) -> NonEmpty<ColumnLayoutValues<D>> {
-        self.columns.as_ref().map(|c| ColumnLayoutValues {
-            width: Width::Fixed(c.fixed_width()),
-            range: Range(c.range().into()),
-            datatype,
-        })
-    }
+    // fn column_layout_values<D: Copy>(&self, datatype: D) -> NonEmpty<ColumnLayoutValues<D>> {
+    //     self.columns.as_ref().map(|c| ColumnLayoutValues {
+    //         width: Width::Fixed(c.fixed_width()),
+    //         range: Range(c.range().into()),
+    //         datatype,
+    //     })
+    // }
 }
 
 impl EndianLayout<AnyNullBitmask> {
@@ -1857,23 +1848,6 @@ impl_num_props!(4, u32);
 impl_num_props!(8, u64);
 impl_num_props!(4, f32);
 impl_num_props!(8, f64);
-
-macro_rules! impl_int_math {
-    ($t:ty) => {
-        impl IntMath for $t {
-            fn next_bitmask(x: Self) -> Self {
-                Self::checked_next_power_of_two(x)
-                    .map(|x| x - 1)
-                    .unwrap_or(Self::MAX)
-            }
-        }
-    };
-}
-
-impl_int_math!(u8);
-impl_int_math!(u16);
-impl_int_math!(u32);
-impl_int_math!(u64);
 
 impl OrderedFromBytes<1> for u8 {}
 impl OrderedFromBytes<2> for u16 {}
@@ -2169,14 +2143,14 @@ impl VersionedColumnLayout for ColumnLayoutValues2_0 {
             .map_err(DeferredFailure::new2)
     }
 
-    fn req_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (String, String, String)> {
-        let j = i.into();
-        [self.range.triple(j), self.width.triple(j)].into_iter()
-    }
+    // fn req_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (String, String, String)> {
+    //     let j = i.into();
+    //     [self.range.triple(j), self.width.triple(j)].into_iter()
+    // }
 
-    fn opt_keywords(&self, _: MeasIndex) -> impl Iterator<Item = (String, String, Option<String>)> {
-        [].into_iter()
-    }
+    // fn opt_keywords(&self, _: MeasIndex) -> impl Iterator<Item = (String, String, Option<String>)> {
+    //     [].into_iter()
+    // }
 }
 
 impl VersionedColumnLayout for ColumnLayoutValues3_2 {
@@ -2217,19 +2191,19 @@ impl VersionedColumnLayout for ColumnLayoutValues3_2 {
             })
     }
 
-    fn req_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (String, String, String)> {
-        let j = i.into();
-        [self.range.triple(j), self.width.triple(j)].into_iter()
-    }
+    // fn req_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (String, String, String)> {
+    //     let j = i.into();
+    //     [self.range.triple(j), self.width.triple(j)].into_iter()
+    // }
 
-    fn opt_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (String, String, Option<String>)> {
-        [(
-            NumType::std(i.into()).to_string(),
-            NumType::std_blank(),
-            self.datatype.map(|x| x.to_string()),
-        )]
-        .into_iter()
-    }
+    // fn opt_keywords(&self, i: MeasIndex) -> impl Iterator<Item = (String, String, Option<String>)> {
+    //     [(
+    //         NumType::std(i.into()).to_string(),
+    //         NumType::std_blank(),
+    //         self.datatype.map(|x| x.to_string()),
+    //     )]
+    //     .into_iter()
+    // }
 }
 
 impl From<ColumnLayoutValues3_2> for ColumnLayoutValues2_0 {
@@ -2787,18 +2761,18 @@ impl<C, S, T> FixedLayout<C, S, T> {
 }
 
 impl<C, const LEN: usize, S, T> FixedLayout<FloatRange<C, LEN>, S, T> {
-    pub(crate) fn new_floating(
-        &self,
-        ranges: NonEmpty<C>,
-        byte_layout: S,
-    ) -> Result<Self, NanFloatError>
-    where
-        NonNanFloat<C>: TryFrom<C, Error = NanFloatError>,
-    {
-        let columns =
-            ranges.try_map(|r| NonNanFloat::try_from(r).map(|range| FloatRange { range }))?;
-        Ok(FixedLayout::new(columns, byte_layout))
-    }
+    // pub(crate) fn new_floating(
+    //     &self,
+    //     ranges: NonEmpty<C>,
+    //     byte_layout: S,
+    // ) -> Result<Self, NanFloatError>
+    // where
+    //     NonNanFloat<C>: TryFrom<C, Error = NanFloatError>,
+    // {
+    //     let columns =
+    //         ranges.try_map(|r| NonNanFloat::try_from(r).map(|range| FloatRange { range }))?;
+    //     Ok(FixedLayout::new(columns, byte_layout))
+    // }
 
     // fn insert_float(
     //     &mut self,
@@ -2839,24 +2813,24 @@ impl<C, const LEN: usize, S, T> FixedLayout<FloatRange<C, LEN>, S, T> {
     }
 }
 
-impl<C, const LEN: usize, T> FixedLayout<Bitmask<C, LEN>, SizedByteOrd<LEN>, T>
-where
-    C: IntFromBytes<LEN> + TryFrom<usize> + Ord,
-{
-    pub(crate) fn new_ordered_uint(
-        &self,
-        ranges: NonEmpty<C>,
-        byte_layout: SizedByteOrd<LEN>,
-        notrunc: bool,
-    ) -> BiTentative<Self, bitmask::BitmaskTruncationError>
-    where
-        C: num_traits::PrimInt,
-        u64: From<C>,
-    {
-        Tentative::mconcat_ne(ranges.map(|b| Bitmask::from_native_tnt(b, notrunc)))
-            .map(|columns| Self::new(columns, byte_layout))
-    }
-}
+// impl<C, const LEN: usize, T> FixedLayout<Bitmask<C, LEN>, SizedByteOrd<LEN>, T>
+// where
+//     C: IntFromBytes<LEN> + TryFrom<usize> + Ord,
+// {
+//     pub(crate) fn new_ordered_uint(
+//         &self,
+//         ranges: NonEmpty<C>,
+//         byte_layout: SizedByteOrd<LEN>,
+//         notrunc: bool,
+//     ) -> BiTentative<Self, bitmask::BitmaskTruncationError>
+//     where
+//         C: num_traits::PrimInt,
+//         u64: From<C>,
+//     {
+//         Tentative::mconcat_ne(ranges.map(|b| Bitmask::from_native_tnt(b, notrunc)))
+//             .map(|columns| Self::new(columns, byte_layout))
+//     }
+// }
 
 impl<T> FixedLayout<AnyNullBitmask, Endian, T> {
     // pub(crate) fn new_endian_uint(
@@ -3350,13 +3324,13 @@ impl<T> AnyAsciiLayout<T> {
         }
     }
 
-    pub(crate) fn new_fixed(columns: NonEmpty<AsciiRange>) -> Self {
-        Self::Fixed(FixedLayout::new(columns, ()))
-    }
+    // pub(crate) fn new_fixed(columns: NonEmpty<AsciiRange>) -> Self {
+    //     Self::Fixed(FixedLayout::new(columns, ()))
+    // }
 
-    pub(crate) fn new_delim(ranges: NonEmpty<u64>) -> Self {
-        Self::Delimited(DelimAsciiLayout::new(ranges))
-    }
+    // pub(crate) fn new_delim(ranges: NonEmpty<u64>) -> Self {
+    //     Self::Delimited(DelimAsciiLayout::new(ranges))
+    // }
 
     fn ncols(&self) -> usize {
         match self {
@@ -3965,10 +3939,10 @@ impl VersionedDataLayout for Layout3_2 {
                 x.columns
                     .iter()
                     .map(|c| c.as_num_type())
-                    .filter(|&pdt| pdt.is_some_and(|x| AlphaNumType::from(x) != dt))
+                    .filter(|&pdt| pdt.is_some_and(|y| AlphaNumType::from(y) != dt))
                     .enumerate()
                     // TODO into thing is silly
-                    .map(|(i, x)| NumType::triple(&x.into(), i.into()))
+                    .map(|(i, y)| NumType::triple(&y.into(), i.into()))
                     .collect()
             }
         }

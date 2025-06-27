@@ -1,11 +1,11 @@
 //! Types representing $PnR/$PnB keys for an Ascii column.
 
-use crate::error::{BiTentative, DeferredExt, DeferredResult, ResultExt};
+use crate::error::{DeferredExt, DeferredResult, ResultExt};
 use crate::macros::{
     enum_from, enum_from_disp, match_many_to_one, newtype_disp, newtype_from_outer,
 };
 use crate::text::byteord::{Width, WidthToCharsError};
-use crate::text::float_or_int::{FloatOrInt, IntRangeError};
+use crate::text::float_or_int::IntRangeError;
 use crate::text::keywords::Range;
 
 use serde::Serialize;
@@ -51,13 +51,13 @@ impl AsciiRange {
         }
     }
 
-    /// Make new AsciiRange from a float or integer.
-    ///
-    /// The number of chars will be automatically selected as the minimum
-    /// required to express the range.
-    pub(crate) fn from_range(range: FloatOrInt, notrunc: bool) -> BiTentative<Self, IntRangeError> {
-        range.as_uint::<u64>(notrunc).map(AsciiRange::from)
-    }
+    // /// Make new AsciiRange from a float or integer.
+    // ///
+    // /// The number of chars will be automatically selected as the minimum
+    // /// required to express the range.
+    // pub(crate) fn from_range(range: FloatOrInt, notrunc: bool) -> BiTentative<Self, IntRangeError> {
+    //     range.as_uint::<u64>(notrunc).map(AsciiRange::from)
+    // }
 
     /// Make new AsciiRange from $PnB and $PnR values.
     ///
@@ -88,10 +88,6 @@ impl AsciiRange {
 }
 
 impl Chars {
-    pub(crate) fn max() -> Self {
-        Self(MAX_CHARS)
-    }
-
     /// Return number of chars needed to express the given u64.
     pub(crate) fn from_u64(x: u64) -> Self {
         // ASSUME the max possible value is 20 thus will always fit in u8

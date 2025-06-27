@@ -2796,7 +2796,7 @@ where
         // ANALYSIS, and processing these keywords now will make it easier to
         // determine if TEXT is totally standardized or not.
         let offsets_res =
-            <M::Ver as Versioned>::Offsets::lookup(kws, data, analysis, &conf).def_inner_into();
+            <M::Ver as Versioned>::Offsets::lookup(kws, data, analysis, conf).def_inner_into();
 
         par_res
             .def_and_maybe(|par| {
@@ -2809,7 +2809,7 @@ where
                 meas_res
                     .def_zip(layout_res)
                     .def_and_maybe(|((ms, meta_ns), layout)| {
-                        Metaroot::lookup_metaroot(kws, &ms, meta_ns, &conf)
+                        Metaroot::lookup_metaroot(kws, &ms, meta_ns, conf)
                             .def_map_value(|metaroot| {
                                 CoreTEXT::new_unchecked(metaroot, ms, layout.into())
                             })

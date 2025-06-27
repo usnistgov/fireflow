@@ -129,10 +129,10 @@ where
         )
     }
 
-    fn pair(&self, i: IndexFromOne) -> (String, String) {
-        let (_, k, v) = self.triple(i);
-        (k, v)
-    }
+    // fn pair(&self, i: IndexFromOne) -> (String, String) {
+    //     let (_, k, v) = self.triple(i);
+    //     (k, v)
+    // }
 }
 
 /// An optional metaroot key

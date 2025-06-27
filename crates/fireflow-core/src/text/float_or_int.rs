@@ -1,7 +1,6 @@
 use crate::error::BiTentative;
 use crate::macros::{newtype_disp, newtype_from_outer};
 use crate::validated::ascii_range::Chars;
-use crate::validated::bitmask::{Bitmask, BitmaskTruncationError};
 
 use num_traits::bounds::Bounded;
 use num_traits::float::Float;
@@ -33,12 +32,8 @@ pub type NonNanF64 = NonNanFloat<f64>;
 newtype_from_outer!(NonNanF64, f64);
 newtype_disp!(NonNanF64);
 
-pub(crate) trait FloatProps: Sized {
-    fn maxval() -> NonNanFloat<Self>;
-}
-
 impl NonNanF64 {
-    fn to_int<T>(&self) -> Result<T, FloatToIntError<T>>
+    fn as_int<T>(&self) -> Result<T, FloatToIntError<T>>
     where
         T: AsPrimitive<f64> + Bounded,
         f64: AsPrimitive<T>,
@@ -190,7 +185,7 @@ impl TryFrom<FloatOrInt> for Chars {
     fn try_from(value: FloatOrInt) -> Result<Self, Self::Error> {
         match value {
             FloatOrInt::Int(x) => Ok(Chars::from_u64(x)),
-            FloatOrInt::Float(x) => x.to_int::<u64>().map(Chars::from_u64),
+            FloatOrInt::Float(x) => x.as_int::<u64>().map(Chars::from_u64),
         }
     }
 }
@@ -247,7 +242,7 @@ macro_rules! try_from_range_int {
                     FloatOrInt::Int(x) => {
                         $inttype::try_from(x).or(Err(ToIntError::IntOverrange(x)))
                     }
-                    FloatOrInt::Float(x) => x.to_int().map_err(ToIntError::Float),
+                    FloatOrInt::Float(x) => x.as_int().map_err(ToIntError::Float),
                 }
             }
         }
@@ -307,7 +302,7 @@ impl TryFrom<FloatOrInt> for NonNanF64 {
                     }
                 }
             }
-            FloatOrInt::Float(x) => Ok(x.into()),
+            FloatOrInt::Float(x) => Ok(x),
         }
     }
 }

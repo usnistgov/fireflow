@@ -1,9 +1,5 @@
-use crate::error::BiTentative;
 use crate::macros::{enum_from, enum_from_disp, match_many_to_one, newtype_from_outer};
-use crate::validated::ascii_range::{AsciiRange, Chars, CharsError};
-use crate::validated::bitmask;
-
-use super::float_or_int::{FloatOrInt, FloatRangeError, NonNanFloat, ToFloatError};
+use crate::validated::ascii_range::{Chars, CharsError};
 
 use itertools::Itertools;
 use num_enum::{IntoPrimitive, TryFromPrimitive};

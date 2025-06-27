@@ -52,7 +52,7 @@ impl AnyFCSColumn {
         })
     }
 
-    pub fn check_writer<E, F, ToType>(&self, f: F) -> Result<(), LossError<E>>
+    pub(crate) fn check_writer<E, F, ToType>(&self, f: F) -> Result<(), LossError<E>>
     where
         F: Fn(ToType) -> Option<E>,
         ToType: AllFCSCast,

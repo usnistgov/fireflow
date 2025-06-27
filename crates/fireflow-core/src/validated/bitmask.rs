@@ -1,4 +1,6 @@
-use crate::error::{BiTentative, DeferredExt, DeferredResult, ResultExt};
+//! Types to represent the $PnB and $PnR values for a uint column.
+
+use crate::error::BiTentative;
 use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
 use crate::text::float_or_int::{FloatOrInt, IntRangeError, ToIntError};
 

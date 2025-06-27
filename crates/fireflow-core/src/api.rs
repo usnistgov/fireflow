@@ -49,9 +49,9 @@ pub fn fcs_read_raw_text(
 /// Read HEADER and standardized TEXT from an FCS file.
 pub fn fcs_read_std_text(
     p: &path::PathBuf,
-    conf: &DataReadConfig,
+    conf: &StdTextReadConfig,
 ) -> IOTerminalResult<StdTEXTOutput, StdTEXTWarning, StdTEXTError, StdTEXTFailure> {
-    read_fcs_raw_text_inner(p, &conf.standard.raw)
+    read_fcs_raw_text_inner(p, &conf.raw)
         .def_map_value(|(x, _)| x)
         .def_io_into()
         .def_and_maybe(|raw| raw.into_std_text(conf).def_inner_into().def_errors_liftio())
@@ -540,7 +540,7 @@ impl RawTEXTOutput {
 
     fn into_std_text(
         self,
-        conf: &DataReadConfig,
+        conf: &StdTextReadConfig,
     ) -> DeferredResult<StdTEXTOutput, StdTEXTFromRawWarning, StdTEXTFromRawError> {
         let mut kws = self.keywords;
         let header = &self.parse.header_segments;

@@ -49,36 +49,6 @@ pub struct ReaderConfig {
     /// all $PnB. If $TOT does not match this, it may indicate an issue. If false,
     /// throw an error on mismatch, and warning otherwise.
     pub allow_tot_mismatch: bool,
-
-    /// If true, throw error if offsets in HEADER and TEXT differ.
-    ///
-    /// Only applies to DATA and ANALYSIS offsets
-    pub allow_header_text_offset_mismatch: bool,
-
-    /// If true, throw error if required TEXT offsets are missing.
-    ///
-    /// Only applies to DATA and ANALYSIS offsets in versions 3.0 and 3.1. If
-    /// missing these will be taken from HEADER.
-    pub allow_missing_required_offsets: bool,
-
-    // /// If given, override all $PnB keywords to a single value.
-    // ///
-    // /// Some files set $PnB to match the bitmask. For example, a 16-bit column
-    // /// may only use 10 bits, so $PnB will be 10 and $PnR will be 1024. This
-    // /// will not work since $PnB must match the width of the real data.
-    // ///
-    // /// Setting this will force all $PnB to be a given width. This is in
-    // /// bytes and NOT bits since this library does not support non-octal column
-    // /// widths and thus must be a number between 1 and 8, allowing a maximum
-    // /// numerical value of 2^64-1.
-    // ///
-    // /// This only has an effect for FCS 2.0-3.0 where $DATATYPE=I.
-    // pub integer_bytes_override: Option<Bytes>,
-    /// Corrections for DATA offsets in TEXT segment
-    pub data: TEXTCorrection<DataSegmentId>,
-
-    /// Corrections for ANALYSIS offsets in TEXT segment
-    pub analysis: TEXTCorrection<AnalysisSegmentId>,
 }
 
 /// Configuration for writing an FCS file
@@ -392,26 +362,35 @@ pub struct StdTextReadConfig {
     /// becomes 'X,1.0'.
     pub fix_log_scale_offsets: bool,
 
-    /// If supplied, this pattern will be used to group "nonstandard" keywords
-    /// with matching measurements.
+    /// If true, throw error if offsets in HEADER and TEXT differ.
     ///
-    /// Usually this will be something like '^P%n.+' where '%n' will be
-    /// substituted with the measurement index before using it as a regular
-    /// expression to match keywords. It should not start with a "$" and must
-    /// contain a literal '%n'.
-    ///
-    /// This will matching something like 'P7FOO' which would be 'FOO' for
-    /// measurement 7. These may be used when converting between different
-    /// FCS versions.
-    pub nonstandard_measurement_pattern: Option<NonStdMeasPattern>,
-    // TODO add repair stuff
-}
+    /// Only applies to DATA and ANALYSIS offsets
+    pub allow_header_text_offset_mismatch: bool,
 
-/// Configuration options for both reading and writing
-#[derive(Default, Clone)]
-pub struct SharedConfig {
-    /// If true, all warnings are considered to be fatal errors.
-    pub warnings_are_errors: bool,
+    /// If true, throw error if required TEXT offsets are missing.
+    ///
+    /// Only applies to DATA and ANALYSIS offsets in versions 3.0 and 3.1. If
+    /// missing these will be taken from HEADER.
+    pub allow_missing_required_offsets: bool,
+
+    // /// If given, override all $PnB keywords to a single value.
+    // ///
+    // /// Some files set $PnB to match the bitmask. For example, a 16-bit column
+    // /// may only use 10 bits, so $PnB will be 10 and $PnR will be 1024. This
+    // /// will not work since $PnB must match the width of the real data.
+    // ///
+    // /// Setting this will force all $PnB to be a given width. This is in
+    // /// bytes and NOT bits since this library does not support non-octal column
+    // /// widths and thus must be a number between 1 and 8, allowing a maximum
+    // /// numerical value of 2^64-1.
+    // ///
+    // /// This only has an effect for FCS 2.0-3.0 where $DATATYPE=I.
+    // pub integer_bytes_override: Option<Bytes>,
+    /// Corrections for DATA offsets in TEXT segment
+    pub data: TEXTCorrection<DataSegmentId>,
+
+    /// Corrections for ANALYSIS offsets in TEXT segment
+    pub analysis: TEXTCorrection<AnalysisSegmentId>,
 
     /// If true, disallow bitmask to be truncated when converting from native type.
     ///
@@ -434,5 +413,26 @@ pub struct SharedConfig {
     ///
     /// Note: this flag has nothing to do with the bitmask being applied to the
     /// actual data being read. This will happen regardless.
-    pub disallow_bitmask_truncation: bool,
+    pub disallow_range_truncation: bool,
+
+    /// If supplied, this pattern will be used to group "nonstandard" keywords
+    /// with matching measurements.
+    ///
+    /// Usually this will be something like '^P%n.+' where '%n' will be
+    /// substituted with the measurement index before using it as a regular
+    /// expression to match keywords. It should not start with a "$" and must
+    /// contain a literal '%n'.
+    ///
+    /// This will matching something like 'P7FOO' which would be 'FOO' for
+    /// measurement 7. These may be used when converting between different
+    /// FCS versions.
+    pub nonstandard_measurement_pattern: Option<NonStdMeasPattern>,
+    // TODO add repair stuff
+}
+
+/// Configuration options for both reading and writing
+#[derive(Default, Clone)]
+pub struct SharedConfig {
+    /// If true, all warnings are considered to be fatal errors.
+    pub warnings_are_errors: bool,
 }

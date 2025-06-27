@@ -328,7 +328,7 @@ impl AnyCoreTEXT {
         nonstd: NonStdKeywords,
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
-        conf: &DataReadConfig,
+        conf: &StdTextReadConfig,
     ) -> DeferredResult<(Self, TEXTOffsets<Option<Tot>>), StdTEXTFromRawWarning, StdTEXTFromRawError>
     {
         match version {
@@ -957,10 +957,10 @@ pub trait Versioned {
         LookupAndReadDataAnalysisWarning,
         LookupAndReadDataAnalysisError,
     > {
-        let layout_res = Self::Layout::lookup_ro(kws, &conf.shared)
+        let layout_res = Self::Layout::lookup_ro(kws, &conf.standard)
             .def_inner_into()
             .def_errors_liftio();
-        let offset_res = Self::Offsets::lookup_ro(kws, data_seg, analysis_seg, &conf.reader)
+        let offset_res = Self::Offsets::lookup_ro(kws, data_seg, analysis_seg, &conf.standard)
             .def_inner_into()
             .def_errors_liftio();
         layout_res
@@ -1262,14 +1262,14 @@ pub trait VersionedTEXTOffsets: Sized {
         kws: &mut StdKeywords,
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
-        conf: &ReaderConfig,
+        conf: &StdTextReadConfig,
     ) -> LookupTEXTOffsetsResult<Self>;
 
     fn lookup_ro(
         kws: &StdKeywords,
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
-        conf: &ReaderConfig,
+        conf: &StdTextReadConfig,
     ) -> LookupTEXTOffsetsResult<Self>;
 
     // TODO this doesn't seem necessary
@@ -2768,7 +2768,7 @@ where
         nonstd: NonStdKeywords,
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
-        conf: &DataReadConfig,
+        conf: &StdTextReadConfig,
     ) -> DeferredResult<
         (Self, <M::Ver as Versioned>::Offsets),
         StdTEXTFromRawWarning,
@@ -2795,22 +2795,21 @@ where
         // Core struct but they will be needed later for parsing DATA and
         // ANALYSIS, and processing these keywords now will make it easier to
         // determine if TEXT is totally standardized or not.
-        let offsets_res = <M::Ver as Versioned>::Offsets::lookup(kws, data, analysis, &conf.reader)
-            .def_inner_into();
+        let offsets_res =
+            <M::Ver as Versioned>::Offsets::lookup(kws, data, analysis, &conf).def_inner_into();
 
         par_res
             .def_and_maybe(|par| {
                 // Lookup measurements/layout/metaroot with $PAR
                 let ns: Vec<_> = nonstd.into_iter().collect();
-                let meas_res =
-                    Self::lookup_measurements(kws, par, ns, &conf.standard).def_inner_into();
-                let layout_res = <M::Ver as Versioned>::Layout::lookup(kws, &conf.shared, par)
+                let meas_res = Self::lookup_measurements(kws, par, ns, conf).def_inner_into();
+                let layout_res = <M::Ver as Versioned>::Layout::lookup(kws, conf, par)
                     .def_map_errors(Box::new)
                     .def_inner_into();
                 meas_res
                     .def_zip(layout_res)
                     .def_and_maybe(|((ms, meta_ns), layout)| {
-                        Metaroot::lookup_metaroot(kws, &ms, meta_ns, &conf.standard)
+                        Metaroot::lookup_metaroot(kws, &ms, meta_ns, &conf)
                             .def_map_value(|metaroot| {
                                 CoreTEXT::new_unchecked(metaroot, ms, layout.into())
                             })
@@ -2819,8 +2818,8 @@ where
                     .map(|mut tnt_core| {
                         // Check that the time measurement is present if we want it
                         tnt_core.eval_error(|core| {
-                            if let Some(pat) = conf.standard.time.pattern.as_ref() {
-                                if !conf.standard.time.allow_missing
+                            if let Some(pat) = conf.time.pattern.as_ref() {
+                                if !conf.time.allow_missing
                                     && core.measurements.as_center().is_none()
                                 {
                                     let e = MissingTime(pat.clone());
@@ -2835,7 +2834,7 @@ where
                         for k in kws.keys() {
                             if k != &Timestep::std() {
                                 let e = PseudostandardError(k.clone());
-                                if conf.standard.allow_pseudostandard {
+                                if conf.allow_pseudostandard {
                                     tnt_core.push_warning(e.into());
                                 } else {
                                     tnt_core.push_error(e.into());
@@ -2992,7 +2991,7 @@ where
         M::Optical: LookupOptical,
         Version: From<M::Ver>,
     {
-        VersionedCoreTEXT::<M>::lookup(kws, nonstd, data_seg, analysis_seg, conf)
+        VersionedCoreTEXT::<M>::lookup(kws, nonstd, data_seg, analysis_seg, &conf.standard)
             .def_map_errors(Box::new)
             .def_inner_into()
             .def_errors_liftio()
@@ -6372,7 +6371,7 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
         kws: &mut StdKeywords,
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
-        _: &ReaderConfig,
+        _: &StdTextReadConfig,
     ) -> LookupTEXTOffsetsResult<Self> {
         Ok(Tot::remove_metaroot_opt(kws)
             .map_or_else(
@@ -6393,7 +6392,7 @@ impl VersionedTEXTOffsets for TEXTOffsets2_0 {
         kws: &StdKeywords,
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
-        _: &ReaderConfig,
+        _: &StdTextReadConfig,
     ) -> LookupTEXTOffsetsResult<Self> {
         Ok(Tot::get_metaroot_opt(kws)
             .map_or_else(
@@ -6439,7 +6438,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
         kws: &mut StdKeywords,
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
-        conf: &ReaderConfig,
+        conf: &StdTextReadConfig,
     ) -> LookupTEXTOffsetsResult<Self> {
         let allow_mismatch = conf.allow_header_text_offset_mismatch;
         let allow_missing = conf.allow_missing_required_offsets;
@@ -6471,7 +6470,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_0 {
         kws: &StdKeywords,
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
-        conf: &ReaderConfig,
+        conf: &StdTextReadConfig,
     ) -> LookupTEXTOffsetsResult<Self> {
         let allow_mismatch = conf.allow_header_text_offset_mismatch;
         let allow_missing = conf.allow_missing_required_offsets;
@@ -6528,7 +6527,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
         kws: &mut StdKeywords,
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
-        conf: &ReaderConfig,
+        conf: &StdTextReadConfig,
     ) -> LookupTEXTOffsetsResult<Self> {
         let allow_mismatch = conf.allow_header_text_offset_mismatch;
         let allow_missing = conf.allow_missing_required_offsets;
@@ -6558,7 +6557,7 @@ impl VersionedTEXTOffsets for TEXTOffsets3_2 {
         kws: &StdKeywords,
         data_seg: HeaderDataSegment,
         analysis_seg: HeaderAnalysisSegment,
-        conf: &ReaderConfig,
+        conf: &StdTextReadConfig,
     ) -> LookupTEXTOffsetsResult<Self> {
         let allow_mismatch = conf.allow_header_text_offset_mismatch;
         let allow_missing = conf.allow_missing_required_offsets;

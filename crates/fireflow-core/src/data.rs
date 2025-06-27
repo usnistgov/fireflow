@@ -48,7 +48,7 @@
 //! DATA, hoping that all columns have the same length. For fixed layouts, we
 //! can compute $TOT using $PnB and the length of DATA.
 
-use crate::config::{ReaderConfig, SharedConfig};
+use crate::config::{ReaderConfig, StdTextReadConfig};
 use crate::core::*;
 use crate::error::*;
 use crate::macros::{enum_from, enum_from_disp, match_many_to_one, newtype_disp, newtype_from};
@@ -370,16 +370,16 @@ pub trait VersionedDataLayout: Sized {
         dt: AlphaNumType,
         size: Self::ByteLayout,
         cs: NonEmpty<ColumnLayoutValues<Self::ColDatatype>>,
-        conf: &SharedConfig,
+        conf: &StdTextReadConfig,
     ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError>;
 
     fn lookup(
         kws: &mut StdKeywords,
-        conf: &SharedConfig,
+        conf: &StdTextReadConfig,
         par: Par,
     ) -> LookupLayoutResult<Option<Self>>;
 
-    fn lookup_ro(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Option<Self>>;
+    fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>>;
 
     // fn insert(
     //     &mut self,
@@ -3435,7 +3435,7 @@ impl VersionedDataLayout for Layout2_0 {
         datatype: AlphaNumType,
         byteord: Self::ByteLayout,
         columns: NonEmpty<ColumnLayoutValues<Self::ColDatatype>>,
-        conf: &SharedConfig,
+        conf: &StdTextReadConfig,
     ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError> {
         AnyOrderedLayout::try_new(datatype, byteord, columns, conf)
             .def_map_value(|x| x.into())
@@ -3444,13 +3444,13 @@ impl VersionedDataLayout for Layout2_0 {
 
     fn lookup(
         kws: &mut StdKeywords,
-        conf: &SharedConfig,
+        conf: &StdTextReadConfig,
         par: Par,
     ) -> LookupLayoutResult<Option<Self>> {
         AnyOrderedLayout::lookup(kws, conf, par).def_map_value(|x| x.map(|y| y.into()))
     }
 
-    fn lookup_ro(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Option<Self>> {
+    fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>> {
         AnyOrderedLayout::lookup_ro(kws, conf).def_map_value(|x| x.map(|y| y.into()))
     }
 
@@ -3540,7 +3540,7 @@ impl VersionedDataLayout for Layout3_0 {
         datatype: AlphaNumType,
         byteord: Self::ByteLayout,
         columns: NonEmpty<ColumnLayoutValues<Self::ColDatatype>>,
-        conf: &SharedConfig,
+        conf: &StdTextReadConfig,
     ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError> {
         AnyOrderedLayout::try_new(datatype, byteord, columns, conf)
             .def_map_value(|x| x.into())
@@ -3549,13 +3549,13 @@ impl VersionedDataLayout for Layout3_0 {
 
     fn lookup(
         kws: &mut StdKeywords,
-        conf: &SharedConfig,
+        conf: &StdTextReadConfig,
         par: Par,
     ) -> LookupLayoutResult<Option<Self>> {
         AnyOrderedLayout::lookup(kws, conf, par).def_map_value(|x| x.map(|y| y.into()))
     }
 
-    fn lookup_ro(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Option<Self>> {
+    fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>> {
         AnyOrderedLayout::lookup_ro(kws, conf).def_map_value(|x| x.map(|y| y.into()))
     }
 
@@ -3645,7 +3645,7 @@ impl VersionedDataLayout for Layout3_1 {
         datatype: AlphaNumType,
         endian: Self::ByteLayout,
         columns: NonEmpty<ColumnLayoutValues<Self::ColDatatype>>,
-        conf: &SharedConfig,
+        conf: &StdTextReadConfig,
     ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError> {
         NonMixedEndianLayout::try_new(datatype, endian, columns, conf)
             .def_map_value(|x| x.into())
@@ -3654,7 +3654,7 @@ impl VersionedDataLayout for Layout3_1 {
 
     fn lookup(
         kws: &mut StdKeywords,
-        conf: &SharedConfig,
+        conf: &StdTextReadConfig,
         par: Par,
     ) -> LookupLayoutResult<Option<Self>> {
         let cs = ColumnLayoutValues2_0::lookup_all(kws, par);
@@ -3671,7 +3671,7 @@ impl VersionedDataLayout for Layout3_1 {
             })
     }
 
-    fn lookup_ro(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Option<Self>> {
+    fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>> {
         let cs = ColumnLayoutValues2_0::lookup_ro_all(kws);
         let d = AlphaNumType::get_metaroot_req(kws).into_deferred();
         let n = Endian::get_metaroot_req(kws).into_deferred();
@@ -3772,9 +3772,9 @@ impl VersionedDataLayout for Layout3_2 {
         datatype: AlphaNumType,
         endian: Self::ByteLayout,
         cs: NonEmpty<ColumnLayoutValues<Self::ColDatatype>>,
-        conf: &SharedConfig,
+        conf: &StdTextReadConfig,
     ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError> {
-        let notrunc = conf.disallow_bitmask_truncation;
+        let notrunc = conf.disallow_range_truncation;
         let unique_dt: Vec<_> = cs
             .iter()
             .map(|c| c.datatype.map(|x| x.into()).unwrap_or(datatype))
@@ -3800,7 +3800,7 @@ impl VersionedDataLayout for Layout3_2 {
 
     fn lookup(
         kws: &mut StdKeywords,
-        conf: &SharedConfig,
+        conf: &StdTextReadConfig,
         par: Par,
     ) -> LookupLayoutResult<Option<Self>> {
         let d = AlphaNumType::lookup_req_check_ascii(kws);
@@ -3816,7 +3816,7 @@ impl VersionedDataLayout for Layout3_2 {
             })
     }
 
-    fn lookup_ro(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Option<Self>> {
+    fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>> {
         let d = AlphaNumType::get_metaroot_req(kws)
             .map_err(RawParsedError::from)
             .into_deferred();
@@ -4004,9 +4004,9 @@ impl<T> AnyOrderedLayout<T> {
         datatype: AlphaNumType,
         byteord: ByteOrd,
         columns: NonEmpty<ColumnLayoutValues2_0>,
-        conf: &SharedConfig,
+        conf: &StdTextReadConfig,
     ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError> {
-        let notrunc = conf.disallow_bitmask_truncation;
+        let notrunc = conf.disallow_range_truncation;
         match datatype {
             AlphaNumType::Ascii => AnyAsciiLayout::try_new(columns, notrunc)
                 .def_map_value(Self::Ascii)
@@ -4033,7 +4033,7 @@ impl<T> AnyOrderedLayout<T> {
 
     fn lookup(
         kws: &mut StdKeywords,
-        conf: &SharedConfig,
+        conf: &StdTextReadConfig,
         par: Par,
     ) -> LookupLayoutResult<Option<Self>> {
         let cs = ColumnLayoutValues2_0::lookup_all(kws, par);
@@ -4050,7 +4050,7 @@ impl<T> AnyOrderedLayout<T> {
             })
     }
 
-    fn lookup_ro(kws: &StdKeywords, conf: &SharedConfig) -> FromRawResult<Option<Self>> {
+    fn lookup_ro(kws: &StdKeywords, conf: &StdTextReadConfig) -> FromRawResult<Option<Self>> {
         let cs = ColumnLayoutValues2_0::lookup_ro_all(kws);
         let d = AlphaNumType::get_metaroot_req(kws).into_deferred();
         let b = ByteOrd::get_metaroot_req(kws).into_deferred();
@@ -4242,9 +4242,9 @@ impl NonMixedEndianLayout {
         datatype: AlphaNumType,
         endian: Endian,
         columns: NonEmpty<ColumnLayoutValues<()>>,
-        conf: &SharedConfig,
+        conf: &StdTextReadConfig,
     ) -> DeferredResult<Self, ColumnError<NewMixedTypeWarning>, NewDataLayoutError> {
-        let notrunc = conf.disallow_bitmask_truncation;
+        let notrunc = conf.disallow_range_truncation;
         match datatype {
             AlphaNumType::Ascii => AnyAsciiLayout::try_new(columns, notrunc)
                 .def_map_value(Self::Ascii)

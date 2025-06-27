@@ -283,8 +283,8 @@ fn main() -> Result<(), ()> {
         }
 
         Some(("spillover", sargs)) => {
-            let mut conf = config::StdTextReadConfig::default();
-            conf.raw.header = config::HeaderConfig {
+            let mut conf = config::DataReadConfig::default();
+            conf.standard.raw.header = config::HeaderConfig {
                 max_other: sargs.get_one::<usize>("max-other").copied(),
                 other_width: sargs
                     .get_one::<u8>("other-width")
@@ -293,11 +293,11 @@ fn main() -> Result<(), ()> {
                     .unwrap_or_default(),
                 allow_negative: sargs.get_flag("allow-negative"),
                 squish_offsets: sargs.get_flag("squish-offsets"),
-                ..conf.raw.header
+                ..conf.standard.raw.header
             };
             // get_text_delta(sargs);
-            conf.raw.trim_value_whitespace = sargs.get_flag("trim-whitespace");
-            conf.raw.allow_duplicated_stext = sargs.get_flag("allow-dup-stext");
+            conf.standard.raw.trim_value_whitespace = sargs.get_flag("trim-whitespace");
+            conf.standard.raw.allow_duplicated_stext = sargs.get_flag("allow-dup-stext");
             let delim = sargs.get_one::<String>("delimiter").unwrap();
 
             fcs_read_std_text(filepath, &conf)
@@ -307,8 +307,8 @@ fn main() -> Result<(), ()> {
         }
 
         Some(("measurements", sargs)) => {
-            let mut conf = config::StdTextReadConfig::default();
-            conf.raw.header = config::HeaderConfig {
+            let mut conf = config::DataReadConfig::default();
+            conf.standard.raw.header = config::HeaderConfig {
                 max_other: sargs.get_one::<usize>("max-other").copied(),
                 other_width: sargs
                     .get_one::<u8>("other-width")
@@ -317,12 +317,12 @@ fn main() -> Result<(), ()> {
                     .unwrap_or_default(),
                 allow_negative: sargs.get_flag("allow-negative"),
                 squish_offsets: sargs.get_flag("squish-offsets"),
-                ..conf.raw.header
+                ..conf.standard.raw.header
             };
             // get_text_delta(sargs);
-            conf.raw.trim_value_whitespace = sargs.get_flag("trim-whitespace");
-            conf.raw.allow_duplicated_stext = sargs.get_flag("allow-dup-stext");
-            conf.raw.ignore_stext = sargs.get_flag("ignore-stext");
+            conf.standard.raw.trim_value_whitespace = sargs.get_flag("trim-whitespace");
+            conf.standard.raw.allow_duplicated_stext = sargs.get_flag("allow-dup-stext");
+            conf.standard.raw.ignore_stext = sargs.get_flag("ignore-stext");
             let delim = sargs.get_one::<String>("delimiter").unwrap();
 
             fcs_read_std_text(filepath, &conf)
@@ -332,9 +332,9 @@ fn main() -> Result<(), ()> {
         }
 
         Some(("std", sargs)) => {
-            let mut conf = config::StdTextReadConfig::default();
+            let mut conf = config::DataReadConfig::default();
 
-            conf.raw.header = config::HeaderConfig {
+            conf.standard.raw.header = config::HeaderConfig {
                 max_other: sargs.get_one::<usize>("max-other").copied(),
                 other_width: sargs
                     .get_one::<u8>("other-width")
@@ -343,32 +343,32 @@ fn main() -> Result<(), ()> {
                     .unwrap_or_default(),
                 allow_negative: sargs.get_flag("allow-negative"),
                 squish_offsets: sargs.get_flag("squish-offsets"),
-                ..conf.raw.header
+                ..conf.standard.raw.header
             };
             // get_text_delta(sargs);
 
             // TODO refactor
             if let Some(d) = sargs.get_one::<String>("date-pattern").cloned() {
-                conf.raw.date_pattern = Some(d.parse::<DatePattern>().unwrap());
+                conf.standard.raw.date_pattern = Some(d.parse::<DatePattern>().unwrap());
             }
 
             if let Some(m) = sargs.get_one::<String>("ns-meas-pattern").cloned() {
-                conf.nonstandard_measurement_pattern =
+                conf.standard.nonstandard_measurement_pattern =
                     Some(m.parse::<NonStdMeasPattern>().unwrap());
             }
 
             if let Some(m) = sargs.get_one::<String>("time-name").cloned() {
-                conf.time.pattern = Some(m.parse::<TimePattern>().unwrap());
+                conf.standard.time.pattern = Some(m.parse::<TimePattern>().unwrap());
             }
 
-            conf.time.allow_missing = sargs.get_flag("ensure-time");
-            conf.raw.allow_duplicated_stext = sargs.get_flag("allow-dup-stext");
-            conf.raw.ignore_stext = sargs.get_flag("ignore-stext");
+            conf.standard.time.allow_missing = sargs.get_flag("ensure-time");
+            conf.standard.raw.allow_duplicated_stext = sargs.get_flag("allow-dup-stext");
+            conf.standard.raw.ignore_stext = sargs.get_flag("ignore-stext");
             // conf.time.allow_nonlinear_scale = sargs.get_flag("ensure-time-linear");
             // conf.time.allow_nontime_keywords = sargs.get_flag("ensure-time-nogain");
-            conf.allow_pseudostandard = sargs.get_flag("allow-pseudostandard");
-            conf.disallow_deprecated = sargs.get_flag("disallow-deprecated");
-            conf.raw.trim_value_whitespace = sargs.get_flag("trim-whitespace");
+            conf.standard.allow_pseudostandard = sargs.get_flag("allow-pseudostandard");
+            conf.standard.disallow_deprecated = sargs.get_flag("disallow-deprecated");
+            conf.standard.raw.trim_value_whitespace = sargs.get_flag("trim-whitespace");
 
             fcs_read_std_text(filepath, &conf)
                 .map(handle_warnings)

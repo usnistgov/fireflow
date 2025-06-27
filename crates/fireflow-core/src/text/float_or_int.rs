@@ -1,9 +1,13 @@
-use crate::macros::{newtype_disp, newtype_from_outer};
+use crate::error::BiTentative;
+use crate::macros::{enum_from, enum_from_disp, newtype_disp, newtype_from_outer};
+use crate::validated::bitmask::{Bitmask, BitmaskTruncationError};
 
 use super::byteord::{Bytes, Chars};
 
 use num_traits::bounds::Bounded;
+use num_traits::float::Float;
 use num_traits::AsPrimitive;
+use num_traits::PrimInt;
 use serde::Serialize;
 use std::fmt;
 use std::num::{ParseFloatError, ParseIntError};
@@ -53,21 +57,35 @@ impl NonNanF64 {
     }
 }
 
-impl FloatProps for f32 {
-    fn maxval() -> NonNanFloat<Self> {
-        NonNanFloat(Self::MAX)
-    }
-}
+// impl FloatProps for f32 {
+//     fn maxval() -> NonNanFloat<Self> {
+//         NonNanFloat(Self::MAX)
+//     }
+// }
 
-impl FloatProps for f64 {
-    fn maxval() -> NonNanFloat<Self> {
-        NonNanFloat(Self::MAX)
-    }
-}
+// impl FloatProps for f64 {
+//     fn maxval() -> NonNanFloat<Self> {
+//         NonNanFloat(Self::MAX)
+//     }
+// }
 
 impl<T> NonNanFloat<T> {
     pub(crate) fn inner_into<X: From<T>>(self) -> NonNanFloat<X> {
         NonNanFloat(self.0.into())
+    }
+
+    pub(crate) fn max_value() -> Self
+    where
+        T: Float,
+    {
+        Self(T::max_value())
+    }
+
+    pub(crate) fn zero() -> Self
+    where
+        T: Float,
+    {
+        Self(T::zero())
     }
 }
 
@@ -88,6 +106,70 @@ impl NonNanF64 {
         } else {
             None
         }
+    }
+}
+
+impl FloatOrInt {
+    pub(crate) fn as_uint<T>(&self, notrunc: bool) -> BiTentative<T, IntRangeError>
+    where
+        T: TryFrom<Self, Error = ToIntError<T>> + PrimInt,
+    {
+        let (b, e) = (*self).try_into().map_or_else(
+            |e| match e {
+                ToIntError::IntOverrange(x) => {
+                    (T::max_value(), Some(IntRangeError::IntOverrange(x)))
+                }
+                ToIntError::Float(FloatToIntError::FloatOverrange(x)) => {
+                    (T::max_value(), Some(IntRangeError::FloatOverrange(x)))
+                }
+                ToIntError::Float(FloatToIntError::FloatUnderrange(x)) => {
+                    (T::zero(), Some(IntRangeError::FloatUnderrange(x)))
+                }
+                ToIntError::Float(FloatToIntError::FloatPrecisionLoss(x, y)) => {
+                    (y, Some(IntRangeError::FloatPrecisionLoss(x)))
+                }
+            },
+            |x| (x, None),
+        );
+        BiTentative::new_either1(b, e, notrunc)
+    }
+
+    pub(crate) fn as_float<T>(&self, notrunc: bool) -> BiTentative<NonNanFloat<T>, FloatRangeError>
+    where
+        NonNanFloat<T>: TryFrom<Self, Error = ToFloatError<T>>,
+        T: Float,
+    {
+        let (x, e) = (*self).try_into().map_or_else(
+            |e| match e {
+                ToFloatError::IntPrecisionLoss(y, x) => {
+                    (x, Some(FloatRangeError::IntPrecisionLoss(y)))
+                }
+                ToFloatError::FloatOverrange(y) => (
+                    NonNanFloat::max_value(),
+                    Some(FloatRangeError::FloatOverrange(y)),
+                ),
+                ToFloatError::FloatUnderrange(y) => (
+                    NonNanFloat::zero(),
+                    Some(FloatRangeError::FloatUnderrange(y)),
+                ),
+            },
+            |x| (x, None),
+        );
+        BiTentative::new_either1(x, e, notrunc)
+    }
+
+    pub(crate) fn as_bitmask<const LEN: usize, T>(
+        &self,
+        notrunc: bool,
+    ) -> BiTentative<Bitmask<T, LEN>, BitmaskError>
+    where
+        T: TryFrom<Self, Error = ToIntError<T>> + PrimInt,
+        u64: From<T>,
+    {
+        // TODO subtract 1 from here
+        self.as_uint(notrunc)
+            .inner_into()
+            .and_tentatively(|x| Bitmask::from_native_tnt(x, notrunc).inner_into())
     }
 }
 
@@ -332,4 +414,96 @@ pub enum ToFloatError<X> {
     FloatOverrange(f64),
     /// f64 is smaller than target float can hold
     FloatUnderrange(f64),
+}
+
+enum_from_disp!(
+    pub BitmaskError,
+    [ToInt, IntRangeError],
+    [Trunc, BitmaskTruncationError]
+);
+
+pub enum IntRangeError {
+    // IntTruncated(u64),
+    IntOverrange(u64),
+    FloatOverrange(f64),
+    FloatUnderrange(f64),
+    FloatPrecisionLoss(f64),
+}
+
+pub enum FloatRangeError {
+    IntPrecisionLoss(u64),
+    FloatOverrange(f64),
+    FloatUnderrange(f64),
+}
+
+impl<X> From<ToIntError<X>> for IntRangeError {
+    fn from(value: ToIntError<X>) -> Self {
+        match value {
+            ToIntError::IntOverrange(x) => Self::IntOverrange(x),
+            ToIntError::Float(e) => match e {
+                FloatToIntError::FloatOverrange(x) => Self::FloatOverrange(x),
+                FloatToIntError::FloatUnderrange(x) => Self::FloatUnderrange(x),
+                FloatToIntError::FloatPrecisionLoss(x, _) => Self::FloatPrecisionLoss(x),
+            },
+        }
+    }
+}
+
+impl<X> From<ToFloatError<X>> for FloatRangeError {
+    fn from(value: ToFloatError<X>) -> Self {
+        match value {
+            ToFloatError::FloatOverrange(x) => Self::FloatOverrange(x),
+            ToFloatError::FloatUnderrange(x) => Self::FloatUnderrange(x),
+            ToFloatError::IntPrecisionLoss(x, _) => Self::IntPrecisionLoss(x),
+        }
+    }
+}
+
+impl fmt::Display for IntRangeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            // TODO what is the target type?
+            Self::IntOverrange(x) => {
+                write!(
+                    f,
+                    "integer range {x} is larger than target unsigned integer can hold"
+                )
+            }
+            Self::FloatOverrange(x) => {
+                write!(
+                    f,
+                    "float range {x} is larger than target unsigned integer can hold"
+                )
+            }
+            Self::FloatUnderrange(x) => {
+                write!(
+                    f,
+                    "float range {x} is less than zero and \
+                     could not be converted to unsigned integer"
+                )
+            }
+            Self::FloatPrecisionLoss(x) => {
+                write!(
+                    f,
+                    "float range {x} lost precision when converting to unsigned integer"
+                )
+            }
+        }
+    }
+}
+
+impl fmt::Display for FloatRangeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::IntPrecisionLoss(x) => {
+                write!(f, "int {x} is more precise than target float")
+            }
+            Self::FloatOverrange(x) => {
+                write!(f, "{x} is larger than target float can hold")
+            }
+            Self::FloatUnderrange(x) => {
+                write!(f, "{x} is smaller than target float can hold")
+            }
+        }
+    }
 }

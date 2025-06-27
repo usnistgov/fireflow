@@ -60,6 +60,7 @@ use crate::text::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex
 use crate::text::keywords::*;
 use crate::text::optional::{ClearOptional, ClearOptionalOr};
 use crate::text::parser::*;
+use crate::validated::bitmask::Bitmask;
 use crate::validated::dataframe::*;
 use crate::validated::standard::*;
 
@@ -130,7 +131,7 @@ enum_from!(
     #[derive(Clone, Serialize)]
     pub NonMixedEndianLayout,
     [Ascii, AnyAsciiLayout<KnownTot>],
-    [Integer, EndianLayout<NullAnyUintType>],
+    [Integer, EndianLayout<AnyNullBitmask>],
     [F32, EndianLayout<F32Type>],
     [F64, EndianLayout<F64Type>]
 );
@@ -169,14 +170,14 @@ pub struct FixedLayout<C, L, T> {
 #[derive(Clone, Serialize)]
 pub enum AnyOrderedUintLayout<T> {
     // TODO the first two don't need to be ordered
-    Uint08(OrderedLayout<Uint08Type, T>),
-    Uint16(OrderedLayout<Uint16Type, T>),
-    Uint24(OrderedLayout<Uint24Type, T>),
-    Uint32(OrderedLayout<Uint32Type, T>),
-    Uint40(OrderedLayout<Uint40Type, T>),
-    Uint48(OrderedLayout<Uint48Type, T>),
-    Uint56(OrderedLayout<Uint56Type, T>),
-    Uint64(OrderedLayout<Uint64Type, T>),
+    Uint08(OrderedLayout<Bitmask08, T>),
+    Uint16(OrderedLayout<Bitmask16, T>),
+    Uint24(OrderedLayout<Bitmask24, T>),
+    Uint32(OrderedLayout<Bitmask32, T>),
+    Uint40(OrderedLayout<Bitmask40, T>),
+    Uint48(OrderedLayout<Bitmask48, T>),
+    Uint56(OrderedLayout<Bitmask56, T>),
+    Uint64(OrderedLayout<Bitmask64, T>),
 }
 
 type OrderedLayout<C, T> = FixedLayout<C, <C as HasNativeWidth>::Order, T>;
@@ -191,19 +192,19 @@ macro_rules! into_any_ordered_layout {
     };
 }
 
-into_any_ordered_layout!(Uint08, Uint08Type);
-into_any_ordered_layout!(Uint16, Uint16Type);
-into_any_ordered_layout!(Uint24, Uint24Type);
-into_any_ordered_layout!(Uint32, Uint32Type);
-into_any_ordered_layout!(Uint40, Uint40Type);
-into_any_ordered_layout!(Uint48, Uint48Type);
-into_any_ordered_layout!(Uint56, Uint56Type);
-into_any_ordered_layout!(Uint64, Uint64Type);
+into_any_ordered_layout!(Uint08, Bitmask08);
+into_any_ordered_layout!(Uint16, Bitmask16);
+into_any_ordered_layout!(Uint24, Bitmask24);
+into_any_ordered_layout!(Uint32, Bitmask32);
+into_any_ordered_layout!(Uint40, Bitmask40);
+into_any_ordered_layout!(Uint48, Bitmask48);
+into_any_ordered_layout!(Uint56, Bitmask56);
+into_any_ordered_layout!(Uint64, Bitmask64);
 
 /// The type of a non-delimited column in the DATA segment for 3.2
 pub enum MixedType<F: ColumnFamily> {
     Ascii(F::ColumnWrapper<AsciiType, u64, ()>),
-    Uint(AnyUintType<F>),
+    Uint(AnyBitmask<F>),
     F32(NativeWrapper<F, F32Type>),
     F64(NativeWrapper<F, F64Type>),
 }
@@ -213,20 +214,20 @@ type ReaderMixedType = MixedType<ColumnReaderFamily>;
 type WriterMixedType<'a> = MixedType<ColumnWriterFamily<'a>>;
 
 /// A big or little-endian integer column of some size (1-8 bytes)
-pub enum AnyUintType<F: ColumnFamily> {
-    Uint08(NativeWrapper<F, Uint08Type>),
-    Uint16(NativeWrapper<F, Uint16Type>),
-    Uint24(NativeWrapper<F, Uint24Type>),
-    Uint32(NativeWrapper<F, Uint32Type>),
-    Uint40(NativeWrapper<F, Uint40Type>),
-    Uint48(NativeWrapper<F, Uint48Type>),
-    Uint56(NativeWrapper<F, Uint56Type>),
-    Uint64(NativeWrapper<F, Uint64Type>),
+pub enum AnyBitmask<F: ColumnFamily> {
+    Uint08(NativeWrapper<F, Bitmask08>),
+    Uint16(NativeWrapper<F, Bitmask16>),
+    Uint24(NativeWrapper<F, Bitmask24>),
+    Uint32(NativeWrapper<F, Bitmask32>),
+    Uint40(NativeWrapper<F, Bitmask40>),
+    Uint48(NativeWrapper<F, Bitmask48>),
+    Uint56(NativeWrapper<F, Bitmask56>),
+    Uint64(NativeWrapper<F, Bitmask64>),
 }
 
-type NullAnyUintType = AnyUintType<ColumnNullFamily>;
-type ReaderAnyUintType = AnyUintType<ColumnReaderFamily>;
-type WriterAnyUintType<'a> = AnyUintType<ColumnWriterFamily<'a>>;
+type AnyNullBitmask = AnyBitmask<ColumnNullFamily>;
+type AnyReaderBitmask = AnyBitmask<ColumnReaderFamily>;
+type AnyWriterBitmask<'a> = AnyBitmask<ColumnWriterFamily<'a>>;
 
 /// Instructions to read one column and store in a vector
 struct ColumnReader<C, T, S> {
@@ -672,104 +673,104 @@ trait IntFromBytes<const INTLEN: usize> {
     // }
 
     // TODO this is only used by ascii
-    fn range_to_int(r: Range, notrunc: bool) -> BiTentative<Self, IntRangeError>
-    where
-        Self: TryFrom<FloatOrInt, Error = ToIntError<Self>> + PrimInt,
-    {
-        let (b, e) = r.0.try_into().map_or_else(
-            |e| match e {
-                ToIntError::IntOverrange(x) => {
-                    (Self::max_value(), Some(IntRangeError::IntOverrange(x)))
-                }
-                ToIntError::Float(FloatToIntError::FloatOverrange(x)) => {
-                    (Self::max_value(), Some(IntRangeError::FloatOverrange(x)))
-                }
-                ToIntError::Float(FloatToIntError::FloatUnderrange(x)) => {
-                    (Self::default(), Some(IntRangeError::FloatUnderrange(x)))
-                }
-                ToIntError::Float(FloatToIntError::FloatPrecisionLoss(x, y)) => {
-                    (y, Some(IntRangeError::FloatPrecisionLoss(x)))
-                }
-            },
-            |x| (x, None),
-        );
-        tentative_error(b, e, notrunc)
-    }
+    // fn range_to_int(r: Range, notrunc: bool) -> BiTentative<Self, IntRangeError>
+    // where
+    //     Self: TryFrom<FloatOrInt, Error = ToIntError<Self>> + PrimInt,
+    // {
+    //     let (b, e) = r.0.try_into().map_or_else(
+    //         |e| match e {
+    //             ToIntError::IntOverrange(x) => {
+    //                 (Self::max_value(), Some(IntRangeError::IntOverrange(x)))
+    //             }
+    //             ToIntError::Float(FloatToIntError::FloatOverrange(x)) => {
+    //                 (Self::max_value(), Some(IntRangeError::FloatOverrange(x)))
+    //             }
+    //             ToIntError::Float(FloatToIntError::FloatUnderrange(x)) => {
+    //                 (Self::default(), Some(IntRangeError::FloatUnderrange(x)))
+    //             }
+    //             ToIntError::Float(FloatToIntError::FloatPrecisionLoss(x, y)) => {
+    //                 (y, Some(IntRangeError::FloatPrecisionLoss(x)))
+    //             }
+    //         },
+    //         |x| (x, None),
+    //     );
+    //     tentative_error(b, e, notrunc)
+    // }
 
-    fn range_to_bitmask(
-        r: Range,
-        notrunc: bool,
-    ) -> BiTentative<Bitmask<INTLEN, Self>, IntRangeError>
-    where
-        Self: TryFrom<FloatOrInt, Error = ToIntError<Self>> + PrimInt,
-        u64: From<Self>,
-    {
-        let (b, e) = r.0.try_into().map_or_else(
-            |e| match e {
-                ToIntError::IntOverrange(x) => {
-                    (Self::max_value(), Some(IntRangeError::IntOverrange(x)))
-                }
-                ToIntError::Float(FloatToIntError::FloatOverrange(x)) => {
-                    (Self::max_value(), Some(IntRangeError::FloatOverrange(x)))
-                }
-                ToIntError::Float(FloatToIntError::FloatUnderrange(x)) => {
-                    (Self::zero(), Some(IntRangeError::FloatUnderrange(x)))
-                }
-                ToIntError::Float(FloatToIntError::FloatPrecisionLoss(x, y)) => {
-                    (y, Some(IntRangeError::FloatPrecisionLoss(x)))
-                }
-            },
-            |x| (x, None),
-        );
-        tentative_error(b, e, notrunc).and_tentatively(|x| x.to_bitmask(notrunc))
-    }
+    // fn range_to_bitmask(
+    //     r: Range,
+    //     notrunc: bool,
+    // ) -> BiTentative<Bitmask<INTLEN, Self>, IntRangeError>
+    // where
+    //     Self: TryFrom<FloatOrInt, Error = ToIntError<Self>> + PrimInt,
+    //     u64: From<Self>,
+    // {
+    //     let (b, e) = r.0.try_into().map_or_else(
+    //         |e| match e {
+    //             ToIntError::IntOverrange(x) => {
+    //                 (Self::max_value(), Some(IntRangeError::IntOverrange(x)))
+    //             }
+    //             ToIntError::Float(FloatToIntError::FloatOverrange(x)) => {
+    //                 (Self::max_value(), Some(IntRangeError::FloatOverrange(x)))
+    //             }
+    //             ToIntError::Float(FloatToIntError::FloatUnderrange(x)) => {
+    //                 (Self::zero(), Some(IntRangeError::FloatUnderrange(x)))
+    //             }
+    //             ToIntError::Float(FloatToIntError::FloatPrecisionLoss(x, y)) => {
+    //                 (y, Some(IntRangeError::FloatPrecisionLoss(x)))
+    //             }
+    //         },
+    //         |x| (x, None),
+    //     );
+    //     tentative_error(b, e, notrunc).and_tentatively(|x| x.to_bitmask(notrunc))
+    // }
 
-    fn column_type<F, T>(
-        x: T,
-        notrunc: bool,
-        f: F,
-    ) -> BiTentative<UintType<Self, INTLEN>, IntRangeError>
-    where
-        F: FnOnce(T, bool) -> BiTentative<Bitmask<INTLEN, Self>, IntRangeError>,
-        Self: Sized,
-    {
-        f(x, notrunc).map(|bitmask| UintType { bitmask })
-    }
+    // fn column_type<F, T>(
+    //     x: T,
+    //     notrunc: bool,
+    //     f: F,
+    // ) -> BiTentative<UintType<Self, INTLEN>, IntRangeError>
+    // where
+    //     F: FnOnce(T, bool) -> BiTentative<Bitmask<INTLEN, Self>, IntRangeError>,
+    //     Self: Sized,
+    // {
+    //     f(x, notrunc).map(|bitmask| UintType { bitmask })
+    // }
 
-    fn column_type_from_range(
-        range: Range,
-        notrunc: bool,
-    ) -> BiTentative<UintType<Self, INTLEN>, IntRangeError>
-    where
-        Self: TryFrom<FloatOrInt, Error = ToIntError<Self>>,
-    {
-        Self::column_type(
-            range,
-            notrunc,
-            <Self as IntFromBytes<INTLEN>>::range_to_bitmask,
-        )
-    }
+    // fn column_type_from_range(
+    //     range: Range,
+    //     notrunc: bool,
+    // ) -> BiTentative<UintType<Self, INTLEN>, IntRangeError>
+    // where
+    //     Self: TryFrom<FloatOrInt, Error = ToIntError<Self>>,
+    // {
+    //     Self::column_type(
+    //         range,
+    //         notrunc,
+    //         <Self as IntFromBytes<INTLEN>>::range_to_bitmask,
+    //     )
+    // }
 
-    fn column_type_from_u64(
-        x: u64,
-        notrunc: bool,
-    ) -> BiTentative<UintType<Self, INTLEN>, IntRangeError>
-    where
-        Self: TryFrom<u64> + TryFrom<usize> + Ord,
-        u64: From<Self>,
-    {
-        Self::column_type(x, notrunc, <Self as IntFromBytes<INTLEN>>::u64_to_bitmask)
-    }
+    // fn column_type_from_u64(
+    //     x: u64,
+    //     notrunc: bool,
+    // ) -> BiTentative<UintType<Self, INTLEN>, IntRangeError>
+    // where
+    //     Self: TryFrom<u64> + TryFrom<usize> + Ord,
+    //     u64: From<Self>,
+    // {
+    //     Self::column_type(x, notrunc, <Self as IntFromBytes<INTLEN>>::u64_to_bitmask)
+    // }
 
-    fn column_type_from_u64_unchecked(x: u64) -> UintType<Self, INTLEN>
-    where
-        Self: TryFrom<u64> + TryFrom<usize> + Ord,
-        u64: From<Self>,
-    {
-        UintType {
-            bitmask: Self::u64_to_bitmask_unchecked(x),
-        }
-    }
+    // fn column_type_from_u64_unchecked(x: u64) -> UintType<Self, INTLEN>
+    // where
+    //     Self: TryFrom<u64> + TryFrom<usize> + Ord,
+    //     u64: From<Self>,
+    // {
+    //     UintType {
+    //         bitmask: Self::u64_to_bitmask_unchecked(x),
+    //     }
+    // }
 
     fn h_read_endian<R: Read>(h: &mut BufReader<R>, endian: Endian) -> io::Result<Self> {
         // This will read data that is not a power-of-two bytes long. Start by
@@ -974,7 +975,7 @@ macro_rules! impl_null_layout {
 impl_null_layout!(NullMixedType, Ascii, Uint, F32, F64);
 
 impl_null_layout!(
-    NullAnyUintType,
+    AnyNullBitmask,
     Uint08,
     Uint16,
     Uint24,
@@ -987,19 +988,19 @@ impl_null_layout!(
 
 macro_rules! any_uint_from {
     ($var:ident, $inner:path) => {
-        impl From<$inner> for NullAnyUintType {
+        impl From<$inner> for AnyNullBitmask {
             fn from(value: $inner) -> Self {
                 Self::$var(value)
             }
         }
 
-        impl From<UintColumnReader<$inner>> for ReaderAnyUintType {
+        impl From<UintColumnReader<$inner>> for AnyReaderBitmask {
             fn from(value: UintColumnReader<$inner>) -> Self {
                 Self::$var(value)
             }
         }
 
-        impl<'a> From<UintColumnWriter<'a, $inner>> for WriterAnyUintType<'a> {
+        impl<'a> From<UintColumnWriter<'a, $inner>> for AnyWriterBitmask<'a> {
             fn from(value: UintColumnWriter<'a, $inner>) -> Self {
                 Self::$var(value)
             }
@@ -1007,14 +1008,14 @@ macro_rules! any_uint_from {
     };
 }
 
-any_uint_from!(Uint08, Uint08Type);
-any_uint_from!(Uint16, Uint16Type);
-any_uint_from!(Uint24, Uint24Type);
-any_uint_from!(Uint32, Uint32Type);
-any_uint_from!(Uint40, Uint40Type);
-any_uint_from!(Uint48, Uint48Type);
-any_uint_from!(Uint56, Uint56Type);
-any_uint_from!(Uint64, Uint64Type);
+any_uint_from!(Uint08, Bitmask08);
+any_uint_from!(Uint16, Bitmask16);
+any_uint_from!(Uint24, Bitmask24);
+any_uint_from!(Uint32, Bitmask32);
+any_uint_from!(Uint40, Bitmask40);
+any_uint_from!(Uint48, Bitmask48);
+any_uint_from!(Uint56, Bitmask56);
+any_uint_from!(Uint64, Bitmask64);
 
 impl TotDefinition for MaybeTot {
     type Tot = Option<Tot>;
@@ -1058,11 +1059,11 @@ impl<'a> ColumnFamily for ColumnWriterFamily<'a> {
 
 macro_rules! any_uint_to_width {
     ($from:ident, $to:ident) => {
-        impl TryFrom<NullAnyUintType> for $to {
+        impl TryFrom<AnyNullBitmask> for $to {
             type Error = UintToUintError;
-            fn try_from(value: NullAnyUintType) -> Result<Self, Self::Error> {
+            fn try_from(value: AnyNullBitmask) -> Result<Self, Self::Error> {
                 let w = value.nbytes();
-                if let AnyUintType::$from(x) = value {
+                if let AnyBitmask::$from(x) = value {
                     Ok(x)
                 } else {
                     Err(UintToUintError {
@@ -1075,14 +1076,14 @@ macro_rules! any_uint_to_width {
     };
 }
 
-any_uint_to_width!(Uint08, Uint08Type);
-any_uint_to_width!(Uint16, Uint16Type);
-any_uint_to_width!(Uint24, Uint24Type);
-any_uint_to_width!(Uint32, Uint32Type);
-any_uint_to_width!(Uint40, Uint40Type);
-any_uint_to_width!(Uint48, Uint48Type);
-any_uint_to_width!(Uint56, Uint56Type);
-any_uint_to_width!(Uint64, Uint64Type);
+any_uint_to_width!(Uint08, Bitmask08);
+any_uint_to_width!(Uint16, Bitmask16);
+any_uint_to_width!(Uint24, Bitmask24);
+any_uint_to_width!(Uint32, Bitmask32);
+any_uint_to_width!(Uint40, Bitmask40);
+any_uint_to_width!(Uint48, Bitmask48);
+any_uint_to_width!(Uint56, Bitmask56);
+any_uint_to_width!(Uint64, Bitmask64);
 
 macro_rules! mixed_to_width {
     ($from:ident, $to:ident) => {
@@ -1092,7 +1093,7 @@ macro_rules! mixed_to_width {
                 let w = value.nbytes();
                 match value {
                     MixedType::Uint(x) => {
-                        if let AnyUintType::$from(y) = x {
+                        if let AnyBitmask::$from(y) = x {
                             Ok(y)
                         } else {
                             Err(UintToUintError {
@@ -1111,14 +1112,14 @@ macro_rules! mixed_to_width {
     };
 }
 
-mixed_to_width!(Uint08, Uint08Type);
-mixed_to_width!(Uint16, Uint16Type);
-mixed_to_width!(Uint24, Uint24Type);
-mixed_to_width!(Uint32, Uint32Type);
-mixed_to_width!(Uint40, Uint40Type);
-mixed_to_width!(Uint48, Uint48Type);
-mixed_to_width!(Uint56, Uint56Type);
-mixed_to_width!(Uint64, Uint64Type);
+mixed_to_width!(Uint08, Bitmask08);
+mixed_to_width!(Uint16, Bitmask16);
+mixed_to_width!(Uint24, Bitmask24);
+mixed_to_width!(Uint32, Bitmask32);
+mixed_to_width!(Uint40, Bitmask40);
+mixed_to_width!(Uint48, Bitmask48);
+mixed_to_width!(Uint56, Bitmask56);
+mixed_to_width!(Uint64, Bitmask64);
 
 impl TryFrom<NullMixedType> for AsciiType {
     type Error = MixedToAsciiError;
@@ -1132,7 +1133,7 @@ impl TryFrom<NullMixedType> for AsciiType {
     }
 }
 
-impl TryFrom<NullMixedType> for NullAnyUintType {
+impl TryFrom<NullMixedType> for AnyNullBitmask {
     type Error = MixedToEndianUintError;
     fn try_from(value: NullMixedType) -> Result<Self, Self::Error> {
         match value {
@@ -1262,15 +1263,15 @@ impl fmt::Display for MixedToDoubleError {
     }
 }
 
-impl<T, const LEN: usize> ToNativeReader for UintType<T, LEN> where Self: HasNativeType<Native = T> {}
+impl<T, const LEN: usize> ToNativeReader for Bitmask<T, LEN> where Self: HasNativeType<Native = T> {}
 
 impl<T, const LEN: usize> ToNativeReader for FloatType<T, LEN> where Self: HasNativeType<Native = T> {}
 
 impl ToNativeReader for AsciiType {}
 
-impl<T, const LEN: usize, E> NativeReadable<Endian, E> for UintType<T, LEN>
+impl<T, const LEN: usize, E> NativeReadable<Endian, E> for Bitmask<T, LEN>
 where
-    UintType<T, LEN>: HasNativeType<Native = T>,
+    Bitmask<T, LEN>: HasNativeType<Native = T>,
     T: Ord + Copy + IntFromBytes<LEN>,
 {
     type Buf = ();
@@ -1286,9 +1287,9 @@ where
     }
 }
 
-impl<T, const LEN: usize, E> NativeReadable<SizedByteOrd<LEN>, E> for UintType<T, LEN>
+impl<T, const LEN: usize, E> NativeReadable<SizedByteOrd<LEN>, E> for Bitmask<T, LEN>
 where
-    UintType<T, LEN>: HasNativeType<Native = T>,
+    Bitmask<T, LEN>: HasNativeType<Native = T>,
     T: Ord + Copy + IntFromBytes<LEN>,
 {
     type Buf = ();
@@ -1428,14 +1429,14 @@ impl Readable<Endian, AsciiToUintError> for ReaderMixedType {
     }
 }
 
-impl<E> Readable<Endian, E> for ReaderAnyUintType {
-    type Inner = NullAnyUintType;
+impl<E> Readable<Endian, E> for AnyReaderBitmask {
+    type Inner = AnyNullBitmask;
     type Buf = ();
 
     fn new(column_type: Self::Inner, nrows: usize) -> Self {
         match_many_to_one!(
             column_type,
-            AnyUintType,
+            AnyBitmask,
             [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
             c,
             { c.into_reader(nrows).into() }
@@ -1445,7 +1446,7 @@ impl<E> Readable<Endian, E> for ReaderAnyUintType {
     fn into_column(self) -> AnyFCSColumn {
         match_many_to_one!(
             self,
-            AnyUintType,
+            AnyBitmask,
             [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
             c,
             { Readable::<_, E>::into_column(c) }
@@ -1461,7 +1462,7 @@ impl<E> Readable<Endian, E> for ReaderAnyUintType {
     ) -> IOResult<(), E> {
         match_many_to_one!(
             self,
-            AnyUintType,
+            AnyBitmask,
             [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
             c,
             { c.h_read_row(h, row, byte_layout, buf) }
@@ -1469,9 +1470,9 @@ impl<E> Readable<Endian, E> for ReaderAnyUintType {
     }
 }
 
-impl<T, const LEN: usize> NativeWritable<Endian> for UintType<T, LEN>
+impl<T, const LEN: usize> NativeWritable<Endian> for Bitmask<T, LEN>
 where
-    UintType<T, LEN>: HasNativeType<Native = T>,
+    Bitmask<T, LEN>: HasNativeType<Native = T>,
     T: Ord + Copy + IntFromBytes<LEN>,
 {
     fn h_write<W: Write>(
@@ -1484,9 +1485,9 @@ where
     }
 }
 
-impl<T, const LEN: usize> NativeWritable<SizedByteOrd<LEN>> for UintType<T, LEN>
+impl<T, const LEN: usize> NativeWritable<SizedByteOrd<LEN>> for Bitmask<T, LEN>
 where
-    UintType<T, LEN>: HasNativeType<Native = T>,
+    Bitmask<T, LEN>: HasNativeType<Native = T>,
     T: Ord + Copy + IntFromBytes<LEN>,
 {
     fn h_write<W: Write>(
@@ -1588,7 +1589,7 @@ impl<'a> Writable<'a, Endian> for WriterMixedType<'a> {
     fn new(column_type: Self::Inner, col: &'a AnyFCSColumn) -> Self {
         match column_type {
             MixedType::Ascii(c) => Self::Ascii(c.into_writer(col)),
-            MixedType::Uint(c) => Self::Uint(WriterAnyUintType::new(c, col)),
+            MixedType::Uint(c) => Self::Uint(AnyWriterBitmask::new(c, col)),
             MixedType::F32(c) => Self::F32(c.into_writer(col)),
             MixedType::F64(c) => Self::F64(c.into_writer(col)),
         }
@@ -1597,7 +1598,7 @@ impl<'a> Writable<'a, Endian> for WriterMixedType<'a> {
     fn check_writer(column_type: Self::Inner, col: &'a AnyFCSColumn) -> Result<(), AnyLossError> {
         match column_type {
             MixedType::Ascii(c) => c.check_writer(col).map_err(|e| e.into()),
-            MixedType::Uint(c) => WriterAnyUintType::check_writer(c, col),
+            MixedType::Uint(c) => AnyWriterBitmask::check_writer(c, col),
             MixedType::F32(c) => c.check_writer(col).map_err(|e| e.into()),
             MixedType::F64(c) => c.check_writer(col).map_err(|e| e.into()),
         }
@@ -1622,13 +1623,13 @@ impl<'a> Writable<'a, Endian> for WriterMixedType<'a> {
     }
 }
 
-impl<'a> Writable<'a, Endian> for WriterAnyUintType<'a> {
-    type Inner = NullAnyUintType;
+impl<'a> Writable<'a, Endian> for AnyWriterBitmask<'a> {
+    type Inner = AnyNullBitmask;
 
     fn new(column_type: Self::Inner, col: &'a AnyFCSColumn) -> Self {
         match_many_to_one!(
             column_type,
-            AnyUintType,
+            AnyBitmask,
             [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
             c,
             { c.into_writer(col).into() }
@@ -1638,7 +1639,7 @@ impl<'a> Writable<'a, Endian> for WriterAnyUintType<'a> {
     fn check_writer(column_type: Self::Inner, col: &'a AnyFCSColumn) -> Result<(), AnyLossError> {
         match_many_to_one!(
             column_type,
-            AnyUintType,
+            AnyBitmask,
             [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
             c,
             { c.check_writer(col).map_err(|e| e.into()) }
@@ -1659,7 +1660,7 @@ impl<'a> Writable<'a, Endian> for WriterAnyUintType<'a> {
     }
 }
 
-impl<T, const LEN: usize> ToNativeWriter for UintType<T, LEN>
+impl<T, const LEN: usize> ToNativeWriter for Bitmask<T, LEN>
 where
     Self: HasNativeType<Native = T>,
     u64: From<T>,
@@ -1706,20 +1707,20 @@ macro_rules! uint_to_mixed {
     ($uint:ident, $wrap:ident) => {
         impl From<$uint> for NullMixedType {
             fn from(value: $uint) -> Self {
-                MixedType::Uint(AnyUintType::$wrap(value))
+                MixedType::Uint(AnyBitmask::$wrap(value))
             }
         }
     };
 }
 
-uint_to_mixed!(Uint08Type, Uint08);
-uint_to_mixed!(Uint16Type, Uint16);
-uint_to_mixed!(Uint24Type, Uint24);
-uint_to_mixed!(Uint32Type, Uint32);
-uint_to_mixed!(Uint40Type, Uint40);
-uint_to_mixed!(Uint48Type, Uint48);
-uint_to_mixed!(Uint56Type, Uint56);
-uint_to_mixed!(Uint64Type, Uint64);
+uint_to_mixed!(Bitmask08, Uint08);
+uint_to_mixed!(Bitmask16, Uint16);
+uint_to_mixed!(Bitmask24, Uint24);
+uint_to_mixed!(Bitmask32, Uint32);
+uint_to_mixed!(Bitmask40, Uint40);
+uint_to_mixed!(Bitmask48, Uint48);
+uint_to_mixed!(Bitmask56, Uint56);
+uint_to_mixed!(Bitmask64, Uint64);
 
 /// A wrapper for any of the 6 source types that can be written.
 ///
@@ -1808,14 +1809,14 @@ impl<T> FixedAsciiLayout<T> {
     }
 }
 
-impl EndianLayout<NullAnyUintType> {
+impl EndianLayout<AnyNullBitmask> {
     pub(crate) fn endian_uint_try_new<D>(
         cs: NonEmpty<ColumnLayoutValues<D>>,
         e: Endian,
         notrunc: bool,
     ) -> DeferredResult<Self, ColumnError<IntRangeError>, ColumnError<NewUintTypeError>> {
         FixedLayout::try_new(cs, e, |c| {
-            AnyUintType::try_new(c.width, c.range, notrunc).def_errors_into()
+            AnyBitmask::try_new(c.width, c.range, notrunc).def_errors_into()
         })
     }
 
@@ -2045,7 +2046,8 @@ impl IntFromBytes<6> for u64 {}
 impl IntFromBytes<7> for u64 {}
 impl IntFromBytes<8> for u64 {}
 
-impl<T, const LEN: usize> UintType<T, LEN> {
+// TODO move to source crate
+impl<T, const LEN: usize> Bitmask<T, LEN> {
     fn try_from_many<E, X>(
         xs: Vec<X>,
         starting_index: usize,
@@ -2060,6 +2062,7 @@ impl<T, const LEN: usize> UintType<T, LEN> {
     }
 }
 
+// TODO move to source crate
 impl AsciiType {
     fn try_new(width: Width, range: Range) -> MultiResult<Self, NewAsciiTypeError> {
         let c = Chars::try_from(width).map_err(|e| e.into());
@@ -2082,7 +2085,7 @@ impl NullMixedType {
         let notrunc = conf.disallow_bitmask_truncation;
         if let Some(dt) = c.datatype {
             match dt {
-                NumType::Integer => AnyUintType::try_new(c.width, c.range, notrunc)
+                NumType::Integer => AnyBitmask::try_new(c.width, c.range, notrunc)
                     .def_map_value(Self::Uint)
                     .def_inner_into(),
                 NumType::Single => f32::column_type1(w, r, notrunc)
@@ -2106,7 +2109,7 @@ impl NullMixedType {
     /// never return ASCII.
     fn new_from_range(range: FloatOrInt) -> Self {
         match range {
-            FloatOrInt::Int(x) => Self::Uint(AnyUintType::new_from_u64(x)),
+            FloatOrInt::Int(x) => Self::Uint(AnyBitmask::new_from_u64(x)),
             FloatOrInt::Float(x) => x
                 .try_as_f32()
                 .map_or(Self::F64(FloatType { range: x }), |y| {
@@ -2125,7 +2128,7 @@ impl NullMixedType {
     }
 }
 
-impl NullAnyUintType {
+impl AnyNullBitmask {
     fn try_new(
         width: Width,
         range: Range,
@@ -2189,14 +2192,14 @@ impl NullAnyUintType {
         starting_index: usize,
     ) -> MultiResult<AnyOrderedUintLayout<T>, (MeasIndex, E)>
     where
-        Uint08Type: TryFrom<X, Error = E>,
-        Uint16Type: TryFrom<X, Error = E>,
-        Uint24Type: TryFrom<X, Error = E>,
-        Uint32Type: TryFrom<X, Error = E>,
-        Uint40Type: TryFrom<X, Error = E>,
-        Uint48Type: TryFrom<X, Error = E>,
-        Uint56Type: TryFrom<X, Error = E>,
-        Uint64Type: TryFrom<X, Error = E>,
+        Bitmask08: TryFrom<X, Error = E>,
+        Bitmask16: TryFrom<X, Error = E>,
+        Bitmask24: TryFrom<X, Error = E>,
+        Bitmask32: TryFrom<X, Error = E>,
+        Bitmask40: TryFrom<X, Error = E>,
+        Bitmask48: TryFrom<X, Error = E>,
+        Bitmask56: TryFrom<X, Error = E>,
+        Bitmask64: TryFrom<X, Error = E>,
     {
         match_many_to_one!(
             self,
@@ -2204,7 +2207,7 @@ impl NullAnyUintType {
             [Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64],
             x,
             {
-                UintType::try_from_many(tail, starting_index)
+                Bitmask::try_from_many(tail, starting_index)
                     .map(|xs| FixedLayout::new1(x, xs, endian.into()).into())
             }
         )
@@ -2924,7 +2927,7 @@ impl<C, const LEN: usize, S, T> FixedLayout<FloatType<C, LEN>, S, T> {
     }
 }
 
-impl<C, const LEN: usize, T> FixedLayout<UintType<C, LEN>, SizedByteOrd<LEN>, T>
+impl<C, const LEN: usize, T> FixedLayout<Bitmask<C, LEN>, SizedByteOrd<LEN>, T>
 where
     C: IntFromBytes<LEN> + TryFrom<usize> + Ord,
 {
@@ -2934,14 +2937,14 @@ where
         byte_layout: SizedByteOrd<LEN>,
     ) -> Self {
         // TODO warn on truncation? might not matter here
-        let columns = ranges.map(|b| UintType {
+        let columns = ranges.map(|b| Bitmask {
             bitmask: b.to_bitmask_unchecked(),
         });
         Self::new(columns, byte_layout)
     }
 }
 
-impl<T> FixedLayout<NullAnyUintType, Endian, T> {
+impl<T> FixedLayout<AnyNullBitmask, Endian, T> {
     // pub(crate) fn new_endian_uint(
     //     &self,
     //     ranges: NonEmpty<Range>,
@@ -2968,13 +2971,13 @@ impl<T> FixedLayout<NullAnyUintType, Endian, T> {
         range: Range,
         notrunc: bool,
     ) -> BiTentative<(), IntRangeError> {
-        AnyUintType::new_from_range(range, notrunc)
+        AnyBitmask::new_from_range(range, notrunc)
             .errors_into()
             .map(|t| self.insert_inner_nocheck(index, t))
     }
 
     fn push_uint(&mut self, range: Range, notrunc: bool) -> BiTentative<(), IntRangeError> {
-        AnyUintType::new_from_range(range, notrunc).map(|t| self.push_inner(t))
+        AnyBitmask::new_from_range(range, notrunc).map(|t| self.push_inner(t))
     }
 }
 
@@ -2989,7 +2992,7 @@ impl<T> FixedLayout<NullAnyUintType, Endian, T> {
 //     }
 // }
 
-impl<T, const LEN: usize> HasDatatype for UintType<T, LEN> {
+impl<T, const LEN: usize> HasDatatype for Bitmask<T, LEN> {
     const DATATYPE: AlphaNumType = AlphaNumType::Integer;
 }
 
@@ -3001,11 +3004,11 @@ impl HasDatatype for F64Type {
     const DATATYPE: AlphaNumType = AlphaNumType::Double;
 }
 
-impl HasDatatype for NullAnyUintType {
+impl HasDatatype for AnyNullBitmask {
     const DATATYPE: AlphaNumType = AlphaNumType::Integer;
 }
 
-impl<T, const LEN: usize> IsFixed for UintType<T, LEN>
+impl<T, const LEN: usize> IsFixed for Bitmask<T, LEN>
 where
     Self: HasNativeWidth,
     u64: From<T>,
@@ -3026,7 +3029,7 @@ where
     }
 }
 
-impl IsFixed for NullAnyUintType {
+impl IsFixed for AnyNullBitmask {
     fn nbytes(&self) -> u8 {
         match_many_to_one!(
             self,
@@ -3178,7 +3181,7 @@ impl<T> AnyOrderedUintLayout<T> {
         match_any_uint!(self, Self, l, { l.tot_into().into() })
     }
 
-    fn into_endian(self) -> Result<EndianLayout<NullAnyUintType>, OrderedToEndianError> {
+    fn into_endian(self) -> Result<EndianLayout<AnyNullBitmask>, OrderedToEndianError> {
         match_any_uint!(self, Self, l, {
             l.tot_into()
                 .byte_layout_try_into()
@@ -4302,9 +4305,7 @@ impl NonMixedEndianLayout {
             Self::Ascii(x) => x
                 .h_read_checked_df(h, tot, seg, conf)
                 .def_map_errors(|e| e.inner_into()),
-            Self::Integer(x) => {
-                x.h_read_df_numeric::<_, ReaderAnyUintType, _, _>(h, tot, seg, conf)
-            }
+            Self::Integer(x) => x.h_read_df_numeric::<_, AnyReaderBitmask, _, _>(h, tot, seg, conf),
             Self::F32(x) => {
                 x.h_read_df_numeric::<_, ColumnReader<_, _, _>, _, _>(h, tot, seg, conf)
             }
@@ -4317,7 +4318,7 @@ impl NonMixedEndianLayout {
     fn check_writer(&self, df: &FCSDataFrame) -> MultiResult<(), ColumnError<AnyLossError>> {
         match self {
             Self::Ascii(x) => x.check_writer(df),
-            Self::Integer(x) => x.check_writer::<WriterAnyUintType>(df),
+            Self::Integer(x) => x.check_writer::<AnyWriterBitmask>(df),
             Self::F32(x) => x.check_writer::<ColumnWriter<_, _, _>>(df),
             Self::F64(x) => x.check_writer::<ColumnWriter<_, _, _>>(df),
         }
@@ -4326,7 +4327,7 @@ impl NonMixedEndianLayout {
     fn h_write_df<W: Write>(&self, h: &mut BufWriter<W>, df: &FCSDataFrame) -> io::Result<()> {
         match self {
             Self::Ascii(x) => x.h_write_df(h, df),
-            Self::Integer(x) => x.h_write_df::<_, WriterAnyUintType>(h, df),
+            Self::Integer(x) => x.h_write_df::<_, AnyWriterBitmask>(h, df),
             Self::F32(x) => x.h_write_df::<_, ColumnWriter<_, _, _>>(h, df),
             Self::F64(x) => x.h_write_df::<_, ColumnWriter<_, _, _>>(h, df),
         }
@@ -4442,43 +4443,6 @@ enum_from_disp!(
     [Endian, ByteOrdToSizedEndianError],
     [Size,  IntRangeError]
 );
-
-pub enum IntRangeError {
-    IntTruncated(u64),
-    IntOverrange(u64),
-    FloatOverrange(f64),
-    FloatUnderrange(f64),
-    FloatPrecisionLoss(f64),
-}
-
-pub enum FloatRangeError {
-    IntPrecisionLoss(u64),
-    FloatOverrange(f64),
-    FloatUnderrange(f64),
-}
-
-impl<X> From<ToIntError<X>> for IntRangeError {
-    fn from(value: ToIntError<X>) -> Self {
-        match value {
-            ToIntError::IntOverrange(x) => Self::IntOverrange(x),
-            ToIntError::Float(e) => match e {
-                FloatToIntError::FloatOverrange(x) => Self::FloatOverrange(x),
-                FloatToIntError::FloatUnderrange(x) => Self::FloatUnderrange(x),
-                FloatToIntError::FloatPrecisionLoss(x, _) => Self::FloatPrecisionLoss(x),
-            },
-        }
-    }
-}
-
-impl<X> From<ToFloatError<X>> for FloatRangeError {
-    fn from(value: ToFloatError<X>) -> Self {
-        match value {
-            ToFloatError::FloatOverrange(x) => Self::FloatOverrange(x),
-            ToFloatError::FloatUnderrange(x) => Self::FloatUnderrange(x),
-            ToFloatError::IntPrecisionLoss(x, _) => Self::IntPrecisionLoss(x),
-        }
-    }
-}
 
 enum_from_disp!(
     pub SingleFixedWidthError,
@@ -4706,55 +4670,6 @@ pub struct DelimIncompleteError {
 pub enum ReadDelimAsciiWithoutRowsError {
     Unequal,
     Parse(AsciiToUintError),
-}
-
-impl fmt::Display for IntRangeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            // TODO what is the target type?
-            Self::IntOverrange(x) => {
-                write!(
-                    f,
-                    "integer range {x} is larger than target unsigned integer can hold"
-                )
-            }
-            Self::FloatOverrange(x) => {
-                write!(
-                    f,
-                    "float range {x} is larger than target unsigned integer can hold"
-                )
-            }
-            Self::FloatUnderrange(x) => {
-                write!(
-                    f,
-                    "float range {x} is less than zero and \
-                     could not be converted to unsigned integer"
-                )
-            }
-            Self::FloatPrecisionLoss(x) => {
-                write!(
-                    f,
-                    "float range {x} lost precision when converting to unsigned integer"
-                )
-            }
-        }
-    }
-}
-
-impl fmt::Display for FloatRangeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::IntPrecisionLoss(x) => {
-                write!(f, "int {x} is more precise than target float")
-            }
-            Self::FloatOverrange(x) => {
-                write!(f, "{x} is larger than target float can hold")
-            }
-            Self::FloatUnderrange(x) => {
-                write!(f, "{x} is smaller than target float can hold")
-            }
-        }
-    }
 }
 
 impl fmt::Display for RowsExceededError {

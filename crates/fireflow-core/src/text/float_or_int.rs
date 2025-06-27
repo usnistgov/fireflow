@@ -1,9 +1,7 @@
 use crate::error::BiTentative;
-use crate::macros::{enum_from, enum_from_disp, newtype_disp, newtype_from_outer};
+use crate::macros::{newtype_disp, newtype_from_outer};
 use crate::validated::ascii_range::Chars;
 use crate::validated::bitmask::{Bitmask, BitmaskTruncationError};
-
-use super::byteord::Bytes;
 
 use num_traits::bounds::Bounded;
 use num_traits::float::Float;
@@ -57,18 +55,6 @@ impl NonNanF64 {
         }
     }
 }
-
-// impl FloatProps for f32 {
-//     fn maxval() -> NonNanFloat<Self> {
-//         NonNanFloat(Self::MAX)
-//     }
-// }
-
-// impl FloatProps for f64 {
-//     fn maxval() -> NonNanFloat<Self> {
-//         NonNanFloat(Self::MAX)
-//     }
-// }
 
 impl<T> NonNanFloat<T> {
     pub(crate) fn inner_into<X: From<T>>(self) -> NonNanFloat<X> {
@@ -197,21 +183,6 @@ impl From<u64> for FloatOrInt {
         Self::Int(value)
     }
 }
-
-// impl TryFrom<FloatOrInt> for Bytes {
-//     type Error = FloatToIntError<u64>;
-
-//     /// Return the number of bytes needed to hold the float/int.
-//     ///
-//     /// This might fail because it involves squishing the input into a
-//     /// u64, which could fail for out of range or fractional values.
-//     fn try_from(value: FloatOrInt) -> Result<Self, Self::Error> {
-//         match value {
-//             FloatOrInt::Int(x) => Ok(Bytes::from_u64(x)),
-//             FloatOrInt::Float(x) => x.to_int::<u64>().map(Bytes::from_u64),
-//         }
-//     }
-// }
 
 impl TryFrom<FloatOrInt> for Chars {
     type Error = FloatToIntError<u64>;
@@ -356,44 +327,6 @@ pub enum FloatToIntError<X> {
     FloatPrecisionLoss(f64, X),
 }
 
-impl<X: fmt::Display> fmt::Display for ToIntError<X> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            // TODO what is the target type?
-            Self::IntOverrange(x) => {
-                write!(
-                    f,
-                    "integer range {x} is larger than target unsigned integer can hold"
-                )
-            }
-            Self::Float(e) => e.fmt(f),
-        }
-    }
-}
-
-impl<X: fmt::Display> fmt::Display for FloatToIntError<X> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::FloatOverrange(x) => {
-                write!(
-                    f,
-                    "float range {x} is larger than target unsigned integer can hold"
-                )
-            }
-            Self::FloatUnderrange(x) => {
-                write!(
-                    f,
-                    "float range {x} is less than zero and \
-                     could not be converted to unsigned integer"
-                )
-            }
-            Self::FloatPrecisionLoss(x, y) => {
-                write!(f, "float range {x} lost precision when converting to {y}")
-            }
-        }
-    }
-}
-
 pub enum ToFloatError<X> {
     /// u64 would lose precision when converted to a float
     IntPrecisionLoss(u64, NonNanFloat<X>),
@@ -404,7 +337,6 @@ pub enum ToFloatError<X> {
 }
 
 pub enum IntRangeError {
-    // IntTruncated(u64),
     IntOverrange(u64),
     FloatOverrange(f64),
     FloatUnderrange(f64),

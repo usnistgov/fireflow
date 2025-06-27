@@ -1,6 +1,5 @@
 use crate::error::{BiTentative, DeferredExt, DeferredResult, ResultExt};
 use crate::macros::{enum_from, enum_from_disp, match_many_to_one};
-use crate::text::byteord::{Bytes, Width};
 use crate::text::float_or_int::{FloatOrInt, IntRangeError, ToIntError};
 
 use num_traits::PrimInt;
@@ -93,21 +92,21 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
         BiTentative::new_either1(bitmask, error, notrunc)
     }
 
-    fn from_u64_tnt(value: u64, notrunc: bool) -> BiTentative<Self, BitmaskTruncationError>
-    where
-        T: PrimInt + TryFrom<u64>,
-    {
-        let (bitmask, truncated) = Bitmask::from_u64(value);
-        let error = if truncated {
-            Some(BitmaskTruncationError {
-                bytes: Self::bits(),
-                value: u64::from(value),
-            })
-        } else {
-            None
-        };
-        BiTentative::new_either1(bitmask, error, notrunc)
-    }
+    // fn from_u64_tnt(value: u64, notrunc: bool) -> BiTentative<Self, BitmaskTruncationError>
+    // where
+    //     T: PrimInt + TryFrom<u64>,
+    // {
+    //     let (bitmask, truncated) = Bitmask::from_u64(value);
+    //     let error = if truncated {
+    //         Some(BitmaskTruncationError {
+    //             bytes: Self::bits(),
+    //             value,
+    //         })
+    //     } else {
+    //         None
+    //     };
+    //     BiTentative::new_either1(bitmask, error, notrunc)
+    // }
 
     pub(crate) fn from_native(value: T) -> (Self, bool)
     where

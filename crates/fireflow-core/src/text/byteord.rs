@@ -82,58 +82,6 @@ pub enum SizedByteOrd<const LEN: usize> {
     Order([u8; LEN]),
 }
 
-// /// A generic integer column type with a byte-layout and bitmask.
-// #[derive(PartialEq, Clone, Copy, Serialize)]
-// pub struct UintType<T, const LEN: usize> {
-//     pub bitmask: Bitmask<LEN, T>,
-// }
-
-// /// The type of an ASCII column in all versions
-// #[derive(PartialEq, Clone, Copy, Serialize)]
-// pub struct AsciiType {
-//     pub chars: Chars,
-//     pub range: u64,
-// }
-
-// macro_rules! uint_default {
-//     ($name:ident, $size:expr, $t:ident) => {
-//         impl Default for Bitmask<$size, $t> {
-//             fn default() -> Self {
-//                 Self(2 ^ $size - 1)
-//             }
-//         }
-
-//         impl Default for $name {
-//             fn default() -> Self {
-//                 Self { bitmask: 2 ^ $size }
-//             }
-//         }
-//     };
-// }
-
-// uint_default!(Uint08Type, 1, u8);
-// uint_default!(Uint16Type, 2, u16);
-// uint_default!(Uint24Type, 3, u32);
-// uint_default!(Uint32Type, 4, u32);
-// uint_default!(Uint40Type, 5, u64);
-// uint_default!(Uint48Type, 6, u64);
-// uint_default!(Uint56Type, 7, u64);
-// uint_default!(Uint64Type, 8, u64);
-
-// macro_rules! float_default {
-//     ($name:ident, $t:ident) => {
-//         impl Default for $name {
-//             fn default() -> Self {
-//                 Self {
-//                     range: $t::maxval(),
-//                 }
-//             }
-//         }
-//     };
-// }
-
-// float_default!(F32Type, f32);
-
 macro_rules! byteord_from_sized {
     ($len:expr, $var:ident, $bytes:ident) => {
         impl TryFrom<SizedByteOrd<$len>> for Endian {
@@ -243,31 +191,6 @@ impl Bytes {
             .unwrap_or(Bytes::B1)
     }
 }
-
-// impl Default for AsciiType {
-//     fn default() -> Self {
-//         Self {
-//             chars: Chars::max(),
-//             range: u64::MAX,
-//         }
-//     }
-// }
-
-// impl AsciiType {
-//     // pub(crate) fn try_from_range(range: FloatOrInt) -> Result<Self, ToIntError<u64>> {
-//     //     u64::try_from(range).map(|x| Self {
-//     //         range: x,
-//     //         chars: Chars::from_u64(x),
-//     //     })
-//     // }
-
-//     pub(crate) fn from_u64(range: u64) -> Self {
-//         Self {
-//             range,
-//             chars: Chars::from_u64(range),
-//         }
-//     }
-// }
 
 impl<const LEN: usize> Serialize for SizedByteOrd<LEN> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -764,49 +687,3 @@ where
         }
     }
 }
-
-// enum_from_disp!(
-//     pub SingleWidthError,
-//     // TODO put this error somewhere more obvious
-//     [Multi, MultiWidthsError],
-//     [Float, WrongFloatWidth],
-//     [Width, WidthToBytesError],
-//     [Empty, EmptyWidthError]
-
-// );
-
-// pub struct EmptyWidthError;
-
-// impl fmt::Display for EmptyWidthError {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-//         write!(f, "could not determine width, no measurements available")
-//     }
-// }
-
-// /// Return true if sequence is a contiguous set.
-// ///
-// /// Example: '1,3,4,2,5' should return true. So should '5,6,4,3,7'.
-// ///
-// /// Returns true if empty.
-// fn is_contiguous(xs: &[u8]) -> bool {
-//     let mut ys: Vec<_> = xs.iter().copied().collect();
-//     ys.sort_unstable();
-//     is_contiguously_increasing(&ys[..])
-// }
-
-// /// Return true if all values in sequence are increasing consecutively.
-// ///
-// /// Returns true if empty.
-// fn is_contiguously_increasing(xs: &[u8]) -> bool {
-//     if let Some((y, ys)) = xs.split_first() {
-//         let mut prev = y;
-//         for k in ys {
-//             if let Some(1) = k.checked_sub(*prev) {
-//                 prev = k;
-//             } else {
-//                 return false;
-//             }
-//         }
-//     }
-//     true
-// }

@@ -649,162 +649,6 @@ trait OrderedFromBytes<const OLEN: usize>: NumProps {
 
 /// Methods for reading/writing integers (1-8 bytes) from FCS files.
 trait IntFromBytes<const INTLEN: usize>: NumProps + OrderedFromBytes<INTLEN> {
-    // fn max_bitmask() -> Bitmask<INTLEN, Self>
-    // where
-    //     Self: PrimInt,
-    // {
-    //     Bitmask::from_native(Self::max_value()).0
-    // }
-
-    // fn to_bitmask_unchecked(self) -> Self
-    // where
-    //     Self: Ord + TryFrom<usize>,
-    // {
-    //     Bitmask::from_native(self).0
-    //     // Self::next_bitmask(self).min(Self::max_bitmask())
-    // }
-
-    // fn to_bitmask(self, notrunc: bool) -> BiTentative<Bitmask<INTLEN, Self>, IntRangeError>
-    // where
-    //     Self: PrimInt,
-    //     u64: From<Self>,
-    // {
-    //     let (bitmask, truncated) = Bitmask::from_native(self);
-    //     // TODO this error seems seperate from the enum
-    //     let error = if truncated {
-    //         Some(IntRangeError::IntTruncated(self.into()))
-    //     } else {
-    //         None
-    //     };
-    //     tentative_error(bitmask, error, notrunc)
-    // }
-
-    // fn u64_to_bitmask(x: u64, notrunc: bool) -> BiTentative<Bitmask<INTLEN, Self>, IntRangeError>
-    // where
-    //     Self: TryFrom<u64> + PrimInt,
-    //     u64: From<Self>,
-    // {
-    //     Self::try_from(x).map_or_else(
-    //         |_| {
-    //             tentative_error(
-    //                 Self::max_bitmask(),
-    //                 Some(IntRangeError::IntTruncated(x)),
-    //                 notrunc,
-    //             )
-    //         },
-    //         |y| y.to_bitmask(notrunc),
-    //     )
-    // }
-
-    // fn u64_to_bitmask_unchecked(x: u64) -> Self
-    // where
-    //     Self: TryFrom<u64> + TryFrom<usize> + Ord,
-    // {
-    //     Self::try_from(x)
-    //         .ok()
-    //         .map_or(Self::max_bitmask(), |y| y.to_bitmask_unchecked())
-    // }
-
-    // TODO this is only used by ascii
-    // fn range_to_int(r: Range, notrunc: bool) -> BiTentative<Self, IntRangeError>
-    // where
-    //     Self: TryFrom<FloatOrInt, Error = ToIntError<Self>> + PrimInt,
-    // {
-    //     let (b, e) = r.0.try_into().map_or_else(
-    //         |e| match e {
-    //             ToIntError::IntOverrange(x) => {
-    //                 (Self::max_value(), Some(IntRangeError::IntOverrange(x)))
-    //             }
-    //             ToIntError::Float(FloatToIntError::FloatOverrange(x)) => {
-    //                 (Self::max_value(), Some(IntRangeError::FloatOverrange(x)))
-    //             }
-    //             ToIntError::Float(FloatToIntError::FloatUnderrange(x)) => {
-    //                 (Self::default(), Some(IntRangeError::FloatUnderrange(x)))
-    //             }
-    //             ToIntError::Float(FloatToIntError::FloatPrecisionLoss(x, y)) => {
-    //                 (y, Some(IntRangeError::FloatPrecisionLoss(x)))
-    //             }
-    //         },
-    //         |x| (x, None),
-    //     );
-    //     tentative_error(b, e, notrunc)
-    // }
-
-    // fn range_to_bitmask(
-    //     r: Range,
-    //     notrunc: bool,
-    // ) -> BiTentative<Bitmask<INTLEN, Self>, IntRangeError>
-    // where
-    //     Self: TryFrom<FloatOrInt, Error = ToIntError<Self>> + PrimInt,
-    //     u64: From<Self>,
-    // {
-    //     let (b, e) = r.0.try_into().map_or_else(
-    //         |e| match e {
-    //             ToIntError::IntOverrange(x) => {
-    //                 (Self::max_value(), Some(IntRangeError::IntOverrange(x)))
-    //             }
-    //             ToIntError::Float(FloatToIntError::FloatOverrange(x)) => {
-    //                 (Self::max_value(), Some(IntRangeError::FloatOverrange(x)))
-    //             }
-    //             ToIntError::Float(FloatToIntError::FloatUnderrange(x)) => {
-    //                 (Self::zero(), Some(IntRangeError::FloatUnderrange(x)))
-    //             }
-    //             ToIntError::Float(FloatToIntError::FloatPrecisionLoss(x, y)) => {
-    //                 (y, Some(IntRangeError::FloatPrecisionLoss(x)))
-    //             }
-    //         },
-    //         |x| (x, None),
-    //     );
-    //     tentative_error(b, e, notrunc).and_tentatively(|x| x.to_bitmask(notrunc))
-    // }
-
-    // fn column_type<F, T>(
-    //     x: T,
-    //     notrunc: bool,
-    //     f: F,
-    // ) -> BiTentative<UintType<Self, INTLEN>, IntRangeError>
-    // where
-    //     F: FnOnce(T, bool) -> BiTentative<Bitmask<INTLEN, Self>, IntRangeError>,
-    //     Self: Sized,
-    // {
-    //     f(x, notrunc).map(|bitmask| UintType { bitmask })
-    // }
-
-    // fn column_type_from_range(
-    //     range: Range,
-    //     notrunc: bool,
-    // ) -> BiTentative<UintType<Self, INTLEN>, IntRangeError>
-    // where
-    //     Self: TryFrom<FloatOrInt, Error = ToIntError<Self>>,
-    // {
-    //     Self::column_type(
-    //         range,
-    //         notrunc,
-    //         <Self as IntFromBytes<INTLEN>>::range_to_bitmask,
-    //     )
-    // }
-
-    // fn column_type_from_u64(
-    //     x: u64,
-    //     notrunc: bool,
-    // ) -> BiTentative<UintType<Self, INTLEN>, IntRangeError>
-    // where
-    //     Self: TryFrom<u64> + TryFrom<usize> + Ord,
-    //     u64: From<Self>,
-    // {
-    //     Self::column_type(x, notrunc, <Self as IntFromBytes<INTLEN>>::u64_to_bitmask)
-    // }
-
-    // fn column_type_from_u64_unchecked(x: u64) -> UintType<Self, INTLEN>
-    // where
-    //     Self: TryFrom<u64> + TryFrom<usize> + Ord,
-    //     u64: From<Self>,
-    // {
-    //     UintType {
-    //         bitmask: Self::u64_to_bitmask_unchecked(x),
-    //     }
-    // }
-
     fn h_read_endian<R: Read>(h: &mut BufReader<R>, endian: Endian) -> io::Result<Self> {
         // This will read data that is not a power-of-two bytes long. Start by
         // reading n bytes into a vector, which can take a varying size. Then
@@ -859,59 +703,6 @@ trait IntFromBytes<const INTLEN: usize>: NumProps + OrderedFromBytes<INTLEN> {
 
 /// Methods for reading/writing floats (32 and 64 bit) from FCS files.
 trait FloatFromBytes<const LEN: usize>: NumProps + OrderedFromBytes<LEN> {
-    // fn from_range(r: Range, notrunc: bool) -> BiTentative<NonNanFloat<Self>, FloatRangeError>
-    // where
-    //     NonNanFloat<Self>: TryFrom<FloatOrInt, Error = ToFloatError<Self>>,
-    // {
-    //     let (x, e) = r.0.try_into().map_or_else(
-    //         |e| match e {
-    //             ToFloatError::IntPrecisionLoss(y, x) => {
-    //                 (x, Some(FloatRangeError::IntPrecisionLoss(y)))
-    //             }
-    //             ToFloatError::FloatOverrange(y) => {
-    //                 (Self::maxval(), Some(FloatRangeError::FloatOverrange(y)))
-    //             }
-    //             ToFloatError::FloatUnderrange(y) => (
-    //                 NonNanFloat::<Self>::default(),
-    //                 Some(FloatRangeError::FloatUnderrange(y)),
-    //             ),
-    //         },
-    //         |x| (x, None),
-    //     );
-    //     tentative_error(x, e, notrunc)
-    // }
-
-    // fn column_type(r: Range, notrunc: bool) -> BiTentative<FloatType<Self, LEN>, FloatRangeError>
-    // where
-    //     NonNanFloat<Self>: TryFrom<FloatOrInt, Error = ToFloatError<Self>>,
-    // {
-    //     Self::from_range(r, notrunc)
-    //         .map(|range| FloatType { range })
-    //         .errors_into()
-    // }
-
-    // fn column_type1(
-    //     w: Width,
-    //     r: Range,
-    //     notrunc: bool,
-    // ) -> DeferredResult<FloatType<Self, LEN>, FloatRangeError, FloatWidthError>
-    // where
-    //     NonNanFloat<Self>: TryFrom<FloatOrInt, Error = ToFloatError<Self>>,
-    // {
-    //     Bytes::try_from(w).into_deferred().def_and_maybe(|bytes| {
-    //         if usize::from(u8::from(bytes)) == LEN {
-    //             Ok(<Self as FloatFromBytes<LEN>>::column_type(r, notrunc).errors_into())
-    //         } else {
-    //             Err(DeferredFailure::new1(FloatWidthError::WrongWidth(
-    //                 WrongFloatWidth {
-    //                     expected: LEN,
-    //                     width: bytes,
-    //                 },
-    //             )))
-    //         }
-    //     })
-    // }
-
     fn h_read_endian<R: Read>(h: &mut BufReader<R>, endian: Endian) -> io::Result<Self> {
         let buf = Self::read_buf(h)?;
         Ok(Self::from_endian(buf, endian))
@@ -1726,7 +1517,7 @@ impl ToNativeWriter for AsciiRange {
     where
         u64: From<Self::Native>,
     {
-        if Chars::from_u64(u64::from(x)) > self.chars() {
+        if Chars::from_u64(x) > self.chars() {
             Some(AsciiLossError(self.chars()))
         } else {
             None
@@ -1792,12 +1583,6 @@ impl<'a, T> AnySource<'a, T> {
         )
     }
 }
-
-// /// Instructions and buffers to read the DATA segment
-// pub struct DataReader {
-//     pub column_reader: ColumnReader,
-//     pub seg: AnyDataSegment,
-// }
 
 fn is_ascii_delim(x: u8) -> bool {
     // tab, newline, carriage return, space, or comma
@@ -2100,7 +1885,7 @@ impl<T, const LEN: usize> FloatRange<T, LEN> {
         NonNanFloat<T>: TryFrom<FloatOrInt, Error = ToFloatError<T>>,
         T: num_traits::float::Float,
     {
-        range.as_float(notrunc).map(|range| Self { range })
+        range.as_float(notrunc).map(|x| Self { range: x })
     }
 
     /// Make new float range from $PnB and $PnR values.

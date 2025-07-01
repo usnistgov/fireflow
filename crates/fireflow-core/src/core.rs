@@ -879,7 +879,7 @@ pub type Core2_0<A, D, O> = Core<
     InnerOptical2_0,
     OptionalKwFamily,
     OptionalValue<Shortname>,
-    Layout2_0,
+    DataLayout2_0,
 >;
 pub type Core3_0<A, D, O> = Core<
     A,
@@ -890,7 +890,7 @@ pub type Core3_0<A, D, O> = Core<
     InnerOptical3_0,
     OptionalKwFamily,
     OptionalValue<Shortname>,
-    Layout3_0,
+    DataLayout3_0,
 >;
 pub type Core3_1<A, D, O> = Core<
     A,
@@ -901,7 +901,7 @@ pub type Core3_1<A, D, O> = Core<
     InnerOptical3_1,
     IdentityFamily,
     Identity<Shortname>,
-    Layout3_1,
+    DataLayout3_1,
 >;
 pub type Core3_2<A, D, O> = Core<
     A,
@@ -912,7 +912,7 @@ pub type Core3_2<A, D, O> = Core<
     InnerOptical3_2,
     IdentityFamily,
     Identity<Shortname>,
-    Layout3_2,
+    DataLayout3_2,
 >;
 
 pub type CoreTEXT2_0 = Core2_0<(), (), ()>;
@@ -3944,7 +3944,7 @@ impl CoreTEXT2_0 {
         CoreTEXT::new_nomeas(metaroot)
     }
 
-    coretext_set_measurements2_0!(RawInput2_0, Layout2_0);
+    coretext_set_measurements2_0!(RawInput2_0, DataLayout2_0);
 }
 
 impl CoreTEXT3_0 {
@@ -3954,7 +3954,7 @@ impl CoreTEXT3_0 {
         CoreTEXT::new_nomeas(metaroot)
     }
 
-    coretext_set_measurements2_0!(RawInput3_0, Layout3_0);
+    coretext_set_measurements2_0!(RawInput3_0, DataLayout3_0);
 }
 
 impl CoreTEXT3_1 {
@@ -3964,7 +3964,7 @@ impl CoreTEXT3_1 {
         CoreTEXT::new_nomeas(metaroot)
     }
 
-    coretext_set_measurements3_1!(RawInput3_1, Layout3_1);
+    coretext_set_measurements3_1!(RawInput3_1, DataLayout3_1);
 }
 
 impl CoreTEXT3_2 {
@@ -3974,7 +3974,7 @@ impl CoreTEXT3_2 {
         CoreTEXT::new_nomeas(metaroot)
     }
 
-    coretext_set_measurements3_1!(RawInput3_2, Layout3_2);
+    coretext_set_measurements3_1!(RawInput3_2, DataLayout3_2);
 }
 
 macro_rules! coredataset_set_measurements2_0 {
@@ -5899,83 +5899,83 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_2 {
     }
 }
 
-impl ConvertFromLayout<Layout3_0> for Layout2_0 {
-    fn convert_from_layout(value: Layout3_0) -> LayoutConvertResult<Self> {
+impl ConvertFromLayout<DataLayout3_0> for DataLayout2_0 {
+    fn convert_from_layout(value: DataLayout3_0) -> LayoutConvertResult<Self> {
         Ok(Self(value.0.tot_into()))
     }
 }
 
-impl ConvertFromLayout<Layout3_1> for Layout2_0 {
-    fn convert_from_layout(value: Layout3_1) -> LayoutConvertResult<Self> {
+impl ConvertFromLayout<DataLayout3_1> for DataLayout2_0 {
+    fn convert_from_layout(value: DataLayout3_1) -> LayoutConvertResult<Self> {
         value.into_ordered().map(|x| x.into())
     }
 }
 
-impl ConvertFromLayout<Layout3_2> for Layout2_0 {
-    fn convert_from_layout(value: Layout3_2) -> LayoutConvertResult<Self> {
+impl ConvertFromLayout<DataLayout3_2> for DataLayout2_0 {
+    fn convert_from_layout(value: DataLayout3_2) -> LayoutConvertResult<Self> {
         value.into_ordered().map(|x| x.into())
     }
 }
 
-impl ConvertFromLayout<Layout2_0> for Layout3_0 {
-    fn convert_from_layout(value: Layout2_0) -> LayoutConvertResult<Self> {
+impl ConvertFromLayout<DataLayout2_0> for DataLayout3_0 {
+    fn convert_from_layout(value: DataLayout2_0) -> LayoutConvertResult<Self> {
         Ok(Self(value.0.tot_into()))
     }
 }
 
-impl ConvertFromLayout<Layout3_1> for Layout3_0 {
-    fn convert_from_layout(value: Layout3_1) -> LayoutConvertResult<Self> {
+impl ConvertFromLayout<DataLayout3_1> for DataLayout3_0 {
+    fn convert_from_layout(value: DataLayout3_1) -> LayoutConvertResult<Self> {
         value.into_ordered().map(|x| x.into())
     }
 }
 
-impl ConvertFromLayout<Layout3_2> for Layout3_0 {
-    fn convert_from_layout(value: Layout3_2) -> LayoutConvertResult<Self> {
+impl ConvertFromLayout<DataLayout3_2> for DataLayout3_0 {
+    fn convert_from_layout(value: DataLayout3_2) -> LayoutConvertResult<Self> {
         value.into_ordered().map(|x| x.into())
     }
 }
 
-impl ConvertFromLayout<Layout2_0> for Layout3_1 {
-    fn convert_from_layout(value: Layout2_0) -> LayoutConvertResult<Self> {
+impl ConvertFromLayout<DataLayout2_0> for DataLayout3_1 {
+    fn convert_from_layout(value: DataLayout2_0) -> LayoutConvertResult<Self> {
         value.0.into_3_1()
     }
 }
 
-impl ConvertFromLayout<Layout3_0> for Layout3_1 {
-    fn convert_from_layout(value: Layout3_0) -> LayoutConvertResult<Self> {
+impl ConvertFromLayout<DataLayout3_0> for DataLayout3_1 {
+    fn convert_from_layout(value: DataLayout3_0) -> LayoutConvertResult<Self> {
         value.0.into_3_1()
     }
 }
 
-impl ConvertFromLayout<Layout3_2> for Layout3_1 {
-    fn convert_from_layout(value: Layout3_2) -> LayoutConvertResult<Self> {
+impl ConvertFromLayout<DataLayout3_2> for DataLayout3_1 {
+    fn convert_from_layout(value: DataLayout3_2) -> LayoutConvertResult<Self> {
         match value {
-            Layout3_2::NonMixed(x) => Ok(Self(x)),
-            Layout3_2::Mixed(x) => x.try_into_non_mixed().map(Self).mult_errors_into(),
+            DataLayout3_2::NonMixed(x) => Ok(Self(x)),
+            DataLayout3_2::Mixed(x) => x.try_into_non_mixed().map(Self).mult_errors_into(),
         }
     }
 }
 
-impl ConvertFromLayout<Layout2_0> for Layout3_2 {
-    fn convert_from_layout(value: Layout2_0) -> LayoutConvertResult<Self> {
+impl ConvertFromLayout<DataLayout2_0> for DataLayout3_2 {
+    fn convert_from_layout(value: DataLayout2_0) -> LayoutConvertResult<Self> {
         value.0.into_3_2()
     }
 }
 
-impl ConvertFromLayout<Layout3_0> for Layout3_2 {
-    fn convert_from_layout(value: Layout3_0) -> LayoutConvertResult<Self> {
+impl ConvertFromLayout<DataLayout3_0> for DataLayout3_2 {
+    fn convert_from_layout(value: DataLayout3_0) -> LayoutConvertResult<Self> {
         value.0.into_3_2()
     }
 }
 
-impl ConvertFromLayout<Layout3_1> for Layout3_2 {
-    fn convert_from_layout(value: Layout3_1) -> LayoutConvertResult<Self> {
-        Ok(Layout3_2::NonMixed(value.0))
+impl ConvertFromLayout<DataLayout3_1> for DataLayout3_2 {
+    fn convert_from_layout(value: DataLayout3_1) -> LayoutConvertResult<Self> {
+        Ok(DataLayout3_2::NonMixed(value.0))
     }
 }
 
 impl Versioned for Version2_0 {
-    type Layout = Layout2_0;
+    type Layout = DataLayout2_0;
     type Offsets = TEXTOffsets2_0;
 
     fn fcs_version() -> Self {
@@ -5984,7 +5984,7 @@ impl Versioned for Version2_0 {
 }
 
 impl Versioned for Version3_0 {
-    type Layout = Layout3_0;
+    type Layout = DataLayout3_0;
     type Offsets = TEXTOffsets3_0;
 
     fn fcs_version() -> Self {
@@ -5993,7 +5993,7 @@ impl Versioned for Version3_0 {
 }
 
 impl Versioned for Version3_1 {
-    type Layout = Layout3_1;
+    type Layout = DataLayout3_1;
     type Offsets = TEXTOffsets3_0;
 
     fn fcs_version() -> Self {
@@ -6002,7 +6002,7 @@ impl Versioned for Version3_1 {
 }
 
 impl Versioned for Version3_2 {
-    type Layout = Layout3_2;
+    type Layout = DataLayout3_2;
     type Offsets = TEXTOffsets3_2;
 
     fn fcs_version() -> Self {

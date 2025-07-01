@@ -89,15 +89,15 @@ use std::str;
 /// This is identical to 3.0 in every way except that the $TOT keyword in 2.0
 /// is optional, which requires a different interface.
 #[derive(Clone, Serialize)]
-pub struct Layout2_0(pub AnyOrderedLayout<MaybeTot>);
+pub struct DataLayout2_0(pub AnyOrderedLayout<MaybeTot>);
 
-newtype_from!(Layout2_0, AnyOrderedLayout<MaybeTot>);
+newtype_from!(DataLayout2_0, AnyOrderedLayout<MaybeTot>);
 
 /// All possible byte layouts for the DATA segment in 2.0.
 #[derive(Clone, Serialize)]
-pub struct Layout3_0(pub AnyOrderedLayout<KnownTot>);
+pub struct DataLayout3_0(pub AnyOrderedLayout<KnownTot>);
 
-newtype_from!(Layout3_0, AnyOrderedLayout<KnownTot>);
+newtype_from!(DataLayout3_0, AnyOrderedLayout<KnownTot>);
 
 /// All possible byte layouts for the DATA segment in 3.1.
 ///
@@ -105,9 +105,9 @@ newtype_from!(Layout3_0, AnyOrderedLayout<KnownTot>);
 /// different. This is a consequence of making BYTEORD only mean "big or little
 /// endian" and have nothing to do with number of bytes.
 #[derive(Clone, Serialize)]
-pub struct Layout3_1(pub NonMixedEndianLayout);
+pub struct DataLayout3_1(pub NonMixedEndianLayout);
 
-newtype_from!(Layout3_1, NonMixedEndianLayout);
+newtype_from!(DataLayout3_1, NonMixedEndianLayout);
 
 enum_from!(
     /// All possible byte layouts for the DATA segment in 3.2.
@@ -115,7 +115,7 @@ enum_from!(
     /// In addition to the loosened integer layouts in 3.1, 3.2 additionally allows
     /// each column to have a different type and size (hence "Mixed").
     #[derive(Clone, Serialize)]
-    pub Layout3_2,
+    pub DataLayout3_2,
     [Mixed, EndianLayout<NullMixedType>],
     [NonMixed, NonMixedEndianLayout]
 );
@@ -3400,7 +3400,7 @@ impl<T> AnyAsciiLayout<T> {
     }
 }
 
-impl VersionedDataLayout for Layout2_0 {
+impl VersionedDataLayout for DataLayout2_0 {
     type ByteLayout = ByteOrd;
     type ColDatatype = ();
     type Tot = Option<Tot>;
@@ -3505,7 +3505,7 @@ impl VersionedDataLayout for Layout2_0 {
     }
 }
 
-impl VersionedDataLayout for Layout3_0 {
+impl VersionedDataLayout for DataLayout3_0 {
     type ByteLayout = ByteOrd;
     type ColDatatype = ();
     type Tot = Tot;
@@ -3610,7 +3610,7 @@ impl VersionedDataLayout for Layout3_0 {
     }
 }
 
-impl VersionedDataLayout for Layout3_1 {
+impl VersionedDataLayout for DataLayout3_1 {
     type ByteLayout = Endian;
     type ColDatatype = ();
     type Tot = Tot;
@@ -3737,7 +3737,7 @@ impl VersionedDataLayout for Layout3_1 {
     }
 }
 
-impl VersionedDataLayout for Layout3_2 {
+impl VersionedDataLayout for DataLayout3_2 {
     type ByteLayout = Endian;
     type ColDatatype = Option<NumType>;
     type Tot = Tot;
@@ -3949,13 +3949,13 @@ impl VersionedDataLayout for Layout3_2 {
     }
 }
 
-impl Layout3_1 {
+impl DataLayout3_1 {
     pub(crate) fn into_ordered<T>(self) -> LayoutConvertResult<AnyOrderedLayout<T>> {
         self.0.into_ordered()
     }
 }
 
-impl Layout3_2 {
+impl DataLayout3_2 {
     pub(crate) fn into_ordered<T>(self) -> LayoutConvertResult<AnyOrderedLayout<T>> {
         match self {
             Self::NonMixed(x) => x.into_ordered(),
@@ -4193,12 +4193,12 @@ impl<T> AnyOrderedLayout<T> {
         }
     }
 
-    pub(crate) fn into_3_1(self) -> LayoutConvertResult<Layout3_1> {
+    pub(crate) fn into_3_1(self) -> LayoutConvertResult<DataLayout3_1> {
         self.into_unmixed().map(|x| x.into())
     }
 
-    pub(crate) fn into_3_2(self) -> LayoutConvertResult<Layout3_2> {
-        self.into_unmixed().map(Layout3_2::NonMixed)
+    pub(crate) fn into_3_2(self) -> LayoutConvertResult<DataLayout3_2> {
+        self.into_unmixed().map(DataLayout3_2::NonMixed)
     }
 }
 

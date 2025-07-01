@@ -27,7 +27,7 @@ pub struct AsciiRange {
 
 /// The number of chars or an ASCII measurement
 #[derive(Clone, Copy, Serialize, PartialEq, Eq, PartialOrd, Hash)]
-pub(crate) struct Chars(u8);
+pub struct Chars(u8);
 
 const MAX_CHARS: u8 = 20;
 
@@ -42,7 +42,7 @@ impl From<u64> for AsciiRange {
 }
 
 impl AsciiRange {
-    pub(crate) fn try_new(value: u64, chars: Chars) -> Result<Self, NotEnoughCharsError> {
+    pub fn try_new(value: u64, chars: Chars) -> Result<Self, NotEnoughCharsError> {
         let needed = Chars::from_u64(value);
         if chars < needed {
             Err(NotEnoughCharsError { value, chars })

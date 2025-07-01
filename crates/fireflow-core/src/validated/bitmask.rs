@@ -110,7 +110,7 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
     //     BiTentative::new_either1(bitmask, error, notrunc)
     // }
 
-    pub(crate) fn from_native(value: T) -> (Self, bool)
+    pub fn from_native(value: T) -> (Self, bool)
     where
         T: PrimInt,
     {

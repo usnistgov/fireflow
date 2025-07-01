@@ -56,7 +56,8 @@ use crate::nonempty::NonEmptyExt;
 use crate::segment::*;
 use crate::text::byteord::*;
 use crate::text::float_or_int::{
-    FloatOrInt, FloatRangeError, IntRangeError, NonNanFloat, ParseFloatOrIntError, ToFloatError,
+    FloatOrInt, FloatRangeError, IntRangeError, NonNanF32, NonNanF64, NonNanFloat,
+    ParseFloatOrIntError, ToFloatError,
 };
 use crate::text::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};
 use crate::text::keywords::*;
@@ -132,6 +133,8 @@ pub enum AnyOrderedLayout<T> {
     F64(OrderedLayout<F64Range, T>),
 }
 
+// TODO make an integer layout which has only one width, which will cover the
+// vast majority of cases and make certain operations easier.
 enum_from!(
     #[derive(Clone, Serialize)]
     pub NonMixedEndianLayout,
@@ -3324,13 +3327,13 @@ impl<T> AnyAsciiLayout<T> {
         }
     }
 
-    // pub(crate) fn new_fixed(columns: NonEmpty<AsciiRange>) -> Self {
-    //     Self::Fixed(FixedLayout::new(columns, ()))
-    // }
+    fn new_fixed(columns: NonEmpty<AsciiRange>) -> Self {
+        Self::Fixed(FixedLayout::new(columns, ()))
+    }
 
-    // pub(crate) fn new_delim(ranges: NonEmpty<u64>) -> Self {
-    //     Self::Delimited(DelimAsciiLayout::new(ranges))
-    // }
+    fn new_delim(ranges: NonEmpty<u64>) -> Self {
+        Self::Delimited(DelimAsciiLayout::new(ranges))
+    }
 
     fn ncols(&self) -> usize {
         match self {
@@ -3962,6 +3965,44 @@ impl DataLayout3_2 {
             Self::Mixed(x) => x.try_into_ordered().mult_errors_into(),
         }
     }
+
+    fn new_mixed(ranges: NonEmpty<NullMixedType>, endian: Endian) -> Self {
+        // check if the mixed types are all the same, in which case we can use a
+        // simpler layout
+        if let Ok(rs) = ranges.as_ref().try_map(|x| AsciiRange::try_from(*x)) {
+            Self::NonMixed(NonMixedEndianLayout::new_ascii_fixed(rs))
+        } else if let Ok(rs) = ranges.as_ref().try_map(|x| AnyNullBitmask::try_from(*x)) {
+            Self::NonMixed(NonMixedEndianLayout::new_uint(rs, endian))
+        } else if let Ok(rs) = ranges.as_ref().try_map(|x| F32Range::try_from(*x)) {
+            Self::NonMixed(NonMixedEndianLayout::new_f32(rs, endian))
+        } else if let Ok(rs) = ranges.as_ref().try_map(|x| F64Range::try_from(*x)) {
+            Self::NonMixed(NonMixedEndianLayout::new_f64(rs, endian))
+        } else {
+            Self::Mixed(FixedLayout::new(ranges, endian))
+        }
+    }
+
+    // fn new_ascii_fixed(ranges: NonEmpty<AsciiRange>) -> Self {
+    //     Self::Ascii(AnyAsciiLayout::new_fixed(ranges))
+    // }
+
+    // fn new_ascii_delim(ranges: NonEmpty<u64>) -> Self {
+    //     Self::Ascii(AnyAsciiLayout::new_delim(ranges))
+    // }
+
+    // fn new_uint(columns: NonEmpty<AnyNullBitmask>, byte_layout: Endian) -> Self {
+    //     Self::Integer(FixedLayout::new(columns, byte_layout))
+    // }
+
+    // fn new_f32(ranges: NonEmpty<NonNanF32>, byte_layout: Endian) -> Self {
+    //     let rs = ranges.map(|range| FloatRange { range });
+    //     Self::F32(FixedLayout::new(rs, byte_layout))
+    // }
+
+    // fn new_f64(ranges: NonEmpty<NonNanF64>, byte_layout: Endian) -> Self {
+    //     let rs = ranges.map(|range| FloatRange { range });
+    //     Self::F64(FixedLayout::new(rs, byte_layout))
+    // }
 }
 
 impl<T> AnyOrderedLayout<T> {
@@ -3973,6 +4014,32 @@ impl<T> AnyOrderedLayout<T> {
     //         Self::F64(x) => x.layout_values(()),
     //     }
     // }
+
+    pub fn new_ascii_fixed(ranges: NonEmpty<AsciiRange>) -> Self {
+        Self::Ascii(AnyAsciiLayout::new_fixed(ranges))
+    }
+
+    pub fn new_ascii_delim(ranges: NonEmpty<u64>) -> Self {
+        Self::Ascii(AnyAsciiLayout::new_delim(ranges))
+    }
+
+    pub fn new_uint<U, const LEN: usize>(
+        columns: NonEmpty<Bitmask<U, LEN>>,
+        byte_layout: SizedByteOrd<LEN>,
+    ) -> Self
+    where
+        AnyOrderedUintLayout<T>: From<FixedLayout<Bitmask<U, LEN>, SizedByteOrd<LEN>, T>>,
+    {
+        Self::Integer(FixedLayout::new(columns, byte_layout).into())
+    }
+
+    pub fn new_f32(ranges: NonEmpty<F32Range>, byte_layout: SizedByteOrd<4>) -> Self {
+        Self::F32(FixedLayout::new(ranges, byte_layout))
+    }
+
+    pub fn new_f64(ranges: NonEmpty<F64Range>, byte_layout: SizedByteOrd<8>) -> Self {
+        Self::F64(FixedLayout::new(ranges, byte_layout))
+    }
 
     fn try_new(
         datatype: AlphaNumType,
@@ -4211,6 +4278,26 @@ impl NonMixedEndianLayout {
     //         Self::F64(x) => x.layout_values(datatype),
     //     }
     // }
+
+    fn new_ascii_fixed(ranges: NonEmpty<AsciiRange>) -> Self {
+        Self::Ascii(AnyAsciiLayout::new_fixed(ranges))
+    }
+
+    fn new_ascii_delim(ranges: NonEmpty<u64>) -> Self {
+        Self::Ascii(AnyAsciiLayout::new_delim(ranges))
+    }
+
+    fn new_uint(columns: NonEmpty<AnyNullBitmask>, endian: Endian) -> Self {
+        Self::Integer(FixedLayout::new(columns, endian))
+    }
+
+    fn new_f32(ranges: NonEmpty<F32Range>, endian: Endian) -> Self {
+        Self::F32(FixedLayout::new(ranges, endian))
+    }
+
+    fn new_f64(ranges: NonEmpty<F64Range>, endian: Endian) -> Self {
+        Self::F64(FixedLayout::new(ranges, endian))
+    }
 
     fn try_new(
         datatype: AlphaNumType,

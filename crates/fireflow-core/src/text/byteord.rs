@@ -104,6 +104,18 @@ macro_rules! byteord_from_sized {
             }
         }
 
+        impl TryFrom<Vec<u8>> for SizedByteOrd<$len> {
+            type Error = VecToSizedError;
+            fn try_from(value: Vec<u8>) -> Result<Self, Self::Error> {
+                let xs: [u8; $len] = value.try_into().map_err(|ys: Vec<_>| VecToArrayError {
+                    vec_len: ys.len(),
+                    req_len: $len,
+                })?;
+                let ret = xs.try_into()?;
+                Ok(ret)
+            }
+        }
+
         /// Convert array of length $len to byte order.
         ///
         /// Correct array will be from the set of {1..$len} and each number
@@ -589,6 +601,17 @@ pub struct ByteOrdToSizedError {
     length: usize,
 }
 
+enum_from_disp!(
+    pub VecToSizedError,
+    [Vec, VecToArrayError],
+    [New, NewByteOrdError]
+);
+
+pub struct VecToArrayError {
+    vec_len: usize,
+    req_len: usize,
+}
+
 pub type WidthToCharsError = WidthToFixedError<CharsError>;
 
 pub type WidthToBytesError = WidthToFixedError<BytesError>;
@@ -681,5 +704,15 @@ where
             Self::Variable => write!(f, "width is variable were fixed is needed"),
             Self::Fixed(e) => write!(f, "error when converting fixed bits: {e}"),
         }
+    }
+}
+
+impl fmt::Display for VecToArrayError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "could not convert vector to array, was {} long, needed {}",
+            self.vec_len, self.req_len
+        )
     }
 }

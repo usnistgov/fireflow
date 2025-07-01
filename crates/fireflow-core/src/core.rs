@@ -2417,12 +2417,10 @@ where
         xs: RawInput<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
         prefix: ShortnamePrefix,
     ) -> Result<(), SetMeasurementsError> {
-        if xs.len() != self.layout_len() {
-            return Err(MeasLayoutMismatchError {
-                meas_n: xs.len(),
-                layout_n: self.layout_len(),
-            }
-            .into());
+        let meas_n = xs.len();
+        let layout_n = self.layout_len();
+        if meas_n != layout_n {
+            return Err(MeasLayoutMismatchError { meas_n, layout_n }.into());
         }
         self.check_existing_links()?;
         let ms = NamedVec::try_new(xs, prefix)?;
@@ -2430,7 +2428,36 @@ where
         Ok(())
     }
 
-    // TODO also add a function to set layout and measurements simultaneously
+    fn set_layout_inner(
+        &mut self,
+        layout: <M::Ver as Versioned>::Layout,
+    ) -> Result<(), MeasLayoutMismatchError> {
+        let meas_n = self.measurements.len();
+        let layout_n = layout.ncols();
+        if meas_n != layout_n {
+            return Err(MeasLayoutMismatchError { meas_n, layout_n });
+        }
+        self.layout = Some(layout).into();
+        Ok(())
+    }
+
+    fn set_measurements_and_layout_inner(
+        &mut self,
+        measurements: RawInput<M::Name, Temporal<M::Temporal>, Optical<M::Optical>>,
+        layout: <M::Ver as Versioned>::Layout,
+        prefix: ShortnamePrefix,
+    ) -> Result<(), SetMeasurementsError> {
+        let meas_n = measurements.len();
+        let layout_n = layout.ncols();
+        if meas_n != layout_n {
+            return Err(MeasLayoutMismatchError { meas_n, layout_n }.into());
+        }
+        self.check_existing_links()?;
+        let ms = NamedVec::try_new(measurements, prefix)?;
+        self.measurements = ms;
+        self.layout = Some(layout).into();
+        Ok(())
+    }
 
     fn unset_measurements_inner(&mut self) -> Result<(), ExistingLinkError> {
         self.check_existing_links()?;
@@ -2927,6 +2954,17 @@ where
         notrunc: bool,
     ) -> DeferredResult<Shortname, LayoutInsertColumnWarning, InsertOpticalError> {
         self.insert_optical_inner(i, n, m, r, notrunc)
+    }
+
+    /// Set data layout
+    ///
+    /// Will return error if layout does not have same number of columns as
+    /// measurements.
+    pub fn set_layout(
+        &mut self,
+        layout: <M::Ver as Versioned>::Layout,
+    ) -> Result<(), MeasLayoutMismatchError> {
+        self.set_layout_inner(layout)
     }
 
     /// Remove measurements
@@ -3843,11 +3881,12 @@ impl<A, D, O> Core3_2<A, D, O> {
 
 // TODO also set layout
 macro_rules! coretext_set_measurements2_0 {
-    ($rawinput:path) => {
+    ($rawinput:path, $layout:path) => {
         /// Set measurements.
         ///
-        /// Return error if names are not unique or there is more than one
-        /// time measurement.
+        /// Return error if names are not unique, if there is more than one
+        /// time measurement, or if the measurement length doesn't match the
+        /// layout length.
         pub fn set_measurements(
             &mut self,
             xs: $rawinput,
@@ -3855,17 +3894,45 @@ macro_rules! coretext_set_measurements2_0 {
         ) -> Result<(), SetMeasurementsError> {
             self.set_measurements_inner(xs, prefix)
         }
+
+        /// Set measurements and layout
+        ///
+        /// Return error if measurement names are not unique, there is more
+        /// than one time measurement, or the layout and measurements have
+        /// different lengths.
+        pub fn set_measurements_and_layout(
+            &mut self,
+            xs: $rawinput,
+            layout: $layout,
+            prefix: ShortnamePrefix,
+        ) -> Result<(), SetMeasurementsError> {
+            self.set_measurements_and_layout_inner(xs, layout, prefix)
+        }
     };
 }
 
 macro_rules! coretext_set_measurements3_1 {
-    ($rawinput:path) => {
+    ($rawinput:path, $layout:path) => {
         /// Set measurements.
         ///
-        /// Return error if names are not unique or there is more than one
-        /// time measurement.
+        /// Return error if names are not unique, if there is more than one
+        /// time measurement, or if the measurement length doesn't match the
+        /// layout length.
         pub fn set_measurements(&mut self, xs: $rawinput) -> Result<(), SetMeasurementsError> {
             self.set_measurements_inner(xs, ShortnamePrefix::default())
+        }
+
+        /// Set measurements and layout.
+        ///
+        /// Return error if measurement names are not unique, there is more
+        /// than one time measurement, or the layout and measurements have
+        /// different lengths.
+        pub fn set_measurements_and_layout(
+            &mut self,
+            xs: $rawinput,
+            layout: $layout,
+        ) -> Result<(), SetMeasurementsError> {
+            self.set_measurements_and_layout_inner(xs, layout, ShortnamePrefix::default())
         }
     };
 }
@@ -3877,7 +3944,7 @@ impl CoreTEXT2_0 {
         CoreTEXT::new_nomeas(metaroot)
     }
 
-    coretext_set_measurements2_0!(RawInput2_0);
+    coretext_set_measurements2_0!(RawInput2_0, Layout2_0);
 }
 
 impl CoreTEXT3_0 {
@@ -3887,7 +3954,7 @@ impl CoreTEXT3_0 {
         CoreTEXT::new_nomeas(metaroot)
     }
 
-    coretext_set_measurements2_0!(RawInput3_0);
+    coretext_set_measurements2_0!(RawInput3_0, Layout3_0);
 }
 
 impl CoreTEXT3_1 {
@@ -3897,7 +3964,7 @@ impl CoreTEXT3_1 {
         CoreTEXT::new_nomeas(metaroot)
     }
 
-    coretext_set_measurements3_1!(RawInput3_1);
+    coretext_set_measurements3_1!(RawInput3_1, Layout3_1);
 }
 
 impl CoreTEXT3_2 {
@@ -3907,7 +3974,7 @@ impl CoreTEXT3_2 {
         CoreTEXT::new_nomeas(metaroot)
     }
 
-    coretext_set_measurements3_1!(RawInput3_2);
+    coretext_set_measurements3_1!(RawInput3_2, Layout3_2);
 }
 
 macro_rules! coredataset_set_measurements2_0 {

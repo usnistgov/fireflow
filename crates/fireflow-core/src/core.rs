@@ -295,18 +295,6 @@ impl<A, D, O> AnyCore<A, D, O> {
         match_anycore!(self, x, { x.all_shortnames() })
     }
 
-    // pub fn text_segment(
-    //     &self,
-    //     tot: Tot,
-    //     data_len: u64,
-    //     analysis_len: u64,
-    //     other_lens: Vec<u64>,
-    // ) -> Result<Vec<String>, Uint8DigitOverflow> {
-    //     match_anycore!(self, x, {
-    //         x.text_segment(tot, data_len, analysis_len, other_lens)
-    //     })
-    // }
-
     pub fn print_meas_table(&self, delim: &str) {
         match_anycore!(self, x, { x.print_meas_table(delim) })
     }
@@ -1489,19 +1477,6 @@ where
     }
 }
 
-// impl<N, P, T> Measurements<N, T, P>
-// where
-//     N: MightHave,
-//     T: VersionedTemporal,
-//     P: VersionedOptical,
-// {
-//     fn layout_data(&self) -> Vec<ColumnLayoutData<()>> {
-//         self.iter_common_values()
-//             .map(|(_, x)| x.layout_data())
-//             .collect()
-//     }
-// }
-
 impl<M> Metaroot<M>
 where
     M: VersionedMetaroot,
@@ -2186,22 +2161,6 @@ where
             .map(|_| ())
     }
 
-    // /// Show $PnB for each measurement
-    // pub fn widths(&self) -> Vec<Width> {
-    //     self.measurements
-    //         .iter_common_values()
-    //         .map(|(_, x)| x.width)
-    //         .collect()
-    // }
-
-    // /// Show $PnR for each measurement
-    // pub fn ranges(&self) -> Vec<Range> {
-    //     self.measurements
-    //         .iter_common_values()
-    //         .map(|(_, x)| x.range)
-    //         .collect()
-    // }
-
     /// Return $PAR, which is simply the number of measurements in this struct
     pub fn par(&self) -> Par {
         Par(self.measurements.len())
@@ -2717,68 +2676,6 @@ where
     fn measurement_names(&self) -> HashSet<&Shortname> {
         self.measurements.indexed_names().map(|(_, x)| x).collect()
     }
-
-    // TODO all these functions need to be redone with data layout directly
-
-    // fn set_data_width_range(&mut self, xs: Vec<(Width, Range)>) -> Result<(), KeyLengthError> {
-    //     self.measurements
-    //         .alter_common_values_zip(xs, |_, x, (b, r)| {
-    //             x.width = b;
-    //             x.range = r;
-    //         })
-    //         .map(|_| ())
-    // }
-
-    // fn set_data_delimited_inner(&mut self, xs: Vec<u64>) -> Result<(), KeyLengthError> {
-    //     let ys: Vec<_> = xs
-    //         .into_iter()
-    //         .map(|r| (Width::Variable, r.into()))
-    //         .collect();
-    //     self.set_data_width_range(ys)
-    // }
-
-    // fn set_to_floating_point(
-    //     &mut self,
-    //     is_double: bool,
-    //     rs: Vec<Range>,
-    // ) -> Result<(), KeyLengthError> {
-    //     let (dt, b) = if is_double {
-    //         (AlphaNumType::Double, Width::new_f64())
-    //     } else {
-    //         (AlphaNumType::Single, Width::new_f32())
-    //     };
-    //     let xs: Vec<_> = rs.into_iter().map(|r| (b, r)).collect();
-    //     // ASSUME time measurement will always be set to linear since we do that
-    //     // a few lines above, so the only error/warning we need to screen is
-    //     // for the length of the input
-    //     self.set_data_width_range(xs)?;
-    //     self.metaroot.datatype = dt;
-    //     Ok(())
-    // }
-
-    // fn set_data_ascii_inner(&mut self, xs: Vec<AsciiRangeSetter>) -> Result<(), KeyLengthError> {
-    //     let ys: Vec<_> = xs.into_iter().map(|s| s.truncated()).collect();
-    //     self.set_data_width_range(ys)?;
-    //     self.metaroot.datatype = AlphaNumType::Ascii;
-    //     Ok(())
-    // }
-
-    // pub fn set_data_integer_inner(
-    //     &mut self,
-    //     xs: Vec<NumRangeSetter>,
-    // ) -> Result<(), KeyLengthError> {
-    //     let ys: Vec<_> = xs.into_iter().map(|s| s.truncated()).collect();
-    //     self.set_data_width_range(ys)?;
-    //     self.metaroot.datatype = AlphaNumType::Integer;
-    //     Ok(())
-    // }
-
-    // pub(crate) fn as_data_layout(
-    //     &self,
-    //     conf: &SharedConfig,
-    // ) -> DeferredResult<M::L, NewDataLayoutWarning, NewDataLayoutError> {
-    //     M::as_data_layout(&self.metaroot, &self.measurements, conf)
-    // }
 }
 
 impl<M> VersionedCoreTEXT<M>
@@ -3426,50 +3323,6 @@ macro_rules! scale_get_set {
     };
 }
 
-// macro_rules! float_layout2_0 {
-//     () => {
-//         /// Set data layout to be 32-bit float for all measurements.
-//         pub fn set_data_f32(&mut self, rs: Vec<f32>) -> Result<(), SetFloatError> {
-//             let xs = rs
-//                 .into_iter()
-//                 .map(|r| Range::try_from(f64::from(r)))
-//                 .collect::<Result<Vec<Range>, NanFloatOrInt>>()?;
-//             self.set_to_floating_point(false, xs)?;
-//             Ok(())
-//         }
-
-//         /// Set data layout to be 64-bit float for all measurements.
-//         pub fn set_data_f64(&mut self, rs: Vec<f64>) -> Result<(), SetFloatError> {
-//             let xs = rs
-//                 .into_iter()
-//                 .map(Range::try_from)
-//                 .collect::<Result<Vec<Range>, NanFloatOrInt>>()?;
-//             self.set_to_floating_point(true, xs)?;
-//             Ok(())
-//         }
-//     };
-// }
-
-// macro_rules! int_layout_2_0 {
-//     () => {
-//         /// Set data layout to be Integer for all measurements
-//         pub fn set_data_integer(
-//             &mut self,
-//             rs: Vec<u64>,
-//             byteord: ByteOrd,
-//         ) -> Result<(), KeyLengthError> {
-//             let n = byteord.nbytes();
-//             let ys = rs
-//                 .into_iter()
-//                 .map(|r| RangeSetter { width: n, range: r })
-//                 .collect();
-//             self.set_data_integer_inner(ys)?;
-//             self.metaroot.specific.byteord = byteord;
-//             Ok(())
-//         }
-//     };
-// }
-
 macro_rules! set_shortnames_2_0 {
     () => {
         /// Set all optical $PnN keywords to list of names.
@@ -3490,18 +3343,6 @@ impl<A, D, O> Core2_0<A, D, O> {
     scale_get_set!(Option<Scale>, Some(Scale::Linear));
 
     set_shortnames_2_0!();
-    // int_layout_2_0!();
-    // float_layout2_0!();
-
-    // /// Set data layout to be ASCII-delimited
-    // pub fn set_data_delimited(&mut self, xs: Vec<u64>) -> Result<(), KeyLengthError> {
-    //     self.set_data_delimited_inner(xs)
-    // }
-
-    // /// Set data layout to be ASCII-fixed for all measurements
-    // pub fn set_data_ascii(&mut self, xs: Vec<AsciiRangeSetter>) -> Result<(), KeyLengthError> {
-    //     self.set_data_ascii_inner(xs)
-    // }
 
     timestamp_methods!(FCSTime);
 
@@ -3520,18 +3361,6 @@ impl<A, D, O> Core3_0<A, D, O> {
     scale_get_set!(Scale, Scale::Linear);
 
     set_shortnames_2_0!();
-    // int_layout_2_0!();
-    // float_layout2_0!();
-
-    // /// Set data layout to be ASCII-delimited
-    // pub fn set_data_delimited(&mut self, xs: Vec<u64>) -> Result<(), KeyLengthError> {
-    //     self.set_data_delimited_inner(xs)
-    // }
-
-    // /// Set data layout to be ASCII-fixed for all measurements
-    // pub fn set_data_ascii(&mut self, xs: Vec<AsciiRangeSetter>) -> Result<(), KeyLengthError> {
-    //     self.set_data_ascii_inner(xs)
-    // }
 
     timestamp_methods!(FCSTime60);
 
@@ -3550,31 +3379,6 @@ impl<A, D, O> Core3_0<A, D, O> {
 impl<A, D, O> Core3_1<A, D, O> {
     scale_get_set!(Scale, Scale::Linear);
     spillover_methods!();
-
-    // /// Set data layout to be integers for all measurements.
-    // pub fn set_data_integer(&mut self, xs: Vec<NumRangeSetter>) -> Result<(), KeyLengthError> {
-    //     self.set_data_integer_inner(xs)
-    // }
-
-    // float_layout2_0!();
-
-    // /// Set data layout to be fixed-ASCII for all measurements
-    // pub fn set_data_ascii(&mut self, xs: Vec<AsciiRangeSetter>) -> Result<(), KeyLengthError> {
-    //     self.set_data_ascii_inner(xs)
-    // }
-
-    // /// Set data layout to be ASCII-delimited
-    // pub fn set_data_delimited(&mut self, xs: Vec<u64>) -> Result<(), KeyLengthError> {
-    //     self.set_data_delimited_inner(xs)
-    // }
-
-    // pub fn get_big_endian(&self) -> bool {
-    //     self.metaroot.specific.byteord == Endian::Big
-    // }
-
-    // pub fn set_big_endian(&mut self, is_big: bool) {
-    //     self.metaroot.specific.byteord = Endian::is_big(is_big);
-    // }
 
     timestamp_methods!(FCSTime100);
 
@@ -3655,145 +3459,6 @@ impl<A, D, O> Core3_2<A, D, O> {
     scale_get_set!(Scale, Scale::Linear);
     spillover_methods!();
 
-    // /// Show datatype for all measurements
-    // ///
-    // /// This will be $PnDATATYPE if given and $DATATYPE otherwise at each
-    // /// measurement index
-    // pub fn datatypes(&self) -> Vec<AlphaNumType> {
-    //     let dt = self.metaroot.datatype;
-    //     self.measurements
-    //         .iter()
-    //         .map(|(_, x)| {
-    //             x.both(
-    //                 |p| p.value.specific.datatype.as_ref_opt(),
-    //                 |p| p.value.specific.datatype.as_ref_opt(),
-    //             )
-    //             .map(|t| (*t).into())
-    //             .unwrap_or(dt)
-    //         })
-    //         .collect()
-    // }
-
-    // /// Set data layout to be a mix of datatypes
-    // pub fn set_data_mixed(&mut self, xs: Vec<MixedColumnSetter>) -> Result<(), KeyLengthError> {
-    //     // Figure out what $DATATYPE (the default) should be; count frequencies
-    //     // of each type, and if ASCII is given at all, this must be $DATATYPE
-    //     // since it can't be set to $PnDATATYPE; otherwise, use whatever is
-    //     // most frequent.
-    //     let dt_opt = xs
-    //         .iter()
-    //         .map(|y| AlphaNumType::from(*y))
-    //         .sorted()
-    //         .chunk_by(|x| *x)
-    //         .into_iter()
-    //         .map(|(key, gs)| (key, gs.count()))
-    //         .sorted_by_key(|(_, count)| *count)
-    //         .rev()
-    //         .find_or_first(|(key, _)| *key == AlphaNumType::Ascii)
-    //         .map(|(key, _)| key);
-    //     if let Some(dt) = dt_opt {
-    //         let go = |x: MixedColumnSetter| {
-    //             let this_dt = x.into();
-    //             let pndt = if dt == this_dt {
-    //                 None
-    //             } else {
-    //                 // ASSUME this will never fail since we set the default type
-    //                 // to ASCII if any ASCII are found in the input
-    //                 Some(this_dt.try_into().unwrap())
-    //             };
-    //             match x {
-    //                 // ASSUME f32/f64 won't fail to get range because NaN won't
-    //                 // be allowed inside
-    //                 MixedColumnSetter::Float(range) => {
-    //                     (Width::new_f32(), f64::from(range).try_into().unwrap(), pndt)
-    //                 }
-    //                 MixedColumnSetter::Double(range) => {
-    //                     (Width::new_f64(), range.try_into().unwrap(), pndt)
-    //                 }
-    //                 MixedColumnSetter::Ascii(s) => {
-    //                     let (b, r) = s.truncated();
-    //                     (b, r, None)
-    //                 }
-    //                 MixedColumnSetter::Uint(s) => {
-    //                     let (b, r) = s.truncated();
-    //                     (b, r, pndt)
-    //                 }
-    //             }
-    //         };
-    //         self.measurements.alter_values_zip(
-    //             xs,
-    //             |x, y| {
-    //                 let (b, r, pndt) = go(y);
-    //                 let m = x.value;
-    //                 m.common.width = b;
-    //                 m.common.range = r;
-    //                 m.specific.datatype = pndt.into();
-    //             },
-    //             |x, y| {
-    //                 let (b, r, pndt) = go(y);
-    //                 let t = x.value;
-    //                 t.common.width = b;
-    //                 t.common.range = r;
-    //                 t.specific.datatype = pndt.into();
-    //             },
-    //         )?;
-    //         self.metaroot.datatype = dt;
-    //         Ok(())
-    //     } else {
-    //         // this will only happen if the input is empty
-    //         Err(KeyLengthError::empty(self.par().0))
-    //     }
-    // }
-
-    // /// Set data layout to be integer for all measurements
-    // pub fn set_data_integer(&mut self, xs: Vec<NumRangeSetter>) -> Result<(), KeyLengthError> {
-    //     self.set_data_integer_inner(xs)?;
-    //     self.unset_meas_datatypes();
-    //     Ok(())
-    // }
-
-    // /// Set data layout to be 32-bit float for all measurements.
-    // pub fn set_data_f32(&mut self, rs: Vec<f32>) -> Result<(), SetFloatError> {
-    //     let xs = rs
-    //         .into_iter()
-    //         .map(|r| Range::try_from(f64::from(r)))
-    //         .collect::<Result<Vec<Range>, NanFloatOrInt>>()?;
-    //     self.set_to_floating_point_3_2(false, xs)?;
-    //     Ok(())
-    // }
-
-    // /// Set data layout to be 64-bit float for all measurements.
-    // pub fn set_data_f64(&mut self, rs: Vec<f64>) -> Result<(), SetFloatError> {
-    //     let xs = rs
-    //         .into_iter()
-    //         .map(Range::try_from)
-    //         .collect::<Result<Vec<Range>, NanFloatOrInt>>()?;
-    //     self.set_to_floating_point_3_2(true, xs)?;
-    //     Ok(())
-    // }
-
-    // /// Set data layout to be fixed-ASCII for all measurements
-    // pub fn set_data_ascii(&mut self, xs: Vec<AsciiRangeSetter>) -> Result<(), KeyLengthError> {
-    //     self.set_data_ascii_inner(xs)?;
-    //     self.unset_meas_datatypes();
-    //     Ok(())
-    // }
-
-    // /// Set data layout to be ASCII-delimited for all measurements
-    // pub fn set_data_delimited(&mut self, xs: Vec<u64>) -> Result<(), KeyLengthError> {
-    //     self.set_data_delimited_inner(xs)?;
-    //     self.unset_meas_datatypes();
-    //     Ok(())
-    // }
-
-    // pub fn get_big_endian(&self) -> bool {
-    //     self.metaroot.specific.byteord == Endian::Big
-    // }
-
-    // pub fn set_big_endian(&mut self, is_big: bool) {
-    //     self.metaroot.specific.byteord = Endian::is_big(is_big);
-    // }
-
     timestamp_methods!(FCSTime100);
 
     display_methods!();
@@ -3855,31 +3520,8 @@ impl<A, D, O> Core3_2<A, D, O> {
         analyte,
         PnANALYTE
     );
-
-    // fn unset_meas_datatypes(&mut self) {
-    //     self.measurements.alter_values(
-    //         |x| {
-    //             x.value.specific.datatype = None.into();
-    //         },
-    //         |x| {
-    //             x.value.specific.datatype = None.into();
-    //         },
-    //     );
-    // }
-
-    // TODO check that floating point types are linear
-    // fn set_to_floating_point_3_2(
-    //     &mut self,
-    //     is_double: bool,
-    //     rs: Vec<Range>,
-    // ) -> Result<(), KeyLengthError> {
-    //     self.set_to_floating_point(is_double, rs)?;
-    //     self.unset_meas_datatypes();
-    //     Ok(())
-    // }
 }
 
-// TODO also set layout
 macro_rules! coretext_set_measurements2_0 {
     ($rawinput:path, $layout:path) => {
         /// Set measurements.
@@ -4929,12 +4571,6 @@ impl From<Wavelength> for Wavelengths {
         })
     }
 }
-
-// impl From<Wavelengths> for Wavelength {
-//     fn from(value: Wavelengths) -> Self {
-//         Self(value.0.head)
-//     }
-// }
 
 impl From<Calibration3_1> for Calibration3_2 {
     fn from(value: Calibration3_1) -> Self {
@@ -6780,59 +6416,6 @@ impl TemporalFromOptical<InnerOptical3_2> for InnerTemporal3_2 {
     }
 }
 
-// #[derive(Clone, Copy)]
-// pub enum MixedColumnSetter {
-//     // ASSUME this won't have NaNs
-//     Float(f32),
-//     Double(f64),
-//     Ascii(AsciiRangeSetter),
-//     Uint(NumRangeSetter),
-// }
-
-// impl From<MixedColumnSetter> for AlphaNumType {
-//     fn from(value: MixedColumnSetter) -> Self {
-//         match value {
-//             MixedColumnSetter::Float(_) => AlphaNumType::Single,
-//             MixedColumnSetter::Double(_) => AlphaNumType::Double,
-//             MixedColumnSetter::Ascii(_) => AlphaNumType::Ascii,
-//             MixedColumnSetter::Uint(_) => AlphaNumType::Integer,
-//         }
-//     }
-// }
-
-// #[derive(Clone, Copy)]
-// pub struct RangeSetter<B> {
-//     pub width: B,
-//     pub range: u64,
-// }
-
-// pub type AsciiRangeSetter = RangeSetter<Chars>;
-// pub type NumRangeSetter = RangeSetter<Bytes>;
-
-// impl NumRangeSetter {
-//     fn truncated(&self) -> (Width, Range) {
-//         (
-//             self.width.into(),
-//             2_u64
-//                 .pow(u8::from(self.width).into())
-//                 .min(self.range)
-//                 .into(),
-//         )
-//     }
-// }
-
-// impl AsciiRangeSetter {
-//     fn truncated(&self) -> (Width, Range) {
-//         (
-//             self.width.into(),
-//             10_u64
-//                 .pow(u8::from(self.width).into())
-//                 .min(self.range)
-//                 .into(),
-//         )
-//     }
-// }
-
 type Timestamps2_0 = Timestamps<FCSTime>;
 type Timestamps3_0 = Timestamps<FCSTime60>;
 type Timestamps3_1 = Timestamps<FCSTime100>;
@@ -7380,32 +6963,6 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
         .chain(self.datetimes.opt_keywords())
     }
 
-    // fn as_data_layout(
-    //     metaroot: &Metaroot<Self>,
-    //     ms: &Measurements<Self::N, Self::T, Self::O>,
-    //     conf: &SharedConfig,
-    // ) -> DeferredResult<Self::L, NewDataLayoutWarning, NewDataLayoutError> {
-    //     let endian = metaroot.specific.byteord;
-    //     let blank_cs = ms.layout_data();
-    //     let cs: Vec<_> = ms
-    //         .iter()
-    //         .map(|x| {
-    //             x.1.both(
-    //                 |m| (&m.value.specific.datatype),
-    //                 |t| (&t.value.specific.datatype),
-    //             )
-    //         })
-    //         .map(|dt| dt.as_ref_opt().copied())
-    //         .zip(blank_cs)
-    //         .map(|(datatype, c)| ColumnLayoutData {
-    //             width: c.width,
-    //             range: c.range,
-    //             datatype,
-    //         })
-    //         .collect();
-    //     Self::L::try_new(metaroot.datatype, endian, cs, conf)
-    // }
-
     fn swap_optical_temporal_inner(
         old_t: Self::Temporal,
         old_o: Self::Optical,
@@ -7730,14 +7287,6 @@ enum_from_disp!(
 );
 
 pub struct TerminalDataLayoutFailure;
-
-// pub struct TEXTOverflowError;
-
-// impl fmt::Display for TEXTOverflowError {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-//         write!(f, "primary TEXT does not fit into first 99,999,999 bytes")
-//     }
-// }
 
 enum_from_disp!(
     pub StdWriterError,

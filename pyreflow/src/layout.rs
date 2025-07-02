@@ -72,6 +72,66 @@ common_methods!(PyDataLayout3_0);
 common_methods!(PyDataLayout3_1);
 common_methods!(PyDataLayout3_2);
 
+macro_rules! byte_order_methods {
+    ($t:ident) => {
+        #[pymethods]
+        impl $t {
+            #[getter]
+            /// Return the byte order of the layout.
+            ///
+            /// If ASCII, return empty list. Otherwise return the byte layout
+            /// as a zero-indexed list of integers.
+            fn byte_order(&self) -> Vec<u8> {
+                (self.0)
+                    .0
+                    .byte_order()
+                    .map(|b| b.as_vec())
+                    .unwrap_or_default()
+            }
+        }
+    };
+}
+
+byte_order_methods!(PyDataLayout2_0);
+byte_order_methods!(PyDataLayout3_0);
+
+macro_rules! endianness_methods {
+    ($t:ident) => {
+        #[pymethods]
+        impl $t {
+            #[getter]
+            /// Return the byte order of the layout.
+            ///
+            /// If layout is ASCII or has mixed byte order, return None.
+            /// If big endian, return true, or false for little endian.
+            fn endianness(&self) -> Option<bool> {
+                (self.0).0.endianness().map(|e| (e == Endian::Big))
+            }
+        }
+    };
+}
+
+endianness_methods!(PyDataLayout2_0);
+endianness_methods!(PyDataLayout3_0);
+endianness_methods!(PyDataLayout3_1);
+
+macro_rules! datatype_getter {
+    ($t:ident) => {
+        #[pymethods]
+        impl $t {
+            #[getter]
+            /// Return the datatype of the layout.
+            fn datatype(&self) -> PyAlphaNumType {
+                (self.0).0.datatype().into()
+            }
+        }
+    };
+}
+
+datatype_getter!(PyDataLayout2_0);
+datatype_getter!(PyDataLayout3_0);
+datatype_getter!(PyDataLayout3_1);
+
 // ascii layouts for all versions
 macro_rules! new_ascii_methods {
     ($t:ident, $wrap:path, $subwrap:ident) => {
@@ -307,6 +367,15 @@ impl PyDataLayout3_2 {
             .into_iter()
             .map(|x| x.into())
             .collect()
+    }
+
+    #[getter]
+    /// Return the byte order of the layout.
+    ///
+    /// If layout is ASCII or has mixed byte order, return None.
+    /// If big endian, return true, or false for little endian.
+    fn endianness(&self) -> Option<bool> {
+        (self.0).endianness().map(|e| (e == Endian::Big))
     }
 }
 

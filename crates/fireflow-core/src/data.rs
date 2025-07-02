@@ -2946,6 +2946,14 @@ impl<T> AnyOrderedUintLayout<T> {
         match_any_uint!(self, Self, l, { l.ranges() })
     }
 
+    pub fn byte_order(&self) -> ByteOrd {
+        match_any_uint!(self, Self, l, { l.byte_layout.into() })
+    }
+
+    pub fn endiannness(&self) -> Option<Endian> {
+        match_any_uint!(self, Self, l, { Endian::try_from(l.byte_layout).ok() })
+    }
+
     fn h_read_df<R: Read, W, E>(
         &self,
         h: &mut BufReader<R>,
@@ -3688,6 +3696,13 @@ impl DataLayout3_2 {
         }
     }
 
+    pub fn endianness(&self) -> Option<Endian> {
+        match self {
+            Self::NonMixed(x) => x.endianness(),
+            Self::Mixed(x) => Some(x.byte_layout),
+        }
+    }
+
     pub fn new_mixed(ranges: NonEmpty<NullMixedType>, endian: Endian) -> Self {
         // check if the mixed types are all the same, in which case we can use a
         // simpler layout
@@ -3747,6 +3762,24 @@ impl<T> AnyOrderedLayout<T> {
             Self::Integer(_) => AlphaNumType::Integer,
             Self::F32(_) => AlphaNumType::Single,
             Self::F64(_) => AlphaNumType::Double,
+        }
+    }
+
+    pub fn byte_order(&self) -> Option<ByteOrd> {
+        match self {
+            Self::Ascii(_) => None,
+            Self::Integer(x) => Some(x.byte_order()),
+            Self::F32(x) => Some(x.byte_layout.into()),
+            Self::F64(x) => Some(x.byte_layout.into()),
+        }
+    }
+
+    pub fn endianness(&self) -> Option<Endian> {
+        match self {
+            Self::Ascii(_) => None,
+            Self::Integer(x) => x.endiannness(),
+            Self::F32(x) => x.byte_layout.try_into().ok(),
+            Self::F64(x) => x.byte_layout.try_into().ok(),
         }
     }
 
@@ -4010,6 +4043,15 @@ impl NonMixedEndianLayout {
             Self::Integer(_) => AlphaNumType::Integer,
             Self::F32(_) => AlphaNumType::Single,
             Self::F64(_) => AlphaNumType::Double,
+        }
+    }
+
+    pub fn endianness(&self) -> Option<Endian> {
+        match self {
+            Self::Ascii(_) => None,
+            Self::Integer(x) => Some(x.byte_layout),
+            Self::F32(x) => Some(x.byte_layout),
+            Self::F64(x) => Some(x.byte_layout),
         }
     }
 

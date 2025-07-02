@@ -268,18 +268,18 @@ impl ByteOrd {
         }
     }
 
-    // pub fn as_vec(&self) -> Vec<u8> {
-    //     match self {
-    //         Self::O1(x) => <[u8; 1]>::from(*x).to_vec(),
-    //         Self::O2(x) => <[u8; 2]>::from(*x).to_vec(),
-    //         Self::O3(x) => <[u8; 3]>::from(*x).to_vec(),
-    //         Self::O4(x) => <[u8; 4]>::from(*x).to_vec(),
-    //         Self::O5(x) => <[u8; 5]>::from(*x).to_vec(),
-    //         Self::O6(x) => <[u8; 6]>::from(*x).to_vec(),
-    //         Self::O7(x) => <[u8; 7]>::from(*x).to_vec(),
-    //         Self::O8(x) => <[u8; 8]>::from(*x).to_vec(),
-    //     }
-    // }
+    pub fn as_vec(&self) -> Vec<u8> {
+        match self {
+            Self::O1(x) => <[u8; 1]>::from(*x).to_vec(),
+            Self::O2(x) => <[u8; 2]>::from(*x).to_vec(),
+            Self::O3(x) => <[u8; 3]>::from(*x).to_vec(),
+            Self::O4(x) => <[u8; 4]>::from(*x).to_vec(),
+            Self::O5(x) => <[u8; 5]>::from(*x).to_vec(),
+            Self::O6(x) => <[u8; 6]>::from(*x).to_vec(),
+            Self::O7(x) => <[u8; 7]>::from(*x).to_vec(),
+            Self::O8(x) => <[u8; 8]>::from(*x).to_vec(),
+        }
+    }
 
     // pub fn as_sized_endian<const LEN: usize>(
     //     &self,

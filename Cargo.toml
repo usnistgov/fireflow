@@ -14,6 +14,7 @@ chrono = { version = "0.4.40", features = ["serde"] }
 itertools = "0.14.0"
 num_enum = "0.7.4"
 num-traits = "0.2.19"
+derive_more = { version = "2.0.1", features = ["from", "display"] }
 nalgebra = { version = "0.33.2", features = ["serde-serialize"] }
 nonempty = { version = "0.11.0" }
 polars = { version = "0.46.0", features = ["dtype-u8", "dtype-u16", "fmt"] }

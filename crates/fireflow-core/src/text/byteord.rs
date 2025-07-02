@@ -1,6 +1,7 @@
-use crate::macros::{enum_from, enum_from_disp, match_many_to_one, newtype_from_outer};
+use crate::macros::{match_many_to_one, newtype_from_outer};
 use crate::validated::ascii_range::{Chars, CharsError};
 
+use derive_more::{Display, From};
 use itertools::Itertools;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use serde::Serialize;
@@ -18,23 +19,22 @@ pub enum Endian {
     Little,
 }
 
-enum_from_disp!(
-    /// The byte order as shown in the $BYTEORD field in 2.0 and 3.0
-    ///
-    /// This must be a list of integers belonging to the unordered set {1..N} where
-    /// N is the total number of bytes. The numbers will be stored as one less the
-    /// displayed integers to make array indexing easier.
-    #[derive(Clone, Copy, Serialize)]
-    pub ByteOrd,
-    [O1, SizedByteOrd<1>],
-    [O2, SizedByteOrd<2>],
-    [O3, SizedByteOrd<3>],
-    [O4, SizedByteOrd<4>],
-    [O5, SizedByteOrd<5>],
-    [O6, SizedByteOrd<6>],
-    [O7, SizedByteOrd<7>],
-    [O8, SizedByteOrd<8>]
-);
+/// The byte order as shown in the $BYTEORD field in 2.0 and 3.0
+///
+/// This must be a list of integers belonging to the unordered set {1..N} where
+/// N is the total number of bytes. The numbers will be stored as one less the
+/// displayed integers to make array indexing easier.
+#[derive(Clone, Copy, Serialize, From, Display)]
+pub enum ByteOrd {
+    O1(SizedByteOrd<1>),
+    O2(SizedByteOrd<2>),
+    O3(SizedByteOrd<3>),
+    O4(SizedByteOrd<4>),
+    O5(SizedByteOrd<5>),
+    O6(SizedByteOrd<6>),
+    O7(SizedByteOrd<7>),
+    O8(SizedByteOrd<8>),
+}
 
 /// The value for the $PnB key (all versions)
 ///
@@ -44,7 +44,8 @@ enum_from_disp!(
 ///
 /// This may also be '*' which means "delimited ASCII" which is only valid when
 /// $DATATYPE=A.
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Serialize, PartialEq, Eq, Hash, From)]
+#[from(Bytes, Chars)]
 pub enum Width {
     Fixed(BitsOrChars),
     Variable,
@@ -68,12 +69,14 @@ pub enum Bytes {
 ///
 /// Subsequent operations can be used to use it as "bytes" or "characters"
 /// depending on what is needed by the column.
-#[derive(Clone, Copy, Serialize, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Serialize, PartialEq, Eq, Hash, From)]
+#[from(Chars, Bytes)]
 pub struct BitsOrChars(u8);
 
 /// $BYTEORD (ordered) with known size in bytes
-#[derive(PartialEq, Eq, Hash, Copy, Clone)]
+#[derive(PartialEq, Eq, Hash, Copy, Clone, From)]
 pub enum SizedByteOrd<const LEN: usize> {
+    #[from]
     Endian(Endian),
     Order([u8; LEN]),
 }
@@ -350,12 +353,6 @@ impl TryFrom<BitsOrChars> for Chars {
     }
 }
 
-impl From<Chars> for BitsOrChars {
-    fn from(value: Chars) -> Self {
-        BitsOrChars(u8::from(value))
-    }
-}
-
 impl TryFrom<BitsOrChars> for Bytes {
     type Error = BytesError;
     /// Return number of bytes represented by this.
@@ -367,12 +364,6 @@ impl TryFrom<BitsOrChars> for Bytes {
             return (x >> 3).try_into().or(Err(BytesError(x)));
         }
         Err(BytesError(x))
-    }
-}
-
-impl From<Bytes> for BitsOrChars {
-    fn from(value: Bytes) -> Self {
-        BitsOrChars(value.into())
     }
 }
 
@@ -393,18 +384,6 @@ impl From<Width> for Option<u8> {
     }
 }
 
-impl From<Chars> for Width {
-    fn from(value: Chars) -> Self {
-        Width::Fixed(BitsOrChars(value.into()))
-    }
-}
-
-impl From<Bytes> for Width {
-    fn from(value: Bytes) -> Self {
-        Width::Fixed(BitsOrChars(u8::from(value) * 8))
-    }
-}
-
 impl TryFrom<Width> for u8 {
     type Error = ();
     fn try_from(value: Width) -> Result<Self, Self::Error> {
@@ -412,12 +391,6 @@ impl TryFrom<Width> for u8 {
             Width::Fixed(x) => Ok(x.0),
             _ => Err(()),
         }
-    }
-}
-
-impl<const LEN: usize> From<Endian> for SizedByteOrd<LEN> {
-    fn from(value: Endian) -> Self {
-        SizedByteOrd::Endian(value)
     }
 }
 
@@ -582,11 +555,11 @@ pub struct EndianToByteOrdError;
 
 pub struct ByteOrdToEndianError(Vec<u8>);
 
-enum_from_disp!(
-    pub ByteOrdToSizedEndianError,
-    [Ordered, OrderedToEndianError],
-    [ToSized, ByteOrdToSizedError]
-);
+#[derive(From, Display)]
+pub enum ByteOrdToSizedEndianError {
+    Ordered(OrderedToEndianError),
+    ToSized(ByteOrdToSizedError),
+}
 
 pub struct OrderedToEndianError;
 
@@ -601,11 +574,11 @@ pub struct ByteOrdToSizedError {
     length: usize,
 }
 
-enum_from_disp!(
-    pub VecToSizedError,
-    [Vec, VecToArrayError],
-    [New, NewByteOrdError]
-);
+#[derive(From, Display)]
+pub enum VecToSizedError {
+    Vec(VecToArrayError),
+    New(NewByteOrdError),
+}
 
 pub struct VecToArrayError {
     vec_len: usize,
